@@ -13,12 +13,13 @@ import UiCheckbox from "../ui/UiCheckbox.vue";
 import UiDateRangeMenu from "../ui/UiDateRangeMenu.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiFlash from "../ui/UiFlash.vue";
+import UiLabel from "../ui/UiLabel.vue";
 import UiPagination from "../ui/UiPagination.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 import VirtualList from "../VirtualList.vue";
 import { confirmAction } from "../../composables/useConfirm";
 import { useToast } from "../../composables/useToast";
-import { useOutstandingItemsStore } from "../../stores/outstanding-items";
+import { useOutstandingItemsStore, type OutstandingClosedFilter } from "../../stores/outstanding-items";
 import { errorMessage, formatDate, formatRelative } from "../../utils/format";
 import { outstandingItemStatusLabels, type ListPageSize } from "../../utils/labels";
 import { outstandingItemStatusVisual } from "../../utils/status";
@@ -40,6 +41,7 @@ const page = defineModel<number>("page", { required: true });
 const pageSize = defineModel<ListPageSize>("pageSize", { required: true });
 const from = defineModel<string>("from", { required: true });
 const to = defineModel<string>("to", { required: true });
+const closedFilter = defineModel<OutstandingClosedFilter>("closedFilter", { required: true });
 
 const outstandingItemsStore = useOutstandingItemsStore();
 const { showToast } = useToast();
@@ -73,13 +75,21 @@ const statusOptions = (Object.keys(outstandingItemStatusLabels) as OutstandingIt
   icon: outstandingItemStatusVisual[value].icon,
   tone: outstandingItemStatusVisual[value].tone,
 }));
+const closedFilterOptions = computed(() => [
+  { value: "all", label: t("outstanding.closedFilterAll") },
+  { value: "hide_source_session", label: t("outstanding.closedFilterHideSource") },
+]);
 const emptyTitle = computed(() =>
   status.value === "pending"
     ? t("outstanding.noPendingOpenItems")
     : t("outstanding.noItemsRightNow", { value: outstandingItemStatusLabels[status.value] }),
 );
 const hasFilters = computed(
-  () => projectId.value !== "" || status.value !== "pending" || Boolean(from.value || to.value),
+  () =>
+    projectId.value !== "" ||
+    status.value !== "pending" ||
+    closedFilter.value !== "all" ||
+    Boolean(from.value || to.value),
 );
 
 function clearFilters(): void {
@@ -87,6 +97,7 @@ function clearFilters(): void {
   status.value = "pending";
   from.value = "";
   to.value = "";
+  closedFilter.value = "all";
   page.value = 1;
 }
 
@@ -174,11 +185,19 @@ function selectItem(itemId: string, selected: boolean): void {
     : selectedIds.value.filter((id) => id !== itemId);
 }
 
+/** Only these closers are called out; user, cleanup and migration closures are the expected default. */
+function closedByLabel(item: OutstandingItem): string | undefined {
+  if (item.status === "pending") return undefined;
+  if (item.closedBy === "later_session") return t("outstanding.closedByLaterSession");
+  if (item.closedBy === "source_session" && item.status === "not_needed") return t("outstanding.closedBySourceSession");
+  return undefined;
+}
+
 function isChanging(item: OutstandingItem): boolean {
   return batchBusy.value || changingItemIds.value.includes(item.id);
 }
 
-watch([projectId, status, pageSize, page, from, to], () => {
+watch([projectId, status, pageSize, page, from, to, closedFilter], () => {
   selectedIds.value = [];
 });
 
@@ -212,6 +231,15 @@ watch(
           default-value="pending"
           align="end"
           :items="statusOptions"
+        />
+        <UiActionMenu
+          v-if="status === 'not_needed'"
+          v-model="closedFilter"
+          :label="t('outstanding.closedFilterLabel')"
+          :header="t('outstanding.filterClosedBy')"
+          default-value="all"
+          align="end"
+          :items="closedFilterOptions"
         />
         <UiDateRangeMenu v-model="dateRange" :label="t('outstanding.sourceSessionDate')" />
         <OutstandingCleanupPanel @open-session="emit('openSession', $event)" />
@@ -312,6 +340,9 @@ watch(
           <template #trailing>
             <div class="outstanding-items__trailing">
               <StatusLabel :status="outstandingItemStatusVisual[item.status]" />
+              <UiLabel v-if="closedByLabel(item)" data-testid="outstanding-item-closed-by">{{
+                closedByLabel(item)
+              }}</UiLabel>
               <div class="outstanding-items__actions">
                 <template v-if="item.status === 'pending'">
                   <UiButton

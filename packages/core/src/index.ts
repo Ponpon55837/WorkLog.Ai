@@ -277,6 +277,20 @@ export const OUTSTANDING_ITEM_STATUSES = ["pending", "completed", "not_needed"] 
 export const MAX_OUTSTANDING_ITEM_BATCH_SIZE = 100;
 export type OutstandingItemStatus = (typeof OUTSTANDING_ITEM_STATUSES)[number];
 export type OutstandingItemEventSource = "agent" | "web" | "migration";
+/**
+ * Who closed a non-pending item, derived from the latest event that moved it into its current status:
+ * source_session = an Agent update of the source Session's own nextSteps dropped it; later_session = another
+ * Session's finalize closed it; user = a person acted in the web UI (including editing the Session's work summary);
+ * cleanup_review = an accepted cleanup proposal; migration = a schema-migration backfill.
+ */
+export const OUTSTANDING_ITEM_CLOSED_BY = [
+  "source_session",
+  "later_session",
+  "user",
+  "cleanup_review",
+  "migration",
+] as const;
+export type OutstandingItemClosedBy = (typeof OUTSTANDING_ITEM_CLOSED_BY)[number];
 
 export interface OutstandingItem {
   id: string;
@@ -288,6 +302,8 @@ export interface OutstandingItem {
   position: number;
   text: string;
   status: OutstandingItemStatus;
+  /** Present on completed and not_needed items whose closing event is known. */
+  closedBy?: OutstandingItemClosedBy;
   createdAt: string;
   updatedAt: string;
 }
@@ -296,6 +312,8 @@ export interface ListOutstandingItemsInput {
   projectRoot?: string;
   projectId?: string;
   status?: OutstandingItemStatus;
+  /** Keeps only non-pending items closed by one of these; matches nothing for pending. */
+  closedBy?: readonly OutstandingItemClosedBy[];
   page?: number;
   pageSize?: number;
   from?: string;
@@ -336,6 +354,28 @@ export type BatchUpdateOutstandingItemStatusResult =
   | { outcome: "outstanding_items_updated"; items: OutstandingItem[]; updatedItemIds: string[]; duplicate: boolean }
   | { outcome: "rejected"; reason: "invalid_batch" | "invalid_items" | "status_conflict"; invalidItemIds: string[] }
   | { outcome: "skipped"; projectStatus: PolicyStatus; reason?: string };
+
+/** Closes pending items a finalized Session's own later work directly verified (see work_resolve_outstanding_items). */
+export interface ResolveOutstandingItemsInput {
+  sessionId: string;
+  resolvedOutstandingItemIds?: string[];
+  supersededOutstandingItemIds?: string[];
+}
+
+export type ResolveOutstandingItemsResult =
+  | {
+      outcome: "outstanding_items_resolved";
+      sessionId: string;
+      resolvedOutstandingItemIds: string[];
+      supersededOutstandingItemIds: string[];
+      /** Requested ids this same Session had already moved to the requested status. */
+      alreadyAppliedIds?: string[];
+      /** True when every requested id had already been applied and nothing changed now. */
+      duplicate?: true;
+      outstandingItemWarnings?: { unresolvedIds: string[]; unsupersededIds: string[]; message: string };
+    }
+  | { outcome: "not_found"; sessionId: string }
+  | { outcome: "skipped"; sessionId: string; projectStatus: PolicyStatus; reason: string };
 
 export interface ListSessionDecisionsInput {
   projectRoot?: string;
@@ -1612,6 +1652,8 @@ export interface FinalizedSessionResult {
   supersededOutstandingItemIds?: string[];
   /** Still-pending older items related to this work; retrieval is not completion evidence. */
   relatedOutstandingItems?: RelatedOutstandingItems;
+  /** Still-pending items of the Sessions this one continues or relates to (its links); pointers, not evidence. */
+  continuedOutstandingItems?: RelatedOutstandingItems;
   /** Active Knowledge whose appliesTo covers a file this Session changed; advisory, nothing was changed. */
   knowledgeToReview?: KnowledgeReviewHint[];
   /** The appliesTo match budget ran out, so older Knowledge was not checked for knowledgeToReview. */
@@ -2019,6 +2061,14 @@ export interface UpdateSessionWorkSummaryInput {
   workSummary: WorkSummaryInputSections | Partial<WorkSummaryInputSections>;
 }
 
+/** What one nextSteps synchronization did to a Session's outstanding items. */
+export interface OutstandingItemSyncSummary {
+  created: number;
+  retained: number;
+  reworded: number;
+  closed: number;
+}
+
 export interface UpdatedSessionWorkSummaryResult {
   outcome: "work_summary_updated";
   duplicate: boolean;
@@ -2028,6 +2078,8 @@ export interface UpdatedSessionWorkSummaryResult {
   previousWorkSummary?: WorkSummarySections;
   appliedWorkSummary: WorkSummarySections;
   redactions?: RedactionSummary;
+  /** Present only when this update changed the Session's outstanding items (not on a replay). */
+  outstandingItems?: OutstandingItemSyncSummary;
 }
 
 export interface SessionWorkSummaryUpdateIdempotencyConflictResult {
@@ -2835,6 +2887,11 @@ export type CreateOutstandingCleanupRequestResult =
   | { outcome: "not_needed"; projectId: string }
   | OutstandingCleanupRejectedResult
   | ProjectIdSkippedResult;
+export type RequestOutstandingCleanupResult =
+  | Extract<CreateOutstandingCleanupRequestResult, { outcome: "outstanding_cleanup_request_created" | "not_needed" }>
+  | { outcome: "outstanding_cleanup_request_active"; request: OutstandingCleanupRequest }
+  | OutstandingCleanupRejectedResult
+  | KnowledgeCandidateSkippedResult;
 export type OutstandingCleanupRequestListResult =
   | { outcome: "outstanding_cleanup_requests"; requests: OutstandingCleanupRequest[]; pageInfo: PageInfo }
   | ProjectIdSkippedResult;
@@ -2917,6 +2974,8 @@ export interface RelevantContext {
   decisions: RelevantDecisionDigest[];
   /** Pending items ranked by their text, source paths, and source Session relevance. */
   outstandingItems?: ContextRelatedOutstandingItems;
+  /** Pending items of the Sessions passed as linkedSessionIds (same project, at most 10); not repeated in outstandingItems. */
+  continuedOutstandingItems?: ContextRelatedOutstandingItems;
   /** Relevant Sessions, including those that changed the same paths, with their open items. */
   sessions: Array<ProjectScopedItem<RecallHit> & { openItems: string[] }>;
   /** Optional compact pointers to possibly related Sessions or applied Knowledge; never literal-match evidence. */

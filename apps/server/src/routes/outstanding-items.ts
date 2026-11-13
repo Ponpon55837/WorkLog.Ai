@@ -16,6 +16,7 @@ export const outstandingItemRoutes: Route[] = [
       ({ url }) => ({
         projectId: textParam(url, "projectId"),
         status: textParam(url, "status"),
+        closedBy: textParam(url, "closedBy"),
         page: numberParam(url, "page"),
         pageSize: numberParam(url, "pageSize"),
         from: textParam(url, "from"),

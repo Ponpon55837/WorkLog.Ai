@@ -202,6 +202,43 @@ describe("outstanding cleanup requests", () => {
     });
   });
 
+  it("requests cleanup by project root with the same snapshot, replay, active, empty and untracked outcomes", () => {
+    const { store, root, projectId } = createTrackedProject("Cleanup agent request fixture");
+    expect(store.requestOutstandingCleanup({ projectRoot: root, idempotencyKey: "agent-empty" })).toEqual({
+      outcome: "not_needed",
+      projectId,
+    });
+    finalize(store, root, "agent-request-source", ["Agent first obligation", "Agent second obligation"]);
+    const created = store.requestOutstandingCleanup({ projectRoot: root, idempotencyKey: "agent-request-key" });
+    if (created.outcome !== "outstanding_cleanup_request_created") throw new Error("Expected cleanup request.");
+    expect(created).toMatchObject({ duplicate: false, request: { itemCount: 2, status: "pending" } });
+    expect(store.requestOutstandingCleanup({ projectRoot: root, idempotencyKey: "agent-request-key" })).toMatchObject({
+      outcome: "outstanding_cleanup_request_created",
+      duplicate: true,
+      request: { id: created.request.id },
+    });
+    expect(store.requestOutstandingCleanup({ projectRoot: root, idempotencyKey: "agent-other-key" })).toMatchObject({
+      outcome: "outstanding_cleanup_request_active",
+      request: { id: created.request.id },
+    });
+    const context = store.getOutstandingCleanupContext({ requestId: created.request.id, itemPageSize: 5 });
+    if (context.outcome !== "outstanding_cleanup_context") throw new Error("Expected cleanup context.");
+    expect(context.items.map((item) => item.id).sort()).toEqual(
+      pendingItems(store, projectId)
+        .map((item) => item.id)
+        .sort(),
+    );
+
+    const untracked = store.addProject("Cleanup agent untracked fixture", `${root}-untracked`);
+    expect(
+      store.requestOutstandingCleanup({ projectRoot: `${root}-untracked`, idempotencyKey: "agent-untracked" }),
+    ).toMatchObject({ outcome: "skipped" });
+    expect(untracked.id).not.toBe(projectId);
+    expect(
+      store.requestOutstandingCleanup({ projectRoot: `${root}-unknown`, idempotencyKey: "agent-unknown" }),
+    ).toMatchObject({ outcome: "skipped" });
+  });
+
   it("quietly skips untracked or paused projects, reports no work, and keeps voided snapshot rows stale", () => {
     const { store, root, projectId } = createTrackedProject("Cleanup voided source fixture");
     const source = finalize(store, root, "cleanup-voided-source", ["Retain the original snapshot"]);

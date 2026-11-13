@@ -384,7 +384,7 @@ describe("outstanding items", () => {
         expect.objectContaining({ id: related.id, sourceSessionId: related.sourceSessionId }),
         expect.objectContaining({ id: ambiguous.id, sourceSessionId: ambiguous.sourceSessionId }),
       ]),
-      hint: expect.stringContaining("先讀來源"),
+      hint: expect.stringContaining("逐項讀來源核對"),
     });
     expect(result.relatedOutstandingItems?.items.some((item) => item.sourceSessionId === result.session.id)).toBe(
       false,
@@ -785,6 +785,130 @@ describe("outstanding items", () => {
       ["Outside before", "Inclusive start day", "Inclusive end day", "Outside after", "Historical year 0050"].sort(),
     );
     expect(fullRange.pageInfo.total).toBe(5);
+  });
+
+  it("derives closedBy from the latest event into the current status and filters by it", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2031-01-01T00:00:00.000Z"));
+    const { store, root, projectId } = createTrackedProject("Outstanding closedBy fixture");
+    const first = finalize(store, root, "closed-by-first", [
+      "Source drops this",
+      "Later finalize closes this",
+      "Person closes this",
+      "Web edit drops this",
+      "Reopened then re-closed",
+    ]);
+    if (first.outcome !== "finalized") throw new Error("Expected source Session.");
+    const sourceDropped = findOutstandingItem(store, projectId, "Source drops this");
+    const laterClosed = findOutstandingItem(store, projectId, "Later finalize closes this");
+    const personClosed = findOutstandingItem(store, projectId, "Person closes this");
+    const webDropped = findOutstandingItem(store, projectId, "Web edit drops this");
+    const reclosed = findOutstandingItem(store, projectId, "Reopened then re-closed");
+    expect(sourceDropped.closedBy).toBeUndefined();
+
+    vi.setSystemTime(new Date("2031-01-01T00:01:00.000Z"));
+    // Agent edit of the source Session's own nextSteps drops one item.
+    store.updateSessionWorkSummary(
+      {
+        sessionId: first.session.id,
+        idempotencyKey: "closed-by-agent-drop",
+        mode: "replace",
+        workSummary: {
+          outcomes: [],
+          scope: [],
+          decisions: [],
+          verification: [],
+          nextSteps: [
+            "Later finalize closes this",
+            "Person closes this",
+            "Web edit drops this",
+            "Reopened then re-closed",
+          ],
+        },
+      },
+      "agent",
+    );
+    vi.setSystemTime(new Date("2031-01-01T00:02:00.000Z"));
+    // A person editing the same list in the web UI also records the Session as actor, but counts as the user.
+    store.updateSessionWorkSummary(
+      {
+        sessionId: first.session.id,
+        idempotencyKey: "closed-by-web-drop",
+        mode: "replace",
+        workSummary: {
+          outcomes: [],
+          scope: [],
+          decisions: [],
+          verification: [],
+          nextSteps: ["Later finalize closes this", "Person closes this", "Reopened then re-closed"],
+        },
+      },
+      "web",
+    );
+    vi.setSystemTime(new Date("2031-01-01T00:03:00.000Z"));
+    const second = finalize(store, root, "closed-by-second", [], [laterClosed.id]);
+    if (second.outcome !== "finalized") throw new Error("Expected later Session.");
+    store.updateOutstandingItemStatus(personClosed.id, "not_needed", "web");
+    store.updateOutstandingItemStatus(reclosed.id, "not_needed", "web");
+    vi.setSystemTime(new Date("2031-01-01T00:04:00.000Z"));
+    store.updateOutstandingItemStatus(reclosed.id, "pending", "web");
+    vi.setSystemTime(new Date("2031-01-01T00:05:00.000Z"));
+    store.updateSessionWorkSummary(
+      {
+        sessionId: first.session.id,
+        idempotencyKey: "closed-by-agent-drop-again",
+        mode: "replace",
+        workSummary: {
+          outcomes: [],
+          scope: [],
+          decisions: [],
+          verification: [],
+          nextSteps: ["Later finalize closes this", "Person closes this"],
+        },
+      },
+      "agent",
+    );
+
+    const closedBy = (status: "completed" | "not_needed") => {
+      const result = store.listOutstandingItems({ projectId, status, pageSize: 0 });
+      if (result.outcome !== "outstanding_items") throw new Error("Expected list.");
+      return Object.fromEntries(result.items.map((item) => [item.text, item.closedBy]));
+    };
+    expect(closedBy("completed")).toEqual({ "Later finalize closes this": "later_session" });
+    expect(closedBy("not_needed")).toEqual({
+      "Source drops this": "source_session",
+      "Web edit drops this": "user",
+      "Person closes this": "user",
+      "Reopened then re-closed": "source_session",
+    });
+    void sourceDropped;
+    void webDropped;
+
+    const filtered = store.listOutstandingItems({
+      projectId,
+      status: "not_needed",
+      closedBy: ["source_session"],
+      pageSize: 0,
+    });
+    if (filtered.outcome !== "outstanding_items") throw new Error("Expected filtered list.");
+    expect(filtered.items.map((item) => item.text).sort()).toEqual(["Reopened then re-closed", "Source drops this"]);
+    expect(filtered.pageInfo.total).toBe(2);
+    const others = store.listOutstandingItems({
+      projectId,
+      status: "not_needed",
+      closedBy: ["user", "later_session"],
+      pageSize: 0,
+    });
+    if (others.outcome !== "outstanding_items") throw new Error("Expected other list.");
+    expect(others.items.map((item) => item.text).sort()).toEqual(["Person closes this", "Web edit drops this"]);
+
+    const plan = (store as unknown as { db: DatabaseSync }).db
+      .prepare(
+        `EXPLAIN QUERY PLAN SELECT (SELECT e.source FROM outstanding_item_events e
+         WHERE e.item_id = ? AND e.to_status = 'not_needed' ORDER BY e.created_at DESC, e.id DESC LIMIT 1)`,
+      )
+      .all(sourceDropped.id) as Array<{ detail: string }>;
+    expect(plan.map((row) => row.detail).join("\n")).toContain("idx_outstanding_item_events_item");
   });
 
   it("rolls back every status and audit when one batch audit insert fails", () => {

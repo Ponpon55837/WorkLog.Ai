@@ -19,6 +19,7 @@ import type {
   OutstandingCleanupSession,
   PolicyDecision,
   ProjectIdSkippedResult,
+  RequestOutstandingCleanupResult,
   SubmitOutstandingCleanupProposalsInput,
   SubmitOutstandingCleanupProposalsResult,
   VerificationStatus,
@@ -31,6 +32,7 @@ import { runImmediateTransaction } from "./sqlite-transaction.js";
 
 interface CleanupDependencies {
   checkProjectById(projectId: string): PolicyDecision;
+  checkProjectRoot(projectRoot: string): PolicyDecision;
 }
 
 type RequestRow = {
@@ -439,6 +441,33 @@ export class OutstandingCleanupService {
       if (!request) throw new Error("Missing cleanup request");
       return { outcome: "outstanding_cleanup_request_created", request: toRequest(request), duplicate: false };
     });
+  }
+
+  /** Agent-side entry: resolves the tracked project, then reuses create; an open request is returned instead of rejected. */
+  public requestForRoot(input: { projectRoot: string; idempotencyKey: string }): RequestOutstandingCleanupResult {
+    const decision = this.dependencies.checkProjectRoot(input.projectRoot);
+    if (!decision.allowed || !decision.project) {
+      return {
+        outcome: "skipped",
+        projectRoot: decision.canonicalRoot,
+        projectStatus: decision.projectStatus,
+        reason: decision.reason ?? "Project recording is not enabled.",
+      };
+    }
+    const result = this.create({ projectId: decision.project.id, idempotencyKey: input.idempotencyKey });
+    if (result.outcome === "rejected" && result.reason === "active_request_exists" && result.requestId) {
+      const active = this.request(result.requestId);
+      if (active) return { outcome: "outstanding_cleanup_request_active", request: toRequest(active) };
+    }
+    if (result.outcome === "skipped") {
+      return {
+        outcome: "skipped",
+        projectRoot: decision.canonicalRoot,
+        projectStatus: result.projectStatus,
+        reason: result.reason,
+      };
+    }
+    return result as RequestOutstandingCleanupResult;
   }
 
   public submit(input: SubmitOutstandingCleanupProposalsInput): SubmitOutstandingCleanupProposalsResult {

@@ -1259,6 +1259,67 @@ describe("Work Intelligence REST API", () => {
     });
   });
 
+  it("derives closedBy for outstanding items and validates the closedBy filter", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-outstanding-closed-by-test-"));
+    const store = new WorkIntelligenceStore(":memory:");
+    const project = store.addProject("Outstanding closedBy API fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalize = (key: string, nextSteps: string[]) =>
+      store.finalizeSession({
+        projectRoot: root,
+        idempotencyKey: key,
+        title: key,
+        summary: `Synthetic ${key}.`,
+        workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps },
+      });
+    const finalized = finalize("api-closed-by-source", ["Dropped by source", "Closed by person"]);
+    if (finalized.outcome !== "finalized") throw new Error("Expected the source Session to finalize.");
+    finalize("api-closed-by-source", ["Dropped by source", "Closed by person"]);
+    store.updateSessionWorkSummary(
+      {
+        sessionId: finalized.session.id,
+        idempotencyKey: "api-closed-by-drop",
+        mode: "replace",
+        workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: ["Closed by person"] },
+      },
+      "agent",
+    );
+    const listed = store.listOutstandingItems({ projectId: project.id, status: "pending", pageSize: 0 });
+    if (listed.outcome !== "outstanding_items") throw new Error("Expected the pending list.");
+    const person = listed.items.find((item) => item.text === "Closed by person");
+    if (!person) throw new Error("Expected the retained item.");
+    store.updateOutstandingItemStatus(person.id, "not_needed", "web");
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+
+    const all = await requestJson<{ items: Array<{ text: string; closedBy?: string }> }>(
+      baseUrl,
+      `/api/outstanding-items?projectId=${project.id}&status=not_needed&pageSize=0`,
+    );
+    expect(all.body.items.map((item) => [item.text, item.closedBy]).sort()).toEqual([
+      ["Closed by person", "user"],
+      ["Dropped by source", "source_session"],
+    ]);
+    const sourceOnly = await requestJson<{ items: Array<{ text: string }>; pageInfo: { total: number } }>(
+      baseUrl,
+      `/api/outstanding-items?projectId=${project.id}&status=not_needed&closedBy=source_session`,
+    );
+    expect(sourceOnly.body).toMatchObject({ items: [{ text: "Dropped by source" }], pageInfo: { total: 1 } });
+    const others = await requestJson<{ items: Array<{ text: string }> }>(
+      baseUrl,
+      `/api/outstanding-items?projectId=${project.id}&status=not_needed&closedBy=later_session,user,cleanup_review,migration`,
+    );
+    expect(others.body.items.map((item) => item.text)).toEqual(["Closed by person"]);
+    for (const query of [
+      "status=not_needed&closedBy=robot",
+      "status=pending&closedBy=user",
+      "status=not_needed&closedBy=,",
+    ]) {
+      const invalid = await requestJson(baseUrl, `/api/outstanding-items?projectId=${project.id}&${query}`);
+      expect(invalid.status).toBe(400);
+    }
+  });
+
   it("validates outstanding item filters and masks storage errors", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-outstanding-items-validation-test-"));
     const store = new WorkIntelligenceStore(":memory:");

@@ -466,6 +466,13 @@ describe("MCP-only input schemas", () => {
     expect(recallQuerySchema.safeParse({ q: "x", limit: 31 }).success).toBe(false);
     expect(contextQuerySchema.safeParse({ task: "fix", paths: ["src/a.ts"] }).success).toBe(true);
     expect(contextQuerySchema.safeParse({ paths: Array.from({ length: 21 }, () => "a.ts") }).success).toBe(false);
+    expect(
+      contextQuerySchema.safeParse({ task: "fix", linkedSessionIds: [" s1 ", "s2"] }).data?.linkedSessionIds,
+    ).toEqual(["s1", "s2"]);
+    expect(contextQuerySchema.safeParse({ linkedSessionIds: ["s1", "s1"] }).success).toBe(false);
+    expect(
+      contextQuerySchema.safeParse({ linkedSessionIds: Array.from({ length: 21 }, (_, index) => `s${index}`) }).success,
+    ).toBe(false);
   });
 
   it("requires a reason to void but not to restore", () => {

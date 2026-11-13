@@ -5,8 +5,12 @@ import type {
   BatchUpdateOutstandingItemStatusResult,
   ListOutstandingItemsInput,
   OutstandingItem,
+  OutstandingItemClosedBy,
   OutstandingItemEventSource,
   OutstandingItemListQueryResult,
+  OutstandingItemSyncSummary,
+  ResolveOutstandingItemsInput,
+  ResolveOutstandingItemsResult,
   OutstandingItemStatus,
   PolicyDecision,
   UpdateOutstandingItemStatusResult,
@@ -19,6 +23,7 @@ import {
   type RelatedPendingCandidate,
 } from "./outstanding-item-relevance.js";
 import { MAX_STORED_CHANGED_FILES_JSON_BYTES } from "./applies-to-match.js";
+import { pairRewordedItems } from "./outstanding-item-matching.js";
 import { normalizePath, parseQueryWords } from "./search-text.js";
 import { createPageInfo } from "./pagination.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
@@ -29,6 +34,8 @@ export interface OutstandingItemFocus {
   paths?: readonly string[];
   sourceSessionIds?: readonly string[];
   excludeSourceSessionId?: string;
+  /** Pending items to leave out, so a caller that reports them elsewhere does not spend ranked slots on them. */
+  excludeItemIds?: readonly string[];
 }
 
 type OutstandingItemRow = {
@@ -41,6 +48,7 @@ type OutstandingItemRow = {
   position: number;
   text: string;
   status: OutstandingItemStatus;
+  closed_by?: OutstandingItemClosedBy | null;
   created_at: string;
   updated_at: string;
 };
@@ -59,6 +67,22 @@ const RELATED_PENDING_LIMIT = 5;
  */
 const RELATED_PENDING_CANDIDATE_LIMIT = 2_000;
 
+/**
+ * Derives who closed an item from the latest event into its current status (idx_outstanding_item_events_item serves
+ * the item_id lookup and ordering). Web edits of a Session's work summary record the Session as actor but are a
+ * person's decision, so only source = 'agent' counts as the Session itself.
+ */
+const CLOSED_BY_SQL = `CASE WHEN i.status = 'pending' THEN NULL ELSE (
+  SELECT CASE
+    WHEN e.cleanup_proposal_id IS NOT NULL THEN 'cleanup_review'
+    WHEN e.source = 'migration' THEN 'migration'
+    WHEN e.source = 'agent' AND e.actor_session_id IS i.source_session_id THEN 'source_session'
+    WHEN e.source = 'agent' THEN 'later_session'
+    ELSE 'user' END
+  FROM outstanding_item_events e
+  WHERE e.item_id = i.id AND e.to_status = i.status
+  ORDER BY e.created_at DESC, e.id DESC LIMIT 1) END`;
+
 function toOutstandingItem(row: OutstandingItemRow): OutstandingItem {
   return {
     id: row.id,
@@ -70,6 +94,7 @@ function toOutstandingItem(row: OutstandingItemRow): OutstandingItem {
     position: row.position,
     text: row.text,
     status: row.status,
+    ...(row.closed_by ? { closedBy: row.closed_by } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -78,7 +103,7 @@ function toOutstandingItem(row: OutstandingItemRow): OutstandingItem {
 function baseSelect(
   where: string,
   columns = `i.*, p.name AS project_name, s.title AS source_session_title,
-                 s.completed_at AS source_session_completed_at`,
+                 s.completed_at AS source_session_completed_at, ${CLOSED_BY_SQL} AS closed_by`,
 ): string {
   return `SELECT ${columns}
           FROM outstanding_items i
@@ -154,11 +179,14 @@ export class OutstandingItemService {
       }
     }
     const status = input.status ?? "pending";
+    const closedBy = [...new Set(input.closedBy ?? [])];
     const where = `${projectId ? "AND i.project_id = ?" : ""} AND i.status = ?
+      ${closedBy.length ? `AND (${CLOSED_BY_SQL}) IN (SELECT value FROM json_each(?))` : ""}
       ${input.from ? "AND s.completed_at >= ?" : ""} ${input.to ? "AND s.completed_at < ?" : ""}`;
     const params = [
       ...(projectId ? [projectId] : []),
       status,
+      ...(closedBy.length ? [JSON.stringify(closedBy)] : []),
       ...(input.from ? [calendarDayBound(input.from)] : []),
       ...(input.to ? [calendarDayBound(input.to, true)] : []),
     ];
@@ -215,11 +243,13 @@ export class OutstandingItemService {
       20,
     );
     const sources = [...new Set(input.sourceSessionIds ?? [])].slice(0, 20);
+    const excludedIds = [...new Set(input.excludeItemIds ?? [])];
     if (!terms.length && !paths.length && !sources.length) return { items: [], total: 0 };
     const candidates = this.db
       .prepare(
         `${baseSelect(
-          `AND i.status = 'pending' ${input.projectId ? "AND i.project_id = ?" : ""} AND i.source_session_id <> ?`,
+          `AND i.status = 'pending' ${input.projectId ? "AND i.project_id = ?" : ""} AND i.source_session_id <> ?
+           ${excludedIds.length ? "AND i.id NOT IN (SELECT value FROM json_each(?))" : ""}`,
           `i.*, p.name AS project_name, s.title AS source_session_title,
            s.completed_at AS source_session_completed_at,
            ${terms.length ? "lower(i.text)" : "''"} AS text_key,
@@ -232,6 +262,7 @@ export class OutstandingItemService {
       .all(
         ...(input.projectId ? [input.projectId] : []),
         input.excludeSourceSessionId ?? "",
+        ...(excludedIds.length ? [JSON.stringify(excludedIds)] : []),
         RELATED_PENDING_CANDIDATE_LIMIT + 1,
       ) as Array<Omit<RelatedPendingRow, "changed_files_json">>;
     const overLimit = candidates.length > RELATED_PENDING_CANDIDATE_LIMIT;
@@ -313,9 +344,15 @@ export class OutstandingItemService {
         row.updated_at = updatedAt;
         updatedItemIds.push(id);
       }
+      // Re-read so closedBy reflects the events just appended.
+      const fresh = new Map(
+        (this.db.prepare(baseSelect(`AND i.id IN (${placeholders})`)).all(...itemIds) as OutstandingItemRow[]).map(
+          (row) => [row.id, row],
+        ),
+      );
       return {
         outcome: "outstanding_items_updated",
-        items: itemIds.map((id) => toOutstandingItem(byId.get(id)!)),
+        items: itemIds.map((id) => toOutstandingItem(fresh.get(id) ?? byId.get(id)!)),
         updatedItemIds,
         duplicate: updatedItemIds.length === 0,
       };
@@ -374,7 +411,12 @@ export class OutstandingItemService {
     });
   }
 
-  /** Synchronizes the compatibility nextSteps array; call inside its caller's transaction. */
+  /**
+   * Synchronizes the compatibility nextSteps array; call inside its caller's transaction. Entries keep an item's
+   * identity by exact text first, then by a close rewording of a still-pending item (see pairRewordedItems): the item
+   * text mirrors its source Session's nextSteps, whose earlier versions stay in session_work_summary_updates, so a
+   * reworded item is updated in place without a status event.
+   */
   public syncForSessionInTransaction(
     sessionId: string,
     projectId: string,
@@ -382,7 +424,7 @@ export class OutstandingItemService {
     source: Exclude<OutstandingItemEventSource, "migration">,
     actorSessionId: string,
     updatedAt: string,
-  ): void {
+  ): OutstandingItemSyncSummary {
     const existing = this.db
       .prepare(
         "SELECT id, position, text, status FROM outstanding_items WHERE source_session_id = ? ORDER BY position, id",
@@ -411,23 +453,45 @@ export class OutstandingItemService {
       byText.set(row.text, queue);
     }
     const updatePosition = this.db.prepare("UPDATE outstanding_items SET position = ?, updated_at = ? WHERE id = ?");
+    const updateReworded = this.db.prepare(
+      "UPDATE outstanding_items SET text = ?, position = ?, updated_at = ? WHERE id = ? AND status = 'pending'",
+    );
     const insert = this.db.prepare(
       `INSERT INTO outstanding_items
          (id, source_session_id, project_id, position, text, status, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
     );
+    const summary: OutstandingItemSyncSummary = { created: 0, retained: 0, reworded: 0, closed: 0 };
     const retained = new Set<string>();
+    const unmatched: Array<{ index: number; text: string }> = [];
     nextSteps.forEach((text, position) => {
       const previous = byText.get(text)?.shift();
       if (previous) {
         retained.add(previous.id);
+        summary.retained += 1;
         if (previous.position !== position) updatePosition.run(position, updatedAt, previous.id);
         return;
       }
-      const id = randomUUID();
-      insert.run(id, sessionId, projectId, position, text, updatedAt, updatedAt);
-      appendEvent(this.db, id, projectId, null, "pending", source, actorSessionId, updatedAt);
+      unmatched.push({ index: position, text });
     });
+    const rewordCandidates = existing.filter(
+      (row) => !retained.has(row.id) && row.status === "pending" && !heldIds.has(row.id),
+    );
+    const paired = new Set<number>();
+    for (const pair of pairRewordedItems(rewordCandidates, unmatched)) {
+      const text = nextSteps[pair.index]!;
+      updateReworded.run(text, pair.index, updatedAt, pair.id);
+      retained.add(pair.id);
+      paired.add(pair.index);
+      summary.reworded += 1;
+    }
+    for (const { index, text } of unmatched) {
+      if (paired.has(index)) continue;
+      const id = randomUUID();
+      insert.run(id, sessionId, projectId, index, text, updatedAt, updatedAt);
+      appendEvent(this.db, id, projectId, null, "pending", source, actorSessionId, updatedAt);
+      summary.created += 1;
+    }
     const markNotNeeded = this.db.prepare(
       "UPDATE outstanding_items SET status = 'not_needed', updated_at = ? WHERE id = ? AND status = 'pending'",
     );
@@ -435,7 +499,9 @@ export class OutstandingItemService {
       if (retained.has(row.id) || heldIds.has(row.id) || row.status !== "pending") continue;
       markNotNeeded.run(updatedAt, row.id);
       appendEvent(this.db, row.id, projectId, "pending", "not_needed", source, actorSessionId, updatedAt);
+      summary.closed += 1;
     }
+    return summary;
   }
 
   /** Completes only pending items in the same project; call in finalize's transaction. */
@@ -455,6 +521,130 @@ export class OutstandingItemService {
     updatedAt: string,
   ): { resolvedIds: string[]; unresolvedIds: string[] } {
     return this.transitionPendingInTransaction(itemIds, projectId, actorSessionId, updatedAt, "not_needed");
+  }
+
+  /**
+   * Closes pending items that a finalized Session's later work directly verified. Everything is re-checked inside one
+   * transaction; items that fail a rule stay pending and are reported as warnings.
+   */
+  public resolveForSession(input: ResolveOutstandingItemsInput): ResolveOutstandingItemsResult {
+    const { sessionId } = input;
+    const projectRow = this.db.prepare("SELECT project_id FROM sessions WHERE id = ?").get(sessionId) as
+      { project_id: string } | undefined;
+    if (!projectRow) return { outcome: "not_found", sessionId };
+    const policy = this.dependencies.checkProjectById(projectRow.project_id);
+    if (!policy.allowed || !policy.project) {
+      return {
+        outcome: "skipped",
+        sessionId,
+        projectStatus: policy.projectStatus,
+        reason: policy.reason ?? "Project recording is not enabled.",
+      };
+    }
+    return runImmediateTransaction(this.db, (): ResolveOutstandingItemsResult => {
+      const actor = this.db
+        .prepare("SELECT project_id, status, completed_at, voided_at, work_summary_json FROM sessions WHERE id = ?")
+        .get(sessionId) as
+        | {
+            project_id: string;
+            status: string;
+            completed_at: string;
+            voided_at: string | null;
+            work_summary_json: string | null;
+          }
+        | undefined;
+      if (!actor) return { outcome: "not_found", sessionId };
+      const current = this.dependencies.checkProjectById(actor.project_id);
+      if (!current.allowed || !current.project) {
+        return {
+          outcome: "skipped",
+          sessionId,
+          projectStatus: current.projectStatus,
+          reason: current.reason ?? "Project recording is not enabled.",
+        };
+      }
+      if (actor.voided_at) {
+        return {
+          outcome: "skipped",
+          sessionId,
+          projectStatus: current.projectStatus,
+          reason: "已作廢的 Session 不可結案未結項；請先還原。",
+        };
+      }
+      if (actor.status !== "finalized") {
+        return {
+          outcome: "skipped",
+          sessionId,
+          projectStatus: current.projectStatus,
+          reason: "Session 尚未完成 finalize。",
+        };
+      }
+      const resolvedRequested = input.resolvedOutstandingItemIds ?? [];
+      const supersededRequested = input.supersededOutstandingItemIds ?? [];
+      const supersededSet = new Set(supersededRequested);
+      const ambiguous = new Set(resolvedRequested.filter((id) => supersededSet.has(id)));
+      // Replays: what this Session already moved is reported as applied, not as a warning (one query per status).
+      const completedBefore = new Set(this.transitionedByActorSession(sessionId, "completed"));
+      const notNeededBefore = new Set(this.transitionedByActorSession(sessionId, "not_needed"));
+      const appliedResolved = resolvedRequested.filter((id) => !ambiguous.has(id) && completedBefore.has(id));
+      const appliedSuperseded = supersededRequested.filter((id) => !ambiguous.has(id) && notNeededBefore.has(id));
+      let nextStepCount: number;
+      try {
+        const parsed = JSON.parse(actor.work_summary_json ?? "{}") as { nextSteps?: unknown };
+        nextStepCount = Array.isArray(parsed.nextSteps) ? parsed.nextSteps.length : 0;
+      } catch {
+        nextStepCount = 0;
+      }
+      const updatedAt = nowIso();
+      const later = { actorCompletedAt: actor.completed_at };
+      const resolution = this.transitionPendingInTransaction(
+        resolvedRequested.filter((id) => !ambiguous.has(id) && !completedBefore.has(id)),
+        actor.project_id,
+        sessionId,
+        updatedAt,
+        "completed",
+        later,
+      );
+      const supersession = this.transitionPendingInTransaction(
+        nextStepCount > 0 ? supersededRequested.filter((id) => !ambiguous.has(id) && !notNeededBefore.has(id)) : [],
+        actor.project_id,
+        sessionId,
+        updatedAt,
+        "not_needed",
+        later,
+      );
+      const unresolvedIds = [...new Set([...resolution.unresolvedIds, ...ambiguous])];
+      const unsupersededIds = [
+        ...new Set([
+          ...supersession.unresolvedIds,
+          ...ambiguous,
+          ...(nextStepCount > 0
+            ? []
+            : supersededRequested.filter((id) => !notNeededBefore.has(id) && !ambiguous.has(id))),
+        ]),
+      ];
+      const alreadyAppliedIds = [...new Set([...appliedResolved, ...appliedSuperseded])];
+      const changed = resolution.resolvedIds.length + supersession.resolvedIds.length > 0;
+      const warned = unresolvedIds.length > 0 || unsupersededIds.length > 0;
+      return {
+        outcome: "outstanding_items_resolved",
+        sessionId,
+        resolvedOutstandingItemIds: resolution.resolvedIds,
+        supersededOutstandingItemIds: supersession.resolvedIds,
+        ...(alreadyAppliedIds.length > 0 ? { alreadyAppliedIds } : {}),
+        ...(!changed && !warned && alreadyAppliedIds.length > 0 ? { duplicate: true as const } : {}),
+        ...(warned
+          ? {
+              outstandingItemWarnings: {
+                unresolvedIds,
+                unsupersededIds,
+                message:
+                  "部分指定項目無效、已處理、跨專案、來源 Session 已作廢、正在整理待審、來源不早於本 Session、來自本 Session 自己、本 Session 未提供 nextSteps 或同時指定完成與取代，因此維持原狀。",
+              },
+            }
+          : {}),
+      };
+    });
   }
 
   public transitionedByActorSession(actorSessionId: string, status: "completed" | "not_needed"): string[] {
@@ -491,10 +681,14 @@ export class OutstandingItemService {
     actorSessionId: string,
     updatedAt: string,
     status: "completed" | "not_needed",
+    later?: { actorCompletedAt: string },
   ): { resolvedIds: string[]; unresolvedIds: string[] } {
     const requestedIds = [...new Set(itemIds)];
     if (requestedIds.length === 0) return { resolvedIds: [], unresolvedIds: [] };
     const placeholders = requestedIds.map(() => "?").join(", ");
+    // Evidence must be later work by another Session: the source is neither the actor nor completed at/after it.
+    const laterSql = later ? "AND s.id <> ? AND s.completed_at < ?" : "";
+    const laterParams = later ? [actorSessionId, later.actorCompletedAt] : [];
     const pending = this.db
       .prepare(
         `SELECT i.id FROM outstanding_items i
@@ -506,9 +700,10 @@ export class OutstandingItemService {
              WHERE r.project_id = i.project_id AND r.status IN ('pending', 'awaiting_review')
                AND ci.item_id = i.id
            )
+           ${laterSql}
            AND i.id IN (${placeholders})`,
       )
-      .all(projectId, ...requestedIds) as Array<{ id: string }>;
+      .all(projectId, ...laterParams, ...requestedIds) as Array<{ id: string }>;
     const update = this.db.prepare(
       `UPDATE outstanding_items SET status = ?, updated_at = ?
        WHERE id = ? AND status = 'pending' AND project_id = ?
@@ -519,6 +714,7 @@ export class OutstandingItemService {
              AND s.voided_at IS NULL
          )`,
     );
+    // The selection above already applied the ordering rule inside this same transaction.
     for (const { id } of pending) {
       update.run(status, updatedAt, id, projectId);
       appendEvent(this.db, id, projectId, "pending", status, "agent", actorSessionId, updatedAt);

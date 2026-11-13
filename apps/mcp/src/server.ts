@@ -25,7 +25,10 @@ import {
   mcpListSessionsInputSchema,
   mcpListSessionsInputSchemaBase,
   mcpOutstandingItemListQuerySchema,
+  resolveOutstandingItemsInputSchema,
+  resolveOutstandingItemsInputSchemaBase,
   mcpOutstandingCleanupRequestQuerySchema,
+  requestOutstandingCleanupInputSchema,
   outstandingCleanupContextQuerySchema,
   submitOutstandingCleanupProposalsInputSchema,
   metadataBackfillApplyInputSchema,
@@ -696,6 +699,18 @@ export function createWorkIntelligenceMcpServer(
     run: (input) => store.listOutstandingCleanupRequests(input),
   });
 
+  registerStoreTool("work_request_outstanding_cleanup", {
+    title: "Request outstanding cleanup",
+    description:
+      "Only when the user asks to 整理未結項 / clean up outstanding items for this tracked project; never on your own initiative. Creates the Web UI's fixed-snapshot request, or returns the open one (outstanding_cleanup_request_active); not_needed when nothing is pending. Request only: never changes item status; acceptance is Web-only. " +
+      outstandingCleanupContract,
+    inputShape: requestOutstandingCleanupInputSchema.shape,
+    schema: requestOutstandingCleanupInputSchema,
+    annotations: ADDITIVE_IDEMPOTENT,
+    invalidMessage: "Invalid outstanding cleanup request.",
+    run: (input) => store.requestOutstandingCleanup(input),
+  });
+
   registerStoreTool("work_get_outstanding_cleanup_context", {
     title: "Read outstanding cleanup evidence context",
     description:
@@ -769,6 +784,21 @@ export function createWorkIntelligenceMcpServer(
       const { outcome, ...page } = response;
       return { outcome, ...(project ? { project } : {}), ...page, items };
     },
+  });
+
+  registerStoreTool("work_resolve_outstanding_items", {
+    title: "Close verified outstanding items",
+    description:
+      "Right after work_finalize_session, close pending items that this Session's own work directly verified: resolvedOutstandingItemIds become completed, supersededOutstandingItemIds (needs this Session's nextSteps to be non-empty) become not_needed, both audited with sessionId as the actor. Use it for items listed in the finalize receipt's continuedOutstandingItems or relatedOutstandingItems, or in the context, that you verified yourself. It only changes a pending item in the same project whose source Session is nonvoided, differs from this Session, completed earlier than this Session, and is not held by a cleanup request; anything else stays pending and is listed in outstandingItemWarnings. An id in both lists changes nothing. Repeating a call reports already applied ids instead of warning. It never closes uncertain items, never bypasses cleanup review, and cannot reopen items; ranking or wording similarity is not evidence. Untracked projects are skipped quietly. " +
+      finalizeClosingContract,
+    inputShape: resolveOutstandingItemsInputSchemaBase.shape,
+    schema: resolveOutstandingItemsInputSchema,
+    validationNotes: [
+      "At least one of resolvedOutstandingItemIds or supersededOutstandingItemIds must be non-empty; each list has at most 200 distinct ids.",
+    ],
+    annotations: OVERWRITE_IDEMPOTENT,
+    invalidMessage: "Invalid outstanding item resolution payload.",
+    run: (input) => store.resolveOutstandingItems(input),
   });
 
   registerStoreTool("work_recall", {
@@ -850,13 +880,18 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_get_context", {
     title: "Get work context",
     description:
-      'Return recent tracked-project digests, metadataFollowUps counts, pending Agent requests, the server clock, and MCP build status. Outstanding nextSteps items exposed by context are pending only. The top-level pendingOutstandingItems list includes each source Session id, title, and completion time, at most 5 items, and text capped at 500 characters; it reports the total, omitted count, and text-truncation count, and marks truncated text. Use read-only work_list_outstanding_items to read the complete paged list, including completed and not_needed items. Pass task and/or paths for task-first relevant Knowledge, decisions, Sessions with open items, hotspots, and matching Knowledge-page sections. relevant.outstandingItems ranks pending items by direct item keywords, source changed-file paths, and recalled source Session order, so older items are not excluded by recency or the top recalled sources. It contains at most 5 pointers (id, sourceSessionId, and text capped at 240 characters; read the source Session for its title), total/omitted counts and a caution hint; context budgeting may shorten text or omit lower-ranked items with a readWith pointer. Ranking is not completion evidence. relevant.confidence is "none" when no result has meaningful query coverage or a path match, "low" for weak partial matches or raw-handoff-only matches, and "high" for strong structured or path matches; when it is "none", relevant.knowledge and relevant.sessions are empty and must not be used as evidence. "high" and "low" only measure wording overlap, not whether a result answers the task; read the record before relying on it. With a focus, the complete compact JSON response is capped at 10,000 characters; without a focus it is capped at 16,000. Relevant results come before recent activity, and duplicate Session/Knowledge content appears once. Check omitted, a small pointer per section: count, duplicates (already shown elsewhere in this response), up to 3 ids with reasons for budget omissions plus moreIds, entries with only the id and flags of anything flagged possiblyStale or needsReview, and readWith, the tool that reads the full item; page review detail and citation ids are not repeated there. Truncated excerpts are marked. Without a focus, the 3 newest Sessions are kept until older Knowledge, decisions, and page content are trimmed. With projectRoot, the project appears once in project, projects is empty, and items omit projectId and projectName. Pending requests and possiblyStale/needsReview flags are retained. Knowledge page citation ids are bounded to 8 per context with sourceSessionIdsOmittedCount when needed. Knowledge pages include needsReview and bounded reviewSections when a cited Session changed, was voided, or was restored after the page was saved; shown source ids, titles, and reason codes are supplemented with omittedSourceCount and reason summaries when necessary. Use work_get_session, work_search_knowledge, work_get_knowledge_page_context, and work_preview_metadata_backfill to read full records. Pending Agent-autonomous decisions expose only their count; review actions remain in the Web UI. With projectRoot, the project policy gate is checked first and this call is the tracking check: a tracked project returns projectStatus "tracked" and tracked: true with the context; a non-tracked or missing root returns only outcome "skipped", projectRoot, projectStatus, tracked: false, reason, and server, with no project data, so no separate work_get_project_status call is needed.',
+      'Return recent tracked-project digests, metadataFollowUps counts, pending Agent requests, the server clock, and MCP build status. Outstanding nextSteps items exposed by context are pending only. The top-level pendingOutstandingItems list includes each source Session id, title, and completion time, at most 5 items, and text capped at 500 characters; it reports the total, omitted count, and text-truncation count, and marks truncated text. Use read-only work_list_outstanding_items to read the complete paged list, including completed and not_needed items. Pass task and/or paths for task-first relevant Knowledge, decisions, Sessions with open items, hotspots, and matching Knowledge-page sections. relevant.outstandingItems ranks pending items by direct item keywords, source changed-file paths, and recalled source Session order, so older items are not excluded by recency or the top recalled sources. It contains at most 5 pointers (id, sourceSessionId, and text capped at 240 characters; read the source Session for its title), total/omitted counts and a caution hint; context budgeting may shorten text or omit lower-ranked items with a readWith pointer. Ranking is not completion evidence. linkedSessionIds (Sessions you will link) adds relevant.continuedOutstandingItems, their pending items, kept out of outstandingItems. relevant.confidence is "none" when no result has meaningful query coverage or a path match, "low" for weak partial matches or raw-handoff-only matches, and "high" for strong structured or path matches; when it is "none", relevant.knowledge and relevant.sessions are empty and must not be used as evidence. "high" and "low" only measure wording overlap, not whether a result answers the task; read the record before relying on it. With a focus, the complete compact JSON response is capped at 10,000 characters; without a focus it is capped at 16,000. Relevant results come before recent activity, and duplicate Session/Knowledge content appears once. Check omitted, a small pointer per section: count, duplicates (already shown elsewhere in this response), up to 3 ids with reasons for budget omissions plus moreIds, entries with only the id and flags of anything flagged possiblyStale or needsReview, and readWith, the tool that reads the full item; page review detail and citation ids are not repeated there. Truncated excerpts are marked. Without a focus, the 3 newest Sessions are kept until older Knowledge, decisions, and page content are trimmed. With projectRoot, the project appears once in project, projects is empty, and items omit projectId and projectName. Pending requests and possiblyStale/needsReview flags are retained. Knowledge page citation ids are bounded to 8 per context with sourceSessionIdsOmittedCount when needed. Knowledge pages include needsReview and bounded reviewSections when a cited Session changed, was voided, or was restored after the page was saved; shown source ids, titles, and reason codes are supplemented with omittedSourceCount and reason summaries when necessary. Use work_get_session, work_search_knowledge, work_get_knowledge_page_context, and work_preview_metadata_backfill to read full records. Pending Agent-autonomous decisions expose only their count; review actions remain in the Web UI. With projectRoot, the project policy gate is checked first and this call is the tracking check: a tracked project returns projectStatus "tracked" and tracked: true with the context; a non-tracked or missing root returns only outcome "skipped", projectRoot, projectStatus, tracked: false, reason, and server, with no project data, so no separate work_get_project_status call is needed.',
     inputShape: contextQuerySchema.shape,
     schema: contextQuerySchema,
     annotations: READ_ONLY,
     invalidMessage: "Invalid context query.",
     includeServerStatus: true,
-    run: (input) => store.getContext(input.projectRoot, { task: input.task, paths: input.paths }),
+    run: (input) =>
+      store.getContext(input.projectRoot, {
+        task: input.task,
+        paths: input.paths,
+        linkedSessionIds: input.linkedSessionIds,
+      }),
   });
 
   registerStoreTool("work_get_file_history", {
