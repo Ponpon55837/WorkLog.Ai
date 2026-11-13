@@ -216,7 +216,9 @@ describe("database maintenance CLI", () => {
     expect(messages.log.join("\n")).toContain("僅預覽，資料沒有變更");
 
     expect(await runDatabaseCli(args, deps)).toBe(0);
-    expect(destination.listProjects()).toMatchObject([{ id: project.id, status: "paused", rootPath: newRoot }]);
+    expect(destination.listProjects()).toMatchObject([
+      { id: project.id, status: "paused", rootPath: canonicalizeProjectRoot(newRoot) },
+    ]);
     expect(destination.getSessionById(finalized.session.id)?.summary).toBe(finalized.session.summary);
     expect(messages.log.join("\n")).toContain("匯入完成");
     expect(existsSync(newRoot)).toBe(false);
