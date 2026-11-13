@@ -186,7 +186,7 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 同上，每次執行前先由另一連線寫入一次（`recall (paths, appliesTo, after a write)`：重新讀取之後的 Session 並比對；本機 median 約 11 ms 起，批次讀取） | 150 ms |
 | 帶 `task`/`paths` 的 Agent context（`getContext (paths, appliesTo-matched Knowledge)`：同一批 Knowledge 以 `appliesTo` 命中並放進 `relevant.knowledge`；本機 median 約 50 ms，改動前約 80 ms） | 250 ms |
 | 同上，每次執行前先由另一連線寫入一次（`getContext (paths, appliesTo-matched Knowledge, after a write)`） | 400 ms |
-| 只帶 `task` 的 Agent context，推論路徑關閉（`getContext (task only, no inference)`）與開啟（`getContext (task only, inferred-path Knowledge)`，多一次路徑排名與一次 trust 批次） | 各 250 ms |
+| 只帶 `task` 的 Agent context，推論路徑關閉（`getContext (task only, no inference)`）與開啟（`getContext (task only, inferred-path Knowledge)`，多一次路徑排名與一次 trust 批次；`getContext (task only, weighted inferred-path Knowledge)` 以加權模式改做一次 `appliesTo` 掃描加一次 references 查詢） | 各 250 ms |
 | 熱點檔案（全部期間前 20 名；依目錄、單月） | 各 500 ms |
 | 圖譜含推導關係、兩節點路徑（500 節點內 BFS） | 各 750 ms |
 | 時間軸（單月；一整年，最多 2,000 筆 Session） | 250 ms；750 ms |

@@ -616,7 +616,7 @@ export class SearchRepository {
    * through appliesToStrength (best entry per file), and references through search_paths rows with the file's basename
    * (an exact, suffix, or contained-path match as pathMatchStrength; unlike recall's path scan this does not find a
    * stored reference that merely contains the file's name inside a longer basename, which keeps it on the basename
-   * index). `matchedPath` is the weighted file (not the stored pattern) that contributed most to the Knowledge.
+   * index). `matchedPath` is the weighted file (not the stored pattern or reference) that contributed most to the Knowledge.
    *
    * Cost: one appliesTo scan exactly like scoreAppliesTo (at most APPLIES_TO_SCAN_LIMIT rows, one shared match budget,
    * stopping at the first row the budget cuts short), so rows x patterns x files tests at most, all charged to that
@@ -705,17 +705,17 @@ export class SearchRepository {
         WEIGHTED_REFERENCE_ROW_LIMIT,
       ) as unknown as Array<{ doc_id: string; path: string; weight: number }>;
     // Each document counts once per file, by its best reference.
-    const bestPerFile = new Map<string, { id: string; contribution: number; matchedPath: string }>();
+    const bestPerFile = new Map<string, { id: string; contribution: number; file: string }>();
     for (const row of references) {
       for (const [file, weight] of filesByBasename.get(pathBasename(row.path)) ?? []) {
         const contribution = weight * pathMatchStrength(row.path, file) * row.weight;
         const key = `${row.doc_id}\u0000${file}`;
         if (contribution > (bestPerFile.get(key)?.contribution ?? 0)) {
-          bestPerFile.set(key, { id: row.doc_id, contribution, matchedPath: row.path });
+          bestPerFile.set(key, { id: row.doc_id, contribution, file });
         }
       }
     }
-    for (const { id, contribution, matchedPath } of bestPerFile.values()) add(id, contribution, matchedPath);
+    for (const { id, contribution, file } of bestPerFile.values()) add(id, contribution, file);
 
     const winners = [...scored]
       .sort(([, left], [, right]) => right.score - left.score)
