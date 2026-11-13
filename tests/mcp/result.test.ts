@@ -51,27 +51,27 @@ describe("MCP result contract", () => {
     expect(result).not.toHaveProperty("structuredContent");
   });
 
-  it("keeps skipped and not-found session responses machine-readable", () => {
-    expect(
-      toSessionStructuredContent({
-        outcome: "skipped",
-        projectStatus: "unregistered",
-        reason: "Project is not registered.",
-      }),
-    ).toMatchObject({
-      outcome: "skipped",
-      sessionId: null,
-      changedFilesCount: 0,
-      verification: null,
-    });
+  it("passes non-session results through without Session defaults", () => {
+    // Claude Code and Codex hand the model structuredContent alone, so it must not claim a completed save.
+    const skipped = { outcome: "skipped", projectStatus: "unregistered", reason: "Project is not registered." };
+    expect(toSessionStructuredContent(skipped)).toEqual(skipped);
 
-    const result = sessionTextResult({ outcome: "not_found", sessionId: "missing-session" });
-    expect(result.content[0]?.type).toBe("text");
-    expect(result.structuredContent).toMatchObject({
-      outcome: "not_found",
-      sessionId: "missing-session",
-      changedFilesCount: 0,
-      verification: null,
-    });
+    const conflict = { outcome: "idempotency_conflict", reason: "The key was used with different content." };
+    const conflictResult = sessionTextResult(conflict);
+    expect(conflictResult.structuredContent).toEqual(conflict);
+    expect(conflictResult.structuredContent).toEqual(JSON.parse(conflictResult.content[0]?.text ?? ""));
+
+    const missing = { outcome: "not_found", sessionId: "missing-session" };
+    expect(sessionTextResult(missing).structuredContent).toEqual(missing);
+  });
+
+  it("keeps everything the text says in a session_unchanged result", () => {
+    const unchanged = {
+      outcome: "session_unchanged",
+      session: { id: "session-1", revision: "rev-1", title: "Fictional title", projectId: "project-1" },
+    };
+    const result = textResult(unchanged);
+    expect(result.structuredContent).toEqual({ ...unchanged, sessionId: "session-1", revision: "rev-1" });
+    expect(result.structuredContent).toMatchObject(JSON.parse(result.content[0]?.text ?? ""));
   });
 });
