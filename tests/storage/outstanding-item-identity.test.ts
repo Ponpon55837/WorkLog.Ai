@@ -248,6 +248,60 @@ describe("continuedOutstandingItems in the finalize receipt", () => {
   });
 });
 
+describe("work_get_context linkedSessionIds", () => {
+  const FOCUS = { task: "Orbit cache lock certificate" };
+
+  it("lists the linked Sessions' pending items and keeps them out of outstandingItems", () => {
+    const fixture = createProject("Context linked fixture");
+    const parent = finalize(fixture, "ctx-parent", ["Verify Orbit cache lock", "Rotate signing certificate"]).session;
+    finalize(fixture, "ctx-unlinked", ["Orbit cache documentation review"]);
+    const linked = fixture.store.getContext(fixture.root, { ...FOCUS, linkedSessionIds: [parent.id] });
+    if (linked.outcome !== "context") throw new Error("Expected context.");
+    const continued = linked.relevant?.continuedOutstandingItems;
+    expect(continued).toMatchObject({ total: 2, omitted: 0 });
+    expect(continued?.items.map((item) => item.sourceSessionId)).toEqual([parent.id, parent.id]);
+    expect(continued?.hint).toContain("work_resolve_outstanding_items");
+    const continuedIds = new Set(continued?.items.map((item) => item.id));
+    const related = linked.relevant?.outstandingItems?.items ?? [];
+    expect(related.length).toBeGreaterThan(0);
+    expect(related.every((item) => !continuedIds.has(item.id))).toBe(true);
+
+    const plain = fixture.store.getContext(fixture.root, FOCUS);
+    if (plain.outcome !== "context") throw new Error("Expected context.");
+    expect(plain.relevant).toBeDefined();
+    expect("continuedOutstandingItems" in (plain.relevant ?? {})).toBe(false);
+    const plainIds = plain.relevant?.outstandingItems?.items.map((item) => item.id) ?? [];
+    expect([...continuedIds].every((id) => plainIds.includes(id as string))).toBe(true);
+  });
+
+  it("ignores other-project and voided Sessions and absent ids", () => {
+    const fixture = createProject("Context linked ignore fixture");
+    const other = addProject(fixture.store, "Context linked other fixture");
+    const foreign = finalize(other, "ctx-foreign", ["Verify Orbit cache lock"]).session;
+    const voided = finalize(fixture, "ctx-voided", ["Rotate signing certificate"]).session;
+    fixture.store.setSessionVoid({ sessionId: voided.id, voided: true, reason: "Synthetic void." });
+    const context = fixture.store.getContext(fixture.root, {
+      ...FOCUS,
+      linkedSessionIds: [foreign.id, voided.id, "missing-session"],
+    });
+    if (context.outcome !== "context") throw new Error("Expected context.");
+    expect("continuedOutstandingItems" in (context.relevant ?? {})).toBe(false);
+  });
+
+  it("caps at 10 with an omitted count", () => {
+    const fixture = createProject("Context linked cap fixture");
+    const many = Array.from(
+      { length: 12 },
+      (_, index) => `Orbit pending task ${index} ${"x".repeat(index)}-${index * 7919}`,
+    );
+    const parent = finalize(fixture, "ctx-cap", many).session;
+    const context = fixture.store.getContext(fixture.root, { ...FOCUS, linkedSessionIds: [parent.id] });
+    if (context.outcome !== "context") throw new Error("Expected context.");
+    expect(context.relevant?.continuedOutstandingItems).toMatchObject({ total: 12, omitted: 2 });
+    expect(context.relevant?.continuedOutstandingItems?.items).toHaveLength(10);
+  });
+});
+
 describe("resolveOutstandingItems", () => {
   function setup() {
     const fixture = createProject("Resolve fixture");

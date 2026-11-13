@@ -384,7 +384,7 @@ describe("outstanding items", () => {
         expect.objectContaining({ id: related.id, sourceSessionId: related.sourceSessionId }),
         expect.objectContaining({ id: ambiguous.id, sourceSessionId: ambiguous.sourceSessionId }),
       ]),
-      hint: expect.stringContaining("先讀來源"),
+      hint: expect.stringContaining("逐項讀來源核對"),
     });
     expect(result.relatedOutstandingItems?.items.some((item) => item.sourceSessionId === result.session.id)).toBe(
       false,

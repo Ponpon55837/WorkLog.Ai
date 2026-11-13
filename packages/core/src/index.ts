@@ -2969,6 +2969,8 @@ export interface RelevantContext {
   decisions: RelevantDecisionDigest[];
   /** Pending items ranked by their text, source paths, and source Session relevance. */
   outstandingItems?: ContextRelatedOutstandingItems;
+  /** Pending items of the Sessions passed as linkedSessionIds (same project, at most 10); not repeated in outstandingItems. */
+  continuedOutstandingItems?: ContextRelatedOutstandingItems;
   /** Relevant Sessions, including those that changed the same paths, with their open items. */
   sessions: Array<ProjectScopedItem<RecallHit> & { openItems: string[] }>;
   /** Optional compact pointers to possibly related Sessions or applied Knowledge; never literal-match evidence. */

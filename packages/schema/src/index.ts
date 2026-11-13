@@ -395,6 +395,11 @@ export const contextQuerySchema = z.object({
   projectRoot: z.string().trim().min(1).max(1_000).optional(),
   task: z.string().trim().min(1).max(500).optional(),
   paths: recallPathsSchema.optional(),
+  linkedSessionIds: z
+    .array(z.string().trim().min(1).max(200))
+    .max(20)
+    .refine((ids) => new Set(ids).size === ids.length, "linkedSessionIds must be distinct.")
+    .optional(),
 });
 
 export const sessionDecisionListQuerySchema = z.object({

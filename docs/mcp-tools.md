@@ -147,13 +147,14 @@ MCP client 的 stdio 設定可使用：
 
 帶 `task`／`paths` 時，`relevant.knowledgePages` 只含符合這次工作及需要核對的知識頁段落，並保留 `sourceSessionIds`；知識頁來源 id 在整份 context 最多列 8 筆，超出的數量以 `sourceSessionIdsOmittedCount` 標示。頁面層級的 `needsReview` 會保留，受影響段落列出來源 Session id／標題與原因。單一 context 最多列出 8 筆來源核對明細；受影響段落仍全部列出，超出的來源以 `omittedSourceCount` 與 `reasons` 彙整，完整清單可用 `work_get_knowledge_page_context` 讀取。原本的 `knowledgePages` 區塊會改以 `omitted` 指向完整頁面，省略項目只保留頁面 slug 與核對旗標；受影響段落、來源 Session id／標題與引用 id 由 `work_get_knowledge_page_context` 提供，不在 `omitted` 重複。依 `readWith` 讀取全文，不要把摘要截斷或省略當成來源內容。
 
-開工前可再傳 `task`（這次要做什麼，最多 500 字）與 `paths`（預計修改的檔案，最多 20 筆），回傳會多一個 `relevant`，依序是：
+開工前可再傳 `task`（這次要做什麼，最多 500 字）與 `paths`（預計修改的檔案，最多 20 筆），回傳會多一個 `relevant`，依序是： 也可傳 `linkedSessionIds`（最多 20 個不重複的 Session id：這次工作要當 parent／related 連結的 Session），讓 Agent 在 finalize 前就看到 `relevant.continuedOutstandingItems`。
 
 有焦點時，可能另外出現精簡的 `relevant.supplements` 指標。它只從完成一般去重與預算裁切後留下的前三筆 Session hit 取得直接 parent／related Session 與該 Session 曾套用、目前仍 active 且未被取代的 Knowledge；只走一層，每個來源最多 2 筆、總共最多 4 筆。每個指標只有 `type`、`id`、`title`、`includedBecause`，Knowledge 另可能有 `possiblyStale`／`needsReview`。它不含摘要、excerpt、score、openItems 或證據計數。`includedBecause` 說明可能關聯的來源與關係；這是方便後續讀取的指標，不是字面命中或答案證據。Agent 應依類型用 `work_get_session` 或 `work_search_knowledge` 讀取來源後再判斷。既有 `relevant.sessions`／`relevant.knowledge` 的內容、順序、五筆上限和預算裁切都不受 supplements 影響；預算不足時先移除 supplements，並在 `omitted` 的 `relevant.supplements` 區段記錄。已在 relevant 或 omitted 的 id、作廢 Session、archived 或已被取代的 Knowledge 不會重複補入。沒有 `task`／`paths` 時不會輸出 supplements。
 
 | 欄位 | 內容 |
 | --- | --- |
 | `relevant.outstandingItems` | 依項目關鍵字、來源 changed-file 路徑與來源 Session 檢索順序排序的 pending 指標；直接文字／路徑命中可找出來源不在前 20 筆 Session 的舊項目。最多 5 項，每項只有 `id`、`sourceSessionId` 與最多 240 字的文字摘錄（截短時 `textTruncated`），來源 Session 標題在 `relevant.sessions` 或讀一次 `work_get_session` 即可取得；附 total／omitted 與證據提示，預算省略在 omitted 指向完整清單。每次最多讀取並排名 2,000 筆 pending 項目（來源 Session 由新到舊）；範圍內更多時帶 `truncated: true`，total 只計入已排名的項目。finalize 回條的 `relatedOutstandingItems` 同樣適用。先讀來源 Session，排名不代表已完成。 |
+| `relevant.continuedOutstandingItems` | 只在帶 `linkedSessionIds`（本次要當 parent／related 連結的 Session id，最多 20 筆、不可重複）且有 task 或 paths 時出現：這些 Session 中同專案的 pending 項目，與 finalize 回條的 `continuedOutstandingItems` 同一個函式與上限（最多 10 項，其餘計入 omitted）。這些項目不再出現在 `relevant.outstandingItems`；其他專案或已作廢 Session 的項目不列入。預算不足時先縮短文字、再由後面省略並指向 `work_list_outstanding_items`。附提示：逐項讀來源核對，已驗證完成的在 finalize 的 `resolvedOutstandingItemIds` 或 finalize 後一次 `work_resolve_outstanding_items` 批次結案，無法確認就保留。 |
 | `relevant.confidence` | 規則同 `work_recall`：`none` 時沒有可引用依據；`high` 與 `low` 都只代表字面相符，依賴前都要讀原文。來源讀完仍不支持答案時，明確回覆「資料不足」，不可依字面、confidence 或排名推論 |
 | `relevant.knowledge` | 與 task／paths 最相關的 active Knowledge（最多 5 筆，gotcha、pattern、decision 等），格式同 `work_recall` 的 hit |
 | `relevant.supplements` | 選填的可能相關指標；最多 4 筆，限最終保留的前三筆 Session 的一層 parent／related 與 active applied Knowledge。它們不是字面命中或答案證據，需讀取完整來源；Knowledge 可附 `possiblyStale`／`needsReview` |

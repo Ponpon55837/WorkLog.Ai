@@ -86,12 +86,12 @@ const CONTEXT_OUTSTANDING_ITEM_TEXT_LENGTH = 500;
 const CONTEXT_PAGE_SECTION_CHARS = 500;
 const CONTEXT_EXCERPT_CHARS = 240;
 const RELATED_OUTSTANDING_HINT =
-  "這些相關項目仍未處理；先讀來源並核對證據，確認完成才結案，被本次 nextSteps 取代才標記不再需要，不確定就保留。";
+  "仍未處理：逐項讀來源核對；本次工作已直接驗證完成的，於 finalize 的 resolvedOutstandingItemIds 或 finalize 後以一次 work_resolve_outstanding_items 批次結案（本 Session 為依據）；被本次 nextSteps 取代才標記不再需要；無法確認就保留。";
 const RECALL_EXCERPT_CHARS = 110;
 const CONTINUED_OUTSTANDING_ITEM_LIMIT = 10;
 
 /** What an Agent is about to work on; ranks relevant records into the context result. */
-export type ContextFocus = { task?: string; paths?: string[] };
+export type ContextFocus = { task?: string; paths?: string[]; linkedSessionIds?: string[] };
 
 type MetadataBackfillTotals = Extract<MetadataBackfillPreviewResult, { outcome: "backfill_preview" }>["totals"];
 
@@ -775,6 +775,18 @@ export class ContextRecallService {
         );
         return true;
       }
+      const continued = relevant?.continuedOutstandingItems;
+      const continuedItem = continued && continued.items.length > 1 ? continued.items.pop() : undefined;
+      if (continued && continuedItem) {
+        continued.omitted += 1;
+        addOmission(
+          context,
+          "relevant.continuedOutstandingItems",
+          { id: continuedItem.id, reason: "預算限制：較後面的延續未結項" },
+          "work_list_outstanding_items",
+        );
+        return true;
+      }
       return false;
     };
 
@@ -794,6 +806,13 @@ export class ContextRecallService {
         }
       }
       for (const item of context.relevant?.outstandingItems?.items ?? []) {
+        if (item.text.length > CONTEXT_EXCERPT_CHARS) {
+          item.text = truncateAtSentenceBoundary(item.text, CONTEXT_EXCERPT_CHARS).text;
+          item.textTruncated = true;
+          return true;
+        }
+      }
+      for (const item of context.relevant?.continuedOutstandingItems?.items ?? []) {
         if (item.text.length > CONTEXT_EXCERPT_CHARS) {
           item.text = truncateAtSentenceBoundary(item.text, CONTEXT_EXCERPT_CHARS).text;
           item.textTruncated = true;
@@ -927,6 +946,12 @@ export class ContextRecallService {
       .slice(0, RECENT_DECISION_LIMIT);
     const scoped = <T extends { projectId: string; projectName?: string }>(item: T): ProjectScopedItem<T> =>
       projectId ? withoutProjectFields(item) : item;
+    // Same helper as the finalize receipt, so the Agent sees before finalize what the receipt would list after it.
+    const linkedSessionIds = focus.linkedSessionIds ?? [];
+    const continued =
+      projectId && linkedSessionIds.length > 0
+        ? this.continuedOutstandingItems(projectId, linkedSessionIds)
+        : undefined;
     return {
       ...(task ? { task } : {}),
       ...(paths.length > 0 ? { paths } : {}),
@@ -937,8 +962,12 @@ export class ContextRecallService {
           task,
           paths,
           sourceSessionIds: recalled.hits.filter((hit) => hit.type === "session").map((hit) => hit.id),
+          ...(continued?.allIds.length ? { excludeItemIds: continued.allIds } : {}),
         }),
       ),
+      ...(continued && continued.digest.total > 0
+        ? { continuedOutstandingItems: this.contextContinuedDigest(continued.digest) }
+        : {}),
       knowledge: knowledge.map(scoped),
       decisions,
       sessions: sessions.map(({ hit, record }) => ({
@@ -1268,6 +1297,22 @@ export class ContextRecallService {
       omitted: Math.max(0, result.total - result.items.length),
       ...(result.truncated ? { truncated: true as const } : {}),
       ...(result.total > 0 ? { hint: RELATED_OUTSTANDING_HINT } : {}),
+    };
+  }
+
+  /** The receipt digest in the compact context shape: id, source Session id and a shortened text. */
+  private contextContinuedDigest(digest: RelatedOutstandingItems): ContextRelatedOutstandingItems {
+    return {
+      ...digest,
+      items: digest.items.map((item) => {
+        const text = truncateAtSentenceBoundary(item.text, CONTEXT_EXCERPT_CHARS);
+        return {
+          id: item.id,
+          sourceSessionId: item.sourceSessionId,
+          text: text.text,
+          ...(text.truncated || item.textTruncated ? { textTruncated: true } : {}),
+        };
+      }),
     };
   }
 
