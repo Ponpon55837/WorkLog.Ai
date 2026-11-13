@@ -222,6 +222,9 @@ const pathKnowledgeByContext = new WeakMap<ContextResult, Map<string, PathKnowle
 /** Recall rank of each path entry in an omission, so a better-ranked record can replace the worst one at the cap. */
 const pathEntryRanks = new WeakMap<ContextOmission, Map<string, number>>();
 
+/** Ids an omission lists only because they ranked beyond the relevant slots; they were never shown in full. */
+const beyondLimitIds = new WeakMap<ContextOmission, Set<string>>();
+
 function boundedPath(path: string): string {
   return path.length > CONTEXT_PATH_ENTRY_PATH_CHARS ? `…${path.slice(-(CONTEXT_PATH_ENTRY_PATH_CHARS - 1))}` : path;
 }
@@ -305,6 +308,11 @@ function addOmission(context: ContextResult, section: string, item: OmittedItem,
     context.omitted.push(omission);
   }
   omission.count += 1;
+  if (item.reason === RANKED_BEYOND_REASON) {
+    const beyond = beyondLimitIds.get(omission) ?? new Set<string>();
+    beyondLimitIds.set(omission, beyond);
+    beyond.add(item.id);
+  }
   let omittedIds = omittedIdsByContext.get(context);
   if (!omittedIds) {
     omittedIds = new Set();
@@ -937,8 +945,9 @@ export class ContextRecallService {
       return false;
     };
 
-    // Last resorts, after every other content trim: shorten path-entry titles, then drop path entries from the end
-    // (back to plain ids or flagged entries) so the trust flags and ids stay the last things the budget touches.
+    // Pointers yield before full relevant records: shorten path-entry titles, then drop path entries from the end (back
+    // to flagged entries or plain ids, so trust flags and ids stay). Only then is a full relevant record popped, which
+    // may itself become a path entry; each step removes or shortens something, so the loop ends.
     const shortenPathTitles = (): boolean => {
       const omission = context.omitted?.find((candidate) => candidate.section === "relevant.knowledge");
       for (const entry of omission ? pathEntries(omission) : []) {
@@ -948,6 +957,34 @@ export class ContextRecallService {
         }
       }
       return false;
+    };
+    // Last of the pointer reductions: forget an unflagged record that was only listed because it ranked beyond the
+    // relevant slots (never shown), which restores what the response held before pointers existed.
+    const forgetBeyondLimitPointer = (): boolean => {
+      const omission = context.omitted?.find((candidate) => candidate.section === "relevant.knowledge");
+      const beyond = omission ? beyondLimitIds.get(omission) : undefined;
+      if (!omission || !beyond || beyond.size === 0) return false;
+      const flagged = new Set((omission.entries ?? []).map((entry) => entry.id));
+      const listed = (omission.ids ?? []).find((id) => beyond.has(id));
+      const hidden = [...beyond].find((id) => !flagged.has(id) && !(omission.ids ?? []).includes(id));
+      const id = listed ?? hidden;
+      if (id === undefined) return false;
+      if (listed !== undefined) {
+        omission.ids = omission.ids!.filter((candidate) => candidate !== id);
+        if (omission.ids.length === 0) delete omission.ids;
+      } else if ((omission.moreIds ?? 0) > 0) {
+        omission.moreIds! -= 1;
+        if (omission.moreIds === 0) delete omission.moreIds;
+      } else {
+        return false;
+      }
+      beyond.delete(id);
+      omission.count -= 1;
+      omittedIdsByContext.get(context)?.delete(id);
+      if (beyond.size === 0) omission.reasons = omission.reasons?.filter((reason) => reason !== RANKED_BEYOND_REASON);
+      if (omission.count === 0) context.omitted = context.omitted!.filter((candidate) => candidate !== omission);
+      if (context.omitted!.length === 0) delete context.omitted;
+      return true;
     };
     const dropPathEntry = (): boolean => {
       const omission = context.omitted?.find((candidate) => candidate.section === "relevant.knowledge");
@@ -960,7 +997,12 @@ export class ContextRecallService {
     let trimmed = false;
     while (
       responseLength() > limit &&
-      (trimNext() || shortenNext() || trimRelevant() || shortenPathTitles() || dropPathEntry())
+      (trimNext() ||
+        shortenNext() ||
+        shortenPathTitles() ||
+        dropPathEntry() ||
+        forgetBeyondLimitPointer() ||
+        trimRelevant())
     ) {
       trimmed = true;
     }

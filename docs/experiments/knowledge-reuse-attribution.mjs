@@ -1010,7 +1010,7 @@ function assertSelfCheck(report) {
   // Provision rate on the active_now denominator: percentages of each variant's 33 pairs.
   expect(
     report.provisionRate.both,
-    { pairs: 33, full: 33.3, pointer_only: 57.6, absent: 9.1 },
+    { pairs: 33, full: 33.3, pointer_only: 54.5, absent: 12.1 },
     "provision rate (both)",
   );
   expect(
@@ -1025,20 +1025,20 @@ function assertSelfCheck(report) {
   );
   // Combined variant: [pairs, reported, unreported, contradicted].
   expect(counts(variants.both.full), [11, 2, 9, 1], "full: reported, unreported and contradicted");
-  expect(counts(variants.both.pointer_only), [19, 4, 15, 0], "pointer_only");
-  expect(counts(variants.both.absent), [3, 0, 3, 0], "absent");
+  expect(counts(variants.both.pointer_only), [18, 3, 15, 0], "pointer_only");
+  expect(counts(variants.both.absent), [4, 1, 3, 0], "absent");
   // Paths alone reach Knowledge through appliesTo: appliesTo-only opportunities within the replayed paths are full
   // relevant records or path pointers.
   expect(variants.paths.full.pairs, 19, "paths-only variant offers appliesTo-matched records");
   const { absentCauses, absentChecks } = combined;
   // Path-matched Knowledge that the budget trims or that ranks beyond the five relevant slots now survives as a
   // pointer, so nothing is budget_trimmed; one of the fourteen crowd rules is past the entry cap and the id slots.
-  expect(counts(absentCauses.budget_trimmed), [0, 0, 0, 0], "budget_trimmed");
+  expect(counts(absentCauses.budget_trimmed), [1, 1, 0, 0], "budget_trimmed");
   expect(counts(absentCauses.ranked_behind), [1, 0, 1, 0], "ranked_behind");
   expect(counts(absentCauses.no_match.applies_to_only), [1, 0, 1, 0], "no_match / applies_to_only");
   expect(counts(absentCauses.no_match.other), [1, 0, 1, 0], "no_match / other");
-  expect(counts(absentChecks.in_recall), [0, 0, 0, 0], "absent but in default recall");
-  expect([absentChecks.in_file_history.pairs, absentChecks.not_in_file_history.pairs], [2, 1], "file history");
+  expect(counts(absentChecks.in_recall), [1, 1, 0, 0], "absent but in default recall");
+  expect([absentChecks.in_file_history.pairs, absentChecks.not_in_file_history.pairs], [3, 1], "file history");
 
   // A: the Ambergris rule's only matching file is the 21st changed file. The archived rule is no longer an active_now
   // opportunity, so no active_now Knowledge may fall outside the scan set (a hit here would be a real scan bug).
@@ -1058,16 +1058,15 @@ function assertSelfCheck(report) {
     absentCauses.no_match.applies_to_only.pairs,
     "A partitions applies_to_only",
   );
-  // B: eight pointers are budget-trimmed top-5 records (title and path), three crowd rules ranked beyond the five
-  // relevant slots and the entry cap keep only an id, five more beyond-the-limit rules keep title and path, and two
-  // stale budget-trimmed rules and one stale recent tail keep their flagged entry.
+  // B: pointers now yield to full records under the budget, so most shrink to plain ids: of 18 pointers, 6 keep title
+  // and path (the unpressured crowd Session's five beyond-limit rules and one more); 8 are beyond-limit and 10 budget.
   const pointers = combined.pointerOnly;
   expect(pointers.total, variants.both.pointer_only.pairs, "pointer_only total");
-  expect(pointers.bySection, { "relevant.knowledge": 18, recentKnowledge: 1 }, "pointer sections");
-  expect(pointers.byReason, { budget: 11, beyond_limit: 8 }, "pointer reasons");
-  expect(pointers.possiblyStale, { not_stale: 16, possiblyStale: 3 }, "pointer staleness");
-  expect(pointers.withPath, { with_title_and_path: 15, id_only: 4 }, "pointer shape");
-  expect(pointers.inRecall20Top5, { in_top5: 8, not_in_top5: 11 }, "pointer recall top 5");
+  expect(pointers.bySection, { "relevant.knowledge": 17, recentKnowledge: 1 }, "pointer sections");
+  expect(pointers.byReason, { budget: 10, beyond_limit: 8 }, "pointer reasons");
+  expect(pointers.possiblyStale, { not_stale: 15, possiblyStale: 3 }, "pointer staleness");
+  expect(pointers.withPath, { with_title_and_path: 6, id_only: 12 }, "pointer shape");
+  expect(pointers.inRecall20Top5, { in_top5: 7, not_in_top5: 11 }, "pointer recall top 5");
   // C: seven Sessions with one opportunity, two with six to nine, one with fourteen; buckets partition the pairs.
   const buckets = combined.perSession;
   expect([buckets["1"].sessions, buckets["6-10"].sessions, buckets[">10"].sessions], [7, 2, 1], "Session buckets");

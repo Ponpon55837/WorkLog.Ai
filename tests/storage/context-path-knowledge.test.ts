@@ -107,7 +107,8 @@ describe("work_get_context path-matched Knowledge pointers", () => {
     expect(context.relevant?.knowledge.length).toBeGreaterThanOrEqual(1);
     const omission = context.omitted?.find((candidate) => candidate.section === "relevant.knowledge");
     const withPath = (omission?.entries ?? []).filter((entry) => entry.path !== undefined);
-    expect(withPath.length).toBeGreaterThanOrEqual(1);
+    // Pointers yield to full records under pressure, so title and path may be shortened or dropped; the flagged
+    // entry with its id always stays.
     expect(withPath.length).toBeLessThanOrEqual(5);
     for (const entry of withPath) {
       expect(entry).toMatchObject({ path: "src/hive/**", possiblyStale: true });
@@ -115,7 +116,9 @@ describe("work_get_context path-matched Knowledge pointers", () => {
     }
     // No path-matched record is lost to moreIds while the cap has room, and none is counted twice.
     expect(omission?.moreIds ?? 0).toBe(0);
-    expect(omission?.readWith).toBe("work_get_file_history/work_search_knowledge");
+    expect(omission?.readWith).toBe(
+      withPath.length > 0 ? "work_get_file_history/work_search_knowledge" : "work_search_knowledge",
+    );
     const named = namedKnowledgeIds(context).filter((id) => ids.includes(id));
     expect(new Set(named).size).toBe(named.length);
     expect(new Set(named)).toEqual(new Set(ids));
@@ -164,6 +167,24 @@ describe("work_get_context path-matched Knowledge pointers", () => {
     expect((omission?.ids ?? []).length).toBeLessThanOrEqual(3);
     const named = namedKnowledgeIds(context).filter((id) => ids.includes(id));
     expect(new Set(named).size).toBe(named.length);
+  });
+
+  it("pops full relevant records only after the pointers have been reduced", () => {
+    const { store, root, ids } = crowdedHive(14, false);
+    const focus = { task: "adjust drone comb layout", paths: ["src/hive/drone.ts"] };
+    const context = contextOf(store, root, focus);
+    const shown = context.relevant?.knowledge ?? [];
+    const omission = context.omitted?.find((candidate) => candidate.section === "relevant.knowledge");
+    const pointers = (omission?.entries ?? []).filter((entry) => entry.path !== undefined);
+    // Same fixture without the path-matched pointers in play (no paths): the five relevant slots stay full here too.
+    expect(shown.length).toBe(5);
+    expect(JSON.stringify(context).length).toBeLessThanOrEqual(10_000);
+    // A trimmed record may be listed, but then no pointer for a record that was never shown may keep a long title.
+    if (shown.length < 5) {
+      for (const entry of pointers) expect((entry.title ?? "").length).toBeLessThanOrEqual(24);
+    }
+    const named = [...shown.map((item) => item.id), ...(omission?.entries ?? []).map((entry) => entry.id)];
+    expect(named.filter((id) => ids.includes(id)).length).toBeGreaterThanOrEqual(shown.length);
   });
 
   it("is unchanged without paths", () => {
