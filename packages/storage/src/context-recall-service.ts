@@ -925,7 +925,7 @@ export class ContextRecallService {
         );
         return true;
       }
-      const continued = relevant?.continuedOutstandingItems;
+      const continued = context.relevant?.continuedOutstandingItems;
       const continuedItem = continued && continued.items.length > 1 ? continued.items.pop() : undefined;
       if (continued && continuedItem) {
         continued.omitted += 1;
