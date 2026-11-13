@@ -855,7 +855,7 @@ export const updateSessionVerificationInputSchema = z.object({
   verification: verificationSchema,
 });
 
-export const updateSessionMetadataInputSchema = z.object({
+export const updateSessionMetadataInputSchemaBase = z.object({
   sessionId: z.string().trim().min(1).max(200),
   changedFiles: z
     .array(z.string().max(1_000))
@@ -877,6 +877,22 @@ export const updateSessionMetadataInputSchema = z.object({
     .describe(
       "Corrects a wrong completion time from evidence; must not be in the future or before startedAt. The change is kept as a note event on the Session.",
     ),
+  completedAtNow: z
+    .literal(true)
+    .optional()
+    .describe(
+      "The work recorded in this Session continued and has just finished: the server records its current time as completedAt. Use instead of completedAt when continuing the same Session; mutually exclusive with completedAt.",
+    ),
+});
+
+export const updateSessionMetadataInputSchema = updateSessionMetadataInputSchemaBase.superRefine((value, context) => {
+  if (value.completedAtNow && value.completedAt !== undefined) {
+    context.addIssue({
+      code: "custom",
+      path: ["completedAtNow"],
+      message: "completedAtNow and completedAt are mutually exclusive; provide only one.",
+    });
+  }
 });
 
 const voidReasonSchema = z.string().trim().min(1).max(1_000);

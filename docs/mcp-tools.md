@@ -350,7 +350,7 @@ Server instructions 只放路由規則；48 項 operation 的長說明與 schema
 
 用於既有 Session 的資料回填，不會建立新的 Session，也不會改變 `idempotencyKey`。Agent 應在完成工作後檢查實際 worktree/diff，再傳入確認過的 `changedFiles`；`verification` 可同時補回。要改檔案清單時，沒有檔案變更必須明確傳 `[]`，不能讓系統猜測；只修正時間或 verification 時可省略 `changedFiles`，已存的檔案、provenance、變更事件與「已確認」旗標維持不變（不必重送清單，也不會被清空）。`changedFilesMode` 預設為 `"replace"`；若是同一 Session 的另一個已獨立驗證 stage／commit，使用 `"merge"` 將新路徑與 provenance 與既有資料 union、dedupe。merge 只合併 Agent 明確提供的本次清單，不會讀取 Git 或自動吸收其他工作。
 
-也可以用 `startedAt`、`completedAt` 修正時間（必須有依據，不可估計）：修正 `completedAt` 或 `startedAt` 時，Session 會新增一筆 `note` 事件，記錄原值與新值（原本沒有開始時間則記為補上）；值沒有變就不寫入也不新增事件。會讓開始時間晚於完成時間的值不會套用，並在回傳的 `timestampWarnings` 中說明，而不是默默忽略。時間規則見[Session 時間](#session-時間startedatcompletedatupdatedat)。
+也可以用 `startedAt`、`completedAt` 修正時間（必須有依據，不可估計）：修正 `completedAt` 或 `startedAt` 時，Session 會新增一筆 `note` 事件，記錄原值與新值（原本沒有開始時間則記為補上）；值沒有變就不寫入也不新增事件。會讓開始時間晚於完成時間的值不會套用，並在回傳的 `timestampWarnings` 中說明，而不是默默忽略。若是在已 finalize 的同一個 Session 上繼續工作、現在已完成，改傳 `completedAtNow: true`（不要自行帶 `completedAt`；兩者互斥，同時傳入會被拒絕）：伺服器以目前時間作為 `completedAt`，驗證與 `completedAt` 相同（不得早於 `startedAt`，否則不套用並回報 `timestampWarnings`），`note` 事件的 `details` 會帶 `source: "server_clock"`，摘要為「完成時間由 X 更新為 Y（伺服器時間，工作延續）。」時間規則見[Session 時間](#session-時間startedatcompletedatupdatedat)。
 
 ```json
 {
@@ -430,7 +430,7 @@ Agent 不知道現在幾點，所以時間欄位一律不可以估計，系統�
 - `startedAt`：這一段工作實際開始的時間，也就是上一次保存之後的第一則使用者訊息。保存提醒 hook 觸發時會把這個時間寫在提醒裡：Claude Code 版從對話紀錄讀出，Codex 版在 `UserPromptSubmit` 時記錄（需要設定該 hook）。上下文壓縮時，選用的壓縮 hook 會請摘要保留這個時間，並在壓縮後把它放回上下文（見[連接 Agent](agent-setup.md#保存提醒選用)）。只有成功的保存才會開始新的一段。沒有回報時，取兩種「觀察到的事實」中較早的一個：`events` 中早於完成時間的最早 `occurredAt`，或 MCP 伺服器自己觀察到的時間——此 MCP 連線在上一次成功保存之後（或啟動之後）第一次收到帶 `projectRoot` 的 tool 呼叫的時間，只存在記憶體、依專案分開記錄、最多保留 64 個專案。伺服器觀察值只在請求沒有 `startedAt` 與 `completedAt`（補登較早工作不使用）、不晚於完成時間、且距完成不超過 7 天時採用；採用時 Session 會新增一筆 `note` 事件（`details: { field: "startedAt", source: "server_observed", tool }`），回條以 `startedAtSource` 標示來源，絕不當成 Agent 回報。失敗、略過或 idempotency conflict 的保存不會結束這一段。已知限制：Claude Desktop 等用戶端可能讓多個對話共用同一個 MCP 行程，觀察到的仍是真實的呼叫時間，但可能早於目前這段對話的開始；有 hook 或對話紀錄證據時應回報較準確的 `startedAt`。兩者都沒有就留空，UI 顯示「未回報」，不會推測；此時回條的 `startedAtFollowUp` 會請 Agent 在有依據（hook 訊息、對話時間戳、handoff）時用 `work_update_session_metadata` 補上。晚於 `completedAt` 的值不會套用，並在 `timestampWarnings` 中說明。
 - `completedAt`：完成時間。**剛完成的工作請省略**，伺服器會記錄 finalize 的時間；只有補登較早的工作、而且有依據（例如 commit 時間）時才填。報告與日期篩選以它為準。
 - **警告**（`timestampWarnings`，值仍會存入）：手填的 `completedAt` 比伺服器時間早超過 24 小時；`startedAt` 晚於 `completedAt`；開始到完成超過 7 天（通常是誤用了整段對話的開頭）。
-- **修正**：用 `work_update_session_metadata` 的 `startedAt`、`completedAt` 修正（不必帶 `changedFiles`），不必作廢再重建。修正 `completedAt` 或 `startedAt` 時，Session 會新增一筆 `note` 事件記錄原值與新值；會讓開始時間晚於完成時間的修正不會套用，並在 `timestampWarnings` 中說明。
+- **修正**：用 `work_update_session_metadata` 的 `startedAt`、`completedAt` 修正（不必帶 `changedFiles`），不必作廢再重建；若是同一 Session 延續工作後完成，傳 `completedAtNow: true` 讓伺服器記錄目前時間（與 `completedAt` 互斥，Agent 不必也不應估計時間）。修正 `completedAt` 或 `startedAt` 時，Session 會新增一筆 `note` 事件記錄原值與新值；會讓開始時間晚於完成時間的修正不會套用，並在 `timestampWarnings` 中說明。
 - `updatedAt`：完成後最後一次修改的時間。摘要、workSummary、verification、metadata、作廢／還原、附加或標示 Evidence、建立或移除關聯都會更新它；finalize 當下等於 `createdAt`。既有資料在 migration 6 以修改紀錄回填。
 
 ## `work_link_sessions`

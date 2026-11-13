@@ -379,14 +379,16 @@ export class SessionRecordService {
     const nextVerification = nextVerificationResult?.value ?? previousVerificationResult?.value;
     const timestampWarnings: string[] = [];
     let nextCompletedAt = current.completedAt;
-    if (input.completedAt && input.completedAt !== current.completedAt) {
+    const requestedCompletedAt = input.completedAtNow ? updatedAt : input.completedAt;
+    const completedAtFromServerClock = input.completedAtNow === true;
+    if (requestedCompletedAt && requestedCompletedAt !== current.completedAt) {
       const effectiveStartedAt = input.startedAt ?? current.startedAt;
-      if (effectiveStartedAt && effectiveStartedAt > input.completedAt) {
+      if (effectiveStartedAt && effectiveStartedAt > requestedCompletedAt) {
         timestampWarnings.push(
-          `completedAt ${input.completedAt} is before startedAt ${effectiveStartedAt} and was not applied.`,
+          `completedAt ${requestedCompletedAt} is before startedAt ${effectiveStartedAt} and was not applied.`,
         );
       } else {
-        nextCompletedAt = input.completedAt;
+        nextCompletedAt = requestedCompletedAt;
       }
     }
     let nextStartedAt: string | undefined;
@@ -447,8 +449,15 @@ export class SessionRecordService {
           .run(
             randomUUID(),
             input.sessionId,
-            `完成時間由 ${current.completedAt} 更正為 ${nextCompletedAt}。`,
-            JSON.stringify({ field: "completedAt", previous: current.completedAt, next: nextCompletedAt }),
+            completedAtFromServerClock
+              ? `完成時間由 ${current.completedAt} 更新為 ${nextCompletedAt}（伺服器時間，工作延續）。`
+              : `完成時間由 ${current.completedAt} 更正為 ${nextCompletedAt}。`,
+            JSON.stringify({
+              field: "completedAt",
+              previous: current.completedAt,
+              next: nextCompletedAt,
+              ...(completedAtFromServerClock ? { source: "server_clock" } : {}),
+            }),
             updatedAt,
           );
       }

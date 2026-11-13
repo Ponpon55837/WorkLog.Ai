@@ -63,6 +63,7 @@ import {
   updateKnowledgeInputSchema,
   updateKnowledgeInputSchemaBase,
   updateSessionMetadataInputSchema,
+  updateSessionMetadataInputSchemaBase,
   updateSessionSummaryInputSchema,
   updateSessionTitleInputSchema,
   updateSessionWorkSummaryInputSchema,
@@ -876,8 +877,8 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_update_session_metadata", {
     title: "Update session metadata",
     description:
-      "Backfill confirmed verification and changed-files metadata on an existing session without creating a duplicate. To change changed files, inspect the worktree/diff first and provide the confirmed changedFiles list ([] only when the work intentionally changed no files); omit changedFiles to leave the stored files, provenance, and changes untouched (for example when only correcting startedAt or completedAt). By default changedFilesMode is replace; use changedFilesMode=merge for a separately verified stage or later commit so paths and provenance are safely unioned and deduplicated. Optionally provide changedFilesProvenance and changedFileChanges. It can also correct startedAt and completedAt from evidence (never estimates): a startedAt or completedAt correction is kept as a note event on the Session, and a value that would put startedAt after completedAt is not applied and is reported in timestampWarnings. The result is a receipt, not an echo: the Session id, times, verification status, and changed-file count, plus only stored values that differ from the request. Non-tracked projects are skipped quietly.",
-    inputShape: updateSessionMetadataInputSchema.shape,
+      "Backfill confirmed verification and changed-files metadata on an existing session without creating a duplicate. To change changed files, inspect the worktree/diff first and provide the confirmed changedFiles list ([] only when the work intentionally changed no files); omit changedFiles to leave the stored files, provenance, and changes untouched (for example when only correcting startedAt or completedAt). By default changedFilesMode is replace; use changedFilesMode=merge for a separately verified stage or later commit so paths and provenance are safely unioned and deduplicated. Optionally provide changedFilesProvenance and changedFileChanges. It can also correct startedAt and completedAt from evidence (never estimates): a startedAt or completedAt correction is kept as a note event on the Session, and a value that would put startedAt after completedAt is not applied and is reported in timestampWarnings. If you continued this same Session and it has now finished, pass completedAtNow=true instead of completedAt (server time). The result is a receipt, not an echo: the Session id, times, verification status, and changed-file count, plus only stored values that differ from the request. Non-tracked projects are skipped quietly.",
+    inputShape: updateSessionMetadataInputSchemaBase.shape,
     schema: updateSessionMetadataInputSchema,
     validationNotes: [
       "A changedFileChanges entry with status=renamed must include previousPath.",

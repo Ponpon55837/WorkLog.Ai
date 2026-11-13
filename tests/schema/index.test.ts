@@ -230,6 +230,27 @@ describe("schema input boundaries", () => {
     ).toBe(false);
   });
 
+  it("accepts completedAtNow alone and rejects it together with completedAt", () => {
+    expect(updateSessionMetadataInputSchema.safeParse({ sessionId: "session-1", completedAtNow: true }).success).toBe(
+      true,
+    );
+    expect(updateSessionMetadataInputSchema.safeParse({ sessionId: "session-1", completedAtNow: false }).success).toBe(
+      false,
+    );
+    const both = updateSessionMetadataInputSchema.safeParse({
+      sessionId: "session-1",
+      completedAtNow: true,
+      completedAt: "2020-01-01T00:00:00.000Z",
+    });
+    expect(both.success).toBe(false);
+    expect(both.error?.issues[0]?.message).toContain("mutually exclusive");
+    expect(
+      metadataBackfillApplyInputSchema.safeParse({
+        updates: [{ sessionId: "session-1", completedAtNow: true, completedAt: "2020-01-01T00:00:00.000Z" }],
+      }).success,
+    ).toBe(false);
+  });
+
   it("accepts an optional changed-file baseline when finalizing", () => {
     expect(
       finalizeSessionInputSchema.safeParse({

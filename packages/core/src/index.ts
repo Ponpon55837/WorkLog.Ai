@@ -1703,6 +1703,8 @@ export interface UpdateSessionMetadataInput {
   startedAt?: string;
   /** Corrected completion time from evidence; not applied when before startedAt. Kept as a note event. */
   completedAt?: string;
+  /** The work continued and just finished: the server clock is recorded as completedAt. Exclusive with completedAt. */
+  completedAtNow?: true;
 }
 
 export type MetadataBackfillGap = "changed_files" | "verification";

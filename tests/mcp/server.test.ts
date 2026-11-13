@@ -405,6 +405,43 @@ describe("Work Intelligence MCP server", () => {
     expect(store.getSessionById(fourth.session.id)?.changedFiles).toEqual(["src/a.ts"]);
   });
 
+  it("records server time with completedAtNow and rejects it together with completedAt", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-mcp-completed-now-"));
+    cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    const store = new WorkIntelligenceStore(":memory:");
+    cleanups.push(() => store.close());
+    const project = store.addProject("Completed now", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const server = createWorkIntelligenceMcpServer(store, "9.9.9", LATEST_SCHEMA_VERSION);
+    const client = new Client({ name: "fiction-agent-cli", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    cleanups.push(() => client.close());
+
+    const earlier = new Date(Date.now() - 3_600_000).toISOString();
+    const finalized = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "completed-now-1", "Continued"),
+      completedAt: earlier,
+    });
+    const sessionId = finalized.session.id;
+
+    const rejected = await client.callTool({
+      name: "work_update_session_metadata",
+      arguments: { sessionId, completedAtNow: true, completedAt: earlier },
+    });
+    expect(rejected.isError).toBe(true);
+    expect(store.getSessionById(sessionId)?.completedAt).toBe(earlier);
+
+    const updated = await callJson<{ outcome: string; session: { completedAt: string } }>(
+      client,
+      "work_update_session_metadata",
+      { sessionId, completedAtNow: true },
+    );
+    expect(updated.outcome).toBe("updated");
+    expect(Date.parse(updated.session.completedAt)).toBeGreaterThan(Date.parse(earlier));
+    expect(store.getSessionById(sessionId)?.completedAt).toBe(updated.session.completedAt);
+  });
+
   it("records the connecting client name and the optional model on finalize without Agent input", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-mcp-agent-source-"));
     cleanups.push(() => rmSync(root, { recursive: true, force: true }));
