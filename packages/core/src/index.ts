@@ -963,6 +963,15 @@ export interface AgentKnowledgeQueryResult extends KnowledgeQueryResult {
   /** Matches in the statuses this search did not cover, counted the same way; counts only, never content. */
   otherStatusMatches?: Partial<Record<KnowledgeStatus, number>>;
   /**
+   * Per other status, how many records contain every word of the effective query: passing that status answers with
+   * them as a strict match. A status absent here but present in otherStatusMatches has only partial matches.
+   */
+  otherStatusFullMatches?: Partial<Record<KnowledgeStatus, number>>;
+  /** Present only when the strict search cut the query (word cap); the exact words every count and re-query used. */
+  effectiveQuery?: string;
+  /** The relaxed search used only part of the query's terms or path-like words (caps), so matchedTerms are partial. */
+  queryTruncated?: true;
+  /**
    * The relaxed search's appliesTo match budget or its path-scan budget ran out (only crafted stored patterns or
    * very long histories reach them), or a stored list above the load bound was skipped, so older Knowledge was not
    * checked against the path words of the query.
