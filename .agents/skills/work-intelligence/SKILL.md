@@ -12,7 +12,7 @@ Use this skill whenever a user asks to save or correct a Work Intelligence work 
 ## Privacy and project policy
 
 - Project recording is explicit opt-in and default-deny. A project must be `tracked` before any project-scoped source, handoff, Git/worktree, or evidence inspection or write.
-- Before reading project files outside MCP, call `work_get_context` once with `projectRoot`, plus the task and the files you plan to touch as `paths` (Knowledge written for those files, even a possiblyStale one, is matched through `paths`): one call returns `tracked` and `projectStatus` with the context, so do not also call `work_get_project_status` (use that only for a status check without context). If `tracked` is not `true`, the result is `outcome: "skipped"`, or tracking cannot be confirmed, stop without inspecting or writing project data. Do not scan for handoffs or Git metadata first.
+- Before reading project files outside MCP, call `work_get_context` once with `projectRoot`, plus the task and the files you plan to touch as `paths`: one call returns `tracked` and `projectStatus` with the context, so do not also call `work_get_project_status` (use that only for a status check without context). If `tracked` is not `true`, the result is `outcome: "skipped"`, or tracking cannot be confirmed, stop without inspecting or writing project data. Do not scan for handoffs or Git metadata first.
 - `unregistered`, `paused`, and `ignored` are quiet skips. Do not create a Session, event, snapshot, metadata, evidence, Knowledge, or report source from them. Ask the user to enable tracking only when needed to explain why no record was made.
 - When the user says something must not be stored, wrap it in `<private>…</private>` in any text you write, always with the closing tag; the block is removed before storage, and an unclosed tag is stored as written.
 - Never put secrets, tokens, or personal data in a record, a diagram, or Knowledge; sensitive values that slip through are masked before storage.
@@ -77,7 +77,6 @@ Keep the existing planning → execution → verification → closing-handoff wo
 
 - To find a specific Session (for example before correcting it), recall or list Sessions within the tracked project and then read that one Session in full; do not guess a sessionId. Pending report and metadata requests also appear in the context result.
 - Never create a replacement Session just to fix its text or metadata; read the repair guide first.
-- Record or update Knowledge only when the user asks or when the MCP workflow explicitly calls for it, and only with reusable, source-supported facts; read the knowledge guide first.
-- When a project context carries `pendingRequests.knowledgeBacklog` (uncovered Sessions, many with confirmed decisions, recovered verification, or later work built on them), mention it to the user at most once in the conversation as an offer to organize Knowledge candidates. Do not create a request unless the user asks; a failed request in `pendingRequests.knowledgeCandidates` is resumed, not replaced. Read the knowledge guide before acting.
+- Record or update Knowledge only when the user asks or when the MCP workflow explicitly calls for it, and only with reusable, source-supported facts; read the knowledge guide first (also for `pendingRequests.knowledgeBacklog`).
 
 When responding, summarize what was saved or corrected, report verification and remaining gaps accurately, and keep internal MCP mechanics out of the user-facing instructions.
