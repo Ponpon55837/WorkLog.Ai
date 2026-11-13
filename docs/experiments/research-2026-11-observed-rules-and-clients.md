@@ -15,15 +15,17 @@
 
 ### 主題 B（用戶端落差）
 
-1. **hook 能力差異巨大，且只有 Claude Code 實機驗證過。** 我用 `claude` CLI 實測確認了 Claude Code 2.1.323 的 clientInfo、hook payload 欄位、同行程多對話、以及「structuredContent 覆蓋 content」行為；Codex 與 Gemini 以原始碼為準、未實機驗證；Claude Desktop 等無 hook 用戶端只能靠 MCP 協定本身。
-2. **「最低保證」只能建立在 MCP 協定本身**（握手 clientInfo、工具回應、伺服器時鐘、專案目錄的 Git），因為那是所有用戶端都有的；**hook 是「加值層」**，只在 Claude Code／Codex／Gemini 等有 hook 的 CLI 上提供更精準的開始時間、模型名等。
-3. **一個已存在但脆弱的相容性假設**：Claude Code 與 Codex 在工具同時回傳 `content.text` 與 `structuredContent` 時，模型只看到 `structuredContent`。WorkLog 的 `textResult()` 目前把整個 receipt 展開進 `structuredContent`，所以 follow-up 仍能到達——正確，但屬隱性相容，應納入自檢。
+適配範圍＝Claude Code、Claude Desktop、Codex；其他用戶端只放附表供參考。
+
+1. **三個適配對象的能力差在 hook 與可查證程度。** Claude Code 2.1.323 已用 `claude` CLI 實測（clientInfo、hook payload、同行程多對話、只把 structuredContent 給模型）；Codex 以原始碼為準、未實機；Claude Desktop 依官方文件：hook 只能透過 plugin（Chat 對話自 1.52386.0 起），structuredContent 取捨與 instructions 是否注入未能查證。
+2. **「最低保證」只能建立在 MCP 協定本身**（工具回應、伺服器時鐘、專案目錄的 Git），hook 是加值層。規格 2026-07-28 明文反對依 clientInfo 分支行為，也明文說 stdio 行程不是對話。
+3. **雙軌回傳要用測試固定。** Claude Code、Codex 只把 structuredContent 給模型；稽核發現兩處 structuredContent 與 text 不一致（`session_unchanged` 少 title/projectId；finalize `skipped`／`idempotency_conflict` 被注入誤導的預設值），見 B-7。原本建議的用戶端 doctor 降為不建議（B-5）。
 
 ### 最值得先做的三件事（依對「越用越好用」的貢獻排序）
 
 1. **修 `readGitMetadata`／`observeHeadCommit` 改用 `git rev-parse`，並讓伺服器在 finalize 核對 Git branch/commit 與 changedFiles（不覆蓋、只標來源與警告）。** 事實型、零語意、真實資料顯示缺漏與格式錯誤率最高，且能連帶鞏固整合分支已做的 changedFileChanges 觀察。先沉澱得準，再利用才準。
 2. **把 finalize 合約拆成「每次必讀核心」＋「回條帶出的規則」，並把已可由伺服器觀察的欄位（startedAt、git、baseline）降為選填 override。** 直接縮短固定閱讀、替未來新規則騰出預算，是「越用越省、越用越好用」的結構性改善。
-3. **做一個使用者可自行執行的用戶端相容性自檢（doctor），以 MCP 協定層探測 clientInfo／structuredContent 處理／resources／instructions 支援，標出該用戶端落在「最低保證」或「加值層」。** 讓落差可見、可回報，支撐「持續修正」。
+3. **修 structuredContent 的兩個落差，並把「structuredContent 是完整結果」寫成 MCP 測試斷言。** Claude Code 與 Codex 只讀 structuredContent，回條裡的 follow-up 與識別欄位一旦漏在 structuredContent 外，Agent 就看不到，「持續修正」的提示就斷了（B-7）。
 
 ---
 
@@ -103,7 +105,7 @@ provenance 來源分布（session_has_*）顯示 `agent` 為壓倒性多數、`g
   - Claude Code 通用 hook payload **沒有 model**，只有 SessionStart 選填 `model`、Pre/PostModelSwitch 有 `from/to_model`。
   - Codex 的 tool/session/prompt hook payload schema **都有 `model`（required）**。
   - Gemini 只在 BeforeModel/AfterModel 的 `llm_request.model`。
-  - Claude Desktop 等**無 hook**，完全拿不到。
+  - Claude Desktop 只有裝了帶 hooks 的 plugin 才有 hook，且同 Claude Code schema，共同欄位沒有 model；沒有 plugin 時完全拿不到。
 - **transcript 有確切 model**：我實測 Claude Code transcript 每則 assistant 訊息 `message.model = claude-haiku-5-5`。但 repo 目前不讀 transcript 的 model，且 MCP server 與 hook 是不同程序、MCP 無 conversation id，marker 交接會落入「以專案為 key」的多對話混淆。
 - **結論**：伺服器無法在 MCP 層直接填 agentModel。可行路徑都經 hook／transcript，且只對有 hook 的用戶端有效。建議：(a) 先保存 `clientInfo.version`（零成本）；(b) 若採 hook/transcript model，另存 `agent_model_source`（observed/reported）以便量測；(c) schema 可加形狀檢查擋掉「I am Claude」這類自然語句；(d) 不建議用 MCP sampling（多一次 LLM 呼叫＋核准，且回報的是 client 挑的 model）。風險與不確定性最高，排在 Git 類之後。
 
@@ -172,78 +174,112 @@ b+c+d 合計約 12,400 字理論上可移出固定閱讀。兩個結構性縮減
 
 ## 主題 B
 
+適配範圍（使用者 2026-11-13 定案）：**Claude Code、Claude Desktop、Codex**。Cursor、VS Code Copilot、Windsurf（現 Devin）、Gemini CLI 不在適配範圍，下面只放在「僅供參考」附表，不據以提建議。
+
 ### B-1 問題大小
 
-hook 只在 Claude Code 指令列工具上實機驗證過。本研究以公開文件、原始碼，加上我在本容器用 `claude` CLI 的實測補上 Claude Code 的一手證據；Codex／Gemini 以原始碼為準、標明未實機；Claude Desktop 等無 hook 用戶端只能靠 MCP 協定。沒有 `codex` CLI，故 Codex 的實機行為（apply_patch 失敗 payload、同行程多對話）如實標為未驗證。
+三個適配對象中，只有 Claude Code 在本容器實機驗證過（`claude` CLI 2.1.323）。Codex 只讀原始碼，本容器沒有 `codex` CLI，實機行為照實標為未驗證。Claude Desktop 是封閉原始碼，依官方文件判斷；文件沒寫的照實標「未能查證」。
 
-### B-2 用戶端能力對照表
+### B-2 適配用戶端能力對照表
 
-強制標記：[實測]=我在本容器實跑；[源碼]=讀原始碼；[文件]=官方文件；[查不到]。
+標記：[實測]＝我在本容器實跑；[源碼]＝讀原始碼；[文件]＝官方文件；[未能查證]＝公開資料查不到。
 
-| 項目 | Claude Code 2.1.323 | Codex CLI（@69231e11） | Gemini CLI（@b9776560） | Claude Desktop / Cursor / VS Code Copilot / Windsurf |
-|---|---|---|---|---|
-| tool hook（Pre/Post） | [文件][實測] 有，MCP 工具會觸發，payload 有 `mcp_server` | [源碼] 有（PreToolUse/PostToolUse），MCP 觸發 | [源碼] BeforeTool/AfterTool（名稱不同），MCP 觸發 | 待 B2（見下「待補」） |
-| UserPromptSubmit/SessionStart 注入 context | [文件][實測] 可（additionalContext） | [源碼] 可 | [源碼] BeforeAgent/SessionStart 可 | 待補 |
-| payload 有 model | [文件][實測] 通用無；SessionStart 選填、Pre/PostModelSwitch 有 from/to | [源碼] tool/session/prompt 皆有（required） | [源碼] 只 BeforeModel/AfterModel | 待補 |
-| MCP clientInfo.name | [實測] `claude-code`（title "Claude Code", version 2.1.323, 另有 description/websiteUrl） | [源碼] `codex-mcp-client`（title "Codex", version CARGO_PKG_VERSION） | [源碼] `gemini-cli-mcp-client` | 待補 |
-| 宣告 capabilities | [實測] roots(listChanged) + elicitation(form,url) | [源碼] elicitation；無 roots/sampling | [源碼] roots(listChanged)；無 elicitation/sampling | 待補 |
-| tool result 送模型 | [實測] 同時有 content.text 與 structuredContent 時**只送 structuredContent**（text 被丟） | [源碼] 同上，只送 structuredContent | [源碼] 只送 content，不送 structuredContent | 待補 |
-| server `instructions` 注入 | [實測] 有注入模型（讀得到 instructions 的 secret word）；[文件] >4096 字截斷 | [源碼] 放 tool namespace 描述（非獨立 system 段） | [源碼][文件] 附加到 project memory（僅可信目錄） | 待補 |
-| resources（list/read/subscribe） | [文件] @ 引用＋自動工具；subscribe 查不到 | [源碼] 三個 resource 工具；subscribe 未見 | [源碼][文件] @ 引用＋read 工具；subscribe 未見 | 待補 |
-| elicitation | [文件][實測宣告] 支援（form/url） | [源碼] 支援 | [源碼] 不支援 | 待補 |
-| progress / logging 通知 | [文件] progress 重置 idle timeout；logging 查不到 | [源碼] 皆寫 log | [源碼] progress 有 handler；logging 無 | 待補 |
-| roots | [文件][實測宣告] 支援 | [源碼] 未宣告 | [源碼] 支援 | 待補 |
-| 同行程多對話 | [查不到文件]；[實測] 子代理（Agent 工具）與父對話**共用同一 MCP 行程**（同 pid、同 session_id、同 transcript_path） | [源碼] 2026-07-28 的本機 stdio 由 process 層級 pool 跨 chat 共享；舊協定每 chat 私有（未實機） | [源碼] 每個 Config 一套（推斷每行程一套） | 待補（Claude Desktop 已知在 app 啟動時起 server 並跨對話共用，待 B2 源碼確認） |
+| 項目 | Claude Code 2.1.323 | Codex CLI（@69231e11） | Claude Desktop（Chat／Cowork；Code 分頁即 Claude Code） |
+|---|---|---|---|
+| tool hook（Pre/Post） | [文件][實測] 有，MCP 工具會觸發，payload 有 `mcp_server` | [源碼] 有（PreToolUse/PostToolUse），MCP 會觸發 | [文件] 有，但**只透過 plugin 或 Claude Code managed settings**：Chat 對話自 1.52386.0 起跑 plugin hooks；Cowork 也跑；採 Claude Code hooks schema，MCP 工具以 `mcp__<server>__<tool>` 比對，另有 `Elicitation`／`ElicitationResult` 事件 |
+| UserPromptSubmit/SessionStart 注入 context | [文件][實測] 可（additionalContext） | [源碼] 可 | [文件] 可（`hookSpecificOutput.additionalContext`，同 Claude Code schema） |
+| hook payload 有 model | [文件][實測] 共同欄位沒有；SessionStart 選填、Pre/PostModelSwitch 有 from/to | [源碼] tool/session/prompt 皆有（required） | [文件] 同 Claude Code schema：共同欄位沒有，只有 SessionStart 可能有 → 實際是否帶值 [未能查證] |
+| 能否取得開始時間 | [實測] hook 執行時間可當開始時間；payload 本身沒有 timestamp | [源碼] 同左（hook 執行時刻） | [文件] 有 hook 時同左；沒裝 plugin 時只剩伺服器觀察的第一次工具呼叫時間 |
+| MCP clientInfo.name | [實測] `claude-code`（title "Claude Code", version 2.1.323） | [源碼] `codex-mcp-client`（title "Codex"） | [未能查證]（封閉原始碼，文件未載） |
+| 宣告 capabilities | [實測] roots(listChanged) + elicitation(form,url) | [源碼] elicitation；無 roots/sampling | [文件] 不支援 sampling、resource subscriptions、「advanced or draft capabilities」；roots／elicitation [未能查證] |
+| tool result 送模型 | [實測] 同時有 content.text 與 structuredContent 時**只送 structuredContent**（text 被丟） | [源碼] 同上，只送 structuredContent | [未能查證]（文件只列「Text and image-based tool results」，沒說兩者並存時取哪個） |
+| server `instructions` 注入 | [實測] 有注入；[文件] >4096 字截斷 | [源碼] 放進 tool namespace 描述 | [未能查證] |
+| resources（list/read/subscribe） | [文件] @ 引用＋自動工具；subscribe 查不到 | [源碼] 三個 resource 工具；subscribe 未見 | [文件] 支援 resources（text＋binary）、prompts、MCP Apps；**明文不支援 subscriptions** |
+| elicitation | [文件][實測宣告] 支援（form/url） | [源碼] 支援 | [未能查證]（hooks schema 有 Elicitation 事件，但 connector 文件沒有把 elicitation 列進支援清單） |
+| plugin／skill | [文件] 支援 plugin（含 skills、hooks、`.mcp.json`）與 skills | [未能查證]（本研究未查 Codex 的 plugin／skill 機制） | [文件] 支援 plugin、skills、connector；格式與 Claude Code 共用 marketplace；`org-plugins/` 目錄的 plugin 在 Code 分頁不載入 skills/hooks |
+| 同行程多對話 | [實測] 子代理與父對話**共用同一 MCP 行程**（同 pid、同 session_id） | [源碼] 2026-07-28 本機 stdio 由 process 層級 pool 跨 chat 共享（未實機） | [文件，間接] 本機 server 在 App 啟動時拉起、所有對話可用 → 推斷跨對話共用；明文 [未能查證] |
+
+Claude Desktop 來源：claude.com/docs/connectors/building.md（支援能力清單）、claude.com/docs/third-party/claude-desktop/extensions.md（plugin、skills、hooks 執行位置與版本）、code.claude.com/docs/en/hooks.md（hooks schema）、support.claude.com 的 local MCP server 入門文章（App 重啟才載入 server）。注意 extensions.md 是第三方部署版文件，但該頁明說功能「as standard Claude Desktop does」。
 
 我的實測細節（Claude Code 2.1.323，`claude -p`，stdio 原始 JSON-RPC 探測 server）：
 
 - 第一則訊息為 `server/discover`，`_meta` 帶 `io.modelcontextprotocol/protocolVersion: 2026-07-28`、`clientInfo{name:claude-code, title, version:2.1.323, description, websiteUrl}`、`clientCapabilities{roots.listChanged, elicitation{form,url}}`；隨後 `initialize` protocolVersion `2025-11-25`。
-- `tools/call` 的 `params._meta = {claudecode/toolUseId, progressToken}`；此 `toolUseId` == hook 的 `tool_use_id` == transcript assistant 的 `tool_use` id（三者一致，可用於跨 hook／transcript／MCP 關聯同一次呼叫，但仍無 conversation id 把 MCP 連線對應到 hook 的 session_id）。
+- `tools/call` 的 `params._meta = {claudecode/toolUseId, progressToken}`；此 `toolUseId` == hook 的 `tool_use_id` == transcript assistant 的 `tool_use` id（三者一致，可跨 hook／transcript／MCP 關聯同一次呼叫，但仍沒有 conversation id 把 MCP 連線對應到 hook 的 session_id）。
 - 工具回傳 `content:[{text:"TEXT_MARKER_A"}]` ＋ `structuredContent:{marker:"STRUCT_MARKER_B"}`：模型只看到 `{"marker":"STRUCT_MARKER_B"}`（transcript tool_result 與 PostToolUse tool_response 也只有 structuredContent）。
 - server `instructions` 的 secret word 被模型讀到（確認 instructions 會注入）。
 - hook payload 欄位：SessionStart{cwd, hook_event_name, scratchpad_dir, session_id, source, transcript_path}；UserPromptSubmit（＋prompt, prompt_id, permission_mode）；PreToolUse（＋effort, mcp_server, tool_input, tool_name, tool_use_id）；PostToolUse（＋duration_ms, tool_response）；Stop（＋last_assistant_message）。**無 `model`**。
-- transcript JSONL 每則 assistant `message.model = claude-haiku-5-5`（確切 id）。
+- transcript JSONL 每則 assistant `message.model` 有確切模型 id。
 - 子代理 MCP 呼叫走**同一 MCP 行程**（同 pid）、同 hook session_id、同父 transcript_path；PreToolUse 另帶 `agent_id`＋`agent_type`。
+
+#### 僅供參考（不在適配範圍）
+
+| 用戶端 | 要點 | 來源 |
+|---|---|---|
+| Gemini CLI | [源碼] BeforeTool/AfterTool hook；tool result **只送 content、不送 structuredContent**；不支援 elicitation | 原始碼 @b9776560 |
+| VS Code Copilot | [源碼] 有 structuredContent 時只送 `JSON.stringify(structuredContent)`、丟 text；`tools/call` `_meta` 帶私有 `vscode.conversationId`；hooks 無 MCP 專屬事件、無 model | vscode `mcpLanguageModelToolContribution.ts`、`mcpServer.ts` |
+| Cursor | [文件] `beforeMCPExecution`／`afterMCPExecution`，payload 有 `conversation_id`、`model`；structuredContent 處理未能查證 | cursor.com/docs/hooks.md |
+| Windsurf（現 Devin） | [文件] 文件已改導 docs.devin.ai；hook 事件改名為 PreToolUse 等；structuredContent 處理未能查證 | docs.devin.ai |
 
 ### B-3 沒有 hook 時，只靠 MCP 協定能補到什麼
 
-- **用戶端身分**：`initialize` 的 `clientInfo{name, version}` 與協商的 protocolVersion（可據此做版本閘控）。這是唯一所有用戶端都有的識別。
-- **開始/結束時間**：伺服器時鐘 + `SegmentObserver`（第一次非 finalize 呼叫）——不需 hook。精度是「第一次工具呼叫」而非「第一則使用者訊息」，偏晚。
+MCP 規格最新版是 **2026-07-28**（破壞性改版：取消 `initialize` 握手，版本、身分、能力改為每個 request 的 `_meta` 攜帶；roots 與 sampling 標為 deprecated）。對 WorkLog 有用的結論：
+
+- **用戶端身分**：`clientInfo{name, version}` 可記錄，但規格明文「SHOULD NOT use them to change the behavior」，只能拿來顯示與統計，**不能依名稱分支行為**；要分支請看 `clientCapabilities`（2026-07-28 起每個 request 必填）。
+- **開始／結束時間**：伺服器時鐘＋`SegmentObserver`（第一次非 finalize 呼叫），不需 hook。精度是「第一次工具呼叫」而非「第一則使用者訊息」，偏晚。
 - **Git 事實**：伺服器讀專案根 Git（branch/commit/status/diff），與用戶端無關。
-- **缺漏補救**：工具回應可帶 follow-up（受「structuredContent 覆蓋 content」限制，須把 follow-up 放進 structuredContent 或純文字其一，見 B-4）。
-- **elicitation**：對支援的用戶端（Claude Code/Codex）可在缺關鍵欄位時向使用者/Agent 索取；Gemini 不支援，需退回 follow-up。
-- **resource 訂閱／progress／logging**：支援不一，不能當最低保證。
-- **拿不到的**：model（除 hook/transcript）；conversation id（stdio 無；只有 streamable HTTP 有 `Mcp-Session-Id`，待 B2 MCP 規格確認）；因此「同行程多對話」的切分在無 hook 時無解，只能用 `SegmentObserver` 的專案根 key＋時間上限（7 天）緩解。
+- **缺漏補救**：工具回應帶 follow-up。規格的向後相容條款原文：「For backwards compatibility, a tool that returns structured content SHOULD also return the serialized JSON in a TextContent block.」三個適配對象中 Claude Code、Codex 已確認只把 structuredContent 給模型，所以 **follow-up 必須在 structuredContent 裡**（見 B-7）。
+- **elicitation**：Claude Code、Codex 支援；Claude Desktop 未能查證 → 不能當最低保證。
+- **server `instructions`**：規格是 MAY，Claude Code 有注入、Codex 放進工具描述、Claude Desktop 未能查證 → 重要約束仍要寫在工具描述與回條裡。
+- **拿不到的**：model（只能靠 hook／transcript）；conversation id（stdio 從來沒有；2026-07-28 更明文「a server must not treat connection or process identity as a proxy for conversation or session continuity」）。所以「同行程多對話」在無 hook 時無解，只能用 `SegmentObserver` 的專案根 key＋時間上限緩解。
 
 ### B-4 最低保證與加值層（主題 B 第 3 題）
 
-- **最低保證（所有 MCP 用戶端，無 hook 也成立）**：
-  - 以 `clientInfo` 記錄 client 名稱與版本、協商版本。
+- **最低保證（三個適配對象都成立，不依賴 hook）**：
+  - 以 `clientInfo` 記錄 client 名稱與版本（只記錄，不分支）。
   - 寫入時 schema 驗證與伺服器檢查（tracked gate、時間擋未來、路徑不逃出專案根、idempotency）。
   - 伺服器觀察的事實：agentClient、startedAt（第一次呼叫）、completedAt（伺服器時鐘）、Git branch/commit/changedFiles 狀態。
-  - 回條（receipt）帶 follow-up；**且 follow-up 必須放進 structuredContent**（因 Claude Code/Codex 丟棄 content.text），同時保留 JSON 文字給只讀 content 的 Gemini——即雙軌回傳。WorkLog 目前 `textResult()` 已把整個 receipt 展開進 structuredContent（`result.ts`），符合此要求，應在測試中固定住。
-- **加值層（視用戶端能力）**：
-  - 有 hook 的用戶端（Claude Code/Codex/Gemini）：用 SessionStart/Stop 補生命週期、更精準的 startedAt；Codex 可由 hook 取 model。
-  - 支援 elicitation 的用戶端：缺關鍵欄位時即時索取。
-  - 支援 resources 的用戶端：合約／skill 以 resource 提供。
+  - 回條帶 follow-up，且 **structuredContent 必須是完整結果**（Claude Code、Codex 只讀它），text 保留同內容的 JSON 作規格要求的相容層。
+- **加值層**：
+  - Claude Code／Codex 的 hook：SessionStart/Stop 補生命週期與較準的 startedAt；Codex hook payload 有 model。
+  - Claude Desktop：只有在使用者或管理員裝了帶 hooks 的 plugin 時才有 hook；WorkLog 若要在 Desktop 取得 hook 加值，得走 plugin 發佈，不能假設存在。
+  - 支援 elicitation 的用戶端（Claude Code、Codex）：缺關鍵欄位時即時索取。
 
-### B-5 用戶端相容性自檢（doctor）
+### B-5 用戶端相容性自檢（doctor）：降為不建議
 
-比照 `pnpm check`／既有 `apps/server/src/doctor.ts`，設計一個使用者可自行執行的協定層自檢：
+使用者已把適配範圍收斂到三個用戶端，其中兩個（Claude Code、Codex）的關鍵行為已確認，剩下 Claude Desktop 的差異點（structuredContent 取捨、instructions）用一次性人工探測就能補，不值得做成給使用者跑的通用 doctor。改為：
 
-- 用 MCP Inspector CLI（`npx @modelcontextprotocol/inspector --cli`，Apache-2.0 過渡）或自製 stdio 探測，對目標用戶端實際連線後檢查：
-  - `initialize` 回傳的 clientInfo、協商版本、宣告的 capabilities（roots/elicitation/sampling）。
-  - 呼叫一個同時回 content.text＋structuredContent 的探針工具，判定該用戶端把哪個送給模型（決定 follow-up 要放哪）。
-  - resources list/read 是否可用、server instructions 是否注入、elicitation 是否可用。
-  - hook 是否存在（若是 CLI，檢查其 hook 設定檔）。
-- 輸出「此用戶端落在最低保證或加值層」，並標出哪些 WorkLog 欄位在此用戶端只能靠 Agent 自報（例如無 hook→agentModel 只能自報）。
-- 這同時支撐「持續修正」：把落差變成可回報的具體清單，而非埋在 prompt 規則裡。
+- 把「structuredContent 是完整結果」寫成 MCP 測試的固定斷言（見 B-7 的建議規則），由 CI 守住，不靠使用者自檢。
+- Claude Desktop 的未查證項目，若之後需要，用 B-2 所述的 marker 探測 server（回傳 TEXT／STRUCT 兩個 marker 的最小 stdio server，不入 repo）手動跑一次即可，看模型讀到哪個 marker。
 
 ### B-6 建議（做／不做／先做小實驗）
 
-- **做**：雙軌回傳固定進測試；`clientInfo.version` 保存；Git 事實觀察；doctor 自檢。
-- **先做小實驗**：(a) 在有 `codex` CLI 的環境實測 apply_patch 失敗 payload 與同行程多對話；(b) 用 elicitation 在缺 agentModel 時索取（僅支援的用戶端）。
-- **不做**：不引入向量庫／額外 LLM 服務／大型依賴（使用者明定邊界）；不用 MCP sampling 取 model；不靠 hook 當最低保證（多數用戶端沒有）。
+- **做**：
+  1. 修 B-7 的兩個 structuredContent 落差，並把「structuredContent ⊇ text 的內容」寫成測試，固定雙軌回傳。
+  2. `clientInfo.version` 保存（只供統計）。
+  3. Git 事實由伺服器觀察（主題 A）。
+- **先做小實驗**：(a) 在有 `codex` CLI 的環境實測 apply_patch 失敗 payload 與同行程多對話；(b) 在 Claude Desktop 用 marker 探測 server 確認 structuredContent／instructions 行為；(c) 用 elicitation 在缺 agentModel 時索取（只限支援的用戶端）。
+- **不做**：通用 doctor（B-5）；依 clientInfo 名稱分支行為（規格反對）；用 MCP sampling 或 roots（已 deprecated）；把 hook 當最低保證；不引入向量庫、額外 LLM 服務、大型依賴。
+
+### B-7 各操作 text 與 structuredContent 一致性稽核（整合分支 1.6.33 候選）
+
+方法：
+
+1. 在整合分支 `claude/jolly-pascal-18ob5z`（HEAD 7dc8af1）的 worktree，用 vitest setupFiles 攔截 `Client.prototype.callTool`，跑完整 MCP 測試套件，記錄每次回應的 `content[0].text` 解析結果與 `structuredContent`，逐鍵比對（忽略值為 `undefined` 的鍵，那是 `JSON.stringify` 丟掉的，非落差）。共 380 次呼叫。
+2. 用 esbuild 打包整合分支的 MCP server，對暫存資料庫與暫存 tracked／paused 專案以原始 JSON-RPC 直接呼叫，複驗落差情境。
+3. 原計畫再用真實 `claude` CLI 讓模型回報收到的內容；**這一步被中斷，未完成**。Claude Code 只讀 structuredContent 這件事本身已在 B-2 用探測 server 實測確認，但 WorkLog 各操作在模型端的實際內容沒有實機確認。
+
+結果：
+
+| 類別 | 操作 | text vs structuredContent |
+|---|---|---|
+| 只回 text（278 次） | 所有讀取（`work_get_context`、recall、`search_knowledge`、`knowledge_page_context`、`file_history`、各 `list_*`、投影讀取 view/select）、所有錯誤（`isError`）、非 session 寫入 | 一致（沒有 structuredContent，各用戶端都讀 text） |
+| 兩者都有（102 次） | finalize `finalized`、`work_update_session_metadata`／`summary`／`title`／`work_summary`、`work_void_session`、`work_get_session`（session_detail） | 一致：structuredContent 是 text 的超集（多出 `executionStatus`、`changedFilesCount`、`verification` 摘要） |
+| **落差 1** | `work_get_session` 帶 `knownRevision` 回 `session_unchanged` | structuredContent 只有 `outcome`／`sessionId`／`revision`／`voided`，**少了 text 裡的 `session.title`、`session.projectId`**。只讀 structuredContent 的 Claude Code／Codex 看不到這兩欄 |
+| **落差 2** | finalize 回 `skipped`（專案暫停／未追蹤）與 `idempotency_conflict` | `sessionTextResult` 對非 session 結果仍注入預設值：`sessionId:null`、`executionStatus:"completed"`、`changedFilesCount:0`、`verification:null`。text 裡沒有這些；只讀 structuredContent 的用戶端會看到「已完成、0 個檔案」的誤導值 |
+
+建議統一規則：**structuredContent 要嘛是完整結果（text 的 JSON 與它逐鍵相同或為其子集），要嘛不給**；不對非 session 結果注入 Session 預設值；`session_unchanged` 保留識別欄位（title、projectId）。
+
+對回應大小的影響：用戶端只把其中一份送給模型（Claude Code／Codex 送 structuredContent），所以模型端看到的大小不變；傳輸上本來就是兩份。現有 response-size 測試若量的是 text，規則改成「structuredContent ＝完整結果」後應改量 structuredContent（或兩者取大），才量得到模型實際讀到的大小。
 
 ---
 
@@ -272,8 +308,10 @@ hook 只在 Claude Code 指令列工具上實機驗證過。本研究以公開�
 
 ## 未能查證的事項
 
-- Claude Code 的「同行程多對話」生命週期（跨 session 是否共用行程、/clear 與 resume 是否重啟）：官方文件查不到；我只實測到子代理與父對話共用同一行程。
-- Codex 的實機行為（apply_patch 失敗 payload 形狀、2026-07-28 本機 stdio 多對話共享）：無 `codex` CLI，僅原始碼推斷。
-- 以下用戶端的 hooks/MCP 細節（Claude Desktop、Cursor、VS Code Copilot agent、Windsurf）與 MCP 規格對 structuredContent 向後相容條款、`Mcp-Session-Id`、roots、elicitation 的原文：由 B2 子代理調查，完成後補入 B-2 表格「待補」欄與下節。
-- 以下 host 被網路政策擋住（DNS ENOTFOUND），相關一手來源未查證：`modelcontextprotocol.io`、`agent-trace.dev`、`ai.pydantic.dev`、`aider.chat`、`developers.openai.com/codex/hooks`、`docs.cline.bot`。借鑑對象改讀 GitHub 鏡像，規格原文待放行後補查。
+- Claude Desktop：clientInfo 字串、structuredContent 與 text 並存時送哪個給模型、server `instructions` 是否注入、elicitation 與 roots 是否支援、SessionStart hook 是否實際帶 model、本機 server 是否明文跨對話共用。封閉原始碼且官方文件沒寫。
+- 被中斷的實機確認：用真實 `claude` CLI 讓模型回報 WorkLog 各操作（finalize tracked／paused、`work_get_session`、帶 `knownRevision`）實際收到的內容，未完成。B-7 的落差由測試攔截與原始 JSON-RPC 確認，模型端實際內容未實機確認。
+- Claude Code 的「同行程多對話」生命週期（跨 session 是否共用行程、/clear 與 resume 是否重啟）：官方文件查不到；只實測到子代理與父對話共用同一行程。
+- Codex 的實機行為（apply_patch 失敗 payload 形狀、2026-07-28 本機 stdio 多對話共享）：本容器沒有 `codex` CLI，僅原始碼推斷。
 - agentModel 走 hook/transcript 的可行性，需在真實 Claude Code／Codex payload 上驗證「是否穩定帶 model」後才能採用。
+- 部分借鑑對象的一手頁面（`agent-trace.dev`、`ai.pydantic.dev`、`aider.chat`、`developers.openai.com/codex/hooks`、`docs.cline.bot`）當時被網路政策擋住，改讀 GitHub 鏡像；表中授權標「未查證」者維持原狀。
+- 網路異動紀錄：B2 子代理經使用者核可，在環境 WorkLog.Ai 的允許清單加入 `modelcontextprotocol.io`、`cursor.com`、`docs.cursor.com`、`code.visualstudio.com`、`docs.windsurf.com`、`docs.devin.ai`、`docs.github.com`。
