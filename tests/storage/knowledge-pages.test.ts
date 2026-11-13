@@ -53,7 +53,6 @@ function setup(databasePath = ":memory:") {
   return { store, root, projectRoot, otherRoot, project, finalize, tick, sections };
 }
 
-
 /** Narrows a default (non-focused) read for assertions. */
 function fullContext(result: ReturnType<WorkIntelligenceStore["getKnowledgePageContext"]>) {
   if (result.outcome !== "knowledge_page_context" || "focused" in result) {
@@ -707,7 +706,11 @@ describe("Knowledge pages", () => {
         idempotencyKey: "focused-v1",
         sections: [
           { heading: "Hive layout", content: "Queen excluders go on first.", sourceSessionIds: [a] },
-          { heading: "Winter care", content: "Insulate the lid before frost; check the mite-sweep rota.", sourceSessionIds: [b, a] },
+          {
+            heading: "Winter care",
+            content: "Insulate the lid before frost; check the mite-sweep rota.",
+            sourceSessionIds: [b, a],
+          },
           { heading: "winter care", content: "Second winter note about wrapping.", sourceSessionIds: [a] },
           { heading: "蜂箱管理", content: "每週檢查一次蜂王狀態。", sourceSessionIds: [b] },
         ],
@@ -792,7 +795,11 @@ describe("Knowledge pages", () => {
           { heading: "簽章", content: "簽章流程由維護者負責。", sourceSessionIds: [source] },
           { heading: "排程", content: "排程每晚執行。", sourceSessionIds: [source] },
           { heading: "輪替", content: "簽章輪替排程在每晚執行。", sourceSessionIds: [source] },
-          { heading: "Rights", content: "Granted rights stay with the owners of the ts config.", sourceSessionIds: [source] },
+          {
+            heading: "Rights",
+            content: "Granted rights stay with the owners of the ts config.",
+            sourceSessionIds: [source],
+          },
         ],
       });
       const names = (input: { query?: string; headings?: string[] }) => {
