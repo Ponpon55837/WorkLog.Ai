@@ -18,6 +18,7 @@ import {
   findTrackedRoot,
   isFileInTrackedRoots,
   isFinalizedPayload,
+  missingStartedAtReason,
   readTrackedRoots,
   reminderWithStart,
 } from "./finalize-reminder.js";
@@ -39,6 +40,8 @@ export interface ReminderMarkers {
   reminded: string;
   /** Holds the time the user sent the first prompt since the last successful save. */
   segment: string;
+  /** Exists once a save without startedAt was paused for this segment. */
+  preDenied: string;
 }
 
 export interface CodexReminderDeps {
@@ -72,6 +75,7 @@ function markerPaths(sessionId: string): ReminderMarkers {
     dirty: `${directory}${sep}${key}.dirty`,
     reminded: `${directory}${sep}${key}.reminded`,
     segment: `${directory}${sep}${key}.segment`,
+    preDenied: `${directory}${sep}${key}.pre-denied`,
   };
 }
 
@@ -225,21 +229,55 @@ export function trackPostToolUse(input: CodexHookInput, deps: CodexReminderDeps)
     deps.removeMarker(markers.reminded);
     // The next prompt starts a new segment.
     deps.removeMarker(markers.segment);
+    deps.removeMarker(markers.preDenied);
   }
 }
 
 /**
  * Records when the current segment began: the first prompt after the last successful save. Codex's transcript
- * format is not a stable hook interface, so the time is taken when UserPromptSubmit fires instead.
+ * format is not a stable hook interface, so the time is taken when UserPromptSubmit fires instead. Returns the
+ * notice to show the Agent when this prompt starts a new segment, so it learns the time before it saves.
  */
-export function trackUserPrompt(input: CodexHookInput, deps: CodexReminderDeps): void {
+export function trackUserPrompt(input: CodexHookInput, deps: CodexReminderDeps): string | null {
   if (!input.session_id || !input.cwd || !deps.isTrackedWorkspace(input.cwd)) {
-    return;
+    return null;
   }
   const markers = deps.markerPaths(input.session_id);
-  if (!deps.markerExists(markers.segment)) {
-    deps.writeMarker(markers.segment, deps.now().toISOString());
+  if (deps.markerExists(markers.segment)) {
+    return null;
   }
+  const startedAt = deps.now().toISOString();
+  return deps.writeMarker(markers.segment, startedAt) ? segmentStartNotice(startedAt) : null;
+}
+
+function segmentStartNotice(startedAt: string): string {
+  return `這個專案有在 Work Intelligence 記錄。這段工作的開始時間是 ${startedAt}；之後保存工作記錄時請把 startedAt 設為 ${startedAt}，completedAt 省略。`;
+}
+
+/** Pauses a finalize call that names neither startedAt nor completedAt, once per segment, with the recorded start. */
+export function denialForFinalize(input: CodexHookInput, deps: CodexReminderDeps): string | null {
+  if (
+    !input.session_id ||
+    !input.cwd ||
+    !input.tool_name ||
+    !isFinalizeToolCall(input.tool_name, input.tool_input) ||
+    !isRecord(input.tool_input)
+  ) {
+    return null;
+  }
+  const args = input.tool_name.endsWith("work_write_idempotent") ? input.tool_input.arguments : input.tool_input;
+  if (isRecord(args) && (args.startedAt !== undefined || args.completedAt !== undefined)) {
+    return null;
+  }
+  if (!deps.isTrackedWorkspace(input.cwd)) {
+    return null;
+  }
+  const markers = deps.markerPaths(input.session_id);
+  const startedAt = segmentStart(deps.readMarker(markers.segment));
+  if (!startedAt || deps.markerExists(markers.preDenied) || !deps.createMarker(markers.preDenied)) {
+    return null;
+  }
+  return missingStartedAtReason(startedAt);
 }
 
 function segmentStart(value: string | undefined): string | undefined {
@@ -310,8 +348,18 @@ export function responseForCodexHook(raw: string, deps: CodexReminderDeps = defa
     return null;
   }
   if (input.hook_event_name === "UserPromptSubmit") {
-    trackUserPrompt(input, deps);
-    return null;
+    const additionalContext = trackUserPrompt(input, deps);
+    return additionalContext
+      ? JSON.stringify({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext } })
+      : null;
+  }
+  if (input.hook_event_name === "PreToolUse") {
+    const permissionDecisionReason = denialForFinalize(input, deps);
+    return permissionDecisionReason
+      ? JSON.stringify({
+          hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason },
+        })
+      : null;
   }
   if (input.hook_event_name === "SessionStart") {
     const additionalContext = contextAfterCompaction(input, deps);

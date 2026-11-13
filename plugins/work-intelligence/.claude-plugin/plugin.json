@@ -19,6 +19,17 @@
     }
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^mcp__.*(work_finalize_session|work_write_idempotent)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/launch.mjs\" finalize-reminder"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

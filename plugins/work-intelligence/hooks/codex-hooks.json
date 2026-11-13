@@ -11,6 +11,17 @@
         ]
       }
     ],
+    "PreToolUse": [
+      {
+        "matcher": "^.*(work_finalize_session|work_write_idempotent)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/launch.mjs\" codex-finalize-reminder"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

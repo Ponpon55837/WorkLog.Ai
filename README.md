@@ -146,8 +146,8 @@ To have the Agent reminded once when it forgets to save, add the save-reminder h
 
 | Agent | Global settings file | Events | Script |
 |---|---|---|---|
-| Claude Code | `~/.claude/settings.json` | `Stop`; optional `PreCompact` + `SessionStart` (`compact`) | `apps/mcp/dist/finalize-reminder.js` |
-| Codex | `~/.codex/hooks.json` | `PostToolUse` (`apply_patch`, `work_finalize_session`) + `Stop`; optional `UserPromptSubmit` + `SessionStart` (`compact`) | `apps/mcp/dist/codex-finalize-reminder.js` |
+| Claude Code | `~/.claude/settings.json` | `Stop`; optional `PreToolUse` + `PreCompact` + `SessionStart` (`compact`) | `apps/mcp/dist/finalize-reminder.js` |
+| Codex | `~/.codex/hooks.json` | `PostToolUse` (`apply_patch`, `work_finalize_session`) + `Stop`; optional `PreToolUse` + `UserPromptSubmit` + `SessionStart` (`compact`) | `apps/mcp/dist/codex-finalize-reminder.js` |
 
 - Use the repo's absolute path and run `pnpm build` first.
 - Codex requires you to review and trust the hook under `/hooks`.

@@ -35,6 +35,8 @@ interface Fixture {
 
 const temporaryRoots: string[] = [];
 const CODEX_POST_TOOL_USE_MATCHER = "^(apply_patch|.*(work_finalize_session|work_write_idempotent))$";
+const CLAUDE_PRE_TOOL_USE_MATCHER = "^mcp__.*(work_finalize_session|work_write_idempotent)$";
+const CODEX_PRE_TOOL_USE_MATCHER = "^.*(work_finalize_session|work_write_idempotent)$";
 const LEGACY_CODEX_POST_TOOL_USE_MATCHER = "^(apply_patch|.*work_finalize_session)$";
 
 function writeJson(path: string, value: unknown): Buffer {
@@ -299,7 +301,14 @@ describe("Agent setup", () => {
         hooks: [{ type: "command", command: expect.stringContaining("finalize-reminder.js") as unknown }],
       },
     ]);
+    expect(object(claudeSettings.hooks).PreToolUse).toEqual([
+      {
+        matcher: CLAUDE_PRE_TOOL_USE_MATCHER,
+        hooks: [{ type: "command", command: expect.stringContaining("finalize-reminder.js") as unknown }],
+      },
+    ]);
     expect(plan.actions).toContain("加入 Claude PreCompact hook。");
+    expect(plan.actions).toContain("加入 Claude PreToolUse hook。");
     expect(plan.actions).toContain("加入 Codex SessionStart（compact）hook。");
 
     const codexHooks = readJson(fixture.paths.codexHooks);
@@ -309,6 +318,9 @@ describe("Agent setup", () => {
     expect(object(codexHooks.hooks).UserPromptSubmit as unknown[]).toHaveLength(1);
     expect(object(codexHooks.hooks).UserNotification as unknown[]).toHaveLength(1);
     expect((object(codexHooks.hooks).SessionStart as Array<Record<string, unknown>>)[0]?.matcher).toBe("compact");
+    expect((object(codexHooks.hooks).PreToolUse as Array<Record<string, unknown>>)[0]?.matcher).toBe(
+      CODEX_PRE_TOOL_USE_MATCHER,
+    );
     expect((object(codexHooks.hooks).PostToolUse as Array<Record<string, unknown>>)[0]?.matcher).toBe(
       CODEX_POST_TOOL_USE_MATCHER,
     );
@@ -318,7 +330,13 @@ describe("Agent setup", () => {
     expect(componentIds).toContain("codexSkill");
     expect(componentIds).toContain("codexLegacySkill");
     expect(componentIds).toContain("claudeSkill");
-    for (const id of ["claudePreCompactHook", "claudeSessionStartHook", "codexSessionStartHook"]) {
+    for (const id of [
+      "claudePreCompactHook",
+      "claudePreToolUseHook",
+      "claudeSessionStartHook",
+      "codexPreToolUseHook",
+      "codexSessionStartHook",
+    ]) {
       expect(componentIds).toContain(id);
     }
 
@@ -330,6 +348,7 @@ describe("Agent setup", () => {
     expect(applyAgentSetupPlan(createAgentSetupPlan(fixture.options, "uninstall")).applied).toBe(true);
     const restoredClaude = object(readJson(fixture.paths.claudeSettings).hooks);
     expect(restoredClaude.PreCompact).toEqual([]);
+    expect(restoredClaude.PreToolUse).toEqual([]);
     expect(restoredClaude.SessionStart).toEqual([]);
     expect(restoredClaude.Stop as unknown[]).toHaveLength(1);
     expect(object(readJson(fixture.paths.codexHooks).hooks).SessionStart).toEqual([]);
@@ -427,6 +446,7 @@ describe("Agent setup", () => {
     const claudeHooks = object(readJson(fixture.paths.claudeSettings).hooks);
     expect(claudeHooks.Stop).toEqual(object(JSON.parse(claudeSettings.toString("utf8")).hooks).Stop);
     expect(claudeHooks.PreCompact as unknown[]).toHaveLength(1);
+    expect(claudeHooks.PreToolUse as unknown[]).toHaveLength(1);
     expect((claudeHooks.SessionStart as Array<Record<string, unknown>>)[0]?.matcher).toBe("compact");
     const codexHooks = object(readJson(fixture.paths.codexHooks).hooks);
     expect(codexHooks.PostToolUse).toEqual([
@@ -441,9 +461,11 @@ describe("Agent setup", () => {
     const componentIds = (readJson(fixture.paths.manifest).components as Array<{ id: string }>).map(({ id }) => id);
     expect(componentIds.sort()).toEqual([
       "claudePreCompactHook",
+      "claudePreToolUseHook",
       "claudeSessionStartHook",
       "claudeSkill",
       "codexLegacySkill",
+      "codexPreToolUseHook",
       "codexSessionStartHook",
       "codexSkill",
     ]);
@@ -780,6 +802,7 @@ describe("Agent setup", () => {
     expect(componentIds).not.toContain("codexStopHook");
     expect(componentIds).not.toContain("codexPostToolUseHook");
     expect(componentIds).not.toContain("codexUserPromptSubmitHook");
+    expect(componentIds).not.toContain("codexPreToolUseHook");
   });
 
   it.each([

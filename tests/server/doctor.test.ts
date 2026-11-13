@@ -406,6 +406,8 @@ describe("pnpm doctor read-only checks", () => {
       codexSegmentStartConfigured: false,
       claudeCompactionConfigured: false,
       codexCompactionConfigured: false,
+      claudeStartGuardConfigured: false,
+      codexStartGuardConfigured: false,
       codexHooksFeature: "enabled",
     });
 
@@ -454,6 +456,15 @@ describe("pnpm doctor read-only checks", () => {
     claudeWithPreCompact.hooks.SessionStart = [{ matcher: "compact", hooks: claudeHandler }];
     writeFileSync(claudeSettingsPath, JSON.stringify(claudeWithPreCompact));
     expect(inspectGlobalHooks(homeDirectory, repositoryRoot).claudeCompactionConfigured).toBe(true);
+    // The start guard counts only with a PreToolUse matcher that selects the finalize dispatcher.
+    claudeWithPreCompact.hooks.PreToolUse = [{ matcher: "^Bash$", hooks: claudeHandler }];
+    writeFileSync(claudeSettingsPath, JSON.stringify(claudeWithPreCompact));
+    expect(inspectGlobalHooks(homeDirectory, repositoryRoot).claudeStartGuardConfigured).toBe(false);
+    claudeWithPreCompact.hooks.PreToolUse = [
+      { matcher: "^mcp__.*(work_finalize_session|work_write_idempotent)$", hooks: claudeHandler },
+    ];
+    writeFileSync(claudeSettingsPath, JSON.stringify(claudeWithPreCompact));
+    expect(inspectGlobalHooks(homeDirectory, repositoryRoot).claudeStartGuardConfigured).toBe(true);
     writeFileSync(claudeSettingsPath, claudeSettings);
 
     writeFileSync(
@@ -531,6 +542,8 @@ describe("pnpm doctor read-only checks", () => {
       codexSegmentStartConfigured: false,
       claudeCompactionConfigured: false,
       codexCompactionConfigured: false,
+      claudeStartGuardConfigured: false,
+      codexStartGuardConfigured: false,
       codexHooksFeature: "disabled",
     });
   });
@@ -760,7 +773,12 @@ describe("pnpm doctor read-only checks", () => {
       recommendation: expect.stringContaining("setup:agents"),
     });
 
+    expect(findings.find((finding) => finding.title === "Codex 全域 hook")?.detail).toContain("未設定 PreToolUse hook");
     claudeHooks.PreCompact = [{ hooks: claudeHandler }];
+    claudeHooks.PreToolUse = [
+      { matcher: "^mcp__.*(work_finalize_session|work_write_idempotent)$", hooks: claudeHandler },
+    ];
+    codexHooks.PreToolUse = [{ matcher: "^.*(work_finalize_session|work_write_idempotent)$", hooks: codexHandler }];
     claudeHooks.SessionStart = [{ matcher: "compact", hooks: claudeHandler }];
     codexHooks.SessionStart = [{ matcher: "compact", hooks: codexHandler }];
     write();

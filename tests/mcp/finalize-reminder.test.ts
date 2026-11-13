@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import {
   compactedSessionReminder,
   findTrackedRoot,
+  missingStartedAtReason,
   REMINDER,
   reminderFor,
   reminderWithStart,
@@ -354,6 +355,50 @@ describe("finalize reminder hook", () => {
     expect(responseForClaudeHook(hookEvent("Stop"), deps(transcript))).toBe(expected);
     expect(responseForClaudeHook(JSON.stringify(input), deps(transcript))).toBe(expected);
     expect(responseForClaudeHook(hookEvent("Stop", { stop_hook_active: true }), deps(transcript))).toBeNull();
+  });
+
+  it("pauses a finalize without startedAt once per segment, with the observed start", () => {
+    const transcript = [typed("start", "2026-09-27T01:00:00.000Z"), toolWithInput("Edit", { file_path: "/p/a.ts" })];
+    const pre = (toolName: string, toolInput: unknown, d: ReturnType<typeof deps>) =>
+      responseForClaudeHook(hookEvent("PreToolUse", { tool_name: toolName, tool_input: toolInput }), d);
+    const d = deps(transcript);
+    const expected = JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: missingStartedAtReason("2026-09-27T01:00:00.000Z"),
+      },
+    });
+
+    // Anything that is not an unqualified finalize passes through untouched.
+    expect(pre("Edit", {}, d)).toBeNull();
+    expect(pre(FINALIZE, { startedAt: "2026-09-27T00:50:00.000Z" }, d)).toBeNull();
+    expect(pre(FINALIZE, { completedAt: "2026-09-27T01:50:00.000Z" }, d)).toBeNull();
+    expect(pre(FINALIZE_DISPATCHER, { operation: "work_search", arguments: {} }, d)).toBeNull();
+    expect(
+      pre(FINALIZE_DISPATCHER, { operation: "work_finalize_session", arguments: { startedAt: "x" } }, d),
+    ).toBeNull();
+    expect(d.marked).toEqual([]);
+
+    expect(pre(FINALIZE_DISPATCHER, { operation: "work_finalize_session", arguments: {} }, d)).toBe(expected);
+    // The retry always passes, even when it still omits the time.
+    expect(pre(FINALIZE, {}, d)).toBeNull();
+    expect(d.marked).toEqual(["pre:s1:-1"]);
+
+    expect(pre(FINALIZE, {}, deps(transcript, ["/elsewhere"]))).toBeNull();
+    expect(pre(FINALIZE, {}, deps([toolWithInput("Edit", { file_path: "/p/a.ts" })]))).toBeNull();
+    expect(
+      pre(
+        FINALIZE,
+        {},
+        {
+          ...deps(transcript),
+          readTranscript: () => {
+            throw new Error("x");
+          },
+        },
+      ),
+    ).toBeNull();
   });
 
   it("matches project roots on whole path segments, case-insensitively on Windows", () => {
