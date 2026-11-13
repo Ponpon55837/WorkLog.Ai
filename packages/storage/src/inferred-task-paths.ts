@@ -1,0 +1,43 @@
+import { CHANGED_FILES_NORMAL } from "./search-repository.js";
+
+export interface InferredPathSource {
+  id: string;
+  score: number;
+  changedFiles: readonly string[];
+}
+
+export interface InferredTaskPath {
+  path: string;
+  sourceSessionIds: string[];
+}
+
+/** At most two Sessions are named per inferred path; the pointer only needs a place to start reading. */
+const SOURCE_SESSION_LIMIT = 2;
+
+/**
+ * Candidate paths for a task without paths: the files the most similar Sessions changed. Each Session adds
+ * score / sqrt(files) to every distinct file, so a focused Session counts more than a sprawling one, and a Session
+ * with no files or more than CHANGED_FILES_NORMAL files (likely a dirty worktree) adds nothing.
+ * Complexity: O(S*F + P log P) time and O(P) space for S Sessions, F files each and P distinct files; S <= 5, F <= 20.
+ */
+export function inferTaskPaths(sources: ReadonlyArray<InferredPathSource>, limit = 3): InferredTaskPath[] {
+  const candidates = new Map<string, { score: number; sourceSessionIds: string[] }>();
+  for (const source of sources) {
+    const files = [...new Set(source.changedFiles)];
+    if (files.length === 0 || files.length > CHANGED_FILES_NORMAL) continue;
+    const share = source.score / Math.sqrt(files.length);
+    for (const file of files) {
+      const candidate = candidates.get(file) ?? { score: 0, sourceSessionIds: [] };
+      candidate.score += share;
+      if (candidate.sourceSessionIds.length < SOURCE_SESSION_LIMIT) candidate.sourceSessionIds.push(source.id);
+      candidates.set(file, candidate);
+    }
+  }
+  return [...candidates]
+    .sort(
+      ([leftPath, left], [rightPath, right]) =>
+        right.score - left.score || (leftPath < rightPath ? -1 : leftPath > rightPath ? 1 : 0),
+    )
+    .slice(0, Math.max(0, limit))
+    .map(([path, { sourceSessionIds }]) => ({ path, sourceSessionIds }));
+}

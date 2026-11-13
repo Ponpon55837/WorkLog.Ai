@@ -29,6 +29,7 @@ import type {
   ProjectScopedItem,
   RecallHit,
   DateRange,
+  RecallConfidence,
   RecallInput,
   RecallQueryResult,
   RelevantContext,
@@ -55,9 +56,12 @@ import {
 } from "./digest.js";
 import type { SessionListOptions } from "./session-repository.js";
 import type { SearchRepository } from "./search-repository.js";
+import { appliesToStrength } from "./applies-to-match.js";
+import { inferTaskPaths, type InferredTaskPath } from "./inferred-task-paths.js";
 import { limitKnowledgePageReviewSections } from "./knowledge-page-service.js";
 
 const RECENT_DECISION_LIMIT = 12;
+const RECENT_KNOWLEDGE_LIMIT = 12;
 const RELEVANT_LIMIT = 5;
 /** Only the three highest-ranked Session hits can seed one-hop context supplements. */
 const CONTEXT_SUPPLEMENT_SOURCE_LIMIT = 3;
@@ -65,6 +69,8 @@ const CONTEXT_SUPPLEMENT_SOURCE_LIMIT = 3;
 const CONTEXT_SUPPLEMENT_ITEMS_PER_SOURCE = 2;
 /** Bound response overhead while allowing more than one retained source to contribute. */
 const CONTEXT_SUPPLEMENT_LIMIT = 4;
+/** Knowledge pointers a task without paths may add from paths inferred from its similar Sessions. */
+const INFERRED_KNOWLEDGE_LIMIT = 3;
 const RECALL_DEFAULT_LIMIT = 8;
 const RECALL_MAX_LIMIT = 30;
 const SEARCH_LIMIT = 20;
@@ -218,6 +224,18 @@ const omittedIdsByContext = new WeakMap<ContextResult, Set<string>>();
 
 /** Every path-matched Knowledge a focus recalled, kept beside the relevant block because it is not part of it. */
 const pathKnowledgeByRelevant = new WeakMap<RelevantContext, PathKnowledge[]>();
+/** An inferred-path Knowledge pointer of a task-only context, kept beside the relevant block until supplements are fitted. */
+interface InferredKnowledge {
+  id: string;
+  title: string;
+  path: string;
+  sourceSessionIds: string[];
+  possiblyStale?: boolean;
+  needsReview?: boolean;
+}
+
+/** Knowledge matched by paths inferred from similar Sessions; only offered as supplements that use leftover budget. */
+const inferredKnowledgeByRelevant = new WeakMap<RelevantContext, InferredKnowledge[]>();
 /** The same records by id once a context is assembled, so budget trimming can turn a dropped record into a path entry. */
 const pathKnowledgeByContext = new WeakMap<ContextResult, Map<string, PathKnowledge>>();
 /** Recall rank of each path entry in an omission, so a better-ranked record can replace the worst one at the cap. */
@@ -1259,7 +1277,72 @@ export class ContextRecallService {
         : {}),
     };
     if (pathKnowledge.length > 0) pathKnowledgeByRelevant.set(relevant, pathKnowledge);
+    if (
+      task &&
+      paths.length === 0 &&
+      projectId &&
+      this.shouldInferTaskPaths(knowledgeHits.length, recalled.confidence)
+    ) {
+      const inferred = this.inferredKnowledge(
+        inferTaskPaths(
+          sessions.map(({ hit, record }) => ({ id: record.id, score: hit.score, changedFiles: record.changedFiles })),
+        ),
+        projectId,
+        new Set(knowledgeHits.map((hit) => hit.id)),
+      );
+      if (inferred.length > 0) inferredKnowledgeByRelevant.set(relevant, inferred);
+    }
     return relevant;
+  }
+
+  /**
+   * Whether a task without paths looks for Knowledge through paths its similar Sessions changed. Initial rule: only
+   * when the page leaves room, that is fewer Knowledge hits than the relevant slots. Experiments override it per instance.
+   */
+  private shouldInferTaskPaths(knowledgeHitCount: number, _confidence: RecallConfidence): boolean {
+    return knowledgeHitCount < RELEVANT_LIMIT;
+  }
+
+  /**
+   * One ranking pass over the inferred paths and one trust batch; first-round hits and inactive records are skipped.
+   * Returns more candidates than the pointer cap because recentKnowledge ones are dropped when supplements are chosen.
+   */
+  private inferredKnowledge(
+    inferred: InferredTaskPath[],
+    projectId: string,
+    firstRoundIds: ReadonlySet<string>,
+  ): InferredKnowledge[] {
+    if (inferred.length === 0) return [];
+    const matched = this.searchIndex
+      .knowledgeForPaths(
+        inferred.map(({ path }) => path),
+        projectId,
+        // Records already shown in full under recentKnowledge are skipped when supplements are chosen, so look past them.
+        INFERRED_KNOWLEDGE_LIMIT + RECENT_KNOWLEDGE_LIMIT + firstRoundIds.size,
+      )
+      .filter((item) => !firstRoundIds.has(item.id))
+      .slice(0, INFERRED_KNOWLEDGE_LIMIT + RECENT_KNOWLEDGE_LIMIT);
+    if (matched.length === 0) return [];
+    const trusted = this.store.getKnowledgeWithTrustMany(matched.map((item) => item.id));
+    return matched.flatMap((item): InferredKnowledge[] => {
+      const record = trusted.get(item.id);
+      if (!record || record.status !== "active" || record.projectId !== projectId) return [];
+      // matchedPath is the stored reference or appliesTo pattern; name the inferred file it covers (at most 3 checks).
+      const source =
+        inferred.find(({ path }) => path === item.matchedPath) ??
+        inferred.find(({ path }) => appliesToStrength(item.matchedPath, path) > 0) ??
+        inferred[0]!;
+      return [
+        {
+          id: item.id,
+          title: item.title,
+          path: boundedPath(source.path),
+          sourceSessionIds: source.sourceSessionIds,
+          ...(record.possiblyStale ? { possiblyStale: true } : {}),
+          ...(record.review ? { needsReview: true } : {}),
+        },
+      ];
+    });
   }
 
   private contextHit(hit: RecallHit): RecallHit {
@@ -1275,7 +1358,6 @@ export class ContextRecallService {
       const record = this.store.getSessionById(hit.id);
       return record && !record.voided ? [{ hit, record }] : [];
     });
-    if (sources.length === 0) return [];
 
     const excludedIds = new Set([
       ...relevant.sessions.map((session) => session.id),
@@ -1283,10 +1365,14 @@ export class ContextRecallService {
     ]);
     for (const id of omittedIdsByContext.get(context) ?? []) excludedIds.add(id);
 
-    const appliedBySession = this.store.appliedKnowledgeIdsBySessions(sources.map(({ record }) => record.id));
-    const appliedKnowledgeIds = [...new Set([...appliedBySession.values()].flat())];
-    const appliedKnowledge = this.store.getKnowledgeWithTrustMany(appliedKnowledgeIds);
     const supplements: ContextSupplementIndicator[] = [];
+    // Without a retained source Session there is nothing one-hop to read, so the queries below are skipped; inferred
+    // pointers come from the Sessions recalled before trimming, so they still apply.
+    const appliedBySession =
+      sources.length > 0
+        ? this.store.appliedKnowledgeIdsBySessions(sources.map(({ record }) => record.id))
+        : new Map<string, string[]>();
+    const appliedKnowledge = this.store.getKnowledgeWithTrustMany([...new Set([...appliedBySession.values()].flat())]);
 
     for (const source of sources) {
       if (supplements.length >= CONTEXT_SUPPLEMENT_LIMIT) break;
@@ -1342,6 +1428,24 @@ export class ContextRecallService {
         supplements.push(candidate);
         sourceCount += 1;
       }
+    }
+
+    // Appended last, so the fitting loop drops them first and the one-hop supplements above keep their order.
+    const shownIds = new Set(context.recentKnowledge.map((knowledge) => knowledge.id));
+    let inferredCount = 0;
+    for (const item of inferredKnowledgeByRelevant.get(relevant) ?? []) {
+      if (inferredCount >= INFERRED_KNOWLEDGE_LIMIT) break;
+      if (excludedIds.has(item.id) || shownIds.has(item.id)) continue;
+      excludedIds.add(item.id);
+      supplements.push({
+        type: "knowledge",
+        id: item.id,
+        title: item.title,
+        includedBecause: { kind: "inferred_path", path: item.path, sourceSessionIds: item.sourceSessionIds },
+        ...(item.possiblyStale ? { possiblyStale: true } : {}),
+        ...(item.needsReview ? { needsReview: true } : {}),
+      });
+      inferredCount += 1;
     }
 
     return supplements;
@@ -1506,7 +1610,7 @@ export class ContextRecallService {
   }
 
   private getRecentKnowledge(projectId?: string): ProjectScopedItem<KnowledgeDigest>[] {
-    const result = this.store.searchKnowledge({ projectId, status: "active", limit: 12 });
+    const result = this.store.searchKnowledge({ projectId, status: "active", limit: RECENT_KNOWLEDGE_LIMIT });
     if (result.outcome !== "knowledge") return [];
     const digests = result.items.map((knowledge) => this.contextKnowledgeDigest(knowledge));
     return projectId ? digests.map(withoutProjectFields) : digests;

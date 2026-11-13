@@ -596,6 +596,16 @@ export class SearchRepository {
     return { chunks, fts, paths, dirty };
   }
 
+  /**
+   * The best `count` Knowledge whose appliesTo or references match any of `paths`, in one ranking pass. It does not
+   * sync the index: the caller has just recalled, which synced it (a clean index costs one query anyway).
+   */
+  public knowledgeForPaths(paths: string[], projectId: string, count: number): ExtraPathKnowledge[] {
+    if (paths.length === 0 || count <= 0) return [];
+    const { ranked } = this.rank({ paths, projectId, types: ["knowledge"], limit: count });
+    return this.extraPathKnowledgeBeyond(ranked, [], count);
+  }
+
   /** The first `count` path-matched Knowledge of the ranking that the page did not select, with one title query. */
   private extraPathKnowledgeBeyond(ranked: RankedDoc[], selected: RankedDoc[], count: number): ExtraPathKnowledge[] {
     const selectedIds = new Set(selected.map((entry) => entry.doc.id));

@@ -2739,7 +2739,8 @@ export interface RecallHit {
 /** Why a compact context supplement may be related to the task; it is not a literal match or evidence. */
 export type ContextSupplementReason =
   | { kind: "related_session"; sourceSessionId: string; relation: "parent" | "related" }
-  | { kind: "applied_knowledge"; sourceSessionId: string };
+  | { kind: "applied_knowledge"; sourceSessionId: string }
+  | { kind: "inferred_path"; path: string; sourceSessionIds: string[] };
 
 /** A compact pointer to possibly related context; read the source record before relying on it. */
 export type ContextSupplementIndicator =
@@ -2753,7 +2754,7 @@ export type ContextSupplementIndicator =
       type: "knowledge";
       id: string;
       title: string;
-      includedBecause: Extract<ContextSupplementReason, { kind: "applied_knowledge" }>;
+      includedBecause: Extract<ContextSupplementReason, { kind: "applied_knowledge" | "inferred_path" }>;
       possiblyStale?: boolean;
       needsReview?: boolean;
     };

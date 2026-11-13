@@ -967,6 +967,31 @@ try {
       throw new Error("Path-focused context must offer appliesTo-matched Knowledge.");
     return result;
   };
+  // A task without paths: the similar Sessions' changed files lead to appliesTo-scoped Knowledge the task words miss.
+  // The baseline switches the gate off on this store's service (a private field, reached only by this benchmark). The
+  // seeded context is budget-tight and its recent Knowledge already covers the matches, so the work done is checked
+  // by counting the inference ranking passes instead of requiring a visible pointer.
+  const taskContextService = benchStore.contextRecallService;
+  const getContextTaskOnly = (inference) => () => {
+    const original = taskContextService.shouldInferTaskPaths;
+    const searchIndex = taskContextService.searchIndex;
+    const rank = searchIndex.knowledgeForPaths;
+    let passes = 0;
+    taskContextService.shouldInferTaskPaths = inference ? () => true : () => false;
+    searchIndex.knowledgeForPaths = (...args) => {
+      passes += 1;
+      return rank.apply(searchIndex, args);
+    };
+    try {
+      const result = benchStore.getContext(alphaRoot, { task: "graph renderer module" });
+      if (result.outcome !== "context" || passes !== (inference ? 1 : 0))
+        throw new Error("Task-only context must run the inference ranking exactly when inference is on.");
+      return result;
+    } finally {
+      searchIndex.knowledgeForPaths = rank;
+      taskContextService.shouldInferTaskPaths = original;
+    }
+  };
   // Re-indexing churns the FTS index, so the dirty-backlog case runs on its own copy and leaves later cases alone.
   const reindexPath = join(root, "bench-reindex.sqlite");
   withBenchConnection(databasePath, (connection) =>
@@ -1261,6 +1286,8 @@ try {
     // work costs.
     "getContext (paths, appliesTo-matched Knowledge)": getContextPathsAppliesTo,
     "getContext (paths, appliesTo-matched Knowledge, after a write)": getContextPathsAppliesTo,
+    "getContext (task only, no inference)": getContextTaskOnly(false),
+    "getContext (task only, inferred-path Knowledge)": getContextTaskOnly(true),
     "finalizeSession (related pending reminder)": () => {
       const index = ++maintenanceFinalizeIndex;
       const focus = [
@@ -1724,6 +1751,8 @@ try {
     "getContext (related pending items)": 500,
     "getContext (paths, appliesTo-matched Knowledge)": 250,
     "getContext (paths, appliesTo-matched Knowledge, after a write)": 400,
+    "getContext (task only, no inference)": 250,
+    "getContext (task only, inferred-path Knowledge)": 250,
     "recall (paths, appliesTo)": 100,
     "recall (paths, appliesTo, after a write)": 150,
     "finalizeSession (related pending reminder)": 250,
