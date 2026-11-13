@@ -4,6 +4,7 @@ import type {
   ChangedFileChange,
   ChangedFileProvenance,
   ChangedFileSource,
+  ChangedFileChangesFollowUp,
   ChangedFilesFollowUp,
   EvidenceRecord,
   KnowledgeAuditAction,
@@ -283,6 +284,7 @@ export function changedFilePathsFromChanges(changes: ChangedFileChange[]): strin
   return changes.flatMap((change) => [change.path, ...(change.previousPath ? [change.previousPath] : [])]);
 }
 
+/** An incoming entry replaces the stored one for the same path, so a corrected status never leaves two entries. */
 export function mergeChangedFileChanges(
   projectRoot: string,
   current: WorkSessionRecord,
@@ -290,23 +292,16 @@ export function mergeChangedFileChanges(
   pathResolver = createProjectPathResolver(projectRoot),
 ): ChangedFileChange[] {
   const normalizedIncoming = normalizeChangedFileChanges(projectRoot, incoming, pathResolver);
-  const merged: ChangedFileChange[] = [];
-  const identities = new Set<string>();
-
-  for (const change of [...current.changedFileChanges, ...normalizedIncoming]) {
-    const identity = [
-      change.status,
-      changedFileIdentity(change.path),
-      change.previousPath ? changedFileIdentity(change.previousPath) : "",
-    ].join(":");
-    if (identities.has(identity)) {
-      continue;
-    }
-    identities.add(identity);
-    merged.push(change);
+  const byPath = new Map<string, ChangedFileChange>();
+  for (const change of current.changedFileChanges) {
+    byPath.set(changedFileIdentity(change.path), change);
   }
-
-  return merged;
+  for (const change of normalizedIncoming) {
+    // A rename also settles its old path: a stored entry for it would contradict the move.
+    if (change.previousPath) byPath.delete(changedFileIdentity(change.previousPath));
+    byPath.set(changedFileIdentity(change.path), change);
+  }
+  return [...byPath.values()];
 }
 
 export function normalizeChangedFiles(
@@ -675,6 +670,13 @@ export function withKnowledgeDefaults(record: KnowledgeRecord): KnowledgeRecord 
  * A recorded commit id as stored: hex in lower case, the form Git prints and the commitSha filter seeks in the index.
  * Anything that is not plain hex is kept as given.
  */
+const COMMIT_SHA_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
+
+/** A full SHA-1 or SHA-256 commit id (abbreviations and refs are not accepted). */
+export function isCommitSha(value: string): boolean {
+  return COMMIT_SHA_PATTERN.test(value);
+}
+
 export function normalizeCommitSha(commitSha: string | undefined): string | undefined {
   return commitSha && /^[0-9a-f]+$/i.test(commitSha) ? commitSha.toLowerCase() : commitSha;
 }
@@ -730,6 +732,28 @@ export function getChangedFilesFollowUp(session: WorkSessionRecord): ChangedFile
     sessionId: session.id,
     message:
       "No changedFiles metadata was supplied. Inspect the working tree and worktree diff before finishing; call work_update_session_metadata with the confirmed file list, using [] only when the work intentionally changed no files.",
+  };
+}
+
+const MAX_FOLLOW_UP_PATHS = 20;
+
+/** Asked when stored changed files still lack a status; only the Agent's evidence from the diff may fill it. */
+export function getChangedFileChangesFollowUp(session: WorkSessionRecord): ChangedFileChangesFollowUp | undefined {
+  if (session.changedFiles.length === 0) {
+    return undefined;
+  }
+  const covered = new Set(changedFilePathsFromChanges(session.changedFileChanges).map(changedFileIdentity));
+  const missing = session.changedFiles.filter((file) => !covered.has(changedFileIdentity(file)));
+  if (missing.length === 0) {
+    return undefined;
+  }
+  return {
+    required: true,
+    sessionId: session.id,
+    missingPaths: missing.slice(0, MAX_FOLLOW_UP_PATHS),
+    missingCount: missing.length,
+    message:
+      'These changedFiles have no change status (added/modified/deleted/renamed with previousPath). From the worktree/diff, call work_update_session_metadata with { sessionId, changedFilesMode: "merge", changedFileChanges } for them; never guess a status.',
   };
 }
 

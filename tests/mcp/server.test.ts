@@ -333,9 +333,10 @@ describe("Work Intelligence MCP server", () => {
     );
     expect(first.session.startedAt).toBeUndefined();
     expect(first.startedAtFollowUp).toContain("Never estimate");
+    // The payload also lists changedFiles without statuses, so one call serves both follow-ups.
     expect(first.suggestedCall).toEqual({
       tool: "work_update_session_metadata",
-      arguments: { sessionId: first.session.id },
+      arguments: { sessionId: first.session.id, changedFilesMode: "merge" },
     });
 
     // The next call starts a new segment; another project's call does not interfere.

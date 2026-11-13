@@ -111,6 +111,8 @@ Agent 或 REST 觸發、工作量隨「儲存文字長度」或「呼叫端詞�
 ]
 ```
 
+Agent 回報的狀態永遠優先。`changedFiles` 中沒有狀態的路徑，finalize 可由伺服器向 Git 查詢補上（只限 tracked 專案且呼叫沒有 `completedAt`；同一 `idempotencyKey` 的重試不查），每次補上都以 `note` 事件記錄（`field: "changedFileChanges"`、`source: "server_observed_git"`）。仍缺狀態的路徑會以 `changedFileChangesFollowUp` 回傳，請 Agent 以 `work_update_session_metadata` 的 `changedFilesMode: "merge"` 補回；Git 查詢失敗只略過觀察，保存仍會成功。細節見 [mcp-tools.md](mcp-tools.md#work_finalize_session)。
+
 既有 SQLite 在下次啟動時只會補上新欄位並套用安全預設值，不會重寫歷史 summary、events、idempotencyKey 或既有檔案清單；歷史資料的來源補齊要透過後續明確的 backfill 流程。
 
 ## 一致性與輸入邊界

@@ -166,17 +166,17 @@ MCP server 的工具清單會在 Codex／Claude host 建立連線時載入。更
 ```
 
 - 只讀取 transcript 與專案清單（SQLite 唯讀開啟），不寫入資料庫；資料庫位置同樣可用 `WORK_INTELLIGENCE_DB` 指定。
-- 「改了檔案」以 transcript 工具輸入中的 `file_path` 判斷；`NotebookEdit` 使用 `notebook_path`。只有路徑落在記錄中專案根目錄內才提醒；只改專案外的檔案或只用 Bash 改檔不會觸發。
+- 「改了檔案」以 transcript 工具輸入中的 `file_path` 判斷；`NotebookEdit` 使用 `notebook_path`。只有路徑落在記錄中專案根目錄內才提醒；只改專案外的檔案或只用 Bash 改檔不會觸發：Bash 指令造成的檔案改動這個 hook 看不到（只計 Edit、Write、MultiEdit 與 NotebookEdit，且工具結果未標示錯誤者）。巢狀的專案根目錄以最具體（最深）的那個判斷。
 - 讀不到資料或判斷失敗時一律放行，不會擋住 Agent。
 - 提醒時會附上這段工作的**開始時間**：上一次**成功**保存之後，第一則使用者輸入訊息的時間（取自 transcript，不含工具結果與壓縮摘要）。被拒絕、衝突或略過的保存不算數，所以不會把下一段的開始時間算錯。Agent 保存時直接填入 `startedAt`，不必估計；沒有可用的時間時，提醒內容不附時間。
-- `PreToolUse`（matcher 只選 `work_finalize_session` 與 `work_write_idempotent`）：Agent 主動保存、沒等到 Stop 提醒時，也要讓它知道開始時間。保存呼叫沒有填 `startedAt` 也沒有 `completedAt`、且工作目錄在記錄中專案內、transcript 讀得到這段工作的開始時間時，**每一段只暫停一次**（`permissionDecision: "deny"`，理由列出開始時間，請 Agent 填入 `startedAt` 後重新呼叫）；同一段的第二次呼叫一律放行，所以不會卡住。其他情況不輸出任何東西，也從不使用 `allow` 或改寫輸入，不會改變權限行為；只有保存呼叫才會讀 transcript。
+- `PreToolUse`（matcher 只選 `work_finalize_session` 與 `work_write_idempotent`）：Agent 主動保存、沒等到 Stop 提醒時，也要讓它知道開始時間。保存呼叫沒有填 `startedAt` 也沒有 `completedAt`、且工作目錄在記錄中專案內、transcript 讀得到這段工作的開始時間時，**每一段只暫停一次**（`permissionDecision: "deny"`，理由列出開始時間，請 Agent 填入 `startedAt` 後重新呼叫；若這次呼叫帶有 `changedFiles` 卻沒有 `changedFileChanges`，理由也會請 Agent 依真實 diff 補上各檔案狀態）；同一段的第二次呼叫一律放行，所以不會卡住。其他情況不輸出任何東西，也從不使用 `allow` 或改寫輸入，不會改變權限行為；只有保存呼叫才會讀 transcript。補檔案狀態不會單獨造成暫停，hook 也從不讀取 Git。
 - `PreCompact`（不設 matcher，手動 `/compact` 與自動壓縮都適用）：有未保存的改動時，以純文字 stdout 提供壓縮摘要的額外指示，請摘要保留「尚未保存、開始時間、記錄中專案改過的檔案」。檔案只列相對於專案根目錄的路徑（最多 30 個，其餘以「等 N 個」表示），不含檔案內容，控制字元會移除，總長度遠低於 Claude Code 的 10,000 字元上限。它永遠不擋住壓縮（擋住會讓壓縮略過或失敗）；沒有未保存改動時不輸出任何東西。
 - `SessionStart`（matcher `compact`）：壓縮完成後，以 `additionalContext` 放回未保存提醒、開始時間與改過的檔案，即使摘要漏掉也不會遺失開始時間。壓縮後 transcript 檔仍保留壓縮前的紀錄，所以邊界之前的改動與保存都照常計入。
 - 兩個壓縮 hook 是選用的：只設 `Stop` 時保存提醒照常運作；`pnpm check` 會指出缺少的壓縮 hook。
 
 #### Codex
 
-hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patch` 的 Add／Update／Delete／Move 標頭，只有至少一個受影響路徑位於記錄中專案根目錄內時才標記未保存工作；成功透過 `work_write_idempotent` 執行 `work_finalize_session` operation 會清除標記，也保留舊的直接工具名稱相容；Stop 時若仍有未保存的改動，就提醒一次。只用 Bash 改檔不會觸發。另外設定 `UserPromptSubmit` 時，它會記下「上一次成功保存之後，第一則訊息送出的時間」，並在這段工作的第一則訊息就以 `additionalContext` 告訴 Agent 這個開始時間（每段只告知一次），提醒時也附上開始時間。設定 `PreToolUse` 時，保存呼叫沒有填 `startedAt` 與 `completedAt` 會被暫停一次並給出該時間（標記檔 `.pre-denied`，成功保存後清除）；Codex 是否對 MCP 工具觸發 `PreToolUse` 尚未驗證，不觸發時無任何影響。Codex 的對話紀錄格式不是穩定的 hook 介面，所以這裡不解析對話紀錄，而是在訊息送出當下記錄時間。
+hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patch` 的 Add／Update／Delete／Move 標頭，只有至少一個受影響路徑位於記錄中專案根目錄內時才標記未保存工作；成功透過 `work_write_idempotent` 執行 `work_finalize_session` operation 會清除標記，也保留舊的直接工具名稱相容；Stop 時若仍有未保存的改動，就提醒一次。只用 Bash 改檔不會觸發。另外設定 `UserPromptSubmit` 時，它會記下「上一次成功保存之後，第一則訊息送出的時間」，並在這段工作的第一則訊息就以 `additionalContext` 告訴 Agent 這個開始時間（每段只告知一次），提醒時也附上開始時間。設定 `PreToolUse` 時，保存呼叫沒有填 `startedAt` 與 `completedAt` 會被暫停一次並給出該時間（標記檔 `.pre-denied`，成功保存後清除）；若該次呼叫帶有 `changedFiles` 卻沒有 `changedFileChanges`，暫停訊息也會請 Agent 依真實 diff 補上檔案狀態（補狀態本身不會新增暫停，hook 不讀 Git）；Codex 是否對 MCP 工具觸發 `PreToolUse` 尚未驗證，不觸發時無任何影響。Codex 的對話紀錄格式不是穩定的 hook 介面，所以這裡不解析對話紀錄，而是在訊息送出當下記錄時間。
 
 和 MCP 一樣，這個 hook 要裝在**全域**，任何專案都能用；它會自己判斷目前的工作目錄是否屬於「記錄中」的專案，其他專案一律放行。repo 不附專案層級的 `.codex/hooks.json`。
 

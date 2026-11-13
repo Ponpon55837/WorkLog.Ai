@@ -3,6 +3,15 @@ export { AttentionPreferenceError } from "./attention-service.js";
 export { ReportPresentationError } from "./report-presentation-service.js";
 export { WorkIntelligenceStore, type WorkIntelligenceStoreOptions } from "./store.js";
 export type { FinalizeSessionContext, TrackedScopeInput } from "./store.js";
+export {
+  observeGitChangedFileChanges,
+  type GitObservationDependencies,
+  type GitObservationRequest,
+  type GitObservedChanges,
+  type GitRunner,
+  type GitRunnerOptions,
+} from "./git-change-observation.js";
+export type { ChangedFileObservationPlan } from "./changed-file-observation.js";
 export type { ObservedStart } from "./session-record-codecs.js";
 export { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
 export {

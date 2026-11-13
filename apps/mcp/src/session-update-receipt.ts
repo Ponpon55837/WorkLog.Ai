@@ -1,4 +1,5 @@
 import type { WorkIntelligenceStore } from "@work-intelligence/storage";
+import { compactChangeStatusFollowUp } from "./change-status-follow-up.js";
 
 type MetadataResult = ReturnType<WorkIntelligenceStore["updateSessionMetadata"]>;
 type SummaryResult = ReturnType<WorkIntelligenceStore["updateSessionSummary"]>;
@@ -14,6 +15,7 @@ type SubmittedSection = ReadonlyArray<string | { text: string }>;
 /** The request fields a receipt compares with what was stored. */
 interface MetadataReceiptRequest {
   changedFiles?: readonly string[];
+  changedFileChanges?: readonly unknown[];
 }
 
 interface SummaryReceiptRequest {
@@ -70,7 +72,7 @@ function redactionsIfAny<T extends { redactions?: { total: number } }>(result: T
  */
 export function toSessionMetadataReceipt(input: MetadataReceiptRequest, result: MetadataResult): unknown {
   if (result.outcome !== "updated") return result;
-  const { session, redactions: _redactions, outcome, ...warnings } = result;
+  const { session, redactions: _redactions, outcome, changedFileChangesFollowUp, ...warnings } = result;
   return {
     outcome,
     session: receiptSession(session),
@@ -79,6 +81,9 @@ export function toSessionMetadataReceipt(input: MetadataReceiptRequest, result: 
       ? {}
       : { changedFiles: session.changedFiles }),
     ...redactionsIfAny(result),
+    ...(changedFileChangesFollowUp
+      ? { changedFileChangesFollowUp: compactChangeStatusFollowUp(changedFileChangesFollowUp, input, false) }
+      : {}),
     ...warnings,
   };
 }

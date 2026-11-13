@@ -1637,6 +1637,10 @@ export interface FinalizedSessionResult {
   redactions?: RedactionSummary;
   verificationFollowUp?: VerificationFollowUp;
   changedFilesFollowUp?: ChangedFilesFollowUp;
+  /** Changed files that still have no added/modified/deleted/renamed status. */
+  changedFileChangesFollowUp?: ChangedFileChangesFollowUp;
+  /** How many statuses the server filled in from its own Git observation (the Agent reported none for them). */
+  changedFileChangesSource?: { serverObservedGit: number };
   workSummaryFollowUp?: WorkSummaryFollowUp;
   /** Requested links that were not created (unknown, non-tracked, or same Session). */
   linkWarnings?: string[];
@@ -1714,6 +1718,15 @@ export interface VerificationFollowUp {
 export interface ChangedFilesFollowUp {
   required: true;
   sessionId: string;
+  message: string;
+}
+
+export interface ChangedFileChangesFollowUp {
+  required: true;
+  sessionId: string;
+  /** The first paths (at most 20) that no change entry covers, as path or previousPath. */
+  missingPaths: string[];
+  missingCount: number;
   message: string;
 }
 
@@ -1997,6 +2010,8 @@ export interface UpdatedSessionMetadataResult {
   redactions?: RedactionSummary;
   /** Timestamp corrections that were not applied, or that look estimated. */
   timestampWarnings?: string[];
+  /** Present when this update touched changed files and some still have no change status. */
+  changedFileChangesFollowUp?: ChangedFileChangesFollowUp;
 }
 
 export const SESSION_SUMMARY_UPDATE_MODES = ["replace", "append"] as const;

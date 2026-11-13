@@ -67,6 +67,15 @@ export default [
     },
   },
   {
+    // Experiment scripts run under Node and use its globals directly.
+    files: ["docs/experiments/**/*.mjs"],
+    languageOptions: {
+      globals: { process: "readonly", console: "readonly" },
+    },
+    // Some scripts import `process` explicitly; that must not clash with the declared global.
+    rules: { "no-redeclare": ["error", { builtinGlobals: false }] },
+  },
+  {
     files: ["**/*.vue"],
     languageOptions: {
       parser: vueParser,

@@ -143,4 +143,48 @@ describe("finalize receipt", () => {
     };
     expect(toFinalizeReceipt({}, skipped)).toBe(skipped);
   });
+
+  it("compacts the change-status follow-up and merges it into one suggested call", () => {
+    const followUp = {
+      required: true as const,
+      sessionId: SESSION.id,
+      missingPaths: ["src/ledger.ts"],
+      missingCount: 1,
+      message: "Fictional long storage message.",
+    };
+    const unstated = toFinalizeReceipt(
+      { changedFiles: ["src/ledger.ts"], startedAt: SESSION.startedAt },
+      finalized({ changedFileChangesFollowUp: followUp }),
+    ) as Record<string, unknown>;
+    // The Agent sent every path and no statuses, so only the count comes back.
+    expect(unstated.changedFileChangesFollowUp).toEqual({
+      required: true,
+      missingCount: 1,
+      message: expect.any(String),
+    });
+    expect(unstated.suggestedCall).toEqual({
+      tool: "work_update_session_metadata",
+      arguments: { sessionId: SESSION.id, changedFilesMode: "merge" },
+    });
+
+    const filled = toFinalizeReceipt(
+      { changedFiles: ["src/ledger.ts", "src/panel.ts"], startedAt: SESSION.startedAt },
+      finalized({
+        changedFileChangesFollowUp: followUp,
+        changedFileChangesSource: { serverObservedGit: 1 },
+      }),
+    ) as Record<string, unknown>;
+    expect(filled.changedFileChangesFollowUp).toMatchObject({ missingPaths: ["src/ledger.ts"] });
+    expect(filled.changedFileChangesSource).toEqual({ serverObservedGit: 1 });
+
+    const both = toFinalizeReceipt(
+      { changedFiles: ["src/ledger.ts"] },
+      finalized({ session: { ...SESSION, startedAt: undefined }, changedFileChangesFollowUp: followUp }),
+    ) as Record<string, unknown>;
+    expect(both.startedAtFollowUp).toEqual(expect.any(String));
+    expect(both.suggestedCall).toEqual({
+      tool: "work_update_session_metadata",
+      arguments: { sessionId: SESSION.id, changedFilesMode: "merge" },
+    });
+  });
 });
