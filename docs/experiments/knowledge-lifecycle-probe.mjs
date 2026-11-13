@@ -1,7 +1,7 @@
 // Knowledge lifecycle probe (research experiment, read-only).
 //
 // Usage (run from anywhere; the database is opened read-only in ONE read transaction, nothing is written):
-//   node docs/experiments/knowledge-lifecycle-probe.mjs [database] [--threshold 0.3] [--sample N --seed S] [--dist-tokenizer]
+//   node docs/experiments/knowledge-lifecycle-probe.mjs [database] [--threshold 0.3] [--sample N --seed S] [--dist-tokenizer] [--path-hit-replay]
 //   node docs/experiments/knowledge-lifecycle-probe.mjs [database] --sample N --seed S --reveal   (LOCAL OWNER ONLY)
 //   node docs/experiments/knowledge-lifecycle-probe.mjs --self-check                              (synthetic data only)
 //
@@ -24,6 +24,11 @@
 //       lastConfirmedAt ?? createdAt, changed a file the appliesTo entries match; the Knowledge's own Session and its
 //       lastConfirmedSessionId are skipped) and alternative grading signals computed from stored data only;
 //   (b) knowledge_audit rows by change type;
+//   (d) decisionDuplication: exact and near-duplicate decision groups and standing-request candidates;
+//   (a2) with --path-hit-replay: every Session with changed files as a question, replayed at its started_at (pairs of
+//       Knowledge created before, active then, matching a changed file), plus two counterfactual confirmation rules also
+//       applied to the full staleness section: pathEvidence (an applied confirmation moves the baseline only when the
+//       confirming Session itself changed a covered path) and manualOnly (applied never moves it);
 //   (c) how many decisions look like they modify an earlier decision of the same project (term overlap and
 //       revision wording), at several thresholds.
 // The path matcher here is a re-implementation (plain: equal, directory prefix, segment suffix or inside; glob:
@@ -55,9 +60,14 @@ const REVISION_CUES = [
 ];
 
 const STOPWORDS = new Set(
-  ["the", "and", "for", "with", "that", "this", "from", "are", "was", "not", "use", "used", "using"].concat(
-    ["我們", "這個", "因為", "所以", "使用", "進行"],
-  ),
+  ["the", "and", "for", "with", "that", "this", "from", "are", "was", "not", "use", "used", "using"].concat([
+    "我們",
+    "這個",
+    "因為",
+    "所以",
+    "使用",
+    "進行",
+  ]),
 );
 
 const CJK_CLASS = "\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\p{Script=Hangul}";
@@ -94,7 +104,9 @@ export function percentiles(values, points = [50, 90, 99]) {
   const result = { n: sorted.length };
   for (const point of points) {
     result[`p${point}`] =
-      sorted.length === 0 ? null : Number(sorted[Math.min(sorted.length - 1, Math.ceil((point / 100) * sorted.length) - 1)].toFixed(2));
+      sorted.length === 0
+        ? null
+        : Number(sorted[Math.min(sorted.length - 1, Math.ceil((point / 100) * sorted.length) - 1)].toFixed(2));
   }
   result.max = sorted.length === 0 ? null : Number(sorted[sorted.length - 1].toFixed(2));
   return result;
@@ -182,7 +194,9 @@ function splitIdentifier(run) {
 /** Built-in terms: the same idea as the product tokenizer (identifier parts, CJK bigrams), without a build. */
 export function builtinTerms(text) {
   const terms = new Set();
-  for (const match of String(text ?? "").normalize("NFKC").matchAll(TOKEN_RUN)) {
+  for (const match of String(text ?? "")
+    .normalize("NFKC")
+    .matchAll(TOKEN_RUN)) {
     const [, cjk, word] = match;
     if (cjk) {
       const chars = Array.from(cjk);
@@ -252,7 +266,9 @@ export function analyzeAudits(audits) {
   const fieldPresence = new Map();
   const confirmSource = new Map();
   const supersedeTimes = new Set(
-    audits.filter((a) => classifyAudit(a.action, a.fields) === "created_with_supersedes").map((a) => `${a.projectId}|${a.occurredAt}`),
+    audits
+      .filter((a) => classifyAudit(a.action, a.fields) === "created_with_supersedes")
+      .map((a) => `${a.projectId}|${a.occurredAt}`),
   );
   let updatesWithConfirm = 0;
   let archivedBySupersede = 0;
@@ -267,21 +283,34 @@ export function analyzeAudits(audits) {
       count(updatedKnowledge, audit.knowledgeId);
     }
     if (type === "confirm_only") count(confirmSource, audit.feedbackKind ?? "no_feedback_row");
-    if (audit.action === "archived" && supersedeTimes.has(`${audit.projectId}|${audit.occurredAt}`)) archivedBySupersede += 1;
+    if (audit.action === "archived" && supersedeTimes.has(`${audit.projectId}|${audit.occurredAt}`))
+      archivedBySupersede += 1;
   }
   const updated = byAction.get("updated") ?? 0;
   const confirmOnly = byClass.get("confirm_only") ?? 0;
   return {
     rows: audits.length,
     byAction: recordOf(byAction),
-    updatedByType: recordOf(new Map([...byClass].filter(([key]) => !["created", "created_with_supersedes", "archived", "restored"].includes(key)))),
+    updatedByType: recordOf(
+      new Map(
+        [...byClass].filter(([key]) => !["created", "created_with_supersedes", "archived", "restored"].includes(key)),
+      ),
+    ),
     createdWithSupersedes: byClass.get("created_with_supersedes") ?? 0,
     archivedBySupersedeAtSameTime: archivedBySupersede,
     updatedFieldPresence: recordOf(fieldPresence),
     updatesThatAlsoConfirm: updatesWithConfirm,
     confirmOnlyShareOfUpdated: ratio(confirmOnly, updated),
     confirmOnlyBySource: recordOf(confirmSource),
-    knowledgeUpdatedTimes: histogram([...updatedKnowledge.values()], [[1, "1"], [2, "2"], [4, "3-4"], [Infinity, "5+"]]),
+    knowledgeUpdatedTimes: histogram(
+      [...updatedKnowledge.values()],
+      [
+        [1, "1"],
+        [2, "2"],
+        [4, "3-4"],
+        [Infinity, "5+"],
+      ],
+    ),
   };
 }
 
@@ -299,7 +328,8 @@ export function gradeStale(features) {
   return "moderate";
 }
 
-export function analyzeKnowledge(data) {
+/** Everything the staleness sections share: normalized Sessions, links, confirmations and per-Knowledge touch lists. */
+export function buildContext(data) {
   const projects = new Map(data.projects.map((project) => [project.id, project]));
   const sessionsByProject = new Map();
   const sessionById = new Map();
@@ -328,9 +358,9 @@ export function analyzeKnowledge(data) {
     const prepared = {
       id: session.id,
       projectId: session.projectId,
+      startedAt: session.startedAt,
       completedAt: session.completedAt,
       files: [...files],
-      fileSet: files,
       statusByPath,
       text: [session.title, session.summary, ...(decisionsBySession.get(session.id) ?? [])].join("\n").toLowerCase(),
     };
@@ -339,7 +369,9 @@ export function analyzeKnowledge(data) {
     list.push(prepared);
     sessionsByProject.set(session.projectId, list);
   }
-  for (const list of sessionsByProject.values()) list.sort((a, b) => (a.completedAt < b.completedAt ? -1 : a.completedAt > b.completedAt ? 1 : 0));
+  for (const list of sessionsByProject.values()) {
+    list.sort((a, b) => (a.completedAt < b.completedAt ? -1 : a.completedAt > b.completedAt ? 1 : 0));
+  }
 
   const linked = new Set();
   for (const link of data.links) {
@@ -347,16 +379,35 @@ export function analyzeKnowledge(data) {
     linked.add(`${link.relatedId}|${link.sessionId}`);
   }
   const appliedCount = new Map();
-  const appliedAfter = new Map();
   const contradicted = new Set();
   const feedbackByKnowledge = new Map();
+  const confirmEvents = new Map();
+  const addEvent = (knowledgeId, event) => {
+    const list = confirmEvents.get(knowledgeId) ?? [];
+    list.push(event);
+    confirmEvents.set(knowledgeId, list);
+  };
   for (const item of data.feedback) {
     const list = feedbackByKnowledge.get(item.knowledgeId) ?? [];
     list.push(item);
     feedbackByKnowledge.set(item.knowledgeId, list);
     if (item.kind === "applied") count(appliedCount, item.knowledgeId);
     if (item.kind === "contradicted") contradicted.add(item.knowledgeId);
+    if (item.kind === "applied" || item.kind === "manual_confirm") {
+      addEvent(item.knowledgeId, { at: item.occurredAt, kind: item.kind, sessionId: item.sessionId });
+    }
   }
+  // A lastConfirmedAt change without a feedback row (older data) is a confirmation nobody's Session carried.
+  const auditsByKnowledge = new Map();
+  for (const audit of data.audits) {
+    const list = auditsByKnowledge.get(audit.knowledgeId) ?? [];
+    list.push(audit);
+    auditsByKnowledge.set(audit.knowledgeId, list);
+    if (audit.action === "updated" && audit.fields.includes("lastConfirmedAt") && !audit.feedbackKind) {
+      addEvent(audit.knowledgeId, { at: audit.occurredAt, kind: "manual_confirm", sessionId: undefined });
+    }
+  }
+  for (const list of confirmEvents.values()) list.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
 
   const patternCache = new Map();
   const matchedPaths = (projectId, pattern) => {
@@ -365,11 +416,179 @@ export function analyzeKnowledge(data) {
     if (cached) return cached;
     const matcher = compileAppliesTo(pattern);
     const paths = new Set();
-    for (const session of sessionsByProject.get(projectId) ?? []) for (const file of session.files) if (matcher(file)) paths.add(file);
+    for (const session of sessionsByProject.get(projectId) ?? []) {
+      for (const file of session.files) if (matcher(file)) paths.add(file);
+    }
     patternCache.set(key, paths);
     return paths;
   };
+  const touchCache = new Map();
+  /** Every Session of the project (oldest first) that changed a file one of the Knowledge's entries matches. */
+  const touchOf = (item) => {
+    const cached = touchCache.get(item.id);
+    if (cached) return cached;
+    const sets = item.appliesTo.map((pattern) => matchedPaths(item.projectId, pattern));
+    const list = (sessionsByProject.get(item.projectId) ?? []).filter((session) =>
+      session.files.some((file) => sets.some((set) => set.has(file))),
+    );
+    const result = { sets, list, ids: new Set(list.map((session) => session.id)) };
+    touchCache.set(item.id, result);
+    return result;
+  };
+  const identifierCache = new Map();
+  const identifiersOf = (item) => {
+    if (!identifierCache.has(item.id)) identifierCache.set(item.id, extractIdentifiers(`${item.title}\n${item.body}`));
+    return identifierCache.get(item.id);
+  };
+  return {
+    sessionsByProject,
+    sessionById,
+    linked,
+    appliedCount,
+    contradicted,
+    feedbackByKnowledge,
+    confirmEvents,
+    auditsByKnowledge,
+    mixedOffsets,
+    touchOf,
+    identifiersOf,
+  };
+}
 
+const CONFIRMATION_MODES = ["reconstructedAll", "pathEvidence", "manualOnly"];
+
+/**
+ * Does this confirmation move the baseline? reconstructedAll: every applied and manual_confirm. pathEvidence (i):
+ * manual_confirm, and applied only when the confirming Session itself changed a path the Knowledge covers.
+ * manualOnly (ii): only manual_confirm.
+ */
+function advancesBaseline(event, mode, touch) {
+  if (mode === "reconstructedAll") return true;
+  if (event.kind === "manual_confirm") return true;
+  if (mode === "manualOnly") return false;
+  return event.sessionId !== undefined && touch.ids.has(event.sessionId);
+}
+
+/**
+ * The Sessions that make one Knowledge stale at `cutoff` (undefined: now). Baseline = max(createdAt, last confirmation
+ * before the cutoff that the mode counts); the source Session and the last counted confirming Session are skipped;
+ * with a cutoff only Sessions completed before it count.
+ */
+export function staleAt(ctx, item, cutoff, mode) {
+  const touch = ctx.touchOf(item);
+  const counted = (ctx.confirmEvents.get(item.id) ?? []).filter(
+    (event) => (cutoff === undefined || event.at < cutoff) && advancesBaseline(event, mode, touch),
+  );
+  const last = counted[counted.length - 1];
+  const baseline = last && last.at > item.createdAt ? last.at : item.createdAt;
+  const ownIds = new Set([item.sessionId, last?.sessionId].filter(Boolean));
+  const touching = touch.list.filter(
+    (session) =>
+      session.completedAt > baseline &&
+      (cutoff === undefined || session.completedAt < cutoff) &&
+      !ownIds.has(session.id),
+  );
+  return { baseline, ownIds, touching, sets: touch.sets };
+}
+
+/** The tier signals of one stale Knowledge: touching Sessions measured against its baseline and own Sessions. */
+function stalenessFeatures(ctx, item, touching, since, ownIds, sets) {
+  const sinceMs = Date.parse(since);
+  const identifiers = ctx.identifiersOf(item);
+  const matchedFiles = (session) => session.files.filter((file) => sets.some((set) => set.has(file)));
+  const isLinked = (session) => [...ownIds].some((id) => ctx.linked.has(`${id}|${session.id}`));
+  const sameLineage = (session) =>
+    isLinked(session) || (Number.isFinite(sinceMs) && Date.parse(session.completedAt) - sinceMs <= NEAR_SOURCE_MS);
+  return {
+    structural: touching.some((session) =>
+      matchedFiles(session).some((file) => ["deleted", "renamed"].includes(session.statusByPath.get(file) ?? "")),
+    ),
+    identifierHit: identifiers.some((token) => touching.some((session) => session.text.includes(token))),
+    allBroad: touching.every((session) => session.files.length >= BROAD_FILES),
+    allSameLineage: touching.every(sameLineage),
+    someLinked: touching.some(isLinked),
+    allUnlinked: touching.every((session) => !isLinked(session)),
+  };
+}
+
+/** Stale ratio, tier distribution and later-change Session count buckets of (Knowledge, cutoff) pairs. */
+function summarizePairs(ctx, pairs, mode) {
+  const tiers = new Map();
+  const counts = [];
+  for (const { item, cutoff } of pairs) {
+    const result = staleAt(ctx, item, cutoff, mode);
+    if (result.touching.length === 0) continue;
+    counts.push(result.touching.length);
+    const features = stalenessFeatures(ctx, item, result.touching, result.baseline, result.ownIds, result.sets);
+    count(tiers, gradeStale(features));
+  }
+  return {
+    pairs: pairs.length,
+    stale: counts.length,
+    staleRatio: ratio(counts.length, pairs.length),
+    tiers: {
+      counts: recordOf(tiers),
+      ratios: Object.fromEntries([...tiers].map(([key, value]) => [key, ratio(value, counts.length)])),
+    },
+    laterChangeSessionCount: histogram(counts, [
+      [1, "1"],
+      [3, "2-3"],
+      [Infinity, "4+"],
+    ]),
+  };
+}
+
+/** Was the Knowledge active at `time`? Reconstructed from archived/restored audit rows; unknown history: current status. */
+function activeAt(ctx, item, time) {
+  const changes = (ctx.auditsByKnowledge.get(item.id) ?? [])
+    .filter((audit) => audit.action === "archived" || audit.action === "restored")
+    .sort((a, b) => (a.occurredAt < b.occurredAt ? -1 : a.occurredAt > b.occurredAt ? 1 : 0));
+  if (changes.length === 0) return item.status === "active";
+  const before = changes.filter((audit) => audit.occurredAt < time);
+  return before.length === 0 ? true : before[before.length - 1].action === "restored";
+}
+
+/**
+ * Path-hit replay: every Session S with changed files is a question. A pair is (Knowledge K, S) where K was created
+ * before S started, was active then, and one of its appliesTo entries matches a file S changed. Staleness is
+ * evaluated as of S's start under each confirmation mode. appliesTo and kind are the current values.
+ */
+export function analyzeReplay(data, ctx = buildContext(data)) {
+  const knowledgeByProject = new Map();
+  for (const item of data.knowledge) {
+    if (item.appliesTo.length === 0) continue;
+    const list = knowledgeByProject.get(item.projectId) ?? [];
+    list.push(item);
+    knowledgeByProject.set(item.projectId, list);
+  }
+  const pairs = [];
+  let withFiles = 0;
+  let skippedNoStart = 0;
+  for (const session of ctx.sessionById.values()) {
+    if (session.files.length === 0) continue;
+    withFiles += 1;
+    if (!session.startedAt) {
+      skippedNoStart += 1;
+      continue;
+    }
+    for (const item of knowledgeByProject.get(session.projectId) ?? []) {
+      if (!(item.createdAt < session.startedAt) || !activeAt(ctx, item, session.startedAt)) continue;
+      const { sets } = ctx.touchOf(item);
+      if (session.files.some((file) => sets.some((set) => set.has(file))))
+        pairs.push({ item, cutoff: session.startedAt });
+    }
+  }
+  return {
+    sessionsWithChangedFiles: withFiles,
+    sessionsWithoutStartedAt: skippedNoStart,
+    pairs: pairs.length,
+    distinctKnowledge: new Set(pairs.map(({ item }) => item.id)).size,
+    modes: Object.fromEntries(CONFIRMATION_MODES.map((mode) => [mode, summarizePairs(ctx, pairs, mode)])),
+  };
+}
+
+export function analyzeKnowledge(data, ctx = buildContext(data)) {
+  const { appliedCount, contradicted, feedbackByKnowledge, mixedOffsets } = ctx;
   const active = data.knowledge.filter((item) => item.status === "active");
   const withAppliesTo = active.filter((item) => item.appliesTo.length > 0);
   const counts = [];
@@ -390,19 +609,18 @@ export function analyzeKnowledge(data) {
     hasIdentifiersAndStale: 0,
   };
   let stale = 0;
+  const appliedAfter = new Map();
   const appliedBuckets = { stale: [], fresh: [] };
   const crossTierContradicted = new Map();
   for (const item of withAppliesTo) {
     const since = item.lastConfirmedAt ?? item.createdAt;
     const ownIds = new Set([item.sessionId, item.lastConfirmedSessionId].filter(Boolean));
-    const matchedSets = item.appliesTo.map((pattern) => matchedPaths(item.projectId, pattern));
-    const later = (sessionsByProject.get(item.projectId) ?? []).filter((session) => session.completedAt > since);
-    const touchesFile = (session) => session.files.some((file) => matchedSets.some((set) => set.has(file)));
-    const touchingAll = later.filter(touchesFile);
+    const { sets: matchedSets, list: touchList } = ctx.touchOf(item);
+    const touchingAll = touchList.filter((session) => session.completedAt > since);
     const touching = touchingAll.filter((session) => !ownIds.has(session.id));
     if (touchingAll.length > touching.length) flags.ownSessionWouldHaveCounted += 1;
     if (touching.length === 0 && touchingAll.length > 0) flags.touchedOnlyByOwnSessions += 1;
-    const identifiers = extractIdentifiers(`${item.title}\n${item.body}`);
+    const identifiers = ctx.identifiersOf(item);
     if (identifiers.length > 0) flags.hasIdentifiers += 1;
     const applied = appliedCount.get(item.id) ?? 0;
     for (const feedback of feedbackByKnowledge.get(item.id) ?? []) {
@@ -416,25 +634,13 @@ export function analyzeKnowledge(data) {
     appliedBuckets.stale.push(applied);
     counts.push(touching.length);
     const sinceMs = Date.parse(since);
-    const matchedFiles = (session) => session.files.filter((file) => matchedSets.some((set) => set.has(file)));
-    const sameLineage = (session) =>
-      [...ownIds].some((id) => linked.has(`${id}|${session.id}`)) ||
-      (Number.isFinite(sinceMs) && Date.parse(session.completedAt) - sinceMs <= NEAR_SOURCE_MS);
-    const isLinked = (session) => [...ownIds].some((id) => linked.has(`${id}|${session.id}`));
-    const features = {
-      structural: touching.some((session) =>
-        matchedFiles(session).some((file) => ["deleted", "renamed"].includes(session.statusByPath.get(file) ?? "")),
-      ),
-      identifierHit: identifiers.some((token) => touching.some((session) => session.text.includes(token))),
-      allBroad: touching.every((session) => session.files.length >= BROAD_FILES),
-      allSameLineage: touching.every(sameLineage),
-    };
+    const features = stalenessFeatures(ctx, item, touching, since, ownIds, matchedSets);
     if (features.structural) flags.structural += 1;
     if (features.identifierHit) flags.identifierHit += 1;
     if (features.allBroad) flags.allBroad += 1;
     if (features.allSameLineage) flags.allSameLineage += 1;
-    if (touching.some(isLinked)) flags.someSameLineage += 1;
-    if (touching.every((session) => !isLinked(session)) && features.allSameLineage) flags.nearSourceOnly += 1;
+    if (features.someLinked) flags.someSameLineage += 1;
+    if (features.allUnlinked && features.allSameLineage) flags.nearSourceOnly += 1;
     if (identifiers.length > 0) flags.hasIdentifiersAndStale += 1;
     const tier = gradeStale(features);
     count(tiers, tier);
@@ -445,7 +651,13 @@ export function analyzeKnowledge(data) {
     const first = touching[0];
     if (Number.isFinite(sinceMs)) gapDays.push((Date.parse(first.completedAt) - sinceMs) / 86_400_000);
   }
-  const appliedBucketing = (values) => histogram(values, [[0, "0"], [1, "1"], [3, "2-3"], [Infinity, "4+"]]);
+  const appliedBucketing = (values) =>
+    histogram(values, [
+      [0, "0"],
+      [1, "1"],
+      [3, "2-3"],
+      [Infinity, "4+"],
+    ]);
   const staleCountList = counts;
   return {
     activeKnowledge: active.length,
@@ -454,11 +666,19 @@ export function analyzeKnowledge(data) {
     baselinePossiblyStaleRatio: ratio(stale, withAppliesTo.length),
     sessionsWithoutZSuffixTimestamp: mixedOffsets,
     laterChangeSessionCount: {
-      buckets: histogram(staleCountList, [[1, "1"], [3, "2-3"], [Infinity, "4+"]]),
+      buckets: histogram(staleCountList, [
+        [1, "1"],
+        [3, "2-3"],
+        [Infinity, "4+"],
+      ]),
       percentiles: percentiles(staleCountList),
     },
     touchingSessionFileCount: {
-      buckets: histogram(touchSizes, [[5, "1-5"], [BROAD_FILES - 1, "6-20"], [Infinity, "21+"]]),
+      buckets: histogram(touchSizes, [
+        [5, "1-5"],
+        [BROAD_FILES - 1, "6-20"],
+        [Infinity, "21+"],
+      ]),
       percentiles: percentiles(touchSizes),
     },
     daysFromSinceToFirstLaterChange: percentiles(gapDays),
@@ -470,7 +690,10 @@ export function analyzeKnowledge(data) {
       allBroadAmongStale: ratio(flags.allBroad, stale),
       allSameLineageAmongStale: ratio(flags.allSameLineage, stale),
     },
-    proposedTiers: { counts: recordOf(tiers), ratios: Object.fromEntries([...tiers].map(([key, value]) => [key, ratio(value, stale)])) },
+    proposedTiers: {
+      counts: recordOf(tiers),
+      ratios: Object.fromEntries([...tiers].map(([key, value]) => [key, ratio(value, stale)])),
+    },
     proposedTierByCountBucket: recordOf(countBucketByTier),
     appliedEvidence: {
       appliedSessionsOfStale: appliedBucketing(appliedBuckets.stale),
@@ -478,6 +701,16 @@ export function analyzeKnowledge(data) {
       knowledgeWithAppliedFeedbackAfterSince: appliedAfter.size,
       staleThatWereContradictedByTier: recordOf(crossTierContradicted),
     },
+    counterfactualBaselines: Object.fromEntries(
+      CONFIRMATION_MODES.map((mode) => {
+        const summary = summarizePairs(
+          ctx,
+          withAppliesTo.map((item) => ({ item, cutoff: undefined })),
+          mode,
+        );
+        return [mode, { baselinePossiblyStale: summary.stale, ...summary }];
+      }),
+    ),
     supersedes: {
       knowledgeWithSupersedesId: data.knowledge.filter((item) => item.supersedesId).length,
       activeDecisionKind: active.filter((item) => item.kind === "decision").length,
@@ -574,7 +807,11 @@ export function analyzeDecisions(decisions, options = {}) {
       cueRateAmongCandidates: ratio(cueCandidates.length, candidates.length),
       cueRateAmongNonCandidates: ratio(cueTotal - cueCandidates.length, noncandidates),
       pairsAboveThreshold: pairCounts.reduce((sum, value) => sum + value, 0),
-      pairsPerCandidate: histogram(pairCounts, [[1, "1"], [3, "2-3"], [Infinity, "4+"]]),
+      pairsPerCandidate: histogram(pairCounts, [
+        [1, "1"],
+        [3, "2-3"],
+        [Infinity, "4+"],
+      ]),
       daysToBestEarlierMatch: percentiles(gaps.filter(Number.isFinite)),
     };
   }
@@ -591,11 +828,140 @@ export function analyzeDecisions(decisions, options = {}) {
       tooShortToMatch: results.length - eligible.length,
       withRevisionCue: cueTotal,
       revisionCueRatio: ratio(cueTotal, results.length),
-      bestScoreDistribution: histogram(bestScores, [[0, "0"], [0.1, "0-0.1"], [0.2, "0.1-0.2"], [0.3, "0.2-0.3"], [0.5, "0.3-0.5"], [Infinity, "0.5+"]]),
+      bestScoreDistribution: histogram(bestScores, [
+        [0, "0"],
+        [0.1, "0-0.1"],
+        [0.2, "0.1-0.2"],
+        [0.3, "0.2-0.3"],
+        [0.5, "0.3-0.5"],
+        [Infinity, "0.5+"],
+      ]),
     },
     perThreshold,
     candidates: candidatesAtSample,
     sampleThreshold,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Decision duplication
+// ---------------------------------------------------------------------------------------------------------------
+const NEAR_DUPLICATE_THRESHOLD = 0.8;
+const STANDING_MIN_SESSIONS = 3;
+
+/** NFKC, lower case, version numbers replaced by a placeholder, then whitespace and punctuation removed. */
+export function normalizeDecisionText(text) {
+  return String(text ?? "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\d+\.\d+(?:\.\d+)?/g, "vernum")
+    .replace(/[\s\p{P}\p{S}]+/gu, "");
+}
+
+function makeUnionFind(size) {
+  const parent = Array.from({ length: size }, (_, index) => index);
+  const find = (item) => {
+    let root = item;
+    while (parent[root] !== root) root = parent[root];
+    for (let node = item; parent[node] !== root;) [parent[node], node] = [root, parent[node]];
+    return root;
+  };
+  return { find, union: (a, b) => void (parent[find(a)] = find(b)) };
+}
+
+/** Components (arrays of decision indexes) of an edge list over `size` decisions. */
+function components(size, edges) {
+  const sets = makeUnionFind(size);
+  for (const [a, b] of edges) sets.union(a, b);
+  const byRoot = new Map();
+  for (let index = 0; index < size; index += 1) {
+    const root = sets.find(index);
+    const list = byRoot.get(root) ?? [];
+    list.push(index);
+    byRoot.set(root, list);
+  }
+  return [...byRoot.values()];
+}
+
+function groupStats(groups, decisions) {
+  const multi = groups.filter((group) => group.length >= 2);
+  const spans = multi.map((group) => new Set(group.map((index) => decisions[index].sessionId)).size);
+  return {
+    groups: multi.length,
+    decisionsInGroups: multi.reduce((sum, group) => sum + group.length, 0),
+    sizeDist: histogram(
+      multi.map((group) => group.length),
+      [
+        [2, "2"],
+        [3, "3"],
+        [5, "4-5"],
+        [10, "6-10"],
+        [Infinity, "11+"],
+      ],
+    ),
+    sessionsSpanned: histogram(spans, [
+      [1, "1"],
+      [2, "2"],
+      [3, "3"],
+      [5, "4-5"],
+      [Infinity, "6+"],
+    ]),
+  };
+}
+
+/** Groups that appear in at least three distinct Sessions: with origin user_requested only, and with any origin. */
+function standingStats(groups, decisions) {
+  const tally = (qualifies) => {
+    const hits = groups.filter(
+      (group) =>
+        new Set(group.filter((i) => qualifies(decisions[i])).map((i) => decisions[i].sessionId)).size >=
+        STANDING_MIN_SESSIONS,
+    );
+    return { groups: hits.length, decisions: hits.reduce((sum, group) => sum + group.length, 0) };
+  };
+  return { userRequested: tally((decision) => decision.origin === "user_requested"), anyOrigin: tally(() => true) };
+}
+
+/**
+ * Duplicate decisions of one project. exact: equal after normalizeDecisionText. near: IDF Jaccard >= 0.8 between
+ * different Sessions, merged with union-find. merged: exact or near. Standing-request candidates and the de-duplicated
+ * total are reported for exact groups alone and for merged groups.
+ */
+export function analyzeDecisionDuplication(decisions, options = {}) {
+  const indexOf = new Map(decisions.map((decision, index) => [decision, index]));
+  const exactKeys = new Map();
+  const exactEdges = [];
+  decisions.forEach((decision, index) => {
+    const normalized = normalizeDecisionText(decision.text);
+    if (!normalized) return;
+    const key = `${decision.projectId}\u0000${normalized}`;
+    if (exactKeys.has(key)) exactEdges.push([exactKeys.get(key), index]);
+    else exactKeys.set(key, index);
+  });
+  const nearEdges = [];
+  for (const item of matchDecisions(decisions, options.termsOf)) {
+    const self = indexOf.get(item.decision);
+    for (const match of item.matches) {
+      if (match.score < NEAR_DUPLICATE_THRESHOLD) break;
+      nearEdges.push([self, indexOf.get(match.decision)]);
+    }
+  }
+  const exact = components(decisions.length, exactEdges);
+  const near = components(decisions.length, nearEdges);
+  const merged = components(decisions.length, [...exactEdges, ...nearEdges]);
+  const multiOnly = (groups) => groups.filter((group) => group.length >= 2);
+  return {
+    decisions: decisions.length,
+    nearThreshold: NEAR_DUPLICATE_THRESHOLD,
+    exact: groupStats(exact, decisions),
+    near: groupStats(near, decisions),
+    merged: groupStats(merged, decisions),
+    standingRequestCandidates: {
+      minSessions: STANDING_MIN_SESSIONS,
+      exact: standingStats(multiOnly(exact), decisions),
+      merged: standingStats(multiOnly(merged), decisions),
+    },
+    dedupedDecisions: { exactOnly: exact.length, merged: merged.length },
   };
 }
 
@@ -626,7 +992,7 @@ export function loadData(db) {
     .map((row) => ({ id: row.id, name: row.name, rootPath: row.root_path }));
   const sessions = db
     .prepare(
-      `SELECT s.id, s.project_id, s.title, s.summary, s.completed_at, s.changed_files_json, s.changed_file_changes_json
+      `SELECT s.id, s.project_id, s.title, s.summary, s.started_at, s.completed_at, s.changed_files_json, s.changed_file_changes_json
        FROM sessions s JOIN projects p ON p.id = s.project_id AND p.status = 'tracked'
        WHERE s.voided_at IS NULL`,
     )
@@ -636,13 +1002,14 @@ export function loadData(db) {
       projectId: row.project_id,
       title: row.title,
       summary: row.summary,
+      startedAt: row.started_at ?? undefined,
       completedAt: row.completed_at,
       files: parseJsonOr(row.changed_files_json, []).filter((value) => typeof value === "string"),
       changes: parseJsonOr(row.changed_file_changes_json, []).filter((value) => value && typeof value === "object"),
     }));
   const decisions = db
     .prepare(
-      `SELECT d.session_id, d.project_id, d.position, d.text, s.completed_at
+      `SELECT d.session_id, d.project_id, d.position, d.text, d.origin, s.completed_at
        FROM session_decisions d
        JOIN sessions s ON s.id = d.session_id AND s.voided_at IS NULL
        JOIN projects p ON p.id = d.project_id AND p.status = 'tracked'`,
@@ -653,6 +1020,7 @@ export function loadData(db) {
       projectId: row.project_id,
       position: row.position,
       text: row.text,
+      origin: row.origin,
       completedAt: row.completed_at,
     }));
   const knowledge = db
@@ -711,6 +1079,7 @@ export function loadData(db) {
 
 /** The whole numbers-only report for loaded data; `analysis.candidates` is never included. */
 export function buildReport(data, options = {}) {
+  const ctx = buildContext(data);
   const decisionAnalysis = analyzeDecisions(data.decisions, options);
   const report = {
     sizes: {
@@ -721,11 +1090,14 @@ export function buildReport(data, options = {}) {
       auditRows: data.audits.length,
       feedbackRows: data.feedback.length,
     },
-    staleness: analyzeKnowledge(data),
+    staleness: analyzeKnowledge(data, ctx),
     audit: analyzeAudits(data.audits),
     decisionSupersession: { summary: decisionAnalysis.summary, perThreshold: decisionAnalysis.perThreshold },
+    decisionDuplication: analyzeDecisionDuplication(data.decisions, options),
   };
-  if (options.sample) report.decisionSupersession.sample = describeSample(decisionAnalysis, options.sample, options.seed ?? 1);
+  if (options.pathHitReplay) report.pathHitReplay = analyzeReplay(data, ctx);
+  if (options.sample)
+    report.decisionSupersession.sample = describeSample(decisionAnalysis, options.sample, options.seed ?? 1);
   return { report, decisionAnalysis };
 }
 
@@ -750,8 +1122,19 @@ function syntheticData() {
     make("sid-zq-touch-b", 6, "zqtouch beta", ["src/zqalpha/other.ts"]),
     make("sid-zq-touch-c", 7, "zqtouch gamma", ["src/zqalpha/third.ts"]),
     make("sid-zq-touch-d", 8, "zqtouch delta", ["src/zqalpha/fourth.ts"]),
-    make("sid-zq-delete", 9, "zqremove gamma", ["src/zqbeta/gone.ts"], [{ path: "src/zqbeta/gone.ts", status: "deleted" }]),
-    make("sid-zq-broad", 10, "zqbroad sweep", Array.from({ length: 25 }, (_, i) => `src/zqwide/file${i}.ts`)),
+    make(
+      "sid-zq-delete",
+      9,
+      "zqremove gamma",
+      ["src/zqbeta/gone.ts"],
+      [{ path: "src/zqbeta/gone.ts", status: "deleted" }],
+    ),
+    make(
+      "sid-zq-broad",
+      10,
+      "zqbroad sweep",
+      Array.from({ length: 25 }, (_, i) => `src/zqwide/file${i}.ts`),
+    ),
     make("sid-zq-symbol", 11, "zqrefactor fooZqHandler wiring", ["src/zqsymbol/handler.ts"]),
     make("sid-zq-old", 2, "zqold session", ["src/zqold/legacy.ts"]),
   ];
@@ -778,15 +1161,81 @@ function syntheticData() {
     k("kid-zq-noapplies", {}),
   ];
   const audits = [
-    { id: "aid-1", knowledgeId: "kid-zq-fresh", projectId: project.id, action: "created", fields: ["kind", "title", "body"], occurredAt: day(3) },
-    { id: "aid-2", knowledgeId: "kid-zq-many", projectId: project.id, action: "created", fields: ["kind", "supersedesId"], occurredAt: day(4) },
-    { id: "aid-3", knowledgeId: "kid-zq-old", projectId: project.id, action: "archived", fields: ["status"], occurredAt: day(4) },
-    { id: "aid-4", knowledgeId: "kid-zq-fresh", projectId: project.id, action: "updated", fields: ["lastConfirmedAt"], occurredAt: day(5), feedbackKind: "applied" },
-    { id: "aid-5", knowledgeId: "kid-zq-fresh", projectId: project.id, action: "updated", fields: ["lastConfirmedAt", "review"], occurredAt: day(6), feedbackKind: "manual_confirm" },
-    { id: "aid-6", knowledgeId: "kid-zq-fresh", projectId: project.id, action: "updated", fields: ["body", "lastConfirmedAt"], occurredAt: day(7) },
-    { id: "aid-7", knowledgeId: "kid-zq-many", projectId: project.id, action: "updated", fields: ["appliesTo"], occurredAt: day(8) },
-    { id: "aid-8", knowledgeId: "kid-zq-many", projectId: project.id, action: "updated", fields: ["review"], occurredAt: day(9), feedbackKind: "contradicted" },
-    { id: "aid-9", knowledgeId: "kid-zq-many", projectId: project.id, action: "restored", fields: ["status"], occurredAt: day(10) },
+    {
+      id: "aid-1",
+      knowledgeId: "kid-zq-fresh",
+      projectId: project.id,
+      action: "created",
+      fields: ["kind", "title", "body"],
+      occurredAt: day(3),
+    },
+    {
+      id: "aid-2",
+      knowledgeId: "kid-zq-many",
+      projectId: project.id,
+      action: "created",
+      fields: ["kind", "supersedesId"],
+      occurredAt: day(4),
+    },
+    {
+      id: "aid-3",
+      knowledgeId: "kid-zq-old",
+      projectId: project.id,
+      action: "archived",
+      fields: ["status"],
+      occurredAt: day(4),
+    },
+    {
+      id: "aid-4",
+      knowledgeId: "kid-zq-fresh",
+      projectId: project.id,
+      action: "updated",
+      fields: ["lastConfirmedAt"],
+      occurredAt: day(5),
+      feedbackKind: "applied",
+    },
+    {
+      id: "aid-5",
+      knowledgeId: "kid-zq-fresh",
+      projectId: project.id,
+      action: "updated",
+      fields: ["lastConfirmedAt", "review"],
+      occurredAt: day(6),
+      feedbackKind: "manual_confirm",
+    },
+    {
+      id: "aid-6",
+      knowledgeId: "kid-zq-fresh",
+      projectId: project.id,
+      action: "updated",
+      fields: ["body", "lastConfirmedAt"],
+      occurredAt: day(7),
+    },
+    {
+      id: "aid-7",
+      knowledgeId: "kid-zq-many",
+      projectId: project.id,
+      action: "updated",
+      fields: ["appliesTo"],
+      occurredAt: day(8),
+    },
+    {
+      id: "aid-8",
+      knowledgeId: "kid-zq-many",
+      projectId: project.id,
+      action: "updated",
+      fields: ["review"],
+      occurredAt: day(9),
+      feedbackKind: "contradicted",
+    },
+    {
+      id: "aid-9",
+      knowledgeId: "kid-zq-many",
+      projectId: project.id,
+      action: "restored",
+      fields: ["status"],
+      occurredAt: day(10),
+    },
   ];
   const feedback = [
     { knowledgeId: "kid-zq-fresh", sessionId: "sid-zq-old", kind: "applied", occurredAt: day(5) },
@@ -794,10 +1243,30 @@ function syntheticData() {
     { knowledgeId: "kid-zq-many", sessionId: "sid-zq-old", kind: "contradicted", occurredAt: day(9) },
   ];
   const decisions = [
-    { sessionId: "sid-zq-source", position: 0, text: "zqconfig loader stores zqsettings in zqjsonfile storage", completedAt: day(1) },
-    { sessionId: "sid-zq-touch-a", position: 0, text: "zqconfig loader stores zqsettings using zqsqlite instead of zqjsonfile storage, no longer zqjsonfile", completedAt: day(5) },
-    { sessionId: "sid-zq-touch-b", position: 0, text: "zqwidget renders zqgraph labels with zqcanvas", completedAt: day(6) },
-    { sessionId: "sid-zq-touch-c", position: 0, text: "設定檔載入器改用 zqsqlite 取代 zqjsonfile 儲存設定", completedAt: day(7) },
+    {
+      sessionId: "sid-zq-source",
+      position: 0,
+      text: "zqconfig loader stores zqsettings in zqjsonfile storage",
+      completedAt: day(1),
+    },
+    {
+      sessionId: "sid-zq-touch-a",
+      position: 0,
+      text: "zqconfig loader stores zqsettings using zqsqlite instead of zqjsonfile storage, no longer zqjsonfile",
+      completedAt: day(5),
+    },
+    {
+      sessionId: "sid-zq-touch-b",
+      position: 0,
+      text: "zqwidget renders zqgraph labels with zqcanvas",
+      completedAt: day(6),
+    },
+    {
+      sessionId: "sid-zq-touch-c",
+      position: 0,
+      text: "設定檔載入器改用 zqsqlite 取代 zqjsonfile 儲存設定",
+      completedAt: day(7),
+    },
     { sessionId: "sid-zq-touch-c", position: 1, text: "zq ab", completedAt: day(7) },
   ].map((item) => ({ ...item, projectId: project.id }));
   const links = [{ sessionId: "sid-zq-touch-b", relatedId: "sid-zq-source" }];
@@ -813,12 +1282,115 @@ function syntheticData() {
   return { data: { projects: [project], sessions, decisions, knowledge, audits, feedback, links }, strings };
 }
 
+/**
+ * Two Knowledge items and Sessions arranged so every confirmation mode gives a different answer.
+ * K1 (source s1) is confirmed manually on day 2 and "applied" by s3 on day 5, but s3 never touched K1's path.
+ * K2 is archived on day 4. K3 is "applied" by s7 on day 6 and s7 itself changed K3's path.
+ */
+function replayData() {
+  const at = (day, hour) => `2026-02-${String(day).padStart(2, "0")}T${String(hour).padStart(2, "0")}:00:00.000Z`;
+  const project = { id: "pid-zqreplay", name: "ZqReplay", rootPath: "/home/zquser/zqreplay" };
+  const session = (id, startDay, doneDay, files) => ({
+    id,
+    projectId: project.id,
+    title: `zqreplay ${id}`,
+    summary: "zqreplay summary",
+    startedAt: startDay === undefined ? undefined : at(startDay, 9),
+    completedAt: at(doneDay, 10),
+    files,
+    changes: [],
+  });
+  const sessions = [
+    session("sid-zr1", 1, 1, ["src/zqa/x.ts"]),
+    session("sid-zr2", 4, 4, ["src/zqa/x.ts"]),
+    session("sid-zr3", 5, 5, ["src/zqb/y.ts"]),
+    session("sid-zr4", 8, 8, ["src/zqa/x.ts"]),
+    session("sid-zr5", 9, 9, []),
+    session("sid-zr6", undefined, 9, ["src/zqa/x.ts"]),
+    session("sid-zr7", 6, 6, ["src/zqc/z.ts"]),
+    session("sid-zr8", 2, 2, ["src/zqc/z.ts"]),
+  ];
+  const k = (id, extra) => ({
+    id,
+    projectId: project.id,
+    kind: "pattern",
+    status: "active",
+    title: "zqreplay knowledge",
+    body: "zqreplay body",
+    createdAt: at(1, 10),
+    ...extra,
+  });
+  const knowledge = [
+    k("kid-zr1", { appliesTo: ["src/zqa/x.ts"], sessionId: "sid-zr1" }),
+    k("kid-zr2", { appliesTo: ["src/zqa/x.ts"], status: "archived" }),
+    k("kid-zr3", { appliesTo: ["src/zqc/z.ts"] }),
+  ];
+  const feedback = [
+    { knowledgeId: "kid-zr1", kind: "manual_confirm", occurredAt: at(2, 10) },
+    { knowledgeId: "kid-zr1", sessionId: "sid-zr3", kind: "applied", occurredAt: at(5, 10) },
+    { knowledgeId: "kid-zr3", sessionId: "sid-zr7", kind: "applied", occurredAt: at(6, 10) },
+  ];
+  const audits = [
+    {
+      id: "aid-zr1",
+      knowledgeId: "kid-zr2",
+      projectId: project.id,
+      action: "archived",
+      fields: ["status"],
+      occurredAt: at(4, 12),
+    },
+  ];
+  const strings = [
+    project.id,
+    project.name,
+    project.rootPath,
+    ...sessions.flatMap((s) => [s.id, s.title, s.summary, ...s.files]),
+    ...knowledge.flatMap((item) => [item.id, item.title, item.body, ...item.appliesTo]),
+    "aid-zr1",
+  ];
+  return { data: { projects: [project], sessions, decisions: [], knowledge, audits, feedback, links: [] }, strings };
+}
+
+/** Decisions: one exact group with a version number, one near-duplicate pair, standing and any-origin groups. */
+function duplicationData() {
+  const project = { id: "pid-zqdup", name: "ZqDup", rootPath: "/home/zquser/zqdup" };
+  let counter = 0;
+  const decision = (session, text, origin) => ({
+    projectId: project.id,
+    sessionId: `sid-zd${session}`,
+    position: counter++,
+    text,
+    origin,
+    completedAt: `2026-03-${String(session).padStart(2, "0")}T10:00:00.000Z`,
+  });
+  const decisions = [
+    decision(1, "Always use zqpnpm 9.1.2 for zqinstalls", "user_requested"),
+    decision(2, "always use ZQPNPM 9.2.0 for zqinstalls!", "user_requested"),
+    decision(3, "Always use zqpnpm 10.0 for zqinstalls.", "agent_autonomous"),
+    decision(4, "Always use zqpnpm 9.1.2 for zqinstalls", "user_requested"),
+    decision(5, "zqwidget renders zqlabels", "user_requested"),
+    decision(6, "zqwidget  renders zqlabels.", "user_requested"),
+    decision(7, "zqcache keys include zqtenant id", "agent_autonomous"),
+    decision(8, "zqcache keys include zqtenant id", "agent_autonomous"),
+    decision(9, "zqcache keys include zqtenant id", "agent_autonomous"),
+    decision(10, "zqparser handles zqquoted fields zqescape rules zqstrictly", "user_requested"),
+    decision(11, "zqparser handles zqquoted fields zqescape rules zqstrictly today", "user_requested"),
+    decision(12, "zqunrelated alpha beta gamma", "user_requested"),
+    decision(13, "zqdifferent delta epsilon zeta", "agent_autonomous"),
+  ];
+  return {
+    decisions,
+    strings: [project.id, ...decisions.map((item) => item.text), ...decisions.map((item) => item.sessionId)],
+  };
+}
+
 function assertNoLeak(output, strings, label) {
   const text = JSON.stringify(output);
   for (const value of strings) {
     assert(!text.includes(value), `${label}: output contains record text`);
     for (const word of String(value).split(/[\s/.:,`()]+/u)) {
-      if (word.length >= 4 && /zq|sid|kid|aid|pid/u.test(word)) assert(!text.includes(word), `${label}: output contains a record word`);
+      if (word.length >= 4 && /zq|sid|kid|aid|pid/u.test(word))
+        assert(!text.includes(word), `${label}: output contains a record word`);
     }
   }
 }
@@ -827,22 +1399,44 @@ function selfCheck() {
   // Helpers.
   assert.deepEqual(percentiles([1, 2, 3, 4, 100], [50, 90]), { n: 5, p50: 3, p90: 100, max: 100 });
   assert.equal(percentiles([]).p50, null);
-  assert.deepEqual(histogram([1, 2, 3, 4, 9], [[1, "1"], [3, "2-3"], [Infinity, "4+"]]), { 1: 1, "2-3": 2, "4+": 2 });
+  assert.deepEqual(
+    histogram(
+      [1, 2, 3, 4, 9],
+      [
+        [1, "1"],
+        [3, "2-3"],
+        [Infinity, "4+"],
+      ],
+    ),
+    { 1: 1, "2-3": 2, "4+": 2 },
+  );
   assert.equal(normalizePathText("C:\\Repo\\Src\\A.ts:12:3", { rootPath: "c:/repo", name: "x" }), "src/a.ts");
   assert.equal(normalizePathText("./Proj/src/a.ts", { rootPath: "/other", name: "Proj" }), "src/a.ts");
   const dir = compileAppliesTo("src/zqa");
   assert(dir("src/zqa/b.ts") && dir("x/src/zqa/b.ts") && !dir("src/zqab/b.ts"));
   assert(compileAppliesTo("b.ts")("src/b.ts") && compileAppliesTo("src/b.ts")("b.ts"));
   const star = compileAppliesTo("src/*.ts");
-  assert(star("src/a.ts") && !star("src/x/a.ts") && compileAppliesTo("src/**/a.ts")("src/x/y/a.ts") && compileAppliesTo("a?.ts")("ab.ts"));
-  assert.deepEqual(extractIdentifiers("Use `fooBar()` and ParserFactory, snake_case_name, MAX_RETRY_COUNT and the x_y."), [
-    "foobar",
-    "max_retry_count",
-    "parserfactory",
-    "snake_case_name",
-  ]);
+  assert(
+    star("src/a.ts") &&
+      !star("src/x/a.ts") &&
+      compileAppliesTo("src/**/a.ts")("src/x/y/a.ts") &&
+      compileAppliesTo("a?.ts")("ab.ts"),
+  );
+  assert.deepEqual(
+    extractIdentifiers("Use `fooBar()` and ParserFactory, snake_case_name, MAX_RETRY_COUNT and the x_y."),
+    ["foobar", "max_retry_count", "parserfactory", "snake_case_name"],
+  );
   assert.deepEqual(extractIdentifiers("plain words only, a `two words` span `src/a.ts`"), []);
-  for (const cue of ["改為 X", "已經不再使用", "use A instead", "Replaces the old way", "no longer needed", "revert it", "rollback plan", "移除舊設定"]) {
+  for (const cue of [
+    "改為 X",
+    "已經不再使用",
+    "use A instead",
+    "Replaces the old way",
+    "no longer needed",
+    "revert it",
+    "rollback plan",
+    "移除舊設定",
+  ]) {
     assert(hasRevisionCue(cue), `cue ${cue}`);
   }
   assert(!hasRevisionCue("adds a new parser for logs"));
@@ -870,7 +1464,8 @@ function selfCheck() {
     ["updated", ["status"], "status_edit"],
     ["updated", [], "other"],
   ];
-  for (const [action, fields, expected] of cases) assert.equal(classifyAudit(action, fields), expected, `${action} ${fields}`);
+  for (const [action, fields, expected] of cases)
+    assert.equal(classifyAudit(action, fields), expected, `${action} ${fields}`);
   assert.equal(gradeStale({ structural: true, allBroad: true }), "strong");
   assert.equal(gradeStale({ identifierHit: true }), "strong");
   assert.equal(gradeStale({ allBroad: true }), "weak");
@@ -932,16 +1527,74 @@ function selfCheck() {
   // Default output contains no record text, with and without a sample.
   const report = buildReport(data, { sample: 3, seed: 5 }).report;
   assertNoLeak(report, strings, "report");
-  assert(!JSON.stringify(report).includes("candidates\":["));
+  assert(!JSON.stringify(report).includes('candidates":['));
   assertNoLeak(buildReport(data).report, strings, "report-no-sample");
+
+  // Path-hit replay and the two counterfactual confirmation rules.
+  const replay = replayData();
+  const replayReport = buildReport(replay.data, { pathHitReplay: true }).report;
+  const replayed = replayReport.pathHitReplay;
+  assert.equal(replayed.sessionsWithChangedFiles, 7);
+  assert.equal(replayed.sessionsWithoutStartedAt, 1);
+  // (K1,s2) (K1,s4) (K2,s2) (K3,s8) (K3,s7); K2 is archived by s4, K1/K2 were created after s1 started.
+  assert.equal(replayed.pairs, 5);
+  assert.equal(replayed.distinctKnowledge, 3);
+  // Only (K3,s7) is stale when every confirmation counts: s8 changed K3's path after its creation.
+  assert.equal(replayed.modes.reconstructedAll.stale, 1);
+  // K1 at s4: s3's applied (no path evidence) is ignored, so s2's change after the day-2 manual confirmation counts.
+  assert.equal(replayed.modes.pathEvidence.stale, 2);
+  assert.equal(replayed.modes.manualOnly.stale, 2);
+  assert.equal(replayed.modes.pathEvidence.staleRatio, 0.4);
+  assert.equal(replayed.modes.pathEvidence.laterChangeSessionCount["1"], 2);
+  assert.equal(
+    Object.values(replayed.modes.manualOnly.tiers.counts).reduce((a, b) => a + b, 0),
+    2,
+  );
+  // Full section: K1 and K3 are active with appliesTo. K3's applied carries path evidence, K1's does not.
+  const factual = replayReport.staleness.counterfactualBaselines;
+  assert.equal(factual.reconstructedAll.baselinePossiblyStale, 1);
+  assert.equal(factual.pathEvidence.baselinePossiblyStale, 1);
+  assert.equal(factual.manualOnly.baselinePossiblyStale, 2);
+  assert.equal(factual.manualOnly.pairs, 2);
+  assert(!("pathHitReplay" in buildReport(replay.data).report));
+  assertNoLeak(replayReport, replay.strings, "replay");
+  assert.equal(
+    staleAt(buildContext(replay.data), replay.data.knowledge[0], undefined, "manualOnly").touching.length,
+    3,
+  );
+
+  // Decision duplication.
+  assert.equal(normalizeDecisionText("Use v1.2.3 (now)!"), normalizeDecisionText("use  V9.0 now"));
+  const duplicates = duplicationData();
+  const duplication = analyzeDecisionDuplication(duplicates.decisions);
+  assert.equal(duplication.decisions, 13);
+  // Exact: the four pnpm decisions (versions normalized), the two widget ones, the three cache ones.
+  assert.equal(duplication.exact.groups, 3);
+  assert.equal(duplication.exact.decisionsInGroups, 9);
+  assert.deepEqual(duplication.exact.sizeDist, { 2: 1, 3: 1, "4-5": 1, "6-10": 0, "11+": 0 });
+  assert.deepEqual(duplication.exact.sessionsSpanned, { 1: 0, 2: 1, 3: 1, "4-5": 1, "6+": 0 });
+  // Near adds the parser pair; the version-differing pnpm decision is below 0.8 against the others.
+  assert(duplication.near.groups >= 3);
+  assert.equal(duplication.merged.groups, 4);
+  assert.equal(duplication.merged.decisionsInGroups, 11);
+  assert.deepEqual(duplication.standingRequestCandidates.exact.userRequested, { groups: 1, decisions: 4 });
+  assert.deepEqual(duplication.standingRequestCandidates.exact.anyOrigin, { groups: 2, decisions: 7 });
+  assert.deepEqual(duplication.standingRequestCandidates.merged.anyOrigin, { groups: 2, decisions: 7 });
+  assert.deepEqual(duplication.dedupedDecisions, { exactOnly: 13 - 9 + 3, merged: 13 - 11 + 4 });
+  assertNoLeak(duplication, duplicates.strings, "duplication");
+  assertNoLeak(
+    buildReport({ ...data, decisions: duplicates.decisions }).report,
+    duplicates.strings,
+    "duplication-report",
+  );
 
   // The SQL runs against the real column names (a minimal copy of the columns this probe reads) and matches.
   const memory = new DatabaseSync(":memory:");
   memory.exec(`
     CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT, root_path TEXT, status TEXT);
     CREATE TABLE sessions (id TEXT PRIMARY KEY, project_id TEXT, title TEXT, summary TEXT, completed_at TEXT,
-      changed_files_json TEXT, changed_file_changes_json TEXT, voided_at TEXT);
-    CREATE TABLE session_decisions (id TEXT PRIMARY KEY, session_id TEXT, project_id TEXT, position INTEGER, text TEXT);
+      changed_files_json TEXT, changed_file_changes_json TEXT, voided_at TEXT, started_at TEXT);
+    CREATE TABLE session_decisions (id TEXT PRIMARY KEY, session_id TEXT, project_id TEXT, position INTEGER, text TEXT, origin TEXT);
     CREATE TABLE knowledge (id TEXT PRIMARY KEY, project_id TEXT, session_id TEXT, kind TEXT, status TEXT, title TEXT,
       body TEXT, created_at TEXT, applies_to_json TEXT, last_confirmed_at TEXT, last_confirmed_session_id TEXT, supersedes_id TEXT);
     CREATE TABLE knowledge_audit (id TEXT PRIMARY KEY, knowledge_id TEXT, project_id TEXT, action TEXT,
@@ -953,11 +1606,22 @@ function selfCheck() {
   memory.prepare("INSERT INTO projects VALUES (?, ?, ?, 'tracked')").run(p.id, p.name, p.rootPath);
   for (const s of data.sessions) {
     memory
-      .prepare("INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, NULL)")
-      .run(s.id, s.projectId, s.title, s.summary, s.completedAt, JSON.stringify(s.files), JSON.stringify(s.changes));
+      .prepare("INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)")
+      .run(
+        s.id,
+        s.projectId,
+        s.title,
+        s.summary,
+        s.completedAt,
+        JSON.stringify(s.files),
+        JSON.stringify(s.changes),
+        s.startedAt ?? null,
+      );
   }
   data.decisions.forEach((d, index) =>
-    memory.prepare("INSERT INTO session_decisions VALUES (?, ?, ?, ?, ?)").run(`d${index}`, d.sessionId, d.projectId, d.position, d.text),
+    memory
+      .prepare("INSERT INTO session_decisions VALUES (?, ?, ?, ?, ?, ?)")
+      .run(`d${index}`, d.sessionId, d.projectId, d.position, d.text, d.origin ?? "unspecified"),
   );
   for (const item of data.knowledge) {
     memory
@@ -982,7 +1646,9 @@ function selfCheck() {
       .prepare("INSERT INTO knowledge_audit VALUES (?, ?, ?, ?, ?, ?)")
       .run(a.id, a.knowledgeId, a.projectId, a.action, JSON.stringify(a.fields), a.occurredAt);
     if (a.feedbackKind) {
-      memory.prepare("INSERT INTO knowledge_feedback VALUES (?, ?, ?, NULL, ?, ?)").run(a.id, a.knowledgeId, a.projectId, a.feedbackKind, a.occurredAt);
+      memory
+        .prepare("INSERT INTO knowledge_feedback VALUES (?, ?, ?, NULL, ?, ?)")
+        .run(a.id, a.knowledgeId, a.projectId, a.feedbackKind, a.occurredAt);
     }
   }
   memory.prepare("INSERT INTO session_links VALUES ('l1', 'sid-zq-touch-b', 'sid-zq-source')").run();
@@ -992,6 +1658,7 @@ function selfCheck() {
   memory.close();
   assert.equal(loaded.sessions.length, data.sessions.length);
   assert.equal(loaded.decisions.length, 5);
+  assert.equal(loaded.decisions[0].origin, "unspecified");
   assert.equal(loaded.audits.find((a) => a.id === "aid-4").feedbackKind, "applied");
   assert.equal(analyzeKnowledge(loaded).baselinePossiblyStale, 4);
   assert.deepEqual(analyzeAudits(loaded.audits).byAction, audit.byAction);
@@ -1007,7 +1674,9 @@ function flagValue(args, name, fallback) {
 }
 
 function printReveal(analysis, sample) {
-  console.error("REVEAL: record text follows. Local data owner only; do not paste, attach or send this output anywhere.");
+  console.error(
+    "REVEAL: record text follows. Local data owner only; do not paste, attach or send this output anywhere.",
+  );
   for (const pick of sample.picks) {
     const item = analysis.candidates[pick.index];
     const earlier = item.matches[0];
@@ -1036,8 +1705,14 @@ async function main() {
   let tokenizer = "builtin";
   if (args.includes("--dist-tokenizer")) {
     try {
-      const module = await import(pathToFileURL(resolve(new URL("../../packages/storage/dist/search-text.js", SELF_URL).pathname)).href);
-      termsOf = (text) => module.parseQueryWords(String(text)).flatMap((word) => word.terms).filter((term) => !/^\d+$/.test(term));
+      const module = await import(
+        pathToFileURL(resolve(new URL("../../packages/storage/dist/search-text.js", SELF_URL).pathname)).href
+      );
+      termsOf = (text) =>
+        module
+          .parseQueryWords(String(text))
+          .flatMap((word) => word.terms)
+          .filter((term) => !/^\d+$/.test(term));
       tokenizer = "dist";
     } catch {
       tokenizer = "builtin (dist missing)";
@@ -1051,7 +1726,14 @@ async function main() {
   } finally {
     db.close();
   }
-  const { report, decisionAnalysis } = buildReport(data, { thresholds, sampleThreshold: threshold, sample: sampleSize, seed, termsOf });
+  const { report, decisionAnalysis } = buildReport(data, {
+    thresholds,
+    sampleThreshold: threshold,
+    sample: sampleSize,
+    seed,
+    termsOf,
+    pathHitReplay: args.includes("--path-hit-replay"),
+  });
   console.log(JSON.stringify({ tokenizer, ...report }, null, 2));
   if (reveal) printReveal(decisionAnalysis, report.decisionSupersession.sample);
 }
