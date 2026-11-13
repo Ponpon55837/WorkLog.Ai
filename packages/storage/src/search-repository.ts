@@ -15,6 +15,7 @@ import {
   appliesToColumnSql,
   appliesToEntries,
   appliesToStrength,
+  compileAppliesToStrength,
   createAppliesToBudget,
 } from "./applies-to-match.js";
 import {
@@ -259,6 +260,12 @@ export interface ExtraPathKnowledge {
   id: string;
   title: string;
   matchedPath: string;
+}
+
+/** A Knowledge ranked by knowledgeForWeightedPaths: its score and every weighted file (as passed) that contributed. */
+export interface WeightedPathKnowledge extends ExtraPathKnowledge {
+  score: number;
+  files: string[];
 }
 
 export interface RecallComputation {
@@ -601,49 +608,49 @@ export class SearchRepository {
   }
 
   /**
-   * The best `count` Knowledge whose appliesTo or references match any of `paths`, in one ranking pass. It does not
-   * sync the index: the caller has just recalled, which synced it (a clean index costs one query anyway).
-   */
-  public knowledgeForPaths(paths: string[], projectId: string, count: number): ExtraPathKnowledge[] {
-    if (paths.length === 0 || count <= 0) return [];
-    const { ranked } = this.rank({ paths, projectId, types: ["knowledge"], limit: count });
-    return this.extraPathKnowledgeBeyond(ranked, [], count);
-  }
-
-  /**
    * The best `count` active Knowledge of one project for a weighted set of files (task-only context infers them from
    * similar Sessions). A Knowledge scores the sum over the weighted files of weight x match strength: appliesTo entries
    * through appliesToStrength (best entry per file), and references through search_paths rows with the file's basename
    * (an exact, suffix, or contained-path match as pathMatchStrength; unlike recall's path scan this does not find a
    * stored reference that merely contains the file's name inside a longer basename, which keeps it on the basename
-   * index). `matchedPath` is the weighted file (not the stored pattern or reference) that contributed most to the Knowledge.
+   * index). `matchedPath` is the weighted file (not the stored pattern or reference) that contributed most to the
+   * Knowledge, `files` every weighted file that contributed, and `score` the sum. Ties rank by id. When `matched` is
+   * given, the id of every scored Knowledge (not only the best `count`) is added to it.
    *
-   * Cost: one appliesTo scan exactly like scoreAppliesTo (at most APPLIES_TO_SCAN_LIMIT rows, one shared match budget,
-   * stopping at the first row the budget cuts short), so rows x patterns x files tests at most, all charged to that
-   * budget; the files are bounded to WEIGHTED_PATH_LIMIT; one indexed query for references (at most
-   * WEIGHTED_REFERENCE_ROW_LIMIT rows, newest first); and one title query for the winners. It does not sync the index.
+   * Cost: one appliesTo scan like scoreAppliesTo (at most APPLIES_TO_SCAN_LIMIT rows, one shared match budget, stopping
+   * at the first row the budget cuts short). Each stored entry is classified and compiled once per row, then tested
+   * against at most WEIGHTED_PATH_LIMIT files, so at most rows x patterns x files tests, all charged to the budget; one
+   * indexed query for references (at most WEIGHTED_REFERENCE_ROW_LIMIT rows, newest first); and one title query for the
+   * winners. It does not sync the index.
    */
   public knowledgeForWeightedPaths(
     weights: ReadonlyMap<string, number>,
     projectId: string,
     count: number,
-  ): ExtraPathKnowledge[] {
+    matched?: Set<string>,
+  ): WeightedPathKnowledge[] {
     if (weights.size === 0 || count <= 0) return [];
     const contexts = this.pathContexts(projectId);
-    const merged = new Map<string, number>();
+    const merged = new Map<string, { weight: number; sources: string[] }>();
     for (const [path, weight] of weights) {
       const normalized = normalizePath(path, contexts);
-      if (normalized && weight > 0) merged.set(normalized, (merged.get(normalized) ?? 0) + weight);
+      if (!normalized || !(weight > 0)) continue;
+      const entry = merged.get(normalized) ?? { weight: 0, sources: [] };
+      entry.weight += weight;
+      entry.sources.push(path);
+      merged.set(normalized, entry);
     }
     const files = [...merged]
-      .sort(([leftPath, left], [rightPath, right]) => right - left || (leftPath < rightPath ? -1 : 1))
-      .slice(0, WEIGHTED_PATH_LIMIT);
+      .sort(([leftPath, left], [rightPath, right]) => right.weight - left.weight || (leftPath < rightPath ? -1 : 1))
+      .slice(0, WEIGHTED_PATH_LIMIT)
+      .map(([file, { weight }]) => [file, weight] as const);
     if (files.length === 0) return [];
 
-    const scored = new Map<string, { score: number; best: number; matchedPath: string }>();
+    const scored = new Map<string, { score: number; best: number; matchedPath: string; files: Set<string> }>();
     const add = (id: string, contribution: number, file: string): void => {
-      const entry = scored.get(id) ?? { score: 0, best: 0, matchedPath: file };
+      const entry = scored.get(id) ?? { score: 0, best: 0, matchedPath: file, files: new Set<string>() };
       entry.score += contribution;
+      entry.files.add(file);
       if (contribution > entry.best) {
         entry.best = contribution;
         entry.matchedPath = file;
@@ -670,12 +677,14 @@ export class SearchRepository {
     const budget = createAppliesToBudget();
     for (const row of rows) {
       const rowContexts = [{ name: row.name, rootPath: row.root_path }];
-      const patterns = [...appliesToEntries(row.applies_to_json, rowContexts, budget)];
+      const matchers = appliesToEntries(row.applies_to_json, rowContexts, budget).map((pattern) =>
+        compileAppliesToStrength(pattern, budget),
+      );
       const contributions: Array<[string, number]> = [];
       for (const [file, weight] of files) {
         if (budget.exhausted) break;
         let fileStrength = 0;
-        for (const pattern of patterns) fileStrength = Math.max(fileStrength, appliesToStrength(pattern, file, budget));
+        for (const matcher of matchers) fileStrength = Math.max(fileStrength, matcher(file, budget));
         if (fileStrength > 0) contributions.push([file, weight * fileStrength]);
       }
       // A row whose matching the budget cut short is left out whole, so a partial score never ranks it.
@@ -683,7 +692,7 @@ export class SearchRepository {
       for (const [file, contribution] of contributions) add(row.id, contribution, file);
     }
 
-    const filesByBasename = new Map<string, Array<[string, number]>>();
+    const filesByBasename = new Map<string, Array<readonly [string, number]>>();
     for (const entry of files) {
       const basename = pathBasename(entry[0]);
       filesByBasename.set(basename, [...(filesByBasename.get(basename) ?? []), entry]);
@@ -716,16 +725,28 @@ export class SearchRepository {
       }
     }
     for (const { id, contribution, file } of bestPerFile.values()) add(id, contribution, file);
+    if (matched) for (const id of scored.keys()) matched.add(id);
 
     const winners = [...scored]
-      .sort(([, left], [, right]) => right.score - left.score)
-      .slice(0, count)
-      .map(([id, entry]) => ({ id, matchedPath: entry.matchedPath }));
+      .sort(([leftId, left], [rightId, right]) => right.score - left.score || (leftId < rightId ? -1 : 1))
+      .slice(0, count);
     if (winners.length === 0) return [];
-    const titles = this.knowledgeTitles(winners.map(({ id }) => id));
-    return winners.flatMap(({ id, matchedPath }) => {
+    const titles = this.knowledgeTitles(winners.map(([id]) => id));
+    // Back to the caller's spelling of each file (the first of the weights that normalized to it).
+    const original = (file: string): string => merged.get(file)?.sources[0] ?? file;
+    return winners.flatMap(([id, entry]) => {
       const title = titles.get(id);
-      return title === undefined ? [] : [{ id, title, matchedPath }];
+      return title === undefined
+        ? []
+        : [
+            {
+              id,
+              title,
+              matchedPath: original(entry.matchedPath),
+              score: entry.score,
+              files: [...entry.files].flatMap((file) => merged.get(file)?.sources ?? []),
+            },
+          ];
     });
   }
 

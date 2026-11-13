@@ -972,30 +972,26 @@ try {
   // seeded context is budget-tight and its recent Knowledge already covers the matches, so the work done is checked
   // by counting the inference ranking passes instead of requiring a visible pointer.
   const taskContextService = benchStore.contextRecallService;
-  // `mode` picks the inference: "off" (gate closed), "paths" (the three heaviest files) or "weighted" (every file of the
-  // similar Sessions in one appliesTo scan). The service's inferredPathOptions field is overridden for the call.
-  const getContextTaskOnly = (mode) => () => {
+  // `inference` false closes the gate; true runs the weighted inference (every file of the similar Sessions in one
+  // appliesTo scan, knowledgeForWeightedPaths) with the service's default options.
+  const getContextTaskOnly = (inference) => () => {
     const original = taskContextService.shouldInferTaskPaths;
-    const originalOptions = taskContextService.inferredPathOptions;
     const searchIndex = taskContextService.searchIndex;
-    const ranking = mode === "weighted" ? "knowledgeForWeightedPaths" : "knowledgeForPaths";
-    const rank = searchIndex[ranking];
+    const rank = searchIndex.knowledgeForWeightedPaths;
     let passes = 0;
-    taskContextService.shouldInferTaskPaths = mode === "off" ? () => false : () => true;
-    taskContextService.inferredPathOptions = { ...originalOptions, mode: mode === "weighted" ? "weighted" : "paths" };
-    searchIndex[ranking] = (...args) => {
+    taskContextService.shouldInferTaskPaths = inference ? () => true : () => false;
+    searchIndex.knowledgeForWeightedPaths = (...args) => {
       passes += 1;
       return rank.apply(searchIndex, args);
     };
     try {
       const result = benchStore.getContext(alphaRoot, { task: "graph renderer module" });
-      if (result.outcome !== "context" || passes !== (mode === "off" ? 0 : 1))
-        throw new Error("Task-only context must run the inference ranking exactly when inference is on.");
+      if (result.outcome !== "context" || passes !== (inference ? 1 : 0))
+        throw new Error("Task-only context must run the weighted scan exactly when inference is on.");
       return result;
     } finally {
-      searchIndex[ranking] = rank;
+      searchIndex.knowledgeForWeightedPaths = rank;
       taskContextService.shouldInferTaskPaths = original;
-      taskContextService.inferredPathOptions = originalOptions;
     }
   };
   // Re-indexing churns the FTS index, so the dirty-backlog case runs on its own copy and leaves later cases alone.
@@ -1292,9 +1288,8 @@ try {
     // work costs.
     "getContext (paths, appliesTo-matched Knowledge)": getContextPathsAppliesTo,
     "getContext (paths, appliesTo-matched Knowledge, after a write)": getContextPathsAppliesTo,
-    "getContext (task only, no inference)": getContextTaskOnly("off"),
-    "getContext (task only, inferred-path Knowledge)": getContextTaskOnly("paths"),
-    "getContext (task only, weighted inferred-path Knowledge)": getContextTaskOnly("weighted"),
+    "getContext (task only, no inference)": getContextTaskOnly(false),
+    "getContext (task only, inferred-path Knowledge)": getContextTaskOnly(true),
     "finalizeSession (related pending reminder)": () => {
       const index = ++maintenanceFinalizeIndex;
       const focus = [
@@ -1760,7 +1755,6 @@ try {
     "getContext (paths, appliesTo-matched Knowledge, after a write)": 400,
     "getContext (task only, no inference)": 250,
     "getContext (task only, inferred-path Knowledge)": 250,
-    "getContext (task only, weighted inferred-path Knowledge)": 250,
     "recall (paths, appliesTo)": 100,
     "recall (paths, appliesTo, after a write)": 150,
     "finalizeSession (related pending reminder)": 250,

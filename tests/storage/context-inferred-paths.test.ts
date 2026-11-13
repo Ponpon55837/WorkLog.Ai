@@ -7,18 +7,20 @@ import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
 // Fictional fixtures only.
 interface InferredPathOptions {
-  mode: "paths" | "weighted";
-  pathLimit: number;
   pointerLimit: number;
   yieldRecent: boolean;
   promoteRecent: boolean;
   allowRecentOmitted: boolean;
+  minScoreShare: number;
+  minTopRatio: number;
+  minSessions: number;
+  skipHighConfidence: boolean;
 }
 
 interface ServiceInternals {
   inferredPathOptions: InferredPathOptions;
   shouldInferTaskPaths: (knowledgeHitCount: number, confidence: string) => boolean;
-  searchIndex: { knowledgeForPaths: (...args: unknown[]) => unknown };
+  searchIndex: { knowledgeForWeightedPaths: (...args: unknown[]) => unknown };
 }
 
 const stores: WorkIntelligenceStore[] = [];
@@ -156,7 +158,7 @@ describe("work_get_context inferred-path Knowledge supplements", () => {
 
   it("does no inference and no extra ranking for calls with paths or without a task", () => {
     const { store, root, service } = lanternFixture();
-    const spy = vi.spyOn(service.searchIndex, "knowledgeForPaths");
+    const spy = vi.spyOn(service.searchIndex, "knowledgeForWeightedPaths");
 
     const withPaths = contextOf(store, root, { task: TASK, paths: ["src/other/file.ts"] });
     const pathsOnly = contextOf(store, root, { paths: ["src/other/file.ts"] });
@@ -169,6 +171,22 @@ describe("work_get_context inferred-path Knowledge supplements", () => {
     }
     contextOf(store, root, { task: TASK });
     expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns byte-identical responses for calls with paths or without a task, whatever the knobs", () => {
+    const { store, root, service } = lanternFixture(true, 1);
+    const focuses = [{ task: TASK, paths: ["src/burner/valve.ts"] }, { paths: ["src/other/file.ts"] }, {}];
+    service.shouldInferTaskPaths = () => false;
+    const off = focuses.map((focus) => JSON.stringify(contextOf(store, root, focus)));
+    service.shouldInferTaskPaths = () => true;
+    for (let flags = 0; flags < 8; flags += 1) {
+      withOptions(service, {
+        yieldRecent: Boolean(flags & 1),
+        promoteRecent: Boolean(flags & 2),
+        allowRecentOmitted: Boolean(flags & 4),
+      });
+      expect(focuses.map((focus) => JSON.stringify(contextOf(store, root, focus)))).toEqual(off);
+    }
   });
 
   it("keeps the rest of a budget-tight response identical to the response without the feature", () => {
@@ -236,19 +254,16 @@ describe("work_get_context inferred-path knobs", () => {
       service.shouldInferTaskPaths = () => false;
       const off = contextOf(store, root, { task: TASK });
       service.shouldInferTaskPaths = () => true;
-      for (const mode of ["paths", "weighted"] as const) {
-        for (let flags = 0; flags < 8; flags += 1) {
-          withOptions(service, {
-            mode,
-            yieldRecent: Boolean(flags & 1),
-            promoteRecent: Boolean(flags & 2),
-            allowRecentOmitted: Boolean(flags & 4),
-          });
-          const on = contextOf(store, root, { task: TASK });
-          expect(JSON.stringify(on).length).toBeLessThanOrEqual(9_800);
-          expect(JSON.stringify(on.relevant?.knowledge)).toBe(JSON.stringify(off.relevant?.knowledge));
-          expect(JSON.stringify(on.relevant?.sessions)).toBe(JSON.stringify(off.relevant?.sessions));
-        }
+      for (let flags = 0; flags < 8; flags += 1) {
+        withOptions(service, {
+          yieldRecent: Boolean(flags & 1),
+          promoteRecent: Boolean(flags & 2),
+          allowRecentOmitted: Boolean(flags & 4),
+        });
+        const on = contextOf(store, root, { task: TASK });
+        expect(JSON.stringify(on).length).toBeLessThanOrEqual(9_800);
+        expect(JSON.stringify(on.relevant?.knowledge)).toBe(JSON.stringify(off.relevant?.knowledge));
+        expect(JSON.stringify(on.relevant?.sessions)).toBe(JSON.stringify(off.relevant?.sessions));
       }
     }
   });
@@ -303,13 +318,40 @@ describe("work_get_context inferred-path knobs", () => {
     expect(JSON.stringify(allowed).length).toBeLessThanOrEqual(9_800);
   });
 
-  it("scores every file of the similar Sessions in weighted mode", () => {
-    const { store, root, scoped, service } = lanternFixture();
-    withOptions(service, { mode: "weighted" });
+  it("scores every file of the similar Sessions and names the weighted file", () => {
+    const { store, root, scoped } = lanternFixture();
     const context = contextOf(store, root, { task: TASK });
     const pointer = context.relevant?.supplements?.find((item) => item.id === scoped.id);
     expect(pointer?.includedBecause.kind).toBe("inferred_path");
     if (pointer?.includedBecause.kind !== "inferred_path") throw new Error("Expected an inferred path.");
     expect(pointer.includedBecause.path).toBe("src/burner/valve.ts");
+  });
+
+  it("drops pointers below the precision thresholds", () => {
+    const { store, root, scoped, service } = lanternFixture();
+    const has = () =>
+      (contextOf(store, root, { task: TASK }).relevant?.supplements ?? []).some((item) => item.id === scoped.id);
+    expect(has()).toBe(true);
+    // Two similar Sessions changed the files the Knowledge covers.
+    withOptions(service, { minSessions: 2 });
+    expect(has()).toBe(true);
+    withOptions(service, { minSessions: 3 });
+    expect(has()).toBe(false);
+    withOptions(service, { minSessions: 1, minTopRatio: 1 });
+    expect(has()).toBe(true);
+    withOptions(service, { minTopRatio: 1.01 });
+    expect(has()).toBe(false);
+    withOptions(service, { minTopRatio: 0, minScoreShare: 0.01 });
+    expect(has()).toBe(true);
+    withOptions(service, { minScoreShare: 1.01 });
+    expect(has()).toBe(false);
+  });
+
+  it("skips inference only for high first-round confidence when skipHighConfidence is on", () => {
+    const { store, root, scoped, service } = lanternFixture();
+    const confidence = contextOf(store, root, { task: TASK }).relevant?.confidence;
+    withOptions(service, { skipHighConfidence: true });
+    const pointers = (contextOf(store, root, { task: TASK }).relevant?.supplements ?? []).map((item) => item.id);
+    expect(pointers.includes(scoped.id)).toBe(confidence !== "high");
   });
 });

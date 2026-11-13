@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { setAppliesToBudgetProbe, type AppliesToBudget } from "../../packages/storage/src/applies-to-match.js";
-import type { ExtraPathKnowledge } from "../../packages/storage/src/search-repository.js";
+import type { WeightedPathKnowledge } from "../../packages/storage/src/search-repository.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
 // Fictional fixtures only.
@@ -13,7 +13,8 @@ interface SearchInternals {
     weights: ReadonlyMap<string, number>,
     projectId: string,
     count: number,
-  ) => ExtraPathKnowledge[];
+    matched?: Set<string>,
+  ) => WeightedPathKnowledge[];
 }
 
 const stores: WorkIntelligenceStore[] = [];
@@ -42,9 +43,9 @@ function setup() {
   };
   const search = (store as unknown as { contextRecallService: { searchIndex: SearchInternals } }).contextRecallService
     .searchIndex;
-  const rank = (weights: Array<[string, number]>, count = 5, projectId = project.id) => {
+  const rank = (weights: Array<[string, number]>, count = 5, projectId = project.id, matched?: Set<string>) => {
     search.syncIndex();
-    return search.knowledgeForWeightedPaths(new Map(weights), projectId, count);
+    return search.knowledgeForWeightedPaths(new Map(weights), projectId, count, matched);
   };
   return { store, root, project, record, rank };
 }
@@ -83,7 +84,39 @@ describe("SearchRepository.knowledgeForWeightedPaths", () => {
 
     const result = rank([["src/heddle/frame.ts", 1]]);
 
-    expect(result).toEqual([{ id: reference.id, title: "Heddle note", matchedPath: "src/heddle/frame.ts" }]);
+    expect(result).toEqual([
+      {
+        id: reference.id,
+        title: "Heddle note",
+        matchedPath: "src/heddle/frame.ts",
+        score: 1,
+        files: ["src/heddle/frame.ts"],
+      },
+    ]);
+  });
+
+  it("reports the score and every contributing file, breaks ties by id, and lists every scored id in `matched`", () => {
+    const { record, rank } = setup();
+    const first = record("Tie rule one", ["src/loom/**"]);
+    const second = record("Tie rule two", ["src/loom/**"]);
+    const third = record("Tie rule three", ["src/loom/**"]);
+    const matched = new Set<string>();
+
+    const result = rank(
+      [
+        ["src/loom/a.ts", 2],
+        ["src/loom/b.ts", 1],
+        ["src/none/c.ts", 5],
+      ],
+      2,
+      undefined,
+      matched,
+    );
+
+    expect(result.map((item) => item.id)).toEqual([first.id, second.id, third.id].sort().slice(0, 2));
+    expect(result[0]?.score).toBeCloseTo(2.4);
+    expect([...(result[0]?.files ?? [])].sort()).toEqual(["src/loom/a.ts", "src/loom/b.ts"]);
+    expect([...matched].sort()).toEqual([first.id, second.id, third.id].sort());
   });
 
   it("limits the answer to the requested count and returns nothing for no usable weights", () => {

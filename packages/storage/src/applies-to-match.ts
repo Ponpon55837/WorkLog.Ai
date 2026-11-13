@@ -657,3 +657,30 @@ export function appliesToStrength(pattern: string, path: string, budget?: Applie
   if (!charge(budget, PAIR_UNITS)) return 0;
   return Math.max(plainStrength(pattern, path, budget), plainStrength(path, pattern, budget));
 }
+
+/** Strength of one precompiled entry against a path, charged to the budget it is given. */
+export type AppliesToStrengthMatcher = (path: string, budget?: AppliesToBudget) => number;
+
+/**
+ * appliesToStrength for one entry against many paths: the entry is classified and (for a glob) compiled once, then each
+ * path costs its own match only. The strengths are appliesToStrength's (glob 0.8; plain 1, 0.8 or 0.6), and each pair is
+ * charged the same units; only the per-path re-classification of the entry is gone. An entry that cannot be afforded or
+ * is above the length limit matches nothing (the latter counts as skipped, like appliesToStrength).
+ */
+export function compileAppliesToStrength(pattern: string, budget?: AppliesToBudget): AppliesToStrengthMatcher {
+  const never: AppliesToStrengthMatcher = () => 0;
+  if (pattern.length > MAX_APPLIES_TO_ENTRY_LENGTH) {
+    if (budget) budget.skippedEntries += 1;
+    return never;
+  }
+  const isGlob = chargedIsGlob(pattern, budget);
+  if (isGlob === undefined) return never;
+  if (isGlob) {
+    const matches = compileAppliesTo(pattern, budget);
+    return (path, pathBudget) => (matches(path, pathBudget) ? 0.8 : 0);
+  }
+  return (path, pathBudget) =>
+    charge(pathBudget, PAIR_UNITS)
+      ? Math.max(plainStrength(pattern, path, pathBudget), plainStrength(path, pattern, pathBudget))
+      : 0;
+}

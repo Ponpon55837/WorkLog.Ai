@@ -26,17 +26,23 @@
 //   The gate is reached as `store.contextRecallService.shouldInferTaskPaths` (private field, instance method).
 //
 //   Knob variants (report.metrics, not under `prototype`): the gate is forced on and the recall service's instance field
-//   `inferredPathOptions` (mode, pathLimit, pointerLimit, yieldRecent, promoteRecent, allowRecentOmitted) is overridden:
-//   off (gate off), paths3 (the first prototype: no yield, promote or omitted), paths3Yield, paths5Yield, paths8Yield,
-//   weighted3Yield, weighted5Yield (pointerLimit 5), bestAllKnobs (weighted, yield, promote, allowRecentOmitted).
+//   `inferredPathOptions` (pointerLimit, yieldRecent, promoteRecent, allowRecentOmitted, minScoreShare, minTopRatio,
+//   minSessions, skipHighConfidence) is overridden: off (gate off), weighted3Yield, weighted5Yield (pointerLimit 5),
+//   weighted3YieldPromote (the shipped defaults), bestAllKnobs (adds allowRecentOmitted), bestSkipHigh.
 //   report.metrics.<variant> holds, for every variant, both definitions: loose (the Hit definition above) and strict (a
 //   target id with a title or excerpt inside relevant.knowledge or relevant.supplements only, so recentKnowledge and
 //   anything else do not count), gained / lost against the task baseline for both, chars (sum, max), onNegative noise,
-//   recentDisplaced (recentKnowledge items of the task baseline that the variant removed, split target / other), and
-//   gained by first-round confidence and by the time / size slices. report.diagnostics explains each target pair the
-//   knob variants did not strictly hit (notInferred, alreadyRecent, excludedOmitted, cutByCap, cutByBudget, firstRound),
-//   recomputed from what the product's private inference methods returned during the call (wrapped at runtime) and the
-//   response itself; the cut classes are approximate where the response lists omitted ids only up to a limit.
+//   inferredPointers (total, target pairs, split by positive / negative tasks, precision), recentDisplaced
+//   (recentKnowledge items of the task baseline that the variant removed, split target / other), looseLostBy (yieldPop /
+//   promote / other: why a loose hit of the baseline was lost) and gained by first-round confidence (none / low / high)
+//   and by the time / size slices. report.diagnostics explains each target pair the knob variants did not strictly hit
+//   (notInferred, filtered, alreadyRecent, excludedOmitted, cutByCap, cutByBudget, firstRound), recomputed from what the
+//   product's private inference methods returned during the call (wrapped at runtime) and the response itself; the cut
+//   classes are approximate where the response lists omitted ids only up to a limit.
+//   report.sweep (skip with --no-sweep) is the precision curve around bestAllKnobs: minScoreShare (score / sum of all
+//   file weights) x pointerLimit x minSessions, and minTopRatio (score / best score) x minSessions. Each row gives
+//   strictGained, strictLost, looseGained, looseLost, pointers, targetPointers, negativeTaskPointers, precision,
+//   noiseOverGain (negative-task pointers / strict gain), charsMax and looseLostBy.
 //   report.knowledgeRecallOnly counts strict targets among Knowledge-only recall hits for the task (limits 5 and 8): would
 //   relevant.knowledge find more if Sessions did not crowd the mixed recall page.
 //
@@ -62,16 +68,50 @@ const MERGED_FIELD_OVERHEAD = '"mergedPointers":[]'.length;
 const ORIGINAL_VARIANTS = ["task", "frequent", "predicted", "actual"];
 const PROTOTYPE_VARIANTS = ["merged", "productOff", "product", "productAlways"];
 const BASELINE_METRICS = ["task", "frequent", "predicted", "actual"];
+// Product knobs (ContextRecallService.inferredPathOptions). BASE is the widest line: weighted files, yield, promote and
+// allowRecentOmitted, pointerLimit 3, no precision threshold. Variants override single knobs.
+const BASE = {
+  pointerLimit: 3,
+  yieldRecent: true,
+  promoteRecent: true,
+  allowRecentOmitted: true,
+  minScoreShare: 0,
+  minTopRatio: 0,
+  minSessions: 1,
+  skipHighConfidence: false,
+};
 const KNOB_VARIANTS = {
   off: null,
-  paths3: { mode: "paths", pathLimit: 3, pointerLimit: 3, yieldRecent: false, promoteRecent: false, allowRecentOmitted: false },
-  paths3Yield: { mode: "paths", pathLimit: 3, pointerLimit: 3, yieldRecent: true, promoteRecent: false, allowRecentOmitted: false },
-  paths5Yield: { mode: "paths", pathLimit: 5, pointerLimit: 3, yieldRecent: true, promoteRecent: false, allowRecentOmitted: false },
-  paths8Yield: { mode: "paths", pathLimit: 8, pointerLimit: 3, yieldRecent: true, promoteRecent: false, allowRecentOmitted: false },
-  weighted3Yield: { mode: "weighted", pathLimit: 3, pointerLimit: 3, yieldRecent: true, promoteRecent: false, allowRecentOmitted: false },
-  weighted5Yield: { mode: "weighted", pathLimit: 3, pointerLimit: 5, yieldRecent: true, promoteRecent: false, allowRecentOmitted: false },
-  bestAllKnobs: { mode: "weighted", pathLimit: 3, pointerLimit: 3, yieldRecent: true, promoteRecent: true, allowRecentOmitted: true },
+  weighted3Yield: { ...BASE, promoteRecent: false, allowRecentOmitted: false },
+  weighted5Yield: { ...BASE, pointerLimit: 5, promoteRecent: false, allowRecentOmitted: false },
+  // The shipped defaults: weighted, yield, promote, pointerLimit 3.
+  weighted3YieldPromote: { ...BASE, allowRecentOmitted: false },
+  bestAllKnobs: { ...BASE },
+  bestSkipHigh: { ...BASE, skipHighConfidence: true },
 };
+// Precision curves around BASE: relative score floor (score / sum of all file weights), pointer limit, distinct-Session
+// support, and the share of the best Knowledge's score. Report: gain(strict), negative-task pointers, precision.
+const SWEEP_SHARES = [0, 0.02, 0.05, 0.1, 0.2];
+const SWEEP_LIMITS = [1, 2, 3];
+const SWEEP_SUPPORTS = [1, 2];
+const SWEEP_RATIOS = [0.25, 0.5, 0.75];
+function sweepVariants() {
+  const variants = {};
+  for (const minScoreShare of SWEEP_SHARES) {
+    for (const pointerLimit of SWEEP_LIMITS) {
+      for (const minSessions of SWEEP_SUPPORTS) {
+        variants[`share${minScoreShare}_limit${pointerLimit}_sessions${minSessions}`] = { ...BASE, minScoreShare, pointerLimit, minSessions };
+      }
+    }
+  }
+  for (const minTopRatio of SWEEP_RATIOS) {
+    for (const minSessions of SWEEP_SUPPORTS) {
+      variants[`ratio${minTopRatio}_limit3_sessions${minSessions}`] = { ...BASE, minTopRatio, minSessions };
+    }
+  }
+  return variants;
+}
+const SWEEP_VARIANTS = sweepVariants();
 const PRODUCT_METRICS = ["product", "productAlways", ...Object.keys(KNOB_VARIANTS).filter((key) => key !== "off")];
 const CONFIDENCES = ["none", "low", "high"];
 const SLICE_TAGS = ["latestQuarter", "earlier", "smallChange", "broadChange"];
@@ -175,6 +215,11 @@ function newMetric() {
     chars: { sum: 0, max: 0, average: 0 },
     onNegative: { looseItems: 0, strictItems: 0, strictItemsAddedVsTask: 0, strictInferredPointers: 0 },
     recentDisplaced: { target: 0, other: 0 },
+    // inferred_path pointers over every response: total, target pairs among them, and the split by task kind.
+    inferredPointers: { total: 0, targets: 0, onPositiveTasks: 0, onNegativeTasks: 0, precision: 0 },
+    // Loose hits of the task baseline that the variant lost, by cause: a recentKnowledge item the yield popped, one the
+    // promote moved into a pointer that did not survive, or anything else.
+    looseLostBy: { yieldPop: 0, promote: 0, other: 0 },
     gainedBy: {
       confidence: Object.fromEntries(CONFIDENCES.map((key) => [key, newGainCell()])),
       slices: Object.fromEntries(SLICE_TAGS.map((key) => [key, newGainCell()])),
@@ -183,7 +228,7 @@ function newMetric() {
 }
 
 function newDiagnostic() {
-  return { pairs: 0, strictHits: 0, notInferred: 0, alreadyRecent: 0, excludedOmitted: 0, cutByCap: 0, cutByBudget: 0, firstRound: 0 };
+  return { pairs: 0, strictHits: 0, notInferred: 0, filtered: 0, alreadyRecent: 0, excludedOmitted: 0, cutByCap: 0, cutByBudget: 0, firstRound: 0 };
 }
 
 /** Ids the response keeps in an omission, listed by id or by flagged / path entry (the rest is only counted). */
@@ -204,7 +249,8 @@ function classifyMiss(id, context, capture, options) {
   if (capture.firstRoundIds.has(id)) return "firstRound";
   if (!capture.raw.has(id)) return "notInferred";
   const index = capture.candidates.findIndex((candidate) => candidate.id === id);
-  if (index < 0) return "notInferred";
+  // Ranked by the weighted scan but dropped before pointer choice: a precision threshold (or trust) removed it.
+  if (index < 0) return options.minScoreShare > 0 || options.minTopRatio > 0 || options.minSessions > 1 ? "filtered" : "notInferred";
   const recent = new Set((context.recentKnowledge ?? []).map((item) => item.id));
   const listed = omissionListedIds(context);
   if (recent.has(id) && !options.promoteRecent) return "alreadyRecent";
@@ -273,7 +319,7 @@ function newSignalBuckets() {
 }
 
 /** Replays every question against the history before it; returns the aggregate report. */
-function replay(project, sessions, audits) {
+function replay(project, sessions, audits, { sweep = true } = {}) {
   const pathContext = [{ name: project.name, rootPath: project.root_path }];
   const norm = (path) => normalizePath(path, pathContext);
   for (const row of sessions) {
@@ -321,10 +367,11 @@ function replay(project, sessions, audits) {
       service.inferredKnowledge = (...args) => {
         for (const id of args[2]) capture.firstRoundIds.add(id);
         const result = servicePrototype.inferredKnowledge.apply(service, args);
-        capture.candidates = result;
+        capture.candidates = result.items;
+        capture.matched = result.matchedIds;
         return result;
       };
-      for (const name of ["knowledgeForPaths", "knowledgeForWeightedPaths"]) {
+      for (const name of ["knowledgeForWeightedPaths"]) {
         search[name] = (...args) => {
           const result = searchPrototype[name].apply(search, args);
           for (const item of result) capture.raw.add(item.id);
@@ -338,7 +385,6 @@ function replay(project, sessions, audits) {
       delete service.shouldInferTaskPaths;
       service.inferredPathOptions = previousOptions;
       delete service.inferredKnowledge;
-      delete search.knowledgeForPaths;
       delete search.knowledgeForWeightedPaths;
     }
   };
@@ -369,6 +415,7 @@ function replay(project, sessions, audits) {
   const metrics = Object.fromEntries(
     [...BASELINE_METRICS, "merged", ...Object.keys(KNOB_VARIANTS), "product", "productAlways"].filter((key, index, all) => all.indexOf(key) === index).map((key) => [key, newMetric()]),
   );
+  const sweepMetrics = Object.fromEntries(Object.keys(SWEEP_VARIANTS).map((key) => [key, newMetric()]));
   const diagnostics = Object.fromEntries(PRODUCT_METRICS.map((key) => [key, newDiagnostic()]));
   const recallOnly = { positives: 0, baselineStrictPairs: 0, ...Object.fromEntries([5, 8].map((limit) => [`limit${limit}`, { pairs: 0, newVsBaselineStrict: 0, nonTargetHits: 0, tasksWithNewPair: 0 }])) };
 
@@ -408,8 +455,8 @@ function replay(project, sessions, audits) {
     let predictedIds;
     const confidenceOf = () => baselineContext.relevant?.confidence ?? "none";
     // Both definitions for one response, against the task baseline (loose = fullIds, strict = relevant.* only).
-    const measure = (name, context, looseIds, strictSet, extraChars = 0) => {
-      const m = metrics[name];
+    const measure = (name, context, looseIds, strictSet, extraChars = 0, capture = undefined) => {
+      const m = metrics[name] ?? sweepMetrics[name];
       const looseGained = [...targets].filter((id) => looseIds.has(id) && !baseline.has(id)).length;
       const strictGained = [...targets].filter((id) => strictSet.has(id) && !baselineStrict.has(id)).length;
       m.responses++;
@@ -428,7 +475,18 @@ function replay(project, sessions, audits) {
         m.onNegative.strictItemsAddedVsTask += [...strictSet].filter((id) => !baselineStrict.has(id)).length;
         m.onNegative.strictInferredPointers += (context.relevant?.supplements ?? []).filter((item) => item.includedBecause?.kind === "inferred_path").length;
       }
+      const pointerIds = (context.relevant?.supplements ?? []).filter((item) => item.includedBecause?.kind === "inferred_path").map((item) => item.id);
+      m.inferredPointers.total += pointerIds.length;
+      m.inferredPointers.targets += pointerIds.filter((id) => targets.has(id)).length;
+      m.inferredPointers[targets.size ? "onPositiveTasks" : "onNegativeTasks"] += pointerIds.length;
       const recent = new Set((context.recentKnowledge ?? []).map((item) => item.id));
+      const baselineRecent = new Set((baselineContext.recentKnowledge ?? []).map((item) => item.id));
+      for (const id of targets) {
+        if (!baseline.has(id) || looseIds.has(id)) continue;
+        if (!baselineRecent.has(id) || recent.has(id)) m.looseLostBy.other++;
+        else if (capture?.matched?.has(id)) m.looseLostBy.promote++;
+        else m.looseLostBy.yieldPop++;
+      }
       for (const item of baselineContext.recentKnowledge ?? []) {
         if (!recent.has(item.id)) m.recentDisplaced[targets.has(item.id) ? "target" : "other"]++;
       }
@@ -567,8 +625,14 @@ function replay(project, sessions, audits) {
       const context = options ? contextWith(gates.always, { task }, options, capture) : contextWith(gates.off, { task });
       const ids = fullIds(context, known);
       const strict = strictIds(context, known);
-      measure(key, context, ids, strict);
+      measure(key, context, ids, strict, 0, capture);
       if (options) diagnose(key, context, strict, capture, { ...defaultOptions, ...options });
+    }
+    if (sweep) {
+      for (const [key, options] of Object.entries(SWEEP_VARIANTS)) {
+        const context = contextWith(gates.always, { task }, options);
+        measure(key, context, fullIds(context, known), strictIds(context, known));
+      }
     }
 
     const baselineChars = JSON.stringify(baselineContext).length;
@@ -610,7 +674,7 @@ function replay(project, sessions, audits) {
       const context = contextWith(gate, { task }, undefined, capture);
       const ids = fullIds(context, known);
       const strict = strictIds(context, known);
-      measure(key, context, ids, strict);
+      measure(key, context, ids, strict, 0, capture);
       diagnose(key, context, strict, capture, defaultOptions);
       const a = record(key, context, ids);
       a.gateFired += gateFired - before;
@@ -636,13 +700,38 @@ function replay(project, sessions, audits) {
   for (const a of Object.values(stats)) assert.equal(a.full, stats.task.full + a.gained - a.lost);
   for (const a of Object.values(prototypeStats)) assert.equal(a.full, stats.task.full + a.gained - a.lost);
   for (const a of Object.values(prototypeStats)) a.averageChars = a.responses ? Math.round(a.chars / a.responses) : 0;
-  for (const m of Object.values(metrics)) m.chars.average = m.responses ? Math.round(m.chars.sum / m.responses) : 0;
+  const finish = (m) => {
+    m.chars.average = m.responses ? Math.round(m.chars.sum / m.responses) : 0;
+    m.inferredPointers.precision = m.inferredPointers.total ? Number((m.inferredPointers.targets / m.inferredPointers.total).toFixed(3)) : 0;
+  };
+  for (const m of Object.values(metrics)) finish(m);
+  // Compact precision curves: what each knob setting gains (strict) against what it adds on tasks with no target.
+  const sweepReport = {};
+  for (const [key, m] of Object.entries(sweepMetrics)) {
+    if (!m.responses) continue;
+    finish(m);
+    sweepReport[key] = {
+      knobs: SWEEP_VARIANTS[key],
+      strictGained: m.strict.gained,
+      strictLost: m.strict.lost,
+      looseGained: m.loose.gained,
+      looseLost: m.loose.lost,
+      pointers: m.inferredPointers.total,
+      targetPointers: m.inferredPointers.targets,
+      negativeTaskPointers: m.inferredPointers.onNegativeTasks,
+      precision: m.inferredPointers.precision,
+      noiseOverGain: m.strict.gained ? Number((m.inferredPointers.onNegativeTasks / m.strict.gained).toFixed(3)) : null,
+      charsMax: m.chars.max,
+      looseLostBy: m.looseLostBy,
+    };
+  }
   return {
     tally,
     stats,
     groups,
     prototype: { stats: prototypeStats, groups: prototypeGroups, merged: mergedDetail, signals },
     metrics,
+    ...(sweep ? { sweep: sweepReport } : {}),
     diagnostics,
     knowledgeRecallOnly: recallOnly,
   };
@@ -748,11 +837,20 @@ function assertSelfCheck(report) {
   assert.equal(metrics.off.loose.full, metrics.task.loose.full, "off equals task (loose)");
   assert.equal(metrics.off.strict.full, metrics.task.strict.full, "off equals task (strict)");
   assert.equal(metrics.off.chars.sum, metrics.task.chars.sum, "off equals task (chars)");
-  assert(metrics.paths3Yield.strict.gained > 0, "paths inference gains strict hits in the synthetic replay");
   assert(metrics.weighted3Yield.strict.gained > 0, "weighted inference gains strict hits in the synthetic replay");
+  assert(metrics.weighted3YieldPromote.strict.gained > 0, "the shipped line gains strict hits in the synthetic replay");
+  for (const [key, entry] of Object.entries(report.sweep ?? {})) {
+    assert(entry.charsMax <= TASK_BUDGET_CHARS, `${key} must stay within the task budget`);
+    assert.equal(entry.strictLost, 0, `${key} must not lose strict hits`);
+  }
+  for (const key of PRODUCT_METRICS) {
+    const m = metrics[key];
+    assert.equal(m.inferredPointers.onPositiveTasks + m.inferredPointers.onNegativeTasks, m.inferredPointers.total, `${key} pointer split`);
+    assert(m.inferredPointers.targets <= m.inferredPointers.onPositiveTasks, `${key} target pointers are on positive tasks`);
+  }
   for (const key of PRODUCT_METRICS) {
     const d = report.diagnostics[key];
-    assert.equal(d.strictHits + d.notInferred + d.alreadyRecent + d.excludedOmitted + d.cutByCap + d.cutByBudget + d.firstRound, d.pairs, `${key} diagnostics cover every pair`);
+    assert.equal(d.strictHits + d.notInferred + d.filtered + d.alreadyRecent + d.excludedOmitted + d.cutByCap + d.cutByBudget + d.firstRound, d.pairs, `${key} diagnostics cover every pair`);
   }
 }
 
@@ -772,7 +870,7 @@ function main() {
       seedSyntheticDatabase(target, join(temp, "fictional-root"));
     }
     const { project, sessions, audits } = loadProject(target, selfCheck ? undefined : flagValue(args, "--project"));
-    const report = replay(project, sessions, audits);
+    const report = replay(project, sessions, audits, { sweep: !args.includes("--no-sweep") });
     console.log(JSON.stringify(report, null, 2));
     if (selfCheck) {
       assertSelfCheck(report);

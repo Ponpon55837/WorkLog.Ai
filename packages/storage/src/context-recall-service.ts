@@ -55,15 +55,9 @@ import {
   toSessionDigest,
 } from "./digest.js";
 import type { SessionListOptions } from "./session-repository.js";
-import type { ExtraPathKnowledge, SearchRepository } from "./search-repository.js";
-import { appliesToStrength } from "./applies-to-match.js";
+import type { SearchRepository } from "./search-repository.js";
 import { windowExcerpt } from "./excerpt-window.js";
-import {
-  inferTaskPaths,
-  weighTaskPaths,
-  type InferredPathSource,
-  type InferredTaskPath,
-} from "./inferred-task-paths.js";
+import { weighTaskPaths, type InferredPathSource } from "./inferred-task-paths.js";
 import { limitKnowledgePageReviewSections } from "./knowledge-page-service.js";
 
 const RECENT_DECISION_LIMIT = 12;
@@ -238,34 +232,48 @@ interface InferredKnowledge {
   needsReview?: boolean;
 }
 
-/** Knowledge matched by paths inferred from similar Sessions; only offered as supplements that use leftover budget. */
-const inferredKnowledgeByRelevant = new WeakMap<RelevantContext, InferredKnowledge[]>();
+/** What the inference found for one context: the pointer candidates in rank order and every id any weighted file matched. */
+interface InferredMatches {
+  items: InferredKnowledge[];
+  /** Every Knowledge the weighted files matched, ranked or not, so yielding never trims a record the inference touched. */
+  matchedIds: Set<string>;
+}
+
+/** Knowledge matched by files of similar Sessions; only offered as supplements that use leftover budget. */
+const inferredKnowledgeByRelevant = new WeakMap<RelevantContext, InferredMatches>();
 
 /**
  * How a task without paths looks for Knowledge through the files of its similar Sessions. The recall service keeps one
  * instance field of this shape; the replay experiment and the benchmark override it at runtime.
  */
 interface InferredPathOptions {
-  /** "paths": the `pathLimit` heaviest files, one ranking pass; "weighted": every file with its weight (pathLimit is ignored). */
-  mode: "paths" | "weighted";
-  pathLimit: number;
   /** Most inferred pointers added to one response. */
   pointerLimit: number;
-  /** When pointers do not fit, first drop recentKnowledge items the inference did not match, then pointers. */
+  /** When pointers do not fit, first drop recentKnowledge items no weighted file matched, then pointers. */
   yieldRecent: boolean;
   /** A match shown in recentKnowledge still gets a pointer and leaves recentKnowledge, so it is counted once, labelled. */
   promoteRecent: boolean;
   /** A match that budget trimming took out of recentKnowledge may come back as a pointer. */
   allowRecentOmitted: boolean;
+  /** Smallest score of a Knowledge divided by the sum of all file weights (0 to 1; scale-free); 0 keeps every match. */
+  minScoreShare: number;
+  /** Smallest score of a Knowledge divided by the best score found (0 to 1); 0 keeps every match. */
+  minTopRatio: number;
+  /** Fewest distinct similar Sessions whose files must support the same Knowledge; 1 keeps every match. */
+  minSessions: number;
+  /** Do not infer when the first round's confidence is already "high". */
+  skipHighConfidence: boolean;
 }
 
 const DEFAULT_INFERRED_PATH_OPTIONS: InferredPathOptions = {
-  mode: "paths",
-  pathLimit: 3,
   pointerLimit: 3,
   yieldRecent: true,
-  promoteRecent: false,
+  promoteRecent: true,
   allowRecentOmitted: false,
+  minScoreShare: 0,
+  minTopRatio: 0,
+  minSessions: 1,
+  skipHighConfidence: false,
 };
 
 /** Unflagged recentKnowledge records trimmed for budget only (not duplicates), which an inferred pointer may bring back. */
@@ -1299,6 +1307,7 @@ export class ContextRecallService {
       task &&
       paths.length === 0 &&
       projectId &&
+      !(this.inferredPathOptions.skipHighConfidence && recalled.confidence === "high") &&
       this.shouldInferTaskPaths(knowledgeHits.length, recalled.confidence)
     ) {
       const inferred = this.inferredKnowledge(
@@ -1306,7 +1315,7 @@ export class ContextRecallService {
         projectId,
         new Set(knowledgeHits.map((hit) => hit.id)),
       );
-      if (inferred.length > 0) inferredKnowledgeByRelevant.set(relevant, inferred);
+      if (inferred.matchedIds.size > 0) inferredKnowledgeByRelevant.set(relevant, inferred);
     }
     return relevant;
   }
@@ -1334,7 +1343,12 @@ export class ContextRecallService {
     const baseOmitted = context.omitted;
     const baseRecent = context.recentKnowledge;
     const isInferred = (item: ContextSupplementIndicator): boolean => item.includedBecause.kind === "inferred_path";
-    const matchedIds = new Set((inferredKnowledgeByRelevant.get(relevant) ?? []).map((item) => item.id));
+    const inferredMatches = inferredKnowledgeByRelevant.get(relevant);
+    // A record any weighted file matched is never trimmed to make room, whether or not it became a pointer candidate.
+    const matchedIds = new Set([
+      ...(inferredMatches?.matchedIds ?? []),
+      ...(inferredMatches?.items ?? []).map((item) => item.id),
+    ]);
     const budgetOmitted = budgetOmittedRecentByContext.get(context) ?? new Set<string>();
     // Newest-last order, so reversing it pops from the end like budget trimming does.
     const poppable = options.yieldRecent ? baseRecent.filter((item) => !matchedIds.has(item.id)).reverse() : [];
@@ -1408,69 +1422,64 @@ export class ContextRecallService {
   }
 
   /**
-   * One ranking or scan pass over the files of the similar Sessions and one trust batch; first-round hits and inactive
-   * records are skipped. Mode "paths" ranks the `pathLimit` heaviest files (SearchRepository.knowledgeForPaths); mode
-   * "weighted" scores every file by its weight in one appliesTo scan (knowledgeForWeightedPaths, at most 5 x 20 files).
-   * Returns more candidates than the pointer cap because recentKnowledge ones are dropped or promoted when supplements
-   * are chosen.
+   * One scan over the files of the similar Sessions and one trust batch; first-round hits and inactive records are
+   * skipped. Every file gets its weight (weighTaskPaths, at most 5 x 20 files) and knowledgeForWeightedPaths scores each
+   * Knowledge by the weights of the files it covers in one appliesTo scan. The precision knobs then drop a Knowledge
+   * whose score is too small a share of the total weight or of the best score, or that fewer than `minSessions`
+   * distinct similar Sessions support. Returns more candidates than the pointer cap because recentKnowledge ones are
+   * dropped or promoted when supplements are chosen.
+   * Complexity: O(S*F) weighing, one repository scan, O(wanted * files) filtering, one trust batch.
    */
   private inferredKnowledge(
     sources: InferredPathSource[],
     projectId: string,
     firstRoundIds: ReadonlySet<string>,
-  ): InferredKnowledge[] {
+  ): InferredMatches {
+    const none: InferredMatches = { items: [], matchedIds: new Set() };
     const options = this.inferredPathOptions;
+    const weights = weighTaskPaths(sources);
+    if (weights.size === 0) return none;
     // Records already shown in full under recentKnowledge are skipped (or promoted) when supplements are chosen, so look past them.
     const wanted = options.pointerLimit + RECENT_KNOWLEDGE_LIMIT + firstRoundIds.size;
-    let origins: InferredTaskPath[];
-    let ranked: ExtraPathKnowledge[];
-    if (options.mode === "weighted") {
-      const weights = weighTaskPaths(sources);
-      if (weights.size === 0) return [];
-      origins = [...weights]
-        .sort(([leftPath, left], [rightPath, right]) => right.weight - left.weight || (leftPath < rightPath ? -1 : 1))
-        .map(([path, { sourceSessionIds }]) => ({ path, sourceSessionIds }));
-      ranked = this.searchIndex.knowledgeForWeightedPaths(
-        new Map([...weights].map(([path, { weight }]) => [path, weight])),
-        projectId,
-        wanted,
-      );
-    } else {
-      origins = inferTaskPaths(sources, options.pathLimit);
-      if (origins.length === 0) return [];
-      ranked = this.searchIndex.knowledgeForPaths(
-        origins.map(({ path }) => path),
-        projectId,
-        wanted,
-      );
-    }
+    const matchedIds = new Set<string>();
+    const ranked = this.searchIndex.knowledgeForWeightedPaths(
+      new Map([...weights].map(([path, { weight }]) => [path, weight])),
+      projectId,
+      wanted,
+      matchedIds,
+    );
+    for (const id of firstRoundIds) matchedIds.delete(id);
+    const totalWeight = [...weights.values()].reduce((sum, { weight }) => sum + weight, 0);
+    const topScore = ranked[0]?.score ?? 0;
     const matched = ranked
       .filter((item) => !firstRoundIds.has(item.id))
+      .filter((item) => item.score / totalWeight >= options.minScoreShare)
+      .filter((item) => item.score / topScore >= options.minTopRatio)
+      .filter(
+        (item) =>
+          options.minSessions <= 1 ||
+          new Set(item.files.flatMap((file) => weights.get(file)?.sessionIds ?? [])).size >= options.minSessions,
+      )
       .slice(0, options.pointerLimit + RECENT_KNOWLEDGE_LIMIT);
-    if (matched.length === 0) return [];
+    if (matched.length === 0) return { items: [], matchedIds };
     const trusted = this.store.getKnowledgeWithTrustMany(matched.map((item) => item.id));
-    return matched.flatMap((item): InferredKnowledge[] => {
+    const items = matched.flatMap((item): InferredKnowledge[] => {
       const record = trusted.get(item.id);
       if (!record || record.status !== "active" || record.projectId !== projectId) return [];
-      // matchedPath is the weighted file (weighted mode) or the stored reference or appliesTo pattern (paths mode);
-      // name the inferred file it covers (at most pathLimit checks in paths mode, an exact lookup in weighted mode).
-      const source =
-        origins.find(({ path }) => path === item.matchedPath) ??
-        (options.mode === "weighted"
-          ? undefined
-          : origins.find(({ path }) => appliesToStrength(item.matchedPath, path) > 0)) ??
-        origins[0]!;
+      // matchedPath is the weighted file that contributed most, so its weight entry names the Sessions to read first.
+      const source = weights.get(item.matchedPath);
       return [
         {
           id: item.id,
           title: item.title,
-          path: boundedPath(source.path),
-          sourceSessionIds: source.sourceSessionIds,
+          path: boundedPath(item.matchedPath),
+          sourceSessionIds: source?.sourceSessionIds ?? [],
           ...(record.possiblyStale ? { possiblyStale: true } : {}),
           ...(record.review ? { needsReview: true } : {}),
         },
       ];
     });
+    return { items, matchedIds };
   }
 
   private contextHit(hit: RecallHit): RecallHit {
@@ -1563,7 +1572,7 @@ export class ContextRecallService {
     const shownIds = new Set(context.recentKnowledge.map((knowledge) => knowledge.id));
     const budgetOmitted = budgetOmittedRecentByContext.get(context);
     let inferredCount = 0;
-    for (const item of inferredKnowledgeByRelevant.get(relevant) ?? []) {
+    for (const item of inferredKnowledgeByRelevant.get(relevant)?.items ?? []) {
       if (inferredCount >= options.pointerLimit) break;
       if (supplements.some(({ id }) => id === item.id)) continue;
       if (excludedIds.has(item.id) && !(options.allowRecentOmitted && budgetOmitted?.has(item.id))) continue;
