@@ -56,7 +56,7 @@ const [
   { LATEST_SCHEMA_VERSION, toAgentReportContext, toSessionDigests, WorkIntelligenceStore },
   recallEvaluation,
   mcpRuntime,
-  { appliesToEntries, appliesToStrength, compileAppliesTo, createAppliesToBudget },
+  { appliesToEntries, appliesToStrength, compileAppliesTo, createAppliesToBudget, setAppliesToBudgetProbe },
   { findKnowledgeCandidateOverlaps },
   { findKnowledgeToReview },
 ] = await Promise.all([
@@ -967,12 +967,73 @@ try {
       throw new Error("Path-focused context must offer appliesTo-matched Knowledge.");
     return result;
   };
+  // A task without paths: the similar Sessions' changed files lead to appliesTo-scoped Knowledge the task words miss.
+  // The baseline turns the feature off on this store's service (the private `inferTaskPaths` field, reached only by this benchmark). The
+  // seeded context is budget-tight and its recent Knowledge already covers the matches, so the work done is checked
+  // by counting the inference ranking passes instead of requiring a visible pointer.
+  const taskContextService = benchStore.contextRecallService;
+  // `inference` false turns the feature off; true runs the weighted inference (every file of the similar Sessions in one
+  // appliesTo scan, knowledgeForWeightedPaths) as shipped.
+  const getContextTaskOnly = (inference) => () => {
+    const original = taskContextService.inferTaskPaths;
+    const searchIndex = taskContextService.searchIndex;
+    const rank = searchIndex.knowledgeForWeightedPaths;
+    let passes = 0;
+    taskContextService.inferTaskPaths = inference;
+    searchIndex.knowledgeForWeightedPaths = (...args) => {
+      passes += 1;
+      return rank.apply(searchIndex, args);
+    };
+    try {
+      const result = benchStore.getContext(alphaRoot, { task: "graph renderer module" });
+      if (result.outcome !== "context" || passes !== (inference ? 1 : 0))
+        throw new Error("Task-only context must run the weighted scan exactly when inference is on.");
+      return result;
+    } finally {
+      searchIndex.knowledgeForWeightedPaths = rank;
+      taskContextService.inferTaskPaths = original;
+    }
+  };
   // Re-indexing churns the FTS index, so the dirty-backlog case runs on its own copy and leaves later cases alone.
   const reindexPath = join(root, "bench-reindex.sqlite");
   withBenchConnection(databasePath, (connection) =>
     connection.exec(`VACUUM INTO '${reindexPath.replaceAll("'", "''")}'`),
   );
   const reindexStore = new WorkIntelligenceStore(reindexPath);
+  // The weighted appliesTo scan on a heavy project: 2,000 Knowledge of 10 globs each against the 100 weighted files
+  // the inference passes at most. Testing every pair exhausted the 20M-unit match budget here (180 ms, results cut).
+  const weightedStore = new WorkIntelligenceStore(":memory:");
+  const weightedProjectId = "weighted-bench";
+  const weightedNow = new Date().toISOString();
+  weightedStore.db
+    .prepare(
+      "INSERT INTO projects (id, name, root_path, status, created_at, updated_at) VALUES (?, 'weighted', '/weighted', 'tracked', ?, ?)",
+    )
+    .run(weightedProjectId, weightedNow, weightedNow);
+  const insertWeighted = weightedStore.db.prepare(
+    `INSERT INTO knowledge (id, project_id, idempotency_key, title, body, kind, status, created_at, updated_at,
+       references_json, tags_json, applies_to_json) VALUES (?, ?, ?, ?, 'body', 'pattern', 'active', ?, ?, '[]', '[]', ?)`,
+  );
+  weightedStore.db.exec("BEGIN");
+  for (let index = 0; index < 2000; index += 1) {
+    const globs = Array.from({ length: 10 }, (_, part) => `src/mod${index % 50}/**/part${part}/*.ts`);
+    insertWeighted.run(
+      `weighted-${index}`,
+      weightedProjectId,
+      `weighted-${index}`,
+      `Weighted ${index}`,
+      weightedNow,
+      weightedNow,
+      JSON.stringify(globs),
+    );
+  }
+  weightedStore.db.exec("COMMIT");
+  const weightedFiles = new Map(
+    Array.from({ length: 100 }, (_, file) => [
+      `src/mod${file % 50}/a/b/part${file % 10}/file${file}.ts`,
+      1 + (file % 7),
+    ]),
+  );
   const dirtyDocumentCount = Math.min(5000, sessionCount);
   const markSessionsDirty = () =>
     withBenchConnection(reindexPath, (connection) =>
@@ -1261,6 +1322,20 @@ try {
     // work costs.
     "getContext (paths, appliesTo-matched Knowledge)": getContextPathsAppliesTo,
     "getContext (paths, appliesTo-matched Knowledge, after a write)": getContextPathsAppliesTo,
+    "getContext (task only, no inference)": getContextTaskOnly(false),
+    "getContext (task only, inferred-path Knowledge)": getContextTaskOnly(true),
+    "weighted appliesTo scan (2,000 Knowledge x 10 globs, 100 files)": () => {
+      const budgets = [];
+      setAppliesToBudgetProbe(budgets);
+      try {
+        const ranked = weightedStore.searchIndex.knowledgeForWeightedPaths(weightedFiles, weightedProjectId, 15);
+        if (ranked.length !== 15 || budgets[0]?.exhausted)
+          throw new Error("The weighted scan must rank 15 Knowledge without exhausting the match budget.");
+        return ranked;
+      } finally {
+        setAppliesToBudgetProbe(undefined);
+      }
+    },
     "finalizeSession (related pending reminder)": () => {
       const index = ++maintenanceFinalizeIndex;
       const focus = [
@@ -1724,6 +1799,9 @@ try {
     "getContext (related pending items)": 500,
     "getContext (paths, appliesTo-matched Knowledge)": 250,
     "getContext (paths, appliesTo-matched Knowledge, after a write)": 400,
+    "getContext (task only, no inference)": 250,
+    "getContext (task only, inferred-path Knowledge)": 250,
+    "weighted appliesTo scan (2,000 Knowledge x 10 globs, 100 files)": 250,
     "recall (paths, appliesTo)": 100,
     "recall (paths, appliesTo, after a write)": 150,
     "finalizeSession (related pending reminder)": 250,
@@ -1971,6 +2049,7 @@ try {
   worstTextDatabase.close();
   distinctPaths.store.close();
   reindexStore.close();
+  weightedStore.close();
   backlogStore.close();
   overlapDatabase.close();
   benchStore.close();

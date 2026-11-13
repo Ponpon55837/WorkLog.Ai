@@ -186,6 +186,8 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 同上，每次執行前先由另一連線寫入一次（`recall (paths, appliesTo, after a write)`：重新讀取之後的 Session 並比對；本機 median 約 11 ms 起，批次讀取） | 150 ms |
 | 帶 `task`/`paths` 的 Agent context（`getContext (paths, appliesTo-matched Knowledge)`：同一批 Knowledge 以 `appliesTo` 命中並放進 `relevant.knowledge`；本機 median 約 50 ms，改動前約 80 ms） | 250 ms |
 | 同上，每次執行前先由另一連線寫入一次（`getContext (paths, appliesTo-matched Knowledge, after a write)`） | 400 ms |
+| 只帶 `task` 的 Agent context，推論路徑關閉（`getContext (task only, no inference)`）與開啟（`getContext (task only, inferred-path Knowledge)`，多一次路徑排名與一次 trust 批次：以所有相似 Session 的檔案加權，做一次 `appliesTo` 掃描、一次 references 查詢與一次 trust 批次） | 各 250 ms |
+| 加權路徑的 `appliesTo` 掃描（`weighted appliesTo scan (2,000 Knowledge x 10 globs, 100 files)`：2,000 筆各 10 個 glob 的 Knowledge 對 100 個加權檔案；檔案索引只測有機會命中的組合，比對預算不會用盡；索引前約 180 ms 並用盡預算、結果被截斷，現約 40–100 ms） | 250 ms |
 | 熱點檔案（全部期間前 20 名；依目錄、單月） | 各 500 ms |
 | 圖譜含推導關係、兩節點路徑（500 節點內 BFS） | 各 750 ms |
 | 時間軸（單月；一整年，最多 2,000 筆 Session） | 250 ms；750 ms |
@@ -355,6 +357,7 @@ B3 複檢補上活躍 pending／awaiting_review 快照的 Agent finalize 完成�
 | `outstanding-cleanup-accuracy-2026-10-01.md` | 未結項清理建議的合成準確度評估 |
 | `standalone-distribution-spike-2026-10-15.md`／`.mjs` | 不需要 checkout 的發行方式研究與原型 |
 | `knowledge-reuse-attribution.mjs` | Knowledge 重用歸因重播（唯讀），說明見下方 Knowledge reuse attribution |
+| `task-path-replay.mjs`／`.md` | 只給 `task`、不給 `paths` 時，能否由相似 Session 改過的檔案找到以 `appliesTo` 綁檔案的 Knowledge：重播原有四種變體，比較 `off`／`product`（出貨的 `inferred_path` 指標）與 `merged` 大小模擬；分嚴格與寬鬆兩種命中定義，唯讀、只輸出彙總 JSON。問題、方法、真實資料彙總、決策與被否決的方案見 [task-path-replay.md](experiments/task-path-replay.md)。用法：`pnpm build` 後 `node docs/experiments/task-path-replay.mjs --self-check`，或加 `--db <資料庫> --project <專案 id 或根目錄>` |
 
 ### Knowledge reuse attribution
 

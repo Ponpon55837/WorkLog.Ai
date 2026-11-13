@@ -2781,10 +2781,15 @@ export interface RecallHit {
   related?: Array<{ id: string; title: string; relation: SessionLinkDirection }>;
 }
 
-/** Why a compact context supplement may be related to the task; it is not a literal match or evidence. */
+/**
+ * Why a compact context supplement may be related to the task; it is not a literal match or evidence. `inferred_path`
+ * means the task did not name this file: it was changed by similar past Sessions (`sourceSessionIds`), and the Knowledge
+ * applies to it, so read the Knowledge (work_search_knowledge by its title) before relying on it.
+ */
 export type ContextSupplementReason =
   | { kind: "related_session"; sourceSessionId: string; relation: "parent" | "related" }
-  | { kind: "applied_knowledge"; sourceSessionId: string };
+  | { kind: "applied_knowledge"; sourceSessionId: string }
+  | { kind: "inferred_path"; path: string; sourceSessionIds: string[] };
 
 /** A compact pointer to possibly related context; read the source record before relying on it. */
 export type ContextSupplementIndicator =
@@ -2798,7 +2803,7 @@ export type ContextSupplementIndicator =
       type: "knowledge";
       id: string;
       title: string;
-      includedBecause: Extract<ContextSupplementReason, { kind: "applied_knowledge" }>;
+      includedBecause: Extract<ContextSupplementReason, { kind: "applied_knowledge" | "inferred_path" }>;
       possiblyStale?: boolean;
       needsReview?: boolean;
     };

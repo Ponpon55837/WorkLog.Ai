@@ -21,6 +21,7 @@ export {
   type DatabaseRedactionResult,
 } from "./database-redaction.js";
 export { combineRedactionSummaries, redactText, redactValue } from "./secret-redaction.js";
+export { weighTaskPaths, type InferredPathSource, type WeightedTaskPath } from "./inferred-task-paths.js";
 export { toSessionDigest, toSessionDigests } from "./digest.js";
 export type { SessionDigest } from "@work-intelligence/core";
 export { backupOptionsFromEnvironment } from "./backup-environment.js";
