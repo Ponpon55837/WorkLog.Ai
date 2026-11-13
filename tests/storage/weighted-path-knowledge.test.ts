@@ -296,6 +296,9 @@ describe("SearchRepository.knowledgeForWeightedPaths", () => {
       `INSERT INTO knowledge (id, project_id, idempotency_key, title, body, kind, status, created_at, updated_at,
          references_json, tags_json, applies_to_json) VALUES (?, ?, ?, ?, 'b', 'pattern', 'active', ?, ?, '[]', '[]', ?)`,
     );
+    // Normalizing an entry is charged per character of the stored project root, and the temporary directory's path
+    // length differs by machine (macOS runners have long ones). A fixed root keeps the units spent the same everywhere.
+    db.prepare("UPDATE projects SET root_path = ? WHERE id = ?").run("/fictional/weaving-works", project.id);
     const now = new Date().toISOString();
     for (let index = 0; index < 2_000; index += 1) {
       const globs = Array.from({ length: 10 }, (_, part) => `src/mod${index % 50}/**/part${part}/*.ts`);
