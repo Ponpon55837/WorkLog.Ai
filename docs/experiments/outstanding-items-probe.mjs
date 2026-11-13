@@ -20,6 +20,10 @@ import { fileURLToPath } from "node:url";
 
 const SELF = fileURLToPath(import.meta.url);
 const DAY_MS = 86_400_000;
+// Same bounds as storage: stored changed-files JSON above this size is treated as '[]' (applies-to-match.ts).
+const MAX_FILES_JSON_BYTES = 200 * (6 * 1_000 + 3) + 2;
+const RELATED_LIMIT = 5;
+const RELATED_CANDIDATE_LIMIT = 2_000;
 const HOUR_MS = 3_600_000;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const CLEANUP_TABLES = [
@@ -206,10 +210,14 @@ function loadData(db) {
     info.selfClosed = info.status === "not_needed" && info.closeEvent !== null && info.closeEvent.actor === info.session;
   }
   const voided = has.voidedAt ? "voided_at" : "NULL";
+  const textColumns = ["title", "summary"].every((column) => columnExists(db, "sessions", column))
+    ? "title, summary, octet_length(changed_files_json) AS files_bytes"
+    : "NULL AS title, NULL AS summary, 0 AS files_bytes";
   const sessions = new Map();
   for (const row of db
     .prepare(
-      `SELECT id, project_id, COALESCE(completed_at, created_at) AS at, ${voided} AS voided_at, changed_files_json FROM sessions`,
+      `SELECT id, project_id, COALESCE(completed_at, created_at) AS at, ${voided} AS voided_at, changed_files_json,
+              ${textColumns} FROM sessions`,
     )
     .all()) {
     const ms = Date.parse(row.at);
@@ -219,8 +227,21 @@ function loadData(db) {
       ms,
       voided: row.voided_at !== null,
       files: changedFilePaths(row.changed_files_json),
+      // Held in memory only, for the relatedOutstandingItems replay; never printed.
+      atText: row.at,
+      title: row.title ?? "",
+      summary: row.summary ?? "",
+      filesJson: row.files_bytes <= MAX_FILES_JSON_BYTES ? row.changed_files_json : "[]",
     });
     if (Number.isFinite(ms)) maxTime = Math.max(maxTime, ms);
+  }
+  const projects = new Map();
+  try {
+    for (const row of db.prepare("SELECT id, name, root_path, status FROM projects").all()) {
+      projects.set(row.id, { name: row.name ?? "", rootPath: row.root_path ?? "", tracked: row.status === "tracked" });
+    }
+  } catch {
+    projects.clear();
   }
   const links = new Map();
   if (has.links) {
@@ -239,7 +260,7 @@ function loadData(db) {
   if (has.summaryUpdates) {
     for (const row of db.prepare("SELECT created_at FROM session_work_summary_updates").all()) summaryUpdates.push(row.created_at);
   }
-  return { has, items, sessions, links, summaryUpdates, maxTime };
+  return { has, items, sessions, projects, links, summaryUpdates, maxTime };
 }
 
 /** Per-project sorted Session lists and a (project, file) inverted index of non-voided Sessions, built once. */
@@ -520,7 +541,7 @@ export const CONTINUED_LIST_CAP = 10;
  * non-voided Session N (completed in [created, web completion)), N's list is the pending-at-that-instant items of the
  * same-project Sessions linked to N, ordered by source_session_id, position, id, capped at 10. Lists are built once per N.
  */
-function continuedReplayMetrics(group, data, ctx) {
+function replayContinued(group, data, ctx) {
   const web = group.filter((info) => info.status === "completed" && info.closeEvent?.source === "web");
   const ranksFor = (sessionId) => {
     let ranks = ctx.continuedRanks.get(sessionId);
@@ -542,6 +563,7 @@ function continuedReplayMetrics(group, data, ctx) {
   let surfaced = 0;
   let beyondCap = 0;
   let notLinked = 0;
+  const surfacedIds = new Set();
   for (const info of web) {
     let best = null;
     for (const linkedId of data.links.get(info.session) ?? []) {
@@ -552,16 +574,158 @@ function continuedReplayMetrics(group, data, ctx) {
       if (rank !== undefined && (best === null || rank < best)) best = rank;
     }
     if (best === null) notLinked += 1;
-    else if (best < CONTINUED_LIST_CAP) surfaced += 1;
-    else beyondCap += 1;
+    else if (best < CONTINUED_LIST_CAP) {
+      surfaced += 1;
+      surfacedIds.add(info.id);
+    } else beyondCap += 1;
   }
-  return {
+  const metrics = {
     cap: CONTINUED_LIST_CAP,
     webCompleted: web.length,
     surfacedInContinued: data.has.links ? surfaced : null,
     surfacedButBeyondCap: data.has.links ? beyondCap : null,
     notLinked: data.has.links ? notLinked : web.length,
     surfacedShare: data.has.links ? share(surfaced, web.length) : null,
+  };
+  return { metrics, surfacedIds, web };
+}
+
+// ASCII-only case folding, like SQLite lower() and storage's foldAsciiCase.
+function foldAscii(value) {
+  return value.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+}
+
+function compareBinary(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/** Items of one project, newest source Session first (the order storage scans related candidates in). */
+function relatedItemsByProject(data, ctx) {
+  if (ctx.relatedItems) return ctx.relatedItems;
+  const byProject = new Map();
+  for (const info of data.items.values()) {
+    const source = data.sessions.get(info.session);
+    if (!source || source.project !== info.project || !Number.isFinite(source.ms)) continue;
+    const list = byProject.get(info.project);
+    if (list) list.push({ info, source });
+    else byProject.set(info.project, [{ info, source }]);
+  }
+  for (const list of byProject.values()) {
+    list.sort(
+      (a, b) =>
+        compareBinary(b.source.atText, a.source.atText) ||
+        compareBinary(b.info.session, a.info.session) ||
+        a.info.position - b.info.position ||
+        compareBinary(a.info.id, b.info.id),
+    );
+  }
+  ctx.relatedItems = byProject;
+  return byProject;
+}
+
+function relatedSessionsByProject(data, ctx) {
+  if (ctx.relatedSessions) return ctx.relatedSessions;
+  const byProject = new Map();
+  for (const session of [...data.sessions.values()].filter((s) => !s.voided && Number.isFinite(s.ms)).sort((a, b) => a.ms - b.ms)) {
+    const entry = byProject.get(session.project) ?? { sessions: [], times: [] };
+    entry.sessions.push(session);
+    entry.times.push(session.ms);
+    byProject.set(session.project, entry);
+  }
+  ctx.relatedSessions = byProject;
+  return byProject;
+}
+
+/** The ids of the (up to 5) items storage would put in S's relatedOutstandingItems at S's completion; cached per Session. */
+function relatedTopFor(session, data, ctx) {
+  const cached = ctx.relatedTop.get(session.id);
+  if (cached) return cached;
+  const tools = ctx.relatedTools;
+  const project = data.projects.get(session.project);
+  const top = new Set();
+  ctx.relatedTop.set(session.id, top);
+  if (!project?.tracked) return top;
+  const task = `${session.title} ${session.summary}`.slice(0, 2_000);
+  const terms = [...new Set(tools.parseQueryWords(task.slice(0, 2_000)).flatMap((word) => word.terms))].slice(0, 24);
+  const paths = [
+    ...new Set(session.files.map((path) => tools.normalizePath(path, [{ name: project.name, rootPath: project.rootPath }])).filter(Boolean)),
+  ].slice(0, 20);
+  if (terms.length === 0 && paths.length === 0) return top;
+  // The continued list (pending items of linked same-project Sessions) is excluded from related.
+  const continued = new Set();
+  for (const neighborId of data.links.get(session.id) ?? []) {
+    const neighbor = data.sessions.get(neighborId);
+    if (!neighbor || neighbor.voided || neighbor.project !== session.project) continue;
+    for (const info of ctx.itemsBySession.get(neighborId) ?? []) {
+      if (info.createdMs <= session.ms && info.firstCloseMs > session.ms) continued.add(info.id);
+    }
+  }
+  const list = relatedItemsByProject(data, ctx).get(session.project) ?? [];
+  let low = 0;
+  let high = list.length;
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    if (list[mid].source.ms <= session.ms) high = mid;
+    else low = mid + 1;
+  }
+  const candidates = [];
+  for (let index = low; index < list.length && candidates.length < RELATED_CANDIDATE_LIMIT; index += 1) {
+    const { info, source } = list[index];
+    if (source.voided || source.id === session.id) continue;
+    if (!(info.createdMs <= session.ms && info.firstCloseMs > session.ms) || continued.has(info.id)) continue;
+    if (terms.length > 0) {
+      info.textKey ??= foldAscii(info.text);
+      source.titleKey ??= foldAscii(source.title);
+      source.summaryKey ??= foldAscii(source.summary.slice(0, 2_000));
+    }
+    candidates.push({
+      id: info.id,
+      source_session_id: source.id,
+      source_session_completed_at: source.atText,
+      position: info.position,
+      text_key: terms.length > 0 ? info.textKey : "",
+      title_key: terms.length > 0 ? source.titleKey : "",
+      summary_key: terms.length > 0 ? source.summaryKey : "",
+      changed_files_json: paths.length > 0 ? source.filesJson : "[]",
+    });
+  }
+  for (const candidate of tools.rank(candidates, { terms, paths, sources: [] }).slice(0, RELATED_LIMIT)) top.add(candidate.id);
+  return top;
+}
+
+/** Replays relatedOutstandingItems (top 5) for web-completed items that continuedOutstandingItems did not surface. */
+function relatedReplayMetrics(data, ctx, continued) {
+  const web = continued.web;
+  if (!ctx.relatedTools || data.projects.size === 0) {
+    return { available: false, topLimit: RELATED_LIMIT, webCompleted: web.length, candidatesNotContinued: null, surfacedInRelated: null, combinedSurfaced: null, combinedSurfacedShare: null };
+  }
+  const pool = web.filter((info) => !continued.surfacedIds.has(info.id));
+  const byProject = relatedSessionsByProject(data, ctx);
+  const rankedBefore = ctx.relatedTop.size;
+  let surfaced = 0;
+  for (const info of pool) {
+    const entry = byProject.get(info.project);
+    if (!entry) continue;
+    for (let index = upperBound(entry.times, info.createdMs - 1); index < entry.times.length && entry.times[index] < info.closeEvent.ms; index += 1) {
+      const session = entry.sessions[index];
+      if (session.id === info.session) continue;
+      if (relatedTopFor(session, data, ctx).has(info.id)) {
+        surfaced += 1;
+        break;
+      }
+    }
+  }
+  const combined = continued.surfacedIds.size + surfaced;
+  return {
+    available: true,
+    topLimit: RELATED_LIMIT,
+    webCompleted: web.length,
+    candidatesNotContinued: pool.length,
+    surfacedInRelated: surfaced,
+    notSurfaced: pool.length - surfaced,
+    combinedSurfaced: combined,
+    combinedSurfacedShare: share(combined, web.length),
+    sessionsRankedSoFar: ctx.relatedTop.size - rankedBefore,
   };
 }
 
@@ -598,6 +762,7 @@ function pendingMetrics(group, nowMs) {
 }
 
 function groupMetrics(group, data, ctx, nowMs) {
+  const continued = replayContinued(group, data, ctx);
   return {
     totals: totalsMetrics(group),
     notNeeded: notNeededMetrics(group, data),
@@ -605,7 +770,8 @@ function groupMetrics(group, data, ctx, nowMs) {
     transientWording: transientMetrics(group),
     completion: completionMetrics(group, data),
     missedOpportunities: missedOpportunityMetrics(group, data, ctx),
-    continuedReplay: continuedReplayMetrics(group, data, ctx),
+    continuedReplay: continued.metrics,
+    relatedReplay: relatedReplayMetrics(data, ctx, continued),
     agentPostFinalize: agentPostFinalizeMetrics(group, data),
     currentPending: pendingMetrics(group, nowMs),
   };
@@ -632,6 +798,25 @@ function cleanupMetrics(db) {
 // ---------------------------------------------------------------------------------------------------------------
 // Entry point for the analysis
 // ---------------------------------------------------------------------------------------------------------------
+async function loadRelatedTools() {
+  try {
+    const relevance = await import("../../packages/storage/dist/outstanding-item-relevance.js");
+    const searchText = await import("../../packages/storage/dist/search-text.js");
+    const applies = await import("../../packages/storage/dist/applies-to-match.js");
+    if (typeof searchText.parseQueryWords !== "function" || typeof searchText.normalizePath !== "function") return null;
+    if (applies.MAX_STORED_CHANGED_FILES_JSON_BYTES !== MAX_FILES_JSON_BYTES) return null;
+    const rank =
+      typeof relevance.rankRelatedPendingWithin === "function"
+        ? (candidates, focus) => relevance.rankRelatedPendingWithin(candidates, focus, relevance.RELATED_PENDING_UNIT_LIMIT).ranked
+        : typeof relevance.rankRelatedPending === "function"
+          ? relevance.rankRelatedPending
+          : null;
+    return rank ? { rank, parseQueryWords: searchText.parseQueryWords, normalizePath: searchText.normalizePath } : null;
+  } catch {
+    return null;
+  }
+}
+
 async function loadMatcher() {
   try {
     const storage = await import("../../packages/storage/dist/index.js");
@@ -661,6 +846,10 @@ export async function analyze(db, options = {}) {
     createdIndex: buildCreatedIndex(data.items),
     itemsBySession: buildItemsBySession(data.items),
     continuedRanks: new Map(),
+    relatedTools: await loadRelatedTools(),
+    relatedTop: new Map(),
+    relatedItems: null,
+    relatedSessions: null,
     byFile: buildSessionIndex(data.sessions),
     summaryUpdatesInGroup: 0,
   };
@@ -783,12 +972,14 @@ async function buildFixture(dir) {
   const workSummary = (nextSteps) => ({ outcomes: [], scope: [], decisions: [], verification: [], nextSteps });
   const ids = {};
   const day = (n) => `2025-03-${String(n).padStart(2, "0")}T00:00:00.000Z`;
+  const titles = { N: ["Topaz sampler", "Topaz tasting"] };
   const finalize = (name, dayNumber, files, nextSteps, extra = {}) => {
     const result = store.finalizeSession({
       projectRoot: root,
       idempotencyKey: `probe-${name}`,
-      title: `Fictional session ${name}`,
-      summary: `Fictional summary ${name}`,
+      // Distinct made-up words per Session so related-item ranking only reacts to the cases planted below.
+      title: titles[name]?.[0] ?? `Qzv${name}tit`,
+      summary: titles[name]?.[1] ?? `Qzv${name}sum`,
       workSummary: workSummary(nextSteps),
       changedFiles: files,
       verification: { status: "passed" },
@@ -814,6 +1005,9 @@ async function buildFixture(dir) {
   const backlog = Array.from({ length: 11 }, (_, index) => `Fictional backlog item ${String(index + 1).padStart(2, "0")}`);
   finalize("K", 12, ["src/k.ts"], backlog);
   finalize("L", 13, ["src/l.ts"], [], { relatedSessionIds: [ids.K] });
+  // M shares a changed file with the unlinked B1; N's title and summary share a term with the unlinked D1.
+  finalize("M", 14, ["src/shared.ts"], []);
+  finalize("N", 15, ["src/n.ts"], []);
 
   // Web resolutions of items whose later work could have resolved them (only A1 and A4 have a linked, file-sharing later Session).
   for (const text of [FIXTURE_TEXTS.a1, FIXTURE_TEXTS.a4, FIXTURE_TEXTS.b1, FIXTURE_TEXTS.d1, FIXTURE_TEXTS.k1, FIXTURE_TEXTS.k11]) {
@@ -1016,8 +1210,8 @@ async function selfCheck() {
 
     assert.equal(m.missedOpportunities.webCompleted, 6);
     assert.equal(m.missedOpportunities.laterSessionLinked, 4);
-    assert.equal(m.missedOpportunities.laterSessionSharesChangedFile, 2);
-    assert.equal(m.missedOpportunities.either, 4);
+    assert.equal(m.missedOpportunities.laterSessionSharesChangedFile, 3);
+    assert.equal(m.missedOpportunities.either, 5);
 
     // A1, A4 and the first K item are listed by a later linked Session; the 11th K item falls beyond the cap of 10;
     // B1 and D1 have no later linked Session.
@@ -1029,6 +1223,21 @@ async function selfCheck() {
       notLinked: 2,
       surfacedShare: 0.5,
     });
+
+    // Of the 3 web-completed items not surfaced by continued: B1 via the shared file (M), D1 via the term "topaz" (N);
+    // the 11th K item matches nothing, so 5 of 6 are surfaced by one of the two lists.
+    assert.deepEqual(m.relatedReplay, {
+      available: true,
+      topLimit: 5,
+      webCompleted: 6,
+      candidatesNotContinued: 3,
+      surfacedInRelated: 2,
+      notSurfaced: 1,
+      combinedSurfaced: 5,
+      combinedSurfacedShare: 0.833,
+      sessionsRankedSoFar: m.relatedReplay.sessionsRankedSoFar,
+    });
+    assert.ok(m.relatedReplay.sessionsRankedSoFar >= 2);
 
     assert.equal(m.agentPostFinalize.events, 3);
     assert.equal(m.agentPostFinalize.sameInstantAsFinalize, 2);
