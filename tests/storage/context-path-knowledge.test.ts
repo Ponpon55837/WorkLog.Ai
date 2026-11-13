@@ -169,6 +169,9 @@ describe("work_get_context path-matched Knowledge pointers", () => {
     expect(new Set(named).size).toBe(named.length);
   });
 
+  // Reconciled with the pointer priority (full relevant records, then short pointers, then everything lower): this
+  // still holds because a pointer is demoted before any full relevant record is popped. The sweep test below pins the
+  // stricter order for lower-value content.
   it("pops full relevant records only after the pointers have been reduced", () => {
     const { store, root, ids } = crowdedHive(14, false);
     const focus = { task: "adjust drone comb layout", paths: ["src/hive/drone.ts"] };
@@ -186,6 +189,177 @@ describe("work_get_context path-matched Knowledge pointers", () => {
     const named = [...shown.map((item) => item.id), ...(omission?.entries ?? []).map((entry) => entry.id)];
     expect(named.filter((id) => ids.includes(id)).length).toBeGreaterThanOrEqual(shown.length);
   });
+
+  /** A busy file: many Sessions touch it and Knowledge covers it through appliesTo, with long titles to add pressure. */
+  function busyHive(options: { sessions: number; knowledge: number; titleRepeat?: number; heavy?: boolean }) {
+    const fixture = setup();
+    const ids = Array.from(
+      { length: options.knowledge },
+      (_, index) =>
+        fixture.record(
+          `busy-${index}`,
+          `Hive comb rule ${index} about queen cell spacing ${"and the drone ledger window ".repeat(options.titleRepeat ?? 0)}`.trim(),
+          ["src/hive/**"],
+          filler.repeat(5),
+        ).id,
+    );
+    for (let index = 0; index < options.sessions; index += 1) {
+      fixture.finalize(`busy-session-${index}`, ["src/hive/queen.ts"], options.heavy ?? true);
+    }
+    return { ...fixture, ids };
+  }
+
+  const busyFocus = { task: "adjust drone comb layout", paths: ["src/hive/queen.ts"] };
+
+  it("lists path-matched Knowledge beyond the recall page with title and path instead of id-only recent pointers", () => {
+    const { store, root, ids } = busyHive({ sessions: 40, knowledge: 8 });
+    const context = contextOf(store, root, busyFocus);
+
+    expect(JSON.stringify(context).length).toBeLessThanOrEqual(10_000);
+    expect(context.relevant?.knowledge.length).toBeGreaterThanOrEqual(1);
+    const omission = context.omitted?.find((candidate) => candidate.section === "relevant.knowledge");
+    const pointers = (omission?.entries ?? []).filter((entry) => entry.path !== undefined);
+    expect(pointers).toHaveLength(5);
+    expect(omission?.readWith).toBe("work_get_file_history/work_search_knowledge");
+    for (const entry of pointers) {
+      expect(entry).toMatchObject({ path: "src/hive/**", possiblyStale: true });
+      expect(entry.title!.length).toBeLessThanOrEqual(24);
+    }
+    // Nothing is left as an id-only pointer in the recentKnowledge section, and every record is named exactly once.
+    const recentOmission = context.omitted?.find((candidate) => candidate.section === "recentKnowledge");
+    const recentNamed = [...(recentOmission?.ids ?? []), ...(recentOmission?.entries ?? []).map((entry) => entry.id)];
+    expect(recentNamed.filter((id) => ids.includes(id))).toEqual([]);
+    const named = namedKnowledgeIds(context).filter((id) => ids.includes(id));
+    expect(new Set(named).size).toBe(named.length);
+    expect(new Set(named)).toEqual(new Set(ids));
+  });
+
+  it("keeps a path-matched record shown in full in recentKnowledge instead of a pointer", () => {
+    const { store, root, ids } = busyHive({ sessions: 8, knowledge: 8, heavy: false });
+    const context = contextOf(store, root, busyFocus);
+
+    const full = new Set([
+      ...(context.relevant?.knowledge ?? []).map((item) => item.id),
+      ...context.recentKnowledge.map((item) => item.id),
+    ]);
+    expect(context.recentKnowledge.length).toBeGreaterThanOrEqual(1);
+    const omission = context.omitted?.find((candidate) => candidate.section === "relevant.knowledge");
+    const pointed = [...(omission?.ids ?? []), ...(omission?.entries ?? []).map((entry) => entry.id)];
+    // Full beats pointer: no record is both shown in full and listed in a pointer.
+    expect(pointed.filter((id) => full.has(id))).toEqual([]);
+    const named = namedKnowledgeIds(context).filter((id) => ids.includes(id));
+    expect(new Set(named).size).toBe(named.length);
+    expect(new Set(named)).toEqual(new Set(ids));
+  });
+
+  it("trims lower-value content before it demotes a pointer or pops a full relevant record", () => {
+    for (const titleRepeat of [0, 8, 14, 20, 26, 32, 40, 50]) {
+      const { store, root, ids } = busyHive({ sessions: 40, knowledge: 8, titleRepeat });
+      const context = contextOf(store, root, busyFocus);
+      const relevant = context.relevant!;
+      const omission = context.omitted?.find((candidate) => candidate.section === "relevant.knowledge");
+      const pointers = (omission?.entries ?? []).filter((entry) => entry.path !== undefined);
+      const lowerValueLeft =
+        context.recentSessions.length > 0 ||
+        context.recentKnowledge.length > 0 ||
+        context.recentDecisions.length > 0 ||
+        relevant.sessions.length > 1 ||
+        relevant.decisions.length > 1 ||
+        (relevant.outstandingItems?.items.length ?? 0) > 1;
+      const label = `title repeat ${titleRepeat}`;
+
+      expect(JSON.stringify(context).length, label).toBeLessThanOrEqual(10_000);
+      expect(relevant.knowledge.length, label).toBeGreaterThanOrEqual(1);
+      const shownInFull = new Set([...relevant.knowledge, ...context.recentKnowledge].map((item) => item.id));
+      if (lowerValueLeft) {
+        // Every pointer keeps its title (short form) and path, and no full relevant record was popped.
+        expect(pointers.length, label).toBe(Math.min(5, ids.filter((id) => !shownInFull.has(id)).length));
+        for (const entry of pointers) expect(entry.title!.length, label).toBeLessThanOrEqual(24);
+        expect(omission?.reasons ?? [], label).not.toContain("預算限制：較低排名 Knowledge");
+      }
+      if (omission?.reasons?.includes("預算限制：較低排名 Knowledge")) expect(lowerValueLeft, label).toBe(false);
+      // Trust flags and ids are never lost.
+      const named = namedKnowledgeIds(context).filter((id) => ids.includes(id));
+      expect(new Set(named), label).toEqual(new Set(ids));
+      expect(new Set(named).size, label).toBe(named.length);
+    }
+  });
+
+  it("keeps the extra path-matched Knowledge out of work_recall", () => {
+    const { store, root } = busyHive({ sessions: 40, knowledge: 8 });
+    const recalled = store.recall({ projectRoot: root, paths: ["src/hive/queen.ts"], limit: 8 });
+    if (recalled.outcome !== "recall") throw new Error("Expected recall.");
+    expect(Object.keys(recalled)).not.toContain("extraPathKnowledge");
+    expect(recalled.hits.length).toBeLessThanOrEqual(8);
+  });
+
+  /**
+   * The steady state of a real response: it sits at the 9,800 cap with several relevant Sessions that carry decisions,
+   * knowledge-page sections, and 6-10 possiblyStale appliesTo Knowledge that are also among the 12 newest Knowledge.
+   */
+  function capHive(knowledgeCount: number) {
+    const fixture = setup();
+    const ids = Array.from(
+      { length: knowledgeCount },
+      (_, index) =>
+        fixture.record(
+          `cap-${index}`,
+          `Hive comb rule ${index} about queen cell spacing`,
+          ["src/hive/**"],
+          filler.repeat(5),
+        ).id,
+    );
+    const sessionIds: string[] = [];
+    for (let index = 0; index < 10; index += 1) {
+      sessionIds.push(
+        fixture.finalize(`cap-session-${index}`, ["src/hive/queen.ts", `src/hive/part-${index}.ts`], true).id,
+      );
+    }
+    for (const slug of ["architecture", "pitfalls", "in-progress"]) {
+      fixture.store.requestKnowledgePageUpdate({ projectRoot: fixture.root, slug });
+      fixture.store.saveKnowledgePage({
+        projectRoot: fixture.root,
+        slug,
+        idempotencyKey: `cap-page-${slug}`,
+        sections: [
+          { heading: `Hive ${slug} queen`, content: filler.repeat(8), sourceSessionIds: sessionIds.slice(0, 4) },
+          { heading: `Hive ${slug} comb`, content: filler.repeat(8), sourceSessionIds: sessionIds.slice(0, 4) },
+        ],
+      });
+    }
+    return { ...fixture, ids };
+  }
+
+  it.each([6, 8, 10])(
+    "turns %i path-matched stale records at the budget cap into title and path entries, never id-only flags",
+    (count) => {
+      const { store, root, ids } = capHive(count);
+      const context = contextOf(store, root, {
+        task: "hive comb rule about queen cell spacing",
+        paths: ["src/hive/queen.ts", "src/hive/part-1.ts"],
+      });
+
+      expect(JSON.stringify(context).length).toBeLessThanOrEqual(9_800);
+      const full = (context.relevant?.knowledge ?? []).filter((item) => ids.includes(item.id));
+      const recentFull = context.recentKnowledge.filter((item) => ids.includes(item.id));
+      const omission = context.omitted?.find((candidate) => candidate.section === "relevant.knowledge");
+      const entries = omission?.entries ?? [];
+      const pointers = entries.filter((entry) => entry.path !== undefined);
+      // Never fewer full records than before pointers yielded first (4, 4 and 3 on this fixture at e314433).
+      expect(full.length).toBeGreaterThanOrEqual(count === 10 ? 3 : 4);
+      // Every path-matched record not shown in full is a pointer up to the cap of five; flags alone only past it.
+      const notFull = ids.length - full.length - recentFull.length;
+      expect(pointers).toHaveLength(Math.min(5, notFull));
+      for (const entry of pointers) expect(entry).toMatchObject({ path: "src/hive/**", possiblyStale: true });
+      if (pointers.length > 0) expect(omission?.readWith).toBe("work_get_file_history/work_search_knowledge");
+      const recentOmission = context.omitted?.find((candidate) => candidate.section === "recentKnowledge");
+      const recentNamed = [...(recentOmission?.ids ?? []), ...(recentOmission?.entries ?? []).map((entry) => entry.id)];
+      expect(recentNamed.filter((id) => ids.includes(id))).toEqual([]);
+      const named = namedKnowledgeIds(context).filter((id) => ids.includes(id));
+      expect(new Set(named)).toEqual(new Set(ids));
+      expect(new Set(named).size).toBe(named.length);
+    },
+  );
 
   it("is unchanged without paths", () => {
     const { store, root } = crowdedHive();

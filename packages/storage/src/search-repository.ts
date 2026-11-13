@@ -243,10 +243,24 @@ export interface RecallOptions {
   from?: string;
   to?: string;
   limit: number;
+  /**
+   * Internal, for work_get_context: also return the best-ranked path-matched Knowledge that did not make the page,
+   * taken from the same ranking pass. They are never part of `hits`.
+   */
+  extraPathKnowledge?: number;
+}
+
+/** A path-matched Knowledge ranked beyond the recall page, in ranked order; only its title and first matched path. */
+export interface ExtraPathKnowledge {
+  id: string;
+  title: string;
+  matchedPath: string;
 }
 
 export interface RecallComputation {
   hits: RecallHit[];
+  /** Only when `extraPathKnowledge` was requested; internal to the context builder, never returned by work_recall. */
+  extraPathKnowledge?: ExtraPathKnowledge[];
   confidence: RecallConfidence;
   termHits?: RecallTermHits[];
   /** Present when stored paths above the per-path cap were skipped. */
@@ -421,6 +435,9 @@ export class SearchRepository {
       return hit ? [{ entry, hit }] : [];
     });
     const hits = returned.map(({ hit }) => hit);
+    const extraPathKnowledge = options.extraPathKnowledge
+      ? this.extraPathKnowledgeBeyond(ranked, selected, options.extraPathKnowledge)
+      : [];
     const confidence =
       returned.length === 0
         ? "none"
@@ -448,6 +465,7 @@ export class SearchRepository {
       });
     return {
       hits,
+      ...(extraPathKnowledge.length > 0 ? { extraPathKnowledge } : {}),
       confidence,
       ...(termHits.some((entry) => entry.count === 0) ? { termHits } : {}),
       ...(pathScanTruncated || appliesToScanTruncated
@@ -576,6 +594,31 @@ export class SearchRepository {
     }
     this.db.prepare(`DELETE FROM search_dirty WHERE ${dirtyPredicate}`).run(sessionIdJson, knowledgeIdJson);
     return { chunks, fts, paths, dirty };
+  }
+
+  /** The first `count` path-matched Knowledge of the ranking that the page did not select, with one title query. */
+  private extraPathKnowledgeBeyond(ranked: RankedDoc[], selected: RankedDoc[], count: number): ExtraPathKnowledge[] {
+    const selectedIds = new Set(selected.map((entry) => entry.doc.id));
+    const beyond = ranked
+      .filter(
+        (entry) => entry.doc.type === "knowledge" && entry.doc.matchedPaths.size > 0 && !selectedIds.has(entry.doc.id),
+      )
+      .slice(0, count);
+    if (beyond.length === 0) {
+      return [];
+    }
+    const titles = new Map(
+      (
+        this.db
+          .prepare("SELECT id, title FROM knowledge WHERE id IN (SELECT value FROM json_each(?))")
+          .all(JSON.stringify(beyond.map((entry) => entry.doc.id))) as Array<{ id: string; title: string }>
+      ).map((row) => [row.id, row.title]),
+    );
+    return beyond.flatMap((entry) => {
+      const title = titles.get(entry.doc.id);
+      const matchedPath = [...entry.doc.matchedPaths][0];
+      return title === undefined || matchedPath === undefined ? [] : [{ id: entry.doc.id, title, matchedPath }];
+    });
   }
 
   /** Scores every matching document and returns them best first, with the parsed query the scores refer to. */
