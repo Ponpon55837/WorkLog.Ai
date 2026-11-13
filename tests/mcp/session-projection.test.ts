@@ -53,7 +53,7 @@ afterEach(async () => {
   for (const run of cleanup.splice(0).reverse()) await run();
 });
 describe("MCP projected Session wire contract", () => {
-  it("keeps full reads unchanged while projection structuredContent carries factual metadata only", async () => {
+  it("keeps full reads unchanged while a projected read answers in text only", async () => {
     const { call, store, id } = await setup();
     const full = await call({});
     expect(full.isError).toBeFalsy();
@@ -69,21 +69,34 @@ describe("MCP projected Session wire contract", () => {
     expect(parsed.projection).toMatchObject({ version: 1, view: "completion" });
     expect(parsed.session.verification.status).toBe("in_progress");
     expect(parsed.session.workSummary.nextSteps).toEqual(["Physical device checks"]);
-    expect(result.structuredContent).toEqual({
-      outcome: "session_detail",
-      sessionId: id,
-      projection: { version: 1, view: "completion" },
-      status: "finalized",
-      executionStatus: "completed",
-      verification: { status: "in_progress" },
-    });
-    expect(result.structuredContent).not.toHaveProperty("changedFilesCount");
-    expect(result.structuredContent).not.toHaveProperty("session");
-    expect(result.structuredContent).not.toHaveProperty("events");
+    // A client that gives the model only one of the two parts must still get the body.
+    expect(result).not.toHaveProperty("structuredContent");
     const onlyFiles = await call({ select: ["session.changedFiles"] });
-    expect(onlyFiles.structuredContent).toMatchObject({ changedFilesCount: 1 });
-    expect(onlyFiles.structuredContent).not.toHaveProperty("verification");
+    expect(onlyFiles).not.toHaveProperty("structuredContent");
+    const filesText = onlyFiles.content.find((c) => c.type === "text");
+    if (filesText?.type !== "text") throw new Error("No text");
+    expect(JSON.parse(filesText.text).session.changedFiles).toEqual(["src/example.ts"]);
     expect(store.getAgentReadsForRecord("session", id).total).toBe(3);
+  });
+  it("returns the handoff body in every part of the result a client may hand to the model", async () => {
+    const { call } = await setup();
+    const result = await call({ view: "handoff" });
+    expect(result.isError).toBeFalsy();
+    // Each part the server sends has to carry the body on its own: text always, structuredContent when present.
+    const parts: unknown[] = result.content.flatMap((c) => (c.type === "text" ? [JSON.parse(c.text)] : []));
+    if (result.structuredContent) parts.push(result.structuredContent);
+    expect(parts.length).toBeGreaterThan(0);
+    for (const part of parts) {
+      expect(part).toMatchObject({
+        outcome: "session_detail",
+        projection: { version: 1, view: "handoff" },
+        session: {
+          summary: "Implementation done; device tests pending",
+          workSummary: { outcomes: ["Implemented change"], nextSteps: ["Physical device checks"] },
+          files: [{ path: "src/example.ts" }],
+        },
+      });
+    }
   });
   it("bounds projected completion wire size even when a Session has large unrelated evidence", async () => {
     const { call, store, id } = await setup();
@@ -101,7 +114,7 @@ describe("MCP projected Session wire contract", () => {
     expect(text.text.length).toBeLessThanOrEqual(5000);
     expect(JSON.stringify(result).length).toBeLessThan(JSON.stringify(full).length * 0.2);
     expect(JSON.parse(text.text).session.workSummary.nextSteps).toEqual(["Physical device checks"]);
-    expect(result.structuredContent).not.toHaveProperty("evidence");
+    expect(result).not.toHaveProperty("structuredContent");
   });
   it("rejects invalid selection through the real dispatcher and exposes complete resource schema", async () => {
     const { client, call } = await setup();

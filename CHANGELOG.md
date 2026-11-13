@@ -4,6 +4,23 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.31] - 2026-11-13
+
+[繁體中文更新說明](docs/releases/1.6.31.md).
+
+### Fixed
+
+- A projected `work_get_session` read (`view` or `select`) returned its body only in the text content, next to a `structuredContent` that held identity and status fields alone (outcome, sessionId, projection, status, executionStatus, verification, changedFilesCount). A client that hands the model `structuredContent` instead of the text when both are present therefore showed the Agent no summary, workSummary, decisions, files or links. This was seen in the Claude desktop app's Code tab: 21 handoff and select reads in one conversation came back without a body and had to be repeated as full reads. Since 1.6.18 the server instructions, the contract and the skill make `view: "handoff"` the default read, so the cheaper read cost an extra full read in such a client. A projected read now answers in text only, with no `structuredContent`: every client gets the body, and it is still sent once. Full reads, `session_unchanged`, the finalize receipt and the Session update receipts keep their `structuredContent`, which already matches their text. Other clients (Claude Code in a terminal, Codex, the Claude Desktop extension) were not checked.
+
+### Changed
+
+- Tests: `tests/mcp/session-projection.test.ts` now requires that every part of a handoff result a client may hand to the model (the text, and `structuredContent` when present) carries the body on its own, and that projected reads have no `structuredContent`; it used to require the metadata-only `structuredContent`. `tests/mcp/result.test.ts` covers the same rule for `textResult`.
+- Docs: `docs/mcp-tools.md` (projected reads answer in text only), `docs/status.md`.
+
+### Upgrading
+
+No schema change (33). An MCP client that read `structuredContent` of a projected `work_get_session` result must read the text content instead; the text is unchanged. Agents connected through the launcher switch to the new build without reconnecting.
+
 ## [1.6.30] - 2026-11-12
 
 [繁體中文更新說明](docs/releases/1.6.30.md).

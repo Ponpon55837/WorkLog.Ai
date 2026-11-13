@@ -40,6 +40,17 @@ describe("MCP result contract", () => {
     expect(textResult({ outcome: "skipped" })).not.toHaveProperty("structuredContent");
   });
 
+  it("answers a projected Session read in text only", () => {
+    const projected = {
+      outcome: "session_detail",
+      projection: { version: 1, view: "handoff", includedFields: ["session.summary"], unavailableFields: [] },
+      session: { id: "session-1", status: "finalized", executionStatus: "completed", summary: "Fictional summary" },
+    };
+    const result = textResult(projected);
+    expect(JSON.parse(result.content[0]?.text ?? "")).toEqual(projected);
+    expect(result).not.toHaveProperty("structuredContent");
+  });
+
   it("keeps skipped and not-found session responses machine-readable", () => {
     expect(
       toSessionStructuredContent({
