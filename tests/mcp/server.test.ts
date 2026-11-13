@@ -310,6 +310,101 @@ describe("Work Intelligence MCP server", () => {
     ]);
   });
 
+  it("fills a missing startedAt from the first call this server saw, once per segment", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Observed start", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const otherRoot = mkdtempSync(join(tmpdir(), "work-intelligence-mcp-observed-other-"));
+    cleanups.push(() => rmSync(otherRoot, { recursive: true, force: true }));
+    const other = store.addProject("Observed other", otherRoot);
+    store.updateProject(other.id, { status: "tracked" });
+    type Receipt = {
+      outcome: string;
+      session: { id: string; startedAt?: string; startedAtSource?: string };
+      startedAtFollowUp?: string;
+      suggestedCall?: { tool: string; arguments: { sessionId: string } };
+    };
+
+    // A save with no earlier call has nothing observed: no start, and a follow-up that asks for evidence.
+    const first = await callJson<Receipt>(
+      client,
+      "work_finalize_session",
+      finalizePayload(root, "observed-1", "First"),
+    );
+    expect(first.session.startedAt).toBeUndefined();
+    expect(first.startedAtFollowUp).toContain("Never estimate");
+    expect(first.suggestedCall).toEqual({
+      tool: "work_update_session_metadata",
+      arguments: { sessionId: first.session.id },
+    });
+
+    // The next call starts a new segment; another project's call does not interfere.
+    const before = Date.now();
+    await callReadOperation(client, "work_get_context", { projectRoot: root, task: "Fictional task" });
+    await callReadOperation(client, "work_get_context", { projectRoot: otherRoot, task: "Fictional other task" });
+    const second = await callJson<Receipt>(
+      client,
+      "work_finalize_session",
+      finalizePayload(root, "observed-2", "Second"),
+    );
+    expect(second.session.startedAtSource).toBe("server_observed");
+    expect(Date.parse(second.session.startedAt ?? "")).toBeGreaterThanOrEqual(before - 1_000);
+    expect(second.startedAtFollowUp).toBeUndefined();
+    const note = store
+      .getSessionDetail(second.session.id)
+      ?.events.find((event) => event.details?.field === "startedAt");
+    expect(note?.details).toMatchObject({ source: "server_observed", tool: "work_get_context" });
+
+    // A skipped or conflicting save keeps the observation; a successful one resets it.
+    await callReadOperation(client, "work_get_context", { projectRoot: root, task: "Fictional task" });
+    const conflict = await callJson<{ outcome: string }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "observed-2", "Second"),
+      summary: "A different summary.",
+    });
+    expect(conflict.outcome).toBe("idempotency_conflict");
+    const third = await callJson<Receipt>(
+      client,
+      "work_finalize_session",
+      finalizePayload(root, "observed-3", "Third"),
+    );
+    expect(third.session.startedAtSource).toBe("server_observed");
+    const fourth = await callJson<Receipt>(
+      client,
+      "work_finalize_session",
+      finalizePayload(root, "observed-4", "Fourth"),
+    );
+    expect(fourth.session.startedAt).toBeUndefined();
+
+    // The other project's segment is untouched by the saves above, and a reported or backfilled time wins.
+    const reported = "2020-01-01T00:00:00.000Z";
+    const withReported = await callJson<Receipt>(client, "work_finalize_session", {
+      ...finalizePayload(otherRoot, "observed-5", "Reported"),
+      startedAt: reported,
+      completedAt: "2020-01-01T01:00:00.000Z",
+    });
+    expect(withReported.session.startedAt).toBeUndefined();
+    expect(store.getSessionById(withReported.session.id)?.startedAt).toBe(reported);
+    const otherNext = await callJson<Receipt>(
+      client,
+      "work_finalize_session",
+      finalizePayload(otherRoot, "observed-6", "Other"),
+    );
+    expect(otherNext.session.startedAtSource).toBe("server_observed");
+
+    // Correcting only the start does not need the changed files again, and keeps them.
+    const startedAt = new Date(Date.now() - 3_600_000).toISOString();
+    const corrected = await callJson(client, "work_update_session_metadata", {
+      sessionId: fourth.session.id,
+      startedAt,
+    });
+    expect(corrected).toMatchObject({
+      outcome: "updated",
+      session: { id: fourth.session.id, startedAt, changedFilesCount: 1 },
+    });
+    expect(corrected).not.toHaveProperty("changedFiles");
+    expect(store.getSessionById(fourth.session.id)?.changedFiles).toEqual(["src/a.ts"]);
+  });
+
   it("records the connecting client name and the optional model on finalize without Agent input", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-mcp-agent-source-"));
     cleanups.push(() => rmSync(root, { recursive: true, force: true }));

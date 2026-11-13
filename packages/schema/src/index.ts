@@ -857,7 +857,13 @@ export const updateSessionVerificationInputSchema = z.object({
 
 export const updateSessionMetadataInputSchema = z.object({
   sessionId: z.string().trim().min(1).max(200),
-  changedFiles: z.array(z.string().max(1_000)).max(200),
+  changedFiles: z
+    .array(z.string().max(1_000))
+    .max(200)
+    .optional()
+    .describe(
+      "Omit to keep the stored changed files, provenance, and changes unchanged (e.g. a time-only correction).",
+    ),
   changedFilesMode: changedFilesModeSchema.default("replace"),
   changedFilesProvenance: z.array(changedFileProvenanceSchema).max(200).optional(),
   changedFileChanges: z.array(changedFileChangeSchema).max(200).optional(),

@@ -1592,6 +1592,8 @@ export interface FinalizedSessionResult {
   outcome: "finalized";
   duplicate: boolean;
   session: WorkSessionRecord;
+  /** Where a newly stored startedAt came from; absent on duplicates and when the Session has no start. */
+  startedAtSource?: "reported" | "events" | "server_observed";
   redactions?: RedactionSummary;
   verificationFollowUp?: VerificationFollowUp;
   changedFilesFollowUp?: ChangedFilesFollowUp;
@@ -1690,7 +1692,8 @@ export interface UpdatedSessionVerificationResult {
 
 export interface UpdateSessionMetadataInput {
   sessionId: string;
-  changedFiles: string[];
+  /** Omitted keeps the stored files, provenance, and changes unchanged. */
+  changedFiles?: string[];
   changedFilesMode?: ChangedFilesMode;
   changedFilesProvenance?: ChangedFileProvenance[];
   changedFileChanges?: ChangedFileChange[];
