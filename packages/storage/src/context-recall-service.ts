@@ -118,6 +118,7 @@ interface ContextRecallStoreReader {
   previewMetadataBackfill(options: { projectRoot?: string; limit?: number }): MetadataBackfillPreviewResult;
   countMetadataBackfillFollowUps(options: { projectRoot?: string }): MetadataBackfillTotals | undefined;
   openKnowledgeCandidateRequests(projectId?: string): KnowledgeCandidateRequest[];
+  knowledgeCandidateBacklog(projectId: string): { uncoveredSessions: number; highValueSessions: number } | undefined;
   countPendingAgentDecisions(projectId?: string): number;
   knowledgePageDigests(projectId: string): KnowledgePageDigest[];
   knowledgePagesForContext(projectId?: string): KnowledgePageRecord[];
@@ -1116,6 +1117,10 @@ export class ContextRecallService {
     const reports = this.store.listReportSynthesisRequests({ limit: 100 });
     const backfills = this.store.listMetadataBackfillRequests({ limit: 100 });
     const cleanups = this.store.listOutstandingCleanupRequests({ projectId, status: "pending", pageSize: 5 });
+    const knowledgeCandidates = this.store.openKnowledgeCandidateRequests(projectId);
+    // Only a project-scoped call (already admitted by the policy gate) mentions the backlog, and never beside an open request.
+    const knowledgeBacklog =
+      projectId && knowledgeCandidates.length === 0 ? this.store.knowledgeCandidateBacklog(projectId) : undefined;
     return {
       reportSynthesis:
         reports.outcome === "report_synthesis_requests"
@@ -1141,7 +1146,16 @@ export class ContextRecallService {
       ...(cleanups.outcome === "outstanding_cleanup_requests" && cleanups.requests.length > 0
         ? { outstandingCleanup: cleanups.requests }
         : {}),
-      knowledgeCandidates: this.store.openKnowledgeCandidateRequests(projectId),
+      knowledgeCandidates,
+      ...(knowledgeBacklog
+        ? {
+            knowledgeBacklog: {
+              uncoveredSessions: knowledgeBacklog.uncoveredSessions,
+              highValueSessions: knowledgeBacklog.highValueSessions,
+              requestWith: "work_request_knowledge_candidates" as const,
+            },
+          }
+        : {}),
       agentDecisions: this.store.countPendingAgentDecisions(projectId),
       knowledgePages: this.store.pendingKnowledgePages(projectId),
     };

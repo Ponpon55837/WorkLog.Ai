@@ -158,6 +158,9 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 單一專案 Agent context（含 3 個常駐知識頁摘要） | 500 ms |
 | metadata follow-up count（5,000 個 tracked Sessions；計數需與完整預覽總數一致） | 100 ms |
 | metadata follow-up count（每次計時前由另一個連線寫入一筆 project data，必須重新掃描） | 100 ms |
+| `requestKnowledgeCandidates selection`（5,000 Sessions 的獨立副本，含已確認決策、延續連結、驗證修復與重讀訊號；每次計時前清掉候選請求；為未涵蓋的 Session 計分、選出前 10 筆並寫入請求） | 250 ms |
+| `getContext with knowledge backlog (cold token)`（同一份副本；每次計時前由另一個連線寫入一筆 project data 並清掉候選請求，必須重新計分；回應必須帶 `knowledgeBacklog`） | 500 ms |
+| `getContext with knowledge backlog (warm token)`（資料未變，只讀資料變更序號，不再計分） | 500 ms |
 | 大量變更後第一次讀取（另一份資料庫副本上 5,000 筆 Session 待更新索引，讀取前全部重建） | 1,500 ms |
 | 知識頁列表含過時判斷（3 頁 × 一年的 Session） | 250 ms |
 | finalize 知識頁維護提示（3 頁 × 5,000 個新 Session） | 250 ms |

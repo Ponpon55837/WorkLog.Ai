@@ -199,6 +199,24 @@ async function serializedFinalizePayload(client: Client, args: Record<string, un
 }
 
 describe("synthetic MCP response-size baseline", () => {
+  it("keeps context within budget while it offers the Knowledge candidate backlog", async () => {
+    const { client, projectRoot } = await connectWithSyntheticHistory();
+    const taskArgs = { projectRoot, task: query };
+    const contextWithoutTask = await serializedMcpPayload(client, "work_get_context", { projectRoot });
+    const contextWithTask = await serializedMcpPayload(client, "work_get_context", taskArgs);
+    for (const payload of [contextWithoutTask, contextWithTask]) {
+      expect((payload.value as { pendingRequests: { knowledgeBacklog?: unknown } }).pendingRequests).toMatchObject({
+        knowledgeBacklog: {
+          uncoveredSessions: 20,
+          highValueSessions: expect.any(Number),
+          requestWith: "work_request_knowledge_candidates",
+        },
+      });
+    }
+    expect(contextWithoutTask.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextWithoutTask);
+    expect(contextWithTask.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextWithTask);
+  });
+
   it("measures context with and without a task, default recall, and default search", async () => {
     const { client, projectRoot, store } = await connectWithSyntheticHistory();
     const contextWithoutTask = await serializedMcpPayload(client, "work_get_context", { projectRoot });

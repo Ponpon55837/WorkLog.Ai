@@ -5,6 +5,7 @@ import type {
   DecideKnowledgeCandidateResult,
   KnowledgeCandidate,
   KnowledgeCandidateContextResult,
+  KnowledgeCandidateBacklog,
   KnowledgeCandidateContext,
   KnowledgeCandidateInput,
   KnowledgeCandidateListResult,
@@ -14,7 +15,6 @@ import type {
   KnowledgeCandidateStatus,
   KnowledgeKind,
   PolicyDecision,
-  ProjectRecord,
   RecordKnowledgeInput,
   RecordKnowledgeResult,
   RequestKnowledgeCandidatesResult,
@@ -22,6 +22,16 @@ import type {
   WorkSummarySections,
 } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
+import { DataRevisionCache } from "./data-revision-cache.js";
+import {
+  type BacklogCounts,
+  CONTEXT_BACKLOG_MIN_DAYS_SINCE_REQUEST,
+  CONTEXT_BACKLOG_MIN_HIGH_VALUE,
+  loadUncoveredBacklogSessions,
+  selectTopBacklogSessions,
+  summarizeBacklog,
+  summarizeBacklogByProject,
+} from "./knowledge-candidate-backlog.js";
 import {
   findKnowledgeCandidateOverlaps,
   parseStoredOverlaps,
@@ -37,6 +47,12 @@ const EXISTING_KNOWLEDGE_LIMITS = { active: 150, archived: 30, rejected: 20 } as
 const HANDOFF_BUDGET = 40_000;
 const PROCESSING_TIMEOUT_MS = 30 * 60 * 1000;
 const OPEN_STATUSES: readonly KnowledgeCandidateRequestStatus[] = ["pending", "processing", "failed"];
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+interface RequestInfo {
+  hasOpenRequest: boolean;
+  lastRequestedAt: string | undefined;
+}
 
 interface Dependencies {
   checkProjectRoot(projectRoot: string): PolicyDecision;
@@ -194,10 +210,20 @@ const CANDIDATE_SELECT = `SELECT c.*, p.name AS project_name, s.title AS session
  * candidates become Knowledge only when a person accepts them, so Knowledge stays explicitly committed.
  */
 export class KnowledgeCandidateService {
+  // Scoring scans every uncovered Session of the project, and getContext asks on every call.
+  private readonly backlogSnapshots: DataRevisionCache<BacklogCounts>;
+  private readonly requestInfos: DataRevisionCache<RequestInfo>;
+  // The Web list asks on every refresh; keyed by project id, or "" for every tracked project.
+  private readonly listedBacklogs: DataRevisionCache<KnowledgeCandidateBacklog[]>;
+
   public constructor(
     private readonly db: DatabaseSync,
     private readonly dependencies: Dependencies,
-  ) {}
+  ) {
+    this.backlogSnapshots = new DataRevisionCache(db);
+    this.requestInfos = new DataRevisionCache(db);
+    this.listedBacklogs = new DataRevisionCache(db);
+  }
 
   /** Opens (or returns the open) request for Sessions of the project that no earlier request covered. */
   public request(projectRoot: string): RequestKnowledgeCandidatesResult {
@@ -217,7 +243,8 @@ export class KnowledgeCandidateService {
       if (open) {
         return { outcome: "knowledge_candidate_request", duplicate: true, request: toRequest(open) };
       }
-      const sourceSessionIds = this.uncoveredSessionIds(project);
+      const uncovered = loadUncoveredBacklogSessions(this.db, project.id);
+      const sourceSessionIds = selectTopBacklogSessions(uncovered, MAX_SOURCE_SESSIONS).map((session) => session.id);
       if (sourceSessionIds.length === 0) {
         return {
           outcome: "knowledge_candidates_not_needed",
@@ -231,7 +258,13 @@ export class KnowledgeCandidateService {
            VALUES (?, ?, 'pending', ?, ?)`,
         )
         .run(id, project.id, nowIso(), JSON.stringify(sourceSessionIds));
-      return { outcome: "knowledge_candidate_request", duplicate: false, request: this.getRequest(id)! };
+      const { uncoveredSessions, highValueSessions } = summarizeBacklog(uncovered, new Set(sourceSessionIds));
+      return {
+        outcome: "knowledge_candidate_request",
+        duplicate: false,
+        request: this.getRequest(id)!,
+        remaining: { uncoveredSessions, highValueSessions },
+      };
     });
   }
 
@@ -417,7 +450,12 @@ export class KnowledgeCandidateService {
         )
         .all(...parameters) as RequestRow[]
     ).map(toRequest);
-    return { outcome: "knowledge_candidates", items, openRequests };
+    const backlog = this.listedBacklogs.get(projectId ?? "", () =>
+      summarizeBacklogByProject(loadUncoveredBacklogSessions(this.db, projectId)).filter(
+        (counts) => counts.uncoveredSessions > 0,
+      ),
+    );
+    return { outcome: "knowledge_candidates", items, openRequests, backlog };
   }
 
   /** Accepting records the (optionally edited) candidate as Knowledge linked to its source Session. */
@@ -478,11 +516,40 @@ export class KnowledgeCandidateService {
     return (
       this.db
         .prepare(
-          `${REQUEST_SELECT} WHERE p.status = 'tracked' AND r.status IN ('pending', 'processing')
+          `${REQUEST_SELECT} WHERE p.status = 'tracked' AND r.status IN ('pending', 'processing', 'failed')
            ${projectId ? "AND p.id = ?" : ""} ORDER BY r.requested_at DESC LIMIT ?`,
         )
         .all(...(projectId ? [projectId] : []), limit) as RequestRow[]
     ).map(toRequest);
+  }
+
+  /**
+   * The unreviewed-Session backlog worth telling an Agent about, for a project the caller has already admitted
+   * through the policy gate. Undefined while a request is open, below the high-value threshold, or when the
+   * project's last request is recent. Reuses a snapshot until the data revision moves, so a repeated getContext
+   * costs only the revision read.
+   */
+  public contextBacklog(projectId: string, now = Date.now()): KnowledgeCandidateBacklog | undefined {
+    // The cheap request row alone decides visibility, so a recent or open request never pays for scoring.
+    const requests = this.requestInfo(projectId);
+    if (requests.hasOpenRequest) {
+      return undefined;
+    }
+    if (
+      requests.lastRequestedAt !== undefined &&
+      now - Date.parse(requests.lastRequestedAt) <= CONTEXT_BACKLOG_MIN_DAYS_SINCE_REQUEST * DAY_MS
+    ) {
+      return undefined;
+    }
+    // The hint is advisory and part of a read-only context: a failure of its signals (for example the passive
+    // read audit table) must never fail the context.
+    let counts: BacklogCounts;
+    try {
+      counts = this.backlogCounts(projectId);
+    } catch {
+      return undefined;
+    }
+    return counts.highValueSessions < CONTEXT_BACKLOG_MIN_HIGH_VALUE ? undefined : { projectId, ...counts };
   }
 
   /** Active Knowledge, archived Knowledge, and rejected candidates of one project, titles only. */
@@ -585,20 +652,25 @@ export class KnowledgeCandidateService {
     return rows.map((row, index) => withOverlapList(toCandidate(row), resolved[index]));
   }
 
-  private uncoveredSessionIds(project: ProjectRecord): string[] {
-    return (
-      this.db
+  /** The last request time and whether one is open; one indexed aggregate, reused until the data revision moves. */
+  private requestInfo(projectId: string): RequestInfo {
+    return this.requestInfos.get(projectId, () => {
+      const row = this.db
         .prepare(
-          `SELECT s.id FROM sessions s
-           WHERE s.project_id = ? AND s.voided_at IS NULL
-             AND NOT EXISTS (
-               SELECT 1 FROM knowledge_candidate_requests r, json_each(r.source_session_ids_json) j
-               WHERE r.project_id = s.project_id AND r.status <> 'cancelled' AND j.value = s.id
-             )
-           ORDER BY s.completed_at DESC, s.id DESC LIMIT ?`,
+          `SELECT MAX(requested_at) AS last_requested_at,
+                  COALESCE(MAX(status IN ('pending', 'processing', 'failed')), 0) AS has_open
+           FROM knowledge_candidate_requests WHERE project_id = ?`,
         )
-        .all(project.id, MAX_SOURCE_SESSIONS) as Array<{ id: string }>
-    ).map((row) => row.id);
+        .get(projectId) as { last_requested_at: string | null; has_open: number };
+      return { hasOpenRequest: row.has_open === 1, lastRequestedAt: row.last_requested_at ?? undefined };
+    });
+  }
+
+  /** Scores the project's uncovered Sessions; reused until the data revision moves, so a passed window scores once. */
+  private backlogCounts(projectId: string): BacklogCounts {
+    return this.backlogSnapshots.get(projectId, () =>
+      summarizeBacklog(loadUncoveredBacklogSessions(this.db, projectId)),
+    );
   }
 
   private resolveRequest(input: {

@@ -140,7 +140,15 @@ function resourceResponder({ url, method }: StoreRequest): unknown {
     };
   }
   if (url.pathname === "/api/knowledge/candidates") {
-    return { outcome: "knowledge_candidates", items: [{ id: "candidate-1" }], openRequests: [] };
+    return {
+      outcome: "knowledge_candidates",
+      items: [{ id: "candidate-1" }],
+      openRequests: [],
+      backlog: [
+        { projectId: "project-1", uncoveredSessions: 7, highValueSessions: 3 },
+        { projectId: "project-2", uncoveredSessions: 2, highValueSessions: 0 },
+      ],
+    };
   }
   if (url.pathname === "/api/knowledge/knowledge-1" && method === "PATCH") {
     return { outcome: "knowledge_updated", knowledge: { id: "knowledge-1", title: "Updated" } };
@@ -389,6 +397,7 @@ describe("resource stores", () => {
     await store.loadCandidates("/projects/alpha");
     await vi.waitFor(() => expect(store.candidates).toHaveLength(1));
     expect(store.candidatesLoading).toBe(false);
+    expect(store.candidateBacklog).toEqual({ uncoveredSessions: 9, highValueSessions: 3 });
 
     await store.updateKnowledge({ knowledgeId: "knowledge-1", title: "Updated" } as never);
     await vi.waitFor(() => expect(harness.count("/api/knowledge")).toBeGreaterThan(1));

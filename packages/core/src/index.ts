@@ -2121,6 +2121,16 @@ export interface KnowledgeCandidateRequest {
   candidateCount: number;
 }
 
+/** Live Sessions no Knowledge candidate request has covered. High value: confirmed decisions, recovered verification, or later work built on them. */
+export interface KnowledgeCandidateBacklogCounts {
+  uncoveredSessions: number;
+  highValueSessions: number;
+}
+
+export interface KnowledgeCandidateBacklog extends KnowledgeCandidateBacklogCounts {
+  projectId: string;
+}
+
 export interface KnowledgeCandidateInput {
   /** The Session whose record supports this candidate; must be one of the request's sources. */
   sourceSessionId: string;
@@ -2209,7 +2219,13 @@ export type KnowledgeCandidateSkippedResult = {
 };
 
 export type RequestKnowledgeCandidatesResult =
-  | { outcome: "knowledge_candidate_request"; duplicate: boolean; request: KnowledgeCandidateRequest }
+  | {
+      outcome: "knowledge_candidate_request";
+      duplicate: boolean;
+      request: KnowledgeCandidateRequest;
+      /** Sessions still not covered by any request after this new one (absent on a duplicate); tell the user, do not request again unasked. */
+      remaining?: KnowledgeCandidateBacklogCounts;
+    }
   | { outcome: "knowledge_candidates_not_needed"; reason: string }
   | KnowledgeCandidateSkippedResult;
 
@@ -2478,7 +2494,13 @@ export interface KnowledgePageDigest {
 }
 
 export type KnowledgeCandidateListResult =
-  | { outcome: "knowledge_candidates"; items: KnowledgeCandidate[]; openRequests: KnowledgeCandidateRequest[] }
+  | {
+      outcome: "knowledge_candidates";
+      items: KnowledgeCandidate[];
+      openRequests: KnowledgeCandidateRequest[];
+      /** Uncovered Session counts per project in scope; projects with none are left out. */
+      backlog: KnowledgeCandidateBacklog[];
+    }
   | KnowledgeCandidateSkippedResult;
 
 export interface DecideKnowledgeCandidateInput {
@@ -2523,13 +2545,22 @@ export interface ContextResult {
   pendingOutstandingItemsTruncated: number;
   /** Counts only; list the affected Sessions with work_preview_metadata_backfill. */
   metadataFollowUps: MetadataBackfillPreview["totals"];
-  /** Pending or processing Agent requests in this scope, newest first (at most 5 of each kind). */
+  /** Pending or processing Agent requests in this scope, newest first (at most 5 of each kind); Knowledge candidate requests also list failed ones, which block a new request until resumed. */
   pendingRequests: {
     reportSynthesis: Array<ReportSynthesisRequest & { sourceSessionIdsOmittedCount?: number }>;
     metadataBackfill: MetadataBackfillRequest[];
     /** Active project cleanup requests for Agents; proposals require Web review. */
     outstandingCleanup?: OutstandingCleanupRequest[];
     knowledgeCandidates: KnowledgeCandidateRequest[];
+    /**
+     * Project-scoped only, and only when no candidate request is open, at least 5 uncovered Sessions are
+     * high value, and the last request is over 7 days old (or none). Offer it to the user once; never request unasked.
+     */
+    knowledgeBacklog?: {
+      uncoveredSessions: number;
+      highValueSessions: number;
+      requestWith: "work_request_knowledge_candidates";
+    };
     /** Number only; decision content is reviewed in the Web UI. */
     agentDecisions: number;
     /** Knowledge pages to inspect: explicit update request, cited-source review, or at least three accumulated new Sessions; ordered by priority. */

@@ -960,6 +960,55 @@ try {
          SELECT 'session', id FROM sessions ORDER BY id LIMIT ${dirtyDocumentCount}`,
       ),
     );
+  // Knowledge backlog cases run on their own copy: the request case writes rows, and the seeded signals
+  // (confirmed decisions, links, recovered verification, re-reads) must not change the other cases' data.
+  const backlogPath = join(root, "bench-backlog.sqlite");
+  withBenchConnection(databasePath, (connection) =>
+    connection.exec(`VACUUM INTO '${backlogPath.replaceAll("'", "''")}'`),
+  );
+  withBenchConnection(backlogPath, (connection) => {
+    const alphaSessions = connection
+      .prepare("SELECT id FROM sessions WHERE project_id = ? ORDER BY completed_at, id")
+      .all(alpha.id);
+    connection.exec("BEGIN");
+    connection.exec(
+      "UPDATE session_decisions SET review_status = 'confirmed' WHERE rowid % 4 = 0 OR review_status = 'pending'",
+    );
+    const insertLink = connection.prepare(
+      `INSERT OR IGNORE INTO session_links (id, session_id, related_session_id, relation, source, created_at)
+       VALUES (?, ?, ?, 'continues', 'agent', '2026-03-01T00:00:00.000Z')`,
+    );
+    const insertUpdate = connection.prepare(
+      `INSERT INTO session_verification_updates (id, session_id, source, previous_json, resulting_json, created_at)
+       VALUES (?, ?, 'agent', '{"status":"failed"}', '{"status":"passed"}', '2026-03-01T00:00:00.000Z')`,
+    );
+    const insertAudit = connection.prepare(
+      `INSERT INTO agent_read_audit (id, created_at, tool, outcome) VALUES (?, '2026-03-01T00:00:00.000Z', 'work_get_session', 'ok')`,
+    );
+    const insertRecord = connection.prepare(
+      "INSERT INTO agent_read_audit_records (audit_id, record_type, record_id) VALUES (?, 'session', ?)",
+    );
+    alphaSessions.forEach((session, index) => {
+      if (index % 20 === 0 && alphaSessions[index + 1])
+        insertLink.run(randomUUID(), alphaSessions[index + 1].id, session.id);
+      if (index % 50 === 0) insertUpdate.run(randomUUID(), session.id);
+      if (index % 40 === 0) {
+        const auditId = `bench-backlog-read-${index}`;
+        insertAudit.run(auditId);
+        insertRecord.run(auditId, session.id);
+      }
+    });
+    connection.exec("COMMIT");
+  });
+  const backlogStore = new WorkIntelligenceStore(backlogPath);
+  const resetBacklogRequests = () =>
+    withBenchConnection(backlogPath, (connection) => connection.exec("DELETE FROM knowledge_candidate_requests"));
+  // No open request (the request case leaves one), and a project-data write so the next read misses the memo.
+  const prepareColdBacklogRead = () =>
+    withBenchConnection(backlogPath, (connection) => {
+      connection.exec("DELETE FROM knowledge_candidate_requests");
+      connection.prepare("UPDATE projects SET updated_at = updated_at WHERE id = ?").run(alpha.id);
+    });
   const expectedAnalyzedYear = JSON.stringify(benchStore.getReport({ period: "year", date: "2026-03-11" }));
   // A full audit window (5,000 rows) over 12 tools, with durations, failures, and untimed legacy rows.
   const auditSeed = new DatabaseSync(databasePath);
@@ -1149,6 +1198,31 @@ try {
         if (connection.prepare("SELECT COUNT(*) AS count FROM search_dirty").get().count !== 0)
           throw new Error("The first read must re-index every dirty document before it searches.");
       });
+      return result;
+    },
+    // Scores every uncovered Session of the project, ranks the top ten, and writes the request row.
+    "requestKnowledgeCandidates selection": () => {
+      const result = backlogStore.requestKnowledgeCandidates(alphaRoot);
+      if (
+        result.outcome !== "knowledge_candidate_request" ||
+        result.duplicate ||
+        result.request.sourceSessionIds.length !== 10 ||
+        result.remaining?.highValueSessions === undefined
+      )
+        throw new Error("The request benchmark must select ten source Sessions and report what remains.");
+      return result;
+    },
+    // A write by another connection precedes every run, so the backlog is scored again.
+    "getContext with knowledge backlog (cold token)": () => {
+      const result = backlogStore.getContext(alphaRoot);
+      if (result.outcome !== "context" || !result.pendingRequests.knowledgeBacklog)
+        throw new Error("The backlog benchmark must offer the Knowledge candidate backlog.");
+      return result;
+    },
+    "getContext with knowledge backlog (warm token)": () => {
+      const result = backlogStore.getContext(alphaRoot);
+      if (result.outcome !== "context" || !result.pendingRequests.knowledgeBacklog)
+        throw new Error("The backlog benchmark must offer the Knowledge candidate backlog.");
       return result;
     },
     "getContext (project with pages)": () => benchStore.getContext(alphaRoot),
@@ -1571,6 +1645,8 @@ try {
   const beforeEachRun = {
     "finalizeSession (changed files, Knowledge review)": seedFreshReviewKnowledge,
     "metadata follow-up counts (after a write)": touchProjectData,
+    "requestKnowledgeCandidates selection": resetBacklogRequests,
+    "getContext with knowledge backlog (cold token)": prepareColdBacklogRead,
     "first read after 5,000 dirty documents": markSessionsDirty,
     "getMcpRuntimeStatus (286 expired leases)": seedExpiredLeases,
     "registerMcpProcess (286 expired leases)": seedExpiredLeases,
@@ -1608,6 +1684,9 @@ try {
     getContext: 500,
     "metadata follow-up counts": 100,
     "metadata follow-up counts (after a write)": 100,
+    "requestKnowledgeCandidates selection": 250,
+    "getContext with knowledge backlog (cold token)": 500,
+    "getContext with knowledge backlog (warm token)": 500,
     "first read after 5,000 dirty documents": 1500,
     "getContext (project with pages)": 500,
     "getContext (related pending items)": 500,
@@ -1856,6 +1935,7 @@ try {
   worstTextDatabase.close();
   distinctPaths.store.close();
   reindexStore.close();
+  backlogStore.close();
   overlapDatabase.close();
   benchStore.close();
 } finally {

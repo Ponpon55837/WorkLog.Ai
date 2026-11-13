@@ -1466,6 +1466,52 @@ describe("Work Intelligence REST API", () => {
     expect(missing.body).toMatchObject({ outcome: "not_found" });
   });
 
+  it("lists the uncovered Session backlog with Knowledge candidates and returns what remains after a request", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-candidate-backlog-test-"));
+    const store = new WorkIntelligenceStore(":memory:");
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+    const project = store.addProject("Candidate backlog API fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    for (let index = 0; index < 12; index += 1) {
+      const finalized = store.finalizeSession({
+        projectRoot: root,
+        idempotencyKey: `api-candidate-backlog-${index}`,
+        title: `Backlog fixture ${index}`,
+        summary: "Source for the backlog.",
+        workSummary: {
+          outcomes: ["Backlog source."],
+          scope: [],
+          decisions: index < 2 ? [{ text: `Decision ${index}`, origin: "user_requested" }] : [],
+          verification: [],
+          nextSteps: [],
+        },
+        completedAt: `2026-09-26T12:${String(index).padStart(2, "0")}:00.000Z`,
+      });
+      if (finalized.outcome !== "finalized") throw new Error("Expected the backlog fixture Session to finalize.");
+    }
+
+    const before = await requestJson(baseUrl, `/api/knowledge/candidates?projectRoot=${encodeURIComponent(root)}`);
+    expect(before.body).toMatchObject({
+      outcome: "knowledge_candidates",
+      backlog: [{ projectId: project.id, uncoveredSessions: 12, highValueSessions: 2 }],
+    });
+    const unscoped = await requestJson(baseUrl, "/api/knowledge/candidates");
+    expect(unscoped.body).toMatchObject({ backlog: [{ projectId: project.id, uncoveredSessions: 12 }] });
+
+    const requested = await requestJson(baseUrl, "/api/knowledge/candidate-requests", {
+      method: "POST",
+      body: { projectRoot: root },
+    });
+    expect(requested.body).toMatchObject({
+      outcome: "knowledge_candidate_request",
+      duplicate: false,
+      remaining: { uncoveredSessions: 2, highValueSessions: 0 },
+    });
+    const after = await requestJson(baseUrl, `/api/knowledge/candidates?projectRoot=${encodeURIComponent(root)}`);
+    expect(after.body).toMatchObject({ backlog: [{ uncoveredSessions: 2 }], openRequests: [{ status: "pending" }] });
+  });
+
   it("serves hotspots with validated filters", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-hotspots-test-"));
     const store = new WorkIntelligenceStore(":memory:");

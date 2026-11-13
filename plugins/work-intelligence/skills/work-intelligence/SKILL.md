@@ -78,5 +78,6 @@ Keep the existing planning → execution → verification → closing-handoff wo
 - To find a specific Session (for example before correcting it), recall or list Sessions within the tracked project and then read that one Session in full; do not guess a sessionId. Pending report and metadata requests also appear in the context result.
 - Never create a replacement Session just to fix its text or metadata; read the repair guide first.
 - Record or update Knowledge only when the user asks or when the MCP workflow explicitly calls for it, and only with reusable, source-supported facts; read the knowledge guide first.
+- When a project context carries `pendingRequests.knowledgeBacklog` (uncovered Sessions, many with confirmed decisions, recovered verification, or later work built on them), mention it to the user at most once in the conversation as an offer to organize Knowledge candidates. Do not create a request unless the user asks; a failed request in `pendingRequests.knowledgeCandidates` is resumed, not replaced. Read the knowledge guide before acting.
 
 When responding, summarize what was saved or corrected, report verification and remaining gaps accurately, and keep internal MCP mechanics out of the user-facing instructions.

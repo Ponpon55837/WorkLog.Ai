@@ -428,6 +428,8 @@
     "filterKind": "Filter kind",
     "filterStatus": "Filter status",
     "finishSourceLink": "Finish source link",
+    "candidateBacklog": "{uncovered} Session is not yet synthesized into candidates; {highValue} has confirmed decisions, a recovered verification, or later work built on it|{uncovered} Sessions are not yet synthesized into candidates; {highValue} have confirmed decisions, recovered verifications, or later work built on them",
+    "candidateBacklogPlain": "{uncovered} Session is not yet synthesized into candidates|{uncovered} Sessions are not yet synthesized into candidates",
     "hasSessionsWaitingForThe": "{projectName} has {length} Sessions waiting for the Agent to synthesize{value}. Say “synthesize Knowledge candidates” in Claude Code or Codex.",
     "initialContent": "Initial content",
     "interruptedLastTimeCanBe": " (interrupted last time; can be processed again)",

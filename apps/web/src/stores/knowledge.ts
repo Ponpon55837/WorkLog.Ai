@@ -196,6 +196,15 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
   const openCandidateRequests = computed(() =>
     candidatesQuery.data.value?.outcome === "knowledge_candidates" ? candidatesQuery.data.value.openRequests : [],
   );
+  // Counts of the project in scope (or all tracked projects when unscoped); the server leaves out projects with none.
+  const candidateBacklog = computed(() => {
+    const result = candidatesQuery.data.value;
+    const entries = result?.outcome === "knowledge_candidates" ? result.backlog : [];
+    return {
+      uncoveredSessions: entries.reduce((sum, entry) => sum + entry.uncoveredSessions, 0),
+      highValueSessions: entries.reduce((sum, entry) => sum + entry.highValueSessions, 0),
+    };
+  });
   const candidatesError = computed(() =>
     candidatesQuery.error.value
       ? errorMessage(candidatesQuery.error.value, t("knowledge.couldNotLoadKnowledgeCandidates"))
@@ -315,6 +324,7 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     closeKnowledgeHistory,
     candidates,
     openCandidateRequests,
+    candidateBacklog,
     candidatesLoading,
     candidatesLoaded,
     candidatesError,

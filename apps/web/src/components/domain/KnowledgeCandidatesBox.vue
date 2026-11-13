@@ -40,7 +40,7 @@ const {
   rejectCandidate,
   openCandidateEditor,
 } = useKnowledgeCandidates();
-const { candidatesLoaded } = storeToRefs(useKnowledgeStore());
+const { candidatesLoaded, candidateBacklog } = storeToRefs(useKnowledgeStore());
 const sessionsStore = useSessionsStore();
 const { openSessionDetail } = sessionsStore;
 const { showToast } = useToast();
@@ -70,6 +70,13 @@ useActiveRequestWatch({
   },
 });
 
+const backlogText = computed(() => {
+  const { uncoveredSessions, highValueSessions } = candidateBacklog.value;
+  if (!candidatesLoaded.value || uncoveredSessions === 0) return "";
+  return highValueSessions > 0
+    ? t("knowledge.candidateBacklog", { uncovered: uncoveredSessions, highValue: highValueSessions })
+    : t("knowledge.candidateBacklogPlain", { uncovered: uncoveredSessions });
+});
 const requestItems = computed(() => props.projects.map((project) => ({ value: project.id, label: project.name })));
 
 function overlapLabel(overlap: KnowledgeCandidateOverlap): string {
@@ -126,6 +133,9 @@ function onRequest(projectId: string): void {
         })
       }}
     </UiFlash>
+    <p v-if="backlogText" class="knowledge-candidates__backlog" data-testid="knowledge-candidates-backlog">
+      {{ backlogText }}
+    </p>
     <UiSkeleton
       v-if="!candidatesLoaded && !candidatesError"
       :count="2"
@@ -231,6 +241,15 @@ function onRequest(projectId: string): void {
 .knowledge-candidates__empty {
   margin: 0;
   padding: var(--space-3) var(--space-4);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+
+.knowledge-candidates__backlog {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border-muted);
   color: var(--fg-muted);
   font-size: var(--text-sm);
   line-height: 1.6;
