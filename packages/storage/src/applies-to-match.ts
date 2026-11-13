@@ -668,7 +668,21 @@ export type AppliesToStrengthMatcher = (path: string, budget?: AppliesToBudget) 
  * is above the length limit matches nothing (the latter counts as skipped, like appliesToStrength).
  */
 export function compileAppliesToStrength(pattern: string, budget?: AppliesToBudget): AppliesToStrengthMatcher {
-  const never: AppliesToStrengthMatcher = () => 0;
+  return compileAppliesToStrengthEntry(pattern, budget).strength;
+}
+
+/** compileAppliesToStrength plus what a file index needs to find the paths the entry can match (see AppliesToFileIndex). */
+export interface CompiledAppliesToStrength {
+  strength: AppliesToStrengthMatcher;
+  /** Strength is 0 for every path (above the length limit, over the star bound, or not affordable). */
+  never: boolean;
+  /** For a glob: the literal code units every match starts and ends with. */
+  glob?: { prefix: string; suffix: string };
+}
+
+/** compileAppliesToStrength with the entry's glob prefix and suffix exposed; charged exactly the same. */
+export function compileAppliesToStrengthEntry(pattern: string, budget?: AppliesToBudget): CompiledAppliesToStrength {
+  const never: CompiledAppliesToStrength = { strength: () => 0, never: true };
   if (pattern.length > MAX_APPLIES_TO_ENTRY_LENGTH) {
     if (budget) budget.skippedEntries += 1;
     return never;
@@ -676,11 +690,18 @@ export function compileAppliesToStrength(pattern: string, budget?: AppliesToBudg
   const isGlob = chargedIsGlob(pattern, budget);
   if (isGlob === undefined) return never;
   if (isGlob) {
-    const matches = compileAppliesTo(pattern, budget);
-    return (path, pathBudget) => (matches(path, pathBudget) ? 0.8 : 0);
+    const compiled = compileAppliesToEntry(pattern, budget);
+    return {
+      strength: (path, pathBudget) => (compiled.matches(path, pathBudget) ? 0.8 : 0),
+      never: compiled.never,
+      glob: compiled.glob,
+    };
   }
-  return (path, pathBudget) =>
-    charge(pathBudget, PAIR_UNITS)
-      ? Math.max(plainStrength(pattern, path, pathBudget), plainStrength(path, pattern, pathBudget))
-      : 0;
+  return {
+    strength: (path, pathBudget) =>
+      charge(pathBudget, PAIR_UNITS)
+        ? Math.max(plainStrength(pattern, path, pathBudget), plainStrength(path, pattern, pathBudget))
+        : 0,
+    never: false,
+  };
 }
