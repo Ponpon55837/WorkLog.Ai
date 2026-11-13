@@ -159,6 +159,7 @@ function loadData(db) {
       events: [],
       closeEvent: null,
       selfClosed: false,
+      firstCloseMs: Number.POSITIVE_INFINITY,
     });
   }
   let maxTime = 0;
@@ -195,6 +196,12 @@ function loadData(db) {
           break;
         }
       }
+    }
+    // First time the item left pending (Infinity while it is still pending); used to replay "pending at time t".
+    info.firstCloseMs = Number.POSITIVE_INFINITY;
+    if (info.status !== "pending") {
+      const first = info.events.find((event) => event.from === "pending" && event.to !== "pending");
+      info.firstCloseMs = first ? first.ms : Date.parse(info.updatedAt);
     }
     info.selfClosed = info.status === "not_needed" && info.closeEvent !== null && info.closeEvent.actor === info.session;
   }
@@ -252,6 +259,18 @@ function buildSessionIndex(sessions) {
     }
   }
   return byFile;
+}
+
+/** Items per source Session, ordered the way finalize lists them: position, then id. */
+function buildItemsBySession(items) {
+  const index = new Map();
+  for (const info of items.values()) {
+    const list = index.get(info.session);
+    if (list) list.push(info);
+    else index.set(info.session, [info]);
+  }
+  for (const list of index.values()) list.sort((a, b) => a.position - b.position || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return index;
 }
 
 function buildCreatedIndex(items) {
@@ -493,6 +512,59 @@ function missedOpportunityMetrics(group, data, ctx) {
   };
 }
 
+/** Number of continued pending items a finalize receipt lists (`continuedOutstandingItems`). */
+export const CONTINUED_LIST_CAP = 10;
+
+/**
+ * Replays the finalize receipt's continuedOutstandingItems for web-completed items: at each later linked same-project
+ * non-voided Session N (completed in [created, web completion)), N's list is the pending-at-that-instant items of the
+ * same-project Sessions linked to N, ordered by source_session_id, position, id, capped at 10. Lists are built once per N.
+ */
+function continuedReplayMetrics(group, data, ctx) {
+  const web = group.filter((info) => info.status === "completed" && info.closeEvent?.source === "web");
+  const ranksFor = (sessionId) => {
+    let ranks = ctx.continuedRanks.get(sessionId);
+    if (ranks) return ranks;
+    const session = data.sessions.get(sessionId);
+    const eligible = [];
+    for (const neighborId of data.links.get(sessionId) ?? []) {
+      const neighbor = data.sessions.get(neighborId);
+      if (!neighbor || neighbor.voided || neighbor.project !== session.project) continue;
+      for (const info of ctx.itemsBySession.get(neighborId) ?? []) {
+        if (info.createdMs <= session.ms && info.firstCloseMs > session.ms) eligible.push(info);
+      }
+    }
+    eligible.sort((a, b) => (a.session < b.session ? -1 : a.session > b.session ? 1 : 0) || a.position - b.position || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    ranks = new Map(eligible.map((info, rank) => [info.id, rank]));
+    ctx.continuedRanks.set(sessionId, ranks);
+    return ranks;
+  };
+  let surfaced = 0;
+  let beyondCap = 0;
+  let notLinked = 0;
+  for (const info of web) {
+    let best = null;
+    for (const linkedId of data.links.get(info.session) ?? []) {
+      const linked = data.sessions.get(linkedId);
+      if (!linked || linked.voided || linked.project !== info.project) continue;
+      if (!(linked.ms >= info.createdMs && linked.ms < info.closeEvent.ms)) continue;
+      const rank = ranksFor(linkedId).get(info.id);
+      if (rank !== undefined && (best === null || rank < best)) best = rank;
+    }
+    if (best === null) notLinked += 1;
+    else if (best < CONTINUED_LIST_CAP) surfaced += 1;
+    else beyondCap += 1;
+  }
+  return {
+    cap: CONTINUED_LIST_CAP,
+    webCompleted: web.length,
+    surfacedInContinued: data.has.links ? surfaced : null,
+    surfacedButBeyondCap: data.has.links ? beyondCap : null,
+    notLinked: data.has.links ? notLinked : web.length,
+    surfacedShare: data.has.links ? share(surfaced, web.length) : null,
+  };
+}
+
 function agentPostFinalizeMetrics(group, data) {
   const result = { events: 0, postFinalize: 0, sameInstantAsFinalize: 0, beforeActorCompleted: 0, actorUnknown: 0 };
   for (const info of group) {
@@ -533,6 +605,7 @@ function groupMetrics(group, data, ctx, nowMs) {
     transientWording: transientMetrics(group),
     completion: completionMetrics(group, data),
     missedOpportunities: missedOpportunityMetrics(group, data, ctx),
+    continuedReplay: continuedReplayMetrics(group, data, ctx),
     agentPostFinalize: agentPostFinalizeMetrics(group, data),
     currentPending: pendingMetrics(group, nowMs),
   };
@@ -586,6 +659,8 @@ export async function analyze(db, options = {}) {
   const ctx = {
     matcher,
     createdIndex: buildCreatedIndex(data.items),
+    itemsBySession: buildItemsBySession(data.items),
+    continuedRanks: new Map(),
     byFile: buildSessionIndex(data.sessions),
     summaryUpdatesInGroup: 0,
   };
@@ -693,6 +768,8 @@ const FIXTURE_TEXTS = {
   j1b: "Rewrite the indigo parser benchmarks for the nightly job",
   j2: "Tidy the sienna config loader",
   j2b: "Tidy the sienna loader config",
+  k1: "Fictional backlog item 01",
+  k11: "Fictional backlog item 11",
 };
 
 async function buildFixture(dir) {
@@ -733,9 +810,13 @@ async function buildFixture(dir) {
   finalize("H", 8, ["src/h.ts"], [FIXTURE_TEXTS.h1, FIXTURE_TEXTS.h2, FIXTURE_TEXTS.h3]);
   finalize("I", 9, ["src/i.ts"], [FIXTURE_TEXTS.i1, FIXTURE_TEXTS.i2]);
   finalize("J", 10, ["src/j.ts"], [FIXTURE_TEXTS.j1, FIXTURE_TEXTS.j2]);
+  // K lists 11 pending items; L (linked to K) would list only the first 10 in its continued list.
+  const backlog = Array.from({ length: 11 }, (_, index) => `Fictional backlog item ${String(index + 1).padStart(2, "0")}`);
+  finalize("K", 12, ["src/k.ts"], backlog);
+  finalize("L", 13, ["src/l.ts"], [], { relatedSessionIds: [ids.K] });
 
   // Web resolutions of items whose later work could have resolved them (only A1 and A4 have a linked, file-sharing later Session).
-  for (const text of [FIXTURE_TEXTS.a1, FIXTURE_TEXTS.a4, FIXTURE_TEXTS.b1, FIXTURE_TEXTS.d1]) {
+  for (const text of [FIXTURE_TEXTS.a1, FIXTURE_TEXTS.a4, FIXTURE_TEXTS.b1, FIXTURE_TEXTS.d1, FIXTURE_TEXTS.k1, FIXTURE_TEXTS.k11]) {
     const result = store.updateOutstandingItemStatus(itemId(text), "completed", "web");
     assert.equal(result.outcome, "outstanding_item_updated", "fixture web completion");
   }
@@ -881,10 +962,10 @@ async function selfCheck() {
     const m = full.metrics;
 
     assert.equal(full.meta.schema.events, true);
-    assert.equal(m.totals.items, 18);
-    assert.equal(m.totals.sessionsWithItems, 7);
-    assert.deepEqual(m.totals.status, { pending: 7, completed: 6, not_needed: 5 });
-    assert.equal(m.totals.itemsPerSession.max, 4);
+    assert.equal(m.totals.items, 29);
+    assert.equal(m.totals.sessionsWithItems, 8);
+    assert.deepEqual(m.totals.status, { pending: 16, completed: 8, not_needed: 5 });
+    assert.equal(m.totals.itemsPerSession.max, 11);
     assert.equal(m.totals.itemsPerSession.median, 2);
 
     assert.equal(m.notNeeded.count, 5);
@@ -899,7 +980,7 @@ async function selfCheck() {
     assert.equal(r.pureRemoval, 1);
     assert.equal(r.skippedOverPairLimit, 0);
     assert.equal(r.closeCreateBursts, 2);
-    assert.equal(r.syncInstants, 10);
+    assert.equal(r.syncInstants, 11);
     assert.equal(r.summaryUpdates, 2);
     assert.equal(r.burstsPerSummaryUpdate, 1);
     const histogramTotal = Object.values(r.similarityHistogram).reduce((a, b) => a + b, 0);
@@ -925,26 +1006,37 @@ async function selfCheck() {
     assert.equal(t.pr_pending.total, 0);
     assert.equal(m.transientWording.anyTransient.total, 4);
 
-    assert.equal(m.completion.completed, 6);
-    assert.deepEqual(m.completion.bySource, { web: 4, agent: 2, migration: 0, none: 0 });
+    assert.equal(m.completion.completed, 8);
+    assert.deepEqual(m.completion.bySource, { web: 6, agent: 2, migration: 0, none: 0 });
     assert.deepEqual(m.completion.agent, { sameSession: 0, laterSession: 2, unknownActor: 0 });
     assert.equal(m.completion.webConcentration.distinctDays, 1);
-    assert.equal(m.completion.webConcentration.maxPerDay, 4);
+    assert.equal(m.completion.webConcentration.maxPerDay, 6);
     assert.equal(m.completion.webConcentration.top3DaysShare, 1);
-    assert.equal(m.completion.daysToCompletion.web.n, 4);
+    assert.equal(m.completion.daysToCompletion.web.n, 6);
 
-    assert.equal(m.missedOpportunities.webCompleted, 4);
-    assert.equal(m.missedOpportunities.laterSessionLinked, 2);
+    assert.equal(m.missedOpportunities.webCompleted, 6);
+    assert.equal(m.missedOpportunities.laterSessionLinked, 4);
     assert.equal(m.missedOpportunities.laterSessionSharesChangedFile, 2);
-    assert.equal(m.missedOpportunities.either, 2);
+    assert.equal(m.missedOpportunities.either, 4);
+
+    // A1, A4 and the first K item are listed by a later linked Session; the 11th K item falls beyond the cap of 10;
+    // B1 and D1 have no later linked Session.
+    assert.deepEqual(m.continuedReplay, {
+      cap: 10,
+      webCompleted: 6,
+      surfacedInContinued: 3,
+      surfacedButBeyondCap: 1,
+      notLinked: 2,
+      surfacedShare: 0.5,
+    });
 
     assert.equal(m.agentPostFinalize.events, 3);
     assert.equal(m.agentPostFinalize.sameInstantAsFinalize, 2);
     assert.equal(m.agentPostFinalize.postFinalize, 1);
 
-    assert.equal(m.currentPending.count, 7);
+    assert.equal(m.currentPending.count, 16);
     assert.equal(m.currentPending.oldestAgeDays, 10);
-    assert.deepEqual(m.currentPending.ageBuckets, { under1d: 1, from1dTo7d: 2, from7dTo30d: 4, over30d: 0 });
+    assert.deepEqual(m.currentPending.ageBuckets, { under1d: 1, from1dTo7d: 11, from7dTo30d: 4, over30d: 0 });
 
     assert.deepEqual(Object.values(full.cleanup.rowCounts), [0, 0, 0, 0, 0]);
     assert.equal(full.cleanup.requestsByStatus !== null, true);
@@ -952,10 +1044,12 @@ async function selfCheck() {
     // --split reports each metric twice; the halves add up.
     const split = await analyze(db, { now, split: "2025-03-08" });
     assert.equal(split.split.before.totals.items, 8);
-    assert.equal(split.split.onOrAfter.totals.items, 10);
+    assert.equal(split.split.onOrAfter.totals.items, 21);
     assert.equal(split.split.before.rewording.selfClosed, 0);
     assert.equal(split.split.onOrAfter.rewording.selfClosed, 4);
-    assert.equal(split.split.before.completion.completed + split.split.onOrAfter.completion.completed, 6);
+    assert.equal(split.split.before.completion.completed + split.split.onOrAfter.completion.completed, 8);
+    assert.equal(split.split.before.continuedReplay.webCompleted, 4);
+    assert.equal(split.split.onOrAfter.continuedReplay.surfacedButBeyondCap, 1);
     assert.equal(split.split.before.rewording.summaryUpdates, 0);
     assert.equal(split.split.onOrAfter.rewording.summaryUpdates, 2);
 
