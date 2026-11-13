@@ -49,7 +49,7 @@ const VARIANTS = ["task", "paths", "both"];
 const NOTES = [
   "Replay uses the current database state: Sessions and Knowledge created after S compete in ranking and recency.",
   "S itself is indexed and can be recalled; supplements sourced from S's own applied Knowledge are not counted as offered (selfSupplementLeak).",
-  "Context and recall rank Knowledge by text and references only; appliesTo is not matched against paths there (only getFileHistory and the relaxed Knowledge search use it), so no_match/applies_to_only is the expected state of appliesTo-only Knowledge.",
+  "Context and recall also match Knowledge appliesTo against queried paths (here the first 20 changed files), so no_match/applies_to_only now means the matching file lies beyond those paths or the match budget ran out. Older builds did not match appliesTo there.",
 ];
 
 function flagValue(args, name, fallback) {
@@ -307,6 +307,21 @@ export async function analyzeDatabase(sourcePath, { limit } = {}) {
   }
 }
 
+/** Sum, mean and percentiles of a list of lengths, for comparing the size of context responses between builds. */
+function summarize(values) {
+  const sorted = [...values].sort((left, right) => left - right);
+  const at = (share) =>
+    sorted.length === 0 ? 0 : sorted[Math.min(sorted.length - 1, Math.ceil(share * sorted.length) - 1)];
+  const sum = sorted.reduce((total, value) => total + value, 0);
+  return {
+    count: sorted.length,
+    sum,
+    mean: sorted.length === 0 ? 0 : Math.round(sum / sorted.length),
+    p50: at(0.5),
+    p90: at(0.9),
+  };
+}
+
 function replay(store, rows, limit, started) {
   const totals = {
     projectsTracked: rows.projects.length,
@@ -342,6 +357,7 @@ function replay(store, rows, limit, started) {
   };
   let selfSupplementLeak = 0;
   let contextErrors = 0;
+  const contextChars = [];
 
   for (const [sessionId, list] of bySession) {
     const session = sessionById.get(sessionId);
@@ -354,6 +370,7 @@ function replay(store, rows, limit, started) {
       paths: store.getContext(root, { paths }),
       both: store.getContext(root, { task, paths }),
     };
+    contextChars.push(JSON.stringify(contexts.both).length);
     const hitsOf = (result) => (result.outcome === "recall" ? result.hits : []);
     const cache = { history: new Map() };
     const recall30 = () => (cache.recall30 ??= hitsOf(store.recall({ q: task, paths, projectRoot: root, limit: 30 })));
@@ -410,6 +427,7 @@ function replay(store, rows, limit, started) {
     combined: { fullVia, absentCauses: causes, absentChecks: checks },
     selfSupplementLeak,
     contextErrors,
+    contextResponseChars: summarize(contextChars),
     elapsedMs: Math.round(performance.now() - started),
     notes: NOTES,
   };
@@ -436,6 +454,13 @@ function printReport(report) {
   for (const [key, value] of Object.entries(absentChecks)) out.push(`  ${line(`absent, ${key}`, fmt(value))}`);
   out.push(line("selfSupplementLeak", report.selfSupplementLeak));
   out.push(line("contextErrors", report.contextErrors));
+  const size = report.contextResponseChars;
+  out.push(
+    line(
+      "context response characters",
+      `n ${size.count}, sum ${size.sum}, mean ${size.mean}, p50 ${size.p50}, p90 ${size.p90} (both variant)`,
+    ),
+  );
   out.push(line("elapsedMs", report.elapsedMs));
   out.push("Notes");
   for (const note of report.notes) out.push(`  - ${note}`);
@@ -445,7 +470,14 @@ function printReport(report) {
 // ---------------------------------------------------------------------------------------------------------------
 // Synthetic database (self-check). Fictional names only.
 // ---------------------------------------------------------------------------------------------------------------
-const tick = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 4);
+// Waits until the wall clock reads a later millisecond, so every record gets a strictly newer timestamp than the one
+// before even on machines with a coarse clock (a fixed 4 ms sleep left equal timestamps and a different replay).
+const sleepCell = new Int32Array(new SharedArrayBuffer(4));
+const tick = () => {
+  const start = Date.now();
+  do Atomics.wait(sleepCell, 0, 0, 2);
+  while (Date.now() <= start);
+};
 const longText = (word) => Array.from({ length: 40 }, (_, index) => `${word}${index % 7}`).join(" ");
 
 function seedSyntheticDatabase(databasePath, root) {
@@ -539,6 +571,8 @@ function seedSyntheticDatabase(databasePath, root) {
     appliesTo: ["src/dockyard/**"],
     references: ["src/dockyard/dock.ts"],
   });
+  // Linked to files only through appliesTo, and the later Session's files are all within the replayed paths.
+  knowledge("Fernbrook gasket rule", "Fernbrook gasket torque rule text.", { appliesTo: ["src/fernbrook/**"] });
   // The twelfth newest Knowledge at replay time: the tail of recentKnowledge, covered only for a file beyond the
   // 20 replayed paths.
   knowledge("Ambergris pier rule", "Ambergris pier rule text.", { appliesTo: ["src/pier/**"] });
@@ -556,6 +590,7 @@ function seedSyntheticDatabase(databasePath, root) {
   session("Reconcile zephyrmoss ledger batch", ["src/zephyrmoss/ledger.ts"], { appliedKnowledgeIds: ids.zephyr });
   session("Rewire unrelated gadget cabling", [...miscFiles, "src/harbor/dock.ts"]);
   session("Rewire unrelated gizmo cabling", [...miscFiles, "src/dockyard/dock.ts"]);
+  session("Replace unrelated sprocket lining", ["src/fernbrook/a.ts"]);
   session("Rewire unrelated widget cabling", [...miscFiles, "src/pier/end.ts"]);
   store.close();
 
@@ -580,25 +615,26 @@ function assertSelfCheck(report) {
   // Not opportunities: K after S (lateonly), K archived before S, K's own source Session.
   expect(totals.excluded_source_session, 1, "source Session exclusion");
   expect(totals.excluded_not_active, 1, "archived-before-Session exclusion");
-  expect(totals.opportunities, 19, "opportunities");
-  expect(totals.opportunitiesReplayed, 19, "replayed opportunities");
-  expect(totals.sessionsWithOpportunity, 9, "Sessions with an opportunity");
-  expect(totals.distinctKnowledgeInOpportunities, 11, "distinct Knowledge");
+  expect(totals.opportunities, 20, "opportunities");
+  expect(totals.opportunitiesReplayed, 20, "replayed opportunities");
+  expect(totals.sessionsWithOpportunity, 10, "Sessions with an opportunity");
+  expect(totals.distinctKnowledgeInOpportunities, 12, "distinct Knowledge");
   expect(totals.applied_rows_total, 6, "applied rows");
   expect(totals.applied_rows_outside_opportunities, 0, "applied rows outside opportunities");
-  expect(counts(report.reportState), [19, 6, 13, 1], "report state");
+  expect(counts(report.reportState), [20, 6, 14, 1], "report state");
   // Combined variant: [pairs, reported, unreported, contradicted].
-  expect(counts(variants.both.full), [6, 2, 4, 1], "full: reported, unreported and contradicted");
+  expect(counts(variants.both.full), [7, 2, 5, 1], "full: reported, unreported and contradicted");
   expect(counts(variants.both.pointer_only), [7, 3, 4, 0], "pointer_only");
   expect(counts(variants.both.absent), [6, 1, 5, 0], "absent");
-  // Paths alone never offer Knowledge through appliesTo: only the budget pointer for the recent tail shows up.
-  expect(variants.paths.full.pairs, 0, "paths-only variant offers no full record");
+  // Paths alone now reach Knowledge through appliesTo: appliesTo-only opportunities within the replayed paths are full
+  // relevant records, not only a budget pointer.
+  expect(variants.paths.full.pairs, 14, "paths-only variant offers appliesTo-matched records");
   const { absentCauses, absentChecks } = combined;
   expect(counts(absentCauses.budget_trimmed), [1, 1, 0, 0], "budget_trimmed");
   expect(counts(absentCauses.ranked_behind), [2, 0, 2, 0], "ranked_behind");
   expect(counts(absentCauses.no_match.applies_to_only), [2, 0, 2, 0], "no_match / applies_to_only");
   expect(counts(absentCauses.no_match.other), [1, 0, 1, 0], "no_match / other");
-  expect(absentChecks.in_recall.pairs, 0, "absent but in default recall");
+  expect(counts(absentChecks.in_recall), [1, 1, 0, 0], "absent but in default recall");
   expect([absentChecks.in_file_history.pairs, absentChecks.not_in_file_history.pairs], [5, 1], "file history");
 }
 

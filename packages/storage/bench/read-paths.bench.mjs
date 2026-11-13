@@ -1235,6 +1235,17 @@ try {
         throw new Error("Related context benchmark must return pending pointers.");
       return result;
     },
+    // Queried paths also match Knowledge appliesTo: the 20 seeded Knowledge records are linked to files only that way
+    // (an exact module path and a glob), so the bounded appliesTo scan and the trust batch both do real work.
+    "getContext (paths, appliesTo-matched Knowledge)": () => {
+      const result = benchStore.getContext(alphaRoot, {
+        task: "adjust module wiring",
+        paths: ["src/module-3.ts", "src/feature-7/index.ts"],
+      });
+      if (result.outcome !== "context" || !result.relevant?.knowledge.length)
+        throw new Error("Path-focused context must offer appliesTo-matched Knowledge.");
+      return result;
+    },
     "finalizeSession (related pending reminder)": () => {
       const index = ++maintenanceFinalizeIndex;
       const focus = [
@@ -1358,6 +1369,16 @@ try {
     // Twenty stale-checked Knowledge hits; trust must be read in one batch, not once per hit.
     "recall (20 Knowledge hits with staleness)": () =>
       benchStore.recall({ q: "synthetic knowledge staleness", projectRoot: alphaRoot, limit: 30 }),
+    "recall (paths, appliesTo)": () => {
+      const result = benchStore.recall({
+        paths: ["src/module-3.ts", "src/feature-7/index.ts"],
+        projectRoot: alphaRoot,
+        limit: 8,
+      });
+      if (result.outcome !== "recall" || !result.hits.some((hit) => hit.type === "knowledge"))
+        throw new Error("Path recall must return appliesTo-matched Knowledge.");
+      return result;
+    },
     "recall evaluator (snapshot + MCP recall/context)": () =>
       evaluateRecallQuestions(databasePath, evaluationQuestions),
     "searchKnowledge (staleness)": () => benchStore.searchKnowledge({ projectRoot: alphaRoot, limit: 20 }),
@@ -1690,6 +1711,8 @@ try {
     "first read after 5,000 dirty documents": 1500,
     "getContext (project with pages)": 500,
     "getContext (related pending items)": 500,
+    "getContext (paths, appliesTo-matched Knowledge)": 500,
+    "recall (paths, appliesTo)": 250,
     "finalizeSession (related pending reminder)": 250,
     "finalizeSession (changed files, Knowledge review)": 250,
     "listKnowledgePages (staleness)": 250,
