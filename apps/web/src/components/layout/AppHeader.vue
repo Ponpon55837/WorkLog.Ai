@@ -20,6 +20,8 @@ const themeToggleLabel = computed(() =>
   resolvedTheme.value === "dark" ? t("common.switchToLightTheme") : t("common.switchToDarkTheme"),
 );
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+// The accessible name repeats the visible text and shortcut (WCAG 2.5.3 Label in Name).
+const searchLabel = computed(() => `${t("layout.searchSessionsKnowledgeOrJump")} ${isMac ? "⌘" : "Ctrl"} K`);
 </script>
 
 <template>
@@ -33,7 +35,10 @@ const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigat
     >
       <Menu :size="16" :stroke-width="1.75" aria-hidden="true" />
     </button>
-    <RouterLink :to="{ name: 'dashboard' }" class="app-header__logo" :aria-label="t('layout.workIntelligenceHome')"
+    <RouterLink
+      :to="{ name: 'dashboard' }"
+      class="app-header__logo"
+      :aria-label="`WI ${t('layout.workIntelligenceHome')}`"
       >WI</RouterLink
     >
     <div class="app-header__crumb">
@@ -41,7 +46,7 @@ const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigat
       <span class="app-header__sep" aria-hidden="true">/</span>
       <span class="app-header__page">{{ crumb }}</span>
     </div>
-    <button class="app-header__search" type="button" :aria-label="t('common.searchOrJumpToA')" @click="emit('search')">
+    <button class="app-header__search" type="button" :aria-label="searchLabel" @click="emit('search')">
       <Search :size="16" :stroke-width="1.75" aria-hidden="true" />
       <span class="app-header__search-text">{{ t("layout.searchSessionsKnowledgeOrJump") }}</span>
       <kbd>{{ isMac ? "⌘" : "Ctrl" }} K</kbd>

@@ -376,7 +376,7 @@
     "confirmedBySession": "Confirmed by Session",
     "confirmedContradicted": "Confirmed {confirmed} · contradicted {contradicted}",
     "confirmedThatThisKnowledgeStill": "Confirmed that this Knowledge still holds.",
-    "confirmedTimesContradictedTimesView": "Confirmed {confirmed} times, contradicted {contradicted} times. View source Sessions",
+    "confirmedTimesContradictedTimesView": "Confirmed {confirmed} · contradicted {contradicted}. View source Sessions",
     "confirmedValid": "Confirmed valid",
     "confirmedValidAt": "Confirmed valid {value}",
     "contradictedBySession": "Contradicted by Session",

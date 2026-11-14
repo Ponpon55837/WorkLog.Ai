@@ -85,6 +85,12 @@ const renderedEdges = computed(() =>
   ),
 );
 
+// The accessible name starts with the text drawn in the node (WCAG 2.5.3 Label in Name), then the full label.
+function nodeAccessibleName(node: GraphNode): string {
+  const visible = `${props.nodeLabel(node, labelUnits.value)} ${props.nodeDescription(node, labelUnits.value)}`;
+  return `${visible}, ${t("graph.view", { value: props.nodeKindLabels[node.kind], label: node.label })}`;
+}
+
 function laneCentre(lane: number): number {
   return lane * laneWidth.value + laneWidth.value / 2;
 }
@@ -276,7 +282,7 @@ onBeforeUnmount(() => {
         :transform="`translate(${laneCentre(item.lane)}, ${item.y})`"
         role="button"
         tabindex="0"
-        :aria-label="t('graph.view', { value: nodeKindLabels[item.node.kind], label: item.node.label })"
+        :aria-label="nodeAccessibleName(item.node)"
         :aria-pressed="item.node.id === selectedId"
         @click="emit('select', item.node)"
         @keydown.enter="emit('select', item.node)"

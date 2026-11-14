@@ -4,6 +4,30 @@ import { MAX_HANDOFF_CONTENT_LENGTH, parseHandoffContent } from "../../packages/
 const FULL_LENGTH = MAX_HANDOFF_CONTENT_LENGTH;
 const HALF_LENGTH = FULL_LENGTH / 2;
 const MAX_MILLISECONDS = 200;
+// The limit is meant for an ordinary machine. A realistic document of the same size is timed in the same process;
+// when the machine parses that one slower than this budget (coverage instrumentation, a loaded CI runner), the limit
+// scales by the same factor. A quadratic parser still fails: it costs seconds while the realistic document does not move.
+const REFERENCE_BUDGET_MS = 25;
+const REFERENCE_DOCUMENT = [
+  "# Handoff: orchard irrigation",
+  "",
+  "status: done",
+  "",
+  "## summary",
+  "Replaced the valve controller and verified the schedule.",
+  "",
+  "## changed files",
+  "- `src/valves/controller.ts` - new schedule",
+  "- src/valves/schedule.ts",
+  "",
+  "## verification",
+  "test pnpm test passed",
+  "",
+  "## next steps",
+  "- watch the pressure log",
+  "",
+  "",
+].join("\n");
 // Doubling the input should about double the time; a quadratic parser quadruples it.
 const MAX_DOUBLING_RATIO = 3.2;
 const RATIO_BASELINE_FLOOR_MS = 10;
@@ -80,6 +104,12 @@ function shapes(length: number): Record<string, string> {
   };
 }
 
+function machineSpeedFactor(): number {
+  const reference = REFERENCE_DOCUMENT.repeat(Math.ceil(FULL_LENGTH / REFERENCE_DOCUMENT.length)).slice(0, FULL_LENGTH);
+  bestOfThree(reference);
+  return Math.max(1, bestOfThree(reference) / REFERENCE_BUDGET_MS);
+}
+
 function bestOfThree(input: string): number {
   let best = Number.POSITIVE_INFINITY;
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -92,9 +122,10 @@ function bestOfThree(input: string): number {
 
 describe("handoff parser linear time", () => {
   it("parses 200,000 characters of every adversarial shape quickly", () => {
+    const limit = MAX_MILLISECONDS * machineSpeedFactor();
     for (const [shape, input] of Object.entries(adversarialInputs(FULL_LENGTH))) {
       expect(input.length, shape).toBe(FULL_LENGTH);
-      expect(bestOfThree(input), shape).toBeLessThan(MAX_MILLISECONDS);
+      expect(bestOfThree(input), shape).toBeLessThan(limit);
     }
   });
 

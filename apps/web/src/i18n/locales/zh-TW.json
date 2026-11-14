@@ -376,7 +376,7 @@
     "confirmedBySession": "Session 確認",
     "confirmedContradicted": "確認 {confirmed}・推翻 {contradicted}",
     "confirmedThatThisKnowledgeStill": "已確認這筆 Knowledge 仍然有效。",
-    "confirmedTimesContradictedTimesView": "被 {confirmed} 次確認、{contradicted} 次推翻，查看來源 Session",
+    "confirmedTimesContradictedTimesView": "確認 {confirmed}・推翻 {contradicted}，查看來源 Session",
     "confirmedValid": "確認有效",
     "confirmedValidAt": "確認有效於 {value}",
     "contradictedBySession": "Session 推翻",
