@@ -116,10 +116,10 @@ jobs:
 
           # Credentials go through git's environment config (not argv, not .git/config).
           auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
           export GIT_CONFIG_COUNT=1
           export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
           export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
-          echo "::add-mask::$auth"
 
           status=0
           git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null || status=$?

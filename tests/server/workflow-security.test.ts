@@ -116,6 +116,17 @@ describe("workflow supply-chain hardening", () => {
     expect(publishText).not.toContain("actions/cache");
   });
 
+  it("masks the tag-push credential before anything uses it", () => {
+    const lines = workflows.find((workflow) => workflow.file === "release.yml")!.text.split("\n");
+    const created = lines.findIndex((line) => /^\s*auth="\$\(/.test(line));
+    const masked = lines.findIndex((line) => line.includes('echo "::add-mask::$auth"'));
+    const firstUse = lines.findIndex((line, index) => index > created && line.includes("$auth") && index !== masked);
+
+    expect(created).toBeGreaterThan(-1);
+    expect(masked).toBe(created + 1);
+    expect(firstUse).toBeGreaterThan(masked);
+  });
+
   it("never interpolates the manual release input inside a run script", () => {
     const release = workflows.find((workflow) => workflow.file === "release.yml")!.text;
     const violations: string[] = [];
