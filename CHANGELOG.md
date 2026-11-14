@@ -4,6 +4,16 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.38] - 2026-11-14
+
+[繁體中文更新說明](docs/releases/1.6.38.md).
+
+This release restores the green marker for confirmed Knowledge on the Work graph timeline. It changes no data, no API and no MCP behaviour; the schema stays at 33.
+
+### Fixed
+
+- Work graph timeline: a confirmed Knowledge event is a green diamond again, and the legend lists confirmed and superseded separately. Superseded stays an open diamond and contradicted stays a cross.
+
 ## [1.6.37] - 2026-11-14
 
 [繁體中文更新說明](docs/releases/1.6.37.md).
