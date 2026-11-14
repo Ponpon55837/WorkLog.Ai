@@ -130,7 +130,7 @@ for (const locale of locales) {
       await expectNoSeriousViolations(page, `${locale} palette open`);
 
       await input.fill("Accessibility states");
-      await expect(page.getByRole("option").first()).toBeVisible();
+      await expect(palette.getByRole("option").first()).toBeVisible();
       await expectNoSeriousViolations(page, `${locale} palette with results`);
 
       await page.keyboard.press("Escape");
