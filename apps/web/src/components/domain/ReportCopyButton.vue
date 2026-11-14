@@ -15,7 +15,10 @@ import { errorMessage } from "../../utils/format";
 import { locale, t } from "../../i18n";
 
 /** Prepares a gated snapshot, then copies during a separate user gesture with a manual fallback. */
-const props = defineProps<{ summaryId?: string; revision?: number; disabled?: boolean }>();
+const props = withDefaults(
+  defineProps<{ summaryId?: string; revision?: number; disabled?: boolean; size?: "md" | "sm" }>(),
+  { size: "md" },
+);
 const presentation = useReportPresentationStore();
 const reports = useReportsStore();
 const { report, reportPeriod, reportDate, reportRange, reportProjectId } = storeToRefs(reports);
@@ -92,7 +95,7 @@ watch(
 onBeforeUnmount(close);
 </script>
 <template>
-  <UiButton size="sm" :icon="Copy" :disabled="unavailable" @click="prepare">{{ title }}</UiButton>
+  <UiButton :size="size" :icon="Copy" :disabled="unavailable" @click="prepare">{{ title }}</UiButton>
   <UiDialog :open="open" :title="title" :description="t('reportCopy.description')" size="lg" @close="close">
     <UiSkeleton v-if="loading" variant="text" :count="3" :label="t('reportCopy.loading')" />
     <UiFlash v-else-if="error" tone="danger"

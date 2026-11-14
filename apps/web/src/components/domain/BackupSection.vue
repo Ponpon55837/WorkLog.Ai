@@ -284,7 +284,7 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
           />
         </UiField>
         <UiButton
-          size="sm"
+          class="transfer-controls__action"
           :icon="Download"
           :loading="portableExporting"
           :disabled="exportScope === 'project' && !exportProjectId"
@@ -316,10 +316,12 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
             data-testid="project-import-strategy"
           />
         </UiField>
+      </div>
+      <div class="transfer-controls__footer">
         <p class="backup-section__hint">
           {{ t("projects.theFileIsPreviewedAs") }}
         </p>
-        <UiButton size="sm" :loading="importLoading" :disabled="!importFileName" @click="previewProjectDataImport">
+        <UiButton :loading="importLoading" :disabled="!importFileName" @click="previewProjectDataImport">
           {{ t("projects.previewAgain") }}
         </UiButton>
       </div>
@@ -516,39 +518,65 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
   overflow-wrap: anywhere;
 }
 
+/* Export row has no hints, so bottom alignment keeps the button level with the selects. */
 .transfer-controls {
   display: grid;
-  grid-template-columns: minmax(160px, 220px) minmax(180px, 1fr) auto;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 260px));
   align-items: end;
   gap: var(--space-3);
   margin-top: var(--space-4);
 }
 
+.transfer-controls__action {
+  justify-self: start;
+}
+
+/* The file field carries a hint under its control, so the import row aligns from the top. */
 .transfer-controls--import {
-  grid-template-columns: minmax(220px, 1.3fr) repeat(2, minmax(160px, 1fr)) minmax(160px, 1fr) auto;
+  grid-template-columns: minmax(220px, 320px) repeat(auto-fill, minmax(200px, 260px));
+  align-items: start;
   padding-top: var(--space-4);
   border-top: 1px solid var(--border-muted);
 }
 
+.transfer-controls__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-3);
+}
+
+.transfer-controls__footer .backup-section__hint {
+  flex: 1 1 320px;
+  margin: 0;
+}
+
 .backup-section__file-input {
+  box-sizing: border-box;
   width: 100%;
   min-width: 0;
-  padding: var(--space-2);
+  height: var(--control-height);
+  padding: 0 var(--space-2) 0 2px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--bg-muted);
-  color: var(--fg);
-  font-size: var(--text-xs);
+  background: var(--bg-surface);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: calc(var(--control-height) - 2px);
 }
 
 .backup-section__file-input::file-selector-button {
-  margin-right: var(--space-2);
-  padding: var(--space-1) var(--space-2);
+  height: var(--control-height-sm);
+  margin: 0 var(--space-2) 0 0;
+  padding: 0 var(--space-3);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-subtle);
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--bg-muted);
   color: var(--fg);
   font: inherit;
+  font-weight: 500;
   cursor: pointer;
 }
 
@@ -569,13 +597,6 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
   overflow-wrap: anywhere;
   text-overflow: clip;
   white-space: normal;
-}
-
-@media (max-width: 1279px) {
-  .transfer-controls,
-  .transfer-controls--import {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 639px) {
