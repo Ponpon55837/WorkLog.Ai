@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { NoopInsightProvider } from "@work-intelligence/core";
@@ -198,7 +198,13 @@ import {
   type BackupRetentionOptions,
 } from "./backup.js";
 import { segmentLengthWarnings, startedAfterCompletedWarning, suppliedCompletedAtWarnings } from "./work-timestamps.js";
-import { HandoffImportService, type HandoffDiscoveryResult, type HandoffImportCandidate } from "./handoff-importer.js";
+import {
+  HandoffImportService,
+  MAX_HANDOFF_FILE_BYTES,
+  type HandoffDiscoveryResult,
+  type HandoffImportCandidate,
+} from "./handoff-importer.js";
+import { readRegularFileUtf8 } from "./regular-file-read.js";
 import { safeExistingProjectPath } from "./path-safety.js";
 import { prepareDatabaseFiles, tightenDatabaseFiles } from "./database-file-permissions.js";
 import {
@@ -338,6 +344,15 @@ function normalizeHandoffSelectionPath(projectRoot: string, value: string): stri
     throw new Error(`Handoff path must identify a file inside the tracked project root: ${value}`);
   }
   return normalized;
+}
+
+// A loose Git file (HEAD or a branch ref) holds one short line. It sits in the project folder, so anything that is not
+// a small regular file is ignored instead of being read.
+const MAX_GIT_METADATA_FILE_BYTES = 4_096;
+
+function readGitMetadataFile(path: string): string | undefined {
+  const file = readRegularFileUtf8(path, MAX_GIT_METADATA_FILE_BYTES);
+  return file.kind === "read" ? file.text.trim() : undefined;
 }
 
 function toHandoffPreviewItem(
@@ -2241,7 +2256,11 @@ export class WorkIntelligenceStore {
 
     try {
       // Remove private blocks before the length cut so a block straddling it cannot lose its closing tag.
-      const withoutPrivate = redactPrivateBlocksText(readFileSync(handoffPath, "utf8"));
+      const file = readRegularFileUtf8(handoffPath, MAX_HANDOFF_FILE_BYTES);
+      if (file.kind === "skipped") {
+        return undefined;
+      }
+      const withoutPrivate = redactPrivateBlocksText(file.text);
       return {
         content: withoutPrivate.value.slice(0, 200_000),
         sourcePath: input.handoffPath,
@@ -2271,13 +2290,16 @@ export class WorkIntelligenceStore {
         return undefined;
       }
 
-      const head = readFileSync(headPath, "utf8").trim();
+      const head = readGitMetadataFile(headPath);
+      if (head === undefined) {
+        return undefined;
+      }
       if (head.startsWith("ref: ")) {
         const ref = head.slice("ref: ".length);
         let commitSha: string | undefined;
         try {
           const refPath = safeExistingProjectPath(projectRoot, `.git/${ref}`);
-          commitSha = refPath ? readFileSync(refPath, "utf8").trim() || undefined : undefined;
+          commitSha = refPath ? readGitMetadataFile(refPath) || undefined : undefined;
         } catch {
           commitSha = undefined;
         }

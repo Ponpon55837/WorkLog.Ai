@@ -916,6 +916,7 @@
     "noProjectsYet": "還沒有專案",
     "noTrackedProjects": "沒有記錄中的專案",
     "notCheckedYet": "尚未檢查",
+    "notRegularFileSkipped": "不是一般檔案，略過",
     "notScannedYet": "尚未掃描",
     "nothingAwaitingBackfill": "目前沒有待回補資料",
     "onceTrackedTheAgentCan": "切換後，Agent 可以在這個專案讀取 handoff、Git／worktree 與 source 並保存工作紀錄。其他狀態會安靜略過所有讀取。",

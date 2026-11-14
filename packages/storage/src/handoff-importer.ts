@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { basename, relative } from "node:path";
 import type {
   HandoffImportChangedFilesStatus,
@@ -8,9 +8,14 @@ import type {
 } from "@work-intelligence/core";
 import { createProjectPathResolver, safeProjectPath } from "@work-intelligence/project-policy";
 import { MAX_HANDOFF_CONTENT_LENGTH, parseHandoffContent } from "./handoff-parser.js";
+import { readRegularFileUtf8 } from "./regular-file-read.js";
 import { redactPrivateBlocksText } from "./secret-redaction.js";
 
 export const DEFAULT_HANDOFF_DIRECTORY = ".openspec/handoffs";
+// Content is cut to MAX_HANDOFF_CONTENT_LENGTH characters, but private blocks are removed before the cut, so the whole
+// file is read. Beyond this size (20x the cut, even at four bytes per character) the file is not read at all: reading
+// only its head could end inside a private block and keep the unclosed tag's text.
+export const MAX_HANDOFF_FILE_BYTES = 4 * 1024 * 1024;
 
 export interface HandoffImportCandidate {
   sourcePath: string;
@@ -68,29 +73,70 @@ function isNotFound(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && "code" in error && error.code === "ENOENT");
 }
 
-function parseCompletedAt(content: string, filePath: string, recordedDate?: string): string | undefined {
-  if (recordedDate) {
-    return `${recordedDate}T12:00:00.000Z`;
-  }
-  try {
-    return statSync(filePath).mtime.toISOString();
-  } catch {
-    return undefined;
-  }
+function parseCompletedAt(modifiedAt: Date, recordedDate?: string): string | undefined {
+  return recordedDate ? `${recordedDate}T12:00:00.000Z` : modifiedAt.toISOString();
+}
+
+function skippedCandidate(
+  sourcePath: string,
+  decision: HandoffImportDecision,
+  reason: HandoffImportReason,
+  detail: string,
+): HandoffImportCandidate {
+  return {
+    sourcePath,
+    title: basename(sourcePath).replace(/\.md$/i, ""),
+    summary: "",
+    content: "",
+    decision,
+    reason,
+    detail,
+    changedFiles: [],
+    changedFilesStatus: "not_read",
+  };
+}
+
+// The file-system message names the absolute path; the preview answers with fixed text and the relative path.
+function unreadableCandidate(sourcePath: string): HandoffImportCandidate {
+  return skippedCandidate(sourcePath, "error", "unreadable", "The handoff file could not be read.");
+}
+
+function notRegularFileCandidate(sourcePath: string): HandoffImportCandidate {
+  return skippedCandidate(
+    sourcePath,
+    "excluded",
+    "not_regular_file",
+    "Not a regular file (for example a named pipe); source content was not read.",
+  );
+}
+
+function excludedCandidate(sourcePath: string): HandoffImportCandidate {
+  return skippedCandidate(
+    sourcePath,
+    "excluded",
+    "excluded_by_user",
+    "Excluded by the user; source content was not read.",
+  );
 }
 
 function parseCandidate(projectRoot: string, filePath: string, sourcePath: string): HandoffImportCandidate {
   try {
     // Remove private blocks before the length cut (and before parsing the title and summary, which are cut again)
     // so a block straddling a cut cannot lose its closing tag.
-    const content = redactPrivateBlocksText(readFileSync(filePath, "utf8")).value.slice(0, MAX_HANDOFF_CONTENT_LENGTH);
+    const file = readRegularFileUtf8(filePath, MAX_HANDOFF_FILE_BYTES);
+    if (file.kind === "skipped") {
+      return file.reason === "too_large"
+        ? { ...unreadableCandidate(sourcePath), detail: "The handoff file is too large to read." }
+        : notRegularFileCandidate(sourcePath);
+    }
+    const content = redactPrivateBlocksText(file.text).value.slice(0, MAX_HANDOFF_CONTENT_LENGTH);
     const parsed = parseHandoffContent(content, projectRoot, sourcePath);
     return {
       sourcePath,
       title: parsed.title,
       summary: parsed.summary,
       content,
-      completedAt: parseCompletedAt(content, filePath, parsed.recordedDate),
+      completedAt: parseCompletedAt(file.modifiedAt, parsed.recordedDate),
       recordedDate: parsed.recordedDate,
       decision: parsed.classification.decision,
       reason: parsed.classification.reason,
@@ -100,33 +146,8 @@ function parseCandidate(projectRoot: string, filePath: string, sourcePath: strin
       changedFilesStatus: parsed.changedFiles.length > 0 ? "detected" : "not_found",
     };
   } catch {
-    // The file-system message names the absolute path; the preview answers with fixed text and the relative path.
-    return {
-      sourcePath,
-      title: basename(sourcePath).replace(/\.md$/i, ""),
-      summary: "",
-      content: "",
-      decision: "error",
-      reason: "unreadable",
-      detail: "The handoff file could not be read.",
-      changedFiles: [],
-      changedFilesStatus: "not_read",
-    };
+    return unreadableCandidate(sourcePath);
   }
-}
-
-function excludedCandidate(sourcePath: string): HandoffImportCandidate {
-  return {
-    sourcePath,
-    title: basename(sourcePath).replace(/\.md$/i, ""),
-    summary: "",
-    content: "",
-    decision: "excluded",
-    reason: "excluded_by_user",
-    detail: "Excluded by the user; source content was not read.",
-    changedFiles: [],
-    changedFilesStatus: "not_read",
-  };
 }
 
 export function discoverHandoffCandidates(
@@ -185,6 +206,12 @@ export function discoverHandoffCandidates(
       }
       if (isExcluded(sourcePath, excludePaths)) {
         candidates.push(excludedCandidate(sourcePath));
+        continue;
+      }
+      // A named pipe, socket or device would block or never end when read. An entry whose type the file system did
+      // not report is checked again on its open descriptor before any read.
+      if (entry.isFIFO() || entry.isSocket() || entry.isCharacterDevice() || entry.isBlockDevice()) {
+        candidates.push(notRegularFileCandidate(sourcePath));
         continue;
       }
       const filePath = pathResolver.safeExistingPath(sourcePath);

@@ -688,7 +688,7 @@ Agent 不得把「有 changed files」當成 Git commit，也不得從不足的 
 
 歷史 handoff 匯入採兩階段流程。預設掃描 tracked project root 下的 `.openspec/handoffs`（含子目錄）Markdown 文件；也可以傳入 `handoffDirectory`、`excludePaths` 與 `maxFiles`。preview 是唯讀 dry-run，會列出每個來源檔案的標題、日期、Verification、changed files 數量、是否可匯入與排除原因。
 
-只有明確找到 `complete`、`accepted`、`resolved`、`done` 或 `implemented` 等完成狀態的 handoff 會標成 `eligible`。`blocked`、`pending`、`planning-only`、缺少明確完成狀態、無法讀取的文件都會保留在 preview，但不會被自動建立 Session。找不到 handoff 目錄時會回傳空 preview，不會掃描 project root 以外的 parent workspace。
+只有明確找到 `complete`、`accepted`、`resolved`、`done` 或 `implemented` 等完成狀態的 handoff 會標成 `eligible`。`blocked`、`pending`、`planning-only`、缺少明確完成狀態、無法讀取的文件都會保留在 preview，但不會被自動建立 Session。不是一般檔案的項目（例如命名為 `*.md` 的具名管道 FIFO、socket、裝置）不會被讀取，以 `decision: "excluded"`、`reason: "not_regular_file"` 列出；超過 4 MiB 的檔案同樣不讀取，以 `decision: "error"`、`reason: "unreadable"` 列出。找不到 handoff 目錄時會回傳空 preview，不會掃描 project root 以外的 parent workspace。
 
 確認 preview 後，將選取的 `sourcePaths` 傳給 `work_import_handoffs`。套用會保存 raw handoff snapshot、解析到的日期／Verification／changed files，並使用穩定 idempotency key；同一個來源檔案重試只會回傳 `already_imported`，不會建立重複 Session。Importer 不會執行測試或 Git commit；沒有在 handoff 中找到 changed files 時，Session 仍可匯入，但會保留 metadata 缺漏訊號供 Agent 後續用 `work_update_session_metadata` 補回。
 

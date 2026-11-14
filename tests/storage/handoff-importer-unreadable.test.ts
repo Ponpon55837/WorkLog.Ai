@@ -11,12 +11,13 @@ vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
   return {
     ...actual,
-    readFileSync: ((path: Parameters<typeof actual.readFileSync>[0], ...rest: unknown[]) => {
+    // The importer opens the file itself (it checks the open descriptor before reading), so the open is what fails.
+    openSync: ((path: Parameters<typeof actual.openSync>[0], ...rest: unknown[]) => {
       if (String(path).endsWith(UNREADABLE_NAME)) {
         throw Object.assign(new Error(`EACCES: permission denied, open '${String(path)}'`), { code: "EACCES" });
       }
-      return (actual.readFileSync as (...args: unknown[]) => unknown)(path, ...rest);
-    }) as typeof actual.readFileSync,
+      return (actual.openSync as (...args: unknown[]) => unknown)(path, ...rest);
+    }) as typeof actual.openSync,
   };
 });
 

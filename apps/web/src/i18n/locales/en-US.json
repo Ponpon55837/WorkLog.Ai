@@ -916,6 +916,7 @@
     "noProjectsYet": "No projects yet",
     "noTrackedProjects": "No tracked projects",
     "notCheckedYet": "Not checked yet",
+    "notRegularFileSkipped": "Not a regular file, skipped",
     "notScannedYet": "Not scanned yet",
     "nothingAwaitingBackfill": "Nothing awaiting backfill",
     "onceTrackedTheAgentCan": "Once tracked, the Agent can read handoffs, Git/worktree and source in this project and save work records. Every other status silently skips all reads.",

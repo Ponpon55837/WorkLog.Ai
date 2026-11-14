@@ -152,7 +152,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | GET/POST | `/api/backfill/metadata-requests`                | 建立或查詢 Agent metadata 回補請求                                                     |
 | GET      | `/api/backfill/metadata-requests/:id/context`    | 取得受控 metadata 回補 context                                                         |
 | POST     | `/api/backfill/metadata-requests/:id/cancel`     | 取消 pending／processing metadata 回補請求                                             |
-| GET      | `/api/imports/handoffs/preview`                  | 唯讀預覽 tracked 專案的歷史 handoff：`projectRoot`（必填）、`handoffDirectory`（預設 `.openspec/handoffs`）、可重複的 `excludePath`、`maxFiles`（1–500，預設 100）；列出每個檔案能否匯入與原因，不寫入資料 |
+| GET      | `/api/imports/handoffs/preview`                  | 唯讀預覽 tracked 專案的歷史 handoff：`projectRoot`（必填）、`handoffDirectory`（預設 `.openspec/handoffs`）、可重複的 `excludePath`、`maxFiles`（1–500，預設 100）；列出每個檔案能否匯入與原因（具名管道等非一般檔案為 `excluded`／`not_regular_file`，不會被讀取），不寫入資料 |
 | POST     | `/api/imports/handoffs`                          | 匯入預覽中勾選的 handoff：body 同預覽參數（`excludePaths` 為陣列），另加 `sourcePaths`（最多 500 個）；每個來源檔案以穩定 idempotency key 建立 Session，重試回傳 `already_imported` |
 | POST     | `/api/backfill/metadata`                         | Agent 回寫已確認的 Session metadata                                                    |
 | GET      | `/api/reports?period=week&date=YYYY-MM-DD`       | 日/週/月/季/年工作報告，可加 `projectId`                                               |
