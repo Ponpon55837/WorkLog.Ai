@@ -16,7 +16,9 @@ import UiButton from "../ui/UiButton.vue";
 import UiCommandBlock from "../ui/UiCommandBlock.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiFlash from "../ui/UiFlash.vue";
+import UiStack from "../ui/UiStack.vue";
 import UiStatCard from "../ui/UiStatCard.vue";
+import UiStatGrid from "../ui/UiStatGrid.vue";
 import VirtualList from "../VirtualList.vue";
 import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
@@ -83,7 +85,7 @@ const requestMessage = computed(() => {
 </script>
 
 <template>
-  <div class="backfill">
+  <UiStack class="backfill">
     <UiSelect
       v-model="projectId"
       :options="projectOptions"
@@ -95,7 +97,7 @@ const requestMessage = computed(() => {
 
     <UiBox v-if="request" padded>
       <template #header>
-        <UiBoxTitle eyebrow="Agent request" :title="t('projects.askAgentToBackfillMetadata')" />
+        <UiBoxTitle :title="t('projects.askAgentToBackfillMetadata')" />
         <div class="backfill__request-actions">
           <StatusLabel :status="requestStatus[request.status]" />
         </div>
@@ -140,11 +142,7 @@ const requestMessage = computed(() => {
 
     <UiBox sticky-header>
       <template #header>
-        <UiBoxTitle
-          eyebrow="Agent follow-ups"
-          :title="t('projects.sessionsThatNeedBackfill')"
-          :count="preview?.items.length"
-        />
+        <UiBoxTitle :title="t('projects.sessionsThatNeedBackfill')" :count="preview?.items.length" />
         <UiButton size="sm" :icon="ScanSearch" :loading="metadataBackfillLoading" @click="previewMetadataBackfill">{{
           preview ? t("projects.rescan") : t("projects.scanMetadataGaps")
         }}</UiButton>
@@ -157,7 +155,7 @@ const requestMessage = computed(() => {
         :description="t('projects.theScanReadsOnlySession')"
       />
       <template v-else>
-        <div class="backfill__stats">
+        <UiStatGrid class="backfill__stats">
           <UiStatCard
             :label="t('projects.needsBackfill')"
             :value="preview.totals.needsBackfill"
@@ -178,7 +176,7 @@ const requestMessage = computed(() => {
             :icon="metadataGapStatus.verification_not_run.icon"
             :value="preview.totals.verificationNotRun"
           />
-        </div>
+        </UiStatGrid>
         <UiEmptyState
           v-if="!preview.items.length"
           compact
@@ -221,19 +219,10 @@ const requestMessage = computed(() => {
         </p>
       </template>
     </UiBox>
-  </div>
+  </UiStack>
 </template>
 
 <style scoped>
-.backfill {
-  display: grid;
-  gap: var(--space-4);
-}
-
-.backfill > .ui-box + .ui-box {
-  margin-top: 0;
-}
-
 .backfill__request-actions,
 .backfill__buttons {
   display: flex;
@@ -256,9 +245,6 @@ const requestMessage = computed(() => {
 }
 
 .backfill__stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-2);
   padding: var(--space-4);
   border-bottom: 1px solid var(--border-muted);
 }
@@ -267,12 +253,6 @@ const requestMessage = computed(() => {
   padding: var(--space-2) var(--space-4);
   border-top: 1px solid var(--border-muted);
   color: var(--fg-muted);
-  font-size: var(--text-xs);
-}
-
-@media (max-width: 959px) {
-  .backfill__stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+  font-size: var(--text-sm);
 }
 </style>

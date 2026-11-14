@@ -21,11 +21,13 @@ import {
   packRows,
   smallestFitting,
   visibleSpans,
+  weekendStarts,
   type DayBucket,
   type PackedSpan,
 } from "../../utils/timeline-layout";
 import UiBox from "../ui/UiBox.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
+import UiButton from "../ui/UiButton.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
@@ -48,6 +50,8 @@ type SessionBar = TimelineSession & { start: number; end: number; startTime: num
 interface Lane {
   id: string;
   name: string;
+  /** Sessions the project completed in the period, shown next to its name. */
+  count: number;
   top: number;
   height: number;
   bars: PackedSpan<SessionBar>[];
@@ -80,6 +84,8 @@ const barHeight = 14;
 const axisHeight = 28;
 const overscanPx = 200;
 const MIN_MARK_PX = 14;
+/** Days narrower than this are not shaded for weekends. */
+const MIN_WEEKEND_DAY_WIDTH = 4;
 /** Day columns stop growing past this width so a wide zoom still reads as a bar chart. */
 const MAX_COLUMN_PX = 28;
 /** Single Sessions are drawn only while every lane fits in this many rows; denser zooms stay as day columns. */
@@ -167,18 +173,26 @@ const lanes = computed<Lane[]>(() => {
       const projectSessions = sessionsByProject.value.get(project.id) ?? [];
       const events = current.knowledgeEvents.filter((event) => event.projectId === project.id);
       if (!detailed.value) {
-        return { project, bars: [], rows: 0, buckets: dayBuckets(projectSessions), events };
+        return {
+          project,
+          count: projectSessions.length,
+          bars: [],
+          rows: 0,
+          buckets: dayBuckets(projectSessions),
+          events,
+        };
       }
       const packed = packRows(sessionBars(projectSessions, dayWidth.value), gapAt(dayWidth.value));
-      return { project, bars: packed.items, rows: packed.rows, buckets: [], events };
+      return { project, count: projectSessions.length, bars: packed.items, rows: packed.rows, buckets: [], events };
     })
     .filter(({ bars, buckets, events }) => bars.length > 0 || buckets.length > 0 || events.length > 0)
-    .map(({ project, bars, rows, buckets, events }) => {
+    .map(({ project, count, bars, rows, buckets, events }) => {
       const body = detailed.value ? Math.max(rows, 1) * rowHeight : columnHeight;
       const height = laneHeader + markerRow + body + 8;
       const lane: Lane = {
         id: project.id,
         name: project.name,
+        count,
         top,
         height,
         bars,
@@ -203,6 +217,14 @@ const visibleWindow = computed(() => ({
   from: timeAt(scrollLeft.value - overscanPx),
   to: timeAt(scrollLeft.value + viewportWidth.value + overscanPx),
 }));
+/** Saturdays and Sundays of the period, calculated from the dates alone. */
+const weekends = computed(() => weekendStarts(rangeStart.value, rangeEnd.value));
+/** Weekend shading only reads as a calendar once a day is wide enough to see. */
+const renderedWeekends = computed(() =>
+  dayWidth.value < MIN_WEEKEND_DAY_WIDTH
+    ? []
+    : weekends.value.filter((day) => day + DAY >= visibleWindow.value.from && day <= visibleWindow.value.to),
+);
 const renderedLanes = computed(() =>
   lanes.value.map((lane) => ({
     ...lane,
@@ -486,6 +508,7 @@ onBeforeUnmount(() => {
         <UiSegmentedControl
           v-if="!narrow"
           v-model="chosenView"
+          size="sm"
           :options="viewOptions"
           :label="t('graph.timelineView')"
         />
@@ -519,111 +542,137 @@ onBeforeUnmount(() => {
 
     <template v-else-if="timeline">
       <p v-if="view === 'chart'" class="timeline__legend" aria-hidden="true">
-        <span><i class="timeline__swatch timeline__swatch--passed" />{{ t("graph.verificationPassed") }}</span>
+        <span><i class="timeline__swatch timeline__swatch--done" />{{ t("graph.legendCompletedSession") }}</span>
         <span><i class="timeline__swatch timeline__swatch--failed" />{{ t("graph.verificationFailed") }}</span>
-        <span><i class="timeline__swatch timeline__swatch--in_progress" />{{ t("common.inProgress") }}</span>
-        <span><i class="timeline__swatch timeline__swatch--other" />{{ t("graph.notRunOrNotProvided") }}</span>
-        <span>{{ t("graph.knowledgeEvent") }}</span>
-        <span v-if="detailed">{{ t("graph.arcsSessionLinksDashedRelated") }}</span>
-        <span v-else>{{ t("graph.eachBarIsOneDay") }}</span>
+        <span><i class="timeline__swatch timeline__swatch--created" />{{ t("graph.legendNewKnowledge") }}</span>
+        <span><i class="timeline__swatch timeline__swatch--open" />{{ t("graph.legendConfirmedSuperseded") }}</span>
+        <span
+          ><svg class="timeline__cross" viewBox="-6 -6 12 12" aria-hidden="true">
+            <path d="M -4 -4 L 4 4 M 4 -4 L -4 4" /></svg
+          >{{ t("graph.legendContradicted") }}</span
+        >
+        <span class="timeline__reading">{{
+          detailed ? t("graph.arcsSessionLinksDashedRelated") : t("graph.eachBarIsOneDay")
+        }}</span>
       </p>
-      <div
-        v-show="view === 'chart'"
-        ref="viewport"
-        class="timeline__viewport"
-        tabindex="0"
-        role="region"
-        :aria-label="t('graph.timelineChartScrollsHorizontallyThe')"
-        @scroll.passive="onScroll"
-      >
-        <svg ref="chart" :width="chartWidth" :height="chartHeight" class="timeline__chart">
-          <g class="timeline__axis">
-            <g v-for="tick in ticks" :key="tick.time" :class="{ 'is-minor': !tick.major }">
-              <line :x1="tick.x" :x2="tick.x" :y1="axisHeight - 6" :y2="chartHeight" />
-              <text :x="tick.x + 4" :y="axisHeight - 10">{{ tick.label }}</text>
+      <div v-show="view === 'chart'" class="timeline__body">
+        <div class="timeline__names" :style="{ height: `${chartHeight}px` }">
+          <div
+            v-for="lane in lanes"
+            :key="lane.id"
+            class="timeline__name"
+            :style="{ top: `${lane.top}px`, height: `${lane.height}px` }"
+          >
+            <strong :title="lane.name">{{ lane.name }}</strong>
+            <span>{{ t("graph.sessions", { sessionCount: lane.count }) }}</span>
+          </div>
+        </div>
+        <div
+          ref="viewport"
+          class="timeline__viewport"
+          tabindex="0"
+          role="region"
+          :aria-label="t('graph.timelineChartScrollsHorizontallyThe')"
+          @scroll.passive="onScroll"
+        >
+          <svg ref="chart" :width="chartWidth" :height="chartHeight" class="timeline__chart">
+            <rect
+              v-for="day in renderedWeekends"
+              :key="day"
+              class="timeline__weekend"
+              :x="xAt(day)"
+              :y="axisHeight"
+              :width="dayWidth"
+              :height="chartHeight - axisHeight"
+            />
+            <g class="timeline__axis">
+              <g v-for="tick in ticks" :key="tick.time" :class="{ 'is-minor': !tick.major }">
+                <line :x1="tick.x" :x2="tick.x" :y1="axisHeight - 6" :y2="chartHeight" />
+                <text :x="tick.x + 4" :y="axisHeight - 10">{{ tick.label }}</text>
+              </g>
             </g>
-          </g>
-          <g v-for="lane in renderedLanes" :key="lane.id">
-            <rect class="timeline__lane" x="0" :y="lane.top" :width="chartWidth" :height="lane.height" />
-            <text class="timeline__lane-name" :x="scrollLeft + 8" :y="lane.top + 17">{{ lane.name }}</text>
-            <g
-              v-for="event in lane.events"
-              :key="`${event.knowledgeId}-${event.kind}-${event.at}`"
-              :class="`timeline__marker timeline__marker--${event.kind}`"
-              :transform="`translate(${xAt(Date.parse(event.at))} ${lane.top + laneHeader + markerRow / 2 - 2})`"
-            >
-              <title>
-                {{
-                  t("graph.knowledgeEventTooltip", {
-                    kind: eventLabels[event.kind],
-                    title: event.title,
-                    date: formatDate(event.at),
-                  })
-                }}
-              </title>
-              <path d="M 0 -5 L 5 0 L 0 5 L -5 0 Z" />
+            <g v-for="lane in renderedLanes" :key="lane.id">
+              <rect class="timeline__lane" x="0" :y="lane.top" :width="chartWidth" :height="lane.height" />
+              <g
+                v-for="event in lane.events"
+                :key="`${event.knowledgeId}-${event.kind}-${event.at}`"
+                :class="`timeline__marker timeline__marker--${event.kind}`"
+                :transform="`translate(${xAt(Date.parse(event.at))} ${lane.top + laneHeader + markerRow / 2 - 2})`"
+              >
+                <title>
+                  {{
+                    t("graph.knowledgeEventTooltip", {
+                      kind: eventLabels[event.kind],
+                      title: event.title,
+                      date: formatDate(event.at),
+                    })
+                  }}
+                </title>
+                <path v-if="event.kind === 'contradicted'" d="M -4 -4 L 4 4 M 4 -4 L -4 4" />
+                <path v-else d="M 0 -5 L 5 0 L 0 5 L -5 0 Z" />
+              </g>
+              <g
+                v-for="bucket in lane.buckets"
+                :key="bucket.day"
+                class="timeline__column"
+                role="button"
+                tabindex="0"
+                :aria-label="bucketLabel(lane, bucket)"
+                data-testid="timeline-day"
+                @click="zoomToDay(lane, bucket.day)"
+                @keydown.enter.prevent="zoomToDay(lane, bucket.day)"
+                @keydown.space.prevent="zoomToDay(lane, bucket.day)"
+              >
+                <title>{{ bucketLabel(lane, bucket) }}</title>
+                <rect
+                  class="timeline__column-hit"
+                  :x="xAt(bucket.day)"
+                  :y="lane.top + laneHeader + markerRow"
+                  :width="Math.max(dayWidth - 1, 2)"
+                  :height="columnHeight"
+                />
+                <rect
+                  v-for="segment in columnSegments(lane, bucket)"
+                  :key="segment.key"
+                  :class="`timeline__segment timeline__segment--${segment.key}`"
+                  :x="xAt(bucket.day) + columnInset"
+                  :y="segment.y"
+                  :width="columnWidth"
+                  :height="segment.height"
+                />
+              </g>
+              <g
+                v-for="bar in lane.bars"
+                :key="bar.id"
+                :class="`timeline__bar timeline__bar--${bar.verificationStatus}`"
+                role="button"
+                tabindex="0"
+                :aria-label="sessionLabel(bar)"
+                data-testid="timeline-bar"
+                @click="openSession(bar.id)"
+                @keydown.enter.prevent="openSession(bar.id)"
+                @keydown.space.prevent="openSession(bar.id)"
+              >
+                <title>{{ sessionLabel(bar) }}</title>
+                <rect
+                  v-if="bar.startedAt"
+                  :x="xAt(bar.startTime)"
+                  :y="barY(lane, bar) - barHeight / 2"
+                  :width="Math.max(xAt(bar.completedTime) - xAt(bar.startTime), 6)"
+                  :height="barHeight"
+                  rx="3"
+                />
+                <circle v-else :cx="xAt(bar.completedTime)" :cy="barY(lane, bar)" :r="barHeight / 2 - 1" />
+              </g>
             </g>
-            <g
-              v-for="bucket in lane.buckets"
-              :key="bucket.day"
-              class="timeline__column"
-              role="button"
-              tabindex="0"
-              :aria-label="bucketLabel(lane, bucket)"
-              data-testid="timeline-day"
-              @click="zoomToDay(lane, bucket.day)"
-              @keydown.enter.prevent="zoomToDay(lane, bucket.day)"
-              @keydown.space.prevent="zoomToDay(lane, bucket.day)"
-            >
-              <title>{{ bucketLabel(lane, bucket) }}</title>
-              <rect
-                class="timeline__column-hit"
-                :x="xAt(bucket.day)"
-                :y="lane.top + laneHeader + markerRow"
-                :width="Math.max(dayWidth - 1, 2)"
-                :height="columnHeight"
-              />
-              <rect
-                v-for="segment in columnSegments(lane, bucket)"
-                :key="segment.key"
-                :class="`timeline__segment timeline__segment--${segment.key}`"
-                :x="xAt(bucket.day) + columnInset"
-                :y="segment.y"
-                :width="columnWidth"
-                :height="segment.height"
-              />
-            </g>
-            <g
-              v-for="bar in lane.bars"
-              :key="bar.id"
-              :class="`timeline__bar timeline__bar--${bar.verificationStatus}`"
-              role="button"
-              tabindex="0"
-              :aria-label="sessionLabel(bar)"
-              data-testid="timeline-bar"
-              @click="openSession(bar.id)"
-              @keydown.enter.prevent="openSession(bar.id)"
-              @keydown.space.prevent="openSession(bar.id)"
-            >
-              <title>{{ sessionLabel(bar) }}</title>
-              <rect
-                v-if="bar.startedAt"
-                :x="xAt(bar.startTime)"
-                :y="barY(lane, bar) - barHeight / 2"
-                :width="Math.max(xAt(bar.completedTime) - xAt(bar.startTime), 6)"
-                :height="barHeight"
-                rx="3"
-              />
-              <circle v-else :cx="xAt(bar.completedTime)" :cy="barY(lane, bar)" :r="barHeight / 2 - 1" />
-            </g>
-          </g>
-          <path
-            v-for="arc in arcs"
-            :key="arc.key"
-            :class="['timeline__arc', { 'timeline__arc--related': arc.relation === 'related' }]"
-            :d="arc.d"
-          />
-        </svg>
+            <path
+              v-for="arc in arcs"
+              :key="arc.key"
+              :class="['timeline__arc', { 'timeline__arc--related': arc.relation === 'related' }]"
+              :d="arc.d"
+            />
+          </svg>
+        </div>
       </div>
 
       <div v-if="view === 'list'" class="timeline__list" data-testid="timeline-list">
@@ -650,9 +699,9 @@ onBeforeUnmount(() => {
               <td>{{ entry.session ? "Session" : eventLabels[entry.event!.kind] }}</td>
               <td>
                 <template v-if="entry.session">
-                  <button type="button" class="timeline__link" @click="openSession(entry.session.id)">
+                  <UiButton variant="link" @click="openSession(entry.session.id)">
                     {{ entry.session.title }}
-                  </button>
+                  </UiButton>
                   <StatusLabel :status="verificationStatus[entry.session.verificationStatus]" :show-icon="false" />
                 </template>
                 <template v-else>{{ entry.event!.title }}</template>
@@ -689,37 +738,57 @@ onBeforeUnmount(() => {
   width: 14px;
   height: 8px;
   margin-right: 6px;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
 }
 
-.timeline__swatch--passed,
-.timeline__bar--passed {
-  color: var(--success);
-  background: var(--success);
+.timeline__swatch--done {
+  background: var(--fg-subtle);
 }
 
-.timeline__swatch--failed,
-.timeline__bar--failed {
-  color: var(--danger);
+.timeline__swatch--failed {
   background: var(--danger);
 }
 
-.timeline__swatch--in_progress,
-.timeline__bar--in_progress {
-  color: var(--accent);
+.timeline__swatch--created {
+  width: 9px;
+  height: 9px;
+  border-radius: 0;
   background: var(--accent);
+  transform: rotate(45deg);
 }
 
-.timeline__swatch--other,
-.timeline__bar--not_run,
-.timeline__bar--not_supplied {
-  color: var(--fg-muted);
-  background: var(--fg-muted);
+/* Confirmed and superseded: the open diamond the chart draws. */
+.timeline__swatch--open {
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--fg-muted);
+  border-radius: 0;
+  background: var(--bg-canvas);
+  transform: rotate(45deg);
 }
 
+.timeline__cross {
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  fill: none;
+  stroke: var(--fg-muted);
+  stroke-width: 1.6;
+}
+
+.timeline__reading {
+  margin-left: auto;
+}
+
+/* Bars are neutral: only a failed verification is colored. */
 .timeline__bar {
-  background: none;
+  color: var(--fg-subtle);
   cursor: pointer;
+}
+
+.timeline__bar--failed {
+  color: var(--danger);
 }
 
 .timeline__bar rect,
@@ -742,6 +811,8 @@ onBeforeUnmount(() => {
 }
 
 .timeline__viewport {
+  flex: 1;
+  min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
 }
@@ -761,10 +832,6 @@ onBeforeUnmount(() => {
 
 .timeline__axis .is-minor line {
   stroke-dasharray: 2 4;
-}
-
-.timeline__axis .is-minor text {
-  font-size: 10px;
 }
 
 .timeline__column {
@@ -788,31 +855,64 @@ onBeforeUnmount(() => {
   transition: opacity var(--duration-instant) ease-out;
 }
 
-.timeline__segment--passed {
-  fill: var(--success);
+.timeline__segment--passed,
+.timeline__segment--in_progress,
+.timeline__segment--other {
+  fill: var(--fg-subtle);
+  fill-opacity: 0.75;
 }
 
 .timeline__segment--failed {
   fill: var(--danger);
 }
 
-.timeline__segment--in_progress {
-  fill: var(--accent);
-}
-
-.timeline__segment--other {
+.timeline__axis text {
   fill: var(--fg-muted);
+  font-size: var(--text-xs);
 }
 
-.timeline__axis text,
-.timeline__lane-name {
-  fill: var(--fg-muted);
-  font-size: 11px;
+.timeline__weekend {
+  fill: var(--bg-muted);
+  fill-opacity: 0.55;
 }
 
-.timeline__lane-name {
-  fill: var(--fg);
+.timeline__body {
+  display: flex;
+  align-items: flex-start;
+}
+
+/* Project names live outside the scrolling chart, so they stay put while it scrolls sideways. */
+.timeline__names {
+  position: relative;
+  flex: none;
+  width: 140px;
+  border-right: 1px solid var(--border-muted);
+}
+
+.timeline__name {
+  position: absolute;
+  right: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--border-muted);
+  font-size: var(--text-sm);
+}
+
+.timeline__name strong {
+  overflow: hidden;
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline__name span {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
 }
 
 .timeline__lane {
@@ -826,19 +926,21 @@ onBeforeUnmount(() => {
 }
 
 .timeline__marker--created path {
-  fill: var(--done);
+  fill: var(--accent);
 }
 
-.timeline__marker--confirmed path {
-  fill: var(--success);
-}
-
-.timeline__marker--contradicted path {
-  fill: var(--danger);
-}
-
+/* Confirmed and superseded events are quieter: an open neutral diamond. */
+.timeline__marker--confirmed path,
 .timeline__marker--superseded path {
-  fill: var(--attention);
+  fill: var(--bg-canvas);
+  stroke: var(--fg-muted);
+}
+
+/* Contradicted events are a cross, so the three kinds differ by shape and not only by color. */
+.timeline__marker--contradicted path {
+  fill: none;
+  stroke: var(--fg-muted);
+  stroke-width: 1.8;
 }
 
 .timeline__arc {
@@ -883,16 +985,6 @@ onBeforeUnmount(() => {
   color: var(--fg-muted);
   font-size: var(--text-xs);
   font-weight: 600;
-}
-
-.timeline__link {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  text-align: start;
-  cursor: pointer;
 }
 
 @media (max-width: 639px) {

@@ -85,7 +85,7 @@ const rows = computed(() => {
 .changed-files__open {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   color: var(--accent);
   font-size: var(--text-xs);
   white-space: nowrap;
@@ -103,6 +103,10 @@ const rows = computed(() => {
   border-top: 0;
 }
 
+.changed-files__row:hover {
+  background: color-mix(in srgb, var(--bg-hover) 55%, var(--bg-surface));
+}
+
 .changed-files__badge {
   display: grid;
   flex: 0 0 auto;
@@ -110,10 +114,10 @@ const rows = computed(() => {
   width: 16px;
   height: 16px;
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--fg-muted);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--text-xs);
+  font-weight: 600;
 }
 
 .changed-files__badge.is-added {
@@ -152,6 +156,7 @@ const rows = computed(() => {
 
 .changed-files__source {
   flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
   text-align: right;
 }
 

@@ -1,6 +1,6 @@
 ---
 name: worklog-ui
-description: Use for ANY change to the Work Intelligence web UI (apps/web) — new pages, components, styles, layouts, lists, filters, dialogs/side panels, icons, copy and translations, light/dark theming, motion, or the P0–P4 UI redesign migration. Defines the GitHub (Primer) light and dark design tokens, the ui/ component catalog, layout and detail-view rules, status→color mapping, copy/eyebrow and i18n rules, and the verification checklist. Load this BEFORE editing any .vue or .css file under apps/web.
+description: Use for ANY change to the Work Intelligence web UI (apps/web) — new pages, components, styles, layouts, lists, filters, dialogs/side panels, icons, copy and translations, light/dark theming, motion, or the P0–P4 UI redesign migration. Defines the GitHub (Primer) light and dark design tokens, the ui/ component catalog, layout and detail-view rules, status→color mapping, copy and i18n rules, and the verification checklist. Load this BEFORE editing any .vue or .css file under apps/web.
 ---
 
 # Work Intelligence UI
@@ -12,7 +12,7 @@ The web UI (`apps/web`, Vue 3 + vue-router + Vite) is a **GitHub (Primer-like)**
 - Two themes, GitHub dark (default) and a softened light theme (cool grey surfaces, never paper white), chosen in the header or System status → 個人偏好 (跟隨系統 / 淺色 / 深色). Both are the same token names in `styles/tokens.css` (`:root` and `:root[data-theme="light"]`); components never branch on the theme or use `prefers-color-scheme` themselves — `composables/useAppearance.ts` sets `data-theme`.
 - GitHub/Primer visual language: Box lists, Label pills, Counter, UnderlineNav, SegmentedControl, ActionMenu.
 - Icons: `lucide-vue-next` only, 16px, `stroke-width` 1.75. No Unicode glyph icons (⌂ ◈ ▥ ✦ ◎ ≡ ⌕ ↻).
-- Keep the English uppercase eyebrow as a small label on the same row as the Chinese title (e.g. `SESSION ARCHIVE` 工作歷程). Page headers are one compact row; data, not the title block, fills the first screen.
+- No English uppercase eyebrow beside titles (removed in 1.6.36): `PageHeader` and `UiBoxTitle` show the title only. Page headers are one compact row; data, not the title block, fills the first screen.
 - Reading details → right **SidePanel**; forms and confirmations → centered **Dialog**.
 - Backend, MCP and HTTP API contracts are out of scope. Never add an endpoint to make a UI work; hide the block instead.
 - UI text lives in the JSON catalogs `src/i18n/locales/zh-TW.json` and `en-US.json` and is referenced by semantic key through `t("area.key")`; no interface copy is written in code. Technical terms (Session, Knowledge, verification, metadata, handoff) stay in English in both languages. Data (Session text, reports, Agent output, data markers such as `資料不足`) is never translated. See [`worklog-web-code-style`](../worklog-web-code-style/SKILL.md) §6a for the mechanics.
@@ -31,7 +31,7 @@ The web UI (`apps/web`, Vue 3 + vue-router + Vite) is a **GitHub (Primer-like)**
 - **Shared domain state lives in Pinia setup stores, not App.vue or module-level composables.** Views call `useXxxStore()` directly and use `storeToRefs()` for reactive state; no prop-drilling of data, labels or formatter functions. Keep form drafts in their owning component. Formatters go in `utils/format.ts`, label maps in `utils/labels.ts`.
 - **URL is the state for filters.** Filters, pagination, report tabs and the open Session (`?session=<id>`) are synced through `useRouteQuery`.
 - **Long data tables own their scrolling.** When rows exceed the available height, put bounded vertical scrolling on the list/table body (reuse `VirtualList` with a finite `maxHeight` where appropriate); keep the box header, filters, and pagination outside that scroller. Do not make the whole page the only scroll surface for long rows. Verify that wheel/keyboard scrolling moves the list while its page remains in place.
-- **Navigation uses `RouterLink`**, page title/eyebrow come from route `meta`.
+- **Navigation uses `RouterLink`**, page title comes from route `meta`.
 - **Styling**: component styles use `<style scoped>` and tokens. Global CSS is only `styles/tokens.css` + `styles/base.css`. Never append "refinement" override blocks to a global stylesheet.
 - **Minimum font size 12px.** Body text is 14px.
 - **One component per concept**: one date-range picker, one filter pattern, one pagination, one status Label mapping.

@@ -452,7 +452,7 @@ onBeforeUnmount(() => {
             ><span>{{ t("session.authoredPathNote") }}</span>
             <ol>
               <li v-for="(node, index) in pathNodes" :key="`${node.id}-${index}`">
-                <button type="button" @click="selectNode(node.id)">{{ node.label }}</button
+                <UiButton variant="link" @click="selectNode(node.id)">{{ node.label }}</UiButton
                 ><ArrowRight v-if="index < pathNodes.length - 1" :size="14" aria-hidden="true" />
               </li>
             </ol>
@@ -490,7 +490,7 @@ onBeforeUnmount(() => {
             <h4>{{ t("session.architectureRelations") }}</h4>
             <ul v-if="neighbors.length">
               <li v-for="node in neighbors" :key="node.id">
-                <button type="button" @click="selectNode(node.id)">{{ node.label }}</button>
+                <UiButton variant="link" @click="selectNode(node.id)">{{ node.label }}</UiButton>
               </li>
             </ul>
             <p v-else>{{ t("session.architectureNoRelations") }}</p>
@@ -602,9 +602,7 @@ onBeforeUnmount(() => {
   background: var(--bg-muted);
   border-color: var(--border);
 }
-.architecture__groups button:hover,
-.architecture__inspector li button:hover,
-.architecture__path button:hover {
+.architecture__groups button:hover {
   color: var(--accent);
 }
 .architecture__canvas {
@@ -650,7 +648,7 @@ onBeforeUnmount(() => {
 }
 .architecture__boundary text {
   fill: var(--tone);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 600;
 }
 .architecture__edge {
@@ -679,7 +677,7 @@ onBeforeUnmount(() => {
 }
 .architecture__edge-label text {
   fill: var(--fg-muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 .architecture__edge-label.is-emphasized rect {
   stroke: var(--accent);
@@ -777,15 +775,8 @@ onBeforeUnmount(() => {
 .architecture__inspector li {
   padding: var(--space-1) 0;
 }
-.architecture__inspector li button,
-.architecture__path button {
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: var(--accent);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
+.architecture__inspector li .ui-button,
+.architecture__path .ui-button {
   overflow-wrap: anywhere;
 }
 .architecture__source {

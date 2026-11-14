@@ -29,9 +29,7 @@ function openSession(session: WorkSessionRecord): void {
 <template>
   <section id="report-panel-raw" class="reports__panel" role="tabpanel" aria-labelledby="report-tab-raw">
     <UiBox sticky-header>
-      <template #header
-        ><UiBoxTitle eyebrow="Raw work records" :title="t('common.rawWorkRecords')" :count="pageInfo.total"
-      /></template>
+      <template #header><UiBoxTitle :title="t('common.rawWorkRecords')" :count="pageInfo.total" /></template>
       <UiSkeleton v-if="loading && items.length === 0" />
       <UiEmptyState v-else-if="items.length === 0" compact :icon="FileText" :title="t('reports.noRawSessionsInThis')" />
       <VirtualList

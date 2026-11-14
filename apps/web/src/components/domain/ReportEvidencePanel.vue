@@ -44,11 +44,7 @@ const evidenceLetters: Record<ReportEvidence["kind"], string> = {
   <section id="report-panel-evidence" class="reports__panel" role="tabpanel" aria-labelledby="report-tab-evidence">
     <UiBox sticky-header>
       <template #header>
-        <UiBoxTitle
-          eyebrow="Source evidence"
-          :title="t('common.sourceEvidence')"
-          :count="report.evidencePageInfo.total"
-        />
+        <UiBoxTitle :title="t('common.sourceEvidence')" :count="report.evidencePageInfo.total" />
         <UiActionMenu
           v-model="kind"
           :label="t('common.kind')"

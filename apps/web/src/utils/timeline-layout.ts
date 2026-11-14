@@ -143,6 +143,18 @@ export function dayBuckets(sessions: ReadonlyArray<{ completedAt: string; verifi
   return [...byDay.values()].sort((left, right) => left.day - right.day);
 }
 
+/** Start times of every Saturday and Sunday (local days) that begin inside [rangeStart, rangeEnd). */
+export function weekendStarts(rangeStart: number, rangeEnd: number): number[] {
+  const starts: number[] = [];
+  const cursor = new Date(startOfLocalDay(rangeStart));
+  while (cursor.getTime() < rangeEnd) {
+    const weekday = cursor.getDay();
+    if ((weekday === 0 || weekday === 6) && cursor.getTime() >= rangeStart) starts.push(cursor.getTime());
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return starts;
+}
+
 export interface AxisTick {
   time: number;
   label: string;

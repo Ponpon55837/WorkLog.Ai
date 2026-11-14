@@ -28,8 +28,8 @@ withDefaults(defineProps<{ padded?: boolean; tag?: string; stickyHeader?: boolea
 .ui-box {
   min-width: 0;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-canvas);
+  border-radius: var(--radius-outer);
+  background: var(--bg-surface);
   /* clip (not hidden) rounds the corners without creating a scroll container, so sticky headers still work. */
   overflow: clip;
   /* Keeps scrollIntoView targets clear of the sticky page toolbar. */
@@ -48,8 +48,8 @@ withDefaults(defineProps<{ padded?: boolean; tag?: string; stickyHeader?: boolea
   gap: var(--space-2) var(--space-3);
   min-height: 48px;
   padding: var(--space-2) var(--space-4);
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border-muted);
+  background: var(--bg-surface);
 }
 
 .ui-box__header--sticky {
@@ -69,8 +69,8 @@ withDefaults(defineProps<{ padded?: boolean; tag?: string; stickyHeader?: boolea
   justify-content: space-between;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-4);
-  border-top: 1px solid var(--border);
-  background: var(--bg-subtle);
+  border-top: 1px solid var(--border-muted);
+  background: var(--bg-surface);
   color: var(--fg-muted);
   font-size: var(--text-xs);
 }

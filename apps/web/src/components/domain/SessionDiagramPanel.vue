@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRoute } from "vue-router";
-import { ArrowLeft, X } from "lucide-vue-next";
+import { ArrowLeft } from "lucide-vue-next";
 import { storeToRefs } from "pinia";
 import SessionDiagram from "./SessionDiagram.vue";
 import UiButton from "../ui/UiButton.vue";
-import UiIconButton from "../ui/UiIconButton.vue";
 import UiSidePanel from "../ui/UiSidePanel.vue";
+import UiSidePanelHeader from "../ui/UiSidePanelHeader.vue";
 import { router } from "../../router";
 import { useSessionsStore } from "../../stores/sessions";
 import { t } from "../../i18n";
@@ -37,11 +37,11 @@ function close(): void {
     @close="close"
   >
     <template #header>
-      <div class="session-diagram-panel__header">
-        <UiButton size="sm" :icon="ArrowLeft" @click="close">{{ t("session.backToSession") }}</UiButton>
-        <span>{{ selectedDetail?.session.title }}</span>
-        <UiIconButton :icon="X" :label="t('common.close')" @click="close" />
-      </div>
+      <UiSidePanelHeader :title="selectedDetail?.session.title ?? ''" :close-label="t('common.close')" @close="close">
+        <template #leading>
+          <UiButton size="sm" :icon="ArrowLeft" @click="close">{{ t("session.backToSession") }}</UiButton>
+        </template>
+      </UiSidePanelHeader>
     </template>
     <SessionDiagram
       v-if="diagram"
@@ -52,21 +52,3 @@ function close(): void {
     />
   </UiSidePanel>
 </template>
-
-<style scoped>
-.session-diagram-panel__header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.session-diagram-panel__header span {
-  flex: 1;
-  min-width: 0;
-  color: var(--fg-muted);
-  font-size: var(--text-sm);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-</style>

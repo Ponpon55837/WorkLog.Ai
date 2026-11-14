@@ -145,7 +145,7 @@ onBeforeUnmount(() => presentation.setSummary(""));
       </UiButton>
     </div>
     <div v-if="data" ref="controls" class="synthesis-presentation__controls">
-      <ReportCopyButton :summary-id="summary.id" :revision="data.revision" :disabled="saving" />
+      <ReportCopyButton size="sm" :summary-id="summary.id" :revision="data.revision" :disabled="saving" />
       <UiLabel>{{ t("presentation.revision", { revision: data.revision }) }}</UiLabel>
       <UiButton v-if="modified" size="sm" :disabled="saving" @click="reset">{{ t("presentation.reset") }}</UiButton>
     </div>

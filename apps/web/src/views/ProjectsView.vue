@@ -334,7 +334,7 @@ onBeforeUnmount(() => {
   <section v-else id="projects-panel-import" role="tabpanel" aria-labelledby="projects-tab-import">
     <UiBox>
       <template #header>
-        <UiBoxTitle eyebrow="Handoff import" :title="t('projects.importPastHandoffs')" />
+        <UiBoxTitle :title="t('projects.importPastHandoffs')" />
       </template>
       <UiEmptyState
         v-if="projectsLoaded && trackedProjects.length === 0"

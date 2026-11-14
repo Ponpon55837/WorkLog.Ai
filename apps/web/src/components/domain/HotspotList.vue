@@ -3,6 +3,9 @@ import { computed } from "vue";
 import type { Hotspot } from "@work-intelligence/core";
 import { formatDate, formatRelative } from "../../utils/format";
 import { hotspotRiskVisual, HOTSPOT_HIGH_FAILURE_RATE, verificationStatus } from "../../utils/status";
+import UiButton from "../ui/UiButton.vue";
+import UiMeter from "../ui/UiMeter.vue";
+import type { Tone } from "../ui/types";
 import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
 
@@ -23,6 +26,16 @@ const legendNotes = [
   t("graph.failedAboveZero"),
   t("graph.noFailures"),
 ];
+
+function barSegments(item: Hotspot): { value: number; tone: Tone; label: string }[] {
+  return [
+    {
+      value: item.sessionCount,
+      tone: hotspotRiskVisual(item).tone,
+      label: t("graph.sessions", { sessionCount: item.sessionCount }),
+    },
+  ];
+}
 
 function failureText(item: Hotspot): string {
   const rate = Math.round((item.failedCount / item.sessionCount) * 100);
@@ -45,12 +58,7 @@ function failureText(item: Hotspot): string {
           <code class="hotspots__path">{{ item.path }}</code>
           <StatusLabel :status="hotspotRiskVisual(item)" />
         </div>
-        <div class="hotspots__bar" aria-hidden="true">
-          <i
-            :class="`tone-${hotspotRiskVisual(item).tone}`"
-            :style="{ width: `${(item.sessionCount / maxCount) * 100}%` }"
-          />
-        </div>
+        <UiMeter class="hotspots__bar" size="sm" :max="maxCount" :segments="barSegments(item)" />
         <p class="hotspots__meta">
           <span v-if="showProject">{{ item.projectName }} · </span>
           <strong>{{ t("graph.sessions", { sessionCount: item.sessionCount }) }}</strong>
@@ -63,9 +71,9 @@ function failureText(item: Hotspot): string {
           <summary>{{ t("graph.lastSessions", { length: item.recentSessions.length }) }}</summary>
           <ul>
             <li v-for="session in item.recentSessions" :key="session.id">
-              <button type="button" class="hotspots__session" @click="emit('open-session', session.id)">
+              <UiButton variant="link" @click="emit('open-session', session.id)">
                 {{ session.title }}
-              </button>
+              </UiButton>
               <StatusLabel :status="verificationStatus[session.verificationStatus]" :show-icon="false" />
               <time :datetime="session.completedAt">{{ formatRelative(session.completedAt) }}</time>
             </li>
@@ -115,29 +123,8 @@ function failureText(item: Hotspot): string {
   overflow-wrap: anywhere;
 }
 
-.hotspots__bar {
-  height: 6px;
-  border-radius: 3px;
-  background: var(--border-muted);
-}
-
-.hotspots__bar i {
-  display: block;
-  height: 100%;
-  border-radius: 3px;
-  background: currentColor;
-}
-
-.hotspots__bar .tone-danger {
-  color: var(--danger);
-}
-
-.hotspots__bar .tone-attention {
-  color: var(--attention);
-}
-
-.hotspots__bar .tone-success {
-  color: var(--success);
+.hotspots__item > .hotspots__bar {
+  margin-top: 0;
 }
 
 .hotspots__meta {
@@ -175,19 +162,5 @@ function failureText(item: Hotspot): string {
 .hotspots__sessions time {
   color: var(--fg-muted);
   font-size: var(--text-xs);
-}
-
-.hotspots__session {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  text-align: start;
-  cursor: pointer;
-}
-
-.hotspots__session:hover {
-  text-decoration: underline;
 }
 </style>

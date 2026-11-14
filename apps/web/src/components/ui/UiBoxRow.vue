@@ -52,7 +52,7 @@ const emit = defineEmits<{ select: [] }>();
 }
 
 .ui-box-row--clickable:hover {
-  background: var(--bg-subtle);
+  background: color-mix(in srgb, var(--bg-hover) 55%, var(--bg-surface));
 }
 
 .ui-box-row__leading {
@@ -83,7 +83,7 @@ const emit = defineEmits<{ select: [] }>();
   background: none;
   color: var(--fg);
   font-size: var(--text-md);
-  font-weight: 600;
+  font-weight: 500;
   text-align: left;
   overflow-wrap: anywhere;
 }
@@ -101,10 +101,6 @@ const emit = defineEmits<{ select: [] }>();
 .ui-box-row__link:focus-visible::after {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
-}
-
-.ui-box-row--clickable:hover .ui-box-row__link {
-  color: var(--accent);
 }
 
 .ui-box-row__meta {

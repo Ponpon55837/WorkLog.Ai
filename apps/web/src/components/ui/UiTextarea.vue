@@ -29,7 +29,7 @@ const describedBy = useFieldDescription();
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--bg-inset);
+  background: var(--bg-surface);
   color: var(--fg);
   font-size: var(--text-md);
   line-height: 1.6;

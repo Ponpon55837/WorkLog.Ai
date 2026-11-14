@@ -115,9 +115,14 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
   padding: 0 var(--space-2);
   border: 0;
   background: none;
-  color: var(--fg);
+  color: var(--fg-muted);
   font-size: var(--text-md);
   white-space: nowrap;
+  transition: color var(--duration-instant) ease-out;
+}
+
+.ui-underline-nav button:hover {
+  color: var(--fg);
 }
 
 .ui-underline-nav button :deep(.lucide) {
@@ -140,7 +145,8 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 }
 
 .ui-underline-nav button.is-selected {
-  font-weight: 600;
+  color: var(--fg);
+  font-weight: 500;
 }
 
 .ui-underline-nav button::after {
@@ -157,7 +163,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
   left: 0;
   height: 2px;
   border-radius: var(--radius);
-  background: var(--underline-active);
+  background: var(--accent);
   pointer-events: none;
 }
 

@@ -6,6 +6,7 @@ import type { WorkSessionRecord } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import AttentionBox from "../components/domain/AttentionBox.vue";
 import ActivityHeatmap from "../components/domain/ActivityHeatmap.vue";
+import DashboardCycle from "../components/domain/DashboardCycle.vue";
 import DashboardInsights from "../components/domain/DashboardInsights.vue";
 import FirstRunChecklist from "../components/domain/FirstRunChecklist.vue";
 import SessionRow from "../components/domain/SessionRow.vue";
@@ -15,10 +16,13 @@ import UiBox from "../components/ui/UiBox.vue";
 import UiBoxRow from "../components/ui/UiBoxRow.vue";
 import UiBoxTitle from "../components/ui/UiBoxTitle.vue";
 import UiButton from "../components/ui/UiButton.vue";
+import UiEmptyState from "../components/ui/UiEmptyState.vue";
 import UiFlash from "../components/ui/UiFlash.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiSparkline from "../components/ui/UiSparkline.vue";
+import UiSplitLayout from "../components/ui/UiSplitLayout.vue";
 import UiStatCard from "../components/ui/UiStatCard.vue";
+import UiStatGrid from "../components/ui/UiStatGrid.vue";
 import VirtualList from "../components/VirtualList.vue";
 import { router } from "../router";
 import { useActivityStore } from "../stores/activity";
@@ -28,6 +32,7 @@ import { useSessionsStore } from "../stores/sessions";
 import { useSystemStatusStore } from "../stores/system-status";
 import { formatRelative } from "../utils/format";
 import { trackingStatus } from "../utils/status";
+import { weeklySessionTotals } from "../utils/week-trend";
 import { intlLocale, t } from "../i18n";
 
 const projectsStore = useProjectsStore();
@@ -56,7 +61,11 @@ const pausedCount = computed(() => projects.value.filter((project) => project.st
 const visibleProjects = computed(() =>
   [...projects.value].sort((a, b) => Number(b.status === "tracked") - Number(a.status === "tracked")).slice(0, 6),
 );
-const weekTrend = computed(() => weekReport.value?.trends.map((point) => point.sessions) ?? []);
+const TREND_WEEKS = 8;
+const weekTrend = computed(() => weeklySessionTotals(activityDays.value, new Date(), TREND_WEEKS));
+const weekTrendLabel = computed(() =>
+  t("dashboard.sessionsCompletedPerWeek", { values: weekTrend.value.join(t("session.comma")) }),
+);
 const weekDelta = computed(() => {
   const comparison = weekReport.value?.comparison.sessions;
   if (!comparison) {
@@ -112,7 +121,7 @@ onBeforeUnmount(() => {
 
   <UiBox class="dashboard__activity" data-testid="dashboard-activity">
     <template #header>
-      <UiBoxTitle eyebrow="Activity" :title="t('dashboard.activityTitle')" />
+      <UiBoxTitle :title="t('dashboard.activityTitle')" />
     </template>
     <UiFlash v-if="activityError" tone="danger">
       {{ activityError }}
@@ -124,14 +133,11 @@ onBeforeUnmount(() => {
     <ActivityHeatmap v-else :days="activityDays" @select="openDayReport" />
   </UiBox>
 
-  <div class="dashboard__stats">
+  <DashboardCycle class="dashboard__cycle" />
+
+  <UiStatGrid class="dashboard__stats">
     <UiStatCard
-      :label="t('common.trackedProjects')"
-      :icon="FolderGit2"
-      :value="dashboard.trackedProjects"
-      :foot="`${t('dashboard.explicitOptIn')}${pausedCount ? t('dashboard.paused', { pausedCount }) : ''}`"
-    />
-    <UiStatCard
+      featured
       :label="t('dashboard.sessionsCompletedThisWeek')"
       :icon="CircleCheckBig"
       :value="
@@ -142,11 +148,9 @@ onBeforeUnmount(() => {
             : t('attention.loadingShort')
       "
       :delta="weekDelta"
+      :foot="t('dashboard.notTheSameAsGit', { finalizedSessions: dashboard.finalizedSessions })"
     >
-      <UiSparkline v-if="weekTrend.length" :values="weekTrend" :label="t('dashboard.sessionsCompletedPerDayThis')" />
-      <template #foot>{{
-        t("dashboard.notTheSameAsGit", { finalizedSessions: dashboard.finalizedSessions })
-      }}</template>
+      <UiSparkline v-if="activityLoaded && !activityError" size="lg" :values="weekTrend" :label="weekTrendLabel" />
     </UiStatCard>
     <UiStatCard
       :label="t('dashboard.verificationThisWeek')"
@@ -163,6 +167,12 @@ onBeforeUnmount(() => {
       <VerificationBreakdown v-if="weekReportLoaded" :counts="weekVerification" />
     </UiStatCard>
     <UiStatCard
+      :label="t('common.trackedProjects')"
+      :icon="FolderGit2"
+      :value="dashboard.trackedProjects"
+      :foot="`${t('dashboard.explicitOptIn')}${pausedCount ? t('dashboard.paused', { pausedCount }) : ''}`"
+    />
+    <UiStatCard
       :label="t('common.pending')"
       :icon="Inbox"
       :value="
@@ -175,17 +185,17 @@ onBeforeUnmount(() => {
       :value-tone="attentionCount ? 'attention' : undefined"
       :foot="attentionComplete ? t('attention.countDescription') : t('attention.incompleteCount')"
     />
-  </div>
+  </UiStatGrid>
 
   <DashboardInsights class="dashboard__insights" />
 
-  <div class="dashboard__grid">
-    <div class="dashboard__main">
+  <UiSplitLayout>
+    <template #main>
       <AttentionBox />
 
       <UiBox>
         <template #header>
-          <UiBoxTitle eyebrow="Latest memory" :title="t('dashboard.recentlyCompletedWork')" />
+          <UiBoxTitle :title="t('dashboard.recentlyCompletedWork')" />
           <UiButton size="sm" variant="invisible" :trailing-icon="ArrowRight" :to="{ name: 'sessions' }">{{
             t("dashboard.viewAll")
           }}</UiButton>
@@ -215,82 +225,84 @@ onBeforeUnmount(() => {
           </template>
         </VirtualList>
       </UiBox>
-    </div>
+    </template>
 
-    <UiBox>
-      <template #header>
-        <UiBoxTitle eyebrow="Projects" :title="t('dashboard.projectStatus')" />
-        <UiButton size="sm" variant="invisible" :to="{ name: 'projects' }">{{ t("dashboard.manage") }}</UiButton>
-      </template>
-      <UiEmptyState
-        v-if="projectsLoaded && projects.length === 0"
-        compact
-        :icon="FolderGit2"
-        :title="t('dashboard.noProjectsYet')"
-      />
-      <VirtualList
-        v-else-if="projects.length > 0"
-        :items="visibleProjects"
-        :enabled="visibleProjects.length > 5"
-        :estimate-item-height="96"
-        max-height="min(48vh, 520px)"
-        grow-to-viewport
-        :label="t('dashboard.projectStatusList')"
-      >
-        <template #default="{ item: project }">
-          <UiBoxRow :title="project.name">
-            <template #leading
-              ><component :is="trackingStatus[project.status].icon" :size="16" :stroke-width="1.75" aria-hidden="true"
-            /></template>
-            <template #meta
-              ><code class="dashboard__path">{{ project.rootPath }}</code></template
-            >
-            <div class="dashboard__project-meta">
-              {{
-                project.lastIngestedAt
-                  ? t("dashboard.lastWritten", { value: formatRelative(project.lastIngestedAt) })
-                  : t("common.updated", { value: formatRelative(project.updatedAt) })
-              }}
-            </div>
-            <template #trailing><StatusLabel :status="trackingStatus[project.status]" :show-icon="false" /></template>
-          </UiBoxRow>
+    <template #aside>
+      <UiBox>
+        <template #header>
+          <UiBoxTitle :title="t('dashboard.projectStatus')" />
+          <UiButton size="sm" variant="invisible" :to="{ name: 'projects' }">{{ t("dashboard.manage") }}</UiButton>
         </template>
-      </VirtualList>
-    </UiBox>
-  </div>
+        <UiEmptyState
+          v-if="projectsLoaded && projects.length === 0"
+          compact
+          :icon="FolderGit2"
+          :title="t('dashboard.noProjectsYet')"
+        />
+        <VirtualList
+          v-else-if="projects.length > 0"
+          :items="visibleProjects"
+          :enabled="visibleProjects.length > 5"
+          :estimate-item-height="96"
+          max-height="min(48vh, 520px)"
+          grow-to-viewport
+          :label="t('dashboard.projectStatusList')"
+        >
+          <template #default="{ item: project }">
+            <UiBoxRow :title="project.name">
+              <template #leading
+                ><component
+                  :is="trackingStatus[project.status].icon"
+                  :size="16"
+                  :stroke-width="1.75"
+                  aria-hidden="true"
+              /></template>
+              <template #meta
+                ><code class="dashboard__path">{{ project.rootPath }}</code></template
+              >
+              <div class="dashboard__project-meta">
+                {{
+                  project.lastIngestedAt
+                    ? t("dashboard.lastWritten", { value: formatRelative(project.lastIngestedAt) })
+                    : t("common.updated", { value: formatRelative(project.updatedAt) })
+                }}
+              </div>
+              <template #trailing><StatusLabel :status="trackingStatus[project.status]" :show-icon="false" /></template>
+            </UiBoxRow>
+          </template>
+        </VirtualList>
+      </UiBox>
+    </template>
+  </UiSplitLayout>
 </template>
 
 <style scoped>
 .dashboard__activity,
+.dashboard__cycle,
 .dashboard__insights {
   margin-bottom: var(--space-4);
 }
 .dashboard__stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-4);
-  margin-bottom: var(--space-6);
+  margin-bottom: var(--space-4);
+}
+
+/* One large chart card and three small ones; the large card takes a full row once the grid drops to two columns. */
+.dashboard__stats.ui-stat-grid {
+  grid-template-columns: minmax(0, 2fr) repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 959px) {
+  .dashboard__stats.ui-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard__stats > :first-child {
+    grid-column: 1 / -1;
+  }
 }
 
 .dashboard__first-run {
   margin-bottom: var(--space-4);
-}
-
-.dashboard__grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
-  gap: var(--space-6);
-  align-items: start;
-}
-
-.dashboard__main {
-  display: grid;
-  gap: var(--space-4);
-  min-width: 0;
-}
-
-.dashboard__main > .ui-box + .ui-box {
-  margin-top: 0;
 }
 
 .dashboard__path {
@@ -301,43 +313,5 @@ onBeforeUnmount(() => {
   margin-top: 2px;
   color: var(--fg-muted);
   font-size: var(--text-xs);
-}
-
-.tone-attention {
-  color: var(--attention);
-}
-.tone-accent {
-  color: var(--accent);
-}
-.tone-danger {
-  color: var(--danger);
-}
-.tone-done {
-  color: var(--done);
-}
-.tone-neutral {
-  color: var(--fg-muted);
-}
-
-@media (max-width: 1279px) {
-  .dashboard__grid {
-    grid-template-columns: minmax(0, 1fr) 300px;
-  }
-}
-
-@media (max-width: 959px) {
-  .dashboard__stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .dashboard__grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-@media (max-width: 639px) {
-  .dashboard__stats {
-    gap: var(--space-2);
-  }
 }
 </style>

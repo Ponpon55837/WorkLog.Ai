@@ -61,10 +61,8 @@ defineProps<{ summary?: WorkSummarySections }>();
 
 .work-summary__key {
   color: var(--fg-muted);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: var(--text-xs);
+  font-weight: 500;
 }
 
 .work-summary__section ul {

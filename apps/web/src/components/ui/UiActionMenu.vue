@@ -145,7 +145,7 @@ watch(open, async (value) => {
   border-radius: var(--radius);
   background: none;
   color: var(--fg-muted);
-  font-size: var(--text-md);
+  font-size: var(--text-sm);
   white-space: nowrap;
 }
 
@@ -164,21 +164,22 @@ watch(open, async (value) => {
   height: var(--control-height);
   padding: 0 var(--space-3);
   border-color: var(--border);
-  background: var(--bg-muted);
+  background: var(--bg-surface);
   color: var(--fg);
+  font-size: var(--text-md);
   font-weight: 500;
 }
 
 .ui-action-menu__trigger--button.ui-action-menu__trigger--sm {
   height: var(--control-height-sm);
   padding: 0 var(--space-2);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
 }
 
 .ui-action-menu__trigger--button:hover,
 .ui-action-menu__trigger--button.is-open {
   border-color: var(--border-strong);
-  background: var(--bg-muted-hover);
+  background: var(--bg-muted);
 }
 
 .ui-action-menu__trigger :deep(.lucide) {
@@ -193,8 +194,8 @@ watch(open, async (value) => {
   max-height: min(420px, 70vh);
   overflow-y: auto;
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-subtle);
+  border-radius: var(--radius-outer);
+  background: var(--bg-surface);
   box-shadow: var(--shadow-popover);
 }
 

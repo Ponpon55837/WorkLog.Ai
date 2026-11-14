@@ -2,12 +2,19 @@
 import { computed } from "vue";
 
 /** Tiny bar sparkline; the last bar is emphasised. Values are rendered as-is (no smoothing). */
-const props = defineProps<{ values: readonly number[]; label: string }>();
+const props = withDefaults(
+  defineProps<{
+    values: readonly number[];
+    label: string;
+    /** `lg` is the 52px chart for `UiStatCard featured`. */ size?: "md" | "lg";
+  }>(),
+  { size: "md" },
+);
 const max = computed(() => Math.max(1, ...props.values));
 </script>
 
 <template>
-  <div class="ui-sparkline" role="img" :aria-label="label">
+  <div :class="['ui-sparkline', `ui-sparkline--${size}`]" role="img" :aria-label="label">
     <span
       v-for="(value, index) in values"
       :key="index"
@@ -26,9 +33,14 @@ const max = computed(() => Math.max(1, ...props.values));
   margin-top: var(--space-2);
 }
 
+.ui-sparkline--lg {
+  gap: var(--space-1);
+  height: 52px;
+}
+
 .ui-sparkline span {
   flex: 1;
-  border-radius: 2px;
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
   background: var(--accent-border);
 }
 

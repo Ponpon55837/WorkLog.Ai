@@ -8,6 +8,7 @@ import {
   smallestFitting,
   startOfLocalDay,
   visibleSpans,
+  weekendStarts,
 } from "../../../apps/web/src/utils/timeline-layout.js";
 import { t } from "../../../apps/web/src/i18n/index.js";
 import { weekdayLabel } from "../../../apps/web/src/utils/format.js";
@@ -128,5 +129,14 @@ describe("timeline overview helpers", () => {
     expect(probes.length).toBeLessThanOrEqual(3);
     expect(smallestFitting(candidates, () => true)).toBe(48);
     expect(smallestFitting(candidates, () => false)).toBe(960);
+  });
+
+  it("lists the Saturdays and Sundays inside a range", () => {
+    // 2026-03-01 is a Sunday.
+    const start = new Date(2026, 2, 1).getTime();
+    const end = new Date(2026, 2, 15).getTime();
+    const days = weekendStarts(start, end).map((time) => new Date(time).getDate());
+    expect(days).toEqual([1, 7, 8, 14]);
+    expect(weekendStarts(start, start)).toEqual([]);
   });
 });

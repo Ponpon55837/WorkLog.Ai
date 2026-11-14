@@ -48,6 +48,6 @@ const summary = computed(() =>
 .verification-breakdown__foot {
   margin-top: var(--space-2);
   color: var(--fg-muted);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
 }
 </style>

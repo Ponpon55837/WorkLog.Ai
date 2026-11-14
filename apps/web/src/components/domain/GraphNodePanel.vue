@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { ArrowLeft, ArrowRight, BookOpen, FolderGit2, ListChecks, Route, X } from "lucide-vue-next";
+import { ArrowLeft, ArrowRight, BookOpen, FolderGit2, ListChecks, Route } from "lucide-vue-next";
 import { storeToRefs } from "pinia";
 import type { GraphEdge, GraphNode } from "@work-intelligence/core";
 import UiButton from "../ui/UiButton.vue";
-import UiIconButton from "../ui/UiIconButton.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import UiSelect from "../ui/UiSelect.vue";
 import UiSidePanel from "../ui/UiSidePanel.vue";
+import UiSidePanelHeader from "../ui/UiSidePanelHeader.vue";
 import VirtualList from "../VirtualList.vue";
 import { useGraph } from "../../composables/useGraph";
 import { useGraphStore } from "../../stores/graph";
@@ -91,12 +91,16 @@ watch(
     @resize="graphPanelWidth = $event"
   >
     <template v-if="node" #header>
-      <div class="node-panel__top">
-        <UiLabel tone="accent">{{ graphNodeKindLabels[node.kind] }}</UiLabel>
-        <UiIconButton :icon="X" :label="t('graph.closeGraphNodeDetails')" @click="selectGraphNode(null)" />
-      </div>
-      <h2 class="node-panel__title">{{ node.label }}</h2>
-      <code class="node-panel__id">{{ node.id }}</code>
+      <UiSidePanelHeader
+        :title="node.label"
+        :close-label="t('graph.closeGraphNodeDetails')"
+        @close="selectGraphNode(null)"
+      >
+        <template #leading>
+          <UiLabel tone="accent">{{ graphNodeKindLabels[node.kind] }}</UiLabel>
+        </template>
+        <code class="node-panel__id">{{ node.id }}</code>
+      </UiSidePanelHeader>
     </template>
 
     <div v-if="node" class="node-panel">
@@ -179,19 +183,6 @@ watch(
 </template>
 
 <style scoped>
-.node-panel__top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.node-panel__title {
-  margin-top: var(--space-2);
-  font-size: var(--text-lg);
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-
 .node-panel__id {
   color: var(--fg-muted);
   overflow-wrap: anywhere;

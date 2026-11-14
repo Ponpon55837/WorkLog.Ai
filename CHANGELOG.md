@@ -4,6 +4,36 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.36] - 2026-11-14
+
+[繁體中文更新說明](docs/releases/1.6.36.md).
+
+This release restyles the Web UI: refined tokens in the existing blue, no uppercase English eyebrow labels, and redesigned Overview, Work history, Work knowledge, Work graph and Work reports pages. Layout and scroll behaviour do not change. It changes no data, no API and no MCP behaviour; the schema stays at 33.
+
+### Changed
+
+- Overview: the activity heatmap stays at the top and keeps its 53 weeks. A "This week's loop" strip shows Sessions recorded, new Knowledge, Knowledge pages updated, and confirmations and contradictions, using only counts the product records. The completed-this-week card gains an eight-week trend.
+- Work history: a time rail, a whole-day summary per day and a count of new Knowledge per day.
+- Work knowledge: the trust bar is drawn from confirmations and contradictions only. The reason an item may be stale moves under its title, tags are quieter, and a kind breakdown shows counts for the current project and status.
+- Work graph timeline: neutral day bars with failed work in red, new Knowledge as accent diamonds, confirmed and superseded events as open diamonds, weekend shading when days are wide enough, and project names in a fixed left column.
+- Work reports: daily columns, a one-line banner when no synthesis exists yet, a project share bar stacked by project, and a timed list of what happened.
+- Projects, System status, the Session panel and the graph's relationship and hotspot views follow the same appearance rules. No page layout changes.
+- Visual system: refined tokens with a surface layer, two radius steps, an on-accent text colour and a tab underline in the accent colour. Keycaps share one style. Sidebar group labels follow the interface language.
+- Shared UI components replace hand-written copies: side panel header, stat grid, split layout, stack, a link variant of `UiButton`, `UiStatCard` and `UiMeter`.
+
+The design check method draws on unslop by Damir Sokolovsky (CC BY 4.0). Only the ideas were borrowed; no code was used.
+
+### Fixed
+
+- The reminder text in the Overview insights used an undefined colour token (`--fg-attention`), so its colour never applied. It now uses a defined colour.
+- Graph timeline labels were 10px, below the 12px minimum. They are now at least 12px.
+- Subtle text in the dark theme has more contrast.
+- Project export and import controls and the report toolbar controls share one control height.
+
+### Upgrading
+
+No schema change (33) and no migration. Rebuild and restart. Data, API and MCP behaviour are unchanged; only the appearance and text change. The README screenshots were retaken with fictional sample data.
+
 ## [1.6.35] - 2026-11-14
 
 [繁體中文更新說明](docs/releases/1.6.35.md).

@@ -42,7 +42,7 @@ const agentStepState = computed(() => {
 
 <template>
   <UiBox data-testid="first-run-checklist">
-    <template #header><UiBoxTitle eyebrow="FIRST RUN" :title="t('dashboard.getStartedWithWorkRecords')" /></template>
+    <template #header><UiBoxTitle :title="t('dashboard.getStartedWithWorkRecords')" /></template>
     <ol class="first-run-checklist__steps">
       <li data-testid="first-run-step-project">
         <div class="first-run-checklist__step-heading">

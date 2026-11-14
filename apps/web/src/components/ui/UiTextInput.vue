@@ -66,7 +66,7 @@ defineExpose({ focus: () => input.value?.focus() });
   padding: 0 var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--bg-inset);
+  background: var(--bg-surface);
   color: var(--fg-muted);
   cursor: text;
 }
@@ -74,6 +74,10 @@ defineExpose({ focus: () => input.value?.focus() });
 .ui-text-input--sm {
   height: var(--control-height-sm);
   padding: 0 var(--space-2);
+}
+
+.ui-text-input.ui-text-input--sm input {
+  font-size: var(--text-sm);
 }
 
 .ui-text-input:focus-within {

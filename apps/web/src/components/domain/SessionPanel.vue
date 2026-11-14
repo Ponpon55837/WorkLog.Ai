@@ -150,13 +150,4 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
   justify-content: space-between;
   gap: var(--space-2);
 }
-
-kbd {
-  padding: 0 5px;
-  border: 1px solid var(--border);
-  border-bottom-width: 2px;
-  border-radius: 4px;
-  background: var(--bg-subtle);
-  font-size: 11px;
-}
 </style>

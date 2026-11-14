@@ -35,12 +35,7 @@ function countEntries(
 <template>
   <UiBox sticky-header data-testid="project-deletion-audit">
     <template #header>
-      <UiBoxTitle
-        eyebrow="PROJECT DELETION AUDIT"
-        :title="t('projects.deletedProjectRecords')"
-        :icon="History"
-        :count="items.length"
-      />
+      <UiBoxTitle :title="t('projects.deletedProjectRecords')" :icon="History" :count="items.length" />
       <span class="project-deletion-audit__note">{{ t("projects.keepsOnlyTheTimeProject") }}</span>
     </template>
 
@@ -97,7 +92,7 @@ function countEntries(
 <style scoped>
 .project-deletion-audit__note {
   color: var(--fg-muted);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
 }
 
 .project-deletion-audit__counts {

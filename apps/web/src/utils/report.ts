@@ -19,11 +19,7 @@ export interface ReportShare {
 /** How a report's trend points are grouped for the overview. */
 export type ReportBucketMode = "day" | "week" | "month" | "quarter";
 
-function bucketUnit(
-  unit: MessageKey,
-  title: MessageKey,
-  eyebrow: string,
-): { unit: string; title: string; eyebrow: string } {
+function bucketUnit(unit: MessageKey, title: MessageKey): { unit: string; title: string } {
   return {
     get unit() {
       return t(unit);
@@ -31,15 +27,14 @@ function bucketUnit(
     get title() {
       return t(title);
     },
-    eyebrow,
   };
 }
 
-export const reportBucketUnits: Record<ReportBucketMode, { unit: string; title: string; eyebrow: string }> = {
-  day: bucketUnit("reports.unit.days", "reports.byDay", "By day"),
-  week: bucketUnit("reports.unit.weeks", "reports.byWeek", "By week"),
-  month: bucketUnit("reports.unit.months", "reports.byMonth", "By month"),
-  quarter: bucketUnit("reports.unit.quarters", "reports.byQuarter", "By quarter"),
+export const reportBucketUnits: Record<ReportBucketMode, { unit: string; title: string }> = {
+  day: bucketUnit("reports.unit.days", "reports.byDay"),
+  week: bucketUnit("reports.unit.weeks", "reports.byWeek"),
+  month: bucketUnit("reports.unit.months", "reports.byMonth"),
+  quarter: bucketUnit("reports.unit.quarters", "reports.byQuarter"),
 };
 
 /**

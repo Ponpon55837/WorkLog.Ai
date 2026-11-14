@@ -28,13 +28,21 @@ const monthLabels = computed(() =>
   })),
 );
 const dateFormat = computed(() => new Intl.DateTimeFormat(intlLocale(), { dateStyle: "long" }));
+/** The busiest day in the drawn range; the latest one when several tie. */
+const busiest = computed(() => {
+  let best: { date: string; sessions: number } | null = null;
+  for (const week of calendar.value.weeks)
+    for (const cell of week) if (cell && cell.sessions > 0 && cell.sessions >= (best?.sessions ?? 0)) best = cell;
+  return best;
+});
+
+function cellDate(date: string): string {
+  const [year, month, day] = date.split("-").map(Number);
+  return dateFormat.value.format(new Date(year!, month! - 1, day));
+}
 
 function cellLabel(date: string, sessions: number): string {
-  const [year, month, day] = date.split("-").map(Number);
-  return t("dashboard.activityCellLabel", {
-    date: dateFormat.value.format(new Date(year!, month! - 1, day)),
-    count: sessions,
-  });
+  return t("dashboard.activityCellLabel", { date: cellDate(date), count: sessions });
 }
 
 function shiftDate(date: string, days: number): string {
@@ -65,9 +73,6 @@ function onKeydown(event: KeyboardEvent, date: string): void {
     :description="t('dashboard.activityEmptyDescription')"
   />
   <div v-else class="activity">
-    <p class="activity__total" data-testid="activity-total">
-      {{ t("dashboard.activityTotal", { count: calendar.total }) }}
-    </p>
     <div class="activity__scroller">
       <div class="activity__chart">
         <div class="activity__months" aria-hidden="true">
@@ -88,7 +93,11 @@ function onKeydown(event: KeyboardEvent, date: string): void {
               <button
                 v-if="cell"
                 type="button"
-                :class="['activity__cell', `activity__cell--${cell.level}`]"
+                :class="[
+                  'activity__cell',
+                  `activity__cell--${cell.level}`,
+                  { 'activity__cell--today': cell.date === lastDate },
+                ]"
                 :data-date="cell.date"
                 :tabindex="cell.date === tabbableDate ? 0 : -1"
                 :aria-label="cellLabel(cell.date, cell.sessions)"
@@ -102,10 +111,19 @@ function onKeydown(event: KeyboardEvent, date: string): void {
         </div>
       </div>
     </div>
-    <div class="activity__legend" aria-hidden="true">
-      <span>{{ t("dashboard.activityLess") }}</span>
-      <span v-for="level in 5" :key="level" :class="['activity__swatch', `activity__cell--${level - 1}`]"></span>
-      <span>{{ t("dashboard.activityMore") }}</span>
+    <div class="activity__caption">
+      <p class="activity__total">
+        <span data-testid="activity-total">{{ t("dashboard.activityTotal", { count: calendar.total }) }}</span>
+        <span v-if="busiest">
+          ·
+          {{ t("dashboard.activityBusiest", { date: cellDate(busiest.date), count: busiest.sessions }) }}</span
+        >
+      </p>
+      <div class="activity__legend" aria-hidden="true">
+        <span>{{ t("dashboard.activityLess") }}</span>
+        <span v-for="level in 5" :key="level" :class="['activity__swatch', `activity__cell--${level - 1}`]"></span>
+        <span>{{ t("dashboard.activityMore") }}</span>
+      </div>
     </div>
   </div>
 </template>
@@ -120,10 +138,20 @@ function onKeydown(event: KeyboardEvent, date: string): void {
   padding: var(--space-4);
 }
 
+.activity__caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-4);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
 .activity__total {
   margin: 0;
-  color: var(--fg-muted);
-  font-size: var(--text-md);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* The full calendar follows its container width, including after sidebar or window changes. */
@@ -159,7 +187,6 @@ function onKeydown(event: KeyboardEvent, date: string): void {
 
 /* Match weekday rows to the square cells as the available width changes. */
 .activity__weekdays {
-  background: var(--bg-canvas);
   display: grid;
   grid-column: 1;
   grid-row: 2;
@@ -197,13 +224,13 @@ function onKeydown(event: KeyboardEvent, date: string): void {
 
 /* Activity is a neutral amount, not a status: accent, not success (green means passed/tracked in the status mapping). */
 .activity__cell--1 {
-  background: color-mix(in srgb, var(--accent-emphasis) 30%, var(--bg-canvas));
+  background: color-mix(in srgb, var(--accent-emphasis) 24%, var(--bg-muted));
 }
 .activity__cell--2 {
-  background: color-mix(in srgb, var(--accent-emphasis) 52%, var(--bg-canvas));
+  background: color-mix(in srgb, var(--accent-emphasis) 48%, var(--bg-muted));
 }
 .activity__cell--3 {
-  background: color-mix(in srgb, var(--accent-emphasis) 76%, var(--bg-canvas));
+  background: color-mix(in srgb, var(--accent-emphasis) 72%, var(--bg-muted));
 }
 .activity__cell--4 {
   background: var(--accent-emphasis);
@@ -214,6 +241,12 @@ function onKeydown(event: KeyboardEvent, date: string): void {
   .activity__months span:nth-child(even):not(:last-child) {
     visibility: hidden;
   }
+}
+
+/* Today is the one outlined cell. */
+.activity__cell--today {
+  outline: 1px solid var(--fg);
+  outline-offset: 1px;
 }
 
 .activity__cell:hover {
@@ -228,10 +261,7 @@ function onKeydown(event: KeyboardEvent, date: string): void {
 .activity__legend {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: var(--space-1);
-  color: var(--fg-muted);
-  font-size: var(--text-xs);
 }
 
 .activity__swatch {

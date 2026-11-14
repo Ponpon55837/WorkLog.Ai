@@ -8,15 +8,15 @@ KNOWLEDGE  工作知識 /knowledge · 工作圖譜 /graph
 MANAGE     專案 /projects/:tab?   (registry | backfill | import)
 ```
 
-Route meta: `{ title, eyebrow, group, icon }`. The sidebar, breadcrumb and `PageHeader` read from it — never hard-code page titles in App.vue.
+Route meta: `{ title, navLabel, group, icon }`. The sidebar, breadcrumb and `PageHeader` read from it — never hard-code page titles in App.vue.
 
 ## Page anatomy
 
 All pages share the full available main width and responsive gutters. Graph and other routes must keep the same left and right content edges during navigation; the main scroll container reserves stable scrollbar space.
 
-1. `PageHeader`: one compact row (about 32px) — inline eyebrow (12px) → title (16px) → description (13px, one line, ellipsis with the full text on hover); actions on the right. No bottom border, 12px gap below. The app bar breadcrumb already names the page, so never grow the header back into a stacked title block; below 640px the eyebrow hides and the description moves to its own line, still one line, so its length never shifts the controls below.
+1. `PageHeader`: one compact row (about 32px) — title (16px) → description (13px, one line, ellipsis with the full text on hover); actions on the right. No bottom border, 12px gap below. The app bar breadcrumb already names the page, so never grow the header back into a stacked title block; below 640px the description moves to its own line, still one line, so its length never shifts the controls below.
 2. Optional `UiUnderlineNav` directly under the header (full-bleed to the page gutter).
-3. Content: `StatCard` grid (4 columns ≥ 960, 2 columns below) and/or `UiBox` lists. Secondary info goes in a 340px right column at ≥ 960.
+3. Content: `UiStatGrid` of `UiStatCard`s (4 columns ≥ 960, 2 below) and/or `UiBox` lists. Secondary info goes in the `UiSplitLayout` side column (280–380px) at ≥ 960.
 
 Do not add hero banners, decorative illustrations or slogan-sized headings. The first screen belongs to data: keep page chrome (header + toolbar) under about 110px at 1440px.
 
@@ -80,7 +80,7 @@ Order is fixed: full-width **ACTIVITY** heatmap (directly after PageHeader / fir
 ## Copy rules
 
 - Copy lives in `src/i18n/locales/zh-TW.json` and `en-US.json` under semantic keys (write the 繁體中文 first, then the English); keep Session, Knowledge, verification, metadata, handoff, Agent, MCP in English in both. English copy: sentence case, plain verbs ("Back up now", "Copy Agent instruction"), singular Label names ("Reusable pattern"), and a `one|other` plural form for counts.
-- Eyebrows are English uppercase noun phrases: `TODAY'S SIGNAL`, `SESSION ARCHIVE`, `WORK REPORTS`, `EXPLICIT KNOWLEDGE`, `DETERMINISTIC WORK GRAPH`, `PROJECT REGISTRY`, `ACTION REQUIRED`, `LATEST MEMORY`, `AI SYNTHESIS`.
+- No English uppercase eyebrows: page headers and Box titles show the title only.
 - Buttons are verbs: 重試、複製 Agent 指令、前往回補、加入專案、匯出.
 - Never ask the user for MCP tool names, request IDs or JSON; instructions shown for Agents are natural language inside a copyable mono block.
 

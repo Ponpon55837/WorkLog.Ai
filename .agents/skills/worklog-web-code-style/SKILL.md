@@ -13,7 +13,7 @@ These rules describe how `apps/web` is already written. Follow them for new code
 apps/web/src/
 ├─ App.vue              AppShell + <RouterView> + global overlays only (no page logic)
 ├─ main.ts              app bootstrap; imports styles/tokens.css and styles/base.css
-├─ router.ts            routes, lazy views, route meta (title/eyebrow/group)
+├─ router.ts            routes, lazy views, route meta (title/group)
 ├─ api/                 transport.ts is the only place that calls fetch(); one module per domain
 │                       (projects.ts, sessions.ts…), composed by client.ts
 ├─ i18n/                index.ts (t, translatedRecord, locale) and locales/zh-TW.json + en-US.json (message catalogs)
@@ -122,7 +122,7 @@ The UI ships in 繁體中文 and English. Every interface string lives in one JS
 - **Counts**: write the English message as `one|other` (`"{count} file|{count} files"`); the first number placeholder picks the form.
 - **Same text, different meaning** gets different keys (`common.week` is the "Week" tab, `reports.unit.weeks` the unit).
 - **Module-level constants** (label maps, status visuals, option lists, route meta) hold keys and translate on read: `translatedRecord({...})`, `translatedOptions(list, "label")`, the `visual()` helper in `utils/status.ts`, or `t(route.meta.title)` where it is displayed. Never call `t()` in a module-level initializer or a `withDefaults` default — resolve defaults in a `computed`.
-- **Technical terms and product names** that stay English in both languages (Session, Knowledge, Evidence, Git, VS Code) still go through a key when they are interface copy; English eyebrows (`TODAY'S SIGNAL`) are a design element and stay literal.
+- **Technical terms and product names** that stay English in both languages (Session, Knowledge, Evidence, Git, VS Code) still go through a key when they are interface copy.
 - **Loading**: until a query's first answer arrives, show `UiSkeleton` (it renders a visible "loading" caption; pass `label` to name what loads) and hide counts, totals and pagination — expose a `xxxLoaded` computed (`query.data.value !== undefined`) from the store. Never render an empty state or a `0` count before the data is known.
 - **Do not translate data**: Session text, report content, Agent output, API `reason` strings and data markers (`資料不足`, `KNOWLEDGE_PAGE_INSUFFICIENT`) are compared and shown as stored.
 - **Dates and numbers** go through `utils/format.ts`, which uses `intlLocale()`; do not hard-code `"zh-TW"` in `Intl` calls. Locales are BCP 47 tags (`zh-TW`, `en-US`) used as-is for `Intl` and `<html lang>`.
@@ -141,7 +141,7 @@ The UI ships in 繁體中文 and English. Every interface string lives in one JS
 
 - `<style scoped>` only; global CSS is limited to `styles/tokens.css` and `styles/base.css`.
 - Only design tokens (`var(--…)`); raw hex/rgba are allowed only in `tokens.css`.
-- Minimum font size 12px (11px only for uppercase eyebrows in Box headers / sidebar groups).
+- Minimum font size 12px.
 - Breakpoints: `@media (max-width: 1279px)`, `(max-width: 959px)`, `(max-width: 639px)`. Mobile rules go last.
 - Style a child component's root through its class from the parent's scoped style; reach inside with `:deep()` only for lucide icons or documented slots.
 - Respect `prefers-reduced-motion` for any animation longer than 150 ms.

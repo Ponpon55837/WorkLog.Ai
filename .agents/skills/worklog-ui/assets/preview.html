@@ -42,8 +42,7 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-bottom-width: 2p
 .body { display: grid; grid-template-columns: 240px 1fr; min-height: 0; }
 .sidebar { display: flex; flex-direction: column; padding: 16px 8px; background: var(--bg-inset); border-right: 1px solid var(--border-muted); overflow-y: auto; }
 .nav-group { margin-bottom: 16px; }
-.eyebrow { font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-muted); }
-.nav-group > .eyebrow { padding: 0 8px 6px; font-size: 11px; color: var(--fg-subtle); }
+.nav-group-label { padding: 0 8px 6px; font-size: 12px; font-weight: 500; color: var(--fg-subtle); }
 .nav-item { position: relative; display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px; border: 0; border-radius: var(--radius); background: none; color: var(--fg); text-align: left; }
 .nav-item svg { color: var(--fg-muted); }
 .nav-item:hover { background: var(--bg-hover); }
@@ -92,7 +91,6 @@ kbd { padding: 1px 6px; border: 1px solid var(--border); border-bottom-width: 2p
 .box + .box { margin-top: 16px; }
 .box-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; background: var(--bg-subtle); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .box-title { display: flex; align-items: center; gap: 8px; font-weight: 600; }
-.box-title .eyebrow { font-size: 11px; }
 .box-footer { display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; background: var(--bg-subtle); border-top: 1px solid var(--border); color: var(--fg-muted); font-size: 12px; }
 .row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--border-muted); }
 .row:first-child { border-top: 0; }
@@ -192,7 +190,6 @@ code, .mono { font-family: var(--mono); font-size: 12px; }
 .meta dt { color: var(--fg-muted); } .meta dd { margin: 0; display: flex; align-items: center; gap: 6px; }
 .ws { margin-bottom: 20px; }
 .ws h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 14px; font-weight: 600; }
-.ws h3 .eyebrow { font-size: 11px; }
 .ws ul { margin: 0; padding-left: 20px; color: var(--fg); }
 .ws li { margin: 4px 0; }
 .ws li::marker { color: var(--fg-subtle); }
@@ -220,7 +217,7 @@ details[open] summary { border-bottom: 1px solid var(--border-muted); }
 
 @media (max-width: 960px) {
   .body { grid-template-columns: 56px 1fr; }
-  .sidebar .nav-item span, .sidebar .counter, .nav-group > .eyebrow, .policy div { display: none; }
+  .sidebar .nav-item span, .sidebar .counter, .nav-group-label, .policy div { display: none; }
   .nav-item { justify-content: center; }
   .policy { justify-content: center; padding: 8px; }
   .stats { grid-template-columns: repeat(2, 1fr); }
@@ -252,18 +249,18 @@ details[open] summary { border-bottom: 1px solid var(--border-muted); }
     <aside class="sidebar">
       <nav aria-label="主選單">
         <div class="nav-group">
-          <div class="eyebrow">Work</div>
+          <div class="nav-group-label">Work</div>
           <button class="nav-item active" data-view="dashboard" data-title="工作總覽"><i data-lucide="layout-dashboard"></i><span>總覽</span><span class="counter attention">3</span></button>
           <button class="nav-item" data-view="sessions" data-title="工作歷程"><i data-lucide="list-checks"></i><span>工作歷程</span><span class="counter">128</span></button>
           <button class="nav-item" data-view="reports" data-title="工作報告"><i data-lucide="bar-chart-3"></i><span>工作報告</span></button>
         </div>
         <div class="nav-group">
-          <div class="eyebrow">Knowledge</div>
+          <div class="nav-group-label">Knowledge</div>
           <button class="nav-item" data-view="placeholder" data-title="工作知識"><i data-lucide="book-open"></i><span>工作知識</span><span class="counter">42</span></button>
           <button class="nav-item" data-view="placeholder" data-title="工作圖譜"><i data-lucide="share-2"></i><span>工作圖譜</span></button>
         </div>
         <div class="nav-group">
-          <div class="eyebrow">Manage</div>
+          <div class="nav-group-label">Manage</div>
           <button class="nav-item" data-view="placeholder" data-title="專案"><i data-lucide="folder-git-2"></i><span>專案</span><span class="counter">3</span></button>
         </div>
       </nav>
@@ -275,8 +272,7 @@ details[open] summary { border-bottom: 1px solid var(--border-muted); }
       <section class="view page active" id="view-dashboard">
         <div class="page-header">
           <div>
-            <div class="eyebrow">Today's signal</div>
-            <h1>工作總覽</h1>
+                        <h1>工作總覽</h1>
             <p>2026 年 9 月 23 日（週三）· 3 個專案記錄中</p>
           </div>
           <div class="actions">
@@ -312,7 +308,7 @@ details[open] summary { border-bottom: 1px solid var(--border-muted); }
         <div class="grid-2">
           <div>
             <div class="box">
-              <div class="box-header"><div class="box-title"><span class="eyebrow">Action required</span>需要處理</div><span class="counter attention">3</span></div>
+              <div class="box-header"><div class="box-title">需要處理</div><span class="counter attention">3</span></div>
               <div class="row">
                 <i data-lucide="circle-x" class="ic c-danger"></i>
                 <div class="row-main"><div class="row-title">9 月月報 AI 整理逾時 <span class="label l-danger">失敗</span></div><div class="row-meta">Report synthesis · 月報 · 2 小時前建立 · 等待超過 30 分鐘</div></div>
@@ -331,13 +327,13 @@ details[open] summary { border-bottom: 1px solid var(--border-muted); }
             </div>
 
             <div class="box">
-              <div class="box-header"><div class="box-title"><span class="eyebrow">Latest memory</span>最近完成的工作</div><button class="btn sm invisible" data-go="sessions">查看全部<i data-lucide="arrow-right"></i></button></div>
+              <div class="box-header"><div class="box-title">最近完成的工作</div><button class="btn sm invisible" data-go="sessions">查看全部<i data-lucide="arrow-right"></i></button></div>
               <div id="recent-rows"></div>
             </div>
           </div>
 
           <div class="box">
-            <div class="box-header"><div class="box-title"><span class="eyebrow">Projects</span>專案狀態</div><button class="btn sm invisible">管理</button></div>
+            <div class="box-header"><div class="box-title">專案狀態</div><button class="btn sm invisible">管理</button></div>
             <div class="row"><i data-lucide="folder-git-2" class="ic c-muted"></i><div class="row-main"><div class="row-title">WorkLog.Ai</div><div class="row-meta mono">C:\Users\dgh\Desktop\github\WorkLog.Ai</div><div class="row-meta">最後活動 12 分鐘前 · 86 Sessions</div></div><span class="label l-success">記錄中</span></div>
             <div class="row"><i data-lucide="folder-git-2" class="ic c-muted"></i><div class="row-main"><div class="row-title">Assistant Console</div><div class="row-meta mono">D:\work\assistant</div><div class="row-meta">最後活動 昨天 · 31 Sessions</div></div><span class="label l-success">記錄中</span></div>
             <div class="row"><i data-lucide="folder-git-2" class="ic c-muted"></i><div class="row-main"><div class="row-title">DevTools</div><div class="row-meta mono">D:\work\devtools</div><div class="row-meta">最後活動 9 月 18 日 · 11 Sessions</div></div><span class="label l-success">記錄中</span></div>
@@ -350,8 +346,7 @@ details[open] summary { border-bottom: 1px solid var(--border-muted); }
       <section class="view page" id="view-sessions">
         <div class="page-header">
           <div>
-            <div class="eyebrow">Session archive</div>
-            <h1>工作歷程</h1>
+                        <h1>工作歷程</h1>
             <p>每一次完成，都留下可追溯的脈絡。</p>
           </div>
           <div class="actions"><button class="btn"><i data-lucide="download"></i>匯出</button></div>
@@ -381,8 +376,7 @@ details[open] summary { border-bottom: 1px solid var(--border-muted); }
       <section class="view page" id="view-reports">
         <div class="page-header">
           <div>
-            <div class="eyebrow">Work reports</div>
-            <h1>工作報告</h1>
+                        <h1>工作報告</h1>
             <p>週報 · 2026/09/21 – 09/27 · 所有記錄中專案</p>
           </div>
           <div class="actions">
@@ -403,7 +397,7 @@ details[open] summary { border-bottom: 1px solid var(--border-muted); }
 
         <div class="box">
           <div class="box-header">
-            <div class="box-title"><i data-lucide="sparkles" class="c-done"></i><span class="eyebrow">AI synthesis</span>本週重點整理 <span class="label l-done"><i data-lucide="check"></i>已完成</span></div>
+            <div class="box-title"><i data-lucide="sparkles" class="c-done"></i>本週重點整理 <span class="label l-done"><i data-lucide="check"></i>已完成</span></div>
             <div class="actions"><button class="btn sm invisible"><i data-lucide="history"></i>版本 3 / 3<i data-lucide="chevron-down"></i></button><button class="btn sm"><i data-lucide="rotate-ccw"></i>重新整理</button></div>
           </div>
           <div class="synth">
@@ -433,14 +427,14 @@ details[open] summary { border-bottom: 1px solid var(--border-muted); }
         </div>
 
         <div class="box">
-          <div class="box-header"><div class="box-title"><span class="eyebrow">Trend</span>每日工作量</div><div class="legend"><span><i style="background:var(--accent)"></i>Sessions</span><span><i style="background:var(--done)"></i>Events ÷ 10</span></div></div>
+          <div class="box-header"><div class="box-title">每日工作量</div><div class="legend"><span><i style="background:var(--accent)"></i>Sessions</span><span><i style="background:var(--done)"></i>Events ÷ 10</span></div></div>
           <div class="chart" id="chart"></div>
         </div>
       </section>
 
       <!-- ============ PLACEHOLDER ============ -->
       <section class="view page" id="view-placeholder">
-        <div class="page-header"><div><div class="eyebrow">Preview</div><h1 id="ph-title">—</h1></div></div>
+        <div class="page-header"><div><h1 id="ph-title">—</h1></div></div>
         <div class="box"><div class="placeholder"><i data-lucide="layers"></i><strong>這頁不在這次預覽範圍</strong>會沿用同一套 Box、Label、UnderlineNav 元件，在 P3 階段遷移。</div></div>
       </section>
     </main>
@@ -452,7 +446,7 @@ details[open] summary { border-bottom: 1px solid var(--border-muted); }
 <aside class="panel" id="panel" role="dialog" aria-modal="true" aria-label="Session 詳情">
   <div class="panel-head">
     <div class="panel-top">
-      <span class="eyebrow">Session · <span class="mono" id="p-id"></span></span>
+      <span class="mono" id="p-id"></span>
       <div class="actions">
         <button class="btn sm invisible" id="p-prev" aria-label="上一筆"><i data-lucide="chevron-up"></i></button>
         <button class="btn sm invisible" id="p-next" aria-label="下一筆"><i data-lucide="chevron-down"></i></button>
@@ -599,8 +593,8 @@ function openPanel(i) {
   document.getElementById("p-project").innerHTML = `<i data-lucide="folder-git-2" class="c-muted"></i>${s.project}`;
   document.getElementById("p-time").textContent = `${s.full}（${s.time}）`;
   document.getElementById("p-verify").innerHTML = `<span class="label ${lc}">${lt}</span>`;
-  document.getElementById("p-ws").innerHTML = Object.entries(ws).map(([k, [label, items]]) =>
-    `<div class="ws"><h3>${label} <span class="eyebrow">${k}</span></h3>${items.length ? `<ul>${items.map(x => `<li>${x}</li>`).join("")}</ul>` : `<div class="empty-dash">—</div>`}</div>`).join("");
+  document.getElementById("p-ws").innerHTML = Object.values(ws).map(([label, items]) =>
+    `<div class="ws"><h3>${label}</h3>${items.length ? `<ul>${items.map(x => `<li>${x}</li>`).join("")}</ul>` : `<div class="empty-dash">—</div>`}</div>`).join("");
   document.getElementById("p-pos").textContent = `${i + 1} / ${sessions.length}`;
   panel.classList.add("open"); backdrop.classList.add("open");
   lucide.createIcons();

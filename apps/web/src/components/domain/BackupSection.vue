@@ -19,6 +19,9 @@ import UiFlash from "../ui/UiFlash.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiSelect from "../ui/UiSelect.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
+import UiStack from "../ui/UiStack.vue";
+import UiStatCard from "../ui/UiStatCard.vue";
+import UiStatGrid from "../ui/UiStatGrid.vue";
 import VirtualList from "../VirtualList.vue";
 import { t } from "../../i18n";
 
@@ -149,14 +152,13 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
 </script>
 
 <template>
-  <div class="backup-section">
+  <UiStack class="backup-section">
     <UiFlash v-if="backupsError" tone="danger">{{ backupsError }}</UiFlash>
 
     <UiBox>
       <template #header>
         <UiBoxTitle
           :icon="Archive"
-          eyebrow="Backups"
           :title="t('projects.dataBackup')"
           :count="backupsLoaded ? backups.length : undefined"
         />
@@ -229,7 +231,7 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
 
     <UiBox padded>
       <template #header>
-        <UiBoxTitle :icon="Download" eyebrow="Move to another computer" :title="t('projects.exportAllData')" />
+        <UiBoxTitle :icon="Download" :title="t('projects.exportAllData')" />
         <UiButton size="sm" variant="primary" :icon="Download" :loading="databaseExporting" @click="exportDatabase">{{
           t("common.export")
         }}</UiButton>
@@ -262,12 +264,7 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
 
     <UiBox padded>
       <template #header>
-        <UiBoxTitle
-          :icon="Archive"
-          eyebrow="Portable project data"
-          :title="t('projects.exportAndImportByProject')"
-          :count="projects.length"
-        />
+        <UiBoxTitle :icon="Archive" :title="t('projects.exportAndImportByProject')" :count="projects.length" />
       </template>
       <UiFlash v-if="transferError" tone="danger">{{ transferError }}</UiFlash>
       <p class="backup-section__hint">
@@ -287,7 +284,7 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
           />
         </UiField>
         <UiButton
-          size="sm"
+          class="transfer-controls__action"
           :icon="Download"
           :loading="portableExporting"
           :disabled="exportScope === 'project' && !exportProjectId"
@@ -319,10 +316,12 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
             data-testid="project-import-strategy"
           />
         </UiField>
+      </div>
+      <div class="transfer-controls__footer">
         <p class="backup-section__hint">
           {{ t("projects.theFileIsPreviewedAs") }}
         </p>
-        <UiButton size="sm" :loading="importLoading" :disabled="!importFileName" @click="previewProjectDataImport">
+        <UiButton :loading="importLoading" :disabled="!importFileName" @click="previewProjectDataImport">
           {{ t("projects.previewAgain") }}
         </UiButton>
       </div>
@@ -359,35 +358,45 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
             </UiBoxRow>
           </template>
         </VirtualList>
-        <div class="transfer-preview__counts">
-          <div data-testid="project-import-additions">
-            <span>{{ t("common.added") }}</span>
-            <strong>{{ importSummary(importPreview).additions }}</strong>
-            <small>{{
-              t("projects.projectsSessionsKnowledge", {
+        <UiStatGrid :columns="5">
+          <UiStatCard
+            compact
+            data-testid="project-import-additions"
+            :label="t('common.added')"
+            :value="importSummary(importPreview).additions"
+            :foot="
+              t('projects.projectsSessionsKnowledge', {
                 value: importSummary(importPreview).projects,
                 value2: importSummary(importPreview).sessions,
                 value3: importSummary(importPreview).knowledge,
               })
-            }}</small>
-          </div>
-          <div data-testid="project-import-updates">
-            <span>{{ t("projects.updated") }}</span>
-            <strong>{{ importSummary(importPreview).updates }}</strong>
-          </div>
-          <div data-testid="project-import-kept-local">
-            <span>{{ t("projects.keptLocal") }}</span>
-            <strong>{{ importSummary(importPreview).keptLocal }}</strong>
-          </div>
-          <div data-testid="project-import-skipped">
-            <span>{{ t("projects.skipped") }}</span>
-            <strong>{{ importSummary(importPreview).skipped }}</strong>
-          </div>
-          <div data-testid="project-import-conflicts">
-            <span>{{ t("projects.conflicts") }}</span>
-            <strong>{{ importSummary(importPreview).conflicts }}</strong>
-          </div>
-        </div>
+            "
+          />
+          <UiStatCard
+            compact
+            data-testid="project-import-updates"
+            :label="t('projects.updated')"
+            :value="importSummary(importPreview).updates"
+          />
+          <UiStatCard
+            compact
+            data-testid="project-import-kept-local"
+            :label="t('projects.keptLocal')"
+            :value="importSummary(importPreview).keptLocal"
+          />
+          <UiStatCard
+            compact
+            data-testid="project-import-skipped"
+            :label="t('projects.skipped')"
+            :value="importSummary(importPreview).skipped"
+          />
+          <UiStatCard
+            compact
+            data-testid="project-import-conflicts"
+            :label="t('projects.conflicts')"
+            :value="importSummary(importPreview).conflicts"
+          />
+        </UiStatGrid>
         <p v-if="remappedProjectCount > 0 || remappedSnapshotCount > 0" class="backup-section__hint">
           {{
             t("projects.pathRemappingAppliedProjectsHandoffs", {
@@ -441,19 +450,10 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
         }}</UiButton>
       </div>
     </UiBox>
-  </div>
+  </UiStack>
 </template>
 
 <style scoped>
-.backup-section {
-  display: grid;
-  gap: var(--space-4);
-}
-
-.backup-section > .ui-box + .ui-box {
-  margin-top: 0;
-}
-
 .backup-section__actions {
   display: flex;
   align-items: center;
@@ -467,10 +467,15 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
 }
 
 .backup-section__note,
-.backup-section__hint,
+.backup-section__hint {
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
 .backup-section__time {
   color: var(--fg-muted);
   font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
 }
 
 .backup-section__folder-status {
@@ -513,39 +518,65 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
   overflow-wrap: anywhere;
 }
 
+/* Export row has no hints, so bottom alignment keeps the button level with the selects. */
 .transfer-controls {
   display: grid;
-  grid-template-columns: minmax(160px, 220px) minmax(180px, 1fr) auto;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 260px));
   align-items: end;
   gap: var(--space-3);
   margin-top: var(--space-4);
 }
 
+.transfer-controls__action {
+  justify-self: start;
+}
+
+/* The file field carries a hint under its control, so the import row aligns from the top. */
 .transfer-controls--import {
-  grid-template-columns: minmax(220px, 1.3fr) repeat(2, minmax(160px, 1fr)) minmax(160px, 1fr) auto;
+  grid-template-columns: minmax(220px, 320px) repeat(auto-fill, minmax(200px, 260px));
+  align-items: start;
   padding-top: var(--space-4);
   border-top: 1px solid var(--border-muted);
 }
 
+.transfer-controls__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-3);
+}
+
+.transfer-controls__footer .backup-section__hint {
+  flex: 1 1 320px;
+  margin: 0;
+}
+
 .backup-section__file-input {
+  box-sizing: border-box;
   width: 100%;
   min-width: 0;
-  padding: var(--space-2);
+  height: var(--control-height);
+  padding: 0 var(--space-2) 0 2px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--bg-muted);
-  color: var(--fg);
-  font-size: var(--text-xs);
+  background: var(--bg-surface);
+  color: var(--fg-muted);
+  font-size: var(--text-md);
+  line-height: calc(var(--control-height) - 2px);
 }
 
 .backup-section__file-input::file-selector-button {
-  margin-right: var(--space-2);
-  padding: var(--space-1) var(--space-2);
+  height: var(--control-height-sm);
+  margin: 0 var(--space-2) 0 0;
+  padding: 0 var(--space-3);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-subtle);
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--bg-muted);
   color: var(--fg);
   font: inherit;
+  font-weight: 500;
   cursor: pointer;
 }
 
@@ -568,48 +599,9 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
   white-space: normal;
 }
 
-.transfer-preview__counts {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: var(--space-3);
-}
-
-.transfer-preview__counts > div {
-  display: grid;
-  gap: var(--space-1);
-  min-width: 0;
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-subtle);
-}
-
-.transfer-preview__counts span,
-.transfer-preview__counts small {
-  color: var(--fg-muted);
-  font-size: var(--text-xs);
-}
-
-.transfer-preview__counts strong {
-  font-size: var(--text-lg);
-  font-variant-numeric: tabular-nums;
-}
-
-@media (max-width: 1279px) {
-  .transfer-controls,
-  .transfer-controls--import {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .transfer-preview__counts {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
 @media (max-width: 639px) {
   .transfer-controls,
-  .transfer-controls--import,
-  .transfer-preview__counts {
+  .transfer-controls--import {
     grid-template-columns: minmax(0, 1fr);
   }
 }

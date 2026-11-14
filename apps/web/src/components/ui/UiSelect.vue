@@ -44,7 +44,7 @@ const describedBy = useFieldDescription();
   padding: 0 28px 0 var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--bg-muted);
+  background: var(--bg-surface);
   color: var(--fg);
   font-size: var(--text-md);
   font-weight: 500;
@@ -56,7 +56,7 @@ const describedBy = useFieldDescription();
 
 .ui-select--sm select {
   height: var(--control-height-sm);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
 }
 
 .ui-select--with-icon select {
@@ -65,7 +65,7 @@ const describedBy = useFieldDescription();
 
 .ui-select select:hover:not(:disabled) {
   border-color: var(--border-strong);
-  background: var(--bg-muted-hover);
+  background: var(--bg-muted);
 }
 
 .ui-select select:focus-visible {
@@ -79,7 +79,7 @@ const describedBy = useFieldDescription();
 }
 
 .ui-select option {
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
   color: var(--fg);
 }
 

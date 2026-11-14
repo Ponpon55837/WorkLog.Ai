@@ -1,0 +1,625 @@
+<title>Work Intelligence 改版預覽</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* 版面概念：安靜的外框 + 一條「沉澱 → 再利用 → 修正」循環帶當作全頁唯一的亮點 */
+:root {
+  --bg: #f6f8fa; --surface: #ffffff; --sunken: #eef1f4; --border: #d8dee4;
+  --fg: #1f2328; --muted: #59636e; --faint: #818b98;
+  --accent: #0754ae; --on-accent: #ffffff;
+  --ok: #1a7f37; --warn: #9a6700; --danger: #cf222e;
+  --font: "Inter", "Noto Sans TC", system-ui, -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --r-in: 6px; --r-out: 10px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1117; --surface: #151b23; --sunken: #0a0e13; --border: #2a313c;
+    --fg: #e6edf3; --muted: #9198a1; --faint: #6e7681;
+    --accent: #4493f8; --on-accent: #0d1117;
+    --ok: #3fb950; --warn: #d29922; --danger: #f85149; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1117; --surface: #151b23; --sunken: #0a0e13; --border: #2a313c;
+  --fg: #e6edf3; --muted: #9198a1; --faint: #6e7681;
+  --accent: #4493f8; --on-accent: #0d1117;
+  --ok: #3fb950; --warn: #d29922; --danger: #f85149; color-scheme: dark;
+}
+/* 提案 B：岩層色。中性色帶一點青灰，強調色換成銅色 */
+:root.v-b {
+  --bg: #f3f5f4; --surface: #fcfdfc; --sunken: #e8ecea; --border: #d3dad7;
+  --fg: #17201d; --muted: #55635e; --faint: #7f8c87;
+  --accent: #a2530b; --on-accent: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root.v-b:not([data-theme="light"]) {
+    --bg: #0e1413; --surface: #151d1b; --sunken: #0a0f0e; --border: #27322f;
+    --fg: #e4ebe8; --muted: #93a09b; --faint: #6b7873;
+    --accent: #e8a04a; --on-accent: #17120a;
+  }
+}
+:root.v-b[data-theme="dark"] {
+  --bg: #0e1413; --surface: #151d1b; --sunken: #0a0f0e; --border: #27322f;
+  --fg: #e4ebe8; --muted: #93a09b; --faint: #6b7873;
+  --accent: #e8a04a; --on-accent: #17120a;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; line-height: 1.5; }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.num { font-variant-numeric: tabular-nums; }
+svg.i { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 20px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 20px; }
+
+/* 預覽說明列（不屬於產品畫面） */
+.bar { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: space-between; }
+.bar h1 { font-size: 18px; font-weight: 600; margin: 0; }
+.bar p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; padding: 2px; background: var(--surface); }
+.seg button { border: 0; background: none; padding: 5px 12px; border-radius: 6px; color: var(--muted); font-size: 13px; transition: background-color .15s var(--ease), color .15s var(--ease); }
+.seg button[aria-pressed="true"] { background: var(--sunken); color: var(--fg); font-weight: 500; }
+
+/* 產品外框 */
+.app { border: 1px solid var(--border); border-radius: var(--r-out); overflow: hidden; background: var(--bg); }
+.top { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+.logo { width: 24px; height: 24px; border-radius: 6px; background: var(--fg); color: var(--bg); display: grid; place-items: center; font: 600 11px var(--mono); }
+.crumb { color: var(--muted); } .crumb b { color: var(--fg); font-weight: 500; }
+.search { margin-left: auto; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 5px 8px 5px 10px; border: 1px solid var(--border); border-radius: var(--r-in); background: var(--surface); color: var(--faint); font-size: 13px; }
+.search span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+kbd { font: 500 11px var(--mono); color: var(--muted); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--bg); }
+.local { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+.local i { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+
+.shell { display: grid; grid-template-columns: 208px minmax(0, 1fr); }
+.side { border-right: 1px solid var(--border); padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; }
+.side .grp { font-size: 12px; color: var(--faint); padding: 12px 10px 4px; }
+.side a { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: var(--r-in); color: var(--muted); text-decoration: none; transition: background-color .15s var(--ease), color .15s var(--ease); }
+.side a:hover { background: var(--sunken); color: var(--fg); }
+.side a[aria-current] { background: var(--sunken); color: var(--fg); font-weight: 500; }
+.side a .c { margin-left: auto; font-size: 12px; color: var(--faint); }
+.main { padding: 24px; min-width: 0; }
+.view { display: grid; gap: 24px; min-width: 0; }
+.view > * { animation: rise .5s var(--ease) both; }
+.view > :nth-child(2) { animation-delay: .05s } .view > :nth-child(3) { animation-delay: .1s }
+.view > :nth-child(4) { animation-delay: .15s } .view > :nth-child(5) { animation-delay: .2s }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+@media (prefers-reduced-motion: reduce) { .view > * { animation: none; } * { transition: none !important; } }
+
+.head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.head h2 { font-size: 20px; font-weight: 600; margin: 0; }
+.head .sub { color: var(--muted); font-size: 13px; }
+.head .acts { margin-left: auto; display: flex; gap: 8px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border: 1px solid var(--border); border-radius: var(--r-in); background: var(--surface); font-size: 13px; font-weight: 500; transition: background-color .15s var(--ease); }
+.btn:hover { background: var(--sunken); }
+.btn.pri { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.pri:hover { background: color-mix(in srgb, var(--accent) 88%, var(--fg)); }
+
+/* 亮點：循環帶 */
+.loop { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-out); padding: 20px 20px 16px; }
+.loop .say { font-size: 17px; font-weight: 500; margin: 0 0 16px; text-wrap: balance; }
+.loop .say em { font-style: normal; color: var(--accent); font-weight: 600; }
+.stages { display: grid; grid-template-columns: 1fr auto 1.25fr auto 1fr; gap: 12px; align-items: stretch; }
+.stage { padding: 12px 14px; border-radius: var(--r-in); background: var(--bg); min-width: 0; }
+.stage.hot { background: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
+.stage .k { font-size: 13px; color: var(--muted); }
+.stage .v { font-size: 28px; font-weight: 600; line-height: 1.2; margin-top: 2px; }
+.stage .v small { font-size: 13px; font-weight: 400; color: var(--muted); margin-left: 4px; }
+.stage .d { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.dots { display: flex; gap: 5px; margin-top: 10px; }
+.dots i { width: 14px; height: 14px; border-radius: 4px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.dots i.on { background: var(--accent); border-color: var(--accent); }
+.arrow { display: grid; place-items: center; color: var(--faint); }
+.back { position: relative; margin: 0 14% 0; height: 22px; border: 1px solid var(--border); border-top: 0; border-radius: 0 0 10px 10px; }
+.back::before { content: ""; position: absolute; left: -4.5px; top: -1px; width: 8px; height: 8px; border-left: 1px solid var(--faint); border-top: 1px solid var(--faint); transform: rotate(45deg); }
+.back span { position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%); background: var(--surface); padding: 0 10px; font-size: 12px; color: var(--faint); white-space: nowrap; }
+
+/* 數字卡：一大三小 */
+.stats { display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr; gap: 12px; }
+.stat { border: 1px solid var(--border); border-radius: var(--r-out); padding: 14px 16px; background: var(--surface); min-width: 0; }
+.stat .k { font-size: 13px; color: var(--muted); }
+.stat .v { font-size: 24px; font-weight: 600; line-height: 1.25; margin-top: 2px; }
+.stat .v small { font-size: 13px; font-weight: 400; color: var(--muted); }
+.stat .d { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.stat .d .dn { color: var(--danger); } .stat .d .okc { color: var(--ok); }
+.stat.big { display: flex; gap: 16px; justify-content: space-between; align-items: flex-end; }
+.bars { display: flex; align-items: flex-end; gap: 4px; height: 52px; flex: 1; max-width: 220px; }
+.bars i { flex: 1; background: color-mix(in srgb, var(--fg) 14%, var(--surface)); border-radius: 2px 2px 0 0; }
+.bars i:last-child { background: var(--accent); }
+.meter { height: 4px; border-radius: 2px; background: var(--sunken); margin-top: 10px; overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--ok); }
+
+/* 熱度 */
+.card { border: 1px solid var(--border); border-radius: var(--r-out); background: var(--surface); min-width: 0; }
+.card > header { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.card > header { flex-wrap: wrap; }
+.card > header h3 { font-size: 14px; font-weight: 600; margin: 0; white-space: nowrap; }
+.card > header .more { margin-left: auto; font-size: 13px; color: var(--muted); display: inline-flex; gap: 4px; align-items: center; background: none; border: 0; padding: 0; }
+.card > header .more:hover { color: var(--fg); }
+.pill { font-size: 12px; padding: 0 7px; border-radius: 999px; background: var(--sunken); color: var(--muted); }
+.heat { padding: 14px 16px 12px; overflow-x: auto; }
+.heat .grid { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 11px); grid-auto-columns: minmax(11px, 1fr); gap: 3px; width: 100%; min-width: 740px; }
+.heat .grid i { border-radius: 2px; background: var(--sunken); }
+.heat .grid i.l1 { background: color-mix(in srgb, var(--accent) 22%, var(--sunken)); }
+.heat .grid i.l2 { background: color-mix(in srgb, var(--accent) 45%, var(--sunken)); }
+.heat .grid i.l3 { background: color-mix(in srgb, var(--accent) 70%, var(--sunken)); }
+.heat .grid i.l4 { background: var(--accent); }
+.heat .grid i.today { outline: 1px solid var(--fg); outline-offset: 1px; }
+.heat .cap { display: flex; flex-wrap: wrap; gap: 4px 16px; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 10px; }
+
+/* 兩欄 */
+.cols { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--border); transition: background-color .15s var(--ease); }
+.row:first-of-type { border-top: 0; }
+.row:hover { background: color-mix(in srgb, var(--sunken) 60%, var(--surface)); }
+.row .t { min-width: 0; flex: 1; }
+.row .t b { display: block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .t span { font-size: 12px; color: var(--muted); }
+.tag { font-size: 12px; padding: 1px 7px; border-radius: 999px; white-space: nowrap; color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--surface)); }
+.tag.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, var(--surface)); }
+.age { width: 44px; text-align: right; font-size: 12px; color: var(--faint); white-space: nowrap; }
+.go { border: 0; background: none; color: var(--faint); padding: 4px; border-radius: 4px; display: grid; }
+.row:hover .go { color: var(--fg); }
+.spark { display: flex; align-items: flex-end; gap: 2px; height: 18px; width: 44px; }
+.spark i { flex: 1; background: color-mix(in srgb, var(--fg) 22%, var(--surface)); border-radius: 1px; min-height: 2px; }
+.foot { padding: 10px 16px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 12px; }
+.time { width: 64px; font-size: 12px; color: var(--faint); white-space: nowrap; }
+.files { font: 12px var(--mono); color: var(--muted); white-space: nowrap; }
+
+/* 其他頁面共用 */
+.side a.off { opacity: .45; cursor: default; }
+.side a.off:hover { background: none; color: var(--muted); }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+.tabs button { border: 0; background: none; padding: 8px 12px; color: var(--muted); border-bottom: 2px solid transparent; white-space: nowrap; display: inline-flex; gap: 8px; align-items: center; margin-bottom: -1px; }
+.tabs button[aria-selected="true"] { color: var(--fg); border-color: var(--accent); font-weight: 500; }
+.tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.field { flex: 1 1 240px; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--r-in); background: var(--surface); color: var(--faint); min-width: 0; }
+.chip { border: 1px solid var(--border); background: var(--surface); border-radius: var(--r-in); padding: 5px 10px; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.chip:hover { color: var(--fg); background: var(--sunken); }
+.chip.on { color: var(--fg); background: var(--sunken); font-weight: 500; }
+
+/* 工作歷程：時間軌 */
+.day { display: flex; align-items: baseline; gap: 10px; padding: 10px 16px; background: var(--bg); border-top: 1px solid var(--border); font-size: 13px; font-weight: 500; }
+.day:first-of-type { border-top: 0; }
+.day span { color: var(--muted); font-weight: 400; font-size: 12px; }
+.s { display: grid; grid-template-columns: 56px 16px minmax(0, 1fr) auto; gap: 0 10px; padding: 0 16px; transition: background-color .15s var(--ease); }
+.s:hover { background: color-mix(in srgb, var(--sunken) 60%, var(--surface)); }
+.s .tm { padding-top: 12px; font-size: 12px; color: var(--faint); text-align: right; }
+.s .rail { position: relative; }
+.s .rail::before { content: ""; position: absolute; left: 7.5px; top: 0; bottom: 0; width: 1px; background: var(--border); }
+.s .rail::after { content: ""; position: absolute; left: 4px; top: 16px; width: 8px; height: 8px; border-radius: 50%; background: var(--surface); border: 1.5px solid var(--ok); }
+.s.fail .rail::after { border-color: var(--danger); }
+.s .bd { padding: 10px 0 12px; min-width: 0; }
+.s .bd b { font-weight: 500; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.s .bd p { margin: 2px 0 0; color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.s .bd small { font-size: 12px; color: var(--faint); }
+.s .bd small em { font-style: normal; color: var(--accent); }
+.s .mt { display: flex; align-items: center; gap: 10px; padding-top: 10px; align-self: start; }
+.tag.bad { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--surface)); }
+.tag.info { color: var(--muted); background: var(--sunken); }
+
+/* 工作知識 */
+.kcols { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px; align-items: start; }
+.kn { padding: 14px 16px; border-top: 1px solid var(--border); display: grid; gap: 6px; }
+.kn:first-of-type { border-top: 0; }
+.kn .h { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.kn .h b { font-weight: 600; min-width: 0; }
+.kn p { margin: 0; color: var(--muted); font-size: 13px; max-width: 72ch; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.kn .f { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--faint); align-items: center; }
+.trust { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.trust span { display: inline-flex; gap: 2px; }
+.trust i { width: 5px; height: 12px; border-radius: 1px; background: var(--ok); }
+.trust i.x { background: var(--danger); }
+.trust i.n { background: var(--border); }
+.stale { font-size: 13px; color: var(--warn); }
+.aside { display: grid; gap: 12px; }
+.aside .card { padding: 14px 16px; }
+.aside h3 { font-size: 13px; font-weight: 600; margin: 0 0 8px; }
+.aside ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 13px; }
+.aside li { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); }
+.aside li b { color: var(--fg); font-weight: 600; }
+.mix { display: flex; height: 8px; border-radius: 4px; overflow: hidden; gap: 2px; margin-bottom: 10px; }
+.mix i { background: color-mix(in srgb, var(--fg) var(--o), var(--surface)); }
+
+/* 工作圖譜：時間軸 */
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); align-items: center; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.legend i.dm { transform: rotate(45deg) scale(.8); background: var(--accent); }
+.tlwrap { overflow-x: auto; }
+.tl { display: grid; grid-template-columns: 112px repeat(30, minmax(20px, 1fr)); min-width: 780px; }
+.tl > div { border-top: 1px solid var(--border); }
+.tl .hd { border-top: 0; font-size: 11px; color: var(--faint); padding: 6px 0; text-align: center; }
+.tl .nm { padding: 10px 12px 10px 16px; font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl .nm small { display: block; font-weight: 400; font-size: 12px; color: var(--faint); }
+.tl .c { height: 60px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 6px 3px 0; gap: 4px; border-left: 1px solid color-mix(in srgb, var(--border) 45%, transparent); }
+.tl .c.wk { background: color-mix(in srgb, var(--sunken) 55%, transparent); }
+.tl .c .b { width: 100%; background: color-mix(in srgb, var(--fg) 30%, var(--surface)); border-radius: 2px 2px 0 0; }
+.tl .c .b.f { background: var(--danger); }
+.tl .c .k { width: 7px; height: 7px; background: var(--accent); transform: rotate(45deg); flex: none; margin-bottom: auto; }
+
+/* 工作報告 */
+.banner { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; padding: 12px 16px; border: 1px dashed var(--border); border-radius: var(--r-out); color: var(--muted); font-size: 13px; }
+.rcols { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; padding: 16px; align-items: end; }
+.week div { display: grid; gap: 6px; justify-items: center; font-size: 12px; color: var(--muted); }
+.week .col { width: 100%; height: 120px; display: flex; align-items: flex-end; }
+.week .col { justify-content: center; }
+.week .col i { width: 100%; max-width: 44px; min-height: 2px; background: color-mix(in srgb, var(--fg) 14%, var(--surface)); border-radius: 3px 3px 0 0; }
+.week .top .col i { background: var(--accent); }
+.week b { font-weight: 600; color: var(--fg); }
+.share { padding: 16px; display: grid; gap: 12px; }
+.share ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 13px; }
+.share li { display: flex; align-items: center; gap: 8px; }
+.share li i { width: 10px; height: 10px; border-radius: 2px; background: color-mix(in srgb, var(--fg) var(--o), var(--surface)); }
+.share li span { margin-left: auto; color: var(--muted); }
+.story { padding: 4px 16px 12px; margin: 0; list-style: none; }
+.story li { padding: 10px 0; border-top: 1px solid var(--border); display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; }
+.story li:first-child { border-top: 0; }
+.story time { font-size: 12px; color: var(--faint); padding-top: 2px; }
+.story p { margin: 0; max-width: 70ch; }
+.story p span { color: var(--muted); }
+@media (max-width: 860px) {
+  .kcols, .rcols { grid-template-columns: minmax(0, 1fr); }
+  .s { grid-template-columns: 44px 16px minmax(0, 1fr); } .s .mt { grid-column: 3; padding: 0 0 12px; }
+}
+
+/* 改動說明 */
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px 28px; }
+.notes h2 { grid-column: 1 / -1; font-size: 16px; font-weight: 600; margin: 8px 0 0; }
+.notes div b { display: block; font-weight: 600; }
+.notes div p { margin: 2px 0 0; color: var(--muted); font-size: 13px; max-width: 60ch; }
+.credit { font-size: 12px; color: var(--faint); margin: 0; }
+
+@media (max-width: 860px) {
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  .side { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--border); padding: 8px; }
+  .side .grp, .side a .c { display: none; } .side a { white-space: nowrap; }
+  .main { padding: 16px; } .view { gap: 16px; }
+  .stages { grid-template-columns: 1fr; } .arrow { transform: rotate(90deg); } .back { display: none; }
+  .stats { grid-template-columns: 1fr 1fr; } .stat.big, .stat:last-child { grid-column: 1 / -1; }
+  .cols { grid-template-columns: minmax(0, 1fr); }
+  .search span, .local { display: none; } .age, .files { display: none; }
+}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+  <symbol id="list" viewBox="0 0 24 24"><path d="M10 6h11M10 12h11M10 18h11M3 6l1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17"/></symbol>
+  <symbol id="chart" viewBox="0 0 24 24"><path d="M3 3v18h18M8 17v-5M13 17V8M18 17v-9"/></symbol>
+  <symbol id="book" viewBox="0 0 24 24"><path d="M12 7v14M3 18V5h6a3 3 0 0 1 3 3 3 3 0 0 1 3-3h6v13h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></symbol>
+  <symbol id="share" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></symbol>
+  <symbol id="folder" viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="pulse" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+  <symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></symbol>
+  <symbol id="right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></symbol>
+</svg>
+
+<div class="wrap">
+  <div class="bar">
+    <div>
+      <h1>改版預覽</h1>
+      <p>全部是示意資料。點左側選單可以切換五個頁面。</p>
+    </div>
+    <div class="seg" role="group" aria-label="配色提案">
+      <button id="va" type="button" aria-pressed="true">A 現有藍色精修</button>
+      <button id="vb" type="button" aria-pressed="false">B 岩層銅色</button>
+    </div>
+  </div>
+
+  <div class="app">
+    <div class="top">
+      <div class="logo">WI</div>
+      <div class="crumb">Work Intelligence / <b id="crumb">工作總覽</b></div>
+      <div class="search"><svg class="i"><use href="#search"/></svg><span>搜尋 Session、Knowledge 或跳至頁面</span><kbd>⌘</kbd><kbd>K</kbd></div>
+      <div class="local"><i></i>本機優先</div>
+    </div>
+    <div class="shell">
+      <nav class="side" aria-label="主要導覽">
+        <a href="#overview" data-v="overview"><svg class="i"><use href="#grid"/></svg>總覽<span class="c num">41</span></a>
+        <a href="#history" data-v="history"><svg class="i"><use href="#list"/></svg>工作歷程<span class="c num">563</span></a>
+        <a href="#reports" data-v="reports"><svg class="i"><use href="#chart"/></svg>工作報告</a>
+        <div class="grp">知識</div>
+        <a href="#knowledge" data-v="knowledge"><svg class="i"><use href="#book"/></svg>工作知識</a>
+        <a href="#graph" data-v="graph"><svg class="i"><use href="#share"/></svg>工作圖譜</a>
+        <div class="grp">設定</div>
+        <a class="off" aria-disabled="true" title="這次沒有做預覽"><svg class="i"><use href="#folder"/></svg>專案<span class="c num">6</span></a>
+        <a class="off" aria-disabled="true" title="這次沒有做預覽"><svg class="i"><use href="#pulse"/></svg>系統狀態</a>
+      </nav>
+
+      <main class="main">
+<div class="view" id="v-overview">
+        <div class="head">
+          <h2>工作總覽</h2>
+          <span class="sub num">11月9日 星期一・6 個專案記錄中</span>
+          <div class="acts">
+            <button class="btn" type="button"><svg class="i"><use href="#list"/></svg>全部 Sessions</button>
+            <button class="btn pri" type="button"><svg class="i"><use href="#chart"/></svg>本週報告</button>
+          </div>
+        </div>
+
+        <section class="card">
+          <header><h3>工作熱度</h3><span class="pill num">過去一年 563 筆</span></header>
+          <div class="heat">
+            <div class="grid" id="heat" aria-hidden="true"></div>
+            <div class="cap"><span>每格一天，顏色越深當天完成越多</span><span class="num">最忙的一天：10月21日，14 筆</span></div>
+          </div>
+        </section>
+
+        <section class="loop" aria-label="本週的循環">
+          <p class="say">這週 8 筆工作裡，有 <em class="num">5 筆</em>用上了以前記下的知識。</p>
+          <div class="stages">
+            <div class="stage">
+              <div class="k">沉澱</div>
+              <div class="v num">8<small>筆 Session</small></div>
+              <div class="d num">新增 6 則知識・3 頁知識頁改版</div>
+            </div>
+            <div class="arrow"><svg class="i"><use href="#right"/></svg></div>
+            <div class="stage hot">
+              <div class="k">再利用</div>
+              <div class="v num">5<small>/ 8 筆工作引用過去知識</small></div>
+              <div class="dots" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i></div>
+            </div>
+            <div class="arrow"><svg class="i"><use href="#right"/></svg></div>
+            <div class="stage">
+              <div class="k">修正</div>
+              <div class="v num">4<small>則被確認</small></div>
+              <div class="d num">1 則被推翻・2 則標為過時</div>
+            </div>
+          </div>
+          <div class="back"><span>修正過的知識回到下一次工作</span></div>
+        </section>
+
+        <div class="stats">
+          <div class="stat big">
+            <div>
+              <div class="k">本週完成</div>
+              <div class="v num">8 <small>筆</small></div>
+              <div class="d num"><span class="dn">少 68</span>，上週 76</div>
+            </div>
+            <div class="bars" aria-hidden="true"><i style="height:22%"></i><i style="height:35%"></i><i style="height:48%"></i><i style="height:40%"></i><i style="height:66%"></i><i style="height:82%"></i><i style="height:100%"></i><i style="height:11%"></i></div>
+          </div>
+          <div class="stat">
+            <div class="k">驗證</div>
+            <div class="v num">8 <small>/ 8 通過</small></div>
+            <div class="meter"><i style="width:100%"></i></div>
+          </div>
+          <div class="stat">
+            <div class="k">記錄中專案</div>
+            <div class="v num">6</div>
+            <div class="d">明確授權才記錄</div>
+          </div>
+          <div class="stat">
+            <div class="k">待處理</div>
+            <div class="v num">41</div>
+            <div class="d num">需要核對 29・未結項 12</div>
+          </div>
+        </div>
+
+        <div class="cols">
+          <section class="card">
+            <header><h3>需要處理</h3><span class="pill num">41</span><button class="more" type="button">篩選</button></header>
+            <div class="row"><div class="t"><b>快取失效規則是否仍適用新版路由</b><span>海豹文件站・知識</span></div><span class="tag">需要核對</span><span class="age num">12 天</span><button class="go" type="button" aria-label="前往處理"><svg class="i"><use href="#right"/></svg></button></div>
+            <div class="row"><div class="t"><b>對帳批次的重試上限還沒定案</b><span>訂單對帳工具・未結項</span></div><span class="tag">未結項</span><span class="age num">9 天</span><button class="go" type="button" aria-label="前往處理"><svg class="i"><use href="#right"/></svg></button></div>
+            <div class="row"><div class="t"><b>Button 元件的 loading 狀態說明與實作不一致</b><span>內部元件庫・知識</span></div><span class="tag">需要核對</span><span class="age num">6 天</span><button class="go" type="button" aria-label="前往處理"><svg class="i"><use href="#right"/></svg></button></div>
+            <div class="row"><div class="t"><b>離線同步衝突的處理順序</b><span>行動端殼層・未結項</span></div><span class="tag">未結項</span><span class="age num">4 天</span><button class="go" type="button" aria-label="前往處理"><svg class="i"><use href="#right"/></svg></button></div>
+            <div class="row"><div class="t"><b>匯入欄位對照表有兩筆被推翻</b><span>資料管線・知識</span></div><span class="tag">需要核對</span><span class="age num">2 天</span><button class="go" type="button" aria-label="前往處理"><svg class="i"><use href="#right"/></svg></button></div>
+            <div class="foot"><span class="num">顯示 5 筆，共 41 筆</span><span>最久的排最前面</span></div>
+          </section>
+
+          <section class="card">
+            <header><h3>專案</h3><button class="more" type="button">管理</button></header>
+            <div class="row"><div class="t"><b>海豹文件站</b><span class="num">今天・3 筆</span></div><div class="spark" aria-hidden="true"><i style="height:30%"></i><i style="height:60%"></i><i style="height:45%"></i><i style="height:90%"></i><i style="height:70%"></i><i style="height:100%"></i></div></div>
+            <div class="row"><div class="t"><b>訂單對帳工具</b><span class="num">昨天・2 筆</span></div><div class="spark" aria-hidden="true"><i style="height:80%"></i><i style="height:50%"></i><i style="height:65%"></i><i style="height:30%"></i><i style="height:40%"></i><i style="height:55%"></i></div></div>
+            <div class="row"><div class="t"><b>內部元件庫</b><span class="num">11月5日</span></div><div class="spark" aria-hidden="true"><i style="height:20%"></i><i style="height:25%"></i><i style="height:70%"></i><i style="height:40%"></i><i style="height:10%"></i><i style="height:15%"></i></div></div>
+            <div class="row"><div class="t"><b>行動端殼層</b><span class="num">11月4日</span></div><div class="spark" aria-hidden="true"><i style="height:55%"></i><i style="height:35%"></i><i style="height:20%"></i><i style="height:25%"></i><i style="height:10%"></i><i style="height:5%"></i></div></div>
+            <div class="row"><div class="t"><b>資料管線</b><span class="num">11月4日</span></div><div class="spark" aria-hidden="true"><i style="height:10%"></i><i style="height:40%"></i><i style="height:75%"></i><i style="height:60%"></i><i style="height:30%"></i><i style="height:8%"></i></div></div>
+          </section>
+        </div>
+
+        <section class="card">
+          <header><h3>最近完成</h3><button class="more" type="button">查看全部<svg class="i"><use href="#right"/></svg></button></header>
+          <div class="row"><span class="time num">27 分鐘前</span><div class="t"><b>文件站搜尋改用前綴索引，冷啟動縮短</b><span>海豹文件站</span></div><span class="files num">7 檔</span><span class="tag ok">通過</span></div>
+          <div class="row"><span class="time num">34 分鐘前</span><div class="t"><b>對帳報表補上幣別換算的捨入規則</b><span>訂單對帳工具</span></div><span class="files num">22 檔</span><span class="tag ok">通過</span></div>
+          <div class="row"><span class="time num">2 小時前</span><div class="t"><b>Dialog 焦點回復與鍵盤操作修正</b><span>內部元件庫</span></div><span class="files num">11 檔</span><span class="tag ok">通過</span></div>
+          <div class="row"><span class="time num">5 小時前</span><div class="t"><b>離線佇列改為依建立時間重送</b><span>行動端殼層</span></div><span class="files num">19 檔</span><span class="tag ok">通過</span></div>
+        </section>
+</div>
+<div class="view" id="v-history" hidden>
+  <div class="head"><h2>工作歷程</h2><span class="sub">每一次完成，都留下可追溯的脈絡</span></div>
+  <div class="tabs" role="tablist"><button role="tab" aria-selected="true" type="button">工作歷程 <span class="pill num">563</span></button><button role="tab" aria-selected="false" type="button">未結項 <span class="pill num">12</span></button></div>
+  <div class="tools">
+    <div class="field"><svg class="i"><use href="#search"/></svg><span>搜尋標題、摘要或事件</span></div>
+    <button class="chip on" type="button">全部專案</button><button class="chip" type="button">Agent</button><button class="chip" type="button">日期</button><button class="chip" type="button">只看驗證失敗</button>
+  </div>
+  <section class="card" id="hist"></section>
+</div>
+
+<div class="view" id="v-knowledge" hidden>
+  <div class="head"><h2>工作知識</h2><span class="sub">只收 Agent 明確提交、已確認的內容</span></div>
+  <div class="tabs" role="tablist"><button role="tab" aria-selected="true" type="button">知識 <span class="pill num">105</span></button><button role="tab" aria-selected="false" type="button">知識頁 <span class="pill num">18</span></button><button role="tab" aria-selected="false" type="button">候選 <span class="pill num">0</span></button><button role="tab" aria-selected="false" type="button">待確認決策 <span class="pill num">14</span></button></div>
+  <div class="tools">
+    <div class="field"><svg class="i"><use href="#search"/></svg><span>搜尋標題、內容、標籤或參考</span></div>
+    <button class="chip on" type="button">全部類型</button><button class="chip" type="button">專案</button><button class="chip" type="button">只看可能過時</button>
+  </div>
+  <div class="kcols">
+    <section class="card" id="know"></section>
+    <div class="aside">
+      <div class="card">
+        <h3>這些知識可靠嗎</h3>
+        <ul>
+          <li>被後續工作確認過<b class="num">71</b></li>
+          <li>還沒被用到<b class="num">27</b></li>
+          <li>可能過時<b class="num">5</b></li>
+          <li>被推翻過<b class="num">2</b></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>類型分布</h3>
+        <div class="mix" aria-hidden="true"><i style="flex:38;--o:70%"></i><i style="flex:31;--o:48%"></i><i style="flex:22;--o:30%"></i><i style="flex:14;--o:16%"></i></div>
+        <ul>
+          <li>注意事項<b class="num">38</b></li>
+          <li>可重用模式<b class="num">31</b></li>
+          <li>技術決策<b class="num">22</b></li>
+          <li>其他<b class="num">14</b></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="view" id="v-graph" hidden>
+  <div class="head"><h2>工作圖譜</h2><span class="sub">只用已保存的結構化資料，不替資料推測關係</span></div>
+  <div class="tabs" role="tablist"><button role="tab" aria-selected="false" type="button">關係圖</button><button role="tab" aria-selected="true" type="button">時間軸</button><button role="tab" aria-selected="false" type="button">熱點</button></div>
+  <section class="card">
+    <header><h3>時間軸</h3><span class="pill num">190 筆</span><span style="margin-left:auto" class="tools"><button class="chip on" type="button">所有記錄中專案</button><button class="chip" type="button">最近 30 天</button></span></header>
+    <div class="legend"><span><i style="background:color-mix(in srgb, var(--fg) 30%, var(--surface))"></i>完成的 Session</span><span><i style="background:var(--danger)"></i>驗證失敗</span><span><i class="dm"></i>當天有新知識</span><span>長條越高當天完成越多</span></div>
+    <div class="tlwrap"><div class="tl" id="tl"></div></div>
+  </section>
+</div>
+
+<div class="view" id="v-reports" hidden>
+  <div class="head"><h2>工作報告</h2><span class="sub num">11月9日 — 11月15日</span>
+    <div class="acts"><button class="btn" type="button">複製基本報告</button><button class="btn" type="button">匯出</button></div>
+  </div>
+  <div class="tools">
+    <div class="seg" role="group" aria-label="期間"><button type="button" aria-pressed="false">日</button><button type="button" aria-pressed="true">週</button><button type="button" aria-pressed="false">月</button><button type="button" aria-pressed="false">年</button><button type="button" aria-pressed="false">自訂</button></div>
+    <button class="chip on" type="button">所有記錄中專案</button>
+  </div>
+  <div class="banner"><span>這份報告還沒有 AI 整理。建立請求後只會記錄待處理，不會主動呼叫任何 Agent。</span><button class="btn pri" type="button">請 Agent 整理這份報告</button></div>
+  <div class="stats">
+    <div class="stat big"><div><div class="k">完成的 Session</div><div class="v num">8 <small>筆</small></div><div class="d num"><span class="dn">少 68</span>，上期 76</div></div><div class="bars" aria-hidden="true"><i style="height:22%"></i><i style="height:35%"></i><i style="height:48%"></i><i style="height:40%"></i><i style="height:66%"></i><i style="height:82%"></i><i style="height:100%"></i><i style="height:11%"></i></div></div>
+    <div class="stat"><div class="k">可追溯事件</div><div class="v num">11</div><div class="d num"><span class="dn">少 148</span>，上期 159</div></div>
+    <div class="stat"><div class="k">變更檔案</div><div class="v num">42</div><div class="d num"><span class="dn">少 314</span>，上期 356</div></div>
+    <div class="stat"><div class="k">驗證</div><div class="v num">8 <small>/ 8 通過</small></div><div class="meter"><i style="width:100%"></i></div></div>
+  </div>
+  <div class="rcols">
+    <section class="card">
+      <header><h3>每日分布</h3><span class="pill">週一最多</span></header>
+      <div class="week">
+        <div class="top"><b class="num">8</b><div class="col"><i style="height:100%"></i></div>週一</div>
+        <div><b class="num">0</b><div class="col"><i></i></div>週二</div>
+        <div><b class="num">0</b><div class="col"><i></i></div>週三</div>
+        <div><b class="num">0</b><div class="col"><i></i></div>週四</div>
+        <div><b class="num">0</b><div class="col"><i></i></div>週五</div>
+        <div><b class="num">0</b><div class="col"><i></i></div>週六</div>
+        <div><b class="num">0</b><div class="col"><i></i></div>週日</div>
+      </div>
+    </section>
+    <section class="card">
+      <header><h3>專案占比</h3><span class="pill num">3 個</span></header>
+      <div class="share">
+        <div class="mix" aria-hidden="true" style="margin:0"><i style="flex:3;--o:70%"></i><i style="flex:3;--o:42%"></i><i style="flex:2;--o:20%"></i></div>
+        <ul>
+          <li><i style="--o:70%"></i>海豹文件站<span class="num">3 筆・38%</span></li>
+          <li><i style="--o:42%"></i>訂單對帳工具<span class="num">3 筆・38%</span></li>
+          <li><i style="--o:20%"></i>內部元件庫<span class="num">2 筆・25%</span></li>
+        </ul>
+      </div>
+    </section>
+  </div>
+  <section class="card">
+    <header><h3>這段時間發生了什麼</h3><span class="more">比較期間 11月2日 — 11月8日</span></header>
+    <ul class="story">
+      <li><time>週一 上午</time><p>文件站搜尋改用前綴索引。<span>冷啟動時間縮短，新增 2 則知識。</span></p></li>
+      <li><time>週一 下午</time><p>對帳報表補上幣別換算的捨入規則。<span>沿用上個月記下的捨入決策，沒有重新討論。</span></p></li>
+      <li><time>週一 傍晚</time><p>Dialog 焦點回復與鍵盤操作修正。<span>留下 1 個未結項：巢狀 Dialog 的關閉順序。</span></p></li>
+    </ul>
+  </section>
+</div>
+
+      </main>
+    </div>
+  </div>
+
+  <div class="notes" id="notes"></div>
+  <p class="credit">設計檢查方法參考 unslop（Damir Sokolovsky，CC BY 4.0），只借觀念，沒有使用其程式碼。</p>
+</div>
+
+<script>
+(function () {
+  // 熱度圖：固定種子，示意資料
+  var g = document.getElementById("heat"), s = 20261109, html = "";
+  function rnd() { s = (s * 1103515245 + 12345) % 2147483648; return s / 2147483648; }
+  var weeks = 53;
+  for (var w = 0; w < weeks; w++) for (var d = 0; d < 7; d++) {
+    if (w === weeks - 1 && d > 0) break;
+    var ramp = Math.pow(w / weeks, 3), r = rnd(), weekend = d >= 5 ? 0.35 : 1;
+    var v = r < ramp * weekend * 0.95 ? Math.min(4, 1 + Math.floor(rnd() * 4 * (0.4 + ramp))) : 0;
+    html += '<i class="' + (v ? "l" + v : "") + (w === weeks - 1 && d === 0 ? " today" : "") + '"></i>';
+  }
+  g.innerHTML = html;
+
+  // 工作歷程
+  var days = [["今天", "8 筆・全部通過", [
+    ["10:42", "文件站搜尋改用前綴索引，冷啟動縮短", "海豹文件站・Claude Code", "把全文索引拆成前綴與全文兩層，首次查詢不再等整份索引載入。", 7, 1, 2],
+    ["10:35", "對帳報表補上幣別換算的捨入規則", "訂單對帳工具・Codex", "統一用銀行家捨入，並補上三種幣別的邊界測試。", 22, 1, 0],
+    ["09:10", "Dialog 焦點回復與鍵盤操作修正", "內部元件庫・Claude Code", "關閉後焦點回到觸發按鈕，Esc 只關最上層。", 11, 1, 1],
+    ["06:05", "離線佇列改為依建立時間重送", "行動端殼層・Claude Desktop", "原本依失敗時間排序，會讓後建立的請求先送出。", 19, 1, 0]]],
+    ["昨天", "5 筆・1 筆驗證失敗", [
+    ["21:30", "匯入欄位對照表重構", "資料管線・Claude Code", "對照表改成宣告式設定，兩個舊欄位仍有測試失敗。", 31, 0, 1],
+    ["17:12", "部落格文章列表加上分頁", "部落格・Codex", "每頁 20 篇，保留舊網址的轉址。", 6, 1, 0]]]];
+  document.getElementById("hist").innerHTML = days.map(function (d) {
+    return '<div class="day">' + d[0] + "<span class=\"num\">" + d[1] + "</span></div>" + d[2].map(function (r) {
+      return '<div class="s' + (r[5] ? "" : " fail") + '"><div class="tm num">' + r[0] + '</div><div class="rail"></div><div class="bd"><b>' + r[1] + "</b><p>" + r[3] + "</p><small>" + r[2] + (r[6] ? "・<em>新增 " + r[6] + " 則知識</em>" : "") + '</small></div><div class="mt"><span class="files num">' + r[4] + ' 檔</span><span class="tag ' + (r[5] ? 'ok">通過' : 'bad">失敗') + "</span></div></div>";
+    }).join("");
+  }).join("") + '<div class="foot"><span class="num">顯示 6 筆，共 563 筆</span><span class="num">第 1 / 57 頁</span></div>';
+
+  // 工作知識
+  var kn = [
+    ["快取鍵必須包含語系，否則切換語言會拿到舊頁面", "注意事項", "海豹文件站", 3, 0, 2, "文件站的頁面快取原本只用路徑當鍵。切換語系後同一路徑會回傳前一個語系的內容，所以鍵要加上語系代碼。", "路由改版後有 2 筆 Session 改過適用路徑，可能過時"],
+    ["金額一律用整數分計算，顯示時才轉換", "技術決策", "訂單對帳工具", 6, 0, 0, "浮點數相加會在第三位小數出現誤差，對帳時無法逐筆比對。儲存、計算與比對都用整數分，只有畫面輸出才除以一百。", ""],
+    ["表單送出按鈕的 loading 與 disabled 要分開控制", "可重用模式", "內部元件庫", 2, 1, 0, "loading 時仍要保留焦點與可讀名稱，直接設 disabled 會讓螢幕閱讀器使用者失去位置。", ""],
+    ["離線佇列的重送順序以建立時間為準", "技術決策", "行動端殼層", 1, 0, 3, "依失敗時間排序會造成後建立的請求先送出，伺服器端會拒絕較舊的版本號。", ""]];
+  function seg(n, c) { var o = ""; for (var i = 0; i < n; i++) o += '<i class="' + c + '"></i>'; return o; }
+  document.getElementById("know").innerHTML = '<header><h3>105 則使用中的知識</h3><button class="more" type="button">排序：最近確認</button></header>' + kn.map(function (k) {
+    return '<div class="kn"><div class="h"><b>' + k[0] + '</b><span class="tag info">' + k[1] + "</span></div>" + (k[7] ? '<div class="stale">' + k[7] + "</div>" : "") + "<p>" + k[6] + '</p><div class="f"><span class="trust"><span aria-hidden="true">' + seg(k[3], "") + seg(k[4], "x") + seg(k[5], "n") + '</span><span class="num">確認 ' + k[3] + "・推翻 " + k[4] + (k[5] ? "・未回報 " + k[5] : "") + "</span></span><span>" + k[2] + "</span><span>查看來源 Session</span></div></div>";
+  }).join("") + '<div class="foot"><span class="num">顯示 4 則，共 105 則</span><span class="num">第 1 / 11 頁</span></div>';
+
+  // 工作圖譜時間軸
+  var names = [["海豹文件站", "74 筆"], ["訂單對帳工具", "41 筆"], ["內部元件庫", "33 筆"], ["行動端殼層", "22 筆"], ["資料管線", "14 筆"], ["部落格", "6 筆"]];
+  var tl = '<div class="hd"></div>';
+  for (var c = 0; c < 30; c++) { var dt = new Date(2026, 9, 11 + c); tl += '<div class="hd num">' + (c % 3 === 0 ? (dt.getMonth() + 1) + "/" + dt.getDate() : "") + "</div>"; }
+  names.forEach(function (n, ri) {
+    tl += '<div class="nm">' + n[0] + '<small class="num">' + n[1] + "</small></div>";
+    for (var c = 0; c < 30; c++) {
+      var wd = new Date(2026, 9, 11 + c).getDay(), wk = wd === 0 || wd === 6;
+      var p = (0.75 - ri * 0.11) * (wk ? 0.25 : 1), has = rnd() < p, h = has ? 6 + Math.floor(rnd() * rnd() * 44) : 0;
+      tl += '<div class="c' + (wk ? " wk" : "") + '">' + (has && rnd() < 0.3 ? '<span class="k"></span>' : "") + (has ? '<span class="b' + (rnd() < 0.05 ? " f" : "") + '" style="height:' + h + 'px"></span>' : "") + "</div>";
+    }
+  });
+  document.getElementById("tl").innerHTML = tl;
+
+  // 頁面切換與改動說明
+  var titles = { overview: "工作總覽", history: "工作歷程", knowledge: "工作知識", graph: "工作圖譜", reports: "工作報告" };
+  var notes = {
+    overview: [["循環帶", "熱度圖維持在最上面，下面接「沉澱、再利用、修正」。整頁只有循環帶中間那格用強調色底。"], ["數字卡一大三小", "「本週完成」附八週走勢，「待處理」直接拆出兩種來源。"], ["待處理清單變輕", "每列從兩顆按鈕改成整列可點，顯示放了幾天，最久的排最前面。"], ["快捷鍵做成鍵帽", "搜尋框的 ⌘ K 畫成兩顆鍵帽；動態只留進場一次的淡入。"]],
+    history: [["時間軌", "左邊是時刻，中間一條線串起當天的工作，圓點顏色就是驗證結果，不必再讀右邊的標籤。"], ["日期列帶小結", "「今天 8 筆・全部通過」，掃一眼就知道哪一天有狀況。"], ["看得到沉澱", "有留下知識的 Session 會標出「新增 2 則知識」，這是全頁唯一的強調色。"], ["摘要只留一行", "現在的摘要會撐到整列寬，改成一行，細節進詳情面板看。"]],
+    knowledge: [["信任條", "每則知識用小格子畫出被確認、被推翻、還沒回報的次數，可靠度一眼可比。"], ["過時原因放在標題下", "「可能過時」不再只是一顆標籤，直接寫出為什麼。"], ["標籤退到次要位置", "現在每則有一整排膠囊標籤，改成一行小字，內文才是主角。"], ["右欄給整體狀況", "多少則被確認過、多少還沒被用到，對應「越用越好用」。"]],
+    graph: [["長條改中性色", "現在全部是綠色。改成灰階，只有驗證失敗用紅色，新知識用強調色菱形，重點才跳得出來。"], ["週末有底色", "六日加淡底，節奏看得出來，不必數日期。"], ["專案名固定在左欄", "現在名稱疊在格子上，改成獨立一欄並附總筆數。"], ["圖例縮成一行", "只留三種記號加一句讀法。"]],
+    reports: [["每日分布改直條", "現在是七條橫條，空的日子也各佔一列。改成一張七欄直條圖，高度省一半。"], ["AI 整理變成一條橫幅", "還沒整理時不再佔一整張卡，一行說明加一顆按鈕。"], ["專案占比一條到底", "三條各自的進度條合成一條堆疊條，比例更好比。"], ["敘述加時間", "「這段時間發生了什麼」改成帶時段的短句，後半句說明沉澱或再利用了什麼。"]]
+  };
+  function show() {
+    var v = location.hash.slice(1); if (!titles[v]) v = "overview";
+    Object.keys(titles).forEach(function (k) { document.getElementById("v-" + k).hidden = k !== v; });
+    document.querySelectorAll(".side a[data-v]").forEach(function (l) { if (l.dataset.v === v) l.setAttribute("aria-current", "page"); else l.removeAttribute("aria-current"); });
+    document.getElementById("crumb").textContent = titles[v];
+    document.getElementById("notes").innerHTML = "<h2>「" + titles[v] + "」跟現在的畫面差在哪</h2>" + notes[v].map(function (n) { return "<div><b>" + n[0] + "</b><p>" + n[1] + "</p></div>"; }).join("");
+  }
+  window.addEventListener("hashchange", show); show();
+
+  var a = document.getElementById("va"), b = document.getElementById("vb");
+  function set(v) {
+    document.documentElement.classList.toggle("v-b", v === "b");
+    a.setAttribute("aria-pressed", String(v !== "b"));
+    b.setAttribute("aria-pressed", String(v === "b"));
+    try { localStorage.setItem("wi-variant", v); } catch (e) {}
+  }
+  a.addEventListener("click", function () { set("a"); });
+  b.addEventListener("click", function () { set("b"); });
+  try { if (localStorage.getItem("wi-variant") === "b") set("b"); } catch (e) {}
+})();
+</script>

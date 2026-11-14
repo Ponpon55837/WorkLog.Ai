@@ -9,6 +9,7 @@ import UiBoxRow from "../ui/UiBoxRow.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiGroupLabel from "../ui/UiGroupLabel.vue";
+import UiSplitLayout from "../ui/UiSplitLayout.vue";
 import VirtualList from "../VirtualList.vue";
 import { formatDate } from "../../utils/format";
 import { t } from "../../i18n";
@@ -93,48 +94,41 @@ function openCompletedSession(session: WorkSessionRecord): void {
 </script>
 
 <template>
-  <section
-    id="report-panel-work"
-    class="reports__panel reports__grid"
-    role="tabpanel"
-    aria-labelledby="report-tab-work"
-  >
-    <UiBox sticky-header>
-      <template #header
-        ><UiBoxTitle eyebrow="Completed work" :title="t('reports.mainOutcomes')" :count="report.totals.sessions"
-      /></template>
-      <UiEmptyState
-        v-if="report.completedWork.length === 0"
-        compact
-        :icon="CircleCheckBig"
-        :title="t('reports.noWorkCompletedInThis')"
-      />
-      <VirtualList
-        v-else
-        :items="report.completedWork"
-        :enabled="true"
-        fit-viewport
-        fit-viewport-to-panel
-        :estimate-item-height="112"
-        :label="t('reports.reportOutcomesList')"
-      >
-        <template #default="{ item: session }">
-          <SessionRow :session="session" @open="openCompletedSession" />
-        </template>
-      </VirtualList>
-    </UiBox>
-    <div class="reports__side">
+  <UiSplitLayout id="report-panel-work" role="tabpanel" aria-labelledby="report-tab-work">
+    <template #main>
+      <UiBox sticky-header>
+        <template #header><UiBoxTitle :title="t('reports.mainOutcomes')" :count="report.totals.sessions" /></template>
+        <UiEmptyState
+          v-if="report.completedWork.length === 0"
+          compact
+          :icon="CircleCheckBig"
+          :title="t('reports.noWorkCompletedInThis')"
+        />
+        <VirtualList
+          v-else
+          :items="report.completedWork"
+          :enabled="true"
+          fit-viewport
+          fit-viewport-to-panel
+          :estimate-item-height="112"
+          :label="t('reports.reportOutcomesList')"
+        >
+          <template #default="{ item: session }">
+            <SessionRow :session="session" @open="openCompletedSession" />
+          </template>
+        </VirtualList>
+      </UiBox>
+    </template>
+    <template #aside>
       <UiBox padded>
-        <template #header><UiBoxTitle eyebrow="Verification" :title="t('reports.verificationStatus')" /></template>
+        <template #header><UiBoxTitle :title="t('reports.verificationStatus')" /></template>
         <VerificationBreakdown :counts="verificationCounts" />
         <p class="reports__note">
           {{ t("reports.notReportedMeansThereIs") }}
         </p>
       </UiBox>
       <UiBox v-if="spanningCount > 0" data-testid="report-spanning">
-        <template #header
-          ><UiBoxTitle eyebrow="Across periods" :title="t('reports.crossPeriodWork')" :count="spanningCount"
-        /></template>
+        <template #header><UiBoxTitle :title="t('reports.crossPeriodWork')" :count="spanningCount" /></template>
         <VirtualList
           :items="spanningRows"
           :enabled="true"
@@ -158,32 +152,11 @@ function openCompletedSession(session: WorkSessionRecord): void {
           {{ t("reports.numbersCountOnlySessionsCompleted") }}
         </p>
       </UiBox>
-    </div>
-  </section>
+    </template>
+  </UiSplitLayout>
 </template>
 
 <style scoped>
-.reports__panel {
-  display: grid;
-  gap: var(--space-4);
-}
-
-.reports__grid {
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
-  align-items: start;
-}
-
-.reports__side {
-  display: grid;
-  gap: var(--space-4);
-  align-content: start;
-  min-width: 0;
-}
-
-.reports__side > .ui-box + .ui-box {
-  margin-top: 0;
-}
-
 .reports__spanning-note {
   padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--border-muted);
@@ -204,11 +177,5 @@ function openCompletedSession(session: WorkSessionRecord): void {
 
 .reports__row-detail {
   margin-top: var(--space-1);
-}
-
-@media (max-width: 959px) {
-  .reports__grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 </style>

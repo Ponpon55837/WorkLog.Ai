@@ -6,8 +6,11 @@ import SynthesisCard from "./SynthesisCard.vue";
 import VerificationBreakdown from "./VerificationBreakdown.vue";
 import UiBox from "../ui/UiBox.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
+import UiStack from "../ui/UiStack.vue";
 import UiStatCard from "../ui/UiStatCard.vue";
-import { formatReadableSummary } from "../../utils/format";
+import UiStatGrid from "../ui/UiStatGrid.vue";
+import UiButton from "../ui/UiButton.vue";
+import { formatReadableSummary, formatTimeOfDay, formatWeekdayTime } from "../../utils/format";
 import { t } from "../../i18n";
 
 const { report, reportComparisons } = defineProps<{
@@ -19,6 +22,8 @@ const emit = defineEmits<{
   "show-all": [];
 }>();
 
+const happeningLimit = 8;
+
 const verificationCounts = computed(() => ({
   passed: report.totals.verification.passed,
   failed: report.totals.verification.failed,
@@ -27,15 +32,27 @@ const verificationCounts = computed(() => ({
   notSupplied: report.totals.verification.not_supplied,
 }));
 
+/** The most recently completed Sessions in time order; the report's own period summary line stays above them. */
+const happenings = computed(() =>
+  [...report.sessions]
+    .sort((left, right) => right.completedAt.localeCompare(left.completedAt))
+    .slice(0, happeningLimit)
+    .reverse(),
+);
+
+function momentLabel(completedAt: string): string {
+  return report.period === "day" ? formatTimeOfDay(completedAt) : formatWeekdayTime(completedAt);
+}
+
 function openSession(session: WorkSessionRecord, list: readonly WorkSessionRecord[]): void {
   emit("open", session, list);
 }
 </script>
 
 <template>
-  <section id="report-panel-overview" class="reports__panel" role="tabpanel" aria-labelledby="report-tab-overview">
+  <UiStack id="report-panel-overview" tag="section" role="tabpanel" aria-labelledby="report-tab-overview">
     <SynthesisCard />
-    <div class="reports__stats">
+    <UiStatGrid>
       <UiStatCard
         v-for="item in reportComparisons"
         :key="item.key"
@@ -57,49 +74,78 @@ function openSession(session: WorkSessionRecord, list: readonly WorkSessionRecor
       >
         <VerificationBreakdown :counts="verificationCounts" />
       </UiStatCard>
-    </div>
+    </UiStatGrid>
     <ReportPeriodBreakdown :report="report" @open="openSession" @show-all="emit('show-all')" />
-    <UiBox padded>
+    <UiBox>
       <template #header>
-        <UiBoxTitle eyebrow="Period summary" :title="t('reports.whatHappenedInThisPeriod')" />
+        <UiBoxTitle :title="t('reports.whatHappenedInThisPeriod')" />
         <span class="reports__muted">{{
           t("reports.comparisonPeriod", { from: report.previousRange.from, to: report.previousRange.to })
         }}</span>
       </template>
       <p class="reports__summary">{{ formatReadableSummary(report.periodSummary) }}</p>
+      <ol v-if="happenings.length > 0" class="reports__happenings">
+        <li v-for="session in happenings" :key="session.id">
+          <time :datetime="session.completedAt">{{ momentLabel(session.completedAt) }}</time>
+          <span>{{ session.title }}</span>
+        </li>
+      </ol>
+      <template v-if="report.sessions.length > happeningLimit" #footer>
+        <UiButton variant="invisible" size="sm" @click="emit('show-all')">
+          {{ t("reports.seeAllSessionsInRaw", { length: report.sessions.length }) }}
+        </UiButton>
+      </template>
     </UiBox>
-  </section>
+  </UiStack>
 </template>
 
 <style scoped>
-.reports__panel {
-  display: grid;
-  gap: var(--space-4);
-}
-
-.reports__panel > .ui-box + .ui-box {
-  margin-top: 0;
-}
-
-.reports__stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-4);
-}
-
 .reports__summary {
+  padding: var(--space-3) var(--space-4);
   line-height: 1.7;
   white-space: pre-line;
+}
+
+.reports__happenings {
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border-muted);
+  list-style: none;
+}
+
+.reports__happenings li {
+  display: grid;
+  grid-template-columns: 13em minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--border-muted);
+  font-size: var(--text-sm);
+}
+
+.reports__happenings li:first-child {
+  border-top: 0;
+}
+
+.reports__happenings time {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  padding-top: 2px;
+}
+
+.reports__happenings span {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 639px) {
+  .reports__happenings li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
 }
 
 .reports__muted {
   color: var(--fg-muted);
   font-size: var(--text-xs);
-}
-
-@media (max-width: 1279px) {
-  .reports__stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 </style>

@@ -446,6 +446,7 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
 }
 
 .session-panel__item-head {
+  font-variant-numeric: tabular-nums;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -519,6 +520,7 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
 .session-panel__event time {
   color: var(--fg-muted);
   font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
 }
 
 .session-panel__snapshot {

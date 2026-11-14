@@ -6,7 +6,8 @@ import UiSpinner from "./UiSpinner.vue";
 
 const props = withDefaults(
   defineProps<{
-    variant?: "default" | "primary" | "invisible" | "danger";
+    /** `link` is an inline text link that runs a command (no box, accent colour, underline on hover). */
+    variant?: "default" | "primary" | "invisible" | "danger" | "link";
     size?: "md" | "sm";
     icon?: IconComponent;
     trailingIcon?: IconComponent;
@@ -18,6 +19,8 @@ const props = withDefaults(
     /** Icon-only button: hides the label visually but keeps it for screen readers and the tooltip. */
     iconOnly?: boolean;
     label?: string;
+    /** Keeps the label on one line and ends it with an ellipsis when the button is narrower than its text. */
+    truncate?: boolean;
   }>(),
   {
     variant: "default",
@@ -30,7 +33,7 @@ const classes = computed(() => [
   "ui-button",
   `ui-button--${props.variant}`,
   `ui-button--${props.size}`,
-  { "ui-button--icon-only": props.iconOnly },
+  { "ui-button--icon-only": props.iconOnly, "ui-button--truncate": props.truncate },
 ]);
 </script>
 
@@ -69,7 +72,7 @@ const classes = computed(() => [
   padding: 0 var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--bg-muted);
+  background: var(--bg-surface);
   color: var(--fg);
   font-size: var(--text-md);
   font-weight: 500;
@@ -89,7 +92,7 @@ const classes = computed(() => [
 }
 
 .ui-button:hover:not(:disabled) {
-  background: var(--bg-muted-hover);
+  background: var(--bg-muted);
   border-color: var(--border-strong);
   text-decoration: none;
 }
@@ -106,7 +109,7 @@ const classes = computed(() => [
 .ui-button--sm {
   height: var(--control-height-sm);
   padding: 0 var(--space-2);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
 }
 
 .ui-button--icon-only {
@@ -119,18 +122,18 @@ const classes = computed(() => [
 }
 
 .ui-button--primary {
-  border-color: var(--border-on-emphasis);
-  background: var(--success-emphasis);
-  color: var(--fg-on-emphasis);
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--fg-on-accent);
 }
 
 .ui-button--primary:hover:not(:disabled) {
-  border-color: var(--border-strong);
-  background: var(--success-emphasis-hover);
+  border-color: transparent;
+  background: color-mix(in srgb, var(--accent) 88%, var(--fg));
 }
 
 .ui-button--primary :deep(.lucide) {
-  color: var(--fg-on-emphasis);
+  color: var(--fg-on-accent);
 }
 
 .ui-button--invisible {
@@ -161,5 +164,47 @@ const classes = computed(() => [
 
 .ui-button--danger:hover:not(:disabled) :deep(.lucide) {
   color: var(--fg-on-emphasis);
+}
+
+.ui-button--link {
+  gap: var(--space-1);
+  height: auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  text-align: start;
+  white-space: normal;
+}
+
+.ui-button--link.ui-button--sm {
+  height: auto;
+  padding: 0;
+  font-size: var(--text-xs);
+}
+
+.ui-button--link:hover:not(:disabled) {
+  border-color: transparent;
+  background: none;
+  text-decoration: underline;
+}
+
+.ui-button--link:active:not(:disabled) {
+  transform: none;
+}
+
+.ui-button--link :deep(.lucide) {
+  color: inherit;
+}
+
+.ui-button--truncate > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

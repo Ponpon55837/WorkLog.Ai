@@ -4,19 +4,17 @@ import { useRoute } from "vue-router";
 import { t } from "../../i18n";
 
 /**
- * Compact one-row page title: eyebrow, title and a one-line description share a row with the actions,
- * so the page's data starts right below. Title and eyebrow default to the current route meta.
+ * Compact one-row page title: title and a one-line description share a row with the actions,
+ * so the page's data starts right below. The title defaults to the current route meta.
  */
-const props = defineProps<{ title?: string; eyebrow?: string; description?: string }>();
+const props = defineProps<{ title?: string; description?: string }>();
 const route = useRoute();
 const resolvedTitle = computed(() => props.title ?? (route.meta.title ? t(route.meta.title) : ""));
-const resolvedEyebrow = computed(() => props.eyebrow ?? route.meta.eyebrow);
 </script>
 
 <template>
   <header class="page-header">
     <div class="page-header__copy">
-      <span v-if="resolvedEyebrow" class="page-header__eyebrow">{{ resolvedEyebrow }}</span>
       <h1>{{ resolvedTitle }}</h1>
       <p v-if="description || $slots.description" class="page-header__description" :title="description">
         <slot name="description">{{ description }}</slot>
@@ -42,25 +40,16 @@ const resolvedEyebrow = computed(() => props.eyebrow ?? route.meta.eyebrow);
   display: flex;
   flex: 1 1 360px;
   align-items: baseline;
-  gap: var(--space-2);
+  gap: var(--space-1) var(--space-3);
   min-width: 0;
-}
-
-.page-header__eyebrow {
-  flex: none;
-  color: var(--fg-muted);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .page-header h1 {
   flex: none;
   color: var(--fg);
-  font-size: var(--text-lg);
+  font-size: var(--text-xl);
   font-weight: 600;
-  line-height: 1.4;
+  line-height: 1.3;
 }
 
 /* One line: the full text stays available on hover instead of pushing the data down. */
@@ -83,17 +72,13 @@ const resolvedEyebrow = computed(() => props.eyebrow ?? route.meta.eyebrow);
 }
 
 /*
- * Phones: the app bar already names the page, so drop the eyebrow and give the description its own line. It
+ * Phones: give the description its own line. It
  * stays one line so a longer description (a custom report range) never pushes the controls below it.
  */
 @media (max-width: 639px) {
   .page-header__copy {
     flex-wrap: wrap;
     row-gap: 0;
-  }
-
-  .page-header__eyebrow {
-    display: none;
   }
 
   .page-header__description {

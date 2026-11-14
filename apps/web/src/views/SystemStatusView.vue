@@ -29,7 +29,9 @@ import UiGroupLabel from "../components/ui/UiGroupLabel.vue";
 import UiSegmentedControl from "../components/ui/UiSegmentedControl.vue";
 import UiSelect from "../components/ui/UiSelect.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
+import UiSplitLayout from "../components/ui/UiSplitLayout.vue";
 import UiStatCard from "../components/ui/UiStatCard.vue";
+import UiStatGrid from "../components/ui/UiStatGrid.vue";
 import { usePreferencesStore, type ThemePreference } from "../stores/preferences";
 import { useSystemStatusStore } from "../stores/system-status";
 import { EDITOR_PROTOCOLS, editorProtocolLabels } from "../utils/code-links";
@@ -115,7 +117,7 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
       {{ status.mcp.message ?? t("systemStatus.cannotConfirmTheMcpBuildOnDisk") }}
     </UiFlash>
 
-    <div class="system-status__stats">
+    <UiStatGrid class="system-status__stats">
       <UiStatCard
         :label="t('systemStatus.appVersion')"
         :icon="Activity"
@@ -144,10 +146,10 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
         :suffix="t('systemStatus.open')"
         :foot="t('systemStatus.liveUpdateConnectionsCurrentlyOpen')"
       />
-    </div>
+    </UiStatGrid>
 
-    <div class="system-status__layout">
-      <div class="system-status__main">
+    <UiSplitLayout :aside-label="t('systemStatus.dataAndConnections')">
+      <template #main>
         <UiBox data-testid="agent-connections">
           <template #header>
             <UiBoxTitle :icon="Bot" :title="t('systemStatus.agentConnections')" />
@@ -189,9 +191,9 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
             </UiField>
           </div>
         </UiBox>
-      </div>
+      </template>
 
-      <aside class="system-status__side" :aria-label="t('systemStatus.dataAndConnections')">
+      <template #aside>
         <UiBox data-testid="user-service">
           <template #header>
             <UiBoxTitle :icon="Power" :title="t('systemStatus.startAutomaticallyAtLogin')" />
@@ -326,37 +328,14 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
             :meta="t('systemStatus.recentResultsAppearAfterRunning')"
           />
         </UiBox>
-      </aside>
-    </div>
+      </template>
+    </UiSplitLayout>
   </template>
 </template>
 
 <style scoped>
 .system-status__stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-4);
   margin-bottom: var(--space-4);
-}
-
-.system-status__layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
-  gap: var(--space-4);
-  align-items: start;
-}
-
-.system-status__main,
-.system-status__side {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  min-width: 0;
-}
-
-.system-status__main > .ui-box + .ui-box,
-.system-status__side > .ui-box + .ui-box {
-  margin-top: 0;
 }
 
 .system-status__setup {
@@ -407,17 +386,5 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
   margin-top: var(--space-1);
   color: var(--fg-muted);
   font-size: var(--text-xs);
-}
-
-@media (max-width: 1199px) {
-  .system-status__layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-@media (max-width: 959px) {
-  .system-status__stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 </style>

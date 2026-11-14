@@ -200,7 +200,8 @@ onBeforeUnmount(stopResize);
 
 .ui-side-panel__header {
   padding: var(--space-4) var(--space-6);
-  border-bottom: 1px solid var(--border-muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
 }
 
 .ui-side-panel__body {
@@ -212,7 +213,8 @@ onBeforeUnmount(stopResize);
 
 .ui-side-panel__footer {
   padding: var(--space-2) var(--space-6);
-  border-top: 1px solid var(--border-muted);
+  border-top: 1px solid var(--border);
+  background: var(--bg-surface);
   color: var(--fg-muted);
   font-size: var(--text-xs);
 }
