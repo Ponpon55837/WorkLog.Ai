@@ -1,9 +1,20 @@
 name: Release
 
+# Two ways in, one pipeline:
+#  - push of a v* tag (maintainer pushed the tag), or
+#  - manual dispatch on main with the version number: the create-tag job tags the verified commit itself.
+# A tag pushed with GITHUB_TOKEN does not trigger workflows, so the dispatch path creates the tag and then runs
+# the same verify / audit / quality / e2e / publish jobs in this very run.
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, for example 1.6.34 (must equal package.json on main)"
+        required: true
+        type: string
 
 concurrency:
   group: release-${{ github.ref }}
@@ -13,10 +24,125 @@ permissions:
   contents: read
 
 jobs:
+  # Single source of the tag, version and commit that every later job uses (never github.ref_name directly).
+  prepare:
+    name: Resolve release tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.resolve.outputs.version }}
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Validate the trigger and derive tag, version and commit
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            # Strict match before the value is used anywhere else; it only ever reaches scripts through env.
+            if ! [[ "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Input version must match ^[0-9]+\.[0-9]+\.[0-9]+$ (for example 1.6.34)." >&2
+              exit 1
+            fi
+            if [ "$REF" != "refs/heads/main" ]; then
+              echo "Manual releases may only run from refs/heads/main (got $REF)." >&2
+              exit 1
+            fi
+            package_version="$(node -p "require('./package.json').version")"
+            if [ "$package_version" != "$INPUT_VERSION" ]; then
+              echo "package.json version $package_version does not match input version $INPUT_VERSION." >&2
+              exit 1
+            fi
+            version="$INPUT_VERSION"
+            tag="v$version"
+          else
+            # Tag push: the existing checks (package.json and CHANGELOG match) still run in the publish job.
+            tag="$REF_NAME"
+            if ! [[ "$tag" =~ ^v[0-9A-Za-z.+-]+$ ]]; then
+              echo "Unexpected tag name." >&2
+              exit 1
+            fi
+            version="${tag#v}"
+          fi
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "sha=$GITHUB_SHA"
+          } >> "$GITHUB_OUTPUT"
+
+  # Manual path only: tag the exact commit that passed CI on main, then let this run continue with the checks.
+  create-tag:
+    name: Create release tag (manual dispatch)
+    runs-on: ubuntu-latest
+    needs: prepare
+    if: github.event_name == 'workflow_dispatch'
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+          # The write-scoped token is supplied only to the git commands below, never stored in .git/config.
+          persist-credentials: false
+      - name: Require CI success, a free tag name, then create and push the annotated tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ needs.prepare.outputs.sha }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The CI workflow is ci.yml (name: CI). Its latest completed push run on main for this exact commit must be green.
+          run_id=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SHA&event=push&branch=main&status=completed&per_page=100" \
+            | jq -r '[.workflow_runs[] | select(.head_sha == env.SHA and .head_branch == "main" and .event == "push" and .conclusion == "success" and .head_repository.full_name == env.REPO)] | sort_by(.run_number) | last | .id // empty')
+          if [ -z "$run_id" ]; then
+            echo "No successful CI run on main for $SHA; refusing to create $TAG." >&2
+            exit 1
+          fi
+          echo "CI run $run_id succeeded for $SHA."
+
+          # Credentials go through git's environment config (not argv, not .git/config).
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
+          echo "::add-mask::$auth"
+
+          status=0
+          git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null || status=$?
+          if [ "$status" -eq 0 ]; then
+            echo "Tag $TAG already exists on origin; refusing to touch it." >&2
+            exit 1
+          elif [ "$status" -ne 2 ]; then
+            echo "Could not query tags on origin (git exit $status)." >&2
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Work Intelligence $VERSION" "$SHA"
+          git push origin "refs/tags/$TAG"
+
   # Decide whether the tagged commit already passed the full CI on main. Any doubt means the full checks run.
   verify:
     name: Detect verified commit
     runs-on: ubuntu-latest
+    needs: [prepare, create-tag]
+    # create-tag is skipped on a tag push; a failed or cancelled one must stop the run.
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && (needs.create-tag.result == 'success' || needs.create-tag.result == 'skipped') }}
     permissions:
       actions: read
     outputs:
@@ -27,7 +153,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
+          SHA: ${{ needs.prepare.outputs.sha }}
         shell: bash
         run: |
           set -uo pipefail
@@ -54,14 +180,17 @@ jobs:
   audit:
     name: Production dependency audit (verified commit)
     runs-on: ubuntu-latest
-    needs: verify
+    needs: [prepare, verify]
     if: needs.verify.outputs.verified == 'true'
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: 11.16.0
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: pnpm
@@ -71,18 +200,21 @@ jobs:
   quality:
     name: Quality (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    needs: verify
+    needs: [prepare, verify]
     if: needs.verify.outputs.verified != 'true'
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: 11.16.0
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: pnpm
@@ -119,18 +251,21 @@ jobs:
   e2e-browser:
     name: E2E (${{ matrix.browser }})
     runs-on: ubuntu-latest
-    needs: verify
+    needs: [prepare, verify]
     if: needs.verify.outputs.verified != 'true'
     strategy:
       fail-fast: false
       matrix:
         browser: [chromium, firefox, webkit]
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: 11.16.0
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: pnpm
@@ -140,7 +275,7 @@ jobs:
         env:
           E2E_PROJECTS: ${{ matrix.browser }}
       - if: failure() || hashFiles('test-results/*-rerun-*/**') != ''
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-playwright-results-${{ matrix.browser }}
           path: test-results/
@@ -149,7 +284,7 @@ jobs:
   publish:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
-    needs: [verify, audit, quality, e2e-browser]
+    needs: [prepare, verify, audit, quality, e2e-browser]
     # Either every check ran and passed, or the commit was verified and only the fast audit ran. Never publish on cancelled, failed or ambiguous results.
     if: >-
       ${{ !cancelled() && needs.verify.result == 'success' && (
@@ -160,39 +295,46 @@ jobs:
     steps:
       # Check out the exact commit the verify / quality / E2E jobs checked, not whatever the tag points at now, and keep
       # the write-scoped token out of .git/config while dependencies install and build scripts run.
-      - uses: actions/checkout@v7
+      # Tag, version and commit come from the prepare job for both triggers; github.ref_name is not used here.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.prepare.outputs.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Confirm the tag still points at the verified commit
         shell: bash
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+          SHA: ${{ needs.prepare.outputs.sha }}
         run: |
           set -euo pipefail
-          tagged="$(git rev-parse "refs/tags/$GITHUB_REF_NAME^{commit}")"
-          if [ "$tagged" != "$GITHUB_SHA" ]; then
-            echo "Tag $GITHUB_REF_NAME now points at $tagged, not the verified commit $GITHUB_SHA; refusing to publish." >&2
+          tagged="$(git rev-parse "refs/tags/$TAG^{commit}")"
+          if [ "$tagged" != "$SHA" ]; then
+            echo "Tag $TAG now points at $tagged, not the verified commit $SHA; refusing to publish." >&2
             exit 1
           fi
       - name: Prepare matching release notes
         id: release
         run: node scripts/prepare-release.mjs
         env:
-          GITHUB_REF_NAME: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
       - name: Build source archives
         shell: bash
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+          SHA: ${{ needs.prepare.outputs.sha }}
         run: |
           set -euo pipefail
-          archive_root="work-intelligence-${GITHUB_REF_NAME}/"
-          git archive --format=tar --prefix="$archive_root" "$GITHUB_SHA" | gzip -n > "$RUNNER_TEMP/${GITHUB_REF_NAME}.tar.gz"
-          git archive --format=zip --prefix="$archive_root" --output="$RUNNER_TEMP/${GITHUB_REF_NAME}.zip" "$GITHUB_SHA"
-      - uses: pnpm/action-setup@v6
+          archive_root="work-intelligence-${TAG}/"
+          git archive --format=tar --prefix="$archive_root" "$SHA" | gzip -n > "$RUNNER_TEMP/${TAG}.tar.gz"
+          git archive --format=zip --prefix="$archive_root" --output="$RUNNER_TEMP/${TAG}.zip" "$SHA"
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: 11.16.0
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
+          # No dependency cache in the publishing job: a poisoned cache must not reach release artifacts.
           node-version: 24
-          cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Build the plugin and Claude Desktop extension
         run: pnpm build:plugin
@@ -207,11 +349,12 @@ jobs:
         shell: bash
         env:
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           set -euo pipefail
           assets=(
-            "$RUNNER_TEMP/$GITHUB_REF_NAME.tar.gz"
-            "$RUNNER_TEMP/$GITHUB_REF_NAME.zip"
+            "$RUNNER_TEMP/$TAG.tar.gz"
+            "$RUNNER_TEMP/$TAG.zip"
             "dist/plugin/work-intelligence-plugin-$RELEASE_VERSION.zip"
             "dist/plugin/work-intelligence-$RELEASE_VERSION.mcpb"
             "dist/standalone/work-intelligence-$RELEASE_VERSION.tgz"
@@ -224,15 +367,16 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
           RELEASE_NOTES_FILE: ${{ steps.release.outputs.release_notes_file }}
         run: >-
-          gh release create "$GITHUB_REF_NAME"
+          gh release create "$TAG"
           --verify-tag
           --title "Work Intelligence $RELEASE_VERSION"
           --notes-file "$RELEASE_NOTES_FILE"
-          "$RUNNER_TEMP/$GITHUB_REF_NAME.tar.gz"
-          "$RUNNER_TEMP/$GITHUB_REF_NAME.zip"
+          "$RUNNER_TEMP/$TAG.tar.gz"
+          "$RUNNER_TEMP/$TAG.zip"
           "dist/plugin/work-intelligence-plugin-$RELEASE_VERSION.zip"
           "dist/plugin/work-intelligence-$RELEASE_VERSION.mcpb"
           "dist/standalone/work-intelligence-$RELEASE_VERSION.tgz"
