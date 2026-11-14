@@ -4,6 +4,39 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.35] - 2026-11-14
+
+[繁體中文更新說明](docs/releases/1.6.35.md).
+
+This release makes accessible names match the text people can see (WCAG 2.5.3 Label in Name), extends the axe checks to dialogs, open menus and the mobile sidebar in both interface languages, makes the timing-sensitive tests steadier, and refreshes dependencies. It changes no data and no schema; the schema stays at 33.
+
+### Accessibility
+
+axe-core 4.14 reports `label-content-name-mismatch` as serious. The fixes below make the accessible name start with, or contain, the visible text.
+
+- Architecture diagram node buttons no longer use `aria-label`. Their names come from the visible label, the description, the group and the file name.
+- The header search button's name comes from its visible text. The shortcut is exposed through `aria-keyshortcuts`, and the `kbd` is `aria-hidden`. On narrow screens the text is visually hidden instead of `display: none`, so the name never becomes empty. The header logo is "WI" plus a visually hidden "Work Intelligence home" instead of an `aria-label`.
+- Graph canvas nodes draw the label and description as one text run with a real space between them, so the visible text is contained in the name. English words previously ran together.
+- The Knowledge evidence button, the changed-file "Open in editor" link and the outstanding item source-Session button have names that start with their visible text.
+- Calendar day buttons are named by the long date in the interface language (for example "November 5, 2026" or "2026年11月5日") instead of an ISO string.
+- Form controls have names equal to their visible field labels: the system status editor select, the backup export and import selects, the Knowledge editor kind and status, and the delete-project confirmation input. The delete confirmation now uses a field label, with the project name as its hint.
+- `UiTextInput` no longer renders a nested `<label>` inside `UiField`. Inputs inside fields had no label (axe `label` rule).
+- Days outside the current month no longer use opacity, so they meet WCAG AA contrast.
+- The sidebar icon rail (640–959px) keeps its link names by visually hiding the labels instead of using `display: none`.
+
+### Added
+
+- New E2E spec `tests/e2e/accessibility-states.spec.ts`. It runs axe (critical and serious rules) on the command palette, the Session side panel, the Session editor, the Knowledge editor and delete-project dialogs, open menus (language, project filter and date range calendars), and the mobile sidebar drawer, in both zh-TW and en-US. It also checks the primary pages in en-US.
+
+### Changed
+
+- Dependency updates. Already merged to main: `@pinia/colada` 1.4.9, `eslint` 10.14.0, `@modelcontextprotocol/sdk` 1.32.2 and `vue-tsc` 3.3.14. On this branch: `@axe-core/playwright` 4.14.0. `smol-toml` 1.9.1 (Dependabot PR #350) is not upgraded in this release, because the package install was blocked in the release environment; it remains at `^1.9.0`.
+- Timing-sensitive tests are steadier. The shared helper `tests/helpers/timing.ts` scales fixed millisecond limits by a same-size reference workload timed in the same process. The factor is clamped between 1 and 8 and never goes below the written limit. It applies to the handoff parser and both secret-redaction linear-time tests, and the doubling-ratio checks interleave half-size and full-size runs. A temporary quadratic regression was confirmed to fail the tests. No threshold was loosened.
+
+### Upgrading
+
+No schema change (33) and no migration. Rebuild and restart. Not verified yet: the verification run listed in [docs/releases/1.6.35.md](docs/releases/1.6.35.md), and `smol-toml` 1.9.1.
+
 ## [1.6.34] - 2026-11-14
 
 [繁體中文更新說明](docs/releases/1.6.34.md).
