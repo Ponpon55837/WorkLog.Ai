@@ -547,7 +547,8 @@ onBeforeUnmount(() => {
         <span><i class="timeline__swatch timeline__swatch--in_progress" />{{ t("common.inProgress") }}</span>
         <span><i class="timeline__swatch timeline__swatch--other" />{{ t("graph.notRunOrNotProvided") }}</span>
         <span><i class="timeline__swatch timeline__swatch--created" />{{ t("graph.legendNewKnowledge") }}</span>
-        <span><i class="timeline__swatch timeline__swatch--open" />{{ t("graph.legendConfirmedSuperseded") }}</span>
+        <span><i class="timeline__swatch timeline__swatch--confirmed" />{{ t("graph.legendConfirmed") }}</span>
+        <span><i class="timeline__swatch timeline__swatch--open" />{{ t("graph.legendSuperseded") }}</span>
         <span
           ><svg class="timeline__cross" viewBox="-6 -6 12 12" aria-hidden="true">
             <path d="M -4 -4 L 4 4 M 4 -4 L -4 4" /></svg
@@ -767,7 +768,15 @@ onBeforeUnmount(() => {
   transform: rotate(45deg);
 }
 
-/* Confirmed and superseded: the open diamond the chart draws. */
+.timeline__swatch--confirmed {
+  width: 9px;
+  height: 9px;
+  border-radius: 0;
+  background: var(--success);
+  transform: rotate(45deg);
+}
+
+/* Superseded: the open diamond the chart draws. */
 .timeline__swatch--open {
   width: 9px;
   height: 9px;
@@ -952,8 +961,11 @@ onBeforeUnmount(() => {
   fill: var(--accent);
 }
 
-/* Confirmed and superseded events are quieter: an open neutral diamond. */
-.timeline__marker--confirmed path,
+.timeline__marker--confirmed path {
+  fill: var(--success);
+}
+
+/* Superseded events are quieter: an open neutral diamond. */
 .timeline__marker--superseded path {
   fill: var(--bg-canvas);
   stroke: var(--fg-muted);
