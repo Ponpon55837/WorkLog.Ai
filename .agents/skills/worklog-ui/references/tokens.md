@@ -4,32 +4,35 @@ All values live in `apps/web/src/styles/tokens.css`. Components reference tokens
 
 ## Color
 
-Two sets share the same token names: GitHub dark on `:root` (the default) and a softened light set on `:root[data-theme="light"]`. Light surfaces are cool grey (the page is ~87% luminance) because pure white was too glaring; text colours are darkened so 12px Label text on its 10% tint still reaches 4.5:1 on every light surface.
+Two sets share the same token names: GitHub dark on `:root` (the default) and a softened light set on `:root[data-theme="light"]`. The page stays cool grey (~87% luminance, never paper white); cards, popovers and dialogs sit on a near-white `--bg-surface` one step above it; text colours are darkened so 12px Label text on its 10% tint still reaches 4.5:1 on every light surface.
 
 | Token | Dark | Light | Use |
 |---|---|---|---|
-| `--bg-canvas` | `#0d1117` | `#eef0f3` | Page background, Box body, SidePanel |
-| `--bg-inset` | `#010409` | `#e6e9ed` | AppHeader, sidebar, text inputs, command blocks |
-| `--bg-subtle` | `#161b22` | `#e6e9ed` | Box header/footer, StatCard, popovers, Dialog |
-| `--bg-hover` | `#1c2128` | `#e2e5ea` | Row / nav hover |
-| `--bg-muted` | `#21262d` | `#e2e5ea` | Default button, active nav item, SegmentedControl track |
-| `--border` | `#30363d` | `#c9d0d8` | Box / input / button borders |
-| `--border-muted` | `#21262d` | `#d6dbe1` | Row dividers, header bottom borders |
+| `--bg-canvas` | `#0d1117` | `#eef0f3` | Page background, AppHeader, sidebar, SidePanel, UiGroupLabel |
+| `--bg-surface` | `#151b23` | `#fbfcfd` | Box (header, body, footer), StatCard, inputs, default buttons, popovers, Dialog, toast, keycap |
+| `--bg-inset` | `#010409` | `#e6e9ed` | Command blocks, code and diagram wells |
+| `--bg-subtle` | `#11161d` | `#e6e9ed` | Recessed fills inside a card (disclosure headers, quiet panels) |
+| `--bg-hover` | `#1c2128` | `#e2e5ea` | Row / nav hover (rows mix it 55% into the surface) |
+| `--bg-muted` | `#21262d` | `#e2e5ea` | Active nav item, selected segment, count pill, neutral Label, meter track, button hover |
+| `--border` | `#30363d` | `#c9d0d8` | Box / input / button borders, shell edges |
+| `--border-muted` | `#242b34` | `#dbe0e6` | Row dividers, Box header/footer rules |
 | `--fg` | `#e6edf3` | `#24292f` | Primary text |
 | `--fg-muted` | `#9198a1` | `#4f5862` | Meta text, secondary icons |
-| `--fg-subtle` | `#6e7681` | `#58616b` | Placeholders, sidebar group labels, empty dashes |
+| `--fg-subtle` | `#848d97` | `#58616b` | Placeholders, sidebar group labels and counts, empty dashes (dark raised from `#6e7681`, which was 4.2:1 on the canvas) |
+| `--fg-on-accent` | `#0d1117` | `#ffffff` | Text on a solid `--accent` fill (primary button) |
 | `--accent` | `#4493f8` | `#0754ae` | Links, focus ring, selected state, primary data series |
 | `--accent-emphasis` | `#1f6feb` | `#0969da` | Input focus border |
 | `--success` | `#3fb950` | `#16652a` | Passed, tracked, positive delta |
-| `--success-emphasis` | `#238636` | `#1f883d` | Primary button background (hover retains dark `#238636` / light `#1c8139`; stronger border marks hover so white text stays AA) |
+| `--success-emphasis` | `#238636` | `#1f883d` | Solid success fills (the primary button is accent now) |
 | `--attention` | `#d29922` | `#744c00` | Missing / pending / paused |
 | `--danger` | `#f85149` | `#a91b26` | Failed, errors, negative delta, destructive actions |
 | `--done` | `#a371f7` | `#6235b8` | AI synthesis, completed synthesis, Knowledge accents |
-| UnderlineNav active bar | `#f78166` | `#fd8c73` | Only for the selected UnderlineNav tab |
 
 Diagram tones `--diagram-tone-1` … `--diagram-tone-6` (dark: blue `#4493f8`, purple `#ab7df8`, green `#3fb950`, orange `#f0883e`, pink `#f778ba`, cyan `#39c5cf`; light: `#0754ae`, `#6235b8`, `#16652a`, `#8f3c00`, `#99195f`, `#0a5f6b`) are categorical colors for architecture-diagram groups only, never status. Each reaches 4.5:1 as 12px text on its own 8% tint over `--bg-inset`; tint surfaces with `color-mix(in srgb, var(--diagram-tone-N) 6–8%, <surface>)`.
 
-Label recipe (GitHub style): text = color token, border = color at 40% alpha, background = color at 10% alpha. Neutral Label: `--fg-muted` text, `--border` border, transparent background.
+Label recipe: text = color token, background = the `-soft` token (color at 10% alpha), transparent border (the 20px pill keeps its box). Neutral Label: `--fg-muted` text on `--bg-muted`. The selected UnderlineNav tab bar and the primary button use `--accent`.
+
+Contrast (WCAG ratio, computed with the formula in the spec): dark `--fg-muted` on canvas 6.50, surface 5.94, muted 5.23; `--fg-subtle` on canvas 5.62, surface 5.14, muted 4.52; `--fg-on-accent` on `--accent` 6.11 (hover 6.88). Light `--fg-muted` on canvas 6.33, surface 7.04, muted 5.73; `--fg-subtle` on canvas 5.51, surface 6.13; `--fg-on-accent` on `--accent` 7.27 (hover 7.98). 12px Label text on its 10% tint over surface: dark accent 4.87, success 5.83, attention 5.87, danger 4.66, done 4.53; light 6.00–6.41 (all tones are at or above 4.5 on canvas and subtle too).
 
 Counter: `rgba(110,118,129,.4)` background, 12px, pill; attention variant `rgba(187,128,9,.4)`.
 
@@ -67,14 +70,14 @@ Keep "metadata 缺漏", "verification 尚未回報" and "verification 明確 not
 
 - Font: `-apple-system, "Segoe UI", "Noto Sans TC", "Microsoft JhengHei", "Noto Sans", Helvetica, Arial, sans-serif`
 - Mono: `ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace` — paths, IDs, commands, event types.
-- Scale: 12 (meta, Label, Counter) · 14 (body, default) · 16 (section title, page title) · 20 (panel title) · 24 (stat value) · 32 (hero number, rare).
-- Weights: 400 body, 500 buttons/labels, 600 titles. Line-height 1.5.
+- Scale: 12 (meta, Label, Counter, keycap) · 13 (stat label, description, group label) · 14 (body, default) · 16 (dialog title) · 20 (page title, panel title) · 24 (stat value) · 32 (hero number, rare).
+- Weights: 400 body, 500 buttons/labels/row titles/active nav, 600 titles. Line-height 1.5.
 - No eyebrows (removed in 1.6.36). `--fg-muted` is for meta text and secondary icons.
 
 ## Spacing, radius, elevation
 
 - Spacing scale (4px base): 4 · 8 · 12 · 16 · 24 · 32 · 48 · 64.
-- Radius: 6px everywhere; 12px for popovers/Dialog; 999px for Label/Counter.
+- Radius, two levels plus two small ones: `--radius` 6px inner (controls, rows, inputs, Flash), `--radius-outer` 10px outer (Box, StatCard, popovers, Dialog), `--radius-sm` 4px (keycaps, meter bars, small chips), `--radius-xs` 2px (heat cells, legend swatches, chart bars), `--radius-pill` for Label/Counter. `--radius-lg` (12px) was replaced by `--radius-outer`.
 - Shadow only on floating layers: popover `0 8px 24px rgba(1,4,9,.75)`, SidePanel `-16px 0 48px rgba(1,4,9,.6)`. Cards and Boxes are flat (border, no shadow).
 - Control heights: 32px default, 28px small. Nav items 32px.
 
@@ -91,15 +94,19 @@ Motion is short and purposeful (the reference is beautifului.dev): quick feedbac
 | `--duration-base` | 240ms | Dialogs, tab panels, page fade, toasts, tab indicator |
 | `--duration-slow` | 360ms | Side panel slide, card entrance |
 
-Keyframes: `wi-fade-in`, `wi-fade-up` (6px), `wi-pop-in` (scale 0.96), `wi-drop-in` (menus). Rules:
+Page sections already enter once through the shared page fade and the stat cards' `wi-fade-up` (6px, at most 8px); nothing else was added in 1.6.36. Keyframes: `wi-fade-in`, `wi-fade-up` (6px), `wi-pop-in` (scale 0.96), `wi-drop-in` (menus). Rules:
 
 - Entrances animate opacity and at most a few pixels of transform; never animate width, height, top, or left of layout boxes. Anything inside a panel that measures its size on mount (`VirtualList` fit-viewport, tab panels) only fades, so its measurements stay right.
 - Exits are faster than entrances; the page transition leaves in 80ms so navigation never feels delayed.
 - `prefers-reduced-motion: reduce` turns every animation and transition off globally (`base.css`); do not add motion that bypasses it. Playwright runs with `reducedMotion: "reduce"`.
 - Stagger only small, fixed sets (dashboard stat cards, at most 5 steps of 40ms). Do not animate rows of virtualized lists: they remount while scrolling.
-- More keyframes in `base.css`: `wi-pop` (UiCounter when its value changes), `wi-grow-y` (sidebar active indicator), `wi-progress` (the shell's indeterminate loading bar, shown 150ms late so fast loads never flash it). Shared `<Transition name="fade">` classes are for banners and notices that come and go.
+- More keyframes in `base.css`: `wi-pop` (UiCounter when its value changes), `wi-progress` (the shell's indeterminate loading bar, shown 150ms late so fast loads never flash it). Shared `<Transition name="fade">` classes are for banners and notices that come and go.
 - A theme switch cross-fades colours for one `--duration-base` (`.is-theme-switching` on `<html>`, added by useAppearance); nothing else animates colour globally.
 
 ## Breakpoints
 
 `sm 640` · `md 960` · `lg 1280`. Do not introduce others. All routes use the full available main width with the same responsive gutters; do not add route-specific width limits. Reserve stable scrollbar space on the main scroll container.
+
+## Keycap
+
+One global `kbd` rule in `base.css` (12px mono, `--bg-surface`, 1px border with a 2px bottom, `--radius-sm`). Never restyle `kbd` in a component; put one `<kbd>` per key.

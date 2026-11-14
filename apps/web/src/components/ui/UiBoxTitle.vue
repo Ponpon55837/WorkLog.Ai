@@ -33,7 +33,12 @@ defineProps<{ title: string; icon?: IconComponent; count?: number | string }>();
 }
 
 .ui-box-title__count {
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-muted);
   color: var(--fg-muted);
-  font-size: var(--text-md);
+  font-size: var(--text-xs);
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
 }
 </style>

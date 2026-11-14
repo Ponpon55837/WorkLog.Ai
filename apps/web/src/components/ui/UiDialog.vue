@@ -83,8 +83,8 @@ function requestClose(): void {
   width: 100%;
   max-height: calc(100vh - var(--space-8));
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-subtle);
+  border-radius: var(--radius-outer);
+  background: var(--bg-surface);
   box-shadow: var(--shadow-popover);
   outline: none;
 }

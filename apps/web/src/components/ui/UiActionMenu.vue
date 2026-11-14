@@ -164,7 +164,7 @@ watch(open, async (value) => {
   height: var(--control-height);
   padding: 0 var(--space-3);
   border-color: var(--border);
-  background: var(--bg-muted);
+  background: var(--bg-surface);
   color: var(--fg);
   font-weight: 500;
 }
@@ -178,7 +178,7 @@ watch(open, async (value) => {
 .ui-action-menu__trigger--button:hover,
 .ui-action-menu__trigger--button.is-open {
   border-color: var(--border-strong);
-  background: var(--bg-muted-hover);
+  background: var(--bg-muted);
 }
 
 .ui-action-menu__trigger :deep(.lucide) {
@@ -193,8 +193,8 @@ watch(open, async (value) => {
   max-height: min(420px, 70vh);
   overflow-y: auto;
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-subtle);
+  border-radius: var(--radius-outer);
+  background: var(--bg-surface);
   box-shadow: var(--shadow-popover);
 }
 

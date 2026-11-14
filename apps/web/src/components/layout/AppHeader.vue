@@ -46,7 +46,10 @@ const searchShortcut = isMac ? "Meta+K" : "Control+K";
     <button class="app-header__search" type="button" :aria-keyshortcuts="searchShortcut" @click="emit('search')">
       <Search :size="16" :stroke-width="1.75" aria-hidden="true" />
       <span class="app-header__search-text">{{ t("layout.searchSessionsKnowledgeOrJump") }}</span>
-      <kbd aria-hidden="true">{{ isMac ? "⌘" : "Ctrl" }} K</kbd>
+      <span class="app-header__keys" aria-hidden="true"
+        ><kbd>{{ isMac ? "⌘" : "Ctrl" }}</kbd
+        ><kbd>K</kbd></span
+      >
     </button>
     <span class="app-header__status" :title="t('layout.dataStaysInLocalSqlite')">
       <span class="app-header__dot" aria-hidden="true"></span>
@@ -81,8 +84,8 @@ const searchShortcut = isMac ? "Meta+K" : "Control+K";
   gap: var(--space-3);
   height: var(--header-height);
   padding: 0 var(--space-4);
-  border-bottom: 1px solid var(--border-muted);
-  background: var(--bg-inset);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-canvas);
 }
 
 .app-header__menu {
@@ -101,16 +104,17 @@ const searchShortcut = isMac ? "Meta+K" : "Control+K";
   place-items: center;
   width: 28px;
   height: 28px;
-  border: 1px solid var(--border);
   border-radius: var(--radius);
-  color: var(--fg);
-  font: 700 11px var(--font-mono);
-  letter-spacing: 0.04em;
+  background: var(--fg);
+  color: var(--bg-canvas);
+  font: 600 var(--text-xs) var(--font-mono);
+  letter-spacing: 0.02em;
   text-decoration: none;
+  transition: opacity var(--duration-instant) ease-out;
 }
 
 .app-header__logo:hover {
-  border-color: var(--border-strong);
+  opacity: 0.85;
   text-decoration: none;
 }
 
@@ -123,7 +127,7 @@ const searchShortcut = isMac ? "Meta+K" : "Control+K";
 }
 
 .app-header__app {
-  font-weight: 600;
+  color: var(--fg-muted);
 }
 
 .app-header__sep {
@@ -132,6 +136,8 @@ const searchShortcut = isMac ? "Meta+K" : "Control+K";
 
 .app-header__page {
   overflow: hidden;
+  color: var(--fg);
+  font-weight: 500;
   text-overflow: ellipsis;
 }
 
@@ -145,9 +151,10 @@ const searchShortcut = isMac ? "Meta+K" : "Control+K";
   padding: 0 var(--space-2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--bg-canvas);
+  background: var(--bg-surface);
   color: var(--fg-muted);
   font-size: var(--text-sm);
+  transition: border-color var(--duration-instant) ease-out;
 }
 
 .app-header__search:hover {
@@ -162,29 +169,23 @@ const searchShortcut = isMac ? "Meta+K" : "Control+K";
   white-space: nowrap;
 }
 
-kbd {
-  padding: 1px 6px;
-  border: 1px solid var(--border);
-  border-bottom-width: 2px;
-  border-radius: 4px;
-  background: var(--bg-subtle);
-  color: var(--fg-muted);
-  font-size: 11px;
-  white-space: nowrap;
+.app-header__keys {
+  display: inline-flex;
+  gap: var(--space-1);
 }
 
 .app-header__status {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   color: var(--fg-muted);
   font-size: var(--text-xs);
   white-space: nowrap;
 }
 
 .app-header__dot {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--success);
 }
@@ -242,7 +243,7 @@ kbd {
     border: 0;
   }
 
-  .app-header__search kbd,
+  .app-header__keys,
   .app-header__status {
     display: none;
   }

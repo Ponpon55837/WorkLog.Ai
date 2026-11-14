@@ -47,14 +47,14 @@ function onKeydown(event: KeyboardEvent, options: readonly SelectOption<T>[]): v
   padding: 2px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--bg-muted);
+  background: var(--bg-surface);
 }
 
 .ui-segmented button {
   height: 26px;
   padding: 0 var(--space-3);
   border: 1px solid transparent;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: none;
   color: var(--fg-muted);
   font-size: var(--text-sm);
@@ -70,10 +70,9 @@ function onKeydown(event: KeyboardEvent, options: readonly SelectOption<T>[]): v
 }
 
 .ui-segmented button.is-selected {
-  border-color: var(--border);
-  background: var(--bg-canvas);
+  background: var(--bg-muted);
   color: var(--fg);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 @media (max-width: 639px) {

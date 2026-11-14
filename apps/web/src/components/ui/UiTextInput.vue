@@ -66,7 +66,7 @@ defineExpose({ focus: () => input.value?.focus() });
   padding: 0 var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--bg-inset);
+  background: var(--bg-surface);
   color: var(--fg-muted);
   cursor: text;
 }

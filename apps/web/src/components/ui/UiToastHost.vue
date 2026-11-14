@@ -45,7 +45,7 @@ const icons = { default: Info, success: CircleCheck, danger: CircleAlert } as co
   padding: var(--space-3) var(--space-4);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
   box-shadow: var(--shadow-popover);
   color: var(--fg);
   font-size: var(--text-sm);

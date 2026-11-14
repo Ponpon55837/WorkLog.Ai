@@ -39,15 +39,15 @@ const total = computed(() => props.max ?? props.segments.reduce((sum, segment) =
 <style scoped>
 .ui-meter {
   display: flex;
-  height: 8px;
+  height: 6px;
   margin-top: var(--space-3);
   overflow: hidden;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-sm);
   background: var(--bg-muted);
 }
 
 .ui-meter--sm {
-  height: 6px;
+  height: 4px;
   margin-top: var(--space-2);
 }
 

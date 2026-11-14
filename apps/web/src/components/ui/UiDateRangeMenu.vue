@@ -254,7 +254,7 @@ watch(open, (value) => {
   height: var(--control-height);
   padding: 0 var(--space-3);
   border-color: var(--border);
-  background: var(--bg-muted);
+  background: var(--bg-surface);
   color: var(--fg);
   font-weight: 500;
 }
@@ -268,8 +268,8 @@ watch(open, (value) => {
   z-index: 60;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-subtle);
+  border-radius: var(--radius-outer);
+  background: var(--bg-surface);
   box-shadow: var(--shadow-popover);
 }
 

@@ -36,6 +36,7 @@ import UiSelect from "../components/ui/UiSelect.vue";
 import UiSidePanel from "../components/ui/UiSidePanel.vue";
 import UiSidePanelHeader from "../components/ui/UiSidePanelHeader.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
+import UiSparkline from "../components/ui/UiSparkline.vue";
 import UiSplitLayout from "../components/ui/UiSplitLayout.vue";
 import UiStatCard from "../components/ui/UiStatCard.vue";
 import UiStatGrid from "../components/ui/UiStatGrid.vue";
@@ -116,6 +117,15 @@ async function tryConfirm(): Promise<void> {
         <UiLabel tone="done">{{ t("common.completedStatus") }}</UiLabel>
         <UiCounter :count="128" />
         <UiCounter :count="3" tone="attention" />
+      </div>
+    </UiBox>
+
+    <UiBox padded>
+      <template #header><UiBoxTitle title="Keycap" :count="2" /></template>
+      <div class="showcase__row">
+        <span><kbd>Ctrl</kbd><kbd>K</kbd></span>
+        <span><kbd>J</kbd> / <kbd>K</kbd></span>
+        <span><kbd>Esc</kbd></span>
       </div>
     </UiBox>
 
@@ -203,6 +213,13 @@ async function tryConfirm(): Promise<void> {
       <UiStatCard :label="t('common.pending')" :icon="Inbox" :value="3" value-tone="attention" />
     </UiStatGrid>
 
+    <UiStatGrid :columns="2">
+      <UiStatCard featured label="Featured" :value="8" suffix="items" foot="UiStatCard featured + UiSparkline lg">
+        <UiSparkline size="lg" label="Featured" :values="[2, 3, 5, 4, 7, 9, 12, 1]" />
+      </UiStatCard>
+      <UiStatCard label="Plain" :value="41" foot="UiStatGrid columns=2" />
+    </UiStatGrid>
+
     <UiStatGrid :columns="3">
       <UiStatCard compact label="Compact" :value="12">
         <UiMeter size="sm" :max="20" :segments="[{ value: 12, tone: 'accent', label: 'Compact' }]" />
@@ -244,7 +261,7 @@ async function tryConfirm(): Promise<void> {
           ]"
         />
       </template>
-      <UiGroupLabel>{{ t("common.today") }}</UiGroupLabel>
+      <UiGroupLabel summary="5 items">{{ t("common.today") }}</UiGroupLabel>
       <UiBoxRow
         clickable
         :title="t('showcase.clickableRow')"

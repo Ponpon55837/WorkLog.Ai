@@ -9,16 +9,16 @@ Location: `apps/web/src/components/ui/` (generic, `Ui*`), `components/layout/` (
 | Component | API |
 |---|---|
 | `AppShell` | Props `refreshing`, `counts` (sidebar counters by route name), `fullWidth`. Emits `refresh`, `search`. Slots: default (page), `overlays`. Mounts `UiConfirmHost` and `UiToastHost`, a "跳至主要內容" skip link, and a 2px top progress bar while a page chunk loads or `refreshing` is set (`useNavigationProgress`). |
-| `AppHeader` | Menu button (< 640px), `WI` logo, crumb from route meta, search trigger (`Ctrl/⌘ K`), Local-first dot (hidden < 640px), language `UiActionMenu` (label hidden < 640px), sun/moon theme `UiIconButton`, refresh `UiIconButton`. |
+| `AppHeader` | Menu button (< 640px), `WI` logo (filled), crumb (`Work Intelligence /` muted, page name 500), search trigger with `Ctrl`/`⌘` and `K` as two keycaps, Local-first 6px dot (hidden < 640px), language `UiActionMenu` (label hidden < 640px), sun/moon theme `UiIconButton`, refresh `UiIconButton`. |
 | `AppSidebar` | Built from `layout/navigation.ts` (`navItems`, `navGroups`). Full ≥ 960, icon rail 640–959, drawer < 640. Nav links carry `data-testid="nav-<route>"`. |
-| `PageHeader` | Props `title?` (defaults to route meta), `description?` (single line, truncated, full text in `title`). Slot `actions`. One compact row; scrolls away with the page. |
+| `PageHeader` | Props `title?` (defaults to route meta; 20px/600), `description?` (13px muted, single line, truncated, full text in `title`). Slot `actions`. One compact row; scrolls away with the page. |
 | `PageToolbar` | Sticky container for page search and/or `UiUnderlineNav`; publishes `--page-toolbar-height` for sticky Box headers. One per page. |
 
 ## Actions & inputs
 
 | Component | API |
 |---|---|
-| `UiButton` | `variant: default \| primary \| invisible \| danger \| link`, `size: md \| sm`, `icon`, `trailingIcon`, `loading`, `disabled`, `type`, `to` (renders RouterLink), `iconOnly` + `label`, `truncate`. `variant="link"` is an inline accent-coloured text link that runs a command (inherits the surrounding font size, underline on hover); never hand-roll a link-styled `<button>`. |
+| `UiButton` | `variant: default (surface + border) \| primary (solid accent, `--fg-on-accent` text) \| invisible \| danger \| link`, `size: md \| sm`, `icon`, `trailingIcon`, `loading`, `disabled`, `type`, `to` (renders RouterLink), `iconOnly` + `label`, `truncate`. `variant="link"` is an inline accent-coloured text link that runs a command (inherits the surrounding font size, underline on hover); never hand-roll a link-styled `<button>`. |
 | `UiIconButton` | Required `icon`, `label`; `variant` (default `invisible`), `size`, `loading`, `disabled`. |
 | `UiCopyButton` | `text`, `label`, `successMessage`, `variant`, `size`, `iconOnly`. Toast + check-mark feedback. |
 | `UiTextInput` | `v-model`, `icon`, `type: text \| search \| date`, `placeholder`, `label`, `size`, `mono`, `maxlength`, `required`, `autofocus`. Slots `prefix`, `suffix`. |
@@ -37,17 +37,17 @@ Location: `apps/web/src/components/ui/` (generic, `Ui*`), `components/layout/` (
 | Component | API |
 |---|---|
 | `UiBox` | Slots `header`, default, `footer`; props `padded`, `tag`, `stickyHeader` (pins the header below `PageToolbar`). Uses `overflow: clip` so sticky works. Adjacent boxes get 16px spacing. |
-| `UiBoxTitle` | `title`, `icon`, `count` (no eyebrow); default slot for inline extras (e.g. a Label). |
+| `UiBoxTitle` | `title`, `icon`, `count` (rendered as a muted pill; no eyebrow); default slot for inline extras (e.g. a Label). |
 | `UiBoxRow` | Props `clickable`, `title`, `meta`, `tag`; emits `select`. Slots `leading`, `title`, `labels`, `meta`, default (body), `trailing`. Clickable rows use a stretched title button; trailing actions stay independently focusable. Add class `hide-sm` to trailing items that should hide < 640px. |
-| `UiGroupLabel` | Date/section separator inside a Box. |
-| `UiLabel` | `tone: neutral \| accent \| success \| attention \| danger \| done`, `icon`. |
+| `UiGroupLabel` | Date/section separator inside a Box: canvas fill, 13px/500; optional `summary` prop or `summary` slot is the 12px muted recap beside it. |
+| `UiLabel` | `tone: neutral \| accent \| success \| attention \| danger \| done`, `icon`. Tinted pill without a border (neutral is `--bg-muted`). |
 | `UiCounter` | `count`, `tone: default \| attention`. |
-| `UiStatCard` | `label`, `value`, `icon`, `suffix`, `foot` (or slot), `valueTone`, `delta: { direction, text }`, `compact` (tighter padding, 16px value, for dialogs and previews); default slot for a meter/sparkline. |
+| `UiStatCard` | `label`, `value`, `icon`, `suffix`, `foot` (or slot), `valueTone`, `delta: { direction, text }`, `compact` (tighter padding, 16px value, for dialogs and previews), `featured` (chart card: text left, the default slot, a `UiSparkline size="lg"`, right; meant for the overview's weekly-completed card, not wired to data yet); default slot for a meter/sparkline. 13px muted label, 24px/600 value, 12px foot. |
 | `UiStatGrid` | Responsive grid for `UiStatCard`s. `columns` 2–5 (default 4); every layout is two columns below 960px (five columns first drop to three below 1280px); gap 16px, 8px below 640px. |
-| `UiMeter` | `segments: { value, tone, label }[]`, `label?`, `max?` (denominator; a single segment then reads as progress), `size: md \| sm` (`sm` is the 6px row-level bar). Without `label` the meter is decorative (`aria-hidden`). |
+| `UiMeter` | `segments: { value, tone, label }[]`, `label?`, `max?` (denominator; a single segment then reads as progress), `size: md \| sm` (`md` 6px, `sm` the 4px row-level bar; 4px radius). Without `label` the meter is decorative (`aria-hidden`). |
 | `UiStack` | Vertical flex stack with a 16px gap; cancels `UiBox`'s adjacent-box margin for direct Box children. Props `tag`. Use it instead of a grid/flex container plus `.ui-box + .ui-box { margin-top: 0 }`. |
 | `UiSplitLayout` | Main column plus a 280–380px side column (slots `main`, `aside`; prop `asideLabel` makes the side an `aside` landmark). Each column is a `UiStack`, columns keep their own height (`align-items: start`), and the side column stacks under the main one below 960px. |
-| `UiSparkline` | `values`, `label`. |
+| `UiSparkline` | `values`, `label`, `size: md \| lg` (24px / 52px). |
 | `UiBarChart` | `labels`, `series: { name, tone, values }[]`, `label`, `labelEvery`. Each series scales independently. |
 | `UiDisclosure` | Native `<details>`: `title`, `icon`, `count`, `hint`, `open`. |
 | `UiCommandBlock` | `text`, `successMessage`. Copyable natural-language Agent instruction (never tool names, IDs or JSON). |

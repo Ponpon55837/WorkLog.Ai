@@ -34,18 +34,18 @@ withDefaults(defineProps<{ icon?: IconComponent; title: string; description?: st
 
 .ui-empty__icon {
   margin-bottom: var(--space-2);
-  color: var(--fg-muted);
+  color: var(--fg-subtle);
 }
 
 .ui-empty strong {
   color: var(--fg);
-  font-size: var(--text-lg);
+  font-size: var(--text-md);
   font-weight: 600;
 }
 
 .ui-empty p {
   max-width: 420px;
-  font-size: var(--text-md);
+  font-size: var(--text-sm);
 }
 
 .ui-empty__action {

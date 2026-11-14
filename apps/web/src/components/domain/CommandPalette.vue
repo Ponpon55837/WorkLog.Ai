@@ -216,8 +216,8 @@ watch(
   max-height: 70vh;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-subtle);
+  border-radius: var(--radius-outer);
+  background: var(--bg-surface);
   box-shadow: var(--shadow-popover);
 }
 
@@ -311,10 +311,5 @@ watch(
 
 kbd {
   margin-right: 2px;
-  padding: 0 5px;
-  border: 1px solid var(--border);
-  border-bottom-width: 2px;
-  border-radius: 4px;
-  font-size: 11px;
 }
 </style>

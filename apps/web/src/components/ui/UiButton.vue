@@ -72,7 +72,7 @@ const classes = computed(() => [
   padding: 0 var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--bg-muted);
+  background: var(--bg-surface);
   color: var(--fg);
   font-size: var(--text-md);
   font-weight: 500;
@@ -92,7 +92,7 @@ const classes = computed(() => [
 }
 
 .ui-button:hover:not(:disabled) {
-  background: var(--bg-muted-hover);
+  background: var(--bg-muted);
   border-color: var(--border-strong);
   text-decoration: none;
 }
@@ -122,18 +122,18 @@ const classes = computed(() => [
 }
 
 .ui-button--primary {
-  border-color: var(--border-on-emphasis);
-  background: var(--success-emphasis);
-  color: var(--fg-on-emphasis);
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--fg-on-accent);
 }
 
 .ui-button--primary:hover:not(:disabled) {
-  border-color: var(--border-strong);
-  background: var(--success-emphasis-hover);
+  border-color: transparent;
+  background: color-mix(in srgb, var(--accent) 88%, var(--fg));
 }
 
 .ui-button--primary :deep(.lucide) {
-  color: var(--fg-on-emphasis);
+  color: var(--fg-on-accent);
 }
 
 .ui-button--invisible {

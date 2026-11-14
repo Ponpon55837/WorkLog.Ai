@@ -1,29 +1,30 @@
 /* Design tokens — the only place raw colour values are allowed. See .agents/skills/worklog-ui/references/tokens.md
  * Dark (GitHub dark) is the default set; `:root[data-theme="light"]` below swaps in a softened light
- * set. The theme is chosen in the header (system / light / dark) and applied by composables/useAppearance.ts. */
+ * set. Layers, back to front: canvas (page) < surface (cards, popovers) < subtle (recessed fills inside a card). The theme is chosen in the header (system / light / dark) and applied by composables/useAppearance.ts. */
 :root {
   color-scheme: dark;
 
   /* Surfaces */
   --bg-canvas: #0d1117;
+  --bg-surface: #151b23;
   --bg-inset: #010409;
-  --bg-subtle: #161b22;
+  --bg-subtle: #11161d;
   --bg-hover: #1c2128;
   --bg-muted: #21262d;
-  --bg-muted-hover: #292e36;
   --bg-overlay: rgba(1, 4, 9, 0.6);
 
   /* Borders */
   --border: #30363d;
-  --border-muted: #21262d;
+  --border-muted: #242b34;
   --border-strong: #8b949e;
   --border-on-emphasis: rgba(240, 246, 252, 0.1);
 
   /* Text */
   --fg: #e6edf3;
   --fg-muted: #9198a1;
-  --fg-subtle: #6e7681;
+  --fg-subtle: #848d97;
   --fg-on-emphasis: #ffffff;
+  --fg-on-accent: #0d1117;
 
   /* Semantic */
   --accent: #4493f8;
@@ -32,7 +33,6 @@
   --accent-border: rgba(68, 147, 248, 0.4);
   --success: #3fb950;
   --success-emphasis: #238636;
-  --success-emphasis-hover: var(--success-emphasis);
   --success-soft: rgba(63, 185, 80, 0.1);
   --success-border: rgba(63, 185, 80, 0.4);
   --attention: #d29922;
@@ -47,7 +47,6 @@
   --done-border: rgba(163, 113, 247, 0.4);
   --neutral-soft: rgba(110, 118, 129, 0.4);
   --attention-counter: rgba(187, 128, 9, 0.4);
-  --underline-active: #f78166;
   /* Categorical diagram tones (architecture groups); AA as 12px text on their 8% tint over --bg-inset. */
   --diagram-tone-1: #4493f8;
   --diagram-tone-2: #ab7df8;
@@ -79,8 +78,10 @@
   --space-16: 64px;
 
   /* Shape & elevation */
-  --radius: 6px;
-  --radius-lg: 12px;
+  --radius-xs: 2px; /* heat cells, legend swatches */
+  --radius-sm: 4px; /* keycaps, small chips */
+  --radius: 6px; /* inner: controls, rows, inputs */
+  --radius-outer: 10px; /* outer: cards (UiBox, stat cards), popovers, dialogs */
   --radius-pill: 999px;
   --shadow-popover: 0 8px 24px rgba(1, 4, 9, 0.75);
   --shadow-panel: -16px 0 48px rgba(1, 4, 9, 0.6);
@@ -109,16 +110,16 @@
 
   /* Surfaces */
   --bg-canvas: #eef0f3;
+  --bg-surface: #fbfcfd;
   --bg-inset: #e6e9ed;
   --bg-subtle: #e6e9ed;
   --bg-hover: #e2e5ea;
   --bg-muted: #e2e5ea;
-  --bg-muted-hover: #d8dce2;
   --bg-overlay: rgba(31, 35, 40, 0.4);
 
   /* Borders */
   --border: #c9d0d8;
-  --border-muted: #d6dbe1;
+  --border-muted: #dbe0e6;
   --border-strong: #7d8794;
   --border-on-emphasis: rgba(31, 35, 40, 0.15);
 
@@ -127,6 +128,7 @@
   --fg-muted: #4f5862;
   --fg-subtle: #58616b;
   --fg-on-emphasis: #ffffff;
+  --fg-on-accent: #ffffff;
 
   /* Semantic */
   --accent: #0754ae;
@@ -135,7 +137,6 @@
   --accent-border: rgba(7, 84, 174, 0.4);
   --success: #16652a;
   --success-emphasis: #1f883d;
-  --success-emphasis-hover: #1c8139;
   --success-soft: rgba(22, 101, 42, 0.1);
   --success-border: rgba(22, 101, 42, 0.4);
   --attention: #744c00;
@@ -150,7 +151,6 @@
   --done-border: rgba(98, 53, 184, 0.4);
   --neutral-soft: rgba(101, 110, 122, 0.2);
   --attention-counter: rgba(212, 167, 44, 0.3);
-  --underline-active: #fd8c73;
   --diagram-tone-1: #0754ae;
   --diagram-tone-2: #6235b8;
   --diagram-tone-3: #16652a;

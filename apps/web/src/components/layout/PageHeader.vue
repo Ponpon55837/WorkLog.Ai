@@ -40,16 +40,16 @@ const resolvedTitle = computed(() => props.title ?? (route.meta.title ? t(route.
   display: flex;
   flex: 1 1 360px;
   align-items: baseline;
-  gap: var(--space-2);
+  gap: var(--space-1) var(--space-3);
   min-width: 0;
 }
 
 .page-header h1 {
   flex: none;
   color: var(--fg);
-  font-size: var(--text-lg);
+  font-size: var(--text-xl);
   font-weight: 600;
-  line-height: 1.4;
+  line-height: 1.3;
 }
 
 /* One line: the full text stays available on hover instead of pushing the data down. */

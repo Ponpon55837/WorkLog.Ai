@@ -99,7 +99,7 @@ function height(seriesIndex: number, value: number): string {
   width: 10px;
   height: 10px;
   margin-right: 6px;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   vertical-align: -1px;
 }
 
@@ -128,7 +128,7 @@ function height(seriesIndex: number, value: number): string {
 .ui-bar-chart__bars i {
   width: 40%;
   max-width: 16px;
-  border-radius: 3px 3px 0 0;
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
 }
 
 .ui-bar-chart__x {
@@ -192,7 +192,7 @@ function height(seriesIndex: number, value: number): string {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
   color: var(--fg-muted);
   font-weight: 500;
 }

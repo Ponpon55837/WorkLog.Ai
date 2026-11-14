@@ -67,8 +67,8 @@ const emit = defineEmits<{ close: [] }>();
   flex-direction: column;
   width: var(--sidebar-width);
   padding: var(--space-4) var(--space-2);
-  border-right: 1px solid var(--border-muted);
-  background: var(--bg-inset);
+  border-right: 1px solid var(--border);
+  background: var(--bg-canvas);
   overflow-y: auto;
 }
 
@@ -77,12 +77,10 @@ const emit = defineEmits<{ close: [] }>();
 }
 
 .app-sidebar__group-label {
-  padding: 0 var(--space-2) 6px;
-  color: var(--fg-muted);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  padding: 0 var(--space-2) var(--space-1);
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+  font-weight: 500;
 }
 
 .app-sidebar__item {
@@ -93,13 +91,13 @@ const emit = defineEmits<{ close: [] }>();
   height: 32px;
   padding: 0 var(--space-2);
   border-radius: var(--radius);
-  color: var(--fg);
+  color: var(--fg-muted);
   font-size: var(--text-md);
   text-decoration: none;
 }
 
 .app-sidebar__item :deep(.lucide) {
-  color: var(--fg-muted);
+  color: var(--fg-subtle);
 }
 
 .app-sidebar__item {
@@ -110,28 +108,19 @@ const emit = defineEmits<{ close: [] }>();
 
 .app-sidebar__item:hover {
   background: var(--bg-hover);
+  color: var(--fg);
   text-decoration: none;
 }
 
+/* The current page: a recessed fill, primary text colour and a heavier weight (no side bar). */
 .app-sidebar__item.is-active {
   background: var(--bg-muted);
-  font-weight: 600;
+  color: var(--fg);
+  font-weight: 500;
 }
 
 .app-sidebar__item.is-active :deep(.lucide) {
   color: var(--fg);
-}
-
-.app-sidebar__item.is-active::before {
-  content: "";
-  position: absolute;
-  top: 6px;
-  bottom: 6px;
-  left: calc(-1 * var(--space-2));
-  width: 4px;
-  border-radius: var(--radius);
-  background: var(--accent);
-  animation: wi-grow-y var(--duration-base) var(--ease-out);
 }
 
 .app-sidebar__item :deep(.lucide) {
@@ -145,8 +134,25 @@ const emit = defineEmits<{ close: [] }>();
   transform: translateX(1px);
 }
 
+/* The count is small trailing text, not a pill. */
 .app-sidebar__counter {
+  min-width: 0;
   margin-left: auto;
+  padding: 0;
+  background: transparent;
+  color: var(--fg-subtle);
+  font-weight: 400;
+  line-height: inherit;
+}
+
+.app-sidebar__counter.ui-counter--attention {
+  background: transparent;
+  color: var(--attention);
+  font-weight: 500;
+}
+
+.app-sidebar__item.is-active .app-sidebar__counter {
+  color: var(--fg-muted);
 }
 
 .app-sidebar__policy {

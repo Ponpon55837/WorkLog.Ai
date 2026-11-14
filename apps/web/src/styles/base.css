@@ -69,6 +69,20 @@ pre,
   font-size: var(--text-xs);
 }
 
+/* Keycap: the one shared look for keyboard hints (header search, palette footer, Session panel). */
+kbd {
+  display: inline-block;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
@@ -92,7 +106,7 @@ pre,
   width: 40px;
   height: 40px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-outer);
   color: var(--fg);
   font: 700 14px var(--font-mono);
   letter-spacing: 0.04em;
@@ -204,12 +218,6 @@ pre,
 @keyframes wi-pop {
   40% {
     transform: scale(1.18);
-  }
-}
-
-@keyframes wi-grow-y {
-  from {
-    transform: scaleY(0);
   }
 }
 
