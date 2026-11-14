@@ -13,6 +13,24 @@ export function formatTimeOfDay(value: string): string {
   return new Intl.DateTimeFormat(intlLocale(), { hour: "numeric", minute: "2-digit" }).format(new Date(value));
 }
 
+/** Short weekday, day and time (e.g. 11/9 週一 上午10:42), for a period that spans several days. */
+export function formatWeekdayTime(value: string): string {
+  return new Intl.DateTimeFormat(intlLocale(), {
+    month: "numeric",
+    day: "numeric",
+    weekday: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+/** Local 24-hour clock time (10:42), for the time column of a day-grouped timeline. */
+export function formatClock(value: string): string {
+  return new Intl.DateTimeFormat(intlLocale(), { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(
+    new Date(value),
+  );
+}
+
 export function formatReadableSummary(value: string): string {
   const normalized = value.replace(/\r\n?/g, "\n").trim();
   if (!normalized) {

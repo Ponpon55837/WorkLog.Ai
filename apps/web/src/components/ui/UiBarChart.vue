@@ -14,6 +14,10 @@ const props = defineProps<{
   label: string;
   /** Show every n-th x label to avoid crowding. */
   labelEvery?: number;
+  /** Shorter plot: no legend or hint, labels may wrap, and the value table folds away until opened. */
+  compact?: boolean;
+  /** Print each column's value above its bars (decorative: the value table carries the same numbers). */
+  showValues?: boolean;
 }>();
 
 const maxima = computed(() => props.series.map((item) => Math.max(1, ...item.values)));
@@ -31,8 +35,8 @@ function height(seriesIndex: number, value: number): string {
 </script>
 
 <template>
-  <figure class="ui-bar-chart">
-    <figcaption class="ui-bar-chart__legend">
+  <figure :class="['ui-bar-chart', { 'ui-bar-chart--compact': compact }]">
+    <figcaption v-if="!compact" class="ui-bar-chart__legend">
       <span v-for="item in series" :key="item.name"><i :class="`tone-${item.tone}`"></i>{{ item.name }}</span>
     </figcaption>
     <div class="ui-bar-chart__plot" role="img" :aria-label="label">
@@ -42,6 +46,9 @@ function height(seriesIndex: number, value: number): string {
         class="ui-bar-chart__column"
         :title="`${point} · ${series.map((item) => `${item.name} ${item.values[index] ?? 0}`).join(' · ')}`"
       >
+        <span v-if="showValues" class="ui-bar-chart__value" aria-hidden="true">{{
+          series.map((item) => item.values[index] ?? 0).join(" / ")
+        }}</span>
         <div class="ui-bar-chart__bars">
           <i
             v-for="(item, seriesIndex) in series"
@@ -55,28 +62,31 @@ function height(seriesIndex: number, value: number): string {
         >
       </div>
     </div>
-    <p class="ui-bar-chart__hint">{{ t("ui.eachBarScalesToIts") }}</p>
-    <div class="ui-bar-chart__data" role="region" :aria-label="t('ui.trendChartValues')" tabindex="0">
-      <table>
-        <caption>
-          {{
-            t("ui.actualCountsPerPeriod")
-          }}
-        </caption>
-        <thead>
-          <tr>
-            <th scope="col">{{ t("ui.period") }}</th>
-            <th v-for="item in series" :key="item.name" scope="col">{{ item.name }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="(point, index) in labels" :key="point">
-            <th scope="row">{{ point }}</th>
-            <td v-for="item in series" :key="item.name">{{ item.values[index] ?? 0 }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <p v-if="!compact" class="ui-bar-chart__hint">{{ t("ui.eachBarScalesToIts") }}</p>
+    <component :is="compact ? 'details' : 'div'" class="ui-bar-chart__table">
+      <summary v-if="compact" class="ui-bar-chart__toggle">{{ t("ui.trendChartValues") }}</summary>
+      <div class="ui-bar-chart__data" role="region" :aria-label="t('ui.trendChartValues')" tabindex="0">
+        <table>
+          <caption>
+            {{
+              t("ui.actualCountsPerPeriod")
+            }}
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">{{ t("ui.period") }}</th>
+              <th v-for="item in series" :key="item.name" scope="col">{{ item.name }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(point, index) in labels" :key="point">
+              <th scope="row">{{ point }}</th>
+              <td v-for="item in series" :key="item.name">{{ item.values[index] ?? 0 }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </component>
   </figure>
 </template>
 
@@ -152,6 +162,46 @@ function height(seriesIndex: number, value: number): string {
   margin: var(--space-2) 0 0;
   color: var(--fg-muted);
   font-size: var(--text-xs);
+}
+
+.ui-bar-chart--compact .ui-bar-chart__plot {
+  height: 112px;
+}
+
+.ui-bar-chart--compact .ui-bar-chart__bars i {
+  width: 60%;
+  max-width: 32px;
+}
+
+.ui-bar-chart--compact .ui-bar-chart__x {
+  height: 34px;
+}
+
+.ui-bar-chart--compact .ui-bar-chart__x span {
+  width: 4em;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.ui-bar-chart__value {
+  padding-bottom: 2px;
+  color: var(--fg);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.ui-bar-chart__toggle {
+  margin-top: var(--space-2);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.ui-bar-chart__toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .ui-bar-chart__data {

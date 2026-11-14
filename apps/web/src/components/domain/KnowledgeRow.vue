@@ -3,11 +3,11 @@ import { computed, ref } from "vue";
 import { Archive, ArchiveRestore, CheckCheck, ExternalLink, FileSearch, History, Pencil } from "lucide-vue-next";
 import type { KnowledgeRecord } from "@work-intelligence/core";
 import { formatDate, formatRelative } from "../../utils/format";
+import { trustCells } from "../../utils/knowledge-trust";
 import { knowledgeKindVisual, knowledgeStatusVisual, knowledgeTrustVisual } from "../../utils/status";
 import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiBoxRow from "../ui/UiBoxRow.vue";
 import UiButton from "../ui/UiButton.vue";
-import UiLabel from "../ui/UiLabel.vue";
 import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
 
@@ -18,6 +18,9 @@ const emit = defineEmits<{ action: [action: KnowledgeAction, item: KnowledgeReco
 
 const expanded = ref(false);
 const kind = computed(() => knowledgeKindVisual[props.item.kind]);
+const trustBar = computed(() =>
+  props.item.evidence ? trustCells(props.item.evidence.confirmed, props.item.evidence.contradicted) : [],
+);
 const actions = computed(() => [
   { value: "edit" as const, label: t("knowledge.edit"), icon: Pencil },
   { value: "confirm" as const, label: t("knowledge.stillValid"), icon: CheckCheck },
@@ -35,7 +38,7 @@ const actions = computed(() => [
 </script>
 
 <template>
-  <UiBoxRow tag="article" data-testid="knowledge-row">
+  <UiBoxRow tag="article" class="knowledge-row" data-testid="knowledge-row">
     <template #leading>
       <component :is="kind.icon" :size="16" :stroke-width="1.75" :class="`tone-${kind.tone}`" aria-hidden="true" />
     </template>
@@ -53,6 +56,9 @@ const actions = computed(() => [
       }}</time>
       <template v-if="item.evidence">
         ·
+        <span v-if="trustBar.length > 0" class="knowledge-row__trust-bar" aria-hidden="true"
+          ><i v-for="(cell, index) in trustBar" :key="index" :class="`knowledge-row__cell--${cell}`"></i
+        ></span>
         <UiButton
           variant="link"
           :aria-label="
@@ -78,14 +84,14 @@ const actions = computed(() => [
         }}</time>
       </template>
     </template>
-    <p v-if="item.review" class="knowledge-row__trust knowledge-row__trust--danger">
+    <p v-if="item.review" class="knowledge-row__reason knowledge-row__reason--danger">
       {{
         t("knowledge.aSessionReportedThatThis", {
           value: formatRelative(item.review.at),
         })
       }}
     </p>
-    <p v-else-if="item.possiblyStale" class="knowledge-row__trust">
+    <p v-else-if="item.possiblyStale" class="knowledge-row__reason">
       {{
         t("knowledge.changed", {
           sessionTitle: item.possiblyStale.sessionTitle,
@@ -109,7 +115,7 @@ const actions = computed(() => [
       {{ expanded ? t("knowledge.collapse") : t("knowledge.showFullText") }}
     </UiButton>
     <div v-if="item.tags.length || item.references.length || item.appliesTo.length" class="knowledge-row__chips">
-      <UiLabel v-for="tag in item.tags" :key="`tag-${tag}`">#{{ tag }}</UiLabel>
+      <span v-for="tag in item.tags" :key="`tag-${tag}`" class="knowledge-row__tag">#{{ tag }}</span>
       <code v-for="reference in item.references" :key="`ref-${reference}`" class="knowledge-row__ref">{{
         reference
       }}</code>
@@ -136,23 +142,37 @@ const actions = computed(() => [
 </template>
 
 <style scoped>
-.knowledge-row__trust {
+/* Reading order: title, why it may be stale, body, trust and source line, then the quiet tag line. */
+.knowledge-row :deep(.ui-box-row__main) {
+  display: flex;
+  flex-direction: column;
+}
+
+.knowledge-row :deep(.ui-box-row__meta) {
+  order: 4;
   margin-top: var(--space-2);
+  white-space: normal;
+}
+
+.knowledge-row__reason {
+  order: 1;
+  margin-top: var(--space-1);
   color: var(--attention);
   font-size: var(--text-sm);
   line-height: 1.6;
 }
 
-.knowledge-row__trust--danger {
+.knowledge-row__reason--danger {
   color: var(--danger);
 }
 
-.knowledge-row__trust code {
+.knowledge-row__reason code {
   overflow-wrap: anywhere;
 }
 
 .knowledge-row__body {
   display: -webkit-box;
+  order: 2;
   margin-top: var(--space-2);
   overflow: hidden;
   color: var(--fg);
@@ -168,21 +188,45 @@ const actions = computed(() => [
 }
 
 .knowledge-row__more {
+  order: 3;
+  align-self: flex-start;
   margin-top: var(--space-1);
+}
+
+.knowledge-row__trust-bar {
+  display: inline-flex;
+  gap: 2px;
+  margin-right: var(--space-1);
+  vertical-align: middle;
+}
+
+.knowledge-row__trust-bar i {
+  width: 6px;
+  height: 12px;
+  border-radius: var(--radius-xs);
+}
+
+.knowledge-row__cell--confirmed {
+  background: var(--success);
+}
+
+.knowledge-row__cell--contradicted {
+  background: var(--danger);
 }
 
 .knowledge-row__chips {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1) var(--space-2);
-  margin-top: var(--space-2);
+  gap: 0 var(--space-3);
+  order: 5;
+  margin-top: var(--space-1);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
 }
 
 .knowledge-row__ref {
-  padding: 1px 6px;
-  border-radius: var(--radius);
-  background: var(--bg-muted);
   color: var(--fg-muted);
+  font-size: var(--text-xs);
   overflow-wrap: anywhere;
 }
 

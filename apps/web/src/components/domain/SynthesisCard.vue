@@ -81,6 +81,12 @@ const grainHints: Record<WorkReportPeriod, string> = {
   custom: t("reports.customRangeGroupedByWork"),
 };
 
+/** Nothing requested and nothing saved: one line and one button instead of a card. */
+const showBanner = computed(
+  () =>
+    reportSynthesisLoaded.value && !reportSynthesisError.value && !summary.value && !isActive.value && !canRetry.value,
+);
+
 const pendingMessage = computed(() => {
   const status = request.value?.status;
   if (status === "pending") {
@@ -106,7 +112,20 @@ function versionMeta(version: ReportSummary): string {
 </script>
 
 <template>
-  <UiBox data-testid="report-synthesis">
+  <div v-if="showBanner" class="synthesis__pending synthesis__banner" data-testid="report-synthesis">
+    <Sparkles :size="16" :stroke-width="1.75" aria-hidden="true" />
+    <p>{{ pendingMessage }}</p>
+    <UiButton
+      variant="primary"
+      :icon="Sparkles"
+      :loading="reportSynthesisCreating"
+      :disabled="!report || reportSynthesisLoading"
+      @click="createReportSynthesisRequest"
+    >
+      {{ t("reports.askAgentToSynthesizeThis") }}
+    </UiButton>
+  </div>
+  <UiBox v-else data-testid="report-synthesis">
     <template #header>
       <UiBoxTitle :icon="Sparkles" :title="summary?.title ?? t('reports.aiReportSynthesis')">
         <StatusLabel v-if="request" :status="requestStatus[request.status]" />
@@ -263,6 +282,25 @@ function versionMeta(version: ReportSummary): string {
   border-radius: var(--radius);
   color: var(--fg-muted);
   font-size: var(--text-sm);
+}
+
+.synthesis__banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4);
+  border: 1px solid var(--border-muted);
+  background: var(--bg-surface);
+}
+
+.synthesis__banner > p {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+.synthesis__banner > svg {
+  flex: none;
 }
 
 .synthesis__failure {

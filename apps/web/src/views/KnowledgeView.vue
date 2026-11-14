@@ -11,6 +11,7 @@ import KnowledgeCandidatesBox from "../components/domain/KnowledgeCandidatesBox.
 import AgentDecisionReviewBox from "../components/domain/AgentDecisionReviewBox.vue";
 import KnowledgePagePanel from "../components/domain/KnowledgePagePanel.vue";
 import KnowledgePagesBox from "../components/domain/KnowledgePagesBox.vue";
+import KnowledgeKindOverview from "../components/domain/KnowledgeKindOverview.vue";
 import KnowledgeRow, { type KnowledgeAction } from "../components/domain/KnowledgeRow.vue";
 import UiActionMenu from "../components/ui/UiActionMenu.vue";
 import UiBox from "../components/ui/UiBox.vue";
@@ -20,6 +21,7 @@ import UiEmptyState from "../components/ui/UiEmptyState.vue";
 import UiFlash from "../components/ui/UiFlash.vue";
 import UiPagination from "../components/ui/UiPagination.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
+import UiSplitLayout from "../components/ui/UiSplitLayout.vue";
 import UiTextInput from "../components/ui/UiTextInput.vue";
 import UiUnderlineNav from "../components/ui/UiUnderlineNav.vue";
 import VirtualList from "../components/VirtualList.vue";
@@ -31,6 +33,7 @@ import { useKnowledgeEditorStore } from "../stores/knowledge-editor";
 import { useProjectsStore } from "../stores/projects";
 import { useToast } from "../composables/useToast";
 import { useKnowledgeStore } from "../stores/knowledge";
+import { useKnowledgeKindCountsStore } from "../stores/knowledge-kind-counts";
 import { useKnowledgePagesStore } from "../stores/knowledge-pages";
 import { useSessionDecisionsStore } from "../stores/session-decisions";
 import { knowledgeKindLabels, knowledgeStatusLabels, listPageSizeOptions } from "../utils/labels";
@@ -56,6 +59,8 @@ const {
   knowledgeSkippedRecords,
 } = storeToRefs(knowledgeStore);
 const { loadKnowledge, retryKnowledge, setKnowledgeListActive } = knowledgeStore;
+const kindCountsStore = useKnowledgeKindCountsStore();
+const { counts: kindCounts } = storeToRefs(kindCountsStore);
 const {
   setKnowledgeStatus,
   openKnowledgeSession,
@@ -212,6 +217,15 @@ function onAction(action: KnowledgeAction, item: KnowledgeRecord): void {
   }
 }
 
+// The kind counts follow the project and status filters; they are read only while the list tab is open.
+watch(
+  [tab, knowledgeProjectId, knowledgeStatus],
+  () => {
+    kindCountsStore.scope =
+      tab.value === "list" ? { projectId: knowledgeProjectId.value, status: knowledgeStatus.value } : null;
+  },
+  { immediate: true },
+);
 watch([selectedKnowledgeId, knowledgeProjectId, () => projectsStore.projects], () => void openSelectedKnowledge(), {
   immediate: true,
 });
@@ -302,83 +316,90 @@ onBeforeUnmount(() => {
   >
     <KnowledgeCandidatesBox :projects="knowledgeProjects" :project-root="selectedProjectRoot" />
   </section>
-  <UiBox v-else id="knowledge-panel-list" role="tabpanel" aria-labelledby="knowledge-tab-list" sticky-header>
-    <template #header>
-      <UiBoxTitle
-        :icon="BookOpen"
-        :title="
-          knowledgeStatus === 'active'
-            ? t('knowledge.activeKnowledge', { total: knowledgePageInfo.total })
-            : t('knowledge.archivedKnowledge', { total: knowledgePageInfo.total })
-        "
-      />
-      <div class="knowledge__filters">
-        <UiActionMenu
-          v-model="knowledgeProjectId"
-          :label="t('common.project')"
-          :header="t('common.filterProject')"
-          default-value=""
-          align="end"
-          :items="projectItems"
-        />
-        <UiActionMenu
-          v-model="knowledgeKind"
-          :label="t('common.kind')"
-          :header="t('knowledge.filterKind')"
-          default-value=""
-          align="end"
-          :items="kindItems"
-        />
-        <UiActionMenu
-          v-model="knowledgeStatus"
-          :label="t('common.status')"
-          :header="t('knowledge.filterStatus')"
-          default-value="active"
-          align="end"
-          :items="statusItems"
-        />
-      </div>
-    </template>
+  <UiSplitLayout v-else>
+    <template #main>
+      <UiBox id="knowledge-panel-list" role="tabpanel" aria-labelledby="knowledge-tab-list" sticky-header>
+        <template #header>
+          <UiBoxTitle
+            :icon="BookOpen"
+            :title="
+              knowledgeStatus === 'active'
+                ? t('knowledge.activeKnowledge', { total: knowledgePageInfo.total })
+                : t('knowledge.archivedKnowledge', { total: knowledgePageInfo.total })
+            "
+          />
+          <div class="knowledge__filters">
+            <UiActionMenu
+              v-model="knowledgeProjectId"
+              :label="t('common.project')"
+              :header="t('common.filterProject')"
+              default-value=""
+              align="end"
+              :items="projectItems"
+            />
+            <UiActionMenu
+              v-model="knowledgeKind"
+              :label="t('common.kind')"
+              :header="t('knowledge.filterKind')"
+              default-value=""
+              align="end"
+              :items="kindItems"
+            />
+            <UiActionMenu
+              v-model="knowledgeStatus"
+              :label="t('common.status')"
+              :header="t('knowledge.filterStatus')"
+              default-value="active"
+              align="end"
+              :items="statusItems"
+            />
+          </div>
+        </template>
 
-    <UiSkeleton
-      v-if="knowledgeLoading && knowledgeItems.length === 0"
-      :count="4"
-      :label="t('knowledge.loadingKnowledge')"
-    />
-    <UiEmptyState
-      v-else-if="knowledgeLoaded && knowledgeItems.length === 0"
-      :icon="BookOpen"
-      :title="hasFilters ? t('knowledge.noKnowledgeMatchesTheFilters') : t('knowledge.noConfirmedKnowledgeYet')"
-      :description="hasFilters ? t('common.adjustTheSearchOrFilters') : t('knowledge.itemsAppearHereOnceThe')"
-    >
-      <template v-if="hasFilters" #action
-        ><UiButton @click="clearFilters">{{ t("common.clearFilters") }}</UiButton></template
-      >
-    </UiEmptyState>
-    <VirtualList
-      v-else-if="knowledgeItems.length > 0"
-      :items="knowledgeItems"
-      :enabled="true"
-      fit-viewport
-      fit-viewport-to-panel
-      fill-available-space
-      :estimate-item-height="140"
-      :label="t('knowledge.workKnowledgeList')"
-    >
-      <template #default="{ item }">
-        <KnowledgeRow :item="item" @action="onAction" />
-      </template>
-    </VirtualList>
+        <UiSkeleton
+          v-if="knowledgeLoading && knowledgeItems.length === 0"
+          :count="4"
+          :label="t('knowledge.loadingKnowledge')"
+        />
+        <UiEmptyState
+          v-else-if="knowledgeLoaded && knowledgeItems.length === 0"
+          :icon="BookOpen"
+          :title="hasFilters ? t('knowledge.noKnowledgeMatchesTheFilters') : t('knowledge.noConfirmedKnowledgeYet')"
+          :description="hasFilters ? t('common.adjustTheSearchOrFilters') : t('knowledge.itemsAppearHereOnceThe')"
+        >
+          <template v-if="hasFilters" #action
+            ><UiButton @click="clearFilters">{{ t("common.clearFilters") }}</UiButton></template
+          >
+        </UiEmptyState>
+        <VirtualList
+          v-else-if="knowledgeItems.length > 0"
+          :items="knowledgeItems"
+          :enabled="true"
+          fit-viewport
+          fit-viewport-to-panel
+          fill-available-space
+          :estimate-item-height="140"
+          :label="t('knowledge.workKnowledgeList')"
+        >
+          <template #default="{ item }">
+            <KnowledgeRow :item="item" @action="onAction" />
+          </template>
+        </VirtualList>
 
-    <template v-if="knowledgeLoaded" #footer>
-      <UiPagination
-        v-model:page-size="knowledgePageSize"
-        :page-info="knowledgePageInfo"
-        :size-label="t('knowledge.knowledgePerPage')"
-        @page="knowledgePage = $event"
-      />
+        <template v-if="knowledgeLoaded" #footer>
+          <UiPagination
+            v-model:page-size="knowledgePageSize"
+            :page-info="knowledgePageInfo"
+            :size-label="t('knowledge.knowledgePerPage')"
+            @page="knowledgePage = $event"
+          />
+        </template>
+      </UiBox>
     </template>
-  </UiBox>
+    <template v-if="kindCounts" #aside>
+      <KnowledgeKindOverview :counts="kindCounts" :status="knowledgeStatus" :search-active="Boolean(knowledgeQuery)" />
+    </template>
+  </UiSplitLayout>
 </template>
 
 <style scoped>

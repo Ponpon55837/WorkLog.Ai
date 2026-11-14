@@ -2,12 +2,11 @@
 import { computed } from "vue";
 import { CalendarRange, CircleCheckBig, FolderGit2 } from "lucide-vue-next";
 import type { WorkReport, WorkSessionRecord } from "@work-intelligence/core";
+import UiBarChart from "../ui/UiBarChart.vue";
 import UiBox from "../ui/UiBox.vue";
-import UiBoxRow from "../ui/UiBoxRow.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
-import UiLabel from "../ui/UiLabel.vue";
 import UiMeter from "../ui/UiMeter.vue";
 import UiSplitLayout from "../ui/UiSplitLayout.vue";
 import type { Tone } from "../ui/types";
@@ -24,6 +23,10 @@ const props = defineProps<{ report: WorkReport }>();
 const emit = defineEmits<{ open: [session: WorkSessionRecord, list: readonly WorkSessionRecord[]]; showAll: [] }>();
 
 const dayLimit = 8;
+/** The stacked share bar colors its largest projects; the unfilled rest of the track is everyone else. */
+const shareTones: readonly Tone[] = ["accent", "done", "neutral"];
+/** Above this many columns the numbers above the bars would collide; the value table still lists them. */
+const valueLabelLimit = 16;
 
 const unit = computed(() => {
   const mode = reportBucketMode(props.report);
@@ -53,17 +56,24 @@ const bucketSummary = computed(() => {
 });
 const daySessions = computed(() => props.report.sessions.slice(0, dayLimit));
 const shares = computed(() => buildReportProjectShares(props.report));
+const bucketChart = computed(() => ({
+  labels: buckets.value.map((bucket) => bucket.label),
+  series: [{ name: "Sessions", tone: "accent" as const, values: buckets.value.map((bucket) => bucket.sessions) }],
+}));
+const shareSegments = computed(() =>
+  shares.value.slice(0, shareTones.length).map((share, index) => ({
+    value: share.sessions,
+    tone: shareTones[index] ?? "neutral",
+    label: share.label,
+  })),
+);
 const shareSummary = computed(() => {
   const [top] = shares.value;
   return top && shares.value.length > 1 ? t("reports.mostly", { label: top.label, percent: top.percent }) : "";
 });
 
-function bucketSegments(bucket: { label: string; sessions: number }): { value: number; tone: Tone; label: string }[] {
-  return [{ value: bucket.sessions, tone: "accent", label: bucket.label }];
-}
-
-function shareSegments(share: { label: string; percent: number }): { value: number; tone: Tone; label: string }[] {
-  return [{ value: share.percent, tone: "accent", label: share.label }];
+function shareSwatch(index: number): string {
+  return shareTones[index] ?? "open";
 }
 </script>
 
@@ -105,27 +115,14 @@ function shareSegments(share: { label: string; percent: number }): { value: numb
           <span v-if="bucketSummary" class="report-breakdown__muted">{{ bucketSummary }}</span>
         </template>
         <UiEmptyState v-if="!busiest" compact :icon="CalendarRange" :title="t('reports.noWorkCompletedInThis')" />
-        <template v-else>
-          <VirtualList
-            :items="buckets"
-            :enabled="true"
-            :estimate-item-height="76"
-            max-height="min(56vh, 560px)"
-            :label="t('reports.reportPeriodDistributionList')"
-          >
-            <template #default="{ item: bucket }">
-              <UiBoxRow
-                :title="bucket.label"
-                :meta="t('reports.sessionEventCounts', { sessions: bucket.sessions, events: bucket.events })"
-              >
-                <template #labels>
-                  <UiLabel v-if="bucket.key === busiest.key" tone="accent">{{ t("reports.busiest") }}</UiLabel>
-                </template>
-                <UiMeter size="sm" :max="busiest.sessions" :segments="bucketSegments(bucket)" />
-              </UiBoxRow>
-            </template>
-          </VirtualList>
-        </template>
+        <UiBarChart
+          v-else
+          compact
+          :show-values="buckets.length <= valueLabelLimit"
+          :labels="bucketChart.labels"
+          :series="bucketChart.series"
+          :label="t('reports.reportPeriodDistributionList')"
+        />
       </UiBox>
     </template>
 
@@ -136,23 +133,31 @@ function shareSegments(share: { label: string; percent: number }): { value: numb
           <span v-if="shareSummary" class="report-breakdown__muted">{{ shareSummary }}</span>
         </template>
         <UiEmptyState v-if="shares.length === 0" compact :icon="FolderGit2" :title="t('reports.noProjectData')" />
-        <VirtualList
-          v-else
-          :items="shares"
-          :enabled="true"
-          :estimate-item-height="72"
-          max-height="min(56vh, 560px)"
-          :label="t('reports.reportProjectShareList')"
-        >
-          <template #default="{ item: share }">
-            <UiBoxRow
-              :title="share.label"
-              :meta="t('reports.sessions', { sessions: share.sessions, percent: share.percent })"
-            >
-              <UiMeter size="sm" :max="100" :segments="shareSegments(share)" />
-            </UiBoxRow>
-          </template>
-        </VirtualList>
+        <template v-else>
+          <div class="report-breakdown__stack">
+            <UiMeter :max="report.totals.sessions" :segments="shareSegments" />
+          </div>
+          <VirtualList
+            :items="shares"
+            :enabled="true"
+            :estimate-item-height="44"
+            max-height="min(56vh, 560px)"
+            :label="t('reports.reportProjectShareList')"
+          >
+            <template #default="{ item: share, index }">
+              <div class="report-breakdown__share">
+                <i
+                  :class="['report-breakdown__swatch', `report-breakdown__swatch--${shareSwatch(index)}`]"
+                  aria-hidden="true"
+                />
+                <span class="report-breakdown__name">{{ share.label }}</span>
+                <span class="report-breakdown__figures">{{
+                  t("reports.sessions", { sessions: share.sessions, percent: share.percent })
+                }}</span>
+              </div>
+            </template>
+          </VirtualList>
+        </template>
       </UiBox>
     </template>
   </UiSplitLayout>
@@ -162,5 +167,65 @@ function shareSegments(share: { label: string; percent: number }): { value: numb
 .report-breakdown__muted {
   color: var(--fg-muted);
   font-size: var(--text-xs);
+}
+
+.report-breakdown__stack {
+  padding: 0 var(--space-4) var(--space-2);
+}
+
+.report-breakdown__stack :deep(.ui-meter) {
+  margin-top: var(--space-3);
+}
+
+.report-breakdown__share {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--border-muted);
+  font-size: var(--text-sm);
+}
+
+.report-breakdown__swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+}
+
+.report-breakdown__swatch--accent {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.report-breakdown__swatch--done {
+  border-color: var(--done);
+  background: var(--done);
+}
+
+.report-breakdown__swatch--neutral {
+  border-color: var(--fg-subtle);
+  background: var(--fg-subtle);
+}
+
+/* Projects past the colored ones fill the unfilled rest of the bar: an open swatch. */
+.report-breakdown__swatch--open {
+  background: transparent;
+}
+
+.report-breakdown__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-breakdown__figures {
+  flex: none;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
 }
 </style>

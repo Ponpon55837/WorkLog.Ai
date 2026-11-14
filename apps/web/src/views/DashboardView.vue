@@ -6,6 +6,7 @@ import type { WorkSessionRecord } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import AttentionBox from "../components/domain/AttentionBox.vue";
 import ActivityHeatmap from "../components/domain/ActivityHeatmap.vue";
+import DashboardCycle from "../components/domain/DashboardCycle.vue";
 import DashboardInsights from "../components/domain/DashboardInsights.vue";
 import FirstRunChecklist from "../components/domain/FirstRunChecklist.vue";
 import SessionRow from "../components/domain/SessionRow.vue";
@@ -31,6 +32,7 @@ import { useSessionsStore } from "../stores/sessions";
 import { useSystemStatusStore } from "../stores/system-status";
 import { formatRelative } from "../utils/format";
 import { trackingStatus } from "../utils/status";
+import { weeklySessionTotals } from "../utils/week-trend";
 import { intlLocale, t } from "../i18n";
 
 const projectsStore = useProjectsStore();
@@ -59,7 +61,11 @@ const pausedCount = computed(() => projects.value.filter((project) => project.st
 const visibleProjects = computed(() =>
   [...projects.value].sort((a, b) => Number(b.status === "tracked") - Number(a.status === "tracked")).slice(0, 6),
 );
-const weekTrend = computed(() => weekReport.value?.trends.map((point) => point.sessions) ?? []);
+const TREND_WEEKS = 8;
+const weekTrend = computed(() => weeklySessionTotals(activityDays.value, new Date(), TREND_WEEKS));
+const weekTrendLabel = computed(() =>
+  t("dashboard.sessionsCompletedPerWeek", { values: weekTrend.value.join(t("session.comma")) }),
+);
 const weekDelta = computed(() => {
   const comparison = weekReport.value?.comparison.sessions;
   if (!comparison) {
@@ -127,14 +133,11 @@ onBeforeUnmount(() => {
     <ActivityHeatmap v-else :days="activityDays" @select="openDayReport" />
   </UiBox>
 
+  <DashboardCycle class="dashboard__cycle" />
+
   <UiStatGrid class="dashboard__stats">
     <UiStatCard
-      :label="t('common.trackedProjects')"
-      :icon="FolderGit2"
-      :value="dashboard.trackedProjects"
-      :foot="`${t('dashboard.explicitOptIn')}${pausedCount ? t('dashboard.paused', { pausedCount }) : ''}`"
-    />
-    <UiStatCard
+      featured
       :label="t('dashboard.sessionsCompletedThisWeek')"
       :icon="CircleCheckBig"
       :value="
@@ -145,11 +148,9 @@ onBeforeUnmount(() => {
             : t('attention.loadingShort')
       "
       :delta="weekDelta"
+      :foot="t('dashboard.notTheSameAsGit', { finalizedSessions: dashboard.finalizedSessions })"
     >
-      <UiSparkline v-if="weekTrend.length" :values="weekTrend" :label="t('dashboard.sessionsCompletedPerDayThis')" />
-      <template #foot>{{
-        t("dashboard.notTheSameAsGit", { finalizedSessions: dashboard.finalizedSessions })
-      }}</template>
+      <UiSparkline v-if="activityLoaded && !activityError" size="lg" :values="weekTrend" :label="weekTrendLabel" />
     </UiStatCard>
     <UiStatCard
       :label="t('dashboard.verificationThisWeek')"
@@ -165,6 +166,12 @@ onBeforeUnmount(() => {
     >
       <VerificationBreakdown v-if="weekReportLoaded" :counts="weekVerification" />
     </UiStatCard>
+    <UiStatCard
+      :label="t('common.trackedProjects')"
+      :icon="FolderGit2"
+      :value="dashboard.trackedProjects"
+      :foot="`${t('dashboard.explicitOptIn')}${pausedCount ? t('dashboard.paused', { pausedCount }) : ''}`"
+    />
     <UiStatCard
       :label="t('common.pending')"
       :icon="Inbox"
@@ -271,11 +278,27 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .dashboard__activity,
+.dashboard__cycle,
 .dashboard__insights {
   margin-bottom: var(--space-4);
 }
 .dashboard__stats {
-  margin-bottom: var(--space-6);
+  margin-bottom: var(--space-4);
+}
+
+/* One large chart card and three small ones; the large card takes a full row once the grid drops to two columns. */
+.dashboard__stats.ui-stat-grid {
+  grid-template-columns: minmax(0, 2fr) repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 959px) {
+  .dashboard__stats.ui-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard__stats > :first-child {
+    grid-column: 1 / -1;
+  }
 }
 
 .dashboard__first-run {
@@ -290,21 +313,5 @@ onBeforeUnmount(() => {
   margin-top: 2px;
   color: var(--fg-muted);
   font-size: var(--text-xs);
-}
-
-.tone-attention {
-  color: var(--attention);
-}
-.tone-accent {
-  color: var(--accent);
-}
-.tone-danger {
-  color: var(--danger);
-}
-.tone-done {
-  color: var(--done);
-}
-.tone-neutral {
-  color: var(--fg-muted);
 }
 </style>

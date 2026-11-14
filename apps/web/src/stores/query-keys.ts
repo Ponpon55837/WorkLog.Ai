@@ -11,6 +11,7 @@ export const queryKeys = {
     summary: ["dashboard"] as const,
     overview: ["dashboard", "overview"] as const,
     activity: ["dashboard", "activity"] as const,
+    cycleTimeline: ["dashboard", "cycle-timeline"] as const,
   },
   commandPalette: {
     search: ["command-palette", "search"] as const,
@@ -64,6 +65,7 @@ export const queryKeys = {
     graph: ["view", "graph"] as const,
     hotspots: ["view", "graph", "hotspots"] as const,
     timeline: ["view", "graph", "timeline"] as const,
+    sessionDays: ["view", "graph", "session-days"] as const,
     reports: reportsViewKey,
     sessions: ["view", "sessions"] as const,
     systemStatus: ["view", "system-status"] as const,

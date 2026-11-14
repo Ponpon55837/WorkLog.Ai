@@ -26,6 +26,7 @@ import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../composables
 import { router } from "../router";
 import { useOutstandingItemsStore, type OutstandingClosedFilter } from "../stores/outstanding-items";
 import { useProjectsStore } from "../stores/projects";
+import { useSessionDayInsightsStore } from "../stores/session-day-insights";
 import { useSessionsStore } from "../stores/sessions";
 import { formatDayGroup } from "../utils/format";
 import {
@@ -34,6 +35,7 @@ import {
   voidedFilterOptions,
   type ListPageSize,
 } from "../utils/labels";
+import { localDayOf, sessionDayRange, type SessionDaySummary } from "../utils/session-day-insights";
 import { t } from "../i18n";
 
 type SessionsTab = "sessions" | "outstanding";
@@ -64,6 +66,8 @@ const {
 } = storeToRefs(sessionsStore);
 const { loadSessions, retrySessions, clearSessionFilters, setSessionsListActive } = sessionsStore;
 const { openSessionDetail, setSessionSequence } = sessionsStore;
+const dayInsightsStore = useSessionDayInsightsStore();
+const { insights: dayInsights } = storeToRefs(dayInsightsStore);
 const outstandingItemsStore = useOutstandingItemsStore();
 const {
   items: outstandingItems,
@@ -199,6 +203,22 @@ function dayGroupAt(index: number): string | undefined {
   return !previous || formatDayGroup(previous.completedAt) !== label ? label : undefined;
 }
 
+function daySummaryOf(session: WorkSessionRecord): string | undefined {
+  const summary: SessionDaySummary | undefined = dayInsights.value?.days.get(localDayOf(session.completedAt));
+  if (!summary) {
+    return undefined;
+  }
+  if (summary.failed > 0) {
+    return t("sessions.daySummaryFailed", { total: summary.total, failed: summary.failed });
+  }
+  if (summary.passed === summary.total) {
+    return t("sessions.daySummaryAllPassed", { total: summary.total });
+  }
+  return summary.passed > 0
+    ? t("sessions.daySummaryPassed", { total: summary.total, passed: summary.passed })
+    : t("sessions.daySummaryTotal", { total: summary.total });
+}
+
 function openSession(session: WorkSessionRecord): void {
   void openSessionDetail(session.id);
 }
@@ -212,6 +232,18 @@ watch(
   { immediate: true },
 );
 watch(sessions, (items) => setSessionSequence(items.map((item) => item.id)), { immediate: true });
+// Whole-day numbers come from the timeline, which cannot filter by Agent or text or include voided Sessions;
+// under those filters they would disagree with the list, so the summaries and counts are left out.
+watch(
+  [sessions, tab, selectedProjectId, selectedAgent, searchTerm, voidedFilter],
+  () => {
+    const comparable =
+      tab.value === "sessions" && !selectedAgent.value && !searchTerm.value && voidedFilter.value === "exclude";
+    const range = comparable ? sessionDayRange(sessions.value.map((item) => item.completedAt)) : null;
+    dayInsightsStore.scope = range ? { ...range, projectId: selectedProjectId.value } : null;
+  },
+  { immediate: true },
+);
 
 onBeforeUnmount(() => {
   setSessionsListActive(false);
@@ -320,8 +352,13 @@ onBeforeUnmount(() => {
         :label="t('sessions.workHistoryList')"
       >
         <template #default="{ item, index }">
-          <UiGroupLabel v-if="dayGroupAt(index)">{{ dayGroupAt(index) }}</UiGroupLabel>
-          <SessionRow :session="item" @open="openSession" />
+          <UiGroupLabel v-if="dayGroupAt(index)" :summary="daySummaryOf(item)">{{ dayGroupAt(index) }}</UiGroupLabel>
+          <SessionRow
+            :session="item"
+            timeline
+            :created-knowledge="dayInsights?.createdBySession.get(item.id)"
+            @open="openSession"
+          />
         </template>
       </VirtualList>
 

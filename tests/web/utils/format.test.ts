@@ -12,6 +12,7 @@ import {
   formatRelative,
   formatReportTrendLabel,
   formatTimeOfDay,
+  formatWeekdayTime,
   graphNodeLabel,
   graphNodeLabelTail,
   startOfMonth,
@@ -134,6 +135,15 @@ describe("formatTimeOfDay", () => {
     const value = new Date(2031, 2, 5, 18, 7).toISOString();
     expect(formatTimeOfDay(value)).toMatch(/6:07/);
     expect(formatTimeOfDay(value)).not.toMatch(/2031/);
+  });
+});
+
+describe("formatWeekdayTime", () => {
+  it("shows the day, weekday and time without the year", () => {
+    const value = new Date(2031, 2, 5, 18, 7).toISOString();
+    expect(formatWeekdayTime(value)).toMatch(/3.*5/);
+    expect(formatWeekdayTime(value)).toMatch(/6:07/);
+    expect(formatWeekdayTime(value)).not.toMatch(/2031/);
   });
 });
 

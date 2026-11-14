@@ -239,13 +239,11 @@ onBeforeUnmount(() => store.setActive(false));
     >
       <template #default="{ item }">
         <UiBoxRow class="attention__row" :title="item.displayTitle" :meta="item.meta">
-          <template #labels
-            ><UiLabel
+          <template #trailing>
+            <UiLabel
               :tone="item.reason === 'failed' ? 'danger' : item.reason === 'processing' ? 'neutral' : 'attention'"
               >{{ item.reasonLabel }}</UiLabel
-            ></template
-          >
-          <template #trailing>
+            >
             <span v-if="item.preference?.snoozedUntil" class="attention__note">{{
               t("attention.until", { date: formatDate(item.preference.snoozedUntil) })
             }}</span>
