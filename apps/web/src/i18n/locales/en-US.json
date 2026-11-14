@@ -675,6 +675,9 @@
     "workIntelligenceVersionInformation": "Work Intelligence version information"
   },
   "nav": {
+    "groupKnowledge": "Knowledge",
+    "groupManage": "Manage",
+    "groupWork": "Work",
     "projects": "Projects",
     "systemStatus": "System status",
     "workGraph": "Work graph",

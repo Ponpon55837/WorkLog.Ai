@@ -19,8 +19,14 @@ export const navItems: readonly NavItem[] = translatedOptions<NavItem, "label">(
   "label",
 );
 
-export const navGroups: readonly { id: NavGroup; label: string }[] = [
-  { id: "work", label: "Work" },
-  { id: "knowledge", label: "Knowledge" },
-  { id: "manage", label: "Manage" },
-];
+export const navGroups: readonly { id: NavGroup; label: string }[] = translatedOptions<
+  { id: NavGroup; label: string },
+  "label"
+>(
+  [
+    { id: "work", label: "nav.groupWork" },
+    { id: "knowledge", label: "nav.groupKnowledge" },
+    { id: "manage", label: "nav.groupManage" },
+  ],
+  "label",
+);

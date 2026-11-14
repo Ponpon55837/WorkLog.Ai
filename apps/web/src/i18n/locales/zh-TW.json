@@ -675,6 +675,9 @@
     "workIntelligenceVersionInformation": "Work Intelligence 版本資訊"
   },
   "nav": {
+    "groupKnowledge": "知識",
+    "groupManage": "管理",
+    "groupWork": "工作",
     "projects": "專案",
     "systemStatus": "系統狀態",
     "workGraph": "工作圖譜",
