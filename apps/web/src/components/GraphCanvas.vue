@@ -87,7 +87,10 @@ const renderedEdges = computed(() =>
 
 // The accessible name starts with the text drawn in the node (WCAG 2.5.3 Label in Name), then the full label.
 function nodeAccessibleName(node: GraphNode): string {
-  const visible = `${props.nodeLabel(node, labelUnits.value)} ${props.nodeDescription(node, labelUnits.value)}`;
+  // An empty description must not leave a dangling space in the name.
+  const visible = [props.nodeLabel(node, labelUnits.value), props.nodeDescription(node, labelUnits.value)]
+    .filter((part) => part !== "")
+    .join(" ");
   return `${visible}, ${t("graph.view", { value: props.nodeKindLabels[node.kind], label: node.label })}`;
 }
 
@@ -308,11 +311,20 @@ onBeforeUnmount(() => {
           :height="nodeHeight"
           rx="6"
         ></rect>
-        <text class="graph-canvas__label" :x="-nodeWidth / 2 + 12" y="-3" :clip-path="`url(#${clipId(item.node.id)})`">
-          {{ nodeLabel(item.node, labelUnits) }}
-        </text>
-        <text class="graph-canvas__meta" :x="-nodeWidth / 2 + 12" y="13" :clip-path="`url(#${clipId(item.node.id)})`">
-          {{ nodeDescription(item.node, labelUnits) }}
+        <!--
+          One <text> with two <tspan>s, joined by an explicit space: Vue condenses the whitespace between sibling
+          elements away, which made the DOM text "labeldescription" (one word) and broke the Label-in-Name check
+          against the aria-label. A trailing space in SVG text is not drawn, and the tspans keep absolute x/y, so
+          the layout is unchanged.
+        -->
+        <text class="graph-canvas__text" :clip-path="`url(#${clipId(item.node.id)})`">
+          <tspan class="graph-canvas__label" :x="-nodeWidth / 2 + 12" y="-3">
+            {{ nodeLabel(item.node, labelUnits) }}
+          </tspan>
+          {{ " " }}
+          <tspan class="graph-canvas__meta" :x="-nodeWidth / 2 + 12" y="13">
+            {{ nodeDescription(item.node, labelUnits) }}
+          </tspan>
         </text>
       </g>
     </svg>
@@ -439,8 +451,7 @@ onBeforeUnmount(() => {
   stroke-width: 2.4;
 }
 
-.graph-canvas__label,
-.graph-canvas__meta {
+.graph-canvas__text {
   pointer-events: none;
 }
 

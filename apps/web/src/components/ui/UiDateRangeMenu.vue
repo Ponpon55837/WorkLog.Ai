@@ -2,7 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { Calendar, ChevronDown, ChevronLeft, ChevronRight } from "lucide-vue-next";
 import { usePopover } from "../../composables/usePopover";
-import { startOfMonth, toDateInputValue, weekdayLabel } from "../../utils/format";
+import { formatFullDate, startOfMonth, toDateInputValue, weekdayLabel } from "../../utils/format";
 import type { DateRange } from "./types";
 import { intlLocale, t } from "../../i18n";
 
@@ -95,6 +95,8 @@ const days = computed(() => {
     return {
       value,
       label: date.getDate(),
+      // The visible day number alone is ambiguous; the long date contains it, so the name still matches the label.
+      name: formatFullDate(date),
       outside: date.getMonth() !== month.value.getMonth(),
       today: value === today,
       edge: value === from || value === to,
@@ -195,7 +197,7 @@ watch(open, (value) => {
             v-for="day in days"
             :key="day.value"
             type="button"
-            :aria-label="day.value"
+            :aria-label="day.name"
             :aria-pressed="day.edge"
             :class="{
               'is-outside': day.outside,
@@ -351,9 +353,9 @@ watch(open, (value) => {
   background: var(--bg-hover);
 }
 
+/* --fg-muted already reads as secondary and meets AA in both themes; an extra opacity would dim it below 4.5:1. */
 .ui-date-range__grid .is-outside {
   color: var(--fg-muted);
-  opacity: 0.7;
 }
 .ui-date-range__grid .is-today {
   box-shadow: inset 0 0 0 1px var(--border-strong);

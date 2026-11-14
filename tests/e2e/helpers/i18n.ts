@@ -45,6 +45,18 @@ export function textIn(locale: Locale, key: MessageKey, params?: Params): string
   return text.replace(/\{(\w+)\}/g, (match, name: string) => (name in params ? String(params[name]) : match));
 }
 
+/** A calendar day's accessible name as UiDateRangeMenu gives it (formatFullDate): the long date in the locale. */
+export function dayNameIn(locale: Locale, isoDate: string): string {
+  const [year = 0, month = 1, day = 1] = isoDate.split("-").map(Number);
+  return new Intl.DateTimeFormat(locale, { dateStyle: "long" }).format(new Date(year, month - 1, day));
+}
+
+/** Matches any calendar day's accessible name in the locale (the long date with its digits left open). */
+export function dayNamePattern(locale: Locale): RegExp {
+  const sample = dayNameIn(locale, "2000-01-01").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${sample.replace(/\d+/g, "\\d+").replace(/January/, "\\p{L}+")}$`, "u");
+}
+
 /** Text of a message key in 繁體中文, the locale the specs run in (playwright.config.ts sets `locale: "zh-TW"`). */
 export function tt(key: MessageKey, params?: Params): string {
   return textIn("zh-TW", key, params);

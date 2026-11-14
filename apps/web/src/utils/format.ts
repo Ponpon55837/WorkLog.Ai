@@ -38,6 +38,11 @@ export function toDateInputValue(value: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+/** Spoken form of a calendar day ("November 5, 2026" / "2026年11月5日"); local time, like the day grid that builds the Dates. */
+export function formatFullDate(value: Date): string {
+  return new Intl.DateTimeFormat(intlLocale(), { dateStyle: "long" }).format(value);
+}
+
 export function startOfMonth(value: Date): Date {
   return new Date(value.getFullYear(), value.getMonth(), 1);
 }

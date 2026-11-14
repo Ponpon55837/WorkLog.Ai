@@ -47,7 +47,7 @@ const description = computed(() =>
         ><UiTextInput v-model="candidateForm.title" :maxlength="300" required autofocus
       /></UiField>
       <UiField :label="t('common.kind')"
-        ><UiSelect v-model="candidateForm.kind" :options="kindOptions" :label="t('knowledge.knowledgeKind')"
+        ><UiSelect v-model="candidateForm.kind" :options="kindOptions" :label="t('common.kind')"
       /></UiField>
       <UiField :label="t('common.body')"
         ><UiTextarea v-model="candidateForm.body" :rows="6" :maxlength="20000" required

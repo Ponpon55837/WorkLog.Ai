@@ -6,7 +6,8 @@ import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import type { ProjectDataExport, SystemAgentConnections } from "../../packages/core/src/index.js";
 import { canonicalizeProjectRoot, WorkIntelligenceStore } from "../../packages/storage/dist/index.js";
-import { LANGUAGE_NAMES, textIn, tt, ttPattern } from "./helpers/i18n.js";
+import { nameStartingWith } from "./helpers/accessible-name.js";
+import { dayNameIn, dayNamePattern, LANGUAGE_NAMES, textIn, tt, ttPattern } from "./helpers/i18n.js";
 
 const projectRoot = process.cwd();
 // Report calendar dates follow the host time zone, like the server computing them.
@@ -1141,8 +1142,10 @@ test.describe("Work Intelligence browser regression", () => {
           await periodSelector.getByRole("radio", { name: period, exact: true }).click();
           await periodControl.getByRole("button").click();
           const datePicker = page.getByRole("dialog", { name: tt("reports.chooseReportDate") });
-          await expect(datePicker.getByRole("button", { name: reportDate })).toBeVisible();
-          await datePicker.getByRole("button", { name: reportDate }).click();
+          await expect(
+            datePicker.getByRole("button", { name: dayNameIn("zh-TW", reportDate), exact: true }),
+          ).toBeVisible();
+          await datePicker.getByRole("button", { name: dayNameIn("zh-TW", reportDate), exact: true }).click();
           await expect(datePicker).toHaveCount(0);
         }
         expect(await controlBounds()).toEqual(defaultBounds);
@@ -1171,7 +1174,7 @@ test.describe("Work Intelligence browser regression", () => {
       expect(await controlBounds()).toEqual(defaultBounds);
 
       await periodControl.getByRole("button").click();
-      const calendarDays = picker.locator(".ui-date-range__grid button");
+      const calendarDays = picker.getByRole("button", { name: dayNamePattern("zh-TW") });
       await calendarDays.nth(10).click();
       await expect(picker).toContainText(ttPattern("ui.startsChooseAnEndDate"));
       await calendarDays.nth(12).click();
@@ -1900,7 +1903,7 @@ test.describe("Work Intelligence browser regression", () => {
     await page.goto("/system-status");
     await page
       .getByTestId("preferences")
-      .getByLabel(tt("systemStatus.editorUsedToOpenFiles"))
+      .getByLabel(tt("systemStatus.openFilesInAnEditor"))
       .selectOption({ label: "VS Code" });
 
     await page.goto(`/sessions?session=${sessionId}`);
@@ -1929,7 +1932,7 @@ test.describe("Work Intelligence browser regression", () => {
     await page.goto("/system-status");
     await page
       .getByTestId("preferences")
-      .getByLabel(tt("systemStatus.editorUsedToOpenFiles"))
+      .getByLabel(tt("systemStatus.openFilesInAnEditor"))
       .selectOption({ label: tt("labels.none") });
   });
 
@@ -2015,8 +2018,7 @@ test.describe("Work Intelligence browser regression", () => {
     await expand.click();
     const reader = page.getByRole("dialog", { name: tt("session.diagramReader") });
     const canvas = reader.getByRole("region", { name: tt("session.diagramCanvas", { title: "WorkLog architecture" }) });
-    const inspect = (label: string) =>
-      canvas.getByRole("button", { name: tt("session.inspectArchitectureNode", { label }), exact: true });
+    const inspect = (label: string) => canvas.getByRole("button", { name: nameStartingWith(label) });
     await expect(canvas.locator(".architecture__node")).toHaveCount(6);
     await expect(canvas.locator("foreignObject, img, script, style")).toHaveCount(0);
     await inspect("Web UI").focus();
@@ -2113,7 +2115,7 @@ test.describe("Work Intelligence browser regression", () => {
       await expect(localized.getByRole("region").locator(".architecture__node")).toHaveCount(6);
       await localized
         .getByRole("region")
-        .getByRole("button", { name: textIn(locale, "session.inspectArchitectureNode", { label: "Web UI" }) })
+        .getByRole("button", { name: nameStartingWith("Web UI") })
         .click();
       expect(await localized.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -2207,7 +2209,7 @@ test.describe("Work Intelligence browser regression", () => {
     await reader.getByRole("button", { name: tt("session.actualDiagramSize") }).click();
     await reader
       .getByRole("region")
-      .getByRole("button", { name: tt("session.inspectArchitectureNode", { label: "Node 199" }) })
+      .getByRole("button", { name: nameStartingWith("Node 199") })
       .click();
     await expect(reader.getByRole("complementary")).toContainText("Node 199");
     await reader
@@ -2430,8 +2432,8 @@ test.describe("Work Intelligence browser regression", () => {
   test("exports one project and previews an idempotent import", async ({ page }) => {
     await page.goto("/projects/backup");
     const backups = page.getByRole("tabpanel", { name: tt("projects.dataBackup") });
-    await backups.getByLabel(tt("projects.chooseExportScope")).selectOption("project");
-    await backups.getByLabel(tt("projects.chooseProjectsToExport")).selectOption(projectId);
+    await backups.getByLabel(tt("projects.exportScope")).selectOption("project");
+    await backups.getByLabel(tt("projects.exportProjects")).selectOption(projectId);
 
     const downloadPromise = page.waitForEvent("download");
     await backups.getByRole("button", { name: tt("common.exportJson") }).click();
@@ -2626,7 +2628,7 @@ test.describe("Work Intelligence browser regression", () => {
       const dialog = page.getByRole("dialog", { name: tt("projects.permanentlyDeleteProjectData") });
       await expect(dialog).toContainText(tt("projects.aFullDatabaseBackupIs"));
       await expect(dialog).toContainText(tt("projects.deletionHappensOnlyAfterA", { name }));
-      const confirmation = dialog.getByLabel(tt("projects.typeToConfirmPermanentDeletion", { name }));
+      const confirmation = dialog.getByLabel(tt("projects.typeTheProjectNameTo"));
       const deleteButton = dialog.getByRole("button", { name: tt("projects.deletePermanently"), exact: true });
       await confirmation.fill("Wrong name");
       await expect(deleteButton).toBeDisabled();
@@ -2951,7 +2953,7 @@ test.describe("Work Intelligence browser regression", () => {
     const editor = page.getByRole("dialog", { name: tt("knowledge.editAndAcceptKnowledgeCandidate") });
     await expect(editor).toBeVisible();
     await editor.getByLabel(tt("knowledge.title")).fill(editedTitle);
-    await editor.getByLabel(tt("knowledge.knowledgeKind")).selectOption("decision");
+    await editor.getByLabel(tt("common.kind"), { exact: true }).selectOption("decision");
     await editor.getByLabel(tt("common.body")).fill(editedBody);
     await editor.getByLabel(tt("knowledge.tags")).fill("E2E, reviewer-edited");
     await editor

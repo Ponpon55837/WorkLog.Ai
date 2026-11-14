@@ -429,7 +429,6 @@ onBeforeUnmount(() => {
                   ]"
                   :style="{ left: `${item.x}px`, top: `${item.y}px`, ...toneStyle(item.tone) }"
                   :aria-pressed="selectedId === item.node.id"
-                  :aria-label="t('session.inspectArchitectureNode', { label: item.node.label })"
                   :tabindex="interactive ? 0 : -1"
                   :title="item.node.label"
                   @click="interactive ? selectNode(item.node.id) : expand($event)"

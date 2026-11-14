@@ -185,7 +185,7 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
               <UiSegmentedControl v-model="locale" :options="LOCALE_OPTIONS" :label="t('common.language')" />
             </UiField>
             <UiField :label="t('systemStatus.openFilesInAnEditor')" :hint="t('systemStatus.onceChosenOpenInEditor')">
-              <UiSelect v-model="editor" :options="editorOptions" :label="t('systemStatus.editorUsedToOpenFiles')" />
+              <UiSelect v-model="editor" :options="editorOptions" :label="t('systemStatus.openFilesInAnEditor')" />
             </UiField>
           </div>
         </UiBox>

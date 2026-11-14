@@ -20,8 +20,8 @@ const themeToggleLabel = computed(() =>
   resolvedTheme.value === "dark" ? t("common.switchToLightTheme") : t("common.switchToDarkTheme"),
 );
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
-// The accessible name repeats the visible text and shortcut (WCAG 2.5.3 Label in Name).
-const searchLabel = computed(() => `${t("layout.searchSessionsKnowledgeOrJump")} ${isMac ? "⌘" : "Ctrl"} K`);
+// Announced through aria-keyshortcuts so the visible kbd hint can stay out of the accessible name.
+const searchShortcut = isMac ? "Meta+K" : "Control+K";
 </script>
 
 <template>
@@ -35,21 +35,18 @@ const searchLabel = computed(() => `${t("layout.searchSessionsKnowledgeOrJump")}
     >
       <Menu :size="16" :stroke-width="1.75" aria-hidden="true" />
     </button>
-    <RouterLink
-      :to="{ name: 'dashboard' }"
-      class="app-header__logo"
-      :aria-label="`WI ${t('layout.workIntelligenceHome')}`"
-      >WI</RouterLink
+    <RouterLink :to="{ name: 'dashboard' }" class="app-header__logo"
+      >WI<span class="sr-only"> {{ t("layout.workIntelligenceHome") }}</span></RouterLink
     >
     <div class="app-header__crumb">
       <span class="app-header__app">Work Intelligence</span>
       <span class="app-header__sep" aria-hidden="true">/</span>
       <span class="app-header__page">{{ crumb }}</span>
     </div>
-    <button class="app-header__search" type="button" :aria-label="searchLabel" @click="emit('search')">
+    <button class="app-header__search" type="button" :aria-keyshortcuts="searchShortcut" @click="emit('search')">
       <Search :size="16" :stroke-width="1.75" aria-hidden="true" />
       <span class="app-header__search-text">{{ t("layout.searchSessionsKnowledgeOrJump") }}</span>
-      <kbd>{{ isMac ? "⌘" : "Ctrl" }} K</kbd>
+      <kbd aria-hidden="true">{{ isMac ? "⌘" : "Ctrl" }} K</kbd>
     </button>
     <span class="app-header__status" :title="t('layout.dataStaysInLocalSqlite')">
       <span class="app-header__dot" aria-hidden="true"></span>
@@ -98,6 +95,7 @@ const searchLabel = computed(() => `${t("layout.searchSessionsKnowledgeOrJump")}
 }
 
 .app-header__logo {
+  position: relative; /* containing block for the visually hidden name suffix */
   display: grid;
   flex: 0 0 auto;
   place-items: center;
@@ -225,12 +223,25 @@ kbd {
   }
 
   .app-header__search {
+    position: relative;
     justify-content: center;
     width: var(--control-height);
     padding: 0;
   }
 
-  .app-header__search-text,
+  /* The text is the button's accessible name, so hide it visually (same declarations as the global .sr-only) instead of display:none. */
+  .app-header__search-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
   .app-header__search kbd,
   .app-header__status {
     display: none;
