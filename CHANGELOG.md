@@ -30,12 +30,12 @@ axe-core 4.14 reports `label-content-name-mismatch` as serious. The fixes below 
 
 ### Changed
 
-- Dependency updates. Already merged to main: `@pinia/colada` 1.4.9, `eslint` 10.14.0, `@modelcontextprotocol/sdk` 1.32.2 and `vue-tsc` 3.3.14. On this branch: `@axe-core/playwright` 4.14.0. `smol-toml` 1.9.1 (Dependabot PR #350) is not upgraded in this release, because the package install was blocked in the release environment; it remains at `^1.9.0`.
+- Dependency updates. Already merged to main: `@pinia/colada` 1.4.9, `eslint` 10.14.0, `@modelcontextprotocol/sdk` 1.32.2 and `vue-tsc` 3.3.14. On this branch: `@axe-core/playwright` 4.14.0 and `smol-toml` 1.9.1 (Dependabot PR #350); the TOML tests for agent setup, doctor and plugins pass.
 - Timing-sensitive tests are steadier. The shared helper `tests/helpers/timing.ts` scales fixed millisecond limits by a same-size reference workload timed in the same process. The factor is clamped between 1 and 8 and never goes below the written limit. It applies to the handoff parser and both secret-redaction linear-time tests, and the doubling-ratio checks interleave half-size and full-size runs. A temporary quadratic regression was confirmed to fail the tests. No threshold was loosened.
 
 ### Upgrading
 
-No schema change (33) and no migration. Rebuild and restart. Not verified yet: the verification run listed in [docs/releases/1.6.35.md](docs/releases/1.6.35.md), and `smol-toml` 1.9.1.
+No schema change (33) and no migration. Rebuild and restart. Not verified yet: the verification run listed in [docs/releases/1.6.35.md](docs/releases/1.6.35.md).
 
 ## [1.6.34] - 2026-11-14
 

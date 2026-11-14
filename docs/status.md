@@ -8,7 +8,7 @@
 
 ## 1.6.35（準備中）
 
-依 axe-core 4.14 的 `label-content-name-mismatch`（WCAG 2.5.3）修正無障礙名稱：架構圖、標題列、圖形畫布、Knowledge、未結項、日曆與表單控制項的名稱改由可見文字產生，並新增 `tests/e2e/accessibility-states.spec.ts`，以 axe 檢查對話框、選單與行動版側欄（zh-TW 與 en-US）。共用計時 helper 讓固定毫秒上限隨同行程的參考工作量放大，時間相關測試更穩定；門檻沒有放寬。沒有 schema 變更（33），也不需要 migration。依賴：`@axe-core/playwright` 4.14.0（本分支），其餘已合併到 main。未驗證：`smol-toml` 1.9.1 未升級（發行環境安裝受阻），發行前的完整驗證指令尚未執行。見[更新說明](releases/1.6.35.md)。
+依 axe-core 4.14 的 `label-content-name-mismatch`（WCAG 2.5.3）修正無障礙名稱：架構圖、標題列、圖形畫布、Knowledge、未結項、日曆與表單控制項的名稱改由可見文字產生，並新增 `tests/e2e/accessibility-states.spec.ts`，以 axe 檢查對話框、選單與行動版側欄（zh-TW 與 en-US）。共用計時 helper 讓固定毫秒上限隨同行程的參考工作量放大，時間相關測試更穩定；門檻沒有放寬。沒有 schema 變更（33），也不需要 migration。依賴：`@axe-core/playwright` 4.14.0 與 `smol-toml` 1.9.1（本分支），其餘已合併到 main。未驗證：發行前的完整驗證指令尚未執行。見[更新說明](releases/1.6.35.md)。
 
 ## 1.6.34（已完成）
 
