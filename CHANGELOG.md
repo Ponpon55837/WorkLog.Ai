@@ -4,6 +4,16 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.37] - 2026-11-14
+
+[繁體中文更新說明](docs/releases/1.6.37.md).
+
+This release restores the verification colors on the Work graph timeline, which 1.6.36 had turned gray. It changes no data, no API and no MCP behaviour; the schema stays at 33.
+
+### Fixed
+
+- Work graph timeline: Session bars and day columns again take the color of their verification result (passed is green, failed is red, in progress is blue, not run or not provided is muted), and the legend lists the four results again. The 1.6.36 layout stays: weekend shading, the fixed project name column and the Knowledge event shapes.
+
 ## [1.6.36] - 2026-11-14
 
 [繁體中文更新說明](docs/releases/1.6.36.md).
