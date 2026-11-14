@@ -648,7 +648,7 @@ onBeforeUnmount(() => {
 }
 .architecture__boundary text {
   fill: var(--tone);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 600;
 }
 .architecture__edge {
@@ -677,7 +677,7 @@ onBeforeUnmount(() => {
 }
 .architecture__edge-label text {
   fill: var(--fg-muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 .architecture__edge-label.is-emphasized rect {
   stroke: var(--accent);

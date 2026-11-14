@@ -465,10 +465,15 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
 }
 
 .backup-section__note,
-.backup-section__hint,
+.backup-section__hint {
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
 .backup-section__time {
   color: var(--fg-muted);
   font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
 }
 
 .backup-section__folder-status {

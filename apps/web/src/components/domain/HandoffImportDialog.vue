@@ -188,6 +188,10 @@ function filesText(item: HandoffImportPreviewItem): string {
   cursor: pointer;
 }
 
+.handoff__item:not(.is-disabled):hover {
+  background: color-mix(in srgb, var(--bg-hover) 55%, var(--bg-surface));
+}
+
 .handoff__item.is-disabled {
   cursor: default;
 }

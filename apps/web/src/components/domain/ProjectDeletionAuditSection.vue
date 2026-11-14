@@ -92,7 +92,7 @@ function countEntries(
 <style scoped>
 .project-deletion-audit__note {
   color: var(--fg-muted);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
 }
 
 .project-deletion-audit__counts {

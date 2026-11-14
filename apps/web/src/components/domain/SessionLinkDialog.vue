@@ -122,7 +122,10 @@ onBeforeUnmount(() => window.clearTimeout(timer));
   border-top: 0;
 }
 
-.session-link__candidate:hover,
+.session-link__candidate:hover {
+  background: color-mix(in srgb, var(--bg-hover) 55%, var(--bg-surface));
+}
+
 .session-link__candidate:has(input:checked) {
   background: var(--bg-subtle);
 }

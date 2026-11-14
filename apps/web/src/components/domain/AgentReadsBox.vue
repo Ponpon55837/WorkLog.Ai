@@ -242,7 +242,7 @@ onBeforeUnmount(() => agentReadsStore.setListActive(false));
 .agent-reads__stats-hint {
   margin: 0 0 var(--space-2);
   color: var(--fg-muted);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
 }
 
 .agent-reads__stats-scroll {
@@ -268,6 +268,10 @@ onBeforeUnmount(() => agentReadsStore.setListActive(false));
 .agent-reads__stats-table thead th {
   color: var(--fg-muted);
   font-weight: 600;
+}
+
+.agent-reads__stats-table tbody tr:hover {
+  background: color-mix(in srgb, var(--bg-hover) 55%, var(--bg-surface));
 }
 
 .agent-reads__stats-table tbody th {
