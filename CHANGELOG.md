@@ -32,7 +32,7 @@ The design check method draws on unslop by Damir Sokolovsky (CC BY 4.0). Only th
 
 ### Upgrading
 
-No schema change (33) and no migration. Rebuild and restart. Data, API and MCP behaviour are unchanged; only the appearance and text change. The screenshots in the README are being retaken with fictional sample data.
+No schema change (33) and no migration. Rebuild and restart. Data, API and MCP behaviour are unchanged; only the appearance and text change. The README screenshots were retaken with fictional sample data.
 
 ## [1.6.35] - 2026-11-14
 

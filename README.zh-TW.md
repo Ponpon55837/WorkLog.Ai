@@ -212,7 +212,7 @@ GitHub（Primer）風格的介面，有深色與淺色兩種主題，介面語�
 
 **工作知識**
 
-![工作知識：信任條、過時原因與類型分布](docs/images/zh-TW/work-knowledge.png)
+![工作知識：Knowledge 清單、類型標籤、篩選與類型分布](docs/images/zh-TW/work-knowledge.png)
 
 **工作圖譜**（時間軸分頁）
 

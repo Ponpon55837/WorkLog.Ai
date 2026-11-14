@@ -212,7 +212,7 @@ A GitHub (Primer) style interface with dark and light themes, in English and Tra
 
 **Work knowledge**
 
-![Work knowledge: trust bars, staleness reasons and the kind breakdown](docs/images/en-US/work-knowledge.png)
+![Work knowledge: Knowledge list with kind labels, filters and the kind breakdown](docs/images/en-US/work-knowledge.png)
 
 **Work graph** (Timeline tab)
 
