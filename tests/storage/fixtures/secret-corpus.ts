@@ -276,4 +276,17 @@ export const BENIGN_TEXTS: readonly string[] = [
   `{"token": "internationalization", "id": 4412}`,
   `{"token": "hello brave new world", "logprob": -2.3}`,
   `{"token": "ThisIsAFragment"}`,
+  // Type annotations document a field; they are not values.
+  "`account: string`, `password: string`, `fileName: string`",
+  "interface Login { password?: string; token: string | null; secret: Buffer }",
+  "`token: string|undefined`, `secret: Uint8Array`, `apiKey: unknown`",
+  'def connect(password: str = "", token: str | None = None): ...',
+  "type Settings = { password: undefined; passphrase: string[]; secret: number|string }",
+  "type Credentials struct { Password string; Token string }",
+  "欄位有 `account: string`、`password: string`、`fileName: string`。",
+  "欄位有 `account: string`，`password: number`，`fileName: string`",
+  "欄位：`account: string`；`token: boolean`；`fileName: string`",
+  "`account: string`/`password: string`/`token: string`",
+  "password: string、fileName: string",
+  "欄位 password: boolean、token: number、secret: string。",
 ];

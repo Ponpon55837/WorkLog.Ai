@@ -293,6 +293,37 @@ describe("secret redaction", () => {
       expect(redactText(`withCredentials=${value}`).value).toBe(`withCredentials=${value}`);
     });
 
+    it("keeps a type annotation but masks a value that only starts like a type name", () => {
+      for (const text of [
+        "password: string|null",
+        "token: string | null",
+        "secret: Uint8Array",
+        "password: undefined",
+        "`account: string`, `password: string|undefined`, `fileName: string`",
+        "password?: string",
+        "secret: number|string[]|null",
+        'password: str = ""',
+        "api_key=unknown",
+        "Password string",
+      ]) {
+        expect(redactText(text).value).toBe(text);
+      }
+      for (const value of ["stringent-Pa55word", "String123xyz!", "string-Pa55word99", "string|Pa55word99xyz"]) {
+        expect(redactText(`password: ${value}`).value).toBe(`password: ${marker("environment_secret")}`);
+      }
+    });
+
+    it("ends an unquoted value at a backtick or full-width punctuation", () => {
+      const secret = "Pa55word-xyz123";
+      expect(redactText(`\`password: ${secret}\`、\`fileName: x\``).value).toBe(
+        `\`password: ${marker("environment_secret")}\`、\`fileName: x\``,
+      );
+      expect(redactText(`password: ${secret}，token: x`).value).toBe(
+        `password: ${marker("environment_secret")}，token: x`,
+      );
+      expect(redactText(`密碼 password=${secret}。`).value).toBe(`密碼 password=${marker("environment_secret")}。`);
+    });
+
     it("masks a quoted bare JSON token only when it looks like a credential", () => {
       expect(redactJsonText(`{"token":"Zq7KdLm2XwRt9Pv"}`).value).toBe(`{"token":"${marker("environment_secret")}"}`);
       expect(redactJsonText(`{"token":"internationalization","token_id":"x"}`).value).toBe(

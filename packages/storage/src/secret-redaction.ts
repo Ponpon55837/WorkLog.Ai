@@ -76,6 +76,44 @@ const GENERIC_PLACEHOLDERS = new Set([
   "your-secret",
 ]);
 
+/**
+ * Type names that document a field instead of holding a secret: `password: string`, `token: string | null`,
+ * `secret: Buffer`, `password: str = ""` (TypeScript, Python, Rust, C-like). Compared case-insensitively against a whole
+ * value, so `stringent-Pa55word` and `String123xyz!` are not type names. Go struct fields (`Password string`) have no
+ * `:` or `=` and are never matched by a keyed rule.
+ */
+const TYPE_KEYWORDS = new Set([
+  "string",
+  "str",
+  "number",
+  "int",
+  "integer",
+  "float",
+  "double",
+  "boolean",
+  "bool",
+  "bigint",
+  "symbol",
+  "any",
+  "unknown",
+  "object",
+  "never",
+  "void",
+  "undefined",
+  "buffer",
+  "bytes",
+  "bytearray",
+  "uint8array",
+]);
+/**
+ * A whole unquoted value that is a type expression: a type name, then any of `[]` and `?`, optionally more `|` members
+ * (a type name, `null` or `undefined`), then an optional trailing `=` (`password: string=` before a default). The
+ * keyword must be followed by one of those delimiters or the end. Fixed alternatives, each step introduced by a
+ * mandatory character: no backtracking beyond a constant per position.
+ */
+const TYPE_MEMBER = `(?:${[...TYPE_KEYWORDS].join("|")})(?:\\[\\])*\\??`;
+const TYPE_ANNOTATION = new RegExp(`^${TYPE_MEMBER}(?:\\|(?:${TYPE_MEMBER}|null\\??))*=?$`, "i");
+
 function isIdentifierLike(value: string): boolean {
   const normalized = value.trim();
   return (
@@ -87,7 +125,12 @@ function isIdentifierLike(value: string): boolean {
 
 function isAssignedSecretValue(groups: ReadonlyArray<string | undefined>, next: string): boolean {
   const value = groups[1] ?? "";
-  return value.length >= 8 && (next === "" || SECRET_VALUE_TERMINATOR.test(next)) && !isIdentifierLike(value);
+  return (
+    value.length >= 8 &&
+    (next === "" || SECRET_VALUE_TERMINATOR.test(next)) &&
+    !isIdentifierLike(value) &&
+    !TYPE_KEYWORDS.has(value.toLowerCase())
+  );
 }
 
 /** What a keyed-assignment keyword (letters only, compared without `_`, `-` and `.`) additionally requires of its value. */
@@ -172,6 +215,16 @@ function isLineSpaceCode(code: number): boolean {
   return code === 32 || code === 9;
 }
 
+/** Ends an unquoted value: a backtick (a Markdown span closes) or CJK and full-width punctuation (`、。「」`, `！（），／：；？`), which prose puts right after a value without a space. */
+function isValueEndCode(code: number): boolean {
+  return (
+    code === 96 ||
+    (code >= 0x3000 && code <= 0x303f) ||
+    (code >= 0xff01 && code <= 0xff0f) ||
+    (code >= 0xff1a && code <= 0xff20)
+  );
+}
+
 function isQuoteCode(code: number): boolean {
   return code === 34 || code === 39 || code === 96;
 }
@@ -248,7 +301,7 @@ function isAcceptedKeyedValue(value: string, rule: KeyedRule, quoted: boolean, b
   if (quoted) return true;
   // The unquoted checks below drop code, markup and counts; a quoted value is an explicit literal and keeps all.
   if (value.startsWith("$") || value.includes("<") || value.includes(">")) return false;
-  if (LEADING_LITERAL.test(value)) return false;
+  if (LEADING_LITERAL.test(value) || TYPE_ANNOTATION.test(value)) return false;
   if (rule.rejectNumeric && /^[0-9]+$/.test(value)) return false;
   if (rule.rejectPath && /^(?:[/~.]|[A-Za-z]:[\\/])/.test(value)) return false;
   return value.length > 128 || (!DOTTED_IDENTIFIER.test(value) && !FUNCTION_CALL.test(value));
@@ -257,7 +310,7 @@ function isAcceptedKeyedValue(value: string, rule: KeyedRule, quoted: boolean, b
 /**
  * One value read after a key's `:` or `=`: the masked range (if any) and where scanning resumes. Quoted values run to the
  * closing quote, honoring backslash escapes (a JSON string); a quote escaped as `\"` (JSON inside a string) closes at the
- * next `\"`. Unquoted values run to whitespace, a `"`, a backslash, and `&` or `;` when the key follows that character,
+ * next `\"`. Unquoted values run to whitespace, a `"`, a backslash, a backtick, CJK or full-width punctuation, and `&` or `;` when the key follows that character,
  * minus trailing closing punctuation. Every read ends before the next unread character, so the scan stays linear.
  */
 function readKeyedValue(
@@ -310,6 +363,7 @@ function readKeyedValue(
   while (end < length) {
     const code = text.charCodeAt(end);
     if (code === 32 || code === 9 || code === 10 || code === 13 || code === 34 || code === 92) break;
+    if (isValueEndCode(code)) break;
     if ((code === 38 && (keyLead === 63 || keyLead === 38)) || (code === 59 && keyLead === 59)) break;
     end += 1;
   }
