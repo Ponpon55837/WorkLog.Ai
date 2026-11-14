@@ -32,11 +32,18 @@ const CHANGED_FILES_HEADING_HEAD =
   /#{1,6}\s*(?:changed files?|files changed|modified files?|files modified|變更檔案|修改檔案)/iy;
 const INLINE_CHANGED_FILES_HEAD = /(?:changedFiles|changed files)\s*[:=]\s*\[/i;
 const WHITESPACE_CHARACTER = /\s/;
+// Native scans: they run outside the interpreter's per-character bookkeeping, which matters because a 200,000-character
+// text is walked several times (and test coverage makes every JavaScript loop iteration much slower).
+const NON_WHITESPACE = /\S/g;
+const LINE_TERMINATOR = /[\n\r\u2028\u2029]/g;
+const LAST_LINE_TERMINATOR = /[\n\r\u2028\u2029][^\n\r\u2028\u2029]*$/;
+// A line lead: the start of the text or a line break, the whitespace after it, then the first other character.
+const LINE_LEAD = /(?:^|[\n\r\u2028\u2029])\s*(?=\S)/g;
 // A description separator that starts after this many characters cannot leave a token of at most 1,000 characters.
 const FILE_TOKEN_SEPARATOR_SCAN_LIMIT = 1_000;
 const MAX_FILE_TOKEN_LENGTH = 1_000;
 
-type LineLeadVisitor = (index: number) => number | undefined;
+type LineLeadVisitor = (index: number, lineStart: number) => number | undefined;
 
 function isLineTerminatorCode(code: number): boolean {
   return code === 0x0a || code === 0x0d || code === 0x2028 || code === 0x2029;
@@ -52,38 +59,25 @@ function isWhitespaceAt(text: string, index: number): boolean {
 }
 
 function skipWhitespace(text: string, from: number): number {
-  let index = from;
-  while (index < text.length && isWhitespaceAt(text, index)) {
-    index += 1;
-  }
-  return index;
+  NON_WHITESPACE.lastIndex = from;
+  const match = NON_WHITESPACE.exec(text);
+  return match ? match.index : text.length;
 }
 
-function indexOfLineTerminator(text: string, from: number, limit = text.length): number {
-  for (let index = from; index < limit; index += 1) {
-    if (isLineTerminatorCode(text.charCodeAt(index))) {
-      return index;
-    }
-  }
-  return limit;
+function indexOfLineTerminator(text: string, from: number): number {
+  LINE_TERMINATOR.lastIndex = from;
+  const match = LINE_TERMINATOR.exec(text);
+  return match ? match.index : text.length;
 }
 
 function lastLineTerminatorIn(text: string, from: number, to: number): number {
-  for (let index = to - 1; index >= from; index -= 1) {
-    if (isLineTerminatorCode(text.charCodeAt(index))) {
-      return index;
-    }
-  }
-  return -1;
+  const match = LAST_LINE_TERMINATOR.exec(text.slice(from, to));
+  return match ? from + match.index : -1;
 }
 
 /** End of the text on a line once the whitespace before the line break is dropped (`.+?\s*$` on one line). */
 function trimmedLineEnd(text: string, start: number, lineEnd: number): number {
-  let end = lineEnd;
-  while (end > start && isWhitespaceAt(text, end - 1)) {
-    end -= 1;
-  }
-  return end;
+  return start + text.slice(start, lineEnd).trimEnd().length;
 }
 
 /**
@@ -107,26 +101,34 @@ function endOfTrailingWhitespace(text: string, from: number, allowColon: boolean
   return lastLineTerminatorIn(text, from, run);
 }
 
+// Last text given to scanLineLeads with its trailing whitespace trimmed.
+let leadBodySource = "";
+let leadBody = "";
+
 /**
  * Visits every first non-whitespace character that a multiline `^\s*` can reach: the character has only whitespace
- * before it on its line. `visit` returns undefined to keep scanning or the index to continue from (a match end).
+ * before it on its line. `visit` gets that index and the first line start that reaches it, and returns undefined to
+ * keep scanning or the index to continue from (a match end). The start of the text counts as a line start only when
+ * scanning from 0.
  */
-function scanLineLeads(text: string, from: number, atLineStart: boolean, visit: LineLeadVisitor): void {
-  let index = from;
-  let atLead = atLineStart;
-  while (index < text.length) {
-    if (isLineTerminatorCode(text.charCodeAt(index))) {
-      atLead = true;
-      index += 1;
-    } else if (isWhitespaceAt(text, index)) {
-      index += 1;
-    } else if (atLead) {
-      const resume = visit(index);
-      atLead = false;
-      index = resume ?? indexOfLineTerminator(text, index + 1);
-    } else {
-      index = indexOfLineTerminator(text, index + 1);
+function scanLineLeads(text: string, from: number, visit: LineLeadVisitor): void {
+  // The trimmed text is cached: sections call this many times on the same text and trimming is O(length) each time.
+  if (leadBodySource !== text) {
+    leadBodySource = text;
+    leadBody = text.trimEnd();
+  }
+  const body = leadBody;
+  const limit = body.length;
+  let next = from;
+  while (next < limit) {
+    LINE_LEAD.lastIndex = next;
+    const match = LINE_LEAD.exec(body);
+    if (!match) {
+      return;
     }
+    const lead = match.index + match[0].length;
+    const resume = visit(lead, match.index === 0 && from === 0 ? 0 : match.index + 1);
+    next = Math.max(resume ?? lead + 1, lead + 1);
   }
 }
 
@@ -153,22 +155,13 @@ function createSectionEndFinder(text: string): (start: number) => number {
       return found;
     }
     let result: { lead: number; index: number } | undefined;
-    let lead = -1;
-    let index = anchor + 1;
-    while (index < text.length && result === undefined) {
-      if (isLineTerminatorCode(text.charCodeAt(index))) {
-        lead = lead < 0 ? index + 1 : lead;
-        index += 1;
-      } else if (isWhitespaceAt(text, index)) {
-        index += 1;
-      } else {
-        if (lead >= 0 && isHeadingStartAt(text, index)) {
-          result = { lead, index };
-        }
-        lead = -1;
-        index = indexOfLineTerminator(text, index + 1);
+    scanLineLeads(text, anchor + 1, (index, lineStart) => {
+      if (!isHeadingStartAt(text, index)) {
+        return undefined;
       }
-    }
+      result = { lead: lineStart, index };
+      return text.length;
+    });
     scannedAfter = anchor;
     found = result;
     return result;
@@ -188,7 +181,7 @@ function createSectionEndFinder(text: string): (start: number) => number {
 /** First heading text of `# title`, "" when the match is only whitespace, undefined when no heading matches. */
 function findTitleHeading(content: string): string | undefined {
   let heading: string | undefined;
-  scanLineLeads(content, 0, true, (index) => {
+  scanLineLeads(content, 0, (index) => {
     if (content.charCodeAt(index) !== 0x23) {
       return undefined;
     }
@@ -243,64 +236,252 @@ function mayStartStatusLine(character: string): boolean {
   return character === "#" || character === "f" || character === "F" || character === "s" || character === "S";
 }
 
-/** Replaces `^(?:[-*+]|\d+[.)])\s+(.*)$`: the rest of the line after the marker, or the value unchanged. */
-function withoutListMarker(value: string): string {
-  let markerEnd = 0;
-  const first = value.charAt(0);
-  if (first === "-" || first === "*" || first === "+") {
-    markerEnd = 1;
-  } else {
-    while (markerEnd < value.length && value.charCodeAt(markerEnd) >= 0x30 && value.charCodeAt(markerEnd) <= 0x39) {
-      markerEnd += 1;
-    }
-    const delimiter = value.charAt(markerEnd);
-    if (markerEnd === 0 || (delimiter !== "." && delimiter !== ")")) {
-      return value;
-    }
-    markerEnd += 1;
-  }
-  const textStart = skipWhitespace(value, markerEnd);
-  if (textStart === markerEnd || indexOfLineTerminator(value, textStart) < value.length) {
-    return value;
-  }
-  return value.slice(textStart);
+/** Right edges of one line, computed once for every file token read from lines that end at the same place. */
+interface LineTail {
+  end: number;
+  /** The smallest line start that used this tail; scans stop here, so later (larger) starts reuse them. */
+  floor: number;
+  /** End of the line without trailing whitespace. */
+  trimmedEnd: number;
+  withoutBackticksEnd?: number;
+  contentEnd?: number;
+  arrowIndex?: number;
+  arrowToken?: { value: string | undefined };
 }
 
-/** Replaces `.replace(/^`+|`+$/g, "")`, which retried every backtick of a long run. */
-function withoutEdgeBackticks(value: string): string {
-  let start = 0;
-  let end = value.length;
-  while (start < end && value.charCodeAt(start) === 0x60) {
-    start += 1;
-  }
-  while (end > start && value.charCodeAt(end - 1) === 0x60) {
-    end -= 1;
-  }
-  return value.slice(start, end);
+function isUpperCaseOrQuestionMark(code: number): boolean {
+  return code === 0x3f || (code >= 0x41 && code <= 0x5a);
 }
 
-/** Index of the first whitespace run followed by `-`, an em dash, or `:` and more whitespace (`\s+(?:-|—|:\s)\s+`). */
-function findDescriptionSeparator(value: string): number {
-  let index = 0;
-  while (index < value.length && index <= FILE_TOKEN_SEPARATOR_SCAN_LIMIT) {
-    if (!isWhitespaceAt(value, index)) {
+function skipWhitespaceUntil(text: string, from: number, limit: number): number {
+  let index = from;
+  while (index < limit && isWhitespaceAt(text, index)) {
+    index += 1;
+  }
+  return index;
+}
+
+/** Index of the first whitespace run in [start, end) followed by `-`, an em dash, or `:` and more whitespace. */
+function findDescriptionSeparator(text: string, start: number, end: number, limit = Infinity): number {
+  let index = start;
+  while (index < end && index <= start + limit) {
+    if (!isWhitespaceAt(text, index)) {
       index += 1;
       continue;
     }
-    const runEnd = skipWhitespace(value, index);
-    const marker = value.charAt(runEnd);
+    const runEnd = skipWhitespaceUntil(text, index, end);
+    const marker = runEnd < end ? text.charAt(runEnd) : "";
     if (
-      ((marker === "-" || marker === "—") && runEnd + 1 < value.length && isWhitespaceAt(value, runEnd + 1)) ||
-      (marker === ":" &&
-        runEnd + 2 < value.length &&
-        isWhitespaceAt(value, runEnd + 1) &&
-        isWhitespaceAt(value, runEnd + 2))
+      ((marker === "-" || marker === "—") && runEnd + 1 < end && isWhitespaceAt(text, runEnd + 1)) ||
+      (marker === ":" && runEnd + 2 < end && isWhitespaceAt(text, runEnd + 1) && isWhitespaceAt(text, runEnd + 2))
     ) {
       return index;
     }
     index = runEnd;
   }
   return -1;
+}
+
+/** The checks that decide whether the cleaned-up value of a line is a file path. */
+function fileTokenFromValue(value: string): string | undefined {
+  if (!value || value.length > MAX_FILE_TOKEN_LENGTH || /^https?:\/\//i.test(value)) {
+    return undefined;
+  }
+  if (
+    value.startsWith("/") ||
+    /^[A-Za-z]:[\\/]/.test(value) ||
+    value.split(/[\\/]/).some((segment) => segment === "..")
+  ) {
+    return undefined;
+  }
+  if (
+    !value.includes("/") &&
+    !value.includes("\\") &&
+    !/\.(?:[a-z0-9]{1,12})$/i.test(value) &&
+    !/^(?:README|LICENSE|Dockerfile)(?:\..*)?$/i.test(value)
+  ) {
+    return undefined;
+  }
+  return value;
+}
+
+/** Cuts a value at its description separator (` - note`, ` : note`) and applies the path checks. */
+function fileTokenFromRange(
+  text: string,
+  start: number,
+  end: number,
+  findSeparator: (start: number, end: number) => number = (from, to) =>
+    findDescriptionSeparator(text, from, to, FILE_TOKEN_SEPARATOR_SCAN_LIMIT),
+): string | undefined {
+  let valueStart = start;
+  let valueEnd = end;
+  const separator = findSeparator(start, end);
+  if (separator > start) {
+    valueEnd = separator;
+    valueStart = skipWhitespaceUntil(text, valueStart, valueEnd);
+    while (valueEnd > valueStart && isWhitespaceAt(text, valueEnd - 1)) {
+      valueEnd -= 1;
+    }
+  }
+  // Longer than any token, so it is not sliced out of a text that may be 200,000 characters long.
+  return valueEnd - valueStart > MAX_FILE_TOKEN_LENGTH
+    ? undefined
+    : fileTokenFromValue(text.slice(valueStart, valueEnd));
+}
+
+/**
+ * Reads file tokens from lines of `text` given as [start, end) ranges, with the result of `fileTokenFromLine` for
+ * `text.slice(start, end)`. Lines that start at different places but end at the same place (a section reached from many
+ * headings that no `\n` separates) share their right side, so everything that looks at the right edge is computed once
+ * per line end and only the work on the left of each line is repeated. Starts must not decrease for one line end.
+ */
+function createFileTokenReader(text: string): (start: number, end: number) => string | undefined {
+  let tail: LineTail | undefined;
+  let terminatorFrom = 0;
+  let terminatorAt = -1;
+  const nextTerminator = (from: number): number => {
+    if (terminatorAt < 0 || from < terminatorFrom || from > terminatorAt) {
+      terminatorFrom = from;
+      terminatorAt = indexOfLineTerminator(text, from);
+    }
+    return terminatorAt;
+  };
+  // The first separator at or after `from` on lines that end at `end`; later starts reuse it while it is still ahead of them,
+  // so lines that share a long right side are not each scanned for 1000 characters.
+  let separatorEnd = -1;
+  let separatorFrom = 0;
+  let separatorAt = -1;
+  const separatorWithin = (start: number, end: number): number => {
+    if (separatorEnd !== end || start < separatorFrom || (separatorAt >= 0 && separatorAt < start)) {
+      separatorEnd = end;
+      separatorFrom = start;
+      separatorAt = findDescriptionSeparator(text, start, end);
+    }
+    return separatorAt >= 0 && separatorAt <= start + FILE_TOKEN_SEPARATOR_SCAN_LIMIT ? separatorAt : -1;
+  };
+  const tailOf = (start: number, end: number): LineTail => {
+    if (tail && tail.end === end && start >= tail.floor) {
+      return tail;
+    }
+    let trimmedEnd = end;
+    while (trimmedEnd > start && isWhitespaceAt(text, trimmedEnd - 1)) {
+      trimmedEnd -= 1;
+    }
+    tail = { end, floor: start, trimmedEnd };
+    return tail;
+  };
+  const withoutBackticksEnd = (line: LineTail): number => {
+    if (line.withoutBackticksEnd === undefined) {
+      let edge = line.trimmedEnd;
+      while (edge > line.floor && text.charCodeAt(edge - 1) === 0x60) {
+        edge -= 1;
+      }
+      line.withoutBackticksEnd = edge;
+    }
+    return line.withoutBackticksEnd;
+  };
+  const contentEnd = (line: LineTail): number => {
+    if (line.contentEnd === undefined) {
+      let edge = withoutBackticksEnd(line);
+      while (edge > line.floor && isWhitespaceAt(text, edge - 1)) {
+        edge -= 1;
+      }
+      line.contentEnd = edge;
+    }
+    return line.contentEnd;
+  };
+  // None of the clean-up on the left of a line removes `=` or `>`, so the last `=>` is the same for every start.
+  const lastArrow = (line: LineTail): number => {
+    if (line.arrowIndex === undefined) {
+      line.arrowIndex = -1;
+      for (let index = line.end - 2; index >= line.floor; index -= 1) {
+        if (text.charCodeAt(index) === 0x3d && text.charCodeAt(index + 1) === 0x3e) {
+          line.arrowIndex = index;
+          break;
+        }
+      }
+    }
+    return line.arrowIndex;
+  };
+
+  return (start, end) => {
+    const line = tailOf(start, end);
+    const first = skipWhitespaceUntil(text, start, line.trimmedEnd);
+    if (first >= line.trimmedEnd || (text.startsWith("``", first) && first + 1 < line.trimmedEnd)) {
+      return undefined;
+    }
+    const valueEnd = contentEnd(line);
+    const arrow = lastArrow(line);
+    if (arrow >= first) {
+      // The text after the last `=>` is the value, whatever stands before it.
+      if (line.arrowToken === undefined) {
+        const arrowValueStart = skipWhitespaceUntil(text, arrow + 2, valueEnd);
+        line.arrowToken = {
+          value:
+            arrowValueStart >= valueEnd
+              ? undefined
+              : fileTokenFromRange(text, arrowValueStart, valueEnd, separatorWithin),
+        };
+      }
+      return line.arrowToken.value;
+    }
+
+    let valueStart = first;
+    // A list marker (`-`, `*`, `+`, `1.`, `1)`) and the whitespace after it, when the rest has no line break.
+    let markerEnd = valueStart;
+    if (["-", "*", "+"].includes(text.charAt(valueStart))) {
+      markerEnd = valueStart + 1;
+    } else {
+      while (markerEnd < line.trimmedEnd && text.charCodeAt(markerEnd) >= 0x30 && text.charCodeAt(markerEnd) <= 0x39) {
+        markerEnd += 1;
+      }
+      const delimiter = markerEnd < line.trimmedEnd ? text.charAt(markerEnd) : "";
+      markerEnd = markerEnd > valueStart && (delimiter === "." || delimiter === ")") ? markerEnd + 1 : valueStart;
+    }
+    if (markerEnd > valueStart) {
+      const textStart = skipWhitespaceUntil(text, markerEnd, line.trimmedEnd);
+      if (textStart > markerEnd && nextTerminator(textStart) >= line.trimmedEnd) {
+        valueStart = textStart;
+      }
+    }
+    // A checkbox (`[ ]`, `[x]`) and the whitespace after it.
+    if (
+      text.charCodeAt(valueStart) === 0x5b &&
+      " xX".includes(text.charAt(valueStart + 1)) &&
+      text.charCodeAt(valueStart + 2) === 0x5d &&
+      valueStart + 3 < line.trimmedEnd &&
+      isWhitespaceAt(text, valueStart + 3)
+    ) {
+      valueStart = skipWhitespaceUntil(text, valueStart + 3, line.trimmedEnd);
+    }
+    valueStart = skipWhitespaceUntil(text, valueStart, line.trimmedEnd);
+    // Backticks around the value.
+    while (valueStart < line.trimmedEnd && text.charCodeAt(valueStart) === 0x60) {
+      valueStart += 1;
+    }
+    if (valueStart >= line.trimmedEnd) {
+      return undefined;
+    }
+    valueStart = skipWhitespaceUntil(text, valueStart, withoutBackticksEnd(line));
+    if (valueStart >= valueEnd) {
+      return undefined;
+    }
+    // A one or two character status prefix such as `M ` or `??`.
+    let prefixLength = 0;
+    while (prefixLength < 2 && valueStart + prefixLength < valueEnd) {
+      if (!isUpperCaseOrQuestionMark(text.charCodeAt(valueStart + prefixLength))) {
+        break;
+      }
+      prefixLength += 1;
+    }
+    for (let length = prefixLength; length >= 1; length -= 1) {
+      if (valueStart + length < valueEnd && isWhitespaceAt(text, valueStart + length)) {
+        valueStart = skipWhitespaceUntil(text, valueStart + length, valueEnd);
+        break;
+      }
+    }
+    return valueStart >= valueEnd ? undefined : fileTokenFromRange(text, valueStart, valueEnd, separatorWithin);
+  };
 }
 
 export function stripFencedCodeBlocks(content: string): string {
@@ -340,7 +521,7 @@ export function findStatusSignals(content: string): string[] {
 
 function statusSignalsFromSource(source: string): string[] {
   const signals: string[] = [];
-  scanLineLeads(source, 0, true, (index) => {
+  scanLineLeads(source, 0, (index) => {
     if (!mayStartStatusLine(source.charAt(index))) {
       return undefined;
     }
@@ -355,7 +536,7 @@ function statusSignalsFromSource(source: string): string[] {
   });
 
   let headingEnd = -1;
-  scanLineLeads(source, 0, true, (index) => {
+  scanLineLeads(source, 0, (index) => {
     if (!mayStartStatusLine(source.charAt(index))) {
       return undefined;
     }
@@ -471,40 +652,7 @@ function normalizeFileCandidate(projectRoot: string, value: string): string {
 }
 
 export function fileTokenFromLine(line: string): string | undefined {
-  let value = line.trim();
-  if (!value || value.startsWith("``")) {
-    return undefined;
-  }
-  value = withoutListMarker(value);
-  value = value.replace(/^\[[ xX]\]\s+/, "").trim();
-  value = withoutEdgeBackticks(value).trim();
-  value = value.replace(/^[A-Z?]{1,2}\s+/, "");
-  if (value.includes("=>")) {
-    value = value.split("=>").at(-1)?.trim() ?? value;
-  }
-  const descriptionIndex = findDescriptionSeparator(value);
-  if (descriptionIndex > 0) {
-    value = value.slice(0, descriptionIndex).trim();
-  }
-  if (!value || value.length > MAX_FILE_TOKEN_LENGTH || /^https?:\/\//i.test(value)) {
-    return undefined;
-  }
-  if (
-    value.startsWith("/") ||
-    /^[A-Za-z]:[\\/]/.test(value) ||
-    value.split(/[\\/]/).some((segment) => segment === "..")
-  ) {
-    return undefined;
-  }
-  if (
-    !value.includes("/") &&
-    !value.includes("\\") &&
-    !/\.(?:[a-z0-9]{1,12})$/i.test(value) &&
-    !/^(?:README|LICENSE|Dockerfile)(?:\..*)?$/i.test(value)
-  ) {
-    return undefined;
-  }
-  return value;
+  return createFileTokenReader(line)(0, line.length);
 }
 
 export function extractChangedFiles(content: string, projectRoot: string): string[] {
@@ -546,6 +694,7 @@ function changedFilesFromSource(source: string, projectRoot: string): string[] {
   }
 
   const findSectionEnd = createSectionEndFinder(source);
+  const readFileToken = createFileTokenReader(source);
   // Sections that run to the end of a text without "\n" would each search the whole rest again, so the last answer is kept.
   let newlineFrom = 0;
   let newlineAt = source.indexOf("\n");
@@ -566,7 +715,7 @@ function changedFilesFromSource(source: string, projectRoot: string): string[] {
     let lineStart = start;
     while (true) {
       const lineEnd = Math.min(nextNewline(lineStart), end);
-      const token = fileTokenFromLine(source.slice(lineStart, lineEnd));
+      const token = readFileToken(lineStart, lineEnd);
       if (token) {
         add(token);
       }
@@ -577,7 +726,7 @@ function changedFilesFromSource(source: string, projectRoot: string): string[] {
     }
   };
 
-  scanLineLeads(source, 0, true, (index) => {
+  scanLineLeads(source, 0, (index) => {
     if (values.length >= MAX_PARSED_CHANGED_FILES) {
       return source.length;
     }

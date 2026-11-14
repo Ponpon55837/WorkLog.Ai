@@ -11,6 +11,12 @@ const RATIO_BASELINE_FLOOR_MS = 10;
 // Each shape made one of the former multiline regexes (`^\s*...$` with `\s*` running across line breaks, or a lazy
 // `.+?\s*$` over a long whitespace run) rescan the same characters from every start position.
 function adversarialInputs(length: number): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(shapes(length)).map(([name, text]) => [name, text.padEnd(length, "x").slice(0, length)]),
+  );
+}
+
+function shapes(length: number): Record<string, string> {
   const repeat = (unit: string): string => unit.repeat(Math.ceil(length / unit.length)).slice(0, length);
   const padded = (head: string, fill: string, tail = "x"): string =>
     head + fill.repeat(length - head.length - tail.length) + tail;
@@ -55,6 +61,18 @@ function adversarialInputs(length: number): Record<string, string> {
     "file line with many backticks": padded("## changed files\na", "`", "b.ts"),
     "file line with a long gap before the description": padded("## changed files\na.ts", " "),
     "backtick file lines": `## changed files\n${repeat("`a`\n").slice(0, length - 17)}`,
+    "CR headings then a space tail": `${repeat("##changed files\r").slice(0, length / 2)}${" ".repeat(length / 2 - 1)}x`,
+    "CR headings then a backtick tail": `${repeat("##changed files\r").slice(0, length / 2)}${"`".repeat(length / 2)}`,
+    "CR headings then a tab tail": `${repeat("##changed files\r").slice(0, length / 2)}${"\t".repeat(length / 2 - 1)}x`,
+    "CR headings then a tail of tabs and spaces": `${repeat("##changed files\r").slice(0, length / 2)}${" \t".repeat(length / 4 - 1)}x`,
+    "U+2028 headings then a space tail": `${repeat("##changed files\u2028").slice(0, length / 2)}${" ".repeat(length / 2 - 1)}x`,
+    "U+2028 headings then a backtick tail": `${repeat("##changed files\u2028").slice(0, length / 2)}${"`".repeat(length / 2)}`,
+    "arrow early in the line, CR headings, then a tail": `## changed files\n- a =>${repeat("##changed files\r").slice(0, length / 2)}${" ".repeat(length / 2 - 30)}x`,
+    "arrow at the end, CR headings, then backticks": `## changed files\n- a =>${repeat("##changed files\r").slice(0, length / 2)}${"`".repeat(length / 2 - 30)}`,
+    "list marker, CR headings, then a long tail": `## changed files\n- ${repeat("##changed files\r").slice(0, length / 2)}${"x".repeat(length / 2 - 30)}`,
+    "list marker, spaces, CR headings, then a long tail": `## changed files\n-    ${repeat("##changed files\r").slice(0, length / 2)}${"y.ts ".repeat(length / 10 - 10)}`,
+    "checkbox and status prefix, CR headings, then a tail": `## changed files\n[x] M ${repeat("##changed files\r").slice(0, length / 2)}${" ".repeat(length / 2 - 40)}x`,
+    "CR headings then a long description gap": `${repeat("##changed files\r").slice(0, length / 2)}a.ts${" ".repeat(length / 2 - 10)}- x`,
     "mixed Unicode whitespace": repeat(" \t  \n"),
     "empty list items": repeat("- \n"),
     "numbered list markers": repeat("1. "),
