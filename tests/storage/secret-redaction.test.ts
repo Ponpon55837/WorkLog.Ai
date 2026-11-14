@@ -286,6 +286,35 @@ describe("secret redaction", () => {
       );
     });
 
+    it("masks a credentials key only when the keyword is the whole key or follows a separator", () => {
+      const value = "Zq7KdLm2XwRt9Pv";
+      expect(redactText(`db_credentials=${value}`).value).toBe(`db_credentials=${marker("environment_secret")}`);
+      expect(redactText(`CREDENTIALS: ${value}`).value).toBe(`CREDENTIALS: ${marker("environment_secret")}`);
+      expect(redactText(`withCredentials=${value}`).value).toBe(`withCredentials=${value}`);
+    });
+
+    it("masks a quoted bare JSON token only when it looks like a credential", () => {
+      expect(redactJsonText(`{"token":"Zq7KdLm2XwRt9Pv"}`).value).toBe(`{"token":"${marker("environment_secret")}"}`);
+      expect(redactJsonText(`{"token":"internationalization","token_id":"x"}`).value).toBe(
+        `{"token":"internationalization","token_id":"x"}`,
+      );
+    });
+
+    it("masks a spaced JSON key but not a key followed by the next attribute", () => {
+      expect(redactText(`{"password" : "Zq7KdLm2XwRt9Pv"}`).value).toBe(
+        `{"password" : "${marker("environment_secret")}"}`,
+      );
+      expect(redactText(`"password" :aria-label="Zq7KdLm2XwRt9Pv"`).value).toBe(
+        `"password" :aria-label="Zq7KdLm2XwRt9Pv"`,
+      );
+    });
+
+    it("leaves already redacted text unchanged when it is redacted again", () => {
+      const once = redactText(`token=Zq7KdLm2XwRt9Pv password: "Zq7KdLm2XwRt9Pv" ghp_${"Zq7KdLm2".repeat(5)}`).value;
+      expect(redactText(once).value).toBe(once);
+      expect(redactJsonText(JSON.stringify({ text: once })).value).toBe(JSON.stringify({ text: once }));
+    });
+
     it("masks each private key from its header to the first footer after it", () => {
       expect(
         redactText(

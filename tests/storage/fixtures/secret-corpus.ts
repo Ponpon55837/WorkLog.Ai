@@ -256,4 +256,24 @@ export const BENIGN_TEXTS: readonly string[] = [
   "hf_ is the prefix Hugging Face uses",
   "npm_config_cache=/tmp/npm-cache",
   "SG.short.short",
+  // A boolean or small-number setting named like a credential.
+  "axios.create({ withCredentials=false,timeout:5000 })",
+  "set xhr.withCredentials=false; then retry the request",
+  "const options = {includeCredentials:true,retries:3}",
+  "db_credentials=null,mode:readonly",
+  "withCredentials: undefined",
+  // A key that is followed by the next markup attribute, not by a value.
+  `v-model="form.options.password" :aria-label="t('settings.fields.password')"`,
+  `<input name='password' :placeholder="t('login.password.hint')" />`,
+  '<el-input v-model=`user.token` :maxlength="40" />',
+  // Placeholder-shaped values, including this module's own redaction markers.
+  `{"token": "[[PLACEHOLDER_a3f9c1]]"}`,
+  `{"password": "{{ vault.dbPassword }}", "apiKey": "<insert-key-here>"}`,
+  `{"secret": "[REDACTED:environment_secret]", "token": "[REDACTED]"}`,
+  "api_key=[REDACTED:openai_token]",
+  `{"token": "********************"}`,
+  // A bare JSON "token" that is a text fragment from a tokenizer, not a credential.
+  `{"token": "internationalization", "id": 4412}`,
+  `{"token": "hello brave new world", "logprob": -2.3}`,
+  `{"token": "ThisIsAFragment"}`,
 ];

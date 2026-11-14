@@ -99,6 +99,8 @@ interface KeyedRule {
   rejectNumeric?: boolean;
   /** `PWD=/home/user` is the shell's working directory. */
   rejectPath?: boolean;
+  /** The keyword must be the whole key or follow a `_`, `-` or `.`: `db_credentials`, not the setting `withCredentials`. */
+  separatedOnly?: boolean;
 }
 
 /** Longest key name read before a `:` or `=`; bounds the work per separator. */
@@ -120,8 +122,8 @@ const KEYED_RULES: readonly KeyedRule[] = [
   { keyword: "token", rejectNumeric: true },
   { keyword: "apikey" },
   { keyword: "accesskey" },
-  { keyword: "credentials" },
-  { keyword: "credential" },
+  { keyword: "credentials", separatedOnly: true },
+  { keyword: "credential", separatedOnly: true },
 ];
 /** Values that document a field instead of holding a secret (`credentials: "include"`, `password: string`). */
 const KEYED_PLACEHOLDERS = new Set([
@@ -138,10 +140,17 @@ const KEYED_PLACEHOLDERS = new Set([
   "secret",
   "token",
   "null",
+  "nil",
   "none",
   "true",
   "false",
 ]);
+/** An unquoted value that starts with a literal and runs on into code (`withCredentials=false,timeout:5000}`). Fixed alternatives, anchored: no backtracking. */
+const LEADING_LITERAL = /^(?:true|false|null|nil|undefined|none|[01])(?=[,;)}\]'`]|$)/i;
+/** A bare JSON `"token"` key often names a text fragment; its value must look like a credential, not a word. */
+const BARE_TOKEN_MIN_LENGTH = 12;
+const BARE_TOKEN_KEY_LENGTH = 5;
+const BARE_TOKEN_LETTERS_ONLY_LENGTH = 24;
 const MASKED_FILLER = /^(.)\1+$/;
 const DOTTED_IDENTIFIER = /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$/;
 const FUNCTION_CALL = /^[A-Za-z_][\w.]*\(.*\)$/;
@@ -195,6 +204,7 @@ function keyedRuleFor(text: string, start: number, end: number): KeyedRule | und
     const before = text.charCodeAt(first - 1);
     if (!isAlphanumericCode(before)) return rule;
     const code = text.charCodeAt(first);
+    if (rule.separatedOnly) continue;
     const isUpper = code >= 65 && code <= 90;
     const beforeIsLowerOrDigit = (before >= 97 && before <= 122) || (before >= 48 && before <= 57);
     if (isUpper && beforeIsLowerOrDigit) return rule;
@@ -202,22 +212,43 @@ function keyedRuleFor(text: string, start: number, end: number): KeyedRule | und
   return undefined;
 }
 
+/** No whitespace, at least two of lowercase, uppercase and digits (letters only when long): the shape of a credential, not a word or phrase. */
+function looksLikeCredential(value: string): boolean {
+  let lower = false;
+  let upper = false;
+  let digit = false;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 32) return false;
+    if (code >= 97 && code <= 122) lower = true;
+    else if (code >= 65 && code <= 90) upper = true;
+    else if (code >= 48 && code <= 57) digit = true;
+  }
+  // Letters of both cases alone (`ThisIsAFragment`) are a camelCase identifier unless the value is long.
+  return (
+    Number(lower) + Number(upper) + Number(digit) >= 2 && (digit || value.length >= BARE_TOKEN_LETTERS_ONLY_LENGTH)
+  );
+}
+
 /** The checks every keyed rule shares: long enough, not already masked, not an interpolation or a documented placeholder. */
 function isLiteralSecretValue(value: string, minLength: number): boolean {
   if (value.length < minLength) return false;
-  if (value.startsWith(REDACTED_MARKER_PREFIX)) return false;
+  // Placeholder shapes: `[REDACTED…]` (this module's own markers), `[[…]]`, `${…}`, `{{…}}`, `$(…)` and `<…>`.
+  if (value.startsWith("[REDACTED") || value.startsWith("[[")) return false;
   if (value.startsWith("${") || value.startsWith("{{") || value.startsWith("$(") || value.startsWith("<")) return false;
   return !KEYED_PLACEHOLDERS.has(value.toLowerCase()) && !MASKED_FILLER.test(value);
 }
 
-function isAcceptedKeyedValue(value: string, rule: KeyedRule, quoted: boolean): boolean {
+function isAcceptedKeyedValue(value: string, rule: KeyedRule, quoted: boolean, bareJsonToken: boolean): boolean {
   if (!isLiteralSecretValue(value, quoted ? KEYED_MIN_QUOTED_LENGTH : KEYED_MIN_UNQUOTED_LENGTH)) return false;
+  if (bareJsonToken && (value.length < BARE_TOKEN_MIN_LENGTH || !looksLikeCredential(value))) return false;
   if (rule.exactLength !== undefined) {
     return value.length === rule.exactLength && BASE64_SECRET.test(value);
   }
   if (quoted) return true;
   // The unquoted checks below drop code, markup and counts; a quoted value is an explicit literal and keeps all.
   if (value.startsWith("$") || value.includes("<") || value.includes(">")) return false;
+  if (LEADING_LITERAL.test(value)) return false;
   if (rule.rejectNumeric && /^[0-9]+$/.test(value)) return false;
   if (rule.rejectPath && /^(?:[/~.]|[A-Za-z]:[\\/])/.test(value)) return false;
   return value.length > 128 || (!DOTTED_IDENTIFIER.test(value) && !FUNCTION_CALL.test(value));
@@ -234,6 +265,7 @@ function readKeyedValue(
   separator: number,
   rule: KeyedRule,
   keyLead: number,
+  bareJsonToken: boolean,
 ): { range?: SecretRange; next: number } {
   const length = text.length;
   let cursor = separator + 1;
@@ -261,7 +293,7 @@ function readKeyedValue(
       if (code === 10 || code === 13) break;
       if (escaped) {
         if (code === 92 && text.charCodeAt(index + 1) === quote) {
-          return finishKeyed(text, rule, start, index, true, index + 2);
+          return finishKeyed(text, rule, start, index, true, index + 2, bareJsonToken);
         }
         continue;
       }
@@ -269,7 +301,7 @@ function readKeyedValue(
         index += 1;
         continue;
       }
-      if (code === quote) return finishKeyed(text, rule, start, index, true, index + 1);
+      if (code === quote) return finishKeyed(text, rule, start, index, true, index + 1, bareJsonToken);
     }
     // No closing quote nearby: read it as an unquoted value that starts after the quote.
   }
@@ -287,7 +319,7 @@ function readKeyedValue(
   while (trimmed > start && ",;)}]'`".includes(text[trimmed - 1]!) && !(closesCall && text[trimmed - 1] === ")")) {
     trimmed -= 1;
   }
-  return finishKeyed(text, rule, start, trimmed, false, end);
+  return finishKeyed(text, rule, start, trimmed, false, end, bareJsonToken);
 }
 
 function finishKeyed(
@@ -297,8 +329,9 @@ function finishKeyed(
   end: number,
   quoted: boolean,
   next: number,
+  bareJsonToken: boolean,
 ): { range?: SecretRange; next: number } {
-  if (end > start && isAcceptedKeyedValue(text.slice(start, end), rule, quoted)) {
+  if (end > start && isAcceptedKeyedValue(text.slice(start, end), rule, quoted, bareJsonToken)) {
     return { range: { start, end }, next };
   }
   return { next };
@@ -325,7 +358,18 @@ function scanKeyedSecrets(text: string): SecretRange[] {
       cursor -= 1;
       spaces += 1;
     }
+    let keyQuoted = false;
     if (cursor >= 0 && isQuoteCode(text.charCodeAt(cursor))) {
+      // `password" :aria-label=` is a key followed by the next attribute: after a closing quote and spaces, the
+      // separator must be followed by space, a quote or `>` (`"password" : "x"`), not by a name.
+      if (spaces > 0) {
+        const after = text.charCodeAt(index + 1);
+        if (!(Number.isNaN(after) || isLineSpaceCode(after) || isQuoteCode(after) || after === 92 || after === 62)) {
+          index += 1;
+          continue;
+        }
+      }
+      keyQuoted = true;
       cursor -= 1;
       if (cursor >= 0 && text.charCodeAt(cursor) === 92) cursor -= 1; // `\"key\":` inside an escaped JSON string
     }
@@ -339,7 +383,8 @@ function scanKeyedSecrets(text: string): SecretRange[] {
       index += 1;
       continue;
     }
-    const read = readKeyedValue(text, index, rule, keyStart > 0 ? text.charCodeAt(keyStart - 1) : 0);
+    const bareJsonToken = keyQuoted && keyEnd - keyStart === BARE_TOKEN_KEY_LENGTH && rule.keyword === "token";
+    const read = readKeyedValue(text, index, rule, keyStart > 0 ? text.charCodeAt(keyStart - 1) : 0, bareJsonToken);
     if (read.range) ranges.push(read.range);
     index = Math.max(read.next, index + 1);
   }
