@@ -63,7 +63,7 @@ const searchShortcut = isMac ? "Meta+K" : "Control+K";
       :items="LOCALE_OPTIONS"
       :icon="Languages"
       align="end"
-      size="sm"
+      variant="button"
       hide-label-on-mobile
     />
     <!-- An explicit choice overrides the system setting; System status → 個人偏好 can return to it. -->
@@ -153,7 +153,7 @@ const searchShortcut = isMac ? "Meta+K" : "Control+K";
   border-radius: var(--radius);
   background: var(--bg-surface);
   color: var(--fg-muted);
-  font-size: var(--text-sm);
+  font-size: var(--text-md);
   transition: border-color var(--duration-instant) ease-out;
 }
 

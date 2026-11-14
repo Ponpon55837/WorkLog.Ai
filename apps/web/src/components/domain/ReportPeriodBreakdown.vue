@@ -7,6 +7,7 @@ import UiBox from "../ui/UiBox.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
+import UiLabel from "../ui/UiLabel.vue";
 import UiMeter from "../ui/UiMeter.vue";
 import UiSplitLayout from "../ui/UiSplitLayout.vue";
 import type { Tone } from "../ui/types";
@@ -26,7 +27,7 @@ const dayLimit = 8;
 /** The stacked share bar colors its largest projects; the unfilled rest of the track is everyone else. */
 const shareTones: readonly Tone[] = ["accent", "done", "neutral"];
 /** Above this many columns the numbers above the bars would collide; the value table still lists them. */
-const valueLabelLimit = 16;
+const valueLabelLimit = 8;
 
 const unit = computed(() => {
   const mode = reportBucketMode(props.report);
@@ -56,9 +57,17 @@ const bucketSummary = computed(() => {
 });
 const daySessions = computed(() => props.report.sessions.slice(0, dayLimit));
 const shares = computed(() => buildReportProjectShares(props.report));
+const busiestIndex = computed(() => buckets.value.findIndex((bucket) => bucket.key === busiest.value?.key));
 const bucketChart = computed(() => ({
   labels: buckets.value.map((bucket) => bucket.label),
-  series: [{ name: "Sessions", tone: "accent" as const, values: buckets.value.map((bucket) => bucket.sessions) }],
+  series: [
+    {
+      name: t("reports.seriesSessions"),
+      tone: "accent" as const,
+      values: buckets.value.map((bucket) => bucket.sessions),
+    },
+    { name: t("reports.seriesEvents"), tone: "neutral" as const, values: buckets.value.map((bucket) => bucket.events) },
+  ],
 }));
 const shareSegments = computed(() =>
   shares.value.slice(0, shareTones.length).map((share, index) => ({
@@ -118,11 +127,18 @@ function shareSwatch(index: number): string {
         <UiBarChart
           v-else
           compact
+          legend
           :show-values="buckets.length <= valueLabelLimit"
+          :highlight="busiestIndex"
           :labels="bucketChart.labels"
           :series="bucketChart.series"
           :label="t('reports.reportPeriodDistributionList')"
         />
+        <p v-if="busiest" class="report-breakdown__busiest">
+          <UiLabel tone="accent">{{ t("reports.busiest") }}</UiLabel>
+          {{ busiest.label }} ·
+          {{ t("reports.sessionsEvents", { sessionCount: busiest.sessions, eventCount: busiest.events }) }}
+        </p>
       </UiBox>
     </template>
 
@@ -150,7 +166,7 @@ function shareSwatch(index: number): string {
                   :class="['report-breakdown__swatch', `report-breakdown__swatch--${shareSwatch(index)}`]"
                   aria-hidden="true"
                 />
-                <span class="report-breakdown__name">{{ share.label }}</span>
+                <span class="report-breakdown__name" :title="share.label">{{ share.label }}</span>
                 <span class="report-breakdown__figures">{{
                   t("reports.sessions", { sessions: share.sessions, percent: share.percent })
                 }}</span>
@@ -167,6 +183,17 @@ function shareSwatch(index: number): string {
 .report-breakdown__muted {
   color: var(--fg-muted);
   font-size: var(--text-xs);
+}
+
+.report-breakdown__busiest {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-3);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
 }
 
 .report-breakdown__stack {

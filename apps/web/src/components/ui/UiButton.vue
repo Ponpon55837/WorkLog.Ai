@@ -109,7 +109,7 @@ const classes = computed(() => [
 .ui-button--sm {
   height: var(--control-height-sm);
   padding: 0 var(--space-2);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
 }
 
 .ui-button--icon-only {

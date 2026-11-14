@@ -1,5 +1,6 @@
 /** Stable query keys shared by Pinia Colada stores and mutation invalidation. */
 const reportsViewKey = ["view", "reports"] as const;
+const knowledgeListKey = ["knowledge", "list"] as const;
 
 export const queryKeys = {
   reportPresentation: ["report-presentation"] as const,
@@ -11,7 +12,8 @@ export const queryKeys = {
     summary: ["dashboard"] as const,
     overview: ["dashboard", "overview"] as const,
     activity: ["dashboard", "activity"] as const,
-    cycleTimeline: ["dashboard", "cycle-timeline"] as const,
+    // Under the Knowledge list prefix: its numbers are Knowledge events, so every Knowledge write refreshes them.
+    cycleTimeline: [...knowledgeListKey, "cycle-timeline"] as const,
   },
   commandPalette: {
     search: ["command-palette", "search"] as const,
@@ -26,7 +28,7 @@ export const queryKeys = {
     metadataBackfillPreview: ["projects", "metadata-backfill-preview"] as const,
   },
   knowledge: {
-    list: ["knowledge", "list"] as const,
+    list: knowledgeListKey,
     history: ["knowledge", "history"] as const,
     candidates: ["knowledge", "candidates"] as const,
     pages: ["knowledge", "pages"] as const,
@@ -65,6 +67,8 @@ export const queryKeys = {
     graph: ["view", "graph"] as const,
     hotspots: ["view", "graph", "hotspots"] as const,
     timeline: ["view", "graph", "timeline"] as const,
+    // Under the graph prefix on purpose: the timeline holds Knowledge events, and every Knowledge write already
+    // invalidates `graph`, which refreshes the work-history day summaries too.
     sessionDays: ["view", "graph", "session-days"] as const,
     reports: reportsViewKey,
     sessions: ["view", "sessions"] as const,

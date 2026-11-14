@@ -106,7 +106,8 @@ export function catalogEntries(target: Locale): Readonly<Record<string, string>>
 
 function pluralForm(text: string, params: MessageParams): string {
   const [one = text, other = text] = text.split("|");
-  const name = /\{(\w+)\}/.exec(other)?.[1];
+  // A form without a placeholder (a bare unit such as "Session|Sessions") follows `count`.
+  const name = /\{(\w+)\}/.exec(other)?.[1] ?? "count";
   return name !== undefined && Number(params[name]) === 1 ? one : other;
 }
 

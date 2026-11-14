@@ -299,6 +299,15 @@ export const useSessionsStore = defineStore("sessions", () => {
   const sessions = computed(() => sessionsQuery.data.value?.items ?? []);
   const sessionsLoading = computed(() => sessionsQuery.isLoading.value);
   const sessionsLoaded = computed(() => sessionsQuery.data.value !== undefined);
+  /**
+   * The filters the loaded list was actually requested with, or null while the list still shows the previous
+   * answer (placeholder data) or has none. Consumers that compare against the list use this, not the typed filters.
+   */
+  const sessionsAppliedScope = computed(() => {
+    if (sessionsQuery.isPlaceholderData.value || sessionsQuery.data.value === undefined) return null;
+    const { q, projectId, agent, voided } = sessionListScope();
+    return { q: q ?? "", projectId: projectId ?? "", agent: agent ?? "", voided };
+  });
   // Records the text search skipped as too large to read; the list notes that its results may be incomplete.
   const sessionsSkippedRecords = computed(() => sessionsQuery.data.value?.searchSkippedRecords ?? 0);
   // Only a list that never loaded shows the error state; a failed refresh keeps the rows already shown.
@@ -450,6 +459,7 @@ export const useSessionsStore = defineStore("sessions", () => {
     sessions,
     sessionsLoading,
     sessionsLoaded,
+    sessionsAppliedScope,
     sessionsSkippedRecords,
     sessionsError,
     linkCandidates,

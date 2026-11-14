@@ -43,5 +43,8 @@ export const useKnowledgeKindCountsStore = defineStore("knowledge-kind-counts", 
 
   const counts = computed(() => (scope.value ? (query.data.value ?? null) : null));
 
-  return { scope, counts };
+  /** True while the first answer for the current scope is still loading. */
+  const loading = computed(() => scope.value !== null && query.isLoading.value);
+
+  return { scope, counts, loading };
 });

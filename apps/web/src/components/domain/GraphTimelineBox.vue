@@ -508,6 +508,7 @@ onBeforeUnmount(() => {
         <UiSegmentedControl
           v-if="!narrow"
           v-model="chosenView"
+          size="sm"
           :options="viewOptions"
           :label="t('graph.timelineView')"
         />
@@ -544,6 +545,12 @@ onBeforeUnmount(() => {
         <span><i class="timeline__swatch timeline__swatch--done" />{{ t("graph.legendCompletedSession") }}</span>
         <span><i class="timeline__swatch timeline__swatch--failed" />{{ t("graph.verificationFailed") }}</span>
         <span><i class="timeline__swatch timeline__swatch--created" />{{ t("graph.legendNewKnowledge") }}</span>
+        <span><i class="timeline__swatch timeline__swatch--open" />{{ t("graph.legendConfirmedSuperseded") }}</span>
+        <span
+          ><svg class="timeline__cross" viewBox="-6 -6 12 12" aria-hidden="true">
+            <path d="M -4 -4 L 4 4 M 4 -4 L -4 4" /></svg
+          >{{ t("graph.legendContradicted") }}</span
+        >
         <span class="timeline__reading">{{
           detailed ? t("graph.arcsSessionLinksDashedRelated") : t("graph.eachBarIsOneDay")
         }}</span>
@@ -601,7 +608,8 @@ onBeforeUnmount(() => {
                     })
                   }}
                 </title>
-                <path d="M 0 -5 L 5 0 L 0 5 L -5 0 Z" />
+                <path v-if="event.kind === 'contradicted'" d="M -4 -4 L 4 4 M 4 -4 L -4 4" />
+                <path v-else d="M 0 -5 L 5 0 L 0 5 L -5 0 Z" />
               </g>
               <g
                 v-for="bucket in lane.buckets"
@@ -747,6 +755,26 @@ onBeforeUnmount(() => {
   border-radius: 0;
   background: var(--accent);
   transform: rotate(45deg);
+}
+
+/* Confirmed and superseded: the open diamond the chart draws. */
+.timeline__swatch--open {
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--fg-muted);
+  border-radius: 0;
+  background: var(--bg-canvas);
+  transform: rotate(45deg);
+}
+
+.timeline__cross {
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  fill: none;
+  stroke: var(--fg-muted);
+  stroke-width: 1.6;
 }
 
 .timeline__reading {
@@ -901,12 +929,18 @@ onBeforeUnmount(() => {
   fill: var(--accent);
 }
 
-/* Confirmed, contradicted and superseded events are quieter: an open neutral diamond. */
+/* Confirmed and superseded events are quieter: an open neutral diamond. */
 .timeline__marker--confirmed path,
-.timeline__marker--contradicted path,
 .timeline__marker--superseded path {
   fill: var(--bg-canvas);
   stroke: var(--fg-muted);
+}
+
+/* Contradicted events are a cross, so the three kinds differ by shape and not only by color. */
+.timeline__marker--contradicted path {
+  fill: none;
+  stroke: var(--fg-muted);
+  stroke-width: 1.8;
 }
 
 .timeline__arc {

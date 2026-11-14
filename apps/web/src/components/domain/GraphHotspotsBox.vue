@@ -69,7 +69,7 @@ onBeforeUnmount(() => hotspotsStore.setActive(false));
           :label="t('graph.chooseHotspotProjectScope')"
         />
         <UiSelect v-model="period" :options="periodOptions" size="sm" :label="t('graph.chooseHotspotPeriod')" />
-        <UiSegmentedControl v-model="groupBy" :options="groupOptions" :label="t('graph.hotspotGrouping')" />
+        <UiSegmentedControl v-model="groupBy" size="sm" :options="groupOptions" :label="t('graph.hotspotGrouping')" />
       </div>
     </template>
     <UiFlash v-if="hotspotsError" tone="danger">{{ hotspotsError }}</UiFlash>

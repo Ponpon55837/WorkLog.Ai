@@ -145,7 +145,7 @@ watch(open, async (value) => {
   border-radius: var(--radius);
   background: none;
   color: var(--fg-muted);
-  font-size: var(--text-md);
+  font-size: var(--text-sm);
   white-space: nowrap;
 }
 
@@ -166,13 +166,14 @@ watch(open, async (value) => {
   border-color: var(--border);
   background: var(--bg-surface);
   color: var(--fg);
+  font-size: var(--text-md);
   font-weight: 500;
 }
 
 .ui-action-menu__trigger--button.ui-action-menu__trigger--sm {
   height: var(--control-height-sm);
   padding: 0 var(--space-2);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
 }
 
 .ui-action-menu__trigger--button:hover,

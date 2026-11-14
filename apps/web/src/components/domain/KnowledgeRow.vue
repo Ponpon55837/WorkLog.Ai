@@ -49,7 +49,37 @@ const actions = computed(() => [
       <StatusLabel v-if="item.review" :status="knowledgeTrustVisual.needsReview" />
       <StatusLabel v-if="item.possiblyStale" :status="knowledgeTrustVisual.possiblyStale" />
     </template>
-    <template #meta>
+    <p v-if="item.review" class="knowledge-row__reason knowledge-row__reason--danger">
+      {{
+        t("knowledge.aSessionReportedThatThis", {
+          value: formatRelative(item.review.at),
+        })
+      }}
+    </p>
+    <p v-else-if="item.possiblyStale" class="knowledge-row__reason">
+      {{
+        t("knowledge.changed", {
+          sessionTitle: item.possiblyStale.sessionTitle,
+          when: formatRelative(item.possiblyStale.completedAt),
+        })
+      }}
+      <code>{{ item.possiblyStale.paths.join(t("common.listSeparator")) }}</code
+      ><template v-if="item.possiblyStale.sessionCount > 1">{{
+        t("knowledge.sessionsChangedThesePathsSince", { sessionCount: item.possiblyStale.sessionCount })
+      }}</template
+      >{{ t("common.sentenceEnd") }}
+    </p>
+    <p :class="['knowledge-row__body', { 'is-expanded': expanded }]">{{ item.body }}</p>
+    <UiButton
+      v-if="item.body.length > 180"
+      variant="link"
+      size="sm"
+      class="knowledge-row__more"
+      @click="expanded = !expanded"
+    >
+      {{ expanded ? t("knowledge.collapse") : t("knowledge.showFullText") }}
+    </UiButton>
+    <div class="knowledge-row__meta">
       <span v-if="item.projectName">{{ item.projectName }} · </span>
       <time :datetime="item.updatedAt" :title="formatDate(item.updatedAt)">{{
         t("common.updated", { value: formatRelative(item.updatedAt) })
@@ -83,37 +113,7 @@ const actions = computed(() => [
           t("knowledge.confirmedValidAt", { value: formatRelative(item.lastConfirmedAt) })
         }}</time>
       </template>
-    </template>
-    <p v-if="item.review" class="knowledge-row__reason knowledge-row__reason--danger">
-      {{
-        t("knowledge.aSessionReportedThatThis", {
-          value: formatRelative(item.review.at),
-        })
-      }}
-    </p>
-    <p v-else-if="item.possiblyStale" class="knowledge-row__reason">
-      {{
-        t("knowledge.changed", {
-          sessionTitle: item.possiblyStale.sessionTitle,
-          when: formatRelative(item.possiblyStale.completedAt),
-        })
-      }}
-      <code>{{ item.possiblyStale.paths.join(t("common.listSeparator")) }}</code
-      ><template v-if="item.possiblyStale.sessionCount > 1">{{
-        t("knowledge.sessionsChangedThesePathsSince", { sessionCount: item.possiblyStale.sessionCount })
-      }}</template
-      >{{ t("common.sentenceEnd") }}
-    </p>
-    <p :class="['knowledge-row__body', { 'is-expanded': expanded }]">{{ item.body }}</p>
-    <UiButton
-      v-if="item.body.length > 180"
-      variant="link"
-      size="sm"
-      class="knowledge-row__more"
-      @click="expanded = !expanded"
-    >
-      {{ expanded ? t("knowledge.collapse") : t("knowledge.showFullText") }}
-    </UiButton>
+    </div>
     <div v-if="item.tags.length || item.references.length || item.appliesTo.length" class="knowledge-row__chips">
       <span v-for="tag in item.tags" :key="`tag-${tag}`" class="knowledge-row__tag">#{{ tag }}</span>
       <code v-for="reference in item.references" :key="`ref-${reference}`" class="knowledge-row__ref">{{
@@ -142,20 +142,20 @@ const actions = computed(() => [
 </template>
 
 <style scoped>
-/* Reading order: title, why it may be stale, body, trust and source line, then the quiet tag line. */
-.knowledge-row :deep(.ui-box-row__main) {
-  display: flex;
-  flex-direction: column;
+/* DOM order is the reading order: title, why it may be stale, body, trust and source line, then the quiet tag line. */
+.knowledge-row__meta {
+  margin-top: var(--space-2);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
 }
 
-.knowledge-row :deep(.ui-box-row__meta) {
-  order: 4;
-  margin-top: var(--space-2);
-  white-space: normal;
+/* Elements carrying a tooltip (e.g. <time title>) sit above the stretched link so hover still works. */
+.knowledge-row__meta :deep([title]) {
+  position: relative;
+  z-index: 1;
 }
 
 .knowledge-row__reason {
-  order: 1;
   margin-top: var(--space-1);
   color: var(--attention);
   font-size: var(--text-sm);
@@ -172,7 +172,6 @@ const actions = computed(() => [
 
 .knowledge-row__body {
   display: -webkit-box;
-  order: 2;
   margin-top: var(--space-2);
   overflow: hidden;
   color: var(--fg);
@@ -188,7 +187,6 @@ const actions = computed(() => [
 }
 
 .knowledge-row__more {
-  order: 3;
   align-self: flex-start;
   margin-top: var(--space-1);
 }
@@ -218,7 +216,6 @@ const actions = computed(() => [
   display: flex;
   flex-wrap: wrap;
   gap: 0 var(--space-3);
-  order: 5;
   margin-top: var(--space-1);
   color: var(--fg-muted);
   font-size: var(--text-xs);

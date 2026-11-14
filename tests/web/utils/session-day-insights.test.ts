@@ -4,6 +4,7 @@ import {
   buildSessionDayInsights,
   localDayOf,
   sessionDayRange,
+  TIMELINE_ROW_LIMIT,
 } from "../../../apps/web/src/utils/session-day-insights.js";
 
 const now = new Date(2030, 9, 20, 15);
@@ -24,8 +25,8 @@ function timeline(overrides: Partial<Extract<TimelineResult, { outcome: "timelin
 }
 
 describe("session day insights", () => {
-  it("covers the page's days plus a week of lookahead, never past today", () => {
-    expect(sessionDayRange([at(10, 8, 9), at(10, 5, 9)], now)).toEqual({ from: "2030-10-05", to: "2030-10-15" });
+  it("runs from the oldest day on the page to today", () => {
+    expect(sessionDayRange([at(10, 8, 9), at(10, 5, 9)], now)).toEqual({ from: "2030-10-05", to: "2030-10-20" });
     expect(sessionDayRange([at(10, 18, 9), at(10, 19, 9)], now)).toEqual({ from: "2030-10-18", to: "2030-10-20" });
     expect(sessionDayRange([], now)).toBeNull();
   });
@@ -52,6 +53,29 @@ describe("session day insights", () => {
     expect(insights.days.get(localDayOf(at(10, 8, 9)))).toEqual({ total: 2, passed: 1, failed: 1 });
     expect(insights.days.get(localDayOf(at(10, 7, 11)))).toEqual({ total: 1, passed: 0, failed: 0 });
     expect([...insights.createdBySession]).toEqual([["a", 2]]);
+  });
+
+  it("returns nothing when either row limit is reached", () => {
+    const sessions = Array.from({ length: TIMELINE_ROW_LIMIT }, (_, index) => ({
+      id: `s${index}`,
+      projectId: "p",
+      title: "S",
+      completedAt: at(10, 8, 9),
+      verificationStatus: "passed" as const,
+    }));
+    const knowledgeEvents = Array.from({ length: TIMELINE_ROW_LIMIT }, (_, index) => ({
+      knowledgeId: `k${index}`,
+      projectId: "p",
+      title: "K",
+      kind: "created" as const,
+      at: at(10, 8, 10),
+      sessionId: "s0",
+    }));
+    expect(buildSessionDayInsights(timeline({ sessions }))).toBeNull();
+    expect(buildSessionDayInsights(timeline({ knowledgeEvents }))).toBeNull();
+    expect(
+      buildSessionDayInsights(timeline({ sessions: sessions.slice(1), knowledgeEvents: knowledgeEvents.slice(1) })),
+    ).not.toBeNull();
   });
 
   it("returns nothing for a truncated, skipped or missing timeline", () => {

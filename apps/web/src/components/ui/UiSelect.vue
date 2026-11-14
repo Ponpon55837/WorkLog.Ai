@@ -56,7 +56,7 @@ const describedBy = useFieldDescription();
 
 .ui-select--sm select {
   height: var(--control-height-sm);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
 }
 
 .ui-select--with-icon select {

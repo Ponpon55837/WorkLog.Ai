@@ -1,7 +1,8 @@
 <script setup lang="ts" generic="T extends string | number">
 import type { SelectOption } from "./types";
 
-defineProps<{ options: readonly SelectOption<T>[]; label: string }>();
+/** `size` follows the control heights: `md` is 32px like a button, `sm` is 28px for UiBox headers. */
+withDefaults(defineProps<{ options: readonly SelectOption<T>[]; label: string; size?: "md" | "sm" }>(), { size: "md" });
 const model = defineModel<T>({ required: true });
 
 function onKeydown(event: KeyboardEvent, options: readonly SelectOption<T>[]): void {
@@ -20,7 +21,12 @@ function onKeydown(event: KeyboardEvent, options: readonly SelectOption<T>[]): v
 </script>
 
 <template>
-  <div class="ui-segmented" role="radiogroup" :aria-label="label" @keydown="onKeydown($event, options)">
+  <div
+    :class="['ui-segmented', `ui-segmented--${size}`]"
+    role="radiogroup"
+    :aria-label="label"
+    @keydown="onKeydown($event, options)"
+  >
     <button
       v-for="option in options"
       :key="String(option.value)"
@@ -52,17 +58,22 @@ function onKeydown(event: KeyboardEvent, options: readonly SelectOption<T>[]): v
 
 .ui-segmented button {
   height: 26px;
-  padding: 0 var(--space-3);
+  padding: 0 var(--space-2);
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   background: none;
   color: var(--fg-muted);
-  font-size: var(--text-sm);
+  font-size: var(--text-md);
   white-space: nowrap;
   transition:
     background-color var(--duration-instant) ease-out,
     border-color var(--duration-instant) ease-out,
     color var(--duration-instant) ease-out;
+}
+
+.ui-segmented--sm button {
+  height: 22px;
+  font-size: var(--text-sm);
 }
 
 .ui-segmented button:hover {

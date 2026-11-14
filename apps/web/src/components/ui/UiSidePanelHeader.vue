@@ -26,7 +26,7 @@ const emit = defineEmits<{ close: [] }>();
 </template>
 
 <style scoped>
-/* The title wraps below the actions when the panel is narrow, so long titles never squeeze the buttons. */
+/* When the panel is narrow the actions wrap onto their own row under the title (right aligned), so long titles never squeeze the buttons. */
 .ui-side-panel-header__bar {
   display: flex;
   flex-wrap: wrap;

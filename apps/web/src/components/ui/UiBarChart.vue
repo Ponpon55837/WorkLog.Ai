@@ -18,6 +18,10 @@ const props = defineProps<{
   compact?: boolean;
   /** Print each column's value above its bars (decorative: the value table carries the same numbers). */
   showValues?: boolean;
+  /** Keep the legend in compact mode (needed when the chart has more than one series). */
+  legend?: boolean;
+  /** Index of the column to emphasise (its label and value turn bold); callers name it in text as well. */
+  highlight?: number;
 }>();
 
 const maxima = computed(() => props.series.map((item) => Math.max(1, ...item.values)));
@@ -36,14 +40,14 @@ function height(seriesIndex: number, value: number): string {
 
 <template>
   <figure :class="['ui-bar-chart', { 'ui-bar-chart--compact': compact }]">
-    <figcaption v-if="!compact" class="ui-bar-chart__legend">
+    <figcaption v-if="!compact || legend" class="ui-bar-chart__legend">
       <span v-for="item in series" :key="item.name"><i :class="`tone-${item.tone}`"></i>{{ item.name }}</span>
     </figcaption>
     <div class="ui-bar-chart__plot" role="img" :aria-label="label">
       <div
         v-for="(point, index) in labels"
         :key="point"
-        class="ui-bar-chart__column"
+        :class="['ui-bar-chart__column', { 'ui-bar-chart__column--highlight': index === highlight }]"
         :title="`${point} · ${series.map((item) => `${item.name} ${item.values[index] ?? 0}`).join(' · ')}`"
       >
         <span v-if="showValues" class="ui-bar-chart__value" aria-hidden="true">{{
@@ -182,6 +186,12 @@ function height(seriesIndex: number, value: number): string {
   line-height: 1.25;
   overflow-wrap: anywhere;
   white-space: normal;
+}
+
+.ui-bar-chart__column--highlight .ui-bar-chart__x,
+.ui-bar-chart__column--highlight .ui-bar-chart__value {
+  color: var(--fg);
+  font-weight: 600;
 }
 
 .ui-bar-chart__value {

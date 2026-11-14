@@ -7,18 +7,24 @@ import { knowledgeKindVisual } from "../../utils/status";
 import UiBox from "../ui/UiBox.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
 import UiMeter from "../ui/UiMeter.vue";
+import UiSkeleton from "../ui/UiSkeleton.vue";
 import { t } from "../../i18n";
 
-/** Knowledge per kind for the selected project and status; counts come from the API, never estimated. */
+/**
+ * Knowledge per kind for the selected project and status; counts come from the API, never estimated.
+ * Without `counts` the card shows a Skeleton, so the side column keeps its width while the numbers load.
+ */
 const props = defineProps<{
-  counts: Record<KnowledgeKind, number>;
+  counts?: Record<KnowledgeKind, number>;
   status: KnowledgeStatus;
   /** A text search narrows the list but not these counts. */
   searchActive?: boolean;
+  /** The kind filter narrows the list but not these counts. */
+  kindActive?: boolean;
 }>();
 
 const kinds = Object.keys(knowledgeKindLabels) as KnowledgeKind[];
-const total = computed(() => kinds.reduce((sum, kind) => sum + props.counts[kind], 0));
+const total = computed(() => kinds.reduce((sum, kind) => sum + (props.counts?.[kind] ?? 0), 0));
 </script>
 
 <template>
@@ -26,7 +32,8 @@ const total = computed(() => kinds.reduce((sum, kind) => sum + props.counts[kind
     <template #header>
       <UiBoxTitle :icon="Shapes" :title="t('knowledge.kindOverview')" />
     </template>
-    <ul class="kind-overview">
+    <UiSkeleton v-if="!counts" :count="5" variant="text" />
+    <ul v-else class="kind-overview">
       <li v-for="kind in kinds" :key="kind" class="kind-overview__item">
         <span class="kind-overview__name">{{ knowledgeKindLabels[kind] }}</span>
         <span class="kind-overview__count">{{ counts[kind] }}</span>
@@ -38,9 +45,10 @@ const total = computed(() => kinds.reduce((sum, kind) => sum + props.counts[kind
         />
       </li>
     </ul>
-    <p class="kind-overview__note">
+    <p v-if="counts" class="kind-overview__note">
       {{ t("knowledge.kindOverviewNote", { status: knowledgeStatusLabels[status], total }) }}
       <template v-if="searchActive">{{ t("knowledge.kindOverviewIgnoresSearch") }}</template>
+      <template v-if="kindActive">{{ t("knowledge.kindOverviewIgnoresKind") }}</template>
     </p>
   </UiBox>
 </template>

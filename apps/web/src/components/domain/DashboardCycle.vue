@@ -33,9 +33,9 @@ const headline = computed(() => {
   return t("dashboard.cycleHeadline", { sessions: sessions.value, created });
 });
 
-function count(value: number | null | undefined, failed: boolean): string {
-  if (value !== null && value !== undefined) return String(value);
-  return failed ? "—" : t("attention.loadingShort");
+/** The number, or a dash while it loads or after its request failed (the note lines below appear only with a value). */
+function count(value: number | null | undefined): string {
+  return value !== null && value !== undefined ? String(value) : "—";
 }
 
 onMounted(() => store.setCycleActive(true));
@@ -55,27 +55,27 @@ onBeforeUnmount(() => store.setCycleActive(false));
         <div class="cycle__stage">
           <div class="cycle__label">{{ t("dashboard.cycleRecord") }}</div>
           <div class="cycle__value">
-            {{ sessions }}<small>{{ t("dashboard.cycleSessionUnit") }}</small>
+            {{ sessions }}<small>{{ t("dashboard.cycleSessionUnit", { count: sessions }) }}</small>
           </div>
         </div>
         <ArrowRight class="cycle__arrow" :size="16" :stroke-width="1.75" aria-hidden="true" />
         <div class="cycle__stage cycle__stage--emphasis">
           <div class="cycle__label">{{ t("dashboard.cycleSettle") }}</div>
           <div class="cycle__value">
-            {{ count(cycleEvents?.created, cycleEventsFailed) }}<small>{{ t("dashboard.cycleCreatedUnit") }}</small>
+            {{ count(cycleEvents?.created) }}<small>{{ t("dashboard.cycleCreatedUnit") }}</small>
           </div>
-          <div class="cycle__note">
-            {{ t("dashboard.cyclePagesNote", { count: count(cycleRevisedPages, cyclePagesFailed) }) }}
+          <div v-if="cycleRevisedPages != null" class="cycle__note">
+            {{ t("dashboard.cyclePagesNote", { count: cycleRevisedPages }) }}
           </div>
         </div>
         <ArrowRight class="cycle__arrow" :size="16" :stroke-width="1.75" aria-hidden="true" />
         <div class="cycle__stage">
           <div class="cycle__label">{{ t("dashboard.cycleCorrect") }}</div>
           <div class="cycle__value">
-            {{ count(cycleEvents?.confirmed, cycleEventsFailed) }}<small>{{ t("dashboard.cycleConfirmedUnit") }}</small>
+            {{ count(cycleEvents?.confirmed) }}<small>{{ t("dashboard.cycleConfirmedUnit") }}</small>
           </div>
-          <div class="cycle__note">
-            {{ t("dashboard.cycleContradictedNote", { count: count(cycleEvents?.contradicted, cycleEventsFailed) }) }}
+          <div v-if="cycleEvents?.contradicted != null" class="cycle__note">
+            {{ t("dashboard.cycleContradictedNote", { count: cycleEvents.contradicted }) }}
           </div>
         </div>
       </div>

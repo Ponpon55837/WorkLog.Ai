@@ -76,6 +76,10 @@ defineExpose({ focus: () => input.value?.focus() });
   padding: 0 var(--space-2);
 }
 
+.ui-text-input.ui-text-input--sm input {
+  font-size: var(--text-sm);
+}
+
 .ui-text-input:focus-within {
   border-color: var(--accent-emphasis);
   box-shadow: inset 0 0 0 1px var(--accent-emphasis);

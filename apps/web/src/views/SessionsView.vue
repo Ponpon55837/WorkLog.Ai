@@ -49,6 +49,7 @@ const {
   sessions,
   sessionsLoading,
   sessionsLoaded,
+  sessionsAppliedScope,
   sessionsError,
   sessionsSkippedRecords,
   searchTerm,
@@ -233,19 +234,22 @@ watch(
 );
 watch(sessions, (items) => setSessionSequence(items.map((item) => item.id)), { immediate: true });
 // Whole-day numbers come from the timeline, which cannot filter by Agent or text or include voided Sessions;
-// under those filters they would disagree with the list, so the summaries and counts are left out.
+// under those filters they would disagree with the list, so the summaries and counts are left out. The decision
+// uses the filters the list was actually requested with, and waits while the list still shows the previous answer.
 watch(
-  [sessions, tab, selectedProjectId, selectedAgent, searchTerm, voidedFilter],
+  [sessions, tab, sessionsAppliedScope],
   () => {
+    const applied = sessionsAppliedScope.value;
     const comparable =
-      tab.value === "sessions" && !selectedAgent.value && !searchTerm.value && voidedFilter.value === "exclude";
+      tab.value === "sessions" && applied && !applied.agent && !applied.q && applied.voided === "exclude";
     const range = comparable ? sessionDayRange(sessions.value.map((item) => item.completedAt)) : null;
-    dayInsightsStore.scope = range ? { ...range, projectId: selectedProjectId.value } : null;
+    dayInsightsStore.scope = range && applied ? { ...range, projectId: applied.projectId } : null;
   },
   { immediate: true },
 );
 
 onBeforeUnmount(() => {
+  dayInsightsStore.scope = null;
   setSessionsListActive(false);
   setOutstandingItemsListActive(false);
 });

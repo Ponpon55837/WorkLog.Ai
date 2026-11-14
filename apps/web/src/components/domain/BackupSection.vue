@@ -563,7 +563,7 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
   border-radius: var(--radius);
   background: var(--bg-surface);
   color: var(--fg-muted);
-  font-size: var(--text-sm);
+  font-size: var(--text-md);
   line-height: calc(var(--control-height) - 2px);
 }
 

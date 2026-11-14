@@ -235,7 +235,7 @@ watch(open, (value) => {
   border-radius: var(--radius);
   background: none;
   color: var(--fg-muted);
-  font-size: var(--text-md);
+  font-size: var(--text-sm);
   white-space: nowrap;
 }
 
@@ -256,6 +256,7 @@ watch(open, (value) => {
   border-color: var(--border);
   background: var(--bg-surface);
   color: var(--fg);
+  font-size: var(--text-md);
   font-weight: 500;
 }
 

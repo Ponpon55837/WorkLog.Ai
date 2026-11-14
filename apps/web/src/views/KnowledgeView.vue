@@ -60,7 +60,7 @@ const {
 } = storeToRefs(knowledgeStore);
 const { loadKnowledge, retryKnowledge, setKnowledgeListActive } = knowledgeStore;
 const kindCountsStore = useKnowledgeKindCountsStore();
-const { counts: kindCounts } = storeToRefs(kindCountsStore);
+const { counts: kindCounts, loading: kindCountsLoading } = storeToRefs(kindCountsStore);
 const {
   setKnowledgeStatus,
   openKnowledgeSession,
@@ -251,6 +251,7 @@ watch(
 
 onMounted(() => setKnowledgeListActive(true));
 onBeforeUnmount(() => {
+  kindCountsStore.scope = null;
   setKnowledgeListActive(false);
   editorStore.knowledgeHistoryItem = null;
   knowledgeStore.closeKnowledgeHistory();
@@ -396,8 +397,14 @@ onBeforeUnmount(() => {
         </template>
       </UiBox>
     </template>
-    <template v-if="kindCounts" #aside>
-      <KnowledgeKindOverview :counts="kindCounts" :status="knowledgeStatus" :search-active="Boolean(knowledgeQuery)" />
+    <!-- The side column is held by a Skeleton while the counts load; a failed or skipped request leaves one column. -->
+    <template v-if="kindCounts || kindCountsLoading" #aside>
+      <KnowledgeKindOverview
+        :counts="kindCounts ?? undefined"
+        :status="knowledgeStatus"
+        :search-active="Boolean(knowledgeQuery)"
+        :kind-active="Boolean(knowledgeKind)"
+      />
     </template>
   </UiSplitLayout>
 </template>
