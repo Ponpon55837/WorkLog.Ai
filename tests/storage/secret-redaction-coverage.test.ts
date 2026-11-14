@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { redactJsonText, redactText } from "../../packages/storage/src/secret-redaction.js";
+import { bestOfMs, doublingGrowth, scaledLimit } from "../helpers/timing.js";
+import { redactionReferenceText } from "./fixtures/redaction-reference.js";
 import { BENIGN_TEXTS, SECRET_CORPUS, type CorpusSample } from "./fixtures/secret-corpus.js";
 
 const LONG_INPUT_LENGTH = 200_000;
+const MAX_MILLISECONDS = 1_000;
+// The normal time of redactText on ordinary text of the same size, rounded up; the limit scales when a machine is slower.
+const REFERENCE_BUDGET_MS = 20;
 
 function marker(kind: string): string {
   return `[REDACTED:${kind}]`;
@@ -87,10 +92,13 @@ function adversarialInputs(length: number): Record<string, string> {
   };
 }
 
-function elapsedOf(input: string): number {
-  const started = performance.now();
-  redactText(input);
-  return performance.now() - started;
+function limitMs(): number {
+  const reference = redactionReferenceText(LONG_INPUT_LENGTH);
+  return scaledLimit({
+    limitMs: MAX_MILLISECONDS,
+    reference: () => redactText(reference),
+    referenceBudgetMs: REFERENCE_BUDGET_MS,
+  }).limitMs;
 }
 
 describe("secret redaction coverage", () => {
@@ -239,10 +247,14 @@ describe("secret redaction coverage", () => {
 
   describe("linear time", () => {
     it("masks 200,000 characters of every adversarial shape quickly", () => {
+      const limit = limitMs();
       for (const [shape, input] of Object.entries(adversarialInputs(LONG_INPUT_LENGTH))) {
         expect(input.length, shape).toBe(LONG_INPUT_LENGTH);
         // Same threshold as the existing detectors in secret-redaction.test.ts.
-        expect(elapsedOf(input), shape).toBeLessThan(1_000);
+        expect(
+          bestOfMs(() => redactText(input)),
+          shape,
+        ).toBeLessThan(limit);
       }
     });
 
@@ -250,9 +262,11 @@ describe("secret redaction coverage", () => {
       const small = adversarialInputs(LONG_INPUT_LENGTH / 2);
       const large = adversarialInputs(LONG_INPUT_LENGTH);
       for (const [shape, input] of Object.entries(large)) {
-        elapsedOf(small[shape]!);
-        const half = Math.max(elapsedOf(small[shape]!), 5);
-        const full = elapsedOf(input);
+        const { smallMs: half, largeMs: full } = doublingGrowth({
+          small: () => redactText(small[shape]!),
+          large: () => redactText(input),
+          floorMs: 5,
+        });
         // Quadratic work would take four times as long (or far more); the slack absorbs timer and GC noise.
         expect(full, shape).toBeLessThan(half * 3.5 + 50);
       }
@@ -261,9 +275,9 @@ describe("secret redaction coverage", () => {
     it("masks many secrets in one large text quickly", () => {
       const line = "DB_PASSWORD=hunter2hunter2 Authorization: Bearer abcdEFGH12345 ?api_key=abcdEFGH12345 ";
       const input = line.repeat(Math.ceil(LONG_INPUT_LENGTH / line.length));
-      const started = performance.now();
+      const limit = limitMs();
       const result = redactText(input);
-      expect(performance.now() - started).toBeLessThan(1_000);
+      expect(bestOfMs(() => redactText(input))).toBeLessThan(limit);
       expect(result.value).not.toContain("hunter2hunter2");
       expect(result.redactions.total).toBeGreaterThan(1_000);
     });
