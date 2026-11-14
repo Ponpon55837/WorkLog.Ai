@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import process from "node:process";
@@ -13,6 +13,7 @@ import {
   inspectDatabaseReadOnly,
   inspectGlobalHooks,
   pnpmRequirementSatisfied,
+  wideDatabasePermissions,
   shouldSuggestReclaim,
 } from "../../apps/server/src/doctor.js";
 import { inspectAgentSkillCopies, commandForAgentHook } from "../../apps/server/src/agent-setup.js";
@@ -306,6 +307,24 @@ describe("pnpm doctor read-only checks", () => {
 
     const after = createHash("sha256").update(readFileSync(databasePath)).digest("hex");
     expect(after).toBe(before);
+  });
+
+  it.skipIf(process.platform === "win32")("reports a database file or folder that other users can access", () => {
+    const directory = temporaryDirectory();
+    const dataDirectory = join(directory, "data");
+    mkdirSync(dataDirectory);
+    const databasePath = join(dataDirectory, "synthetic.sqlite");
+    writeFileSync(databasePath, "");
+    chmodSync(dataDirectory, 0o755);
+    chmodSync(databasePath, 0o644);
+    expect(wideDatabasePermissions(databasePath)).toEqual([
+      { path: databasePath, mode: "644" },
+      { path: dataDirectory, mode: "755" },
+    ]);
+    chmodSync(dataDirectory, 0o700);
+    chmodSync(databasePath, 0o600);
+    expect(wideDatabasePermissions(databasePath)).toEqual([]);
+    expect(wideDatabasePermissions(join(dataDirectory, "missing.sqlite"))).toEqual([]);
   });
 
   it("shares metadata inspection without running the full integrity check", async () => {

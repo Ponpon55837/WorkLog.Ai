@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { NoopInsightProvider } from "@work-intelligence/core";
 import type {
@@ -200,6 +200,7 @@ import {
 import { segmentLengthWarnings, startedAfterCompletedWarning, suppliedCompletedAtWarnings } from "./work-timestamps.js";
 import { HandoffImportService, type HandoffDiscoveryResult, type HandoffImportCandidate } from "./handoff-importer.js";
 import { safeExistingProjectPath } from "./path-safety.js";
+import { prepareDatabaseFiles, tightenDatabaseFiles } from "./database-file-permissions.js";
 import {
   checkTrackedProjectById,
   checkTrackedProjectByRoot,
@@ -461,7 +462,7 @@ export class WorkIntelligenceStore {
       throw new Error("A read-only or existing-database WorkIntelligenceStore requires an existing database file.");
     }
     if (!existingOnly && databasePath !== ":memory:") {
-      mkdirSync(dirname(databasePath), { recursive: true });
+      prepareDatabaseFiles(databasePath);
     }
 
     this.db = new DatabaseSync(databasePath, readOnly ? { readOnly: true } : {});
@@ -472,6 +473,7 @@ export class WorkIntelligenceStore {
       } else {
         initializeWorkIntelligenceDatabase(this.db, databasePath, this.backupOptions);
       }
+      if (!readOnly) tightenDatabaseFiles(databasePath);
     } catch (error) {
       this.db.close();
       throw error;
