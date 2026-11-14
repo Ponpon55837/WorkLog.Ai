@@ -183,9 +183,26 @@ const VERSION_TIME_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> 
   outstanding_cleanup_proposals: ["created_at", "decided_at"],
 };
 
+/**
+ * Parent columns of an updatable table that never change after the row is created, besides project_id (which every
+ * table with that column is checked on). The row belongs to its project through them, so a same-ID copy that points at
+ * another parent is a different row, not a newer version. Columns the product itself rewrites (knowledge.session_id
+ * is cleared when a Session is deleted, knowledge_candidates.knowledge_id is set on accept, ...) are deliberately absent.
+ */
+const IMMUTABLE_PARENT_COLUMNS: Partial<Record<ProjectDataTable, readonly string[]>> = {
+  evidence: ["session_id"],
+  session_decisions: ["session_id"],
+  session_diagrams: ["session_id"],
+  knowledge_candidates: ["request_id"],
+  report_summaries: ["request_id"],
+  outstanding_items: ["source_session_id"],
+  outstanding_cleanup_request_items: ["request_id", "item_id", "source_session_id"],
+  outstanding_cleanup_proposals: ["request_id", "request_item_id"],
+};
 /** Temporary shift while renumbering local page versions, so the unique (page, version) index never collides mid-update. */
 const PAGE_VERSION_OFFSET = 1_000_000;
 const CONFLICT_GROUP_SAMPLE_LIMIT = 5;
+const PARENT_OTHER_PROJECT_REASON = "上層資料屬於另一個專案。";
 const MISSING_PROJECT_REASON = "所屬專案不在匯入檔中。";
 const MISSING_SESSION_REASON = "所屬 Session 不在匯入檔中。";
 const MISSING_REQUEST_REASON = "報告所屬的請求不在匯入檔中。";
@@ -330,6 +347,16 @@ export class ValidatedProjectDataImport {
   ) {}
 
   public static validate(value: unknown): ValidatedProjectDataImport {
+    try {
+      return ValidatedProjectDataImport.validateUnchecked(value);
+    } catch (error) {
+      if (error instanceof ProjectDataTransferError) throw error;
+      // A hostile bundle can still trip an unforeseen limit (stack depth, memory); it is a bad input, not a server fault.
+      throw new ProjectDataTransferError("invalid_input", "匯入檔無法處理：內容結構異常或過於複雜。");
+    }
+  }
+
+  private static validateUnchecked(value: unknown): ValidatedProjectDataImport {
     const parsed = projectDataImportInputSchema.safeParse(value);
     if (!parsed.success) {
       throw new ProjectDataTransferError("invalid_input", `匯入檔格式錯誤：${firstIssueMessage(parsed.error.issues)}`);
@@ -1010,6 +1037,172 @@ type CleanupProposalReference = {
   reviewStatus: string;
 };
 
+type OwnedParentTable =
+  | "sessions"
+  | "evidence"
+  | "knowledge"
+  | "knowledge_pages"
+  | "knowledge_candidate_requests"
+  | "report_synthesis_requests"
+  | "report_summaries";
+
+/** project_id of each parent row a child cites; null is a cross-project parent (report requests of scope "all"). */
+type ParentOwnerMap = Record<OwnedParentTable, Map<string, string | null>>;
+type ParentOwners = {
+  /** The project that owns each cited parent once the import is applied: the stored row wins over the file's. */
+  effective: ParentOwnerMap;
+  /** The project each parent row in the file maps to, the project its children in the file are meant for. */
+  inFile: ParentOwnerMap;
+};
+
+/**
+ * Every column through which a row cites a parent that belongs to a project. A child must sit in the same project as
+ * each parent it cites, otherwise importing it would attach one project's history to another project's row.
+ *
+ * `crossProject` marks the one column the product lets point into another project: session_links.related_session_id
+ * (SessionRecordService.linkProblem only requires the related Session to exist and be tracked, and work_link_sessions
+ * and finalize relatedSessionIds both go through it). Such a column keeps the existence and availability checks of
+ * dependencyIssue but is not an ownership claim: the link belongs to the project of session_id, so a file the product
+ * exported re-imports completely. Every other column is written by the product only with a same-project parent:
+ * knowledge.session_id, session_decisions.knowledge_id, knowledge_feedback.knowledge_id and
+ * knowledge.supersedes_id are looked up with the project's id (KnowledgeService.record / SessionDecisionService.review),
+ * knowledge.last_confirmed_session_id and knowledge_feedback.session_id come from the Session being finalized for
+ * knowledge found in its own project (KnowledgeService.applyKnowledgeFeedback), candidates cite their request's own
+ * project Sessions (KnowledgeCandidateService.submit), and void_audit targets the voided Session or its evidence.
+ */
+const PARENT_REFERENCES: ReadonlyArray<{
+  table: ProjectDataTable;
+  column: string;
+  parent: OwnedParentTable;
+  crossProject?: true;
+}> = [
+  ...(
+    [
+      "work_events",
+      "raw_snapshots",
+      "evidence",
+      "void_audit",
+      "session_verification_updates",
+      "session_links",
+      "knowledge",
+      "session_decisions",
+      "session_diagrams",
+      "knowledge_feedback",
+      "knowledge_candidates",
+      "session_summary_updates",
+      "session_work_summary_updates",
+    ] as const
+  ).map((table) => ({ table, column: "session_id", parent: "sessions" as const })),
+  { table: "session_links", column: "related_session_id", parent: "sessions", crossProject: true },
+  { table: "knowledge", column: "last_confirmed_session_id", parent: "sessions" },
+  { table: "knowledge", column: "supersedes_id", parent: "knowledge" },
+  { table: "session_decisions", column: "knowledge_id", parent: "knowledge" },
+  { table: "knowledge_audit", column: "knowledge_id", parent: "knowledge" },
+  { table: "knowledge_feedback", column: "knowledge_id", parent: "knowledge" },
+  { table: "knowledge_candidates", column: "knowledge_id", parent: "knowledge" },
+  { table: "knowledge_page_versions", column: "page_id", parent: "knowledge_pages" },
+  { table: "knowledge_candidates", column: "request_id", parent: "knowledge_candidate_requests" },
+  { table: "report_summaries", column: "request_id", parent: "report_synthesis_requests" },
+  { table: "report_presentations", column: "summary_id", parent: "report_summaries" },
+];
+
+/** Tables with no project_id of their own: their project is the one of the first parent they cite. */
+const PROJECTLESS_TABLES: readonly ProjectDataTable[] = [
+  "work_events",
+  "session_verification_updates",
+  "session_links",
+  "session_summary_updates",
+  "session_work_summary_updates",
+  "report_presentations",
+];
+
+/**
+ * Reads the owning project of every parent the bundle cites. A row stored here decides (an import never moves it);
+ * a parent that exists only in the file is owned by the project its row maps to. One query per parent table.
+ */
+function collectParentOwners(
+  db: DatabaseSync,
+  tables: Record<ProjectDataTable, ProjectDataRow[]>,
+  projectIds: ReadonlyMap<string, string>,
+): ParentOwners {
+  const emptyOwners = (): ParentOwnerMap => ({
+    sessions: new Map(),
+    evidence: new Map(),
+    knowledge: new Map(),
+    knowledge_pages: new Map(),
+    knowledge_candidate_requests: new Map(),
+    report_synthesis_requests: new Map(),
+    report_summaries: new Map(),
+  });
+  const owners: ParentOwners = { effective: emptyOwners(), inFile: emptyOwners() };
+  for (const parent of Object.keys(owners.effective) as OwnedParentTable[]) {
+    const cited = new Set<string>();
+    for (const reference of PARENT_REFERENCES) {
+      if (reference.parent !== parent || reference.crossProject) continue;
+      for (const row of tables[reference.table]) {
+        const value = row[reference.column];
+        if (typeof value === "string") cited.add(value);
+      }
+    }
+    if (parent === "evidence") {
+      for (const row of tables.void_audit) {
+        if (row.target_type !== "session" && typeof row.target_id === "string") cited.add(row.target_id);
+      }
+    }
+    if (parent === "sessions") {
+      for (const row of tables.void_audit) {
+        if (row.target_type === "session" && typeof row.target_id === "string") cited.add(row.target_id);
+      }
+    }
+    for (const row of tables[parent]) {
+      const projectId = typeof row.project_id === "string" ? row.project_id : null;
+      owners.inFile[parent].set(String(row.id), projectId === null ? null : (projectIds.get(projectId) ?? projectId));
+    }
+    if (cited.size === 0) continue;
+    for (const local of db
+      .prepare(`SELECT id, project_id FROM ${parent} WHERE id IN (SELECT value FROM json_each(?))`)
+      .all(JSON.stringify([...cited])) as Array<{ id: string; project_id: string | null }>) {
+      owners.effective[parent].set(local.id, local.project_id);
+    }
+    for (const [id, projectId] of owners.inFile[parent]) {
+      if (!owners.effective[parent].has(id)) owners.effective[parent].set(id, projectId);
+    }
+  }
+  return owners;
+}
+
+/** Whether a row cites a parent owned by another project than its own. */
+function parentOwnerIssue(table: ProjectDataTable, row: ProjectDataRow, owners: ParentOwners): string | undefined {
+  // A table without project_id belongs to the project of the parent row it cites in the file; a parent that is only
+  // stored here proves nothing about which project the file meant.
+  const projectless = PROJECTLESS_TABLES.includes(table);
+  let expected: string | null | undefined = projectless
+    ? undefined
+    : typeof row.project_id === "string"
+      ? row.project_id
+      : null;
+  const check = (parent: OwnedParentTable, value: ProjectDataValue | undefined): string | undefined => {
+    if (typeof value !== "string") return undefined;
+    if (expected === undefined) {
+      const declared = owners.inFile[parent].get(value);
+      if (declared === undefined) return PARENT_OTHER_PROJECT_REASON;
+      expected = declared;
+    }
+    const actual = owners.effective[parent].get(value);
+    if (actual === undefined) return undefined; // missing parents are reported by the availability checks
+    return actual === expected ? undefined : PARENT_OTHER_PROJECT_REASON;
+  };
+  for (const reference of PARENT_REFERENCES) {
+    if (reference.table !== table || reference.crossProject) continue;
+    const issue = check(reference.parent, row[reference.column]);
+    if (issue) return issue;
+  }
+  if (table === "void_audit") {
+    return check(row.target_type === "session" ? "sessions" : "evidence", row.target_id);
+  }
+  return undefined;
+}
+
 function dependencyIssue(
   table: ProjectDataTable,
   row: ProjectDataRow,
@@ -1024,6 +1217,7 @@ function dependencyIssue(
   cleanupSubmissionReferences: Map<string, CleanupSubmissionReference>,
   cleanupRequestItemReferences: Map<string, CleanupRequestItemReference>,
   cleanupProposalReferences: Map<string, CleanupProposalReference>,
+  parentOwners: ParentOwners,
 ): string | undefined {
   if (table !== "projects" && typeof row.project_id === "string") {
     const mappedProjectId = projectIds.get(row.project_id);
@@ -1034,6 +1228,11 @@ function dependencyIssue(
       return "所屬專案發生衝突或不存在。";
     }
     row.project_id = mappedProjectId;
+  }
+
+  const parentOwnerProblem = parentOwnerIssue(table, row, parentOwners);
+  if (parentOwnerProblem) {
+    return parentOwnerProblem;
   }
 
   const sessionId = typeof row.session_id === "string" ? row.session_id : undefined;
@@ -1405,6 +1604,20 @@ type AddPlan = (
   category?: ProjectDataImportConflictCategory,
 ) => void;
 
+/**
+ * Whether a same-ID imported row sits under a different project or parent than the local one. The imported project_id
+ * was already mapped to the local project by dependencyIssue, so the comparison is between local IDs. An update must
+ * never move a row, so such a row is a conflict whatever its timestamps say.
+ */
+function belongsToAnotherOwner(table: ProjectDataTable, current: ProjectDataRow, row: ProjectDataRow): boolean {
+  const columns = ["project_id", ...(IMMUTABLE_PARENT_COLUMNS[table] ?? [])];
+  return columns.some(
+    (column) =>
+      (projectDataExportTableColumns[table] as readonly string[]).includes(column) &&
+      (projectDataColumnValue(table, current, column) ?? null) !== (projectDataColumnValue(table, row, column) ?? null),
+  );
+}
+
 /** Decides how an imported row with an ID that already exists locally is handled. */
 function planExistingRow(
   db: DatabaseSync,
@@ -1439,6 +1652,10 @@ function planExistingRow(
     }
     if (strategy !== "newer-wins") {
       addPlan(table, row, "conflict", "匯入資料較新；選擇「較新者優先」即可更新本機資料。", "newer_content");
+      return;
+    }
+    if (belongsToAnotherOwner(table, current, row)) {
+      addPlan(table, row, "conflict", "相同 ID 的既有資料屬於另一個專案或上層資料，不會被覆寫。", "dependency");
       return;
     }
     if (existingUniqueRow(db, table, row, String(row.id))) {
@@ -1853,6 +2070,7 @@ function makePlan(db: DatabaseSync, validated: ValidatedProjectDataImport): Tran
     });
   }
 
+  const parentOwners = collectParentOwners(db, selectedBundle.tables, projectIds);
   for (const table of TABLE_ORDER) {
     if (table === "projects") {
       continue;
@@ -1875,6 +2093,7 @@ function makePlan(db: DatabaseSync, validated: ValidatedProjectDataImport): Tran
         cleanupSubmissionReferences,
         cleanupRequestItemReferences,
         cleanupProposalReferences,
+        parentOwners,
       );
       const id = String(row.id);
       const current = existingRowsById[table].get(id);
@@ -1984,7 +2203,10 @@ function insertRow(table: ProjectDataTable, row: ProjectDataRow, statement: Inse
 
 function updatableColumns(table: ProjectDataTable): string[] {
   const derived = LOCAL_DERIVED_FIELDS[table] ?? [];
-  return projectDataExportTableColumns[table].filter((column) => column !== "id" && !derived.includes(column));
+  // project_id is never rewritten: an update must not be able to move a row to another project.
+  return projectDataExportTableColumns[table].filter(
+    (column) => column !== "id" && column !== "project_id" && !derived.includes(column),
+  );
 }
 
 function updateRow(table: ProjectDataTable, row: ProjectDataRow, statement: InsertStatement): void {

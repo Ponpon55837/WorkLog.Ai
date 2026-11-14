@@ -55,7 +55,7 @@ pnpm test:e2e     # 使用隔離資料庫的 Playwright 瀏覽器回歸測試
 - **MCP 回應大小門檻**：`pnpm test` 在三個 OS 都執行合成資料的回應大小測試；Ubuntu 另以 `pnpm test:response-size` 顯示各工具序列化字元數並檢查上限。
 - **E2E**（`ubuntu-latest`，與 Quality 同時開始）：每個瀏覽器一個 job，只安裝該瀏覽器，以 `E2E_PROJECTS=<瀏覽器>` 執行 `pnpm test:e2e`；必要檢查 `E2E (Chromium + Firefox + WebKit)` 會等三個瀏覽器 job 全部通過。本機不設 `E2E_PROJECTS` 時依序跑三個瀏覽器。Chromium 執行完整回歸，Firefox 執行 `@cross-browser` 與 `@accessibility` 流程，WebKit 執行 `@cross-browser` 核心流程。Chromium 與 Firefox 會在六個主要頁面、系統狀態與備份管理頁執行 axe，深色與淺色主題各跑一次，critical／serious impact 的違規（包含色彩對比）會使測試失敗；第一次使用清單另在無專案狀態執行 axe，並在 1440／960／375px 檢查水平溢位。備份刪除確認也有鍵盤操作 E2E。三個瀏覽器分開執行，使用各自的暫存 SQLite 與隔離的 Agent home/config 路徑；失敗時以 `playwright-results-<瀏覽器>` 上傳 `test-results/` 供除錯。測試伺服器載入正式建置的 Web 與 API，並共用一個 port；登入服務與 Agent 診斷使用注入的虛構狀態，不查詢主機設定或排程器。正式啟動程序不由此 E2E 涵蓋。CI 上的 WebKit 是 Ubuntu Playwright 執行環境，不等於 macOS Safari 實機驗證。
 
-`.github/workflows/release.yml`（推送 `v*` tag 時執行）使用相同結構：Quality 矩陣與三個瀏覽器的 E2E job 同時開始，每個 OS 的測試只跑一次，`Publish GitHub Release` 需等全部成功；發行 workflow 的 E2E 失敗時改以 `release-playwright-results-<瀏覽器>` 上傳 `test-results/`。
+`.github/workflows/release.yml`（推送 `v*` tag，或在 `main` 手動觸發並輸入版本時執行）使用相同結構：Quality 矩陣與三個瀏覽器的 E2E job 同時開始，每個 OS 的測試只跑一次，`Publish GitHub Release` 需等全部成功；發行 workflow 的 E2E 失敗時改以 `release-playwright-results-<瀏覽器>` 上傳 `test-results/`。
 
 Coverage 使用模組局部門檻；各套件分開量測，因此沒有設定跨套件合併總門檻。core、project-policy、shared 於 2026-09-26 的 macOS 基線分別為 100%／100%／100%／100%、99.27%／98.55%／100%／99.26%、95.45%／81.25%／100%／95.45%（statements／branches／functions／lines）；project-policy 的 Windows branches 為 92.75%，因平台路徑分隔符走不同條件。
 
@@ -295,7 +295,7 @@ Unit／integration 測試涵蓋：
 - schema 的 changed-files／metadata backfill 陣列上限
 - 專案永久刪除的精確名稱確認、in-memory 備份拒絕、備份快照、跨專案 Session 關聯與共享請求清理、搜尋索引清理及不含內容的 audit row
 - REST 不接受非 JSON Content-Type，malformed JSON 會回傳安全的 4xx 錯誤
-- Agent setup／doctor（`agent-setup.test.ts`、`doctor.test.ts`）只使用暫存 home、Codex／Claude config roots 與測試 repo；涵蓋預覽不寫入、精確備份、重複安裝、skill hash drift、Codex canonical／legacy path、v1 ownership migration、自訂 root 的解除安裝、missing dist、衝突拒寫、失敗 rollback、保留後加設定，以及含 Unicode、空白、引號與反斜線的路徑。
+- Agent setup／doctor（`agent-setup.test.ts`、`doctor.test.ts`）只使用暫存 home、Codex／Claude config roots 與測試 repo；涵蓋預覽不寫入、精確備份、重複安裝、skill hash drift、Codex canonical／legacy path、v1 ownership migration、自訂 root 的解除安裝、missing dist、衝突拒寫、失敗 rollback、保留後加設定，以及含 Unicode、空白、引號與反斜線的路徑；doctor 的資料庫檔案權限檢查（0644／0755 時警告、0600／0700 時不警告，POSIX only）。`tests/storage/database-file-permissions.test.ts` 在 umask 022 下驗證新資料庫目錄為 0700（只含本次建立的層級，既有上層目錄不變）、資料庫與 -wal／-shm 為 0600、既有寬鬆檔案開啟時收緊，且 `:memory:` 不受影響（POSIX only）。
 - project-scoped `work_get_context`／`work_recall` 只回傳指定 tracked 專案；未指定範圍時，以 project name／id 標示跨專案結果，paused 專案完全排除（`cross-project-context.test.ts`）
 - tracked-only day/week/month/quarter/year 完整報告、上一期比較、趨勢、風險與 source evidence provenance
 - changed-file lifecycle history 的新增／修改／刪除／重新命名、路徑正規化、merge dedupe 與 metadata follow-up

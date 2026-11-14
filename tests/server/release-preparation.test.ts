@@ -50,19 +50,26 @@ function runPreparation({
 }
 
 describe("release preparation", () => {
-  it("runs only for version tags and waits for all checks before publishing", () => {
+  it("runs for version tags or a main-only manual dispatch and waits for all checks before publishing", () => {
     const workflow = readFileSync(join(repositoryRoot, ".github", "workflows", "release.yml"), "utf8");
 
     expect(workflow).toContain('      - "v*"');
-    expect(workflow).not.toMatch(/^\s+(pull_request|workflow_dispatch):/m);
-    expect(workflow).toContain("needs: [verify, audit, quality, e2e-browser]");
+    expect(workflow).not.toMatch(/^\s+pull_request:/m);
+    // Manual path: strict version input, main only, passed through env, tag created in a job with its own write scope.
+    expect(workflow).toMatch(/^ {2}workflow_dispatch:/m);
+    expect(workflow).toContain("^[0-9]+\\.[0-9]+\\.[0-9]+$");
+    expect(workflow).toContain('"$REF" != "refs/heads/main"');
+    expect(workflow).toContain("INPUT_VERSION: ${{ inputs.version }}");
+    expect(workflow).toContain("git tag -a");
+    expect(workflow).toContain("needs: [prepare, verify, audit, quality, e2e-browser]");
     expect(workflow).toContain("contents: write");
     expect(workflow).toContain("--verify-tag");
     // Publish packs the commit the checks verified, refuses a tag moved since, and keeps the write token out of git.
-    expect(workflow).toContain("ref: ${{ github.sha }}");
+    expect(workflow).toContain("ref: ${{ needs.prepare.outputs.sha }}");
     expect(workflow).toContain("persist-credentials: false");
-    expect(workflow).toContain('tagged="$(git rev-parse "refs/tags/$GITHUB_REF_NAME^{commit}")"');
+    expect(workflow).toContain('tagged="$(git rev-parse "refs/tags/$TAG^{commit}")"');
     expect(workflow).not.toContain("ref: ${{ github.ref }}");
+    expect(workflow).not.toContain("GITHUB_REF_NAME");
     // The standalone tarball is smoke-tested as uploaded, and every asset gets a SHA-256 line.
     expect(workflow).toContain("pnpm build && pnpm build:standalone");
     expect(workflow).toContain(

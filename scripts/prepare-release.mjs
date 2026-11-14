@@ -42,7 +42,8 @@ export function extractReleaseNotes(tag, packageVersion, changelog) {
 }
 
 function main() {
-  const tag = process.env.GITHUB_REF_NAME;
+  // The release workflow passes the tag from its prepare job (RELEASE_TAG) so tag push and manual dispatch share this check.
+  const tag = process.env.RELEASE_TAG ?? process.env.GITHUB_REF_NAME;
   const packagePath = resolve(process.env.RELEASE_PACKAGE_JSON ?? join(repositoryRoot, "package.json"));
   const changelogPath = resolve(process.env.RELEASE_CHANGELOG ?? join(repositoryRoot, "CHANGELOG.md"));
   const packageMetadata = JSON.parse(readFileSync(packagePath, "utf8"));

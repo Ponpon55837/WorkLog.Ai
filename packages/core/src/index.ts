@@ -1949,6 +1949,7 @@ export type HandoffImportReason =
   | "no_explicit_completion"
   | "already_imported"
   | "unreadable"
+  | "not_regular_file"
   | "invalid_path"
   | "source_not_found"
   | "import_failed";

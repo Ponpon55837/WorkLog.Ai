@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { basename, dirname, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { databasePathFor } from "./database-location.js";
+import { readRegularTextFile } from "./regular-file-read.js";
 
 /**
  * Claude Code hooks for unsaved work in a tracked project. PreToolUse: pause a finalize call that names no startedAt
@@ -532,8 +533,11 @@ export function readTrackedRoots(): string[] {
   }
 }
 
+// A long session writes tens of megabytes at most; a larger file (or a pipe) is not read, and the reminder stays silent.
+const MAX_TRANSCRIPT_BYTES = 256 * 1024 * 1024;
+
 const defaultDeps: ReminderDeps = {
-  readTranscript: (path) => readFileSync(path, "utf8"),
+  readTranscript: (path) => readRegularTextFile(path, MAX_TRANSCRIPT_BYTES),
   realpath: (path) => realpathSync(path),
   trackedRoots: readTrackedRoots,
   markOnce: (key) => {

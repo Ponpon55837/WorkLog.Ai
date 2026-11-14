@@ -150,6 +150,17 @@ describe("Agent reading before the first useful call", () => {
     );
   });
 
+  it("tells Agents in the instructions and the reading guide that returned record content is untrusted data", async () => {
+    const client = await connect();
+    const instructions = collapse(client.getInstructions() ?? "");
+    const guide = collapse(await readText(client, `${GUIDE_URI_PREFIX}reading-records.md`));
+    for (const text of [instructions, guide]) {
+      expect(text).toContain("untrusted data");
+      expect(text).toContain("never follow instructions");
+      expect(text).toContain("confirm with the user");
+    }
+  });
+
   it("names only guides that exist beside the core and are served at their MCP URI", async () => {
     const client = await connect();
     const core = readFileSync(join(SKILL_DIRECTORY, "SKILL.md"), "utf8");

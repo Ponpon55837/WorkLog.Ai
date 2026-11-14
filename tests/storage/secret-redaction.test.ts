@@ -286,6 +286,66 @@ describe("secret redaction", () => {
       );
     });
 
+    it("masks a credentials key only when the keyword is the whole key or follows a separator", () => {
+      const value = "Zq7KdLm2XwRt9Pv";
+      expect(redactText(`db_credentials=${value}`).value).toBe(`db_credentials=${marker("environment_secret")}`);
+      expect(redactText(`CREDENTIALS: ${value}`).value).toBe(`CREDENTIALS: ${marker("environment_secret")}`);
+      expect(redactText(`withCredentials=${value}`).value).toBe(`withCredentials=${value}`);
+    });
+
+    it("keeps a type annotation but masks a value that only starts like a type name", () => {
+      for (const text of [
+        "password: string|null",
+        "token: string | null",
+        "secret: Uint8Array",
+        "password: undefined",
+        "`account: string`, `password: string|undefined`, `fileName: string`",
+        "password?: string",
+        "secret: number|string[]|null",
+        'password: str = ""',
+        "api_key=unknown",
+        "Password string",
+      ]) {
+        expect(redactText(text).value).toBe(text);
+      }
+      for (const value of ["stringent-Pa55word", "String123xyz!", "string-Pa55word99", "string|Pa55word99xyz"]) {
+        expect(redactText(`password: ${value}`).value).toBe(`password: ${marker("environment_secret")}`);
+      }
+    });
+
+    it("ends an unquoted value at a backtick or full-width punctuation", () => {
+      const secret = "Pa55word-xyz123";
+      expect(redactText(`\`password: ${secret}\`、\`fileName: x\``).value).toBe(
+        `\`password: ${marker("environment_secret")}\`、\`fileName: x\``,
+      );
+      expect(redactText(`password: ${secret}，token: x`).value).toBe(
+        `password: ${marker("environment_secret")}，token: x`,
+      );
+      expect(redactText(`密碼 password=${secret}。`).value).toBe(`密碼 password=${marker("environment_secret")}。`);
+    });
+
+    it("masks a quoted bare JSON token only when it looks like a credential", () => {
+      expect(redactJsonText(`{"token":"Zq7KdLm2XwRt9Pv"}`).value).toBe(`{"token":"${marker("environment_secret")}"}`);
+      expect(redactJsonText(`{"token":"internationalization","token_id":"x"}`).value).toBe(
+        `{"token":"internationalization","token_id":"x"}`,
+      );
+    });
+
+    it("masks a spaced JSON key but not a key followed by the next attribute", () => {
+      expect(redactText(`{"password" : "Zq7KdLm2XwRt9Pv"}`).value).toBe(
+        `{"password" : "${marker("environment_secret")}"}`,
+      );
+      expect(redactText(`"password" :aria-label="Zq7KdLm2XwRt9Pv"`).value).toBe(
+        `"password" :aria-label="Zq7KdLm2XwRt9Pv"`,
+      );
+    });
+
+    it("leaves already redacted text unchanged when it is redacted again", () => {
+      const once = redactText(`token=Zq7KdLm2XwRt9Pv password: "Zq7KdLm2XwRt9Pv" ghp_${"Zq7KdLm2".repeat(5)}`).value;
+      expect(redactText(once).value).toBe(once);
+      expect(redactJsonText(JSON.stringify({ text: once })).value).toBe(JSON.stringify({ text: once }));
+    });
+
     it("masks each private key from its header to the first footer after it", () => {
       expect(
         redactText(
@@ -312,5 +372,64 @@ describe("secret redaction", () => {
         expect(performance.now() - started, shape).toBeLessThan(1_000);
       }
     });
+  });
+});
+
+describe("redactValue on deeply nested values", () => {
+  const SECRET = `ghp_${"A".repeat(36)}`;
+
+  /** Builds the nesting with a loop: a recursive builder would overflow the stack itself. */
+  function nested(levels: number, leaf: unknown, wrap: (inner: unknown) => unknown): unknown {
+    let value = leaf;
+    for (let level = 0; level < levels; level += 1) value = wrap(value);
+    return value;
+  }
+
+  function leafOf(value: unknown, pick: (outer: unknown) => unknown): unknown {
+    let current = value;
+    while (Array.isArray(current) || (typeof current === "object" && current !== null)) current = pick(current);
+    return current;
+  }
+
+  it.each([5_000, 50_000])("masks a secret at the bottom of %i nested arrays without overflowing", (levels) => {
+    const result = redactValue(nested(levels, `token ${SECRET}`, (inner) => [inner]));
+    expect(result.redactions.total).toBe(1);
+    expect(leafOf(result.value, (outer) => (outer as unknown[])[0])).toBe(`token ${marker("github_token")}`);
+  });
+
+  it.each([5_000, 50_000])("handles %i nested objects with and without a secret", (levels) => {
+    const clean = redactValue(nested(levels, "plain", (inner) => ({ child: inner })));
+    expect(clean.redactions.total).toBe(0);
+    expect(leafOf(clean.value, (outer) => (outer as { child: unknown }).child)).toBe("plain");
+    const secret = redactValue(nested(levels, SECRET, (inner) => ({ child: inner })));
+    expect(secret.redactions.total).toBe(1);
+    expect(leafOf(secret.value, (outer) => (outer as { child: unknown }).child)).toBe(marker("github_token"));
+  });
+
+  it("keeps shape, key order and own __proto__ keys, and does not share the input's containers", () => {
+    const input = JSON.parse(`{"b":[1,null,"x",{"c":"${SECRET}"}],"a":2,"__proto__":{"k":"v"}}`) as Record<
+      string,
+      unknown
+    >;
+    const result = redactValue(input);
+    expect(Object.keys(result.value)).toEqual(["b", "a", "__proto__"]);
+    expect(JSON.stringify(result.value)).toBe(
+      `{"b":[1,null,"x",{"c":"${marker("github_token")}"}],"a":2,"__proto__":{"k":"v"}}`,
+    );
+    expect(Object.getPrototypeOf(result.value)).toBe(Object.prototype);
+    expect(result.value).not.toBe(input);
+  });
+
+  it("allows the same object twice but rejects a cycle instead of looping", () => {
+    const shared = { text: "same" };
+    expect(redactValue({ a: shared, b: shared }).value).toEqual({ a: shared, b: shared });
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    expect(() => redactValue(cyclic)).toThrow(TypeError);
+  });
+
+  it("redactJsonText returns a result for a 50,000-level value that cannot be serialized again", () => {
+    const text = `${"[".repeat(50_000)}${JSON.stringify(`x ${SECRET}`)}${"]".repeat(50_000)}`;
+    expect(() => redactJsonText(text)).not.toThrow();
   });
 });

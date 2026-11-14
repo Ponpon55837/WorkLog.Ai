@@ -19,6 +19,8 @@
 | 私有 36 題檢索評估 | 未執行 | Work Intelligence：＿＿ | ＿＿ | ＿＿ |
 | 另一個真實專案的完整記錄流程 | 未執行 | 專案／Agent：＿＿ | ＿＿ | ＿＿ |
 
+發行流程本身（推 `v*` tag，或在 `main` 上手動觸發 `Release` workflow 並輸入版本）見 [發行與升級](release.md#推送版本-tag)；兩種方式都需要上述實機驗收完成後才進行。手動觸發的執行在 tag 建立後若有 job 失敗，用 `Re-run failed jobs` 重跑，不要重新觸發（tag 已存在會被拒絕）。
+
 ## 驗收前準備
 
 1. 在目標電腦取得已合併的版本，確認 UI 側欄與 `pnpm check` 顯示預期版本；記下版本及 commit。

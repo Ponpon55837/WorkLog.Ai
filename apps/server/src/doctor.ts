@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { createServer } from "node:net";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -709,6 +709,21 @@ async function probeSqlite(): Promise<{ sqlite: boolean; fts5: boolean }> {
   }
 }
 
+/** Lists the database file and its directory when group or other users can access them; empty on Windows or when unreadable. */
+export function wideDatabasePermissions(databasePath: string): { path: string; mode: string }[] {
+  if (process.platform === "win32" || databasePath === ":memory:") return [];
+  const wide: { path: string; mode: string }[] = [];
+  for (const path of [databasePath, dirname(databasePath)]) {
+    try {
+      const mode = statSync(path).mode & 0o777;
+      if ((mode & 0o077) !== 0) wide.push({ path, mode: mode.toString(8).padStart(3, "0") });
+    } catch {
+      // A missing or unreadable path is reported by the database check, not here.
+    }
+  }
+  return wide;
+}
+
 function envFailure(): DoctorFinding {
   return {
     severity: "error",
@@ -1067,6 +1082,19 @@ export async function collectDoctorFindings(
         backupDetail +
         "。",
     );
+  }
+
+  if (database.state !== "missing") {
+    const wide = wideDatabasePermissions(dbPath);
+    if (wide.length > 0) {
+      addFinding(
+        findings,
+        "warning",
+        "資料庫檔案權限",
+        `${wide.map((entry) => `${entry.path}（${entry.mode}）`).join("、")} 允許同一台電腦上的其他使用者存取；資料庫內有工作紀錄。`,
+        `執行 chmod 700 與 chmod 600 收緊：資料庫目錄設為 700，資料庫與 -wal、-shm 檔設為 600；診斷程序不會自動修改。若目錄是共用資料夾，請改把資料庫放到專用目錄。`,
+      );
+    }
   }
 
   if (

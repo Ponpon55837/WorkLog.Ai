@@ -55,7 +55,7 @@ Before first use, run the diagnostics:
 pnpm check
 ```
 
-Run `pnpm check`; `pnpm run doctor` still works as an alias. Do not use plain `pnpm doctor`: pnpm 11 reserves it for its own command, which does not run the Work Intelligence diagnostics. The doctor checks Node.js, pnpm, the build output, database health and schema version, recent backups and maintenance, API reachability, MCP registration, skill copies and the global save-reminder hook — all read-only — and lists fixes in Traditional Chinese. Its output contains no work-record content.
+Run `pnpm check`; `pnpm run doctor` still works as an alias. Do not use plain `pnpm doctor`: pnpm 11 reserves it for its own command, which does not run the Work Intelligence diagnostics. The doctor checks Node.js, pnpm, the build output, database health and schema version, database file permissions (warns when the database or its folder is open to other users on the machine), recent backups and maintenance, API reachability, MCP registration, skill copies and the global save-reminder hook — all read-only — and lists fixes in Traditional Chinese. Its output contains no work-record content.
 
 Then three steps:
 

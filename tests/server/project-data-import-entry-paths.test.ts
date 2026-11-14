@@ -66,6 +66,11 @@ function changed(bundle: ProjectDataExport, change: (copy: ProjectDataExport) =>
   return copy;
 }
 
+/** JSON text of an array nested `levels` deep around one string leaf; built by concatenation, never recursively. */
+function nestedArrayJson(levels: number, leaf = "synthetic"): string {
+  return `${"[".repeat(levels)}${JSON.stringify(leaf)}${"]".repeat(levels)}`;
+}
+
 const INVALID_BUNDLES: Array<{ name: string; code: InvalidCase["code"]; change: (copy: ProjectDataExport) => void }> = [
   { name: "wrong format", code: "invalid_input", change: (copy) => Object.assign(copy, { format: "other-export" }) },
   {
@@ -102,6 +107,22 @@ const INVALID_BUNDLES: Array<{ name: string; code: InvalidCase["code"]; change: 
         applies_to_json: JSON.stringify(Array.from({ length: 101 }, (_, index) => `src/${index}.ts`)),
       }),
   },
+  ...[5_000, 50_000].flatMap((levels) => [
+    {
+      name: `${levels}-level nested JSON column`,
+      code: "invalid_input" as const,
+      change: (copy: ProjectDataExport) =>
+        Object.assign(copy.tables.sessions[0]!, { work_summary_json: nestedArrayJson(levels) }),
+    },
+    {
+      name: `${levels}-level nested JSON column holding a secret-like literal`,
+      code: "invalid_input" as const,
+      change: (copy: ProjectDataExport) =>
+        Object.assign(copy.tables.sessions[0]!, {
+          work_summary_json: nestedArrayJson(levels, `ghp_${"A".repeat(36)}`),
+        }),
+    },
+  ]),
   {
     name: "single-project scope without its project",
     code: "invalid_input",

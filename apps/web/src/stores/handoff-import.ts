@@ -101,6 +101,7 @@ export const useHandoffImportStore = defineStore("handoff-import", () => {
     if (item.reason === "blocked") return t("projects.blockedSkipped");
     if (item.reason === "pending") return t("projects.pendingSkipped");
     if (item.reason === "planning_only") return t("projects.planningOnlySkipped");
+    if (item.reason === "not_regular_file") return t("projects.notRegularFileSkipped");
     if (item.decision === "error") return t("projects.readFailed");
     return t("projects.completionStatusMissing");
   }

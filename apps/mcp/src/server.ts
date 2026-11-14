@@ -1427,7 +1427,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_preview_handoff_import", {
     title: "Preview historical handoff import",
     description:
-      "Dry-run a tracked project's handoff directory: lists eligible, already imported, excluded, blocked, pending, planning-only, and unreadable handoffs with reasons. Never creates Sessions; non-tracked projects are skipped before any handoff file is read.",
+      "Dry-run a tracked project's handoff directory: lists eligible, already imported, excluded, blocked, pending, planning-only, unreadable, and non-regular (such as a named pipe) handoffs with reasons. Never creates Sessions; non-tracked projects are skipped before any handoff file is read.",
     inputShape: handoffImportOptionsSchema.shape,
     schema: handoffImportOptionsSchema,
     annotations: READ_ONLY,

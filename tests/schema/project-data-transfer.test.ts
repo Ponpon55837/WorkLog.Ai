@@ -5,6 +5,8 @@ import {
   projectDataExportSchema,
   projectDataExportScopeSchema,
   projectDataExportTableColumns,
+  jsonTextExceedsDepth,
+  MAX_STORED_JSON_DEPTH,
   projectDataImportInputSchema,
   projectPathRemapSchema,
 } from "../../packages/schema/src/index.js";
@@ -430,5 +432,25 @@ describe("project data transfer schemas", () => {
     expect(projectDataExportSchema.safeParse(bundle).success).toBe(true);
     row.state = "visible";
     expect(projectDataExportSchema.safeParse(bundle).success).toBe(false);
+  });
+});
+
+describe("jsonTextExceedsDepth", () => {
+  it("counts arrays and objects but ignores brackets inside strings, including escaped quotes", () => {
+    expect(jsonTextExceedsDepth(`${"[".repeat(MAX_STORED_JSON_DEPTH)}1${"]".repeat(MAX_STORED_JSON_DEPTH)}`)).toBe(
+      false,
+    );
+    expect(jsonTextExceedsDepth(`${"[".repeat(MAX_STORED_JSON_DEPTH + 1)}`)).toBe(true);
+    expect(jsonTextExceedsDepth(`{"a":{"b":[{"c":[]}]}}`, 5)).toBe(false);
+    expect(jsonTextExceedsDepth(`{"a":{"b":[{"c":[]}]}}`, 4)).toBe(true);
+    expect(jsonTextExceedsDepth(`["x\\"${"[".repeat(500)}"]`)).toBe(false);
+  });
+
+  it("scans 5,000,000 characters in one pass", () => {
+    const started = performance.now();
+    expect(jsonTextExceedsDepth(`${"[".repeat(2_500_000)}${"]".repeat(2_500_000)}`)).toBe(true);
+    // Brackets inside a long string never count, however many there are.
+    expect(jsonTextExceedsDepth(`["${"[".repeat(2_000_000)}"]`)).toBe(false);
+    expect(performance.now() - started).toBeLessThan(2_000);
   });
 });

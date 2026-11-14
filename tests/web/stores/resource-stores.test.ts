@@ -373,6 +373,9 @@ describe("resource stores", () => {
     expect(store.handoffDecisionLabel({ decision: "excluded", reason: "planning_only" } as never)).toBe(
       t("projects.planningOnlySkipped"),
     );
+    expect(store.handoffDecisionLabel({ decision: "excluded", reason: "not_regular_file" } as never)).toBe(
+      t("projects.notRegularFileSkipped"),
+    );
     expect(store.handoffDecisionLabel({ decision: "error" } as never)).toBe(t("projects.readFailed"));
     expect(store.handoffDecisionLabel({ decision: "excluded", reason: "missing_status" } as never)).toBe(
       t("projects.completionStatusMissing"),

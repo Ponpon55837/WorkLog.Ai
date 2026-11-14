@@ -222,6 +222,8 @@ describe("database backups", () => {
     const target = join(root, "rename-failure.sqlite");
     fileSystemFailures.link = { code: "EPERM", message: "Injected unsupported hard-link error." };
     fileSystemFailures.rename = { code: "EIO", message: "Injected rename failure." };
+    // Count only the snapshot's own descriptor: opening the store already closed the one that created the file private.
+    vi.mocked(closeSync).mockClear();
 
     try {
       expect(() => writeSnapshot(database, target)).toThrow("Injected rename failure.");
