@@ -4,6 +4,7 @@ import { Trash2 } from "lucide-vue-next";
 import type { ProjectRecord } from "@work-intelligence/core";
 import UiButton from "../ui/UiButton.vue";
 import UiDialog from "../ui/UiDialog.vue";
+import UiField from "../ui/UiField.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiTextInput from "../ui/UiTextInput.vue";
 import { t } from "../../i18n";
@@ -52,15 +53,20 @@ watch(
       <UiFlash tone="attention" :title="t('projects.aFullDatabaseBackupIs')">
         {{ t("projects.deletionHappensOnlyAfterA", { name: project.name }) }}
       </UiFlash>
-      <p class="delete-project__label">{{ t("projects.typeTheProjectNameTo") }}</p>
-      <UiTextInput
-        v-model="typedName"
-        :maxlength="120"
-        :required="true"
-        :autofocus="true"
-        :placeholder="project.name"
-        :label="t('projects.typeToConfirmPermanentDeletion', { name: project.name })"
-      />
+      <!-- The visible label is the input's name (WCAG 2.5.3); the hint keeps the exact project name in view. -->
+      <UiField
+        :label="t('projects.typeTheProjectNameTo')"
+        :hint="t('projects.typeToConfirmPermanentDeletion', { name: project.name })"
+      >
+        <UiTextInput
+          v-model="typedName"
+          :maxlength="120"
+          :required="true"
+          :autofocus="true"
+          :placeholder="project.name"
+          :label="t('projects.typeTheProjectNameTo')"
+        />
+      </UiField>
     </template>
     <template #footer>
       <UiButton :disabled="busy" @click="emit('close')">{{ t("common.cancel") }}</UiButton>
@@ -70,13 +76,3 @@ watch(
     </template>
   </UiDialog>
 </template>
-
-<style scoped>
-.delete-project__label {
-  display: block;
-  margin-bottom: var(--space-2);
-  color: var(--fg);
-  font-size: var(--text-sm);
-  font-weight: 600;
-}
-</style>

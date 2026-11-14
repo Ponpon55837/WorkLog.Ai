@@ -1,14 +1,20 @@
 <script setup lang="ts">
-import { useId } from "vue";
+import { computed, provide, useId } from "vue";
+import { fieldDescriptionKey } from "./field";
 
 /**
  * A labelled form field. `group` is for controls that are themselves a set of buttons (UiSegmentedControl): a
  * wrapping <label> would hand its text to the first button only, so the field becomes a labelled group instead.
  */
-defineProps<{ label: string; hint?: string; error?: string; group?: boolean }>();
+const props = defineProps<{ label: string; hint?: string; error?: string; group?: boolean }>();
 
 const labelId = useId();
 const hintId = useId();
+// A group names itself with the hint; a single control reads the id through useFieldDescription().
+provide(
+  fieldDescriptionKey,
+  computed(() => (!props.group && (props.error || props.hint) ? hintId : undefined)),
+);
 </script>
 
 <template>

@@ -276,13 +276,13 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
 
       <div class="transfer-controls">
         <UiField :label="t('projects.exportScope')">
-          <UiSelect v-model="exportScope" :options="exportScopeOptions" :label="t('projects.chooseExportScope')" />
+          <UiSelect v-model="exportScope" :options="exportScopeOptions" :label="t('projects.exportScope')" />
         </UiField>
         <UiField v-if="exportScope === 'project'" :label="t('projects.exportProjects')">
           <UiSelect
             v-model="exportProjectId"
             :options="exportProjectOptions"
-            :label="t('projects.chooseProjectsToExport')"
+            :label="t('projects.exportProjects')"
             :disabled="projects.length === 0"
           />
         </UiField>
@@ -309,17 +309,13 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
           />
         </UiField>
         <UiField v-if="importProjects.length > 1" :label="t('projects.importScope')">
-          <UiSelect
-            v-model="importProjectId"
-            :options="importProjectOptions"
-            :label="t('projects.chooseImportScope')"
-          />
+          <UiSelect v-model="importProjectId" :options="importProjectOptions" :label="t('projects.importScope')" />
         </UiField>
         <UiField :label="t('projects.importStrategy')">
           <UiSelect
             v-model="importStrategy"
             :options="importStrategyOptions"
-            :label="t('projects.chooseImportStrategy')"
+            :label="t('projects.importStrategy')"
             data-testid="project-import-strategy"
           />
         </UiField>

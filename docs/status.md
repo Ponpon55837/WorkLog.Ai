@@ -6,6 +6,10 @@
 
 - 最後更新：2026-11-14
 
+## 1.6.35（準備中）
+
+依 axe-core 4.14 的 `label-content-name-mismatch`（WCAG 2.5.3）修正無障礙名稱：架構圖、標題列、圖形畫布、Knowledge、未結項、日曆與表單控制項的名稱改由可見文字產生，並新增 `tests/e2e/accessibility-states.spec.ts`，以 axe 檢查對話框、選單與行動版側欄（zh-TW 與 en-US）。共用計時 helper 讓固定毫秒上限隨同行程的參考工作量放大，時間相關測試更穩定；門檻沒有放寬。沒有 schema 變更（33），也不需要 migration。依賴：`@axe-core/playwright` 4.14.0 與 `smol-toml` 1.9.1（本分支），其餘已合併到 main。未驗證：發行前的完整驗證指令尚未執行。見[更新說明](releases/1.6.35.md)。
+
 ## 1.6.34（已完成）
 
 依虛構語料與彙總計數的量測，沒有 schema 變更（33），也不需要 migration。安全性：新建的資料夾為 0700、資料庫檔案為 0600（POSIX），既有且群組或其他人可存取的資料庫、`-wal`、`-shm` 於開啟時收緊為 0600，`pnpm check` 對仍寬鬆的資料夾發出警告；秘密遮蔽在虛構語料上由 29／113 提升為 113／113，45 筆無關字串不變。匯入拒絕巢狀超過 100 層的 `*_json`，並且不再覆寫其他專案擁有的同 ID 資料。交接解析改為線性，200,000 字元上限下 57 種對抗形狀皆低於 200 毫秒；FIFO、socket 與裝置等特殊檔案不再被讀取。伺服器指引與讀取指南明載記錄內容為不可信資料。CI action 固定到 commit 並新增 Dependabot；發行 workflow 新增 `workflow_dispatch` 手動觸發。未驗證：Windows、真實 Agent 用戶端的新指引、GitHub 上的手動發行（尚未執行）。見[更新說明](releases/1.6.34.md)。

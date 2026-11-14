@@ -6,6 +6,7 @@ import {
   formatDate,
   formatDayGroup,
   formatDuration,
+  formatFullDate,
   formatMilliseconds,
   formatReadableSummary,
   formatRelative,
@@ -17,7 +18,7 @@ import {
   toDateInputValue,
   wasUpdatedAfterFinalize,
 } from "../../../apps/web/src/utils/format.js";
-import { t } from "../../../apps/web/src/i18n/index.js";
+import { locale, localeReady, t } from "../../../apps/web/src/i18n/index.js";
 
 describe("formatBytes", () => {
   it("keeps small sizes in bytes and scales larger sizes", () => {
@@ -133,5 +134,17 @@ describe("formatTimeOfDay", () => {
     const value = new Date(2031, 2, 5, 18, 7).toISOString();
     expect(formatTimeOfDay(value)).toMatch(/6:07/);
     expect(formatTimeOfDay(value)).not.toMatch(/2031/);
+  });
+});
+
+describe("formatFullDate", () => {
+  it("spells out the day in the current locale and keeps the unpadded day number", async () => {
+    const value = new Date(2026, 10, 5);
+    expect(formatFullDate(value)).toBe("2026年11月5日");
+    locale.value = "en-US";
+    await localeReady();
+    expect(formatFullDate(value)).toBe("November 5, 2026");
+    locale.value = "zh-TW";
+    await localeReady();
   });
 });

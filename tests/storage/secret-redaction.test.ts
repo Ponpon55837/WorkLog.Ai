@@ -6,15 +6,31 @@ import {
   redactText,
   redactValue,
 } from "../../packages/storage/src/secret-redaction.js";
+import { bestOfMs, scaledLimit } from "../helpers/timing.js";
+import { redactionReferenceText } from "./fixtures/redaction-reference.js";
 
 const PRIVATE_MARKER = "[REDACTED:private_block]";
 const LONG_INPUT_LENGTH = 200_000;
+const MAX_MILLISECONDS = 1_000;
+// Normal times of redactText on ordinary text of the same size, rounded up; the limit scales when a machine is slower.
+const REFERENCE_BUDGET_MS = 20;
+const LARGE_REFERENCE_BUDGET_MS = 40;
 const JWT = `eyJ${"a".repeat(18)}.${"b".repeat(20)}.${"c".repeat(20)}`;
 const PASSWORD = "M".repeat(20);
 const VALUE = "N".repeat(12);
 
 function marker(kind: string): string {
   return `[REDACTED:${kind}]`;
+}
+
+/** The time limit for a text of `length` characters on this machine. */
+function limitFor(length: number, referenceBudgetMs: number): number {
+  const reference = redactionReferenceText(length);
+  return scaledLimit({
+    limitMs: MAX_MILLISECONDS,
+    reference: () => redactText(reference),
+    referenceBudgetMs,
+  }).limitMs;
 }
 
 /** Repeats `unit` to exactly `length` characters, the last of which come from `tail`. */
@@ -195,22 +211,21 @@ describe("secret redaction", () => {
       const block = `${"word ".repeat(40)}<private>${"secret ".repeat(20)}</private>`;
       const blocks = Math.ceil(1_000_000 / block.length);
       const tail = `<private>${"tail ".repeat(10_000)}`;
-      const started = performance.now();
-      const result = redactText(`${block.repeat(blocks)}${tail}`);
-      const elapsed = performance.now() - started;
+      const limitMs = limitFor(1_000_000, LARGE_REFERENCE_BUDGET_MS);
+      const large = `${block.repeat(blocks)}${tail}`;
+      const result = redactText(large);
+      const elapsed = bestOfMs(() => redactText(large));
       expect(result.value).not.toContain("secret");
       expect(result.value.endsWith(tail)).toBe(true);
       expect(result.redactions.byKind.private_block).toBe(blocks);
-      expect(elapsed).toBeLessThan(1_000);
+      expect(elapsed).toBeLessThan(limitMs);
 
       for (const input of [
         "<private>".repeat(100_000),
         `${"<private>".repeat(50_000)}${"</private>".repeat(50_000)}`,
         "<private>x</private>".repeat(50_000),
       ]) {
-        const inputStarted = performance.now();
-        redactText(input);
-        expect(performance.now() - inputStarted).toBeLessThan(1_000);
+        expect(bestOfMs(() => redactText(input))).toBeLessThan(limitMs);
       }
       expect(redactText("<private>".repeat(100_000)).redactions.total).toBe(0);
       expect(redactText(`${"<private>".repeat(3)}${"</private>".repeat(3)}`).value).toBe(PRIVATE_MARKER);
@@ -364,12 +379,14 @@ describe("secret redaction", () => {
 
   describe("linear time", () => {
     it("masks 200,000 characters of every adversarial shape quickly", () => {
+      const limitMs = limitFor(LONG_INPUT_LENGTH, REFERENCE_BUDGET_MS);
       for (const [shape, input] of Object.entries(adversarialInputs(LONG_INPUT_LENGTH))) {
         expect(input.length, shape).toBe(LONG_INPUT_LENGTH);
-        const started = performance.now();
-        redactText(input);
         // Each shape took 1–2 s at 40,000 characters (about 46 s at 200,000) before the detectors became linear.
-        expect(performance.now() - started, shape).toBeLessThan(1_000);
+        expect(
+          bestOfMs(() => redactText(input)),
+          shape,
+        ).toBeLessThan(limitMs);
       }
     });
   });

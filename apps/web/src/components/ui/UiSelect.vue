@@ -1,6 +1,7 @@
 <script setup lang="ts" generic="T extends string | number">
 import { ChevronDown } from "lucide-vue-next";
 import type { IconComponent, SelectOption } from "./types";
+import { useFieldDescription } from "./field";
 
 /** Native <select> styled to tokens. Use for forms and compact toolbars; list filters use UiActionMenu. */
 withDefaults(
@@ -15,12 +16,13 @@ withDefaults(
 );
 
 const model = defineModel<T>({ required: true });
+const describedBy = useFieldDescription();
 </script>
 
 <template>
   <span :class="['ui-select', `ui-select--${size}`, { 'ui-select--with-icon': icon }]">
     <component :is="icon" v-if="icon" :size="16" :stroke-width="1.75" class="ui-select__icon" aria-hidden="true" />
-    <select v-model="model" :aria-label="label" :disabled="disabled">
+    <select v-model="model" :aria-label="label" :aria-describedby="describedBy" :disabled="disabled">
       <option v-for="option in options" :key="String(option.value)" :value="option.value">{{ option.label }}</option>
     </select>
     <ChevronDown :size="14" :stroke-width="1.75" class="ui-select__chevron" aria-hidden="true" />

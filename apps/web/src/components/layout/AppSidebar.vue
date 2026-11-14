@@ -195,8 +195,20 @@ const emit = defineEmits<{ close: [] }>();
     align-items: center;
   }
 
+  /* The label is the link's accessible name, so the rail hides it visually (same declarations as the global .sr-only) instead of display:none. */
+  .app-sidebar__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
   .app-sidebar__group-label,
-  .app-sidebar__label,
   .app-sidebar__counter,
   .app-sidebar__policy-copy,
   .app-sidebar__app-info {

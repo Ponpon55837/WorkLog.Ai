@@ -62,13 +62,10 @@ const description = computed(() => {
       /></UiField>
       <div class="knowledge-editor__row">
         <UiField :label="t('common.kind')"
-          ><UiSelect v-model="knowledgeEditorForm.kind" :options="kindOptions" :label="t('knowledge.knowledgeKind')"
+          ><UiSelect v-model="knowledgeEditorForm.kind" :options="kindOptions" :label="t('common.kind')"
         /></UiField>
         <UiField :label="t('common.status')" :hint="t('knowledge.archivingDeletesNothingItOnly')"
-          ><UiSelect
-            v-model="knowledgeEditorForm.status"
-            :options="statusOptions"
-            :label="t('knowledge.knowledgeStatus')"
+          ><UiSelect v-model="knowledgeEditorForm.status" :options="statusOptions" :label="t('common.status')"
         /></UiField>
       </div>
       <UiField :label="t('common.body')"

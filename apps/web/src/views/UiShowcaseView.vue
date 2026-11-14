@@ -132,7 +132,7 @@ async function tryConfirm(): Promise<void> {
               { value: 'all', label: t('showcase.all') },
               { value: 'a', label: 'A' },
             ]"
-            :label="t('showcase.demoMenu')"
+            :label="t('showcase.menu')"
         /></UiField>
         <UiField :label="t('showcase.error')" :error="t('showcase.required')"><UiTextInput v-model="text" /></UiField>
       </div>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import type { IconComponent } from "./types";
+import { useFieldDescription } from "./field";
 
 withDefaults(
   defineProps<{
@@ -18,13 +19,25 @@ withDefaults(
 );
 
 const model = defineModel<string>({ default: "" });
+const describedBy = useFieldDescription();
 const input = ref<HTMLInputElement | null>(null);
+
+// The root is a <span>, not a <label>: inside UiField (a <label> itself) a nested label would become the input's
+// nearest label, leaving it with an empty name. The wrapper still focuses the input so the whole box is clickable,
+// but never steals clicks from slotted prefix/suffix controls.
+function focusFromWrapper(event: MouseEvent): void {
+  const target = event.target as Element | null;
+  if (target?.closest("button, a, input, select, textarea, [role='button']")) {
+    return;
+  }
+  input.value?.focus();
+}
 
 defineExpose({ focus: () => input.value?.focus() });
 </script>
 
 <template>
-  <label :class="['ui-text-input', `ui-text-input--${size}`]">
+  <span :class="['ui-text-input', `ui-text-input--${size}`]" @click="focusFromWrapper">
     <component :is="icon" v-if="icon" :size="16" :stroke-width="1.75" class="ui-text-input__icon" aria-hidden="true" />
     <slot name="prefix" />
     <input
@@ -33,13 +46,14 @@ defineExpose({ focus: () => input.value?.focus() });
       :type="type"
       :placeholder="placeholder"
       :aria-label="label"
+      :aria-describedby="describedBy"
       :maxlength="maxlength"
       :required="required"
       :autofocus="autofocus"
       :class="{ mono }"
     />
     <slot name="suffix" />
-  </label>
+  </span>
 </template>
 
 <style scoped>

@@ -1,9 +1,35 @@
 import { describe, expect, it } from "vitest";
 import { MAX_HANDOFF_CONTENT_LENGTH, parseHandoffContent } from "../../packages/storage/src/handoff-parser.js";
+import { bestOfMs, doublingGrowth, scaledLimit } from "../helpers/timing.js";
 
 const FULL_LENGTH = MAX_HANDOFF_CONTENT_LENGTH;
 const HALF_LENGTH = FULL_LENGTH / 2;
 const MAX_MILLISECONDS = 200;
+// The limit is meant for an ordinary machine. A realistic document of the same size is timed in the same process
+// (see tests/helpers/timing.ts); when the machine parses that one slower than this budget (coverage instrumentation,
+// a loaded CI runner), the limit scales by the same factor. A quadratic parser still fails: it costs seconds on the
+// adversarial shapes while the realistic document does not move, and the factor is capped for a slowdown that does.
+const REFERENCE_BUDGET_MS = 15;
+const REFERENCE_DOCUMENT = [
+  "# Handoff: orchard irrigation",
+  "",
+  "status: done",
+  "",
+  "## summary",
+  "Replaced the valve controller and verified the schedule.",
+  "",
+  "## changed files",
+  "- `src/valves/controller.ts` - new schedule",
+  "- src/valves/schedule.ts",
+  "",
+  "## verification",
+  "test pnpm test passed",
+  "",
+  "## next steps",
+  "- watch the pressure log",
+  "",
+  "",
+].join("\n");
 // Doubling the input should about double the time; a quadratic parser quadruples it.
 const MAX_DOUBLING_RATIO = 3.2;
 const RATIO_BASELINE_FLOOR_MS = 10;
@@ -80,21 +106,27 @@ function shapes(length: number): Record<string, string> {
   };
 }
 
-function bestOfThree(input: string): number {
-  let best = Number.POSITIVE_INFINITY;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const started = performance.now();
-    parseHandoffContent(input, "/fictional/orchard-project", ".openspec/handoffs/adversarial.md");
-    best = Math.min(best, performance.now() - started);
-  }
-  return best;
+function parse(input: string): void {
+  parseHandoffContent(input, "/fictional/orchard-project", ".openspec/handoffs/adversarial.md");
 }
 
 describe("handoff parser linear time", () => {
   it("parses 200,000 characters of every adversarial shape quickly", () => {
+    const reference = REFERENCE_DOCUMENT.repeat(Math.ceil(FULL_LENGTH / REFERENCE_DOCUMENT.length)).slice(
+      0,
+      FULL_LENGTH,
+    );
+    const { limitMs } = scaledLimit({
+      limitMs: MAX_MILLISECONDS,
+      reference: () => parse(reference),
+      referenceBudgetMs: REFERENCE_BUDGET_MS,
+    });
     for (const [shape, input] of Object.entries(adversarialInputs(FULL_LENGTH))) {
       expect(input.length, shape).toBe(FULL_LENGTH);
-      expect(bestOfThree(input), shape).toBeLessThan(MAX_MILLISECONDS);
+      expect(
+        bestOfMs(() => parse(input)),
+        shape,
+      ).toBeLessThan(limitMs);
     }
   });
 
@@ -102,8 +134,13 @@ describe("handoff parser linear time", () => {
     const half = adversarialInputs(HALF_LENGTH);
     const full = adversarialInputs(FULL_LENGTH);
     for (const shape of Object.keys(full)) {
-      const halfTime = Math.max(bestOfThree(half[shape] ?? ""), RATIO_BASELINE_FLOOR_MS);
-      expect(bestOfThree(full[shape] ?? ""), shape).toBeLessThan(halfTime * MAX_DOUBLING_RATIO);
+      const { smallMs, largeMs } = doublingGrowth({
+        small: () => parse(half[shape] ?? ""),
+        large: () => parse(full[shape] ?? ""),
+        floorMs: RATIO_BASELINE_FLOOR_MS,
+        withinLimit: (small, large) => large < small * MAX_DOUBLING_RATIO,
+      });
+      expect(largeMs, shape).toBeLessThan(smallMs * MAX_DOUBLING_RATIO);
     }
   });
 });
