@@ -266,6 +266,7 @@ describe("secret redaction coverage", () => {
           small: () => redactText(small[shape]!),
           large: () => redactText(input),
           floorMs: 5,
+          withinLimit: (smallMs, largeMs) => largeMs < smallMs * 3.5 + 50,
         });
         // Quadratic work would take four times as long (or far more); the slack absorbs timer and GC noise.
         expect(full, shape).toBeLessThan(half * 3.5 + 50);

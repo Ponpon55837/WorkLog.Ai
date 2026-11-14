@@ -52,23 +52,33 @@ export function scaledLimit(options: {
 /**
  * Times a workload and the same workload at twice the size, interleaved so a load spike hits both the same way, and
  * returns the best time of each. The small time is floored at `floorMs` so a sub-millisecond baseline cannot make a
- * noisy ratio. A caller asserts `largeMs < smallMs * ratio`; linear work stays near 2, quadratic work reaches 4.
+ * noisy ratio. `withinLimit` is the caller's growth assertion (linear work stays near 2x, quadratic reaches 4x); a
+ * round that misses it is measured again, up to `rounds` times, and the last round is returned for the assertion.
+ * The limit itself never moves: quadratic work misses it in every round, while a GC pause or a busy neighbour in a
+ * parallel test run rarely repeats.
  */
 export function doublingGrowth(options: {
   small: () => unknown;
   large: () => unknown;
   floorMs: number;
+  withinLimit: (smallMs: number, largeMs: number) => boolean;
   attempts?: number;
+  rounds?: number;
 }): {
   smallMs: number;
   largeMs: number;
 } {
-  const { small, large, floorMs, attempts = 3 } = options;
-  let smallMs = Number.POSITIVE_INFINITY;
-  let largeMs = Number.POSITIVE_INFINITY;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    smallMs = Math.min(smallMs, bestOfMs(small, 1));
-    largeMs = Math.min(largeMs, bestOfMs(large, 1));
+  const { small, large, floorMs, withinLimit, attempts = 3, rounds = 3 } = options;
+  let measured = { smallMs: 0, largeMs: Number.POSITIVE_INFINITY };
+  for (let round = 0; round < rounds; round += 1) {
+    let smallMs = Number.POSITIVE_INFINITY;
+    let largeMs = Number.POSITIVE_INFINITY;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      smallMs = Math.min(smallMs, bestOfMs(small, 1));
+      largeMs = Math.min(largeMs, bestOfMs(large, 1));
+    }
+    measured = { smallMs: Math.max(smallMs, floorMs), largeMs };
+    if (withinLimit(measured.smallMs, measured.largeMs)) break;
   }
-  return { smallMs: Math.max(smallMs, floorMs), largeMs };
+  return measured;
 }

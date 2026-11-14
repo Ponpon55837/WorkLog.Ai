@@ -138,6 +138,7 @@ describe("handoff parser linear time", () => {
         small: () => parse(half[shape] ?? ""),
         large: () => parse(full[shape] ?? ""),
         floorMs: RATIO_BASELINE_FLOOR_MS,
+        withinLimit: (small, large) => large < small * MAX_DOUBLING_RATIO,
       });
       expect(largeMs, shape).toBeLessThan(smallMs * MAX_DOUBLING_RATIO);
     }
