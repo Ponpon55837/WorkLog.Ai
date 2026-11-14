@@ -2629,6 +2629,7 @@ test.describe("Work Intelligence browser regression", () => {
       await expect(dialog).toContainText(tt("projects.aFullDatabaseBackupIs"));
       await expect(dialog).toContainText(tt("projects.deletionHappensOnlyAfterA", { name }));
       const confirmation = dialog.getByLabel(tt("projects.typeTheProjectNameTo"));
+      await expect(confirmation).toHaveAccessibleDescription(tt("projects.typeToConfirmPermanentDeletion", { name }));
       const deleteButton = dialog.getByRole("button", { name: tt("projects.deletePermanently"), exact: true });
       await confirmation.fill("Wrong name");
       await expect(deleteButton).toBeDisabled();

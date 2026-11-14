@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import type { IconComponent } from "./types";
+import { useFieldDescription } from "./field";
 
 withDefaults(
   defineProps<{
@@ -18,6 +19,7 @@ withDefaults(
 );
 
 const model = defineModel<string>({ default: "" });
+const describedBy = useFieldDescription();
 const input = ref<HTMLInputElement | null>(null);
 
 // The root is a <span>, not a <label>: inside UiField (a <label> itself) a nested label would become the input's
@@ -44,6 +46,7 @@ defineExpose({ focus: () => input.value?.focus() });
       :type="type"
       :placeholder="placeholder"
       :aria-label="label"
+      :aria-describedby="describedBy"
       :maxlength="maxlength"
       :required="required"
       :autofocus="autofocus"

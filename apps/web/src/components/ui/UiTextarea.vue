@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import { useFieldDescription } from "./field";
+
 withDefaults(
   defineProps<{ rows?: number; placeholder?: string; maxlength?: number; required?: boolean; mono?: boolean }>(),
   { rows: 4 },
 );
 
 const model = defineModel<string>({ default: "" });
+const describedBy = useFieldDescription();
 </script>
 
 <template>
@@ -14,6 +17,7 @@ const model = defineModel<string>({ default: "" });
     :rows="rows"
     :placeholder="placeholder"
     :maxlength="maxlength"
+    :aria-describedby="describedBy"
     :required="required"
   ></textarea>
 </template>
