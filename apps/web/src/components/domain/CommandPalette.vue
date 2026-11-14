@@ -125,15 +125,21 @@ watch(query, (term) => {
   timer = window.setTimeout(() => paletteStore.setSearchTerm(term), 200);
 });
 
-watch(open, async (value) => {
-  paletteStore.setOpen(value);
-  if (value) {
-    query.value = "";
-    active.value = 0;
-    await nextTick();
-    input.value?.focus();
-  }
-});
+// Immediate: the palette can mount already open (AppOverlays loads lazily, and a language switch re-keys it), and the
+// store must still learn it is open or Session and Knowledge search never runs.
+watch(
+  open,
+  async (value) => {
+    paletteStore.setOpen(value);
+    if (value) {
+      query.value = "";
+      active.value = 0;
+      await nextTick();
+      input.value?.focus();
+    }
+  },
+  { immediate: true },
+);
 </script>
 
 <template>
@@ -154,7 +160,8 @@ watch(open, async (value) => {
             @keydown="onKeydown"
           />
         </label>
-        <ul id="palette-results" class="palette__results" role="listbox">
+        <!-- A listbox may only own options, so the empty message sits beside it and the empty list is hidden. -->
+        <ul v-show="items.length > 0" id="palette-results" class="palette__results" role="listbox">
           <template v-for="(item, index) in items" :key="item.id">
             <li v-if="isGroupStart(index)" class="palette__group" role="presentation">{{ item.group }}</li>
             <li
@@ -177,8 +184,8 @@ watch(open, async (value) => {
               />
             </li>
           </template>
-          <li v-if="items.length === 0" class="palette__empty">{{ t("palette.noMatchingItems") }}</li>
         </ul>
+        <p v-if="items.length === 0" class="palette__empty" role="status">{{ t("palette.noMatchingItems") }}</p>
         <div class="palette__footer">
           <kbd>↑</kbd><kbd>↓</kbd> {{ t("palette.select") }} <kbd>Enter</kbd> {{ t("palette.open") }} <kbd>Esc</kbd>
           {{ t("common.close") }}
@@ -288,6 +295,8 @@ watch(open, async (value) => {
 }
 
 .palette__empty {
+  flex: 1;
+  margin: 0;
   padding: var(--space-6);
   color: var(--fg-muted);
   text-align: center;

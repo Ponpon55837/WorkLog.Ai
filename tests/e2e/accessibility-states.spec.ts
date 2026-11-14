@@ -111,6 +111,24 @@ test("has no critical or serious axe violations on primary pages in English @acc
   expect(failures, `axe found critical or serious accessibility issues:\n${failures.join("\n")}`).toEqual([]);
 });
 
+test("searches Sessions from a palette that mounts already open", async ({ page }) => {
+  // Hold the lazily loaded overlays chunk so the palette is opened before its component exists.
+  let releaseOverlays: () => void = () => undefined;
+  const overlaysHeld = new Promise<void>((resolve) => (releaseOverlays = resolve));
+  await page.route("**/assets/AppOverlays-*.js", async (route) => {
+    await overlaysHeld;
+    await route.continue();
+  });
+  await page.goto("/dashboard");
+  await page.getByRole("button", { name: textIn("zh-TW", "layout.searchSessionsKnowledgeOrJump") }).click();
+  releaseOverlays();
+  const palette = page.getByRole("dialog", { name: textIn("zh-TW", "common.searchOrJumpToA") });
+  const search = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/sessions");
+  await palette.getByRole("combobox").fill(sessionTitle);
+  await search;
+  await expect(palette.getByRole("option", { name: sessionTitle })).toBeVisible();
+});
+
 for (const locale of locales) {
   test.describe(`interactive states in ${locale}`, () => {
     test.beforeEach(async ({ page }) => {
@@ -132,6 +150,10 @@ for (const locale of locales) {
       await input.fill("Accessibility states");
       await expect(palette.getByRole("option").first()).toBeVisible();
       await expectNoSeriousViolations(page, `${locale} palette with results`);
+
+      await input.fill(`no fictional match ${runId}`);
+      await expect(palette.getByRole("status")).toHaveText(textIn(locale, "palette.noMatchingItems"));
+      await expectNoSeriousViolations(page, `${locale} palette without results`);
 
       await page.keyboard.press("Escape");
       await expect(input).toBeHidden();
