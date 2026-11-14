@@ -15,10 +15,12 @@ import {
   projectDataExportTableColumns,
   projectDataColumnValue,
   projectDataImportInputSchema,
+  MAX_STORED_JSON_DEPTH,
 } from "../../packages/schema/src/index.js";
 import { canonicalizeProjectRoot } from "../../packages/project-policy/src/index.js";
 import { remapPathPrefix, storedProjectRoot } from "../../packages/storage/src/project-path-remap.js";
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
+import { ValidatedProjectDataImport } from "../../packages/storage/src/project-data-transfer.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
 const stores: WorkIntelligenceStore[] = [];
@@ -2113,5 +2115,245 @@ describe("imported project root storage", () => {
       source.close();
       destination.close();
     }
+  });
+});
+
+describe("newer-wins never moves a row to another project", () => {
+  const FUTURE = "2099-01-01T00:00:00.000Z";
+  const FOREIGN_ID = "project-foreign";
+
+  function projectOf(store: WorkIntelligenceStore, table: string, id: string): unknown {
+    return readRows(store, `SELECT project_id FROM ${table} WHERE id = ?`, id);
+  }
+
+  /** The local project's own export, with every row re-pointed at a different project (new ID, new root). */
+  function foreignCopy(store: WorkIntelligenceStore, projectId: string, root: string): ProjectDataExport {
+    const bundle = structuredClone(store.exportProjectData({ type: "project", projectId }));
+    for (const rows of Object.values(bundle.tables)) {
+      for (const item of rows) {
+        if (item.project_id === projectId) item.project_id = FOREIGN_ID;
+      }
+    }
+    const project = bundle.tables.projects[0];
+    if (!project) throw new Error("Expected the project row.");
+    project.id = FOREIGN_ID;
+    project.root_path = root;
+    bundle.scope = { type: "project", projectId: FOREIGN_ID };
+    return bundle;
+  }
+
+  it("turns a same-id Session of another project into a conflict and leaves the local row untouched", () => {
+    const source = createSource();
+    const [sessionId] = source.sessionIds;
+    const bundle = foreignCopy(source.store, source.projectId, join(source.root, "foreign-root"));
+    const session = bundle.tables.sessions.find((item) => item.id === sessionId);
+    if (!session) throw new Error("Expected the Session.");
+    session.summary = "來自另一個專案的覆寫。";
+    session.updated_at = FUTURE;
+    const before = readRows(source.store, "SELECT * FROM sessions WHERE id = ?", sessionId);
+
+    const preview = source.store.previewProjectDataImport({ bundle, strategy: "newer-wins" });
+    expect(preview.conflictDetails).toContainEqual(expect.objectContaining({ table: "sessions", id: sessionId }));
+    expect(preview.updates.sessions ?? 0).toBe(0);
+    source.store.importProjectData({ bundle, strategy: "newer-wins" });
+
+    expect(readRows(source.store, "SELECT * FROM sessions WHERE id = ?", sessionId)).toEqual(before);
+    expect(projectOf(source.store, "sessions", sessionId as string)).toEqual([{ project_id: source.projectId }]);
+  });
+
+  it("keeps merge strategy behavior for a same-id Session of another project", () => {
+    const source = createSource();
+    const [sessionId] = source.sessionIds;
+    const bundle = foreignCopy(source.store, source.projectId, join(source.root, "foreign-root"));
+    const session = bundle.tables.sessions.find((item) => item.id === sessionId);
+    if (!session) throw new Error("Expected the Session.");
+    session.updated_at = FUTURE;
+    const before = readRows(source.store, "SELECT * FROM sessions WHERE id = ?", sessionId);
+
+    const preview = source.store.previewProjectDataImport({ bundle });
+    expect(preview.conflictDetails).toContainEqual({
+      table: "sessions",
+      id: sessionId,
+      reason: "匯入資料較新；選擇「較新者優先」即可更新本機資料。",
+      category: "newer_content",
+    });
+    source.store.importProjectData({ bundle });
+    expect(readRows(source.store, "SELECT * FROM sessions WHERE id = ?", sessionId)).toEqual(before);
+  });
+
+  it("refuses to move a child row to another project through its own project_id", () => {
+    const source = createSource();
+    const [sessionId] = source.sessionIds;
+    const bundle = structuredClone(source.store.exportProjectData({ type: "project", projectId: source.projectId }));
+    const foreign = structuredClone(bundle.tables.projects[0]);
+    if (!foreign) throw new Error("Expected the project row.");
+    foreign.id = FOREIGN_ID;
+    foreign.root_path = join(source.root, "foreign-root");
+    bundle.tables.projects.push(foreign);
+    bundle.scope = { type: "all" };
+    const evidence = bundle.tables.evidence.find((item) => item.id === "evidence-portable-1");
+    if (!evidence) throw new Error("Expected the evidence row.");
+    evidence.project_id = FOREIGN_ID;
+    evidence.summary = "改成另一個專案的證據。";
+    evidence.voided_at = FUTURE;
+    const before = readRows(source.store, "SELECT * FROM evidence WHERE id = ?", "evidence-portable-1");
+
+    const preview = source.store.previewProjectDataImport({ bundle, strategy: "newer-wins" });
+    expect(preview.conflictDetails).toContainEqual(
+      expect.objectContaining({ table: "evidence", id: "evidence-portable-1", category: "dependency" }),
+    );
+    source.store.importProjectData({ bundle, strategy: "newer-wins" });
+    expect(readRows(source.store, "SELECT * FROM evidence WHERE id = ?", "evidence-portable-1")).toEqual(before);
+    expect(sessionId).toBeDefined();
+  });
+
+  it("refuses to re-parent a child row to another Session even inside the same project", () => {
+    const source = createSource();
+    const [firstId, secondId] = source.sessionIds;
+    const bundle = structuredClone(source.store.exportProjectData({ type: "project", projectId: source.projectId }));
+    const item = bundle.tables.outstanding_items.find((entry) => entry.source_session_id === firstId);
+    if (!item) throw new Error("Expected the outstanding item.");
+    item.source_session_id = secondId as string;
+    item.status = "completed";
+    item.updated_at = FUTURE;
+    const before = readRows(source.store, "SELECT * FROM outstanding_items WHERE id = ?", String(item.id));
+
+    const preview = source.store.previewProjectDataImport({ bundle, strategy: "newer-wins" });
+    expect(preview.conflictDetails).toContainEqual(
+      expect.objectContaining({ table: "outstanding_items", id: String(item.id), category: "dependency" }),
+    );
+    source.store.importProjectData({ bundle, strategy: "newer-wins" });
+    expect(readRows(source.store, "SELECT * FROM outstanding_items WHERE id = ?", String(item.id))).toEqual(before);
+  });
+
+  it("does not attach new child rows of another project to a local Session absent from the file", () => {
+    const source = createSource();
+    const [sessionId] = source.sessionIds;
+    const base = structuredClone(source.store.exportProjectData({ type: "project", projectId: source.projectId }));
+    const event = base.tables.work_events.find((item) => item.session_id === sessionId);
+    const project = structuredClone(base.tables.projects[0]);
+    if (!event || !project) throw new Error("Expected a work event and the project.");
+    project.id = FOREIGN_ID;
+    project.root_path = join(source.root, "foreign-root");
+    const bundle = structuredClone(base);
+    for (const table of Object.keys(bundle.tables) as ProjectDataTable[]) bundle.tables[table] = [];
+    bundle.tables.projects = [project];
+    bundle.tables.work_events = [{ ...event, id: "foreign-work-event" }];
+    bundle.scope = { type: "all" };
+    const before = readRows(source.store, "SELECT COUNT(*) AS n FROM work_events WHERE session_id = ?", sessionId);
+
+    for (const strategy of ["merge", "newer-wins"] as const) {
+      const preview = source.store.previewProjectDataImport({ bundle, strategy });
+      expect(preview.conflictDetails).toContainEqual(
+        expect.objectContaining({ table: "work_events", id: "foreign-work-event", category: "dependency" }),
+      );
+      source.store.importProjectData({ bundle, strategy });
+    }
+    expect(readRows(source.store, "SELECT COUNT(*) AS n FROM work_events WHERE session_id = ?", sessionId)).toEqual(
+      before,
+    );
+  });
+
+  it("does not attach a new child row of another project to a local parent that is not a Session", () => {
+    const { machineA, pageId } = createTwoMachines();
+    const bundle = foreignCopy(machineA.store, machineA.projectId, join(machineA.root, "foreign-root"));
+    const page = bundle.tables.knowledge_pages.find((item) => item.id === pageId);
+    const version = bundle.tables.knowledge_page_versions[0];
+    if (!page || !version) throw new Error("Expected the page and a version.");
+    // The page copy is older than the local one, so it is kept local; the new version row must not follow it.
+    page.updated_at = "2020-01-01T00:00:00.000Z";
+    page.created_at = "2020-01-01T00:00:00.000Z";
+    bundle.tables.knowledge_page_versions.push({
+      ...version,
+      id: "foreign-version",
+      version: 9,
+      idempotency_key: "foreign-version-key",
+    });
+    machineA.store.importProjectData({ bundle, strategy: "newer-wins" });
+    expect(readRows(machineA.store, "SELECT id FROM knowledge_page_versions WHERE project_id = ?", FOREIGN_ID)).toEqual(
+      [],
+    );
+    expect(readRows(machineA.store, "SELECT id FROM knowledge_page_versions WHERE id = ?", "foreign-version")).toEqual(
+      [],
+    );
+  });
+
+  it("still applies a newer same-project Session under newer-wins", () => {
+    const source = createSource();
+    const [sessionId] = source.sessionIds;
+    const bundle = structuredClone(source.store.exportProjectData({ type: "project", projectId: source.projectId }));
+    const session = bundle.tables.sessions.find((item) => item.id === sessionId);
+    if (!session) throw new Error("Expected the Session.");
+    session.summary = "同一專案的較新摘要。";
+    session.updated_at = FUTURE;
+
+    source.store.importProjectData({ bundle, strategy: "newer-wins" });
+    expect(readRows(source.store, "SELECT summary, project_id FROM sessions WHERE id = ?", sessionId)).toEqual([
+      { summary: "同一專案的較新摘要。", project_id: source.projectId },
+    ]);
+  });
+
+  it("compares owners after the imported project is mapped to the local one by root path", () => {
+    const source = createSource();
+    const [sessionId] = source.sessionIds;
+    // The file calls the same checkout by another project ID; import maps it onto the local project.
+    const bundle = foreignCopy(source.store, source.projectId, source.projectRoot);
+    const session = bundle.tables.sessions.find((item) => item.id === sessionId);
+    if (!session) throw new Error("Expected the Session.");
+    session.summary = "以路徑對應到本機專案的更新。";
+    session.updated_at = FUTURE;
+
+    source.store.importProjectData({ bundle, strategy: "newer-wins" });
+    expect(readRows(source.store, "SELECT summary, project_id FROM sessions WHERE id = ?", sessionId)).toEqual([
+      { summary: "以路徑對應到本機專案的更新。", project_id: source.projectId },
+    ]);
+    expect(source.store.listProjects()).toHaveLength(1);
+  });
+});
+
+describe("deeply nested JSON columns in an import", () => {
+  const SECRET = `ghp_${"A".repeat(36)}`;
+
+  function nestedArrayJson(levels: number, leaf: string): string {
+    return `${"[".repeat(levels)}${JSON.stringify(leaf)}${"]".repeat(levels)}`;
+  }
+
+  it.each([5_000, 50_000])("rejects %i levels in work_events.details_json with invalid_input", (levels) => {
+    for (const leaf of ["plain text", `token ${SECRET}`]) {
+      const source = createSource();
+      const bundle = structuredClone(source.store.exportProjectData({ type: "project", projectId: source.projectId }));
+      const event = bundle.tables.work_events[0];
+      if (!event) throw new Error("Expected a work event.");
+      event.details_json = nestedArrayJson(levels, leaf);
+      for (const run of [
+        () => ValidatedProjectDataImport.validate({ bundle }),
+        () => source.store.previewProjectDataImport({ bundle }),
+        () => source.store.importProjectData({ bundle }),
+      ]) {
+        expect(run).toThrowError(expect.objectContaining({ name: "ProjectDataTransferError", code: "invalid_input" }));
+      }
+    }
+  });
+
+  it("accepts nesting at the limit and masks a secret inside it", () => {
+    const source = createSource();
+    const bundle = structuredClone(source.store.exportProjectData({ type: "project", projectId: source.projectId }));
+    const event = bundle.tables.work_events[0];
+    if (!event) throw new Error("Expected a work event.");
+    event.details_json = nestedArrayJson(MAX_STORED_JSON_DEPTH, `token ${SECRET}`);
+    const validated = ValidatedProjectDataImport.validate({ bundle });
+    expect(validated.redactions.total).toBe(1);
+    expect(String(validated.input.bundle.tables.work_events[0]?.details_json)).not.toContain(SECRET);
+  });
+
+  it("turns an unexpected failure while validating into invalid_input", () => {
+    const hostile = {
+      get bundle(): never {
+        throw new RangeError("Maximum call stack size exceeded");
+      },
+    };
+    expect(() => ValidatedProjectDataImport.validate(hostile)).toThrowError(
+      expect.objectContaining({ name: "ProjectDataTransferError", code: "invalid_input" }),
+    );
   });
 });

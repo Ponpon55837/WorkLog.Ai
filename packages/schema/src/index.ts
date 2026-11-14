@@ -1777,6 +1777,41 @@ export const projectDataExportTableColumns = {
   ],
 } as const satisfies Record<(typeof PROJECT_DATA_TABLES)[number], readonly string[]>;
 
+/**
+ * Deepest nesting a stored `*_json` column may have in an import bundle. Everything Work Intelligence writes nests
+ * a handful of levels (report presentation state and knowledge page sections are the deepest); Agent-supplied
+ * work event details are free-form but only ever a few levels in practice. 100 leaves a wide margin while staying far
+ * below what recursive consumers (JSON.stringify, zod, structured clone) can survive.
+ */
+export const MAX_STORED_JSON_DEPTH = 100;
+
+/**
+ * Whether JSON text nests arrays/objects deeper than `limit`. A single linear scan of the brackets outside strings,
+ * so it is safe to run on hostile text before JSON.parse; it does not validate the rest of the syntax.
+ */
+export function jsonTextExceedsDepth(text: string, limit: number = MAX_STORED_JSON_DEPTH): boolean {
+  let depth = 0;
+  let inString = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    if (inString) {
+      if (code === 0x5c) {
+        index += 1; // A backslash escapes the next character, including a quote.
+      } else if (code === 0x22) {
+        inString = false;
+      }
+    } else if (code === 0x22) {
+      inString = true;
+    } else if (code === 0x5b || code === 0x7b) {
+      depth += 1;
+      if (depth > limit) return true;
+    } else if ((code === 0x5d || code === 0x7d) && depth > 0) {
+      depth -= 1;
+    }
+  }
+  return false;
+}
+
 const projectDataValueSchema = z.union([z.string().max(2_000_000), z.number().finite(), z.null()]);
 const projectDataRowSchema = z.record(z.string().regex(/^[a-z_]+$/), projectDataValueSchema);
 const projectDataRows = z.array(projectDataRowSchema).max(200_000);
@@ -2160,6 +2195,18 @@ const projectDataExportObjectSchema = z
       const numeric = new Set(projectDataNumericColumns[table] ?? []);
       const ids = new Set<string>();
       rows.forEach((row, index) => {
+        // Before any JSON.parse below: a hostile deeply nested value must be rejected by a linear scan, not parsed.
+        const tooDeep = Object.entries(row).find(
+          ([column, value]) => column.endsWith("_json") && typeof value === "string" && jsonTextExceedsDepth(value),
+        );
+        if (tooDeep) {
+          context.addIssue({
+            code: "custom",
+            path: ["tables", table, index, tooDeep[0]],
+            message: `${table}.${tooDeep[0]} 的巢狀層數不可超過 ${MAX_STORED_JSON_DEPTH} 層。`,
+          });
+          return;
+        }
         if (
           table === "session_diagrams" &&
           (projectDataColumnValue(table, row, "format_version") !== 1 ||
