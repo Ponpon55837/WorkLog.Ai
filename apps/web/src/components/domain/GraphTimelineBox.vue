@@ -542,8 +542,10 @@ onBeforeUnmount(() => {
 
     <template v-else-if="timeline">
       <p v-if="view === 'chart'" class="timeline__legend" aria-hidden="true">
-        <span><i class="timeline__swatch timeline__swatch--done" />{{ t("graph.legendCompletedSession") }}</span>
+        <span><i class="timeline__swatch timeline__swatch--passed" />{{ t("graph.verificationPassed") }}</span>
         <span><i class="timeline__swatch timeline__swatch--failed" />{{ t("graph.verificationFailed") }}</span>
+        <span><i class="timeline__swatch timeline__swatch--in_progress" />{{ t("common.inProgress") }}</span>
+        <span><i class="timeline__swatch timeline__swatch--other" />{{ t("graph.notRunOrNotProvided") }}</span>
         <span><i class="timeline__swatch timeline__swatch--created" />{{ t("graph.legendNewKnowledge") }}</span>
         <span><i class="timeline__swatch timeline__swatch--open" />{{ t("graph.legendConfirmedSuperseded") }}</span>
         <span
@@ -741,12 +743,20 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-xs);
 }
 
-.timeline__swatch--done {
-  background: var(--fg-subtle);
+.timeline__swatch--passed {
+  background: var(--success);
 }
 
 .timeline__swatch--failed {
   background: var(--danger);
+}
+
+.timeline__swatch--in_progress {
+  background: var(--accent);
+}
+
+.timeline__swatch--other {
+  background: var(--fg-muted);
 }
 
 .timeline__swatch--created {
@@ -781,14 +791,22 @@ onBeforeUnmount(() => {
   margin-left: auto;
 }
 
-/* Bars are neutral: only a failed verification is colored. */
+/* A bar takes the color of its verification result; not run and not supplied stay muted. */
 .timeline__bar {
-  color: var(--fg-subtle);
+  color: var(--fg-muted);
   cursor: pointer;
+}
+
+.timeline__bar--passed {
+  color: var(--success);
 }
 
 .timeline__bar--failed {
   color: var(--danger);
+}
+
+.timeline__bar--in_progress {
+  color: var(--accent);
 }
 
 .timeline__bar rect,
@@ -855,15 +873,20 @@ onBeforeUnmount(() => {
   transition: opacity var(--duration-instant) ease-out;
 }
 
-.timeline__segment--passed,
-.timeline__segment--in_progress,
-.timeline__segment--other {
-  fill: var(--fg-subtle);
-  fill-opacity: 0.75;
+.timeline__segment--passed {
+  fill: var(--success);
 }
 
 .timeline__segment--failed {
   fill: var(--danger);
+}
+
+.timeline__segment--in_progress {
+  fill: var(--accent);
+}
+
+.timeline__segment--other {
+  fill: var(--fg-muted);
 }
 
 .timeline__axis text {
