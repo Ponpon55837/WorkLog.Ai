@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { ExternalLink, GitCompare, History, Pencil, Sparkles, X } from "lucide-vue-next";
+import { ExternalLink, FolderGit2, GitCompare, History, Pencil, Sparkles } from "lucide-vue-next";
 import { KNOWLEDGE_PAGE_INSUFFICIENT, type ProjectRecord } from "@work-intelligence/core";
 import { useToast } from "../../composables/useToast";
 import { useKnowledgePagesStore } from "../../stores/knowledge-pages";
@@ -10,9 +10,9 @@ import { errorMessage, formatDate, formatRelative } from "../../utils/format";
 import { knowledgePageReviewReasonLabels, knowledgePageStatusVisual } from "../../utils/status";
 import UiButton from "../ui/UiButton.vue";
 import UiFlash from "../ui/UiFlash.vue";
-import UiIconButton from "../ui/UiIconButton.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import UiSidePanel from "../ui/UiSidePanel.vue";
+import UiSidePanelHeader from "../ui/UiSidePanelHeader.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 import KnowledgePageDiff from "./KnowledgePageDiff.vue";
 import KnowledgePageEditorDialog from "./KnowledgePageEditorDialog.vue";
@@ -109,36 +109,34 @@ watch([() => openPage.value?.id, shownVersion], () => {
     @close="close"
   >
     <template #header>
-      <div class="page-panel__top">
-        <span class="page-panel__eyebrow">{{ project?.name ?? t("common.knowledgePages") }}</span>
-        <UiIconButton :icon="X" :label="t('knowledge.closeKnowledgePage')" @click="close" />
-      </div>
-      <h2 class="page-panel__title">{{ shown?.title }}</h2>
-      <p class="page-panel__question">{{ shown?.question }}</p>
-      <div v-if="openPage" class="page-panel__meta">
-        <StatusLabel :status="knowledgePageStatusVisual[openPage.status]" />
-        <UiLabel v-if="openPage.needsReview" tone="danger">{{ t("knowledge.citedSourcesNeedChecking") }}</UiLabel>
-        <UiLabel v-if="openPage.newSessionCount > 0" tone="accent">{{
-          t("knowledge.newSessionsToAssessCount", { newSessionCount: openPage.newSessionCount })
-        }}</UiLabel>
-        <UiLabel v-if="openPage.updateRequestedAt" tone="accent">{{ t("knowledge.updateRequested") }}</UiLabel>
-      </div>
-      <div class="page-panel__actions">
-        <UiButton size="sm" :icon="Sparkles" :loading="requesting" @click="requestUpdate">{{
-          t("knowledge.askAgentToUpdate")
-        }}</UiButton>
-        <UiButton size="sm" :icon="Pencil" :disabled="shownVersion !== null" @click="editorOpen = true">{{
-          t("knowledge.editedByHand")
-        }}</UiButton>
-        <UiButton
-          v-if="previousVersion"
-          size="sm"
-          :icon="GitCompare"
-          :aria-pressed="comparing"
-          @click="comparing = !comparing"
-          >{{ comparing ? t("knowledge.closeComparison") : t("knowledge.compareWithPrevious") }}</UiButton
-        >
-      </div>
+      <UiSidePanelHeader :title="shown?.title ?? ''" :close-label="t('knowledge.closeKnowledgePage')" @close="close">
+        <p class="page-panel__question">{{ shown?.question }}</p>
+        <div v-if="openPage" class="page-panel__meta">
+          <UiLabel v-if="project" :icon="FolderGit2">{{ project.name }}</UiLabel>
+          <StatusLabel :status="knowledgePageStatusVisual[openPage.status]" />
+          <UiLabel v-if="openPage.needsReview" tone="danger">{{ t("knowledge.citedSourcesNeedChecking") }}</UiLabel>
+          <UiLabel v-if="openPage.newSessionCount > 0" tone="accent">{{
+            t("knowledge.newSessionsToAssessCount", { newSessionCount: openPage.newSessionCount })
+          }}</UiLabel>
+          <UiLabel v-if="openPage.updateRequestedAt" tone="accent">{{ t("knowledge.updateRequested") }}</UiLabel>
+        </div>
+        <div class="page-panel__actions">
+          <UiButton size="sm" :icon="Sparkles" :loading="requesting" @click="requestUpdate">{{
+            t("knowledge.askAgentToUpdate")
+          }}</UiButton>
+          <UiButton size="sm" :icon="Pencil" :disabled="shownVersion !== null" @click="editorOpen = true">{{
+            t("knowledge.editedByHand")
+          }}</UiButton>
+          <UiButton
+            v-if="previousVersion"
+            size="sm"
+            :icon="GitCompare"
+            :aria-pressed="comparing"
+            @click="comparing = !comparing"
+            >{{ comparing ? t("knowledge.closeComparison") : t("knowledge.compareWithPrevious") }}</UiButton
+          >
+        </div>
+      </UiSidePanelHeader>
     </template>
 
     <UiFlash v-if="shownVersion !== null" tone="accent">
@@ -225,26 +223,7 @@ watch([() => openPage.value?.id, shownVersion], () => {
 </template>
 
 <style scoped>
-.page-panel__top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.page-panel__eyebrow {
-  color: var(--fg-muted);
-  font-size: var(--text-xs);
-  font-weight: 600;
-}
-
-.page-panel__title {
-  margin-top: var(--space-2);
-  font-size: var(--text-xl);
-  font-weight: 600;
-}
-
 .page-panel__question {
-  margin-top: var(--space-1);
   color: var(--fg-muted);
   font-size: var(--text-sm);
 }

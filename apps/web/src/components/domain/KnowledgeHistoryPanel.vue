@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ExternalLink, History, X } from "lucide-vue-next";
+import { ExternalLink, History } from "lucide-vue-next";
 import { storeToRefs } from "pinia";
 import { useKnowledgeActions } from "../../composables/useKnowledge";
 import { useKnowledgeStore } from "../../stores/knowledge";
@@ -10,9 +10,9 @@ import UiButton from "../ui/UiButton.vue";
 import UiDisclosure from "../ui/UiDisclosure.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiFlash from "../ui/UiFlash.vue";
-import UiIconButton from "../ui/UiIconButton.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import UiSidePanel from "../ui/UiSidePanel.vue";
+import UiSidePanelHeader from "../ui/UiSidePanelHeader.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 import VirtualList from "../VirtualList.vue";
 import { t } from "../../i18n";
@@ -44,12 +44,13 @@ function openFeedbackSession(sessionId: string): void {
     @close="closeKnowledgeHistory"
   >
     <template #header>
-      <div class="history__top">
-        <span class="history__eyebrow">Knowledge audit history</span>
-        <UiIconButton :icon="X" :label="t('knowledge.closeKnowledgeChangeHistory')" @click="closeKnowledgeHistory" />
-      </div>
-      <h2 class="history__title">{{ knowledgeHistoryItem?.title }}</h2>
-      <p class="history__note">{{ t("knowledge.showsTheBeforeAndAfter") }}</p>
+      <UiSidePanelHeader
+        :title="knowledgeHistoryItem?.title ?? ''"
+        :close-label="t('knowledge.closeKnowledgeChangeHistory')"
+        @close="closeKnowledgeHistory"
+      >
+        <p class="history__note">{{ t("knowledge.showsTheBeforeAndAfter") }}</p>
+      </UiSidePanelHeader>
     </template>
 
     <UiDisclosure
@@ -125,28 +126,7 @@ function openFeedbackSession(sessionId: string): void {
 </template>
 
 <style scoped>
-.history__top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.history__eyebrow {
-  color: var(--fg-muted);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.history__title {
-  margin-top: var(--space-2);
-  font-size: var(--text-xl);
-  font-weight: 600;
-}
-
 .history__note {
-  margin-top: var(--space-1);
   color: var(--fg-muted);
   font-size: var(--text-sm);
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute } from "vue-router";
-import { ListChecks, X } from "lucide-vue-next";
+import { ListChecks } from "lucide-vue-next";
 import { storeToRefs } from "pinia";
 import type { OutstandingCleanupProposalStatus } from "@work-intelligence/core";
 import StatusLabel from "./StatusLabel.vue";
@@ -15,6 +15,7 @@ import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiPagination from "../ui/UiPagination.vue";
 import UiSidePanel from "../ui/UiSidePanel.vue";
+import UiSidePanelHeader from "../ui/UiSidePanelHeader.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 import VirtualList from "../VirtualList.vue";
 import { confirmAction } from "../../composables/useConfirm";
@@ -234,8 +235,11 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
   </div>
   <UiSidePanel :open="isOpen" :label="t('outstanding.tidyOpenItems')" :width="720" @close="close">
     <template #header>
-      <h2>{{ t("outstanding.tidyOpenItems") }}</h2>
-      <UiButton size="sm" :icon="X" icon-only :label="t('outstanding.closeOpenItemCleanup')" @click="close" />
+      <UiSidePanelHeader
+        :title="t('outstanding.tidyOpenItems')"
+        :close-label="t('outstanding.closeOpenItemCleanup')"
+        @close="close"
+      />
     </template>
     <div class="outstanding-cleanup__body">
       <p class="outstanding-cleanup__hint">

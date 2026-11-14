@@ -6,6 +6,7 @@ import { formatDate, formatRelative } from "../../utils/format";
 import { knowledgeKindVisual, knowledgeStatusVisual, knowledgeTrustVisual } from "../../utils/status";
 import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiBoxRow from "../ui/UiBoxRow.vue";
+import UiButton from "../ui/UiButton.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
@@ -52,9 +53,8 @@ const actions = computed(() => [
       }}</time>
       <template v-if="item.evidence">
         ·
-        <button
-          type="button"
-          class="knowledge-row__evidence"
+        <UiButton
+          variant="link"
           :aria-label="
             t('knowledge.confirmedTimesContradictedTimesView', {
               confirmed: item.evidence.confirmed,
@@ -69,7 +69,7 @@ const actions = computed(() => [
               contradicted: item.evidence.contradicted,
             })
           }}
-        </button>
+        </UiButton>
       </template>
       <template v-if="item.lastConfirmedAt">
         ·
@@ -99,9 +99,15 @@ const actions = computed(() => [
       >{{ t("common.sentenceEnd") }}
     </p>
     <p :class="['knowledge-row__body', { 'is-expanded': expanded }]">{{ item.body }}</p>
-    <button v-if="item.body.length > 180" type="button" class="knowledge-row__more" @click="expanded = !expanded">
+    <UiButton
+      v-if="item.body.length > 180"
+      variant="link"
+      size="sm"
+      class="knowledge-row__more"
+      @click="expanded = !expanded"
+    >
       {{ expanded ? t("knowledge.collapse") : t("knowledge.showFullText") }}
-    </button>
+    </UiButton>
     <div v-if="item.tags.length || item.references.length || item.appliesTo.length" class="knowledge-row__chips">
       <UiLabel v-for="tag in item.tags" :key="`tag-${tag}`">#{{ tag }}</UiLabel>
       <code v-for="reference in item.references" :key="`ref-${reference}`" class="knowledge-row__ref">{{
@@ -130,19 +136,6 @@ const actions = computed(() => [
 </template>
 
 <style scoped>
-.knowledge-row__evidence {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  cursor: pointer;
-}
-
-.knowledge-row__evidence:hover {
-  text-decoration: underline;
-}
-
 .knowledge-row__trust {
   margin-top: var(--space-2);
   color: var(--attention);
@@ -176,11 +169,6 @@ const actions = computed(() => [
 
 .knowledge-row__more {
   margin-top: var(--space-1);
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font-size: var(--text-xs);
 }
 
 .knowledge-row__chips {

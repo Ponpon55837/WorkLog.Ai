@@ -6,7 +6,8 @@ import UiSpinner from "./UiSpinner.vue";
 
 const props = withDefaults(
   defineProps<{
-    variant?: "default" | "primary" | "invisible" | "danger";
+    /** `link` is an inline text link that runs a command (no box, accent colour, underline on hover). */
+    variant?: "default" | "primary" | "invisible" | "danger" | "link";
     size?: "md" | "sm";
     icon?: IconComponent;
     trailingIcon?: IconComponent;
@@ -18,6 +19,8 @@ const props = withDefaults(
     /** Icon-only button: hides the label visually but keeps it for screen readers and the tooltip. */
     iconOnly?: boolean;
     label?: string;
+    /** Keeps the label on one line and ends it with an ellipsis when the button is narrower than its text. */
+    truncate?: boolean;
   }>(),
   {
     variant: "default",
@@ -30,7 +33,7 @@ const classes = computed(() => [
   "ui-button",
   `ui-button--${props.variant}`,
   `ui-button--${props.size}`,
-  { "ui-button--icon-only": props.iconOnly },
+  { "ui-button--icon-only": props.iconOnly, "ui-button--truncate": props.truncate },
 ]);
 </script>
 
@@ -161,5 +164,47 @@ const classes = computed(() => [
 
 .ui-button--danger:hover:not(:disabled) :deep(.lucide) {
   color: var(--fg-on-emphasis);
+}
+
+.ui-button--link {
+  gap: var(--space-1);
+  height: auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  text-align: start;
+  white-space: normal;
+}
+
+.ui-button--link.ui-button--sm {
+  height: auto;
+  padding: 0;
+  font-size: var(--text-xs);
+}
+
+.ui-button--link:hover:not(:disabled) {
+  border-color: transparent;
+  background: none;
+  text-decoration: underline;
+}
+
+.ui-button--link:active:not(:disabled) {
+  transform: none;
+}
+
+.ui-button--link :deep(.lucide) {
+  color: inherit;
+}
+
+.ui-button--truncate > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

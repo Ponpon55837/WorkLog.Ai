@@ -15,10 +15,13 @@ import UiBox from "../components/ui/UiBox.vue";
 import UiBoxRow from "../components/ui/UiBoxRow.vue";
 import UiBoxTitle from "../components/ui/UiBoxTitle.vue";
 import UiButton from "../components/ui/UiButton.vue";
+import UiEmptyState from "../components/ui/UiEmptyState.vue";
 import UiFlash from "../components/ui/UiFlash.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiSparkline from "../components/ui/UiSparkline.vue";
+import UiSplitLayout from "../components/ui/UiSplitLayout.vue";
 import UiStatCard from "../components/ui/UiStatCard.vue";
+import UiStatGrid from "../components/ui/UiStatGrid.vue";
 import VirtualList from "../components/VirtualList.vue";
 import { router } from "../router";
 import { useActivityStore } from "../stores/activity";
@@ -112,7 +115,7 @@ onBeforeUnmount(() => {
 
   <UiBox class="dashboard__activity" data-testid="dashboard-activity">
     <template #header>
-      <UiBoxTitle eyebrow="Activity" :title="t('dashboard.activityTitle')" />
+      <UiBoxTitle :title="t('dashboard.activityTitle')" />
     </template>
     <UiFlash v-if="activityError" tone="danger">
       {{ activityError }}
@@ -124,7 +127,7 @@ onBeforeUnmount(() => {
     <ActivityHeatmap v-else :days="activityDays" @select="openDayReport" />
   </UiBox>
 
-  <div class="dashboard__stats">
+  <UiStatGrid class="dashboard__stats">
     <UiStatCard
       :label="t('common.trackedProjects')"
       :icon="FolderGit2"
@@ -175,17 +178,17 @@ onBeforeUnmount(() => {
       :value-tone="attentionCount ? 'attention' : undefined"
       :foot="attentionComplete ? t('attention.countDescription') : t('attention.incompleteCount')"
     />
-  </div>
+  </UiStatGrid>
 
   <DashboardInsights class="dashboard__insights" />
 
-  <div class="dashboard__grid">
-    <div class="dashboard__main">
+  <UiSplitLayout>
+    <template #main>
       <AttentionBox />
 
       <UiBox>
         <template #header>
-          <UiBoxTitle eyebrow="Latest memory" :title="t('dashboard.recentlyCompletedWork')" />
+          <UiBoxTitle :title="t('dashboard.recentlyCompletedWork')" />
           <UiButton size="sm" variant="invisible" :trailing-icon="ArrowRight" :to="{ name: 'sessions' }">{{
             t("dashboard.viewAll")
           }}</UiButton>
@@ -215,49 +218,55 @@ onBeforeUnmount(() => {
           </template>
         </VirtualList>
       </UiBox>
-    </div>
+    </template>
 
-    <UiBox>
-      <template #header>
-        <UiBoxTitle eyebrow="Projects" :title="t('dashboard.projectStatus')" />
-        <UiButton size="sm" variant="invisible" :to="{ name: 'projects' }">{{ t("dashboard.manage") }}</UiButton>
-      </template>
-      <UiEmptyState
-        v-if="projectsLoaded && projects.length === 0"
-        compact
-        :icon="FolderGit2"
-        :title="t('dashboard.noProjectsYet')"
-      />
-      <VirtualList
-        v-else-if="projects.length > 0"
-        :items="visibleProjects"
-        :enabled="visibleProjects.length > 5"
-        :estimate-item-height="96"
-        max-height="min(48vh, 520px)"
-        grow-to-viewport
-        :label="t('dashboard.projectStatusList')"
-      >
-        <template #default="{ item: project }">
-          <UiBoxRow :title="project.name">
-            <template #leading
-              ><component :is="trackingStatus[project.status].icon" :size="16" :stroke-width="1.75" aria-hidden="true"
-            /></template>
-            <template #meta
-              ><code class="dashboard__path">{{ project.rootPath }}</code></template
-            >
-            <div class="dashboard__project-meta">
-              {{
-                project.lastIngestedAt
-                  ? t("dashboard.lastWritten", { value: formatRelative(project.lastIngestedAt) })
-                  : t("common.updated", { value: formatRelative(project.updatedAt) })
-              }}
-            </div>
-            <template #trailing><StatusLabel :status="trackingStatus[project.status]" :show-icon="false" /></template>
-          </UiBoxRow>
+    <template #aside>
+      <UiBox>
+        <template #header>
+          <UiBoxTitle :title="t('dashboard.projectStatus')" />
+          <UiButton size="sm" variant="invisible" :to="{ name: 'projects' }">{{ t("dashboard.manage") }}</UiButton>
         </template>
-      </VirtualList>
-    </UiBox>
-  </div>
+        <UiEmptyState
+          v-if="projectsLoaded && projects.length === 0"
+          compact
+          :icon="FolderGit2"
+          :title="t('dashboard.noProjectsYet')"
+        />
+        <VirtualList
+          v-else-if="projects.length > 0"
+          :items="visibleProjects"
+          :enabled="visibleProjects.length > 5"
+          :estimate-item-height="96"
+          max-height="min(48vh, 520px)"
+          grow-to-viewport
+          :label="t('dashboard.projectStatusList')"
+        >
+          <template #default="{ item: project }">
+            <UiBoxRow :title="project.name">
+              <template #leading
+                ><component
+                  :is="trackingStatus[project.status].icon"
+                  :size="16"
+                  :stroke-width="1.75"
+                  aria-hidden="true"
+              /></template>
+              <template #meta
+                ><code class="dashboard__path">{{ project.rootPath }}</code></template
+              >
+              <div class="dashboard__project-meta">
+                {{
+                  project.lastIngestedAt
+                    ? t("dashboard.lastWritten", { value: formatRelative(project.lastIngestedAt) })
+                    : t("common.updated", { value: formatRelative(project.updatedAt) })
+                }}
+              </div>
+              <template #trailing><StatusLabel :status="trackingStatus[project.status]" :show-icon="false" /></template>
+            </UiBoxRow>
+          </template>
+        </VirtualList>
+      </UiBox>
+    </template>
+  </UiSplitLayout>
 </template>
 
 <style scoped>
@@ -266,31 +275,11 @@ onBeforeUnmount(() => {
   margin-bottom: var(--space-4);
 }
 .dashboard__stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-4);
   margin-bottom: var(--space-6);
 }
 
 .dashboard__first-run {
   margin-bottom: var(--space-4);
-}
-
-.dashboard__grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
-  gap: var(--space-6);
-  align-items: start;
-}
-
-.dashboard__main {
-  display: grid;
-  gap: var(--space-4);
-  min-width: 0;
-}
-
-.dashboard__main > .ui-box + .ui-box {
-  margin-top: 0;
 }
 
 .dashboard__path {
@@ -317,27 +306,5 @@ onBeforeUnmount(() => {
 }
 .tone-neutral {
   color: var(--fg-muted);
-}
-
-@media (max-width: 1279px) {
-  .dashboard__grid {
-    grid-template-columns: minmax(0, 1fr) 300px;
-  }
-}
-
-@media (max-width: 959px) {
-  .dashboard__stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .dashboard__grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-@media (max-width: 639px) {
-  .dashboard__stats {
-    gap: var(--space-2);
-  }
 }
 </style>

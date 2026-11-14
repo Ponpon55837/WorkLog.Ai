@@ -6,7 +6,9 @@ import SynthesisCard from "./SynthesisCard.vue";
 import VerificationBreakdown from "./VerificationBreakdown.vue";
 import UiBox from "../ui/UiBox.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
+import UiStack from "../ui/UiStack.vue";
 import UiStatCard from "../ui/UiStatCard.vue";
+import UiStatGrid from "../ui/UiStatGrid.vue";
 import { formatReadableSummary } from "../../utils/format";
 import { t } from "../../i18n";
 
@@ -33,9 +35,9 @@ function openSession(session: WorkSessionRecord, list: readonly WorkSessionRecor
 </script>
 
 <template>
-  <section id="report-panel-overview" class="reports__panel" role="tabpanel" aria-labelledby="report-tab-overview">
+  <UiStack id="report-panel-overview" tag="section" role="tabpanel" aria-labelledby="report-tab-overview">
     <SynthesisCard />
-    <div class="reports__stats">
+    <UiStatGrid>
       <UiStatCard
         v-for="item in reportComparisons"
         :key="item.key"
@@ -57,36 +59,21 @@ function openSession(session: WorkSessionRecord, list: readonly WorkSessionRecor
       >
         <VerificationBreakdown :counts="verificationCounts" />
       </UiStatCard>
-    </div>
+    </UiStatGrid>
     <ReportPeriodBreakdown :report="report" @open="openSession" @show-all="emit('show-all')" />
     <UiBox padded>
       <template #header>
-        <UiBoxTitle eyebrow="Period summary" :title="t('reports.whatHappenedInThisPeriod')" />
+        <UiBoxTitle :title="t('reports.whatHappenedInThisPeriod')" />
         <span class="reports__muted">{{
           t("reports.comparisonPeriod", { from: report.previousRange.from, to: report.previousRange.to })
         }}</span>
       </template>
       <p class="reports__summary">{{ formatReadableSummary(report.periodSummary) }}</p>
     </UiBox>
-  </section>
+  </UiStack>
 </template>
 
 <style scoped>
-.reports__panel {
-  display: grid;
-  gap: var(--space-4);
-}
-
-.reports__panel > .ui-box + .ui-box {
-  margin-top: 0;
-}
-
-.reports__stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-4);
-}
-
 .reports__summary {
   line-height: 1.7;
   white-space: pre-line;
@@ -95,11 +82,5 @@ function openSession(session: WorkSessionRecord, list: readonly WorkSessionRecor
 .reports__muted {
   color: var(--fg-muted);
   font-size: var(--text-xs);
-}
-
-@media (max-width: 1279px) {
-  .reports__stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 </style>

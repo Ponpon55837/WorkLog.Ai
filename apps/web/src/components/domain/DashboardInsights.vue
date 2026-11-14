@@ -54,7 +54,7 @@ const verificationText = computed(() => {
 <template>
   <UiBox data-testid="dashboard-insights">
     <template #header
-      ><UiBoxTitle eyebrow="This week" :title="t('insights.title')" /><UiButton
+      ><UiBoxTitle :title="t('insights.title')" /><UiButton
         size="sm"
         variant="invisible"
         :trailing-icon="ArrowRight"
@@ -116,6 +116,6 @@ const verificationText = computed(() => {
   font-size: var(--text-sm);
 }
 .dashboard-insights__attention {
-  color: var(--fg-attention);
+  color: var(--attention);
 }
 </style>

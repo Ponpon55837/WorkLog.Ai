@@ -5,7 +5,7 @@ import { translatedOptions } from "../../i18n";
 
 export type NavItem = { name: string; label: string; icon: IconComponent; group: NavGroup; shortcut: string };
 
-/** Sidebar order and icons. Titles and eyebrows live in route meta (router.ts). */
+/** Sidebar order and icons. Titles live in route meta (router.ts). */
 export const navItems: readonly NavItem[] = translatedOptions<NavItem, "label">(
   [
     { name: "dashboard", label: "common.overview", icon: LayoutDashboard, group: "work", shortcut: "g d" },

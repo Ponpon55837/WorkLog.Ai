@@ -148,7 +148,7 @@ onBeforeUnmount(() => store.setActive(false));
 <template>
   <UiBox data-testid="attention-box">
     <template #header>
-      <UiBoxTitle eyebrow="Action required" :title="t('dashboard.needsAttention')" />
+      <UiBoxTitle :title="t('dashboard.needsAttention')" />
       <UiCounter v-if="loaded && result?.minimumTotal" :count="countLabel" tone="attention" />
       <div class="attention__filters">
         <UiActionMenu

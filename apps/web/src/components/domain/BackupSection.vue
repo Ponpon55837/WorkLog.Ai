@@ -19,6 +19,9 @@ import UiFlash from "../ui/UiFlash.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiSelect from "../ui/UiSelect.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
+import UiStack from "../ui/UiStack.vue";
+import UiStatCard from "../ui/UiStatCard.vue";
+import UiStatGrid from "../ui/UiStatGrid.vue";
 import VirtualList from "../VirtualList.vue";
 import { t } from "../../i18n";
 
@@ -149,14 +152,13 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
 </script>
 
 <template>
-  <div class="backup-section">
+  <UiStack class="backup-section">
     <UiFlash v-if="backupsError" tone="danger">{{ backupsError }}</UiFlash>
 
     <UiBox>
       <template #header>
         <UiBoxTitle
           :icon="Archive"
-          eyebrow="Backups"
           :title="t('projects.dataBackup')"
           :count="backupsLoaded ? backups.length : undefined"
         />
@@ -229,7 +231,7 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
 
     <UiBox padded>
       <template #header>
-        <UiBoxTitle :icon="Download" eyebrow="Move to another computer" :title="t('projects.exportAllData')" />
+        <UiBoxTitle :icon="Download" :title="t('projects.exportAllData')" />
         <UiButton size="sm" variant="primary" :icon="Download" :loading="databaseExporting" @click="exportDatabase">{{
           t("common.export")
         }}</UiButton>
@@ -262,12 +264,7 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
 
     <UiBox padded>
       <template #header>
-        <UiBoxTitle
-          :icon="Archive"
-          eyebrow="Portable project data"
-          :title="t('projects.exportAndImportByProject')"
-          :count="projects.length"
-        />
+        <UiBoxTitle :icon="Archive" :title="t('projects.exportAndImportByProject')" :count="projects.length" />
       </template>
       <UiFlash v-if="transferError" tone="danger">{{ transferError }}</UiFlash>
       <p class="backup-section__hint">
@@ -359,35 +356,45 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
             </UiBoxRow>
           </template>
         </VirtualList>
-        <div class="transfer-preview__counts">
-          <div data-testid="project-import-additions">
-            <span>{{ t("common.added") }}</span>
-            <strong>{{ importSummary(importPreview).additions }}</strong>
-            <small>{{
-              t("projects.projectsSessionsKnowledge", {
+        <UiStatGrid :columns="5">
+          <UiStatCard
+            compact
+            data-testid="project-import-additions"
+            :label="t('common.added')"
+            :value="importSummary(importPreview).additions"
+            :foot="
+              t('projects.projectsSessionsKnowledge', {
                 value: importSummary(importPreview).projects,
                 value2: importSummary(importPreview).sessions,
                 value3: importSummary(importPreview).knowledge,
               })
-            }}</small>
-          </div>
-          <div data-testid="project-import-updates">
-            <span>{{ t("projects.updated") }}</span>
-            <strong>{{ importSummary(importPreview).updates }}</strong>
-          </div>
-          <div data-testid="project-import-kept-local">
-            <span>{{ t("projects.keptLocal") }}</span>
-            <strong>{{ importSummary(importPreview).keptLocal }}</strong>
-          </div>
-          <div data-testid="project-import-skipped">
-            <span>{{ t("projects.skipped") }}</span>
-            <strong>{{ importSummary(importPreview).skipped }}</strong>
-          </div>
-          <div data-testid="project-import-conflicts">
-            <span>{{ t("projects.conflicts") }}</span>
-            <strong>{{ importSummary(importPreview).conflicts }}</strong>
-          </div>
-        </div>
+            "
+          />
+          <UiStatCard
+            compact
+            data-testid="project-import-updates"
+            :label="t('projects.updated')"
+            :value="importSummary(importPreview).updates"
+          />
+          <UiStatCard
+            compact
+            data-testid="project-import-kept-local"
+            :label="t('projects.keptLocal')"
+            :value="importSummary(importPreview).keptLocal"
+          />
+          <UiStatCard
+            compact
+            data-testid="project-import-skipped"
+            :label="t('projects.skipped')"
+            :value="importSummary(importPreview).skipped"
+          />
+          <UiStatCard
+            compact
+            data-testid="project-import-conflicts"
+            :label="t('projects.conflicts')"
+            :value="importSummary(importPreview).conflicts"
+          />
+        </UiStatGrid>
         <p v-if="remappedProjectCount > 0 || remappedSnapshotCount > 0" class="backup-section__hint">
           {{
             t("projects.pathRemappingAppliedProjectsHandoffs", {
@@ -441,19 +448,10 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
         }}</UiButton>
       </div>
     </UiBox>
-  </div>
+  </UiStack>
 </template>
 
 <style scoped>
-.backup-section {
-  display: grid;
-  gap: var(--space-4);
-}
-
-.backup-section > .ui-box + .ui-box {
-  margin-top: 0;
-}
-
 .backup-section__actions {
   display: flex;
   align-items: center;
@@ -568,48 +566,16 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
   white-space: normal;
 }
 
-.transfer-preview__counts {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: var(--space-3);
-}
-
-.transfer-preview__counts > div {
-  display: grid;
-  gap: var(--space-1);
-  min-width: 0;
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-subtle);
-}
-
-.transfer-preview__counts span,
-.transfer-preview__counts small {
-  color: var(--fg-muted);
-  font-size: var(--text-xs);
-}
-
-.transfer-preview__counts strong {
-  font-size: var(--text-lg);
-  font-variant-numeric: tabular-nums;
-}
-
 @media (max-width: 1279px) {
   .transfer-controls,
   .transfer-controls--import {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
-  .transfer-preview__counts {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 639px) {
   .transfer-controls,
-  .transfer-controls--import,
-  .transfer-preview__counts {
+  .transfer-controls--import {
     grid-template-columns: minmax(0, 1fr);
   }
 }

@@ -324,14 +324,15 @@ watch(
             <span>{{ item.projectName }}</span>
             ·
             <!-- This action opens the source Session panel while preserving the current filters. -->
-            <button
-              type="button"
+            <UiButton
+              variant="link"
+              truncate
               class="outstanding-items__source"
               :aria-label="t('outstanding.openSourceSession', { sourceSessionTitle: item.sourceSessionTitle })"
               @click="emit('openSession', item.sourceSessionId)"
             >
               {{ item.sourceSessionTitle }}
-            </button>
+            </UiButton>
             ·
             <time :datetime="item.sourceSessionCompletedAt" :title="formatDate(item.sourceSessionCompletedAt)">{{
               formatRelative(item.sourceSessionCompletedAt)
@@ -408,19 +409,7 @@ watch(
   position: relative;
   z-index: 1;
   max-width: min(32rem, 55vw);
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-.outstanding-items__source:hover {
-  text-decoration: underline;
+  vertical-align: bottom;
 }
 
 .outstanding-items__trailing {

@@ -108,7 +108,7 @@ function versionMeta(version: ReportSummary): string {
 <template>
   <UiBox data-testid="report-synthesis">
     <template #header>
-      <UiBoxTitle :icon="Sparkles" eyebrow="AI synthesis" :title="summary?.title ?? t('reports.aiReportSynthesis')">
+      <UiBoxTitle :icon="Sparkles" :title="summary?.title ?? t('reports.aiReportSynthesis')">
         <StatusLabel v-if="request" :status="requestStatus[request.status]" />
       </UiBoxTitle>
     </template>

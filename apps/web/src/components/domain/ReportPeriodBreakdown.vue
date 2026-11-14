@@ -8,6 +8,9 @@ import UiBoxTitle from "../ui/UiBoxTitle.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiLabel from "../ui/UiLabel.vue";
+import UiMeter from "../ui/UiMeter.vue";
+import UiSplitLayout from "../ui/UiSplitLayout.vue";
+import type { Tone } from "../ui/types";
 import VirtualList from "../VirtualList.vue";
 import SessionRow from "./SessionRow.vue";
 import { buildReportBuckets, buildReportProjectShares, reportBucketMode, reportBucketUnits } from "../../utils/report";
@@ -55,142 +58,109 @@ const shareSummary = computed(() => {
   return top && shares.value.length > 1 ? t("reports.mostly", { label: top.label, percent: top.percent }) : "";
 });
 
-function barWidth(value: number, max: number): string {
-  return max ? `${(value / max) * 100}%` : "0%";
+function bucketSegments(bucket: { label: string; sessions: number }): { value: number; tone: Tone; label: string }[] {
+  return [{ value: bucket.sessions, tone: "accent", label: bucket.label }];
+}
+
+function shareSegments(share: { label: string; percent: number }): { value: number; tone: Tone; label: string }[] {
+  return [{ value: share.percent, tone: "accent", label: share.label }];
 }
 </script>
 
 <template>
-  <div class="report-breakdown" data-testid="report-breakdown">
-    <UiBox v-if="!unit">
-      <template #header>
-        <UiBoxTitle
-          eyebrow="Completed work"
-          :title="t('reports.workCompletedThatDay')"
-          :count="report.totals.sessions"
-        />
-      </template>
-      <UiEmptyState
-        v-if="daySessions.length === 0"
-        compact
-        :icon="CircleCheckBig"
-        :title="t('reports.noWorkCompletedThisDay')"
-      />
-      <VirtualList
-        v-else
-        :items="daySessions"
-        :enabled="daySessions.length > 4"
-        :estimate-item-height="88"
-        max-height="min(56vh, 560px)"
-        :label="t('reports.workCompletedThatDayList')"
-      >
-        <template #default="{ item: session }">
-          <SessionRow :session="session" :show-summary="false" @open="emit('open', $event, report.sessions)" />
+  <UiSplitLayout data-testid="report-breakdown">
+    <template #main>
+      <UiBox v-if="!unit">
+        <template #header>
+          <UiBoxTitle :title="t('reports.workCompletedThatDay')" :count="report.totals.sessions" />
         </template>
-      </VirtualList>
-      <template v-if="report.sessions.length > dayLimit" #footer>
-        <UiButton variant="invisible" size="sm" @click="emit('showAll')">
-          {{ t("reports.seeAllSessionsInRaw", { length: report.sessions.length }) }}
-        </UiButton>
-      </template>
-    </UiBox>
-
-    <UiBox v-else>
-      <template #header>
-        <UiBoxTitle :icon="CalendarRange" :eyebrow="unit.eyebrow" :title="unit.title" />
-        <span v-if="bucketSummary" class="report-breakdown__muted">{{ bucketSummary }}</span>
-      </template>
-      <UiEmptyState v-if="!busiest" compact :icon="CalendarRange" :title="t('reports.noWorkCompletedInThis')" />
-      <template v-else>
+        <UiEmptyState
+          v-if="daySessions.length === 0"
+          compact
+          :icon="CircleCheckBig"
+          :title="t('reports.noWorkCompletedThisDay')"
+        />
         <VirtualList
-          :items="buckets"
-          :enabled="true"
-          :estimate-item-height="76"
+          v-else
+          :items="daySessions"
+          :enabled="daySessions.length > 4"
+          :estimate-item-height="88"
           max-height="min(56vh, 560px)"
-          :label="t('reports.reportPeriodDistributionList')"
+          :label="t('reports.workCompletedThatDayList')"
         >
-          <template #default="{ item: bucket }">
+          <template #default="{ item: session }">
+            <SessionRow :session="session" :show-summary="false" @open="emit('open', $event, report.sessions)" />
+          </template>
+        </VirtualList>
+        <template v-if="report.sessions.length > dayLimit" #footer>
+          <UiButton variant="invisible" size="sm" @click="emit('showAll')">
+            {{ t("reports.seeAllSessionsInRaw", { length: report.sessions.length }) }}
+          </UiButton>
+        </template>
+      </UiBox>
+
+      <UiBox v-else>
+        <template #header>
+          <UiBoxTitle :icon="CalendarRange" :title="unit.title" />
+          <span v-if="bucketSummary" class="report-breakdown__muted">{{ bucketSummary }}</span>
+        </template>
+        <UiEmptyState v-if="!busiest" compact :icon="CalendarRange" :title="t('reports.noWorkCompletedInThis')" />
+        <template v-else>
+          <VirtualList
+            :items="buckets"
+            :enabled="true"
+            :estimate-item-height="76"
+            max-height="min(56vh, 560px)"
+            :label="t('reports.reportPeriodDistributionList')"
+          >
+            <template #default="{ item: bucket }">
+              <UiBoxRow
+                :title="bucket.label"
+                :meta="t('reports.sessionEventCounts', { sessions: bucket.sessions, events: bucket.events })"
+              >
+                <template #labels>
+                  <UiLabel v-if="bucket.key === busiest.key" tone="accent">{{ t("reports.busiest") }}</UiLabel>
+                </template>
+                <UiMeter size="sm" :max="busiest.sessions" :segments="bucketSegments(bucket)" />
+              </UiBoxRow>
+            </template>
+          </VirtualList>
+        </template>
+      </UiBox>
+    </template>
+
+    <template #aside>
+      <UiBox>
+        <template #header>
+          <UiBoxTitle :icon="FolderGit2" :title="t('reports.projectShare')" :count="shares.length" />
+          <span v-if="shareSummary" class="report-breakdown__muted">{{ shareSummary }}</span>
+        </template>
+        <UiEmptyState v-if="shares.length === 0" compact :icon="FolderGit2" :title="t('reports.noProjectData')" />
+        <VirtualList
+          v-else
+          :items="shares"
+          :enabled="true"
+          :estimate-item-height="72"
+          max-height="min(56vh, 560px)"
+          :label="t('reports.reportProjectShareList')"
+        >
+          <template #default="{ item: share }">
             <UiBoxRow
-              :title="bucket.label"
-              :meta="t('reports.sessionEventCounts', { sessions: bucket.sessions, events: bucket.events })"
+              :title="share.label"
+              :meta="t('reports.sessions', { sessions: share.sessions, percent: share.percent })"
             >
-              <template #labels>
-                <UiLabel v-if="bucket.key === busiest.key" tone="accent">{{ t("reports.busiest") }}</UiLabel>
-              </template>
-              <span class="report-breakdown__bar" aria-hidden="true"
-                ><i :style="{ width: barWidth(bucket.sessions, busiest.sessions) }"></i
-              ></span>
+              <UiMeter size="sm" :max="100" :segments="shareSegments(share)" />
             </UiBoxRow>
           </template>
         </VirtualList>
-      </template>
-    </UiBox>
-
-    <UiBox>
-      <template #header>
-        <UiBoxTitle :icon="FolderGit2" eyebrow="Projects" :title="t('reports.projectShare')" :count="shares.length" />
-        <span v-if="shareSummary" class="report-breakdown__muted">{{ shareSummary }}</span>
-      </template>
-      <UiEmptyState v-if="shares.length === 0" compact :icon="FolderGit2" :title="t('reports.noProjectData')" />
-      <VirtualList
-        v-else
-        :items="shares"
-        :enabled="true"
-        :estimate-item-height="72"
-        max-height="min(56vh, 560px)"
-        :label="t('reports.reportProjectShareList')"
-      >
-        <template #default="{ item: share }">
-          <UiBoxRow
-            :title="share.label"
-            :meta="t('reports.sessions', { sessions: share.sessions, percent: share.percent })"
-          >
-            <span class="report-breakdown__bar" aria-hidden="true"
-              ><i :style="{ width: `${share.percent}%` }"></i
-            ></span>
-          </UiBoxRow>
-        </template>
-      </VirtualList>
-    </UiBox>
-  </div>
+      </UiBox>
+    </template>
+  </UiSplitLayout>
 </template>
 
 <style scoped>
-.report-breakdown {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
-  align-items: start;
-  gap: var(--space-4);
-}
-
-/* UiBox stacks consecutive boxes with a top margin; side by side in this grid they must stay aligned. */
-.report-breakdown > .ui-box + .ui-box {
-  margin-top: 0;
-}
-
 .report-breakdown__muted {
   color: var(--fg-muted);
   font-size: var(--text-xs);
-}
-
-.report-breakdown__bar {
-  display: block;
-  height: 6px;
-  margin-top: var(--space-2);
-  overflow: hidden;
-  border-radius: var(--radius-pill);
-  background: var(--bg-muted);
-}
-
-.report-breakdown__bar i {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-}
-
-@media (max-width: 959px) {
-  .report-breakdown {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 </style>

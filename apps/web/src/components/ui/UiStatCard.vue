@@ -10,11 +10,13 @@ defineProps<{
   foot?: string;
   valueTone?: Tone;
   delta?: { direction: "up" | "down" | "flat"; text: string };
+  /** Tighter padding and a smaller value, for cards inside a dialog or a preview. */
+  compact?: boolean;
 }>();
 </script>
 
 <template>
-  <article class="ui-stat">
+  <article :class="['ui-stat', { 'ui-stat--compact': compact }]">
     <div class="ui-stat__label">
       <component :is="icon" v-if="icon" :size="16" :stroke-width="1.75" aria-hidden="true" />
       {{ label }}
@@ -66,6 +68,15 @@ defineProps<{
 
 .ui-stat:hover {
   border-color: var(--border-strong);
+}
+
+.ui-stat--compact {
+  padding: var(--space-3);
+}
+
+.ui-stat--compact .ui-stat__value {
+  margin-top: var(--space-1);
+  font-size: var(--text-lg);
 }
 
 .ui-stat__label {

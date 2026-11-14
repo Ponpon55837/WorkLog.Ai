@@ -75,7 +75,6 @@ function openSource(item: SessionDecisionRecord): void {
   <UiBox class="agent-decisions" sticky-header data-testid="agent-decision-review">
     <template #header>
       <UiBoxTitle
-        eyebrow="Agent decisions"
         :title="t('knowledge.agentAutonomousDecisionsToConfirm')"
         :count="decisionsLoaded ? pendingCount : undefined"
       />

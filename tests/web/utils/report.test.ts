@@ -126,11 +126,10 @@ describe("report project shares", () => {
 });
 
 describe("reportBucketUnits", () => {
-  it("translates each bucket's unit and title and keeps the English eyebrow", () => {
+  it("translates each bucket's unit and title", () => {
     expect(reportBucketUnits.week).toEqual({
       unit: t("reports.unit.weeks"),
       title: t("reports.byWeek"),
-      eyebrow: "By week",
     });
     expect(reportBucketUnits.day.unit).toBe(t("reports.unit.days"));
     expect(reportBucketUnits.month.title).toBe(t("reports.byMonth"));

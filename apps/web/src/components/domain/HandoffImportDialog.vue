@@ -11,6 +11,7 @@ import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import UiStatCard from "../ui/UiStatCard.vue";
+import UiStatGrid from "../ui/UiStatGrid.vue";
 import VirtualList from "../VirtualList.vue";
 import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
@@ -69,7 +70,7 @@ function filesText(item: HandoffImportPreviewItem): string {
         {{ t("projects.onlyDocumentsExplicitlyMarkedComplete") }}
       </p>
       <UiFlash v-if="handoffImportError" tone="danger">{{ handoffImportError }}</UiFlash>
-      <div class="handoff__stats">
+      <UiStatGrid class="handoff__stats">
         <UiStatCard :label="t('projects.discovered')" :value="handoffImportPreview.totals.discovered" />
         <UiStatCard
           :label="t('projects.importable')"
@@ -81,7 +82,7 @@ function filesText(item: HandoffImportPreviewItem): string {
           :label="t('projects.skippedErrors')"
           :value="handoffImportPreview.totals.excluded + handoffImportPreview.totals.errors"
         />
-      </div>
+      </UiStatGrid>
       <UiEmptyState
         v-if="!handoffImportPreview.directoryFound"
         compact
@@ -166,9 +167,6 @@ function filesText(item: HandoffImportPreviewItem): string {
 }
 
 .handoff__stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-2);
   margin-bottom: var(--space-4);
 }
 
@@ -227,11 +225,5 @@ function filesText(item: HandoffImportPreviewItem): string {
   margin-right: auto;
   color: var(--fg-muted);
   font-size: var(--text-sm);
-}
-
-@media (max-width: 639px) {
-  .handoff__stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 </style>

@@ -16,7 +16,7 @@ Two sets share the same token names: GitHub dark on `:root` (the default) and a 
 | `--border` | `#30363d` | `#c9d0d8` | Box / input / button borders |
 | `--border-muted` | `#21262d` | `#d6dbe1` | Row dividers, header bottom borders |
 | `--fg` | `#e6edf3` | `#24292f` | Primary text |
-| `--fg-muted` | `#9198a1` | `#4f5862` | Meta text, eyebrows, secondary icons |
+| `--fg-muted` | `#9198a1` | `#4f5862` | Meta text, secondary icons |
 | `--fg-subtle` | `#6e7681` | `#58616b` | Placeholders, sidebar group labels, empty dashes |
 | `--accent` | `#4493f8` | `#0754ae` | Links, focus ring, selected state, primary data series |
 | `--accent-emphasis` | `#1f6feb` | `#0969da` | Input focus border |
@@ -67,9 +67,9 @@ Keep "metadata 缺漏", "verification 尚未回報" and "verification 明確 not
 
 - Font: `-apple-system, "Segoe UI", "Noto Sans TC", "Microsoft JhengHei", "Noto Sans", Helvetica, Arial, sans-serif`
 - Mono: `ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace` — paths, IDs, commands, event types.
-- Scale: 12 (meta, eyebrow, Label, Counter) · 14 (body, default) · 16 (section title, page title) · 20 (panel title) · 24 (stat value) · 32 (hero number, rare).
+- Scale: 12 (meta, Label, Counter) · 14 (body, default) · 16 (section title, page title) · 20 (panel title) · 24 (stat value) · 32 (hero number, rare).
 - Weights: 400 body, 500 buttons/labels, 600 titles. Line-height 1.5.
-- Eyebrow: 12px (11px inside Box headers / sidebar groups is the only exception), 600, uppercase, `letter-spacing: .08em`, `--fg-muted`.
+- No eyebrows (removed in 1.6.36). `--fg-muted` is for meta text and secondary icons.
 
 ## Spacing, radius, elevation
 

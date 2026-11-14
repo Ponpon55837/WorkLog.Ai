@@ -26,6 +26,7 @@ import {
 } from "../../utils/timeline-layout";
 import UiBox from "../ui/UiBox.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
+import UiButton from "../ui/UiButton.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
@@ -650,9 +651,9 @@ onBeforeUnmount(() => {
               <td>{{ entry.session ? "Session" : eventLabels[entry.event!.kind] }}</td>
               <td>
                 <template v-if="entry.session">
-                  <button type="button" class="timeline__link" @click="openSession(entry.session.id)">
+                  <UiButton variant="link" @click="openSession(entry.session.id)">
                     {{ entry.session.title }}
-                  </button>
+                  </UiButton>
                   <StatusLabel :status="verificationStatus[entry.session.verificationStatus]" :show-icon="false" />
                 </template>
                 <template v-else>{{ entry.event!.title }}</template>
@@ -763,10 +764,6 @@ onBeforeUnmount(() => {
   stroke-dasharray: 2 4;
 }
 
-.timeline__axis .is-minor text {
-  font-size: 10px;
-}
-
 .timeline__column {
   cursor: zoom-in;
 }
@@ -807,7 +804,7 @@ onBeforeUnmount(() => {
 .timeline__axis text,
 .timeline__lane-name {
   fill: var(--fg-muted);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 .timeline__lane-name {
@@ -883,16 +880,6 @@ onBeforeUnmount(() => {
   color: var(--fg-muted);
   font-size: var(--text-xs);
   font-weight: 600;
-}
-
-.timeline__link {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  text-align: start;
-  cursor: pointer;
 }
 
 @media (max-width: 639px) {

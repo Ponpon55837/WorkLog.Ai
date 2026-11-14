@@ -34,8 +34,11 @@ import UiPagination from "../components/ui/UiPagination.vue";
 import UiSegmentedControl from "../components/ui/UiSegmentedControl.vue";
 import UiSelect from "../components/ui/UiSelect.vue";
 import UiSidePanel from "../components/ui/UiSidePanel.vue";
+import UiSidePanelHeader from "../components/ui/UiSidePanelHeader.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
+import UiSplitLayout from "../components/ui/UiSplitLayout.vue";
 import UiStatCard from "../components/ui/UiStatCard.vue";
+import UiStatGrid from "../components/ui/UiStatGrid.vue";
 import UiTextInput from "../components/ui/UiTextInput.vue";
 import UiUnderlineNav from "../components/ui/UiUnderlineNav.vue";
 import { confirmAction } from "../composables/useConfirm";
@@ -78,11 +81,7 @@ async function tryConfirm(): Promise<void> {
 </script>
 
 <template>
-  <PageHeader
-    :title="t('common.uiComponentShowcase')"
-    eyebrow="DESIGN SYSTEM"
-    :description="t('showcase.forDevelopmentCheckEveryUi')"
-  >
+  <PageHeader :title="t('common.uiComponentShowcase')" :description="t('showcase.forDevelopmentCheckEveryUi')">
     <template #actions>
       <UiButton :icon="Download">Default</UiButton>
       <UiButton variant="primary" :icon="Plus">Primary</UiButton>
@@ -91,12 +90,13 @@ async function tryConfirm(): Promise<void> {
 
   <div class="showcase">
     <UiBox padded>
-      <template #header><UiBoxTitle eyebrow="Buttons" :title="t('showcase.button')" /></template>
+      <template #header><UiBoxTitle :title="t('showcase.button')" /></template>
       <div class="showcase__row">
         <UiButton>Default</UiButton>
         <UiButton variant="primary">Primary</UiButton>
         <UiButton variant="invisible">Invisible</UiButton>
         <UiButton variant="danger">Danger</UiButton>
+        <UiButton variant="link">Link</UiButton>
         <UiButton loading>Loading</UiButton>
         <UiButton disabled>Disabled</UiButton>
         <UiButton size="sm" :icon="RefreshCw">Small</UiButton>
@@ -106,7 +106,7 @@ async function tryConfirm(): Promise<void> {
     </UiBox>
 
     <UiBox padded>
-      <template #header><UiBoxTitle eyebrow="Labels" :title="t('showcase.labelAndCounter')" /></template>
+      <template #header><UiBoxTitle :title="t('showcase.labelAndCounter')" /></template>
       <div class="showcase__row">
         <UiLabel>Neutral</UiLabel>
         <UiLabel tone="accent">Accent</UiLabel>
@@ -120,7 +120,7 @@ async function tryConfirm(): Promise<void> {
     </UiBox>
 
     <UiBox padded>
-      <template #header><UiBoxTitle eyebrow="Inputs" :title="t('showcase.input')" /></template>
+      <template #header><UiBoxTitle :title="t('showcase.input')" /></template>
       <div class="showcase__grid">
         <UiField :label="t('showcase.textLabel')" :hint="t('showcase.description')"
           ><UiTextInput v-model="text" :icon="Search" :placeholder="t('showcase.searchPlaceholder')"
@@ -181,7 +181,7 @@ async function tryConfirm(): Promise<void> {
       ]"
     />
 
-    <div class="showcase__stats">
+    <UiStatGrid>
       <UiStatCard :label="t('common.trackedProjects')" :icon="FolderGit2" :value="3" foot="explicit opt-in" />
       <UiStatCard
         :label="t('common.completedSessions')"
@@ -201,7 +201,34 @@ async function tryConfirm(): Promise<void> {
         />
       </UiStatCard>
       <UiStatCard :label="t('common.pending')" :icon="Inbox" :value="3" value-tone="attention" />
-    </div>
+    </UiStatGrid>
+
+    <UiStatGrid :columns="3">
+      <UiStatCard compact label="Compact" :value="12">
+        <UiMeter size="sm" :max="20" :segments="[{ value: 12, tone: 'accent', label: 'Compact' }]" />
+      </UiStatCard>
+      <UiStatCard compact label="Compact" :value="5" foot="UiStatGrid columns=3" />
+      <UiStatCard compact label="Compact" :value="0" />
+    </UiStatGrid>
+
+    <UiSplitLayout>
+      <template #main>
+        <UiBox padded>
+          <template #header><UiBoxTitle title="UiSplitLayout" /></template>
+          <p>Main column; each column is a UiStack, so Boxes are spaced by one gap.</p>
+        </UiBox>
+        <UiBox padded>
+          <template #header><UiBoxTitle title="UiStack" /></template>
+          <p>No extra margin between sibling Boxes.</p>
+        </UiBox>
+      </template>
+      <template #aside>
+        <UiBox padded>
+          <template #header><UiBoxTitle title="Aside" /></template>
+          <p>Side column, stacked under the main column below 960px.</p>
+        </UiBox>
+      </template>
+    </UiSplitLayout>
 
     <UiBox>
       <template #header>
@@ -266,7 +293,9 @@ async function tryConfirm(): Promise<void> {
   </div>
 
   <UiSidePanel :open="panelOpen" :label="t('showcase.demoPanel')" @close="panelOpen = false">
-    <template #header><strong>SidePanel</strong></template>
+    <template #header>
+      <UiSidePanelHeader title="SidePanel" :close-label="t('common.close')" @close="panelOpen = false" />
+    </template>
     <p>{{ t("showcase.escClosesTabStaysInside") }}</p>
     <UiButton @click="panelOpen = false">{{ t("common.close") }}</UiButton>
   </UiSidePanel>
@@ -304,12 +333,6 @@ async function tryConfirm(): Promise<void> {
 .showcase__grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: var(--space-4);
-}
-
-.showcase__stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: var(--space-4);
 }
 
