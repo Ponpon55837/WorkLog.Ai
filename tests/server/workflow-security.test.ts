@@ -35,10 +35,11 @@ function splitJobs(text: string): Job[] {
       break;
     }
     const header = line.match(/^ {2}([A-Za-z0-9_-]+):\s*$/);
-    if (header) {
+    const current = jobs.at(-1);
+    if (header?.[1]) {
       jobs.push({ id: header[1], lines: [] });
-    } else if (jobs.length > 0) {
-      jobs[jobs.length - 1].lines.push(line);
+    } else if (current) {
+      current.lines.push(line);
     }
   }
   return jobs;
@@ -47,20 +48,20 @@ function splitJobs(text: string): Job[] {
 // Each checkout step's text: from its `uses:` line to the next step (`- ` at the same indent) or the end of the job.
 function checkoutSteps(job: Job): string[] {
   const steps: string[] = [];
-  for (let index = 0; index < job.lines.length; index += 1) {
-    const match = job.lines[index].match(/^(\s*)(?:- )?uses:\s*actions\/checkout@/);
-    if (!match) {
-      continue;
+  job.lines.forEach((line, index) => {
+    if (!/^\s*(?:- )?uses:\s*actions\/checkout@/.test(line)) {
+      return;
     }
-    const block = [job.lines[index]];
-    for (let next = index + 1; next < job.lines.length; next += 1) {
-      if (/^\s*- /.test(job.lines[next]) && job.lines[next].search(/\S/) <= job.lines[index].search(/\S/)) {
+    const indent = line.search(/\S/);
+    const block = [line];
+    for (const next of job.lines.slice(index + 1)) {
+      if (/^\s*- /.test(next) && next.search(/\S/) <= indent) {
         break;
       }
-      block.push(job.lines[next]);
+      block.push(next);
     }
     steps.push(block.join("\n"));
-  }
+  });
   return steps;
 }
 
@@ -75,11 +76,11 @@ describe("workflow supply-chain hardening", () => {
     const violations: string[] = [];
     for (const { file, text } of workflows) {
       text.split("\n").forEach((line, index) => {
-        const match = line.match(/^\s*(?:- )?uses:\s*(\S+)(.*)$/);
-        if (!match || match[1].startsWith("./")) {
+        const [, reference = "", comment = ""] = line.match(/^\s*(?:- )?uses:\s*(\S+)(.*)$/) ?? [];
+        if (reference === "" || reference.startsWith("./")) {
           return;
         }
-        if (!/^[^@\s]+@[0-9a-f]{40}$/.test(match[1]) || !/^\s+# v\d/.test(match[2])) {
+        if (!/^[^@\s]+@[0-9a-f]{40}$/.test(reference) || !/^\s+# v\d/.test(comment)) {
           violations.push(`${file}:${index + 1} ${line.trim()}`);
         }
       });
@@ -124,7 +125,7 @@ describe("workflow supply-chain hardening", () => {
       const run = line.match(/^(\s*)(?:- )?run:/);
       if (run) {
         inRun = true;
-        runIndent = run[1].length;
+        runIndent = run[1]?.length ?? 0;
         if (/\$\{\{\s*inputs\./.test(line)) {
           violations.push(line.trim());
         }

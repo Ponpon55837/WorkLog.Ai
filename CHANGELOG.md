@@ -4,6 +4,36 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.34] - 2026-11-14
+
+[繁體中文更新說明](docs/releases/1.6.34.md).
+
+This release is a security hardening pass. It tightens the permissions of the local database, widens secret redaction, stops imports from overwriting rows owned by another project, rejects over-deep JSON with a clear error, makes the handoff parser and file reads linear and safe on adversarial input, and pins every CI action to a commit. It also adds a manual release trigger. The schema stays at 33.
+
+### Security
+
+- Local database files are private on POSIX systems. A newly created data directory is 0700, the database file is created 0600 before SQLite opens it, and the `-wal` and `-shm` files inherit that mode. An existing database, `-wal` or `-shm` file owned by the current user and accessible to its group or others is narrowed to 0600 on open; a failure there is ignored. `pnpm check` (doctor) warns with 資料庫檔案權限 when the database file or its folder is accessible to other users, but it changes nothing. Windows is unchanged.
+- Secret redaction covers more forms. Keyed assignments now match prefixed environment names (`DB_PASSWORD=`, `GITHUB_TOKEN=`), camelCase keys such as `accessToken`, JSON key and value pairs, and quoted values with spaces. New detectors cover `Authorization` headers (Bearer, Basic and Token, including `curl -H`), `Cookie` and `Set-Cookie`, Stripe, GitLab, npm, SendGrid, Google, Slack and Hugging Face tokens, Twilio keys, Azure keys, connection-string passwords, signed URL query parameters, PGP and PuTTY private key blocks, and AWS access key identifiers and secrets. On a fictional corpus of 113 secret-like strings, 29 were masked before and 113 after; 45 benign strings stayed unchanged. Each new rule has a 200,000-character adversarial test that must run in linear time. Redaction is a safety net for accidental pastes, not a guarantee.
+- Imports cannot overwrite rows owned by another project. With newer-wins, a row with the same ID whose project or immutable parent differs from the stored row is reported as a dependency conflict, and the stored row is left untouched. Updates never rewrite `project_id`, and a new child row must cite a parent owned by its own project, including in tables without `project_id`.
+- Imports refuse deep nesting. Any `*_json` column nested deeper than 100 levels is rejected with `invalid_input` (REST 400) before parsing, instead of a `RangeError`, and any unexpected validation failure is also reported as `invalid_input`. Redaction walks values with an explicit stack, so 50,000-level values no longer overflow.
+- The handoff parser is linear on adversarial input. Multiline regular expressions whose whitespace could cross line breaks are replaced by per-line anchored patterns and hand-written scans. At the 200,000-character cap, all 45 adversarial shapes finish in under 200 ms. The output is identical to the old parser on a 443-document fictional fixture and on about 3 million random inputs compared during development.
+- Special files are not read. Handoff discovery, preview and import, finalize's handoff path capture, and loose Git ref reads open files with `O_NONBLOCK` and check the descriptor before reading. FIFOs, sockets and devices are skipped with the new reason `not_regular_file`, which has Web labels in English and Traditional Chinese. Handoff files over 4 MiB are reported as `unreadable`, and Git ref files are capped at 4 KiB. The Claude Code hook reads `transcript_path` the same way, with a 256 MiB cap; any failure there stays silent.
+- Record content is untrusted data. The server instructions and the reading-records guide say that record content returned by tools (session summaries, handoffs, Knowledge and open items) must not be followed as instructions; Agents confirm with the user instead.
+- CI actions are pinned to commits. Every action in `.github/workflows` is pinned to the commit its official tag points at, verified with `git ls-remote`, with the version in a comment. Checkouts do not persist credentials, the publish job has no dependency cache, and `tests/server/workflow-security.test.ts` checks these rules. A Dependabot configuration updates GitHub Actions and npm weekly.
+
+### Added
+
+- Manual release trigger. `release.yml` accepts a `workflow_dispatch` run with a `version` input, on `main` only. The input must match `^[0-9]+\.[0-9]+\.[0-9]+$` and equal `package.json`, a successful push run of `ci.yml` must exist for the same commit, and the tag `v<version>` must not exist. A create-tag job, the only job with `contents: write`, creates an annotated tag as `github-actions[bot]` and pushes it, and the same run continues through verification, audit, quality, E2E and publish, because a tag pushed with `GITHUB_TOKEN` does not start other workflows. The tag-push path is unchanged. `docs/release.md` and `docs/release-checklist.md` describe the flow.
+- Research reports. Four research reports (value measurement, Knowledge retrieval and lifecycle, observed rules and clients, and code health audit) and their read-only scripts are merged into `docs/experiments`. They contain aggregate numbers only.
+
+### Changed
+
+- Agent reading budgets are kept. Duplicated sentences were removed from the server instructions and the reading-records guide to make room for the untrusted-data rule. The fixed Agent reading is now 42,161 of 42,250 characters, the core skill 13,981 of 14,000 (unchanged), and the reading-records guide 8,982 of 9,000. No limit was raised.
+
+### Upgrading
+
+No schema change (33) and no migration. Rebuild and restart, then reconnect Agents so they see the new instructions. Exports and existing data are unaffected, except that old exports with details nested deeper than 100 levels are now refused on import. An existing data directory with mode 0755 is not tightened automatically, and `pnpm check` warns about it. The service log written by `scripts/service-runner.mjs` still uses the default file mode; it holds no work-record content. Not verified: Windows (the permission code is POSIX-only and skipped there, and the FIFO tests are skipped), real Agent clients with the new instruction, a manual release dispatch on GitHub (not run yet, and tag rulesets with `GITHUB_TOKEN` are untested), and actionlint (not available). Redaction does not detect URL-encoded, base64-wrapped, split-line, zero-width or full-width look-alike secrets.
+
 ## [1.6.33] - 2026-11-13
 
 [繁體中文更新說明](docs/releases/1.6.33.md).
