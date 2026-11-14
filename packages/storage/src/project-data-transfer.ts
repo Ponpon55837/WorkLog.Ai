@@ -1058,8 +1058,24 @@ type ParentOwners = {
 /**
  * Every column through which a row cites a parent that belongs to a project. A child must sit in the same project as
  * each parent it cites, otherwise importing it would attach one project's history to another project's row.
+ *
+ * `crossProject` marks the one column the product lets point into another project: session_links.related_session_id
+ * (SessionRecordService.linkProblem only requires the related Session to exist and be tracked, and work_link_sessions
+ * and finalize relatedSessionIds both go through it). Such a column keeps the existence and availability checks of
+ * dependencyIssue but is not an ownership claim: the link belongs to the project of session_id, so a file the product
+ * exported re-imports completely. Every other column is written by the product only with a same-project parent:
+ * knowledge.session_id, session_decisions.knowledge_id, knowledge_feedback.knowledge_id and
+ * knowledge.supersedes_id are looked up with the project's id (KnowledgeService.record / SessionDecisionService.review),
+ * knowledge.last_confirmed_session_id and knowledge_feedback.session_id come from the Session being finalized for
+ * knowledge found in its own project (KnowledgeService.applyKnowledgeFeedback), candidates cite their request's own
+ * project Sessions (KnowledgeCandidateService.submit), and void_audit targets the voided Session or its evidence.
  */
-const PARENT_REFERENCES: ReadonlyArray<{ table: ProjectDataTable; column: string; parent: OwnedParentTable }> = [
+const PARENT_REFERENCES: ReadonlyArray<{
+  table: ProjectDataTable;
+  column: string;
+  parent: OwnedParentTable;
+  crossProject?: true;
+}> = [
   ...(
     [
       "work_events",
@@ -1077,7 +1093,7 @@ const PARENT_REFERENCES: ReadonlyArray<{ table: ProjectDataTable; column: string
       "session_work_summary_updates",
     ] as const
   ).map((table) => ({ table, column: "session_id", parent: "sessions" as const })),
-  { table: "session_links", column: "related_session_id", parent: "sessions" },
+  { table: "session_links", column: "related_session_id", parent: "sessions", crossProject: true },
   { table: "knowledge", column: "last_confirmed_session_id", parent: "sessions" },
   { table: "knowledge", column: "supersedes_id", parent: "knowledge" },
   { table: "session_decisions", column: "knowledge_id", parent: "knowledge" },
@@ -1122,7 +1138,7 @@ function collectParentOwners(
   for (const parent of Object.keys(owners.effective) as OwnedParentTable[]) {
     const cited = new Set<string>();
     for (const reference of PARENT_REFERENCES) {
-      if (reference.parent !== parent) continue;
+      if (reference.parent !== parent || reference.crossProject) continue;
       for (const row of tables[reference.table]) {
         const value = row[reference.column];
         if (typeof value === "string") cited.add(value);
@@ -1177,7 +1193,7 @@ function parentOwnerIssue(table: ProjectDataTable, row: ProjectDataRow, owners: 
     return actual === expected ? undefined : PARENT_OTHER_PROJECT_REASON;
   };
   for (const reference of PARENT_REFERENCES) {
-    if (reference.table !== table) continue;
+    if (reference.table !== table || reference.crossProject) continue;
     const issue = check(reference.parent, row[reference.column]);
     if (issue) return issue;
   }
