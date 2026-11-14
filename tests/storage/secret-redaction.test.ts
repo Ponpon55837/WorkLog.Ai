@@ -314,3 +314,62 @@ describe("secret redaction", () => {
     });
   });
 });
+
+describe("redactValue on deeply nested values", () => {
+  const SECRET = `ghp_${"A".repeat(36)}`;
+
+  /** Builds the nesting with a loop: a recursive builder would overflow the stack itself. */
+  function nested(levels: number, leaf: unknown, wrap: (inner: unknown) => unknown): unknown {
+    let value = leaf;
+    for (let level = 0; level < levels; level += 1) value = wrap(value);
+    return value;
+  }
+
+  function leafOf(value: unknown, pick: (outer: unknown) => unknown): unknown {
+    let current = value;
+    while (Array.isArray(current) || (typeof current === "object" && current !== null)) current = pick(current);
+    return current;
+  }
+
+  it.each([5_000, 50_000])("masks a secret at the bottom of %i nested arrays without overflowing", (levels) => {
+    const result = redactValue(nested(levels, `token ${SECRET}`, (inner) => [inner]));
+    expect(result.redactions.total).toBe(1);
+    expect(leafOf(result.value, (outer) => (outer as unknown[])[0])).toBe(`token ${marker("github_token")}`);
+  });
+
+  it.each([5_000, 50_000])("handles %i nested objects with and without a secret", (levels) => {
+    const clean = redactValue(nested(levels, "plain", (inner) => ({ child: inner })));
+    expect(clean.redactions.total).toBe(0);
+    expect(leafOf(clean.value, (outer) => (outer as { child: unknown }).child)).toBe("plain");
+    const secret = redactValue(nested(levels, SECRET, (inner) => ({ child: inner })));
+    expect(secret.redactions.total).toBe(1);
+    expect(leafOf(secret.value, (outer) => (outer as { child: unknown }).child)).toBe(marker("github_token"));
+  });
+
+  it("keeps shape, key order and own __proto__ keys, and does not share the input's containers", () => {
+    const input = JSON.parse(`{"b":[1,null,"x",{"c":"${SECRET}"}],"a":2,"__proto__":{"k":"v"}}`) as Record<
+      string,
+      unknown
+    >;
+    const result = redactValue(input);
+    expect(Object.keys(result.value)).toEqual(["b", "a", "__proto__"]);
+    expect(JSON.stringify(result.value)).toBe(
+      `{"b":[1,null,"x",{"c":"${marker("github_token")}"}],"a":2,"__proto__":{"k":"v"}}`,
+    );
+    expect(Object.getPrototypeOf(result.value)).toBe(Object.prototype);
+    expect(result.value).not.toBe(input);
+  });
+
+  it("allows the same object twice but rejects a cycle instead of looping", () => {
+    const shared = { text: "same" };
+    expect(redactValue({ a: shared, b: shared }).value).toEqual({ a: shared, b: shared });
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    expect(() => redactValue(cyclic)).toThrow(TypeError);
+  });
+
+  it("redactJsonText returns a result for a 50,000-level value that cannot be serialized again", () => {
+    const text = `${"[".repeat(50_000)}${JSON.stringify(`x ${SECRET}`)}${"]".repeat(50_000)}`;
+    expect(() => redactJsonText(text)).not.toThrow();
+  });
+});
