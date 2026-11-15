@@ -112,8 +112,8 @@ interface ReferenceSignals {
 
 /**
  * The rule as written in docs/mcp-tools.md, every entry against every changed file of every later Session. Later
- * Sessions that listed more than 20 files are only counted; the breadth is the share of the later Sessions with 1 to
- * 20 files (without the Knowledge's own) that touch it.
+ * Sessions that listed more than 20 files are only counted; the breadth is project-wide, as at write time: the share of
+ * the newest 200 non-voided Sessions with 1 to 20 files (the Knowledge's own included) that touch it.
  */
 function referenceStaleness(
   knowledge: KnowledgeRecord,
@@ -152,7 +152,20 @@ function referenceStaleness(
   const signals: ReferenceSignals = broad.length > 0 ? { broadChangesSince: broad.length } : {};
   const first = focused[0];
   if (!first) return signals;
-  const compared = later.filter((session) => session.files.length >= 1 && session.files.length <= 20).length;
+  const window = sessions
+    .filter((session) => !session.voided && session.files.length >= 1 && session.files.length <= 20)
+    .sort((left, right) =>
+      left.completedAt === right.completedAt
+        ? left.id < right.id
+          ? -1
+          : 1
+        : left.completedAt < right.completedAt
+          ? -1
+          : 1,
+    )
+    .slice(-200);
+  const compared = window.length;
+  const windowTouched = window.filter((session) => session.files.some(covers)).length;
   return {
     possiblyStale: {
       sessionId: first.id,
@@ -160,8 +173,8 @@ function referenceStaleness(
       completedAt: first.completedAt,
       paths: first.files.filter(covers).slice(0, 5),
       sessionCount: focused.length,
-      reason: compared >= 10 && focused.length / compared > 0.15 ? "broad_applies_to" : "applies_to_changed",
-      appliesToBreadth: { share: Math.round((focused.length / compared) * 1000) / 1000, sessions: compared },
+      reason: compared >= 10 && windowTouched / compared > 0.15 ? "broad_applies_to" : "applies_to_changed",
+      appliesToBreadth: { share: Math.round((windowTouched / compared) * 1000) / 1000, sessions: compared },
     },
     ...signals,
   };
@@ -275,6 +288,14 @@ describe("staleness index", () => {
           recorded.knowledge.id,
         );
       }
+      // insertSessions also leaves its focused template Session in the project; the project-wide breadth counts it.
+      sessions.push({
+        id: "template",
+        title: "Synthetic template",
+        completedAt: "2025-01-01T00:00:00.000Z",
+        files: ["template.ts"],
+        voided: false,
+      });
       const result = store.searchKnowledge({ projectRoot: root, pageSize: 50 });
       if (result.outcome !== "knowledge") throw new Error("Expected Knowledge.");
       expect(result.items).toHaveLength(12);

@@ -30,8 +30,8 @@
  * Focused and broad Sessions. A Session that listed more than CHANGED_FILES_NORMAL files (the stored list's length, as
  * every other feature counts it) is broad; one that listed 1 to CHANGED_FILES_NORMAL is focused. The index keeps both
  * in the same lists, because the caller decides what each kind means: a broad Session never sets possiblyStale on its
- * own (it is counted in broadChangesSince), and the focused Sessions are the sample the appliesTo breadth is measured
- * over (focusedFrom). A Session with no files is neither.
+ * own (it is counted in broadChangesSince), and the newest focused Sessions are the sample the appliesTo breadth is measured
+ * over (newestFocusedWindow). A Session with no files is neither.
  *
  * Accounting (see applies-to-match.ts). Building the index is charged to the call's history budget before each step
  * runs: each Session row, its list's JSON text, hashing each stored path, normalizing a path not seen recently, hashing
@@ -210,8 +210,6 @@ export class LaterChangeIndex {
   private readonly segmentIds = new Map<string, number>();
   private readonly coverageByPattern = new Map<string, PatternCoverage>();
   private sessionIndexById?: Map<string, number>;
-  /** focusedBefore[i] = focused Sessions among the first i; rebuilt when a Session is added. */
-  private focusedBefore?: Int32Array;
   private marks?: Uint8Array;
   private pathCharacters = 0;
   private segmentsFiled = false;
@@ -244,7 +242,6 @@ export class LaterChangeIndex {
       if (pathId >= 0) this.sessionsByPath.append(pathId, index);
     }
     this.sessions.push({ id, title, completedAt, files, pathIds });
-    this.focusedBefore = undefined;
     return true;
   }
 
@@ -259,14 +256,17 @@ export class LaterChangeIndex {
     return count >= 1 && count <= CHANGED_FILES_NORMAL;
   }
 
-  /** How many Sessions from index `start` on are focused. */
-  public focusedFrom(start: number): number {
-    if (!this.focusedBefore) {
-      const before = new Int32Array(this.sessions.length + 1);
-      for (let at = 0; at < this.sessions.length; at += 1) before[at + 1] = before[at]! + (this.isFocused(at) ? 1 : 0);
-      this.focusedBefore = before;
+  /** The newest `limit` focused Sessions (all when fewer): the index where they start and how many there are. */
+  public newestFocusedWindow(limit: number): { start: number; sessions: number } {
+    let count = 0;
+    let start = this.sessions.length;
+    for (let at = this.sessions.length - 1; at >= 0 && count < limit; at -= 1) {
+      if (this.isFocused(at)) {
+        count += 1;
+        start = at;
+      }
     }
-    return this.focusedBefore[this.sessions.length]! - this.focusedBefore[Math.min(start, this.sessions.length)]!;
+    return { start: count === 0 ? this.sessions.length : start, sessions: count };
   }
 
   /** How many distinct patterns this call will resolve, so one or two can skip building the segment index. */

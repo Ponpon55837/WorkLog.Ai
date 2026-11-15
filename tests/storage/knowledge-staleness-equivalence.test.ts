@@ -35,7 +35,8 @@ interface OracleSignals {
   broadChangesSince?: number;
 }
 
-/** Sessions that listed more than 20 files only count toward broadChangesSince; the breadth samples the others. */
+/** Sessions that listed more than 20 files only count toward broadChangesSince; the breadth is the project-wide one:
+ * the share of the newest 200 focused Sessions (own Sessions included) that touch appliesTo. */
 function oracleStaleness(
   knowledge: KnowledgeRecord,
   sessions: OracleSession[],
@@ -53,12 +54,16 @@ function oracleStaleness(
   let first: KnowledgeStaleness | undefined;
   let sessionCount = 0;
   let broadSessions = 0;
-  let compared = 0;
+  const matches = (session: OracleSession): boolean =>
+    session.files.some((file) => matchers.some((matcher) => matcher(file.normalized)));
+  // `sessions` is oldest first: the window is its last 200 focused Sessions.
+  const window = sessions.filter((session) => session.files.length >= 1 && session.files.length <= 20).slice(-200);
+  const compared = window.length;
+  const windowTouched = window.filter(matches).length;
   for (const session of sessions) {
     if (session.completedAt <= since || excluded.has(session.id)) {
       continue;
     }
-    if (session.files.length >= 1 && session.files.length <= 20) compared += 1;
     const paths = session.files
       .filter((file) => matchers.some((matches) => matches(file.normalized)))
       .map((file) => file.raw);
@@ -85,8 +90,8 @@ function oracleStaleness(
     possiblyStale: {
       ...first,
       sessionCount,
-      reason: compared >= 10 && sessionCount / compared > 0.15 ? "broad_applies_to" : "applies_to_changed",
-      appliesToBreadth: { share: Math.round((sessionCount / compared) * 1000) / 1000, sessions: compared },
+      reason: compared >= 10 && windowTouched / compared > 0.15 ? "broad_applies_to" : "applies_to_changed",
+      appliesToBreadth: { share: Math.round((windowTouched / compared) * 1000) / 1000, sessions: compared },
     },
     ...broad,
   };

@@ -794,16 +794,20 @@ export interface KnowledgeReview {
 
 /**
  * applies_to_changed: later Sessions that changed at most 20 files touched appliesTo. broad_applies_to: the same, and
- * appliesTo covers a large share of the project's ordinary Sessions, so a touch says little about this Knowledge.
+ * appliesTo covers a large share of the project's newest ordinary Sessions (the write-time breadth, not only the
+ * Sessions after the baseline), so a touch says little about this Knowledge.
  */
 export const KNOWLEDGE_STALENESS_REASONS = ["applies_to_changed", "broad_applies_to"] as const;
 export type KnowledgeStalenessReason = (typeof KNOWLEDGE_STALENESS_REASONS)[number];
 
-/** How much of a project's ordinary work an appliesTo covers: the share of Sessions (1-20 changed files) it touches. */
+/**
+ * How much of a project's ordinary work an appliesTo covers: the share of the project's newest 200 Sessions with 1-20
+ * changed files it touches. The same project-wide definition at write time and in possiblyStale.
+ */
 export interface KnowledgeAppliesToBreadth {
   /** Touching Sessions divided by `sessions`, rounded to 3 decimals. */
   share: number;
-  /** The Sessions compared: those with 1-20 changed files. */
+  /** The Sessions compared: the project's newest (up to 200) with 1-20 changed files, not only later ones. */
   sessions: number;
 }
 
@@ -824,7 +828,7 @@ export interface KnowledgeStaleness {
   /** How many later Sessions with at most 20 changed files touched matching paths. */
   sessionCount: number;
   reason: KnowledgeStalenessReason;
-  /** Absent when no later Session had 1-20 changed files to compare. */
+  /** Project-wide (newest 200 Sessions with 1-20 files), as at write time; absent when the project has none. */
   appliesToBreadth?: KnowledgeAppliesToBreadth;
 }
 

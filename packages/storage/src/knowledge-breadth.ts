@@ -1,7 +1,13 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { KnowledgeAppliesToBreadth, KnowledgeWriteBreadth } from "@work-intelligence/core";
-import { createAppliesToBudget, MAX_STORED_CHANGED_FILES_JSON_BYTES, normalizedAppliesTo } from "./applies-to-match.js";
-import { LaterChangeIndex, stalenessUnitLimits } from "./later-change-index.js";
+import {
+  chargeAppliesTo,
+  createAppliesToBudget,
+  MAX_STORED_CHANGED_FILES_JSON_BYTES,
+  normalizedAppliesTo,
+  type AppliesToBudget,
+} from "./applies-to-match.js";
+import { LaterChangeIndex, stalenessUnitLimits, type PatternCoverage } from "./later-change-index.js";
 import { CHANGED_FILES_NORMAL } from "./search-repository.js";
 import type { PathContext } from "./search-text.js";
 
@@ -35,7 +41,7 @@ export const BREADTH_SCAN_LIMIT = 200;
  * Sessions with 1 to CHANGED_FILES_NORMAL stored changed files. A stored value that is not valid JSON, not an array,
  * or above the load bound counts as no files, so the filter never throws on damaged rows.
  */
-const FOCUSED_SESSION_SQL = `(CASE WHEN octet_length(changed_files_json) <= ${MAX_STORED_CHANGED_FILES_JSON_BYTES}
+export const FOCUSED_SESSION_SQL = `(CASE WHEN octet_length(changed_files_json) <= ${MAX_STORED_CHANGED_FILES_JSON_BYTES}
                                    AND json_valid(changed_files_json)
                               THEN (CASE WHEN json_type(changed_files_json) = 'array'
                                          THEN json_array_length(changed_files_json) ELSE 0 END)
@@ -50,6 +56,43 @@ export function appliesToBreadthOf(touching: number, sessions: number): Knowledg
 /** Whether `touching` of `sessions` is above the broad threshold with enough Sessions to mean anything. */
 export function isBroadAppliesTo(touching: number, sessions: number): boolean {
   return sessions >= MIN_BREADTH_SESSIONS && touching / sessions > BROAD_APPLIES_TO_SHARE;
+}
+
+/** The newest focused Sessions of an index that a breadth is measured over: from index `start`, `sessions` of them. */
+export interface BreadthWindow {
+  start: number;
+  sessions: number;
+}
+
+/** The window of the newest BREADTH_SCAN_LIMIT focused Sessions of `index` (all of them when there are fewer). */
+export function breadthWindowOf(index: LaterChangeIndex): BreadthWindow {
+  return index.newestFocusedWindow(BREADTH_SCAN_LIMIT);
+}
+
+/**
+ * How many Sessions of `window` the resolved patterns touch (the union over the patterns, focused Sessions only),
+ * charged to `budget` like every other union; undefined when the budget ran out. The one definition both the
+ * write-time scan and the staleness check use, so they cannot drift apart.
+ */
+export function touchedInWindow(
+  index: LaterChangeIndex,
+  coverage: readonly PatternCoverage[],
+  window: BreadthWindow,
+  budget: AppliesToBudget,
+): number | undefined {
+  const touched = new Set<number>();
+  for (const { sessions } of coverage) {
+    let low = 0;
+    let high = sessions.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if (sessions[middle]! >= window.start) high = middle;
+      else low = middle + 1;
+    }
+    if (!chargeAppliesTo(budget, sessions.length - low + 1)) return undefined;
+    for (let at = low; at < sessions.length; at += 1) if (index.isFocused(sessions[at]!)) touched.add(sessions[at]!);
+  }
+  return touched.size;
 }
 
 /** The English hint an Agent gets when the appliesTo it just wrote is broad. */
@@ -104,17 +147,19 @@ export function scanAppliesToBreadth(
     if (!index.add(row.id, row.title, row.completed_at, row.changed_files_json))
       return { broad: false, unchecked: true };
   }
-  const sessions = index.focusedFrom(0);
-  if (sessions === 0) return { broad: false, unchecked: false };
+  const window = breadthWindowOf(index);
+  if (window.sessions === 0) return { broad: false, unchecked: false };
 
   index.expect(patterns.length);
-  const touched = new Set<number>();
+  const coverage: PatternCoverage[] = [];
   for (const pattern of patterns) {
     const covered = index.coverage(pattern, budget);
     if (!covered) return { broad: false, unchecked: true };
-    for (const sessionIndex of covered.sessions) if (index.isFocused(sessionIndex)) touched.add(sessionIndex);
+    coverage.push(covered);
   }
-  const breadth = appliesToBreadthOf(touched.size, sessions)!;
-  const broad = isBroadAppliesTo(touched.size, sessions);
+  const touched = touchedInWindow(index, coverage, window, budget);
+  if (touched === undefined) return { broad: false, unchecked: true };
+  const breadth = appliesToBreadthOf(touched, window.sessions)!;
+  const broad = isBroadAppliesTo(touched, window.sessions);
   return { breadth: { ...breadth, truncated, broad }, broad, unchecked: false };
 }

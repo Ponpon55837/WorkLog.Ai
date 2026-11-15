@@ -352,7 +352,7 @@
     "kindOverviewIgnoresSearch": "The search does not affect these counts.",
     "kindOverviewNote": "{status} Knowledge in this project scope: {total} in all.",
     "aSessionReportedThatThis": "A Session reported that this no longer holds ({value}). After checking, update the content or choose “Still valid”.",
-    "broadAppliesToWeakSignal": "Broad scope: {percent}% of the {sessions} later small Sessions touched these paths, so this signal is weak",
+    "broadAppliesToWeakSignal": "Broad scope: {percent}% of the project's newest {sessions} small Sessions touched these paths, so this signal is weak",
     "broadChangesSince": "{count} later broad change (over 20 files) touched these paths|{count} later broad changes (over 20 files) touched these paths",
     "appliesToTooBroad": "Applies-to paths are broad: {percent}% of the last {sessions} small Sessions touched them. Narrow them, or this is easily marked possibly stale.",
     "accept": "Accept",

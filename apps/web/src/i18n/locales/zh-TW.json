@@ -352,7 +352,7 @@
     "kindOverviewIgnoresSearch": "搜尋條件不影響此處數字。",
     "kindOverviewNote": "目前專案與狀態（{status}）共 {total} 則。",
     "aSessionReportedThatThis": "有 Session 回報這筆內容已不成立（{value}）；確認後請更新內容，或選「確認仍有效」。",
-    "broadAppliesToWeakSignal": "範圍較寬：之後 {sessions} 個小範圍工作中有 {percent}% 碰到這些路徑，這個訊號較弱",
+    "broadAppliesToWeakSignal": "範圍較寬：專案最近 {sessions} 個小範圍工作中有 {percent}% 碰到這些路徑，這個訊號較弱",
     "broadChangesSince": "之後另有 {count} 次大範圍改動（超過 20 個檔案）碰過這些路徑",
     "appliesToTooBroad": "適用路徑範圍較寬：近 {sessions} 個小範圍工作中有 {percent}% 碰到這些路徑。建議縮小範圍，否則很容易被標成可能過時。",
     "accept": "接受",

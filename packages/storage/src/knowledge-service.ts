@@ -35,9 +35,14 @@ import {
 import { DataRevisionCache } from "./data-revision-cache.js";
 import {
   appliesToBreadthOf,
+  BREADTH_SCAN_LIMIT,
+  breadthWindowOf,
   broadAppliesToWarning,
+  FOCUSED_SESSION_SQL,
   isBroadAppliesTo,
   scanAppliesToBreadth,
+  touchedInWindow,
+  type BreadthWindow,
 } from "./knowledge-breadth.js";
 import { LaterChangeIndex, stalenessUnitLimits, type PatternCoverage } from "./later-change-index.js";
 import type { PathContext } from "./search-text.js";
@@ -122,13 +127,16 @@ function lowerBound(values: Int32Array, target: number): number {
  * is resolved once per call by the index (later-change-index.ts); the item unions the Sessions of its patterns that
  * completed after its `since`, without its own Sessions. Of those, Sessions that listed more than
  * CHANGED_FILES_NORMAL files are broad: they are only counted (broadChangesSince) and never set possiblyStale. The
- * first focused one gives the paths shown and the rest of them give sessionCount. The appliesTo breadth is the share
- * of the focused Sessions after `since` that the item's patterns touch, from the coverage already resolved.
+ * first focused one gives the paths shown and the rest of them give sessionCount. The appliesTo breadth of a
+ * possibly stale item is the project-wide one, as at write time: the share of the newest BREADTH_SCAN_LIMIT focused
+ * Sessions (`window`, found once per project) that its patterns touch, from the coverage already resolved. The
+ * Knowledge's own Sessions are not excluded from it, as at write time.
  */
 function knowledgeStaleness(
   knowledge: KnowledgeRecord,
   { patterns, skipped }: ItemPatterns,
   later: LaterChangeIndex,
+  window: BreadthWindow,
   budget: AppliesToBudget,
 ): StalenessSignals | "unchecked" | undefined {
   // An entry above the write-time limits is never compared, so staleness can be neither proven nor ruled out.
@@ -153,8 +161,7 @@ function knowledgeStaleness(
       touched.add(sessions[at]!);
     }
   }
-  // The Knowledge's own Sessions are neither a reason to doubt it nor part of the sample the breadth is measured on.
-  let focusedSessions = later.focusedFrom(start);
+  // The Knowledge's own Sessions are not a reason to doubt it.
   const excluded = new Set<number>();
   for (const id of [knowledge.sessionId, knowledge.lastConfirmedSessionId]) {
     const excludedIndex = id ? later.indexOfSession(id) : undefined;
@@ -162,7 +169,6 @@ function knowledgeStaleness(
   }
   for (const excludedIndex of excluded) {
     touched.delete(excludedIndex);
-    if (excludedIndex >= start && later.isFocused(excludedIndex)) focusedSessions -= 1;
   }
   let broadSessions = 0;
   let focusedTouched = 0;
@@ -187,7 +193,9 @@ function knowledgeStaleness(
     const pathId = session.pathIds[index]!;
     return pathId >= 0 && coverage.some(({ paths: covered }) => covered.has(pathId));
   });
-  const appliesToBreadth = appliesToBreadthOf(focusedTouched, focusedSessions);
+  const windowTouched = touchedInWindow(later, coverage, window, budget);
+  if (windowTouched === undefined) return "unchecked";
+  const appliesToBreadth = appliesToBreadthOf(windowTouched, window.sessions);
   return {
     possiblyStale: {
       sessionId: session.id,
@@ -195,7 +203,7 @@ function knowledgeStaleness(
       completedAt: session.completedAt,
       paths: paths.slice(0, 5),
       sessionCount: focusedTouched,
-      reason: isBroadAppliesTo(focusedTouched, focusedSessions) ? "broad_applies_to" : "applies_to_changed",
+      reason: isBroadAppliesTo(windowTouched, window.sessions) ? "broad_applies_to" : "applies_to_changed",
       ...(appliesToBreadth ? { appliesToBreadth } : {}),
     },
     ...broadChangesSince,
@@ -411,9 +419,10 @@ export class KnowledgeService {
       }
       // The patterns first, so the index knows how many it will resolve (one or two skip the segment index).
       const prepared = group.map((item) => itemPatterns(item, contexts, budget));
+      const window = breadthWindowOf(later);
       later.expect(new Set(prepared.flatMap(({ patterns }) => patterns)).size);
       group.forEach((item, index) => {
-        const result = knowledgeStaleness(item, prepared[index]!, later, budget);
+        const result = knowledgeStaleness(item, prepared[index]!, later, window, budget);
         if (result) {
           staleness.set(item.id, result);
         }
@@ -457,8 +466,10 @@ export class KnowledgeService {
   }
 
   /**
-   * A project's non-voided Sessions completed after `since`, oldest first, read into a LaterChangeIndex one row at a
-   * time (one .all() of 5,000 Sessions of 50 x 100 characters took 433 ms and 235 MB). Each row's list, paths and new
+   * A project's non-voided Sessions completed after `since`, plus its newest BREADTH_SCAN_LIMIT focused Sessions even
+   * when they are older (the project-wide breadth window; older broad Sessions cannot affect any item and are not
+   * read), oldest first, read into a LaterChangeIndex one row at a time (one .all() of 5,000 Sessions of 50 x 100
+   * characters took 433 ms and 235 MB). One query finds where that window starts. Each row's list, paths and new
    * distinct paths are charged to `history` before they are parsed, normalized or split. A list above
    * MAX_STORED_CHANGED_FILES_JSON_BYTES is not loaded. Undefined when a row stopped the read.
    */
@@ -468,16 +479,26 @@ export class KnowledgeService {
     contexts: PathContext[],
     history: AppliesToBudget,
   ): LaterChangeIndex | undefined {
+    // The (completed_at, id) of the newest-window's oldest Session; the empty tuple admits every focused Session.
+    const floor = this.db
+      .prepare(
+        `SELECT completed_at, id FROM sessions
+         WHERE project_id = ? AND voided_at IS NULL AND ${FOCUSED_SESSION_SQL}
+         ORDER BY completed_at DESC, id DESC
+         LIMIT 1 OFFSET ?`,
+      )
+      .get(projectId, BREADTH_SCAN_LIMIT - 1) as { completed_at: string; id: string } | undefined;
     const rows = this.db
       .prepare(
         `SELECT id, title, completed_at,
                 CASE WHEN octet_length(changed_files_json) <= ${MAX_STORED_CHANGED_FILES_JSON_BYTES}
                      THEN changed_files_json END AS changed_files_json
          FROM sessions
-         WHERE project_id = ? AND voided_at IS NULL AND completed_at > ?
+         WHERE project_id = ? AND voided_at IS NULL
+           AND (completed_at > ? OR (${FOCUSED_SESSION_SQL} AND (completed_at, id) >= (?, ?)))
          ORDER BY completed_at ASC, id ASC`,
       )
-      .iterate(projectId, since) as Iterable<{
+      .iterate(projectId, since, floor?.completed_at ?? "", floor?.id ?? "") as Iterable<{
       id: string;
       title: string;
       completed_at: string;

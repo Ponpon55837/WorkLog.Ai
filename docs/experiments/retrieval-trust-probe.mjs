@@ -133,7 +133,8 @@
 //     packages/storage/dist/knowledge-breadth.js; if the build does not export it the key says `available: false`) run
 //     on the temp copy for every active Knowledge with appliesTo: share distribution, Sessions compared, broad count
 //     (share > 0.15 over >= 10 Sessions), truncated and unchecked counts, and the overlap of broad with baseline
-//     possiblyStale and with reason broad_applies_to. It estimates the width as of NOW over the project's newest
+//     possiblyStale and with reason broad_applies_to, and `staleReasonMatchesWriteTimeBreadth {agree, disagree}`: the
+//     possiblyStale items whose own appliesToBreadth gives the same broad answer as the scan. It estimates the width as of NOW over the project's newest
 //     focused Sessions, not as of the day the Knowledge was written. Nothing is written to any database.
 import assert from "node:assert/strict";
 import console from "node:console";
@@ -1982,6 +1983,9 @@ function analyze(store, raw, options, sourceInfo) {
       notBroadAndPossiblyStale: 0,
       broadAndBroadStaleReason: 0,
       broadStaleReasonButNotBroad: 0,
+      // possiblyStale items whose own appliesToBreadth (share > 0.15 over >= 10 Sessions) gives the same broad answer
+      // as the scan: they agree on builds where possiblyStale uses the project-wide breadth.
+      staleReasonMatchesWriteTimeBreadth: { agree: 0, disagree: 0 },
     };
     for (const item of active) {
       if (item.appliesTo === 0) continue;
@@ -2011,6 +2015,10 @@ function analyze(store, raw, options, sourceInfo) {
         );
         if (scan.breadth.truncated) record.truncated += 1;
         const stale = staleById.get(item.id);
+        if (stale?.breadth) {
+          const staleBroad = stale.breadth.sessions >= 10 && stale.breadth.share > 0.15;
+          record.staleReasonMatchesWriteTimeBreadth[staleBroad === scan.broad ? "agree" : "disagree"] += 1;
+        }
         if (scan.broad) {
           record.broad += 1;
           if (stale) record.broadAndPossiblyStale += 1;
@@ -2692,6 +2700,8 @@ async function selfCheck() {
     assert(writeBreadth.share.max > 0.15 && writeBreadth.sessions.max >= 10);
     assert.equal(Object.values(writeBreadth.share.buckets).reduce((a, b) => a + b, 0), writeBreadth.scanned - writeBreadth.noBreadth);
     assert(writeBreadth.truncated <= writeBreadth.scanned);
+    assert.equal(writeBreadth.staleReasonMatchesWriteTimeBreadth.disagree, 0, "possiblyStale breadth is the write-time breadth");
+    assert(writeBreadth.staleReasonMatchesWriteTimeBreadth.agree >= 1);
     assert(writeBreadth.broadAndBroadStaleReason >= 1, "a broad write-time appliesTo carries the broad_applies_to reason");
     assert.equal(Object.values(answer.knowledgeConfidence).reduce((a, b) => a + b, 0), answer.queries);
     assert(answer.zeroKnowledgeHitsButHighConfidence.n >= 1, "a Session-only match gives high confidence with no Knowledge hit");

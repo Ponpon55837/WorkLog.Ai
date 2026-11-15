@@ -27,7 +27,7 @@ export function trustCells(confirmed: number, contradicted: number, max = MAX_TR
 }
 
 export interface KnowledgeStaleNotes {
-  /** Weak-signal note shown beside a broad_applies_to reason; null otherwise. */
+  /** Weak-signal note (project-wide breadth) shown beside a broad_applies_to reason; null otherwise. */
   broadAppliesTo: string | null;
   /** Count of later broad (over 20 files) changes; shown even when the Knowledge is not possibly stale. */
   broadChanges: string | null;

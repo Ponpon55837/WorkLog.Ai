@@ -4,16 +4,19 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FinalizeSessionInput, KnowledgeRecord } from "../../packages/core/src/index.js";
+import { MAX_STORED_CHANGED_FILES_JSON_BYTES } from "../../packages/storage/src/applies-to-match.js";
 import {
   BREADTH_SCAN_LIMIT,
   BROAD_APPLIES_TO_SHARE,
   MIN_BREADTH_SESSIONS,
+  scanAppliesToBreadth,
 } from "../../packages/storage/src/knowledge-breadth.js";
 import { setStalenessUnitLimits } from "../../packages/storage/src/later-change-index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
 // Fictional fixtures only. Later Sessions that list more than 20 files are counted apart (broadChangesSince) and never
-// set possiblyStale; appliesTo breadth is the share of the later Sessions with 1-20 files that touch appliesTo.
+// set possiblyStale; the appliesTo breadth of a possibly stale item is project-wide, as at write time: the share of the
+// project's newest 200 Sessions with 1-20 files that touch appliesTo.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -102,7 +105,7 @@ function setup() {
       db.close();
     }
   };
-  return { root, store, finalize, wide, record, read, insertRaw, tick };
+  return { root, store, project, databasePath, finalize, wide, record, read, insertRaw, tick };
 }
 
 describe("broad Sessions in the staleness check", () => {
@@ -178,7 +181,7 @@ describe("broad Sessions in the staleness check", () => {
     expect(read(recorded.knowledge.id).broadChangesSince).toBe(1);
   });
 
-  it("measures breadth over the later Sessions with 1-20 files and marks a wide appliesTo broad_applies_to", () => {
+  it("measures breadth over the project's Sessions with 1-20 files and marks a wide appliesTo broad_applies_to", () => {
     const { finalize, wide, record, read } = setup();
     const knowledge = record("wide", ["src/field/**"]).knowledge;
     // 12 comparable Sessions after it, 3 of which touch appliesTo (25%); broad Sessions and empty ones are not compared.
@@ -267,6 +270,123 @@ describe("broad Sessions in the staleness check", () => {
     const confirmed = read(knowledge.id);
     expect(confirmed.possiblyStale).toBeUndefined();
     expect(confirmed.broadChangesSince).toBeUndefined();
+  });
+});
+
+describe("project-wide breadth of a possibly stale Knowledge", () => {
+  const writeTimeBreadth = (
+    context: { root: string; databasePath: string; project: { id: string } },
+    appliesTo: string[],
+  ) => {
+    const db = new DatabaseSync(context.databasePath);
+    try {
+      return scanAppliesToBreadth(db, context.project.id, [{ name: "Meadow", rootPath: context.root }], appliesTo);
+    } finally {
+      db.close();
+    }
+  };
+
+  it("calls a wide appliesTo broad right after it was recorded, when only a few Sessions came after", () => {
+    const context = setup();
+    // Twelve older focused Sessions, ten of which touch src/; the Knowledge is recorded after them.
+    for (let index = 0; index < 12; index += 1) {
+      context.finalize(`old-${index}`, [index < 10 ? `src/field/${index}.ts` : `docs/${index}.md`]);
+    }
+    const knowledge = context.record("fresh-wide", ["src/**"]).knowledge;
+    context.finalize("later-1", ["src/field/a.ts"]);
+    context.finalize("later-2", ["src/field/b.ts"]);
+    context.finalize("later-3", ["docs/c.md"]);
+
+    const item = context.read(knowledge.id);
+    expect(item.possiblyStale).toMatchObject({
+      sessionCount: 2,
+      reason: "broad_applies_to",
+      appliesToBreadth: { share: 0.8, sessions: 15 },
+    });
+    const scan = writeTimeBreadth(context, ["src/**"]);
+    expect(scan.breadth).toMatchObject({ share: 0.8, sessions: 15 });
+    expect(item.possiblyStale!.appliesToBreadth).toEqual({
+      share: scan.breadth!.share,
+      sessions: scan.breadth!.sessions,
+    });
+    expect(scan.broad).toBe(true);
+  });
+
+  it("keeps applies_to_changed for a narrow appliesTo touched by one later Session", () => {
+    const context = setup();
+    for (let index = 0; index < 12; index += 1) context.finalize(`old-${index}`, [`src/field/${index}.ts`]);
+    const knowledge = context.record("fresh-narrow", ["lib/narrow.ts"]).knowledge;
+    context.finalize("later-1", ["lib/narrow.ts"]);
+    context.finalize("later-2", ["src/field/z.ts"]);
+
+    expect(context.read(knowledge.id).possiblyStale).toMatchObject({
+      sessionCount: 1,
+      reason: "applies_to_changed",
+      appliesToBreadth: { share: 0.071, sessions: 14 },
+    });
+  });
+
+  it("measures over exactly the newest 200 focused Sessions", () => {
+    const context = setup();
+    const total = BREADTH_SCAN_LIMIT + 30;
+    // 230 older Sessions (the template makes one more): the oldest ten and indexes 100-119 touch src/. Only the
+    // second group is inside the newest 200.
+    context.insertRaw(
+      Array.from({ length: total }, (_, index) => ({
+        id: `older-${index}`,
+        changedFilesJson: JSON.stringify([
+          index < 10 || (index >= 100 && index < 120) ? "src/a.ts" : `docs/${index}.md`,
+        ]),
+        completedAt: new Date(Date.UTC(2029, 5, 1) + index * 1000).toISOString(),
+      })),
+    );
+    const knowledge = context.record("window", ["src/**"]).knowledge;
+    context.finalize("later-1", ["src/b.ts"]);
+    context.finalize("later-2", ["src/c.ts"]);
+
+    const item = context.read(knowledge.id);
+    expect(item.possiblyStale).toMatchObject({
+      sessionCount: 2,
+      reason: "applies_to_changed",
+      appliesToBreadth: { share: 0.11, sessions: BREADTH_SCAN_LIMIT },
+    });
+    expect(writeTimeBreadth(context, ["src/**"]).breadth).toMatchObject({ share: 0.11, sessions: BREADTH_SCAN_LIMIT });
+  });
+
+  it("does not load older broad Sessions: they change neither the result nor the unchecked state", () => {
+    const withoutBroad = setup();
+    const withBroad = setup();
+    const oversized = JSON.stringify(Array.from({ length: 2 }, () => "x".repeat(MAX_STORED_CHANGED_FILES_JSON_BYTES)));
+    withBroad.insertRaw([
+      ...Array.from({ length: 30 }, (_, index) => ({
+        id: `bulk-${index}`,
+        changedFilesJson: JSON.stringify(
+          Array.from({ length: 25 }, (_, file) => (file === 0 ? "src/a.ts" : `v/${index}/${file}.ts`)),
+        ),
+        completedAt: new Date(Date.UTC(2029, 5, 1) + index * 1000).toISOString(),
+      })),
+      { id: "bulk-oversized", changedFilesJson: oversized, completedAt: "2029-06-02T00:00:00.000Z" },
+    ]);
+    const results = [withoutBroad, withBroad].map((context) => {
+      for (let index = 0; index < 12; index += 1) {
+        context.finalize(`old-${index}`, [index < 3 ? `src/field/${index}.ts` : `docs/${index}.md`]);
+      }
+      const knowledge = context.record("broad-older", ["src/**"]).knowledge;
+      context.finalize("later-1", ["src/field/z.ts"]);
+      return context.read(knowledge.id);
+    });
+    expect(results[1]!.stalenessUnchecked).toBeUndefined();
+    expect(results[1]!.broadChangesSince).toBeUndefined();
+    // Four of 14: the 12 older and the later Session, plus the one focused template Session insertRaw copies; none of
+    // the 31 broad rows count. The plain project has the same Sessions without the template and the broad rows.
+    expect(results[1]!.possiblyStale).toMatchObject({
+      sessionCount: 1,
+      appliesToBreadth: { share: 0.286, sessions: 14 },
+    });
+    expect(results[0]!.possiblyStale).toMatchObject({
+      sessionCount: 1,
+      appliesToBreadth: { share: 0.308, sessions: 13 },
+    });
   });
 });
 
