@@ -126,8 +126,7 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
               target="_blank"
               rel="noopener noreferrer"
               data-testid="commit-link"
-              >{{ session.commitSha.slice(0, 12) }}</a
-            ><template v-else>{{ session.commitSha.slice(0, 12) }}</template>
+              >{{ session.commitSha.slice(0, 12) }}</a><template v-else>{{ session.commitSha.slice(0, 12) }}</template>
           </dd></template
         >
       </dl>
@@ -146,8 +145,10 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
           :class="['session-panel__item', { 'is-voided': item.voided }]"
         >
           <div class="session-panel__item-head">
-            <UiLabel v-if="item.voided" tone="danger" :icon="Ban">{{ t("session.voidedLabel") }}</UiLabel
-            ><time :title="formatDate(item.createdAt)">{{ formatRelative(item.createdAt) }}</time>
+            <UiLabel v-if="item.voided" tone="danger" :icon="Ban">{{ t("session.voidedLabel") }}</UiLabel><time
+              :title="formatDate(item.createdAt)"
+              >{{ formatRelative(item.createdAt) }}</time
+            >
             <UiIconButton
               v-if="item.voided"
               class="session-panel__item-action"
@@ -196,8 +197,9 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
         <template #default="{ item }">
           <div :class="['session-panel__item', { 'is-voided': item.voided }]" data-testid="session-evidence">
             <div class="session-panel__item-head">
-              <UiLabel>{{ item.kind }}</UiLabel
-              ><UiLabel v-if="item.voided" tone="danger" :icon="Ban">{{ t("session.markedAsWrongLabel") }}</UiLabel
+              <UiLabel>{{ item.kind }}</UiLabel><UiLabel v-if="item.voided" tone="danger" :icon="Ban">{{
+                t("session.markedAsWrongLabel")
+              }}</UiLabel
               ><time :title="formatDate(item.capturedAt)">{{ formatRelative(item.capturedAt) }}</time>
               <UiIconButton
                 v-if="item.voided"
@@ -266,8 +268,7 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
         <template #default="{ item }">
           <div class="session-panel__item">
             <div class="session-panel__item-head">
-              <UiLabel tone="accent">{{ knowledgeKindLabels[item.kind] }}</UiLabel
-              ><strong>{{ item.title }}</strong>
+              <UiLabel tone="accent">{{ knowledgeKindLabels[item.kind] }}</UiLabel><strong>{{ item.title }}</strong>
             </div>
             <p>{{ item.body }}</p>
           </div>
@@ -293,8 +294,7 @@ function decisionStatusTone(status: string): "success" | "attention" | "danger" 
             <div class="session-panel__item-head">
               <UiLabel :tone="link.relation === 'related' ? 'neutral' : 'accent'">{{
                 sessionLinkDirectionLabels[link.relation]
-              }}</UiLabel
-              ><UiLabel v-if="link.voided" tone="danger" :icon="Ban">{{ t("session.voidedLabel") }}</UiLabel
+              }}</UiLabel><UiLabel v-if="link.voided" tone="danger" :icon="Ban">{{ t("session.voidedLabel") }}</UiLabel
               ><time :title="formatDate(link.completedAt)">{{ formatRelative(link.completedAt) }}</time>
               <UiIconButton
                 class="session-panel__item-action"

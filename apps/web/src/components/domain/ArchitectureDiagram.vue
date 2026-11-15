@@ -260,8 +260,7 @@ onBeforeUnmount(() => {
 <template>
   <figure class="architecture" data-testid="session-diagram">
     <figcaption>
-      <strong>{{ title }}</strong
-      ><UiButton v-if="!interactive" size="sm" :icon="Maximize2" @click="expand">{{
+      <strong>{{ title }}</strong><UiButton v-if="!interactive" size="sm" :icon="Maximize2" @click="expand">{{
         t("session.expandDiagram")
       }}</UiButton>
     </figcaption>
@@ -437,8 +436,9 @@ onBeforeUnmount(() => {
                   @focus="hoveredId = item.node.id"
                   @blur="hoveredId = ''"
                 >
-                  <strong>{{ item.node.label }}</strong
-                  ><span>{{ item.node.description || groupLabels.get(item.node.groupId ?? "") }}</span
+                  <strong>{{ item.node.label }}</strong><span>{{
+                    item.node.description || groupLabels.get(item.node.groupId ?? "")
+                  }}</span
                   ><small v-if="item.node.source"
                     ><FileCode2 :size="12" aria-hidden="true" />{{ item.node.source.path.split("/").pop() }}</small
                   >
@@ -448,12 +448,14 @@ onBeforeUnmount(() => {
           </div>
           <p v-if="interactive" class="architecture__hint">{{ t("session.diagramNavigation") }}</p>
           <div v-if="interactive && path" class="architecture__path" :aria-label="t('session.authoredPath')">
-            <strong>{{ path.label }}</strong
-            ><span>{{ t("session.authoredPathNote") }}</span>
+            <strong>{{ path.label }}</strong><span>{{ t("session.authoredPathNote") }}</span>
             <ol>
               <li v-for="(node, index) in pathNodes" :key="`${node.id}-${index}`">
-                <UiButton variant="link" @click="selectNode(node.id)">{{ node.label }}</UiButton
-                ><ArrowRight v-if="index < pathNodes.length - 1" :size="14" aria-hidden="true" />
+                <UiButton variant="link" @click="selectNode(node.id)">{{ node.label }}</UiButton><ArrowRight
+                  v-if="index < pathNodes.length - 1"
+                  :size="14"
+                  aria-hidden="true"
+                />
               </li>
             </ol>
           </div>
@@ -478,8 +480,9 @@ onBeforeUnmount(() => {
             <p v-if="selected.groupId">{{ groupLabels.get(selected.groupId) }}</p>
             <div v-if="selected.source" class="architecture__source">
               <h4>{{ t("session.architectureSource") }}</h4>
-              <a v-if="sourceLink" :href="sourceLink" rel="noopener noreferrer">{{ selected.source.path }}</a
-              ><code v-else>{{ selected.source.path }}</code
+              <a v-if="sourceLink" :href="sourceLink" rel="noopener noreferrer">{{ selected.source.path }}</a><code
+                v-else
+                >{{ selected.source.path }}</code
               ><span v-if="selected.source.line">{{
                 t("session.architectureSourceLine", { line: selected.source.line })
               }}</span>

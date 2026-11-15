@@ -64,10 +64,11 @@ const actions = computed(() => [
           when: formatRelative(item.possiblyStale.completedAt),
         })
       }}
-      <code>{{ item.possiblyStale.paths.join(t("common.listSeparator")) }}</code
-      ><template v-if="item.possiblyStale.sessionCount > 1">{{
-        t("knowledge.sessionsChangedThesePathsSince", { sessionCount: item.possiblyStale.sessionCount })
-      }}</template
+      <code>{{ item.possiblyStale.paths.join(t("common.listSeparator")) }}</code><template
+        v-if="item.possiblyStale.sessionCount > 1"
+        >{{
+          t("knowledge.sessionsChangedThesePathsSince", { sessionCount: item.possiblyStale.sessionCount })
+        }}</template
       >{{ t("common.sentenceEnd") }}
     </p>
     <p v-if="staleNotes.broadAppliesTo" class="knowledge-row__note">{{ staleNotes.broadAppliesTo }}</p>

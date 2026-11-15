@@ -19,8 +19,7 @@ function isInsufficient(detail: string): boolean {
 <template>
   <section class="synthesis-block">
     <h3>
-      {{ title }} <span v-if="hint" class="synthesis-block__hint">{{ hint }}</span
-      ><slot name="actions" />
+      {{ title }} <span v-if="hint" class="synthesis-block__hint">{{ hint }}</span><slot name="actions" />
     </h3>
     <div v-for="(block, index) in blocks" :key="block.ordinal ?? index" class="synthesis-block__item">
       <div class="synthesis-block__copy">
@@ -36,8 +35,11 @@ function isInsufficient(detail: string): boolean {
       >
         {{ block.sourceSessionIds.length }} Session{{ block.sourceSessionIds.length > 1 ? "s" : "" }}
       </button>
-      <span v-else class="synthesis-block__no-source">{{ t("common.noSourceProvided") }}</span
-      ><slot name="block-actions" :block="block" :ordinal="block.ordinal ?? index" />
+      <span v-else class="synthesis-block__no-source">{{ t("common.noSourceProvided") }}</span><slot
+        name="block-actions"
+        :block="block"
+        :ordinal="block.ordinal ?? index"
+      />
     </div>
   </section>
 </template>
