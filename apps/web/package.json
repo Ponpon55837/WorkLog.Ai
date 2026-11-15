@@ -9,14 +9,14 @@
     "@work-intelligence/core": "workspace:*",
     "@work-intelligence/schema": "workspace:*",
     "lucide-vue-next": "^1.0.0",
-    "pinia": "4.0.3",
+    "pinia": "4.1.0",
     "vue": "^3.5.13",
-    "vue-router": "4.5.0",
+    "vue-router": "5.5.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.11",
-    "vite": "^6.3.5",
+    "vite": "^6.4.4",
     "vue-tsc": "^3.3.14"
   },
   "scripts": {

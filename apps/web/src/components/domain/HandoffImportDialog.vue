@@ -121,8 +121,8 @@ function filesText(item: HandoffImportPreviewItem): string {
               <span v-if="item.summaryPreview" class="handoff__summary">{{ item.summaryPreview }}</span>
               <small>
                 <template v-if="item.recordedDate"
-                  >{{ t("projects.recorded", { recordedDate: item.recordedDate }) }} </template
-                >{{ filesText(item) }}<template v-if="item.detail"> · {{ item.detail }}</template>
+                  >{{ t("projects.recorded", { recordedDate: item.recordedDate }) }} </template>{{ filesText(item)
+                }}<template v-if="item.detail"> · {{ item.detail }}</template>
               </small>
             </span>
           </label>
