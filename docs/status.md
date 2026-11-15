@@ -6,6 +6,10 @@
 
 - 最後更新：2026-11-15
 
+## 1.6.40（已完成）
+
+只更新相依套件，沒有行為或 schema 變更：`vue-router` 5.5.0、`vite` 6.4.6（修補 vue-router 5 帶進正式環境依賴的高風險漏洞）、`pinia` 4.1.0、`@vitejs/plugin-vue` 6、`tsx` 4.23.15、`prettier` 3.10（重新格式化 5 個 Vue 範本）、`@types/node` 24。詳見 [1.6.40 更新說明](releases/1.6.40.md)。
+
 ## 1.6.39（已完成）
 
 Knowledge 的可能過時判斷不再因大範圍改動單獨觸發：超過 20 檔的後續 Session 改計入 `broadChangesSince`，`possiblyStale` 附上 `reason` 與 `appliesToBreadth`，寫入太寬的 appliesTo 時提示；檢索回報 `knowledgeConfidence`、`knowledgeHint` 與 `matchedVia`，並修正 `termHits` 誤報與格式錯誤的 `changed_files_json`；Web 以次要文字顯示較弱的訊號。新增可行性研究與探針（`docs/experiments`）。沒有 schema 變更（33），沒有 migration；`possiblyStale` 會變少，MCP 回應多了可選欄位，Agent 需重新連線。驗證：format、lint、typecheck、全部單元測試與 coverage、build、performance gate、retrieval quality、response size、三種瀏覽器的 E2E（120 項）與 start smoke 皆通過；真實資料前後比較（私有副本，只回彙總數字）：`possiblyStale` 由 21 則降為 5 則，另 16 則只回報 `broadChangesSince`。見[更新說明](releases/1.6.39.md)。

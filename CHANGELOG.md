@@ -4,6 +4,20 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.40] - 2026-11-15
+
+[繁體中文更新說明](docs/releases/1.6.40.md).
+
+This release updates dependencies only. It changes no behaviour and no schema; the schema stays at 33 and no migration is needed.
+
+### Changed
+
+- `vue-router` 4.5.0 to 5.5.0. The web app uses no file-based routing, so no code changed.
+- `vite` 6.3 to 6.4.6. `vue-router` 5 brings `vite` into the production dependency path, and versions up to 6.4.3 carry a high-severity advisory (GHSA-587h-7wmj-h5pm).
+- `pinia` 4.0.3 to 4.1.0, `@vitejs/plugin-vue` 5 to 6, `tsx` 4.23.13 to 4.23.15.
+- `prettier` 3.9 to 3.10; five Vue templates are reformatted.
+- `@types/node` 22 to 24, matching the Node version CI and releases already use.
+
 ## [1.6.39] - 2026-11-15
 
 [繁體中文更新說明](docs/releases/1.6.39.md).
