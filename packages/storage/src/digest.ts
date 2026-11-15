@@ -6,6 +6,7 @@ import type {
   WorkSessionRecord,
 } from "@work-intelligence/core";
 import { truncateText } from "@work-intelligence/shared";
+import { staleFlags } from "./stale-flags.js";
 
 // Digest limits keep a full context result within a few KB; full records stay one tool call away.
 export const DIGEST_SUMMARY_LENGTH = 400;
@@ -56,7 +57,7 @@ export function toKnowledgeDigest(knowledge: KnowledgeRecord): KnowledgeDigest {
     excerpt: truncateText(knowledge.body, DIGEST_KNOWLEDGE_LENGTH),
     tags: knowledge.tags,
     updatedAt: knowledge.updatedAt,
-    ...(knowledge.possiblyStale ? { possiblyStale: true } : {}),
+    ...staleFlags(knowledge),
     ...(knowledge.review ? { needsReview: true } : {}),
   };
 }

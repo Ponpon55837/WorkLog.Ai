@@ -17,9 +17,9 @@ Knowledge 的狀態欄位只有 `active`／`archived`；「confirmed／overturne
 | Knowledge 的來源失效 | 無。`knowledge.session_id` 單一欄位，Session 作廢時不做任何事 | **來源已作廢、Knowledge 仍 active** |
 | Knowledge 的來源被刪除 | 無。`session_id` 為 `ON DELETE SET NULL`，刪除後變成與手動建立無法區分的空值 | **來源被刪除而孤立**（只能靠 `knowledge_audit` 的建立紀錄分辨） |
 | Knowledge 的來源被修改 | 無 | 來源 Session 在 Knowledge 之後被修改（見下，噪音高） |
-| 內容過時 | `possiblyStale`：僅當 `appliesTo` 非空，且 `max(createdAt, lastConfirmedAt)` 之後有其他 Session 改到相符路徑（`knowledgeStaleness`） | `appliesTo` 為空的 Knowledge 永遠不會有此訊號 |
+| 內容過時 | `possiblyStale`：僅當 `appliesTo` 非空，且 `max(createdAt, lastConfirmedAt)` 之後有其他 Session 改到相符路徑（`knowledgeStaleness`）；1.6.39 已套用：只計列出 1–20 個變更檔的 Session，超過 20 個檔案的只計入 `broadChangesSince`，不單獨設 `possiblyStale`；`appliesTo` 過寬（以專案最新 200 個一般 Session 計，與寫入時同定義）時 `reason` 為 `broad_applies_to` | `appliesTo` 為空的 Knowledge 永遠不會有此訊號 |
 | 被推翻 | `review: contradicted`（finalize 的 `contradictedKnowledgeIds`），再次確認即清除；`evidence` 計數 | — |
-| Lifecycle 一致性 | `recordKnowledge` 以 `supersedesId` 建立時，把仍為 active 的舊版封存；找不到 `supersedesId` 只回警告 | `updateKnowledge(status:"active")` 可把已被取代的舊版還原，與 active 的新版並存且無檢查；不檢查 supersedes 指向不存在／跨專案／成環 |
+| Lifecycle 一致性 | `recordKnowledge` 以 `supersedesId` 建立時，把仍為 active 的舊版封存；找不到 `supersedesId` 只回警告 | 1.6.39 起 `updateKnowledge(status:"active")` 還原已被 active 新版取代的舊版時回 `rejected`（`superseded_by_active`）；反向（舊版 active 時還原新版）仍未檢查；不檢查 supersedes 指向不存在／跨專案／成環 |
 | 同題多版本 | 只有明確的 `supersedesId` 流程 | 未經 `supersedesId`、同標題的多個 active 版本 |
 | 重複 | Knowledge candidate 只用 `uncoveredSessionIds` 避免重複請求同一批 Session；沒有與既有 Knowledge 比對 | 來源重疊且文字高度相似的 Knowledge |
 | 衝突 | 只有 Session 自行回報的 contradicted | 沒有任何主動偵測 |

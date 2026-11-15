@@ -5,6 +5,7 @@ import type {
   KnowledgeStatus,
   ProjectRecord,
   SessionDecisionRecord,
+  UpdatedKnowledgeResult,
 } from "@work-intelligence/core";
 import { useKnowledgeStore, type KnowledgeChanges } from "../stores/knowledge";
 import { useProjectsStore } from "../stores/projects";
@@ -12,6 +13,7 @@ import { useSessionsStore } from "../stores/sessions";
 import { useSessionDecisionsStore } from "../stores/session-decisions";
 import { useKnowledgeEditorStore } from "../stores/knowledge-editor";
 import { errorMessage } from "../utils/format";
+import { appliesToBreadthNotice } from "../utils/knowledge-trust";
 import { useToast } from "./useToast";
 import { t } from "../i18n";
 
@@ -22,12 +24,15 @@ function knowledgeProject(item: KnowledgeRecord): ProjectRecord | undefined {
   );
 }
 
-async function patchKnowledge(item: KnowledgeRecord, changes: KnowledgeChanges): Promise<boolean> {
+async function patchKnowledge(
+  item: KnowledgeRecord,
+  changes: KnowledgeChanges,
+): Promise<UpdatedKnowledgeResult | null> {
   const { showToast } = useToast();
   const project = knowledgeProject(item);
   if (!project) {
     showToast(t("knowledge.knowledgeProjectNotFound"));
-    return false;
+    return null;
   }
   try {
     const result = await useKnowledgeStore().updateKnowledge({
@@ -36,13 +41,19 @@ async function patchKnowledge(item: KnowledgeRecord, changes: KnowledgeChanges):
       ...changes,
     });
     if (result.outcome !== "knowledge_updated") {
-      showToast(result.outcome === "skipped" ? result.reason : t("knowledge.thisKnowledgeNoLongerExists"));
-      return false;
+      showToast(
+        result.outcome === "skipped"
+          ? result.reason
+          : result.outcome === "rejected"
+            ? t("knowledge.thisKnowledgeWasReplaced")
+            : t("knowledge.thisKnowledgeNoLongerExists"),
+      );
+      return null;
     }
-    return true;
+    return result;
   } catch (error) {
     showToast(errorMessage(error, t("knowledge.couldNotUpdateKnowledge")));
-    return false;
+    return null;
   }
 }
 
@@ -133,6 +144,8 @@ async function saveKnowledge(): Promise<void> {
           return;
         }
         knowledgeId = recorded.knowledge.id;
+        const notice = appliesToBreadthNotice(recorded);
+        if (notice) useToast().showToast(notice);
         useKnowledgeEditorStore().agentDecisionDraft = { ...draft, knowledgeId };
       }
       const reviewed = await useSessionDecisionsStore().reviewDecision({
@@ -165,6 +178,8 @@ async function saveKnowledge(): Promise<void> {
       useToast().showToast(
         form.status === "archived" ? t("knowledge.knowledgeUpdatedAndArchived") : t("knowledge.knowledgeUpdated"),
       );
+      const notice = appliesToBreadthNotice(saved);
+      if (notice) useToast().showToast(notice);
       useKnowledgeEditorStore().knowledgeEditorSaving = false;
       closeKnowledgeEditor();
     }

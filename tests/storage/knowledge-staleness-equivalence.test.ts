@@ -30,19 +30,36 @@ interface OracleSession {
   files: Array<{ raw: string; normalized: string }>;
 }
 
+interface OracleSignals {
+  possiblyStale?: KnowledgeStaleness;
+  broadChangesSince?: number;
+}
+
+/** Sessions that listed more than 20 files only count toward broadChangesSince; the breadth is the project-wide one:
+ * the share of the newest 200 focused Sessions (own Sessions included) that touch appliesTo. */
 function oracleStaleness(
   knowledge: KnowledgeRecord,
   sessions: OracleSession[],
   contexts: Array<{ name: string; rootPath: string }>,
-): KnowledgeStaleness | undefined {
+): OracleSignals {
   const matchers = knowledge.appliesTo
     .map((pattern) => normalizePath(pattern, contexts))
     .filter(Boolean)
     .map((pattern) => compileAppliesTo(pattern));
   const excluded = new Set([knowledge.sessionId, knowledge.lastConfirmedSessionId].filter(Boolean));
-  const since = knowledge.lastConfirmedAt ?? knowledge.createdAt;
+  const since =
+    knowledge.lastConfirmedAt && knowledge.lastConfirmedAt > knowledge.createdAt
+      ? knowledge.lastConfirmedAt
+      : knowledge.createdAt;
   let first: KnowledgeStaleness | undefined;
   let sessionCount = 0;
+  let broadSessions = 0;
+  const matches = (session: OracleSession): boolean =>
+    session.files.some((file) => matchers.some((matcher) => matcher(file.normalized)));
+  // `sessions` is oldest first: the window is its last 200 focused Sessions.
+  const window = sessions.filter((session) => session.files.length >= 1 && session.files.length <= 20).slice(-200);
+  const compared = window.length;
+  const windowTouched = window.filter(matches).length;
   for (const session of sessions) {
     if (session.completedAt <= since || excluded.has(session.id)) {
       continue;
@@ -53,6 +70,10 @@ function oracleStaleness(
     if (paths.length === 0) {
       continue;
     }
+    if (session.files.length > 20) {
+      broadSessions += 1;
+      continue;
+    }
     sessionCount += 1;
     first ??= {
       sessionId: session.id,
@@ -60,9 +81,20 @@ function oracleStaleness(
       completedAt: session.completedAt,
       paths: paths.slice(0, 5),
       sessionCount: 0,
+      reason: "applies_to_changed",
     };
   }
-  return first ? { ...first, sessionCount } : undefined;
+  const broad = broadSessions > 0 ? { broadChangesSince: broadSessions } : {};
+  if (!first) return broad;
+  return {
+    possiblyStale: {
+      ...first,
+      sessionCount,
+      reason: compared >= 10 && windowTouched / compared > 0.15 ? "broad_applies_to" : "applies_to_changed",
+      appliesToBreadth: { share: Math.round((windowTouched / compared) * 1000) / 1000, sessions: compared },
+    },
+    ...broad,
+  };
 }
 
 describe("Knowledge staleness index equivalence", () => {
@@ -153,6 +185,12 @@ describe("Knowledge staleness index equivalence", () => {
     finalize(rootA, ["src/drone/a.ts", "src/drone/deep/b.ts", "src/hive.ts", "queen.ts", "src/queen.ts"]);
     finalize(rootA, ["src/hive/queen.ts"]);
     finalize(rootB, ["src/hive/queen.ts", "src/hive/other.ts"]);
+    // A bulk change (more than 20 files) that also covers appliesTo: counted in broadChangesSince only.
+    finalize(rootA, [
+      "src/hive/bulk-rename.ts",
+      "src/hive/queen.ts",
+      ...Array.from({ length: 20 }, (_, index) => `vendor/bulk/file-${index}.ts`),
+    ]);
     const voided = finalize(rootA, ["src/hive/voided-only.ts", "src/hive/queen.ts"]);
     finalize(rootA, ["src/hive/queen.ts"]);
 
@@ -203,11 +241,16 @@ describe("Knowledge staleness index equivalence", () => {
         if (result.outcome !== "knowledge") throw new Error("Expected Knowledge result");
         expect(result.items.length).toBeGreaterThan(0);
         let stale = 0;
+        let broad = 0;
         for (const item of result.items) {
           const expected = oracleStaleness(item, sessions, contexts);
-          expect(item.possiblyStale, `${item.title} ${JSON.stringify(item.appliesTo)}`).toEqual(expected);
-          if (expected) stale += 1;
+          const label = `${item.title} ${JSON.stringify(item.appliesTo)}`;
+          expect(item.possiblyStale, label).toEqual(expected.possiblyStale);
+          expect(item.broadChangesSince, label).toEqual(expected.broadChangesSince);
+          if (expected.possiblyStale) stale += 1;
+          if (expected.broadChangesSince) broad += 1;
         }
+        if (project.id === alpha.id) expect(broad).toBeGreaterThan(0);
         expect(stale).toBeGreaterThan(0);
         // Spot checks that the synthetic data really exercises the interesting branches.
         const byId = new Map(result.items.map((item) => [item.id, item]));

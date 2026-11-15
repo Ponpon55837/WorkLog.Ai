@@ -129,7 +129,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | POST     | `/api/knowledge/candidates/:id/decision`         | 接受（`decision: "accept"`，可帶 `edits`）或拒絕候選；接受時才寫成 Knowledge             |
 | GET      | `/api/knowledge`                                 | 搜尋 tracked projects 的 explicit Knowledge；`q` 的每個詞須出現在標題、內文、tags、references 或 `appliesTo` 路徑（1.6.16 起含 `appliesTo`）。MCP 專用的寬鬆備援與其他狀態計數不在 REST 回應中；`q` 的上限與 `warnings` 同 `/api/sessions` |
 | POST     | `/api/knowledge`                                 | 保存 Agent 明確提交的 Knowledge                                                        |
-| PATCH    | `/api/knowledge/:id`                             | 在 project policy 通過後更新或封存 Knowledge                                           |
+| PATCH    | `/api/knowledge/:id`                             | 在 project policy 通過後更新或封存 Knowledge；恢復已被 active 後繼版本取代的 Knowledge 時回 200 `{ outcome: "rejected", reason: "superseded_by_active", knowledgeId, successorId }` 且不寫入；改了 `appliesTo` 時回應帶 `appliesToBreadth` 與 `warnings` |
 | GET      | `/api/knowledge/:id/history?projectRoot=...`     | 讀取 Knowledge audit history；先通過 project policy                                    |
 | GET      | `/api/session-decisions`                         | 列出 Agent 自主決策（Session `workSummary.decisions` 標記的項目）；可帶 `projectRoot`（先通過 project policy）、`status`（`pending` 預設或 `all`）、`limit`（1–200，預設 50）；回傳 `outcome: "session_decisions"`、`items` 與 `pendingCount`，非 tracked 專案回傳 `skipped` |
 | PATCH    | `/api/session-decisions/:id/review`              | 人工審核一筆決策：body `{ projectRoot, reviewStatus }`，`reviewStatus` 為 `confirmed`、`rejected` 或 `promoted`（`promoted` 另帶已存在的 `knowledgeId`）；回傳 `session_decision_reviewed`（重送相同結果為 `duplicate: true`），找不到回 `not_found` |

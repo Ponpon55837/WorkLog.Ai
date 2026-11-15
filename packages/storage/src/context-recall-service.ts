@@ -56,12 +56,24 @@ import {
 import type { SessionListOptions } from "./session-repository.js";
 import type { SearchRepository } from "./search-repository.js";
 import { windowExcerpt } from "./excerpt-window.js";
+import { parseQueryWords } from "./search-text.js";
+import { staleFlags, type StaleFlags } from "./stale-flags.js";
 import { weighTaskPaths, type InferredPathSource } from "./inferred-task-paths.js";
 import { limitKnowledgePageReviewSections } from "./knowledge-page-service.js";
 
 const RECENT_DECISION_LIMIT = 12;
 const RECENT_KNOWLEDGE_LIMIT = 12;
 const RELEVANT_LIMIT = 5;
+// A task has no whitespace between Chinese words, so contextTerms cannot match it inside page text. Its overlapping
+// character pairs do, but one shared pair is common wording, so a pair-only section needs this many distinct pairs.
+const PAGE_PAIR_MATCH_MINIMUM = 2;
+// Fixed pointers for a focused context whose relevant.knowledge is empty (knowledgeHint).
+const KNOWLEDGE_HINT_TASK_ONLY =
+  "No Knowledge text matched this task; pass `paths` (the files you will change) or `projectRoot` to look up Knowledge by file scope. This does not mean no Knowledge applies.";
+const KNOWLEDGE_HINT_TASK_ONLY_SCOPED =
+  "No Knowledge text matched this task; pass `paths` (the files you will change) to look up Knowledge by file scope. This does not mean no Knowledge applies.";
+const KNOWLEDGE_HINT_PATHS =
+  "No Knowledge has appliesTo or references covering these paths, and none matched the task text. Knowledge recorded without appliesTo can still apply: read recentKnowledge or search with work_search_knowledge.";
 /** Only the three highest-ranked Session hits can seed one-hop context supplements. */
 const CONTEXT_SUPPLEMENT_SOURCE_LIMIT = 3;
 /** Keep one source from filling the optional indicator list with its own related records. */
@@ -113,6 +125,8 @@ interface OmittedItem {
   id: string;
   reason: string;
   possiblyStale?: boolean;
+  staleReason?: StaleFlags["staleReason"];
+  broadChangesSince?: number;
   needsReview?: boolean;
   /** Path-matched Knowledge: keeps a title and one path in the pointer while the entry cap allows. */
   pathKnowledge?: Pick<PathKnowledge, "title" | "path" | "rank">;
@@ -125,6 +139,8 @@ interface PathKnowledge {
   path: string;
   rank: number;
   possiblyStale?: boolean;
+  staleReason?: StaleFlags["staleReason"];
+  broadChangesSince?: number;
   needsReview?: boolean;
 }
 
@@ -198,6 +214,20 @@ function contextTerms(focus: ContextFocus): string[] {
   return [...new Set(text.match(/[\p{L}\p{N}_-]+/gu) ?? [])].filter((term) => term.length > 1 && !ignored.has(term));
 }
 
+/** The overlapping two-character pairs of the task's Chinese runs that contextTerms does not already hold. */
+function taskPairTerms(focus: ContextFocus, exact: readonly string[]): string[] {
+  const known = new Set(exact);
+  return [
+    ...new Set(
+      parseQueryWords(focus.task ?? "").flatMap((word) =>
+        word.terms.filter((term) =>
+          /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]{2}$/u.test(term),
+        ),
+      ),
+    ),
+  ].filter((term) => !known.has(term));
+}
+
 function matchCount(text: string, terms: readonly string[]): number {
   const normalized = text.toLocaleLowerCase();
   return terms.reduce((count, term) => count + (normalized.includes(term) ? 1 : 0), 0);
@@ -228,6 +258,8 @@ interface InferredKnowledge {
   path: string;
   sourceSessionIds: string[];
   possiblyStale?: boolean;
+  staleReason?: StaleFlags["staleReason"];
+  broadChangesSince?: number;
   needsReview?: boolean;
 }
 
@@ -317,7 +349,7 @@ function addPathEntry(omission: ContextOmission, item: OmittedItem): boolean {
   }
   entry.title = title;
   entry.path = path;
-  if (item.possiblyStale) entry.possiblyStale = true;
+  if (item.possiblyStale) Object.assign(entry, staleFlags(item));
   if (item.needsReview) entry.needsReview = true;
   ranks.set(item.id, rank);
   entries.sort((left, right) => {
@@ -370,7 +402,7 @@ function addOmission(context: ContextResult, section: string, item: OmittedItem,
       entry = { id: item.id };
       entries.push(entry);
     }
-    if (item.possiblyStale) entry.possiblyStale = true;
+    if (item.possiblyStale) Object.assign(entry, staleFlags(item));
     if (item.needsReview) entry.needsReview = true;
     omission.ids = omission.ids?.filter((id) => id !== item.id);
     if (omission.ids?.length === 0) delete omission.ids;
@@ -560,7 +592,7 @@ export class ContextRecallService {
       const knowledge = trusted.get(hit.id);
       return {
         ...hit,
-        ...(knowledge?.possiblyStale ? { possiblyStale: true } : {}),
+        ...staleFlags(knowledge ?? {}),
         ...(knowledge?.review ? { needsReview: true } : {}),
         ...(knowledge?.evidence
           ? { evidence: { confirmed: knowledge.evidence.confirmed, contradicted: knowledge.evidence.contradicted } }
@@ -615,7 +647,9 @@ export class ContextRecallService {
     );
     const hits = sessions.map(({ hit, record }) => ({
       session: toSessionDigest(record, this.openItemsForSession(record, pendingBySession.get(record.id) ?? [])),
-      matchedIn: hit.matchedIn[0] ?? "title",
+      // A hit without a named field says so; filling in "title" would claim a match that did not happen.
+      ...(hit.matchedIn[0] ? { matchedIn: hit.matchedIn[0] } : {}),
+      ...(hit.matchedVia ? { matchedVia: hit.matchedVia } : {}),
       ...(hit.section ? { section: hit.section } : {}),
       excerpt: hit.excerpt,
     }));
@@ -624,6 +658,7 @@ export class ContextRecallService {
       confidence: result.confidence,
       hits,
       ...(result.termHits ? { termHits: result.termHits } : {}),
+      ...(result.termHitsTruncated ? { termHitsTruncated: true as const } : {}),
     };
   }
 
@@ -701,7 +736,7 @@ export class ContextRecallService {
         {
           id: knowledge.id,
           reason: "已列於 relevant.knowledge",
-          ...(knowledge.possiblyStale ? { possiblyStale: true } : {}),
+          ...staleFlags(knowledge),
           ...(knowledge.needsReview ? { needsReview: true } : {}),
         },
         "work_search_knowledge",
@@ -721,7 +756,7 @@ export class ContextRecallService {
           {
             id: item.id,
             reason: RANKED_BEYOND_REASON,
-            ...(item.possiblyStale ? { possiblyStale: true } : {}),
+            ...staleFlags(item),
             ...(item.needsReview ? { needsReview: true } : {}),
             pathKnowledge: { title: item.title, path: item.path, rank: item.rank },
           },
@@ -822,7 +857,7 @@ export class ContextRecallService {
           {
             id: recentKnowledge.id,
             reason: "預算限制：較低優先 Knowledge",
-            ...(recentKnowledge.possiblyStale ? { possiblyStale: true } : {}),
+            ...staleFlags(recentKnowledge),
             ...(recentKnowledge.needsReview ? { needsReview: true } : {}),
             ...pathKnowledge,
           },
@@ -931,7 +966,7 @@ export class ContextRecallService {
           {
             id: relevantKnowledge.id,
             reason: "預算限制：較低排名 Knowledge",
-            ...(relevantKnowledge.possiblyStale ? { possiblyStale: true } : {}),
+            ...staleFlags(relevantKnowledge),
             ...(relevantKnowledge.needsReview ? { needsReview: true } : {}),
             ...pathKnowledgeItem(context, relevantKnowledge.id),
           },
@@ -1169,6 +1204,7 @@ export class ContextRecallService {
       paths,
       projectId,
       limit: 20,
+      knowledgeConfidenceLimit: RELEVANT_LIMIT,
       ...(paths.length > 0 ? { extraPathKnowledge: CONTEXT_OMITTED_PATH_ENTRY_LIMIT + RELEVANT_LIMIT } : {}),
     });
     const termHits = recalled.termHits;
@@ -1192,7 +1228,7 @@ export class ContextRecallService {
           title: truncateAtSentenceBoundary(hit.title, CONTEXT_PATH_ENTRY_TITLE_CHARS).text,
           path: boundedPath(path),
           rank,
-          ...(hit.possiblyStale ? { possiblyStale: true } : {}),
+          ...staleFlags(hit),
           ...(hit.needsReview ? { needsReview: true } : {}),
         },
       ];
@@ -1207,7 +1243,7 @@ export class ContextRecallService {
           title: truncateAtSentenceBoundary(item.title, CONTEXT_PATH_ENTRY_TITLE_CHARS).text,
           path: boundedPath(item.matchedPath),
           rank: knowledgeHits.length + index,
-          ...(record?.possiblyStale ? { possiblyStale: true } : {}),
+          ...staleFlags(record ?? {}),
           ...(record?.review ? { needsReview: true } : {}),
         };
       });
@@ -1247,10 +1283,22 @@ export class ContextRecallService {
       projectId && linkedSessionIds.length > 0
         ? this.continuedOutstandingItems(projectId, linkedSessionIds)
         : undefined;
+    // Empty here means the ranking found no Knowledge at all (budget trimming comes later and has its own omission), and
+    // path-matched Knowledge beyond the five slots counts as found.
+    const knowledgeHint =
+      knowledgeHits.length === 0 && pathKnowledge.length === 0
+        ? paths.length > 0
+          ? KNOWLEDGE_HINT_PATHS
+          : projectId
+            ? KNOWLEDGE_HINT_TASK_ONLY_SCOPED
+            : KNOWLEDGE_HINT_TASK_ONLY
+        : undefined;
     const relevant: RelevantContext = {
       ...(task ? { task } : {}),
       ...(paths.length > 0 ? { paths } : {}),
       confidence: recalled.confidence,
+      knowledgeConfidence: recalled.knowledgeConfidence,
+      ...(knowledgeHint ? { knowledgeHint } : {}),
       outstandingItems: this.contextOutstandingItemDigest(
         this.store.relatedPendingOutstandingItems({
           projectId,
@@ -1271,6 +1319,7 @@ export class ContextRecallService {
       })),
       knowledgePages: this.getRelevantKnowledgePages(focus, projectId),
       ...(termHits ? { termHits } : {}),
+      ...(recalled.termHitsTruncated ? { termHitsTruncated: true as const } : {}),
       ...(hotspots.length > 0 ? { hotspots } : {}),
       // One pointer, not per path: the whole history of a file is one bounded read away.
       ...(hotspots.some((hint) => hint.totalSessions > sessions.length)
@@ -1336,7 +1385,7 @@ export class ContextRecallService {
           {
             id: item.id,
             reason: "預算限制：較低優先 Knowledge",
-            ...(item.possiblyStale ? { possiblyStale: true } : {}),
+            ...staleFlags(item),
             ...(item.needsReview ? { needsReview: true } : {}),
             ...pathKnowledge,
           },
@@ -1438,7 +1487,7 @@ export class ContextRecallService {
           title: item.title,
           path: boundedPath(item.matchedPath),
           sourceSessionIds: source?.sourceSessionIds ?? [],
-          ...(record.possiblyStale ? { possiblyStale: true } : {}),
+          ...staleFlags(record),
           ...(record.review ? { needsReview: true } : {}),
         },
       ];
@@ -1503,7 +1552,7 @@ export class ContextRecallService {
               id: knowledge.id,
               title: knowledge.title,
               includedBecause,
-              ...(knowledge.possiblyStale ? { possiblyStale: true } : {}),
+              ...staleFlags(knowledge),
               ...(knowledge.review ? { needsReview: true } : {}),
             },
           ];
@@ -1545,7 +1594,7 @@ export class ContextRecallService {
         id: item.id,
         title: item.title,
         includedBecause: { kind: "inferred_path", path: item.path, sourceSessionIds: item.sourceSessionIds },
-        ...(item.possiblyStale ? { possiblyStale: true } : {}),
+        ...staleFlags(item),
         ...(item.needsReview ? { needsReview: true } : {}),
       });
       inferredCount += 1;
@@ -1555,14 +1604,18 @@ export class ContextRecallService {
   }
 
   private getRelevantKnowledgePages(focus: ContextFocus, projectId?: string): RelevantKnowledgePageDigest[] {
-    const terms = contextTerms(focus);
+    const exactTerms = contextTerms(focus);
+    const pairTerms = taskPairTerms(focus, exactTerms);
+    const terms = [...exactTerms, ...pairTerms];
     if (terms.length === 0) return [];
     const pages = this.store.knowledgePagesForContext(projectId);
     const matches = pages
       .flatMap((page) =>
         page.sections.flatMap((section) => {
-          const score = matchCount(`${page.title} ${page.question} ${section.heading} ${section.content}`, terms);
-          return score > 0 ? [{ page, section, score }] : [];
+          const text = `${page.title} ${page.question} ${section.heading} ${section.content}`;
+          const exact = matchCount(text, exactTerms);
+          const pairs = matchCount(text, pairTerms);
+          return exact > 0 || pairs >= PAGE_PAIR_MATCH_MINIMUM ? [{ page, section, score: exact + pairs }] : [];
         }),
       )
       .sort(

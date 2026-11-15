@@ -18,8 +18,10 @@ import type {
   KnowledgeStaleness,
   PolicyDecision,
   ProjectRecord,
+  RecordedKnowledgeResult,
   RecordKnowledgeInput,
   RecordKnowledgeResult,
+  UpdatedKnowledgeResult,
   UpdateKnowledgeInput,
   UpdateKnowledgeResult,
 } from "@work-intelligence/core";
@@ -31,9 +33,23 @@ import {
   type AppliesToBudget,
 } from "./applies-to-match.js";
 import { DataRevisionCache } from "./data-revision-cache.js";
+import {
+  appliesToBreadthOf,
+  BREADTH_SCAN_LIMIT,
+  breadthWindowOf,
+  broadAppliesToWarning,
+  FOCUSED_SESSION_SQL,
+  isBroadAppliesTo,
+  scanAppliesToBreadth,
+  touchedInWindow,
+  type BreadthWindow,
+} from "./knowledge-breadth.js";
 import { LaterChangeIndex, stalenessUnitLimits, type PatternCoverage } from "./later-change-index.js";
 import type { PathContext } from "./search-text.js";
-import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
+import {
+  runAfterImmediateTransaction,
+  runImmediateTransaction as runImmediateSqlTransaction,
+} from "./sqlite-transaction.js";
 import { cleanList, toKnowledge, toKnowledgeAudit } from "./session-record-codecs.js";
 import type { KnowledgeAuditRow, KnowledgeRow } from "./session-record-codecs.js";
 import { combineRedactionSummaries, redactValue } from "./secret-redaction.js";
@@ -47,6 +63,12 @@ export interface KnowledgeServiceDependencies {
 interface ItemPatterns {
   patterns: string[];
   skipped: boolean;
+}
+
+/** What the staleness check found for one Knowledge: absent fields mean nothing was found of that kind. */
+interface StalenessSignals {
+  possiblyStale?: KnowledgeStaleness;
+  broadChangesSince?: number;
 }
 
 interface EvidenceRow {
@@ -64,9 +86,15 @@ interface AppliedKnowledgeRow {
 
 const FEEDBACK_HISTORY_LIMIT = 100;
 
-/** Knowledge goes possibly stale when a Session after its last confirmation (or creation) touches appliesTo. */
+/**
+ * Knowledge goes possibly stale when a Session after its last confirmation or creation, whichever is later, touches
+ * appliesTo. (A confirmation recorded for a Session that finished before the Knowledge existed does not move the
+ * baseline back.)
+ */
 function stalenessSince(knowledge: KnowledgeRecord): string {
-  return knowledge.lastConfirmedAt ?? knowledge.createdAt;
+  return knowledge.lastConfirmedAt && knowledge.lastConfirmedAt > knowledge.createdAt
+    ? knowledge.lastConfirmedAt
+    : knowledge.createdAt;
 }
 
 /** One item's distinct normalized appliesTo patterns, charged to the match budget; `skipped` when one was not read. */
@@ -94,17 +122,23 @@ function lowerBound(values: Int32Array, target: number): number {
 }
 
 /**
- * The possiblyStale marker of one Knowledge record, or "unchecked" when the match budget ran out before its patterns
+ * The staleness signals of one Knowledge record, or "unchecked" when the match budget ran out before its patterns
  * were resolved against every later file: a partial comparison can neither prove nor rule out staleness. Each pattern
  * is resolved once per call by the index (later-change-index.ts); the item unions the Sessions of its patterns that
- * completed after its `since`, without its own Sessions, and the first of them gives the paths shown.
+ * completed after its `since`, without its own Sessions. Of those, Sessions that listed more than
+ * CHANGED_FILES_NORMAL files are broad: they are only counted (broadChangesSince) and never set possiblyStale. The
+ * first focused one gives the paths shown and the rest of them give sessionCount. The appliesTo breadth of a
+ * possibly stale item is the project-wide one, as at write time: the share of the newest BREADTH_SCAN_LIMIT focused
+ * Sessions (`window`, found once per project) that its patterns touch, from the coverage already resolved. The
+ * Knowledge's own Sessions are not excluded from it, as at write time.
  */
 function knowledgeStaleness(
   knowledge: KnowledgeRecord,
   { patterns, skipped }: ItemPatterns,
   later: LaterChangeIndex,
+  window: BreadthWindow,
   budget: AppliesToBudget,
-): KnowledgeStaleness | "unchecked" | undefined {
+): StalenessSignals | "unchecked" | undefined {
   // An entry above the write-time limits is never compared, so staleness can be neither proven nor ruled out.
   if (skipped || budget.exhausted) {
     return "unchecked";
@@ -127,22 +161,31 @@ function knowledgeStaleness(
       touched.add(sessions[at]!);
     }
   }
+  // The Knowledge's own Sessions are not a reason to doubt it.
+  const excluded = new Set<number>();
   for (const id of [knowledge.sessionId, knowledge.lastConfirmedSessionId]) {
-    if (id) {
-      const excludedIndex = later.indexOfSession(id);
-      if (excludedIndex !== undefined) {
-        touched.delete(excludedIndex);
+    const excludedIndex = id ? later.indexOfSession(id) : undefined;
+    if (excludedIndex !== undefined) excluded.add(excludedIndex);
+  }
+  for (const excludedIndex of excluded) {
+    touched.delete(excludedIndex);
+  }
+  let broadSessions = 0;
+  let focusedTouched = 0;
+  let firstIndex = Number.POSITIVE_INFINITY;
+  for (const sessionIndex of touched) {
+    if (later.isBroad(sessionIndex)) {
+      broadSessions += 1;
+    } else {
+      focusedTouched += 1;
+      if (sessionIndex < firstIndex) {
+        firstIndex = sessionIndex;
       }
     }
   }
-  if (touched.size === 0) {
-    return undefined;
-  }
-  let firstIndex = Number.POSITIVE_INFINITY;
-  for (const sessionIndex of touched) {
-    if (sessionIndex < firstIndex) {
-      firstIndex = sessionIndex;
-    }
+  const broadChangesSince = broadSessions > 0 ? { broadChangesSince: broadSessions } : {};
+  if (focusedTouched === 0) {
+    return broadSessions > 0 ? broadChangesSince : undefined;
   }
   const session = later.sessions[firstIndex]!;
   if (!chargeAppliesTo(budget, session.files.length * coverage.length + 1)) return "unchecked";
@@ -150,12 +193,20 @@ function knowledgeStaleness(
     const pathId = session.pathIds[index]!;
     return pathId >= 0 && coverage.some(({ paths: covered }) => covered.has(pathId));
   });
+  const windowTouched = touchedInWindow(later, coverage, window, budget);
+  if (windowTouched === undefined) return "unchecked";
+  const appliesToBreadth = appliesToBreadthOf(windowTouched, window.sessions);
   return {
-    sessionId: session.id,
-    sessionTitle: session.title,
-    completedAt: session.completedAt,
-    paths: paths.slice(0, 5),
-    sessionCount: touched.size,
+    possiblyStale: {
+      sessionId: session.id,
+      sessionTitle: session.title,
+      completedAt: session.completedAt,
+      paths: paths.slice(0, 5),
+      sessionCount: focusedTouched,
+      reason: isBroadAppliesTo(windowTouched, window.sessions) ? "broad_applies_to" : "applies_to_changed",
+      ...(appliesToBreadth ? { appliesToBreadth } : {}),
+    },
+    ...broadChangesSince,
   };
 }
 
@@ -163,8 +214,11 @@ function knowledgeStaleness(
 const STALENESS_CACHE_KEYS = 512;
 
 export class KnowledgeService {
-  /** The possiblyStale result per Knowledge id and staleness limits; null is a checked record without a marker. */
-  private readonly stalenessResults: DataRevisionCache<KnowledgeStaleness | null>;
+  /**
+   * The staleness signals (possiblyStale and broadChangesSince together) per Knowledge id and staleness limits; null
+   * is a checked record with neither.
+   */
+  private readonly stalenessResults: DataRevisionCache<StalenessSignals | null>;
 
   public constructor(
     private readonly db: DatabaseSync,
@@ -205,8 +259,14 @@ export class KnowledgeService {
         continue;
       }
       const before = toKnowledge(row);
+      // A backfilled Session can have finished before the last confirmation: the feedback is still a fact and is
+      // recorded below, but the confirmation baseline (time and Session) only moves forward.
+      const confirmationMoves = applied && (!before.lastConfirmedAt || completedAt > before.lastConfirmedAt);
       const after: KnowledgeRecord = applied
-        ? { ...before, lastConfirmedAt: completedAt, lastConfirmedSessionId: sessionId }
+        ? {
+            ...before,
+            ...(confirmationMoves ? { lastConfirmedAt: completedAt, lastConfirmedSessionId: sessionId } : {}),
+          }
         : { ...before, review: { reason: "contradicted", sessionId, at: completedAt } };
       if (applied) {
         delete after.review;
@@ -225,7 +285,9 @@ export class KnowledgeService {
         knowledge: after,
         before,
         action: "updated",
-        changedFields: applied ? ["lastConfirmedAt", ...(before.review ? ["review"] : [])] : ["review"],
+        changedFields: applied
+          ? [...(confirmationMoves ? ["lastConfirmedAt"] : []), ...(before.review ? ["review"] : [])]
+          : ["review"],
         occurredAt: completedAt,
       });
       this.insertFeedback(auditId, after, applied ? "applied" : "contradicted", completedAt, sessionId);
@@ -293,7 +355,7 @@ export class KnowledgeService {
       const counts = evidence.get(item.id);
       return {
         ...item,
-        ...(result === "unchecked" ? { stalenessUnchecked: true as const } : result ? { possiblyStale: result } : {}),
+        ...(result === "unchecked" ? { stalenessUnchecked: true as const } : (result ?? {})),
         ...(counts ? { evidence: counts } : {}),
       };
     });
@@ -305,7 +367,7 @@ export class KnowledgeService {
    * remembered result read later Sessions. Nothing is remembered from a call whose budget ran out or that left a
    * record unchecked: such answers depend on which records shared the budget.
    */
-  private stalenessOf(byProject: Map<string, KnowledgeRecord[]>): Map<string, KnowledgeStaleness | "unchecked"> {
+  private stalenessOf(byProject: Map<string, KnowledgeRecord[]>): Map<string, StalenessSignals | "unchecked"> {
     const limits = stalenessUnitLimits();
     const keyOf = (id: string): string => `${limits.history}:${limits.match}:${id}`;
     const items = new Map<string, KnowledgeRecord>();
@@ -319,14 +381,14 @@ export class KnowledgeService {
         else missingByProject.set(item.projectId, [item]);
       }
       const computed = this.computeStaleness(missingByProject, limits);
-      const values = new Map<string, KnowledgeStaleness | null>();
+      const values = new Map<string, StalenessSignals | null>();
       for (const key of missing) {
         const result = computed.results.get(items.get(key)!.id);
         if (result !== "unchecked") values.set(key, result ?? null);
       }
       return { values, cacheable: computed.complete };
     });
-    const staleness = new Map<string, KnowledgeStaleness | "unchecked">();
+    const staleness = new Map<string, StalenessSignals | "unchecked">();
     for (const item of items.values()) {
       const result = results.get(keyOf(item.id));
       if (result) staleness.set(item.id, result);
@@ -339,8 +401,8 @@ export class KnowledgeService {
   private computeStaleness(
     byProject: Map<string, KnowledgeRecord[]>,
     limits: ReturnType<typeof stalenessUnitLimits>,
-  ): { results: Map<string, KnowledgeStaleness | "unchecked">; complete: boolean } {
-    const staleness = new Map<string, KnowledgeStaleness | "unchecked">();
+  ): { results: Map<string, StalenessSignals | "unchecked">; complete: boolean } {
+    const staleness = new Map<string, StalenessSignals | "unchecked">();
     // Two fixed ceilings per call, shared by every project of it: reading later Sessions into the index, and
     // resolving patterns against it (later-change-index.ts).
     const history = createAppliesToBudget(limits.history);
@@ -357,9 +419,10 @@ export class KnowledgeService {
       }
       // The patterns first, so the index knows how many it will resolve (one or two skip the segment index).
       const prepared = group.map((item) => itemPatterns(item, contexts, budget));
+      const window = breadthWindowOf(later);
       later.expect(new Set(prepared.flatMap(({ patterns }) => patterns)).size);
       group.forEach((item, index) => {
-        const result = knowledgeStaleness(item, prepared[index]!, later, budget);
+        const result = knowledgeStaleness(item, prepared[index]!, later, window, budget);
         if (result) {
           staleness.set(item.id, result);
         }
@@ -403,8 +466,10 @@ export class KnowledgeService {
   }
 
   /**
-   * A project's non-voided Sessions completed after `since`, oldest first, read into a LaterChangeIndex one row at a
-   * time (one .all() of 5,000 Sessions of 50 x 100 characters took 433 ms and 235 MB). Each row's list, paths and new
+   * A project's non-voided Sessions completed after `since`, plus its newest BREADTH_SCAN_LIMIT focused Sessions even
+   * when they are older (the project-wide breadth window; older broad Sessions cannot affect any item and are not
+   * read), oldest first, read into a LaterChangeIndex one row at a time (one .all() of 5,000 Sessions of 50 x 100
+   * characters took 433 ms and 235 MB). One query finds where that window starts. Each row's list, paths and new
    * distinct paths are charged to `history` before they are parsed, normalized or split. A list above
    * MAX_STORED_CHANGED_FILES_JSON_BYTES is not loaded. Undefined when a row stopped the read.
    */
@@ -414,16 +479,26 @@ export class KnowledgeService {
     contexts: PathContext[],
     history: AppliesToBudget,
   ): LaterChangeIndex | undefined {
+    // The (completed_at, id) of the newest-window's oldest Session; the empty tuple admits every focused Session.
+    const floor = this.db
+      .prepare(
+        `SELECT completed_at, id FROM sessions
+         WHERE project_id = ? AND voided_at IS NULL AND ${FOCUSED_SESSION_SQL}
+         ORDER BY completed_at DESC, id DESC
+         LIMIT 1 OFFSET ?`,
+      )
+      .get(projectId, BREADTH_SCAN_LIMIT - 1) as { completed_at: string; id: string } | undefined;
     const rows = this.db
       .prepare(
         `SELECT id, title, completed_at,
                 CASE WHEN octet_length(changed_files_json) <= ${MAX_STORED_CHANGED_FILES_JSON_BYTES}
                      THEN changed_files_json END AS changed_files_json
          FROM sessions
-         WHERE project_id = ? AND voided_at IS NULL AND completed_at > ?
+         WHERE project_id = ? AND voided_at IS NULL
+           AND (completed_at > ? OR (${FOCUSED_SESSION_SQL} AND (completed_at, id) >= (?, ?)))
          ORDER BY completed_at ASC, id ASC`,
       )
-      .iterate(projectId, since) as Iterable<{
+      .iterate(projectId, since, floor?.completed_at ?? "", floor?.id ?? "") as Iterable<{
       id: string;
       title: string;
       completed_at: string;
@@ -571,13 +646,15 @@ export class KnowledgeService {
         });
       }
 
-      return {
+      const recorded: RecordedKnowledgeResult = {
         outcome: "knowledge_recorded",
         duplicate: false,
         knowledge: this.withKnowledgeTrust(knowledge),
         ...(warnings.length > 0 ? { warnings } : {}),
         redactions: sanitizedContent.redactions,
       };
+      this.addBreadthAfterCommit(recorded, project, knowledge.appliesTo);
+      return recorded;
     });
   }
 
@@ -592,125 +669,150 @@ export class KnowledgeService {
       };
     }
 
-    const row = this.db
-      .prepare(
-        `SELECT k.*, p.name AS project_name
-         FROM knowledge k
-         JOIN projects p ON p.id = k.project_id
-         WHERE k.id = ? AND k.project_id = ?`,
-      )
-      .get(input.knowledgeId, decision.project.id) as KnowledgeRow | undefined;
-    if (!row) {
-      return { outcome: "not_found", knowledgeId: input.knowledgeId };
-    }
+    const project = decision.project;
+    return runImmediateSqlTransaction(this.db, (): UpdateKnowledgeResult => {
+      const row = this.db
+        .prepare(
+          `SELECT k.*, p.name AS project_name
+           FROM knowledge k
+           JOIN projects p ON p.id = k.project_id
+           WHERE k.id = ? AND k.project_id = ?`,
+        )
+        .get(input.knowledgeId, project.id) as KnowledgeRow | undefined;
+      if (!row) {
+        return { outcome: "not_found", knowledgeId: input.knowledgeId };
+      }
 
-    const current = toKnowledge(row);
-    const currentSanitized = redactValue({
-      title: current.title,
-      body: current.body,
-      tags: current.tags,
-      references: current.references,
-      appliesTo: current.appliesTo,
-    });
-    const inputSanitized = redactValue({
-      title: input.title?.trim(),
-      body: input.body?.trim(),
-      tags: input.tags?.map((tag) => tag.trim()).filter(Boolean),
-      references: input.references?.map((reference) => reference.trim()).filter(Boolean),
-      appliesTo: input.appliesTo ? cleanList(input.appliesTo) : undefined,
-    });
-    const redactions = combineRedactionSummaries(currentSanitized.redactions, inputSanitized.redactions);
-    const cleanCurrent = { ...current, ...currentSanitized.value };
-    const updatedAt = nowIso();
-    const next: KnowledgeRecord = {
-      ...cleanCurrent,
-      kind: input.kind ?? current.kind,
-      title: inputSanitized.value.title || cleanCurrent.title,
-      body: inputSanitized.value.body || cleanCurrent.body,
-      tags: input.tags ? [...new Set(inputSanitized.value.tags ?? [])] : cleanCurrent.tags,
-      references: input.references ? [...new Set(inputSanitized.value.references ?? [])] : cleanCurrent.references,
-      status: input.status ?? current.status,
-      updatedAt,
-      appliesTo: input.appliesTo ? (inputSanitized.value.appliesTo ?? []) : cleanCurrent.appliesTo,
-      ...(input.confirm ? { lastConfirmedAt: updatedAt } : {}),
-    };
-    if (input.confirm) {
-      delete next.lastConfirmedSessionId;
-      delete next.review;
-    }
-    const changedFields = [
-      ...(current.kind !== next.kind ? ["kind"] : []),
-      ...(current.title !== next.title ? ["title"] : []),
-      ...(current.body !== next.body ? ["body"] : []),
-      ...(JSON.stringify(current.tags) !== JSON.stringify(next.tags) ? ["tags"] : []),
-      ...(JSON.stringify(current.references) !== JSON.stringify(next.references) ? ["references"] : []),
-      ...(current.status !== next.status ? ["status"] : []),
-      ...(JSON.stringify(current.appliesTo) !== JSON.stringify(next.appliesTo) ? ["appliesTo"] : []),
-      ...(input.confirm ? ["lastConfirmedAt"] : []),
-      ...(input.confirm && current.review ? ["review"] : []),
-    ];
-    const action: KnowledgeAuditAction =
-      current.status !== next.status ? (next.status === "archived" ? "archived" : "restored") : "updated";
+      // Restoring a replaced item would leave two active versions of one rule. Checked here, under the write lock,
+      // because the successor may have been recorded since the caller last looked.
+      if (input.status === "active" && row.status !== "active") {
+        const successor = this.db
+          .prepare(
+            "SELECT id FROM knowledge WHERE supersedes_id = ? AND project_id = ? AND status = 'active' ORDER BY created_at DESC, id ASC LIMIT 1",
+          )
+          .get(input.knowledgeId, project.id) as { id: string } | undefined;
+        if (successor) {
+          return {
+            outcome: "rejected",
+            reason: "superseded_by_active",
+            knowledgeId: input.knowledgeId,
+            successorId: successor.id,
+          };
+        }
+      }
 
-    this.db
-      .prepare(
-        `UPDATE knowledge
-         SET kind = @kind,
-             title = @title,
-             body = @body,
-             tags_json = @tags,
-             references_json = @references,
-             status = @status,
-             updated_at = @updatedAt,
-             applies_to_json = @appliesTo,
-             last_confirmed_at = @lastConfirmedAt,
-             last_confirmed_session_id = @lastConfirmedSessionId,
-             review_json = @review
-         WHERE id = @id AND project_id = @projectId`,
-      )
-      .run({
-        id: next.id,
-        projectId: next.projectId,
-        kind: next.kind,
-        title: next.title,
-        body: next.body,
-        tags: JSON.stringify(next.tags),
-        references: JSON.stringify(next.references),
-        status: next.status,
-        updatedAt: next.updatedAt,
-        appliesTo: JSON.stringify(next.appliesTo),
-        lastConfirmedAt: next.lastConfirmedAt ?? null,
-        lastConfirmedSessionId: next.lastConfirmedSessionId ?? null,
-        review: next.review ? JSON.stringify(next.review) : null,
+      const current = toKnowledge(row);
+      const currentSanitized = redactValue({
+        title: current.title,
+        body: current.body,
+        tags: current.tags,
+        references: current.references,
+        appliesTo: current.appliesTo,
       });
-    this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, decision.project.id);
-    const auditId = this.insertKnowledgeAudit({
-      knowledge: next,
-      before: cleanCurrent,
-      action,
-      changedFields,
-      occurredAt: updatedAt,
-    });
-    if (input.confirm) {
-      this.insertFeedback(auditId, next, "manual_confirm", updatedAt);
-    }
+      const inputSanitized = redactValue({
+        title: input.title?.trim(),
+        body: input.body?.trim(),
+        tags: input.tags?.map((tag) => tag.trim()).filter(Boolean),
+        references: input.references?.map((reference) => reference.trim()).filter(Boolean),
+        appliesTo: input.appliesTo ? cleanList(input.appliesTo) : undefined,
+      });
+      const redactions = combineRedactionSummaries(currentSanitized.redactions, inputSanitized.redactions);
+      const cleanCurrent = { ...current, ...currentSanitized.value };
+      const updatedAt = nowIso();
+      const next: KnowledgeRecord = {
+        ...cleanCurrent,
+        kind: input.kind ?? current.kind,
+        title: inputSanitized.value.title || cleanCurrent.title,
+        body: inputSanitized.value.body || cleanCurrent.body,
+        tags: input.tags ? [...new Set(inputSanitized.value.tags ?? [])] : cleanCurrent.tags,
+        references: input.references ? [...new Set(inputSanitized.value.references ?? [])] : cleanCurrent.references,
+        status: input.status ?? current.status,
+        updatedAt,
+        appliesTo: input.appliesTo ? (inputSanitized.value.appliesTo ?? []) : cleanCurrent.appliesTo,
+        ...(input.confirm ? { lastConfirmedAt: updatedAt } : {}),
+      };
+      if (input.confirm) {
+        delete next.lastConfirmedSessionId;
+        delete next.review;
+      }
+      const changedFields = [
+        ...(current.kind !== next.kind ? ["kind"] : []),
+        ...(current.title !== next.title ? ["title"] : []),
+        ...(current.body !== next.body ? ["body"] : []),
+        ...(JSON.stringify(current.tags) !== JSON.stringify(next.tags) ? ["tags"] : []),
+        ...(JSON.stringify(current.references) !== JSON.stringify(next.references) ? ["references"] : []),
+        ...(current.status !== next.status ? ["status"] : []),
+        ...(JSON.stringify(current.appliesTo) !== JSON.stringify(next.appliesTo) ? ["appliesTo"] : []),
+        ...(input.confirm ? ["lastConfirmedAt"] : []),
+        ...(input.confirm && current.review ? ["review"] : []),
+      ];
+      const action: KnowledgeAuditAction =
+        current.status !== next.status ? (next.status === "archived" ? "archived" : "restored") : "updated";
 
-    // The schema lets an update keep entries above the star bound; say they never match and how to fix them.
-    const overComplex = input.appliesTo
-      ? next.appliesTo.flatMap((pattern, index) => (isOverComplexAppliesToGlob(pattern) ? [index] : []))
-      : [];
-    return {
-      outcome: "knowledge_updated",
-      knowledge: this.withKnowledgeTrust(next),
-      redactions,
-      ...(overComplex.length > 0
-        ? {
-            warnings: [
-              `appliesTo entries at positions ${overComplex.join(", ")} (from 0) never match. ${APPLIES_TO_GLOB_STARS_FIX}`,
-            ],
-          }
-        : {}),
-    };
+      this.db
+        .prepare(
+          `UPDATE knowledge
+           SET kind = @kind,
+               title = @title,
+               body = @body,
+               tags_json = @tags,
+               references_json = @references,
+               status = @status,
+               updated_at = @updatedAt,
+               applies_to_json = @appliesTo,
+               last_confirmed_at = @lastConfirmedAt,
+               last_confirmed_session_id = @lastConfirmedSessionId,
+               review_json = @review
+           WHERE id = @id AND project_id = @projectId`,
+        )
+        .run({
+          id: next.id,
+          projectId: next.projectId,
+          kind: next.kind,
+          title: next.title,
+          body: next.body,
+          tags: JSON.stringify(next.tags),
+          references: JSON.stringify(next.references),
+          status: next.status,
+          updatedAt: next.updatedAt,
+          appliesTo: JSON.stringify(next.appliesTo),
+          lastConfirmedAt: next.lastConfirmedAt ?? null,
+          lastConfirmedSessionId: next.lastConfirmedSessionId ?? null,
+          review: next.review ? JSON.stringify(next.review) : null,
+        });
+      this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, project.id);
+      const auditId = this.insertKnowledgeAudit({
+        knowledge: next,
+        before: cleanCurrent,
+        action,
+        changedFields,
+        occurredAt: updatedAt,
+      });
+      if (input.confirm) {
+        this.insertFeedback(auditId, next, "manual_confirm", updatedAt);
+      }
+
+      // The schema lets an update keep entries above the star bound; say they never match and how to fix them.
+      const overComplex = input.appliesTo
+        ? next.appliesTo.flatMap((pattern, index) => (isOverComplexAppliesToGlob(pattern) ? [index] : []))
+        : [];
+      const updated: UpdatedKnowledgeResult = {
+        outcome: "knowledge_updated",
+        knowledge: this.withKnowledgeTrust(next),
+        redactions,
+        ...(overComplex.length > 0
+          ? {
+              warnings: [
+                `appliesTo entries at positions ${overComplex.join(", ")} (from 0) never match. ${APPLIES_TO_GLOB_STARS_FIX}`,
+              ],
+            }
+          : {}),
+      };
+      if (changedFields.includes("appliesTo") && next.status === "active") {
+        this.addBreadthAfterCommit(updated, project, next.appliesTo);
+      }
+      return updated;
+    });
   }
 
   public getKnowledgeHistory(input: KnowledgeHistoryQuery): KnowledgeHistoryResult {
@@ -785,6 +887,39 @@ export class KnowledgeService {
   public searchKnowledge(options: KnowledgeQuery = {}): KnowledgeQueryResult | KnowledgeSkippedResult {
     const result = this.dependencies.searchKnowledge(options);
     return result.outcome === "knowledge" ? { ...result, items: this.withKnowledgeTrustMany(result.items) } : result;
+  }
+
+  /**
+   * Once the write has committed (the service's own transaction, or the MCP write lock around it), measures how much
+   * of the project's recent work `appliesTo` touches and adds it to the result, with a warning when it is broad. The
+   * scan only reads and is bounded, so it stays outside the write lock. Any failure leaves the result as it is: the
+   * write already happened and the hint is only advice.
+   */
+  private addBreadthAfterCommit(
+    result: RecordedKnowledgeResult | UpdatedKnowledgeResult,
+    project: ProjectRecord,
+    appliesTo: readonly string[],
+  ): void {
+    if (appliesTo.length === 0) return;
+    runAfterImmediateTransaction(this.db, () => {
+      try {
+        const scan = scanAppliesToBreadth(
+          this.db,
+          project.id,
+          [{ name: project.name, rootPath: project.rootPath }],
+          appliesTo,
+        );
+        const warnings = [...(result.warnings ?? [])];
+        if (scan.breadth) result.appliesToBreadth = scan.breadth;
+        if (scan.broad && scan.breadth) warnings.push(broadAppliesToWarning(scan.breadth));
+        if (scan.unchecked) {
+          warnings.push("appliesTo breadth was not checked: the entries were too large or too many to compare.");
+        }
+        if (warnings.length > 0) result.warnings = warnings;
+      } catch {
+        // The breadth hint is advice; a failed read must not turn a committed write into an error.
+      }
+    });
   }
 
   private insertKnowledgeAudit(input: {

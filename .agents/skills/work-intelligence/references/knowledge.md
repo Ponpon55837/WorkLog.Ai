@@ -6,6 +6,12 @@ Read this guide with the core [Work Intelligence skill](../SKILL.md) when the us
 
 Record or update Knowledge only when the user asks or when the MCP workflow explicitly calls for it, and only with reusable, source-supported facts; do not turn guesses or an entire Session transcript into Knowledge. When recording, set the paths it applies to when they are clear, and name the older Knowledge it replaces instead of leaving both active.
 
+## Check the scope of recorded Knowledge
+
+`work_record_knowledge`, and `work_update_knowledge` when it changes `appliesTo` on an active Knowledge, return `appliesToBreadth`: `share` is the fraction of the project's newest Sessions that changed 1–20 files and touched `appliesTo`, `sessions` is how many were compared, and `truncated` means more exist. When `broad` is `true` (at least 10 Sessions and a share above 0.15), `warnings` asks you to narrow the scope. Then replace the wide entries (a whole folder or a broad glob) with the specific files or subdirectories the Knowledge is about, and update it again. Keep a wide scope only when the Knowledge really covers it, and say so when you report. A replayed `idempotencyKey` returns no breadth.
+
+Restoring an archived Knowledge (`status: "active"`) that an active successor supersedes returns `outcome: "rejected"` with `reason: "superseded_by_active"`. Do not retry it: update the successor instead, or leave the old record archived.
+
 ## Propose Knowledge candidates
 
 When the user asks to organize or extract Knowledge from recorded work (整理 Knowledge 候選), use the project's open candidate request or create one, read its context, and submit only reusable, source-supported candidates, each naming its source Session and the part of the record that supports it. Skip one-off status and anything already in `existingKnowledge`, which also lists archived Knowledge and rejected candidates (flagged by `status`): do not revive those without new evidence. The context gives outcomes, decisions and nextSteps; read scope or verification with `work_get_session` (`view: "handoff"`) only when a candidate depends on them. An empty submission is fine. Submitted candidates may carry advisory `overlaps` (possible duplicate, overlaps archived, overlaps rejected); they change nothing, are stored with the candidate and shown to the user in the Web review, so mention them instead of resubmitting. Candidates are not Knowledge: tell the user how many you proposed and that they accept or reject them on the Knowledge page. Never record candidates as Knowledge yourself.

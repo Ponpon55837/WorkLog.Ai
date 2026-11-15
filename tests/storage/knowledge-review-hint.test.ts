@@ -157,6 +157,27 @@ describe("knowledge to review at finalize", () => {
     expect(backfilled).not.toHaveProperty("knowledgeToReview");
   });
 
+  it("gives no hint for a Session with more than 20 files, and a broad earlier Session does not hide a later hint", () => {
+    const { store, root, ids } = setup();
+    const filler = (count: number) => Array.from({ length: count }, (_, index) => `vendor/bulk/file-${index}.ts`);
+    // A bulk change never sets possiblyStale, so it puts nothing in doubt and has no hint of its own.
+    vi.setSystemTime(new Date("2026-06-01T09:00:00.000Z"));
+    expect(finalize(store, root, ["packages/shared/src/lease.ts", ...filler(20)])).not.toHaveProperty(
+      "knowledgeToReview",
+    );
+    const list = store.searchKnowledge({ projectRoot: root, limit: 50 });
+    if (list.outcome !== "knowledge") throw new Error("Expected Knowledge.");
+    const exact = list.items.find((item) => item.id === ids.exact);
+    expect(exact?.possiblyStale).toBeUndefined();
+    expect(exact?.broadChangesSince).toBe(1);
+
+    // A focused Session after it is the first to put the rule in doubt, so the hint is still offered.
+    vi.setSystemTime(new Date("2026-06-01T10:00:00.000Z"));
+    expect(finalize(store, root, ["packages/shared/src/lease.ts"])).toMatchObject({
+      knowledgeToReview: expect.arrayContaining([expect.objectContaining({ id: ids.exactNewer })]),
+    });
+  });
+
   it("omits the hint when the Session changed no covered file", () => {
     const { store, root } = setup();
     expect(finalize(store, root, [])).not.toHaveProperty("knowledgeToReview");

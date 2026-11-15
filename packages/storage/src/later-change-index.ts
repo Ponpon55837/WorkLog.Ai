@@ -27,6 +27,12 @@
  * item's `since` (other than its own) and how many there are, so a per-path latest time would answer "stale or not"
  * but not the count; the union below is linear in the matched paths' Sessions.
  *
+ * Focused and broad Sessions. A Session that listed more than CHANGED_FILES_NORMAL files (the stored list's length, as
+ * every other feature counts it) is broad; one that listed 1 to CHANGED_FILES_NORMAL is focused. The index keeps both
+ * in the same lists, because the caller decides what each kind means: a broad Session never sets possiblyStale on its
+ * own (it is counted in broadChangesSince), and the newest focused Sessions are the sample the appliesTo breadth is measured
+ * over (newestFocusedWindow). A Session with no files is neither.
+ *
  * Accounting (see applies-to-match.ts). Building the index is charged to the call's history budget before each step
  * runs: each Session row, its list's JSON text, hashing each stored path, normalizing a path not seen recently, hashing
  * the normalized path, and (when the segment index is built) splitting each distinct path and filing it under each
@@ -44,6 +50,7 @@ import {
   type AppliesToBudget,
   type CompiledAppliesTo,
 } from "./applies-to-match.js";
+import { CHANGED_FILES_NORMAL } from "./search-repository.js";
 import { normalizePath, type PathContext } from "./search-text.js";
 import { parseJson } from "./session-record-codecs.js";
 
@@ -236,6 +243,30 @@ export class LaterChangeIndex {
     }
     this.sessions.push({ id, title, completedAt, files, pathIds });
     return true;
+  }
+
+  /** Whether the Session at `index` listed more than CHANGED_FILES_NORMAL files. */
+  public isBroad(index: number): boolean {
+    return this.sessions[index]!.files.length > CHANGED_FILES_NORMAL;
+  }
+
+  /** Whether the Session at `index` listed between 1 and CHANGED_FILES_NORMAL files. */
+  public isFocused(index: number): boolean {
+    const count = this.sessions[index]!.files.length;
+    return count >= 1 && count <= CHANGED_FILES_NORMAL;
+  }
+
+  /** The newest `limit` focused Sessions (all when fewer): the index where they start and how many there are. */
+  public newestFocusedWindow(limit: number): { start: number; sessions: number } {
+    let count = 0;
+    let start = this.sessions.length;
+    for (let at = this.sessions.length - 1; at >= 0 && count < limit; at -= 1) {
+      if (this.isFocused(at)) {
+        count += 1;
+        start = at;
+      }
+    }
+    return { start: count === 0 ? this.sessions.length : start, sessions: count };
   }
 
   /** How many distinct patterns this call will resolve, so one or two can skip building the segment index. */

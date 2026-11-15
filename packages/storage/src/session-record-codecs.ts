@@ -111,6 +111,19 @@ export function parseJson<T>(value: string | null, fallback: T): T {
   }
 }
 
+/**
+ * The changed-files list of a stored row. The column has no CHECK constraint, so a legacy row may hold malformed
+ * JSON, `null`, an object or a list with non-string entries: those read as `[]` or lose the non-string entries.
+ * The parsed array is returned as is when every entry is a string (the usual case), instead of copied.
+ */
+export function parseChangedFiles(json: string | null | undefined): string[] {
+  const parsed = parseJson<unknown>(json ?? null, []);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.every((file) => typeof file === "string")
+    ? (parsed as string[])
+    : parsed.filter((file): file is string => typeof file === "string");
+}
+
 export function normalizeWorkSummaryDecisions(
   value: WorkSummaryDecisionEntry[] | undefined,
 ): Array<{ text: string; origin: WorkSummaryDecisionOrigin | "unspecified" }> {
@@ -492,7 +505,7 @@ export function toSession(row: SessionRow): WorkSessionRecord {
     updatedAt: row.updated_at ?? row.created_at,
     commitSha: row.commit_sha ?? undefined,
     gitBranch: row.git_branch ?? undefined,
-    changedFiles: parseJson<string[]>(row.changed_files_json, []),
+    changedFiles: parseChangedFiles(row.changed_files_json),
     changedFilesProvenance: parseJson<ChangedFileProvenance[]>(row.changed_files_provenance_json, []),
     changedFileChanges: parseJson<ChangedFileChange[]>(row.changed_file_changes_json, []),
     verification: parseJson<VerificationSummary | undefined>(row.verification_json, undefined),

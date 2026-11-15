@@ -378,7 +378,7 @@ export class SessionRepository {
           )
           OR EXISTS (
             SELECT 1
-            FROM json_each(CASE WHEN json_valid(s.changed_files_json) THEN s.changed_files_json ELSE '[]' END) file
+            FROM json_each(CASE WHEN json_valid(s.changed_files_json) AND json_type(s.changed_files_json) = 'array' THEN s.changed_files_json ELSE '[]' END) file
             WHERE instr(LOWER(file.value), ?) > 0
           )
           OR ${listSearchMoreGuard("s.rowid", SEARCHED_EVENT_BYTES)} AND EXISTS (

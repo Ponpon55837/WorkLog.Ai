@@ -4,6 +4,42 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.39] - 2026-11-15
+
+[繁體中文更新說明](docs/releases/1.6.39.md).
+
+This release stops bulk changes from marking Knowledge as possibly stale on their own, reports wide `appliesTo` patterns as weak signals, and makes retrieval say how much Knowledge it actually found. It changes no schema; the schema stays at 33 and no migration is needed.
+
+### Changed
+
+- Knowledge staleness ignores bulk changes on its own: a later Session that listed more than 20 changed files no longer sets `possiblyStale`. It is counted in the new `broadChangesSince`, and `possiblyStale` (its first Session, paths and `sessionCount`) looks only at Sessions with 20 or fewer files, as the co-change, related-work, hotspot and inferred-path features already do. The baseline is the later of creation and last confirmation.
+- `possiblyStale` carries `reason` (`applies_to_changed` or `broad_applies_to`) and `appliesToBreadth { share, sessions }`: when an `appliesTo` touches more than 15% of the project's newest 200 ordinary Sessions (at least 10; the same breadth as at write time, not only the Sessions after the baseline), the marker says it is a weak signal.
+- `work_record_knowledge` and `work_update_knowledge` (when `appliesTo` changes) report `appliesToBreadth { share, sessions, truncated, broad }` over the project's newest 200 Sessions with 1-20 files, and warn when the `appliesTo` is broad.
+- `recall` and `getContext` report `knowledgeConfidence`, the `none`, `low` and `high` rule applied to Knowledge hits only. `relevant.confidence` still combines Sessions and Knowledge. `getContext` adds `knowledgeHint` when no Knowledge matched.
+- `work_search_knowledge` returns `termHits` when a query has no match in scope, names an all-zero query in its hint, passes `appliesToScanTruncated` through for a scoped search, and returns `effectiveQuery` whenever the query was cut.
+- Knowledge matched only through a synonym carries `matchedVia: "synonym"`. MCP `work_recall` keeps up to four `matchedIn` fields, and `work_search` no longer fills `matchedIn` with `title`.
+- Compact Knowledge entries keep `possiblyStale: true` and add `staleReason` and `broadChangesSince` when present. `appliesTo` matches in recall honour `from` and `to`.
+- Web: Knowledge rows show the weak signals (`broad_applies_to` and `broadChangesSince`) as secondary text. Knowledge touched only by broad changes shows no possibly-stale label. Saving an `appliesTo` that the backend measures as broad shows a warning, and a rejected restore says the item was replaced.
+
+### Fixed
+
+- `termHits` no longer reports false misses: a query with more than 32 terms reports `termHitsTruncated` and leaves out the terms past the cap, and a non-CJK compound word counts as matched when any of its parts matched, as ranking does.
+- Malformed `changed_files_json` (non-JSON text, `null`, an object, or a list with non-string entries) is read as an empty list everywhere. The derived graph, `getContext`, related work, hotspots and the review hint no longer throw on such rows.
+- Knowledge page sections match a Chinese task by character pairs.
+- A backfilled finalize no longer moves `lastConfirmedAt` or `lastConfirmedSessionId` backwards; the `applied` feedback is still recorded.
+- Restoring an archived Knowledge that an active Knowledge supersedes is rejected (`outcome: "rejected"`, `reason: "superseded_by_active"`) instead of leaving two active versions. `updateKnowledge` now runs in one write transaction.
+- A manual confirmation is documented as written by the Web UI or by an Agent through `work_update_knowledge` with `confirm: true`.
+
+### Added
+
+- A feasibility study, `docs/experiments/retrieval-trust-feasibility-2026-11-15.md`, and its probe, `docs/experiments/retrieval-trust-probe.mjs`. The study's figures come from one private project measured at research time; they are not measurements of this release.
+
+### Upgrading
+
+No schema change (33) and no migration. Rebuild and restart, then have Agents reconnect once to see the new tool descriptions. `possiblyStale` becomes less frequent, MCP responses gain optional fields, and `work_update_knowledge` can return `outcome: "rejected"` with `reason: "superseded_by_active"` when a restore is refused.
+
+Not verified yet: the end-to-end runs and the before-and-after comparison on real data, which the coordinator runs.
+
 ## [1.6.38] - 2026-11-14
 
 [繁體中文更新說明](docs/releases/1.6.38.md).

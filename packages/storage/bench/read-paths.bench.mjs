@@ -59,6 +59,7 @@ const [
   { appliesToEntries, appliesToStrength, compileAppliesTo, createAppliesToBudget, setAppliesToBudgetProbe },
   { findKnowledgeCandidateOverlaps },
   { findKnowledgeToReview },
+  { scanAppliesToBreadth },
 ] = await Promise.all([
   import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "index.js")).href),
   import(pathToFileURL(join(repositoryRoot, "apps", "mcp", "dist", "recall-evaluation.js")).href),
@@ -66,6 +67,7 @@ const [
   import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "applies-to-match.js")).href),
   import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "knowledge-candidate-overlap.js")).href),
   import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "knowledge-review-hint.js")).href),
+  import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "knowledge-breadth.js")).href),
 ]);
 const { evaluateRecallQuestions, parseRecallEvaluationQuestions } = recallEvaluation;
 const { getMcpRuntimeDirectory, getMcpRuntimeStatus, readMcpBuildIdentity, registerMcpProcess } = mcpRuntime;
@@ -591,6 +593,34 @@ function seedStoredTextWorstCases(baseRoot) {
       project: { name: "worst-text", rootPath: worstRoot },
     };
   })();
+  // A Knowledge recorded after the 5,000 Sessions and one Session after it touching its wide appliesTo: it is
+  // possibly stale, and its project-wide breadth reads the newest 200 focused Sessions that are all older than it.
+  reopened.recordKnowledge({
+    projectRoot: worstRoot,
+    idempotencyKey: "recent-wide",
+    kind: "gotcha",
+    title: "Synthetic recent wide knowledge",
+    body: "Synthetic recent knowledge body.",
+    appliesTo: ["src/other/**"],
+  });
+  const recentDatabase = new DatabaseSync(path);
+  try {
+    recentDatabase
+      .prepare("UPDATE knowledge SET created_at = ?, last_confirmed_at = NULL WHERE title = ?")
+      .run("2026-06-02T00:00:00.000Z", "Synthetic recent wide knowledge");
+  } finally {
+    recentDatabase.close();
+  }
+  reopened.finalizeSession({
+    projectRoot: worstRoot,
+    idempotencyKey: "recent-later",
+    title: "Synthetic recent later",
+    summary: "Synthetic.",
+    workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+    changedFiles: ["src/other/recent.ts"],
+    verification: { status: "passed" },
+    completedAt: "2026-06-03T00:00:00.000Z",
+  });
   const nearMiss = Array.from({ length: 8 }, (_, index) => `${"a".repeat(199 - index)}${"b".repeat(index + 1)}`).join(
     " ",
   );
@@ -1137,6 +1167,23 @@ try {
   }));
   const worstText = seedStoredTextWorstCases(root);
   const worstTextDatabase = new DatabaseSync(worstText.path);
+  // Shared by the cached and the "(after a write)" case: the latter reads the floor query and the newest 200 focused
+  // Sessions again on every run.
+  const recentWideStaleness = () => {
+    const result = worstText.store.searchKnowledge({
+      projectRoot: worstText.root,
+      q: "Synthetic recent wide knowledge",
+    });
+    const item =
+      result.outcome === "knowledge" ? result.items.find((entry) => entry.title.includes("recent wide")) : undefined;
+    if (!item || item.stalenessUnchecked || item.possiblyStale?.appliesToBreadth?.sessions !== 200)
+      throw new Error("The breadth of a recently recorded Knowledge must be measured over the newest 200 Sessions.");
+    return result;
+  };
+  const touchWorstText = () =>
+    worstTextDatabase
+      .prepare("UPDATE projects SET updated_at = updated_at WHERE id = ?")
+      .run(worstText.focus.projectId);
   const distinctPaths = seedDistinctPathStaleness(root);
   const cases = {
     "getContext (large report source request)": () => {
@@ -1574,6 +1621,20 @@ try {
         throw new Error("The one-pass review check must decide every candidate within its budget.");
       return result;
     },
+    // The write-time appliesTo breadth check (recordKnowledge / updateKnowledge, after the commit) over a project of
+    // 5,000 Sessions: it reads only the newest 200 with 1-20 files, so its cost does not grow with the history.
+    "scanAppliesToBreadth (write-time, newest 200 of 5,000 Sessions)": () => {
+      const { projectId, project } = worstText.focus;
+      const result = scanAppliesToBreadth(
+        worstTextDatabase,
+        projectId,
+        [project],
+        ["src/other/**", "src/shared/lease.ts"],
+      );
+      if (result.unchecked || result.breadth?.sessions !== 200 || result.breadth.truncated !== true)
+        throw new Error("The breadth scan must read exactly the newest 200 focused Sessions and say it was cut.");
+      return result;
+    },
     // A Knowledge read after 5,000 later Sessions of 20 x 100-character files (50 x 100 took 433 ms and 235 MB with
     // one .all()); the read is charged row by row and its budget grows with the rows, so it finishes.
     "searchKnowledge (staleness over 5,000 Sessions of 20 x 100-char files)": () => {
@@ -1582,6 +1643,11 @@ try {
         throw new Error("The staleness check must finish on legitimate history.");
       return result;
     },
+    // A Knowledge recorded after 5,000 Sessions and touched by one later Session: its possiblyStale breadth is the
+    // project-wide one, so the read also loads the newest 200 focused Sessions that are older than the Knowledge.
+    "searchKnowledge (staleness, Knowledge newer than 5,000 Sessions, project-wide breadth)": recentWideStaleness,
+    "searchKnowledge (staleness, Knowledge newer than 5,000 Sessions, project-wide breadth, after a write)":
+      recentWideStaleness,
     // Each appliesTo entry is resolved against an index of the distinct later paths (later-change-index.ts).
     "searchKnowledge (staleness, 2,000 Sessions of 50 distinct files, page 20)": () => {
       const result = distinctPaths.store.searchKnowledge({ projectRoot: distinctPaths.distinctRoot, pageSize: 20 });
@@ -1589,7 +1655,8 @@ try {
         result.outcome !== "knowledge" ||
         result.items.length !== 20 ||
         result.items.some((item) => item.stalenessUnchecked) ||
-        !result.items.some((item) => item.possiblyStale)
+        // These Sessions list 50 files, so they are broad: counted in broadChangesSince, never possiblyStale.
+        !result.items.some((item) => item.possiblyStale || item.broadChangesSince)
       )
         throw new Error("The indexed staleness check must finish on distinct-path history.");
       return result;
@@ -1752,6 +1819,8 @@ try {
     "recall (20 Knowledge hits with staleness)": touchProjectData,
     "recall (paths, appliesTo, after a write)": touchProjectData,
     "getContext (paths, appliesTo-matched Knowledge, after a write)": touchProjectData,
+    "searchKnowledge (staleness, Knowledge newer than 5,000 Sessions, project-wide breadth, after a write)":
+      touchWorstText,
     "requestKnowledgeCandidates selection": resetBacklogRequests,
     "getContext with knowledge backlog (cold token)": prepareColdBacklogRead,
     "first read after 5,000 dirty documents": markSessionsDirty,
@@ -1844,7 +1913,10 @@ try {
     "searchKnowledge (staleness)": 500,
     "searchKnowledge (200 x 30 x 1,000-char appliesTo, 8 near-miss words)": 1000,
     "knowledgeToReview (200 candidates, 5,000 later Sessions)": 250,
+    "scanAppliesToBreadth (write-time, newest 200 of 5,000 Sessions)": 250,
     "searchKnowledge (staleness over 5,000 Sessions of 20 x 100-char files)": 500,
+    "searchKnowledge (staleness, Knowledge newer than 5,000 Sessions, project-wide breadth)": 500,
+    "searchKnowledge (staleness, Knowledge newer than 5,000 Sessions, project-wide breadth, after a write)": 500,
     "searchKnowledge (staleness, 2,000 Sessions of 50 distinct files, page 20)": 1000,
     "searchKnowledge (15-star glob over long paths, decided or stopped at the match ceiling)": 1000,
     "searchKnowledgeForAgent (relaxed fallback)": 250,

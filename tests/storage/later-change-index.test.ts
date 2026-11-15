@@ -104,13 +104,26 @@ function globReference(pattern: string): RegExp {
   return new RegExp(`^${source}$`);
 }
 
-/** The rule as written in docs/mcp-tools.md, every entry against every changed file of every later Session. */
+/** What a read reports besides the evidence counts: the strong marker and the count of broad-only touches. */
+interface ReferenceSignals {
+  possiblyStale?: KnowledgeStaleness;
+  broadChangesSince?: number;
+}
+
+/**
+ * The rule as written in docs/mcp-tools.md, every entry against every changed file of every later Session. Later
+ * Sessions that listed more than 20 files are only counted; the breadth is project-wide, as at write time: the share of
+ * the newest 200 non-voided Sessions with 1 to 20 files (the Knowledge's own included) that touch it.
+ */
 function referenceStaleness(
   knowledge: KnowledgeRecord,
   sessions: StoredSession[],
   contexts: PathContext[],
-): KnowledgeStaleness | undefined {
-  const since = knowledge.lastConfirmedAt ?? knowledge.createdAt;
+): ReferenceSignals {
+  const since =
+    knowledge.lastConfirmedAt && knowledge.lastConfirmedAt > knowledge.createdAt
+      ? knowledge.lastConfirmedAt
+      : knowledge.createdAt;
   const patterns = [...new Set(knowledge.appliesTo.map((raw) => normalizePath(raw, contexts)).filter(Boolean))];
   const own = new Set([knowledge.sessionId, knowledge.lastConfirmedSessionId].filter(Boolean));
   const covers = (file: string): boolean => {
@@ -122,7 +135,7 @@ function referenceStaleness(
       )
     );
   };
-  const touching = sessions
+  const later = sessions
     .filter((session) => !session.voided && session.completedAt > since && !own.has(session.id))
     .sort((left, right) =>
       left.completedAt === right.completedAt
@@ -132,16 +145,38 @@ function referenceStaleness(
         : left.completedAt < right.completedAt
           ? -1
           : 1,
+    );
+  const touching = later.filter((session) => session.files.some(covers));
+  const focused = touching.filter((session) => session.files.length <= 20);
+  const broad = touching.filter((session) => session.files.length > 20);
+  const signals: ReferenceSignals = broad.length > 0 ? { broadChangesSince: broad.length } : {};
+  const first = focused[0];
+  if (!first) return signals;
+  const window = sessions
+    .filter((session) => !session.voided && session.files.length >= 1 && session.files.length <= 20)
+    .sort((left, right) =>
+      left.completedAt === right.completedAt
+        ? left.id < right.id
+          ? -1
+          : 1
+        : left.completedAt < right.completedAt
+          ? -1
+          : 1,
     )
-    .filter((session) => session.files.some(covers));
-  const first = touching[0];
-  if (!first) return undefined;
+    .slice(-200);
+  const compared = window.length;
+  const windowTouched = window.filter((session) => session.files.some(covers)).length;
   return {
-    sessionId: first.id,
-    sessionTitle: first.title,
-    completedAt: first.completedAt,
-    paths: first.files.filter(covers).slice(0, 5),
-    sessionCount: touching.length,
+    possiblyStale: {
+      sessionId: first.id,
+      sessionTitle: first.title,
+      completedAt: first.completedAt,
+      paths: first.files.filter(covers).slice(0, 5),
+      sessionCount: focused.length,
+      reason: compared >= 10 && windowTouched / compared > 0.15 ? "broad_applies_to" : "applies_to_changed",
+      appliesToBreadth: { share: Math.round((windowTouched / compared) * 1000) / 1000, sessions: compared },
+    },
+    ...signals,
   };
 }
 
@@ -195,6 +230,8 @@ afterEach(() => {
 
 describe("staleness index", () => {
   it("gives the reference answer on seeded random Knowledge and Sessions", () => {
+    const reasons = new Set<string>();
+    let broadSeen = 0;
     for (let seed = 1; seed <= 25; seed += 1) {
       const next = random(seed);
       const { store, root, db } = trackedStore();
@@ -202,7 +239,10 @@ describe("staleness index", () => {
       const sessions: StoredSession[] = [];
       const previous: string[] = [];
       for (let index = 0; index < 40; index += 1) {
-        const files = Array.from({ length: 1 + Math.floor(next() * 6) }, () => randomFile(next, root));
+        // One Session in eight lists more than 20 files (a bulk change), so broad touches are exercised too.
+        const files = Array.from({ length: (next() < 0.125 ? 21 : 1) + Math.floor(next() * 6) }, () =>
+          randomFile(next, root),
+        );
         // A rename: an earlier file listed again under a new last segment, both names in the same Session.
         if (previous.length > 0 && next() < 0.2) {
           const old = previous[Math.floor(next() * previous.length)]!;
@@ -248,19 +288,37 @@ describe("staleness index", () => {
           recorded.knowledge.id,
         );
       }
+      // insertSessions also leaves its focused template Session in the project; the project-wide breadth counts it.
+      sessions.push({
+        id: "template",
+        title: "Synthetic template",
+        completedAt: "2025-01-01T00:00:00.000Z",
+        files: ["template.ts"],
+        voided: false,
+      });
       const result = store.searchKnowledge({ projectRoot: root, pageSize: 50 });
       if (result.outcome !== "knowledge") throw new Error("Expected Knowledge.");
       expect(result.items).toHaveLength(12);
       for (const item of result.items) {
         expect(item.stalenessUnchecked, `seed ${seed} ${item.title}`).toBeUndefined();
         const expected = referenceStaleness(item, sessions, contexts);
-        expect(item.possiblyStale, `seed ${seed} ${item.title} ${JSON.stringify(item.appliesTo)}`).toEqual(expected);
+        const label = `seed ${seed} ${item.title} ${JSON.stringify(item.appliesTo)}`;
+        expect(item.possiblyStale, label).toEqual(expected.possiblyStale);
+        expect(item.broadChangesSince, label).toEqual(expected.broadChangesSince);
+        if (expected.possiblyStale) reasons.add(expected.possiblyStale.reason);
+        if (expected.broadChangesSince) broadSeen += 1;
         // A single read resolves one or two patterns by testing every distinct path instead (no segment index).
         const single = store.getKnowledgeHistory({ projectRoot: root, knowledgeId: item.id });
         if (single.outcome !== "knowledge_history") throw new Error("Expected the history.");
-        expect(single.knowledge.possiblyStale, `seed ${seed} single ${item.title}`).toEqual(expected);
+        expect(single.knowledge.possiblyStale, `seed ${seed} single ${item.title}`).toEqual(expected.possiblyStale);
+        expect(single.knowledge.broadChangesSince, `seed ${seed} single ${item.title}`).toEqual(
+          expected.broadChangesSince,
+        );
       }
     }
+    // The seeds reach every kind of answer: broad-only counts, and both reasons of the strong marker.
+    expect(broadSeen).toBeGreaterThan(0);
+    expect([...reasons].sort()).toEqual(["applies_to_changed", "broad_applies_to"]);
   });
 
   it("is built per call and per project: another project's Sessions never count", () => {
@@ -325,7 +383,8 @@ describe("staleness ceilings", () => {
     const result = store.searchKnowledge({ projectRoot: root, pageSize: 50 });
     if (result.outcome !== "knowledge") throw new Error("Expected Knowledge.");
     expect(result.items.filter((item) => item.stalenessUnchecked)).toHaveLength(0);
-    expect(result.items.filter((item) => item.possiblyStale)).toHaveLength(50);
+    // The Sessions list 50 files, so they are broad: counted in broadChangesSince, never possiblyStale.
+    expect(result.items.filter((item) => item.broadChangesSince && !item.possiblyStale)).toHaveLength(50);
     const [history, match] = budgets;
     // History is linear in the Sessions read: 5,000 such Sessions (25 times these) still leave three times headroom.
     expect(history!.units * 25 * 3).toBeLessThanOrEqual(STALENESS_HISTORY_UNIT_LIMIT);
@@ -368,7 +427,8 @@ describe("staleness ceilings", () => {
     if (result.outcome !== "knowledge") throw new Error("Expected Knowledge.");
     expect(result.items).toHaveLength(50);
     expect(result.items.filter((item) => item.stalenessUnchecked)).toHaveLength(0);
-    expect(result.items.every((item) => item.possiblyStale?.sessionCount === 4_000)).toBe(true);
+    // Each Session lists 50 files, so it is broad: all 4,000 are counted in broadChangesSince.
+    expect(result.items.every((item) => item.broadChangesSince === 4_000 && !item.possiblyStale)).toBe(true);
     const [history, match] = budgets;
     expect(history!.exhausted).toBe(false);
     expect(match!.exhausted).toBe(false);
