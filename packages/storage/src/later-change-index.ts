@@ -27,6 +27,12 @@
  * item's `since` (other than its own) and how many there are, so a per-path latest time would answer "stale or not"
  * but not the count; the union below is linear in the matched paths' Sessions.
  *
+ * Focused and broad Sessions. A Session that listed more than CHANGED_FILES_NORMAL files (the stored list's length, as
+ * every other feature counts it) is broad; one that listed 1 to CHANGED_FILES_NORMAL is focused. The index keeps both
+ * in the same lists, because the caller decides what each kind means: a broad Session never sets possiblyStale on its
+ * own (it is counted in broadChangesSince), and the focused Sessions are the sample the appliesTo breadth is measured
+ * over (focusedFrom). A Session with no files is neither.
+ *
  * Accounting (see applies-to-match.ts). Building the index is charged to the call's history budget before each step
  * runs: each Session row, its list's JSON text, hashing each stored path, normalizing a path not seen recently, hashing
  * the normalized path, and (when the segment index is built) splitting each distinct path and filing it under each
@@ -44,6 +50,7 @@ import {
   type AppliesToBudget,
   type CompiledAppliesTo,
 } from "./applies-to-match.js";
+import { CHANGED_FILES_NORMAL } from "./search-repository.js";
 import { normalizePath, type PathContext } from "./search-text.js";
 import { parseJson } from "./session-record-codecs.js";
 
@@ -203,6 +210,8 @@ export class LaterChangeIndex {
   private readonly segmentIds = new Map<string, number>();
   private readonly coverageByPattern = new Map<string, PatternCoverage>();
   private sessionIndexById?: Map<string, number>;
+  /** focusedBefore[i] = focused Sessions among the first i; rebuilt when a Session is added. */
+  private focusedBefore?: Int32Array;
   private marks?: Uint8Array;
   private pathCharacters = 0;
   private segmentsFiled = false;
@@ -235,7 +244,29 @@ export class LaterChangeIndex {
       if (pathId >= 0) this.sessionsByPath.append(pathId, index);
     }
     this.sessions.push({ id, title, completedAt, files, pathIds });
+    this.focusedBefore = undefined;
     return true;
+  }
+
+  /** Whether the Session at `index` listed more than CHANGED_FILES_NORMAL files. */
+  public isBroad(index: number): boolean {
+    return this.sessions[index]!.files.length > CHANGED_FILES_NORMAL;
+  }
+
+  /** Whether the Session at `index` listed between 1 and CHANGED_FILES_NORMAL files. */
+  public isFocused(index: number): boolean {
+    const count = this.sessions[index]!.files.length;
+    return count >= 1 && count <= CHANGED_FILES_NORMAL;
+  }
+
+  /** How many Sessions from index `start` on are focused. */
+  public focusedFrom(start: number): number {
+    if (!this.focusedBefore) {
+      const before = new Int32Array(this.sessions.length + 1);
+      for (let at = 0; at < this.sessions.length; at += 1) before[at + 1] = before[at]! + (this.isFocused(at) ? 1 : 0);
+      this.focusedBefore = before;
+    }
+    return this.focusedBefore[this.sessions.length]! - this.focusedBefore[Math.min(start, this.sessions.length)]!;
   }
 
   /** How many distinct patterns this call will resolve, so one or two can skip building the segment index. */

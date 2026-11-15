@@ -43,7 +43,7 @@ const RESPONSE_BUDGETS = {
   recallFive: 2_400,
   searchDefault: 8_000,
   contextOmitted: 1_300,
-  knowledgeSearchEmpty: 400,
+  knowledgeSearchEmpty: 450,
   knowledgeSearchRelaxed: 3_000,
   sessionListScoped: 9_000,
   knowledgePageNotFound: 700,
@@ -1455,6 +1455,7 @@ describe("synthetic MCP response-size baseline", () => {
       match: "none",
       items: [],
       pageInfo: expect.objectContaining({ total: 0 }),
+      termHits: [{ term: "zzyzxquux", count: 0 }],
       hint: expect.stringContaining("work_recall"),
     });
     // The temp root differs in length per OS, so the empty-answer budget leaves the echoed root out.

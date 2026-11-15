@@ -254,6 +254,11 @@ export interface RecallOptions {
    * taken from the same ranking pass. They are never part of `hits`.
    */
   extraPathKnowledge?: number;
+  /**
+   * Internal, for work_get_context: judge knowledgeConfidence on the first N Knowledge hits of the page only (the ones
+   * that can become relevant.knowledge). All returned Knowledge counts when this is not set.
+   */
+  knowledgeConfidenceLimit?: number;
 }
 
 /** A path-matched Knowledge ranked beyond the recall page, in ranked order; only its title and first matched path. */
@@ -274,7 +279,11 @@ export interface RecallComputation {
   /** Only when `extraPathKnowledge` was requested; internal to the context builder, never returned by work_recall. */
   extraPathKnowledge?: ExtraPathKnowledge[];
   confidence: RecallConfidence;
+  /** The confidence rule applied to the returned Knowledge hits only. */
+  knowledgeConfidence: RecallConfidence;
   termHits?: RecallTermHits[];
+  /** The query had more distinct terms than the ranking reads; words past the cap are left out of termHits. */
+  termHitsTruncated?: true;
   /** Present when stored paths above the per-path cap were skipped. */
   warnings?: string[];
 }
@@ -301,6 +310,10 @@ export interface KnowledgeRanking {
   /** Matches per status, including the ones not returned as hits. */
   totals: Partial<Record<KnowledgeStatus, number>>;
   hits: KnowledgeRankHit[];
+  /** Per query word, how many Knowledge of the requested status contain it (ranking rule, see countTermHits). */
+  termHits: RecallTermHits[];
+  /** The query had more distinct terms than the ranking reads; words past the cap are left out of termHits. */
+  termHitsTruncated?: true;
   /** The appliesTo match budget ran out or an over-long stored path was skipped, so some Knowledge was not checked. */
   appliesToScanTruncated?: true;
   /** The query had more terms or path-like words than the ranking uses, so the rest were ignored. */
@@ -360,6 +373,46 @@ function isZeroInformationWord(word: QueryWord): boolean {
 /** A query word that is one unsegmented CJK run of three or more characters, so it became several bigrams. */
 function isCjkRun(word: QueryWord): boolean {
   return CJK_RUN.test(word.word.normalize("NFKC"));
+}
+
+/**
+ * Per query word, how many documents contain it, judged the way the ranking matches: ranking is OR over terms, so a
+ * word that tokenizes into several terms (`retrieval-trust`, `camelCase`: the whole word plus its parts) counts a
+ * document holding any of them. Requiring every part reported such words as matching nothing while documents ranked
+ * on them. An unsegmented CJK run becomes overlapping bigrams and counts a document holding at least half of them,
+ * so a phrase whose parts all matched is not reported as matching nothing. Words whose terms all fall past the
+ * MAX_QUERY_TERMS cap were never searched and are left out instead of being reported as 0.
+ */
+function countTermHits(words: QueryWord[], terms: string[], docs: Iterable<DocAccumulator>): RecallTermHits[] {
+  const documents = [...docs];
+  return words
+    .filter((word) => !isZeroInformationWord(word))
+    .flatMap((word) => {
+      const indexes = word.terms.map((term) => terms.indexOf(term)).filter((index) => index >= 0);
+      if (indexes.length === 0) return [];
+      const required = isCjkRun(word) ? Math.ceil(indexes.length / 2) : 1;
+      let count = 0;
+      for (const doc of documents) {
+        if (indexes.filter((index) => doc.terms.has(index)).length >= required) {
+          count += 1;
+        }
+      }
+      return [{ term: word.word, count }];
+    });
+}
+
+/**
+ * A document found only through a built-in synonym: no original query term scored in it (the ranking then uses the
+ * synonym score alone) and no queried path matched. Its matchedIn fields then come from the synonym's own chunks.
+ */
+function isSynonymOnly(doc: DocAccumulator): boolean {
+  const synonymScore = Math.max(doc.bestSynonymChunk?.score ?? 0, doc.bestSynonymRaw?.score ?? 0);
+  return synonymScore > 0 && doc.fieldScore + (doc.bestRaw?.score ?? 0) <= 0 && doc.matchedPaths.size === 0;
+}
+
+/** Whether a Knowledge hit counts toward confidence: any path match, or enough structured query coverage. */
+function isConfidentEntry(entry: RankedDoc): boolean {
+  return entry.doc.matchedPaths.size > 0 || entry.structuredCoverage >= HIGH_CONFIDENCE_QUERY_COVERAGE;
 }
 
 function expandSoftwareTermSynonyms(terms: string[]): string[] {
@@ -435,7 +488,8 @@ export class SearchRepository {
 
   public recall(options: RecallOptions): RecallComputation {
     this.syncIndex();
-    const { words, terms, idf, docs, ranked, pathScanTruncated, appliesToScanTruncated } = this.rank(options);
+    const { words, terms, termsTruncated, idf, docs, ranked, pathScanTruncated, appliesToScanTruncated } =
+      this.rank(options);
     const excerptTerms = terms
       .map((term, index) => ({ term, idf: idf[index] ?? 0 }))
       .sort((left, right) => right.idf - left.idf)
@@ -452,36 +506,24 @@ export class SearchRepository {
     const extraPathKnowledge = options.extraPathKnowledge
       ? this.extraPathKnowledgeBeyond(ranked, selected, options.extraPathKnowledge)
       : [];
-    const confidence =
-      returned.length === 0
-        ? "none"
-        : returned.some(
-              ({ entry }) =>
-                entry.doc.matchedPaths.size > 0 || entry.structuredCoverage >= HIGH_CONFIDENCE_QUERY_COVERAGE,
-            )
-          ? "high"
-          : "low";
-
-    const termHits = words
-      .filter((word) => !isZeroInformationWord(word))
-      .map((word) => {
-        const indexes = word.terms.map((term) => terms.indexOf(term)).filter((index) => index >= 0);
-        // An unsegmented CJK run is split into overlapping bigrams; requiring every bigram in one record reported
-        // phrases whose parts all matched as "matched nothing". Half of its bigrams count as found.
-        const required = isCjkRun(word) ? Math.ceil(indexes.length / 2) : indexes.length;
-        let count = 0;
-        for (const doc of docs.values()) {
-          if (indexes.length > 0 && indexes.filter((index) => doc.terms.has(index)).length >= required) {
-            count += 1;
-          }
-        }
-        return { term: word.word, count };
-      });
+    const confidenceOf = (entries: Array<{ entry: RankedDoc }>): RecallConfidence =>
+      entries.length === 0 ? "none" : entries.some(({ entry }) => isConfidentEntry(entry)) ? "high" : "low";
+    const confidence = confidenceOf(returned);
+    // Same rule over the Knowledge hits alone, so Sessions that matched cannot make "no Knowledge matched" look found.
+    const returnedKnowledge = returned.filter(({ entry }) => entry.doc.type === "knowledge");
+    const knowledgeConfidence = confidenceOf(
+      options.knowledgeConfidenceLimit === undefined
+        ? returnedKnowledge
+        : returnedKnowledge.slice(0, options.knowledgeConfidenceLimit),
+    );
+    const termHits = countTermHits(words, terms, docs.values());
     return {
       hits,
       ...(extraPathKnowledge.length > 0 ? { extraPathKnowledge } : {}),
       confidence,
+      knowledgeConfidence,
       ...(termHits.some((entry) => entry.count === 0) ? { termHits } : {}),
+      ...(termsTruncated ? { termHitsTruncated: true as const } : {}),
       ...(pathScanTruncated || appliesToScanTruncated
         ? {
             warnings: [
@@ -508,10 +550,7 @@ export class SearchRepository {
       .filter((reference) => reference.kind === "path")
       .map((reference) => reference.value);
     const uniquePaths = [...new Set(paths)];
-    const queryTruncated =
-      uniquePaths.length > MAX_QUERY_PATH_WORDS ||
-      new Set(parseQueryWords(options.q).flatMap((word) => word.terms)).size > MAX_QUERY_TERMS;
-    const { terms, ranked, appliesToScanTruncated, pathScanTruncated } = this.rank({
+    const { words, terms, termsTruncated, docs, ranked, appliesToScanTruncated, pathScanTruncated } = this.rank({
       q: options.q,
       paths: uniquePaths.slice(0, MAX_QUERY_PATH_WORDS),
       projectId: options.projectId,
@@ -521,15 +560,24 @@ export class SearchRepository {
       matchAppliesTo: true,
       limit: options.limit,
     });
+    const queryTruncated = uniquePaths.length > MAX_QUERY_PATH_WORDS || termsTruncated;
     const matches = ranked.filter((entry) => entry.doc.terms.size > 0 || entry.doc.matchedPaths.size > 0);
-    const statuses = this.knowledgeStatuses(matches.map((entry) => entry.doc.id));
+    // Word counts need every document that holds a term, not only the ones that passed the ranking filter.
+    const statuses = this.knowledgeStatuses([...docs.values()].map((doc) => doc.id));
     const totals: Partial<Record<KnowledgeStatus, number>> = {};
     for (const entry of matches) {
       const status = statuses.get(entry.doc.id);
       if (status) totals[status] = (totals[status] ?? 0) + 1;
     }
+    const termHits = countTermHits(
+      words,
+      terms,
+      [...docs.values()].filter((doc) => statuses.get(doc.id) === options.status),
+    );
     return {
       totals,
+      termHits,
+      ...(termsTruncated ? { termHitsTruncated: true as const } : {}),
       hits: matches
         .filter((entry) => statuses.get(entry.doc.id) === options.status)
         .slice(0, options.limit)
@@ -804,6 +852,8 @@ export class SearchRepository {
   private rank(options: RecallOptions): {
     words: QueryWord[];
     terms: string[];
+    /** The query had more distinct terms than MAX_QUERY_TERMS; the rest were not searched. */
+    termsTruncated: boolean;
     idf: number[];
     docs: Map<string, DocAccumulator>;
     ranked: RankedDoc[];
@@ -811,7 +861,9 @@ export class SearchRepository {
     pathScanTruncated: boolean;
   } {
     const words = options.q ? parseQueryWords(options.q) : [];
-    const terms = [...new Set(words.flatMap((word) => word.terms))].slice(0, MAX_QUERY_TERMS);
+    const allTerms = [...new Set(words.flatMap((word) => word.terms))];
+    const terms = allTerms.slice(0, MAX_QUERY_TERMS);
+    const termsTruncated = allTerms.length > MAX_QUERY_TERMS;
     const synonyms = expandSoftwareTermSynonyms(terms);
     const contexts = this.pathContexts(options.projectId);
     const queriedPaths = [
@@ -899,7 +951,7 @@ export class SearchRepository {
             (entry.doc.bestSynonymRaw?.score ?? 0) > 0),
       )
       .sort((left, right) => right.score - left.score || right.doc.date.localeCompare(left.doc.date));
-    return { words, terms, idf, docs, ranked, appliesToScanTruncated, pathScanTruncated };
+    return { words, terms, termsTruncated, idf, docs, ranked, appliesToScanTruncated, pathScanTruncated };
   }
 
   /** Moves each qualifying continuation directly above the earlier Session it continues; see CONTINUATION_SCORE_SHARE. */
@@ -1283,16 +1335,23 @@ export class SearchRepository {
       from: undefined,
       to: undefined,
     });
+    // The knowledge table has no doc_date: a Knowledge is dated by updated_at, as in the text and path matches, so
+    // a recall limited to a date range does not rank Knowledge outside it through appliesTo alone.
+    const dateClauses = [...(options.from ? ["k.updated_at >= ?"] : []), ...(options.to ? ["k.updated_at < ?"] : [])];
+    const dateParameters = [
+      ...(options.from ? [localDayStartIso(options.from) ?? options.from] : []),
+      ...(options.to ? [nextCalendarDate(options.to)] : []),
+    ];
     const rows = this.db
       .prepare(
         `SELECT k.id, k.project_id, k.updated_at, ${appliesToColumnSql("k.applies_to_json")} AS applies_to_json,
                 p.name, p.root_path
          FROM knowledge k
          JOIN projects p ON p.id = k.project_id
-         WHERE k.applies_to_json <> '[]' AND ${clause}
+         WHERE k.applies_to_json <> '[]' AND ${[clause, ...dateClauses].join(" AND ")}
          ORDER BY k.updated_at DESC, k.id ASC LIMIT ?`,
       )
-      .iterate(...parameters, APPLIES_TO_SCAN_LIMIT) as Iterable<{
+      .iterate(...parameters, ...dateParameters, APPLIES_TO_SCAN_LIMIT) as Iterable<{
       id: string;
       project_id: string;
       updated_at: string;
@@ -1414,6 +1473,7 @@ export class SearchRepository {
       ...(header.kind ? { kind: header.kind } : {}),
       date: doc.date,
       matchedIn,
+      ...(isSynonymOnly(doc) ? { matchedVia: "synonym" as const } : {}),
       ...(rawMatch?.heading ? { section: truncateText(rawMatch.heading, 120) } : {}),
       excerpt: excerptRow ? excerptAround(excerptRow.content, terms, EXCERPT_LENGTH) : "",
       ...(doc.matchedPaths.size > 0 ? { matchedPaths: [...doc.matchedPaths].slice(0, 5) } : {}),

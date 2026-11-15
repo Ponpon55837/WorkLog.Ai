@@ -196,6 +196,7 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | Knowledge 列表含過時判斷（20 筆 Knowledge × 一年的 Session） | 500 ms |
 | Knowledge 列表搜尋最壞情況（另一份資料庫：200 筆 × 30 項 1,000 字元 `appliesTo`，8 個 200 字元近似詞；每筆成本固定、讀完全部且沒有 `warnings`，與筆數成正比；1.6.26 的 `LIKE` 約 15.7 秒，本機 p90 287 ms） | 1,000 ms |
 | finalize `knowledgeToReview` 最壞情況（200 筆候選、5,000 個之後的 Session 各 20 × 100 字元檔案，最舊的一個碰到全部候選；1.6.26 每筆候選各掃一次約 2.9 秒，本機 p90 23 ms） | 250 ms |
+| 寫入 Knowledge 時的 `appliesTo` 寬度檢查（`recordKnowledge`／`updateKnowledge` 提交後，只讀專案最新 200 個 1–20 檔的 Session 並以同一個索引解析；資料為上列的 5,000 個 Session 專案，確認讀滿 200 個且標示 truncated；本機 p90 約 27 ms（機器同時有其他工作），不隨歷史長度成長） | 250 ms |
 | Knowledge 讀取的過時判斷（之後 5,000 個 Session 各 20 × 100 字元檔案；1.6.28 起以每次呼叫建立的不同路徑索引解析，讀完且不標 `stalenessUnchecked`；1.6.26 以 `.all()` 讀 50 × 100 字元約 433 ms、235 MB，本機 p90 188 ms） | 500 ms |
 | Knowledge 讀取的過時判斷，1.6.27 審查的不同路徑資料（另一份資料庫：之後 2,000 個 Session 各 50 個不同的約 100 字元路徑，200 筆 Knowledge 各 5 項、其中 2 項為單星號 glob，第一頁 20 筆；1.6.27 逐一比對約 2.9 秒、1.6.14 約 1.0 秒，本機 p90 225 ms） | 1,000 ms |
 | Knowledge 讀取的過時判斷遇到 15 星號 glob（同一份資料庫的另一個專案：10 個 Session × 200 個 1,000 字元路徑，20 筆 Knowledge 的 glob 沒有可縮小範圍的路徑段，每個路徑都要模擬；解析上限為 3 億單位時這份資料會全部判斷完，上限較低時則停止並標 `stalenessUnchecked`，案例只限制耗時；停止本身由 `tests/storage/later-change-index.test.ts` 以注入的上限驗證） | 1,000 ms |

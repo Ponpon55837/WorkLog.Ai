@@ -750,6 +750,12 @@ export interface KnowledgeRecord {
    */
   possiblyStale?: KnowledgeStaleness;
   /**
+   * Computed on read: how many later Sessions that listed more than 20 changed files touched appliesTo since the last
+   * confirmation (or creation). Such a Session is often a dirty worktree or a bulk change, so on its own it does not
+   * set possiblyStale; the count keeps the weaker signal. Absent when none did.
+   */
+  broadChangesSince?: number;
+  /**
    * Computed on read: the read's appliesTo match budget ran out before this Knowledge's entries were compared with
    * every later changed file (only crafted, star-heavy stored data gets here), so a missing possiblyStale proves
    * nothing.
@@ -774,7 +780,7 @@ export interface KnowledgeEvidence {
 export interface KnowledgeFeedbackRecord {
   id: string;
   kind: KnowledgeFeedbackKind;
-  /** Absent for a manual confirmation in the Web UI. */
+  /** Absent for a manual confirmation, which the Web UI or an Agent (work_update_knowledge with confirm) writes. */
   sessionId?: string;
   sessionTitle?: string;
   occurredAt: string;
@@ -786,14 +792,40 @@ export interface KnowledgeReview {
   at: string;
 }
 
+/**
+ * applies_to_changed: later Sessions that changed at most 20 files touched appliesTo. broad_applies_to: the same, and
+ * appliesTo covers a large share of the project's ordinary Sessions, so a touch says little about this Knowledge.
+ */
+export const KNOWLEDGE_STALENESS_REASONS = ["applies_to_changed", "broad_applies_to"] as const;
+export type KnowledgeStalenessReason = (typeof KNOWLEDGE_STALENESS_REASONS)[number];
+
+/** How much of a project's ordinary work an appliesTo covers: the share of Sessions (1-20 changed files) it touches. */
+export interface KnowledgeAppliesToBreadth {
+  /** Touching Sessions divided by `sessions`, rounded to 3 decimals. */
+  share: number;
+  /** The Sessions compared: those with 1-20 changed files. */
+  sessions: number;
+}
+
+/** The breadth measured when appliesTo is written, over the project's newest Sessions only. */
+export interface KnowledgeWriteBreadth extends KnowledgeAppliesToBreadth {
+  /** True when the project has more such Sessions than were scanned. */
+  truncated: boolean;
+  /** True when the share is above the broad threshold over enough Sessions; the write's warnings then say so. */
+  broad: boolean;
+}
+
 export interface KnowledgeStaleness {
-  /** The earliest later Session that touched a matching path. */
+  /** The earliest later Session with at most 20 changed files that touched a matching path. */
   sessionId: string;
   sessionTitle: string;
   completedAt: string;
   paths: string[];
-  /** How many later Sessions touched matching paths. */
+  /** How many later Sessions with at most 20 changed files touched matching paths. */
   sessionCount: number;
+  reason: KnowledgeStalenessReason;
+  /** Absent when no later Session had 1-20 changed files to compare. */
+  appliesToBreadth?: KnowledgeAppliesToBreadth;
 }
 
 export const KNOWLEDGE_AUDIT_ACTIONS = ["created", "updated", "archived", "restored"] as const;
@@ -828,8 +860,13 @@ export interface RecordedKnowledgeResult {
   outcome: "knowledge_recorded";
   duplicate: boolean;
   knowledge: KnowledgeRecord;
-  /** Problems that did not block recording, e.g. an unknown supersedesId. */
+  /**
+   * Problems that did not block recording, e.g. an unknown supersedesId, or an appliesTo that covers a large share of
+   * the project's recent Sessions.
+   */
   warnings?: string[];
+  /** How much of the project's recent work appliesTo touches; absent for a duplicate, no appliesTo, or no Sessions. */
+  appliesToBreadth?: KnowledgeWriteBreadth;
   redactions?: RedactionSummary;
 }
 
@@ -851,8 +888,22 @@ export interface UpdatedKnowledgeResult {
   outcome: "knowledge_updated";
   knowledge: KnowledgeRecord;
   redactions?: RedactionSummary;
-  /** Present when the saved appliesTo keeps an entry that never matches (a glob above the star bound). */
+  /**
+   * Present when the saved appliesTo keeps an entry that never matches (a glob above the star bound), or when a
+   * changed appliesTo covers a large share of the project's recent Sessions.
+   */
   warnings?: string[];
+  /** Set when this update changed appliesTo: how much of the project's recent work it touches. */
+  appliesToBreadth?: KnowledgeWriteBreadth;
+}
+
+/** Restoring (status active) was refused because an active Knowledge already supersedes this one. */
+export interface KnowledgeRestoreRejectedResult {
+  outcome: "rejected";
+  reason: "superseded_by_active";
+  knowledgeId: string;
+  /** The active Knowledge that replaced it. */
+  successorId: string;
 }
 
 export interface KnowledgeUpdateNotFoundResult {
@@ -860,7 +911,8 @@ export interface KnowledgeUpdateNotFoundResult {
   knowledgeId: string;
 }
 
-export type UpdateKnowledgeResult = UpdatedKnowledgeResult | KnowledgeUpdateNotFoundResult | KnowledgeSkippedResult;
+export type UpdateKnowledgeResult =
+  UpdatedKnowledgeResult | KnowledgeUpdateNotFoundResult | KnowledgeRestoreRejectedResult | KnowledgeSkippedResult;
 
 export interface KnowledgeSessionNotFoundResult {
   outcome: "not_found";
@@ -952,6 +1004,10 @@ export interface RelaxedKnowledgeMatch {
   excerpt: string;
   excerptTruncated?: true;
   possiblyStale?: true;
+  /** Only when the flag comes from a broad appliesTo: a touch says little about this Knowledge. */
+  staleReason?: "broad_applies_to";
+  /** Later Sessions of over 20 changed files that touched appliesTo; present only above 0. */
+  broadChangesSince?: number;
   needsReview?: true;
 }
 
@@ -967,7 +1023,7 @@ export interface AgentKnowledgeQueryResult extends KnowledgeQueryResult {
    * them as a strict match. A status absent here but present in otherStatusMatches has only partial matches.
    */
   otherStatusFullMatches?: Partial<Record<KnowledgeStatus, number>>;
-  /** Present only when the strict search cut the query (word cap); the exact words every count and re-query used. */
+  /** Present whenever the strict search cut the query (word cap), whatever the match; the exact words every count and re-query used. */
   effectiveQuery?: string;
   /** The relaxed search used only part of the query's terms or path-like words (caps), so matchedTerms are partial. */
   queryTruncated?: true;
@@ -977,6 +1033,14 @@ export interface AgentKnowledgeQueryResult extends KnowledgeQueryResult {
    * checked against the path words of the query.
    */
   appliesToScanTruncated?: true;
+  /**
+   * Fallback answers only (match relaxed or none): per query word, how many Knowledge of this scope and status contain
+   * it (a compound such as `retrieval-trust` counts a record holding any of its parts, like the ranking; an unsegmented
+   * Chinese run counts one holding at least half of its character pairs). A count of 0 names a word to drop or replace.
+   */
+  termHits?: RecallTermHits[];
+  /** Set when the query had more than 32 distinct terms: words past the cap are not in termHits, not reported as 0. */
+  termHitsTruncated?: true;
   hint?: string;
 }
 
@@ -2159,6 +2223,10 @@ export interface KnowledgeDigest {
   tags: string[];
   updatedAt: string;
   possiblyStale?: boolean;
+  /** Only when the flag comes from a broad appliesTo: a touch says little about this Knowledge. */
+  staleReason?: "broad_applies_to";
+  /** Later Sessions of over 20 changed files that touched appliesTo; present only above 0. */
+  broadChangesSince?: number;
   needsReview?: boolean;
 }
 
@@ -2712,6 +2780,10 @@ export interface ContextOmission {
     /** Path-matched Knowledge only: one stored path or pattern that matched a focus path. */
     path?: string;
     possiblyStale?: true;
+    /** Only when the flag comes from a broad appliesTo: a touch says little about this Knowledge. */
+    staleReason?: "broad_applies_to";
+    /** Later Sessions of over 20 changed files that touched appliesTo; present only above 0. */
+    broadChangesSince?: number;
     needsReview?: true;
   }>;
   readWith: string;
@@ -2764,7 +2836,13 @@ export interface RecallHit {
   kind?: KnowledgeKind;
   /** Session completedAt or Knowledge updatedAt. */
   date: string;
+  /** Fields in which the record matched, strongest first; `path` last. Synonym matches count here too (see matchedVia). */
   matchedIn: RecallField[];
+  /**
+   * `synonym` when no query word and no path matched this record: it was found only through a built-in software
+   * synonym of a query word (for example "bug" for "defect"), so it is a weaker lead than a direct wording match.
+   */
+  matchedVia?: "synonym";
   /** Heading of the matched raw handoff section. */
   section?: string;
   excerpt: string;
@@ -2775,6 +2853,10 @@ export interface RecallHit {
   score: number;
   /** Knowledge only: a later Session changed its appliesTo paths, or a Session contradicted it. */
   possiblyStale?: boolean;
+  /** Only when the flag comes from a broad appliesTo: a touch says little about this Knowledge. */
+  staleReason?: "broad_applies_to";
+  /** Later Sessions of over 20 changed files that touched appliesTo; present only above 0. */
+  broadChangesSince?: number;
   needsReview?: boolean;
   /** Knowledge only: how many Sessions or people confirmed and contradicted it (ranking uses this). */
   evidence?: { confirmed: number; contradicted: number };
@@ -2806,6 +2888,10 @@ export type ContextSupplementIndicator =
       title: string;
       includedBecause: Extract<ContextSupplementReason, { kind: "applied_knowledge" | "inferred_path" }>;
       possiblyStale?: boolean;
+      /** Only when the flag comes from a broad appliesTo: a touch says little about this Knowledge. */
+      staleReason?: "broad_applies_to";
+      /** Later Sessions of over 20 changed files that touched appliesTo; present only above 0. */
+      broadChangesSince?: number;
       needsReview?: boolean;
     };
 
@@ -2823,8 +2909,16 @@ export interface RecallResult {
   hits: RecallHit[];
   /** Whether the returned records provide enough evidence for the query; none means do not rely on the hits. */
   confidence: RecallConfidence;
+  /**
+   * The same none/low/high judgment as confidence, over the Knowledge hits alone. A Session can make confidence
+   * "high" while no Knowledge matched: knowledgeConfidence "none" then means no Knowledge text or path matched, not
+   * that none applies (Knowledge scoped by appliesTo is found through paths).
+   */
+  knowledgeConfidence: RecallConfidence;
   /** Present when some query word matched nothing, so the Agent can reshape the query. */
   termHits?: RecallTermHits[];
+  /** Set when the query had more than 32 distinct terms: words past the cap are not in termHits, not reported as 0. */
+  termHitsTruncated?: true;
   /** Present when the path comparison stopped at its text-scan limit; absent for ordinary queries. */
   warnings?: string[];
 }
@@ -3062,6 +3156,14 @@ export interface RelevantContext {
   paths?: string[];
   /** Confidence in the task-related retrieval; none means no result should be used as evidence. */
   confidence: RecallConfidence;
+  /**
+   * The same judgment over the Knowledge ranked for relevant.knowledge alone (its first five candidates, before the
+   * response budget trims any): "none" while confidence is "high" means only Sessions matched. It says nothing about
+   * Knowledge scoped to files that were not passed as paths.
+   */
+  knowledgeConfidence: RecallConfidence;
+  /** Fixed pointer present when the focus has a task or paths and relevant.knowledge is empty. */
+  knowledgeHint?: string;
   /** Knowledge (gotchas, patterns, decisions, …) ranked for the task and paths. */
   knowledge: ProjectScopedItem<RecallHit>[];
   /** workSummary.decisions of the relevant Sessions, each citing its Session. */
@@ -3077,6 +3179,8 @@ export interface RelevantContext {
   /** Sections of standing Knowledge pages whose headings or content match this task. */
   knowledgePages?: RelevantKnowledgePageDigest[];
   termHits?: RecallTermHits[];
+  /** Set when the task had more than 32 distinct terms: words past the cap are not in termHits, not reported as 0. */
+  termHitsTruncated?: true;
   /** Paths from the request that recent Sessions changed often, or any of the first three that has history. */
   hotspots?: HotspotHint[];
   /** Set when a hotspot path has more Sessions than this context shows: read them with that operation. */
@@ -3198,7 +3302,10 @@ export interface HotspotHint {
 
 export interface SearchResult {
   session: SessionDigest;
-  matchedIn: RecallField;
+  /** The strongest matched field; absent when the hit has none to name. */
+  matchedIn?: RecallField;
+  /** `synonym` when only a built-in synonym of a query word matched; see RecallHit.matchedVia. */
+  matchedVia?: "synonym";
   /** Heading of the matched raw handoff section. */
   section?: string;
   excerpt: string;
@@ -3210,6 +3317,8 @@ export interface SearchQueryResult {
   confidence: RecallConfidence;
   /** Present when some query word matched nothing, so the Agent can reshape the query. */
   termHits?: RecallTermHits[];
+  /** Set when the query had more than 32 distinct terms: words past the cap are not in termHits, not reported as 0. */
+  termHitsTruncated?: true;
   /** Present when the path comparison stopped at its text-scan limit; absent for ordinary queries. */
   warnings?: string[];
 }

@@ -20,7 +20,8 @@ import {
   type AppliesToMatcher,
 } from "./applies-to-match.js";
 import { LIST_SEARCH_CHARGE_FUNCTION, registerListSearchFunctions, runListSearchScan } from "./list-search-scan.js";
-import { parseJson } from "./session-record-codecs.js";
+import { CHANGED_FILES_NORMAL } from "./search-repository.js";
+import { parseChangedFiles } from "./session-record-codecs.js";
 import { normalizePath, type PathContext } from "./search-text.js";
 
 export interface KnowledgeReviewFocus {
@@ -94,8 +95,10 @@ function requiredFragment(pattern: string): string | undefined {
 
 /**
  * Phase two: which candidates this Session newly puts in doubt, by the staleness rule of KnowledgeService (a later
- * Session since the last confirmation or creation, other than the Knowledge's own Sessions, whose changed files an
- * appliesTo entry covers), asked for "anyone but this Session". One pass reads the later Sessions newest first, shared
+ * Session since the last confirmation or creation, other than the Knowledge's own Sessions, that listed at most
+ * CHANGED_FILES_NORMAL files and whose changed files an appliesTo entry covers), asked for "anyone but this Session".
+ * A Session that listed more files does not count: it only raises broadChangesSince, never possiblyStale. One pass
+ * reads the later Sessions newest first, shared
  * by every candidate (it used to run one SQL scan per candidate, uncharged for the rows it skipped): SQL keeps only
  * Sessions whose changed-files text contains a fragment some candidate requires (a row above the load bound is not
  * read), and each kept Session's list, its paths and its comparisons are charged before they run, after granting three
@@ -115,7 +118,9 @@ function selectNewlyInDoubt(
   const matchers = new Map<string, AppliesToMatcher>();
   for (const candidate of candidates) {
     const { row, patterns } = candidate;
-    const since = row.last_confirmed_at ?? row.created_at;
+    // The later of creation and last confirmation, as KnowledgeService does.
+    const since =
+      row.last_confirmed_at && row.last_confirmed_at > row.created_at ? row.last_confirmed_at : row.created_at;
     // A backfilled Session that finished before the Knowledge was confirmed does not put it in doubt.
     if (focus.completedAt <= since) continue;
     for (const pattern of patterns) {
@@ -186,8 +191,10 @@ function selectNewlyInDoubt(
         }
         if (!chargeStoredJson(budget, session.changed_files_json, true)) return;
         const files: string[] = [];
-        for (const file of parseJson<string[]>(session.changed_files_json, [])) {
-          if (typeof file !== "string") continue;
+        const listed = parseChangedFiles(session.changed_files_json);
+        // A broad Session never starts possiblyStale (KnowledgeService), so it cannot be the one that already did.
+        if (listed.length > CHANGED_FILES_NORMAL) continue;
+        for (const file of listed) {
           if (!chargeNormalizePath(budget, file, contexts, true)) return;
           const normalized = normalizePath(file, contexts);
           if (normalized) files.push(normalized);
@@ -251,6 +258,8 @@ export function findKnowledgeToReview(db: DatabaseSync, focus: KnowledgeReviewFo
     if (key && !files.has(key)) files.set(key, file);
   }
   if (files.size === 0) return { hints: [], truncated: false };
+  // A Session that listed more than CHANGED_FILES_NORMAL files does not set possiblyStale, so it puts nothing in doubt.
+  if (focus.changedFiles.length > CHANGED_FILES_NORMAL) return { hints: [], truncated: false };
   const rows = db
     .prepare(
       `SELECT k.id, k.title, ${appliesToColumnSql("k.applies_to_json")} AS applies_to_json, k.updated_at,

@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { RelatedWorkResult } from "@work-intelligence/core";
 import { truncateText } from "@work-intelligence/shared";
-import { parseJson } from "./session-record-codecs.js";
+import { parseChangedFiles } from "./session-record-codecs.js";
 import { normalizePath, type PathContext } from "./search-text.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 
@@ -29,7 +29,7 @@ function compare(a: Ranked, b: Ranked): number {
 
 function paths(json: string, context: PathContext[]): Set<string> {
   return new Set(
-    parseJson<string[]>(json, [])
+    parseChangedFiles(json)
       .map((p) => normalizePath(p, context))
       .filter((p) => Boolean(p) && !/^(?:\/|[a-z]:\/)/i.test(p)),
   );
@@ -55,7 +55,7 @@ export class RelatedWorkService {
       .get(sessionId) as Source | undefined;
     if (!source) return result;
     if (!source.changed_files_confirmed) return { ...result, reason: "files_unconfirmed" };
-    const raw = parseJson<string[]>(source.changed_files_json, []);
+    const raw = parseChangedFiles(source.changed_files_json);
     if (raw.length > 20) return { ...result, reason: "too_many_files" };
     const context = [{ name: source.name, rootPath: source.root_path }];
     const focus = paths(source.changed_files_json, context);
@@ -66,7 +66,7 @@ export class RelatedWorkService {
       () => `SELECT * FROM (SELECT sp.doc_id, ? AS hit_path FROM related_work_paths sp
       JOIN sessions s ON s.id=sp.doc_id
       WHERE sp.project_id=? AND sp.path=? AND sp.doc_id<>?
-        AND s.project_id=? AND s.voided_at IS NULL AND s.changed_files_confirmed=1 AND json_array_length(s.changed_files_json) BETWEEN 1 AND 20
+        AND s.project_id=? AND s.voided_at IS NULL AND s.changed_files_confirmed=1 AND json_array_length(CASE WHEN json_valid(s.changed_files_json) AND json_type(s.changed_files_json)='array' THEN s.changed_files_json ELSE '[]' END) BETWEEN 1 AND 20
         AND NOT EXISTS (SELECT 1 FROM session_links l WHERE l.session_id=? AND l.related_session_id=s.id)
         AND NOT EXISTS (SELECT 1 FROM session_links l WHERE l.related_session_id=? AND l.session_id=s.id)
       ORDER BY sp.doc_date DESC, sp.doc_id LIMIT ?)`,
@@ -149,7 +149,7 @@ export class RelatedWorkService {
         `INSERT INTO related_work_paths (doc_id,project_id,path,doc_date) VALUES (?,?,?,?)`,
       );
       for (const row of dirty) {
-        const raw = parseJson<string[]>(row.changed_files_json, []);
+        const raw = parseChangedFiles(row.changed_files_json);
         if (row.voided_at || !row.changed_files_confirmed || raw.length > 20) continue;
         for (const path of paths(row.changed_files_json, context))
           insert.run(row.id, projectId, path, row.completed_at);

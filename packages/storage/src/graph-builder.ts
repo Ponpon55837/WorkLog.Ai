@@ -18,7 +18,7 @@ import type {
 } from "@work-intelligence/core";
 import { truncateText } from "@work-intelligence/shared";
 import { coChangedEdges, shortestPath } from "./graph-derivation.js";
-import { parseJson } from "./session-record-codecs.js";
+import { parseChangedFiles, parseJson } from "./session-record-codecs.js";
 
 type GraphKnowledgeRow = {
   id: string;
@@ -69,13 +69,12 @@ interface GraphSession {
 }
 
 function toGraphSession(row: GraphSessionRow): GraphSession {
-  const changedFiles = parseJson<unknown>(row.changed_files_json, []);
   return {
     id: row.id,
     projectId: row.project_id,
     title: row.title,
     completedAt: row.completed_at,
-    changedFiles: Array.isArray(changedFiles) ? (changedFiles as string[]) : [],
+    changedFiles: parseChangedFiles(row.changed_files_json),
     verificationStatus:
       parseJson<VerificationSummary | undefined>(row.verification_json, undefined)?.status ?? "not_supplied",
   };
@@ -935,7 +934,7 @@ export class GraphBuilder {
            WHERE voided_at IS NULL AND project_id IN (SELECT value FROM json_each(?))`,
         )
         .all(JSON.stringify(projectIds)) as Array<{ project_id: string; changed_files_json: string }>
-    ).map((row) => ({ projectId: row.project_id, changedFiles: JSON.parse(row.changed_files_json) as string[] }));
+    ).map((row) => ({ projectId: row.project_id, changedFiles: parseChangedFiles(row.changed_files_json) }));
     return coChangedEdges(sessions, fileNodeIds, Math.max(2, minSessions));
   }
 }

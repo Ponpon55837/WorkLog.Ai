@@ -3,7 +3,7 @@ import { computed, ref } from "vue";
 import { Archive, ArchiveRestore, CheckCheck, ExternalLink, FileSearch, History, Pencil } from "lucide-vue-next";
 import type { KnowledgeRecord } from "@work-intelligence/core";
 import { formatDate, formatRelative } from "../../utils/format";
-import { trustCells } from "../../utils/knowledge-trust";
+import { knowledgeStaleNotes, trustCells } from "../../utils/knowledge-trust";
 import { knowledgeKindVisual, knowledgeStatusVisual, knowledgeTrustVisual } from "../../utils/status";
 import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiBoxRow from "../ui/UiBoxRow.vue";
@@ -21,6 +21,7 @@ const kind = computed(() => knowledgeKindVisual[props.item.kind]);
 const trustBar = computed(() =>
   props.item.evidence ? trustCells(props.item.evidence.confirmed, props.item.evidence.contradicted) : [],
 );
+const staleNotes = computed(() => knowledgeStaleNotes(props.item));
 const actions = computed(() => [
   { value: "edit" as const, label: t("knowledge.edit"), icon: Pencil },
   { value: "confirm" as const, label: t("knowledge.stillValid"), icon: CheckCheck },
@@ -69,6 +70,8 @@ const actions = computed(() => [
       }}</template
       >{{ t("common.sentenceEnd") }}
     </p>
+    <p v-if="staleNotes.broadAppliesTo" class="knowledge-row__note">{{ staleNotes.broadAppliesTo }}</p>
+    <p v-if="staleNotes.broadChanges" class="knowledge-row__note">{{ staleNotes.broadChanges }}</p>
     <p :class="['knowledge-row__body', { 'is-expanded': expanded }]">{{ item.body }}</p>
     <UiButton
       v-if="item.body.length > 180"
@@ -159,6 +162,13 @@ const actions = computed(() => [
   margin-top: var(--space-1);
   color: var(--attention);
   font-size: var(--text-sm);
+  line-height: 1.6;
+}
+
+.knowledge-row__note {
+  margin-top: var(--space-1);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
   line-height: 1.6;
 }
 

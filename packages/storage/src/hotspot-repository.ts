@@ -8,6 +8,7 @@ import type {
 } from "@work-intelligence/core";
 import { localDayStartIso } from "@work-intelligence/shared";
 import { normalizePath, pathBasename, projectRelativePath } from "./search-text.js";
+import { parseChangedFiles } from "./session-record-codecs.js";
 import { nextCalendarDate } from "./session-repository.js";
 
 export interface HotspotOptions {
@@ -235,7 +236,7 @@ export class HotspotRepository {
     for (const row of rows) {
       const contexts = [{ name: row.name, rootPath: row.root_path }];
       const bySession = new Map<string, string>();
-      for (const raw of JSON.parse(row.changed_files_json) as string[]) {
+      for (const raw of parseChangedFiles(row.changed_files_json)) {
         const relative = projectRelativePath(raw, contexts);
         if (!relative) {
           continue;

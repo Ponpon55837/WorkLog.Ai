@@ -233,6 +233,9 @@ export class AttentionService {
     if (kind === "knowledge") {
       const result = this.dependencies.knowledge(projectId);
       if (result.outcome !== "knowledge") throw new Error("Unavailable source");
+      // Only possiblyStale queues: Knowledge touched solely by broad Sessions carries broadChangesSince, a weaker signal
+      // that stays on the record. A broad_applies_to item queues like any other (its reason is part of the
+      // fingerprint, so a change of reason or breadth is a new revision).
       const items = result.items
         .filter((item) => item.review || item.possiblyStale)
         .map((item) =>

@@ -59,6 +59,7 @@ const [
   { appliesToEntries, appliesToStrength, compileAppliesTo, createAppliesToBudget, setAppliesToBudgetProbe },
   { findKnowledgeCandidateOverlaps },
   { findKnowledgeToReview },
+  { scanAppliesToBreadth },
 ] = await Promise.all([
   import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "index.js")).href),
   import(pathToFileURL(join(repositoryRoot, "apps", "mcp", "dist", "recall-evaluation.js")).href),
@@ -66,6 +67,7 @@ const [
   import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "applies-to-match.js")).href),
   import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "knowledge-candidate-overlap.js")).href),
   import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "knowledge-review-hint.js")).href),
+  import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "knowledge-breadth.js")).href),
 ]);
 const { evaluateRecallQuestions, parseRecallEvaluationQuestions } = recallEvaluation;
 const { getMcpRuntimeDirectory, getMcpRuntimeStatus, readMcpBuildIdentity, registerMcpProcess } = mcpRuntime;
@@ -1574,6 +1576,20 @@ try {
         throw new Error("The one-pass review check must decide every candidate within its budget.");
       return result;
     },
+    // The write-time appliesTo breadth check (recordKnowledge / updateKnowledge, after the commit) over a project of
+    // 5,000 Sessions: it reads only the newest 200 with 1-20 files, so its cost does not grow with the history.
+    "scanAppliesToBreadth (write-time, newest 200 of 5,000 Sessions)": () => {
+      const { projectId, project } = worstText.focus;
+      const result = scanAppliesToBreadth(
+        worstTextDatabase,
+        projectId,
+        [project],
+        ["src/other/**", "src/shared/lease.ts"],
+      );
+      if (result.unchecked || result.breadth?.sessions !== 200 || result.breadth.truncated !== true)
+        throw new Error("The breadth scan must read exactly the newest 200 focused Sessions and say it was cut.");
+      return result;
+    },
     // A Knowledge read after 5,000 later Sessions of 20 x 100-character files (50 x 100 took 433 ms and 235 MB with
     // one .all()); the read is charged row by row and its budget grows with the rows, so it finishes.
     "searchKnowledge (staleness over 5,000 Sessions of 20 x 100-char files)": () => {
@@ -1589,7 +1605,8 @@ try {
         result.outcome !== "knowledge" ||
         result.items.length !== 20 ||
         result.items.some((item) => item.stalenessUnchecked) ||
-        !result.items.some((item) => item.possiblyStale)
+        // These Sessions list 50 files, so they are broad: counted in broadChangesSince, never possiblyStale.
+        !result.items.some((item) => item.possiblyStale || item.broadChangesSince)
       )
         throw new Error("The indexed staleness check must finish on distinct-path history.");
       return result;
@@ -1844,6 +1861,7 @@ try {
     "searchKnowledge (staleness)": 500,
     "searchKnowledge (200 x 30 x 1,000-char appliesTo, 8 near-miss words)": 1000,
     "knowledgeToReview (200 candidates, 5,000 later Sessions)": 250,
+    "scanAppliesToBreadth (write-time, newest 200 of 5,000 Sessions)": 250,
     "searchKnowledge (staleness over 5,000 Sessions of 20 x 100-char files)": 500,
     "searchKnowledge (staleness, 2,000 Sessions of 50 distinct files, page 20)": 1000,
     "searchKnowledge (15-star glob over long paths, decided or stopped at the match ceiling)": 1000,

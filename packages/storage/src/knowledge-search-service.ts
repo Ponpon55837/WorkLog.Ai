@@ -13,6 +13,7 @@ import type { KnowledgeCount } from "./knowledge-repository.js";
 import type { KnowledgeRankHit, KnowledgeRankOptions, KnowledgeRanking } from "./search-repository.js";
 import { parseListSearchTerms } from "./list-search-scan.js";
 import { excerptAround } from "./search-text.js";
+import { staleFlags } from "./stale-flags.js";
 
 export interface KnowledgeSearchServiceDependencies {
   /** The strict list search with trust signals, policy-gated like every Knowledge read. */
@@ -47,7 +48,7 @@ function toRelaxedMatch(record: KnowledgeRecord, hit: KnowledgeRankHit): Relaxed
     ...(hit.matchedPaths ? { matchedPaths: hit.matchedPaths } : {}),
     excerpt: excerptAround(body, hit.matchedTerms, RELAXED_EXCERPT_CHARS),
     ...(body.length > RELAXED_EXCERPT_CHARS ? { excerptTruncated: true as const } : {}),
-    ...(record.possiblyStale ? { possiblyStale: true as const } : {}),
+    ...staleFlags(record),
     ...(record.review ? { needsReview: true as const } : {}),
   };
 }
@@ -67,6 +68,12 @@ export class KnowledgeSearchService {
     if (strict.outcome !== "knowledge" || !query) {
       return strict;
     }
+    // Whatever the match, a query cut to the strict word cap says which words the answer used.
+    const effective = parseListSearchTerms(query);
+    const effectiveQuery =
+      effective.warnings.length > 0
+        ? effective.terms.map((term) => (/\s/u.test(term) ? `"${term}"` : term)).join(" ")
+        : undefined;
     if (strict.pageInfo.total > 0) {
       return {
         outcome: strict.outcome,
@@ -75,6 +82,7 @@ export class KnowledgeSearchService {
         match: "strict",
         items: strict.items,
         pageInfo: strict.pageInfo,
+        ...(effectiveQuery !== undefined ? { effectiveQuery } : {}),
         ...(strict.warnings ? { warnings: strict.warnings } : {}),
       };
     }
@@ -97,11 +105,6 @@ export class KnowledgeSearchService {
       }
       return [toRelaxedMatch(record, hit)];
     });
-    const effective = parseListSearchTerms(query);
-    const strictCut = effective.warnings.length > 0;
-    const effectiveQuery = strictCut
-      ? effective.terms.map((term) => (/\s/u.test(term) ? `"${term}"` : term)).join(" ")
-      : undefined;
     const {
       counts: otherStatusMatches,
       fullCounts: otherStatusFullMatches,
@@ -116,12 +119,16 @@ export class KnowledgeSearchService {
         : []),
     ];
     const otherStatuses = Object.keys(otherStatusMatches) as KnowledgeStatus[];
+    // Every word counted 0: no record of this scope and status holds any of them, so rephrasing is the only move.
+    const noWordFound = ranking.termHits.length > 0 && ranking.termHits.every((entry) => entry.count === 0);
     const hints = [
       relaxedMatches.length > 0
         ? "No Knowledge contains every word; relaxedMatches are digests sharing only their matchedTerms. Read one in full with work_get_knowledge_history (projectRoot, knowledgeId) before relying on it."
         : Object.keys(otherStatusFullMatches).length > 0
           ? `No ${status} Knowledge matched.`
-          : "Nothing matched; rephrase or try work_recall.",
+          : noWordFound
+            ? `No ${status} Knowledge in this scope contains any of these words (see termHits); rephrase or try work_recall.`
+            : "Nothing matched; rephrase or try work_recall.",
       ...otherStatuses.map((other) =>
         otherStatusFullMatches[other]
           ? `${otherStatusFullMatches[other]} ${other} contain every word; pass status "${other}" to read them.`
@@ -146,6 +153,8 @@ export class KnowledgeSearchService {
       ...(relaxedMatches.length > 0 ? { relaxedMatches } : {}),
       ...(otherStatuses.length > 0 ? { otherStatusMatches } : {}),
       ...(Object.keys(otherStatusFullMatches).length > 0 ? { otherStatusFullMatches } : {}),
+      ...(ranking.termHits.length > 0 ? { termHits: ranking.termHits } : {}),
+      ...(ranking.termHitsTruncated ? { termHitsTruncated: true as const } : {}),
       ...(effectiveQuery !== undefined ? { effectiveQuery } : {}),
       ...(ranking.queryTruncated ? { queryTruncated: true as const } : {}),
       ...(ranking.appliesToScanTruncated ? { appliesToScanTruncated: true as const } : {}),
