@@ -4,6 +4,19 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.43] - 2026-11-16
+
+[繁體中文更新說明](docs/releases/1.6.43.md).
+
+This release is stage 1 of the desktop app plan, the runtime spike. It measures two ways to ship the runtime that an Agent's MCP server and hooks start, the official Node.js binary and Electron run as Node, and records the choice (bundled official Node). It adds a fixed launcher with a versioned runtime manifest, which all validation runs through, and a smoke test that starts that launcher with no Node.js on the PATH and no network. It changes no schema; the schema stays at 33 and no migration is needed.
+
+### Added
+
+- Runtime spike scripts (`scripts/desktop-runtime-spike`, `pnpm spike:runtime:build` and `pnpm spike:runtime:smoke`). The build downloads the official Node.js 24 or Electron archive, checks it against the published `SHASUMS256.txt`, and lays out a launcher root with `bin/work-intelligence-launcher` (and `.cmd` on Windows), a single-line `current` pointer and `runtimes/<id>/`. The smoke test serves the Web UI, writes a synthetic database, runs FTS5 search and a backup, starts the MCP server over stdio and runs the hook actions, then checks that tampered runtimes are refused. It writes sizes, cold-start times and idle memory to `dist/desktop-runtime-spike/*.json`.
+- The runtime launcher and manifest in `@work-intelligence/desktop-core` (`packages/desktop-core/src/runtime`): a strict version 1 `runtime-manifest.json` that lists every file with its size and SHA-256, the symlinks a runtime may contain, and the actions it allows (`mcp`, `serve`, `codex-finalize-reminder`, `claude-finalize-reminder`). The launcher checks every file before it starts the runtime, refuses unlisted files and symlinks that point outside the runtime, and reports stable error codes (`RUNTIME_POINTER_MISSING`, `RUNTIME_POINTER_INVALID`, `RUNTIME_MANIFEST_INVALID`, `RUNTIME_FILE_TAMPERED`, `RUNTIME_FILE_UNEXPECTED` and others). `mcp` and `serve` exit 78 with an empty stdout when the runtime is refused; hook actions exit 0 so that a broken runtime never blocks the Agent that called the hook.
+- `.github/workflows/desktop-runtime-spike.yml`: runs the build and the smoke test on Windows, macOS and Ubuntu for both the Node and Electron runtimes, and uploads the measurements. It runs on pull requests that touch the runtime, the storage, shared and server packages, and on manual dispatch.
+- Unit tests for the manifest, the installer and the launcher (`tests/desktop-core/runtime-*.test.ts`).
+
 ### Changed
 
 - The project-data export column list now has a single source, `PROJECT_DATA_EXPORT_COLUMNS` in `@work-intelligence/core`. The export writer, the backup worker and the import validator all read it; `@work-intelligence/schema` re-exports it as `projectDataExportTableColumns`. The duplicate in `packages/storage` and its drift test are removed. Export output is unchanged.
