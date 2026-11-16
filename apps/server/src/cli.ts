@@ -29,7 +29,7 @@ import {
 } from "@work-intelligence/storage";
 import { commandName } from "@work-intelligence/shared";
 import { STANDALONE } from "@work-intelligence/shared/database-location";
-import { checkCliArgs, isHelpFlag, type CliOptionSpec } from "./cli-args.js";
+import { checkCliArgs, isHelpFlag, parseCliArgs, type CliOptionSpec } from "./cli-args.js";
 import { databasePath, repositoryRoot, storeOptions } from "./config.js";
 import {
   diagnoseDatabaseInUse,
@@ -49,7 +49,7 @@ const COMMAND_SUMMARIES: readonly (readonly [script: string, summary: string])[]
   ["db:backups", "列出備份與總大小"],
   ["db:backups --delete <檔名>", "確認後刪除一份備份"],
   ["db:export <檔案>", "把整份資料匯出成一個 .sqlite 檔，帶到別台電腦"],
-  ["db:export --all [選項]", "匯出全部專案為可攜式 JSON"],
+  ["db:export --all [選項]", "匯出全部專案為可攜式 JSON（只加 --out 時等同 --all）"],
   ["db:export --project <名稱或 id> [選項]", "匯出單一專案為可攜式 JSON"],
   ["db:import <檔案> [選項]", "預覽後合併匯入可攜式 JSON"],
   ["db:restore <檔案> [選項]", "用匯出或備份的檔案取代目前的資料"],
@@ -57,7 +57,8 @@ const COMMAND_SUMMARIES: readonly (readonly [script: string, summary: string])[]
 ];
 
 const EXPORT_OPTIONS_HELP = `export 選項：
-  --out <檔案.json>                  指定可攜式 JSON 匯出檔路徑`;
+  --out <檔案.json>                  指定可攜式 JSON 匯出檔路徑；沒有 --all／--project 時等同 --all
+                                    （整份 SQLite 快照請用 db:export <檔案>，檔名不可以 - 開頭）`;
 const IMPORT_OPTIONS_HELP = `import 選項：
   --project <名稱或 id>              只匯入檔案中的單一專案；預設為全部
   --remap-root <舊路徑>=<新路徑>     換電腦時替換路徑前綴（可重複）；相同專案 ID 會自動沿用本機路徑
@@ -437,27 +438,19 @@ export async function runDatabaseCli(
         fail(`備份管理只接受 \`${commandText("db:backups")}\` 或 \`${commandText("db:backups")} --delete <檔名>\`。`);
       }
     } else if (command === "export") {
-      if (args[0] === "--all" || args[0] === "--project") {
-        const scopeType = args[0] === "--all" ? "all" : "project";
-        let projectValue: string | undefined = scopeType === "project" ? args[1] : undefined;
-        let output: string | undefined;
-        for (let index = scopeType === "project" ? 2 : 1; index < args.length; index += 1) {
-          const arg = args[index];
-          if (!arg) {
-            fail("缺少 export 選項的值。");
-          }
-          if (arg === "--out") {
-            index += 1;
-            output = args[index];
-          } else if (arg.startsWith("--out=")) {
-            output = arg.slice("--out=".length);
-          } else {
-            fail(`看不懂的參數：${arg}`);
-          }
-        }
-        if (scopeType === "project" && !projectValue) {
-          fail("--project 需要專案名稱或 id。");
-        }
+      const parsed = parseCliArgs(args, COMMAND_OPTIONS.export ?? {});
+      if (parsed.kind === "error") fail(parsed.message);
+      const projectValues = parsed.values.get("--project") ?? [];
+      const outputValues = parsed.values.get("--out") ?? [];
+      // Any portable-export option (--all, --project, --out) selects the JSON export; `--out` alone means --all.
+      const portable = parsed.flags.has("--all") || projectValues.length > 0 || outputValues.length > 0;
+      if (portable) {
+        if (parsed.positionals.length > 0) fail(`看不懂的參數：${parsed.positionals[0]}`);
+        if (parsed.flags.has("--all") && projectValues.length > 0) fail("--all 與 --project 不能同時使用。");
+        if (projectValues.length > 1 || outputValues.length > 1) fail("--project 與 --out 各只能指定一次。");
+        const projectValue = projectValues[0];
+        const output = outputValues[0];
+        const scopeType = projectValue ? "project" : "all";
         const result = runWithStore((store) => {
           const projectId =
             scopeType === "project"
@@ -475,7 +468,9 @@ export async function runDatabaseCli(
         });
         print(`已匯出到 ${result.target}（${(result.bytes / 1024 / 1024).toFixed(1)} MiB）。JSON 未加密，請妥善保管。`);
       } else {
-        const target = args[0] ? fromInvocation(args[0]) : fail("請指定匯出檔案的路徑。");
+        if (parsed.positionals.length === 0) fail("請指定匯出檔案的路徑。");
+        if (parsed.positionals.length > 1) fail(`看不懂的參數：${parsed.positionals[1]}`);
+        const target = fromInvocation(parsed.positionals[0] ?? "");
         const { bytes } = runWithStore((store) => store.exportTo(target));
         print(`已匯出到 ${target}（${(bytes / 1024 / 1024).toFixed(1)} MB）。這個檔案包含全部工作記錄，請妥善保管。`);
       }

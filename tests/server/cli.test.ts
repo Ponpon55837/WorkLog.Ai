@@ -498,6 +498,97 @@ describe("database CLI option safety", () => {
   });
 });
 
+describe("database CLI export and valued-option safety", () => {
+  const SQLITE_MAGIC = "SQLite format 3";
+
+  function exportSetup() {
+    const root = createRoot();
+    const store = new WorkIntelligenceStore(join(root, "work-intelligence.sqlite"));
+    stores.push(store);
+    createPortableProject(store, root);
+    const messages = { log: [] as string[], error: [] as string[] };
+    return { root, store, messages, deps: dependencies(store, root, messages), before: readdirSync(root).sort() };
+  }
+
+  it.each([[["export", "--out", "x.json"]], [["export", "--out=x.json"]], [["export", "--out", "x.json", "--all"]]])(
+    "treats %j as a portable JSON export of all projects, never a SQLite copy",
+    async (argv) => {
+      const { root, messages, deps } = exportSetup();
+
+      expect(await runDatabaseCli(argv, deps)).toBe(0);
+
+      const content = readFileSync(join(root, "x.json"), "utf8");
+      expect(content.startsWith(SQLITE_MAGIC)).toBe(false);
+      expect((JSON.parse(content) as { scope: { type: string } }).scope.type).toBe("all");
+      expect(readdirSync(root)).not.toContain("--out");
+      expect(readdirSync(root)).not.toContain("--out=x.json");
+      expect(messages.error).toEqual([]);
+    },
+  );
+
+  it("still writes a SQLite snapshot for the positional path form", async () => {
+    const { root, deps } = exportSetup();
+
+    expect(await runDatabaseCli(["export", "snapshot.sqlite"], deps)).toBe(0);
+
+    expect(readFileSync(join(root, "snapshot.sqlite")).subarray(0, 15).toString("latin1")).toBe(SQLITE_MAGIC);
+  });
+
+  it.each([
+    [["export", "--bogus"]],
+    [["export", "--bogus", "x.json"]],
+    [["export", "--", "weird"]],
+    [["export", "-- weird"]],
+    [["export", "-"]],
+    [["export", "-x"]],
+    [["export", "--project=x"]],
+    [["export", "--out", "x.json", "--bogus"]],
+    [["export", "--out"]],
+    [["export", "--out="]],
+    [["export", "--all", "--out"]],
+    [["export", "--project"]],
+    [["export", "--project", "--out", "x.json"]],
+    [["export", "--out", "--all"]],
+    [["export", "--out", "a.json", "--out", "b.json"]],
+    [["export", "--out", "x.json", "extra.sqlite"]],
+    [["export", "--all", "--project", "x"]],
+    [["export", "a.sqlite", "b.sqlite"]],
+    [["export"]],
+  ])("fails %j with a Traditional Chinese error and writes nothing", async (argv) => {
+    const { root, messages, deps, before } = exportSetup();
+
+    expect(await runDatabaseCli(argv, deps)).toBe(1);
+
+    expect(readdirSync(root).sort()).toEqual(before);
+    expect(messages.log).toEqual([]);
+    expect(messages.error.join("\n")).toMatch(/錯誤：.*[\u4e00-\u9fff]/u);
+  });
+
+  it.each([
+    [["import", "x.json", "--project"]],
+    [["import", "x.json", "--project="]],
+    [["import", "x.json", "--project", "--dry-run"]],
+    [["import", "--", "x.json"]],
+    [["import", "-"]],
+    [["restore", "--"]],
+    [["restore", "-"]],
+    [["restore", "snapshot.sqlite", "--remap-root="]],
+    [["backups", "--delete"]],
+    [["backups", "--delete="]],
+    [["backups", "--delete=x"]],
+    [["track", "--name"]],
+    [["track", "--"]],
+  ])("refuses %j before reading or writing any file", async (argv) => {
+    const { root, messages, deps, before } = exportSetup();
+
+    expect(await runDatabaseCli(argv, deps)).toBeGreaterThan(0);
+
+    expect(readdirSync(root).sort()).toEqual(before);
+    expect(messages.log).toEqual([]);
+    expect(messages.error.length).toBeGreaterThan(0);
+  });
+});
+
 describe("database in-use diagnosis", () => {
   const busyMessage = "資料庫目前無法取得獨佔鎖。";
 
