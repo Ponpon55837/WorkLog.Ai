@@ -548,6 +548,70 @@ describe("portable project data transfer", () => {
     );
   }, 60_000);
 
+  it("exports Session children of every selected project in the same locale order as the Session list", () => {
+    const source = createSource();
+    const secondRoot = join(source.root, "second-portable-project");
+    mkdirSync(secondRoot);
+    const second = source.store.addProject("Second portable project", secondRoot);
+    source.store.updateProject(second.id, { status: "tracked" });
+    const bundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+    const baseSession = bundle.tables.sessions[0];
+    const baseEvent = bundle.tables.work_events[0];
+    if (!baseSession || !baseEvent) throw new Error("The fixture needs a Session and work event template.");
+
+    // Ids that sort differently under binary and locale comparison, spread over both projects.
+    const sessionIds = ["Zeta_1", "zeta-2", "alpha_3", "Alpha-4", "10", "9"];
+    const db = new DatabaseSync(source.store.databasePath);
+    try {
+      const sessionColumns = projectDataExportTableColumns.sessions;
+      const eventColumns = projectDataExportTableColumns.work_events;
+      const insertSession = db.prepare(
+        `INSERT INTO sessions (${sessionColumns.join(", ")}) VALUES (${sessionColumns.map(() => "?").join(", ")})`,
+      );
+      const insertEvent = db.prepare(
+        `INSERT INTO work_events (${eventColumns.join(", ")}) VALUES (${eventColumns.map(() => "?").join(", ")})`,
+      );
+      sessionIds.forEach((id, index) => {
+        const session: ProjectDataRow = {
+          ...baseSession,
+          id,
+          project_id: index % 2 === 0 ? source.projectId : second.id,
+          idempotency_key: `locale-order-${id}`,
+        };
+        insertSession.run(...sessionColumns.map((column) => session[column] ?? null));
+        for (const eventId of [`event_${id}_b`, `Event-${id}_a`]) {
+          const event: ProjectDataRow = { ...baseEvent, id: eventId, session_id: id };
+          insertEvent.run(...eventColumns.map((column) => event[column] ?? null));
+        }
+      });
+    } finally {
+      db.close();
+    }
+
+    const reference = (projectId?: string): string[] => {
+      const reader = new DatabaseSync(source.store.databasePath, { readOnly: true });
+      try {
+        const rows = reader
+          .prepare(
+            "SELECT e.id AS id FROM work_events e JOIN sessions s ON s.id = e.session_id WHERE ? IS NULL OR s.project_id = ?",
+          )
+          .all(projectId ?? null, projectId ?? null) as Array<{ id: string }>;
+        return rows.map((event) => event.id).sort((left, right) => left.localeCompare(right));
+      } finally {
+        reader.close();
+      }
+    };
+
+    const all = source.store.exportProjectData({ type: "all" });
+    const single = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+    expect(all.tables.work_events.map((event) => String(event.id))).toEqual(reference());
+    expect(single.tables.work_events.map((event) => String(event.id))).toEqual(reference(source.projectId));
+    expect(all.tables.work_events.length).toBeGreaterThan(single.tables.work_events.length);
+    expect(all.tables.sessions.map((session) => String(session.id))).toEqual(
+      [...all.tables.sessions.map((session) => String(session.id))].sort((left, right) => left.localeCompare(right)),
+    );
+  });
+
   it("round-trips project data, pauses new projects, re-indexes search state, and stays idempotent while open", () => {
     const source = createSource();
     const bundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
