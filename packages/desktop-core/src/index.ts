@@ -1,0 +1,1 @@
+export const DESKTOP_CORE_CONTRACT_VERSION = 1;

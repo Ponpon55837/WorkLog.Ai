@@ -133,6 +133,12 @@ importers:
 
   packages/core: {}
 
+  packages/desktop-core:
+    dependencies:
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+
   packages/project-policy:
     dependencies:
       '@work-intelligence/core':
