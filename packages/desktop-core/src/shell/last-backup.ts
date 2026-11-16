@@ -40,7 +40,7 @@ export async function readLastBackupFromDirectory(
   }
   let newest: { at: string; sequence: number } | undefined;
   for (const name of names) {
-    const parsed = parseDatabaseBackupFileName(databasePath, name);
+    const parsed = parseDatabaseBackupFileName(databasePath, name, platform);
     if (!parsed) continue;
     try {
       const stats = await reader.lstat(joinBackupPath(directory, name, platform));

@@ -80,11 +80,17 @@ export function processIsAlive(pid: number): boolean {
 
 /** Synthetic data only: a database created by the real store in a temporary folder, never anything of the developer's. */
 export async function createSandbox(options: { withDatabase: boolean }): Promise<Sandbox> {
-  const root = realpathSync(mkdtempSync(join(os.tmpdir(), "wi-desktop-smoke-")));
+  // `.native` expands Windows 8.3 short names (`RUNNER~1`) and macOS `/var` -> `/private/var`, so every path the test
+  // derives matches what the App and its child report.
+  const root = realpathSync.native(mkdtempSync(join(os.tmpdir(), "wi-desktop-smoke-")));
   const home = join(root, "home");
   const dataDirectory = join(root, "data");
   const emptyBin = join(root, "empty-bin");
-  for (const directory of [home, dataDirectory, emptyBin]) mkdirSync(directory, { recursive: true });
+  // The per-user folders a real profile always has; Windows resolves known folders (Roaming/Local AppData) only when
+  // they exist, and appEnvironment points USERPROFILE and APPDATA here.
+  const profileDirectories = [join(home, "AppData", "Roaming"), join(home, "AppData", "Local")];
+  for (const directory of [home, ...profileDirectories, dataDirectory, emptyBin])
+    mkdirSync(directory, { recursive: true });
   // Under the isolated home, where the product keeps it, so the repair page shows it as `~/…`.
   const databasePath = join(home, ".work-intelligence", "data", "work-intelligence.sqlite");
   mkdirSync(dirname(databasePath), { recursive: true });
@@ -143,10 +149,15 @@ export function appEnvironment(sandbox: Sandbox, extra: Record<string, string> =
   };
 }
 
-/** Chromium refuses to run its sandbox as root (a Linux container); only the test's launch arguments say otherwise. */
+/**
+ * Linux runs only as a regression check (V1 ships on Windows and macOS). There Chromium's OS sandbox needs either root-less
+ * user namespaces, which Ubuntu 24.04's AppArmor policy blocks for an unpackaged binary, or a setuid `chrome-sandbox`,
+ * which a downloaded test binary does not have; as root it refuses to start at all. So only the test's Linux launch
+ * turns the OS sandbox off. The renderer settings under test (`sandbox`, `contextIsolation`, CSP) are unchanged, and
+ * Windows and macOS keep the full OS sandbox.
+ */
 export function launchArguments(): string[] {
-  const root = process.platform === "linux" && typeof process.getuid === "function" && process.getuid() === 0;
-  return [mainEntry, ...(root ? ["--no-sandbox"] : [])];
+  return [mainEntry, ...(process.platform === "linux" ? ["--no-sandbox"] : [])];
 }
 
 const closedApplications = new WeakSet<ElectronApplication>();
@@ -162,9 +173,44 @@ export async function launchApp(sandbox: Sandbox, extra: Record<string, string> 
   return launched;
 }
 
-/** Starts a second Electron on the same data directory, as a user double-clicking the App again would. */
-export function launchSecondInstance(sandbox: Sandbox): ChildProcess {
-  return spawn(electronBinary, launchArguments(), { env: appEnvironment(sandbox), stdio: "ignore" });
+export interface SecondInstanceExit {
+  readonly code: number | null;
+  readonly signal: NodeJS.Signals | null;
+  /** The last of what the process wrote to stderr, so a failed exit explains itself in the test report. */
+  readonly stderr: string;
+}
+
+const SECOND_INSTANCE_STDERR_LIMIT = 16 * 1024;
+
+/**
+ * Starts a second Electron on the same data directory, as a user double-clicking the App again would, and resolves with
+ * how it ended. It is killed and the promise rejects (with its stderr) if it is still running after `timeoutMs`.
+ */
+export function runSecondInstance(sandbox: Sandbox, timeoutMs = 20_000): Promise<SecondInstanceExit> {
+  const child: ChildProcess = spawn(electronBinary, launchArguments(), {
+    env: appEnvironment(sandbox),
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  let stderr = "";
+  child.stderr?.setEncoding("utf8");
+  child.stderr?.on("data", (chunk: string) => {
+    stderr = (stderr + chunk).slice(-SECOND_INSTANCE_STDERR_LIMIT);
+  });
+  return new Promise((resolveExit, rejectExit) => {
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      rejectExit(new Error(`the second instance did not exit within ${timeoutMs} ms; stderr:\n${stderr}`));
+    }, timeoutMs);
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      rejectExit(error);
+    });
+    // `close`, not `exit`: stderr is fully read by then.
+    child.once("close", (code, signal) => {
+      clearTimeout(timer);
+      resolveExit({ code, signal, stderr });
+    });
+  });
 }
 
 export function readSnapshot(app: ElectronApplication): Promise<MainSnapshot> {

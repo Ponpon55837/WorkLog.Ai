@@ -19,7 +19,7 @@ This release is stage 2 of the desktop app plan, the safe minimal desktop. It ad
 - An instance proof in `@work-intelligence/shared`: `/api/health` returns an HMAC-SHA256 header over the parent's one-time challenge, keyed by a per-spawn run id that is never sent over HTTP. A shared loopback port probe is added alongside it.
 - A last-successful-backup tracker and a redacted diagnostics export. The export masks the home directory, the user name, the database and backup paths, the run id and secret-looking values.
 - A candidate database preview: a read-only preview child that receives only `preflight`, never `start`, so it never listens and never opens the database for writing.
-- `.github/workflows/desktop-smoke.yml`: runs on pull requests that touch the desktop, shell, server, storage, shared or schema code, and on manual dispatch. It runs the Playwright `_electron` smoke tests (seven cases) on Windows, macOS and Ubuntu under xvfb, and caches the Electron binary per OS and version.
+- `.github/workflows/desktop-smoke.yml`: runs on pull requests that touch the desktop, shell, server, storage, shared or schema code, and on manual dispatch. It runs the Playwright `_electron` smoke tests (seven cases) on Windows, macOS and Ubuntu under xvfb, and caches the Electron binary per OS and version. Only the Linux test launch passes `--no-sandbox`, because Ubuntu 24.04 blocks unprivileged user namespaces for an unpackaged Electron and the downloaded binary has no setuid `chrome-sandbox`; the renderer settings under test are unchanged, Windows and macOS keep the OS sandbox, and the product never passes the flag.
 - Traditional Chinese and English shell strings in `@work-intelligence/desktop-core`.
 
 ### Changed

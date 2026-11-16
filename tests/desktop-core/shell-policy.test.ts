@@ -306,31 +306,37 @@ describe("last backup", () => {
   const reader = {
     readdir: async () => Object.keys(entries),
     lstat: async (path: string) => {
-      const entry = entries[path.split("/").pop() ?? ""];
+      const entry = entries[path.split(/[\\/]/).pop() ?? ""];
       if (!entry) throw new Error("gone");
       return { isFile: () => entry.file, isSymbolicLink: () => entry.link };
     },
   };
 
   it("takes the newest regular, safely named backup of this database", async () => {
-    expect(await readLastBackupFromDirectory("/x/work.sqlite", "/x/backups", reader)).toEqual({
+    expect(await readLastBackupFromDirectory("/x/work.sqlite", "/x/backups", reader, "linux")).toEqual({
+      status: "known",
+      at: "2026-03-01T12:00:00Z",
+    });
+    expect(await readLastBackupFromDirectory("C:\\x\\work.sqlite", "C:\\x\\backups", reader, "win32")).toEqual({
       status: "known",
       at: "2026-03-01T12:00:00Z",
     });
   });
 
   it("is none for no matching file or a missing folder, and unknown for an unreadable folder", async () => {
-    expect(await readLastBackupFromDirectory("/x/work.sqlite", "/x/b", { ...reader, readdir: async () => [] })).toEqual(
-      { status: "none" },
-    );
+    expect(
+      await readLastBackupFromDirectory("/x/work.sqlite", "/x/b", { ...reader, readdir: async () => [] }, "linux"),
+    ).toEqual({ status: "none" });
     const failing = (code: string) => ({
       ...reader,
       readdir: async () => {
         throw Object.assign(new Error("x"), { code });
       },
     });
-    expect(await readLastBackupFromDirectory("/x/work.sqlite", "/x/b", failing("ENOENT"))).toEqual({ status: "none" });
-    expect(await readLastBackupFromDirectory("/x/work.sqlite", "/x/b", failing("EACCES"))).toEqual({
+    expect(await readLastBackupFromDirectory("/x/work.sqlite", "/x/b", failing("ENOENT"), "linux")).toEqual({
+      status: "none",
+    });
+    expect(await readLastBackupFromDirectory("/x/work.sqlite", "/x/b", failing("EACCES"), "linux")).toEqual({
       status: "unknown",
     });
   });

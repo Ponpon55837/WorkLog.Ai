@@ -66,4 +66,13 @@ describe("database backup file names", () => {
       expect(parseDatabaseBackupFileName(db, bad)).toBeNull();
     }
   });
+
+  it("splits the database path with the separators of the given platform", () => {
+    expect(backupPrefix("C:\\data\\work.sqlite", "win32")).toBe("work-");
+    expect(backupPrefix("C:/data/work.sqlite", "win32")).toBe("work-");
+    expect(backupPrefix("/data/work.sqlite", "linux")).toBe("work-");
+    expect(
+      parseDatabaseBackupFileName("C:\\data\\work.sqlite", "work-manual-20260101T000000Z.sqlite", "win32"),
+    ).toMatchObject({ kind: "manual", createdAt: "2026-01-01T00:00:00Z" });
+  });
 });

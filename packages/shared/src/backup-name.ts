@@ -1,4 +1,4 @@
-import { basename, extname } from "node:path";
+import { posix, win32 } from "node:path";
 
 /** What a backup file name says about the snapshot; mirrors `DatabaseBackupKind` of the core package. */
 export type BackupNameKind =
@@ -12,8 +12,16 @@ export interface ParsedBackupName {
   readonly sequence: number;
 }
 
-/** Backups are named after the database file: `<database name without extension>-`. */
-export function backupPrefix(databasePath: string): string {
+function pathApi(platform: NodeJS.Platform): typeof posix {
+  return platform === "win32" ? win32 : posix;
+}
+
+/**
+ * Backups are named after the database file: `<database name without extension>-`. The platform decides which
+ * separators split the path (Windows accepts both); it defaults to this process's and is injected by tests.
+ */
+export function backupPrefix(databasePath: string, platform: NodeJS.Platform = process.platform): string {
+  const { basename, extname } = pathApi(platform);
   return `${basename(databasePath, extname(databasePath))}-`;
 }
 
@@ -78,7 +86,11 @@ export function isSafeDatabaseBackupFileName(databasePath: string, fileName: str
 }
 
 /** The parsed name when `fileName` is a safe, recognized backup of `databasePath`; null otherwise. */
-export function parseDatabaseBackupFileName(databasePath: string, fileName: string): ParsedBackupName | null {
+export function parseDatabaseBackupFileName(
+  databasePath: string,
+  fileName: string,
+  platform: NodeJS.Platform = process.platform,
+): ParsedBackupName | null {
   const containsControlCharacter = Array.from(fileName).some((character) => {
     const codePoint = character.codePointAt(0) ?? 0;
     return codePoint < 0x20 || codePoint === 0x7f;
@@ -88,11 +100,11 @@ export function parseDatabaseBackupFileName(databasePath: string, fileName: stri
     fileName.includes("..") ||
     /[\\/%:*?"<>|]/.test(fileName) ||
     containsControlCharacter ||
-    basename(fileName) !== fileName
+    pathApi(platform).basename(fileName) !== fileName
   ) {
     return null;
   }
-  const prefix = backupPrefix(databasePath);
+  const prefix = backupPrefix(databasePath, platform);
   if (!fileName.startsWith(prefix) || !fileName.endsWith(".sqlite")) {
     return null;
   }

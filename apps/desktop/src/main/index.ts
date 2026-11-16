@@ -37,15 +37,12 @@ import { createShellTray } from "./tray.js";
 
 registerRepairScheme();
 
-const initialInputs = {
-  isPackaged: app.isPackaged,
-  userDataDirectory: app.getPath("userData"),
-  environment: process.env,
-};
-// The single-instance lock is scoped to userData, so a redirected data directory must be applied before the lock.
-const dataDirectoryOverride = overrideFromEnvironment(initialInputs, TEST_ENVIRONMENT.dataDirectory);
+const environmentInputs = { isPackaged: app.isPackaged, environment: process.env };
+// The single-instance lock is scoped to userData, so a redirected data directory must be applied before the lock. It is
+// also applied before userData is first read: the default is then never resolved, so a test profile need not have it.
+const dataDirectoryOverride = overrideFromEnvironment(environmentInputs, TEST_ENVIRONMENT.dataDirectory);
 if (dataDirectoryOverride) app.setPath("userData", dataDirectoryOverride);
-const configInputs = { ...initialInputs, userDataDirectory: app.getPath("userData") };
+const configInputs = { ...environmentInputs, userDataDirectory: app.getPath("userData") };
 const paths: DesktopPaths = resolveDesktopPaths(configInputs);
 
 const log = createLogger(paths);

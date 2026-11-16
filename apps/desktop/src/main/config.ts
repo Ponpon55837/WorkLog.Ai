@@ -38,14 +38,17 @@ export interface DesktopConfigInputs {
   readonly environment: Readonly<Record<string, string | undefined>>;
 }
 
+/** What the test switches read: never Electron's own paths, so they can be applied before any path is asked for. */
+export type EnvironmentInputs = Pick<DesktopConfigInputs, "isPackaged" | "environment">;
+
 /** An absolute path from the environment, or undefined; ignored entirely when the App is packaged. */
-export function overrideFromEnvironment(inputs: DesktopConfigInputs, name: string): string | undefined {
+export function overrideFromEnvironment(inputs: EnvironmentInputs, name: string): string | undefined {
   const value = inputs.isPackaged ? undefined : inputs.environment[name]?.trim();
   return value && isAbsolute(value) ? value : undefined;
 }
 
 /** Whether a test-only switch is on; always false in a packaged App. */
-export function testSwitch(inputs: DesktopConfigInputs, name: string): boolean {
+export function testSwitch(inputs: EnvironmentInputs, name: string): boolean {
   return !inputs.isPackaged && inputs.environment[name] === "1";
 }
 

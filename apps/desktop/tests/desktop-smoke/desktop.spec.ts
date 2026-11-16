@@ -8,12 +8,12 @@ import {
   createSandbox,
   healthProofIsValid,
   launchApp,
-  launchSecondInstance,
   portIsFree,
   processIsAlive,
   readMainLog,
   readSnapshot,
   removeSandbox,
+  runSecondInstance,
   waitForSnapshot,
   type Sandbox,
 } from "./helpers.js";
@@ -61,18 +61,11 @@ test("a second launch exits at once and the first keeps the only backend", async
   const pid = first.backend?.pid;
   if (!pid) throw new Error("no backend");
 
-  const second = launchSecondInstance(sandbox);
-  const exitCode = await new Promise<number | null>((resolveExit, rejectExit) => {
-    const timer = setTimeout(() => {
-      second.kill();
-      rejectExit(new Error("the second instance did not exit within 20 s"));
-    }, 20_000);
-    second.once("exit", (code) => {
-      clearTimeout(timer);
-      resolveExit(code);
-    });
+  const second = await runSecondInstance(sandbox);
+  expect({ code: second.code, signal: second.signal }, `second instance stderr:\n${second.stderr}`).toEqual({
+    code: 0,
+    signal: null,
   });
-  expect(exitCode).toBe(0);
 
   const after = await waitForSnapshot(app, (state) => state.secondInstanceCount >= 1);
   expect(after.lastSecondInstanceDecision).toBe("open-dashboard");
@@ -178,7 +171,8 @@ test("starts without any Node on the PATH and runs the bundled runtime", async (
   app = await launchApp(sandbox);
   const snapshot = await waitForSnapshot(app, (state) => state.owner === "MANAGED" && state.backend !== null);
   const execPath = snapshot.backend?.execPath ?? "";
-  expect(samePathPrefix(realpathSync(execPath), realpathSync(sandbox.runtimeRoot))).toBe(true);
+  // `.native`: it expands Windows 8.3 short names (the runner's temp folder is under `RUNNER~1`); the JS one does not.
+  expect(samePathPrefix(realpathSync.native(execPath), realpathSync.native(sandbox.runtimeRoot))).toBe(true);
   expect((await readSnapshot(app)).recentErrors).toEqual([]);
 });
 
