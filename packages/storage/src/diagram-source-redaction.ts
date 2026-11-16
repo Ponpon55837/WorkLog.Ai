@@ -1,9 +1,8 @@
 import { parseArchitectureDiagram } from "@work-intelligence/schema";
 import { redactText, redactValue } from "./secret-redaction.js";
 
-/** Mask string values before serializing structured data, preserving JSON syntax and references. */
-export function redactDiagramSource(source: string, kind: string) {
-  if (kind !== "architecture") return redactText(source);
+/** Masks an architecture diagram's JSON source before it is stored or exported, preserving JSON syntax and references. */
+export function redactArchitectureDiagramSource(source: string) {
   const diagram = parseArchitectureDiagram(source);
   if (!diagram) throw new Error("Invalid architecture diagram.");
   const masked = redactValue(diagram);
@@ -22,4 +21,9 @@ export function redactDiagramSource(source: string, kind: string) {
   const value = JSON.stringify(masked.value);
   if (!parseArchitectureDiagram(value)) throw new Error("Invalid masked architecture diagram.");
   return { value, redactions: masked.redactions };
+}
+
+/** Mask string values before serializing structured data, preserving JSON syntax and references. */
+export function redactDiagramSource(source: string, kind: string) {
+  return kind === "architecture" ? redactArchitectureDiagramSource(source) : redactText(source);
 }

@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./backup-export": {
+      "types": "./dist/backup-export.d.ts",
+      "import": "./dist/backup-export.js"
     }
   },
   "dependencies": {

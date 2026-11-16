@@ -1,6 +1,6 @@
 import { parentPort, workerData } from "node:worker_threads";
-import { WorkIntelligenceStore, type BackupRetentionOptions } from "@work-intelligence/storage";
-import { inspectProjectFolder, parseProjectDataImportBytes } from "./http.js";
+import { BackupExportStore, type BackupRetentionOptions } from "@work-intelligence/storage/backup-export";
+import type { WorkIntelligenceStore } from "@work-intelligence/storage";
 import type {
   BackupWorkerCloseRequest,
   BackupWorkerOperation,
@@ -42,29 +42,78 @@ function errorResponse(id: number, error: unknown): BackupWorkerReply {
 }
 
 /**
- * Snapshots, exports and previews read through the read-only store; only an import opens the writable one, on
- * first use, without migrating: the API process owns the schema and checked it before starting this worker.
+ * The worker's connections. Snapshots and exports run on the lean read-only `BackupExportStore`, which loads without
+ * zod and the schema package (about 100 ms of the worker's cold start). Only previews and imports, which validate
+ * bundles, load the full storage package, and only when the first one arrives. An import opens the writable store
+ * without migrating: the API process owns the schema and checked it before starting this worker.
  */
-function executeOperation(
-  stores: { reader(): WorkIntelligenceStore; writer(): WorkIntelligenceStore },
+class WorkerStores {
+  private exporter: BackupExportStore | undefined;
+  private previewer: WorkIntelligenceStore | undefined;
+  private importer: WorkIntelligenceStore | undefined;
+
+  public constructor(private readonly context: BackupWorkerData) {}
+
+  public exportStore(): BackupExportStore {
+    this.exporter ??= new BackupExportStore(this.context.databasePath, {
+      backup: this.context.backup,
+      expectedSchemaVersion: this.context.expectedSchemaVersion,
+    });
+    return this.exporter;
+  }
+
+  public async previewStore(): Promise<WorkIntelligenceStore> {
+    if (!this.previewer) {
+      const { WorkIntelligenceStore } = await import("@work-intelligence/storage");
+      this.previewer ??= new WorkIntelligenceStore(this.context.databasePath, {
+        backup: this.context.backup,
+        mode: "read-only",
+        expectedSchemaVersion: this.context.expectedSchemaVersion,
+      });
+    }
+    return this.previewer;
+  }
+
+  public async importStore(): Promise<WorkIntelligenceStore> {
+    if (!this.importer) {
+      const { WorkIntelligenceStore } = await import("@work-intelligence/storage");
+      this.importer ??= new WorkIntelligenceStore(this.context.databasePath, {
+        backup: this.context.backup,
+        mode: "existing",
+        expectedSchemaVersion: this.context.expectedSchemaVersion,
+      });
+    }
+    return this.importer;
+  }
+
+  public close(): void {
+    for (const store of [this.exporter, this.previewer, this.importer]) store?.close();
+  }
+}
+
+async function executeOperation(
+  stores: WorkerStores,
   operation: BackupWorkerOperation,
-): WorkerOperationResult {
-  const store = operation.type === "importProjectData" ? stores.writer() : stores.reader();
+): Promise<WorkerOperationResult> {
   switch (operation.type) {
     case "createBackup":
-      return { value: store.createBackup() };
+      return { value: stores.exportStore().createBackup() };
     case "backupIfDue":
-      return { value: store.backupIfDue() };
+      return { value: stores.exportStore().backupIfDue() };
     case "exportTo":
-      return { value: store.exportTo(operation.target) };
+      return { value: stores.exportStore().exportTo(operation.target) };
     case "exportProjectData": {
-      const content = new TextEncoder().encode(JSON.stringify(store.exportProjectData(operation.scope)));
+      const content = new TextEncoder().encode(
+        JSON.stringify(await stores.exportStore().exportProjectData(operation.scope)),
+      );
       return {
         value: { content, bytes: content.byteLength },
         transferList: [content.buffer],
       };
     }
     case "previewProjectDataImport": {
+      const store = await stores.previewStore();
+      const { inspectProjectFolder, parseProjectDataImportBytes } = await import("./http.js");
       const input =
         operation.input instanceof Uint8Array ? parseProjectDataImportBytes(operation.input) : operation.input;
       const preview = store.previewProjectDataImport(input);
@@ -80,6 +129,8 @@ function executeOperation(
     }
     case "importProjectData": {
       // Parsing, validation, planning and the search-index sync after the commit all run here, off the API thread.
+      const store = await stores.importStore();
+      const { parseProjectDataImportBytes } = await import("./http.js");
       const input =
         operation.input instanceof Uint8Array ? parseProjectDataImportBytes(operation.input) : operation.input;
       return { value: store.importProjectData(input) };
@@ -87,9 +138,9 @@ function executeOperation(
   }
 }
 
-function handleClose(stores: Array<WorkIntelligenceStore | undefined>, request: BackupWorkerCloseRequest): void {
+function handleClose(stores: WorkerStores, request: BackupWorkerCloseRequest): void {
   try {
-    for (const store of stores) store?.close();
+    stores.close();
     parentPort?.postMessage({ id: request.id, ok: true, value: null } satisfies BackupWorkerReply);
   } catch (error) {
     parentPort?.postMessage(errorResponse(request.id, error));
@@ -100,44 +151,30 @@ function handleClose(stores: Array<WorkIntelligenceStore | undefined>, request: 
 
 const workerContext = workerData as BackupWorkerData;
 const port = parentPort;
-let store: WorkIntelligenceStore | undefined;
-let writer: WorkIntelligenceStore | undefined;
-const stores = {
-  reader(): WorkIntelligenceStore {
-    store ??= new WorkIntelligenceStore(workerContext.databasePath, {
-      backup: workerContext.backup,
-      mode: "read-only",
-      expectedSchemaVersion: workerContext.expectedSchemaVersion,
-    });
-    return store;
-  },
-  writer(): WorkIntelligenceStore {
-    writer ??= new WorkIntelligenceStore(workerContext.databasePath, {
-      backup: workerContext.backup,
-      mode: "existing",
-      expectedSchemaVersion: workerContext.expectedSchemaVersion,
-    });
-    return writer;
-  },
-};
+const stores = new WorkerStores(workerContext);
+// Operations run one at a time in arrival order, as they did when each was synchronous; a lazy import must not let
+// a later request (or the close) overtake an earlier one.
+let queue: Promise<void> = Promise.resolve();
 
 if (!port) {
   throw new Error("The backup worker requires a parent thread.");
 }
 
 port.on("message", (message: BackupWorkerRequest | BackupWorkerCloseRequest) => {
-  if ("close" in message) {
-    handleClose([store, writer], message);
-    return;
-  }
+  queue = queue.then(async () => {
+    if ("close" in message) {
+      handleClose(stores, message);
+      return;
+    }
 
-  try {
-    const result = executeOperation(stores, message.operation);
-    port.postMessage(
-      { id: message.id, ok: true, value: result.value } satisfies BackupWorkerReply,
-      result.transferList,
-    );
-  } catch (error) {
-    port.postMessage(errorResponse(message.id, error));
-  }
+    try {
+      const result = await executeOperation(stores, message.operation);
+      port.postMessage(
+        { id: message.id, ok: true, value: result.value } satisfies BackupWorkerReply,
+        result.transferList,
+      );
+    } catch (error) {
+      port.postMessage(errorResponse(message.id, error));
+    }
+  });
 });
