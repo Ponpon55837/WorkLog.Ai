@@ -60,6 +60,8 @@ import {
 import { appendStepSummary, writeReport } from "./report.mjs";
 
 const WINDOWS = process.platform === "win32";
+/** What the shims set for an Electron runtime (see ELECTRON_AS_NODE_ENV in desktop-core); direct starts need it too. */
+const ELECTRON_AS_NODE_ENV = { ELECTRON_RUN_AS_NODE: "1", ELECTRON_NO_ASAR: "1" };
 const RUNTIME_ID_POINTER = "current";
 const TAMPER_TARGET = "app/web/index.html";
 const results = [];
@@ -107,7 +109,7 @@ async function startServer(ctx, { direct = false } = {}) {
         join(ctx.runtimeDirectory, ctx.manifest.executable),
         [join(ctx.runtimeDirectory, "app/bin/work-intelligence.mjs"), "start"],
         {
-          env: { ...area.env, ...(ctx.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}) },
+          env: { ...area.env, ...(ctx.electron ? ELECTRON_AS_NODE_ENV : {}) },
           cwd: area.root,
         },
       )
@@ -127,7 +129,7 @@ async function startMcp(ctx, area, { direct = false } = {}) {
         join(ctx.runtimeDirectory, ctx.manifest.executable),
         [join(ctx.runtimeDirectory, "app/libexec/apps/mcp/dist/index.js")],
         {
-          env: { ...area.env, ...(ctx.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}) },
+          env: { ...area.env, ...(ctx.electron ? ELECTRON_AS_NODE_ENV : {}) },
           cwd: area.root,
         },
       )

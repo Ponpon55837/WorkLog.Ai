@@ -7,6 +7,10 @@ import { runLauncher, type LauncherHost } from "./launcher-main.js";
  * The script bundled as `launcher.mjs` at the top of every runtime directory. It only wires `runLauncher` to this
  * process; the logic and its tests live in launcher-main.ts. Excluded from coverage because it runs at import time.
  */
+// Inside Electron, read .asar files as plain files so verification sees their real size and bytes. The shims already
+// set ELECTRON_NO_ASAR; this covers a launcher started without them.
+if (process.versions.electron !== undefined) (process as { noAsar?: boolean }).noAsar = true;
+
 const host: LauncherHost = {
   execPath: process.execPath,
   versions: process.versions,

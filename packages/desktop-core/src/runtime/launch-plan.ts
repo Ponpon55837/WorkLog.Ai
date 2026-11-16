@@ -11,6 +11,15 @@ export interface LaunchPlan {
   readonly env: Readonly<Record<string, string | undefined>>;
 }
 
+/**
+ * What makes the Electron executable behave as plain Node: run scripts instead of the App, and read `.asar` files as
+ * ordinary files (Electron's asar support otherwise reports `default_app.asar` as a 0-byte directory to the verifier).
+ */
+export const ELECTRON_AS_NODE_ENV: Readonly<Record<string, string>> = {
+  ELECTRON_RUN_AS_NODE: "1",
+  ELECTRON_NO_ASAR: "1",
+};
+
 /** Throws unless `action` is one of the fixed actions; checked before any file is read. */
 export function assertAllowedAction(action: string): asserts action is RuntimeAction {
   if (!isRuntimeAction(action)) {
@@ -23,7 +32,7 @@ export function assertAllowedAction(action: string): asserts action is RuntimeAc
 
 /**
  * The process that runs `action` for an already verified runtime: the bundled executable, the action's entry script,
- * the action's fixed arguments and then `argv`. Electron runtimes get `ELECTRON_RUN_AS_NODE=1` so Electron behaves as Node.
+ * the action's fixed arguments and then `argv`. Electron runtimes get {@link ELECTRON_AS_NODE_ENV}.
  */
 export function buildLaunchPlan(
   runtimeDirectory: string,
@@ -43,7 +52,7 @@ export function buildLaunchPlan(
   return {
     command: path.join(runtimeDirectory, manifest.executable),
     args: [path.join(runtimeDirectory, spec.entry), ...(spec.args ?? []), ...argv],
-    env: manifest.runtimeKind === "electron-run-as-node" ? { ...baseEnv, ELECTRON_RUN_AS_NODE: "1" } : { ...baseEnv },
+    env: manifest.runtimeKind === "electron-run-as-node" ? { ...baseEnv, ...ELECTRON_AS_NODE_ENV } : { ...baseEnv },
   };
 }
 

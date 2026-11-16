@@ -14,7 +14,7 @@ import {
 export const IS_WINDOWS = process.platform === "win32";
 
 /** A fake runtime executable: prints the Electron flag and its arguments, one per line (POSIX only). */
-const FAKE_EXECUTABLE = '#!/bin/sh\nprintf \'%s\\n\' "${ELECTRON_RUN_AS_NODE-unset}" "$@"\n';
+const FAKE_EXECUTABLE = '#!/bin/sh\nprintf \'%s\\n\' "${ELECTRON_RUN_AS_NODE-unset}${ELECTRON_NO_ASAR-unset}" "$@"\n';
 
 /** Files of a small fake runtime; sizes and contents are arbitrary. */
 export const FIXTURE_FILES: Readonly<Record<string, string>> = {

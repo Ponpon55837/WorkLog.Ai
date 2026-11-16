@@ -191,7 +191,7 @@ describe.skipIf(IS_WINDOWS)("POSIX shim", () => {
     expect(result.status).toBe(0);
     // The fake executable prints the Electron flag, then each argument on a line.
     expect(result.stdout.split("\n")).toEqual([
-      "unset",
+      "unsetunset",
       path.join(runtimeDirectory, "launcher.mjs"),
       "mcp",
       "a b",
@@ -201,9 +201,9 @@ describe.skipIf(IS_WINDOWS)("POSIX shim", () => {
     ]);
   });
 
-  it("sets ELECTRON_RUN_AS_NODE only for Electron runtimes", async () => {
+  it("sets ELECTRON_RUN_AS_NODE and ELECTRON_NO_ASAR only for Electron runtimes", async () => {
     await installFixture(root, "rt-e", { kind: "electron-run-as-node", commit: true });
-    expect(run(["mcp"]).stdout.split("\n")[0]).toBe("1");
+    expect(run(["mcp"]).stdout.split("\n")[0]).toBe("11");
   });
 
   it("follows the pointer: switching current is all it takes to run another runtime", async () => {

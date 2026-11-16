@@ -63,7 +63,7 @@ case $exe in
 esac
 case $kind in
   node) ;;
-  electron-run-as-node) ELECTRON_RUN_AS_NODE=1; export ELECTRON_RUN_AS_NODE ;;
+  electron-run-as-node) ELECTRON_RUN_AS_NODE=1 ELECTRON_NO_ASAR=1; export ELECTRON_RUN_AS_NODE ELECTRON_NO_ASAR ;;
   *) fail "RUNTIME_MANIFEST_INVALID: runtime-launch.txt 的 runtime 類型不明" ;;
 esac
 
@@ -94,12 +94,12 @@ export function renderWindowsShim(): string {
     'set "RUNTIME=%ROOT%\\runtimes\\%ID%"',
     'if not exist "%RUNTIME%\\runtime-launch.txt" goto :nolaunch',
     'findstr /R /X /V "[A-Za-z0-9._/-]*" "%RUNTIME%\\runtime-launch.txt" >nul 2>nul && goto :badlaunch',
-    'findstr /C:".." "%RUNTIME%\\runtime-launch.txt" >nul 2>nul && goto :badlaunch',
+    'findstr /L /C:".." "%RUNTIME%\\runtime-launch.txt" >nul 2>nul && goto :badlaunch',
     'set "KIND="',
     'set "EXE="',
     '<"%RUNTIME%\\runtime-launch.txt" (set /p KIND=& set /p EXE=)',
     "if not defined EXE goto :badlaunch",
-    'if /I "%KIND%"=="electron-run-as-node" (set "ELECTRON_RUN_AS_NODE=1") else if /I not "%KIND%"=="node" goto :badlaunch',
+    'if /I "%KIND%"=="electron-run-as-node" (set "ELECTRON_RUN_AS_NODE=1" & set "ELECTRON_NO_ASAR=1") else if /I not "%KIND%"=="node" goto :badlaunch',
     'set "EXE=%EXE:/=\\%"',
     '"%RUNTIME%\\%EXE%" "%RUNTIME%\\launcher.mjs" %*',
     "exit /b %ERRORLEVEL%",

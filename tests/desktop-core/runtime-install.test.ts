@@ -261,7 +261,11 @@ describe("planLaunch", () => {
 
   it("sets ELECTRON_RUN_AS_NODE for an Electron runtime and only then", async () => {
     await installFixture(root, "rt-e", { kind: "electron-run-as-node", commit: true });
-    expect((await planLaunch(root, "mcp", [], { env: { A: "1" } })).env).toEqual({ A: "1", ELECTRON_RUN_AS_NODE: "1" });
+    expect((await planLaunch(root, "mcp", [], { env: { A: "1" } })).env).toEqual({
+      A: "1",
+      ELECTRON_RUN_AS_NODE: "1",
+      ELECTRON_NO_ASAR: "1",
+    });
     await installFixture(root, "rt-n", { kind: "node", commit: true });
     expect((await planLaunch(root, "mcp", [], { env: { A: "1" } })).env).toEqual({ A: "1" });
   });
