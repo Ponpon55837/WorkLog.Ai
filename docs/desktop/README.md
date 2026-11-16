@@ -6,9 +6,9 @@
 |---|---|
 | 文件版本 | R4 |
 | 基準 commit | `d464ea5`（main，Merge PR #361，release 1.6.40） |
-| 目標修補版 | 1.6.41（T1–T4）、1.6.42（DT-01/02/04/09/10/20/36）、1.6.43（DT-23、DT-25，階段 1）、1.6.44（DT-11、DT-15、DT-16、DT-35，階段 2）；設計基準仍為 `d464ea5` |
+| 目標修補版 | 1.6.41（T1–T4）、1.6.42（DT-01/02/04/09/10/20/36）、1.6.43（DT-23、DT-25，階段 1）、1.6.44（DT-11、DT-15、DT-16、DT-35，階段 2）、1.6.45（DT-23 的 ACL、DT-24 部分、DT-28 決策、DT-33、DT-34，階段 5 的打包部分）；設计基準仍為 `d464ea5` |
 | 前一版 | R3（來源提交 `e46060e`，審查基準 `7723b72`） |
-| 首發平台 | Windows 11 x64 與 macOS 同批發行；Linux 不在 V1。Windows ARM 排除為推論（待確認）；macOS 架構範圍（Apple Silicon、Intel）待確認 |
+| 首發平台 | Windows 11 x64 與 macOS 同批發行；Linux 不在 V1。Windows ARM 排除為推論（待確認）；macOS 架構範圍（Apple Silicon、Intel）待確認；1.6.45 的打包以 arm64 與 x64 分開產出（不做 universal），待產品確認 |
 
 ---
 
@@ -115,6 +115,20 @@ R4 的補充用法：
 | DT-35 | 退出語意：退出確認與 tray 文字寫明不會每日備份；顯示最後成功備份時間；退出流程 | 1.6.44 已實作（CI 可驗證部分）；實機待實機驗收 | ADR-26；C-02；§8.2 | `apps/desktop/src/main/quit.ts`；`packages/desktop-core/src/shell/quit-flow.ts`、`quit-notice.ts`、`last-backup.ts`；`tests/desktop-core/shell-flows.test.ts`、`shell-basics.test.ts`、`shell-policy.test.ts` |
 
 **本版的非 CI 項目**：Windows 11 與 macOS 的實機煙霧測試（Windows 登入項 `--background`、單例、tray、8.3 短名、`TerminateProcess`；macOS 的 `wasOpenedAtLogin`、`mainAppService`、Dock、選單列、Gatekeeper 與簽章），以及 Windows 與 macOS 的 CI 首次實跑。尚未做：簽章、公證、安裝包、自動更新、DT-01 完整的來源偵測精靈、DT-19 完整診斷、DT-24 runtime 清理，以及 plugin／standalone／MCPB 接線到 launcher。
+
+## 1.6.45 任務（階段 5：打包）與本文件的關係
+
+本版實作階段 5 的打包部分；§9.4 表中階段 5 的「自動更新與 schema」未做。Windows 11 與 macOS 的實機驗收仍為**待實機驗收**；三平台的打包 CI 結果於發行前確認。本文件不宣稱實機或 CI 已通過。
+
+| 任務 | 內容 | 狀態 | 本文件位置 | 證據路徑 |
+|---|---|---|---|---|
+| DT-23 | Windows ACL 檢查由 `not-implemented` 改為實作：SDDL 依 SID 判斷擁有者與可寫 ACE，失敗封閉；只在安裝、切換、完整驗證或 root 相關時間戳改變時讀取 | 1.6.45 已實作（fixture 驗證）；真實 Windows 行為待 CI 或實機 | §3.3；ADR-15 | `packages/desktop-core/src/runtime/windows-acl.ts`；`tests/desktop-core/runtime-windows-acl.test.ts` |
+| DT-24 | 舊 runtime 背景清理：只保留目前與前一版；尚未證明「無現役連線」 | 1.6.45 部分實作；DT-24 未完成 | ADR-16；§3.3 | `packages/desktop-core/src/runtime/runtime-gc.ts` |
+| DT-28 | 更新來源版本鎖定與 metadata 驗證：選擇 v26，不做自動更新，改為手動下載經平台驗證的安裝包 | 決策已記錄（ADR-25）；v26 的 metadata 簽章驗證未實作，因此 DT-28 的篡改測試不適用 | §7.1；ADR-25 | `apps/desktop/package.json`（electron-builder 26.18.1）；`apps/desktop/electron-builder.config.mjs` |
+| DT-33 | 同批產物暫存與聯合發行閘：`desktop-package` 三平台成功才允許 release 公開 | 1.6.45 已接線（`release.yml` 呼叫、發行須等待成功）；三平台實跑結果待確認 | ADR-03；§9.4 | `.github/workflows/desktop-package.yml`；`.github/workflows/release.yml` |
+| DT-34 | NSIS 解除安裝只移除程式檔，保留設定、資料庫與備份；安裝與解除安裝前以 `--quit` 退出 App | NSIS 設定與文件已實作；實機待驗收；macOS 拖入垃圾桶的清理入口未做 | ADR-30；§8.2；§9.1 | `apps/desktop/electron-builder.config.mjs`；`apps/desktop/build/`；`apps/desktop/tests/packaged-smoke/` |
+
+**本版的非 CI 項目**：Windows 11 的安裝、靜默安裝與 `/D=` 路徑、執行中重裝、靜默解除安裝與資料保留；macOS 的 DMG 掛載、`codesign --verify`、`spctl` 結果與 Gatekeeper 提示；Windows ACL 的真實行為；打包與啟動效能在 Windows 與 macOS 的數字（`desktop-perf-<os>` 與 `package-<platform>-<arch>.json` artifact）。尚未做：簽章、公證、自動更新、DT-01 完整的來源偵測精靈、DT-19 完整診斷、DT-24 完整清理、macOS 移除桌面整合入口，以及 plugin／standalone／MCPB 接線到 launcher。
 
 ## R3 → R4 修訂紀錄
 

@@ -220,7 +220,7 @@ Agent 的顯示狀態與最低證據見 §3.2.1；決策見 ADR-14（寫入交�
 - runtime 目錄以不可覆寫的版本或內容識別管理；更新只改 manifest 指向新版本。仍被舊程序占用的 runtime 延後清理（ADR-16）。launcher 檢查所有權與 ACL，拒絕指向不可信或 world-writable 目錄。[D][T]
 - App 關閉後必須能啟動 MCP／hook，不依賴 Electron GUI、Node PATH 或 repo。MCP stdout 只有 MCP protocol，錯誤走 stderr；hook 找不到 runtime 時**放行**，並提供後續可修復的診斷，避免靜默長期失效。[D]
 - 驗收涵蓋：無 Node 與無 PATH、中文與空格路徑、Windows 防毒與檔案鎖、macOS quarantine、離線、更新中既有 MCP、解除安裝未清乾淨的 hook。每個組合都需真實 `initialize`、`tools/list` 與讀寫合成 DB 測試。[T]
-- **階段 1 進度與選定的 layout（1.6.43）**：runtime 選 B，隨包官方 Node.js（ADR-04）。實作的 layout 為：`<root>/bin/work-intelligence-launcher`（Windows 另有 `.cmd`）為固定 shim；`<root>/current` 為單行 runtime id 指標，是唯一的原子切換點；`<root>/runtimes/<id>/` 內含 `runtime-manifest.json`（v1）、`runtime-launch.txt`（單行，記錄可執行檔的相對路徑）、`launcher.mjs`、`.verified.json`（stat 指紋快取，只加速、不作為信任依據）與官方 Node.js 執行檔。shim 只讀取 `current` 與 `runtime-launch.txt` 後執行 launcher；manifest 解析、逐檔 SHA-256、拒絕未列出的檔案與 symlink、路徑與權限檢查、動作白名單與錯誤碼都在共用的 TypeScript 中（`packages/desktop-core/src/runtime`）。已實作：runtime 目錄不可覆寫、指標原子切換、無 Node 的離線煙霧測試（CI）。未實作：Windows ACL 檢查（回報 `not-implemented`）、舊 runtime 清理（DT-24）、Agent 設定接線。[T]
+- **階段 1 進度與選定的 layout（1.6.43）**：runtime 選 B，隨包官方 Node.js（ADR-04）。實作的 layout 為：`<root>/bin/work-intelligence-launcher`（Windows 另有 `.cmd`）為固定 shim；`<root>/current` 為單行 runtime id 指標，是唯一的原子切換點；`<root>/runtimes/<id>/` 內含 `runtime-manifest.json`（v1）、`runtime-launch.txt`（單行，記錄可執行檔的相對路徑）、`launcher.mjs`、`.verified.json`（stat 指紋快取，只加速、不作為信任依據）與官方 Node.js 執行檔。shim 只讀取 `current` 與 `runtime-launch.txt` 後執行 launcher；manifest 解析、逐檔 SHA-256、拒絕未列出的檔案與 symlink、路徑與權限檢查、動作白名單與錯誤碼都在共用的 TypeScript 中（`packages/desktop-core/src/runtime`）。已實作：runtime 目錄不可覆寫、指標原子切換、無 Node 的離線煙霧測試（CI）。**1.6.45 更新**：Windows ACL 檢查已實作（以 `Get-Acl` 的 SDDL 依 SID 判斷；擁有者須為目前使用者、SYSTEM 或 Administrators；其他主體的可寫 ACE 與 null DACL 一律拒絕；失敗封閉），目前僅以 fixture 驗證，真實 Windows 行為待 CI 或實機確認。舊 runtime 清理部分實作（DT-24，只保留目前與前一版）。未實作：無現役連線的證明，以及 Agent 設定接線。[T]
 
 ---
 
@@ -358,6 +358,8 @@ Web 只能送固定動作與經 schema 驗證的值。特權資料夾選擇、�
 - 更新來源固定官方倉庫與 release asset，禁止使用者輸入鏡像 URL 交給特權安裝器。release tag、版本與平台檔案之間的映射須以可重現的發行流程驗證。[D]
 - electron-updater 文件亦說明 Windows「退出時安裝」可能與 OS session 結束競爭（ADR-24）。須實測 `autoInstallEvent` 可用性與 `manual`、`onNextLaunch` 等策略；若無法證明沒有意外退出安裝，採**使用者明確按下安裝並先排空後端**的方式，且須備有外部可啟動的修復安裝包。[U][T]
 
+**1.6.45 決定（DT-28、ADR-25）**：本版鎖定 electron-builder 26.18.1（v26 穩定線），不做自動更新：`publish` 為 null，沒有 electron-updater 依賴。理由是 v26 不驗證 v27 的 Ed25519 簽名 manifest，而本版也未實作等價的 metadata 來源驗證。使用者須手動下載官方 Releases 的安裝包，並核對 `SHA256SUMS.txt`。本版依本節第二項的回退規定改為手動下載，不把不可靠的自動更新當作 V1 已完成；日後若要導入自動更新，須先完成等價的 metadata 來源驗證並實測，且 §7.2 與 §9.5 的 `G-UPD-01` 仍未通過。[D][T]
+
 ### 7.2 更新與 schema 的三階段成功定義（DT-31）
 
 更新畫面不得只有一個「成功」布林值：
@@ -460,6 +462,8 @@ Web 只能送固定動作與經 schema 驗證的值。特權資料夾選擇、�
 
 **聯合發行門檻（待使用者確認）**：任一首發平台的 gate 未過，整個版本不公開；不允許單平台先發（ADR-03）。Release 先暫存全部首發平台的產物，確定完整且可驗證後才一次公開（DT-33）。此規則加大排程風險，須於里程碑中留出 Windows 實機驗收時間。
 
+**macOS 安裝包的架構切分（1.6.45，待產品確認）**：arm64 與 x64 分開建置、分開產出 DMG 與 ZIP，不做 universal。理由：兩份 bundled Node 的執行檔與 manifest 雜湊不同，universal 會使安裝包約加倍，且非 Mach-O 檔案會在合併時衝突。x64 在 `macos-15-intel` 建置與煙霧測試。若產品要求單一安裝包，須重新評估大小與衝突問題，本建議不代表產品已確認。
+
 ### 9.1 Windows 11 x64 需求
 
 - **安裝**：NSIS 目前使用者安裝，產物須簽章。解除安裝只移除 App 擁有的項目，DB 與備份保留（DT-34，R27）。
@@ -509,6 +513,8 @@ Web 只能送固定動作與經 schema 驗證的值。特權資料夾選擇、�
 **階段 1 狀態（1.6.43）**：spike 的 CI 可驗證部分已完成，並選定 B（ADR-04）。三平台的量測已由 CI 取得（run 43864453651）；實機驗收尚未進行，**階段 1 的 gate 尚未通過**。Linux 不在 V1 首發範圍，其數字只作方向參考。spike 未量測 `utilityProcess`，R31 要求的比較因此未完整。
 
 **階段 2 狀態（1.6.44）**：CI 可驗證部分已實作（DT-11、DT-15、DT-16、DT-35）：Electron 殼、後端子程序生命週期與修復視窗。三平台的 desktop-smoke 已在 CI 通過（[run 43929965453](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/43929965453)）；實機驗收（Windows 11 與 macOS）未做。**階段 2 的 gate 尚未通過。** 效能量測（合成資料，`apps/desktop/tests/desktop-smoke/performance.spec.ts`，閘門與依據在同目錄的 `perf-gates.ts`）：本機 Linux（xvfb）新舊啟動流程交替各 9 個樣本，冷啟動中位數 501 ms 對 506 ms、修復視窗 530 ms 對 562 ms，差異在雜訊內（後端提早啟動在 Linux 量不到改善）；退出約 14 ms，MANAGED 後 5 秒主程序約 155 MiB、後端約 94 MiB。Windows 與 macOS 的數字見同一 CI run 上傳的 `desktop-perf-<os>` artifact。 已知限制：Windows 使用者資料夾缺少 Roaming AppData 時，Electron 在載入 App 的程式之前就由原生層結束（結束代碼 0xFFFF7003，Crashpad 的「未連上 handler」），App 無法顯示錯誤框；這屬於 OS 設定檔損壞，修復方式是重建使用者資料夾。煙霧測試斷言它不留下 logs、port 或程序。其他無法解析資料夾的情況，由 `resolveUserDataDirectory` 在 `ready` 前顯示錯誤框並以代碼 1 結束。
+
+**階段 5 狀態（1.6.45）**：本版實作階段 5 的**打包部分**，與 §9.4 表中「自動更新與 schema」並非同一範圍；自動更新、簽名驗證、schema 屏障與斷電復原演練仍未做。已實作：electron-builder 26.18.1 的 Windows 11 x64 NSIS 一鍵安裝（目前使用者安裝，不要求 UAC）與 macOS DMG、ZIP（arm64、x64 分開）；隨包官方 Node.js 24.22.3 在首次啟動時安裝到固定的 launcher root，流程為 staging、退避重試更名、完整雜湊、指紋快取、原子切換；Windows ACL 檢查；`--quit` 退出指令供安裝程式使用；解除安裝保留設定、DB 與備份（DT-34）；`desktop-package` CI 與 `release.yml` 的聯合發行閘（DT-33）；打包後的黑箱煙霧測試與生產建置的後門檢查。沒有簽章、公證與自動更新，安裝包會出現 SmartScreen 與 Gatekeeper 警告。本機驗證只在 Linux 進行（`dir` 目標與打包煙霧測試 15 項通過兩次）；Windows 與 macOS 的安裝、解除安裝、Gatekeeper、ACL 真實行為與效能數字，待 CI 或實機確認。效能（本機 Linux，三次中位數）：首次啟動含 runtime 安裝 1028 ms、熱啟動 563 ms、修復視窗 1051 ms、`--quit` 157 ms、閒置程序樹 613 MiB。**階段 5 的 gate 尚未通過。**
 
 ### 9.5 發行阻斷的可觀察證據（Gate）
 
@@ -708,6 +714,7 @@ R01–R14 與 R33 如設計契約未通過，**不得宣稱 V1 可公開自動�
 | 自動更新是否於 V1 宣告？ | 若 metadata 可信驗證未成，改為手動下載官方安裝包（ADR-25） | 鎖工具版本與篡改測試 | Release |
 | 外部管理模式是否只提供連結？ | 是；不控制無法證明身分的服務（ADR-09） | 接管混合安裝與多 checkout | Desktop |
 | SQLite 修補的發行證據？ | 開發機 3.53.4 已量測（§7.3.1）；bundled 值待 release 產物確認 | 1.6.41 T3 CI 檢查；release 產物列印 | Runtime／Release |
+| macOS 安裝包是否按架構分開？ | **1.6.45 建議**：arm64 與 x64 分開產出，不做 universal（見 §9.0 之後的架構切分說明）。此建議待產品確認；Apple Silicon 與 Intel 的範圍仍依 §9.0 | 兩架構各自的 CI 打包、安裝與啟動；Intel 的實機 | 產品＋發行 |
 
 ### 14.2 非目標
 

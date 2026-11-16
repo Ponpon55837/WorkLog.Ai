@@ -29,6 +29,7 @@
 - **脈絡**：R3 原建議先 macOS，視簽章與驗收能力再開放 Windows，Linux 分開。產品決定 Windows 11 x64 與 macOS 同等重要並同批發行。
 - **決策**：首發為 Windows 11 x64 與 macOS（Apple Silicon 與 Intel 皆列為候選，待確認；Intel 的 A 階段決定見 §9.0）。Linux（AppImage、系統匣、登入項）不在 V1，於發行聲明排除；Windows ARM 排除為推論，待確認。CLI、standalone、plugin 不受影響。
 - **後果**：Windows 專屬項目（NSIS、schtasks、檔案鎖、IFileOpenDialog）進入首發範圍，排程風險上升。Windows 實機驗收成為發行前提。
+- **1.6.45 的打包**：Windows 11 x64 與 macOS 的安裝包都由 `desktop-package` 產出；macOS 以 arm64 與 x64 分開建置（不做 universal），x64 在 macos-15-intel 建置。架構分開的建議待產品確認（見 §9.0、§14.1）。
 - **關聯**：§9；DT-26、DT-34、DT-13、DT-24、DT-36。
 
 ### ADR-03 聯合發行門檻：任一首發平台未過即整版不發
@@ -37,6 +38,7 @@
 - **脈絡**：兩平台同批發行，若允許單平台先發，會造成使用者得到不一致的版本，也使更新 metadata 缺附件。
 - **決策**：Release 先暫存全部首發平台的簽章產物，完整且驗證通過才一次公開。任一平台的 gate 未過，整版不公開。
 - **後果**：更新時程由較慢的平台決定。需在里程碑中預留 Windows 實機時間。
+- **1.6.45 的實作**：`desktop-package`（windows-x64、macos-arm64、macos-x64）與 `release.yml` 已接線，發行 job 必須等它成功，安裝包才會加入 `SHA256SUMS.txt` 與 GitHub Release。三平台實際執行的結果於發行前確認。
 - **關聯**：§9.0、§9.5；DT-33。
 
 ### ADR-04 Runtime：隨包標準 Node，供後端、MCP、hook 共用
@@ -71,6 +73,7 @@
   - `utilityProcess` 未量測，R31 要求的 A 階段比較因此未完整；若要改用 `utilityProcess`，需另行量測。
   - spike 預設鎖定 Node.js v24.22.3（`--node-version 24` 才取最新 24 LTS）；發行前仍須驗證發行簽章（目前 SHASUMS256 與封存檔來自同一來源，尚未實作簽章驗證）。
 - **1.6.44 的實作**：殼（`apps/desktop`）鎖定 Electron 45.3.2（`apps/desktop/package.json`）；主程序負責 UI、tray、修復視窗與子程序的協調。後端子程序由 launcher 的 `serve` action 啟動，可執行檔與執行方式由 manifest 的 `runtimeKind` 決定；只有 `electron-run-as-node` 會設定 `ELECTRON_RUN_AS_NODE`（`packages/desktop-core/src/runtime/launch-plan.ts`）。依本 ADR，App 啟動後端時要求 `runtimeKind` 為 `node`，其他類型回報 `RUNTIME_KIND_NOT_ALLOWED`（`planLaunch` 的 `requiredRuntimeKind`，`packages/desktop-core/src/backend/node-dependencies.ts`）；煙霧測試組出的是 `node` 類型（`apps/desktop/scripts/run-smoke.mjs`）。spike 量測的是 Electron 45.3.3；它在 2026-11-16 才發布，殼改鎖定已發布數日的 45.3.2。`pnpm-workspace.yaml` 的 `allowBuilds: electron: false` 使 `pnpm install` 不下載 Electron 二進位；只有 `pnpm test:desktop-smoke` 與 desktop-smoke CI 透過 `apps/desktop/scripts/ensure-electron.mjs` 下載。
+- **1.6.45 的實作**：發行包把官方 Node.js 24.22.3 與後端放在 `extraResources` 的 `runtime-bundle/`（asar 之外）；manifest 的 SHA-256 內嵌於主程式包。首次啟動時 App 將 runtime 安裝到 launcher root（Windows 為 `%LOCALAPPDATA%\WorkIntelligence\runtime`，macOS 為 `~/Library/Application Support/WorkIntelligence/runtime`，指定 `--user-data-dir` 時為 `<userData>/runtime`）；流程為 staging、退避重試更名、完整雜湊、指紋快取、原子切換 `current`；同版本走不做雜湊的快速路徑。
 - **關聯**：§3.3、§5、§9.4、§10.2；DT-25、DT-23；R07、R31、R33。
 
 ### ADR-05 DB 沿用 SQLite 與 `VACUUM INTO`，不替換儲存引擎
@@ -271,7 +274,7 @@
 
 ### ADR-15 Agent 固定 launcher 與版本化 runtime manifest
 
-- **狀態**：暫定採用（1.6.43 實作 DT-23；Windows ACL 尚未檢查，回報 `not-implemented`）
+- **狀態**：暫定採用（1.6.43 實作 DT-23；1.6.45 加入 Windows ACL 檢查，僅以 fixture 驗證，真實 Windows 行為待 CI 或實機）
 - **脈絡**：Agent 直接指向版本目錄會在更新後失效；shell 拼接字串有注入風險（R07、R13）。
 - **決策**：Agent 的 `command` 指向使用者層固定 launcher。launcher 讀取原子提交的 manifest，以 argv array 啟動，只允許指定動作（`mcp`、`serve`、`codex-finalize-reminder`、`claude-finalize-reminder`）。檢查 manifest 與 binary 的所有權與權限：POSIX 拒絕 world-writable 與非目前使用者擁有的項目；Windows 的 ACL 尚未檢查。
 - **1.6.43 的實作**：`bin/` 下的 shim 只讀取 `current` 與 `runtime-launch.txt` 後執行 launcher；所有驗證（manifest 嚴格解析、逐檔 SHA-256 與大小、未列出的檔案與 symlink、路徑、動作白名單、錯誤碼）都在共用的 TypeScript 中。manifest 為 v1，列出 runtime 目錄內的每一個檔案，未列出的檔案使 runtime 無效。
@@ -280,10 +283,11 @@
 
 ### ADR-16 Runtime 延後清理：無現役連線且可安全刪除才 GC
 
-- **狀態**：已採用（Windows 檔案鎖待驗證；清理尚未實作，DT-24 未開始）
+- **狀態**：已採用（Windows 檔案鎖待驗證；DT-24 部分實作）
 - **脈絡**：Windows 會鎖住執行中的檔案（R08）；PID 可能被重用，不能以 PID 不存在作為可刪除的依據。
 - **決策**：runtime 版本化；更新時先安裝新版、驗證完整性、再原子切換 manifest。舊 runtime 的清理需要「無現役連線」與「可安全刪除」兩項條件，失敗則延後重試。
 - **1.6.43 的實作**：runtime 的檔案寫入 `runtimes/<id>/` 後不再修改（只有 `.verified.json` 快取例外）；切換只改 `current` 單行指標。清理（GC）尚未實作，舊版目錄會保留。
+- **1.6.45 的實作**：背景的 best-effort 清理只保留目前與前一版。尚未證明「無現役連線」（PID 可能被重用，不能以 PID 不存在作為依據），因此 DT-24 只完成一部分；其餘舊版目錄仍會保留。
 - **後果**：磁碟上會暫時保留多個 runtime 版本。
 - **關聯**：§3.3、§10.2；DT-24；R08；G-MCP-01。
 
@@ -295,6 +299,7 @@
 
 - **狀態**：已採用
 - **1.6.44 狀態**：退出流程（確認、停止受管服務、有界等待進行中的操作、確認 port 釋放）與退出文字已實作；登入項預設關閉，開啟需 consent；背景啟動以 `--background` 或 macOS `wasOpenedAtLogin` 判定。實機行為待實機驗收。
+- **1.6.45 的實作**：第二個實例以 `requestSingleInstanceLock` 的附加資料傳送 `{action:"quit"}`，經嚴格 zod schema 驗證後，執行中的實例做一般的非互動退出（停止後端、確認 port 釋放）。此指令供 NSIS 安裝與解除安裝程式使用，等待最多 40 s，之後以 `taskkill /T /F` 結束目前使用者的程序。
 - **脈絡**：使用者關瀏覽器不應停服務；結束 App 後，Agent 自啟的 MCP 仍可用，但 App 的每日備份不會再執行（R24）。
 - **決策**：關瀏覽器不停止 API 與每日備份。「結束 App」停止其管理的 API 與排程，等工作收尾後結束。介面明示「退出後不會每日備份」。新安裝的「登入時在背景執行」預設關閉；背景啟動失敗時只顯示單次通知或 tray 提示。
 - **後果**：使用者若要退出後仍備份，須開啟登入項或使用其他獨立方式（V1 不隱式新增）。
@@ -331,6 +336,7 @@
 ### ADR-24 更新安裝時機：使用者明確安裝、先排空；不在 quit 時靜默安裝
 
 - **狀態**：已採用（實作策略待 `autoInstallEvent` 實測）
+- **1.6.45 狀態**：本版沒有自動更新（見 ADR-25），因此不存在安裝時機的問題；退出時不安裝、也不會靜默安裝。若日後加入自動更新，本條須重新評估。
 - **脈絡**：electron-updater 文件指出 Windows 與 Linux 的退出時安裝可能與 OS session 結束競爭 `[U]`（R21）。
 - **決策**：使用者明確按下安裝後，先排空後端再安裝。延後時，一般退出不得安裝。若無法證明沒有意外安裝，採用 manual 或 onNextLaunch 策略，並保留外部可啟動的修復安裝包。
 - **後果**：更新需要使用者多一次操作。
@@ -338,7 +344,7 @@
 
 ### ADR-25 更新工具版本鎖定；無法證明 metadata 驗證時改為手動下載
 
-- **狀態**：待驗證（版本待鎖）
+- **狀態**：待驗證（版本待鎖）；**1.6.45 採用手動下載路徑**：electron-builder 鎖定 26.18.1（v26 穩定線），不做自動更新，`publish` 為 null，未加入 electron-updater。
 - **脈絡**：electron-builder v27 的 Security & Hardening 文件明示 v27 為 next `[U]`；v26 只靠 `sha512` 不能保護 manifest 本身（R11）。
 - **決策**：A 階段鎖定精確的 electron、electron-builder、electron-updater 版本，並實測 metadata 簽章與篡改拒絕。若使用 v27 的能力，需以實測證明。若 v26 無法提出等價的來源驗證方案，V1 改為手動前往官方 Releases 下載經平台驗證的安裝包，不宣稱自動更新已完成。
 - **後果**：V1 可能只有手動更新。
@@ -348,6 +354,7 @@
 
 - **狀態**：已採用
 - **脈絡**：NSIS 解除安裝器可能清掉未受管理的資料（R27）；macOS 拖入垃圾桶不會執行清理。
+- **1.6.45 的實作**：NSIS 解除安裝只移除程式檔，設定、資料庫（`~/.work-intelligence`）與備份保留（`deleteAppDataOnUninstall` 為 false）。electron-builder 的解除安裝程式仍接受明確的 `--delete-app-data`，此參數只移除 userData，不動資料庫。安裝與解除安裝前以 `--quit` 退出執行中的 App。macOS 的移除入口未實作；實機待驗收。
 - **決策**：移除只刪除 App 擁有的登入項、Agent 整合、hook 與啟動器（依安裝清單與指紋）。DB、備份與設定保留，並顯示實際位置。提供「移除桌面整合」入口，並在重裝後清理殘留。外部 plugin 與 MCPB 不擅自卸除。
 - **後果**：移除流程需要辨識 App 擁有的項目，這依賴安裝清單的正確性。
 - **關聯**：§8、§9.1、§9.2；DT-34；R27。

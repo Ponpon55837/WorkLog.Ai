@@ -4,6 +4,29 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.45] - 2026-11-16
+
+[繁體中文更新說明](docs/releases/1.6.45.md).
+
+This release is the packaging part of stage 5 of the desktop app plan. It adds the electron-builder 26.18.1 packaging for a Windows 11 x64 NSIS installer and for macOS DMG and ZIP files (arm64 and x64, built separately), a bundled official Node.js 24.22.3 runtime that is installed into the launcher root on first launch, a Windows ACL check for that root, a `--quit` command used by the installer, and a packaged black-box smoke test. This stage has no auto-update, no code signing and no notarization: electron-builder 26 does not verify the signed update manifests of v27, so Windows shows SmartScreen warnings and macOS shows Gatekeeper warnings. The packaging has been verified only on Linux locally; the Windows and macOS installers have not been run on real machines, and the stage 5 gate has not passed. It changes no schema; the schema stays at 33 and no migration is needed.
+
+### Added
+
+- `apps/desktop`: packaging with electron-builder 26.18.1 (`appId` `ai.worklog.workintelligence`, product name "Work Intelligence"). The Windows target is a one-click per-user NSIS installer (`perMachine` false, `allowElevation` false, no UAC prompt). The macOS targets are DMG and ZIP, one set per architecture. There is no universal macOS build. A Linux `dir` target exists only for local verification; Windows ARM and Linux are not V1 platforms.
+- A bundled official Node.js 24.22.3 and the backend, placed in `extraResources` as `runtime-bundle/` outside the asar. The manifest SHA-256 is built into the main bundle, which is inside the asar with integrity checking on. On first launch the runtime is staged, renamed with backoff (for Windows Defender locks), fully hashed against the bundled manifest, fingerprinted in a cache, and then made current with an atomic switch. When the same version is already installed, the fast path does no hashing. A corrupt installed copy is quarantined and reinstalled; permission problems go to repair.
+- The launcher root for the packaged App: `%LOCALAPPDATA%\WorkIntelligence\runtime` on Windows and `~/Library/Application Support/WorkIntelligence/runtime` on macOS, or `<userData>/runtime` when started with `--user-data-dir`.
+- A Windows ACL check for the launcher root and runtimes. It reads the SDDL with PowerShell `Get-Acl` and judges by SID: the owner must be the current user, SYSTEM or Administrators; write-capable allow entries for other principals, and a null DACL, are refused; the check fails closed. It is verified with fixtures on Linux only.
+- `--quit`: a second instance passes `{action:"quit"}` through `requestSingleInstanceLock` additional data. A strict zod schema validates it, and the running instance performs the normal non-interactive quit (stops the backend and confirms the port is free). The NSIS installer and uninstaller use it, wait up to 40 s, then end the current user's processes with `taskkill /T /F`.
+- Production build guards: test hooks and test environment switches are removed at compile time (`__WI_TEST_BUILD__`), checked by `check-production-bundle.mjs` and by an asar scan in the packaged smoke test. Electron fuses turn off RunAsNode, NODE_OPTIONS and `--inspect`, enable cookie encryption and embedded asar integrity, and load only the app from the asar. The packaged App refuses `--remote-debugging-port`, `--remote-debugging-pipe` and `--inspect`.
+- A packaged black-box smoke test (`apps/desktop/tests/packaged-smoke`, `pnpm test:desktop-packaged`) covering a sandbox user data path with spaces and Chinese characters, a run without Node on PATH, a second instance, a missing database that opens the repair window, `--quit`, runtime reuse, tamper detection, a refused debug switch, a macOS codesign check and DMG mount check, and on Windows a silent install and uninstall.
+- `.github/workflows/desktop-package.yml` (pull requests, manual dispatch and `workflow_call`): Windows x64, macOS arm64 and macOS x64 run in parallel. The workflow caches Electron, electron-builder, runtime downloads and the pnpm store, uploads the installers, the package result JSON and the packaged performance JSON. `release.yml` calls it with the release commit; publishing requires it to succeed, and the installers are added to `SHA256SUMS.txt` and the GitHub Release.
+
+### Changed
+
+- The unpackaged desktop-smoke performance gates are tighter, based on the 1.6.44 CI run: win32 cold start, repair window and quit go from 8000, 8000 and 5000 ms to 3000, 3000 and 2000 ms; darwin goes from 15000, 15000 and 5000 ms to 5000, 5000 and 3000 ms. The performance JSON is also printed to stdout.
+- The packaged App removes 53 Electron locales (it keeps en-US and zh-TW) and source maps. Local Linux unpacked size is 395.9 MiB, down from 405.8 MiB, and `app.asar` is 0.66 MB, down from 3.3 MB.
+- Old runtimes are removed by a best-effort background cleanup that keeps the current and the previous runtime. There is no proof yet that no live connection uses a runtime, so DT-24 is partial.
+
 ## [1.6.44] - 2026-11-16
 
 [繁體中文更新說明](docs/releases/1.6.44.md).

@@ -6,6 +6,10 @@
 
 - 最後更新：2026-11-16
 
+## 1.6.45（已完成）
+
+桌面版階段 5 的打包部分：以 electron-builder 26.18.1 產出 Windows 11 x64 的 NSIS 一鍵安裝（目前使用者安裝）與 macOS 的 DMG、ZIP（arm64 與 x64 分開建置）。隨包官方 Node.js 24.22.3 在首次啟動時安裝到固定的 launcher root，並以完整雜湊對照內嵌 manifest；Windows ACL 檢查由未實作改為已實作（fixture 驗證）；新增 `--quit` 供安裝程式使用，解除安裝保留資料庫與備份；新增 `desktop-package` CI 與打包後的黑箱煙霧測試。本版沒有自動更新、簽章與公證，安裝包會出現 SmartScreen 與 Gatekeeper 警告。打包只在 Linux 本機驗證；Windows 與 macOS 的安裝、CI 數字與實機驗收尚未取得，階段 5 的 gate 尚未通過。沒有 schema 變更（33），沒有 migration。詳見 [1.6.45 更新說明](releases/1.6.45.md)。
+
 ## 1.6.44（已完成）
 
 桌面版階段 2（安全最小桌面）的 CI 可驗證部分：Electron 殼（單例、tray／選單列、修復視窗、退出流程）與後端子程序生命週期（DT-11）。子程序以私有 IPC 回報身分，HTTP 就緒以 HMAC 證明；停止順序為 IPC shutdown、POSIX 的 SIGTERM、kill，最後確認 port 釋放。新增 desktop-smoke CI，涵蓋 Windows、macOS 與 Ubuntu（xvfb）。Windows 11 與 macOS 實機驗收未做，三平台 desktop-smoke CI 已通過，階段 2 的 gate 尚未通過；簽章、公證、安裝包、自動更新、完整的來源偵測精靈與完整診斷尚未實作。沒有 schema 變更（33），沒有 migration。詳見 [1.6.44 更新說明](releases/1.6.44.md)。
