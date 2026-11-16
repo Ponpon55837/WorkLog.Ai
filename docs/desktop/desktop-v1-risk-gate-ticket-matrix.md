@@ -45,7 +45,7 @@
 | R28 | P1 | 陳舊的 Agent skill 或 MCP schema 被顯示為已就緒 | G-MCP-01 | DT-22 | 實際 host handshake；版本契約；需重新連線的狀態 |
 | R29 | P1 | 設定檔半寫入或無法解析時被當作全新安裝 | G-DB-01 | DT-20 | 原子替換、recovery copy、修復模式；不開空庫 |
 | R30 | P1 | 關機、睡眠或斷電使 operation phase 與實際狀態不符 | G-SVC-02、G-UPD-01 | DT-09、DT-31 | 恢復時重讀 OS、DB 與 manifest 並重建狀態；不只依賴 journal |
-| R31 | P2 | 安裝包肥大、冷啟慢、閒置記憶體高 | G-UX-01 | DT-25 | A 階段比較標準 Node 與 `utilityProcess`；記錄基準數字。**1.6.43 數字**：標準 Node 與 Electron RUN_AS_NODE 的量測見 ADR-04（Linux 與 macOS） 三平台；spike 未量測 `utilityProcess` **1.6.45 數字（本機 Linux）**：解開後 405.8 → 395.9 MiB；`app.asar` 3.3 → 0.66 MB；隨包 runtime 135.5 MB（Node 122 MB）；打包 11.8–15.2 s；首次啟動含 runtime 安裝 1028 ms、熱啟動 563 ms、閒置程序樹 613 MiB。Windows 與 macOS 的數字待 CI。 |
+| R31 | P2 | 安裝包肥大、冷啟慢、閒置記憶體高 | G-UX-01 | DT-25 | A 階段比較標準 Node 與 `utilityProcess`；記錄基準數字。**1.6.43 數字**：標準 Node 與 Electron RUN_AS_NODE 的量測見 ADR-04（Linux 與 macOS） 三平台；spike 未量測 `utilityProcess` **1.6.45 數字（本機 Linux）**：解開後 405.8 → 395.9 MiB；`app.asar` 3.3 → 0.66 MB；隨包 runtime 135.5 MB（Node 122 MB）；打包 11.8–15.2 s；首次啟動含 runtime 安裝 1028 ms、熱啟動 563 ms；閒置記憶體（打包後的 App，PSS）352 → 292 MiB，RSS 合計 662 → 538 MiB（3 次中位數）。Windows 與 macOS 的數字待 CI；記憶體門檻為 Linux PSS 360 MiB、後端 128 MiB，Windows 與 macOS 暫定 1024 MiB 與 192 MiB。 |
 | R32 | P2 | 完整診斷匯出洩漏個資路徑或秘密 | G-SEC-01 | DT-19 | 匯出前預覽、掃描、遮蔽；只手動匯出，不自動上傳 |
 | R33 | P0 | bundled Node 的 SQLite 未含 2026 WAL-reset 修補，可能損毀 | G-DB-03、G-MCP-01 | DT-06、DT-07 | release 產物列印 `sqlite_version()` 並保存修補證據（**1.6.41 T3 已實作（commit 4420951）**）；多程序 WAL 壓力與 restore 測試 |
 | R34 | P1 | 唯讀 DB 預覽在 WAL 中建立 `-shm`、`-wal`，或誤用 `immutable=1` | G-DB-01 | DT-02 | 檔案系統副作用測試；不刪 sidecar；活躍 DB 不使用 immutable |
@@ -173,7 +173,7 @@
 | 發行聯合閘（`desktop-package` 與 `release.yml`） | DT-33 | — | ADR-03；§9.5 | 1.6.45 已接線；三平台實跑待確認 |
 | 打包後的黑箱煙霧測試與生產建置的後門檢查 | DT-34、DT-36 | R13、R27 | apps/desktop/tests/packaged-smoke | 1.6.45 已實作；Linux 15 項通過 ×2 |
 
-**1.6.45 的非 CI 項目**：Windows 11 與 macOS 的安裝、解除安裝與資料保留、Gatekeeper 與 SmartScreen 提示、Windows ACL 的真實行為、打包與啟動效能的 Windows 與 macOS 數字，以及簽章與公證（未做）。
+**1.6.45 的非 CI 項目**：Windows 11 與 macOS 的安裝、解除安裝與資料保留、Gatekeeper 與 SmartScreen 提示、Windows ACL 的真實行為、打包與啟動效能的 Windows 與 macOS 數字，以及 Developer ID 簽章與公證（未做；macOS 只有 ad-hoc 簽章）。
 
 ## 5. V1 不做／以發行聲明排除
 
@@ -185,7 +185,7 @@
 | Windows ARM（推論，待確認） | 無獨立風險；屬平台範圍 | 首發只列 Windows 11 x64（ADR-02）；ARM 的安裝與執行需另驗證 | 不列為支援架構 |
 | 資料 API（非管理 API）的跨 OS 使用者隔離 | R25（資料 API 部分） | 既有 CLI、checkout、第三方腳本依賴目前的資料 API 契約；加認證會破壞相容性（ADR-33） | 說明 loopback 不是 per-user 權限邊界；多使用者機器的風險須由使用者評估 |
 | macOS Intel（候選，待確認；若 A 階段無法同批驗收） | 無獨立風險；屬平台範圍 | 依 ADR-02 的變更程序排除，而非在發行後單獨補上 | 若排除，明確列出支援的架構 |
-| 自動更新、程式碼簽章與公證（1.6.45 不做） | R11、R14、R21、R26（部分）；DT-28、DT-37 | electron-builder 26 不驗證 v27 的簽名 manifest（ADR-25）；Developer ID 與公證身分未就緒（DT-37） | 不宣稱自動更新；Windows 顯示 SmartScreen 警告，macOS 顯示 Gatekeeper 警告；請核對 `SHA256SUMS.txt` 並從官方 Releases 下載 |
+| 自動更新、Developer ID 簽章與公證（1.6.45 不做；macOS 只有 ad-hoc 簽章） | R11、R14、R21、R26（部分）；DT-28、DT-37 | electron-builder 26 不驗證 v27 的簽名 manifest（ADR-25）；Developer ID 與公證身分未就緒（DT-37） | 不宣稱自動更新；Windows 顯示 SmartScreen 警告，macOS 顯示 Gatekeeper 警告；請核對 `SHA256SUMS.txt` 並從官方 Releases 下載 |
 | 多資料庫切換、遠端管理、內嵌 Dashboard 視窗 | 無獨立風險；屬範圍 | 非 V1 目標（R4 §14.2） | 不宣稱支援 |
 
 ---

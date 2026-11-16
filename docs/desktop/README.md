@@ -122,13 +122,15 @@ R4 的補充用法：
 
 | 任務 | 內容 | 狀態 | 本文件位置 | 證據路徑 |
 |---|---|---|---|---|
-| DT-23 | Windows ACL 檢查由 `not-implemented` 改為實作：SDDL 依 SID 判斷擁有者與可寫 ACE，失敗封閉；只在安裝、切換、完整驗證或 root 相關時間戳改變時讀取 | 1.6.45 已實作（fixture 驗證）；真實 Windows 行為待 CI 或實機 | §3.3；ADR-15 | `packages/desktop-core/src/runtime/windows-acl.ts`；`tests/desktop-core/runtime-windows-acl.test.ts` |
+| DT-23 | Windows ACL 檢查由 `not-implemented` 改為實作：SDDL 分兩層讀取（.NET 優先，失敗才用 `Get-Acl` 加 `whoami /user`），依 SID 判斷擁有者與可寫 ACE，失敗封閉；只在安裝、切換、完整驗證或 root 相關時間戳改變時讀取 | 1.6.45 已實作（fixture 驗證）；真實 Windows 行為待 CI 或實機 | §3.3；ADR-15 | `packages/desktop-core/src/runtime/windows-acl.ts`；`tests/desktop-core/runtime-windows-acl.test.ts` |
 | DT-24 | 舊 runtime 背景清理：只保留目前與前一版；尚未證明「無現役連線」 | 1.6.45 部分實作；DT-24 未完成 | ADR-16；§3.3 | `packages/desktop-core/src/runtime/runtime-gc.ts` |
 | DT-28 | 更新來源版本鎖定與 metadata 驗證：選擇 v26，不做自動更新，改為手動下載經平台驗證的安裝包 | 決策已記錄（ADR-25）；v26 的 metadata 簽章驗證未實作，因此 DT-28 的篡改測試不適用 | §7.1；ADR-25 | `apps/desktop/package.json`（electron-builder 26.18.1）；`apps/desktop/electron-builder.config.mjs` |
 | DT-33 | 同批產物暫存與聯合發行閘：`desktop-package` 三平台成功才允許 release 公開 | 1.6.45 已接線（`release.yml` 呼叫、發行須等待成功）；三平台實跑結果待確認 | ADR-03；§9.4 | `.github/workflows/desktop-package.yml`；`.github/workflows/release.yml` |
 | DT-34 | NSIS 解除安裝只移除程式檔，保留設定、資料庫與備份；安裝與解除安裝前以 `--quit` 退出 App | NSIS 設定與文件已實作；實機待驗收；macOS 拖入垃圾桶的清理入口未做 | ADR-30；§8.2；§9.1 | `apps/desktop/electron-builder.config.mjs`；`apps/desktop/build/`；`apps/desktop/tests/packaged-smoke/` |
 
-**本版的非 CI 項目**：Windows 11 的安裝、靜默安裝與 `/D=` 路徑、執行中重裝、靜默解除安裝與資料保留；macOS 的 DMG 掛載、`codesign --verify`、`spctl` 結果與 Gatekeeper 提示；Windows ACL 的真實行為；打包與啟動效能在 Windows 與 macOS 的數字（`desktop-perf-<os>` 與 `package-<platform>-<arch>.json` artifact）。尚未做：簽章、公證、自動更新、DT-01 完整的來源偵測精靈、DT-19 完整診斷、DT-24 完整清理、macOS 移除桌面整合入口，以及 plugin／standalone／MCPB 接線到 launcher。
+**本版的非 CI 項目**：Windows 11 的安裝、靜默安裝與 `/D=` 路徑、執行中重裝、靜默解除安裝與資料保留、Defender 更名重試的實際行為；macOS 的 DMG 掛載、`spctl` 結果（只記錄）與 Gatekeeper 提示（ad-hoc 簽章，須於系統設定中強制打開）；Windows ACL 的真實行為；打包與啟動效能在 Windows 與 macOS 的數字（`desktop-perf-<os>` 與 `package-<platform>-<arch>.json` artifact）。尚未做：簽章、公證、自動更新、DT-01 完整的來源偵測精靈、DT-19 完整診斷、DT-24 完整清理、macOS 移除桌面整合入口，以及 plugin／standalone／MCPB 接線到 launcher。
+
+**macOS 簽章與首次啟動**：Electron 翻轉 fuse 後原簽章失效，而 electron-builder 在 GitHub `pull_request` 執行時會略過所有簽章，所以 `electron-builder.config.mjs` 設 `mac.identity: null`，改由 `afterPack` hook（`apps/desktop/scripts/after-pack.mjs`）在 PR 與 release 建置走同一條路徑：先翻轉 fuse，再由 `mac-ad-hoc-sign.mjs` 以 ad-hoc 由內而外簽署整個 .app（`runtime-bundle` 不動，官方 Node 保有自己的簽章）。尚無 Developer ID，不做公證；在 macOS 15 上，帶隔離屬性的 ad-hoc App 須於「系統設定 → 隱私權與安全性」按「強制打開」（Open Anyway）才能首次開啟，右鍵 → 打開已不能繞過 Gatekeeper。`package.mjs` 以 `codesign --verify --deep --strict`（含解壓後的 zip）、內附 Node 的 `codesign --verify --strict` 與 fuse 回讀作為硬性閘；`spctl` 只記錄結果。
 
 ## R3 → R4 修訂紀錄
 

@@ -276,9 +276,10 @@
 
 - **狀態**：暫定採用（1.6.43 實作 DT-23；1.6.45 加入 Windows ACL 檢查，僅以 fixture 驗證，真實 Windows 行為待 CI 或實機）
 - **脈絡**：Agent 直接指向版本目錄會在更新後失效；shell 拼接字串有注入風險（R07、R13）。
-- **決策**：Agent 的 `command` 指向使用者層固定 launcher。launcher 讀取原子提交的 manifest，以 argv array 啟動，只允許指定動作（`mcp`、`serve`、`codex-finalize-reminder`、`claude-finalize-reminder`）。檢查 manifest 與 binary 的所有權與權限：POSIX 拒絕 world-writable 與非目前使用者擁有的項目；Windows 的 ACL 尚未檢查。
+- **決策**：Agent 的 `command` 指向使用者層固定 launcher。launcher 讀取原子提交的 manifest，以 argv array 啟動，只允許指定動作（`mcp`、`serve`、`codex-finalize-reminder`、`claude-finalize-reminder`）。檢查 manifest 與 binary 的所有權與權限：POSIX 拒絕 world-writable 與非目前使用者擁有的項目；Windows 的 ACL 於 1.6.45 起檢查（見下方實作狀態）。
 - **1.6.43 的實作**：`bin/` 下的 shim 只讀取 `current` 與 `runtime-launch.txt` 後執行 launcher；所有驗證（manifest 嚴格解析、逐檔 SHA-256 與大小、未列出的檔案與 symlink、路徑、動作白名單、錯誤碼）都在共用的 TypeScript 中。manifest 為 v1，列出 runtime 目錄內的每一個檔案，未列出的檔案使 runtime 無效。
 - **後果**：多一層 launcher 需要測試；換版透過 manifest 切換。
+- **1.6.45 的實作**：Windows ACL 分兩層讀取，第一層為 .NET，失敗才用 `Get-Acl` 加 `whoami /user`；PowerShell 5.1 以絕對路徑與允許清單環境啟動。兩層都失敗回報 `RUNTIME_ACL_UNREADABLE`。`icacls` 未採用，因為 `icacls /save` 沒有擁有者資訊，而擁有者必須被驗證。真實 Windows 行為待 CI 或實機確認。
 - **關聯**：§3.3、§10.2；DT-23；R07、R13。
 
 ### ADR-16 Runtime 延後清理：無現役連線且可安全刪除才 GC
