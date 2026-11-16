@@ -9,6 +9,154 @@ export type CommandResult = { code: number; stdout: string; stderr: string };
 const PICK_TIMEOUT_MS = 5 * 60 * 1000;
 const PROMPT = "選擇 Work Intelligence 專案資料夾";
 
+/**
+ * C# compiled by `Add-Type`: the Windows Vista+ common item dialog (`IFileOpenDialog`) in folder mode,
+ * the same dialog File Explorer and modern apps use. The title is a parameter, never part of the source.
+ * The interface lists every method in vtable order (IModalWindow, IFileDialog, IFileOpenDialog); a wrong
+ * order calls the wrong method, so unused methods stay declared.
+ */
+const FOLDER_DIALOG_CSHARP = [
+  "using System;",
+  "using System.Runtime.InteropServices;",
+  "namespace WorkLog {",
+  '  [ComImport, Guid("DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7")]',
+  "  class FileOpenDialogClass { }",
+  '  [ComImport, Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+  "  interface IShellItem {",
+  "    void BindToHandler(IntPtr pbc, ref Guid bhid, ref Guid riid, out IntPtr ppv);",
+  "    void GetParent(out IShellItem ppsi);",
+  "    void GetDisplayName(uint sigdnName, [MarshalAs(UnmanagedType.LPWStr)] out string ppszName);",
+  "    void GetAttributes(uint sfgaoMask, out uint psfgaoAttribs);",
+  "    void Compare(IShellItem psi, uint hint, out int piOrder);",
+  "  }",
+  '  [ComImport, Guid("42F85136-DB7E-439C-85F1-E4075D135FC8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+  "  interface IFileOpenDialog {",
+  "    [PreserveSig] int Show(IntPtr hwndOwner);",
+  "    void SetFileTypes(uint cFileTypes, IntPtr rgFilterSpec);",
+  "    void SetFileTypeIndex(uint iFileType);",
+  "    void GetFileTypeIndex(out uint piFileType);",
+  "    void Advise(IntPtr pfde, out uint pdwCookie);",
+  "    void Unadvise(uint dwCookie);",
+  "    void SetOptions(uint fos);",
+  "    void GetOptions(out uint pfos);",
+  "    void SetDefaultFolder(IShellItem psi);",
+  "    void SetFolder(IShellItem psi);",
+  "    void GetFolder(out IShellItem ppsi);",
+  "    void GetCurrentSelection(out IShellItem ppsi);",
+  "    void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string pszName);",
+  "    void GetFileName([MarshalAs(UnmanagedType.LPWStr)] out string pszName);",
+  "    void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string pszTitle);",
+  "    void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string pszText);",
+  "    void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string pszLabel);",
+  "    void GetResult(out IShellItem ppsi);",
+  "    void AddPlace(IShellItem psi, int fdap);",
+  "    void SetDefaultExtension([MarshalAs(UnmanagedType.LPWStr)] string pszDefaultExtension);",
+  "    void Close(int hr);",
+  "    void SetClientGuid(ref Guid guid);",
+  "    void ClearClientData();",
+  "    void SetFilter(IntPtr pFilter);",
+  "    void GetResults(out IntPtr ppenum);",
+  "    void GetSelectedItems(out IntPtr ppsai);",
+  "  }",
+  "  public static class FolderPicker {",
+  '    [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr value);',
+  '    [DllImport("user32.dll")] static extern bool SetProcessDPIAware();',
+  // FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST.
+  "    const uint FolderOptions = 0x20 | 0x40 | 0x800;",
+  "    const uint SigdnFileSysPath = 0x80058000;",
+  // HRESULT_FROM_WIN32(ERROR_CANCELLED): the user closed the dialog.
+  "    const int CancelledHResult = unchecked((int)0x800704C7);",
+  "    // Per-monitor v2 (-4) on Windows 10 1703+, system DPI awareness elsewhere. Failure only means blurry scaling.",
+  "    public static void EnableDpiAwareness() {",
+  "      try {",
+  "        if (!SetProcessDpiAwarenessContext(new IntPtr(-4))) { SetProcessDPIAware(); }",
+  "      } catch (EntryPointNotFoundException) {",
+  "        try { SetProcessDPIAware(); } catch (Exception) { }",
+  "      } catch (Exception) { }",
+  "    }",
+  "    // Returns the chosen folder path, or null when the user cancels.",
+  "    public static string Pick(string title, IntPtr owner) {",
+  "      IFileOpenDialog dialog = (IFileOpenDialog)new FileOpenDialogClass();",
+  "      try {",
+  "        uint options;",
+  "        dialog.GetOptions(out options);",
+  "        dialog.SetOptions(options | FolderOptions);",
+  "        dialog.SetTitle(title);",
+  "        int hr = dialog.Show(owner);",
+  "        if (hr == CancelledHResult) { return null; }",
+  "        if (hr != 0) { Marshal.ThrowExceptionForHR(hr); }",
+  "        IShellItem item;",
+  "        dialog.GetResult(out item);",
+  "        try {",
+  "          string path;",
+  "          item.GetDisplayName(SigdnFileSysPath, out path);",
+  "          return path;",
+  "        } finally { Marshal.ReleaseComObject(item); }",
+  "      } finally { Marshal.ReleaseComObject(dialog); }",
+  "    }",
+  "  }",
+  "}",
+].join("\n");
+
+/** PowerShell single-quoted string literal: only the quote itself needs escaping. */
+function powerShellQuote(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+/**
+ * Fixed PowerShell script for the Windows dialog. Exit 0 prints the path, exit 2 means cancel and any
+ * other status is a failure. Nothing in it comes from a request.
+ */
+function windowsPickerScript(): string {
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    // Paths may contain non-ASCII characters; Node decodes stdout as UTF-8.
+    "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
+    "Add-Type -AssemblyName System.Windows.Forms",
+    `$title = ${powerShellQuote(PROMPT)}`,
+    `$source = @'\n${FOLDER_DIALOG_CSHARP}\n'@`,
+    // A tiny top-most window owns the dialog so it opens in front of the browser.
+    "function New-Owner {",
+    "  $owner = New-Object System.Windows.Forms.Form",
+    "  $owner.TopMost = $true",
+    "  $owner.ShowInTaskbar = $false",
+    "  $owner.FormBorderStyle = 'None'",
+    "  $owner.StartPosition = 'CenterScreen'",
+    "  $owner.Size = New-Object System.Drawing.Size(1, 1)",
+    "  $owner.Opacity = 0",
+    "  $owner.Show()",
+    "  $owner.Activate()",
+    "  $owner",
+    "}",
+    // Modern dialog: returns the path, or $null when cancelled. Throws on any other failure.
+    "function Show-ModernDialog {",
+    "  Add-Type -TypeDefinition $source",
+    "  [WorkLog.FolderPicker]::EnableDpiAwareness()",
+    "  $owner = New-Owner",
+    "  try { [WorkLog.FolderPicker]::Pick($title, $owner.Handle) } finally { $owner.Dispose() }",
+    "}",
+    // Fallback for machines where the COM dialog cannot be used: the classic tree dialog.
+    "function Show-LegacyDialog {",
+    "  [System.Windows.Forms.Application]::EnableVisualStyles()",
+    "  $owner = New-Owner",
+    "  try {",
+    "    $dialog = New-Object System.Windows.Forms.FolderBrowserDialog",
+    "    $dialog.Description = $title",
+    "    if ($dialog.ShowDialog($owner) -eq 'OK') { $dialog.SelectedPath }",
+    "  } finally { $owner.Dispose() }",
+    "}",
+    "$path = $null",
+    "$shown = $false",
+    "try { $path = Show-ModernDialog; $shown = $true } catch { }",
+    "if (-not $shown) { $path = Show-LegacyDialog }",
+    // Exit 2 on cancel so it is not confused with PowerShell's own failure status 1.
+    "if ($path) { Write-Output $path } else { exit 2 }",
+  ].join("\n");
+}
+
+/** -EncodedCommand takes base64 UTF-16LE, which avoids Windows argv quoting of a multi-line script. */
+const WINDOWS_PICKER_ENCODED_SCRIPT = Buffer.from(windowsPickerScript(), "utf16le").toString("base64");
+
 /** execFile without a shell: the dialog commands are fixed strings and never include request input. */
 export const runCommand: CommandRunner = (file, args, timeoutMs) =>
   new Promise((resolve, reject) => {
@@ -38,19 +186,10 @@ export function folderDialogCommands(platform: NodeJS.Platform): DialogCommand[]
     ];
   }
   if (platform === "win32") {
-    const script = [
-      "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
-      "Add-Type -AssemblyName System.Windows.Forms",
-      "$owner = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true }",
-      "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog",
-      `$dialog.Description = '${PROMPT}'`,
-      // Exit 2 on cancel so it is not confused with PowerShell's own failure status 1.
-      "if ($dialog.ShowDialog($owner) -eq 'OK') { $dialog.SelectedPath } else { exit 2 }",
-    ].join("; ");
     return [
       {
         file: "powershell.exe",
-        args: ["-NoProfile", "-STA", "-Command", script],
+        args: ["-NoProfile", "-NonInteractive", "-STA", "-EncodedCommand", WINDOWS_PICKER_ENCODED_SCRIPT],
         isCancel: (result) => result.code === 2,
       },
     ];

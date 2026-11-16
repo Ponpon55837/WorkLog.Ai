@@ -2,11 +2,11 @@
 import { ref } from "vue";
 import { storeToRefs } from "pinia";
 import { FolderOpen } from "lucide-vue-next";
-import { useProjectsStore } from "../../stores/projects";
 import UiButton from "../ui/UiButton.vue";
 import UiDialog from "../ui/UiDialog.vue";
 import UiField from "../ui/UiField.vue";
 import UiTextInput from "../ui/UiTextInput.vue";
+import { useProjectsStore } from "../../stores/projects";
 import { t } from "../../i18n";
 
 const open = defineModel<boolean>("open", { required: true });
@@ -52,15 +52,15 @@ async function pickFolder(): Promise<void> {
     @close="open = false"
   >
     <form id="add-project-form" class="add-project" data-testid="add-project-form" @submit.prevent="submit">
-      <UiField :label="t('projects.projectName')"
-        ><UiTextInput v-model="projectName" :placeholder="t('projects.eGAssistantConsole')" required autofocus
-      /></UiField>
+      <UiField :label="t('projects.projectName')">
+        <UiTextInput v-model="projectName" :placeholder="t('projects.eGAssistantConsole')" required autofocus />
+      </UiField>
       <UiField
         :label="t('projects.workspaceRoot')"
         :hint="pickingFolder ? t('projects.chooseAFolderInThe') : t('projects.pressChooseFolderToPick')"
       >
         <div class="add-project__root">
-          <UiTextInput v-model="projectRoot" placeholder="/Users/you/project" mono required />
+          <UiTextInput v-model="projectRoot" :placeholder="t('projects.workspaceRootPlaceholder')" mono required />
           <UiButton :icon="FolderOpen" :loading="pickingFolder" @click.prevent="pickFolder">{{
             t("projects.chooseFolder")
           }}</UiButton>

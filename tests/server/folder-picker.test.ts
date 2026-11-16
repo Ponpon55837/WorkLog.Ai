@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import {
   createFolderPicker,
@@ -18,6 +19,116 @@ function runner(results: Record<string, CommandResult | "missing">): CommandRunn
   };
   return Object.assign(run, { calls });
 }
+
+function windowsScript(): string {
+  const [command] = folderDialogCommands("win32");
+  return Buffer.from(command?.args[4] ?? "", "base64").toString("utf16le");
+}
+
+describe("Windows folder dialog script", () => {
+  it("runs powershell.exe in STA mode with the script as one -EncodedCommand argument", () => {
+    const commands = folderDialogCommands("win32");
+    expect(commands).toHaveLength(1);
+    expect(commands[0]?.file).toBe("powershell.exe");
+    expect(commands[0]?.args.slice(0, 4)).toEqual(["-NoProfile", "-NonInteractive", "-STA", "-EncodedCommand"]);
+    expect(commands[0]?.args).toHaveLength(5);
+    const encoded = commands[0]?.args[4] ?? "";
+    expect(encoded).toMatch(/^[A-Za-z0-9+/]+=*$/);
+    expect(Buffer.from(Buffer.from(windowsScript(), "utf16le").toString("base64"), "base64").toString("utf16le")).toBe(
+      windowsScript(),
+    );
+    expect(Buffer.from(encoded, "base64").toString("base64")).toBe(encoded);
+  });
+
+  it("uses the modern IFileOpenDialog in folder mode with the documented COM identifiers", () => {
+    const script = windowsScript();
+    expect(script).toContain("DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7");
+    expect(script).toContain("42F85136-DB7E-439C-85F1-E4075D135FC8");
+    expect(script).toContain("43826D1E-E718-42EE-BC55-A1E261C37BFE");
+    // FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST, added to the dialog's current options.
+    expect(script).toContain("0x20 | 0x40 | 0x800");
+    expect(script).toContain("options | FolderOptions");
+    expect(script).toContain("0x80058000");
+  });
+
+  it("declares the dialog methods in vtable order", () => {
+    const script = windowsScript();
+    const order = [
+      "Show(",
+      "SetFileTypes",
+      "SetFileTypeIndex",
+      "GetFileTypeIndex",
+      "Advise",
+      "Unadvise",
+      "SetOptions",
+      "GetOptions",
+      "SetDefaultFolder",
+      "SetFolder",
+      "GetFolder",
+      "GetCurrentSelection",
+      "SetFileName",
+      "GetFileName",
+      "SetTitle",
+      "SetOkButtonLabel",
+      "SetFileNameLabel",
+      "GetResult",
+      "AddPlace",
+      "SetDefaultExtension",
+      "Close",
+      "SetClientGuid",
+      "ClearClientData",
+      "SetFilter",
+      "GetResults",
+      "GetSelectedItems",
+    ].map((name) => script.indexOf(`${name.startsWith("Show") ? "int " : "void "}${name}`));
+    expect(order.every((index) => index >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it("maps a cancelled dialog to exit 2 and keeps PreserveSig to see the cancel HRESULT", () => {
+    const script = windowsScript();
+    expect(script).toContain("[PreserveSig] int Show(IntPtr hwndOwner)");
+    expect(script).toContain("0x800704C7");
+    expect(script).toContain("else { exit 2 }");
+  });
+
+  it("opens in front of the browser, scales with the monitor and releases its objects", () => {
+    const script = windowsScript();
+    expect(script).toContain("$owner.TopMost = $true");
+    expect(script).toContain("$owner.Dispose()");
+    expect(script).toContain("SetProcessDpiAwarenessContext(new IntPtr(-4))");
+    expect(script).toContain("SetProcessDPIAware()");
+    expect(script).toContain("Marshal.ReleaseComObject(dialog)");
+    expect(script).toContain("Marshal.ReleaseComObject(item)");
+  });
+
+  it("falls back to the classic dialog with visual styles when the COM path throws", () => {
+    const script = windowsScript();
+    expect(script).toContain("catch { }");
+    expect(script).toContain("System.Windows.Forms.FolderBrowserDialog");
+    expect(script).toContain("[System.Windows.Forms.Application]::EnableVisualStyles()");
+    expect(script.indexOf("Show-ModernDialog; $shown")).toBeLessThan(script.indexOf("$path = Show-LegacyDialog"));
+  });
+
+  it("writes UTF-8 and passes the Chinese title as a single-quoted PowerShell string", () => {
+    const script = windowsScript();
+    expect(script).toContain("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8");
+    expect(script).toContain("$title = '選擇 Work Intelligence 專案資料夾'");
+    // The title is a parameter of Pick, never embedded in the C# source.
+    expect(script).toContain("Pick($title, $owner.Handle)");
+    expect(script).toContain("dialog.SetTitle(title)");
+  });
+
+  it("is a fixed script without interpolated or undefined values", () => {
+    expect(windowsScript()).not.toMatch(/\$\{|undefined|\[object/);
+  });
+
+  it("is passed to execFile without a shell", async () => {
+    const source = await readFile(new URL("../../apps/server/src/folder-picker.ts", import.meta.url), "utf8");
+    expect(source).toMatch(/execFile\(file, \[\.\.\.args\]/);
+    expect(source).not.toMatch(/shell:\s*true|exec\(|execSync/);
+  });
+});
 
 describe("native folder picker", () => {
   it("returns the chosen macOS folder without its trailing slash", async () => {
@@ -51,6 +162,24 @@ describe("native folder picker", () => {
     expect(await root()).toMatchObject({ path: "D:\\" });
     const cancelled = createFolderPicker("win32", runner({ "powershell.exe": { code: 2, stdout: "", stderr: "" } }));
     expect(await cancelled()).toEqual({ outcome: "folder_pick_cancelled" });
+  });
+
+  it("reads a Windows path with a UTF-8 byte order mark, Chinese characters and CRLF", async () => {
+    const pick = createFolderPicker(
+      "win32",
+      runner({ "powershell.exe": { code: 0, stdout: "\uFEFFD:\\工作\\專案\r\n", stderr: "" } }),
+    );
+    expect(await pick()).toEqual({ outcome: "folder_picked", path: "D:\\工作\\專案", name: "專案" });
+  });
+
+  it("treats any Windows exit status other than 0 or 2 as unavailable", async () => {
+    const failed = createFolderPicker(
+      "win32",
+      runner({ "powershell.exe": { code: 1, stdout: "", stderr: "Add-Type : error" } }),
+    );
+    expect(await failed()).toMatchObject({ outcome: "folder_pick_unavailable" });
+    const missing = createFolderPicker("win32", runner({ "powershell.exe": "missing" }));
+    expect(await missing()).toMatchObject({ outcome: "folder_pick_unavailable" });
   });
 
   it("falls back from zenity to kdialog on Linux and reports when neither exists", async () => {
