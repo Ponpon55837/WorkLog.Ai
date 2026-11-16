@@ -103,6 +103,7 @@ async function runtimeInfo(verified: VerifiedRuntime, host: LauncherHost): Promi
         hashed: verified.hashedCount,
         cached: verified.cachedCount,
         acl: verified.acl,
+        aclRead: verified.aclReport,
       },
     },
     null,

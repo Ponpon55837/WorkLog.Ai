@@ -21,6 +21,7 @@ import { Buffer } from "node:buffer";
 import {
   existsSync,
   mkdirSync,
+  cpSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -58,6 +59,7 @@ import {
 } from "./harness.mjs";
 import { compressedTarSize } from "./compressed-size.mjs";
 import { appendStepSummary, writeReport } from "./report.mjs";
+import { allowBuiltinUsersToWrite } from "./secure-directory.mjs";
 
 const WINDOWS = process.platform === "win32";
 /** What the shims set for an Electron runtime (see ELECTRON_AS_NODE_ENV in desktop-core); direct starts need it too. */
@@ -427,6 +429,36 @@ async function checkTampering(ctx, area) {
   );
 }
 
+/**
+ * Negative case of the Windows ACL check: a copy of the launcher root whose directory lets BUILTIN\Users write, as a
+ * runner's temp folder does, must be refused with exit 78 and RUNTIME_UNSAFE_PERMISSIONS before anything starts.
+ */
+async function checkUnsafeAcl(ctx) {
+  if (!WINDOWS) {
+    check("unsafe ACL: BUILTIN\\Users-writable root is refused (Windows only, skipped)", true);
+    return;
+  }
+  const unsafeRoot = join(ctx.workRoot, "unsafe 啟動器");
+  cpSync(ctx.root, unsafeRoot, { recursive: true, verbatimSymlinks: true });
+  allowBuiltinUsersToWrite(unsafeRoot);
+  const shim = join(unsafeRoot, "bin", "work-intelligence-launcher.cmd");
+  const port = await freePort();
+  const area = scratch(ctx.workRoot, `unsafe-${port}`, port);
+  const serve = await runShim(shim, ["serve"], { env: area.env, cwd: area.root });
+  check(
+    "unsafe ACL: serve is refused with exit 78 and RUNTIME_UNSAFE_PERMISSIONS",
+    serve.code === 78 && serve.stderr.includes("RUNTIME_UNSAFE_PERMISSIONS"),
+    `exit ${serve.code}: ${excerpt(serve.stderr)}`,
+  );
+  check("unsafe ACL: nothing was started (port stays free)", await portIsFree(port), `port ${port}`);
+  const mcp = await runShim(shim, ["mcp"], { env: area.env, cwd: area.root });
+  check(
+    "unsafe ACL: mcp is refused and stdout stays empty",
+    mcp.code === 78 && mcp.stderr.includes("RUNTIME_UNSAFE_PERMISSIONS") && mcp.stdout === "",
+    `exit ${mcp.code}: ${excerpt(mcp.stderr)} | ${excerpt(mcp.stdout)}`,
+  );
+}
+
 function directoryBytes(prefix, manifest) {
   return manifest.files.filter((file) => file.path.startsWith(prefix)).reduce((total, file) => total + file.size, 0);
 }
@@ -485,6 +517,12 @@ async function main() {
     const infoRun = await runShim(ctx.shim, ["--print-runtime-info"], { env: probe.env, cwd: probe.root });
     check("launcher: --print-runtime-info", infoRun.code === 0, `exit ${infoRun.code}: ${excerpt(infoRun.stderr)}`);
     const info = JSON.parse(infoRun.stdout || "{}");
+    if (info.verification?.aclRead) {
+      const { tier, attempts } = info.verification.aclRead;
+      console.log(
+        `ACL read: tier=${tier} ${attempts.map((attempt) => `${attempt.tier}=${attempt.ms}ms${attempt.ok ? "" : "(failed)"}`).join(" ")}`,
+      );
+    }
     check(
       "runtime: the process is the bundled executable",
       info.execPath && samePath(info.execPath, join(runtimeDirectory, manifest.executable)),
@@ -508,6 +546,7 @@ async function main() {
     const mcpIdle = await checkMcp(ctx, serverRun.area);
     await checkHooks(ctx, serverRun.area);
     await checkTampering(ctx, serverRun.area);
+    await checkUnsafeAcl(ctx);
     const sizes = await measureSizes(ctx);
 
     const failed = results.filter((result) => !result.ok).length;

@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { errorCode } from "../internal/error-code.js";
 import { forEachLimited } from "./concurrency.js";
-import { RuntimeError } from "./errors.js";
+import { REINSTALLABLE_CODES, RuntimeError } from "./errors.js";
 import { commitCurrent, writeShims } from "./install.js";
 import {
   MANIFEST_FILE_NAME,
@@ -18,6 +18,7 @@ import { SHA256_PATTERN, parseRuntimeManifest, type RuntimeKind, type RuntimeMan
 import { scanRuntimeDirectory } from "./scan.js";
 import { assertSymlinksStayInside } from "./symlinks.js";
 import { verifyRuntime, type VerifyRuntimeOptions } from "./verify.js";
+import type { AclReadReport } from "./windows-acl.js";
 
 /** How `ensureBundledRuntime` found the installed runtime and what it did about it. */
 export type BundledRuntimeStatus = "already-current" | "switched" | "installed" | "reinstalled";
@@ -33,6 +34,8 @@ export interface EnsuredRuntime {
   readonly hashedCount: number;
   /** The runtime `current` named before this call, when it was another one (a candidate fallback to keep). */
   readonly previousRuntimeId: string | undefined;
+  /** Windows: which tier read the ACLs and how long each tier took, when this call read them (absent on the fast path). */
+  readonly aclReport?: AclReadReport;
 }
 
 /** The file system calls that can be made to fail in tests. */
@@ -70,17 +73,6 @@ const COPY_CONCURRENCY = 4;
 /** Waits before each retry of a rename that Windows refused while Defender or the indexer holds the new files. */
 const RENAME_RETRY_DELAYS_MS: readonly number[] = [50, 100, 200, 400, 800, 1_000, 1_000, 1_000];
 const RENAME_RETRYABLE: ReadonlySet<string> = new Set(["EPERM", "EBUSY", "EACCES"]);
-/**
- * Errors that mean the installed files are wrong (damaged, replaced, incomplete): a clean reinstall fixes them. Anything
- * else (permissions, an ACL that cannot be read, a bad pointer) is not fixed by copying again and goes to the repair flow.
- */
-const REINSTALLABLE_CODES: ReadonlySet<string> = new Set([
-  "RUNTIME_FILE_TAMPERED",
-  "RUNTIME_MANIFEST_INVALID",
-  "RUNTIME_FILE_MISSING",
-  "RUNTIME_FILE_UNEXPECTED",
-  "RUNTIME_SYMLINK_REJECTED",
-]);
 const MAX_BUNDLE_MANIFEST_BYTES = 4 * 1024 * 1024;
 const GROUP_OTHER_WRITE = 0o022;
 const MANIFEST_MODE = 0o644;
@@ -273,7 +265,7 @@ async function installFromBundle(
   bundle: Bundle,
   options: EnsureBundledRuntimeOptions,
   deps: BundledInstallDeps,
-): Promise<{ bytesCopied: number; hashedCount: number }> {
+): Promise<{ bytesCopied: number; hashedCount: number; aclReport: AclReadReport | undefined }> {
   const runtimes = path.join(root, RUNTIMES_DIRECTORY_NAME);
   const staging = path.join(runtimes, uniqueName(STAGING_DIRECTORY_PREFIX, bundle.runtimeId));
   const target = runtimeDirectoryFor(root, bundle.runtimeId);
@@ -291,7 +283,7 @@ async function installFromBundle(
     await writeShims(root);
     // No cache exists yet, so this reads and hashes every file once, against the bundle's own manifest, and writes the cache.
     const verification = await commitCurrent(root, bundle.runtimeId, { ...options.verify, useCache: true });
-    return { bytesCopied, hashedCount: verification.hashedCount };
+    return { bytesCopied, hashedCount: verification.hashedCount, aclReport: verification.aclReport };
   } catch (error) {
     // Wrong content must not stay where `current` or a retry could pick it up. A permission problem is not the files'
     // fault and copying again would not fix it: the directory stays, `current` is not switched, and the repair flow explains.
@@ -333,13 +325,19 @@ export async function ensureBundledRuntime(
   const sameManifest = installedManifest?.equals(bundle.manifestBytes) === true;
   const currentId = await readCurrentRuntimeId(root).catch(() => undefined);
   const previousRuntimeId = currentId !== bundle.runtimeId ? currentId : undefined;
-  const finish = (status: BundledRuntimeStatus, bytesCopied: number, hashedCount: number): EnsuredRuntime => ({
+  const finish = (
+    status: BundledRuntimeStatus,
+    bytesCopied: number,
+    hashedCount: number,
+    aclReport?: AclReadReport,
+  ): EnsuredRuntime => ({
     status,
     runtimeId: bundle.runtimeId,
     elapsedMs: Math.round(deps.now() - started),
     bytesCopied,
     hashedCount,
     previousRuntimeId,
+    ...(aclReport ? { aclReport } : {}),
   });
 
   if (sameManifest && currentId === bundle.runtimeId && options.verifyInstalled !== true) {
@@ -357,7 +355,12 @@ export async function ensureBundledRuntime(
       await writeShims(root).catch((error: unknown) => {
         throw installFailed("無法寫入 launcher shim", path.join(root, "bin"), error);
       });
-      return finish(currentId === bundle.runtimeId ? "already-current" : "switched", 0, verified.hashedCount);
+      return finish(
+        currentId === bundle.runtimeId ? "already-current" : "switched",
+        0,
+        verified.hashedCount,
+        verified.aclReport,
+      );
     } catch (error) {
       if (!(error instanceof RuntimeError) || !REINSTALLABLE_CODES.has(error.code)) throw error;
       // Damaged files: fall through to a clean reinstall.
@@ -373,8 +376,8 @@ export async function ensureBundledRuntime(
     ));
   const quarantined = existed ? await quarantine(root, bundle.runtimeId, deps) : undefined;
   try {
-    const { bytesCopied, hashedCount } = await installFromBundle(root, bundle, options, deps);
-    return finish(existed ? "reinstalled" : "installed", bytesCopied, hashedCount);
+    const { bytesCopied, hashedCount, aclReport } = await installFromBundle(root, bundle, options, deps);
+    return finish(existed ? "reinstalled" : "installed", bytesCopied, hashedCount, aclReport);
   } catch (error) {
     // `current` must never name a directory that is gone: put the set-aside one back when nothing took its place.
     if (quarantined !== undefined) await restoreQuarantined(deps, quarantined, target);

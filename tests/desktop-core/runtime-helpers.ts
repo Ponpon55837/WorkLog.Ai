@@ -10,6 +10,7 @@ import {
   type RuntimeDefinition,
   type RuntimeKind,
 } from "../../packages/desktop-core/src/runtime/index.js";
+import { securePrivateDirectory } from "../../scripts/desktop-runtime-spike/secure-directory.mjs";
 
 export const IS_WINDOWS = process.platform === "win32";
 
@@ -41,10 +42,14 @@ export function fixtureDefinition(runtimeId: string, runtimeKind: RuntimeKind = 
   };
 }
 
-/** A fresh launcher root; `realpath.native` so comparisons survive macOS /private/var and Windows 8.3 names. */
+/**
+ * A fresh launcher root; `realpath.native` so comparisons survive macOS /private/var and Windows 8.3 names. On Windows it
+ * is locked like the App's real root, because the runner's temp folder grants BUILTIN\Users write access, which the
+ * runtime's ACL check refuses.
+ */
 export async function makeRoot(label = "desktop-runtime"): Promise<string> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), `${label} 測試-`));
-  return realpathSync.native(root);
+  return securePrivateDirectory(realpathSync.native(root));
 }
 
 export async function writeFiles(directory: string, files: Readonly<Record<string, string>>): Promise<void> {

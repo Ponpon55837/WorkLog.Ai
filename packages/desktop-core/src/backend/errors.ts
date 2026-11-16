@@ -1,12 +1,14 @@
 import { DESKTOP_BACKEND_ERROR_CODES, type DesktopBackendErrorCode } from "@work-intelligence/schema";
+import { RUNTIME_ERROR_CODES, type RuntimeErrorCode } from "../runtime/errors.js";
 
 /**
- * The one list of backend error codes (R4 section 8.1 and the supervisor's own checks). It lives in
- * `@work-intelligence/schema` because the server child reports the same codes over the private channel.
+ * The one list of backend error codes: the ones the server child reports over the private channel (R4 section 8.1, in
+ * `@work-intelligence/schema`) plus every reason the runtime itself can be refused, which the supervisor reports as is
+ * so the true cause reaches the logs, the repair window and diagnostics.
  */
-export const BACKEND_ERROR_CODES = DESKTOP_BACKEND_ERROR_CODES;
+export const BACKEND_ERROR_CODES = [...DESKTOP_BACKEND_ERROR_CODES, ...RUNTIME_ERROR_CODES] as const;
 
-export type BackendErrorCode = DesktopBackendErrorCode;
+export type BackendErrorCode = DesktopBackendErrorCode | RuntimeErrorCode;
 
 /** A failure while bringing the backend up or down: a code the shell maps to one next step, and a path-free detail. */
 export class BackendFailure extends Error {

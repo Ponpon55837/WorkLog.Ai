@@ -16,6 +16,7 @@ import {
   trayLocationName,
   trayTooltip,
   BACKEND_ERROR_CODES,
+  RUNTIME_ERROR_CODES,
   type DesktopSettingsV1,
   type ErrorSurface,
 } from "../../packages/desktop-core/src/index.js";
@@ -143,6 +144,19 @@ describe("i18n", () => {
       expect(zh.errors[code].title.length).toBeGreaterThan(0);
       expect(en.errors[code].hint.length).toBeGreaterThan(0);
     }
+  });
+
+  it("gives every runtime refusal a title and an actionable hint in both languages", () => {
+    for (const code of RUNTIME_ERROR_CODES) {
+      for (const messages of [zh, en]) {
+        expect(messages.errors[code].title.trim().length).toBeGreaterThan(0);
+        expect(messages.errors[code].hint.trim().length).toBeGreaterThan(0);
+      }
+    }
+    expect(en.errors.RUNTIME_UNSAFE_PERMISSIONS.hint).toMatch(/reinstall|administrator/i);
+    expect(en.errors.RUNTIME_ACL_UNREADABLE.hint).toMatch(/administrator/i);
+    expect(zh.errors.RUNTIME_UNSAFE_PERMISSIONS.hint).toContain("系統管理員");
+    expect(zh.errors.RUNTIME_ACL_UNREADABLE.hint).toContain("系統管理員");
   });
 
   it("reads zh-* as Traditional Chinese and everything else as English", () => {

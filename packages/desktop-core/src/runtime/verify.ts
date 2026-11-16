@@ -25,7 +25,7 @@ import {
   type AclStampEntry,
   type CachedFile,
 } from "./verified-cache.js";
-import { assertWindowsAcl, createWindowsAclReader, type WindowsAclReader } from "./windows-acl.js";
+import { assertWindowsAcl, createWindowsAclReader, type AclReadReport, type WindowsAclReader } from "./windows-acl.js";
 
 /** Options of {@link verifyRuntime}. */
 export interface VerifyRuntimeOptions {
@@ -35,7 +35,7 @@ export interface VerifyRuntimeOptions {
   readonly concurrency?: number;
   /** Use and update `.verified.json`; defaults to true. */
   readonly useCache?: boolean;
-  /** Windows: how the ACLs are read; defaults to PowerShell and `whoami`. Tests inject fixtures. */
+  /** Windows: how the ACLs are read; defaults to Windows PowerShell 5.1 in a clean environment (.NET API, then `Get-Acl` and `whoami`). Tests inject fixtures. */
   readonly aclReader?: WindowsAclReader;
   /**
    * Windows: false verifies content and structure only and skips the ACL read (the result says `acl: "skipped"`). For a
@@ -56,6 +56,8 @@ export interface VerifiedRuntime {
   readonly acl: AclCheck;
   /** Windows: whether the ACLs were read this time. Always false elsewhere. */
   readonly aclRead: boolean;
+  /** Windows: which tier read the ACLs and how long each tier took; present only when they were read this time (absent when skipped or served from the stamp cache). */
+  readonly aclReport?: AclReadReport;
   readonly fileCount: number;
   /** Files whose content was read and hashed this time. */
   readonly hashedCount: number;
@@ -215,16 +217,16 @@ async function checkWindowsAcl(
   previous: AclStamp | undefined,
   force: boolean,
   reader: WindowsAclReader | undefined,
-): Promise<{ readonly read: boolean; readonly stamp: AclStamp }> {
+): Promise<{ readonly report?: AclReadReport; readonly stamp: AclStamp }> {
   const targets = await aclTargets(root, runtimeDirectory, manifest);
   const stamp: Record<string, AclStampEntry> = {};
   for (const target of targets) if (target.stamp !== undefined) stamp[target.label] = target.stamp;
-  if (!force && previous !== undefined && sameAclStamp(previous, stamp)) return { read: false, stamp };
-  await assertWindowsAcl(
+  if (!force && previous !== undefined && sameAclStamp(previous, stamp)) return { stamp };
+  const report = await assertWindowsAcl(
     targets.map((target) => target.path),
     reader ?? createWindowsAclReader(),
   );
-  return { read: true, stamp };
+  return { report, stamp };
 }
 
 /** Refuses a runtime directory that is itself a link: the manifest would vouch for whatever the link points at. */
@@ -409,7 +411,7 @@ export async function verifyRuntime(
     verified.set(entry.path, { sha256: entry.sha256, ...scanned.stat.fingerprint });
   });
 
-  if (useCache && (toHash.length > 0 || previous.size !== verified.size || acl?.read === true)) {
+  if (useCache && (toHash.length > 0 || previous.size !== verified.size || acl?.report !== undefined)) {
     const ordered = new Map(manifest.files.map((entry) => [entry.path, verified.get(entry.path) as CachedFile]));
     await writeVerifiedCache(runtimeDirectory, runtimeId, ordered, acl?.stamp);
   }
@@ -418,7 +420,8 @@ export async function verifyRuntime(
     runtimeDirectory,
     manifest,
     acl: policy.platform === "win32" && options.checkAcl === false ? "skipped" : "checked",
-    aclRead: acl?.read ?? false,
+    aclRead: acl?.report !== undefined,
+    ...(acl?.report ? { aclReport: acl.report } : {}),
     fileCount: manifest.files.length,
     hashedCount: toHash.length,
     cachedCount: manifest.files.length - toHash.length,

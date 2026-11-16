@@ -117,10 +117,24 @@ describe("decideRuntimeRecovery", () => {
   });
 
   it.each([
+    "RUNTIME_FILE_TAMPERED",
+    "RUNTIME_MANIFEST_INVALID",
+    "RUNTIME_FILE_MISSING",
+    "RUNTIME_FILE_UNEXPECTED",
+    "RUNTIME_SYMLINK_REJECTED",
+  ])("reinstalls once for the content error %s", (failureCode) => {
+    expect(decideRuntimeRecovery({ ...base, failureCode })).toBe("verify-reinstall-and-retry");
+  });
+
+  it.each([
     ["it was already tried", { alreadyAttempted: true }],
     ["the App cannot reinstall (not packaged)", { canReinstall: false }],
     ["permissions are unsafe", { failureCode: "RUNTIME_UNSAFE_PERMISSIONS" }],
     ["the ACL could not be read", { failureCode: "RUNTIME_ACL_UNREADABLE" }],
+    [
+      "a runtime file was refused by a content check but this was the second try",
+      { failureCode: "RUNTIME_FILE_TAMPERED", alreadyAttempted: true },
+    ],
     ["the install itself failed", { failureCode: "RUNTIME_INSTALL_FAILED" }],
     ["another error", { failureCode: "CHILD_EXITED" }],
   ])("does nothing when %s", (_name, change) => {

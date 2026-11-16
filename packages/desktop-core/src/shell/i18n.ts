@@ -176,11 +176,55 @@ const zhTW: ShellMessages = {
     RUNTIME_MISSING: { title: "找不到執行環境", hint: "安裝可能不完整。請重新安裝 Work Intelligence。" },
     RUNTIME_UNSAFE_PERMISSIONS: {
       title: "執行環境資料夾的權限不安全",
-      hint: "Work Intelligence 的執行環境資料夾允許其他使用者或群組寫入，為了安全不會啟動。請移除多餘的寫入權限（只保留你自己、SYSTEM 與系統管理員），或重新安裝後再試。",
+      hint: "Work Intelligence 的執行環境資料夾允許其他帳號修改，為了安全不會啟動。請重新安裝 Work Intelligence，或請系統管理員還原資料夾權限（只保留你自己、SYSTEM 與系統管理員可寫入）後再試。",
     },
     RUNTIME_ACL_UNREADABLE: {
       title: "無法檢查執行環境資料夾的權限",
-      hint: "權限檢查沒有完成（PowerShell 可能被原則封鎖或逾時），所以沒有啟動服務。請確認 PowerShell 可以執行後重試；你的資料沒有被改動。",
+      hint: "無法讀取資料夾權限（PowerShell 可能被原則封鎖或逾時），所以沒有啟動服務。請確認 PowerShell 可以執行，或請系統管理員協助後重試；你的資料沒有被改動。",
+    },
+    RUNTIME_POINTER_MISSING: {
+      title: "找不到執行環境的版本指標",
+      hint: "安裝可能不完整。請重新安裝 Work Intelligence。",
+    },
+    RUNTIME_POINTER_INVALID: {
+      title: "執行環境的版本指標無效",
+      hint: "指標檔案可能已損毀。請重新安裝 Work Intelligence。",
+    },
+    RUNTIME_MANIFEST_INVALID: {
+      title: "執行環境的清單無效",
+      hint: "清單檔案可能已損毀。請重新安裝 Work Intelligence。",
+    },
+    RUNTIME_FILE_MISSING: {
+      title: "執行環境缺少檔案",
+      hint: "有檔案被刪除或安裝不完整。請重新安裝 Work Intelligence。",
+    },
+    RUNTIME_FILE_UNEXPECTED: {
+      title: "執行環境多了不明的檔案",
+      hint: "資料夾內有不屬於安裝內容的檔案。請重新安裝 Work Intelligence。",
+    },
+    RUNTIME_FILE_TAMPERED: {
+      title: "執行環境的檔案內容已被改動",
+      hint: "檔案與安裝時不一致，為了安全不會啟動。請重新安裝 Work Intelligence。",
+    },
+    RUNTIME_SYMLINK_REJECTED: {
+      title: "執行環境含有不允許的捷徑",
+      hint: "為了安全不會啟動。請重新安裝 Work Intelligence。",
+    },
+    RUNTIME_ACTION_NOT_ALLOWED: {
+      title: "執行環境不允許這個動作",
+      hint: "請更新或重新安裝 Work Intelligence 後再試。",
+    },
+    RUNTIME_KIND_NOT_ALLOWED: {
+      title: "不允許這種執行環境",
+      hint: "請更新或重新安裝 Work Intelligence 後再試。",
+    },
+    RUNTIME_ALREADY_INSTALLED: {
+      title: "這個執行環境已經安裝",
+      hint: "請重試；若持續發生請重新安裝 Work Intelligence。",
+    },
+    RUNTIME_BUNDLE_INVALID: {
+      title: "App 內附的執行環境無效",
+      hint: "安裝檔可能已損毀。請重新下載並安裝 Work Intelligence。",
     },
     RUNTIME_INSTALL_FAILED: {
       title: "無法準備執行環境",
@@ -304,11 +348,55 @@ const en: ShellMessages = {
     },
     RUNTIME_UNSAFE_PERMISSIONS: {
       title: "The runtime folder's permissions are not safe",
-      hint: "Other users or groups can write to Work Intelligence's runtime folder, so it was not started. Remove the extra write permissions (keep only you, SYSTEM and Administrators), or reinstall, then retry.",
+      hint: "Another account can modify Work Intelligence's runtime folder, so it was not started. Reinstall Work Intelligence, or ask your administrator to restore the folder permissions (only you, SYSTEM and Administrators may write), then retry.",
     },
     RUNTIME_ACL_UNREADABLE: {
       title: "The runtime folder's permissions could not be checked",
-      hint: "The permission check did not finish (PowerShell may be blocked by policy or timed out), so the service was not started. Make sure PowerShell can run and retry; your data was not changed.",
+      hint: "The folder permissions could not be read (PowerShell may be blocked by policy or timed out), so the service was not started. Make sure PowerShell can run, or ask your administrator for help, then retry; your data was not changed.",
+    },
+    RUNTIME_POINTER_MISSING: {
+      title: "The runtime version pointer was not found",
+      hint: "The installation may be incomplete. Reinstall Work Intelligence.",
+    },
+    RUNTIME_POINTER_INVALID: {
+      title: "The runtime version pointer is invalid",
+      hint: "The pointer file may be damaged. Reinstall Work Intelligence.",
+    },
+    RUNTIME_MANIFEST_INVALID: {
+      title: "The runtime manifest is invalid",
+      hint: "The manifest file may be damaged. Reinstall Work Intelligence.",
+    },
+    RUNTIME_FILE_MISSING: {
+      title: "The runtime is missing a file",
+      hint: "A file was deleted or the installation is incomplete. Reinstall Work Intelligence.",
+    },
+    RUNTIME_FILE_UNEXPECTED: {
+      title: "The runtime has an unexpected file",
+      hint: "The folder holds a file that is not part of the installation. Reinstall Work Intelligence.",
+    },
+    RUNTIME_FILE_TAMPERED: {
+      title: "A runtime file was changed",
+      hint: "A file differs from what was installed, so it was not started. Reinstall Work Intelligence.",
+    },
+    RUNTIME_SYMLINK_REJECTED: {
+      title: "The runtime contains a link that is not allowed",
+      hint: "It was not started for safety. Reinstall Work Intelligence.",
+    },
+    RUNTIME_ACTION_NOT_ALLOWED: {
+      title: "The runtime does not allow this action",
+      hint: "Update or reinstall Work Intelligence, then retry.",
+    },
+    RUNTIME_KIND_NOT_ALLOWED: {
+      title: "This kind of runtime is not allowed",
+      hint: "Update or reinstall Work Intelligence, then retry.",
+    },
+    RUNTIME_ALREADY_INSTALLED: {
+      title: "This runtime is already installed",
+      hint: "Retry; if it keeps happening, reinstall Work Intelligence.",
+    },
+    RUNTIME_BUNDLE_INVALID: {
+      title: "The runtime bundled with the app is invalid",
+      hint: "The installer may be damaged. Download and install Work Intelligence again.",
     },
     RUNTIME_INSTALL_FAILED: {
       title: "The runtime could not be prepared",

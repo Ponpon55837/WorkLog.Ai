@@ -1,15 +1,8 @@
 import type { BackendErrorCode } from "../backend/errors.js";
 
 /** Errors a retry cannot fix: the database, schema, runtime or port is wrong until the user acts. */
-const DETERMINISTIC_PREFIXES = ["DB_", "SCHEMA_"] as const;
-const DETERMINISTIC_CODES: ReadonlySet<string> = new Set([
-  "RUNTIME_MISSING",
-  "RUNTIME_INSTALL_FAILED",
-  "RUNTIME_UNSAFE_PERMISSIONS",
-  "RUNTIME_ACL_UNREADABLE",
-  "PORT_OCCUPIED_BY_OTHER",
-  "REPAIR_REQUIRED",
-]);
+const DETERMINISTIC_PREFIXES = ["DB_", "SCHEMA_", "RUNTIME_"] as const;
+const DETERMINISTIC_CODES: ReadonlySet<string> = new Set(["PORT_OCCUPIED_BY_OTHER", "REPAIR_REQUIRED"]);
 
 /** Whether retrying an unchanged start can only fail the same way. */
 export function isDeterministicFailure(code: BackendErrorCode | string): boolean {

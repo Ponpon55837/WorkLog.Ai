@@ -526,7 +526,7 @@ describe("verifyRuntime: permissions", () => {
     it("reads the ACLs of the root, bin, runtimes and the runtime's own files, and says so", async () => {
       const aclReader = fixtureReader(GOOD);
       const result = await verifyRuntime(root, "rt-1", { policy: WIN, aclReader, useCache: false });
-      expect(result).toMatchObject({ acl: "checked", aclRead: true });
+      expect(result).toMatchObject({ acl: "checked", aclRead: true, aclReport: { tier: "dotnet" } });
       const paths = aclReader.read.mock.calls[0]?.[0] ?? [];
       expect(paths).toEqual(
         expect.arrayContaining([root, path.join(root, "bin"), path.join(root, "runtimes"), runtimeDirectory]),
@@ -586,6 +586,7 @@ describe("verifyRuntime: permissions", () => {
       const aclReader = fixtureReader(BAD);
       const result = await verifyRuntime(root, "rt-1", { policy: WIN, aclReader, checkAcl: false });
       expect(result).toMatchObject({ acl: "skipped", aclRead: false });
+      expect(result).not.toHaveProperty("aclReport");
       expect(aclReader.read).not.toHaveBeenCalled();
     });
 

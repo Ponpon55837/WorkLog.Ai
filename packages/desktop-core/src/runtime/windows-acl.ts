@@ -34,9 +34,30 @@ export interface AclSnapshot {
   readonly sddls: readonly string[];
 }
 
+/**
+ * How the descriptors are read: `dotnet` calls the .NET security API directly (no module needed); `get-acl` runs the
+ * `Get-Acl` cmdlet and `whoami`, for a PowerShell in Constrained Language Mode where method calls are refused.
+ */
+export type AclReadTier = "dotnet" | "get-acl";
+
+/** One try of one read tier: how long it took (milliseconds, rounded to 0.1) and whether it read and parsed. */
+export interface AclReadAttempt {
+  readonly tier: AclReadTier;
+  readonly ms: number;
+  readonly ok: boolean;
+}
+
+/** Which tier answered an ACL check and what every tier tried cost; the evidence for the first-launch cost on Windows. */
+export interface AclReadReport {
+  /** The tier whose read was used. */
+  readonly tier: AclReadTier;
+  /** Every tier tried, in order; the last one is the successful `tier`. */
+  readonly attempts: readonly AclReadAttempt[];
+}
+
 /** Reads the current user's SID and the SDDL of each path; injectable so tests need no Windows. */
 export interface WindowsAclReader {
-  read(paths: readonly string[]): Promise<AclSnapshot>;
+  read(paths: readonly string[], tier?: AclReadTier): Promise<AclSnapshot>;
 }
 
 /** What the fixed `execFile` seam needs; injectable so the reader is testable on any platform. */
@@ -108,19 +129,47 @@ const WRITE_MASK = 0x2 | 0x4 | 0x10 | 0x40 | 0x100 | 0x10000 | 0x40000 | 0x80000
 /** Ace types that only take rights away; every other type is treated as granting them. */
 const DENY_TYPES: ReadonlySet<string> = new Set(["D", "OD", "XD", "ZD"]);
 
-const ACL_TIMEOUT_MS = 20_000;
+const ACL_TIMEOUT_MS = 10_000;
 const ACL_MAX_BUFFER = 1024 * 1024;
 const PATH_SEPARATOR = "|";
 const PATHS_VARIABLE = "WI_ACL_PATHS";
 const SID_PATTERN = /^S-1-\d+(?:-\d+)+$/;
+const WHOAMI_SID_PATTERN = /"(S-1-\d+(?:-\d+)+)"\s*$/;
+const DEFAULT_SYSTEM_ROOT = "C:\\Windows";
+const POWERSHELL_ARGUMENTS = ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"] as const;
+/** The only variables PowerShell inherits from the parent; the rest (PSModulePath, Path, ...) is set or left out. */
+const INHERITED_VARIABLES = [
+  "SystemRoot",
+  "windir",
+  "SystemDrive",
+  "TEMP",
+  "TMP",
+  "USERPROFILE",
+  "LOCALAPPDATA",
+  "APPDATA",
+  "ProgramData",
+  "ProgramFiles",
+  "USERNAME",
+  "USERDOMAIN",
+  "COMPUTERNAME",
+  "PATHEXT",
+  "ComSpec",
+] as const;
 /**
- * One PowerShell call: the first output line is the current user's SID, then one SDDL line per path. The paths travel in
- * an environment variable, never in the command text, so no quoting can be abused.
+ * Tier 1, no cmdlets and so no module autoload: the first output line is the current user's SID, then one SDDL line per
+ * path, from the .NET Framework security API of Windows PowerShell 5.1. The paths travel in an environment variable,
+ * never in the command text, so no quoting can be abused.
  */
-const POWERSHELL_SCRIPT =
-  "$ErrorActionPreference='Stop';try{[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;" +
-  "foreach($p in $env:WI_ACL_PATHS.Split('|')){(Get-Acl -LiteralPath $p).Sddl}}" +
+const DOTNET_SCRIPT =
+  "$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';try{$s=[Security.AccessControl.AccessControlSections]'Owner,Group,Access';" +
+  "[Console]::Out.WriteLine([Security.Principal.WindowsIdentity]::GetCurrent().User.Value);" +
+  "foreach($p in $env:WI_ACL_PATHS.Split('|')){" +
+  "if([IO.Directory]::Exists($p)){$a=[IO.Directory]::GetAccessControl($p,$s)}else{$a=[IO.File]::GetAccessControl($p,$s)}" +
+  "[Console]::Out.WriteLine($a.GetSecurityDescriptorSddlForm($s))}}" +
   "catch{[Console]::Error.WriteLine($_.Exception.Message);exit 1}";
+/** Tier 2, for Constrained Language Mode, where tier 1's method calls fail: one SDDL line per path. */
+const GET_ACL_SCRIPT =
+  "$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';foreach($p in $env:WI_ACL_PATHS.Split('|')){(Get-Acl -LiteralPath $p).Sddl}";
 
 /** `execFile` (no shell: the arguments are an argv) as a promise. */
 const nodeExec: ExecFileLike = (file, args, options) =>
@@ -225,37 +274,90 @@ export function aclProblem(descriptor: ParsedSddl, trust: AclTrust): string | un
   return undefined;
 }
 
-function systemTool(env: NodeJS.ProcessEnv, ...segments: string[]): string {
-  const systemRoot = env.SystemRoot || env.SYSTEMROOT || "C:\\Windows";
-  return path.win32.join(systemRoot, "System32", ...segments);
+/** The SID in the output of `whoami /user /fo csv /nh` (`"HOST\\user","S-1-5-21-..."`), read from its last non-empty line. */
+export function parseWhoamiSid(output: string): string {
+  const lastLine = output
+    .split(/\r?\n/)
+    .filter((line) => line.trim() !== "")
+    .pop();
+  const sid = WHOAMI_SID_PATTERN.exec(lastLine ?? "")?.[1];
+  if (sid === undefined) throw new RangeError("the current user's SID was not in the whoami output");
+  return sid;
 }
 
 /**
- * The real reader: one `powershell.exe` call returns the current user's SID and the SDDL of every path. It is started by
- * absolute path, without a shell, with the paths in an environment variable, and fails on any error, a malformed SID or a
- * wrong line count.
+ * The environment of the child PowerShell: only the allow-listed variables copied from the parent (names matched
+ * case-insensitively), then a module path, a search path and the ACL paths set here. A parent's PSModulePath (PowerShell 7
+ * entries make Windows PowerShell 5.1 fail to load its own modules) and Path never reach the child. One key per name.
+ */
+function powerShellEnvironment(env: NodeJS.ProcessEnv, paths: readonly string[]): NodeJS.ProcessEnv {
+  const child: NodeJS.ProcessEnv = {};
+  for (const name of INHERITED_VARIABLES) {
+    const key = Object.keys(env).find((candidate) => candidate.toLowerCase() === name.toLowerCase());
+    const value = key === undefined ? undefined : env[key];
+    if (value !== undefined) child[name] = value;
+  }
+  const systemRoot = child.SystemRoot ?? DEFAULT_SYSTEM_ROOT;
+  const powerShellDirectory = path.win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0");
+  child.PSModulePath = path.win32.join(powerShellDirectory, "Modules");
+  child.Path = [path.win32.join(systemRoot, "System32"), systemRoot, powerShellDirectory].join(";");
+  child[PATHS_VARIABLE] = paths.join(PATH_SEPARATOR);
+  return child;
+}
+
+function systemRootOf(env: NodeJS.ProcessEnv): string {
+  const key = Object.keys(env).find((candidate) => candidate.toLowerCase() === "systemroot");
+  return (key === undefined ? undefined : env[key]) || DEFAULT_SYSTEM_ROOT;
+}
+
+/**
+ * The real reader. Both tiers start Windows PowerShell 5.1 by absolute path, without a shell, in a clean environment (see
+ * powerShellEnvironment), and fail on any error, a malformed SID or a wrong line count. Tier `dotnet` is the default.
+ * Tier `get-acl` takes the SID from `whoami` (cached for this reader) because it must not call .NET methods.
  */
 export function createWindowsAclReader(
   exec: ExecFileLike = nodeExec,
   env: NodeJS.ProcessEnv = process.env,
 ): WindowsAclReader {
+  const systemDirectory = path.win32.join(systemRootOf(env), "System32");
+  let whoamiSid: string | undefined;
+
+  const run = (file: string, args: readonly string[], childEnv: NodeJS.ProcessEnv) =>
+    exec(file, args, { env: childEnv, timeout: ACL_TIMEOUT_MS, windowsHide: true, maxBuffer: ACL_MAX_BUFFER });
+
+  const runPowerShell = (script: string, paths: readonly string[]) =>
+    run(
+      path.win32.join(systemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"),
+      [...POWERSHELL_ARGUMENTS, script],
+      powerShellEnvironment(env, paths),
+    );
+
+  // PowerShell may still write a serialized progress record ("#< CLIXML" then one `<Objs …>` line) to stdout on the first
+  // use of a module; it is never an SID or SDDL line, so it is dropped before the line count is checked.
+  const lines = (stdout: string) =>
+    stdout.split(/\r?\n/).filter((line) => line.trim() !== "" && !/^(#< CLIXML|<Objs\b)/.test(line.trim()));
+
   return {
-    read: async (paths) => {
-      const result = await exec(
-        systemTool(env, "WindowsPowerShell", "v1.0", "powershell.exe"),
-        ["-NoProfile", "-NonInteractive", "-Command", POWERSHELL_SCRIPT],
-        {
-          env: { ...env, [PATHS_VARIABLE]: paths.join(PATH_SEPARATOR) },
-          timeout: ACL_TIMEOUT_MS,
-          windowsHide: true,
-          maxBuffer: ACL_MAX_BUFFER,
-        },
-      );
-      const lines = result.stdout.split(/\r?\n/).filter((line) => line.trim() !== "");
-      const currentUserSid = lines.shift()?.trim() ?? "";
+    read: async (paths, tier = "dotnet") => {
+      if (tier === "get-acl") {
+        whoamiSid ??= parseWhoamiSid(
+          (
+            await run(
+              path.win32.join(systemDirectory, "whoami.exe"),
+              ["/user", "/fo", "csv", "/nh"],
+              powerShellEnvironment(env, []),
+            )
+          ).stdout,
+        );
+        const sddls = lines((await runPowerShell(GET_ACL_SCRIPT, paths)).stdout);
+        if (sddls.length !== paths.length) throw new RangeError("unexpected number of ACLs returned");
+        return { currentUserSid: whoamiSid, sddls };
+      }
+      const output = lines((await runPowerShell(DOTNET_SCRIPT, paths)).stdout);
+      const currentUserSid = output.shift()?.trim() ?? "";
       if (!SID_PATTERN.test(currentUserSid)) throw new RangeError("the current user's SID was not returned");
-      if (lines.length !== paths.length) throw new RangeError("unexpected number of ACLs returned");
-      return { currentUserSid, sddls: lines };
+      if (output.length !== paths.length) throw new RangeError("unexpected number of ACLs returned");
+      return { currentUserSid, sddls: output };
     },
   };
 }
@@ -263,8 +365,9 @@ export function createWindowsAclReader(
 async function readAndParse(
   paths: readonly string[],
   reader: WindowsAclReader,
+  tier: AclReadTier,
 ): Promise<{ descriptors: ParsedSddl[]; trust: AclTrust }> {
-  const snapshot = await reader.read(paths);
+  const snapshot = await reader.read(paths, tier);
   if (snapshot.sddls.length !== paths.length) throw new RangeError("unexpected number of ACLs returned");
   return {
     descriptors: snapshot.sddls.map((sddl) => parseSddl(sddl)),
@@ -272,26 +375,58 @@ async function readAndParse(
   };
 }
 
+const roundMs = (ms: number) => Math.round(ms * 10) / 10;
+
+/** `readAndParse` that records its duration and outcome in `attempts`. */
+async function timedReadAndParse(
+  paths: readonly string[],
+  reader: WindowsAclReader,
+  tier: AclReadTier,
+  attempts: AclReadAttempt[],
+): Promise<Awaited<ReturnType<typeof readAndParse>>> {
+  const started = performance.now();
+  try {
+    const result = await readAndParse(paths, reader, tier);
+    attempts.push({ tier, ms: roundMs(performance.now() - started), ok: true });
+    return result;
+  } catch (error) {
+    attempts.push({ tier, ms: roundMs(performance.now() - started), ok: false });
+    throw error;
+  }
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /**
- * Checks the ACL of every path. A read or parse failure (timeout, PowerShell blocked, odd output) is tried once more and
- * then throws RUNTIME_ACL_UNREADABLE: an ACL that cannot be read is not trusted, and it is not a reason to reinstall.
- * The first object owned or writable by someone other than the trusted principals throws RUNTIME_UNSAFE_PERMISSIONS.
+ * Checks the ACL of every path. The descriptors are read with the .NET API first and, only when that read or its parse
+ * fails (spawn error, timeout, bad output, Constrained Language Mode), with `Get-Acl`; when both fail the result is
+ * RUNTIME_ACL_UNREADABLE with both messages: an ACL that cannot be read is not trusted, and it is not a reason to
+ * reinstall. A verdict is final: the first object owned or writable by someone other than the trusted principals throws
+ * RUNTIME_UNSAFE_PERMISSIONS and the second tier is never asked. The owner is part of the check, which is why no tier
+ * reads the DACL alone. The report says which tier answered and how long each tier took (the error detail of an
+ * unreadable ACL carries the same durations).
  */
-export async function assertWindowsAcl(paths: readonly string[], reader: WindowsAclReader): Promise<void> {
+export async function assertWindowsAcl(paths: readonly string[], reader: WindowsAclReader): Promise<AclReadReport> {
+  const attempts: AclReadAttempt[] = [];
   let read: Awaited<ReturnType<typeof readAndParse>>;
   try {
+    read = await timedReadAndParse(paths, reader, "dotnet", attempts);
+  } catch (dotnetError) {
     try {
-      read = await readAndParse(paths, reader);
-    } catch {
-      read = await readAndParse(paths, reader);
+      read = await timedReadAndParse(paths, reader, "get-acl", attempts);
+    } catch (getAclError) {
+      const [dotnet, getAcl] = attempts;
+      throw new RuntimeError(
+        "RUNTIME_ACL_UNREADABLE",
+        "無法讀取 Windows 存取控制清單（ACL），無法確認 runtime 安全；PowerShell 可能被原則封鎖",
+        {
+          actual: `dotnet: ${messageOf(dotnetError)} (${dotnet?.ms} ms); get-acl: ${messageOf(getAclError)} (${getAcl?.ms} ms)`,
+        },
+        { cause: getAclError },
+      );
     }
-  } catch (error) {
-    throw new RuntimeError(
-      "RUNTIME_ACL_UNREADABLE",
-      "無法讀取 Windows 存取控制清單（ACL），無法確認 runtime 安全",
-      { actual: error instanceof Error ? error.message : String(error) },
-      { cause: error },
-    );
   }
   for (const [index, descriptor] of read.descriptors.entries()) {
     const problem = aclProblem(descriptor, read.trust);
@@ -302,4 +437,5 @@ export async function assertWindowsAcl(paths: readonly string[], reader: Windows
       });
     }
   }
+  return { tier: attempts[attempts.length - 1]?.tier as AclReadTier, attempts };
 }
