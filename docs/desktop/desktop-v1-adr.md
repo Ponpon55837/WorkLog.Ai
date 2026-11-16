@@ -70,6 +70,7 @@
   - B 的 SQLite 版本以 release 產物的 `sqlite_version()` 判定（ADR-19）；本次 spike 的 SQLite 3.54.1 來自量測，發行判定仍以 release 產物為準。
   - `utilityProcess` 未量測，R31 要求的 A 階段比較因此未完整；若要改用 `utilityProcess`，需另行量測。
   - spike 預設鎖定 Node.js v24.22.3（`--node-version 24` 才取最新 24 LTS）；發行前仍須驗證發行簽章（目前 SHASUMS256 與封存檔來自同一來源，尚未實作簽章驗證）。
+- **1.6.44 的實作**：殼（`apps/desktop`）鎖定 Electron 45.3.2（`apps/desktop/package.json`）；主程序負責 UI、tray、修復視窗與子程序的協調。後端子程序由 launcher 的 `serve` action 啟動，可執行檔與執行方式由 manifest 的 `runtimeKind` 決定；只有 `electron-run-as-node` 會設定 `ELECTRON_RUN_AS_NODE`（`packages/desktop-core/src/runtime/launch-plan.ts`）。依本 ADR，App 啟動後端時要求 `runtimeKind` 為 `node`，其他類型回報 `RUNTIME_KIND_NOT_ALLOWED`（`planLaunch` 的 `requiredRuntimeKind`，`packages/desktop-core/src/backend/node-dependencies.ts`）；煙霧測試組出的是 `node` 類型（`apps/desktop/scripts/run-smoke.mjs`）。spike 量測的是 Electron 45.3.3；它在 2026-11-16 才發布，殼改鎖定已發布數日的 45.3.2。`pnpm-workspace.yaml` 的 `allowBuilds: electron: false` 使 `pnpm install` 不下載 Electron 二進位；只有 `pnpm test:desktop-smoke` 與 desktop-smoke CI 透過 `apps/desktop/scripts/ensure-electron.mjs` 下載。
 - **關聯**：§3.3、§5、§9.4、§10.2；DT-25、DT-23；R07、R31、R33。
 
 ### ADR-05 DB 沿用 SQLite 與 `VACUUM INTO`，不替換儲存引擎
@@ -103,6 +104,7 @@
 ### ADR-07 唯讀預覽：不視為 0 寫入；活躍 DB 禁用 `immutable=1`
 
 - **狀態**：已採用（行為待測）
+- **1.6.44 狀態**：候選預覽由 `preview` 子程序執行，只送 `preflight`、不送 `start`，因此不 listen，也不開啟可寫連線（`packages/desktop-core/src/backend/backend-supervisor.ts`）；sidecar 的實際行為待實機驗收。
 - **脈絡**：SQLite WAL 唯讀開庫仍可能使用或建立 `-wal`／`-shm`；`immutable=1` 會跳過變更偵測 `[U]`。
 - **決策**：唯讀意圖是不修改業務資料；未經同意不得刪除或搬動 sidecar。活躍 DB 禁用 `immutable=1`。網路 FS、同步資料夾、外接碟列為風險來源，禁止自動接管與遷移。
 - **後果**：需以檔案系統監測測試實際副作用（G-DB-01）。
@@ -127,6 +129,7 @@
 ### ADR-08 啟動順序：preflight 先於任何可能 migration 的 store
 
 - **狀態**：已採用
+- **1.6.44 狀態**：子程序依序執行 `hello`、唯讀 preflight、`start`、`ready` 與 HTTP 證明。preflight 在 spawn 之後、`start` 之前完成，與本 ADR 的字面順序不同；但「`start` 才會開啟可能 migration 的 store」這一不變條件成立（`packages/desktop-core/src/backend/backend-supervisor.ts`、`apps/server/src/desktop-child.ts`）。桌面入口為 `start --desktop-ipc`。
 - **脈絡**：`start-api.ts` 在 `listen()` 之前建構 `WorkIntelligenceStore`，可能觸發 migration `[R]`。
 - **決策**：強制順序為設定驗證 → 唯讀 preflight → 服務所有權與 port → 操作協調 → spawn 子程序 → 私有 IPC 身分確認 → HTTP 就緒 → 提交 active 狀態 → 開瀏覽器。桌面需要專用 bootstrap 入口；原 CLI 行為不變。
 - **後果**：`startApi()` 需要小幅重構，並保留 CLI 的既有測試。
@@ -232,6 +235,7 @@
 ### ADR-13 修復視窗隔離
 
 - **狀態**：已採用
+- **1.6.44 狀態**：已依本 ADR 實作於 `apps/desktop`（視窗設定、最小 preload、IPC sender 與 zod 驗證、導覽與權限拒絕、CSP）；實機與三平台 CI 結果待確認。
 - **脈絡**：Electron 官方把未受控的 `shell.openExternal` 與未校驗的 IPC 列為風險 `[U]`；修復視窗必須在 Web／API 壞掉時仍可用。
 - **決策**：只載入 App 內附資源與固定 scheme；`nodeIntegration:false`、`contextIsolation:true`、`sandbox:true`；最小 preload API；逐項驗證 IPC sender；拒絕未知 navigation、webview 與 `window.open`；default-deny permissions；嚴格 CSP。Web 帶入的字串不交給 `shell.openExternal`。
 - **後果**：修復頁功能受限，但安全邊界清楚。
@@ -290,6 +294,7 @@
 ### ADR-26 退出語意與登入背景啟動預設
 
 - **狀態**：已採用
+- **1.6.44 狀態**：退出流程（確認、停止受管服務、有界等待進行中的操作、確認 port 釋放）與退出文字已實作；登入項預設關閉，開啟需 consent；背景啟動以 `--background` 或 macOS `wasOpenedAtLogin` 判定。實機行為待實機驗收。
 - **脈絡**：使用者關瀏覽器不應停服務；結束 App 後，Agent 自啟的 MCP 仍可用，但 App 的每日備份不會再執行（R24）。
 - **決策**：關瀏覽器不停止 API 與每日備份。「結束 App」停止其管理的 API 與排程，等工作收尾後結束。介面明示「退出後不會每日備份」。新安裝的「登入時在背景執行」預設關閉；背景啟動失敗時只顯示單次通知或 tray 提示。
 - **後果**：使用者若要退出後仍備份，須開啟登入項或使用其他獨立方式（V1 不隱式新增）。

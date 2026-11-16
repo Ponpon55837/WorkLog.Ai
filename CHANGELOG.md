@@ -4,6 +4,32 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.44] - 2026-11-16
+
+[繁體中文更新說明](docs/releases/1.6.44.md).
+
+This release is stage 2 of the desktop app plan, the safe minimal desktop. It adds the Electron shell (a single instance, a tray or menu-bar item, a repair window and a quit flow that stops the backend and checks its port) and a backend child lifecycle that checks the identity of the child the App started: the child reports its run over a private IPC channel, and the HTTP readiness check requires an HMAC proof that only that child can compute. A new desktop-smoke workflow runs the shell on Windows, macOS and Ubuntu under xvfb. The checks that need a real Windows 11 or macOS machine have not been done, and the stage 2 gate has not passed. It changes no schema; the schema stays at 33 and no migration is needed.
+
+### Added
+
+- `apps/desktop`: a thin Electron 45.3.2 shell. The main process takes the single-instance lock before the app is ready, so a second launch exits at once. It owns a tray item (a menu-bar item on macOS), whose Dashboard entry is enabled only while the managed backend runs, and a repair window. The login item is off by default; turning it on needs an explicit consent. A background start (the `--background` argument on Windows, `wasOpenedAtLogin` on macOS) shows no window.
+- The repair window, served from the fixed `wi-repair://` scheme: sandboxed, with context isolation, no Node integration, a minimal typed preload, a sender check and a zod schema on every IPC channel, a strict Content-Security-Policy, and navigation, `window.open`, webviews and permission requests all denied. It offers retry, choosing a database (which must be previewed before it can be confirmed), opening a folder and exporting redacted diagnostics.
+- `packages/desktop-core/src/backend`: `BackendSupervisor`, which starts, verifies and stops the one backend child the App spawned. It brings the child up in a fixed order (hello, read-only preflight, start, ready, then an HTTP proof), runs it with an allowlisted environment and a fixed `PATH`, masks secrets and paths in its output, and stops it with IPC `shutdown`, then `SIGTERM` on POSIX only, then a kill, and finally waits for the port to be released. On Windows the kill is `TerminateProcess`.
+- `start --desktop-ipc` in `apps/server` (`desktop-child.ts`): the backend child entry. It speaks a versioned private IPC protocol (`DESKTOP_CHILD_PROTOCOL_VERSION` 1, defined in `@work-intelligence/schema`) with 14 stable error codes.
+- An instance proof in `@work-intelligence/shared`: `/api/health` returns an HMAC-SHA256 header over the parent's one-time challenge, keyed by a per-spawn run id that is never sent over HTTP. A shared loopback port probe is added alongside it.
+- A last-successful-backup tracker and a redacted diagnostics export. The export masks the home directory, the user name, the database and backup paths, the run id and secret-looking values.
+- A candidate database preview: a read-only preview child that receives only `preflight`, never `start`, so it never listens and never opens the database for writing.
+- `.github/workflows/desktop-smoke.yml`: runs on pull requests that touch the desktop, shell, server, storage, shared or schema code, and on manual dispatch. It runs the Playwright `_electron` smoke tests (seven cases) on Windows, macOS and Ubuntu under xvfb, and caches the Electron binary per OS and version.
+- Traditional Chinese and English shell strings in `@work-intelligence/desktop-core`.
+
+### Changed
+
+- The new `electron` dev dependency does not make `pnpm install` download the Electron binary (`allowBuilds: electron: false`). Only `pnpm test:desktop-smoke` and the desktop-smoke workflow download it, through `apps/desktop/scripts/ensure-electron.mjs`.
+- `planLaunch()` accepts `requiredRuntimeKind`. The desktop App requires the bundled Node.js runtime (ADR-04) and refuses any other kind with the new `RUNTIME_KIND_NOT_ALLOWED` code.
+- `startApi()` returns a handle with an awaitable shutdown, accepts a port and an instance run id, and re-reads the database identity after opening. Graceful shutdown always closes SQLite.
+- The backup file name parser moved to `@work-intelligence/shared`, so storage and desktop-core read the same rules.
+- `/api/health` sends the instance-proof header only when the request carries a valid challenge. The response body is unchanged.
+
 ## [1.6.43] - 2026-11-16
 
 [繁體中文更新說明](docs/releases/1.6.43.md).
