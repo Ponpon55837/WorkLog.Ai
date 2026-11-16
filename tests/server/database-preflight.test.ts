@@ -144,15 +144,37 @@ describe("preflightDatabase statuses", () => {
     expect(result).toMatchObject({ status: "ok", schemaVersion: 1, compatibility: "older-needs-migration" });
   });
 
-  it("treats a database without schema_migrations as schema 0 with no lineage", async () => {
-    const path = join(tempDir(), "bare.sqlite");
-    const bare = new DatabaseSync(path);
-    bare.exec("CREATE TABLE unrelated (id INTEGER)");
-    bare.close();
+  it("treats a legacy Work Intelligence database without schema_migrations as schema 0 needing migration", async () => {
+    const path = join(tempDir(), "legacy.sqlite");
+    const legacy = new DatabaseSync(path);
+    legacy.exec("CREATE TABLE projects (id INTEGER PRIMARY KEY); CREATE TABLE sessions (id INTEGER PRIMARY KEY)");
+    legacy.close();
     const result = await preflightDatabase(path);
-    expect(result).toMatchObject({ status: "ok", schemaVersion: 0, compatibility: "older-needs-migration" });
-    expect(result.projectCount).toBeUndefined();
+    expect(result).toMatchObject({
+      status: "ok",
+      schemaVersion: 0,
+      compatibility: "older-needs-migration",
+      projectCount: 0,
+    });
     expect(requireIdentity(result).lineageId).toBeNull();
+  });
+
+  it("reports an empty database file as ok with compatibility empty", async () => {
+    const path = join(tempDir(), "empty.sqlite");
+    new DatabaseSync(path).close();
+    const result = await preflightDatabase(path);
+    expect(result).toMatchObject({ status: "ok", schemaVersion: 0, compatibility: "empty" });
+    expect(requireIdentity(result).lineageId).toBeNull();
+  });
+
+  it("rejects another application's database as unsupported-schema not-work-intelligence", async () => {
+    const path = join(tempDir(), "foreign.sqlite");
+    const foreign = new DatabaseSync(path);
+    foreign.exec("CREATE TABLE unrelated (id INTEGER); CREATE TABLE projects (id INTEGER)");
+    foreign.close();
+    const result = await preflightDatabase(path);
+    expect(result).toMatchObject({ status: "unsupported-schema", detail: "not-work-intelligence" });
+    expect(result.compatibility).toBeUndefined();
   });
 
   it("reports unsupported-schema when the version is newer than supported", async () => {
@@ -291,6 +313,41 @@ describe("revalidateBeforeCommit", () => {
     const identity = await approved(path);
     writeFileSync(path, Buffer.from("garbage ".repeat(1000)));
     expect(revalidateBeforeCommit(path, identity)).toMatchObject({ ok: false, reason: "unreadable" });
+  });
+
+  it("accepts a lineage that appears in the same file after the first migration, but not in a copy", async () => {
+    const directory = tempDir();
+    const path = join(directory, "fresh.sqlite");
+    new DatabaseSync(path).close();
+    const identity = await approved(path);
+    expect(identity.lineageId).toBeNull();
+    new WorkIntelligenceStore(path).close();
+    const result = revalidateBeforeCommit(path, identity);
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.identity.lineageId).toMatch(/^[0-9a-f]{64}$/);
+
+    const copyPath = join(directory, "other.sqlite");
+    createDatabase(copyPath).close();
+    renameSync(copyPath, path);
+    expect(revalidateBeforeCommit(path, identity)).toMatchObject({ ok: false, reason: "file-replaced" });
+  });
+
+  it("reports lineage-changed when a null-lineage identity has no file id and the lineage appears", async () => {
+    const path = join(tempDir(), "fresh.sqlite");
+    new DatabaseSync(path).close();
+    const identity = { ...(await approved(path)), fileId: null };
+    new WorkIntelligenceStore(path).close();
+    expect(revalidateBeforeCommit(path, identity)).toMatchObject({ ok: false, reason: "lineage-changed" });
+  });
+
+  it("reports lineage-changed when a known lineage disappears from the same file", async () => {
+    const path = join(tempDir(), "db.sqlite");
+    createDatabase(path).close();
+    const identity = await approved(path);
+    const raw = new DatabaseSync(path);
+    raw.exec("DROP TABLE schema_migrations");
+    raw.close();
+    expect(revalidateBeforeCommit(path, identity)).toMatchObject({ ok: false, reason: "lineage-changed" });
   });
 
   it("compares a null file id by lineage alone", async () => {

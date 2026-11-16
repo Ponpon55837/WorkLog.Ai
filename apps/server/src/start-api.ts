@@ -6,10 +6,11 @@ import {
   WorkIntelligenceStore,
   type WorkIntelligenceStoreOptions,
 } from "@work-intelligence/storage";
+import { readFileIdentity, sameFileIdentity } from "@work-intelligence/shared/file-identity";
 import { STANDALONE } from "@work-intelligence/shared/database-location";
 import { databasePath as configuredDatabasePath, storeOptions as configuredStoreOptions } from "./config.js";
 import { BackupWorkerClient } from "./backup-worker-client.js";
-import { revalidateBeforeCommit, type VerifiedDatabaseConfig } from "./database-preflight.js";
+import { revalidateBeforeCommit, type DatabaseIdentity, type VerifiedDatabaseConfig } from "./database-preflight.js";
 import { describeListenError } from "./listen-error.js";
 import { createApiHandler } from "./server.js";
 import { resolveServerPort } from "./server-port.js";
@@ -24,6 +25,15 @@ export interface StartApiOptions {
   database?: VerifiedDatabaseConfig;
 }
 
+/** True when the file now at `identity.realPath` is still the revalidated one (a file id mismatch means it was swapped). */
+function stillSameFile(identity: DatabaseIdentity): boolean {
+  const current = readFileIdentity(identity.realPath);
+  if (!current.ok) return false;
+  return (
+    !identity.fileId || sameFileIdentity({ realPath: identity.realPath, fileId: identity.fileId }, current.identity)
+  );
+}
+
 /**
  * Opens the database, serves the API (and the Web UI when a build is available), and shuts down on SIGINT/SIGTERM.
  * Without options it uses the environment-derived database exactly as the CLI always has.
@@ -31,6 +41,7 @@ export interface StartApiOptions {
 export function startApi(options: StartApiOptions = {}): void {
   let databasePath = configuredDatabasePath;
   let storeOptions: WorkIntelligenceStoreOptions = configuredStoreOptions;
+  let committedIdentity: DatabaseIdentity | undefined;
   if (options.database) {
     const verified = options.database;
     const revalidation = revalidateBeforeCommit(verified.path, verified.identity);
@@ -41,10 +52,13 @@ export function startApi(options: StartApiOptions = {}): void {
       process.exitCode = 1;
       return;
     }
-    databasePath = verified.path;
+    // Open the resolved file, not the possibly symlinked path, and never create it: a swap after the check must fail.
+    committedIdentity = revalidation.identity;
+    databasePath = committedIdentity.realPath;
     const backup = backupOptionsFromEnvironment(databasePath);
     storeOptions = {
       backup: verified.backupDirectory ? { ...backup, directory: verified.backupDirectory } : backup,
+      requireExistingDatabase: true,
     };
   }
 
@@ -53,6 +67,12 @@ export function startApi(options: StartApiOptions = {}): void {
     store = new WorkIntelligenceStore(databasePath, storeOptions);
   } catch (error) {
     console.error(error instanceof DatabaseInitializationError ? error.message : "Work Intelligence API 無法啟動。");
+    process.exitCode = 1;
+    return;
+  }
+  if (committedIdentity && !stillSameFile(committedIdentity)) {
+    store.close();
+    console.error("Work Intelligence API 拒絕啟動：開啟時資料庫檔案已被替換（file-replaced）。");
     process.exitCode = 1;
     return;
   }

@@ -6,7 +6,7 @@ import {
   normalizePathForCompare,
   readFileIdentity,
   sameFileIdentity,
-  type FileIdentityErrorKind,
+  type FileIdentity,
 } from "@work-intelligence/shared/file-identity";
 import { readOnlyTableExists, readSchemaVersion, type ReadOnlySqliteDatabase } from "./database-inspection.js";
 
@@ -21,7 +21,7 @@ export interface DatabaseIdentity {
 export type DatabasePreflightStatus = "missing" | "offline" | "denied" | "unreadable" | "unsupported-schema" | "ok";
 
 /** How the file's schema relates to what this build can run. */
-export type SchemaCompatibility = "current" | "older-needs-migration" | "newer-unsupported";
+export type SchemaCompatibility = "empty" | "current" | "older-needs-migration" | "newer-unsupported";
 
 export interface SidecarFileState {
   exists: boolean;
@@ -121,6 +121,23 @@ function readProjectCount(database: ReadOnlySqliteDatabase): number | undefined 
   return Number(row.total);
 }
 
+/** Tables of Work Intelligence's pre-`schema_migrations` core schema; a legacy database has all of them. */
+const LEGACY_CORE_TABLES = ["projects", "sessions"];
+
+function readUserTables(database: ReadOnlySqliteDatabase): Set<string> {
+  const rows = database
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+    .all() as { name: string }[];
+  return new Set(rows.map((row) => row.name));
+}
+
+/** `empty`: a fresh file with no tables; `legacy`: Work Intelligence before migrations were tracked; `foreign`: someone else's. */
+function classifyUntracked(database: ReadOnlySqliteDatabase): "empty" | "legacy" | "foreign" {
+  const tables = readUserTables(database);
+  if (tables.size === 0) return "empty";
+  return LEGACY_CORE_TABLES.every((name) => tables.has(name)) ? "legacy" : "foreign";
+}
+
 function compatibilityOf(schemaVersion: number, supported: number): SchemaCompatibility {
   if (schemaVersion > supported) return "newer-unsupported";
   return schemaVersion === supported ? "current" : "older-needs-migration";
@@ -146,6 +163,20 @@ function preflightSync(path: string, supportedSchemaVersion: number): DatabasePr
     const identity: DatabaseIdentity = { realPath, fileId, lineageId };
     if (schemaVersion === null) {
       return finish({ status: "unreadable", identity, detail: "schema_migrations holds an invalid version" });
+    }
+    if (lineageId === null && !readOnlyTableExists(database, "schema_migrations")) {
+      const kind = classifyUntracked(database);
+      if (kind === "foreign") {
+        return finish({
+          status: "unsupported-schema",
+          identity,
+          schemaVersion,
+          detail: "not-work-intelligence",
+        });
+      }
+      if (kind === "empty") {
+        return finish({ status: "ok", identity, schemaVersion, compatibility: "empty" });
+      }
     }
     const compatibility = compatibilityOf(schemaVersion, supportedSchemaVersion);
     const projectCount = readProjectCount(database);
@@ -178,6 +209,9 @@ function preflightSync(path: string, supportedSchemaVersion: number): DatabasePr
  * Read-only preflight of a database file: identity, schema compatibility, a project-count preview and the WAL/SHM
  * sidecar state around the probe. Never writes through SQLite, never uses `immutable`, never throws for an expected
  * failure; each failure kind is its own status. Structurally satisfies desktop-core's `DbProbe`.
+ *
+ * Performance: this is synchronous SQLite and file-system work behind an async signature, so it blocks the thread it
+ * runs on; the desktop host must run it off any UI thread (a worker or utility process).
  */
 export async function preflightDatabase(
   path: string,
@@ -186,26 +220,36 @@ export async function preflightDatabase(
   return preflightSync(path, options.supportedSchemaVersion ?? LATEST_SCHEMA_VERSION);
 }
 
-function failureReason(kind: FileIdentityErrorKind): RevalidationFailureReason {
-  return kind;
+/** Same physical file: both ids are known and equal. */
+function sameKnownFile(expected: DatabaseIdentity, actual: FileIdentity): boolean {
+  return sameFileIdentity({ realPath: expected.realPath, fileId: expected.fileId }, actual);
+}
+
+/** Lineage rule: both known must match; a null expectation may only gain a lineage in the very same file (first migration). */
+function lineageStillValid(expected: string | null, actual: string | null, sameFile: boolean): boolean {
+  if (expected === null) return actual === null || sameFile;
+  return actual === expected;
 }
 
 /**
  * Re-reads path, file id and lineage immediately before the store opens (TOCTOU guard between the preflight the user
  * approved and the commit). A different resolved path is `path-replaced` (a symlink or mount now points elsewhere),
  * the same path with a different file id is `file-replaced`, and the same file holding a different history is
- * `lineage-changed`. Read-only; opens nothing when the file is already gone.
+ * `lineage-changed`. A file id that still matches wins over a changed path; a lineage that was null may appear only in
+ * that same file (the first migration wrote `schema_migrations`). Read-only; opens nothing when the file is already gone.
  */
 export function revalidateBeforeCommit(path: string, expected: DatabaseIdentity): RevalidationResult {
   const located = readFileIdentity(path);
   if (!located.ok) {
-    return { ok: false, reason: failureReason(located.kind), detail: `${located.code}: ${located.message}` };
+    return { ok: false, reason: located.kind, detail: `${located.code}: ${located.message}` };
   }
   const actual = located.identity;
-  if (normalizePathForCompare(actual.realPath) !== normalizePathForCompare(expected.realPath)) {
+  const sameFile = sameKnownFile(expected, actual);
+  const samePath = normalizePathForCompare(actual.realPath) === normalizePathForCompare(expected.realPath);
+  if (!sameFile && !samePath) {
     return { ok: false, reason: "path-replaced", detail: `${expected.realPath} now resolves to ${actual.realPath}` };
   }
-  if (expected.fileId && actual.fileId && !sameFileIdentity({ ...expected, fileId: expected.fileId }, actual)) {
+  if (!sameFile && expected.fileId && actual.fileId) {
     return {
       ok: false,
       reason: "file-replaced",
@@ -227,7 +271,7 @@ export function revalidateBeforeCommit(path: string, expected: DatabaseIdentity)
       // A close failure after a completed read changes nothing about the answer.
     }
   }
-  if (lineageId !== expected.lineageId) {
+  if (!lineageStillValid(expected.lineageId, lineageId, sameFile)) {
     return {
       ok: false,
       reason: "lineage-changed",
