@@ -89,4 +89,28 @@ describe("Host header port check", () => {
     expect(await statusForHost("dev.example.test:80")).toBe(200);
     expect(await statusForHost("dev.example.test:81")).toBe(421);
   });
+
+  it("accepts an https origin on its default port with a portless Host, as sent behind a TLS proxy", async () => {
+    const { statusForHost } = await startApi("https://wi.example.test");
+
+    expect(await statusForHost("wi.example.test")).toBe(200);
+    expect(await statusForHost("wi.example.test:443")).toBe(200);
+    expect(await statusForHost("wi.example.test:8443")).toBe(421);
+    expect(await statusForHost("other.example.test")).toBe(421);
+  });
+
+  it("keeps an explicit non-default port exact, so the portless Host is refused", async () => {
+    const { statusForHost } = await startApi("https://wi.example.test:8443");
+
+    expect(await statusForHost("wi.example.test:8443")).toBe(200);
+    expect(await statusForHost("wi.example.test")).toBe(421);
+    expect(await statusForHost("wi.example.test:443")).toBe(421);
+  });
+
+  it("does not let an allowlisted origin make loopback names pass without a port", async () => {
+    const { statusForHost } = await startApi("https://wi.example.test");
+
+    expect(await statusForHost("127.0.0.1")).toBe(421);
+    expect(await statusForHost("localhost")).toBe(421);
+  });
 });

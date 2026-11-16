@@ -35,6 +35,7 @@ import {
 import { LIST_SEARCH_CHARGE_FUNCTION, PATH_SEARCH_ROW_BYTES, runListSearchScan } from "./list-search-scan.js";
 import { nextCalendarDate } from "./session-repository.js";
 import { resetLastInsertRowid, runFtsWrite } from "./sqlite-fts.js";
+import { isDatabaseSchemaChangedError } from "./schema-write-gate.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 
 type DocType = "session" | "knowledge";
@@ -486,8 +487,20 @@ export class SearchRepository {
     resetLastInsertRowid(this.db);
   }
 
+  /**
+   * The lazy sync a read path runs before it ranks. When another process migrated the database past this build the
+   * sync is skipped and the existing (possibly stale) index is served: a read must not fail because a write is refused.
+   */
+  public syncIndexForRead(): void {
+    try {
+      this.syncIndex();
+    } catch (error) {
+      if (!isDatabaseSchemaChangedError(error)) throw error;
+    }
+  }
+
   public recall(options: RecallOptions): RecallComputation {
-    this.syncIndex();
+    this.syncIndexForRead();
     const { words, terms, termsTruncated, idf, docs, ranked, pathScanTruncated, appliesToScanTruncated } =
       this.rank(options);
     const excerptTerms = terms
@@ -543,7 +556,7 @@ export class SearchRepository {
    * records are ranked: `hits` keeps the best `limit` of the requested status and `totals` counts each status.
    */
   public rankKnowledge(options: KnowledgeRankOptions): KnowledgeRanking {
-    this.syncIndex();
+    this.syncIndexForRead();
     const paths = options.q
       .split(/\s+/u)
       .flatMap((word) => normalizeReference(word))

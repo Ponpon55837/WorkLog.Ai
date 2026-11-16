@@ -33,7 +33,7 @@ export class SchemaWriteGate {
 
   public constructor(
     private readonly db: DatabaseSync,
-    private readonly expectedVersion: number,
+    public readonly expectedVersion: number,
   ) {}
 
   /** Must run inside an open write transaction. */

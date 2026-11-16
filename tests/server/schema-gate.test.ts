@@ -18,6 +18,7 @@ afterEach(() => {
 
 async function startApiOnTempDatabase(): Promise<{
   baseUrl: string;
+  store: WorkIntelligenceStore;
   migrateFromAnotherProcess: () => void;
   root: string;
 }> {
@@ -37,6 +38,7 @@ async function startApiOnTempDatabase(): Promise<{
   if (!address || typeof address === "string") throw new Error("The test API did not expose a TCP address.");
   return {
     baseUrl: `http://127.0.0.1:${address.port}`,
+    store,
     root,
     migrateFromAnotherProcess: () => {
       other.exec("BEGIN IMMEDIATE");
@@ -85,5 +87,35 @@ describe("API schema write gate", () => {
 
     expect(read.status).toBe(200);
     expect(((await read.json()) as Array<{ name: string }>).map((project) => project.name)).toEqual(["Apiary"]);
+  });
+
+  it("keeps GET search and context working on the existing index while writes ask for a restart", async () => {
+    const { baseUrl, store, root, migrateFromAnotherProcess } = await startApiOnTempDatabase();
+    const project = store.addProject("Apiary", join(root, "apiary"));
+    store.updateProject(project.id, { status: "tracked" });
+    const finalize = (key: string, title: string) =>
+      store.finalizeSession({
+        projectRoot: join(root, "apiary"),
+        idempotencyKey: key,
+        title,
+        summary: `${title} summary.`,
+        workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+        changedFiles: [],
+        verification: { status: "passed" },
+      });
+    finalize("first", "Inspected the hive frames");
+    expect(((await (await fetch(`${baseUrl}/api/search?q=hive`)).json()) as unknown[]).length).toBe(1);
+    // This one stays dirty: the lazy index sync would need a write transaction, which the gate now refuses.
+    finalize("second", "Inspected the hive roof");
+    migrateFromAnotherProcess();
+
+    const search = await fetch(`${baseUrl}/api/search?q=hive`);
+    const context = await fetch(`${baseUrl}/api/context?projectRoot=${encodeURIComponent(join(root, "apiary"))}`);
+    const write = await postProject(baseUrl, "Burrow", join(root, "burrow"));
+
+    expect(search.status).toBe(200);
+    expect(((await search.json()) as unknown[]).length).toBe(1);
+    expect(context.status).toBe(200);
+    expect(write.status).toBe(503);
   });
 });

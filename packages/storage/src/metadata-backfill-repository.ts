@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { isDatabaseSchemaChangedError } from "./schema-write-gate.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 
 const METADATA_BACKFILL_PROCESSING_TIMEOUT_MS = 30 * 60 * 1000;
@@ -8,6 +9,15 @@ export class MetadataBackfillRepository {
   public constructor(private readonly db: DatabaseSync) {}
 
   public recoverStale(now = Date.now()): void {
+    try {
+      this.recover(now);
+    } catch (error) {
+      // Lazy cleanup on read paths: once another process migrated the database, reads go on without it.
+      if (!isDatabaseSchemaChangedError(error)) throw error;
+    }
+  }
+
+  private recover(now: number): void {
     runImmediateTransaction(this.db, () => {
       const cutoff = now - METADATA_BACKFILL_PROCESSING_TIMEOUT_MS;
       const rows = this.db

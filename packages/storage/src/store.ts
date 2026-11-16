@@ -601,7 +601,7 @@ export class WorkIntelligenceStore {
     this.hotspots = new HotspotRepository(this.db);
     this.fileHistory = new FileHistoryService(this.db, {
       checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
-      syncIndex: () => this.searchIndex.syncIndex(),
+      syncIndex: () => this.searchIndex.syncIndexForRead(),
     });
     this.timelines = new TimelineRepository(this.db);
     this.activity = new ActivityRepository(this.db);
@@ -668,7 +668,7 @@ export class WorkIntelligenceStore {
       },
       pendingKnowledgePages: (projectId) => this.knowledgePages.pendingForProject(projectId),
       hotspotHints: (projectId, paths) => {
-        this.searchIndex.syncIndex();
+        this.searchIndex.syncIndexForRead();
         return this.hotspots.hints(projectId, paths);
       },
       withSharedReads: (read) => this.knowledgePages.withSharedReads(read),
@@ -705,7 +705,9 @@ export class WorkIntelligenceStore {
   public withCompatibleSchema<T>(schemaVersion: number, operation: () => T): T {
     try {
       return runImmediateSqlTransaction(this.db, () => {
-        this.schemaWriteGate.assertCompatible(schemaVersion);
+        // The registered gate already checked this process's own version right after BEGIN IMMEDIATE.
+        if (schemaVersion !== this.schemaWriteGate.expectedVersion)
+          this.schemaWriteGate.assertCompatible(schemaVersion);
         return operation();
       });
     } catch (error) {
@@ -1131,7 +1133,7 @@ export class WorkIntelligenceStore {
     if (report.outcome !== "report") {
       return report;
     }
-    this.searchIndex.syncIndex();
+    this.searchIndex.syncIndexForRead();
     const hotspotRisks = this.hotspots
       .hotspots({
         projectId: report.project?.id,
@@ -1571,7 +1573,7 @@ export class WorkIntelligenceStore {
       }
       projectId = decision.project.id;
     }
-    this.searchIndex.syncIndex();
+    this.searchIndex.syncIndexForRead();
     const groupBy = query.groupBy ?? "file";
     return {
       outcome: "hotspots",

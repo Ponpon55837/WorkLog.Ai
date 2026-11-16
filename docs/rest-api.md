@@ -1,6 +1,6 @@
 # REST API
 
-API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用。正式模式用同一個 port 提供 `apps/web/dist` 與 API；同源請求（帶或不帶 `Origin`）都由 `Host` loopback 檢查保護，不需要 CORS。`Host` 必須是 loopback 名稱加上 server 實際監聽的 port（或 `WORK_INTELLIGENCE_ALLOWED_ORIGINS` 內某個 origin 完全相同的主機與 port；origin 省略 port 視為 80／443，沒有 port 的 `Host` 視為 80），否則回 421；不同源且未列入白名單的 `Origin` 回 403。所有寫入要求 `Content-Type: application/json`，並先通過 project policy。
+API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用。正式模式用同一個 port 提供 `apps/web/dist` 與 API；同源請求（帶或不帶 `Origin`）都由 `Host` loopback 檢查保護，不需要 CORS。`Host` 必須是 loopback 名稱加上 server 實際監聽的 port（或 `WORK_INTELLIGENCE_ALLOWED_ORIGINS` 內某個 origin 完全相同的主機與 port；origin 省略 port 視為該 scheme 預設的 80／443；預設 port 的 origin 也接受沒有 port 的 `Host`（例如 TLS proxy 後方），其餘沒有 port 的 `Host` 視為 80），否則回 421；不同源且未列入白名單的 `Origin` 回 403。所有寫入要求 `Content-Type: application/json`，並先通過 project policy。
 
 正式模式的 Web 靜態檔使用 SPA fallback；`index.html` 不快取，Vite 雜湊 assets 可長期快取。CSP 禁止 inline／eval script，限定外部資源為同源（Vue 動態版面需要的 style attribute 另行允許）；另設 `X-Content-Type-Options`、`Referrer-Policy` 與禁止 frame 嵌入的標頭。靜態請求會拒絕 dot-segment、編碼後 traversal 與解析到 Web 根目錄之外的 symlink。
 

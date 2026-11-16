@@ -67,10 +67,13 @@ if ((process.env.WORK_INTELLIGENCE_ALLOWED_ORIGINS ?? "").split(",").some((origi
 // listening on, and the exact host:port of an allowlisted origin, pass.
 const LOOPBACK_HOSTNAMES = ["127.0.0.1", "localhost", "[::1]"];
 const allowedOriginHosts = new Set<string>();
+// An origin on its scheme's default port is also reached without a port in Host (for example behind a TLS proxy).
+const allowedPortlessHostnames = new Set<string>();
 for (const origin of allowedOrigins) {
   try {
     const url = new URL(origin);
     allowedOriginHosts.add(`${url.hostname}:${url.port || (url.protocol === "https:" ? "443" : "80")}`);
+    if (!url.port) allowedPortlessHostnames.add(url.hostname);
   } catch {
     // An unparsable origin cannot match a browser Origin header either; ignore it here.
   }
@@ -84,6 +87,9 @@ function isAllowedHost(hostHeader: string | undefined, listenPort: number | unde
     const { hostname, port } = new URL(`http://${hostHeader}`);
     const hostPort = `${hostname}:${port || "80"}`;
     if (allowedOriginHosts.has(hostPort)) {
+      return true;
+    }
+    if (!/:\d+$/.test(hostHeader) && allowedPortlessHostnames.has(hostname)) {
       return true;
     }
     // Without a real socket (in-process test requests) there is no listening port to compare.
