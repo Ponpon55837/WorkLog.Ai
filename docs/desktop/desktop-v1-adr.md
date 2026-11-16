@@ -235,7 +235,7 @@
 ### ADR-13 修復視窗隔離
 
 - **狀態**：已採用
-- **1.6.44 狀態**：已依本 ADR 實作於 `apps/desktop`（視窗設定、最小 preload、IPC sender 與 zod 驗證、導覽與權限拒絕、CSP）；實機與三平台 CI 結果待確認。
+- **1.6.44 狀態**：已依本 ADR 實作於 `apps/desktop`（視窗設定、最小 preload、IPC sender 與 zod 驗證、導覽與權限拒絕、CSP）；三平台 desktop-smoke CI 已通過（[run 43929965453](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/43929965453)）；實機待驗收。
 - **脈絡**：Electron 官方把未受控的 `shell.openExternal` 與未校驗的 IPC 列為風險 `[U]`；修復視窗必須在 Web／API 壞掉時仍可用。
 - **決策**：只載入 App 內附資源與固定 scheme；`nodeIntegration:false`、`contextIsolation:true`、`sandbox:true`；最小 preload API；逐項驗證 IPC sender；拒絕未知 navigation、webview 與 `window.open`；default-deny permissions；嚴格 CSP。Web 帶入的字串不交給 `shell.openExternal`。
 - **後果**：修復頁功能受限，但安全邊界清楚。

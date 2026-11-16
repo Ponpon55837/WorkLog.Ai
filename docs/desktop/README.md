@@ -105,7 +105,7 @@ R4 的補充用法：
 
 ## 1.6.44 任務（階段 2：安全最小桌面）與本文件的關係
 
-本版實作階段 2 的 CI 可驗證部分。Windows 11 與 macOS 的實機驗收仍為**待實機驗收**；三平台 desktop-smoke 的 CI 結果待 PR 的 workflow 取得。本文件不宣稱實機或 CI 已通過。
+本版實作階段 2 的 CI 可驗證部分。Windows 11 與 macOS 的實機驗收仍為**待實機驗收**；三平台 desktop-smoke 已在 CI 通過（[run 43929965453](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/43929965453)）。本文件不宣稱實機已通過。
 
 | 任務 | 內容 | 狀態 | 本文件位置 | 證據路徑 |
 |---|---|---|---|---|

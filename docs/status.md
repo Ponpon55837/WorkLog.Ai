@@ -8,7 +8,7 @@
 
 ## 1.6.44（已完成）
 
-桌面版階段 2（安全最小桌面）的 CI 可驗證部分：Electron 殼（單例、tray／選單列、修復視窗、退出流程）與後端子程序生命週期（DT-11）。子程序以私有 IPC 回報身分，HTTP 就緒以 HMAC 證明；停止順序為 IPC shutdown、POSIX 的 SIGTERM、kill，最後確認 port 釋放。新增 desktop-smoke CI，涵蓋 Windows、macOS 與 Ubuntu（xvfb）。Windows 11 與 macOS 實機驗收未做，三平台 CI 結果待 PR 的 workflow 取得，階段 2 的 gate 尚未通過；簽章、公證、安裝包、自動更新、完整的來源偵測精靈與完整診斷尚未實作。沒有 schema 變更（33），沒有 migration。詳見 [1.6.44 更新說明](releases/1.6.44.md)。
+桌面版階段 2（安全最小桌面）的 CI 可驗證部分：Electron 殼（單例、tray／選單列、修復視窗、退出流程）與後端子程序生命週期（DT-11）。子程序以私有 IPC 回報身分，HTTP 就緒以 HMAC 證明；停止順序為 IPC shutdown、POSIX 的 SIGTERM、kill，最後確認 port 釋放。新增 desktop-smoke CI，涵蓋 Windows、macOS 與 Ubuntu（xvfb）。Windows 11 與 macOS 實機驗收未做，三平台 desktop-smoke CI 已通過，階段 2 的 gate 尚未通過；簽章、公證、安裝包、自動更新、完整的來源偵測精靈與完整診斷尚未實作。沒有 schema 變更（33），沒有 migration。詳見 [1.6.44 更新說明](releases/1.6.44.md)。
 
 ## 1.6.43（已完成）
 
