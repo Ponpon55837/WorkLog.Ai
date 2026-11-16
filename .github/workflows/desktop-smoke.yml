@@ -11,8 +11,13 @@ on:
       - "packages/schema/**"
       - "apps/server/**"
       - "packages/storage/**"
+      - "apps/web/**"
+      - "apps/mcp/**"
+      - "packages/core/**"
+      - "packages/project-policy/**"
       - "scripts/desktop-runtime-spike/**"
       - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
       - "package.json"
       - ".github/workflows/desktop-smoke.yml"
   workflow_dispatch:

@@ -8,3 +8,5 @@ allowBuilds:
   esbuild: true
   # Reviewed: the Electron binary is deliberately not downloaded by a plain install; apps/desktop/scripts/ensure-electron.mjs fetches it only where the smoke test needs it.
   electron: false
+  # Reviewed: only the Squirrel.Windows target uses electron-winstaller's postinstall (it picks a 7-Zip binary); the desktop package builds NSIS, never Squirrel.
+  electron-winstaller: false

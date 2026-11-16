@@ -14,9 +14,13 @@ data/*.sqlite-wal
 *.db
 coverage/
 test-results/
+test-results-packaged/
 playwright-report/
+playwright-report-packaged/
 # Desktop performance results (apps/desktop, written by the smoke run)
 perf-results/
+# Desktop packaging results (apps/desktop, written by pnpm package:desktop)
+package-results/
 .DS_Store
 
 # Local UI screenshots (UI_SCREENSHOTS=<label> pnpm test:e2e)

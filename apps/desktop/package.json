@@ -13,12 +13,14 @@
   },
   "devDependencies": {
     "@work-intelligence/storage": "workspace:*",
-    "electron": "45.3.2"
+    "electron": "45.3.2",
+    "electron-builder": "26.18.1"
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.smoke.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.smoke.json && tsc -p tsconfig.packaged.json",
     "ensure-electron": "node scripts/ensure-electron.mjs",
-    "test:smoke": "node scripts/run-smoke.mjs"
+    "test:smoke": "node scripts/run-smoke.mjs",
+    "test:packaged": "node scripts/run-packaged-smoke.mjs"
   }
 }

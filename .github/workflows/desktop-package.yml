@@ -1,0 +1,192 @@
+name: Desktop package
+
+# Builds the Windows and macOS installers of the desktop App (R4 §7.1: no auto-update in this stage, so these are plain
+# downloads) and checks them: size gates, the runtime bundle hashed inside the packed app, and on macOS the ad-hoc
+# signature. Release calls this workflow and publishes only when every platform succeeded (ADR-03, DT-33).
+on:
+  pull_request:
+    paths:
+      - "apps/desktop/**"
+      - "packages/desktop-core/**"
+      - "packages/shared/**"
+      - "packages/schema/**"
+      - "apps/server/**"
+      - "packages/storage/**"
+      - "apps/web/**"
+      - "apps/mcp/**"
+      - "packages/core/**"
+      - "packages/project-policy/**"
+      - "scripts/desktop-runtime-spike/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+      - ".github/workflows/desktop-package.yml"
+  workflow_dispatch:
+    inputs:
+      compression:
+        description: "Installer compression: store, normal or maximum (blank: the default in package-gates.mjs)"
+        required: false
+        default: ""
+        type: string
+      dmg-format:
+        description: "DMG format: UDZO or ULFO (blank: the default in package-gates.mjs)"
+        required: false
+        default: ""
+        type: string
+      compare-compression:
+        description: "Also build the installers with the alternative compression and record both sizes and times"
+        required: false
+        default: false
+        type: boolean
+  workflow_call:
+    inputs:
+      ref:
+        description: "Commit to package (default: the caller's commit)"
+        required: false
+        default: ""
+        type: string
+      compression:
+        required: false
+        default: ""
+        type: string
+      dmg-format:
+        required: false
+        default: ""
+        type: string
+      compare-compression:
+        required: false
+        default: false
+        type: boolean
+
+# Only pull-request pushes cancel an older run of the same PR; every other run (a release calling this workflow, a manual
+# run) has its own group by run id, so it never cancels or queues behind another.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('desktop-package-pr-{0}', github.ref) || format('desktop-package-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package (${{ matrix.slug }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { slug: windows-x64, runner: windows-latest }
+          - { slug: macos-arm64, runner: macos-latest }
+          - { slug: macos-x64, runner: macos-15-intel }
+    env:
+      PACKAGE_COMPRESSION: ${{ inputs.compression }}
+      PACKAGE_DMG_FORMAT: ${{ inputs.dmg-format }}
+      PACKAGE_COMPARE: ${{ inputs.compare-compression }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 11.16.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        id: setup-node
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Report the pnpm store cache
+        shell: bash
+        run: echo "pnpm store cache hit = ${{ steps.setup-node.outputs.cache-hit }}"
+
+      # The Electron postinstall is disabled in pnpm-workspace.yaml, so this downloads no binary; electron-builder fetches
+      # the Electron zip itself below.
+      - run: pnpm install --frozen-lockfile
+
+      - name: Cache the Electron download
+        id: cache-electron
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ runner.os == 'Windows' && '~/AppData/Local/electron/Cache' || '~/Library/Caches/electron' }}
+          key: electron-package-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/desktop/package.json') }}
+
+      - name: Report the Electron cache
+        shell: bash
+        run: echo "Electron download cache hit = ${{ steps.cache-electron.outputs.cache-hit }}"
+
+      # NSIS, the DMG tools and app-builder helpers electron-builder downloads once per version.
+      - name: Cache the electron-builder tools
+        id: cache-builder
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ runner.os == 'Windows' && '~/AppData/Local/electron-builder/Cache' || '~/Library/Caches/electron-builder' }}
+          key: electron-builder-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/desktop/package.json') }}
+
+      - name: Report the electron-builder cache
+        shell: bash
+        run: echo "electron-builder cache hit = ${{ steps.cache-builder.outputs.cache-hit }}"
+
+      # The official Node archive of the runtime; common.mjs pins the Node (and Electron) versions in the key.
+      - name: Cache the runtime downloads
+        id: cache-runtime
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: dist/desktop-runtime-spike/downloads
+          key: runtime-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/desktop-runtime-spike/common.mjs', 'scripts/desktop-runtime-spike/download.mjs') }}
+
+      - name: Report the runtime downloads cache
+        shell: bash
+        run: echo "runtime downloads cache hit = ${{ steps.cache-runtime.outputs.cache-hit }}"
+
+      # The runtime builder packages the built server and Web UI.
+      - run: pnpm build
+
+      - name: Package the desktop App
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=()
+          if [ -n "$PACKAGE_COMPRESSION" ]; then args+=(--compression "$PACKAGE_COMPRESSION"); fi
+          if [ -n "$PACKAGE_DMG_FORMAT" ]; then args+=(--dmg-format "$PACKAGE_DMG_FORMAT"); fi
+          if [ "$PACKAGE_COMPARE" = "true" ]; then args+=(--compare-compression); fi
+          pnpm package:desktop ${args[@]+"${args[@]}"}
+
+      - name: Upload the installers
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-installer-${{ matrix.slug }}
+          path: |
+            dist/desktop-package/*/out/*.exe
+            dist/desktop-package/*/out/*.dmg
+            dist/desktop-package/*/out/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload the package results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-package-results-${{ matrix.slug }}
+          path: apps/desktop/package-results/package-*.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      # run-packaged-smoke.mjs installs the NSIS installer silently on Windows (or extracts the zip and checks the DMG on
+      # macOS; GitHub's macOS runners have a GUI session, so no display setup is needed), starts the installed App against
+      # synthetic data directories, measures it, then upgrades over a running App and uninstalls. It prints the
+      # performance JSON to the log and writes apps/desktop/perf-results/packaged-perf-<os>.json.
+      - name: Packaged smoke test
+        run: pnpm test:desktop-packaged
+
+      - name: Upload the packaged performance results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-packaged-perf-${{ matrix.slug }}
+          path: apps/desktop/perf-results/packaged-perf-*.json
+          if-no-files-found: warn
+          retention-days: 30

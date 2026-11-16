@@ -2,6 +2,8 @@ node_modules/
 dist/
 data/
 test-results/
+test-results-packaged/
+playwright-report-packaged/
 coverage/
 .git/
 pnpm-lock.yaml
