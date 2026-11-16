@@ -1,7 +1,8 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { RuntimeError, runtimeErrorCode } from "./errors.js";
-import { assertAllowedAction, buildLaunchPlan } from "./launch-plan.js";
+import { checkLaunchConsistency } from "./launch-consistency.js";
+import { ELECTRON_AS_NODE_ENV, assertAllowedAction, buildLaunchPlan } from "./launch-plan.js";
 import { RUNTIMES_DIRECTORY_NAME } from "./layout.js";
 import { HOOK_ACTIONS } from "./manifest.js";
 import { verifyRuntime, type VerifiedRuntime } from "./verify.js";
@@ -17,6 +18,8 @@ export interface LauncherHost {
   stderr(text: string): void;
   /** Replaces `process.argv` so the action's entry script sees the command line it expects. */
   setArgv(argv: string[]): void;
+  /** Removes an environment variable of this process, so child processes of the action do not inherit it. */
+  unsetEnv(name: string): void;
   /** Dynamic `import()` of the action's entry, in this same process. */
   importModule(url: string): Promise<unknown>;
 }
@@ -111,7 +114,8 @@ async function runtimeInfo(verified: VerifiedRuntime, host: LauncherHost): Promi
  * The launcher: runs inside the runtime's own executable, started by the fixed shim as
  * `<executable> <runtime>/launcher.mjs <action> [args…]`.
  *
- * It verifies the runtime it lives in (see verifyRuntime), accepts only the fixed actions, and then imports the
+ * It verifies the runtime it lives in (see verifyRuntime), checks that the shim started the executable and runtime the
+ * manifest names (see checkLaunchConsistency), accepts only the fixed actions, and then imports the
  * action's entry script IN THIS PROCESS with `process.argv` set as if the script had been started directly. That
  * costs no second Node start-up (about 40 ms per spawn, measured) and leaves signals, stdio and the exit code to the
  * action itself; a spawned child would need all three forwarded. Nothing here goes through a shell.
@@ -146,6 +150,15 @@ export async function runLauncher(input: LauncherInput, host: LauncherHost): Pro
   try {
     const { root, runtimeId } = locate(input.runtimeDirectory);
     verified = await verifyRuntime(root, runtimeId);
+    await checkLaunchConsistency({
+      root,
+      runtimeId,
+      runtimeDirectory: verified.runtimeDirectory,
+      manifest: verified.manifest,
+      execPath: host.execPath,
+      platform: host.platform,
+      warn: (message) => host.stderr(message),
+    });
   } catch (error) {
     return refuse(error, LAUNCHER_EXIT_INVALID_RUNTIME);
   }
@@ -157,6 +170,10 @@ export async function runLauncher(input: LauncherInput, host: LauncherHost): Pro
   try {
     const plan = buildLaunchPlan(verified.runtimeDirectory, verified.manifest, action, rest, {});
     const [entry, ...entryArgs] = plan.args as [string, ...string[]];
+    // The shims set these for every runtime because they cannot tell which kind they start; a plain Node must not pass them on.
+    if (verified.manifest.runtimeKind === "node") {
+      for (const name of Object.keys(ELECTRON_AS_NODE_ENV)) host.unsetEnv(name);
+    }
     host.setArgv([host.execPath, entry, ...entryArgs]);
     await host.importModule(pathToFileURL(entry).href);
     return { kind: "handed-over" };

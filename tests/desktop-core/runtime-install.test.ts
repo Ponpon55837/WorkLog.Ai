@@ -65,7 +65,7 @@ describe("installRuntime", () => {
     ]);
     expect(manifest.files.find((file) => file.path === "launcher.mjs")).toMatchObject({ size: 12 });
     expect(await fs.readFile(path.join(installed.runtimeDirectory, "runtime-launch.txt"), "utf8")).toBe(
-      renderLaunchFile("node", "node/bin/node"),
+      renderLaunchFile("node/bin/node"),
     );
     const bin = runtimeLayout(root).binDirectory;
     expect(await fs.readFile(path.join(bin, POSIX_SHIM_NAME), "utf8")).toBe(renderPosixShim());

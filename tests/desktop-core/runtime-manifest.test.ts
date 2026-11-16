@@ -223,10 +223,8 @@ describe("defaultLauncherRoot", () => {
 });
 
 describe("shim text", () => {
-  it("writes the two launch lines: the kind and the executable, never the launcher entry", () => {
-    expect(renderLaunchFile("electron-run-as-node", "electron/electron")).toBe(
-      "electron-run-as-node\nelectron/electron\n",
-    );
+  it("writes one launch line: the executable, with no kind and no launcher entry", () => {
+    expect(renderLaunchFile("electron/electron")).toBe("electron/electron\n");
   });
 
   it("has no launcherEntry field and requires launcher.mjs to be listed", () => {
@@ -238,30 +236,36 @@ describe("shim text", () => {
     ).toContain("launcher: not listed in files");
   });
 
-  it("builds a POSIX shim that quotes every path, validates input and never uses eval", () => {
+  it("builds a POSIX shim that quotes every path, sets the Electron variables, validates nothing and never uses eval", () => {
     const shim = renderPosixShim();
     expect(shim.startsWith("#!/bin/sh\n")).toBe(true);
     expect(shim).toContain('exec "$runtime/$exe" "$runtime/launcher.mjs" "$@"');
-    expect(shim).toContain("[!A-Za-z0-9._-]");
+    expect(shim).toContain("export ELECTRON_RUN_AS_NODE ELECTRON_NO_ASAR");
+    expect(shim).toContain('id=${id%"$cr"}');
+    expect(shim).toContain("cr=$(printf '\\r')");
     expect(shim).not.toMatch(/\beval\b/);
+    expect(shim).not.toContain("[!A-Za-z0-9");
+    expect(shim).not.toContain("case $id");
   });
 
-  it("builds a Windows shim that validates before expanding, passes the exit code and uses CRLF", () => {
+  it("builds a Windows shim without findstr, with delayed expansion only, in CRLF and pure ASCII", () => {
     const shim = renderWindowsShim();
-    expect(shim).toContain("%~dp0");
-    expect(shim).toContain("findstr /R /X /V");
-    expect(shim).toContain("exit /b %ERRORLEVEL%");
-    expect(shim).toContain('"%RUNTIME%\\%EXE%" "%RUNTIME%\\launcher.mjs" %*');
-    expect(shim).toContain('if not "%ID:~128,1%"=="" goto :badpointer');
-    expect(shim).not.toContain("ENTRY");
-    // The launch file is checked with literal searches only: findstr's regex classes refused valid files on Windows.
-    expect(shim).toContain('findstr /L /C:".." /C:"%%" /C:":" "%RUNTIME%\\runtime-launch.txt"');
-    expect(shim).not.toMatch(/findstr \/R[^\r]*runtime-launch\.txt/);
-    expect(shim.indexOf('set "EXE=%EXE:"=%"')).toBeLessThan(shim.indexOf('"%RUNTIME%\\%EXE%"'));
-    // The length check runs after the charset check and before the id is used in any path.
-    expect(shim.indexOf("findstr")).toBeLessThan(shim.indexOf("%ID:~128,1%"));
-    expect(shim.indexOf("%ID:~128,1%")).toBeLessThan(shim.indexOf('set "RUNTIME='));
+    expect(shim).not.toContain("findstr");
+    expect(shim).not.toContain("%WI_");
+    expect(shim).toContain("!WI_");
+    expect(shim).not.toMatch(/\) else|else \(/);
     expect(shim).not.toMatch(/(?<!\r)\n/);
-    expect(shim.indexOf("findstr")).toBeLessThan(shim.indexOf("set /p ID"));
+    // eslint-disable-next-line no-control-regex
+    expect(shim).toMatch(/^[\x00-\x7f]*$/);
+    // The root is taken before delayed expansion is on, so a "!" in the install path survives.
+    expect(shim.indexOf("%~dp0")).toBeGreaterThan(-1);
+    expect(shim.indexOf("%~dp0")).toBeLessThan(shim.indexOf("setlocal EnableDelayedExpansion"));
+    expect(shim).toContain('"!WI_RUNTIME!\\!WI_EXE!" "!WI_RUNTIME!\\launcher.mjs" %*');
+    expect(shim).toContain("exit /b !ERRORLEVEL!");
+    expect(shim).toContain('set "ELECTRON_RUN_AS_NODE=1"');
+    expect(shim).toContain('set "ELECTRON_NO_ASAR=1"');
+    expect(shim).toContain('if /I "!WI_ACTION!"=="codex-finalize-reminder" exit /b 0');
+    expect(shim).toContain('if /I "!WI_ACTION!"=="claude-finalize-reminder" exit /b 0');
+    expect(shim).not.toContain("ENTRY");
   });
 });

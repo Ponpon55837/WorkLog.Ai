@@ -7,3 +7,4 @@ export * from "./verify.js";
 export * from "./install.js";
 export * from "./launch-plan.js";
 export * from "./launcher-main.js";
+export * from "./launch-consistency.js";

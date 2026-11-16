@@ -136,11 +136,9 @@ export async function installRuntime(
       file: manifestPath,
     });
   }
-  await writeFileAtomic(
-    path.join(runtimeDirectory, LAUNCH_FILE_NAME),
-    renderLaunchFile(definition.runtimeKind, definition.executable),
-    { mode: MANIFEST_MODE },
-  );
+  await writeFileAtomic(path.join(runtimeDirectory, LAUNCH_FILE_NAME), renderLaunchFile(definition.executable), {
+    mode: MANIFEST_MODE,
+  });
   const { manifest, cache } = await measureRuntime(runtimeDirectory, definition);
   await writeFileAtomic(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: MANIFEST_MODE });
   await writeVerifiedCache(runtimeDirectory, definition.runtimeId, cache);

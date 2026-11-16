@@ -224,10 +224,14 @@ function checkStructure(
  * and ACL checks (and, later, code signing) are what protect against that, not hashes. A file may also change between
  * verification and `exec` (time of check to time of use); the owner-only directory checks are the mitigation.
  *
- * The same boundary applies one step earlier. The shim cannot hash, so it starts the runtime's executable (named in
- * `runtime-launch.txt`) BEFORE this verification runs, and the executable then loads `launcher.mjs`, which calls this
- * function. Anyone who can rewrite `runtime-launch.txt`, the executable or `launcher.mjs` skips verification altogether;
- * the defence against that is directory ownership and ACLs, plus code signing of the executable in the future.
+ * The same boundary applies one step earlier. The shims validate nothing and cannot hash: they start the executable
+ * named in `runtime-launch.txt` BEFORE this verification runs, and that executable then loads `launcher.mjs`, which
+ * calls this function. Anyone who can rewrite `runtime-launch.txt`, `current`, the executable or `launcher.mjs` skips
+ * verification altogether; the defence against that is directory ownership and ACLs, plus code signing of the
+ * executable in the future. What the launcher adds afterwards (checkLaunchConsistency) is a cross-check, not a
+ * boundary: `runtime-launch.txt` must hold the manifest's executable, `process.execPath` must be that executable, and
+ * `current` must be a legal id (a different one only warns). It runs inside the process that was started, so it
+ * cannot undo what a swapped executable already did.
  * Symlinks are followed only for the launcher root itself; `bin`, `runtimes` and `current` must be real, and every
  * link inside a runtime must resolve (chains included) to somewhere inside that runtime.
  */

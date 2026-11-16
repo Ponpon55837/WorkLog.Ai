@@ -18,6 +18,7 @@ const host: LauncherHost = {
   arch: process.arch,
   stdout: (text) => void process.stdout.write(text),
   stderr: (text) => void process.stderr.write(text),
+  unsetEnv: (name) => void delete process.env[name],
   setArgv: (argv) => void (process.argv = argv),
   importModule: (url) => import(url),
 };

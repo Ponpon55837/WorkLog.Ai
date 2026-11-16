@@ -14,7 +14,7 @@ export const RUNTIMES_DIRECTORY_NAME = "runtimes";
 export const MANIFEST_FILE_NAME = "runtime-manifest.json";
 /** The stat-fingerprint cache inside a runtime directory (a speed-up, never an authority). */
 export const VERIFIED_CACHE_FILE_NAME = ".verified.json";
-/** The two plain-text lines the shims read instead of parsing the manifest: runtime kind, then executable. */
+/** The single line the shims read instead of parsing the manifest: the executable, relative to the runtime directory. */
 export const LAUNCH_FILE_NAME = "runtime-launch.txt";
 
 /** POSIX shim, relative to the launcher root. */
