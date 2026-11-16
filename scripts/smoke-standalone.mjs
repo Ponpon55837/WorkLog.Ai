@@ -29,6 +29,7 @@ import console from "node:console";
 import { clearTimeout, setTimeout } from "node:timers";
 import { gunzipSync } from "node:zlib";
 import { buildStandalone } from "./build-standalone.mjs";
+import { checkBundledSqlite } from "./check-sqlite-version.mjs";
 
 const results = [];
 
@@ -303,6 +304,13 @@ async function main() {
     mkdtempSync(join(process.env.WORK_INTELLIGENCE_TEST_TMP?.trim() || tmpdir(), "work-intelligence-standalone-")),
   );
   try {
+    // The package runs on this Node.js, so its bundled SQLite must carry the WAL-reset corruption fix.
+    const sqlite = await checkBundledSqlite();
+    check(
+      `node: bundled SQLite ${sqlite.version || "(unknown)"} has the WAL-reset fix`,
+      !sqlite.affected,
+      `Node.js ${process.versions.node}; fixed in 3.51.3, 3.50.7, 3.44.6`,
+    );
     const built = await builtOrGivenTarball(join(root, "build"));
     check("build: tarball written", existsSync(built.tarball), built.tarball);
     const installRoot = join(root, "install");

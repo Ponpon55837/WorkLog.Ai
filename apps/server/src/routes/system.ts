@@ -20,6 +20,7 @@ import {
   sendJson,
   sendProjectDataTransferError,
 } from "../http.js";
+import { getSqliteRuntimeStatus } from "../sqlite-runtime.js";
 import { parseRequestInput, type Route, type RouteContext } from "./router.js";
 
 /** Streams a fresh snapshot of the whole database as a download and removes the temporary copy. */
@@ -103,6 +104,7 @@ async function systemStatus({ store, response, services }: RouteContext): Promis
     mcp: services.mcpRuntimeStatus(),
     agents: services.agentConnections(),
     sseConnections: services.eventClientCount(),
+    sqlite: getSqliteRuntimeStatus(),
   };
   sendJson(response, 200, status);
 }
@@ -198,6 +200,7 @@ export const systemRoutes: Route[] = [
         schemaVersion: LATEST_SCHEMA_VERSION,
         policy: "explicit-opt-in/default-deny",
         database: databaseHealthy ? "connected" : "unavailable",
+        sqlite: getSqliteRuntimeStatus(),
       });
     },
   },

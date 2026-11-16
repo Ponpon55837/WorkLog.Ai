@@ -11,6 +11,7 @@ import { configDirectory, databasePathFor, STANDALONE } from "@work-intelligence
 import { isDriveRelativePath } from "@work-intelligence/shared/database-path";
 import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import type { AgentMcpRegistrationState, SystemAgentConnections, UserServiceStatus } from "@work-intelligence/core";
+import { getSqliteRuntimeStatus } from "./sqlite-runtime.js";
 import { DEFAULT_SERVER_PORT } from "./server-port.js";
 import { claudePluginEnabled, codexPluginEnabled } from "./agent-plugins.js";
 import { getUserServiceStatus } from "./user-service.js";
@@ -894,6 +895,21 @@ export async function collectDoctorFindings(
       ? undefined
       : `請改用 Node.js ${MINIMUM_NODE_VERSION} 以上的 22.x，或 Node.js 24 以上；搜尋索引需要內建 SQLite 的 FTS5。`,
   );
+
+  if (sqlite.sqlite) {
+    const runtime = getSqliteRuntimeStatus();
+    addFinding(
+      findings,
+      runtime.walResetFixed ? "ok" : "warning",
+      "SQLite",
+      runtime.walResetFixed
+        ? `內建 SQLite ${runtime.version}，已包含 WAL-reset 資料庫損毀問題的修正。`
+        : `內建 SQLite ${runtime.version} 可能受 WAL-reset 資料庫損毀問題影響（修正版本：3.51.3、3.50.7、3.44.6）。`,
+      runtime.walResetFixed
+        ? undefined
+        : `請升級 Node.js，使內建 SQLite 達到 3.51.3 以上（或同系列的 3.50.7、3.44.6 以上），再重新執行 ${cmd("check")}。`,
+    );
+  }
 
   if (standalone) {
     addStandalonePackageFindings(findings, {

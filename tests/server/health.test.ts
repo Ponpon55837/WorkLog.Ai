@@ -32,6 +32,7 @@ describe("GET /api/health", () => {
 
     expect(status).toBe(200);
     expect(body).toMatchObject({ ok: true, database: "connected" });
+    expect(body.sqlite).toEqual({ version: process.versions.sqlite, walResetFixed: true });
   });
 
   it("reports a failing database as not ok", async () => {

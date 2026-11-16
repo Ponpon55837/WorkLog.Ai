@@ -72,6 +72,20 @@ afterEach(() => {
 });
 
 describe("pnpm doctor read-only checks", () => {
+  it("reports the bundled SQLite version and its WAL-reset fix status", async () => {
+    const directory = temporaryDirectory();
+    const findings = await collectDoctorFindings({
+      repositoryRoot: join(directory, "repository"),
+      homeDirectory: join(directory, "home"),
+      environment: { HOME: join(directory, "home"), WORK_INTELLIGENCE_DB: join(directory, "synthetic.sqlite") },
+    });
+
+    expect(findings.find((item) => item.title === "SQLite")).toMatchObject({
+      severity: "ok",
+      detail: expect.stringContaining(process.versions.sqlite ?? ""),
+    });
+  });
+
   it("warns about top-level SQLite files in the repository root without reading or removing them", async () => {
     const directory = temporaryDirectory();
     const repositoryRoot = join(directory, "repository");
