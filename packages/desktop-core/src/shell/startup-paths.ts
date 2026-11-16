@@ -8,6 +8,12 @@ export interface UserDataAccess {
   /** Throws when the platform cannot name the folder (on Windows, a missing Roaming AppData). */
   read(): string;
   write(path: string): void;
+  /**
+   * Windows only: whether the folder that holds the default data folder (Roaming AppData) exists. Electron may name the
+   * default without it, then stop at a native check before `ready`; so a missing one is refused here, while the App
+   * can still say why. Not set elsewhere: macOS and Linux create the default folder themselves.
+   */
+  parentExists?(userDataDirectory: string): boolean;
 }
 
 /**
@@ -27,6 +33,14 @@ export function resolveUserDataDirectory(override: string | undefined, access: U
     const userDataDirectory = access.read();
     if (userDataDirectory.trim() === "") {
       return { ok: false, code: "USER_DATA_UNAVAILABLE", detail: "the platform returned an empty path" };
+    }
+    // A redirect is created by the App itself; only the platform default depends on a folder the profile must have.
+    if (!override && access.parentExists && !access.parentExists(userDataDirectory)) {
+      return {
+        ok: false,
+        code: "USER_DATA_UNAVAILABLE",
+        detail: "the folder that holds the application data does not exist",
+      };
     }
     return { ok: true, userDataDirectory };
   } catch (error) {

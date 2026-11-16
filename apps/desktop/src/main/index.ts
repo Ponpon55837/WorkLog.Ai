@@ -1,3 +1,5 @@
+import { existsSync, writeSync } from "node:fs";
+import { dirname } from "node:path";
 import { lstat, readdir } from "node:fs/promises";
 import { app, dialog } from "electron";
 import {
@@ -14,6 +16,7 @@ import {
   resolveUserDataDirectory,
   shellMessages,
   type RestartOutcome,
+  type ShellLocale,
 } from "@work-intelligence/desktop-core";
 import { createBackendController } from "./backend.js";
 import {
@@ -43,19 +46,32 @@ registerRepairScheme();
 
 const environmentInputs = { isPackaged: app.isPackaged, environment: process.env };
 
-/** Closes the App with a native error box: there is no data folder, so no log, tray or repair window can exist. */
+/** The UI language before `ready`, when `app.getLocale()` is not available yet; English if the OS will not say. */
+function earlyLocale(): ShellLocale {
+  try {
+    return resolveShellLocale(app.getPreferredSystemLanguages()[0]);
+  } catch {
+    return "en";
+  }
+}
+
+/**
+ * Closes the App with a native error box: there is no data folder, so no log, tray or repair window can exist. It all
+ * happens now, before `ready`, and never waits for it: without a data folder Electron's own start-up stops at a native
+ * CHECK on the session-data path (`BrowserProcessImpl::PostEarlyInitialization`) before `ready` fires, so a box shown
+ * after `ready` is never reached. The error box is allowed before `ready`, and `app.exit` before the message loop ends
+ * the process at once.
+ */
 function failStartup(detail: string): void {
-  // Before ready the UI language is not known yet, and on Linux the box goes to stderr; so say it in the log line too.
-  process.stderr.write(`[shell] cannot start: the application data folder is unavailable (${detail})\n`);
-  void app.whenReady().then(() => {
-    const messages = shellMessages(resolveShellLocale(app.getLocale()));
-    if (testSwitch(environmentInputs, TEST_ENVIRONMENT.recordErrorBox)) {
-      process.stderr.write(`[shell] error box: ${messages.startupFailedTitle}\n`);
-    } else {
-      dialog.showErrorBox(messages.startupFailedTitle, messages.startupFailedMessage);
-    }
-    app.exit(1);
-  });
+  // A synchronous write, so the line is out before the process ends; on Linux the box itself also goes to stderr.
+  writeSync(2, `[shell] cannot start: the application data folder is unavailable (${detail})\n`);
+  const messages = shellMessages(earlyLocale());
+  if (testSwitch(environmentInputs, TEST_ENVIRONMENT.recordErrorBox)) {
+    writeSync(2, `[shell] error box: ${messages.startupFailedTitle}\n`);
+  } else {
+    dialog.showErrorBox(messages.startupFailedTitle, messages.startupFailedMessage);
+  }
+  app.exit(1);
 }
 
 /** Everything else: the shell, its backend and the quit flow, once the data folder is known. */
@@ -212,6 +228,7 @@ const userData = resolveUserDataDirectory(overrideFromEnvironment(environmentInp
     return app.getPath("userData");
   },
   write: (path) => app.setPath("userData", path),
+  ...(process.platform === "win32" ? { parentExists: (path: string) => existsSync(dirname(path)) } : {}),
 });
 if (userData.ok) runShell({ ...environmentInputs, userDataDirectory: userData.userDataDirectory });
 else failStartup(userData.detail);

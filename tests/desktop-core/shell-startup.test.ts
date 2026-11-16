@@ -74,6 +74,46 @@ describe("resolving the data folder at start-up", () => {
     ).toMatchObject({ ok: false, code: "USER_DATA_UNAVAILABLE", detail: "unknown error" });
   });
 
+  it("refuses a Windows default whose holding folder is missing, but never checks a redirect", () => {
+    const checked: string[] = [];
+    const missing = (path: string) => {
+      checked.push(path);
+      return false;
+    };
+    expect(
+      resolveUserDataDirectory(undefined, {
+        read: () => "C:\\Users\\synthetic\\AppData\\Roaming\\Work Intelligence",
+        write: () => undefined,
+        parentExists: missing,
+      }),
+    ).toEqual({
+      ok: false,
+      code: "USER_DATA_UNAVAILABLE",
+      detail: "the folder that holds the application data does not exist",
+    });
+    expect(checked).toEqual(["C:\\Users\\synthetic\\AppData\\Roaming\\Work Intelligence"]);
+
+    let current = "";
+    expect(
+      resolveUserDataDirectory("D:\\synthetic\\data", {
+        read: () => current,
+        write: (path) => {
+          current = path;
+        },
+        parentExists: missing,
+      }),
+    ).toEqual({ ok: true, userDataDirectory: "D:\\synthetic\\data" });
+    expect(checked).toHaveLength(1);
+
+    expect(
+      resolveUserDataDirectory(undefined, {
+        read: () => "C:\\Users\\synthetic\\AppData\\Roaming\\Work Intelligence",
+        write: () => undefined,
+        parentExists: () => true,
+      }),
+    ).toMatchObject({ ok: true });
+  });
+
   it("has an error box text in both languages", () => {
     for (const locale of ["zh-TW", "en"] as const) {
       const messages = shellMessages(locale);
