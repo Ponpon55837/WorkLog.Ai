@@ -102,6 +102,16 @@ export function listAppEntries(root) {
   return entries;
 }
 
+/** A one-line count of a signing plan by kind, e.g. "57 code files, 4 frameworks, 5 helpers, main app". */
+export function describeSigningPlan(plan) {
+  const frameworks = plan.filter((path) => path.endsWith(".framework")).length;
+  const helpers = plan.filter((path) => path.endsWith(".app")).length;
+  const code = plan.length - frameworks - helpers - (plan.includes(".") ? 1 : 0);
+  const parts = [`${code} code files`, `${frameworks} frameworks`, `${helpers} helpers`];
+  if (plan.includes(".")) parts.push("main app");
+  return parts.join(", ");
+}
+
 /** Ad-hoc signs the .app inside-out; returns the paths signed, in order. */
 export async function adHocSignApp(appPath) {
   const plan = planSigningOrder(listAppEntries(appPath));

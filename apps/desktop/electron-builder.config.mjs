@@ -57,6 +57,11 @@ export function pinnedElectronVersion() {
   return require(join(desktopDirectory, "package.json")).devDependencies.electron;
 }
 
+/** electron-builder `beforeBuild`: nothing to install or rebuild, and no node_modules to collect. */
+async function skipDependencies() {
+  return false;
+}
+
 /**
  * @param {object} options
  * @param {string} options.stageDirectory staged app directory (package.json + dist/)
@@ -86,7 +91,10 @@ export function createBuilderConfig(options) {
     compression: options.compression,
     ...(options.baseline ? {} : { electronLanguages: ELECTRON_LANGUAGES }),
     publish: null,
-    npmRebuild: false,
+    // The staged app has no node_modules (the shell is one esbuild bundle). A `beforeBuild` that resolves false tells
+    // electron-builder dependencies are handled outside it, so it neither rebuilds them nor spends seconds searching
+    // the workspace for node_modules. It only runs while npmRebuild is on, so npmRebuild stays at its default here.
+    beforeBuild: skipDependencies,
     nodeGypRebuild: false,
     buildDependenciesFromSource: false,
     afterPack,

@@ -214,21 +214,28 @@ async function packUnpackedApp(options, paths, version) {
   return findPackedApp(paths.outputDirectory);
 }
 
-/** Builds every installer target from the already packed app, timing each one. */
+/**
+ * Builds every installer target from the already packed app, timing each one. Each `build()` gets a config of its own:
+ * electron-builder normalizes `files` in place (merged entries become null), so a reused config fails the next build.
+ */
 async function buildInstallers({ options, paths, version, compression, dmgFormat, outputDirectory, packedApp }) {
   const timings = {};
-  const config = createBuilderConfig({ ...paths, version, ...options, compression, dmgFormat, outputDirectory });
   for (const target of TARGETS_BY_PLATFORM[process.platform]) {
     const startedAt = Date.now();
     await build({
       targets: PLATFORMS[process.platform].createTarget(target, Arch[options.arch]),
-      config,
+      config: createBuilderConfig({ ...paths, version, ...options, compression, dmgFormat, outputDirectory }),
       prepackaged: packedApp,
       publish: "never",
     });
     timings[target] = seconds(startedAt);
   }
   return { timings, ...collectInstallers(outputDirectory) };
+}
+
+/** One line in the CI log for each verification, so the log itself shows what was checked. */
+function logStep(message) {
+  console.log(`[package] ${message}`);
 }
 
 /** Hashes the packed runtime bundle against its manifest with the same code the App runs at start. */
@@ -468,9 +475,23 @@ async function main() {
 
   step = Date.now();
   const packedRuntime = await verifyPackedRuntime(packedApp, runtime);
+  logStep(
+    `packed runtime ${packedRuntime.runtimeId} verified: ${packedRuntime.files} files, ${packedRuntime.hashed} hashed`,
+  );
   const icons = verifyIcons(packedApp);
+  logStep("icons verified");
   const fuses = await verifyFuses(packedApp);
+  logStep(
+    `fuses read back: ${fuses.map((check) => `${check.name}=${check.actual === FUSE_ENABLED ? "on" : "off"}`).join(" ")}`,
+  );
   const macSigning = process.platform === "darwin" ? verifyMacSigning(packedApp) : null;
+  if (macSigning) {
+    logStep("codesign --verify --deep --strict passed; Signature=adhoc; bundled node signature verifies");
+    logStep(
+      `symbolic links in the runtime bundle: ${macSigning.runtimeSymlinks.length}, all relative and inside the app`,
+    );
+    logStep(`spctl --assess exit ${macSigning.spctlAssess.exitCode} (recorded only)`);
+  }
   timings.verifySeconds = seconds(step);
 
   let installers = [];
@@ -486,7 +507,10 @@ async function main() {
     });
     installers = built.installers;
     updateMetadataRemoved = built.removed;
-    if (process.platform === "darwin") macSigning.shippedZip = verifyShippedZip(installers);
+    if (process.platform === "darwin") {
+      macSigning.shippedZip = verifyShippedZip(installers);
+      logStep(`extracted ${macSigning.shippedZip.file} passes codesign --verify --deep --strict`);
+    }
     timings.targetSeconds = built.timings;
     if (options.compare) {
       const alternative = {

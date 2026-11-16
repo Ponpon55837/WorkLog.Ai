@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  describeSigningPlan,
   isMachOHeader,
   listAppEntries,
   planSigningOrder,
@@ -119,5 +120,19 @@ describe("app tree listing", () => {
     });
     expect(entries).toContainEqual({ path: "Contents/Info.plist", type: "file", machO: false });
     expect(entries.some((entry) => entry.path.includes("Current") || entry.path.includes("Loop"))).toBe(false);
+  });
+});
+
+describe("describeSigningPlan", () => {
+  it("counts code files, frameworks, helpers and the main app", () => {
+    const plan = [
+      "Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libEGL.dylib",
+      "Contents/Resources/app.asar.unpacked/addon.node",
+      FRAMEWORK,
+      HELPER,
+      ".",
+    ];
+    expect(describeSigningPlan(plan)).toBe("2 code files, 1 frameworks, 1 helpers, main app");
+    expect(describeSigningPlan([])).toBe("0 code files, 0 frameworks, 0 helpers");
   });
 });
