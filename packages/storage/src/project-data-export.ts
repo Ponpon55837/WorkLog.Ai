@@ -188,14 +188,25 @@ function sqlRows(
   return db.prepare(sql).all(...values) as unknown as ProjectDataRow[];
 }
 
-function sortExportRows(table: ProjectDataTable, rows: ProjectDataRow[]): ProjectDataRow[] {
-  return rows.sort((left, right) => {
-    if (table === "outstanding_item_events") {
-      const byCreatedAt = EXPORT_ORDER_COLLATOR.compare(String(left.created_at), String(right.created_at));
-      if (byCreatedAt !== 0) return byCreatedAt;
-    }
-    return EXPORT_ORDER_COLLATOR.compare(String(left.id), String(right.id));
-  });
+function compareExportRows(table: ProjectDataTable, left: ProjectDataRow, right: ProjectDataRow): number {
+  if (table === "outstanding_item_events") {
+    const byCreatedAt = EXPORT_ORDER_COLLATOR.compare(String(left.created_at), String(right.created_at));
+    if (byCreatedAt !== 0) return byCreatedAt;
+  }
+  return EXPORT_ORDER_COLLATOR.compare(String(left.id), String(right.id));
+}
+
+/**
+ * Orders rows by the export comparator. SQL already returns them by id (binary order), which is usually the collator
+ * order too, so one linear pass skips the sort when every neighbour pair is in order; a stable sort leaves such an
+ * array unchanged, so the output is the same either way.
+ */
+export function sortExportRows(table: ProjectDataTable, rows: ProjectDataRow[]): ProjectDataRow[] {
+  let ordered = true;
+  for (let index = 1; index < rows.length && ordered; index += 1) {
+    ordered = compareExportRows(table, rows[index - 1]!, rows[index]!) <= 0;
+  }
+  return ordered ? rows : rows.sort((left, right) => compareExportRows(table, left, right));
 }
 
 /**

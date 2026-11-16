@@ -88,25 +88,29 @@ export async function readJsonBytesBody(
     throw new RequestBodyError(415, "Content-Type must be application/json.");
   }
 
-  const chunks: Buffer[] = [];
+  // A declared length lets each socket chunk be copied into its final buffer as it arrives, so the body never exists
+  // twice (chunk list plus a concatenated copy) and the chunks can be reclaimed while the upload is still running.
+  const declared = Number(request.headers["content-length"]);
+  const known = Number.isSafeInteger(declared) && declared > 0 && declared <= maxBytes;
+  let target = known ? new Uint8Array(declared) : new Uint8Array(0);
   let total = 0;
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    total += buffer.length;
-    if (total > maxBytes) {
+    if (total + buffer.length > maxBytes) {
       throw new RequestBodyError(413, "Request body is too large.");
     }
-    chunks.push(buffer);
+    if (total + buffer.length > target.length) {
+      const grown = new Uint8Array(Math.min(maxBytes, Math.max(total + buffer.length, target.length * 2)));
+      grown.set(target.subarray(0, total));
+      target = grown;
+    }
+    target.set(buffer, total);
+    total += buffer.length;
   }
 
   if (total === 0) return Uint8Array.from([0x7b, 0x7d]);
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return bytes;
+  // A body that matches its declared length (the normal case) is already one exact buffer and can be transferred.
+  return total === target.length ? target : target.slice(0, total);
 }
 
 /** Parses and validates an import payload after it reaches the worker or inline fallback. */

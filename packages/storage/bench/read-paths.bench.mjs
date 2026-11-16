@@ -6,6 +6,12 @@
 //   node packages/storage/bench/read-paths.bench.mjs 5000 --check --case=finalize-related-reminder
 //   node packages/storage/bench/read-paths.bench.mjs 5000 --check --backup-worker-only --backup-worker-mode=sync|worker
 //
+// Heavy cases (backup, export, import preview, import): the gated operationMs is the time from sending the request to
+// the response's last byte, what a user's client waits for. Before 1.6.45 the gate also included the benchmark
+// client's own Buffer.concat, toString and JSON.parse of the body (50-85 ms for the 10 MB export), which is checking
+// work, not product latency. That older, wider number is still printed as verifiedOperationMedianMs/P90Ms; the checks
+// still run and still fail the run on a bad body.
+//
 // Seeding thousands of Sessions is slow, so set WI_BENCH_CACHE=<path prefix> to keep the
 // seeded SQLite file and reuse it on the next run (for before/after comparisons).
 import console from "node:console";
@@ -72,7 +78,6 @@ const [
 const { evaluateRecallQuestions, parseRecallEvaluationQuestions } = recallEvaluation;
 const { getMcpRuntimeDirectory, getMcpRuntimeStatus, readMcpBuildIdentity, registerMcpProcess } = mcpRuntime;
 const runs = 15;
-const backupWorkerBenchIdleTimeoutMs = 15_000;
 const root = mkdtempSync(join(tmpdir(), "wi-bench-"));
 const alphaRoot = join(root, "alpha");
 const betaRoot = join(root, "beta");
@@ -99,6 +104,7 @@ const bodyChunks = [];
 for await (const chunk of process.stdin) bodyChunks.push(Buffer.from(chunk));
 const body = Buffer.concat(bodyChunks);
 const operationStarted = performance.now();
+let operationEnded = operationStarted;
 const operationPromise = new Promise((resolve, reject) => {
   const operation = request(new URL(path, baseUrl), {
     method: "POST",
@@ -108,6 +114,9 @@ const operationPromise = new Promise((resolve, reject) => {
     response.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
     response.once("error", reject);
     response.once("end", () => {
+      // The timed operation ends at the last byte of the response, what a client waits for. Buffer.concat,
+      // toString, JSON.parse and the shape checks below are verification and stay outside the measurement.
+      operationEnded = performance.now();
       const content = Buffer.concat(chunks);
       if ((response.statusCode ?? 500) < 200 || (response.statusCode ?? 500) >= 300) {
         reject(new Error("Heavy API request failed: " + response.statusCode + " " + content.toString("utf8")));
@@ -184,7 +193,10 @@ const healthP90Ms = healthSamples[Math.ceil(healthSamples.length * 0.9) - 1] ?? 
 const healthMaxMs = healthSamples.at(-1) ?? 0;
 process.stdout.write(JSON.stringify({
   ...(collectHealth ? { healthP90Ms, healthMaxMs, healthProbeCount: healthSamples.length } : {}),
-  operationMs: performance.now() - operationStarted,
+  // operationMs is the gated metric (last byte); verifiedOperationMs also includes the client's own concat, toString,
+  // JSON.parse and shape checks, which is what the gate measured before 1.6.45. Both are reported.
+  operationMs: operationEnded - operationStarted,
+  verifiedOperationMs: performance.now() - operationStarted,
   ...operation,
 }));
 `;
@@ -1703,10 +1715,14 @@ try {
       ? await import(pathToFileURL(join(repositoryRoot, "apps", "server", "dist", "backup-worker-client.js")).href)
       : undefined;
   const BackupWorkerClient = workerClientModule?.BackupWorkerClient;
+  // The steady-state client is built exactly as start-api builds it (no explicit idle timeout), so the bench measures
+  // production's idle policy: a heavy operation leaves the worker warm for HEAVY_IDLE_TIMEOUT_MS, a light one for
+  // DEFAULT_IDLE_TIMEOUT_MS. Consecutive heavy runs are back to back (cleanup between them is milliseconds), well
+  // inside that window, and each case starts with a warm-up call.
+  // The idle RSS check below follows a light operation (backupIfDue) on a fresh worker, so it waits the light timeout.
+  const backupWorkerIdleTimeoutMs = workerClientModule?.DEFAULT_IDLE_TIMEOUT_MS;
   const backgroundStore = BackupWorkerClient
-    ? new BackupWorkerClient(heavyDatabasePath, {}, LATEST_SCHEMA_VERSION, {
-        idleTimeoutMs: backupWorkerBenchIdleTimeoutMs,
-      })
+    ? new BackupWorkerClient(heavyDatabasePath, {}, LATEST_SCHEMA_VERSION)
     : undefined;
   const coldStartWorkers = new Set();
   const coldStartWorkerClosures = new Set();
@@ -1812,7 +1828,7 @@ try {
   const heavyCases = makeHeavyCases(benchmarkBaseUrl, false);
   const heavyHealthCases = makeHeavyCases(benchmarkBaseUrl, true);
   const coldStartHeavyCases = coldStartBaseUrl ? makeHeavyCases(coldStartBaseUrl, false) : {};
-  const heavyRuns = 5;
+  const heavyRuns = 10;
   const beforeEachRun = {
     "finalizeSession (changed files, Knowledge review)": seedFreshReviewKnowledge,
     "metadata follow-up counts (after a write)": touchProjectData,
@@ -1922,7 +1938,10 @@ try {
     "searchKnowledgeForAgent (relaxed fallback)": 250,
     createBackup: 300,
     "exportTo (whole database)": 300,
-    "exportProjectData (all projects)": 400,
+    // Measured to the response's last byte (1.6.45). Three local runs of 10 gave p90 312-327 ms on a quiet machine and
+    // 394 ms on a loaded one; the old metric ran 362-399.5 ms on CI, of which about 50-85 ms was the client's own
+    // concat/parse. 360 ms is 1.1x the highest quiet p90; a loaded first pass is measured once more before it fails.
+    "exportProjectData (all projects)": 360,
     "previewProjectDataImport (all projects)": 1500,
     "importProjectData (all projects, already present)": 1500,
   };
@@ -1957,6 +1976,7 @@ try {
     const samples = [];
     const transactionSamples = transactionObserver?.samples ?? [];
     const operationSamples = [];
+    const verifiedOperationSamples = [];
     const eventLoopP90Samples = [];
     const eventLoopMaxSamples = [];
     const rssPeakSamples = [];
@@ -1969,6 +1989,7 @@ try {
           const measured = await measureProcessResources(run);
           samples.push(measured.value.operationMs);
           operationSamples.push(measured.value.operationMs);
+          verifiedOperationSamples.push(measured.value.verifiedOperationMs);
           eventLoopP90Samples.push(measured.eventLoopP90Ms);
           eventLoopMaxSamples.push(measured.eventLoopMaxMs);
           rssPeakSamples.push(measured.rssPeakMb);
@@ -2012,6 +2033,7 @@ try {
     }
     if (isHeavyCase) {
       operationSamples.sort((a, b) => a - b);
+      verifiedOperationSamples.sort((a, b) => a - b);
       eventLoopP90Samples.sort((a, b) => a - b);
       eventLoopMaxSamples.sort((a, b) => a - b);
       rssPeakSamples.sort((a, b) => a - b);
@@ -2032,6 +2054,8 @@ try {
       Object.assign(result, {
         operationMedianMs: Number(operationSamples[Math.floor(caseRuns / 2)].toFixed(2)),
         operationP90Ms,
+        verifiedOperationMedianMs: Number(verifiedOperationSamples[Math.floor(caseRuns / 2)].toFixed(2)),
+        verifiedOperationP90Ms: Number(verifiedOperationSamples[Math.ceil(caseRuns * 0.9) - 1].toFixed(2)),
         operationLimitMs,
         healthP90Ms,
         healthLimitMs: operationLimitMs,
@@ -2079,7 +2103,7 @@ try {
   if (backgroundStore) {
     const processRssBeforeAutoBackupMb = Number((process.memoryUsage.rss() / 1024 / 1024).toFixed(1));
     const automaticBackup = await measureProcessResources(() => backgroundStore.backupIfDue());
-    await new Promise((resolve) => setTimeout(resolve, backupWorkerBenchIdleTimeoutMs + 250));
+    await new Promise((resolve) => setTimeout(resolve, backupWorkerIdleTimeoutMs + 250));
     const workerIdleRssMb = Number((process.memoryUsage.rss() / 1024 / 1024).toFixed(1));
     console.log("Backup worker RSS (synthetic automatic backup):", {
       processRssBeforeAutoBackupMb,
@@ -2087,9 +2111,12 @@ try {
       automaticBackupPeakRssMb: automaticBackup.rssPeakMb,
       afterWorkerIdleRssMb: workerIdleRssMb,
       idleDeltaMb: Number((workerIdleRssMb - processRssBeforeAutoBackupMb).toFixed(1)),
-      workerIdleTimeoutMs: backupWorkerBenchIdleTimeoutMs,
+      workerIdleTimeoutMs: backupWorkerIdleTimeoutMs,
     });
   }
+  console.log(
+    "Heavy cases: operationMedianMs/P90Ms (gated) end at the response's last byte; verifiedOperationMedianMs/P90Ms also include the client's concat, toString, JSON.parse and shape checks (the pre-1.6.45 metric).",
+  );
   console.table(results);
   if (checkMode) {
     const failures = results.filter((result) => !result.passed);

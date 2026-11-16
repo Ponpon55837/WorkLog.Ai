@@ -73,15 +73,31 @@ interface WorkerLifetime {
   worker: Worker;
   exited: Promise<void>;
   retiring: boolean;
+  /** A heavy operation ran in this worker, so it exits quickly once idle. */
+  heavy: boolean;
   failure?: unknown;
   closePromise?: Promise<void>;
 }
 
 export interface BackupWorkerClientOptions {
+  /** Idle time before the worker exits; one value for every operation (tests use it to pin timing). */
   idleTimeoutMs?: number;
 }
 
-const DEFAULT_IDLE_TIMEOUT_MS = 15_000;
+export const DEFAULT_IDLE_TIMEOUT_MS = 15_000;
+/**
+ * Import, preview and export leave the worker holding the parsed document (hundreds of MiB for a large project) in
+ * a heap V8 does not shrink while idle, so the worker exits sooner after them and that memory goes back to the system.
+ * 5 s keeps a cold start (about 500 ms) out of back-to-back work such as a preview followed by its import, or an
+ * export retried right away, while holding the memory for seconds rather than the 15 s of a light operation.
+ */
+export const HEAVY_IDLE_TIMEOUT_MS = 5_000;
+const HEAVY_OPERATIONS: ReadonlySet<BackupWorkerOperation["type"]> = new Set([
+  "exportTo",
+  "exportProjectData",
+  "previewProjectDataImport",
+  "importProjectData",
+]);
 
 function workerEntryUrl(): URL {
   const extension = fileURLToPath(import.meta.url).endsWith(".ts") ? "ts" : "js";
@@ -213,6 +229,7 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
   private async send<T>(operation: BackupWorkerOperation): Promise<T> {
     const lifetime = await this.startWorker();
     if (lifetime.failure !== undefined) throw lifetime.failure;
+    if (HEAVY_OPERATIONS.has(operation.type)) lifetime.heavy = true;
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { lifetime, resolve: (value) => resolve(value as T), reject });
@@ -250,7 +267,7 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
       rejectExit = reject;
     });
     void exited.catch(() => undefined);
-    const lifetime: WorkerLifetime = { worker, exited, retiring: false };
+    const lifetime: WorkerLifetime = { worker, exited, retiring: false, heavy: false };
     this.lifetime = lifetime;
 
     worker.on("message", (message: BackupWorkerReply) => {
@@ -291,10 +308,13 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
   private scheduleIdleClose(): void {
     if (!this.accepting || this.active.size > 0 || !this.lifetime || this.lifetime.retiring) return;
     clearTimeout(this.idleTimer);
-    this.idleTimer = setTimeout(() => {
-      this.idleTimer = undefined;
-      void this.closeIdleWorker();
-    }, this.options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS);
+    this.idleTimer = setTimeout(
+      () => {
+        this.idleTimer = undefined;
+        void this.closeIdleWorker();
+      },
+      this.options.idleTimeoutMs ?? (this.lifetime.heavy ? HEAVY_IDLE_TIMEOUT_MS : DEFAULT_IDLE_TIMEOUT_MS),
+    );
     this.idleTimer.unref();
   }
 
