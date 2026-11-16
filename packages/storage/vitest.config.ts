@@ -1,5 +1,6 @@
 import { defineConfig } from "vitest/config";
 import { fileURLToPath } from "node:url";
+import { isolatedEnvironmentSetup } from "../../tests/helpers/isolated-environment-setup";
 
 export const storageAliases = {
   "@work-intelligence/core": fileURLToPath(new URL("../core/src/index.ts", import.meta.url)),
@@ -13,6 +14,7 @@ export const storageAliases = {
   "@work-intelligence/shared/database-location": fileURLToPath(
     new URL("../shared/src/database-location.ts", import.meta.url),
   ),
+  "@work-intelligence/shared/file-identity": fileURLToPath(new URL("../shared/src/file-identity.ts", import.meta.url)),
   "@work-intelligence/shared/app-version": fileURLToPath(new URL("../shared/src/app-version.ts", import.meta.url)),
   "@work-intelligence/shared": fileURLToPath(new URL("../shared/src/index.ts", import.meta.url)),
 };
@@ -26,6 +28,7 @@ export const storageTestTimeout = 20_000;
 export default defineConfig({
   resolve: { alias: storageAliases },
   test: {
+    setupFiles: [isolatedEnvironmentSetup],
     include: ["tests/storage/**/*.test.ts"],
     testTimeout: storageTestTimeout,
     // Calendar dates follow the host time zone; pin it so date fixtures behave the same on every machine.

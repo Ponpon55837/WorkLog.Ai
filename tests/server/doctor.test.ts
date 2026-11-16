@@ -27,6 +27,7 @@ import {
 import { createMcpRuntimeFixture, finalizeMcpRuntimeFixture } from "../helpers/mcp-runtime-fixture.js";
 
 const temporaryDirectories: string[] = [];
+const UNUSED_PORT = "65533";
 const CODEX_POST_TOOL_USE_MATCHER = "^(apply_patch|.*(work_finalize_session|work_write_idempotent))$";
 const LEGACY_CODEX_POST_TOOL_USE_MATCHER = "^(apply_patch|.*work_finalize_session)$";
 
@@ -54,8 +55,10 @@ function isolatedUserServiceStatus(directory: string): UserServiceStatus {
 
 function collectDoctorFindings(options: Parameters<typeof collectDoctorFindingsFromHost>[0] = {}) {
   const directory = options.repositoryRoot ?? options.homeDirectory ?? temporaryDirectory();
+  // The doctor probes the API port; never let a test fall back to the real default port 3210.
   return collectDoctorFindingsFromHost({
     ...options,
+    environment: { WORK_INTELLIGENCE_PORT: UNUSED_PORT, ...(options.environment ?? process.env) },
     userServiceStatus: options.userServiceStatus ?? isolatedUserServiceStatus(directory),
   });
 }

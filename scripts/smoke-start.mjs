@@ -67,6 +67,8 @@ function isolatedEnvironment(root, port) {
     USERPROFILE: home,
     APPDATA: home,
     LOCALAPPDATA: home,
+    XDG_CONFIG_HOME: join(home, ".config"),
+    XDG_STATE_HOME: join(home, ".local", "state"),
     CODEX_HOME: join(home, ".codex"),
     CLAUDE_CONFIG_DIR: join(home, ".claude"),
     WORK_INTELLIGENCE_CONFIG_DIR: join(root, "config"),

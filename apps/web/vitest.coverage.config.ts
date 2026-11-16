@@ -1,9 +1,11 @@
 import { defineConfig } from "vitest/config";
 import { webAliases } from "./vitest.config";
+import { isolatedEnvironmentSetup } from "../../tests/helpers/isolated-environment-setup";
 
 export default defineConfig({
   resolve: { alias: webAliases },
   test: {
+    setupFiles: [isolatedEnvironmentSetup],
     environment: "node",
     include: ["tests/web/**/*.test.ts"],
     coverage: {

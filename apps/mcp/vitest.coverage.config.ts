@@ -1,9 +1,11 @@
 import { defineConfig } from "vitest/config";
 import { mcpAliases, mcpTestTimeout } from "./vitest.config";
+import { isolatedEnvironmentSetup } from "../../tests/helpers/isolated-environment-setup";
 
 export default defineConfig({
   resolve: { alias: mcpAliases },
   test: {
+    setupFiles: [isolatedEnvironmentSetup],
     include: ["tests/mcp/**/*.test.ts"],
     testTimeout: mcpTestTimeout,
     coverage: {

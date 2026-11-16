@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
+import { isolatedEnvironmentSetup } from "../../tests/helpers/isolated-environment-setup";
 
 export const mcpAliases = [
   {
@@ -21,6 +22,10 @@ export const mcpAliases = [
   {
     find: "@work-intelligence/shared/database-location",
     replacement: fileURLToPath(new URL("../../packages/shared/src/database-location.ts", import.meta.url)),
+  },
+  {
+    find: "@work-intelligence/shared/file-identity",
+    replacement: fileURLToPath(new URL("../../packages/shared/src/file-identity.ts", import.meta.url)),
   },
   {
     find: "@work-intelligence/shared/app-version",
@@ -56,6 +61,7 @@ export const mcpTestTimeout = 20_000;
 export default defineConfig({
   resolve: { alias: mcpAliases },
   test: {
+    setupFiles: [isolatedEnvironmentSetup],
     include: ["tests/mcp/**/*.test.ts"],
     testTimeout: mcpTestTimeout,
   },
