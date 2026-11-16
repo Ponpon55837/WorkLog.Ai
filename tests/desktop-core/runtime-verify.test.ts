@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   RuntimeError,
   installRuntime,
@@ -10,7 +10,7 @@ import {
   type RuntimeErrorCode,
 } from "../../packages/desktop-core/src/runtime/index.js";
 import { forEachLimited } from "../../packages/desktop-core/src/runtime/concurrency.js";
-import { aclCheckFor, permissionProblem } from "../../packages/desktop-core/src/runtime/permissions.js";
+import { permissionProblem } from "../../packages/desktop-core/src/runtime/permissions.js";
 import {
   IS_WINDOWS,
   fixtureDefinition,
@@ -66,7 +66,7 @@ describe("verifyRuntime: a good install", () => {
     expect(result.hashedCount).toBe(0);
     expect(result.cachedCount).toBe(FILE_COUNT);
     expect(result.runtimeDirectory).toBe(runtimeDirectory);
-    expect(result.acl).toBe(IS_WINDOWS ? "not-implemented" : "checked");
+    expect(result.acl).toBe("checked");
   });
 
   it("hashes every file once when there is no cache, then writes one", async () => {
@@ -510,14 +510,105 @@ describe("verifyRuntime: permissions", () => {
     expect(error.detail.actual).toContain(`uid ${uid + 1}`);
   });
 
-  it("does not claim to check Windows ACLs: file contents are verified, and the result says ACLs were not", async () => {
-    await fs.chmod(path.join(root, "runtimes/rt-1/app"), 0o777).catch(() => undefined);
-    const result = await verifyRuntime(root, "rt-1", { policy: { platform: "win32", uid: undefined } });
-    expect(result.acl).toBe("not-implemented");
-    await flipFirstByte(path.join(runtimeDirectory, "app/mcp.js"));
-    await fs.rm(cachePath());
-    await expect(verifyRuntime(root, "rt-1", { policy: { platform: "win32", uid: undefined } })).rejects.toMatchObject({
-      code: "RUNTIME_FILE_TAMPERED",
+  describe("Windows ACLs", () => {
+    const WIN = { platform: "win32" as const, uid: undefined };
+    const GOOD = "O:BAG:BAD:PAI(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)(A;OICI;FA;;;S-1-5-21-1-2-3-1001)";
+    const BAD = "O:BAG:BAD:PAI(A;OICI;FA;;;BA)(A;OICI;0x1301bf;;;BU)";
+
+    function fixtureReader(sddl: string) {
+      const read = vi.fn(async (paths: readonly string[]) => ({
+        currentUserSid: "S-1-5-21-1-2-3-1001",
+        sddls: paths.map(() => sddl),
+      }));
+      return { read };
+    }
+
+    it("reads the ACLs of the root, bin, runtimes and the runtime's own files, and says so", async () => {
+      const aclReader = fixtureReader(GOOD);
+      const result = await verifyRuntime(root, "rt-1", { policy: WIN, aclReader, useCache: false });
+      expect(result).toMatchObject({ acl: "checked", aclRead: true });
+      const paths = aclReader.read.mock.calls[0]?.[0] ?? [];
+      expect(paths).toEqual(
+        expect.arrayContaining([root, path.join(root, "bin"), path.join(root, "runtimes"), runtimeDirectory]),
+      );
+    });
+
+    it("refuses a runtime a stranger can write, before hashing anything", async () => {
+      await expect(
+        verifyRuntime(root, "rt-1", { policy: WIN, aclReader: fixtureReader(BAD), useCache: false }),
+      ).rejects.toMatchObject({ code: "RUNTIME_UNSAFE_PERMISSIONS" });
+    });
+
+    it("ignores the POSIX mode bits Windows reports for every entry", async () => {
+      await fs.chmod(path.join(root, "runtimes/rt-1/app"), 0o777).catch(() => undefined);
+      await expect(verifyRuntime(root, "rt-1", { policy: WIN, aclReader: fixtureReader(GOOD) })).resolves.toMatchObject(
+        {
+          acl: "checked",
+        },
+      );
+    });
+
+    it("reads the ACLs once, then trusts the stamp until an object it covers changes", async () => {
+      const aclReader = fixtureReader(GOOD);
+      expect((await verifyRuntime(root, "rt-1", { policy: WIN, aclReader })).aclRead).toBe(true);
+      expect(await fs.readFile(cachePath(), "utf8")).toContain('"acl"');
+      aclReader.read.mockClear();
+      expect((await verifyRuntime(root, "rt-1", { policy: WIN, aclReader })).aclRead).toBe(false);
+      expect(aclReader.read).not.toHaveBeenCalled();
+      // A shim is covered by the stamp: touching it (a new change time) reads the ACLs again, once.
+      await tick();
+      const shim = path.join(root, "bin", "work-intelligence-launcher");
+      await fs.utimes(shim, new Date(), new Date());
+      expect((await verifyRuntime(root, "rt-1", { policy: WIN, aclReader })).aclRead).toBe(true);
+      expect((await verifyRuntime(root, "rt-1", { policy: WIN, aclReader })).aclRead).toBe(false);
+    });
+
+    it.each([
+      ["an install or switch", { alwaysCheckAcl: true }],
+      ["a full pass", { useCache: false }],
+    ])("reads the ACLs for %s even when the stamp matches", async (_name, extra) => {
+      const aclReader = fixtureReader(GOOD);
+      await verifyRuntime(root, "rt-1", { policy: WIN, aclReader });
+      expect((await verifyRuntime(root, "rt-1", { policy: WIN, aclReader, ...extra })).aclRead).toBe(true);
+    });
+
+    it("reads the ACLs again when a file misses the cache or the cache is gone", async () => {
+      const aclReader = fixtureReader(GOOD);
+      await verifyRuntime(root, "rt-1", { policy: WIN, aclReader });
+      await fs.rm(cachePath());
+      expect((await verifyRuntime(root, "rt-1", { policy: WIN, aclReader })).aclRead).toBe(true);
+      await tick();
+      await fs.utimes(path.join(runtimeDirectory, "app/mcp.js"), new Date(), new Date());
+      expect((await verifyRuntime(root, "rt-1", { policy: WIN, aclReader })).aclRead).toBe(true);
+    });
+
+    it("skips the ACLs for a content-only verification and says so", async () => {
+      const aclReader = fixtureReader(BAD);
+      const result = await verifyRuntime(root, "rt-1", { policy: WIN, aclReader, checkAcl: false });
+      expect(result).toMatchObject({ acl: "skipped", aclRead: false });
+      expect(aclReader.read).not.toHaveBeenCalled();
+    });
+
+    it("covers launcher.mjs, both shims and the manifest in the paths it reads", async () => {
+      const aclReader = fixtureReader(GOOD);
+      await verifyRuntime(root, "rt-1", { policy: WIN, aclReader, useCache: false });
+      const paths = aclReader.read.mock.calls[0]?.[0] ?? [];
+      expect(paths).toEqual(
+        expect.arrayContaining([
+          path.join(root, "bin", "work-intelligence-launcher"),
+          path.join(root, "bin", "work-intelligence-launcher.cmd"),
+          path.join(runtimeDirectory, "launcher.mjs"),
+          path.join(runtimeDirectory, "runtime-manifest.json"),
+        ]),
+      );
+    });
+
+    it("still verifies file contents", async () => {
+      await flipFirstByte(path.join(runtimeDirectory, "app/mcp.js"));
+      await fs.rm(cachePath());
+      await expect(verifyRuntime(root, "rt-1", { policy: WIN, aclReader: fixtureReader(GOOD) })).rejects.toMatchObject({
+        code: "RUNTIME_FILE_TAMPERED",
+      });
     });
   });
 
@@ -545,18 +636,12 @@ describe("permissionProblem", () => {
       undefined,
     ],
     ["macOS like Linux", { mode: 0o100646, uid: 501 }, { platform: "darwin" as const, uid: 501 }, "mode 646"],
-    // What Node reports for every entry on Windows: mode 666 and uid 0. ACLs are not checked yet, so no problem is found
-    // and the result says not-implemented (see aclCheckFor).
+    // What Node reports for every entry on Windows: mode 666 and uid 0. the ACL check (windows-acl.ts) replaces the mode bits.
     ["a Windows entry", { mode: 0o100666, uid: 0 }, { platform: "win32" as const, uid: undefined }, undefined],
   ])("%s", (_name, entry, policy, problem) => {
     const found = permissionProblem(entry, policy);
     if (problem === undefined) expect(found).toBeUndefined();
     else expect(found).toContain(problem);
-  });
-
-  it("reports Windows as not checked, never as a pass", () => {
-    expect(aclCheckFor({ platform: "win32", uid: undefined })).toBe("not-implemented");
-    expect(aclCheckFor({ platform: "linux", uid: 1000 })).toBe("checked");
   });
 });
 

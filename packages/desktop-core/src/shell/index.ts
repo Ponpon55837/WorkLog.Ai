@@ -1,6 +1,8 @@
 export * from "./i18n.js";
 export * from "./launch-mode.js";
 export * from "./single-instance.js";
+export * from "./launch-command.js";
+export * from "./debug-switches.js";
 export * from "./tray-menu.js";
 export * from "./last-backup.js";
 export * from "./quit-notice.js";
@@ -18,3 +20,5 @@ export * from "./retry-ids.js";
 export * from "./start-outcome.js";
 export * from "./quit-flow.js";
 export * from "./startup-paths.js";
+export * from "./runtime-root.js";
+export * from "./runtime-recovery.js";

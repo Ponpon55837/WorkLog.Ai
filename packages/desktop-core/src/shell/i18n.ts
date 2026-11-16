@@ -3,6 +3,9 @@ import type { BackendErrorCode } from "../backend/errors.js";
 /** Languages the shell speaks: Traditional Chinese for any `zh-*` locale, English for everything else. */
 export type ShellLocale = "zh-TW" | "en";
 
+/** Codes of failures that happen in the shell itself, before or around the backend child. */
+export type ShellErrorCode = "RUNTIME_INSTALL_FAILED" | "RUNTIME_UNSAFE_PERMISSIONS" | "RUNTIME_ACL_UNREADABLE";
+
 /** One error code as the user reads it: what happened and what to try. */
 export interface ErrorMessage {
   readonly title: string;
@@ -79,7 +82,7 @@ export interface ShellMessages {
   readonly owners: Readonly<Record<string, string>>;
   readonly backends: Readonly<Record<string, string>>;
   readonly databaseStatuses: Readonly<Record<string, string>>;
-  readonly errors: Readonly<Record<BackendErrorCode, ErrorMessage>>;
+  readonly errors: Readonly<Record<BackendErrorCode | ShellErrorCode, ErrorMessage>>;
 }
 
 const zhTW: ShellMessages = {
@@ -171,6 +174,18 @@ const zhTW: ShellMessages = {
     PORT_OCCUPIED_BY_OTHER: { title: "連接埠被其他程式占用", hint: "請關閉占用的程式，或在設定中換一個連接埠。" },
     PORT_NOT_RELEASED: { title: "連接埠尚未釋放", hint: "稍等幾秒後重試。" },
     RUNTIME_MISSING: { title: "找不到執行環境", hint: "安裝可能不完整。請重新安裝 Work Intelligence。" },
+    RUNTIME_UNSAFE_PERMISSIONS: {
+      title: "執行環境資料夾的權限不安全",
+      hint: "Work Intelligence 的執行環境資料夾允許其他使用者或群組寫入，為了安全不會啟動。請移除多餘的寫入權限（只保留你自己、SYSTEM 與系統管理員），或重新安裝後再試。",
+    },
+    RUNTIME_ACL_UNREADABLE: {
+      title: "無法檢查執行環境資料夾的權限",
+      hint: "權限檢查沒有完成（PowerShell 可能被原則封鎖或逾時），所以沒有啟動服務。請確認 PowerShell 可以執行後重試；你的資料沒有被改動。",
+    },
+    RUNTIME_INSTALL_FAILED: {
+      title: "無法準備執行環境",
+      hint: "請確認磁碟空間與資料夾權限，並暫時排除防毒軟體對 Work Intelligence 資料夾的掃描後重試；若持續發生請重新安裝。",
+    },
     SERVICE_IDENTITY_MISMATCH: { title: "連接埠上的服務不是本 App 啟動的", hint: "請關閉占用的程式後重試。" },
     CHILD_START_TIMEOUT: { title: "服務沒有在時限內啟動", hint: "請稍後重試；若持續發生請匯出診斷資訊。" },
     CHILD_PROTOCOL_ERROR: { title: "服務回應異常", hint: "請重試；若持續發生請匯出診斷資訊。" },
@@ -286,6 +301,18 @@ const en: ShellMessages = {
     RUNTIME_MISSING: {
       title: "The runtime was not found",
       hint: "The installation may be incomplete. Reinstall Work Intelligence.",
+    },
+    RUNTIME_UNSAFE_PERMISSIONS: {
+      title: "The runtime folder's permissions are not safe",
+      hint: "Other users or groups can write to Work Intelligence's runtime folder, so it was not started. Remove the extra write permissions (keep only you, SYSTEM and Administrators), or reinstall, then retry.",
+    },
+    RUNTIME_ACL_UNREADABLE: {
+      title: "The runtime folder's permissions could not be checked",
+      hint: "The permission check did not finish (PowerShell may be blocked by policy or timed out), so the service was not started. Make sure PowerShell can run and retry; your data was not changed.",
+    },
+    RUNTIME_INSTALL_FAILED: {
+      title: "The runtime could not be prepared",
+      hint: "Check free disk space and folder permissions, and pause antivirus scanning of the Work Intelligence folder, then retry. If it keeps happening, reinstall.",
     },
     SERVICE_IDENTITY_MISMATCH: {
       title: "The service on the port was not started by this app",

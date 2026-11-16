@@ -4,6 +4,9 @@ import type { BackendErrorCode } from "../backend/errors.js";
 const DETERMINISTIC_PREFIXES = ["DB_", "SCHEMA_"] as const;
 const DETERMINISTIC_CODES: ReadonlySet<string> = new Set([
   "RUNTIME_MISSING",
+  "RUNTIME_INSTALL_FAILED",
+  "RUNTIME_UNSAFE_PERMISSIONS",
+  "RUNTIME_ACL_UNREADABLE",
   "PORT_OCCUPIED_BY_OTHER",
   "REPAIR_REQUIRED",
 ]);
