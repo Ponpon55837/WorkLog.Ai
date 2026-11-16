@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { statSync } from "node:fs";
+import { accessSync, constants as fsConstants, statSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { LATEST_SCHEMA_VERSION } from "@work-intelligence/storage";
 import {
@@ -86,15 +86,27 @@ function openReadOnly(path: string): ReadOnlySqliteDatabase {
   return new DatabaseSync(path, { readOnly: true }) as unknown as ReadOnlySqliteDatabase;
 }
 
-function sqliteErrorStatus(error: unknown): "denied" | "unreadable" {
+/** True when the OS refuses read access to the file; SQLite's CANTOPEN message ("unable to open database file") omits why. */
+function readAccessDenied(path: string): boolean {
+  try {
+    accessSync(path, fsConstants.R_OK);
+    return false;
+  } catch (error) {
+    const code = (error as { code?: unknown } | null)?.code;
+    return code === "EACCES" || code === "EPERM";
+  }
+}
+
+function sqliteErrorStatus(error: unknown, path: string): "denied" | "unreadable" {
   const { errcode, code, message } = (error ?? {}) as { errcode?: unknown; code?: unknown; message?: unknown };
   const primary = typeof errcode === "number" ? errcode & 0xff : undefined;
   const text = typeof message === "string" ? message : "";
   if (code === "EACCES" || code === "EPERM") return "denied";
   if (primary === SQLITE_PERM || primary === SQLITE_READONLY) return "denied";
   if (primary === SQLITE_NOTADB || primary === SQLITE_CORRUPT) return "unreadable";
-  if (primary === SQLITE_CANTOPEN) return /permission|access/i.test(text) ? "denied" : "unreadable";
-  return /permission denied|access is denied/i.test(text) ? "denied" : "unreadable";
+  if (/permission|access is denied/i.test(text)) return "denied";
+  if (primary === SQLITE_CANTOPEN) return readAccessDenied(path) ? "denied" : "unreadable";
+  return "unreadable";
 }
 
 function describeError(error: unknown): string {
@@ -192,7 +204,7 @@ function preflightSync(path: string, supportedSchemaVersion: number): DatabasePr
     });
   } catch (error) {
     return finish({
-      status: sqliteErrorStatus(error),
+      status: sqliteErrorStatus(error, realPath),
       identity: { realPath, fileId, lineageId: null },
       detail: describeError(error),
     });
@@ -263,7 +275,7 @@ export function revalidateBeforeCommit(path: string, expected: DatabaseIdentity)
     database = openReadOnly(actual.realPath);
     lineageId = readLineageId(database);
   } catch (error) {
-    return { ok: false, reason: sqliteErrorStatus(error), detail: describeError(error) };
+    return { ok: false, reason: sqliteErrorStatus(error, actual.realPath), detail: describeError(error) };
   } finally {
     try {
       database?.close();

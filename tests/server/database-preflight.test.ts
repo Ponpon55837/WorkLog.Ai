@@ -233,8 +233,12 @@ describe("preflightDatabase statuses", () => {
       mkdirSync(inner);
       createDatabase(join(inner, "db.sqlite")).close();
       chmodSync(inner, 0o000);
-      const result = await preflightDatabase(join(inner, "db.sqlite"));
-      expect(result.status).toBe("denied");
+      try {
+        const result = await preflightDatabase(join(inner, "db.sqlite"));
+        expect(result.status).toBe("denied");
+      } finally {
+        chmodSync(inner, 0o755); // afterEach only restores the temp root, so rmSync could not enter `inner`
+      }
     },
   );
 });
