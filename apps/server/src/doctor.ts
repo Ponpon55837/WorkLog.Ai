@@ -11,7 +11,7 @@ import { configDirectory, databasePathFor, STANDALONE } from "@work-intelligence
 import { isDriveRelativePath } from "@work-intelligence/shared/database-path";
 import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import type { AgentMcpRegistrationState, SystemAgentConnections, UserServiceStatus } from "@work-intelligence/core";
-import { getSqliteRuntimeStatus } from "./sqlite-runtime.js";
+import { sqliteRuntimeStatusFromVersion } from "./sqlite-runtime.js";
 import { DEFAULT_SERVER_PORT } from "./server-port.js";
 import { claudePluginEnabled, codexPluginEnabled } from "./agent-plugins.js";
 import { getUserServiceStatus } from "./user-service.js";
@@ -692,22 +692,47 @@ export function pnpmRequirementSatisfied(installed: string | undefined, required
   return true;
 }
 
-/** Whether node:sqlite loads and its bundled SQLite can create the FTS5 table the search index needs. */
-async function probeSqlite(): Promise<{ sqlite: boolean; fts5: boolean }> {
+/**
+ * Whether node:sqlite loads and its bundled SQLite can create the FTS5 table the search index needs, plus the
+ * SQLite version. node:sqlite is only imported dynamically here so a Node without it is reported, not a crash.
+ */
+async function probeSqlite(): Promise<{ sqlite: boolean; fts5: boolean; version?: string }> {
   try {
     const { DatabaseSync } = await import("node:sqlite");
     const db = new DatabaseSync(":memory:");
     try {
-      db.exec("CREATE VIRTUAL TABLE fts5_probe USING fts5(tokens, content = '', contentless_delete = 1)");
-      return { sqlite: true, fts5: true };
-    } catch {
-      return { sqlite: true, fts5: false };
+      const version = String((db.prepare("SELECT sqlite_version() AS version").get() as { version: unknown }).version);
+      try {
+        db.exec("CREATE VIRTUAL TABLE fts5_probe USING fts5(tokens, content = '', contentless_delete = 1)");
+        return { sqlite: true, fts5: true, version };
+      } catch {
+        return { sqlite: true, fts5: false, version };
+      }
     } finally {
       db.close();
     }
   } catch {
     return { sqlite: false, fts5: false };
   }
+}
+
+/** The SQLite WAL-reset finding for a probed version. */
+export function sqliteFinding(version: string, cmd: (script: string) => string): DoctorFinding {
+  const runtime = sqliteRuntimeStatusFromVersion(version);
+  const fixedIn = runtime.fixedIn;
+  return {
+    // Warning, not error: the bug needs a specific WAL checkpoint/reset race, and users cannot always change their
+    // Node.js at once. CI hard-fails on an affected SQLite separately, so releases are never built on one.
+    severity: runtime.walResetFixed ? "ok" : "warning",
+    title: "SQLite",
+    detail: runtime.walResetFixed
+      ? `內建 SQLite ${runtime.version}，已包含 WAL-reset 資料庫損毀問題的修正。`
+      : `內建 SQLite ${runtime.version} 可能受 WAL-reset 資料庫損毀問題影響（修正版本：3.51.3、3.50.7、3.44.6）。` +
+        (fixedIn ? `建議升級至內建 SQLite ${fixedIn} 以上的 Node.js。` : ""),
+    recommendation: runtime.walResetFixed
+      ? undefined
+      : `請升級 Node.js，使內建 SQLite 達到 3.51.3 以上（或同系列的 3.50.7、3.44.6 以上），再重新執行 ${cmd("check")}。`,
+  };
 }
 
 /** Lists the database file and its directory when group or other users can access them; empty on Windows or when unreadable. */
@@ -896,19 +921,8 @@ export async function collectDoctorFindings(
       : `請改用 Node.js ${MINIMUM_NODE_VERSION} 以上的 22.x，或 Node.js 24 以上；搜尋索引需要內建 SQLite 的 FTS5。`,
   );
 
-  if (sqlite.sqlite) {
-    const runtime = getSqliteRuntimeStatus();
-    addFinding(
-      findings,
-      runtime.walResetFixed ? "ok" : "warning",
-      "SQLite",
-      runtime.walResetFixed
-        ? `內建 SQLite ${runtime.version}，已包含 WAL-reset 資料庫損毀問題的修正。`
-        : `內建 SQLite ${runtime.version} 可能受 WAL-reset 資料庫損毀問題影響（修正版本：3.51.3、3.50.7、3.44.6）。`,
-      runtime.walResetFixed
-        ? undefined
-        : `請升級 Node.js，使內建 SQLite 達到 3.51.3 以上（或同系列的 3.50.7、3.44.6 以上），再重新執行 ${cmd("check")}。`,
-    );
+  if (sqlite.sqlite && sqlite.version) {
+    findings.push(sqliteFinding(sqlite.version, cmd));
   }
 
   if (standalone) {

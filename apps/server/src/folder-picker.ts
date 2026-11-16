@@ -13,7 +13,11 @@ const PROMPT = "選擇 Work Intelligence 專案資料夾";
  * C# compiled by `Add-Type`: the Windows Vista+ common item dialog (`IFileOpenDialog`) in folder mode,
  * the same dialog File Explorer and modern apps use. The title is a parameter, never part of the source.
  * The interface lists every method in vtable order (IModalWindow, IFileDialog, IFileOpenDialog); a wrong
- * order calls the wrong method, so unused methods stay declared.
+ * order calls the wrong method, so unused methods stay declared. The interface is IFileOpenDialog (IID
+ * D57C7288-...), which flattens the inherited IFileDialog methods and appends GetResults/GetSelectedItems.
+ *
+ * `Add-Type` compiles this source on every pick (about 1 second). That is accepted on purpose: caching a compiled
+ * DLL on disk would add a file that could be planted or replaced (DLL planting) and would need maintenance.
  */
 const FOLDER_DIALOG_CSHARP = [
   "using System;",
@@ -29,7 +33,7 @@ const FOLDER_DIALOG_CSHARP = [
   "    void GetAttributes(uint sfgaoMask, out uint psfgaoAttribs);",
   "    void Compare(IShellItem psi, uint hint, out int piOrder);",
   "  }",
-  '  [ComImport, Guid("42F85136-DB7E-439C-85F1-E4075D135FC8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+  '  [ComImport, Guid("D57C7288-D4AD-4768-BE02-9D969532D960"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
   "  interface IFileOpenDialog {",
   "    [PreserveSig] int Show(IntPtr hwndOwner);",
   "    void SetFileTypes(uint cFileTypes, IntPtr rgFilterSpec);",
@@ -59,6 +63,8 @@ const FOLDER_DIALOG_CSHARP = [
   "    void GetSelectedItems(out IntPtr ppsai);",
   "  }",
   "  public static class FolderPicker {",
+  // Set right before the dialog is shown: after that point a failure must not open a second (legacy) dialog.
+  "    public static bool Shown = false;",
   '    [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr value);',
   '    [DllImport("user32.dll")] static extern bool SetProcessDPIAware();',
   // FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST.
@@ -82,6 +88,7 @@ const FOLDER_DIALOG_CSHARP = [
   "        dialog.GetOptions(out options);",
   "        dialog.SetOptions(options | FolderOptions);",
   "        dialog.SetTitle(title);",
+  "        Shown = true;",
   "        int hr = dialog.Show(owner);",
   "        if (hr == CancelledHResult) { return null; }",
   "        if (hr != 0) { Marshal.ThrowExceptionForHR(hr); }",
@@ -105,7 +112,7 @@ function powerShellQuote(value: string): string {
 
 /**
  * Fixed PowerShell script for the Windows dialog. Exit 0 prints the path, exit 2 means cancel and any
- * other status is a failure. Nothing in it comes from a request.
+ * other status (3 for a failure after the dialog was shown) is a failure. Nothing in it comes from a request.
  */
 function windowsPickerScript(): string {
   return [
@@ -147,7 +154,16 @@ function windowsPickerScript(): string {
     "}",
     "$path = $null",
     "$shown = $false",
-    "try { $path = Show-ModernDialog; $shown = $true } catch { }",
+    // Fall back only when the modern dialog could not be shown. Once it was shown, a failure is reported (exit 3)
+    // instead of opening a second picker and losing the user's choice. Diagnostics go to stderr, never stdout.
+    "try { $path = Show-ModernDialog; $shown = $true } catch {",
+    "  $modernError = $_",
+    "  if (('WorkLog.FolderPicker' -as [type]) -and [WorkLog.FolderPicker]::Shown) {",
+    '    [Console]::Error.WriteLine("folder dialog failed after it was shown: $modernError")',
+    "    exit 3",
+    "  }",
+    '  [Console]::Error.WriteLine("modern folder dialog unavailable, using the classic dialog: $modernError")',
+    "}",
     "if (-not $shown) { $path = Show-LegacyDialog }",
     // Exit 2 on cancel so it is not confused with PowerShell's own failure status 1.
     "if ($path) { Write-Output $path } else { exit 2 }",

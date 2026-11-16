@@ -43,7 +43,8 @@ describe("Windows folder dialog script", () => {
   it("uses the modern IFileOpenDialog in folder mode with the documented COM identifiers", () => {
     const script = windowsScript();
     expect(script).toContain("DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7");
-    expect(script).toContain("42F85136-DB7E-439C-85F1-E4075D135FC8");
+    expect(script).toContain("D57C7288-D4AD-4768-BE02-9D969532D960");
+    expect(script).not.toContain("42F85136-DB7E-439C-85F1-E4075D135FC8");
     expect(script).toContain("43826D1E-E718-42EE-BC55-A1E261C37BFE");
     // FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST, added to the dialog's current options.
     expect(script).toContain("0x20 | 0x40 | 0x800");
@@ -104,10 +105,28 @@ describe("Windows folder dialog script", () => {
 
   it("falls back to the classic dialog with visual styles when the COM path throws", () => {
     const script = windowsScript();
-    expect(script).toContain("catch { }");
     expect(script).toContain("System.Windows.Forms.FolderBrowserDialog");
     expect(script).toContain("[System.Windows.Forms.Application]::EnableVisualStyles()");
     expect(script.indexOf("Show-ModernDialog; $shown")).toBeLessThan(script.indexOf("$path = Show-LegacyDialog"));
+  });
+
+  it("falls back only before the dialog was shown; a later failure exits 3 without a second picker", () => {
+    const script = windowsScript();
+    const setShown = script.indexOf("Shown = true;");
+    expect(setShown).toBeGreaterThan(-1);
+    expect(setShown).toBeLessThan(script.indexOf("dialog.Show(owner)"));
+    expect(script).toContain("public static bool Shown = false;");
+    const guard = script.indexOf("[WorkLog.FolderPicker]::Shown");
+    expect(guard).toBeGreaterThan(script.indexOf("catch {"));
+    expect(script.indexOf("exit 3", guard)).toBeGreaterThan(guard);
+    expect(script.indexOf("exit 3")).toBeLessThan(script.indexOf("$path = Show-LegacyDialog"));
+  });
+
+  it("writes fallback and failure reasons to stderr, not stdout", () => {
+    const script = windowsScript();
+    expect(script).toContain('[Console]::Error.WriteLine("modern folder dialog unavailable');
+    expect(script).toContain('[Console]::Error.WriteLine("folder dialog failed after it was shown');
+    expect(script).not.toMatch(/Write-(Output|Host)[^\n]*(unavailable|failed)/);
   });
 
   it("writes UTF-8 and passes the Chinese title as a single-quoted PowerShell string", () => {

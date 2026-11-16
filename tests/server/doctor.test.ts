@@ -15,6 +15,7 @@ import {
   pnpmRequirementSatisfied,
   wideDatabasePermissions,
   shouldSuggestReclaim,
+  sqliteFinding,
 } from "../../apps/server/src/doctor.js";
 import { inspectAgentSkillCopies, commandForAgentHook } from "../../apps/server/src/agent-setup.js";
 import {
@@ -84,6 +85,16 @@ describe("pnpm doctor read-only checks", () => {
       severity: "ok",
       detail: expect.stringContaining(process.versions.sqlite ?? ""),
     });
+  });
+
+  it("warns about an affected SQLite and names the nearest fixed release", () => {
+    const finding = sqliteFinding("3.45.0", (script) => `pnpm ${script}`);
+
+    expect(finding.severity).toBe("warning");
+    expect(finding.detail).toContain("3.45.0");
+    expect(finding.detail).toContain("建議升級至內建 SQLite 3.50.7 以上的 Node.js");
+    expect(finding.recommendation).toContain("pnpm check");
+    expect(sqliteFinding("3.51.3", (script) => script)).toMatchObject({ severity: "ok", recommendation: undefined });
   });
 
   it("warns about top-level SQLite files in the repository root without reading or removing them", async () => {
