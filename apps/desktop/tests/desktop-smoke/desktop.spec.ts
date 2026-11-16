@@ -172,6 +172,33 @@ test("quitting stops the backend and frees the port", async () => {
   expect(readMainLog(sandbox)).toMatch(/\[shell\] stop: graceful=true forced=false exited=true portReleased=true/);
 });
 
+test("--quit asks the running App for its non-interactive quit: backend stopped, port free, exit 0 for both", async () => {
+  sandbox = await createSandbox({ withDatabase: true });
+  app = await launchApp(sandbox);
+  const snapshot = await waitForSnapshot(app, (state) => state.owner === "MANAGED" && state.backend !== null);
+  const pid = snapshot.backend?.pid;
+  if (!pid) throw new Error("no backend");
+
+  const closed = app.waitForEvent("close", { timeout: 40_000 });
+  const quit = await runToExit(sandbox, {}, 20_000, ["--quit"]);
+  expect({ code: quit.code, signal: quit.signal }, `--quit stderr:\n${quit.stderr}`).toEqual({ code: 0, signal: null });
+  await closed;
+
+  await expect.poll(() => processIsAlive(pid), { timeout: 10_000 }).toBe(false);
+  await expect.poll(() => portIsFree(sandbox?.port ?? 0), { timeout: 10_000 }).toBe(true);
+  const log = readMainLog(sandbox);
+  expect(log).toMatch(/\[shell\] quit requested by --quit/);
+  expect(log).toMatch(/\[shell\] stop: graceful=true forced=false exited=true portReleased=true/);
+});
+
+test("--quit with nothing running exits 0 at once and starts nothing", async () => {
+  sandbox = await createSandbox({ withDatabase: true });
+  const quit = await runToExit(sandbox, {}, 20_000, ["--quit"]);
+  expect({ code: quit.code, signal: quit.signal }, `--quit stderr:\n${quit.stderr}`).toEqual({ code: 0, signal: null });
+  expect(await portIsFree(sandbox.port)).toBe(true);
+  expect(readMainLog(sandbox)).not.toMatch(/backend started/);
+});
+
 test("starts without any Node on the PATH and runs the bundled runtime", async () => {
   sandbox = await createSandbox({ withDatabase: true });
   app = await launchApp(sandbox);

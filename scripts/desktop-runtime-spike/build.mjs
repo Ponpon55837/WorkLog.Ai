@@ -115,13 +115,17 @@ async function main() {
     cpSync(standalone.packageDirectory, join(stage, "app"), { recursive: true });
     await bundleLauncher(join(stage, "launcher.mjs"));
 
-    const installed = await installRuntime(options.root, {
-      runtimeId,
-      runtimeKind,
-      executable: prepared.executable,
-      actions: ACTIONS,
-    });
-    await commitCurrent(options.root, runtimeId);
+    const installed = await installRuntime(
+      options.root,
+      {
+        runtimeId,
+        runtimeKind,
+        executable: prepared.executable,
+        actions: ACTIONS,
+      },
+      { checkAcl: false },
+    ); // a build machine's folders carry the build agent's ACLs: content only; the installed App checks them
+    await commitCurrent(options.root, runtimeId, { checkAcl: false });
     const { verification } = installed;
     console.log(
       JSON.stringify(

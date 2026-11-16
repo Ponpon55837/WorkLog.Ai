@@ -161,7 +161,7 @@ async function measureVerification(ctx) {
   );
   const time = async (options) => {
     const started = performance.now();
-    const verified = await verifyRuntime(ctx.root, ctx.runtimeId, options);
+    const verified = await verifyRuntime(ctx.root, ctx.runtimeId, { checkAcl: false, ...options });
     return { milliseconds: performance.now() - started, verified };
   };
   const full = [];

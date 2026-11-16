@@ -1,15 +1,22 @@
 import { writeSync } from "node:fs";
+import { homedir } from "node:os";
 import { lstat, readdir } from "node:fs/promises";
 import { app, dialog } from "electron";
 import {
   BackendSupervisor,
   createNodeBackendDependencies,
+  decideLaunch,
   detectLaunchMode,
   FileOperationJournalStore,
+  findForbiddenDebugSwitch,
+  interpretSecondInstanceData,
+  isQuitLaunch,
+  LAUNCH_EXIT_OK,
   LastBackupTracker,
   ManagedBackendService,
   OperationCoordinator,
   OperationJournal,
+  QUIT_SECOND_INSTANCE_DATA,
   readLastBackupFromDirectory,
   resolveShellLocale,
   resolveUserDataDirectory,
@@ -23,7 +30,6 @@ import {
   overrideFromEnvironment,
   resolveDesktopPaths,
   testSwitch,
-  TEST_ENVIRONMENT,
   type DesktopConfigInputs,
   type DesktopPaths,
 } from "./config.js";
@@ -34,14 +40,13 @@ import { createErrorNotifier } from "./notify.js";
 import { createQuit } from "./quit.js";
 import { createRepairInfo } from "./repair-info.js";
 import { createRepairWindow } from "./repair-window.js";
+import { createRuntimeProvisioner } from "./runtime-provision.js";
 import { createSecondInstance } from "./second-instance.js";
 import { applySecurityPolicy, applySessionPolicy, registerRepairScheme } from "./security.js";
 import { applyLoginItem, loadSettings } from "./settings.js";
 import { ShellState } from "./state.js";
 import { installTestHook } from "./test-hook.js";
 import { createShellTray } from "./tray.js";
-
-registerRepairScheme();
 
 const environmentInputs = { isPackaged: app.isPackaged, environment: process.env };
 
@@ -65,7 +70,7 @@ function failStartup(detail: string): void {
   // A synchronous write, so the line is out before the process ends; on Linux the box itself also goes to stderr.
   writeSync(2, `[shell] cannot start: the application data folder is unavailable (${detail})\n`);
   const messages = shellMessages(earlyLocale());
-  if (testSwitch(environmentInputs, TEST_ENVIRONMENT.recordErrorBox)) {
+  if (testSwitch(environmentInputs, "recordErrorBox")) {
     writeSync(2, `[shell] error box: ${messages.startupFailedTitle}\n`);
   } else {
     dialog.showErrorBox(messages.startupFailedTitle, messages.startupFailedMessage);
@@ -75,6 +80,23 @@ function failStartup(detail: string): void {
 
 /** Everything else: the shell, its backend and the quit flow, once the data folder is known. */
 function runShell(configInputs: DesktopConfigInputs): void {
+  // Decided first, before any path, runtime install or backend: a `--quit` launch passes its request in the lock's data
+  // (Chromium rewrites argv, so the second launch's own arguments are never read by the running instance).
+  const quitRequested = isQuitLaunch(process.argv);
+  const decision = decideLaunch({
+    quitRequested,
+    gotLock: app.requestSingleInstanceLock(quitRequested ? { ...QUIT_SECOND_INSTANCE_DATA } : undefined),
+  });
+  if (decision === "hand-over-and-exit") {
+    // Another instance owns this user's data: start nothing, in particular no backend.
+    app.quit();
+    return;
+  }
+  if (decision === "exit-without-starting") {
+    // `--quit` found nothing running: there is nothing to stop.
+    app.exit(LAUNCH_EXIT_OK);
+    return;
+  }
   const paths: DesktopPaths = resolveDesktopPaths(configInputs);
   const log = createLogger(paths);
   const state = new ShellState();
@@ -95,13 +117,27 @@ function runShell(configInputs: DesktopConfigInputs): void {
     });
   });
 
+  // Every change of the service owner is one log line (`[shell] owner MANAGED`, ...): see the contract in log.ts.
+  let loggedOwner = state.owner;
+  state.onChange(() => {
+    if (state.owner === loggedOwner) return;
+    loggedOwner = state.owner;
+    log(`[shell] owner ${state.owner}`);
+  });
+  const runtime = createRuntimeProvisioner({
+    packaged: app.isPackaged,
+    paths,
+    resourcesPath: process.resourcesPath,
+    log,
+  });
   const window = createRepairWindow({
     title: () => state.messages().repairWindowTitle,
     preloadFile: ASSET_FILES.preloadFile,
+    onShown: () => log("[shell] repair window shown"),
   });
   const dashboard = createDashboard({
     running: () => supervisor.running,
-    record: testSwitch(configInputs, TEST_ENVIRONMENT.recordExternal),
+    record: testSwitch(configInputs, "recordExternal"),
   });
   const backend = createBackendController({
     state,
@@ -112,6 +148,8 @@ function runShell(configInputs: DesktopConfigInputs): void {
     lastBackup,
     log,
     openRepairWindow: window.open,
+    prepareRuntime: runtime.prepare,
+    reinstallOnRefusal: app.isPackaged,
     notifyError: createErrorNotifier(state),
     whenReady: () => app.whenReady(),
   });
@@ -124,7 +162,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     backend,
     lastBackup,
     log,
-    autoConfirm: testSwitch(configInputs, TEST_ENVIRONMENT.autoConfirmQuit),
+    autoConfirm: testSwitch(configInputs, "autoConfirmQuit"),
     exit: () => app.exit(0),
   });
   const tray = createShellTray({
@@ -182,51 +220,78 @@ function runShell(configInputs: DesktopConfigInputs): void {
     }
   }
 
-  installTestHook({ state, paths, supervisor, window, secondInstance, dashboard });
-  applySecurityPolicy();
-
-  if (!app.requestSingleInstanceLock()) {
-    // Another instance owns this user's data: start nothing, in particular no backend.
-    app.quit();
-  } else {
-    app.on("second-instance", secondInstance.handle);
-    // The App lives in the tray; closing the repair window never quits it.
-    app.on("window-all-closed", () => undefined);
-    // The backend starts before `ready`, but the quit flow may show a dialog: it always runs after `ready` (and so after
-    // the launch mode and the presenter are set), and a failure in it is logged rather than left unhandled.
-    const quitWhenReady = (interactive: boolean): void => {
-      void app
-        .whenReady()
-        .then(() => requestQuit(interactive))
-        .catch((error: unknown) => {
-          log(`[shell] quit failed: ${error instanceof Error ? error.message : "unknown error"}`);
-        });
-    };
-    app.on("before-quit", (event) => {
-      event.preventDefault();
-      quitWhenReady(true);
-    });
-    for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => quitWhenReady(false));
-    const early = startBackend();
-    // A failed read or start is reported through `presentStart`; this only keeps an early rejection from going unhandled.
-    early.started.catch(() => undefined);
+  // The backend starts before `ready`, but the quit flow may show a dialog: it always runs after `ready` (and so after
+  // the launch mode and the presenter are set), and a failure in it is logged rather than left unhandled.
+  function quitWhenReady(interactive: boolean): void {
     void app
       .whenReady()
-      .then(() => presentStart(early))
+      .then(() => requestQuit(interactive))
       .catch((error: unknown) => {
-        log(`[shell] start failed: ${error instanceof Error ? error.message : "unknown error"}`);
+        log(`[shell] quit failed: ${error instanceof Error ? error.message : "unknown error"}`);
       });
   }
+
+  if (__WI_TEST_BUILD__) installTestHook({ state, paths, supervisor, window, secondInstance, dashboard });
+  applySecurityPolicy();
+
+  app.on("second-instance", (_event, _argv, _workingDirectory, additionalData) => {
+    const command = interpretSecondInstanceData(additionalData);
+    if (command.command === "quit") {
+      // Only the payload is read, never the second launch's arguments: it can ask for exactly this and nothing else.
+      log("[shell] quit requested by --quit");
+      quitWhenReady(false);
+      return;
+    }
+    if (command.rejected) log("[shell] second launch carried data that was not understood; treated as a normal launch");
+    secondInstance.handle();
+  });
+  // The App lives in the tray; closing the repair window never quits it.
+  app.on("window-all-closed", () => undefined);
+  app.on("before-quit", (event) => {
+    event.preventDefault();
+    quitWhenReady(true);
+  });
+  for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => quitWhenReady(false));
+  const early = startBackend();
+  // A failed read or start is reported through `presentStart`; this only keeps an early rejection from going unhandled.
+  early.started.catch(() => undefined);
+  void app
+    .whenReady()
+    .then(() => presentStart(early))
+    .catch((error: unknown) => {
+      log(`[shell] start failed: ${error instanceof Error ? error.message : "unknown error"}`);
+    });
+}
+
+/** A packaged App never runs with a way to attach a debugger or drive it remotely; decided before anything else. */
+function refuseDebugging(name: string): void {
+  writeSync(2, `[shell] refusing to run with --${name}: debugging switches are not allowed in the installed App\n`);
+  app.exit(1);
 }
 
 // The single-instance lock is scoped to userData, so a redirected data directory must be applied before the lock. It is
 // also applied before userData is first read: the default is then never resolved, so a test profile need not have it.
-const userData = resolveUserDataDirectory(overrideFromEnvironment(environmentInputs, TEST_ENVIRONMENT.dataDirectory), {
-  read: () => {
-    if (testSwitch(environmentInputs, TEST_ENVIRONMENT.failUserData)) throw new Error("Failed to get 'userData' path");
-    return app.getPath("userData");
-  },
-  write: (path) => app.setPath("userData", path),
-});
-if (userData.ok) runShell({ ...environmentInputs, userDataDirectory: userData.userDataDirectory });
-else failStartup(userData.detail);
+const forbiddenSwitch = app.isPackaged
+  ? findForbiddenDebugSwitch((name) => app.commandLine.hasSwitch(name))
+  : undefined;
+if (forbiddenSwitch !== undefined) {
+  refuseDebugging(forbiddenSwitch);
+} else {
+  registerRepairScheme();
+  const userData = resolveUserDataDirectory(overrideFromEnvironment(environmentInputs, "dataDirectory"), {
+    read: () => {
+      if (testSwitch(environmentInputs, "failUserData")) throw new Error("Failed to get 'userData' path");
+      return app.getPath("userData");
+    },
+    write: (path) => app.setPath("userData", path),
+  });
+  if (userData.ok) {
+    runShell({
+      ...environmentInputs,
+      userDataDirectory: userData.userDataDirectory,
+      platform: process.platform,
+      homeDirectory: homedir(),
+      customUserDataDirectory: app.commandLine.hasSwitch("user-data-dir"),
+    });
+  } else failStartup(userData.detail);
+}

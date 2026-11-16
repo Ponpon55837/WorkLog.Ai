@@ -6,14 +6,18 @@
  * Where the numbers come from (synthetic data only: an empty database made by the real store):
  * - Local Linux under xvfb (1.6.44, nine samples): cold start median about 500 ms, repair window about 550 ms, quit
  *   about 14 ms, main process about 155 MiB and backend about 94 MiB five seconds after MANAGED.
- * - CI smoke of 7602d51, each whole test case (launch, assertions and quit): Ubuntu 0.65-0.9 s, Windows 1.0-2.6 s,
- *   macOS 1.2-9.1 s. macOS runners are the slowest and the most uneven, Windows the next.
- * The Linux and Windows time gates are at least three times the slowest whole test case seen there. The macOS ones
- * (15 s) are above its single slowest case (9.1 s, a first launch on a cold runner) and over ten times its typical
- * one, because the gate is a median: one cold launch out of three does not decide it. So a gate fails on a regression
- * of that order and not on runner noise. The memory gates are about twice what Linux measures: they catch a
- * leak or an accidental eager load of a large module, not a few megabytes of drift. Windows and macOS have no local
- * numbers yet; the first CI artifacts (`desktop-perf-<os>.json`) are the evidence to tighten them with.
+ * - CI of 1.6.44, run 43929965453, each WHOLE test case (launch, assertions, quit; the cold-start cases also hold the
+ *   5 s idle settle): Windows cold start 5.9-6.0 s, so at most 1.0 s without the settle, repair window 0.69-0.76 s,
+ *   second launch 0.97 s; macOS cold start 6.3-6.5 s (at most 1.5 s), repair window 1.6-2.0 s, and 4.7 s for the
+ *   MANAGED test, a first launch on a cold runner. Ubuntu was 0.65-0.9 s per case in an earlier run (7602d51).
+ * The gates are a median, so one cold launch out of three does not decide them. Each is about three times the slowest
+ * observed time of its item (Windows: cold start 1.0 s -> 3 s, repair 0.76 s -> 3 s; macOS: cold start 1.5 s and repair
+ * 2.0 s -> 5 s, whose runners are the most uneven), or more where only a whole-case upper bound is known (quit, which
+ * is a few tens of milliseconds locally: Windows 2 s, macOS 3 s). That is tight enough to catch a regression that
+ * doubles start-up and loose enough not to fail on runner noise. The memory gates are about twice what Linux measures:
+ * they catch a leak or an accidental eager load of a large module, not a few megabytes of drift. Windows and macOS have
+ * no memory numbers yet; the first CI artifacts (`desktop-perf-<os>.json`, also printed in the job log) are the evidence
+ * to tighten them with.
  */
 export const PERF_RUNS = 3;
 
@@ -44,16 +48,16 @@ export const PERF_GATES: Readonly<Record<"linux" | "darwin" | "win32", PerfGates
     backendMemoryBytes: 300 * MB,
   },
   win32: {
-    coldStartMs: 8_000,
-    repairWindowMs: 8_000,
-    quitMs: 5_000,
+    coldStartMs: 3_000,
+    repairWindowMs: 3_000,
+    quitMs: 2_000,
     mainMemoryBytes: 300 * MB,
     backendMemoryBytes: 300 * MB,
   },
   darwin: {
-    coldStartMs: 15_000,
-    repairWindowMs: 15_000,
-    quitMs: 5_000,
+    coldStartMs: 5_000,
+    repairWindowMs: 5_000,
+    quitMs: 3_000,
     mainMemoryBytes: 300 * MB,
     backendMemoryBytes: 300 * MB,
   },

@@ -6,8 +6,10 @@ import {
   ErrorPresenter,
   interpretManagedStart,
   RestartPolicy,
+  decideRuntimeRecovery,
   writeDesktopSettingsAtomic,
   type BackendInfo,
+  type BundledRuntimeStatus,
   type BackendStartRequest,
   type BackendSupervisor,
   type DesktopSettingsV1,
@@ -19,6 +21,7 @@ import {
 } from "@work-intelligence/desktop-core";
 import type { DesktopPaths } from "./config.js";
 import type { Logger } from "./log.js";
+import { RuntimeProvisionError } from "./runtime-provision.js";
 import type { ShellState } from "./state.js";
 
 /** What a start may change from the saved settings: the database the user confirmed in the repair window. */
@@ -52,6 +55,13 @@ export interface BackendControllerOptions {
   readonly lastBackup: LastBackupTracker;
   readonly log: Logger;
   readonly openRepairWindow: () => void;
+  /** Makes the runtime ready before a start (installs the bundled one in a packaged App); throws when it cannot. */
+  readonly prepareRuntime: (verifyInstalled: boolean) => Promise<BundledRuntimeStatus | undefined>;
+  /**
+   * The App provisions its own runtime (packaged): a start the backend refused for a content reason verifies and
+   * reinstalls it once and tries again.
+   */
+  readonly reinstallOnRefusal: boolean;
   readonly notifyError: (code: string) => void;
   /**
    * Resolves once Electron is ready. The backend starts before that, so an exit seen early waits for it before the
@@ -63,6 +73,10 @@ export interface BackendControllerOptions {
 export function createBackendController(options: BackendControllerOptions): BackendController {
   const { state, paths, supervisor, managed, coordinator, lastBackup, log } = options;
   let presenter = new ErrorPresenter("interactive", presenterActions());
+  /** The last start failed in a way that may mean a damaged runtime: the next one verifies it instead of trusting it. */
+  let runtimeSuspect = false;
+  /** The automatic reinstall is tried once per App start: a runtime that keeps being refused goes to repair. */
+  let reinstallAttempted = false;
 
   function presenterActions() {
     return {
@@ -96,10 +110,49 @@ export function createBackendController(options: BackendControllerOptions): Back
     override?: StartOverride,
     operationId: string = randomUUID(),
   ): Promise<RestartOutcome> {
+    const outcome = await startOnce(kind, override, operationId);
+    if (
+      outcome.ok ||
+      outcome.busy ||
+      decideRuntimeRecovery({
+        canReinstall: options.reinstallOnRefusal,
+        failureCode: outcome.code,
+        alreadyAttempted: reinstallAttempted,
+      }) === "none"
+    ) {
+      return outcome;
+    }
+    reinstallAttempted = true;
+    let status: BundledRuntimeStatus | undefined;
+    try {
+      status = await options.prepareRuntime(true);
+    } catch (error) {
+      runtimeSuspect = true;
+      return { ok: false, code: error instanceof RuntimeProvisionError ? error.code : "RUNTIME_INSTALL_FAILED" };
+    }
+    // Verified fine and nothing replaced: the runtime was not the cause, so another start would fail the same way.
+    if (status !== "reinstalled" && status !== "installed") return outcome;
+    log("[shell] runtime reinstalled after the backend refused it");
+    return startOnce(kind, override, randomUUID());
+  }
+
+  async function startOnce(
+    kind: StartKind,
+    override: StartOverride | undefined,
+    operationId: string,
+  ): Promise<RestartOutcome> {
     const { settings } = state;
     if (!settings) return { ok: false, code: "REPAIR_REQUIRED" };
     const previousState = state.backend;
     state.backend = "starting";
+    try {
+      await options.prepareRuntime(runtimeSuspect);
+    } catch (error) {
+      runtimeSuspect = true;
+      state.backend = "stopped";
+      state.setOwner("NEEDS_REPAIR");
+      return { ok: false, code: error instanceof RuntimeProvisionError ? error.code : "RUNTIME_INSTALL_FAILED" };
+    }
     const result = await managed.start({
       operationId,
       kind,
@@ -119,6 +172,7 @@ export function createBackendController(options: BackendControllerOptions): Back
       state.backend = previousState;
       return { ok: false, busy: true };
     }
+    runtimeSuspect = outcome.kind === "failed" && outcome.code === "RUNTIME_MISSING";
     if (outcome.kind === "started" && result.backend) {
       state.backend = "running";
       log(`[shell] backend started pid=${result.backend.pid} port=${result.backend.port}`);

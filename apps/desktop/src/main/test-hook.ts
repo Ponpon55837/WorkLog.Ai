@@ -32,7 +32,10 @@ export interface TestHookOptions {
   readonly dashboard: Dashboard;
 }
 
-/** `globalThis.__workIntelligenceDesktopTest.snapshot()` for the smoke tests; never installed in a packaged App. */
+/**
+ * `globalThis.__workIntelligenceDesktopTest.snapshot()` for the smoke tests. The caller installs it only when
+ * `__WI_TEST_BUILD__` is true, so no production bundle contains this module; it is also skipped in a packaged App.
+ */
 export function installTestHook(options: TestHookOptions): void {
   if (app.isPackaged) return;
   const read = (): TestSnapshot => {
