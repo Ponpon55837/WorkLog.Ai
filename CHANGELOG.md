@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Changed
+
+- The project-data export column list now has a single source, `PROJECT_DATA_EXPORT_COLUMNS` in `@work-intelligence/core`. The export writer, the backup worker and the import validator all read it; `@work-intelligence/schema` re-exports it as `projectDataExportTableColumns`. The duplicate in `packages/storage` and its drift test are removed. Export output is unchanged.
+
 ## [1.6.42] - 2026-11-16
 
 [繁體中文更新說明](docs/releases/1.6.42.md).

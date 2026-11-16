@@ -82,7 +82,7 @@ R4 的補充用法：
 | DT-10 | `OperationCoordinator`（單一鎖、operationId、BUSY、重送） | 1.6.42 已實作（CI 可驗證部分）；實機待實機驗收 | §6.1；C-04；ADR-21 | `packages/desktop-core/src/operations/coordinator.ts`；`tests/desktop-core/operations-coordinator.test.ts` |
 | DT-20 | 設定檔原子寫入與 fail-closed 讀取 | 1.6.42 已實作（CI 可驗證部分）；實機待實機驗收 | §5.3；C-03；ADR-20 | `packages/desktop-core/src/settings/`；`tests/desktop-core/settings.test.ts` |
 | DT-36 | 測試隔離：`tests/helpers/isolated-environment.ts` 作為所有 Vitest 設定的 setupFiles，不觸碰真實家目錄與 3210 | 1.6.42 已實作（CI 可驗證部分）；實機待實機驗收（Windows 11、macOS 實機環境清單尚未完成） | R4 §13；C-T | `tests/helpers/isolated-environment.ts`；`tests/shared/test-isolation.test.ts`；`vitest.config.ts` |
-| 效能（1.6.41 遺留項，非 DT 票） | 備份與匯出 worker 使用精簡入口，首次匯出中位數 188.5 ms 降為 64–80 ms（15 次）；匯出輸出位元組不變 | 1.6.42 已實作（CI 可驗證部分）；數字為單機量測，`test:performance` 3 次通過，門檻未調整 | 無（不屬於桌面設計文件） | `packages/storage/src/backup-export.ts`；`packages/storage/package.json`（`./backup-export` 匯出）；`packages/storage/bench/worker-cold-start.bench.mjs`；`packages/storage/src/project-data-export-columns.ts`、`tests/storage/project-data-export-columns.test.ts` |
+| 效能（1.6.41 遺留項，非 DT 票） | 備份與匯出 worker 使用精簡入口，首次匯出中位數 188.5 ms 降為 64–80 ms（15 次）；匯出輸出位元組不變 | 1.6.42 已實作（CI 可驗證部分）；數字為單機量測，`test:performance` 3 次通過，門檻未調整 | 無（不屬於桌面設計文件） | `packages/storage/src/backup-export.ts`；`packages/storage/package.json`（`./backup-export` 匯出）；`packages/storage/bench/worker-cold-start.bench.mjs`；`packages/core/src/project-data-columns.ts`（匯出欄位單一來源）、`tests/core/project-data-columns.test.ts` |
 
 **本版的非 CI 項目**：DT-04 的程序組合 4（Codex plugin、Claude Code plugin、MCPB、手動 stdio 設定）、Windows 檔案 ID 與 sidecar 行為，以及 DT-36 的實機環境清單，皆待實機驗收。
 

@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import {
+  PROJECT_DATA_EXPORT_COLUMNS,
   PROJECT_DATA_TABLES,
   type ProjectDataExport,
   type ProjectDataExportScope,
@@ -8,7 +9,6 @@ import {
   type ProjectDataValue,
 } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
-import { PROJECT_DATA_EXPORT_COLUMNS } from "./project-data-export-columns.js";
 import { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
 import { combineRedactionSummaries, redactJsonText, redactText } from "./secret-redaction.js";
 
