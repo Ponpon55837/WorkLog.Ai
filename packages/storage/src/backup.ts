@@ -256,9 +256,32 @@ export function writeSnapshot(
   }
 }
 
+export interface ExportOptions {
+  /**
+   * False when the file is only a staging copy that is read once and removed (the API download): SQLite then skips its
+   * fsyncs of the copy, which is most of the `VACUUM INTO` time. The bytes are the same either way, and the snapshot is
+   * still checked before it is published. Default true: a file the user keeps (CLI export) is flushed to disk.
+   */
+  readonly durable?: boolean;
+}
+
+/** Runs `run` with the connection's `synchronous` setting at OFF, then puts the previous level back. */
+function withoutSync<T>(db: DatabaseSync, run: () => T): T {
+  const level = (db.prepare("PRAGMA synchronous").get() as { synchronous?: unknown } | undefined)?.synchronous;
+  // 0-3 (OFF, NORMAL, FULL, EXTRA) are the only levels SQLite reports; anything else is restored as its default, FULL.
+  const previous = typeof level === "number" && Number.isInteger(level) && level >= 0 && level <= 3 ? level : 2;
+  db.exec("PRAGMA synchronous = OFF");
+  try {
+    return run();
+  } finally {
+    db.exec(`PRAGMA synchronous = ${previous}`);
+  }
+}
+
 /** Writes the whole database to `target` (which must not exist yet), e.g. to move it to another computer. */
-export function exportDatabase(db: DatabaseSync, target: string): { bytes: number } {
-  writeSnapshot(db, target);
+export function exportDatabase(db: DatabaseSync, target: string, options: ExportOptions = {}): { bytes: number } {
+  if (options.durable === false) withoutSync(db, () => writeSnapshot(db, target));
+  else writeSnapshot(db, target);
   return { bytes: statSync(target).size };
 }
 

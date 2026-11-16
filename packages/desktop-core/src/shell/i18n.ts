@@ -36,6 +36,9 @@ export interface ShellMessages {
   readonly quitConfirm: string;
   readonly quitCancel: string;
   readonly notifyTitle: string;
+  /** The native error box shown when the App cannot even find its data folder and must close. */
+  readonly startupFailedTitle: string;
+  readonly startupFailedMessage: string;
   /** `{title}` is the error title. */
   readonly notifyBody: string;
   readonly repairWindowTitle: string;
@@ -102,6 +105,9 @@ const zhTW: ShellMessages = {
   quitConfirm: "退出",
   quitCancel: "取消",
   notifyTitle: "Work Intelligence 需要處理",
+  startupFailedTitle: "Work Intelligence 無法啟動",
+  startupFailedMessage:
+    "找不到這個使用者的應用程式資料夾（Windows 為 AppData），App 必須關閉，資料沒有任何變更。請確認使用者設定檔完整後再開啟。",
   notifyBody: "{title}。從工具列選單開啟「修復…」。",
   repairWindowTitle: "Work Intelligence 修復",
   repairHeading: "修復 Work Intelligence",
@@ -196,6 +202,9 @@ const en: ShellMessages = {
   quitConfirm: "Quit",
   quitCancel: "Cancel",
   notifyTitle: "Work Intelligence needs attention",
+  startupFailedTitle: "Work Intelligence cannot start",
+  startupFailedMessage:
+    "The App could not find this user's application data folder (AppData on Windows) and has to close. Nothing was changed. Check that the user profile is complete, then open the App again.",
   notifyBody: "{title}. Open “Repair…” from the tray menu.",
   repairWindowTitle: "Work Intelligence Repair",
   repairHeading: "Repair Work Intelligence",

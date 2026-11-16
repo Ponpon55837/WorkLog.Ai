@@ -508,7 +508,7 @@ Web 只能送固定動作與經 schema 驗證的值。特權資料夾選擇、�
 
 **階段 1 狀態（1.6.43）**：spike 的 CI 可驗證部分已完成，並選定 B（ADR-04）。三平台的量測已由 CI 取得（run 43864453651）；實機驗收尚未進行，**階段 1 的 gate 尚未通過**。Linux 不在 V1 首發範圍，其數字只作方向參考。spike 未量測 `utilityProcess`，R31 要求的比較因此未完整。
 
-**階段 2 狀態（1.6.44）**：CI 可驗證部分已實作（DT-11、DT-15、DT-16、DT-35）：Electron 殼、後端子程序生命週期與修復視窗。三平台的 desktop-smoke 結果待 PR 的 workflow 取得；實機驗收（Windows 11 與 macOS）未做。**階段 2 的 gate 尚未通過。**
+**階段 2 狀態（1.6.44）**：CI 可驗證部分已實作（DT-11、DT-15、DT-16、DT-35）：Electron 殼、後端子程序生命週期與修復視窗。三平台的 desktop-smoke 結果待 PR 的 workflow 取得；實機驗收（Windows 11 與 macOS）未做。**階段 2 的 gate 尚未通過。** 效能量測（合成資料，`apps/desktop/tests/desktop-smoke/performance.spec.ts`，閘門與依據在同目錄的 `perf-gates.ts`）：本機 Linux（xvfb）新舊啟動流程交替各 9 個樣本，冷啟動中位數 501 ms 對 506 ms、修復視窗 530 ms 對 562 ms，差異在雜訊內（後端提早啟動在 Linux 量不到改善）；退出約 14 ms，MANAGED 後 5 秒主程序約 155 MiB、後端約 94 MiB。Windows 與 macOS 的數字由 CI 上傳的 `desktop-perf-<os>.json` 取得，本文件撰寫時尚未取得。
 
 ### 9.5 發行阻斷的可觀察證據（Gate）
 

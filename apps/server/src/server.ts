@@ -164,8 +164,8 @@ function createInlineBackgroundStore(store: WorkIntelligenceStore): BackgroundSt
     async backupIfDue() {
       return store.backupIfDue();
     },
-    async exportTo(target) {
-      return store.exportTo(target);
+    async exportTo(target, options) {
+      return store.exportTo(target, options);
     },
     async exportProjectData(scope: ProjectDataExportScope) {
       const content = JSON.stringify(store.exportProjectData(scope));

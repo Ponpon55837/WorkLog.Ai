@@ -17,3 +17,4 @@ export * from "./candidates.js";
 export * from "./retry-ids.js";
 export * from "./start-outcome.js";
 export * from "./quit-flow.js";
+export * from "./startup-paths.js";

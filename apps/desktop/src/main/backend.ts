@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import {
   BackendRecovery,
   databaseKey,
@@ -52,6 +53,11 @@ export interface BackendControllerOptions {
   readonly log: Logger;
   readonly openRepairWindow: () => void;
   readonly notifyError: (code: string) => void;
+  /**
+   * Resolves once Electron is ready. The backend starts before that, so an exit seen early waits for it before the
+   * recovery may show a window or a notification.
+   */
+  readonly whenReady: () => Promise<void>;
 }
 
 export function createBackendController(options: BackendControllerOptions): BackendController {
@@ -68,16 +74,16 @@ export function createBackendController(options: BackendControllerOptions): Back
 
   async function persistActive(info: BackendInfo): Promise<void> {
     if (!state.settings) return;
+    const active: NonNullable<DesktopSettingsV1["active"]> = {
+      databaseIdentity: info.databaseIdentity,
+      port: info.port,
+      runtimeVersion: info.appVersion,
+      serviceOwner: "desktop",
+    };
+    // A steady-state start finds the same record: the fsync'd rewrite is skipped. Deep equality keeps up with the schema.
+    if (isDeepStrictEqual(state.settings.active, active)) return;
     try {
-      const next: DesktopSettingsV1 = {
-        ...state.settings,
-        active: {
-          databaseIdentity: info.databaseIdentity,
-          port: info.port,
-          runtimeVersion: info.appVersion,
-          serviceOwner: "desktop",
-        },
-      };
+      const next: DesktopSettingsV1 = { ...state.settings, active };
       await writeDesktopSettingsAtomic(paths.settingsFile, next);
       state.settings = next;
     } catch (error) {
@@ -159,7 +165,12 @@ export function createBackendController(options: BackendControllerOptions): Back
       supervisor.onUnexpectedExit((event) => {
         log(`[shell] backend exited unexpectedly: ${event.code}`);
         state.backend = "crashed";
-        recovery.handleFailure(event.code);
+        void options
+          .whenReady()
+          .then(() => recovery.handleFailure(event.code))
+          .catch((error: unknown) => {
+            log(`[shell] recovery failed: ${error instanceof Error ? error.message : "unknown error"}`);
+          });
       });
     },
   };

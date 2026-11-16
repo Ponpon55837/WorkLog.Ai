@@ -7,6 +7,10 @@ export const TEST_ENVIRONMENT = {
   runtimeRoot: "WORK_INTELLIGENCE_DESKTOP_RUNTIME_ROOT",
   autoConfirmQuit: "WORK_INTELLIGENCE_DESKTOP_TEST_AUTOCONFIRM_QUIT",
   recordExternal: "WORK_INTELLIGENCE_DESKTOP_TEST_RECORD_EXTERNAL",
+  /** Makes reading userData throw, as Windows does without a Roaming AppData folder, on any platform. */
+  failUserData: "WORK_INTELLIGENCE_DESKTOP_TEST_FAIL_USER_DATA",
+  /** Writes a native error box to stderr instead of showing it, so a test is not left waiting on a modal. */
+  recordErrorBox: "WORK_INTELLIGENCE_DESKTOP_TEST_RECORD_ERROR_BOX",
 } as const;
 
 const BUNDLE_DIRECTORY = dirname(fileURLToPath(import.meta.url));

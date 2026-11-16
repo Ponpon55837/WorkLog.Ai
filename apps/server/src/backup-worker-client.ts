@@ -13,7 +13,7 @@ import type {
   ProjectDataImportInput,
   ProjectDataImportResult,
 } from "@work-intelligence/core";
-import type { BackupRetentionOptions } from "@work-intelligence/storage";
+import type { BackupRetentionOptions, ExportOptions } from "@work-intelligence/storage";
 import type {
   BackgroundStoreOperations,
   ProjectDataExportDocument,
@@ -24,7 +24,7 @@ import { RequestBodyError } from "./http.js";
 export type BackupWorkerOperation =
   | { type: "createBackup" }
   | { type: "backupIfDue" }
-  | { type: "exportTo"; target: string }
+  | { type: "exportTo"; target: string; options?: ExportOptions }
   | { type: "exportProjectData"; scope: ProjectDataExportScope }
   | { type: "previewProjectDataImport"; input: ProjectDataImportInput | Uint8Array }
   | { type: "importProjectData"; input: ProjectDataImportInput | Uint8Array };
@@ -164,8 +164,8 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
     return this.run({ type: "backupIfDue" });
   }
 
-  public exportTo(target: string): Promise<{ bytes: number }> {
-    return this.run({ type: "exportTo", target });
+  public exportTo(target: string, options?: ExportOptions): Promise<{ bytes: number }> {
+    return this.run({ type: "exportTo", target, ...(options ? { options } : {}) });
   }
 
   public exportProjectData(scope: ProjectDataExportScope): Promise<ProjectDataExportDocument> {

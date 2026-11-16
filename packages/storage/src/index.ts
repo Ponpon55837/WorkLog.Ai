@@ -31,6 +31,7 @@ export {
   isSafeDatabaseBackupFileName,
   restoreDatabase,
   type BackupRetentionOptions,
+  type ExportOptions,
   type RestoreDatabaseResult,
   type RestorePathRemap,
 } from "./backup.js";

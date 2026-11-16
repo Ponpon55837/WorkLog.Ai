@@ -78,6 +78,20 @@ export function processIsAlive(pid: number): boolean {
   }
 }
 
+/** The profile variables the App may read, each pointing at a folder inside the isolated home. */
+export function profileDirectories(home: string): Record<string, string> {
+  return {
+    HOME: home,
+    USERPROFILE: home,
+    APPDATA: join(home, "AppData", "Roaming"),
+    LOCALAPPDATA: join(home, "AppData", "Local"),
+    XDG_CONFIG_HOME: join(home, ".config"),
+    XDG_DATA_HOME: join(home, ".local", "share"),
+    XDG_STATE_HOME: join(home, ".local", "state"),
+    XDG_CACHE_HOME: join(home, ".cache"),
+  };
+}
+
 /** Synthetic data only: a database created by the real store in a temporary folder, never anything of the developer's. */
 export async function createSandbox(options: { withDatabase: boolean }): Promise<Sandbox> {
   // `.native` expands Windows 8.3 short names (`RUNNER~1`) and macOS `/var` -> `/private/var`, so every path the test
@@ -86,11 +100,11 @@ export async function createSandbox(options: { withDatabase: boolean }): Promise
   const home = join(root, "home");
   const dataDirectory = join(root, "data");
   const emptyBin = join(root, "empty-bin");
-  // The per-user folders a real profile always has; Windows resolves known folders (Roaming/Local AppData) only when
-  // they exist, and appEnvironment points USERPROFILE and APPDATA here.
-  const profileDirectories = [join(home, "AppData", "Roaming"), join(home, "AppData", "Local")];
-  for (const directory of [home, ...profileDirectories, dataDirectory, emptyBin])
+  // The per-user folders a real profile always has; appEnvironment points every profile variable at one of them, and
+  // Windows resolves known folders (Roaming and Local AppData) only when they exist.
+  for (const directory of [...Object.values(profileDirectories(home)), dataDirectory, emptyBin]) {
     mkdirSync(directory, { recursive: true });
+  }
   // Under the isolated home, where the product keeps it, so the repair page shows it as `~/…`.
   const databasePath = join(home, ".work-intelligence", "data", "work-intelligence.sqlite");
   mkdirSync(dirname(databasePath), { recursive: true });
@@ -132,14 +146,7 @@ export function appEnvironment(sandbox: Sandbox, extra: Record<string, string> =
   const systemDirectory = process.env.SystemRoot ? join(process.env.SystemRoot, "System32") : sandbox.emptyBin;
   return {
     ...base,
-    HOME: sandbox.home,
-    USERPROFILE: sandbox.home,
-    APPDATA: join(sandbox.home, "AppData", "Roaming"),
-    LOCALAPPDATA: join(sandbox.home, "AppData", "Local"),
-    XDG_CONFIG_HOME: join(sandbox.home, ".config"),
-    XDG_DATA_HOME: join(sandbox.home, ".local", "share"),
-    XDG_STATE_HOME: join(sandbox.home, ".local", "state"),
-    XDG_CACHE_HOME: join(sandbox.home, ".cache"),
+    ...profileDirectories(sandbox.home),
     PATH: process.platform === "win32" ? systemDirectory : sandbox.emptyBin,
     WORK_INTELLIGENCE_DESKTOP_DATA_DIR: sandbox.dataDirectory,
     WORK_INTELLIGENCE_DESKTOP_RUNTIME_ROOT: sandbox.runtimeRoot,
@@ -173,33 +180,37 @@ export async function launchApp(sandbox: Sandbox, extra: Record<string, string> 
   return launched;
 }
 
-export interface SecondInstanceExit {
+export interface ElectronExit {
   readonly code: number | null;
   readonly signal: NodeJS.Signals | null;
   /** The last of what the process wrote to stderr, so a failed exit explains itself in the test report. */
   readonly stderr: string;
 }
 
-const SECOND_INSTANCE_STDERR_LIMIT = 16 * 1024;
+const EXIT_STDERR_LIMIT = 16 * 1024;
 
 /**
- * Starts a second Electron on the same data directory, as a user double-clicking the App again would, and resolves with
+ * Starts an Electron that is expected to end by itself (a second instance, a launch that cannot start) and resolves with
  * how it ended. It is killed and the promise rejects (with its stderr) if it is still running after `timeoutMs`.
  */
-export function runSecondInstance(sandbox: Sandbox, timeoutMs = 20_000): Promise<SecondInstanceExit> {
+export function runToExit(
+  sandbox: Sandbox,
+  extra: Record<string, string> = {},
+  timeoutMs = 20_000,
+): Promise<ElectronExit> {
   const child: ChildProcess = spawn(electronBinary, launchArguments(), {
-    env: appEnvironment(sandbox),
+    env: appEnvironment(sandbox, extra),
     stdio: ["ignore", "ignore", "pipe"],
   });
   let stderr = "";
   child.stderr?.setEncoding("utf8");
   child.stderr?.on("data", (chunk: string) => {
-    stderr = (stderr + chunk).slice(-SECOND_INSTANCE_STDERR_LIMIT);
+    stderr = (stderr + chunk).slice(-EXIT_STDERR_LIMIT);
   });
   return new Promise((resolveExit, rejectExit) => {
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
-      rejectExit(new Error(`the second instance did not exit within ${timeoutMs} ms; stderr:\n${stderr}`));
+      rejectExit(new Error(`Electron did not exit within ${timeoutMs} ms; stderr:\n${stderr}`));
     }, timeoutMs);
     child.once("error", (error) => {
       clearTimeout(timer);

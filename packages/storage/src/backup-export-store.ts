@@ -1,6 +1,12 @@
 import { DatabaseSync } from "node:sqlite";
 import type { DatabaseBackupCreated, ProjectDataExport, ProjectDataExportScope } from "@work-intelligence/core";
-import { backupDatabase, exportDatabase, isBackupDue, type BackupRetentionOptions } from "./backup.js";
+import {
+  backupDatabase,
+  exportDatabase,
+  isBackupDue,
+  type BackupRetentionOptions,
+  type ExportOptions,
+} from "./backup.js";
 import { assertDatabaseSchemaVersion, configureWorkIntelligenceDatabaseConnection } from "./database-initialization.js";
 import { buildProjectDataExport, readProjectDataRows } from "./project-data-export.js";
 
@@ -64,8 +70,8 @@ export class BackupExportStore {
   }
 
   /** Writes the whole database to `target`; `target` must not exist yet. */
-  public exportTo(target: string): { bytes: number } {
-    return exportDatabase(this.db, target);
+  public exportTo(target: string, options: ExportOptions = {}): { bytes: number } {
+    return exportDatabase(this.db, target, options);
   }
 
   /** Exports portable data for every project or one selected project. */

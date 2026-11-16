@@ -70,6 +70,17 @@ jobs:
       - name: Desktop smoke test
         run: pnpm test:desktop-smoke
 
+      # Synthetic-data measurements of cold start, the repair window, quit and idle memory (performance.spec.ts),
+      # kept for every run, green or red, so a trend across commits can be read.
+      - name: Upload the desktop performance results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-perf-${{ matrix.os }}
+          path: apps/desktop/perf-results/desktop-perf-*.json
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: Upload the report and the main-process log
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

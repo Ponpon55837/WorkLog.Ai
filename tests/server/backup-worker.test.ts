@@ -98,6 +98,23 @@ describe("backup worker", () => {
       expect(
         (JSON.parse(decodeProjectDataExport(exportedData.content)) as ProjectDataExport).tables.sessions,
       ).toHaveLength(1);
+      // A small export is a slice of Node's buffer pool: it is copied onto its own block before the transfer, so the
+      // worker's pool survives, a second export is whole, and no other bytes of the pool come along.
+      const again = await worker.exportProjectData({ type: "all" });
+      expect(again.bytes).toBeLessThan(Buffer.poolSize / 2);
+      if (!(again.content instanceof Uint8Array)) throw new Error("Expected transferred UTF-8 export bytes.");
+      expect({ offset: again.content.byteOffset, block: again.content.buffer.byteLength }).toEqual({
+        offset: 0,
+        block: again.bytes,
+      });
+      const withoutStamp = (content: Uint8Array) => {
+        const { exportedAt: _exportedAt, ...rest } = JSON.parse(decodeProjectDataExport(content)) as ProjectDataExport;
+        return rest;
+      };
+      expect(withoutStamp(again.content)).toEqual(withoutStamp(exportedData.content));
+      expect((await worker.createBackup()).outcome).toBe("database_backups");
+      const staging = await worker.exportTo(join(root, "staging.sqlite"), { durable: false });
+      expect(staging.bytes).toBe(statSync(join(root, "staging.sqlite")).size);
     } finally {
       await worker.close();
       lock.exec("ROLLBACK");

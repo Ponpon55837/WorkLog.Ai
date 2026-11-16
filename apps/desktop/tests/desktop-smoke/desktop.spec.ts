@@ -1,7 +1,7 @@
 import { expect, test, type ElectronApplication } from "@playwright/test";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { realpathSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import {
   attachLog,
   closeQuietly,
@@ -9,11 +9,12 @@ import {
   healthProofIsValid,
   launchApp,
   portIsFree,
+  profileDirectories,
   processIsAlive,
   readMainLog,
   readSnapshot,
   removeSandbox,
-  runSecondInstance,
+  runToExit,
   waitForSnapshot,
   type Sandbox,
 } from "./helpers.js";
@@ -50,8 +51,10 @@ test("starts the managed backend and proves its identity", async () => {
   expect(await healthProofIsValid(backend.port, backend.runId)).toBe(true);
   // A wrong run id must not verify: the proof is what separates this child from any other service on the port.
   expect(await healthProofIsValid(backend.port, `${backend.runId}x`)).toBe(false);
-  // The interactive start opens the Dashboard (recorded, not launched, in the test).
-  expect(snapshot.openedExternal).toEqual([`http://127.0.0.1:${backend.port}/`]);
+  // The interactive start opens the Dashboard (recorded, not launched, in the test). It opens right after MANAGED is
+  // published, so the snapshot above can precede it: wait for the first open, then require exactly that one.
+  const opened = await waitForSnapshot(app, (state) => state.openedExternal.length > 0);
+  expect(opened.openedExternal).toEqual([`http://127.0.0.1:${backend.port}/`]);
 });
 
 test("a second launch exits at once and the first keeps the only backend", async () => {
@@ -61,7 +64,7 @@ test("a second launch exits at once and the first keeps the only backend", async
   const pid = first.backend?.pid;
   if (!pid) throw new Error("no backend");
 
-  const second = await runSecondInstance(sandbox);
+  const second = await runToExit(sandbox);
   expect({ code: second.code, signal: second.signal }, `second instance stderr:\n${second.stderr}`).toEqual({
     code: 0,
     signal: null,
@@ -138,15 +141,17 @@ test("a missing database opens the repair window and creates nothing", async () 
   expect(served.unknown.status).toBe(404);
 
   // Nothing in the state the page receives is a real path of this machine.
-  const state = JSON.stringify(
-    await window.evaluate(() =>
-      (
-        globalThis as unknown as { workIntelligenceRepair: { getState(): Promise<unknown> } }
-      ).workIntelligenceRepair.getState(),
-    ),
-  );
+  const pageState = (await window.evaluate(() =>
+    (
+      globalThis as unknown as { workIntelligenceRepair: { getState(): Promise<unknown> } }
+    ).workIntelligenceRepair.getState(),
+  )) as { database?: { display?: string } };
+  const state = JSON.stringify(pageState);
+  // Both spellings of the sandbox root: as is, and as JSON escapes it (each Windows backslash doubled).
   expect(state).not.toContain(sandbox.root);
-  expect(state).toContain("~/.work-intelligence/data/work-intelligence.sqlite");
+  expect(state).not.toContain(JSON.stringify(sandbox.root).slice(1, -1));
+  // The product shows the platform's own separators (backslashes on Windows).
+  expect(pageState.database?.display).toBe(["~", ".work-intelligence", "data", "work-intelligence.sqlite"].join(sep));
   expect(readdirSync(dirname(sandbox.databasePath))).toEqual([]);
 });
 
@@ -198,6 +203,7 @@ test("a backend that dies is restarted by the bounded retry", async () => {
 test("the repair page previews a chosen database and confirms only one that is ok", async () => {
   sandbox = await createSandbox({ withDatabase: false });
   const donor = await createSandbox({ withDatabase: true });
+  let backendPid: number | undefined;
   try {
     app = await launchApp(sandbox);
     const window = await app.firstWindow({ timeout: 45_000 });
@@ -223,11 +229,78 @@ test("the repair page previews a chosen database and confirms only one that is o
     // A database the preview found ok can be confirmed; the backend then runs on it.
     await choose(donor.databasePath);
     await expect(window.locator('[data-id^="candidate:"]')).toHaveCount(1);
+    if (process.platform === "win32") {
+      // Windows refuses to rename an open file: this succeeds only if the preview child closed the database it checked.
+      const aside = `${donor.databasePath}.aside`;
+      renameSync(donor.databasePath, aside);
+      renameSync(aside, donor.databasePath);
+    }
     await window.locator('[data-id^="candidate:"]').click();
     const running = await waitForSnapshot(app, (state) => state.owner === "MANAGED" && state.backend !== null);
+    backendPid = running.backend?.pid;
     expect(running.backend?.port).toBe(sandbox.port);
     expect(await portIsFree(sandbox.port)).toBe(false);
   } finally {
+    // The backend now runs on the donor's database and holds it open, and Windows does not delete an open file: quit the
+    // App and wait for its backend to be gone before the donor folder is removed.
+    await closeQuietly(app);
+    app = undefined;
+    if (backendPid) await expect.poll(() => processIsAlive(backendPid!), { timeout: 10_000 }).toBe(false);
+    await expect.poll(() => portIsFree(sandbox?.port ?? 0), { timeout: 10_000 }).toBe(true);
+    if (sandbox && backendPid) {
+      const log = readMainLog(sandbox);
+      expect(log).not.toContain("a preview child did not exit");
+      expect(log).toMatch(/\[shell\] stop: graceful=true forced=false exited=true portReleased=true/);
+    }
     removeSandbox(donor);
   }
+});
+
+test("the sandbox profile has every folder its environment names", async () => {
+  sandbox = await createSandbox({ withDatabase: false });
+  for (const [name, directory] of Object.entries(profileDirectories(sandbox.home))) {
+    expect(statSync(directory, { throwIfNoEntry: false })?.isDirectory(), name).toBe(true);
+  }
+});
+
+/** A launch that cannot find its data folder: it says so and exits 1, before any lock, tray or backend. */
+async function expectStartupFailure(extra: Record<string, string>): Promise<void> {
+  const exit = await runToExit(sandbox!, { WORK_INTELLIGENCE_DESKTOP_TEST_RECORD_ERROR_BOX: "1", ...extra });
+  expect({ code: exit.code, signal: exit.signal }, `stderr:\n${exit.stderr}`).toEqual({ code: 1, signal: null });
+  expect(exit.stderr).toContain("[shell] cannot start: the application data folder is unavailable");
+  expect(exit.stderr).toMatch(/\[shell\] error box: (Work Intelligence cannot start|Work Intelligence 無法啟動)/);
+  expect(existsSync(join(sandbox!.dataDirectory, "logs"))).toBe(false);
+  expect(await portIsFree(sandbox!.port)).toBe(true);
+}
+
+test("a data folder that cannot be resolved closes the App with an error box instead of crashing", async () => {
+  sandbox = await createSandbox({ withDatabase: true });
+  await expectStartupFailure({ WORK_INTELLIGENCE_DESKTOP_TEST_FAIL_USER_DATA: "1" });
+});
+
+test("on Windows, a profile without Roaming AppData is reported the same way", async () => {
+  test.skip(process.platform !== "win32", "only Windows resolves userData through a folder that must exist");
+  sandbox = await createSandbox({ withDatabase: true });
+  rmSync(profileDirectories(sandbox.home).APPDATA!, { recursive: true, force: true });
+  // No redirect: the App asks Windows for the real (missing) folder.
+  await expectStartupFailure({ WORK_INTELLIGENCE_DESKTOP_DATA_DIR: "" });
+});
+
+test("a relaunch with the same backend leaves the settings file as it was", async () => {
+  sandbox = await createSandbox({ withDatabase: true });
+  const settingsFile = join(sandbox.dataDirectory, "desktop-settings.json");
+  app = await launchApp(sandbox);
+  await waitForSnapshot(app, (state) => state.owner === "MANAGED" && state.backend !== null);
+  await closeQuietly(app);
+  app = undefined;
+  const recorded = readFileSync(settingsFile, "utf8");
+  expect(JSON.parse(recorded)).toHaveProperty("active.serviceOwner", "desktop");
+  const before = statSync(settingsFile);
+
+  app = await launchApp(sandbox);
+  await waitForSnapshot(app, (state) => state.owner === "MANAGED" && state.backend !== null);
+  // Same port, runtime and database: the active record is unchanged, so the start skips the fsync'd rewrite.
+  expect(readFileSync(settingsFile, "utf8")).toBe(recorded);
+  const after = statSync(settingsFile);
+  expect({ ino: after.ino, mtimeMs: after.mtimeMs }).toEqual({ ino: before.ino, mtimeMs: before.mtimeMs });
 });
