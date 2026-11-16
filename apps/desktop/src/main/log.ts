@@ -8,6 +8,7 @@ export type Logger = (line: string) => void;
  * lines are stable; their prefix and wording do not change without updating those tests:
  *
  *   [shell] runtime <already-current|switched|installed|reinstalled> <runtimeId> in <ms> ms   the bundled runtime is ready
+ *      Windows, when the ACLs were read: ` acl=<dotnet|get-acl> <ms> ms` is appended, after ` acl-failed=<tier> <ms> ms` for a tier that failed first
  *   [shell] runtime install failed: <RUNTIME_* code>                                          it could not be prepared
  *   [shell] runtime cleanup removed=<n> kept-locked=<n>                                       background removal of old runtimes (only logged when something was found)
  *   [shell] runtime reinstalled after the backend refused it                                  one automatic verify, reinstall and retry per App start (never for permission errors)

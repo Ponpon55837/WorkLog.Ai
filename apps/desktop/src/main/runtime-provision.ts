@@ -4,6 +4,7 @@ import {
   ensureBundledRuntime,
   runtimeErrorCode,
   type BundledRuntimeStatus,
+  type EnsuredRuntime,
   type ShellErrorCode,
 } from "@work-intelligence/desktop-core";
 import type { DesktopPaths } from "./config.js";
@@ -45,6 +46,17 @@ export class RuntimeProvisionError extends Error {
   }
 }
 
+/** ` acl=<tier> <ms> ms` (plus ` acl-failed=<tier> <ms> ms` per tier that failed first) when the ACLs were read; else empty. */
+function describeAclRead(report: EnsuredRuntime["aclReport"]): string {
+  if (report === undefined) return "";
+  const failed = report.attempts.filter((attempt) => !attempt.ok);
+  const answered = report.attempts.find((attempt) => attempt.ok);
+  return [
+    ...failed.map((attempt) => ` acl-failed=${attempt.tier} ${attempt.ms} ms`),
+    ` acl=${report.tier} ${answered?.ms} ms`,
+  ].join("");
+}
+
 export function createRuntimeProvisioner(options: RuntimeProvisionerOptions): RuntimeProvisioner {
   let queue: Promise<unknown> = Promise.resolve();
 
@@ -71,7 +83,9 @@ export function createRuntimeProvisioner(options: RuntimeProvisionerOptions): Ru
           verifyInstalled,
         },
       );
-      options.log(`[shell] runtime ${ensured.status} ${ensured.runtimeId} in ${ensured.elapsedMs} ms`);
+      options.log(
+        `[shell] runtime ${ensured.status} ${ensured.runtimeId} in ${ensured.elapsedMs} ms${describeAclRead(ensured.aclReport)}`,
+      );
       const fresh = ensured.status !== "already-current";
       collectInBackground(ensured.previousRuntimeId ? [ensured.previousRuntimeId] : [], !fresh);
       return ensured.status;

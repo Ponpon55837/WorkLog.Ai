@@ -9,9 +9,14 @@
  *   every login.
  * - `repairWindowMs`: a missing database to the `repair window shown` log line.
  * - `quitMs`: spawning `<exe> --quit` to the backend gone and its port free. This is what the installer waits for.
- * - `idleMemoryBytes`: five seconds after MANAGED, the resident memory summed over the whole process tree: the main
- *   process, every Electron helper (GPU, network, renderer) and the backend. Windows sums CIM `WorkingSetSize`, which
- *   counts shared pages once per process, so it reads higher than the real footprint; macOS and Linux sum `ps` rss.
+ * - `idleMemoryBytes`: five seconds after MANAGED, the memory summed over the whole process tree: the main process, every
+ *   Electron helper (GPU, network service, zygote, renderer) and the backend. One metric per platform, the same for every
+ *   process (see memory-breakdown.ts): Linux sums PSS (`/proc/<pid>/smaps_rollup`, shared pages split among the processes
+ *   that map them, RSS when it cannot be read); macOS sums `ps` RSS; Windows sums CIM `WorkingSetSize`. RSS and working
+ *   set count shared pages once per process, so they read higher than the real footprint (on Linux about 1.8 times the
+ *   PSS). The per-role split (main, gpu, renderer, utility, zygote, backend) is written to the JSON report beside it.
+ * - `backendMemoryBytes`: the same metric for the backend (bundled Node) alone, so a backend regression is not hidden
+ *   inside the Chromium total.
  *
  * Where the gates come from:
  * - linux: local numbers of this stage (Xvfb, nine samples) times about three, so a run that is three times slower than
@@ -33,36 +38,45 @@ export interface PackagedPerfGates {
   readonly repairWindowMs: number;
   readonly quitMs: number;
   readonly idleMemoryBytes: number;
+  readonly backendMemoryBytes: number;
 }
 
 const MB = 1024 * 1024;
 
 export const PACKAGED_PERF_GATES: Readonly<Record<"linux" | "darwin" | "win32", PackagedPerfGates>> = {
-  // Local medians: first 1153 ms, warm 672 ms, repair 1075 ms, quit 168 ms, idle tree 614 MiB.
+  // Local medians (Xvfb, three runs): first 922 ms, warm 557 ms, repair 1155 ms, quit 161 ms, idle tree 292 MiB PSS
+  // (538 MiB RSS), backend 87 MiB PSS. Before the memory work the tree was 352 MiB PSS (662 MiB RSS), 28 MiB of it a
+  // spare renderer nothing used. The memory gates are the medians plus about a quarter (360 MiB) and a half (128 MiB),
+  // since the main process alone moved by up to 30 MiB between runs on a loaded machine. A regression of about 70 MiB
+  // (one more Chromium helper) fails the total; smaller ones show in the per-role JSON.
   linux: {
     firstStartMs: 4_000,
     warmStartMs: 2_500,
     repairWindowMs: 3_500,
     quitMs: 1_000,
-    idleMemoryBytes: 2000 * MB,
+    idleMemoryBytes: 360 * MB,
+    backendMemoryBytes: 128 * MB,
   },
-  // Provisional (see above): 6 s warm is 6x the unpackaged Windows cold start; 30 s first start leaves room for the
+  // Provisional (see above). Memory: nothing was measured on Windows yet; 1 GiB is about twice the Linux RSS sum and 192
+  // MiB twice the Linux backend RSS, and the first CI JSON (with the per-role split) must tighten both. Times: 6 s warm is 6x the unpackaged Windows cold start; 30 s first start leaves room for the
   // 135 MB runtime copy under real-time antivirus on a CI runner.
   win32: {
     firstStartMs: 30_000,
     warmStartMs: 6_000,
     repairWindowMs: 6_000,
     quitMs: 4_000,
-    idleMemoryBytes: 2000 * MB,
+    idleMemoryBytes: 1024 * MB,
+    backendMemoryBytes: 192 * MB,
   },
-  // Provisional (see above): macOS runners are the slowest and most uneven, and the first launch of an unseen binary
+  // Provisional (see above), memory as for Windows. Times: macOS runners are the slowest and most uneven, and the first launch of an unseen binary
   // pays Gatekeeper/XProtect scanning.
   darwin: {
     firstStartMs: 30_000,
     warmStartMs: 8_000,
     repairWindowMs: 8_000,
     quitMs: 5_000,
-    idleMemoryBytes: 2000 * MB,
+    idleMemoryBytes: 1024 * MB,
+    backendMemoryBytes: 192 * MB,
   },
 };
 

@@ -2,7 +2,12 @@ import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { dirname, join } from "node:path";
+import { isSettledRepairFailure } from "@work-intelligence/desktop-core";
 import { WorkIntelligenceStore } from "@work-intelligence/storage";
+import {
+  allowBuiltinUsersToWrite,
+  securePrivateDirectory,
+} from "../../../../scripts/desktop-runtime-spike/secure-directory.mjs";
 import { freePort, portIsFree, processIsAlive, profileDirectories } from "../support/process-tools.js";
 
 /**
@@ -98,7 +103,11 @@ export async function pollUntil<T>(
  * Synthetic data only. The folder name has spaces and Chinese characters, as real profile paths do; the database is made
  * by the real store inside an isolated home, and the settings file is the one the App itself writes.
  */
-export async function createSandbox(options: { withDatabase: boolean }): Promise<PackagedSandbox> {
+export async function createSandbox(options: {
+  withDatabase: boolean;
+  /** Windows only: leave `userData` writable for BUILTIN\Users, so the App must refuse the runtime it puts under it. */
+  unsafeUserData?: boolean;
+}): Promise<PackagedSandbox> {
   // `.native` expands Windows 8.3 names and macOS `/var`, so every path matches what the App and its child report.
   const root = realpathSync.native(mkdtempSync(join(os.tmpdir(), "wi 打包 smoke ")));
   const home = join(root, "home 用户");
@@ -107,6 +116,10 @@ export async function createSandbox(options: { withDatabase: boolean }): Promise
   for (const directory of [...Object.values(profileDirectories(home)), userData, emptyBin]) {
     mkdirSync(directory, { recursive: true });
   }
+  // The runtime root is `<userData>/runtime`. A Windows runner's temp folder grants BUILTIN\Users write access, which the
+  // App's ACL check refuses, so userData gets the ACL of the real per-user root: inherited by the folders the App adds.
+  if (options.unsafeUserData) allowBuiltinUsersToWrite(userData);
+  else securePrivateDirectory(userData);
   const databasePath = join(home, ".work-intelligence", "data", "work-intelligence.sqlite");
   const backupDirectory = join(home, ".work-intelligence", "backups");
   mkdirSync(dirname(databasePath), { recursive: true });
@@ -266,6 +279,10 @@ export async function healthStatus(port: number): Promise<number | undefined> {
 export async function waitForManaged(sandbox: PackagedSandbox, since = 0): Promise<BackendInfo> {
   return pollUntil(async () => {
     const log = readLog(sandbox).slice(since);
+    // A refusal the App will not retry or reinstall away: fail now with the real code, not after the timeout.
+    for (const [, code] of log.matchAll(/\[shell\] no automatic retry after (\w+) \(deterministic\)/g)) {
+      if (code && isSettledRepairFailure(code)) throw new Error(`the App settled in NEEDS_REPAIR with ${code}`);
+    }
     if (!/\[shell\] owner MANAGED/.test(log)) return undefined;
     const match = /\[shell\] backend started pid=(\d+) port=(\d+)/.exec(log);
     if (!match) return undefined;

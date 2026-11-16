@@ -42,7 +42,7 @@ import { createRepairInfo } from "./repair-info.js";
 import { createRepairWindow } from "./repair-window.js";
 import { createRuntimeProvisioner } from "./runtime-provision.js";
 import { createSecondInstance } from "./second-instance.js";
-import { applySecurityPolicy, applySessionPolicy, registerRepairScheme } from "./security.js";
+import { applySecurityPolicy, createSessionPolicy, registerRepairScheme } from "./security.js";
 import { applyLoginItem, loadSettings } from "./settings.js";
 import { ShellState } from "./state.js";
 import { installTestHook } from "./test-hook.js";
@@ -133,6 +133,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
   const window = createRepairWindow({
     title: () => state.messages().repairWindowTitle,
     preloadFile: ASSET_FILES.preloadFile,
+    prepareSession: createSessionPolicy(ASSET_FILES.rendererDirectory),
     onShown: () => log("[shell] repair window shown"),
   });
   const dashboard = createDashboard({
@@ -199,7 +200,6 @@ function runShell(configInputs: DesktopConfigInputs): void {
     });
     state.locale = resolveShellLocale(app.getLocale());
     backend.useLaunchMode(state.launchMode);
-    applySessionPolicy(ASSET_FILES.rendererDirectory);
     registerRepairIpc({ state, paths, window, info, backend, supervisor, log });
     if (process.platform === "darwin" && state.launchMode === "background") app.dock?.hide();
     tray.create();

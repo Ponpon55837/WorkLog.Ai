@@ -18,21 +18,31 @@ export function applySecurityPolicy(): void {
   });
 }
 
-/** Denies every permission and serves the repair page from a fixed table, each answer with the CSP. */
-export function applySessionPolicy(rendererDirectory: string): void {
-  const current = session.defaultSession;
-  current.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-  current.setPermissionCheckHandler(() => false);
-  current.setDevicePermissionHandler(() => false);
-  protocol.handle(REPAIR_SCHEME, async (request) => {
-    const headers: Record<string, string> = {
-      "Content-Security-Policy": REPAIR_CSP,
-      "X-Content-Type-Options": "nosniff",
-    };
-    const asset = resolveRepairAsset(request.url);
-    if (!asset) return new Response("Not found", { status: 404, headers });
-    // `asset.file` comes from a fixed table; nothing from the request is part of the path.
-    const body = await readFile(join(rendererDirectory, asset.file));
-    return new Response(new Uint8Array(body), { headers: { ...headers, "Content-Type": asset.contentType } });
-  });
+/**
+ * Denies every permission and serves the repair page from a fixed table, each answer with the CSP. Returns the function
+ * that applies it, which does nothing after the first call. Reading `session.defaultSession` makes Chromium keep a spare
+ * renderer process ready (about 70 MB of working set, 25 MB proportional, measured on Linux), and this App shows a window
+ * only to repair, so the policy is applied by the first window and not at start-up.
+ */
+export function createSessionPolicy(rendererDirectory: string): () => void {
+  let applied = false;
+  return () => {
+    if (applied) return;
+    applied = true;
+    const current = session.defaultSession;
+    current.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+    current.setPermissionCheckHandler(() => false);
+    current.setDevicePermissionHandler(() => false);
+    protocol.handle(REPAIR_SCHEME, async (request) => {
+      const headers: Record<string, string> = {
+        "Content-Security-Policy": REPAIR_CSP,
+        "X-Content-Type-Options": "nosniff",
+      };
+      const asset = resolveRepairAsset(request.url);
+      if (!asset) return new Response("Not found", { status: 404, headers });
+      // `asset.file` comes from a fixed table; nothing from the request is part of the path.
+      const body = await readFile(join(rendererDirectory, asset.file));
+      return new Response(new Uint8Array(body), { headers: { ...headers, "Content-Type": asset.contentType } });
+    });
+  };
 }

@@ -19,6 +19,7 @@ import {
   type PackagedSandbox,
   type RunningApp,
 } from "./helpers.js";
+import { formatBreakdown, measureMemory, median, medianBytesByRole, type MemoryBreakdown } from "./memory-breakdown.js";
 import {
   PACKAGED_IDLE_SETTLE_MS,
   PACKAGED_PERF_RUNS,
@@ -28,9 +29,10 @@ import {
 
 /**
  * Packaged-App performance: first start (with the runtime install), warm start, the repair window, `--quit` and idle
- * memory of the whole process tree, each measured `PACKAGED_PERF_RUNS` times on synthetic data. The medians are checked
- * against `packaged-perf-gates.ts`, written to `perf-results/packaged-perf-<os>.json` and printed to stdout (the CI log
- * is readable where the artifact is not). Polling is every 10 ms, so a time is at most that much late.
+ * memory of the whole process tree (also split by process role, see memory-breakdown.ts), each measured
+ * `PACKAGED_PERF_RUNS` times on synthetic data. The medians are checked against `packaged-perf-gates.ts`, written to
+ * `perf-results/packaged-perf-<os>.json` and printed to stdout (the CI log is readable where the artifact is not).
+ * Polling is every 10 ms, so a time is at most that much late.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -52,7 +54,10 @@ const samples: Record<Metric, number[]> = {
   repairWindowMs: [],
   quitMs: [],
   idleMemoryBytes: [],
+  backendMemoryBytes: [],
 };
+
+const idleBreakdowns: MemoryBreakdown[] = [];
 
 let sandbox: PackagedSandbox | undefined;
 let app: RunningApp | undefined;
@@ -65,12 +70,6 @@ test.afterEach(async () => {
   if (sandbox) removeSandbox(sandbox);
   sandbox = undefined;
 });
-
-function median(values: readonly number[]): number {
-  const sorted = [...values].sort((left, right) => left - right);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 1 ? (sorted[middle] ?? 0) : ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2;
-}
 
 for (let run = 1; run <= PACKAGED_PERF_RUNS; run += 1) {
   test(`first start, warm start, idle memory and quit (run ${run} of ${PACKAGED_PERF_RUNS})`, async () => {
@@ -96,7 +95,11 @@ for (let run = 1; run <= PACKAGED_PERF_RUNS; run += 1) {
       tree.some((candidate) => candidate.pid === backend.pid),
       "the backend is in the process tree",
     ).toBe(true);
-    samples.idleMemoryBytes.push(tree.reduce((total, candidate) => total + candidate.rssBytes, 0));
+    const breakdown = measureMemory(tree, { mainPid: app.pid, backendPid: backend.pid });
+    idleBreakdowns.push(breakdown);
+    samples.idleMemoryBytes.push(breakdown.totalBytes);
+    samples.backendMemoryBytes.push(breakdown.byRole.backend.bytes);
+    process.stdout.write(`${formatBreakdown(breakdown)}\n`);
 
     started = performance.now();
     const quit = runToExit(sandbox, ["--quit"], 60_000);
@@ -143,6 +146,12 @@ test("the medians stay inside the gates and are written for CI", () => {
     data: "synthetic",
     measuredAt: new Date().toISOString(),
     metrics: results,
+    idleMemory: {
+      metric: idleBreakdowns[0]?.metric,
+      medianBytesByRole: medianBytesByRole(idleBreakdowns),
+      medianRssBytes: Math.round(median(idleBreakdowns.map((run) => run.totalRssBytes))),
+      runs: idleBreakdowns,
+    },
   };
   const json = `${JSON.stringify(report, null, 2)}\n`;
   mkdirSync(resultsDirectory, { recursive: true });

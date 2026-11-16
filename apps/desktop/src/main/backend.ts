@@ -7,6 +7,7 @@ import {
   interpretManagedStart,
   RestartPolicy,
   decideRuntimeRecovery,
+  isRuntimeReinstallable,
   writeDesktopSettingsAtomic,
   type BackendInfo,
   type BundledRuntimeStatus,
@@ -172,7 +173,7 @@ export function createBackendController(options: BackendControllerOptions): Back
       state.backend = previousState;
       return { ok: false, busy: true };
     }
-    runtimeSuspect = outcome.kind === "failed" && outcome.code === "RUNTIME_MISSING";
+    runtimeSuspect = outcome.kind === "failed" && isRuntimeReinstallable(outcome.code);
     if (outcome.kind === "started" && result.backend) {
       state.backend = "running";
       log(`[shell] backend started pid=${result.backend.pid} port=${result.backend.port}`);

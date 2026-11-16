@@ -53,8 +53,8 @@ const realDefaultsBefore = new Set(realDefaultDirectories.filter((directory) => 
 let sandbox: PackagedSandbox | undefined;
 const running: RunningApp[] = [];
 
-async function newSandbox(withDatabase = true): Promise<PackagedSandbox> {
-  sandbox = await createSandbox({ withDatabase });
+async function newSandbox(withDatabase = true, unsafeUserData = false): Promise<PackagedSandbox> {
+  sandbox = await createSandbox({ withDatabase, unsafeUserData });
   return sandbox;
 }
 
@@ -183,6 +183,26 @@ test("a missing database shows the repair window and creates no database", async
   expect((await quitCommand(current)).code).toBe(0);
   expect((await app.exited).code).toBe(0);
   expect(existsSync(current.databasePath)).toBe(false);
+});
+
+test("a userData folder writable by BUILTIN\\Users is refused: repair window, no runtime, no backend", async () => {
+  test.skip(
+    process.platform !== "win32",
+    "the ACL check is Windows only; POSIX modes are covered by desktop-core tests",
+  );
+  const current = await newSandbox(true, true);
+  const app = launch();
+  await waitForLog(current, /\[shell\] runtime install failed: RUNTIME_UNSAFE_PERMISSIONS/);
+  await waitForLog(current, /\[shell\] repair window shown/);
+
+  expect(logLines(current, /\[shell\] owner NEEDS_REPAIR/).length).toBeGreaterThan(0);
+  expect(logLines(current, /\[shell\] backend started/)).toHaveLength(0);
+  expect(existsSync(join(current.userData, "runtime", "current"))).toBe(false);
+  expect(await portIsFree(current.port)).toBe(true);
+  expect(app.hasExited()).toBe(false);
+
+  expect((await quitCommand(current)).code).toBe(0);
+  expect((await app.exited).code).toBe(0);
 });
 
 test("--quit stops the backend, frees the port and leaves no process behind", async () => {

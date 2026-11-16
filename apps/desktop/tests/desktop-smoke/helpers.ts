@@ -5,6 +5,7 @@ import os from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { isSettledRepairFailure } from "@work-intelligence/desktop-core";
 import { WorkIntelligenceStore } from "@work-intelligence/storage";
 import {
   INSTANCE_CHALLENGE_HEADER,
@@ -223,21 +224,45 @@ export function readSnapshot(app: ElectronApplication): Promise<MainSnapshot> {
   );
 }
 
-/** Polls the hook until `done` holds, then returns that snapshot. */
+/** A NEEDS_REPAIR the App will not leave by itself (no retry, no reinstall pending), or undefined. */
+export function settledRepairFailure(snapshot: MainSnapshot): string | undefined {
+  const latest = snapshot.recentErrors.at(-1);
+  return snapshot.owner === "NEEDS_REPAIR" && latest !== undefined && isSettledRepairFailure(latest)
+    ? `the App settled in NEEDS_REPAIR with errors=${snapshot.recentErrors.join(",")}`
+    : undefined;
+}
+
+/**
+ * Polls the hook until `done` holds, then returns that snapshot. With `failFast`, a state that can no longer reach `done`
+ * (see {@link settledRepairFailure}) fails at once with the real error codes instead of waiting for the timeout.
+ */
 export async function waitForSnapshot(
   app: ElectronApplication,
   done: (snapshot: MainSnapshot) => boolean,
   timeoutMs = 45_000,
+  failFast: (snapshot: MainSnapshot) => string | undefined = () => undefined,
 ): Promise<MainSnapshot> {
   const deadline = Date.now() + timeoutMs;
   let last: MainSnapshot | undefined;
   while (Date.now() < deadline) {
     last = await readSnapshot(app);
     if (done(last)) return last;
+    const failure = failFast(last);
+    if (failure !== undefined) throw new Error(failure);
     await new Promise((resolveWait) => setTimeout(resolveWait, 250));
   }
   throw new Error(
     `condition not met in ${timeoutMs} ms; last owner=${last?.owner} errors=${last?.recentErrors.join(",")}`,
+  );
+}
+
+/** Waits until the App is MANAGED with a running backend; a deterministic NEEDS_REPAIR fails at once. */
+export function waitForManagedSnapshot(app: ElectronApplication, timeoutMs = 45_000): Promise<MainSnapshot> {
+  return waitForSnapshot(
+    app,
+    (state) => state.owner === "MANAGED" && state.backend !== null,
+    timeoutMs,
+    settledRepairFailure,
   );
 }
 

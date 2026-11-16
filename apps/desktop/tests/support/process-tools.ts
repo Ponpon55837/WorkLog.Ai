@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import net from "node:net";
 import { join } from "node:path";
 
@@ -43,4 +44,19 @@ export function profileDirectories(home: string): Record<string, string> {
     XDG_STATE_HOME: join(home, ".local", "state"),
     XDG_CACHE_HOME: join(home, ".cache"),
   };
+}
+
+/**
+ * The proportional set size of a Linux process in bytes: its private pages plus its share of every shared page, so the
+ * values of several processes add up to the real footprint (a plain RSS counts shared Chromium pages once per process).
+ * Undefined on other systems and when `/proc/<pid>/smaps_rollup` cannot be read (the process ended, or the kernel is old).
+ */
+export function readPssBytes(pid: number): number | undefined {
+  if (process.platform !== "linux") return undefined;
+  try {
+    const match = /^Pss:\s+(\d+) kB$/m.exec(readFileSync(`/proc/${pid}/smaps_rollup`, "utf8"));
+    return match ? Number(match[1]) * 1024 : undefined;
+  } catch {
+    return undefined;
+  }
 }
