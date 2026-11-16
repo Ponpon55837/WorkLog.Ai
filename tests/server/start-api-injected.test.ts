@@ -5,6 +5,10 @@ import { BarrierSandbox, freePort } from "../helpers/old-writer-barrier.js";
 
 const sandboxes: BarrierSandbox[] = [];
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 afterEach(async () => {
   await Promise.all(sandboxes.splice(0).map((sandbox) => sandbox.stopAll()));
 });
@@ -22,12 +26,15 @@ describe("startApi with an injected verified database (child process)", () => {
       WORK_INTELLIGENCE_PORT: String(port),
     });
     await api.waitForLine(new RegExp(`listening on http://127\\.0\\.0\\.1:${port}$`));
-    await api.waitForLine(new RegExp(`SQLite database: ${realpathSync(sandbox.databasePath)}$`));
+    // Native real path: the server logs it (Windows expands 8.3 names such as RUNNER~1); escape its backslashes.
+    await api.waitForLine(new RegExp(`SQLite database: ${escapeRegExp(realpathSync.native(sandbox.databasePath))}$`));
 
     const response = await fetch(`http://127.0.0.1:${port}/`);
     expect(response.status).toBeLessThan(500);
 
     api.child.kill("SIGTERM");
-    expect(await api.exited).toBe(0);
+    const exitCode = await api.exited;
+    // Windows has no SIGTERM handler delivery: kill() terminates the process, so only POSIX can show a clean exit.
+    if (process.platform !== "win32") expect(exitCode).toBe(0);
   });
 });
