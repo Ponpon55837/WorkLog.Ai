@@ -4,6 +4,30 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.42] - 2026-11-16
+
+[繁體中文更新說明](docs/releases/1.6.42.md).
+
+This release starts stage 0 of the desktop app plan, which covers contracts and the test foundation. It adds a pure TypeScript `@work-intelligence/desktop-core` package for settings, database source resolution and service ownership, a read-only database preflight that runs before any store that could migrate is built, and a test environment isolated from the real home directory and port 3210. It also trims the cold start of the backup and export worker. It changes no schema; the schema stays at 33 and no migration is needed.
+
+### Added
+
+- `@work-intelligence/desktop-core` (`packages/desktop-core`): a settings store for `DesktopSettingsV1` (`desired`, `active` and `lastKnownGood`) with atomic writes and fail-closed reads; a database source resolver that lists read-only candidates, gives each one a status, and groups candidates by file identity; and the ServiceOwner state machine with a file-backed operation journal and a single in-process `OperationCoordinator`. The package depends only on `zod` and `@work-intelligence/shared`, runs in `pnpm test`, `test:coverage`, `typecheck` and `lint`, and is not bundled into the plugin or the standalone package.
+- A file identity helper in `@work-intelligence/shared` that reads the real path and the device and inode of a file without opening or writing it.
+- `apps/server/src/database-preflight.ts`: a read-only preflight (`node:sqlite` with `readOnly`, never `immutable=1`) that reports file identity, lineage, schema compatibility and sidecar state, and a `revalidateBeforeCommit` check that re-reads the path, file and lineage before a store opens the database.
+- A verified `startApi({ database })` entry that re-validates the database and refuses to create a missing one: it opens the revalidated real path with the new `WorkIntelligenceStore` option `requireExistingDatabase` (a missing file throws `DATABASE_FILE_MISSING` instead of being created) and re-checks the file identity after opening. The CLI behaviour is unchanged.
+- A multi-process experiment (`tests/server/old-writer-barrier.test.ts`) that runs old and new writers against one WAL database: MCP stdio, the HTTP API, long-lived Store writers, and processes started after a migration.
+- `tests/helpers/isolated-environment.ts`, loaded by every Vitest config. It points the home, app-data and configuration variables at per-file temporary directories, sets the port sentinel to 65533, and fails any listen or connect on port 3210.
+
+### Changed
+
+- The backup and export worker loads a lean entry, `@work-intelligence/storage/backup-export`, which never imports `zod` or `@work-intelligence/schema`. Import preview and the full storage package load lazily. A cold first export in a fresh worker went from a median of 188.5 ms to 64–80 ms, and its p90 from 196.7 ms to 72–90 ms (15 runs). Export output is byte-identical: the SHA-256 of the all-projects export, a single-project export and the import preview are unchanged.
+- The export column list is still duplicated in `packages/storage/src/project-data-export-columns.ts`. A drift test keeps the two lists in step. Moving it to a single source in `packages/core` is a follow-up.
+
+### Fixed
+
+- Test suites no longer read or write the real home directory, the agent configuration or port 3210. The server entry-port test that bound 3210, the doctor tests that probed 3210, the Playwright `webServer` environment and the smoke-script environment now use isolated settings.
+
 ## [1.6.41] - 2026-11-16
 
 [繁體中文更新說明](docs/releases/1.6.41.md).

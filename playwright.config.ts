@@ -78,6 +78,13 @@ export default defineConfig({
         WORK_INTELLIGENCE_ALLOWED_ORIGINS: "",
         HOME: agentHomeDirectory,
         USERPROFILE: agentHomeDirectory,
+        // Everything else the server could resolve under a real home (user service files, Claude/Codex config).
+        APPDATA: path.join(agentHomeDirectory, "AppData", "Roaming"),
+        LOCALAPPDATA: path.join(agentHomeDirectory, "AppData", "Local"),
+        XDG_CONFIG_HOME: path.join(agentHomeDirectory, ".config"),
+        XDG_DATA_HOME: path.join(agentHomeDirectory, ".local", "share"),
+        XDG_STATE_HOME: path.join(agentHomeDirectory, ".local", "state"),
+        WORK_INTELLIGENCE_CONFIG_DIR: path.join(agentHomeDirectory, ".work-intelligence"),
         CODEX_HOME: path.join(agentHomeDirectory, ".codex"),
         CLAUDE_CONFIG_DIR: path.join(agentHomeDirectory, ".claude"),
       },

@@ -6,7 +6,7 @@
 |---|---|
 | 文件版本 | R4 |
 | 基準 commit | `d464ea5`（main，Merge PR #361，release 1.6.40） |
-| 目標修補版 | 1.6.41 |
+| 目標修補版 | 1.6.41（T1–T4）、1.6.42（DT-01/02/04/09/10/20/36）；設計基準仍為 `d464ea5` |
 | 前一版 | R3（來源提交 `e46060e`，審查基準 `7723b72`） |
 | 首發平台 | Windows 11 x64 與 macOS 同批發行；Linux 不在 V1。Windows ARM 排除為推論（待確認）；macOS 架構範圍（Apple Silicon、Intel）待確認 |
 
@@ -31,7 +31,7 @@ R4 是 Work Intelligence 桌面版 V1 的設計基線，在 R3 的基礎上：
 | 檔案 | 用途 | 主要讀者 |
 |---|---|---|
 | [desktop-v1-design-r4.md](desktop-v1-design-r4.md) | **R4 主文件**：執行摘要、使用者體驗、安裝與設定、服務交接、架構、更新與資料保護、平台需求、契約草案、開源借鑑、封版檢核。由 R3 改名（`git mv`）並修訂而來。 | 產品、實作、安全、發行 |
-| [desktop-v1-adr.md](desktop-v1-adr.md) | **決策紀錄**（ADR-01 至 ADR-35）：每筆含脈絡、決策、後果與狀態。涵蓋 R3 所有決策並更新 R4 的變更。 | 架構、審查 |
+| [desktop-v1-adr.md](desktop-v1-adr.md) | **決策紀錄**（ADR-01 至 ADR-36）：每筆含脈絡、決策、後果與狀態。涵蓋 R3 所有決策並更新 R4 的變更。 | 架構、審查 |
 | [desktop-v1-component-contracts.md](desktop-v1-component-contracts.md) | **元件契約**（C-01 至 C-22、C-T）：每個元件的責任、輸入輸出、不變條件與平台特定要求。 | 實作、測試 |
 | [desktop-v1-risk-gate-ticket-matrix.md](desktop-v1-risk-gate-ticket-matrix.md) | **風險・Gate・工程票對應**：R01–R34 全表、Gate 反向索引、工程票索引（DT-01 至 DT-37）、1.6.41 任務對應、V1 不做清單。 | 排程、追蹤、發行 |
 | 本檔（README.md） | 索引、證據標籤、修訂紀錄、去重紀錄。 | 所有人 |
@@ -66,6 +66,25 @@ R4 的補充用法：
 | T2 | 寫入交易的 schema 閘（含 HTTP API），錯誤碼 `server_restart_required`（HTTP 503）。**1.6.41 已實作（commit 3ff1e45）** | R4 §7.3；C-07；ADR-18；DT-03 |
 | T3 | `sqlite_version()` 報告與 release 檢查。**1.6.41 已實作（commit 4420951）** | R4 §7.3.1；C-21；ADR-19；DT-06 |
 | T4 | 管理 API 的 Host 比對含 port。**1.6.41 已實作（commit dadaae4）** | R4 §5.2；C-10；ADR-11；DT-17 |
+
+---
+
+## 1.6.42 任務（階段 0：契約與測試基座）與本文件的關係
+
+本版實作階段 0 的 CI 可驗證部分，程式位於 `packages/desktop-core` 與相關測試。以下各項的實機驗收仍為**待實機驗收**，本文件不宣稱實機已通過。
+
+| 任務 | 內容 | 狀態 | 本文件位置 | 證據路徑 |
+|---|---|---|---|---|
+| DT-01 | DB 來源解析（唯讀候選、狀態分類、依檔案身分分組、衝突策略）；DB 身分策略定案 | 1.6.42 已實作（CI 可驗證部分）；實機待實機驗收 | §3.1；C-05；ADR-06、ADR-36 | `packages/desktop-core/src/db-source/`；`packages/shared/src/file-identity.ts`；`tests/desktop-core/db-source.test.ts`、`tests/desktop-core/identity-compare.test.ts`、`tests/shared/file-identity.test.ts` |
+| DT-02 | 唯讀 preflight 與提交前重驗（含 sidecar 副作用測試） | 1.6.42 已實作（CI 可驗證部分）；實機待實機驗收 | §3.1.1；C-06；ADR-07、ADR-08 | `apps/server/src/database-preflight.ts`、`apps/server/src/start-api.ts`；`tests/server/database-preflight.test.ts`、`tests/server/start-api-injected.test.ts` |
+| DT-04 | 舊寫入端與長任務屏障的程序組合實驗（方案 1、2、3） | 1.6.42 已實作（CI 可驗證部分）；實機待實機驗收 | §10.4；ADR-17 | `tests/server/old-writer-barrier.test.ts`；`tests/helpers/old-writer-barrier*.ts` |
+| DT-09 | ServiceOwner 狀態機與 operation journal | 1.6.42 已實作（CI 可驗證部分）；實機待實機驗收 | §4.1；C-04；ADR-22 | `packages/desktop-core/src/operations/`；`tests/desktop-core/operations-state.test.ts`、`tests/desktop-core/operations-journal.test.ts`、`tests/desktop-core/operations-recovery.test.ts` |
+| DT-10 | `OperationCoordinator`（單一鎖、operationId、BUSY、重送） | 1.6.42 已實作（CI 可驗證部分）；實機待實機驗收 | §6.1；C-04；ADR-21 | `packages/desktop-core/src/operations/coordinator.ts`；`tests/desktop-core/operations-coordinator.test.ts` |
+| DT-20 | 設定檔原子寫入與 fail-closed 讀取 | 1.6.42 已實作（CI 可驗證部分）；實機待實機驗收 | §5.3；C-03；ADR-20 | `packages/desktop-core/src/settings/`；`tests/desktop-core/settings.test.ts` |
+| DT-36 | 測試隔離：`tests/helpers/isolated-environment.ts` 作為所有 Vitest 設定的 setupFiles，不觸碰真實家目錄與 3210 | 1.6.42 已實作（CI 可驗證部分）；實機待實機驗收（Windows 11、macOS 實機環境清單尚未完成） | R4 §13；C-T | `tests/helpers/isolated-environment.ts`；`tests/shared/test-isolation.test.ts`；`vitest.config.ts` |
+| 效能（1.6.41 遺留項，非 DT 票） | 備份與匯出 worker 使用精簡入口，首次匯出中位數 188.5 ms 降為 64–80 ms（15 次）；匯出輸出位元組不變 | 1.6.42 已實作（CI 可驗證部分）；數字為單機量測，`test:performance` 3 次通過，門檻未調整 | 無（不屬於桌面設計文件） | `packages/storage/src/backup-export.ts`；`packages/storage/package.json`（`./backup-export` 匯出）；`packages/storage/bench/worker-cold-start.bench.mjs`；`packages/storage/src/project-data-export-columns.ts`、`tests/storage/project-data-export-columns.test.ts` |
+
+**本版的非 CI 項目**：DT-04 的程序組合 4（Codex plugin、Claude Code plugin、MCPB、手動 stdio 設定）、Windows 檔案 ID 與 sidecar 行為，以及 DT-36 的實機環境清單，皆待實機驗收。
 
 ---
 
@@ -121,6 +140,10 @@ R4 的補充用法：
 **去除的非重複內容（Linux 相關）**：R3 中針對 Linux 的桌面描述（系統匣不可用、AppImage、Ubuntu GNOME 驗收、Linux 更新簽章）已移除，並改記為 §5 的 V1 排除項。Linux 的 zenity、kdialog 分支維持程式現況，不納入驗收。
 
 ---
+
+## 後續修訂紀錄
+
+- R4 第三次修訂（1.6.42）: 更新階段 0 狀態與 DT-04 實驗結論、DB 身分策略定案。
 
 ## 驗證紀錄（R4 修訂過程）
 

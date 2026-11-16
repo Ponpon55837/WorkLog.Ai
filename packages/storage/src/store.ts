@@ -228,6 +228,7 @@ import { SessionRepository, type SessionListOptions, type SessionRow } from "./s
 import {
   assertDatabaseSchemaVersion,
   configureWorkIntelligenceDatabaseConnection,
+  DatabaseInitializationError,
   initializeWorkIntelligenceDatabase,
 } from "./database-initialization.js";
 import {
@@ -418,6 +419,11 @@ export interface WorkIntelligenceStoreOptions {
   mode?: "initialize" | "read-only" | "existing";
   /** Required with read-only and existing modes; the database must already have this exact schema version. */
   expectedSchemaVersion?: number;
+  /**
+   * With the default `initialize` mode: refuse to create the database. A shell that verified a specific file uses this so a
+   * file swapped away between verification and opening is reported instead of silently replaced by a new empty database.
+   */
+  requireExistingDatabase?: boolean;
 }
 
 /** A report lists at most five changed-often files with its risks, each changed by at least two Sessions. */
@@ -479,6 +485,12 @@ export class WorkIntelligenceStore {
     // Opening a missing file for writing would create an empty database the schema check then rejects.
     if (existingOnly && (databasePath === ":memory:" || (!readOnly && !existsSync(databasePath)))) {
       throw new Error("A read-only or existing-database WorkIntelligenceStore requires an existing database file.");
+    }
+    if (options.requireExistingDatabase && !existingOnly && databasePath !== ":memory:" && !existsSync(databasePath)) {
+      throw new DatabaseInitializationError(
+        "DATABASE_FILE_MISSING",
+        "找不到先前確認的資料庫檔案；Work Intelligence 不會建立新的資料庫。",
+      );
     }
     if (!existingOnly && databasePath !== ":memory:") {
       prepareDatabaseFiles(databasePath);

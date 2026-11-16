@@ -27,6 +27,10 @@
       "types": "./dist/mcp-runtime.d.ts",
       "import": "./dist/mcp-runtime.js"
     },
+    "./file-identity": {
+      "types": "./dist/file-identity.d.ts",
+      "import": "./dist/file-identity.js"
+    },
     "./sqlite-version": {
       "types": "./dist/sqlite-version.d.ts",
       "import": "./dist/sqlite-version.js"

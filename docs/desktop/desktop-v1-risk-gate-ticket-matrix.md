@@ -76,16 +76,16 @@
 
 | 票號 | 內容 | R3 Epic | 相依 | 完成證據（摘要） | 平台 | 對應風險 |
 |---|---|---|---|---|---|---|
-| DT-01 | DB 來源解析器與身分（唯讀候選、衝突策略） | E0-01 | — | 合成的舊 checkout、standalone、plugin 流程；多來源衝突測試 | W、M | R01、R23 |
-| DT-02 | 唯讀 preflight 與提交前重驗（含 sidecar 副作用測試） | E0-01、E2-02 | DT-01 | 不開錯庫；sidecar 監測；TOCTOU 測試 | W、M | R02、R23、R34 |
+| DT-01 | DB 來源解析器與身分（唯讀候選、衝突策略） | E0-01 | — | 合成的舊 checkout、standalone、plugin 流程；多來源衝突測試。**1.6.42 已實作**：`packages/desktop-core/src/db-source/`、`packages/shared/src/file-identity.ts`；`tests/desktop-core/db-source.test.ts`、`tests/desktop-core/identity-compare.test.ts`、`tests/shared/file-identity.test.ts`；身分策略見 ADR-36；Windows 檔案 ID 待實機驗收 | W、M | R01、R23 |
+| DT-02 | 唯讀 preflight 與提交前重驗（含 sidecar 副作用測試） | E0-01、E2-02 | DT-01 | 不開錯庫；sidecar 監測；TOCTOU 測試。**1.6.42 已實作**：`apps/server/src/database-preflight.ts`、`apps/server/src/start-api.ts`；`tests/server/database-preflight.test.ts`、`tests/server/start-api-injected.test.ts`；sidecar 本機觀察見 ADR-07（Windows 待實機驗收） | W、M | R02、R23、R34 |
 | DT-03 | HTTP API 與 CLI 寫入端 schema 閘（`server_restart_required`，HTTP 503；快取戳記 `data_version` 與 `schema_version`） | E0-02 | — | 舊程序寫入被拒；快取不每請求重查 | W、M | R03 |
-| DT-04 | 舊 MCP 與長任務屏障實驗；確定方案 1、2、3 | E0-02、E4-02 | DT-03 | §10.4 的四組程序組合實驗結果 | W、M | R03 |
+| DT-04 | 舊 MCP 與長任務屏障實驗；確定方案 1、2、3 | E0-02、E4-02 | DT-03 | §10.4 的四組程序組合實驗結果。**1.6.42 已實作**：`tests/server/old-writer-barrier.test.ts`（+ `tests/helpers/old-writer-barrier*.ts`）；組合 1 至 3 的結果見 §10.4；組合 4（Codex plugin、Claude Code plugin、MCPB、手動 stdio）與 Windows 檔案鎖／WAL 待實機驗收 | W、M | R03 |
 | DT-05 | 備份快照驗證與 restore 守門（可讀回、保存當前快照） | E4-02 | DT-03 | 還原樣本通過 `integrity_check`；活躍 DB 不被覆寫 | W、M | R04、R12 |
 | DT-06 | SQLite 版本檢查（`doctor`、`pnpm check`、`/api/health` 警告；release 列印）**1.6.41 T3** | E1-01 | — | CI 檢查通過；release 產物輸出 bundled `sqlite_version()` | W、M | R33 |
 | DT-07 | 多程序 WAL 寫入與 checkpoint 壓力、`integrity_check` 測試套件 | E5-01 | DT-05 | 壓力測試輸出與還原比對；不取代 DT-06 的修補證據 | W、M | R33 |
 | DT-08 | 檔案系統風險政策（SMB、NFS、同步資料夾、外接碟） | E0-01 | DT-01 | 偵測與禁止自動接管的測試；顯示理由 | W、M | R22 |
-| DT-09 | ServiceOwner 狀態機與 operation journal（R4 §4.1） | E0-03 | DT-01 | 狀態轉移測試；中斷後依 OS／DB 重建 | W、M | R06、R30 |
-| DT-10 | `OperationCoordinator`（單一鎖、operationId、BUSY、重送） | E0-03 | DT-09 | 重送回傳同一結果；併發操作回 BUSY | W、M | R19 |
+| DT-09 | ServiceOwner 狀態機與 operation journal（R4 §4.1） | E0-03 | DT-01 | 狀態轉移測試；中斷後依 OS／DB 重建。**1.6.42 已實作**：`packages/desktop-core/src/operations/`（狀態表、journal、recovery）；`tests/desktop-core/operations-state.test.ts`、`tests/desktop-core/operations-journal.test.ts`、`tests/desktop-core/operations-recovery.test.ts` | W、M | R06、R30 |
+| DT-10 | `OperationCoordinator`（單一鎖、operationId、BUSY、重送） | E0-03 | DT-09 | 重送回傳同一結果；併發操作回 BUSY。**1.6.42 已實作**：`packages/desktop-core/src/operations/coordinator.ts`；`tests/desktop-core/operations-coordinator.test.ts`；跨程序鎖屬 DT-15 | W、M | R19 |
 | DT-11 | 子程序 lifecycle（argv、env allowlist、runId IPC、drain） | E2-02 | DT-09、DT-02 | 不開錯 DB；不雙啟；關閉可驗證 | W、M | R19 |
 | DT-12 | 服務擁有權證據與陌生程序保護（macOS LaunchAgent） | E4-01 | DT-09 | 不殺未授權程序；歸屬證據層級測試 | M | R05、R06 |
 | DT-13 | Windows schtasks adapter 與 runner 子孫程序驗證 | E4-01 | DT-12 | 停止排程後 port 釋放；子孫程序已終止 | W | R05 |
@@ -95,7 +95,7 @@
 | DT-17 | 管理 API 授權：精確 Host:port（**1.6.41 T4 已實作**）、Origin、CSRF、會話、原生確認 | E2-03 | DT-15 | 假 Host、假 Origin、跨 port、重播、過期的測試皆拒絕 | W、M | R09、R10 |
 | DT-18 | 管理 API 跨使用者與 XSS 回歸測試；資料 API 的發行聲明 | E2-03 | DT-17 | 不同 OS 帳號連線測試；發行說明已列出排除項 | W、M | R25（管理 API 部分） |
 | DT-19 | 診斷匯出遮蔽與秘密掃描 | E5-02 | DT-11 | 匯出內容無授權碼與個資路徑；不自動上傳 | W、M | R32 |
-| DT-20 | 設定檔原子寫入與 fail-closed 讀取 | E0-02 | — | 半寫入與毀損情境不開空庫；recovery copy 可用 | W、M | R29 |
+| DT-20 | 設定檔原子寫入與 fail-closed 讀取 | E0-02 | — | 半寫入與毀損情境不開空庫；recovery copy 可用。**1.6.42 已實作**：`packages/desktop-core/src/settings/`；`tests/desktop-core/settings.test.ts` | W、M | R29 |
 | DT-21 | Agent plan／apply／verify／compensate 共用 API（擷取自 `agent-setup.ts`） | E3-01 | DT-23 | 指紋重驗；補償只回復 App 擁有項；CLI 行為不變 | W、M | R15、R16、R17 |
 | DT-22 | Agent 狀態分級與 host handshake | E3-01 | DT-21 | 檔案已寫入不顯示「已連接」；握手測試通過 | W、M | R28 |
 | DT-23 | 固定 launcher 與版本化 runtime manifest | E1-02 | DT-25 | App 退出後 MCP 仍可 `initialize`；manifest 篡改被拒 | W、M | R07、R13 |
@@ -111,7 +111,7 @@
 | DT-33 | 同批產物暫存與聯合發行閘（ADR-03） | E5-01 | DT-28、DT-31 | 兩平台產物齊備且驗證後才一次公開；任一平台失敗即整版不發 | W、M | — |
 | DT-34 | NSIS 解除安裝只移除 App 擁有項；macOS 桌面整合移除入口 | E5-02 | DT-15、DT-24 | 解除安裝後 DB 與備份保留；使用者修改項目保留 | W、M | R27 |
 | DT-35 | 退出語意 UI 與最後成功備份時間顯示 | E2-01 | DT-15、DT-11 | 退出後介面明示「不會每日備份」；時間正確 | W、M | R24 |
-| DT-36 | CI 隔離（fake home、假 Agent、不觸碰真實 `$HOME` 與 3210）與 Windows 11、macOS 實機環境 | E0-03、CI | — | CI 不讀寫真實使用者資料；實機環境清單就緒 | W、M | — |
+| DT-36 | CI 隔離（fake home、假 Agent、不觸碰真實 `$HOME` 與 3210）與 Windows 11、macOS 實機環境 | E0-03、CI | — | CI 不讀寫真實使用者資料；實機環境清單就緒。**1.6.42 已實作**：`tests/helpers/isolated-environment.ts`、`tests/shared/test-isolation.test.ts`、`vitest.config.ts`；Windows 11 與 macOS 實機環境清單尚未完成，仍待實機驗收 | W、M | — |
 | DT-37 | 首發平台的發行身分與簽章（Windows 簽章、macOS 公證） | R4 新增 | — | 簽章身分與憑證就緒；產物可驗證 | W、M | — |
 
 ---
@@ -128,6 +128,23 @@
 | T4 | 管理 API 的 Host 比對含 port：loopback 名稱 × 實際 listen port，加上 allowed origin 的精確 host:port | DT-17（測試於 DT-18） | R09、R10 | R4 §5.2；C-10；ADR-11 | 已實作（dadaae4） |
 
 **差異註記**：T1–T4 的完成狀態以上列 commit 為準。若後續 PR 改變 `server_restart_required` 名稱、快取策略或 Host 規則，R4 §5.2、§7.3、§7.3.1、§9.1，ADR-11、ADR-18、ADR-19、ADR-31，C-07、C-10、C-17、C-21 須同步更新。
+
+## 4b. 1.6.42（階段 0）對應
+
+階段 0 的 CI 可驗證部分於 1.6.42 實作。下列 commit 為已提交的主要變更與審查後的修正。所有實機驗收仍為**待實機驗收**。
+
+| 項目 | 內容 | 對應票 | 對應風險 | R4 中的位置 | 狀態（commit） |
+|---|---|---|---|---|---|
+| A | DB 來源解析與身分比對（唯讀候選、依檔案身分分組、血統衝突） | DT-01 | R01、R23 | §3.1；C-05；ADR-06、ADR-36 | 1.6.42 已實作（7b6b8f0；身分比對 `identity-compare.ts` 與 resolve 調整 e4a04a3）；實機待實機驗收 |
+| B | 唯讀 preflight、提交前重驗與已驗證的 `startApi` 入口 | DT-02 | R02、R23、R34 | §3.1.1、§5.1；C-06；ADR-07、ADR-08 | 1.6.42 已實作（93a8f24；提交前重驗與不建庫開啟 6869348）；實機待實機驗收 |
+| C | 舊寫入端程序組合實驗（組合 1 至 3） | DT-04 | R03 | §10.4；ADR-17 | 1.6.42 已實作（5bdd530）；組合 4 與 Windows 實機待實機驗收 |
+| D | ServiceOwner 狀態機與 operation journal | DT-09 | R06、R30 | §4.1；C-04；ADR-21、ADR-22 | 1.6.42 已實作（54f9d3d）；實機待實機驗收 |
+| E | `OperationCoordinator`（單一鎖、operationId、BUSY、重送） | DT-10 | R19 | §6.1；C-04；ADR-21 | 1.6.42 已實作（54f9d3d）；實機待實機驗收 |
+| F | 設定檔原子寫入與 fail-closed 讀取 | DT-20 | R29 | §5.3；C-03；ADR-20 | 1.6.42 已實作（7b6b8f0）；實機待實機驗收 |
+| G | 測試隔離（所有 Vitest 設定載入 `isolated-environment.ts`） | DT-36 | —（CI 基座） | R4 §13；C-T | 1.6.42 已實作（309e936）；實機環境清單待實機驗收 |
+| H | 備份與匯出 worker 精簡入口（1.6.41 遺留的效能項） | 非 DT 票 | —（非桌面風險項） | 不屬於本設計文件 | 1.6.42 已實作（9bdec30）；數字為單機量測 |
+
+**差異註記**：ADR-36 的 DB 身分策略與 §3.1 步驟 3、§10.1 的 `databaseIdentity` 已改為引用 ADR-36；§10.4 新增 DT-04 的實驗結果。
 
 ## 5. V1 不做／以發行聲明排除
 

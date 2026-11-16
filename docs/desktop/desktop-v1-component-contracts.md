@@ -74,6 +74,7 @@
   - `installId` 不是授權密鑰。
 - **平台**：W 的目錄為目前使用者可寫；M 為 `~/Library` 下的使用者目錄（ACL 與權限由平台決定）。
 - **對應**：DT-20；R29。
+- **1.6.42 實作**：`packages/desktop-core/src/settings/`（`atomic-write.ts`、`read.ts`、`schema.ts`）；暫存檔（同目錄、`wx`、0o600）→ fsync → 重讀驗證 → recovery copy → rename → 目錄 fsync（win32 或不支援的檔案系統跳過並回報）。讀取時只有 primary 與 recovery 皆為 `ENOENT` 且無其他來源才視為新安裝；primary 損毀時改用 recovery copy 並標示；未來版本或權限不足則為 needs-repair，絕不使用 recovery。讀取從不寫入，並拒絕覆寫較新版本的設定。
 
 ### C-05 DbSourceResolver（DB 來源解析與身分）
 
@@ -87,6 +88,7 @@
   - 網路 FS、同步資料夾、外接碟列為風險來源；V1 不自動接管（ADR-07）。
 - **平台**：W 比較檔案識別與 UNC 路徑；M 處理 `~/Library` 與外接碟；兩者都需驗證 symlink 與 hard link（DT-08）。
 - **對應**：DT-01、DT-08；R01、R22、R23。
+- **1.6.42 實作**：`packages/desktop-core/src/db-source/`（`collect.ts`、`decide.ts`、`grouping.ts`、`identity-compare.ts`、`resolve.ts`）與 `packages/shared/src/file-identity.ts`；唯讀收集七類候選（desktop-committed、explicit-selection、legacy-service、plugin-link、agent-mcp、standalone-default、checkout-default），狀態互不混淆；以 fileId（無法取得時以 realPath）分組，並標示血統衝突；選擇依優先序，高優先來源不可用時阻擋而非往下遞補；新建只在使用者明確同意且無其他來源時提供。身分規則見 ADR-36。
 
 ### C-06 DbPreflight（唯讀 preflight）
 
@@ -100,6 +102,7 @@
   - preflight 失敗不得建立空 DB（ADR-08）。
 - **平台**：W 的檔案鎖與 sidecar 行為需以實機測試；M 的 quarantine 不影響唯讀檢查，但要測試安裝後首次開啟。
 - **對應**：DT-02；R02、R23、R34。
+- **1.6.42 實作**：`apps/server/src/database-preflight.ts`（`preflightDatabase`、`revalidateBeforeCommit`）與 `apps/server/src/start-api.ts` 的 `startApi({ database })` 已驗證入口；以 `node:sqlite` 唯讀開啟（不使用 `immutable=1`），回報身分、血統、schema 相容性（empty、current、older-needs-migration、newer-unsupported）與 sidecar 前後狀態；提交前重驗路徑、檔案與血統；已驗證入口拒絕建立不存在的資料庫，CLI 行為不變。
 
 ### C-07 DbCompatibilityGate（寫入端 schema 閘）
 
@@ -154,6 +157,7 @@
   - 「不可立即取消」階段（SQLite 寫入、installer 交接）須明確顯示，不得以 kill 取代。
 - **平台**：W 與 M 的操作紀錄都放在使用者可寫的固定目錄。
 - **對應**：DT-09、DT-10；R19、R30。
+- **1.6.42 實作**：`packages/desktop-core/src/operations/`（`service-owner-state.ts`、`operation-journal.ts`、`journal-store.ts`、`coordinator.ts`、`recovery.ts`）；ServiceOwner 的狀態轉移表以資料表示；檔案式原子 journal，重送冪等；`recover()` 依注入的 OS／DB 探測結果重建狀態，而非依 journal 文字；migration 有證據後禁止還原舊服務，並進入 NEEDS_REPAIR。單一行程內的全域鎖：同 ID 回傳同一結果，不同 ID 回 BUSY；跨程序鎖屬 DT-15。取消在副作用發生後延後到恢復處理。
 
 ### C-08 BackendChild（後端子程序）
 
@@ -330,3 +334,4 @@
   - mock 服務管理器或 fake Agent 的成功，不能取代 OS 與 host 的實機驗收（R4 §9.4）。
 - **平台**：W 與 M 各自的 CI runner 需要對應的隔離設定。
 - **對應**：DT-36。
+- **1.6.42 實作**：`tests/helpers/isolated-environment.ts`，註冊為所有 Vitest 設定的 `setupFiles`（含根目錄 `vitest.config.ts`）。HOME、USERPROFILE、APPDATA、LOCALAPPDATA、XDG_* 等指向每個測試檔自己的暫存目錄；`WORK_INTELLIGENCE_PORT` 設為哨兵值 65533；監聽或連線 3210 會拋錯；真實家目錄中的敏感路徑先取指紋，測試後若被改動，CI 下即失敗。靜態掃描禁止測試中硬編碼 3210（測試位於 `tests/shared/test-isolation.test.ts`）。

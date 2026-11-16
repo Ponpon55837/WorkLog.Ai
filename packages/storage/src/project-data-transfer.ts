@@ -29,12 +29,24 @@ import {
 } from "@work-intelligence/schema";
 import { nowIso } from "@work-intelligence/shared";
 import { backupDatabaseBeforeImport, type BackupRetentionOptions } from "./backup.js";
-import { redactDiagramSource } from "./diagram-source-redaction.js";
+import { redactArchitectureDiagramSource } from "./diagram-source-redaction.js";
+import {
+  buildProjectDataExport,
+  ProjectDataTransferError,
+  readProjectDataRows,
+  REDACTABLE_FIELDS,
+  redactProjectDataRows as redactRowsWith,
+  redactRow as redactRowWith,
+  rowsByIds,
+  runReadTransaction,
+  type ProjectDataTransferErrorCode,
+} from "./project-data-export.js";
 import { remapPathPrefix, storedProjectRoot } from "./project-path-remap.js";
 import { databaseUnavailableReason } from "./sqlite-errors.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 import { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
-import { combineRedactionSummaries, redactJsonText, redactText } from "./secret-redaction.js";
+
+export { ProjectDataTransferError, type ProjectDataTransferErrorCode };
 
 const TABLE_ORDER: readonly ProjectDataTable[] = [
   "projects",
@@ -107,44 +119,6 @@ export const OLDEST_IMPORTABLE_EXPORT_SCHEMA_VERSION = 31;
 const CONFLICT_DETAIL_LIMIT = 100;
 const MAX_CONFLICT_ID_LENGTH = 200;
 
-const REDACTABLE_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> = {
-  sessions: ["title", "summary", "work_summary_json", "verification_json", "void_reason"],
-  session_decisions: ["text"],
-  knowledge_pages: ["title", "question", "sections_json"],
-  knowledge_page_versions: ["title", "question", "sections_json"],
-  session_diagrams: ["title", "source", "void_reason"],
-  work_events: ["summary", "details_json"],
-  raw_snapshots: ["content"],
-  evidence: ["kind", "reference", "summary", "void_reason"],
-  void_audit: ["reason"],
-  session_verification_updates: ["previous_json", "resulting_json"],
-  session_summary_updates: ["summary", "previous_summary", "resulting_summary"],
-  session_work_summary_updates: ["work_summary_json", "previous_work_summary_json", "resulting_work_summary_json"],
-  outstanding_items: ["text"],
-  outstanding_cleanup_request_items: ["text"],
-  outstanding_cleanup_proposals: ["reason"],
-  knowledge: ["title", "body", "tags_json", "references_json", "applies_to_json", "review_json"],
-  knowledge_audit: ["before_json", "after_json", "changed_fields_json"],
-  knowledge_candidate_requests: ["failure_reason"],
-  knowledge_candidates: ["title", "body", "tags_json", "references_json", "applies_to_json", "rationale"],
-  report_synthesis_requests: ["failure_reason"],
-  report_presentations: ["state_json"],
-  report_summaries: [
-    "title",
-    "executive_summary",
-    "themes_json",
-    "highlights_json",
-    "verification_json",
-    "comparison_json",
-    "risks_json",
-    "decisions_json",
-    "next_steps_json",
-    "generated_by_agent",
-    "generated_by_model",
-  ],
-  metadata_backfill_requests: ["failure_reason"],
-};
-
 /** Columns each machine derives on its own; they never make two copies of a row different and are never overwritten. */
 const LOCAL_DERIVED_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> = {
   sessions: ["redaction_count"],
@@ -202,125 +176,24 @@ const IMMUTABLE_PARENT_COLUMNS: Partial<Record<ProjectDataTable, readonly string
 /** Temporary shift while renumbering local page versions, so the unique (page, version) index never collides mid-update. */
 const PAGE_VERSION_OFFSET = 1_000_000;
 const CONFLICT_GROUP_SAMPLE_LIMIT = 5;
-/**
- * Same order as `String.prototype.localeCompare`, without re-resolving the locale on every comparison. The order
- * follows the host's default locale, as it always has; changing it would change the exported bytes.
- */
-const EXPORT_ORDER_COLLATOR = new Intl.Collator();
 const PARENT_OTHER_PROJECT_REASON = "上層資料屬於另一個專案。";
 const MISSING_PROJECT_REASON = "所屬專案不在匯入檔中。";
 const MISSING_SESSION_REASON = "所屬 Session 不在匯入檔中。";
 const MISSING_REQUEST_REASON = "報告所屬的請求不在匯入檔中。";
 const MISSING_SUMMARY_REASON = "報告呈現的原始版本不在匯入檔中。";
 
+/** Masks one row with the portable redaction rules, architecture diagrams included. */
+function redactRow(table: ProjectDataTable, row: ProjectDataRow): ReturnType<typeof redactRowWith> {
+  return redactRowWith(table, row, redactArchitectureDiagramSource);
+}
+
+function redactProjectDataRows(rows: Record<ProjectDataTable, ProjectDataRow[]>): ReturnType<typeof redactRowsWith> {
+  return redactRowsWith(rows, redactArchitectureDiagramSource);
+}
+
 /** The first validation issue for the error text; unknown keys come from the file, so they are named in bounded form. */
 function firstIssueMessage(issues: Parameters<typeof validationIssueMessage>[0][]): string {
   return validationIssueMessage(issues[0]) ?? "欄位驗證失敗。";
-}
-
-/**
- * Applies the portable redaction rules to one row; also used to compare a local row with a sanitized import. A row
- * with nothing to mask is returned as it is: copying every row of a whole-database export cost more than masking it.
- */
-function redactRow(
-  table: ProjectDataTable,
-  row: ProjectDataRow,
-): { row: ProjectDataRow; redactions: ReturnType<typeof combineRedactionSummaries> } {
-  let output: Record<string, ProjectDataValue> | undefined;
-  const redactions = combineRedactionSummaries();
-  for (const field of REDACTABLE_FIELDS[table] ?? []) {
-    const value = row[field];
-    if (typeof value !== "string") {
-      continue;
-    }
-    const result =
-      table === "session_diagrams" && field === "source"
-        ? redactDiagramSource(value, String(row.kind))
-        : field.endsWith("_json")
-          ? redactJsonText(value)
-          : redactText(value);
-    if (result.value !== value) {
-      output ??= { ...row } as Record<string, ProjectDataValue>;
-      output[field] = result.value;
-    }
-    if (result.redactions.total === 0) continue;
-    redactions.total += result.redactions.total;
-    for (const [kind, count] of Object.entries(result.redactions.byKind)) {
-      const key = kind as keyof typeof redactions.byKind;
-      redactions.byKind[key] = (redactions.byKind[key] ?? 0) + (count ?? 0);
-    }
-  }
-  return { row: (output ?? row) as ProjectDataRow, redactions };
-}
-
-function redactProjectDataRows(rows: Record<ProjectDataTable, ProjectDataRow[]>): {
-  rows: Record<ProjectDataTable, ProjectDataRow[]>;
-  redactions: ReturnType<typeof combineRedactionSummaries>;
-} {
-  const allRedactions = combineRedactionSummaries();
-  const sessionCounts = new Map<string, number>();
-  const cleanupItemSourceSessionIds = new Map(
-    rows.outstanding_cleanup_request_items.map((item) => [String(item.id), String(item.source_session_id)]),
-  );
-  const cleanupProposalSourceSessionIds = new Map(
-    rows.outstanding_cleanup_proposals.flatMap((proposal) => {
-      const sourceSessionId = cleanupItemSourceSessionIds.get(String(proposal.request_item_id));
-      return sourceSessionId ? [[String(proposal.id), sourceSessionId] as const] : [];
-    }),
-  );
-  const sanitized = Object.fromEntries(
-    PROJECT_DATA_TABLES.map((table) => {
-      const result = rows[table].map((row) => {
-        const redacted = redactRow(table, row);
-        const output = redacted.row as Record<string, ProjectDataValue>;
-        const rowCount = redacted.redactions.total;
-        if (rowCount > 0) allRedactions.total += rowCount;
-        for (const [kind, count] of rowCount > 0 ? Object.entries(redacted.redactions.byKind) : []) {
-          const key = kind as keyof typeof allRedactions.byKind;
-          allRedactions.byKind[key] = (allRedactions.byKind[key] ?? 0) + (count ?? 0);
-        }
-        if (rowCount > 0) {
-          const sessionId =
-            table === "sessions"
-              ? String(output.id)
-              : String(
-                  output.session_id ??
-                    output.source_session_id ??
-                    (table === "outstanding_cleanup_proposals"
-                      ? cleanupProposalSourceSessionIds.get(String(output.id))
-                      : "") ??
-                    "",
-                );
-          if (sessionId) {
-            sessionCounts.set(sessionId, (sessionCounts.get(sessionId) ?? 0) + rowCount);
-          }
-        }
-        return output as unknown as ProjectDataRow;
-      });
-      return [table, result];
-    }),
-  ) as unknown as Record<ProjectDataTable, ProjectDataRow[]>;
-
-  // Unmasked rows are the caller's own objects, so a Session whose count changes gets it on a copy.
-  sanitized.sessions = sanitized.sessions.map((session) => {
-    const added = sessionCounts.get(String(session.id)) ?? 0;
-    if (added === 0 && typeof session.redaction_count === "number") return session;
-    return { ...session, redaction_count: Number(session.redaction_count ?? 0) + added };
-  });
-  return { rows: sanitized, redactions: allRedactions };
-}
-
-export type ProjectDataTransferErrorCode =
-  "invalid_input" | "invalid_bundle" | "unsupported_schema" | "project_not_found" | "project_backup_failed";
-
-export class ProjectDataTransferError extends Error {
-  public constructor(
-    public readonly code: ProjectDataTransferErrorCode,
-    message: string,
-  ) {
-    super(message);
-    this.name = "ProjectDataTransferError";
-  }
 }
 
 function assertImportableSchemaVersion(schemaVersion: number): void {
@@ -449,77 +322,10 @@ function emptyRows(): Record<ProjectDataTable, PlannedRow[]> {
   >;
 }
 
-function sqlRows(
-  db: DatabaseSync,
-  table: ProjectDataTable,
-  where = "",
-  values: ProjectDataValue[] = [],
-): ProjectDataRow[] {
-  const columns = projectDataExportTableColumns[table].join(", ");
-  const orderBy = table === "outstanding_item_events" ? "created_at, id" : "id";
-  const sql = `SELECT ${columns} FROM ${table}${where ? ` WHERE ${where}` : ""} ORDER BY ${orderBy}`;
-  return db.prepare(sql).all(...values) as unknown as ProjectDataRow[];
-}
-
-function sortExportRows(table: ProjectDataTable, rows: ProjectDataRow[]): ProjectDataRow[] {
-  return rows.sort((left, right) => {
-    if (table === "outstanding_item_events") {
-      const byCreatedAt = EXPORT_ORDER_COLLATOR.compare(String(left.created_at), String(right.created_at));
-      if (byCreatedAt !== 0) return byCreatedAt;
-    }
-    return EXPORT_ORDER_COLLATOR.compare(String(left.id), String(right.id));
-  });
-}
-
-/**
- * Rows whose `column` is in `ids`, in batches that stay under SQLite's variable limit. With `viaSessions`, `ids` are
- * project ids and the rows are those of the projects' Sessions, selected by a subquery.
- */
-function rowsByIds(
-  db: DatabaseSync,
-  table: ProjectDataTable,
-  column: string,
-  ids: readonly string[],
-  viaSessions = false,
-): ProjectDataRow[] {
-  if (ids.length === 0) {
-    return [];
-  }
-  const results: ProjectDataRow[] = [];
-  for (let offset = 0; offset < ids.length; offset += 500) {
-    const batch = ids.slice(offset, offset + 500);
-    const placeholders = batch.map(() => "?").join(", ");
-    const where = viaSessions
-      ? `${column} IN (SELECT id FROM sessions WHERE project_id IN (${placeholders}))`
-      : `${column} IN (${placeholders})`;
-    for (const row of sqlRows(db, table, where, [...batch])) results.push(row);
-  }
-  return sortExportRows(table, results);
-}
-
-/** Rows of a Session-owned table: a whole-database export reads the table directly, a project export goes through its Sessions. */
-function sessionRows(
-  db: DatabaseSync,
-  scope: ProjectDataExportScope,
-  table: ProjectDataTable,
-  projectIds: readonly string[],
-): ProjectDataRow[] {
-  if (projectIds.length === 0) return [];
-  return scope.type === "all"
-    ? sortExportRows(table, sqlRows(db, table))
-    : rowsByIds(db, table, "session_id", projectIds, true);
-}
-
 function getRows(db: DatabaseSync, table: ProjectDataTable): Set<string> {
   const ids = db.prepare(`SELECT id FROM ${table}`).all() as Array<{ id: string }>;
   return new Set(ids.map((row) => row.id));
 }
-
-/** True when a row's source_session_ids_json cites any Session in the bound JSON array (same test as deletion). */
-const CITES_SESSIONS_SQL = `EXISTS (
-  SELECT 1 FROM json_each(CASE WHEN json_valid(source_session_ids_json) THEN source_session_ids_json ELSE '[]' END) AS cited
-  WHERE cited.value IN (SELECT value FROM json_each(?))
-)`;
 
 function citesAnySession(value: ProjectDataValue | undefined, sessionIds: ReadonlySet<string>): boolean {
   if (typeof value !== "string") return false;
@@ -529,97 +335,6 @@ function citesAnySession(value: ProjectDataValue | undefined, sessionIds: Readon
   } catch {
     return false;
   }
-}
-
-function selectExportRows(db: DatabaseSync, scope: ProjectDataExportScope): Record<ProjectDataTable, ProjectDataRow[]> {
-  const projects =
-    scope.type === "all" ? sqlRows(db, "projects") : sqlRows(db, "projects", "id = ?", [scope.projectId]);
-  const projectIds = projects.map((project) => String(project.id));
-  const sessions = rowsByIds(db, "sessions", "project_id", projectIds);
-  const sessionIdSet = new Set(sessions.map((session) => String(session.id)));
-  // Cross-project requests that cite this project's Sessions are removed with the project, so they travel with it.
-  // Only a single-project export filters by them, so a whole-database export does not serialize every Session id.
-  const sessionIdsJson = scope.type === "all" ? "[]" : JSON.stringify([...sessionIdSet]);
-  const reportRequests =
-    scope.type === "all"
-      ? sqlRows(db, "report_synthesis_requests")
-      : sqlRows(
-          db,
-          "report_synthesis_requests",
-          `(scope_type = 'project' AND project_id = ?) OR (scope_type = 'all' AND ${CITES_SESSIONS_SQL})`,
-          [scope.projectId, sessionIdsJson],
-        );
-  const reportRequestIds = reportRequests.map((request) => String(request.id));
-  const candidateRequests = rowsByIds(db, "knowledge_candidate_requests", "project_id", projectIds);
-  const candidateRequestIds = candidateRequests.map((request) => String(request.id));
-  const rows: Record<ProjectDataTable, ProjectDataRow[]> = {
-    projects,
-    sessions,
-    work_events: sessionRows(db, scope, "work_events", projectIds),
-    raw_snapshots: rowsByIds(db, "raw_snapshots", "project_id", projectIds),
-    evidence: rowsByIds(db, "evidence", "project_id", projectIds),
-    void_audit: rowsByIds(db, "void_audit", "project_id", projectIds),
-    session_verification_updates: sessionRows(db, scope, "session_verification_updates", projectIds),
-    session_links: sqlRows(db, "session_links").filter(
-      (link) => sessionIdSet.has(String(link.session_id)) && sessionIdSet.has(String(link.related_session_id)),
-    ),
-    knowledge: rowsByIds(db, "knowledge", "project_id", projectIds),
-    session_decisions: rowsByIds(db, "session_decisions", "project_id", projectIds),
-    knowledge_pages: rowsByIds(db, "knowledge_pages", "project_id", projectIds),
-    knowledge_page_versions: rowsByIds(db, "knowledge_page_versions", "project_id", projectIds),
-    knowledge_audit: rowsByIds(db, "knowledge_audit", "project_id", projectIds),
-    knowledge_feedback: rowsByIds(db, "knowledge_feedback", "project_id", projectIds),
-    session_diagrams: rowsByIds(db, "session_diagrams", "project_id", projectIds),
-    knowledge_candidate_requests: candidateRequests,
-    knowledge_candidates:
-      scope.type === "all"
-        ? sqlRows(db, "knowledge_candidates")
-        : rowsByIds(db, "knowledge_candidates", "project_id", projectIds),
-    report_synthesis_requests: reportRequests,
-    report_presentations: [],
-    attention_preferences: rowsByIds(db, "attention_preferences", "project_id", projectIds),
-    report_summaries:
-      scope.type === "all"
-        ? sqlRows(db, "report_summaries")
-        : rowsByIds(db, "report_summaries", "request_id", reportRequestIds),
-    metadata_backfill_requests:
-      scope.type === "all"
-        ? sqlRows(db, "metadata_backfill_requests")
-        : sqlRows(
-            db,
-            "metadata_backfill_requests",
-            `(scope_type = 'project' AND project_id = ?) OR (scope_type = 'all' AND ${CITES_SESSIONS_SQL})`,
-            [scope.projectId, sessionIdsJson],
-          ),
-    session_summary_updates: sessionRows(db, scope, "session_summary_updates", projectIds),
-    session_work_summary_updates: sessionRows(db, scope, "session_work_summary_updates", projectIds),
-    outstanding_items: rowsByIds(db, "outstanding_items", "project_id", projectIds),
-    outstanding_cleanup_requests: rowsByIds(db, "outstanding_cleanup_requests", "project_id", projectIds),
-    outstanding_cleanup_submissions: rowsByIds(db, "outstanding_cleanup_submissions", "project_id", projectIds),
-    outstanding_cleanup_request_items: rowsByIds(db, "outstanding_cleanup_request_items", "project_id", projectIds),
-    outstanding_cleanup_proposals: rowsByIds(db, "outstanding_cleanup_proposals", "project_id", projectIds),
-    outstanding_cleanup_proposal_evidence: rowsByIds(
-      db,
-      "outstanding_cleanup_proposal_evidence",
-      "project_id",
-      projectIds,
-    ),
-    outstanding_item_events: rowsByIds(db, "outstanding_item_events", "project_id", projectIds),
-  };
-
-  if (candidateRequestIds.length > 0) {
-    const candidateIds = new Set(candidateRequestIds);
-    rows.knowledge_candidates = rows.knowledge_candidates.filter((candidate) =>
-      candidateIds.has(String(candidate.request_id)),
-    );
-  }
-  rows.report_presentations = rowsByIds(
-    db,
-    "report_presentations",
-    "summary_id",
-    rows.report_summaries.map((row) => String(row.id)),
-  );
-  return rows;
 }
 
 /**
@@ -840,20 +555,6 @@ function plannedUniqueKeysForRow(table: ProjectDataTable, row: ProjectDataRow): 
   return keys;
 }
 
-function runReadTransaction<T>(db: DatabaseSync, operation: () => T): T {
-  db.exec("BEGIN");
-  try {
-    const result = operation();
-    db.exec("COMMIT");
-    return result;
-  } catch (error) {
-    if (db.isTransaction) {
-      db.exec("ROLLBACK");
-    }
-    throw error;
-  }
-}
-
 /** Sorts and de-duplicates a JSON array (and string arrays inside its objects) so merge order does not matter. */
 function normalizeUnorderedJson(value: ProjectDataValue | undefined): ProjectDataValue | undefined {
   if (typeof value !== "string") {
@@ -950,11 +651,6 @@ function versionRank(table: ProjectDataTable, row: ProjectDataRow): number | und
   }
   // A mutable row with none of its time columns set has never changed: any dated copy is newer.
   return latest;
-}
-
-function existingRow(db: DatabaseSync, table: ProjectDataTable, id: string): ProjectDataRow | undefined {
-  const columns = projectDataExportTableColumns[table].join(", ");
-  return db.prepare(`SELECT ${columns} FROM ${table} WHERE id = ?`).get(id) as unknown as ProjectDataRow | undefined;
 }
 
 const statementCache = new WeakMap<DatabaseSync, Map<string, InsertStatement>>();
@@ -2315,20 +2011,7 @@ export class ProjectDataTransferService {
   ) {}
 
   public export(scope: ProjectDataExportScope): ProjectDataExport {
-    return runReadTransaction(this.db, () => {
-      if (scope.type === "project" && !existingRow(this.db, "projects", scope.projectId)) {
-        throw new ProjectDataTransferError("project_not_found", "找不到要匯出的專案。");
-      }
-      const sanitized = redactProjectDataRows(selectExportRows(this.db, scope));
-      return {
-        format: "work-intelligence-export",
-        formatVersion: 1,
-        schemaVersion: LATEST_SCHEMA_VERSION,
-        exportedAt: nowIso(),
-        scope,
-        tables: sanitized.rows,
-      };
-    });
+    return buildProjectDataExport(readProjectDataRows(this.db, scope), scope, redactArchitectureDiagramSource);
   }
 
   public preview(validated: ValidatedProjectDataImport): ProjectDataImportPreview {

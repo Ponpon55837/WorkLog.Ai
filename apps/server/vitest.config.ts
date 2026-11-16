@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
+import { isolatedEnvironmentSetup } from "../../tests/helpers/isolated-environment-setup";
 
 export const serverAliases = {
   "@work-intelligence/shared/database-path": fileURLToPath(
@@ -7,6 +8,9 @@ export const serverAliases = {
   ),
   "@work-intelligence/shared/database-location": fileURLToPath(
     new URL("../../packages/shared/src/database-location.ts", import.meta.url),
+  ),
+  "@work-intelligence/shared/file-identity": fileURLToPath(
+    new URL("../../packages/shared/src/file-identity.ts", import.meta.url),
   ),
   "@work-intelligence/shared/app-version": fileURLToPath(
     new URL("../../packages/shared/src/app-version.ts", import.meta.url),
@@ -31,6 +35,7 @@ export const serverTestTimeout = 20_000;
 export default defineConfig({
   resolve: { alias: serverAliases },
   test: {
+    setupFiles: [isolatedEnvironmentSetup],
     include: ["tests/server/**/*.test.ts"],
     testTimeout: serverTestTimeout,
   },

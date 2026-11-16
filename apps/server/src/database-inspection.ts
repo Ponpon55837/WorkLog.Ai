@@ -19,10 +19,32 @@ type SqliteStatement = {
   get(): unknown;
 };
 
-type ReadOnlySqliteDatabase = {
+/** The slice of node:sqlite's DatabaseSync the read-only helpers use (structural, shared with the DB preflight). */
+export type ReadOnlySqliteDatabase = {
   prepare(sql: string): SqliteStatement;
   close(): void;
 };
+
+/** True when the named table exists; `name` must be a code constant (it is inlined, node:sqlite has no bound get here). */
+export function readOnlyTableExists(database: ReadOnlySqliteDatabase, name: "schema_migrations" | "projects"): boolean {
+  return Boolean(
+    database.prepare(`SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = '${name}'`).get(),
+  );
+}
+
+/**
+ * Highest applied schema version: 0 when `schema_migrations` does not exist (a pre-migration database), `null` when the
+ * stored value is not a non-negative safe integer (a damaged table). Shared by doctor/status and the DB preflight.
+ */
+export function readSchemaVersion(database: ReadOnlySqliteDatabase): number | null {
+  if (!readOnlyTableExists(database, "schema_migrations")) {
+    return 0;
+  }
+  const row = database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as
+    { version?: number | null } | undefined;
+  const version = Number(row?.version ?? 0);
+  return Number.isSafeInteger(version) && version >= 0 ? version : null;
+}
 
 export interface DatabaseMaintenanceInspection {
   startedAt: string;
@@ -64,21 +86,13 @@ export async function inspectDatabaseReadOnlyMetadata(
     const sqlite = await import("node:sqlite");
     database = new sqlite.DatabaseSync(databasePath, { readOnly: true }) as unknown as ReadOnlySqliteDatabase;
     const bytes = statSync(databasePath).size;
-    const migrationTable = database
-      .prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'")
-      .get();
-    let schemaVersion = 0;
-    if (migrationTable) {
-      const row = database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as
-        { version?: number | null } | undefined;
-      schemaVersion = Number(row?.version ?? 0);
-      if (!Number.isSafeInteger(schemaVersion) || schemaVersion < 0) {
-        return {
-          state: "unhealthy",
-          ...(options.checkIntegrity ? { integrity: "failed" as const } : {}),
-          bytes,
-        };
-      }
+    const schemaVersion = readSchemaVersion(database);
+    if (schemaVersion === null) {
+      return {
+        state: "unhealthy",
+        ...(options.checkIntegrity ? { integrity: "failed" as const } : {}),
+        bytes,
+      };
     }
 
     let maintenance: ReadOnlyDatabaseInspection["maintenance"];

@@ -1,7 +1,9 @@
 import { defineConfig } from "vitest/config";
+import { isolatedEnvironmentSetup } from "../../tests/helpers/isolated-environment-setup";
 
 export default defineConfig({
   test: {
+    setupFiles: [isolatedEnvironmentSetup],
     include: ["tests/core/**/*.test.ts"],
     coverage: {
       enabled: true,

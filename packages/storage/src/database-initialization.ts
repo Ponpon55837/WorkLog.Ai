@@ -21,7 +21,8 @@ export type DatabaseInitializationErrorCode =
   | "DATABASE_MIGRATION_FAILED"
   | "DATABASE_BUSY"
   | "DATABASE_READ_ONLY"
-  | "DATABASE_DISK_FULL";
+  | "DATABASE_DISK_FULL"
+  | "DATABASE_FILE_MISSING";
 
 /** A safe, classified startup error that can be shown to a user without exposing SQLite details. */
 export class DatabaseInitializationError extends Error {

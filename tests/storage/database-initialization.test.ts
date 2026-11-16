@@ -347,4 +347,16 @@ describe("database initialization", () => {
       repaired.close();
     }
   });
+
+  it("refuses to create a missing database when requireExistingDatabase is set, and still opens an existing one", () => {
+    const paths = createDatabasePaths();
+    const options = { requireExistingDatabase: true };
+    expect(() => new WorkIntelligenceStore(paths.databasePath, options)).toThrow(
+      expect.objectContaining({ code: "DATABASE_FILE_MISSING" }),
+    );
+    expect(existsSync(paths.databasePath)).toBe(false);
+
+    new WorkIntelligenceStore(paths.databasePath).close();
+    new WorkIntelligenceStore(paths.databasePath, options).close();
+  });
 });

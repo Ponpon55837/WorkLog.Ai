@@ -87,6 +87,8 @@ hook 只在 Work Intelligence 正在記錄的專案中作用，讀不到狀態�
 
 `server_restart_required`（503）不屬於這三種：另一個行程把資料庫升級到較新的 schema 後，舊的 API server 會拒絕所有寫入；重新啟動 server 即可，不需要還原。
 
+`DATABASE_FILE_MISSING` 也不屬於這三種：桌面版或其他啟動器指定了一個已存在的資料庫，但開啟時檔案已不在原位置（被移動、刪除或改名）。這時不會自動建立空的資料庫，也沒有寫入任何資料；請確認資料庫檔案的位置後重新選擇，或在啟動器中明確選擇建立新資料庫。直接執行 `pnpm dev` 等命令時不會出現此錯誤。
+
 MCP 啟動時遇到這三種情況，不會一直保留錯誤：資料庫已是最新 schema 時，啟動只讀取版本、不需要寫入鎖，所以其他行程正在寫入也能讀取；需要 migration 而無法取得寫入鎖時回傳 `DATABASE_BUSY`（不會先寫出備份），之後每次 tool 呼叫都會再試一次，問題排除後就恢復，不必重新連線。只有 `DATABASE_MIGRATION_FAILED`、`DATABASE_MIGRATION_BACKUP_FAILED`、`DATABASE_SCHEMA_VERSION_TOO_NEW` 等需要處理的情況，才會保留到 MCP 重新啟動。
 
 ## 還原時資料庫仍被開著

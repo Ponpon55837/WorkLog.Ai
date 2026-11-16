@@ -82,6 +82,22 @@
 - **決策**：唯讀意圖是不修改業務資料；未經同意不得刪除或搬動 sidecar。活躍 DB 禁用 `immutable=1`。網路 FS、同步資料夾、外接碟列為風險來源，禁止自動接管與遷移。
 - **後果**：需以檔案系統監測測試實際副作用（G-DB-01）。
 - **關聯**：§3.1.1；DT-02、DT-08；R22、R34。
+- **1.6.42 觀察（本機 Node 22.23.4／SQLite 3.53.4，`[T]`，非發行產物）**：以唯讀方式開啟已正常關閉的 WAL 資料庫，會在同一資料夾建立 `-wal` 與 `-shm`，關閉後仍保留；主檔的 SHA-256、mtime 與業務資料列皆不變。另一個寫入端持續寫入且 WAL 非空時，preflight 不改變 `-wal`／`-shm`，並讀得到只存在於 WAL 中的資料列。因此「唯讀不等於 0 寫入」已確認；預覽不刪除任何 sidecar。Windows 行為待實機驗證。
+
+### ADR-36 DB 身分策略：檔案身分＋唯讀血統指紋，嵌入 UUID 延後
+
+- **狀態**：已採用（1.6.42）
+- **脈絡**：DB 來源選擇（ADR-06）與提交前重驗（R23）需要判定兩個路徑是否指向同一個資料庫，以及兩個檔案是否為同一份資料的副本。純路徑字串會被 symlink、大小寫與 Windows 8.3 短名影響；專案數與 schema 版本不能作為身分。預覽舊庫時寫入 UUID 會違反唯讀原則（§10.1）。
+- **決策**：`DatabaseIdentity` 由三部分組成：
+  - `realPath`：`fs.realpathSync.native` 的結果；win32 比較時不分大小寫。
+  - `fileId`：`fs.statSync(..., { bigint: true })` 的 `dev`／`ino`，以十進位字串保存。Windows 上由 libuv 對應到 volume serial 與 64-bit file index；`ino` 為 0 時（部分網路或 FUSE 掛載）為 `null`。
+  - `lineageId`：`schema_migrations` 中最小版本那一列 `version|name|applied_at` 的 SHA-256。唯讀取得；該列於建立資料庫時寫入、之後不改寫，因此備份副本會得到相同的值。它代表「血統」而非「檔案」。
+  - 規則：相同 `fileId` 即為同一個實體資料庫（去重）；不同 `fileId` 而相同 `lineageId` 為副本，判定為 conflict，由使用者選擇；不同 `lineageId` 為獨立資料庫。
+  - 比對：預期 `lineageId` 為 `null`、實際非 `null` 時，只在 `fileId` 相同時允許（首次 migration 建立 `schema_migrations` 的情況）。
+  - 提交前重驗（`revalidateBeforeCommit`）：兩邊 `fileId` 皆已知時必須相同，否則為 `file-replaced`；否則正規化路徑必須相同，否則為 `path-replaced`；血統不符為 `lineage-changed`。
+  - 預覽舊庫絕不寫入。嵌入 UUID 只能在日後經授權的 migration 中補上。
+- **後果**：DB 身分不依賴可變的路徑或專案數，副本與獨立庫可以區分。代價是依賴檔案系統提供穩定的 `ino`；`fileId` 為 `null` 時只能靠正規化路徑與血統判斷，C-05 的規則仍要求無法證實時不建議沿用。Windows 上的檔案 ID 行為尚未於實機驗證（`[T]`）。
+- **關聯**：ADR-06、§3.1、§10.1；DT-01、DT-02。
 
 ### ADR-08 啟動順序：preflight 先於任何可能 migration 的 store
 
@@ -98,10 +114,11 @@
 - **決策**：以 `READ_WRITE_COMPATIBLE`、`READ_ONLY_COMPATIBLE`、`RECONNECT_REQUIRED`、`INCOMPATIBLE`、`UNKNOWN` 分級。`UNKNOWN` 預設不允許破壞性 migration。屏障候選方案見 §10.4，最終以程序組合實驗決定。
 - **後果**：schema 更新前可能需要要求使用者關閉 Agent 或 CLI。
 - **關聯**：§7.3、§10.4；DT-03、DT-04；R03。
+- **DT-04 實驗結論（1.6.42）**：方案 1 已確認為 MCP、HTTP API 與長駐 Store 寫入端的主要屏障。舊 MCP stdio 寫入回 `MCP_RESTART_REQUIRED`；HTTP 寫入回 503 `server_restart_required`（GET 仍為 200）；長駐 Store 在提交時回 `DATABASE_SCHEMA_CHANGED`；migration 之後才啟動的舊程序回 `DATABASE_SCHEMA_VERSION_TOO_NEW`。被拒絕的寫入沒有留下資料列，所有情境的 `integrity_check` 都回 ok。長任務持有寫入鎖時，migration 取得 `SQLITE_BUSY`，任務提交仍合法，之後 migration 成功。方案 2 仍須實作（阻止舊 launcher 啟動舊 MCP），且無法約束未知的外部 client；方案 3 保留為備援。repo checkout 的 MCP 另有較早的 build identity 檢查，會先回 `MCP_RESTART_REQUIRED`。Codex plugin、Claude Code plugin、MCPB、手動 stdio 與 Windows 檔案鎖／WAL 仍待實機驗收。證據：`tests/server/old-writer-barrier.test.ts`。
 
 ### ADR-18 寫入端 schema 閘：MCP 已存在，HTTP 與 CLI 由 1.6.41 補上（更正 R3 的 R03）
 
-- **狀態**：已採用（程式碼閱讀結論）；寫入交易閘 **1.6.41 已實作**（commit 3ff1e45），程序組合實驗（DT-04）待完成
+- **狀態**：已採用（程式碼閱讀結論）；寫入交易閘 **1.6.41 已實作**（commit 3ff1e45），程序組合實驗（DT-04）**1.6.42 已完成** CI 可驗證部分（commit 5bdd530，見 ADR-17）；plugin、MCPB 等組合待實機驗收
 - **脈絡**：R3 把 MCP 寫入路徑描述為尚未有 schema 閘。查證後 `packages/storage/src/store.ts` 的 `withCompatibleSchema()` 已在寫入交易內比對 schema 版本，並由 `apps/mcp/src/server.ts` 的寫入路徑呼叫，不符回 `MCP_RESTART_REQUIRED` `[R]`。`apps/server` 的 HTTP 寫入端與長駐 CLI 沒有等價閘。
 - **決策**：MCP 維持現有閘。1.6.41 在寫入交易（`Store`，含 HTTP API）加入等價閘，錯誤碼 `server_restart_required`（HTTP 503），檢查以 `data_version` 與 `schema_version` 組成的快取戳記判斷（`data-revision-cache.ts` 已有此模式 `[R]`）。長任務提交前也要檢查。
 - **後果**：R03 的缺口縮小為 HTTP、CLI、長任務與未知外部 client。仍須以程序組合實驗證明（§10.4）。
@@ -117,7 +134,7 @@
 
 ### ADR-20 設定檔：原子寫入、fail-closed 讀取、不以讀失敗當作新安裝
 
-- **狀態**：已採用
+- **狀態**：已採用；1.6.42 已實作契約與測試（packages/desktop-core）
 - **脈絡**：設定半寫入或解析失敗若被當作全新安裝，可能覆寫原設定並開空庫（R29）。
 - **決策**：暫存檔 → 驗證 → fsync（視平台）→ 原子 replace；無法保證原子替換時建立可驗證的復原副本，不就地覆寫唯一設定。只有確定 `ENOENT` 且無其他來源時才視為新使用者。設定格式升級須支援讀舊版本並 fail-closed。
 - **後果**：多一份副本的維護成本；換得可復原性。
@@ -125,7 +142,7 @@
 
 ### ADR-21 操作日誌、單一 OperationCoordinator 與 idempotent replay
 
-- **狀態**：已採用
+- **狀態**：已採用；1.6.42 已實作契約與測試（packages/desktop-core）
 - **脈絡**：接管、換 port、換 DB、套用 Agent、更新等操作可能重送、中斷或併發（R19、R30）。
 - **決策**：所有影響管理權的操作經單一 `OperationCoordinator`。每個操作有 `operationId` 與持久化的階段。重送同 ID 回傳同一結果；不同 ID 的互斥操作回 `BUSY`。中斷後依真實 OS 服務、DB 與 manifest 重建狀態，不只依賴 journal 文字。
 - **後果**：需實作 journal 與對應的測試替身（DT-09、DT-10）。

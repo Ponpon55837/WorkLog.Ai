@@ -6,6 +6,10 @@
 
 - 最後更新：2026-11-16
 
+## 1.6.42（已完成）
+
+桌面版階段 0（契約與測試基座）的 CI 可驗證部分：新增純 TypeScript 套件 `packages/desktop-core`（設定、DB 來源、ServiceOwner 狀態機與操作協調）；DB 身分策略定案為檔案身分加唯讀血統指紋（ADR-36）；啟動前唯讀 preflight 與提交前重驗；舊寫入端實驗（MCP、HTTP、長駐 Store）的結論是方案 1 為主要屏障、方案 2 仍需實作；測試不再觸碰真實家目錄與 3210；備份與匯出 worker 冷啟變快。沒有 schema 變更（33），沒有 migration。實機驗收（Windows 11 與 macOS）、Codex 與 Claude Code plugin、MCPB 與手動 stdio 的組合尚未驗證。桌面設計索引同步更新（見 [desktop 設計索引](desktop/README.md)）。詳見 [1.6.42 更新說明](releases/1.6.42.md)。
+
 ## 1.6.41（已完成）
 
 所有 SQLite 寫入交易都檢查 schema 版本（REST 回 503 `server_restart_required`）、Host 檢查加上 port、回報內建 SQLite 是否含 WAL-reset 修補、Windows 改用現代資料夾選擇視窗；沒有 schema 變更。桌面版設計修訂為 R4（見 [desktop 設計索引](desktop/README.md)）。詳見 [1.6.41 更新說明](releases/1.6.41.md)。

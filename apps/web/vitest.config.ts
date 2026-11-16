@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
+import { isolatedEnvironmentSetup } from "../../tests/helpers/isolated-environment-setup";
 
 export const webAliases = {
   "@pinia/colada": fileURLToPath(new URL("./node_modules/@pinia/colada/dist/index.mjs", import.meta.url)),
@@ -10,6 +11,7 @@ export const webAliases = {
 export default defineConfig({
   resolve: { alias: webAliases },
   test: {
+    setupFiles: [isolatedEnvironmentSetup],
     environment: "node",
     include: ["tests/web/**/*.test.ts"],
   },
