@@ -8,7 +8,7 @@
 
 ## 1.6.43（已完成）
 
-桌面版階段 1（runtime spike）的 CI 可驗證部分：比較隨包官方 Node.js 與 Electron 以 Node 模式執行兩種封裝，依量測與安全評估選定隨包官方 Node.js（ADR-04）；新增固定 launcher 與版本化 runtime manifest（DT-23），以及無 Node、離線的煙霧測試與 CI workflow（DT-25）。三平台 CI 量測已取得（Windows 壓縮大小待下次 PR CI），實機驗收未做，階段 1 的 gate 尚未通過；Windows ACL 檢查、runtime 清理與 Agent 設定接線尚未實作。沒有 schema 變更（33），沒有 migration。詳見 [1.6.43 更新說明](releases/1.6.43.md)。
+桌面版階段 1（runtime spike）的 CI 可驗證部分：比較隨包官方 Node.js 與 Electron 以 Node 模式執行兩種封裝，依量測與安全評估選定隨包官方 Node.js（ADR-04）；新增固定 launcher 與版本化 runtime manifest（DT-23），以及無 Node、離線的煙霧測試與 CI workflow（DT-25）。三平台 CI 量測與檢查全數通過，實機驗收未做，階段 1 的 gate 尚未通過；Windows ACL 檢查、runtime 清理與 Agent 設定接線尚未實作。沒有 schema 變更（33），沒有 migration。詳見 [1.6.43 更新說明](releases/1.6.43.md)。
 
 ## 1.6.42（已完成）
 

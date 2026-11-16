@@ -41,33 +41,32 @@
 
 ### ADR-04 Runtime：隨包標準 Node，供後端、MCP、hook 共用
 
-- **狀態**：已採用（階段 1 spike，1.6.43）；Windows 壓縮大小待下次 PR CI
+- **狀態**：已採用（階段 1 spike，1.6.43）
 - **脈絡**：Agent 的 stdio MCP 與 hook 由宿主啟動，App 關閉後仍須運作；系統 Node 與 PATH 不可假設存在；Electron 的 Node 不能被外部宿主當作標準 node 直接使用。spike 比較兩個候選：**A** Electron 內建 Node（`ELECTRON_RUN_AS_NODE=1`，並設 `ELECTRON_NO_ASAR=1`）與 **B** 隨包官方 Node.js（Node 24，本次量測為 24.22.3，內建 SQLite 3.54.1，含 FTS5）。`utilityProcess` 未在本次 spike 中量測（見後果）。
 - **決策**：選 **B**。安裝包攜帶官方 Node 可執行檔與後端、MCP、hook、worker、Web 資源，放在實際可執行的路徑（`extraResources`）。
 - **理由**：
   - A 需要 Electron 的 `RunAsNode` fuse 保持開啟，而 Electron 安全指引建議停用 [U]。A 也讓任何程序都能把已簽章的 App 當成通用 Node 使用；在 macOS 上，權限（TCC）可能由宿主程序繼承 [T]。
   - A 需要 `ELECTRON_NO_ASAR=1`，因為 Electron 讀取 asar 內檔案的方式與一般檔案不同（見 commit 7c75778）。
-  - Electron runtime 較大：Linux 上目錄約為 Node 的 2.2 倍（295.3 MB 比 135.4 MB），壓縮檔約 2.7 倍（125.9 MB 比 46.6 MB）；Linux 閒置 RSS 高約 32–34 MB。
+  - Electron runtime 較大：目錄為 Node 的 2.1–3.7 倍，壓縮後為 3.0–4.3 倍（Windows 163.5 比 37.9 MB，macOS 125.8 比 42.4 MB）；閒置 RSS 在 Windows 與 macOS 相近，Linux 高約 27–36 MB。
   - B 的官方 Node 在 macOS 有 Developer ID 簽章，發行附 SHASUMS256，launcher 可據以核對。
-  - 冷啟動兩者相近，快慢依平台不一致（見下表）。
+  - 冷啟動兩者都在 0.9 秒內完成首次啟動，快慢依平台與 run 而異（見量測後的說明），不影響選擇。
 - **量測**（CI，1.6.43）：
 
 | 平台與 runtime | runtime 目錄 | tar.gz | 完整／快取驗證 | 伺服器啟動（首次／中位數／直接） | MCP 啟動（首次／中位數／直接） | 閒置 RSS（伺服器／MCP） | 檢查 |
 |---|---|---|---|---|---|---|---|
-| Linux x64，Node.js 24.22.3 | 135.4 MB（117 檔） | 46.6 MB | 159 ms／6 ms | 420／244／217 ms | 382／208／193 ms | 127.4／112.7 MB（CPU 0%） | 46/46 |
-| Linux x64，Electron 45.3.3 | 295.3 MB（187 檔） | 125.9 MB | 212 ms／4 ms | 397／160／136 ms | 398／132／123 ms | 159.7／147.1 MB（CPU 0%） | 46/46 |
-| macOS arm64，Node.js 24.22.3 | 131.1 MB | 41.2 MB | 136 ms／5 ms | 391／252／251 ms | 319／204／140 ms | 124.6／112.2 MB | 45/45 |
-| macOS arm64，Electron 45.3.3 | 未取得（見 artifact） | 未取得 | 311 ms／40 ms | 613／277／246 ms | 527／208／175 ms | 123.0／113.3 MB | 45/45 |
-| Windows x64，Node.js 24.22.3 | 102.5 MB（117 檔） | 待下次 PR CI | 178 ms／8 ms | 561／382／352 ms | 559／310／240 ms | 93.7／67.5 MB | 44/45 |
-| Windows x64，Electron 45.3.3 | 382.8 MB（188 檔） | 待下次 PR CI | 463 ms／10 ms | 763／323／269 ms | 740／235／184 ms | 94.3／72.5 MB | 44/45 |
+| Windows x64，Node.js 24.22.3 | 102.5 MB（117 檔） | 37.9 MB | 174 ms／10 ms | 586／400／354 ms | 537／282／242 ms | 93.3／79.4 MB | 45/45 |
+| Windows x64，Electron 45.3.3 | 382.8 MB（188 檔） | 163.5 MB | 290 ms／6 ms | 542／257／225 ms | 530／155／141 ms | 94.3／72.4 MB | 45/45 |
+| macOS arm64，Node.js 24.22.3 | 131.1 MB（117 檔） | 42.4 MB | 194 ms／9 ms | 863／436／403 ms | 656／303／265 ms | 124.3／111.1 MB | 45/45 |
+| macOS arm64，Electron 45.3.3 | 278.3 MB（375 檔） | 125.8 MB | 404 ms／43 ms | 769／397／280 ms | 689／274／236 ms | 123.5／113.1 MB | 45/45 |
+| Linux x64，Node.js 24.22.3 | 135.4 MB（117 檔） | 47.7 MB | 156 ms／5 ms | 412／219／220 ms | 372／200／183 ms | 127.2／110.9 MB | 46/46 |
+| Linux x64，Electron 45.3.3 | 295.3 MB（187 檔） | 127.5 MB | 299 ms／7 ms | 575／218／217 ms | 547／198／182 ms | 154.1／147.4 MB | 46/46 |
 
   - 欄位定義：伺服器啟動為從啟動到 `/api/health` 的時間（首次、快取後中位數），「直接」為不經 launcher 直接執行官方執行檔；MCP 欄位為到 `initialize` 完成的時間。
-  - 來源 run：Linux Node.js 與 Electron 為 43857858519；macOS Node.js 為 43856418517；macOS Electron 為 43857858519。
-  - Windows 數字來自 run 43859516900（1b09081）。兩個 Windows job 除了壓縮大小量測外全部通過：原本呼叫系統 `tar.exe`，而 Windows bsdtar 以 ANSI code page 讀參數，暫存路徑中的中文變成 `??`，無法開檔。量測已改為以內建 zlib 串流 gzip 自寫的 tar（`scripts/desktop-runtime-spike/compressed-size.mjs`），不再依賴平台工具；新方法在 Linux 量得 47.7 MB，比系統 `tar -czf` 的 46.6 MB 多約 2%（檔案順序與 gzip 實作不同）。
-  - Windows 上兩者閒置 RSS 相近（差 0.5–5 MB）；Electron 目錄約為 Node 的 3.7 倍（382.8 MB 比 102.5 MB）。
-  - Bundle 7.1 MB，Web 1.2 MB，launcher 18.5 KB（1b09081 起 20.9 KB）。Linux 不在 V1 首發範圍，數字只作方向參考。
+  - 全部數字來自同一次 CI：run 43864453651（d250c93），三平台 × 兩種 runtime 的 6 個 job 全數通過（Linux 多一項「serve 程序是隨包執行檔」檢查，故為 46 項）。tar.gz 為 runtime 目錄依 manifest 順序寫成 tar、以 Node 內建 zlib gzip level 6 壓縮的位元組數（`scripts/desktop-runtime-spike/compressed-size.mjs`），不呼叫系統 `tar`：Windows bsdtar 以 ANSI code page 讀參數，含中文的暫存路徑在 run 43859516900 無法開檔；同一 Linux runtime 用此法得 47.7 MB，系統 `tar -czf` 為 46.6 MB，多約 2%。
+  - 冷啟動：各為單次 CI 量測，雜訊大（同平台不同 run 可差 100 ms 以上）。這一輪 Electron 的中位數在 Windows 明顯較快（伺服器 257 比 400 ms，MCP 155 比 282 ms），macOS 略快，Linux 相同；Windows 上官方 Node 直接啟動就較慢（354 比 225 ms），差距不在 launcher。冷啟動不是選 B 的理由，也不是否決 B 的理由：兩者都在 0.9 秒內完成首次啟動。
+  - Bundle 7.1 MB，Web 1.2 MB，launcher 20.9 KB。Linux 不在 V1 首發範圍，數字只作方向參考。
 - **後果**：
-  - 安裝包增加約 41–47 MB（壓縮後）的獨立 Node.js，與 Electron App 分開下載（R31）。
+  - 安裝包增加約 38–48 MB（壓縮後）的獨立 Node.js，與 Electron App 分開下載（R31）。
   - B 的 SQLite 版本以 release 產物的 `sqlite_version()` 判定（ADR-19）；本次 spike 的 SQLite 3.54.1 來自量測，發行判定仍以 release 產物為準。
   - `utilityProcess` 未量測，R31 要求的 A 階段比較因此未完整；若要改用 `utilityProcess`，需另行量測。
   - spike 預設鎖定 Node.js v24.22.3（`--node-version 24` 才取最新 24 LTS）；發行前仍須驗證發行簽章（目前 SHASUMS256 與封存檔來自同一來源，尚未實作簽章驗證）。
