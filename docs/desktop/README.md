@@ -94,12 +94,12 @@ R4 的補充用法：
 
 | 任務 | 內容 | 狀態 | 本文件位置 | 證據路徑 |
 |---|---|---|---|---|
-| DT-25 | 無 Node 封裝 spike：官方 Node.js 與 Electron（`ELECTRON_RUN_AS_NODE`）的建置，離線煙霧測試（serve、DB 寫入、FTS5、備份、MCP stdio、hook、竄改拒絕），以及大小、冷啟動與閒置記憶體量測 | 1.6.43 已實作（CI 可驗證部分）；Linux 與 macOS 量測完成（CI run 43856418517、43857858519）；Windows 量測待 PR CI；階段 1 gate 未通過 | §9.4；§3.3；ADR-04 | `scripts/desktop-runtime-spike/*.mjs`；`.github/workflows/desktop-runtime-spike.yml`；量測 JSON 由 CI 上傳為 `runtime-spike-*` artifact |
+| DT-25 | 無 Node 封裝 spike：官方 Node.js 與 Electron（`ELECTRON_RUN_AS_NODE`）的建置，離線煙霧測試（serve、DB 寫入、FTS5、備份、MCP stdio、hook、竄改拒絕），以及大小、冷啟動與閒置記憶體量測 | 1.6.43 已實作（CI 可驗證部分）；三平台量測完成（CI run 43856418517、43857858519、43859516900；Windows 壓縮大小待下次 PR CI）；階段 1 gate 未通過 | §9.4；§3.3；ADR-04 | `scripts/desktop-runtime-spike/*.mjs`；`.github/workflows/desktop-runtime-spike.yml`；量測 JSON 由 CI 上傳為 `runtime-spike-*` artifact |
 | DT-23 | 固定 launcher 與版本化 runtime manifest（v1）：`bin/` 下的 shim、`current` 指標、`runtimes/<id>/`、全檔案 SHA-256 核對、symlink 與權限檢查、錯誤碼 | 1.6.43 已實作（CI 可驗證部分）；Windows ACL 為 `not-implemented`；Agent 設定尚未指向 launcher；實機待實機驗收 | §3.3；§10.2；ADR-15 | `packages/desktop-core/src/runtime/*.ts`；`tests/desktop-core/runtime-install.test.ts`、`runtime-launcher.test.ts`、`runtime-manifest.test.ts`、`runtime-verify.test.ts` |
 
 選定的 runtime 為隨包官方 Node.js（ADR-04），理由與量測數字見該 ADR。
 
-**本版的非 CI 項目**：Windows 量測與煙霧測試、Windows ACL 檢查、Windows 的 `.cmd` 與 `%*`／`!` 行為、NTFS 變更時間與 stat 快取的強度、DT-24 runtime 清理（未實作）、plugin／standalone／MCPB 接線（未做），以及官方 Node.js 發行簽章（GPG）的驗證。
+**本版的非 CI 項目**：Windows 11 與 macOS 實機煙霧測試、Windows ACL 檢查、Windows 的 `.cmd` 與 `%*`／`!` 行為、NTFS 變更時間與 stat 快取的強度、DT-24 runtime 清理（未實作）、plugin／standalone／MCPB 接線（未做），以及官方 Node.js 發行簽章（GPG）的驗證。
 
 ## R3 → R4 修訂紀錄
 

@@ -18,7 +18,6 @@
  * Exit code 1 when any check fails.
  */
 import { Buffer } from "node:buffer";
-import { spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -57,6 +56,7 @@ import {
   waitForHealth,
   Launched,
 } from "./harness.mjs";
+import { compressedTarSize } from "./compressed-size.mjs";
 import { appendStepSummary, writeReport } from "./report.mjs";
 
 const WINDOWS = process.platform === "win32";
@@ -431,19 +431,19 @@ function directoryBytes(prefix, manifest) {
   return manifest.files.filter((file) => file.path.startsWith(prefix)).reduce((total, file) => total + file.size, 0);
 }
 
-function measureSizes(ctx) {
-  const archive = join(ctx.workRoot, "runtime-size.tgz");
-  const tar = WINDOWS ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar";
-  const packed = spawnSync(tar, ["-czf", archive, "-C", ctx.runtimeDirectory, "."], {
-    encoding: "utf8",
-    windowsHide: true,
-  });
-  check("sizes: runtime directory compresses to tar.gz", packed.status === 0, packed.stderr);
+async function measureSizes(ctx) {
+  let compressedBytes = 0;
+  try {
+    compressedBytes = await compressedTarSize(ctx.runtimeDirectory, ctx.manifest.files, ctx.manifest.symlinks);
+    check("sizes: runtime directory compresses to tar.gz", compressedBytes > 0, `${compressedBytes} bytes`);
+  } catch (error) {
+    check("sizes: runtime directory compresses to tar.gz", false, String(error));
+  }
   const runtimePrefix = ctx.electron ? "electron/" : "node/";
   return {
     totalBytes: ctx.manifest.files.reduce((total, file) => total + file.size, 0),
     fileCount: ctx.manifest.files.length,
-    compressedBytes: existsSync(archive) ? statSync(archive).size : 0,
+    compressedBytes,
     executableBytes: directoryBytes(runtimePrefix, ctx.manifest),
     bundleBytes: directoryBytes("app/libexec/", ctx.manifest),
     webBytes: directoryBytes("app/web/", ctx.manifest),
@@ -508,7 +508,7 @@ async function main() {
     const mcpIdle = await checkMcp(ctx, serverRun.area);
     await checkHooks(ctx, serverRun.area);
     await checkTampering(ctx, serverRun.area);
-    const sizes = measureSizes(ctx);
+    const sizes = await measureSizes(ctx);
 
     const failed = results.filter((result) => !result.ok).length;
     const report = {

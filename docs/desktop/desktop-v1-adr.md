@@ -41,7 +41,7 @@
 
 ### ADR-04 Runtime：隨包標準 Node，供後端、MCP、hook 共用
 
-- **狀態**：已採用（階段 1 spike，1.6.43）；Windows 量測待 PR CI 補上
+- **狀態**：已採用（階段 1 spike，1.6.43）；Windows 壓縮大小待下次 PR CI
 - **脈絡**：Agent 的 stdio MCP 與 hook 由宿主啟動，App 關閉後仍須運作；系統 Node 與 PATH 不可假設存在；Electron 的 Node 不能被外部宿主當作標準 node 直接使用。spike 比較兩個候選：**A** Electron 內建 Node（`ELECTRON_RUN_AS_NODE=1`，並設 `ELECTRON_NO_ASAR=1`）與 **B** 隨包官方 Node.js（Node 24，本次量測為 24.22.3，內建 SQLite 3.54.1，含 FTS5）。`utilityProcess` 未在本次 spike 中量測（見後果）。
 - **決策**：選 **B**。安裝包攜帶官方 Node 可執行檔與後端、MCP、hook、worker、Web 資源，放在實際可執行的路徑（`extraResources`）。
 - **理由**：
@@ -58,11 +58,14 @@
 | Linux x64，Electron 45.3.3 | 295.3 MB（187 檔） | 125.9 MB | 212 ms／4 ms | 397／160／136 ms | 398／132／123 ms | 159.7／147.1 MB（CPU 0%） | 46/46 |
 | macOS arm64，Node.js 24.22.3 | 131.1 MB | 41.2 MB | 136 ms／5 ms | 391／252／251 ms | 319／204／140 ms | 124.6／112.2 MB | 45/45 |
 | macOS arm64，Electron 45.3.3 | 未取得（見 artifact） | 未取得 | 311 ms／40 ms | 613／277／246 ms | 527／208／175 ms | 123.0／113.3 MB | 45/45 |
-| Windows x64（兩種） | 待 PR CI 補 | 待 PR CI 補 | 待 PR CI 補 | 待 PR CI 補 | 待 PR CI 補 | 待 PR CI 補 | 待 PR CI 補 |
+| Windows x64，Node.js 24.22.3 | 102.5 MB（117 檔） | 待下次 PR CI | 178 ms／8 ms | 561／382／352 ms | 559／310／240 ms | 93.7／67.5 MB | 44/45 |
+| Windows x64，Electron 45.3.3 | 382.8 MB（188 檔） | 待下次 PR CI | 463 ms／10 ms | 763／323／269 ms | 740／235／184 ms | 94.3／72.5 MB | 44/45 |
 
   - 欄位定義：伺服器啟動為從啟動到 `/api/health` 的時間（首次、快取後中位數），「直接」為不經 launcher 直接執行官方執行檔；MCP 欄位為到 `initialize` 完成的時間。
   - 來源 run：Linux Node.js 與 Electron 為 43857858519；macOS Node.js 為 43856418517；macOS Electron 為 43857858519。
-  - Bundle 7.1 MB，Web 1.2 MB，launcher 18.5 KB。Linux 不在 V1 首發範圍，數字只作方向參考。
+  - Windows 數字來自 run 43859516900（1b09081）。兩個 Windows job 除了壓縮大小量測外全部通過：原本呼叫系統 `tar.exe`，而 Windows bsdtar 以 ANSI code page 讀參數，暫存路徑中的中文變成 `??`，無法開檔。量測已改為以內建 zlib 串流 gzip 自寫的 tar（`scripts/desktop-runtime-spike/compressed-size.mjs`），不再依賴平台工具；新方法在 Linux 量得 47.7 MB，比系統 `tar -czf` 的 46.6 MB 多約 2%（檔案順序與 gzip 實作不同）。
+  - Windows 上兩者閒置 RSS 相近（差 0.5–5 MB）；Electron 目錄約為 Node 的 3.7 倍（382.8 MB 比 102.5 MB）。
+  - Bundle 7.1 MB，Web 1.2 MB，launcher 18.5 KB（1b09081 起 20.9 KB）。Linux 不在 V1 首發範圍，數字只作方向參考。
 - **後果**：
   - 安裝包增加約 41–47 MB（壓縮後）的獨立 Node.js，與 Electron App 分開下載（R31）。
   - B 的 SQLite 版本以 release 產物的 `sqlite_version()` 判定（ADR-19）；本次 spike 的 SQLite 3.54.1 來自量測，發行判定仍以 release 產物為準。
