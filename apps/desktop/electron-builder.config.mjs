@@ -9,17 +9,21 @@
  *    is null, nothing writes `latest*.yml`, and electron-updater is not a dependency.
  *  - The runtime bundle is an `extraResources` copy outside the asar: the launcher executes the Node binary from disk and
  *    verifies every file against the runtime manifest, so the bytes must stay exactly as built.
- *  - Fuses make the packaged Electron a closed shell: no ELECTRON_RUN_AS_NODE, NODE_OPTIONS or --inspect, and only the
- *    integrity-checked app.asar loads.
- *  - macOS is ad-hoc signed (`identity: "-"`) because flipping fuses invalidates the arm64 signature and an unsigned arm64
- *    binary does not start. Notarization and the hardened runtime stay off until a Developer ID exists; users must
- *    approve the first launch in Gatekeeper. The runtime bundle is excluded from signing (`signIgnore`) so the official
- *    Node binary keeps its own signature and its bytes keep matching the manifest.
+ *  - electron-builder signs nothing (`mac.identity: null`; it also skips signing on GitHub pull_request runs, which would
+ *    leave the fuse-flipped app with Electron's broken original signature). The `afterPack` hook (scripts/after-pack.mjs)
+ *    owns the rest, identically on pull-request and release builds: it flips the fuses (scripts/app-fuses.mjs; a closed
+ *    shell: no ELECTRON_RUN_AS_NODE, NODE_OPTIONS or --inspect, only the integrity-checked app.asar loads) and, on macOS,
+ *    ad-hoc signs the app inside-out (scripts/mac-ad-hoc-sign.mjs). Notarization and the hardened runtime stay off until
+ *    a Developer ID exists; users must approve the first launch in Gatekeeper. The runtime bundle is never signed or
+ *    touched, so the official Node binary keeps its own signature and its bytes keep matching the manifest. The installer
+ *    builds run from the packed app (`prepackaged`), where the hook does not run again.
+ *  - The icon is original artwork (build/icon.svg); icon.ico, icon.icns and icon.png are generated from it and committed.
  *  - Windows is unsigned (no certificate yet): SmartScreen will warn on first run.
  */
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import afterPack from "./scripts/after-pack.mjs";
 
 const desktopDirectory = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -27,6 +31,12 @@ const require = createRequire(import.meta.url);
 export const APP_ID = "ai.worklog.workintelligence";
 export const PRODUCT_NAME = "Work Intelligence";
 /** Languages the shell speaks (shell/i18n.ts: zh-* reads Traditional Chinese, everything else English). */
+/** The App icon files, all generated from build/icon.svg by `scripts/generate-icons.mjs`. */
+export const ICON_FILES = {
+  ico: join(desktopDirectory, "build/icon.ico"),
+  icns: join(desktopDirectory, "build/icon.icns"),
+  png: join(desktopDirectory, "build/icon.png"),
+};
 export const ELECTRON_LANGUAGES = ["en-US", "zh-TW"];
 export const COMPRESSION_CHOICES = ["store", "normal", "maximum"];
 export const DMG_FORMAT_CHOICES = ["UDZO", "ULFO"];
@@ -79,18 +89,11 @@ export function createBuilderConfig(options) {
     npmRebuild: false,
     nodeGypRebuild: false,
     buildDependenciesFromSource: false,
-    electronFuses: {
-      runAsNode: false,
-      enableCookieEncryption: true,
-      enableNodeOptionsEnvironmentVariable: false,
-      enableNodeCliInspectArguments: false,
-      enableEmbeddedAsarIntegrityValidation: true,
-      onlyLoadAppFromAsar: true,
-      grantFileProtocolExtraPrivileges: false,
-    },
+    afterPack,
     win: {
       target: [{ target: "nsis", arch: ["x64"] }],
       artifactName: "Work-Intelligence-${version}-win-${arch}-setup.${ext}",
+      icon: ICON_FILES.ico,
     },
     nsis: {
       // One click, per user: installs under %LOCALAPPDATA%\Programs without a UAC prompt or wizard pages. The App needs
@@ -104,17 +107,17 @@ export function createBuilderConfig(options) {
       createStartMenuShortcut: true,
       differentialPackage: false,
       include: join(desktopDirectory, "build/installer.nsh"),
+      installerIcon: ICON_FILES.ico,
+      uninstallerIcon: ICON_FILES.ico,
     },
     mac: {
       category: "public.app-category.developer-tools",
-      identity: "-",
-      hardenedRuntime: false,
-      gatekeeperAssess: false,
+      identity: null,
       notarize: false,
-      signIgnore: ["/Contents/Resources/runtime-bundle/"],
       artifactName: "Work-Intelligence-${version}-mac-${arch}.${ext}",
+      icon: ICON_FILES.icns,
     },
     dmg: { format: options.dmgFormat, writeUpdateInfo: false },
-    linux: { target: "dir" },
+    linux: { target: "dir", icon: ICON_FILES.png },
   };
 }

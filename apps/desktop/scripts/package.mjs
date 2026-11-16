@@ -9,9 +9,13 @@
  *   1. builds the runtime (scripts/desktop-runtime-spike/build.mjs) and stages runtime-bundle/{current,runtimes/<id>}
  *   2. builds the shell with --production and the SHA-256 of the runtime manifest, and checks the bundle has no test hooks
  *   3. stages a clean app directory (package.json + dist/, no dependencies)
- *   4. electron-builder packs the unpacked app (fuses, signing on macOS), then each installer target from that app
- *   5. verifies the runtime bundle INSIDE the packed app against its manifest (every file hashed), and on macOS runs
- *      `codesign --verify --deep --strict` (must pass) and `spctl --assess` (recorded only)
+ *   4. electron-builder packs the unpacked app and signs nothing; its afterPack hook (scripts/after-pack.mjs) flips the
+ *      fuses and, on macOS, ad-hoc signs the app inside-out, identically on pull-request and release builds. Each
+ *      installer target is then built from that app
+ *   5. verifies the icon files parse (macOS: the packed icon.icns is the custom one), the runtime bundle INSIDE the packed
+ *      app against its manifest (every file hashed) and the fuse wire read back from the binary; on macOS also
+ *      `codesign --verify --deep --strict` on the app and on the extracted zip, `codesign --verify --strict` on the
+ *      bundled node, relative in-app runtime symlinks (all must pass) and `spctl --assess` (recorded only)
  *   6. writes package-results/package-<platform>-<arch>.json (timings, sizes, gates) and fails on a size gate
  *
  * `--dir` stops after the unpacked app (Linux always does: it is a local check, not shipped). `--baseline` is the naive
@@ -24,28 +28,36 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
+  readlinkSync,
+  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import process from "node:process";
 import console from "node:console";
 import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
+import fuses from "@electron/fuses";
 import { Arch, Platform, build } from "electron-builder";
 import {
   ARCHITECTURES_BY_PLATFORM,
   COMPRESSION_CHOICES,
   DMG_FORMAT_CHOICES,
+  ICON_FILES,
   PRODUCT_NAME,
   TARGETS_BY_PLATFORM,
   createBuilderConfig,
   pinnedElectronVersion,
 } from "../electron-builder.config.mjs";
+import { APP_FUSES } from "./app-fuses.mjs";
+import { verifyIconFiles } from "./icon-files.mjs";
 import { DEFAULT_COMPRESSION, DEFAULT_DMG_FORMAT, SIZE_GATES } from "./package-gates.mjs";
 
 const desktopDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -53,6 +65,12 @@ const repositoryRoot = resolve(desktopDirectory, "../..");
 const platformTag = `${process.platform}-${process.arch}`;
 const workDirectory = join(repositoryRoot, "dist", "desktop-package", platformTag);
 const resultsDirectory = join(desktopDirectory, "package-results");
+const { FuseV1Options, getCurrentFuseWire } = fuses;
+/** A fuse wire byte: the ASCII digit "1" (enabled) or "0" (disabled), as @electron/fuses writes it. */
+const FUSE_ENABLED = 0x31;
+const FUSE_DISABLED = 0x30;
+const STAGED_PACKAGE_NAME = "work-intelligence-desktop";
+const MIB = 1024 * 1024;
 const INSTALLER_EXTENSIONS = [".exe", ".dmg", ".zip"];
 /** Files that only an auto-updater reads; this stage ships none (R4 §7.1), so any that appear are removed. */
 const UPDATE_METADATA = /(^latest.*\.yml$|\.blockmap$)/;
@@ -143,7 +161,7 @@ function stageAppDirectory(directory, version) {
   cpSync(join(desktopDirectory, "dist"), join(directory, "dist"), { recursive: true });
   // No dependencies: the shell is a single bundle, so no node_modules is shipped.
   const manifest = {
-    name: "work-intelligence-desktop",
+    name: STAGED_PACKAGE_NAME,
     productName: PRODUCT_NAME,
     version,
     description: "Local-first work records for coding agents.",
@@ -239,17 +257,101 @@ async function verifyPackedRuntime(packedApp, expected) {
   };
 }
 
-/** macOS: the ad-hoc signature must verify (hard gate); Gatekeeper assessment and the runtime's own signature are recorded. */
+/** The icon sources must parse, and on macOS the packed .app must carry the custom icns, not Electron's default. */
+function verifyIcons(packedApp) {
+  const icons = verifyIconFiles();
+  if (process.platform === "darwin") {
+    const packedIcon = join(resourcesDirectoryOf(packedApp), "icon.icns");
+    if (!existsSync(packedIcon) || !readFileSync(packedIcon).equals(readFileSync(ICON_FILES.icns)))
+      throw new Error(`${packedIcon} is not the custom icon.icns`);
+  }
+  return icons;
+}
+
+/** macOS: the signature must verify (hard gate), the seal must be ad-hoc; Gatekeeper assessment is only recorded. */
 function verifyMacSigning(packedApp) {
   const codesign = capture("codesign", ["--verify", "--deep", "--strict", "--verbose=2", packedApp]);
   if (codesign.exitCode !== 0) throw new Error(`codesign --verify --deep --strict failed:\n${codesign.output}`);
-  const nodeBinary = join(resourcesDirectoryOf(packedApp), "runtime-bundle");
-  const runtimeNode = findFile(nodeBinary, "node");
+  // The seal must be the ad-hoc one the afterPack hook made after the fuses, not Electron's original (broken) signature.
+  const details = capture("codesign", ["--display", "--verbose=2", packedApp]);
+  if (!/Signature=adhoc/.test(details.output)) throw new Error(`the app is not ad-hoc signed:\n${details.output}`);
+  const runtimeNode = findFile(join(resourcesDirectoryOf(packedApp), "runtime-bundle"), "node");
+  if (!runtimeNode) throw new Error("no node binary found in the packed runtime bundle");
+  // The official Node binary must keep its own, untouched signature.
+  const runtimeNodeSignature = capture("codesign", ["--verify", "--strict", runtimeNode]);
+  if (runtimeNodeSignature.exitCode !== 0)
+    throw new Error(`the bundled node binary no longer verifies:\n${runtimeNodeSignature.output}`);
   return {
     codesignVerify: codesign,
     spctlAssess: capture("spctl", ["--assess", "--type", "execute", "-vv", packedApp]),
-    runtimeNodeSignature: runtimeNode ? capture("codesign", ["--verify", "--strict", runtimeNode]) : null,
+    runtimeNodeSignature,
+    runtimeSymlinks: verifyRuntimeSymlinks(packedApp),
   };
+}
+
+/** Every symbolic link in the runtime bundle must be relative and resolve to a path inside the .app. */
+function verifyRuntimeSymlinks(packedApp) {
+  const appRoot = realpathSync(packedApp);
+  const links = [];
+  const visit = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(path);
+      } else if (entry.isSymbolicLink()) {
+        const target = readlinkSync(path);
+        if (isAbsolute(target)) throw new Error(`${path} is an absolute symbolic link (${target})`);
+        const resolved = resolve(dirname(path), target);
+        const inside = relative(appRoot, existsSync(resolved) ? realpathSync(resolved) : resolved);
+        if (inside.startsWith("..") || isAbsolute(inside))
+          throw new Error(`${path} points outside the app (${target})`);
+        links.push(relative(packedApp, path));
+      }
+    }
+  };
+  visit(join(resourcesDirectoryOf(packedApp), "runtime-bundle"));
+  return links;
+}
+
+/** macOS: the shipped zip, extracted, must verify like the packed app (what users get, not what we built). */
+function verifyShippedZip(installers) {
+  const zip = installers.find((installer) => installer.file.endsWith(".zip"));
+  if (!zip) throw new Error("no zip installer to verify");
+  const extractDirectory = mkdtempSync(join(tmpdir(), "worklog-zip-"));
+  try {
+    run("ditto", ["-x", "-k", join(workDirectory, "out", zip.file), extractDirectory], "zip extraction");
+    const extractedApp = join(extractDirectory, `${PRODUCT_NAME}.app`);
+    const codesign = capture("codesign", ["--verify", "--deep", "--strict", "--verbose=2", extractedApp]);
+    if (codesign.exitCode !== 0)
+      throw new Error(`codesign --verify --deep --strict failed on the extracted zip:\n${codesign.output}`);
+    return { file: zip.file, codesignVerify: codesign };
+  } finally {
+    rmSync(extractDirectory, { recursive: true, force: true });
+  }
+}
+
+/** The executable whose fuse wire is read: the .app on macOS (the library resolves its framework), else the binary. */
+function electronBinaryOf(packedApp) {
+  if (process.platform === "darwin") return packedApp;
+  if (process.platform === "win32") return join(packedApp, `${PRODUCT_NAME}.exe`);
+  // On Linux electron-builder names the executable after the staged package.json `name`.
+  return join(packedApp, STAGED_PACKAGE_NAME);
+}
+
+/** Reads the fuse wire back from the packed binary and requires every fuse of APP_FUSES to be set as configured. */
+async function verifyFuses(packedApp) {
+  const wire = await getCurrentFuseWire(electronBinaryOf(packedApp));
+  const checks = Object.entries(APP_FUSES).map(([name, enabled]) => {
+    const expected = enabled ? FUSE_ENABLED : FUSE_DISABLED;
+    const actual = wire[FuseV1Options[name.charAt(0).toUpperCase() + name.slice(1)]];
+    return { name, expected, actual, passed: actual === expected };
+  });
+  const failed = checks.filter((check) => !check.passed);
+  if (failed.length > 0)
+    throw new Error(
+      `fuses differ from the configuration: ${failed.map((check) => `${check.name}=${check.actual}`).join(", ")}`,
+    );
+  return checks;
 }
 
 function findFile(directory, name) {
@@ -298,6 +400,36 @@ function evaluateGates(sizes, installers) {
   return checks;
 }
 
+const TARGET_EXTENSIONS = { nsis: ".exe", dmg: ".dmg", zip: ".zip" };
+
+/** Prints the default and the alternative compression side by side: one row per installer target and variant. */
+function printComparison(options, installers, targetSeconds, comparison) {
+  const variants = [
+    { label: `${options.compression} / ${options.dmgFormat} (default)`, installers, seconds: targetSeconds },
+    {
+      label: `${comparison.compression} / ${comparison.dmgFormat}`,
+      installers: comparison.installers,
+      seconds: comparison.targetSeconds,
+    },
+  ];
+  const rows = [["target", "variant", "file", "MiB", "build s"]];
+  for (const target of TARGETS_BY_PLATFORM[process.platform]) {
+    for (const variant of variants) {
+      const installer = variant.installers.find((entry) => entry.file.endsWith(TARGET_EXTENSIONS[target]));
+      rows.push([
+        target,
+        variant.label,
+        installer?.file ?? "(none)",
+        installer ? (installer.bytes / MIB).toFixed(2) : "-",
+        String(variant.seconds[target]),
+      ]);
+    }
+  }
+  const widths = rows[0].map((_, column) => Math.max(...rows.map((row) => row[column].length)));
+  console.log(`\nCompression comparison (${platformTag}, NSIS/zip compression and DMG format):`);
+  for (const row of rows) console.log(row.map((cell, column) => cell.padEnd(widths[column])).join("  "));
+}
+
 async function main() {
   const options = parseOptions();
   const startedAt = Date.now();
@@ -336,6 +468,8 @@ async function main() {
 
   step = Date.now();
   const packedRuntime = await verifyPackedRuntime(packedApp, runtime);
+  const icons = verifyIcons(packedApp);
+  const fuses = await verifyFuses(packedApp);
   const macSigning = process.platform === "darwin" ? verifyMacSigning(packedApp) : null;
   timings.verifySeconds = seconds(step);
 
@@ -352,6 +486,7 @@ async function main() {
     });
     installers = built.installers;
     updateMetadataRemoved = built.removed;
+    if (process.platform === "darwin") macSigning.shippedZip = verifyShippedZip(installers);
     timings.targetSeconds = built.timings;
     if (options.compare) {
       const alternative = {
@@ -364,6 +499,7 @@ async function main() {
         outputDirectory: join(workDirectory, "out-compare"),
       });
       comparison = { ...alternative, targetSeconds: compared.timings, installers: compared.installers };
+      printComparison(options, installers, built.timings, comparison);
     }
   }
   timings.totalSeconds = seconds(startedAt);
@@ -380,6 +516,8 @@ async function main() {
     timings,
     sizes,
     runtime: { ...runtime, packed: packedRuntime },
+    icons,
+    fuses,
     macSigning,
     updateMetadataRemoved,
     comparison,

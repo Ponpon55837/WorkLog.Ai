@@ -44,8 +44,8 @@ export const SIZE_GATES = {
 };
 
 /**
- * Compression defaults, PROVISIONAL until CI reports size and time for both settings (run the workflow with
- * `compare-compression`, which records the alternative next to the default in the results JSON).
+ * Compression defaults, PROVISIONAL until CI reports size and time for both settings (pull-request runs of the workflow, or a manual run with
+ * `compare-compression`, record the alternative next to the default in the results JSON).
  *
  *  - NSIS/zip `normal`: LZMA at the default level. `maximum` usually saves a few percent of a one-time download at the
  *    cost of a slower build and a slightly slower install; switch only if CI shows more than ~5% smaller for under ~60 s.

@@ -12,12 +12,14 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@electron/fuses": "1.8.0",
     "@work-intelligence/storage": "workspace:*",
     "electron": "45.3.2",
     "electron-builder": "26.18.1"
   },
   "scripts": {
     "build": "node scripts/build.mjs",
+    "generate-icons": "node scripts/generate-icons.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.smoke.json && tsc -p tsconfig.packaged.json",
     "ensure-electron": "node scripts/ensure-electron.mjs",
     "test:smoke": "node scripts/run-smoke.mjs",
