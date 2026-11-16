@@ -71,4 +71,4 @@ workflow 中所有第三方 action 都釘到完整 commit SHA（行尾註解標�
 4. 執行 `pnpm start`。首次以新程式開啟較舊 schema 的資料庫時，Work Intelligence 會先建立 migration 前備份，再自動套用所需 migrations；若備份失敗，升級會停止，不會套用 migration。
 5. 確認 Dashboard 與 `/api/health` 正常後，重新連線 Codex／Claude，讓 MCP 載入新版；需要時再依[登入自動啟動指南](service.md)安裝服務。
 
-不要手動修改 SQLite schema 或刪除 migration 記錄。若資料庫的 schema 比目前程式新，請更新 Work Intelligence 至支援該 schema 的版本；API、MCP 與 CLI 會拒絕以舊程式開啟較新的資料庫。
+不要手動修改 SQLite schema 或刪除 migration 記錄。若資料庫的 schema 比目前程式新，請更新 Work Intelligence 至支援該 schema 的版本；API、MCP 與 CLI 會拒絕以舊程式開啟較新的資料庫。已在執行的 API server 或 MCP 行程若在升級期間被另一個行程把資料庫 migrate 到更新的 schema，之後的寫入會在寫入鎖內被拒絕（REST 回 503 `server_restart_required`，MCP 回 `MCP_RESTART_REQUIRED`），讀取仍可使用；重新啟動即可。

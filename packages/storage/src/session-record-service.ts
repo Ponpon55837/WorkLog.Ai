@@ -906,14 +906,16 @@ export class SessionRecordService {
     retentionDays = WORK_SUMMARY_UPDATE_REPLAY_RETENTION_DAYS,
   ): number {
     const cutoff = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
-    const result = this.db
-      .prepare(
-        `UPDATE session_work_summary_updates
-         SET previous_work_summary_json = '{}', resulting_work_summary_json = '{}'
-         WHERE created_at < ?
-           AND (previous_work_summary_json != '{}' OR resulting_work_summary_json != '{}')`,
-      )
-      .run(cutoff);
+    const result = runImmediateSqlTransaction(this.db, () =>
+      this.db
+        .prepare(
+          `UPDATE session_work_summary_updates
+           SET previous_work_summary_json = '{}', resulting_work_summary_json = '{}'
+           WHERE created_at < ?
+             AND (previous_work_summary_json != '{}' OR resulting_work_summary_json != '{}')`,
+        )
+        .run(cutoff),
+    );
     return Number(result.changes);
   }
 

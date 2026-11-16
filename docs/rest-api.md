@@ -1,6 +1,6 @@
 # REST API
 
-API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用。正式模式用同一個 port 提供 `apps/web/dist` 與 API；同源請求（帶或不帶 `Origin`）都由 `Host` loopback 檢查保護，不需要 CORS。`Host` 必須是 loopback（或 `WORK_INTELLIGENCE_ALLOWED_ORIGINS` 內的主機），否則回 421；不同源且未列入白名單的 `Origin` 回 403。所有寫入要求 `Content-Type: application/json`，並先通過 project policy。
+API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用。正式模式用同一個 port 提供 `apps/web/dist` 與 API；同源請求（帶或不帶 `Origin`）都由 `Host` loopback 檢查保護，不需要 CORS。`Host` 必須是 loopback 名稱加上 server 實際監聽的 port（或 `WORK_INTELLIGENCE_ALLOWED_ORIGINS` 內某個 origin 完全相同的主機與 port；origin 省略 port 視為 80／443，沒有 port 的 `Host` 視為 80），否則回 421；不同源且未列入白名單的 `Origin` 回 403。所有寫入要求 `Content-Type: application/json`，並先通過 project policy。
 
 正式模式的 Web 靜態檔使用 SPA fallback；`index.html` 不快取，Vite 雜湊 assets 可長期快取。CSP 禁止 inline／eval script，限定外部資源為同源（Vue 動態版面需要的 style attribute 另行允許）；另設 `X-Content-Type-Options`、`Referrer-Policy` 與禁止 frame 嵌入的標頭。靜態請求會拒絕 dot-segment、編碼後 traversal 與解析到 Web 根目錄之外的 symlink。
 
@@ -39,6 +39,7 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | `database_busy` | 503 | SQLite 回報 `SQLITE_BUSY` 或 `SQLITE_LOCKED`；使用安全的資料庫忙碌訊息。 |
 | `database_read_only` | 503 | 資料庫檔案、所在資料夾或磁碟唯讀（`SQLITE_READONLY`），這次寫入沒有保存；讀取仍可使用。 |
 | `database_disk_full` | 507 | 磁碟空間不足（`SQLITE_FULL`，或檔案系統回報 `ENOSPC`），這次寫入沒有保存。 |
+| `server_restart_required` | 503 | 另一個行程（較新版本）已把資料庫 schema 升級到這個 server 不認得的版本；為避免舊程式寫出舊格式資料，所有寫入（POST／PATCH／DELETE，含匯入與刪除）在同一個 SQLite 寫入鎖內被拒絕、沒有保存。讀取不受影響。請重新啟動 Work Intelligence server（`error` 為「資料庫 schema 已更新，請重新啟動 Work Intelligence server。」）。 |
 | `backup_unavailable` | 409 | 備份功能或備份檔案目前不可用。備份清單／建立回應仍保留 `outcome` 與 `reason`，並附加 `code` 和相容用的 `error` 欄位。 |
 | `project_not_found` | 404 | 專案資料轉移、重新指定位置或刪除操作找不到 URL 或輸入指定的專案。 |
 | `invalid_bundle` | 400 | 可攜式匯入檔與所選匯入範圍不相符或無效。 |
@@ -53,7 +54,7 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | `session_backup_failed` | 503 | Session 刪除前無法建立必要備份。 |
 | `session_delete_failed` | 500 | Session 刪除交易失敗，既有備份仍保留。 |
 
-`database_busy`、`database_read_only` 與 `database_disk_full` 都不代表資料損壞，也不需要從備份還原；`error` 是固定文字，不含 SQLite 訊息或路徑。處理方式見[疑難排解](troubleshooting.md#資料庫忙碌唯讀或磁碟已滿)。
+`server_restart_required` 用 503 而非 409：這不是請求內容與資源狀態衝突，而是這個 server 行程暫時無法寫入，重啟後同樣的請求即可成功，與 `database_*` 一致。`database_busy`、`database_read_only` 與 `database_disk_full` 都不代表資料損壞，也不需要從備份還原；`error` 是固定文字，不含 SQLite 訊息或路徑。處理方式見[疑難排解](troubleshooting.md#資料庫忙碌唯讀或磁碟已滿)。
 
 ### 未知欄位一律拒絕
 

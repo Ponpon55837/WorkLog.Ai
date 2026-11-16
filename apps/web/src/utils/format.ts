@@ -122,6 +122,7 @@ const apiErrorMessages: Record<string, string> = translatedRecord({
   database_busy: "format.theDatabaseIsBusyPlease",
   database_read_only: "format.theDatabaseIsReadOnly",
   database_disk_full: "format.theDiskIsFull",
+  server_restart_required: "format.serverRestartRequired",
   project_name_mismatch: "format.theNameDoesNotMatch",
   project_backup_failed: "format.couldNotCreateAndVerify",
   project_delete_failed: "format.theDeletionDidNotFinish",

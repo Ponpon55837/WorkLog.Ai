@@ -79,6 +79,7 @@ import {
   databaseUnavailableReason,
   type DatabaseUnavailableReason,
   isDatabaseBusyError,
+  DATABASE_SCHEMA_CHANGED_CODE,
   toSessionDigests,
   toAgentReport,
   toAgentReportContext,
@@ -457,7 +458,12 @@ function withServerRestartStatus(result: unknown, getRestartStatus: () => McpRes
 }
 
 function isRestartRequiredError(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && "code" in error && error.code === "MCP_RESTART_REQUIRED");
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    (error.code === "MCP_RESTART_REQUIRED" || error.code === DATABASE_SCHEMA_CHANGED_CODE),
+  );
 }
 
 /** A fixed audit code for a failed read; the error's message is never stored. */

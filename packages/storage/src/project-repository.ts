@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { ProjectRecord, ProjectStatus } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
 import { canonicalizeProjectRoot } from "@work-intelligence/project-policy";
+import { runImmediateTransaction } from "./sqlite-transaction.js";
 
 export type ProjectRow = {
   id: string;
@@ -58,6 +59,26 @@ export class ProjectRepository {
   }
 
   public add(name: string, rootPath: string): ProjectRecord {
+    return runImmediateTransaction(this.db, () => this.insertIfMissing(name, rootPath));
+  }
+
+  /** `repositoryUrl: null` (or an empty string) removes the repository link. */
+  public update(projectId: string, update: ProjectUpdate): ProjectRecord | undefined {
+    return runImmediateTransaction(this.db, () => this.applyUpdate(projectId, update));
+  }
+
+  public updateRootPath(projectId: string, rootPath: string, updatedAt: string): ProjectRecord {
+    this.db
+      .prepare("UPDATE projects SET root_path = ?, updated_at = ? WHERE id = ?")
+      .run(canonicalizeProjectRoot(rootPath), updatedAt, projectId);
+    const updated = this.getById(projectId);
+    if (!updated) {
+      throw new Error("Project disappeared during a location update.");
+    }
+    return updated;
+  }
+
+  private insertIfMissing(name: string, rootPath: string): ProjectRecord {
     const canonicalRoot = canonicalizeProjectRoot(rootPath);
     const existing = this.getByRootPath(canonicalRoot);
     if (existing) {
@@ -90,8 +111,7 @@ export class ProjectRepository {
     return project;
   }
 
-  /** `repositoryUrl: null` (or an empty string) removes the repository link. */
-  public update(projectId: string, update: ProjectUpdate): ProjectRecord | undefined {
+  private applyUpdate(projectId: string, update: ProjectUpdate): ProjectRecord | undefined {
     const existing = this.getById(projectId);
     if (!existing) {
       return undefined;
@@ -124,16 +144,5 @@ export class ProjectRepository {
         updatedAt: next.updatedAt,
       });
     return next;
-  }
-
-  public updateRootPath(projectId: string, rootPath: string, updatedAt: string): ProjectRecord {
-    this.db
-      .prepare("UPDATE projects SET root_path = ?, updated_at = ? WHERE id = ?")
-      .run(canonicalizeProjectRoot(rootPath), updatedAt, projectId);
-    const updated = this.getById(projectId);
-    if (!updated) {
-      throw new Error("Project disappeared during a location update.");
-    }
-    return updated;
   }
 }

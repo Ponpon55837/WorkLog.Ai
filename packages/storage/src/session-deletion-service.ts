@@ -4,6 +4,7 @@ import type { DeleteSessionResult, SessionDeletionCounts } from "@work-intellige
 import { nowIso } from "@work-intelligence/shared";
 import { backupDatabaseBeforeSessionDeletion, type BackupRetentionOptions } from "./backup.js";
 import { databaseUnavailableReason } from "./sqlite-errors.js";
+import { isDatabaseSchemaChangedError } from "./schema-write-gate.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 import type { SearchRepository } from "./search-repository.js";
 
@@ -145,8 +146,12 @@ export class SessionDeletionService {
         };
       });
     } catch (error) {
-      // Busy, read-only and disk-full failures keep their own codes: the user can resolve them and retry.
-      if (error instanceof SessionDeletionError || databaseUnavailableReason(error)) {
+      // Busy, read-only, disk-full and schema-changed failures keep their own codes: the user can resolve them and retry.
+      if (
+        error instanceof SessionDeletionError ||
+        isDatabaseSchemaChangedError(error) ||
+        databaseUnavailableReason(error)
+      ) {
         throw error;
       }
       throw new SessionDeletionError("session_delete_failed");
