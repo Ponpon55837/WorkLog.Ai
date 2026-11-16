@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { windowsPowerShell } from "@work-intelligence/shared/windows-system-tool";
 import {
   attachLog,
   closeQuietly,
@@ -96,7 +97,7 @@ function residentBytes(pid: number): number {
     return Number(execFileSync("ps", ["-o", "rss=", "-p", String(pid)], { encoding: "utf8" }).trim()) * 1024;
   }
   const output = execFileSync(
-    "powershell.exe",
+    windowsPowerShell(),
     ["-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${pid}).WorkingSet64`],
     { encoding: "utf8" },
   );

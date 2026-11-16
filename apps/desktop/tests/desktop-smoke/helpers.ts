@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { isSettledRepairFailure } from "@work-intelligence/desktop-core";
+import { windowsPowerShell } from "@work-intelligence/shared/windows-system-tool";
 import { WorkIntelligenceStore } from "@work-intelligence/storage";
 import {
   INSTANCE_CHALLENGE_HEADER,
@@ -205,7 +206,7 @@ export function windowsLeftovers(pid: number, marker: string): string[] {
   // -EncodedCommand (UTF-16LE base64) passes the script without any command-line quoting; the marker, a path, goes in
   // through the environment for the same reason.
   const output = execFileSync(
-    "powershell.exe",
+    windowsPowerShell(),
     ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
     { encoding: "utf8", env: { ...process.env, WI_SMOKE_MARKER: marker } },
   );

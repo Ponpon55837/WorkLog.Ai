@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
 import { closeSync, mkdirSync, openSync, writeSync } from "node:fs";
-import { delimiter, dirname, join } from "node:path";
+import { delimiter, dirname } from "node:path";
 import process from "node:process";
+import { windowsPowerShell } from "../packages/shared/dist/windows-system-tool.js";
 
 const [repositoryRoot, databasePath, backupDirectory, packageManagerExecutable, logPath] = process.argv.slice(2);
 
@@ -25,9 +26,7 @@ if (![repositoryRoot, databasePath, backupDirectory, packageManagerExecutable, l
     const command =
       process.platform === "win32"
         ? {
-            executable: process.env.SystemRoot
-              ? join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
-              : "powershell.exe",
+            executable: windowsPowerShell(),
             args: [
               "-NoLogo",
               "-NoProfile",

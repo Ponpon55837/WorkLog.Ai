@@ -2,13 +2,16 @@ import fs from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { afterAll } from "vitest";
 import {
   commitCurrent,
+  createWindowsAclReader,
   installRuntime,
   runtimeDirectoryFor,
   type InstalledRuntime,
   type RuntimeDefinition,
   type RuntimeKind,
+  type WindowsAclReader,
 } from "../../packages/desktop-core/src/runtime/index.js";
 import { securePrivateDirectory } from "../../scripts/desktop-runtime-spike/secure-directory.mjs";
 
@@ -42,15 +45,51 @@ export function fixtureDefinition(runtimeId: string, runtimeKind: RuntimeKind = 
   };
 }
 
+let sharedParent: Promise<string> | undefined;
+let parentAclSnapshot: Promise<Awaited<ReturnType<WindowsAclReader["read"]>>> | undefined;
+
 /**
- * A fresh launcher root; `realpath.native` so comparisons survive macOS /private/var and Windows 8.3 names. On Windows it
- * is locked like the App's real root, because the runner's temp folder grants BUILTIN\Users write access, which the
- * runtime's ACL check refuses.
+ * The one directory per test process that holds every launcher root. On Windows it is locked like the App's real root
+ * (the runner's temp folder grants BUILTIN\Users write access, which the runtime's ACL check refuses), once: `icacls`
+ * costs hundreds of milliseconds, and every folder created inside inherits the locked ACL. `realpath.native` so
+ * comparisons survive macOS /private/var and Windows 8.3 names. Removed after the file's tests.
  */
-export async function makeRoot(label = "desktop-runtime"): Promise<string> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), `${label} 測試-`));
-  return securePrivateDirectory(realpathSync.native(root));
+function sharedParentDirectory(): Promise<string> {
+  sharedParent ??= fs
+    .mkdtemp(path.join(os.tmpdir(), "desktop-runtime-tests-"))
+    .then((directory) => securePrivateDirectory(realpathSync.native(directory)));
+  return sharedParent;
 }
+
+afterAll(async () => {
+  if (sharedParent !== undefined) await fs.rm(await sharedParent, { recursive: true, force: true });
+  sharedParent = undefined;
+  parentAclSnapshot = undefined;
+});
+
+/** A fresh launcher root inside the shared locked parent, so it carries the App root's ACL without its own `icacls`. */
+export async function makeRoot(label = "desktop-runtime"): Promise<string> {
+  return fs.mkdtemp(path.join(await sharedParentDirectory(), `${label} 測試-`));
+}
+
+/**
+ * For tests whose subject is not the ACL check: on Windows, a reader that answers every path with the ONE real read
+ * (real SDDL and SID, taken once per process) of the shared parent, whose ACL every root and file below it inherits, so
+ * no test starts PowerShell. Undefined elsewhere, where no reader is used. Tests of the ACL check itself must not use it.
+ */
+const inheritedAclReader: WindowsAclReader | undefined = IS_WINDOWS
+  ? {
+      read: async (paths) => {
+        parentAclSnapshot ??= sharedParentDirectory().then((parent) => createWindowsAclReader().read([parent]));
+        const { currentUserSid, sddls } = await parentAclSnapshot;
+        return { currentUserSid, sddls: paths.map(() => sddls[0] as string) };
+      },
+    }
+  : undefined;
+
+/** `{ aclReader }` on Windows, `{}` elsewhere: spread it into the options of `installRuntime`, `commitCurrent` and `verifyRuntime`. */
+export const fixtureAcl: { readonly aclReader?: WindowsAclReader } =
+  inheritedAclReader === undefined ? {} : { aclReader: inheritedAclReader };
 
 export async function writeFiles(directory: string, files: Readonly<Record<string, string>>): Promise<void> {
   for (const [relative, content] of Object.entries(files)) {
@@ -71,15 +110,15 @@ export async function stageFixture(
   return directory;
 }
 
-/** Stages and installs the fixture runtime; with `commit` also points `current` at it. */
+/** Stages and installs the fixture runtime; with `commit` also points `current` at it. Windows ACLs come from {@link fixtureAcl}. */
 export async function installFixture(
   root: string,
   runtimeId = "rt-1",
   options: { kind?: RuntimeKind; commit?: boolean; files?: Readonly<Record<string, string>> } = {},
 ): Promise<InstalledRuntime> {
   await stageFixture(root, runtimeId, options.files);
-  const installed = await installRuntime(root, fixtureDefinition(runtimeId, options.kind));
-  if (options.commit) await commitCurrent(root, runtimeId);
+  const installed = await installRuntime(root, fixtureDefinition(runtimeId, options.kind), fixtureAcl);
+  if (options.commit) await commitCurrent(root, runtimeId, fixtureAcl);
   return installed;
 }
 

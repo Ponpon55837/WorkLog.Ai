@@ -46,14 +46,19 @@ export class RuntimeProvisionError extends Error {
   }
 }
 
-/** ` acl=<tier> <ms> ms` (plus ` acl-failed=<tier> <ms> ms` per tier that failed first) when the ACLs were read; else empty. */
-function describeAclRead(report: EnsuredRuntime["aclReport"]): string {
+/**
+ * ` acl=<tier> <ms> ms` (plus ` acl-failed=<tier> <ms> ms` per tier that failed first) and ` acl-reads=<n>` when the ACLs
+ * were read; else empty.
+ */
+function describeAclRead(ensured: Pick<EnsuredRuntime, "aclReport" | "aclReads">): string {
+  const { aclReport: report } = ensured;
   if (report === undefined) return "";
   const failed = report.attempts.filter((attempt) => !attempt.ok);
   const answered = report.attempts.find((attempt) => attempt.ok);
   return [
     ...failed.map((attempt) => ` acl-failed=${attempt.tier} ${attempt.ms} ms`),
     ` acl=${report.tier} ${answered?.ms} ms`,
+    ` acl-reads=${ensured.aclReads}`,
   ].join("");
 }
 
@@ -84,7 +89,7 @@ export function createRuntimeProvisioner(options: RuntimeProvisionerOptions): Ru
         },
       );
       options.log(
-        `[shell] runtime ${ensured.status} ${ensured.runtimeId} in ${ensured.elapsedMs} ms${describeAclRead(ensured.aclReport)}`,
+        `[shell] runtime ${ensured.status} ${ensured.runtimeId} in ${ensured.elapsedMs} ms${describeAclRead(ensured)}`,
       );
       const fresh = ensured.status !== "already-current";
       collectInBackground(ensured.previousRuntimeId ? [ensured.previousRuntimeId] : [], !fresh);

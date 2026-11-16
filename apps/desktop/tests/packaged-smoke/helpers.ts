@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSyn
 import os from "node:os";
 import { dirname, join } from "node:path";
 import { isSettledRepairFailure } from "@work-intelligence/desktop-core";
+import { windowsPowerShell } from "@work-intelligence/shared/windows-system-tool";
 import { WorkIntelligenceStore } from "@work-intelligence/storage";
 import {
   allowBuiltinUsersToWrite,
@@ -312,7 +313,7 @@ function windowsProcesses(): ProcessInfo[] {
     "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,WorkingSetSize,ExecutablePath,CommandLine | ConvertTo-Json -Compress";
   // -EncodedCommand passes the script without any command-line quoting.
   const output = execFileSync(
-    "powershell.exe",
+    windowsPowerShell(),
     ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
     { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
   );

@@ -15,6 +15,7 @@ import {
 import {
   FIXTURE_FILES,
   IS_WINDOWS,
+  fixtureAcl,
   fixtureDefinition,
   installFixture,
   makeRoot,
@@ -105,8 +106,8 @@ describe("ensureBundledRuntime: install", () => {
     const directory = await makeRoot("desktop-bundle-link");
     const staged = await stageFixture(directory, "bundle-1");
     await fs.symlink("serve.mjs", path.join(staged, "app/serve-link.mjs"));
-    await installRuntime(directory, fixtureDefinition("bundle-1"));
-    await commitCurrent(directory, "bundle-1");
+    await installRuntime(directory, fixtureDefinition("bundle-1"), fixtureAcl);
+    await commitCurrent(directory, "bundle-1", fixtureAcl);
     await fs.rm(path.join(staged, ".verified.json"));
     bundleSha = await sha256Of(path.join(staged, "runtime-manifest.json"));
     try {

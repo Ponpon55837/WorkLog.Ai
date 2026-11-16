@@ -36,6 +36,8 @@ export interface EnsuredRuntime {
   readonly previousRuntimeId: string | undefined;
   /** Windows: which tier read the ACLs and how long each tier took, when this call read them (absent on the fast path). */
   readonly aclReport?: AclReadReport;
+  /** Windows: how many times this call spawned PowerShell to read the ACLs (0 on the fast path or from the stamp cache). */
+  readonly aclReads: number;
 }
 
 /** The file system calls that can be made to fail in tests. */
@@ -337,6 +339,7 @@ export async function ensureBundledRuntime(
     bytesCopied,
     hashedCount,
     previousRuntimeId,
+    aclReads: aclReport === undefined ? 0 : 1,
     ...(aclReport ? { aclReport } : {}),
   });
 

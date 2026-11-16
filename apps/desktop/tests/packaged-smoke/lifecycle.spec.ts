@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import os from "node:os";
 import { dirname, join } from "node:path";
+import { windowsCommandShell } from "@work-intelligence/shared/windows-system-tool";
 import {
   PRODUCT_NAME,
   createSandbox,
@@ -64,7 +65,7 @@ test.afterEach(async () => {
 function runSetup(file: string, args: readonly string[]): Promise<number | null> {
   const commandLine = `"start /wait "" ${[`"${file}"`, ...args].join(" ")}"`;
   return new Promise((resolveExit, rejectExit) => {
-    const child = spawn("cmd.exe", ["/d", "/s", "/c", commandLine], {
+    const child = spawn(windowsCommandShell(), ["/d", "/s", "/c", commandLine], {
       windowsVerbatimArguments: true,
       stdio: "ignore",
     });

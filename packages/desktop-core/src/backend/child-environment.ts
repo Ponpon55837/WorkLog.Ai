@@ -1,3 +1,5 @@
+import { windowsSystem32Directory } from "@work-intelligence/shared/windows-system-tool";
+
 /** Environment of the parent (or any record): names to optional values. */
 export type EnvironmentRecord = Readonly<Record<string, string | undefined>>;
 
@@ -31,7 +33,6 @@ const WINDOWS_ALLOWED_BY_LOWERCASE: ReadonlyMap<string, string> = new Map(
 );
 
 const POSIX_FIXED_PATH = "/usr/bin:/bin";
-const WINDOWS_DEFAULT_SYSTEM_ROOT = "C:\\Windows";
 const DESKTOP_VALUE_NAME = /^WORK_INTELLIGENCE_[A-Z0-9_]+$/;
 
 function isAllowedPosixName(name: string): boolean {
@@ -54,7 +55,7 @@ function windowsEnvironment(parent: EnvironmentRecord): Record<string, string> {
     // The canonical spelling is used for the copy, so a parent's `SYSTEMROOT` and `SystemRoot` collapse into one entry.
     if (canonical !== undefined && value !== undefined && value !== "") result[canonical] = value;
   }
-  result.PATH = `${result.SystemRoot ?? WINDOWS_DEFAULT_SYSTEM_ROOT}\\System32`;
+  result.PATH = windowsSystem32Directory(result);
   return result;
 }
 

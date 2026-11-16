@@ -21,6 +21,7 @@ import { dirname, join } from "node:path";
 import process from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { windowsCommandShell } from "@work-intelligence/shared/windows-system-tool";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = join(here, "..");
@@ -52,7 +53,7 @@ function packageDirectory() {
  */
 function runWindowsSetup(file, args) {
   const commandLine = `"start /wait "" ${[`"${file}"`, ...args].join(" ")}"`;
-  return run("cmd.exe", ["/d", "/s", "/c", commandLine], { windowsVerbatimArguments: true });
+  return run(windowsCommandShell(), ["/d", "/s", "/c", commandLine], { windowsVerbatimArguments: true });
 }
 
 async function waitUntilGone(path, timeoutMs) {

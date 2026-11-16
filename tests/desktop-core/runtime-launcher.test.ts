@@ -22,7 +22,7 @@ import {
   type RuntimeManifest,
   verifyRuntime,
 } from "../../packages/desktop-core/src/runtime/index.js";
-import { IS_WINDOWS, flipFirstByte, installFixture, makeRoot } from "./runtime-helpers.js";
+import { IS_WINDOWS, fixtureAcl, flipFirstByte, installFixture, makeRoot } from "./runtime-helpers.js";
 
 let root = "";
 let runtimeDirectory = "";
@@ -136,8 +136,8 @@ describe("runLauncher", () => {
     const { stageFixture, fixtureDefinition } = await import("./runtime-helpers.js");
     const directory = await stageFixture(root, "rt-2");
     const definition = fixtureDefinition("rt-2");
-    await installRuntime(root, { ...definition, actions: { mcp: definition.actions.mcp! } });
-    await commitCurrent(root, "rt-2");
+    await installRuntime(root, { ...definition, actions: { mcp: definition.actions.mcp! } }, fixtureAcl);
+    await commitCurrent(root, "rt-2", fixtureAcl);
     const recorded = recordingHost({ execPath: path.join(directory, "node/bin/node") });
     expect(await launch(["serve"], recorded, directory)).toEqual({ kind: "exit", code: LAUNCHER_EXIT_USAGE });
   });
@@ -284,7 +284,7 @@ describe("checkLaunchConsistency", () => {
   let warnings: string[];
 
   beforeEach(async () => {
-    manifest = (await verifyRuntime(root, "rt-1")).manifest;
+    manifest = (await verifyRuntime(root, "rt-1", fixtureAcl)).manifest;
     warnings = [];
   });
 

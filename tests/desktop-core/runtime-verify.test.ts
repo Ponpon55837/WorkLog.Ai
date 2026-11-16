@@ -550,6 +550,9 @@ describe("verifyRuntime: permissions", () => {
 
     it("reads the ACLs once, then trusts the stamp until an object it covers changes", async () => {
       const aclReader = fixtureReader(GOOD);
+      // Start from no stamp: on Windows the fixture install already wrote one (from its own ACL read), which would make
+      // the first verification below a stamp hit.
+      await fs.rm(cachePath());
       expect((await verifyRuntime(root, "rt-1", { policy: WIN, aclReader })).aclRead).toBe(true);
       expect(await fs.readFile(cachePath(), "utf8")).toContain('"acl"');
       aclReader.read.mockClear();

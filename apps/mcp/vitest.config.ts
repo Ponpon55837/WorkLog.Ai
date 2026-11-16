@@ -16,6 +16,10 @@ export const mcpAliases = [
     replacement: fileURLToPath(new URL("../../packages/schema/src/index.ts", import.meta.url)),
   },
   {
+    find: "@work-intelligence/shared/windows-system-tool",
+    replacement: fileURLToPath(new URL("../../packages/shared/src/windows-system-tool.ts", import.meta.url)),
+  },
+  {
     find: "@work-intelligence/shared/database-path",
     replacement: fileURLToPath(new URL("../../packages/shared/src/database-path.ts", import.meta.url)),
   },

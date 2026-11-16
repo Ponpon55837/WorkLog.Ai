@@ -3,7 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
+import { promisify } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 import {
   aclProblem,
@@ -14,9 +15,10 @@ import {
   type ExecFileLike,
   type WindowsAclReader,
 } from "../../packages/desktop-core/src/runtime/index.js";
+import { windowsPowerShell, windowsSystemTool } from "../../packages/shared/src/windows-system-tool.js";
 import {
   allowBuiltinUsersToWrite,
-  parseWhoamiSid as parseSpikeWhoamiSid,
+  currentUserSid,
   securePrivateDirectory,
 } from "../../scripts/desktop-runtime-spike/secure-directory.mjs";
 
@@ -285,6 +287,14 @@ describe("the Windows reader", () => {
     expect(options.timeout).toBe(10_000);
   });
 
+  it("gives tier two its own, longer timeout for PowerShell and for whoami", async () => {
+    const exec = vi.fn<ExecFileLike>(async (file) =>
+      file.endsWith("whoami.exe") ? output(`"HOST\\me","${USER}"`) : output(PROFILE_SDDL),
+    );
+    await createWindowsAclReader(exec, env).read(["a"], "get-acl");
+    expect((exec.mock.calls as Call[]).map((call) => call[2].timeout)).toEqual([30_000, 30_000]);
+  });
+
   it("starts PowerShell with an allow-listed environment and its own module path", async () => {
     const exec = vi.fn<ExecFileLike>(async () => output(USER, PROFILE_SDDL));
     const parent = {
@@ -332,8 +342,53 @@ describe("the Windows reader", () => {
     const calls = exec.mock.calls as Call[];
     expect(calls.map((call) => call[0])).toEqual([`${SYSTEM32}\\whoami.exe`, POWERSHELL, POWERSHELL]);
     expect(calls[0]?.[1]).toEqual(["/user", "/fo", "csv", "/nh"]);
-    expect(calls[1]?.[1].at(-1)).toContain("Get-Acl -LiteralPath");
+    const script = calls[1]?.[1].at(-1) as string;
+    expect(script).toContain("Get-Acl -LiteralPath");
+    expect(script).toContain("$ErrorActionPreference='Stop'");
+    // The module is imported by absolute path, from $PSHOME, before Get-Acl runs: no auto-loading across PSModulePath.
+    expect(script).toContain(
+      "Import-Module -Name (Join-Path $PSHOME 'Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1')",
+    );
+    expect(script.indexOf("Import-Module")).toBeLessThan(script.indexOf("Get-Acl"));
     expect(calls[1]?.[2].env.FOO).toBeUndefined();
+  });
+
+  it("tier two starts whoami and PowerShell together, and does not ask whoami again after it answered", async () => {
+    const pending: Array<() => void> = [];
+    const exec = vi.fn<ExecFileLike>(
+      (file) =>
+        new Promise((resolve) => {
+          pending.push(() =>
+            resolve(file.endsWith("whoami.exe") ? output(`"HOST\\me","${USER}"`) : output(PROFILE_SDDL)),
+          );
+        }),
+    );
+    const reading = createWindowsAclReader(exec, env).read(["a"], "get-acl");
+    // Neither process has finished, and both were started.
+    expect(exec).toHaveBeenCalledTimes(2);
+    for (const finish of pending) finish();
+    await expect(reading).resolves.toEqual({ currentUserSid: USER, sddls: [PROFILE_SDDL] });
+  });
+
+  it("tier two reports whoami and PowerShell when both fail, and either one alone", async () => {
+    const both: ExecFileLike = async (file) => {
+      throw new Error(file.endsWith("whoami.exe") ? "whoami blocked" : "powershell blocked");
+    };
+    await expect(createWindowsAclReader(both, env).read(["a"], "get-acl")).rejects.toThrow(
+      "whoami: whoami blocked; powershell: powershell blocked",
+    );
+    const onlyWhoami: ExecFileLike = async (file) => {
+      if (file.endsWith("whoami.exe")) throw new Error("whoami blocked");
+      return output(PROFILE_SDDL);
+    };
+    await expect(createWindowsAclReader(onlyWhoami, env).read(["a"], "get-acl")).rejects.toThrow("whoami blocked");
+    const onlyPowerShell: ExecFileLike = async (file) => {
+      if (!file.endsWith("whoami.exe")) throw new Error("powershell blocked");
+      return output(`"HOST\\me","${USER}"`);
+    };
+    await expect(createWindowsAclReader(onlyPowerShell, env).read(["a"], "get-acl")).rejects.toThrow(
+      "powershell blocked",
+    );
   });
 
   it("ignores a CLIXML progress record on stdout and silences progress in both scripts", async () => {
@@ -380,7 +435,11 @@ describe("the Windows reader", () => {
     };
     await expect(assertWindowsAcl(["a"], createWindowsAclReader(exec, env))).rejects.toMatchObject({
       code: "RUNTIME_ACL_UNREADABLE",
-      detail: { actual: expect.stringMatching(/dotnet: powershell blocked .*; get-acl: whoami blocked/) },
+      detail: {
+        actual: expect.stringMatching(
+          /dotnet: powershell blocked .*; get-acl: whoami: whoami blocked; powershell: powershell blocked/,
+        ),
+      },
     });
   });
 
@@ -412,88 +471,112 @@ describe.runIf(process.platform === "win32")("the real Windows reader (Windows o
     return dir;
   }
 
+  /**
+   * CI measured tier two (Get-Acl, then whoami) at 5 to 10 s before the security module was imported by path, which
+   * overran vitest's 5 s default; the real-reader tests get a generous limit and print where the time goes.
+   */
+  const REAL_READER_TIMEOUT_MS = 60_000;
+  const execFileAsync = promisify(execFile);
+
   function spied() {
     const calls: string[] = [];
     const exec: ExecFileLike = async (file, args, options) => {
       calls.push(args.at(-1)?.includes("GetAccessControl") ? "dotnet" : path.win32.basename(file));
-      return {
-        stdout: execFileSync(file, [...args], { env: options.env, encoding: "utf8", timeout: options.timeout }),
-      };
+      return { stdout: (await execFileAsync(file, [...args], { env: options.env, timeout: options.timeout })).stdout };
     };
     return { calls, reader: createWindowsAclReader(exec, ps7Env) };
   }
 
-  it("reads a locked directory with tier one under a PowerShell 7 module path, and both tiers agree", async () => {
-    const dir = await directory((created) => securePrivateDirectory(created));
-    try {
-      // CI evidence for the first-launch cost: each tier run directly, a cold call and then a warm one.
-      const timing = spied().reader;
-      for (const tier of ["dotnet", "get-acl"] as const) {
-        const durations: string[] = [];
-        for (const run of ["cold", "warm"]) {
-          const started = performance.now();
-          await timing.read([dir], tier);
-          durations.push(`${run}=${(performance.now() - started).toFixed(1)}ms`);
-        }
-        console.info(`ACL tier ${tier}: ${durations.join(" ")}`);
+  async function timed(label: string, step: () => Promise<unknown>): Promise<string> {
+    const started = performance.now();
+    await step();
+    return `${label}=${(performance.now() - started).toFixed(1)}ms`;
+  }
+
+  it(
+    "reads a locked directory with tier one under a PowerShell 7 module path, and both tiers agree",
+    { timeout: REAL_READER_TIMEOUT_MS },
+    async () => {
+      const dir = await directory((created) => securePrivateDirectory(created));
+      try {
+        // CI evidence for the first-launch cost, one line per step so the log shows the bottleneck.
+        const powerShell = windowsPowerShell(ps7Env);
+        const run = (script: string) => () =>
+          execFileAsync(powerShell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], {
+            env: { ...ps7Env, PSModulePath: path.win32.join(path.win32.dirname(powerShell), "Modules") },
+          });
+        const importModule =
+          "Import-Module -Name (Join-Path $PSHOME 'Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1')";
+        const timing = spied().reader;
+        console.info(
+          `ACL steps: ${[
+            await timed("powershell-start", run("$null")),
+            await timed("import-module", run(importModule)),
+            await timed("whoami", () => execFileAsync(windowsSystemTool("whoami.exe"), ["/user", "/fo", "csv", "/nh"])),
+            await timed("tier-get-acl-cold", () => timing.read([dir], "get-acl")),
+            await timed("tier-get-acl-warm", () => timing.read([dir], "get-acl")),
+            await timed("tier-dotnet-cold", () => timing.read([dir], "dotnet")),
+            await timed("tier-dotnet-warm", () => timing.read([dir], "dotnet")),
+          ].join(" ")}`,
+        );
+        const { calls, reader } = spied();
+        const report = await assertWindowsAcl([dir], reader);
+        expect(report.tier).toBe("dotnet");
+        expect(calls).toEqual(["dotnet"]);
+        const first = await reader.read([dir], "dotnet");
+        const second = await reader.read([dir], "get-acl");
+        expect(second.currentUserSid).toBe(first.currentUserSid);
+        expect(second.currentUserSid).toBe(currentUserSid());
+        expect(
+          aclProblem(parseSddl(second.sddls[0] as string), { currentUserSid: second.currentUserSid }),
+        ).toBeUndefined();
+      } finally {
+        await rm(dir, { recursive: true, force: true });
       }
-      const { calls, reader } = spied();
-      const report = await assertWindowsAcl([dir], reader);
-      expect(report.tier).toBe("dotnet");
-      expect(calls).toEqual(["dotnet"]);
-      const first = await reader.read([dir], "dotnet");
-      const second = await reader.read([dir], "get-acl");
-      expect(second.currentUserSid).toBe(first.currentUserSid);
-      expect(second.currentUserSid).toBe(
-        parseSpikeWhoamiSid(execFileSync("whoami", ["/user", "/fo", "csv", "/nh"], { encoding: "utf8" })),
-      );
-      expect(
-        aclProblem(parseSddl(second.sddls[0] as string), { currentUserSid: second.currentUserSid }),
-      ).toBeUndefined();
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
+    },
+  );
 
-  it("refuses a directory BUILTIN\\Users can write, with either tier", async () => {
-    const dir = await directory((created) => allowBuiltinUsersToWrite(securePrivateDirectory(created)));
-    try {
-      const { calls, reader } = spied();
-      await expect(assertWindowsAcl([dir], reader)).rejects.toMatchObject({ code: "RUNTIME_UNSAFE_PERMISSIONS" });
-      expect(calls).toEqual(["dotnet"]);
-      const second = await reader.read([dir], "get-acl");
-      expect(aclProblem(parseSddl(second.sddls[0] as string), { currentUserSid: second.currentUserSid })).toContain(
-        "S-1-5-32-545",
-      );
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
+  it(
+    "refuses a directory BUILTIN\\Users can write, with either tier",
+    { timeout: REAL_READER_TIMEOUT_MS },
+    async () => {
+      const dir = await directory((created) => allowBuiltinUsersToWrite(securePrivateDirectory(created)));
+      try {
+        const { calls, reader } = spied();
+        await expect(assertWindowsAcl([dir], reader)).rejects.toMatchObject({ code: "RUNTIME_UNSAFE_PERMISSIONS" });
+        expect(calls).toEqual(["dotnet"]);
+        const second = await reader.read([dir], "get-acl");
+        expect(aclProblem(parseSddl(second.sddls[0] as string), { currentUserSid: second.currentUserSid })).toContain(
+          "S-1-5-32-545",
+        );
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+  );
 
-  it("reproduces the bug: the old inherited-environment Get-Acl call fails when PowerShell 7 modules lead PSModulePath", async () => {
-    // Informative, not a gate: it only says something where PowerShell 7 is installed.
-    const ps7 = "C:\\Program Files\\PowerShell\\7";
-    const exec = (): string =>
-      execFileSync(
-        path.win32.join(
-          process.env.SystemRoot ?? "C:\\Windows",
-          "System32",
-          "WindowsPowerShell",
-          "v1.0",
-          "powershell.exe",
-        ),
-        ["-NoProfile", "-NonInteractive", "-Command", "(Get-Acl -LiteralPath $env:TEMP).Sddl"],
-        { env: ps7Env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 20_000 },
+  it(
+    "reproduces the bug: the old inherited-environment Get-Acl call fails when PowerShell 7 modules lead PSModulePath",
+    { timeout: REAL_READER_TIMEOUT_MS },
+    async () => {
+      // Informative, not a gate: it only says something where PowerShell 7 is installed.
+      const ps7 = "C:\\Program Files\\PowerShell\\7";
+      const exec = (): string =>
+        execFileSync(
+          windowsPowerShell(),
+          ["-NoProfile", "-NonInteractive", "-Command", "(Get-Acl -LiteralPath $env:TEMP).Sddl"],
+          { env: ps7Env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 20_000 },
+        );
+      if (!existsSync(ps7)) return;
+      let failure = "";
+      try {
+        exec();
+      } catch (error) {
+        failure = String((error as { stderr?: unknown }).stderr ?? error);
+      }
+      console.info(
+        failure === "" ? "old command still works on this runner" : `old command fails: ${failure.slice(0, 200)}`,
       );
-    if (!existsSync(ps7)) return;
-    let failure = "";
-    try {
-      exec();
-    } catch (error) {
-      failure = String((error as { stderr?: unknown }).stderr ?? error);
-    }
-    console.info(
-      failure === "" ? "old command still works on this runner" : `old command fails: ${failure.slice(0, 200)}`,
-    );
-  });
+    },
+  );
 });

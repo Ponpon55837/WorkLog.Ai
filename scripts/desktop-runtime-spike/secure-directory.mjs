@@ -11,6 +11,7 @@
  */
 import { execFileSync } from "node:child_process";
 import process from "node:process";
+import { windowsSystemTool } from "../../packages/shared/dist/windows-system-tool.js";
 
 const SYSTEM_SID = "S-1-5-18";
 const ADMINISTRATORS_SID = "S-1-5-32-544";
@@ -48,9 +49,12 @@ export function builtinUsersWriteArguments(directory) {
   return [directory, "/grant", `*${BUILTIN_USERS_SID}:(OI)(CI)M`];
 }
 
-/** `execFileSync` with an argument array (no shell), so paths with spaces and non-ASCII characters pass unchanged. */
-function runWindowsTool(file, args) {
-  return execFileSync(file, args, {
+/**
+ * `execFileSync` of a System32 tool by absolute path (never PATH: Git for Windows ships its own `whoami.exe`) with an
+ * argument array (no shell), so paths with spaces and non-ASCII characters pass unchanged.
+ */
+function runWindowsTool(name, args) {
+  return execFileSync(windowsSystemTool(name), args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     timeout: COMMAND_TIMEOUT_MS,
@@ -58,21 +62,22 @@ function runWindowsTool(file, args) {
   });
 }
 
-function currentUserSid() {
-  cachedUserSid ??= parseWhoamiSid(runWindowsTool("whoami", ["/user", "/fo", "csv", "/nh"]));
+/** The SID of the current user, read once from System32\whoami.exe. Windows only. */
+export function currentUserSid() {
+  cachedUserSid ??= parseWhoamiSid(runWindowsTool("whoami.exe", ["/user", "/fo", "csv", "/nh"]));
   return cachedUserSid;
 }
 
 /** Restricts `directory` to the current user, SYSTEM and Administrators on Windows (see the file comment); returns it. */
 export function securePrivateDirectory(directory) {
   if (process.platform !== "win32") return directory;
-  runWindowsTool("icacls", privateDirectoryAclArguments(directory, currentUserSid()));
+  runWindowsTool("icacls.exe", privateDirectoryAclArguments(directory, currentUserSid()));
   return directory;
 }
 
 /** Grants BUILTIN\Users modify on `directory` and below on Windows, for the negative test; does nothing elsewhere. */
 export function allowBuiltinUsersToWrite(directory) {
   if (process.platform !== "win32") return directory;
-  runWindowsTool("icacls", builtinUsersWriteArguments(directory));
+  runWindowsTool("icacls.exe", builtinUsersWriteArguments(directory));
   return directory;
 }

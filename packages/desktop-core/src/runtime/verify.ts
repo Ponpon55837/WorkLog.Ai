@@ -45,6 +45,14 @@ export interface VerifyRuntimeOptions {
   readonly checkAcl?: boolean;
   /** Windows: read the ACLs even when every file is a cache hit (installing or switching to a runtime). */
   readonly alwaysCheckAcl?: boolean;
+  /**
+   * Windows: the stamp ({@link VerifiedRuntime.aclStamp}) of an ACL read this same process made a moment ago, for one
+   * provisioning that verifies twice (install, then commit). With `alwaysCheckAcl`, the read is skipped when every object
+   * covered now has exactly the ctime and inode that stamp recorded and no object is covered that the read did not
+   * cover (same labels). Any difference, or any file that missed the fingerprint cache, reads the ACLs as usual. Never
+   * taken from disk: the `.verified.json` stamp may be from an earlier process and is not enough for an always-check.
+   */
+  readonly reuseAclStamp?: AclStamp;
 }
 
 /** A runtime that passed every check. */
@@ -58,6 +66,8 @@ export interface VerifiedRuntime {
   readonly aclRead: boolean;
   /** Windows: which tier read the ACLs and how long each tier took; present only when they were read this time (absent when skipped or served from the stamp cache). */
   readonly aclReport?: AclReadReport;
+  /** Windows: the change-time stamp of the objects that read vouched for; present exactly when the ACLs were read this time. */
+  readonly aclStamp?: AclStamp;
   readonly fileCount: number;
   /** Files whose content was read and hashed this time. */
   readonly hashedCount: number;
@@ -214,14 +224,14 @@ async function checkWindowsAcl(
   root: string,
   runtimeDirectory: string,
   manifest: RuntimeManifest,
-  previous: AclStamp | undefined,
+  known: AclStamp | undefined,
   force: boolean,
   reader: WindowsAclReader | undefined,
 ): Promise<{ readonly report?: AclReadReport; readonly stamp: AclStamp }> {
   const targets = await aclTargets(root, runtimeDirectory, manifest);
   const stamp: Record<string, AclStampEntry> = {};
   for (const target of targets) if (target.stamp !== undefined) stamp[target.label] = target.stamp;
-  if (!force && previous !== undefined && sameAclStamp(previous, stamp)) return { stamp };
+  if (!force && known !== undefined && sameAclStamp(known, stamp)) return { stamp };
   const report = await assertWindowsAcl(
     targets.map((target) => target.path),
     reader ?? createWindowsAclReader(),
@@ -385,15 +395,17 @@ export async function verifyRuntime(
   }
 
   // The permissions are read when it can matter: an install or switch, a full pass, a cache that vouched for nothing, or
-  // any file that missed it. Otherwise only when the ACL stamp changed (see checkWindowsAcl).
+  // any file that missed it. Otherwise only when the ACL stamp changed (see checkWindowsAcl). An install or switch trusts
+  // only a stamp this process just produced, never the one on disk.
+  const alwaysCheck = options.alwaysCheckAcl === true;
   const acl =
     policy.platform === "win32" && options.checkAcl !== false
       ? await checkWindowsAcl(
           root,
           runtimeDirectory,
           manifest,
-          cache?.acl,
-          options.alwaysCheckAcl === true || !useCache || previous.size === 0 || toHash.length > 0,
+          alwaysCheck ? options.reuseAclStamp : cache?.acl,
+          !useCache || previous.size === 0 || toHash.length > 0,
           options.aclReader,
         )
       : undefined;
@@ -421,7 +433,7 @@ export async function verifyRuntime(
     manifest,
     acl: policy.platform === "win32" && options.checkAcl === false ? "skipped" : "checked",
     aclRead: acl?.report !== undefined,
-    ...(acl?.report ? { aclReport: acl.report } : {}),
+    ...(acl?.report ? { aclReport: acl.report, aclStamp: acl.stamp } : {}),
     fileCount: manifest.files.length,
     hashedCount: toHash.length,
     cachedCount: manifest.files.length - toHash.length,

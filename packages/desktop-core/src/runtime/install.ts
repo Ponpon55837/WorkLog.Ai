@@ -45,6 +45,8 @@ export interface InstallRuntimeOptions {
   readonly fullVerification?: boolean;
   /** Windows: how the ACLs are read (tests inject fixtures). */
   readonly aclReader?: VerifyRuntimeOptions["aclReader"];
+  /** Platform and uid for the permission check, as in VerifyRuntimeOptions (tests run the Windows policy on any platform). */
+  readonly policy?: VerifyRuntimeOptions["policy"];
   /** Windows: false for a runtime installed on a build machine (content only, `acl: "skipped"`); see VerifyRuntimeOptions. */
   readonly checkAcl?: boolean;
 }
@@ -161,6 +163,7 @@ export async function installRuntime(
     alwaysCheckAcl: true,
     ...(options.checkAcl === undefined ? {} : { checkAcl: options.checkAcl }),
     ...(options.aclReader ? { aclReader: options.aclReader } : {}),
+    ...(options.policy ? { policy: options.policy } : {}),
   });
   return { manifest, runtimeDirectory, verification };
 }
@@ -168,6 +171,8 @@ export async function installRuntime(
 /**
  * Makes `runtimeId` the current runtime: verifies it completely, then replaces `current` atomically (temp file,
  * fsync, rename). A reader sees the old id or the new one, never a torn file, and an invalid runtime is never pointed at.
+ * On Windows the ACLs are read again here unless `options.reuseAclStamp` (the `aclStamp` of the verification
+ * {@link installRuntime} just returned) matches every object exactly; see {@link VerifyRuntimeOptions.reuseAclStamp}.
  */
 export async function commitCurrent(
   root: string,

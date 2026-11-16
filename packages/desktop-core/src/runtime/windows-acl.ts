@@ -1,5 +1,11 @@
 import { execFile as nodeExecFile } from "node:child_process";
 import path from "node:path";
+import {
+  windowsPowerShell,
+  windowsSystem32Directory,
+  windowsSystemRoot,
+  windowsSystemTool,
+} from "@work-intelligence/shared/windows-system-tool";
 import { RuntimeError } from "./errors.js";
 
 /** One access control entry, reduced to what the trust decision needs. */
@@ -129,13 +135,19 @@ const WRITE_MASK = 0x2 | 0x4 | 0x10 | 0x40 | 0x100 | 0x10000 | 0x40000 | 0x80000
 /** Ace types that only take rights away; every other type is treated as granting them. */
 const DENY_TYPES: ReadonlySet<string> = new Set(["D", "OD", "XD", "ZD"]);
 
-const ACL_TIMEOUT_MS = 10_000;
+/** Tier 1 (.NET API): one PowerShell start, about 0.4 s on a CI runner. */
+const DOTNET_TIMEOUT_MS = 10_000;
+/**
+ * Tier 2 (`Get-Acl`, the path of Constrained Language Mode users): CI measured 5 to 10 s before the module was imported
+ * by path (command discovery across PSModulePath), which left no margin under 10 s. Tighten this from the measurements
+ * the Windows-only test prints once the explicit import has proven itself.
+ */
+const GET_ACL_TIMEOUT_MS = 30_000;
 const ACL_MAX_BUFFER = 1024 * 1024;
 const PATH_SEPARATOR = "|";
 const PATHS_VARIABLE = "WI_ACL_PATHS";
 const SID_PATTERN = /^S-1-\d+(?:-\d+)+$/;
 const WHOAMI_SID_PATTERN = /"(S-1-\d+(?:-\d+)+)"\s*$/;
-const DEFAULT_SYSTEM_ROOT = "C:\\Windows";
 const POWERSHELL_ARGUMENTS = ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"] as const;
 /** The only variables PowerShell inherits from the parent; the rest (PSModulePath, Path, ...) is set or left out. */
 const INHERITED_VARIABLES = [
@@ -167,9 +179,15 @@ const DOTNET_SCRIPT =
   "if([IO.Directory]::Exists($p)){$a=[IO.Directory]::GetAccessControl($p,$s)}else{$a=[IO.File]::GetAccessControl($p,$s)}" +
   "[Console]::Out.WriteLine($a.GetSecurityDescriptorSddlForm($s))}}" +
   "catch{[Console]::Error.WriteLine($_.Exception.Message);exit 1}";
-/** Tier 2, for Constrained Language Mode, where tier 1's method calls fail: one SDDL line per path. */
+/**
+ * Tier 2, for Constrained Language Mode, where tier 1's method calls fail: one SDDL line per path. The security module
+ * is imported by absolute path first (allowed in Constrained Language Mode for a system module): without it `Get-Acl`
+ * finds its module by auto-loading, which analyses every module on the PSModulePath and is slow.
+ */
 const GET_ACL_SCRIPT =
-  "$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';foreach($p in $env:WI_ACL_PATHS.Split('|')){(Get-Acl -LiteralPath $p).Sddl}";
+  "$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';" +
+  "Import-Module -Name (Join-Path $PSHOME 'Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1');" +
+  "foreach($p in $env:WI_ACL_PATHS.Split('|')){(Get-Acl -LiteralPath $p).Sddl}";
 
 /** `execFile` (no shell: the arguments are an argv) as a promise. */
 const nodeExec: ExecFileLike = (file, args, options) =>
@@ -297,17 +315,12 @@ function powerShellEnvironment(env: NodeJS.ProcessEnv, paths: readonly string[])
     const value = key === undefined ? undefined : env[key];
     if (value !== undefined) child[name] = value;
   }
-  const systemRoot = child.SystemRoot ?? DEFAULT_SYSTEM_ROOT;
-  const powerShellDirectory = path.win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0");
+  const systemRoot = windowsSystemRoot(child);
+  const powerShellDirectory = path.win32.dirname(windowsPowerShell(child));
   child.PSModulePath = path.win32.join(powerShellDirectory, "Modules");
-  child.Path = [path.win32.join(systemRoot, "System32"), systemRoot, powerShellDirectory].join(";");
+  child.Path = [windowsSystem32Directory(child), systemRoot, powerShellDirectory].join(";");
   child[PATHS_VARIABLE] = paths.join(PATH_SEPARATOR);
   return child;
-}
-
-function systemRootOf(env: NodeJS.ProcessEnv): string {
-  const key = Object.keys(env).find((candidate) => candidate.toLowerCase() === "systemroot");
-  return (key === undefined ? undefined : env[key]) || DEFAULT_SYSTEM_ROOT;
 }
 
 /**
@@ -319,17 +332,24 @@ export function createWindowsAclReader(
   exec: ExecFileLike = nodeExec,
   env: NodeJS.ProcessEnv = process.env,
 ): WindowsAclReader {
-  const systemDirectory = path.win32.join(systemRootOf(env), "System32");
   let whoamiSid: string | undefined;
 
-  const run = (file: string, args: readonly string[], childEnv: NodeJS.ProcessEnv) =>
-    exec(file, args, { env: childEnv, timeout: ACL_TIMEOUT_MS, windowsHide: true, maxBuffer: ACL_MAX_BUFFER });
+  const run = (file: string, args: readonly string[], childEnv: NodeJS.ProcessEnv, timeout: number) =>
+    exec(file, args, { env: childEnv, timeout, windowsHide: true, maxBuffer: ACL_MAX_BUFFER });
 
-  const runPowerShell = (script: string, paths: readonly string[]) =>
-    run(
-      path.win32.join(systemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"),
-      [...POWERSHELL_ARGUMENTS, script],
-      powerShellEnvironment(env, paths),
+  const runPowerShell = (script: string, paths: readonly string[], timeout: number) =>
+    run(windowsPowerShell(env), [...POWERSHELL_ARGUMENTS, script], powerShellEnvironment(env, paths), timeout);
+
+  const readWhoamiSid = async () =>
+    parseWhoamiSid(
+      (
+        await run(
+          windowsSystemTool("whoami.exe", env),
+          ["/user", "/fo", "csv", "/nh"],
+          powerShellEnvironment(env, []),
+          GET_ACL_TIMEOUT_MS,
+        )
+      ).stdout,
     );
 
   // PowerShell may still write a serialized progress record ("#< CLIXML" then one `<Objs …>` line) to stdout on the first
@@ -340,20 +360,24 @@ export function createWindowsAclReader(
   return {
     read: async (paths, tier = "dotnet") => {
       if (tier === "get-acl") {
-        whoamiSid ??= parseWhoamiSid(
-          (
-            await run(
-              path.win32.join(systemDirectory, "whoami.exe"),
-              ["/user", "/fo", "csv", "/nh"],
-              powerShellEnvironment(env, []),
-            )
-          ).stdout,
-        );
-        const sddls = lines((await runPowerShell(GET_ACL_SCRIPT, paths)).stdout);
+        // whoami and PowerShell are independent processes: they run side by side, and both failures are reported.
+        const [sid, acls] = await Promise.allSettled([
+          whoamiSid === undefined ? readWhoamiSid() : Promise.resolve(whoamiSid),
+          runPowerShell(GET_ACL_SCRIPT, paths, GET_ACL_TIMEOUT_MS),
+        ]);
+        if (sid.status === "rejected" && acls.status === "rejected") {
+          throw new Error(`whoami: ${messageOf(sid.reason)}; powershell: ${messageOf(acls.reason)}`, {
+            cause: acls.reason,
+          });
+        }
+        if (sid.status === "rejected") throw sid.reason;
+        if (acls.status === "rejected") throw acls.reason;
+        whoamiSid = sid.value;
+        const sddls = lines(acls.value.stdout);
         if (sddls.length !== paths.length) throw new RangeError("unexpected number of ACLs returned");
         return { currentUserSid: whoamiSid, sddls };
       }
-      const output = lines((await runPowerShell(DOTNET_SCRIPT, paths)).stdout);
+      const output = lines((await runPowerShell(DOTNET_SCRIPT, paths, DOTNET_TIMEOUT_MS)).stdout);
       const currentUserSid = output.shift()?.trim() ?? "";
       if (!SID_PATTERN.test(currentUserSid)) throw new RangeError("the current user's SID was not returned");
       if (output.length !== paths.length) throw new RangeError("unexpected number of ACLs returned");

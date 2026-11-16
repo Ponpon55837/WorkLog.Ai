@@ -43,6 +43,10 @@
       "types": "./dist/backup-name.d.ts",
       "import": "./dist/backup-name.js"
     },
+    "./windows-system-tool": {
+      "types": "./dist/windows-system-tool.d.ts",
+      "import": "./dist/windows-system-tool.js"
+    },
     "./loopback-port": {
       "types": "./dist/loopback-port.d.ts",
       "import": "./dist/loopback-port.js"

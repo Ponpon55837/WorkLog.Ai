@@ -6,6 +6,11 @@ import { delimiter, join } from "node:path";
 import process from "node:process";
 import { performance } from "node:perf_hooks";
 import { clearTimeout, setTimeout } from "node:timers";
+import {
+  windowsCommandShell,
+  windowsPowerShell,
+  windowsSystemTool,
+} from "../../packages/shared/dist/windows-system-tool.js";
 
 const WINDOWS = process.platform === "win32";
 
@@ -100,7 +105,7 @@ export function noNodeEnvironment(root, port) {
 function shimCommand(shim, args) {
   if (!WINDOWS) return { command: shim, args, options: {} };
   return {
-    command: process.env.ComSpec ?? "cmd.exe",
+    command: windowsCommandShell(),
     args: ["/d", "/s", "/c", `""${shim}" ${args.join(" ")}"`],
     options: { windowsVerbatimArguments: true },
   };
@@ -138,7 +143,7 @@ export class Launched {
   async stop() {
     if (!this.running) return;
     if (WINDOWS) {
-      spawnSync("taskkill", ["/pid", String(this.child.pid), "/T", "/F"], { windowsHide: true });
+      spawnSync(windowsSystemTool("taskkill.exe"), ["/pid", String(this.child.pid), "/T", "/F"], { windowsHide: true });
     } else {
       this.child.kill("SIGTERM");
     }
@@ -252,7 +257,7 @@ export class McpSession {
 export function runtimePid(launched, executableName) {
   if (!WINDOWS) return launched.child.pid;
   const script = `(Get-CimInstance Win32_Process -Filter "ParentProcessId=${launched.child.pid} AND Name='${executableName}'").ProcessId`;
-  const result = spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", script], {
+  const result = spawnSync(windowsPowerShell(), ["-NoProfile", "-NonInteractive", "-Command", script], {
     encoding: "utf8",
     windowsHide: true,
   });
@@ -260,7 +265,7 @@ export function runtimePid(launched, executableName) {
 }
 
 function powershellNumber(expression) {
-  const result = spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", expression], {
+  const result = spawnSync(windowsPowerShell(), ["-NoProfile", "-NonInteractive", "-Command", expression], {
     encoding: "utf8",
     windowsHide: true,
   });

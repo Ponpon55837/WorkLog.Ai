@@ -13,6 +13,7 @@ export default defineConfig({
       "@work-intelligence/shared/backup-name": sharedSource("backup-name"),
       "@work-intelligence/shared/instance-proof": sharedSource("instance-proof"),
       "@work-intelligence/shared/loopback-port": sharedSource("loopback-port"),
+      "@work-intelligence/shared/windows-system-tool": sharedSource("windows-system-tool"),
       "@work-intelligence/schema": fileURLToPath(new URL("../schema/src/index.ts", import.meta.url)),
     },
   },

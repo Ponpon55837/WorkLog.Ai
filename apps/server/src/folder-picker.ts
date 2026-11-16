@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { posix, win32 } from "node:path";
 import type { FolderPickResult } from "@work-intelligence/core";
+import { windowsPowerShell } from "@work-intelligence/shared/windows-system-tool";
 
 export type CommandRunner = (file: string, args: readonly string[], timeoutMs: number) => Promise<CommandResult>;
 
@@ -189,7 +190,7 @@ export const runCommand: CommandRunner = (file, args, timeoutMs) =>
 type DialogCommand = { file: string; args: string[]; isCancel: (result: CommandResult) => boolean };
 
 /** Native folder dialogs per platform, in the order to try them. */
-export function folderDialogCommands(platform: NodeJS.Platform): DialogCommand[] {
+export function folderDialogCommands(platform: NodeJS.Platform, env: NodeJS.ProcessEnv = process.env): DialogCommand[] {
   if (platform === "darwin") {
     return [
       {
@@ -204,7 +205,8 @@ export function folderDialogCommands(platform: NodeJS.Platform): DialogCommand[]
   if (platform === "win32") {
     return [
       {
-        file: "powershell.exe",
+        // An absolute System32 path: a bare name would find a look-alike first when Git or MSYS is on PATH.
+        file: windowsPowerShell(env),
         args: ["-NoProfile", "-NonInteractive", "-STA", "-EncodedCommand", WINDOWS_PICKER_ENCODED_SCRIPT],
         isCancel: (result) => result.code === 2,
       },
@@ -238,6 +240,7 @@ function trimFolderPath(value: string): string {
 export function createFolderPicker(
   platform: NodeJS.Platform = process.platform,
   run: CommandRunner = runCommand,
+  env: NodeJS.ProcessEnv = process.env,
 ): () => Promise<FolderPickResult> {
   let busy = false;
   return async () => {
@@ -246,7 +249,7 @@ export function createFolderPicker(
     }
     busy = true;
     try {
-      for (const command of folderDialogCommands(platform)) {
+      for (const command of folderDialogCommands(platform, env)) {
         let result: CommandResult;
         try {
           result = await run(command.file, command.args, PICK_TIMEOUT_MS);
