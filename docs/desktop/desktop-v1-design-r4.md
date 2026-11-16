@@ -165,7 +165,7 @@ Desktop 相關 package 應位於獨立界線（建議 `apps/desktop`），核心
 
 1. **收集候選來源（不寫入）**：桌面已提交設定、使用者顯式選擇、OS 舊服務實際定義、受支援的 plugin link、可安全辨識的 Agent MCP 設定、standalone 預設、checkout 預設。候選須紀錄來源類型、原字串、解析基準、展開後絕對路徑與是否受當前使用者管理。[D]
 2. **辨識有效性（不寫入）**：保留 `missing`、`offline`（卸載）、`denied`、`unreadable`、`unsupported-schema`、`ok`、`conflict` 等互不混淆的狀態。唯讀取得的 schema／專案數僅作「預覽」，不能取代 DB 唯一身分。[D]
-3. **判定唯一性**：比較正規化路徑、可取得的 OS 檔案身分（POSIX dev/inode、Windows 檔案識別）與 DB 自身識別。**DB 唯一身分策略仍需設計與測試**，不得僅以路徑字串或專案數判定。[T]
+3. **判定唯一性**：比較正規化路徑、可取得的 OS 檔案身分（POSIX dev/inode、Windows 檔案識別）與 DB 自身識別。**DB 唯一身分策略已於 1.6.42 定案，見 [ADR-36](desktop-v1-adr.md)**：正規化路徑、檔案 ID 與唯讀血統指紋並用，不得僅以路徑字串或專案數判定。[D] Windows 檔案 ID 的實機行為仍待驗證。[T]
 4. **選擇**：只有唯一且多來源一致、DB 可讀且 schema 受支援，才能建議「沿用」。有已知衝突、無法證實來源或外接來源遺失時，不自動 fallback 建空庫。新建只能在使用者明確接受的新位置進行。[D]
 5. **提交前重驗**：取得明確同意 → 確認目標位置與檔案身分在預覽後未被替換（TOCTOU）→ 確認 port 與服務所有權 → 必要的備份與 schema 前置條件 → 才允許正式後端開啟 DB。[D]
 6. **新建 DB**：先檢查父目錄的可用性、容量與權限，明確記錄這是「建立」而非「恢復」。任何失敗都保留使用者已選定的路徑，切勿默默換到另一個預設值。[D]
@@ -177,6 +177,7 @@ Desktop 相關 package 應位於獨立界線（建議 `apps/desktop`），核心
 - **唯讀不等於 0 寫入。** SQLite 在 WAL 模式下，即使以唯讀方式開庫，仍可能需要既有的 `-wal`／`-shm` 或在可寫資料夾建立這些 sidecar。「readOnly」是不修改業務資料的意圖；檢測時須以檔案系統監測驗證實際行為，且**未經使用者同意不得刪除或搬動 WAL/SHM**。[U][T]
 - **活躍資料庫禁止 `immutable=1`**：它會跳過變更偵測，等於假設資料永不改變。[U]
 - **風險來源**：軟連結、硬連結、UNC/SMB/NFS、可移除裝置與會自行同步的雲端資料夾都標示為風險來源。SQLite WAL 官方不支援多主機網路檔案系統上的共享記憶體模式；V1 對不可靠的網路共享 DB **禁止自動接管與遷移**，僅提供診斷與轉存建議。[U][D]
+- **1.6.42 觀察（本機 Node 22.23.4／SQLite 3.53.4，`[T]`，非發行產物）**：唯讀開啟已正常關閉的 WAL 資料庫，會在同一資料夾建立並保留 `-wal`、`-shm`；主檔的 SHA-256、mtime 與業務資料列皆不變。另一寫入端持續寫入且 WAL 非空時，preflight 不改變 sidecar，並讀得到只存在於 WAL 中的資料列。因此「唯讀不等於 0 寫入」已確認，預覽不刪除任何 sidecar；Windows 行為待實機驗證。詳見 [ADR-07](desktop-v1-adr.md)。
 
 ### 3.2 Agent 整合：安裝、驗證、修復與移除
 
@@ -570,7 +571,7 @@ Web 只能送固定動作與經 schema 驗證的值。特權資料夾選擇、�
 
 - `desired` 可能尚未生效，絕不可顯示為「目前使用中」；`active` 是完成 IPC、API、schema 驗證後才提交的結果。
 - `installId` 不能當作授權密鑰；存放路徑與其 ACL 是另一層安全問題。
-- `databaseIdentity` 是待確認的策略，不應直接用純路徑或專案數。若要在 DB 內新增 UUID，必須避免預覽舊庫時寫入；可在新庫建立時產生，舊庫在獲授權的 migration 時才補上，並搭配檔案身分與 schema 確認。`[T]`
+- `databaseIdentity` 已於 1.6.42 定案為正規化路徑、檔案 ID 與唯讀血統指紋的組合，見 [ADR-36](desktop-v1-adr.md)。嵌入 UUID 延後：預覽舊庫時絕不寫入，只能在日後經授權的 migration 中補上。`[T]`
 - `runtimeVersion` 不能只用行銷版本字串，應綁定 build hash、runtime binary／Node 能力與 package manifest。
 - 設定格式升級須支援讀舊版本並 fail-closed；設定壞掉時優先修復，不得開空庫。
 
@@ -617,7 +618,7 @@ Web 只能送固定動作與經 schema 驗證的值。特權資料夾選擇、�
 **實驗（實作前必做）**：在兩個 Node 程序同時連到 WAL SQLite 的情況下，讓舊 MCP 長連線保持閒置；另一個程序複製快照並執行 schema migration；然後觸發舊 MCP 的工具寫入。記錄 schema version、回應、SQLite 例外與是否誤寫，證明實際的攔截位置。R4 新增測試組合：
 
 1. 舊版 MCP 寫入路徑（`withCompatibleSchema`）：確認拒寫並回 `MCP_RESTART_REQUIRED`。
-2. HTTP API 寫入端：T2 已實作（commit 3ff1e45）；待 §10.4 的程序組合實驗確認舊程序寫入回 `server_restart_required`（HTTP 503）。
+2. HTTP API 寫入端：T2 已實作（commit 3ff1e45）；1.6.42 的程序組合實驗（DT-04，commit 5bdd530）已確認舊程序寫入回 `server_restart_required`（HTTP 503）且無誤寫 `[T]`。
 3. 長駐 CLI 寫入端與長任務提交：同上。
 4. 組合：新／舊 CLI、standalone、Codex plugin、Claude Code plugin、MCPB、未經 launcher 的手動 stdio 設定，各跑一次。
 
@@ -628,6 +629,29 @@ Web 只能送固定動作與經 schema 驗證的值。特權資料夾選擇、�
 3. 若無法安全排除外部寫入端，將更新分成「安裝 App」與「稍後升級資料庫」，暫時維持原相容 backend 或修復模式；絕不可自行硬升 DB。
 
 **方案 1 與 2 並非萬靈丹；須以實際程序組合證明可靠性。**
+
+#### DT-04 實驗結果（1.6.42）
+
+實驗位於 `tests/server/old-writer-barrier.test.ts`（輔助程式為 `tests/helpers/old-writer-barrier*.ts`）。LATEST 為 33，合成的 migration 為 34，`PRAGMA schema_version` 由 266 增為 268。以下為開發機上的結果（`[T]`）：
+
+| 情境 | 結果 | 對應組合 |
+|---|---|---|
+| 舊 MCP stdio 寫入 | `MCP_RESTART_REQUIRED` | 1 |
+| 舊 HTTP API 寫入 | 503 `server_restart_required`；GET 仍為 200 | 2 |
+| 長駐 Store 程序（CLI、長任務提交）於提交時 | `DATABASE_SCHEMA_CHANGED` | 3 |
+| 長任務持有寫入鎖時的 migration | migration 取得 `SQLITE_BUSY`；任務提交合法；之後 migration 成功 | 3 |
+| migration 之後才啟動的舊程序（Store、CLI 備份、MCP） | `DATABASE_SCHEMA_VERSION_TOO_NEW` | 4（部分：舊 CLI 與 MCP） |
+| 被拒絕的寫入 | 0 個資料列 | — |
+| 各情境的 `integrity_check` | 皆為 ok | — |
+| migration 前以 `VACUUM INTO` 建立的快照 | 可讀、integrity ok、可由應用程式開啟 | — |
+
+**結論：**
+
+- **方案 1 為主要屏障**：已確認 MCP、HTTP API 與長駐 Store 寫入端，都會在交易邊界拒絕寫入或回報 schema 變更。
+- **方案 2 仍需實作**：須阻止舊 launcher 啟動舊 MCP。未知的外部 client 不能假設可被強制中斷。
+- **方案 3 保留為備援**：無法安全排除外部寫入端時，更新分為「安裝 App」與「稍後升級資料庫」，絕不自行硬升 DB。
+- **前置檢查**：repo checkout 的 MCP 另有較早的 build identity 檢查，會先回 `MCP_RESTART_REQUIRED`，因此 MCP 的結果包含此前置檢查。
+- **未驗證**：組合 4 的其餘部分（Codex plugin、Claude Code plugin、MCPB、未經 launcher 的手動 stdio 設定）與 Windows 檔案鎖、WAL 行為，待實機驗收。本實驗不證明外部 client 的行為。
 
 ---
 
