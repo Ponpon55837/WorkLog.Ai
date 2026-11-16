@@ -23,7 +23,7 @@ This release blocks writes from a process that is older than the database schema
 ### Fixed
 
 - Adding or renaming a project, the periodic summary-history prune, Knowledge candidate, report synthesis and metadata backfill request updates, and the read-audit prune now run in write transactions, so they take the write lock and pass the schema check.
-- `pnpm db:export --out x.json` (or `--out=x.json`) without `--all` or `--project` no longer writes a full SQLite copy named `--out` into the current directory. Any portable-export option now selects the JSON export, and `--out` alone means `--all`. The positional snapshot form `db:export <file>` refuses names that start with `-`. The shared argument check (`cli-args.ts`) now also refuses a valued option with a missing or empty value (a trailing `--project` used to import every project) and a lone `-` or `--`; the `track`, `import`, `restore` and `backups --delete` commands use it, and every failure path writes nothing.
+- `pnpm db:export --out x.json` (or `--out=x.json`) without `--all` or `--project` no longer writes a full SQLite copy named `--out` into the current directory. Any portable-export option now selects the JSON export, and `--out` alone means `--all`. The positional snapshot form `db:export <file>` refuses names that start with `-`. The shared argument check (`cli-args.ts`) now also refuses a valued option with a missing or empty value (a trailing `--project` used to import every project), an empty argument (`db:export ""`) and a lone `-` or `--`, and its errors say to write `./-name` or `--option=-value` for a path or value that starts with `-`; the `track`, `import`, `restore` and `backups --delete` commands use it, and every failure path writes nothing.
 
 ## [1.6.40] - 2026-11-15
 

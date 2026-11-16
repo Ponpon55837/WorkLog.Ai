@@ -202,7 +202,10 @@ const IMMUTABLE_PARENT_COLUMNS: Partial<Record<ProjectDataTable, readonly string
 /** Temporary shift while renumbering local page versions, so the unique (page, version) index never collides mid-update. */
 const PAGE_VERSION_OFFSET = 1_000_000;
 const CONFLICT_GROUP_SAMPLE_LIMIT = 5;
-/** Same order as `String.prototype.localeCompare`, without re-resolving the locale on every comparison. */
+/**
+ * Same order as `String.prototype.localeCompare`, without re-resolving the locale on every comparison. The order
+ * follows the host's default locale, as it always has; changing it would change the exported bytes.
+ */
 const EXPORT_ORDER_COLLATOR = new Intl.Collator();
 const PARENT_OTHER_PROJECT_REASON = "上層資料屬於另一個專案。";
 const MISSING_PROJECT_REASON = "所屬專案不在匯入檔中。";
@@ -458,10 +461,19 @@ function sqlRows(
   return db.prepare(sql).all(...values) as unknown as ProjectDataRow[];
 }
 
+function sortExportRows(table: ProjectDataTable, rows: ProjectDataRow[]): ProjectDataRow[] {
+  return rows.sort((left, right) => {
+    if (table === "outstanding_item_events") {
+      const byCreatedAt = EXPORT_ORDER_COLLATOR.compare(String(left.created_at), String(right.created_at));
+      if (byCreatedAt !== 0) return byCreatedAt;
+    }
+    return EXPORT_ORDER_COLLATOR.compare(String(left.id), String(right.id));
+  });
+}
+
 /**
  * Rows whose `column` is in `ids`, in batches that stay under SQLite's variable limit. With `viaSessions`, `ids` are
- * project ids and the rows are those of the projects' Sessions, selected by a subquery: a whole-database export no
- * longer binds thousands of Session ids per table, nor merges one result per batch.
+ * project ids and the rows are those of the projects' Sessions, selected by a subquery.
  */
 function rowsByIds(
   db: DatabaseSync,
@@ -482,13 +494,20 @@ function rowsByIds(
       : `${column} IN (${placeholders})`;
     for (const row of sqlRows(db, table, where, [...batch])) results.push(row);
   }
-  return results.sort((left, right) => {
-    if (table === "outstanding_item_events") {
-      const byCreatedAt = EXPORT_ORDER_COLLATOR.compare(String(left.created_at), String(right.created_at));
-      if (byCreatedAt !== 0) return byCreatedAt;
-    }
-    return EXPORT_ORDER_COLLATOR.compare(String(left.id), String(right.id));
-  });
+  return sortExportRows(table, results);
+}
+
+/** Rows of a Session-owned table: a whole-database export reads the table directly, a project export goes through its Sessions. */
+function sessionRows(
+  db: DatabaseSync,
+  scope: ProjectDataExportScope,
+  table: ProjectDataTable,
+  projectIds: readonly string[],
+): ProjectDataRow[] {
+  if (projectIds.length === 0) return [];
+  return scope.type === "all"
+    ? sortExportRows(table, sqlRows(db, table))
+    : rowsByIds(db, table, "session_id", projectIds, true);
 }
 
 function getRows(db: DatabaseSync, table: ProjectDataTable): Set<string> {
@@ -536,11 +555,11 @@ function selectExportRows(db: DatabaseSync, scope: ProjectDataExportScope): Reco
   const rows: Record<ProjectDataTable, ProjectDataRow[]> = {
     projects,
     sessions,
-    work_events: rowsByIds(db, "work_events", "session_id", projectIds, true),
+    work_events: sessionRows(db, scope, "work_events", projectIds),
     raw_snapshots: rowsByIds(db, "raw_snapshots", "project_id", projectIds),
     evidence: rowsByIds(db, "evidence", "project_id", projectIds),
     void_audit: rowsByIds(db, "void_audit", "project_id", projectIds),
-    session_verification_updates: rowsByIds(db, "session_verification_updates", "session_id", projectIds, true),
+    session_verification_updates: sessionRows(db, scope, "session_verification_updates", projectIds),
     session_links: sqlRows(db, "session_links").filter(
       (link) => sessionIdSet.has(String(link.session_id)) && sessionIdSet.has(String(link.related_session_id)),
     ),
@@ -572,8 +591,8 @@ function selectExportRows(db: DatabaseSync, scope: ProjectDataExportScope): Reco
             `(scope_type = 'project' AND project_id = ?) OR (scope_type = 'all' AND ${CITES_SESSIONS_SQL})`,
             [scope.projectId, sessionIdsJson],
           ),
-    session_summary_updates: rowsByIds(db, "session_summary_updates", "session_id", projectIds, true),
-    session_work_summary_updates: rowsByIds(db, "session_work_summary_updates", "session_id", projectIds, true),
+    session_summary_updates: sessionRows(db, scope, "session_summary_updates", projectIds),
+    session_work_summary_updates: sessionRows(db, scope, "session_work_summary_updates", projectIds),
     outstanding_items: rowsByIds(db, "outstanding_items", "project_id", projectIds),
     outstanding_cleanup_requests: rowsByIds(db, "outstanding_cleanup_requests", "project_id", projectIds),
     outstanding_cleanup_submissions: rowsByIds(db, "outstanding_cleanup_submissions", "project_id", projectIds),

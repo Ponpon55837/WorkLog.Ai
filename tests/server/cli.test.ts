@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { runDatabaseCli, type DatabaseCliDependencies } from "../../apps/server/src/cli.js";
+import { databaseUsage, runDatabaseCli, type DatabaseCliDependencies } from "../../apps/server/src/cli.js";
 import { canonicalizeProjectRoot } from "../../packages/project-policy/src/index.js";
 import {
   DatabaseInitializationError,
@@ -443,6 +443,42 @@ describe("database CLI option safety", () => {
 
     expect(readdirSync(root).sort()).toEqual(before);
     expect(store.listBackups()).toMatchObject({ backups: [] });
+  });
+
+  it.each([
+    ["export", ""],
+    ["export", "--all", ""],
+    ["import", ""],
+    ["restore", ""],
+    ["backup", ""],
+    ["backups", "--delete", ""],
+    ["restore", "snapshot.sqlite", "--remap-root", ""],
+  ])("refuses an empty argument for %j with a clear error, writing nothing", async (...argv) => {
+    const { root, messages, calls, deps } = guardedSetup();
+
+    expect(await runDatabaseCli(argv, deps)).toBe(1);
+
+    expect(calls).toEqual([]);
+    expect(readdirSync(root)).toEqual([]);
+    expect(messages.log).toEqual([]);
+    expect(messages.error.join("\n")).toMatch(/不可以是空字串|需要一個值/);
+  });
+
+  it("tells how to pass a path or an option value that starts with a dash", async () => {
+    const { messages, deps } = guardedSetup();
+
+    expect(await runDatabaseCli(["export", "-snapshot.sqlite"], deps)).toBe(1);
+    expect(messages.error.join("\n")).toContain("看不懂的選項：-snapshot.sqlite");
+    expect(messages.error.join("\n")).toContain("./-snapshot.sqlite");
+
+    messages.error.length = 0;
+    expect(await runDatabaseCli(["export", "--out", "-x.json"], deps)).toBe(1);
+    expect(messages.error.join("\n")).toContain("--out 的值不可以像選項：-x.json");
+    expect(messages.error.join("\n")).toContain("--out=-x.json");
+
+    // The help names both workarounds.
+    expect(databaseUsage(false)).toContain("./-name");
+    expect(databaseUsage(false, "export")).toContain("--選項=-值");
   });
 
   it("refuses extra positional arguments to backup instead of ignoring them", async () => {
