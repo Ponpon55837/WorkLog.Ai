@@ -142,6 +142,10 @@ Root `pnpm build` 在任何 runtime dist 清理前建立排他的進行標記，
 - `pnpm test:desktop-packaged` 對打包後的 App 做黑箱測試：含空白與中文字元的沙盒 userData 路徑、無 Node 的 PATH、第二個實例、缺少資料庫時開啟修復視窗、`--quit`、runtime 重用與竄改偵測、被拒絕的除錯開關，以及 macOS 的 codesign 與 DMG 掛載檢查（Windows 另有靜默安裝與解除安裝）。Linux 本機通過 15 項，連跑 2 次。
 - Windows 測試目錄的鎖定方式與正式的 `%LOCALAPPDATA%` 根目錄相同（`icacls /inheritance:r`，只留目前使用者、SYSTEM 與 Administrators）。負向測試：`BUILTIN\Users` 可寫的根目錄，spike 以 exit code 78 與 `RUNTIME_UNSAFE_PERMISSIONS` 拒絕；packaged App 在沒有後端的情況下顯示修復視窗。Windows 的行為只能由 CI 驗證。
 - 煙霧測試的 helper 遇到已穩定的 `NEEDS_REPAIR` 時立即失敗，不再等到逾時。
+- desktop-core 的 Windows 測試每個測試行程只鎖定一個共用的上層目錄，子目錄繼承其 ACL。除非測試本身的對象是 ACL，否則使用 `fixtureAcl`：每個行程只對該上層目錄做一次真實的 ACL 讀取。
+- 使用真實讀取器的 Windows ACL 測試會印出 `ACL steps:`，列出各步驟的耗時，並有 60 秒逾時。
+- 備份 worker 記憶體不足（`backup_worker_out_of_memory`）的測試，以許多小物件強制 worker 上限為 64 MiB。
+- `tests/desktop-core/desktop-builder-config.test.ts` 檢查每個打包變體的 electron-builder 設定都沒有 `null` 的檔案集項目，並重現重用設定時的失敗。
 - 真實 Windows ACL 讀取、NSIS 安裝與升級、macOS 簽章與 Gatekeeper 行為，以及打包與記憶體數字，只有 CI 或實機能驗證，見 [1.6.45 更新說明](releases/1.6.45.md)。
 
 ## 效能回歸門檻

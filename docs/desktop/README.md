@@ -132,6 +132,8 @@ R4 的補充用法：
 
 **macOS 簽章與首次啟動**：Electron 翻轉 fuse 後原簽章失效，而 electron-builder 在 GitHub `pull_request` 執行時會略過所有簽章，所以 `electron-builder.config.mjs` 設 `mac.identity: null`，改由 `afterPack` hook（`apps/desktop/scripts/after-pack.mjs`）在 PR 與 release 建置走同一條路徑：先翻轉 fuse，再由 `mac-ad-hoc-sign.mjs` 以 ad-hoc 由內而外簽署整個 .app（`runtime-bundle` 不動，官方 Node 保有自己的簽章）。尚無 Developer ID，不做公證；在 macOS 15 上，帶隔離屬性的 ad-hoc App 須於「系統設定 → 隱私權與安全性」按「強制打開」（Open Anyway）才能首次開啟，右鍵 → 打開已不能繞過 Gatekeeper。`package.mjs` 以 `codesign --verify --deep --strict`（含解壓後的 zip）、內附 Node 的 `codesign --verify --strict` 與 fuse 回讀作為硬性閘；`spctl` 只記錄結果。
 
+**Windows ACL 與打包補充（1.6.45）**：Windows ACL 第二層（`Get-Acl`，供 Constrained Language Mode 使用）以絕對路徑匯入 `Microsoft.PowerShell.Security`，並與 `whoami` 一同執行。CI 量到第二層需 5–10 秒，因此第二層有自己的 30 秒逾時，第一層（.NET）維持 10 秒；逾時待 CI 數字後收緊。`commitCurrent` 可重用同一行程中剛執行之 `installRuntime` 的 ACL 讀取（`reuseAclStamp`，只存在記憶體中，不從 `.verified.json` 讀取）；只有在所有受涵蓋物件的變更時間、inode 與物件集合都相同，且沒有檔案漏掉雜湊快取時才重用，否則重新讀取，佈建日誌以 `acl-reads=N` 顯示次數。打包方面，每次 `build()` 使用新的 electron-builder 設定（electron-builder 會原地正規化 `files`）；`beforeBuild` 回傳 false 以跳過約 7 秒的 node_modules 搜尋，因為暫存的 App 沒有 node_modules。`afterPack` 與 `package.mjs` 會輸出 `[afterPack]` 與 `[package]` 行，記錄 fuses、ad-hoc 簽章的路徑數、codesign、`spctl` 結束碼等。PR 建置時 electron-builder 出現「code signing will be skipped」是預期的，簽章由 `afterPack` 完成。
+
 ## R3 → R4 修訂紀錄
 
 ### 指定修改（使用者需求）

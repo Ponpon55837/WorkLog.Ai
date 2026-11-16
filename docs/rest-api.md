@@ -26,7 +26,7 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | 403 | `origin_not_allowed` | 請求來源不在允許清單。 |
 | 404 | `not_found` | 找不到 API 路由或一般資源。 |
 | 409 | `conflict` | 一般資源狀態衝突。 |
-| 413 | `payload_too_large` | 請求或匯出資料超過大小上限。 |
+| 413 | `payload_too_large` | 請求或匯出資料超過大小上限。背景工作記憶體不足時改用 `backup_worker_out_of_memory`。 |
 | 415 | `unsupported_media_type` | 寫入請求未使用 JSON 格式。 |
 | 421 | `host_not_allowed` | `Host` 不在允許清單。 |
 | 503 | `service_unavailable` | 服務暫時無法完成請求。 |
@@ -44,6 +44,7 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | `project_not_found` | 404 | 專案資料轉移、重新指定位置或刪除操作找不到 URL 或輸入指定的專案。 |
 | `invalid_bundle` | 400 | 可攜式匯入檔與所選匯入範圍不相符或無效。 |
 | `unsupported_schema` | 400 | 可攜式匯入檔的 schema 版本不受支援。 |
+| `backup_worker_out_of_memory` | 413 | 背景工作（匯入／預覽／匯出）處理的資料超過 worker 記憶體上限，這次請求沒有變更資料；改成分批（一次一個專案）處理。下一個請求會使用新的 worker。 |
 | `invalid_project_deletion_confirmation` | 400 | 專案刪除確認內容未通過驗證。 |
 | `project_name_mismatch` | 409 | 專案刪除確認名稱不相符。 |
 | `project_backup_failed` | 503 | 專案刪除前或可攜式匯入前無法建立必要備份；資料沒有變更。 |

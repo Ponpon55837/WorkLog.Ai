@@ -121,6 +121,10 @@ CLI 的 `db:restore` 不再提供 `--force` 略過使用中檢查；資料庫被
 
 匯入前必須先寫入並檢查一份 `pre-import-…` 備份；寫不出來時匯入不會執行，資料沒有變更（REST 回 503 `project_backup_failed`）。確認備份資料夾（預設為資料庫旁的 `backups/`，或 `WORK_INTELLIGENCE_BACKUP_DIR` 指定的位置）存在、是資料夾而不是檔案、可寫入，且磁碟有足夠空間（約等於資料庫大小），再重試。資料庫忙碌、唯讀或磁碟已滿時會顯示各自的訊息。匯入中途失敗時資料庫保持原狀，已建立的匯入前備份仍保留在備份資料夾。用 `pnpm db:restore` 還原匯入前備份時，這份備份建立之後到還原之間寫入的其他資料（例如之後保存的 Session）也會一併捨棄。
 
+## 匯入、預覽或匯出時顯示 `backup_worker_out_of_memory`
+
+背景工作（匯入、匯入預覽與匯出）處理的資料超過 worker 的記憶體上限時，API 回 413 `backup_worker_out_of_memory`。這次請求沒有變更任何資料，同一份文件重試也不會成功。請改成一次一個專案分批匯出或匯入；若仍失敗，再把專案拆得更小。伺服器會繼續運作，下一個請求會使用新的 worker，不需要重新啟動。這與 `payload_too_large`（請求本身超過大小上限）不同。
+
 ## 開發模式看到 `Unexpected end of JSON input`
 
 較舊的開發 server 在 Vite／API 重啟期間，proxy 可能回傳空的錯誤本文，瀏覽器嘗試解析 JSON 時就會出現這個訊息。#56 已修正 API client：會先讀取文字，妥善處理空本文並顯示連線錯誤。請更新程式碼、執行 `pnpm build`，重新啟動 `pnpm dev` 後重試；一般使用也可用正式模式 `pnpm start`。
