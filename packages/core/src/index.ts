@@ -25,6 +25,7 @@ export const API_ERROR_CODES = [
   "project_location_conflict",
   "project_location_invalid",
   "backup_unavailable",
+  "backup_worker_out_of_memory",
   "database_busy",
   "database_read_only",
   "database_disk_full",

@@ -24,6 +24,7 @@ import {
 } from "@work-intelligence/shared/instance-proof";
 import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import { createFolderPicker } from "./folder-picker.js";
+import { BackupWorkerOutOfMemoryError } from "./backup-worker-errors.js";
 import { inspectAgentConnections } from "./doctor.js";
 import {
   inspectProjectFolder,
@@ -46,6 +47,9 @@ const DATABASE_UNAVAILABLE_RESPONSES: Record<DatabaseUnavailableReason, { status
 };
 /** Another process migrated the database past this server's build; every write is refused until it restarts. */
 const SERVER_RESTART_REQUIRED_MESSAGE = "資料庫 schema 已更新，請重新啟動 Work Intelligence server。";
+/** Nothing was saved; the fixed text carries no content, and the web app shows its own translated guidance. */
+const BACKUP_WORKER_OUT_OF_MEMORY_MESSAGE =
+  "The background worker ran out of memory; nothing was changed. Split the data into smaller files, for example one project per file, and try again.";
 const DEFAULT_MAX_EVENT_CLIENTS = 32;
 const EVENT_HEARTBEAT_INTERVAL_MS = 15_000;
 const DEFAULT_REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -381,6 +385,13 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
 
       if (isDatabaseSchemaChangedError(error)) {
         sendError(response, 503, SERVER_RESTART_REQUIRED_MESSAGE, undefined, "server_restart_required");
+        return;
+      }
+
+      if (error instanceof BackupWorkerOutOfMemoryError) {
+        // 413: the document is too large for this server to process in one request, so retrying it cannot succeed.
+        // A distinct code keeps it apart from `payload_too_large` (the body limit); the next request starts a new worker.
+        sendError(response, 413, BACKUP_WORKER_OUT_OF_MEMORY_MESSAGE, undefined, error.code);
         return;
       }
 

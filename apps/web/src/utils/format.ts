@@ -119,6 +119,7 @@ const apiErrorMessages: Record<string, string> = translatedRecord({
   project_location_conflict: "format.theNewFolderOverlapsAnother",
   project_location_invalid: "format.chooseAFolderThatExists",
   backup_unavailable: "format.backupsAreUnavailableRightNow",
+  backup_worker_out_of_memory: "format.theOperationRanOutOfMemory",
   database_busy: "format.theDatabaseIsBusyPlease",
   database_read_only: "format.theDatabaseIsReadOnly",
   database_disk_full: "format.theDiskIsFull",

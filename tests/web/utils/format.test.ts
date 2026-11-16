@@ -74,6 +74,9 @@ describe("errorMessage", () => {
     expect(errorMessage(new ApiError("database_disk_full", 507, "English message"), "fallback")).toBe(
       t("format.theDiskIsFull"),
     );
+    expect(errorMessage(new ApiError("backup_worker_out_of_memory", 413, "English message"), "fallback")).toBe(
+      t("format.theOperationRanOutOfMemory"),
+    );
   });
 
   it("uses the caller fallback for unknown API codes instead of exposing server text", () => {

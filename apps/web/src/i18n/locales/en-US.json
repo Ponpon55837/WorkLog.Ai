@@ -194,6 +194,7 @@
     "theDatabaseIsBusyPlease": "The database is busy. Please try again shortly.",
     "theDatabaseIsReadOnly": "The database is read-only, so this change was not saved. Reading still works. Make sure the database file and its folder are writable, then try again.",
     "theDiskIsFull": "The disk is full, so this change was not saved. Saved data is unchanged. Free up space on the database's disk, then try again.",
+    "theOperationRanOutOfMemory": "Ran out of memory while processing this file, so nothing was changed. The data is too large for one request: import or export one project at a time (or fewer projects), then try again.",
     "serverRestartRequired": "The database was upgraded by a newer version, so this change was not saved. Restart the Work Intelligence server, then try again.",
     "theDeletionConfirmationIsInvalid": "The deletion confirmation is invalid. Re-enter the full project name.",
     "theDeletionDidNotFinish": "The deletion did not finish; the project data is kept and the pre-deletion backup still exists.",

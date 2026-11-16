@@ -11,8 +11,10 @@ import {
   ProjectDataTransferError,
   WorkIntelligenceStore,
 } from "../../packages/storage/src/index.js";
+import { BackupWorkerOutOfMemoryError } from "../../apps/server/src/backup-worker-errors.js";
 import {
   BackupWorkerClient,
+  BACKUP_WORKER_RESOURCE_LIMITS,
   DEFAULT_IDLE_TIMEOUT_MS,
   HEAVY_IDLE_TIMEOUT_MS,
 } from "../../apps/server/src/backup-worker-client.js";
@@ -34,6 +36,14 @@ function syntheticProject(store: WorkIntelligenceStore, projectRoot: string): vo
     workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
   });
   if (result.outcome !== "finalized") throw new Error("Could not create the synthetic worker Session.");
+}
+
+// A heap far below the production limit. The document is millions of small objects, which grow the worker's heap
+// gradually until it hits the limit (one huge string would be a single allocation that aborts the whole process).
+const TINY_WORKER_LIMITS = { maxOldGenerationSizeMb: 64, maxYoungGenerationSizeMb: 6 };
+
+function oversizedImportBytes(objects: number): Uint8Array {
+  return new TextEncoder().encode(`{"bundle":{"padding":[${'{"a":1},'.repeat(objects)}0]}}`);
 }
 
 function assertHealthy(path: string): void {
@@ -464,6 +474,56 @@ describe("backup worker idle policy", () => {
       store.close();
     }
   });
+});
+
+describe("backup worker memory limits", () => {
+  it("bounds the worker's heap by default to the measured need with headroom", () => {
+    expect(BACKUP_WORKER_RESOURCE_LIMITS).toEqual({ maxOldGenerationSizeMb: 1024, maxYoungGenerationSizeMb: 6 });
+  });
+
+  it("rejects with a recognizable error when the worker runs out of memory and serves the next request on a new worker", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-backup-worker-oom-"));
+    roots.push(root);
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const projectRoot = join(root, "project");
+    const store = new WorkIntelligenceStore(databasePath);
+    syntheticProject(store, projectRoot);
+    const worker = new BackupWorkerClient(databasePath, {}, LATEST_SCHEMA_VERSION, {
+      resourceLimits: TINY_WORKER_LIMITS,
+    });
+    const threadIds = new Set<number>();
+    const state = worker as unknown as { lifetime?: { worker: { threadId: number } } };
+
+    try {
+      expect((await worker.exportProjectData({ type: "all" })).bytes).toBeGreaterThan(0);
+      threadIds.add(state.lifetime?.worker.threadId ?? -1);
+
+      // Two requests are queued in the doomed worker: both reject, not only the one that ran out of memory.
+      const failures = await Promise.allSettled([
+        worker.previewProjectDataImport(oversizedImportBytes(6_000_000)),
+        worker.importProjectData(oversizedImportBytes(10)),
+      ]);
+      for (const failure of failures) {
+        expect(failure.status).toBe("rejected");
+        const reason = (failure as PromiseRejectedResult).reason as BackupWorkerOutOfMemoryError;
+        expect(reason).toBeInstanceOf(BackupWorkerOutOfMemoryError);
+        expect(reason.code).toBe("backup_worker_out_of_memory");
+        expect(reason.message).not.toContain(root);
+      }
+
+      // The test process survived, and the next request gets a fresh worker that works.
+      const exported = await worker.exportProjectData({ type: "all" });
+      expect(exported.bytes).toBeGreaterThan(0);
+      threadIds.add(state.lifetime?.worker.threadId ?? -1);
+      expect(threadIds.size).toBe(2);
+      const bundle = JSON.parse(decodeProjectDataExport(exported.content)) as ProjectDataExport;
+      expect((await worker.previewProjectDataImport({ bundle })).outcome).toBe("project_data_import_preview");
+      assertHealthy(databasePath);
+    } finally {
+      await worker.close();
+      store.close();
+    }
+  }, 60_000);
 });
 
 afterEach(() => {

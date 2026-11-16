@@ -1,4 +1,4 @@
-import { Worker } from "node:worker_threads";
+import { Worker, type ResourceLimits } from "node:worker_threads";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
@@ -19,6 +19,7 @@ import type {
   ProjectDataExportDocument,
   ProjectDataImportPreviewWithFolderStatus,
 } from "./routes/router.js";
+import { BackupWorkerOutOfMemoryError } from "./backup-worker-errors.js";
 import { RequestBodyError } from "./http.js";
 
 export type BackupWorkerOperation =
@@ -82,6 +83,8 @@ interface WorkerLifetime {
 export interface BackupWorkerClientOptions {
   /** Idle time before the worker exits; one value for every operation (tests use it to pin timing). */
   idleTimeoutMs?: number;
+  /** Replaces {@link BACKUP_WORKER_RESOURCE_LIMITS}; tests use a tiny heap to force an out-of-memory exit. */
+  resourceLimits?: ResourceLimits;
 }
 
 export const DEFAULT_IDLE_TIMEOUT_MS = 15_000;
@@ -92,6 +95,21 @@ export const DEFAULT_IDLE_TIMEOUT_MS = 15_000;
  * export retried right away, while holding the memory for seconds rather than the 15 s of a light operation.
  */
 export const HEAVY_IDLE_TIMEOUT_MS = 5_000;
+/**
+ * Heap limits of the worker, which has its own isolate beside the API's. Measured on synthetic project data with the
+ * desktop flags (`--max-old-space-size=1024 --max-semi-space-size=2`, three runs, median of the worker's peak
+ * `heapUsed`): preview 46 MiB for a 10 MB document and 163 MiB for 47.6 MB; import 59 MiB and 193 MiB. The largest
+ * accepted import (50 MiB) therefore needs about 210 MiB, and the old generation is set to 1 GiB, five times that.
+ * It matches the desktop flag, so a server started without flags (dev, standalone CLI) is bounded the same instead of
+ * taking Node's default of about 2 GiB on a 16 GB machine. With the flag present V8 uses the flag and ignores this
+ * value; the process then holds at most the API's 1 GiB, this worker's 1 GiB and its buffers. A 6 MiB young
+ * generation (three 2 MiB semi-spaces, as the flag gives the API) took the same time as the default 48 MiB on the
+ * 47.6 MB import (7.6 s) and kept about 35 MiB less resident.
+ */
+export const BACKUP_WORKER_RESOURCE_LIMITS: ResourceLimits = {
+  maxOldGenerationSizeMb: 1024,
+  maxYoungGenerationSizeMb: 6,
+};
 const HEAVY_OPERATIONS: ReadonlySet<BackupWorkerOperation["type"]> = new Set([
   "exportTo",
   "exportProjectData",
@@ -108,15 +126,23 @@ function workerOptions(
   databasePath: string,
   backup: BackupRetentionOptions,
   expectedSchemaVersion: number,
+  resourceLimits: ResourceLimits,
 ): ConstructorParameters<typeof Worker>[1] {
   const entry = workerEntryUrl();
   const isTypeScript = entry.pathname.endsWith(".ts");
   return {
     workerData: { databasePath, backup, expectedSchemaVersion },
+    resourceLimits,
     ...(isTypeScript
       ? { execArgv: ["--import", pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href] }
       : {}),
   };
+}
+
+function isWorkerOutOfMemory(error: unknown): boolean {
+  return (
+    typeof error === "object" && error !== null && (error as { code?: unknown }).code === "ERR_WORKER_OUT_OF_MEMORY"
+  );
 }
 
 function restoredError(error: SerializedWorkerError): Error {
@@ -257,7 +283,12 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
 
     const worker = new Worker(
       workerEntryUrl(),
-      workerOptions(this.databasePath, this.backup, this.expectedSchemaVersion),
+      workerOptions(
+        this.databasePath,
+        this.backup,
+        this.expectedSchemaVersion,
+        this.options.resourceLimits ?? BACKUP_WORKER_RESOURCE_LIMITS,
+      ),
     );
     worker.unref();
     let resolveExit!: () => void;
@@ -277,7 +308,11 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
       if (message.ok) request.resolve(message.value);
       else request.reject(restoredError(message.error));
     });
-    worker.once("error", (error) => {
+    worker.once("error", (workerError: unknown) => {
+      // The worker is gone either way; an out-of-memory exit gets its own error so the API can say what happened.
+      const error = isWorkerOutOfMemory(workerError)
+        ? new BackupWorkerOutOfMemoryError({ cause: workerError })
+        : workerError;
       if (this.lifetime === lifetime) this.lifetime = undefined;
       lifetime.failure = error;
       this.rejectPending(error, lifetime);
