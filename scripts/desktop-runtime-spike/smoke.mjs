@@ -546,10 +546,27 @@ async function main() {
   }
 }
 
+/** On a failure the checks run so far still go to the report file, so the CI artifact shows how far it got. */
+function writePartialReport() {
+  const runtimeFlag = process.argv.indexOf("--runtime");
+  const failed = results.filter((result) => !result.ok).length;
+  const report = {
+    platform: platformTag,
+    generatedAt: new Date().toISOString(),
+    partial: true,
+    runtime: { choice: runtimeFlag === -1 ? "node" : (process.argv[runtimeFlag + 1] ?? "unknown") },
+    checks: results,
+    passed: results.length - failed,
+    failed,
+  };
+  console.log(`partial report: ${writeReport(report)}`);
+}
+
 try {
   await main();
 } catch (error) {
   check("smoke test", false, String(error?.stack ?? error));
+  writePartialReport();
 }
 for (const { step, ok, detail } of results)
   console.log(`${ok ? "PASS" : "FAIL"}  ${step}${ok || !detail ? "" : `\n        ${detail}`}`);

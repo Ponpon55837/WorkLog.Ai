@@ -254,6 +254,10 @@ describe("shim text", () => {
     expect(shim).toContain('"%RUNTIME%\\%EXE%" "%RUNTIME%\\launcher.mjs" %*');
     expect(shim).toContain('if not "%ID:~128,1%"=="" goto :badpointer');
     expect(shim).not.toContain("ENTRY");
+    // The launch file is checked with literal searches only: findstr's regex classes refused valid files on Windows.
+    expect(shim).toContain('findstr /L /C:".." /C:"%%" /C:":" "%RUNTIME%\\runtime-launch.txt"');
+    expect(shim).not.toMatch(/findstr \/R[^\r]*runtime-launch\.txt/);
+    expect(shim.indexOf('set "EXE=%EXE:"=%"')).toBeLessThan(shim.indexOf('"%RUNTIME%\\%EXE%"'));
     // The length check runs after the charset check and before the id is used in any path.
     expect(shim.indexOf("findstr")).toBeLessThan(shim.indexOf("%ID:~128,1%"));
     expect(shim.indexOf("%ID:~128,1%")).toBeLessThan(shim.indexOf('set "RUNTIME='));

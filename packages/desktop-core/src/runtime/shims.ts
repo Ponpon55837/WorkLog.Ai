@@ -93,12 +93,17 @@ export function renderWindowsShim(): string {
     'if not "%ID:~128,1%"=="" goto :badpointer',
     'set "RUNTIME=%ROOT%\\runtimes\\%ID%"',
     'if not exist "%RUNTIME%\\runtime-launch.txt" goto :nolaunch',
-    'findstr /R /X /V "[A-Za-z0-9._/-]*" "%RUNTIME%\\runtime-launch.txt" >nul 2>nul && goto :badlaunch',
-    'findstr /L /C:".." "%RUNTIME%\\runtime-launch.txt" >nul 2>nul && goto :badlaunch',
+    // No findstr regular expression here: its character classes follow collation order and treat `/` and `-`
+    // unreliably, which refused every valid launch file in CI. Literal checks cover what could break out of the
+    // quoted path below (`%`), a drive or stream (`:`) and parent steps (`..`); quotes are stripped from the value
+    // before it is used (a `"` cannot be searched for without unbalancing this line's quotes); the kind is compared exactly.
+    'findstr /L /C:".." /C:"%%" /C:":" "%RUNTIME%\\runtime-launch.txt" >nul 2>nul && goto :badlaunch',
     'set "KIND="',
     'set "EXE="',
     '<"%RUNTIME%\\runtime-launch.txt" (set /p KIND=& set /p EXE=)',
+    'set "EXE=%EXE:"=%"',
     "if not defined EXE goto :badlaunch",
+    'if not exist "%RUNTIME%\\%EXE:/=\\%" goto :badlaunch',
     'if /I "%KIND%"=="electron-run-as-node" (set "ELECTRON_RUN_AS_NODE=1" & set "ELECTRON_NO_ASAR=1") else if /I not "%KIND%"=="node" goto :badlaunch',
     'set "EXE=%EXE:/=\\%"',
     '"%RUNTIME%\\%EXE%" "%RUNTIME%\\launcher.mjs" %*',
