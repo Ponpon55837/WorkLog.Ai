@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { errorCode } from "./error-code.js";
 
 /** Minimal file handle surface; lets tests fail any single step. */
 export interface AtomicFileHandle {
@@ -65,10 +66,6 @@ export function createNodeAtomicFileDeps(): AtomicFileDeps {
     randomSuffix: () => randomBytes(6).toString("hex"),
     platform: process.platform,
   };
-}
-
-function errorCode(error: unknown): string | undefined {
-  return typeof error === "object" && error !== null ? (error as { code?: string }).code : undefined;
 }
 
 async function closeQuietly(handle: AtomicFileHandle): Promise<void> {
