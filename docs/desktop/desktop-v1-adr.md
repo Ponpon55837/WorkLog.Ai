@@ -41,11 +41,36 @@
 
 ### ADR-04 Runtime：隨包標準 Node，供後端、MCP、hook 共用
 
-- **狀態**：暫定採用（待原型）
-- **脈絡**：Agent 的 stdio MCP 與 hook 由宿主啟動，App 關閉後仍須運作；系統 Node 與 PATH 不可假設存在；Electron 的 Node 不能被外部宿主當作標準 node 直接使用。
-- **決策**：安裝包攜帶標準 Node 可執行檔與後端、MCP、hook、worker、Web 資源，放在實際可執行的路徑（例如 `extraResources`）。原型須比較其與 `utilityProcess` 的大小、冷啟動、FTS5、worker 相容性。
-- **後果**：安裝包變大（R31）。需測 bundled Node 的 SQLite 版本（ADR-19）。
-- **關聯**：§3.3、§5；DT-25、DT-23。
+- **狀態**：已採用（階段 1 spike，1.6.43）
+- **脈絡**：Agent 的 stdio MCP 與 hook 由宿主啟動，App 關閉後仍須運作；系統 Node 與 PATH 不可假設存在；Electron 的 Node 不能被外部宿主當作標準 node 直接使用。spike 比較兩個候選：**A** Electron 內建 Node（`ELECTRON_RUN_AS_NODE=1`，並設 `ELECTRON_NO_ASAR=1`）與 **B** 隨包官方 Node.js（Node 24，本次量測為 24.22.3，內建 SQLite 3.54.1，含 FTS5）。`utilityProcess` 未在本次 spike 中量測（見後果）。
+- **決策**：選 **B**。安裝包攜帶官方 Node 可執行檔與後端、MCP、hook、worker、Web 資源，放在實際可執行的路徑（`extraResources`）。
+- **理由**：
+  - A 需要 Electron 的 `RunAsNode` fuse 保持開啟，而 Electron 安全指引建議停用 [U]。A 也讓任何程序都能把已簽章的 App 當成通用 Node 使用；在 macOS 上，權限（TCC）可能由宿主程序繼承 [T]。
+  - A 需要 `ELECTRON_NO_ASAR=1`，因為 Electron 讀取 asar 內檔案的方式與一般檔案不同（見 commit 7c75778）。
+  - Electron runtime 較大：目錄為 Node 的 2.1–3.7 倍，壓縮後為 3.0–4.3 倍（Windows 163.5 比 37.9 MB，macOS 125.8 比 42.4 MB）；閒置 RSS 在 Windows 與 macOS 相近，Linux 高約 27–36 MB。
+  - B 的官方 Node 在 macOS 有 Developer ID 簽章，發行附 SHASUMS256，launcher 可據以核對。
+  - 冷啟動兩者都在 0.9 秒內完成首次啟動，快慢依平台與 run 而異（見量測後的說明），不影響選擇。
+- **量測**（CI，1.6.43）：
+
+| 平台與 runtime | runtime 目錄 | tar.gz | 完整／快取驗證 | 伺服器啟動（首次／中位數／直接） | MCP 啟動（首次／中位數／直接） | 閒置 RSS（伺服器／MCP） | 檢查 |
+|---|---|---|---|---|---|---|---|
+| Windows x64，Node.js 24.22.3 | 102.5 MB（117 檔） | 37.9 MB | 174 ms／10 ms | 586／400／354 ms | 537／282／242 ms | 93.3／79.4 MB | 45/45 |
+| Windows x64，Electron 45.3.3 | 382.8 MB（188 檔） | 163.5 MB | 290 ms／6 ms | 542／257／225 ms | 530／155／141 ms | 94.3／72.4 MB | 45/45 |
+| macOS arm64，Node.js 24.22.3 | 131.1 MB（117 檔） | 42.4 MB | 194 ms／9 ms | 863／436／403 ms | 656／303／265 ms | 124.3／111.1 MB | 45/45 |
+| macOS arm64，Electron 45.3.3 | 278.3 MB（375 檔） | 125.8 MB | 404 ms／43 ms | 769／397／280 ms | 689／274／236 ms | 123.5／113.1 MB | 45/45 |
+| Linux x64，Node.js 24.22.3 | 135.4 MB（117 檔） | 47.7 MB | 156 ms／5 ms | 412／219／220 ms | 372／200／183 ms | 127.2／110.9 MB | 46/46 |
+| Linux x64，Electron 45.3.3 | 295.3 MB（187 檔） | 127.5 MB | 299 ms／7 ms | 575／218／217 ms | 547／198／182 ms | 154.1／147.4 MB | 46/46 |
+
+  - 欄位定義：伺服器啟動為從啟動到 `/api/health` 的時間（首次、快取後中位數），「直接」為不經 launcher 直接執行官方執行檔；MCP 欄位為到 `initialize` 完成的時間。
+  - 全部數字來自同一次 CI：run 43864453651（d250c93），三平台 × 兩種 runtime 的 6 個 job 全數通過（Linux 多一項「serve 程序是隨包執行檔」檢查，故為 46 項）。tar.gz 為 runtime 目錄依 manifest 順序寫成 tar、以 Node 內建 zlib gzip level 6 壓縮的位元組數（`scripts/desktop-runtime-spike/compressed-size.mjs`），不呼叫系統 `tar`：Windows bsdtar 以 ANSI code page 讀參數，含中文的暫存路徑在 run 43859516900 無法開檔；同一 Linux runtime 用此法得 47.7 MB，系統 `tar -czf` 為 46.6 MB，多約 2%。
+  - 冷啟動：各為單次 CI 量測，雜訊大（同平台不同 run 可差 100 ms 以上）。這一輪 Electron 的中位數在 Windows 明顯較快（伺服器 257 比 400 ms，MCP 155 比 282 ms），macOS 略快，Linux 相同；Windows 上官方 Node 直接啟動就較慢（354 比 225 ms），差距不在 launcher。冷啟動不是選 B 的理由，也不是否決 B 的理由：兩者都在 0.9 秒內完成首次啟動。
+  - Bundle 7.1 MB，Web 1.2 MB，launcher 20.9 KB。Linux 不在 V1 首發範圍，數字只作方向參考。
+- **後果**：
+  - 安裝包增加約 38–48 MB（壓縮後）的獨立 Node.js，與 Electron App 分開下載（R31）。
+  - B 的 SQLite 版本以 release 產物的 `sqlite_version()` 判定（ADR-19）；本次 spike 的 SQLite 3.54.1 來自量測，發行判定仍以 release 產物為準。
+  - `utilityProcess` 未量測，R31 要求的 A 階段比較因此未完整；若要改用 `utilityProcess`，需另行量測。
+  - spike 預設鎖定 Node.js v24.22.3（`--node-version 24` 才取最新 24 LTS）；發行前仍須驗證發行簽章（目前 SHASUMS256 與封存檔來自同一來源，尚未實作簽章驗證）。
+- **關聯**：§3.3、§5、§9.4、§10.2；DT-25、DT-23；R07、R31、R33。
 
 ### ADR-05 DB 沿用 SQLite 與 `VACUUM INTO`，不替換儲存引擎
 
@@ -242,17 +267,19 @@
 
 ### ADR-15 Agent 固定 launcher 與版本化 runtime manifest
 
-- **狀態**：暫定採用
+- **狀態**：暫定採用（1.6.43 實作 DT-23；Windows ACL 尚未檢查，回報 `not-implemented`）
 - **脈絡**：Agent 直接指向版本目錄會在更新後失效；shell 拼接字串有注入風險（R07、R13）。
-- **決策**：Agent 的 `command` 指向使用者層固定 launcher。launcher 讀取原子提交的 manifest，以 argv array 啟動，只允許指定動作（`mcp`、`codex-finalize-reminder`、`claude-finalize-reminder`）。檢查 manifest 與 binary 的所有權與 ACL，拒絕 world-writable 目錄。
+- **決策**：Agent 的 `command` 指向使用者層固定 launcher。launcher 讀取原子提交的 manifest，以 argv array 啟動，只允許指定動作（`mcp`、`serve`、`codex-finalize-reminder`、`claude-finalize-reminder`）。檢查 manifest 與 binary 的所有權與權限：POSIX 拒絕 world-writable 與非目前使用者擁有的項目；Windows 的 ACL 尚未檢查。
+- **1.6.43 的實作**：`bin/` 下的 shim 只讀取 `current` 與 `runtime-launch.txt` 後執行 launcher；所有驗證（manifest 嚴格解析、逐檔 SHA-256 與大小、未列出的檔案與 symlink、路徑、動作白名單、錯誤碼）都在共用的 TypeScript 中。manifest 為 v1，列出 runtime 目錄內的每一個檔案，未列出的檔案使 runtime 無效。
 - **後果**：多一層 launcher 需要測試；換版透過 manifest 切換。
 - **關聯**：§3.3、§10.2；DT-23；R07、R13。
 
 ### ADR-16 Runtime 延後清理：無現役連線且可安全刪除才 GC
 
-- **狀態**：已採用（Windows 檔案鎖待驗證）
+- **狀態**：已採用（Windows 檔案鎖待驗證；清理尚未實作，DT-24 未開始）
 - **脈絡**：Windows 會鎖住執行中的檔案（R08）；PID 可能被重用，不能以 PID 不存在作為可刪除的依據。
 - **決策**：runtime 版本化；更新時先安裝新版、驗證完整性、再原子切換 manifest。舊 runtime 的清理需要「無現役連線」與「可安全刪除」兩項條件，失敗則延後重試。
+- **1.6.43 的實作**：runtime 的檔案寫入 `runtimes/<id>/` 後不再修改（只有 `.verified.json` 快取例外）；切換只改 `current` 單行指標。清理（GC）尚未實作，舊版目錄會保留。
 - **後果**：磁碟上會暫時保留多個 runtime 版本。
 - **關聯**：§3.3、§10.2；DT-24；R08；G-MCP-01。
 

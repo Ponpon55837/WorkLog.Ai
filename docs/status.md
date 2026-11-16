@@ -6,6 +6,10 @@
 
 - 最後更新：2026-11-16
 
+## 1.6.43（已完成）
+
+桌面版階段 1（runtime spike）的 CI 可驗證部分：比較隨包官方 Node.js 與 Electron 以 Node 模式執行兩種封裝，依量測與安全評估選定隨包官方 Node.js（ADR-04）；新增固定 launcher 與版本化 runtime manifest（DT-23），以及無 Node、離線的煙霧測試與 CI workflow（DT-25）。三平台 CI 量測與檢查全數通過，實機驗收未做，階段 1 的 gate 尚未通過；Windows ACL 檢查、runtime 清理與 Agent 設定接線尚未實作。沒有 schema 變更（33），沒有 migration。詳見 [1.6.43 更新說明](releases/1.6.43.md)。
+
 ## 1.6.42（已完成）
 
 桌面版階段 0（契約與測試基座）的 CI 可驗證部分：新增純 TypeScript 套件 `packages/desktop-core`（設定、DB 來源、ServiceOwner 狀態機與操作協調）；DB 身分策略定案為檔案身分加唯讀血統指紋（ADR-36）；啟動前唯讀 preflight 與提交前重驗；舊寫入端實驗（MCP、HTTP、長駐 Store）的結論是方案 1 為主要屏障、方案 2 仍需實作；測試不再觸碰真實家目錄與 3210；備份與匯出 worker 冷啟變快。沒有 schema 變更（33），沒有 migration。實機驗收（Windows 11 與 macOS）、Codex 與 Claude Code plugin、MCPB 與手動 stdio 的組合尚未驗證。桌面設計索引同步更新（見 [desktop 設計索引](desktop/README.md)）。詳見 [1.6.42 更新說明](releases/1.6.42.md)。

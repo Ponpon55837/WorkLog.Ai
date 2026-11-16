@@ -1,0 +1,68 @@
+name: Desktop runtime spike
+
+on:
+  pull_request:
+    paths:
+      - "packages/desktop-core/**"
+      - "packages/storage/**"
+      - "packages/shared/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "scripts/desktop-runtime-spike/**"
+      - "scripts/build-standalone.mjs"
+      - "apps/server/**"
+      - "apps/mcp/**"
+      - ".github/workflows/desktop-runtime-spike.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-runtime-spike-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  spike:
+    name: Spike (${{ matrix.os }}, ${{ matrix.runtime }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+        runtime: [node, electron]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 11.16.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      # The output path has spaces and Chinese on purpose: the launcher must survive both.
+      - name: Build the runtime
+        shell: bash
+        run: pnpm spike:runtime:build --runtime ${{ matrix.runtime }} --out "$RUNNER_TEMP/啟動器 spike"
+
+      - name: Smoke the runtime
+        shell: bash
+        run: pnpm spike:runtime:smoke --runtime ${{ matrix.runtime }} --out "$RUNNER_TEMP/啟動器 spike"
+
+      - name: Upload the measurements
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: runtime-spike-${{ matrix.os }}-${{ matrix.runtime }}
+          path: dist/desktop-runtime-spike/*.json
+          if-no-files-found: warn

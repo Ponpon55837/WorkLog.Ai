@@ -21,7 +21,9 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "json-summary"],
       include: ["packages/desktop-core/src/**/*.ts"],
-      exclude: ["tests/desktop-core/**/*.test.ts"],
+      // launcher-entry.ts only wires process globals into runLauncher and is bundled as launcher.mjs;
+      // the behavior it calls is covered through runLauncher with an injected host.
+      exclude: ["tests/desktop-core/**/*.test.ts", "packages/desktop-core/src/runtime/launcher-entry.ts"],
       thresholds: {
         statements: 90,
         branches: 80,

@@ -1,10 +1,10 @@
-import type { ProjectDataTable } from "@work-intelligence/core";
+import type { ProjectDataTable } from "./index.js";
 
 /**
- * The columns each project-data table exports, in export order. This is a zod-free copy of
- * `projectDataExportTableColumns` in `@work-intelligence/schema`, kept here so the backup and export worker can read
- * rows without loading the schema package (about 80 ms of its cold start). `tests/storage/project-data-export-columns.test.ts`
- * fails when the two drift apart, so a column added to one must be added to the other.
+ * The columns each project-data table exports, in export order: the single source for the export writer, the backup
+ * worker and the import validator. Kept zod-free here so the backup and export worker can read rows without loading
+ * `@work-intelligence/schema` (about 80 ms of its cold start); the schema package re-exports it as
+ * `projectDataExportTableColumns`. A column added to a project-data table must be added here.
  */
 export const PROJECT_DATA_EXPORT_COLUMNS = {
   projects: ["id", "name", "root_path", "status", "created_at", "updated_at", "last_ingested_at", "repository_url"],

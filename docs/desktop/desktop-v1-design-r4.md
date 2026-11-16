@@ -220,6 +220,7 @@ Agent 的顯示狀態與最低證據見 §3.2.1；決策見 ADR-14（寫入交�
 - runtime 目錄以不可覆寫的版本或內容識別管理；更新只改 manifest 指向新版本。仍被舊程序占用的 runtime 延後清理（ADR-16）。launcher 檢查所有權與 ACL，拒絕指向不可信或 world-writable 目錄。[D][T]
 - App 關閉後必須能啟動 MCP／hook，不依賴 Electron GUI、Node PATH 或 repo。MCP stdout 只有 MCP protocol，錯誤走 stderr；hook 找不到 runtime 時**放行**，並提供後續可修復的診斷，避免靜默長期失效。[D]
 - 驗收涵蓋：無 Node 與無 PATH、中文與空格路徑、Windows 防毒與檔案鎖、macOS quarantine、離線、更新中既有 MCP、解除安裝未清乾淨的 hook。每個組合都需真實 `initialize`、`tools/list` 與讀寫合成 DB 測試。[T]
+- **階段 1 進度與選定的 layout（1.6.43）**：runtime 選 B，隨包官方 Node.js（ADR-04）。實作的 layout 為：`<root>/bin/work-intelligence-launcher`（Windows 另有 `.cmd`）為固定 shim；`<root>/current` 為單行 runtime id 指標，是唯一的原子切換點；`<root>/runtimes/<id>/` 內含 `runtime-manifest.json`（v1）、`runtime-launch.txt`（單行，記錄可執行檔的相對路徑）、`launcher.mjs`、`.verified.json`（stat 指紋快取，只加速、不作為信任依據）與官方 Node.js 執行檔。shim 只讀取 `current` 與 `runtime-launch.txt` 後執行 launcher；manifest 解析、逐檔 SHA-256、拒絕未列出的檔案與 symlink、路徑與權限檢查、動作白名單與錯誤碼都在共用的 TypeScript 中（`packages/desktop-core/src/runtime`）。已實作：runtime 目錄不可覆寫、指標原子切換、無 Node 的離線煙霧測試（CI）。未實作：Windows ACL 檢查（回報 `not-implemented`）、舊 runtime 清理（DT-24）、Agent 設定接線。[T]
 
 ---
 
@@ -503,6 +504,8 @@ Web 只能送固定動作與經 schema 驗證的值。特權資料夾選擇、�
 
 不得用 mock 服務管理器或 fake Agent 的成功取代最後的 OS／host 實測。CI 用 fake home 的測試是必要條件，**不是**充分條件。
 
+**階段 1 狀態（1.6.43）**：spike 的 CI 可驗證部分已完成，並選定 B（ADR-04）。三平台的量測已由 CI 取得（run 43864453651）；實機驗收尚未進行，**階段 1 的 gate 尚未通過**。Linux 不在 V1 首發範圍，其數字只作方向參考。spike 未量測 `utilityProcess`，R31 要求的比較因此未完整。
+
 ### 9.5 發行阻斷的可觀察證據（Gate）
 
 每項測試保存：OS build、CPU 架構、App／Node／Electron／updater 版本、安裝包 SHA-256、DB 身分與 schema、operation ID、舊與新服務狀態、測試輸入、實際輸出、日誌遮蔽結果、復測連結。[D]
@@ -595,6 +598,7 @@ Web 只能送固定動作與經 schema 驗證的值。特權資料夾選擇、�
 - launcher 讀取 manifest 後須驗證檔案、schema 與所需的 action，並採 `exec`／`spawn` argv 模式，禁止 shell 解譯；秘密不放入 CLI argv 或記錄。[D]
 - 更新時先安裝新 runtime 並驗證完整性，再原子切換 manifest。舊 runtime 的清理由「無現役連線且可安全刪除」共同決定，不能僅以 PID 不存在作準（PID 可能重用）。[D]
 - 外部 plugin／MCPB 的 launcher 不一定由本 App 管理，絕不強制替換。舊 plugin 仍可維持原 checkout 行為；desktop setup 必須顯示其不同的 DB 或 runtime 來源。[D]
+- **1.6.43 實作的 v1 欄位**（以程式為準；上方 JSON 為早期草案）：`manifestVersion: 1`、`runtimeId`、`runtimeKind`（`node` 或 `electron-run-as-node`）、`executable`（相對路徑）、`actions`（每個動作的入口檔 `entry`，只允許 `mcp`、`serve`、`codex-finalize-reminder`、`claude-finalize-reminder`）、`files`（`{path, size, sha256}`，列出 runtime 目錄內每一個檔案，manifest 與快取檔除外）、`symlinks`（`{path, target}`，目標必須留在 runtime 內）。v1 不含 `activeRuntimeId`（由 `current` 指標取代），也不含 DB 路徑或身分欄位；草案的 `allowedActions` 改名為 `actions`。[T]
 
 ### 10.3 `BackendReady` 與管理 IPC
 
