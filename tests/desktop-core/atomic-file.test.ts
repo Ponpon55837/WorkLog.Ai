@@ -41,6 +41,7 @@ describe("writeFileAtomic", () => {
     });
     for (const code of ["EISDIR", "EPERM", "EINVAL", "ENOTSUP"]) {
       const open = deps({
+        platform: "linux",
         openDirectory: async () => {
           throw codeError(code);
         },
@@ -48,6 +49,7 @@ describe("writeFileAtomic", () => {
       expect(await writeFileAtomic(target, "x", { deps: open })).toEqual({ directorySynced: false });
       const real = deps();
       const sync = deps({
+        platform: "linux",
         openDirectory: async (p) => {
           const handle = await real.openDirectory(p);
           return {
@@ -62,6 +64,7 @@ describe("writeFileAtomic", () => {
       expect(await writeFileAtomic(target, "x", { deps: sync })).toEqual({ directorySynced: false });
     }
     const failing = deps({
+      platform: "linux",
       openDirectory: async () => {
         throw codeError("EIO");
       },

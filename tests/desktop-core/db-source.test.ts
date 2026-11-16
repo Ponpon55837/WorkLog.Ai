@@ -106,7 +106,7 @@ describe("collectDbCandidates", () => {
       managedByCurrentUser: false,
     };
     const candidates = collectDbCandidates({
-      platform: "linux",
+      platform: process.platform,
       environment: { WORK_INTELLIGENCE_CONFIG_DIR: configDir },
       checkoutRoot: join(root, "repo"),
       desktopCommitted: join(root, "committed.sqlite"),

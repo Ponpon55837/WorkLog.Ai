@@ -65,9 +65,12 @@ function failing(step: SettingsWriteStep | "close" | "dir-open", code = "EIO"): 
       const h = await real.openExclusive(p, m);
       return wrap(h, step === "close" ? "close" : step === "fsync" ? "fsync" : "write");
     },
-    openDirectory: async (p) => {
+    // Exercise the POSIX directory-fsync policy on every OS (win32 skips it), with a fake directory handle so the
+    // test does not depend on whether this OS can open a directory.
+    platform: "linux",
+    openDirectory: async () => {
       if (step === "dir-open") throw boom();
-      return wrap(await real.openDirectory(p), "dir");
+      return wrap({ writeFile: async () => {}, sync: async () => {}, close: async () => {} }, "dir");
     },
     rename: async (a, b) => {
       if (step === "rename") throw boom();
@@ -147,7 +150,7 @@ describe("parseDesktopSettings", () => {
 describe("writeDesktopSettingsAtomic + readDesktopSettings", () => {
   it("round-trips and reports capabilities", async () => {
     const result = await writeDesktopSettingsAtomic(file, makeSettings(), deps());
-    expect(result).toEqual({ recoveryWritten: false, directorySynced: true });
+    expect(result).toEqual({ recoveryWritten: false, directorySynced: process.platform !== "win32" });
     expect(await readDesktopSettings(file)).toEqual({
       kind: "ok",
       settings: makeSettings(),

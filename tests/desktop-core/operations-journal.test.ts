@@ -246,11 +246,14 @@ describe("FileOperationJournalStore", () => {
   it("fails closed when the path is unreadable (not ENOENT)", async () => {
     const dir = await tempDir();
     await expect(new FileOperationJournalStore(dir).load()).rejects.toMatchObject({ code: "unreadable" });
-    const blocker = path.join(dir, "file");
-    await writeFile(blocker, "x");
-    await expect(new FileOperationJournalStore(path.join(blocker, "journal.json")).load()).rejects.toMatchObject({
-      code: "unreadable",
-    });
+    if (process.platform !== "win32") {
+      // POSIX reports ENOTDIR for a path through a regular file; Windows reports ENOENT (a missing journal).
+      const blocker = path.join(dir, "file");
+      await writeFile(blocker, "x");
+      await expect(new FileOperationJournalStore(path.join(blocker, "journal.json")).load()).rejects.toMatchObject({
+        code: "unreadable",
+      });
+    }
   });
 
   it("reports unwritable targets and cleans up its temp file", async () => {
