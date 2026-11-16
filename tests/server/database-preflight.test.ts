@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -29,7 +30,8 @@ import type { DbProbe, DbProbeResult } from "../../packages/desktop-core/src/db-
 const directories: string[] = [];
 
 function tempDir(): string {
-  const directory = mkdtempSync(join(tmpdir(), "wi-preflight-"));
+  // Real path: macOS tmpdir() is under /var, a symlink to /private/var, and preflight reports resolved paths.
+  const directory = realpathSync.native(mkdtempSync(join(tmpdir(), "wi-preflight-")));
   directories.push(directory);
   return directory;
 }
