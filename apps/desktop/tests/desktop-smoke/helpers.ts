@@ -1,5 +1,5 @@
 import { _electron, type ElectronApplication, type TestInfo } from "@playwright/test";
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -181,6 +181,8 @@ export async function launchApp(sandbox: Sandbox, extra: Record<string, string> 
 }
 
 export interface ElectronExit {
+  /** The Electron main process, so a test can look for anything it left behind. */
+  readonly pid: number;
   readonly code: number | null;
   readonly signal: NodeJS.Signals | null;
   /** The last of what the process wrote to stderr, so a failed exit explains itself in the test report. */
@@ -219,9 +221,35 @@ export function runToExit(
     // `close`, not `exit`: stderr is fully read by then.
     child.once("close", (code, signal) => {
       clearTimeout(timer);
-      resolveExit({ code, signal, stderr });
+      resolveExit({ pid: child.pid ?? 0, code, signal, stderr });
     });
   });
+}
+
+/**
+ * Windows only: the processes still running that `pid` started (Windows keeps the parent id after the parent ends) or
+ * whose command line names `marker` (the sandbox root), as "name pid" lines. Electron's helpers (GPU, network, the
+ * Crashpad handler) are such children.
+ */
+export function windowsLeftovers(pid: number, marker: string): string[] {
+  if (!Number.isInteger(pid) || pid <= 0 || marker.length === 0) throw new Error("a pid and a marker are required");
+  const script = [
+    `Get-CimInstance Win32_Process | Where-Object {`,
+    `  $_.ProcessId -ne $PID -and ($_.ParentProcessId -eq ${pid} -or`,
+    `  ($_.CommandLine -and $_.CommandLine.Contains($env:WI_SMOKE_MARKER)))`,
+    `} | ForEach-Object { '{0} {1}' -f $_.Name, $_.ProcessId }`,
+  ].join("\n");
+  // -EncodedCommand (UTF-16LE base64) passes the script without any command-line quoting; the marker, a path, goes in
+  // through the environment for the same reason.
+  const output = execFileSync(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
+    { encoding: "utf8", env: { ...process.env, WI_SMOKE_MARKER: marker } },
+  );
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
 }
 
 export function readSnapshot(app: ElectronApplication): Promise<MainSnapshot> {

@@ -15,6 +15,7 @@ import {
   readSnapshot,
   removeSandbox,
   runToExit,
+  windowsLeftovers,
   waitForSnapshot,
   type Sandbox,
 } from "./helpers.js";
@@ -278,12 +279,40 @@ test("a data folder that cannot be resolved closes the App with an error box ins
   await expectStartupFailure({ WORK_INTELLIGENCE_DESKTOP_TEST_FAIL_USER_DATA: "1" });
 });
 
-test("on Windows, a profile without Roaming AppData is reported the same way", async () => {
+/**
+ * Crashpad's `kTerminationCodeNotConnectedToHandler` (crashpad util/win/termination_codes.h): what a Windows Electron
+ * ends with when it crashes before its Crashpad handler is connected.
+ */
+const CRASHPAD_NOT_CONNECTED = 0xffff7003;
+
+/**
+ * A known limitation, recorded as it really behaves. With the profile's Roaming AppData folder gone, Electron ends in its
+ * native start-up before it loads the App's script: the start-up guard never runs, so there is no error box and no
+ * line of ours on stderr (CI of 48c3d02: exit 0xFFFF7003 and only Crashpad's "not connected" line). The App cannot fix
+ * a profile that broken; what it must still guarantee is that it leaves nothing behind.
+ */
+test("on Windows, a profile without Roaming AppData ends in Electron before the App runs, leaving nothing behind", async () => {
   test.skip(process.platform !== "win32", "only Windows resolves userData through a folder that must exist");
   sandbox = await createSandbox({ withDatabase: true });
-  rmSync(profileDirectories(sandbox.home).APPDATA!, { recursive: true, force: true });
-  // No redirect: the App asks Windows for the real (missing) folder.
-  await expectStartupFailure({ WORK_INTELLIGENCE_DESKTOP_DATA_DIR: "" });
+  const roaming = profileDirectories(sandbox.home).APPDATA!;
+  rmSync(roaming, { recursive: true, force: true });
+  // No redirect: Electron asks Windows for the real (missing) folder.
+  const exit = await runToExit(sandbox, {
+    WORK_INTELLIGENCE_DESKTOP_DATA_DIR: "",
+    WORK_INTELLIGENCE_DESKTOP_TEST_RECORD_ERROR_BOX: "1",
+  });
+  expect({ code: exit.code, signal: exit.signal }, `stderr:\n${exit.stderr}`).toEqual({
+    code: CRASHPAD_NOT_CONNECTED,
+    signal: null,
+  });
+  // The App's script never ran: none of its lines, and nothing it would have created.
+  expect(exit.stderr).not.toContain("[shell]");
+  expect(existsSync(roaming)).toBe(false);
+  expect(existsSync(join(sandbox.dataDirectory, "logs"))).toBe(false);
+  expect(await portIsFree(sandbox.port)).toBe(true);
+  expect(processIsAlive(exit.pid)).toBe(false);
+  // Electron's own helpers (GPU, network, Crashpad) end with it.
+  await expect.poll(() => windowsLeftovers(exit.pid, sandbox?.root ?? ""), { timeout: 10_000 }).toEqual([]);
 });
 
 test("a relaunch with the same backend leaves the settings file as it was", async () => {

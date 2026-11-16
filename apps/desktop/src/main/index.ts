@@ -1,5 +1,4 @@
-import { existsSync, writeSync } from "node:fs";
-import { dirname } from "node:path";
+import { writeSync } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import { app, dialog } from "electron";
 import {
@@ -57,10 +56,10 @@ function earlyLocale(): ShellLocale {
 
 /**
  * Closes the App with a native error box: there is no data folder, so no log, tray or repair window can exist. It all
- * happens now, before `ready`, and never waits for it: without a data folder Electron's own start-up stops at a native
- * CHECK on the session-data path (`BrowserProcessImpl::PostEarlyInitialization`) before `ready` fires, so a box shown
- * after `ready` is never reached. The error box is allowed before `ready`, and `app.exit` before the message loop ends
- * the process at once.
+ * happens now and never waits for `ready`: Electron needs the data folder on its own way to `ready`, so a box shown
+ * after it may never be reached. The error box is allowed before `ready`, and `app.exit` before the message loop ends
+ * the process at once. One case never gets here: a Windows profile whose Roaming AppData folder is gone ends inside
+ * Electron's native start-up before this script runs (see the smoke test and the known limitations).
  */
 function failStartup(detail: string): void {
   // A synchronous write, so the line is out before the process ends; on Linux the box itself also goes to stderr.
@@ -228,7 +227,6 @@ const userData = resolveUserDataDirectory(overrideFromEnvironment(environmentInp
     return app.getPath("userData");
   },
   write: (path) => app.setPath("userData", path),
-  ...(process.platform === "win32" ? { parentExists: (path: string) => existsSync(dirname(path)) } : {}),
 });
 if (userData.ok) runShell({ ...environmentInputs, userDataDirectory: userData.userDataDirectory });
 else failStartup(userData.detail);
