@@ -135,7 +135,7 @@ Schema 33 只新增可為空的欄位與索引，不改寫既有資料列。`kno
 
 Processing 中的 report synthesis 與 metadata backfill 請求超過 30 分鐘會標記為 `failed`，保留原始資料並允許後續 Agent／UI 重新處理。更新 Session metadata、verification 與 summary 時，Session 與 Project timestamp 會一起原子更新。
 
-REST API 只接受 loopback `Host`（`127.0.0.1`、`localhost`、`[::1]`，以及 `WORK_INTELLIGENCE_ALLOWED_ORIGINS` 內的主機），其他一律回 421，避免 DNS rebinding 的網頁在同源情況下讀取資料；帶 `Origin` 的請求還必須在 origin 白名單內。
+REST API 只接受 loopback `Host`（`127.0.0.1`、`localhost`、`[::1]`）加上 server 實際監聽的 port，以及 `WORK_INTELLIGENCE_ALLOWED_ORIGINS` 內 origin 完全相同的主機與 port，其他一律回 421，避免 DNS rebinding 的網頁在同源情況下讀取資料；帶 `Origin` 的請求還必須在 origin 白名單內。
 
 REST 路由依領域分成 `apps/server/src/routes/` 下的路由表（system、reports、projects、knowledge、insights、sessions、backfill）。固定路徑以雜湊表比對，帶參數的路徑依序比對；`validatedRoute` 統一處理 Zod 驗證與錯誤回應。
 

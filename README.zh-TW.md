@@ -401,7 +401,7 @@ CI 在 Ubuntu、Windows、macOS 跑 build、test、typecheck、coverage 與獨�
 
 - `WORK_INTELLIGENCE_DB`：SQLite 位置。
 - `WORK_INTELLIGENCE_PORT`：正式模式的 port，預設 `3210`。
-- `WORK_INTELLIGENCE_ALLOWED_ORIGINS`：正式模式同源，不需要額外設定。開發模式或自訂來源使用非預設的 Web origin 時，在 `.env` 設定這個變數（逗號分隔，不能用 `*`），其中的主機也會加入 API 的 `Host` 白名單。
+- `WORK_INTELLIGENCE_ALLOWED_ORIGINS`：正式模式同源，不需要額外設定。開發模式或自訂來源使用非預設的 Web origin 時，在 `.env` 設定這個變數（逗號分隔，不能用 `*`），其中的主機與 port 也會加入 API 的 `Host` 白名單。
 - 報告與日期篩選依 server 所在的系統時區切日（Node 會遵守 `TZ` 環境變數）。
 
 開工前請先讀對應的共用 skill（Codex 與 Claude 共用，放在 `.agents/skills/`）：
