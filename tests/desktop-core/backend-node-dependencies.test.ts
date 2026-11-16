@@ -49,7 +49,7 @@ describe("createNodeBackendDependencies", () => {
       "/synthetic/runtime",
       "serve",
       ["start", "--desktop-ipc"],
-      expect.objectContaining({ env: { HOME: "/synthetic/home" } }),
+      expect.objectContaining({ env: { HOME: "/synthetic/home" }, requiredRuntimeKind: "node" }),
     );
   });
 

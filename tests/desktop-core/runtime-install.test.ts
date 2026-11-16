@@ -270,6 +270,17 @@ describe("planLaunch", () => {
     expect((await planLaunch(root, "mcp", [], { env: { A: "1" } })).env).toEqual({ A: "1" });
   });
 
+  it("refuses a runtime of another kind than the required one, and accepts the required kind", async () => {
+    await installFixture(root, "rt-e", { kind: "electron-run-as-node", commit: true });
+    await expect(planLaunch(root, "serve", [], { requiredRuntimeKind: "node" })).rejects.toMatchObject({
+      code: "RUNTIME_KIND_NOT_ALLOWED",
+    });
+    await installFixture(root, "rt-n", { kind: "node", commit: true });
+    await expect(planLaunch(root, "serve", [], { requiredRuntimeKind: "node" })).resolves.toMatchObject({
+      args: expect.any(Array),
+    });
+  });
+
   it("uses the process environment by default", async () => {
     await installFixture(root, "rt-1", { commit: true });
     expect((await planLaunch(root, "mcp", [])).env.PATH).toBe(process.env.PATH);

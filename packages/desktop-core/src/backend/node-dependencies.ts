@@ -22,7 +22,9 @@ export interface NodeBackendDependenciesOptions {
 /** The real operating-system dependencies of {@link BackendSupervisor}, for the Electron main process. */
 export function createNodeBackendDependencies(options: NodeBackendDependenciesOptions): BackendSupervisorDependencies {
   return {
-    planLaunch: (argv, env) => planLaunch(options.runtimeRoot, "serve", argv, { ...options.verify, env }),
+    // ADR-04: the backend runs on the bundled official Node.js, never on Electron run as Node.
+    planLaunch: (argv, env) =>
+      planLaunch(options.runtimeRoot, "serve", argv, { ...options.verify, env, requiredRuntimeKind: "node" }),
     spawn: (command, args, spawnOptions) => spawn(command, [...args], spawnOptions),
     isPortFree: async (port) => (await probeLoopbackPort(port)).free,
     fetchHealth: async (url, headers, timeoutMs) => {
