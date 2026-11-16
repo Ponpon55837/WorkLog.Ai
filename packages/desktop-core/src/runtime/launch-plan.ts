@@ -1,7 +1,7 @@
 import path from "node:path";
 import { RuntimeError } from "./errors.js";
 import { readCurrentRuntimeId } from "./layout.js";
-import { isRuntimeAction, type RuntimeAction, type RuntimeManifest } from "./manifest.js";
+import { isRuntimeAction, type RuntimeAction, type RuntimeKind, type RuntimeManifest } from "./manifest.js";
 import { verifyRuntime, type VerifyRuntimeOptions } from "./verify.js";
 
 /** A process to start: argv array and environment, never a shell command line. */
@@ -56,14 +56,28 @@ export function buildLaunchPlan(
   };
 }
 
+/** Options of {@link planLaunch}: verification, the base environment and, optionally, the one runtime kind accepted. */
+export interface PlanLaunchOptions extends VerifyRuntimeOptions {
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  /** When set, a verified runtime of any other kind is refused with `RUNTIME_KIND_NOT_ALLOWED`. */
+  readonly requiredRuntimeKind?: RuntimeKind;
+}
+
 /** Reads `current`, verifies that runtime completely and plans how to start `action` in it. */
 export async function planLaunch(
   root: string,
   action: string,
   argv: readonly string[],
-  options: VerifyRuntimeOptions & { readonly env?: Readonly<Record<string, string | undefined>> } = {},
+  options: PlanLaunchOptions = {},
 ): Promise<LaunchPlan> {
   assertAllowedAction(action);
   const verified = await verifyRuntime(root, await readCurrentRuntimeId(root), options);
+  const { runtimeKind } = verified.manifest;
+  if (options.requiredRuntimeKind !== undefined && runtimeKind !== options.requiredRuntimeKind) {
+    throw new RuntimeError("RUNTIME_KIND_NOT_ALLOWED", "這個 runtime 的類型不能啟動此程序", {
+      expected: options.requiredRuntimeKind,
+      actual: runtimeKind,
+    });
+  }
   return buildLaunchPlan(verified.runtimeDirectory, verified.manifest, action, argv, options.env);
 }

@@ -494,6 +494,27 @@ describe("database backups", () => {
   });
 });
 
+describe("exporting a staging copy without fsync", () => {
+  it("writes the same bytes as a durable export and leaves the connection's synchronous level as it was", () => {
+    const { root, databasePath } = setup();
+    const db = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      db.exec("PRAGMA synchronous = EXTRA");
+      const durable = join(root, "durable.sqlite");
+      const staging = join(root, "staging.sqlite");
+      expect(exportDatabase(db, durable).bytes).toBeGreaterThan(0);
+      expect(exportDatabase(db, staging, { durable: false }).bytes).toBe(statSync(durable).size);
+      expect(readFileSync(staging).equals(readFileSync(durable))).toBe(true);
+      expect(db.prepare("PRAGMA synchronous").get()).toEqual({ synchronous: 3 });
+      // A refused export (the target exists) still puts the level back.
+      expect(() => exportDatabase(db, staging, { durable: false })).toThrow(/already exists/);
+      expect(db.prepare("PRAGMA synchronous").get()).toEqual({ synchronous: 3 });
+    } finally {
+      db.close();
+    }
+  });
+});
+
 describe("moving the database to another computer", () => {
   function exportFrom(store: WorkIntelligenceStore, root: string): string {
     const target = join(root, "export.sqlite");

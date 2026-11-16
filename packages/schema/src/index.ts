@@ -69,6 +69,25 @@ export {
 } from "./file-history.js";
 export { relatedWorkQuerySchema } from "./related-work.js";
 export {
+  DESKTOP_BACKEND_ERROR_CODES,
+  DESKTOP_CHILD_PROTOCOL_VERSION,
+  desktopChildMessageSchema,
+  desktopDatabaseIdentitySchema,
+  desktopParentMessageSchema,
+  desktopPreflightResultSchema,
+  parseDesktopChildMessage,
+  parseDesktopParentMessage,
+  type DesktopBackendErrorCode,
+  type DesktopChildMessage,
+  type DesktopDatabaseIdentity,
+  type DesktopHelloMessage,
+  type DesktopParentMessage,
+  type DesktopPreflightResultMessage,
+  type DesktopReadyMessage,
+  type DesktopStartMessage,
+  type ParsedDesktopMessage,
+} from "./desktop-child-protocol.js";
+export {
   reportPresentationStateSchema,
   reportPresentationQuerySchema,
   reportPresentationExportQuerySchema,

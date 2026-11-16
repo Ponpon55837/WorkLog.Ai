@@ -196,6 +196,7 @@ import {
   isBackupDue,
   listDatabaseBackups,
   type BackupRetentionOptions,
+  type ExportOptions,
 } from "./backup.js";
 import { segmentLengthWarnings, startedAfterCompletedWarning, suppliedCompletedAtWarnings } from "./work-timestamps.js";
 import {
@@ -765,11 +766,11 @@ export class WorkIntelligenceStore {
   }
 
   /** Writes the whole database to `target` for moving it to another computer; `target` must not exist yet. */
-  public exportTo(target: string): { bytes: number } {
+  public exportTo(target: string, options: ExportOptions = {}): { bytes: number } {
     if (this.backupUnavailable()) {
       throw new Error("An in-memory database cannot be exported.");
     }
-    return exportDatabase(this.db, target);
+    return exportDatabase(this.db, target, options);
   }
 
   /** Exports portable data for every project or one selected project. */

@@ -21,6 +21,7 @@
   - 結束前依 §5.1 的停止順序執行，不假裝已成功。
 - **平台**：W 的登入項以目前使用者為範圍；M 的 App 必須已簽署，並位於可更新的位置（DT-29）。
 - **對應**：DT-15、DT-16、DT-35；ADR-01、ADR-26；R18、R24。
+- **1.6.44 實作**：單例鎖在 `whenReady` 之前取得，第二次啟動立即結束（`apps/desktop/src/main/index.ts`、`second-instance.ts`）。登入項預設關閉，開啟需 consent（`packages/desktop-core/src/shell/login-item.ts`、`apps/desktop/src/main/settings.ts`）。結束經 `QuitFlow`：確認、停止受管服務；若有進行中的操作，取消並有界等待，逾時直接停止子程序；最後檢查 exit 與 port 釋放。未證明停止時記錄並提示，不宣稱成功（`packages/desktop-core/src/shell/quit-flow.ts`、`apps/desktop/src/main/quit.ts`）。更新（updater）與簽章尚未實作。
 
 ### C-02 TrayController（系統匣／選單列）
 
@@ -33,6 +34,7 @@
   - 結束 App 的文字必須說明「退出後不會每日備份」（ADR-26）。
 - **平台**：W 位於通知區（可能被隱藏於溢出區）；M 位於選單列（可能被系統隱藏）。兩者都需要「無圖示」備援（C-11）。
 - **對應**：DT-15、DT-35；R18、R24。
+- **1.6.44 實作**：選單由 `buildTrayMenu` 產生（`packages/desktop-core/src/shell/tray-menu.ts`）。「開啟 Dashboard」永遠是第一項，只在受管服務執行中可用，否則標籤說明原因。「退出」的標籤含「退出後不會每日備份」（`packages/desktop-core/src/shell/i18n.ts`）。原生 tray 與選單列由 `apps/desktop/src/main/tray.ts` 呈現；位置與可見性待實機驗收。
 
 ### C-22 Web 系統狀態與管理介面（既有 Vue，新增控制）
 
@@ -57,6 +59,7 @@
   - 不依賴 Web 或 API 存活。
 - **平台**：W 與 M 都需測試無 tray 與無預設瀏覽器的情境（DT-16）。
 - **對應**：DT-16；R14、R18。
+- **1.6.44 實作**：修復視窗為 `BrowserWindow`，`sandbox` 與 `contextIsolation` 為真，`nodeIntegration` 與 `webviewTag` 為假（`apps/desktop/src/main/repair-window.ts`）。`security.ts` 拒絕導覽、重新導向、`window.open` 與 webview，權限請求一律拒絕。修復頁只經 `wi-repair://` 的固定表提供，回應附 CSP（`packages/desktop-core/src/shell/navigation-policy.ts`）。IPC 每個通道先驗 sender（只接受修復視窗的主框架），再以 zod 驗輸入（`apps/desktop/src/main/ipc.ts`）。修復動作（重試、選擇資料庫（須先預覽）、開啟資料夾、匯出診斷）經 IPC 轉交。修復頁不經 Web 或 API 載入。無 tray 與無預設瀏覽器的情境待實機驗收。
 
 ---
 
@@ -171,6 +174,7 @@
   - 父程序失聯時子程序自行收尾。
 - **平台**：W 的子孫程序需確認 port 釋放（DT-13）；M 同樣要檢查 process tree。
 - **對應**：DT-11；R19。
+- **1.6.44 實作**：`BackendSupervisor` 只操作自己 spawn 的 `ChildProcess`，並以 `shell: false` 與 argv 啟動（`packages/desktop-core/src/backend/backend-supervisor.ts`）。環境變數 allowlist 只含 OS 變數（POSIX：`HOME`、`TMPDIR`、`LANG`、`TZ`、`LC_*`；Windows：`SystemRoot`、`TEMP`、`USERPROFILE` 等）、固定 PATH，以及 `WORK_INTELLIGENCE_*` 桌面值；`NODE_OPTIONS` 與使用者的 PATH 不傳（`packages/desktop-core/src/backend/child-environment.ts`）。DB 路徑、port 與備份目錄**不經 env**，而是經私有 IPC 的 `start` 訊息傳遞；runId 也只經 IPC。父程序失聯時子程序自行收尾（`apps/server/src/desktop-child.ts`）。
 
 ### C-09 ServiceOwnerAdapter（OS 服務 adapter）
 

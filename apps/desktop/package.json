@@ -1,0 +1,24 @@
+{
+  "name": "@work-intelligence/desktop",
+  "version": "0.1.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "dist/main/index.mjs",
+  "dependencies": {
+    "@work-intelligence/desktop-core": "workspace:*",
+    "@work-intelligence/schema": "workspace:*",
+    "@work-intelligence/shared": "workspace:*",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@work-intelligence/storage": "workspace:*",
+    "electron": "45.3.2"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.smoke.json",
+    "ensure-electron": "node scripts/ensure-electron.mjs",
+    "test:smoke": "node scripts/run-smoke.mjs"
+  }
+}

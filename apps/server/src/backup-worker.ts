@@ -91,6 +91,17 @@ class WorkerStores {
   }
 }
 
+/**
+ * `content` on a memory block of its own, ready to transfer. A small Buffer is a slice of Node's shared pool: posting it
+ * would clone the whole pool (other calls' bytes included) and transferring it would detach the pool in this worker,
+ * so that one is copied into its own block first. A large Buffer already owns its block and is sent as is.
+ */
+function ownedBytes(content: Buffer): Uint8Array<ArrayBuffer> {
+  const { buffer } = content;
+  const owns = buffer instanceof ArrayBuffer && content.byteOffset === 0 && content.byteLength === buffer.byteLength;
+  return owns ? (content as Uint8Array<ArrayBuffer>) : new Uint8Array(content);
+}
+
 async function executeOperation(
   stores: WorkerStores,
   operation: BackupWorkerOperation,
@@ -101,15 +112,13 @@ async function executeOperation(
     case "backupIfDue":
       return { value: stores.exportStore().backupIfDue() };
     case "exportTo":
-      return { value: stores.exportStore().exportTo(operation.target) };
+      return { value: stores.exportStore().exportTo(operation.target, operation.options) };
     case "exportProjectData": {
-      const content = new TextEncoder().encode(
-        JSON.stringify(await stores.exportStore().exportProjectData(operation.scope)),
+      // Buffer.from encodes UTF-8 about a third faster than TextEncoder, to the same bytes.
+      const content = ownedBytes(
+        Buffer.from(JSON.stringify(await stores.exportStore().exportProjectData(operation.scope)), "utf8"),
       );
-      return {
-        value: { content, bytes: content.byteLength },
-        transferList: [content.buffer],
-      };
+      return { value: { content, bytes: content.byteLength }, transferList: [content.buffer] };
     }
     case "previewProjectDataImport": {
       const store = await stores.previewStore();

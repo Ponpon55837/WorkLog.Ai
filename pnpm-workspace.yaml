@@ -6,3 +6,5 @@ overrides:
 allowBuilds:
   better-sqlite3: true
   esbuild: true
+  # Reviewed: the Electron binary is deliberately not downloaded by a plain install; apps/desktop/scripts/ensure-electron.mjs fetches it only where the smoke test needs it.
+  electron: false

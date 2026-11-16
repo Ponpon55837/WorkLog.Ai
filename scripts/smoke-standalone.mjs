@@ -352,6 +352,14 @@ async function main() {
     const unknown = run(bin, ["nope"], environment, workingDirectory);
     check("unknown command exits 2", unknown.status === 2, `exit ${unknown.status}`);
 
+    // The desktop App's backend entry must be inside the bundle: without an IPC parent it explains itself and exits 2.
+    const desktopEntry = run(bin, ["start", "--desktop-ipc"], environment, workingDirectory);
+    check(
+      "start --desktop-ipc without IPC exits non-zero and explains",
+      desktopEntry.status === 2 && desktopEntry.output.includes("桌面 App"),
+      `exit ${desktopEntry.status}: ${excerpt(desktopEntry.output)}`,
+    );
+
     await checkServer(bin, environment, root, port, built.version);
 
     // A relative folder resolves against the directory the command was typed in, not an inherited INIT_CWD.

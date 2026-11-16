@@ -6,7 +6,7 @@
 |---|---|
 | 文件版本 | R4 |
 | 基準 commit | `d464ea5`（main，Merge PR #361，release 1.6.40） |
-| 目標修補版 | 1.6.41（T1–T4）、1.6.42（DT-01/02/04/09/10/20/36）、1.6.43（DT-23、DT-25，階段 1）；設計基準仍為 `d464ea5` |
+| 目標修補版 | 1.6.41（T1–T4）、1.6.42（DT-01/02/04/09/10/20/36）、1.6.43（DT-23、DT-25，階段 1）、1.6.44（DT-11、DT-15、DT-16、DT-35，階段 2）；設計基準仍為 `d464ea5` |
 | 前一版 | R3（來源提交 `e46060e`，審查基準 `7723b72`） |
 | 首發平台 | Windows 11 x64 與 macOS 同批發行；Linux 不在 V1。Windows ARM 排除為推論（待確認）；macOS 架構範圍（Apple Silicon、Intel）待確認 |
 
@@ -101,6 +101,21 @@ R4 的補充用法：
 
 **本版的非 CI 項目**：Windows 11 與 macOS 實機煙霧測試、Windows ACL 檢查、Windows 的 `.cmd` 與 `%*`／`!` 行為、NTFS 變更時間與 stat 快取的強度、DT-24 runtime 清理（未實作）、plugin／standalone／MCPB 接線（未做），以及官方 Node.js 發行簽章（GPG）的驗證。
 
+---
+
+## 1.6.44 任務（階段 2：安全最小桌面）與本文件的關係
+
+本版實作階段 2 的 CI 可驗證部分。Windows 11 與 macOS 的實機驗收仍為**待實機驗收**；三平台 desktop-smoke 已在 CI 通過（[run 43929965453](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/43929965453)）。本文件不宣稱實機已通過。
+
+| 任務 | 內容 | 狀態 | 本文件位置 | 證據路徑 |
+|---|---|---|---|---|
+| DT-11 | 後端子程序 lifecycle：`start --desktop-ipc` 子程序、env allowlist 與固定 PATH、runId 只經私有 IPC、HMAC 實例證明、停止順序（IPC shutdown → POSIX SIGTERM → kill → 確認 port 釋放） | 1.6.44 已實作（CI 可驗證部分）；實機待實機驗收 | §5.1；§10.3；C-08；ADR-08 | `packages/desktop-core/src/backend/*.ts`；`apps/server/src/desktop-child.ts`；`packages/schema/src/desktop-child-protocol.ts`；`packages/shared/src/instance-proof.ts`；`tests/desktop-core/backend-supervisor.test.ts`、`backend-environment.test.ts`、`backend-managed-service.test.ts`；`tests/server/desktop-child.test.ts`、`desktop-child-process.test.ts`；`tests/shared/instance-proof.test.ts` |
+| DT-15 | 單例、tray／選單列、登入項（預設關閉、需同意）、`--background` 與 `wasOpenedAtLogin` 的靜默背景啟動 | 1.6.44 已實作（CI 可驗證部分）；實機待實機驗收 | ADR-26；C-01；C-02 | `apps/desktop/src/main/index.ts`、`second-instance.ts`、`tray.ts`、`settings.ts`；`packages/desktop-core/src/shell/launch-mode.ts`、`login-item.ts`、`tray-menu.ts`；`tests/desktop-core/shell-basics.test.ts`；`apps/desktop/tests/desktop-smoke/desktop.spec.ts` |
+| DT-16 | 修復視窗：固定 scheme、sandbox、最小 preload、IPC sender 與 zod 驗證、拒絕導覽與權限、CSP | 1.6.44 已實作（CI 可驗證部分）；實機待實機驗收 | ADR-13；C-11 | `apps/desktop/src/main/repair-window.ts`、`security.ts`、`ipc.ts`；`apps/desktop/src/preload/repair.ts`；`apps/desktop/src/renderer/repair/`；`packages/desktop-core/src/shell/navigation-policy.ts`、`repair-ipc.ts`；`tests/desktop-core/shell-policy.test.ts`；`apps/desktop/tests/desktop-smoke/desktop.spec.ts` |
+| DT-35 | 退出語意：退出確認與 tray 文字寫明不會每日備份；顯示最後成功備份時間；退出流程 | 1.6.44 已實作（CI 可驗證部分）；實機待實機驗收 | ADR-26；C-02；§8.2 | `apps/desktop/src/main/quit.ts`；`packages/desktop-core/src/shell/quit-flow.ts`、`quit-notice.ts`、`last-backup.ts`；`tests/desktop-core/shell-flows.test.ts`、`shell-basics.test.ts`、`shell-policy.test.ts` |
+
+**本版的非 CI 項目**：Windows 11 與 macOS 的實機煙霧測試（Windows 登入項 `--background`、單例、tray、8.3 短名、`TerminateProcess`；macOS 的 `wasOpenedAtLogin`、`mainAppService`、Dock、選單列、Gatekeeper 與簽章），以及 Windows 與 macOS 的 CI 首次實跑。尚未做：簽章、公證、安裝包、自動更新、DT-01 完整的來源偵測精靈、DT-19 完整診斷、DT-24 runtime 清理，以及 plugin／standalone／MCPB 接線到 launcher。
+
 ## R3 → R4 修訂紀錄
 
 ### 指定修改（使用者需求）
@@ -158,6 +173,7 @@ R4 的補充用法：
 
 - R4 第三次修訂（1.6.42）: 更新階段 0 狀態與 DT-04 實驗結論、DB 身分策略定案。
 - R4 第四次修訂（1.6.43）: 階段 1 spike 結果與 ADR-04 決策（隨包官方 Node.js）；DT-23、DT-25 狀態；風險矩陣的證據與 §3.3、§9.4、§10.2 的階段 1 進度與實作 layout。
+- R4 第五次修訂（1.6.44）: 階段 2 的實作狀態（DT-11、DT-15、DT-16、DT-35）；風險矩陣的證據與 ADR-04、ADR-07、ADR-08、ADR-13、ADR-26 的狀態；C-01、C-02、C-08、C-11 的實作註記；§5.1、§9.4、§10.3 的階段 2 進度與實作差異。
 
 ## 驗證紀錄（R4 修訂過程）
 

@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import type { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FinalizeSessionInput, KnowledgeRecord } from "../../packages/core/src/index.js";
 import { setAppliesToBudgetProbe, type AppliesToBudget } from "../../packages/storage/src/applies-to-match.js";
@@ -144,6 +145,9 @@ describe("remembered Knowledge staleness", () => {
 
   it("never holds more than its key cap", () => {
     const { store, record } = setup();
+    // 600 durable writes cost about 35 ms each on a Windows runner (fsync), enough to hit the test timeout; this test is
+    // about the cache's size, not durability, so this connection skips the fsync.
+    (store as unknown as { db: DatabaseSync }).db.exec("PRAGMA synchronous = OFF");
     const records = Array.from({ length: 600 }, (_, index) => record(`bulk-${index}`, [`src/tree-${index}/**`]));
     const service = (store as unknown as { knowledgeService: KnowledgeService }).knowledgeService;
     const cache = (service as unknown as { stalenessResults: { values: Map<string, unknown> } }).stalenessResults;

@@ -14,6 +14,7 @@ function fakeRuntime(overrides: Partial<StandaloneRuntime> = {}) {
     log: (message: string) => logs.push(message),
     error: (message: string) => errors.push(message),
     start: vi.fn(async () => undefined),
+    startDesktop: vi.fn(async () => 0),
     mcp: vi.fn(async () => undefined),
     check: vi.fn(async () => 0),
     database: vi.fn(async () => 0),
@@ -26,6 +27,13 @@ function fakeRuntime(overrides: Partial<StandaloneRuntime> = {}) {
 describe("parseStandaloneArgs", () => {
   it.each([[[]], [["help"]], [["--help"]], [["-h"]]])("shows help for %j", (argv) => {
     expect(parseStandaloneArgs(argv)).toEqual({ kind: "help" });
+  });
+
+  it("parses the internal desktop IPC start and nothing looser", () => {
+    expect(parseStandaloneArgs(["start", "--desktop-ipc"])).toEqual({ kind: "start-desktop" });
+    expect(parseStandaloneArgs(["start", "--desktop-ipc", "x"])).toMatchObject({ kind: "invalid" });
+    expect(parseStandaloneArgs(["start", "--other"])).toMatchObject({ kind: "invalid" });
+    expect(parseStandaloneArgs(["check", "--desktop-ipc"])).toMatchObject({ kind: "invalid" });
   });
 
   it.each([[["--version"]], [["-v"]], [["version"]]])("shows the version for %j", (argv) => {
@@ -99,6 +107,17 @@ describe("runStandaloneCli", () => {
     expect(await runStandaloneCli(["mcp"], runtime)).toBe(0);
     expect(runtime.start).toHaveBeenCalledTimes(1);
     expect(runtime.mcp).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs the desktop child through the runtime and returns its exit code", async () => {
+    const { runtime } = fakeRuntime({ startDesktop: vi.fn(async () => 2) });
+    expect(await runStandaloneCli(["start", "--desktop-ipc"], runtime)).toBe(2);
+    expect(runtime.startDesktop).toHaveBeenCalledTimes(1);
+    expect(runtime.start).not.toHaveBeenCalled();
+  });
+
+  it("does not list the internal desktop switch in the usage", () => {
+    expect(standaloneUsage()).not.toContain("desktop-ipc");
   });
 
   it("returns the doctor's exit code", async () => {

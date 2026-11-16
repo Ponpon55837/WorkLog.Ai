@@ -13,7 +13,7 @@ import type {
 } from "@work-intelligence/core";
 import type { z } from "zod";
 import { safeParseStrict, type StrictParseResult } from "@work-intelligence/schema";
-import type { WorkIntelligenceStore } from "@work-intelligence/storage";
+import type { ExportOptions, WorkIntelligenceStore } from "@work-intelligence/storage";
 import type { McpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import { sendError, sendJson } from "../http.js";
 
@@ -32,7 +32,8 @@ export type ProjectDataImportPreviewWithFolderStatus = Omit<ProjectDataImportPre
 export interface BackgroundStoreOperations {
   createBackup(): Promise<DatabaseBackupCreated | DatabaseBackupUnavailable>;
   backupIfDue(): Promise<DatabaseBackupCreated | null>;
-  exportTo(target: string): Promise<{ bytes: number }>;
+  /** `durable: false` for a staging copy that is streamed once and removed; see `ExportOptions` in storage. */
+  exportTo(target: string, options?: ExportOptions): Promise<{ bytes: number }>;
   exportProjectData(scope: ProjectDataExportScope): Promise<ProjectDataExportDocument>;
   previewProjectDataImport(
     input: ProjectDataImportInput | Uint8Array,
@@ -51,6 +52,8 @@ export interface RouteServices {
   agentConnections(): SystemAgentConnections;
   userServiceStatus(): UserServiceStatus | Promise<UserServiceStatus>;
   backgroundStore: BackgroundStoreOperations;
+  /** The health instance proof for this request's challenge header, or undefined when none applies. */
+  instanceProof(request: IncomingMessage): string | undefined;
 }
 
 export interface RouteContext {

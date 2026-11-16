@@ -15,6 +15,8 @@ data/*.sqlite-wal
 coverage/
 test-results/
 playwright-report/
+# Desktop performance results (apps/desktop, written by the smoke run)
+perf-results/
 .DS_Store
 
 # Local UI screenshots (UI_SCREENSHOTS=<label> pnpm test:e2e)

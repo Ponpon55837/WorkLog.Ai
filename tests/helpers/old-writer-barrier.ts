@@ -47,6 +47,8 @@ const WORKSPACE_PATHS: Record<string, string> = {
   "@work-intelligence/shared/app-version": "packages/shared/src/app-version.ts",
   "@work-intelligence/shared/database-location": "packages/shared/src/database-location.ts",
   "@work-intelligence/shared/database-path": "packages/shared/src/database-path.ts",
+  "@work-intelligence/shared/instance-proof": "packages/shared/src/instance-proof.ts",
+  "@work-intelligence/shared/loopback-port": "packages/shared/src/loopback-port.ts",
   "@work-intelligence/shared/mcp-runtime": "packages/shared/src/mcp-runtime.ts",
   "@work-intelligence/shared/sqlite-version": "packages/shared/src/sqlite-version.ts",
   "@work-intelligence/storage": "packages/storage/src/index.ts",
@@ -121,8 +123,13 @@ export class BarrierSandbox {
 
   /** A worker with an IPC channel (store-writer, lock-holder, migrator roles). */
   public spawnWorker(args: string[]): Waiter {
-    const child = spawn(process.execPath, ["--import", this.loader, WORKER_SCRIPT, ...args], {
-      env: this.environment(),
+    return this.spawnIpc(WORKER_SCRIPT, args);
+  }
+
+  /** A repository TypeScript entry with an IPC channel to the test, like a desktop parent would open. */
+  public spawnIpc(script: string, args: string[] = [], extraEnvironment: Record<string, string> = {}): Waiter {
+    const child = spawn(process.execPath, ["--import", this.loader, script, ...args], {
+      env: this.environment(extraEnvironment),
       stdio: ["ignore", "pipe", "pipe", "ipc"],
     });
     this.children.push(child);

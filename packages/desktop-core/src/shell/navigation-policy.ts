@@ -1,0 +1,71 @@
+/** Custom scheme of the repair page. Registered as privileged before the app is ready. */
+export const REPAIR_SCHEME = "wi-repair";
+export const REPAIR_ORIGIN = `${REPAIR_SCHEME}://app`;
+export const REPAIR_PAGE_URL = `${REPAIR_ORIGIN}/index.html`;
+
+export interface RepairAsset {
+  /** File name inside the build's repair folder. A fixed value, never built from the request. */
+  readonly file: string;
+  readonly contentType: string;
+}
+
+/** The only three things the repair scheme serves. The request picks a key; it never contributes to a path. */
+export const REPAIR_ASSETS: ReadonlyMap<string, RepairAsset> = new Map([
+  ["/index.html", { file: "index.html", contentType: "text/html; charset=utf-8" }],
+  ["/repair.css", { file: "repair.css", contentType: "text/css; charset=utf-8" }],
+  ["/repair.js", { file: "repair.js", contentType: "text/javascript; charset=utf-8" }],
+]);
+
+/** Content-Security-Policy of the repair page: its own files only, no network, no embedding, no forms. */
+export const REPAIR_CSP =
+  "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+
+function parse(url: string): URL | undefined {
+  try {
+    return new URL(url);
+  } catch {
+    return undefined;
+  }
+}
+
+/** True when `url` is exactly a repair-scheme URL on the fixed host, with no credentials and no port. */
+function isRepairUrl(parsed: URL): boolean {
+  return (
+    parsed.protocol === `${REPAIR_SCHEME}:` &&
+    parsed.hostname === "app" &&
+    parsed.username === "" &&
+    parsed.password === "" &&
+    parsed.port === ""
+  );
+}
+
+/** The asset a repair-scheme URL names (`/` is the page), or undefined for anything else. */
+export function resolveRepairAsset(url: string): RepairAsset | undefined {
+  const parsed = parse(url);
+  if (!parsed || !isRepairUrl(parsed)) return undefined;
+  return REPAIR_ASSETS.get(parsed.pathname === "/" ? "/index.html" : parsed.pathname);
+}
+
+/** True for the repair page itself (any of its fixed assets; the page is the only document). */
+export function isRepairPageUrl(url: string): boolean {
+  return resolveRepairAsset(url) !== undefined;
+}
+
+/** The Dashboard origin: plain http, the loopback address, exactly the active port, no credentials. */
+export function isDashboardUrl(url: string, activePort: number | null): boolean {
+  if (activePort === null) return false;
+  const parsed = parse(url);
+  return (
+    parsed !== undefined &&
+    parsed.protocol === "http:" &&
+    parsed.hostname === "127.0.0.1" &&
+    parsed.port === String(activePort) &&
+    parsed.username === "" &&
+    parsed.password === ""
+  );
+}
+
+/** Whether a window may navigate to `url`: the repair page or the Dashboard on the active port; nothing else. */
+export function isAllowedNavigation(url: string, activePort: number | null): boolean {
+  return isRepairPageUrl(url) || isDashboardUrl(url, activePort);
+}

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { DatabaseBackup, ProjectDataExportScope, SystemStatus } from "@work-intelligence/core";
 import { APP_VERSION } from "@work-intelligence/shared/app-version";
+import { INSTANCE_PROOF_HEADER } from "@work-intelligence/shared/instance-proof";
 import {
   databaseBackupFileNameSchema,
   deleteDatabaseBackupBodySchema,
@@ -23,6 +24,9 @@ import {
 import { getSqliteRuntimeStatus } from "../sqlite-runtime.js";
 import { parseRequestInput, type Route, type RouteContext } from "./router.js";
 
+/** Read size for streaming a database export: large reads cut the per-chunk overhead of a file of tens of MB. */
+const EXPORT_READ_CHUNK_BYTES = 1024 * 1024;
+
 /** Streams a fresh snapshot of the whole database as a download and removes the temporary copy. */
 async function sendDatabaseExport(
   backgroundStore: RouteContext["services"]["backgroundStore"],
@@ -33,7 +37,8 @@ async function sendDatabaseExport(
     const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, "");
     const fileName = `work-intelligence-export-${stamp}.sqlite`;
     const target = join(directory, fileName);
-    const { bytes } = await backgroundStore.exportTo(target);
+    // A staging copy, streamed once and removed below: nothing needs it on disk after a crash, so skip the fsyncs.
+    const { bytes } = await backgroundStore.exportTo(target, { durable: false });
     response.writeHead(200, {
       "Content-Type": "application/vnd.sqlite3",
       "Content-Length": String(bytes),
@@ -41,7 +46,8 @@ async function sendDatabaseExport(
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
     });
-    await pipeline(createReadStream(target), response);
+    // 1 MiB reads: a 25 MB snapshot in ~25 chunks instead of ~400, which shortens and steadies the transfer.
+    await pipeline(createReadStream(target, { highWaterMark: EXPORT_READ_CHUNK_BYTES }), response);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -186,13 +192,15 @@ export const systemRoutes: Route[] = [
   {
     method: "GET",
     pattern: "/api/health",
-    handler: ({ store, response }) => {
+    handler: ({ store, request, response, services }) => {
       let databaseHealthy = true;
       try {
         store.listProjects();
       } catch {
         databaseHealthy = false;
       }
+      const proof = services.instanceProof(request);
+      if (proof) response.setHeader(INSTANCE_PROOF_HEADER, proof);
       sendJson(response, databaseHealthy ? 200 : 503, {
         ok: databaseHealthy,
         app: "Work Intelligence",

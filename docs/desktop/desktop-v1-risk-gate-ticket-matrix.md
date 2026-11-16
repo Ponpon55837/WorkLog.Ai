@@ -86,15 +86,15 @@
 | DT-08 | 檔案系統風險政策（SMB、NFS、同步資料夾、外接碟） | E0-01 | DT-01 | 偵測與禁止自動接管的測試；顯示理由 | W、M | R22 |
 | DT-09 | ServiceOwner 狀態機與 operation journal（R4 §4.1） | E0-03 | DT-01 | 狀態轉移測試；中斷後依 OS／DB 重建。**1.6.42 已實作**：`packages/desktop-core/src/operations/`（狀態表、journal、recovery）；`tests/desktop-core/operations-state.test.ts`、`tests/desktop-core/operations-journal.test.ts`、`tests/desktop-core/operations-recovery.test.ts` | W、M | R06、R30 |
 | DT-10 | `OperationCoordinator`（單一鎖、operationId、BUSY、重送） | E0-03 | DT-09 | 重送回傳同一結果；併發操作回 BUSY。**1.6.42 已實作**：`packages/desktop-core/src/operations/coordinator.ts`；`tests/desktop-core/operations-coordinator.test.ts`；跨程序鎖屬 DT-15 | W、M | R19 |
-| DT-11 | 子程序 lifecycle（argv、env allowlist、runId IPC、drain） | E2-02 | DT-09、DT-02 | 不開錯 DB；不雙啟；關閉可驗證 | W、M | R19 |
+| DT-11 | 子程序 lifecycle（argv、env allowlist、runId IPC、drain） | E2-02 | DT-09、DT-02 | 不開錯 DB；不雙啟；關閉可驗證。**1.6.44 已實作**：`packages/desktop-core/src/backend/`；`apps/server/src/desktop-child.ts`；`packages/shared/src/instance-proof.ts`；`tests/desktop-core/backend-supervisor.test.ts`、`backend-environment.test.ts`、`backend-managed-service.test.ts`；`tests/server/desktop-child.test.ts`、`desktop-child-process.test.ts`；實機待實機驗收 | W、M | R19 |
 | DT-12 | 服務擁有權證據與陌生程序保護（macOS LaunchAgent） | E4-01 | DT-09 | 不殺未授權程序；歸屬證據層級測試 | M | R05、R06 |
 | DT-13 | Windows schtasks adapter 與 runner 子孫程序驗證 | E4-01 | DT-12 | 停止排程後 port 釋放；子孫程序已終止 | W | R05 |
 | DT-14 | 連接埠變更與跨 port 偏好白名單 | E2-02 | DT-11 | 換 port 後管理授權重建；偏好正確搬運 | W、M | R20 |
-| DT-15 | 單例、tray／選單列、登入項、靜默背景（無重複彈窗） | E2-01 | DT-10、DT-25 | 重複點擊只開一個實例；背景啟動不跳錯誤窗 | W、M | R18、R24 |
-| DT-16 | 修復視窗（隔離、sandbox、不依賴 Web 或 API） | E2-01 | DT-15 | 無 tray 或服務壞掉時仍可修復 | W、M | R14、R18 |
+| DT-15 | 單例、tray／選單列、登入項、靜默背景（無重複彈窗） | E2-01 | DT-10、DT-25 | 重複點擊只開一個實例；背景啟動不跳錯誤窗。**1.6.44 已實作**：`apps/desktop/src/main/index.ts`、`second-instance.ts`、`tray.ts`、`settings.ts`；`packages/desktop-core/src/shell/launch-mode.ts`、`login-item.ts`、`tray-menu.ts`；`tests/desktop-core/shell-basics.test.ts`；`apps/desktop/tests/desktop-smoke/desktop.spec.ts`；實機待實機驗收 | W、M | R18、R24 |
+| DT-16 | 修復視窗（隔離、sandbox、不依賴 Web 或 API） | E2-01 | DT-15 | 無 tray 或服務壞掉時仍可修復。**1.6.44 已實作**：`apps/desktop/src/main/repair-window.ts`、`security.ts`、`ipc.ts`；`apps/desktop/src/preload/repair.ts`；`apps/desktop/src/renderer/repair/`；`packages/desktop-core/src/shell/navigation-policy.ts`、`repair-ipc.ts`；`tests/desktop-core/shell-policy.test.ts`；`apps/desktop/tests/desktop-smoke/desktop.spec.ts`；實機待實機驗收 | W、M | R14、R18 |
 | DT-17 | 管理 API 授權：精確 Host:port（**1.6.41 T4 已實作**）、Origin、CSRF、會話、原生確認 | E2-03 | DT-15 | 假 Host、假 Origin、跨 port、重播、過期的測試皆拒絕 | W、M | R09、R10 |
 | DT-18 | 管理 API 跨使用者與 XSS 回歸測試；資料 API 的發行聲明 | E2-03 | DT-17 | 不同 OS 帳號連線測試；發行說明已列出排除項 | W、M | R25（管理 API 部分） |
-| DT-19 | 診斷匯出遮蔽與秘密掃描 | E5-02 | DT-11 | 匯出內容無授權碼與個資路徑；不自動上傳 | W、M | R32 |
+| DT-19 | 診斷匯出遮蔽與秘密掃描 | E5-02 | DT-11 | 匯出內容無授權碼與個資路徑；不自動上傳。**1.6.44 註記**：本版的診斷匯出已遮蔽 home、使用者名稱、DB／備份路徑、runId 與秘密樣式（`packages/desktop-core/src/shell/diagnostics.ts`；`tests/desktop-core/shell-policy.test.ts`）；完整版（dry-run 預覽、秘密掃描報告）仍屬 DT-19 | W、M | R32 |
 | DT-20 | 設定檔原子寫入與 fail-closed 讀取 | E0-02 | — | 半寫入與毀損情境不開空庫；recovery copy 可用。**1.6.42 已實作**：`packages/desktop-core/src/settings/`；`tests/desktop-core/settings.test.ts` | W、M | R29 |
 | DT-21 | Agent plan／apply／verify／compensate 共用 API（擷取自 `agent-setup.ts`） | E3-01 | DT-23 | 指紋重驗；補償只回復 App 擁有項；CLI 行為不變 | W、M | R15、R16、R17 |
 | DT-22 | Agent 狀態分級與 host handshake | E3-01 | DT-21 | 檔案已寫入不顯示「已連接」；握手測試通過 | W、M | R28 |
@@ -110,7 +110,7 @@
 | DT-32 | migration 前備份與 N→N+1 樣本升級測試（含中斷與還原） | E4-02 | DT-04、DT-05 | 舊版建立的樣本升級、中斷、還原皆通過 | W、M | R06 |
 | DT-33 | 同批產物暫存與聯合發行閘（ADR-03） | E5-01 | DT-28、DT-31 | 兩平台產物齊備且驗證後才一次公開；任一平台失敗即整版不發 | W、M | — |
 | DT-34 | NSIS 解除安裝只移除 App 擁有項；macOS 桌面整合移除入口 | E5-02 | DT-15、DT-24 | 解除安裝後 DB 與備份保留；使用者修改項目保留 | W、M | R27 |
-| DT-35 | 退出語意 UI 與最後成功備份時間顯示 | E2-01 | DT-15、DT-11 | 退出後介面明示「不會每日備份」；時間正確 | W、M | R24 |
+| DT-35 | 退出語意 UI 與最後成功備份時間顯示 | E2-01 | DT-15、DT-11 | 退出後介面明示「不會每日備份」；時間正確。**1.6.44 已實作**：`apps/desktop/src/main/quit.ts`；`packages/desktop-core/src/shell/quit-flow.ts`、`quit-notice.ts`、`last-backup.ts`、`i18n.ts`；`tests/desktop-core/shell-basics.test.ts`、`shell-flows.test.ts`、`shell-policy.test.ts`；`apps/desktop/tests/desktop-smoke/desktop.spec.ts`；實機待實機驗收 | W、M | R24 |
 | DT-36 | CI 隔離（fake home、假 Agent、不觸碰真實 `$HOME` 與 3210）與 Windows 11、macOS 實機環境 | E0-03、CI | — | CI 不讀寫真實使用者資料；實機環境清單就緒。**1.6.42 已實作**：`tests/helpers/isolated-environment.ts`、`tests/shared/test-isolation.test.ts`、`vitest.config.ts`；Windows 11 與 macOS 實機環境清單尚未完成，仍待實機驗收 | W、M | — |
 | DT-37 | 首發平台的發行身分與簽章（Windows 簽章、macOS 公證） | R4 新增 | — | 簽章身分與憑證就緒；產物可驗證 | W、M | — |
 

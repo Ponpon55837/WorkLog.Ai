@@ -14,7 +14,7 @@ import {
   statSync,
   unlinkSync,
 } from "node:fs";
-import { basename, dirname, extname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type {
   DatabaseBackup,
@@ -22,10 +22,18 @@ import type {
   DatabaseBackupDeleteResult,
   DatabaseBackupKind,
 } from "@work-intelligence/core";
-import { toLocalCalendarDate } from "@work-intelligence/shared";
+import {
+  backupPrefix,
+  isSafeDatabaseBackupFileName,
+  parseDatabaseBackupFileName,
+  type BackupNameKind,
+  toLocalCalendarDate,
+} from "@work-intelligence/shared";
 import { remapPathPrefix } from "./project-path-remap.js";
 import { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
 
+/** Re-exported: the name rules live in the shared package, where the desktop App reads them too. */
+export { isSafeDatabaseBackupFileName };
 export const DEFAULT_BACKUP_KEEP = 3;
 export const DEFAULT_AUTOMATIC_BACKUP_KEEP = 3;
 /** Session deletions keep their own few snapshots so a cleanup spree cannot push out manual backups. */
@@ -49,10 +57,6 @@ export function defaultBackupDirectory(databasePath: string): string {
   return join(dirname(databasePath), "backups");
 }
 
-function backupPrefix(databasePath: string): string {
-  return `${basename(databasePath, extname(databasePath))}-`;
-}
-
 function timestamp(date: Date): string {
   return date
     .toISOString()
@@ -60,82 +64,18 @@ function timestamp(date: Date): string {
     .replace(/\.\d{3}Z$/, "Z");
 }
 
-function parseName(value: string): { kind: DatabaseBackupKind; createdAt: string; sequence: number } | null {
-  const standardName = /^(automatic|manual)-(.+)$/.exec(value);
-  const migrationName = /^pre-migration-v(\d+)-(.+)$/.exec(value);
-  const maintenanceName = /^pre-maintenance-(.+)$/.exec(value);
-  const deletionName = /^pre-delete-(.+)$/.exec(value);
-  const sessionDeletionName = /^pre-session-delete-(.+)$/.exec(value);
-  const importName = /^pre-import-(.+)$/.exec(value);
-  const migrationVersion = migrationName?.[1] ? Number(migrationName[1]) : undefined;
-  if (migrationName && (!Number.isSafeInteger(migrationVersion) || (migrationVersion ?? 0) < 1)) {
-    return null;
-  }
-  const kind: DatabaseBackupKind = standardName
-    ? standardName[1] === "automatic"
-      ? "automatic"
-      : "manual"
-    : migrationName
-      ? "migration"
-      : deletionName
-        ? "deletion"
-        : sessionDeletionName
-          ? "session_deletion"
-          : importName
-            ? "import"
-            : maintenanceName
-              ? "maintenance"
-              : "manual";
-  const stamp =
-    standardName?.[2] ??
-    migrationName?.[2] ??
-    maintenanceName?.[1] ??
-    deletionName?.[1] ??
-    sessionDeletionName?.[1] ??
-    importName?.[1] ??
-    value;
-  const match = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z(?:-(\d+))?$/.exec(stamp ?? value);
-  if (!match) {
-    return null;
-  }
-  const createdAt = `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}Z`;
-  const date = new Date(createdAt);
-  const sequence = Number(match[7] ?? 1);
-  if (
-    Number.isNaN(date.valueOf()) ||
-    date.toISOString().replace(/\.000Z$/, "Z") !== createdAt ||
-    !Number.isSafeInteger(sequence) ||
-    (match[7] !== undefined && sequence < 2)
-  ) {
-    return null;
-  }
-  return { kind, createdAt, sequence };
-}
+type Equal<Left, Right> = (<T>() => T extends Left ? 1 : 2) extends <T>() => T extends Right ? 1 : 2 ? true : false;
+type Assert<T extends true> = T;
+
+/**
+ * Compile-time link: the kinds the file names can carry (shared) and the kinds the API reports (core) are one set. If they
+ * drift apart, `Assert` rejects the annotation and the build fails; nothing of this is exported or left at run time.
+ */
+const kindsAgree: Assert<Equal<BackupNameKind, DatabaseBackupKind>> = true;
+void kindsAgree;
 
 function retentionBucket(kind: DatabaseBackupKind): RetentionBucket {
   return kind === "automatic" || kind === "session_deletion" || kind === "import" ? kind : "manual";
-}
-
-/** Accepts only a single, recognized filename for the current database. */
-export function isSafeDatabaseBackupFileName(databasePath: string, fileName: string): boolean {
-  const containsControlCharacter = Array.from(fileName).some((character) => {
-    const codePoint = character.codePointAt(0) ?? 0;
-    return codePoint < 0x20 || codePoint === 0x7f;
-  });
-  if (
-    fileName.length > 255 ||
-    fileName.includes("..") ||
-    /[\\/%:*?"<>|]/.test(fileName) ||
-    containsControlCharacter ||
-    basename(fileName) !== fileName
-  ) {
-    return false;
-  }
-  const prefix = backupPrefix(databasePath);
-  if (!fileName.startsWith(prefix) || !fileName.endsWith(".sqlite")) {
-    return false;
-  }
-  return parseName(fileName.slice(prefix.length, -".sqlite".length)) !== null;
 }
 
 /** Backups of this database, newest first; files that do not follow the naming scheme are ignored. */
@@ -152,14 +92,10 @@ export function listDatabaseBackups(
   if (!directoryStats.isDirectory() || directoryStats.isSymbolicLink()) {
     return [];
   }
-  const prefix = backupPrefix(databasePath);
   return readdirSync(directory)
-    .filter((name) => name.startsWith(prefix) && name.endsWith(".sqlite"))
     .flatMap((fileName) => {
-      if (!isSafeDatabaseBackupFileName(databasePath, fileName)) {
-        return [];
-      }
-      const parsed = parseName(fileName.slice(prefix.length, -".sqlite".length));
+      // One call validates the name (safety and naming scheme) and parses it.
+      const parsed = parseDatabaseBackupFileName(databasePath, fileName);
       if (!parsed) {
         return [];
       }
@@ -320,9 +256,32 @@ export function writeSnapshot(
   }
 }
 
+export interface ExportOptions {
+  /**
+   * False when the file is only a staging copy that is read once and removed (the API download): SQLite then skips its
+   * fsyncs of the copy, which is most of the `VACUUM INTO` time. The bytes are the same either way, and the snapshot is
+   * still checked before it is published. Default true: a file the user keeps (CLI export) is flushed to disk.
+   */
+  readonly durable?: boolean;
+}
+
+/** Runs `run` with the connection's `synchronous` setting at OFF, then puts the previous level back. */
+function withoutSync<T>(db: DatabaseSync, run: () => T): T {
+  const level = (db.prepare("PRAGMA synchronous").get() as { synchronous?: unknown } | undefined)?.synchronous;
+  // 0-3 (OFF, NORMAL, FULL, EXTRA) are the only levels SQLite reports; anything else is restored as its default, FULL.
+  const previous = typeof level === "number" && Number.isInteger(level) && level >= 0 && level <= 3 ? level : 2;
+  db.exec("PRAGMA synchronous = OFF");
+  try {
+    return run();
+  } finally {
+    db.exec(`PRAGMA synchronous = ${previous}`);
+  }
+}
+
 /** Writes the whole database to `target` (which must not exist yet), e.g. to move it to another computer. */
-export function exportDatabase(db: DatabaseSync, target: string): { bytes: number } {
-  writeSnapshot(db, target);
+export function exportDatabase(db: DatabaseSync, target: string, options: ExportOptions = {}): { bytes: number } {
+  if (options.durable === false) withoutSync(db, () => writeSnapshot(db, target));
+  else writeSnapshot(db, target);
   return { bytes: statSync(target).size };
 }
 

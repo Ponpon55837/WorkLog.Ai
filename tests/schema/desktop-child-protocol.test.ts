@@ -1,0 +1,133 @@
+import { describe, expect, it } from "vitest";
+import {
+  DESKTOP_BACKEND_ERROR_CODES,
+  DESKTOP_CHILD_PROTOCOL_VERSION,
+  parseDesktopChildMessage,
+  parseDesktopParentMessage,
+} from "../../packages/schema/src/index.js";
+
+// Fictional values only.
+const RUN_ID = "r".repeat(43);
+const IDENTITY = {
+  realPath: "/synthetic/work.sqlite",
+  fileId: { device: "7", inode: "42" },
+  lineageId: "a".repeat(64),
+};
+const READY = {
+  type: "ready",
+  protocolVersion: DESKTOP_CHILD_PROTOCOL_VERSION,
+  runId: RUN_ID,
+  port: 40_123,
+  appVersion: "9.9.9",
+  schemaVersion: 33,
+  databaseIdentity: IDENTITY,
+  execPath: "/synthetic/node",
+  pid: 4321,
+};
+
+describe("parent messages", () => {
+  it("accepts preflight, start and shutdown", () => {
+    expect(parseDesktopParentMessage({ type: "preflight", path: "/synthetic/work.sqlite" }).ok).toBe(true);
+    expect(parseDesktopParentMessage({ type: "shutdown" }).ok).toBe(true);
+    const start = parseDesktopParentMessage({
+      type: "start",
+      runId: RUN_ID,
+      port: 40_123,
+      database: { path: "/synthetic/work.sqlite", identity: IDENTITY },
+      backupDirectory: "/synthetic/backups",
+    });
+    expect(start).toMatchObject({ ok: true, message: { type: "start", port: 40_123 } });
+  });
+
+  it.each([
+    ["an unknown type", { type: "format-disk" }],
+    ["a non-object", "start"],
+    ["null", null],
+    ["a port of zero", { type: "start", runId: RUN_ID, port: 0, database: { path: "/p", identity: IDENTITY } }],
+    [
+      "a port above 65535",
+      { type: "start", runId: RUN_ID, port: 65_536, database: { path: "/p", identity: IDENTITY } },
+    ],
+    ["a short run id", { type: "start", runId: "short", port: 1, database: { path: "/p", identity: IDENTITY } }],
+    [
+      "a run id with a space",
+      { type: "start", runId: `${"a".repeat(30)} b`, port: 1, database: { path: "/p", identity: IDENTITY } },
+    ],
+    ["an extra field", { type: "shutdown", force: true }],
+    ["an empty path", { type: "preflight", path: "" }],
+  ])("rejects %s without throwing", (_name, value) => {
+    expect(parseDesktopParentMessage(value).ok).toBe(false);
+  });
+
+  it("names the failing fields but never echoes a rejected value", () => {
+    const result = parseDesktopParentMessage({ type: "preflight", path: "", secret: "hunter2" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("path");
+      expect(result.reason).not.toContain("hunter2");
+    }
+  });
+});
+
+describe("child messages", () => {
+  it("accepts every message type", () => {
+    const messages = [
+      { type: "hello", protocolVersion: 1, pid: 10, execPath: "/synthetic/node" },
+      {
+        type: "preflight-result",
+        status: "ok",
+        identity: IDENTITY,
+        schemaVersion: 33,
+        compatibility: "current",
+        projectCount: 2,
+        sidecars: {
+          before: { wal: { exists: false, size: 0 }, shm: { exists: false, size: 0 } },
+          after: { wal: { exists: false, size: 0 }, shm: { exists: false, size: 0 } },
+        },
+      },
+      { type: "preflight-result", status: "missing", detail: "ENOENT" },
+      READY,
+      { type: "failed", code: "DB_MISSING", detail: "the database file is missing" },
+      { type: "stopped" },
+      { type: "backup-completed", at: "2026-03-01T12:00:00.000Z" },
+      { type: "backups-changed" },
+    ];
+    for (const message of messages) expect(parseDesktopChildMessage(message).ok).toBe(true);
+  });
+
+  it("keeps a protocol version it does not support parseable so the parent can report it", () => {
+    expect(parseDesktopChildMessage({ ...READY, protocolVersion: 2 })).toMatchObject({ ok: true });
+  });
+
+  it.each([
+    ["an unknown error code", { type: "failed", code: "SOMETHING_ELSE", detail: "x" }],
+    ["an unknown preflight status", { type: "preflight-result", status: "weird" }],
+    ["a malformed identity", { ...READY, databaseIdentity: { ...IDENTITY, lineageId: "not-hex" } }],
+    ["a missing pid", { type: "hello", protocolVersion: 1, execPath: "/p" }],
+    ["a negative pid", { type: "hello", protocolVersion: 1, pid: -1, execPath: "/p" }],
+    ["an oversized detail", { type: "failed", code: "DB_MISSING", detail: "x".repeat(2001) }],
+    ["a backup report without a valid instant", { type: "backup-completed", at: "yesterday" }],
+    ["a backup report with extra fields", { type: "backup-completed", at: "2026-03-01T12:00:00Z", path: "/x" }],
+    ["a backups-changed event with extra fields", { type: "backups-changed", path: "/x" }],
+    ["an unknown type", { type: "ping" }],
+    ["an array", [READY]],
+  ])("rejects %s", (_name, value) => {
+    expect(parseDesktopChildMessage(value).ok).toBe(false);
+  });
+});
+
+describe("error codes", () => {
+  it("lists every R4 section 8.1 backend code once", () => {
+    expect(new Set(DESKTOP_BACKEND_ERROR_CODES).size).toBe(DESKTOP_BACKEND_ERROR_CODES.length);
+    for (const code of [
+      "DB_MISSING",
+      "DB_OFFLINE",
+      "DB_PERMISSION",
+      "SCHEMA_TOO_NEW",
+      "PORT_OCCUPIED_BY_OTHER",
+      "REPAIR_REQUIRED",
+    ]) {
+      expect(DESKTOP_BACKEND_ERROR_CODES).toContain(code);
+    }
+  });
+});

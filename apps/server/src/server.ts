@@ -17,6 +17,11 @@ import {
   isDatabaseSchemaChangedError,
   WorkIntelligenceStore,
 } from "@work-intelligence/storage";
+import {
+  computeInstanceProof,
+  INSTANCE_CHALLENGE_HEADER,
+  isValidInstanceChallenge,
+} from "@work-intelligence/shared/instance-proof";
 import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import { createFolderPicker } from "./folder-picker.js";
 import { inspectAgentConnections } from "./doctor.js";
@@ -140,6 +145,11 @@ export interface ApiHandlerOptions {
   userServiceStatus?: () => UserServiceStatus | Promise<UserServiceStatus>;
   /** Offloads disk snapshots and large project-data preparation from the API event loop. */
   backgroundStore?: BackgroundStoreOperations;
+  /**
+   * The desktop shell's per-spawn secret. When set, `/api/health` answers a valid challenge header with an HMAC proof
+   * so the parent can tell this process from a squatter on the port; the id itself is never sent. Unset: no change.
+   */
+  instanceRunId?: string;
 }
 
 export type ApiHandler = ((request: IncomingMessage, response: ServerResponse) => Promise<void>) & {
@@ -154,8 +164,8 @@ function createInlineBackgroundStore(store: WorkIntelligenceStore): BackgroundSt
     async backupIfDue() {
       return store.backupIfDue();
     },
-    async exportTo(target) {
-      return store.exportTo(target);
+    async exportTo(target, options) {
+      return store.exportTo(target, options);
     },
     async exportProjectData(scope: ProjectDataExportScope) {
       const content = JSON.stringify(store.exportProjectData(scope));
@@ -302,6 +312,12 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
     agentConnections: inspectConnections,
     userServiceStatus: inspectUserService,
     backgroundStore,
+    instanceProof: (request) => {
+      const challenge = request.headers[INSTANCE_CHALLENGE_HEADER];
+      return options.instanceRunId && isValidInstanceChallenge(challenge)
+        ? computeInstanceProof(options.instanceRunId, challenge)
+        : undefined;
+    },
   };
 
   const handler = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
