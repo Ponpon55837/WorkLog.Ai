@@ -16,13 +16,13 @@ This release blocks writes from a process that is older than the database schema
 
 ### Changed
 
-- Every write transaction, not only MCP writes, now checks under the write lock that no newer process migrated the database. The REST API answers such writes with 503 `server_restart_required`; reads keep working. MCP still returns `MCP_RESTART_REQUIRED`. The check is cached against `PRAGMA data_version` and `schema_version`, so it re-reads `schema_migrations` only after another connection commits.
-- The Host check (DNS-rebinding guard) also requires the port: loopback names are accepted only on the port the server listens on, plus the exact host and port of each allowed origin. The default dev setup (Vite on 5966) is unaffected; a custom `WORK_INTELLIGENCE_WEB_PORT` now needs a matching `WORK_INTELLIGENCE_ALLOWED_ORIGINS` entry.
+- Every write transaction, not only MCP writes, now checks under the write lock that no newer process migrated the database. The REST API answers such writes with 503 `server_restart_required`; reads keep working and skip their lazy search-index sync, serving the existing index. MCP still returns `MCP_RESTART_REQUIRED`. The check is cached against `PRAGMA data_version` and `schema_version`, so it re-reads `schema_migrations` only after another connection commits.
+- The Host check (DNS-rebinding guard) also requires the port: loopback names are accepted only on the port the server listens on, plus the exact host and port of each allowed origin. An allowed origin on its scheme's default port also matches a Host without a port. The default dev setup (Vite on 5966) is unaffected; a custom `WORK_INTELLIGENCE_WEB_PORT` now needs a matching `WORK_INTELLIGENCE_ALLOWED_ORIGINS` entry.
 - Windows: Choose folder opens the modern Explorer-style folder dialog (`IFileOpenDialog`), DPI aware and in front of the browser. It falls back to the classic dialog when the modern one cannot be used.
 
 ### Fixed
 
-- Adding or renaming a project, and the periodic summary-history prune, now run in write transactions, so they take the write lock and pass the schema check.
+- Adding or renaming a project, the periodic summary-history prune, Knowledge candidate, report synthesis and metadata backfill request updates, and the read-audit prune now run in write transactions, so they take the write lock and pass the schema check.
 
 ## [1.6.40] - 2026-11-15
 
