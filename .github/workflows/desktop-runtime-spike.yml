@@ -1,6 +1,20 @@
 name: Desktop runtime spike
 
 on:
+  # Agent branches run it on push as well, so the numbers exist before a pull request is opened.
+  push:
+    branches: ["claude/**"]
+    paths:
+      - "packages/desktop-core/**"
+      - "packages/storage/**"
+      - "packages/shared/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "scripts/desktop-runtime-spike/**"
+      - "scripts/build-standalone.mjs"
+      - "apps/server/**"
+      - "apps/mcp/**"
+      - ".github/workflows/desktop-runtime-spike.yml"
   pull_request:
     paths:
       - "packages/desktop-core/**"
@@ -16,7 +30,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: desktop-runtime-spike-${{ github.ref }}
+  group: desktop-runtime-spike-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
