@@ -6,6 +6,9 @@ export const storageAliases = {
   "@work-intelligence/project-policy": fileURLToPath(new URL("../project-policy/src/index.ts", import.meta.url)),
   "@work-intelligence/schema": fileURLToPath(new URL("../schema/src/index.ts", import.meta.url)),
   "@work-intelligence/shared/mcp-runtime": fileURLToPath(new URL("../shared/src/mcp-runtime.ts", import.meta.url)),
+  "@work-intelligence/shared/sqlite-version": fileURLToPath(
+    new URL("../shared/src/sqlite-version.ts", import.meta.url),
+  ),
   "@work-intelligence/shared/database-path": fileURLToPath(new URL("../shared/src/database-path.ts", import.meta.url)),
   "@work-intelligence/shared/database-location": fileURLToPath(
     new URL("../shared/src/database-location.ts", import.meta.url),

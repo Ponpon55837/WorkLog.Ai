@@ -55,7 +55,7 @@ MCP 寫入會在同一個 SQLite write transaction 核對 schema。報告儲存�
 | schema、工具清單、完整 operation 契約或 instructions 改變 | `restartRequired: true` | 停止操作，請使用者重新連線 |
 | 建置識別不可讀或相容性無法確認 | 保守要求重新連線，監測可能不可用 | 先確認建置完整，不宣稱目前連線是最新版 |
 
-Schema 31 新增資料與 Agent 讀取稽核 revisions。MCP build 相容性識別包含 schema 版本；資料庫升級後，舊版 MCP 會回報 `restartRequired: true`，使用者需要重新連線。所有 MCP 寫入也會在交易內檢查實際資料庫 schema；外部 migration 完成後，舊 writer 不會寫出舊格式資料。
+Schema 31 新增資料與 Agent 讀取稽核 revisions。MCP build 相容性識別包含 schema 版本；資料庫升級後，舊版 MCP 會回報 `restartRequired: true`，使用者需要重新連線。所有 MCP 寫入也會在交易內檢查實際資料庫 schema；外部 migration 完成後，舊 writer 不會寫出舊格式資料。這個檢查在 storage 層對所有寫入交易生效（REST server 同樣受保護，回 `server_restart_required`）；通過檢查的結果會依 SQLite `data_version` 快取，其他連線沒有提交時不會重複查詢。
 
 ## 資料庫錯誤與啟動失敗
 

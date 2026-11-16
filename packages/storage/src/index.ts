@@ -47,6 +47,11 @@ export {
   initializeWorkIntelligenceDatabase,
 } from "./database-initialization.js";
 export {
+  DATABASE_SCHEMA_CHANGED_CODE,
+  DatabaseSchemaChangedError,
+  isDatabaseSchemaChangedError,
+} from "./schema-write-gate.js";
+export {
   DATABASE_BUSY_MESSAGE,
   DATABASE_DISK_FULL_MESSAGE,
   DATABASE_READ_ONLY_MESSAGE,

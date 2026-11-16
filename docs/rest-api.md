@@ -1,6 +1,6 @@
 # REST API
 
-API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用。正式模式用同一個 port 提供 `apps/web/dist` 與 API；同源請求（帶或不帶 `Origin`）都由 `Host` loopback 檢查保護，不需要 CORS。`Host` 必須是 loopback（或 `WORK_INTELLIGENCE_ALLOWED_ORIGINS` 內的主機），否則回 421；不同源且未列入白名單的 `Origin` 回 403。所有寫入要求 `Content-Type: application/json`，並先通過 project policy。
+API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用。正式模式用同一個 port 提供 `apps/web/dist` 與 API；同源請求（帶或不帶 `Origin`）都由 `Host` loopback 檢查保護，不需要 CORS。`Host` 必須是 loopback 名稱加上 server 實際監聽的 port（或 `WORK_INTELLIGENCE_ALLOWED_ORIGINS` 內某個 origin 完全相同的主機與 port；origin 省略 port 視為該 scheme 預設的 80／443；預設 port 的 origin 也接受沒有 port 的 `Host`（例如 TLS proxy 後方），其餘沒有 port 的 `Host` 視為 80），否則回 421；不同源且未列入白名單的 `Origin` 回 403。所有寫入要求 `Content-Type: application/json`，並先通過 project policy。
 
 正式模式的 Web 靜態檔使用 SPA fallback；`index.html` 不快取，Vite 雜湊 assets 可長期快取。CSP 禁止 inline／eval script，限定外部資源為同源（Vue 動態版面需要的 style attribute 另行允許）；另設 `X-Content-Type-Options`、`Referrer-Policy` 與禁止 frame 嵌入的標頭。靜態請求會拒絕 dot-segment、編碼後 traversal 與解析到 Web 根目錄之外的 symlink。
 
@@ -39,6 +39,7 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | `database_busy` | 503 | SQLite 回報 `SQLITE_BUSY` 或 `SQLITE_LOCKED`；使用安全的資料庫忙碌訊息。 |
 | `database_read_only` | 503 | 資料庫檔案、所在資料夾或磁碟唯讀（`SQLITE_READONLY`），這次寫入沒有保存；讀取仍可使用。 |
 | `database_disk_full` | 507 | 磁碟空間不足（`SQLITE_FULL`，或檔案系統回報 `ENOSPC`），這次寫入沒有保存。 |
+| `server_restart_required` | 503 | 另一個行程（較新版本）已把資料庫 schema 升級到這個 server 不認得的版本；為避免舊程式寫出舊格式資料，所有寫入（POST／PATCH／DELETE，含匯入與刪除）在同一個 SQLite 寫入鎖內被拒絕、沒有保存。讀取不受影響。請重新啟動 Work Intelligence server（`error` 為「資料庫 schema 已更新，請重新啟動 Work Intelligence server。」）。 |
 | `backup_unavailable` | 409 | 備份功能或備份檔案目前不可用。備份清單／建立回應仍保留 `outcome` 與 `reason`，並附加 `code` 和相容用的 `error` 欄位。 |
 | `project_not_found` | 404 | 專案資料轉移、重新指定位置或刪除操作找不到 URL 或輸入指定的專案。 |
 | `invalid_bundle` | 400 | 可攜式匯入檔與所選匯入範圍不相符或無效。 |
@@ -53,7 +54,7 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | `session_backup_failed` | 503 | Session 刪除前無法建立必要備份。 |
 | `session_delete_failed` | 500 | Session 刪除交易失敗，既有備份仍保留。 |
 
-`database_busy`、`database_read_only` 與 `database_disk_full` 都不代表資料損壞，也不需要從備份還原；`error` 是固定文字，不含 SQLite 訊息或路徑。處理方式見[疑難排解](troubleshooting.md#資料庫忙碌唯讀或磁碟已滿)。
+`server_restart_required` 用 503 而非 409：這不是請求內容與資源狀態衝突，而是這個 server 行程暫時無法寫入，重啟後同樣的請求即可成功，與 `database_*` 一致。`database_busy`、`database_read_only` 與 `database_disk_full` 都不代表資料損壞，也不需要從備份還原；`error` 是固定文字，不含 SQLite 訊息或路徑。處理方式見[疑難排解](troubleshooting.md#資料庫忙碌唯讀或磁碟已滿)。
 
 ### 未知欄位一律拒絕
 
@@ -91,7 +92,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 
 | Method   | Route                                            | 用途                                                                                   |
 | -------- | ------------------------------------------------ | -------------------------------------------------------------------------------------- |
-| GET      | `/api/health`                                    | API/SQLite health                                                                      |
+| GET      | `/api/health`                                    | API/SQLite health；含 `sqlite: { version, walResetFixed[, fixedIn] }`                  |
 | GET      | `/api/system/status`                             | 唯讀系統摘要：資料庫與備份資訊、SSE 連線數、Codex／Claude Code Agent 註冊及 skill／hook 狀態 |
 | GET      | `/api/attention`                                 | 聚合既有提醒，回傳各類完整／部分／失敗覆蓋範圍及原領域入口（詳見下節）                 |
 | GET      | `/api/dashboard`                                 | Dashboard counters + recent sessions（只計算 tracked 專案）                            |
@@ -256,7 +257,7 @@ pending／awaiting_review 整理快照中的項目受 Agent 寫入防護：final
 
 ## 系統狀態
 
-- REST：GET `/api/system/status` 回傳程式版本與支援的 schema 版本；`database` 含目前資料庫路徑、檔案大小、可讀狀態與實際 schema 版本；`backups` 含備份可用狀態、最新自動備份、份數與總大小；`maintenance` 含最近一次維護結果與安全錯誤代碼；`userService` 唯讀回報目前使用者的登入服務管理器、安裝／執行／啟用狀態、服務設定路徑、資料庫、備份目錄與日誌路徑；`sseConnections` 是目前開啟的即時更新連線數。 `agents.codex` 與 `agents.claudeCode` 顯示 MCP 註冊狀態（`registered`／`missing`／`unknown`）、skill 複本狀態及 hook 狀態；Codex TOML 無法解析時回報 `unknown`，不會修改設定檔；`mcp.restartRequired` 保留 A3 的重新連線判斷。
+- REST：GET `/api/system/status` 回傳程式版本與支援的 schema 版本；`database` 含目前資料庫路徑、檔案大小、可讀狀態與實際 schema 版本；`backups` 含備份可用狀態、最新自動備份、份數與總大小；`maintenance` 含最近一次維護結果與安全錯誤代碼；`userService` 唯讀回報目前使用者的登入服務管理器、安裝／執行／啟用狀態、服務設定路徑、資料庫、備份目錄與日誌路徑；`sseConnections` 是目前開啟的即時更新連線數；`sqlite` 是 `{ version, walResetFixed, fixedIn? }`，`version` 為執行環境 `SELECT sqlite_version()`，`walResetFixed` 為 false 代表該版本可能受 WAL-reset 資料庫損毀問題影響（修正於 3.51.3、3.50.7、3.44.6；Web 會顯示警告，`pnpm check` 也會警告）。 `agents.codex` 與 `agents.claudeCode` 顯示 MCP 註冊狀態（`registered`／`missing`／`unknown`）、skill 複本狀態及 hook 狀態；Codex TOML 無法解析時回報 `unknown`，不會修改設定檔；`mcp.restartRequired` 保留 A3 的重新連線判斷。
 - `userService` 以非同步方式查詢；成功結果快取 30 秒，並行請求共用同一次查詢，失敗結果不快取。
 - Agent 與登入服務診斷只讀取設定檔或查詢作業系統服務管理器，回傳狀態而不回傳 Agent 設定值或內容；端點不寫入設定、不安裝／啟動／停止服務、不執行 setup 或 hook，也不執行資料庫 `integrity_check`。完整環境診斷請在專案目錄執行 `pnpm check`。
 - 端點受到 loopback `Host` 與 `Origin` 檢查保護；只有系統狀態頁需要的 `database.path` 會回傳完整本機路徑，備份資料仍只回傳檔名。

@@ -14,6 +14,7 @@ import {
   databaseUnavailableMessage,
   databaseUnavailableReason,
   type DatabaseUnavailableReason,
+  isDatabaseSchemaChangedError,
   WorkIntelligenceStore,
 } from "@work-intelligence/storage";
 import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
@@ -38,6 +39,8 @@ const DATABASE_UNAVAILABLE_RESPONSES: Record<DatabaseUnavailableReason, { status
   read_only: { status: 503, code: "database_read_only" },
   disk_full: { status: 507, code: "database_disk_full" },
 };
+/** Another process migrated the database past this server's build; every write is refused until it restarts. */
+const SERVER_RESTART_REQUIRED_MESSAGE = "資料庫 schema 已更新，請重新啟動 Work Intelligence server。";
 const DEFAULT_MAX_EVENT_CLIENTS = 32;
 const EVENT_HEARTBEAT_INTERVAL_MS = 15_000;
 const DEFAULT_REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -59,23 +62,39 @@ if ((process.env.WORK_INTELLIGENCE_ALLOWED_ORIGINS ?? "").split(",").some((origi
   );
 }
 
-// DNS rebinding guard: a rebound page is same-origin, so its GETs carry no Origin header, but the
-// Host header still names the attacker's domain. Only loopback names and allowlisted origins pass.
-const allowedHostnames = new Set(["127.0.0.1", "localhost", "[::1]"]);
+// DNS rebinding guard: a rebound page is same-origin, so its GETs carry no Origin header, but the Host header still
+// names the attacker's domain (or a port the attacker controls). Only loopback names on the port this server is
+// listening on, and the exact host:port of an allowlisted origin, pass.
+const LOOPBACK_HOSTNAMES = ["127.0.0.1", "localhost", "[::1]"];
+const allowedOriginHosts = new Set<string>();
+// An origin on its scheme's default port is also reached without a port in Host (for example behind a TLS proxy).
+const allowedPortlessHostnames = new Set<string>();
 for (const origin of allowedOrigins) {
   try {
-    allowedHostnames.add(new URL(origin).hostname);
+    const url = new URL(origin);
+    allowedOriginHosts.add(`${url.hostname}:${url.port || (url.protocol === "https:" ? "443" : "80")}`);
+    if (!url.port) allowedPortlessHostnames.add(url.hostname);
   } catch {
     // An unparsable origin cannot match a browser Origin header either; ignore it here.
   }
 }
 
-function isAllowedHost(hostHeader: string | undefined): boolean {
+function isAllowedHost(hostHeader: string | undefined, listenPort: number | undefined): boolean {
   if (!hostHeader) {
     return false;
   }
   try {
-    return allowedHostnames.has(new URL(`http://${hostHeader}`).hostname);
+    const { hostname, port } = new URL(`http://${hostHeader}`);
+    const hostPort = `${hostname}:${port || "80"}`;
+    if (allowedOriginHosts.has(hostPort)) {
+      return true;
+    }
+    if (!/:\d+$/.test(hostHeader) && allowedPortlessHostnames.has(hostname)) {
+      return true;
+    }
+    // Without a real socket (in-process test requests) there is no listening port to compare.
+    const portMatches = listenPort === undefined || hostPort === `${hostname}:${listenPort}`;
+    return portMatches && LOOPBACK_HOSTNAMES.includes(hostname);
   } catch {
     return false;
   }
@@ -289,7 +308,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
     if (serveWebFiles) {
       applyProductionSecurityHeaders(response);
     }
-    if (!isAllowedHost(request.headers.host)) {
+    if (!isAllowedHost(request.headers.host, request.socket?.localPort)) {
       sendError(response, 421, "Host is not allowed.");
       return;
     }
@@ -341,6 +360,11 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
         // and let the client see an incomplete file instead of throwing while writing a second response.
         console.error("[work-intelligence] API request failed after the response started", error);
         response.destroy();
+        return;
+      }
+
+      if (isDatabaseSchemaChangedError(error)) {
+        sendError(response, 503, SERVER_RESTART_REQUIRED_MESSAGE, undefined, "server_restart_required");
         return;
       }
 

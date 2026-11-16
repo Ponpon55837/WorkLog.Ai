@@ -4,7 +4,11 @@
 
 > 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
-- 最後更新：2026-11-15
+- 最後更新：2026-11-16
+
+## 1.6.41（已完成）
+
+所有 SQLite 寫入交易都檢查 schema 版本（REST 回 503 `server_restart_required`）、Host 檢查加上 port、回報內建 SQLite 是否含 WAL-reset 修補、Windows 改用現代資料夾選擇視窗；沒有 schema 變更。桌面版設計修訂為 R4（見 [desktop 設計索引](desktop/README.md)）。詳見 [1.6.41 更新說明](releases/1.6.41.md)。
 
 ## 1.6.40（已完成）
 

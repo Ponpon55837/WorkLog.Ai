@@ -3,7 +3,7 @@ import { createInterface } from "node:readline/promises";
 import type { ProjectRecord, ProjectStatus } from "@work-intelligence/core";
 import { commandName } from "@work-intelligence/shared";
 import { canonicalizeProjectRoot, isPathWithinProject, type WorkIntelligenceStore } from "@work-intelligence/storage";
-import { checkCliArgs } from "./cli-args.js";
+import { CLI_DASH_HELP, checkCliArgs, type ParsedCliArgs } from "./cli-args.js";
 import { inspectProjectFolder } from "./http.js";
 import { resolveServerPort } from "./server-port.js";
 
@@ -47,32 +47,19 @@ export function trackUsage(standalone?: boolean): string {
 
 把一個專案加入並設為「記錄中」。會先顯示預覽，確認後才寫入。
   --name <名稱>   專案名稱；預設使用資料夾名稱
-  --yes           略過確認直接套用（非互動環境沒有 --yes 時只顯示預覽）`;
+  --yes           略過確認直接套用（非互動環境沒有 --yes 時只顯示預覽）
+${CLI_DASH_HELP}`;
 }
 
-function parseTrackArgs(args: readonly string[]): TrackOptions | string {
-  let folder: string | undefined;
-  let name: string | undefined;
-  let yes = false;
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-    if (arg === "--yes") {
-      yes = true;
-    } else if (arg === "--name") {
-      index += 1;
-      name = args[index];
-      if (!name?.trim()) return "--name 需要專案名稱。";
-    } else if (arg?.startsWith("--name=")) {
-      name = arg.slice("--name=".length);
-      if (!name.trim()) return "--name 需要專案名稱。";
-    } else if (arg && !arg.startsWith("--") && folder === undefined) {
-      folder = arg;
-    } else {
-      return `看不懂的參數：${arg ?? ""}`;
-    }
-  }
+function readTrackOptions(parsed: ParsedCliArgs): TrackOptions | string {
+  const names = parsed.values.get("--name") ?? [];
+  if (names.length > 1) return "--name 只能指定一次。";
+  const name = names[0]?.trim();
+  if (names.length === 1 && !name) return "--name 需要專案名稱。";
+  if (parsed.positionals.length > 1) return `看不懂的參數：${parsed.positionals[1]}`;
+  const folder = parsed.positionals[0];
   if (!folder?.trim()) return "請指定要記錄的專案資料夾。";
-  return { folder, yes, ...(name ? { name: name.trim() } : {}) };
+  return { folder, yes: parsed.flags.has("--yes"), ...(name ? { name } : {}) };
 }
 
 function planTrack(store: WorkIntelligenceStore, rootPath: string, options: TrackOptions): TrackPlan {
@@ -131,7 +118,7 @@ export async function runTrackCommand(args: readonly string[], dependencies: Tra
     dependencies.log(trackUsage(dependencies.standalone));
     return 0;
   }
-  const parsed = check.kind === "error" ? check.message : parseTrackArgs(args);
+  const parsed = check.kind === "error" ? check.message : readTrackOptions(check);
   if (typeof parsed === "string") {
     dependencies.error(`錯誤：${parsed}\n\n${trackUsage(dependencies.standalone)}`);
     return USAGE_EXIT_CODE;

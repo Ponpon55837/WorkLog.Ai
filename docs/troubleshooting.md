@@ -85,6 +85,8 @@ hook 只在 Work Intelligence 正在記錄的專案中作用，讀不到狀態�
 | `database_read_only` | 503 | 資料庫檔案、所在資料夾或磁碟目前唯讀（例如檔案被設為唯讀、放在唯讀磁碟或被同步工具鎖定） | 讓檔案與資料夾恢復可寫入後重試；讀取仍可使用 |
 | `database_disk_full` | 507 | 資料庫所在磁碟沒有空間 | 釋放空間後重試；也可以刪除較舊的備份（專案 → 資料備份） |
 
+`server_restart_required`（503）不屬於這三種：另一個行程把資料庫升級到較新的 schema 後，舊的 API server 會拒絕所有寫入；重新啟動 server 即可，不需要還原。
+
 MCP 啟動時遇到這三種情況，不會一直保留錯誤：資料庫已是最新 schema 時，啟動只讀取版本、不需要寫入鎖，所以其他行程正在寫入也能讀取；需要 migration 而無法取得寫入鎖時回傳 `DATABASE_BUSY`（不會先寫出備份），之後每次 tool 呼叫都會再試一次，問題排除後就恢復，不必重新連線。只有 `DATABASE_MIGRATION_FAILED`、`DATABASE_MIGRATION_BACKUP_FAILED`、`DATABASE_SCHEMA_VERSION_TOO_NEW` 等需要處理的情況，才會保留到 MCP 重新啟動。
 
 ## 還原時資料庫仍被開著

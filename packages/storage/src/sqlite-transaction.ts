@@ -2,6 +2,12 @@ import { DatabaseSync } from "node:sqlite";
 
 const immediateTransactions = new WeakSet<DatabaseSync>();
 const afterCommitOperations = new WeakMap<DatabaseSync, Array<() => void>>();
+const writeGates = new WeakMap<DatabaseSync, () => void>();
+
+/** Runs `gate` right after every outermost write lock is taken; a throw rolls the transaction back. */
+export function setImmediateTransactionGate(db: DatabaseSync, gate: () => void): void {
+  writeGates.set(db, gate);
+}
 
 export function runAfterImmediateTransaction(db: DatabaseSync, operation: () => void): void {
   const operations = afterCommitOperations.get(db);
@@ -21,6 +27,7 @@ export function runImmediateTransaction<T>(db: DatabaseSync, operation: () => T)
   afterCommitOperations.set(db, afterCommit);
   let result: T;
   try {
+    writeGates.get(db)?.();
     result = operation();
     db.exec("COMMIT");
   } catch (error) {

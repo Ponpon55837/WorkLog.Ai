@@ -3,6 +3,7 @@ import type { RelatedWorkResult } from "@work-intelligence/core";
 import { truncateText } from "@work-intelligence/shared";
 import { parseChangedFiles } from "./session-record-codecs.js";
 import { normalizePath, type PathContext } from "./search-text.js";
+import { isDatabaseSchemaChangedError } from "./schema-write-gate.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 
 type Source = {
@@ -131,6 +132,15 @@ export class RelatedWorkService {
   /** Rebuild only normalized file postings, without raw handoff or FTS tokenization. */
   private syncPaths(projectId: string, context: PathContext[]): void {
     if (!this.db.prepare(`SELECT 1 FROM related_work_dirty WHERE project_id=? LIMIT 1`).get(projectId)) return;
+    try {
+      this.rebuildPaths(projectId, context);
+    } catch (error) {
+      // A read must not fail because the write lock refuses this build: serve the postings already stored.
+      if (!isDatabaseSchemaChangedError(error)) throw error;
+    }
+  }
+
+  private rebuildPaths(projectId: string, context: PathContext[]): void {
     runImmediateTransaction(this.db, () => {
       const dirty = this.db
         .prepare(

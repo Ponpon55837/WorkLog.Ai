@@ -408,12 +408,14 @@ export class AgentReadAuditService {
   /** Drops rows older than the retention window or beyond the newest row cap; one bounded DELETE. */
   public prune(now: string = nowIso()): void {
     const cutoff = new Date(Date.parse(now) - AGENT_READ_AUDIT_MAX_AGE_DAYS * 86_400_000).toISOString();
-    this.db
-      .prepare(
-        `DELETE FROM agent_read_audit WHERE created_at < ?
+    runImmediateTransaction(this.db, () =>
+      this.db
+        .prepare(
+          `DELETE FROM agent_read_audit WHERE created_at < ?
             OR id IN (SELECT id FROM agent_read_audit ORDER BY created_at DESC, rowid DESC LIMIT -1 OFFSET ?)`,
-      )
-      .run(cutoff, AGENT_READ_AUDIT_MAX_ROWS);
+        )
+        .run(cutoff, AGENT_READ_AUDIT_MAX_ROWS),
+    );
   }
 
   /** Runs the audit write without waiting on another process's lock: a busy database drops the audit row instead. */

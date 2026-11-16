@@ -38,6 +38,7 @@ import {
   resolveStoredOverlaps,
   storedOverlapsJson,
 } from "./knowledge-candidate-overlap.js";
+import { isDatabaseSchemaChangedError } from "./schema-write-gate.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 import { combineRedactionSummaries, redactValue } from "./secret-redaction.js";
 
@@ -281,11 +282,13 @@ export class KnowledgeCandidateService {
     if (!OPEN_STATUSES.includes(request.status)) {
       return { outcome: "request_not_open", request, reason: "This request is already completed or cancelled." };
     }
-    this.db
-      .prepare(
-        "UPDATE knowledge_candidate_requests SET status = 'processing', started_at = ?, failure_reason = NULL WHERE id = ?",
-      )
-      .run(nowIso(), request.id);
+    runImmediateTransaction(this.db, () =>
+      this.db
+        .prepare(
+          "UPDATE knowledge_candidate_requests SET status = 'processing', started_at = ?, failure_reason = NULL WHERE id = ?",
+        )
+        .run(nowIso(), request.id),
+    );
     const perSessionBudget = Math.floor(HANDOFF_BUDGET / Math.max(request.sourceSessionIds.length, 1));
     const sessions = request.sourceSessionIds.flatMap((sessionId) => {
       const row = this.db
@@ -473,9 +476,11 @@ export class KnowledgeCandidateService {
     }
     const decidedAt = nowIso();
     if (input.decision === "reject") {
-      this.db
-        .prepare("UPDATE knowledge_candidates SET status = 'rejected', decided_at = ? WHERE id = ?")
-        .run(decidedAt, candidate.id);
+      runImmediateTransaction(this.db, () =>
+        this.db
+          .prepare("UPDATE knowledge_candidates SET status = 'rejected', decided_at = ? WHERE id = ?")
+          .run(decidedAt, candidate.id),
+      );
       return { outcome: "knowledge_candidate_decided", candidate: this.getCandidate(candidate.id)! };
     }
     const edits = input.edits ?? {};
@@ -500,9 +505,11 @@ export class KnowledgeCandidateService {
           }
         : { outcome: "not_found", candidateId: candidate.id };
     }
-    this.db
-      .prepare("UPDATE knowledge_candidates SET status = 'accepted', decided_at = ?, knowledge_id = ? WHERE id = ?")
-      .run(decidedAt, recorded.knowledge.id, candidate.id);
+    runImmediateTransaction(this.db, () =>
+      this.db
+        .prepare("UPDATE knowledge_candidates SET status = 'accepted', decided_at = ?, knowledge_id = ? WHERE id = ?")
+        .run(decidedAt, recorded.knowledge.id, candidate.id),
+    );
     return {
       outcome: "knowledge_candidate_decided",
       candidate: this.getCandidate(candidate.id)!,
@@ -715,12 +722,25 @@ export class KnowledgeCandidateService {
   /** Processing requests abandoned for 30 minutes become failed, which an Agent can pick up again. */
   private recoverStale(now = Date.now()): void {
     const cutoff = new Date(now - PROCESSING_TIMEOUT_MS).toISOString();
-    this.db
+    const stale = this.db
       .prepare(
-        `UPDATE knowledge_candidate_requests
-         SET status = 'failed', failure_reason = 'Knowledge 候選整理超過 30 分鐘仍未完成，可重新處理。'
-         WHERE status = 'processing' AND started_at IS NOT NULL AND started_at <= ?`,
+        "SELECT 1 FROM knowledge_candidate_requests WHERE status = 'processing' AND started_at IS NOT NULL AND started_at <= ? LIMIT 1",
       )
-      .run(cutoff);
+      .get(cutoff);
+    if (!stale) return;
+    try {
+      runImmediateTransaction(this.db, () =>
+        this.db
+          .prepare(
+            `UPDATE knowledge_candidate_requests
+             SET status = 'failed', failure_reason = 'Knowledge 候選整理超過 30 分鐘仍未完成，可重新處理。'
+             WHERE status = 'processing' AND started_at IS NOT NULL AND started_at <= ?`,
+          )
+          .run(cutoff),
+      );
+    } catch (error) {
+      // This lazy cleanup runs on read paths; once another process migrated the database the reads keep working.
+      if (!isDatabaseSchemaChangedError(error)) throw error;
+    }
   }
 }

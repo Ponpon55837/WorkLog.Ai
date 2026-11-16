@@ -13,7 +13,6 @@ import type {
   ProjectPathRemap,
 } from "@work-intelligence/core";
 import { PROJECT_DATA_IMPORT_STRATEGIES } from "@work-intelligence/core";
-import { z } from "zod";
 import {
   maintainDatabase,
   redactDatabase,
@@ -29,7 +28,7 @@ import {
 } from "@work-intelligence/storage";
 import { commandName } from "@work-intelligence/shared";
 import { STANDALONE } from "@work-intelligence/shared/database-location";
-import { checkCliArgs, isHelpFlag, type CliOptionSpec } from "./cli-args.js";
+import { CLI_DASH_HELP, checkCliArgs, isHelpFlag, type CliOptionSpec, type ParsedCliArgs } from "./cli-args.js";
 import { databasePath, repositoryRoot, storeOptions } from "./config.js";
 import {
   diagnoseDatabaseInUse,
@@ -40,7 +39,7 @@ import { runTrackCommand, type TrackCliDependencies } from "./track-cli.js";
 
 /** Database maintenance from the terminal: backup, export for another computer, and restore. */
 const MAX_PROJECT_IMPORT_BYTES = 50 * 1024 * 1024;
-const NO_MAINTENANCE_ARGS_SCHEMA = z.array(z.never());
+const NO_PARSED_ARGS: ParsedCliArgs = { kind: "ok", flags: new Set(), values: new Map(), positionals: [] };
 const COMMAND_SUMMARIES: readonly (readonly [script: string, summary: string])[] = [
   ["db:maintain", "備份後檢查、整理資料庫並重建搜尋索引"],
   ["db:redact [--dry-run]", "唯讀預覽既有資料的敏感資訊遮蔽數量"],
@@ -49,7 +48,7 @@ const COMMAND_SUMMARIES: readonly (readonly [script: string, summary: string])[]
   ["db:backups", "列出備份與總大小"],
   ["db:backups --delete <檔名>", "確認後刪除一份備份"],
   ["db:export <檔案>", "把整份資料匯出成一個 .sqlite 檔，帶到別台電腦"],
-  ["db:export --all [選項]", "匯出全部專案為可攜式 JSON"],
+  ["db:export --all [選項]", "匯出全部專案為可攜式 JSON（只加 --out 時等同 --all）"],
   ["db:export --project <名稱或 id> [選項]", "匯出單一專案為可攜式 JSON"],
   ["db:import <檔案> [選項]", "預覽後合併匯入可攜式 JSON"],
   ["db:restore <檔案> [選項]", "用匯出或備份的檔案取代目前的資料"],
@@ -57,7 +56,8 @@ const COMMAND_SUMMARIES: readonly (readonly [script: string, summary: string])[]
 ];
 
 const EXPORT_OPTIONS_HELP = `export 選項：
-  --out <檔案.json>                  指定可攜式 JSON 匯出檔路徑`;
+  --out <檔案.json>                  指定可攜式 JSON 匯出檔路徑；沒有 --all／--project 時等同 --all
+                                    （整份 SQLite 快照請用 db:export <檔案>）`;
 const IMPORT_OPTIONS_HELP = `import 選項：
   --project <名稱或 id>              只匯入檔案中的單一專案；預設為全部
   --remap-root <舊路徑>=<新路徑>     換電腦時替換路徑前綴（可重複）；相同專案 ID 會自動沿用本機路徑
@@ -96,7 +96,7 @@ ${commands.map(([command, summary]) => `  ${command.padEnd(width)}  ${summary}`)
   const restoreNote = `還原前請先停止 API server（${(standalone ?? STANDALONE) ? commandName("start", true) : "pnpm dev／pnpm start:server"}），並關閉會啟動 MCP 的 Codex／Claude 對話。
 還原會先取得獨佔鎖、自動備份目前的資料，並將資料庫升級至本版 schema；回傳新的 revision，重新啟動 server 後前端會重新讀取資料。`;
   if (subcommand) {
-    return [lines, OPTIONS_HELP[subcommand], subcommand === "restore" ? restoreNote : undefined]
+    return [lines, OPTIONS_HELP[subcommand], subcommand === "restore" ? restoreNote : undefined, CLI_DASH_HELP]
       .filter(Boolean)
       .join("\n\n");
   }
@@ -108,7 +108,9 @@ ${IMPORT_OPTIONS_HELP}
 
 ${RESTORE_OPTIONS_HELP}
 
-${restoreNote}`;
+${restoreNote}
+
+${CLI_DASH_HELP}`;
 }
 
 const backupKindLabels: Record<DatabaseBackupKind, string> = {
@@ -351,6 +353,7 @@ export async function runDatabaseCli(
     });
   }
   const optionSpec = command ? COMMAND_OPTIONS[command] : undefined;
+  let parsed = NO_PARSED_ARGS;
   if (command && optionSpec) {
     // Before any command touches the database or the filesystem: help, and options the command does not declare.
     const check = checkCliArgs(args, optionSpec);
@@ -362,10 +365,11 @@ export async function runDatabaseCli(
       printError(`錯誤：${check.message}\n\n${databaseUsage(dependencies.standalone, command)}`);
       return 1;
     }
+    parsed = check;
   }
   try {
     if (command === "maintain") {
-      if (!NO_MAINTENANCE_ARGS_SCHEMA.safeParse(args).success) {
+      if (parsed.positionals.length > 0) {
         fail(`${commandText("db:maintain")} 不接受參數。`);
       }
       const result = runMaintenance();
@@ -374,12 +378,12 @@ export async function runDatabaseCli(
       );
       print("doctor 已記錄最近一次維護結果。");
     } else if (command === "redact") {
-      if (args.length > 1 || (args.length === 1 && args[0] !== "--apply" && args[0] !== "--dry-run")) {
+      if (parsed.positionals.length > 0 || (parsed.flags.has("--apply") && parsed.flags.has("--dry-run"))) {
         fail(
           `敏感資料整理只接受 \`${commandText("db:redact")} [--dry-run]\` 或 \`${commandText("db:redact")} --apply\`。`,
         );
       }
-      const apply = args[0] === "--apply";
+      const apply = parsed.flags.has("--apply");
       const result = runRedaction(apply);
       const counts = Object.entries(result.redactions.byKind)
         .filter((entry): entry is [string, number] => typeof entry[1] === "number")
@@ -392,8 +396,8 @@ export async function runDatabaseCli(
         print(`整理前備份：${result.backupFileName}。舊備份與舊匯出仍可能保留原始文字，請在備份管理中檢視。`);
       }
     } else if (command === "backup") {
-      if (args.length > 0) {
-        fail(`${commandText("db:backup")} 不接受參數：${args[0]}`);
+      if (parsed.positionals.length > 0) {
+        fail(`${commandText("db:backup")} 不接受參數：${parsed.positionals[0]}`);
       }
       const result = runWithStore((store) => store.createBackup());
       if (result.outcome !== "database_backups") {
@@ -401,14 +405,15 @@ export async function runDatabaseCli(
       }
       print(`已備份：${result.created.fileName}（手動保留 ${result.keep} 份、自動保留 ${result.automaticKeep} 份）`);
     } else if (command === "backups") {
-      if (args.length === 0) {
+      const deleteValues = parsed.values.get("--delete") ?? [];
+      if (deleteValues.length === 0 && parsed.positionals.length === 0) {
         const result = runWithStore((store) => store.listBackups());
         if (result.outcome !== "database_backups") {
           fail(result.reason);
         }
         printBackupList(result.backups, result.keep, result.automaticKeep, print);
-      } else if (args[0] === "--delete" && args.length === 2 && args[1]) {
-        const fileName = args[1];
+      } else if (deleteValues.length === 1 && parsed.positionals.length === 0 && deleteValues[0]) {
+        const fileName = deleteValues[0];
         const list = runWithStore((store) => store.listBackups());
         if (list.outcome !== "database_backups") {
           fail(list.reason);
@@ -437,27 +442,17 @@ export async function runDatabaseCli(
         fail(`備份管理只接受 \`${commandText("db:backups")}\` 或 \`${commandText("db:backups")} --delete <檔名>\`。`);
       }
     } else if (command === "export") {
-      if (args[0] === "--all" || args[0] === "--project") {
-        const scopeType = args[0] === "--all" ? "all" : "project";
-        let projectValue: string | undefined = scopeType === "project" ? args[1] : undefined;
-        let output: string | undefined;
-        for (let index = scopeType === "project" ? 2 : 1; index < args.length; index += 1) {
-          const arg = args[index];
-          if (!arg) {
-            fail("缺少 export 選項的值。");
-          }
-          if (arg === "--out") {
-            index += 1;
-            output = args[index];
-          } else if (arg.startsWith("--out=")) {
-            output = arg.slice("--out=".length);
-          } else {
-            fail(`看不懂的參數：${arg}`);
-          }
-        }
-        if (scopeType === "project" && !projectValue) {
-          fail("--project 需要專案名稱或 id。");
-        }
+      const projectValues = parsed.values.get("--project") ?? [];
+      const outputValues = parsed.values.get("--out") ?? [];
+      // Any portable-export option (--all, --project, --out) selects the JSON export; `--out` alone means --all.
+      const portable = parsed.flags.has("--all") || projectValues.length > 0 || outputValues.length > 0;
+      if (portable) {
+        if (parsed.positionals.length > 0) fail(`看不懂的參數：${parsed.positionals[0]}`);
+        if (parsed.flags.has("--all") && projectValues.length > 0) fail("--all 與 --project 不能同時使用。");
+        if (projectValues.length > 1 || outputValues.length > 1) fail("--project 與 --out 各只能指定一次。");
+        const projectValue = projectValues[0];
+        const output = outputValues[0];
+        const scopeType = projectValue ? "project" : "all";
         const result = runWithStore((store) => {
           const projectId =
             scopeType === "project"
@@ -475,45 +470,25 @@ export async function runDatabaseCli(
         });
         print(`已匯出到 ${result.target}（${(result.bytes / 1024 / 1024).toFixed(1)} MiB）。JSON 未加密，請妥善保管。`);
       } else {
-        const target = args[0] ? fromInvocation(args[0]) : fail("請指定匯出檔案的路徑。");
+        if (parsed.positionals.length === 0) fail("請指定匯出檔案的路徑。");
+        if (parsed.positionals.length > 1) fail(`看不懂的參數：${parsed.positionals[1]}`);
+        const target = fromInvocation(parsed.positionals[0] ?? "");
         const { bytes } = runWithStore((store) => store.exportTo(target));
         print(`已匯出到 ${target}（${(bytes / 1024 / 1024).toFixed(1)} MB）。這個檔案包含全部工作記錄，請妥善保管。`);
       }
     } else if (command === "import") {
-      let source: string | undefined;
-      let projectValue: string | undefined;
-      let dryRun = false;
-      let strategy: ProjectDataImportStrategy | undefined;
-      const remap: ProjectPathRemap[] = [];
-      for (let index = 0; index < args.length; index += 1) {
-        const arg = args[index];
-        if (!arg) {
-          fail("缺少 import 選項的值。");
-        }
-        if (arg === "--project") {
-          index += 1;
-          projectValue = args[index];
-        } else if (arg.startsWith("--project=")) {
-          projectValue = arg.slice("--project=".length);
-        } else if (arg === "--remap-root") {
-          index += 1;
-          remap.push(parseRemap(args[index]));
-        } else if (arg.startsWith("--remap-root=")) {
-          remap.push(parseRemap(arg.slice("--remap-root=".length)));
-        } else if (arg === "--strategy" || arg.startsWith("--strategy=")) {
-          const value = arg === "--strategy" ? args[(index += 1)] : arg.slice("--strategy=".length);
-          if (!PROJECT_DATA_IMPORT_STRATEGIES.includes(value as ProjectDataImportStrategy)) {
-            fail("--strategy 只接受 merge 或 newer-wins。");
-          }
-          strategy = value as ProjectDataImportStrategy;
-        } else if (arg === "--dry-run") {
-          dryRun = true;
-        } else if (arg && !arg.startsWith("--") && !source) {
-          source = fromInvocation(arg);
-        } else {
-          fail(`看不懂的參數：${arg}`);
-        }
+      if (parsed.positionals.length > 1) fail(`看不懂的參數：${parsed.positionals[1]}`);
+      const projectValues = parsed.values.get("--project") ?? [];
+      const strategyValues = parsed.values.get("--strategy") ?? [];
+      if (projectValues.length > 1 || strategyValues.length > 1) fail("--project 與 --strategy 各只能指定一次。");
+      const projectValue = projectValues[0];
+      const dryRun = parsed.flags.has("--dry-run");
+      const strategy = strategyValues[0] as ProjectDataImportStrategy | undefined;
+      if (strategy && !PROJECT_DATA_IMPORT_STRATEGIES.includes(strategy)) {
+        fail("--strategy 只接受 merge 或 newer-wins。");
       }
+      const remap: ProjectPathRemap[] = (parsed.values.get("--remap-root") ?? []).map((value) => parseRemap(value));
+      const source = parsed.positionals[0] ? fromInvocation(parsed.positionals[0]) : undefined;
       if (!source) {
         fail("請指定要匯入的 JSON 檔案。");
       }
@@ -599,21 +574,9 @@ export async function runDatabaseCli(
         print("已取消匯入，資料沒有變更。");
       }
     } else if (command === "restore") {
-      const remap: RestorePathRemap[] = [];
-      let source: string | undefined;
-      for (let index = 0; index < args.length; index += 1) {
-        const arg = args[index];
-        if (arg === "--remap-root") {
-          index += 1;
-          remap.push(parseRemap(args[index]));
-        } else if (arg?.startsWith("--remap-root=")) {
-          remap.push(parseRemap(arg.slice("--remap-root=".length)));
-        } else if (arg && !arg.startsWith("--") && !source) {
-          source = fromInvocation(arg);
-        } else {
-          fail(`看不懂的參數：${arg}`);
-        }
-      }
+      if (parsed.positionals.length > 1) fail(`看不懂的參數：${parsed.positionals[1]}`);
+      const remap: RestorePathRemap[] = (parsed.values.get("--remap-root") ?? []).map((value) => parseRemap(value));
+      const source = parsed.positionals[0] ? fromInvocation(parsed.positionals[0]) : undefined;
       if (!source) {
         fail("請指定要還原的檔案。");
       }

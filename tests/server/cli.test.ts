@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { runDatabaseCli, type DatabaseCliDependencies } from "../../apps/server/src/cli.js";
+import { databaseUsage, runDatabaseCli, type DatabaseCliDependencies } from "../../apps/server/src/cli.js";
 import { canonicalizeProjectRoot } from "../../packages/project-policy/src/index.js";
 import {
   DatabaseInitializationError,
@@ -445,6 +445,42 @@ describe("database CLI option safety", () => {
     expect(store.listBackups()).toMatchObject({ backups: [] });
   });
 
+  it.each([
+    ["export", ""],
+    ["export", "--all", ""],
+    ["import", ""],
+    ["restore", ""],
+    ["backup", ""],
+    ["backups", "--delete", ""],
+    ["restore", "snapshot.sqlite", "--remap-root", ""],
+  ])("refuses an empty argument for %j with a clear error, writing nothing", async (...argv) => {
+    const { root, messages, calls, deps } = guardedSetup();
+
+    expect(await runDatabaseCli(argv, deps)).toBe(1);
+
+    expect(calls).toEqual([]);
+    expect(readdirSync(root)).toEqual([]);
+    expect(messages.log).toEqual([]);
+    expect(messages.error.join("\n")).toMatch(/不可以是空字串|需要一個值/);
+  });
+
+  it("tells how to pass a path or an option value that starts with a dash", async () => {
+    const { messages, deps } = guardedSetup();
+
+    expect(await runDatabaseCli(["export", "-snapshot.sqlite"], deps)).toBe(1);
+    expect(messages.error.join("\n")).toContain("看不懂的選項：-snapshot.sqlite");
+    expect(messages.error.join("\n")).toContain("./-snapshot.sqlite");
+
+    messages.error.length = 0;
+    expect(await runDatabaseCli(["export", "--out", "-x.json"], deps)).toBe(1);
+    expect(messages.error.join("\n")).toContain("--out 的值不可以像選項：-x.json");
+    expect(messages.error.join("\n")).toContain("--out=-x.json");
+
+    // The help names both workarounds.
+    expect(databaseUsage(false)).toContain("./-name");
+    expect(databaseUsage(false, "export")).toContain("--選項=-值");
+  });
+
   it("refuses extra positional arguments to backup instead of ignoring them", async () => {
     const { messages, calls, deps } = guardedSetup();
 
@@ -495,6 +531,97 @@ describe("database CLI option safety", () => {
     expect(text).toContain("db:import");
     expect(text).toContain("--strategy");
     expect(text).not.toContain("db:backup ");
+  });
+});
+
+describe("database CLI export and valued-option safety", () => {
+  const SQLITE_MAGIC = "SQLite format 3";
+
+  function exportSetup() {
+    const root = createRoot();
+    const store = new WorkIntelligenceStore(join(root, "work-intelligence.sqlite"));
+    stores.push(store);
+    createPortableProject(store, root);
+    const messages = { log: [] as string[], error: [] as string[] };
+    return { root, store, messages, deps: dependencies(store, root, messages), before: readdirSync(root).sort() };
+  }
+
+  it.each([[["export", "--out", "x.json"]], [["export", "--out=x.json"]], [["export", "--out", "x.json", "--all"]]])(
+    "treats %j as a portable JSON export of all projects, never a SQLite copy",
+    async (argv) => {
+      const { root, messages, deps } = exportSetup();
+
+      expect(await runDatabaseCli(argv, deps)).toBe(0);
+
+      const content = readFileSync(join(root, "x.json"), "utf8");
+      expect(content.startsWith(SQLITE_MAGIC)).toBe(false);
+      expect((JSON.parse(content) as { scope: { type: string } }).scope.type).toBe("all");
+      expect(readdirSync(root)).not.toContain("--out");
+      expect(readdirSync(root)).not.toContain("--out=x.json");
+      expect(messages.error).toEqual([]);
+    },
+  );
+
+  it("still writes a SQLite snapshot for the positional path form", async () => {
+    const { root, deps } = exportSetup();
+
+    expect(await runDatabaseCli(["export", "snapshot.sqlite"], deps)).toBe(0);
+
+    expect(readFileSync(join(root, "snapshot.sqlite")).subarray(0, 15).toString("latin1")).toBe(SQLITE_MAGIC);
+  });
+
+  it.each([
+    [["export", "--bogus"]],
+    [["export", "--bogus", "x.json"]],
+    [["export", "--", "weird"]],
+    [["export", "-- weird"]],
+    [["export", "-"]],
+    [["export", "-x"]],
+    [["export", "--project=x"]],
+    [["export", "--out", "x.json", "--bogus"]],
+    [["export", "--out"]],
+    [["export", "--out="]],
+    [["export", "--all", "--out"]],
+    [["export", "--project"]],
+    [["export", "--project", "--out", "x.json"]],
+    [["export", "--out", "--all"]],
+    [["export", "--out", "a.json", "--out", "b.json"]],
+    [["export", "--out", "x.json", "extra.sqlite"]],
+    [["export", "--all", "--project", "x"]],
+    [["export", "a.sqlite", "b.sqlite"]],
+    [["export"]],
+  ])("fails %j with a Traditional Chinese error and writes nothing", async (argv) => {
+    const { root, messages, deps, before } = exportSetup();
+
+    expect(await runDatabaseCli(argv, deps)).toBe(1);
+
+    expect(readdirSync(root).sort()).toEqual(before);
+    expect(messages.log).toEqual([]);
+    expect(messages.error.join("\n")).toMatch(/錯誤：.*[\u4e00-\u9fff]/u);
+  });
+
+  it.each([
+    [["import", "x.json", "--project"]],
+    [["import", "x.json", "--project="]],
+    [["import", "x.json", "--project", "--dry-run"]],
+    [["import", "--", "x.json"]],
+    [["import", "-"]],
+    [["restore", "--"]],
+    [["restore", "-"]],
+    [["restore", "snapshot.sqlite", "--remap-root="]],
+    [["backups", "--delete"]],
+    [["backups", "--delete="]],
+    [["backups", "--delete=x"]],
+    [["track", "--name"]],
+    [["track", "--"]],
+  ])("refuses %j before reading or writing any file", async (argv) => {
+    const { root, messages, deps, before } = exportSetup();
+
+    expect(await runDatabaseCli(argv, deps)).toBeGreaterThan(0);
+
+    expect(readdirSync(root).sort()).toEqual(before);
+    expect(messages.log).toEqual([]);
+    expect(messages.error.length).toBeGreaterThan(0);
   });
 });
 

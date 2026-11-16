@@ -545,13 +545,15 @@ export class ReportSynthesisService {
       };
     }
 
-    this.db
-      .prepare(
-        `UPDATE report_synthesis_requests
+    runImmediateSqlTransaction(this.db, () =>
+      this.db
+        .prepare(
+          `UPDATE report_synthesis_requests
          SET status = 'cancelled', failure_reason = ?, completed_at = NULL
          WHERE id = ? AND status IN ('pending', 'processing')`,
-      )
-      .run("使用者取消這次報告提煉；既有摘要與歷史版本保留。", requestId);
+        )
+        .run("使用者取消這次報告提煉；既有摘要與歷史版本保留。", requestId),
+    );
     const nextRow = this.db
       .prepare(
         `SELECT r.*, p.name AS project_name
@@ -1015,7 +1017,9 @@ export class ReportSynthesisService {
       };
     }
 
-    this.db.prepare("DELETE FROM report_summaries WHERE id = ? AND is_current = 0").run(summaryId);
+    runImmediateSqlTransaction(this.db, () =>
+      this.db.prepare("DELETE FROM report_summaries WHERE id = ? AND is_current = 0").run(summaryId),
+    );
     return { outcome: "report_summary_deleted", summaryId, deleted: true };
   }
 }

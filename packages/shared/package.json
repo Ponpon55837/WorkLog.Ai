@@ -26,6 +26,10 @@
     "./mcp-runtime": {
       "types": "./dist/mcp-runtime.d.ts",
       "import": "./dist/mcp-runtime.js"
+    },
+    "./sqlite-version": {
+      "types": "./dist/sqlite-version.d.ts",
+      "import": "./dist/sqlite-version.js"
     }
   },
   "scripts": {

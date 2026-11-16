@@ -257,7 +257,7 @@ All records live in one SQLite file.
 - **Automatic backups**: the API server backs up once per local calendar day into `backups/` next to the database. Automatic and manual backups are kept separately, the latest 3 of each by default, so manual backups never push out daily ones. Backup files are readable and writable only by the current user.
 - **Manual backups**: Web UI → Projects → Data backup → **Back up now**, or `pnpm db:backup`. Backups, whole-database exports, project data exports and import previews run in a worker thread, so the API and UI stay responsive; the automatic backup after startup is delayed by 60 seconds.
 - **Managing backups**: Projects → Data backup lists each backup's kind, time and size plus the total; deleting shows the file name and kind and asks for confirmation, with an extra warning for the only listed backup. On the CLI, `pnpm db:backups` lists them and `pnpm db:backups --delete <file name>` deletes one after confirming in an interactive terminal. After a project is deleted, its pre-deletion backup and older backups may still contain its data; manage them from the Data backup page.
-- **Taking data per project**: Projects → Data backup exports all projects or a single project as JSON. On the CLI use `pnpm db:export --all` or `pnpm db:export --project <project name or id>`, with `--out <file.json>` for the output location. JSON exports are not encrypted; keep them safe.
+- **Taking data per project**: Projects → Data backup exports all projects or a single project as JSON. On the CLI use `pnpm db:export --all` or `pnpm db:export --project <project name or id>`, with `--out <file.json>` for the output location (`--out` alone means `--all`; options are checked first, so a mistyped option never becomes a file name). JSON exports are not encrypted; keep them safe.
 - **Merge import**:
   - Choose a JSON file on the same tab. The preview shows each source path and the matching folder's state on this computer; for missing projects you can pick a folder one by one, or skip and import them paused. Only whether the chosen path is a folder is checked; its contents are never read.
   - When several exported paths have a same-named folder under their parent folder, the UI lists the candidates and asks you to confirm each one before using it.
@@ -401,7 +401,7 @@ Other settings:
 
 - `WORK_INTELLIGENCE_DB`: SQLite location. The server, CLI, `pnpm check`, login service and MCP resolve it with the same rule: a relative value resolves from the repository root (never the shell's current directory); a self-contained bundle resolves it from `~/.work-intelligence` (`WORK_INTELLIGENCE_CONFIG_DIR` changes that folder).
 - `WORK_INTELLIGENCE_PORT`: production port, `3210` by default.
-- `WORK_INTELLIGENCE_ALLOWED_ORIGINS`: not needed in production mode, which is same-origin. In development or with a custom origin, set it in `.env` (comma-separated, `*` not allowed); its hosts are also added to the API's `Host` allowlist.
+- `WORK_INTELLIGENCE_ALLOWED_ORIGINS`: not needed in production mode, which is same-origin. In development or with a custom origin, set it in `.env` (comma-separated, `*` not allowed); its exact host and port are also added to the API's `Host` allowlist.
 - Reports and date filters split days by the server's system time zone (Node honours the `TZ` environment variable).
 
 Before starting work, read the matching shared skill (shared by Codex and Claude, under `.agents/skills/`):

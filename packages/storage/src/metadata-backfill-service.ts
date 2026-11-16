@@ -507,13 +507,15 @@ export class MetadataBackfillService {
       };
     }
 
-    this.db
-      .prepare(
-        `UPDATE metadata_backfill_requests
+    runImmediateSqlTransaction(this.db, () =>
+      this.db
+        .prepare(
+          `UPDATE metadata_backfill_requests
          SET status = 'cancelled', failure_reason = ?, completed_at = NULL
          WHERE id = ? AND status IN ('pending', 'processing')`,
-      )
-      .run("使用者取消這次 metadata 回補；Session 原有資料保留。", requestId);
+        )
+        .run("使用者取消這次 metadata 回補；Session 原有資料保留。", requestId),
+    );
     const nextRow = this.db
       .prepare(
         `SELECT r.*, p.name AS project_name
@@ -585,21 +587,25 @@ export class MetadataBackfillService {
 
     if (request.status === "pending" && currentItems.length > 0) {
       const startedAt = nowIso();
-      this.db
-        .prepare(
-          "UPDATE metadata_backfill_requests SET status = 'processing', started_at = ? WHERE id = ? AND status = 'pending'",
-        )
-        .run(startedAt, request.id);
+      runImmediateSqlTransaction(this.db, () =>
+        this.db
+          .prepare(
+            "UPDATE metadata_backfill_requests SET status = 'processing', started_at = ? WHERE id = ? AND status = 'pending'",
+          )
+          .run(startedAt, request.id),
+      );
       request.status = "processing";
       request.startedAt = startedAt;
     }
     if ((request.status === "pending" || request.status === "processing") && currentItems.length === 0) {
       const completedAt = nowIso();
-      this.db
-        .prepare(
-          "UPDATE metadata_backfill_requests SET status = 'completed', completed_at = ?, failure_reason = NULL WHERE id = ?",
-        )
-        .run(completedAt, request.id);
+      runImmediateSqlTransaction(this.db, () =>
+        this.db
+          .prepare(
+            "UPDATE metadata_backfill_requests SET status = 'completed', completed_at = ?, failure_reason = NULL WHERE id = ?",
+          )
+          .run(completedAt, request.id),
+      );
       request.status = "completed";
       request.completedAt = completedAt;
     }

@@ -234,7 +234,10 @@ import {
   runAfterImmediateTransaction,
   runImmediateTransaction as runImmediateSqlTransaction,
   runReadTransaction,
+  setImmediateTransactionGate,
 } from "./sqlite-transaction.js";
+import { isDatabaseSchemaChangedError, SchemaWriteGate } from "./schema-write-gate.js";
+import { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
 import { KnowledgeCandidateService } from "./knowledge-candidates.js";
 import { DiagramService } from "./diagram-service.js";
 import { ActivityRepository } from "./activity-repository.js";
@@ -424,6 +427,7 @@ const TIMELINE_DEFAULT_DAYS = 30;
 
 export class WorkIntelligenceStore {
   private readonly db: DatabaseSync;
+  private readonly schemaWriteGate: SchemaWriteGate;
   private readonly backupOptions: BackupRetentionOptions;
   private readonly projects: ProjectRepository;
   private readonly sessions: SessionRepository;
@@ -493,6 +497,9 @@ export class WorkIntelligenceStore {
       this.db.close();
       throw error;
     }
+    // Every write transaction of this process checks, under the write lock, that no newer process migrated the file.
+    this.schemaWriteGate = new SchemaWriteGate(this.db, options.expectedSchemaVersion ?? LATEST_SCHEMA_VERSION);
+    if (!readOnly) setImmediateTransactionGate(this.db, () => this.schemaWriteGate.assertCompatible());
     // Before any statement runs: SQLite refuses to define a function while a statement is active.
     registerListSearchFunctions(this.db);
     this.projectDataTransfer = new ProjectDataTransferService(this.db, databasePath, this.backupOptions);
@@ -594,7 +601,7 @@ export class WorkIntelligenceStore {
     this.hotspots = new HotspotRepository(this.db);
     this.fileHistory = new FileHistoryService(this.db, {
       checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
-      syncIndex: () => this.searchIndex.syncIndex(),
+      syncIndex: () => this.searchIndex.syncIndexForRead(),
     });
     this.timelines = new TimelineRepository(this.db);
     this.activity = new ActivityRepository(this.db);
@@ -661,7 +668,7 @@ export class WorkIntelligenceStore {
       },
       pendingKnowledgePages: (projectId) => this.knowledgePages.pendingForProject(projectId),
       hotspotHints: (projectId, paths) => {
-        this.searchIndex.syncIndex();
+        this.searchIndex.syncIndexForRead();
         return this.hotspots.hints(projectId, paths);
       },
       withSharedReads: (read) => this.knowledgePages.withSharedReads(read),
@@ -696,15 +703,19 @@ export class WorkIntelligenceStore {
 
   /** Prevents a stale MCP writer from using an externally migrated database, within the same write lock. */
   public withCompatibleSchema<T>(schemaVersion: number, operation: () => T): T {
-    return runImmediateSqlTransaction(this.db, () => {
-      const row = this.db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get();
-      if (row?.version !== schemaVersion) {
-        throw Object.assign(new Error("資料庫 schema 已更新，請重新連線 Work Intelligence MCP。"), {
-          code: "MCP_RESTART_REQUIRED",
-        });
-      }
-      return operation();
-    });
+    try {
+      return runImmediateSqlTransaction(this.db, () => {
+        // The registered gate already checked this process's own version right after BEGIN IMMEDIATE.
+        if (schemaVersion !== this.schemaWriteGate.expectedVersion)
+          this.schemaWriteGate.assertCompatible(schemaVersion);
+        return operation();
+      });
+    } catch (error) {
+      if (!isDatabaseSchemaChangedError(error)) throw error;
+      throw Object.assign(new Error("資料庫 schema 已更新，請重新連線 Work Intelligence MCP。"), {
+        code: "MCP_RESTART_REQUIRED",
+      });
+    }
   }
 
   public close(): void {
@@ -1122,7 +1133,7 @@ export class WorkIntelligenceStore {
     if (report.outcome !== "report") {
       return report;
     }
-    this.searchIndex.syncIndex();
+    this.searchIndex.syncIndexForRead();
     const hotspotRisks = this.hotspots
       .hotspots({
         projectId: report.project?.id,
@@ -1562,7 +1573,7 @@ export class WorkIntelligenceStore {
       }
       projectId = decision.project.id;
     }
-    this.searchIndex.syncIndex();
+    this.searchIndex.syncIndexForRead();
     const groupBy = query.groupBy ?? "file";
     return {
       outcome: "hotspots",

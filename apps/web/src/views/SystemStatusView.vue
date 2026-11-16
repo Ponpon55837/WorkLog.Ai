@@ -106,6 +106,9 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
   <UiSkeleton v-if="loading && !status" variant="card" :count="4" :label="t('systemStatus.loadingSystemStatus')" />
 
   <template v-else-if="status">
+    <UiFlash v-if="!status.sqlite.walResetFixed" tone="danger" :title="t('systemStatus.sqliteWalResetTitle')">
+      {{ t("systemStatus.sqliteWalResetBody", { version: status.sqlite.version }) }}
+    </UiFlash>
     <UiFlash v-if="status.mcp.restartRequired" tone="attention" :title="t('systemStatus.mcpNeedsToReconnect')">
       {{ status.mcp.message ?? t("systemStatus.theWorkIntelligenceMcpBuild") }}
     </UiFlash>

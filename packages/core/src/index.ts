@@ -27,6 +27,7 @@ export const API_ERROR_CODES = [
   "database_busy",
   "database_read_only",
   "database_disk_full",
+  "server_restart_required",
   "project_name_mismatch",
   "project_backup_failed",
   "project_delete_failed",
@@ -3572,6 +3573,16 @@ export interface UserServiceStatus {
   logPath: string;
 }
 
+/** The SQLite library the API process runs on, checked against the WAL-reset corruption fix (3.51.3, 3.50.7, 3.44.6). */
+export interface SqliteRuntimeStatus {
+  /** Output of `SELECT sqlite_version()`. */
+  version: string;
+  /** False when this version still has the WAL-reset bug, or could not be recognized. */
+  walResetFixed: boolean;
+  /** The nearest fixed release when the version is affected and recognized. */
+  fixedIn?: string;
+}
+
 export interface SystemStatus {
   version: string;
   /** The latest schema version supported by this application build. */
@@ -3604,6 +3615,7 @@ export interface SystemStatus {
   /** Read-only snapshots of registered Agent clients, skill copies, and reminder hooks. */
   agents: SystemAgentConnections;
   sseConnections: number;
+  sqlite: SqliteRuntimeStatus;
 }
 
 export const PROJECT_DATA_TABLES = [

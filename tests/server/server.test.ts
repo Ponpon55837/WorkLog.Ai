@@ -346,6 +346,7 @@ describe("Work Intelligence REST API", () => {
       };
       agents: SystemAgentConnections;
       sseConnections: number;
+      sqlite: { version: string; walResetFixed: boolean };
     }>(baseUrl, "/api/system/status");
 
     expect(response.status).toBe(200);
@@ -359,6 +360,7 @@ describe("Work Intelligence REST API", () => {
       mcp: expectedMcpStatus,
       agents: expectedAgents,
       sseConnections: 1,
+      sqlite: { version: process.versions.sqlite, walResetFixed: true },
     });
     expect(response.body.database.bytes).toBeGreaterThan(0);
     expect(response.body.backups.totalBytes).toBe(automatic.created.bytes + manual.created.bytes);

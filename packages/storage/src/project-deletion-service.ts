@@ -4,6 +4,7 @@ import type { DeleteProjectResult, ProjectDeletionAuditRecord, ProjectDeletionCo
 import { nowIso } from "@work-intelligence/shared";
 import { backupDatabaseBeforeProjectDeletion, type BackupRetentionOptions } from "./backup.js";
 import { databaseUnavailableReason } from "./sqlite-errors.js";
+import { isDatabaseSchemaChangedError } from "./schema-write-gate.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 import { SearchRepository } from "./search-repository.js";
 
@@ -551,8 +552,12 @@ export class ProjectDeletionService {
         };
       });
     } catch (error) {
-      // Busy, read-only and disk-full failures keep their own codes: the user can resolve them and retry.
-      if (error instanceof ProjectDeletionError || databaseUnavailableReason(error)) {
+      // Busy, read-only, disk-full and schema-changed failures keep their own codes: the user can resolve them and retry.
+      if (
+        error instanceof ProjectDeletionError ||
+        isDatabaseSchemaChangedError(error) ||
+        databaseUnavailableReason(error)
+      ) {
         throw error;
       }
       throw new ProjectDeletionError("project_delete_failed");
