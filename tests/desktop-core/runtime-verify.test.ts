@@ -10,6 +10,7 @@ import {
   type RuntimeErrorCode,
 } from "../../packages/desktop-core/src/runtime/index.js";
 import { forEachLimited } from "../../packages/desktop-core/src/runtime/concurrency.js";
+import { aclCheckFor, permissionProblem } from "../../packages/desktop-core/src/runtime/permissions.js";
 import {
   IS_WINDOWS,
   fixtureDefinition,
@@ -500,7 +501,9 @@ describe("verifyRuntime: permissions", () => {
     }
   });
 
-  it("refuses entries owned by someone other than the current user", async () => {
+  // Real stat: on Windows every entry reports mode 666, so the POSIX policy stops at world-writable first. The injected-stat
+  // cases in "permissionProblem" below cover the same rules on every platform.
+  it.skipIf(IS_WINDOWS)("refuses entries owned by someone other than the current user", async () => {
     const uid = process.getuid?.() ?? 1000;
     const error = await refusal({ policy: { platform: "linux", uid: uid + 1 } });
     expect(error.code).toBe("RUNTIME_UNSAFE_PERMISSIONS");
@@ -518,9 +521,42 @@ describe("verifyRuntime: permissions", () => {
     });
   });
 
-  it("does not require an owner when the platform has no uid", async () => {
+  it.skipIf(IS_WINDOWS)("does not require an owner when the platform has no uid", async () => {
     const result = await verifyRuntime(root, "rt-1", { policy: { platform: "linux", uid: undefined } });
     expect(result.acl).toBe("checked");
+  });
+});
+
+describe("permissionProblem", () => {
+  const linux = { platform: "linux" as const, uid: 1000 };
+
+  it.each([
+    ["a private file", { mode: 0o100644, uid: 1000 }, linux, undefined],
+    ["a private directory", { mode: 0o040755, uid: 1000 }, linux, undefined],
+    ["a group-writable file", { mode: 0o100664, uid: 1000 }, linux, undefined],
+    ["a world-writable file", { mode: 0o100666, uid: 1000 }, linux, "mode 666"],
+    ["a world-writable directory", { mode: 0o040777, uid: 1000 }, linux, "mode 777"],
+    ["another owner", { mode: 0o100644, uid: 1001 }, linux, "uid 1001"],
+    ["world-writable and another owner", { mode: 0o100666, uid: 1001 }, linux, "mode 666"],
+    [
+      "no uid on the platform",
+      { mode: 0o100644, uid: 1001 },
+      { platform: "linux" as const, uid: undefined },
+      undefined,
+    ],
+    ["macOS like Linux", { mode: 0o100646, uid: 501 }, { platform: "darwin" as const, uid: 501 }, "mode 646"],
+    // What Node reports for every entry on Windows: mode 666 and uid 0. ACLs are not checked yet, so no problem is found
+    // and the result says not-implemented (see aclCheckFor).
+    ["a Windows entry", { mode: 0o100666, uid: 0 }, { platform: "win32" as const, uid: undefined }, undefined],
+  ])("%s", (_name, entry, policy, problem) => {
+    const found = permissionProblem(entry, policy);
+    if (problem === undefined) expect(found).toBeUndefined();
+    else expect(found).toContain(problem);
+  });
+
+  it("reports Windows as not checked, never as a pass", () => {
+    expect(aclCheckFor({ platform: "win32", uid: undefined })).toBe("not-implemented");
+    expect(aclCheckFor({ platform: "linux", uid: 1000 })).toBe("checked");
   });
 });
 
