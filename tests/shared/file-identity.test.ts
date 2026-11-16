@@ -1,6 +1,6 @@
 import { linkSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync, copyFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, sep } from "node:path";
+import { join, parse, resolve, sep } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   classifyFileError,
@@ -67,10 +67,13 @@ describe("readFileIdentity", () => {
     expect(result).toMatchObject({ ok: false, kind: "missing", code: "ENOENT" });
   });
 
-  it("reports a path through a regular file as unreadable", () => {
+  it("reports a path through a regular file as unreadable (missing on Windows)", () => {
     const directory = tempDir();
     writeFileSync(join(directory, "file"), "x");
-    expect(readFileIdentity(join(directory, "file", "child"))).toMatchObject({ ok: false, kind: "unreadable" });
+    // POSIX reports ENOTDIR; Windows reports ENOENT for a path that continues through a regular file.
+    const expected =
+      process.platform === "win32" ? { ok: false, kind: "missing", code: "ENOENT" } : { ok: false, kind: "unreadable" };
+    expect(readFileIdentity(join(directory, "file", "child"))).toMatchObject(expected);
   });
 
   it("reports a symlink loop as unreadable", () => {
@@ -147,7 +150,8 @@ describe("normalizePathForCompare", () => {
     const directory = tempDir();
     mkdirSync(join(directory, "d"));
     expect(normalizePathForCompare(`${directory}${sep}d${sep}`, "linux")).toBe(join(directory, "d"));
-    expect(normalizePathForCompare(sep, "linux")).toBe(sep);
+    const root = parse(resolve(sep)).root; // "/" on POSIX, the current drive root (for example "D:\\") on Windows
+    expect(normalizePathForCompare(sep, "linux")).toBe(root);
   });
 
   it("folds case only on win32", () => {
