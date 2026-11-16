@@ -33,6 +33,13 @@ export interface StartApiOptions {
   port?: number;
   /** The desktop shell's per-spawn secret; enables the `/api/health` instance proof (see `createApiHandler`). */
   instanceRunId?: string;
+  /** Called with the UTC instant (ISO 8601) of every automatic backup that was written successfully. */
+  onBackupCompleted?: (at: string) => void;
+  /**
+   * Called after any API request that can write or delete a backup file has succeeded (every successful non-read request).
+   * It carries no data: a listener rereads the backup folder, which is the one place all backup kinds end up.
+   */
+  onBackupsChanged?: () => void;
 }
 
 /** What `startApi` reports once the server accepts connections. */
@@ -53,6 +60,9 @@ export interface StartedApi {
   /** Graceful stop (timers, SSE, HTTP drain, worker, SQLite); resolves when SQLite is closed. Safe to call twice. */
   shutdown(): Promise<void>;
 }
+
+/** Requests that never write a backup file. */
+const READ_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);
 
 export type StartApiFailureKind = "revalidation" | "store-open" | "file-replaced" | "listen" | "setup";
 
@@ -184,7 +194,20 @@ export function startApi(options: StartApiOptions = {}): StartedApi {
       ...(backupWorker ? { backgroundStore: backupWorker } : {}),
       ...(options.instanceRunId ? { instanceRunId: options.instanceRunId } : {}),
     });
-    server = createServer(apiHandler);
+    const handler = apiHandler;
+    server = createServer((request, response) => {
+      if (options.onBackupsChanged && !READ_METHODS.has(request.method ?? "GET")) {
+        response.once("finish", () => {
+          if (response.statusCode >= 400) return;
+          try {
+            options.onBackupsChanged?.();
+          } catch {
+            // A listener that fails must not disturb the response that was already sent.
+          }
+        });
+      }
+      return handler(request, response);
+    });
   } catch {
     // Whatever was opened so far is closed before the failure is reported; nothing is left holding SQLite.
     void closeWorker().catch(() => undefined);
@@ -205,6 +228,11 @@ export function startApi(options: StartApiOptions = {}): StartedApi {
       .then((created) => {
         if (created) {
           console.error(`Database backup written: ${created.created.fileName}`);
+          try {
+            options.onBackupCompleted?.(created.created.createdAt);
+          } catch {
+            // A listener that fails must not turn a written backup into a reported failure.
+          }
         }
       })
       .catch((error: unknown) => {

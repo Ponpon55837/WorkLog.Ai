@@ -1,0 +1,209 @@
+/* Repair page. Colour values are the worklog-ui tokens (apps/web/src/styles/tokens.css), copied because this page is
+ * served from its own scheme and cannot import the web app's CSS. Dark is the default; the system setting picks light. */
+:root {
+  color-scheme: dark;
+  --bg-canvas: #0d1117;
+  --bg-surface: #151b23;
+  --bg-subtle: #11161d;
+  --bg-hover: #1c2128;
+  --border: #30363d;
+  --border-muted: #242b34;
+  --border-strong: #8b949e;
+  --border-on-emphasis: rgba(240, 246, 252, 0.1);
+  --fg: #e6edf3;
+  --fg-muted: #9198a1;
+  --fg-on-accent: #0d1117;
+  --accent: #4493f8;
+  --accent-emphasis: #1f6feb;
+  --accent-soft: rgba(68, 147, 248, 0.1);
+  --accent-border: rgba(68, 147, 248, 0.4);
+  --success: #3fb950;
+  --success-soft: rgba(63, 185, 80, 0.1);
+  --success-border: rgba(63, 185, 80, 0.4);
+  --attention: #d29922;
+  --attention-soft: rgba(210, 153, 34, 0.1);
+  --attention-border: rgba(210, 153, 34, 0.4);
+  --danger: #f85149;
+  --danger-soft: rgba(248, 81, 73, 0.1);
+  --danger-border: rgba(248, 81, 73, 0.4);
+  --font-sans:
+    -apple-system, "Segoe UI", "Noto Sans TC", "Microsoft JhengHei", "Noto Sans", Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", monospace;
+  --radius: 6px;
+  --radius-outer: 10px;
+  --control-height: 32px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg-canvas: #eef0f3;
+    --bg-surface: #fbfcfd;
+    --bg-subtle: #e6e9ed;
+    --bg-hover: #e2e5ea;
+    --border: #c9d0d8;
+    --border-muted: #dbe0e6;
+    --border-strong: #7d8794;
+    --border-on-emphasis: rgba(31, 35, 40, 0.15);
+    --fg: #24292f;
+    --fg-muted: #4f5862;
+    --fg-on-accent: #ffffff;
+    --accent: #0754ae;
+    --accent-emphasis: #0969da;
+    --accent-soft: rgba(7, 84, 174, 0.1);
+    --accent-border: rgba(7, 84, 174, 0.4);
+    --success: #16652a;
+    --success-soft: rgba(22, 101, 42, 0.1);
+    --success-border: rgba(22, 101, 42, 0.4);
+    --attention: #744c00;
+    --attention-soft: rgba(116, 76, 0, 0.1);
+    --attention-border: rgba(116, 76, 0, 0.4);
+    --danger: #a91b26;
+    --danger-soft: rgba(169, 27, 38, 0.1);
+    --danger-border: rgba(169, 27, 38, 0.4);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-canvas);
+  color: var(--fg);
+  font: 14px / 1.5 var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 16px 8px;
+  display: grid;
+  gap: 16px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.25;
+}
+
+h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+p {
+  margin: 0;
+}
+
+.intro {
+  color: var(--fg-muted);
+}
+
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-outer);
+  padding: 16px;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 0;
+}
+
+.facts dt {
+  color: var(--fg-muted);
+}
+
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.path {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+ul.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.error-item {
+  border-left: 3px solid var(--danger);
+  background: var(--danger-soft);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+}
+
+.error-code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.hint {
+  color: var(--fg-muted);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+button {
+  min-height: var(--control-height);
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-hover);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--accent-emphasis);
+  border-color: var(--accent-border);
+  color: var(--fg-on-accent);
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.status {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 8px 16px 24px;
+  min-height: 2em;
+  color: var(--fg-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

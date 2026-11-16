@@ -39,6 +39,10 @@
       "types": "./dist/instance-proof.d.ts",
       "import": "./dist/instance-proof.js"
     },
+    "./backup-name": {
+      "types": "./dist/backup-name.d.ts",
+      "import": "./dist/backup-name.js"
+    },
     "./loopback-port": {
       "types": "./dist/loopback-port.d.ts",
       "import": "./dist/loopback-port.js"

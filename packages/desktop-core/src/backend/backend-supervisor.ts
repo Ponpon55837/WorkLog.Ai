@@ -82,6 +82,19 @@ export type BackendStartResult =
       readonly recentOutput: readonly string[];
     };
 
+/**
+ * What a read-only preview of a database found. `failed` means the check itself could not run (no runtime, the child did
+ * not answer); `checked` carries the child's preflight verdict.
+ */
+export type DatabasePreviewResult =
+  | {
+      readonly outcome: "checked";
+      readonly preflight: DesktopPreflightResultMessage;
+      /** Opening it would write the schema (an empty file, or an older version). */
+      readonly willMigrate: boolean;
+    }
+  | { readonly outcome: "failed"; readonly code: BackendErrorCode; readonly detail: string };
+
 /** A backend that was running and ended without a `stop()`. The shell moves to NEEDS_REPAIR; no restart happens here. */
 export interface BackendExitEvent {
   readonly code: BackendErrorCode;
@@ -99,6 +112,8 @@ export interface BackendSupervisorOptions {
   readonly outputLines?: number;
   /** Diagnostic lines of the supervisor itself (never a secret). */
   readonly log?: (line: string) => void;
+  /** The directory the child starts in: fixed and writable by the user, never inherited from the parent process. */
+  readonly workingDirectory?: string;
 }
 
 interface ActiveChild {
@@ -111,6 +126,10 @@ interface ActiveChild {
   /** The executable the launch plan named; the child's own `hello` must report the same one. */
   readonly plannedExecutable: string;
   info: BackendInfo | undefined;
+  /** `backend` is the one managed child; `preview` is a short-lived read-only child that never listens. */
+  readonly kind: "backend" | "preview";
+  /** The identity the preflight read; backup reports are attributed to it. */
+  databaseIdentity?: DatabaseIdentity;
 }
 
 const DESKTOP_IPC_ARGV = ["--desktop-ipc"] as const;
@@ -119,6 +138,8 @@ const HEALTH_RETRY_MS = 100;
 const DEFAULT_OUTPUT_LINES = 200;
 const MIN_PORT = 1;
 const MAX_PORT = 65_535;
+/** The fixed text of the failure when the child's working directory cannot be created. */
+export const WORKING_DIRECTORY_FAILURE = "the working directory could not be created";
 
 const NOT_RUNNING: BackendStopReport = {
   graceful: true,
@@ -174,6 +195,14 @@ export class BackendSupervisor {
   private readonly outputLines: number;
   private readonly log: (line: string) => void;
   private readonly exitListeners = new Set<(event: BackendExitEvent) => void>();
+  private readonly backupListeners = new Set<(at: string, database: DatabaseIdentity) => void>();
+  private previewing: Promise<unknown> | undefined;
+  /** Preview children that are alive; `stop()` ends them too. */
+  private readonly previews = new Set<ActiveChild>();
+  /** Bumped by `stop()`: a preview queued before a stop never starts after it. */
+  private previewGeneration = 0;
+  private readonly changedListeners = new Set<(database: DatabaseIdentity) => void>();
+  private readonly workingDirectory: string | undefined;
   private active: ActiveChild | undefined;
   private lastOutput: readonly string[] = [];
   private starting: Promise<BackendStartResult> | undefined;
@@ -184,6 +213,7 @@ export class BackendSupervisor {
     this.timeouts = { ...DEFAULT_BACKEND_TIMEOUTS, ...options.timeouts };
     this.outputLines = options.outputLines ?? DEFAULT_OUTPUT_LINES;
     this.log = options.log ?? (() => undefined);
+    this.workingDirectory = options.workingDirectory;
   }
 
   /** The verified running backend, or undefined (starting, stopping, stopped or crashed). */
@@ -194,6 +224,24 @@ export class BackendSupervisor {
   /** The most recent captured output lines of the current or last child, oldest first. */
   get recentOutput(): readonly string[] {
     return this.active ? this.active.output.lines() : this.lastOutput;
+  }
+
+  /**
+   * Subscribes to the backups the running backend completes (UTC ISO instant), with the identity of the database that made
+   * them; returns the unsubscribe function.
+   */
+  onBackupCompleted(listener: (at: string, database: DatabaseIdentity) => void): () => void {
+    this.backupListeners.add(listener);
+    return () => this.backupListeners.delete(listener);
+  }
+
+  /**
+   * Subscribes to "the backups of the running database may have changed" (any API call that can write or delete a backup
+   * file); the shell reacts by forgetting what it cached. Returns the unsubscribe function.
+   */
+  onBackupsChanged(listener: (database: DatabaseIdentity) => void): () => void {
+    this.changedListeners.add(listener);
+    return () => this.changedListeners.delete(listener);
   }
 
   /** Subscribes to unexpected exits; returns the unsubscribe function. */
@@ -225,9 +273,70 @@ export class BackendSupervisor {
    * `kill()` is TerminateProcess on Windows, where there is no SIGTERM step). Finally polls until the port is free.
    */
   stop(): Promise<BackendStopReport> {
+    this.previewGeneration += 1;
     // Before the child is spawned there is nothing to stop yet: let the start settle, then stop what it produced.
-    if (!this.active && this.starting) return this.starting.then(() => this.stopCurrent());
-    return this.stopCurrent();
+    const backend = !this.active && this.starting ? this.starting.then(() => this.stopCurrent()) : this.stopCurrent();
+    if (this.previews.size === 0) return backend;
+    // A preview child is this supervisor's child too: it is stopped and must be proven gone, or `exited` is false.
+    return Promise.all([backend, this.stopPreviews()]).then(([report, previewsEnded]) =>
+      previewsEnded ? report : { ...report, exited: false },
+    );
+  }
+
+  private async stopPreviews(): Promise<boolean> {
+    const alive = [...this.previews];
+    if (alive.length === 0) return true;
+    const reports = await Promise.all(alive.map((child) => this.terminate(child)));
+    const ended = reports.every((report) => report.exited);
+    if (!ended) this.log("a preview child did not exit after it was asked to stop and killed");
+    return ended;
+  }
+
+  /**
+   * A read-only look at `databasePath`: a separate short-lived child is spawned, says hello, answers the preflight and is
+   * shut down; no `start` is ever sent, so it never listens on a port and never opens the database for writing.
+   * It is independent of `start`/`stop` on purpose: the repair page must be able to preview a candidate while the current
+   * backend runs, and a second child that holds no port cannot conflict with it. Previews run one at a time.
+   */
+  preview(databasePath: string): Promise<DatabasePreviewResult> {
+    const generation = this.previewGeneration;
+    const run = (): Promise<DatabasePreviewResult> => this.runPreview(databasePath, generation);
+    const next = this.previewing ? this.previewing.then(run, run) : run();
+    // The tracking chain swallows its own outcome: the caller of `preview` is the only one who sees a rejection.
+    let settled: Promise<void> | undefined;
+    const clear = (): void => {
+      if (this.previewing === settled) this.previewing = undefined;
+    };
+    settled = next.then(clear, clear);
+    this.previewing = settled;
+    return next;
+  }
+
+  private async runPreview(databasePath: string, generation: number): Promise<DatabasePreviewResult> {
+    let child: ActiveChild | undefined;
+    try {
+      if (generation !== this.previewGeneration) {
+        throw new BackendFailure("REPAIR_REQUIRED", "the preview was cancelled because the backend was stopped");
+      }
+      const request: BackendStartRequest = { port: 0, databasePath };
+      child = await this.spawnChild(request, this.deps.randomRunId(), this.deps.randomChallenge(), "preview");
+      this.verifyHello(await child.channel.expect("hello", this.timeouts.helloMs), child);
+      await child.channel.send({ type: "preflight", path: databasePath });
+      const preflight = await child.channel.expect("preflight-result", this.timeouts.preflightMs);
+      // Same rule as a start: an `ok` verdict without the database's identity is not a verdict (nothing could be
+      // confirmed against it). Other statuses are findings the repair page shows.
+      if (preflight.status === "ok") this.verifyPreflight(preflight, request);
+      return { outcome: "checked", preflight, willMigrate: preflight.status === "ok" && willMigrate(preflight) };
+    } catch (error) {
+      const failure = describeUnexpected(error);
+      return { outcome: "failed", code: failure.code, detail: failure.detail };
+    } finally {
+      if (child) {
+        const ended = await this.terminate(child);
+        this.previews.delete(child);
+        if (!ended.exited) this.log("a preview child did not exit after it was asked to stop and killed");
+      }
+    }
   }
 
   private stopCurrent(): Promise<BackendStopReport> {
@@ -277,6 +386,7 @@ export class BackendSupervisor {
     const preflight = await channel.expect("preflight-result", this.timeouts.preflightMs);
     const identity = this.verifyPreflight(preflight, request);
     this.maskPath(active.masker, identity.realPath);
+    active.databaseIdentity = identity;
     await this.runBeforeStart(request, preflight, identity);
 
     await channel.send({
@@ -304,7 +414,13 @@ export class BackendSupervisor {
     return info;
   }
 
-  private async spawnChild(request: BackendStartRequest, runId: string, challenge: string): Promise<ActiveChild> {
+  private async spawnChild(
+    request: BackendStartRequest,
+    runId: string,
+    challenge: string,
+    kind: ActiveChild["kind"] = "backend",
+  ): Promise<ActiveChild> {
+    await this.ensureWorkingDirectory();
     const environment = buildChildEnvironment({
       platform: this.deps.platform,
       parentEnvironment: this.deps.parentEnvironment,
@@ -324,6 +440,7 @@ export class BackendSupervisor {
     const child = this.deps.spawn(plan.command, plan.args, {
       env: plan.env as NodeJS.ProcessEnv,
       shell: false,
+      ...(this.workingDirectory ? { cwd: this.workingDirectory } : {}),
       stdio: ["ignore", "pipe", "pipe", "ipc"],
       windowsHide: true,
     });
@@ -338,8 +455,21 @@ export class BackendSupervisor {
       port: request.port,
       plannedExecutable: plan.command,
       info: undefined,
+      kind,
     };
-    this.active = active;
+    if (kind === "backend") {
+      this.active = active;
+      channel.onBackupCompleted((at) => {
+        const database = active.databaseIdentity;
+        if (database) this.notify(this.backupListeners, (listener) => listener(at, database));
+      });
+      channel.onBackupsChanged(() => {
+        const database = active.databaseIdentity;
+        if (database) this.notify(this.changedListeners, (listener) => listener(database));
+      });
+    } else {
+      this.previews.add(active);
+    }
     for (const stream of [child.stdout, child.stderr]) {
       const collector = new LineCollector(output, masker);
       const decoder = new StringDecoder("utf8");
@@ -349,6 +479,27 @@ export class BackendSupervisor {
       stream?.on("end", () => collector.flush());
     }
     return active;
+  }
+
+  /** The fixed working directory exists before any child starts in it; a failure is its own, named problem. */
+  private async ensureWorkingDirectory(): Promise<void> {
+    if (!this.workingDirectory || !this.deps.ensureDirectory) return;
+    try {
+      await this.deps.ensureDirectory(this.workingDirectory);
+    } catch (error) {
+      throw new BackendFailure("REPAIR_REQUIRED", WORKING_DIRECTORY_FAILURE, { cause: error });
+    }
+  }
+
+  /** Calls every listener; one that throws is logged and never stops the others or reaches the event loop. */
+  private notify<T>(listeners: ReadonlySet<T>, call: (listener: T) => void): void {
+    for (const listener of [...listeners]) {
+      try {
+        call(listener);
+      } catch (error) {
+        this.log(`a listener failed: ${error instanceof Error ? error.message : "unknown error"}`);
+      }
+    }
   }
 
   /** Everything the child may echo and the parent must not keep: secrets, the database and backup paths, the home. */
@@ -498,7 +649,7 @@ export class BackendSupervisor {
         info,
         recentOutput: this.lastOutput,
       };
-      for (const listener of [...this.exitListeners]) listener(event);
+      this.notify(this.exitListeners, (listener) => listener(event));
     });
   }
 
@@ -523,7 +674,8 @@ export class BackendSupervisor {
       this.tryKill(child, platform === "win32" ? undefined : "SIGKILL");
       exit = await this.within(channel.exited, this.timeouts.killMs);
     }
-    const portReleased = exit ? await this.waitForPortFree(active.port) : false;
+    // A preview child never listens: there is no port to wait for.
+    const portReleased = exit ? active.kind === "preview" || (await this.waitForPortFree(active.port)) : false;
     return {
       graceful,
       forced,

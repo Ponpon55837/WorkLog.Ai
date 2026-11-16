@@ -89,6 +89,8 @@ describe("child messages", () => {
       READY,
       { type: "failed", code: "DB_MISSING", detail: "the database file is missing" },
       { type: "stopped" },
+      { type: "backup-completed", at: "2026-03-01T12:00:00.000Z" },
+      { type: "backups-changed" },
     ];
     for (const message of messages) expect(parseDesktopChildMessage(message).ok).toBe(true);
   });
@@ -104,6 +106,9 @@ describe("child messages", () => {
     ["a missing pid", { type: "hello", protocolVersion: 1, execPath: "/p" }],
     ["a negative pid", { type: "hello", protocolVersion: 1, pid: -1, execPath: "/p" }],
     ["an oversized detail", { type: "failed", code: "DB_MISSING", detail: "x".repeat(2001) }],
+    ["a backup report without a valid instant", { type: "backup-completed", at: "yesterday" }],
+    ["a backup report with extra fields", { type: "backup-completed", at: "2026-03-01T12:00:00Z", path: "/x" }],
+    ["a backups-changed event with extra fields", { type: "backups-changed", path: "/x" }],
     ["an unknown type", { type: "ping" }],
     ["an array", [READY]],
   ])("rejects %s", (_name, value) => {

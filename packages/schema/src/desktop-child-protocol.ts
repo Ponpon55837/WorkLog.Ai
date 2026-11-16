@@ -102,6 +102,15 @@ const failedSchema = z.strictObject({
 
 const stoppedSchema = z.strictObject({ type: z.literal("stopped") });
 
+/** The running backend wrote a backup successfully; `at` is the backup's UTC instant (ISO 8601). */
+const backupCompletedSchema = z.strictObject({ type: z.literal("backup-completed"), at: z.iso.datetime() });
+
+/**
+ * An API call that can write or delete a backup file finished (a manual backup, an import, a deletion, ...). It carries
+ * nothing: the shell only forgets what it cached about the backup folder and reads it again.
+ */
+const backupsChangedSchema = z.strictObject({ type: z.literal("backups-changed") });
+
 /** Parent to child. */
 export const desktopParentMessageSchema = z.discriminatedUnion("type", [
   preflightRequestSchema,
@@ -116,6 +125,8 @@ export const desktopChildMessageSchema = z.discriminatedUnion("type", [
   readySchema,
   failedSchema,
   stoppedSchema,
+  backupCompletedSchema,
+  backupsChangedSchema,
 ]);
 
 export type DesktopDatabaseIdentity = z.infer<typeof desktopDatabaseIdentitySchema>;

@@ -1,0 +1,82 @@
+name: Desktop smoke
+
+# Starts the real Electron shell with a real runtime on each platform. Kept apart from ci.yml so the regular jobs never
+# download or start Electron; it only runs when something the desktop App is built from changes.
+on:
+  pull_request:
+    paths:
+      - "apps/desktop/**"
+      - "packages/desktop-core/**"
+      - "packages/shared/**"
+      - "packages/schema/**"
+      - "apps/server/**"
+      - "packages/storage/**"
+      - "scripts/desktop-runtime-spike/**"
+      - "pnpm-lock.yaml"
+      - "package.json"
+      - ".github/workflows/desktop-smoke.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # V1 ships on Windows and macOS; Linux is kept as a regression check (it runs under xvfb).
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 11.16.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # The Electron postinstall is disabled in pnpm-workspace.yaml, so this downloads no binary.
+      - run: pnpm install --frozen-lockfile
+
+      # The Electron binary is the one large download; it is cached per OS and per pinned Electron version.
+      - name: Cache the Electron binary
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ runner.os == 'Windows' && '~/AppData/Local/electron/Cache' || runner.os == 'macOS' && '~/Library/Caches/electron' || '~/.cache/electron' }}
+          key: electron-${{ runner.os }}-45.3.2
+
+      # The runtime builder packages the built server and Web UI.
+      - run: pnpm build
+
+      - name: Display server for Electron (Linux)
+        if: runner.os == 'Linux'
+        run: command -v xvfb-run >/dev/null || (sudo apt-get update && sudo apt-get install -y xvfb)
+
+      # Downloads the Electron binary (the only step that does), lays out a runtime, runs Playwright. On Linux the script
+      # wraps Playwright in `xvfb-run -a` because no DISPLAY is set.
+      - name: Desktop smoke test
+        run: pnpm test:desktop-smoke
+
+      - name: Upload the report and the main-process log
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-smoke-${{ matrix.os }}
+          path: |
+            apps/desktop/playwright-report
+            apps/desktop/test-results
+          if-no-files-found: ignore
+          retention-days: 7

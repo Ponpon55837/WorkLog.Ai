@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./shell/i18n": {
+      "types": "./dist/shell/i18n.d.ts",
+      "import": "./dist/shell/i18n.js"
     }
   },
   "dependencies": {

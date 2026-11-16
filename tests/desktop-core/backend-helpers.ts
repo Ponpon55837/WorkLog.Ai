@@ -153,6 +153,9 @@ export interface HarnessOptions {
   health?: (url: string, headers: Record<string, string>, runId: string | undefined) => Promise<HealthResponse>;
   realpath?: (path: string) => string;
   timeouts?: Partial<typeof DEFAULT_BACKEND_TIMEOUTS>;
+  workingDirectory?: string;
+  /** Makes the working directory exist; absent, the supervisor creates nothing. */
+  ensureDirectory?: (path: string) => Promise<void>;
 }
 
 /** The proof a genuine child with `runId` would send for the request's challenge. */
@@ -201,6 +204,7 @@ export function makeHarness(options: HarnessOptions = {}): Harness {
     randomRunId: () => RUN_ID,
     randomChallenge: () => CHALLENGE,
     realpath: options.realpath ?? ((path) => path),
+    ...(options.ensureDirectory ? { ensureDirectory: options.ensureDirectory } : {}),
     setTimer: (callback, ms) => setTimeout(callback, ms),
     clearTimer: (handle) => clearTimeout(handle as NodeJS.Timeout),
     platform: options.platform ?? "linux",
@@ -210,6 +214,7 @@ export function makeHarness(options: HarnessOptions = {}): Harness {
     dependencies: deps,
     log: (line) => logs.push(line),
     ...(options.timeouts ? { timeouts: options.timeouts } : {}),
+    ...(options.workingDirectory ? { workingDirectory: options.workingDirectory } : {}),
   });
   return { supervisor, children, deps, spawn, isPortFree, fetchHealth, planLaunch, logs };
 }

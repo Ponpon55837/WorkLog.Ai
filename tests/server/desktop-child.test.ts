@@ -96,7 +96,31 @@ describe("DesktopChild", () => {
       database: { path: "/synthetic/work.sqlite", identity: IDENTITY },
       port: START.port,
       instanceRunId: RUN_ID,
+      onBackupCompleted: expect.any(Function),
+      onBackupsChanged: expect.any(Function),
     });
+  });
+
+  it("tells the parent when the running API completes a backup", async () => {
+    const { child, sent, startApi } = setup();
+    await child.handle({ type: "preflight", path: "/synthetic/work.sqlite" });
+    await child.handle(START);
+
+    const options = startApi.mock.calls[0]?.[0] as { onBackupCompleted: (at: string) => void };
+    options.onBackupCompleted("2026-03-01T12:00:00.000Z");
+
+    expect(sent.at(-1)).toEqual({ type: "backup-completed", at: "2026-03-01T12:00:00.000Z" });
+  });
+
+  it("tells the parent when an API call may have changed the backups", async () => {
+    const { child, sent, startApi } = setup();
+    await child.handle({ type: "preflight", path: "/synthetic/work.sqlite" });
+    await child.handle(START);
+
+    const options = startApi.mock.calls[0]?.[0] as { onBackupsChanged: () => void };
+    options.onBackupsChanged();
+
+    expect(sent.at(-1)).toEqual({ type: "backups-changed" });
   });
 
   it("passes the backup directory and falls back to the requested identity when the API reports none", async () => {

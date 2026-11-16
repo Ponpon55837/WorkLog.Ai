@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { realpathSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
 import { createInstanceChallenge } from "@work-intelligence/shared/instance-proof";
 import { probeLoopbackPort } from "@work-intelligence/shared/loopback-port";
 import { planLaunch } from "../runtime/launch-plan.js";
@@ -32,6 +33,9 @@ export function createNodeBackendDependencies(options: NodeBackendDependenciesOp
     randomRunId: () => randomBytes(RUN_ID_BYTES).toString("base64url"),
     randomChallenge: createInstanceChallenge,
     realpath: (path) => realpathSync.native(path),
+    ensureDirectory: async (path) => {
+      await mkdir(path, { recursive: true });
+    },
     setTimer: (callback, ms) => setTimeout(callback, ms),
     clearTimer: (handle) => clearTimeout(handle as NodeJS.Timeout),
     platform: options.platform ?? process.platform,

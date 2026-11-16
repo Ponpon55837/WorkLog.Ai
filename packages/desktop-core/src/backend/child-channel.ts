@@ -41,6 +41,8 @@ export class ChildChannel {
   private readonly log: (line: string) => void;
   private readonly pending: DesktopChildMessage[] = [];
   private readonly waiters = new Set<Waiter>();
+  private backupListener: ((at: string) => void) | undefined;
+  private changedListener: (() => void) | undefined;
   /** Sticky: once the child failed or ended, every later `expect` fails the same way. */
   private ended: BackendFailure | undefined;
   private exit: ChildExit | undefined;
@@ -116,6 +118,16 @@ export class ChildChannel {
     });
   }
 
+  /** Receives each `backup-completed` event of the child (an event, not an answer: nothing waits for it). */
+  onBackupCompleted(listener: (at: string) => void): void {
+    this.backupListener = listener;
+  }
+
+  /** Receives each `backups-changed` event: some API call may have written or removed a backup file. */
+  onBackupsChanged(listener: () => void): void {
+    this.changedListener = listener;
+  }
+
   private receive(raw: unknown): void {
     const parsed = parseDesktopChildMessage(raw);
     if (!parsed.ok) {
@@ -123,6 +135,14 @@ export class ChildChannel {
       return;
     }
     const message = parsed.message;
+    if (message.type === "backup-completed") {
+      this.backupListener?.(message.at);
+      return;
+    }
+    if (message.type === "backups-changed") {
+      this.changedListener?.();
+      return;
+    }
     if (message.type === "failed") {
       this.lastReportedFailure = new BackendFailure(message.code, message.detail);
       this.end(this.lastReportedFailure);

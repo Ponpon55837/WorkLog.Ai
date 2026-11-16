@@ -30,6 +30,8 @@ export interface BackendSupervisorDependencies {
   randomChallenge(): string;
   /** `fs.realpathSync.native`, so a Windows 8.3 name or a symlinked path compares equal to the real executable. */
   realpath(path: string): string;
+  /** Creates `path` (and its parents) when it is missing; used for the fixed working directory before every spawn. */
+  ensureDirectory?(path: string): Promise<void>;
   setTimer(callback: () => void, ms: number): unknown;
   clearTimer(handle: unknown): void;
   readonly platform: NodeJS.Platform;

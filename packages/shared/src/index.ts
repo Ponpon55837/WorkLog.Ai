@@ -1,3 +1,4 @@
+export * from "./backup-name.js";
 export { commandName, STANDALONE_COMMAND_NAME } from "./command-name.js";
 
 /**

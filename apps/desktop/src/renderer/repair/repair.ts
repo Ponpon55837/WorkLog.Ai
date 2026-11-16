@@ -1,0 +1,236 @@
+import type { RepairApi, RepairState, RepairActionId } from "@work-intelligence/desktop-core";
+import {
+  errorMessageFor,
+  formatMessage,
+  shellMessages,
+  type ShellMessages,
+} from "@work-intelligence/desktop-core/shell/i18n";
+
+declare global {
+  interface Window {
+    readonly workIntelligenceRepair: RepairApi;
+  }
+}
+
+const REFRESH_MS = 4000;
+
+const app = document.getElementById("app") as HTMLElement;
+const statusRegion = document.getElementById("status") as HTMLElement;
+let current: RepairState | undefined;
+let working = false;
+
+function element<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  options: { className?: string; text?: string } = {},
+  children: readonly (Node | string)[] = [],
+): HTMLElementTagNameMap[K] {
+  const node = document.createElement(tag);
+  if (options.className) node.className = options.className;
+  if (options.text !== undefined) node.textContent = options.text;
+  node.append(...children);
+  return node;
+}
+
+function say(text: string): void {
+  statusRegion.textContent = text;
+}
+
+function formatBackup(state: RepairState, messages: ShellMessages): string {
+  const { lastBackup } = state;
+  if (lastBackup.status === "none") return messages.quitNoBackup;
+  if (lastBackup.status === "unknown") return messages.quitUnknownBackup;
+  return new Intl.DateTimeFormat(state.locale, { dateStyle: "medium", timeStyle: "short" }).format(
+    new Date(lastBackup.at),
+  );
+}
+
+function fact(label: string, value: Node | string): [HTMLElement, HTMLElement] {
+  return [element("dt", { text: label }), element("dd", {}, [value])];
+}
+
+function section(title: string, ...content: Node[]): HTMLElement {
+  return element("section", { className: "card" }, [element("h2", { text: title }), ...content]);
+}
+
+function actionLabel(id: RepairActionId, messages: ShellMessages): string {
+  const labels: Record<RepairActionId, string> = {
+    "retry-start": messages.actionRetry,
+    "choose-database": messages.actionChooseDatabase,
+    "open-database-folder": messages.actionOpenDatabaseFolder,
+    "open-backups-folder": messages.actionOpenBackups,
+    "open-logs-folder": messages.actionOpenLogs,
+    "export-diagnostics": messages.actionExport,
+  };
+  return labels[id];
+}
+
+function button(label: string, id: string, enabled: boolean, onClick: () => void, primary = false): HTMLButtonElement {
+  const node = element("button", { text: label, className: primary ? "primary" : "" });
+  node.type = "button";
+  node.dataset.id = id;
+  node.disabled = !enabled || working;
+  node.addEventListener("click", onClick);
+  return node;
+}
+
+function render(state: RepairState): void {
+  const messages = shellMessages(state.locale);
+  const focusedId = document.activeElement instanceof HTMLElement ? document.activeElement.dataset.id : undefined;
+  document.documentElement.lang = state.locale === "zh-TW" ? "zh-Hant" : "en";
+  document.title = messages.repairWindowTitle;
+
+  const facts = element("dl", { className: "facts" });
+  facts.append(
+    ...fact(messages.ownerLabel, messages.owners[state.owner] ?? state.owner),
+    ...fact(messages.backendLabel, messages.backends[state.backend] ?? state.backend),
+  );
+
+  const databaseFacts = element("dl", { className: "facts" });
+  databaseFacts.append(
+    ...fact(
+      messages.repairDatabaseHeading,
+      state.database.display === null
+        ? messages.repairNoDatabase
+        : element("span", { className: "path", text: state.database.display }),
+    ),
+    ...fact(messages.databaseStatusLabel, messages.databaseStatuses[state.database.status] ?? state.database.status),
+    ...fact(messages.lastBackupLabel, formatBackup(state, messages)),
+  );
+
+  const errors = element("ul", { className: "list" });
+  if (state.recentErrors.length === 0) errors.append(element("li", { text: messages.repairNoErrors }));
+  for (const entry of [...state.recentErrors].reverse()) {
+    const message = errorMessageFor(messages, entry.code);
+    errors.append(
+      element("li", { className: "error-item" }, [
+        element("strong", { text: message.title }),
+        element("div", { className: "hint", text: message.hint }),
+        element("div", { className: "error-code", text: entry.code }),
+      ]),
+    );
+  }
+
+  const actions = element("div", { className: "actions" });
+  for (const action of state.actions) {
+    actions.append(
+      button(
+        actionLabel(action.id, messages),
+        action.id,
+        action.enabled,
+        () => void perform(action.id, state),
+        action.id === "retry-start",
+      ),
+    );
+  }
+
+  const blocks: Node[] = [
+    element("h1", { text: messages.repairHeading }),
+    element("p", { className: "intro", text: messages.repairIntro }),
+    section(messages.repairServiceHeading, facts),
+    section(messages.repairDatabaseHeading, databaseFacts),
+    section(messages.repairErrorsHeading, errors),
+  ];
+  if (state.candidates.length > 0) {
+    const list = element("ul", { className: "list" });
+    for (const candidate of state.candidates) {
+      // Only a database whose read-only preview said "ok" can be confirmed; one that needs a schema update only through
+      // the button that says so: pressing it is the user's consent.
+      const label = candidate.needsMigration ? messages.repairConfirmMigrate : messages.repairConfirmCandidate;
+      const parts: (Node | string)[] = [
+        element("span", { className: "path", text: candidate.display }),
+        " ",
+        element("span", {
+          className: "hint",
+          // A preview that could not run says why (the runtime is missing, the check timed out, ...).
+          text: candidate.errorCode
+            ? errorMessageFor(messages, candidate.errorCode).title
+            : (messages.databaseStatuses[candidate.status] ?? candidate.status),
+        }),
+        " ",
+      ];
+      if (candidate.canConfirm) {
+        if (candidate.needsMigration)
+          parts.push(element("div", { className: "hint", text: messages.repairMigrationNote }));
+        parts.push(
+          button(label, `candidate:${candidate.id}`, true, () => void confirm(candidate.id, candidate.needsMigration)),
+        );
+      } else {
+        parts.push(element("div", { className: "hint", text: messages.repairCandidateNotUsable }));
+      }
+      list.append(element("li", {}, parts));
+    }
+    blocks.push(section(messages.repairCandidates, list));
+  }
+  blocks.push(section(messages.repairActionsHeading, actions));
+
+  app.replaceChildren(...blocks);
+  app.setAttribute("aria-busy", "false");
+  if (focusedId) app.querySelector<HTMLElement>(`[data-id="${CSS.escape(focusedId)}"]`)?.focus();
+}
+
+function failureText(messages: ShellMessages, errorCode: string | undefined): string {
+  return errorCode ? errorMessageFor(messages, errorCode).title : messages.repairFailedGeneric;
+}
+
+async function guarded(task: (messages: ShellMessages) => Promise<void>): Promise<void> {
+  if (!current || working) return;
+  const messages = shellMessages(current.locale);
+  working = true;
+  say(messages.repairBusy);
+  render(current);
+  try {
+    await task(messages);
+  } catch {
+    say(messages.repairFailedGeneric);
+  } finally {
+    working = false;
+    await refresh();
+  }
+}
+
+/** The answer to a request that did not succeed: a restart in progress is shown as such, never as an error. */
+function failedAnswer(
+  messages: ShellMessages,
+  result: { readonly reason: string; readonly errorCode?: string },
+): string {
+  return result.reason === "busy" ? messages.repairRestarting : failureText(messages, result.errorCode);
+}
+
+async function confirm(candidateId: string, allowMigration: boolean): Promise<void> {
+  await guarded(async (messages) => {
+    const result = await window.workIntelligenceRepair.confirmDatabase(candidateId, allowMigration);
+    say(result.ok ? messages.repairDone : failedAnswer(messages, result));
+  });
+}
+
+async function perform(id: RepairActionId, state: RepairState): Promise<void> {
+  const api = window.workIntelligenceRepair;
+  await guarded(async (messages) => {
+    if (id === "retry-start") {
+      const result = await api.retryStart(state.retryOperationId);
+      say(result.ok ? messages.repairDone : failedAnswer(messages, result));
+    } else if (id === "choose-database") {
+      const result = await api.chooseDatabase();
+      say(result.ok || result.reason === "cancelled" ? "" : messages.repairFailedGeneric);
+    } else if (id === "export-diagnostics") {
+      const result = await api.exportDiagnostics();
+      say(result.ok ? messages.repairDone : result.reason === "cancelled" ? "" : messages.repairFailedGeneric);
+    } else {
+      const target = id === "open-database-folder" ? "database" : id === "open-backups-folder" ? "backups" : "logs";
+      const result = await api.openFolder(target);
+      say(result.ok ? "" : messages.repairFailedGeneric);
+    }
+  });
+}
+
+async function refresh(): Promise<void> {
+  try {
+    current = await window.workIntelligenceRepair.getState();
+    if (!working) render(current);
+  } catch {
+    if (current) say(formatMessage(shellMessages(current.locale).repairFailedGeneric, {}));
+  }
+}
+
+void refresh();
+setInterval(() => void refresh(), REFRESH_MS);

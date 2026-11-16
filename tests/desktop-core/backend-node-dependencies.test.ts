@@ -1,5 +1,7 @@
 import { createServer, type Server } from "node:http";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createNodeBackendDependencies } from "../../packages/desktop-core/src/index.js";
 import { planLaunch } from "../../packages/desktop-core/src/runtime/launch-plan.js";
@@ -26,6 +28,18 @@ afterEach(async () => {
 
 describe("createNodeBackendDependencies", () => {
   const dependencies = createNodeBackendDependencies({ runtimeRoot: "/synthetic/runtime" });
+
+  it("creates the working directory with its parents, and is happy when it already exists", async () => {
+    const root = mkdtempSync(join(tmpdir(), "wi-cwd-"));
+    try {
+      const target = join(root, "a", "b", "backend-cwd");
+      await dependencies.ensureDirectory?.(target);
+      await dependencies.ensureDirectory?.(target);
+      expect(existsSync(target)).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 
   it("plans the serve action of the runtime root with exactly the given environment", async () => {
     const plan = await dependencies.planLaunch(["start", "--desktop-ipc"], { HOME: "/synthetic/home" });

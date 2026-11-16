@@ -221,6 +221,8 @@ export class DesktopChild {
         },
         port: message.port,
         instanceRunId: message.runId,
+        onBackupCompleted: (at) => this.host.send({ type: "backup-completed", at }, () => undefined),
+        onBackupsChanged: () => this.host.send({ type: "backups-changed" }, () => undefined),
       });
       this.api = api;
       const listening = await api.listening;
