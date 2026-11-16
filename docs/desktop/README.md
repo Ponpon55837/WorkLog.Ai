@@ -6,7 +6,7 @@
 |---|---|
 | 文件版本 | R4 |
 | 基準 commit | `d464ea5`（main，Merge PR #361，release 1.6.40） |
-| 目標修補版 | 1.6.41 |
+| 目標修補版 | 1.6.41（T1–T4）、1.6.42（DT-01/02/04/09/10/20/36）；設計基準仍為 `d464ea5` |
 | 前一版 | R3（來源提交 `e46060e`，審查基準 `7723b72`） |
 | 首發平台 | Windows 11 x64 與 macOS 同批發行；Linux 不在 V1。Windows ARM 排除為推論（待確認）；macOS 架構範圍（Apple Silicon、Intel）待確認 |
 
