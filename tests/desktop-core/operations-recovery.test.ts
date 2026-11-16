@@ -3,7 +3,6 @@ import {
   OperationJournal,
   InMemoryOperationJournalStore,
   recover,
-  sameDatabaseIdentity,
   type NewOperationInput,
   type OperationRecord,
   type ServiceOwnerState,
@@ -222,17 +221,22 @@ describe("applyRecovery", () => {
   });
 });
 
-describe("sameDatabaseIdentity", () => {
-  it("compares fileId, falls back to realPath and respects lineage", () => {
-    expect(sameDatabaseIdentity(DB_A, { ...DB_A, realPath: "/moved/work.db" })).toBe(true);
-    expect(sameDatabaseIdentity(DB_A, DB_B)).toBe(false);
-    expect(sameDatabaseIdentity(DB_A, { ...DB_A, fileId: { device: "10", inode: "999" } })).toBe(false);
-    expect(sameDatabaseIdentity(DB_A, { ...DB_A, lineageId: "c".repeat(64) })).toBe(false);
-    expect(sameDatabaseIdentity({ ...DB_A, fileId: null }, DB_A)).toBe(true);
-    expect(
-      sameDatabaseIdentity({ ...DB_A, fileId: null, lineageId: null }, { ...DB_B, fileId: null, lineageId: null }),
-    ).toBe(false);
-    expect(sameDatabaseIdentity(null, DB_A)).toBe(false);
-    expect(sameDatabaseIdentity(DB_A, null)).toBe(false);
+describe("recover identity check", () => {
+  it("treats a lineage appearing on the same file as unchanged but a replaced file as a mismatch", async () => {
+    const record = async (selectedDb: typeof DB_A) => {
+      const journal = new OperationJournal(new InMemoryOperationJournalStore(), makeClock());
+      await journal.begin(newInput({ selectedDb }));
+      await journal.enterPhase("op-1", "PREPARING");
+      return (await journal.get("op-1")) as OperationRecord;
+    };
+    const firstMigration = await recover(await record({ ...DB_A, lineageId: null }), probe());
+    expect(firstMigration.action).not.toBe("repair");
+    const swapped = await recover(
+      await record({ ...DB_A, lineageId: null }),
+      probe({ dbIdentity: { ...DB_B, lineageId: DB_A.lineageId } }),
+    );
+    expect(swapped.action).toBe("repair");
+    const vanished = await recover(await record(DB_A), probe({ dbIdentity: { ...DB_A, lineageId: null } }));
+    expect(vanished.action).toBe("repair");
   });
 });

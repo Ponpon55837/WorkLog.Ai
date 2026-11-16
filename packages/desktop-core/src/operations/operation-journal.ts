@@ -1,6 +1,7 @@
 import {
   createOperationRecord,
   OPERATION_JOURNAL_VERSION,
+  withCancelRequested,
   withCompletedStep,
   withMigrationStarted,
   withPhase,
@@ -102,10 +103,15 @@ export class OperationJournal {
     return this.update(operationId, (record) => withMigrationStarted(record, this.now()));
   }
 
+  /** Persist that a cancel arrived after side effects; the record stays in-progress for startup recovery. */
+  requestCancel(operationId: string): Promise<OperationRecord> {
+    return this.update(operationId, (record) => withCancelRequested(record, this.now()));
+  }
+
   /** Close the operation; terminal records are immutable. */
   finish(
     operationId: string,
-    status: "completed" | "cancelled" | "failed",
+    status: "completed" | "cancelled" | "failed" | "interrupted",
     detail: { result?: JournalJson; error?: string } = {},
   ): Promise<OperationRecord> {
     return this.update(operationId, (record) => withTerminalStatus(record, status, this.now(), detail));
@@ -113,7 +119,10 @@ export class OperationJournal {
 
   /**
    * Persist a recovery decision: migration flag first (so restore edges close), then policy, then the phase.
-   * Decisions that end the operation (restore/repair) also close it so a stale in-progress record cannot linger.
+   * Every decision except `resume` also closes the operation so a stale in-progress record cannot linger:
+   * restore -> `cancelled`, repair -> `failed`, and `none` (real state already consistent, nothing to undo or fix)
+   * -> `interrupted` with `result = { recoveredState, reason }`. `interrupted` rather than `completed` because the
+   * journal cannot prove every step finished; replaying the id returns that stored result and pruning may drop it.
    */
   applyRecovery(operationId: string, decision: RecoveryDecision): Promise<OperationRecord> {
     return this.update(operationId, (record) => {
@@ -124,6 +133,10 @@ export class OperationJournal {
         return withTerminalStatus(next, "cancelled", this.now(), { error: decision.reason });
       if (decision.action === "repair")
         return withTerminalStatus(next, "failed", this.now(), { error: decision.reason });
+      if (decision.action === "none") {
+        const recovered = { recoveredState: decision.nextState, reason: decision.reason };
+        return withTerminalStatus(next, "interrupted", this.now(), { result: recovered });
+      }
       return next;
     });
   }

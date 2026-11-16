@@ -43,7 +43,13 @@ export const operationRecordSchema = z.strictObject({
   recoveryPolicy: z.enum(["restore-previous", "repair-only"]),
   /** DB schema version observed when the operation began; later probes compare against it. */
   schemaVersionAtStart: z.number().int().nonnegative().nullable(),
-  status: z.enum(["in-progress", "completed", "cancelled", "failed"]),
+  /**
+   * `interrupted`: recovery found the real state consistent and closed the operation without finishing its steps.
+   * `in-progress` + `cancelRequested`: a cancel arrived after side effects, so only recovery may close it.
+   */
+  status: z.enum(["in-progress", "completed", "cancelled", "failed", "interrupted"]),
+  /** Persisted cancel request; defaults to false so journals written before this field still load (version 1). */
+  cancelRequested: z.boolean().default(false),
   completedSteps: z.array(z.string()),
   stepResults: z.record(z.string(), jsonSchema),
   result: jsonSchema.nullable(),
@@ -92,6 +98,7 @@ export function createOperationRecord(input: NewOperationInput, now: string): Op
     recoveryPolicy: migrationStarted ? "repair-only" : "restore-previous",
     schemaVersionAtStart: input.schemaVersionAtStart ?? null,
     status: "in-progress",
+    cancelRequested: false,
     completedSteps: [],
     stepResults: {},
     result: null,
@@ -139,10 +146,21 @@ export function withCompletedStep(
   };
 }
 
+/** Persist a cancel request on a still-open operation; recovery, not the coordinator, then decides restore vs repair. */
+export function withCancelRequested(record: OperationRecord, now: string): OperationRecord {
+  if (record.status !== "in-progress" || record.cancelRequested) return record;
+  return { ...record, cancelRequested: true, updatedAt: now };
+}
+
+/** True while no phase change, migration or finished step could have had a side effect (safe to just cancel). */
+export function isPristine(record: OperationRecord): boolean {
+  return record.phase === record.previousOwner && !record.migrationStarted && record.completedSteps.length === 0;
+}
+
 /** Close an operation; terminal records never change again. */
 export function withTerminalStatus(
   record: OperationRecord,
-  status: "completed" | "cancelled" | "failed",
+  status: "completed" | "cancelled" | "failed" | "interrupted",
   now: string,
   detail: { readonly result?: JournalJson; readonly error?: string } = {},
 ): OperationRecord {

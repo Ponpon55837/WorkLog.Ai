@@ -255,11 +255,61 @@ describe("OperationCoordinator", () => {
     await flush();
     expect(coordinator.cancel("op-1")).toEqual({ accepted: true });
     hold.open();
-    expect(await running).toEqual({ status: "cancelled" });
+    // Phase PREPARING was already entered, so the cancel must not finalize: recovery decides.
+    expect(await running).toEqual({ status: "cancelled", recoveryRequired: true });
     expect(sawAbort).toBe(true);
     expect(secondRan).toBe(false);
-    expect((await journal.get("op-1"))?.status).toBe("cancelled");
-    expect(await coordinator.run(newInput(), [])).toEqual({ status: "cancelled" });
+    expect(await journal.get("op-1")).toMatchObject({ status: "in-progress", cancelRequested: true });
+    // A resubmitted id must not silently resume steps.
+    expect(await coordinator.run(newInput(), [step("b", async () => (secondRan = true) as never)])).toEqual({
+      status: "cancelled",
+      recoveryRequired: true,
+    });
+    expect(secondRan).toBe(false);
+    expect(await journal.findInProgress()).toMatchObject({ operationId: "op-1", cancelRequested: true });
+  });
+
+  it("finalizes a cancel as cancelled when no phase changed and no step completed", async () => {
+    const { coordinator, journal } = setup();
+    const running = coordinator.run(newInput(), [
+      step(
+        "a",
+        (ctx) => new Promise<void>((_, reject) => ctx.signal.addEventListener("abort", () => reject(new Error("x")))),
+      ),
+    ]);
+    await flush();
+    coordinator.cancel("op-1");
+    expect(await running).toEqual({ status: "cancelled" });
+    expect(await journal.get("op-1")).toMatchObject({ status: "cancelled", cancelRequested: false });
+  });
+
+  it("keeps a cancel in-progress when an earlier step already completed", async () => {
+    const { coordinator, journal } = setup();
+    const hold = gate();
+    const running = coordinator.run(newInput(), [step("a", () => hold.promise), step("b", async () => "B")]);
+    await flush();
+    coordinator.cancel("op-1");
+    hold.open();
+    expect(await running).toEqual({ status: "cancelled", recoveryRequired: true });
+    expect(await journal.get("op-1")).toMatchObject({ status: "in-progress", cancelRequested: true });
+  });
+
+  it("returns the stored result of an operation closed by recovery", async () => {
+    const { coordinator, journal } = setup();
+    await journal.begin(newInput());
+    await journal.applyRecovery("op-1", {
+      nextState: "EXTERNAL",
+      action: "none",
+      recoveryPolicy: "restore-previous",
+      migrationStarted: false,
+      restore: null,
+      reason: "consistent",
+    });
+    expect(await coordinator.run(newInput(), [])).toEqual({
+      status: "interrupted",
+      recoveredState: "EXTERNAL",
+      reason: "consistent",
+    });
   });
 
   it("treats a step that throws after an accepted cancel as cancelled", async () => {
@@ -308,14 +358,22 @@ describe("OperationCoordinator", () => {
     expect(coordinator.cancel("op-1")).toEqual({ accepted: false, reason: "unknown-operation" });
   });
 
-  it("a cancel accepted during the last step still cancels before completion", async () => {
+  it("a cancel accepted during the last step is ignored once it completes", async () => {
     const { coordinator } = setup();
     const hold = gate();
     const running = coordinator.run(newInput(), [step("a", () => hold.promise)]);
     await flush();
     coordinator.cancel("op-1");
     hold.open();
-    expect(await running).toEqual({ status: "cancelled" });
+    // Every step finished: a late cancel has nothing left to stop and is ignored.
+    expect(await running).toEqual({ status: "completed", result: null });
+  });
+
+  it("refuses a cancel once every step has completed", async () => {
+    const { coordinator } = setup();
+    const running = coordinator.run(newInput(), [step("a", async () => "A")]);
+    expect(await running).toEqual({ status: "completed", result: "A" });
+    expect(coordinator.cancel("op-1")).toEqual({ accepted: false, reason: "unknown-operation" });
   });
 
   it("a failed step that moved the owner ends in NEEDS_REPAIR and the failure is stored", async () => {

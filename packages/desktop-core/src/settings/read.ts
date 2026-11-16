@@ -37,6 +37,13 @@ type FileState =
   | { readonly state: "missing" }
   | { readonly state: "failed"; readonly reason: SettingsRepairReason; readonly detail: string };
 
+/** Primary failures that mean "damaged" and may fall back to the recovery copy. */
+const RECOVERABLE_REASONS: ReadonlySet<SettingsRepairReason> = new Set([
+  "invalid-json",
+  "invalid-schema",
+  "unreadable",
+]);
+
 const NODE_READ_DEPS: SettingsReadDeps = { readFile: (filePath) => fs.readFile(filePath, "utf8") };
 
 function describeError(error: unknown): string {
@@ -93,7 +100,9 @@ async function resolveNothingFound(deps: SettingsReadDeps): Promise<DesktopSetti
 /**
  * Read the settings file fail-closed. `new-install` is returned only when both the primary and the
  * recovery copy are absent and no other sources exist; anything corrupt, denied or unknown is
- * `needs-repair`. A valid recovery copy is returned (flagged) when the primary is damaged. This
+ * `needs-repair`. A valid recovery copy is returned (flagged) only when the primary is missing or DAMAGED
+ * (invalid JSON/schema, unreadable); an `unsupported-version` or `denied` primary is never replaced by the older
+ * recovery copy. This
  * function never writes, renames or deletes anything.
  */
 export async function readDesktopSettings(
@@ -104,8 +113,12 @@ export async function readDesktopSettings(
   if (primary.state === "ok")
     return { kind: "ok", settings: primary.settings, source: "primary", primaryDamaged: false };
 
-  const recovery = await inspectFile(deps, recoveryPathFor(filePath));
   const primaryReason = stateLabel(primary);
+  if (primary.state === "failed" && !RECOVERABLE_REASONS.has(primary.reason)) {
+    // A newer app's file or a permission problem is NOT damage: the recovery copy is older and would hide it.
+    return { kind: "needs-repair", reason: primary.reason, detail: primary.detail, primaryReason };
+  }
+  const recovery = await inspectFile(deps, recoveryPathFor(filePath));
   if (recovery.state === "ok") {
     return { kind: "ok", settings: recovery.settings, source: "recovery", primaryDamaged: true, primaryReason };
   }

@@ -219,6 +219,32 @@ describe("writeDesktopSettingsAtomic + readDesktopSettings", () => {
     expect(JSON.parse(await fs.readFile(file, "utf8")).desired.port).toBe(3999);
   });
 
+  it("refuses to overwrite settings written by a newer version", async () => {
+    const future = `${JSON.stringify({ ...makeSettings(), configVersion: 2, newField: true })}\n`;
+    await fs.writeFile(file, future);
+    await expect(writeDesktopSettingsAtomic(file, makeSettings(), deps())).rejects.toMatchObject({
+      step: "refuse-downgrade",
+      committed: false,
+    });
+    expect(await fs.readFile(file, "utf8")).toBe(future);
+    expect(await fs.readdir(dir)).toEqual(["settings.json"]);
+  });
+
+  it("still overwrites a damaged primary", async () => {
+    await fs.writeFile(file, "{ broken");
+    await writeDesktopSettingsAtomic(file, makeSettings(), deps());
+    expect((await readDesktopSettings(file)).kind).toBe("ok");
+  });
+
+  it("skips the directory fsync on win32 and ENOTSUP", async () => {
+    expect((await writeDesktopSettingsAtomic(file, makeSettings(), deps({ platform: "win32" }))).directorySynced).toBe(
+      false,
+    );
+    expect(
+      (await writeDesktopSettingsAtomic(file, makeSettings(), failing("dir-open", "ENOTSUP"))).directorySynced,
+    ).toBe(false);
+  });
+
   it("fails if the temp file cannot be created", async () => {
     const d = deps({
       openExclusive: async () => {
@@ -348,6 +374,36 @@ describe("readDesktopSettings fail-closed", () => {
     expect(await readDesktopSettings(file)).toMatchObject({ kind: "needs-repair", reason: "invalid-schema" });
     await fs.writeFile(file, JSON.stringify({ ...makeSettings(), configVersion: 2 }));
     expect(await readDesktopSettings(file)).toMatchObject({ kind: "needs-repair", reason: "unsupported-version" });
+  });
+
+  it("never falls back to the recovery copy for an unsupported-version or denied primary", async () => {
+    await fs.writeFile(recoveryPathFor(file), JSON.stringify(makeSettings()));
+    await fs.writeFile(file, JSON.stringify({ ...makeSettings(), configVersion: 2 }));
+    expect(await readDesktopSettings(file)).toMatchObject({
+      kind: "needs-repair",
+      reason: "unsupported-version",
+      primaryReason: "unsupported-version",
+    });
+    const denied = async (p: string): Promise<string> => {
+      if (p === file) throw Object.assign(new Error("denied"), { code: "EACCES" });
+      return JSON.stringify(makeSettings());
+    };
+    expect(await readDesktopSettings(file, { readFile: denied })).toMatchObject({
+      kind: "needs-repair",
+      reason: "denied",
+    });
+  });
+
+  it("still falls back to a valid recovery copy for an unreadable primary", async () => {
+    const eio = async (p: string): Promise<string> => {
+      if (p === file) throw Object.assign(new Error("io"), { code: "EIO" });
+      return JSON.stringify(makeSettings());
+    };
+    expect(await readDesktopSettings(file, { readFile: eio })).toMatchObject({
+      kind: "ok",
+      source: "recovery",
+      primaryReason: "unreadable",
+    });
   });
 
   it("primary missing but recovery corrupt needs repair with recovery reason", async () => {

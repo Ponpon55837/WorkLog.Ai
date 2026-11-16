@@ -190,6 +190,29 @@ describe("collectDbCandidates", () => {
 });
 
 describe("resolveDbSource", () => {
+  it("caps in-flight probes at the concurrency option and rejects a non-positive cap", async () => {
+    const root = tempDir();
+    let inFlight = 0;
+    let peak = 0;
+    const probe = async (): Promise<{ status: "missing" }> => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setImmediate(resolve));
+      inFlight -= 1;
+      return { status: "missing" };
+    };
+    const candidates = ["a", "b", "c", "d", "e"].map((name) =>
+      candidate("explicit-selection", join(root, `${name}.sqlite`)),
+    );
+    const capped = await resolveDbSource({ candidates, probe, concurrency: 2 });
+    expect(capped.candidates).toHaveLength(5);
+    expect(peak).toBe(2);
+    peak = 0;
+    await resolveDbSource({ candidates, probe });
+    expect(peak).toBe(5);
+    await expect(resolveDbSource({ candidates, probe, concurrency: 0 })).rejects.toThrow(RangeError);
+  });
+
   it("uses a legacy checkout database when it is the only one", async () => {
     const root = tempDir();
     mkdirSync(join(root, "repo", "data"), { recursive: true });

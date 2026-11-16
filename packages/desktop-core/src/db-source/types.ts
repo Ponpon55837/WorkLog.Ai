@@ -32,7 +32,15 @@ export interface DbProbeResult {
   detail?: string;
 }
 
-/** Injected so the resolver is pure; the real probe opens the file read-only and never writes. */
+/**
+ * Injected so the resolver is pure; the real probe opens the file read-only and never writes.
+ *
+ * Concurrency contract (C-05/C-06): `resolveDbSource` starts probes together (bounded by its `concurrency`
+ * option), which only overlaps work when a probe is truly asynchronous. A probe built on synchronous SQLite
+ * (`node:sqlite` `DatabaseSync`) blocks the thread it runs on for the whole query and gains nothing from
+ * `Promise.all`, so the desktop host MUST run such a probe off the Electron main/UI thread (worker thread or child
+ * process) and expose it here as an async function; otherwise a slow or offline volume freezes the UI.
+ */
 export type DbProbe = (absolutePath: string) => Promise<DbProbeResult>;
 
 export interface DbCandidate {

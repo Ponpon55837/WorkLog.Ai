@@ -100,6 +100,46 @@ describe("OperationJournal", () => {
     expect(done.migrationStarted).toBe(true);
   });
 
+  it("closes a recovery decision of action none as interrupted with the recovered state", async () => {
+    const store = new InMemoryOperationJournalStore();
+    const journal = memoryJournal(store, 1);
+    await journal.begin(newInput());
+    const closed = await journal.applyRecovery("op-1", {
+      nextState: "EXTERNAL",
+      action: "none",
+      recoveryPolicy: "restore-previous",
+      migrationStarted: false,
+      restore: null,
+      reason: "state is consistent",
+    });
+    expect(closed).toMatchObject({
+      status: "interrupted",
+      result: { recoveredState: "EXTERNAL", reason: "state is consistent" },
+    });
+    expect(await journal.findInProgress()).toBeNull();
+    // Terminal, so pruning may drop it once newer terminal records exist.
+    await journal.begin(newInput({ operationId: "op-2" }));
+    await journal.finish("op-2", "completed");
+    await journal.begin(newInput({ operationId: "op-3" }));
+    await journal.finish("op-3", "completed");
+    expect((await store.load())?.records.map((r) => r.operationId)).toEqual(["op-3"]);
+  });
+
+  it("persists a cancel request only on in-progress records and loads old journals without the field", async () => {
+    const store = new InMemoryOperationJournalStore();
+    const journal = memoryJournal(store);
+    await journal.begin(newInput());
+    expect((await journal.requestCancel("op-1")).cancelRequested).toBe(true);
+    await journal.finish("op-1", "failed", { error: "x" });
+    await journal.begin(newInput({ operationId: "op-2" }));
+    await journal.finish("op-2", "completed");
+    expect((await journal.requestCancel("op-2")).cancelRequested).toBe(false);
+    const file = JSON.parse(JSON.stringify(await store.load())) as { records: Record<string, unknown>[] };
+    for (const record of file.records) delete record.cancelRequested;
+    await store.save(file as never);
+    expect((await memoryJournal(store).get("op-1"))?.cancelRequested).toBe(false);
+  });
+
   it("terminal records are immutable", async () => {
     const journal = memoryJournal();
     await journal.begin(newInput());

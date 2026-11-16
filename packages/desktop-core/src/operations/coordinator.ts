@@ -1,4 +1,10 @@
-import type { JournalJson, NewOperationInput, OperationKind, OperationRecord } from "./journal-record.js";
+import {
+  isPristine,
+  type JournalJson,
+  type NewOperationInput,
+  type OperationKind,
+  type OperationRecord,
+} from "./journal-record.js";
 import type { OperationJournal } from "./operation-journal.js";
 import type { ServiceOwnerState } from "./service-owner-state.js";
 
@@ -37,7 +43,12 @@ export interface BusyOperationInfo {
 export type OperationRunResult =
   | { readonly status: "completed"; readonly result: JournalJson }
   | { readonly status: "busy"; readonly current: BusyOperationInfo }
-  | { readonly status: "cancelled" }
+  /**
+   * `recoveryRequired`: the cancel came after side effects (or the id was resubmitted after such a cancel), so the
+   * record stays in-progress with `cancelRequested` and startup recovery must decide restore vs repair.
+   */
+  | { readonly status: "cancelled"; readonly recoveryRequired?: true }
+  | { readonly status: "interrupted"; readonly recoveredState: ServiceOwnerState; readonly reason: string }
   | { readonly status: "failed"; readonly error: string };
 
 export type CancelResult =
@@ -62,6 +73,16 @@ function storedResult(record: OperationRecord): OperationRunResult | null {
   if (record.status === "completed") return { status: "completed", result: record.result };
   if (record.status === "cancelled") return { status: "cancelled" };
   if (record.status === "failed") return { status: "failed", error: record.error ?? "operation failed" };
+  if (record.status === "interrupted") {
+    const recovered = record.result as { recoveredState?: ServiceOwnerState; reason?: string } | null;
+    return {
+      status: "interrupted",
+      recoveredState: recovered?.recoveredState ?? record.phase,
+      reason: recovered?.reason ?? "recovered",
+    };
+  }
+  // A persisted cancel after side effects must never silently resume steps: only recovery may close it.
+  if (record.cancelRequested) return { status: "cancelled", recoveryRequired: true };
   return null;
 }
 
@@ -73,7 +94,9 @@ function storedResult(record: OperationRecord): OperationRunResult | null {
  * stored terminal result (also after a restart, because results come from the journal). An id that is still
  * `in-progress` in the journal but not running (crash) is resumed: steps already journaled are skipped.
  * Cancellation takes effect only at step boundaries and only when the running step is cancellable; the coordinator
- * does not roll back side effects, `recover(probe)` decides that from real state.
+ * does not roll back side effects, `recover(probe)` decides that from real state. A cancel before any phase change
+ * or finished step closes the record as `cancelled`; later it persists `cancelRequested`, leaves the record
+ * in-progress and returns `recoveryRequired` (also for a resubmitted id). A cancel after the last step is ignored.
  */
 export class OperationCoordinator {
   private readonly journal: OperationJournal;
@@ -187,12 +210,18 @@ export class OperationCoordinator {
       }
       await this.journal.completeStep(operationId, step.name, last);
     }
-    if (run.cancelRequested) return this.cancelled(operationId);
+    // Every step is done: a late cancel has nothing left to stop, so it is refused from here on and ignored.
+    run.cancellable = false;
     await this.journal.finish(operationId, "completed", { result: last });
     return { status: "completed", result: last };
   }
 
   private async cancelled(operationId: string): Promise<OperationRunResult> {
+    const record = await this.journal.get(operationId);
+    if (record && !isPristine(record)) {
+      await this.journal.requestCancel(operationId);
+      return { status: "cancelled", recoveryRequired: true };
+    }
     await this.journal.finish(operationId, "cancelled");
     return { status: "cancelled" };
   }

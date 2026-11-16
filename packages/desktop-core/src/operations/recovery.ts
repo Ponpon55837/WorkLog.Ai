@@ -1,3 +1,4 @@
+import { compareDatabaseIdentity } from "../db-source/identity-compare.js";
 import type { DatabaseIdentityRecord } from "../db-source/identity-schema.js";
 import type { OperationRecord, RecoveryPolicy } from "./journal-record.js";
 import type { ServiceOwnerState } from "./service-owner-state.js";
@@ -37,13 +38,9 @@ export interface RecoveryDecision {
   readonly reason: string;
 }
 
-/** Compare two DB identities: same fileId when both known, else same realPath; lineage must agree when both known. */
-export function sameDatabaseIdentity(a: DatabaseIdentityRecord | null, b: DatabaseIdentityRecord | null): boolean {
-  if (a === null || b === null) return false;
-  if (a.lineageId !== null && b.lineageId !== null && a.lineageId !== b.lineageId) return false;
-  if (a.fileId !== null && b.fileId !== null)
-    return a.fileId.device === b.fileId.device && a.fileId.inode === b.fileId.inode;
-  return a.realPath === b.realPath;
+/** Both identities must exist and satisfy the shared {@link compareDatabaseIdentity} rule. */
+function isSameDatabase(expected: DatabaseIdentityRecord | null, actual: DatabaseIdentityRecord | null): boolean {
+  return expected !== null && actual !== null && compareDatabaseIdentity(expected, actual).same;
 }
 
 function repair(record: OperationRecord, migrationStarted: boolean, reason: string): RecoveryDecision {
@@ -191,7 +188,7 @@ export async function recover(record: OperationRecord, probe: StateProbe): Promi
     report.dbSchemaVersion > record.schemaVersionAtStart;
   const migration = record.migrationStarted || report.migrationEvidence || advanced;
   const touchesDb = record.phase !== "UNCONFIGURED" && record.phase !== "EXTERNAL" && record.phase !== "NEEDS_REPAIR";
-  if (touchesDb && record.selectedDb !== null && !sameDatabaseIdentity(record.selectedDb, report.dbIdentity)) {
+  if (touchesDb && record.selectedDb !== null && !isSameDatabase(record.selectedDb, report.dbIdentity)) {
     return repair(record, migration, "database identity differs from the selected database or is unknown");
   }
   if (migration) {
