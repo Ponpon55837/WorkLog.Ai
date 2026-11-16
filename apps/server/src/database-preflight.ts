@@ -292,3 +292,25 @@ export function revalidateBeforeCommit(path: string, expected: DatabaseIdentity)
   }
   return { ok: true, identity: { realPath: actual.realPath, fileId: actual.fileId, lineageId } };
 }
+
+/**
+ * Re-reads the identity of an already opened database (read-only), for the identity a start reports after the store has
+ * opened and possibly migrated it: the lineage of an empty file only exists from then on. `undefined` when it cannot be read.
+ */
+export function readOpenedIdentity(path: string): DatabaseIdentity | undefined {
+  const located = readFileIdentity(path);
+  if (!located.ok) return undefined;
+  let database: ReadOnlySqliteDatabase | undefined;
+  try {
+    database = openReadOnly(located.identity.realPath);
+    return { realPath: located.identity.realPath, fileId: located.identity.fileId, lineageId: readLineageId(database) };
+  } catch {
+    return undefined;
+  } finally {
+    try {
+      database?.close();
+    } catch {
+      // The identity was already read; a close failure changes nothing.
+    }
+  }
+}

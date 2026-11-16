@@ -34,6 +34,14 @@
     "./sqlite-version": {
       "types": "./dist/sqlite-version.d.ts",
       "import": "./dist/sqlite-version.js"
+    },
+    "./instance-proof": {
+      "types": "./dist/instance-proof.d.ts",
+      "import": "./dist/instance-proof.js"
+    },
+    "./loopback-port": {
+      "types": "./dist/loopback-port.d.ts",
+      "import": "./dist/loopback-port.js"
     }
   },
   "scripts": {

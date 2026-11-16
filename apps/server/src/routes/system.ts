@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { DatabaseBackup, ProjectDataExportScope, SystemStatus } from "@work-intelligence/core";
 import { APP_VERSION } from "@work-intelligence/shared/app-version";
+import { INSTANCE_PROOF_HEADER } from "@work-intelligence/shared/instance-proof";
 import {
   databaseBackupFileNameSchema,
   deleteDatabaseBackupBodySchema,
@@ -186,13 +187,15 @@ export const systemRoutes: Route[] = [
   {
     method: "GET",
     pattern: "/api/health",
-    handler: ({ store, response }) => {
+    handler: ({ store, request, response, services }) => {
       let databaseHealthy = true;
       try {
         store.listProjects();
       } catch {
         databaseHealthy = false;
       }
+      const proof = services.instanceProof(request);
+      if (proof) response.setHeader(INSTANCE_PROOF_HEADER, proof);
       sendJson(response, databaseHealthy ? 200 : 503, {
         ok: databaseHealthy,
         app: "Work Intelligence",

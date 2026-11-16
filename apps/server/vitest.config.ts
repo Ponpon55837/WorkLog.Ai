@@ -21,6 +21,12 @@ export const serverAliases = {
   "@work-intelligence/shared/sqlite-version": fileURLToPath(
     new URL("../../packages/shared/src/sqlite-version.ts", import.meta.url),
   ),
+  "@work-intelligence/shared/instance-proof": fileURLToPath(
+    new URL("../../packages/shared/src/instance-proof.ts", import.meta.url),
+  ),
+  "@work-intelligence/shared/loopback-port": fileURLToPath(
+    new URL("../../packages/shared/src/loopback-port.ts", import.meta.url),
+  ),
   "@work-intelligence/core": fileURLToPath(new URL("../../packages/core/src/index.ts", import.meta.url)),
   "@work-intelligence/schema": fileURLToPath(new URL("../../packages/schema/src/index.ts", import.meta.url)),
   "@work-intelligence/shared": fileURLToPath(new URL("../../packages/shared/src/index.ts", import.meta.url)),

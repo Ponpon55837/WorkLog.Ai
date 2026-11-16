@@ -7,6 +7,7 @@ export type StandaloneCommand =
   | { kind: "help" }
   | { kind: "version" }
   | { kind: "start" }
+  | { kind: "start-desktop" }
   | { kind: "mcp" }
   | { kind: "check" }
   | { kind: "track"; args: readonly string[] }
@@ -23,6 +24,8 @@ export interface StandaloneRuntime {
   error: (message: string) => void;
   /** Starts the API and Web UI; resolves once started, the server keeps the process alive. */
   start: () => Promise<void>;
+  /** Runs the desktop App's backend child (`start --desktop-ipc`); resolves with its exit code (0 once it is listening for the parent). */
+  startDesktop: () => Promise<number>;
   /** Starts the MCP server on stdio; resolves once started, stdin keeps the process alive. */
   mcp: () => Promise<void>;
   /** Runs the read-only diagnosis and returns the exit code. */
@@ -38,6 +41,8 @@ const HELP_FLAGS = new Set(["-h", "--help"]);
 const VERSION_FLAGS = new Set(["-v", "--version", "version"]);
 /** Commands that take no arguments. */
 const SIMPLE_COMMANDS = ["start", "mcp", "check"] as const;
+/** Internal switch for the desktop App's runtime launcher; not a user feature, so `--help` does not list it. */
+const DESKTOP_IPC_FLAG = "--desktop-ipc";
 
 const defaultRuntime: StandaloneRuntime = {
   log: (message) => console.log(message),
@@ -52,6 +57,7 @@ const defaultRuntime: StandaloneRuntime = {
     const { startApi } = await import("./start-api.js");
     startApi();
   },
+  startDesktop: async () => (await import("./desktop-child.js")).runDesktopChild(),
   // The MCP bundle is a sibling of this one (<libexec>/apps/mcp/dist/index.js); importing it starts the server.
   mcp: async () => {
     await import(new URL("../../mcp/dist/index.js", import.meta.url).href);
@@ -92,6 +98,7 @@ export function parseStandaloneArgs(argv: readonly string[]): StandaloneCommand 
     // `db` with no subcommand prints the database usage; so does `db --help`.
     return { kind: "db", args: rest[0] !== undefined && HELP_FLAGS.has(rest[0]) ? [] : rest };
   }
+  if (first === "start" && rest.length === 1 && rest[0] === DESKTOP_IPC_FLAG) return { kind: "start-desktop" };
   const simple = SIMPLE_COMMANDS.find((command) => command === first);
   if (simple) {
     if (rest.length === 1 && rest[0] !== undefined && HELP_FLAGS.has(rest[0])) return { kind: "help" };
@@ -132,6 +139,8 @@ export async function runStandaloneCli(
       case "start":
         await runtime.start();
         return 0;
+      case "start-desktop":
+        return await runtime.startDesktop();
       case "mcp":
         await runtime.mcp();
         return 0;

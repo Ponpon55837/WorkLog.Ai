@@ -171,6 +171,8 @@ describe("graceful API shutdown", () => {
         expect(closeDatabase).not.toHaveBeenCalled();
         releaseBackgroundWork();
         await databaseCloseComplete;
+        // The returned promise settles only after the database closed, and every caller shares the same run.
+        await shutdown();
         expect(closeDatabase).toHaveBeenCalledTimes(1);
         expect(databaseClosed).toBe(true);
         expect(onBackgroundWorkCloseError).not.toHaveBeenCalled();
@@ -208,4 +210,118 @@ describe("graceful API shutdown", () => {
       }
     },
   );
+});
+
+describe("awaitable graceful shutdown", () => {
+  it("resolves after the database closed and runs the steps once for repeated callers", async () => {
+    const order: string[] = [];
+    const server = createServer();
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const shutdown = registerGracefulShutdown(
+      {
+        server,
+        stopBackgroundWork: () => order.push("stop"),
+        closeEventStreams: () => order.push("streams"),
+        closeBackgroundWork: async () => {
+          order.push("background");
+        },
+        closeDatabase: () => order.push("database"),
+        onBackgroundWorkCloseError: () => undefined,
+        onDatabaseCloseError: () => undefined,
+      },
+      new EventEmitter() as ShutdownSignalSource,
+    );
+
+    await Promise.all([shutdown(), shutdown()]);
+    await shutdown();
+
+    expect(order).toEqual(["stop", "streams", "background", "database"]);
+  });
+});
+
+describe("shutdown steps that throw", () => {
+  async function register(overrides: Partial<Parameters<typeof registerGracefulShutdown>[0]> = {}) {
+    const order: string[] = [];
+    const server = createServer();
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const signals = new EventEmitter();
+    const stepErrors: string[] = [];
+    const shutdown = registerGracefulShutdown(
+      {
+        server,
+        stopBackgroundWork: () => order.push("stop"),
+        closeEventStreams: () => order.push("streams"),
+        closeBackgroundWork: async () => {
+          order.push("background");
+        },
+        closeDatabase: () => order.push("database"),
+        onBackgroundWorkCloseError: () => undefined,
+        onDatabaseCloseError: () => undefined,
+        onStepError: (step) => stepErrors.push(step),
+        ...overrides,
+      },
+      signals as ShutdownSignalSource,
+    );
+    return { order, server, signals, shutdown, stepErrors };
+  }
+
+  it("still closes the server and the database when stopBackgroundWork throws", async () => {
+    const { order, server, shutdown, stepErrors } = await register({
+      stopBackgroundWork: () => {
+        throw new Error("timer broke");
+      },
+    });
+
+    await expect(shutdown()).resolves.toBeUndefined();
+
+    expect(stepErrors).toEqual(["stopBackgroundWork"]);
+    expect(order).toEqual(["streams", "background", "database"]);
+    expect(server.listening).toBe(false);
+  });
+
+  it("still closes the server and the database when closeEventStreams throws", async () => {
+    const { order, server, shutdown, stepErrors } = await register({
+      closeEventStreams: () => {
+        throw new Error("stream broke");
+      },
+    });
+
+    await expect(shutdown()).resolves.toBeUndefined();
+
+    expect(stepErrors).toEqual(["closeEventStreams"]);
+    expect(order).toEqual(["stop", "background", "database"]);
+    expect(server.listening).toBe(false);
+  });
+
+  it("continues when both throw and when server.close itself throws, and resolves every caller", async () => {
+    const throwing = (): never => {
+      throw new Error("broke");
+    };
+    const { order, server, shutdown, stepErrors } = await register({
+      stopBackgroundWork: throwing,
+      closeEventStreams: throwing,
+    });
+    server.close = throwing;
+
+    await Promise.all([shutdown(), shutdown()]);
+
+    expect(stepErrors).toEqual(["stopBackgroundWork", "closeEventStreams", "closeServer"]);
+    expect(order).toEqual(["background", "database"]);
+  });
+
+  it("produces no unhandled rejection from a signal even when every step throws", async () => {
+    const throwing = (): never => {
+      throw new Error("broke");
+    };
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    const { order, signals } = await register({ stopBackgroundWork: throwing, closeEventStreams: throwing });
+
+    signals.emit("SIGTERM");
+    await vi.waitFor(() => expect(order).toContain("database"));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    process.off("unhandledRejection", unhandled);
+
+    expect(unhandled).not.toHaveBeenCalled();
+  });
 });

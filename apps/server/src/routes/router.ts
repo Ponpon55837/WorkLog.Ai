@@ -51,6 +51,8 @@ export interface RouteServices {
   agentConnections(): SystemAgentConnections;
   userServiceStatus(): UserServiceStatus | Promise<UserServiceStatus>;
   backgroundStore: BackgroundStoreOperations;
+  /** The health instance proof for this request's challenge header, or undefined when none applies. */
+  instanceProof(request: IncomingMessage): string | undefined;
 }
 
 export interface RouteContext {

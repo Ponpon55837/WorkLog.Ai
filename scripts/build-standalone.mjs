@@ -27,7 +27,11 @@ import { build } from "esbuild";
 import { AGENT_RESOURCES, bundleOptions, filesUnder } from "./build-plugin.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-/** The server bundle's entry points. backup-worker is started by file name next to the bundle (see BackupWorkerClient). */
+/**
+ * The server bundle's entry points. backup-worker is started by file name next to the bundle (see BackupWorkerClient).
+ * The desktop child is not an entry: standalone-cli reaches it through a dynamic import, which esbuild (no splitting)
+ * inlines into standalone-cli.js, so a separate entry would only duplicate the whole bundle.
+ */
 const SERVER_ENTRIES = ["standalone-cli", "backup-worker"];
 const MCP_ENTRIES = ["index", "finalize-reminder", "codex-finalize-reminder"];
 /** 2000-01-01T00:00:00Z: every tar entry gets this date so the same input gives the same bytes. */

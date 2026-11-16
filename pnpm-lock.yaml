@@ -135,6 +135,9 @@ importers:
 
   packages/desktop-core:
     dependencies:
+      '@work-intelligence/schema':
+        specifier: workspace:*
+        version: link:../schema
       '@work-intelligence/shared':
         specifier: workspace:*
         version: link:../shared
