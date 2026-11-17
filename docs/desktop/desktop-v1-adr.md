@@ -213,6 +213,7 @@
 - **脈絡**：寫入設定檔不代表宿主已載入 MCP；R28 的風險是陳舊的 skill 或 schema 被顯示為就緒。
 - **決策**：狀態分為「已觀察到連線」「已配置、待確認」「需要信任或授權」「外部管理」「設定衝突」「runtime 不相容」。只有 host handshake 或明確檢測才可顯示「已觀察到連線」。
 - **後果**：UI 會較保守；需要實機握手測試。
+- **1.6.47 的實作**：`packages/desktop-core/src/agents` 的 MCP stdio 握手探測（initialize、notifications/initialized、tools/list，含分頁、逾時與程序樹終止）與 `classifyAgentStatus`，結果分為設定寫入、自我測試、host 觀察（current、stale、none）與信任提醒三層。`apps/mcp` 在程序內第一次收到 host 的 `initialize` 時記錄觀察（`agent-observations.json`，fail-open）；契約指紋相同的觀察才顯示「已觀察到連線」，指紋不同顯示需要重新連線。Host clientInfo：Claude Code 與 Codex 依文件與實驗確認；`claude-ai`（Claude Desktop）未驗證。真實 host 的握手待實機驗收。
 - **關聯**：§3.2.1；DT-22；R28。
 
 ---
@@ -258,6 +259,7 @@
 - **脈絡**：既有 plugin 的 dashboard script 會啟動 checkout server；接管後會與桌面服務競爭 port `[R]`。
 - **決策**：受支援的 script 與 skill 從使用者層管理設定找到桌面 App 與已生效的 port，把開頁要求交給 App。遷移預覽須指出仍會自行啟動 server 的舊 plugin，並提供更新方式。
 - **後果**：舊 plugin 在更新前可能仍重複啟動服務；需在預覽中提示。
+- **1.6.47 的實作**：`scripts/dashboard.mjs`（`launch.mjs dashboard`）在沒有 server 回應該 port、且紀錄有效時，以 `--open-dashboard` 分離啟動 App 後結束（exit 0），不啟動 checkout server。App 在後端就緒後開啟一次 Dashboard；第二個實例透過單例鎖的附加資料轉交請求；STARTING、QUIESCING、PREPARING 期間的請求延後並合併為一次開啟。換 port 與 App 離線的實機情境待實機驗收。
 - **關聯**：§3.2、§6.2；DT-27；R19。
 
 ---
@@ -270,6 +272,7 @@
 - **脈絡**：JSON、TOML、skill、hook 與 host CLI 橫跨多檔，無法保證同時成功（R17）。`agent-setup.ts` 已有 plan 與 mutations `[R]`。
 - **決策**：共用非互動 API。每次套用前逐項重驗檔案指紋（R16），保存備份與操作日誌，只對仍由 App 擁有且未被外部修改的項目做補償回復。外部異動時停止並要求人工處理。不宣稱能回滾 plugin 或 MCPB 的宿主管理器。桌面不另寫一套 JSON／TOML 改寫器。
 - **後果**：部分失敗需要人工修復；但不會覆蓋使用者設定。
+- **1.6.47 的實作**：共用 API 位於 `packages/agent-setup`。plan 為每個檔案記錄 sha256；apply 前、寫入前後與 rename 前逐項重驗，外部異動即停止、不覆蓋，標記為 `externally-modified`。持久化操作日誌（fsync 後以 rename 寫入）在第一次寫入前建立；補償只回復本次寫入且內容仍相同的項目，由新到舊；遇到外部異動時標記 `needs-manual-repair`。recovery 在動任何檔案前驗證 journal 路徑；無法讀取的 journal 移到 `.corrupt-<ts>`，不刪除。`setup:agents` 的輸出與檔案位元組不變（golden test）。效能：CLI 完整安裝由 0.65–0.72 ms 增至 9–21 ms（Linux，約 30 次 fsync），選擇耐久性。實機待實機驗收。
 - **關聯**：§3.2；DT-21；R15、R16、R17。
 
 ### ADR-15 Agent 固定 launcher 與版本化 runtime manifest
@@ -280,6 +283,7 @@
 - **1.6.43 的實作**：`bin/` 下的 shim 只讀取 `current` 與 `runtime-launch.txt` 後執行 launcher；所有驗證（manifest 嚴格解析、逐檔 SHA-256 與大小、未列出的檔案與 symlink、路徑、動作白名單、錯誤碼）都在共用的 TypeScript 中。manifest 為 v1，列出 runtime 目錄內的每一個檔案，未列出的檔案使 runtime 無效。
 - **後果**：多一層 launcher 需要測試；換版透過 manifest 切換。
 - **1.6.45 的實作**：Windows ACL 分兩層讀取，第一層為 .NET，失敗才用 `Get-Acl` 加 `whoami /user`；PowerShell 5.1 以絕對路徑與允許清單環境啟動，腳本關閉模組自動載入與進度輸出。第一層以結束碼 3 回報 Constrained Language Mode。逾時第一層 20 秒、第二層 60 秒，逾時重試一次。固定 SID 的 SDDL 別名展開為 SID 後再判斷，相對別名不受信任；擁有者限目前使用者、SYSTEM、Administrators 或 TrustedInstaller。兩層都失敗回報 `RUNTIME_ACL_UNREADABLE`，附各層結束碼、耗時與 stderr。`icacls` 未採用，因為 `icacls /save` 沒有擁有者資訊，而擁有者必須被驗證。真實 Windows 行為待 CI 或實機確認。
+- **1.6.47 的實作（launcher 接線）**：打包後的 App 在 runtime 成為 current 後寫入 `desktop-integration.json` v1，內容未變則略過，不含資料庫路徑。plugin `launch.mjs`、MCPB 與獨立版在紀錄有效時優先使用 shim。`setup:agents` 的 launcher 目標：MCP 為 shim 加 `["mcp"]`，hook 為加引號的 shim 加 `claude-finalize-reminder` 或 `codex-finalize-reminder`；shim 路徑須為絕對路徑，檔名為 `work-intelligence-launcher`（Windows 為 `.cmd`），不得含 shell 特殊字元或控制字元。Windows 只接受磁碟機代號路徑（不接受 UNC 與 `\\?\`）。信任規則與威脅模型見 ADR-39。實機待實機驗收。
 - **關聯**：§3.3、§10.2；DT-23；R07、R13。
 
 ### ADR-16 Runtime 延後清理：無現役連線且可安全刪除才 GC
@@ -291,6 +295,17 @@
 - **1.6.45 的實作**：背景的 best-effort 清理只保留目前與前一版。尚未證明「無現役連線」（PID 可能被重用，不能以 PID 不存在作為依據），因此 DT-24 只完成一部分；其餘舊版目錄仍會保留。
 - **後果**：磁碟上會暫時保留多個 runtime 版本。
 - **關聯**：§3.3、§10.2；DT-24；R08；G-MCP-01。
+
+---
+
+### ADR-39 desktop-integration 紀錄與 Agent launcher 選擇順序（同使用者威脅模型）
+
+- **狀態**：暫定採用（1.6.47 實作；Windows 與 macOS 實機待驗收）
+- **脈絡**：Agent 設定指向固定 launcher（ADR-15），但 plugin、MCPB 與獨立版也可能指向 checkout 或內附的 server。App 需要讓這些入口優先使用已安裝的 runtime；Dashboard 交接（ADR-28）也需要知道 App 的位置。這份紀錄不應成為新的權限邊界。
+- **決策**：打包後的 App 在 runtime 成為 current 後，寫入 `<config dir>/desktop-integration.json`（v1：version、launcherPath、runtimeRoot、appExecutable、appVersion、writtenAt），內容未變則略過；不含資料庫路徑與使用者資料。讀取端的選擇順序為：明確指定的 `WORK_INTELLIGENCE_HOME` checkout → 桌面 shim → plugin 位置或 link 的 checkout → 內附的 server。紀錄只有在通過以下檢查時才被採用：POSIX 上擁有者必須是目前 uid、不得 world-writable、不得含 symlink；Windows 上只接受磁碟機代號路徑（不接受 UNC 與 `\\?\`）；runtime 必須已就緒（current、runtime-launch.txt、可執行檔、launcher.mjs）才選擇 shim。紀錄無效或 runtime 未就緒時，退回下一個順序，並輸出一行 stderr。
+- **威脅模型**：同一使用者的程序本來就能改寫 Agent 設定與 runtime 目錄，因此這些檢查只防止誤指向與意外的權限錯誤，不宣稱防禦同使用者的惡意程式。跨使用者的情境由 OS 權限與 ACL 處理（ADR-15）。
+- **後果**：多一層讀取與檢查，需要測試覆蓋（`tests/desktop-core/integration-record.test.ts`）。hook 經 shim 執行時靜默、25 秒後終止，且一律 exit 0，避免 hook 失敗阻擋 Agent。Windows 與 macOS 的實機行為待驗收。
+- **關聯**：§3.3、§10.2；DT-23 後續、DT-27；R07、R13；ADR-15、ADR-16、ADR-28。
 
 ---
 

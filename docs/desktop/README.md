@@ -6,7 +6,7 @@
 |---|---|
 | 文件版本 | R4 |
 | 基準 commit | `d464ea5`（main，Merge PR #361，release 1.6.40） |
-| 目標修補版 | 1.6.41（T1–T4）、1.6.42（DT-01/02/04/09/10/20/36）、1.6.43（DT-23、DT-25，階段 1）、1.6.44（DT-11、DT-15、DT-16、DT-35，階段 2）、1.6.45（DT-23 的 ACL、DT-24 部分、DT-28 決策、DT-33、DT-34，階段 5 的打包部分）；設计基準仍為 `d464ea5` |
+| 目標修補版 | 1.6.41（T1–T4）、1.6.42（DT-01/02/04/09/10/20/36）、1.6.43（DT-23、DT-25，階段 1）、1.6.44（DT-11、DT-15、DT-16、DT-35，階段 2）、1.6.45（DT-23 的 ACL、DT-24 部分、DT-28 決策、DT-33、DT-34，階段 5 的打包部分）、1.6.47（DT-21、DT-22、DT-27、launcher 接線，階段 3）；設计基準仍為 `d464ea5` |
 | 前一版 | R3（來源提交 `e46060e`，審查基準 `7723b72`） |
 | 首發平台 | Windows 11 x64 與 macOS 同批發行；Linux 不在 V1。Windows ARM 排除為推論（待確認）；macOS 架構範圍（Apple Silicon、Intel）待確認；1.6.45 的打包以 arm64 與 x64 分開產出（不做 universal），待產品確認 |
 
@@ -31,7 +31,7 @@ R4 是 Work Intelligence 桌面版 V1 的設計基線，在 R3 的基礎上：
 | 檔案 | 用途 | 主要讀者 |
 |---|---|---|
 | [desktop-v1-design-r4.md](desktop-v1-design-r4.md) | **R4 主文件**：執行摘要、使用者體驗、安裝與設定、服務交接、架構、更新與資料保護、平台需求、契約草案、開源借鑑、封版檢核。由 R3 改名（`git mv`）並修訂而來。 | 產品、實作、安全、發行 |
-| [desktop-v1-adr.md](desktop-v1-adr.md) | **決策紀錄**（ADR-01 至 ADR-36）：每筆含脈絡、決策、後果與狀態。涵蓋 R3 所有決策並更新 R4 的變更。 | 架構、審查 |
+| [desktop-v1-adr.md](desktop-v1-adr.md) | **決策紀錄**（ADR-01 至 ADR-39）：每筆含脈絡、決策、後果與狀態。涵蓋 R3 所有決策並更新 R4 的變更。 | 架構、審查 |
 | [desktop-v1-component-contracts.md](desktop-v1-component-contracts.md) | **元件契約**（C-01 至 C-22、C-T）：每個元件的責任、輸入輸出、不變條件與平台特定要求。 | 實作、測試 |
 | [desktop-v1-risk-gate-ticket-matrix.md](desktop-v1-risk-gate-ticket-matrix.md) | **風險・Gate・工程票對應**：R01–R34 全表、Gate 反向索引、工程票索引（DT-01 至 DT-37）、1.6.41 任務對應、V1 不做清單。 | 排程、追蹤、發行 |
 | 本檔（README.md） | 索引、證據標籤、修訂紀錄、去重紀錄。 | 所有人 |
@@ -134,6 +134,23 @@ R4 的補充用法：
 
 **Windows ACL 與打包補充（1.6.45）**：Windows ACL 第二層（`Get-Acl`，供 Constrained Language Mode 使用）以絕對路徑匯入 `Microsoft.PowerShell.Security`，並與 `whoami` 一同執行；兩層腳本都關閉進度輸出與模組自動載入。逾時為第一層 20 秒、第二層 60 秒、`whoami` 15 秒，逾時重試一次；CI 量到第一層約 0.4 秒、第二層一般約 6 秒，逾時待實際數據後收緊。失敗訊息每層一段，含結束碼、訊號或逾時、耗時與去除 CLIXML 的 stderr。Windows CI 另在真實 Constrained Language Mode 下執行 ACL 測試。打包 smoke 除非測的是互動行為，一律以 `--background` 啟動，因為互動啟動會依 ADR-01 以外部瀏覽器開 Dashboard；App 會記錄 `[shell] dashboard opened`。沙盒清理會先等待並結束仍在使用沙盒的程序，刪不掉時列出佔用者；打包記憶體只計 App 自己的程序。`commitCurrent` 可重用同一行程中剛執行之 `installRuntime` 的 ACL 讀取（`reuseAclStamp`，只存在記憶體中，不從 `.verified.json` 讀取）；只有在所有受涵蓋物件的變更時間、inode 與物件集合都相同，且沒有檔案漏掉雜湊快取時才重用，否則重新讀取，佈建日誌以 `acl-reads=N` 顯示次數。打包方面，每次 `build()` 使用新的 electron-builder 設定（electron-builder 會原地正規化 `files`）；`beforeBuild` 回傳 false 以跳過約 7 秒的 node_modules 搜尋，因為暫存的 App 沒有 node_modules。`afterPack` 與 `package.mjs` 會輸出 `[afterPack]` 與 `[package]` 行，記錄 fuses、ad-hoc 簽章的路徑數、codesign、`spctl` 結束碼等。PR 建置時 electron-builder 出現「code signing will be skipped」是預期的，簽章由 `afterPack` 完成。
 
+## 1.6.47 任務（階段 3：Agent 整合）與本文件的關係
+
+本版實作階段 3 的 CI 可驗證部分。Windows 11 與 macOS 的實機驗收仍為**待實機驗收**；CI 結果見 CI_PLACEHOLDER。階段 3 的 gate（host 真正 handshake、hook fail-open、更新後 runtime 不失效）尚未通過，本文件不宣稱實機或 gate 已通過。
+
+| 任務 | 內容 | 狀態 | 本文件位置 | 證據路徑 |
+|---|---|---|---|---|
+| DT-21 | Agent plan／apply／verify／compensate 共用 API：每檔指紋、寫入前後重驗、持久化操作日誌與補償、launcher 目標、註冊來源偵測與重複標示 | 1.6.47 已實作（CI 可驗證部分）；App 設定中心尚未呼叫此 API；實機待實機驗收 | §3.2；ADR-14；R15、R16、R17 | `packages/agent-setup/src/`；`apps/server/src/agent-setup.ts`；`tests/agent-setup/*.test.ts`；`tests/server/agent-setup-golden.test.ts`（9abe75a、112f343） |
+| DT-22 | Agent 狀態分級與 host handshake：MCP stdio 探測、契約指紋、host 首次 `initialize` 的觀察紀錄（fail-open） | 1.6.47 已實作（CI 可驗證部分）；真實 host（Claude Code、Codex、Claude Desktop）的 handshake 待實機驗收 | §3.2.1；ADR-34；R28 | `packages/desktop-core/src/agents/`；`packages/shared/src/mcp-contract-fingerprint.ts`；`apps/mcp/src/agent-observation.ts`；`tests/desktop-core/agents-handshake.test.ts`、`agents-status.test.ts`；`tests/shared/mcp-contract-fingerprint.test.ts`；`tests/mcp/agent-observation.test.ts`（e9f2ef6） |
+| DT-23 後續（launcher 接線） | plugin `launch.mjs`、MCPB、獨立版優先使用固定 shim；`desktop-integration.json` 紀錄；hook 經 shim 靜默、25 秒上限、一律 exit 0；`setup:agents` launcher 目標與 Windows 路徑規則 | 1.6.47 已實作（CI 可驗證部分）；plugin manifest 仍以 `node launch.mjs` 啟動；信任模型見 ADR-39；實機待實機驗收 | §3.3；ADR-15、ADR-39；R07、R13 | `packages/desktop-core/src/integration/`；`apps/desktop/src/main/integration-record.ts`；`plugins/work-intelligence/scripts/launch.mjs`、`desktop-integration.mjs`；`scripts/mcpb-launch.mjs`；`tests/desktop-core/integration-record.test.ts`、`shell-launch-command.test.ts`、`runtime-update-session.test.ts`；`apps/desktop/tests/packaged-smoke/launcher.spec.ts`（496e1e7、d63d680） |
+| DT-27 | Dashboard bridge：`launch.mjs dashboard` 轉交 App，不啟動 checkout server；App 首次開啟與第二實例轉交，合併為一次開啟 | 1.6.47 已實作（CI 可驗證部分）；換 port 與 App 離線的實機情境待實機驗收 | §6.2；ADR-28；R19（次要） | `scripts/dashboard.mjs`；`plugins/work-intelligence/scripts/desktop-integration.mjs`；`apps/desktop/src/main/second-instance.ts`；`apps/desktop/tests/desktop-smoke/dashboard-handoff.spec.ts`（496e1e7、d63d680） |
+| backlog a：Windows ACL 預熱 | 首次安裝時 tier-1 ACL reader 與 runtime 複製並行；失敗退回一次性 reader；快路徑不預熱 | 1.6.47 已實作（fixture 與 Linux 模型）；真實 Windows 數字待 CI | §3.3；ADR-15 | `apps/desktop/src/main/runtime-provision.ts`；`packages/desktop-core/src/runtime/bundled-install.ts`、`windows-acl.ts`；`tests/desktop-core/runtime-install-prewarm.test.ts`、`runtime-windows-acl-prewarm.test.ts`（c3d512b） |
+| backlog b：後端閒置 RSS | RSS_PLACEHOLDER | RSS_PLACEHOLDER | 無（不屬於桌面設計文件） | RSS_PLACEHOLDER |
+
+**本版的非 CI 項目**：Windows 11 與 macOS 的實機 host handshake（Claude Code、Codex、Claude Desktop 的 clientInfo 與狀態顯示；`claude-ai` 未驗證）；Claude Desktop MCPB 偵測（依檔案配置推測）；Windows ACL 預熱的真實時間與 PowerShell 5.1 的 stdin 行為；Windows 的 `.cmd` 與 hook 的 `taskkill /T` 程序樹終止；`desktop-integration.json` 與 launcher 接線在真實 Agent 中的行為；Dashboard 在 Windows 與 macOS 的冷熱啟動數字；backlog b 的記憶體數字。尚未做：App 設定中心接上 DT-21 的 API、plugin manifest 改為啟動固定 launcher，以及 DT-24 的「無現役連線」證明。
+
+---
+
 ## 本機打包
 
 依 ADR-38，本機打包是主要的取得方式；CI 與 GitHub Release 的產物為輔。打包只能建置執行它的平台與架構（隨包 Node.js 是該平台的官方執行檔），因此 Windows 與 macOS 各自在本機執行。
@@ -207,6 +224,8 @@ R4 的補充用法：
 - R4 第三次修訂（1.6.42）: 更新階段 0 狀態與 DT-04 實驗結論、DB 身分策略定案。
 - R4 第四次修訂（1.6.43）: 階段 1 spike 結果與 ADR-04 決策（隨包官方 Node.js）；DT-23、DT-25 狀態；風險矩陣的證據與 §3.3、§9.4、§10.2 的階段 1 進度與實作 layout。
 - R4 第五次修訂（1.6.44）: 階段 2 的實作狀態（DT-11、DT-15、DT-16、DT-35）；風險矩陣的證據與 ADR-04、ADR-07、ADR-08、ADR-13、ADR-26 的狀態；C-01、C-02、C-08、C-11 的實作註記；§5.1、§9.4、§10.3 的階段 2 進度與實作差異。
+- 1.6.45（階段 5 的打包部分；未另列修訂序號）: 階段 5 狀態（§7.1 的 DT-28 決定、§9.4、§3.3 的 ACL 與 runtime 清理）；風險矩陣與 ADR-15、ADR-16、ADR-25、ADR-30、ADR-38 的 1.6.45 註記。
+- R4 第六次修訂（1.6.47）: 階段 3 的 CI 可驗證部分（DT-21、DT-22、DT-23 後續、DT-27）與 backlog a、b；§3.3、§9.4 的階段 3 進度；風險矩陣的 R07、R15、R16、R17、R28 與 DT 票狀態；ADR-14、ADR-15、ADR-28、ADR-34 的實作註記與新增 ADR-39。
 
 ## 驗證紀錄（R4 修訂過程）
 

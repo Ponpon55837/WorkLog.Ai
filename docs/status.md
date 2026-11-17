@@ -6,6 +6,10 @@
 
 - 最後更新：2026-11-17
 
+## 1.6.47（已完成）
+
+桌面版階段 3（Agent 整合）的 CI 可驗證部分：Agent 寫入共用 API（`packages/agent-setup`，DT-21，含指紋重驗、操作日誌與補償）、MCP stdio 握手探測與狀態分級（DT-22）、固定 launcher 接線（plugin、MCPB 與獨立版，DT-23 後續）、Dashboard bridge（DT-27），以及 Windows ACL 預熱。階段 3 的 gate 尚未通過：真實 host 的 handshake、Windows 與 macOS 的行為待 CI 或實機確認；App 設定中心尚未接上 Agent API。CI 結果：CI_PLACEHOLDER。沒有 schema 變更（33），沒有 migration。詳見 [1.6.47 更新說明](releases/1.6.47.md)。
+
 ## 1.6.46（已完成）
 
 發行流程修正：1.6.45 的發行在建立 GitHub Release 前的安裝包名稱檢查失敗（合併下載的安裝包位於子資料夾），所以 1.6.45 只有 tag、沒有 Release。發行流程現在先攤平安裝包再檢查；`pnpm package:desktop -- --dir` 不再因 `--` 而失敗。桌面 App 內容與 1.6.45 相同。下一個階段（桌面版階段 3：Agent 整合）改為 1.6.47。沒有 schema 變更（33），沒有 migration。詳見 [1.6.46 更新說明](releases/1.6.46.md)。
