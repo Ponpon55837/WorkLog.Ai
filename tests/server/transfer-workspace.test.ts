@@ -6,7 +6,8 @@ import process from "node:process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectDataExport } from "@work-intelligence/core";
 import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
-import { MAX_PROJECT_IMPORT_BYTES } from "../../apps/server/src/http.js";
+import { Readable } from "node:stream";
+import { MAX_PROJECT_IMPORT_BYTES, receiveJsonBodyFile, RequestBodyError } from "../../apps/server/src/http.js";
 import { createApiHandler } from "../../apps/server/src/server.js";
 import { preflightDatabase, type DatabaseIdentity } from "../../apps/server/src/database-preflight.js";
 import { startApi, type StartedApi } from "../../apps/server/src/start-api.js";
@@ -309,6 +310,15 @@ describe("import uploads and the transfer root, over HTTP", () => {
     space.override = undefined;
     expect((await post(baseUrl, "/api/import/preview", text)).status).toBe(200);
     expect(transferDirectories(root)).toEqual([]);
+  });
+
+  it("refuses a body that streams past the cap without declaring its length", async () => {
+    const root = createRoot();
+    const chunks = [Buffer.alloc(600, 0x20), Buffer.alloc(600, 0x20)];
+    const request = Object.assign(Readable.from(chunks), { headers: { "content-type": "application/json" } });
+    const received = receiveJsonBodyFile(request as never, join(root, "bundle.json"), 1_000);
+    await expect(received).rejects.toBeInstanceOf(RequestBodyError);
+    await expect(received).rejects.toMatchObject({ statusCode: 413 });
   });
 
   it("asks for the cap when the client declares no length", async () => {

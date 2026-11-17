@@ -23,7 +23,12 @@ const ROUTES_WITHOUT_BODY: Readonly<Record<string, string>> = {
 };
 
 /** Project data import and export validate whole bundles with schemas of their own and answer in their own shape. */
-const TRANSFER_ROUTES = new Set(["POST /api/export", "POST /api/import", "POST /api/import/preview"]);
+const TRANSFER_ROUTES = new Set([
+  "POST /api/export",
+  "POST /api/import",
+  "POST /api/import/preview",
+  "POST /api/import/staged",
+]);
 
 /** Query objects that reach a schema whole; other GET routes read only the parameters they name. */
 const QUERY_ROUTES = [

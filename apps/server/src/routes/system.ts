@@ -8,6 +8,8 @@ import { INSTANCE_PROOF_HEADER } from "@work-intelligence/shared/instance-proof"
 import {
   databaseBackupFileNameSchema,
   deleteDatabaseBackupBodySchema,
+  discardStagedImportBodySchema,
+  projectDataImportOptionsSchema,
   projectDataExportRequestSchema,
 } from "@work-intelligence/schema";
 import { LATEST_SCHEMA_VERSION } from "@work-intelligence/storage";
@@ -145,6 +147,12 @@ async function useStagedImport(context: RouteContext, apply: boolean): Promise<v
   const { response, services, params } = context;
   try {
     const options = await readJsonBody(context.request);
+    // The choices are checked before the id, so a wrong field is named even when the file has expired.
+    const parsed = parseRequestInput(projectDataImportOptionsSchema, options);
+    if (!parsed.success) {
+      sendError(response, 400, "匯入選項格式錯誤。", parsed.error.flatten());
+      return;
+    }
     const id = params.stagingId ?? "";
     const result = await services.stagedImports.use<unknown>(id, options, (upload) =>
       apply
@@ -161,7 +169,11 @@ async function useStagedImport(context: RouteContext, apply: boolean): Promise<v
 
 /** Cancels a staged import; a JSON body is required, as for every other DELETE, so a cross-site form cannot send it. */
 async function discardStagedImport({ request, response, services, params }: RouteContext): Promise<void> {
-  await readJsonBody(request);
+  const parsed = parseRequestInput(discardStagedImportBodySchema, await readJsonBody(request));
+  if (!parsed.success) {
+    sendError(response, 400, "取消匯入請求無效。", parsed.error.flatten());
+    return;
+  }
   services.stagedImports.remove(params.stagingId ?? "");
   response.writeHead(204);
   response.end();

@@ -20,6 +20,7 @@ import {
   DATABASE_READ_ONLY_MESSAGE,
   WorkIntelligenceStore,
 } from "../../packages/storage/src/index.js";
+import { MAX_PROJECT_IMPORT_BYTES } from "../../apps/server/src/http.js";
 import { createApiHandler, type ApiHandlerOptions } from "../../apps/server/src/server.js";
 import { getUserServiceStatusAsync } from "../../apps/server/src/user-service.js";
 import { BackupWorkerClient } from "../../apps/server/src/backup-worker-client.js";
@@ -2291,7 +2292,7 @@ describe("Work Intelligence REST API", () => {
       expect(repeated.status).toBe(200);
       expect(repeated.body.skipped).toMatchObject({ projects: 1, sessions: 1 });
 
-      // Import routes have their own 50 MiB limit; other JSON routes keep the smaller default.
+      // Import routes have their own 256 MiB limit; other JSON routes keep the smaller default.
       const largerThanDefault = await fetch(`${baseUrl}/api/import/preview`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -2299,12 +2300,27 @@ describe("Work Intelligence REST API", () => {
       });
       expect(largerThanDefault.status).toBe(400);
 
-      const tooLarge = await fetch(`${baseUrl}/api/import`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: Buffer.alloc(50 * 1024 * 1024 + 1, 0x20),
+      // A body over the limit is refused from its declared length, before any of it is read (the streamed case is
+      // covered with a small limit in transfer-workspace.test.ts).
+      const tooLarge = await new Promise<number>((resolve, reject) => {
+        const outgoing = httpRequest(
+          `${baseUrl}/api/import`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json", "content-length": String(MAX_PROJECT_IMPORT_BYTES + 1) },
+          },
+          (incoming) => {
+            incoming.resume();
+            incoming.on("end", () => {
+              outgoing.destroy();
+              resolve(incoming.statusCode ?? 0);
+            });
+          },
+        );
+        outgoing.on("error", reject);
+        outgoing.flushHeaders();
       });
-      expect(tooLarge.status).toBe(413);
+      expect(tooLarge).toBe(413);
     } finally {
       source.close();
     }

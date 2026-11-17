@@ -145,6 +145,8 @@ export const databaseBackupFileNameSchema = z
   .refine((fileName) => !fileName.includes(".."), "Backup file name is invalid.");
 
 export const deleteDatabaseBackupBodySchema = z.object({}).strict();
+/** Cancelling a staged import sends an empty JSON object, as other deletions do. */
+export const discardStagedImportBodySchema = z.object({}).strict();
 
 export const verificationSchema = z.object({
   status: z.enum(VERIFICATION_STATUSES),
