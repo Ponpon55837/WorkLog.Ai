@@ -20,11 +20,7 @@ import {
   installFixture,
   makeRoot,
   stageFixture,
-  RUNTIME_FS_TEST_TIMEOUT_MS,
 } from "./runtime-helpers.js";
-
-// Real fixture runtimes on disk: see RUNTIME_FS_TEST_TIMEOUT_MS.
-vi.setConfig({ testTimeout: RUNTIME_FS_TEST_TIMEOUT_MS });
 
 vi.mock("../../packages/desktop-core/src/runtime/hash.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../packages/desktop-core/src/runtime/hash.js")>();

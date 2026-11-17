@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import { isolatedEnvironmentSetup } from "../../tests/helpers/isolated-environment-setup";
+import { desktopCoreTestOptions } from "./vitest.config";
 
 const sharedSource = (file: string): string => fileURLToPath(new URL(`../shared/src/${file}.ts`, import.meta.url));
 
@@ -20,7 +21,7 @@ export default defineConfig({
   },
   test: {
     setupFiles: [isolatedEnvironmentSetup],
-    include: ["tests/desktop-core/**/*.test.ts"],
+    ...desktopCoreTestOptions,
     env: { TZ: "UTC" },
     coverage: {
       enabled: true,

@@ -88,7 +88,7 @@ jobs:
           $code = 1
           try {
             [Environment]::SetEnvironmentVariable('__PSLockdownPolicy', '4', 'Machine')
-            pnpm exec vitest run --root ../.. tests/desktop-core/runtime-windows-acl.test.ts -t "Constrained Language Mode"
+            pnpm exec vitest run --root ../.. --config packages/desktop-core/vitest.config.ts tests/desktop-core/runtime-windows-acl.test.ts -t "Constrained Language Mode"
             $code = $LASTEXITCODE
           } finally {
             [Environment]::SetEnvironmentVariable('__PSLockdownPolicy', $null, 'Machine')
