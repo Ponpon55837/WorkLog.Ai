@@ -29,6 +29,7 @@ import {
   readMcpBuildIdentity,
   registerMcpProcess,
 } from "../../packages/shared/src/mcp-runtime.js";
+import { heapExhaustingImportBytes } from "../helpers/heap-exhausting-import.js";
 import { createMcpRuntimeFixture, finalizeMcpRuntimeFixture } from "../helpers/mcp-runtime-fixture.js";
 
 const resources: Array<{
@@ -2118,25 +2119,37 @@ describe("Work Intelligence REST API", () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-worker-oom-test-"));
     const databasePath = join(root, "work-intelligence.sqlite");
     const source = new WorkIntelligenceStore(databasePath);
-    source.addProject("Worker memory fixture", join(root, "project"));
+    const projectRoot = join(root, "project");
+    mkdirSync(projectRoot);
+    const project = source.addProject("Worker memory fixture", projectRoot);
+    source.updateProject(project.id, { status: "tracked" });
+    source.finalizeSession({
+      projectRoot,
+      idempotencyKey: "worker-memory-session",
+      title: "Synthetic memory Session",
+      summary: "Gives the export a work event to replicate.",
+    });
     const bundle = source.exportProjectData({ type: "all" });
     const store = new WorkIntelligenceStore(":memory:");
-    // A heap far below the production limit; millions of small objects grow it gradually until the worker is lost.
+    // A heap far below the production limit. The body is a valid bundle whose parse fits but whose later copies do
+    // not, so the worker fails in JavaScript that V8 can interrupt.
     const backgroundStore = new BackupWorkerClient(databasePath, {}, undefined, {
       resourceLimits: { maxOldGenerationSizeMb: 64, maxYoungGenerationSizeMb: 6 },
     });
     const { server, baseUrl } = await startApi(store, { backgroundStore });
     resources.push({ server, store, root });
+    const state = backgroundStore as unknown as { lifetime?: { worker: { threadId: number } } };
 
     try {
       for (const path of ["/api/import/preview", "/api/import"]) {
         const oversized = await fetch(`${baseUrl}${path}`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: `{"bundle":{"padding":[${'{"a":1},'.repeat(6_000_000)}0]}}`,
+          body: new Blob([heapExhaustingImportBytes(bundle)]),
         });
         expect(oversized.status).toBe(413);
         expect(await oversized.json()).toMatchObject({ code: "backup_worker_out_of_memory" });
+        const lostThreadId = state.lifetime?.worker.threadId;
 
         // The next request is served by a new worker.
         const preview = await requestJson<{ outcome: string }>(baseUrl, "/api/import/preview", {
@@ -2145,10 +2158,36 @@ describe("Work Intelligence REST API", () => {
         });
         expect(preview.status).toBe(200);
         expect(preview.body.outcome).toBe("project_data_import_preview");
+        expect(state.lifetime?.worker.threadId).not.toBe(lostThreadId);
       }
     } finally {
       await backgroundStore.close();
       source.close();
+    }
+  }, 60_000);
+
+  it("answers 413 from the structure precheck for millions of tiny objects, before the worker parses anything", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-import-precheck-test-"));
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const store = new WorkIntelligenceStore(databasePath);
+    const backgroundStore = new BackupWorkerClient(databasePath, {}, undefined, {
+      resourceLimits: { maxOldGenerationSizeMb: 64, maxYoungGenerationSizeMb: 6 },
+    });
+    const { server, baseUrl } = await startApi(store, { backgroundStore });
+    resources.push({ server, store, root });
+
+    try {
+      for (const path of ["/api/import/preview", "/api/import"]) {
+        const padded = await fetch(`${baseUrl}${path}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: `{"bundle":{"padding":[${'{"a":1},'.repeat(6_000_000)}0]}}`,
+        });
+        expect(padded.status).toBe(413);
+        expect(await padded.json()).toMatchObject({ code: "payload_too_large" });
+      }
+    } finally {
+      await backgroundStore.close();
     }
   }, 60_000);
 
