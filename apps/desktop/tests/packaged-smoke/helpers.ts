@@ -39,14 +39,14 @@ const HOLDER_TERMINATE_MS = 5_000;
 const HOLDER_COMMAND_LIMIT = 160;
 const BROWSER_TERMINATE_MS = 5_000;
 /**
- * Browsers the OS may start for `shell.openExternal`, matched against the start of a process's command line (a path whose
- * last segment is the executable, then a space or the end): Safari and the WebKit helpers it spawns as top-level
- * processes (macOS), Chrome and Chromium (`Google Chrome`, `chrome`, `google-chrome`, `chromium`), Edge (`msedge`),
- * Firefox, and the `xdg-open` targets on Linux (firefox, chromium, ...). The App's own Chromium helpers are not browsers
- * here: they carry the sandbox root in their command line and are filtered out by it.
+ * Browsers the OS may start for `shell.openExternal`, matched against a process's executable (or the start of its command
+ * line: a path whose last segment is the executable, then a space or the end): Safari, Chrome and Chromium (`Google
+ * Chrome`, `chrome`, `google-chrome`, `chromium`), Edge (`msedge`) and Firefox, the `xdg-open` targets on Linux included.
+ * Only the browsers' main executables: helpers such as macOS's `com.apple.WebKit.*` also serve other apps and end with
+ * their browser. The App's own Chromium helpers are not browsers here: they carry the sandbox root in their command line.
  */
 const BROWSER_COMMANDS =
-  /(^|[\\/])(Safari|com\.apple\.WebKit\.(WebContent|Networking|GPU)|SafariLaunchAgent|Google Chrome|google-chrome(-stable)?|chrome|chromium(-browser)?|msedge|firefox)(\.exe)?( |$)/i;
+  /(^|[\\/])(Safari|Google Chrome|google-chrome(-stable)?|chrome|chromium(-browser)?|msedge|firefox)(\.exe)?( |$)/i;
 
 /** What identifies a browser process that was already running before a test: a pid can be reused, so the command too. */
 export type BrowserBaseline = ReadonlyArray<{ readonly pid: number; readonly commandLine: string }>;
@@ -54,8 +54,12 @@ export type BrowserBaseline = ReadonlyArray<{ readonly pid: number; readonly com
 /** The App's main pid of every launch, per sandbox root, and the processes seen below them (see `removeSandbox`). */
 const launchedPids = new Map<string, number[]>();
 const knownProcesses = new Map<string, ProcessInfo[]>();
-/** Per sandbox root: the browsers running when the sandbox was created, and whether a launch may have opened one. */
-const browserBaselines = new Map<string, BrowserBaseline>();
+/**
+ * The browsers running before the first sandbox of this worker: every later browser is ended by the `removeSandbox` of the
+ * test that started it, so one scan serves every test (a process scan costs a CIM query on Windows).
+ */
+let browsersBeforeTests: BrowserBaseline | undefined;
+/** Sandbox roots with a launch that may have opened a browser (interactive, not `--quit`). */
 const browserOpeningLaunches = new Set<string>();
 
 export interface PackagedSandbox {
@@ -147,7 +151,7 @@ export async function createSandbox(options: {
 }): Promise<PackagedSandbox> {
   // `.native` expands Windows 8.3 names and macOS `/var`, so every path matches what the App and its child report.
   const root = realpathSync.native(mkdtempSync(join(os.tmpdir(), "wi 打包 smoke ")));
-  const browsersBefore = browserBaseline();
+  browsersBeforeTests ??= browserBaseline();
   const home = join(root, "home 用户");
   const userData = join(root, "user data 数据");
   const emptyBin = join(root, "empty-bin");
@@ -177,7 +181,6 @@ export async function createSandbox(options: {
       2,
     )}\n`,
   );
-  browserBaselines.set(root, browsersBefore);
   return {
     root,
     home,
@@ -197,7 +200,7 @@ export async function createSandbox(options: {
  * seconds to exit by itself and is then terminated. If the removal still fails, the error lists who holds the sandbox.
  */
 export async function removeSandbox(sandbox: PackagedSandbox): Promise<void> {
-  const browsers = await endBrowsersStartedSince(browserBaselines.get(sandbox.root) ?? [], sandbox.root);
+  const browsers = await endBrowsersStartedSince(browsersBeforeTests ?? [], sandbox.root);
   try {
     await pollUntil(
       () => (sandboxHolders(sandbox).length === 0 ? true : undefined),
@@ -226,7 +229,6 @@ export async function removeSandbox(sandbox: PackagedSandbox): Promise<void> {
   } finally {
     launchedPids.delete(sandbox.root);
     knownProcesses.delete(sandbox.root);
-    browserBaselines.delete(sandbox.root);
   }
   // A background launch (and `--quit`) must open no browser: the list names what it started, which is now ended.
   const opened = browserOpeningLaunches.delete(sandbox.root);
