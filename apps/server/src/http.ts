@@ -166,11 +166,16 @@ export function estimateProjectImportParsedHeapBytes(bytes: Uint8Array): number 
 /**
  * Rejects, before `JSON.parse`, a document whose parsed form would not fit the worker's heap. V8 cannot interrupt the
  * native parse: when a worker's heap limit is reached inside it, Node raises the limit in steps and finally aborts the
- * whole process (measured: 278 MB reached under a 64 MB limit, then "FATAL ERROR: Reached heap limit") instead of
- * ending only the worker. Small containers are the dangerous shape, so a body of `{},` costs 22 times its size in heap.
+ * whole process (measured: 278 MB reached under a 64 MB limit, then "FATAL ERROR: Reached heap limit"). On Node 24 a
+ * worker heap exhaustion can abort the whole process even in ordinary JavaScript, so this check is the guard, not the
+ * worker's own limit. Small containers are the dangerous shape: a body of `{},` costs 22 times its size in heap.
+ * The budget parameter exists for tests; production callers use the default.
  */
-export function assertProjectImportFitsHeap(bytes: Uint8Array): void {
-  if (estimateProjectImportParsedHeapBytes(bytes) > MAX_PROJECT_IMPORT_PARSED_HEAP_BYTES) {
+export function assertProjectImportFitsHeap(
+  bytes: Uint8Array,
+  budget: number = MAX_PROJECT_IMPORT_PARSED_HEAP_BYTES,
+): void {
+  if (estimateProjectImportParsedHeapBytes(bytes) > budget) {
     throw new RequestBodyError(413, "匯入檔內容結構過於龐大，無法安全處理；請改為分批匯出較小的專案資料。");
   }
 }

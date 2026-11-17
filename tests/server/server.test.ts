@@ -29,7 +29,7 @@ import {
   readMcpBuildIdentity,
   registerMcpProcess,
 } from "../../packages/shared/src/mcp-runtime.js";
-import { heapExhaustingImportBytes } from "../helpers/heap-exhausting-import.js";
+import { failWorkerWithOutOfMemory, holdWorkerRequests } from "../helpers/worker-out-of-memory.js";
 import { createMcpRuntimeFixture, finalizeMcpRuntimeFixture } from "../helpers/mcp-runtime-fixture.js";
 
 const resources: Array<{
@@ -2127,39 +2127,46 @@ describe("Work Intelligence REST API", () => {
       projectRoot,
       idempotencyKey: "worker-memory-session",
       title: "Synthetic memory Session",
-      summary: "Gives the export a work event to replicate.",
+      summary: "Gives the export one Session to import.",
     });
     const bundle = source.exportProjectData({ type: "all" });
     const store = new WorkIntelligenceStore(":memory:");
-    // A heap far below the production limit. The body is a valid bundle whose parse fits but whose later copies do
-    // not, so the worker fails in JavaScript that V8 can interrupt.
-    const backgroundStore = new BackupWorkerClient(databasePath, {}, undefined, {
-      resourceLimits: { maxOldGenerationSizeMb: 64, maxYoungGenerationSizeMb: 6 },
-    });
+    const backgroundStore = new BackupWorkerClient(databasePath);
     const { server, baseUrl } = await startApi(store, { backgroundStore });
     resources.push({ server, store, root });
     const state = backgroundStore as unknown as { lifetime?: { worker: { threadId: number } } };
 
     try {
-      for (const path of ["/api/import/preview", "/api/import"]) {
-        const oversized = await fetch(`${baseUrl}${path}`, {
+      // A real worker heap exhaustion can abort the whole process on Node 24, so the out-of-memory error is injected
+      // into the live worker while a preview and an import are both queued in it.
+      const warmup = await requestJson<{ outcome: string }>(baseUrl, "/api/import/preview", {
+        method: "POST",
+        body: { bundle },
+      });
+      expect(warmup.status).toBe(200);
+      const lostThreadId = state.lifetime?.worker.threadId;
+      holdWorkerRequests(backgroundStore);
+      const queued = ["/api/import/preview", "/api/import"].map((path) =>
+        fetch(`${baseUrl}${path}`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: new Blob([heapExhaustingImportBytes(bundle)]),
-        });
-        expect(oversized.status).toBe(413);
-        expect(await oversized.json()).toMatchObject({ code: "backup_worker_out_of_memory" });
-        const lostThreadId = state.lifetime?.worker.threadId;
-
-        // The next request is served by a new worker.
-        const preview = await requestJson<{ outcome: string }>(baseUrl, "/api/import/preview", {
-          method: "POST",
-          body: { bundle },
-        });
-        expect(preview.status).toBe(200);
-        expect(preview.body.outcome).toBe("project_data_import_preview");
-        expect(state.lifetime?.worker.threadId).not.toBe(lostThreadId);
+          body: JSON.stringify({ bundle }),
+        }),
+      );
+      await failWorkerWithOutOfMemory(backgroundStore, 2);
+      for (const response of await Promise.all(queued)) {
+        expect(response.status).toBe(413);
+        expect(await response.json()).toMatchObject({ code: "backup_worker_out_of_memory" });
       }
+
+      // The next request is served by a new worker.
+      const preview = await requestJson<{ outcome: string }>(baseUrl, "/api/import/preview", {
+        method: "POST",
+        body: { bundle },
+      });
+      expect(preview.status).toBe(200);
+      expect(preview.body.outcome).toBe("project_data_import_preview");
+      expect(state.lifetime?.worker.threadId).not.toBe(lostThreadId);
     } finally {
       await backgroundStore.close();
       source.close();
@@ -2170,9 +2177,7 @@ describe("Work Intelligence REST API", () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-import-precheck-test-"));
     const databasePath = join(root, "work-intelligence.sqlite");
     const store = new WorkIntelligenceStore(databasePath);
-    const backgroundStore = new BackupWorkerClient(databasePath, {}, undefined, {
-      resourceLimits: { maxOldGenerationSizeMb: 64, maxYoungGenerationSizeMb: 6 },
-    });
+    const backgroundStore = new BackupWorkerClient(databasePath);
     const { server, baseUrl } = await startApi(store, { backgroundStore });
     resources.push({ server, store, root });
 
