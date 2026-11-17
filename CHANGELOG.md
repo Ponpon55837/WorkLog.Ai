@@ -37,6 +37,10 @@ This release finishes the old-service and Agent-takeover parts of stage 4 of the
 - **"改由桌面 App 管理" takes over checkout entries only when they use the App's database.** The database is compared by file identity. An entry on another database (explicit `WORK_INTELLIGENCE_DB`, or the checkout default) is refused and nothing is rewritten. Its card instead offers 「改用這份資料庫」, which previews that database in the repair window for the user to confirm.
 - **Tray:** "如何移除舊服務" is now 「停用舊的登入服務…」.
 
+### Fixed
+
+- **Windows packaged smoke: a Firefox background task's own children no longer count as a browser the App opened.** The v1.6.49 release run (44091619638) failed the uninstaller test on a `-contentproc` child of the Firefox Default Browser Agent. A candidate is now excluded when its nearest browser ancestor, found by parent pid with a pid-reuse guard, is a Firefox `--backgroundtask` that does not name the Dashboard. A new child of an already running normal Firefox still counts. Failure lines also print the start of the parent's command line.
+
 ## [1.6.49] - 2026-11-17
 
 [繁體中文更新說明](docs/releases/1.6.49.md).

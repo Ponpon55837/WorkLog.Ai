@@ -38,9 +38,15 @@ function namesDashboard(commandLine: string, dashboardPort: number | undefined):
 export function isExternalBrowser(candidate: BrowserCandidate, dashboardPort?: number): boolean {
   const command = candidate.executable ?? candidate.commandLine;
   if (!BROWSER_COMMANDS.test(command)) return false;
-  const backgroundTask =
-    FIREFOX_COMMAND.test(command) && candidate.commandLine.split(/\s+/).includes(FIREFOX_BACKGROUND_TASK_TOKEN);
-  return !backgroundTask || namesDashboard(candidate.commandLine, dashboardPort);
+  return !isFirefoxBackgroundTask(candidate) || namesDashboard(candidate.commandLine, dashboardPort);
+}
+
+/** Whether `candidate` is Firefox in background-task mode (`firefox.exe --backgroundtask …`). */
+function isFirefoxBackgroundTask(candidate: BrowserCandidate): boolean {
+  return (
+    FIREFOX_COMMAND.test(candidate.executable ?? candidate.commandLine) &&
+    candidate.commandLine.split(/\s+/).includes(FIREFOX_BACKGROUND_TASK_TOKEN)
+  );
 }
 
 /** Slack for creation times: `ps` reports whole seconds of elapsed time, so a start time is only that exact. */
@@ -142,6 +148,34 @@ export function survivingTree<T extends TreeProcess>(tracked: Map<number, T>, li
   });
 }
 
+/**
+ * Whether `candidate` belongs to a Firefox background task: its nearest ancestor that is a browser executable (walking
+ * parent pids through `processes`) is Firefox in background-task mode whose command line does not name the Dashboard. Such
+ * a task may start its own `-contentproc` children, which carry no `--backgroundtask` token. A child of a normal browser
+ * main process, already running or not, is not excluded: `shell.openExternal` into a running browser shows up exactly as a
+ * new child there. A parent created after its supposed child is a reused pid, and the walk stops there.
+ */
+export function inFirefoxBackgroundTask(
+  candidate: TreeProcess & BrowserCandidate,
+  processes: ReadonlyArray<TreeProcess & BrowserCandidate>,
+  dashboardPort?: number,
+): boolean {
+  const visited = new Set<number>([candidate.pid]);
+  let child = candidate;
+  for (;;) {
+    const parent = processes.find((member) => member.pid === child.ppid);
+    if (!parent || visited.has(parent.pid)) return false;
+    if (child.startedAt !== undefined && parent.startedAt !== undefined && child.startedAt < parent.startedAt) {
+      return false; // created before its supposed parent: the parent pid was reused
+    }
+    if (BROWSER_COMMANDS.test(parent.executable ?? parent.commandLine)) {
+      return isFirefoxBackgroundTask(parent) && !namesDashboard(parent.commandLine, dashboardPort);
+    }
+    visited.add(parent.pid);
+    child = parent;
+  }
+}
+
 /** Seconds from `ps` elapsed time (`[[dd-]hh:]mm:ss`); undefined when it does not parse. */
 export function parseElapsedSeconds(text: string): number | undefined {
   const match = /^(?:(?:(\d+)-)?(\d+):)?(\d+):(\d+)$/.exec(text.trim());
@@ -151,18 +185,25 @@ export function parseElapsedSeconds(text: string): number | undefined {
 }
 
 /**
- * One line for a failure message: pid, executable, the parent pid with its executable when the parent is still alive
- * (`parentExecutable` is what the caller resolved for it; `parentAlive` false prints "gone"), creation time when known,
- * and the start of the command line.
+ * One line for a failure message: pid, executable, the parent pid with its executable and the start of its command line
+ * when the parent is still alive (`parent.executable` is what the caller resolved for it; `parent.alive` false prints
+ * "gone"), creation time when known, and the start of the command line. The parent's command line tells, for example,
+ * whether it was a Firefox background task.
  */
 export function describeProcessLine(
   candidate: TreeProcess & { readonly executable: string | undefined },
-  parent: { readonly alive: boolean; readonly executable: string | undefined },
+  parent: {
+    readonly alive: boolean;
+    readonly executable: string | undefined;
+    readonly commandLine?: string | undefined;
+  },
   commandLimit: number,
 ): string {
+  const parentCommand =
+    parent.commandLine === undefined ? "" : ` (command: ${parent.commandLine.slice(0, commandLimit)})`;
   const parentText = !parent.alive
     ? `parent pid ${candidate.ppid} (gone)`
-    : `parent pid ${candidate.ppid} ${parent.executable ?? "(executable unknown)"}`;
+    : `parent pid ${candidate.ppid} ${parent.executable ?? "(executable unknown)"}${parentCommand}`;
   const started = candidate.startedAt === undefined ? "" : ` started ${new Date(candidate.startedAt).toISOString()}`;
   return `  pid ${candidate.pid} ${candidate.executable ?? "(executable unknown)"} [${parentText}]${started} ${candidate.commandLine.slice(0, commandLimit)}`;
 }
