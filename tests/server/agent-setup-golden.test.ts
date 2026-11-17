@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { runAgentSetupCli, type AgentSetupCliDependencies } from "../../apps/server/src/agent-setup.js";
 
@@ -12,11 +12,30 @@ interface GoldenFixture {
 
 const temporaryRoots: string[] = [];
 
+/** The fixture repository's directory name: a space and an apostrophe, so quoting is pinned too. */
+const REPOSITORY_NAME = "repo with space's name";
+
+/** `text` escaped as inside a JSON (or TOML basic) string, `times` times: a TOML block stored in JSON is escaped twice. */
+function escaped(text: string, times: number): string {
+  return times === 0 ? text : escaped(JSON.stringify(text).slice(1, -1), times - 1);
+}
+
+/**
+ * Every form the repository name takes in a written file or transcript, longest first: raw or POSIX shell-quoted
+ * (`'\\''`), escaped zero to two times. Windows separators are rewritten only around them, so the shell escape's
+ * backslash is never taken for a path separator.
+ */
+const REPOSITORY_NAME_FORMS = [2, 1, 0]
+  .flatMap((times) => [escaped(REPOSITORY_NAME.replaceAll("'", "'\\''"), times), escaped(REPOSITORY_NAME, times)])
+  .map((form, index) => ({ form, placeholder: `\u0000repository-${index}\u0000` }));
+/** A path under `<TMP>` or `~` with Windows separators: a run of backslashes (raw, or escaped once or twice). */
+const WINDOWS_PATH = /(<TMP>|~)(\\+[^\\\s"'`,()（）[\]]+)+/g;
+
 function createGoldenFixture(): GoldenFixture {
   const temporaryRoot = mkdtempSync(join(tmpdir(), "work-intelligence-agent-setup-golden-"));
   temporaryRoots.push(temporaryRoot);
   const homeDirectory = join(temporaryRoot, "home");
-  const repositoryRoot = join(temporaryRoot, "repo with space's name");
+  const repositoryRoot = join(temporaryRoot, REPOSITORY_NAME);
   mkdirSync(join(homeDirectory, ".codex"), { recursive: true });
   mkdirSync(join(homeDirectory, ".claude"), { recursive: true });
   mkdirSync(join(repositoryRoot, ".agents", "skills", "work-intelligence"), { recursive: true });
@@ -45,9 +64,32 @@ function createGoldenFixture(): GoldenFixture {
   };
 }
 
+/**
+ * On Windows the CLI prints and writes native paths (`~\\.codex\\config.toml`); the goldens are the same on every host, so
+ * the separators of the paths it already rewrites (`<TMP>` and home-relative `~` paths) become `/`. Nothing else changes:
+ * a backslash anywhere else stays and still has to match.
+ */
+function portablePaths(text: string): string {
+  if (process.platform !== "win32") return text;
+  let protectedText = text;
+  for (const { form, placeholder } of REPOSITORY_NAME_FORMS)
+    protectedText = protectedText.replaceAll(form, placeholder);
+  const portable = protectedText.replaceAll(WINDOWS_PATH, (match) => match.replaceAll(/\\+/g, "/"));
+  return REPOSITORY_NAME_FORMS.reduce(
+    (result, { form, placeholder }) => result.replaceAll(placeholder, form),
+    portable,
+  );
+}
+
 function normalize(text: string, fixture: GoldenFixture): string {
-  // A backup name carries the hash of the file it copies, and an installed config embeds the temporary root.
-  return text.replaceAll(fixture.temporaryRoot, "<TMP>").replaceAll(/(backup-\d{8}T\d{9}Z)-[0-9a-f]{8}/g, "$1-<HASH>");
+  // A backup name carries the hash of the file it copies, and an installed config embeds the temporary root (in JSON
+  // and TOML on Windows with its backslashes escaped, twice for a TOML block stored in JSON).
+  const roots = [2, 1, 0].map((times) => escaped(fixture.temporaryRoot, times));
+  return portablePaths(
+    roots
+      .reduce((result, root) => result.replaceAll(root, "<TMP>"), text)
+      .replaceAll(/(backup-\d{8}T\d{9}Z)-[0-9a-f]{8}/g, "$1-<HASH>"),
+  );
 }
 
 function snapshotFiles(directory: string, fixture: GoldenFixture): string {
@@ -56,7 +98,10 @@ function snapshotFiles(directory: string, fixture: GoldenFixture): string {
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       const path = join(current, entry.name);
       if (entry.isDirectory()) walk(path);
-      else entries.push(normalize(`=== ${relative(directory, path)}\n${readFileSync(path, "utf8")}`, fixture));
+      else
+        entries.push(
+          normalize(`=== ${relative(directory, path).split(sep).join("/")}\n${readFileSync(path, "utf8")}`, fixture),
+        );
     }
   };
   walk(directory);

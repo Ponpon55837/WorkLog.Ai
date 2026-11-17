@@ -24,6 +24,8 @@ This release is the CI-verifiable part of stage 3 (Agent integration) of the des
 
 ### Changed
 
+- `desktop-integration.json` now stores the canonical real path of `runtimeRoot` and `appExecutable` (`realpathSync.native`: no symlink such as macOS `/var` → `/private/var`; on Windows the real letter case and long names). An unresolvable path, or a Windows path that resolves to a UNC share, keeps the original value. A warm start still writes nothing.
+- Tests: the packaged smoke ends a browser that the OS opened outside the App's process tree for the Dashboard (Safari on macOS, Edge on Windows) only with `CI=true` or `WI_PACKAGED_STRICT=1`. On a developer's machine it only lists such a browser in a warning, because it could be one the developer opened. A test whose launches are all `--background` or `--quit` fails if a browser appeared. The second-instance hand-over, which opens the Dashboard by design, is marked as such.
 - Backend memory after a large export or import: the export's read-only connection uses a 1 MB SQLite page cache instead of 16 MB (an export reads each page once), and the backup worker exits 1 s instead of 5 s after a heavy operation. On Linux (33 MiB synthetic project data, median of 3) idle RSS after an export fell from 122 to 92 MiB (baseline 85 MiB), and RSS 3 s after an export or import from 237–280 to 121–130 MiB; idle RSS after an import is unchanged. Export bytes are unchanged.
 - The plugin, MCPB and standalone entry points prefer the fixed launcher shim. The order is: an explicitly set `WORK_INTELLIGENCE_HOME` checkout, the desktop shim, the plugin-location checkout, then the bundled server. A runtime that is not ready falls back to the next entry with a stderr line.
 - Hooks that run through the shim are silent, end after 25 seconds (on Windows the process tree is ended with `taskkill /T`), and always exit 0.
@@ -32,6 +34,9 @@ This release is the CI-verifiable part of stage 3 (Agent integration) of the des
 ### Fixed
 
 - Portable JSON import no longer reports a conflict for work-summary update rows when only one machine has pruned their replay columns. At startup the server clears `previous_work_summary_json` and `resulting_work_summary_json` of update rows older than 7 days to `'{}'`, and the table has no version column, so "newer wins" could not resolve it. These two columns now count as equal when either side is `'{}'`; the local value is kept, and two different non-empty values are still a conflict. No data was lost: the work summary itself was identical on both sides.
+- Tests: on Windows, the suites that install, verify and launch real fixture runtimes use a stated 30 s per-test timeout (`RUNTIME_FS_TEST_TIMEOUT_MS`; POSIX keeps vitest's 5 s). One reinstall measured 0.35 s and 6.3 s on two runs of the same GitHub runner. No test is skipped.
+- Tests: the `setup:agents` golden test compares Windows output with the same golden files. The CLI prints and writes native paths (`~\.codex\config.toml`), and only the separators of `<TMP>` and `~` paths are made portable; the shell-quoted repository name is protected.
+- Tests: the non-Windows-policy ACL prewarm case is pinned on both hosts. A Windows runner reports every file as 0o666, so the POSIX policy refuses the install there.
 
 ### Notes
 
