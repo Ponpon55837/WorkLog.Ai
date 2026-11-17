@@ -9,6 +9,8 @@ data/*.sqlite
 data/*.sqlite-shm
 data/*.sqlite-wal
 *.sqlite
+# Upgrade samples written by older releases (scripts/generate-upgrade-fixtures.mjs); synthetic data only.
+!tests/fixtures/upgrade/*.sqlite
 *.sqlite-shm
 *.sqlite-wal
 *.db
