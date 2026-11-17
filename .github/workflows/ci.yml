@@ -42,6 +42,11 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: pnpm audit --prod --audit-level high
 
+      # Fails once an audit exception in pnpm-workspace.yaml is stale (docs/security/audit-exceptions.md).
+      - name: Audit exceptions still needed
+        if: matrix.os == 'ubuntu-latest'
+        run: node scripts/check-audit-ignores.mjs
+
       # Before pnpm build, as in the release job: the plugin bundle must not depend on the workspace dist folders.
       - name: Plugin bundle from a fresh checkout
         if: matrix.os == 'ubuntu-latest'

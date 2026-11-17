@@ -8,6 +8,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 [繁體中文更新說明](docs/releases/1.6.52.md).
 
+v1.6.51 was not released on its own; this release includes all of its changes (see [1.6.51](#1651---2026-11-17)).
+
 This release adds upgrade-sample, migration-interruption and restore tests (DT-32), and a multi-process SQLite WAL stress suite (DT-07). Restore now verifies the migrated copy before it replaces the live database. The schema stays at 33 and no migration is needed. Real-device acceptance on Windows 11 and macOS is not done yet.
 
 ### Added
@@ -22,6 +24,16 @@ This release adds upgrade-sample, migration-interruption and restore tests (DT-3
 
 - **Restore** verifies the migrated staging copy (`quick_check` and `foreign_key_check`) before it is renamed over the live database. A failed check raises the new error `RESTORE_VERIFY_FAILED`; the live database is not changed and the staging copy is removed.
 - **Storage (Node 26) CI job** also runs `check-sqlite-version`.
+
+### Security
+
+- **Audit exception for GHSA-fc5q-39xc-vjpf** (picomatch <= 4.0.7 ReDoS, high), approved by the user. It is the only entry in `auditConfig.ignoreGhsas` in `pnpm-workspace.yaml`. The audit command, its level and the CI and release audit steps are unchanged, and no overrides are used.
+  - The path is `apps/web` > `vue-router` 5.5.0 > `picomatch` 4.0.7, also via `tinyglobby`/`fdir` and `unplugin-utils`.
+  - It is build-time only: the `pnpm build` web dist contains no picomatch code.
+  - Every glob comes from the repository, never from user input.
+  - No patched release exists yet; remove the exception once picomatch >= 4.0.8 ships.
+  - `node scripts/check-audit-ignores.mjs` (run in CI) fails when an exception is stale, and a unit test pins the list to this one entry.
+  - See [docs/security/audit-exceptions.md](docs/security/audit-exceptions.md).
 
 ## [1.6.51] - 2026-11-17
 
