@@ -121,12 +121,12 @@ describe("resolveDesktopDatabase", () => {
   it("calls a damaged, foreign or unsafe settings file invalid instead of guessing", async () => {
     await writeDesktopSettingsPointer(root, settingsFile);
     const cases: [string, string][] = [
-      ["{", "settings are not JSON"],
-      ["[]", "settings are not an object"],
-      [JSON.stringify({ configVersion: 2, desired: { databasePath: "/a.sqlite" } }), "unsupported settings version"],
-      [JSON.stringify({ configVersion: 1, desired: { databasePath: "relative.sqlite" } }), "no absolute database"],
-      [JSON.stringify({ configVersion: 1, desired: null }), "no absolute database"],
-      [JSON.stringify({ configVersion: 1, desired: { databasePath: "/a/../b.sqlite" } }), "no absolute database"],
+      ["{", "設定檔不是 JSON"],
+      ["[]", "設定檔不是物件"],
+      [JSON.stringify({ configVersion: 2, desired: { databasePath: "/a.sqlite" } }), "不支援的設定版本"],
+      [JSON.stringify({ configVersion: 1, desired: { databasePath: "relative.sqlite" } }), "沒有支援的絕對資料庫路徑"],
+      [JSON.stringify({ configVersion: 1, desired: null }), "沒有支援的絕對資料庫路徑"],
+      [JSON.stringify({ configVersion: 1, desired: { databasePath: "/a/../b.sqlite" } }), "沒有支援的絕對資料庫路徑"],
     ];
     for (const [text, reason] of cases) {
       fs.writeFileSync(settingsFile, text);
@@ -135,11 +135,11 @@ describe("resolveDesktopDatabase", () => {
       expect(resolution.kind === "invalid" && resolution.reason).toContain(reason);
     }
     fs.writeFileSync(settingsFile, "x".repeat(70 * 1024));
-    expect(resolveDesktopDatabase(root)).toEqual({ kind: "invalid", reason: "settings file is too large" });
+    expect(resolveDesktopDatabase(root)).toEqual({ kind: "invalid", reason: "設定檔過大" });
     fs.writeFileSync(path.join(root, DESKTOP_SETTINGS_POINTER_FILE_NAME), "relative/path\n");
     expect(resolveDesktopDatabase(root)).toEqual({
       kind: "invalid",
-      reason: "settings pointer is not an absolute path",
+      reason: "指標檔的內容不是支援的絕對路徑",
     });
   });
 
@@ -149,11 +149,11 @@ describe("resolveDesktopDatabase", () => {
     await writeDesktopSettingsAtomic(real, settings(database));
     fs.symlinkSync(real, settingsFile);
     await writeDesktopSettingsPointer(root, settingsFile);
-    expect(resolveDesktopDatabase(root)).toEqual({ kind: "invalid", reason: "settings file is a symbolic link" });
+    expect(resolveDesktopDatabase(root)).toEqual({ kind: "invalid", reason: "設定檔是符號連結" });
 
     await writeDesktopSettingsPointer(root, real);
     fs.chmodSync(real, 0o666);
-    expect(resolveDesktopDatabase(root)).toEqual({ kind: "invalid", reason: "settings file is writable by everyone" });
+    expect(resolveDesktopDatabase(root)).toEqual({ kind: "invalid", reason: "設定檔所有人都可寫入" });
     fs.chmodSync(real, 0o600);
     const foreign: DesktopDatabaseDeps = {
       platform: "linux",
@@ -163,7 +163,7 @@ describe("resolveDesktopDatabase", () => {
     };
     expect(resolveDesktopDatabase(root, foreign)).toEqual({
       kind: "invalid",
-      reason: "settings pointer is owned by another user",
+      reason: "指標檔屬於其他使用者",
     });
   });
 
@@ -212,18 +212,60 @@ describe("runLauncher hands the App's database to Agent actions", () => {
     expect(serve.seen).toEqual([undefined]);
   });
 
-  it("keeps the standalone rule without App settings; an unusable file costs MCP one line and hooks nothing", async () => {
+  it("keeps the standalone rule without App settings", async () => {
     const none = launchHost();
     for (const action of ACTIONS) await launch(action, none);
     expect(none.seen).toEqual([undefined, undefined, undefined]);
     expect(none.stderr).toEqual([]);
-
+    // A pointer whose settings are not written yet (first run not finished) is also "no App settings".
     await writeDesktopSettingsPointer(root, settingsFile);
-    fs.writeFileSync(settingsFile, "{ damaged");
-    const damaged = launchHost();
-    for (const action of ACTIONS) await launch(action, damaged);
-    expect(damaged.seen).toEqual([undefined, undefined, undefined]);
-    expect(damaged.stderr).toHaveLength(1);
-    expect(damaged.stderr[0]).toContain("改用預設的資料庫位置規則");
+    const pending = launchHost();
+    for (const action of ACTIONS) await launch(action, pending);
+    expect(pending.seen).toEqual([undefined, undefined, undefined]);
+    expect(pending.stderr).toEqual([]);
   });
+
+  it("never falls back to another database once App settings exist but are unusable", async () => {
+    await writeDesktopSettingsPointer(root, settingsFile);
+    const unusable: [string, string][] = [
+      ["damaged JSON", "{ damaged"],
+      ["UNC path", JSON.stringify({ configVersion: 1, desired: { databasePath: "\\\\server\\share\\wi.sqlite" } })],
+      ["relative path", JSON.stringify({ configVersion: 1, desired: { databasePath: "rel.sqlite" } })],
+    ];
+    for (const [, text] of unusable) {
+      fs.writeFileSync(settingsFile, text);
+      const mcp = launchHost();
+      const outcome = await runLauncher({ runtimeDirectory, argv: ["mcp"] }, mcp.host);
+      // MCP: one zh-TW line, non-zero exit, the server never starts.
+      expect(outcome).toEqual({ kind: "exit", code: 78 });
+      expect(mcp.seen).toEqual([]);
+      expect(mcp.stderr).toHaveLength(1);
+      expect(mcp.stderr[0]).toContain("Agent 未啟動");
+      expect(mcp.stderr[0]).not.toMatch(/[A-Za-z]{4,} [A-Za-z]{3,}/);
+      // Hooks: silent, exit 0, and no work started.
+      for (const action of ["claude-finalize-reminder", "codex-finalize-reminder"]) {
+        const hook = launchHost();
+        expect(await runLauncher({ runtimeDirectory, argv: [action] }, hook.host)).toEqual({ kind: "exit", code: 0 });
+        expect(hook.seen).toEqual([]);
+        expect(hook.stderr).toEqual([]);
+      }
+    }
+  });
+
+  it.each(["WORK_INTELLIGENCE_HOME", "WORK_INTELLIGENCE_CONFIG_DIR"])(
+    "leaves the database to the standalone rule when %s is set",
+    async (variable) => {
+      await writeDesktopSettingsPointer(root, settingsFile);
+      await writeDesktopSettingsAtomic(settingsFile, settings(path.join(root, "app.sqlite")));
+      const explicit = launchHost({ [variable]: path.join(root, "mine") });
+      for (const action of ACTIONS) await launch(action, explicit);
+      expect(explicit.seen).toEqual([undefined, undefined, undefined]);
+      // Not even unusable App settings get in the way of an explicit location.
+      fs.writeFileSync(settingsFile, "{ damaged");
+      const damaged = launchHost({ [variable]: path.join(root, "mine") });
+      for (const action of ACTIONS) await launch(action, damaged);
+      expect(damaged.seen).toEqual([undefined, undefined, undefined]);
+      expect(damaged.stderr).toEqual([]);
+    },
+  );
 });

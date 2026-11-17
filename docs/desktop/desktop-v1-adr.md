@@ -306,9 +306,10 @@
 - **1.6.49 的實作（launcher 交給 Agent 的資料庫）**：
   - App 在 launcher root 寫入 `desktop-settings-path`，內容只有 App 設定檔的絕對路徑，內容未變則略過。這是指標，不含資料庫路徑。
   - 沒有設定 `WORK_INTELLIGENCE_DB` 時，launcher 每次執行都讀這個指標與設定檔，把 `desired.databasePath` 交給 MCP 與兩個 hook。明確設定的 `WORK_INTELLIGENCE_DB` 一律優先。
-  - 兩個檔案都必須是本人擁有、不可被他人寫入的一般檔案（不得是 symlink），大小有上限。路徑須為絕對路徑：Windows 只接受磁碟機代號路徑。
+  - 兩個檔案都必須是本人擁有、不可被他人寫入的一般檔案（不得是 symlink），大小有上限。路徑須為絕對路徑：Windows 只接受磁碟機代號路徑。App 設定檔與 launcher 共用同一條規則（`isSupportedDatabasePath`）：首次執行頁與設定 schema 拒絕 UNC（`\\server\share`）與 `\\?\`、`\\.\` 裝置路徑，因為 SQLite 走 SMB 不安全。
+  - 明確設定 `WORK_INTELLIGENCE_HOME` 或 `WORK_INTELLIGENCE_CONFIG_DIR` 時，launcher 不交接 App 的資料庫，沿用獨立版規則。
   - 沒有指標或尚未設定（首次執行頁還沒完成）時，沿用獨立版的資料庫規則。
-  - 指標或設定無效時同樣退回獨立版規則：MCP 輸出一行 stderr，hook 保持靜默。
+  - 指標已存在但設定無效（擁有者或權限錯誤、symlink、不是 JSON、路徑不支援等）時**不退回**獨立版：MCP 輸出一行 zh-TW stderr 並以 78 結束，不啟動；hook 保持靜默、exit 0，並略過工作，不會寫入另一個資料庫。
   - 測試涵蓋 MCP 與兩個 hook 解析到同一個資料庫，在 App 換資料庫後亦然（`tests/desktop-core/desktop-database.test.ts`）。
   - 每次 hook 的額外成本：Linux 上第一次讀取約 0.3–0.7 ms，中位數 0.44 ms，預算為 5 ms。Windows 與 macOS 的數字由 CI 的同一個測試量測並印出（`[hook cost]`）。
 - **威脅模型**：同一使用者的程序本來就能改寫 Agent 設定與 runtime 目錄，因此這些檢查只防止誤指向與意外的權限錯誤，不宣稱防禦同使用者的惡意程式。跨使用者的情境由 OS 權限與 ACL 處理（ADR-15）。

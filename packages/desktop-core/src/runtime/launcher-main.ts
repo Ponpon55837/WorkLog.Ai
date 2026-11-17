@@ -85,18 +85,30 @@ export async function probeSqlite(): Promise<SqliteProbe> {
   }
 }
 
+/** Set by the caller, either of these means "this checkout / config directory is mine": the App database stays out. */
+const EXPLICIT_LOCATION_VARIABLES = ["WORK_INTELLIGENCE_HOME", "WORK_INTELLIGENCE_CONFIG_DIR"] as const;
+
 /**
- * Points the action at the App's committed database (ADR-39) unless the caller named one: an explicit
- * `WORK_INTELLIGENCE_DB` always wins. Without a usable App choice the action keeps the standalone rule; an unusable
- * settings file says so in one stderr line, except for hooks, which stay silent.
+ * Points the action at the App's committed database (ADR-39) unless the caller chose a location: an explicit
+ * `WORK_INTELLIGENCE_DB`, `WORK_INTELLIGENCE_HOME` or `WORK_INTELLIGENCE_CONFIG_DIR` always wins. Without App settings
+ * (no pointer, or nothing committed yet) the action keeps the standalone rule. Once the App's settings exist but
+ * cannot be used there is NO fallback to another database: `false` means the action must not start, and MCP has
+ * already said why in one stderr line (hooks stay silent).
  */
-function useDesktopDatabase(launcherRoot: string, host: LauncherHost, quiet: boolean): void {
-  if (host.getEnv(DATABASE_ENVIRONMENT_VARIABLE)?.trim()) return;
+function useDesktopDatabase(launcherRoot: string, host: LauncherHost, quiet: boolean): boolean {
+  if (host.getEnv(DATABASE_ENVIRONMENT_VARIABLE)?.trim()) return true;
+  if (EXPLICIT_LOCATION_VARIABLES.some((name) => host.getEnv(name)?.trim())) return true;
   const resolution = host.desktopDatabase(launcherRoot);
   if (resolution.kind === "ok") host.setEnv(DATABASE_ENVIRONMENT_VARIABLE, resolution.databasePath);
-  else if (resolution.kind === "invalid" && !quiet) {
-    host.stderr(`桌面 App 的設定無法使用（${resolution.reason}），改用預設的資料庫位置規則。\n`);
+  else if (resolution.kind === "invalid") {
+    if (!quiet) {
+      host.stderr(
+        `桌面 App 的設定無法使用（${resolution.reason}），為避免寫入另一個資料庫，Agent 未啟動。請在 App 修復設定。\n`,
+      );
+    }
+    return false;
   }
+  return true;
 }
 
 /** The launcher root and runtime id implied by where this script lives: `<root>/runtimes/<runtimeId>/`. */
@@ -201,7 +213,9 @@ export async function runLauncher(input: LauncherInput, host: LauncherHost): Pro
     if (verified.manifest.runtimeKind === "node") {
       for (const name of Object.keys(ELECTRON_AS_NODE_ENV)) host.unsetEnv(name);
     }
-    if (action !== SERVE_ACTION) useDesktopDatabase(launcherRoot, host, failOpen);
+    if (action !== SERVE_ACTION && !useDesktopDatabase(launcherRoot, host, failOpen)) {
+      return { kind: "exit", code: failOpen ? 0 : LAUNCHER_EXIT_INVALID_RUNTIME };
+    }
     host.setArgv([host.execPath, entry, ...entryArgs]);
     await host.importModule(pathToFileURL(entry).href);
     return { kind: "handed-over" };

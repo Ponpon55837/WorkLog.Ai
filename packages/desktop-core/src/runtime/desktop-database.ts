@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { isSupportedDatabasePath } from "../settings/schema.js";
 
 /**
  * Which database the Agent entries started by the fixed shim open (ADR-39). The App records where its settings file is
@@ -22,7 +23,6 @@ export const DATABASE_ENVIRONMENT_VARIABLE = "WORK_INTELLIGENCE_DB";
 /** Both files are tiny; anything larger is not ours. */
 const MAX_POINTER_BYTES = 4096;
 const MAX_SETTINGS_BYTES = 64 * 1024;
-const WINDOWS_DRIVE_PATH = /^[A-Za-z]:\\/;
 
 export type DesktopDatabaseResolution =
   | { readonly kind: "none" }
@@ -50,21 +50,23 @@ function isMissing(error: unknown): boolean {
   return code === "ENOENT" || code === "ENOTDIR";
 }
 
-/** An absolute, normalized path for `platform`: a drive path on Windows (no UNC, no `\\?\`), `/…` elsewhere. */
+/**
+ * An absolute, normalized path for `platform` under the App's shared database path rule
+ * ({@link isSupportedDatabasePath}): a drive path on Windows (no UNC, no `\\?\`), `/…` elsewhere.
+ */
 export function isUsablePath(value: string, platform: NodeJS.Platform): boolean {
-  if (!value || value.includes("\0")) return false;
+  if (!isSupportedDatabasePath(value, platform)) return false;
   const api = platform === "win32" ? path.win32 : path.posix;
-  const absolute = platform === "win32" ? WINDOWS_DRIVE_PATH.test(value) : value.startsWith("/");
-  return absolute && api.normalize(value) === value;
+  return api.normalize(value) === value;
 }
 
 /** Same rules as the integration record's readers: a regular file of this user that nobody else may write. */
 function unsafeFile(stats: fs.Stats, deps: DesktopDatabaseDeps): string | undefined {
-  if (stats.isSymbolicLink()) return "is a symbolic link";
-  if (!stats.isFile()) return "is not a regular file";
+  if (stats.isSymbolicLink()) return "是符號連結";
+  if (!stats.isFile()) return "不是一般檔案";
   if (deps.platform === "win32") return undefined;
-  if (deps.uid !== undefined && stats.uid !== deps.uid) return "is owned by another user";
-  if ((stats.mode & 0o002) !== 0) return "is writable by everyone";
+  if (deps.uid !== undefined && stats.uid !== deps.uid) return "屬於其他使用者";
+  if ((stats.mode & 0o002) !== 0) return "所有人都可寫入";
   return undefined;
 }
 
@@ -72,7 +74,7 @@ function readSmallFile(file: string, limit: number, deps: DesktopDatabaseDeps): 
   const stats = deps.lstat(file);
   const unsafe = unsafeFile(stats, deps);
   if (unsafe) return unsafe;
-  if (stats.size > limit) return "is too large";
+  if (stats.size > limit) return "過大";
   return deps.readFile(file);
 }
 
@@ -82,16 +84,16 @@ export function databaseFromSettingsText(text: string, platform: NodeJS.Platform
   try {
     raw = JSON.parse(text.replace(/^\uFEFF/, ""));
   } catch {
-    return { kind: "invalid", reason: "settings are not JSON" };
+    return { kind: "invalid", reason: "設定檔不是 JSON" };
   }
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-    return { kind: "invalid", reason: "settings are not an object" };
+    return { kind: "invalid", reason: "設定檔不是物件" };
   }
   const settings = raw as { configVersion?: unknown; desired?: { databasePath?: unknown } | null };
-  if (settings.configVersion !== 1) return { kind: "invalid", reason: "unsupported settings version" };
+  if (settings.configVersion !== 1) return { kind: "invalid", reason: "不支援的設定版本" };
   const databasePath = settings.desired?.databasePath;
   if (typeof databasePath !== "string" || !isUsablePath(databasePath, platform)) {
-    return { kind: "invalid", reason: "settings name no absolute database path" };
+    return { kind: "invalid", reason: "設定檔沒有支援的絕對資料庫路徑（不支援網路共用與裝置路徑）" };
   }
   return { kind: "ok", databasePath };
 }
@@ -105,23 +107,23 @@ export function resolveDesktopDatabase(
   let settingsFile: string;
   try {
     const pointer = readSmallFile(pointerFile, MAX_POINTER_BYTES, deps);
-    if (typeof pointer === "string") return { kind: "invalid", reason: `settings pointer ${pointer}` };
+    if (typeof pointer === "string") return { kind: "invalid", reason: `指標檔${pointer}` };
     settingsFile = pointer
       .toString("utf8")
       .replace(/^\uFEFF/, "")
       .trim();
   } catch (error) {
-    return isMissing(error) ? { kind: "none" } : { kind: "invalid", reason: "settings pointer is unreadable" };
+    return isMissing(error) ? { kind: "none" } : { kind: "invalid", reason: "指標檔無法讀取" };
   }
   if (!isUsablePath(settingsFile, deps.platform)) {
-    return { kind: "invalid", reason: "settings pointer is not an absolute path" };
+    return { kind: "invalid", reason: "指標檔的內容不是支援的絕對路徑" };
   }
   try {
     const settings = readSmallFile(settingsFile, MAX_SETTINGS_BYTES, deps);
-    if (typeof settings === "string") return { kind: "invalid", reason: `settings file ${settings}` };
+    if (typeof settings === "string") return { kind: "invalid", reason: `設定檔${settings}` };
     return databaseFromSettingsText(settings.toString("utf8"), deps.platform);
   } catch (error) {
     // The App records the pointer before it is set up: no settings yet means no committed database.
-    return isMissing(error) ? { kind: "none" } : { kind: "invalid", reason: "settings file is unreadable" };
+    return isMissing(error) ? { kind: "none" } : { kind: "invalid", reason: "設定檔無法讀取" };
   }
 }
