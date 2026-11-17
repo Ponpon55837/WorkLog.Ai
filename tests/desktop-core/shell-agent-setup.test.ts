@@ -162,6 +162,8 @@ describe("buildRepairState legacyService", () => {
       running: "running",
       blocked: true,
       portInUse: true,
+      // No definition digest in the fixture: not one the App may disable.
+      canDisable: false,
       removeCommand: "cd /home/tester/checkout && pnpm service:uninstall",
       fallbackRemoveCommand: "systemctl --user disable work-intelligence",
     });

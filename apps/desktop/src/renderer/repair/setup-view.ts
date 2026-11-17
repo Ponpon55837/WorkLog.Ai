@@ -3,6 +3,7 @@ import { errorMessageFor, formatMessage, shellMessages } from "@work-intelligenc
 import { setupMessages, type SetupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
 import { button, checkbox, element, fact, focusedId, isChecked, restoreFocus, section, setLanguage } from "./dom.js";
 import { legacyBlock } from "./legacy-block.js";
+import { legacyDisableControls, legacyDisableOutcome, type LegacyDisableHost } from "./legacy-disable-view.js";
 import { createSetupMemory } from "./setup-memory.js";
 
 /**
@@ -133,6 +134,17 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
     return card;
   }
 
+  function disableHost(text: SetupMessages): LegacyDisableHost {
+    return {
+      api,
+      text,
+      rerender: () => {
+        if (current) render(current);
+      },
+      refresh: () => void refresh(),
+    };
+  }
+
   function render(state: SetupState): void {
     const text = setupMessages(state.locale);
     const focus = focusedId();
@@ -189,14 +201,18 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
 
     const conflictShown = state.defaults.legacyConflict || state.sources.some((source) => source.legacyConflict);
     if (state.legacy && (conflictShown || heldBack)) {
-      const extra = heldBack
+      const extra: Node[] = heldBack
         ? [
             element("div", { className: "actions" }, [
               button(text.legacyStartAnyway, "start-anyway", !busy, () => startAnyway(text)),
             ]),
           ]
         : [];
+      extra.push(...legacyDisableControls(disableHost(text), state.legacy.canDisable, !busy));
       blocks.push(legacyBlock(api, text, { ...state.legacy, blocked: heldBack !== undefined }, extra));
+    } else if (!state.legacy) {
+      const outcome = legacyDisableOutcome(disableHost(text));
+      if (outcome) blocks.push(outcome);
     }
 
     const recommended = state.sources.find((source) => source.id === state.recommendedId);

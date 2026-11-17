@@ -1,4 +1,4 @@
-import { writeSync } from "node:fs";
+import { existsSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { app, dialog } from "electron";
@@ -50,6 +50,7 @@ import { createFirstRun } from "./first-run.js";
 import { createIntegrationPublisher } from "./integration-record.js";
 import { registerRepairIpc } from "./ipc.js";
 import { createLegacyGuard } from "./legacy.js";
+import { createLegacyDisable, syntheticLegacyDisable } from "./legacy-disable.js";
 import { createLogger } from "./log.js";
 import { createErrorNotifier, createRecoveredNotifier } from "./notify.js";
 import { createQuit } from "./quit.js";
@@ -200,7 +201,13 @@ function runShell(configInputs: DesktopConfigInputs): void {
       : {
           detect: async (): Promise<LegacyServiceDetection> => {
             try {
-              return JSON.parse(await readFile(legacyFile, "utf8")) as LegacyServiceDetection;
+              const detection = JSON.parse(await readFile(legacyFile, "utf8")) as LegacyServiceDetection;
+              // A synthetic definition with a digest is gone once its file is (as a real one is): the disable test.
+              const removed =
+                detection.kind === "found" &&
+                detection.definitionDigest !== undefined &&
+                !existsSync(detection.definitionPath);
+              return removed ? { kind: "none" } : detection;
             } catch {
               return { kind: "none" };
             }
@@ -265,6 +272,30 @@ function runShell(configInputs: DesktopConfigInputs): void {
       state.candidates.setPreview(id, previewToCandidate(await supervisor.preview(path)));
       window.open("repair");
     },
+  });
+  const legacyDisable = createLegacyDisable({
+    state,
+    legacy,
+    coordinator,
+    supervisor,
+    backend,
+    openRepairWindow: () => window.open("repair"),
+    log,
+    environment: process.env,
+    confirmDialog: async (hardStop) => {
+      const text = setupMessages(state.locale);
+      const { response } = await dialog.showMessageBox({
+        type: "warning",
+        message: text.legacyDisableDialog,
+        detail: hardStop ? text.legacyDisableHardStop : text.legacyDisableIntro,
+        buttons: [text.legacyDisableConfirm, text.legacyDisableCancel],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      });
+      return response === 0;
+    },
+    ...(legacyFile === undefined ? {} : syntheticLegacyDisable(legacyFile)),
   });
   const openSetup = (): void => {
     window.open("setup");
@@ -379,7 +410,20 @@ function runShell(configInputs: DesktopConfigInputs): void {
     });
     state.locale = resolveShellLocale(app.getLocale());
     backend.useLaunchMode(state.launchMode);
-    registerRepairIpc({ state, paths, window, info, backend, supervisor, success, firstRun, agents, legacy, log });
+    registerRepairIpc({
+      state,
+      paths,
+      window,
+      info,
+      backend,
+      supervisor,
+      success,
+      firstRun,
+      agents,
+      legacy,
+      legacyDisable,
+      log,
+    });
     if (process.platform === "darwin" && state.launchMode === "background") app.dock?.hide();
     tray.create();
     const loaded = await early.settingsLoaded;

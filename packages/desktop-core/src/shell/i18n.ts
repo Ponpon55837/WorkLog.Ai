@@ -5,7 +5,11 @@ export type ShellLocale = "zh-TW" | "en";
 
 /** Codes of failures that happen in the shell itself, before or around the backend child. */
 export type ShellErrorCode =
-  "RUNTIME_INSTALL_FAILED" | "RUNTIME_UNSAFE_PERMISSIONS" | "RUNTIME_ACL_UNREADABLE" | "LEGACY_SERVICE_ACTIVE";
+  | "RUNTIME_INSTALL_FAILED"
+  | "RUNTIME_UNSAFE_PERMISSIONS"
+  | "RUNTIME_ACL_UNREADABLE"
+  | "LEGACY_SERVICE_ACTIVE"
+  | "DB_INTEGRITY_CHECK_FAILED";
 
 /** One error code as the user reads it: what happened and what to try. */
 export interface ErrorMessage {
@@ -199,6 +203,10 @@ const zhTW: ShellMessages = {
     DB_OFFLINE: { title: "資料庫所在的儲存位置離線", hint: "請接上外接硬碟或網路磁碟後重試。" },
     DB_PERMISSION: { title: "沒有權限讀取資料庫", hint: "請確認檔案的存取權限後重試。" },
     DB_IDENTITY_CHANGED: { title: "資料庫已不是先前確認的那一份", hint: "檔案可能被取代。請重新選擇並確認資料庫。" },
+    DB_INTEGRITY_CHECK_FAILED: {
+      title: "資料庫檢查沒有通過",
+      hint: "舊的登入服務停下後，這份資料庫的檢查發現問題，App 沒有開啟它。請從備份還原，或選擇另一份資料庫。",
+    },
     SCHEMA_TOO_NEW: { title: "資料庫比這個版本新", hint: "請更新 Work Intelligence 後重試。" },
     SCHEMA_MIGRATION_BLOCKED: { title: "資料庫需要更新但沒有完成", hint: "你的資料沒有被改動。請查看備份後重試。" },
     PORT_OCCUPIED_BY_OTHER: { title: "連接埠被其他程式占用", hint: "請關閉占用的程式，或在設定中換一個連接埠。" },
@@ -375,6 +383,10 @@ const en: ShellMessages = {
     DB_IDENTITY_CHANGED: {
       title: "The database is no longer the one you confirmed",
       hint: "The file may have been replaced. Choose and confirm the database again.",
+    },
+    DB_INTEGRITY_CHECK_FAILED: {
+      title: "The database did not pass its check",
+      hint: "After the old login service stopped, a check of this database found a problem, so the App did not open it. Restore it from a backup, or choose another database.",
     },
     SCHEMA_TOO_NEW: { title: "The database is newer than this version", hint: "Update Work Intelligence and retry." },
     SCHEMA_MIGRATION_BLOCKED: {

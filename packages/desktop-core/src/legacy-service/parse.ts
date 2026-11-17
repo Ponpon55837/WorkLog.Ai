@@ -12,6 +12,8 @@ export interface InterpretedDefinition {
   recognised: boolean;
   repositoryRoot?: string;
   databasePath?: string;
+  /** Where the service writes its backups (absolute in what the installer writes); only from a recognised definition. */
+  backupDirectory?: string;
   port?: number;
 }
 
@@ -165,7 +167,12 @@ function interpretRunnerArguments(
   } catch {
     databasePath = undefined;
   }
-  return { recognised: true, repositoryRoot, ...(databasePath && databasePath !== ":memory:" ? { databasePath } : {}) };
+  return {
+    recognised: true,
+    repositoryRoot,
+    ...(databasePath && databasePath !== ":memory:" ? { databasePath } : {}),
+    ...(path.isAbsolute(backup) ? { backupDirectory: backup } : {}),
+  };
 }
 
 function interpretLaunchAgent(text: string): InterpretedDefinition {

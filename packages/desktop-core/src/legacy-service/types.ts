@@ -46,6 +46,10 @@ export interface LegacyServiceFound {
   /** Only parsed from a recognised definition. */
   repositoryRoot?: string;
   databasePath?: string;
+  /** The service's backup folder, when the recognised definition names an absolute one. */
+  backupDirectory?: string;
+  /** SHA-256 of the recognised definition text (see `legacyDefinitionDigest`); only from a recognised definition. */
+  definitionDigest?: string;
   /** From the definition when it names WORK_INTELLIGENCE_PORT, otherwise the server default (the definition never sets it). */
   port?: number;
   running: LegacyServiceRunning;

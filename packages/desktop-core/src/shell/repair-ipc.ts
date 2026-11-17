@@ -28,6 +28,9 @@ export const REPAIR_CHANNELS = {
   agentsUndo: "agents:undo",
   agentsSelfTest: "agents:self-test",
   agentsUseCheckoutDatabase: "agents:use-checkout-database",
+  legacyDisablePreview: "legacy:disable-preview",
+  legacyDisableConfirm: "legacy:disable-confirm",
+  legacyStartNow: "legacy:start-now",
 } as const;
 
 /** What the one App window shows; main decides, the page asks. */
@@ -81,7 +84,44 @@ export const repairInputSchemas = {
   agentsSelfTest: z.strictObject({}),
   /** Opens the App's database change for the database this Agent's checkout uses; main reads the path itself. */
   agentsUseCheckoutDatabase: z.strictObject({ agent: z.enum(SETUP_AGENT_IDS) }),
+  /** Read-only: what 「停用舊的登入服務」 would do. Nothing is stopped or removed. */
+  legacyDisablePreview: z.strictObject({}),
+  /** Disables exactly what this preview showed; `continueWhileBusy`: the user saw the import/backup warning and went on. */
+  legacyDisableConfirm: z.strictObject({ previewId: z.uuid(), continueWhileBusy: z.boolean().optional() }),
+  /** 「立即啟動」 after a disable; main checks again that it is still offered. */
+  legacyStartNow: z.strictObject({}),
 } as const;
+
+/** What the 「停用舊的登入服務」 preview shows; the step lines are for 「詳細步驟」 only. */
+export interface LegacyDisablePreview {
+  readonly previewId: string;
+  readonly running: boolean;
+  /** Windows: the running old service is ended at once (no graceful shutdown). */
+  readonly hardStop: boolean;
+  /** An import or backup of the old service looks like it is running. */
+  readonly busy: boolean;
+  /** The old service used the App's own database (it is checked before the App opens it). */
+  readonly sameDatabase: boolean;
+  readonly steps: readonly string[];
+}
+
+export type LegacyDisablePreviewResult =
+  | { readonly ok: true; readonly preview: LegacyDisablePreview }
+  | { readonly ok: false; readonly reason: "unavailable" };
+
+export type LegacyDisableConfirmResult =
+  | { readonly ok: true; readonly offerStart: boolean }
+  | {
+      readonly ok: false;
+      readonly reason:
+        "invalid" | "cancelled" | "busy" | "changed" | "still-running" | "failed" | "database-check-failed";
+      /** `failed`: whether part of the registration was already removed. */
+      readonly removed?: boolean;
+    };
+
+export type LegacyDisableStartResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly reason: "invalid" | "busy" | "failed"; readonly errorCode?: string };
 
 /** What an Agent page action answers. */
 export type AgentsActionResult =
@@ -138,6 +178,9 @@ export interface RepairApi {
   agentsApply(previewId: string, acknowledgeUndiffable?: boolean): Promise<AgentsActionResult>;
   agentsDiscard(): Promise<AgentsActionResult>;
   agentsUndo(): Promise<AgentsActionResult>;
+  legacyDisablePreview(): Promise<LegacyDisablePreviewResult>;
+  legacyDisableConfirm(previewId: string, continueWhileBusy?: boolean): Promise<LegacyDisableConfirmResult>;
+  legacyStartNow(): Promise<LegacyDisableStartResult>;
   agentsSelfTest(): Promise<AgentsActionResult>;
   agentsUseCheckoutDatabase(agent: SetupAgentId): Promise<AgentsActionResult>;
 }

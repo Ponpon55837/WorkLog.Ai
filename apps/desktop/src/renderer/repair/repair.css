@@ -344,3 +344,17 @@ button:disabled {
     animation: none !important;
   }
 }
+
+/* 「停用舊的登入服務…」: the preview and its outcome inside (or in place of) the old-service card. */
+.legacy-disable {
+  margin-top: 12px;
+}
+
+.legacy-disable .steps {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.success-text {
+  color: var(--success);
+}

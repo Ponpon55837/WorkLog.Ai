@@ -15,6 +15,7 @@ import type { AgentsPage } from "./agents.js";
 import type { BackendController } from "./backend.js";
 import type { FirstRun } from "./first-run.js";
 import type { LegacyGuard } from "./legacy.js";
+import type { LegacyDisableController } from "./legacy-disable.js";
 import type { DesktopPaths } from "./config.js";
 import type { Logger } from "./log.js";
 import type { RepairInfo } from "./repair-info.js";
@@ -37,6 +38,7 @@ export interface IpcOptions {
   readonly firstRun: FirstRun;
   readonly agents: AgentsPage;
   readonly legacy: LegacyGuard;
+  readonly legacyDisable: LegacyDisableController;
   readonly log: Logger;
 }
 
@@ -46,7 +48,8 @@ const parser =
     schema.safeParse(raw);
 
 export function registerRepairIpc(options: IpcOptions): void {
-  const { state, paths, window, info, backend, supervisor, success, firstRun, agents, legacy, log } = options;
+  const { state, paths, window, info, backend, supervisor, success, firstRun, agents, legacy, legacyDisable, log } =
+    options;
 
   function isTrusted(event: IpcMainInvokeEvent): boolean {
     const frame = event.senderFrame;
@@ -253,5 +256,30 @@ export function registerRepairIpc(options: IpcOptions): void {
   handle(REPAIR_CHANNELS.agentsSelfTest, parser(repairInputSchemas.agentsSelfTest), () => agents.selfTest());
   handle(REPAIR_CHANNELS.agentsUseCheckoutDatabase, parser(repairInputSchemas.agentsUseCheckoutDatabase), ({ agent }) =>
     agents.useCheckoutDatabase(agent),
+  );
+
+  /** One page action at a time, like the repair actions; the disable and its start never overlap another. */
+  async function exclusive<T>(busy: T, task: () => Promise<T>): Promise<T> {
+    if (state.busy) return busy;
+    state.busy = true;
+    state.touch();
+    try {
+      return await task();
+    } finally {
+      state.busy = false;
+      state.touch();
+    }
+  }
+
+  handle(REPAIR_CHANNELS.legacyDisablePreview, parser(repairInputSchemas.legacyDisablePreview), () =>
+    legacyDisable.preview(),
+  );
+  handle(REPAIR_CHANNELS.legacyDisableConfirm, parser(repairInputSchemas.legacyDisableConfirm), (input) =>
+    exclusive({ ok: false, reason: "busy" } as const, () =>
+      legacyDisable.confirm(input.previewId, input.continueWhileBusy === true),
+    ),
+  );
+  handle(REPAIR_CHANNELS.legacyStartNow, parser(repairInputSchemas.legacyStartNow), () =>
+    exclusive({ ok: false, reason: "busy" } as const, () => legacyDisable.startNow()),
   );
 }

@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { lstat, readFile } from "node:fs/promises";
 import process from "node:process";
 import { windowsPowerShell } from "@work-intelligence/shared/windows-system-tool";
@@ -223,6 +224,11 @@ async function readDefinition(
   return withinDeadline(read(path), remaining());
 }
 
+/** SHA-256 (hex) of the decoded definition text: the disable flow acts only while the definition still has this digest. */
+export function legacyDefinitionDigest(text: string): string {
+  return createHash("sha256").update(text, "utf8").digest("hex");
+}
+
 /**
  * Read-only check for the login service `pnpm service:install` (and `pnpm bootstrap`) leaves behind: two backends on one
  * database must not run silently. Nothing is written, stopped or deleted; every failure maps to `none`, an
@@ -279,7 +285,7 @@ export async function detectLegacyService(options: DetectLegacyServiceOptions): 
     platform === "darwin" && query.registration === "registered"
       ? launchdEnabled(query, interpreted.recognised ? text : undefined)
       : query.enabled;
-  const { repositoryRoot, databasePath, port } = interpreted;
+  const { repositoryRoot, databasePath, backupDirectory, port } = interpreted;
   return {
     kind: "found",
     platform,
@@ -288,7 +294,9 @@ export async function detectLegacyService(options: DetectLegacyServiceOptions): 
     recognised: interpreted.recognised,
     ...(repositoryRoot ? { repositoryRoot } : {}),
     ...(databasePath ? { databasePath } : {}),
+    ...(backupDirectory ? { backupDirectory } : {}),
     ...(interpreted.recognised ? { port: port ?? LEGACY_DEFAULT_PORT } : {}),
+    ...(interpreted.recognised && text !== undefined ? { definitionDigest: legacyDefinitionDigest(text) } : {}),
     running: query.running,
     ...(enabled === undefined ? {} : { enabled }),
     ...(repositoryRoot ? { removeCommand: legacyRemoveCommand(platform, repositoryRoot) } : {}),

@@ -2,6 +2,7 @@ import { realpathSync } from "node:fs";
 import path from "node:path";
 import type { DbGroupStatus, DbSourceDecision, DbSourceGroup, DbSourceKind } from "../db-source/types.js";
 import { canonicalInstallationPath } from "../integration/record.js";
+import { canDisableLegacyService } from "../legacy-service/disable.js";
 import type { LegacyServiceDetection, LegacyServiceFound } from "../legacy-service/types.js";
 import { canCreateNewDatabase } from "./setup-start.js";
 import type { LaunchMode } from "./launch-mode.js";
@@ -41,6 +42,8 @@ export interface SetupLegacyView {
   /** It is not running now but starts at the next login. */
   readonly startsAtLogin: boolean;
   readonly recognised: boolean;
+  /** 「停用舊的登入服務」 is offered (see `canDisableLegacyService`). */
+  readonly canDisable: boolean;
   readonly databaseDisplay?: string;
   /** `cd … && pnpm service:uninstall` (PowerShell form on Windows), when the checkout is known. */
   readonly removeCommand?: string;
@@ -294,6 +297,7 @@ export function buildSetupState(inputs: SetupStateInputs): SetupState {
           running: legacy.running,
           startsAtLogin: legacy.running === "stopped" && legacy.enabled === "enabled",
           recognised: legacy.recognised,
+          canDisable: canDisableLegacyService(legacy),
           ...(legacy.databasePath === undefined ? {} : { databaseDisplay: show(legacy.databasePath) }),
           ...(legacy.removeCommand === undefined ? {} : { removeCommand: legacy.removeCommand }),
           fallbackRemoveCommand: legacy.fallbackRemoveCommand,
