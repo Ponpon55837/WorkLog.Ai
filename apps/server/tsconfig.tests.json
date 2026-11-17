@@ -5,6 +5,7 @@
     "rootDir": "../..",
     "baseUrl": ".",
     "paths": {
+      "@work-intelligence/agent-setup": ["../../packages/agent-setup/src/index.ts"],
       "@work-intelligence/core": ["../../packages/core/src/index.ts"],
       "@work-intelligence/schema": ["../../packages/schema/src/index.ts"],
       "@work-intelligence/shared": ["../../packages/shared/src/index.ts"],

@@ -1,0 +1,312 @@
+=== .agents/skills/work-intelligence/SKILL.md
+# Work Intelligence
+
+=== .claude.json
+{
+  "mcpServers": {
+    "existing": {
+      "command": "node",
+      "args": [
+        "existing.js"
+      ]
+    },
+    "work-intelligence": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "<TMP>/repo with space's name/apps/mcp/dist/launcher.js"
+      ]
+    }
+  }
+}
+
+=== .claude.json.work-intelligence.backup-20260928T123456000Z-<HASH>
+{
+  "mcpServers": {
+    "existing": {
+      "command": "node",
+      "args": [
+        "existing.js"
+      ]
+    }
+  }
+}
+
+=== .claude/settings.json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node '<TMP>/repo with space'\\''s name/apps/mcp/dist/finalize-reminder.js'"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node '<TMP>/repo with space'\\''s name/apps/mcp/dist/finalize-reminder.js'"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^mcp__.*(work_finalize_session|work_write_idempotent)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node '<TMP>/repo with space'\\''s name/apps/mcp/dist/finalize-reminder.js'"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node '<TMP>/repo with space'\\''s name/apps/mcp/dist/finalize-reminder.js'"
+          }
+        ]
+      }
+    ]
+  }
+}
+
+=== .claude/skills/work-intelligence/SKILL.md
+# Work Intelligence
+
+=== .codex/config.toml
+# prefs
+model = "fixture-model"
+# >>> Work Intelligence setup:agents >>>
+[mcp_servers.work-intelligence]
+command = "node"
+args = ["<TMP>/repo with space's name/apps/mcp/dist/launcher.js"]
+# <<< Work Intelligence setup:agents <<<
+
+=== .codex/config.toml.work-intelligence.backup-20260928T123456000Z-<HASH>
+# prefs
+model = "fixture-model"
+
+=== .codex/hooks.json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "^(apply_patch|.*(work_finalize_session|work_write_idempotent))$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node '<TMP>/repo with space'\\''s name/apps/mcp/dist/codex-finalize-reminder.js'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node '<TMP>/repo with space'\\''s name/apps/mcp/dist/codex-finalize-reminder.js'"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node '<TMP>/repo with space'\\''s name/apps/mcp/dist/codex-finalize-reminder.js'"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^.*(work_finalize_session|work_write_idempotent)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node '<TMP>/repo with space'\\''s name/apps/mcp/dist/codex-finalize-reminder.js'"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node '<TMP>/repo with space'\\''s name/apps/mcp/dist/codex-finalize-reminder.js'"
+          }
+        ]
+      }
+    ]
+  }
+}
+
+=== .codex/skills/work-intelligence/SKILL.md
+# Work Intelligence
+
+=== .work-intelligence-agent-setup.json
+{
+  "version": 2,
+  "codexHomeDirectory": "<TMP>/home/.codex",
+  "claudeConfigDirectory": "<TMP>/home/.claude",
+  "components": [
+    {
+      "id": "codexSkill",
+      "kind": "file",
+      "expected": "a7b8ba0a87721a8a01e6d4e7c1821ef1649756a279daf9879c7efda355a0eb3b"
+    },
+    {
+      "id": "codexLegacySkill",
+      "kind": "file",
+      "expected": "a7b8ba0a87721a8a01e6d4e7c1821ef1649756a279daf9879c7efda355a0eb3b"
+    },
+    {
+      "id": "claudeSkill",
+      "kind": "file",
+      "expected": "a7b8ba0a87721a8a01e6d4e7c1821ef1649756a279daf9879c7efda355a0eb3b"
+    },
+    {
+      "id": "codexMcp",
+      "kind": "toml-block",
+      "expected": "# >>> Work Intelligence setup:agents >>>\n[mcp_servers.work-intelligence]\ncommand = \"node\"\nargs = [\"<TMP>/repo with space's name/apps/mcp/dist/launcher.js\"]\n# <<< Work Intelligence setup:agents <<<\n"
+    },
+    {
+      "id": "claudeMcp",
+      "kind": "json-property",
+      "expected": {
+        "type": "stdio",
+        "command": "node",
+        "args": [
+          "<TMP>/repo with space's name/apps/mcp/dist/launcher.js"
+        ]
+      }
+    },
+    {
+      "id": "claudeStopHook",
+      "kind": "json-array-item",
+      "expected": {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node '<TMP>/repo with space'\\''s name/apps/mcp/dist/finalize-reminder.js'"
+          }
+        ]
+      }
+    },
+    {
+      "id": "claudePreCompactHook",
+      "kind": "json-array-item",
+      "expected": {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node '<TMP>/repo with space'\\''s name/apps/mcp/dist/finalize-reminder.js'"
+          }
+        ]
+      }
+    },
+    {
+      "id": "claudePreToolUseHook",
+      "kind": "json-array-item",
+      "expected": {
+        "matcher": "^mcp__.*(work_finalize_session|work_write_idempotent)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node '<TMP>/repo with space'\\''s name/apps/mcp/dist/finalize-reminder.js'"
+          }
+        ]
+      }
+    },
+    {
+      "id": "claudeSessionStartHook",
+      "kind": "json-array-item",
+      "expected": {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node '<TMP>/repo with space'\\''s name/apps/mcp/dist/finalize-reminder.js'"
+          }
+        ]
+      }
+    },
+    {
+      "id": "codexPostToolUseHook",
+      "kind": "json-array-item",
+      "expected": {
+        "matcher": "^(apply_patch|.*(work_finalize_session|work_write_idempotent))$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node '<TMP>/repo with space'\\''s name/apps/mcp/dist/codex-finalize-reminder.js'"
+          }
+        ]
+      }
+    },
+    {
+      "id": "codexStopHook",
+      "kind": "json-array-item",
+      "expected": {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node '<TMP>/repo with space'\\''s name/apps/mcp/dist/codex-finalize-reminder.js'"
+          }
+        ]
+      }
+    },
+    {
+      "id": "codexUserPromptSubmitHook",
+      "kind": "json-array-item",
+      "expected": {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node '<TMP>/repo with space'\\''s name/apps/mcp/dist/codex-finalize-reminder.js'"
+          }
+        ]
+      }
+    },
+    {
+      "id": "codexPreToolUseHook",
+      "kind": "json-array-item",
+      "expected": {
+        "matcher": "^.*(work_finalize_session|work_write_idempotent)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node '<TMP>/repo with space'\\''s name/apps/mcp/dist/codex-finalize-reminder.js'"
+          }
+        ]
+      }
+    },
+    {
+      "id": "codexSessionStartHook",
+      "kind": "json-array-item",
+      "expected": {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node '<TMP>/repo with space'\\''s name/apps/mcp/dist/codex-finalize-reminder.js'"
+          }
+        ]
+      }
+    }
+  ]
+}

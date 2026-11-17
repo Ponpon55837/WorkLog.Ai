@@ -7,6 +7,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "dependencies": {
+    "@work-intelligence/agent-setup": "workspace:*",
     "@work-intelligence/core": "workspace:*",
     "@work-intelligence/schema": "workspace:*",
     "@work-intelligence/shared": "workspace:*",

@@ -99,6 +99,9 @@ importers:
 
   apps/server:
     dependencies:
+      '@work-intelligence/agent-setup':
+        specifier: workspace:*
+        version: link:../../packages/agent-setup
       '@work-intelligence/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -158,6 +161,15 @@ importers:
       vue-tsc:
         specifier: ^3.3.14
         version: 3.3.14(typescript@5.9.3)
+
+  packages/agent-setup:
+    dependencies:
+      smol-toml:
+        specifier: ^1.9.1
+        version: 1.9.1
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
 
   packages/core: {}
 

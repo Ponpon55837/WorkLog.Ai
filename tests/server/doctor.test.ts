@@ -17,7 +17,7 @@ import {
   shouldSuggestReclaim,
   sqliteFinding,
 } from "../../apps/server/src/doctor.js";
-import { inspectAgentSkillCopies, commandForAgentHook } from "../../apps/server/src/agent-setup.js";
+import { inspectAgentSkillCopies, commandForAgentHook } from "@work-intelligence/agent-setup";
 import {
   getMcpRuntimeDirectory,
   getMcpRuntimeStatus,
