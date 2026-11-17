@@ -4,7 +4,8 @@ import type { BackendErrorCode } from "../backend/errors.js";
 export type ShellLocale = "zh-TW" | "en";
 
 /** Codes of failures that happen in the shell itself, before or around the backend child. */
-export type ShellErrorCode = "RUNTIME_INSTALL_FAILED" | "RUNTIME_UNSAFE_PERMISSIONS" | "RUNTIME_ACL_UNREADABLE";
+export type ShellErrorCode =
+  "RUNTIME_INSTALL_FAILED" | "RUNTIME_UNSAFE_PERMISSIONS" | "RUNTIME_ACL_UNREADABLE" | "LEGACY_SERVICE_ACTIVE";
 
 /** One error code as the user reads it: what happened and what to try. */
 export interface ErrorMessage {
@@ -180,6 +181,10 @@ const zhTW: ShellMessages = {
     unknown: "尚未檢查",
   },
   errors: {
+    LEGACY_SERVICE_ACTIVE: {
+      title: "舊的登入服務也在使用這份資料庫",
+      hint: "為了避免兩個後端同時使用同一份資料庫，App 沒有啟動自己的後端。請先移除舊的登入服務（pnpm bootstrap），或在這個視窗選擇「仍要啟動」。",
+    },
     DB_MISSING: { title: "找不到資料庫檔案", hint: "檔案可能被移動或刪除。請選擇資料庫，或從備份還原。" },
     DB_OFFLINE: { title: "資料庫所在的儲存位置離線", hint: "請接上外接硬碟或網路磁碟後重試。" },
     DB_PERMISSION: { title: "沒有權限讀取資料庫", hint: "請確認檔案的存取權限後重試。" },
@@ -340,6 +345,10 @@ const en: ShellMessages = {
     unknown: "Not checked yet",
   },
   errors: {
+    LEGACY_SERVICE_ACTIVE: {
+      title: "The old login service also uses this database",
+      hint: "To keep two backends off one database, the App did not start its own backend. Remove the old login service (pnpm bootstrap) first, or choose “Start anyway” in this window.",
+    },
     DB_MISSING: {
       title: "The database file was not found",
       hint: "It may have been moved or deleted. Choose a database, or restore from a backup.",

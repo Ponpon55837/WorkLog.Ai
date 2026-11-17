@@ -7,3 +7,4 @@ export * from "./backend/index.js";
 export * from "./shell/index.js";
 export * from "./integration/index.js";
 export * from "./agents/index.js";
+export * from "./legacy-service/index.js";

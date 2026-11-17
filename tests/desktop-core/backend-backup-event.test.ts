@@ -54,6 +54,55 @@ describe("backup-completed from the child", () => {
   });
 });
 
+describe("desktop facts and open-agent-setup", () => {
+  it("sends the desktop facts inside start, and nothing when there are none", async () => {
+    const legacyService = {
+      running: "stopped",
+      removeCommand: "synthetic remove",
+      fallbackRemoveCommand: "synthetic fb",
+    } as const;
+    const withFacts = makeHarness();
+    await withFacts.supervisor.start(startRequest({ desktop: { legacyService } }));
+    expect(withFacts.children[0]?.sent.find((message) => message.type === "start")).toMatchObject({
+      desktop: { legacyService },
+    });
+
+    const without = makeHarness();
+    await without.supervisor.start(startRequest());
+    expect(without.children[0]?.sent.find((message) => message.type === "start")).not.toHaveProperty("desktop");
+  });
+
+  it("reaches every listener until it unsubscribes, and never disturbs the running backend", async () => {
+    const harness = makeHarness();
+    const seen: string[] = [];
+    harness.supervisor.onOpenAgentSetup(() => {
+      throw new Error("first listener broke");
+    });
+    const stop = harness.supervisor.onOpenAgentSetup(() => seen.push("open"));
+    await harness.supervisor.start(startRequest());
+
+    expect(() => harness.children[0]?.say({ type: "open-agent-setup" })).not.toThrow();
+    expect(seen).toEqual(["open"]);
+    expect(harness.logs.filter((line) => line.includes("a listener failed"))).toHaveLength(1);
+
+    stop();
+    harness.children[0]?.say({ type: "open-agent-setup" });
+    expect(seen).toEqual(["open"]);
+    expect(harness.supervisor.running).toBeDefined();
+  });
+
+  it("ignores a request from a preview child and a malformed one", async () => {
+    const harness = makeHarness();
+    const seen: string[] = [];
+    harness.supervisor.onOpenAgentSetup(() => seen.push("open"));
+    await harness.supervisor.start(startRequest());
+    await harness.supervisor.preview("/synthetic/other/candidate.sqlite");
+    harness.children[1]?.say({ type: "open-agent-setup" });
+    harness.children[0]?.say({ type: "open-agent-setup", extra: 1 });
+    expect(seen).toEqual([]);
+  });
+});
+
 describe("preview of a candidate database", () => {
   it("asks only hello and preflight, never start, and shuts the child down without a port", async () => {
     const harness = makeHarness();
@@ -110,6 +159,37 @@ describe("preview of a candidate database", () => {
     expect(harness.children[0]?.exitCode !== null || harness.children[0]?.signalCode !== null).toBe(true);
   });
 
+  it("previews several databases with one child, in order, and ends it once", async () => {
+    const harness = makeHarness();
+    const paths = ["/synthetic/a.sqlite", "/synthetic/b.sqlite", "/synthetic/c.sqlite"];
+    const results = await harness.supervisor.previewMany(paths);
+    expect(results.map((entry) => entry.outcome)).toEqual(["checked", "checked", "checked"]);
+    expect(harness.children).toHaveLength(1);
+    expect(harness.children[0]?.sent.map((message) => message.type)).toEqual([
+      "preflight",
+      "preflight",
+      "preflight",
+      "shutdown",
+    ]);
+    expect(harness.children[0]?.sent.slice(0, 3).map((message) => (message as { path?: string }).path)).toEqual(paths);
+    expect(await harness.supervisor.previewMany([])).toEqual([]);
+  });
+
+  it("fails only the paths a silent child had not answered", async () => {
+    const harness = makeHarness({ scripts: [{ preflight: false }], timeouts: { preflightMs: 50 } });
+    const pending = harness.supervisor.previewMany(["/synthetic/a.sqlite", "/synthetic/b.sqlite"]);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect((await pending).map((entry) => entry.outcome)).toEqual(["failed", "failed"]);
+  });
+
+  it("fails one path whose ok verdict carries no identity and answers the next", async () => {
+    const harness = makeHarness({ scripts: [{ preflight: { identity: undefined } }] });
+    const results = await harness.supervisor.previewMany(["/synthetic/a.sqlite", "/synthetic/b.sqlite"]);
+    expect(results.map((entry) => entry.outcome)).toEqual(["failed", "failed"]);
+    expect(harness.children).toHaveLength(1);
+    expect(harness.children[0]?.sent.map((message) => message.type)).toEqual(["preflight", "preflight", "shutdown"]);
+  });
+
   it("serializes previews: the second child is not spawned until the first has ended", async () => {
     const harness = makeHarness();
     const first = harness.supervisor.preview("/synthetic/a.sqlite");
@@ -118,6 +198,36 @@ describe("preview of a candidate database", () => {
     expect(harness.children.length).toBeLessThanOrEqual(2);
     const results = await Promise.all([first, second]);
     expect(results.map((entry) => entry.outcome)).toEqual(["checked", "checked"]);
+    expect(harness.children).toHaveLength(2);
+    expect(harness.children[0]?.exitCode).toBe(0);
+  });
+
+  it("createDatabase asks one preflight with createIfMissing, never start, and answers like a preview", async () => {
+    const harness = makeHarness({ scripts: [{ preflight: { compatibility: "current" } }] });
+    const result = await harness.supervisor.createDatabase("/synthetic/new/work.sqlite");
+    expect(result).toMatchObject({ outcome: "checked", willMigrate: false, preflight: { status: "ok" } });
+    expect(harness.children).toHaveLength(1);
+    expect(harness.children[0]?.sent).toEqual([
+      { type: "preflight", path: "/synthetic/new/work.sqlite", createIfMissing: true },
+      { type: "shutdown" },
+    ]);
+    expect(harness.isPortFree).not.toHaveBeenCalled();
+    expect(harness.children[0]?.exitCode).toBe(0);
+  });
+
+  it("a plain preview never sends createIfMissing", async () => {
+    const harness = makeHarness();
+    await harness.supervisor.preview("/synthetic/a.sqlite");
+    expect(harness.children[0]?.sent[0]).toEqual({ type: "preflight", path: "/synthetic/a.sqlite" });
+  });
+
+  it("createDatabase answers failed on a silent child and is serialized with other previews", async () => {
+    const harness = makeHarness({ scripts: [{}, { preflight: false }], timeouts: { preflightMs: 50 } });
+    const first = harness.supervisor.preview("/synthetic/a.sqlite");
+    const created = harness.supervisor.createDatabase("/synthetic/b.sqlite");
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect((await first).outcome).toBe("checked");
+    expect((await created).outcome).toBe("failed");
     expect(harness.children).toHaveLength(2);
     expect(harness.children[0]?.exitCode).toBe(0);
   });

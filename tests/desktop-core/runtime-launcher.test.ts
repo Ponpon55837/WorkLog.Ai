@@ -60,6 +60,9 @@ function recordingHost(options: { importFails?: Error; execPath?: string } = {})
     stdout: (text) => void stdout.push(text),
     stderr: (text) => void stderr.push(text),
     unsetEnv: (name) => void unset.push(name),
+    getEnv: () => undefined,
+    setEnv: () => undefined,
+    desktopDatabase: () => ({ kind: "none" }),
     setArgv: (value) => void argv.push(value),
     importModule: async (url) => {
       imported.push(url);

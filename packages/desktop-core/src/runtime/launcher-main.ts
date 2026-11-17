@@ -1,6 +1,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { RuntimeError, runtimeErrorCode } from "./errors.js";
+import { DATABASE_ENVIRONMENT_VARIABLE, type DesktopDatabaseResolution } from "./desktop-database.js";
 import { checkLaunchConsistency } from "./launch-consistency.js";
 import { ELECTRON_AS_NODE_ENV, assertAllowedAction, buildLaunchPlan } from "./launch-plan.js";
 import { RUNTIMES_DIRECTORY_NAME } from "./layout.js";
@@ -20,6 +21,12 @@ export interface LauncherHost {
   setArgv(argv: string[]): void;
   /** Removes an environment variable of this process, so child processes of the action do not inherit it. */
   unsetEnv(name: string): void;
+  /** Reads an environment variable of this process. */
+  getEnv(name: string): string | undefined;
+  /** Sets an environment variable of this process before the action's entry is imported. */
+  setEnv(name: string, value: string): void;
+  /** The database the App committed, read through the pointer in the launcher root (see desktop-database.ts). */
+  desktopDatabase(launcherRoot: string): DesktopDatabaseResolution;
   /** Dynamic `import()` of the action's entry, in this same process. */
   importModule(url: string): Promise<unknown>;
 }
@@ -49,6 +56,9 @@ export const LAUNCHER_EXIT_ENTRY_FAILED = 1;
 /** Prints a diagnostic JSON document on stdout and exits; for installers and smoke tests, never for an Agent. */
 export const PRINT_RUNTIME_INFO_FLAG = "--print-runtime-info";
 
+/** The backend the App itself starts; it is always given its database explicitly. */
+const SERVE_ACTION = "serve";
+
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -72,6 +82,20 @@ export async function probeSqlite(): Promise<SqliteProbe> {
     }
   } catch (error) {
     return { error: describe(error) };
+  }
+}
+
+/**
+ * Points the action at the App's committed database (ADR-39) unless the caller named one: an explicit
+ * `WORK_INTELLIGENCE_DB` always wins. Without a usable App choice the action keeps the standalone rule; an unusable
+ * settings file says so in one stderr line, except for hooks, which stay silent.
+ */
+function useDesktopDatabase(launcherRoot: string, host: LauncherHost, quiet: boolean): void {
+  if (host.getEnv(DATABASE_ENVIRONMENT_VARIABLE)?.trim()) return;
+  const resolution = host.desktopDatabase(launcherRoot);
+  if (resolution.kind === "ok") host.setEnv(DATABASE_ENVIRONMENT_VARIABLE, resolution.databasePath);
+  else if (resolution.kind === "invalid" && !quiet) {
+    host.stderr(`桌面 App 的設定無法使用（${resolution.reason}），改用預設的資料庫位置規則。\n`);
   }
 }
 
@@ -148,8 +172,10 @@ export async function runLauncher(input: LauncherInput, host: LauncherHost): Pro
   };
 
   let verified: VerifiedRuntime;
+  let launcherRoot: string;
   try {
     const { root, runtimeId } = locate(input.runtimeDirectory);
+    launcherRoot = root;
     verified = await verifyRuntime(root, runtimeId);
     await checkLaunchConsistency({
       root,
@@ -175,6 +201,7 @@ export async function runLauncher(input: LauncherInput, host: LauncherHost): Pro
     if (verified.manifest.runtimeKind === "node") {
       for (const name of Object.keys(ELECTRON_AS_NODE_ENV)) host.unsetEnv(name);
     }
+    if (action !== SERVE_ACTION) useDesktopDatabase(launcherRoot, host, failOpen);
     host.setArgv([host.execPath, entry, ...entryArgs]);
     await host.importModule(pathToFileURL(entry).href);
     return { kind: "handed-over" };

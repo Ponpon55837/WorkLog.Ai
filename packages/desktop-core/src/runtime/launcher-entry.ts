@@ -1,6 +1,7 @@
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { resolveDesktopDatabase } from "./desktop-database.js";
 import { runLauncher, type LauncherHost } from "./launcher-main.js";
 
 /**
@@ -19,6 +20,9 @@ const host: LauncherHost = {
   stdout: (text) => void process.stdout.write(text),
   stderr: (text) => void process.stderr.write(text),
   unsetEnv: (name) => void delete process.env[name],
+  getEnv: (name) => process.env[name],
+  setEnv: (name, value) => void (process.env[name] = value),
+  desktopDatabase: (launcherRoot) => resolveDesktopDatabase(launcherRoot),
   setArgv: (argv) => void (process.argv = argv),
   importModule: (url) => import(url),
 };
