@@ -53,7 +53,8 @@ export type AgentSetupErrorCode =
   | "write-failed"
   | "verify-mismatch"
   | "journal-corrupt-moved"
-  | "journal-paths-invalid";
+  | "journal-paths-invalid"
+  | "journal-unreadable";
 
 export interface AgentSetupItemResult {
   index: number;
@@ -106,6 +107,26 @@ export interface AgentSetupRecoveryResult {
 
 /** Where recovery expects setup's files to be; the journal is user-writable, so its paths are checked against this. */
 export type AgentSetupRecoveryLocation = AgentSetupLocation;
+
+/**
+ * `undone`: every item of the last committed operation is back to what it was before. `needs-manual-repair`: an item no
+ * longer holds what the operation wrote, so it (`manualRepairPath`) and the items planned before it were left alone;
+ * the items planned after it (undone first) were restored. `nothing-to-undo`: no journal, or the last operation is not committed (already undone,
+ * rolled back, or recovered). `refused`: the journal is unfinished, unreadable, or names files setup does not own.
+ */
+export interface AgentSetupUndoResult {
+  status: "nothing-to-undo" | "undone" | "needs-manual-repair" | "refused";
+  code?: AgentSetupErrorCode;
+  operationId?: string;
+  items: AgentSetupItemResult[];
+  /** The first item (newest first) that was changed after the operation; compensation stopped there. */
+  manualRepairPath?: string;
+}
+
+export interface AgentSetupUndoOptions {
+  /** Test seam that runs right after an item was restored; throwing simulates a crash mid-undo. */
+  afterRestore?: (item: AgentSetupJournalItem, index: number) => void;
+}
 
 export interface AgentSetupApplyResult {
   applied: boolean;
@@ -168,7 +189,10 @@ function loadFromBackup(item: AgentSetupJournalItem): Buffer | null {
  * still holds exactly what we wrote; anything else changed since, so it is left alone and compensation stops there:
  * restoring older items around someone else's edit could leave the configs inconsistent.
  */
-function compensate(entries: CompensationEntry[]): CompensationReport {
+function compensate(
+  entries: CompensationEntry[],
+  afterRestore?: AgentSetupUndoOptions["afterRestore"],
+): CompensationReport {
   const statuses = entries.map((): AgentSetupCompensationStatus => "none");
   const errors: string[] = [];
   let stopped = false;
@@ -206,6 +230,7 @@ function compensate(entries: CompensationEntry[]): CompensationReport {
         errors.push(messageOf(error));
       }
     }
+    if (statuses[index] === "restored") afterRestore?.(entry.item, index);
   }
   return {
     statuses,
@@ -238,6 +263,22 @@ function cleanUp(
       rmdirSync(directory);
     } catch {
       // Keep directories that are no longer empty; empty ones are best-effort cleanup.
+    }
+  }
+}
+
+/**
+ * Deletes the backups a committed operation created once a later operation takes over the journal. A backup that was
+ * already there before that operation (`backupCreated` unset) is not ours, and a path that is not a setup backup name
+ * for its item is never followed, since the journal is user-writable.
+ */
+function discardCommittedBackups(journal: AgentSetupJournal): void {
+  for (const item of journal.items) {
+    if (!item.backupPath || !item.backupCreated || !isBackupSibling(item.backupPath, item.path)) continue;
+    try {
+      rmSync(item.backupPath, { force: true });
+    } catch {
+      // A leftover backup is harmless; it is never read again.
     }
   }
 }
@@ -296,20 +337,31 @@ function runTransaction(plan: AgentSetupPlan, options: TransactionRunOptions): T
     journal.createdDirectories = [...createdDirectories];
     (options.writeJournal ?? writeAgentSetupJournal)(options.journalPath, journal);
   };
+  let previousCommitted: AgentSetupJournal | undefined;
   if (options.journalPath) {
     const previous = readAgentSetupJournal(options.journalPath);
     if (previous.status === "found" && previous.journal.state === "pending") return refuse("unfinished-journal");
+    if (previous.status === "found" && previous.journal.state === "committed") previousCommitted = previous.journal;
     if (previous.status === "unreadable") {
       // An unreadable journal must not block every later apply; keep it for inspection instead of deleting it.
       const moved = moveAgentSetupJournalAside(options.journalPath);
       if (moved === null) return refuse("unfinished-journal");
       corruptJournalPath = moved;
     }
+    // A plan with nothing to write must not replace the journal the last real operation can still be undone with.
+    if (!plan.mutations.length) {
+      return {
+        result: finish({ operationId, outcome: "committed", items, journalPath: options.journalPath }),
+        rollbackErrors: [],
+      };
+    }
     try {
       persist();
     } catch {
       return refuse("journal-write-failed");
     }
+    // The new operation replaces the journal, so the previous one can no longer be undone and its backups are spent.
+    if (previousCommitted) discardCommittedBackups(previousCommitted);
   }
 
   let stopCode: AgentSetupErrorCode | undefined;
@@ -548,6 +600,63 @@ export function recoverAgentSetupJournal(
     status: report.complete ? "recovered" : "needs-manual-repair",
     operationId: journal.operationId,
     items,
+  };
+}
+
+/**
+ * Undoes the last committed operation: every item is restored from its backup copy, newest first, but only while it
+ * still holds exactly what that operation wrote. The first item someone changed since stops the undo (reported as
+ * `needs-manual-repair` with its path) and is left alone together with the items before it. The journal goes back to
+ * `pending` before anything is touched and is finalised afterwards, so a crash mid-undo is finished by
+ * {@link recoverAgentSetupJournal}; once it is `compensated`, a second undo has nothing to undo. The setup manifest is
+ * one of the items, so ownership returns to what it was. Retrying after a `needs-manual-repair` repeats the same
+ * guarded compensation.
+ */
+export function undoAgentSetupOperation(
+  journalPath: string,
+  location: AgentSetupRecoveryLocation,
+  options: AgentSetupUndoOptions = {},
+): AgentSetupUndoResult {
+  const read = readAgentSetupJournal(journalPath);
+  if (read.status === "none") return { status: "nothing-to-undo", items: [] };
+  if (read.status === "unreadable") return { status: "refused", code: "journal-unreadable", items: [] };
+  const { journal } = read;
+  const items: AgentSetupItemResult[] = journal.items.map((item, index) => ({
+    index,
+    path: item.path,
+    label: item.label,
+    status: item.state === "planned" ? "skipped" : "written",
+    verify: "not-run",
+    compensation: "none",
+  }));
+  const base = { operationId: journal.operationId, items };
+  if (journal.state === "pending") return { status: "refused", code: "unfinished-journal", ...base };
+  if (journal.state === "compensated") return { status: "nothing-to-undo", ...base };
+  if (!journalPathsAreOurs(journal, location)) return { status: "refused", code: "journal-paths-invalid", ...base };
+
+  journal.state = "pending";
+  try {
+    writeAgentSetupJournal(journalPath, journal);
+  } catch {
+    return { status: "refused", code: "journal-write-failed", ...base };
+  }
+  const report = compensate(
+    journal.items.map((item) => ({ item, loadBefore: () => loadFromBackup(item) })),
+    options.afterRestore,
+  );
+  applyCompensation(items, report);
+  if (report.complete) cleanUp(journal.items, journal.createdDirectories, []);
+  journal.state = report.complete ? "compensated" : "needs-manual-repair";
+  try {
+    writeAgentSetupJournal(journalPath, journal);
+  } catch {
+    // The files are in their final state; a pending journal is re-checked and finished idempotently by recovery.
+  }
+  const repair = items.find((item) => item.compensation === "manual-repair");
+  return {
+    status: report.complete ? "undone" : "needs-manual-repair",
+    ...base,
+    ...(repair ? { manualRepairPath: repair.path } : {}),
   };
 }
 

@@ -124,10 +124,14 @@ export function addJsonSpec(
       return true;
     }
     if (equalValue(current, spec.expected)) {
-      if (previous?.kind === "json-property") setEntry(entries, { ...previous, expected: spec.expected });
+      if (previous?.kind === "json-property" && !equalValue(previous.expected, spec.expected)) {
+        setEntry(entries, { ...previous, expected: spec.expected });
+      }
       return false;
     }
     if (previous?.kind === "json-property" && equalValue(current, previous.expected)) {
+      // An adopted hand-written entry already points at the target and keeps its own extra keys.
+      if (previous.adopted && spec.equivalent?.(current)) return false;
       setPathValue(root, spec.path, spec.expected);
       setEntry(entries, { id: spec.id as "claudeMcp", kind: "json-property", expected: spec.expected });
       return true;
@@ -160,12 +164,15 @@ export function addJsonSpec(
   }
   const exact = array.findIndex((item) => equalValue(item, spec.expected));
   if (exact >= 0) {
-    if (previous?.kind === "json-array-item") setEntry(entries, { ...previous, expected: spec.expected });
+    if (previous?.kind === "json-array-item" && !equalValue(previous.expected, spec.expected)) {
+      setEntry(entries, { ...previous, expected: spec.expected });
+    }
     return false;
   }
   if (previous?.kind === "json-array-item") {
     const ownedIndex = array.findIndex((item) => equalValue(item, previous.expected));
     if (ownedIndex >= 0) {
+      if (previous.adopted && spec.similar?.(array[ownedIndex])) return false;
       array.splice(ownedIndex, 1, spec.expected);
       setEntry(entries, {
         id: spec.id as ManagedEntry["id"],

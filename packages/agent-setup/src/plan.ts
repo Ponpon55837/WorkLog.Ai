@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join, posix, resolve, win32 } from "node:path";
+import { adoptClaudeMcp, adoptCodexToml, adoptHooks, createAdoptContext, type AdoptContext } from "./adopt.js";
 import { mcpRegistrationKind, isLauncherMcpRegistration } from "./commands.js";
 import {
   LAUNCHER_SHIM_BASENAMES,
@@ -33,6 +34,7 @@ import {
   upgradeDirectCodexRegistration,
 } from "./toml.js";
 import type {
+  AgentSetupComponentId,
   AgentSetupFileMutation,
   AgentSetupFinding,
   AgentSetupPlan,
@@ -147,6 +149,8 @@ export function addConflict(plan: AgentSetupPlan, message: string): void {
   if (!plan.conflicts.includes(message)) plan.conflicts.push(message);
 }
 
+const ADOPT_REQUIRES_LAUNCHER = "adopt-requires-launcher：改由桌面 App 管理只能搭配 launcher 目標；保留且拒絕修改。";
+
 /** How an MCP server entry relates to the planned target; "launcher" means it already points at the target. */
 function registrationKind(value: unknown, options: AgentSetupPlanOptions): "launcher" | "direct" | "other" {
   if (options.target?.kind === "launcher") {
@@ -166,6 +170,7 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
     const shimConflict = launcherShimConflict(launcherTarget.shimPath, platform);
     if (shimConflict) addConflict(plan, shimConflict);
   } else {
+    if (options.adopt) addConflict(plan, ADOPT_REQUIRES_LAUNCHER);
     for (const relativePath of [
       MCP_SERVER_RELATIVE_PATH,
       MCP_LAUNCHER_RELATIVE_PATH,
@@ -195,6 +200,27 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
     );
   }
   const components = parsedManifest.manifest.components;
+  const platform = options.platform ?? process.platform;
+  let adoptContext: AdoptContext | undefined;
+  if (launcherTarget && options.adopt) {
+    const labels = new Map<AgentSetupComponentId, string>(
+      [...getClaudeHookSpecs(options, platform), ...getCodexHookSpecs(options, platform)].map((spec) => [
+        spec.id,
+        spec.label,
+      ]),
+    );
+    labels.set("claudeMcp", "Claude MCP 註冊");
+    labels.set("codexMcp", "Codex MCP 註冊");
+    plan.adopted = [];
+    adoptContext = createAdoptContext({
+      plan,
+      options,
+      components,
+      shimPath: launcherTarget.shimPath,
+      platform,
+      labels,
+    });
+  }
   // An enabled plugin already provides MCP, skill and hooks for that Agent; registering them again would duplicate them.
   const claudePlugin = readClaudePluginEnabled(options.claudeConfigDirectory!);
   const codexPlugin = readCodexPluginEnabled(options.codexHomeDirectory!);
@@ -249,11 +275,29 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
   const tomlOwned = tomlEntryIndex >= 0 ? components[tomlEntryIndex] : undefined;
   const tomlOwnedExpected = tomlOwned?.kind === "toml-block" ? tomlOwned.expected : undefined;
   const codexRegistration = registrationKind(codexWorkIntelligenceServer(tomlText), options);
+  const adoptedToml = !codexPlugin && adoptContext ? adoptCodexToml(tomlText, adoptContext, tomlPath) : undefined;
   if (codexPlugin) {
     // The plugin registers the MCP server; leave config.toml alone.
+  } else if (adoptedToml !== undefined) {
+    stageMutation(
+      plan,
+      options,
+      tomlPath,
+      "Codex MCP 註冊",
+      tomlFile.bytes,
+      Buffer.from(adoptedToml, "utf8"),
+      tomlFile.mode,
+    );
   } else if (tomlText.includes(desiredBlock)) {
-    if (tomlOwned?.kind === "toml-block")
+    if (tomlOwned?.kind === "toml-block" && tomlOwned.expected !== desiredBlock)
       setEntry(components, { id: "codexMcp", kind: "toml-block", expected: desiredBlock });
+  } else if (
+    tomlOwned?.adopted &&
+    tomlOwnedExpected &&
+    tomlText.includes(tomlOwnedExpected) &&
+    codexRegistration === "launcher"
+  ) {
+    // An adopted block already points at the launcher and keeps the hand-written keys inside it.
   } else if (tomlOwnedExpected && tomlText.includes(tomlOwnedExpected)) {
     const next = tomlText.replace(tomlOwnedExpected, desiredBlock);
     stageMutation(plan, options, tomlPath, "Codex MCP 註冊", tomlFile.bytes, Buffer.from(next, "utf8"), tomlFile.mode);
@@ -335,21 +379,36 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
     string,
     { before: Buffer | null; mode: number; root: Record<string, unknown>; changed: boolean }
   >();
-  const mutateJson = (path: string, specs: JsonMutationSpec[]) => {
+  const mutateJson = (path: string, specs: JsonMutationSpec[], adopt?: (root: Record<string, unknown>) => boolean) => {
     const loaded = parseJsonFile(path, homeDirectory, plan.conflicts);
     const changes = { before: loaded.before, mode: loaded.mode, root: loaded.root, changed: false };
+    changes.changed = adopt?.(loaded.root) ?? false;
     for (const spec of specs)
       changes.changed = addJsonSpec(changes.root, components, spec, plan.conflicts, plan.actions) || changes.changed;
     jsonFileChanges.set(path, changes);
   };
 
-  const platform = options.platform ?? process.platform;
   if (!claudePlugin) {
-    mutateJson(targetPath("claudeMcp", options), [getClaudeMcpSpec(options)]);
-    mutateJson(targetPath("claudeStopHook", options), getClaudeHookSpecs(options, platform));
+    const claudeJsonPath = targetPath("claudeMcp", options);
+    const claudeSettingsPath = targetPath("claudeStopHook", options);
+    mutateJson(
+      claudeJsonPath,
+      [getClaudeMcpSpec(options)],
+      adoptContext && ((root) => adoptClaudeMcp(root, adoptContext, claudeJsonPath)),
+    );
+    mutateJson(
+      claudeSettingsPath,
+      getClaudeHookSpecs(options, platform),
+      adoptContext && ((root) => adoptHooks(root, "claude-code", adoptContext, claudeSettingsPath)),
+    );
   }
   if (!codexPlugin && codexFeature !== "disabled" && codexFeature !== "unknown") {
-    mutateJson(targetPath("codexStopHook", options), getCodexHookSpecs(options, platform));
+    const codexHooksPath = targetPath("codexStopHook", options);
+    mutateJson(
+      codexHooksPath,
+      getCodexHookSpecs(options, platform),
+      adoptContext && ((root) => adoptHooks(root, "codex", adoptContext, codexHooksPath)),
+    );
   }
 
   for (const [path, file] of jsonFileChanges) {
@@ -389,6 +448,7 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
 export function uninstallPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
   const plan: AgentSetupPlan = { mode: "uninstall", actions: [], conflicts: [], mutations: [], findings: [] };
   options = normalizePlanOptions(options);
+  if (options.adopt) addConflict(plan, ADOPT_REQUIRES_LAUNCHER);
   const homeDirectory = options.homeDirectory;
   const path = manifestPath(homeDirectory);
   const file = readRegularFile(path);
