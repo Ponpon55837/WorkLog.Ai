@@ -16,6 +16,13 @@ import {
 import { securePrivateDirectory } from "../../scripts/desktop-runtime-spike/secure-directory.mjs";
 
 export const IS_WINDOWS = process.platform === "win32";
+/**
+ * The per-test timeout of the suites that install, verify and launch real fixture runtimes. On Windows their NTFS copies,
+ * hashes and renames compete with the real PowerShell and MCP child processes other workers start at the same time: on a
+ * GitHub runner one reinstall measured 0.35 s in one run and 6.3 s in the next (the whole file 9 s vs 57 s), past
+ * vitest's default 5 s. The work is the same; only the wait is longer. POSIX keeps the default.
+ */
+export const RUNTIME_FS_TEST_TIMEOUT_MS = IS_WINDOWS ? 30_000 : 5_000;
 
 /** A fake runtime executable: prints the Electron flag and its arguments, one per line (POSIX only). */
 const FAKE_EXECUTABLE = '#!/bin/sh\nprintf \'%s\\n\' "${ELECTRON_RUN_AS_NODE-unset}${ELECTRON_NO_ASAR-unset}" "$@"\n';

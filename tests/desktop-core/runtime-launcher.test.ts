@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   LAUNCHER_EXIT_ENTRY_FAILED,
   LAUNCHER_EXIT_INVALID_RUNTIME,
@@ -22,7 +22,17 @@ import {
   type RuntimeManifest,
   verifyRuntime,
 } from "../../packages/desktop-core/src/runtime/index.js";
-import { IS_WINDOWS, fixtureAcl, flipFirstByte, installFixture, makeRoot } from "./runtime-helpers.js";
+import {
+  IS_WINDOWS,
+  RUNTIME_FS_TEST_TIMEOUT_MS,
+  fixtureAcl,
+  flipFirstByte,
+  installFixture,
+  makeRoot,
+} from "./runtime-helpers.js";
+
+// Real fixture runtimes on disk: see RUNTIME_FS_TEST_TIMEOUT_MS.
+vi.setConfig({ testTimeout: RUNTIME_FS_TEST_TIMEOUT_MS });
 
 let root = "";
 let runtimeDirectory = "";

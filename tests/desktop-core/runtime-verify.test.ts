@@ -20,7 +20,11 @@ import {
   makeRoot,
   stageFixture,
   tick,
+  RUNTIME_FS_TEST_TIMEOUT_MS,
 } from "./runtime-helpers.js";
+
+// Real fixture runtimes on disk: see RUNTIME_FS_TEST_TIMEOUT_MS.
+vi.setConfig({ testTimeout: RUNTIME_FS_TEST_TIMEOUT_MS });
 
 /** The fixture files plus runtime-launch.txt, which the installer adds. */
 const FILE_COUNT = 8;
