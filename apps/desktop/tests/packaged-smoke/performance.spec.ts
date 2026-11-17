@@ -4,10 +4,13 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   createSandbox,
+  logLines,
+  packagedExecutable,
   pollUntil,
   portIsFree,
   processIsAlive,
   processTree,
+  programDirectory,
   readLog,
   removeSandbox,
   runToExit,
@@ -50,6 +53,7 @@ interface MetricResult {
 
 const samples: Record<Metric, number[]> = {
   firstStartMs: [],
+  firstStartAclMs: [],
   warmStartMs: [],
   repairWindowMs: [],
   quitMs: [],
@@ -62,12 +66,19 @@ const idleBreakdowns: MemoryBreakdown[] = [];
 let sandbox: PackagedSandbox | undefined;
 let app: RunningApp | undefined;
 
+/** The ACL read time of a `runtime installed` line: ` acl=<tier> <ms> ms` plus every ` acl-failed=<tier> <ms> ms`. */
+function aclMilliseconds(line: string): number {
+  let total = 0;
+  for (const [, ms] of line.matchAll(/ acl(?:-failed)?=[\w-]+ (\d+(?:\.\d+)?) ms/g)) total += Number(ms);
+  return total;
+}
+
 test.describe.configure({ mode: "serial" });
 
 test.afterEach(async () => {
   if (sandbox) await stopApp(sandbox, app);
   app = undefined;
-  if (sandbox) removeSandbox(sandbox);
+  if (sandbox) await removeSandbox(sandbox);
   sandbox = undefined;
 });
 
@@ -80,7 +91,9 @@ for (let run = 1; run <= PACKAGED_PERF_RUNS; run += 1) {
     await waitForManaged(sandbox);
     samples.firstStartMs.push(performance.now() - started);
     await stopApp(sandbox, app);
-    expect(readLog(sandbox)).toMatch(/\[shell\] runtime installed /);
+    const installed = logLines(sandbox, /\[shell\] runtime installed /);
+    expect(installed).toHaveLength(1);
+    samples.firstStartAclMs.push(aclMilliseconds(installed[0] ?? ""));
 
     const since = readLog(sandbox).length;
     started = performance.now();
@@ -95,7 +108,14 @@ for (let run = 1; run <= PACKAGED_PERF_RUNS; run += 1) {
       tree.some((candidate) => candidate.pid === backend.pid),
       "the backend is in the process tree",
     ).toBe(true);
-    const breakdown = measureMemory(tree, { mainPid: app.pid, backendPid: backend.pid });
+    // `--background` (the default launch): no Dashboard, so no browser is in the tree; whatever else is not the App's is
+    // reported as excluded by name, never counted.
+    expect(logLines(sandbox, /\[shell\] dashboard opened/), "a background launch opens no Dashboard").toEqual([]);
+    const breakdown = measureMemory(
+      tree,
+      { mainPid: app.pid, backendPid: backend.pid },
+      { programDirectory: programDirectory(packagedExecutable()), runtimeDirectory: join(sandbox.userData, "runtime") },
+    );
     idleBreakdowns.push(breakdown);
     samples.idleMemoryBytes.push(breakdown.totalBytes);
     samples.backendMemoryBytes.push(breakdown.byRole.backend.bytes);
@@ -117,7 +137,8 @@ for (let run = 1; run <= PACKAGED_PERF_RUNS; run += 1) {
   test(`repair window for a missing database (run ${run} of ${PACKAGED_PERF_RUNS})`, async () => {
     sandbox = await createSandbox({ withDatabase: false });
     const started = performance.now();
-    app = startApp(sandbox);
+    // The repair window is what an interactive launch shows; a background launch sends a notification instead.
+    app = startApp(sandbox, [], { interactive: true });
     await waitForLog(sandbox, /\[shell\] repair window shown/);
     samples.repairWindowMs.push(performance.now() - started);
   });

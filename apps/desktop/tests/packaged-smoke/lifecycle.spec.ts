@@ -52,10 +52,11 @@ test.describe.configure({ mode: "serial" });
 test.afterEach(async () => {
   if (sandbox) await stopApp(sandbox, app);
   app = undefined;
-  for (const path of cleanupPaths.splice(0))
-    rmSync(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-  if (sandbox) removeSandbox(sandbox);
+  // First: it ends whatever still holds the sandbox, which can also hold the default userData made below.
+  if (sandbox) await removeSandbox(sandbox);
   sandbox = undefined;
+  for (const path of cleanupPaths.splice(0))
+    rmSync(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
 });
 
 /**

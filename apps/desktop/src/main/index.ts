@@ -138,6 +138,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
   });
   const dashboard = createDashboard({
     running: () => supervisor.running,
+    log,
     record: testSwitch(configInputs, "recordExternal"),
   });
   const backend = createBackendController({

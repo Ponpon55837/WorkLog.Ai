@@ -31,8 +31,10 @@ if (![repositoryRoot, databasePath, backupDirectory, packageManagerExecutable, l
               "-NoLogo",
               "-NoProfile",
               "-NonInteractive",
+              "-InputFormat",
+              "None",
               "-Command",
-              `& '${packageManagerExecutable.replaceAll("'", "''")}' start`,
+              `$ProgressPreference='SilentlyContinue'; & '${packageManagerExecutable.replaceAll("'", "''")}' start`,
             ],
           }
         : { executable: packageManagerExecutable, args: ["start"] };

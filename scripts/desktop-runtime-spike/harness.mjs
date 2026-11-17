@@ -1,4 +1,5 @@
 /** Process helpers of the runtime smoke test: a clean environment, the fixed shim, MCP over stdio, resource samples. */
+import { Buffer } from "node:buffer";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createServer } from "node:net";
@@ -253,20 +254,28 @@ export class McpSession {
   }
 }
 
+/** One PowerShell script: no profile, no prompt, no stdin, and no CLIXML progress records in the output. */
+function powershellArguments(script) {
+  const encoded = Buffer.from(`$ProgressPreference='SilentlyContinue';${script}`, "utf16le").toString("base64");
+  return ["-NoProfile", "-NonInteractive", "-InputFormat", "None", "-EncodedCommand", encoded];
+}
+
 /** The PID of the runtime itself: the shim `exec`s it on POSIX, but on Windows cmd.exe stays as its parent. */
 export function runtimePid(launched, executableName) {
   if (!WINDOWS) return launched.child.pid;
   const script = `(Get-CimInstance Win32_Process -Filter "ParentProcessId=${launched.child.pid} AND Name='${executableName}'").ProcessId`;
-  const result = spawnSync(windowsPowerShell(), ["-NoProfile", "-NonInteractive", "-Command", script], {
+  const result = spawnSync(windowsPowerShell(), powershellArguments(script), {
     encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
   return Number(result.stdout.trim().split(/\s+/)[0]) || undefined;
 }
 
 function powershellNumber(expression) {
-  const result = spawnSync(windowsPowerShell(), ["-NoProfile", "-NonInteractive", "-Command", expression], {
+  const result = spawnSync(windowsPowerShell(), powershellArguments(expression), {
     encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
   return Number(result.stdout.trim());

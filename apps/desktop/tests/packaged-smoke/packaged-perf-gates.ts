@@ -5,6 +5,8 @@
  * What is measured, on the packaged App with synthetic data (an empty database made by the real store):
  * - `firstStartMs`: a fresh userData to MANAGED with `GET /api/health` 200. It includes installing the bundled runtime
  *   (about 135 MB copied and hashed), so it is the slowest item and the one antivirus or a slow disk moves most.
+ * - `firstStartAclMs`: the Windows ACL reads of that first start, summed from the `runtime installed` log line (` acl=`
+ *   plus every ` acl-failed=` tier), so a slow PowerShell start shows on its own. macOS and Linux read no ACL: 0.
  * - `warmStartMs`: the same with the runtime already installed (`runtime already-current`): what a user waits for at
  *   every login.
  * - `repairWindowMs`: a missing database to the `repair window shown` log line.
@@ -34,6 +36,7 @@ export const PACKAGED_IDLE_SETTLE_MS = 5_000;
 
 export interface PackagedPerfGates {
   readonly firstStartMs: number;
+  readonly firstStartAclMs: number;
   readonly warmStartMs: number;
   readonly repairWindowMs: number;
   readonly quitMs: number;
@@ -51,32 +54,42 @@ export const PACKAGED_PERF_GATES: Readonly<Record<"linux" | "darwin" | "win32", 
   // (one more Chromium helper) fails the total; smaller ones show in the per-role JSON.
   linux: {
     firstStartMs: 4_000,
+    firstStartAclMs: 0,
     warmStartMs: 2_500,
     repairWindowMs: 3_500,
     quitMs: 1_000,
     idleMemoryBytes: 360 * MB,
     backendMemoryBytes: 128 * MB,
   },
-  // Provisional (see above). Memory: nothing was measured on Windows yet; 1 GiB is about twice the Linux RSS sum and 192
-  // MiB twice the Linux backend RSS, and the first CI JSON (with the per-role split) must tighten both. Times: 6 s warm is 6x the unpackaged Windows cold start; 30 s first start leaves room for the
-  // 135 MB runtime copy under real-time antivirus on a CI runner.
+  // Memory from the first packaged CI run (1.6.45, windows-latest): an idle working-set total of 472 MiB, of which 204 MiB
+  // were Edge processes started for the Dashboard and now excluded, so about 268 MiB for the App. The gate is that plus
+  // about half (400 MiB); the backend gate matches the other platforms (macOS measured 90 MiB). ACL: the first start's
+  // .NET read took 2.6 s (a cold Windows PowerShell start; about 0.25-0.5 s later in the same run), so 5 s fails a
+  // doubling. Times: 6 s warm is 6x the unpackaged Windows cold start; 30 s first start leaves room for the 135 MB
+  // runtime copy under real-time antivirus on a CI runner.
   win32: {
     firstStartMs: 30_000,
+    firstStartAclMs: 5_000,
     warmStartMs: 6_000,
     repairWindowMs: 6_000,
     quitMs: 4_000,
-    idleMemoryBytes: 1024 * MB,
-    backendMemoryBytes: 192 * MB,
+    idleMemoryBytes: 400 * MB,
+    backendMemoryBytes: 128 * MB,
   },
-  // Provisional (see above), memory as for Windows. Times: macOS runners are the slowest and most uneven, and the first launch of an unseen binary
-  // pays Gatekeeper/XProtect scanning.
+  // Memory from the first packaged CI run (1.6.45, `ps` RSS): arm64 346-347 MiB (main 158, gpu 56, utility 42.5,
+  // backend 90), x64 213 MiB. The gate is the arm64 total plus about a quarter (440 MiB), the backend 90 MiB plus about
+  // 40% (128 MiB). Times, medians of three from the same run (arm64 / x64): first start 1455 / 2325 ms, warm 1232 / 1154
+  // ms, repair window 1524 / 2703 ms, quit 434 / 565 ms (one x64 sample took 10.4 s; the median absorbs it). The gates
+  // are about three times the slower architecture, since macOS runners are the most uneven and the first launch of an
+  // unseen binary pays Gatekeeper/XProtect scanning.
   darwin: {
-    firstStartMs: 30_000,
-    warmStartMs: 8_000,
+    firstStartMs: 7_000,
+    firstStartAclMs: 0,
+    warmStartMs: 4_000,
     repairWindowMs: 8_000,
-    quitMs: 5_000,
-    idleMemoryBytes: 1024 * MB,
-    backendMemoryBytes: 192 * MB,
+    quitMs: 2_000,
+    idleMemoryBytes: 440 * MB,
+    backendMemoryBytes: 128 * MB,
   },
 };
 

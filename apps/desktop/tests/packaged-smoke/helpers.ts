@@ -2,14 +2,20 @@ import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { dirname, join } from "node:path";
-import { isSettledRepairFailure } from "@work-intelligence/desktop-core";
-import { windowsPowerShell } from "@work-intelligence/shared/windows-system-tool";
+import { BACKGROUND_FLAG, isSettledRepairFailure } from "@work-intelligence/desktop-core";
+import { windowsPowerShell, windowsSystemTool } from "@work-intelligence/shared/windows-system-tool";
 import { WorkIntelligenceStore } from "@work-intelligence/storage";
 import {
   allowBuiltinUsersToWrite,
   securePrivateDirectory,
 } from "../../../../scripts/desktop-runtime-spike/secure-directory.mjs";
-import { freePort, portIsFree, processIsAlive, profileDirectories } from "../support/process-tools.js";
+import {
+  freePort,
+  portIsFree,
+  powershellArguments,
+  processIsAlive,
+  profileDirectories,
+} from "../support/process-tools.js";
 
 /**
  * Black-box helpers for the packaged App: it is only spawned, and read through its log, its HTTP port, the process list
@@ -25,6 +31,14 @@ export const PRODUCT_NAME = "Work Intelligence";
 
 const POLL_MS = 10;
 const EXIT_STDERR_LIMIT = 16 * 1024;
+/** How long processes that hold a sandbox may exit by themselves before they are terminated. */
+const HOLDER_GRACE_MS = 5_000;
+const HOLDER_TERMINATE_MS = 5_000;
+const HOLDER_COMMAND_LIMIT = 160;
+
+/** The App's main pid of every launch, per sandbox root, and the processes seen below them (see `removeSandbox`). */
+const launchedPids = new Map<string, number[]>();
+const knownProcesses = new Map<string, ProcessInfo[]>();
 
 export interface PackagedSandbox {
   readonly root: string;
@@ -123,6 +137,8 @@ export async function createSandbox(options: {
   else securePrivateDirectory(userData);
   const databasePath = join(home, ".work-intelligence", "data", "work-intelligence.sqlite");
   const backupDirectory = join(home, ".work-intelligence", "backups");
+  // A launch without `--user-data-dir` (the installer test) installs its runtime under `%LOCALAPPDATA%` of this home.
+  securePrivateDirectory(profileDirectories(home).LOCALAPPDATA ?? home);
   mkdirSync(dirname(databasePath), { recursive: true });
   if (options.withDatabase) new WorkIntelligenceStore(databasePath).close();
   const port = await freePort();
@@ -150,8 +166,95 @@ export async function createSandbox(options: {
   };
 }
 
-export function removeSandbox(sandbox: PackagedSandbox): void {
-  rmSync(sandbox.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+/**
+ * Removes the sandbox. Anything still holding it blocks the removal on Windows (EPERM), so first every process that names
+ * the sandbox root in its command line or lives under it, or that descends from a launch of this sandbox (the App's own
+ * helpers, or an external browser the OS started for the Dashboard, which inherits the sandbox profile), gets a few
+ * seconds to exit by itself and is then terminated. If the removal still fails, the error lists who holds the sandbox.
+ */
+export async function removeSandbox(sandbox: PackagedSandbox): Promise<void> {
+  try {
+    await pollUntil(
+      () => (sandboxHolders(sandbox).length === 0 ? true : undefined),
+      "the sandbox released",
+      HOLDER_GRACE_MS,
+    );
+  } catch {
+    terminateProcesses(sandboxHolders(sandbox));
+    await pollUntil(
+      () => (sandboxHolders(sandbox).length === 0 ? true : undefined),
+      "the sandbox processes ended",
+      HOLDER_TERMINATE_MS,
+    ).catch(() => undefined);
+  }
+  try {
+    rmSync(sandbox.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+  } catch (error) {
+    const holders = sandboxHolders(sandbox).map(describeProcess);
+    const cause = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `${sandbox.root} could not be removed: ${cause}\n${
+        holders.length > 0 ? `still holding it:\n${holders.join("\n")}` : "no process was found holding it"
+      }`,
+      { cause: error },
+    );
+  } finally {
+    launchedPids.delete(sandbox.root);
+    knownProcesses.delete(sandbox.root);
+  }
+}
+
+/** Remembers the process tree of a launch while it is alive: once its main process ends, its children are orphans. */
+function rememberTree(sandbox: PackagedSandbox, pid: number): void {
+  const tree = processTree(pid);
+  const known = knownProcesses.get(sandbox.root) ?? [];
+  const seen = new Set(known.map((candidate) => candidate.pid));
+  knownProcesses.set(sandbox.root, [...known, ...tree.filter((candidate) => !seen.has(candidate.pid))]);
+}
+
+/**
+ * The live processes that may hold the sandbox: the command line or the executable references its root, or it is (still,
+ * same pid and command line) a process remembered from a launch's tree.
+ */
+function sandboxHolders(sandbox: PackagedSandbox): ProcessInfo[] {
+  const processes = listProcesses();
+  const remembered = knownProcesses.get(sandbox.root) ?? [];
+  const live = new Set(
+    (launchedPids.get(sandbox.root) ?? []).flatMap((pid) =>
+      processTree(pid, processes).map((candidate) => candidate.pid),
+    ),
+  );
+  return processes.filter(
+    (candidate) =>
+      candidate.pid !== process.pid &&
+      (candidate.commandLine.includes(sandbox.root) ||
+        (candidate.executable !== undefined && isInside(sandbox.root, candidate.executable)) ||
+        live.has(candidate.pid) ||
+        remembered.some((known) => known.pid === candidate.pid && known.commandLine === candidate.commandLine)),
+  );
+}
+
+function describeProcess(candidate: ProcessInfo): string {
+  const command = candidate.commandLine.slice(0, HOLDER_COMMAND_LIMIT);
+  return `  pid ${candidate.pid} ${candidate.executable ?? "(executable unknown)"} ${command}`;
+}
+
+/** Windows: `taskkill /T /F` by absolute System32 path (the tree goes with the root); elsewhere SIGKILL. */
+function terminateProcesses(targets: readonly ProcessInfo[]): void {
+  for (const target of targets) {
+    try {
+      if (process.platform === "win32") {
+        execFileSync(windowsSystemTool("taskkill.exe"), ["/PID", String(target.pid), "/T", "/F"], {
+          stdio: "ignore",
+          windowsHide: true,
+        });
+      } else {
+        process.kill(target.pid, "SIGKILL");
+      }
+    } catch {
+      // Already gone (a child of an earlier target) or not ours to end: the next scan tells.
+    }
+  }
 }
 
 /** An isolated home and a PATH without Node (System32 only on Windows, an empty folder elsewhere). */
@@ -183,6 +286,12 @@ export function launchArguments(sandbox: PackagedSandbox, extra: readonly string
 export interface StartOptions {
   readonly defaultUserData?: boolean;
   readonly environment?: Readonly<Record<string, string>>;
+  /**
+   * Interactive launches are for tests of what only an interactive launch does: it opens the Dashboard in the external
+   * browser and shows the repair window. Every other launch is `--background` (the login item's mode: tray only, a
+   * notification instead of a window, no browser), so the machine running the tests is left alone.
+   */
+  readonly interactive?: boolean;
 }
 
 /** Starts the App and returns at once; `exited` settles when the process ends (`close`, so stderr is complete). */
@@ -191,12 +300,14 @@ export function startApp(
   extra: readonly string[] = [],
   options: StartOptions = {},
 ): RunningApp {
-  const args = options.defaultUserData ? extra : launchArguments(sandbox, extra);
+  const mode = options.interactive ? [] : [BACKGROUND_FLAG];
+  const args = options.defaultUserData ? [...extra, ...mode] : launchArguments(sandbox, [...extra, ...mode]);
   const child: ChildProcess = spawn(packagedExecutable(), args, {
     env: appEnvironment(sandbox, options.environment),
     stdio: ["ignore", "ignore", "pipe"],
     windowsHide: true,
   });
+  launchedPids.set(sandbox.root, [...(launchedPids.get(sandbox.root) ?? []), child.pid ?? 0]);
   let stderr = "";
   let done = false;
   child.stderr?.setEncoding("utf8");
@@ -227,8 +338,9 @@ export async function runToExit(
   sandbox: PackagedSandbox,
   extra: readonly string[] = [],
   timeoutMs = 30_000,
+  options: StartOptions = {},
 ): Promise<AppExit> {
-  const app = startApp(sandbox, extra);
+  const app = startApp(sandbox, extra, options);
   const timer = setTimeout(() => app.kill(), timeoutMs);
   try {
     const exit = await app.exited;
@@ -289,18 +401,24 @@ export async function waitForManaged(sandbox: PackagedSandbox, since = 0): Promi
     if (!match) return undefined;
     const backend = { pid: Number(match[1]), port: Number(match[2]) };
     return (await healthStatus(backend.port)) === 200 ? backend : undefined;
-  }, "MANAGED with a healthy backend");
+  }, "MANAGED with a healthy backend").catch((error: unknown) => {
+    // A timeout alone says nothing: the log tail shows which step the launch was in (runtime, owner, backend).
+    const tail = readLog(sandbox).slice(since).split("\n").slice(-12).join("\n");
+    throw new Error(`${error instanceof Error ? error.message : String(error)}; log tail:\n${tail}`);
+  });
 }
 
 /** `<exe> --quit`: asks the running instance to quit (exit 0), or exits 0 at once when none runs. */
 export function quitCommand(sandbox: PackagedSandbox): Promise<AppExit> {
-  return runToExit(sandbox, ["--quit"], 30_000);
+  // Bare `--quit`, as the installer sends it: it opens nothing, so the launch mode does not matter.
+  return runToExit(sandbox, ["--quit"], 30_000, { interactive: true });
 }
 
 /** Quits the way an installer does and waits for the main process to end; kills it only if that fails. */
 export async function stopApp(sandbox: PackagedSandbox, app: RunningApp | undefined): Promise<void> {
   if (!app) return;
   if (!app.hasExited()) {
+    rememberTree(sandbox, app.pid);
     await quitCommand(sandbox).catch(() => undefined);
     await Promise.race([app.exited.catch(() => undefined), sleep(30_000)]);
     app.kill();
@@ -311,12 +429,12 @@ export async function stopApp(sandbox: PackagedSandbox, app: RunningApp | undefi
 function windowsProcesses(): ProcessInfo[] {
   const script =
     "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,WorkingSetSize,ExecutablePath,CommandLine | ConvertTo-Json -Compress";
-  // -EncodedCommand passes the script without any command-line quoting.
-  const output = execFileSync(
-    windowsPowerShell(),
-    ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
-    { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
-  );
+  const output = execFileSync(windowsPowerShell(), powershellArguments(script), {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
   const parsed = JSON.parse(output) as unknown;
   const rows = (Array.isArray(parsed) ? parsed : [parsed]) as Array<{
     ProcessId: number;

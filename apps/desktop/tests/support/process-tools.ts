@@ -23,6 +23,17 @@ export async function portIsFree(port: number): Promise<boolean> {
   });
 }
 
+/**
+ * The arguments for one PowerShell script, for every test helper: no profile, no prompt, no stdin, and the script starts
+ * with `$ProgressPreference='SilentlyContinue'` so progress records ("Preparing modules for first use.") never reach the
+ * output as CLIXML. -EncodedCommand (UTF-16LE base64) passes the script without any command-line quoting. Callers also
+ * start PowerShell with stdin ignored.
+ */
+export function powershellArguments(script: string): string[] {
+  const encoded = Buffer.from(`$ProgressPreference='SilentlyContinue';${script}`, "utf16le").toString("base64");
+  return ["-NoProfile", "-NonInteractive", "-InputFormat", "None", "-EncodedCommand", encoded];
+}
+
 export function processIsAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);

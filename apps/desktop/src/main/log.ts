@@ -14,6 +14,7 @@ export type Logger = (line: string) => void;
  *   [shell] runtime reinstalled after the backend refused it                                  one automatic verify, reinstall and retry per App start (never for permission errors)
  *   [shell] backend started pid=<pid> port=<port>                                             the backend answered and was verified
  *   [shell] owner <UNCONFIGURED|PREPARING|QUIESCING|STARTING|MANAGED|NEEDS_REPAIR|EXTERNAL>   every change of the service owner
+ *   [shell] dashboard opened                                                                  the Dashboard was handed to the external browser (an interactive launch that reached MANAGED, the tray, a second launch); never logged by a `--background` launch
  *   [shell] repair window shown                                                               the repair window is visible
  *   [shell] quit requested by --quit                                                          the non-interactive quit began
  *   [shell] second launch carried data that was not understood; treated as a normal launch   (a rejected second-instance payload)

@@ -32,18 +32,27 @@ import {
   readLog,
   removeSandbox,
   runToExit,
+  sleep,
   startApp,
   stopApp,
   waitForLog,
   waitForManaged,
   type PackagedSandbox,
   type RunningApp,
+  type StartOptions,
 } from "./helpers.js";
 
 /**
  * The packaged App as a user runs it, seen from outside only: spawned with `--user-data-dir`, an isolated home and a PATH
  * without Node, then read through its log, its HTTP port, the process list and files. Each test has its own sandbox.
+ *
+ * A launch is `--background` unless its test is about what only an interactive launch does (it opens the Dashboard in the
+ * external browser; it shows the repair window): see `startApp`. Production builds ignore test switches, so an
+ * interactive launch really starts the machine's browser; `removeSandbox` ends whatever that left in the sandbox.
  */
+
+/** After MANAGED: long enough for the Dashboard to have been opened (it is the next statement after the start). */
+const DASHBOARD_SETTLE_MS = 1_500;
 
 const realDefaultDirectories = defaultUserDataDirectories(process.env);
 const realRuntimeRoots = defaultRuntimeRoots(process.env);
@@ -58,9 +67,9 @@ async function newSandbox(withDatabase = true, unsafeUserData = false): Promise<
   return sandbox;
 }
 
-function launch(extra: readonly string[] = []): RunningApp {
+function launch(extra: readonly string[] = [], options: StartOptions = {}): RunningApp {
   if (!sandbox) throw new Error("no sandbox");
-  const app = startApp(sandbox, extra);
+  const app = startApp(sandbox, extra, options);
   running.push(app);
   return app;
 }
@@ -114,7 +123,7 @@ test.afterEach(async ({ browserName: _browserName }, testInfo) => {
     if (sandbox) await stopApp(sandbox, app);
     else app.kill();
   }
-  if (sandbox) removeSandbox(sandbox);
+  if (sandbox) await removeSandbox(sandbox);
   sandbox = undefined;
 });
 
@@ -130,10 +139,14 @@ test.afterAll(() => {
   }
 });
 
-test("starts MANAGED without Node on PATH, on the bundled runtime installed into userData", async () => {
+// Interactive: the only test of ADR-01's "an interactive launch opens the Dashboard" (the browser it starts is ended by
+// `removeSandbox`). Everything else about the first start is the same in background mode.
+test("an interactive start is MANAGED without Node on PATH, on the bundled runtime installed into userData, and opens the Dashboard", async () => {
   const current = await newSandbox();
-  launch();
+  launch([], { interactive: true });
   const backend = await waitForManaged(current);
+  await waitForLog(current, /\[shell\] dashboard opened/, 20_000);
+  expect(logLines(current, /\[shell\] dashboard opened/)).toHaveLength(1);
 
   const log = readLog(current);
   expect(log.indexOf("[shell] runtime installed")).toBeGreaterThanOrEqual(0);
@@ -158,11 +171,16 @@ test("a second launch exits quickly and leaves the first instance with the only 
   const current = await newSandbox();
   const first = launch();
   const backend = await waitForManaged(current);
+  // The first instance is a background launch: it opened nothing. Only the second launch asks it to open the Dashboard.
+  await sleep(DASHBOARD_SETTLE_MS);
+  expect(logLines(current, /\[shell\] dashboard opened/), "a background launch opens no Dashboard").toEqual([]);
 
   const started = performance.now();
   const second = await runToExit(current, [], 20_000);
   expect(second.code).toBe(0);
   expect(performance.now() - started).toBeLessThan(10_000);
+  await waitForLog(current, /\[shell\] dashboard opened/, 20_000);
+  expect(logLines(current, /\[shell\] dashboard opened/), "the hand-over opens the Dashboard once").toHaveLength(1);
 
   expect(first.hasExited()).toBe(false);
   expect(backendFromLog(current)).toEqual(backend);
@@ -173,7 +191,7 @@ test("a second launch exits quickly and leaves the first instance with the only 
 
 test("a missing database shows the repair window and creates no database", async () => {
   const current = await newSandbox(false);
-  const app = launch();
+  const app = launch([], { interactive: true });
   await waitForLog(current, /\[shell\] repair window shown/);
 
   expect(existsSync(current.databasePath)).toBe(false);
@@ -191,7 +209,7 @@ test("a userData folder writable by BUILTIN\\Users is refused: repair window, no
     "the ACL check is Windows only; POSIX modes are covered by desktop-core tests",
   );
   const current = await newSandbox(true, true);
-  const app = launch();
+  const app = launch([], { interactive: true });
   await waitForLog(current, /\[shell\] runtime install failed: RUNTIME_UNSAFE_PERMISSIONS/);
   await waitForLog(current, /\[shell\] repair window shown/);
 
@@ -209,6 +227,10 @@ test("--quit stops the backend, frees the port and leaves no process behind", as
   const current = await newSandbox();
   const app = launch();
   const backend = await waitForManaged(current);
+  // A background launch reaches MANAGED without opening the Dashboard, so no external browser exists and the leftover
+  // check below needs no exception: every process it finds is the App's.
+  await sleep(DASHBOARD_SETTLE_MS);
+  expect(logLines(current, /\[shell\] dashboard opened/), "a background launch opens no Dashboard").toEqual([]);
 
   const quit = await quitCommand(current);
   expect(quit.code).toBe(0);

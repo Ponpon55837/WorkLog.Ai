@@ -14,7 +14,13 @@ import {
   computeInstanceProof,
 } from "@work-intelligence/shared/instance-proof";
 
-import { freePort, portIsFree, processIsAlive, profileDirectories } from "../support/process-tools.js";
+import {
+  freePort,
+  portIsFree,
+  powershellArguments,
+  processIsAlive,
+  profileDirectories,
+} from "../support/process-tools.js";
 
 export { freePort, portIsFree, processIsAlive, profileDirectories };
 
@@ -203,13 +209,13 @@ export function windowsLeftovers(pid: number, marker: string): string[] {
     `  ($_.CommandLine -and $_.CommandLine.Contains($env:WI_SMOKE_MARKER)))`,
     `} | ForEach-Object { '{0} {1}' -f $_.Name, $_.ProcessId }`,
   ].join("\n");
-  // -EncodedCommand (UTF-16LE base64) passes the script without any command-line quoting; the marker, a path, goes in
-  // through the environment for the same reason.
-  const output = execFileSync(
-    windowsPowerShell(),
-    ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
-    { encoding: "utf8", env: { ...process.env, WI_SMOKE_MARKER: marker } },
-  );
+  // The marker, a path, goes in through the environment, as the script itself goes in encoded: no command-line quoting.
+  const output = execFileSync(windowsPowerShell(), powershellArguments(script), {
+    encoding: "utf8",
+    env: { ...process.env, WI_SMOKE_MARKER: marker },
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
   return output
     .split(/\r?\n/)
     .map((line) => line.trim())

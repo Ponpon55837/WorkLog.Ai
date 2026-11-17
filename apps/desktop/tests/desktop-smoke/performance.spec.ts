@@ -17,6 +17,7 @@ import {
   type MainSnapshot,
   type Sandbox,
 } from "./helpers.js";
+import { powershellArguments } from "../support/process-tools.js";
 import { gatesForPlatform, IDLE_SETTLE_MS, PERF_RUNS, type PerfGates } from "./perf-gates.js";
 
 /**
@@ -96,11 +97,11 @@ function residentBytes(pid: number): number {
   if (process.platform === "darwin") {
     return Number(execFileSync("ps", ["-o", "rss=", "-p", String(pid)], { encoding: "utf8" }).trim()) * 1024;
   }
-  const output = execFileSync(
-    windowsPowerShell(),
-    ["-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${pid}).WorkingSet64`],
-    { encoding: "utf8" },
-  );
+  const output = execFileSync(windowsPowerShell(), powershellArguments(`(Get-Process -Id ${pid}).WorkingSet64`), {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
   return Number(output.trim());
 }
 
