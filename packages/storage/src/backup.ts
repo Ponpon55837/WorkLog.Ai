@@ -456,6 +456,22 @@ export function isBackupDue(databasePath: string, directory?: string, now = new 
   return !latest || toLocalCalendarDate(latest.createdAt) !== toLocalCalendarDate(now);
 }
 
+const RESTORE_VERIFY_MESSAGE = "還原用的資料庫副本在升級後未通過完整性檢查；目前的資料庫沒有被取代。請改用其他備份檔。";
+
+export type RestoreDatabaseErrorCode = "RESTORE_VERIFY_FAILED";
+
+/** A safe, classified restore failure: the staging copy failed its post-migration checks, so nothing was replaced. */
+export class RestoreDatabaseError extends Error {
+  public constructor(
+    public readonly code: RestoreDatabaseErrorCode,
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "RestoreDatabaseError";
+  }
+}
+
 export interface RestorePathRemap {
   from: string;
   to: string;
@@ -519,6 +535,21 @@ function readChangeRevisions(database: DatabaseSync): { dataRevision: number; au
     )
     .get() as { dataRevision?: number; auditRevision?: number } | undefined;
   return { dataRevision: Number(row?.dataRevision ?? 0), auditRevision: Number(row?.auditRevision ?? 0) };
+}
+
+/** The staging copy is checked after its migration and remap, because the snapshot check ran before them. */
+function assertRestoredCopyHealthy(db: DatabaseSync): void {
+  let healthy: boolean;
+  try {
+    const quick = db.prepare("PRAGMA quick_check").all() as Array<{ quick_check: string }>;
+    healthy =
+      quick.length === 1 && quick[0]?.quick_check === "ok" && db.prepare("PRAGMA foreign_key_check").all().length === 0;
+  } catch (error) {
+    throw new RestoreDatabaseError("RESTORE_VERIFY_FAILED", RESTORE_VERIFY_MESSAGE, { cause: error });
+  }
+  if (!healthy) {
+    throw new RestoreDatabaseError("RESTORE_VERIFY_FAILED", RESTORE_VERIFY_MESSAGE);
+  }
 }
 
 /**
@@ -609,6 +640,7 @@ export function restoreDatabase(options: {
       Math.max(previousRevisions.auditRevision, restoredRevisions.auditRevision) + 1,
     );
     db.exec("COMMIT");
+    assertRestoredCopyHealthy(db);
   } catch (error) {
     if (db.isTransaction) {
       db.exec("ROLLBACK");
