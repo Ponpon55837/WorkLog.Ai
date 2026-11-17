@@ -143,7 +143,9 @@ test("a new install shows the first-run page with the defaults one click away an
   expect(firstPaintMs).toBeLessThan(FIRST_PAINT_BUDGET_MS);
 
   await defaults.click();
-  const ready = await waitForManagedSnapshot(app, 60_000);
+  await waitForManagedSnapshot(app, 60_000);
+  // Only a start that worked commits the settings (then needsSetup clears): MANAGED comes a moment before that.
+  const ready = await waitForSnapshot(app, (state) => state.owner === "MANAGED" && !state.needsSetup, 15_000);
   expect(ready.backend?.port).toBe(sandbox.port);
   expect(ready.needsSetup).toBe(false);
   const written = JSON.parse(readFileSync(settingsFile(sandbox), "utf8")) as {
