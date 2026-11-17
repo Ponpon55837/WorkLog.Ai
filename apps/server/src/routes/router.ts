@@ -6,6 +6,7 @@ import type {
   ProjectDataExportScope,
   ProjectDataImportPreview,
   ProjectDataImportResult,
+  ProjectDataImportStagedHeader,
   ProjectFolderStatus,
   SystemAgentConnections,
   UserServiceStatus,
@@ -15,6 +16,7 @@ import { safeParseStrict, type StrictParseResult } from "@work-intelligence/sche
 import type { ExportOptions, WorkIntelligenceStore } from "@work-intelligence/storage";
 import type { McpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import { sendError, sendJson } from "../http.js";
+import type { StagedImports } from "../staged-imports.js";
 
 export type RouteMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
@@ -22,11 +24,20 @@ export type RouteMethod = "GET" | "POST" | "PATCH" | "DELETE";
 export interface ProjectDataImportUpload {
   path: string;
   directory: string;
+  /** "request" (the default): a REST body `{bundle, ...choices}`. "bundle": a staged export file, choices in `options`. */
+  envelope?: "request" | "bundle";
+  /** The import choices of a staged file (projectId, remap, strategy); validated with the file. */
+  options?: unknown;
 }
 
 export type ProjectDataImportPreviewWithFolderStatus = Omit<ProjectDataImportPreview, "selectedProjects"> & {
   selectedProjects: Array<ProjectDataImportPreview["selectedProjects"][number] & { folderStatus: ProjectFolderStatus }>;
 };
+
+export interface StagedProjectDataImportInspection {
+  header: ProjectDataImportStagedHeader;
+  preview: ProjectDataImportPreviewWithFolderStatus;
+}
 
 /** Store work that the production server runs away from its request and maintenance event loop. */
 export interface BackgroundStoreOperations {
@@ -40,6 +51,8 @@ export interface BackgroundStoreOperations {
   previewProjectDataImport(upload: ProjectDataImportUpload): Promise<ProjectDataImportPreviewWithFolderStatus>;
   /** Streams and validates the uploaded request, backs up and imports; the search index is synced before it resolves. */
   importProjectData(upload: ProjectDataImportUpload): Promise<ProjectDataImportResult>;
+  /** Validates a staged export file once: what the import page shows about it and the first preview. */
+  inspectStagedProjectDataImport(upload: ProjectDataImportUpload): Promise<StagedProjectDataImportInspection>;
   close(): Promise<void>;
 }
 
@@ -54,6 +67,8 @@ export interface RouteServices {
   backgroundStore: BackgroundStoreOperations;
   /** Where large uploads and exports are staged: `tmp` beside the database (see transfer-workspace.ts). */
   transferRoot: string;
+  /** Export files saved for an import from the Web UI, referred to by id (see staged-imports.ts). */
+  stagedImports: StagedImports;
   /** The health instance proof for this request's challenge header, or undefined when none applies. */
   instanceProof(request: IncomingMessage): string | undefined;
 }

@@ -316,7 +316,10 @@ export function startApi(options: StartApiOptions = {}): StartedApi {
         clearTimeout(initialBackupTimer);
       },
       closeEventStreams: () => apiHandler.closeEventStreams(),
-      closeBackgroundWork: () => closeWorker(),
+      closeBackgroundWork: () => {
+        apiHandler.discardStagedImports();
+        return closeWorker();
+      },
       closeDatabase: closeStore,
       onBackgroundWorkCloseError: (error) => {
         console.error(

@@ -17,6 +17,7 @@ import type {
   BackgroundStoreOperations,
   ProjectDataImportPreviewWithFolderStatus,
   ProjectDataImportUpload,
+  StagedProjectDataImportInspection,
 } from "./routes/router.js";
 import { BackupWorkerOutOfMemoryError } from "./backup-worker-errors.js";
 import { RequestBodyError } from "./http.js";
@@ -27,7 +28,8 @@ export type BackupWorkerOperation =
   | { type: "exportTo"; target: string; options?: ExportOptions }
   | { type: "exportProjectData"; scope: ProjectDataExportScope; target: string }
   | { type: "previewProjectDataImport"; upload: ProjectDataImportUpload }
-  | { type: "importProjectData"; upload: ProjectDataImportUpload };
+  | { type: "importProjectData"; upload: ProjectDataImportUpload }
+  | { type: "inspectStagedProjectDataImport"; upload: ProjectDataImportUpload };
 
 export interface BackupWorkerRequest {
   id: number;
@@ -117,6 +119,7 @@ const HEAVY_OPERATIONS: ReadonlySet<BackupWorkerOperation["type"]> = new Set([
   "exportProjectData",
   "previewProjectDataImport",
   "importProjectData",
+  "inspectStagedProjectDataImport",
 ]);
 
 function workerEntryPath(): string {
@@ -228,6 +231,10 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
 
   public importProjectData(upload: ProjectDataImportUpload): Promise<ProjectDataImportResult> {
     return this.run({ type: "importProjectData", upload });
+  }
+
+  public inspectStagedProjectDataImport(upload: ProjectDataImportUpload): Promise<StagedProjectDataImportInspection> {
+    return this.run({ type: "inspectStagedProjectDataImport", upload });
   }
 
   public close(): Promise<void> {

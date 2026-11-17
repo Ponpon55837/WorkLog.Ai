@@ -1,11 +1,13 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Buffer } from "node:buffer";
 import { createWriteStream, statSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type {
   ApiErrorCode,
+  ProjectDataImportPreview,
   ProjectDataImportResult,
   ProjectFolderStatus,
   ProjectListRecord,
@@ -17,8 +19,13 @@ import {
   type ValidatedProjectDataImport,
   type WorkIntelligenceStore,
   canonicalizeProjectRoot,
+  hydrateRow,
 } from "@work-intelligence/storage";
-import type { ProjectDataImportPreviewWithFolderStatus, ProjectDataImportUpload } from "./routes/router.js";
+import type {
+  ProjectDataImportPreviewWithFolderStatus,
+  ProjectDataImportUpload,
+  StagedProjectDataImportInspection,
+} from "./routes/router.js";
 import { hasTransferSpace, TRANSFER_DISK_FULL_MESSAGE } from "./transfer-workspace.js";
 
 export const MAX_INPUT_PAYLOAD_BYTES = 1_500_000;
@@ -26,7 +33,7 @@ export const MAX_INPUT_PAYLOAD_BYTES = 1_500_000;
  * The largest portable import (and export) file. Import, preview and export stream the file in the background process
  * in bounded memory, so the limit is about disk and time, not heap.
  */
-export const MAX_PROJECT_IMPORT_BYTES = 50 * 1024 * 1024;
+export const MAX_PROJECT_IMPORT_BYTES = 256 * 1024 * 1024;
 const MAX_PROJECT_IMPORT_MIB = MAX_PROJECT_IMPORT_BYTES / 1024 / 1024;
 export const PROJECT_IMPORT_TOO_LARGE_MESSAGE = `匯入檔不可超過 ${MAX_PROJECT_IMPORT_MIB} MiB。`;
 export const PROJECT_EXPORT_TOO_LARGE_MESSAGE = `這份專案匯出檔超過 ${MAX_PROJECT_IMPORT_MIB} MiB，請改用整份 SQLite 快照。`;
@@ -129,14 +136,17 @@ export async function receiveJsonBodyFile(request: IncomingMessage, target: stri
 }
 
 /**
- * Validates an import request body saved by {@link receiveJsonBodyFile}, streamed in bounded memory; long values go to
- * a spill file in `directory`. The caller disposes the result (or removes `directory`).
+ * Validates an uploaded import, streamed in bounded memory; long values go to a spill file of its own in `directory`,
+ * so a preview and an import of the same staged file never share one. A request body (`{bundle, ...choices}`) carries
+ * its choices; a staged export file takes them from `upload.options`. The caller disposes the result.
  */
 export function validateProjectDataImportUpload(upload: ProjectDataImportUpload): ValidatedProjectDataImport {
+  const envelope = upload.envelope ?? "request";
+  let validated: ValidatedProjectDataImport;
   try {
-    return readProjectDataImportFile(upload.path, {
-      envelope: "request",
-      spillPath: join(upload.directory, "import.spill"),
+    validated = readProjectDataImportFile(upload.path, {
+      envelope,
+      spillPath: join(upload.directory, `import-${randomUUID()}.spill`),
     });
   } catch (error) {
     if (error instanceof ProjectDataImportSyntaxError) {
@@ -144,6 +154,23 @@ export function validateProjectDataImportUpload(upload: ProjectDataImportUpload)
     }
     throw error;
   }
+  if (envelope === "request") return validated;
+  try {
+    return validated.withOptions(upload.options ?? {});
+  } catch (error) {
+    validated.dispose();
+    throw error;
+  }
+}
+
+function withFolderStatus(preview: ProjectDataImportPreview): ProjectDataImportPreviewWithFolderStatus {
+  return {
+    ...preview,
+    selectedProjects: preview.selectedProjects.map((project) => ({
+      ...project,
+      folderStatus: inspectProjectFolder(project.rootPath),
+    })),
+  };
 }
 
 /** Previews an uploaded import, with each selected project's folder status; the same path in both processes. */
@@ -153,13 +180,34 @@ export function previewProjectDataImportUpload(
 ): ProjectDataImportPreviewWithFolderStatus {
   const validated = validateProjectDataImportUpload(upload);
   try {
-    const preview = store.previewProjectDataImport(validated);
+    return withFolderStatus(store.previewProjectDataImport(validated));
+  } finally {
+    validated.dispose();
+  }
+}
+
+/**
+ * Validates a staged export file once and returns what the import page needs to show it (the scope, when it was
+ * exported and its projects) together with the first preview, so choosing a file costs one pass over it.
+ */
+export function inspectStagedProjectDataImport(
+  store: WorkIntelligenceStore,
+  upload: ProjectDataImportUpload,
+): StagedProjectDataImportInspection {
+  const validated = validateProjectDataImportUpload({ ...upload, envelope: "bundle" });
+  try {
+    const { bundle } = validated.input;
     return {
-      ...preview,
-      selectedProjects: preview.selectedProjects.map((project) => ({
-        ...project,
-        folderStatus: inspectProjectFolder(project.rootPath),
-      })),
+      header: {
+        schemaVersion: bundle.schemaVersion,
+        exportedAt: bundle.exportedAt,
+        scope: bundle.scope,
+        projects: bundle.tables.projects.map((row) => {
+          const project = hydrateRow(row);
+          return { id: String(project.id), name: String(project.name) };
+        }),
+      },
+      preview: withFolderStatus(store.previewProjectDataImport(validated)),
     };
   } finally {
     validated.dispose();

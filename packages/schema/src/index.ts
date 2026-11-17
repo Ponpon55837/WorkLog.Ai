@@ -1535,8 +1535,6 @@ export const MAX_PROJECT_DATA_ROWS = 200_000;
 /** The structure of one row (column names and scalar values); the streaming import checks each row with it. */
 export const projectDataImportRowSchema = z.record(z.string().regex(/^[a-z_]+$/), projectDataValueSchema);
 const projectDataRows = z.array(projectDataImportRowSchema).max(MAX_PROJECT_DATA_ROWS);
-/** The row-count rule of one table on its own, so the streaming import reports a too-long table as zod words it. */
-export const projectDataTableLengthSchema = z.array(z.unknown()).max(MAX_PROJECT_DATA_ROWS);
 const projectDataTablesShape = {
   projects: projectDataRows,
   sessions: projectDataRows,

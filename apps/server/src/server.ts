@@ -25,11 +25,13 @@ import { BackupWorkerOutOfMemoryError } from "./backup-worker-errors.js";
 import { inspectAgentConnections } from "./doctor.js";
 import {
   importProjectDataUpload,
+  inspectStagedProjectDataImport,
   JSON_HEADERS,
   previewProjectDataImportUpload,
   RequestBodyError,
   sendError,
 } from "./http.js";
+import { StagedImports } from "./staged-imports.js";
 import { transferRoot as defaultTransferRoot } from "./transfer-workspace.js";
 import { getUserServiceStatusAsync } from "./user-service.js";
 import { Router, apiRoutes, type BackgroundStoreOperations, type RouteServices } from "./routes/index.js";
@@ -157,6 +159,8 @@ export interface ApiHandlerOptions {
 
 export type ApiHandler = ((request: IncomingMessage, response: ServerResponse) => Promise<void>) & {
   closeEventStreams: () => void;
+  /** Removes the export files staged for an import (shutdown); a crash leaves them to the start-up sweep. */
+  discardStagedImports: () => void;
 };
 
 function createInlineBackgroundStore(store: WorkIntelligenceStore): BackgroundStoreOperations {
@@ -179,6 +183,9 @@ function createInlineBackgroundStore(store: WorkIntelligenceStore): BackgroundSt
     async importProjectData(upload) {
       return importProjectDataUpload(store, upload);
     },
+    async inspectStagedProjectDataImport(upload) {
+      return inspectStagedProjectDataImport(store, upload);
+    },
     async close() {},
   };
 }
@@ -191,6 +198,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
   const queryUserService = options.userServiceStatus ?? (() => getUserServiceStatusAsync({ repositoryRoot }));
   const backgroundStore = options.backgroundStore ?? createInlineBackgroundStore(store);
   const transferRoot = options.transferRoot ?? defaultTransferRoot(store.databasePath);
+  const stagedImports = new StagedImports(transferRoot);
   let cachedUserService: { status: UserServiceStatus; expiresAt: number } | undefined;
   let pendingUserService: Promise<UserServiceStatus> | undefined;
   function inspectUserService(): Promise<UserServiceStatus> {
@@ -308,6 +316,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
     userServiceStatus: inspectUserService,
     backgroundStore,
     transferRoot,
+    stagedImports,
     instanceProof: (request) => {
       const challenge = request.headers[INSTANCE_CHALLENGE_HEADER];
       return options.instanceRunId && isValidInstanceChallenge(challenge)
@@ -413,6 +422,9 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
         }
       }
       eventClients.clear();
+    },
+    discardStagedImports(): void {
+      stagedImports.clear();
     },
   });
 }

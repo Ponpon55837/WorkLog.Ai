@@ -22,6 +22,7 @@ import {
   sendProjectDataTransferError,
 } from "../http.js";
 import { getSqliteRuntimeStatus } from "../sqlite-runtime.js";
+import { StagedImportError } from "../staged-imports.js";
 import { createTransferDirectory, removeTransferDirectory } from "../transfer-workspace.js";
 import { parseRequestInput, type ProjectDataImportUpload, type Route, type RouteContext } from "./router.js";
 
@@ -98,6 +99,72 @@ async function withImportUpload<T>(
   } finally {
     removeTransferDirectory(directory);
   }
+}
+
+function sendStagedImportError(response: ServerResponse, error: unknown): boolean {
+  if (!(error instanceof StagedImportError)) return false;
+  sendError(response, error.statusCode, error.message);
+  return true;
+}
+
+/**
+ * Saves an export file the Web UI sends as the raw body, validates it once in the background process, and answers
+ * with its id, what the page shows about it and the first preview (with the `strategy` query parameter, if any). A file
+ * that fails validation is not kept.
+ */
+async function stageImport(context: RouteContext): Promise<void> {
+  const { response, services, url } = context;
+  try {
+    const reservation = services.stagedImports.reserve();
+    try {
+      await receiveJsonBodyFile(context.request, reservation.path, MAX_PROJECT_IMPORT_BYTES);
+      const strategy = url.searchParams.get("strategy");
+      const inspection = await services.backgroundStore.inspectStagedProjectDataImport({
+        path: reservation.path,
+        directory: reservation.directory,
+        envelope: "bundle",
+        options: strategy === null ? {} : { strategy },
+      });
+      reservation.commit();
+      sendJson(response, 201, {
+        stagingId: reservation.id,
+        expiresAt: reservation.expiresAt.toISOString(),
+        ...inspection,
+      });
+    } catch (error) {
+      reservation.discard();
+      throw error;
+    }
+  } catch (error) {
+    if (!sendStagedImportError(response, error) && !sendProjectDataTransferError(response, error)) throw error;
+  }
+}
+
+/** Previews (or imports) a staged file with the choices in the small JSON body. */
+async function useStagedImport(context: RouteContext, apply: boolean): Promise<void> {
+  const { response, services, params } = context;
+  try {
+    const options = await readJsonBody(context.request);
+    const id = params.stagingId ?? "";
+    const result = await services.stagedImports.use<unknown>(id, options, (upload) =>
+      apply
+        ? services.backgroundStore.importProjectData(upload)
+        : services.backgroundStore.previewProjectDataImport(upload),
+    );
+    // Imported: the file has served its purpose. A failed import keeps it, so the user can change a choice and retry.
+    if (apply) services.stagedImports.remove(id);
+    sendJson(response, 200, result);
+  } catch (error) {
+    if (!sendStagedImportError(response, error) && !sendProjectDataTransferError(response, error)) throw error;
+  }
+}
+
+/** Cancels a staged import; a JSON body is required, as for every other DELETE, so a cross-site form cannot send it. */
+async function discardStagedImport({ request, response, services, params }: RouteContext): Promise<void> {
+  await readJsonBody(request);
+  services.stagedImports.remove(params.stagingId ?? "");
+  response.writeHead(204);
+  response.end();
 }
 
 async function systemStatus({ store, response, services }: RouteContext): Promise<void> {
@@ -281,4 +348,12 @@ export const systemRoutes: Route[] = [
   { method: "POST", pattern: "/api/export", handler: exportData },
   { method: "POST", pattern: "/api/import/preview", handler: previewImport },
   { method: "POST", pattern: "/api/import", handler: importData },
+  { method: "POST", pattern: "/api/import/staged", handler: stageImport },
+  {
+    method: "POST",
+    pattern: "/api/import/staged/:stagingId/preview",
+    handler: (context) => useStagedImport(context, false),
+  },
+  { method: "POST", pattern: "/api/import/staged/:stagingId", handler: (context) => useStagedImport(context, true) },
+  { method: "DELETE", pattern: "/api/import/staged/:stagingId", handler: discardStagedImport },
 ];

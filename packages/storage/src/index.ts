@@ -50,6 +50,7 @@ export {
   type ProjectDataImportStreamOptions,
   type ProjectDataImportSyntaxErrorKind,
 } from "./project-data-import-stream.js";
+export { hydrateRow } from "./project-data-spill.js";
 export {
   assertDatabaseSchemaVersion,
   DatabaseInitializationError,

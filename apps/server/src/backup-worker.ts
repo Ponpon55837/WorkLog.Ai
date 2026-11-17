@@ -106,6 +106,11 @@ async function executeOperation(stores: WorkerStores, operation: BackupWorkerOpe
       const { importProjectDataUpload } = await import("./http.js");
       return importProjectDataUpload(store, operation.upload);
     }
+    case "inspectStagedProjectDataImport": {
+      const store = await stores.previewStore();
+      const { inspectStagedProjectDataImport } = await import("./http.js");
+      return inspectStagedProjectDataImport(store, operation.upload);
+    }
   }
 }
 

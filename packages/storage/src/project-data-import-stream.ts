@@ -14,7 +14,6 @@ import {
   projectDataImportEnvelopeSchema,
   projectDataImportOptionsSchema,
   projectDataImportRowSchema,
-  projectDataTableLengthSchema,
   validationIssueMessage,
   type ProjectDataBundleIssue,
   type ProjectDataRowChecker,
@@ -156,11 +155,11 @@ function compareIssueOrder(left: number[], right: number[]): number {
 
 type ZodIssueLike = { code: string; message: string; path: PropertyKey[]; keys?: string[] };
 
+/** A table over the row limit, named, so the user knows which part of the export is too large. */
 function tooManyRowsIssue(table: ProjectDataTable): ZodIssueLike {
-  const issue = projectDataTableLengthSchema.safeParse(new Array(MAX_PROJECT_DATA_ROWS + 1)).error?.issues[0];
   return {
-    code: issue?.code ?? "too_big",
-    message: issue?.message ?? "Too big",
+    code: "too_big",
+    message: `${table} 超過 ${MAX_PROJECT_DATA_ROWS.toLocaleString("en-US")} 列的上限。`,
     path: ["bundle", "tables", table],
   };
 }
