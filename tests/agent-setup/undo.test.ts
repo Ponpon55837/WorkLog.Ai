@@ -155,10 +155,46 @@ describe("undoAgentSetupOperation", () => {
     expect(result.manualRepairPath).toBe(fixture.paths.claudeJson);
     expect(result.items[claudeIndex]?.compensation).toBe("manual-repair");
     expect(result.items.slice(0, claudeIndex).every((item) => item.compensation === "not-attempted")).toBe(true);
-    expect(result.items.slice(claudeIndex + 1).every((item) => item.compensation === "restored")).toBe(true);
+    const manifestIndex = plan.mutations.findIndex((mutation) => mutation.path === fixture.paths.manifest);
+    expect(result.items[manifestIndex]?.compensation).toBe("not-attempted");
+    expect(
+      result.items
+        .slice(claudeIndex + 1)
+        .every(
+          (item, offset) =>
+            item.index === claudeIndex + 1 + offset &&
+            (item.index === manifestIndex || item.compensation === "restored"),
+        ),
+    ).toBe(true);
     expect(readFileSync(fixture.paths.claudeJson)).toEqual(edited);
     expect(readFileSync(fixture.paths.codexSkill)).toEqual(installedSkill);
     expect(journalState(fixture)).toBe("needs-manual-repair");
+  });
+
+  it("keeps the manifest in step with the configs after a partial undo and finishes it on retry", () => {
+    const fixture = createFixture();
+    const before = snapshot(fixture);
+    commit(fixture);
+    const written = readFileSync(fixture.paths.codexConfig);
+    writeFileSync(fixture.paths.codexConfig, `${written.toString("utf8")} `);
+
+    expect(undoAt(fixture).status).toBe("needs-manual-repair");
+
+    const ids = (
+      JSON.parse(readFileSync(fixture.paths.manifest, "utf8")) as { components: { id: string }[] }
+    ).components.map((component) => component.id);
+    const onDisk = {
+      claudeMcp: readFileSync(fixture.paths.claudeJson, "utf8").includes("work-intelligence"),
+      codexMcp: readFileSync(fixture.paths.codexConfig, "utf8").includes("work-intelligence"),
+      codexSkill: existsSync(fixture.paths.codexSkill),
+    };
+    for (const [id, present] of Object.entries(onDisk)) expect(ids.includes(id), id).toBe(present);
+    expect(onDisk.codexMcp).toBe(true);
+    expect(Object.values(onDisk).some((present) => !present)).toBe(true);
+
+    writeFileSync(fixture.paths.codexConfig, written);
+    expect(undoAt(fixture).status).toBe("undone");
+    expectSnapshot(before);
   });
 
   it("can be retried after the file is repaired and then finishes the undo", () => {
@@ -224,6 +260,28 @@ describe("undoAgentSetupOperation", () => {
     expect(readFileSync(fixture.paths.manifest, "utf8")).toContain("claudeMcp");
   });
 
+  it("keeps the previous operation undoable when the next apply fails and rolls back", () => {
+    const fixture = createFixture();
+    const before = snapshot(fixture);
+    const first = commit(fixture);
+    const afterFirst = snapshot(fixture);
+    const second = createAgentSetupPlan(fixture.options, "uninstall");
+
+    const result = applyAgentSetupTransaction(second, {
+      journalPath: fixture.paths.journal,
+      afterWrite: () => {
+        throw new Error("synthetic failure");
+      },
+    });
+
+    expect(result.outcome).toBe("rolled-back");
+    expectSnapshot(afterFirst);
+    expect(backupsOf(first).every((path) => existsSync(path))).toBe(true);
+    expect(journalState(fixture)).toBe("committed");
+    expect(undoAt(fixture).status).toBe("undone");
+    expectSnapshot(before);
+  });
+
   it("does not let a plan without changes replace the journal that can still be undone", () => {
     const fixture = createFixture();
     const before = snapshot(fixture);
@@ -244,6 +302,33 @@ describe("undoAgentSetupOperation", () => {
     expect(applyAgentSetupTransaction(refused, { journalPath: fixture.paths.journal }).outcome).toBe("refused");
     expect(backupsOf(first).every((path) => existsSync(path))).toBe(true);
     expect(undoAt(fixture).status).toBe("undone");
+  });
+
+  it("undoes an adoption of a hook group with a sibling hook and gives the group back byte for byte", () => {
+    const fixture = createFixture();
+    fixture.options = { ...fixture.options, platform: PLATFORM };
+    const root = fixture.options.repositoryRoot;
+    writeJson(fixture.paths.claudeSettings, {
+      hooks: {
+        Stop: [
+          {
+            matcher: "",
+            hooks: [
+              { type: "command", command: commandForAgentHook(`${root}/apps/mcp/dist/finalize-reminder.js`, PLATFORM) },
+              { type: "command", command: "my-notify.sh" },
+            ],
+          },
+        ],
+      },
+    });
+    const before = snapshot(fixture);
+    const plan = createAgentSetupPlan(launcherOptions(fixture, [root]));
+    expect(plan.conflicts).toEqual([]);
+    commit(fixture, plan);
+    expect(readFileSync(fixture.paths.claudeSettings, "utf8")).toContain("my-notify.sh");
+
+    expect(undoAt(fixture).status).toBe("undone");
+    expectSnapshot(before);
   });
 
   it("undoes an adoption and gives back the hand-written entries byte for byte", () => {

@@ -143,6 +143,73 @@ describe("describeAgentSetupMutations", () => {
     expect(text).toContain("INNER_TOKEN = ***");
   });
 
+  it("masks the values of secret-style arguments, as one string or as separate array elements", () => {
+    const text = render(
+      planOf([
+        null,
+        [
+          'command = "node server.js --token tok-one --api-key=key-two --password pw-three --port 8080"',
+          'args = ["--token", "tok-four", "--secret=sec-five", "--name", "visible-name"]',
+          '  "args": ["--password", "pw-six"]',
+          "args = [",
+          '  "--api-key",',
+          '  "key-seven",',
+          '  "--mode",',
+          '  "visible-mode",',
+          "]",
+        ].join("\n"),
+      ]),
+    ).join("\n");
+    for (const secret of ["tok-one", "key-two", "pw-three", "tok-four", "sec-five", "pw-six", "key-seven"]) {
+      expect(text).not.toContain(secret);
+    }
+    for (const visible of ["--port 8080", "visible-name", "visible-mode"]) expect(text).toContain(visible);
+    expect(text).toContain("--token ***");
+    expect(text).toContain("--api-key=***");
+  });
+
+  it("masks secret query parameters inside values and keeps the others", () => {
+    const text = render(
+      planOf([
+        null,
+        [
+          'url = "https://example.test/v1?apiKey=qk-one&page=2&token=qk-two&access_token=qk-three"',
+          '{ "endpoint": "https://example.test/?q=1&password=qk-four#frag" }',
+        ].join("\n"),
+      ]),
+    ).join("\n");
+    for (const secret of ["qk-one", "qk-two", "qk-three", "qk-four"]) expect(text).not.toContain(secret);
+    expect(text).toContain("page=2");
+    expect(text).toContain("q=1");
+    expect(text).toContain("#frag");
+  });
+
+  it("masks env keys that end in _PAT, _TOKEN, _SECRET, _KEY, _DSN or name a PASSWORD or DATABASE_URL", () => {
+    const masked = [
+      "GITHUB_PAT",
+      "NPM_TOKEN",
+      "CLIENT_SECRET",
+      "SIGNING_KEY",
+      "DB_PASSWORD",
+      "DATABASE_URL",
+      "SENTRY_DSN",
+    ];
+    const text = render(planOf([null, masked.map((key) => `${key} = "value-${key}"`).join("\n")])).join("\n");
+    for (const key of masked) {
+      expect(text).not.toContain(`value-${key}`);
+      expect(text).toContain(`${key} = ***`);
+    }
+  });
+
+  it("matches _KEY only as a whole trailing word: MONKEY_MODE, KEYBOARD and KEY_PATH stay visible", () => {
+    const text = render(
+      planOf([null, ['MONKEY_MODE = "banana"', 'KEYBOARD = "qwerty"', 'KEY_PATH = "/tmp/x"'].join("\n")]),
+    ).join("\n");
+    expect(text).toContain('MONKEY_MODE = "banana"');
+    expect(text).toContain('KEYBOARD = "qwerty"');
+    expect(text).toContain('KEY_PATH = "/tmp/x"');
+  });
+
   it("masks Bearer values wherever they appear", () => {
     const lines = render(
       planOf(["", 'curl -H "Authorization: Bearer abc.def-123" https://example.test\nBearer topsecret\n']),

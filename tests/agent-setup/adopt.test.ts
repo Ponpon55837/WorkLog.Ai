@@ -1,6 +1,7 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { mkdirSync } from "node:fs";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   applyAgentSetupPlan,
@@ -11,6 +12,12 @@ import {
   type AgentSetupPlanOptions,
 } from "@work-intelligence/agent-setup";
 import { createFixture, readJson, removeFixtures, writeJson, type SetupFixture } from "./fixture.js";
+
+// smol-toml is a dependency of the package under test only, so resolve it from there.
+const packageRequire = createRequire(
+  fileURLToPath(new URL("../../packages/agent-setup/package.json", import.meta.url)),
+);
+const parseToml = (packageRequire("smol-toml") as { parse: (text: string) => unknown }).parse;
 
 const SHIM = "/opt/Work Intelligence/bin/work-intelligence-launcher";
 const WINDOWS_SHIM = "C:\\Users\\測試 使用者\\AppData\\Local\\Work Intelligence\\bin\\work-intelligence-launcher.cmd";
@@ -358,11 +365,11 @@ describe("adopt option", () => {
         `command = ${JSON.stringify(HOST_SHIM)}   # the runtime`,
         'args = ["mcp"]',
         "startup_timeout_sec = 30",
-        TOML_END,
         "",
         "[mcp_servers.work-intelligence.env]",
         `WORK_INTELLIGENCE_DB = ${JSON.stringify(join(root, "data", "mine.sqlite"))}`,
         'EXTRA = "x"',
+        TOML_END,
         "",
         "[features]",
         "foo = true",
@@ -374,12 +381,43 @@ describe("adopt option", () => {
       effectiveDatabase: join(root, "data", "mine.sqlite"),
     });
     expectSettled(options);
+    // Uninstall takes the env sub-table with the block: no work-intelligence key is left, and the file still parses.
+    const removal = createAgentSetupPlan(fixture.options, "uninstall");
+    expect(removal.conflicts).toEqual([]);
+    expect(applyAgentSetupPlan(removal).applied).toBe(true);
+    const remaining = readFileSync(fixture.paths.codexConfig, "utf8");
+    expect(remaining).not.toContain("work-intelligence");
+    expect(remaining).not.toContain("EXTRA");
+    expect(parseToml(remaining)).toEqual({
+      model: "fixture-model",
+      mcp_servers: { other: { command: "other" } },
+      features: { foo: true },
+    });
+  });
+
+  it("keeps the manifest entry of an adopted block that covers its env sub-table", () => {
+    const fixture = hostFixture();
+    const root = fixture.options.repositoryRoot;
+    seedToml(
+      fixture,
+      [
+        "[mcp_servers.work-intelligence]",
+        'command = "node"',
+        `args = [${JSON.stringify(script(root, "launcher.js"))}]`,
+        "[mcp_servers.work-intelligence.env]",
+        'WORK_INTELLIGENCE_DB = "data/mine.sqlite"',
+        "",
+      ].join("\n"),
+    );
+    const options = launcherOptions(fixture, [root]);
+    adoptAndApply(options);
     const owned = (
       readJson(fixture.paths.manifest).components as { id: string; expected: string; adopted?: boolean }[]
     ).find((entry) => entry.id === "codexMcp");
     expect(owned).toMatchObject({ id: "codexMcp", adopted: true });
     expect(owned?.expected.startsWith(TOML_START)).toBe(true);
     expect(owned?.expected.trimEnd().endsWith(TOML_END)).toBe(true);
+    expect(owned?.expected).toContain("[mcp_servers.work-intelligence.env]");
   });
 
   it("keeps CRLF line endings and extra keys when the table already carries the setup block markers", () => {
@@ -432,7 +470,7 @@ describe("adopt option", () => {
     );
     adoptAndApply(launcherOptions(fixture, [root]));
     expect(readFileSync(fixture.paths.codexConfig, "utf8")).toBe(
-      `${TOML_START}\r\n[mcp_servers.work-intelligence]\r\ncommand = ${JSON.stringify(HOST_SHIM)}\r\nargs = ["mcp"]\r\n${TOML_END}\r\n`,
+      `${TOML_START}\r\n[mcp_servers.work-intelligence]\r\ncommand = ${JSON.stringify(HOST_SHIM)}\r\nargs = ["mcp"]\r\nenv = { WORK_INTELLIGENCE_DB = ${JSON.stringify(join(root, "data", "work-intelligence.sqlite"))} }\r\n${TOML_END}\r\n`,
     );
   });
 
@@ -600,6 +638,96 @@ describe("adopt option", () => {
     expect(hookItems(fixture.paths.claudeSettings, "Stop")).toEqual([]);
     expect(readFileSync(fixture.paths.codexConfig, "utf8")).toBe("# top\n");
     expect(existsSync(fixture.paths.manifest)).toBe(false);
+  });
+
+  it("adopts only its own hook out of a group with sibling hooks, and uninstall keeps the siblings", () => {
+    const fixture = hostFixture();
+    const root = fixture.options.repositoryRoot;
+    const sibling = { type: "command", command: "my-notify.sh", timeout: 5 };
+    const lone = { type: "command", command: commandForAgentHook(script(root, "finalize-reminder.js"), PLATFORM) };
+    seedHooks(fixture.paths.claudeSettings, {
+      Stop: [
+        { matcher: "", hooks: [lone, sibling] },
+        { matcher: "other", hooks: [sibling] },
+      ],
+    });
+    const options = launcherOptions(fixture, [root]);
+    adoptAndApply(options);
+    expect(hookItems(fixture.paths.claudeSettings, "Stop")[0]).toEqual({
+      matcher: "",
+      hooks: [{ type: "command", command: shimHook("claude-finalize-reminder") }, sibling],
+    });
+    expectSettled(options);
+
+    const removal = createAgentSetupPlan(fixture.options, "uninstall");
+    expect(removal.conflicts).toEqual([]);
+    expect(applyAgentSetupPlan(removal).applied).toBe(true);
+
+    expect(hookItems(fixture.paths.claudeSettings, "Stop")).toEqual([
+      { matcher: "", hooks: [sibling] },
+      { matcher: "other", hooks: [sibling] },
+    ]);
+    expect(existsSync(fixture.paths.manifest)).toBe(false);
+  });
+
+  describe("an entry without WORK_INTELLIGENCE_DB keeps using its checkout database", () => {
+    /** What the launcher would use: an explicit variable always wins over the App's own database. */
+    const resolvedDatabase = (env: unknown): string => {
+      const value = env && typeof env === "object" ? (env as Record<string, unknown>).WORK_INTELLIGENCE_DB : undefined;
+      return typeof value === "string" ? value : "APP-DATABASE";
+    };
+    const tomlEnv = (fixture: SetupFixture): unknown => {
+      const parsed = parseToml(readFileSync(fixture.paths.codexConfig, "utf8")) as {
+        mcp_servers: Record<string, { env?: unknown }>;
+      };
+      return parsed.mcp_servers["work-intelligence"]?.env;
+    };
+
+    it("writes the checkout database into a Claude entry with no env, or an env without it", () => {
+      for (const env of [undefined, { KEEP: "1" }]) {
+        const fixture = hostFixture();
+        const root = fixture.options.repositoryRoot;
+        const expected = join(root, "data", "work-intelligence.sqlite");
+        seedClaudeMcp(fixture, {
+          type: "stdio",
+          command: "node",
+          args: [script(root, "launcher.js")],
+          ...(env ? { env } : {}),
+        });
+        const plan = adoptAndApply(launcherOptions(fixture, [root]));
+        expect(resolvedDatabase(claudeServer(fixture).env)).toBe(expected);
+        expect(plan.adopted?.[0]?.effectiveDatabase).toBe(expected);
+        expect(plan.actions.join("\n")).toContain(expected);
+        if (env) expect(object(claudeServer(fixture).env).KEEP).toBe("1");
+        removeFixtures();
+      }
+    });
+
+    it("writes the checkout database into a Codex table whatever shape its env has, and uninstall leaves no trace", () => {
+      const shapes: Record<string, string> = {
+        none: "",
+        "own table": '[mcp_servers.work-intelligence.env]\nKEEP = "1"\n',
+        inline: 'env = { KEEP = "1" }\n',
+        "empty inline": "env = {}\n",
+        dotted: 'env.KEEP = "1"\n',
+      };
+      for (const [name, extra] of Object.entries(shapes)) {
+        const fixture = hostFixture();
+        const root = fixture.options.repositoryRoot;
+        const expected = join(root, "data", "work-intelligence.sqlite");
+        const head = `[mcp_servers.work-intelligence]\ncommand = "node"\nargs = [${JSON.stringify(script(root, "launcher.js"))}]\n`;
+        seedToml(fixture, name === "own table" ? `${head}${extra}` : `${head}${extra}\n[features]\nfoo = true\n`);
+        const plan = adoptAndApply(launcherOptions(fixture, [root]));
+        expect(resolvedDatabase(tomlEnv(fixture)), name).toBe(expected);
+        expect(plan.adopted?.[0]?.effectiveDatabase, name).toBe(expected);
+        if (extra && name !== "empty inline") expect(object(tomlEnv(fixture)).KEEP, name).toBe("1");
+        const removal = createAgentSetupPlan(fixture.options, "uninstall");
+        expect(removal.conflicts).toEqual([]);
+        expect(applyAgentSetupPlan(removal).applied).toBe(true);
+        expect(readFileSync(fixture.paths.codexConfig, "utf8"), name).not.toContain("work-intelligence");
+        removeFixtures();
+      }
+    });
   });
 
   it("migrates setup-owned checkout entries as before while adopting a hand-written one beside them", () => {

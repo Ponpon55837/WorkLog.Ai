@@ -45,9 +45,27 @@ const MAX_LINES = 20_000;
 const MAX_LCS_CELLS = 16_000_000;
 const TOO_LARGE_NOTE = "檔案過大，無法顯示差異";
 const MASK = "***";
-const SECRET_KEY = /token|secret|password|passwd|api[_-]?key|authorization|bearer|cookie|credential|private[_-]?key/i;
+/**
+ * The one source of masking rules. A key is secret when its name contains one of the words below anywhere, or ends in
+ * `_KEY`, `-KEY`, `_PAT` or `_DSN` (a whole trailing word, so `API_KEY` and `SIGNING_KEY` match but `MONKEY_MODE`,
+ * `KEYBOARD` and `KEY_PATH` do not), or is a database URL (`DATABASE_URL`).
+ */
+const SECRET_KEY =
+  /token|secret|password|passwd|api[_-]?key|authorization|bearer|cookie|credential|private[_-]?key|database[_-]?url|(?:^|[_-])(?:key|pat|dsn)$/i;
 const BEARER_VALUE = /\bBearer\s+[^\s"'\\,;]+/gi;
-const KEY_VALUE = /("(?:[^"\\]|\\.)*"|'[^']*'|[A-Za-z0-9_.-]+)(\s*[:=]\s*)("(?:[^"\\]|\\.)*"|'[^']*'|[^\s,}\]#]+)/g;
+const KEY_VALUE = /("(?:[^"\\]|\\.)*"|'[^']*'|[A-Za-z0-9_.-]+)(\s*[:=]\s*)("(?:[^"\\]|\\.)*"|'[^']*'|[^\s,}\]#"']+)/g;
+/** `?apiKey=abc&x=1` inside a value: the parameter value stops at `&`, a quote, whitespace or a fragment. */
+const QUERY_PARAM = /([?&])([A-Za-z0-9_.-]+)=([^&\s"'\\#]+)/g;
+/** `--token=abc` and `--token abc` inside one string, and `"--token", "abc"` as two array elements. */
+const FLAG_EQUALS = /(--[A-Za-z0-9][A-Za-z0-9_-]*)=([^\s"'\\,;]+)/g;
+const FLAG_SPACE = /(--[A-Za-z0-9][A-Za-z0-9_-]*)(\s+)([^\s"'\\,;-][^\s"'\\,;]*)/g;
+const FLAG_ELEMENT = /(["']--[A-Za-z0-9][A-Za-z0-9_-]*["']\s*,\s*)("(?:[^"\\]|\\.)*"|'[^']*')/g;
+/** A line that ends with a quoted secret flag whose value is on the next line. */
+const TRAILING_FLAG = /["'](--[A-Za-z0-9][A-Za-z0-9_-]*)["']\s*,?\s*$/;
+
+function isSecretFlag(flag: string): boolean {
+  return SECRET_KEY.test(flag.slice(2));
+}
 
 function splitLines(text: string): string[] {
   if (text === "") return [];
@@ -84,14 +102,28 @@ function bracketBalance(line: string): number {
 function maskLines(lines: readonly string[]): string[] {
   const masked: string[] = [];
   let hidingDepth = 0;
+  let flagValueNext = false;
   for (const line of lines) {
     if (hidingDepth > 0) {
       hidingDepth += bracketBalance(line);
       masked.push(line.replace(/\S.*$/, MASK));
       continue;
     }
+    let working = line;
+    if (flagValueNext) working = working.replace(/("(?:[^"\\]|\\.)*"|'[^']*')/, `"${MASK}"`);
+    flagValueNext = TRAILING_FLAG.test(line) && isSecretFlag(TRAILING_FLAG.exec(line)?.[1] ?? "");
     let opened = 0;
-    const withoutBearer = line.replace(BEARER_VALUE, (match) => match.replace(/\S+$/, MASK));
+    const withoutBearer = working
+      .replace(BEARER_VALUE, (match) => match.replace(/\S+$/, MASK))
+      .replace(QUERY_PARAM, (match, lead: string, key: string) =>
+        SECRET_KEY.test(key) ? `${lead}${key}=${MASK}` : match,
+      )
+      .replace(FLAG_EQUALS, (match, flag: string) => (isSecretFlag(flag) ? `${flag}=${MASK}` : match))
+      .replace(FLAG_SPACE, (match, flag: string, gap: string) => (isSecretFlag(flag) ? `${flag}${gap}${MASK}` : match))
+      .replace(FLAG_ELEMENT, (match, lead: string) => {
+        const flag = /--[A-Za-z0-9][A-Za-z0-9_-]*/.exec(lead)?.[0] ?? "";
+        return isSecretFlag(flag) ? `${lead}"${MASK}"` : match;
+      });
     const result = withoutBearer.replace(
       KEY_VALUE,
       (match, key: string, separator: string, value: string, offset: number) => {

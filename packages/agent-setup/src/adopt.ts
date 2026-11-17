@@ -86,6 +86,8 @@ interface McpAnalysis {
   effectiveDatabase?: string;
   /** The relative `WORK_INTELLIGENCE_DB` as written, when it is relative. */
   relativeDatabase?: string;
+  /** Set when the entry has no `WORK_INTELLIGENCE_DB`, so it used `<root>/data/work-intelligence.sqlite`. */
+  missingDatabase?: true;
 }
 
 interface JsonMcpHit {
@@ -124,8 +126,12 @@ interface TomlServerLayout {
   body: TomlStatement[];
   envPairs: TomlStatement[];
   envHeader?: TomlStatement;
-  /** Headers of the tables other than the server's main table, as offsets. */
+  /** Headers of tables that are neither the server's main table nor one of its sub-tables, as offsets. */
   otherHeaderStarts: number[];
+  /** Headers of the server's sub-tables (`.env` included), as offsets. */
+  subHeaderStarts: number[];
+  /** End of the main table and of the sub-tables that directly follow it: where the managed block ends. */
+  blockEnd: number;
 }
 
 interface TomlHit {
@@ -228,6 +234,7 @@ function analyseMcpServer(server: unknown, platform: NodeJS.Platform): McpAnalys
       recognised: true,
       root: found.root,
       effectiveDatabase: flavor.join(found.root, "data", "work-intelligence.sqlite"),
+      missingDatabase: true,
     };
   }
   if (typeof database !== "string" || database === "" || database === ":memory:" || database.startsWith("file:")) {
@@ -498,6 +505,7 @@ function layoutTomlServer(statements: readonly TomlStatement[]): TomlServerLayou
   const body: TomlStatement[] = [];
   const envPairs: TomlStatement[] = [];
   const otherHeaderStarts: number[] = [];
+  const subHeaderStarts: number[] = [];
   let current: string[] = [];
   for (const statement of statements) {
     if (statement.kind === "header") {
@@ -510,7 +518,9 @@ function layoutTomlServer(statements: readonly TomlStatement[]): TomlServerLayou
       } else if (samePath(path, [...MAIN_TABLE, "env"])) {
         if (envHeader) return undefined;
         envHeader = statement;
-      } else otherHeaderStarts.push(statement.start);
+        subHeaderStarts.push(statement.start);
+      } else if (startsWithPath(path, MAIN_TABLE)) subHeaderStarts.push(statement.start);
+      else otherHeaderStarts.push(statement.start);
       continue;
     }
     const full = [...current, ...(statement.keyPath ?? [])];
@@ -519,7 +529,20 @@ function layoutTomlServer(statements: readonly TomlStatement[]): TomlServerLayou
     else if (samePath(current, [...MAIN_TABLE, "env"])) envPairs.push(statement);
     else if (!startsWithPath(current, MAIN_TABLE)) return undefined;
   }
-  return header ? { header, body, envPairs, envHeader, otherHeaderStarts } : undefined;
+  if (!header) return undefined;
+  // The block must cover the sub-tables that directly follow the main table, or uninstall would orphan them.
+  let blockEnd = header.eolEnd;
+  let after = false;
+  for (const statement of statements) {
+    if (statement === header) {
+      after = true;
+      continue;
+    }
+    if (!after) continue;
+    if (statement.kind === "header" && !startsWithPath(statement.path ?? [], MAIN_TABLE)) break;
+    blockEnd = statement.eolEnd;
+  }
+  return { header, body, envPairs, envHeader, otherHeaderStarts, subHeaderStarts, blockEnd };
 }
 
 function pairValue(text: string, statement: TomlStatement): string {
@@ -556,9 +579,39 @@ function findDatabaseToken(text: string, layout: TomlServerLayout): { start: num
   return { start, end: start + match[1].length };
 }
 
-/** Where the end marker goes: after the last statement of the main table. */
+/** Where the end marker goes: after the main table and the sub-tables that directly follow it. */
 function sectionEnd(layout: TomlServerLayout): number {
-  return layout.body.at(-1)?.eolEnd ?? layout.header.eolEnd;
+  return layout.blockEnd;
+}
+
+/** Where and what to insert so a table without `WORK_INTELLIGENCE_DB` gets one; undefined for a shape not handled. */
+function databaseInsertion(text: string, layout: TomlServerLayout, database: string): TomlEdit | undefined {
+  const newline = text.includes("\r\n") ? "\r\n" : "\n";
+  const line = (key: string) => `${key} = ${JSON.stringify(database)}`;
+  const onNewLine = (position: number, content: string): TomlEdit => ({
+    start: position,
+    end: position,
+    text: text.slice(0, position).endsWith("\n") || position === 0 ? content + newline : newline + content,
+  });
+  const dotted = layout.body.filter((statement) => statement.keyPath?.[0] === "env" && statement.keyPath.length > 1);
+  const inline = findBodyPair(layout, "env");
+  if (layout.envHeader) {
+    const last = layout.envPairs.at(-1) ?? layout.envHeader;
+    return onNewLine(last.eolEnd, line(DATABASE_ENV));
+  }
+  if (dotted.length) return onNewLine(dotted.at(-1)!.eolEnd, line(`env.${DATABASE_ENV}`));
+  if (inline) {
+    if (inline.valueStart === undefined || text[inline.valueStart] !== "{") return undefined;
+    const empty = /^\{\s*\}/.test(text.slice(inline.valueStart));
+    return {
+      start: inline.valueStart + 1,
+      end: inline.valueStart + 1,
+      text: ` ${DATABASE_ENV} = ${JSON.stringify(database)}${empty ? "" : ","}`,
+    };
+  }
+  if (layout.body.some((statement) => statement.keyPath?.[0] === "env")) return undefined;
+  const last = layout.body.at(-1) ?? layout.header;
+  return onNewLine(last.eolEnd, `env = { ${DATABASE_ENV} = ${JSON.stringify(database)} }`);
 }
 
 function scanCodexToml(text: string, context: ScanContext, location: string): TomlHit | undefined {
@@ -593,6 +646,10 @@ function scanCodexToml(text: string, context: ScanContext, location: string): To
         reason = "command 或 args 不是可安全改寫的單純寫法";
       } else if (analysis.relativeDatabase !== undefined && !findDatabaseToken(text, layout)) {
         reason = `${DATABASE_ENV} 不是可安全改寫的單純寫法`;
+      } else if (analysis.missingDatabase && !databaseInsertion(text, layout, analysis.effectiveDatabase ?? "")) {
+        reason = `env 不是可安全補上 ${DATABASE_ENV} 的單純寫法`;
+      } else if (layout.subHeaderStarts.some((start) => start >= layout.blockEnd)) {
+        reason = "MCP 註冊的子表格與主表格不相連";
       } else {
         const markers = markerRange(text);
         if (markers === "invalid") reason = "安裝區塊標記不完整";
@@ -638,8 +695,10 @@ function markerRange(text: string): { start: number; end: number } | undefined |
 
 function blockHoldsOnlyServer(markers: { start: number; end: number }, layout: TomlServerLayout): boolean {
   const insideStart = layout.header.start >= markers.start && sectionEnd(layout) <= markers.end;
-  const others = [...layout.otherHeaderStarts, ...(layout.envHeader ? [layout.envHeader.start] : [])];
-  return insideStart && others.every((start) => start < markers.start || start > markers.end);
+  const inside = (start: number) => start >= markers.start && start <= markers.end;
+  return (
+    insideStart && layout.otherHeaderStarts.every((start) => !inside(start)) && layout.subHeaderStarts.every(inside)
+  );
 }
 
 function readJsonObject(path: string): Record<string, unknown> | undefined {
@@ -698,6 +757,12 @@ function recordAdoption(context: AdoptContext, info: CheckoutRegistration, root:
 }
 
 function announceDatabase(context: AdoptContext, analysis: McpAnalysis, label: string): void {
+  if (analysis.missingDatabase) {
+    context.plan.actions.push(
+      `${label} 原未設定 ${DATABASE_ENV}（使用 checkout 內的資料庫），已寫入絕對路徑「${analysis.effectiveDatabase}」，實際使用的資料庫不變。`,
+    );
+    return;
+  }
   if (analysis.relativeDatabase === undefined) return;
   context.plan.actions.push(
     `${label} 的 ${DATABASE_ENV} 原為相對路徑「${analysis.relativeDatabase}」，已依 checkout 改寫為絕對路徑「${analysis.effectiveDatabase}」，實際使用的資料庫不變。`,
@@ -768,6 +833,9 @@ export function adoptClaudeMcp(root: Record<string, unknown>, context: AdoptCont
   entry.args = [LAUNCHER_MCP_ARGUMENT];
   if (analysis.relativeDatabase !== undefined && JSON_OBJECT(entry.env)) {
     entry.env[DATABASE_ENV] = analysis.effectiveDatabase;
+  } else if (analysis.missingDatabase) {
+    // The launcher gives an entry without this variable the App's database; an explicit one always wins.
+    entry.env = { ...(JSON_OBJECT(entry.env) ? entry.env : {}), [DATABASE_ENV]: analysis.effectiveDatabase };
   }
   setEntry(context.components, {
     id: "claudeMcp",
@@ -794,7 +862,10 @@ export function adoptHooks(
     setEntry(context.components, {
       id: info.componentId as HookComponentId,
       kind: "json-array-item",
-      expected: structuredClone(item),
+      // Only this hook is ours: a group's sibling hooks belong to the user and must survive uninstall and undo.
+      expected: Array.isArray(item.hooks)
+        ? { ...structuredClone(item), hooks: [structuredClone(hook)] }
+        : structuredClone(item),
       adopted: true,
     });
     recordAdoption(context, info, info.repositoryRoot!);
@@ -835,6 +906,12 @@ export function adoptCodexToml(text: string, context: AdoptContext, location: st
       text: (text.slice(0, end).endsWith("\n") ? "" : newline) + TOML_BLOCK_END + newline,
     });
   }
+  if (analysis.missingDatabase) {
+    // Pushed after the end marker, which sorts first at the same offset, so the new line lands inside the block.
+    const insertion = databaseInsertion(text, layout, analysis.effectiveDatabase ?? "");
+    if (!insertion) return undefined;
+    edits.push(insertion);
+  }
   let next = text;
   for (const edit of [...edits].sort((left, right) => right.start - left.start || right.end - left.end)) {
     next = next.slice(0, edit.start) + edit.text + next.slice(edit.end);
@@ -847,6 +924,11 @@ export function adoptCodexToml(text: string, context: AdoptContext, location: st
   expectedServer.args = [LAUNCHER_MCP_ARGUMENT];
   if (analysis.relativeDatabase !== undefined && JSON_OBJECT(expectedServer.env)) {
     expectedServer.env[DATABASE_ENV] = analysis.effectiveDatabase;
+  } else if (analysis.missingDatabase) {
+    expectedServer.env = {
+      ...(JSON_OBJECT(expectedServer.env) ? expectedServer.env : {}),
+      [DATABASE_ENV]: analysis.effectiveDatabase,
+    };
   }
   try {
     const reparsed = parseToml(next, { maxDepth: 128, unsafeKeyBehaviour: "throw" });
