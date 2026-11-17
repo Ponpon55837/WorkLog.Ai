@@ -1,5 +1,6 @@
 // The main-process modules this test loads use the desktop build flags; declare them as the desktop build does.
 /// <reference path="../../apps/desktop/src/main/build-flags.d.ts" />
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { StorageRisk } from "../../packages/desktop-core/src/index.js";
 
@@ -18,19 +19,16 @@ const IDENTITY = { realPath: "/synthetic/local/copy.sqlite", fileId: { device: "
 
 describe("the name of the copy", () => {
   it("is the first name nothing uses, counting the database and its WAL and shared-memory files", () => {
+    // The names are joined with the platform's separator, as the App joins them.
+    const folder = join("/synthetic", "data");
+    const name = (file: string) => join(folder, file);
     const taken = new Set<string>();
-    expect(uniqueCopyTarget("/synthetic/data", (path) => taken.has(path))).toBe(
-      "/synthetic/data/work-intelligence-local.sqlite",
-    );
-    taken.add("/synthetic/data/work-intelligence-local.sqlite");
-    expect(uniqueCopyTarget("/synthetic/data", (path) => taken.has(path))).toBe(
-      "/synthetic/data/work-intelligence-local-2.sqlite",
-    );
-    taken.add("/synthetic/data/work-intelligence-local-2.sqlite-wal");
-    taken.add("/synthetic/data/work-intelligence-local-3.sqlite-shm");
-    expect(uniqueCopyTarget("/synthetic/data", (path) => taken.has(path))).toBe(
-      "/synthetic/data/work-intelligence-local-4.sqlite",
-    );
+    expect(uniqueCopyTarget(folder, (path) => taken.has(path))).toBe(name("work-intelligence-local.sqlite"));
+    taken.add(name("work-intelligence-local.sqlite"));
+    expect(uniqueCopyTarget(folder, (path) => taken.has(path))).toBe(name("work-intelligence-local-2.sqlite"));
+    taken.add(name("work-intelligence-local-2.sqlite-wal"));
+    taken.add(name("work-intelligence-local-3.sqlite-shm"));
+    expect(uniqueCopyTarget(folder, (path) => taken.has(path))).toBe(name("work-intelligence-local-4.sqlite"));
   });
 });
 
