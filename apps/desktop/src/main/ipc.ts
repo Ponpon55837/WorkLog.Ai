@@ -251,4 +251,7 @@ export function registerRepairIpc(options: IpcOptions): void {
   handle(REPAIR_CHANNELS.agentsDiscard, parser(repairInputSchemas.agentsDiscard), async () => agents.discard());
   handle(REPAIR_CHANNELS.agentsUndo, parser(repairInputSchemas.agentsUndo), () => agents.undo());
   handle(REPAIR_CHANNELS.agentsSelfTest, parser(repairInputSchemas.agentsSelfTest), () => agents.selfTest());
+  handle(REPAIR_CHANNELS.agentsUseCheckoutDatabase, parser(repairInputSchemas.agentsUseCheckoutDatabase), ({ agent }) =>
+    agents.useCheckoutDatabase(agent),
+  );
 }

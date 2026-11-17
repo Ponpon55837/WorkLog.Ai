@@ -123,6 +123,7 @@ describe("repair IPC", () => {
       "agents:preview",
       "agents:self-test",
       "agents:undo",
+      "agents:use-checkout-database",
       "app:copy-command",
       "app:get-view",
       "app:show-view",

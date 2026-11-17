@@ -20,6 +20,7 @@ import {
   OPEN_DASHBOARD_SECOND_INSTANCE_DATA,
   OperationCoordinator,
   OperationJournal,
+  previewToCandidate,
   QUIT_SECOND_INSTANCE_DATA,
   readLastBackupFromDirectory,
   resolveShellLocale,
@@ -258,6 +259,12 @@ function runShell(configInputs: DesktopConfigInputs): void {
     paths,
     skillSourcePath: skillSourceFile(app.isPackaged, process.resourcesPath),
     log,
+    // The same read-only preview the repair window's "選擇資料庫…" makes; switching still needs the user's confirm.
+    offerDatabase: async (path) => {
+      const id = state.candidates.add(path);
+      state.candidates.setPreview(id, previewToCandidate(await supervisor.preview(path)));
+      window.open("repair");
+    },
   });
   const openSetup = (): void => {
     window.open("setup");

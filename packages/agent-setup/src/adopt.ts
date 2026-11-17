@@ -6,6 +6,7 @@
  */
 import { existsSync } from "node:fs";
 import { posix, win32 } from "node:path";
+import { pathsReferToSameFile } from "@work-intelligence/shared/file-identity";
 import { parse as parseToml } from "smol-toml";
 import {
   commandForAgentHook,
@@ -59,8 +60,17 @@ export interface CheckoutRegistration {
   recognised: boolean;
   /** Why the entry is not recognised (zh-TW). */
   reason?: string;
-  /** MCP only: `env.WORK_INTELLIGENCE_DB` (relative to the root), else `<root>/data/work-intelligence.sqlite`. */
+  /**
+   * The database the entry uses. MCP: `env.WORK_INTELLIGENCE_DB` (relative to the root), else
+   * `<root>/data/work-intelligence.sqlite`. Hooks never get the MCP entry's env, so a checkout hook uses
+   * `<root>/data/work-intelligence.sqlite` unless the Agent's own environment sets `WORK_INTELLIGENCE_DB`, which the App
+   * cannot see ({@link databaseFromCheckoutDefault}).
+   */
   effectiveDatabase?: string;
+  /** Hooks: {@link effectiveDatabase} is the checkout default, true only if the Agent's environment does not override it. */
+  databaseFromCheckoutDefault?: true;
+  /** With `adopt.databasePath` set: whether {@link effectiveDatabase} is the App's database (the same file). */
+  sameAsAppDatabase?: boolean;
 }
 
 /** What planning needs to adopt entries; built by {@link createAdoptContext}. */
@@ -72,11 +82,26 @@ export interface AdoptContext {
   platform: NodeJS.Platform;
   roots: ReadonlySet<string>;
   labelOf: (id: AgentSetupComponentId) => string;
+  /** The App's database; when set, only entries on this same file are adopted. */
+  appDatabase?: string;
 }
 
 interface ScanContext {
   components: readonly ManagedEntry[];
   platform: NodeJS.Platform;
+}
+
+/** The database a checkout hook uses when the Agent's environment does not set `WORK_INTELLIGENCE_DB`. */
+function checkoutDefaultDatabase(root: string, platform: NodeJS.Platform): string {
+  return flavorOf(platform).join(root, "data", "work-intelligence.sqlite");
+}
+
+/** Fills {@link CheckoutRegistration.sameAsAppDatabase}: exact file identity, never a string compare. */
+function compareWithApp(info: CheckoutRegistration, appDatabase: string | undefined): CheckoutRegistration {
+  if (appDatabase === undefined) return info;
+  info.sameAsAppDatabase =
+    info.effectiveDatabase !== undefined && pathsReferToSameFile(info.effectiveDatabase, appDatabase);
+  return info;
 }
 
 interface McpAnalysis {
@@ -336,6 +361,12 @@ function scanHooks(
             owned: componentId ? isOwned(context.components, componentId, item) : false,
             recognised: analysis.recognised && componentId !== undefined,
             ...(reason ? { reason } : {}),
+            ...(analysis.root
+              ? {
+                  effectiveDatabase: checkoutDefaultDatabase(analysis.root, context.platform),
+                  databaseFromCheckoutDefault: true as const,
+                }
+              : {}),
           },
         });
       }
@@ -735,6 +766,15 @@ function shouldAdopt(info: CheckoutRegistration, context: AdoptContext): boolean
     );
     return false;
   }
+  if (context.appDatabase !== undefined && !compareWithApp(info, context.appDatabase).sameAsAppDatabase) {
+    // MCP keeps its own database after adoption while hooks follow the App's: one Agent would write to two databases.
+    const database = info.effectiveDatabase ? displayPath(info.effectiveDatabase, context.homeDirectory) : "未知";
+    conflictOnce(
+      context.plan,
+      `${label}：使用的資料庫（${database}）不是 App 目前的資料庫；改由 App 管理會讓這個 Agent 寫入兩份資料庫，保留且拒絕修改。`,
+    );
+    return false;
+  }
   return true;
 }
 
@@ -748,11 +788,17 @@ function recordAdoption(context: AdoptContext, info: CheckoutRegistration, root:
     ...(info.effectiveDatabase ? { effectiveDatabase: info.effectiveDatabase } : {}),
   };
   (context.plan.adopted ??= []).push(adopted);
+  const database = info.effectiveDatabase ? displayPath(info.effectiveDatabase, context.homeDirectory) : undefined;
+  // MCP keeps the database its entry names; a hook follows the App's database through the launcher afterwards.
+  const databaseNote =
+    database === undefined
+      ? ""
+      : info.kind === "mcp" || context.appDatabase !== undefined
+        ? `；資料庫維持 ${database}`
+        : `；之後使用 App 的資料庫（原為 ${database}，除非 Agent 的環境另有設定）`;
   context.plan.actions.push(
     `改由桌面 App 管理 ${context.labelOf(adopted.componentId)}：${displayPath(info.location, context.homeDirectory)}` +
-      `（原指向 checkout：${root}）` +
-      (info.effectiveDatabase ? `；資料庫維持 ${info.effectiveDatabase}` : "") +
-      "。",
+      `（原指向 checkout：${root}）${databaseNote}。`,
   );
 }
 
@@ -786,16 +832,21 @@ export function createAdoptContext(input: {
     platform: input.platform,
     roots: new Set(roots.map((root) => comparableRoot(root, input.platform))),
     labelOf: (id) => input.labels.get(id) ?? id,
+    ...(input.options.adopt?.databasePath ? { appDatabase: input.options.adopt.databasePath } : {}),
   };
 }
 
 /**
  * Read-only and checkout-free: every registration of the Work Intelligence MCP server or finalize hook that is not
  * the launcher shim, per Agent config, with the checkout root it points at, whether that root still exists, whether
- * setup owns it, whether it is a form setup can rewrite safely (and why not), and the database an MCP entry uses.
+ * setup owns it, whether it is a form setup can rewrite safely (and why not), and the database the entry uses. With
+ * `compare.appDatabase`, each entry also says whether that database is the App's (the same file).
  * Claude Desktop is out of scope; a plugin-enabled Agent is listed like any other.
  */
-export function findCheckoutRegistrations(options: AgentInspectOptions): CheckoutRegistration[] {
+export function findCheckoutRegistrations(
+  options: AgentInspectOptions,
+  compare: { appDatabase?: string } = {},
+): CheckoutRegistration[] {
   const normalized = normalizePlanOptions(options);
   const platform = options.platform ?? process.platform;
   const components = parseManifest(readRegularFile(manifestPath(normalized.homeDirectory)).bytes).manifest.components;
@@ -821,7 +872,7 @@ export function findCheckoutRegistrations(options: AgentInspectOptions): Checkou
   if (claudeSettings) {
     found.push(...scanHooks(claudeSettings, "claude-code", context, claudeSettingsPath).map((hit) => hit.info));
   }
-  return found;
+  return found.map((info) => compareWithApp(info, compare.appDatabase));
 }
 
 /** Rewrites a recognised hand-written Claude `mcpServers.work-intelligence` entry in place; true when changed. */

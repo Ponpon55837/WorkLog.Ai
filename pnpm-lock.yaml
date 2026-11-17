@@ -167,6 +167,9 @@ importers:
 
   packages/agent-setup:
     dependencies:
+      '@work-intelligence/shared':
+        specifier: workspace:*
+        version: link:../shared
       smol-toml:
         specifier: ^1.9.1
         version: 1.9.1

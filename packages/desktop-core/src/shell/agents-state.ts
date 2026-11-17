@@ -28,6 +28,15 @@ export interface AgentCardView {
   readonly adoptable: boolean;
   /** Why a hand-written registration cannot be taken over (zh-TW from agent-setup). */
   readonly notAdoptableReason?: string;
+  /**
+   * The checkout's registration uses a database that is not the App's, so it is not taken over (MCP would keep its
+   * database and hooks would follow the App's). `display` is shown with `~`; the page offers "改用這份資料庫".
+   */
+  readonly otherDatabase?: {
+    readonly display: string;
+    /** Hooks only, without an MCP entry: the checkout default, unless the Agent's own environment overrides it. */
+    readonly fromCheckoutDefault: boolean;
+  };
 }
 
 export type AgentsDiffLineType = "context" | "add" | "remove" | "note";

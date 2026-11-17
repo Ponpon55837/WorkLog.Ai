@@ -72,6 +72,12 @@ export interface SetupMessages {
   readonly agentsCheckoutMissing: string;
   readonly agentsAdoptHint: string;
   readonly agentsNotAdoptable: string;
+  /** `{path}`: the database the checkout's MCP entry uses. */
+  readonly agentsOtherDatabase: string;
+  /** `{path}`: the checkout default a hook uses when the Agent's environment does not name a database. */
+  readonly agentsOtherDatabaseDefault: string;
+  readonly agentsUseOtherDatabase: string;
+  readonly agentsKeepCheckout: string;
   readonly agentsPreview: string;
   readonly agentsPreviewAdopt: string;
   readonly agentsPreviewHeading: string;
@@ -196,6 +202,12 @@ const zhTW: SetupMessages = {
   agentsCheckoutMissing: "這個原始碼目錄已經不在，目前的設定無法啟動。",
   agentsAdoptHint: "目前直接執行原始碼目錄。可以改由桌面 App 管理；使用的資料庫不變。",
   agentsNotAdoptable: "這個設定不是 setup 寫入的格式，App 不會改動它：",
+  agentsOtherDatabase:
+    "這個原始碼目錄使用另一份資料庫：{path}。App 只接管使用同一份資料庫的設定，否則這個 Agent 的工作記錄會分散在兩個地方。",
+  agentsOtherDatabaseDefault:
+    "這個原始碼目錄的 hook 使用 {path}（除非 Agent 的環境另外指定了資料庫）。App 只接管使用同一份資料庫的設定，否則這個 Agent 的工作記錄會分散在兩個地方。",
+  agentsUseOtherDatabase: "改用這份資料庫",
+  agentsKeepCheckout: "也可以保留原本的設定，App 不會改動它。",
   agentsPreview: "預覽變更",
   agentsPreviewAdopt: "改由桌面 App 管理…",
   agentsPreviewHeading: "將要寫入的變更",
@@ -318,6 +330,12 @@ const en: SetupMessages = {
   agentsAdoptHint:
     "It runs a source checkout directly. The desktop App can manage it instead; the database stays the same.",
   agentsNotAdoptable: "These settings are not in the form setup writes, so the App leaves them alone:",
+  agentsOtherDatabase:
+    "This source checkout uses another database: {path}. The App only takes over settings on the same database; otherwise this Agent's work would be recorded in two places.",
+  agentsOtherDatabaseDefault:
+    "This source checkout's hooks use {path} (unless the Agent's environment names another database). The App only takes over settings on the same database; otherwise this Agent's work would be recorded in two places.",
+  agentsUseOtherDatabase: "Use this database",
+  agentsKeepCheckout: "Or keep the current settings; the App leaves them alone.",
   agentsPreview: "Preview changes",
   agentsPreviewAdopt: "Let the desktop App manage it…",
   agentsPreviewHeading: "Changes to be written",

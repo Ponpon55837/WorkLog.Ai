@@ -26,6 +26,7 @@ const channels: typeof REPAIR_CHANNELS = {
   agentsDiscard: "agents:discard",
   agentsUndo: "agents:undo",
   agentsSelfTest: "agents:self-test",
+  agentsUseCheckoutDatabase: "agents:use-checkout-database",
 };
 
 const api: RepairApi = {
@@ -68,6 +69,7 @@ const api: RepairApi = {
   agentsDiscard: () => ipcRenderer.invoke(channels.agentsDiscard, {}),
   agentsUndo: () => ipcRenderer.invoke(channels.agentsUndo, {}),
   agentsSelfTest: () => ipcRenderer.invoke(channels.agentsSelfTest, {}),
+  agentsUseCheckoutDatabase: (agent) => ipcRenderer.invoke(channels.agentsUseCheckoutDatabase, { agent }),
 };
 
 contextBridge.exposeInMainWorld("workIntelligenceRepair", api);

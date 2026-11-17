@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { RepairActionId, RepairState } from "./repair-state.js";
 import type { SetupState } from "./setup-state.js";
-import type { AgentsState } from "./agents-state.js";
+import { SETUP_AGENT_IDS, type AgentsState, type SetupAgentId } from "./agents-state.js";
 import { isRepairPageUrl } from "./navigation-policy.js";
 
 /** IPC channel names between the repair page (through its preload) and main. */
@@ -27,6 +27,7 @@ export const REPAIR_CHANNELS = {
   agentsDiscard: "agents:discard",
   agentsUndo: "agents:undo",
   agentsSelfTest: "agents:self-test",
+  agentsUseCheckoutDatabase: "agents:use-checkout-database",
 } as const;
 
 /** What the one App window shows; main decides, the page asks. */
@@ -78,6 +79,8 @@ export const repairInputSchemas = {
   agentsDiscard: z.strictObject({}),
   agentsUndo: z.strictObject({}),
   agentsSelfTest: z.strictObject({}),
+  /** Opens the App's database change for the database this Agent's checkout uses; main reads the path itself. */
+  agentsUseCheckoutDatabase: z.strictObject({ agent: z.enum(SETUP_AGENT_IDS) }),
 } as const;
 
 /** What an Agent page action answers. */
@@ -136,6 +139,7 @@ export interface RepairApi {
   agentsDiscard(): Promise<AgentsActionResult>;
   agentsUndo(): Promise<AgentsActionResult>;
   agentsSelfTest(): Promise<AgentsActionResult>;
+  agentsUseCheckoutDatabase(agent: SetupAgentId): Promise<AgentsActionResult>;
 }
 
 /** The facts main reads from `event.senderFrame` and its window. */
