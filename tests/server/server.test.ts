@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createServer, request as httpRequest, type Server } from "node:http";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import process from "node:process";
@@ -20,6 +20,8 @@ import {
   DATABASE_READ_ONLY_MESSAGE,
   WorkIntelligenceStore,
 } from "../../packages/storage/src/index.js";
+import { MAX_PROJECT_IMPORT_BYTES } from "../../apps/server/src/http.js";
+import { transferRoot } from "../../apps/server/src/transfer-workspace.js";
 import { createApiHandler, type ApiHandlerOptions } from "../../apps/server/src/server.js";
 import { getUserServiceStatusAsync } from "../../apps/server/src/user-service.js";
 import { BackupWorkerClient } from "../../apps/server/src/backup-worker-client.js";
@@ -29,7 +31,7 @@ import {
   readMcpBuildIdentity,
   registerMcpProcess,
 } from "../../packages/shared/src/mcp-runtime.js";
-import { failWorkerWithOutOfMemory, holdWorkerRequests } from "../helpers/worker-out-of-memory.js";
+import { writeImportRequest, writeSyntheticProjectExport } from "../helpers/synthetic-project-export.js";
 import { createMcpRuntimeFixture, finalizeMcpRuntimeFixture } from "../helpers/mcp-runtime-fixture.js";
 
 const resources: Array<{
@@ -2130,51 +2132,56 @@ describe("Work Intelligence REST API", () => {
       summary: "Gives the export one Session to import.",
     });
     const bundle = source.exportProjectData({ type: "all" });
+    const bundleFile = join(root, "large-export.json");
+    writeSyntheticProjectExport(bundleFile, 4_000);
+    const largeRequest = join(root, "large-request.json");
+    writeImportRequest(bundleFile, largeRequest);
     const store = new WorkIntelligenceStore(":memory:");
-    const backgroundStore = new BackupWorkerClient(databasePath);
-    const { server, baseUrl } = await startApi(store, { backgroundStore });
+    // A heap that answers a small request and cannot hold the planner's rows of the large one (see backup-worker.test.ts).
+    const backgroundStore = new BackupWorkerClient(databasePath, {}, LATEST_SCHEMA_VERSION, { heapMb: 32 });
+    const { server, baseUrl } = await startApi(store, { backgroundStore, transferRoot: join(root, "tmp") });
     resources.push({ server, store, root });
-    const state = backgroundStore as unknown as { lifetime?: { worker: { threadId: number } } };
+    const state = backgroundStore as unknown as { lifetime?: { child: { pid?: number } } };
 
     try {
-      // A real worker heap exhaustion can abort the whole process on Node 24, so the out-of-memory error is injected
-      // into the live worker while a preview and an import are both queued in it.
       const warmup = await requestJson<{ outcome: string }>(baseUrl, "/api/import/preview", {
         method: "POST",
         body: { bundle },
       });
       expect(warmup.status).toBe(200);
-      const lostThreadId = state.lifetime?.worker.threadId;
-      holdWorkerRequests(backgroundStore);
-      const queued = ["/api/import/preview", "/api/import"].map((path) =>
-        fetch(`${baseUrl}${path}`, {
+      const lostPid = state.lifetime?.child.pid;
+      // The worker runs out of heap for real, in its own process, while the API keeps answering.
+      for (const path of ["/api/import/preview", "/api/import"]) {
+        const response = await fetch(`${baseUrl}${path}`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ bundle }),
-        }),
-      );
-      await failWorkerWithOutOfMemory(backgroundStore, 2);
-      for (const response of await Promise.all(queued)) {
+          body: readFileSync(largeRequest),
+        });
         expect(response.status).toBe(413);
-        expect(await response.json()).toMatchObject({ code: "backup_worker_out_of_memory" });
+        expect(await response.json()).toMatchObject({
+          code: "backup_worker_out_of_memory",
+          error: "匯入檔太大，背景處理記憶體不足；後端仍正常運作。",
+        });
+        expect((await fetch(`${baseUrl}/api/health`)).status).toBe(200);
       }
 
-      // The next request is served by a new worker.
+      // The next request is served by a new worker, and no upload is left behind.
       const preview = await requestJson<{ outcome: string }>(baseUrl, "/api/import/preview", {
         method: "POST",
         body: { bundle },
       });
       expect(preview.status).toBe(200);
       expect(preview.body.outcome).toBe("project_data_import_preview");
-      expect(state.lifetime?.worker.threadId).not.toBe(lostThreadId);
+      expect(state.lifetime?.child.pid).not.toBe(lostPid);
+      expect(readdirSync(join(root, "tmp"))).toEqual([]);
     } finally {
       await backgroundStore.close();
       source.close();
     }
-  }, 60_000);
+  }, 120_000);
 
-  it("answers 413 from the structure precheck for millions of tiny objects, before the worker parses anything", async () => {
-    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-import-precheck-test-"));
+  it("refuses millions of tiny objects outside the tables in bounded memory, and keeps serving", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-import-structure-test-"));
     const databasePath = join(root, "work-intelligence.sqlite");
     const store = new WorkIntelligenceStore(databasePath);
     const backgroundStore = new BackupWorkerClient(databasePath);
@@ -2183,14 +2190,20 @@ describe("Work Intelligence REST API", () => {
 
     try {
       for (const path of ["/api/import/preview", "/api/import"]) {
+        // 48 MB of `{"a":1},` would need about 1 GiB as parsed objects; the stream refuses the value after 1 MiB.
         const padded = await fetch(`${baseUrl}${path}`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: `{"bundle":{"padding":[${'{"a":1},'.repeat(6_000_000)}0]}}`,
         });
-        expect(padded.status).toBe(413);
-        expect(await padded.json()).toMatchObject({ code: "payload_too_large" });
+        expect(padded.status).toBe(400);
+        expect(await padded.json()).toMatchObject({
+          code: "invalid_input",
+          error: "匯入檔格式錯誤：內容結構異常或過於龐大。",
+        });
       }
+      expect((await fetch(`${baseUrl}/api/health`)).status).toBe(200);
+      expect(readdirSync(transferRoot(databasePath))).toEqual([]);
     } finally {
       await backgroundStore.close();
     }
@@ -2280,7 +2293,7 @@ describe("Work Intelligence REST API", () => {
       expect(repeated.status).toBe(200);
       expect(repeated.body.skipped).toMatchObject({ projects: 1, sessions: 1 });
 
-      // Import routes have their own 50 MiB limit; other JSON routes keep the smaller default.
+      // Import routes have their own 256 MiB limit; other JSON routes keep the smaller default.
       const largerThanDefault = await fetch(`${baseUrl}/api/import/preview`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -2288,12 +2301,27 @@ describe("Work Intelligence REST API", () => {
       });
       expect(largerThanDefault.status).toBe(400);
 
-      const tooLarge = await fetch(`${baseUrl}/api/import`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: Buffer.alloc(50 * 1024 * 1024 + 1, 0x20),
+      // A body over the limit is refused from its declared length, before any of it is read (the streamed case is
+      // covered with a small limit in transfer-workspace.test.ts).
+      const tooLarge = await new Promise<number>((resolve, reject) => {
+        const outgoing = httpRequest(
+          `${baseUrl}/api/import`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json", "content-length": String(MAX_PROJECT_IMPORT_BYTES + 1) },
+          },
+          (incoming) => {
+            incoming.resume();
+            incoming.on("end", () => {
+              outgoing.destroy();
+              resolve(incoming.statusCode ?? 0);
+            });
+          },
+        );
+        outgoing.on("error", reject);
+        outgoing.flushHeaders();
       });
-      expect(tooLarge.status).toBe(413);
+      expect(tooLarge).toBe(413);
     } finally {
       source.close();
     }

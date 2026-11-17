@@ -5,6 +5,8 @@ export interface RepairWindow {
   /** Shows the repair window: a new one, or the one that is already open. */
   open(): void;
   isOpen(): boolean;
+  /** Closes the window when one is open. */
+  close(): void;
   /** The open window, for native dialogs that belong to it. */
   window(): BrowserWindow | null;
   /** The window's web contents; the only sender the repair IPC trusts. */
@@ -66,6 +68,7 @@ export function createRepairWindow(options: RepairWindowOptions): RepairWindow {
   return {
     open,
     isOpen: () => alive() !== null,
+    close: () => alive()?.close(),
     window: alive,
     contents: () => alive()?.webContents ?? null,
   };

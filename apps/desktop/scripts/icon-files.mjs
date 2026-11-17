@@ -4,11 +4,18 @@
  */
 import { Buffer } from "node:buffer";
 import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { ICON_FILES } from "../electron-builder.config.mjs";
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const REQUIRED_ICO_SIZES = [16, 24, 32, 48, 64, 128, 256];
 const REQUIRED_ICNS_TYPES = ["ic04", "ic05", "ic07", "ic08", "ic09", "ic10", "ic11", "ic12", "ic13", "ic14"];
+/** The tray icons the shell build copies into dist/assets, with their pixel size (macOS template image and its @2x). */
+const TRAY_FILES = [
+  ["tray.png", 32],
+  ["trayTemplate.png", 16],
+  ["trayTemplate@2x.png", 32],
+];
 
 function pngSize(png) {
   if (!png.subarray(0, 8).equals(PNG_SIGNATURE)) throw new Error("an icon entry is not a PNG");
@@ -61,6 +68,14 @@ export function verifyIconFiles() {
   const icnsTypes = readIcnsEntries(readFileSync(ICON_FILES.icns)).map((entry) => entry.type);
   for (const type of REQUIRED_ICNS_TYPES) {
     if (!icnsTypes.includes(type)) throw new Error(`icon.icns has no ${type} entry`);
+  }
+  for (const [name, expected] of TRAY_FILES) {
+    const path = join(dirname(ICON_FILES.png), name);
+    if (!existsSync(path))
+      throw new Error(`tray icon missing: ${path} (run pnpm --filter @work-intelligence/desktop generate-icons)`);
+    const size = pngSize(readFileSync(path));
+    if (size.width !== expected || size.height !== expected)
+      throw new Error(`${name} is ${size.width}x${size.height}, expected ${expected}x${expected}`);
   }
   const { width, height } = pngSize(readFileSync(ICON_FILES.png));
   if (width !== 1024 || height !== 1024) throw new Error(`icon.png is ${width}x${height}, expected 1024x1024`);

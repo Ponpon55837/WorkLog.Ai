@@ -239,6 +239,7 @@ export class DesktopChild {
           databaseIdentity: listening.databaseIdentity ?? message.database.identity,
           execPath: this.host.execPath,
           pid: this.host.pid,
+          ...(listening.projectCount !== undefined ? { projectCount: listening.projectCount } : {}),
         },
         () => undefined,
       );

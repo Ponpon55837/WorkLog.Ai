@@ -110,6 +110,15 @@ p {
   padding: 16px;
 }
 
+.card.success {
+  background: var(--success-soft);
+  border-color: var(--success-border);
+}
+
+.card.success h2 {
+  color: var(--success);
+}
+
 .facts {
   display: grid;
   grid-template-columns: max-content 1fr;

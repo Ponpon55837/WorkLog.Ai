@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 import { preflightDatabase, type DatabaseIdentity } from "../../apps/server/src/database-preflight.js";
-import { startApi, StartApiError, type StartedApi } from "../../apps/server/src/start-api.js";
+import { readProjectCount, startApi, StartApiError, type StartedApi } from "../../apps/server/src/start-api.js";
 
 // In-process startApi on free ports and temp files only. Fictional values only.
 const roots: string[] = [];
@@ -86,6 +86,39 @@ describe("startApi identity after the store opened", () => {
     apis.push(api);
 
     expect((await api.listening).databaseIdentity).toEqual(database.identity);
+  });
+});
+
+describe("startApi project count", () => {
+  it("reports how many projects the database holds", async () => {
+    const database = await databaseWith((path) => {
+      const store = new WorkIntelligenceStore(path);
+      store.addProject("Synthetic One", "/synthetic/one");
+      store.addProject("Synthetic Two", "/synthetic/two");
+      store.close();
+    });
+
+    const api = startApi({ database, port: 0 });
+    apis.push(api);
+
+    expect((await api.listening).projectCount).toBe(2);
+  });
+
+  it("reports zero for an empty registry", async () => {
+    const database = await databaseWith((path) => new WorkIntelligenceStore(path).close());
+    const api = startApi({ database, port: 0 });
+    apis.push(api);
+    expect((await api.listening).projectCount).toBe(0);
+  });
+
+  it("leaves the field out when the count throws, so a start never fails over it", () => {
+    const result = readProjectCount({
+      countProjects: () => {
+        throw new Error("no such table: projects");
+      },
+    });
+    expect(result).toEqual({});
+    expect("projectCount" in result).toBe(false);
   });
 });
 

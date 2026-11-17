@@ -16,6 +16,8 @@ const TEST_ENVIRONMENT = {
   failUserData: "WORK_INTELLIGENCE_DESKTOP_TEST_FAIL_USER_DATA",
   /** Writes a native error box to stderr instead of showing it, so a test is not left waiting on a modal. */
   recordErrorBox: "WORK_INTELLIGENCE_DESKTOP_TEST_RECORD_ERROR_BOX",
+  /** Milliseconds the success card stays before the repair window closes (default 1500). */
+  repairSuccessDelayMs: "WORK_INTELLIGENCE_DESKTOP_TEST_REPAIR_SUCCESS_DELAY_MS",
 } as const;
 
 /** One of the test switches, by the name it has in {@link TEST_ENVIRONMENT}. */
@@ -28,6 +30,8 @@ export const ASSET_FILES = {
   rendererDirectory: join(BUNDLE_DIRECTORY, "..", "renderer", "repair"),
   preloadFile: join(BUNDLE_DIRECTORY, "..", "preload", "repair.cjs"),
   trayIconFile: join(BUNDLE_DIRECTORY, "..", "assets", "tray.png"),
+  /** macOS menu-bar template image; `trayTemplate@2x.png` sits beside it and Electron picks it up on Retina displays. */
+  trayTemplateFile: join(BUNDLE_DIRECTORY, "..", "assets", "trayTemplate.png"),
 } as const;
 
 export interface DesktopPaths {
@@ -62,6 +66,19 @@ export function overrideFromEnvironment(inputs: EnvironmentInputs, key: TestEnvi
   if (!__WI_TEST_BUILD__ || inputs.isPackaged) return undefined;
   const value = inputs.environment[TEST_ENVIRONMENT[key]]?.trim();
   return value && isAbsolute(value) ? value : undefined;
+}
+
+/** How long the success card shows before the repair window closes and the Dashboard opens. */
+export const REPAIR_SUCCESS_DELAY_MS = 1500;
+
+/** The success-card pause: the default, or a non-negative integer from the environment in a test build. */
+export function repairSuccessDelayMs(inputs: EnvironmentInputs): number {
+  // The test branch is a block under the build flag, so a production bundle drops it together with the variable name.
+  if (__WI_TEST_BUILD__ && !inputs.isPackaged) {
+    const value = Number(inputs.environment[TEST_ENVIRONMENT.repairSuccessDelayMs]);
+    if (Number.isInteger(value) && value >= 0) return value;
+  }
+  return REPAIR_SUCCESS_DELAY_MS;
 }
 
 /** Whether a test-only switch is on; always false in a production build or a packaged App. */

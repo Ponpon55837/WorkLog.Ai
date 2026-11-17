@@ -10,6 +10,7 @@ import { readFileIdentity, sameFileIdentity } from "@work-intelligence/shared/fi
 import { STANDALONE } from "@work-intelligence/shared/database-location";
 import { databasePath as configuredDatabasePath, storeOptions as configuredStoreOptions } from "./config.js";
 import { BackupWorkerClient } from "./backup-worker-client.js";
+import { sweepTransferDirectories, transferRoot } from "./transfer-workspace.js";
 import {
   readOpenedIdentity,
   revalidateBeforeCommit,
@@ -51,6 +52,8 @@ export interface ApiListening {
    * undefined for the environment-derived database.
    */
   databaseIdentity?: DatabaseIdentity;
+  /** How many projects the database holds; omitted when the count could not be read (it never fails a start). */
+  projectCount?: number;
 }
 
 /** The handle `startApi` returns. The CLI ignores it; the desktop child waits on it. */
@@ -101,6 +104,15 @@ function stillSameFile(identity: DatabaseIdentity): boolean {
   return (
     !identity.fileId || sameFileIdentity({ realPath: identity.realPath, fileId: identity.fileId }, current.identity)
   );
+}
+
+/** The project count as an optional field: a failing read is fail-open and leaves the field out. */
+export function readProjectCount(store: Pick<WorkIntelligenceStore, "countProjects">): { projectCount?: number } {
+  try {
+    return { projectCount: store.countProjects() };
+  } catch {
+    return {};
+  }
 }
 
 /** A handle for an API that never started: `listening` rejects, there is nothing to shut down. */
@@ -182,6 +194,8 @@ export function startApi(options: StartApiOptions = {}): StartedApi {
       "找不到 Web 介面檔案（套件內的 web/ 不完整）；只提供 API。請重新安裝，或執行 work-intelligence check。",
     );
   }
+  // Uploads and exports a crash left behind in `<data>/.work-intelligence-transfer`; this never blocks or fails the start.
+  sweepTransferDirectories(transferRoot(databasePath));
   let apiHandler: ReturnType<typeof createApiHandler>;
   let server: ReturnType<typeof createServer>;
   try {
@@ -285,7 +299,11 @@ export function startApi(options: StartApiOptions = {}): StartedApi {
         }, initialBackupDelayMs);
         initialBackupTimer.unref();
       }
-      resolve({ port: boundPort, ...(openedIdentity ? { databaseIdentity: openedIdentity } : {}) });
+      resolve({
+        port: boundPort,
+        ...(openedIdentity ? { databaseIdentity: openedIdentity } : {}),
+        ...readProjectCount(store),
+      });
     });
   });
   listening.catch(() => undefined);
@@ -298,7 +316,10 @@ export function startApi(options: StartApiOptions = {}): StartedApi {
         clearTimeout(initialBackupTimer);
       },
       closeEventStreams: () => apiHandler.closeEventStreams(),
-      closeBackgroundWork: () => closeWorker(),
+      closeBackgroundWork: () => {
+        apiHandler.discardStagedImports();
+        return closeWorker();
+      },
       closeDatabase: closeStore,
       onBackgroundWorkCloseError: (error) => {
         console.error(

@@ -2,7 +2,6 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { MAX_PROJECT_IMPORT_PARSED_HEAP_BYTES } from "../../apps/server/src/http.js";
 import { databaseUsage, runDatabaseCli, type DatabaseCliDependencies } from "../../apps/server/src/cli.js";
 import { canonicalizeProjectRoot } from "../../packages/project-policy/src/index.js";
 import {
@@ -313,18 +312,29 @@ describe("database maintenance CLI", () => {
     expect(messages.error.join("\n")).toContain("不是有效的 JSON");
   });
 
-  it("refuses an import whose parsed heap would exceed the budget before parsing or writing", async () => {
+  it("refuses a file of millions of tiny containers in bounded memory, without writing", async () => {
     const root = createRoot();
     const store = createStore();
-    // 78 estimated bytes per "{}," (72 per container, 2 per byte): 5.3 million of them pass 384 MiB in a 16 MB file.
-    const containers = Math.ceil(MAX_PROJECT_IMPORT_PARSED_HEAP_BYTES / 78) + 100_000;
-    writeFileSync(join(root, "dense.json"), `[${"{},".repeat(containers)}{}]`);
+    // 16 MB of "{}," would need about 400 MiB as parsed objects; the stream refuses the value after 1 MiB.
+    writeFileSync(join(root, "dense.json"), `[${"{},".repeat(5_500_000)}{}]`);
     const messages = { log: [] as string[], error: [] as string[] };
     const deps = dependencies(store, root, messages, async () => true);
 
     expect(await runDatabaseCli(["import", "dense.json"], deps)).toBe(1);
-    expect(messages.error.join("\n")).toContain("匯入檔內容結構過於龐大");
+    expect(messages.error.join("\n")).toContain("匯入檔格式錯誤：內容結構異常或過於龐大。");
     expect(messages.log).toEqual([]);
+    expect(store.listProjects()).toEqual([]);
+  });
+
+  it("refuses a file that is not JSON in the CLI's words", async () => {
+    const root = createRoot();
+    const store = createStore();
+    writeFileSync(join(root, "broken.json"), '{"format":');
+    const messages = { log: [] as string[], error: [] as string[] };
+    const deps = dependencies(store, root, messages, async () => true);
+
+    expect(await runDatabaseCli(["import", "broken.json"], deps)).toBe(1);
+    expect(messages.error.join("\n")).toContain("匯入檔不是有效的 JSON。");
     expect(store.listProjects()).toEqual([]);
   });
 

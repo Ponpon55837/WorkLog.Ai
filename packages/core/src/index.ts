@@ -3757,6 +3757,29 @@ export interface ProjectDataImportPreview {
   conflictGroups: ProjectDataImportConflictGroup[];
 }
 
+/** What the import page shows about a staged export file before anything is chosen. */
+export interface ProjectDataImportStagedHeader {
+  schemaVersion: number;
+  exportedAt: string;
+  scope: ProjectDataExportScope;
+  projects: Array<{ id: string; name: string }>;
+}
+
+/**
+ * An export file the API saved for an import (`POST /api/import/staged`): later previews and the import refer to it by
+ * `stagingId` instead of sending it again. It is removed after a successful import, on cancel, or at `expiresAt`.
+ */
+export interface ProjectDataImportStaged {
+  stagingId: string;
+  expiresAt: string;
+  header: ProjectDataImportStagedHeader;
+  /** The preview with the default choices (the strategy the request named), from the same pass that validated it. */
+  preview: ProjectDataImportPreview;
+}
+
+/** The choices of a staged import or preview; the bundle is the staged file. */
+export type ProjectDataStagedImportOptions = Omit<ProjectDataImportInput, "bundle">;
+
 export interface ProjectDataImportResult extends Omit<ProjectDataImportPreview, "outcome"> {
   outcome: "project_data_imported";
   importedAt: string;

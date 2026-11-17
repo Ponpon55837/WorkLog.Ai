@@ -67,6 +67,13 @@ jobs:
       # The runtime builder packages the built server and Web UI.
       - run: pnpm build
 
+      # The backend's heavy transfers run in a child process: how long the fork takes to answer, and whether import,
+      # preview and export memory stays bounded as the file grows (synthetic data, about a minute).
+      - name: Background worker start and streamed transfer memory
+        run: |
+          node packages/storage/bench/worker-cold-start.bench.mjs 15 --check
+          node apps/server/bench/project-transfer.bench.mjs --check --sizes=10,40
+
       - name: Display server for Electron (Linux)
         if: runner.os == 'Linux'
         run: command -v xvfb-run >/dev/null || (sudo apt-get update && sudo apt-get install -y xvfb)

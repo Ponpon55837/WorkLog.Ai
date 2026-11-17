@@ -123,6 +123,19 @@ test("a first launch with --open-dashboard opens the Dashboard once, when the ba
   expect(readMainLog(sandbox).match(/\[shell\] dashboard opened/g)).toHaveLength(1);
 });
 
+test("a background start opens no Dashboard and shows no repair success feedback", async () => {
+  sandbox = await createSandbox({ withDatabase: true });
+  app = await launchApp(sandbox, {}, ["--background"]);
+  await waitForManagedSnapshot(app);
+  await new Promise((resolveWait) => setTimeout(resolveWait, 2_000));
+
+  const settled = await readSnapshot(app);
+  expect(settled.openedExternal).toEqual([]);
+  expect(settled.notifications).toEqual([]);
+  expect(settled.repairWindowOpen).toBe(false);
+  expect(readMainLog(sandbox)).not.toMatch(/\[shell\] dashboard opened/);
+});
+
 test("a missing database opens the repair window and creates nothing", async () => {
   sandbox = await createSandbox({ withDatabase: false });
   app = await launchApp(sandbox);
@@ -276,9 +289,13 @@ test("the repair page previews a chosen database and confirms only one that is o
   const donor = await createSandbox({ withDatabase: true });
   let backendPid: number | undefined;
   try {
-    app = await launchApp(sandbox);
+    // The success card stays long enough for the assertions below to see it before the window closes.
+    app = await launchApp(sandbox, { WORK_INTELLIGENCE_DESKTOP_TEST_REPAIR_SUCCESS_DELAY_MS: "3000" });
     const window = await app.firstWindow({ timeout: 45_000 });
-    await waitForSnapshot(app, (state) => state.owner === "NEEDS_REPAIR" && state.repairWindowOpen);
+    const failed = await waitForSnapshot(app, (state) => state.owner === "NEEDS_REPAIR" && state.repairWindowOpen);
+    // The failed start opened no Dashboard and sent no success notification.
+    expect(failed.openedExternal).toEqual([]);
+    expect(failed.notifications).toEqual([]);
 
     const choose = async (path: string) => {
       // The native file dialog cannot be driven: main's dialog answers with the path under test.
@@ -311,6 +328,26 @@ test("the repair page previews a chosen database and confirms only one that is o
     backendPid = running.backend?.pid;
     expect(running.backend?.port).toBe(sandbox.port);
     expect(await portIsFree(sandbox.port)).toBe(false);
+
+    // The user's repair worked: the window shows the success card (the language follows the OS) with the database and
+    // the project count of the fictional donor database, and the stale DB_MISSING error is gone.
+    const card = window.locator("#recovered");
+    await expect(card).toContainText(/✓ (已恢復|Recovered)/);
+    await expect(card).toContainText(/0 (projects|個專案)/);
+    await expect(card).toContainText("work-intelligence.sqlite");
+    await expect(window.getByText("DB_MISSING")).toHaveCount(0);
+    const celebrating = await readSnapshot(app);
+    expect(celebrating.recentErrors).toEqual([]);
+    expect(celebrating.notifications).toHaveLength(1);
+    expect(celebrating.notifications[0]).toMatch(/Work Intelligence (已可使用|is ready)/);
+
+    // Then the window closes and the Dashboard opens exactly once.
+    const done = await waitForSnapshot(app, (state) => !state.repairWindowOpen && state.openedExternal.length > 0);
+    expect(done.openedExternal).toEqual([`http://127.0.0.1:${sandbox.port}/`]);
+    await new Promise((resolveWait) => setTimeout(resolveWait, 1_000));
+    const settled = await readSnapshot(app);
+    expect(settled.openedExternal).toHaveLength(1);
+    expect(settled.notifications).toHaveLength(1);
   } finally {
     // The backend now runs on the donor's database and holds it open, and Windows does not delete an open file: quit the
     // App and wait for its backend to be gone before the donor folder is removed.

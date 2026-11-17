@@ -136,7 +136,7 @@ R4 的補充用法：
 
 ## 1.6.47 任務（階段 3：Agent 整合）與本文件的關係
 
-本版實作階段 3 的 CI 可驗證部分。Windows 11 與 macOS 的實機驗收仍為**待實機驗收**；CI 結果見 PR [#369](https://github.com/Ponpon55837/WorkLog.Ai/pull/369) 的 CI：[Desktop package](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/44017057384)、[Desktop smoke](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/44017057465)、[Desktop runtime spike](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/44017057421)、[CI](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/44017057526)（以 PR 最新 head 的 CI 為準）。階段 3 的 gate（host 真正 handshake、hook fail-open、更新後 runtime 不失效）尚未通過，本文件不宣稱實機或 gate 已通過。
+本版實作階段 3 的 CI 可驗證部分。Windows 11 與 macOS 的實機驗收仍為**待實機驗收**；CI 結果見 PR [#369](https://github.com/Ponpon55837/WorkLog.Ai/pull/369) 合併前最後一個 head 的 CI：[Desktop package](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/44038144921)、[Desktop smoke](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/44038145033)、[Desktop runtime spike](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/44038144908)、[CI](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/44038144926)（20 項全部通過；合併後 main 的 [CI](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/44039318088) 也通過）。階段 3 的 gate（host 真正 handshake、hook fail-open、更新後 runtime 不失效）尚未通過，本文件不宣稱實機或 gate 已通過。
 
 | 任務 | 內容 | 狀態 | 本文件位置 | 證據路徑 |
 |---|---|---|---|---|
@@ -150,6 +150,10 @@ R4 的補充用法：
 **本版的非 CI 項目**：Windows 11 與 macOS 的實機 host handshake（Claude Code、Codex、Claude Desktop 的 clientInfo 與狀態顯示；`claude-ai` 未驗證）；Claude Desktop MCPB 偵測（依檔案配置推測）；Windows ACL 預熱的真實時間與 PowerShell 5.1 的 stdin 行為；Windows 的 `.cmd` 與 hook 的 `taskkill /T` 程序樹終止；`desktop-integration.json` 與 launcher 接線在真實 Agent 中的行為；Dashboard 在 Windows 與 macOS 的冷熱啟動數字；backlog b 的記憶體數字。尚未做：App 設定中心接上 DT-21 的 API、plugin manifest 改為啟動固定 launcher，以及 DT-24 的「無現役連線」證明。
 
 ---
+
+## 修復成功回饋（階段 3 之後的小改）
+
+使用者在修復視窗按「重試啟動」或「選擇資料庫 → 確認」且後端成功執行（owner 為 MANAGED）時：清除過期錯誤、修復視窗顯示「✓ 已恢復」卡片（脫敏的資料庫路徑與專案數；專案數由後端 `ready` 訊息的選填欄位 `projectCount` 帶來，查詢失敗就省略）、送出系統通知「Work Intelligence 已可使用」（fail-open：不支援或失敗就略過），約 1.5 秒後關閉修復視窗並只開啟一次 Dashboard（與待處理的 `--open-dashboard` 去重）。失敗時視窗保持開啟，只顯示目前的錯誤。只有修復視窗的使用者動作會觸發；`--background` 登入啟動、自動重試與一般啟動都不會。判斷邏輯在 `packages/desktop-core/src/shell/repair-success.ts`，測試在 `tests/desktop-core/shell-repair-success.test.ts` 與 `apps/desktop/tests/desktop-smoke/desktop.spec.ts`。macOS ad-hoc 簽署的 App 可能不顯示系統通知，視窗卡片與 Dashboard 才是主要提示。
 
 ## 本機打包
 

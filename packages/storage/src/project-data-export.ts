@@ -116,6 +116,55 @@ export function redactRow(
   return { row: (output ?? row) as ProjectDataRow, redactions };
 }
 
+/**
+ * The redactions each Session's rows carry, so its redaction_count can include them. A Session's rows come later in
+ * the bundle than the Session (cleanup proposals reach theirs through their request item), so the counts are read
+ * once every later table is masked.
+ */
+export class SessionRedactionTally {
+  public readonly total = combineRedactionSummaries();
+  private readonly counts = new Map<string, number>();
+  private readonly itemSourceSessionIds = new Map<string, string>();
+
+  /** Records the masking of one row of `table`; `input` is the row before masking, `output` after. */
+  public add(
+    table: ProjectDataTable,
+    input: ProjectDataRow,
+    output: ProjectDataRow,
+    redactions: ReturnType<typeof combineRedactionSummaries>,
+  ): void {
+    if (table === "outstanding_cleanup_request_items") {
+      this.itemSourceSessionIds.set(String(input.id), String(input.source_session_id));
+    }
+    const rowCount = redactions.total;
+    if (rowCount === 0) return;
+    this.total.total += rowCount;
+    for (const [kind, count] of Object.entries(redactions.byKind)) {
+      const key = kind as keyof typeof this.total.byKind;
+      this.total.byKind[key] = (this.total.byKind[key] ?? 0) + (count ?? 0);
+    }
+    const sessionId =
+      table === "sessions"
+        ? String(output.id)
+        : String(
+            output.session_id ??
+              output.source_session_id ??
+              (table === "outstanding_cleanup_proposals"
+                ? this.itemSourceSessionIds.get(String(output.request_item_id)) || undefined
+                : "") ??
+              "",
+          );
+    if (sessionId) this.counts.set(sessionId, (this.counts.get(sessionId) ?? 0) + rowCount);
+  }
+
+  /** The Session with its rows' redactions added; unchanged rows stay the caller's own object. */
+  public session(session: ProjectDataRow): ProjectDataRow {
+    const added = this.counts.get(String(session.id)) ?? 0;
+    if (added === 0 && typeof session.redaction_count === "number") return session;
+    return { ...session, redaction_count: Number(session.redaction_count ?? 0) + added };
+  }
+}
+
 export function redactProjectDataRows(
   rows: Record<ProjectDataTable, ProjectDataRow[]>,
   redactArchitectureDiagram: ArchitectureDiagramRedactor,
@@ -123,69 +172,19 @@ export function redactProjectDataRows(
   rows: Record<ProjectDataTable, ProjectDataRow[]>;
   redactions: ReturnType<typeof combineRedactionSummaries>;
 } {
-  const allRedactions = combineRedactionSummaries();
-  const sessionCounts = new Map<string, number>();
-  const cleanupItemSourceSessionIds = new Map(
-    rows.outstanding_cleanup_request_items.map((item) => [String(item.id), String(item.source_session_id)]),
-  );
-  const cleanupProposalSourceSessionIds = new Map(
-    rows.outstanding_cleanup_proposals.flatMap((proposal) => {
-      const sourceSessionId = cleanupItemSourceSessionIds.get(String(proposal.request_item_id));
-      return sourceSessionId ? [[String(proposal.id), sourceSessionId] as const] : [];
-    }),
-  );
+  const tally = new SessionRedactionTally();
   const sanitized = Object.fromEntries(
-    PROJECT_DATA_TABLES.map((table) => {
-      const result = rows[table].map((row) => {
+    PROJECT_DATA_TABLES.map((table) => [
+      table,
+      rows[table].map((row) => {
         const redacted = redactRow(table, row, redactArchitectureDiagram);
-        const output = redacted.row as Record<string, ProjectDataValue>;
-        const rowCount = redacted.redactions.total;
-        if (rowCount > 0) allRedactions.total += rowCount;
-        for (const [kind, count] of rowCount > 0 ? Object.entries(redacted.redactions.byKind) : []) {
-          const key = kind as keyof typeof allRedactions.byKind;
-          allRedactions.byKind[key] = (allRedactions.byKind[key] ?? 0) + (count ?? 0);
-        }
-        if (rowCount > 0) {
-          const sessionId =
-            table === "sessions"
-              ? String(output.id)
-              : String(
-                  output.session_id ??
-                    output.source_session_id ??
-                    (table === "outstanding_cleanup_proposals"
-                      ? cleanupProposalSourceSessionIds.get(String(output.id))
-                      : "") ??
-                    "",
-                );
-          if (sessionId) {
-            sessionCounts.set(sessionId, (sessionCounts.get(sessionId) ?? 0) + rowCount);
-          }
-        }
-        return output as unknown as ProjectDataRow;
-      });
-      return [table, result];
-    }),
+        tally.add(table, row, redacted.row, redacted.redactions);
+        return redacted.row;
+      }),
+    ]),
   ) as unknown as Record<ProjectDataTable, ProjectDataRow[]>;
-
-  // Unmasked rows are the caller's own objects, so a Session whose count changes gets it on a copy.
-  sanitized.sessions = sanitized.sessions.map((session) => {
-    const added = sessionCounts.get(String(session.id)) ?? 0;
-    if (added === 0 && typeof session.redaction_count === "number") return session;
-    return { ...session, redaction_count: Number(session.redaction_count ?? 0) + added };
-  });
-  return { rows: sanitized, redactions: allRedactions };
-}
-
-function sqlRows(
-  db: DatabaseSync,
-  table: ProjectDataTable,
-  where = "",
-  values: ProjectDataValue[] = [],
-): ProjectDataRow[] {
-  const columns = PROJECT_DATA_EXPORT_COLUMNS[table].join(", ");
-  const orderBy = table === "outstanding_item_events" ? "created_at, id" : "id";
-  const sql = `SELECT ${columns} FROM ${table}${where ? ` WHERE ${where}` : ""} ORDER BY ${orderBy}`;
-  return db.prepare(sql).all(...values) as unknown as ProjectDataRow[];
+  sanitized.sessions = sanitized.sessions.map((session) => tally.session(session));
+  return { rows: sanitized, redactions: tally.total };
 }
 
 function compareExportRows(table: ProjectDataTable, left: ProjectDataRow, right: ProjectDataRow): number {
@@ -210,8 +209,172 @@ export function sortExportRows(table: ProjectDataTable, rows: ProjectDataRow[]):
 }
 
 /**
- * Rows whose `column` is in `ids`, in batches that stay under SQLite's variable limit. With `viaSessions`, `ids` are
- * project ids and the rows are those of the projects' Sessions, selected by a subquery.
+ * Where one table's exported rows come from: a WHERE clause over the table (none for every row), whether the rows are
+ * put in collator order (rowsByIds and Session-owned tables) or kept in SQL id order, and a filter that needs values
+ * already selected. The in-memory export and the streamed one read the same sources, so they select the same rows.
+ */
+export interface ExportRowSource {
+  table: ProjectDataTable;
+  where?: string;
+  values?: ProjectDataValue[];
+  collate: boolean;
+  keep?: (row: ProjectDataRow) => boolean;
+  /** The source selects nothing (an id list that is empty), so no query runs. */
+  empty?: boolean;
+}
+
+const JSON_IDS = "(SELECT value FROM json_each(?))";
+
+/** True when a row's source_session_ids_json cites any Session in the bound JSON array (same test as deletion). */
+const CITES_SESSIONS_SQL = `EXISTS (
+  SELECT 1 FROM json_each(CASE WHEN json_valid(source_session_ids_json) THEN source_session_ids_json ELSE '[]' END) AS cited
+  WHERE cited.value IN (SELECT value FROM json_each(?))
+)`;
+
+function orderBy(table: ProjectDataTable): string {
+  return table === "outstanding_item_events" ? "created_at, id" : "id";
+}
+
+function sourceSql(source: ExportRowSource, columns: string): string {
+  return `SELECT ${columns} FROM ${source.table}${source.where ? ` WHERE ${source.where}` : ""} ORDER BY ${orderBy(source.table)}`;
+}
+
+/** Rows whose `column` is in `ids`; `viaSessions` reads `ids` as project ids and selects their Sessions' rows. */
+function byIds(table: ProjectDataTable, column: string, ids: readonly string[], viaSessions = false): ExportRowSource {
+  return {
+    table,
+    where: viaSessions
+      ? `${column} IN (SELECT id FROM sessions WHERE project_id IN ${JSON_IDS})`
+      : `${column} IN ${JSON_IDS}`,
+    values: [JSON.stringify(ids)],
+    collate: true,
+    empty: ids.length === 0,
+  };
+}
+
+/** The ids a source selects, in SQL order, without reading the rest of each row. */
+function sourceIds(db: DatabaseSync, source: ExportRowSource): string[] {
+  if (source.empty) return [];
+  return (db.prepare(sourceSql(source, "id")).all(...(source.values ?? [])) as Array<{ id: string }>).map((row) =>
+    String(row.id),
+  );
+}
+
+export function exportRowSources(
+  db: DatabaseSync,
+  scope: ProjectDataExportScope,
+): Record<ProjectDataTable, ExportRowSource> {
+  const all = scope.type === "all";
+  const projects: ExportRowSource = all
+    ? { table: "projects", collate: false }
+    : { table: "projects", where: "id = ?", values: [scope.projectId], collate: false };
+  const projectIds = sourceIds(db, projects);
+  const sessions = byIds("sessions", "project_id", projectIds);
+  const sessionIdSet = new Set(sourceIds(db, sessions));
+  // Cross-project requests that cite this project's Sessions are removed with the project, so they travel with it.
+  // Only a single-project export filters by them, so a whole-database export does not serialize every Session id.
+  const sessionIdsJson = all ? "[]" : JSON.stringify([...sessionIdSet]);
+  const scopedRequests = (table: ProjectDataTable): ExportRowSource =>
+    all
+      ? { table, collate: false }
+      : {
+          table,
+          where: `(scope_type = 'project' AND project_id = ?) OR (scope_type = 'all' AND ${CITES_SESSIONS_SQL})`,
+          values: [scope.projectId, sessionIdsJson],
+          collate: false,
+        };
+  // Session-owned tables: a whole-database export reads the table directly, a project export goes through Sessions.
+  const sessionOwned = (table: ProjectDataTable): ExportRowSource =>
+    all ? { table, collate: true, empty: projectIds.length === 0 } : byIds(table, "session_id", projectIds, true);
+  const reportRequests = scopedRequests("report_synthesis_requests");
+  const candidateRequests = byIds("knowledge_candidate_requests", "project_id", projectIds);
+  const candidateRequestIds = new Set(sourceIds(db, candidateRequests));
+  const reportSummaries: ExportRowSource = all
+    ? { table: "report_summaries", collate: false }
+    : byIds("report_summaries", "request_id", sourceIds(db, reportRequests));
+  const knowledgeCandidates: ExportRowSource = {
+    ...(all
+      ? { table: "knowledge_candidates", collate: false }
+      : byIds("knowledge_candidates", "project_id", projectIds)),
+    ...(candidateRequestIds.size > 0
+      ? { keep: (row: ProjectDataRow) => candidateRequestIds.has(String(row.request_id)) }
+      : {}),
+  };
+  const byProject = (table: ProjectDataTable) => byIds(table, "project_id", projectIds);
+  return {
+    projects,
+    sessions,
+    work_events: sessionOwned("work_events"),
+    raw_snapshots: byProject("raw_snapshots"),
+    evidence: byProject("evidence"),
+    void_audit: byProject("void_audit"),
+    session_verification_updates: sessionOwned("session_verification_updates"),
+    session_links: {
+      table: "session_links",
+      collate: false,
+      keep: (link) => sessionIdSet.has(String(link.session_id)) && sessionIdSet.has(String(link.related_session_id)),
+    },
+    knowledge: byProject("knowledge"),
+    session_decisions: byProject("session_decisions"),
+    knowledge_pages: byProject("knowledge_pages"),
+    knowledge_page_versions: byProject("knowledge_page_versions"),
+    session_diagrams: byProject("session_diagrams"),
+    knowledge_audit: byProject("knowledge_audit"),
+    knowledge_feedback: byProject("knowledge_feedback"),
+    knowledge_candidate_requests: candidateRequests,
+    knowledge_candidates: knowledgeCandidates,
+    report_synthesis_requests: reportRequests,
+    report_summaries: reportSummaries,
+    report_presentations: byIds("report_presentations", "summary_id", sourceIds(db, reportSummaries)),
+    attention_preferences: byProject("attention_preferences"),
+    metadata_backfill_requests: scopedRequests("metadata_backfill_requests"),
+    session_summary_updates: sessionOwned("session_summary_updates"),
+    session_work_summary_updates: sessionOwned("session_work_summary_updates"),
+    outstanding_items: byProject("outstanding_items"),
+    outstanding_item_events: byProject("outstanding_item_events"),
+    outstanding_cleanup_requests: byProject("outstanding_cleanup_requests"),
+    outstanding_cleanup_submissions: byProject("outstanding_cleanup_submissions"),
+    outstanding_cleanup_request_items: byProject("outstanding_cleanup_request_items"),
+    outstanding_cleanup_proposals: byProject("outstanding_cleanup_proposals"),
+    outstanding_cleanup_proposal_evidence: byProject("outstanding_cleanup_proposal_evidence"),
+  };
+}
+
+/**
+ * A source's rows in export order, one at a time. SQL returns them in binary id order, which is usually the collator
+ * order too; a pass over the order columns alone checks that first, so the rows can be streamed. Only a table whose
+ * ids the collator orders differently is read whole and sorted (stably, as sortExportRows always did).
+ */
+export function* exportRows(db: DatabaseSync, source: ExportRowSource): Generator<ProjectDataRow> {
+  if (source.empty) return;
+  const values = source.values ?? [];
+  const sql = sourceSql(source, PROJECT_DATA_EXPORT_COLUMNS[source.table].join(", "));
+  const keep = source.keep;
+  if (source.collate && !inCollatorOrder(db, source)) {
+    const rows = (db.prepare(sql).all(...values) as unknown as ProjectDataRow[]).filter((row) => !keep || keep(row));
+    yield* sortExportRows(source.table, rows);
+    return;
+  }
+  for (const row of db.prepare(sql).iterate(...values) as IterableIterator<ProjectDataRow>) {
+    if (!keep || keep(row)) yield row;
+  }
+}
+
+function inCollatorOrder(db: DatabaseSync, source: ExportRowSource): boolean {
+  const columns = source.table === "outstanding_item_events" ? "id, created_at" : "id";
+  let previous: ProjectDataRow | undefined;
+  for (const row of db
+    .prepare(sourceSql(source, columns))
+    .iterate(...(source.values ?? [])) as IterableIterator<ProjectDataRow>) {
+    if (previous && compareExportRows(source.table, previous, row) > 0) return false;
+    previous = row;
+  }
+  return true;
+}
+
+/**
+ * Rows whose `column` is in `ids`, in export order. With `viaSessions`, `ids` are project ids and the rows are those
+ * of the projects' Sessions. The ids are bound as one JSON array, so there is no batching under SQLite's variable limit.
  */
 export function rowsByIds(
   db: DatabaseSync,
@@ -220,129 +383,7 @@ export function rowsByIds(
   ids: readonly string[],
   viaSessions = false,
 ): ProjectDataRow[] {
-  if (ids.length === 0) {
-    return [];
-  }
-  const results: ProjectDataRow[] = [];
-  for (let offset = 0; offset < ids.length; offset += 500) {
-    const batch = ids.slice(offset, offset + 500);
-    const placeholders = batch.map(() => "?").join(", ");
-    const where = viaSessions
-      ? `${column} IN (SELECT id FROM sessions WHERE project_id IN (${placeholders}))`
-      : `${column} IN (${placeholders})`;
-    for (const row of sqlRows(db, table, where, [...batch])) results.push(row);
-  }
-  return sortExportRows(table, results);
-}
-
-/** Rows of a Session-owned table: a whole-database export reads the table directly, a project export goes through its Sessions. */
-function sessionRows(
-  db: DatabaseSync,
-  scope: ProjectDataExportScope,
-  table: ProjectDataTable,
-  projectIds: readonly string[],
-): ProjectDataRow[] {
-  if (projectIds.length === 0) return [];
-  return scope.type === "all"
-    ? sortExportRows(table, sqlRows(db, table))
-    : rowsByIds(db, table, "session_id", projectIds, true);
-}
-
-/** True when a row's source_session_ids_json cites any Session in the bound JSON array (same test as deletion). */
-const CITES_SESSIONS_SQL = `EXISTS (
-  SELECT 1 FROM json_each(CASE WHEN json_valid(source_session_ids_json) THEN source_session_ids_json ELSE '[]' END) AS cited
-  WHERE cited.value IN (SELECT value FROM json_each(?))
-)`;
-
-function selectExportRows(db: DatabaseSync, scope: ProjectDataExportScope): Record<ProjectDataTable, ProjectDataRow[]> {
-  const projects =
-    scope.type === "all" ? sqlRows(db, "projects") : sqlRows(db, "projects", "id = ?", [scope.projectId]);
-  const projectIds = projects.map((project) => String(project.id));
-  const sessions = rowsByIds(db, "sessions", "project_id", projectIds);
-  const sessionIdSet = new Set(sessions.map((session) => String(session.id)));
-  // Cross-project requests that cite this project's Sessions are removed with the project, so they travel with it.
-  // Only a single-project export filters by them, so a whole-database export does not serialize every Session id.
-  const sessionIdsJson = scope.type === "all" ? "[]" : JSON.stringify([...sessionIdSet]);
-  const reportRequests =
-    scope.type === "all"
-      ? sqlRows(db, "report_synthesis_requests")
-      : sqlRows(
-          db,
-          "report_synthesis_requests",
-          `(scope_type = 'project' AND project_id = ?) OR (scope_type = 'all' AND ${CITES_SESSIONS_SQL})`,
-          [scope.projectId, sessionIdsJson],
-        );
-  const reportRequestIds = reportRequests.map((request) => String(request.id));
-  const candidateRequests = rowsByIds(db, "knowledge_candidate_requests", "project_id", projectIds);
-  const candidateRequestIds = candidateRequests.map((request) => String(request.id));
-  const rows: Record<ProjectDataTable, ProjectDataRow[]> = {
-    projects,
-    sessions,
-    work_events: sessionRows(db, scope, "work_events", projectIds),
-    raw_snapshots: rowsByIds(db, "raw_snapshots", "project_id", projectIds),
-    evidence: rowsByIds(db, "evidence", "project_id", projectIds),
-    void_audit: rowsByIds(db, "void_audit", "project_id", projectIds),
-    session_verification_updates: sessionRows(db, scope, "session_verification_updates", projectIds),
-    session_links: sqlRows(db, "session_links").filter(
-      (link) => sessionIdSet.has(String(link.session_id)) && sessionIdSet.has(String(link.related_session_id)),
-    ),
-    knowledge: rowsByIds(db, "knowledge", "project_id", projectIds),
-    session_decisions: rowsByIds(db, "session_decisions", "project_id", projectIds),
-    knowledge_pages: rowsByIds(db, "knowledge_pages", "project_id", projectIds),
-    knowledge_page_versions: rowsByIds(db, "knowledge_page_versions", "project_id", projectIds),
-    knowledge_audit: rowsByIds(db, "knowledge_audit", "project_id", projectIds),
-    knowledge_feedback: rowsByIds(db, "knowledge_feedback", "project_id", projectIds),
-    session_diagrams: rowsByIds(db, "session_diagrams", "project_id", projectIds),
-    knowledge_candidate_requests: candidateRequests,
-    knowledge_candidates:
-      scope.type === "all"
-        ? sqlRows(db, "knowledge_candidates")
-        : rowsByIds(db, "knowledge_candidates", "project_id", projectIds),
-    report_synthesis_requests: reportRequests,
-    report_presentations: [],
-    attention_preferences: rowsByIds(db, "attention_preferences", "project_id", projectIds),
-    report_summaries:
-      scope.type === "all"
-        ? sqlRows(db, "report_summaries")
-        : rowsByIds(db, "report_summaries", "request_id", reportRequestIds),
-    metadata_backfill_requests:
-      scope.type === "all"
-        ? sqlRows(db, "metadata_backfill_requests")
-        : sqlRows(
-            db,
-            "metadata_backfill_requests",
-            `(scope_type = 'project' AND project_id = ?) OR (scope_type = 'all' AND ${CITES_SESSIONS_SQL})`,
-            [scope.projectId, sessionIdsJson],
-          ),
-    session_summary_updates: sessionRows(db, scope, "session_summary_updates", projectIds),
-    session_work_summary_updates: sessionRows(db, scope, "session_work_summary_updates", projectIds),
-    outstanding_items: rowsByIds(db, "outstanding_items", "project_id", projectIds),
-    outstanding_cleanup_requests: rowsByIds(db, "outstanding_cleanup_requests", "project_id", projectIds),
-    outstanding_cleanup_submissions: rowsByIds(db, "outstanding_cleanup_submissions", "project_id", projectIds),
-    outstanding_cleanup_request_items: rowsByIds(db, "outstanding_cleanup_request_items", "project_id", projectIds),
-    outstanding_cleanup_proposals: rowsByIds(db, "outstanding_cleanup_proposals", "project_id", projectIds),
-    outstanding_cleanup_proposal_evidence: rowsByIds(
-      db,
-      "outstanding_cleanup_proposal_evidence",
-      "project_id",
-      projectIds,
-    ),
-    outstanding_item_events: rowsByIds(db, "outstanding_item_events", "project_id", projectIds),
-  };
-
-  if (candidateRequestIds.length > 0) {
-    const candidateIds = new Set(candidateRequestIds);
-    rows.knowledge_candidates = rows.knowledge_candidates.filter((candidate) =>
-      candidateIds.has(String(candidate.request_id)),
-    );
-  }
-  rows.report_presentations = rowsByIds(
-    db,
-    "report_presentations",
-    "summary_id",
-    rows.report_summaries.map((row) => String(row.id)),
-  );
-  return rows;
+  return [...exportRows(db, byIds(table, column, ids, viaSessions))];
 }
 
 export function runReadTransaction<T>(db: DatabaseSync, operation: () => T): T {
@@ -359,7 +400,7 @@ export function runReadTransaction<T>(db: DatabaseSync, operation: () => T): T {
   }
 }
 
-function existingRow(db: DatabaseSync, table: ProjectDataTable, id: string): ProjectDataRow | undefined {
+export function existingRow(db: DatabaseSync, table: ProjectDataTable, id: string): ProjectDataRow | undefined {
   const columns = PROJECT_DATA_EXPORT_COLUMNS[table].join(", ");
   return db.prepare(`SELECT ${columns} FROM ${table} WHERE id = ?`).get(id) as unknown as ProjectDataRow | undefined;
 }
@@ -373,7 +414,10 @@ export function readProjectDataRows(
     if (scope.type === "project" && !existingRow(db, "projects", scope.projectId)) {
       throw new ProjectDataTransferError("project_not_found", "找不到要匯出的專案。");
     }
-    return selectExportRows(db, scope);
+    const sources = exportRowSources(db, scope);
+    return Object.fromEntries(
+      PROJECT_DATA_TABLES.map((table) => [table, [...exportRows(db, sources[table])]]),
+    ) as Record<ProjectDataTable, ProjectDataRow[]>;
   });
 }
 

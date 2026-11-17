@@ -60,6 +60,7 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
       // The same id while the page polls; it is replaced only when it is used or the state changes.
       retryOperationId: state.retryIds.current(),
       busy: state.busy,
+      recovered: state.recovered,
     });
   }
 

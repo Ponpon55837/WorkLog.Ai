@@ -58,6 +58,12 @@ export class ProjectRepository {
     return rows.map(toProject);
   }
 
+  /** A cheap count of registered projects, for status displays that must not load every row. */
+  public count(): number {
+    const row = this.db.prepare("SELECT COUNT(*) AS count FROM projects").get() as { count: number };
+    return row.count;
+  }
+
   public add(name: string, rootPath: string): ProjectRecord {
     return runImmediateTransaction(this.db, () => this.insertIfMissing(name, rootPath));
   }

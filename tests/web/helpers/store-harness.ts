@@ -7,6 +7,8 @@ export type StoreRequest = {
   url: URL;
   method: string;
   body: unknown;
+  /** The body exactly as passed to fetch (a File for streamed uploads, a string for JSON). */
+  rawBody?: BodyInit | null;
   signal: AbortSignal | undefined;
 };
 
@@ -25,6 +27,7 @@ export function createStoreHarness(responder: StoreResponder = () => ({})) {
       url: new URL(String(input), "http://localhost"),
       method: init?.method ?? "GET",
       body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
+      rawBody: init?.body,
       signal: init?.signal ?? undefined,
     };
     calls.push(request);

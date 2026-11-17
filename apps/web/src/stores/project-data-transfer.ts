@@ -2,14 +2,14 @@ import { useMutation, useQuery, useQueryCache } from "@pinia/colada";
 import { defineStore } from "pinia";
 import { computed, nextTick, ref, watch } from "vue";
 import type {
-  ProjectDataExport,
   ProjectDataExportScope,
-  ProjectDataImportInput,
   ProjectDataImportPreview,
+  ProjectDataImportStagedHeader,
   ProjectDataImportStrategy,
+  ProjectDataStagedImportOptions,
   ProjectPathRemap,
 } from "@work-intelligence/core";
-import { projectDataExportSchema } from "@work-intelligence/schema";
+import { ApiError } from "../api/client";
 import { useApi } from "../composables/useApi";
 import { confirmAction } from "../composables/useConfirm";
 import { useToast } from "../composables/useToast";
@@ -18,48 +18,62 @@ import { queryKeys } from "./query-keys";
 import { useProjectsStore } from "./projects";
 import { t } from "../i18n";
 
-const MAX_PROJECT_IMPORT_BYTES = 50 * 1024 * 1024;
+const MAX_PROJECT_IMPORT_MIB = 256;
+const MAX_PROJECT_IMPORT_BYTES = MAX_PROJECT_IMPORT_MIB * 1024 * 1024;
 
 function countItems(counts: ProjectDataImportPreview["additions"]): number {
   return Object.values(counts).reduce((total, count) => total + (count ?? 0), 0);
 }
 
+/** The API answers 404 for a staged file that expired (30 minutes) or was already removed. */
+function isStagedImportGone(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404 && error.code === "not_found";
+}
+
+/** The API words its import errors precisely (what is wrong with the file, that it expired), so its message is shown. */
+function stagedImportErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError && error.status > 0 && error.code !== "malformed_response") return error.message;
+  return errorMessage(error, fallback);
+}
+
 /** Owns portable project file state, import preview/apply operations, and exports. */
 export const useProjectDataTransferStore = defineStore("project-data-transfer", () => {
   const queryCache = useQueryCache();
-  const importBundle = ref<ProjectDataExport | null>(null);
+  // The export file lives on the API server after upload; the renderer only keeps its id and header.
+  const importStagingId = ref("");
+  const importHeader = ref<ProjectDataImportStagedHeader | null>(null);
   const importFileName = ref("");
   const importProjectId = ref("");
   const importRemaps = ref<ProjectPathRemap[]>([]);
   // Importing between two computers that both keep working is the common case, so newer copies win by default.
   const importStrategy = ref<ProjectDataImportStrategy>("newer-wins");
-  const importPreviewInput = ref<ProjectDataImportInput | null>(null);
+  const importPreviewInput = ref<{ stagingId: string; options: ProjectDataStagedImportOptions } | null>(null);
   const importPreviewVisible = ref(false);
   const importPreviewRequestId = ref(0);
   const importPreviewLoading = ref(false);
+  const importUploading = ref(false);
   const importApplying = ref(false);
   const portableExporting = ref(false);
   const importError = ref("");
   const transferError = ref("");
+  let uploadRequestId = 0;
+  let uploadAbort: AbortController | null = null;
+  // The choices the visible preview was computed with, so a change of choices (not a re-seed) triggers a re-preview.
+  let previewedChoices = "";
 
   const importPreviewQuery = useQuery({
     key: queryKeys.projects.projectDataImportPreview,
     enabled: false,
-    query: () => {
+    query: ({ signal }) => {
       const input = importPreviewInput.value;
       if (!input) throw new Error(t("projects.chooseAWorkIntelligenceExport"));
-      return useApi().client.previewProjectDataImport(input);
+      return useApi().client.previewStagedProjectDataImport(input.stagingId, input.options, signal);
     },
   });
 
-  const importProjects = computed(() =>
-    (importBundle.value?.tables.projects ?? []).map((project) => ({
-      id: String(project.id),
-      name: String(project.name),
-    })),
-  );
+  const importProjects = computed(() => importHeader.value?.projects ?? []);
   const importPreview = computed(() => (importPreviewVisible.value ? (importPreviewQuery.data.value ?? null) : null));
-  const importLoading = computed(() => importPreviewLoading.value || importApplying.value);
+  const importLoading = computed(() => importPreviewLoading.value || importApplying.value || importUploading.value);
 
   function cancelImportPreview(): void {
     importPreviewRequestId.value += 1;
@@ -68,68 +82,99 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     void queryCache.cancelQueries({ key: queryKeys.projects.projectDataImportPreview, exact: true });
   }
 
+  function choicesKey(): string {
+    return JSON.stringify([importProjectId.value, importStrategy.value, importRemaps.value]);
+  }
+
   watch([importProjectId, importStrategy], () => {
+    if (!importStagingId.value || choicesKey() === previewedChoices) return;
     cancelImportPreview();
-    if (importBundle.value) void previewProjectDataImport();
+    void previewProjectDataImport();
   });
 
   function currentRemaps(): ProjectPathRemap[] {
     return importRemaps.value.map((mapping) => ({ ...mapping }));
   }
 
-  function currentInput(): ProjectDataImportInput {
-    if (!importBundle.value) throw new Error(t("projects.chooseAWorkIntelligenceExport"));
+  function currentOptions(): ProjectDataStagedImportOptions {
     const remap = currentRemaps();
     return {
-      bundle: importBundle.value,
       ...(importProjectId.value ? { projectId: importProjectId.value } : {}),
       ...(remap.length > 0 ? { remap } : {}),
       strategy: importStrategy.value,
     };
   }
 
-  /** Reads and validates a portable project export without sending its contents to the API. */
-  async function loadImportFile(file: File | undefined): Promise<void> {
+  /** Cancels the staged file on the API; a failure only means it expires on its own. */
+  function discardStaging(stagingId: string): void {
+    if (!stagingId) return;
+    void useApi()
+      .client.discardStagedProjectDataImport(stagingId)
+      .catch(() => undefined);
+  }
+
+  /** Forgets the staged file locally; `discard` also tells the API to remove it. */
+  function resetImportFile(discard: boolean): void {
+    uploadRequestId += 1;
+    uploadAbort?.abort();
+    uploadAbort = null;
     cancelImportPreview();
-    importError.value = "";
-    importBundle.value = null;
+    if (discard) discardStaging(importStagingId.value);
+    importStagingId.value = "";
+    importHeader.value = null;
     importFileName.value = "";
     importProjectId.value = "";
     importRemaps.value = [];
+    importUploading.value = false;
+    previewedChoices = "";
+  }
+
+  /** Shows the server's message for an expired staged file and asks the user to choose the file again. */
+  function handleStagedImportError(error: unknown, fallback: string): void {
+    if (isStagedImportGone(error)) resetImportFile(false);
+    importError.value = stagedImportErrorMessage(error, fallback);
+  }
+
+  /** Uploads the chosen export to the API as a raw body; the server validates it and returns the first preview. */
+  async function loadImportFile(file: File | undefined): Promise<void> {
+    resetImportFile(true);
+    importError.value = "";
     if (!file) return;
     if (file.size > MAX_PROJECT_IMPORT_BYTES) {
-      importError.value = t("projects.importFilesCannotExceed50");
+      importError.value = t("projects.importFilesCannotExceedLimit", { value: MAX_PROJECT_IMPORT_MIB });
       return;
     }
-    let text: string;
+    const requestId = uploadRequestId;
+    const controller = new AbortController();
+    uploadAbort = controller;
+    const strategy = importStrategy.value;
+    importFileName.value = file.name;
+    importUploading.value = true;
     try {
-      text = await file.text();
-    } catch {
-      // The browser's own reason (a moved, locked or unreadable file) is not translated, so it is not shown.
-      importError.value = t("projects.couldNotReadTheImport");
-      return;
-    }
-    let parsedJson: unknown;
-    try {
-      parsedJson = JSON.parse(text);
-    } catch {
-      importError.value = t("projects.theImportFileIsNotJson");
-      return;
-    }
-    try {
-      const parsed = projectDataExportSchema.safeParse(parsedJson);
-      if (!parsed.success) {
-        importError.value = t("projects.theExportFileIsMalformed", {
-          value: parsed.error.issues[0]?.message ?? t("projects.fieldValidationFailed"),
-        });
+      const staged = await useApi().client.stageProjectDataImport(file, strategy, controller.signal);
+      if (requestId !== uploadRequestId) {
+        // A newer file replaced this one while it uploaded; the abandoned staging is not needed.
+        discardStaging(staged.stagingId);
         return;
       }
-      if (parsed.data.scope.type === "project") importProjectId.value = parsed.data.scope.projectId;
-      importBundle.value = parsed.data satisfies ProjectDataExport;
-      importFileName.value = file.name;
-      await previewProjectDataImport();
+      importStagingId.value = staged.stagingId;
+      importHeader.value = staged.header;
+      if (staged.header.scope.type === "project") importProjectId.value = staged.header.scope.projectId;
+      previewedChoices = JSON.stringify([importProjectId.value, strategy, []]);
+      queryCache.setQueryData(queryKeys.projects.projectDataImportPreview, staged.preview);
+      importPreviewVisible.value = true;
+      importUploading.value = false;
+      // The user may have changed the strategy while the file uploaded.
+      if (choicesKey() !== previewedChoices) await previewProjectDataImport();
     } catch (error) {
-      importError.value = errorMessage(error, t("projects.couldNotReadTheImport"));
+      if (requestId !== uploadRequestId || useApi().isAbortError(error)) return;
+      importFileName.value = "";
+      importError.value = stagedImportErrorMessage(error, t("projects.couldNotReadTheImport"));
+    } finally {
+      if (requestId === uploadRequestId) {
+        importUploading.value = false;
+        uploadAbort = null;
+      }
     }
   }
 
@@ -137,11 +182,13 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
   async function previewProjectDataImport(): Promise<void> {
     importError.value = "";
     importPreviewVisible.value = false;
+    const stagingId = importStagingId.value;
+    if (!stagingId) return;
     let requestId = importPreviewRequestId.value;
     try {
-      const input = currentInput();
       requestId = ++importPreviewRequestId.value;
-      importPreviewInput.value = input;
+      importPreviewInput.value = { stagingId, options: currentOptions() };
+      previewedChoices = choicesKey();
       importPreviewLoading.value = true;
       await queryCache.cancelQueries({ key: queryKeys.projects.projectDataImportPreview, exact: true });
       await nextTick();
@@ -153,7 +200,7 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
       importPreviewVisible.value = true;
     } catch (error) {
       if (requestId === importPreviewRequestId.value && !useApi().isAbortError(error)) {
-        importError.value = errorMessage(error, t("projects.couldNotPreviewTheImport"));
+        handleStagedImportError(error, t("projects.couldNotPreviewTheImport"));
       }
     } finally {
       if (requestId === importPreviewRequestId.value) importPreviewLoading.value = false;
@@ -186,7 +233,8 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
   }
 
   const importProjectDataMutation = useMutation({
-    mutation: (input: ProjectDataImportInput) => useApi().client.importProjectData(input),
+    mutation: (input: { stagingId: string; options: ProjectDataStagedImportOptions }) =>
+      useApi().client.importStagedProjectDataImport(input.stagingId, input.options),
     onSuccess: () => {
       void invalidateImportedProjectDataQueries().catch(() => undefined);
     },
@@ -210,7 +258,10 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     importApplying.value = true;
     importError.value = "";
     try {
-      const result = await importProjectDataMutation.mutateAsync(currentInput());
+      const result = await importProjectDataMutation.mutateAsync({
+        stagingId: importStagingId.value,
+        options: currentOptions(),
+      });
       useToast().showToast(
         result.changed
           ? t("projects.importFinishedAddedSkippedIn", {
@@ -222,13 +273,10 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
           : t("projects.importFinishedNothingChanged"),
         "success",
       );
-      cancelImportPreview();
-      importBundle.value = null;
-      importFileName.value = "";
-      importProjectId.value = "";
-      importRemaps.value = [];
+      // The API removes the staged file after a successful import, so nothing is left to discard.
+      resetImportFile(false);
     } catch (error) {
-      importError.value = errorMessage(error, t("projects.couldNotImportProjectData"));
+      handleStagedImportError(error, t("projects.couldNotImportProjectData"));
     } finally {
       importApplying.value = false;
     }
@@ -281,14 +329,15 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
 
     const suggestedRemaps = new Map(currentRemaps().map((item) => [item.from, item]));
     for (const candidate of candidates) suggestedRemaps.set(candidate.mapping.from, candidate.mapping);
-    const suggestedInput: ProjectDataImportInput = {
-      ...currentInput(),
+    const suggestedOptions: ProjectDataStagedImportOptions = {
+      ...currentOptions(),
       remap: [...suggestedRemaps.values()],
     };
     let suggestedPreview: ProjectDataImportPreview;
     try {
-      suggestedPreview = await useApi().client.previewProjectDataImport(suggestedInput);
-    } catch {
+      suggestedPreview = await useApi().client.previewStagedProjectDataImport(importStagingId.value, suggestedOptions);
+    } catch (error) {
+      if (isStagedImportGone(error)) handleStagedImportError(error, t("projects.couldNotPreviewTheImport"));
       return;
     }
     const foundIds = new Set(
@@ -336,6 +385,7 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     portableExporting,
     importProjects,
     importFileName,
+    importUploading,
     importProjectId,
     importRemaps,
     importStrategy,

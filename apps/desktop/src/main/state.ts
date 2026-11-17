@@ -7,6 +7,7 @@ import {
   type BackendRunState,
   type DesktopSettingsV1,
   type LaunchMode,
+  type RepairRecovered,
   type ShellLocale,
   type ShellMessages,
   type ServiceOwnerState,
@@ -26,6 +27,8 @@ export class ShellState {
   locale: ShellLocale = "en";
   /** A repair action is running: the page's other actions wait. */
   busy = false;
+  /** The success card the repair page shows for a moment after a user-started repair worked. */
+  recovered: RepairRecovered | null = null;
   readonly retryIds = new RetryIdIssuer(() => randomUUID());
   readonly candidates = new CandidateRegistry(() => randomUUID(), MAX_CANDIDATES);
   readonly recentErrors = new RecentErrors();

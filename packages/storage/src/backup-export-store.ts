@@ -9,6 +9,7 @@ import {
 } from "./backup.js";
 import { assertDatabaseSchemaVersion, configureWorkIntelligenceDatabaseConnection } from "./database-initialization.js";
 import { buildProjectDataExport, readProjectDataRows } from "./project-data-export.js";
+import { writeProjectDataExport } from "./project-data-export-stream.js";
 
 /**
  * Page cache of the worker's connection. An export reads every row once, so a large cache saves no reads, and on the
@@ -23,6 +24,7 @@ export interface BackupExportStoreOptions {
   expectedSchemaVersion: number;
 }
 
+/** Thrown by the placeholder masking when an export meets an architecture diagram before the real one is loaded. */
 function refuseArchitectureDiagram(): never {
   throw new Error("Architecture diagram masking was not loaded.");
 }
@@ -88,5 +90,20 @@ export class BackupExportStore {
       ? (await import("./diagram-source-redaction.js")).redactArchitectureDiagramSource
       : refuseArchitectureDiagram;
     return buildProjectDataExport(rows, scope, redactArchitectureDiagram);
+  }
+
+  /**
+   * Writes the portable export of `scope` to `target` (which must not exist yet) row by row, in bounded memory; the
+   * bytes are those of `JSON.stringify(await exportProjectData(scope))`. Most databases have no architecture diagram, so
+   * the masking that loads zod is imported only when one exists (in any project: one index lookup decides it before
+   * anything is written, instead of finding out halfway and writing the export twice).
+   */
+  public async writeProjectData(scope: ProjectDataExportScope, target: string): Promise<{ bytes: number }> {
+    const hasArchitectureDiagram =
+      this.db.prepare("SELECT 1 FROM session_diagrams WHERE kind = 'architecture' LIMIT 1").get() !== undefined;
+    const redactArchitectureDiagram = hasArchitectureDiagram
+      ? (await import("./diagram-source-redaction.js")).redactArchitectureDiagramSource
+      : refuseArchitectureDiagram;
+    return writeProjectDataExport(this.db, scope, redactArchitectureDiagram, target);
   }
 }

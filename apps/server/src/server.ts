@@ -4,9 +4,6 @@ import { fileURLToPath, URL } from "node:url";
 import type {
   ApiErrorCode,
   FolderPickResult,
-  ProjectDataExportScope,
-  ProjectDataImportInput,
-  ProjectDataImportPreview,
   SystemAgentConnections,
   UserServiceStatus,
 } from "@work-intelligence/core";
@@ -27,12 +24,15 @@ import { createFolderPicker } from "./folder-picker.js";
 import { BackupWorkerOutOfMemoryError } from "./backup-worker-errors.js";
 import { inspectAgentConnections } from "./doctor.js";
 import {
-  inspectProjectFolder,
+  importProjectDataUpload,
+  inspectStagedProjectDataImport,
   JSON_HEADERS,
-  parseProjectDataImportBytes,
+  previewProjectDataImportUpload,
   RequestBodyError,
   sendError,
 } from "./http.js";
+import { StagedImports } from "./staged-imports.js";
+import { transferRoot as defaultTransferRoot } from "./transfer-workspace.js";
 import { getUserServiceStatusAsync } from "./user-service.js";
 import { Router, apiRoutes, type BackgroundStoreOperations, type RouteServices } from "./routes/index.js";
 import { resolveWebDirectory } from "./web-directory.js";
@@ -48,8 +48,7 @@ const DATABASE_UNAVAILABLE_RESPONSES: Record<DatabaseUnavailableReason, { status
 /** Another process migrated the database past this server's build; every write is refused until it restarts. */
 const SERVER_RESTART_REQUIRED_MESSAGE = "資料庫 schema 已更新，請重新啟動 Work Intelligence server。";
 /** Nothing was saved; the fixed text carries no content, and the web app shows its own translated guidance. */
-const BACKUP_WORKER_OUT_OF_MEMORY_MESSAGE =
-  "The background worker ran out of memory; nothing was changed. Split the data into smaller files, for example one project per file, and try again.";
+const BACKUP_WORKER_OUT_OF_MEMORY_MESSAGE = "匯入檔太大，背景處理記憶體不足；後端仍正常運作。";
 const DEFAULT_MAX_EVENT_CLIENTS = 32;
 const EVENT_HEARTBEAT_INTERVAL_MS = 15_000;
 const DEFAULT_REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -149,6 +148,8 @@ export interface ApiHandlerOptions {
   userServiceStatus?: () => UserServiceStatus | Promise<UserServiceStatus>;
   /** Offloads disk snapshots and large project-data preparation from the API event loop. */
   backgroundStore?: BackgroundStoreOperations;
+  /** Where large uploads and exports are staged; defaults to `tmp` beside the store's database. */
+  transferRoot?: string;
   /**
    * The desktop shell's per-spawn secret. When set, `/api/health` answers a valid challenge header with an HMAC proof
    * so the parent can tell this process from a squatter on the port; the id itself is never sent. Unset: no change.
@@ -158,6 +159,8 @@ export interface ApiHandlerOptions {
 
 export type ApiHandler = ((request: IncomingMessage, response: ServerResponse) => Promise<void>) & {
   closeEventStreams: () => void;
+  /** Removes the export files staged for an import (shutdown); a crash leaves them to the start-up sweep. */
+  discardStagedImports: () => void;
 };
 
 function createInlineBackgroundStore(store: WorkIntelligenceStore): BackgroundStoreOperations {
@@ -171,23 +174,17 @@ function createInlineBackgroundStore(store: WorkIntelligenceStore): BackgroundSt
     async exportTo(target, options) {
       return store.exportTo(target, options);
     },
-    async exportProjectData(scope: ProjectDataExportScope) {
-      const content = JSON.stringify(store.exportProjectData(scope));
-      return { content, bytes: Buffer.byteLength(content) };
+    async exportProjectData(scope, target) {
+      return store.writeProjectDataExport(scope, target);
     },
-    async previewProjectDataImport(input: ProjectDataImportInput | Uint8Array) {
-      const data = input instanceof Uint8Array ? parseProjectDataImportBytes(input) : input;
-      const preview: ProjectDataImportPreview = store.previewProjectDataImport(data);
-      return {
-        ...preview,
-        selectedProjects: preview.selectedProjects.map((project) => ({
-          ...project,
-          folderStatus: inspectProjectFolder(project.rootPath),
-        })),
-      };
+    async previewProjectDataImport(upload) {
+      return previewProjectDataImportUpload(store, upload);
     },
-    async importProjectData(input: ProjectDataImportInput | Uint8Array) {
-      return store.importProjectData(input instanceof Uint8Array ? parseProjectDataImportBytes(input) : input);
+    async importProjectData(upload) {
+      return importProjectDataUpload(store, upload);
+    },
+    async inspectStagedProjectDataImport(upload) {
+      return inspectStagedProjectDataImport(store, upload);
     },
     async close() {},
   };
@@ -200,6 +197,8 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
   const inspectConnections = options.agentConnections ?? (() => inspectAgentConnections({ repositoryRoot }));
   const queryUserService = options.userServiceStatus ?? (() => getUserServiceStatusAsync({ repositoryRoot }));
   const backgroundStore = options.backgroundStore ?? createInlineBackgroundStore(store);
+  const transferRoot = options.transferRoot ?? defaultTransferRoot(store.databasePath);
+  const stagedImports = new StagedImports(transferRoot);
   let cachedUserService: { status: UserServiceStatus; expiresAt: number } | undefined;
   let pendingUserService: Promise<UserServiceStatus> | undefined;
   function inspectUserService(): Promise<UserServiceStatus> {
@@ -316,6 +315,8 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
     agentConnections: inspectConnections,
     userServiceStatus: inspectUserService,
     backgroundStore,
+    transferRoot,
+    stagedImports,
     instanceProof: (request) => {
       const challenge = request.headers[INSTANCE_CHALLENGE_HEADER];
       return options.instanceRunId && isValidInstanceChallenge(challenge)
@@ -421,6 +422,9 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
         }
       }
       eventClients.clear();
+    },
+    discardStagedImports(): void {
+      stagedImports.clear();
     },
   });
 }

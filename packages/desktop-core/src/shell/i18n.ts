@@ -68,6 +68,15 @@ export interface ShellMessages {
   readonly quitStopIncompleteMessage: string;
   readonly quitStopIncompleteOk: string;
   readonly repairDone: string;
+  /** Heading of the card the repair window shows once a repair the user started has worked. */
+  readonly repairRecovered: string;
+  readonly repairRecoveredHint: string;
+  /** `{count}` is the number of projects in the database. */
+  readonly repairProjectCount: string;
+  readonly repairProjectCountLabel: string;
+  /** The system notification that says the App can be used again. */
+  readonly notifyRecoveredTitle: string;
+  readonly notifyRecoveredBody: string;
   readonly repairFailedGeneric: string;
   readonly actionRetry: string;
   readonly actionChooseDatabase: string;
@@ -134,6 +143,12 @@ const zhTW: ShellMessages = {
     "無法確認 Work Intelligence 的背景服務已完全停止。若稍後仍無法重新開啟，請在工作管理員或活動監視器中結束它，或重新啟動電腦。細節已寫入記錄檔。",
   quitStopIncompleteOk: "知道了",
   repairDone: "已完成。",
+  repairRecovered: "✓ 已恢復",
+  repairRecoveredHint: "資料庫已可使用，正在為你開啟 Dashboard。",
+  repairProjectCount: "{count} 個專案",
+  repairProjectCountLabel: "專案數",
+  notifyRecoveredTitle: "Work Intelligence 已可使用",
+  notifyRecoveredBody: "資料庫已恢復，正在開啟 Dashboard。",
   repairFailedGeneric: "這個動作沒有完成，請再試一次。",
   actionRetry: "重試啟動",
   actionChooseDatabase: "選擇資料庫…",
@@ -288,6 +303,12 @@ const en: ShellMessages = {
     "Work Intelligence could not confirm that its background service has fully stopped. If it will not reopen, end it in Task Manager or Activity Monitor, or restart the computer. Details are in the log file.",
   quitStopIncompleteOk: "OK",
   repairDone: "Done.",
+  repairRecovered: "✓ Recovered",
+  repairRecoveredHint: "The database is ready to use. Opening the Dashboard for you.",
+  repairProjectCount: "{count} projects",
+  repairProjectCountLabel: "Projects",
+  notifyRecoveredTitle: "Work Intelligence is ready",
+  notifyRecoveredBody: "The database is back. Opening the Dashboard.",
   repairFailedGeneric: "That did not finish. Please try again.",
   actionRetry: "Retry start",
   actionChooseDatabase: "Choose database…",

@@ -52,6 +52,8 @@ export interface BackendInfo {
   readonly schemaVersion: number;
   readonly databaseIdentity: DatabaseIdentity;
   readonly execPath: string;
+  /** Projects in the database when it started; absent when the child could not say. */
+  readonly projectCount?: number;
 }
 
 export interface BackendStopReport {
@@ -408,6 +410,7 @@ export class BackendSupervisor {
       schemaVersion: ready.schemaVersion,
       databaseIdentity: ready.databaseIdentity,
       execPath: ready.execPath,
+      ...(ready.projectCount !== undefined ? { projectCount: ready.projectCount } : {}),
     };
     active.info = info;
     this.watchForUnexpectedExit(active);

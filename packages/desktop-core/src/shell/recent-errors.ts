@@ -19,6 +19,17 @@ export class RecentErrors {
     if (this.entries.length > this.capacity) this.entries.shift();
   }
 
+  /** Forgets every error: the service works again, so none of them is current. */
+  clear(): void {
+    this.entries.length = 0;
+  }
+
+  /** The current failure replaces what was recorded before, so the page never mixes old errors with the new one. */
+  replaceWith(code: string, at: Date): void {
+    this.clear();
+    this.record(code, at);
+  }
+
   /** Oldest first. */
   list(): readonly RecordedError[] {
     return [...this.entries];

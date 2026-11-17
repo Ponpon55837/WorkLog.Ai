@@ -1,7 +1,6 @@
 import console from "node:console";
-import { Buffer } from "node:buffer";
 import { DatabaseSync } from "node:sqlite";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL, URL } from "node:url";
@@ -40,16 +39,17 @@ try {
 
   const backup = await worker.createBackup();
   if (backup.outcome !== "database_backups") throw new Error("The synthetic database was not backed up.");
-  const exported = await worker.exportProjectData({ type: "all" });
-  if (!(exported.content instanceof Uint8Array)) {
-    throw new Error("The built worker did not transfer project-data export bytes.");
+  // The built worker runs as its own process and streams files both ways, as the REST routes use it.
+  const exportFile = join(mkdtempSync(join(root, "export-")), "export.json");
+  const exported = await worker.exportProjectData({ type: "all" }, exportFile);
+  const bundle = JSON.parse(readFileSync(exportFile, "utf8"));
+  if (bundle.tables.sessions.length !== 1 || exported.bytes !== statSync(exportFile).size) {
+    throw new Error("The built worker wrote an incomplete project-data export.");
   }
-  const exportContent = Buffer.from(exported.content);
-  const bundle = JSON.parse(exportContent.toString("utf8"));
-  if (bundle.tables.sessions.length !== 1 || exported.bytes !== exportContent.byteLength) {
-    throw new Error("The built worker returned an incomplete project-data export.");
-  }
-  const preview = await worker.previewProjectDataImport({ bundle });
+  const uploadDirectory = mkdtempSync(join(root, "import-"));
+  const uploadPath = join(uploadDirectory, "import.json");
+  writeFileSync(uploadPath, JSON.stringify({ bundle }));
+  const preview = await worker.previewProjectDataImport({ path: uploadPath, directory: uploadDirectory });
   if (preview.outcome !== "project_data_import_preview" || preview.skipped.sessions !== 1) {
     throw new Error("The built worker returned an unexpected project-data preview.");
   }

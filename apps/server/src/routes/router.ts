@@ -4,9 +4,9 @@ import type {
   DatabaseBackupUnavailable,
   FolderPickResult,
   ProjectDataExportScope,
-  ProjectDataImportInput,
   ProjectDataImportPreview,
   ProjectDataImportResult,
+  ProjectDataImportStagedHeader,
   ProjectFolderStatus,
   SystemAgentConnections,
   UserServiceStatus,
@@ -16,17 +16,28 @@ import { safeParseStrict, type StrictParseResult } from "@work-intelligence/sche
 import type { ExportOptions, WorkIntelligenceStore } from "@work-intelligence/storage";
 import type { McpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import { sendError, sendJson } from "../http.js";
+import type { StagedImports } from "../staged-imports.js";
 
 export type RouteMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
-export interface ProjectDataExportDocument {
-  content: string | Uint8Array;
-  bytes: number;
+/** An import request body saved to disk, and the private transfer directory it is in (its spill file goes there too). */
+export interface ProjectDataImportUpload {
+  path: string;
+  directory: string;
+  /** "request" (the default): a REST body `{bundle, ...choices}`. "bundle": a staged export file, choices in `options`. */
+  envelope?: "request" | "bundle";
+  /** The import choices of a staged file (projectId, remap, strategy); validated with the file. */
+  options?: unknown;
 }
 
 export type ProjectDataImportPreviewWithFolderStatus = Omit<ProjectDataImportPreview, "selectedProjects"> & {
   selectedProjects: Array<ProjectDataImportPreview["selectedProjects"][number] & { folderStatus: ProjectFolderStatus }>;
 };
+
+export interface StagedProjectDataImportInspection {
+  header: ProjectDataImportStagedHeader;
+  preview: ProjectDataImportPreviewWithFolderStatus;
+}
 
 /** Store work that the production server runs away from its request and maintenance event loop. */
 export interface BackgroundStoreOperations {
@@ -34,12 +45,14 @@ export interface BackgroundStoreOperations {
   backupIfDue(): Promise<DatabaseBackupCreated | null>;
   /** `durable: false` for a staging copy that is streamed once and removed; see `ExportOptions` in storage. */
   exportTo(target: string, options?: ExportOptions): Promise<{ bytes: number }>;
-  exportProjectData(scope: ProjectDataExportScope): Promise<ProjectDataExportDocument>;
-  previewProjectDataImport(
-    input: ProjectDataImportInput | Uint8Array,
-  ): Promise<ProjectDataImportPreviewWithFolderStatus>;
-  /** Validates, backs up and imports; the search index is synced before it resolves. */
-  importProjectData(input: ProjectDataImportInput | Uint8Array): Promise<ProjectDataImportResult>;
+  /** Writes the portable export of `scope` to `target`, which must not exist yet, in bounded memory. */
+  exportProjectData(scope: ProjectDataExportScope, target: string): Promise<{ bytes: number }>;
+  /** Streams and validates the uploaded request, then counts what an import would change. */
+  previewProjectDataImport(upload: ProjectDataImportUpload): Promise<ProjectDataImportPreviewWithFolderStatus>;
+  /** Streams and validates the uploaded request, backs up and imports; the search index is synced before it resolves. */
+  importProjectData(upload: ProjectDataImportUpload): Promise<ProjectDataImportResult>;
+  /** Validates a staged export file once: what the import page shows about it and the first preview. */
+  inspectStagedProjectDataImport(upload: ProjectDataImportUpload): Promise<StagedProjectDataImportInspection>;
   close(): Promise<void>;
 }
 
@@ -52,6 +65,10 @@ export interface RouteServices {
   agentConnections(): SystemAgentConnections;
   userServiceStatus(): UserServiceStatus | Promise<UserServiceStatus>;
   backgroundStore: BackgroundStoreOperations;
+  /** Where large uploads and exports are staged: `tmp` beside the database (see transfer-workspace.ts). */
+  transferRoot: string;
+  /** Export files saved for an import from the Web UI, referred to by id (see staged-imports.ts). */
+  stagedImports: StagedImports;
   /** The health instance proof for this request's challenge header, or undefined when none applies. */
   instanceProof(request: IncomingMessage): string | undefined;
 }

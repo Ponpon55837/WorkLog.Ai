@@ -15,8 +15,8 @@ import { systemRoutes } from "./system.js";
 export {
   Router,
   type BackgroundStoreOperations,
-  type ProjectDataExportDocument,
   type ProjectDataImportPreviewWithFolderStatus,
+  type ProjectDataImportUpload,
   type Route,
   type RouteContext,
   type RouteServices,

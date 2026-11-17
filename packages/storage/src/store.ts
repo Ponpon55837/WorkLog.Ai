@@ -778,6 +778,14 @@ export class WorkIntelligenceStore {
     return this.projectDataTransfer.export(scope);
   }
 
+  /**
+   * Writes the same export as {@link exportProjectData} to `target` (which must not exist yet) row by row, so its
+   * memory does not grow with the data; the bytes are those of `JSON.stringify(exportProjectData(scope))`.
+   */
+  public writeProjectDataExport(scope: ProjectDataExportScope, target: string): { bytes: number } {
+    return this.projectDataTransfer.writeExport(scope, target);
+  }
+
   /** Counts additions, duplicates, and conflicts without writing anything, not even a backup. */
   public previewProjectDataImport(
     input: ProjectDataImportInput | ValidatedProjectDataImport,
@@ -830,6 +838,10 @@ export class WorkIntelligenceStore {
 
   public listProjects(): ProjectRecord[] {
     return this.projects.list();
+  }
+
+  public countProjects(): number {
+    return this.projects.count();
   }
 
   public addProject(name: string, rootPath: string): ProjectRecord {

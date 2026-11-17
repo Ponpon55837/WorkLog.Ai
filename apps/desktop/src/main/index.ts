@@ -30,6 +30,7 @@ import { createBackendController } from "./backend.js";
 import {
   ASSET_FILES,
   overrideFromEnvironment,
+  repairSuccessDelayMs,
   resolveDesktopPaths,
   testSwitch,
   type DesktopConfigInputs,
@@ -39,9 +40,10 @@ import { createDashboard } from "./dashboard.js";
 import { createIntegrationPublisher } from "./integration-record.js";
 import { registerRepairIpc } from "./ipc.js";
 import { createLogger } from "./log.js";
-import { createErrorNotifier } from "./notify.js";
+import { createErrorNotifier, createRecoveredNotifier } from "./notify.js";
 import { createQuit } from "./quit.js";
 import { createRepairInfo } from "./repair-info.js";
+import { createRepairSuccess } from "./repair-success.js";
 import { createRepairWindow } from "./repair-window.js";
 import { createRuntimeProvisioner } from "./runtime-provision.js";
 import { createSecondInstance } from "./second-instance.js";
@@ -180,6 +182,17 @@ function runShell(configInputs: DesktopConfigInputs): void {
     notifyError: createErrorNotifier(state),
     whenReady: () => app.whenReady(),
   });
+  // A test build records the "ready again" notifications it tried to show; a production build keeps no list.
+  const notifications: string[] | undefined = __WI_TEST_BUILD__ ? [] : undefined;
+  const success = createRepairSuccess({
+    state,
+    window,
+    dashboard,
+    backend,
+    supervisor,
+    notifyRecovered: createRecoveredNotifier(state, notifications),
+    delayMs: repairSuccessDelayMs(configInputs),
+  });
   const info = createRepairInfo({ state, paths, supervisor, lastBackup });
   const requestQuit = createQuit({
     state,
@@ -195,6 +208,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
   const tray = createShellTray({
     state,
     iconFile: ASSET_FILES.trayIconFile,
+    templateIconFile: ASSET_FILES.trayTemplateFile,
     backendRunning: () => supervisor.running !== undefined,
     openDashboard: dashboard.open,
     openRepairWindow: window.open,
@@ -254,7 +268,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     });
     state.locale = resolveShellLocale(app.getLocale());
     backend.useLaunchMode(state.launchMode);
-    registerRepairIpc({ state, paths, window, info, backend, supervisor, log });
+    registerRepairIpc({ state, paths, window, info, backend, supervisor, success, log });
     if (process.platform === "darwin" && state.launchMode === "background") app.dock?.hide();
     tray.create();
     if (!(await early.settingsLoaded)) {
@@ -286,7 +300,16 @@ function runShell(configInputs: DesktopConfigInputs): void {
       });
   }
 
-  if (__WI_TEST_BUILD__) installTestHook({ state, paths, supervisor, window, secondInstance, dashboard });
+  if (__WI_TEST_BUILD__)
+    installTestHook({
+      state,
+      paths,
+      supervisor,
+      window,
+      secondInstance,
+      dashboard,
+      notifications: notifications ?? [],
+    });
   applySecurityPolicy();
 
   app.on("second-instance", (_event, _argv, _workingDirectory, additionalData) => {

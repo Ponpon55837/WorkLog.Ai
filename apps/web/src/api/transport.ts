@@ -142,6 +142,17 @@ export class ApiTransport {
     return this.request<T>(path, { method, body: JSON.stringify(body), signal });
   }
 
+  /** Sends a JSON body and expects no response body (204); errors surface like every other request. */
+  public async send(path: string, method: "DELETE" | "POST", body: unknown, signal?: AbortSignal): Promise<void> {
+    const response = await this.fetchResponse(path, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    });
+    if (!response.ok) throw await this.responseError(response, t("api.theRequestFailedCheckThat"));
+  }
+
   public async download(path: string, body: unknown, fallback: string): Promise<Blob> {
     const response = await this.fetchResponse(path, {
       method: "POST",

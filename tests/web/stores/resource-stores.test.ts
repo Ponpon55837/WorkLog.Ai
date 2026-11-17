@@ -1,5 +1,6 @@
+import { useQueryCache } from "@pinia/colada";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PROJECT_DATA_TABLES } from "../../../packages/core/src/index.js";
+import { nextTick } from "vue";
 import type { StoreRequest } from "../helpers/store-harness.js";
 import { createStoreHarness, jsonResponse } from "../helpers/store-harness.js";
 import { useBackupsStore } from "../../../apps/web/src/stores/backups.js";
@@ -21,6 +22,7 @@ let harness: ReturnType<typeof createStoreHarness>;
 let backupDeleteOutcome: "deleted" | "missing";
 let exportFailure: boolean;
 let importChanged: boolean;
+let stagedGone: boolean;
 let knowledgeListMode: "normal" | "skipped" | "error";
 let knowledgeHistoryMode: "normal" | "missing";
 let backfillPreviewMode: "normal" | "empty" | "error";
@@ -35,6 +37,31 @@ const project = {
   status: "tracked",
   createdAt: "2026-09-01T00:00:00.000Z",
   updatedAt: "2026-09-01T00:00:00.000Z",
+};
+const stagedHeader = {
+  schemaVersion: 40,
+  exportedAt: "2026-09-27T00:00:00.000Z",
+  scope: { type: "all" },
+  projects: [
+    { id: "project-1", name: "Alpha" },
+    { id: "project-2", name: "Beta" },
+  ],
+};
+const importPreview = {
+  outcome: "project_data_import_preview",
+  strategy: "newer-wins",
+  additions: { projects: 1 },
+  skipped: {},
+  conflicts: {},
+  updates: { sessions: 2 },
+  keptLocal: { sessions: 1 },
+  renumbered: {},
+  selectedProjects: [],
+  remappedPaths: [],
+  autoRemaps: [],
+  conflictDetails: [],
+  conflictDetailsTruncated: false,
+  conflictGroups: [],
 };
 const backfillRequest = {
   id: "backfill-1",
@@ -188,40 +215,23 @@ function resourceResponder({ url, method }: StoreRequest): unknown {
       return { outcome: "metadata_backfill_request_not_cancellable", reason: "這批請求已完成。" };
     return { outcome: "metadata_backfill_request_cancelled", request: { ...backfillRequest, status: "cancelled" } };
   }
-  if (url.pathname === "/api/import/preview") {
-    return {
-      outcome: "project_data_import_preview",
-      strategy: "newer-wins",
-      additions: { projects: 1 },
-      skipped: {},
-      conflicts: {},
-      updates: { sessions: 2 },
-      keptLocal: { sessions: 1 },
-      renumbered: {},
-      selectedProjects: [],
-      remappedPaths: [],
-      autoRemaps: [],
-      conflictDetails: [],
-      conflictDetailsTruncated: false,
-      conflictGroups: [],
-    };
+  if (url.pathname === "/api/import/staged" && method === "POST") {
+    return jsonResponse(
+      { stagingId: "stage-1", expiresAt: "2026-09-27T00:30:00.000Z", header: stagedHeader, preview: importPreview },
+      201,
+    );
   }
-  if (url.pathname === "/api/import") {
+  if (url.pathname.startsWith("/api/import/staged/") && method === "DELETE") return new Response(null, { status: 204 });
+  if (url.pathname.startsWith("/api/import/staged/") && stagedGone) {
+    return jsonResponse({ error: "暫存的匯入檔已過期或不存在；請重新選擇檔案。", code: "not_found" }, 404);
+  }
+  if (url.pathname === "/api/import/staged/stage-1/preview" && method === "POST") {
+    return { ...importPreview, additions: { projects: 5 } };
+  }
+  if (url.pathname === "/api/import/staged/stage-1" && method === "POST") {
     return {
+      ...importPreview,
       outcome: "project_data_imported",
-      strategy: "newer-wins",
-      additions: { projects: 1 },
-      skipped: {},
-      conflicts: {},
-      updates: { sessions: 2 },
-      keptLocal: { sessions: 1 },
-      renumbered: {},
-      selectedProjects: [],
-      remappedPaths: [],
-      autoRemaps: [],
-      conflictDetails: [],
-      conflictDetailsTruncated: false,
-      conflictGroups: [],
       importedAt: "2026-09-27T00:00:00.000Z",
       changed: importChanged,
     };
@@ -232,6 +242,7 @@ function resourceResponder({ url, method }: StoreRequest): unknown {
 beforeEach(() => {
   backupDeleteOutcome = "deleted";
   importChanged = true;
+  stagedGone = false;
   exportFailure = false;
   knowledgeListMode = "normal";
   knowledgeHistoryMode = "normal";
@@ -496,70 +507,207 @@ describe("resource stores", () => {
     expect(store.metadataBackfillRequestError).toBe("這批請求已完成。");
   });
 
-  it("validates import files locally, previews valid bundles, and applies confirmed imports", async () => {
-    const store = useProjectDataTransferStore();
-    await store.loadImportFile(undefined);
-    await store.loadImportFile({ name: "large.json", size: 50 * 1024 * 1024 + 1, text: async () => "" } as File);
-    expect(store.importError).toBe(t("projects.importFilesCannotExceed50"));
-    await store.loadImportFile({ name: "broken.json", size: 8, text: async () => "{" } as File);
-    expect(store.importError).toBe(t("projects.theImportFileIsNotJson"));
-    // A file the browser cannot read shows the translated message, never the browser's own reason.
-    const unreadable = async (): Promise<string> => {
-      throw new DOMException("Synthetic browser reason", "NotReadableError");
-    };
-    await store.loadImportFile({ name: "locked.json", size: 8, text: unreadable } as File);
-    expect(store.importError).toBe(t("projects.couldNotReadTheImport"));
-    await store.loadImportFile({ name: "wrong-shape.json", size: 8, text: async () => "{}" } as File);
-    expect(store.importError).toContain(t("projects.theExportFileIsMalformed", { value: "" }));
+  describe("staged project import", () => {
+    function exportFile(name = "work.json", size = 500): File {
+      const file = new File(["{}"], name, { type: "application/json" });
+      Object.defineProperty(file, "size", { value: size });
+      return file;
+    }
 
-    const bundle = {
-      format: "work-intelligence-export",
-      formatVersion: 1,
-      schemaVersion: 1,
-      exportedAt: "2026-09-27T00:00:00.000Z",
-      scope: { type: "all" },
-      tables: Object.fromEntries(PROJECT_DATA_TABLES.map((table) => [table, []])),
-    };
-    await store.loadImportFile({ name: "work.json", size: 500, text: async () => JSON.stringify(bundle) } as File);
-    expect(store.importError).toBe("");
-    expect(store.importPreview?.outcome).toBe("project_data_import_preview");
-    mocks.confirmAction.mockResolvedValueOnce(false);
-    await store.applyProjectDataImport();
-    expect(harness.count("/api/import", "POST")).toBe(0);
-    mocks.confirmAction.mockResolvedValueOnce(true);
-    await store.applyProjectDataImport();
-    expect(mocks.confirmAction).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        message: t("projects.recordsWillBeAddedAnd", {
-          additions: 1,
-          updates: 2,
-          keptLocal: 1,
-          skipped: 0,
-          conflicts: 0,
+    function pathsOf(method: string, prefix = "/api/import/staged"): string[] {
+      return harness.calls
+        .filter((call) => call.method === method && call.url.pathname.startsWith(prefix))
+        .map((call) => call.url.pathname);
+    }
+
+    it("refuses files over 256 MiB before sending anything", async () => {
+      const store = useProjectDataTransferStore();
+      await store.loadImportFile(undefined);
+      await store.loadImportFile(exportFile("large.json", 256 * 1024 * 1024 + 1));
+      expect(store.importError).toBe(t("projects.importFilesCannotExceedLimit", { value: 256 }));
+      expect(harness.fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("streams the File to the API without reading it and seeds the first preview", async () => {
+      const store = useProjectDataTransferStore();
+      const file = exportFile();
+      const text = vi.spyOn(file, "text");
+      const parse = vi.spyOn(JSON, "parse");
+      await store.loadImportFile(file);
+      const stage = harness.calls.find((call) => call.url.pathname === "/api/import/staged");
+      expect(stage?.rawBody).toBe(file);
+      expect(stage?.url.searchParams.get("strategy")).toBe("newer-wins");
+      expect(text).not.toHaveBeenCalled();
+      expect(parse.mock.calls.some(([value]) => value === "{}")).toBe(false);
+      expect(store.importError).toBe("");
+      expect(store.importFileName).toBe("work.json");
+      expect(store.importProjects).toEqual(stagedHeader.projects);
+      expect(store.importPreview?.outcome).toBe("project_data_import_preview");
+      expect(store.importPreview?.additions).toEqual({ projects: 1 });
+      await nextTick();
+      // The seeded preview needs no second request, and the default scope change does not trigger one.
+      expect(harness.count("/api/import/staged/stage-1/preview", "POST")).toBe(0);
+      expect(store.importUploading).toBe(false);
+      expect(store.importLoading).toBe(false);
+    });
+
+    it("defaults the scope to the project of a single-project export", async () => {
+      const store = useProjectDataTransferStore();
+      harness.setResponder((request) =>
+        request.url.pathname === "/api/import/staged" && request.method === "POST"
+          ? jsonResponse(
+              {
+                stagingId: "stage-1",
+                expiresAt: "2026-09-27T00:30:00.000Z",
+                header: { ...stagedHeader, scope: { type: "project", projectId: "project-2" } },
+                preview: importPreview,
+              },
+              201,
+            )
+          : resourceResponder(request),
+      );
+      await store.loadImportFile(exportFile());
+      await nextTick();
+      expect(store.importProjectId).toBe("project-2");
+      expect(harness.count("/api/import/staged/stage-1/preview", "POST")).toBe(0);
+    });
+
+    it("shows an uploading state and shows the server message when staging fails", async () => {
+      const store = useProjectDataTransferStore();
+      let release: () => void = () => undefined;
+      harness.setResponder(async (request) => {
+        if (request.url.pathname === "/api/import/staged") {
+          await new Promise<void>((resolve) => (release = resolve));
+          return jsonResponse({ error: "匯入檔格式錯誤：缺少 tables。", code: "invalid_input" }, 400);
+        }
+        return resourceResponder(request);
+      });
+      const pending = store.loadImportFile(exportFile());
+      expect(store.importUploading).toBe(true);
+      expect(store.importLoading).toBe(true);
+      release();
+      await pending;
+      expect(store.importUploading).toBe(false);
+      expect(store.importError).toBe("匯入檔格式錯誤：缺少 tables。");
+      expect(store.importFileName).toBe("");
+      expect(store.importPreview).toBeNull();
+    });
+
+    it("re-previews through the staged endpoint when the choices change", async () => {
+      const store = useProjectDataTransferStore();
+      await store.loadImportFile(exportFile());
+      store.importProjectId = "project-2";
+      await vi.waitFor(() => expect(harness.count("/api/import/staged/stage-1/preview", "POST")).toBe(1));
+      await vi.waitFor(() => expect(store.importPreview?.additions).toEqual({ projects: 5 }));
+      expect(harness.calls.find((call) => call.url.pathname.endsWith("/preview"))?.body).toEqual({
+        projectId: "project-2",
+        strategy: "newer-wins",
+      });
+      store.importStrategy = "merge";
+      await vi.waitFor(() => expect(harness.count("/api/import/staged/stage-1/preview", "POST")).toBe(2));
+      expect(harness.calls.filter((call) => call.url.pathname.endsWith("/preview")).at(-1)?.body).toEqual({
+        projectId: "project-2",
+        strategy: "merge",
+      });
+      expect(harness.count("/api/import/preview", "POST")).toBe(0);
+    });
+
+    it("applies the staged import with the current choices, invalidates, and resets", async () => {
+      const store = useProjectDataTransferStore();
+      await store.loadImportFile(exportFile());
+      mocks.confirmAction.mockResolvedValueOnce(false);
+      await store.applyProjectDataImport();
+      expect(harness.count("/api/import/staged/stage-1", "POST")).toBe(0);
+
+      const invalidate = vi.spyOn(useQueryCache(), "invalidateQueries");
+      await store.applyProjectDataImport();
+      expect(mocks.confirmAction).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          message: t("projects.recordsWillBeAddedAnd", {
+            additions: 1,
+            updates: 2,
+            keptLocal: 1,
+            skipped: 0,
+            conflicts: 0,
+          }),
         }),
-      }),
-    );
-    expect(store.importStrategy).toBe("newer-wins");
-    expect(harness.count("/api/import/preview", "POST")).toBe(1);
-    expect(harness.count("/api/import", "POST")).toBe(1);
-    expect(
-      harness.calls.find((call) => call.url.pathname === "/api/import" && call.method === "POST")?.body,
-    ).toMatchObject({ strategy: "newer-wins" });
-    expect(store.importFileName).toBe("");
-    expect(store.importLoading).toBe(false);
-    expect(mocks.confirmAction).toHaveBeenCalledTimes(2);
-    expect(store.importProjects).toEqual([]);
-    expect(mocks.showToast).toHaveBeenLastCalledWith(
-      t("projects.importFinishedAddedSkippedIn", { value: 1, updates: 2, value2: 0, value3: 0 }),
-      "success",
-    );
+      );
+      expect(harness.calls.find((call) => call.url.pathname === "/api/import/staged/stage-1")?.body).toEqual({
+        strategy: "newer-wins",
+      });
+      expect(harness.count("/api/import", "POST")).toBe(0);
+      await vi.waitFor(() => expect(invalidate).toHaveBeenCalledWith({ key: ["projects"], exact: true }));
+      expect(mocks.showToast).toHaveBeenLastCalledWith(
+        t("projects.importFinishedAddedSkippedIn", { value: 1, updates: 2, value2: 0, value3: 0 }),
+        "success",
+      );
+      expect(store.importFileName).toBe("");
+      expect(store.importProjects).toEqual([]);
+      expect(store.importPreview).toBeNull();
+      expect(store.importLoading).toBe(false);
+      // The server removed the staged file itself, so no cancel request is sent.
+      expect(pathsOf("DELETE")).toEqual([]);
 
-    // Importing the same file again changes nothing, writes no backup and says so.
-    importChanged = false;
-    await store.loadImportFile({ name: "work.json", size: 500, text: async () => JSON.stringify(bundle) } as File);
-    await store.applyProjectDataImport();
-    expect(mocks.showToast).toHaveBeenLastCalledWith(t("projects.importFinishedNothingChanged"), "success");
+      importChanged = false;
+      await store.loadImportFile(exportFile());
+      await store.applyProjectDataImport();
+      expect(mocks.showToast).toHaveBeenLastCalledWith(t("projects.importFinishedNothingChanged"), "success");
+    });
 
+    it("discards the previous staging when another file replaces it", async () => {
+      const store = useProjectDataTransferStore();
+      await store.loadImportFile(exportFile("first.json"));
+      await store.loadImportFile(exportFile("second.json"));
+      await vi.waitFor(() => expect(pathsOf("DELETE")).toEqual(["/api/import/staged/stage-1"]));
+      expect(harness.calls.find((call) => call.method === "DELETE")?.body).toEqual({});
+      expect(store.importFileName).toBe("second.json");
+
+      await store.loadImportFile(undefined);
+      await vi.waitFor(() => expect(pathsOf("DELETE")).toHaveLength(2));
+      expect(store.importFileName).toBe("");
+      expect(store.importPreview).toBeNull();
+    });
+
+    it("ignores a failing discard request", async () => {
+      const store = useProjectDataTransferStore();
+      harness.setResponder((request) =>
+        request.method === "DELETE"
+          ? jsonResponse({ error: "boom", code: "internal_error" }, 500)
+          : resourceResponder(request),
+      );
+      await store.loadImportFile(exportFile());
+      await store.loadImportFile(undefined);
+      await vi.waitFor(() => expect(pathsOf("DELETE")).toHaveLength(1));
+      expect(store.importError).toBe("");
+    });
+
+    it("resets and shows the server message when the staged file expired during preview", async () => {
+      const store = useProjectDataTransferStore();
+      await store.loadImportFile(exportFile());
+      stagedGone = true;
+      await store.previewProjectDataImport();
+      expect(store.importError).toBe("暫存的匯入檔已過期或不存在；請重新選擇檔案。");
+      expect(store.importFileName).toBe("");
+      expect(store.importProjects).toEqual([]);
+      expect(store.importPreview).toBeNull();
+      // Nothing is left to cancel on the server.
+      expect(pathsOf("DELETE")).toEqual([]);
+    });
+
+    it("resets and shows the server message when the staged file expired before import", async () => {
+      const store = useProjectDataTransferStore();
+      await store.loadImportFile(exportFile());
+      stagedGone = true;
+      await store.applyProjectDataImport();
+      expect(store.importError).toBe("暫存的匯入檔已過期或不存在；請重新選擇檔案。");
+      expect(store.importFileName).toBe("");
+      expect(store.importPreview).toBeNull();
+      expect(store.importLoading).toBe(false);
+    });
+  });
+
+  it("exports project data and reports a failed export", async () => {
+    const store = useProjectDataTransferStore();
     exportFailure = true;
     await store.exportProjectData({ type: "all" });
     expect(store.transferError).toBe(t("format.theServiceIsTemporarilyUnavailable"));

@@ -14,6 +14,7 @@ import type { BackendController } from "./backend.js";
 import type { DesktopPaths } from "./config.js";
 import type { Logger } from "./log.js";
 import type { RepairInfo } from "./repair-info.js";
+import type { RepairSuccess } from "./repair-success.js";
 import type { RepairWindow } from "./repair-window.js";
 import type { ShellState } from "./state.js";
 
@@ -28,6 +29,7 @@ export interface IpcOptions {
   readonly info: RepairInfo;
   readonly backend: BackendController;
   readonly supervisor: BackendSupervisor;
+  readonly success: RepairSuccess;
   readonly log: Logger;
 }
 
@@ -37,7 +39,7 @@ const parser =
     schema.safeParse(raw);
 
 export function registerRepairIpc(options: IpcOptions): void {
-  const { state, paths, window, info, backend, supervisor, log } = options;
+  const { state, paths, window, info, backend, supervisor, success, log } = options;
 
   function isTrusted(event: IpcMainInvokeEvent): boolean {
     const frame = event.senderFrame;
@@ -83,7 +85,9 @@ export function registerRepairIpc(options: IpcOptions): void {
   handle(REPAIR_CHANNELS.retryStart, parser(repairInputSchemas.retryStart), ({ operationId }) =>
     withBusy(async () => {
       if (!state.retryIds.consume(operationId)) return { ok: false, reason: "invalid" };
+      const opensAtStart = success.opens();
       const outcome = await backend.recovery.retryNow(operationId);
+      success.finish(outcome, opensAtStart);
       if (outcome.ok) return { ok: true, state: await info.snapshot() };
       // A restart already running is not an error: the page shows "restarting" and polls.
       if (outcome.busy) return { ok: false, reason: "busy" };
@@ -117,6 +121,7 @@ export function registerRepairIpc(options: IpcOptions): void {
         if (!check.ok) return { ok: false, reason: "invalid" };
         // A pending automatic retry must not start the old database while the user's choice runs.
         backend.recovery.cancel();
+        const opensAtStart = success.opens();
         const outcome = await backend.start("change-db", {
           databasePath: check.entry.path,
           expectedIdentity: check.identity,
@@ -124,13 +129,13 @@ export function registerRepairIpc(options: IpcOptions): void {
         });
         if (!outcome.ok) {
           if (outcome.busy) return { ok: false, reason: "busy" };
-          state.recentErrors.record(outcome.code, new Date());
+          success.finish(outcome, opensAtStart);
           backend.presenter().present(outcome.code);
           return { ok: false, reason: "failed", errorCode: outcome.code };
         }
         state.candidates.remove(candidateId);
         if (state.settings) await writeDesktopSettingsAtomic(paths.settingsFile, state.settings);
-        backend.presenter().clear();
+        success.finish(outcome, opensAtStart);
         return { ok: true, state: await info.snapshot() };
       }),
   );
