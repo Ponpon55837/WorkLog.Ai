@@ -683,35 +683,36 @@ describe("adopt option", () => {
       return parsed.mcp_servers["work-intelligence"]?.env;
     };
 
-    it("writes the checkout database into a Claude entry with no env, or an env without it", () => {
-      for (const env of [undefined, { KEEP: "1" }]) {
-        const fixture = hostFixture();
-        const root = fixture.options.repositoryRoot;
-        const expected = join(root, "data", "work-intelligence.sqlite");
-        seedClaudeMcp(fixture, {
-          type: "stdio",
-          command: "node",
-          args: [script(root, "launcher.js")],
-          ...(env ? { env } : {}),
-        });
-        const plan = adoptAndApply(launcherOptions(fixture, [root]));
-        expect(resolvedDatabase(claudeServer(fixture).env)).toBe(expected);
-        expect(plan.adopted?.[0]?.effectiveDatabase).toBe(expected);
-        expect(plan.actions.join("\n")).toContain(expected);
-        if (env) expect(object(claudeServer(fixture).env).KEEP).toBe("1");
-        removeFixtures();
-      }
+    // One adoption per case, so each case has its own time budget on a slow runner.
+    it.each([
+      ["no env", undefined],
+      ["an env without it", { KEEP: "1" }],
+    ] as const)("writes the checkout database into a Claude entry with %s", (_name, env) => {
+      const fixture = hostFixture();
+      const root = fixture.options.repositoryRoot;
+      const expected = join(root, "data", "work-intelligence.sqlite");
+      seedClaudeMcp(fixture, {
+        type: "stdio",
+        command: "node",
+        args: [script(root, "launcher.js")],
+        ...(env ? { env } : {}),
+      });
+      const plan = adoptAndApply(launcherOptions(fixture, [root]));
+      expect(resolvedDatabase(claudeServer(fixture).env)).toBe(expected);
+      expect(plan.adopted?.[0]?.effectiveDatabase).toBe(expected);
+      expect(plan.actions.join("\n")).toContain(expected);
+      if (env) expect(object(claudeServer(fixture).env).KEEP).toBe("1");
     });
 
-    it("writes the checkout database into a Codex table whatever shape its env has, and uninstall leaves no trace", () => {
-      const shapes: Record<string, string> = {
-        none: "",
-        "own table": '[mcp_servers.work-intelligence.env]\nKEEP = "1"\n',
-        inline: 'env = { KEEP = "1" }\n',
-        "empty inline": "env = {}\n",
-        dotted: 'env.KEEP = "1"\n',
-      };
-      for (const [name, extra] of Object.entries(shapes)) {
+    it.each([
+      ["none", ""],
+      ["own table", '[mcp_servers.work-intelligence.env]\nKEEP = "1"\n'],
+      ["inline", 'env = { KEEP = "1" }\n'],
+      ["empty inline", "env = {}\n"],
+      ["dotted", 'env.KEEP = "1"\n'],
+    ] as const)(
+      "writes the checkout database into a Codex table whose env shape is %s, and uninstall leaves no trace",
+      (name, extra) => {
         const fixture = hostFixture();
         const root = fixture.options.repositoryRoot;
         const expected = join(root, "data", "work-intelligence.sqlite");
@@ -725,9 +726,8 @@ describe("adopt option", () => {
         expect(removal.conflicts).toEqual([]);
         expect(applyAgentSetupPlan(removal).applied).toBe(true);
         expect(readFileSync(fixture.paths.codexConfig, "utf8"), name).not.toContain("work-intelligence");
-        removeFixtures();
-      }
-    });
+      },
+    );
   });
 
   it("migrates setup-owned checkout entries as before while adopting a hand-written one beside them", () => {
