@@ -63,7 +63,8 @@ const {
   systemStatusError: error,
   databaseStatus,
 } = storeToRefs(systemStatusStore);
-const { refreshSystemStatus } = systemStatusStore;
+const { agentSetupOpening } = storeToRefs(systemStatusStore);
+const { refreshSystemStatus, openDesktopAgentSetup } = systemStatusStore;
 
 const mcpStatus = computed(() => (status.value ? mcpRuntimeStatusVisual(status.value.mcp) : undefined));
 const agentGroups = computed(() => (status.value ? agentConnectionGroups(status.value.agents) : []));
@@ -158,6 +159,29 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
             <UiBoxTitle :icon="Bot" :title="t('systemStatus.agentConnections')" />
             <StatusLabel :status="agentSummary" />
           </template>
+          <div v-if="status.desktop?.managed" class="system-status__setup" data-testid="desktop-agent-setup">
+            <div>
+              <UiButton :disabled="agentSetupOpening" @click="openDesktopAgentSetup">{{
+                t("systemStatus.openAgentSetupInDesktopApp")
+              }}</UiButton>
+            </div>
+          </div>
+          <div v-if="status.desktop?.legacyService" class="system-status__setup" data-testid="legacy-service-warning">
+            <UiFlash tone="attention">
+              {{ t("systemStatus.legacyServiceWarning") }}
+            </UiFlash>
+            <p>{{ t("systemStatus.legacyServiceRemoveCommand") }}</p>
+            <div class="system-status__command">
+              <code>{{
+                status.desktop.legacyService.removeCommand ?? status.desktop.legacyService.fallbackRemoveCommand
+              }}</code>
+              <UiCopyButton
+                :text="status.desktop.legacyService.removeCommand ?? status.desktop.legacyService.fallbackRemoveCommand"
+                size="sm"
+                :label="t('systemStatus.copyRemoveCommand')"
+              />
+            </div>
+          </div>
           <div v-if="agentIssueCount > 0" class="system-status__setup" data-testid="agent-setup-hint">
             <p>
               {{ t("systemStatus.agentsInOtherProjectsNeed") }}
