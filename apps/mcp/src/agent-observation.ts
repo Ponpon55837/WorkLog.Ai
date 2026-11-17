@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
@@ -47,6 +47,17 @@ function resultOf(message: JSONRPCMessage): Record<string, unknown> | undefined 
   return result !== null && typeof result === "object" ? (result as Record<string, unknown>) : undefined;
 }
 
+/** The file text with `observation` added as the newest entry and the oldest clients dropped past the limit. */
+function mergedContent(observations: Map<string, AgentObservation>, observation: AgentObservation): string {
+  observations.delete(observation.clientName);
+  observations.set(observation.clientName, observation);
+  const content: AgentObservationFile = {
+    version: 1,
+    observations: Object.fromEntries([...observations].slice(-MAX_CLIENTS)),
+  };
+  return `${JSON.stringify(content, null, 2)}\n`;
+}
+
 /** The file's observations; a missing, unreadable or malformed file counts as empty and is rewritten whole. */
 export async function readAgentObservations(directory: string): Promise<Map<string, AgentObservation>> {
   try {
@@ -64,6 +75,10 @@ export async function readAgentObservations(directory: string): Promise<Map<stri
  * desktop can show "observed connected" only for an Agent that really talked to this server. It watches the
  * responses leaving the transport (the host's exact view of the contract) and writes after the response is sent;
  * the single small atomic write runs off the request path and any failure only reaches stderr.
+ *
+ * Several Agent hosts may start their own server process at the same time. Each write re-reads the file right before
+ * its rename so another process's entry is kept; two writers whose read-merge-rename interleave within a few
+ * milliseconds can still lose one entry, which the next session of that host records again.
  */
 export class AgentObservationRecorder {
   private readonly options: AgentObservationRecorderOptions;
@@ -79,7 +94,13 @@ export class AgentObservationRecorder {
     const send = transport.send.bind(transport);
     transport.send = async (message, sendOptions) => {
       await send(message, sendOptions);
-      if (!this.recorded) this.inspect(server, message);
+      if (this.recorded) return;
+      try {
+        this.inspect(server, message);
+      } catch (error) {
+        // Observing must never throw into the SDK transport: the host's response was already sent.
+        this.options.onError?.(error);
+      }
     };
   }
 
@@ -108,15 +129,19 @@ export class AgentObservationRecorder {
 
   private async write(observation: AgentObservation): Promise<void> {
     const { directory } = this.options;
-    const observations = await readAgentObservations(directory);
-    observations.delete(observation.clientName);
-    observations.set(observation.clientName, observation);
-    const kept = [...observations].slice(-MAX_CLIENTS);
-    const content: AgentObservationFile = { version: 1, observations: Object.fromEntries(kept) };
-    await mkdir(directory, { recursive: true });
     const target = join(directory, AGENT_OBSERVATIONS_FILE);
     const temporary = `${target}.${process.pid}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(content, null, 2)}\n`, { mode: 0o600 });
-    await rename(temporary, target);
+    await mkdir(directory, { recursive: true });
+    try {
+      const first = mergedContent(await readAgentObservations(directory), observation);
+      await writeFile(temporary, first, { mode: 0o600 });
+      // Read again right before the rename, so an entry another process added while this one was writing is kept.
+      const latest = mergedContent(await readAgentObservations(directory), observation);
+      if (latest !== first) await writeFile(temporary, latest, { mode: 0o600 });
+      await rename(temporary, target);
+    } catch (error) {
+      await rm(temporary, { force: true });
+      throw error;
+    }
   }
 }

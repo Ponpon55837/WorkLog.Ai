@@ -1,3 +1,6 @@
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+import type { ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
@@ -289,5 +292,104 @@ describe("planMcpSpawn", () => {
 
   it("leaves a .cmd name alone on POSIX", () => {
     expect(planMcpSpawn("/opt/x.cmd", ["a"], "darwin").windowsVerbatimArguments).toBe(false);
+  });
+});
+
+describe("probeMcpHandshake on Windows (injected spawn)", () => {
+  const environment = { SystemRoot: "C:\\Windows" };
+
+  /** A child that never answers; `exited` makes it look as if it already ended. */
+  function silentChild(options: { exited?: boolean } = {}): ChildProcess {
+    const child = new EventEmitter() as EventEmitter & Record<string, unknown>;
+    child.pid = 4321;
+    child.exitCode = options.exited ? 1 : null;
+    child.signalCode = null;
+    child.stdin = new PassThrough();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = () => {
+      child.killed = true;
+      queueMicrotask(() => child.emit("close", null, "SIGTERM"));
+      return true;
+    };
+    return child as unknown as ChildProcess;
+  }
+
+  /** Runs a probe that times out; `taskkillExit` is what the injected taskkill exits with (undefined: it fails to start). */
+  async function timeOut(options: { exited?: boolean; taskkillExit?: number }) {
+    const child = silentChild({ exited: options.exited });
+    const spawned: Array<{ file: string; args: readonly string[] }> = [];
+    await probeMcpHandshake(
+      { command: "C:\\runtime\\bin\\work-intelligence-launcher.cmd", args: ["mcp"], timeoutMs: 30 },
+      {
+        platform: "win32",
+        environment,
+        spawn: (file, args) => {
+          spawned.push({ file, args });
+          if (spawned.length === 1) {
+            if (options.exited) queueMicrotask(() => child.emit("close", 1, null));
+            return child;
+          }
+          const killer = new EventEmitter();
+          queueMicrotask(() => {
+            if (options.taskkillExit === undefined) killer.emit("error", new Error("spawn taskkill ENOENT"));
+            else killer.emit("exit", options.taskkillExit);
+            // The launcher tree is gone once taskkill succeeded.
+            if (options.taskkillExit === 0) child.emit("close", 1, null);
+          });
+          return killer as unknown as ChildProcess;
+        },
+      },
+    );
+    return { child: child as unknown as { killed?: boolean }, spawned };
+  }
+
+  it("kills the whole tree with System32 taskkill /T /F, not only the cmd.exe wrapper", async () => {
+    const { child, spawned } = await timeOut({ taskkillExit: 0 });
+
+    expect(spawned[1]).toEqual({
+      file: "C:\\Windows\\System32\\taskkill.exe",
+      args: ["/PID", "4321", "/T", "/F"],
+    });
+    expect(child.killed).toBeUndefined();
+  });
+
+  it.each([
+    ["taskkill exits non-zero", { taskkillExit: 128 }],
+    ["taskkill cannot start", {}],
+  ])("falls back to killing the child when %s", async (_name, options) => {
+    const { child } = await timeOut(options);
+
+    expect(child.killed).toBe(true);
+  });
+
+  it("does not run taskkill for a child that already exited (its pid may be reused)", async () => {
+    const { child, spawned } = await timeOut({ exited: true });
+
+    expect(spawned).toHaveLength(1);
+    expect(child.killed).toBeUndefined();
+  });
+});
+
+describe("probeMcpHandshake stderr masking", () => {
+  it("masks the config directory and the given runtime root, not only the home directory", async () => {
+    const directory = temporaryDirectory();
+    const config = join(directory, "config-dir-secret");
+    const runtime = join(directory, "runtime-root-secret");
+    const server = fakeServer(
+      `console.error("config " + process.env.WORK_INTELLIGENCE_CONFIG_DIR + "/x"); console.error("runtime " + ${JSON.stringify(runtime)}); process.exit(3);`,
+    );
+
+    const result = await probeMcpHandshake({
+      ...server,
+      env: { WORK_INTELLIGENCE_CONFIG_DIR: config },
+      maskedPaths: [runtime],
+      timeoutMs: 5_000,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.stderrTail.join("\n")).not.toContain("secret");
+    expect(result.stderrTail).toHaveLength(2);
   });
 });

@@ -1,4 +1,7 @@
-import { spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
+import nodeConsole from "node:console";
+import { EventEmitter } from "node:events";
+import { createServer } from "node:http";
 import {
   chmodSync,
   cpSync,
@@ -14,7 +17,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { publishIntegrationRecord } from "../../packages/desktop-core/src/integration/index.js";
 import {
   CLAUDE_PRE_TOOL_USE_MATCHER,
@@ -22,6 +25,10 @@ import {
   CODEX_PRE_TOOL_USE_MATCHER,
   commandForAgentHook,
 } from "@work-intelligence/agent-setup";
+import {
+  resolveDesktopLauncher,
+  runDesktopLauncher,
+} from "../../plugins/work-intelligence/scripts/desktop-integration.mjs";
 import { claudePluginEnabled, codexPluginEnabled, collectDoctorFindings } from "../../apps/server/src/doctor.js";
 import type { UserServiceStatus } from "../../packages/core/src/index.js";
 
@@ -101,6 +108,28 @@ function run(script: string, args: string[], environment: NodeJS.ProcessEnv, inp
       CLAUDE_CONFIG_DIR: join(home, ".claude"),
       ...environment,
     },
+  });
+}
+
+/** Like {@link run}, without blocking this process, so servers started by the test keep answering. */
+function spawnAsync(script: string, environment: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }> {
+  const home = environment.HOME ?? tmpdir();
+  return new Promise((resolveRun) => {
+    execFile(
+      process.execPath,
+      [script],
+      {
+        env: {
+          ...inheritedEnvironment(),
+          HOME: home,
+          USERPROFILE: home,
+          WORK_INTELLIGENCE_CONFIG_DIR: join(home, ".work-intelligence"),
+          ...environment,
+        },
+        timeout: 30_000,
+      },
+      (_error, stdout, stderr) => resolveRun({ stdout, stderr }),
+    );
   });
 }
 
@@ -347,14 +376,25 @@ async function fakeDesktop(home: string, options: { exitCode?: number; shim?: st
   const runtimeRoot = join(home, "Work Intelligence", "runtime");
   const launcherPath = join(runtimeRoot, "bin", "work-intelligence-launcher");
   const appExecutable = join(home, "Work Intelligence", "app", "work-intelligence-app");
+  const runtime = join(runtimeRoot, "runtimes", "r1");
   mkdirSync(join(runtimeRoot, "bin"), { recursive: true });
+  mkdirSync(runtime, { recursive: true });
   mkdirSync(dirname(appExecutable), { recursive: true });
   writeFileSync(launcherPath, options.shim ?? LAUNCHER_SHIM(options.exitCode ?? 4), { mode: 0o755 });
   writeFileSync(appExecutable, APP_STUB, { mode: 0o755 });
   chmodSync(launcherPath, 0o755);
+  // What the shim reads: the pointer, the runtime's launch file, its executable and launcher script.
+  writeFileSync(join(runtimeRoot, "current"), "r1\n");
+  writeFileSync(join(runtime, "runtime-launch.txt"), "node\n");
+  writeFileSync(join(runtime, "node"), "");
+  writeFileSync(join(runtime, "launcher.mjs"), "");
+  // The launcher trusts only entries nobody else can write, whatever umask the test runner has.
+  for (const directory of [runtimeRoot, join(runtimeRoot, "bin")]) chmodSync(directory, 0o755);
   const recordFile = join(home, ".work-intelligence", "desktop-integration.json");
-  if (options.record !== false)
+  if (options.record !== false) {
     await publishIntegrationRecord(recordFile, { runtimeRoot, appExecutable, appVersion: "1.0.0" });
+    chmodSync(dirname(recordFile), 0o755);
+  }
   return {
     runtimeRoot,
     launcherPath,
@@ -385,6 +425,18 @@ describe.skipIf(process.platform === "win32")("plugin launcher with the desktop 
     expect(result.stdout).toBe("launcher:mcp:ping");
     expect(result.status).toBe(4);
   });
+
+  it.skipIf(process.platform === "win32")(
+    "accepts group-writable folders, as a umask-002 system creates them (ADR-15 refuses world-writable only)",
+    async () => {
+      const home = temporaryDirectory();
+      const desktop = await fakeDesktop(home);
+      for (const directory of [desktop.runtimeRoot, join(desktop.runtimeRoot, "bin"), dirname(desktop.recordFile)]) {
+        chmodSync(directory, 0o775);
+      }
+      expect(run(launcher, ["mcp"], { HOME: home }, "ping").stdout).toBe("launcher:mcp:ping");
+    },
+  );
 
   it("maps the hook commands to the launcher's actions and always exits 0, silently", async () => {
     const home = temporaryDirectory();
@@ -481,6 +533,34 @@ describe.skipIf(process.platform === "win32")("plugin launcher with the desktop 
         symlinkSync(elsewhere, join(desktop.runtimeRoot, "bin"), "dir");
       },
     ],
+    ["a record file everyone can write", (desktop) => chmodSync(desktop.recordFile, 0o666)],
+    ["a config directory everyone can write", (desktop) => chmodSync(dirname(desktop.recordFile), 0o777)],
+    ["a runtime root everyone can write", (desktop) => chmodSync(desktop.runtimeRoot, 0o777)],
+    ["a bin directory everyone can write", (desktop) => chmodSync(join(desktop.runtimeRoot, "bin"), 0o777)],
+    ["a shim everyone can write", (desktop) => chmodSync(desktop.launcherPath, 0o777)],
+    [
+      "a runtime root that is a symlink",
+      (desktop) => {
+        const elsewhere = join(dirname(desktop.runtimeRoot), "elsewhere-root");
+        cpSync(desktop.runtimeRoot, elsewhere, { recursive: true });
+        rmSync(desktop.runtimeRoot, { recursive: true });
+        symlinkSync(elsewhere, desktop.runtimeRoot, "dir");
+      },
+    ],
+    ["a missing runtime pointer (current)", (desktop) => rmSync(join(desktop.runtimeRoot, "current"))],
+    [
+      "a runtime pointer that is a symlink",
+      (desktop) => {
+        const real = join(dirname(desktop.runtimeRoot), "real-current");
+        writeFileSync(real, "r1\n");
+        rmSync(join(desktop.runtimeRoot, "current"));
+        symlinkSync(real, join(desktop.runtimeRoot, "current"));
+      },
+    ],
+    [
+      "a runtime without its launch file",
+      (desktop) => rmSync(join(desktop.runtimeRoot, "runtimes/r1/runtime-launch.txt")),
+    ],
     [
       "a shim that is a directory",
       (desktop) => {
@@ -533,6 +613,196 @@ describe.skipIf(process.platform === "win32")("plugin launcher with the desktop 
     const gone = run(launcher, ["dashboard"], { HOME: home, WORK_INTELLIGENCE_HOME: join(home, "none") });
     expect(gone.status).toBe(1);
     expect(existsSync(desktop.appArguments)).toBe(false);
+  });
+
+  it("refuses a record, runtime or shim owned by another user", async () => {
+    const home = temporaryDirectory();
+    await fakeDesktop(home);
+    const options = { environment: { WORK_INTELLIGENCE_CONFIG_DIR: join(home, ".work-intelligence") }, home };
+    const uid = process.getuid?.() ?? 0;
+    expect(resolveDesktopLauncher("mcp", { ...options, uid })).toBeDefined();
+    expect(resolveDesktopLauncher("mcp", { ...options, uid: uid + 1 })).toBeUndefined();
+  });
+
+  it("does not hand the dashboard to an App executable that is a symlink", async () => {
+    const home = temporaryDirectory();
+    const desktop = await fakeDesktop(home);
+    const real = join(home, "real-app");
+    writeFileSync(real, APP_STUB, { mode: 0o755 });
+    rmSync(desktop.appExecutable);
+    symlinkSync(real, desktop.appExecutable);
+    const result = run(launcher, ["dashboard"], { HOME: home });
+    expect(result.status).toBe(1);
+    expect(existsSync(desktop.appArguments)).toBe(false);
+  });
+
+  it("says why it did not use a launcher whose runtime is not ready, and starts the checkout instead", async () => {
+    const home = temporaryDirectory();
+    const desktop = await fakeDesktop(home);
+    rmSync(join(desktop.runtimeRoot, "current"));
+    const repository = fakeRepository(join(home, "checkout"));
+    writeFileSync(join(home, ".work-intelligence/plugin-link.json"), JSON.stringify({ repositoryRoot: repository }));
+    const cached = join(home, "cache/work-intelligence");
+    cpSync(pluginRoot, cached, { recursive: true });
+    const result = run(join(cached, "scripts/launch.mjs"), ["mcp"], { HOME: home }, "x");
+    expect(JSON.parse(result.stdout)).toMatchObject({ name: "mcp", input: "x" });
+    expect(result.stderr).toContain("launcher is not used");
+    expect(result.stderr).toContain("current");
+    // A hook stays silent.
+    expect(run(join(cached, "scripts/launch.mjs"), ["finalize-reminder"], { HOME: home }, "{}").stderr).toBe("");
+  });
+
+  it("passes a user-configured WORK_INTELLIGENCE_DB through the launcher to the server", async () => {
+    const home = temporaryDirectory();
+    await fakeDesktop(home, { shim: `#!/bin/sh\nprintf '%s' "$WORK_INTELLIGENCE_DB"\n` });
+    const database = join(home, "chosen.sqlite");
+    expect(run(launcher, ["mcp"], { HOME: home, WORK_INTELLIGENCE_DB: database }).stdout).toBe(database);
+  });
+
+  describe("the MCPB start script", () => {
+    function extension(home: string): string {
+      const root = join(home, "mcpb");
+      mkdirSync(join(root, "scripts"), { recursive: true });
+      mkdirSync(join(root, "server/apps/mcp/dist"), { recursive: true });
+      cpSync(join(repositoryRoot, "scripts/mcpb-launch.mjs"), join(root, "scripts/launch.mjs"));
+      cpSync(join(pluginRoot, "scripts/desktop-integration.mjs"), join(root, "scripts/desktop-integration.mjs"));
+      writeFileSync(join(root, "server/apps/mcp/dist/index.js"), 'process.stdout.write("bundled");\n');
+      return join(root, "scripts/launch.mjs");
+    }
+
+    it("runs the App's launcher when its runtime is ready and the bundled server when it is not", async () => {
+      const home = temporaryDirectory();
+      const desktop = await fakeDesktop(home);
+      const script = extension(home);
+      expect(run(script, [], { HOME: home }, "x").stdout).toBe("launcher:mcp:x");
+      rmSync(join(desktop.runtimeRoot, "current"));
+      const fallback = run(script, [], { HOME: home }, "x");
+      expect(fallback.stdout).toBe("bundled");
+      expect(fallback.stderr).toContain("launcher is not used");
+    });
+  });
+
+  describe("runDesktopLauncher with an injected spawn", () => {
+    /** The process object and the child a launcher run touches, with what they recorded. */
+    function fakes() {
+      const host = Object.assign(new EventEmitter(), { exitCode: undefined as number | undefined });
+      const child = Object.assign(new EventEmitter(), {
+        pid: 777,
+        exitCode: null as number | null,
+        signalCode: null as string | null,
+        killed: false,
+        kill() {
+          this.killed = true;
+          return true;
+        },
+      });
+      return { host: host as unknown as NodeJS.Process, child };
+    }
+    const launcherPlan = { command: "launcher", args: ["x"], windowsVerbatimArguments: false };
+
+    it("keeps a hook at exit 0 and an mcp start at exit 1 with a stderr line when spawn throws", () => {
+      const spawnProcess = () => {
+        throw new Error("EAGAIN");
+      };
+      const stderr = vi.spyOn(nodeConsole, "error").mockImplementation(() => undefined);
+      const hook = fakes();
+      runDesktopLauncher(launcherPlan, { hook: true, spawnProcess, host: hook.host });
+      expect(hook.host.exitCode).toBe(0);
+      expect(stderr).not.toHaveBeenCalled();
+      const mcp = fakes();
+      runDesktopLauncher(launcherPlan, { hook: false, spawnProcess, host: mcp.host });
+      expect(mcp.host.exitCode).toBe(1);
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining("EAGAIN"));
+      stderr.mockRestore();
+    });
+
+    /** Runs a hook that times out on "Windows"; `taskkill` decides how the injected killer ends. */
+    async function timeOutOnWindows(options: { exited?: boolean; taskkill?: "ok" | "fails" | "missing" }) {
+      const { host, child } = fakes();
+      if (options.exited) child.exitCode = 0;
+      const killers: Array<{ file: string; args: readonly string[] }> = [];
+      const spawnProcess = (file: string, args: readonly string[]) => {
+        if (file === launcherPlan.command) return child;
+        killers.push({ file, args });
+        const killer = new EventEmitter();
+        queueMicrotask(() => {
+          if (options.taskkill === "missing") killer.emit("error", new Error("ENOENT"));
+          else killer.emit("exit", options.taskkill === "fails" ? 128 : 0);
+        });
+        return killer;
+      };
+      runDesktopLauncher(launcherPlan, {
+        hook: true,
+        timeoutMs: 5,
+        platform: "win32",
+        environment: { SystemRoot: "C:\\Windows" },
+        spawnProcess,
+        host,
+      });
+      await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+      return { child, killers };
+    }
+
+    it("stops the whole tree of a hung hook with System32 taskkill /T /F on Windows", async () => {
+      const { child, killers } = await timeOutOnWindows({ taskkill: "ok" });
+      expect(killers).toEqual([{ file: "C:\\Windows\\System32\\taskkill.exe", args: ["/PID", "777", "/T", "/F"] }]);
+      expect(child.killed).toBe(false);
+    });
+
+    it.each(["fails", "missing"] as const)("falls back to killing the child when taskkill %s", async (taskkill) => {
+      expect((await timeOutOnWindows({ taskkill })).child.killed).toBe(true);
+    });
+
+    it("kills nothing once the child has exited (its pid may be reused)", async () => {
+      const { child, killers } = await timeOutOnWindows({ exited: true, taskkill: "ok" });
+      expect(killers).toEqual([]);
+      expect(child.killed).toBe(false);
+    });
+  });
+
+  describe("pnpm dashboard with the App recorded", () => {
+    const dashboardScript = join(repositoryRoot, "scripts/dashboard.mjs");
+
+    async function listen(handler: Parameters<typeof createServer>[1]) {
+      const server = createServer(handler);
+      await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+      const address = server.address();
+      const port = typeof address === "object" && address !== null ? address.port : 0;
+      return { port, close: () => new Promise<void>((resolveClose) => server.close(() => resolveClose())) };
+    }
+
+    it("prints the URL of a server that already answers and does not start the App", async () => {
+      const home = temporaryDirectory();
+      const desktop = await fakeDesktop(home);
+      const answering = await listen((request, response) => {
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify(request.url === "/api/health" ? { ok: true, database: "ok" } : {}));
+      });
+      try {
+        const result = await spawnAsync(dashboardScript, {
+          HOME: home,
+          WORK_INTELLIGENCE_PORT: String(answering.port),
+        });
+        expect(result.stdout).toBe(`Dashboard: http://127.0.0.1:${answering.port}\n`);
+        await new Promise((resolveWait) => setTimeout(resolveWait, 300));
+        expect(existsSync(desktop.appArguments)).toBe(false);
+      } finally {
+        await answering.close();
+      }
+    });
+
+    it("hands over to the App when the port is busy with something that is not Work Intelligence", async () => {
+      const home = temporaryDirectory();
+      const desktop = await fakeDesktop(home);
+      const busy = await listen((_request, response) => response.end("not us"));
+      try {
+        const result = await spawnAsync(dashboardScript, { HOME: home, WORK_INTELLIGENCE_PORT: String(busy.port) });
+        expect(result.stdout).toContain("The App opens the Dashboard");
+        expect(await waitForFile(desktop.appArguments)).toBe("--open-dashboard\n");
+      } finally {
+        await busy.close();
+      }
+    });
   });
 
   it("starts the App without the Electron host variables an Agent app may carry", async () => {

@@ -48,6 +48,11 @@ function recordText(platform: NodeJS.Platform, change: Record<string, unknown> =
   });
 }
 
+/** A Windows record change that moves the runtime root together with the shim path derived from it. */
+function windowsRoot(runtimeRoot: string): Record<string, unknown> {
+  return { runtimeRoot, launcherPath: launcherShimPath(runtimeRoot, "win32") };
+}
+
 describe("publishIntegrationRecord", () => {
   it("writes the record atomically: only paths and the version, with the shim of the runtime root", async () => {
     const file = path.join(directory, "config", INTEGRATION_RECORD_FILE_NAME);
@@ -172,6 +177,31 @@ describe("the validation rules of the App and of the plugin script", () => {
       expect(parseIntegrationRecord(input, platform) !== undefined, `App: ${name}`).toBe(valid);
       expect(parseDesktopIntegration(input, platform) !== undefined, `plugin: ${name}`).toBe(valid);
     }
+  });
+
+  const windowsCorpus: Array<[string, Record<string, unknown>, boolean]> = [
+    ["a UNC runtime root", windowsRoot("\\\\server\\share\\runtime"), false],
+    ["a verbatim UNC runtime root", windowsRoot("\\\\?\\UNC\\server\\share\\runtime"), false],
+    ["a verbatim drive runtime root", windowsRoot("\\\\?\\C:\\runtime"), false],
+    ["a device-namespace runtime root", windowsRoot("\\\\.\\C:\\runtime"), false],
+    ["a UNC app executable", { appExecutable: "\\\\server\\share\\app.exe" }, false],
+    ["a device-namespace app executable", { appExecutable: "\\\\.\\pipe\\app.exe" }, false],
+    ["a rooted path without a drive", windowsRoot("\\runtime"), false],
+    ["a drive-relative path", windowsRoot("C:runtime"), false],
+    ["a runtime root with a .. segment", windowsRoot("C:\\a\\..\\b"), false],
+    ["a forward-slash app executable", { appExecutable: "C:/Program Files/app.exe" }, false],
+    ["a lower-case drive and mixed-case folders", windowsRoot("c:\\USERS\\Test\\Runtime"), true],
+    [
+      "the POSIX shim name",
+      { launcherPath: "C:\\runtime\\bin\\work-intelligence-launcher", runtimeRoot: "C:\\runtime" },
+      false,
+    ],
+  ];
+
+  it.each(windowsCorpus)("agree on Windows paths: %s", (_name, change, valid) => {
+    const input = recordText("win32", change);
+    expect(parseIntegrationRecord(input, "win32") !== undefined).toBe(valid);
+    expect(parseDesktopIntegration(input, "win32") !== undefined).toBe(valid);
   });
 
   it("read a valid record the same way", () => {

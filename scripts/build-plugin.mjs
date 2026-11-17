@@ -199,7 +199,7 @@ export async function buildPlugin(outputDirectory = join(repositoryRoot, "dist/p
   rmSync(outputDirectory, { recursive: true, force: true });
 
   const pluginDirectory = join(outputDirectory, "work-intelligence");
-  cpSync(pluginSource, pluginDirectory, { recursive: true });
+  cpSync(pluginSource, pluginDirectory, { recursive: true, filter: (source) => !source.endsWith(".d.mts") });
   await buildServer(pluginDirectory, version);
 
   const extensionDirectory = join(outputDirectory, "mcpb");

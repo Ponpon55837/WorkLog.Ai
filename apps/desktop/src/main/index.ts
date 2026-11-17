@@ -201,8 +201,8 @@ function runShell(configInputs: DesktopConfigInputs): void {
     requestQuit: () => void requestQuit(true),
     log,
   });
-  // The Dashboard was asked for with `--open-dashboard` (this launch, or a second one while this was still starting):
-  // the start opens it once, when the backend is ready, even in a background launch.
+  // The Dashboard was asked for with `--open-dashboard` (this launch, or a second one while this was still starting or
+  // the service was changing owner): it opens once, when the backend is ready, even in a background launch.
   let dashboardRequested = openDashboardRequested;
   let starting = true;
   const secondInstance = createSecondInstance({
@@ -214,6 +214,13 @@ function runShell(configInputs: DesktopConfigInputs): void {
     deferDashboard: () => {
       dashboardRequested = true;
     },
+  });
+  // A request deferred after the first start (the owner was PREPARING, QUIESCING or STARTING) opens when the owner is
+  // MANAGED with a running backend.
+  state.onChange(() => {
+    if (starting || !dashboardRequested || state.owner !== "MANAGED" || state.backend !== "running") return;
+    dashboardRequested = false;
+    dashboard.open();
   });
 
   /**
@@ -260,6 +267,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     if (outcome.ok) {
       backend.presenter().clear();
       if (state.launchMode === "interactive" || dashboardRequested) dashboard.open();
+      dashboardRequested = false;
     } else if (outcome.busy) {
       log("[shell] the first start found another operation running");
     } else {

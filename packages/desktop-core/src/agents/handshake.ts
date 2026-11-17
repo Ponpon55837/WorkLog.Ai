@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { homedir } from "node:os";
+import { configDirectory } from "@work-intelligence/shared/database-location";
 import {
   mcpContractFingerprint,
   MCP_SELFTEST_ENVIRONMENT,
@@ -17,11 +18,18 @@ export const MCP_HANDSHAKE_ERROR_CODES = [
 export type McpHandshakeErrorCode = (typeof MCP_HANDSHAKE_ERROR_CODES)[number];
 
 export interface McpHandshakeRequest {
+  /**
+   * The program to run. It must be the launcher shim of the validated integration record (`launcherShimPath` of the
+   * runtime root the App itself chose) or a path the App built; never a `command` read from an Agent's config file,
+   * which any process of the user can change and which this probe would then execute.
+   */
   readonly command: string;
   readonly args: readonly string[];
   /** Added to this process's environment. */
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly cwd?: string;
+  /** Paths (such as the runtime root) masked in `stderrTail` besides the home directory, cwd and config directory. */
+  readonly maskedPaths?: readonly string[];
   /** The whole handshake (spawn to the last `tools/list` page) must finish within this time. */
   readonly timeoutMs: number;
 }
@@ -40,7 +48,7 @@ export type McpHandshakeResult =
       readonly ok: false;
       readonly code: McpHandshakeErrorCode;
       readonly message: string;
-      /** The last stderr lines of the child, with the home directory and cwd masked. */
+      /** The last stderr lines of the child, with the home and config directories, cwd and `maskedPaths` masked. */
       readonly stderrTail: readonly string[];
       readonly elapsedMs: number;
     };
@@ -121,13 +129,19 @@ export function planMcpSpawn(
   };
 }
 
-/** Ends the child and everything it started: a process group elsewhere, `taskkill /T` on Windows. */
+/**
+ * Ends the child and everything it started: a process group elsewhere, `taskkill /T` on Windows (the child is
+ * `cmd.exe /c shim.cmd`, so killing it alone would orphan the server). `taskkill` works by pid, so it is skipped once
+ * the child has exited: the pid may belong to another process by then. A failing `taskkill` falls back to the child.
+ * A process group stays valid while any member lives, so POSIX needs no such guard.
+ */
 function killProcessTree(child: ChildProcess, deps: McpHandshakeDependencies): void {
   const pid = child.pid;
   try {
     if (pid === undefined) {
       child.kill();
     } else if (deps.platform === "win32") {
+      if (child.exitCode !== null || child.signalCode !== null) return;
       const killer = deps.spawn(
         windowsSystemTool("taskkill.exe", deps.environment),
         ["/PID", String(pid), "/T", "/F"],
@@ -136,7 +150,10 @@ function killProcessTree(child: ChildProcess, deps: McpHandshakeDependencies): v
           windowsHide: true,
         },
       );
-      killer.on("error", () => child.kill());
+      killer.once("error", () => child.kill());
+      killer.once("exit", (code) => {
+        if (code !== 0) child.kill();
+      });
     } else {
       process.kill(-pid, "SIGKILL");
     }
@@ -183,6 +200,8 @@ export async function probeMcpHandshake(
   const masker = new SecretMasker({ caseInsensitive: deps.platform === "win32" });
   masker.add(homedir());
   masker.add(request.cwd);
+  masker.add(configDirectory({ environment: { ...deps.environment, ...request.env }, platform: deps.platform }));
+  request.maskedPaths?.forEach((maskedPath) => masker.add(maskedPath));
   const stderrLines = new LineCollector(stderr, masker);
   let timer: NodeJS.Timeout | undefined;
 

@@ -1,5 +1,15 @@
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -201,6 +211,16 @@ describe("pnpm build:plugin", () => {
           writtenAt: "2026-01-01T00:00:00.000Z",
         }),
       );
+      // Whatever umask the runner has, nobody but the owner may write what the launcher trusts.
+      for (const trusted of [runtimeRoot, dirname(shim), join(home, ".work-intelligence")]) chmodSync(trusted, 0o755);
+      chmodSync(join(home, ".work-intelligence/desktop-integration.json"), 0o644);
+      // The launcher is used only when its runtime is ready: the shim reads these files.
+      expect(start().stdout).toContain('"serverInfo"');
+      const runtime = join(runtimeRoot, "runtimes/r1");
+      mkdirSync(runtime, { recursive: true });
+      for (const file of ["node", "launcher.mjs"]) writeFileSync(join(runtime, file), "");
+      writeFileSync(join(runtime, "runtime-launch.txt"), "node\n");
+      writeFileSync(join(runtimeRoot, "current"), "r1\n");
       expect(start().stdout).toBe("launcher:mcp");
     } finally {
       rmSync(home, { recursive: true, force: true });

@@ -10,8 +10,12 @@
  *      (desktop-integration.mjs): it keeps working while the App is closed and follows App updates;
  *   3. the checkout the plugin sits in, then the one `pnpm plugin:link` recorded;
  *   4. the server bundled in a release build.
- * `dashboard` goes to the desktop App when one is recorded (it opens the Dashboard itself, starting if it must), unless
- * WORK_INTELLIGENCE_HOME names a checkout; without an App it starts the checkout's server as before.
+ * `dashboard` runs the built checkout's scripts/dashboard.mjs, which prints the URL of a server that already answers and
+ * otherwise hands the request to the desktop App (it opens the Dashboard itself, starting if it must), unless
+ * WORK_INTELLIGENCE_HOME names a checkout. Where no checkout is built, the App is asked directly.
+ *
+ * The desktop launcher is used only when its runtime is ready (desktop-integration.mjs checks what the shim would). A
+ * launcher that fails after it started cannot be retried: the host's first MCP message may already be consumed.
  *
  * Hook commands never block the Agent: through the launcher they are silent, time out, and always exit 0.
  *
@@ -146,26 +150,32 @@ export function resolveEntryPoint(command, options) {
 
 /**
  * What to run for a command: a checkout's script, the desktop App's launcher, or the explanation why nothing can run.
- * Only a built checkout named by WORK_INTELLIGENCE_HOME outranks the desktop launcher.
+ * Only a built checkout named by WORK_INTELLIGENCE_HOME outranks the desktop launcher. `skipped` says why an installed
+ * desktop App's launcher was not used (its runtime is not ready) when something else runs instead.
  */
 export function resolveLaunch(command, options) {
   const entry = resolveEntryPoint(command, options);
   if (entry.repository?.source === "WORK_INTELLIGENCE_HOME") return entry;
-  const launcher = resolveDesktopLauncher(command, options);
-  return launcher ? { launcher } : entry;
+  let skipped;
+  const launcher = resolveDesktopLauncher(command, { ...options, onProblem: (problem) => (skipped = problem) });
+  return launcher ? { launcher } : { ...entry, skipped };
 }
 
 async function main() {
   const [command = "", ...rest] = process.argv.slice(2);
   const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-  if (command === "dashboard") {
+  const result = resolveLaunch(command, { pluginRoot });
+  if (command === "dashboard" && result.error) {
+    // No built checkout to run scripts/dashboard.mjs from: the App is the only dashboard there can be.
     const app = resolveDesktopApp();
     if (app !== undefined && (await openDashboardInApp(app))) {
       console.log("Opening the Work Intelligence Dashboard in the desktop App.");
       return;
     }
   }
-  const result = resolveLaunch(command, { pluginRoot });
+  if (result.skipped && !HOOK_COMMANDS.has(command)) {
+    console.error(`Work Intelligence plugin: the desktop App's launcher is not used: ${result.skipped}.`);
+  }
   if (result.launcher) {
     runDesktopLauncher(result.launcher, { hook: HOOK_COMMANDS.has(command) });
     return;

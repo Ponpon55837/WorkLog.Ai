@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { configDirectory } from "@work-intelligence/shared/database-location";
 import { z } from "zod";
 import { writeFileAtomic } from "../internal/atomic-file.js";
 import { BIN_DIRECTORY_NAME, POSIX_SHIM_NAME, WINDOWS_SHIM_NAME } from "../runtime/layout.js";
@@ -11,8 +12,20 @@ export const INTEGRATION_RECORD_FILE_NAME = "desktop-integration.json";
 
 const MAX_PATH_LENGTH = 4096;
 const MAX_TEXT_LENGTH = 128;
-/** A drive-letter or UNC path; a rooted path without a drive depends on the current drive and is never accepted. */
-const WINDOWS_ABSOLUTE_PATH = /^(?:[A-Za-z]:\\|\\\\)/;
+/**
+ * A drive-letter path only. A rooted path without a drive depends on the current drive, and `\\server\share`, `\\?\` and
+ * `\\.\` paths can reach a network share (Windows sends NTLM credentials to it), so none of them is accepted.
+ */
+const WINDOWS_DRIVE_PATH = /^[A-Za-z]:\\/;
+
+/**
+ * Threat model. A process running as the same OS user can already rewrite the Agents' own configs (~/.claude.json,
+ * ~/.codex/config.toml) and `plugin-link.json`, so a same-user writer of this record is not a new privilege boundary.
+ * The record must not widen it: readers refuse anything another user or a network share could control (strict
+ * schema, drive-letter paths on Windows, and on POSIX owner/mode/symlink checks of the record, the runtime root, its
+ * `bin` and the shim; see plugins/work-intelligence/scripts/desktop-integration.mjs, the dependency-free reader the
+ * plugin, the MCPB and the standalone package ship). This module owns the writing side and the shared schema rules.
+ */
 
 /**
  * What the packaged App tells Agents about itself: where the fixed launcher shim is and which executable is the App.
@@ -57,7 +70,7 @@ export function launcherShimPath(runtimeRoot: string, platform: NodeJS.Platform)
 
 /** `WORK_INTELLIGENCE_CONFIG_DIR`, else `~/.work-intelligence`: the directory the plugin reads `plugin-link.json` from. */
 export function integrationConfigDirectory({ env, homedir }: IntegrationDirectoryInputs): string {
-  return env.WORK_INTELLIGENCE_CONFIG_DIR?.trim() || path.join(homedir, ".work-intelligence");
+  return configDirectory({ environment: env, home: homedir });
 }
 
 /** The record's path inside {@link integrationConfigDirectory}. */
@@ -68,7 +81,8 @@ export function integrationRecordPath(inputs: IntegrationDirectoryInputs): strin
 /**
  * Strict on purpose: another version, a missing or extra field, a relative or non-normalized path (`..` segments) and a
  * launcher path other than `<runtimeRoot>/bin/<shim>` all invalidate the record. plugins/work-intelligence/scripts/
- * desktop-integration.mjs applies the same rules without dependencies (tests keep the two in agreement).
+ * desktop-integration.mjs applies the same rules without dependencies; tests/desktop-core/integration-record.test.ts feeds
+ * one table of cases to both parsers.
  */
 function recordSchema(platform: NodeJS.Platform) {
   const paths = pathModule(platform);
@@ -79,7 +93,7 @@ function recordSchema(platform: NodeJS.Platform) {
     .refine(
       (value) =>
         !value.includes("\0") &&
-        (platform === "win32" ? WINDOWS_ABSOLUTE_PATH.test(value) : value.startsWith("/")) &&
+        (platform === "win32" ? WINDOWS_DRIVE_PATH.test(value) : value.startsWith("/")) &&
         paths.normalize(value) === value,
       "not a normalized absolute path",
     );

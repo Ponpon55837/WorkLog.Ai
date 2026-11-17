@@ -81,7 +81,11 @@ export interface AclReadReport {
   readonly prewarmMs?: number;
 }
 
-/** A started prewarm. `release` kills the process unless a read took it over; call it on every exit path. */
+/**
+ * A started prewarm. `release` kills the process unless a read took it over; call it on every exit path. There is one
+ * prewarm per reader: a second `prewarm()` while one is waiting returns a handle to the same process, and `release()`
+ * of any of those handles ends that shared process for all of them.
+ */
 export interface AclPrewarm {
   release(): void;
 }

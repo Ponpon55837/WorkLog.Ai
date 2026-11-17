@@ -275,4 +275,11 @@ describe("decideSecondInstance", () => {
     const inputs = { request: "open" as const, starting: false, ...partial };
     expect(decideSecondInstance(inputs)).toBe(expected);
   });
+
+  // After the first start, an owner that is preparing, quiescing or starting is not ready yet either.
+  it.each(["PREPARING", "QUIESCING", "STARTING"] as const)("defers --open-dashboard while the owner is %s", (owner) => {
+    const inputs = { repairWindowOpen: false, owner, backendRunning: false, starting: false } as const;
+    expect(decideSecondInstance({ ...inputs, request: "open-dashboard" })).toBe("defer-dashboard");
+    expect(decideSecondInstance({ ...inputs, request: "open" })).toBe("open-repair");
+  });
 });

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -10,6 +10,8 @@ import {
   AgentObservationRecorder,
   readAgentObservations,
 } from "../../apps/mcp/src/agent-observation.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
 import { mcpContractFingerprint, SELFTEST_CLIENT_NAME } from "../../packages/shared/src/mcp-contract-fingerprint.js";
 
@@ -141,6 +143,40 @@ describe("AgentObservationRecorder", () => {
     expect([...(await readAgentObservations(directory)).keys()]).toEqual(["claude-code"]);
   });
 
+  it("never throws into the transport when inspecting a message fails", async () => {
+    const errors: unknown[] = [];
+    const server = {
+      server: {
+        getClientVersion: () => {
+          throw new Error("no client");
+        },
+      },
+    } as unknown as McpServer;
+    const transport = { send: async () => undefined } as unknown as Transport;
+    new AgentObservationRecorder({
+      directory: temporaryDirectory(),
+      serverVersion: "1",
+      onError: (e) => errors.push(e),
+    }).attach(server, transport);
+
+    await transport.send({ jsonrpc: "2.0", id: 1, result: { protocolVersion: "2025-11-25" } });
+    await expect(transport.send({ jsonrpc: "2.0", id: 2, result: { tools: [] } })).resolves.toBeUndefined();
+
+    expect(errors).toHaveLength(1);
+  });
+
+  it("removes its temporary file when the rename fails", async () => {
+    const directory = temporaryDirectory();
+    // A directory where the file belongs: the rename onto it fails after the temporary file was written.
+    mkdirSync(join(directory, AGENT_OBSERVATIONS_FILE));
+    const errors: unknown[] = [];
+
+    await hostSession(directory, "claude-code", { onError: (error) => errors.push(error) });
+
+    expect(errors).toHaveLength(1);
+    expect(readdirSync(directory)).toEqual([AGENT_OBSERVATIONS_FILE]);
+  });
+
   it("bounds the stored client names and cannot be polluted through a prototype key", async () => {
     const directory = temporaryDirectory();
 
@@ -197,6 +233,20 @@ describe("the built MCP process", () => {
     expect(observation).toMatchObject({ clientName: "claude-code", clientVersion: "1" });
     const listed = JSON.parse(stdout.find((line) => line.includes('"id":2')) ?? "{}").result.tools;
     expect(observation?.contractFingerprint).toBe(mcpContractFingerprint(listed));
+  });
+
+  it("says on stderr that it runs in self-test mode, without a database, and keeps stdout protocol-only", async () => {
+    const directory = temporaryDirectory();
+
+    const { stdout, stderr } = await runSession("claude-code", {
+      WORK_INTELLIGENCE_MCP_SELFTEST: "1",
+      WORK_INTELLIGENCE_DB: join(directory, "data", "work-intelligence.sqlite"),
+      WORK_INTELLIGENCE_CONFIG_DIR: join(directory, "config"),
+    });
+
+    expect(stderr).toContain("self-test mode");
+    expect(stdout.every((line) => JSON.parse(line).jsonrpc === "2.0")).toBe(true);
+    expect(existsSync(join(directory, "data"))).toBe(false);
   });
 
   it("keeps the MCP session working when the observation cannot be written", async () => {

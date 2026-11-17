@@ -42,6 +42,11 @@ async function runBundledCli() {
 }
 
 // Before the version check: the launcher brings its own Node, so an old system Node does not matter for `mcp`.
-const desktopLauncher = process.argv[2] === "mcp" ? resolveDesktopLauncher("mcp") : undefined;
+const desktopLauncher =
+  process.argv[2] === "mcp"
+    ? resolveDesktopLauncher("mcp", {
+        onProblem: (problem) => console.error(`Work Intelligence: the desktop App's launcher is not used: ${problem}.`),
+      })
+    : undefined;
 if (desktopLauncher) runDesktopLauncher(desktopLauncher, { hook: false });
 else await runBundledCli();

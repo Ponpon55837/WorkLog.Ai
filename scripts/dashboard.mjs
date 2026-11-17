@@ -5,9 +5,10 @@
  * checkout in the background (the same `node scripts/start.mjs` that `pnpm start` runs), waits until it is healthy,
  * and prints the URL. `--open` also opens it in the default browser. The plugin's dashboard skill runs this script.
  *
- * When the desktop App is installed (it wrote `desktop-integration.json`), the request goes to the App instead and no
- * checkout server is started, even if the App is not running or its port changed: the App starts, manages its own
- * backend and opens the Dashboard itself, so `--open` is implied. WORK_INTELLIGENCE_HOME keeps this checkout's server.
+ * A server that already answers is always reported first, whoever started it. Only when nothing answers and the desktop
+ * App is installed (it wrote `desktop-integration.json`) does the request go to the App, and no checkout server is
+ * started, even if the App is not running or its port changed: the App starts, manages its own backend and opens the
+ * Dashboard itself, so `--open` is implied. WORK_INTELLIGENCE_HOME keeps this checkout's server.
  */
 import { spawn } from "node:child_process";
 import console from "node:console";
@@ -122,6 +123,10 @@ export async function handOffToDesktopApp(options) {
 }
 
 async function printDashboard() {
+  if (!(await isHealthy(dashboardPort())) && (await handOffToDesktopApp())) {
+    console.log("Opening the Work Intelligence Dashboard in the desktop App. The App opens the Dashboard itself.");
+    return;
+  }
   const result = await ensureDashboard();
   if (result.error) {
     console.error(result.error);
@@ -132,7 +137,4 @@ async function printDashboard() {
   }
 }
 
-if (isEntryPoint()) {
-  if (await handOffToDesktopApp()) console.log("Opening the Work Intelligence Dashboard in the desktop App.");
-  else await printDashboard();
-}
+if (isEntryPoint()) await printDashboard();

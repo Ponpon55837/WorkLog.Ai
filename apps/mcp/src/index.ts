@@ -39,6 +39,8 @@ function restartStatusReader(): () => McpRestartStatus {
  * user's database or write runtime state, so no store is opened and every tool answers this startup failure.
  */
 async function startSelfTestServer(): Promise<void> {
+  // One line on stderr (stdout stays protocol-only), so a leaked variable is visible in the Agent's MCP log.
+  console.error(`Work Intelligence MCP self-test mode (${MCP_SELFTEST_ENVIRONMENT}=1): no database is opened.`);
   const server = createWorkIntelligenceMcpServer(null, APP_VERSION, LATEST_SCHEMA_VERSION, {
     code: "SELFTEST_NO_DATABASE",
     message: "The desktop self-test does not open the database.",
