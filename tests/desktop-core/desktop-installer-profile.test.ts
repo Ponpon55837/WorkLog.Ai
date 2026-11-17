@@ -2,9 +2,19 @@ import { describe, expect, it } from "vitest";
 import {
   STRICT_OPT_IN_VARIABLE,
   decideInstallerProfile,
+  isStrictPackagedRun,
 } from "../../apps/desktop/tests/packaged-smoke/installer-profile.js";
 
 const SYNTHETIC_DEFAULT = "C:\\Users\\synthetic\\AppData\\Roaming\\Work Intelligence";
+
+describe("whether a packaged run is strict (may act beyond its sandbox)", () => {
+  it("is strict only with CI=true or the opt-in set to 1", () => {
+    expect(isStrictPackagedRun({ CI: "true" })).toBe(true);
+    expect(isStrictPackagedRun({ [STRICT_OPT_IN_VARIABLE]: "1" })).toBe(true);
+    expect(isStrictPackagedRun({})).toBe(false);
+    expect(isStrictPackagedRun({ CI: "1", [STRICT_OPT_IN_VARIABLE]: "0" })).toBe(false);
+  });
+});
 
 describe("whether the installer test may use the real user profile", () => {
   it("skips on a developer's machine, with the reason", () => {

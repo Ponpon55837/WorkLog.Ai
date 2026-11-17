@@ -16,6 +16,7 @@ import {
   processIsAlive,
   profileDirectories,
 } from "../support/process-tools.js";
+import { isStrictPackagedRun, STRICT_OPT_IN_VARIABLE } from "./installer-profile.js";
 
 /**
  * Black-box helpers for the packaged App: it is only spawned, and read through its log, its HTTP port, the process list
@@ -200,7 +201,7 @@ export async function createSandbox(options: {
  * seconds to exit by itself and is then terminated. If the removal still fails, the error lists who holds the sandbox.
  */
 export async function removeSandbox(sandbox: PackagedSandbox): Promise<void> {
-  const browsers = await endBrowsersStartedSince(browsersBeforeTests ?? [], sandbox.root);
+  const browsers = await settleBrowsersStartedSince(browsersBeforeTests ?? [], sandbox.root);
   try {
     await pollUntil(
       () => (sandboxHolders(sandbox).length === 0 ? true : undefined),
@@ -230,7 +231,7 @@ export async function removeSandbox(sandbox: PackagedSandbox): Promise<void> {
     launchedPids.delete(sandbox.root);
     knownProcesses.delete(sandbox.root);
   }
-  // A background launch (and `--quit`) must open no browser: the list names what it started, which is now ended.
+  // A background launch (and `--quit`) must open no browser: the list names what appeared (ended on a strict run).
   const opened = browserOpeningLaunches.delete(sandbox.root);
   if (!opened && browsers.length > 0) {
     throw new Error(`a launch that may not open a browser started one:\n${browsers.join("\n")}`);
@@ -253,17 +254,33 @@ export function browserBaseline(sandboxRoot?: string): BrowserBaseline {
 }
 
 /**
- * Ends the browsers that were not in `baseline` (an external browser the OS started for the Dashboard is outside the App's
- * process tree and carries no sandbox path, so `sandboxHolders` cannot find it) and waits briefly until none is left.
- * Returns a description of each one it found.
+ * The browsers that were not in `baseline`: an external browser the OS started for the Dashboard is outside the App's
+ * process tree and carries no sandbox path, so `sandboxHolders` cannot find it. On a strict run (CI, or the opt-in; see
+ * `isStrictPackagedRun`) they are ended, and this waits briefly until none is left. Elsewhere one of them may be a
+ * browser the developer opened during the test, so they are only listed in a warning and added to the baseline (each
+ * is reported once). Returns a description of each one found.
  */
-export async function endBrowsersStartedSince(baseline: BrowserBaseline, sandboxRoot?: string): Promise<string[]> {
+export async function settleBrowsersStartedSince(
+  baseline: BrowserBaseline,
+  sandboxRoot?: string,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): Promise<string[]> {
   const found = new Map<number, string>();
   const started = () =>
     browserProcesses(sandboxRoot).filter(
       (candidate) =>
         !baseline.some((known) => known.pid === candidate.pid && known.commandLine === candidate.commandLine),
     );
+  if (!isStrictPackagedRun(environment)) {
+    const targets = started();
+    if (targets.length === 0) return [];
+    const descriptions = targets.map(describeProcess);
+    console.warn(
+      `browsers appeared during the test and are left running (they end only with CI=true or ${STRICT_OPT_IN_VARIABLE}=1):\n${descriptions.join("\n")}`,
+    );
+    browsersBeforeTests = [...baseline, ...targets.map(({ pid, commandLine }) => ({ pid, commandLine }))];
+    return descriptions;
+  }
   try {
     await pollUntil(
       () => {

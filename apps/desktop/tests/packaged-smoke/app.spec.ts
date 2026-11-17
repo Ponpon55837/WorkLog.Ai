@@ -49,8 +49,9 @@ import {
  *
  * A launch is `--background` unless its test is about what only an interactive launch does (it opens the Dashboard in the
  * external browser; it shows the repair window): see `startApp`. Production builds ignore test switches, so an
- * interactive launch really starts the machine's browser. `removeSandbox` ends whatever that left in the sandbox, and also
- * any browser the OS started outside the App's process tree (LaunchServices, ShellExecute); it fails a test whose launches
+ * interactive launch really starts the machine's browser. `removeSandbox` ends whatever that left in the sandbox; a browser
+ * the OS started outside the App's process tree (LaunchServices, ShellExecute) is ended only on CI or with
+ * `WI_PACKAGED_STRICT=1`, and elsewhere listed in a warning (it could be one the developer opened). It fails a test whose launches
  * were all background (or `--quit`) if a browser appeared. A test never asserts that a browser opened: the log line
  * `[shell] dashboard opened` is the evidence.
  */
