@@ -136,6 +136,7 @@
   - 備份失敗時不進行 migration。
 - **平台**：W 的備份目錄與空間檢查需實機測試；M 同。
 - **對應**：DT-05、DT-07；R04、R12、R33。
+- **1.6.52 實作**：restore 在取代現行資料庫之前，先把備份遷移到暫存副本，並對副本執行 `quick_check` 與 `foreign_key_check`；兩者都通過才改名（rename）取代現行資料庫。驗證失敗回傳 `RESTORE_VERIFY_FAILED`，現行資料庫不變，暫存副本移除（`packages/storage/src/backup.ts`）。以真實程序強制結束還原途中的程序時，現行資料庫不變；還原後保留一份安全快照（`tests/storage/migration-interruption.test.ts`）。DT-07 的壓力測試（`pnpm test:sqlite-stress`）另外驗證已還原快照的指紋與來源相同。桌面 App 目前沒有還原流程，只有 CLI `pnpm db:restore` 適用。
 
 ### C-21 SqliteRuntimeCheck
 

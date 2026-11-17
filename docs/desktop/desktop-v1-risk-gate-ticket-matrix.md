@@ -20,7 +20,7 @@
 | R03 | P0 | 已開啟的舊 MCP 在 schema 升級後寫入 | G-DB-02 | DT-03、DT-04 | MCP 寫入閘已存在 `[R]`（`withCompatibleSchema`）；寫入交易閘（含 HTTP API）由 1.6.41 T2 補上（已實作，commit 3ff1e45）；長任務提交與程序組合實驗由 DT-04 完成 |
 | R04 | P0 | 手動複製或錯誤備份漏掉 WAL 中已提交資料 | G-DB-03 | DT-05 | 重用 `VACUUM INTO` 與 staging；快照必須可讀回並通過 `integrity_check` |
 | R05 | P0 | 接管時殺掉另一個 checkout 或使用者服務 | G-SVC-01 | DT-12、DT-13 | 服務身分、runner、port、DB 多證據；陌生程序不 kill；Windows 驗證 schtasks 子孫程序 |
-| R06 | P0 | 接管時已 migration，卻自動恢復舊服務 | G-SVC-01、G-DB-02 | DT-09、DT-12、DT-32 | phase journal；migration 開始後禁止自動重啟舊服務 |
+| R06 | P0 | 接管時已 migration，卻自動恢復舊服務 | G-SVC-01、G-DB-02 | DT-09、DT-12、DT-32 | phase journal；migration 開始後禁止自動重啟舊服務（1.6.52：桌面 smoke `migration-interruption.spec.ts` 驗證後端在 migration 開始後被強制結束時不回到舊服務） |
 | R07 | P0 | 無系統 Node 的環境中 Agent MCP 失效 | G-MCP-01 | DT-23、DT-25 | 隨包標準 Node＋固定 launcher；App 退出後仍可獨立運作。**1.6.43 證據**：`scripts/desktop-runtime-spike/smoke.mjs` 在無 `node` 的 PATH、離線、只啟動固定 shim 的環境中，於 serve 停止後 MCP 仍完成 `initialize` 與 `tools/list`，hook 動作通過（Windows 與 macOS 45/45、Linux 46/46，run 43864453651）；見 §4c。**1.6.47 已實作（CI 可驗證部分）**：plugin `launch.mjs`、MCPB 與獨立版優先使用固定 shim，App 以 `desktop-integration.json` 記錄 launcher 路徑；hook 經 shim 靜默、25 秒上限、一律 exit 0。Agent 的 host handshake 與 Windows、macOS 實機待實機驗收；plugin manifest 仍以 `node launch.mjs` 啟動。 |
 | R08 | P0 | 更新刪除使用中的 runtime（Windows 檔案鎖） | G-MCP-01 | DT-24 | 版本化 runtime、延後 GC（需無現役連線）、manifest 原子切換 **1.6.45 狀態**：背景清理只保留目前與前一版，尚未證明「無現役連線」，風險只部分緩解（見 DT-24）。 |
 | R09 | P0 | 本機網站偽造管理 API 請求 | G-SEC-01 | DT-17 | 精確 Host:port、Origin、短期會話、CSRF、原生高風險確認；**1.6.41 T4 已實作（commit dadaae4）** |
@@ -47,7 +47,7 @@
 | R30 | P1 | 關機、睡眠或斷電使 operation phase 與實際狀態不符 | G-SVC-02、G-UPD-01 | DT-09、DT-31 | 恢復時重讀 OS、DB 與 manifest 並重建狀態；不只依賴 journal |
 | R31 | P2 | 安裝包肥大、冷啟慢、閒置記憶體高 | G-UX-01 | DT-25 | A 階段比較標準 Node 與 `utilityProcess`；記錄基準數字。**1.6.43 數字**：標準 Node 與 Electron RUN_AS_NODE 的量測見 ADR-04（Linux 與 macOS） 三平台；spike 未量測 `utilityProcess` **1.6.45 數字（本機 Linux）**：解開後 405.8 → 395.9 MiB；`app.asar` 3.3 → 0.66 MB；隨包 runtime 135.5 MB（Node 122 MB）；打包 11.8–15.2 s；首次啟動含 runtime 安裝 1028 ms、熱啟動 563 ms；閒置記憶體（打包後的 App，PSS）352 → 292 MiB，RSS 合計 662 → 538 MiB（3 次中位數）。Windows 與 macOS 的數字待 CI；記憶體門檻為 Linux PSS 360 MiB、後端 128 MiB，Windows 與 macOS 暫定 1024 MiB 與 192 MiB。 |
 | R32 | P2 | 完整診斷匯出洩漏個資路徑或秘密 | G-SEC-01 | DT-19 | 匯出前預覽、掃描、遮蔽；只手動匯出，不自動上傳 |
-| R33 | P0 | bundled Node 的 SQLite 未含 2026 WAL-reset 修補，可能損毀 | G-DB-03、G-MCP-01 | DT-06、DT-07 | release 產物列印 `sqlite_version()` 並保存修補證據（**1.6.41 T3 已實作（commit 4420951）**）；多程序 WAL 壓力與 restore 測試 |
+| R33 | P0 | bundled Node 的 SQLite 未含 2026 WAL-reset 修補，可能損毀 | G-DB-03、G-MCP-01 | DT-06、DT-07 | release 產物列印 `sqlite_version()` 並保存修補證據（**1.6.41 T3 已實作（commit 4420951）**）；多程序 WAL 壓力與 restore 測試（1.6.52：DT-07 壓力測試與打包 smoke 的 `sqlite_version()` 斷言已實作；壓力測試不取代修補證據；Windows 與 macOS 打包數字待 CI 結果補上） |
 | R34 | P1 | 唯讀 DB 預覽在 WAL 中建立 `-shm`、`-wal`，或誤用 `immutable=1` | G-DB-01 | DT-02 | 檔案系統副作用測試；不刪 sidecar；活躍 DB 不使用 immutable |
 
 **級別統計**：P0 = R01–R14、R33（15 項）；P1 = R15–R30、R34（17 項）；P2 = R31、R32（2 項）。與 R3 相同。
@@ -82,7 +82,7 @@
 | DT-04 | 舊 MCP 與長任務屏障實驗；確定方案 1、2、3 | E0-02、E4-02 | DT-03 | §10.4 的四組程序組合實驗結果。**1.6.42 已實作**：`tests/server/old-writer-barrier.test.ts`（+ `tests/helpers/old-writer-barrier*.ts`）；組合 1 至 3 的結果見 §10.4；組合 4（Codex plugin、Claude Code plugin、MCPB、手動 stdio）與 Windows 檔案鎖／WAL 待實機驗收 | W、M | R03 |
 | DT-05 | 備份快照驗證與 restore 守門（可讀回、保存當前快照） | E4-02 | DT-03 | 還原樣本通過 `integrity_check`；活躍 DB 不被覆寫 | W、M | R04、R12 |
 | DT-06 | SQLite 版本檢查（`doctor`、`pnpm check`、`/api/health` 警告；release 列印）**1.6.41 T3** | E1-01 | — | CI 檢查通過；release 產物輸出 bundled `sqlite_version()` | W、M | R33 |
-| DT-07 | 多程序 WAL 寫入與 checkpoint 壓力、`integrity_check` 測試套件 | E5-01 | DT-05 | 壓力測試輸出與還原比對；不取代 DT-06 的修補證據 | W、M | R33 |
+| DT-07 | 多程序 WAL 寫入與 checkpoint 壓力、`integrity_check` 測試套件 | E5-01 | DT-05 | 壓力測試輸出與還原比對；不取代 DT-06 的修補證據。**1.6.52 CI 可驗證部分已實作**：`pnpm test:sqlite-stress`（不在 `pnpm test` 內）；4 寫入、2 唯讀（含長讀取交易）、checkpointer（PASSIVE／FULL／RESTART／TRUNCATE）、`VACUUM INTO` 快照與隨機 SIGKILL，45 秒；絕對檢查含 `integrity_check`、`foreign_key_check`、FTS5、已確認寫入恰好一次、中斷寫入全有或全無、快照無缺口、還原指紋相同；`SQLITE_BUSY` 計數（門檻待定）；CI 工作 `SQLite stress (ubuntu-latest／windows-latest／macos-latest)`，必要檢查增為 23 項；`tests/stress/sqlite-wal-stress.test.ts`；Windows 與 macOS 實機及打包數字待實機驗收或 CI 結果補上 | W、M | R33 |
 | DT-08 | 檔案系統風險政策（SMB、NFS、同步資料夾、外接碟） | E0-01 | DT-01 | 偵測與禁止自動接管的測試；顯示理由。**1.6.51 已實作**：啟動與選擇資料庫時分類 none、網路、可移除、雲端同步、硬連結與 unknown；網路磁碟拒絕作為 App 資料庫（`DB_STORAGE_NETWORK`）；可移除、雲端同步與硬連結只能勾選同意後選擇且不做 schema 更新；「複製到本機磁碟並改用」以 `VACUUM INTO` 與 `quick_check` 完成，原檔不變；`apps/desktop/src/main/storage-risk.ts`；`packages/desktop-core/src/db-source/storage-policy.ts`；`tests/desktop-core/storage-risk.test.ts`；真實磁碟與雲端根目錄判定待實機驗收；已知未偵測 macOS 的 iCloud「桌面與文件」 | W、M | R22 |
 | DT-09 | ServiceOwner 狀態機與 operation journal（R4 §4.1） | E0-03 | DT-01 | 狀態轉移測試；中斷後依 OS／DB 重建。**1.6.42 已實作**：`packages/desktop-core/src/operations/`（狀態表、journal、recovery）；`tests/desktop-core/operations-state.test.ts`、`tests/desktop-core/operations-journal.test.ts`、`tests/desktop-core/operations-recovery.test.ts` | W、M | R06、R30 |
 | DT-10 | `OperationCoordinator`（單一鎖、operationId、BUSY、重送） | E0-03 | DT-09 | 重送回傳同一結果；併發操作回 BUSY。**1.6.42 已實作**：`packages/desktop-core/src/operations/coordinator.ts`；`tests/desktop-core/operations-coordinator.test.ts`；跨程序鎖屬 DT-15 | W、M | R19 |
@@ -107,7 +107,7 @@
 | DT-29 | macOS 安裝位置檢測與 DMG 導引 | E5-01 | DT-28 | 從 DMG 啟動時顯示導引；移到 Applications 後可更新 | M | R26 |
 | DT-30 | 更新安裝時機：使用者明確安裝、先排空，不在退出時靜默安裝 | E5-01 | DT-28 | `autoInstallEvent` 行為實測；退出時無意外安裝 | W、M | R21 |
 | DT-31 | 三階段更新成功模型與獨立修復安裝包 | E5-02 | DT-30、DT-32 | 三段結果各自可見；新版開不起來時修復安裝包可用 | W、M | R14、R30 |
-| DT-32 | migration 前備份與 N→N+1 樣本升級測試（含中斷與還原） | E4-02 | DT-04、DT-05 | 舊版建立的樣本升級、中斷、還原皆通過 | W、M | R06 |
+| DT-32 | migration 前備份與 N→N+1 樣本升級測試（含中斷與還原） | E4-02 | DT-04、DT-05 | 舊版建立的樣本升級、中斷、還原皆通過。**1.6.52 CI 可驗證部分已實作**：三份真實舊版樣本（v1.6.8、v1.6.21、1.6.51）由 `tests/storage/upgrade-samples.test.ts` 升級；`tests/storage/migration-interruption.test.ts` 以真實程序中斷 migration、備份與還原；還原前驗證遷移後副本（`RESTORE_VERIFY_FAILED`）；桌面 smoke `apps/desktop/tests/desktop-smoke/migration-interruption.spec.ts`；實機待實機驗收 | W、M | R06 |
 | DT-33 | 同批產物暫存與聯合發行閘（ADR-03） | E5-01 | DT-28、DT-31 | 兩平台產物齊備且驗證後才一次公開；任一平台失敗即整版不發 | W、M | — **1.6.45 已接線**：`.github/workflows/desktop-package.yml` 於 `release.yml` 中被呼叫，發行 job 需等待其成功；三平台實跑結果待確認。 |
 | DT-34 | NSIS 解除安裝只移除 App 擁有項；macOS 桌面整合移除入口 | E5-02 | DT-15、DT-24 | 解除安裝後 DB 與備份保留；使用者修改項目保留 | W、M | R27 **1.6.45 已實作（NSIS 部分）**：`apps/desktop/electron-builder.config.mjs` 的 NSIS 設定與 `--quit` 退出；保留設定、DB 與備份；Windows 打包煙霧測試斷言資料保留（Linux 不執行此項）。實機待驗收；macOS 移除入口未做。 |
 | DT-35 | 退出語意 UI 與最後成功備份時間顯示 | E2-01 | DT-15、DT-11 | 退出後介面明示「不會每日備份」；時間正確。**1.6.44 已實作**：`apps/desktop/src/main/quit.ts`；`packages/desktop-core/src/shell/quit-flow.ts`、`quit-notice.ts`、`last-backup.ts`、`i18n.ts`；`tests/desktop-core/shell-basics.test.ts`、`shell-flows.test.ts`、`shell-policy.test.ts`；`apps/desktop/tests/desktop-smoke/desktop.spec.ts`；實機待實機驗收 | W、M | R24 |

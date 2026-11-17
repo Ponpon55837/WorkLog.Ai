@@ -159,6 +159,7 @@
 ### ADR-19 SQLite 版本以實際 `sqlite_version()` 判定，不以 Node 版本推定
 
 - **狀態**：已採用（判定規則）；1.6.41 T3 **已實作**（commit 4420951）
+- **1.6.52 狀態**：打包的 runtime 現在斷言 `sqlite_version()`（含修補與 FTS5），並把 Node 與 SQLite 版本及修補狀態記錄於打包結果；打包 smoke 另以內建 runtime 執行 6 秒的 DT-07 壓力測試。壓力測試（`pnpm test:sqlite-stress`）不取代打包版的修補證據。Windows 與 macOS 的打包數字待 CI 結果補上。
 - **脈絡**：`engines` 為 `>=22.16.0 <23 || >=24.0.0` `[R]`，無法保證含 WAL-reset 修補 `[U]`。開發機 Node 22.23.4 回報 SQLite 3.53.4 `[T]`，但那是開發機的值，不是發行產物。
 - **決策**：打包規格記錄 bundled Node 的 `sqlite_version()`。`doctor`、`pnpm check`、`/api/health` 報告版本並於低於修補版時警告；standalone smoke 與 release workflow 列印並檢查。落在疑似受影響區間且無回補證據者，不得公開發行多寫入端的桌面 runtime。
 - **後果**：release 流程需多一道檢查。開發機的量測不能作為發行證據。
@@ -183,6 +184,7 @@
 ### ADR-22 migration 之後不自動重啟舊服務，DB 不自動回退
 
 - **狀態**：已採用
+- **1.6.52 狀態**：DT-32 的測試已實作（CI 可驗證部分）：三份真實舊版樣本的升級測試（`tests/storage/upgrade-samples.test.ts`）、以真實程序中斷 migration、備份與還原的測試（`tests/storage/migration-interruption.test.ts`），以及桌面 smoke（`apps/desktop/tests/desktop-smoke/migration-interruption.spec.ts`）驗證 migration 開始後不回到舊服務。還原前驗證遷移後的副本，失敗回傳 `RESTORE_VERIFY_FAILED` 且現行資料庫不變。實機行為待實機驗收。
 - **脈絡**：舊程式開新版 DB 會造成寫入不相容；非可逆 schema 變更不能以程式降版來回復資料。
 - **決策**：schema 尚未變更且舊版相容時，可恢復外部服務先前狀態。migration 開始或 DB 身分不確定後，禁止自動重啟舊服務，只能進入修復或備份選擇流程。若要還原 DB，先保存當前快照並揭露可能流失的資料，由使用者選擇。
 - **後果**：修復流程較複雜，但不會覆蓋工作記錄。

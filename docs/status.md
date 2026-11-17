@@ -6,7 +6,19 @@
 
 - 最後更新：2026-11-17
 
-## 1.6.51（進行中）
+## 1.6.52（進行中）
+
+資料庫升級、還原與多程序寫入的驗證：
+
+- migration 前備份與 N→N+1 樣本升級測試（DT-32）：三份真實舊版（v1.6.8、v1.6.21、1.6.51）的樣本升級；以真實程序中斷 migration、備份與還原；桌面 smoke 確認 migration 開始後不回到舊服務。
+- 還原前先驗證遷移後的副本：`quick_check` 與 `foreign_key_check` 通過才取代現行資料庫；失敗回傳 `RESTORE_VERIFY_FAILED`，現行資料庫不變。
+- 多程序 WAL 寫入與 checkpoint 壓力測試（DT-07）：`pnpm test:sqlite-stress`，CI 在 Linux、Windows 與 macOS 執行；必要檢查增為 23 項。
+
+CI 結果待 PR 檢查完成後補上。Windows 11 與 macOS 實機驗收尚未進行。
+
+接下來：1.6.53 為更新檢查：預設關閉，由手動的「檢查更新」按鈕觸發；Windows 與 macOS 都顯示版本與更新說明，並開啟下載頁面，App 內不安裝。1.6.54 之後進行跨版本的完整檢視。沒有 schema 變更（33），沒有 migration。詳見 [1.6.52 更新說明](releases/1.6.52.md)。
+
+## 1.6.51（已完成）
 
 桌面版換連接埠與檔案系統風險政策：
 
@@ -15,7 +27,7 @@
 
 CI 20/20 通過（PR #373，a4b212c）。Windows 11 與 macOS 實機驗收尚未進行。
 
-接下來：1.6.52 為 DT-32（migration 前備份與 N→N+1 樣本升級測試）與 DT-07（多程序 WAL 寫入與 `integrity_check` 測試套件）。1.6.53 為更新檢查：預設關閉，由手動的「檢查更新」按鈕觸發；Windows 與 macOS 都顯示版本與更新說明，並開啟下載頁面，App 內不安裝。1.6.54 之後進行跨版本的完整檢視。沒有 schema 變更（33），沒有 migration。詳見 [1.6.51 更新說明](releases/1.6.51.md)。
+沒有 schema 變更（33），沒有 migration。詳見 [1.6.51 更新說明](releases/1.6.51.md)。
 
 ## 1.6.50（已完成）
 
