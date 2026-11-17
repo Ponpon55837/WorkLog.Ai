@@ -16,6 +16,9 @@ import { writeAgentSetupJournal } from "../../packages/agent-setup/src/journal.j
 import { createFixture, removeFixtures, writeJson, type SetupFixture } from "./fixture.js";
 
 const SHIM = "/opt/Work Intelligence/bin/work-intelligence-launcher";
+const WINDOWS_SHIM = "C:\\Users\\測試 使用者\\AppData\\Local\\Work Intelligence\\bin\\work-intelligence-launcher.cmd";
+const PLATFORM: NodeJS.Platform = process.platform === "win32" ? "win32" : "linux";
+const HOST_SHIM = PLATFORM === "win32" ? WINDOWS_SHIM : SHIM;
 
 function userFilePaths(fixture: SetupFixture): string[] {
   const { codexConfig, codexHooks, claudeJson, claudeSettings, manifest, codexSkill } = fixture.paths;
@@ -54,7 +57,11 @@ function journalState(fixture: SetupFixture): string | undefined {
 function launcherOptions(fixture: SetupFixture, roots: string[]): AgentSetupPlanOptions {
   return {
     ...fixture.options,
-    target: { kind: "launcher", shimPath: SHIM, skillSourcePath: fixture.paths.skillSource },
+    target: {
+      kind: "launcher",
+      shimPath: fixture.options.platform === "win32" ? WINDOWS_SHIM : SHIM,
+      skillSourcePath: fixture.paths.skillSource,
+    },
     adopt: { repositoryRoots: roots },
   };
 }
@@ -241,6 +248,7 @@ describe("undoAgentSetupOperation", () => {
 
   it("undoes an adoption and gives back the hand-written entries byte for byte", () => {
     const fixture = createFixture();
+    fixture.options = { ...fixture.options, platform: PLATFORM };
     const root = fixture.options.repositoryRoot;
     const script = (name: string) => `${root}/apps/mcp/dist/${name}`;
     writeJson(fixture.paths.claudeJson, {
@@ -256,7 +264,9 @@ describe("undoAgentSetupOperation", () => {
     });
     writeJson(fixture.paths.claudeSettings, {
       hooks: {
-        Stop: [{ hooks: [{ type: "command", command: commandForAgentHook(script("finalize-reminder.js"), "linux") }] }],
+        Stop: [
+          { hooks: [{ type: "command", command: commandForAgentHook(script("finalize-reminder.js"), PLATFORM) }] },
+        ],
       },
     });
     mkdirSync(dirname(fixture.paths.codexConfig), { recursive: true });
@@ -279,7 +289,7 @@ describe("undoAgentSetupOperation", () => {
     expect(plan.conflicts).toEqual([]);
     expect(plan.adopted?.length).toBe(3);
     commit(fixture, plan);
-    expect(readFileSync(fixture.paths.claudeJson, "utf8")).toContain(SHIM);
+    expect(readFileSync(fixture.paths.claudeJson, "utf8")).toContain(JSON.stringify(HOST_SHIM).slice(1, -1));
     expect(readFileSync(fixture.paths.codexConfig, "utf8")).toContain("# >>> Work Intelligence setup:agents >>>");
 
     const result = undoAt(fixture);

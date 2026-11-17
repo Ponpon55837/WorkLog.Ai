@@ -15,8 +15,22 @@ import { createFixture, readJson, removeFixtures, writeJson, type SetupFixture }
 const SHIM = "/opt/Work Intelligence/bin/work-intelligence-launcher";
 const WINDOWS_SHIM = "C:\\Users\\測試 使用者\\AppData\\Local\\Work Intelligence\\bin\\work-intelligence-launcher.cmd";
 const WINDOWS_ROOT = "C:\\Users\\測試 使用者\\My Repo's";
+const PLATFORM: NodeJS.Platform = process.platform === "win32" ? "win32" : "linux";
+const HOST_SHIM = PLATFORM === "win32" ? WINDOWS_SHIM : SHIM;
 const TOML_START = "# >>> Work Intelligence setup:agents >>>";
 const TOML_END = "# <<< Work Intelligence setup:agents <<<";
+
+/** A fixture whose platform matches the host, because its checkout and home are real host paths. */
+function hostFixture(): SetupFixture {
+  const fixture = createFixture();
+  fixture.options = { ...fixture.options, platform: PLATFORM };
+  return fixture;
+}
+
+/** The hook command setup writes for a launcher action on the host platform. */
+function shimHook(action: string): string {
+  return PLATFORM === "win32" ? `"${HOST_SHIM}" ${action}` : `'${HOST_SHIM}' ${action}`;
+}
 
 function launcherOptions(
   fixture: SetupFixture,
@@ -25,7 +39,7 @@ function launcherOptions(
 ): AgentSetupPlanOptions {
   return {
     ...fixture.options,
-    target: { kind: "launcher", shimPath: SHIM, skillSourcePath: fixture.paths.skillSource },
+    target: { kind: "launcher", shimPath: HOST_SHIM, skillSourcePath: fixture.paths.skillSource },
     ...(roots ? { adopt: { repositoryRoots: roots } } : {}),
     ...overrides,
   };
@@ -92,7 +106,7 @@ afterEach(removeFixtures);
 
 describe("findCheckoutRegistrations", () => {
   it("lists hand-written MCP and hook registrations per Agent without needing a checkout", () => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     const root = fixture.options.repositoryRoot;
     seedClaudeMcp(fixture, {
       type: "stdio",
@@ -102,19 +116,22 @@ describe("findCheckoutRegistrations", () => {
     });
     seedHooks(fixture.paths.claudeSettings, {
       Stop: [
-        { hooks: [{ type: "command", command: commandForAgentHook(script(root, "finalize-reminder.js"), "linux") }] },
+        { hooks: [{ type: "command", command: commandForAgentHook(script(root, "finalize-reminder.js"), PLATFORM) }] },
       ],
     });
     seedHooks(fixture.paths.codexHooks, {
       UserPromptSubmit: [
         {
           hooks: [
-            { type: "command", command: commandForAgentHook(script(root, "codex-finalize-reminder.js"), "linux") },
+            { type: "command", command: commandForAgentHook(script(root, "codex-finalize-reminder.js"), PLATFORM) },
           ],
         },
       ],
     });
-    seedToml(fixture, `[mcp_servers.work-intelligence]\ncommand = "node"\nargs = ["${script(root, "index.js")}"]\n`);
+    seedToml(
+      fixture,
+      `[mcp_servers.work-intelligence]\ncommand = "node"\nargs = [${JSON.stringify(script(root, "index.js"))}]\n`,
+    );
 
     const found = findCheckoutRegistrations({
       ...fixture.options,
@@ -138,7 +155,7 @@ describe("findCheckoutRegistrations", () => {
   });
 
   it("marks setup-owned checkout entries as owned and reports a root that no longer exists", () => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     expect(applyAgentSetupPlan(createAgentSetupPlan(fixture.options)).applied).toBe(true);
     const owned = findCheckoutRegistrations(fixture.options);
     expect(owned.length).toBeGreaterThanOrEqual(4);
@@ -172,9 +189,9 @@ describe("findCheckoutRegistrations", () => {
   });
 
   it("does not recognise hooks with unknown scripts, quoting, event or duplicates", () => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     const root = fixture.options.repositoryRoot;
-    const good = commandForAgentHook(script(root, "finalize-reminder.js"), "linux");
+    const good = commandForAgentHook(script(root, "finalize-reminder.js"), PLATFORM);
     seedHooks(fixture.paths.claudeSettings, {
       Stop: [{ hooks: [{ type: "command", command: `${good} --flag` }] }],
       PreCompact: [{ hooks: [{ type: "command", command: `node ${script(root, "finalize-reminder.js")}` }] }],
@@ -186,7 +203,7 @@ describe("findCheckoutRegistrations", () => {
       PreToolUse: [
         {
           hooks: [
-            { type: "command", command: commandForAgentHook(script(root, "codex-finalize-reminder.js"), "linux") },
+            { type: "command", command: commandForAgentHook(script(root, "codex-finalize-reminder.js"), PLATFORM) },
           ],
         },
       ],
@@ -208,7 +225,7 @@ describe("adopt option", () => {
   });
 
   it("keeps refusing hand-written checkout registrations without it", () => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     seedClaudeMcp(fixture, {
       type: "stdio",
       command: "node",
@@ -220,7 +237,7 @@ describe("adopt option", () => {
   });
 
   it("rewrites Claude JSON MCP and hooks in place, keeping every other field, and records ownership", () => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     const root = fixture.options.repositoryRoot;
     seedClaudeMcp(fixture, {
       type: "stdio",
@@ -236,7 +253,7 @@ describe("adopt option", () => {
           hooks: [
             {
               type: "command",
-              command: commandForAgentHook(script(root, "finalize-reminder.js"), "linux"),
+              command: commandForAgentHook(script(root, "finalize-reminder.js"), PLATFORM),
               timeout: 5,
             },
           ],
@@ -248,7 +265,7 @@ describe("adopt option", () => {
       Stop: [
         {
           hooks: [
-            { type: "command", command: commandForAgentHook(script(root, "codex-finalize-reminder.js"), "linux") },
+            { type: "command", command: commandForAgentHook(script(root, "codex-finalize-reminder.js"), PLATFORM) },
           ],
         },
       ],
@@ -261,7 +278,7 @@ describe("adopt option", () => {
     expect(Object.keys(server)).toEqual(["type", "command", "args", "env", "timeout"]);
     expect(server).toEqual({
       type: "stdio",
-      command: SHIM,
+      command: HOST_SHIM,
       args: ["mcp"],
       env: { WORK_INTELLIGENCE_DB: join(root, "data", "custom.sqlite"), KEEP: "1" },
       timeout: 30,
@@ -269,14 +286,14 @@ describe("adopt option", () => {
     expect(object(readJson(fixture.paths.claudeJson).mcpServers).existing).toBeDefined();
     const stop = hookItems(fixture.paths.claudeSettings, "Stop");
     expect(stop).toEqual([
-      { matcher: "*", hooks: [{ type: "command", command: `'${SHIM}' claude-finalize-reminder`, timeout: 5 }] },
+      { matcher: "*", hooks: [{ type: "command", command: shimHook("claude-finalize-reminder"), timeout: 5 }] },
     ]);
     expect(hookItems(fixture.paths.claudeSettings, "Other")).toEqual([
       { hooks: [{ type: "command", command: "echo hi" }] },
     ]);
     expect(readJson(fixture.paths.claudeSettings).theme).toBe("dark");
     expect(hookItems(fixture.paths.codexHooks, "Stop")[0]).toEqual({
-      hooks: [{ type: "command", command: `'${SHIM}' codex-finalize-reminder` }],
+      hooks: [{ type: "command", command: shimHook("codex-finalize-reminder") }],
     });
 
     expect(plan.adopted?.map((item) => `${item.agent}:${item.componentId}`).sort()).toEqual([
@@ -299,7 +316,7 @@ describe("adopt option", () => {
   });
 
   it("rewrites a Codex TOML table without markers in place, wrapping it and keeping everything else", () => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     const root = fixture.options.repositoryRoot;
     const original = [
       "# prefs",
@@ -311,7 +328,7 @@ describe("adopt option", () => {
       "# my notes about the server",
       "[mcp_servers.work-intelligence]",
       'command = "node"   # the runtime',
-      `args = [\n  "${script(root, "launcher.js")}", # entry\n]`,
+      `args = [\n  ${JSON.stringify(script(root, "launcher.js"))}, # entry\n]`,
       "startup_timeout_sec = 30",
       "",
       "[mcp_servers.work-intelligence.env]",
@@ -338,13 +355,13 @@ describe("adopt option", () => {
         "# my notes about the server",
         TOML_START,
         "[mcp_servers.work-intelligence]",
-        `command = "${SHIM}"   # the runtime`,
+        `command = ${JSON.stringify(HOST_SHIM)}   # the runtime`,
         'args = ["mcp"]',
         "startup_timeout_sec = 30",
         TOML_END,
         "",
         "[mcp_servers.work-intelligence.env]",
-        `WORK_INTELLIGENCE_DB = "${join(root, "data", "mine.sqlite")}"`,
+        `WORK_INTELLIGENCE_DB = ${JSON.stringify(join(root, "data", "mine.sqlite"))}`,
         'EXTRA = "x"',
         "",
         "[features]",
@@ -366,7 +383,7 @@ describe("adopt option", () => {
   });
 
   it("keeps CRLF line endings and extra keys when the table already carries the setup block markers", () => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     const root = join(fixture.temporaryRoot, "plain root");
     const original = [
       "# prefs",
@@ -392,9 +409,9 @@ describe("adopt option", () => {
         "# prefs",
         TOML_START,
         "[mcp_servers.work-intelligence]",
-        `command = "${SHIM}"`,
+        `command = ${JSON.stringify(HOST_SHIM)}`,
         'args = ["mcp"]',
-        `env = { WORK_INTELLIGENCE_DB = "${join(root, "rel/db.sqlite")}", KEEP = "1" }`,
+        `env = { WORK_INTELLIGENCE_DB = ${JSON.stringify(join(root, "rel/db.sqlite"))}, KEEP = "1" }`,
         "# custom comment",
         TOML_END,
         "[features]",
@@ -407,15 +424,15 @@ describe("adopt option", () => {
   });
 
   it("wraps a table at the end of a file without a trailing newline using the file's line endings", () => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     const root = fixture.options.repositoryRoot;
     seedToml(
       fixture,
-      `[mcp_servers.work-intelligence]\r\ncommand = "node"\r\nargs = ["${script(root, "launcher.js")}"]`,
+      `[mcp_servers.work-intelligence]\r\ncommand = "node"\r\nargs = [${JSON.stringify(script(root, "launcher.js"))}]`,
     );
     adoptAndApply(launcherOptions(fixture, [root]));
     expect(readFileSync(fixture.paths.codexConfig, "utf8")).toBe(
-      `${TOML_START}\r\n[mcp_servers.work-intelligence]\r\ncommand = "${SHIM}"\r\nargs = ["mcp"]\r\n${TOML_END}\r\n`,
+      `${TOML_START}\r\n[mcp_servers.work-intelligence]\r\ncommand = ${JSON.stringify(HOST_SHIM)}\r\nargs = ["mcp"]\r\n${TOML_END}\r\n`,
     );
   });
 
@@ -467,30 +484,30 @@ describe("adopt option", () => {
   });
 
   it("adopts an entry whose checkout root is missing, and reports the missing root while finding it", () => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     const gone = join(fixture.temporaryRoot, "moved away");
     seedClaudeMcp(fixture, { type: "stdio", command: "node", args: [script(gone, "launcher.js")] });
     const [found] = findCheckoutRegistrations(fixture.options);
     expect(found).toMatchObject({ rootExists: false, recognised: true, repositoryRoot: gone });
     const options = launcherOptions(fixture, [gone]);
     const plan = adoptAndApply(options);
-    expect(claudeServer(fixture)).toMatchObject({ command: SHIM, args: ["mcp"] });
+    expect(claudeServer(fixture)).toMatchObject({ command: HOST_SHIM, args: ["mcp"] });
     expect(plan.adopted?.[0]?.repositoryRoot).toBe(gone);
   });
 
   it("never touches unrecognised or unlisted entries and reports each as a conflict", () => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     const root = fixture.options.repositoryRoot;
     const other = join(fixture.temporaryRoot, "other checkout");
     seedClaudeMcp(fixture, { type: "stdio", command: "pnpm", args: ["--dir", root, "start:mcp"] });
     seedHooks(fixture.paths.claudeSettings, {
       Stop: [
-        { hooks: [{ type: "command", command: commandForAgentHook(script(other, "finalize-reminder.js"), "linux") }] },
+        { hooks: [{ type: "command", command: commandForAgentHook(script(other, "finalize-reminder.js"), PLATFORM) }] },
       ],
     });
     seedToml(
       fixture,
-      `mcp_servers.work-intelligence = { command = "node", args = ["${script(root, "launcher.js")}"] }\n`,
+      `mcp_servers.work-intelligence = { command = "node", args = [${JSON.stringify(script(root, "launcher.js"))}] }\n`,
     );
     const claudeBefore = readFileSync(fixture.paths.claudeJson);
     const settingsBefore = readFileSync(fixture.paths.claudeSettings);
@@ -509,20 +526,22 @@ describe("adopt option", () => {
   });
 
   it("leaves an Agent whose plugin is enabled untouched", () => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     const root = fixture.options.repositoryRoot;
     seedClaudeMcp(fixture, { type: "stdio", command: "node", args: [script(root, "launcher.js")] });
     writeJson(fixture.paths.claudeSettings, {
       enabledPlugins: { "work-intelligence@fixture": true },
       hooks: {
         Stop: [
-          { hooks: [{ type: "command", command: commandForAgentHook(script(root, "finalize-reminder.js"), "linux") }] },
+          {
+            hooks: [{ type: "command", command: commandForAgentHook(script(root, "finalize-reminder.js"), PLATFORM) }],
+          },
         ],
       },
     });
     seedToml(
       fixture,
-      `[plugins."work-intelligence@fixture"]\nenabled = true\n\n[mcp_servers.work-intelligence]\ncommand = "node"\nargs = ["${script(root, "launcher.js")}"]\n`,
+      `[plugins."work-intelligence@fixture"]\nenabled = true\n\n[mcp_servers.work-intelligence]\ncommand = "node"\nargs = [${JSON.stringify(script(root, "launcher.js"))}]\n`,
     );
     const claudeBefore = readFileSync(fixture.paths.claudeJson);
     const settingsBefore = readFileSync(fixture.paths.claudeSettings);
@@ -542,7 +561,7 @@ describe("adopt option", () => {
   });
 
   it("treats the adopted entries as desktop-managed: uninstall removes them and the manifest", () => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     const root = fixture.options.repositoryRoot;
     seedClaudeMcp(fixture, {
       type: "stdio",
@@ -556,7 +575,7 @@ describe("adopt option", () => {
           hooks: [
             {
               type: "command",
-              command: commandForAgentHook(script(root, "finalize-reminder.js"), "linux"),
+              command: commandForAgentHook(script(root, "finalize-reminder.js"), PLATFORM),
               timeout: 3,
             },
           ],
@@ -565,7 +584,7 @@ describe("adopt option", () => {
     });
     seedToml(
       fixture,
-      `# top\n[mcp_servers.work-intelligence]\ncommand = "node"\nargs = ["${script(root, "launcher.js")}"]\nenv = { KEEP = "1" }\n`,
+      `# top\n[mcp_servers.work-intelligence]\ncommand = "node"\nargs = [${JSON.stringify(script(root, "launcher.js"))}]\nenv = { KEEP = "1" }\n`,
     );
     const options = launcherOptions(fixture, [root]);
     adoptAndApply(options);
@@ -584,7 +603,7 @@ describe("adopt option", () => {
   });
 
   it("migrates setup-owned checkout entries as before while adopting a hand-written one beside them", () => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     expect(applyAgentSetupPlan(createAgentSetupPlan(fixture.options)).applied).toBe(true);
     const root = fixture.options.repositoryRoot;
     const current = readJson(fixture.paths.claudeJson);
@@ -598,7 +617,7 @@ describe("adopt option", () => {
     });
     const options = launcherOptions(fixture, [root]);
     adoptAndApply(options);
-    expect(claudeServer(fixture)).toMatchObject({ command: SHIM, env: { A: "1" } });
+    expect(claudeServer(fixture)).toMatchObject({ command: HOST_SHIM, env: { A: "1" } });
     expect(hookItems(fixture.paths.claudeSettings, "Stop")).toHaveLength(1);
     expectSettled(options);
   });
