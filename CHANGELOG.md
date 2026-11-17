@@ -58,6 +58,7 @@ The schema stays at 33 and no migration is needed.
 
 - **Masking the home folder no longer touches a sibling folder** that shares its prefix (for example `/home/tester2`).
 - **A background-process out-of-memory is reported as 413 again on macOS arm64** (1.6.48). V8's native stack trace after its report could be longer than the 8 KiB of stderr that was searched, so the exit was reported as a plain 500. The report is now recognised as it arrives, carrying only a few bytes between chunks.
+- **Telling two files apart on Windows uses the exact file id.** The recall evaluator, restoring a backup and the MCP launcher's change checks read the 64-bit Windows file id as a JS number, so two different files on volumes with wide ids could look like one: the recall evaluator then refused a question file as if it were the database. They now share one bigint comparison.
 
 ## [1.6.48] - 2026-11-17
 

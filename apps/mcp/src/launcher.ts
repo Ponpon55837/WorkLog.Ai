@@ -161,11 +161,13 @@ export function createBuildIdReader(repositoryRoot: string, entryPath: string): 
     let signature: string;
     let recent: boolean;
     try {
-      const entry = statSync(entryPath);
-      const packageJson = statSync(packagePath);
+      // Bigint stats: a 64-bit Windows file id loses precision as a JS number, so a replaced file could look unchanged.
+      const entry = statSync(entryPath, { bigint: true });
+      const packageJson = statSync(packagePath, { bigint: true });
       // Files written within the timestamp resolution may change again without a new signature (coarse on Windows).
-      recent = Date.now() - Math.max(entry.mtimeMs, packageJson.mtimeMs) < RACY_WINDOW_MS;
-      signature = [entry.size, entry.mtimeMs, entry.ino, packageJson.size, packageJson.mtimeMs, packageJson.ino].join();
+      recent =
+        Date.now() - Number(entry.mtimeMs > packageJson.mtimeMs ? entry.mtimeMs : packageJson.mtimeMs) < RACY_WINDOW_MS;
+      signature = [entry.size, entry.mtimeNs, entry.ino, packageJson.size, packageJson.mtimeNs, packageJson.ino].join();
     } catch {
       return undefined;
     }

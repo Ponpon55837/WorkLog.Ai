@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathsReferToSameFile } from "@work-intelligence/shared/file-identity";
 import { ZodError } from "zod";
 import { evaluateRecallQuestions, parseRecallEvaluationQuestions } from "./recall-evaluation.js";
 
@@ -60,13 +61,8 @@ function refersToSameFile(left: string, right: string): boolean {
   const canonicalLeft = canonicalPath(left);
   const canonicalRight = canonicalPath(right);
   if (canonicalLeft === canonicalRight) return true;
-  try {
-    const leftStat = statSync(canonicalLeft);
-    const rightStat = statSync(canonicalRight);
-    return leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino;
-  } catch {
-    return false;
-  }
+  // Exact (bigint) device and file index: as JS numbers two different Windows file ids can compare equal.
+  return pathsReferToSameFile(canonicalLeft, canonicalRight);
 }
 
 function assertFileInput(path: string, label: string): string {

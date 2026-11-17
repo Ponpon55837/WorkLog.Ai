@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   classifyFileError,
   normalizePathForCompare,
+  pathsReferToSameFile,
   readFileIdentity,
   sameFileIdentity,
   type FileIdentity,
@@ -142,6 +143,40 @@ describe("sameFileIdentity", () => {
     const none: FileIdentity = { realPath: "/a", fileId: null };
     expect(sameFileIdentity(none, none)).toBe(false);
     expect(sameFileIdentity(none, withId("1", "2"))).toBe(false);
+  });
+});
+
+describe("pathsReferToSameFile", () => {
+  // Synthetic 64-bit file ids just above 2^53: distinct as bigint, equal once converted to a JS number.
+  const wideIds: Record<string, bigint> = { "/vol/a": 2n ** 53n, "/vol/b": 2n ** 53n + 1n };
+  const wide = {
+    realpath: (path: string) => path,
+    stat: (path: string) => ({ dev: 7n, ino: wideIds[path] ?? 0n }),
+  };
+
+  it("keeps two 64-bit file ids apart that a number comparison would merge", () => {
+    expect(Number(wideIds["/vol/a"])).toBe(Number(wideIds["/vol/b"]));
+    expect(pathsReferToSameFile("/vol/a", "/vol/b", wide)).toBe(false);
+    expect(pathsReferToSameFile("/vol/a", "/vol/a", wide)).toBe(true);
+  });
+
+  it("matches a hard link by id and a symlink by real path", () => {
+    const directory = tempDir();
+    const file = join(directory, "a.txt");
+    writeFileSync(file, "synthetic");
+    const link = join(directory, "b.txt");
+    linkSync(file, link);
+    expect(pathsReferToSameFile(file, link)).toBe(true);
+    const copy = join(directory, "c.txt");
+    copyFileSync(file, copy);
+    expect(pathsReferToSameFile(file, copy)).toBe(false);
+  });
+
+  it("matches nothing when a path cannot be identified", () => {
+    const directory = tempDir();
+    const file = join(directory, "a.txt");
+    writeFileSync(file, "synthetic");
+    expect(pathsReferToSameFile(file, join(directory, "missing.txt"))).toBe(false);
   });
 });
 
