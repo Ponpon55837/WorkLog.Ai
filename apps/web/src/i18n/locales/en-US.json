@@ -1529,6 +1529,7 @@
     "latestAutomaticBackup": "Latest automatic backup",
     "latestDataMaintenance": "Latest data maintenance",
     "legacyServiceRemoveCommand": "Run this command in a terminal to remove the old login service (on Windows, in PowerShell):",
+    "legacyServiceStartsAtLogin": "It will start at the next login.",
     "legacyServiceWarning": "An old login service (pnpm bootstrap) is also using this database; running two backends at the same time can cause problems",
     "light": "Light",
     "liveUpdateConnectionsCurrentlyOpen": "Live update connections currently open",

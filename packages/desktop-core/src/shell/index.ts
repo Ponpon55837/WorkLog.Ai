@@ -26,3 +26,4 @@ export * from "./quit-flow.js";
 export * from "./startup-paths.js";
 export * from "./runtime-root.js";
 export * from "./runtime-recovery.js";
+export * from "./setup-start.js";

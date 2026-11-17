@@ -2,6 +2,9 @@ export type LegacyServicePlatform = "darwin" | "linux" | "win32";
 
 export type LegacyServiceRunning = "running" | "stopped" | "unknown";
 
+/** Whether the OS starts the service by itself (login): `unknown` when it cannot be told, never guessed. */
+export type LegacyServiceEnabled = "enabled" | "disabled" | "unknown";
+
 export interface LegacyServiceCommandResult {
   stdout: string;
   code: number;
@@ -46,6 +49,8 @@ export interface LegacyServiceFound {
   /** From the definition when it names WORK_INTELLIGENCE_PORT, otherwise the server default (the definition never sets it). */
   port?: number;
   running: LegacyServiceRunning;
+  /** Starts at the next login (launchd loaded with RunAtLoad, systemd enabled, a logon-triggered enabled task); absent means unknown. */
+  enabled?: LegacyServiceEnabled;
   /** `cd <checkout> && pnpm service:uninstall`, quoted for the OS shell; only when the checkout is known. */
   removeCommand?: string;
   /** The raw OS commands that remove the service without the checkout. */

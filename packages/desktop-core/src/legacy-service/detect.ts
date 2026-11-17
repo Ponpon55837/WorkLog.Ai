@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { lstat, readFile } from "node:fs/promises";
 import process from "node:process";
-import { windowsSystemTool } from "@work-intelligence/shared/windows-system-tool";
+import { windowsPowerShell } from "@work-intelligence/shared/windows-system-tool";
 import {
   LEGACY_DEFAULT_PORT,
   LEGACY_LAUNCHD_LABEL,
@@ -16,6 +16,7 @@ import type {
   LegacyServiceCommandResult,
   LegacyServiceCommandRunner,
   LegacyServiceDetection,
+  LegacyServiceEnabled,
   LegacyServiceFileStat,
   LegacyServicePlatform,
   LegacyServiceRunning,
@@ -25,9 +26,38 @@ const DEFAULT_TIMEOUT_MS = 2000;
 /** A real definition is under 2 KB; anything bigger is not what the installer wrote. */
 const MAX_DEFINITION_BYTES = 64 * 1024;
 const MISSING_CODES = new Set(["ENOENT", "ENOTDIR"]);
-/** `schtasks /Query /FO CSV` status column; other locales print translated words and stay "unknown". */
-const WINDOWS_RUNNING_STATUS = "Running";
-const WINDOWS_STOPPED_STATUSES = new Set(["Ready", "Disabled", "Queued"]);
+/** `launchctl print` exits with this code when the label is not loaded ("Could not find service"). */
+const LAUNCHD_NOT_FOUND_CODE = 113;
+/** The `Get-ScheduledTask` State values (ScheduledTaskState): numbers, so no system language is parsed. */
+const TASK_STATE_DISABLED = 1;
+const TASK_STATE_QUEUED = 2;
+const TASK_STATE_READY = 3;
+const TASK_STATE_RUNNING = 4;
+/**
+ * One structured query for the task: absent gives `{}`, otherwise numeric state, whether the task and a logon trigger
+ * are enabled, and the exported XML as base64 of its UTF-8 bytes (so a non-ASCII user name survives any console code
+ * page). Single quotes only: `execFile` passes the text on the command line.
+ */
+const WINDOWS_TASK_SCRIPT =
+  "$t = Get-ScheduledTask -TaskPath '\\' -TaskName 'Work Intelligence' -ErrorAction SilentlyContinue; " +
+  "if ($null -eq $t) { '{}' } else { " +
+  "$logon = [bool]($t.Triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskLogonTrigger' -and $_.Enabled -ne $false }); " +
+  "$xml = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((Export-ScheduledTask -TaskPath '\\' -TaskName 'Work Intelligence'))); " +
+  "[ordered]@{ state = [int]$t.State; enabled = [bool]$t.Settings.Enabled; logon = $logon; xml = $xml } | ConvertTo-Json -Compress }";
+
+type LegacyServiceRegistration = "registered" | "absent" | "unknown";
+
+/** What the OS says about the service, apart from the definition file. */
+interface ServiceQuery {
+  registration: LegacyServiceRegistration;
+  running: LegacyServiceRunning;
+  /** Windows and Linux know it from the query; macOS needs the plist (see `launchdEnabled`). */
+  enabled?: LegacyServiceEnabled;
+  /** macOS: `launchctl print` mentions run-at-load. */
+  launchdRunAtLoad?: boolean;
+  /** Windows: the exported task XML. */
+  taskXml?: string;
+}
 
 function isSupportedPlatform(platform: NodeJS.Platform): platform is LegacyServicePlatform {
   return platform === "darwin" || platform === "linux" || platform === "win32";
@@ -85,42 +115,102 @@ function launchdTarget(uid: number | undefined): string {
   return `gui/${uid ?? process.getuid?.() ?? 501}/${LEGACY_LAUNCHD_LABEL}`;
 }
 
-function windowsStatus(stdout: string): LegacyServiceRunning {
-  const row = stdout.split(/\r?\n/).find((line) => line.trim().length > 0);
-  const columns = row
-    ? [...row.matchAll(/"((?:[^"]|"")*)"/g)].map((match) => (match[1] ?? "").replaceAll('""', '"'))
-    : [];
-  // /FO CSV /NH rows are "TaskName","Next Run Time","Status".
-  const status = columns[2]?.trim();
-  if (status === WINDOWS_RUNNING_STATUS) return "running";
-  return status !== undefined && WINDOWS_STOPPED_STATUSES.has(status) ? "stopped" : "unknown";
+function keyValues(stdout: string): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const line of stdout.split(/\r?\n/)) {
+    const index = line.indexOf("=");
+    if (index > 0) values[line.slice(0, index).trim()] = line.slice(index + 1).trim();
+  }
+  return values;
 }
 
-async function queryRunning(
+function windowsTaskState(state: unknown): LegacyServiceRunning {
+  if (state === TASK_STATE_RUNNING) return "running";
+  return state === TASK_STATE_DISABLED || state === TASK_STATE_QUEUED || state === TASK_STATE_READY
+    ? "stopped"
+    : "unknown";
+}
+
+/** `{}` (the task is not there) or the task facts; undefined for anything else (PowerShell failed, other output). */
+function parseWindowsTask(stdout: string): ServiceQuery | undefined {
+  let task: { state?: unknown; enabled?: unknown; logon?: unknown; xml?: unknown };
+  try {
+    task = JSON.parse(stdout.replace(/^\uFEFF/, "").trim()) as typeof task;
+  } catch {
+    return undefined;
+  }
+  if (task === null || typeof task !== "object" || Array.isArray(task)) return undefined;
+  if (task.state === undefined)
+    return Object.keys(task).length === 0 ? { registration: "absent", running: "unknown" } : undefined;
+  const taskEnabled = task.enabled === true && task.state !== TASK_STATE_DISABLED;
+  const enabled: LegacyServiceEnabled =
+    typeof task.enabled !== "boolean" || typeof task.logon !== "boolean"
+      ? "unknown"
+      : taskEnabled && task.logon
+        ? "enabled"
+        : "disabled";
+  return {
+    registration: "registered",
+    running: windowsTaskState(task.state),
+    enabled,
+    ...(typeof task.xml === "string" ? { taskXml: Buffer.from(task.xml, "base64").toString("utf8") } : {}),
+  };
+}
+
+function linuxEnabled(unitFileState: string | undefined): LegacyServiceEnabled {
+  if (!unitFileState) return "unknown";
+  return unitFileState === "enabled" || unitFileState === "enabled-runtime" ? "enabled" : "disabled";
+}
+
+async function queryService(
   platform: LegacyServicePlatform,
   options: DetectLegacyServiceOptions,
   run: (command: string, args: string[]) => Promise<LegacyServiceCommandResult | undefined>,
-): Promise<LegacyServiceRunning> {
+): Promise<ServiceQuery> {
+  const unknown: ServiceQuery = { registration: "unknown", running: "unknown" };
   if (platform === "darwin") {
     const result = await run("launchctl", ["print", launchdTarget(options.uid)]);
-    if (result?.code !== 0) return "unknown";
-    return /\bstate = running\b|\bpid = \d+/i.test(result.stdout) ? "running" : "stopped";
+    if (result?.code === LAUNCHD_NOT_FOUND_CODE) return { registration: "absent", running: "unknown" };
+    if (result?.code !== 0) return unknown;
+    return {
+      registration: "registered",
+      running: /\bstate = running\b|\bpid = \d+/i.test(result.stdout) ? "running" : "stopped",
+      launchdRunAtLoad: /\brunatload\b|\brun at load\b/i.test(result.stdout),
+    };
   }
   if (platform === "linux") {
-    const result = await run("systemctl", ["--user", "is-active", LEGACY_SYSTEMD_UNIT]);
-    const state = result?.stdout.trim();
-    if (state === "active") return "running";
-    return state === "inactive" || state === "failed" ? "stopped" : "unknown";
+    // `show` prints KEY=VALUE pairs that no locale changes, and one call answers all three questions.
+    const result = await run("systemctl", [
+      "--user",
+      "show",
+      LEGACY_SYSTEMD_UNIT,
+      "--property=LoadState",
+      "--property=ActiveState",
+      "--property=UnitFileState",
+    ]);
+    const values = keyValues(result?.stdout ?? "");
+    if (result?.code !== 0 || !values.LoadState) return unknown;
+    if (values.LoadState === "not-found") return { registration: "absent", running: "unknown" };
+    const active = values.ActiveState;
+    return {
+      registration: "registered",
+      running: active === "active" ? "running" : active === "inactive" || active === "failed" ? "stopped" : "unknown",
+      enabled: linuxEnabled(values.UnitFileState),
+    };
   }
-  const result = await run(windowsSystemTool("schtasks.exe", options.environment), [
-    "/Query",
-    "/TN",
-    legacyWindowsTaskTarget(),
-    "/FO",
-    "CSV",
-    "/NH",
+  const result = await run(windowsPowerShell(options.environment), [
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    WINDOWS_TASK_SCRIPT,
   ]);
-  return result?.code === 0 ? windowsStatus(result.stdout) : "unknown";
+  return (result?.code === 0 ? parseWindowsTask(result.stdout) : undefined) ?? unknown;
+}
+
+/** macOS: the agent is loaded, so it also loads at every login when its plist says RunAtLoad. */
+function launchdEnabled(query: ServiceQuery, text: string | undefined): LegacyServiceEnabled {
+  if (text !== undefined) return /<key>RunAtLoad<\/key>\s*<true\s*\/>/.test(text) ? "enabled" : "disabled";
+  return query.launchdRunAtLoad ? "enabled" : "unknown";
 }
 
 async function readDefinition(
@@ -164,30 +254,31 @@ export async function detectLegacyService(options: DetectLegacyServiceOptions): 
   }
   // undefined: the path could not be inspected (permission, timeout), so something is there that is not provably ours.
   const present = stat !== null;
+  // Without a definition file and a registered task there is nothing to find; the other platforms never run a command.
+  if (!present && platform !== "win32") return { kind: "none" };
+
+  const query = await queryService(platform, options, run);
+  // The OS does not know the service (a stale definition left behind): it cannot start, so there is nothing to warn about.
+  if (query.registration === "absent") return { kind: "none" };
+
   let definitionPath = definitionFile;
   let definitionSource: "file" | "task-query" = "file";
   let text: string | undefined;
-
   if (stat) {
     text = await readDefinition(stat, definitionFile, options.readTextFile ?? defaultReadText, remaining);
-  } else if (platform === "win32" && !present) {
-    const query = await run(windowsSystemTool("schtasks.exe", options.environment), [
-      "/Query",
-      "/TN",
-      legacyWindowsTaskTarget(),
-      "/XML",
-    ]);
-    if (query?.code !== 0 || !query.stdout.includes("<Task")) return { kind: "none" };
+  } else if (!present) {
+    if (!query.taskXml?.includes("<Task")) return { kind: "none" };
     definitionPath = legacyWindowsTaskTarget();
     definitionSource = "task-query";
-    text = query.stdout;
-  } else if (!present) {
-    return { kind: "none" };
+    text = query.taskXml;
   }
 
   const interpreted: InterpretedDefinition =
     text === undefined ? { recognised: false } : interpretLegacyDefinition(platform, text);
-  const running = await queryRunning(platform, options, run);
+  const enabled =
+    platform === "darwin" && query.registration === "registered"
+      ? launchdEnabled(query, interpreted.recognised ? text : undefined)
+      : query.enabled;
   const { repositoryRoot, databasePath, port } = interpreted;
   return {
     kind: "found",
@@ -198,7 +289,8 @@ export async function detectLegacyService(options: DetectLegacyServiceOptions): 
     ...(repositoryRoot ? { repositoryRoot } : {}),
     ...(databasePath ? { databasePath } : {}),
     ...(interpreted.recognised ? { port: port ?? LEGACY_DEFAULT_PORT } : {}),
-    running,
+    running: query.running,
+    ...(enabled === undefined ? {} : { enabled }),
     ...(repositoryRoot ? { removeCommand: legacyRemoveCommand(platform, repositoryRoot) } : {}),
     fallbackRemoveCommand: legacyFallbackRemoveCommand(platform, definitionFile),
   };

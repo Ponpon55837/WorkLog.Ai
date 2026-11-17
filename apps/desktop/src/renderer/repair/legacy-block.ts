@@ -5,6 +5,11 @@ import { button, element } from "./dom.js";
 /** What every view knows about the old login service; the commands come from main's detection, never from the page. */
 export interface LegacyFacts {
   readonly running: "running" | "stopped" | "unknown";
+  /**
+   * Not running now but enabled, so it starts at the next login. The status views only show the block for a stopped
+   * service when this is so, which is why the repair window (no such field in its state) infers it from `stopped`.
+   */
+  readonly startsAtLogin?: boolean;
   readonly removeCommand?: string;
   readonly fallbackRemoveCommand: string;
   readonly portInUse?: boolean;
@@ -46,6 +51,9 @@ export function legacyBlock(api: RepairApi, text: SetupMessages, facts: LegacyFa
     element("p", { className: "warning-text", text: facts.portInUse ? text.legacyPortInUse : text.legacyWarning }),
     element("p", { className: "hint", text: running }),
   ]);
+  if (facts.running === "stopped" && !facts.portInUse && facts.startsAtLogin !== false) {
+    card.append(element("p", { className: "hint", text: text.legacyStartsAtLogin }));
+  }
   card.id = "legacy-service";
   if (facts.blocked) card.append(element("p", { className: "hint", text: text.legacyBlocked }));
   if (facts.removeCommand) {

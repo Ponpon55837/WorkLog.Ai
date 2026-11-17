@@ -1,7 +1,12 @@
 import { homedir } from "node:os";
+import { app } from "electron";
 import {
+  canonicalDatabasePath,
+  decideLegacyStart,
   detectLegacyService,
-  legacyServiceConflicts,
+  detectLaunchMode,
+  legacyServiceWarns,
+  type LaunchMode,
   type LegacyServiceDetection,
 } from "@work-intelligence/desktop-core";
 import type { DesktopFacts } from "@work-intelligence/schema";
@@ -18,10 +23,13 @@ export interface LegacyGuard {
   /** The last detection, or null before the first one finished. */
   latest(): LegacyServiceDetection | null;
   /**
-   * Whether a start on `databasePath` must wait for the user: the old service may serve it, and the user has not said
-   * "仍要啟動" for it in this run. Detects again first, so a service removed in the meantime no longer blocks.
+   * Whether a start on `databasePath` must wait for the user (see `decideLegacyStart`): the old service may serve it, or
+   * a login start finds it enabled, and the user has not said "仍要啟動" for it in this run. Detects again first, so a
+   * service removed in the meantime no longer blocks.
    */
   blocks(databasePath: string): Promise<boolean>;
+  /** The last start was held back at login because the old service is enabled (the tray offers the way out). */
+  heldAtLogin(): boolean;
   /**
    * What the backend tells the Web about the old service for `databasePath` (from the last detection, no new one): the
    * status page shows the same warning. Nothing when it does not concern this database.
@@ -37,11 +45,13 @@ export interface LegacyGuardOptions {
   readonly log: Logger;
   /** Test seam; defaults to the real read-only detection. */
   readonly detect?: () => Promise<LegacyServiceDetection>;
+  /** Test seam; defaults to the launch mode of this process (`--background`, or opened at login on macOS). */
+  readonly launchMode?: () => LaunchMode;
 }
 
 function describe(detection: LegacyServiceDetection): string {
   if (detection.kind === "none") return "none";
-  return `${detection.recognised ? "recognised" : "unrecognised"} ${detection.running}`;
+  return `${detection.recognised ? "recognised" : "unrecognised"} ${detection.running}${detection.enabled === "enabled" ? " enabled" : ""}`;
 }
 
 export function createLegacyGuard(options: LegacyGuardOptions): LegacyGuard {
@@ -56,7 +66,19 @@ export function createLegacyGuard(options: LegacyGuardOptions): LegacyGuard {
   let latest: LegacyServiceDetection | null = null;
   let logged: string | undefined;
 
-  const key = (databasePath: string): string => (platform === "win32" ? databasePath.toLowerCase() : databasePath);
+  const key = (databasePath: string): string => canonicalDatabasePath(databasePath, platform);
+  const launchMode =
+    options.launchMode ??
+    ((): LaunchMode => {
+      let openedAtLogin: boolean | undefined;
+      try {
+        openedAtLogin = platform === "darwin" ? app.getLoginItemSettings().wasOpenedAtLogin : undefined;
+      } catch {
+        openedAtLogin = undefined;
+      }
+      return detectLaunchMode({ platform, argv: process.argv, wasOpenedAtLogin: openedAtLogin });
+    });
+  let heldAtLogin = false;
 
   async function refresh(): Promise<LegacyServiceDetection> {
     const started = Date.now();
@@ -73,13 +95,22 @@ export function createLegacyGuard(options: LegacyGuardOptions): LegacyGuard {
   return {
     refresh,
     latest: () => latest,
+    heldAtLogin: () => heldAtLogin,
     blocks: async (databasePath) => {
       const detection = await refresh();
-      if (!legacyServiceConflicts(detection, databasePath, platform)) return false;
-      return !allowed.has(key(databasePath));
+      const decision = decideLegacyStart({
+        detection,
+        databasePath,
+        platform,
+        launchMode: launchMode(),
+        allowed: allowed.has(key(databasePath)),
+      });
+      heldAtLogin = decision === "hold-login";
+      if (heldAtLogin) log("[shell] start held back at login: the old login service is enabled on this database");
+      return decision !== "start";
     },
     facts: (databasePath) => {
-      if (latest?.kind !== "found" || !legacyServiceConflicts(latest, databasePath, platform)) return undefined;
+      if (latest?.kind !== "found" || !legacyServiceWarns(latest, databasePath, platform)) return undefined;
       return {
         legacyService: {
           running: latest.running,
@@ -90,6 +121,7 @@ export function createLegacyGuard(options: LegacyGuardOptions): LegacyGuard {
     },
     allow: (databasePath) => {
       allowed.add(key(databasePath));
+      heldAtLogin = false;
       log("[shell] start anyway: the user accepted the old login service on this database");
     },
   };

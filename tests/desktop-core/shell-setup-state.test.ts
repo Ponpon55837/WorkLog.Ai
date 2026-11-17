@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSetupState,
+  canonicalDatabasePath,
+  canCreateNewDatabase,
+  decideLegacyStart,
   legacyServiceConflicts,
+  legacyServiceWarns,
   legacyServiceRelevance,
   type SetupSourceInput,
   type SetupStateInputs,
@@ -156,6 +160,7 @@ describe("buildSetupState content", () => {
     expect(state.defaults.legacyConflict).toBe(true);
     expect(state.legacy).toEqual({
       running: "running",
+      startsAtLogin: false,
       recognised: true,
       databaseDisplay: "~/.work-intelligence/data.db",
       fallbackRemoveCommand: "systemctl --user disable work-intelligence",
@@ -249,5 +254,158 @@ describe("legacyServiceRelevance", () => {
       legacyServiceRelevance({ ...base, detection, databasePath: "c:\\users\\TESTER\\data\\WI.db", platform });
     expect(relevance("win32").conflict).toBe(true);
     expect(relevance("linux").conflict).toBe(false);
+  });
+});
+
+describe("the default action while the detection runs", () => {
+  it("is not available while detecting, and is once the detection is done", () => {
+    expect(buildSetupState(inputs({ phase: "detecting" })).canUseDefaults).toBe(false);
+    expect(buildSetupState(inputs({ phase: "ready" })).canUseDefaults).toBe(true);
+  });
+
+  it("allows a new database only when the detection is done", () => {
+    expect(canCreateNewDatabase("detecting")).toBe(false);
+    expect(canCreateNewDatabase("starting")).toBe(false);
+    expect(canCreateNewDatabase("done")).toBe(false);
+    expect(canCreateNewDatabase("ready")).toBe(true);
+  });
+
+  it("shows the recommended source in the same state that enables the default action", () => {
+    const decision: DbSourceDecision = { kind: "use", group: group("group-a", DB_PATH), reason: "default" };
+    const state = buildSetupState(inputs({ decision, sources: [source("a", DB_PATH)] }));
+    expect(state).toMatchObject({ screen: "existing", recommendedId: "a", canUseDefaults: true });
+  });
+});
+
+describe("canonicalDatabasePath", () => {
+  const links: Record<string, string> = {
+    "/var/data": "/private/var/data",
+    "/var/data/wi.db": "/private/var/data/wi.db",
+    "/var/data/new": "/private/var/data/new",
+    "C:\\Users\\TESTER~1\\wi.db": "C:\\Users\\Tester One\\wi.db",
+    "C:\\Users\\TESTER~1": "C:\\Users\\Tester One",
+    "C:\\Users\\Tester One\\wi.db": "\\\\?\\C:\\Users\\Tester One\\wi.db",
+  };
+  const realpath = (value: string): string => {
+    const target = links[value];
+    if (target === undefined) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    return target;
+  };
+
+  it("resolves symlinks and Windows short names, and strips the extended-length prefix", () => {
+    expect(canonicalDatabasePath("/var/data/wi.db", "linux", realpath)).toBe("/private/var/data/wi.db");
+    expect(canonicalDatabasePath("C:\\Users\\TESTER~1\\wi.db", "win32", realpath)).toBe("c:\\users\\tester one\\wi.db");
+  });
+
+  it("compares a database that does not exist yet by its resolved folder", () => {
+    expect(canonicalDatabasePath("/var/data/fresh.db", "linux", realpath)).toBe("/private/var/data/fresh.db");
+    expect(canonicalDatabasePath("/nowhere/fresh.db", "linux", realpath)).toBe("/nowhere/fresh.db");
+  });
+
+  it("folds case on Windows and macOS, not on Linux", () => {
+    expect(canonicalDatabasePath("/Users/T/Data.DB", "darwin", realpath)).toBe("/users/t/data.db");
+    expect(canonicalDatabasePath("D:/Data/WI.db/", "win32", realpath)).toBe("d:\\data\\wi.db");
+    expect(canonicalDatabasePath("/Users/T/Data.DB", "linux", realpath)).toBe("/Users/T/Data.DB");
+  });
+
+  it("makes a symlinked database path conflict with the real one, through the conflict checks", () => {
+    const detection = found({ databasePath: "/private/var/data/wi.db" });
+    expect(legacyServiceConflicts(detection, "/var/data/wi.db", "linux", realpath)).toBe(true);
+    expect(legacyServiceConflicts(detection, "/var/data/wi.db", "linux", (value) => value)).toBe(false);
+    expect(legacyServiceWarns(detection, "/var/data/wi.db", "linux", realpath)).toBe(true);
+  });
+
+  it("treats a macOS path that differs only in case as the same database", () => {
+    const detection = found({ platform: "darwin", databasePath: "/Users/Tester/Data/wi.db" });
+    expect(legacyServiceConflicts(detection, "/users/tester/data/WI.db", "darwin", realpath)).toBe(true);
+  });
+});
+
+describe("legacyServiceWarns", () => {
+  it("warns for a running service and for a stopped one that starts at login", () => {
+    expect(legacyServiceWarns(found({ running: "running" }), DB_PATH, "linux")).toBe(true);
+    expect(legacyServiceWarns(found({ running: "unknown" }), DB_PATH, "linux")).toBe(true);
+    expect(legacyServiceWarns(found({ running: "stopped", enabled: "enabled" }), DB_PATH, "linux")).toBe(true);
+  });
+
+  it("does not warn for a stopped service that is disabled or whose autostart is unknown", () => {
+    expect(legacyServiceWarns(found({ running: "stopped", enabled: "disabled" }), DB_PATH, "linux")).toBe(false);
+    expect(legacyServiceWarns(found({ running: "stopped", enabled: "unknown" }), DB_PATH, "linux")).toBe(false);
+    expect(legacyServiceWarns(found({ running: "stopped" }), DB_PATH, "linux")).toBe(false);
+  });
+
+  it("does not warn without a service or for another database", () => {
+    expect(legacyServiceWarns(null, DB_PATH, "linux")).toBe(false);
+    expect(legacyServiceWarns({ kind: "none" }, DB_PATH, "linux")).toBe(false);
+    expect(legacyServiceWarns(found({ running: "stopped", enabled: "enabled" }), OTHER_DB_PATH, "linux")).toBe(false);
+  });
+
+  it("never blocks a stopped service, enabled or not", () => {
+    expect(legacyServiceConflicts(found({ running: "stopped", enabled: "enabled" }), DB_PATH, "linux")).toBe(false);
+  });
+
+  it("shows the warning in the status views and the first-run page for a stopped, enabled service", () => {
+    const stopped = found({ running: "stopped", enabled: "enabled" });
+    expect(
+      legacyServiceRelevance({
+        detection: stopped,
+        databasePath: DB_PATH,
+        port: 4317,
+        latestErrorCode: undefined,
+        platform: "linux",
+      }),
+    ).toEqual({ conflict: true, portInUse: false });
+    const state = buildSetupState(inputs({ legacy: stopped, sources: [source("a", DB_PATH)] }));
+    expect(state.defaults.legacyConflict).toBe(true);
+    expect(state.legacy).toMatchObject({ running: "stopped", startsAtLogin: true });
+    const disabled = buildSetupState(inputs({ legacy: found({ running: "stopped", enabled: "disabled" }) }));
+    expect(disabled.defaults.legacyConflict).toBe(false);
+    expect(disabled.legacy?.startsAtLogin).toBe(false);
+  });
+});
+
+describe("decideLegacyStart", () => {
+  const decide = (
+    detection: LegacyServiceDetection | null,
+    launchMode: "interactive" | "background",
+    extra: { allowed?: boolean; databasePath?: string } = {},
+  ) =>
+    decideLegacyStart({
+      detection,
+      databasePath: extra.databasePath ?? DB_PATH,
+      platform: "linux",
+      launchMode,
+      allowed: extra.allowed ?? false,
+    });
+  const enabledStopped = found({ running: "stopped", enabled: "enabled" });
+
+  it("holds a login start back when the old service is enabled but not running yet", () => {
+    expect(decide(enabledStopped, "background")).toBe("hold-login");
+  });
+
+  it("starts an interactive start with the warning when the service is enabled but not running", () => {
+    expect(decide(enabledStopped, "interactive")).toBe("start");
+  });
+
+  it("starts normally when the service is not installed, stale (nothing found), disabled or on another database", () => {
+    for (const mode of ["background", "interactive"] as const) {
+      expect(decide({ kind: "none" }, mode)).toBe("start");
+      expect(decide(null, mode)).toBe("start");
+      expect(decide(found({ running: "stopped", enabled: "disabled" }), mode)).toBe("start");
+      expect(decide(found({ running: "stopped", enabled: "unknown" }), mode)).toBe("start");
+      expect(decide(enabledStopped, mode, { databasePath: OTHER_DB_PATH })).toBe("start");
+    }
+  });
+
+  it("keeps holding a start back while the old backend may answer, in either mode", () => {
+    for (const mode of ["background", "interactive"] as const) {
+      expect(decide(found({ running: "running" }), mode)).toBe("hold-active");
+      expect(decide(found({ running: "unknown" }), mode)).toBe("hold-active");
+    }
+  });
+
+  it("starts once the user said 仍要啟動 for this database", () => {
+    expect(decide(enabledStopped, "background", { allowed: true })).toBe("start");
+    expect(decide(found({ running: "running" }), "interactive", { allowed: true })).toBe("start");
   });
 });

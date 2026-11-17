@@ -285,8 +285,33 @@ function runShell(configInputs: DesktopConfigInputs): void {
     openSetup,
     openAgents,
     requestQuit: () => void requestQuit(true),
+    legacy: {
+      heldAtLogin: () => legacy.heldAtLogin(),
+      startAnyway: () => void startDespiteLegacyService(),
+    },
     log,
   });
+
+  /** The tray's "仍要啟動" after a login start held back: the same confirmation as the window, then start this database. */
+  async function startDespiteLegacyService(): Promise<void> {
+    const database = state.databasePath();
+    if (!database) return;
+    const text = setupMessages(state.locale);
+    const { response } = await dialog.showMessageBox({
+      type: "warning",
+      message: text.legacyStartAnywayConfirm,
+      buttons: [text.legacyStartAnyway, shellMessages(state.locale).quitCancel],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (response !== 0) return;
+    // This database may start beside the old service until the App quits, as with "仍要啟動" in the window.
+    legacy.allow(database);
+    const outcome = await backend.start("restart");
+    if (outcome.ok) backend.presenter().clear();
+    else if (!outcome.busy) backend.recovery.handleFailure(outcome.code);
+  }
   // The Dashboard was asked for with `--open-dashboard` (this launch, or a second one while this was still starting or
   // the service was changing owner): it opens once, when the backend is ready, even in a background launch.
   let dashboardRequested = openDashboardRequested;

@@ -1529,6 +1529,7 @@
     "latestAutomaticBackup": "最近自動備份",
     "latestDataMaintenance": "最近資料維護",
     "legacyServiceRemoveCommand": "在終端機執行下列指令，移除舊的登入服務（Windows 請用 PowerShell）：",
+    "legacyServiceStartsAtLogin": "下次登入時會啟動。",
     "legacyServiceWarning": "偵測到舊的登入服務（pnpm bootstrap）也在使用這份資料庫；同時執行兩個後端可能造成問題",
     "light": "淺色",
     "liveUpdateConnectionsCurrentlyOpen": "目前開啟的即時更新連線",

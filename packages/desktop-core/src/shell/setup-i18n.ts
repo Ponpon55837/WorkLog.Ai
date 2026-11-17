@@ -48,6 +48,11 @@ export interface SetupMessages {
   readonly legacyStartAnyway: string;
   readonly legacyStartAnywayConfirm: string;
   readonly legacyBlocked: string;
+  readonly legacyStartsAtLogin: string;
+  readonly setupDetectingHint: string;
+  readonly trayLegacyStatus: string;
+  readonly trayLegacyStartAnyway: string;
+  readonly trayLegacyHowToRemove: string;
   /** The backend could not bind its port and the old service is installed: say which one holds it. */
   readonly legacyPortInUse: string;
   readonly trayCompleteSetup: string;
@@ -151,6 +156,11 @@ const zhTW: SetupMessages = {
   legacyStartAnyway: "仍要啟動",
   legacyStartAnywayConfirm: "確定要在舊服務也在執行時啟動嗎？兩個後端同時寫入同一份資料庫可能造成問題。",
   legacyBlocked: "為了避免兩個後端同時使用同一份資料庫，App 還沒有啟動自己的後端。",
+  legacyStartsAtLogin: "下次登入時會啟動。",
+  setupDetectingHint: "正在檢查…完成後即可使用",
+  trayLegacyStatus: "偵測到舊的登入服務也使用這份資料庫，未自動啟動",
+  trayLegacyStartAnyway: "仍要啟動",
+  trayLegacyHowToRemove: "如何移除舊服務",
   legacyPortInUse: "連接埠已被舊的登入服務（pnpm bootstrap）使用。請先移除舊服務，再重試。",
   trayCompleteSetup: "完成首次設定…",
   trayAgentSetup: "設定 Agent…",
@@ -267,6 +277,11 @@ const en: SetupMessages = {
   legacyStartAnywayConfirm:
     "Start while the old service may be running? Two backends writing to one database can cause problems.",
   legacyBlocked: "To keep two backends off one database, the App has not started its own backend yet.",
+  legacyStartsAtLogin: "It will start at the next login.",
+  setupDetectingHint: "Checking… available when done",
+  trayLegacyStatus: "The old login service also uses this database; the App did not start automatically",
+  trayLegacyStartAnyway: "Start anyway",
+  trayLegacyHowToRemove: "How to remove the old service",
   legacyPortInUse: "The port is used by the old login service (pnpm bootstrap). Remove it first, then try again.",
   trayCompleteSetup: "Finish setup…",
   trayAgentSetup: "Set up Agents…",

@@ -5,15 +5,17 @@ import { dialog } from "electron";
 import { findCheckoutRegistrations } from "@work-intelligence/agent-setup";
 import {
   buildSetupState,
+  canCreateNewDatabase,
+  chosenPathProblem,
   collectDbCandidates,
   missingParentDirectories,
   previewToCandidate,
   removeCreatedDatabase,
   removeEmptyDirectories,
   resolveDbSource,
+  runSetupStart,
   type BackendSupervisor,
   type CandidatePreview,
-  type DatabaseIdentity,
   type DatabasePreviewResult,
   type DbProbeResult,
   type DbSourceDecision,
@@ -82,9 +84,6 @@ interface SourceEntry {
 
 const MAX_PROJECT_NAMES = 5;
 
-/** What a failed creation of the new database reports when the child gave no code of its own. */
-const CREATE_FAILURE_CODES: Record<string, string> = { denied: "DB_PERMISSION", offline: "DB_OFFLINE" };
-
 /** True only when nothing at all (not even a dangling symlink) exists at the path. */
 function nothingExistsAt(path: string): boolean {
   try {
@@ -149,6 +148,8 @@ export function createFirstRun(options: FirstRunOptions): FirstRun {
   let sources: SourceEntry[] = [];
   let chosen = false;
   let errorCode: string | undefined;
+  /** Why the last browsed file was refused, in the page's language. */
+  let pathProblem: string | undefined;
   let busy = false;
   let detection: Promise<void> | undefined;
   let detectionMs: number | undefined;
@@ -243,6 +244,7 @@ export function createFirstRun(options: FirstRunOptions): FirstRun {
       },
       legacy: legacy.latest(),
       ...(errorCode ? { errorCode } : {}),
+      ...(pathProblem ? { pathProblem } : {}),
       busy,
       chosen,
     });
@@ -267,68 +269,51 @@ export function createFirstRun(options: FirstRunOptions): FirstRun {
     phase = "starting";
     errorCode = undefined;
     state.touch();
-    // What this attempt created, so a failed start can take back exactly that and nothing else.
-    let created: { identity: DatabaseIdentity; directories: string[] } | undefined;
-    const rollback = (): void => {
-      if (!created) return;
-      const { identity, directories } = created;
-      created = undefined;
-      if (removeCreatedDatabase(databasePath, identity, directories)) {
-        log("[shell] first-run removed the database it created after a failed start");
-      }
-    };
     try {
-      if (startAnyway) legacy.allow(databasePath);
-      const base = defaultSettings(launchAtLogin, options.defaultPort);
-      state.settings = { ...base, desired: { ...base.desired, databasePath } };
-      let startOverride = override;
-      if (createNew && nothingExistsAt(databasePath)) {
-        // The held-back check comes first: a start the old login service blocks must not leave a new database behind.
-        if (await legacy.blocks(databasePath)) {
-          log("[shell] start held back: the old login service may use this database");
-          failSetup();
-          return { ok: false, reason: "legacy-service", state: snapshot() };
+      const result = await runSetupStart(
+        { databasePath, override, createNew, startAnyway },
+        {
+          nothingExistsAt,
+          legacyBlocks: (path) => legacy.blocks(path),
+          allowLegacy: (path) => legacy.allow(path),
+          prepareRuntime: () => options.prepareRuntime(),
+          missingParentDirectories,
+          createDatabase: (path) => supervisor.createDatabase(path),
+          removeCreatedDatabase,
+          removeEmptyDirectories,
+          stageSettings: (path) => {
+            const base = defaultSettings(launchAtLogin, options.defaultPort);
+            state.settings = { ...base, desired: { ...base.desired, databasePath: path } };
+          },
+          createdOverride: (path, identity): StartOverride => ({
+            databasePath: path,
+            expectedIdentity: identity,
+            allowSchemaMigration: false,
+          }),
+          start: (chosen) => backend.start("takeover", chosen as StartOverride | undefined),
+          stopBackend: async () => {
+            await supervisor.stop();
+          },
+          commit: () => commitSettings(state, paths),
+          log,
+        },
+      );
+      if (result.kind === "started") {
+        try {
+          applyLoginItem(state);
+        } catch (error) {
+          log(`[shell] first-run login item not applied: ${error instanceof Error ? error.name : "unknown"}`);
         }
-        await options.prepareRuntime();
-        const directories = missingParentDirectories(databasePath);
-        const result = await supervisor.createDatabase(databasePath);
-        const preview = previewToCandidate(result);
-        if (preview.status !== "ok" || !preview.identity) {
-          // The child removes a file it could not initialise; the directories it made are ours to take back.
-          removeEmptyDirectories(directories);
-          const code = preview.errorCode ?? CREATE_FAILURE_CODES[preview.status] ?? "REPAIR_REQUIRED";
-          failSetup();
-          errorCode = code;
-          log(`[shell] first-run could not create the database: ${code}`);
-          return { ok: false, reason: "failed", errorCode: code, state: snapshot() };
-        }
-        created = { identity: preview.identity, directories };
-        startOverride = { databasePath, expectedIdentity: preview.identity, allowSchemaMigration: false };
-      }
-      let outcome: Awaited<ReturnType<BackendController["start"]>>;
-      try {
-        outcome = await backend.start("takeover", startOverride);
-      } catch (error) {
-        rollback();
-        throw error;
-      }
-      if (outcome.ok) {
-        created = undefined;
-        await commitSettings(state, paths);
-        applyLoginItem(state);
         phase = "done";
-        log("[shell] first-run setup finished");
         options.onStarted();
         return { ok: true, state: snapshot() };
       }
-      rollback();
       // Nothing is committed: no settings file, and the owner goes back to UNCONFIGURED, not NEEDS_REPAIR.
       failSetup();
-      if (outcome.busy) return { ok: false, reason: "busy", state: snapshot() };
-      if (outcome.code === "LEGACY_SERVICE_ACTIVE") return { ok: false, reason: "legacy-service", state: snapshot() };
-      errorCode = outcome.code;
-      log(`[shell] first-run start failed: ${outcome.code}`);
-      return { ok: false, reason: "failed", errorCode: outcome.code, state: snapshot() };
+      if (result.kind === "busy") return { ok: false, reason: "busy", state: snapshot() };
+      if (result.kind === "held-back") return { ok: false, reason: "legacy-service", state: snapshot() };
+      errorCode = result.errorCode;
+      return { ok: false, reason: "failed", errorCode: result.errorCode, state: snapshot() };
     } finally {
       busy = false;
       state.touch();
@@ -342,7 +327,8 @@ export function createFirstRun(options: FirstRunOptions): FirstRun {
       return detectionMs;
     },
     useDefaults: async (launchAtLogin, startAnyway) => {
-      await begin();
+      // Not before the detection is done: the user has to see what was found before a new database is created.
+      if (!canCreateNewDatabase(phase)) return { ok: false, reason: "busy", state: snapshot() };
       return startWith(defaults.desired.databasePath, undefined, launchAtLogin, startAnyway, true);
     },
     useSource: async ({ sourceId, launchAtLogin, allowMigration, startAnyway }) => {
@@ -370,6 +356,15 @@ export function createFirstRun(options: FirstRunOptions): FirstRun {
       });
       const file = picked.filePaths[0];
       if (picked.canceled || !file) return { ok: false, reason: "cancelled" };
+      // A network share or device path is refused before any preview touches it.
+      const problem = chosenPathProblem(file, process.platform, state.locale);
+      if (problem) {
+        pathProblem = problem;
+        log("[shell] first-run refused the chosen database path");
+        state.touch();
+        return { ok: false, reason: "invalid", state: snapshot() };
+      }
+      pathProblem = undefined;
       busy = true;
       state.touch();
       try {

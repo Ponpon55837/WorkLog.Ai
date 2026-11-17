@@ -170,6 +170,9 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
             <UiFlash tone="attention">
               {{ t("systemStatus.legacyServiceWarning") }}
             </UiFlash>
+            <p v-if="status.desktop.legacyService.running === 'stopped'" data-testid="legacy-service-starts-at-login">
+              {{ t("systemStatus.legacyServiceStartsAtLogin") }}
+            </p>
             <p>{{ t("systemStatus.legacyServiceRemoveCommand") }}</p>
             <div class="system-status__command">
               <code>{{

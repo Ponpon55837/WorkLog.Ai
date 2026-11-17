@@ -3,11 +3,12 @@ import { errorMessageFor, formatMessage, shellMessages } from "@work-intelligenc
 import { setupMessages, type SetupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
 import { button, checkbox, element, fact, focusedId, isChecked, restoreFocus, section, setLanguage } from "./dom.js";
 import { legacyBlock } from "./legacy-block.js";
+import { createSetupMemory } from "./setup-memory.js";
 
 /**
- * The first-run page (DT-01). "使用預設設定開始" is on the first screen from the first paint, also while the detection
- * still runs; everything else (an existing database, another file, the advanced facts) is optional. The page sends
- * only opaque ids and booleans.
+ * The first-run page (DT-01). "使用預設設定開始" is on the first screen from the first paint, but disabled (with a short
+ * hint) until the detection ends: a new database is never created before the user could see what was found. Everything
+ * else (an existing database, another file, the advanced facts) is optional. The page sends only opaque ids and booleans.
  */
 
 const FAST_REFRESH_MS = 400;
@@ -22,6 +23,7 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
   /** The last start was held back by the old login service: "仍要啟動" repeats it with consent. */
   let heldBack: Retry | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const memory = createSetupMemory();
 
   function launchAtLogin(): boolean {
     return isChecked(app, LOGIN_ID);
@@ -114,7 +116,7 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
     if (!source.canUse) return card;
     const busy = state.busy || working;
     if (source.needsMigration) {
-      card.append(checkbox(text.setupMigrationConsent, `migrate:${source.id}`, false, !busy));
+      card.append(checkbox(text.setupMigrationConsent, `migrate:${source.id}`, memory.consent(source.id), !busy));
     }
     const label = recommended ? text.setupKeepThisData : text.setupUseThis;
     const use = button(label, `use:${source.id}`, !busy, () => useSource(source), recommended);
@@ -124,6 +126,7 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
       const box = card.querySelector<HTMLInputElement>(`input[data-id="migrate:${CSS.escape(source.id)}"]`);
       use.disabled = busy || !box?.checked;
       box?.addEventListener("change", () => {
+        memory.setConsent(source.id, box.checked);
         use.disabled = busy || !box.checked;
       });
     }
@@ -137,6 +140,7 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
     const busy = state.busy || working;
     const login = app.querySelector(`input[data-id="${LOGIN_ID}"]`) ? launchAtLogin() : state.defaults.launchAtLogin;
     const blocks: Node[] = [element("h1", { text: text.setupHeading })];
+    memory.keepConsentFor(state.sources.map((source) => source.id));
 
     if (state.phase === "done") {
       blocks.push(
@@ -181,6 +185,8 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
       );
     }
 
+    if (state.pathProblem) blocks.push(element("p", { className: "hint", text: state.pathProblem }));
+
     const conflictShown = state.defaults.legacyConflict || state.sources.some((source) => source.legacyConflict);
     if (state.legacy && (conflictShown || heldBack)) {
       const extra = heldBack
@@ -205,7 +211,13 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
 
     // The defaults are one click from the first paint; on the "existing" screen they are the second choice.
     const primaryDefaults = state.screen === "new" || state.phase === "detecting";
-    const defaults = button(text.setupUseDefaults, "use-defaults", !busy, useDefaults, primaryDefaults);
+    const defaults = button(
+      text.setupUseDefaults,
+      "use-defaults",
+      !busy && state.canUseDefaults,
+      useDefaults,
+      primaryDefaults,
+    );
     const advanced = element("details", { className: "advanced" }, [
       element("summary", { text: text.setupAdvanced }),
       element("dl", { className: "facts" }, [
@@ -214,6 +226,8 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
         ...fact(text.setupBackups, element("span", { className: "path", text: state.defaults.backupDisplay })),
       ]),
     ]);
+    advanced.open = memory.advancedOpen();
+    advanced.addEventListener("toggle", () => memory.setAdvancedOpen(advanced.open));
     blocks.push(
       element("div", { className: "actions" }, [
         defaults,
@@ -223,6 +237,7 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
       checkbox(text.setupLaunchAtLogin, LOGIN_ID, login, !busy),
       advanced,
     );
+    if (!state.canUseDefaults) blocks.push(element("p", { className: "hint", text: text.setupDetectingHint }));
     if (state.phase === "starting") blocks.push(element("p", { className: "hint", text: text.setupStarting }));
 
     app.replaceChildren(...blocks);

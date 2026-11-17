@@ -1,5 +1,6 @@
 import { expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { join } from "node:path";
 import { setupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
 import {
@@ -47,7 +48,11 @@ async function pageText(window: Page) {
 }
 
 /** A synthetic detection of the old service on `databasePath`, in the shape main's test seam reads. */
-function writeLegacyService(box: Sandbox, databasePath: string): string {
+function writeLegacyService(
+  box: Sandbox,
+  databasePath: string,
+  state: { running: "running" | "stopped"; enabled?: "enabled" | "disabled" } = { running: "running" },
+): string {
   const file = join(box.root, "legacy-service.json");
   const windows = process.platform === "win32";
   writeFileSync(
@@ -61,7 +66,8 @@ function writeLegacyService(box: Sandbox, databasePath: string): string {
       repositoryRoot: join(box.root, "checkout"),
       databasePath,
       port: 3210,
-      running: "running",
+      running: state.running,
+      ...(state.enabled === undefined ? {} : { enabled: state.enabled }),
       removeCommand: windows
         ? `cd /d "${join(box.root, "checkout")}" && pnpm service:uninstall`
         : `cd '${join(box.root, "checkout")}' && pnpm service:uninstall`,
@@ -103,10 +109,14 @@ test("a new install shows the first-run page with the defaults one click away an
     const entry = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
     return Math.round(performance.now() - (entry?.startTime ?? 0));
   });
-  await expect(defaults).toBeEnabled();
-  await expect(defaults).toHaveClass(/primary/);
+  // The button is on the first screen from the first paint but is usable only once the detection has ended: a click
+  // before that could create a new database next to one the user was never shown. Read the button first and the
+  // detection second, so an enabled button proves the detection was already done.
+  const enabledAtPaint = await defaults.isEnabled();
+  const afterPaint = await readSnapshot(app);
+  if (enabledAtPaint) expect(afterPaint.firstRunDetectionMs).not.toBeNull();
 
-  const waiting = await readSnapshot(app);
+  const waiting = afterPaint;
   expect(waiting.needsSetup).toBe(true);
   expect(waiting.view).toBe("setup");
   expect(waiting.owner).toBe("UNCONFIGURED");
@@ -117,6 +127,9 @@ test("a new install shows the first-run page with the defaults one click away an
   expect(await portIsFree(sandbox.port)).toBe(true);
 
   const detected = await waitForSnapshot(app, (state) => state.firstRunDetectionMs !== null, 30_000);
+  // Once the detection is done the button works, and on a new install it is the primary one.
+  await expect(defaults).toBeEnabled();
+  await expect(defaults).toHaveClass(/primary/);
   const numbers = {
     platform: process.platform,
     firstPaintMs,
@@ -189,4 +202,65 @@ test("the old login service on another database does not hold the App back", asy
   const ready = await waitForManagedSnapshot(app);
   expect(ready.recentErrors).not.toContain("LEGACY_SERVICE_ACTIVE");
   expect(readMainLog(sandbox)).not.toMatch(/start held back/);
+});
+
+test("a failed default start takes back the database it created and writes no settings", async () => {
+  sandbox = await createSandbox({ withDatabase: false, withSettings: false });
+  // The test holds the default port, so the new App cannot listen on it and the start fails.
+  const holder = createServer();
+  await new Promise<void>((resolveListen, rejectListen) => {
+    holder.once("error", rejectListen);
+    holder.listen(sandbox!.port, "127.0.0.1", () => resolveListen());
+  });
+  try {
+    app = await launchApp(sandbox, { WORK_INTELLIGENCE_DESKTOP_TEST_DEFAULT_PORT: String(sandbox.port) });
+    const window = await app.firstWindow({ timeout: 45_000 });
+    const defaults = window.locator('[data-id="use-defaults"]');
+    await waitForSnapshot(app, (state) => state.firstRunDetectionMs !== null, 30_000);
+    await expect(defaults).toBeEnabled();
+    await defaults.click();
+
+    await expect(window.locator(".card.error")).toBeVisible({ timeout: 60_000 });
+    expect(existsSync(sandbox.databasePath)).toBe(false);
+    expect(existsSync(settingsFile(sandbox))).toBe(false);
+    const state = await readSnapshot(app);
+    expect(state.needsSetup).toBe(true);
+    expect(state.owner).toBe("UNCONFIGURED");
+    expect(readMainLog(sandbox)).toMatch(/first-run removed the database it created after a failed start/);
+  } finally {
+    await new Promise<void>((resolveClose) => holder.close(() => resolveClose()));
+  }
+});
+
+test("a login start holds back when the old service is enabled on the App's database, though it is not running", async () => {
+  sandbox = await createSandbox({ withDatabase: true });
+  const legacyFile = writeLegacyService(sandbox, sandbox.databasePath, { running: "stopped", enabled: "enabled" });
+  app = await launchApp(sandbox, { WORK_INTELLIGENCE_DESKTOP_TEST_LEGACY_SERVICE_FILE: legacyFile }, ["--background"]);
+
+  const held = await waitForSnapshot(
+    app,
+    (state) => state.owner === "NEEDS_REPAIR" && state.recentErrors.includes("LEGACY_SERVICE_ACTIVE"),
+  );
+  expect(held.backend).toBeNull();
+  expect(await portIsFree(sandbox.port)).toBe(true);
+  expect(readMainLog(sandbox)).toMatch(/start held back at login/);
+});
+
+test("an interactive start with the old service enabled but not running starts, with the warning", async () => {
+  sandbox = await createSandbox({ withDatabase: true });
+  const legacyFile = writeLegacyService(sandbox, sandbox.databasePath, { running: "stopped", enabled: "enabled" });
+  app = await launchApp(sandbox, { WORK_INTELLIGENCE_DESKTOP_TEST_LEGACY_SERVICE_FILE: legacyFile });
+
+  const ready = await waitForManagedSnapshot(app);
+  expect(ready.recentErrors).not.toContain("LEGACY_SERVICE_ACTIVE");
+  expect(readMainLog(sandbox)).not.toMatch(/start held back/);
+});
+
+test("a login start with the old service not installed or disabled starts normally", async () => {
+  sandbox = await createSandbox({ withDatabase: true });
+  const legacyFile = writeLegacyService(sandbox, sandbox.databasePath, { running: "stopped", enabled: "disabled" });
+  app = await launchApp(sandbox, { WORK_INTELLIGENCE_DESKTOP_TEST_LEGACY_SERVICE_FILE: legacyFile }, ["--background"]);
+
+  const ready = await waitForManagedSnapshot(app);
+  expect(ready.recentErrors).not.toContain("LEGACY_SERVICE_ACTIVE");
 });

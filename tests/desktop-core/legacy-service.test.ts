@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -23,7 +23,36 @@ const directories: string[] = [];
 const POSIX_ROOT = "/srv/Work Log ünï 專案/it's $HOME";
 const WINDOWS_ROOT = "C:\\Users\\Ünï Üser\\Work Log 專案 & co";
 const WINDOWS_HOME = "C:\\Users\\Ünï Üser";
-const SCHTASKS = "C:\\Windows\\System32\\schtasks.exe";
+const POWERSHELL = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+const WINDOWS_ENVIRONMENT = { SystemRoot: "C:\\Windows" };
+
+/** What the structured Windows query prints: numeric state, enabled flags, and the task XML as base64 of UTF-8. */
+function taskReply(
+  task: { state: number; enabled?: boolean; logon?: boolean; xml?: string } | "absent",
+): LegacyServiceCommandResult {
+  if (task === "absent") return { stdout: "{}\r\n", code: 0 };
+  const { xml, ...rest } = task;
+  const body = {
+    enabled: true,
+    logon: true,
+    ...rest,
+    ...(xml === undefined ? {} : { xml: Buffer.from(xml, "utf8").toString("base64") }),
+  };
+  return { stdout: `${JSON.stringify(body)}\r\n`, code: 0 };
+}
+
+function systemdReply(
+  values: { LoadState?: string; ActiveState?: string; UnitFileState?: string },
+  code = 0,
+): LegacyServiceCommandResult {
+  return {
+    stdout: Object.entries(values)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => `${key}=${value}`)
+      .join("\n"),
+    code,
+  };
+}
 
 function tempHome(): string {
   const directory = mkdtempSync(join(tmpdir(), "wi-legacy-service-"));
@@ -108,12 +137,15 @@ describe("detectLegacyService: nothing installed", () => {
     const result = await detectLegacyService({
       platform: "win32",
       homeDirectory: WINDOWS_HOME,
-      environment: { SystemRoot: "C:\\Windows" },
+      environment: WINDOWS_ENVIRONMENT,
       runCommand: runner.runCommand,
       ...virtualFiles({}),
     });
     expect(result).toEqual({ kind: "none" });
-    expect(runner.calls).toEqual([{ command: SCHTASKS, args: ["/Query", "/TN", "\\Work Intelligence", "/XML"] }]);
+    expect(runner.calls).toHaveLength(1);
+    expect(runner.calls[0]!.command).toBe(POWERSHELL);
+    expect(runner.calls[0]!.args.slice(0, 3)).toEqual(["-NoProfile", "-NonInteractive", "-Command"]);
+    expect(runner.calls[0]!.args[3]).toContain("Get-ScheduledTask -TaskPath '\\' -TaskName 'Work Intelligence'");
   });
 
   it("reports none on an unsupported platform", async () => {
@@ -155,7 +187,9 @@ describe("detectLegacyService: recognised definitions", () => {
     const environment = { XDG_CONFIG_HOME: "/home/tester/xdg ünï" };
     const file = planFor("linux", home, POSIX_ROOT, environment).files[0]!;
     const path = file.path;
-    const runner = fakeRunner({ systemctl: { stdout: "inactive\n", code: 3 } });
+    const runner = fakeRunner({
+      systemctl: systemdReply({ LoadState: "loaded", ActiveState: "inactive", UnitFileState: "disabled" }),
+    });
     const result = found(
       await detectLegacyService({
         platform: "linux",
@@ -174,27 +208,32 @@ describe("detectLegacyService: recognised definitions", () => {
       running: "stopped",
     });
     expect(runner.calls).toEqual([
-      { command: "systemctl", args: ["--user", "is-active", "work-intelligence.service"] },
+      {
+        command: "systemctl",
+        args: [
+          "--user",
+          "show",
+          "work-intelligence.service",
+          "--property=LoadState",
+          "--property=ActiveState",
+          "--property=UnitFileState",
+        ],
+      },
     ]);
     expect(result.fallbackRemoveCommand).toBe(
       `systemctl --user disable --now work-intelligence.service; rm -f '${path}'; systemctl --user daemon-reload`,
     );
   });
 
-  it("recognises the Windows task XML copy, decodes quoting, and reads the CSV status", async () => {
+  it("recognises the Windows task XML copy, decodes quoting, and reads the numeric task state", async () => {
     const plan = planFor("win32", WINDOWS_HOME, WINDOWS_ROOT);
     const file = plan.files[0]!;
-    const runner = fakeRunner({
-      [`${SCHTASKS} /Query /TN \\Work Intelligence /FO CSV /NH`]: {
-        stdout: '"\\Work Intelligence","N/A","Running"\r\n',
-        code: 0,
-      },
-    });
+    const runner = fakeRunner({ [POWERSHELL]: taskReply({ state: 4 }) });
     const result = found(
       await detectLegacyService({
         platform: "win32",
         homeDirectory: WINDOWS_HOME,
-        environment: { SystemRoot: "C:\\Windows" },
+        environment: WINDOWS_ENVIRONMENT,
         runCommand: runner.runCommand,
         ...virtualFiles({ [file.path]: file.contents }),
       }),
@@ -217,18 +256,12 @@ describe("detectLegacyService: recognised definitions", () => {
 
   it("falls back to the task XML on Windows when the copy is gone", async () => {
     const plan = planFor("win32", WINDOWS_HOME, WINDOWS_ROOT);
-    const runner = fakeRunner({
-      [`${SCHTASKS} /Query /TN \\Work Intelligence /XML`]: { stdout: plan.files[0]!.contents, code: 0 },
-      [`${SCHTASKS} /Query /TN \\Work Intelligence /FO CSV /NH`]: {
-        stdout: '"\\Work Intelligence","N/A","Ready"\r\n',
-        code: 0,
-      },
-    });
+    const runner = fakeRunner({ [POWERSHELL]: taskReply({ state: 3, xml: plan.files[0]!.contents }) });
     const result = found(
       await detectLegacyService({
         platform: "win32",
         homeDirectory: WINDOWS_HOME,
-        environment: { SystemRoot: "C:\\Windows" },
+        environment: WINDOWS_ENVIRONMENT,
         runCommand: runner.runCommand,
         ...virtualFiles({}),
       }),
@@ -238,6 +271,7 @@ describe("detectLegacyService: recognised definitions", () => {
       definitionSource: "task-query",
       recognised: true,
       repositoryRoot: WINDOWS_ROOT,
+      databasePath: `${WINDOWS_ROOT}\\data\\work-intelligence.sqlite`,
       running: "stopped",
     });
   });
@@ -337,7 +371,7 @@ describe("detectLegacyService: unrecognised definitions", () => {
       await detectLegacyService({
         platform: "win32",
         homeDirectory: WINDOWS_HOME,
-        environment: { SystemRoot: "C:\\Windows" },
+        environment: WINDOWS_ENVIRONMENT,
         runCommand: fakeRunner().runCommand,
         ...virtualFiles({ [file.path]: file.contents.replace("<URI>\\Work Intelligence", "<URI>\\Other") }),
       }),
@@ -381,7 +415,7 @@ describe("detectLegacyService: unrecognised definitions", () => {
         await detectLegacyService({
           platform: "win32",
           homeDirectory: WINDOWS_HOME,
-          environment: { SystemRoot: "C:\\Windows" },
+          environment: WINDOWS_ENVIRONMENT,
           runCommand: fakeRunner().runCommand,
           ...virtualFiles({ [file.path]: stat }),
         }),
@@ -409,11 +443,13 @@ describe("detectLegacyService: running status", () => {
 
   it("maps launchctl and systemctl results", async () => {
     expect(await runningOn("darwin", { stdout: "state = not running", code: 0 })).toBe("stopped");
-    expect(await runningOn("darwin", { stdout: "", code: 113 })).toBe("unknown");
-    expect(await runningOn("linux", { stdout: "active\n", code: 0 })).toBe("running");
-    expect(await runningOn("linux", { stdout: "failed\n", code: 3 })).toBe("stopped");
+    expect(await runningOn("darwin", { stdout: "", code: 1 })).toBe("unknown");
+    const unit = (ActiveState: string) => systemdReply({ LoadState: "loaded", ActiveState });
+    expect(await runningOn("linux", unit("active"))).toBe("running");
+    expect(await runningOn("linux", unit("failed"))).toBe("stopped");
+    expect(await runningOn("linux", unit("inactive"))).toBe("stopped");
     expect(await runningOn("linux", { stdout: "", code: 1 })).toBe("unknown");
-    expect(await runningOn("linux", { stdout: "activating\n", code: 3 })).toBe("unknown");
+    expect(await runningOn("linux", unit("activating"))).toBe("unknown");
   });
 
   it("maps a hung command to unknown within the deadline", async () => {
@@ -436,21 +472,29 @@ describe("detectLegacyService: running status", () => {
     expect(result).toMatchObject({ recognised: true, running: "unknown" });
   });
 
-  it("returns unknown for localized Windows output it cannot parse", async () => {
+  it("reads the Windows state from numbers, so the system language does not matter", async () => {
     const plan = planFor("win32", WINDOWS_HOME, WINDOWS_ROOT);
     const file = plan.files[0]!;
-    for (const stdout of ['"\\Work Intelligence","N/A","正在執行"\r\n', "garbage", ""]) {
-      const result = found(
+    const stateOf = async (reply: LegacyServiceCommandResult) =>
+      found(
         await detectLegacyService({
           platform: "win32",
           homeDirectory: WINDOWS_HOME,
-          environment: { SystemRoot: "C:\\Windows" },
-          runCommand: fakeRunner({ [SCHTASKS]: { stdout, code: 0 } }).runCommand,
+          environment: WINDOWS_ENVIRONMENT,
+          runCommand: fakeRunner({ [POWERSHELL]: reply }).runCommand,
           ...virtualFiles({ [file.path]: file.contents }),
         }),
-      );
-      expect(result.running).toBe("unknown");
+      ).running;
+    // The same JSON comes back on a zh-TW Windows: nothing in it is a translated word.
+    expect(await stateOf(taskReply({ state: 4 }))).toBe("running");
+    expect(await stateOf(taskReply({ state: 3 }))).toBe("stopped");
+    expect(await stateOf(taskReply({ state: 2 }))).toBe("stopped");
+    expect(await stateOf(taskReply({ state: 1 }))).toBe("stopped");
+    expect(await stateOf(taskReply({ state: 0 }))).toBe("unknown");
+    for (const stdout of ["garbage", "", "[]", "null", '{"state":"Running"}']) {
+      expect(await stateOf({ stdout, code: 0 })).toBe("unknown");
     }
+    expect(await stateOf({ stdout: taskReply({ state: 4 }).stdout, code: 1 })).toBe("unknown");
   });
 
   it("keeps the whole Windows detection inside the deadline when schtasks hangs", async () => {
@@ -458,13 +502,126 @@ describe("detectLegacyService: running status", () => {
     const result = await detectLegacyService({
       platform: "win32",
       homeDirectory: WINDOWS_HOME,
-      environment: { SystemRoot: "C:\\Windows" },
-      runCommand: fakeRunner({ [SCHTASKS]: "hang" }).runCommand,
+      environment: WINDOWS_ENVIRONMENT,
+      runCommand: fakeRunner({ [POWERSHELL]: "hang" }).runCommand,
       timeoutMs: 80,
       ...virtualFiles({}),
     });
     expect(result).toEqual({ kind: "none" });
     expect(Date.now() - started).toBeLessThan(1500);
+  });
+});
+
+describe("detectLegacyService: starts at login", () => {
+  async function onPosix(platform: "darwin" | "linux", reply: Reply, edit?: (contents: string) => string) {
+    const home = tempHome();
+    const path = installPosix(platform, home);
+    if (edit) writeFileSync(path, edit(readFileSync(path, "utf8")));
+    return detectLegacyService({
+      platform,
+      homeDirectory: home,
+      environment: {},
+      uid: 501,
+      ...fakeRunner({ [platform === "darwin" ? "launchctl" : "systemctl"]: reply }),
+    });
+  }
+
+  async function onWindows(reply: LegacyServiceCommandResult) {
+    const file = planFor("win32", WINDOWS_HOME, WINDOWS_ROOT).files[0]!;
+    return detectLegacyService({
+      platform: "win32",
+      homeDirectory: WINDOWS_HOME,
+      environment: WINDOWS_ENVIRONMENT,
+      runCommand: fakeRunner({ [POWERSHELL]: reply }).runCommand,
+      ...virtualFiles({ [file.path]: file.contents }),
+    });
+  }
+
+  it("macOS: a loaded agent that is not running but has RunAtLoad starts at login", async () => {
+    const result = found(await onPosix("darwin", { stdout: "state = not running", code: 0 }));
+    expect(result).toMatchObject({ running: "stopped", enabled: "enabled" });
+  });
+
+  it("macOS: a loaded agent without RunAtLoad does not start at login, and the print output can say it too", async () => {
+    const withoutRunAtLoad = (contents: string) =>
+      contents.replace("<key>RunAtLoad</key>\n  <true/>", "<key>RunAtLoad</key>\n  <false/>");
+    const result = found(await onPosix("darwin", { stdout: "state = not running", code: 0 }, withoutRunAtLoad));
+    expect(result.enabled).toBe("disabled");
+    const unreadable = found(
+      await onPosix("darwin", { stdout: "state = waiting\n\tproperties = runatload", code: 0 }, () => "<plist/>"),
+    );
+    expect(unreadable).toMatchObject({ recognised: false, enabled: "enabled" });
+    const unknown = found(await onPosix("darwin", { stdout: "state = waiting", code: 0 }, () => "<plist/>"));
+    expect(unknown.enabled).toBe("unknown");
+  });
+
+  it("macOS: launchctl that does not know the label means a stale plist, so nothing is found", async () => {
+    expect(await onPosix("darwin", { stdout: "", code: 113 })).toEqual({ kind: "none" });
+    // Any other failure is not proof that the service is gone.
+    expect(found(await onPosix("darwin", { stdout: "", code: 1 }))).toMatchObject({ running: "unknown" });
+    expect(found(await onPosix("darwin", { stdout: "", code: 1 })).enabled).toBeUndefined();
+  });
+
+  it("Linux: systemd's unit file state tells whether it starts at login", async () => {
+    const stateOf = async (UnitFileState: string | undefined) =>
+      found(await onPosix("linux", systemdReply({ LoadState: "loaded", ActiveState: "inactive", UnitFileState })))
+        .enabled;
+    expect(await stateOf("enabled")).toBe("enabled");
+    expect(await stateOf("enabled-runtime")).toBe("enabled");
+    expect(await stateOf("disabled")).toBe("disabled");
+    expect(await stateOf("masked")).toBe("disabled");
+    expect(await stateOf("static")).toBe("disabled");
+    expect(await stateOf(undefined)).toBe("unknown");
+  });
+
+  it("Linux: a unit systemd does not know is a stale definition, so nothing is found", async () => {
+    expect(await onPosix("linux", systemdReply({ LoadState: "not-found", ActiveState: "inactive" }))).toEqual({
+      kind: "none",
+    });
+    // No LoadState at all (no user bus, systemctl missing) proves nothing.
+    expect(found(await onPosix("linux", { stdout: "", code: 1 }))).toMatchObject({ running: "unknown" });
+  });
+
+  it("Windows: an enabled task with an enabled logon trigger starts at login", async () => {
+    expect(found(await onWindows(taskReply({ state: 3 })))).toMatchObject({ running: "stopped", enabled: "enabled" });
+  });
+
+  it("Windows: a disabled task, a disabled task setting, or no logon trigger does not start at login", async () => {
+    expect(found(await onWindows(taskReply({ state: 1, enabled: false }))).enabled).toBe("disabled");
+    expect(found(await onWindows(taskReply({ state: 3, enabled: false }))).enabled).toBe("disabled");
+    expect(found(await onWindows(taskReply({ state: 3, logon: false }))).enabled).toBe("disabled");
+    expect(found(await onWindows({ stdout: '{"state":3}', code: 0 })).enabled).toBe("unknown");
+  });
+
+  it("Windows: a task the scheduler does not know is a stale XML copy, so nothing is found", async () => {
+    expect(await onWindows(taskReply("absent"))).toEqual({ kind: "none" });
+    // A failed query proves nothing.
+    expect(found(await onWindows({ stdout: "", code: 1 }))).toMatchObject({ running: "unknown" });
+  });
+
+  it("Windows: the task XML comes back through PowerShell as UTF-8, so a non-ASCII user name stays intact", async () => {
+    const xml = planFor("win32", WINDOWS_HOME, WINDOWS_ROOT).files[0]!.contents;
+    const result = found(
+      await detectLegacyService({
+        platform: "win32",
+        homeDirectory: WINDOWS_HOME,
+        environment: WINDOWS_ENVIRONMENT,
+        runCommand: fakeRunner({ [POWERSHELL]: taskReply({ state: 3, xml }) }).runCommand,
+        ...virtualFiles({}),
+      }),
+    );
+    expect(result.databasePath).toBe("C:\\Users\\Ünï Üser\\Work Log 專案 & co\\data\\work-intelligence.sqlite");
+  });
+
+  it("Windows: a task query without usable XML and without a copy finds nothing", async () => {
+    const result = await detectLegacyService({
+      platform: "win32",
+      homeDirectory: WINDOWS_HOME,
+      environment: WINDOWS_ENVIRONMENT,
+      runCommand: fakeRunner({ [POWERSHELL]: taskReply({ state: 3 }) }).runCommand,
+      ...virtualFiles({}),
+    });
+    expect(result).toEqual({ kind: "none" });
   });
 });
 

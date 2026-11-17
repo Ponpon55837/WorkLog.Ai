@@ -2,7 +2,16 @@ import type { ServiceOwnerState } from "../operations/service-owner-state.js";
 import { formatMessage, type ShellMessages } from "./i18n.js";
 import type { SetupMessages } from "./setup-i18n.js";
 
-export type TrayItemId = "open-dashboard" | "complete-setup" | "agent-setup" | "repair" | "separator" | "quit";
+export type TrayItemId =
+  | "open-dashboard"
+  | "complete-setup"
+  | "agent-setup"
+  | "legacy-status"
+  | "legacy-start-anyway"
+  | "legacy-remove-help"
+  | "repair"
+  | "separator"
+  | "quit";
 
 /** One row of the tray menu as data; the Electron layer only turns it into a native menu. */
 export interface TrayMenuItem {
@@ -23,6 +32,11 @@ export interface TrayMenuInputs {
     readonly messages: Pick<SetupMessages, "trayCompleteSetup" | "trayAgentSetup">;
     readonly needsSetup: boolean;
   };
+  /**
+   * A login start was held back because the old login service is enabled on this database: the status line says so, and
+   * the two ways out follow. Omitted when nothing was held back.
+   */
+  readonly legacyHeld?: Pick<SetupMessages, "trayLegacyStatus" | "trayLegacyStartAnyway" | "trayLegacyHowToRemove">;
 }
 
 /** Why the Dashboard cannot open right now, in the user's words; undefined when it can. */
@@ -49,7 +63,9 @@ export function buildTrayMenu(inputs: TrayMenuInputs): TrayMenuItem[] {
           : { id: "agent-setup", label: setup.messages.trayAgentSetup, enabled: true },
       ]
     : [];
+  const { legacyHeld } = inputs;
   return [
+    ...(legacyHeld ? [{ id: "legacy-status" as const, label: legacyHeld.trayLegacyStatus, enabled: false }] : []),
     ...(setup?.needsSetup ? setupItems : []),
     {
       id: "open-dashboard",
@@ -58,6 +74,12 @@ export function buildTrayMenu(inputs: TrayMenuInputs): TrayMenuItem[] {
         : messages.trayOpenDashboard,
       enabled: reason === undefined,
     },
+    ...(legacyHeld
+      ? [
+          { id: "legacy-start-anyway" as const, label: legacyHeld.trayLegacyStartAnyway, enabled: true },
+          { id: "legacy-remove-help" as const, label: legacyHeld.trayLegacyHowToRemove, enabled: true },
+        ]
+      : []),
     { id: "repair", label: messages.trayRepair, enabled: true },
     ...(setup && !setup.needsSetup ? setupItems : []),
     { id: "separator", label: "", enabled: false },
