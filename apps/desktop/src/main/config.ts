@@ -28,6 +28,8 @@ export const ASSET_FILES = {
   rendererDirectory: join(BUNDLE_DIRECTORY, "..", "renderer", "repair"),
   preloadFile: join(BUNDLE_DIRECTORY, "..", "preload", "repair.cjs"),
   trayIconFile: join(BUNDLE_DIRECTORY, "..", "assets", "tray.png"),
+  /** macOS menu-bar template image; `trayTemplate@2x.png` sits beside it and Electron picks it up on Retina displays. */
+  trayTemplateFile: join(BUNDLE_DIRECTORY, "..", "assets", "trayTemplate.png"),
 } as const;
 
 export interface DesktopPaths {

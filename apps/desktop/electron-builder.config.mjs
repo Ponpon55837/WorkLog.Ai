@@ -17,7 +17,8 @@
  *    a Developer ID exists; users must approve the first launch in Gatekeeper. The runtime bundle is never signed or
  *    touched, so the official Node binary keeps its own signature and its bytes keep matching the manifest. The installer
  *    builds run from the packed app (`prepackaged`), where the hook does not run again.
- *  - The icon is original artwork (build/icon.svg); icon.ico, icon.icns and icon.png are generated from it and committed.
+ *  - The icon is the WI brand mark (apps/web/public/favicon.svg); build/icon.svg and the .ico, .icns, .png and tray files are
+ *    generated from it by scripts/generate-icons.mjs and committed.
  *  - Windows is unsigned (no certificate yet): SmartScreen will warn on first run.
  */
 import { createRequire } from "node:module";

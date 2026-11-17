@@ -2,12 +2,14 @@
 /**
  * `pnpm --filter @work-intelligence/desktop generate-icons`
  *
- * Renders build/icon.svg (the only source of the App icon) and writes, next to it:
+ * Derives build/icon.svg from the brand mark apps/web/public/favicon.svg (scripts/icon-svg.mjs), renders it and writes,
+ * next to it:
  *
  *   build/icon.png   1024 px master (electron-builder's Linux icon and the fallback for every platform)
  *   build/icon.ico   Windows: 16, 24, 32, 48, 64, 128 and 256 px, PNG entries
  *   build/icon.icns  macOS: 16 to 1024 px PNG entries (ic04, ic05, ic07 to ic14)
- *   build/tray.png   32 px copy the shell build ships as the tray icon
+ *   build/tray.png   32 px full-bleed favicon (dark rounded square, legible on light and dark taskbars): Windows/Linux tray
+ *   build/trayTemplate.png, trayTemplate@2x.png   16 and 32 px black WI glyph on transparent: macOS menu-bar template image
  *
  * The SVG is rasterized by Playwright's Chromium (a root devDependency) once per size, on a transparent page, so small
  * sizes are rendered from the vector instead of being scaled down. Run it after editing icon.svg and commit the results.
@@ -19,8 +21,11 @@ import { dirname, join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
+import { buildDesktopIconSvg, buildTrayGlyphSvg, buildTrayPlateSvg } from "./icon-svg.mjs";
 
-const buildDirectory = join(dirname(fileURLToPath(import.meta.url)), "..", "build");
+const scriptsDirectory = dirname(fileURLToPath(import.meta.url));
+const buildDirectory = join(scriptsDirectory, "..", "build");
+const faviconFile = join(scriptsDirectory, "..", "..", "web", "public", "favicon.svg");
 const ICO_SIZES = [16, 24, 32, 48, 64, 128, 256];
 /** ICNS entry types and the pixel size of the PNG each one holds (the @2x entries repeat a size on purpose). */
 const ICNS_ENTRIES = [
@@ -37,6 +42,7 @@ const ICNS_ENTRIES = [
 ];
 const MASTER_SIZE = 1024;
 const TRAY_SIZE = 32;
+const TRAY_TEMPLATE_SIZE = 16;
 
 async function renderPngs(svg, sizes) {
   const browser = await chromium.launch();
@@ -91,13 +97,19 @@ export function packIcns(records) {
 }
 
 async function main() {
-  const svg = readFileSync(join(buildDirectory, "icon.svg"), "utf8");
-  const sizes = [...new Set([...ICO_SIZES, ...ICNS_ENTRIES.map(([, size]) => size), MASTER_SIZE, TRAY_SIZE])];
+  const favicon = readFileSync(faviconFile, "utf8");
+  const svg = buildDesktopIconSvg(favicon);
+  writeFileSync(join(buildDirectory, "icon.svg"), svg);
+  const sizes = [...new Set([...ICO_SIZES, ...ICNS_ENTRIES.map(([, size]) => size), MASTER_SIZE])];
   const images = await renderPngs(svg, sizes);
   const png = (size) => images.get(size);
+  const trayPlate = (await renderPngs(buildTrayPlateSvg(favicon), [TRAY_SIZE])).get(TRAY_SIZE);
+  const glyph = await renderPngs(buildTrayGlyphSvg(favicon), [TRAY_TEMPLATE_SIZE, TRAY_TEMPLATE_SIZE * 2]);
 
   writeFileSync(join(buildDirectory, "icon.png"), png(MASTER_SIZE));
-  writeFileSync(join(buildDirectory, "tray.png"), png(TRAY_SIZE));
+  writeFileSync(join(buildDirectory, "tray.png"), trayPlate);
+  writeFileSync(join(buildDirectory, "trayTemplate.png"), glyph.get(TRAY_TEMPLATE_SIZE));
+  writeFileSync(join(buildDirectory, "trayTemplate@2x.png"), glyph.get(TRAY_TEMPLATE_SIZE * 2));
   writeFileSync(join(buildDirectory, "icon.ico"), packIco(ICO_SIZES.map((size) => ({ size, png: png(size) }))));
   writeFileSync(
     join(buildDirectory, "icon.icns"),

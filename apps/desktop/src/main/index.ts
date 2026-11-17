@@ -195,6 +195,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
   const tray = createShellTray({
     state,
     iconFile: ASSET_FILES.trayIconFile,
+    templateIconFile: ASSET_FILES.trayTemplateFile,
     backendRunning: () => supervisor.running !== undefined,
     openDashboard: dashboard.open,
     openRepairWindow: window.open,

@@ -6,7 +6,7 @@
  *                                  is bundled so the shell does not depend on node_modules at run time)
  *   dist/preload/repair.cjs        sandboxed preload, CommonJS (a sandboxed preload cannot be ESM and may only require "electron")
  *   dist/renderer/repair/          repair page: index.html and repair.css copied, repair.js bundled as an IIFE
- *   dist/assets/tray.png           tray icon, a copy of build/tray.png (rendered from build/icon.svg by generate-icons.mjs)
+ *   dist/assets/tray*.png          tray icons, copies of build/tray.png and build/trayTemplate*.png (rendered by generate-icons.mjs)
  *
  * Flags:
  *   --production                      the release bundle: minified, no source maps, and `__WI_TEST_BUILD__` is false, so the
@@ -88,5 +88,6 @@ await build({
 
 cpSync(join(root, "src/renderer/repair/index.html"), join(dist, "renderer/repair/index.html"));
 cpSync(join(root, "src/renderer/repair/repair.css"), join(dist, "renderer/repair/repair.css"));
-cpSync(join(root, "build/tray.png"), join(dist, "assets/tray.png"));
+for (const file of ["tray.png", "trayTemplate.png", "trayTemplate@2x.png"])
+  cpSync(join(root, "build", file), join(dist, "assets", file));
 process.stdout.write(`desktop shell built (${production ? "production" : "smoke"})\n`);

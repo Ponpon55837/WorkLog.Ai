@@ -1,4 +1,4 @@
-import { Menu, nativeImage, Tray } from "electron";
+import { Menu, nativeImage, Tray, type NativeImage } from "electron";
 import { buildTrayMenu, trayBackgroundHint, trayTooltip } from "@work-intelligence/desktop-core";
 import type { Logger } from "./log.js";
 import type { ShellState } from "./state.js";
@@ -12,7 +12,10 @@ export interface ShellTray {
 
 export interface ShellTrayOptions {
   readonly state: ShellState;
+  /** Full-colour icon: the dark rounded square, legible on light and dark taskbars. */
   readonly iconFile: string;
+  /** Black-on-transparent glyph the macOS menu bar tints itself (a `@2x` file beside it serves Retina displays). */
+  readonly templateIconFile: string;
   readonly backendRunning: () => boolean;
   readonly openDashboard: () => void;
   readonly openRepairWindow: () => void;
@@ -23,6 +26,13 @@ export interface ShellTrayOptions {
 export function createShellTray(options: ShellTrayOptions): ShellTray {
   const { state } = options;
   let tray: Tray | null = null;
+
+  function trayImage(): NativeImage {
+    if (process.platform !== "darwin") return nativeImage.createFromPath(options.iconFile);
+    const image = nativeImage.createFromPath(options.templateIconFile);
+    image.setTemplateImage(true);
+    return image;
+  }
 
   function refresh(): void {
     if (!tray) return;
@@ -50,7 +60,7 @@ export function createShellTray(options: ShellTrayOptions): ShellTray {
 
   function create(): void {
     try {
-      tray = new Tray(nativeImage.createFromPath(options.iconFile));
+      tray = new Tray(trayImage());
       state.onChange(refresh);
       refresh();
       if (state.launchMode === "background") {
