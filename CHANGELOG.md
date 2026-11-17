@@ -28,6 +28,10 @@ This release is the CI-verifiable part of stage 3 (Agent integration) of the des
 - Hooks that run through the shim are silent, end after 25 seconds (on Windows the process tree is ended with `taskkill /T`), and always exit 0.
 - `WORK_INTELLIGENCE_DB` from the MCPB user configuration passes through the launcher.
 
+### Fixed
+
+- Portable JSON import no longer reports a conflict for work-summary update rows when only one machine has pruned their replay columns. At startup the server clears `previous_work_summary_json` and `resulting_work_summary_json` of update rows older than 7 days to `'{}'`, and the table has no version column, so "newer wins" could not resolve it. These two columns now count as equal when either side is `'{}'`; the local value is kept, and two different non-empty values are still a conflict. No data was lost: the work summary itself was identical on both sides.
+
 ### Notes
 
 - Plugin manifests still start `node launch.mjs`, so Agents still need Node to start the plugin itself. The App UI does not call the Agent setup API yet.

@@ -136,6 +136,17 @@ const UNORDERED_JSON_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>
 };
 
 /**
+ * Replay columns that pruneWorkSummaryUpdateHistory (7-day retention, run at server start) rewrites to "{}" on
+ * the machine that pruned. The table has no version column, so "newer wins" cannot order the two copies; either
+ * side being "{}" means the same update (work_summary_json and the session's own summary are untouched), and the
+ * local value is kept. Two different non-empty values are still a conflict.
+ */
+const CLEARABLE_REPLAY_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> = {
+  session_work_summary_updates: ["previous_work_summary_json", "resulting_work_summary_json"],
+};
+const PRUNED_REPLAY_VALUE = "{}";
+
+/**
  * Time columns that advance when a mutable row changes; the latest of them dates one copy of the row.
  * Tables not listed are append-only history: a differing copy with the same ID stays a conflict.
  */
@@ -586,23 +597,34 @@ function normalizeUnorderedJson(value: ProjectDataValue | undefined): ProjectDat
   return JSON.stringify([...new Set(entries)].sort());
 }
 
-function comparableValue(table: ProjectDataTable, row: ProjectDataRow, column: string): ProjectDataValue | undefined {
-  const value = projectDataColumnValue(table, row, column);
-  return UNORDERED_JSON_FIELDS[table]?.includes(column) ? normalizeUnorderedJson(value) : value;
+/** The one rule for whether two values of a non-derived column mean the same; shared by every comparison path. */
+function sameColumnValue(
+  table: ProjectDataTable,
+  column: string,
+  leftValue: ProjectDataValue | undefined,
+  rightValue: ProjectDataValue | undefined,
+): boolean {
+  // Equal raw values are the common case; only differing values are inspected further.
+  if (leftValue === rightValue) return true;
+  if (
+    CLEARABLE_REPLAY_FIELDS[table]?.includes(column) &&
+    (leftValue === PRUNED_REPLAY_VALUE || rightValue === PRUNED_REPLAY_VALUE)
+  ) {
+    return true;
+  }
+  return (
+    UNORDERED_JSON_FIELDS[table]?.includes(column) === true &&
+    normalizeUnorderedJson(leftValue) === normalizeUnorderedJson(rightValue)
+  );
 }
 
 function sameComparableColumns(table: ProjectDataTable, left: ProjectDataRow, right: ProjectDataRow): boolean {
   const derived = LOCAL_DERIVED_FIELDS[table];
-  const unordered = UNORDERED_JSON_FIELDS[table];
   const paths = PATH_COLUMNS[table];
   for (const column of projectDataExportTableColumns[table]) {
     const leftValue = projectDataColumnValue(table, left, column);
     const rightValue = projectDataColumnValue(table, right, column);
-    // Equal raw values are the common case; only differing JSON arrays are parsed and normalized.
-    if (leftValue === rightValue || derived?.includes(column)) continue;
-    if (unordered?.includes(column) && normalizeUnorderedJson(leftValue) === normalizeUnorderedJson(rightValue)) {
-      continue;
-    }
+    if (derived?.includes(column) || sameColumnValue(table, column, leftValue, rightValue)) continue;
     // Windows paths are case-insensitive: a stored root is lowercase while a handoff path keeps its case.
     if (
       paths?.includes(column) &&
@@ -1362,7 +1384,12 @@ function planExistingRow(
     projectDataExportTableColumns[table].every(
       (column) =>
         (pathColumns as readonly string[]).includes(column) ||
-        comparableValue(table, current, column) === comparableValue(table, row, column),
+        sameColumnValue(
+          table,
+          column,
+          projectDataColumnValue(table, current, column),
+          projectDataColumnValue(table, row, column),
+        ),
     )
   ) {
     addPlan(table, row, "conflict", "只有路徑不同；請確認路徑前綴轉換。", "path");
