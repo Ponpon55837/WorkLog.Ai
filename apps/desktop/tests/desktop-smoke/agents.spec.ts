@@ -257,12 +257,15 @@ test("a checkout on another database is not taken over, and 「改用這份資�
 
   await window.locator('[data-id="use-database-claude-code"]').click();
   await waitForSnapshot(app, (state) => state.repairWindowOpen && state.view === "repair");
+  // The window navigates to the repair page after main switches the view: wait until that page shows the candidate
+  // before reading its state (an evaluate during the navigation has no page to run in).
+  const shown = maskHome(otherDatabase, home, process.platform);
+  await expect(window.locator(".path", { hasText: shown })).toBeVisible({ timeout: 30_000 });
   const repair = (await window.evaluate(() =>
     (
       globalThis as unknown as { workIntelligenceRepair: { getState(): Promise<unknown> } }
     ).workIntelligenceRepair.getState(),
   )) as { database: { display: string | null }; candidates: { display: string; status: string }[] };
-  const shown = maskHome(otherDatabase, home, process.platform);
   expect(repair.candidates.map((candidate) => [candidate.display, candidate.status])).toContainEqual([shown, "ok"]);
   // Nothing switched and the Agent file is untouched: switching still needs the user's confirm.
   expect(repair.database.display).toBe(maskHome(sandbox.databasePath, home, process.platform));
