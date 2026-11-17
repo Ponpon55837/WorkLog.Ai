@@ -44,10 +44,16 @@ function portIsFree(port) {
   });
 }
 
-function openInBrowser(url) {
+/** System32\cmd.exe, never a `cmd` found through PATH; loaded here because only Windows needs it. */
+async function windowsCommandShellPath() {
+  const { windowsCommandShell } = await import("../packages/shared/dist/windows-system-tool.js");
+  return windowsCommandShell();
+}
+
+async function openInBrowser(url) {
   const [command, args] =
     process.platform === "win32"
-      ? ["cmd", ["/c", "start", "", url]]
+      ? [await windowsCommandShellPath(), ["/c", "start", "", url]]
       : process.platform === "darwin"
         ? ["open", [url]]
         : ["xdg-open", [url]];
@@ -103,6 +109,6 @@ if (isEntryPoint()) {
     process.exitCode = 1;
   } else {
     console.log(result.started ? `Started the Work Intelligence server: ${result.url}` : `Dashboard: ${result.url}`);
-    if (process.argv.includes("--open")) openInBrowser(result.url);
+    if (process.argv.includes("--open")) await openInBrowser(result.url);
   }
 }

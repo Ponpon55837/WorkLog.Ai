@@ -431,11 +431,8 @@ export class BackendSupervisor {
       plan = await this.deps.planLaunch(DESKTOP_IPC_ARGV, environment);
     } catch (error) {
       const reason = runtimeErrorCode(error);
-      throw new BackendFailure(
-        "RUNTIME_MISSING",
-        reason ? `the runtime was refused (${reason})` : "the runtime could not be verified",
-        { cause: error },
-      );
+      if (reason) throw new BackendFailure(reason, `the runtime was refused (${reason})`, { cause: error });
+      throw new BackendFailure("RUNTIME_MISSING", "the runtime could not be verified", { cause: error });
     }
     const child = this.deps.spawn(plan.command, plan.args, {
       env: plan.env as NodeJS.ProcessEnv,

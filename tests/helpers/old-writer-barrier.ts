@@ -51,6 +51,7 @@ const WORKSPACE_PATHS: Record<string, string> = {
   "@work-intelligence/shared/loopback-port": "packages/shared/src/loopback-port.ts",
   "@work-intelligence/shared/mcp-runtime": "packages/shared/src/mcp-runtime.ts",
   "@work-intelligence/shared/sqlite-version": "packages/shared/src/sqlite-version.ts",
+  "@work-intelligence/shared/windows-system-tool": "packages/shared/src/windows-system-tool.ts",
   "@work-intelligence/storage": "packages/storage/src/index.ts",
 };
 

@@ -473,6 +473,9 @@ describe("RestartPolicy", () => {
       "SCHEMA_TOO_NEW",
       "SCHEMA_MIGRATION_BLOCKED",
       "RUNTIME_MISSING",
+      "RUNTIME_UNSAFE_PERMISSIONS",
+      "RUNTIME_ACL_UNREADABLE",
+      "RUNTIME_FILE_TAMPERED",
       "PORT_OCCUPIED_BY_OTHER",
       "REPAIR_REQUIRED",
     ]) {

@@ -14,6 +14,10 @@ export interface RepairWindow {
 export interface RepairWindowOptions {
   readonly title: () => string;
   readonly preloadFile: string;
+  /** Called before every new window is created; it must be safe to call again (the session policy is applied here). */
+  readonly prepareSession: () => void;
+  /** Called each time the window has actually been made visible (a new window after its first paint, or an existing one brought forward). */
+  readonly onShown?: () => void;
 }
 
 export function createRepairWindow(options: RepairWindowOptions): RepairWindow {
@@ -27,9 +31,11 @@ export function createRepairWindow(options: RepairWindowOptions): RepairWindow {
       if (existing.isMinimized()) existing.restore();
       existing.show();
       existing.focus();
+      options.onShown?.();
       return;
     }
     if (process.platform === "darwin") void app.dock?.show();
+    options.prepareSession();
     const created = new BrowserWindow({
       width: 780,
       height: 760,
@@ -45,7 +51,10 @@ export function createRepairWindow(options: RepairWindowOptions): RepairWindow {
       },
     });
     current = created;
-    created.once("ready-to-show", () => created.show());
+    created.once("ready-to-show", () => {
+      created.show();
+      options.onShown?.();
+    });
     created.on("closed", () => {
       current = null;
       // A background (login) start leaves no Dock icon when no window is open.

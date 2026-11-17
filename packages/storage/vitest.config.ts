@@ -16,6 +16,9 @@ export const storageAliases = {
   ),
   "@work-intelligence/shared/file-identity": fileURLToPath(new URL("../shared/src/file-identity.ts", import.meta.url)),
   "@work-intelligence/shared/app-version": fileURLToPath(new URL("../shared/src/app-version.ts", import.meta.url)),
+  "@work-intelligence/shared/windows-system-tool": fileURLToPath(
+    new URL("../shared/src/windows-system-tool.ts", import.meta.url),
+  ),
   "@work-intelligence/shared": fileURLToPath(new URL("../shared/src/index.ts", import.meta.url)),
 };
 

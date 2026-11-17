@@ -10,10 +10,16 @@ export const CURRENT_FILE_NAME = "current";
 export const BIN_DIRECTORY_NAME = "bin";
 /** Folder holding one immutable directory per installed runtime. */
 export const RUNTIMES_DIRECTORY_NAME = "runtimes";
+/** Prefix of the directory an install is copied into before it is renamed into place; no runtime id can start with a dot. */
+export const STAGING_DIRECTORY_PREFIX = ".staging-";
+/** Prefix of a runtime directory renamed aside instead of deleted (a process may still run from it). */
+export const QUARANTINE_DIRECTORY_PREFIX = ".quarantine-";
 /** The manifest inside a runtime directory. */
 export const MANIFEST_FILE_NAME = "runtime-manifest.json";
 /** The stat-fingerprint cache inside a runtime directory (a speed-up, never an authority). */
 export const VERIFIED_CACHE_FILE_NAME = ".verified.json";
+/** The script at the top of every runtime directory that verifies the runtime and starts the action. */
+export const LAUNCHER_SCRIPT_NAME = "launcher.mjs";
 /** The single line the shims read instead of parsing the manifest: the executable, relative to the runtime directory. */
 export const LAUNCH_FILE_NAME = "runtime-launch.txt";
 

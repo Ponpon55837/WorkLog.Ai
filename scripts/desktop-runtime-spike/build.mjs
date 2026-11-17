@@ -38,6 +38,7 @@ import {
   spikeDirectory,
 } from "./common.mjs";
 import { prepareElectron, prepareNode } from "./download.mjs";
+import { securePrivateDirectory } from "./secure-directory.mjs";
 
 const ACTIONS = {
   mcp: { entry: "app/libexec/apps/mcp/dist/index.js" },
@@ -46,7 +47,11 @@ const ACTIONS = {
   "claude-finalize-reminder": { entry: "app/libexec/apps/mcp/dist/finalize-reminder.js" },
 };
 
-/** Refuses to wipe a directory that is neither empty nor an earlier launcher root, so `--out ~` cannot do damage. */
+/**
+ * Refuses to wipe a directory that is neither empty nor an earlier launcher root, so `--out ~` cannot do damage. The new
+ * root is locked to the current user, SYSTEM and Administrators on Windows before anything is put in it, like the App's
+ * own root: a runner's temp folder grants BUILTIN\Users write access, which the launcher's ACL check refuses.
+ */
 function prepareOutputRoot(root) {
   if (existsSync(root)) {
     const looksLikeRoot = readdirSync(root).every((name) => ["bin", "runtimes", "current"].includes(name));
@@ -55,7 +60,7 @@ function prepareOutputRoot(root) {
     }
     rmSync(root, { recursive: true, force: true });
   }
-  ensureDirectory(root);
+  securePrivateDirectory(ensureDirectory(root));
 }
 
 /** The launcher script of every runtime: desktop-core's launcher-entry, bundled with its few dependencies. */
@@ -115,13 +120,17 @@ async function main() {
     cpSync(standalone.packageDirectory, join(stage, "app"), { recursive: true });
     await bundleLauncher(join(stage, "launcher.mjs"));
 
-    const installed = await installRuntime(options.root, {
-      runtimeId,
-      runtimeKind,
-      executable: prepared.executable,
-      actions: ACTIONS,
-    });
-    await commitCurrent(options.root, runtimeId);
+    const installed = await installRuntime(
+      options.root,
+      {
+        runtimeId,
+        runtimeKind,
+        executable: prepared.executable,
+        actions: ACTIONS,
+      },
+      { checkAcl: false },
+    ); // a build machine's folders carry the build agent's ACLs: content only; the installed App checks them
+    await commitCurrent(options.root, runtimeId, { checkAcl: false });
     const { verification } = installed;
     console.log(
       JSON.stringify(

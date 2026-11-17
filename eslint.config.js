@@ -26,6 +26,8 @@ export default [
       "**/node_modules/**",
       "**/data/**",
       "**/test-results/**",
+      "**/test-results-packaged/**",
+      "**/playwright-report*/**",
       "**/coverage/**",
       "pnpm-lock.yaml",
     ],

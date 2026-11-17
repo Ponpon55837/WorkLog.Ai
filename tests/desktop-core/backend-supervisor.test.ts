@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BackendSupervisor, RuntimeError, type BackendExitEvent } from "../../packages/desktop-core/src/index.js";
+import {
+  BackendSupervisor,
+  RUNTIME_ERROR_CODES,
+  RuntimeError,
+  decideRuntimeRecovery,
+  isDeterministicFailure,
+  isRuntimeReinstallable,
+  isSettledRepairFailure,
+  type BackendExitEvent,
+} from "../../packages/desktop-core/src/index.js";
 import { INSTANCE_PROOF_HEADER } from "../../packages/shared/src/instance-proof.js";
 import {
   DB_PATH,
@@ -161,17 +170,42 @@ describe("failures before the child exists", () => {
     expect(harness.spawn).not.toHaveBeenCalled();
   });
 
-  it("reports RUNTIME_MISSING with the runtime's refusal code when the launch plan fails", async () => {
+  it.each(RUNTIME_ERROR_CODES)("keeps the runtime's own refusal code %s when the launch plan fails", async (code) => {
     const harness = makeHarness();
-    harness.planLaunch.mockRejectedValueOnce(new RuntimeError("RUNTIME_FILE_TAMPERED", "changed file"));
+    harness.planLaunch.mockRejectedValueOnce(new RuntimeError(code, "refused"));
     const result = await harness.supervisor.start(startRequest());
 
-    expect(result).toMatchObject({ status: "failed", code: "RUNTIME_MISSING" });
-    expect((result as { detail: string }).detail).toContain("RUNTIME_FILE_TAMPERED");
+    expect(result).toMatchObject({ status: "failed", code });
+    expect((result as { detail: string }).detail).toBe(`the runtime was refused (${code})`);
     expect(harness.spawn).not.toHaveBeenCalled();
   });
 
-  it("reports RUNTIME_MISSING when the launch plan fails for another reason", async () => {
+  it.each(["RUNTIME_UNSAFE_PERMISSIONS", "RUNTIME_ACL_UNREADABLE"] as const)(
+    "surfaces %s as the true reason: no automatic retry and no reinstall",
+    async (code) => {
+      const harness = makeHarness();
+      harness.planLaunch.mockRejectedValueOnce(new RuntimeError(code, "refused"));
+      const result = await harness.supervisor.start(startRequest());
+      const failed = result as { code: string };
+
+      expect(failed.code).toBe(code);
+      expect(isDeterministicFailure(failed.code)).toBe(true);
+      expect(isRuntimeReinstallable(failed.code)).toBe(false);
+      expect(decideRuntimeRecovery({ canReinstall: true, failureCode: failed.code, alreadyAttempted: false })).toBe(
+        "none",
+      );
+      expect(isSettledRepairFailure(failed.code)).toBe(true);
+    },
+  );
+
+  it("treats a content refusal as reinstallable, so it is not settled yet", () => {
+    expect(isRuntimeReinstallable("RUNTIME_FILE_TAMPERED")).toBe(true);
+    expect(isSettledRepairFailure("RUNTIME_FILE_TAMPERED")).toBe(false);
+    expect(isSettledRepairFailure("RUNTIME_MISSING")).toBe(false);
+    expect(isSettledRepairFailure("CHILD_EXITED")).toBe(false);
+  });
+
+  it("reports RUNTIME_MISSING when the launch plan fails for a reason that is not a runtime refusal", async () => {
     const harness = makeHarness();
     harness.planLaunch.mockRejectedValueOnce(new Error("disk unplugged"));
     const result = await harness.supervisor.start(startRequest());

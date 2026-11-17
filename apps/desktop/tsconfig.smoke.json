@@ -6,5 +6,5 @@
     "types": ["node"],
     "noEmit": true
   },
-  "include": ["playwright.config.ts", "tests/desktop-smoke"]
+  "include": ["playwright.config.ts", "tests/desktop-smoke", "tests/support"]
 }

@@ -7,6 +7,9 @@ import {
   type CommandRunner,
 } from "../../apps/server/src/folder-picker.js";
 
+const WINDOWS_ENV = { SystemRoot: "C:\\Windows" };
+const POWERSHELL = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+
 function runner(results: Record<string, CommandResult | "missing">): CommandRunner & { calls: string[] } {
   const calls: string[] = [];
   const run = async (file: string): Promise<CommandResult> => {
@@ -21,15 +24,15 @@ function runner(results: Record<string, CommandResult | "missing">): CommandRunn
 }
 
 function windowsScript(): string {
-  const [command] = folderDialogCommands("win32");
+  const [command] = folderDialogCommands("win32", WINDOWS_ENV);
   return Buffer.from(command?.args[4] ?? "", "base64").toString("utf16le");
 }
 
 describe("Windows folder dialog script", () => {
   it("runs powershell.exe in STA mode with the script as one -EncodedCommand argument", () => {
-    const commands = folderDialogCommands("win32");
+    const commands = folderDialogCommands("win32", WINDOWS_ENV);
     expect(commands).toHaveLength(1);
-    expect(commands[0]?.file).toBe("powershell.exe");
+    expect(commands[0]?.file).toBe(POWERSHELL);
     expect(commands[0]?.args.slice(0, 4)).toEqual(["-NoProfile", "-NonInteractive", "-STA", "-EncodedCommand"]);
     expect(commands[0]?.args).toHaveLength(5);
     const encoded = commands[0]?.args[4] ?? "";
@@ -174,19 +177,29 @@ describe("native folder picker", () => {
   it("names Windows folders with Windows path rules and keeps a drive root intact", async () => {
     const pick = createFolderPicker(
       "win32",
-      runner({ "powershell.exe": { code: 0, stdout: "C:\\Users\\me\\apiary\r\n", stderr: "" } }),
+      runner({ [POWERSHELL]: { code: 0, stdout: "C:\\Users\\me\\apiary\r\n", stderr: "" } }),
+      WINDOWS_ENV,
     );
     expect(await pick()).toEqual({ outcome: "folder_picked", path: "C:\\Users\\me\\apiary", name: "apiary" });
-    const root = createFolderPicker("win32", runner({ "powershell.exe": { code: 0, stdout: "D:\\\r\n", stderr: "" } }));
+    const root = createFolderPicker(
+      "win32",
+      runner({ [POWERSHELL]: { code: 0, stdout: "D:\\\r\n", stderr: "" } }),
+      WINDOWS_ENV,
+    );
     expect(await root()).toMatchObject({ path: "D:\\" });
-    const cancelled = createFolderPicker("win32", runner({ "powershell.exe": { code: 2, stdout: "", stderr: "" } }));
+    const cancelled = createFolderPicker(
+      "win32",
+      runner({ [POWERSHELL]: { code: 2, stdout: "", stderr: "" } }),
+      WINDOWS_ENV,
+    );
     expect(await cancelled()).toEqual({ outcome: "folder_pick_cancelled" });
   });
 
   it("reads a Windows path with a UTF-8 byte order mark, Chinese characters and CRLF", async () => {
     const pick = createFolderPicker(
       "win32",
-      runner({ "powershell.exe": { code: 0, stdout: "\uFEFFD:\\工作\\專案\r\n", stderr: "" } }),
+      runner({ [POWERSHELL]: { code: 0, stdout: "\uFEFFD:\\工作\\專案\r\n", stderr: "" } }),
+      WINDOWS_ENV,
     );
     expect(await pick()).toEqual({ outcome: "folder_picked", path: "D:\\工作\\專案", name: "專案" });
   });
@@ -194,10 +207,11 @@ describe("native folder picker", () => {
   it("treats any Windows exit status other than 0 or 2 as unavailable", async () => {
     const failed = createFolderPicker(
       "win32",
-      runner({ "powershell.exe": { code: 1, stdout: "", stderr: "Add-Type : error" } }),
+      runner({ [POWERSHELL]: { code: 1, stdout: "", stderr: "Add-Type : error" } }),
+      WINDOWS_ENV,
     );
     expect(await failed()).toMatchObject({ outcome: "folder_pick_unavailable" });
-    const missing = createFolderPicker("win32", runner({ "powershell.exe": "missing" }));
+    const missing = createFolderPicker("win32", runner({ [POWERSHELL]: "missing" }), WINDOWS_ENV);
     expect(await missing()).toMatchObject({ outcome: "folder_pick_unavailable" });
   });
 

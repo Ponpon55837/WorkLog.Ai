@@ -6,6 +6,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { databasePathFor } from "@work-intelligence/shared/database-location";
+import { windowsPowerShell, windowsSystemTool } from "@work-intelligence/shared/windows-system-tool";
 import type { UserServiceManager, UserServiceState, UserServiceStatus } from "@work-intelligence/core";
 
 export type UserServicePlatform = "darwin" | "linux" | "win32" | "unsupported";
@@ -209,15 +210,12 @@ function findPackageManagerExecutable(platform: SupportedPlatform, environment: 
   throw new Error("找不到 pnpm 的絕對路徑；請在已安裝 pnpm 的終端機執行 service:install。");
 }
 
-/** Git for Windows puts coreutils (e.g. GNU whoami.exe) ahead of System32 in PATH, so pin Windows tools. */
+/**
+ * Git for Windows puts coreutils (e.g. GNU whoami.exe) ahead of System32 in PATH, so every Windows tool the plan names
+ * (`whoami.exe`, `schtasks.exe`, `taskkill.exe`, `powershell.exe`) is started from its absolute System32 path.
+ */
 function resolveWindowsSystemCommand(command: string): string {
-  const systemRoot = process.env.SystemRoot ?? process.env.windir ?? "C:\\Windows";
-  if (command === "whoami.exe" || command === "schtasks.exe" || command === "taskkill.exe")
-    return win32.join(systemRoot, "System32", command);
-  if (command === "powershell.exe") {
-    return win32.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", command);
-  }
-  return command;
+  return command === "powershell.exe" ? windowsPowerShell() : windowsSystemTool(command);
 }
 
 function runSystemCommand(command: string, args: string[]): string {

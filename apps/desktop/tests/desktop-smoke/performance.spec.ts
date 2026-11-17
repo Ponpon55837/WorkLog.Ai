@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { windowsPowerShell } from "@work-intelligence/shared/windows-system-tool";
 import {
   attachLog,
   closeQuietly,
@@ -16,12 +17,13 @@ import {
   type MainSnapshot,
   type Sandbox,
 } from "./helpers.js";
+import { powershellArguments } from "../support/process-tools.js";
 import { gatesForPlatform, IDLE_SETTLE_MS, PERF_RUNS, type PerfGates } from "./perf-gates.js";
 
 /**
  * Desktop performance: cold start, the repair window, quit and idle memory, each measured `PERF_RUNS` times on
  * synthetic data. The medians are checked against `perf-gates.ts` and written to `perf-results/desktop-perf-<os>.json`
- * (CI uploads it). Polling is every 10 ms, so a time is at most that much late.
+ * (CI uploads it) and printed to stdout. Polling is every 10 ms, so a time is at most that much late.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -95,11 +97,11 @@ function residentBytes(pid: number): number {
   if (process.platform === "darwin") {
     return Number(execFileSync("ps", ["-o", "rss=", "-p", String(pid)], { encoding: "utf8" }).trim()) * 1024;
   }
-  const output = execFileSync(
-    "powershell.exe",
-    ["-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${pid}).WorkingSet64`],
-    { encoding: "utf8" },
-  );
+  const output = execFileSync(windowsPowerShell(), powershellArguments(`(Get-Process -Id ${pid}).WorkingSet64`), {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
   return Number(output.trim());
 }
 
@@ -188,10 +190,10 @@ test("the medians stay inside the gates and are written for CI", () => {
     measuredAt: new Date().toISOString(),
     metrics: results,
   };
-  writeFileSync(
-    join(resultsDirectory, `desktop-perf-${process.platform}.json`),
-    `${JSON.stringify(report, null, 2)}\n`,
-  );
+  const json = `${JSON.stringify(report, null, 2)}\n`;
+  writeFileSync(join(resultsDirectory, `desktop-perf-${process.platform}.json`), json);
+  // Also in the log: the CI artifact is not always reachable, the job log is.
+  process.stdout.write(`desktop-perf-${process.platform}.json\n${json}`);
   for (const [metric, result] of Object.entries(results)) {
     expect(result.median, `${metric} median ${result.median} ${result.unit} (gate ${result.gate})`).toBeLessThanOrEqual(
       result.gate,

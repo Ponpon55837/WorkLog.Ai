@@ -3,7 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProjectDataExport, ProjectDataImportInput } from "@work-intelligence/core";
 import {
   isDatabaseBusyError,
@@ -11,7 +11,13 @@ import {
   ProjectDataTransferError,
   WorkIntelligenceStore,
 } from "../../packages/storage/src/index.js";
-import { BackupWorkerClient } from "../../apps/server/src/backup-worker-client.js";
+import { BackupWorkerOutOfMemoryError } from "../../apps/server/src/backup-worker-errors.js";
+import {
+  BackupWorkerClient,
+  BACKUP_WORKER_RESOURCE_LIMITS,
+  DEFAULT_IDLE_TIMEOUT_MS,
+  HEAVY_IDLE_TIMEOUT_MS,
+} from "../../apps/server/src/backup-worker-client.js";
 import { undoMigrationsAfter } from "../helpers/schema-migration-fixture.js";
 
 const roots: string[] = [];
@@ -30,6 +36,14 @@ function syntheticProject(store: WorkIntelligenceStore, projectRoot: string): vo
     workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
   });
   if (result.outcome !== "finalized") throw new Error("Could not create the synthetic worker Session.");
+}
+
+// A heap far below the production limit. The document is millions of small objects, which grow the worker's heap
+// gradually until it hits the limit (one huge string would be a single allocation that aborts the whole process).
+const TINY_WORKER_LIMITS = { maxOldGenerationSizeMb: 64, maxYoungGenerationSizeMb: 6 };
+
+function oversizedImportBytes(objects: number): Uint8Array {
+  return new TextEncoder().encode(`{"bundle":{"padding":[${'{"a":1},'.repeat(objects)}0]}}`);
 }
 
 function assertHealthy(path: string): void {
@@ -298,6 +312,218 @@ describe("backup worker", () => {
       store.close();
     }
   });
+});
+
+interface IdleWorkerState {
+  lifetime?: { worker: { threadId: number }; heavy: boolean; retiring: boolean };
+}
+
+function createIdleFixture(options?: { idleTimeoutMs?: number }) {
+  const root = mkdtempSync(join(tmpdir(), "work-intelligence-backup-worker-idle-policy-"));
+  roots.push(root);
+  const databasePath = join(root, "work-intelligence.sqlite");
+  const store = new WorkIntelligenceStore(databasePath);
+  const worker = new BackupWorkerClient(databasePath, {}, LATEST_SCHEMA_VERSION, options);
+  const state = worker as unknown as IdleWorkerState;
+  return { root, store, worker, state };
+}
+
+/** Waits on real I/O (not the faked timers) until the worker thread has exited. */
+async function waitForWorkerExit(state: IdleWorkerState): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (state.lifetime && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
+  expect(state.lifetime).toBeUndefined();
+}
+
+describe("backup worker idle policy", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("exits one heavy-idle period after a heavy operation and not before", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { store, worker, state } = createIdleFixture();
+    try {
+      await worker.exportProjectData({ type: "all" });
+      const threadId = state.lifetime?.worker.threadId;
+      expect(threadId).toBeDefined();
+
+      await vi.advanceTimersByTimeAsync(HEAVY_IDLE_TIMEOUT_MS - 1);
+      expect(state.lifetime?.worker.threadId).toBe(threadId);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await waitForWorkerExit(state);
+    } finally {
+      await worker.close();
+      store.close();
+    }
+  });
+
+  it("keeps the worker for the longer idle period after a light operation", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { store, worker, state } = createIdleFixture();
+    try {
+      await worker.createBackup();
+      expect(state.lifetime?.heavy).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(HEAVY_IDLE_TIMEOUT_MS * 2);
+      expect(state.lifetime).toBeDefined();
+      await vi.advanceTimersByTimeAsync(DEFAULT_IDLE_TIMEOUT_MS - HEAVY_IDLE_TIMEOUT_MS * 2 - 1);
+      expect(state.lifetime).toBeDefined();
+
+      await vi.advanceTimersByTimeAsync(1);
+      await waitForWorkerExit(state);
+    } finally {
+      await worker.close();
+      store.close();
+    }
+  });
+
+  it("re-arms the idle timer from the end of the latest operation", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { root, store, worker, state } = createIdleFixture();
+    try {
+      await worker.exportProjectData({ type: "all" });
+      const threadId = state.lifetime?.worker.threadId;
+      await vi.advanceTimersByTimeAsync(HEAVY_IDLE_TIMEOUT_MS - 100);
+
+      // A request that lands just before the timer would fire cancels it and keeps the same worker.
+      await worker.exportTo(join(root, "second.sqlite"));
+      expect(state.lifetime?.worker.threadId).toBe(threadId);
+      await vi.advanceTimersByTimeAsync(HEAVY_IDLE_TIMEOUT_MS - 1);
+      expect(state.lifetime?.worker.threadId).toBe(threadId);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await waitForWorkerExit(state);
+    } finally {
+      await worker.close();
+      store.close();
+    }
+  });
+
+  it("does not cut an in-flight request when the idle period elapses", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { store, worker, state } = createIdleFixture();
+    try {
+      await worker.exportProjectData({ type: "all" });
+      const threadId = state.lifetime?.worker.threadId;
+      await vi.advanceTimersByTimeAsync(HEAVY_IDLE_TIMEOUT_MS - 1);
+
+      const inFlight = worker.exportProjectData({ type: "all" });
+      await vi.advanceTimersByTimeAsync(HEAVY_IDLE_TIMEOUT_MS * 2);
+
+      expect((await inFlight).bytes).toBeGreaterThan(0);
+      expect(state.lifetime?.worker.threadId).toBe(threadId);
+    } finally {
+      await worker.close();
+      store.close();
+    }
+  });
+
+  it("does not keep a heavy worker's short timeout for the next worker", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { store, worker, state } = createIdleFixture();
+    try {
+      await worker.exportProjectData({ type: "all" });
+      await vi.advanceTimersByTimeAsync(HEAVY_IDLE_TIMEOUT_MS);
+      await waitForWorkerExit(state);
+
+      await worker.createBackup();
+      expect(state.lifetime?.heavy).toBe(false);
+      await vi.advanceTimersByTimeAsync(HEAVY_IDLE_TIMEOUT_MS * 2);
+      expect(state.lifetime).toBeDefined();
+    } finally {
+      await worker.close();
+      store.close();
+    }
+  });
+
+  it("starts a fresh worker for a request that arrives while the idle worker is terminating", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { store, worker, state } = createIdleFixture();
+    try {
+      await worker.exportProjectData({ type: "all" });
+      const firstThreadId = state.lifetime?.worker.threadId;
+
+      // The idle timer fires and the old worker starts retiring; the next request arrives before it has exited.
+      await vi.advanceTimersByTimeAsync(HEAVY_IDLE_TIMEOUT_MS);
+      expect(state.lifetime?.retiring).toBe(true);
+      const next = worker.exportProjectData({ type: "all" });
+
+      expect((await next).bytes).toBeGreaterThan(0);
+      expect(state.lifetime?.worker.threadId).toBeDefined();
+      expect(state.lifetime?.worker.threadId).not.toBe(firstThreadId);
+    } finally {
+      await worker.close();
+      store.close();
+    }
+  });
+
+  it("lets an explicit idle timeout override both defaults", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { store, worker, state } = createIdleFixture({ idleTimeoutMs: 40_000 });
+    try {
+      await worker.exportProjectData({ type: "all" });
+      await vi.advanceTimersByTimeAsync(DEFAULT_IDLE_TIMEOUT_MS + 1);
+      expect(state.lifetime).toBeDefined();
+
+      await vi.advanceTimersByTimeAsync(40_000 - DEFAULT_IDLE_TIMEOUT_MS - 1);
+      await waitForWorkerExit(state);
+    } finally {
+      await worker.close();
+      store.close();
+    }
+  });
+});
+
+describe("backup worker memory limits", () => {
+  it("bounds the worker's heap by default to the measured need with headroom", () => {
+    expect(BACKUP_WORKER_RESOURCE_LIMITS).toEqual({ maxOldGenerationSizeMb: 1024, maxYoungGenerationSizeMb: 6 });
+  });
+
+  it("rejects with a recognizable error when the worker runs out of memory and serves the next request on a new worker", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-backup-worker-oom-"));
+    roots.push(root);
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const projectRoot = join(root, "project");
+    const store = new WorkIntelligenceStore(databasePath);
+    syntheticProject(store, projectRoot);
+    const worker = new BackupWorkerClient(databasePath, {}, LATEST_SCHEMA_VERSION, {
+      resourceLimits: TINY_WORKER_LIMITS,
+    });
+    const threadIds = new Set<number>();
+    const state = worker as unknown as { lifetime?: { worker: { threadId: number } } };
+
+    try {
+      expect((await worker.exportProjectData({ type: "all" })).bytes).toBeGreaterThan(0);
+      threadIds.add(state.lifetime?.worker.threadId ?? -1);
+
+      // Two requests are queued in the doomed worker: both reject, not only the one that ran out of memory.
+      const failures = await Promise.allSettled([
+        worker.previewProjectDataImport(oversizedImportBytes(6_000_000)),
+        worker.importProjectData(oversizedImportBytes(10)),
+      ]);
+      for (const failure of failures) {
+        expect(failure.status).toBe("rejected");
+        const reason = (failure as PromiseRejectedResult).reason as BackupWorkerOutOfMemoryError;
+        expect(reason).toBeInstanceOf(BackupWorkerOutOfMemoryError);
+        expect(reason.code).toBe("backup_worker_out_of_memory");
+        expect(reason.message).not.toContain(root);
+      }
+
+      // The test process survived, and the next request gets a fresh worker that works.
+      const exported = await worker.exportProjectData({ type: "all" });
+      expect(exported.bytes).toBeGreaterThan(0);
+      threadIds.add(state.lifetime?.worker.threadId ?? -1);
+      expect(threadIds.size).toBe(2);
+      const bundle = JSON.parse(decodeProjectDataExport(exported.content)) as ProjectDataExport;
+      expect((await worker.previewProjectDataImport({ bundle })).outcome).toBe("project_data_import_preview");
+      assertHealthy(databasePath);
+    } finally {
+      await worker.close();
+      store.close();
+    }
+  }, 60_000);
 });
 
 afterEach(() => {

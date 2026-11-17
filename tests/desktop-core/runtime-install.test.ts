@@ -23,6 +23,7 @@ import {
 } from "../../packages/desktop-core/src/runtime/index.js";
 import {
   IS_WINDOWS,
+  fixtureAcl,
   fixtureDefinition,
   flipFirstByte,
   installFixture,
@@ -98,15 +99,15 @@ describe("installRuntime", () => {
 
   it("hashes every file a second time only when asked for a full verification", async () => {
     await stageFixture(root, "rt-1");
-    const installed = await installRuntime(root, fixtureDefinition("rt-1"), { fullVerification: true });
+    const installed = await installRuntime(root, fixtureDefinition("rt-1"), { fullVerification: true, ...fixtureAcl });
     expect(installed.verification.hashedCount).toBe(8);
     expect(installed.verification.cachedCount).toBe(0);
   });
 
   it("seeds a cache whose fingerprints match the files, so commitCurrent hashes nothing; useCache false hashes all", async () => {
     await installFixture(root, "rt-1");
-    expect((await commitCurrent(root, "rt-1")).hashedCount).toBe(0);
-    expect((await commitCurrent(root, "rt-1", { useCache: false })).hashedCount).toBe(8);
+    expect((await commitCurrent(root, "rt-1", fixtureAcl)).hashedCount).toBe(0);
+    expect((await commitCurrent(root, "rt-1", { useCache: false, ...fixtureAcl })).hashedCount).toBe(8);
   });
 
   it("does not cache a file that changed while it was being hashed", async () => {
@@ -178,7 +179,7 @@ describe("commitCurrent and the current pointer", () => {
     await installFixture(root, "rt-1", { commit: true });
     await installFixture(root, "rt-2");
     expect(await readCurrentRuntimeId(root)).toBe("rt-1");
-    const verification = await commitCurrent(root, "rt-2");
+    const verification = await commitCurrent(root, "rt-2", fixtureAcl);
     expect(verification.runtimeId).toBe("rt-2");
     expect(await readCurrentRuntimeId(root)).toBe("rt-2");
     expect(await fs.readdir(root)).toEqual(expect.not.arrayContaining([expect.stringMatching(/\.tmp$/)]));
@@ -188,9 +189,9 @@ describe("commitCurrent and the current pointer", () => {
     await installFixture(root, "rt-1", { commit: true });
     const { runtimeDirectory } = await installFixture(root, "rt-2");
     await flipFirstByte(path.join(runtimeDirectory, "app/mcp.js"));
-    await expect(commitCurrent(root, "rt-2")).rejects.toMatchObject({ code: "RUNTIME_FILE_TAMPERED" });
+    await expect(commitCurrent(root, "rt-2", fixtureAcl)).rejects.toMatchObject({ code: "RUNTIME_FILE_TAMPERED" });
     expect(await readCurrentRuntimeId(root)).toBe("rt-1");
-    await expect(commitCurrent(root, "rt-3")).rejects.toMatchObject({ code: "RUNTIME_FILE_MISSING" });
+    await expect(commitCurrent(root, "rt-3", fixtureAcl)).rejects.toMatchObject({ code: "RUNTIME_FILE_MISSING" });
     expect(await readCurrentRuntimeId(root)).toBe("rt-1");
   });
 
@@ -253,7 +254,7 @@ describe("commitCurrent and the current pointer", () => {
 describe("planLaunch", () => {
   it("plans an argv-array launch of the current runtime's executable", async () => {
     const { runtimeDirectory } = await installFixture(root, "rt-1", { commit: true });
-    const plan = await planLaunch(root, "serve", ["--port", "65000"], { env: { KEEP: "1" } });
+    const plan = await planLaunch(root, "serve", ["--port", "65000"], { ...fixtureAcl, env: { KEEP: "1" } });
     expect(plan.command).toBe(path.join(runtimeDirectory, "node/bin/node"));
     expect(plan.args).toEqual([path.join(runtimeDirectory, "app/serve.mjs"), "start", "--port", "65000"]);
     expect(plan.env).toEqual({ KEEP: "1" });
@@ -261,39 +262,41 @@ describe("planLaunch", () => {
 
   it("sets ELECTRON_RUN_AS_NODE for an Electron runtime and only then", async () => {
     await installFixture(root, "rt-e", { kind: "electron-run-as-node", commit: true });
-    expect((await planLaunch(root, "mcp", [], { env: { A: "1" } })).env).toEqual({
+    expect((await planLaunch(root, "mcp", [], { ...fixtureAcl, env: { A: "1" } })).env).toEqual({
       A: "1",
       ELECTRON_RUN_AS_NODE: "1",
       ELECTRON_NO_ASAR: "1",
     });
     await installFixture(root, "rt-n", { kind: "node", commit: true });
-    expect((await planLaunch(root, "mcp", [], { env: { A: "1" } })).env).toEqual({ A: "1" });
+    expect((await planLaunch(root, "mcp", [], { ...fixtureAcl, env: { A: "1" } })).env).toEqual({ A: "1" });
   });
 
   it("refuses a runtime of another kind than the required one, and accepts the required kind", async () => {
     await installFixture(root, "rt-e", { kind: "electron-run-as-node", commit: true });
-    await expect(planLaunch(root, "serve", [], { requiredRuntimeKind: "node" })).rejects.toMatchObject({
+    await expect(planLaunch(root, "serve", [], { ...fixtureAcl, requiredRuntimeKind: "node" })).rejects.toMatchObject({
       code: "RUNTIME_KIND_NOT_ALLOWED",
     });
     await installFixture(root, "rt-n", { kind: "node", commit: true });
-    await expect(planLaunch(root, "serve", [], { requiredRuntimeKind: "node" })).resolves.toMatchObject({
+    await expect(planLaunch(root, "serve", [], { ...fixtureAcl, requiredRuntimeKind: "node" })).resolves.toMatchObject({
       args: expect.any(Array),
     });
   });
 
   it("uses the process environment by default", async () => {
     await installFixture(root, "rt-1", { commit: true });
-    expect((await planLaunch(root, "mcp", [])).env.PATH).toBe(process.env.PATH);
+    expect((await planLaunch(root, "mcp", [], fixtureAcl)).env.PATH).toBe(process.env.PATH);
   });
 
   it("does not interpret arguments: they stay separate array items", async () => {
     await installFixture(root, "rt-1", { commit: true });
-    const plan = await planLaunch(root, "mcp", ["a b", "$(id)", "; rm -rf /", ""]);
+    const plan = await planLaunch(root, "mcp", ["a b", "$(id)", "; rm -rf /", ""], fixtureAcl);
     expect(plan.args.slice(1)).toEqual(["a b", "$(id)", "; rm -rf /", ""]);
   });
 
   it("refuses an action that is not on the fixed list before reading anything", async () => {
-    await expect(planLaunch(root, "bash", [])).rejects.toMatchObject({ code: "RUNTIME_ACTION_NOT_ALLOWED" });
+    await expect(planLaunch(root, "bash", [], fixtureAcl)).rejects.toMatchObject({
+      code: "RUNTIME_ACTION_NOT_ALLOWED",
+    });
     expect(() => assertAllowedAction("serve")).not.toThrow();
     expect(() => assertAllowedAction("__proto__")).toThrow(/不允許/);
   });
@@ -301,10 +304,12 @@ describe("planLaunch", () => {
   it("refuses a listed action the installed runtime does not provide", async () => {
     await stageFixture(root, "rt-1");
     const definition = fixtureDefinition("rt-1");
-    await installRuntime(root, { ...definition, actions: { mcp: definition.actions.mcp! } });
-    await commitCurrent(root, "rt-1");
-    await expect(planLaunch(root, "serve", [])).rejects.toMatchObject({ code: "RUNTIME_ACTION_NOT_ALLOWED" });
-    const verified = await verifyRuntime(root, "rt-1");
+    await installRuntime(root, { ...definition, actions: { mcp: definition.actions.mcp! } }, fixtureAcl);
+    await commitCurrent(root, "rt-1", fixtureAcl);
+    await expect(planLaunch(root, "serve", [], fixtureAcl)).rejects.toMatchObject({
+      code: "RUNTIME_ACTION_NOT_ALLOWED",
+    });
+    const verified = await verifyRuntime(root, "rt-1", fixtureAcl);
     expect(() => buildLaunchPlan(verified.runtimeDirectory, verified.manifest, "codex-finalize-reminder", [])).toThrow(
       /沒有提供/,
     );
@@ -312,22 +317,108 @@ describe("planLaunch", () => {
 
   it("fails when current points at a runtime that is not installed", async () => {
     await fs.writeFile(path.join(root, "current"), "rt-gone\n");
-    await expect(planLaunch(root, "mcp", [])).rejects.toMatchObject({ code: "RUNTIME_FILE_MISSING" });
+    await expect(planLaunch(root, "mcp", [], fixtureAcl)).rejects.toMatchObject({ code: "RUNTIME_FILE_MISSING" });
   });
 
   it("fails when there is no pointer", async () => {
-    await expect(planLaunch(root, "mcp", [])).rejects.toMatchObject({ code: "RUNTIME_POINTER_MISSING" });
+    await expect(planLaunch(root, "mcp", [], fixtureAcl)).rejects.toMatchObject({ code: "RUNTIME_POINTER_MISSING" });
   });
 
   it("fails on a tampered runtime", async () => {
     const { runtimeDirectory } = await installFixture(root, "rt-1", { commit: true });
     await flipFirstByte(path.join(runtimeDirectory, "launcher.mjs"));
-    await expect(planLaunch(root, "mcp", [])).rejects.toMatchObject({ code: "RUNTIME_FILE_TAMPERED" });
+    await expect(planLaunch(root, "mcp", [], fixtureAcl)).rejects.toMatchObject({ code: "RUNTIME_FILE_TAMPERED" });
   });
 
   it("builds paths below a root with spaces and non-ASCII characters", async () => {
     const { runtimeDirectory } = await installFixture(root, "rt-1", { commit: true });
     expect(runtimeDirectory).toMatch(/ 測試-/);
-    expect((await planLaunch(root, "mcp", [])).command.startsWith(runtimeDirectoryFor(root, "rt-1"))).toBe(true);
+    expect((await planLaunch(root, "mcp", [], fixtureAcl)).command.startsWith(runtimeDirectoryFor(root, "rt-1"))).toBe(
+      true,
+    );
+  });
+});
+
+describe("ACL reads while one runtime is provisioned (Windows policy)", () => {
+  const WIN = { platform: "win32" as const, uid: undefined };
+  const USER_SID = "S-1-5-21-1-2-3-1001";
+  const GOOD = `O:BAG:BAD:PAI(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)(A;OICI;FA;;;${USER_SID})`;
+
+  function fixtureReader() {
+    return {
+      read: vi.fn(async (paths: readonly string[]) => ({ currentUserSid: USER_SID, sddls: paths.map(() => GOOD) })),
+    };
+  }
+
+  /** Stages and installs `rt-1` with the Windows policy and the fixture reader; resolves with what the commit needs. */
+  async function installed() {
+    const aclReader = fixtureReader();
+    await stageFixture(root, "rt-1");
+    const { verification } = await installRuntime(root, fixtureDefinition("rt-1"), { policy: WIN, aclReader });
+    return { aclReader, verification, commit: { policy: WIN, aclReader } };
+  }
+
+  it("reads the ACLs once for the install and trusts that read for the commit", async () => {
+    const { aclReader, verification, commit } = await installed();
+    expect(verification.aclRead).toBe(true);
+    expect(verification.aclStamp).toBeDefined();
+    const committed = await commitCurrent(root, "rt-1", { ...commit, reuseAclStamp: verification.aclStamp });
+    expect(committed.aclRead).toBe(false);
+    expect(committed).not.toHaveProperty("aclStamp");
+    expect(aclReader.read).toHaveBeenCalledTimes(1);
+    expect(await readCurrentRuntimeId(root)).toBe("rt-1");
+  });
+
+  it("reads again for the commit when it is given no stamp from this process", async () => {
+    const { aclReader, commit } = await installed();
+    // The stamp on disk is not enough for a commit: it may come from an earlier process.
+    expect((await commitCurrent(root, "rt-1", commit)).aclRead).toBe(true);
+    expect(aclReader.read).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads again when an object the install read was replaced before the commit", async () => {
+    const { aclReader, verification, commit } = await installed();
+    await tick();
+    const shim = path.join(root, "bin", "work-intelligence-launcher");
+    await fs.rm(shim);
+    await fs.writeFile(shim, "#!/bin/sh\n# replaced\n");
+    const committed = await commitCurrent(root, "rt-1", { ...commit, reuseAclStamp: verification.aclStamp });
+    expect(committed.aclRead).toBe(true);
+    expect(aclReader.read).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads again when an object the install read was touched before the commit", async () => {
+    const { aclReader, verification, commit } = await installed();
+    await tick();
+    await fs.utimes(runtimeLayout(root).runtimesDirectory, new Date(), new Date());
+    await commitCurrent(root, "rt-1", { ...commit, reuseAclStamp: verification.aclStamp });
+    expect(aclReader.read).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads again when the commit covers an object the install did not, such as a `current` that appeared", async () => {
+    const { aclReader, verification, commit } = await installed();
+    await fs.writeFile(runtimeLayout(root).currentFile, "someone-else\n");
+    const committed = await commitCurrent(root, "rt-1", { ...commit, reuseAclStamp: verification.aclStamp });
+    expect(committed.aclRead).toBe(true);
+    expect(aclReader.read).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads again when a runtime file no longer matches the fingerprint cache", async () => {
+    const { aclReader, verification, commit } = await installed();
+    await tick();
+    await fs.utimes(path.join(runtimeDirectoryFor(root, "rt-1"), "app/mcp.js"), new Date(), new Date());
+    await commitCurrent(root, "rt-1", { ...commit, reuseAclStamp: verification.aclStamp });
+    expect(aclReader.read).toHaveBeenCalledTimes(2);
+  });
+
+  it("a reused stamp never excuses changed content", async () => {
+    const { verification, commit } = await installed();
+    await flipFirstByte(path.join(runtimeDirectoryFor(root, "rt-1"), "app/mcp.js"));
+    await expect(
+      commitCurrent(root, "rt-1", { ...commit, reuseAclStamp: verification.aclStamp }),
+    ).rejects.toMatchObject({
+      code: "RUNTIME_FILE_TAMPERED",
+    });
+    expect(await readCurrentRuntimeId(root).catch(() => undefined)).toBeUndefined();
   });
 });

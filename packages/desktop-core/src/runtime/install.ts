@@ -43,6 +43,12 @@ export interface InstalledRuntime {
 export interface InstallRuntimeOptions {
   /** Re-read and re-hash every file after writing the manifest instead of trusting the hashes just computed. */
   readonly fullVerification?: boolean;
+  /** Windows: how the ACLs are read (tests inject fixtures). */
+  readonly aclReader?: VerifyRuntimeOptions["aclReader"];
+  /** Platform and uid for the permission check, as in VerifyRuntimeOptions (tests run the Windows policy on any platform). */
+  readonly policy?: VerifyRuntimeOptions["policy"];
+  /** Windows: false for a runtime installed on a build machine (content only, `acl: "skipped"`); see VerifyRuntimeOptions. */
+  readonly checkAcl?: boolean;
 }
 
 /** A manifest, and the fingerprints its files had while they were hashed (for files that did not change meanwhile). */
@@ -63,6 +69,13 @@ async function writeIfChanged(target: string, content: string, mode: number): Pr
     // Missing or unreadable: write it.
   }
   await writeFileAtomic(target, content, { mode });
+}
+
+/** Writes the two fixed shims into `<root>/bin`, leaving a shim that already holds the right text untouched. */
+export async function writeShims(root: string): Promise<void> {
+  const { binDirectory } = runtimeLayout(root);
+  await writeIfChanged(path.join(binDirectory, POSIX_SHIM_NAME), renderPosixShim(), SHIM_MODE);
+  await writeIfChanged(path.join(binDirectory, WINDOWS_SHIM_NAME), renderWindowsShim(), SHIM_MODE);
 }
 
 /**
@@ -143,24 +156,30 @@ export async function installRuntime(
   await writeFileAtomic(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: MANIFEST_MODE });
   await writeVerifiedCache(runtimeDirectory, definition.runtimeId, cache);
 
-  const { binDirectory } = runtimeLayout(root);
-  await writeIfChanged(path.join(binDirectory, POSIX_SHIM_NAME), renderPosixShim(), SHIM_MODE);
-  await writeIfChanged(path.join(binDirectory, WINDOWS_SHIM_NAME), renderWindowsShim(), SHIM_MODE);
+  await writeShims(root);
 
-  const verification = await verifyRuntime(root, definition.runtimeId, { useCache: !options.fullVerification });
+  const verification = await verifyRuntime(root, definition.runtimeId, {
+    useCache: !options.fullVerification,
+    alwaysCheckAcl: true,
+    ...(options.checkAcl === undefined ? {} : { checkAcl: options.checkAcl }),
+    ...(options.aclReader ? { aclReader: options.aclReader } : {}),
+    ...(options.policy ? { policy: options.policy } : {}),
+  });
   return { manifest, runtimeDirectory, verification };
 }
 
 /**
  * Makes `runtimeId` the current runtime: verifies it completely, then replaces `current` atomically (temp file,
  * fsync, rename). A reader sees the old id or the new one, never a torn file, and an invalid runtime is never pointed at.
+ * On Windows the ACLs are read again here unless `options.reuseAclStamp` (the `aclStamp` of the verification
+ * {@link installRuntime} just returned) matches every object exactly; see {@link VerifyRuntimeOptions.reuseAclStamp}.
  */
 export async function commitCurrent(
   root: string,
   runtimeId: string,
   options: VerifyRuntimeOptions = {},
 ): Promise<VerifiedRuntime> {
-  const verification = await verifyRuntime(root, runtimeId, options);
+  const verification = await verifyRuntime(root, runtimeId, { alwaysCheckAcl: true, ...options });
   await writeFileAtomic(runtimeLayout(root).currentFile, `${runtimeId}\n`, { mode: MANIFEST_MODE });
   return verification;
 }

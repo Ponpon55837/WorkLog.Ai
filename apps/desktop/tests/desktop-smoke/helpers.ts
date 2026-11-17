@@ -1,17 +1,28 @@
 import { _electron, type ElectronApplication, type TestInfo } from "@playwright/test";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import net from "node:net";
 import os from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { isSettledRepairFailure } from "@work-intelligence/desktop-core";
+import { windowsPowerShell } from "@work-intelligence/shared/windows-system-tool";
 import { WorkIntelligenceStore } from "@work-intelligence/storage";
 import {
   INSTANCE_CHALLENGE_HEADER,
   INSTANCE_PROOF_HEADER,
   computeInstanceProof,
 } from "@work-intelligence/shared/instance-proof";
+
+import {
+  freePort,
+  portIsFree,
+  powershellArguments,
+  processIsAlive,
+  profileDirectories,
+} from "../support/process-tools.js";
+
+export { freePort, portIsFree, processIsAlive, profileDirectories };
 
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
@@ -48,48 +59,6 @@ export function runtimeRootFromEnvironment(): string {
   const value = process.env.WORK_INTELLIGENCE_SMOKE_RUNTIME_ROOT;
   if (!value) throw new Error("WORK_INTELLIGENCE_SMOKE_RUNTIME_ROOT is not set; run `pnpm test:desktop-smoke`.");
   return value;
-}
-
-export async function freePort(): Promise<number> {
-  return new Promise((resolvePort, reject) => {
-    const server = net.createServer();
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const { port } = server.address() as net.AddressInfo;
-      server.close(() => resolvePort(port));
-    });
-  });
-}
-
-export async function portIsFree(port: number): Promise<boolean> {
-  return new Promise((resolveFree) => {
-    const server = net.createServer();
-    server.once("error", () => resolveFree(false));
-    server.listen(port, "127.0.0.1", () => server.close(() => resolveFree(true)));
-  });
-}
-
-export function processIsAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
-
-/** The profile variables the App may read, each pointing at a folder inside the isolated home. */
-export function profileDirectories(home: string): Record<string, string> {
-  return {
-    HOME: home,
-    USERPROFILE: home,
-    APPDATA: join(home, "AppData", "Roaming"),
-    LOCALAPPDATA: join(home, "AppData", "Local"),
-    XDG_CONFIG_HOME: join(home, ".config"),
-    XDG_DATA_HOME: join(home, ".local", "share"),
-    XDG_STATE_HOME: join(home, ".local", "state"),
-    XDG_CACHE_HOME: join(home, ".cache"),
-  };
 }
 
 /** Synthetic data only: a database created by the real store in a temporary folder, never anything of the developer's. */
@@ -199,8 +168,9 @@ export function runToExit(
   sandbox: Sandbox,
   extra: Record<string, string> = {},
   timeoutMs = 20_000,
+  extraArguments: readonly string[] = [],
 ): Promise<ElectronExit> {
-  const child: ChildProcess = spawn(electronBinary, launchArguments(), {
+  const child: ChildProcess = spawn(electronBinary, [...launchArguments(), ...extraArguments], {
     env: appEnvironment(sandbox, extra),
     stdio: ["ignore", "ignore", "pipe"],
   });
@@ -239,13 +209,13 @@ export function windowsLeftovers(pid: number, marker: string): string[] {
     `  ($_.CommandLine -and $_.CommandLine.Contains($env:WI_SMOKE_MARKER)))`,
     `} | ForEach-Object { '{0} {1}' -f $_.Name, $_.ProcessId }`,
   ].join("\n");
-  // -EncodedCommand (UTF-16LE base64) passes the script without any command-line quoting; the marker, a path, goes in
-  // through the environment for the same reason.
-  const output = execFileSync(
-    "powershell.exe",
-    ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
-    { encoding: "utf8", env: { ...process.env, WI_SMOKE_MARKER: marker } },
-  );
+  // The marker, a path, goes in through the environment, as the script itself goes in encoded: no command-line quoting.
+  const output = execFileSync(windowsPowerShell(), powershellArguments(script), {
+    encoding: "utf8",
+    env: { ...process.env, WI_SMOKE_MARKER: marker },
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
   return output
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -261,21 +231,45 @@ export function readSnapshot(app: ElectronApplication): Promise<MainSnapshot> {
   );
 }
 
-/** Polls the hook until `done` holds, then returns that snapshot. */
+/** A NEEDS_REPAIR the App will not leave by itself (no retry, no reinstall pending), or undefined. */
+export function settledRepairFailure(snapshot: MainSnapshot): string | undefined {
+  const latest = snapshot.recentErrors.at(-1);
+  return snapshot.owner === "NEEDS_REPAIR" && latest !== undefined && isSettledRepairFailure(latest)
+    ? `the App settled in NEEDS_REPAIR with errors=${snapshot.recentErrors.join(",")}`
+    : undefined;
+}
+
+/**
+ * Polls the hook until `done` holds, then returns that snapshot. With `failFast`, a state that can no longer reach `done`
+ * (see {@link settledRepairFailure}) fails at once with the real error codes instead of waiting for the timeout.
+ */
 export async function waitForSnapshot(
   app: ElectronApplication,
   done: (snapshot: MainSnapshot) => boolean,
   timeoutMs = 45_000,
+  failFast: (snapshot: MainSnapshot) => string | undefined = () => undefined,
 ): Promise<MainSnapshot> {
   const deadline = Date.now() + timeoutMs;
   let last: MainSnapshot | undefined;
   while (Date.now() < deadline) {
     last = await readSnapshot(app);
     if (done(last)) return last;
+    const failure = failFast(last);
+    if (failure !== undefined) throw new Error(failure);
     await new Promise((resolveWait) => setTimeout(resolveWait, 250));
   }
   throw new Error(
     `condition not met in ${timeoutMs} ms; last owner=${last?.owner} errors=${last?.recentErrors.join(",")}`,
+  );
+}
+
+/** Waits until the App is MANAGED with a running backend; a deterministic NEEDS_REPAIR fails at once. */
+export function waitForManagedSnapshot(app: ElectronApplication, timeoutMs = 45_000): Promise<MainSnapshot> {
+  return waitForSnapshot(
+    app,
+    (state) => state.owner === "MANAGED" && state.backend !== null,
+    timeoutMs,
+    settledRepairFailure,
   );
 }
 

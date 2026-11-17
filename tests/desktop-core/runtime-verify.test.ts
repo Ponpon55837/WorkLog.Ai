@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   RuntimeError,
   installRuntime,
@@ -10,9 +10,10 @@ import {
   type RuntimeErrorCode,
 } from "../../packages/desktop-core/src/runtime/index.js";
 import { forEachLimited } from "../../packages/desktop-core/src/runtime/concurrency.js";
-import { aclCheckFor, permissionProblem } from "../../packages/desktop-core/src/runtime/permissions.js";
+import { permissionProblem } from "../../packages/desktop-core/src/runtime/permissions.js";
 import {
   IS_WINDOWS,
+  fixtureAcl,
   fixtureDefinition,
   flipFirstByte,
   installFixture,
@@ -36,10 +37,22 @@ afterEach(async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
 
+/**
+ * `verifyRuntime` with the Windows ACLs from {@link fixtureAcl}, so a test about content, structure or the cache starts no
+ * PowerShell. A test of the ACL check passes its own `aclReader`, which wins.
+ */
+function verify(
+  launcherRoot: string,
+  runtimeId: string,
+  options: Parameters<typeof verifyRuntime>[2] = {},
+): ReturnType<typeof verifyRuntime> {
+  return verifyRuntime(launcherRoot, runtimeId, { ...fixtureAcl, ...options });
+}
+
 /** The error `verifyRuntime` rejects with, for assertions on code and detail. */
-async function refusal(options?: Parameters<typeof verifyRuntime>[2]): Promise<RuntimeError> {
+async function refusal(options?: Parameters<typeof verify>[2]): Promise<RuntimeError> {
   try {
-    await verifyRuntime(root, "rt-1", options);
+    await verify(root, "rt-1", options);
   } catch (error) {
     expect(error).toBeInstanceOf(RuntimeError);
     return error as RuntimeError;
@@ -61,29 +74,29 @@ const cachePath = (): string => path.join(runtimeDirectory, ".verified.json");
 
 describe("verifyRuntime: a good install", () => {
   it("passes, counts every file and accepts them all from the cache after the install's own full pass", async () => {
-    const result = await verifyRuntime(root, "rt-1");
+    const result = await verify(root, "rt-1");
     expect(result.fileCount).toBe(FILE_COUNT);
     expect(result.hashedCount).toBe(0);
     expect(result.cachedCount).toBe(FILE_COUNT);
     expect(result.runtimeDirectory).toBe(runtimeDirectory);
-    expect(result.acl).toBe(IS_WINDOWS ? "not-implemented" : "checked");
+    expect(result.acl).toBe("checked");
   });
 
   it("hashes every file once when there is no cache, then writes one", async () => {
     await fs.rm(cachePath());
-    expect((await verifyRuntime(root, "rt-1")).hashedCount).toBe(FILE_COUNT);
-    expect((await verifyRuntime(root, "rt-1")).hashedCount).toBe(0);
+    expect((await verify(root, "rt-1")).hashedCount).toBe(FILE_COUNT);
+    expect((await verify(root, "rt-1")).hashedCount).toBe(0);
   });
 
   it("does not use or write the cache when asked not to", async () => {
     await fs.rm(cachePath());
-    expect((await verifyRuntime(root, "rt-1", { useCache: false, concurrency: 1 })).hashedCount).toBe(FILE_COUNT);
+    expect((await verify(root, "rt-1", { useCache: false, concurrency: 1 })).hashedCount).toBe(FILE_COUNT);
     await expect(fs.access(cachePath())).rejects.toThrow();
   });
 
   it("ignores a cache write in progress by another launcher, but not other stray files", async () => {
     await fs.writeFile(path.join(runtimeDirectory, ".verified.json.0a1b2c.tmp"), "{}");
-    await verifyRuntime(root, "rt-1");
+    await verify(root, "rt-1");
     await fs.writeFile(path.join(runtimeDirectory, ".verified.json.evil"), "{}");
     await expectRefusal("RUNTIME_FILE_UNEXPECTED", ".verified.json.evil");
   });
@@ -133,7 +146,7 @@ describe("verifyRuntime: damaged contents", () => {
     await refusal();
     await tick();
     await fs.writeFile(target, original);
-    const result = await verifyRuntime(root, "rt-1");
+    const result = await verify(root, "rt-1");
     expect(result.hashedCount).toBe(1);
     expect(result.cachedCount).toBe(FILE_COUNT - 1);
   });
@@ -142,7 +155,7 @@ describe("verifyRuntime: damaged contents", () => {
     await tick();
     const target = path.join(runtimeDirectory, "app/web/index.html");
     await fs.utimes(target, new Date(), new Date(Date.now() + 1000));
-    expect((await verifyRuntime(root, "rt-1")).hashedCount).toBe(1);
+    expect((await verify(root, "rt-1")).hashedCount).toBe(1);
   });
 });
 
@@ -169,28 +182,28 @@ describe("verifyRuntime: a damaged or forged cache can only cost time", () => {
     ];
     for (const text of damaged) {
       await fs.writeFile(cachePath(), text);
-      expect((await verifyRuntime(root, "rt-1")).hashedCount).toBe(FILE_COUNT);
+      expect((await verify(root, "rt-1")).hashedCount).toBe(FILE_COUNT);
     }
   });
 
   it("ignores a cache that is far too large", async () => {
     await fs.rm(cachePath());
     await fs.writeFile(cachePath(), Buffer.alloc(9 * 1024 * 1024, 0x20));
-    expect((await verifyRuntime(root, "rt-1")).hashedCount).toBe(FILE_COUNT);
+    expect((await verify(root, "rt-1")).hashedCount).toBe(FILE_COUNT);
   });
 
   it("does not trust a cached hash that differs from the manifest's", async () => {
     const cache = JSON.parse(await fs.readFile(cachePath(), "utf8")) as { files: Record<string, { sha256: string }> };
     cache.files["app/mcp.js"]!.sha256 = "b".repeat(64);
     await fs.writeFile(cachePath(), JSON.stringify(cache));
-    expect((await verifyRuntime(root, "rt-1")).hashedCount).toBe(1);
+    expect((await verify(root, "rt-1")).hashedCount).toBe(1);
   });
 
   it("drops cache entries of files that are no longer part of the runtime", async () => {
     const cache = JSON.parse(await fs.readFile(cachePath(), "utf8")) as { files: Record<string, unknown> };
     cache.files["gone.js"] = cache.files["app/mcp.js"];
     await fs.writeFile(cachePath(), JSON.stringify(cache));
-    expect((await verifyRuntime(root, "rt-1")).hashedCount).toBe(0);
+    expect((await verify(root, "rt-1")).hashedCount).toBe(0);
     expect(Object.keys((JSON.parse(await fs.readFile(cachePath(), "utf8")) as { files: object }).files)).toHaveLength(
       FILE_COUNT,
     );
@@ -200,7 +213,7 @@ describe("verifyRuntime: a damaged or forged cache can only cost time", () => {
     await fs.rm(cachePath());
     await fs.chmod(runtimeDirectory, 0o555);
     try {
-      expect((await verifyRuntime(root, "rt-1")).fileCount).toBe(FILE_COUNT);
+      expect((await verify(root, "rt-1")).fileCount).toBe(FILE_COUNT);
     } finally {
       await fs.chmod(runtimeDirectory, 0o755);
     }
@@ -247,7 +260,7 @@ describe("verifyRuntime: structure", () => {
   it.skipIf(IS_WINDOWS)("refuses a runtime directory that is itself a symlink", async () => {
     const link = runtimeDirectoryFor(root, "rt-link");
     await fs.symlink(runtimeDirectory, link);
-    await expect(verifyRuntime(root, "rt-link")).rejects.toMatchObject({ code: "RUNTIME_SYMLINK_REJECTED" });
+    await expect(verify(root, "rt-link")).rejects.toMatchObject({ code: "RUNTIME_SYMLINK_REJECTED" });
   });
 
   it.skipIf(IS_WINDOWS)("refuses sockets, FIFOs and devices", async () => {
@@ -256,12 +269,12 @@ describe("verifyRuntime: structure", () => {
   });
 
   it("refuses a runtime directory that does not exist", async () => {
-    await expect(verifyRuntime(root, "rt-missing")).rejects.toMatchObject({ code: "RUNTIME_FILE_MISSING" });
+    await expect(verify(root, "rt-missing")).rejects.toMatchObject({ code: "RUNTIME_FILE_MISSING" });
   });
 
   it("refuses ids outside the charset before touching the file system", async () => {
     for (const id of ["", "../rt-1", "rt/1", "rt 1", ".hidden", "a".repeat(129)]) {
-      await expect(verifyRuntime(root, id)).rejects.toMatchObject({ code: "RUNTIME_POINTER_INVALID" });
+      await expect(verify(root, id)).rejects.toMatchObject({ code: "RUNTIME_POINTER_INVALID" });
     }
   });
 });
@@ -282,13 +295,13 @@ describe("verifyRuntime: symlinks the manifest lists", () => {
 
     await fs.rm(path.join(directory, "Frameworks/Versions/Current"));
     await fs.symlink("B", path.join(directory, "Frameworks/Versions/Current"));
-    await expect(verifyRuntime(root, "rt-links")).rejects.toMatchObject({ code: "RUNTIME_FILE_TAMPERED" });
+    await expect(verify(root, "rt-links")).rejects.toMatchObject({ code: "RUNTIME_FILE_TAMPERED" });
 
     await fs.rm(path.join(directory, "Frameworks/Versions/Current"));
-    await expect(verifyRuntime(root, "rt-links")).rejects.toMatchObject({ code: "RUNTIME_FILE_MISSING" });
+    await expect(verify(root, "rt-links")).rejects.toMatchObject({ code: "RUNTIME_FILE_MISSING" });
 
     await fs.symlink("A", path.join(directory, "Frameworks/Versions/Current"));
-    expect((await verifyRuntime(root, "rt-links")).fileCount).toBe(FILE_COUNT + 1);
+    expect((await verify(root, "rt-links")).fileCount).toBe(FILE_COUNT + 1);
   });
 });
 
@@ -456,7 +469,7 @@ describe("verifyRuntime: permissions", () => {
         expect(error.detail.actual).toContain("任何使用者");
         await fs.chmod(target, before);
       }
-      expect((await verifyRuntime(root, "rt-1")).fileCount).toBe(FILE_COUNT);
+      expect((await verify(root, "rt-1")).fileCount).toBe(FILE_COUNT);
     },
   );
 
@@ -484,7 +497,7 @@ describe("verifyRuntime: permissions", () => {
         await fs.rm(target);
         await fs.rename(moved, target);
       }
-      expect((await verifyRuntime(root, "rt-1")).fileCount).toBe(FILE_COUNT);
+      expect((await verify(root, "rt-1")).fileCount).toBe(FILE_COUNT);
     },
   );
 
@@ -492,9 +505,9 @@ describe("verifyRuntime: permissions", () => {
     const link = `${root}-link`;
     await fs.symlink(root, link);
     try {
-      expect((await verifyRuntime(link, "rt-1")).fileCount).toBe(FILE_COUNT);
+      expect((await verify(link, "rt-1")).fileCount).toBe(FILE_COUNT);
       await fs.chmod(root, 0o757);
-      await expect(verifyRuntime(link, "rt-1")).rejects.toMatchObject({ code: "RUNTIME_UNSAFE_PERMISSIONS" });
+      await expect(verify(link, "rt-1")).rejects.toMatchObject({ code: "RUNTIME_UNSAFE_PERMISSIONS" });
     } finally {
       await fs.chmod(root, 0o755);
       await fs.rm(link);
@@ -510,19 +523,129 @@ describe("verifyRuntime: permissions", () => {
     expect(error.detail.actual).toContain(`uid ${uid + 1}`);
   });
 
-  it("does not claim to check Windows ACLs: file contents are verified, and the result says ACLs were not", async () => {
-    await fs.chmod(path.join(root, "runtimes/rt-1/app"), 0o777).catch(() => undefined);
-    const result = await verifyRuntime(root, "rt-1", { policy: { platform: "win32", uid: undefined } });
-    expect(result.acl).toBe("not-implemented");
-    await flipFirstByte(path.join(runtimeDirectory, "app/mcp.js"));
-    await fs.rm(cachePath());
-    await expect(verifyRuntime(root, "rt-1", { policy: { platform: "win32", uid: undefined } })).rejects.toMatchObject({
-      code: "RUNTIME_FILE_TAMPERED",
+  describe("Windows ACLs", () => {
+    const WIN = { platform: "win32" as const, uid: undefined };
+    const GOOD = "O:BAG:BAD:PAI(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)(A;OICI;FA;;;S-1-5-21-1-2-3-1001)";
+    const BAD = "O:BAG:BAD:PAI(A;OICI;FA;;;BA)(A;OICI;0x1301bf;;;BU)";
+
+    function fixtureReader(sddl: string) {
+      const read = vi.fn(async (paths: readonly string[]) => ({
+        currentUserSid: "S-1-5-21-1-2-3-1001",
+        sddls: paths.map(() => sddl),
+      }));
+      return { read };
+    }
+
+    it("reads the ACLs of the root, bin, runtimes and the runtime's own files, and says so", async () => {
+      const aclReader = fixtureReader(GOOD);
+      const result = await verify(root, "rt-1", { policy: WIN, aclReader, useCache: false });
+      expect(result).toMatchObject({ acl: "checked", aclRead: true, aclReport: { tier: "dotnet" } });
+      const paths = aclReader.read.mock.calls[0]?.[0] ?? [];
+      expect(paths).toEqual(
+        expect.arrayContaining([root, path.join(root, "bin"), path.join(root, "runtimes"), runtimeDirectory]),
+      );
+    });
+
+    it("refuses a runtime a stranger can write", async () => {
+      await expect(
+        verify(root, "rt-1", { policy: WIN, aclReader: fixtureReader(BAD), useCache: false }),
+      ).rejects.toMatchObject({ code: "RUNTIME_UNSAFE_PERMISSIONS" });
+    });
+
+    it("reports the permissions over a changed file when both fail, although hashing overlaps the ACL read", async () => {
+      await flipFirstByte(path.join(runtimeDirectory, "app/mcp.js"));
+      await expect(
+        verify(root, "rt-1", { policy: WIN, aclReader: fixtureReader(BAD), useCache: false }),
+      ).rejects.toMatchObject({ code: "RUNTIME_UNSAFE_PERMISSIONS" });
+    });
+
+    it("refuses a changed file once the ACLs passed, and writes no cache", async () => {
+      await flipFirstByte(path.join(runtimeDirectory, "app/mcp.js"));
+      await fs.rm(cachePath());
+      await expect(verify(root, "rt-1", { policy: WIN, aclReader: fixtureReader(GOOD) })).rejects.toMatchObject({
+        code: "RUNTIME_FILE_TAMPERED",
+        detail: { file: "app/mcp.js" },
+      });
+      await expect(fs.access(cachePath())).rejects.toThrow();
+    });
+
+    it("ignores the POSIX mode bits Windows reports for every entry", async () => {
+      await fs.chmod(path.join(root, "runtimes/rt-1/app"), 0o777).catch(() => undefined);
+      await expect(verify(root, "rt-1", { policy: WIN, aclReader: fixtureReader(GOOD) })).resolves.toMatchObject({
+        acl: "checked",
+      });
+    });
+
+    it("reads the ACLs once, then trusts the stamp until an object it covers changes", async () => {
+      const aclReader = fixtureReader(GOOD);
+      // Start from no stamp: on Windows the fixture install already wrote one (from its own ACL read), which would make
+      // the first verification below a stamp hit.
+      await fs.rm(cachePath());
+      expect((await verify(root, "rt-1", { policy: WIN, aclReader })).aclRead).toBe(true);
+      expect(await fs.readFile(cachePath(), "utf8")).toContain('"acl"');
+      aclReader.read.mockClear();
+      expect((await verify(root, "rt-1", { policy: WIN, aclReader })).aclRead).toBe(false);
+      expect(aclReader.read).not.toHaveBeenCalled();
+      // A shim is covered by the stamp: touching it (a new change time) reads the ACLs again, once.
+      await tick();
+      const shim = path.join(root, "bin", "work-intelligence-launcher");
+      await fs.utimes(shim, new Date(), new Date());
+      expect((await verify(root, "rt-1", { policy: WIN, aclReader })).aclRead).toBe(true);
+      expect((await verify(root, "rt-1", { policy: WIN, aclReader })).aclRead).toBe(false);
+    });
+
+    it.each([
+      ["an install or switch", { alwaysCheckAcl: true }],
+      ["a full pass", { useCache: false }],
+    ])("reads the ACLs for %s even when the stamp matches", async (_name, extra) => {
+      const aclReader = fixtureReader(GOOD);
+      await verify(root, "rt-1", { policy: WIN, aclReader });
+      expect((await verify(root, "rt-1", { policy: WIN, aclReader, ...extra })).aclRead).toBe(true);
+    });
+
+    it("reads the ACLs again when a file misses the cache or the cache is gone", async () => {
+      const aclReader = fixtureReader(GOOD);
+      await verify(root, "rt-1", { policy: WIN, aclReader });
+      await fs.rm(cachePath());
+      expect((await verify(root, "rt-1", { policy: WIN, aclReader })).aclRead).toBe(true);
+      await tick();
+      await fs.utimes(path.join(runtimeDirectory, "app/mcp.js"), new Date(), new Date());
+      expect((await verify(root, "rt-1", { policy: WIN, aclReader })).aclRead).toBe(true);
+    });
+
+    it("skips the ACLs for a content-only verification and says so", async () => {
+      const aclReader = fixtureReader(BAD);
+      const result = await verify(root, "rt-1", { policy: WIN, aclReader, checkAcl: false });
+      expect(result).toMatchObject({ acl: "skipped", aclRead: false });
+      expect(result).not.toHaveProperty("aclReport");
+      expect(aclReader.read).not.toHaveBeenCalled();
+    });
+
+    it("covers launcher.mjs, both shims and the manifest in the paths it reads", async () => {
+      const aclReader = fixtureReader(GOOD);
+      await verify(root, "rt-1", { policy: WIN, aclReader, useCache: false });
+      const paths = aclReader.read.mock.calls[0]?.[0] ?? [];
+      expect(paths).toEqual(
+        expect.arrayContaining([
+          path.join(root, "bin", "work-intelligence-launcher"),
+          path.join(root, "bin", "work-intelligence-launcher.cmd"),
+          path.join(runtimeDirectory, "launcher.mjs"),
+          path.join(runtimeDirectory, "runtime-manifest.json"),
+        ]),
+      );
+    });
+
+    it("still verifies file contents", async () => {
+      await flipFirstByte(path.join(runtimeDirectory, "app/mcp.js"));
+      await fs.rm(cachePath());
+      await expect(verify(root, "rt-1", { policy: WIN, aclReader: fixtureReader(GOOD) })).rejects.toMatchObject({
+        code: "RUNTIME_FILE_TAMPERED",
+      });
     });
   });
 
   it.skipIf(IS_WINDOWS)("does not require an owner when the platform has no uid", async () => {
-    const result = await verifyRuntime(root, "rt-1", { policy: { platform: "linux", uid: undefined } });
+    const result = await verify(root, "rt-1", { policy: { platform: "linux", uid: undefined } });
     expect(result.acl).toBe("checked");
   });
 });
@@ -545,18 +668,12 @@ describe("permissionProblem", () => {
       undefined,
     ],
     ["macOS like Linux", { mode: 0o100646, uid: 501 }, { platform: "darwin" as const, uid: 501 }, "mode 646"],
-    // What Node reports for every entry on Windows: mode 666 and uid 0. ACLs are not checked yet, so no problem is found
-    // and the result says not-implemented (see aclCheckFor).
+    // What Node reports for every entry on Windows: mode 666 and uid 0. the ACL check (windows-acl.ts) replaces the mode bits.
     ["a Windows entry", { mode: 0o100666, uid: 0 }, { platform: "win32" as const, uid: undefined }, undefined],
   ])("%s", (_name, entry, policy, problem) => {
     const found = permissionProblem(entry, policy);
     if (problem === undefined) expect(found).toBeUndefined();
     else expect(found).toContain(problem);
-  });
-
-  it("reports Windows as not checked, never as a pass", () => {
-    expect(aclCheckFor({ platform: "win32", uid: undefined })).toBe("not-implemented");
-    expect(aclCheckFor({ platform: "linux", uid: 1000 })).toBe("checked");
   });
 });
 
@@ -579,7 +696,7 @@ describe("forEachLimited limits", () => {
     async (concurrency) => {
       await fs.rm(cachePath());
       await flipFirstByte(path.join(runtimeDirectory, "app/mcp.js"));
-      await expect(verifyRuntime(root, "rt-1", { concurrency, useCache: false })).rejects.toThrow(RangeError);
+      await expect(verify(root, "rt-1", { concurrency, useCache: false })).rejects.toThrow(RangeError);
     },
   );
 });

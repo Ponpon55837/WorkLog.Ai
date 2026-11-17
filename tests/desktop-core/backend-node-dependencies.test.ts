@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createNodeBackendDependencies } from "../../packages/desktop-core/src/index.js";
+import { BACKEND_NODE_FLAGS, createNodeBackendDependencies } from "../../packages/desktop-core/src/index.js";
 import { planLaunch } from "../../packages/desktop-core/src/runtime/launch-plan.js";
 
 vi.mock("../../packages/desktop-core/src/runtime/launch-plan.js", () => ({
@@ -45,12 +45,17 @@ describe("createNodeBackendDependencies", () => {
     const plan = await dependencies.planLaunch(["start", "--desktop-ipc"], { HOME: "/synthetic/home" });
 
     expect(plan.command).toBe("synthetic-node");
+    expect(plan.args).toEqual([...BACKEND_NODE_FLAGS, "serve"]);
     expect(vi.mocked(planLaunch)).toHaveBeenCalledWith(
       "/synthetic/runtime",
       "serve",
       ["start", "--desktop-ipc"],
       expect.objectContaining({ env: { HOME: "/synthetic/home" }, requiredRuntimeKind: "node" }),
     );
+  });
+
+  it("passes only V8 heap size limits, as plain numbers", () => {
+    expect(BACKEND_NODE_FLAGS.every((flag) => /^--max-(old|semi)-space-size=\d+$/.test(flag))).toBe(true);
   });
 
   it("tells a bound loopback port from a free one", async () => {

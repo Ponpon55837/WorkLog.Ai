@@ -27,6 +27,9 @@ export const serverAliases = {
   "@work-intelligence/shared/loopback-port": fileURLToPath(
     new URL("../../packages/shared/src/loopback-port.ts", import.meta.url),
   ),
+  "@work-intelligence/shared/windows-system-tool": fileURLToPath(
+    new URL("../../packages/shared/src/windows-system-tool.ts", import.meta.url),
+  ),
   "@work-intelligence/core": fileURLToPath(new URL("../../packages/core/src/index.ts", import.meta.url)),
   "@work-intelligence/schema": fileURLToPath(new URL("../../packages/schema/src/index.ts", import.meta.url)),
   "@work-intelligence/shared": fileURLToPath(new URL("../../packages/shared/src/index.ts", import.meta.url)),

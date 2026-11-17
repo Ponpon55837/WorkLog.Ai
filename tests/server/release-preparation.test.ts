@@ -61,7 +61,12 @@ describe("release preparation", () => {
     expect(workflow).toContain('"$REF" != "refs/heads/main"');
     expect(workflow).toContain("INPUT_VERSION: ${{ inputs.version }}");
     expect(workflow).toContain("git tag -a");
-    expect(workflow).toContain("needs: [prepare, verify, audit, quality, e2e-browser]");
+    expect(workflow).toContain("needs: [prepare, verify, audit, quality, e2e-browser, desktop-package]");
+    // The desktop installers of the release commit gate the release (ADR-03, DT-33) and are checksummed and attached.
+    expect(workflow).toContain("uses: ./.github/workflows/desktop-package.yml");
+    expect(workflow).toContain("needs.desktop-package.result == 'success'");
+    expect(workflow).toContain('"Work-Intelligence-$RELEASE_VERSION-win-x64-setup.exe"');
+    expect(workflow).toContain('"${installers[@]}"');
     expect(workflow).toContain("contents: write");
     expect(workflow).toContain("--verify-tag");
     // Publish packs the commit the checks verified, refuses a tag moved since, and keeps the write token out of git.

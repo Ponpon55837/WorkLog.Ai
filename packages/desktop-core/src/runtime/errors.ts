@@ -10,11 +10,26 @@ export const RUNTIME_ERROR_CODES = [
   "RUNTIME_ACTION_NOT_ALLOWED",
   "RUNTIME_KIND_NOT_ALLOWED",
   "RUNTIME_UNSAFE_PERMISSIONS",
+  "RUNTIME_ACL_UNREADABLE",
   "RUNTIME_ALREADY_INSTALLED",
+  "RUNTIME_BUNDLE_INVALID",
+  "RUNTIME_INSTALL_FAILED",
 ] as const;
 
 /** One of {@link RUNTIME_ERROR_CODES}. */
 export type RuntimeErrorCode = (typeof RUNTIME_ERROR_CODES)[number];
+
+/**
+ * Errors that mean the installed files are wrong (damaged, replaced, incomplete): a clean reinstall fixes them. Anything
+ * else (permissions, an ACL that cannot be read, a bad pointer) is not fixed by copying again and goes to the repair flow.
+ */
+export const REINSTALLABLE_CODES: ReadonlySet<string> = new Set<RuntimeErrorCode>([
+  "RUNTIME_FILE_TAMPERED",
+  "RUNTIME_MANIFEST_INVALID",
+  "RUNTIME_FILE_MISSING",
+  "RUNTIME_FILE_UNEXPECTED",
+  "RUNTIME_SYMLINK_REJECTED",
+]);
 
 /** What a refusal is about: the offending file and what was expected versus found. */
 export interface RuntimeErrorDetail {

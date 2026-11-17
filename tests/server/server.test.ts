@@ -2114,6 +2114,44 @@ describe("Work Intelligence REST API", () => {
     }
   });
 
+  it("answers 413 backup_worker_out_of_memory when the worker runs out of memory and keeps serving", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-worker-oom-test-"));
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const source = new WorkIntelligenceStore(databasePath);
+    source.addProject("Worker memory fixture", join(root, "project"));
+    const bundle = source.exportProjectData({ type: "all" });
+    const store = new WorkIntelligenceStore(":memory:");
+    // A heap far below the production limit; millions of small objects grow it gradually until the worker is lost.
+    const backgroundStore = new BackupWorkerClient(databasePath, {}, undefined, {
+      resourceLimits: { maxOldGenerationSizeMb: 64, maxYoungGenerationSizeMb: 6 },
+    });
+    const { server, baseUrl } = await startApi(store, { backgroundStore });
+    resources.push({ server, store, root });
+
+    try {
+      for (const path of ["/api/import/preview", "/api/import"]) {
+        const oversized = await fetch(`${baseUrl}${path}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: `{"bundle":{"padding":[${'{"a":1},'.repeat(6_000_000)}0]}}`,
+        });
+        expect(oversized.status).toBe(413);
+        expect(await oversized.json()).toMatchObject({ code: "backup_worker_out_of_memory" });
+
+        // The next request is served by a new worker.
+        const preview = await requestJson<{ outcome: string }>(baseUrl, "/api/import/preview", {
+          method: "POST",
+          body: { bundle },
+        });
+        expect(preview.status).toBe(200);
+        expect(preview.body.outcome).toBe("project_data_import_preview");
+      }
+    } finally {
+      await backgroundStore.close();
+      source.close();
+    }
+  }, 60_000);
+
   it("previews and merges portable project data while the server is running", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-project-transfer-"));
     const projectRoot = join(root, "path-must-not-be-created");

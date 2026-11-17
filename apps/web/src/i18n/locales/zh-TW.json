@@ -194,6 +194,7 @@
     "theDatabaseIsBusyPlease": "資料庫暫時忙碌，請稍後再試。",
     "theDatabaseIsReadOnly": "資料庫目前是唯讀狀態，這次變更沒有保存；讀取仍可使用。請確認資料庫檔案與所在資料夾可以寫入後再試。",
     "theDiskIsFull": "磁碟空間不足，這次變更沒有保存；已保存的資料沒有變更。請釋放資料庫所在磁碟的空間後再試。",
+    "theOperationRanOutOfMemory": "處理這份資料時記憶體不足，沒有變更任何資料。資料量太大，無法一次處理：請改成一次只匯入或匯出一個專案（或較少的專案）後再試。",
     "serverRestartRequired": "資料庫已由新版本升級，這次變更沒有保存。請重新啟動 Work Intelligence server 後再試。",
     "theDeletionConfirmationIsInvalid": "刪除確認資料無效，請重新輸入完整專案名稱。",
     "theDeletionDidNotFinish": "刪除作業未完成，專案資料已保留；刪除前備份仍在。",

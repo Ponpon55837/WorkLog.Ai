@@ -75,6 +75,26 @@ jobs:
         if: matrix.os != 'ubuntu-latest'
         run: pnpm test
 
+      # Windows PowerShell 5.1 under Constrained Language Mode (the machine-level lockdown policy): tier one of the ACL
+      # check must report it by exit code and tier two (Get-Acl) must read the descriptors. The variable is removed
+      # again even when the test fails.
+      - name: Windows ACL check under Constrained Language Mode
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        working-directory: packages/desktop-core
+        env:
+          WI_ACL_CLM_TEST: "1"
+        run: |
+          $code = 1
+          try {
+            [Environment]::SetEnvironmentVariable('__PSLockdownPolicy', '4', 'Machine')
+            pnpm exec vitest run --root ../.. tests/desktop-core/runtime-windows-acl.test.ts -t "Constrained Language Mode"
+            $code = $LASTEXITCODE
+          } finally {
+            [Environment]::SetEnvironmentVariable('__PSLockdownPolicy', $null, 'Machine')
+          }
+          exit $code
+
       - run: pnpm typecheck
 
       - name: Unit and integration tests with coverage

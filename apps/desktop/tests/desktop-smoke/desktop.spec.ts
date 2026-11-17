@@ -16,6 +16,7 @@ import {
   removeSandbox,
   runToExit,
   windowsLeftovers,
+  waitForManagedSnapshot,
   waitForSnapshot,
   type Sandbox,
 } from "./helpers.js";
@@ -44,7 +45,7 @@ test("starts the managed backend and proves its identity", async () => {
   sandbox = await createSandbox({ withDatabase: true });
   app = await launchApp(sandbox);
 
-  const snapshot = await waitForSnapshot(app, (state) => state.owner === "MANAGED" && state.backend !== null);
+  const snapshot = await waitForManagedSnapshot(app);
   const backend = snapshot.backend;
   if (!backend) throw new Error("no backend");
   expect(backend.port).toBe(sandbox.port);
@@ -61,7 +62,7 @@ test("starts the managed backend and proves its identity", async () => {
 test("a second launch exits at once and the first keeps the only backend", async () => {
   sandbox = await createSandbox({ withDatabase: true });
   app = await launchApp(sandbox);
-  const first = await waitForSnapshot(app, (state) => state.owner === "MANAGED" && state.backend !== null);
+  const first = await waitForManagedSnapshot(app);
   const pid = first.backend?.pid;
   if (!pid) throw new Error("no backend");
 
@@ -159,7 +160,7 @@ test("a missing database opens the repair window and creates nothing", async () 
 test("quitting stops the backend and frees the port", async () => {
   sandbox = await createSandbox({ withDatabase: true });
   app = await launchApp(sandbox);
-  const snapshot = await waitForSnapshot(app, (state) => state.owner === "MANAGED" && state.backend !== null);
+  const snapshot = await waitForManagedSnapshot(app);
   const pid = snapshot.backend?.pid;
   if (!pid) throw new Error("no backend");
 
@@ -172,10 +173,37 @@ test("quitting stops the backend and frees the port", async () => {
   expect(readMainLog(sandbox)).toMatch(/\[shell\] stop: graceful=true forced=false exited=true portReleased=true/);
 });
 
+test("--quit asks the running App for its non-interactive quit: backend stopped, port free, exit 0 for both", async () => {
+  sandbox = await createSandbox({ withDatabase: true });
+  app = await launchApp(sandbox);
+  const snapshot = await waitForManagedSnapshot(app);
+  const pid = snapshot.backend?.pid;
+  if (!pid) throw new Error("no backend");
+
+  const closed = app.waitForEvent("close", { timeout: 40_000 });
+  const quit = await runToExit(sandbox, {}, 20_000, ["--quit"]);
+  expect({ code: quit.code, signal: quit.signal }, `--quit stderr:\n${quit.stderr}`).toEqual({ code: 0, signal: null });
+  await closed;
+
+  await expect.poll(() => processIsAlive(pid), { timeout: 10_000 }).toBe(false);
+  await expect.poll(() => portIsFree(sandbox?.port ?? 0), { timeout: 10_000 }).toBe(true);
+  const log = readMainLog(sandbox);
+  expect(log).toMatch(/\[shell\] quit requested by --quit/);
+  expect(log).toMatch(/\[shell\] stop: graceful=true forced=false exited=true portReleased=true/);
+});
+
+test("--quit with nothing running exits 0 at once and starts nothing", async () => {
+  sandbox = await createSandbox({ withDatabase: true });
+  const quit = await runToExit(sandbox, {}, 20_000, ["--quit"]);
+  expect({ code: quit.code, signal: quit.signal }, `--quit stderr:\n${quit.stderr}`).toEqual({ code: 0, signal: null });
+  expect(await portIsFree(sandbox.port)).toBe(true);
+  expect(readMainLog(sandbox)).not.toMatch(/backend started/);
+});
+
 test("starts without any Node on the PATH and runs the bundled runtime", async () => {
   sandbox = await createSandbox({ withDatabase: true });
   app = await launchApp(sandbox);
-  const snapshot = await waitForSnapshot(app, (state) => state.owner === "MANAGED" && state.backend !== null);
+  const snapshot = await waitForManagedSnapshot(app);
   const execPath = snapshot.backend?.execPath ?? "";
   // `.native`: it expands Windows 8.3 short names (the runner's temp folder is under `RUNNER~1`); the JS one does not.
   expect(samePathPrefix(realpathSync.native(execPath), realpathSync.native(sandbox.runtimeRoot))).toBe(true);
@@ -185,7 +213,7 @@ test("starts without any Node on the PATH and runs the bundled runtime", async (
 test("a backend that dies is restarted by the bounded retry", async () => {
   sandbox = await createSandbox({ withDatabase: true });
   app = await launchApp(sandbox);
-  const first = await waitForSnapshot(app, (state) => state.owner === "MANAGED" && state.backend !== null);
+  const first = await waitForManagedSnapshot(app);
   const pid = first.backend?.pid;
   if (!pid) throw new Error("no backend");
 
@@ -319,7 +347,7 @@ test("a relaunch with the same backend leaves the settings file as it was", asyn
   sandbox = await createSandbox({ withDatabase: true });
   const settingsFile = join(sandbox.dataDirectory, "desktop-settings.json");
   app = await launchApp(sandbox);
-  await waitForSnapshot(app, (state) => state.owner === "MANAGED" && state.backend !== null);
+  await waitForManagedSnapshot(app);
   await closeQuietly(app);
   app = undefined;
   const recorded = readFileSync(settingsFile, "utf8");
@@ -327,7 +355,7 @@ test("a relaunch with the same backend leaves the settings file as it was", asyn
   const before = statSync(settingsFile);
 
   app = await launchApp(sandbox);
-  await waitForSnapshot(app, (state) => state.owner === "MANAGED" && state.backend !== null);
+  await waitForManagedSnapshot(app);
   // Same port, runtime and database: the active record is unchanged, so the start skips the fsync'd rewrite.
   expect(readFileSync(settingsFile, "utf8")).toBe(recorded);
   const after = statSync(settingsFile);
