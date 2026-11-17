@@ -6,6 +6,8 @@
  *                                  is bundled so the shell does not depend on node_modules at run time)
  *   dist/preload/repair.cjs        sandboxed preload, CommonJS (a sandboxed preload cannot be ESM and may only require "electron")
  *   dist/renderer/repair/          repair page: index.html and repair.css copied, repair.js bundled as an IIFE
+ *   dist/skills/work-intelligence/SKILL.md   the canonical Agent skill (.agents/skills/work-intelligence), which the Agent page
+ *                                  installs for Codex and Claude Code; a packaged App reads its extraResources copy instead
  *   dist/assets/tray*.png          tray icons, copies of build/tray.png and build/trayTemplate*.png (rendered by generate-icons.mjs)
  *
  * Flags:
@@ -88,6 +90,11 @@ await build({
 
 cpSync(join(root, "src/renderer/repair/index.html"), join(dist, "renderer/repair/index.html"));
 cpSync(join(root, "src/renderer/repair/repair.css"), join(dist, "renderer/repair/repair.css"));
+mkdirSync(join(dist, "skills", "work-intelligence"), { recursive: true });
+cpSync(
+  join(root, "..", "..", ".agents", "skills", "work-intelligence", "SKILL.md"),
+  join(dist, "skills", "work-intelligence", "SKILL.md"),
+);
 for (const file of ["tray.png", "trayTemplate.png", "trayTemplate@2x.png"])
   cpSync(join(root, "build", file), join(dist, "assets", file));
 process.stdout.write(`desktop shell built (${production ? "production" : "smoke"})\n`);

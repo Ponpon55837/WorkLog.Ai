@@ -18,6 +18,7 @@ import {
   type RevalidationFailureReason,
   type VerifiedDatabaseConfig,
 } from "./database-preflight.js";
+import type { DesktopHandlerOptions } from "./desktop-services.js";
 import { describeListenError } from "./listen-error.js";
 import { createApiHandler } from "./server.js";
 import { resolveServerPort } from "./server-port.js";
@@ -41,6 +42,8 @@ export interface StartApiOptions {
    * It carries no data: a listener rereads the backup folder, which is the one place all backup kinds end up.
    */
   onBackupsChanged?: () => void;
+  /** Desktop-child mode: facts from the App's `start` message and the way to ask it to open its Agent setup. */
+  desktop?: DesktopHandlerOptions;
 }
 
 /** What `startApi` reports once the server accepts connections. */
@@ -207,6 +210,7 @@ export function startApi(options: StartApiOptions = {}): StartedApi {
       ...(webDirectory ? { webDirectory } : {}),
       ...(backupWorker ? { backgroundStore: backupWorker } : {}),
       ...(options.instanceRunId ? { instanceRunId: options.instanceRunId } : {}),
+      ...(options.desktop ? { desktop: options.desktop } : {}),
     });
     const handler = apiHandler;
     server = createServer((request, response) => {

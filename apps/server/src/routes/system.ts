@@ -211,6 +211,7 @@ async function systemStatus({ store, response, services }: RouteContext): Promis
     },
     maintenance: database.maintenance ?? null,
     userService: await services.userServiceStatus(),
+    ...(services.desktop ? { desktop: services.desktop.status } : {}),
     mcp: services.mcpRuntimeStatus(),
     agents: services.agentConnections(),
     sseConnections: services.eventClientCount(),

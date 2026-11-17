@@ -1,6 +1,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { RuntimeError, runtimeErrorCode } from "./errors.js";
+import { DATABASE_ENVIRONMENT_VARIABLE, type DesktopDatabaseResolution } from "./desktop-database.js";
 import { checkLaunchConsistency } from "./launch-consistency.js";
 import { ELECTRON_AS_NODE_ENV, assertAllowedAction, buildLaunchPlan } from "./launch-plan.js";
 import { RUNTIMES_DIRECTORY_NAME } from "./layout.js";
@@ -20,6 +21,12 @@ export interface LauncherHost {
   setArgv(argv: string[]): void;
   /** Removes an environment variable of this process, so child processes of the action do not inherit it. */
   unsetEnv(name: string): void;
+  /** Reads an environment variable of this process. */
+  getEnv(name: string): string | undefined;
+  /** Sets an environment variable of this process before the action's entry is imported. */
+  setEnv(name: string, value: string): void;
+  /** The database the App committed, read through the pointer in the launcher root (see desktop-database.ts). */
+  desktopDatabase(launcherRoot: string): DesktopDatabaseResolution;
   /** Dynamic `import()` of the action's entry, in this same process. */
   importModule(url: string): Promise<unknown>;
 }
@@ -49,6 +56,9 @@ export const LAUNCHER_EXIT_ENTRY_FAILED = 1;
 /** Prints a diagnostic JSON document on stdout and exits; for installers and smoke tests, never for an Agent. */
 export const PRINT_RUNTIME_INFO_FLAG = "--print-runtime-info";
 
+/** The backend the App itself starts; it is always given its database explicitly. */
+const SERVE_ACTION = "serve";
+
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -73,6 +83,32 @@ export async function probeSqlite(): Promise<SqliteProbe> {
   } catch (error) {
     return { error: describe(error) };
   }
+}
+
+/** Set by the caller, either of these means "this checkout / config directory is mine": the App database stays out. */
+const EXPLICIT_LOCATION_VARIABLES = ["WORK_INTELLIGENCE_HOME", "WORK_INTELLIGENCE_CONFIG_DIR"] as const;
+
+/**
+ * Points the action at the App's committed database (ADR-39) unless the caller chose a location: an explicit
+ * `WORK_INTELLIGENCE_DB`, `WORK_INTELLIGENCE_HOME` or `WORK_INTELLIGENCE_CONFIG_DIR` always wins. Without App settings
+ * (no pointer, or nothing committed yet) the action keeps the standalone rule. Once the App's settings exist but
+ * cannot be used there is NO fallback to another database: `false` means the action must not start, and MCP has
+ * already said why in one stderr line (hooks stay silent).
+ */
+function useDesktopDatabase(launcherRoot: string, host: LauncherHost, quiet: boolean): boolean {
+  if (host.getEnv(DATABASE_ENVIRONMENT_VARIABLE)?.trim()) return true;
+  if (EXPLICIT_LOCATION_VARIABLES.some((name) => host.getEnv(name)?.trim())) return true;
+  const resolution = host.desktopDatabase(launcherRoot);
+  if (resolution.kind === "ok") host.setEnv(DATABASE_ENVIRONMENT_VARIABLE, resolution.databasePath);
+  else if (resolution.kind === "invalid") {
+    if (!quiet) {
+      host.stderr(
+        `桌面 App 的設定無法使用（${resolution.reason}），為避免寫入另一個資料庫，Agent 未啟動。請在 App 修復設定。\n`,
+      );
+    }
+    return false;
+  }
+  return true;
 }
 
 /** The launcher root and runtime id implied by where this script lives: `<root>/runtimes/<runtimeId>/`. */
@@ -148,8 +184,10 @@ export async function runLauncher(input: LauncherInput, host: LauncherHost): Pro
   };
 
   let verified: VerifiedRuntime;
+  let launcherRoot: string;
   try {
     const { root, runtimeId } = locate(input.runtimeDirectory);
+    launcherRoot = root;
     verified = await verifyRuntime(root, runtimeId);
     await checkLaunchConsistency({
       root,
@@ -174,6 +212,9 @@ export async function runLauncher(input: LauncherInput, host: LauncherHost): Pro
     // The shims set these for every runtime because they cannot tell which kind they start; a plain Node must not pass them on.
     if (verified.manifest.runtimeKind === "node") {
       for (const name of Object.keys(ELECTRON_AS_NODE_ENV)) host.unsetEnv(name);
+    }
+    if (action !== SERVE_ACTION && !useDesktopDatabase(launcherRoot, host, failOpen)) {
+      return { kind: "exit", code: failOpen ? 0 : LAUNCHER_EXIT_INVALID_RUNTIME };
     }
     host.setArgv([host.execPath, entry, ...entryArgs]);
     await host.importModule(pathToFileURL(entry).href);

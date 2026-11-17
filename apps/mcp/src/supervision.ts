@@ -35,10 +35,11 @@ export function createLauncherUpdateCheck(identity: McpLauncherIdentity): () => 
     let signature: string;
     let recent: boolean;
     try {
-      const stats = statSync(identity.path);
-      signature = `${stats.size}:${stats.mtimeMs}:${stats.ino}`;
+      // Bigint stats: a 64-bit Windows file id loses precision as a JS number, so a replaced file could look unchanged.
+      const stats = statSync(identity.path, { bigint: true });
+      signature = `${stats.size}:${stats.mtimeNs}:${stats.ino}`;
       // A file written within the timestamp resolution could change again without a new signature (coarse on Windows).
-      recent = Date.now() - stats.mtimeMs < RACY_WINDOW_MS;
+      recent = Date.now() - Number(stats.mtimeMs) < RACY_WINDOW_MS;
     } catch {
       return false;
     }

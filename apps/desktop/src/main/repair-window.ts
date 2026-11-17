@@ -1,9 +1,12 @@
 import { app, BrowserWindow, type WebContents } from "electron";
-import { REPAIR_PAGE_URL } from "@work-intelligence/desktop-core";
+import { REPAIR_PAGE_URL, type AppView } from "@work-intelligence/desktop-core";
 
 export interface RepairWindow {
-  /** Shows the repair window: a new one, or the one that is already open. */
-  open(): void;
+  /**
+   * Shows the App window on `view` (the repair page when omitted): a new window, or the open one, which reloads when it
+   * showed another view. The page asks main which view to render (`app:get-view`); it never chooses one itself.
+   */
+  open(view?: AppView): void;
   isOpen(): boolean;
   /** Closes the window when one is open. */
   close(): void;
@@ -14,7 +17,11 @@ export interface RepairWindow {
 }
 
 export interface RepairWindowOptions {
-  readonly title: () => string;
+  readonly title: (view: AppView) => string;
+  /** Where the current view is kept; the IPC reads it for `app:get-view`. */
+  readonly setView: (view: AppView) => void;
+  /** The view used when `open` names none. */
+  readonly defaultView: () => AppView;
   readonly preloadFile: string;
   /** Called before every new window is created; it must be safe to call again (the session policy is applied here). */
   readonly prepareSession: () => void;
@@ -27,8 +34,17 @@ export function createRepairWindow(options: RepairWindowOptions): RepairWindow {
 
   const alive = (): BrowserWindow | null => (current && !current.isDestroyed() ? current : null);
 
-  function open(): void {
+  let shown: AppView | null = null;
+
+  function open(requested?: AppView): void {
+    const view = requested ?? options.defaultView();
+    options.setView(view);
     const existing = alive();
+    if (existing && shown !== view) {
+      shown = view;
+      existing.setTitle(options.title(view));
+      existing.webContents.reload();
+    }
     if (existing) {
       if (existing.isMinimized()) existing.restore();
       existing.show();
@@ -42,7 +58,7 @@ export function createRepairWindow(options: RepairWindowOptions): RepairWindow {
       width: 780,
       height: 760,
       show: false,
-      title: options.title(),
+      title: options.title(view),
       webPreferences: {
         contextIsolation: true,
         sandbox: true,
@@ -53,12 +69,14 @@ export function createRepairWindow(options: RepairWindowOptions): RepairWindow {
       },
     });
     current = created;
+    shown = view;
     created.once("ready-to-show", () => {
       created.show();
       options.onShown?.();
     });
     created.on("closed", () => {
       current = null;
+      shown = null;
       // A background (login) start leaves no Dock icon when no window is open.
       if (process.platform === "darwin" && BrowserWindow.getAllWindows().length === 0) app.dock?.hide();
     });

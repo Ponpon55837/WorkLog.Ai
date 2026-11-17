@@ -34,6 +34,7 @@ import {
 import { StagedImports } from "./staged-imports.js";
 import { transferRoot as defaultTransferRoot } from "./transfer-workspace.js";
 import { getUserServiceStatusAsync } from "./user-service.js";
+import { createDesktopRouteServices, type DesktopHandlerOptions } from "./desktop-services.js";
 import { Router, apiRoutes, type BackgroundStoreOperations, type RouteServices } from "./routes/index.js";
 import { resolveWebDirectory } from "./web-directory.js";
 import { applyProductionSecurityHeaders, createStaticFilesHandler } from "./static-files.js";
@@ -155,6 +156,8 @@ export interface ApiHandlerOptions {
    * so the parent can tell this process from a squatter on the port; the id itself is never sent. Unset: no change.
    */
   instanceRunId?: string;
+  /** Set only by the desktop child: enables `desktop` in the system status and `POST /api/desktop/open-agent-setup`. */
+  desktop?: DesktopHandlerOptions;
 }
 
 export type ApiHandler = ((request: IncomingMessage, response: ServerResponse) => Promise<void>) & {
@@ -314,6 +317,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
     mcpRuntimeStatus: () => getMcpRuntimeStatus(repositoryRoot),
     agentConnections: inspectConnections,
     userServiceStatus: inspectUserService,
+    ...(options.desktop ? { desktop: createDesktopRouteServices(options.desktop) } : {}),
     backgroundStore,
     transferRoot,
     stagedImports,

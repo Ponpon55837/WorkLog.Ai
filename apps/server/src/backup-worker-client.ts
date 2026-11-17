@@ -110,10 +110,44 @@ export const HEAVY_IDLE_TIMEOUT_MS = 1_000;
 export const BACKUP_WORKER_HEAP_MB = 1024;
 const BACKUP_WORKER_SEMI_SPACE_MB = 2;
 export const BACKUP_WORKER_HEAP_ENVIRONMENT = "WORK_INTELLIGENCE_BACKGROUND_HEAP_MB";
-/** The last stderr bytes kept to recognise how the process ended; V8's fatal out-of-memory report fits easily. */
-const STDERR_TAIL_BYTES = 8 * 1024;
-const OUT_OF_MEMORY_REPORT =
-  /JavaScript heap out of memory|Reached heap limit|Allocation failed|Fatal JavaScript out of memory/;
+/** What V8 prints when a process runs out of heap; any one of them classifies the exit as out of memory. */
+const OUT_OF_MEMORY_MARKERS = [
+  "JavaScript heap out of memory",
+  "Reached heap limit",
+  "Allocation failed",
+  "Fatal JavaScript out of memory",
+] as const;
+/** Kept from the end of one stderr chunk so a marker split across two chunks is still found; never more. */
+const OUT_OF_MEMORY_CARRY = Math.max(...OUT_OF_MEMORY_MARKERS.map((marker) => marker.length)) - 1;
+
+/** Recognises V8's out-of-memory report in a process's stderr, chunk by chunk. */
+export interface OutOfMemoryScanner {
+  /** Reads the next stderr chunk. */
+  scan(chunk: string): void;
+  /** Whether any chunk so far held an out-of-memory marker. */
+  readonly seen: boolean;
+}
+
+/**
+ * A scanner for one process. The report is recorded when it arrives rather than searched for in the end of stderr:
+ * V8 prints a native stack trace after it, which on macOS arm64 can be longer than any tail kept. Only a few bytes are
+ * carried between chunks.
+ */
+export function createOutOfMemoryScanner(): OutOfMemoryScanner {
+  let carry = "";
+  let seen = false;
+  return {
+    scan(chunk: string): void {
+      if (seen) return;
+      const text = carry + chunk;
+      seen = OUT_OF_MEMORY_MARKERS.some((marker) => text.includes(marker));
+      carry = text.slice(-OUT_OF_MEMORY_CARRY);
+    },
+    get seen(): boolean {
+      return seen;
+    },
+  };
+}
 const HEAVY_OPERATIONS: ReadonlySet<BackupWorkerOperation["type"]> = new Set([
   "exportTo",
   "exportProjectData",
@@ -298,11 +332,12 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
     // Like the worker thread it replaces, the process never keeps the API alive by itself.
     child.unref();
     child.channel?.unref();
-    let stderrTail = "";
+    // One scanner per process, so an earlier worker's report never classifies this one's exit.
+    const outOfMemory = createOutOfMemoryScanner();
     child.stderr?.setEncoding("utf8");
     child.stderr?.on("data", (text: string) => {
       process.stderr.write(text);
-      stderrTail = (stderrTail + text).slice(-STDERR_TAIL_BYTES);
+      outOfMemory.scan(text);
     });
     (child.stderr as { unref?: () => void } | null)?.unref?.();
     let resolveExit!: () => void;
@@ -333,7 +368,7 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
     child.on("error", (error) => {
       if (child.pid === undefined) fail(error);
     });
-    // "close" comes after stderr is drained, so the out-of-memory report is in the tail by then.
+    // "close" comes after stderr is drained, so the out-of-memory report has been scanned by then.
     child.once("close", (code, signal) => {
       if (this.lifetime === lifetime) this.lifetime = undefined;
       if (code === 0 && lifetime.retiring && !this.hasPendingRequests(lifetime)) {
@@ -344,7 +379,7 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
       const cause = new Error(
         `The background worker exited unexpectedly with ${signal ? `signal ${signal}` : `code ${code}`}.`,
       );
-      const error = OUT_OF_MEMORY_REPORT.test(stderrTail) ? new BackupWorkerOutOfMemoryError({ cause }) : cause;
+      const error = outOfMemory.seen ? new BackupWorkerOutOfMemoryError({ cause }) : cause;
       lifetime.failure = error;
       this.rejectPending(error, lifetime);
       if (code === 0 && lifetime.retiring) resolveExit();

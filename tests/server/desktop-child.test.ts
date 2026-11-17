@@ -98,7 +98,25 @@ describe("DesktopChild", () => {
       instanceRunId: RUN_ID,
       onBackupCompleted: expect.any(Function),
       onBackupsChanged: expect.any(Function),
+      desktop: { onOpenAgentSetup: expect.any(Function) },
     });
+  });
+
+  it("passes the desktop facts to the API and relays the API's open-agent-setup request to the parent", async () => {
+    const { child, sent, startApi } = setup();
+    const legacyService = {
+      running: "running",
+      removeCommand: "synthetic remove",
+      fallbackRemoveCommand: "synthetic fallback",
+    };
+    await child.handle({ ...START, desktop: { legacyService } });
+
+    const options = startApi.mock.calls[0]?.[0] as {
+      desktop: { facts: { legacyService: unknown }; onOpenAgentSetup: () => void };
+    };
+    expect(options.desktop.facts).toEqual({ legacyService });
+    options.desktop.onOpenAgentSetup();
+    expect(sent.at(-1)).toEqual({ type: "open-agent-setup" });
   });
 
   it("tells the parent when the running API completes a backup", async () => {

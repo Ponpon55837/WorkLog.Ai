@@ -3,6 +3,7 @@ import type { ServiceOwnerState } from "../operations/service-owner-state.js";
 import type { ShellLocale } from "./i18n.js";
 import type { LastBackupInfo } from "./last-backup.js";
 import type { RecordedError } from "./recent-errors.js";
+import type { LegacyServiceDetection } from "../legacy-service/types.js";
 
 export type BackendRunState = "running" | "starting" | "stopped" | "crashed";
 
@@ -13,7 +14,8 @@ export type RepairActionId =
   | "open-database-folder"
   | "open-backups-folder"
   | "open-logs-folder"
-  | "export-diagnostics";
+  | "export-diagnostics"
+  | "start-anyway";
 
 export interface RepairAction {
   readonly id: RepairActionId;
@@ -48,6 +50,18 @@ export interface RepairState {
   readonly retryOperationId: string;
   /** Set only while the success card shows, right after a repair the user started worked. */
   readonly recovered: RepairRecovered | null;
+  /**
+   * The old login service (`pnpm bootstrap`) is installed and may serve this database. `blocked`: the App did not start
+   * its backend because of it; only "仍要啟動" (the `start-anyway` action) starts it.
+   */
+  readonly legacyService: {
+    readonly running: "running" | "stopped" | "unknown";
+    readonly blocked: boolean;
+    /** The backend could not bind its port, and the old service listens on that port: the page names it. */
+    readonly portInUse: boolean;
+    readonly removeCommand?: string;
+    readonly fallbackRemoveCommand: string;
+  } | null;
 }
 
 export interface RepairRecovered {
@@ -76,6 +90,12 @@ export interface RepairStateInputs {
   readonly lastBackup: LastBackupInfo;
   readonly retryOperationId: string;
   readonly recovered?: RepairRecovered | null;
+  /** What the start-up check found, when it found the old login service on this database. */
+  readonly legacyService?: LegacyServiceDetection | null;
+  /** The App held its backend back because of that service. */
+  readonly legacyBlocked?: boolean;
+  /** The last start found the port taken, and the old service is on that port. */
+  readonly legacyPortInUse?: boolean;
   /** A retry or another operation is running: actions are disabled until it ends. */
   readonly busy: boolean;
 }
@@ -130,6 +150,18 @@ export function buildRepairState(inputs: RepairStateInputs): RepairState {
     lastBackup: inputs.lastBackup,
     retryOperationId: inputs.retryOperationId,
     recovered: inputs.recovered ?? null,
+    legacyService:
+      inputs.legacyService?.kind === "found"
+        ? {
+            running: inputs.legacyService.running,
+            blocked: inputs.legacyBlocked === true,
+            portInUse: inputs.legacyPortInUse === true,
+            ...(inputs.legacyService.removeCommand === undefined
+              ? {}
+              : { removeCommand: inputs.legacyService.removeCommand }),
+            fallbackRemoveCommand: inputs.legacyService.fallbackRemoveCommand,
+          }
+        : null,
     actions: [
       { id: "retry-start", enabled: canRetry },
       { id: "choose-database", enabled: idle },
@@ -137,6 +169,7 @@ export function buildRepairState(inputs: RepairStateInputs): RepairState {
       { id: "open-backups-folder", enabled: true },
       { id: "open-logs-folder", enabled: true },
       { id: "export-diagnostics", enabled: true },
+      ...(inputs.legacyBlocked ? [{ id: "start-anyway" as const, enabled: idle }] : []),
     ],
   };
 }

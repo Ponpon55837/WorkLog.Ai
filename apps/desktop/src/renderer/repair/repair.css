@@ -210,6 +210,134 @@ button:disabled {
   color: var(--fg-muted);
 }
 
+.card.warning {
+  background: var(--attention-soft);
+  border-color: var(--attention-border);
+  display: grid;
+  gap: 8px;
+}
+
+.card.warning h2,
+.warning-text {
+  color: var(--attention);
+}
+
+.card.error {
+  background: var(--danger-soft);
+  border-color: var(--danger-border);
+}
+
+.command {
+  display: grid;
+  grid-template-columns: 1fr max-content;
+  gap: 4px 8px;
+  align-items: center;
+}
+
+.command .hint {
+  grid-column: 1 / -1;
+}
+
+.command-text {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.sources {
+  display: grid;
+  gap: 8px;
+}
+
+.source {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-outer);
+  padding: 12px 16px;
+  display: grid;
+  gap: 8px;
+}
+
+.source.recommended {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.advanced summary,
+.file summary {
+  cursor: pointer;
+  color: var(--fg-muted);
+}
+
+.advanced .facts {
+  margin-top: 8px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: normal;
+  color: var(--fg-muted);
+}
+
+.result {
+  color: var(--success);
+}
+
+.file + .file {
+  margin-top: 8px;
+}
+
+.diff {
+  margin: 8px 0 0;
+  padding: 8px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius);
+  font: 12px / 1.45 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.diff span {
+  display: block;
+}
+
+.diff-add {
+  color: var(--success);
+  background: var(--success-soft);
+}
+
+.diff-remove {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.diff-hunk,
+.diff-note {
+  color: var(--fg-muted);
+}
+
+#agents-preview .actions {
+  margin-top: 12px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;

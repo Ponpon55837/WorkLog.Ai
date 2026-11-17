@@ -1,10 +1,16 @@
 import type { RepairApi, RepairState, RepairActionId } from "@work-intelligence/desktop-core";
 import {
+  errorHintFor,
   errorMessageFor,
   formatMessage,
   shellMessages,
   type ShellMessages,
 } from "@work-intelligence/desktop-core/shell/i18n";
+import { setupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
+import { mountAgents } from "./agents-view.js";
+import { element, fact, section } from "./dom.js";
+import { legacyBlock } from "./legacy-block.js";
+import { mountSetup } from "./setup-view.js";
 
 declare global {
   interface Window {
@@ -19,18 +25,6 @@ const statusRegion = document.getElementById("status") as HTMLElement;
 let current: RepairState | undefined;
 let working = false;
 
-function element<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  options: { className?: string; text?: string } = {},
-  children: readonly (Node | string)[] = [],
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  if (options.className) node.className = options.className;
-  if (options.text !== undefined) node.textContent = options.text;
-  node.append(...children);
-  return node;
-}
-
 function say(text: string): void {
   statusRegion.textContent = text;
 }
@@ -44,14 +38,6 @@ function formatBackup(state: RepairState, messages: ShellMessages): string {
   );
 }
 
-function fact(label: string, value: Node | string): [HTMLElement, HTMLElement] {
-  return [element("dt", { text: label }), element("dd", {}, [value])];
-}
-
-function section(title: string, ...content: Node[]): HTMLElement {
-  return element("section", { className: "card" }, [element("h2", { text: title }), ...content]);
-}
-
 function actionLabel(id: RepairActionId, messages: ShellMessages): string {
   const labels: Record<RepairActionId, string> = {
     "retry-start": messages.actionRetry,
@@ -60,6 +46,7 @@ function actionLabel(id: RepairActionId, messages: ShellMessages): string {
     "open-backups-folder": messages.actionOpenBackups,
     "open-logs-folder": messages.actionOpenLogs,
     "export-diagnostics": messages.actionExport,
+    "start-anyway": setupMessages(current?.locale ?? "en").legacyStartAnyway,
   };
   return labels[id];
 }
@@ -137,12 +124,13 @@ function render(state: RepairState): void {
 
   const errors = element("ul", { className: "list" });
   if (state.recentErrors.length === 0) errors.append(element("li", { text: messages.repairNoErrors }));
+  const startAnywayAvailable = state.actions.some((action) => action.id === "start-anyway");
   for (const entry of [...state.recentErrors].reverse()) {
     const message = errorMessageFor(messages, entry.code);
     errors.append(
       element("li", { className: "error-item" }, [
         element("strong", { text: message.title }),
-        element("div", { className: "hint", text: message.hint }),
+        element("div", { className: "hint", text: errorHintFor(messages, entry.code, startAnywayAvailable) }),
         element("div", { className: "error-code", text: entry.code }),
       ]),
     );
@@ -156,7 +144,7 @@ function render(state: RepairState): void {
         action.id,
         action.enabled,
         () => void perform(action.id, state),
-        action.id === "retry-start",
+        action.id === "retry-start" || action.id === "start-anyway",
       ),
     );
   }
@@ -164,6 +152,9 @@ function render(state: RepairState): void {
   const blocks: Node[] = [
     element("h1", { text: messages.repairHeading }),
     element("p", { className: "intro", text: messages.repairIntro }),
+    ...(state.legacyService
+      ? [legacyBlock(window.workIntelligenceRepair, setupMessages(state.locale), state.legacyService)]
+      : []),
     section(messages.repairServiceHeading, facts),
     section(messages.repairDatabaseHeading, databaseFacts),
     section(messages.repairErrorsHeading, errors),
@@ -244,7 +235,12 @@ async function confirm(candidateId: string, allowMigration: boolean): Promise<vo
 async function perform(id: RepairActionId, state: RepairState): Promise<void> {
   const api = window.workIntelligenceRepair;
   await guarded(async (messages) => {
-    if (id === "retry-start") {
+    if (id === "start-anyway") {
+      // Starting next to the old login service is the user's explicit choice, asked once more in plain words.
+      if (!window.confirm(setupMessages(state.locale).legacyStartAnywayConfirm)) return;
+      const result = await api.startAnyway(state.retryOperationId);
+      say(result.ok ? messages.repairDone : failedAnswer(messages, result));
+    } else if (id === "retry-start") {
       const result = await api.retryStart(state.retryOperationId);
       say(result.ok ? messages.repairDone : failedAnswer(messages, result));
     } else if (id === "choose-database") {
@@ -270,5 +266,14 @@ async function refresh(): Promise<void> {
   }
 }
 
-void refresh();
-setInterval(() => void refresh(), REFRESH_MS);
+/** Main decides which page this window shows: repair, first-run setup or the Agent page. */
+async function mount(): Promise<void> {
+  const api = window.workIntelligenceRepair;
+  const view = await api.getView().catch(() => "repair" as const);
+  if (view === "setup") return mountSetup(app, say, api);
+  if (view === "agents") return mountAgents(app, say, api);
+  void refresh();
+  setInterval(() => void refresh(), REFRESH_MS);
+}
+
+void mount();

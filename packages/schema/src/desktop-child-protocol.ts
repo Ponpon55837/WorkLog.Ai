@@ -59,11 +59,36 @@ export const desktopPreflightResultSchema = z.strictObject({
   schemaVersion: z.number().int().nonnegative().optional(),
   compatibility: z.enum(["empty", "current", "older-needs-migration", "newer-unsupported"]).optional(),
   projectCount: z.number().int().nonnegative().optional(),
+  /** A few project names (most recently updated first) so the user recognises the database; shown, never stored. */
+  projectNames: z.array(z.string().min(1).max(120)).max(5).optional(),
   sidecars: z.strictObject({ before: sidecarStateSchema, after: sidecarStateSchema }).optional(),
   detail: z.string().max(MAX_DETAIL_LENGTH).optional(),
 });
 
-const preflightRequestSchema = z.strictObject({ type: z.literal("preflight"), path: pathSchema });
+/**
+ * `createIfMissing` asks the child to create a new empty database first, but only when nothing at all exists at the path;
+ * without it the preflight stays read-only.
+ */
+const preflightRequestSchema = z.strictObject({
+  type: z.literal("preflight"),
+  path: pathSchema,
+  createIfMissing: z.literal(true).optional(),
+});
+
+/**
+ * Facts only the desktop shell knows, passed through the protocol (never the environment). Every field is optional so an
+ * older shell and a newer child (or the reverse) still understand each other.
+ */
+export const desktopFactsSchema = z.strictObject({
+  /** A login service from the pnpm bootstrap that may share this database with the App's own backend. */
+  legacyService: z
+    .strictObject({
+      running: z.enum(["running", "stopped", "unknown"]),
+      removeCommand: z.string().max(MAX_PATH_LENGTH).optional(),
+      fallbackRemoveCommand: z.string().max(MAX_PATH_LENGTH),
+    })
+    .optional(),
+});
 
 const startRequestSchema = z.strictObject({
   type: z.literal("start"),
@@ -71,6 +96,7 @@ const startRequestSchema = z.strictObject({
   port: portSchema,
   database: z.strictObject({ path: pathSchema, identity: desktopDatabaseIdentitySchema }),
   backupDirectory: pathSchema.optional(),
+  desktop: desktopFactsSchema.optional(),
 });
 
 const shutdownRequestSchema = z.strictObject({ type: z.literal("shutdown") });
@@ -113,6 +139,9 @@ const backupCompletedSchema = z.strictObject({ type: z.literal("backup-completed
  */
 const backupsChangedSchema = z.strictObject({ type: z.literal("backups-changed") });
 
+/** The web UI asked the App to open its Agent setup window; it carries nothing and never changes any Agent config. */
+const openAgentSetupSchema = z.strictObject({ type: z.literal("open-agent-setup") });
+
 /** Parent to child. */
 export const desktopParentMessageSchema = z.discriminatedUnion("type", [
   preflightRequestSchema,
@@ -129,12 +158,14 @@ export const desktopChildMessageSchema = z.discriminatedUnion("type", [
   stoppedSchema,
   backupCompletedSchema,
   backupsChangedSchema,
+  openAgentSetupSchema,
 ]);
 
 export type DesktopDatabaseIdentity = z.infer<typeof desktopDatabaseIdentitySchema>;
 export type DesktopPreflightResultMessage = z.infer<typeof desktopPreflightResultSchema>;
 export type DesktopParentMessage = z.infer<typeof desktopParentMessageSchema>;
 export type DesktopChildMessage = z.infer<typeof desktopChildMessageSchema>;
+export type DesktopFacts = z.infer<typeof desktopFactsSchema>;
 export type DesktopStartMessage = z.infer<typeof startRequestSchema>;
 export type DesktopReadyMessage = z.infer<typeof readySchema>;
 export type DesktopHelloMessage = z.infer<typeof helloSchema>;

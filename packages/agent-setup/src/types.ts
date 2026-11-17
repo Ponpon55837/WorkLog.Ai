@@ -39,12 +39,23 @@ export type AgentSetupTarget =
       skillSourcePath: string;
     };
 
+/**
+ * Explicit opt-in to take over hand-written checkout registrations ("改由桌面 App 管理"). Only recognised entries whose
+ * checkout root is listed are rewritten in place to the launcher; anything else is reported as a conflict.
+ */
+export interface AgentSetupAdoptOptions {
+  /** Checkout roots whose registrations may be adopted; compared case-insensitively on Windows, `\` and `/` alike. */
+  repositoryRoots: string[];
+}
+
 export interface AgentSetupPlanOptions {
   homeDirectory: string;
   /** The checkout; with a launcher target it only serves to recognise hand-written checkout registrations. */
   repositoryRoot: string;
   /** Defaults to the checkout target. */
   target?: AgentSetupTarget;
+  /** Valid only with a launcher target; see {@link AgentSetupAdoptOptions}. */
+  adopt?: AgentSetupAdoptOptions;
   codexHomeDirectory?: string;
   claudeConfigDirectory?: string;
   now?: Date;
@@ -64,6 +75,19 @@ export interface AgentSetupFileMutation {
   afterFingerprint: string;
 }
 
+/** A hand-written checkout registration the plan rewrites to the launcher in place. */
+export interface AgentSetupAdoptedRegistration {
+  agent: "codex" | "claude-code";
+  kind: "mcp" | "hook";
+  componentId: AgentSetupComponentId;
+  /** The Agent config file the registration lives in. */
+  location: string;
+  /** The checkout the registration pointed at. */
+  repositoryRoot: string;
+  /** MCP only: the database the registration used before adoption (and still uses afterwards). */
+  effectiveDatabase?: string;
+}
+
 export interface AgentSetupPlan {
   mode: "install" | "uninstall";
   actions: string[];
@@ -71,11 +95,13 @@ export interface AgentSetupPlan {
   mutations: AgentSetupFileMutation[];
   /** Duplicate registrations found while planning; informational, they never change `actions` or `conflicts`. */
   findings: AgentRegistrationDuplicate[];
+  /** Present when the plan adopts hand-written checkout registrations (`options.adopt`). */
+  adopted?: AgentSetupAdoptedRegistration[];
 }
 
 export type HookComponentId = Extract<AgentSetupComponentId, `${string}Hook`>;
 
-export type ManagedEntry =
+export type ManagedEntry = (
   | { id: "codexSkill" | "codexLegacySkill" | "claudeSkill"; kind: "file"; expected: string }
   | { id: "codexMcp"; kind: "toml-block"; expected: string }
   | { id: "claudeMcp"; kind: "json-property"; expected: unknown }
@@ -83,7 +109,14 @@ export type ManagedEntry =
       id: HookComponentId;
       kind: "json-array-item";
       expected: unknown;
-    };
+    }
+) & {
+  /**
+   * Set when the entry was a hand-written registration rewritten to the launcher in place. `expected` then holds what
+   * was written, extra keys included, so later plans keep it instead of normalising it and uninstall still matches it.
+   */
+  adopted?: true;
+};
 
 export interface SetupManifest {
   version: 2;

@@ -1,6 +1,7 @@
 import { StringDecoder } from "node:string_decoder";
 import {
   DESKTOP_CHILD_PROTOCOL_VERSION,
+  type DesktopFacts,
   type DesktopHelloMessage,
   type DesktopPreflightResultMessage,
   type DesktopReadyMessage,
@@ -39,6 +40,8 @@ export interface BackendStartRequest {
   readonly allowSchemaMigration?: boolean;
   /** Runs after a passing preflight and before `start` is sent, i.e. before anything can write the database. */
   readonly beforeStart?: (summary: BackendPreflightSummary) => Promise<void>;
+  /** Facts the shell knows (for example a legacy login service); forwarded to the child inside `start`. */
+  readonly desktop?: DesktopFacts;
   /** Extra `WORK_INTELLIGENCE_*` variables for the child. */
   readonly environment?: Readonly<Record<string, string>>;
 }
@@ -203,6 +206,7 @@ export class BackendSupervisor {
   private readonly previews = new Set<ActiveChild>();
   /** Bumped by `stop()`: a preview queued before a stop never starts after it. */
   private previewGeneration = 0;
+  private readonly openAgentSetupListeners = new Set<() => void>();
   private readonly changedListeners = new Set<(database: DatabaseIdentity) => void>();
   private readonly workingDirectory: string | undefined;
   private active: ActiveChild | undefined;
@@ -244,6 +248,12 @@ export class BackendSupervisor {
   onBackupsChanged(listener: (database: DatabaseIdentity) => void): () => void {
     this.changedListeners.add(listener);
     return () => this.changedListeners.delete(listener);
+  }
+
+  /** Subscribes to the web UI asking the App to open its Agent setup (from the running backend only). */
+  onOpenAgentSetup(listener: () => void): () => void {
+    this.openAgentSetupListeners.add(listener);
+    return () => this.openAgentSetupListeners.delete(listener);
   }
 
   /** Subscribes to unexpected exits; returns the unsubscribe function. */
@@ -301,8 +311,32 @@ export class BackendSupervisor {
    * backend runs, and a second child that holds no port cannot conflict with it. Previews run one at a time.
    */
   preview(databasePath: string): Promise<DatabasePreviewResult> {
+    return this.previewMany([databasePath]).then((results) => results[0] as DatabasePreviewResult);
+  }
+
+  /**
+   * {@link preview} for several databases with one child: it says hello once and answers one preflight per path, so the
+   * first-run detection pays one child start, not one per candidate. Results keep the order of `databasePaths`. A
+   * failure of the child itself fails the paths it had not answered yet.
+   */
+  previewMany(databasePaths: readonly string[]): Promise<DatabasePreviewResult[]> {
+    return this.queuePreview(databasePaths, false);
+  }
+
+  /**
+   * Creates a new empty database at `databasePath` and previews it, for a brand-new install whose start needs a database
+   * identity. The preview child does it (`createIfMissing`), and only when nothing at all exists at the path: an existing
+   * file, directory or symlink is never touched and is simply previewed. It shares the preview queue, timeouts and
+   * stop handling of {@link preview}.
+   */
+  createDatabase(databasePath: string): Promise<DatabasePreviewResult> {
+    return this.queuePreview([databasePath], true).then((results) => results[0] as DatabasePreviewResult);
+  }
+
+  private queuePreview(databasePaths: readonly string[], createIfMissing: boolean): Promise<DatabasePreviewResult[]> {
+    if (databasePaths.length === 0) return Promise.resolve([]);
     const generation = this.previewGeneration;
-    const run = (): Promise<DatabasePreviewResult> => this.runPreview(databasePath, generation);
+    const run = (): Promise<DatabasePreviewResult[]> => this.runPreview(databasePaths, generation, createIfMissing);
     const next = this.previewing ? this.previewing.then(run, run) : run();
     // The tracking chain swallows its own outcome: the caller of `preview` is the only one who sees a rejection.
     let settled: Promise<void> | undefined;
@@ -314,24 +348,53 @@ export class BackendSupervisor {
     return next;
   }
 
-  private async runPreview(databasePath: string, generation: number): Promise<DatabasePreviewResult> {
+  private async runPreview(
+    databasePaths: readonly string[],
+    generation: number,
+    createIfMissing: boolean,
+  ): Promise<DatabasePreviewResult[]> {
+    const results: DatabasePreviewResult[] = [];
     let child: ActiveChild | undefined;
     try {
       if (generation !== this.previewGeneration) {
         throw new BackendFailure("REPAIR_REQUIRED", "the preview was cancelled because the backend was stopped");
       }
-      const request: BackendStartRequest = { port: 0, databasePath };
+      const first = databasePaths[0] as string;
+      const request: BackendStartRequest = { port: 0, databasePath: first };
       child = await this.spawnChild(request, this.deps.randomRunId(), this.deps.randomChallenge(), "preview");
       this.verifyHello(await child.channel.expect("hello", this.timeouts.helloMs), child);
-      await child.channel.send({ type: "preflight", path: databasePath });
-      const preflight = await child.channel.expect("preflight-result", this.timeouts.preflightMs);
-      // Same rule as a start: an `ok` verdict without the database's identity is not a verdict (nothing could be
-      // confirmed against it). Other statuses are findings the repair page shows.
-      if (preflight.status === "ok") this.verifyPreflight(preflight, request);
-      return { outcome: "checked", preflight, willMigrate: preflight.status === "ok" && willMigrate(preflight) };
+      for (const databasePath of databasePaths) {
+        await child.channel.send({
+          type: "preflight",
+          path: databasePath,
+          ...(createIfMissing ? { createIfMissing: true as const } : {}),
+        });
+        const preflight = await child.channel.expect("preflight-result", this.timeouts.preflightMs);
+        // Same rule as a start: an `ok` verdict without the database's identity is not a verdict (nothing could be
+        // confirmed against it). Other statuses are findings the repair page shows.
+        // A verdict that fails this check is a failure of this path only; the child answers the next one as usual.
+        if (preflight.status === "ok") {
+          try {
+            this.verifyPreflight(preflight, { port: 0, databasePath });
+          } catch (error) {
+            const failure = describeUnexpected(error);
+            results.push({ outcome: "failed", code: failure.code, detail: failure.detail });
+            continue;
+          }
+        }
+        results.push({
+          outcome: "checked",
+          preflight,
+          willMigrate: preflight.status === "ok" && willMigrate(preflight),
+        });
+      }
+      return results;
     } catch (error) {
       const failure = describeUnexpected(error);
-      return { outcome: "failed", code: failure.code, detail: failure.detail };
+      while (results.length < databasePaths.length) {
+        results.push({ outcome: "failed", code: failure.code, detail: failure.detail });
+      }
+      return results;
     } finally {
       if (child) {
         const ended = await this.terminate(child);
@@ -397,6 +460,7 @@ export class BackendSupervisor {
       port: request.port,
       database: { path: request.databasePath, identity },
       ...(request.backupDirectory ? { backupDirectory: request.backupDirectory } : {}),
+      ...(request.desktop ? { desktop: request.desktop } : {}),
     });
     const ready = await channel.expect("ready", this.timeouts.readyMs);
     this.verifyReady(ready, { runId, port: request.port, identity }, active);
@@ -467,6 +531,7 @@ export class BackendSupervisor {
         const database = active.databaseIdentity;
         if (database) this.notify(this.changedListeners, (listener) => listener(database));
       });
+      channel.onOpenAgentSetup(() => this.notify(this.openAgentSetupListeners, (listener) => listener()));
     } else {
       this.previews.add(active);
     }

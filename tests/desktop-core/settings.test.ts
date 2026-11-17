@@ -3,9 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  DATABASE_PATH_PROBLEM_MESSAGES,
   DesktopSettingsWriteError,
   createNodeSettingsWriteDeps,
   databaseIdentitySchema,
+  databasePathProblem,
+  isSupportedDatabasePath,
   parseDesktopSettings,
   readDesktopSettings,
   recoveryPathFor,
@@ -102,6 +105,29 @@ describe("parseDesktopSettings", () => {
   it("accepts valid v1 with optional active/lastKnownGood omitted", () => {
     const { active: _a, lastKnownGood: _l, ...rest } = makeSettings();
     expect(parseDesktopSettings(rest).ok).toBe(true);
+  });
+
+  it.each([
+    ["UNC", "\\\\server\\share\\work.db", "unc"],
+    ["slash UNC", "//server/share/work.db", "unc"],
+    ["extended-length", "\\\\?\\C:\\work.db", "device"],
+    ["device", "\\\\.\\C:\\work.db", "device"],
+  ])("refuses a %s database path with a clear reason", (_name, databasePath, problem) => {
+    expect(databasePathProblem(databasePath)).toBe(problem);
+    expect(isSupportedDatabasePath(databasePath, "win32")).toBe(false);
+    expect(DATABASE_PATH_PROBLEM_MESSAGES[problem as "unc" | "device"]["zh-TW"]).toContain("不支援");
+    const s = makeSettings();
+    s.desired.databasePath = databasePath;
+    expect(parseDesktopSettings(s).ok).toBe(false);
+  });
+
+  it("shares one database path rule per platform", () => {
+    expect(isSupportedDatabasePath("C:\\Users\\x\\work.db", "win32")).toBe(true);
+    expect(isSupportedDatabasePath("/home/x/work.db", "win32")).toBe(false);
+    expect(isSupportedDatabasePath("C:\\work.db", "linux")).toBe(false);
+    expect(isSupportedDatabasePath("/home/x/work.db", "linux")).toBe(true);
+    expect(databasePathProblem("")).toBe("empty");
+    expect(databasePathProblem("rel/x.db")).toBe("not-absolute");
   });
 
   it("accepts win32 absolute paths", () => {

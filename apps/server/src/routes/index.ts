@@ -2,6 +2,7 @@ import { reportPresentationRoutes } from "./report-presentation.js";
 import { attentionRoutes } from "./attention.js";
 import { agentReadRoutes } from "./agent-reads.js";
 import { backfillRoutes } from "./backfill.js";
+import { desktopRoutes } from "./desktop.js";
 import { insightRoutes } from "./insights.js";
 import { outstandingCleanupRoutes } from "./outstanding-cleanup.js";
 import { outstandingItemRoutes } from "./outstanding-items.js";
@@ -15,6 +16,7 @@ import { systemRoutes } from "./system.js";
 export {
   Router,
   type BackgroundStoreOperations,
+  type DesktopRouteServices,
   type ProjectDataImportPreviewWithFolderStatus,
   type ProjectDataImportUpload,
   type Route,
@@ -25,6 +27,7 @@ export {
 /** Every REST route, one table per domain. */
 export const apiRoutes: readonly Route[] = [
   ...systemRoutes,
+  ...desktopRoutes,
   ...attentionRoutes,
   ...reportPresentationRoutes,
   ...reportRoutes,

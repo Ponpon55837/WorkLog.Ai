@@ -8,6 +8,7 @@ import {
 import { LATEST_SCHEMA_VERSION } from "@work-intelligence/storage";
 import { APP_VERSION } from "@work-intelligence/shared/app-version";
 import { probeLoopbackPort, type LoopbackPortProbe } from "@work-intelligence/shared/loopback-port";
+import { createDatabaseIfMissing } from "./database-create.js";
 import {
   preflightDatabase,
   type DatabasePreflightResult,
@@ -33,6 +34,8 @@ export interface DesktopChildHost {
 
 export interface DesktopChildDependencies {
   preflight: (path: string) => Promise<DatabasePreflightResult>;
+  /** Creates a new empty database when nothing exists at the path; a failure result, or `undefined` to go on to preflight. */
+  createDatabase?: (path: string) => DatabasePreflightResult | undefined;
   probePort: (port: number) => Promise<LoopbackPortProbe>;
   startApi: (options: StartApiOptions) => StartedApi;
 }
@@ -104,6 +107,7 @@ function preflightReply(result: DatabasePreflightResult): DesktopChildMessage {
     ...(result.schemaVersion === undefined ? {} : { schemaVersion: result.schemaVersion }),
     ...(result.compatibility ? { compatibility: result.compatibility } : {}),
     ...(result.projectCount === undefined ? {} : { projectCount: result.projectCount }),
+    ...(result.projectNames === undefined ? {} : { projectNames: result.projectNames }),
     ...(result.sidecars ? { sidecars: result.sidecars } : {}),
     ...(result.status === "ok" ? {} : { detail: PREFLIGHT_DETAILS[result.status] }),
   };
@@ -111,6 +115,7 @@ function preflightReply(result: DatabasePreflightResult): DesktopChildMessage {
 
 const defaultDependencies: DesktopChildDependencies = {
   preflight: (path) => preflightDatabase(path),
+  createDatabase: createDatabaseIfMissing,
   probePort: probeLoopbackPort,
   startApi,
 };
@@ -165,20 +170,21 @@ export class DesktopChild {
     if (message.type === "shutdown") {
       await this.stop({ notify: true });
     } else if (message.type === "preflight") {
-      await this.preflight(message.path);
+      await this.preflight(message.path, message.createIfMissing === true);
     } else {
       await this.start(message);
     }
   }
 
-  private async preflight(path: string): Promise<void> {
+  private async preflight(path: string, createIfMissing: boolean): Promise<void> {
     if (this.phase !== "idle") {
       this.host.log("[desktop-child] dropped a preflight request: already started");
       return;
     }
     let result: DatabasePreflightResult;
     try {
-      result = await this.dependencies.preflight(path);
+      const creation = createIfMissing ? this.dependencies.createDatabase?.(path) : undefined;
+      result = creation ?? (await this.dependencies.preflight(path));
     } catch {
       result = { status: "unreadable" };
     }
@@ -223,6 +229,10 @@ export class DesktopChild {
         instanceRunId: message.runId,
         onBackupCompleted: (at) => this.host.send({ type: "backup-completed", at }, () => undefined),
         onBackupsChanged: () => this.host.send({ type: "backups-changed" }, () => undefined),
+        desktop: {
+          ...(message.desktop?.legacyService ? { facts: { legacyService: message.desktop.legacyService } } : {}),
+          onOpenAgentSetup: () => this.host.send({ type: "open-agent-setup" }, () => undefined),
+        },
       });
       this.api = api;
       const listening = await api.listening;

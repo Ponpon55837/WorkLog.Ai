@@ -100,6 +100,23 @@ export function sameFileIdentity(a: FileIdentity, b: FileIdentity): boolean {
 }
 
 /**
+ * Whether two paths name the same file: the same real path, or the same exact device and file index. The index is read
+ * as bigint and compared as a string on purpose: Windows file ids are 64-bit (ReFS and Dev Drive use wide ids), and as JS
+ * numbers two different ids above 2^53 can round to the same value. A path that cannot be identified (missing, denied,
+ * ...) matches nothing.
+ */
+export function pathsReferToSameFile(
+  left: string,
+  right: string,
+  dependencies: FileIdentityDependencies = {},
+): boolean {
+  const a = readFileIdentity(left, dependencies);
+  const b = readFileIdentity(right, dependencies);
+  if (!a.ok || !b.ok) return false;
+  return a.identity.realPath === b.identity.realPath || sameFileIdentity(a.identity, b.identity);
+}
+
+/**
  * Normalises a path for string comparison: absolute, no trailing separator (except a root), and case-folded on win32
  * only. macOS and Linux are NOT folded: APFS/HFS+ are usually case-insensitive but can be case-sensitive per volume,
  * so a blind fold could merge two different files; use {@link sameFileIdentity} for those instead.

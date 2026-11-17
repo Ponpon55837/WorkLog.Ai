@@ -7,6 +7,7 @@ export * from "./verify.js";
 export * from "./install.js";
 export * from "./launch-plan.js";
 export * from "./launcher-main.js";
+export * from "./desktop-database.js";
 export * from "./launch-consistency.js";
 export * from "./bundled-install.js";
 export * from "./windows-acl.js";

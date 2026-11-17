@@ -6,7 +6,7 @@
 |---|---|
 | 文件版本 | R4 |
 | 基準 commit | `d464ea5`（main，Merge PR #361，release 1.6.40） |
-| 目標修補版 | 1.6.41（T1–T4）、1.6.42（DT-01/02/04/09/10/20/36）、1.6.43（DT-23、DT-25，階段 1）、1.6.44（DT-11、DT-15、DT-16、DT-35，階段 2）、1.6.45（DT-23 的 ACL、DT-24 部分、DT-28 決策、DT-33、DT-34，階段 5 的打包部分）、1.6.47（DT-21、DT-22、DT-27、launcher 接線，階段 3）；設计基準仍為 `d464ea5` |
+| 目標修補版 | 1.6.41（T1–T4）、1.6.42（DT-01/02/04/09/10/20/36）、1.6.43（DT-23、DT-25，階段 1）、1.6.44（DT-11、DT-15、DT-16、DT-35，階段 2）、1.6.45（DT-23 的 ACL、DT-24 部分、DT-28 決策、DT-33、DT-34，階段 5 的打包部分）、1.6.47（DT-21、DT-22、DT-27、launcher 接線，階段 3）、1.6.49（DT-01 精靈、App 內 Agent 設定、舊服務偵測，階段 4）；設计基準仍為 `d464ea5` |
 | 前一版 | R3（來源提交 `e46060e`，審查基準 `7723b72`） |
 | 首發平台 | Windows 11 x64 與 macOS 同批發行；Linux 不在 V1。Windows ARM 排除為推論（待確認）；macOS 架構範圍（Apple Silicon、Intel）待確認；1.6.45 的打包以 arm64 與 x64 分開產出（不做 universal），待產品確認 |
 
@@ -154,6 +154,19 @@ R4 的補充用法：
 ## 修復成功回饋（階段 3 之後的小改）
 
 使用者在修復視窗按「重試啟動」或「選擇資料庫 → 確認」且後端成功執行（owner 為 MANAGED）時：清除過期錯誤、修復視窗顯示「✓ 已恢復」卡片（脫敏的資料庫路徑與專案數；專案數由後端 `ready` 訊息的選填欄位 `projectCount` 帶來，查詢失敗就省略）、送出系統通知「Work Intelligence 已可使用」（fail-open：不支援或失敗就略過），約 1.5 秒後關閉修復視窗並只開啟一次 Dashboard（與待處理的 `--open-dashboard` 去重）。失敗時視窗保持開啟，只顯示目前的錯誤。只有修復視窗的使用者動作會觸發；`--background` 登入啟動、自動重試與一般啟動都不會。判斷邏輯在 `packages/desktop-core/src/shell/repair-success.ts`，測試在 `tests/desktop-core/shell-repair-success.test.ts` 與 `apps/desktop/tests/desktop-smoke/desktop.spec.ts`。macOS ad-hoc 簽署的 App 可能不顯示系統通知，視窗卡片與 Dashboard 才是主要提示。
+
+## 1.6.49 任務（階段 4 第二部分：首次執行與 App 內 Agent 設定）與本文件的關係
+
+本版實作階段 4 第二部分的 CI 可驗證部分。Windows 11 與 macOS 的實機驗收仍為**待實機驗收**；CI 結果待 PR 檢查完成後補上。
+
+| 任務 | 內容 | 狀態 | 本文件位置 | 證據路徑 |
+|---|---|---|---|---|
+| DT-01（精靈） | 首次執行頁：只在沒有設定檔時顯示；「使用預設設定開始」在第一次繪製就可按；唯讀偵測既有來源並各預覽一次；成功啟動後才寫入設定；預設啟動會建立新的空資料庫，啟動失敗時刪除（ADR-27）；升級安裝不顯示 | 1.6.49 已實作（CI 可驗證部分）；實機待實機驗收 | §3.1；R4 §5 全新安裝流程；ADR-06、ADR-27 | `apps/desktop/src/main/first-run.ts`；`packages/desktop-core/src/shell/setup-state.ts`；`apps/server/src/database-create.ts`；`apps/desktop/tests/desktop-smoke/first-run.spec.ts`；`tests/desktop-core/shell-setup-state.test.ts`、`created-database.test.ts`；`tests/server/database-create.test.ts` |
+| DT-21 後續（App 內 Agent 設定） | App 視窗的 Agent 頁、工作列「設定 Agent…」與 `--open-agent-setup`：預覽差異、只套用預覽過的計畫、測試連線、依日誌復原；「改由桌面 App 管理…」接管 checkout 的設定；Web 狀態頁按鈕只請 App 開啟頁面 | 1.6.49 已實作（CI 可驗證部分）；真實 Codex 與 Claude Code 設定待實機驗收 | §3.2；ADR-14、ADR-34 | `apps/desktop/src/main/agents.ts`；`packages/agent-setup/src/adopt.ts`、`diff.ts`；`apps/server/src/routes/desktop.ts`；`apps/desktop/tests/desktop-smoke/agents.spec.ts`；`tests/agent-setup/*.test.ts`；`tests/desktop-core/shell-agent-setup.test.ts` |
+| Q1（launcher 交給 Agent 的資料庫） | 沒有 `WORK_INTELLIGENCE_DB` 時，MCP 與 hook 使用 App 設定的資料庫；設定無效時退回獨立版規則；每次 hook 的額外成本中位數 0.44 ms（Linux，預算 5 ms） | 1.6.49 已實作；Windows 與 macOS 數字由 CI 印出 | §3.3；ADR-39 | `packages/desktop-core/src/runtime/desktop-database.ts`；`tests/desktop-core/desktop-database.test.ts` |
+| 舊的登入服務 | 唯讀偵測 `pnpm bootstrap` 的服務；首次執行頁、修復視窗與 Web 狀態頁顯示警告與移除指令；同一資料庫須按「仍要啟動」（`LEGACY_SERVICE_ACTIVE`，不自動重試）；連接埠被它占用時直接指出 | 1.6.49 已實作（CI 可驗證部分）；一鍵停用延到 1.6.50；真實 LaunchAgent 與工作排程器待實機驗收 | §8；R4 §5 升級流程 | `packages/desktop-core/src/legacy-service/`；`apps/desktop/src/main/legacy.ts`；`tests/desktop-core/legacy-service.test.ts`；`apps/desktop/tests/desktop-smoke/first-run.spec.ts` |
+
+**本版的非 CI 項目**：Windows 11 與 macOS 實機上的首次執行頁、Agent 頁的套用、測試連線與復原（真實的 Agent 設定）、舊服務偵測（真實的 LaunchAgent 與工作排程器）。尚未做：一鍵停用舊服務（1.6.50）、DT-19 完整診斷、DT-24 完整清理、簽章與公證、自動更新。
 
 ## 本機打包
 

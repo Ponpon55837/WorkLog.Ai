@@ -1,7 +1,17 @@
 import type { ServiceOwnerState } from "../operations/service-owner-state.js";
 import { formatMessage, type ShellMessages } from "./i18n.js";
+import type { SetupMessages } from "./setup-i18n.js";
 
-export type TrayItemId = "open-dashboard" | "repair" | "separator" | "quit";
+export type TrayItemId =
+  | "open-dashboard"
+  | "complete-setup"
+  | "agent-setup"
+  | "legacy-status"
+  | "legacy-start-anyway"
+  | "legacy-remove-help"
+  | "repair"
+  | "separator"
+  | "quit";
 
 /** One row of the tray menu as data; the Electron layer only turns it into a native menu. */
 export interface TrayMenuItem {
@@ -14,6 +24,19 @@ export interface TrayMenuInputs {
   readonly messages: ShellMessages;
   readonly owner: ServiceOwnerState;
   readonly backendRunning: boolean;
+  /**
+   * The first-run and Agent items. `needsSetup`: the App has no settings yet (the first-run page was closed or never
+   * shown), so "完成首次設定…" comes first; otherwise "設定 Agent…" follows "Repair…". Omitted: neither item.
+   */
+  readonly setup?: {
+    readonly messages: Pick<SetupMessages, "trayCompleteSetup" | "trayAgentSetup">;
+    readonly needsSetup: boolean;
+  };
+  /**
+   * A login start was held back because the old login service is enabled on this database: the status line says so, and
+   * the two ways out follow. Omitted when nothing was held back.
+   */
+  readonly legacyHeld?: Pick<SetupMessages, "trayLegacyStatus" | "trayLegacyStartAnyway" | "trayLegacyHowToRemove">;
 }
 
 /** Why the Dashboard cannot open right now, in the user's words; undefined when it can. */
@@ -32,7 +55,18 @@ function dashboardDisabledReason(inputs: TrayMenuInputs): string | undefined {
 export function buildTrayMenu(inputs: TrayMenuInputs): TrayMenuItem[] {
   const { messages } = inputs;
   const reason = dashboardDisabledReason(inputs);
+  const { setup } = inputs;
+  const setupItems: TrayMenuItem[] = setup
+    ? [
+        setup.needsSetup
+          ? { id: "complete-setup", label: setup.messages.trayCompleteSetup, enabled: true }
+          : { id: "agent-setup", label: setup.messages.trayAgentSetup, enabled: true },
+      ]
+    : [];
+  const { legacyHeld } = inputs;
   return [
+    ...(legacyHeld ? [{ id: "legacy-status" as const, label: legacyHeld.trayLegacyStatus, enabled: false }] : []),
+    ...(setup?.needsSetup ? setupItems : []),
     {
       id: "open-dashboard",
       label: reason
@@ -40,7 +74,14 @@ export function buildTrayMenu(inputs: TrayMenuInputs): TrayMenuItem[] {
         : messages.trayOpenDashboard,
       enabled: reason === undefined,
     },
+    ...(legacyHeld
+      ? [
+          { id: "legacy-start-anyway" as const, label: legacyHeld.trayLegacyStartAnyway, enabled: true },
+          { id: "legacy-remove-help" as const, label: legacyHeld.trayLegacyHowToRemove, enabled: true },
+        ]
+      : []),
     { id: "repair", label: messages.trayRepair, enabled: true },
+    ...(setup && !setup.needsSetup ? setupItems : []),
     { id: "separator", label: "", enabled: false },
     { id: "quit", label: messages.trayQuit, enabled: true },
   ];

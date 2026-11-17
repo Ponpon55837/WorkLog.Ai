@@ -117,14 +117,30 @@ describe("repair IPC", () => {
 
   it("names its channels and action ids", () => {
     expect(Object.values(REPAIR_CHANNELS).sort()).toEqual([
+      "agents:apply",
+      "agents:discard",
+      "agents:get-state",
+      "agents:preview",
+      "agents:self-test",
+      "agents:undo",
+      "app:copy-command",
+      "app:get-view",
+      "app:show-view",
       "repair:choose-database",
       "repair:confirm-database",
       "repair:export-diagnostics",
       "repair:get-state",
       "repair:open-folder",
       "repair:retry-start",
+      "repair:start-anyway",
+      "setup:choose-file",
+      "setup:get-state",
+      "setup:later",
+      "setup:use-defaults",
+      "setup:use-source",
     ]);
     expect(isRepairActionId("retry-start")).toBe(true);
+    expect(isRepairActionId("start-anyway")).toBe(true);
     expect(isRepairActionId("rm-rf")).toBe(false);
   });
 });

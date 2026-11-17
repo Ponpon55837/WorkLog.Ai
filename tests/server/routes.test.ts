@@ -97,6 +97,7 @@ const EXPECTED_ROUTES = [
   "PATCH /api/sessions/:sessionId/verification",
   "PATCH /api/sessions/:sessionId/void",
   "PATCH /api/sessions/:sessionId/work-summary",
+  "POST /api/desktop/open-agent-setup",
   "POST /api/system/pick-folder",
   "GET /api/system/status",
   "POST /api/work/finalize",

@@ -20,6 +20,7 @@ import {
   type OperationCoordinator,
   type RestartOutcome,
 } from "@work-intelligence/desktop-core";
+import type { DesktopFacts } from "@work-intelligence/schema";
 import type { DesktopPaths } from "./config.js";
 import type { Logger } from "./log.js";
 import { RuntimeProvisionError } from "./runtime-provision.js";
@@ -69,6 +70,13 @@ export interface BackendControllerOptions {
    * recovery may show a window or a notification.
    */
   readonly whenReady: () => Promise<void>;
+  /**
+   * True when the old login service may serve this database and the user has not said "仍要啟動": the start fails with
+   * LEGACY_SERVICE_ACTIVE before anything is stopped or started.
+   */
+  readonly legacyBlocks?: (databasePath: string) => Promise<boolean>;
+  /** Facts the Web status page shows for this database (the old login service); read after `legacyBlocks`. */
+  readonly desktopFacts?: (databasePath: string) => DesktopFacts | undefined;
 }
 
 export function createBackendController(options: BackendControllerOptions): BackendController {
@@ -144,6 +152,14 @@ export function createBackendController(options: BackendControllerOptions): Back
   ): Promise<RestartOutcome> {
     const { settings } = state;
     if (!settings) return { ok: false, code: "REPAIR_REQUIRED" };
+    const databasePath = override?.databasePath ?? settings.desired.databasePath;
+    if (options.legacyBlocks && (await options.legacyBlocks(databasePath))) {
+      log("[shell] start held back: the old login service may use this database");
+      if (supervisor.running === undefined) state.backend = "stopped";
+      state.setOwner(supervisor.running === undefined ? "NEEDS_REPAIR" : state.owner);
+      return { ok: false, code: "LEGACY_SERVICE_ACTIVE" };
+    }
+    const desktop = options.desktopFacts?.(databasePath);
     const previousState = state.backend;
     state.backend = "starting";
     try {
@@ -160,10 +176,11 @@ export function createBackendController(options: BackendControllerOptions): Back
       previousOwner: state.owner,
       backend: {
         port: settings.desired.port,
-        databasePath: override?.databasePath ?? settings.desired.databasePath,
+        databasePath,
         backupDirectory: settings.desired.backupDirectory,
         ...(override ? { expectedIdentity: override.expectedIdentity } : {}),
         ...(override?.allowSchemaMigration ? { allowSchemaMigration: true } : {}),
+        ...(desktop ? { desktop } : {}),
       },
       stopRunning: supervisor.running !== undefined,
     });

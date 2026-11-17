@@ -4,7 +4,8 @@ import type { BackendErrorCode } from "../backend/errors.js";
 export type ShellLocale = "zh-TW" | "en";
 
 /** Codes of failures that happen in the shell itself, before or around the backend child. */
-export type ShellErrorCode = "RUNTIME_INSTALL_FAILED" | "RUNTIME_UNSAFE_PERMISSIONS" | "RUNTIME_ACL_UNREADABLE";
+export type ShellErrorCode =
+  "RUNTIME_INSTALL_FAILED" | "RUNTIME_UNSAFE_PERMISSIONS" | "RUNTIME_ACL_UNREADABLE" | "LEGACY_SERVICE_ACTIVE";
 
 /** One error code as the user reads it: what happened and what to try. */
 export interface ErrorMessage {
@@ -84,6 +85,12 @@ export interface ShellMessages {
   readonly actionOpenBackups: string;
   readonly actionOpenLogs: string;
   readonly actionExport: string;
+  /** Shown instead of a diff when a file is too large to compare. */
+  readonly agentsTooLargeNote: string;
+  /** The box the user ticks before applying a preview that has a file without a shown diff. */
+  readonly agentsAckUndiffable: string;
+  /** The LEGACY_SERVICE_ACTIVE hint when the page has no "start anyway" button for the database that was refused. */
+  readonly legacyActiveNoOverrideHint: string;
   readonly ownerLabel: string;
   readonly backendLabel: string;
   readonly databaseStatusLabel: string;
@@ -156,6 +163,10 @@ const zhTW: ShellMessages = {
   actionOpenBackups: "開啟備份資料夾",
   actionOpenLogs: "開啟紀錄資料夾",
   actionExport: "匯出診斷資訊…",
+  agentsTooLargeNote: "檔案過大，無法顯示差異",
+  agentsAckUndiffable: "我了解有檔案無法顯示差異",
+  legacyActiveNoOverrideHint:
+    "為了避免兩個後端同時使用同一份資料庫，App 沒有啟動自己的後端。請先移除舊的登入服務（pnpm service:uninstall），或改選另一份資料庫。",
   ownerLabel: "服務狀態",
   backendLabel: "背景程序",
   databaseStatusLabel: "資料庫狀態",
@@ -180,6 +191,10 @@ const zhTW: ShellMessages = {
     unknown: "尚未檢查",
   },
   errors: {
+    LEGACY_SERVICE_ACTIVE: {
+      title: "舊的登入服務也在使用這份資料庫",
+      hint: "為了避免兩個後端同時使用同一份資料庫，App 沒有啟動自己的後端。請先移除舊的登入服務（pnpm bootstrap），或在這個視窗對目前的資料庫選擇「仍要啟動」。",
+    },
     DB_MISSING: { title: "找不到資料庫檔案", hint: "檔案可能被移動或刪除。請選擇資料庫，或從備份還原。" },
     DB_OFFLINE: { title: "資料庫所在的儲存位置離線", hint: "請接上外接硬碟或網路磁碟後重試。" },
     DB_PERMISSION: { title: "沒有權限讀取資料庫", hint: "請確認檔案的存取權限後重試。" },
@@ -316,6 +331,10 @@ const en: ShellMessages = {
   actionOpenBackups: "Open backups folder",
   actionOpenLogs: "Open logs folder",
   actionExport: "Export diagnostics…",
+  agentsTooLargeNote: "File too large to show a diff",
+  agentsAckUndiffable: "I understand some files have no diff shown",
+  legacyActiveNoOverrideHint:
+    "To keep two backends off one database, the App did not start its own backend. Remove the old login service first (pnpm service:uninstall), or choose another database.",
   ownerLabel: "Service",
   backendLabel: "Background process",
   databaseStatusLabel: "Database status",
@@ -340,6 +359,10 @@ const en: ShellMessages = {
     unknown: "Not checked yet",
   },
   errors: {
+    LEGACY_SERVICE_ACTIVE: {
+      title: "The old login service also uses this database",
+      hint: "To keep two backends off one database, the App did not start its own backend. Remove the old login service (pnpm bootstrap) first, or choose “Start anyway” for the current database in this window.",
+    },
     DB_MISSING: {
       title: "The database file was not found",
       hint: "It may have been moved or deleted. Choose a database, or restore from a backup.",
@@ -456,6 +479,12 @@ export function shellMessages(locale: ShellLocale): ShellMessages {
 /** Fills `{name}` placeholders; a placeholder without a value stays visible so a missing value is noticed. */
 export function formatMessage(template: string, values: Readonly<Record<string, string>>): string {
   return template.replace(/\{(\w+)\}/g, (placeholder, name: string) => values[name] ?? placeholder);
+}
+
+/** The hint of an error; the legacy-service one only names "start anyway" where that button exists. */
+export function errorHintFor(messages: ShellMessages, code: string, startAnywayAvailable: boolean): string {
+  if (code === "LEGACY_SERVICE_ACTIVE" && !startAnywayAvailable) return messages.legacyActiveNoOverrideHint;
+  return errorMessageFor(messages, code).hint;
 }
 
 /** The message of an error code, or the generic repair one for a code this build does not know. */

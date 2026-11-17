@@ -1,19 +1,24 @@
 import { expect, test } from "@playwright/test";
 import { spawnSync } from "node:child_process";
-import { closeSync, openSync, readSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { closeSync, existsSync, openSync, readFileSync, readSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { packagedExecutable, programDirectory } from "./helpers.js";
 
 /** What the packaged bundle contains and, on macOS, how it is signed. */
 
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
+
 const FORBIDDEN = ["__workIntelligenceDesktopTest", "WORK_INTELLIGENCE_DESKTOP_"];
 
+function resourcesPath(executable: string): string {
+  return process.platform === "darwin"
+    ? join(dirname(dirname(executable)), "Resources")
+    : join(dirname(executable), "resources");
+}
+
 function asarPath(executable: string): string {
-  const resources =
-    process.platform === "darwin"
-      ? join(dirname(dirname(executable)), "Resources")
-      : join(dirname(executable), "resources");
-  return join(resources, "app.asar");
+  return join(resourcesPath(executable), "app.asar");
 }
 
 function readBytes(descriptor: number, position: number, length: number): Buffer {
@@ -64,6 +69,15 @@ test("app.asar contains no test hook and no test environment variable", () => {
   }
   // A parse that read nothing would pass the loop above.
   expect(scanned).toBeGreaterThan(5);
+});
+
+test("the Agent skill ships once, beside the asar, exactly as the repository has it", () => {
+  // The Agent page installs this file (main/config.ts skillSourceFile); a missing one would only fail at "套用變更".
+  const shipped = join(resourcesPath(packagedExecutable()), "skills", "work-intelligence", "SKILL.md");
+  expect(existsSync(shipped)).toBe(true);
+  const source = join(repositoryRoot, ".agents", "skills", "work-intelligence", "SKILL.md");
+  expect(readFileSync(shipped)).toEqual(readFileSync(source));
+  for (const [path] of asarFiles(asarPath(packagedExecutable()))) expect(path).not.toMatch(/\/skills\//);
 });
 
 test("the .app passes codesign and its Gatekeeper assessment is recorded", async ({

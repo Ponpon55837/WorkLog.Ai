@@ -1,5 +1,5 @@
-import { Menu, nativeImage, Tray, type NativeImage } from "electron";
-import { buildTrayMenu, trayBackgroundHint, trayTooltip } from "@work-intelligence/desktop-core";
+import { Menu, nativeImage, Notification, Tray, type NativeImage } from "electron";
+import { buildTrayMenu, setupMessages, trayBackgroundHint, trayTooltip } from "@work-intelligence/desktop-core";
 import type { Logger } from "./log.js";
 import type { ShellState } from "./state.js";
 
@@ -19,13 +19,23 @@ export interface ShellTrayOptions {
   readonly backendRunning: () => boolean;
   readonly openDashboard: () => void;
   readonly openRepairWindow: () => void;
+  /** "完成首次設定…": the first-run page. */
+  readonly openSetup: () => void;
+  /** "設定 Agent…": the Agent page. */
+  readonly openAgents: () => void;
   readonly requestQuit: () => void;
   readonly log: Logger;
+  /**
+   * The old login service is enabled on the App's database and a login start was held back: the tray says so and offers
+   * "仍要啟動" (`startAnyway`) and "如何移除舊服務" (the repair window).
+   */
+  readonly legacy?: { readonly heldAtLogin: () => boolean; readonly startAnyway: () => void };
 }
 
 export function createShellTray(options: ShellTrayOptions): ShellTray {
   const { state } = options;
   let tray: Tray | null = null;
+  let notified = false;
 
   function trayImage(): NativeImage {
     if (process.platform !== "darwin") return nativeImage.createFromPath(options.iconFile);
@@ -34,11 +44,35 @@ export function createShellTray(options: ShellTrayOptions): ShellTray {
     return image;
   }
 
+  /** One notification per login (this run); a desktop that cannot show one is logged and the tray carries on. */
+  function notifyHeldOnce(message: string): void {
+    if (notified) return;
+    notified = true;
+    try {
+      if (!Notification.isSupported()) {
+        options.log("[shell] legacy notification unavailable");
+        return;
+      }
+      new Notification({ title: setupMessages(state.locale).legacyHeading, body: message }).show();
+    } catch (error) {
+      options.log(`[shell] legacy notification failed: ${error instanceof Error ? error.name : "unknown"}`);
+    }
+  }
+
   function refresh(): void {
     if (!tray) return;
     const text = state.messages();
+    const setup = setupMessages(state.locale);
+    const held = options.legacy?.heldAtLogin() === true;
+    if (held) notifyHeldOnce(setup.trayLegacyStatus);
     const running = options.backendRunning();
-    const items = buildTrayMenu({ messages: text, owner: state.owner, backendRunning: running });
+    const items = buildTrayMenu({
+      messages: text,
+      owner: state.owner,
+      backendRunning: running,
+      setup: { messages: setup, needsSetup: state.needsSetup },
+      ...(held ? { legacyHeld: setup } : {}),
+    });
     tray.setToolTip(trayTooltip(state.owner, running, text));
     tray.setContextMenu(
       Menu.buildFromTemplate(
@@ -49,8 +83,11 @@ export function createShellTray(options: ShellTrayOptions): ShellTray {
             enabled: item.enabled,
             click: () => {
               if (item.id === "open-dashboard") options.openDashboard();
-              else if (item.id === "repair") options.openRepairWindow();
-              else options.requestQuit();
+              else if (item.id === "repair" || item.id === "legacy-remove-help") options.openRepairWindow();
+              else if (item.id === "legacy-start-anyway") options.legacy?.startAnyway();
+              else if (item.id === "complete-setup") options.openSetup();
+              else if (item.id === "agent-setup") options.openAgents();
+              else if (item.id === "quit") options.requestQuit();
             },
           };
         }),

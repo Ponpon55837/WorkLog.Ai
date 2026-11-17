@@ -69,6 +69,25 @@ export default [
     },
   },
   {
+    // The desktop renderer is bundled for the browser: the desktop-core package root pulls in Node modules, so it
+    // may only supply types there. Values come from the browser-safe subpaths (`/shell/i18n`, `/shell/agents-state`, ...).
+    files: ["apps/desktop/src/renderer/**/*.ts"],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@work-intelligence/desktop-core",
+              allowTypeImports: true,
+              message: "Import values from a browser-safe desktop-core subpath; the package root needs Node.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // Experiment scripts run under Node and use its globals directly.
     files: ["docs/experiments/**/*.mjs"],
     languageOptions: {

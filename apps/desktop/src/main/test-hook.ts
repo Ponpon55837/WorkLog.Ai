@@ -23,6 +23,12 @@ interface TestSnapshot {
   /** Titles of the "ready again" notifications the App tried to show. */
   readonly notifications: readonly string[];
   readonly logFile: string;
+  /** No settings file yet: the first-run page is (or will be) shown instead of a start. */
+  readonly needsSetup: boolean;
+  /** The page the App window shows (or would show when it opens). */
+  readonly view: string;
+  /** How long the first-run detection took, once it ran. */
+  readonly firstRunDetectionMs: number | null;
 }
 
 export interface TestHookOptions {
@@ -33,6 +39,7 @@ export interface TestHookOptions {
   readonly secondInstance: SecondInstance;
   readonly dashboard: Dashboard;
   readonly notifications: readonly string[];
+  readonly firstRunDetectionMs: () => number | undefined;
 }
 
 /**
@@ -55,6 +62,9 @@ export function installTestHook(options: TestHookOptions): void {
       recentErrors: options.state.recentErrors.list().map((entry) => entry.code),
       notifications: [...options.notifications],
       logFile: options.paths.logFile,
+      needsSetup: options.state.needsSetup,
+      view: options.state.view,
+      firstRunDetectionMs: options.firstRunDetectionMs() ?? null,
     };
   };
   Object.defineProperty(globalThis, "__workIntelligenceDesktopTest", { value: Object.freeze({ snapshot: read }) });

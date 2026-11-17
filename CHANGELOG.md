@@ -4,6 +4,62 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.49] - 2026-11-17
+
+[繁體中文更新說明](docs/releases/1.6.49.md).
+
+This release is the second part of stage 4 of the desktop app plan:
+
+- a first-run page (DT-01);
+- Agent setup inside the App;
+- taking over checkout Agent registrations ("改由桌面 App 管理") with a preview diff and undo;
+- read-only detection of the old `pnpm bootstrap` login service.
+
+The schema stays at 33 and no migration is needed.
+
+### Added
+
+- **First-run page (DT-01), for a new install only.** An install that already has `desktop-settings.json` (an upgrade from 1.6.47 or 1.6.48) never sees it.
+  - "使用預設設定開始" is on the first screen from the first paint. It stays disabled, with "正在檢查…完成後即可使用", until the detection is done, and the main process refuses it before then.
+  - A read-only detection offers existing databases:
+    - the standalone location;
+    - the environment;
+    - the old service definition;
+    - checkout MCP registrations of the Agents.
+  - Each database gets one read-only preview, with its status and project count. A database that needs a schema update needs an explicit tick.
+  - Nothing is written, created or bound before the user chooses.
+  - The default start creates a new empty database at the default location, writes the settings only once the start worked, and opens the Dashboard. A failed start removes the database it created (ADR-27).
+  - "稍後再說" and a `--background` new install show no window; the tray offers "完成首次設定…".
+- **Agent page in the App window.** It opens from the tray ("設定 Agent…") or with `--open-agent-setup`, including as a second launch.
+  - Cards for Codex and Claude Code show:
+    - the status (ADR-34);
+    - who owns the MCP entry and the hooks;
+    - any checkout found.
+  - "預覽變更" shows a per-file diff with the home shown as `~`. "套用變更" applies exactly the previewed plan with the DT-21 journal and refuses on conflicts. A file too large to diff needs the tick "我了解有檔案無法顯示差異" first, enforced by the main process. "測試連線" runs MCP `initialize` and `tools/list` through the fixed launcher. "復原上次變更" restores from the journal, and an unfinished journal is recovered at the next start.
+- **"改由桌面 App 管理…"** takes over hand-written registrations that point at a checkout. It previews first and can be undone; unrecognised entries are left alone, with the reason shown. The agent-setup package gains `adopt`, `findCheckoutRegistrations`, `undoAgentSetupOperation` and `describeAgentSetupMutations`.
+- **Web: "在桌面 App 設定 Agent"** on the status page, only when the backend is desktop-managed.
+  - `/api/system/status` gains `desktop: {managed, legacyService?}` in desktop mode.
+  - `POST /api/desktop/open-agent-setup` answers 202 (at most once per second) in desktop mode and 404 standalone. The Web never writes Agent files.
+- **Old login service detection.** The App detects the service `pnpm service:install` leaves behind (LaunchAgent, systemd user unit, Windows task), read-only.
+  - The exact warning "偵測到舊的登入服務（pnpm bootstrap）也在使用這份資料庫；同時執行兩個後端可能造成問題" appears in the first-run page, the repair window and the Web status page, with the exact removal command and a copy button.
+  - Database paths are compared by their real path. A definition the OS no longer has registered counts as no service.
+  - **Running (or not known to be stopped):** the App does not start its backend on that database (`LEGACY_SERVICE_ACTIVE`, never retried automatically) until the user confirms "仍要啟動", which lasts until the App quits.
+  - **Stopped but enabled at login:** a `--background` login start does not start the backend. The tray shows "偵測到舊的登入服務也使用這份資料庫，未自動啟動" with "仍要啟動" (confirmed first) and "如何移除舊服務", and the OS shows at most one notification per run (fail-open). An interactive start starts with the warning and "下次登入時會啟動。".
+  - **Disabled or not installed:** starts normally.
+  - A port taken by the old service is named as such.
+- **Desktop child protocol.** The preflight request gains `createIfMissing`, which creates a new database only where no file exists. The start message gains optional `desktop` facts, and a new child-to-parent `open-agent-setup` message is added.
+
+### Changed
+
+- **The fixed launcher hands Agents the App's database (ADR-39).** Without `WORK_INTELLIGENCE_DB`, every MCP and hook run reads the App's committed `desired.databasePath` through `<runtime root>/desktop-settings-path`. An explicit `WORK_INTELLIGENCE_DB` always wins. Invalid settings fall back to the standalone rule, with one stderr line for MCP and none for hooks. The cost per hook run is a median of 0.44 ms on Linux, against a 5 ms budget.
+- **The Agent skill is packaged once**, as `resources/skills/work-intelligence/SKILL.md` outside the asar.
+
+### Fixed
+
+- **Masking the home folder no longer touches a sibling folder** that shares its prefix (for example `/home/tester2`).
+- **A background-process out-of-memory is reported as 413 again on macOS arm64** (1.6.48). V8's native stack trace after its report could be longer than the 8 KiB of stderr that was searched, so the exit was reported as a plain 500. The report is now recognised as it arrives, carrying only a few bytes between chunks.
+- **Telling two files apart on Windows uses the exact file id.** The recall evaluator, restoring a backup and the MCP launcher's change checks read the 64-bit Windows file id as a JS number, so two different files on volumes with wide ids could look like one: the recall evaluator then refused a question file as if it were the database. They now share one bigint comparison.
+
 ## [1.6.48] - 2026-11-17
 
 [繁體中文更新說明](docs/releases/1.6.48.md).

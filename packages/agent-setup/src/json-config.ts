@@ -74,6 +74,40 @@ export function sameManagedHookShape(actual: unknown, expected: unknown, key?: s
   return equalValue(actual, expected);
 }
 
+/** An owned hook entry is one hook inside its group: the group's own keys (matcher) plus that single hook. */
+function singleHookParts(expected: unknown): { rest: Record<string, unknown>; hook: unknown } | undefined {
+  if (!JSON_OBJECT(expected) || !Array.isArray(expected.hooks) || expected.hooks.length !== 1) return undefined;
+  const { hooks, ...rest } = expected;
+  return { rest, hook: hooks[0] };
+}
+
+/** Where the one hook an adopted entry owns sits now, so removal never touches its sibling hooks. */
+export function findOwnedHook(
+  array: readonly unknown[],
+  expected: unknown,
+): { groupIndex: number; hookIndex: number } | undefined {
+  const parts = singleHookParts(expected);
+  if (!parts) return undefined;
+  for (const [groupIndex, group] of array.entries()) {
+    if (!JSON_OBJECT(group) || !Array.isArray(group.hooks)) continue;
+    const { hooks, ...rest } = group;
+    if (!equalValue(rest, parts.rest)) continue;
+    const hookIndex = hooks.findIndex((hook) => equalValue(hook, parts.hook));
+    if (hookIndex >= 0) return { groupIndex, hookIndex };
+  }
+  return undefined;
+}
+
+/** Removes only the owned hook; the group goes too when it is left with nothing but its matcher. */
+function removeOwnedHook(array: unknown[], location: { groupIndex: number; hookIndex: number }): void {
+  const group = array[location.groupIndex];
+  if (!JSON_OBJECT(group) || !Array.isArray(group.hooks)) return;
+  group.hooks.splice(location.hookIndex, 1);
+  if (group.hooks.length === 0 && Object.keys(group).every((key) => key === "matcher" || key === "hooks")) {
+    array.splice(location.groupIndex, 1);
+  }
+}
+
 export function parseJsonFile(
   path: string,
   homeDirectory: string,
@@ -124,10 +158,14 @@ export function addJsonSpec(
       return true;
     }
     if (equalValue(current, spec.expected)) {
-      if (previous?.kind === "json-property") setEntry(entries, { ...previous, expected: spec.expected });
+      if (previous?.kind === "json-property" && !equalValue(previous.expected, spec.expected)) {
+        setEntry(entries, { ...previous, expected: spec.expected });
+      }
       return false;
     }
     if (previous?.kind === "json-property" && equalValue(current, previous.expected)) {
+      // An adopted hand-written entry already points at the target and keeps its own extra keys.
+      if (previous.adopted && spec.equivalent?.(current)) return false;
       setPathValue(root, spec.path, spec.expected);
       setEntry(entries, { id: spec.id as "claudeMcp", kind: "json-property", expected: spec.expected });
       return true;
@@ -160,12 +198,19 @@ export function addJsonSpec(
   }
   const exact = array.findIndex((item) => equalValue(item, spec.expected));
   if (exact >= 0) {
-    if (previous?.kind === "json-array-item") setEntry(entries, { ...previous, expected: spec.expected });
+    if (previous?.kind === "json-array-item" && !equalValue(previous.expected, spec.expected)) {
+      setEntry(entries, { ...previous, expected: spec.expected });
+    }
     return false;
   }
   if (previous?.kind === "json-array-item") {
+    // An adopted hook that shares its group with the user's own hooks stays exactly as it is.
+    if (previous.adopted && !array.some((item) => equalValue(item, previous.expected))) {
+      if (findOwnedHook(array, previous.expected)) return false;
+    }
     const ownedIndex = array.findIndex((item) => equalValue(item, previous.expected));
     if (ownedIndex >= 0) {
+      if (previous.adopted && spec.similar?.(array[ownedIndex])) return false;
       array.splice(ownedIndex, 1, spec.expected);
       setEntry(entries, {
         id: spec.id as ManagedEntry["id"],
@@ -240,6 +285,12 @@ export function removeJsonSpec(
   const index = value.findIndex((item) => equalValue(item, entry.expected));
   if (index >= 0) {
     value.splice(index, 1);
+    removeEntry(entries, entry.id);
+    return true;
+  }
+  const owned = entry.adopted ? findOwnedHook(value, entry.expected) : undefined;
+  if (owned) {
+    removeOwnedHook(value, owned);
     removeEntry(entries, entry.id);
     return true;
   }

@@ -300,9 +300,18 @@
 
 ### ADR-39 desktop-integration 紀錄與 Agent launcher 選擇順序（同使用者威脅模型）
 
-- **狀態**：暫定採用（1.6.47 實作；Windows 與 macOS 實機待驗收）
+- **狀態**：暫定採用（1.6.47 實作，1.6.49 加入資料庫交接；Windows 與 macOS 實機待驗收）
 - **脈絡**：Agent 設定指向固定 launcher（ADR-15），但 plugin、MCPB 與獨立版也可能指向 checkout 或內附的 server。App 需要讓這些入口優先使用已安裝的 runtime；Dashboard 交接（ADR-28）也需要知道 App 的位置。這份紀錄不應成為新的權限邊界。
 - **決策**：打包後的 App 在 runtime 成為 current 後，寫入 `<config dir>/desktop-integration.json`（v1：version、launcherPath、runtimeRoot、appExecutable、appVersion、writtenAt），內容未變則略過；不含資料庫路徑與使用者資料。讀取端的選擇順序為：明確指定的 `WORK_INTELLIGENCE_HOME` checkout → 桌面 shim → plugin 位置或 link 的 checkout → 內附的 server。紀錄只有在通過以下檢查時才被採用：POSIX 上擁有者必須是目前 uid、不得 world-writable、不得含 symlink；Windows 上只接受磁碟機代號路徑（不接受 UNC 與 `\\?\`）；runtime 必須已就緒（current、runtime-launch.txt、可執行檔、launcher.mjs）才選擇 shim。紀錄無效或 runtime 未就緒時，退回下一個順序，並輸出一行 stderr。
+- **1.6.49 的實作（launcher 交給 Agent 的資料庫）**：
+  - App 在 launcher root 寫入 `desktop-settings-path`，內容只有 App 設定檔的絕對路徑，內容未變則略過。這是指標，不含資料庫路徑。
+  - 沒有設定 `WORK_INTELLIGENCE_DB` 時，launcher 每次執行都讀這個指標與設定檔，把 `desired.databasePath` 交給 MCP 與兩個 hook。明確設定的 `WORK_INTELLIGENCE_DB` 一律優先。
+  - 兩個檔案都必須是本人擁有、不可被他人寫入的一般檔案（不得是 symlink），大小有上限。路徑須為絕對路徑：Windows 只接受磁碟機代號路徑。App 設定檔與 launcher 共用同一條規則（`isSupportedDatabasePath`）：首次執行頁與設定 schema 拒絕 UNC（`\\server\share`）與 `\\?\`、`\\.\` 裝置路徑，因為 SQLite 走 SMB 不安全。
+  - 明確設定 `WORK_INTELLIGENCE_HOME` 或 `WORK_INTELLIGENCE_CONFIG_DIR` 時，launcher 不交接 App 的資料庫，沿用獨立版規則。
+  - 沒有指標或尚未設定（首次執行頁還沒完成）時，沿用獨立版的資料庫規則。
+  - 指標已存在但設定無效（擁有者或權限錯誤、symlink、不是 JSON、路徑不支援等）時**不退回**獨立版：MCP 輸出一行 zh-TW stderr 並以 78 結束，不啟動；hook 保持靜默、exit 0，並略過工作，不會寫入另一個資料庫。
+  - 測試涵蓋 MCP 與兩個 hook 解析到同一個資料庫，在 App 換資料庫後亦然（`tests/desktop-core/desktop-database.test.ts`）。
+  - 每次 hook 的額外成本：Linux 上第一次讀取約 0.3–0.7 ms，中位數 0.44 ms，預算為 5 ms。Windows 與 macOS 的數字由 CI 的同一個測試量測並印出（`[hook cost]`）。
 - **威脅模型**：同一使用者的程序本來就能改寫 Agent 設定與 runtime 目錄，因此這些檢查只防止誤指向與意外的權限錯誤，不宣稱防禦同使用者的惡意程式。跨使用者的情境由 OS 權限與 ACL 處理（ADR-15）。
 - **後果**：多一層讀取與檢查，需要測試覆蓋（`tests/desktop-core/integration-record.test.ts`）。hook 經 shim 執行時靜默、25 秒後終止，且一律 exit 0，避免 hook 失敗阻擋 Agent。Windows 與 macOS 的實機行為待驗收。
 - **關聯**：§3.3、§10.2；DT-23 後續、DT-27；R07、R13；ADR-15、ADR-16、ADR-28。

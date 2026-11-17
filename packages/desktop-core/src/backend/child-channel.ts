@@ -43,6 +43,7 @@ export class ChildChannel {
   private readonly waiters = new Set<Waiter>();
   private backupListener: ((at: string) => void) | undefined;
   private changedListener: (() => void) | undefined;
+  private openAgentSetupListener: (() => void) | undefined;
   /** Sticky: once the child failed or ended, every later `expect` fails the same way. */
   private ended: BackendFailure | undefined;
   private exit: ChildExit | undefined;
@@ -128,6 +129,11 @@ export class ChildChannel {
     this.changedListener = listener;
   }
 
+  /** Receives each `open-agent-setup` event: the web UI asked the App to show its Agent setup. */
+  onOpenAgentSetup(listener: () => void): void {
+    this.openAgentSetupListener = listener;
+  }
+
   private receive(raw: unknown): void {
     const parsed = parseDesktopChildMessage(raw);
     if (!parsed.ok) {
@@ -141,6 +147,10 @@ export class ChildChannel {
     }
     if (message.type === "backups-changed") {
       this.changedListener?.();
+      return;
+    }
+    if (message.type === "open-agent-setup") {
+      this.openAgentSetupListener?.();
       return;
     }
     if (message.type === "failed") {

@@ -120,7 +120,33 @@ describe("preflightDatabase statuses", () => {
     const path = join(tempDir(), "real.sqlite");
     new WorkIntelligenceStore(path).close();
     const result = await preflightDatabase(path);
-    expect(result).toMatchObject({ status: "ok", compatibility: "current", projectCount: 0 });
+    expect(result).toMatchObject({ status: "ok", compatibility: "current", projectCount: 0, projectNames: [] });
+  });
+
+  it("shows up to five project names, most recently updated first, without writing anything", async () => {
+    const path = join(tempDir(), "named.sqlite");
+    const store = new WorkIntelligenceStore(path);
+    for (let index = 1; index <= 7; index += 1) {
+      const root = join(tempDir(), `虛構專案-${index}`);
+      mkdirSync(root);
+      store.addProject(`虛構專案 ${index}`, root);
+    }
+    store.close();
+    const before = readFileSync(path);
+    const result = await preflightDatabase(path);
+    expect(result.projectCount).toBe(7);
+    expect(result.projectNames).toHaveLength(5);
+    const all = Array.from({ length: 7 }, (_, index) => `虛構專案 ${index + 1}`);
+    for (const name of result.projectNames ?? []) expect(all).toContain(name);
+    expect(readFileSync(path).equals(before)).toBe(true);
+  });
+
+  it("shows no names for a projects table without them, and still reports ok", async () => {
+    const path = join(tempDir(), "unnamed.sqlite");
+    createDatabase(path, { projects: 2 }).close();
+    const result = await preflightDatabase(path);
+    expect(result).toMatchObject({ status: "ok", projectCount: 2 });
+    expect(result.projectNames).toBeUndefined();
   });
 
   it("derives the lineage from the oldest migration row, so copies share it and other histories do not", async () => {

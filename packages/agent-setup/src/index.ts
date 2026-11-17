@@ -1,7 +1,9 @@
+export { findCheckoutRegistrations, type CheckoutRegistration } from "./adopt.js";
 export {
   applyAgentSetupPlan,
   applyAgentSetupTransaction,
   recoverAgentSetupJournal,
+  undoAgentSetupOperation,
   type AgentSetupApplyOptions,
   type AgentSetupApplyResult,
   type AgentSetupCompensationStatus,
@@ -12,6 +14,8 @@ export {
   type AgentSetupRecoveryResult,
   type AgentSetupTransactionOptions,
   type AgentSetupTransactionResult,
+  type AgentSetupUndoOptions,
+  type AgentSetupUndoResult,
   type AgentSetupVerifyStatus,
 } from "./apply.js";
 export { commandForAgentHook, commandForLauncherHook, mcpRegistrationKind } from "./commands.js";
@@ -22,6 +26,13 @@ export {
   COMPACT_SESSION_START_MATCHER,
   LEGACY_CODEX_POST_TOOL_USE_MATCHER,
 } from "./constants.js";
+export {
+  describeAgentSetupMutations,
+  type AgentSetupDiffHunk,
+  type AgentSetupDiffLine,
+  type AgentSetupDiffLineType,
+  type AgentSetupMutationDescription,
+} from "./diff.js";
 export {
   inspectAgentRegistrations,
   type AgentId,
@@ -42,6 +53,8 @@ export {
 export { createAgentSetupPlan, inspectAgentSkillCopies, inspectCodexHooksFeature } from "./plan.js";
 export { claudePluginEnabled, codexPluginEnabled, readClaudePluginEnabled, readCodexPluginEnabled } from "./plugins.js";
 export type {
+  AgentSetupAdoptedRegistration,
+  AgentSetupAdoptOptions,
   AgentSetupComponentId,
   AgentSetupFileMutation,
   AgentSetupFinding,

@@ -11,6 +11,7 @@ import {
   type ShellLocale,
   type ShellMessages,
   type ServiceOwnerState,
+  type AppView,
 } from "@work-intelligence/desktop-core";
 
 const MAX_CANDIDATES = 5;
@@ -25,6 +26,10 @@ export class ShellState {
   settings: DesktopSettingsV1 | null = null;
   launchMode: LaunchMode = "interactive";
   locale: ShellLocale = "en";
+  /** No settings file yet: the first-run page has not finished. The tray offers "完成首次設定…". */
+  needsSetup = false;
+  /** What the App window shows; main decides, the page asks (`app:get-view`). */
+  view: AppView = "repair";
   /** A repair action is running: the page's other actions wait. */
   busy = false;
   /** The success card the repair page shows for a moment after a user-started repair worked. */

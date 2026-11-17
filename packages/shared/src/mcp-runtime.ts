@@ -125,8 +125,9 @@ function runtimeDistSignature(repositoryRoot: string): string | undefined {
         parts.push(file);
         continue;
       }
-      const stats = statSync(resolve(repositoryRoot, file));
-      parts.push(`${file}\0${stats.size}\0${stats.mtimeMs}\0${stats.ino}`);
+      // Bigint stats keep the full 64-bit Windows file id; as a JS number a replaced file could keep its signature.
+      const stats = statSync(resolve(repositoryRoot, file), { bigint: true });
+      parts.push(`${file}\0${stats.size}\0${stats.mtimeNs}\0${stats.ino}`);
     }
     return parts.join("\n");
   } catch {
@@ -135,10 +136,10 @@ function runtimeDistSignature(repositoryRoot: string): string | undefined {
 }
 
 function stableFileRead(path: string): Buffer {
-  const before = statSync(path);
+  const before = statSync(path, { bigint: true });
   const contents = readFileSync(path);
-  const after = statSync(path);
-  if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ino !== after.ino) {
+  const after = statSync(path, { bigint: true });
+  if (before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ino !== after.ino) {
     throw new Error("A runtime dist file changed while its build identity was being read.");
   }
   return contents;

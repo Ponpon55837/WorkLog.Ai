@@ -1,7 +1,8 @@
 import { writeFile } from "node:fs/promises";
-import { dialog, ipcMain, shell } from "electron";
+import { clipboard, dialog, ipcMain, shell } from "electron";
 import type { IpcMainInvokeEvent } from "electron";
 import {
+  canApplyPreview,
   isTrustedRepairSender,
   previewToCandidate,
   REPAIR_CHANNELS,
@@ -10,7 +11,10 @@ import {
   type BackendSupervisor,
   type RepairActionResult,
 } from "@work-intelligence/desktop-core";
+import type { AgentsPage } from "./agents.js";
 import type { BackendController } from "./backend.js";
+import type { FirstRun } from "./first-run.js";
+import type { LegacyGuard } from "./legacy.js";
 import type { DesktopPaths } from "./config.js";
 import type { Logger } from "./log.js";
 import type { RepairInfo } from "./repair-info.js";
@@ -30,6 +34,9 @@ export interface IpcOptions {
   readonly backend: BackendController;
   readonly supervisor: BackendSupervisor;
   readonly success: RepairSuccess;
+  readonly firstRun: FirstRun;
+  readonly agents: AgentsPage;
+  readonly legacy: LegacyGuard;
   readonly log: Logger;
 }
 
@@ -39,7 +46,7 @@ const parser =
     schema.safeParse(raw);
 
 export function registerRepairIpc(options: IpcOptions): void {
-  const { state, paths, window, info, backend, supervisor, success, log } = options;
+  const { state, paths, window, info, backend, supervisor, success, firstRun, agents, legacy, log } = options;
 
   function isTrusted(event: IpcMainInvokeEvent): boolean {
     const frame = event.senderFrame;
@@ -161,4 +168,87 @@ export function registerRepairIpc(options: IpcOptions): void {
       return { ok: false, reason: "failed" };
     }
   });
+
+  handle(REPAIR_CHANNELS.startAnyway, parser(repairInputSchemas.startAnyway), ({ operationId }) =>
+    withBusy(async () => {
+      const database = state.databasePath();
+      if (!database || !state.retryIds.consume(operationId)) return { ok: false, reason: "invalid" };
+      // The user said "仍要啟動": this database may start beside the old service until the App quits.
+      legacy.allow(database);
+      const opensAtStart = success.opens();
+      const outcome = await backend.recovery.retryNow(operationId);
+      success.finish(outcome, opensAtStart);
+      if (outcome.ok) return { ok: true, state: await info.snapshot() };
+      if (outcome.busy) return { ok: false, reason: "busy" };
+      return { ok: false, reason: "failed", errorCode: outcome.code };
+    }),
+  );
+
+  ipcMain.handle(REPAIR_CHANNELS.getView, (event, raw: unknown) => {
+    if (!isTrusted(event) || !repairInputSchemas.getView.safeParse(raw).success) throw new Error("untrusted sender");
+    return state.view;
+  });
+
+  handle(REPAIR_CHANNELS.copyCommand, parser(repairInputSchemas.copyCommand), async ({ target }) => {
+    const detection = legacy.latest();
+    if (detection?.kind !== "found") return { ok: false };
+    // The text comes from main's own detection, never from the page.
+    const text = target === "legacy-remove" ? detection.removeCommand : detection.fallbackRemoveCommand;
+    if (!text) return { ok: false };
+    clipboard.writeText(text);
+    return { ok: true };
+  });
+
+  ipcMain.handle(REPAIR_CHANNELS.setupGetState, async (event, raw: unknown) => {
+    if (!isTrusted(event) || !repairInputSchemas.setupGetState.safeParse(raw).success) {
+      throw new Error("untrusted sender");
+    }
+    // The first look of the page starts the detection; the page polls while it runs.
+    void firstRun.begin();
+    return firstRun.snapshot();
+  });
+
+  handle(REPAIR_CHANNELS.setupUseDefaults, parser(repairInputSchemas.setupUseDefaults), (input) =>
+    firstRun.useDefaults(input.launchAtLogin, input.startAnyway === true),
+  );
+
+  handle(REPAIR_CHANNELS.setupUseSource, parser(repairInputSchemas.setupUseSource), (input) =>
+    firstRun.useSource(input),
+  );
+
+  handle(REPAIR_CHANNELS.setupChooseFile, parser(repairInputSchemas.setupChooseFile), () => firstRun.chooseFile());
+
+  handle(REPAIR_CHANNELS.setupLater, parser(repairInputSchemas.setupLater), async () => {
+    firstRun.later();
+    return { ok: true };
+  });
+
+  handle(REPAIR_CHANNELS.showView, parser(repairInputSchemas.showView), async ({ view }) => {
+    window.open(view);
+    return { ok: true };
+  });
+
+  ipcMain.handle(REPAIR_CHANNELS.agentsGetState, (event, raw: unknown) => {
+    if (!isTrusted(event) || !repairInputSchemas.agentsGetState.safeParse(raw).success) {
+      throw new Error("untrusted sender");
+    }
+    return agents.snapshot();
+  });
+
+  handle(REPAIR_CHANNELS.agentsPreview, parser(repairInputSchemas.agentsPreview), ({ adopt }) => agents.preview(adopt));
+  handle(
+    REPAIR_CHANNELS.agentsApply,
+    parser(repairInputSchemas.agentsApply),
+    async ({ previewId, acknowledgeUndiffable }) => {
+      // A file whose diff was not shown is applied only after the user said so; the page's disabled button is not the guard.
+      const shown = agents.snapshot().preview;
+      if (shown?.id === previewId && !canApplyPreview(shown, acknowledgeUndiffable === true)) {
+        return { ok: false, reason: "invalid", state: agents.snapshot() };
+      }
+      return agents.apply(previewId);
+    },
+  );
+  handle(REPAIR_CHANNELS.agentsDiscard, parser(repairInputSchemas.agentsDiscard), async () => agents.discard());
+  handle(REPAIR_CHANNELS.agentsUndo, parser(repairInputSchemas.agentsUndo), () => agents.undo());
+  handle(REPAIR_CHANNELS.agentsSelfTest, parser(repairInputSchemas.agentsSelfTest), () => agents.selfTest());
 }
