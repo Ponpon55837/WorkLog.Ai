@@ -73,9 +73,12 @@ export const REPAIR_SUCCESS_DELAY_MS = 1500;
 
 /** The success-card pause: the default, or a non-negative integer from the environment in a test build. */
 export function repairSuccessDelayMs(inputs: EnvironmentInputs): number {
-  if (!__WI_TEST_BUILD__ || inputs.isPackaged) return REPAIR_SUCCESS_DELAY_MS;
-  const value = Number(inputs.environment[TEST_ENVIRONMENT.repairSuccessDelayMs]);
-  return Number.isInteger(value) && value >= 0 ? value : REPAIR_SUCCESS_DELAY_MS;
+  // The test branch is a block under the build flag, so a production bundle drops it together with the variable name.
+  if (__WI_TEST_BUILD__ && !inputs.isPackaged) {
+    const value = Number(inputs.environment[TEST_ENVIRONMENT.repairSuccessDelayMs]);
+    if (Number.isInteger(value) && value >= 0) return value;
+  }
+  return REPAIR_SUCCESS_DELAY_MS;
 }
 
 /** Whether a test-only switch is on; always false in a production build or a packaged App. */
