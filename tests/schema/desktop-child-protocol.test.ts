@@ -95,6 +95,19 @@ describe("child messages", () => {
     for (const message of messages) expect(parseDesktopChildMessage(message).ok).toBe(true);
   });
 
+  it("accepts a ready message with or without a project count", () => {
+    expect(parseDesktopChildMessage(READY)).toMatchObject({ ok: true });
+    expect(parseDesktopChildMessage({ ...READY, projectCount: 0 })).toMatchObject({
+      ok: true,
+      message: { projectCount: 0 },
+    });
+    expect(parseDesktopChildMessage({ ...READY, projectCount: 12 }).ok).toBe(true);
+  });
+
+  it.each([-1, 1.5, "3", null])("refuses a ready message whose project count is %j", (projectCount) => {
+    expect(parseDesktopChildMessage({ ...READY, projectCount }).ok).toBe(false);
+  });
+
   it("keeps a protocol version it does not support parseable so the parent can report it", () => {
     expect(parseDesktopChildMessage({ ...READY, protocolVersion: 2 })).toMatchObject({ ok: true });
   });

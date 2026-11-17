@@ -20,6 +20,8 @@ interface TestSnapshot {
   readonly lastSecondInstanceDecision: string | null;
   readonly openedExternal: readonly string[];
   readonly recentErrors: readonly string[];
+  /** Titles of the "ready again" notifications the App tried to show. */
+  readonly notifications: readonly string[];
   readonly logFile: string;
 }
 
@@ -30,6 +32,7 @@ export interface TestHookOptions {
   readonly window: RepairWindow;
   readonly secondInstance: SecondInstance;
   readonly dashboard: Dashboard;
+  readonly notifications: readonly string[];
 }
 
 /**
@@ -50,6 +53,7 @@ export function installTestHook(options: TestHookOptions): void {
       lastSecondInstanceDecision: options.secondInstance.lastDecision,
       openedExternal: [...options.dashboard.recorded],
       recentErrors: options.state.recentErrors.list().map((entry) => entry.code),
+      notifications: [...options.notifications],
       logFile: options.paths.logFile,
     };
   };

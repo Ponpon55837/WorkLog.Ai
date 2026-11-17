@@ -73,11 +73,49 @@ function button(label: string, id: string, enabled: boolean, onClick: () => void
   return node;
 }
 
+/** The card shown for a moment after a repair the user started worked: the database and, when known, its project count. */
+function recoveredCard(state: RepairState, recovered: NonNullable<RepairState["recovered"]>, messages: ShellMessages) {
+  const facts = element("dl", { className: "facts" });
+  facts.append(
+    ...fact(
+      messages.repairDatabaseHeading,
+      state.database.display === null
+        ? messages.repairNoDatabase
+        : element("span", { className: "path", text: state.database.display }),
+    ),
+  );
+  if (recovered.projectCount !== undefined) {
+    facts.append(
+      ...fact(
+        messages.repairProjectCountLabel,
+        formatMessage(messages.repairProjectCount, { count: String(recovered.projectCount) }),
+      ),
+    );
+  }
+  const card = section(
+    messages.repairRecovered,
+    element("p", { className: "hint", text: messages.repairRecoveredHint }),
+    facts,
+  );
+  card.id = "recovered";
+  card.classList.add("success");
+  return card;
+}
+
 function render(state: RepairState): void {
   const messages = shellMessages(state.locale);
   const focusedId = document.activeElement instanceof HTMLElement ? document.activeElement.dataset.id : undefined;
   document.documentElement.lang = state.locale === "zh-TW" ? "zh-Hant" : "en";
   document.title = messages.repairWindowTitle;
+
+  if (state.recovered) {
+    app.replaceChildren(
+      element("h1", { text: messages.repairHeading }),
+      recoveredCard(state, state.recovered, messages),
+    );
+    app.setAttribute("aria-busy", "false");
+    return;
+  }
 
   const facts = element("dl", { className: "facts" });
   facts.append(

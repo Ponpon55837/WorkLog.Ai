@@ -119,6 +119,16 @@ describe("a successful start", () => {
     expect(harness.spawn).toHaveBeenCalledTimes(1);
   });
 
+  it("carries the project count of the ready message into the backend info, and omits it when absent", async () => {
+    const counted = makeHarness({ scripts: [{ ready: { projectCount: 7 } }] });
+    const withCount = await counted.supervisor.start(startRequest());
+    expect((withCount as { info: { projectCount?: number } }).info.projectCount).toBe(7);
+
+    const plain = makeHarness();
+    const without = await plain.supervisor.start(startRequest());
+    expect((without as { info: object }).info).not.toHaveProperty("projectCount");
+  });
+
   it("answers already-running for a later start and leaves the child alone", async () => {
     const harness = makeHarness();
     const first = await harness.supervisor.start(startRequest());

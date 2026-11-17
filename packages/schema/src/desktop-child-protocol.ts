@@ -92,6 +92,8 @@ const readySchema = z.strictObject({
   databaseIdentity: desktopDatabaseIdentitySchema,
   execPath: pathSchema,
   pid: processIdSchema,
+  /** How many projects the database holds; optional so an older child and a newer shell still understand each other. */
+  projectCount: z.number().int().nonnegative().optional(),
 });
 
 const failedSchema = z.strictObject({

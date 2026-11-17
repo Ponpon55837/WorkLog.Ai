@@ -52,6 +52,8 @@ export interface ApiListening {
    * undefined for the environment-derived database.
    */
   databaseIdentity?: DatabaseIdentity;
+  /** How many projects the database holds; omitted when the count could not be read (it never fails a start). */
+  projectCount?: number;
 }
 
 /** The handle `startApi` returns. The CLI ignores it; the desktop child waits on it. */
@@ -102,6 +104,15 @@ function stillSameFile(identity: DatabaseIdentity): boolean {
   return (
     !identity.fileId || sameFileIdentity({ realPath: identity.realPath, fileId: identity.fileId }, current.identity)
   );
+}
+
+/** The project count as an optional field: a failing read is fail-open and leaves the field out. */
+export function readProjectCount(store: Pick<WorkIntelligenceStore, "countProjects">): { projectCount?: number } {
+  try {
+    return { projectCount: store.countProjects() };
+  } catch {
+    return {};
+  }
 }
 
 /** A handle for an API that never started: `listening` rejects, there is nothing to shut down. */
@@ -288,7 +299,11 @@ export function startApi(options: StartApiOptions = {}): StartedApi {
         }, initialBackupDelayMs);
         initialBackupTimer.unref();
       }
-      resolve({ port: boundPort, ...(openedIdentity ? { databaseIdentity: openedIdentity } : {}) });
+      resolve({
+        port: boundPort,
+        ...(openedIdentity ? { databaseIdentity: openedIdentity } : {}),
+        ...readProjectCount(store),
+      });
     });
   });
   listening.catch(() => undefined);

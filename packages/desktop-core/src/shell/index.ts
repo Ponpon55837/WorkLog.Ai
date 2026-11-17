@@ -10,6 +10,7 @@ export * from "./login-item.js";
 export * from "./error-presentation.js";
 export * from "./restart-policy.js";
 export * from "./recent-errors.js";
+export * from "./repair-success.js";
 export * from "./repair-state.js";
 export * from "./navigation-policy.js";
 export * from "./repair-ipc.js";

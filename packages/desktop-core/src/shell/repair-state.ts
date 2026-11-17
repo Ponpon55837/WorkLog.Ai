@@ -46,6 +46,13 @@ export interface RepairState {
   readonly actions: readonly RepairAction[];
   /** Id of the retry operation main will accept next (a fresh uuid per snapshot). */
   readonly retryOperationId: string;
+  /** Set only while the success card shows, right after a repair the user started worked. */
+  readonly recovered: RepairRecovered | null;
+}
+
+export interface RepairRecovered {
+  /** Projects in the database, when the backend reported it; the page hides the count without it. */
+  readonly projectCount?: number;
 }
 
 export interface RepairStateInputs {
@@ -68,6 +75,7 @@ export interface RepairStateInputs {
   readonly recentErrors: readonly RecordedError[];
   readonly lastBackup: LastBackupInfo;
   readonly retryOperationId: string;
+  readonly recovered?: RepairRecovered | null;
   /** A retry or another operation is running: actions are disabled until it ends. */
   readonly busy: boolean;
 }
@@ -121,6 +129,7 @@ export function buildRepairState(inputs: RepairStateInputs): RepairState {
     recentErrors: inputs.recentErrors,
     lastBackup: inputs.lastBackup,
     retryOperationId: inputs.retryOperationId,
+    recovered: inputs.recovered ?? null,
     actions: [
       { id: "retry-start", enabled: canRetry },
       { id: "choose-database", enabled: idle },

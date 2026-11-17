@@ -151,6 +151,10 @@ R4 的補充用法：
 
 ---
 
+## 修復成功回饋（階段 3 之後的小改）
+
+使用者在修復視窗按「重試啟動」或「選擇資料庫 → 確認」且後端成功執行（owner 為 MANAGED）時：清除過期錯誤、修復視窗顯示「✓ 已恢復」卡片（脫敏的資料庫路徑與專案數；專案數由後端 `ready` 訊息的選填欄位 `projectCount` 帶來，查詢失敗就省略）、送出系統通知「Work Intelligence 已可使用」（fail-open：不支援或失敗就略過），約 1.5 秒後關閉修復視窗並只開啟一次 Dashboard（與待處理的 `--open-dashboard` 去重）。失敗時視窗保持開啟，只顯示目前的錯誤。只有修復視窗的使用者動作會觸發；`--background` 登入啟動、自動重試與一般啟動都不會。判斷邏輯在 `packages/desktop-core/src/shell/repair-success.ts`，測試在 `tests/desktop-core/shell-repair-success.test.ts` 與 `apps/desktop/tests/desktop-smoke/desktop.spec.ts`。macOS ad-hoc 簽署的 App 可能不顯示系統通知，視窗卡片與 Dashboard 才是主要提示。
+
 ## 本機打包
 
 依 ADR-38，本機打包是主要的取得方式；CI 與 GitHub Release 的產物為輔。打包只能建置執行它的平台與架構（隨包 Node.js 是該平台的官方執行檔），因此 Windows 與 macOS 各自在本機執行。

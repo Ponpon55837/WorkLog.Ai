@@ -41,6 +41,8 @@ export interface MainSnapshot {
   lastSecondInstanceDecision: string | null;
   openedExternal: string[];
   recentErrors: string[];
+  /** Titles of the "ready again" notifications the App tried to show. */
+  notifications: string[];
   logFile: string;
 }
 

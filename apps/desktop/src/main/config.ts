@@ -16,6 +16,8 @@ const TEST_ENVIRONMENT = {
   failUserData: "WORK_INTELLIGENCE_DESKTOP_TEST_FAIL_USER_DATA",
   /** Writes a native error box to stderr instead of showing it, so a test is not left waiting on a modal. */
   recordErrorBox: "WORK_INTELLIGENCE_DESKTOP_TEST_RECORD_ERROR_BOX",
+  /** Milliseconds the success card stays before the repair window closes (default 1500). */
+  repairSuccessDelayMs: "WORK_INTELLIGENCE_DESKTOP_TEST_REPAIR_SUCCESS_DELAY_MS",
 } as const;
 
 /** One of the test switches, by the name it has in {@link TEST_ENVIRONMENT}. */
@@ -64,6 +66,16 @@ export function overrideFromEnvironment(inputs: EnvironmentInputs, key: TestEnvi
   if (!__WI_TEST_BUILD__ || inputs.isPackaged) return undefined;
   const value = inputs.environment[TEST_ENVIRONMENT[key]]?.trim();
   return value && isAbsolute(value) ? value : undefined;
+}
+
+/** How long the success card shows before the repair window closes and the Dashboard opens. */
+export const REPAIR_SUCCESS_DELAY_MS = 1500;
+
+/** The success-card pause: the default, or a non-negative integer from the environment in a test build. */
+export function repairSuccessDelayMs(inputs: EnvironmentInputs): number {
+  if (!__WI_TEST_BUILD__ || inputs.isPackaged) return REPAIR_SUCCESS_DELAY_MS;
+  const value = Number(inputs.environment[TEST_ENVIRONMENT.repairSuccessDelayMs]);
+  return Number.isInteger(value) && value >= 0 ? value : REPAIR_SUCCESS_DELAY_MS;
 }
 
 /** Whether a test-only switch is on; always false in a production build or a packaged App. */

@@ -123,6 +123,17 @@ describe("DesktopChild", () => {
     expect(sent.at(-1)).toEqual({ type: "backups-changed" });
   });
 
+  it("adds the project count to ready when the API reports one, and leaves it out otherwise", async () => {
+    const withCount = setup({ listening: Promise.resolve({ port: START.port, projectCount: 5 }) });
+    await withCount.child.handle(START);
+    expect(withCount.sent[1]).toMatchObject({ type: "ready", projectCount: 5 });
+
+    const without = setup();
+    await without.child.handle(START);
+    expect(without.sent[1]).toMatchObject({ type: "ready" });
+    expect(without.sent[1]).not.toHaveProperty("projectCount");
+  });
+
   it("passes the backup directory and falls back to the requested identity when the API reports none", async () => {
     const { child, sent, startApi } = setup({ listening: Promise.resolve({ port: START.port }) });
 

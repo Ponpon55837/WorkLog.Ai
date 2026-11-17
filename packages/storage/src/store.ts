@@ -840,6 +840,10 @@ export class WorkIntelligenceStore {
     return this.projects.list();
   }
 
+  public countProjects(): number {
+    return this.projects.count();
+  }
+
   public addProject(name: string, rootPath: string): ProjectRecord {
     return this.projects.add(name, rootPath);
   }
