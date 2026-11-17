@@ -157,16 +157,29 @@ R4 的補充用法：
 
 ## 1.6.49 任務（階段 4 第二部分：首次執行與 App 內 Agent 設定）與本文件的關係
 
-本版實作階段 4 第二部分的 CI 可驗證部分。Windows 11 與 macOS 的實機驗收仍為**待實機驗收**；CI 結果待 PR 檢查完成後補上。
+本版實作階段 4 第二部分的 CI 可驗證部分。Windows 11 與 macOS 的實機驗收仍為**待實機驗收**。PR #371 的 20 項 CI 檢查全部通過。
 
 | 任務 | 內容 | 狀態 | 本文件位置 | 證據路徑 |
 |---|---|---|---|---|
 | DT-01（精靈） | 首次執行頁：只在沒有設定檔時顯示；「使用預設設定開始」在第一次繪製就可按；唯讀偵測既有來源並各預覽一次；成功啟動後才寫入設定；預設啟動會建立新的空資料庫，啟動失敗時刪除（ADR-27）；升級安裝不顯示 | 1.6.49 已實作（CI 可驗證部分）；實機待實機驗收 | §3.1；R4 §5 全新安裝流程；ADR-06、ADR-27 | `apps/desktop/src/main/first-run.ts`；`packages/desktop-core/src/shell/setup-state.ts`；`apps/server/src/database-create.ts`；`apps/desktop/tests/desktop-smoke/first-run.spec.ts`；`tests/desktop-core/shell-setup-state.test.ts`、`created-database.test.ts`；`tests/server/database-create.test.ts` |
 | DT-21 後續（App 內 Agent 設定） | App 視窗的 Agent 頁、工作列「設定 Agent…」與 `--open-agent-setup`：預覽差異、只套用預覽過的計畫、測試連線、依日誌復原；「改由桌面 App 管理…」接管 checkout 的設定；Web 狀態頁按鈕只請 App 開啟頁面 | 1.6.49 已實作（CI 可驗證部分）；真實 Codex 與 Claude Code 設定待實機驗收 | §3.2；ADR-14、ADR-34 | `apps/desktop/src/main/agents.ts`；`packages/agent-setup/src/adopt.ts`、`diff.ts`；`apps/server/src/routes/desktop.ts`；`apps/desktop/tests/desktop-smoke/agents.spec.ts`；`tests/agent-setup/*.test.ts`；`tests/desktop-core/shell-agent-setup.test.ts` |
 | Q1（launcher 交給 Agent 的資料庫） | 沒有 `WORK_INTELLIGENCE_DB` 時，MCP 與 hook 使用 App 設定的資料庫；設定無效時退回獨立版規則；每次 hook 的額外成本中位數 0.44 ms（Linux，預算 5 ms） | 1.6.49 已實作；Windows 與 macOS 數字由 CI 印出 | §3.3；ADR-39 | `packages/desktop-core/src/runtime/desktop-database.ts`；`tests/desktop-core/desktop-database.test.ts` |
-| 舊的登入服務 | 唯讀偵測 `pnpm bootstrap` 的服務；首次執行頁、修復視窗與 Web 狀態頁顯示警告與移除指令；同一資料庫須按「仍要啟動」（`LEGACY_SERVICE_ACTIVE`，不自動重試）；連接埠被它占用時直接指出 | 1.6.49 已實作（CI 可驗證部分）；一鍵停用延到 1.6.50；真實 LaunchAgent 與工作排程器待實機驗收 | §8；R4 §5 升級流程 | `packages/desktop-core/src/legacy-service/`；`apps/desktop/src/main/legacy.ts`；`tests/desktop-core/legacy-service.test.ts`；`apps/desktop/tests/desktop-smoke/first-run.spec.ts` |
+| 舊的登入服務 | 唯讀偵測 `pnpm bootstrap` 的服務；首次執行頁、修復視窗與 Web 狀態頁顯示警告與移除指令；同一資料庫須按「仍要啟動」（`LEGACY_SERVICE_ACTIVE`，不自動重試）；連接埠被它占用時直接指出 | 1.6.49 已實作（CI 可驗證部分）；一鍵停用見下方 1.6.50；真實 LaunchAgent 與工作排程器待實機驗收 | §8；R4 §5 升級流程 | `packages/desktop-core/src/legacy-service/`；`apps/desktop/src/main/legacy.ts`；`tests/desktop-core/legacy-service.test.ts`；`apps/desktop/tests/desktop-smoke/first-run.spec.ts` |
 
-**本版的非 CI 項目**：Windows 11 與 macOS 實機上的首次執行頁、Agent 頁的套用、測試連線與復原（真實的 Agent 設定）、舊服務偵測（真實的 LaunchAgent 與工作排程器）。尚未做：一鍵停用舊服務（1.6.50）、DT-19 完整診斷、DT-24 完整清理、簽章與公證、自動更新。
+**本版的非 CI 項目**：Windows 11 與 macOS 實機上的首次執行頁、Agent 頁的套用、測試連線與復原（真實的 Agent 設定）、舊服務偵測（真實的 LaunchAgent 與工作排程器）。尚未做：DT-19 完整診斷、DT-24 完整清理、簽章與公證、自動更新。
+
+## 1.6.50 任務（階段 4：舊服務停用與 Agent 接管收尾）與本文件的關係
+
+本版實作下列項目的 CI 可驗證部分；Windows 11 與 macOS 的實機驗收仍為**待實機驗收**。CI 結果待 PR 檢查完成後補上。
+
+| 任務 | 內容 | 狀態 | 本文件位置 | 證據路徑 |
+|---|---|---|---|---|
+| 舊的登入服務：一鍵停用 | 「停用舊的登入服務…」只用於辨識得出的定義：唯讀預覽（指令只在「詳細步驟」）、匯入或備份中的提醒、系統對話框確認（預設「取消」）；動手前重新偵測並比對內容雜湊、checkout 與連接埠；步驟與 `pnpm service:uninstall` 相同；先證明停下才移除；操作日誌類型 `legacy-disable`；App 資料庫先做唯讀 `quick_check`，不通過記錄 `DB_INTEGRITY_CHECK_FAILED` 並進修復流程；只在手動開啟、後端未執行時提供「立即啟動」 | 1.6.50 已實作（CI 可驗證部分）；真實 LaunchAgent 與工作排程器待實機驗收 | §8；R4 §5 升級流程；G-SVC-01 | `packages/desktop-core/src/legacy-service/disable.ts`；`apps/desktop/src/main/legacy-disable.ts`；`apps/desktop/src/renderer/repair/legacy-disable-view.ts`；`tests/desktop-core/legacy-service-disable.test.ts`；`apps/desktop/tests/desktop-smoke/first-run.spec.ts` |
+| DT-13 | Windows：只結束命令列含這個 checkout `scripts\service-runner.mjs` 的 `node.exe` 程序樹（`schtasks /End` 後 `taskkill /T`）；依父程序編號找出子孫程序，只等待不單獨結束；等連接埠釋放與整棵樹結束（有上限）後才 `schtasks /Delete` | 1.6.50 已實作（模擬程序清單的單元測試）；真實 Windows 程序樹待 CI 或實機驗收 | §4；ADR 的服務擁有權；R05 | `packages/desktop-core/src/legacy-service/disable.ts`（`legacyRunnerTrees`、`matchesLegacyRunner`）；`tests/desktop-core/legacy-service-disable.test.ts` |
+| 預覽的 `quick_check` | 桌面子程序預檢的選填 `quickCheck: true`：同一個唯讀連線上的 `PRAGMA quick_check`，不通過為 `unreadable`（固定訊息） | 1.6.50 已實作 | §3.1 | `apps/server/src/database-preflight.ts`、`desktop-child.ts`；`packages/schema/src/desktop-child-protocol.ts`；`tests/server/database-preflight.test.ts`、`desktop-child.test.ts` |
+| 接管只限同一份資料庫 | 「改由桌面 App 管理」只接管資料庫與 App 相同（檔案身分比對）的 checkout 項目；其他資料庫不接管也不改寫，卡片提供「改用這份資料庫」，在修復視窗預覽後由使用者確認 | 1.6.50 已實作（CI 可驗證部分） | §3.2；ADR-39 | `packages/agent-setup/src/adopt.ts`；`apps/desktop/src/main/agents.ts`；`tests/agent-setup/adopt.test.ts`；`apps/desktop/tests/desktop-smoke/agents.spec.ts` |
+
+**本版的非 CI 項目**：Windows 11 與 macOS 實機上的停用流程（真實的 LaunchAgent、工作排程器與 runner 程序樹）、停用後的資料庫檢查與「改用這份資料庫」。
 
 ## 本機打包
 
