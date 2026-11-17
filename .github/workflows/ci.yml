@@ -172,6 +172,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # The stress workers import the workspace packages' built output (e.g. @work-intelligence/shared/dist).
+      - run: pnpm build
+
       - name: SQLite WAL stress
         run: pnpm test:sqlite-stress
 
