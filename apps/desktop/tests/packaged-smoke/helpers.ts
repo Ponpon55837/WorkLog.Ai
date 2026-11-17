@@ -31,6 +31,8 @@ export const PRODUCT_NAME = "Work Intelligence";
 
 const POLL_MS = 10;
 const EXIT_STDERR_LIMIT = 16 * 1024;
+/** How much of a launch's stdout, stderr and log a failure message quotes. */
+const DIAGNOSTIC_TAIL_CHARS = 2_000;
 /** How long processes that hold a sandbox may exit by themselves before they are terminated. */
 const HOLDER_GRACE_MS = 5_000;
 const HOLDER_TERMINATE_MS = 5_000;
@@ -56,6 +58,10 @@ export interface RunningApp {
   readonly pid: number;
   readonly exited: Promise<AppExit>;
   hasExited(): boolean;
+  /** The exit once it happened, for a failure message; undefined while the process runs. */
+  exit(): AppExit | undefined;
+  /** The ends of what the process wrote so far. */
+  output(): { readonly stdout: string; readonly stderr: string };
   kill(): void;
 }
 
@@ -304,12 +310,17 @@ export function startApp(
   const args = options.defaultUserData ? [...extra, ...mode] : launchArguments(sandbox, [...extra, ...mode]);
   const child: ChildProcess = spawn(packagedExecutable(), args, {
     env: appEnvironment(sandbox, options.environment),
-    stdio: ["ignore", "ignore", "pipe"],
+    stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
   launchedPids.set(sandbox.root, [...(launchedPids.get(sandbox.root) ?? []), child.pid ?? 0]);
+  let stdout = "";
   let stderr = "";
-  let done = false;
+  let ended: AppExit | undefined;
+  child.stdout?.setEncoding("utf8");
+  child.stdout?.on("data", (chunk: string) => {
+    stdout = (stdout + chunk).slice(-EXIT_STDERR_LIMIT);
+  });
   child.stderr?.setEncoding("utf8");
   child.stderr?.on("data", (chunk: string) => {
     stderr = (stderr + chunk).slice(-EXIT_STDERR_LIMIT);
@@ -317,8 +328,8 @@ export function startApp(
   const exited = new Promise<AppExit>((resolveExit, rejectExit) => {
     child.once("error", rejectExit);
     child.once("close", (code, signal) => {
-      done = true;
-      resolveExit({ code, signal, stderr });
+      ended = { code, signal, stderr };
+      resolveExit(ended);
     });
   });
   // A rejected `exited` nobody awaits must not crash the runner.
@@ -326,9 +337,11 @@ export function startApp(
   return {
     pid: child.pid ?? 0,
     exited,
-    hasExited: () => done,
+    hasExited: () => ended !== undefined,
+    exit: () => ended,
+    output: () => ({ stdout, stderr }),
     kill: () => {
-      if (!done) child.kill("SIGKILL");
+      if (ended === undefined) child.kill("SIGKILL");
     },
   };
 }
@@ -504,6 +517,21 @@ export function processTree(rootPid: number, processes: readonly ProcessInfo[] =
   return processes.filter((candidate) => wanted.has(candidate.pid));
 }
 
+/**
+ * `path` as the file system names it: `realpathSync.native` (long names instead of 8.3 ones, the real letter case, links
+ * resolved) without the `\\?\` (or `\\?\UNC\`) prefix Windows may add; `path` itself when it cannot be resolved.
+ */
+export function resolvedPath(path: string): string {
+  let resolved = path;
+  try {
+    resolved = realpathSync.native(path);
+  } catch {
+    // Gone or unreadable: compare it as given.
+  }
+  if (process.platform !== "win32" || !resolved.startsWith("\\\\?\\")) return resolved;
+  return resolved.startsWith("\\\\?\\UNC\\") ? `\\\\${resolved.slice(8)}` : resolved.slice(4);
+}
+
 /** Whether `candidate` lies under `directory` (case-insensitive on Windows). */
 export function isInside(directory: string, candidate: string): boolean {
   const separator = process.platform === "win32" ? "\\" : "/";
@@ -561,4 +589,38 @@ export function defaultRuntimeRoots(environment: Readonly<Record<string, string 
   if (process.platform === "darwin")
     return [join(home, "Library", "Application Support", "WorkIntelligence", "runtime")];
   return [];
+}
+
+/**
+ * What a failure message needs when a launch never got where it should: whether the process still runs or how it
+ * ended, the ends of its stdout and stderr, every process of the packaged App (its executable or command line names the
+ * program directory), and which of `logFiles` exist, with their last lines. A launch that wrote no log at all is then
+ * told apart from one that wrote it elsewhere, exited at once (say, as a second instance) or hangs.
+ */
+export function describeLaunch(app: RunningApp, logFiles: readonly string[]): string {
+  const ended = app.exit();
+  const { stdout, stderr } = app.output();
+  const program = programDirectory(packagedExecutable());
+  const appProcesses = listProcesses().filter(
+    (candidate) =>
+      candidate.commandLine.toLowerCase().includes(program.toLowerCase()) ||
+      (candidate.executable !== undefined && isInside(program, candidate.executable)),
+  );
+  const logs = [...new Set(logFiles)].map((file) => {
+    try {
+      const tail = readFileSync(file, "utf8").split("\n").slice(-6).join("\n");
+      return `  ${file}:\n${tail}`;
+    } catch {
+      return `  ${file}: (none)`;
+    }
+  });
+  return [
+    ended
+      ? `the App (pid ${app.pid}) exited with code ${String(ended.code)}, signal ${String(ended.signal)}`
+      : `the App (pid ${app.pid}) is still running`,
+    `stdout tail:\n${stdout.slice(-DIAGNOSTIC_TAIL_CHARS) || "(empty)"}`,
+    `stderr tail:\n${stderr.slice(-DIAGNOSTIC_TAIL_CHARS) || "(empty)"}`,
+    `App processes:\n${appProcesses.map(describeProcess).join("\n") || "  (none)"}`,
+    `log files:\n${logs.join("\n")}`,
+  ].join("\n");
 }

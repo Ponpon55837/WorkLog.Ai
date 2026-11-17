@@ -19,10 +19,12 @@ import {
   PRODUCT_NAME,
   createSandbox,
   defaultUserDataDirectories,
+  describeLaunch,
   leftoverProcesses,
   logLines,
   packagedExecutable,
   pollUntil,
+  profileDirectories,
   portIsFree,
   processIsAlive,
   removeSandbox,
@@ -113,13 +115,29 @@ test("an installer run over the running App stops it through --quit", async ({
     copyFileSync(join(current.userData, "desktop-settings.json"), join(realDefault, "desktop-settings.json"));
     observed = { ...current, userData: realDefault, logFile: join(realDefault, "logs", "desktop-main.log") };
   }
-  const running = startApp(
-    current,
-    [],
-    strict ? { defaultUserData: true, environment: { APPDATA: dirname(realDefault) } } : {},
-  );
+  // The profile of the installer, which runs with this process's environment. Electron finds the default userData
+  // through the Windows known folder, which can expand %USERPROFILE%, so USERPROFILE must be the real one too, not only
+  // APPDATA: with the sandbox's, the App's userData (its log and its single-instance lock) is in the sandbox home, where
+  // neither this test nor the installer's `--quit` looks. LOCALAPPDATA stays in the sandbox: the runtime goes there.
+  const realProfile: Record<string, string> = { APPDATA: dirname(realDefault) };
+  for (const name of ["USERPROFILE", "HOME"] as const) {
+    const value = process.env[name];
+    if (value !== undefined) realProfile[name] = value;
+  }
+  const running = startApp(current, [], strict ? { defaultUserData: true, environment: realProfile } : {});
   app = running;
-  const backend = await waitForManaged(observed);
+  const backend = await waitForManaged(observed).catch((error: unknown) => {
+    // Every folder the log could have gone to: the observed one, and the default userData of the real and the sandbox
+    // profile.
+    const candidates = [
+      observed.userData,
+      ...defaultUserDataDirectories(process.env),
+      ...defaultUserDataDirectories(profileDirectories(current.home)),
+    ].map((directory) => join(directory, "logs", "desktop-main.log"));
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)}\n${describeLaunch(running, candidates)}`,
+    );
+  });
 
   expect(await runSetup(installer, ["/S", `/D=${installDirectory}`])).toBe(0);
 

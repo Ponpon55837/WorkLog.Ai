@@ -23,11 +23,9 @@
  * Where the gates come from:
  * - linux: local numbers of this stage (Xvfb, nine samples) times about three, so a run that is three times slower than
  *   the development machine still passes and a real regression (a second runtime copy, an eager load) does not.
- * - win32 and darwin: no packaged measurement exists yet. They start from the unpackaged CI evidence of 1.6.44 (run
- *   43929965453: Windows cold start at most 1.0 s, macOS at most 1.5 s, both without the runtime install; see
- *   desktop-smoke/perf-gates.ts), multiplied for the larger packaged App (asar integrity, a 135 MB runtime on disk) and,
- *   for the first start, for the install itself. The first CI run's numbers (printed in the job log and uploaded as
- *   `desktop-packaged-perf-<os>.json`) must tighten these.
+ * - win32 and darwin: the medians of packaged CI runs of 1.6.45 (printed in the job log and uploaded as
+ *   `desktop-packaged-perf-<os>.json`), with the margin each platform's runners need; the comment above each platform
+ *   names the run its numbers come from.
  */
 export const PACKAGED_PERF_RUNS = 3;
 
@@ -61,20 +59,21 @@ export const PACKAGED_PERF_GATES: Readonly<Record<"linux" | "darwin" | "win32", 
     idleMemoryBytes: 360 * MB,
     backendMemoryBytes: 128 * MB,
   },
-  // Memory from the first packaged CI run (1.6.45, windows-latest): an idle working-set total of 472 MiB, of which 204 MiB
-  // were Edge processes started for the Dashboard and now excluded, so about 268 MiB for the App. The gate is that plus
-  // about half (400 MiB); the backend gate matches the other platforms (macOS measured 90 MiB). ACL: the first start's
-  // .NET read took 2.6 s (a cold Windows PowerShell start; about 0.25-0.5 s later in the same run), so 5 s fails a
-  // doubling. Times: 6 s warm is 6x the unpackaged Windows cold start; 30 s first start leaves room for the 135 MB
-  // runtime copy under real-time antivirus on a CI runner.
+  // Medians of three from the packaged CI run 43991395594 (1.6.45, windows-latest): first start 2123 ms, its ACL read
+  // 186 ms, warm 524 ms, repair window 2021 ms, quit 114 ms, idle working set 262.3 MiB (main 89, gpu 49, utility 44,
+  // backend 68; conhost and the Dashboard's Edge are not the App's and are excluded), backend 71.6 MiB. Times are about
+  // three times the median (four for the short warm start and almost nine for quit, whose 114 ms a scan by real-time
+  // antivirus alone can triple); the ACL gate stays under the 2-2.6 s a cold Windows PowerShell start costs, so a read
+  // that is cold on every run fails it. Memory is the median plus about a quarter (330 MiB) and, for the backend, plus
+  // about 40% (100 MiB), as on the other platforms.
   win32: {
-    firstStartMs: 30_000,
-    firstStartAclMs: 5_000,
-    warmStartMs: 6_000,
+    firstStartMs: 7_000,
+    firstStartAclMs: 1_500,
+    warmStartMs: 2_000,
     repairWindowMs: 6_000,
-    quitMs: 4_000,
-    idleMemoryBytes: 400 * MB,
-    backendMemoryBytes: 128 * MB,
+    quitMs: 1_000,
+    idleMemoryBytes: 330 * MB,
+    backendMemoryBytes: 100 * MB,
   },
   // Memory from the first packaged CI run (1.6.45, `ps` RSS): arm64 346-347 MiB (main 158, gpu 56, utility 42.5,
   // backend 90), x64 213 MiB. The gate is the arm64 total plus about a quarter (440 MiB), the backend 90 MiB plus about

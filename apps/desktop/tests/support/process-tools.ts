@@ -26,11 +26,14 @@ export async function portIsFree(port: number): Promise<boolean> {
 /**
  * The arguments for one PowerShell script, for every test helper: no profile, no prompt, no stdin, and the script starts
  * with `$ProgressPreference='SilentlyContinue'` so progress records ("Preparing modules for first use.") never reach the
- * output as CLIXML. -EncodedCommand (UTF-16LE base64) passes the script without any command-line quoting. Callers also
- * start PowerShell with stdin ignored.
+ * output as CLIXML, then sets the console output to UTF-8: Windows PowerShell 5.1 otherwise writes in the OEM code page,
+ * which turns every non-ASCII character of a path or command line (the sandboxes' names have some) into `?`, and callers
+ * decode stdout as UTF-8. -EncodedCommand (UTF-16LE base64) passes the script without any command-line quoting. Callers
+ * also start PowerShell with stdin ignored.
  */
 export function powershellArguments(script: string): string[] {
-  const encoded = Buffer.from(`$ProgressPreference='SilentlyContinue';${script}`, "utf16le").toString("base64");
+  const prefix = "$ProgressPreference='SilentlyContinue';[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;";
+  const encoded = Buffer.from(`${prefix}${script}`, "utf16le").toString("base64");
   return ["-NoProfile", "-NonInteractive", "-InputFormat", "None", "-EncodedCommand", encoded];
 }
 

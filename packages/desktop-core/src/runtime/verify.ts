@@ -332,9 +332,9 @@ function checkStructure(
  *    nothing there. The result is `acl: "checked"` on every platform, and a check that cannot run throws.
  * 2. Structure, from one walk: a file the manifest does not list is refused (so a planted module cannot be loaded), as
  *    is any symlink the manifest does not list; a missing file or a size that differs fails before any hashing.
- * 3. Content: files are hashed as streams, four at a time. After a full pass `.verified.json` records every file's
- *    stat fingerprint; later runs only `lstat` and re-hash the files whose fingerprint changed. A damaged or forged-for-
- *    another-runtime cache is ignored, so it can only cost time.
+ * 3. Content: files are hashed as streams, four at a time, while the Windows ACLs of step 1 are being read. After a
+ *    full pass `.verified.json` records every file's stat fingerprint; later runs only `lstat` and re-hash the files
+ *    whose fingerprint changed. A damaged or forged-for-another-runtime cache is ignored, so it can only cost time.
  *
  * Threat model, stated plainly: this detects accidental damage, a partial or interrupted update, and tampering by a
  * process that can modify a file but not the verifier's own files. Rewriting a file changes its ctime, which user
@@ -398,9 +398,9 @@ export async function verifyRuntime(
   // any file that missed it. Otherwise only when the ACL stamp changed (see checkWindowsAcl). An install or switch trusts
   // only a stamp this process just produced, never the one on disk.
   const alwaysCheck = options.alwaysCheckAcl === true;
-  const acl =
+  const aclCheck =
     policy.platform === "win32" && options.checkAcl !== false
-      ? await checkWindowsAcl(
+      ? checkWindowsAcl(
           root,
           runtimeDirectory,
           manifest,
@@ -408,9 +408,11 @@ export async function verifyRuntime(
           !useCache || previous.size === 0 || toHash.length > 0,
           options.aclReader,
         )
-      : undefined;
+      : Promise.resolve(undefined);
 
-  await forEachLimited(toHash, options.concurrency ?? DEFAULT_CONCURRENCY, async ({ entry, scanned }) => {
+  // Hashing overlaps the ACL read (a PowerShell start on Windows): reading a file runs nothing, and nothing is trusted
+  // until both have passed. When both fail, the permissions are reported: they say why the content cannot be trusted.
+  const hashing = forEachLimited(toHash, options.concurrency ?? DEFAULT_CONCURRENCY, async ({ entry, scanned }) => {
     const digest = await hashFile(path.join(runtimeDirectory, entry.path));
     if (digest.bytes !== entry.size || digest.sha256 !== entry.sha256) {
       throw new RuntimeError("RUNTIME_FILE_TAMPERED", "檔案內容與 manifest 的 SHA-256 不符", {
@@ -422,6 +424,10 @@ export async function verifyRuntime(
     // The fingerprint is the one taken before reading: a write during the read leaves a stale one, so the next run hashes again.
     verified.set(entry.path, { sha256: entry.sha256, ...scanned.stat.fingerprint });
   });
+  const [aclOutcome, hashOutcome] = await Promise.allSettled([aclCheck, hashing]);
+  if (aclOutcome.status === "rejected") throw aclOutcome.reason;
+  if (hashOutcome.status === "rejected") throw hashOutcome.reason;
+  const acl = aclOutcome.value;
 
   if (useCache && (toHash.length > 0 || previous.size !== verified.size || acl?.report !== undefined)) {
     const ordered = new Map(manifest.files.map((entry) => [entry.path, verified.get(entry.path) as CachedFile]));

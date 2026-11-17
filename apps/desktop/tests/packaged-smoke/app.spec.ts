@@ -31,6 +31,7 @@ import {
   quitCommand,
   readLog,
   removeSandbox,
+  resolvedPath,
   runToExit,
   sleep,
   startApp,
@@ -156,7 +157,12 @@ test("an interactive start is MANAGED without Node on PATH, on the bundled runti
 
   const executable = executablePathOf(backend.pid, listProcesses());
   expect(executable, "the backend's executable").toBeDefined();
-  expect(isInside(join(current.userData, "runtime", "runtimes"), executable ?? "")).toBe(true);
+  const runtimes = resolvedPath(join(current.userData, "runtime", "runtimes"));
+  const resolvedExecutable = resolvedPath(executable ?? "");
+  expect(
+    isInside(runtimes, resolvedExecutable),
+    `the backend's executable ${resolvedExecutable} (as reported: ${executable}) lies under ${runtimes}`,
+  ).toBe(true);
 
   // With `--user-data-dir` the runtime stays under userData: the fixed launcher root is left alone.
   for (const directory of defaultRuntimeRoots({ ...profileDirectories(current.home) })) {

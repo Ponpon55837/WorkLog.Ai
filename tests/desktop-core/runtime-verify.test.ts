@@ -533,10 +533,27 @@ describe("verifyRuntime: permissions", () => {
       );
     });
 
-    it("refuses a runtime a stranger can write, before hashing anything", async () => {
+    it("refuses a runtime a stranger can write", async () => {
       await expect(
         verifyRuntime(root, "rt-1", { policy: WIN, aclReader: fixtureReader(BAD), useCache: false }),
       ).rejects.toMatchObject({ code: "RUNTIME_UNSAFE_PERMISSIONS" });
+    });
+
+    it("reports the permissions over a changed file when both fail, although hashing overlaps the ACL read", async () => {
+      await flipFirstByte(path.join(runtimeDirectory, "app/mcp.js"));
+      await expect(
+        verifyRuntime(root, "rt-1", { policy: WIN, aclReader: fixtureReader(BAD), useCache: false }),
+      ).rejects.toMatchObject({ code: "RUNTIME_UNSAFE_PERMISSIONS" });
+    });
+
+    it("refuses a changed file once the ACLs passed, and writes no cache", async () => {
+      await flipFirstByte(path.join(runtimeDirectory, "app/mcp.js"));
+      await fs.rm(cachePath());
+      await expect(verifyRuntime(root, "rt-1", { policy: WIN, aclReader: fixtureReader(GOOD) })).rejects.toMatchObject({
+        code: "RUNTIME_FILE_TAMPERED",
+        detail: { file: "app/mcp.js" },
+      });
+      await expect(fs.access(cachePath())).rejects.toThrow();
     });
 
     it("ignores the POSIX mode bits Windows reports for every entry", async () => {
