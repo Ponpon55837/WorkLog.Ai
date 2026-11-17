@@ -186,7 +186,8 @@ test("a second launch exits quickly and leaves the first instance with the only 
   expect(logLines(current, /\[shell\] dashboard opened/), "a background launch opens no Dashboard").toEqual([]);
 
   const started = performance.now();
-  const second = await runToExit(current, [], 20_000);
+  // The hand-over makes the first instance open the Dashboard: the browser it starts is expected (and ended on CI).
+  const second = await runToExit(current, [], 20_000, { opensDashboard: true });
   expect(second.code).toBe(0);
   expect(performance.now() - started).toBeLessThan(10_000);
   await waitForLog(current, /\[shell\] dashboard opened/, 20_000);

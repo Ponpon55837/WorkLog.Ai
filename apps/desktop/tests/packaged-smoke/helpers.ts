@@ -387,6 +387,11 @@ export interface StartOptions {
    * notification instead of a window, no browser), so the machine running the tests is left alone.
    */
   readonly interactive?: boolean;
+  /**
+   * The launch may make the App open the Dashboard although it is `--background`: a second launch hands over to the
+   * running first instance, which opens it. Arguments are unchanged; only the "no browser appeared" check knows.
+   */
+  readonly opensDashboard?: boolean;
 }
 
 /** Starts the App and returns at once; `exited` settles when the process ends (`close`, so stderr is complete). */
@@ -404,7 +409,9 @@ export function startApp(
   });
   launchedPids.set(sandbox.root, [...(launchedPids.get(sandbox.root) ?? []), child.pid ?? 0]);
   // `--quit` is interactive only so that it is not `--background`; it opens nothing.
-  if (options.interactive && !extra.includes("--quit")) browserOpeningLaunches.add(sandbox.root);
+  if ((options.interactive && !extra.includes("--quit")) || options.opensDashboard) {
+    browserOpeningLaunches.add(sandbox.root);
+  }
   let stdout = "";
   let stderr = "";
   let ended: AppExit | undefined;
