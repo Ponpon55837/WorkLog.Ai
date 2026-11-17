@@ -18,6 +18,10 @@
     "./shell/setup-i18n": {
       "types": "./dist/shell/setup-i18n.d.ts",
       "import": "./dist/shell/setup-i18n.js"
+    },
+    "./shell/agents-state": {
+      "types": "./dist/shell/agents-state.d.ts",
+      "import": "./dist/shell/agents-state.js"
     }
   },
   "dependencies": {

@@ -1,13 +1,12 @@
-import {
-  canApplyPreview,
-  hasUndiffableFile,
-  isFileOpen,
-  type AgentCardView,
+import type {
+  AgentCardView,
   AgentsActionResult,
   AgentsPreview,
   AgentsState,
   RepairApi,
 } from "@work-intelligence/desktop-core";
+// The renderer bundle may only take values from browser-safe subpaths; the package root pulls in Node modules.
+import { canApplyPreview, hasUndiffableFile, isFileOpen } from "@work-intelligence/desktop-core/shell/agents-state";
 import { formatMessage, shellMessages } from "@work-intelligence/desktop-core/shell/i18n";
 import { setupMessages, type SetupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
 import { button, checkbox, element, fact, focusedId, restoreFocus, section, setLanguage } from "./dom.js";
