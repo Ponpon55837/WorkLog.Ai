@@ -139,7 +139,49 @@ jobs:
 
       - run: pnpm build
 
+      # Prints the SQLite bundled with this Node.js and fails when it has the WAL-reset corruption bug.
+      - name: Check bundled SQLite version
+        run: node scripts/check-sqlite-version.mjs
+
       - run: pnpm --filter @work-intelligence/storage test
+
+  # DT-07: multi-process WAL write + checkpoint stress (integrity_check, snapshot and restore comparison). Evidence next
+  # to, never instead of, the SQLite version check above. Not part of `pnpm test`; the vitest suite runs the workers from
+  # the TypeScript sources, so no build is needed. Only correctness is asserted; SQLITE_BUSY counts are just reported.
+  sqlite-stress:
+    name: SQLite stress (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 11.16.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: SQLite WAL stress
+        run: pnpm test:sqlite-stress
+
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sqlite-stress-${{ matrix.os }}
+          path: perf-results/sqlite-stress-*.json
+          if-no-files-found: warn
+          retention-days: 14
 
   # One job per browser so the three Playwright projects run in parallel and alongside the quality matrix.
   e2e-browser:
