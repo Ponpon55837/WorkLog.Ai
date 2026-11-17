@@ -17,7 +17,7 @@ export interface IntegrationPublisher {
 
 export interface IntegrationPublisherOptions extends IntegrationDirectoryInputs {
   readonly paths: Pick<DesktopPaths, "runtimeRoot">;
-  /** `process.execPath`: the App's own executable. */
+  /** `process.execPath`: the App's own executable; the publisher stores its real (canonical) path. */
   readonly appExecutable: string;
   readonly appVersion: string;
   readonly platform: NodeJS.Platform;

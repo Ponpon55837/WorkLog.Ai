@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { configDirectory } from "@work-intelligence/shared/database-location";
@@ -17,6 +18,8 @@ const MAX_TEXT_LENGTH = 128;
  * `\\.\` paths can reach a network share (Windows sends NTLM credentials to it), so none of them is accepted.
  */
 const WINDOWS_DRIVE_PATH = /^[A-Za-z]:\\/;
+/** The Win32 extended-length prefix `realpathSync.native` may put in front of a drive path. */
+const WINDOWS_VERBATIM_PREFIX = "\\\\?\\";
 
 /**
  * Threat model. A process running as the same OS user can already rewrite the Agents' own configs (~/.claude.json,
@@ -35,8 +38,12 @@ export interface IntegrationRecord {
   readonly version: typeof INTEGRATION_RECORD_VERSION;
   /** The shim at `<runtimeRoot>/bin/work-intelligence-launcher[.cmd]`; always exactly that path. */
   readonly launcherPath: string;
+  /** The canonical (real) runtime root: no symlink, and on Windows the real letter case and long names. */
   readonly runtimeRoot: string;
-  /** The App's own executable, started with `--open-dashboard` (OPEN_DASHBOARD_FLAG) to open the Dashboard. */
+  /**
+   * The App's own executable in canonical (real) form, started with `--open-dashboard` (OPEN_DASHBOARD_FLAG) to open
+   * the Dashboard.
+   */
   readonly appExecutable: string;
   readonly appVersion: string;
   /** ISO time of the last write; informational only, never compared. */
@@ -66,6 +73,30 @@ export function launcherShimPath(runtimeRoot: string, platform: NodeJS.Platform)
     BIN_DIRECTORY_NAME,
     platform === "win32" ? WINDOWS_SHIM_NAME : POSIX_SHIM_NAME,
   );
+}
+
+/**
+ * The real path of an installation path, so the record never names a symlink (the reader refuses symlinks with lstat,
+ * and a symlinked sandbox or `/var` -> `/private/var` would otherwise make the same installation look different).
+ * The value is kept as given when it cannot be resolved (missing or unreadable), is not absolute, or, on Windows,
+ * resolves to anything but a drive-letter path (UNC, `\\?\UNC\`, a mapped drive that is really `\\server\share`),
+ * because the schema and the readers refuse those. A `\\?\` prefix in front of a drive path is stripped.
+ */
+export function canonicalInstallationPath(
+  value: string,
+  platform: NodeJS.Platform,
+  realpath: (value: string) => string = realpathSync.native,
+): string {
+  if (!pathModule(platform).isAbsolute(value)) return value;
+  let resolved: string;
+  try {
+    resolved = realpath(value);
+  } catch {
+    return value;
+  }
+  if (platform !== "win32") return resolved;
+  if (resolved.startsWith(WINDOWS_VERBATIM_PREFIX)) resolved = resolved.slice(WINDOWS_VERBATIM_PREFIX.length);
+  return WINDOWS_DRIVE_PATH.test(resolved) ? resolved : value;
 }
 
 /** `WORK_INTELLIGENCE_CONFIG_DIR`, else `~/.work-intelligence`: the directory the plugin reads `plugin-link.json` from. */
@@ -141,18 +172,28 @@ function sameInstallation(a: IntegrationRecordInputs, b: IntegrationRecordInputs
 /**
  * Writes the record for this installation, atomically, unless the file already says the same: a warm start reads
  * a few hundred bytes and writes nothing. Throws when the inputs would make an invalid record (a relative path) or the
- * file cannot be written; the caller treats that as "no integration", never as a start failure.
+ * file cannot be written; the caller treats that as "no integration", never as a start failure. The runtime root and
+ * the executable are stored in canonical form (see {@link canonicalInstallationPath}) and compared that way, so the
+ * path a reader checks with lstat is the real one and a start through a symlink changes nothing.
  */
 export async function publishIntegrationRecord(
   file: string,
   inputs: IntegrationRecordInputs,
-  options: { readonly platform?: NodeJS.Platform; readonly now?: () => Date } = {},
+  options: {
+    readonly platform?: NodeJS.Platform;
+    readonly now?: () => Date;
+    /** Resolves a path to its real form; defaults to `realpathSync.native`. */
+    readonly realpath?: (value: string) => string;
+  } = {},
 ): Promise<IntegrationPublishResult> {
   const platform = options.platform ?? process.platform;
+  const runtimeRoot = canonicalInstallationPath(inputs.runtimeRoot, platform, options.realpath);
   const record: IntegrationRecord = {
     version: INTEGRATION_RECORD_VERSION,
-    launcherPath: launcherShimPath(inputs.runtimeRoot, platform),
-    ...inputs,
+    launcherPath: launcherShimPath(runtimeRoot, platform),
+    runtimeRoot,
+    appExecutable: canonicalInstallationPath(inputs.appExecutable, platform, options.realpath),
+    appVersion: inputs.appVersion,
     writtenAt: (options.now ?? (() => new Date()))().toISOString(),
   };
   const text = `${JSON.stringify(record, null, 2)}\n`;

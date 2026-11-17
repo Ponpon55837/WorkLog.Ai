@@ -11,6 +11,7 @@ import {
   quitCommand,
   readLog,
   removeSandbox,
+  resolvedPath,
   startApp,
   stopApp,
   waitForManaged,
@@ -152,9 +153,11 @@ test("after the App has quit, the fixed launcher still completes MCP initialize 
     "writtenAt",
   ]);
   expect(record.version).toBe(1);
-  expect(record.runtimeRoot).toBe(join(sandbox.userData, "runtime"));
-  expect(record.launcherPath).toBe(join(sandbox.userData, "runtime", "bin", shim));
-  expect(record.appExecutable).toBe(packagedExecutable());
+  // The App stores real paths (macOS `/var` -> `/private/var`, Windows long names and letter case).
+  const runtimeRoot = resolvedPath(join(sandbox.userData, "runtime"));
+  expect(record.runtimeRoot).toBe(runtimeRoot);
+  expect(record.launcherPath).toBe(join(runtimeRoot, "bin", shim));
+  expect(record.appExecutable).toBe(resolvedPath(packagedExecutable()));
   expect(text).not.toContain(sandbox.databasePath);
 
   expect((await quitCommand(sandbox)).code).toBe(0);

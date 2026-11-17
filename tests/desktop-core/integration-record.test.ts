@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  canonicalInstallationPath,
   INTEGRATION_RECORD_FILE_NAME,
   integrationConfigDirectory,
   integrationRecordPath,
@@ -109,6 +110,86 @@ describe("publishIntegrationRecord", () => {
     const file = path.join(directory, INTEGRATION_RECORD_FILE_NAME);
     await expect(publishIntegrationRecord(file, inputs, { platform: "linux" })).rejects.toThrow(RangeError);
     await expect(fs.stat(file)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+});
+
+describe("canonical installation paths", () => {
+  const throwing = (): string => {
+    throw new Error("ENOENT");
+  };
+
+  it("stores the real path of a symlinked runtime root and executable, and a warm start through it writes nothing", async (context) => {
+    const real = path.join(await fs.realpath(directory), "real");
+    await fs.mkdir(path.join(real, "runtime"), { recursive: true });
+    await fs.writeFile(path.join(real, "app"), "");
+    const link = path.join(directory, "link");
+    try {
+      await fs.symlink(real, link, "dir");
+    } catch {
+      context.skip();
+    }
+    const inputs = { ...POSIX_INPUTS, runtimeRoot: path.join(link, "runtime"), appExecutable: path.join(link, "app") };
+    const file = path.join(directory, INTEGRATION_RECORD_FILE_NAME);
+    const platform = process.platform;
+    expect(await publishIntegrationRecord(file, inputs, { platform, now: () => new Date(1_000) })).toBe("written");
+    const record = await readIntegrationRecord(file, platform);
+    expect(record).toMatchObject({
+      runtimeRoot: path.join(real, "runtime"),
+      appExecutable: path.join(real, "app"),
+      launcherPath: launcherShimPath(path.join(real, "runtime"), platform),
+    });
+    const before = await fs.stat(file);
+    expect(await publishIntegrationRecord(file, inputs, { platform, now: () => new Date(9_000_000) })).toBe(
+      "unchanged",
+    );
+    expect((await fs.stat(file)).mtimeMs).toBe(before.mtimeMs);
+  });
+
+  it("uses the injected realpath and derives the launcher path from the canonical runtime root", async () => {
+    const file = path.join(directory, INTEGRATION_RECORD_FILE_NAME);
+    const realpath = (value: string) => value.replace("/link/", "/real/");
+    const inputs = { ...POSIX_INPUTS, runtimeRoot: "/link/runtime", appExecutable: "/link/app" };
+    await publishIntegrationRecord(file, inputs, { platform: "linux", realpath });
+    expect(await readIntegrationRecord(file, "linux")).toMatchObject({
+      runtimeRoot: "/real/runtime",
+      appExecutable: "/real/app",
+      launcherPath: "/real/runtime/bin/work-intelligence-launcher",
+    });
+    expect(await publishIntegrationRecord(file, inputs, { platform: "linux", realpath })).toBe("unchanged");
+  });
+
+  it("keeps the value as given when the path cannot be resolved", () => {
+    expect(canonicalInstallationPath("/missing/app", "linux", throwing)).toBe("/missing/app");
+    expect(canonicalInstallationPath("C:\\Missing\\app.exe", "win32", throwing)).toBe("C:\\Missing\\app.exe");
+  });
+
+  it("does not turn a relative path into an absolute one", () => {
+    expect(canonicalInstallationPath("runtime", "linux", () => "/cwd/runtime")).toBe("runtime");
+    expect(canonicalInstallationPath("C:runtime", "win32", () => "C:\\cwd\\runtime")).toBe("C:runtime");
+  });
+
+  it("strips the Windows verbatim prefix of a drive path and takes the real letter case", () => {
+    expect(canonicalInstallationPath("c:\\progra~1\\app.exe", "win32", () => "\\\\?\\C:\\Program Files\\app.exe")).toBe(
+      "C:\\Program Files\\app.exe",
+    );
+    expect(canonicalInstallationPath("c:\\users\\app.exe", "win32", () => "C:\\Users\\app.exe")).toBe(
+      "C:\\Users\\app.exe",
+    );
+  });
+
+  it.each([
+    ["a UNC path", "\\\\server\\share\\runtime"],
+    ["a verbatim UNC path", "\\\\?\\UNC\\server\\share\\runtime"],
+  ])("keeps the original when Windows resolves it to %s", async (_name, resolved) => {
+    expect(canonicalInstallationPath("Z:\\runtime", "win32", () => resolved)).toBe("Z:\\runtime");
+    const file = path.join(directory, INTEGRATION_RECORD_FILE_NAME);
+    const inputs = { ...WINDOWS_INPUTS, runtimeRoot: "Z:\\runtime" };
+    await publishIntegrationRecord(file, inputs, { platform: "win32", realpath: () => resolved });
+    expect(await readIntegrationRecord(file, "win32")).toMatchObject({ runtimeRoot: "Z:\\runtime" });
+  });
+
+  it("returns the resolved path on POSIX without touching it", () => {
+    expect(canonicalInstallationPath("/var/x", "darwin", () => "/private/var/x")).toBe("/private/var/x");
   });
 });
 

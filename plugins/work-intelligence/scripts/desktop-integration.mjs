@@ -11,7 +11,9 @@
  * It is used only when it is exactly what the App writes (strict fields, normalized absolute paths, launcher path =
  * `<runtimeRoot>/bin/<shim>`; on Windows only drive-letter paths, never `\\server\share`, `\\?\` or `\\.\`, which would
  * send NTLM credentials to a remote host), and on POSIX the record, its directory, the runtime root, its `bin`
- * directory and the shim are real (lstat, no symlinks) entries owned by this user that nobody else can write. The
+ * directory and the shim are real (lstat, no symlinks) entries owned by this user that nobody else can write. The App
+ * writes canonical (real) paths for the runtime root and its executable, which is what lets that no-symlink walk
+ * pass when the install or the user data folder is reached through a symlink (macOS `/var` -> `/private/var`). The
  * runtime pointer `current` must exist and the App executable is a regular file. Windows file ACLs are checked by the
  * launcher itself (runtime/windows-acl.ts), not here. Anything else means "no desktop App": the caller falls back to
  * its own way and the plugin keeps working.

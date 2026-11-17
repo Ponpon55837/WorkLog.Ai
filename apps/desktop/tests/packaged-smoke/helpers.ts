@@ -37,10 +37,26 @@ const DIAGNOSTIC_TAIL_CHARS = 2_000;
 const HOLDER_GRACE_MS = 5_000;
 const HOLDER_TERMINATE_MS = 5_000;
 const HOLDER_COMMAND_LIMIT = 160;
+const BROWSER_TERMINATE_MS = 5_000;
+/**
+ * Browsers the OS may start for `shell.openExternal`, matched against the start of a process's command line (a path whose
+ * last segment is the executable, then a space or the end): Safari and the WebKit helpers it spawns as top-level
+ * processes (macOS), Chrome and Chromium (`Google Chrome`, `chrome`, `google-chrome`, `chromium`), Edge (`msedge`),
+ * Firefox, and the `xdg-open` targets on Linux (firefox, chromium, ...). The App's own Chromium helpers are not browsers
+ * here: they carry the sandbox root in their command line and are filtered out by it.
+ */
+const BROWSER_COMMANDS =
+  /(^|[\\/])(Safari|com\.apple\.WebKit\.(WebContent|Networking|GPU)|SafariLaunchAgent|Google Chrome|google-chrome(-stable)?|chrome|chromium(-browser)?|msedge|firefox)(\.exe)?( |$)/i;
+
+/** What identifies a browser process that was already running before a test: a pid can be reused, so the command too. */
+export type BrowserBaseline = ReadonlyArray<{ readonly pid: number; readonly commandLine: string }>;
 
 /** The App's main pid of every launch, per sandbox root, and the processes seen below them (see `removeSandbox`). */
 const launchedPids = new Map<string, number[]>();
 const knownProcesses = new Map<string, ProcessInfo[]>();
+/** Per sandbox root: the browsers running when the sandbox was created, and whether a launch may have opened one. */
+const browserBaselines = new Map<string, BrowserBaseline>();
+const browserOpeningLaunches = new Set<string>();
 
 export interface PackagedSandbox {
   readonly root: string;
@@ -131,6 +147,7 @@ export async function createSandbox(options: {
 }): Promise<PackagedSandbox> {
   // `.native` expands Windows 8.3 names and macOS `/var`, so every path matches what the App and its child report.
   const root = realpathSync.native(mkdtempSync(join(os.tmpdir(), "wi 打包 smoke ")));
+  const browsersBefore = browserBaseline();
   const home = join(root, "home 用户");
   const userData = join(root, "user data 数据");
   const emptyBin = join(root, "empty-bin");
@@ -160,6 +177,7 @@ export async function createSandbox(options: {
       2,
     )}\n`,
   );
+  browserBaselines.set(root, browsersBefore);
   return {
     root,
     home,
@@ -179,6 +197,7 @@ export async function createSandbox(options: {
  * seconds to exit by itself and is then terminated. If the removal still fails, the error lists who holds the sandbox.
  */
 export async function removeSandbox(sandbox: PackagedSandbox): Promise<void> {
+  const browsers = await endBrowsersStartedSince(browserBaselines.get(sandbox.root) ?? [], sandbox.root);
   try {
     await pollUntil(
       () => (sandboxHolders(sandbox).length === 0 ? true : undefined),
@@ -207,7 +226,58 @@ export async function removeSandbox(sandbox: PackagedSandbox): Promise<void> {
   } finally {
     launchedPids.delete(sandbox.root);
     knownProcesses.delete(sandbox.root);
+    browserBaselines.delete(sandbox.root);
   }
+  // A background launch (and `--quit`) must open no browser: the list names what it started, which is now ended.
+  const opened = browserOpeningLaunches.delete(sandbox.root);
+  if (!opened && browsers.length > 0) {
+    throw new Error(`a launch that may not open a browser started one:\n${browsers.join("\n")}`);
+  }
+}
+
+/** The browsers running now, outside the sandbox (the App's own helpers name its root on their command line). */
+export function browserProcesses(sandboxRoot?: string): ProcessInfo[] {
+  return listProcesses().filter(
+    (candidate) =>
+      candidate.pid !== process.pid &&
+      BROWSER_COMMANDS.test(candidate.executable ?? candidate.commandLine) &&
+      !(sandboxRoot !== undefined && candidate.commandLine.includes(sandboxRoot)),
+  );
+}
+
+/** The browsers running now, to be told apart from the ones a test starts. */
+export function browserBaseline(sandboxRoot?: string): BrowserBaseline {
+  return browserProcesses(sandboxRoot).map(({ pid, commandLine }) => ({ pid, commandLine }));
+}
+
+/**
+ * Ends the browsers that were not in `baseline` (an external browser the OS started for the Dashboard is outside the App's
+ * process tree and carries no sandbox path, so `sandboxHolders` cannot find it) and waits briefly until none is left.
+ * Returns a description of each one it found.
+ */
+export async function endBrowsersStartedSince(baseline: BrowserBaseline, sandboxRoot?: string): Promise<string[]> {
+  const found = new Map<number, string>();
+  const started = () =>
+    browserProcesses(sandboxRoot).filter(
+      (candidate) =>
+        !baseline.some((known) => known.pid === candidate.pid && known.commandLine === candidate.commandLine),
+    );
+  try {
+    await pollUntil(
+      () => {
+        const targets = started();
+        if (targets.length === 0) return true;
+        for (const target of targets) found.set(target.pid, describeProcess(target));
+        terminateProcesses(targets);
+        return undefined;
+      },
+      "the browsers ended",
+      BROWSER_TERMINATE_MS,
+    );
+  } catch {
+    // Still listed after the grace period: they are reported below and the next scan of a later test finds them again.
+  }
+  return [...found.values()];
 }
 
 /** Remembers the process tree of a launch while it is alive: once its main process ends, its children are orphans. */
@@ -314,6 +384,8 @@ export function startApp(
     windowsHide: true,
   });
   launchedPids.set(sandbox.root, [...(launchedPids.get(sandbox.root) ?? []), child.pid ?? 0]);
+  // `--quit` is interactive only so that it is not `--background`; it opens nothing.
+  if (options.interactive && !extra.includes("--quit")) browserOpeningLaunches.add(sandbox.root);
   let stdout = "";
   let stderr = "";
   let ended: AppExit | undefined;
