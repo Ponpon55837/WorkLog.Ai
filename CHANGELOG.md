@@ -24,6 +24,7 @@ This release is the CI-verifiable part of stage 3 (Agent integration) of the des
 
 ### Changed
 
+- Backend memory after a large export or import: the export's read-only connection uses a 1 MB SQLite page cache instead of 16 MB (an export reads each page once), and the backup worker exits 1 s instead of 5 s after a heavy operation. On Linux (33 MiB synthetic project data, median of 3) idle RSS after an export fell from 122 to 92 MiB (baseline 85 MiB), and RSS 3 s after an export or import from 237–280 to 121–130 MiB; idle RSS after an import is unchanged. Export bytes are unchanged.
 - The plugin, MCPB and standalone entry points prefer the fixed launcher shim. The order is: an explicitly set `WORK_INTELLIGENCE_HOME` checkout, the desktop shim, the plugin-location checkout, then the bundled server. A runtime that is not ready falls back to the next entry with a stderr line.
 - Hooks that run through the shim are silent, end after 25 seconds (on Windows the process tree is ended with `taskkill /T`), and always exit 0.
 - `WORK_INTELLIGENCE_DB` from the MCPB user configuration passes through the launcher.

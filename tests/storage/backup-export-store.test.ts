@@ -292,6 +292,18 @@ describe("BackupExportStore", () => {
     }
   });
 
+  it("reads with a small page cache so the worker leaves little resident after it exits", () => {
+    const { databasePath } = seededDatabase();
+    const lean = new BackupExportStore(databasePath, { expectedSchemaVersion: LATEST_SCHEMA_VERSION });
+    try {
+      const db = (lean as unknown as { db: DatabaseSync }).db;
+      expect(db.prepare("PRAGMA cache_size").get()).toEqual({ cache_size: -1000 });
+      expect(db.prepare("PRAGMA busy_timeout").get()).toEqual({ timeout: 5000 });
+    } finally {
+      lean.close();
+    }
+  });
+
   it("requires an existing file with the expected schema version", () => {
     const { databasePath } = seededDatabase();
     expect(() => new BackupExportStore(":memory:", { expectedSchemaVersion: LATEST_SCHEMA_VERSION })).toThrow();

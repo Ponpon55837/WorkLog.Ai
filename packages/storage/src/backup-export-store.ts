@@ -10,6 +10,12 @@ import {
 import { assertDatabaseSchemaVersion, configureWorkIntelligenceDatabaseConnection } from "./database-initialization.js";
 import { buildProjectDataExport, readProjectDataRows } from "./project-data-export.js";
 
+/**
+ * Page cache of the worker's connection. An export reads every row once, so a large cache saves no reads, and on the
+ * synthetic 33 MiB export the default 16 MB left about 30 MiB more resident after the worker had exited.
+ */
+const EXPORT_CACHE_SIZE_KIB = 1_000;
+
 export interface BackupExportStoreOptions {
   /** Where backups go and how many manual and automatic copies to retain independently. */
   backup?: BackupRetentionOptions;
@@ -46,7 +52,7 @@ export class BackupExportStore {
     this.backupOptions = options.backup ?? {};
     this.db = new DatabaseSync(databasePath, { readOnly: true });
     try {
-      configureWorkIntelligenceDatabaseConnection(this.db);
+      configureWorkIntelligenceDatabaseConnection(this.db, EXPORT_CACHE_SIZE_KIB);
       assertDatabaseSchemaVersion(this.db, options.expectedSchemaVersion);
     } catch (error) {
       this.db.close();
