@@ -138,8 +138,13 @@ test("the Agent page previews, applies exactly the preview, passes the self-test
   // The diff shows `~`, never the real home.
   expect(await window.locator("#agents-preview").innerText()).not.toContain(home);
 
+  // Wall time of a user-facing apply and undo of the two-Agent plan, printed for the release notes (polled every 25 ms).
+  const applyStarted = Date.now();
   await window.locator('[data-id="apply"]').click();
-  await expect.poll(async () => (await agentsState(window)).undoAvailable, { timeout: 15_000 }).toBe(true);
+  await expect
+    .poll(async () => (await agentsState(window)).undoAvailable, { timeout: 15_000, intervals: [25] })
+    .toBe(true);
+  const applyMs = Date.now() - applyStarted;
   const applied = tree(home, skip);
   expect(applied).not.toEqual(before);
   expect(Object.keys(applied).some((path) => path.endsWith("SKILL.md"))).toBe(true);
@@ -201,12 +206,17 @@ test("the Agent page previews, applies exactly the preview, passes the self-test
   await window.locator('[data-id="self-test"]').click();
   await expect.poll(async () => (await agentsState(window)).selfTest.outcome, { timeout: 30_000 }).toBe("ok");
 
+  const undoStarted = Date.now();
   await window.locator('[data-id="undo"]').click();
   // Undo puts everything back, the manifest, the backups and the created files included; only the journal stays, as the
   // record of what was undone, and says so.
   await expect
-    .poll(() => tree(home, skip), { timeout: 15_000 })
+    .poll(() => tree(home, skip), { timeout: 15_000, intervals: [25] })
     .toEqual({ ...before, [JOURNAL_FILE]: expect.any(String) });
+  const undoMs = Date.now() - undoStarted;
+  console.log(
+    `[agent setup timing] ${JSON.stringify({ platform: process.platform, files: previewedFiles.length, applyMs, undoMs })}`,
+  );
   expect(JSON.parse(readFileSync(join(home, JOURNAL_FILE), "utf8")).state).toBe("compensated");
   for (const [name, content] of Object.entries(SEEDS)) {
     expect(readFileSync(join(home, ...name.split("/")), "utf8")).toBe(content);
