@@ -30,11 +30,12 @@ const ACTIVE_TRANSFER_AGE_MS = 60 * 60 * 1000;
 /** Copy of the staging name packages/storage/src/backup.ts gives an in-progress backup. */
 const BACKUP_STAGING = /^\.wi-(\d+)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/i;
 /**
- * Windows: every node.exe with its command line, as base64 of the UTF-8 JSON so a non-ASCII checkout path survives any
- * console code page. The match itself happens in {@link matchesLegacyRunner}, never in PowerShell.
+ * Windows: every process with its parent and command line, as base64 of the UTF-8 JSON so a non-ASCII checkout path
+ * survives any console code page. The runner match ({@link matchesLegacyRunner}) and the tree walk happen in TypeScript,
+ * never in PowerShell.
  */
-const WINDOWS_NODE_PROCESSES_SCRIPT =
-  "$p = @(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | ForEach-Object { [ordered]@{ pid = [int]$_.ProcessId; commandLine = [string]$_.CommandLine } }); " +
+const WINDOWS_PROCESSES_SCRIPT =
+  "$p = @(Get-CimInstance Win32_Process | ForEach-Object { [ordered]@{ pid = [int]$_.ProcessId; parentPid = [int]$_.ParentProcessId; name = [string]$_.Name; commandLine = [string]$_.CommandLine } }); " +
   "[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject $p -Compress)))";
 
 /** One OS command, as an argv array that is never passed through a shell. */
@@ -223,8 +224,16 @@ export function matchesLegacyRunner(commandLine: string, runnerPath: string): bo
   return false;
 }
 
-/** Parses the base64 JSON {@link WINDOWS_NODE_PROCESSES_SCRIPT} prints; null when it is anything else. */
-export function parseWindowsNodeProcesses(stdout: string): { pid: number; commandLine: string }[] | null {
+/** One row of the Windows process list. */
+export interface WindowsProcessEntry {
+  readonly pid: number;
+  readonly parentPid: number;
+  readonly name: string;
+  readonly commandLine: string;
+}
+
+/** Parses the base64 JSON {@link WINDOWS_PROCESSES_SCRIPT} prints; null when it is anything else. */
+export function parseWindowsProcesses(stdout: string): WindowsProcessEntry[] | null {
   try {
     const parsed = JSON.parse(
       Buffer.from(stdout.trim(), "base64")
@@ -234,14 +243,49 @@ export function parseWindowsNodeProcesses(stdout: string): { pid: number; comman
     const list = Array.isArray(parsed) ? parsed : parsed && typeof parsed === "object" ? [parsed] : null;
     if (!list) return null;
     return list.flatMap((entry: unknown) => {
-      const { pid, commandLine } = (entry ?? {}) as { pid?: unknown; commandLine?: unknown };
-      return Number.isSafeInteger(pid) && (pid as number) > 0 && typeof commandLine === "string"
-        ? [{ pid: pid as number, commandLine }]
-        : [];
+      const { pid, parentPid, name, commandLine } = (entry ?? {}) as Record<string, unknown>;
+      if (!Number.isSafeInteger(pid) || (pid as number) <= 0) return [];
+      return [
+        {
+          pid: pid as number,
+          parentPid: Number.isSafeInteger(parentPid) ? (parentPid as number) : 0,
+          name: typeof name === "string" ? name : "",
+          commandLine: typeof commandLine === "string" ? commandLine : "",
+        },
+      ];
     });
   } catch {
     return null;
   }
+}
+
+/**
+ * DT-13: the node.exe processes that run exactly this checkout's runner, and every descendant of theirs (pnpm, the old
+ * server, conhost), found by walking parent ids. `taskkill /T` ends the roots' trees; the disable then waits until every
+ * member is gone. A member is only ever waited for, never ended on its own, so a parent id Windows reused can at worst
+ * make the wait run out (and nothing is removed), never end an unrelated process.
+ */
+export function legacyRunnerTrees(
+  processes: readonly WindowsProcessEntry[],
+  runnerPath: string,
+): { roots: number[]; members: number[] } {
+  const roots = processes
+    .filter((entry) => entry.name.toLowerCase() === "node.exe" && matchesLegacyRunner(entry.commandLine, runnerPath))
+    .map((entry) => entry.pid);
+  const children = new Map<number, number[]>();
+  for (const entry of processes) {
+    if (entry.parentPid === entry.pid) continue;
+    children.set(entry.parentPid, [...(children.get(entry.parentPid) ?? []), entry.pid]);
+  }
+  const members = new Set<number>();
+  const queue = [...roots];
+  while (queue.length > 0) {
+    const pid = queue.shift()!;
+    if (members.has(pid)) continue;
+    members.add(pid);
+    queue.push(...(children.get(pid) ?? []));
+  }
+  return { roots, members: [...members] };
 }
 
 /** What may be in the middle of writing the old service's data. */
@@ -430,24 +474,24 @@ async function runCommandStep(
   if (code !== 0 && !step.tolerateFailure) throw new StepFailure(name, `exit code ${code}`);
 }
 
-/** Windows: end each process tree that runs this checkout's runner. Returns the ids it asked to end. */
+/** Windows: end each process tree that runs this checkout's runner. Returns every process of those trees (DT-13). */
 async function endRunners(runnerPath: string, dependencies: LegacyDisableDependencies): Promise<number[]> {
   const listed = await dependencies.runCommand(windowsPowerShell(dependencies.environment), [
     "-NoProfile",
     "-NonInteractive",
     "-Command",
-    WINDOWS_NODE_PROCESSES_SCRIPT,
+    WINDOWS_PROCESSES_SCRIPT,
   ]);
-  const processes = listed.code === 0 ? parseWindowsNodeProcesses(listed.stdout) : null;
+  const processes = listed.code === 0 ? parseWindowsProcesses(listed.stdout) : null;
   // Without the list nothing can be proven stopped: refuse rather than guess, and keep the registration.
   if (!processes) throw new StepFailure("list-runners", `exit code ${listed.code}`);
   const taskkill = windowsSystemTool("taskkill.exe", dependencies.environment);
-  const ids = processes.filter((entry) => matchesLegacyRunner(entry.commandLine, runnerPath)).map((entry) => entry.pid);
-  for (const pid of ids) {
+  const { roots, members } = legacyRunnerTrees(processes, runnerPath);
+  for (const pid of roots) {
     // An already-exited runner makes taskkill fail; the wait below is what proves the trees are gone.
     await dependencies.runCommand(taskkill, ["/PID", String(pid), "/T", "/F"]).catch(() => undefined);
   }
-  return ids;
+  return members;
 }
 
 /** Remove the definition only while it is still the regular file with the planned digest (never through a link). */

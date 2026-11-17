@@ -11,12 +11,14 @@ import {
   legacyDefinitionDigest,
   legacyDisableFileSystem,
   matchesLegacyRunner,
-  parseWindowsNodeProcesses,
+  legacyRunnerTrees,
+  parseWindowsProcesses,
   planLegacyDisable,
   type LegacyDisableDependencies,
   type LegacyDisablePlan,
   type LegacyServiceDetection,
   type LegacyServiceFound,
+  type WindowsProcessEntry,
 } from "../../packages/desktop-core/src/legacy-service/index.js";
 
 const directories: string[] = [];
@@ -66,7 +68,7 @@ function harness(options: {
   detections: LegacyServiceDetection[];
   files?: Record<string, string>;
   busyPolls?: number;
-  processes?: { pid: number; commandLine: string }[];
+  processes?: WindowsProcessEntry[];
   listCode?: number;
   alive?: Set<number>;
   failing?: Record<string, number>;
@@ -89,7 +91,16 @@ function harness(options: {
           const payload = Buffer.from(JSON.stringify(options.processes ?? []), "utf8").toString("base64");
           return { stdout: payload, code: options.listCode ?? 0 };
         }
-        if (command === TASKKILL) alive.delete(Number(args[1]));
+        // taskkill /T: the process and every descendant of it.
+        if (command === TASKKILL) {
+          const tree = legacyRunnerTrees(
+            (options.processes ?? []).map((entry) =>
+              entry.pid === Number(args[1]) ? { ...entry, name: "node.exe", commandLine: "KILL-ROOT" } : entry,
+            ),
+            "KILL-ROOT",
+          );
+          for (const pid of tree.members) alive.delete(pid);
+        }
         const key = `${command} ${args[0] ?? ""}`.trim();
         return { stdout: "", code: options.failing?.[key] ?? 0 };
       },
@@ -188,14 +199,50 @@ describe("matchesLegacyRunner", () => {
   });
 });
 
-describe("parseWindowsNodeProcesses", () => {
+describe("parseWindowsProcesses", () => {
   it("reads a list or a single object and drops malformed entries", () => {
     const encode = (value: unknown) => Buffer.from(JSON.stringify(value), "utf8").toString("base64");
-    expect(parseWindowsNodeProcesses(encode([{ pid: 4, commandLine: "a" }, { pid: "x" }]))).toEqual([
-      { pid: 4, commandLine: "a" },
+    expect(
+      parseWindowsProcesses(encode([{ pid: 4, parentPid: 1, name: "node.exe", commandLine: "a" }, { pid: "x" }])),
+    ).toEqual([{ pid: 4, parentPid: 1, name: "node.exe", commandLine: "a" }]);
+    // A system process has no command line: it is kept (it may be a descendant) with an empty one.
+    expect(parseWindowsProcesses(encode({ pid: 7, parentPid: 4, name: "conhost.exe", commandLine: null }))).toEqual([
+      { pid: 7, parentPid: 4, name: "conhost.exe", commandLine: "" },
     ]);
-    expect(parseWindowsNodeProcesses(encode({ pid: 7, commandLine: "b" }))).toEqual([{ pid: 7, commandLine: "b" }]);
-    expect(parseWindowsNodeProcesses("not base64 json")).toBeNull();
+    expect(parseWindowsProcesses("not base64 json")).toBeNull();
+  });
+});
+
+describe("legacyRunnerTrees (DT-13)", () => {
+  const runner = `${WINDOWS_ROOT}\\scripts\\service-runner.mjs`;
+  const node = (pid: number, parentPid: number, commandLine: string): WindowsProcessEntry => ({
+    pid,
+    parentPid,
+    name: "node.exe",
+    commandLine,
+  });
+
+  it("finds this checkout's runner and all its descendants, and nothing else", () => {
+    const processes = [
+      { pid: 4, parentPid: 0, name: "System", commandLine: "" },
+      node(41, 900, `node.exe "${runner}"`),
+      { pid: 44, parentPid: 41, name: "conhost.exe", commandLine: "" },
+      { pid: 50, parentPid: 41, name: "cmd.exe", commandLine: "pnpm start" },
+      node(51, 50, "node.exe apps/server/dist/start-api.js"),
+      node(52, 51, "node.exe worker.js"),
+      node(60, 900, `node.exe "C:\\other\\scripts\\service-runner.mjs"`),
+      node(61, 60, "node.exe apps/server/dist/start-api.js"),
+      // A runner path in a process that is not node.exe is not a runner.
+      { pid: 70, parentPid: 900, name: "notepad.exe", commandLine: `notepad "${runner}"` },
+    ];
+    const trees = legacyRunnerTrees(processes, runner);
+    expect(trees.roots).toEqual([41]);
+    expect([...trees.members].sort((a, b) => a - b)).toEqual([41, 44, 50, 51, 52]);
+  });
+
+  it("survives a parent loop", () => {
+    const trees = legacyRunnerTrees([node(41, 42, `node.exe "${runner}"`), node(42, 41, "node.exe x")], runner);
+    expect([...trees.members].sort()).toEqual([41, 42]);
   });
 });
 
@@ -259,10 +306,18 @@ describe("executeLegacyDisable", () => {
     const xml = "C:\\Users\\Ünï\\AppData\\Local\\Work Intelligence\\service\\work-intelligence.task.xml";
     const windows = found({ platform: "win32", repositoryRoot: WINDOWS_ROOT, definitionPath: xml });
     const runner = `${WINDOWS_ROOT}\\scripts\\service-runner.mjs`;
+    const entry = (pid: number, parentPid: number, commandLine: string, name = "node.exe"): WindowsProcessEntry => ({
+      pid,
+      parentPid,
+      name,
+      commandLine,
+    });
     const processes = [
-      { pid: 41, commandLine: `"C:\\nodejs\\node.exe" "${runner}" db` },
-      { pid: 42, commandLine: `"C:\\nodejs\\node.exe" "C:\\other\\scripts\\service-runner.mjs" db` },
-      { pid: 43, commandLine: "node.exe vite --port 3210" },
+      entry(41, 900, `"C:\\nodejs\\node.exe" "${runner}" db`),
+      entry(45, 41, "pnpm start", "cmd.exe"),
+      entry(46, 45, "node.exe apps/server/dist/start-api.js"),
+      entry(42, 900, `"C:\\nodejs\\node.exe" "C:\\other\\scripts\\service-runner.mjs" db`),
+      entry(43, 900, "node.exe vite --port 3210"),
     ];
 
     it("ends only this checkout's runner trees, waits for them, then deletes the task", async () => {
@@ -270,11 +325,11 @@ describe("executeLegacyDisable", () => {
         detections: [windows, { kind: "none" }],
         files: { [xml]: DEFINITION },
         processes,
-        alive: new Set([41, 42, 43]),
+        alive: new Set([41, 42, 43, 45, 46]),
       });
       expect(await executeLegacyDisable(plan(windows), dependencies)).toEqual({
         outcome: "disabled",
-        endedProcesses: 1,
+        endedProcesses: 3,
       });
       expect(calls.filter((call) => !call.startsWith(POWERSHELL))).toEqual([
         `${SCHTASKS} /End /TN \\Work Intelligence`,
@@ -283,6 +338,23 @@ describe("executeLegacyDisable", () => {
         `unlink ${xml}`,
       ]);
       expect(files.size).toBe(0);
+    });
+
+    it("waits for every descendant of the runner, not only the runner (DT-13)", async () => {
+      const { dependencies, calls } = harness({
+        detections: [windows],
+        files: { [xml]: DEFINITION },
+        processes,
+        alive: new Set([41, 45, 46]),
+      });
+      // The old server outlives its runner: the port may already be free, the tree is not gone.
+      const lingering: LegacyDisableDependencies = {
+        ...dependencies,
+        isProcessAlive: (pid) => pid === 46 || dependencies.isProcessAlive(pid),
+      };
+      expect(await executeLegacyDisable(plan(windows), lingering)).toEqual({ outcome: "still-running", port: 3210 });
+      expect(calls.filter((call) => call.startsWith(TASKKILL))).toEqual([`${TASKKILL} /PID 41 /T /F`]);
+      expect(calls.some((call) => call.includes("/Delete"))).toBe(false);
     });
 
     it("keeps the task when the process list cannot be read", async () => {
