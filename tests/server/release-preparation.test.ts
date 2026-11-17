@@ -67,6 +67,8 @@ describe("release preparation", () => {
     expect(workflow).toContain("needs.desktop-package.result == 'success'");
     expect(workflow).toContain('"Work-Intelligence-$RELEASE_VERSION-win-x64-setup.exe"');
     expect(workflow).toContain('"${installers[@]}"');
+    // The merged artifact download is nested by platform; the installers are moved to one flat folder before the check.
+    expect(workflow).toContain('done < <(find "$dir" -mindepth 2 -type f -print0)');
     expect(workflow).toContain("contents: write");
     expect(workflow).toContain("--verify-tag");
     // Publish packs the commit the checks verified, refuses a tag moved since, and keeps the write token out of git.
