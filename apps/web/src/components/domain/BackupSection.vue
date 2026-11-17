@@ -51,6 +51,7 @@ const {
   portableExporting,
   importProjects,
   importFileName,
+  importUploading,
   importProjectId,
   importStrategy,
   importLoading,
@@ -326,6 +327,14 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
         </UiButton>
       </div>
 
+      <!-- The browser's fetch exposes no upload progress, so the wait is shown as an indeterminate state. -->
+      <UiSkeleton
+        v-if="importUploading"
+        variant="text"
+        :count="1"
+        :label="t('projects.uploadingAndCheckingImport', { name: importFileName })"
+        data-testid="project-import-uploading"
+      />
       <UiFlash v-if="importError" tone="danger">{{ importError }}</UiFlash>
       <div v-if="importPreview" class="transfer-preview" data-testid="project-import-preview" aria-live="polite">
         <p>{{ t("projects.importProjectsAndApplyPaths") }}</p>

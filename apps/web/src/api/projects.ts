@@ -8,15 +8,34 @@ import type {
   ProjectDataImportInput,
   ProjectDataImportPreview,
   ProjectDataImportResult,
+  ProjectDataImportStaged,
+  ProjectDataImportStrategy,
+  ProjectDataStagedImportOptions,
   ProjectStatus,
 } from "@work-intelligence/core";
-import { type ApiTransport } from "./transport";
+import { appendQuery, type ApiTransport } from "./transport";
 import { t } from "../i18n";
 
 export interface ProjectsApi {
   exportProjectData(scope: ProjectDataExportScope): Promise<{ blob: Blob; fileName: string }>;
   previewProjectDataImport(input: ProjectDataImportInput): Promise<ProjectDataImportPreview>;
   importProjectData(input: ProjectDataImportInput): Promise<ProjectDataImportResult>;
+  /** Streams the chosen file to the API as the raw request body; the renderer never reads or parses it. */
+  stageProjectDataImport(
+    file: File,
+    strategy: ProjectDataImportStrategy,
+    signal?: AbortSignal,
+  ): Promise<ProjectDataImportStaged>;
+  previewStagedProjectDataImport(
+    stagingId: string,
+    options: ProjectDataStagedImportOptions,
+    signal?: AbortSignal,
+  ): Promise<ProjectDataImportPreview>;
+  importStagedProjectDataImport(
+    stagingId: string,
+    options: ProjectDataStagedImportOptions,
+  ): Promise<ProjectDataImportResult>;
+  discardStagedProjectDataImport(stagingId: string): Promise<void>;
   getDashboard(signal?: AbortSignal): Promise<DashboardSummary>;
   listProjects(signal?: AbortSignal): Promise<ProjectListRecord[]>;
   listProjectDeletionAudits(signal?: AbortSignal): Promise<ProjectDeletionAuditRecord[]>;
@@ -34,6 +53,10 @@ export interface ProjectsApi {
   deleteProject(projectId: string, confirmationName: string, signal?: AbortSignal): Promise<DeleteProjectResult>;
 }
 
+function stagedPath(stagingId: string, suffix = ""): string {
+  return `/api/import/staged/${encodeURIComponent(stagingId)}${suffix}`;
+}
+
 export function createProjectsApi(client: ApiTransport): ProjectsApi {
   return {
     previewProjectDataImport(input: ProjectDataImportInput): Promise<ProjectDataImportPreview> {
@@ -42,6 +65,38 @@ export function createProjectsApi(client: ApiTransport): ProjectsApi {
 
     importProjectData(input: ProjectDataImportInput): Promise<ProjectDataImportResult> {
       return client.write<ProjectDataImportResult>("/api/import", "POST", input);
+    },
+
+    stageProjectDataImport(
+      file: File,
+      strategy: ProjectDataImportStrategy,
+      signal?: AbortSignal,
+    ): Promise<ProjectDataImportStaged> {
+      // fetch streams a File body from disk, so a file far larger than memory-friendly JSON never enters the renderer.
+      return client.request<ProjectDataImportStaged>(appendQuery("/api/import/staged", { strategy }), {
+        method: "POST",
+        body: file,
+        signal,
+      });
+    },
+
+    previewStagedProjectDataImport(
+      stagingId: string,
+      options: ProjectDataStagedImportOptions,
+      signal?: AbortSignal,
+    ): Promise<ProjectDataImportPreview> {
+      return client.write<ProjectDataImportPreview>(stagedPath(stagingId, "/preview"), "POST", options, signal);
+    },
+
+    importStagedProjectDataImport(
+      stagingId: string,
+      options: ProjectDataStagedImportOptions,
+    ): Promise<ProjectDataImportResult> {
+      return client.write<ProjectDataImportResult>(stagedPath(stagingId), "POST", options);
+    },
+
+    async discardStagedProjectDataImport(stagingId: string): Promise<void> {
+      await client.send(stagedPath(stagingId), "DELETE", {});
     },
 
     getDashboard(signal?: AbortSignal): Promise<DashboardSummary> {
