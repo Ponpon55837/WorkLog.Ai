@@ -8,6 +8,20 @@
 
 > 想用 plugin 一次裝好 MCP、skill 與 Claude Code 保存提醒，見 [Claude Code 與 Codex plugin](plugins.md)。plugin 與本頁的註冊方式二選一即可。
 
+## 在桌面 App 設定（1.6.49 起）
+
+使用桌面 App 時，可以直接在 App 內設定，不必執行命令：
+
+- **開啟方式**：工作列的「設定 Agent…」、首次執行頁完成後的「設定 Agent」，或 Web「系統狀態」頁的「在桌面 App 設定 Agent」。最後一個按鈕只會請 App 開啟這個頁面，Web 本身不寫入任何設定。
+- **頁面內容**：Codex 與 Claude Code 各有一張卡片，顯示狀態、MCP 與保存提醒 hook 目前由誰管理，以及偵測到的 checkout。
+- **只看不寫**：打開頁面不寫入任何檔案。「預覽變更」會逐檔顯示差異，家目錄一律顯示為 `~`。
+- **寫入與復原**：「套用變更」只套用剛才預覽的那份計畫，並寫入操作日誌；計畫有衝突時不能套用。「復原上次變更」依日誌把檔案還原。
+- **測試連線**：「測試連線」經由 App 的固定 launcher 完成 MCP `initialize` 與 `tools/list`。
+- **使用的資料庫**：App 寫入的設定指向固定 launcher。沒有設定 `WORK_INTELLIGENCE_DB` 時，launcher 讓 MCP 與兩個 hook 使用 App 正在使用的資料庫，App 換資料庫後也一樣。
+- **接管手動設定**：Agent 設定裡已有手動加入、指向 checkout 的 Work Intelligence 項目時，頁面會出現「改由桌面 App 管理…」。一樣先預覽差異，確認後才改寫為指向 launcher，也可以復原；辨識不出的項目不會被接管。
+
+如果曾用 `pnpm bootstrap` 或 `pnpm service:install` 安裝舊的登入服務，App 會在首次執行頁、修復視窗與 Web 狀態頁提醒，並附上移除指令；說明見[登入自動啟動服務](service.md)。
+
 ## 以 setup 命令安裝
 
 `pnpm bootstrap` 會自動執行這一步（在安裝依賴與建置之後呼叫 `pnpm setup:agents`，預覽與 `yes` 確認照常進行）；以下說明單獨執行時的行為。

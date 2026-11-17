@@ -101,6 +101,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | PATCH    | `/api/projects/:id`                              | 更新名稱、tracking status 或 `repositoryUrl`（只接受不含帳號／token 的 https 網址；`null` 或空字串移除） |
 | DELETE   | `/api/projects/:id`                              | 先備份，再永久刪除專案與相關 WorkLog 資料；需傳入專案名稱確認                           |
 | GET      | `/api/project-deletion-audits`                   | 列出不含內容的刪除時間、專案 id 與各類刪除筆數                                          |
+| POST     | `/api/desktop/open-agent-setup`                  | 僅桌面 App 管理的後端：請 App 開啟「Agent 設定」視窗（body `{}`），回 202 `{ "ok": true }`；獨立執行回 404 `not_found` |
 | POST     | `/api/system/pick-folder`                        | 在本機叫出作業系統的選擇資料夾視窗，回傳選到的路徑（body `{}`）                        |
 | GET/POST | `/api/backups`                                   | 列出資料庫備份／立即建立備份（POST body `{}`）                                         |
 | DELETE   | `/api/backups/:fileName`                         | 刪除一份備份（body `{}`；檔名須是備份清單中的名稱，找不到回 404）                      |
@@ -260,6 +261,8 @@ pending／awaiting_review 整理快照中的項目受 Agent 寫入防護：final
 ## 系統狀態
 
 - REST：GET `/api/system/status` 回傳程式版本與支援的 schema 版本；`database` 含目前資料庫路徑、檔案大小、可讀狀態與實際 schema 版本；`backups` 含備份可用狀態、最新自動備份、份數與總大小；`maintenance` 含最近一次維護結果與安全錯誤代碼；`userService` 唯讀回報目前使用者的登入服務管理器、安裝／執行／啟用狀態、服務設定路徑、資料庫、備份目錄與日誌路徑；`sseConnections` 是目前開啟的即時更新連線數；`sqlite` 是 `{ version, walResetFixed, fixedIn? }`，`version` 為執行環境 `SELECT sqlite_version()`，`walResetFixed` 為 false 代表該版本可能受 WAL-reset 資料庫損毀問題影響（修正於 3.51.3、3.50.7、3.44.6；Web 會顯示警告，`pnpm check` 也會警告）。 `agents.codex` 與 `agents.claudeCode` 顯示 MCP 註冊狀態（`registered`／`missing`／`unknown`）、skill 複本狀態及 hook 狀態；Codex TOML 無法解析時回報 `unknown`，不會修改設定檔；`mcp.restartRequired` 保留 A3 的重新連線判斷。
+- `desktop`（1.6.49 起）只在桌面 App 以子行程執行後端時出現，獨立執行（`pnpm start`、`work-intelligence start`）時沒有這個欄位：`{ managed: true, legacyService?: { running: "running"|"stopped"|"unknown", removeCommand?: string, fallbackRemoveCommand: string } }`。`legacyService` 由 App 透過私有的父子協定（`start` 訊息的選填 `desktop` 欄位，不使用環境變數）告知，代表舊的 pnpm bootstrap 登入服務也可能在使用同一份資料庫；Web 會顯示警告與移除指令。
+- POST `/api/desktop/open-agent-setup`（body `{}`，須 `application/json`）：在桌面模式只向 App 傳送 `{ "type": "open-agent-setup" }`，請它開啟自己的 Agent 設定視窗，回 202 `{ "ok": true }`；不會寫入任何 Agent 設定。每秒最多傳送一次，較密集的呼叫同樣回 202 但不再傳送。非桌面模式回 404 `not_found`。Host／Origin 檢查與其他路由相同。
 - `userService` 以非同步方式查詢；成功結果快取 30 秒，並行請求共用同一次查詢，失敗結果不快取。
 - Agent 與登入服務診斷只讀取設定檔或查詢作業系統服務管理器，回傳狀態而不回傳 Agent 設定值或內容；端點不寫入設定、不安裝／啟動／停止服務、不執行 setup 或 hook，也不執行資料庫 `integrity_check`。完整環境診斷請在專案目錄執行 `pnpm check`。
 - 端點受到 loopback `Host` 與 `Origin` 檢查保護；只有系統狀態頁需要的 `database.path` 會回傳完整本機路徑，備份資料仍只回傳檔名。
