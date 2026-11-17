@@ -113,10 +113,17 @@ describe("ensureBundledRuntime: ACL reader prewarm", () => {
 
   it("starts nothing where the policy is not Windows", async () => {
     const { reader, events } = recordingReader();
-    await ensureBundledRuntime(root, bundleRoot, {
+    const install = ensureBundledRuntime(root, bundleRoot, {
       expectedManifestSha256: bundleSha,
       verify: { policy: { platform: "linux", uid: process.getuid?.() }, aclReader: reader },
     });
+    // The POSIX policy checks the real mode bits, and a Windows runner reports every file as 0o666 (world-writable), so
+    // the same install is refused there. What this case pins is the same on both hosts: nothing was prewarmed.
+    if (process.platform === "win32") {
+      await expect(install).rejects.toMatchObject({ code: "RUNTIME_UNSAFE_PERMISSIONS" });
+    } else {
+      await expect(install).resolves.toMatchObject({ status: "installed" });
+    }
     expect(events).toEqual([]);
   });
 
