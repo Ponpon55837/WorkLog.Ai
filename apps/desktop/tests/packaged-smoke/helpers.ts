@@ -16,6 +16,7 @@ import {
   processIsAlive,
   profileDirectories,
 } from "../support/process-tools.js";
+import { isExternalBrowser } from "./browser-process.js";
 import { isStrictPackagedRun, STRICT_OPT_IN_VARIABLE } from "./installer-profile.js";
 
 /**
@@ -39,16 +40,6 @@ const HOLDER_GRACE_MS = 5_000;
 const HOLDER_TERMINATE_MS = 5_000;
 const HOLDER_COMMAND_LIMIT = 160;
 const BROWSER_TERMINATE_MS = 5_000;
-/**
- * Browsers the OS may start for `shell.openExternal`, matched against a process's executable (or the start of its command
- * line: a path whose last segment is the executable, then a space or the end): Safari, Chrome and Chromium (`Google
- * Chrome`, `chrome`, `google-chrome`, `chromium`), Edge (`msedge`) and Firefox, the `xdg-open` targets on Linux included.
- * Only the browsers' main executables: helpers such as macOS's `com.apple.WebKit.*` also serve other apps and end with
- * their browser. The App's own Chromium helpers are not browsers here: they carry the sandbox root in their command line.
- */
-const BROWSER_COMMANDS =
-  /(^|[\\/])(Safari|Google Chrome|google-chrome(-stable)?|chrome|chromium(-browser)?|msedge|firefox)(\.exe)?( |$)/i;
-
 /** What identifies a browser process that was already running before a test: a pid can be reused, so the command too. */
 export type BrowserBaseline = ReadonlyArray<{ readonly pid: number; readonly commandLine: string }>;
 
@@ -201,7 +192,7 @@ export async function createSandbox(options: {
  * seconds to exit by itself and is then terminated. If the removal still fails, the error lists who holds the sandbox.
  */
 export async function removeSandbox(sandbox: PackagedSandbox): Promise<void> {
-  const browsers = await settleBrowsersStartedSince(browsersBeforeTests ?? [], sandbox.root);
+  const browsers = await settleBrowsersStartedSince(browsersBeforeTests ?? [], sandbox.root, sandbox.port);
   try {
     await pollUntil(
       () => (sandboxHolders(sandbox).length === 0 ? true : undefined),
@@ -239,11 +230,11 @@ export async function removeSandbox(sandbox: PackagedSandbox): Promise<void> {
 }
 
 /** The browsers running now, outside the sandbox (the App's own helpers name its root on their command line). */
-export function browserProcesses(sandboxRoot?: string): ProcessInfo[] {
+export function browserProcesses(sandboxRoot?: string, dashboardPort?: number): ProcessInfo[] {
   return listProcesses().filter(
     (candidate) =>
       candidate.pid !== process.pid &&
-      BROWSER_COMMANDS.test(candidate.executable ?? candidate.commandLine) &&
+      isExternalBrowser(candidate, dashboardPort) &&
       !(sandboxRoot !== undefined && candidate.commandLine.includes(sandboxRoot)),
   );
 }
@@ -263,11 +254,12 @@ export function browserBaseline(sandboxRoot?: string): BrowserBaseline {
 export async function settleBrowsersStartedSince(
   baseline: BrowserBaseline,
   sandboxRoot?: string,
+  dashboardPort?: number,
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): Promise<string[]> {
   const found = new Map<number, string>();
   const started = () =>
-    browserProcesses(sandboxRoot).filter(
+    browserProcesses(sandboxRoot, dashboardPort).filter(
       (candidate) =>
         !baseline.some((known) => known.pid === candidate.pid && known.commandLine === candidate.commandLine),
     );
