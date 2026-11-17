@@ -4,6 +4,17 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.46] - 2026-11-17
+
+[繁體中文更新說明](docs/releases/1.6.46.md).
+
+A fix release for the release pipeline. The 1.6.45 release run built and smoke-tested all three desktop packages, but its publish step stopped before creating the GitHub Release, so 1.6.45 has a tag and no release; 1.6.46 ships the same desktop App. It changes no schema; the schema stays at 33 and no migration is needed.
+
+### Fixed
+
+- `release.yml`: `upload-artifact` keeps each file's path below the pattern's first wildcard, so the merged download nested the installers under `<platform>-<arch>/out/` and the exact-name check failed. The publish job now moves every downloaded installer to one flat folder before the check and fails when two installers share a name, so `SHA256SUMS.txt` and the release assets use the plain file names.
+- `pnpm package:desktop -- --dir` failed with `Unexpected argument` because the `--` separator reached the script. One leading `--` is now dropped; `pnpm package:desktop --dir` keeps working.
+
 ## [1.6.45] - 2026-11-16
 
 [繁體中文更新說明](docs/releases/1.6.45.md).

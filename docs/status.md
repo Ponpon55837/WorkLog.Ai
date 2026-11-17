@@ -4,9 +4,13 @@
 
 > 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
-- 最後更新：2026-11-16
+- 最後更新：2026-11-17
 
-## 1.6.45（已完成）
+## 1.6.46（已完成）
+
+發行流程修正：1.6.45 的發行在建立 GitHub Release 前的安裝包名稱檢查失敗（合併下載的安裝包位於子資料夾），所以 1.6.45 只有 tag、沒有 Release。發行流程現在先攤平安裝包再檢查；`pnpm package:desktop -- --dir` 不再因 `--` 而失敗。桌面 App 內容與 1.6.45 相同。下一個階段（桌面版階段 3：Agent 整合）改為 1.6.47。沒有 schema 變更（33），沒有 migration。詳見 [1.6.46 更新說明](releases/1.6.46.md)。
+
+## 1.6.45（已完成，未發行 Release）
 
 桌面版階段 5 的打包部分：以 electron-builder 26.18.1 產出 Windows 11 x64 的 NSIS 一鍵安裝（目前使用者安裝）與 macOS 的 DMG、ZIP（arm64 與 x64 分開建置）。隨包官方 Node.js 24.22.3 在首次啟動時安裝到固定的 launcher root，並以完整雜湊對照內嵌 manifest；Windows ACL 檢查由未實作改為已實作（兩層讀取，fixture 驗證，真實 Windows 行為待 CI）；新增 `--quit` 供安裝程式使用，解除安裝保留資料庫與備份；新增 `desktop-package` CI 與打包後的黑箱煙霧測試。本版沒有自動更新、Developer ID 簽章與公證：Windows 安裝包未簽章，macOS 只做 ad-hoc 簽章，安裝包會出現 SmartScreen 與 Gatekeeper 警告。新增原創應用程式圖示。打包後的 App 閒置記憶體（Linux）PSS 由 352 MiB 降到 292 MiB；匯出效能門檻收緊為 360 ms（量到回應最後一個位元組）；伺服器關閉與備份 worker 的行為調整。打包只在 Linux 本機驗證；Windows 與 macOS 的安裝、CI 數字與實機驗收尚未取得，階段 5 的 gate 尚未通過。沒有 schema 變更（33），沒有 migration。詳見 [1.6.45 更新說明](releases/1.6.45.md)。
 
