@@ -24,9 +24,13 @@ export interface DesktopHandlerOptions {
 /** At most one message to the App per interval, however often the endpoint is called. */
 export const OPEN_AGENT_SETUP_MIN_INTERVAL_MS = 1000;
 
+/** The same limit for the port settings request. */
+export const OPEN_PORT_SETTINGS_MIN_INTERVAL_MS = 1000;
+
 export function createDesktopRouteServices(options: DesktopHandlerOptions): DesktopRouteServices {
   const now = options.now ?? Date.now;
   let lastSentAt: number | undefined;
+  let lastPortSettingsSentAt: number | undefined;
   const currentStatus = (): SystemDesktopStatus => {
     const facts = options.getFacts ? options.getFacts() : options.facts;
     return {
@@ -51,6 +55,10 @@ export function createDesktopRouteServices(options: DesktopHandlerOptions): Desk
       }
     },
     requestOpenPortSettings(handoff) {
+      const at = now();
+      if (lastPortSettingsSentAt !== undefined && at - lastPortSettingsSentAt < OPEN_PORT_SETTINGS_MIN_INTERVAL_MS)
+        return;
+      lastPortSettingsSentAt = at;
       // Sanitized again here so nothing outside the whitelist ever reaches the App, whatever the caller passed.
       try {
         options.onOpenPortSettings?.({

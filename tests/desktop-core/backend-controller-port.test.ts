@@ -6,7 +6,12 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createBackendController, type BackendControllerOptions } from "../../apps/desktop/src/main/backend.js";
 import { ShellState } from "../../apps/desktop/src/main/state.js";
-import type { BackendInfo, DesktopSettingsV1 } from "../../packages/desktop-core/src/index.js";
+import {
+  isDeterministicFailure,
+  RestartPolicy,
+  type BackendInfo,
+  type DesktopSettingsV1,
+} from "../../packages/desktop-core/src/index.js";
 
 /**
  * The backend controller's part of a port change: the settings change only after the backend is verified, in one atomic
@@ -38,7 +43,7 @@ function info(port: number): BackendInfo {
   };
 }
 
-function setup(options: { startResult?: "ok" | "fail"; stopped?: boolean } = {}) {
+function setup(options: { startResult?: "ok" | "fail"; stopped?: boolean; refused?: boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), "wi-backend-port-"));
   directories.push(root);
   const settingsFile = join(root, "settings.json");
@@ -59,7 +64,7 @@ function setup(options: { startResult?: "ok" | "fail"; stopped?: boolean } = {})
   state.setOwner("MANAGED");
   const requests: Array<Record<string, unknown>> = [];
   const journal: unknown[] = [];
-  let running: BackendInfo | undefined = info(OLD);
+  let running: BackendInfo | undefined = options.stopped ? undefined : info(OLD);
   let stops = 0;
   const supervisor = {
     get running() {
@@ -100,9 +105,10 @@ function setup(options: { startResult?: "ok" | "fail"; stopped?: boolean } = {})
     notifyError: () => undefined,
     whenReady: async () => undefined,
     desktopFacts: () => ({ legacyService: { running: "stopped", fallbackRemoveCommand: "synthetic" } }),
+    storageRefused: () => options.refused === true,
   } as unknown as BackendControllerOptions);
   const onDisk = (): DesktopSettingsV1 => JSON.parse(readFileSync(settingsFile, "utf8")) as DesktopSettingsV1;
-  return { controller, state, requests, journal, onDisk, stops: () => stops };
+  return { controller, state, requests, journal, onDisk, stops: () => stops, running: () => running };
 }
 
 describe("a port change in the backend controller", () => {
@@ -147,6 +153,36 @@ describe("a port change in the backend controller", () => {
     expect(broken.stops()).toBe(1);
     expect(broken.state.settings?.desired.port).toBe(OLD);
     expect(broken.state.owner).toBe("NEEDS_REPAIR");
+  });
+
+  it("refuses every kind of start on a database known to be on a network share, before stopping or starting anything", async () => {
+    const stopped = setup({ refused: true, stopped: true });
+    for (const kind of ["restart", "takeover", "change-db"] as const) {
+      expect(await stopped.controller.start(kind)).toEqual({ ok: false, code: "DB_STORAGE_NETWORK" });
+    }
+    expect(await stopped.controller.startOnPort({ port: NEW, from: OLD })).toEqual({
+      ok: false,
+      code: "DB_STORAGE_NETWORK",
+    });
+    // The repair page's retry goes through the recovery: it stays refused, and nothing was started.
+    expect(await stopped.controller.recovery.retryNow()).toEqual({ ok: false, code: "DB_STORAGE_NETWORK" });
+    expect(stopped.requests).toEqual([]);
+    expect(stopped.state.owner).toBe("NEEDS_REPAIR");
+    expect(stopped.state.backend).toBe("stopped");
+    // A running backend is left alone and keeps its owner.
+    const serving = setup({ refused: true });
+    expect(await serving.controller.start("restart")).toEqual({ ok: false, code: "DB_STORAGE_NETWORK" });
+    expect(serving.requests).toEqual([]);
+    expect(serving.running()?.port).toBe(OLD);
+    expect(serving.state.owner).toBe("MANAGED");
+  });
+
+  it("makes the refusal deterministic, so an automatic restart schedules no retry that would loop", () => {
+    expect(isDeterministicFailure("DB_STORAGE_NETWORK")).toBe(true);
+    expect(new RestartPolicy({ clock: () => 0 }).decide("DB_STORAGE_NETWORK")).toEqual({
+      retry: false,
+      reason: "deterministic",
+    });
   });
 
   it("records lastKnownGood on every verified start, and skips the write when nothing changed", async () => {

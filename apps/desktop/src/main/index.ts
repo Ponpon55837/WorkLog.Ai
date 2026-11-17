@@ -29,10 +29,12 @@ import {
   resolveShellLocale,
   resolveUserDataDirectory,
   setupMessages,
+  storagePolicy,
   formatMessage,
   shellMessages,
   type LegacyServiceDetection,
   type RestartOutcome,
+  type StorageRiskResult,
   type ShellLocale,
 } from "@work-intelligence/desktop-core";
 import type { DesktopFacts } from "@work-intelligence/schema";
@@ -57,7 +59,7 @@ import { createDashboard } from "./dashboard.js";
 import { createFirstRun } from "./first-run.js";
 import { createIntegrationPublisher } from "./integration-record.js";
 import { registerRepairIpc } from "./ipc.js";
-import { createLocalCopy } from "./local-copy.js";
+import { createCopyRunner, createLocalCopy } from "./local-copy.js";
 import { createLegacyGuard } from "./legacy.js";
 import { createLegacyDisable, syntheticLegacyDisable } from "./legacy-disable.js";
 import { createLogger } from "./log.js";
@@ -248,6 +250,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     openRepairWindow: () => window.open("repair"),
     prepareRuntime,
     legacyBlocks: (databasePath) => legacy.blocks(databasePath),
+    storageRefused: (databasePath) => storagePolicy(storage.last(databasePath)?.risk).refused,
     desktopFacts: (databasePath) => currentFacts(databasePath),
     reinstallOnRefusal: app.isPackaged,
     notifyError: createErrorNotifier(state),
@@ -290,7 +293,18 @@ function runShell(configInputs: DesktopConfigInputs): void {
     log,
   });
   const info = createRepairInfo({ state, paths, supervisor, lastBackup, legacy, storage, port: changePort.section });
+  const copyRunner = createCopyRunner({
+    state,
+    window,
+    backend,
+    supervisor,
+    storage,
+    prepareRuntime: () => prepareRuntime(false),
+    autoConfirm: testSwitch(configInputs, "autoConfirmCopy"),
+    log,
+  });
   const firstRun = createFirstRun({
+    copyRunner,
     state,
     paths,
     supervisor,
@@ -439,26 +453,46 @@ function runShell(configInputs: DesktopConfigInputs): void {
     // A new install starts nothing: the first-run page asks first (DT-01).
     const started = settingsLoaded.then(async (loaded) => {
       if (loaded !== "ok") return undefined;
-      // DT-08: the committed database is classified beside the bring-up; a slow detection never delays the start.
+      // DT-08: the committed database is classified beside the bring-up. The start's outcome is presented as soon as the
+      // backend is up; the verdict is applied when it arrives (a network share stops the backend again, anything else only
+      // updates the facts). A start that fails leaves the verdict known, so a retry is refused before it starts anything.
       const databasePath = state.databasePath();
-      const [outcome, risk] = await Promise.all([
-        backend.start(state.owner === "UNCONFIGURED" ? "takeover" : "restart"),
-        databasePath === null ? undefined : storage.classify(databasePath),
-      ]);
-      return applyStartTimeStorageRisk(outcome, {
-        risk,
-        currentFacts: () => {
-          const port = state.settings?.active?.port ?? state.settings?.desired.port;
-          return { ...currentFacts(databasePath ?? ""), ...(port === undefined ? {} : { activePort: port }) };
-        },
-        stopBackend: async () => {
-          await supervisor.stop();
-          state.backend = "stopped";
-        },
-        updateFacts: (facts) => supervisor.updateFacts(facts),
-      });
+      const classified = databasePath === null ? undefined : storage.classify(databasePath);
+      const outcome = await backend.start(state.owner === "UNCONFIGURED" ? "takeover" : "restart");
+      if (outcome.ok && databasePath !== null && classified) void settleStorageRisk(databasePath, classified);
+      return outcome;
     });
     return { settingsLoaded, started };
+  }
+
+  /** The verdict for the database the backend came up on: a network share refuses it after the fact, as a failed start. */
+  async function settleStorageRisk(databasePath: string, classified: Promise<StorageRiskResult>): Promise<void> {
+    try {
+      const risk = await classified;
+      // The user changed the database meanwhile: this verdict belongs to the old one.
+      if (state.databasePath() !== databasePath || supervisor.running === undefined) return;
+      const outcome = await applyStartTimeStorageRisk(
+        { ok: true },
+        {
+          risk,
+          currentFacts: () => {
+            const port = state.settings?.active?.port ?? state.settings?.desired.port;
+            return { ...currentFacts(databasePath), ...(port === undefined ? {} : { activePort: port }) };
+          },
+          stopBackend: async () => {
+            await supervisor.stop();
+            state.backend = "stopped";
+          },
+          updateFacts: (facts) => supervisor.updateFacts(facts),
+        },
+      );
+      if (outcome?.ok === false && !outcome.busy) {
+        await app.whenReady();
+        backend.recovery.handleFailure(outcome.code);
+      }
+    } catch (error) {
+      log(`[shell] storage verdict not applied: ${error instanceof Error ? error.message : "unknown error"}`);
+    }
   }
 
   async function presentStart(early: ReturnType<typeof startBackend>): Promise<void> {
@@ -491,18 +525,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
       legacyDisable,
       changePort,
       storage,
-      copyToLocal: createLocalCopy({
-        state,
-        paths,
-        window,
-        info,
-        backend,
-        supervisor,
-        success,
-        prepareRuntime: () => prepareRuntime(false),
-        autoConfirm: testSwitch(configInputs, "autoConfirmCopy"),
-        log,
-      }),
+      copyToLocal: createLocalCopy({ state, paths, info, backend, supervisor, success, runner: copyRunner, log }),
       log,
     });
     if (process.platform === "darwin" && state.launchMode === "background") app.dock?.hide();
@@ -554,6 +577,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
       dashboard,
       notifications: notifications ?? [],
       firstRunDetectionMs: () => firstRun.detectionMs,
+      openPortSettings,
     });
   applySecurityPolicy();
 

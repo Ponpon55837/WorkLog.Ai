@@ -11,7 +11,8 @@ import { button, element, section } from "./dom.js";
 let draft = "";
 let answer: { readonly text: string; readonly ok: boolean } | null = null;
 let applying = false;
-let shownFocusToken = 0;
+/** Sections already scrolled to: a redraw of the same state must not scroll again. */
+const scrolledTo = new WeakSet<RepairPortSection>();
 
 export interface PortViewHost {
   readonly api: RepairApi;
@@ -100,9 +101,9 @@ export function portSection(host: PortViewHost, port: RepairPortSection): HTMLEl
     ...(answer ? [element("p", { className: answer.ok ? "success-text" : "warning-text", text: answer.text })] : []),
   );
   card.id = "port-section";
-  // The tray item (or the Dashboard's link) asked for the section: bring it into view once per request.
-  if (port.focusToken !== shownFocusToken) {
-    shownFocusToken = port.focusToken;
+  // The tray item (or the Dashboard's link) asked for the section: main reports it in one state only.
+  if (port.focus && !scrolledTo.has(port)) {
+    scrolledTo.add(port);
     queueMicrotask(() => {
       card.scrollIntoView({ block: "center" });
       input.focus();

@@ -181,6 +181,19 @@ R4 的補充用法：
 
 **本版的非 CI 項目**：Windows 11 與 macOS 實機上的停用流程（真實的 LaunchAgent、工作排程器與 runner 程序樹）、停用後的資料庫檢查與「改用這份資料庫」。
 
+## 1.6.51 任務（連接埠變更與檔案系統風險政策）與本文件的關係
+
+本版實作下列項目的 CI 可驗證部分；Windows 11 與 macOS 的實機驗收仍為**待實機驗收**。CI 結果待 PR 檢查完成後補上。
+
+| 任務 | 內容 | 狀態 | 本文件位置 | 證據路徑 |
+|---|---|---|---|---|
+| DT-14（連接埠變更） | 只在 App 內變更：修復視窗的「連接埠」區段與工作列「變更連接埠…」；Web 只請 App 開啟該區段（白名單偏好與路由在記憶體中一次使用，最久 2 分鐘）；拒絕 1024 以下、瀏覽器限制與被占用的連接埠；`PORT_NOT_PERMITTED` 與 `PORT_OCCUPIED_BY_OTHER` 分開；忙碌時拒絕；先停止、在新 port 啟動、以 IPC 與 HTTP 證明驗證，通過後才原子寫入 `desired.port`、`active` 與 `lastKnownGood`；失敗回舊 port；新位址以一次性 fragment 還原偏好與路由 | 1.6.51 已實作（CI 可驗證部分）；Windows 與 macOS 的實際 bind 與 Dashboard 新位址待實機驗收 | §3.1.1、§6、§6.2；ADR-27；C-22 | `apps/desktop/src/main/change-port.ts`；`apps/desktop/src/renderer/repair/port-view.ts`；`packages/desktop-core/src/shell/port-policy.ts`、`port-handoff-store.ts`、`port-i18n.ts`；`packages/schema/src/port-handoff.ts`；`apps/server/src/routes/desktop.ts`；`apps/web/src/utils/port-handoff.ts`；`tests/desktop-core/port-policy.test.ts`、`change-port-controller.test.ts`；`tests/schema/port-handoff.test.ts`；`tests/web/utils/port-handoff.test.ts`；`apps/desktop/tests/desktop-smoke/change-port.spec.ts` |
+| DT-08（檔案系統風險政策） | 啟動與選擇資料庫時分類 none、網路、可移除、雲端同步、硬連結與 unknown（Windows 以 DriveInfo、macOS 以 mount 與 diskutil、Linux 以 `/proc/mounts`；有時限，失敗不快取）；網路磁碟拒絕作為 App 資料庫並進修復（`DB_STORAGE_NETWORK`）；UNC 仍拒絕；可移除、雲端同步與硬連結只能勾選同意後選擇，且不做 schema 更新；unknown 只阻擋一鍵選擇；「複製到本機磁碟並改用」以 `VACUUM INTO`、`quick_check` 與不覆寫的檔名完成，原檔不變 | 1.6.51 已實作（CI 可驗證部分）；真實磁碟與雲端根目錄的判定待實機驗收 | §3.1.1、§5.1；C-05；ADR-07；R22 | `apps/desktop/src/main/storage-risk.ts`、`local-copy.ts`；`packages/desktop-core/src/db-source/storage-policy.ts`、`storage-risk-node.ts`、`storage-risk-override.ts`；`packages/desktop-core/src/shell/copy-to-local.ts`、`storage-risk-view.ts`、`storage-start-policy.ts`；`apps/server/src/database-copy.ts`；`tests/desktop-core/storage-policy.test.ts`、`storage-risk.test.ts`、`copy-to-local.test.ts`；`tests/server/database-copy.test.ts`；`apps/desktop/tests/desktop-smoke/storage-risk.spec.ts` |
+
+**本版的非 CI 項目**：Windows 11 與 macOS 實機上的連接埠變更（真實的服務停止與啟動、`PORT_NOT_PERMITTED`、Dashboard 新位址）、風險判定（DriveInfo、mount、diskutil 的實際結果與雲端根目錄）與「複製到本機磁碟並改用」。已知未偵測：macOS 的 iCloud「桌面與文件」同步；Windows 的 Google Drive 虛擬磁碟為盡力偵測。
+
+下一版（1.6.52）為 DT-32 與 DT-07；1.6.53 為更新檢查（預設關閉，手動按「檢查更新」）。
+
 ## 本機打包
 
 依 ADR-38，本機打包是主要的取得方式；CI 與 GitHub Release 的產物為輔。打包只能建置執行它的平台與架構（隨包 Node.js 是該平台的官方執行檔），因此 Windows 與 macOS 各自在本機執行。

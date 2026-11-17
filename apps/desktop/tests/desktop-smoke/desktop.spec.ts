@@ -191,6 +191,7 @@ test("a missing database opens the repair window and creates nothing", async () 
     "portChange",
     "retryStart",
     "setupChooseFile",
+    "setupCopyToLocal",
     "setupGetState",
     "setupLater",
     "setupUseDefaults",

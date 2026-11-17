@@ -52,7 +52,10 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
       } else {
         if (result.state) current = result.state;
         say(
-          result.errorCode ? errorMessageFor(shellMessages(current.locale), result.errorCode).title : text.setupFailed,
+          result.message ??
+            (result.errorCode
+              ? errorMessageFor(shellMessages(current.locale), result.errorCode).title
+              : text.setupFailed),
         );
       }
     } catch {
@@ -90,6 +93,11 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
     void act(() => retry(true), retry);
   }
 
+  function copyToLocal(source: SetupSourceView): void {
+    const login = launchAtLogin();
+    void act(() => api.setupCopyToLocal(source.id, login));
+  }
+
   function sourceCard(
     state: SetupState,
     source: SetupSourceView,
@@ -118,8 +126,16 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
     const card = element("div", { className: recommended ? "source recommended" : "source" }, [facts]);
     card.dataset.source = source.id;
     if (source.storageRisk) card.append(storageRiskNote(source.storageRisk));
-    if (!source.canUse) return card;
     const busy = state.busy || working;
+    // The way out of a source the storage forbids; it is there even when "use" is not (the note points at it).
+    if (source.storageRisk?.canCopyToLocal) {
+      card.append(
+        element("div", { className: "actions" }, [
+          button(text.storageCopyToLocal, `copy-to-local:${source.id}`, !busy, () => copyToLocal(source)),
+        ]),
+      );
+    }
+    if (!source.canUse) return card;
     if (source.needsMigration) {
       card.append(checkbox(text.setupMigrationConsent, `migrate:${source.id}`, memory.consent(source.id), !busy));
     }

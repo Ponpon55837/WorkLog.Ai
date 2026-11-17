@@ -4,6 +4,35 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.51] - 2026-11-17
+
+[繁體中文更新說明](docs/releases/1.6.51.md).
+
+This release adds two desktop pieces after stage 4: changing the port from the App (DT-14) and a file-system risk policy for the database location (DT-08). The schema stays at 33 and no migration is needed. Real-device acceptance on Windows 11 and macOS is not done yet.
+
+### Added
+
+- **Changing the port from the App (DT-14).** It is in the repair window's 「連接埠」 section and the tray item 「變更連接埠…」. There is no port control in Web.
+  - The Web system status page shows the current address and 「在桌面 App 變更連接埠」. The button only asks the App to open its port section (`POST /api/desktop/open-port-settings`, at most once per second). It hands over whitelisted non-secret preferences and the current route; the App keeps them in memory only, for one use and at most 2 minutes.
+  - Accepts integers 1024–65535. Browser-restricted ports are refused. Choosing the current port does nothing.
+  - An occupied target is refused before anything is stopped. A port the OS does not permit reports `PORT_NOT_PERMITTED` (EACCES/EADDRNOTAVAIL, including the Hyper-V/WinNAT excluded ranges on Windows), distinct from `PORT_OCCUPIED_BY_OTHER`.
+  - Refused while another App operation runs, or while the backend imports, backs up or exports.
+  - Order: native confirm, stop, start on the new port, verify through private IPC and the HTTP proof, then one atomic settings write of `desired.port`, `active` and `lastKnownGood`. A failure restarts on the old port; if that also fails, the repair window's port section is available. A crash mid-change leaves the old port.
+  - After success the App opens the Dashboard at the new address with a one-time URL fragment, which the page reads, clears from the address bar, and uses to restore whitelisted preferences and the route.
+- **File-system risk policy (DT-08).** At start (in parallel with the backend) and when choosing a database, the App classifies the database location as none, network drive, removable drive, cloud-sync folder, hard link or unknown.
+  - Network drives are refused as the App's database. The backend stops and the App goes to repair with `DB_STORAGE_NETWORK`; retrying stays refused.
+  - UNC paths stay refused, with a message to copy the database to a local disk first.
+  - Removable, cloud-sync and hard-link locations are never a one-click 「沿用」; they need a consent checkbox that states the reason. The App never migrates the schema there.
+  - Unknown blocks only the one-click choice, never startup or a schema update.
+  - 「複製到本機磁碟並改用」 (first-run and repair pages): a native confirm, a free-space check, a consistent `VACUUM INTO` copy through a read-only preview child, `PRAGMA quick_check` on the copy, and a non-overwriting name (`work-intelligence-local.sqlite`, `-2`, ...) in the App's default data folder. The App then switches to the copy through the normal journaled change and upgrades it. The original file is never changed or deleted.
+  - 系統狀態 shows the risk as a warning.
+- **Status fields.** `GET /api/system/status` `desktop` gains `activePort` and `storageRisk`.
+
+### Changed
+
+- **Tray:** new 「變更連接埠…」 item.
+- **Error codes:** `PORT_NOT_PERMITTED` and `DB_STORAGE_NETWORK` are added.
+
 ## [1.6.50] - 2026-11-17
 
 [繁體中文更新說明](docs/releases/1.6.50.md).

@@ -310,9 +310,45 @@ describe("classifyStorageRisk on macOS", () => {
     expect(await classifyStorageRisk(DB, noAnswer.deps)).toMatchObject({ evidence: ["diskutil-no-answer"] });
   });
 
+  it("keeps a volume name that contains parentheses whole", async () => {
+    const OLD = "/Volumes/Backup (old)/wi.db";
+    const oldNodes = { "/": {}, "/Volumes": {}, "/Volumes/Backup (old)": {}, [OLD]: { file: true } };
+    const line = (type: string) =>
+      `/dev/disk3s1 on / (apfs, local)\n/dev/disk4s1 on /Volumes/Backup (old) (${type}, local, nodev, nosuid)\n`;
+    const exfat = fake({
+      platform: "darwin",
+      nodes: oldNodes,
+      commands: async (command) => (command === "/sbin/mount" ? line("exfat") : "<key>Ejectable</key><true/>"),
+    });
+    expect(await classifyStorageRisk(OLD, exfat.deps)).toMatchObject({ risk: "removable" });
+    const smb = fake({ platform: "darwin", nodes: oldNodes, commands: async () => line("smbfs") });
+    expect(await classifyStorageRisk(OLD, smb.deps)).toMatchObject({ risk: "network", evidence: ["mount-type:smbfs"] });
+  });
+
   it("gives up on a hung probe after its timeout", async () => {
     const { deps } = fake({ platform: "darwin", nodes, macTimeoutMs: 20, commands: never });
     expect(await classifyStorageRisk(DB, deps)).toMatchObject({ risk: "unknown", evidence: ["mount-probe-failed"] });
+  });
+});
+
+describe("the verdict cache", () => {
+  it("does not keep an unknown verdict that came from a failed probe", async () => {
+    const nodes = { "/": {}, "/Volumes": {}, "/Volumes/X": {}, "/Volumes/X/wi.db": { file: true } };
+    let failing = true;
+    const { deps, calls } = fake({
+      platform: "darwin",
+      nodes,
+      commands: async (command) => {
+        if (failing) throw new Error("slow cold start");
+        return command === "/sbin/mount" ? "/dev/d on /Volumes/X (smbfs, local)\n" : "";
+      },
+    });
+    expect(await classifyStorageRisk("/Volumes/X/wi.db", deps)).toMatchObject({ risk: "unknown" });
+    failing = false;
+    expect(await classifyStorageRisk("/Volumes/X/wi.db", deps)).toMatchObject({ risk: "network" });
+    expect(calls.length).toBeGreaterThan(1);
+    expect(await classifyStorageRisk("/Volumes/X/wi.db", deps)).toMatchObject({ risk: "network" });
+    expect(calls).toHaveLength(2);
   });
 });
 

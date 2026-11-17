@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import {
   BackendRecovery,
   databaseKey,
+  STORAGE_NETWORK_CODE,
   ErrorPresenter,
   interpretManagedStart,
   RestartPolicy,
@@ -88,6 +89,12 @@ export interface BackendControllerOptions {
    * LEGACY_SERVICE_ACTIVE before anything is stopped or started.
    */
   readonly legacyBlocks?: (databasePath: string) => Promise<boolean>;
+  /**
+   * True when the verdict this run already reached for the database is "refused" (a network share): the start fails with
+   * DB_STORAGE_NETWORK before anything is stopped or started, so a retry, a port change or an automatic restart never
+   * brings it up there. It reads the known verdict and never classifies (a start does not wait for the detection).
+   */
+  readonly storageRefused?: (databasePath: string) => boolean;
   /** Facts the Web status page shows for this database (the old login service); read after `legacyBlocks`. */
   readonly desktopFacts?: (databasePath: string) => DesktopFacts | undefined;
 }
@@ -191,6 +198,13 @@ export function createBackendController(options: BackendControllerOptions): Back
       if (supervisor.running === undefined) state.backend = "stopped";
       state.setOwner(supervisor.running === undefined ? "NEEDS_REPAIR" : state.owner);
       return { ok: false, code: "LEGACY_SERVICE_ACTIVE" };
+    }
+    // DB_ is a deterministic code: the restart policy schedules no automatic retry for it, so this cannot loop.
+    if (options.storageRefused?.(databasePath)) {
+      log("[shell] start refused: the database is on a network share");
+      if (supervisor.running === undefined) state.backend = "stopped";
+      state.setOwner(supervisor.running === undefined ? "NEEDS_REPAIR" : state.owner);
+      return { ok: false, code: STORAGE_NETWORK_CODE };
     }
     const port = portChange?.port ?? settings.desired.port;
     // The status page shows the port the App committed for this backend.

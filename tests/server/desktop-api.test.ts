@@ -3,7 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DesktopFacts } from "../../packages/schema/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 import { createApiHandler, type ApiHandlerOptions } from "../../apps/server/src/server.js";
-import { OPEN_AGENT_SETUP_MIN_INTERVAL_MS } from "../../apps/server/src/desktop-services.js";
+import {
+  OPEN_AGENT_SETUP_MIN_INTERVAL_MS,
+  OPEN_PORT_SETTINGS_MIN_INTERVAL_MS,
+} from "../../apps/server/src/desktop-services.js";
 
 // Fictional values only; the status never touches a real service manager or Agent settings.
 const LEGACY = {
@@ -118,9 +121,11 @@ describe("POST /api/desktop/open-port-settings", () => {
   });
 
   it("falls back to the home route for an unsafe route and accepts an empty body", async () => {
+    let now = 1_000_000;
     const onOpenPortSettings = vi.fn();
-    const baseUrl = await listen({ desktop: { onOpenAgentSetup: vi.fn(), onOpenPortSettings } });
+    const baseUrl = await listen({ desktop: { onOpenAgentSetup: vi.fn(), onOpenPortSettings, now: () => now } });
     expect((await postPort(baseUrl, { route: "//evil" })).status).toBe(202);
+    now += OPEN_PORT_SETTINGS_MIN_INTERVAL_MS;
     expect((await postPort(baseUrl, {})).status).toBe(202);
     expect(onOpenPortSettings).toHaveBeenNthCalledWith(1, { preferences: {}, route: "/" });
     expect(onOpenPortSettings).toHaveBeenNthCalledWith(2, { preferences: {}, route: "/" });
@@ -132,6 +137,22 @@ describe("POST /api/desktop/open-port-settings", () => {
     expect((await postPort(baseUrl, { extra: 1 })).status).toBe(400);
     expect((await postPort(baseUrl, { route: 5 })).status).toBe(400);
     expect(onOpenPortSettings).not.toHaveBeenCalled();
+  });
+
+  it("sends at most one message per second but still answers 202", async () => {
+    let now = 1_000_000;
+    const onOpenPortSettings = vi.fn();
+    const baseUrl = await listen({ desktop: { onOpenAgentSetup: vi.fn(), onOpenPortSettings, now: () => now } });
+
+    expect((await postPort(baseUrl, {})).status).toBe(202);
+    expect((await postPort(baseUrl, {})).status).toBe(202);
+    now += OPEN_PORT_SETTINGS_MIN_INTERVAL_MS - 1;
+    expect((await postPort(baseUrl, {})).status).toBe(202);
+    expect(onOpenPortSettings).toHaveBeenCalledTimes(1);
+
+    now += 1;
+    expect((await postPort(baseUrl, {})).status).toBe(202);
+    expect(onOpenPortSettings).toHaveBeenCalledTimes(2);
   });
 
   it("stays 202 when the App channel throws", async () => {

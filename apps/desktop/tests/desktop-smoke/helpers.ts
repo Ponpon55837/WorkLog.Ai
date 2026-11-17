@@ -1,5 +1,6 @@
 import { _electron, type ElectronApplication, type TestInfo } from "@playwright/test";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -14,6 +15,7 @@ import {
   computeInstanceProof,
 } from "@work-intelligence/shared/instance-proof";
 
+import { undoMigrationsAfter } from "../../../../tests/helpers/schema-migration-fixture.js";
 import {
   freePort,
   portIsFree,
@@ -111,6 +113,22 @@ export async function createSandbox(options: { withDatabase: boolean; withSettin
   const runtimeRoot = runtimeRootFromEnvironment();
   if (options.withSettings !== false) writeSandboxSettings(dataDirectory, databasePath, port, home);
   return { root, home, dataDirectory, databasePath, port, emptyBin, runtimeRoot };
+}
+
+/**
+ * Rewinds a database the real store made to the schema before its latest migration, the way an upgrade finds a database
+ * of the previous release: the App's preview reports "needs an update". Synthetic data only; the file is closed again.
+ */
+export function makeSchemaOlder(databasePath: string): void {
+  const database = new DatabaseSync(databasePath);
+  try {
+    const latest = (
+      database.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }
+    ).version;
+    undoMigrationsAfter(database, latest - 1);
+  } finally {
+    database.close();
+  }
 }
 
 export function removeSandbox(sandbox: Sandbox): void {

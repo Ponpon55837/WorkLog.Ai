@@ -14,6 +14,7 @@ const MB = 1024 * 1024;
 function harness(overrides: Partial<CopyToLocalDeps> = {}) {
   const events: string[] = [];
   const deps: CopyToLocalDeps = {
+    targetFolderRisky: async () => false,
     confirm: async () => (events.push("confirm"), true),
     sourceBytes: async () => ({ database: 10 * MB, wal: 2 * MB }),
     freeBytes: async () => 10_000 * MB,
@@ -54,6 +55,16 @@ describe("copy to the local disk", () => {
     expect(events).toEqual([]);
   });
 
+  it("refuses before asking anything when the target folder is itself on risky storage", async () => {
+    const { deps, events } = harness({ targetFolderRisky: async () => true });
+    expect(await runCopyToLocal(deps)).toMatchObject({
+      ok: false,
+      failure: "target-risky",
+      errorCode: "COPY_TARGET_RISKY",
+    });
+    expect(events).toEqual([]);
+  });
+
   it("refuses before copying when there is not enough free space, but tries when the OS will not say", async () => {
     const full = harness({ freeBytes: async () => 70 * MB });
     expect(await runCopyToLocal(full.deps)).toMatchObject({
@@ -86,14 +97,21 @@ describe("copy to the local disk", () => {
 
   it("takes the copy back when the switch fails or throws, and reports a busy switch", async () => {
     const failed = harness({ switchTo: async () => ({ ok: false, code: "X" }) });
-    expect(await runCopyToLocal(failed.deps)).toMatchObject({ failure: "start-failed" });
+    // The backend's own code survives, so the page can show the real reason.
+    expect(await runCopyToLocal(failed.deps)).toMatchObject({
+      failure: "start-failed",
+      errorCode: "COPY_START_FAILED",
+      backendCode: "X",
+    });
     expect(failed.events).toContain("remove");
     const thrown = harness({
       switchTo: async () => {
         throw new Error("x");
       },
     });
-    expect(await runCopyToLocal(thrown.deps)).toMatchObject({ failure: "start-failed" });
+    const thrownResult = await runCopyToLocal(thrown.deps);
+    expect(thrownResult).toMatchObject({ failure: "start-failed" });
+    expect(thrownResult).not.toHaveProperty("backendCode");
     expect(thrown.events).toContain("remove");
     const busy = harness({ switchTo: async () => ({ ok: false, busy: true }) });
     expect(await runCopyToLocal(busy.deps)).toEqual({ ok: false, reason: "busy" });

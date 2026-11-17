@@ -48,6 +48,8 @@
   - 不因 port 變更而傳遞 DB 路徑 token（R20）。
 - **對應**：DT-14、DT-17；R09、R20。
 
+- **1.6.51 實作**：Web 狀態頁只顯示目前位址與「在桌面 App 變更連接埠」按鈕（`apps/web/src/views/SystemStatusView.vue`、`apps/web/src/stores/system-status.ts`）。按鈕經 `POST /api/desktop/open-port-settings` 只請 App 開啟連接埠區段，並交出白名單偏好與目前路由；Web 不接收、不保存 App 的 session 或 token。新位址的頁面由 `apps/web/src/utils/port-handoff.ts` 讀取一次性 fragment，寫入白名單偏好後立即移除 fragment，並回到原路由（若存在）或 Dashboard 首頁。系統狀態頁以警告顯示資料庫位置風險（`desktop.storageRisk`）；unknown 只顯示為提示。
+
 ### C-11 RepairWindow（內建修復視窗）
 
 - **責任**：Web 與 API 不可用時仍可完成修復、查看診斷、重試或切換模式。
@@ -92,6 +94,8 @@
 - **平台**：W 比較檔案識別與 UNC 路徑；M 處理 `~/Library` 與外接碟；兩者都需驗證 symlink 與 hard link（DT-08）。
 - **對應**：DT-01、DT-08；R01、R22、R23。
 - **1.6.42 實作**：`packages/desktop-core/src/db-source/`（`collect.ts`、`decide.ts`、`grouping.ts`、`identity-compare.ts`、`resolve.ts`）與 `packages/shared/src/file-identity.ts`；唯讀收集七類候選（desktop-committed、explicit-selection、legacy-service、plugin-link、agent-mcp、standalone-default、checkout-default），狀態互不混淆；以 fileId（無法取得時以 realPath）分組，並標示血統衝突；選擇依優先序，高優先來源不可用時阻擋而非往下遞補；新建只在使用者明確同意且無其他來源時提供。身分規則見 ADR-36。
+
+- **1.6.51 實作**：`DbSourceResolver` 之後的 DB 位置判定（DT-08）分為 none、網路、可移除、雲端同步、硬連結與 unknown，於啟動與選擇資料庫時執行，判定有時限（Windows DriveInfo 3 秒；macOS mount 與 diskutil 2 秒；Linux `/proc/mounts`）；系統磁碟且不在雲端根目錄者不啟動子程序；失敗與逾時為 unknown，不快取（`packages/desktop-core/src/db-source/storage-policy.ts`、`storage-risk-node.ts`、`storage-risk-override.ts`；`apps/desktop/src/main/storage-risk.ts`）。網路磁碟不能作為 App 資料庫；可移除、雲端同步與硬連結只能勾選同意後選擇，且不做 schema 更新；unknown 只阻擋一鍵選擇。「複製到本機磁碟並改用」由 `copy-to-local.ts` 與 `apps/server/src/database-copy.ts` 完成（`VACUUM INTO` 經唯讀預覽子程序，再 `PRAGMA quick_check`，檔名不覆寫），之後以日誌化切換改用複本，原檔不變。
 
 ### C-06 DbPreflight（唯讀 preflight）
 

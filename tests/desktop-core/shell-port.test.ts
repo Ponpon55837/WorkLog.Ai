@@ -46,7 +46,7 @@ describe("the repair state's port section and the port input", () => {
       busy: false,
     };
     expect(buildRepairState(inputs).port).toBeNull();
-    const port = { port: 43_100, activePort: 43_100, focusToken: 2, handoffHeld: true };
+    const port = { port: 43_100, activePort: 43_100, focus: true, handoffHeld: true };
     expect(buildRepairState({ ...inputs, port }).port).toEqual(port);
   });
 

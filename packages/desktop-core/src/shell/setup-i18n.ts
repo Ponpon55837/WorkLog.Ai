@@ -351,6 +351,8 @@ const zhTW: SetupMessages = {
   copyErrors: {
     "no-space": "本機磁碟的可用空間不夠，沒有複製。請清出空間後再試。",
     "target-exists": "複製的目標檔名已經存在，沒有覆蓋任何檔案。請再試一次。",
+    "target-risky":
+      "App 的預設資料資料夾本身在網路磁碟、外接磁碟或雲端同步資料夾上，複製過去不會更安全，所以沒有複製。",
     "integrity-failed": "複製後的檢查沒有通過，所以沒有使用它。原本的檔案沒有被改動。",
     "copy-failed": "複製沒有完成。原本的檔案沒有被改動。",
     "start-failed": "已複製，但改用後無法啟動，設定已維持原樣，副本也已移除。原本的檔案沒有被改動。",
@@ -561,6 +563,8 @@ const en: SetupMessages = {
   copyErrors: {
     "no-space": "The local disk does not have enough free space, so nothing was copied. Free some space and try again.",
     "target-exists": "The name for the copy already exists, so nothing was overwritten. Please try again.",
+    "target-risky":
+      "The App's default data folder is itself on a network drive, a removable drive or a cloud-sync folder, so a copy there would be no safer and nothing was copied.",
     "integrity-failed": "The copy did not pass its check, so it was not used. The original file was not changed.",
     "copy-failed": "The copy did not finish. The original file was not changed.",
     "start-failed":

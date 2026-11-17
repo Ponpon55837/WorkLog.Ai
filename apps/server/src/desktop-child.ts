@@ -12,6 +12,7 @@ import {
 import { LATEST_SCHEMA_VERSION } from "@work-intelligence/storage";
 import { APP_VERSION } from "@work-intelligence/shared/app-version";
 import { probeLoopbackPort, type LoopbackPortProbe } from "@work-intelligence/shared/loopback-port";
+import { portFailureCode } from "@work-intelligence/shared/port-failure";
 import { createDatabaseIfMissing } from "./database-create.js";
 import { copyDatabaseConsistently, type DatabaseCopyResult } from "./database-copy.js";
 import {
@@ -78,11 +79,6 @@ const STORE_OPEN_FAILURES = new Map<string, ChildFailure>([
 
 /** `listen` errno codes that mean the port cannot be used by this user right now. */
 const PORT_ERRNO_CODES = new Set(["EADDRINUSE", "EACCES", "EADDRNOTAVAIL"]);
-
-/** A bind the OS refused for this user (EACCES, EADDRNOTAVAIL: for example a Windows excluded range) is not "in use". */
-function portFailureCode(errno: string): "PORT_NOT_PERMITTED" | "PORT_OCCUPIED_BY_OTHER" {
-  return errno === "EACCES" || errno === "EADDRNOTAVAIL" ? "PORT_NOT_PERMITTED" : "PORT_OCCUPIED_BY_OTHER";
-}
 
 function startFailure(error: unknown): ChildFailure {
   if (!(error instanceof StartApiError)) return { code: "REPAIR_REQUIRED", detail: "unexpected start failure" };

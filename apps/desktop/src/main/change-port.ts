@@ -8,6 +8,7 @@ import {
   type RestartOutcome,
 } from "@work-intelligence/desktop-core";
 import type { PortHandoff } from "@work-intelligence/schema";
+import { portFailureCode } from "@work-intelligence/shared/port-failure";
 import type { BackendController } from "./backend.js";
 import type { Logger } from "./log.js";
 import type { ShellState } from "./state.js";
@@ -52,11 +53,10 @@ export interface ChangePortOptions {
   readonly log: Logger;
 }
 
-const NOT_PERMITTED_CODES: ReadonlySet<string> = new Set(["EACCES", "EADDRNOTAVAIL"]);
-
 export function createChangePort(options: ChangePortOptions): ChangePortController {
   const { state, coordinator, supervisor, backend, log } = options;
-  let focusToken = 0;
+  /** The section was asked for and no state has carried that to a page yet. */
+  let focusPending = false;
 
   /** A refusal because something runs, or null when nothing does. The backend is asked only while one runs. */
   async function busyReason(): Promise<Extract<PortChangeResult, { ok: false }> | null> {
@@ -74,7 +74,13 @@ export function createChangePort(options: ChangePortOptions): ChangePortControll
   }
 
   /** The start on the new port failed: the old port comes back (settings were never changed). */
-  async function rollBack(code: string): Promise<PortChangeResult> {
+  async function rollBack(code: string, from: number): Promise<PortChangeResult> {
+    // A refusal before anything was stopped (the old login service, a network share) leaves the old backend serving: there
+    // is nothing to bring back, and a second start would be refused the same way and mark a healthy backend NEEDS_REPAIR.
+    if (supervisor.running?.port === from) {
+      log(`[shell] port change refused (${code}); the old port is still serving`);
+      return failureOf(code, true);
+    }
     log(`[shell] port change failed (${code}); restarting on the old port`);
     const restored: RestartOutcome = await backend
       .start("restart")
@@ -101,7 +107,7 @@ export function createChangePort(options: ChangePortOptions): ChangePortControll
     // Only a hint (the real bind stays the authority), but an occupied target stops nothing.
     const probe = await options.probePort(to);
     if (!probe.free) {
-      return { ok: false, reason: NOT_PERMITTED_CODES.has(probe.code) ? "not-permitted" : "occupied" };
+      return { ok: false, reason: portFailureCode(probe.code) === "PORT_NOT_PERMITTED" ? "not-permitted" : "occupied" };
     }
     if (!(await options.confirmDialog(from, to))) return { ok: false, reason: "cancelled" };
     // Something may have started while the dialog was open.
@@ -110,7 +116,7 @@ export function createChangePort(options: ChangePortOptions): ChangePortControll
     const outcome = await backend.startOnPort({ port: to, from });
     if (!outcome.ok) {
       if (outcome.busy) return { ok: false, reason: "busy", busy: "operation" };
-      return rollBack(outcome.code);
+      return rollBack(outcome.code, from);
     }
     log("[shell] port changed");
     backend.presenter().clear();
@@ -124,18 +130,23 @@ export function createChangePort(options: ChangePortOptions): ChangePortControll
     change,
     offer: (request) => {
       options.handoff.put(request.preferences, request.route);
-      focusToken += 1;
+      focusPending = true;
       options.showSection();
     },
     openSection: () => {
-      focusToken += 1;
+      focusPending = true;
       options.showSection();
     },
-    section: () => ({
-      port: state.settings?.desired.port ?? null,
-      activePort: supervisor.running?.port ?? null,
-      focusToken,
-      handoffHeld: options.handoff.holds(),
-    }),
+    section: () => {
+      // Consumed by the state that reports it: the page scrolls once, and a later load of the page does not.
+      const focus = focusPending;
+      focusPending = false;
+      return {
+        port: state.settings?.desired.port ?? null,
+        activePort: supervisor.running?.port ?? null,
+        focus,
+        handoffHeld: options.handoff.holds(),
+      };
+    },
   };
 }

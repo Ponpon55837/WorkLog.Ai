@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { encodePortHandoffFragment } from "../../../packages/schema/src/index.js";
 import {
   consumePortHandoff,
+  gateHandoffRoute,
   readBrowserPreferences,
   type PortHandoffHost,
 } from "../../../apps/web/src/utils/port-handoff.js";
@@ -117,6 +118,30 @@ describe("consumePortHandoff", () => {
     expect(consumePortHandoff(host)).toBe("/x");
     expect(replaceUrl).toHaveBeenCalledWith("/");
     expect(consumePortHandoff({ ...host, storage: undefined })).toBe("/x");
+  });
+});
+
+describe("an invalid handoff fragment", () => {
+  it("leaves no hash behind, so the router never sees it", () => {
+    const { host, replaceUrl } = createHost("#wi-handoff=@@@");
+    expect(consumePortHandoff(host)).toBeUndefined();
+    expect(replaceUrl).toHaveBeenCalledTimes(1);
+    expect(replaceUrl.mock.calls[0]?.[0]).not.toContain("#");
+  });
+});
+
+describe("gateHandoffRoute", () => {
+  const resolve = (route: string) => ({
+    matched: route === "/dashboard" ? [{ path: "/dashboard" }] : route === "/" ? [] : [{ path: "/:pathMatch(.*)*" }],
+  });
+
+  it("keeps a route that resolves to a real page", () => {
+    expect(gateHandoffRoute("/dashboard", resolve)).toBe("/dashboard");
+  });
+
+  it("sends the catch-all and an unmatched route to the home route", () => {
+    expect(gateHandoffRoute("/nowhere/at/all", resolve)).toBe("/");
+    expect(gateHandoffRoute("/", resolve)).toBe("/");
   });
 });
 

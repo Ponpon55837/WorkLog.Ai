@@ -12,6 +12,7 @@ import type { RestartOutcome } from "./backend-recovery.js";
 export const COPY_TO_LOCAL_FAILURES = [
   "no-space",
   "target-exists",
+  "target-risky",
   "integrity-failed",
   "copy-failed",
   "start-failed",
@@ -31,9 +32,21 @@ export function copyFailureOfCode(code: string | undefined): CopyToLocalFailure 
 export type CopyToLocalResult =
   | { readonly ok: true; readonly target: string }
   | { readonly ok: false; readonly reason: "cancelled" | "busy" }
-  | { readonly ok: false; readonly reason: "failed"; readonly failure: CopyToLocalFailure; readonly errorCode: string };
+  | {
+      readonly ok: false;
+      readonly reason: "failed";
+      readonly failure: CopyToLocalFailure;
+      readonly errorCode: string;
+      /** `start-failed`: the code the backend start on the copy really failed with (absent when the start threw). */
+      readonly backendCode?: string;
+    };
 
 export interface CopyToLocalDeps {
+  /**
+   * The App's default data folder (where the copy goes) is itself on a network share, a removable drive or a cloud-sync
+   * folder: a copy there would be no safer than the original, so nothing is asked or written.
+   */
+  readonly targetFolderRisky: () => Promise<boolean>;
   /** The native confirmation (copies to the default data folder, switches, updates the copy, leaves the original). */
   readonly confirm: () => Promise<boolean>;
   /** Bytes of the database file and its `-wal`; the copy is made through SQLite, so both are read. */
@@ -67,14 +80,21 @@ const COPY_STATUS_FAILURE: Record<Exclude<DesktopCopyResultMessage["status"], "o
   failed: "copy-failed",
 };
 
-function failed(deps: CopyToLocalDeps, failure: CopyToLocalFailure): CopyToLocalResult {
-  deps.log(`[shell] copy to local disk failed: ${failure}`);
-  return { ok: false, reason: "failed", failure, errorCode: copyFailureCode(failure) };
+function failed(deps: CopyToLocalDeps, failure: CopyToLocalFailure, backendCode?: string): CopyToLocalResult {
+  deps.log(`[shell] copy to local disk failed: ${failure}${backendCode ? ` (${backendCode})` : ""}`);
+  return {
+    ok: false,
+    reason: "failed",
+    failure,
+    errorCode: copyFailureCode(failure),
+    ...(backendCode ? { backendCode } : {}),
+  };
 }
 
 export async function runCopyToLocal(deps: CopyToLocalDeps): Promise<CopyToLocalResult> {
-  if (!(await deps.confirm())) return { ok: false, reason: "cancelled" };
   try {
+    if (await deps.targetFolderRisky()) return failed(deps, "target-risky");
+    if (!(await deps.confirm())) return { ok: false, reason: "cancelled" };
     const sizes = await deps.sourceBytes();
     const free = await deps.freeBytes();
     if (free !== undefined && free < requiredCopyBytes(sizes.database, sizes.wal)) return failed(deps, "no-space");
@@ -94,7 +114,7 @@ export async function runCopyToLocal(deps: CopyToLocalDeps): Promise<CopyToLocal
     if (!outcome.ok) {
       deps.removeCopy(target, identity);
       if (outcome.busy) return { ok: false, reason: "busy" };
-      return failed(deps, "start-failed");
+      return failed(deps, "start-failed", outcome.code);
     }
     deps.log("[shell] copy to local disk: switched to the copy");
     return { ok: true, target };

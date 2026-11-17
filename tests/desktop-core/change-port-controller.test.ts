@@ -19,6 +19,8 @@ interface Setup {
   readonly activity?: "idle" | "busy" | "unknown" | "busy-after-dialog";
   readonly probe?: { free: true } | { free: false; code: string };
   readonly dialog?: boolean;
+  /** The start on the new port is refused before anything is stopped (the old backend keeps serving). */
+  readonly refusedBeforeStopping?: boolean;
   readonly start?: Array<{ ok: true } | { ok: false; busy?: false; code: string } | { ok: false; busy: true }>;
   readonly restart?: { ok: true } | { ok: false; busy?: false; code: string } | { ok: false; busy: true } | "throws";
 }
@@ -35,6 +37,7 @@ function setup(options: Setup = {}) {
   let cleared = 0;
   let shown = 0;
   let queries = 0;
+  let running: { port: number } | undefined = options.running === false ? undefined : { port: OLD };
   const state = {
     settings: options.settings === false ? null : { desired: { port: OLD } },
     touch: () => events.push("touch"),
@@ -43,7 +46,9 @@ function setup(options: Setup = {}) {
     state,
     coordinator: { current: () => (options.operation ? { kind: "legacy-disable" } : null) },
     supervisor: {
-      running: options.running === false ? undefined : { port: OLD },
+      get running() {
+        return running;
+      },
       queryActivity: async () => {
         queries += 1;
         const mode = options.activity ?? "idle";
@@ -58,12 +63,18 @@ function setup(options: Setup = {}) {
       startOnPort: async (change: unknown) => {
         events.push("start-new");
         starts.push(change);
-        return startOutcomes.shift() ?? { ok: true as const };
+        const outcome = startOutcomes.shift() ?? { ok: true as const };
+        // A real managed start stops the old backend first; only a refusal before that leaves it serving.
+        if (outcome.ok) running = { port: (change as { port: number }).port };
+        else if (!options.refusedBeforeStopping) running = undefined;
+        return outcome;
       },
       start: async (kind: string) => {
         events.push(`start-${kind}`);
         if (options.restart === "throws") throw new Error("boom");
-        return options.restart ?? { ok: true as const };
+        const restored = options.restart ?? { ok: true as const };
+        if (restored.ok) running = { port: OLD };
+        return restored;
       },
       presenter: () => ({ clear: () => (cleared += 1) }),
       recovery: { handleFailure: (code: string) => failures.push(code) },
@@ -108,7 +119,7 @@ describe("the port change controller", () => {
   it("carries the Dashboard's preferences once: consumed by the first Dashboard it opens", async () => {
     const { controller, opened, handoff } = setup();
     controller.offer({ preferences: { theme: "dark", extra: 1 }, route: "/reports" });
-    expect(controller.section()).toMatchObject({ port: OLD, activePort: OLD, handoffHeld: true, focusToken: 1 });
+    expect(controller.section()).toMatchObject({ port: OLD, activePort: OLD, handoffHeld: true, focus: true });
     await controller.change(NEW);
     expect(opened).toEqual([{ preferences: { theme: "dark" }, route: "/reports" }]);
     expect(handoff.holds()).toBe(false);
@@ -131,7 +142,18 @@ describe("the port change controller", () => {
     controller.openSection();
     controller.offer({});
     expect(shown()).toBe(2);
-    expect(controller.section().focusToken).toBe(2);
+    expect(controller.section().focus).toBe(true);
+  });
+
+  it("reports a focus request in one state only, so a later page load does not scroll again", () => {
+    const { controller } = setup();
+    expect(controller.section().focus).toBe(false);
+    controller.openSection();
+    expect(controller.section().focus).toBe(true);
+    expect(controller.section().focus).toBe(false);
+    controller.offer({});
+    expect(controller.section().focus).toBe(true);
+    expect(controller.section().focus).toBe(false);
   });
 
   it("does nothing for the current port, and refuses an invalid one before anything runs", async () => {
@@ -187,6 +209,22 @@ describe("the port change controller", () => {
     const { controller, events } = setup({ dialog: false });
     expect(await controller.change(NEW)).toEqual({ ok: false, reason: "cancelled" });
     expect(events).toEqual([`confirm ${OLD}->${NEW}`]);
+  });
+
+  it("does not restart a backend a refused start left serving on the old port", async () => {
+    const { controller, events, failures, cleared } = setup({
+      start: [{ ok: false, code: "LEGACY_SERVICE_ACTIVE" }],
+      refusedBeforeStopping: true,
+    });
+    expect(await controller.change(NEW)).toEqual({
+      ok: false,
+      reason: "failed",
+      errorCode: "LEGACY_SERVICE_ACTIVE",
+      rolledBack: true,
+    });
+    expect(events).toEqual([`confirm ${OLD}->${NEW}`, "start-new"]);
+    expect(failures).toEqual([]);
+    expect(cleared()).toBe(0);
   });
 
   it("restarts on the old port when the new one fails to start", async () => {

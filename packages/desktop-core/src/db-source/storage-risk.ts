@@ -195,12 +195,15 @@ function parseLinuxMounts(text: string): MountEntry[] {
     .map((fields) => ({ mountPoint: parseOctalEscapes(fields[1] as string), type: fields[2] as string }));
 }
 
-/** `mount` lines: `<device> on <mount point> (<type>, <option>, ...)`. */
+/**
+ * `mount` lines: `<device> on <mount point> (<type>, <option>, ...)`. The option group is the last parenthesis group on
+ * the line, so a volume name that itself contains " (" (`/Volumes/Backup (old)`) stays whole in the mount point.
+ */
 function parseMacMounts(text: string): MountEntry[] {
   const entries: MountEntry[] = [];
   for (const line of text.split("\n")) {
-    const match = /^(.+?) on (\/.*?) \(([^,)]+)/.exec(line);
-    if (match) entries.push({ mountPoint: match[2] as string, type: (match[3] as string).trim() });
+    const match = /^(.+?) on (\/.*) \(([^()]*)\)\s*$/.exec(line);
+    if (match) entries.push({ mountPoint: match[2] as string, type: (match[3] as string).split(",")[0]?.trim() ?? "" });
   }
   return entries;
 }
@@ -370,7 +373,8 @@ async function compute(target: string, deps: StorageRiskDeps, located: Located):
 /**
  * Classifies the storage of `databasePath` (which need not exist yet: its nearest existing folder is classified).
  * Never throws: any adapter error or timeout is `unknown` with evidence. Results are cached per (real path, device) in
- * `deps.cache`, so a second look at the same file costs no subprocess.
+ * `deps.cache`, so a second look at the same file costs no subprocess. An `unknown` verdict (a failed or timed-out probe)
+ * is not kept, so the next look asks again instead of blocking one-click selection until the App restarts.
  */
 export async function classifyStorageRisk(databasePath: string, deps: StorageRiskDeps): Promise<StorageRiskResult> {
   let located: Located;
@@ -384,5 +388,7 @@ export async function classifyStorageRisk(databasePath: string, deps: StorageRis
   if (cached) return cached;
   const pending = compute(databasePath, deps, located);
   deps.cache?.set(key, pending);
-  return pending;
+  const result = await pending;
+  if (result.risk === "unknown" && deps.cache?.get(key) === pending) deps.cache.delete(key);
+  return result;
 }

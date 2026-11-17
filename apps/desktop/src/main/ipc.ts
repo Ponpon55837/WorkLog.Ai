@@ -258,6 +258,13 @@ export function registerRepairIpc(options: IpcOptions): void {
 
   handle(REPAIR_CHANNELS.setupChooseFile, parser(repairInputSchemas.setupChooseFile), () => firstRun.chooseFile());
 
+  // The same single lock as every other page action: a copy never overlaps a retry, a port change or another start.
+  handle(REPAIR_CHANNELS.setupCopyToLocal, parser(repairInputSchemas.setupCopyToLocal), (input) =>
+    exclusive({ ok: false, reason: "busy" } as const, () =>
+      firstRun.copyToLocal(input.sourceId, input.launchAtLogin === true),
+    ),
+  );
+
   handle(REPAIR_CHANNELS.setupLater, parser(repairInputSchemas.setupLater), async () => {
     firstRun.later();
     return { ok: true };

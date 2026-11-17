@@ -20,6 +20,7 @@ export const REPAIR_CHANNELS = {
   setupUseDefaults: "setup:use-defaults",
   setupUseSource: "setup:use-source",
   setupChooseFile: "setup:choose-file",
+  setupCopyToLocal: "setup:copy-to-local",
   setupLater: "setup:later",
   showView: "app:show-view",
   agentsGetState: "agents:get-state",
@@ -77,6 +78,8 @@ export const repairInputSchemas = {
     launchAtLogin: z.boolean(),
   }),
   setupChooseFile: z.strictObject({}),
+  /** 「複製到本機磁碟並改用」 on the first-run page: for a source the page lists; main reads every path itself. */
+  setupCopyToLocal: z.strictObject({ sourceId: z.string().min(1).max(64), launchAtLogin: z.boolean().optional() }),
   setupLater: z.strictObject({}),
   /** The page may only move to the Agent page (after the first run); main opens every other view itself. */
   showView: z.strictObject({ view: z.literal("agents") }),
@@ -177,6 +180,8 @@ export type SetupActionResult =
       readonly ok: false;
       readonly reason: "busy" | "invalid" | "cancelled" | "failed" | "legacy-service";
       readonly errorCode?: string;
+      /** Why a copy to the local disk did not finish, in the page's language (never a path). */
+      readonly message?: string;
       readonly state?: SetupState;
     };
 
@@ -220,6 +225,7 @@ export interface RepairApi {
     readonly startAnyway?: boolean;
   }): Promise<SetupActionResult>;
   setupChooseFile(): Promise<SetupActionResult>;
+  setupCopyToLocal(sourceId: string, launchAtLogin?: boolean): Promise<SetupActionResult>;
   setupLater(): Promise<{ readonly ok: boolean }>;
   showAgents(): Promise<{ readonly ok: boolean }>;
   agentsGetState(): Promise<AgentsState>;

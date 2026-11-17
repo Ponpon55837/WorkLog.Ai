@@ -1,5 +1,6 @@
 import { expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
+import { decodePortHandoffFragment } from "@work-intelligence/schema";
 import { createServer, type Server } from "node:net";
 import { join } from "node:path";
 import {
@@ -46,12 +47,12 @@ function readSettings(box: Sandbox): SettingsFile {
   return JSON.parse(readFileSync(join(box.dataDirectory, "desktop-settings.json"), "utf8")) as SettingsFile;
 }
 
-/** Shows the repair window the way the tray item does and returns it with the port section ready. */
+/** Runs what the tray's 「變更連接埠…」 item runs (`changePort.openSection()`) and returns the window with the section ready. */
 async function openPortSection(running: ElectronApplication): Promise<Page> {
   await running.evaluate(() =>
     (
-      globalThis as unknown as { __workIntelligenceDesktopTest: { openRepair(): void } }
-    ).__workIntelligenceDesktopTest.openRepair(),
+      globalThis as unknown as { __workIntelligenceDesktopTest: { openPortSettings(): void } }
+    ).__workIntelligenceDesktopTest.openPortSettings(),
   );
   const window = await running.firstWindow({ timeout: 45_000 });
   await expect(window.locator("#port-section")).toBeVisible({ timeout: 30_000 });
@@ -113,4 +114,67 @@ test("an occupied target is refused, nothing is stopped and the backend stays on
   const settings = readSettings(sandbox);
   expect(settings.desired.port).toBe(oldPort);
   expect(settings.active?.port ?? oldPort).toBe(oldPort);
+});
+
+test("the Dashboard's request carries its whitelisted preferences and route to the new address, once", async () => {
+  sandbox = await createSandbox({ withDatabase: true });
+  const oldPort = sandbox.port;
+  const newPort = await freePort();
+  app = await launchApp(sandbox, { WORK_INTELLIGENCE_DESKTOP_TEST_AUTOCONFIRM_PORT: "1" });
+  await waitForManagedSnapshot(app);
+
+  // What the Web status page sends: the page's own origin, preferences with keys that are not on the whitelist, a route.
+  const origin = `http://127.0.0.1:${oldPort}`;
+  const answer = await fetch(`${origin}/api/desktop/open-port-settings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: origin },
+    body: JSON.stringify({
+      preferences: { theme: "dark", locale: "en-US", sessionToken: "synthetic-secret", databasePath: "/synthetic/x" },
+      route: "/reports",
+    }),
+  });
+  expect(answer.status).toBe(202);
+
+  // The App shows the port section by itself; nothing was changed by the request.
+  await waitForSnapshot(app, (state) => state.repairWindowOpen, 30_000);
+  const window = await app.firstWindow({ timeout: 45_000 });
+  await expect(window.locator("#port-section")).toBeVisible({ timeout: 30_000 });
+  await window.locator('[data-id="port-input"]').fill(String(newPort));
+  await window.locator('[data-id="port-apply"]').click();
+
+  const after = await waitForSnapshot(
+    app,
+    (state) => state.backend?.port === newPort && state.openedExternal.length > 0,
+  );
+  const opened = new URL(after.openedExternal.at(-1) ?? "");
+  expect(opened.origin).toBe(`http://127.0.0.1:${newPort}`);
+  expect(opened.hash.startsWith("#wi-handoff=")).toBe(true);
+  expect(decodePortHandoffFragment(opened.hash)).toEqual({
+    preferences: { theme: "dark", locale: "en-US" },
+    route: "/reports",
+  });
+  // Neither the fragment nor the preferences reach the log.
+  const log = readMainLog(sandbox);
+  expect(log).not.toContain("wi-handoff");
+  expect(log).not.toContain("synthetic-secret");
+});
+
+test("the repair page scrolls to the port section for a request once, not on every later load", async () => {
+  sandbox = await createSandbox({ withDatabase: true });
+  app = await launchApp(sandbox, { WORK_INTELLIGENCE_DESKTOP_TEST_AUTOCONFIRM_PORT: "1" });
+  await waitForManagedSnapshot(app);
+  const window = await openPortSection(app);
+  await expect(window.locator("#port-section")).toBeVisible();
+  const asked = async () =>
+    window.evaluate(() =>
+      (
+        window as unknown as { workIntelligenceRepair: { getState(): Promise<{ port: { focus: boolean } | null }> } }
+      ).workIntelligenceRepair.getState(),
+    );
+  // The first state after the request carried the focus flag to the page (the page already consumed it above); a later
+  // state, as a reloaded page would read it, does not.
+  expect((await asked()).port?.focus).toBe(false);
+  await window.reload();
+  await expect(window.locator("#port-section")).toBeVisible({ timeout: 30_000 });
+  expect((await asked()).port?.focus).toBe(false);
 });

@@ -1,13 +1,17 @@
 import { expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { basename, join } from "node:path";
 import { setupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
 import {
   attachLog,
   closeQuietly,
   createSandbox,
+  freePort,
   launchApp,
+  makeSchemaOlder,
+  portIsFree,
   readMainLog,
   removeSandbox,
   waitForManagedSnapshot,
@@ -126,4 +130,99 @@ test("a database on unclassifiable storage is a soft note on the page and never 
   const status = await fetch(`http://127.0.0.1:${running.backend?.port}/api/system/status`);
   const body = (await status.json()) as { desktop?: { storageRisk?: { risk: string; migrationBlocked: boolean } } };
   expect(body.desktop?.storageRisk).toEqual({ risk: "unknown", migrationBlocked: false });
+});
+
+/** How many starts the controller refused for a database on a network share (one log line each). */
+function refusedStarts(box: Sandbox): number {
+  return readMainLog(box).split("start refused: the database is on a network share").length - 1;
+}
+
+test("retry after DB_STORAGE_NETWORK stays refused, and so does a port change: nothing is started on the share", async () => {
+  sandbox = await createSandbox({ withDatabase: true });
+  const risks = verdictFile(sandbox, { [sandbox.databasePath]: "network" });
+  app = await launchApp(sandbox, {
+    WORK_INTELLIGENCE_DESKTOP_TEST_STORAGE_RISK_FILE: risks,
+    WORK_INTELLIGENCE_DESKTOP_TEST_AUTOCONFIRM_PORT: "1",
+  });
+  await waitForSnapshot(
+    app,
+    (state) => state.owner === "NEEDS_REPAIR" && state.recentErrors.includes("DB_STORAGE_NETWORK"),
+    60_000,
+  );
+
+  await app.evaluate(() =>
+    (
+      globalThis as unknown as { __workIntelligenceDesktopTest: { openPortSettings(): void } }
+    ).__workIntelligenceDesktopTest.openPortSettings(),
+  );
+  const window = await app.firstWindow({ timeout: 45_000 });
+  await expect(window.locator("#port-section")).toBeVisible({ timeout: 30_000 });
+
+  // The repair page's retry: refused again, before anything is started.
+  const afterFirst = refusedStarts(sandbox);
+  await window.locator('[data-id="retry-start"]').click();
+  await expect.poll(() => refusedStarts(sandbox as Sandbox), { timeout: 30_000 }).toBeGreaterThan(afterFirst);
+  const retried = await waitForSnapshot(app, (state) => state.owner === "NEEDS_REPAIR", 30_000);
+  expect(retried.backend).toBeNull();
+  expect(retried.recentErrors).toContain("DB_STORAGE_NETWORK");
+  expect(await portIsFree(sandbox.port)).toBe(true);
+
+  // 「變更連接埠」 while stopped: also refused, and the new port is never bound.
+  const newPort = await freePort();
+  const afterRetry = refusedStarts(sandbox);
+  await window.locator('[data-id="port-input"]').fill(String(newPort));
+  await window.locator('[data-id="port-apply"]').click();
+  await expect.poll(() => refusedStarts(sandbox as Sandbox), { timeout: 30_000 }).toBeGreaterThan(afterRetry);
+  const changed = await waitForSnapshot(app, (state) => state.owner === "NEEDS_REPAIR", 30_000);
+  expect(changed.backend).toBeNull();
+  expect(await portIsFree(newPort)).toBe(true);
+  expect(await portIsFree(sandbox.port)).toBe(true);
+  const settings = JSON.parse(readFileSync(join(sandbox.dataDirectory, "desktop-settings.json"), "utf8")) as {
+    desired: { port: number };
+  };
+  expect(settings.desired.port).toBe(sandbox.port);
+});
+
+test("the first-run page offers 複製到本機磁碟並改用 for a cloud-sync database that needs an update; the App ends on the copy and the original is untouched", async () => {
+  sandbox = await createSandbox({ withDatabase: true, withSettings: false });
+  // The previous release's schema, in a folder a sync client owns: the update is refused in place.
+  makeSchemaOlder(sandbox.databasePath);
+  const before = digestOf(sandbox.databasePath);
+  const risks = verdictFile(sandbox, { [sandbox.databasePath]: "cloud-sync" });
+  app = await launchApp(sandbox, {
+    WORK_INTELLIGENCE_DESKTOP_TEST_STORAGE_RISK_FILE: risks,
+    WORK_INTELLIGENCE_DESKTOP_TEST_AUTOCONFIRM_COPY: "1",
+    WORK_INTELLIGENCE_DESKTOP_TEST_DEFAULT_PORT: String(sandbox.port),
+  });
+
+  const window = await app.firstWindow({ timeout: 45_000 });
+  await waitForSnapshot(app, (state) => state.firstRunDetectionMs !== null, 30_000);
+  const text = await pageText(window);
+  const card = window.locator("[data-source]").first();
+  await expect(card.locator('.storage-risk[data-risk="cloud-sync"]')).toBeVisible({ timeout: 30_000 });
+  // The note points at the button, and the button is there; "use" is not.
+  await expect(card.locator('[data-id^="use:"]')).toHaveCount(0);
+  const copy = card.locator('[data-id^="copy-to-local:"]');
+  await expect(copy).toHaveText(text.storageCopyToLocal);
+  await copy.click();
+
+  const ready = await waitForManagedSnapshot(app, 90_000);
+  expect(ready.owner).toBe("MANAGED");
+  const settings = JSON.parse(readFileSync(join(sandbox.dataDirectory, "desktop-settings.json"), "utf8")) as {
+    desired: { databasePath: string; port: number };
+  };
+  expect(basename(settings.desired.databasePath)).toBe("work-intelligence-local.sqlite");
+  expect(settings.desired.databasePath).not.toBe(sandbox.databasePath);
+  // The copy was updated; the original is byte for byte what it was.
+  const copied = new DatabaseSync(settings.desired.databasePath, { readOnly: true });
+  const versions = copied.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number };
+  copied.close();
+  const original = new DatabaseSync(sandbox.databasePath, { readOnly: true });
+  const olderVersions = original.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as {
+    version: number;
+  };
+  original.close();
+  expect(versions.version).toBeGreaterThan(olderVersions.version);
+  expect(digestOf(sandbox.databasePath)).toBe(before);
+  expect(readMainLog(sandbox)).not.toContain(sandbox.databasePath);
 });

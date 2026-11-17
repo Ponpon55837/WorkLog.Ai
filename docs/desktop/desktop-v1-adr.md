@@ -108,6 +108,7 @@
 
 - **狀態**：已採用（行為待測）
 - **1.6.44 狀態**：候選預覽由 `preview` 子程序執行，只送 `preflight`、不送 `start`，因此不 listen，也不開啟可寫連線（`packages/desktop-core/src/backend/backend-supervisor.ts`）；sidecar 的實際行為待實機驗收。
+- **1.6.51 狀態**：DB 位置的風險分類（網路、可移除、雲端同步、硬連結、unknown）已實作，啟動與選擇資料庫時執行；網路磁碟拒絕作為 App 資料庫，其他風險位置不一鍵沿用、不更新 schema，必須勾選同意。「複製到本機磁碟並改用」以 `VACUUM INTO` 與 `quick_check` 產生複本，原檔不變。真實磁碟與雲端根目錄的判定待實機驗收（`apps/desktop/src/main/storage-risk.ts`、`local-copy.ts`）。
 - **脈絡**：SQLite WAL 唯讀開庫仍可能使用或建立 `-wal`／`-shm`；`immutable=1` 會跳過變更偵測 `[U]`。
 - **決策**：唯讀意圖是不修改業務資料；未經同意不得刪除或搬動 sidecar。活躍 DB 禁用 `immutable=1`。網路 FS、同步資料夾、外接碟列為風險來源，禁止自動接管與遷移。
 - **後果**：需以檔案系統監測測試實際副作用（G-DB-01）。
@@ -333,6 +334,7 @@
 ### ADR-27 Port 策略：預設 3210，實際 bind 為準，跨 port 只搬白名單偏好
 
 - **狀態**：已採用
+- **1.6.51 狀態**：換 port 已實作於 App 內（修復視窗「連接埠」與工作列「變更連接埠…」）。實際 bind 或 IPC 與 HTTP 證明失敗時不寫入設定、回到舊 port；OS 不允許的 port 回報 `PORT_NOT_PERMITTED`，與占用分開。新位址以一次性 fragment 還原白名單偏好，不移轉 session 或 DB 路徑（`apps/desktop/src/main/change-port.ts`）。實機行為待驗收。
 - **脈絡**：port 預檢無法代表實際 bind 結果；port 改變後 browser origin 也改變（R20）。
 - **決策**：預設 `127.0.0.1:3210`，接管時記住既有 port。僅 loopback。實際 bind 失敗不得先建立空 DB。跨 port 只搬運白名單非秘密偏好，不移轉管理會話或 DB 路徑 token。
 - **後果**：換 port 時使用者可能需要重新登入管理授權。

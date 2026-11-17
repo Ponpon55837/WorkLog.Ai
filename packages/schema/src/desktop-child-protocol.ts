@@ -193,7 +193,10 @@ const openPortSettingsSchema = z.strictObject({
   route: z.string().max(MAX_HANDOFF_ROUTE_LENGTH).optional(),
 });
 
-/** The long jobs a running backend reports; any of them makes a port change wait. */
+/**
+ * The long jobs a running backend reports; any of them makes a port change wait. `restore` is reserved for a future
+ * restore flow: the server has no restore route yet, so nothing reports it today.
+ */
 export const DESKTOP_BACKEND_ACTIVITIES = ["import", "backup", "export", "restore"] as const;
 
 const activitySchema = z.strictObject({

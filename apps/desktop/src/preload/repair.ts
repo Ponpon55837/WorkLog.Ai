@@ -18,6 +18,7 @@ const channels: typeof REPAIR_CHANNELS = {
   setupUseDefaults: "setup:use-defaults",
   setupUseSource: "setup:use-source",
   setupChooseFile: "setup:choose-file",
+  setupCopyToLocal: "setup:copy-to-local",
   setupLater: "setup:later",
   showView: "app:show-view",
   agentsGetState: "agents:get-state",
@@ -66,6 +67,11 @@ const api: RepairApi = {
       ...(input.startAnyway === undefined ? {} : { startAnyway: input.startAnyway }),
     }),
   setupChooseFile: () => ipcRenderer.invoke(channels.setupChooseFile, {}),
+  setupCopyToLocal: (sourceId, launchAtLogin) =>
+    ipcRenderer.invoke(channels.setupCopyToLocal, {
+      sourceId,
+      ...(launchAtLogin === undefined ? {} : { launchAtLogin }),
+    }),
   setupLater: () => ipcRenderer.invoke(channels.setupLater, {}),
   showAgents: () => ipcRenderer.invoke(channels.showView, { view: "agents" }),
   agentsGetState: () => ipcRenderer.invoke(channels.agentsGetState),

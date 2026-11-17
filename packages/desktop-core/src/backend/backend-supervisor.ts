@@ -9,12 +9,12 @@ import {
   type DesktopReadyMessage,
 } from "@work-intelligence/schema";
 import { normalizePathForCompare } from "@work-intelligence/shared/file-identity";
+import { portFailureCode } from "@work-intelligence/shared/port-failure";
 import {
   INSTANCE_CHALLENGE_HEADER,
   INSTANCE_PROOF_HEADER,
   verifyInstanceProof,
 } from "@work-intelligence/shared/instance-proof";
-import { portFailureCode } from "../shell/port-policy.js";
 import { runtimeErrorCode } from "../runtime/errors.js";
 import type { LaunchPlan } from "../runtime/launch-plan.js";
 import { compareDatabaseIdentity } from "../db-source/identity-compare.js";

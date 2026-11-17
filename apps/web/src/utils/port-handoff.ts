@@ -86,3 +86,21 @@ export function consumePortHandoff(host: PortHandoffHost): string | undefined {
   if (handoff || hasHandoffKey(host.hash)) host.replaceUrl(`${host.pathname}${host.search}`);
   return handoff?.route;
 }
+
+/** The part of a resolved route that the gate reads: the path pattern of each matched record. */
+export interface ResolvedRouteRecord {
+  path: string;
+}
+
+/**
+ * A route from the App's handoff is opened only when it matches a real page: a resolvable route is kept as it is, and
+ * the catch-all or an unknown route becomes "/".
+ */
+export function gateHandoffRoute(
+  route: string,
+  resolve: (route: string) => { matched: readonly ResolvedRouteRecord[] },
+): string {
+  const { matched } = resolve(route);
+  const known = matched.length > 0 && matched.every((record) => !record.path.includes(":pathMatch("));
+  return known ? route : "/";
+}

@@ -83,8 +83,11 @@ export interface RepairPortSection {
   readonly port: number | null;
   /** The port the running backend serves, when one runs. */
   readonly activePort: number | null;
-  /** Bumps each time main asks for the section to be shown (the tray item, the Dashboard's link); the page scrolls to it. */
-  readonly focusToken: number;
+  /**
+   * Main asked for the section to be shown (the tray item, the Dashboard's link) and no page has been told yet: true in
+   * exactly one state, so a later load of the page does not scroll to it again.
+   */
+  readonly focus: boolean;
   /** The Dashboard's preferences wait in memory to be carried over. */
   readonly handoffHeld: boolean;
 }
