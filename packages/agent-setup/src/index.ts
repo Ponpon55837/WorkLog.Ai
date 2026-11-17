@@ -8,6 +8,7 @@ export {
   type AgentSetupErrorCode,
   type AgentSetupItemResult,
   type AgentSetupItemStatus,
+  type AgentSetupRecoveryLocation,
   type AgentSetupRecoveryResult,
   type AgentSetupTransactionOptions,
   type AgentSetupTransactionResult,

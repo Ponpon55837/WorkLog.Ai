@@ -7,8 +7,11 @@ import {
   createAgentSetupPlan,
   readAgentSetupJournal,
   recoverAgentSetupJournal,
+  type AgentSetupJournal,
   type AgentSetupPlan,
+  type AgentSetupRecoveryResult,
 } from "@work-intelligence/agent-setup";
+import { writeAgentSetupJournal } from "../../packages/agent-setup/src/journal.js";
 import { createFixture, readJson, removeFixtures, type SetupFixture } from "./fixture.js";
 
 function snapshotUserFiles(fixture: SetupFixture): Map<string, Buffer | null> {
@@ -28,6 +31,36 @@ function expectSnapshot(snapshot: Map<string, Buffer | null>): void {
     if (bytes === null) expect(existsSync(path), path).toBe(false);
     else expect(readFileSync(path), path).toEqual(bytes);
   }
+}
+
+function recoverAt(fixture: SetupFixture): AgentSetupRecoveryResult {
+  return recoverAgentSetupJournal(fixture.paths.journal, { homeDirectory: fixture.options.homeDirectory });
+}
+
+/** A journal as a crashed apply leaves it, built by hand so a test can change its contents. */
+function pendingJournal(plan: AgentSetupPlan): AgentSetupJournal {
+  return {
+    version: 1,
+    operationId: "fixture-operation",
+    state: "pending",
+    startedAt: "2026-09-28T12:34:56.000Z",
+    items: plan.mutations.map((mutation) => ({
+      path: mutation.path,
+      label: mutation.label,
+      mode: mutation.mode,
+      beforeFingerprint: mutation.beforeFingerprint,
+      afterFingerprint: mutation.afterFingerprint,
+      ...(mutation.backupPath ? { backupPath: mutation.backupPath, backupCreated: true } : {}),
+      state: "writing" as const,
+    })),
+    createdDirectories: [],
+  };
+}
+
+function writePendingJournal(fixture: SetupFixture, plan: AgentSetupPlan): AgentSetupJournal {
+  const journal = pendingJournal(plan);
+  writeFileSync(fixture.paths.journal, JSON.stringify(journal));
+  return journal;
 }
 
 function indexOfPath(plan: AgentSetupPlan, path: string): number {
@@ -276,7 +309,7 @@ describe("applyAgentSetupTransaction", () => {
     });
     rmSync(backup);
 
-    writeFileSync(fixture.paths.journal, "not a journal");
+    writePendingJournal(fixture, plan);
     expect(applyAgentSetupTransaction(plan, { journalPath: fixture.paths.journal })).toMatchObject({
       outcome: "refused",
       code: "unfinished-journal",
@@ -284,13 +317,28 @@ describe("applyAgentSetupTransaction", () => {
     expect(existsSync(fixture.paths.manifest)).toBe(false);
   });
 
-  it("refuses when the journal path is occupied by something that is not a journal", () => {
+  it("moves an unreadable journal aside instead of blocking every later apply, and reports it", () => {
+    const fixture = createFixture();
+    const plan = createAgentSetupPlan(fixture.options);
+    writeFileSync(fixture.paths.journal, "not a journal");
+
+    const result = applyAgentSetupTransaction(plan, { journalPath: fixture.paths.journal });
+
+    expect(result).toMatchObject({ outcome: "committed", code: "journal-corrupt-moved" });
+    expect(result.corruptJournalPath).toMatch(/\.journal\.json\.corrupt-\d{8}T\d{9}Z$/);
+    expect(readFileSync(result.corruptJournalPath ?? "", "utf8")).toBe("not a journal");
+    const journal = readAgentSetupJournal(fixture.paths.journal);
+    expect(journal.status === "found" && journal.journal.state).toBe("committed");
+  });
+
+  it("moves a directory sitting on the journal path aside too", () => {
     const fixture = createFixture();
     const plan = createAgentSetupPlan(fixture.options);
     mkdirSync(fixture.paths.journal);
-    const result = applyAgentSetupTransaction(plan, { journalPath: fixture.paths.journal });
-    expect(result).toMatchObject({ outcome: "refused", code: "unfinished-journal" });
-    expect(existsSync(fixture.paths.manifest)).toBe(false);
+    expect(applyAgentSetupTransaction(plan, { journalPath: fixture.paths.journal })).toMatchObject({
+      outcome: "committed",
+      code: "journal-corrupt-moved",
+    });
   });
 
   it("keeps the legacy apply free of a journal and of verification", () => {
@@ -321,13 +369,13 @@ describe("recoverAgentSetupJournal", () => {
     const pending = readAgentSetupJournal(fixture.paths.journal);
     expect(pending.status === "found" && pending.journal.state).toBe("pending");
 
-    const recovery = recoverAgentSetupJournal(fixture.paths.journal);
+    const recovery = recoverAt(fixture);
 
     expect(recovery.status).toBe("recovered");
     expect(recovery.items.filter((item) => item.compensation === "restored").length).toBe(4);
     expectSnapshot(before);
     for (const mutation of plan.mutations) if (mutation.backupPath) expect(existsSync(mutation.backupPath)).toBe(false);
-    expect(recoverAgentSetupJournal(fixture.paths.journal).status).toBe("already-final");
+    expect(recoverAt(fixture).status).toBe("already-final");
     // Home still exists; only files of the interrupted operation were touched.
     expect(readdirSync(fixture.options.homeDirectory).length).toBeGreaterThan(0);
   });
@@ -349,7 +397,7 @@ describe("recoverAgentSetupJournal", () => {
     if (!third) throw new Error("fixture plan is too small");
     writeFileSync(third.path, "edited after the crash\n");
 
-    const recovery = recoverAgentSetupJournal(fixture.paths.journal);
+    const recovery = recoverAt(fixture);
 
     expect(recovery.status).toBe("needs-manual-repair");
     expect(readFileSync(third.path, "utf8")).toBe("edited after the crash\n");
@@ -361,16 +409,18 @@ describe("recoverAgentSetupJournal", () => {
     });
   });
 
-  it("reports a missing and an unreadable journal, and ignores a committed one", () => {
+  it("reports a missing journal, moves an unreadable one aside, and ignores a committed one", () => {
     const fixture = createFixture();
-    expect(recoverAgentSetupJournal(fixture.paths.journal)).toEqual({ status: "none", items: [] });
+    expect(recoverAt(fixture)).toEqual({ status: "none", items: [] });
     writeFileSync(fixture.paths.journal, "{}");
-    expect(recoverAgentSetupJournal(fixture.paths.journal).status).toBe("unreadable");
-    rmSync(fixture.paths.journal);
+    const moved = recoverAt(fixture);
+    expect(moved).toMatchObject({ status: "moved-aside", code: "journal-corrupt-moved", items: [] });
+    expect(readFileSync(moved.corruptJournalPath ?? "", "utf8")).toBe("{}");
+    expect(existsSync(fixture.paths.journal)).toBe(false);
     const plan = createAgentSetupPlan(fixture.options);
     applyAgentSetupTransaction(plan, { journalPath: fixture.paths.journal });
     const manifest = readFileSync(fixture.paths.manifest);
-    expect(recoverAgentSetupJournal(fixture.paths.journal).status).toBe("already-final");
+    expect(recoverAt(fixture).status).toBe("already-final");
     expect(readFileSync(fixture.paths.manifest)).toEqual(manifest);
     expect(readJson(fixture.paths.claudeJson).mcpServers).toBeDefined();
   });
@@ -390,9 +440,182 @@ describe("recoverAgentSetupJournal", () => {
     rmSync(crashed, { recursive: true, force: true });
     for (const mutation of plan.mutations) if (mutation.backupPath) rmSync(mutation.backupPath, { force: true });
 
-    const recovery = recoverAgentSetupJournal(fixture.paths.journal);
+    const recovery = recoverAt(fixture);
 
     expect(recovery.status).toBe("needs-manual-repair");
     expect(recovery.items.some((item) => item.compensation === "failed")).toBe(true);
+  });
+});
+
+describe("recovery refuses a journal that names files setup does not own", () => {
+  function expectRefusedUntouched(fixture: SetupFixture, journal: AgentSetupJournal, victim: string): void {
+    writeFileSync(fixture.paths.journal, JSON.stringify(journal));
+    const before = readFileSync(victim);
+
+    const recovery = recoverAt(fixture);
+
+    expect(recovery).toMatchObject({ status: "needs-manual-repair", code: "journal-paths-invalid" });
+    expect(recovery.items.every((item) => item.compensation === "none")).toBe(true);
+    expect(readFileSync(victim)).toEqual(before);
+    const after = readAgentSetupJournal(fixture.paths.journal);
+    expect(after.status === "found" && after.journal.state).toBe("needs-manual-repair");
+  }
+
+  it("does not restore over a path that is not a setup target", () => {
+    const fixture = createFixture();
+    const plan = createAgentSetupPlan(fixture.options);
+    const victim = join(fixture.temporaryRoot, "victim.txt");
+    writeFileSync(victim, "precious\n");
+    const journal = pendingJournal(plan);
+    const [first] = journal.items;
+    if (!first) throw new Error("fixture plan is empty");
+    first.path = victim;
+    first.afterFingerprint = "absent";
+    first.beforeFingerprint = "absent";
+    expectRefusedUntouched(fixture, journal, victim);
+  });
+
+  it("does not delete a backup path that is not a sibling named like a setup backup", () => {
+    const fixture = createFixture();
+    const plan = createAgentSetupPlan(fixture.options);
+    const victim = join(fixture.temporaryRoot, "victim.txt");
+    writeFileSync(victim, "precious\n");
+    for (const backupPath of [victim, `${fixture.paths.claudeJson}.other-name`]) {
+      const journal = pendingJournal(plan);
+      const item = journal.items.find((candidate) => candidate.backupPath);
+      if (!item) throw new Error("fixture plan has no backup");
+      item.backupPath = backupPath;
+      expectRefusedUntouched(fixture, journal, victim);
+    }
+  });
+
+  it("does not remove a created directory that is not a parent of a setup target", () => {
+    const fixture = createFixture();
+    const plan = createAgentSetupPlan(fixture.options);
+    const victim = join(fixture.options.homeDirectory, "Documents");
+    mkdirSync(victim);
+    writeFileSync(join(victim, "keep.txt"), "x");
+    for (const directory of [victim, fixture.options.homeDirectory, fixture.temporaryRoot]) {
+      const journal = pendingJournal(plan);
+      journal.createdDirectories = [directory];
+      expectRefusedUntouched(fixture, journal, join(victim, "keep.txt"));
+    }
+    expect(existsSync(victim)).toBe(true);
+  });
+
+  it("still recovers when Agent config directories live outside the home", () => {
+    const fixture = createFixture();
+    const codexHomeDirectory = join(fixture.temporaryRoot, "elsewhere", "codex");
+    const options = { ...fixture.options, codexHomeDirectory };
+    const plan = createAgentSetupPlan(options);
+    const target = plan.mutations.find((mutation) => mutation.path.startsWith(codexHomeDirectory));
+    if (!target) throw new Error("fixture plan has no Codex target");
+    const journal = { ...pendingJournal({ ...plan, mutations: [target] }), createdDirectories: [codexHomeDirectory] };
+    writeFileSync(fixture.paths.journal, JSON.stringify(journal));
+
+    const recovery = recoverAgentSetupJournal(fixture.paths.journal, {
+      homeDirectory: options.homeDirectory,
+      codexHomeDirectory,
+    });
+
+    expect(recovery.code).toBeUndefined();
+    expect(recovery.status).not.toBe("needs-manual-repair");
+  });
+});
+
+describe("journal and backup failures", () => {
+  it("refuses without writing anything when the journal cannot be written", () => {
+    const fixture = createFixture();
+    const plan = createAgentSetupPlan(fixture.options);
+    const before = snapshotUserFiles(fixture);
+
+    const result = applyAgentSetupTransaction(plan, {
+      journalPath: fixture.paths.journal,
+      writeJournal: () => {
+        throw new Error("disk full");
+      },
+    });
+
+    expect(result).toMatchObject({ outcome: "refused", code: "journal-write-failed" });
+    expect(result.items.every((item) => item.status === "skipped")).toBe(true);
+    expectSnapshot(before);
+    for (const mutation of plan.mutations) if (mutation.backupPath) expect(existsSync(mutation.backupPath)).toBe(false);
+  });
+
+  it("compensates a whole finished apply when the commit mark cannot be written", () => {
+    const fixture = createFixture();
+    const plan = createAgentSetupPlan(fixture.options);
+    const before = snapshotUserFiles(fixture);
+    let calls = 0;
+    const attempts: string[] = [];
+
+    const result = applyAgentSetupTransaction(plan, {
+      journalPath: fixture.paths.journal,
+      writeJournal: (path, journal) => {
+        calls += 1;
+        attempts.push(journal.state);
+        if (journal.state === "committed") throw new Error("disk full");
+        writeAgentSetupJournal(path, journal);
+      },
+    });
+
+    expect(calls).toBeGreaterThan(plan.mutations.length);
+    expect(attempts).toContain("committed");
+    expect(result).toMatchObject({ outcome: "rolled-back", code: "journal-write-failed" });
+    expect(result.items.every((item) => item.compensation === "restored")).toBe(true);
+    expectSnapshot(before);
+    for (const mutation of plan.mutations) if (mutation.backupPath) expect(existsSync(mutation.backupPath)).toBe(false);
+    const journal = readAgentSetupJournal(fixture.paths.journal);
+    expect(journal.status === "found" && journal.journal.state).toBe("compensated");
+  });
+
+  it("stops and compensates when the journal cannot be written before an item", () => {
+    const fixture = createFixture();
+    const plan = createAgentSetupPlan(fixture.options);
+    const before = snapshotUserFiles(fixture);
+    let writing = 0;
+
+    const result = applyAgentSetupTransaction(plan, {
+      journalPath: fixture.paths.journal,
+      writeJournal: (path, journal) => {
+        if (journal.items.some((item) => item.state === "writing")) {
+          writing += 1;
+          if (writing === 3) throw new Error("disk full");
+        }
+        writeAgentSetupJournal(path, journal);
+      },
+    });
+
+    expect(result).toMatchObject({ outcome: "rolled-back", code: "journal-write-failed" });
+    expectSnapshot(before);
+  });
+
+  it("never deletes a backup it did not create when the backup name was taken in the race", () => {
+    const fixture = createFixture();
+    const plan = createAgentSetupPlan(fixture.options);
+    const before = snapshotUserFiles(fixture);
+    const withBackup = plan.mutations.filter((mutation) => mutation.backupPath);
+    const [first, second] = withBackup;
+    if (!first?.backupPath || !second?.backupPath) throw new Error("fixture plan needs two backups");
+    let raced = false;
+
+    // The plan checked the name was free; someone takes it after the pre-checks and before the backups are made.
+    const result = applyAgentSetupTransaction(plan, {
+      journalPath: fixture.paths.journal,
+      writeJournal: (path, journal) => {
+        if (!raced) {
+          raced = true;
+          writeFileSync(second.backupPath ?? "", "someone else's backup\n");
+        }
+        writeAgentSetupJournal(path, journal);
+      },
+    });
+
+    expect(result).toMatchObject({ outcome: "rolled-back", code: "write-failed" });
+    expect(readFileSync(second.backupPath, "utf8")).toBe("someone else's backup\n");
+    expect(existsSync(first.backupPath)).toBe(false);
+    const journal = readAgentSetupJournal(fixture.paths.journal);
+    expect(journal.status === "found" && journal.journal.items.map((item) => item.backupCreated)).toContain(true);
+    expectSnapshot(before);
   });
 });

@@ -1,20 +1,31 @@
+/**
+ * Plan, apply, verify, compensate (DT-21). Every item is fingerprint-checked when the plan is made, again right before
+ * its turn, and a third time right before the rename (temporary file written, target re-read, rename). The last window
+ * is microseconds wide but cannot be closed entirely: neither POSIX nor Windows offers a compare-and-swap rename, so an
+ * Agent that rewrites its own config in that instant still wins the race and loses nothing but our write being based
+ * on stale bytes. ADR-14: this is not an OS-level transaction and needs host cooperation (a lock) to be one.
+ */
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, rmSync, rmdirSync, unlinkSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readFileSync, rmSync, rmdirSync } from "node:fs";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import {
   ABSENT_FINGERPRINT,
+  FingerprintMismatchError,
   ensureDirectory,
   fingerprintOf,
   readCurrent,
+  removeAtomically,
   writeAtomically,
   writeExclusiveAtomically,
 } from "./files.js";
 import {
+  moveAgentSetupJournalAside,
   readAgentSetupJournal,
   writeAgentSetupJournal,
   type AgentSetupJournal,
   type AgentSetupJournalItem,
 } from "./journal.js";
+import { knownTargetPaths, type AgentSetupLocation } from "./paths.js";
 import type { AgentSetupFileMutation, AgentSetupPlan } from "./types.js";
 
 /** What happened to one planned item. `skipped` items were never attempted because an earlier item stopped the apply. */
@@ -40,7 +51,9 @@ export type AgentSetupErrorCode =
   | "externally-modified"
   | "read-failed"
   | "write-failed"
-  | "verify-mismatch";
+  | "verify-mismatch"
+  | "journal-corrupt-moved"
+  | "journal-paths-invalid";
 
 export interface AgentSetupItemResult {
   index: number;
@@ -63,6 +76,8 @@ export interface AgentSetupTransactionResult {
   code?: AgentSetupErrorCode;
   items: AgentSetupItemResult[];
   journalPath?: string;
+  /** Set when an unreadable journal from an earlier run was moved aside (not deleted) so this apply could proceed. */
+  corruptJournalPath?: string;
 }
 
 export interface AgentSetupTransactionOptions {
@@ -72,14 +87,25 @@ export interface AgentSetupTransactionOptions {
   beforeWrite?: (mutation: AgentSetupFileMutation, index: number) => void;
   /** Test seam that runs right after an item was written. */
   afterWrite?: (mutation: AgentSetupFileMutation, index: number) => void;
+  /** Test seam for the journal writer; defaults to {@link writeAgentSetupJournal}. */
+  writeJournal?: typeof writeAgentSetupJournal;
 }
 
 export interface AgentSetupRecoveryResult {
-  /** `none`: no journal; `unreadable`: not a journal of this version; `already-final`: committed or compensated. */
-  status: "none" | "unreadable" | "already-final" | "recovered" | "needs-manual-repair";
+  /**
+   * `none`: no journal; `moved-aside`: not a journal of this version, kept as `corruptJournalPath`; `unreadable`: the
+   * same, but it could not be moved; `already-final`: committed or compensated. A pending journal whose paths are not
+   * ours (`journal-paths-invalid`) is marked `needs-manual-repair` and no file is touched.
+   */
+  status: "none" | "moved-aside" | "unreadable" | "already-final" | "recovered" | "needs-manual-repair";
+  code?: AgentSetupErrorCode;
   operationId?: string;
   items: AgentSetupItemResult[];
+  corruptJournalPath?: string;
 }
+
+/** Where recovery expects setup's files to be; the journal is user-writable, so its paths are checked against this. */
+export type AgentSetupRecoveryLocation = AgentSetupLocation;
 
 export interface AgentSetupApplyResult {
   applied: boolean;
@@ -99,6 +125,7 @@ interface TransactionRunOptions {
   verify: boolean;
   beforeWrite?: AgentSetupApplyOptions["beforeWrite"];
   afterWrite?: AgentSetupTransactionOptions["afterWrite"];
+  writeJournal?: AgentSetupTransactionOptions["writeJournal"];
 }
 
 /** A finished run plus the raw messages only the legacy wrapper prints; the public result never carries them. */
@@ -163,15 +190,21 @@ function compensate(entries: CompensationEntry[]): CompensationReport {
       } else {
         const before = entry.loadBefore();
         if (before === null) {
-          if (existsSync(item.path)) unlinkSync(item.path);
+          removeAtomically(item.path, item.afterFingerprint);
         } else {
-          writeAtomically(item.path, before, item.mode);
+          writeAtomically(item.path, before, item.mode, item.afterFingerprint);
         }
         statuses[index] = "restored";
       }
     } catch (error) {
-      statuses[index] = "failed";
-      errors.push(messageOf(error));
+      if (error instanceof FingerprintMismatchError) {
+        // Changed between the check above and the restore: not ours any more, same as an earlier external change.
+        statuses[index] = "manual-repair";
+        stopped = true;
+      } else {
+        statuses[index] = "failed";
+        errors.push(messageOf(error));
+      }
     }
   }
   return {
@@ -183,14 +216,17 @@ function compensate(entries: CompensationEntry[]): CompensationReport {
   };
 }
 
-/** After a complete compensation the backups and the directories this operation created have no purpose left. */
+/**
+ * After a complete compensation the backups this operation created and the directories it created have no purpose
+ * left. A backup that was already there when ours failed to be created belongs to someone else and stays.
+ */
 function cleanUp(
   items: readonly AgentSetupJournalItem[],
   createdDirectories: Iterable<string>,
   errors: string[],
 ): void {
   for (const item of items) {
-    if (!item.backupPath) continue;
+    if (!item.backupPath || !item.backupCreated) continue;
     try {
       rmSync(item.backupPath, { force: true });
     } catch (error) {
@@ -223,8 +259,13 @@ function runTransaction(plan: AgentSetupPlan, options: TransactionRunOptions): T
     verify: "not-run",
     compensation: "none",
   }));
+  let corruptJournalPath: string | undefined;
+  const finish = (result: AgentSetupTransactionResult): AgentSetupTransactionResult =>
+    corruptJournalPath === undefined
+      ? result
+      : { ...result, code: result.code ?? "journal-corrupt-moved", corruptJournalPath };
   const refuse = (code: AgentSetupErrorCode): TransactionRun => ({
-    result: { operationId, outcome: "refused", code, items, journalPath: options.journalPath },
+    result: finish({ operationId, outcome: "refused", code, items, journalPath: options.journalPath }),
     rollbackErrors: [],
   });
 
@@ -253,12 +294,16 @@ function runTransaction(plan: AgentSetupPlan, options: TransactionRunOptions): T
   const persist = (): void => {
     if (!options.journalPath) return;
     journal.createdDirectories = [...createdDirectories];
-    writeAgentSetupJournal(options.journalPath, journal);
+    (options.writeJournal ?? writeAgentSetupJournal)(options.journalPath, journal);
   };
   if (options.journalPath) {
     const previous = readAgentSetupJournal(options.journalPath);
-    if (previous.status === "unreadable" || (previous.status === "found" && previous.journal.state === "pending")) {
-      return refuse("unfinished-journal");
+    if (previous.status === "found" && previous.journal.state === "pending") return refuse("unfinished-journal");
+    if (previous.status === "unreadable") {
+      // An unreadable journal must not block every later apply; keep it for inspection instead of deleting it.
+      const moved = moveAgentSetupJournalAside(options.journalPath);
+      if (moved === null) return refuse("unfinished-journal");
+      corruptJournalPath = moved;
     }
     try {
       persist();
@@ -276,10 +321,12 @@ function runTransaction(plan: AgentSetupPlan, options: TransactionRunOptions): T
   };
 
   try {
-    for (const mutation of plan.mutations) {
+    for (const [index, mutation] of plan.mutations.entries()) {
       if (!mutation.before || !mutation.backupPath) continue;
       ensureDirectory(dirname(mutation.backupPath), createdDirectories);
       writeExclusiveAtomically(mutation.backupPath, mutation.before);
+      const entry = journal.items[index];
+      if (entry) entry.backupCreated = true;
     }
   } catch (error) {
     fail(error);
@@ -307,14 +354,22 @@ function runTransaction(plan: AgentSetupPlan, options: TransactionRunOptions): T
       }
       code = "write-failed";
       ensureDirectory(dirname(mutation.path), createdDirectories);
+      // The fingerprint is checked once more after the temporary file is ready, right before the rename.
       if (mutation.after === null) {
-        if (existsSync(mutation.path)) unlinkSync(mutation.path);
+        removeAtomically(mutation.path, mutation.beforeFingerprint);
       } else {
-        writeAtomically(mutation.path, mutation.after, mutation.mode);
+        writeAtomically(mutation.path, mutation.after, mutation.mode, mutation.beforeFingerprint);
       }
       result.status = "written";
       options.afterWrite?.(mutation, index);
     } catch (error) {
+      if (error instanceof FingerprintMismatchError) {
+        entry.state = "planned";
+        result.status = "externally-modified";
+        result.code = "externally-modified";
+        stopCode = "externally-modified";
+        break;
+      }
       if (result.status !== "written") result.status = "failed";
       // Only a failure inside the write itself can have left our bytes behind.
       if (code !== "write-failed") entry.state = "planned";
@@ -342,7 +397,7 @@ function runTransaction(plan: AgentSetupPlan, options: TransactionRunOptions): T
     try {
       persist();
       return {
-        result: { operationId, outcome: "committed", items, journalPath: options.journalPath },
+        result: finish({ operationId, outcome: "committed", items, journalPath: options.journalPath }),
         rollbackErrors: [],
       };
     } catch (error) {
@@ -366,13 +421,13 @@ function runTransaction(plan: AgentSetupPlan, options: TransactionRunOptions): T
     // The files are already in their final state; recovery of a pending journal re-checks them and is idempotent.
   }
   return {
-    result: {
+    result: finish({
       operationId,
       outcome: report.complete ? "rolled-back" : "needs-manual-repair",
       code: stopCode,
       items,
       journalPath: options.journalPath,
-    },
+    }),
     ...(failure === undefined ? {} : { failure }),
     rollbackErrors,
   };
@@ -392,13 +447,77 @@ export function applyAgentSetupTransaction(
   return runTransaction(plan, { ...options, verify: true }).result;
 }
 
+/** Windows paths compare case-insensitively; everything else byte for byte. */
+function comparablePath(path: string): string {
+  const absolute = resolve(path);
+  return process.platform === "win32" ? absolute.toLowerCase() : absolute;
+}
+
+function isInside(path: string, root: string, inclusive: boolean): boolean {
+  return (inclusive && path === root) || path.startsWith(root.endsWith(sep) ? root : root + sep);
+}
+
+/** `<path>.work-intelligence.backup-<yyyymmddThhmmssmmmZ>-<8 hex>[-<n>]`, as {@link backupPathFor} names them. */
+function isBackupSibling(backupPath: string, path: string): boolean {
+  const prefix = `${basename(path)}.work-intelligence.backup-`;
+  const name = basename(backupPath);
+  return (
+    comparablePath(dirname(backupPath)) === comparablePath(dirname(path)) &&
+    name.startsWith(prefix) &&
+    /^\d{8}T\d{9}Z-[0-9a-f]{8}(?:-\d+)?$/.test(name.slice(prefix.length))
+  );
+}
+
+/**
+ * The journal is a user-writable file, and recovery rewrites and deletes whatever it names. It is only followed when
+ * every item is one of setup's own target files, every backup is a sibling named the way setup names backups, and every
+ * created directory is a parent of a target below the home or an Agent config directory.
+ */
+function journalPathsAreOurs(journal: AgentSetupJournal, location: AgentSetupRecoveryLocation): boolean {
+  const homeDirectory = resolve(location.homeDirectory);
+  const home = comparablePath(homeDirectory);
+  const targets = [...knownTargetPaths(location)].map(comparablePath);
+  const known = new Set(targets);
+  const roots = [
+    { path: home, inclusive: false },
+    { path: comparablePath(location.codexHomeDirectory ?? join(homeDirectory, ".codex")), inclusive: true },
+    { path: comparablePath(location.claudeConfigDirectory ?? join(homeDirectory, ".claude")), inclusive: true },
+  ];
+  const itemsAreOurs = journal.items.every(
+    (item) =>
+      known.has(comparablePath(item.path)) &&
+      (item.backupPath === undefined || isBackupSibling(item.backupPath, item.path)),
+  );
+  return (
+    itemsAreOurs &&
+    journal.createdDirectories.every((directory) => {
+      const comparable = comparablePath(directory);
+      return (
+        roots.some((root) => isInside(comparable, root.path, root.inclusive)) &&
+        targets.some((target) => isInside(target, comparable, false))
+      );
+    })
+  );
+}
+
 /**
  * Compensates an operation whose journal was left `pending` (the process died mid-apply). Only items this operation
  * wrote and that still hold exactly what it wrote are restored, from their backup copies; everything else is reported.
+ * A journal that cannot be read is moved aside; one that names files setup does not own is marked for manual repair
+ * without touching any of them.
  */
-export function recoverAgentSetupJournal(journalPath: string): AgentSetupRecoveryResult {
+export function recoverAgentSetupJournal(
+  journalPath: string,
+  location: AgentSetupRecoveryLocation,
+): AgentSetupRecoveryResult {
   const read = readAgentSetupJournal(journalPath);
-  if (read.status !== "found") return { status: read.status, items: [] };
+  if (read.status === "none") return { status: "none", items: [] };
+  if (read.status === "unreadable") {
+    const moved = moveAgentSetupJournalAside(journalPath);
+    return moved === null
+      ? { status: "unreadable", items: [] }
+      : { status: "moved-aside", code: "journal-corrupt-moved", corruptJournalPath: moved, items: [] };
+  }
   const { journal } = read;
   const items: AgentSetupItemResult[] = journal.items.map((item, index) => ({
     index,
@@ -409,6 +528,16 @@ export function recoverAgentSetupJournal(journalPath: string): AgentSetupRecover
     compensation: "none",
   }));
   if (journal.state !== "pending") return { status: "already-final", operationId: journal.operationId, items };
+  if (!journalPathsAreOurs(journal, location)) {
+    journal.state = "needs-manual-repair";
+    writeAgentSetupJournal(journalPath, journal);
+    return {
+      status: "needs-manual-repair",
+      code: "journal-paths-invalid",
+      operationId: journal.operationId,
+      items,
+    };
+  }
 
   const report = compensate(journal.items.map((item) => ({ item, loadBefore: () => loadFromBackup(item) })));
   applyCompensation(items, report);

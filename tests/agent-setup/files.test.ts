@@ -4,10 +4,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createAgentSetupPlan } from "@work-intelligence/agent-setup";
 import {
   ABSENT_FINGERPRINT,
+  FingerprintMismatchError,
+  displayPath,
   ensureDirectory,
   fingerprintOf,
   readCurrent,
   readRegularFile,
+  removeAtomically,
   writeAtomically,
   writeExclusiveAtomically,
 } from "../../packages/agent-setup/src/files.js";
@@ -27,6 +30,30 @@ describe("file helpers", () => {
     mkdirSync(target);
     expect(() => writeAtomically(target, Buffer.from("x"), 0o600)).toThrow();
     expect(readdirSync(fixture.temporaryRoot).some((name) => name.includes(".tmp-"))).toBe(false);
+  });
+
+  it("replaces the target only while it still holds the expected bytes", () => {
+    const fixture = createFixture();
+    const target = join(fixture.temporaryRoot, "config.json");
+    writeFileSync(target, "old");
+    const expected = fingerprintOf(Buffer.from("old"));
+
+    writeAtomically(target, Buffer.from("new"), 0o600, expected);
+    expect(readFileSync(target, "utf8")).toBe("new");
+
+    expect(() => writeAtomically(target, Buffer.from("newer"), 0o600, expected)).toThrow(FingerprintMismatchError);
+    expect(readFileSync(target, "utf8")).toBe("new");
+    expect(readdirSync(fixture.temporaryRoot).some((name) => name.includes(".tmp-"))).toBe(false);
+  });
+
+  it("removes a file only while it still holds the expected bytes", () => {
+    const fixture = createFixture();
+    const target = join(fixture.temporaryRoot, "config.json");
+    writeFileSync(target, "edited");
+    expect(() => removeAtomically(target, fingerprintOf(Buffer.from("old")))).toThrow(FingerprintMismatchError);
+    expect(existsSync(target)).toBe(true);
+    removeAtomically(target, fingerprintOf(Buffer.from("edited")));
+    expect(existsSync(target)).toBe(false);
   });
 
   it("never replaces an existing file in an exclusive write and leaves no temporary file", () => {
@@ -80,5 +107,18 @@ describe("setup manifest validation", () => {
     writeFileSync(fixture.paths.manifest, content);
     const plan = createAgentSetupPlan(fixture.options);
     expect(plan.conflicts.length).toBeGreaterThan(0);
+  });
+});
+
+describe("displayPath", () => {
+  it("shortens paths under the home directory with the platform's separator", () => {
+    expect(displayPath("/home/a/.codex/config.toml", "/home/a", "linux")).toBe("~/.codex/config.toml");
+    expect(displayPath("/home/a", "/home/a", "linux")).toBe("~");
+    expect(displayPath("/home/ab/x", "/home/a", "linux")).toBe("/home/ab/x");
+    expect(displayPath("C:\\Users\\a\\.codex\\config.toml", "C:\\Users\\a", "win32")).toBe("~\\.codex\\config.toml");
+    expect(displayPath("c:\\users\\A\\x", "C:\\Users\\a\\", "win32")).toBe("~\\x");
+    expect(displayPath("C:\\Users\\a", "C:\\Users\\a", "win32")).toBe("~");
+    expect(displayPath("C:\\Users\\ab\\x", "C:\\Users\\a", "win32")).toBe("C:\\Users\\ab\\x");
+    expect(displayPath("D:\\other", "C:\\Users\\a", "win32")).toBe("D:\\other");
   });
 });

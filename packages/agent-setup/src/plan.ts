@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { join, posix, resolve, win32 } from "node:path";
 import { mcpRegistrationKind, isLauncherMcpRegistration } from "./commands.js";
 import {
+  LAUNCHER_SHIM_BASENAMES,
   MCP_LAUNCHER_RELATIVE_PATH,
   MCP_SERVER_RELATIVE_PATH,
   SKILL_SOURCE_RELATIVE_PATH,
@@ -117,6 +118,31 @@ export function stageMutation(
   );
 }
 
+/**
+ * Why a launcher shim path cannot be written into hook command lines, or `undefined` when it can. The path is quoted
+ * for the platform's shell, but these characters still break or inject under cmd.exe (`%`, `^`, `&`, `!`, `"`) and
+ * under Git Bash or sh (`$`, a backtick), and a newline or control character ends the command line. The file name must
+ * be the fixed shim name for the platform, and on Windows only `X:\` drive paths are accepted (no UNC or device paths).
+ */
+function launcherShimConflict(shimPath: string, platform: NodeJS.Platform): string | undefined {
+  const windows = platform === "win32";
+  if (!(windows ? win32 : posix).isAbsolute(shimPath)) {
+    return "launcher-shim-not-absolute：launcher shim 路徑必須是絕對路徑；保留且拒絕修改。";
+  }
+  if (windows && !/^[A-Za-z]:[\\/]/.test(shimPath)) {
+    return "launcher-shim-not-drive-path：launcher shim 路徑必須是 X:\\ 磁碟路徑，不接受 UNC 或裝置路徑；保留且拒絕修改。";
+  }
+  if (/[$`%"!^&]/.test(shimPath) || [...shimPath].some((char) => char <= "\u001f" || char === "\u007f")) {
+    return "launcher-shim-unsafe-characters：launcher shim 路徑含有會破壞或注入 hook 指令的字元；保留且拒絕修改。";
+  }
+  const name = (windows ? win32 : posix).basename(shimPath);
+  const allowed = [...LAUNCHER_SHIM_BASENAMES].filter((basename) => basename.endsWith(".cmd") === windows);
+  if (!allowed.includes(windows ? name.toLowerCase() : name)) {
+    return "launcher-shim-name-invalid：launcher shim 檔名不是固定的 work-intelligence-launcher shim；保留且拒絕修改。";
+  }
+  return undefined;
+}
+
 export function addConflict(plan: AgentSetupPlan, message: string): void {
   if (!plan.conflicts.includes(message)) plan.conflicts.push(message);
 }
@@ -137,9 +163,8 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
   const launcherTarget = options.target?.kind === "launcher" ? options.target : undefined;
   if (launcherTarget) {
     const platform = options.platform ?? process.platform;
-    if (!(platform === "win32" ? win32 : posix).isAbsolute(launcherTarget.shimPath)) {
-      addConflict(plan, "launcher shim 路徑必須是絕對路徑；保留且拒絕修改。");
-    }
+    const shimConflict = launcherShimConflict(launcherTarget.shimPath, platform);
+    if (shimConflict) addConflict(plan, shimConflict);
   } else {
     for (const relativePath of [
       MCP_SERVER_RELATIVE_PATH,

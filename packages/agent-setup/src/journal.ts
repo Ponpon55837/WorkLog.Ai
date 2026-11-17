@@ -1,8 +1,19 @@
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { JOURNAL_FILENAME } from "./constants.js";
+import { syncDirectory } from "./files.js";
 
 const JOURNAL_ITEM_SCHEMA = z.object({
   path: z.string(),
@@ -12,6 +23,8 @@ const JOURNAL_ITEM_SCHEMA = z.object({
   afterFingerprint: z.string(),
   /** Where the original bytes were copied; absent when the file did not exist before. */
   backupPath: z.string().optional(),
+  /** True only when this operation created the backup file; a backup that already existed is never ours to delete. */
+  backupCreated: z.boolean().optional(),
   /** `writing` is persisted before the item is touched; `written` once the whole operation committed. */
   state: z.enum(["planned", "writing", "written"]),
 });
@@ -58,7 +71,7 @@ export function readAgentSetupJournal(journalPath: string): AgentSetupJournalRea
 
 /**
  * Temp file, fsync, rename: a crash leaves the previous journal or the new one, never a torn file. The directory sync
- * is best effort (Windows cannot open a directory) and only narrows the window in which the rename itself is lost.
+ * is best effort and only narrows the window in which the rename itself is lost.
  */
 export function writeAgentSetupJournal(journalPath: string, journal: AgentSetupJournal): void {
   mkdirSync(dirname(journalPath), { recursive: true });
@@ -76,14 +89,21 @@ export function writeAgentSetupJournal(journalPath: string, journal: AgentSetupJ
     rmSync(temporaryPath, { force: true });
     throw error;
   }
+  syncDirectory(dirname(journalPath));
+}
+
+/**
+ * Moves a journal that cannot be read aside to `<journal>.corrupt-<timestamp>` so it never blocks later applies and is
+ * never deleted. Returns the new path, or `null` when the move failed (the journal then stays where it is).
+ */
+export function moveAgentSetupJournalAside(journalPath: string, now: Date = new Date()): string | null {
+  const root = `${journalPath}.corrupt-${now.toISOString().replaceAll(/[-:.]/g, "")}`;
+  let candidate = root;
+  for (let suffix = 1; existsSync(candidate); suffix += 1) candidate = `${root}-${suffix}`;
   try {
-    const directory = openSync(dirname(journalPath), "r");
-    try {
-      fsyncSync(directory);
-    } finally {
-      closeSync(directory);
-    }
+    renameSync(journalPath, candidate);
+    return candidate;
   } catch {
-    // Not every platform can sync a directory; the file itself is already durable.
+    return null;
   }
 }

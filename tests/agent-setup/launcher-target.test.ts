@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -105,6 +105,37 @@ describe("launcher target safety", () => {
       repositoryRoot: join(fresh.temporaryRoot, "no-checkout"),
     });
     expect(plan.conflicts).toEqual([]);
+  });
+
+  it.each([
+    ["win32", "C:\\Users\\a\\bin\\evil.cmd", "launcher-shim-name-invalid"],
+    ["win32", "C:\\Users\\a\\bin\\work-intelligence-launcher", "launcher-shim-name-invalid"],
+    ["linux", "/home/a/bin/work-intelligence-launcher.cmd", "launcher-shim-name-invalid"],
+    ["linux", "/home/a/bin/sh", "launcher-shim-name-invalid"],
+    ["win32", "\\\\server\\share\\bin\\work-intelligence-launcher.cmd", "launcher-shim-not-drive-path"],
+    ["win32", "\\\\?\\C:\\bin\\work-intelligence-launcher.cmd", "launcher-shim-not-drive-path"],
+    ["win32", "\\\\.\\C:\\bin\\work-intelligence-launcher.cmd", "launcher-shim-not-drive-path"],
+    ["win32", "C:\\a%PATH%\\work-intelligence-launcher.cmd", "launcher-shim-unsafe-characters"],
+    ["win32", "C:\\a&calc\\work-intelligence-launcher.cmd", "launcher-shim-unsafe-characters"],
+    ["win32", 'C:\\a"b\\work-intelligence-launcher.cmd', "launcher-shim-unsafe-characters"],
+    ["win32", "C:\\a^b\\work-intelligence-launcher.cmd", "launcher-shim-unsafe-characters"],
+    ["win32", "C:\\a!b\\work-intelligence-launcher.cmd", "launcher-shim-unsafe-characters"],
+    ["linux", "/home/$HOME/bin/work-intelligence-launcher", "launcher-shim-unsafe-characters"],
+    ["linux", "/home/`id`/bin/work-intelligence-launcher", "launcher-shim-unsafe-characters"],
+    ["linux", "/home/a\nb/bin/work-intelligence-launcher", "launcher-shim-unsafe-characters"],
+    ["linux", "/home/a\u0007b/bin/work-intelligence-launcher", "launcher-shim-unsafe-characters"],
+  ] as const)("reports a conflict, not a throw, for the unsafe %s shim %j", (platform, shim, code) => {
+    const fixture = createFixture();
+    const plan = createAgentSetupPlan(launcherOptions(fixture, platform, shim));
+    expect(plan.conflicts.join(" ")).toContain(code);
+    expect(applyAgentSetupPlan(plan).applied).toBe(false);
+    expect(existsSync(fixture.paths.claudeJson + ".work-intelligence.tmp")).toBe(false);
+  });
+
+  it("accepts a Windows drive path with a case-insensitive shim name", () => {
+    const fixture = createFixture();
+    const shim = "D:\\Users\\x\\bin\\Work-Intelligence-Launcher.CMD";
+    expect(createAgentSetupPlan(launcherOptions(fixture, "win32", shim)).conflicts).toEqual([]);
   });
 
   it("reports a missing App skill instead of installing an empty one", () => {

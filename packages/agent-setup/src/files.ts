@@ -1,17 +1,28 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  closeSync,
   existsSync,
+  fsyncSync,
   linkSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
   renameSync,
   rmSync,
   unlinkSync,
-  writeFileSync,
+  writeSync,
 } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, posix, win32 } from "node:path";
 import type { ReadFileResult } from "./types.js";
+
+/** A target no longer holds the bytes the plan was made against; nothing of ours was written to it. */
+export class FingerprintMismatchError extends Error {
+  constructor(readonly path: string) {
+    super("fingerprint-mismatch");
+    this.name = "FingerprintMismatchError";
+  }
+}
 
 export const JSON_OBJECT = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -48,14 +59,20 @@ export function readRegularFile(path: string): ReadFileResult {
   }
 }
 
-export function displayPath(path: string, homeDirectory: string): string {
-  const absoluteHome = resolve(homeDirectory);
-  const absolutePath = resolve(path);
-  return absolutePath === absoluteHome
-    ? "~"
-    : absolutePath.startsWith(absoluteHome + "/")
-      ? "~" + absolutePath.slice(absoluteHome.length)
-      : absolutePath;
+/**
+ * `~`-relative form of a path under the home directory. `platform` selects the path rules (Windows separators and
+ * case-insensitive drive paths); POSIX output is unchanged.
+ */
+export function displayPath(path: string, homeDirectory: string, platform: NodeJS.Platform = process.platform): string {
+  const flavor = platform === "win32" ? win32 : posix;
+  const absoluteHome = flavor.resolve(homeDirectory);
+  const absolutePath = flavor.resolve(path);
+  const comparable = (value: string): string => (platform === "win32" ? value.toLowerCase() : value);
+  if (comparable(absolutePath) === comparable(absoluteHome)) return "~";
+  const prefix = absoluteHome.endsWith(flavor.sep) ? absoluteHome : absoluteHome + flavor.sep;
+  return comparable(absolutePath).startsWith(comparable(prefix))
+    ? "~" + flavor.sep + absolutePath.slice(prefix.length)
+    : absolutePath;
 }
 
 export function backupPathFor(path: string, before: Buffer, now: Date): string {
@@ -80,10 +97,49 @@ export function readCurrent(path: string): Buffer | null {
   }
 }
 
-export function writeAtomically(path: string, bytes: Buffer, mode: number): void {
+/**
+ * Best-effort fsync of a directory so a just-completed rename or link survives a power loss. Windows cannot open a
+ * directory and other platforms may refuse, in which case the file itself is already durable.
+ */
+export function syncDirectory(directory: string): void {
+  if (process.platform === "win32") return;
+  try {
+    const descriptor = openSync(directory, "r");
+    try {
+      fsyncSync(descriptor);
+    } finally {
+      closeSync(descriptor);
+    }
+  } catch {
+    // Directory sync is an optimisation of durability, never a reason to fail the write.
+  }
+}
+
+/** Creates `path` exclusively and fsyncs it, so a rename of it never publishes bytes that are still in the page cache. */
+function writeSyncedFile(path: string, bytes: Buffer, mode: number): void {
+  const descriptor = openSync(path, "wx", mode);
+  try {
+    let offset = 0;
+    while (offset < bytes.length) offset += writeSync(descriptor, bytes, offset);
+    fsyncSync(descriptor);
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+/**
+ * Temp file (fsynced), fingerprint re-check, rename, directory sync. When `expectedFingerprint` is given the target is
+ * re-read after the temp file is complete and the rename is skipped, with a {@link FingerprintMismatchError}, if it
+ * changed. That narrows the check-to-rename window to a few microseconds but cannot close it: POSIX and Windows offer
+ * no compare-and-swap rename, so a writer that lands between the re-read and the rename still loses its edit (ADR-14).
+ */
+export function writeAtomically(path: string, bytes: Buffer, mode: number, expectedFingerprint?: string): void {
   const temporaryPath = `${path}.work-intelligence.tmp-${randomUUID()}`;
   try {
-    writeFileSync(temporaryPath, bytes, { flag: "wx", mode });
+    writeSyncedFile(temporaryPath, bytes, mode);
+    if (expectedFingerprint !== undefined && fingerprintOf(readCurrent(path)) !== expectedFingerprint) {
+      throw new FingerprintMismatchError(path);
+    }
     renameSync(temporaryPath, path);
   } catch (error) {
     try {
@@ -93,13 +149,21 @@ export function writeAtomically(path: string, bytes: Buffer, mode: number): void
     }
     throw error;
   }
+  syncDirectory(dirname(path));
+}
+
+/** Removes a file only if it still holds the expected bytes; same residual race as {@link writeAtomically}. */
+export function removeAtomically(path: string, expectedFingerprint: string): void {
+  if (fingerprintOf(readCurrent(path)) !== expectedFingerprint) throw new FingerprintMismatchError(path);
+  if (existsSync(path)) unlinkSync(path);
+  syncDirectory(dirname(path));
 }
 
 export function writeExclusiveAtomically(path: string, bytes: Buffer): void {
   const temporaryPath = `${path}.work-intelligence.tmp-${randomUUID()}`;
   let linked = false;
   try {
-    writeFileSync(temporaryPath, bytes, { flag: "wx", mode: 0o600 });
+    writeSyncedFile(temporaryPath, bytes, 0o600);
     linkSync(temporaryPath, path);
     linked = true;
     unlinkSync(temporaryPath);
@@ -112,6 +176,7 @@ export function writeExclusiveAtomically(path: string, bytes: Buffer): void {
     }
     throw error;
   }
+  syncDirectory(dirname(path));
 }
 
 export function ensureDirectory(path: string, createdDirectories: Set<string>): void {
