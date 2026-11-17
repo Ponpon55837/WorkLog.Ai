@@ -80,7 +80,10 @@ const UPDATE_METADATA = /(^latest.*\.yml$|\.blockmap$)/;
 const PLATFORMS = { win32: Platform.WINDOWS, darwin: Platform.MAC, linux: Platform.LINUX };
 
 function parseOptions() {
+  // `pnpm package:desktop -- --dir` reaches the script with the separator still in argv under current pnpm; one leading `--` is dropped.
+  const args = process.argv.slice(2);
   const { values } = parseArgs({
+    args: args[0] === "--" ? args.slice(1) : args,
     options: {
       dir: { type: "boolean", default: false },
       "skip-build": { type: "boolean", default: false },
