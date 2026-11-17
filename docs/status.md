@@ -6,7 +6,7 @@
 
 - 最後更新：2026-11-17
 
-## 1.6.52（進行中）
+## 1.6.52（已完成，待合併）
 
 v1.6.52 一併發布 1.6.51 的全部變更（1.6.51 沒有單獨發布）。資料庫升級、還原與多程序寫入的驗證：
 
@@ -15,7 +15,7 @@ v1.6.52 一併發布 1.6.51 的全部變更（1.6.51 沒有單獨發布）。資
 - 多程序 WAL 寫入與 checkpoint 壓力測試（DT-07）：`pnpm test:sqlite-stress`，CI 在 Linux、Windows 與 macOS 執行；拋出的 `SQLITE_BUSY` 設門檻（寫入程序 ≤ max(5, 2%)，其他角色 0）；必要檢查增為 23 項。
 - 相依套件稽核例外：經使用者核准，只忽略 GHSA-fc5q-39xc-vjpf（picomatch ≤ 4.0.7，只在建置時使用，目前沒有修補版）；`scripts/check-audit-ignores.mjs` 在例外過時時失敗。詳見 [相依套件稽核例外](security/audit-exceptions.md)。
 
-CI 結果待 PR 檢查完成後補上。Windows 11 與 macOS 實機驗收尚未進行。
+CI：PR #374 的 23 項必要檢查全部通過（commit 6916e49）。Windows 11 與 macOS 實機驗收尚未進行。
 
 接下來：1.6.53 為更新檢查：預設關閉，由手動的「檢查更新」按鈕觸發；Windows 與 macOS 都顯示版本與更新說明，並開啟下載頁面，App 內不安裝。1.6.54 之後進行跨版本的完整檢視。沒有 schema 變更（33），沒有 migration。詳見 [1.6.52 更新說明](releases/1.6.52.md)。
 
