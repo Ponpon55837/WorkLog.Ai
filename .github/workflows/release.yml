@@ -369,6 +369,18 @@ jobs:
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
+          dir="$RUNNER_TEMP/desktop-installers"
+          # upload-artifact keeps each file's path below the pattern's first wildcard (<platform>-<arch>/out/), so the
+          # merged download is nested. Move every installer to the top level; two files with one name is an error.
+          while IFS= read -r -d '' file; do
+            name="$(basename "$file")"
+            if [ -e "$dir/$name" ]; then
+              echo "Two desktop installers are named $name." >&2
+              exit 1
+            fi
+            mv "$file" "$dir/$name"
+          done < <(find "$dir" -mindepth 2 -type f -print0)
+          find "$dir" -mindepth 1 -type d -empty -delete
           # One NSIS installer for Windows, a DMG and a zip for each Mac architecture; nothing less, nothing unexpected.
           expected=(
             "Work-Intelligence-$RELEASE_VERSION-win-x64-setup.exe"
@@ -377,7 +389,7 @@ jobs:
             "Work-Intelligence-$RELEASE_VERSION-mac-x64.dmg"
             "Work-Intelligence-$RELEASE_VERSION-mac-x64.zip"
           )
-          actual="$(cd "$RUNNER_TEMP/desktop-installers" && find . -type f | sed 's|^\./||' | sort)"
+          actual="$(cd "$dir" && find . -type f | sed 's|^\./||' | sort)"
           wanted="$(printf '%s\n' "${expected[@]}" | sort)"
           if [ "$actual" != "$wanted" ]; then
             echo "Unexpected desktop installers. Expected:" >&2
