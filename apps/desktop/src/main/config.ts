@@ -18,6 +18,13 @@ const TEST_ENVIRONMENT = {
   recordErrorBox: "WORK_INTELLIGENCE_DESKTOP_TEST_RECORD_ERROR_BOX",
   /** Milliseconds the success card stays before the repair window closes (default 1500). */
   repairSuccessDelayMs: "WORK_INTELLIGENCE_DESKTOP_TEST_REPAIR_SUCCESS_DELAY_MS",
+  /** The port a first-run default setup uses instead of the product default, so a smoke test never needs a fixed port. */
+  defaultPort: "WORK_INTELLIGENCE_DESKTOP_TEST_DEFAULT_PORT",
+  /**
+   * A file holding a synthetic old-login-service detection (JSON): the smoke tests cannot install a real `pnpm bootstrap`
+   * service, and the file-level detection is unit-tested per platform (tests/desktop-core/legacy-service.test.ts).
+   */
+  legacyServiceFile: "WORK_INTELLIGENCE_DESKTOP_TEST_LEGACY_SERVICE_FILE",
 } as const;
 
 /** One of the test switches, by the name it has in {@link TEST_ENVIRONMENT}. */
@@ -33,6 +40,13 @@ export const ASSET_FILES = {
   /** macOS menu-bar template image; `trayTemplate@2x.png` sits beside it and Electron picks it up on Retina displays. */
   trayTemplateFile: join(BUNDLE_DIRECTORY, "..", "assets", "trayTemplate.png"),
 } as const;
+
+/** The Agent skill the App installs: a resources file when packaged (electron-builder SKILL_RESOURCE), else dist/skills. */
+export function skillSourceFile(isPackaged: boolean, resourcesPath: string): string {
+  return isPackaged
+    ? join(resourcesPath, "skills", "work-intelligence", "SKILL.md")
+    : join(BUNDLE_DIRECTORY, "..", "skills", "work-intelligence", "SKILL.md");
+}
 
 export interface DesktopPaths {
   /** Settings, operation journal, logs and the child's working directory live here. */
@@ -79,6 +93,24 @@ export function repairSuccessDelayMs(inputs: EnvironmentInputs): number {
     if (Number.isInteger(value) && value >= 0) return value;
   }
   return REPAIR_SUCCESS_DELAY_MS;
+}
+
+/** The first-run default port from the environment in a test build (1024-65535), else undefined: the product default. */
+export function defaultPortOverride(inputs: EnvironmentInputs): number | undefined {
+  if (__WI_TEST_BUILD__ && !inputs.isPackaged) {
+    const value = Number(inputs.environment[TEST_ENVIRONMENT.defaultPort]);
+    if (Number.isInteger(value) && value >= 1024 && value <= 65535) return value;
+  }
+  return undefined;
+}
+
+/** The synthetic legacy-detection file of a test build, else undefined (the real read-only detection runs). */
+export function legacyServiceFileOverride(inputs: EnvironmentInputs): string | undefined {
+  if (__WI_TEST_BUILD__ && !inputs.isPackaged) {
+    const value = inputs.environment[TEST_ENVIRONMENT.legacyServiceFile];
+    if (value && isAbsolute(value)) return value;
+  }
+  return undefined;
 }
 
 /** Whether a test-only switch is on; always false in a production build or a packaged App. */

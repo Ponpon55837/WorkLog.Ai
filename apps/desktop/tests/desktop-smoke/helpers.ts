@@ -44,6 +44,9 @@ export interface MainSnapshot {
   /** Titles of the "ready again" notifications the App tried to show. */
   notifications: string[];
   logFile: string;
+  needsSetup: boolean;
+  view: string;
+  firstRunDetectionMs: number | null;
 }
 
 export interface Sandbox {
@@ -63,25 +66,7 @@ export function runtimeRootFromEnvironment(): string {
   return value;
 }
 
-/** Synthetic data only: a database created by the real store in a temporary folder, never anything of the developer's. */
-export async function createSandbox(options: { withDatabase: boolean }): Promise<Sandbox> {
-  // `.native` expands Windows 8.3 short names (`RUNNER~1`) and macOS `/var` -> `/private/var`, so every path the test
-  // derives matches what the App and its child report.
-  const root = realpathSync.native(mkdtempSync(join(os.tmpdir(), "wi-desktop-smoke-")));
-  const home = join(root, "home");
-  const dataDirectory = join(root, "data");
-  const emptyBin = join(root, "empty-bin");
-  // The per-user folders a real profile always has; appEnvironment points every profile variable at one of them, and
-  // Windows resolves known folders (Roaming and Local AppData) only when they exist.
-  for (const directory of [...Object.values(profileDirectories(home)), dataDirectory, emptyBin]) {
-    mkdirSync(directory, { recursive: true });
-  }
-  // Under the isolated home, where the product keeps it, so the repair page shows it as `~/…`.
-  const databasePath = join(home, ".work-intelligence", "data", "work-intelligence.sqlite");
-  mkdirSync(dirname(databasePath), { recursive: true });
-  if (options.withDatabase) new WorkIntelligenceStore(databasePath).close();
-  const port = await freePort();
-  const runtimeRoot = runtimeRootFromEnvironment();
+function writeSandboxSettings(dataDirectory: string, databasePath: string, port: number, home: string): void {
   writeFileSync(
     join(dataDirectory, "desktop-settings.json"),
     `${JSON.stringify(
@@ -99,6 +84,32 @@ export async function createSandbox(options: { withDatabase: boolean }): Promise
       2,
     )}\n`,
   );
+}
+
+/**
+ * Synthetic data only: a database created by the real store in a temporary folder, never anything of the developer's.
+ * `withSettings` (default true) writes a 1.6.48-style settings file, which is what an upgrade finds; without it the
+ * sandbox is a new install and the App shows its first-run page.
+ */
+export async function createSandbox(options: { withDatabase: boolean; withSettings?: boolean }): Promise<Sandbox> {
+  // `.native` expands Windows 8.3 short names (`RUNNER~1`) and macOS `/var` -> `/private/var`, so every path the test
+  // derives matches what the App and its child report.
+  const root = realpathSync.native(mkdtempSync(join(os.tmpdir(), "wi-desktop-smoke-")));
+  const home = join(root, "home");
+  const dataDirectory = join(root, "data");
+  const emptyBin = join(root, "empty-bin");
+  // The per-user folders a real profile always has; appEnvironment points every profile variable at one of them, and
+  // Windows resolves known folders (Roaming and Local AppData) only when they exist.
+  for (const directory of [...Object.values(profileDirectories(home)), dataDirectory, emptyBin]) {
+    mkdirSync(directory, { recursive: true });
+  }
+  // Under the isolated home, where the product keeps it, so the repair page shows it as `~/…`.
+  const databasePath = join(home, ".work-intelligence", "data", "work-intelligence.sqlite");
+  mkdirSync(dirname(databasePath), { recursive: true });
+  if (options.withDatabase) new WorkIntelligenceStore(databasePath).close();
+  const port = await freePort();
+  const runtimeRoot = runtimeRootFromEnvironment();
+  if (options.withSettings !== false) writeSandboxSettings(dataDirectory, databasePath, port, home);
   return { root, home, dataDirectory, databasePath, port, emptyBin, runtimeRoot };
 }
 

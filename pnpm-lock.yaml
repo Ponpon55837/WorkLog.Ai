@@ -53,6 +53,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@work-intelligence/agent-setup':
+        specifier: workspace:*
+        version: link:../../packages/agent-setup
       '@work-intelligence/desktop-core':
         specifier: workspace:*
         version: link:../../packages/desktop-core

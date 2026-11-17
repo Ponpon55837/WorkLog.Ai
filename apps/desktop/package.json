@@ -6,6 +6,7 @@
   "type": "module",
   "main": "dist/main/index.mjs",
   "dependencies": {
+    "@work-intelligence/agent-setup": "workspace:*",
     "@work-intelligence/desktop-core": "workspace:*",
     "@work-intelligence/schema": "workspace:*",
     "@work-intelligence/shared": "workspace:*",

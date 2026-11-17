@@ -1,6 +1,6 @@
 import { writeSync } from "node:fs";
 import { homedir } from "node:os";
-import { lstat, readdir } from "node:fs/promises";
+import { lstat, readdir, readFile } from "node:fs/promises";
 import { app, dialog } from "electron";
 import {
   BackendSupervisor,
@@ -10,11 +10,13 @@ import {
   FileOperationJournalStore,
   findForbiddenDebugSwitch,
   interpretSecondInstanceData,
+  isOpenAgentSetupLaunch,
   isOpenDashboardLaunch,
   isQuitLaunch,
   LAUNCH_EXIT_OK,
   LastBackupTracker,
   ManagedBackendService,
+  OPEN_AGENT_SETUP_SECOND_INSTANCE_DATA,
   OPEN_DASHBOARD_SECOND_INSTANCE_DATA,
   OperationCoordinator,
   OperationJournal,
@@ -22,23 +24,31 @@ import {
   readLastBackupFromDirectory,
   resolveShellLocale,
   resolveUserDataDirectory,
+  setupMessages,
   shellMessages,
+  type LegacyServiceDetection,
   type RestartOutcome,
   type ShellLocale,
 } from "@work-intelligence/desktop-core";
+import { createAgentsPage } from "./agents.js";
 import { createBackendController } from "./backend.js";
 import {
   ASSET_FILES,
   overrideFromEnvironment,
+  defaultPortOverride,
+  legacyServiceFileOverride,
   repairSuccessDelayMs,
   resolveDesktopPaths,
+  skillSourceFile,
   testSwitch,
   type DesktopConfigInputs,
   type DesktopPaths,
 } from "./config.js";
 import { createDashboard } from "./dashboard.js";
+import { createFirstRun } from "./first-run.js";
 import { createIntegrationPublisher } from "./integration-record.js";
 import { registerRepairIpc } from "./ipc.js";
+import { createLegacyGuard } from "./legacy.js";
 import { createLogger } from "./log.js";
 import { createErrorNotifier, createRecoveredNotifier } from "./notify.js";
 import { createQuit } from "./quit.js";
@@ -48,7 +58,7 @@ import { createRepairWindow } from "./repair-window.js";
 import { createRuntimeProvisioner } from "./runtime-provision.js";
 import { createSecondInstance } from "./second-instance.js";
 import { applySecurityPolicy, createSessionPolicy, registerRepairScheme } from "./security.js";
-import { applyLoginItem, loadSettings } from "./settings.js";
+import { applyLoginItem, loadSettings, type SettingsLoad } from "./settings.js";
 import { ShellState } from "./state.js";
 import { installTestHook } from "./test-hook.js";
 import { createShellTray } from "./tray.js";
@@ -84,9 +94,14 @@ function failStartup(detail: string): void {
 }
 
 /** What a second launch hands to the running instance: its one request, or nothing for a plain launch. */
-function secondInstanceData(quitRequested: boolean, openDashboardRequested: boolean): object | undefined {
+function secondInstanceData(
+  quitRequested: boolean,
+  openDashboardRequested: boolean,
+  openAgentSetupRequested: boolean,
+): object | undefined {
   if (quitRequested) return { ...QUIT_SECOND_INSTANCE_DATA };
-  return openDashboardRequested ? { ...OPEN_DASHBOARD_SECOND_INSTANCE_DATA } : undefined;
+  if (openDashboardRequested) return { ...OPEN_DASHBOARD_SECOND_INSTANCE_DATA };
+  return openAgentSetupRequested ? { ...OPEN_AGENT_SETUP_SECOND_INSTANCE_DATA } : undefined;
 }
 
 /** Everything else: the shell, its backend and the quit flow, once the data folder is known. */
@@ -96,9 +111,13 @@ function runShell(configInputs: DesktopConfigInputs): void {
   const quitRequested = isQuitLaunch(process.argv);
   // `--quit` wins over `--open-dashboard`: a launch that asks for both only stops the App.
   const openDashboardRequested = !quitRequested && isOpenDashboardLaunch(process.argv);
+  // `--open-dashboard` wins over `--open-agent-setup`; the Agent page is reached from the Dashboard as well.
+  const openAgentSetupRequested = !quitRequested && !openDashboardRequested && isOpenAgentSetupLaunch(process.argv);
   const decision = decideLaunch({
     quitRequested,
-    gotLock: app.requestSingleInstanceLock(secondInstanceData(quitRequested, openDashboardRequested)),
+    gotLock: app.requestSingleInstanceLock(
+      secondInstanceData(quitRequested, openDashboardRequested, openAgentSetupRequested),
+    ),
   });
   if (decision === "hand-over-and-exit") {
     // Another instance owns this user's data: start nothing, in particular no backend.
@@ -144,7 +163,13 @@ function runShell(configInputs: DesktopConfigInputs): void {
     log,
   });
   const window = createRepairWindow({
-    title: () => state.messages().repairWindowTitle,
+    title: (view) =>
+      view === "repair" ? state.messages().repairWindowTitle : setupMessages(state.locale).setupWindowTitle,
+    setView: (view) => {
+      state.view = view;
+    },
+    // A plain launch, a second launch or the presenter: the first-run page while the App is not set up yet.
+    defaultView: () => (state.needsSetup ? "setup" : "repair"),
     preloadFile: ASSET_FILES.preloadFile,
     prepareSession: createSessionPolicy(ASSET_FILES.rendererDirectory),
     onShown: () => log("[shell] repair window shown"),
@@ -163,6 +188,30 @@ function runShell(configInputs: DesktopConfigInputs): void {
     homedir: configInputs.homeDirectory,
     log,
   });
+  const legacyFile = legacyServiceFileOverride(configInputs);
+  const legacy = createLegacyGuard({
+    platform: process.platform,
+    environment: process.env,
+    log,
+    // Read on every detection, so a test can make the service "go away" by deleting the file.
+    ...(legacyFile === undefined
+      ? {}
+      : {
+          detect: async (): Promise<LegacyServiceDetection> => {
+            try {
+              return JSON.parse(await readFile(legacyFile, "utf8")) as LegacyServiceDetection;
+            } catch {
+              return { kind: "none" };
+            }
+          },
+        }),
+  });
+  const prepareRuntime = async (verifyInstalled: boolean) => {
+    const status = await runtime.prepare(verifyInstalled);
+    // Only a runtime the App itself provisions is one the fixed launcher can run (nothing is provisioned unpackaged).
+    if (status !== undefined) await integration.publish();
+    return status;
+  };
   const backend = createBackendController({
     state,
     paths,
@@ -171,13 +220,10 @@ function runShell(configInputs: DesktopConfigInputs): void {
     coordinator,
     lastBackup,
     log,
-    openRepairWindow: window.open,
-    prepareRuntime: async (verifyInstalled) => {
-      const status = await runtime.prepare(verifyInstalled);
-      // Only a runtime the App itself provisions is one the fixed launcher can run (nothing is provisioned unpackaged).
-      if (status !== undefined) await integration.publish();
-      return status;
-    },
+    openRepairWindow: () => window.open("repair"),
+    prepareRuntime,
+    legacyBlocks: (databasePath) => legacy.blocks(databasePath),
+    desktopFacts: (databasePath) => legacy.facts(databasePath),
     reinstallOnRefusal: app.isPackaged,
     notifyError: createErrorNotifier(state),
     whenReady: () => app.whenReady(),
@@ -193,7 +239,31 @@ function runShell(configInputs: DesktopConfigInputs): void {
     notifyRecovered: createRecoveredNotifier(state, notifications),
     delayMs: repairSuccessDelayMs(configInputs),
   });
-  const info = createRepairInfo({ state, paths, supervisor, lastBackup });
+  const info = createRepairInfo({ state, paths, supervisor, lastBackup, legacy });
+  const firstRun = createFirstRun({
+    state,
+    paths,
+    supervisor,
+    backend,
+    legacy,
+    window,
+    log,
+    prepareRuntime: () => prepareRuntime(false),
+    onStarted: () => dashboard.open(),
+    environment: process.env,
+    ...(defaultPortOverride(configInputs) === undefined ? {} : { defaultPort: defaultPortOverride(configInputs) }),
+  });
+  const agents = createAgentsPage({
+    state,
+    paths,
+    skillSourcePath: skillSourceFile(app.isPackaged, process.resourcesPath),
+    log,
+  });
+  const openSetup = (): void => {
+    window.open("setup");
+    void firstRun.begin();
+  };
+  const openAgents = (): void => window.open("agents");
   const requestQuit = createQuit({
     state,
     supervisor,
@@ -211,7 +281,9 @@ function runShell(configInputs: DesktopConfigInputs): void {
     templateIconFile: ASSET_FILES.trayTemplateFile,
     backendRunning: () => supervisor.running !== undefined,
     openDashboard: dashboard.open,
-    openRepairWindow: window.open,
+    openRepairWindow: () => window.open("repair"),
+    openSetup,
+    openAgents,
     requestQuit: () => void requestQuit(true),
     log,
   });
@@ -243,11 +315,18 @@ function runShell(configInputs: DesktopConfigInputs): void {
    * IPC and the session policy are set up. Only what shows something (a window, the Dashboard, a notification, the
    * login item) waits for `ready`.
    */
-  function startBackend(): { settingsLoaded: Promise<boolean>; started: Promise<RestartOutcome | undefined> } {
+  function startBackend(): { settingsLoaded: Promise<SettingsLoad>; started: Promise<RestartOutcome | undefined> } {
     backend.attach();
+    agents.recover();
+    // The Web status page's "在桌面 App 設定 Agent" asks through the running backend; it only opens the window.
+    supervisor.onOpenAgentSetup(() => {
+      log("[shell] Agent page requested by the Dashboard");
+      void app.whenReady().then(openAgents);
+    });
     const settingsLoaded = loadSettings(state, paths, log);
+    // A new install starts nothing: the first-run page asks first (DT-01).
     const started = settingsLoaded.then((loaded) =>
-      loaded ? backend.start(state.owner === "UNCONFIGURED" ? "takeover" : "restart") : undefined,
+      loaded === "ok" ? backend.start(state.owner === "UNCONFIGURED" ? "takeover" : "restart") : undefined,
     );
     return { settingsLoaded, started };
   }
@@ -268,11 +347,18 @@ function runShell(configInputs: DesktopConfigInputs): void {
     });
     state.locale = resolveShellLocale(app.getLocale());
     backend.useLaunchMode(state.launchMode);
-    registerRepairIpc({ state, paths, window, info, backend, supervisor, success, log });
+    registerRepairIpc({ state, paths, window, info, backend, supervisor, success, firstRun, agents, legacy, log });
     if (process.platform === "darwin" && state.launchMode === "background") app.dock?.hide();
     tray.create();
-    if (!(await early.settingsLoaded)) {
+    const loaded = await early.settingsLoaded;
+    if (loaded === "repair") {
       backend.recovery.handleFailure("REPAIR_REQUIRED");
+      return;
+    }
+    if (loaded === "new-install") {
+      // A login start of an App that was never set up shows nothing; the tray offers "完成首次設定…".
+      if (state.launchMode === "interactive" || openAgentSetupRequested) openSetup();
+      else log("[shell] first-run setup waits for the user (tray)");
       return;
     }
     applyLoginItem(state);
@@ -280,7 +366,8 @@ function runShell(configInputs: DesktopConfigInputs): void {
     if (!outcome) return;
     if (outcome.ok) {
       backend.presenter().clear();
-      if (state.launchMode === "interactive" || dashboardRequested) dashboard.open();
+      if (openAgentSetupRequested) openAgents();
+      else if (state.launchMode === "interactive" || dashboardRequested) dashboard.open();
       dashboardRequested = false;
     } else if (outcome.busy) {
       log("[shell] the first start found another operation running");
@@ -309,6 +396,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
       secondInstance,
       dashboard,
       notifications: notifications ?? [],
+      firstRunDetectionMs: () => firstRun.detectionMs,
     });
   applySecurityPolicy();
 
@@ -317,6 +405,12 @@ function runShell(configInputs: DesktopConfigInputs): void {
     if (command.command === "open-dashboard") {
       log("[shell] dashboard requested by --open-dashboard");
       secondInstance.handle("open-dashboard");
+      return;
+    }
+    if (command.command === "open-agent-setup") {
+      log("[shell] Agent page requested by --open-agent-setup");
+      if (state.needsSetup) openSetup();
+      else openAgents();
       return;
     }
     if (command.command === "quit") {

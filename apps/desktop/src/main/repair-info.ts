@@ -6,12 +6,14 @@ import {
   buildDiagnostics,
   buildRepairState,
   databaseStatusFor,
+  legacyServiceRelevance,
   type BackendSupervisor,
   type LastBackupTracker,
   type RepairFolderTarget,
   type RepairState,
 } from "@work-intelligence/desktop-core";
 import type { DesktopPaths } from "./config.js";
+import type { LegacyGuard } from "./legacy.js";
 import type { ShellState } from "./state.js";
 
 export interface RepairInfo {
@@ -29,16 +31,26 @@ export interface RepairInfoOptions {
   readonly paths: DesktopPaths;
   readonly supervisor: BackendSupervisor;
   readonly lastBackup: LastBackupTracker;
+  readonly legacy: LegacyGuard;
 }
 
 export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
-  const { state, paths, supervisor, lastBackup } = options;
+  const { state, paths, supervisor, lastBackup, legacy } = options;
 
   function databaseStatus(): RepairState["database"]["status"] {
     return databaseStatusFor(supervisor.running !== undefined, state.recentErrors.latest()?.code);
   }
 
   async function snapshot(): Promise<RepairState> {
+    const latestCode = state.recentErrors.latest()?.code;
+    const relevance = legacyServiceRelevance({
+      detection: legacy.latest(),
+      databasePath: state.databasePath(),
+      port: state.settings?.desired.port ?? null,
+      latestErrorCode: latestCode,
+      platform: process.platform,
+    });
+    const running = supervisor.running !== undefined;
     return buildRepairState({
       platform: process.platform,
       homeDirectory: homedir(),
@@ -61,6 +73,10 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
       retryOperationId: state.retryIds.current(),
       busy: state.busy,
       recovered: state.recovered,
+      // Shown only where it matters: the old service may serve this database, or it holds the port.
+      legacyService: relevance.conflict || relevance.portInUse ? legacy.latest() : null,
+      legacyBlocked: !running && latestCode === "LEGACY_SERVICE_ACTIVE",
+      legacyPortInUse: relevance.portInUse,
     });
   }
 

@@ -1,5 +1,5 @@
 import { Menu, nativeImage, Tray, type NativeImage } from "electron";
-import { buildTrayMenu, trayBackgroundHint, trayTooltip } from "@work-intelligence/desktop-core";
+import { buildTrayMenu, setupMessages, trayBackgroundHint, trayTooltip } from "@work-intelligence/desktop-core";
 import type { Logger } from "./log.js";
 import type { ShellState } from "./state.js";
 
@@ -19,6 +19,10 @@ export interface ShellTrayOptions {
   readonly backendRunning: () => boolean;
   readonly openDashboard: () => void;
   readonly openRepairWindow: () => void;
+  /** "完成首次設定…": the first-run page. */
+  readonly openSetup: () => void;
+  /** "設定 Agent…": the Agent page. */
+  readonly openAgents: () => void;
   readonly requestQuit: () => void;
   readonly log: Logger;
 }
@@ -38,7 +42,12 @@ export function createShellTray(options: ShellTrayOptions): ShellTray {
     if (!tray) return;
     const text = state.messages();
     const running = options.backendRunning();
-    const items = buildTrayMenu({ messages: text, owner: state.owner, backendRunning: running });
+    const items = buildTrayMenu({
+      messages: text,
+      owner: state.owner,
+      backendRunning: running,
+      setup: { messages: setupMessages(state.locale), needsSetup: state.needsSetup },
+    });
     tray.setToolTip(trayTooltip(state.owner, running, text));
     tray.setContextMenu(
       Menu.buildFromTemplate(
@@ -50,6 +59,8 @@ export function createShellTray(options: ShellTrayOptions): ShellTray {
             click: () => {
               if (item.id === "open-dashboard") options.openDashboard();
               else if (item.id === "repair") options.openRepairWindow();
+              else if (item.id === "complete-setup") options.openSetup();
+              else if (item.id === "agent-setup") options.openAgents();
               else options.requestQuit();
             },
           };

@@ -38,6 +38,8 @@ export const ICON_FILES = {
   icns: join(desktopDirectory, "build/icon.icns"),
   png: join(desktopDirectory, "build/icon.png"),
 };
+/** Where the packaged App keeps the Agent skill, relative to its resources folder (config.ts reads the same path). */
+export const SKILL_RESOURCE = "skills/work-intelligence/SKILL.md";
 export const ELECTRON_LANGUAGES = ["en-US", "zh-TW"];
 export const COMPRESSION_CHOICES = ["store", "normal", "maximum"];
 export const DMG_FORMAT_CHOICES = ["UDZO", "ULFO"];
@@ -86,8 +88,14 @@ export function createBuilderConfig(options) {
       buildResources: join(desktopDirectory, "build"),
       output: options.outputDirectory,
     },
-    files: options.baseline ? ["package.json", "dist/**/*"] : ["package.json", "dist/**/*", "!**/*.map"],
-    extraResources: [{ from: options.runtimeBundleDirectory, to: "runtime-bundle" }],
+    // The skill is shipped once, as a plain file outside the asar (SKILL_RESOURCE): the copy in dist/ is for unpackaged runs.
+    files: options.baseline
+      ? ["package.json", "dist/**/*", "!dist/skills/**"]
+      : ["package.json", "dist/**/*", "!**/*.map", "!dist/skills/**"],
+    extraResources: [
+      { from: options.runtimeBundleDirectory, to: "runtime-bundle" },
+      { from: join(options.stageDirectory, "dist", "skills", "work-intelligence", "SKILL.md"), to: SKILL_RESOURCE },
+    ],
     asar: true,
     compression: options.compression,
     ...(options.baseline ? {} : { electronLanguages: ELECTRON_LANGUAGES }),

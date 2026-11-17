@@ -1,6 +1,7 @@
 import {
   integrationRecordPath,
   publishIntegrationRecord,
+  writeDesktopSettingsPointer,
   type IntegrationDirectoryInputs,
   type IntegrationRecordInputs,
 } from "@work-intelligence/desktop-core";
@@ -16,7 +17,7 @@ export interface IntegrationPublisher {
 }
 
 export interface IntegrationPublisherOptions extends IntegrationDirectoryInputs {
-  readonly paths: Pick<DesktopPaths, "runtimeRoot">;
+  readonly paths: Pick<DesktopPaths, "runtimeRoot" | "settingsFile">;
   /** `process.execPath`: the App's own executable; the publisher stores its real (canonical) path. */
   readonly appExecutable: string;
   readonly appVersion: string;
@@ -45,6 +46,17 @@ export function createIntegrationPublisher(options: IntegrationPublisherOptions)
       } catch (error) {
         // The message of a file-system error carries paths: log the code only.
         options.log(`[shell] desktop integration record failed: ${(error as NodeJS.ErrnoException).code ?? "invalid"}`);
+      }
+      try {
+        // Where the launcher finds the App's settings, so Agents open the committed database (ADR-39).
+        const pointer = await writeDesktopSettingsPointer(
+          options.paths.runtimeRoot,
+          options.paths.settingsFile,
+          options.platform,
+        );
+        if (pointer === "written") options.log("[shell] desktop settings pointer written");
+      } catch (error) {
+        options.log(`[shell] desktop settings pointer failed: ${(error as NodeJS.ErrnoException).code ?? "invalid"}`);
       }
     },
   };

@@ -168,13 +168,29 @@ test("a missing database opens the repair window and creates nothing", async () 
   expect(page.require).toBe("undefined");
   expect(page.process).toBe("undefined");
   expect(page.inlineScript).toBe("blocked");
+  // The whole bridge, so a new method is a reviewed change: every one sends only ids and booleans to main.
   expect(page.bridge).toEqual([
+    "agentsApply",
+    "agentsDiscard",
+    "agentsGetState",
+    "agentsPreview",
+    "agentsSelfTest",
+    "agentsUndo",
     "chooseDatabase",
     "confirmDatabase",
+    "copyCommand",
     "exportDiagnostics",
     "getState",
+    "getView",
     "openFolder",
     "retryStart",
+    "setupChooseFile",
+    "setupGetState",
+    "setupLater",
+    "setupUseDefaults",
+    "setupUseSource",
+    "showAgents",
+    "startAnyway",
   ]);
 
   // What the scheme serves: the page and its two files carry the policy; anything else is a 404 with it too.
