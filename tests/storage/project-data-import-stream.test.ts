@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProjectDataExport } from "../../packages/core/src/index.js";
 import {
   MAX_IMPORT_ROW_BYTES,
@@ -186,6 +186,84 @@ describe("streaming import reader, chunk boundaries", () => {
   it("splits a bare bundle (the CLI envelope) at every byte of its first tokens", () => {
     const text = JSON.stringify(exportedBundle());
     expectSameAtEveryBoundary(text, '{"format":"work', "bundle");
+  });
+});
+
+/** The reader fed `chunkBytes` at a time; 1 puts a chunk boundary on every offset of the input at once. */
+function streamedInChunks(text: string, envelope: ProjectDataImportEnvelope, chunkBytes: number): Outcome {
+  try {
+    return summarize(readProjectDataImportBytes(Buffer.from(text), { envelope, spillPath: spillPath() }, chunkBytes));
+  } catch (error) {
+    return outcomeOfError(error);
+  }
+}
+
+/** The same outcome as the whole-document path with a chunk boundary at every offset, and with a few other sizes. */
+function expectSameAtEveryOffset(text: string, envelope: ProjectDataImportEnvelope = "request"): Outcome {
+  const expected = wholeDocument(text, envelope);
+  for (const chunkBytes of [1, 2, 3, 5, 7, 64]) {
+    expect({ chunkBytes, outcome: streamedInChunks(text, envelope, chunkBytes) }).toEqual({
+      chunkBytes,
+      outcome: expected,
+    });
+  }
+  return expected;
+}
+
+describe("streaming import reader, every split of a small envelope", () => {
+  it("reads every envelope value type the same wherever a chunk ends", () => {
+    const bundle = exportedBundle();
+    const bare = JSON.stringify(bundle);
+    expect(expectSameAtEveryOffset(bare, "bundle").ok).toBe(true);
+    expect(expectSameAtEveryOffset(JSON.stringify({ bundle }), "request").ok).toBe(true);
+    // Numbers, null, true and false outside the rows, each before a comma, a brace and a bracket; the schema answers
+    // for the ones it refuses, and must answer the same.
+    const { formatVersion, ...rest } = bundle;
+    const values = ["1", "27", "-1.5e3", "0", "null", "true", "false"];
+    for (const value of values) {
+      expectSameAtEveryOffset(`{"formatVersion":${value},${JSON.stringify(rest).slice(1)}`, "bundle");
+      expectSameAtEveryOffset(`{"bundle":${bare},"projectId":${value}}`, "request");
+      expectSameAtEveryOffset(`{"bundle":${bare},"remap":[${value}]}`, "request");
+    }
+    expect(formatVersion).toBe(1);
+  });
+
+  it("reads a literal at the very end of the input the same, split at every offset", () => {
+    for (const text of ["1", "27", "null", "true", "false", '"text"', "[]", "{}"]) expectSameAtEveryOffset(text);
+  });
+
+  it("refuses a bracket closed by the other kind, inside a row or outside, as invalid JSON", () => {
+    const bundle = exportedBundle();
+    for (const raw of ['{"a":[}', '{"a":[1}', '[{"a":1]', '{"a":{"b":[]}]']) {
+      const text = requestWithTitle(bundle, raw);
+      expect(expectSameAtEveryOffset(text)).toEqual({ ok: false, kind: "invalid_json" });
+    }
+    const outside = JSON.stringify({ bundle }).replace('"projectId"', '"projectId"').replace(/}$/, ',"remap":[}}');
+    expect(expectSameAtEveryOffset(outside)).toEqual({ ok: false, kind: "invalid_json" });
+  });
+
+  it("counts masked secrets only in the rows the import keeps", () => {
+    const bundle = exportedBundle();
+    const secret = structuredClone(bundle.tables.sessions[0] as Record<string, unknown>);
+    secret.summary = `token ghp_${"S".repeat(36)} and ghp_${"T".repeat(36)} and ghp_${"U".repeat(36)}`;
+    const sessions = JSON.stringify(bundle.tables.sessions);
+    const tables = JSON.stringify(bundle.tables).slice(1);
+    const { tables: _tables, ...meta } = bundle;
+    const metaText = JSON.stringify(meta).slice(0, -1);
+    const repeatedTable = `{"bundle":${metaText},"tables":{"sessions":${JSON.stringify([secret])},${tables}}}`;
+    const replacedTable = `{"bundle":${metaText},"tables":{"sessions":${JSON.stringify([secret])},"sessions":${sessions},${tables.slice(0, -1)}}}}`;
+    const replacedByScalar = `{"bundle":${metaText},"tables":{"sessions":${JSON.stringify([secret])},"sessions":3,${tables}}}`;
+    const replacedTables = `{"bundle":${metaText},"tables":{"sessions":${JSON.stringify([secret])}},"tables":{${tables}}}`;
+    const replacedBundle = `{"bundle":{"tables":{"sessions":${JSON.stringify([secret])}}},"bundle":${JSON.stringify(bundle)}}`;
+    for (const text of [replacedTables, replacedBundle]) {
+      const expected = expectSameAtEveryOffset(text);
+      expect(expected).toMatchObject({ ok: true, redactions: 0 });
+    }
+    // The kept table is the secret one here: its three tokens are counted once.
+    expect(wholeDocument(repeatedTable, "request")).toMatchObject({ ok: true });
+    for (const text of [replacedTable, replacedByScalar]) {
+      expect(streamedInChunks(text, "request", 64)).toEqual(wholeDocument(text, "request"));
+    }
   });
 });
 
@@ -407,6 +485,36 @@ describe("streaming import reader, row size", () => {
       `[${row}]`,
     );
     expect(streamed(Buffer.from(text), "request")).toEqual(wholeDocument(text, "request"));
+  });
+});
+
+describe("streaming import reader, scan cost", () => {
+  it("looks for a closing quote only in the bytes it holds, not in what a larger earlier row left behind", () => {
+    const bundle = exportedBundle();
+    const big = structuredClone(bundle.tables.sessions[0] as Record<string, unknown>);
+    big.id = "synthetic-big-session";
+    big.summary = "a".repeat(1_900_000);
+    bundle.tables.sessions.unshift(big as never);
+    const text = JSON.stringify({ bundle });
+    let scanned = 0;
+    const original = Uint8Array.prototype.indexOf;
+    const spy = vi.spyOn(Uint8Array.prototype, "indexOf").mockImplementation(function (
+      this: Uint8Array,
+      value: number,
+      from?: number,
+    ) {
+      const found = original.call(this, value, from);
+      scanned += (found === -1 ? this.length : found) - (from ?? 0);
+      return found;
+    });
+    try {
+      streamedInChunks(text, "request", 4096);
+    } finally {
+      spy.mockRestore();
+    }
+    // Each byte is searched about once; rescanning the 2 MiB left behind by the big row at every later chunk boundary
+    // inside a string would cost orders of magnitude more.
+    expect(scanned).toBeLessThan(2 * Buffer.byteLength(text));
   });
 });
 

@@ -85,6 +85,8 @@ interface Capture {
   start: number;
   scan: number;
   depth: number;
+  /** The open bracket at each depth (`stack[depth - 1]` is the innermost), so `[` must close with `]`. */
+  stack: Uint8Array;
   inString: boolean;
   /** Byte ranges of the row values that are themselves containers (a row's values must be scalars). */
   nested: Array<[number, number]>;
@@ -182,6 +184,8 @@ class TableState {
   /** Project ids, for the single-project scope check (projects table only). */
   public readonly ids = new Set<string>();
   public readonly redactedRows: Array<[ProjectDataRow, number]> = [];
+  /** What was masked in this table's rows; a repeated key replaces the table's state, and these totals with it. */
+  public readonly redactions = combineRedactionSummaries();
 
   public constructor(table: ProjectDataTable) {
     this.checkRow = createProjectDataRowChecker(table);
@@ -211,7 +215,6 @@ class ProjectDataImportStreamReader {
   private readonly inlineCharacters: number;
   private structuralFailure = false;
   private contentFailure = false;
-  private readonly redactions = combineRedactionSummaries();
 
   public constructor(private readonly options: ProjectDataImportStreamOptions) {
     this.spill = new ProjectDataSpill(options.spillPath);
@@ -419,6 +422,7 @@ class ProjectDataImportStreamReader {
       start: this.position,
       scan: this.position,
       depth: 0,
+      stack: new Uint8Array(16),
       inString: false,
       nested: [],
       nestedStart: -1,
@@ -436,8 +440,9 @@ class ProjectDataImportStreamReader {
     const buffer = this.buffer;
     let index = capture.scan;
     const first = buffer[capture.start] as number;
-    if (index === capture.start && first !== OPEN_OBJECT && first !== OPEN_ARRAY && first !== QUOTE) {
-      // A number or literal: up to the next delimiter, which the end of the input also is.
+    if (first !== OPEN_OBJECT && first !== OPEN_ARRAY && first !== QUOTE) {
+      // A number or literal: up to the next delimiter, which the end of the input also is. This holds whichever chunk
+      // the scan resumes in, so a literal cut by a chunk boundary reads the same as a whole one.
       while (index < this.end) {
         const byte = buffer[index] as number;
         if (isSpace(byte) || byte === COMMA || byte === CLOSE_OBJECT || byte === CLOSE_ARRAY || byte === COLON) {
@@ -451,7 +456,8 @@ class ProjectDataImportStreamReader {
     }
     while (index < this.end) {
       if (capture.inString) {
-        const quote = buffer.indexOf(QUOTE, index);
+        // Only up to `end`: past it the buffer holds stale bytes of an earlier, larger value.
+        const quote = buffer.subarray(0, this.end).indexOf(QUOTE, index);
         if (quote === -1 || quote >= this.end) {
           index = this.end;
           break;
@@ -470,11 +476,21 @@ class ProjectDataImportStreamReader {
       if (byte === QUOTE) {
         capture.inString = true;
       } else if (byte === OPEN_OBJECT || byte === OPEN_ARRAY) {
+        if (capture.depth === capture.stack.byteLength) {
+          const grown = new Uint8Array(capture.stack.byteLength * 2);
+          grown.set(capture.stack);
+          capture.stack = grown;
+        }
+        capture.stack[capture.depth] = byte;
         capture.depth += 1;
         if (capture.row && capture.depth === 2) capture.nestedStart = index - 1;
       } else if (byte === CLOSE_OBJECT || byte === CLOSE_ARRAY) {
         capture.depth -= 1;
         if (capture.depth < 0) throw new ProjectDataImportSyntaxError("invalid_json");
+        const open = capture.stack[capture.depth];
+        if ((byte === CLOSE_OBJECT ? OPEN_OBJECT : OPEN_ARRAY) !== open) {
+          throw new ProjectDataImportSyntaxError("invalid_json");
+        }
         if (capture.row && capture.depth === 1 && capture.nestedStart >= 0) {
           capture.nested.push([capture.nestedStart, index]);
           capture.nestedStart = -1;
@@ -594,10 +610,11 @@ class ProjectDataImportStreamReader {
     const redacted = redactRow(frame.table, row, redactArchitectureDiagramSource);
     const rowCount = redacted.redactions.total;
     if (rowCount > 0) {
-      this.redactions.total += rowCount;
+      const totals = state.redactions;
+      totals.total += rowCount;
       for (const [kind, count] of Object.entries(redacted.redactions.byKind)) {
-        const key = kind as keyof typeof this.redactions.byKind;
-        this.redactions.byKind[key] = (this.redactions.byKind[key] ?? 0) + (count ?? 0);
+        const key = kind as keyof typeof totals.byKind;
+        totals.byKind[key] = (totals.byKind[key] ?? 0) + (count ?? 0);
       }
     }
     const keep = plannerColumns(frame.table);
@@ -672,7 +689,9 @@ class ProjectDataImportStreamReader {
     this.addRedactionCounts(tables);
     this.spill.flush();
     const input: ProjectDataImportInput = { ...data, bundle: { ...bundle, tables } };
-    return ValidatedProjectDataImport.fromStream(input, this.redactions, this.spill);
+    // Only the tables the import keeps: rows of a table read under an earlier, replaced key are not counted.
+    const redactions = combineRedactionSummaries(...[...this.tableStates.values()].map((state) => state.redactions));
+    return ValidatedProjectDataImport.fromStream(input, redactions, this.spill);
   }
 
   /**
@@ -713,15 +732,21 @@ class ProjectDataImportStreamReader {
   }
 }
 
-/** Validates an import from bytes already in memory (tests, small inputs); the same reader as the file path. */
+/**
+ * Validates an import from bytes already in memory (tests, small inputs); the same reader as the file path, which
+ * reads 1 MiB chunks. `chunkBytes` lets a test cut the input at every offset; the result never depends on it.
+ */
 export function readProjectDataImportBytes(
   bytes: Uint8Array,
   options: ProjectDataImportStreamOptions,
+  chunkBytes = READ_CHUNK_BYTES,
 ): ValidatedProjectDataImport {
+  if (!Number.isSafeInteger(chunkBytes) || chunkBytes < 1)
+    throw new RangeError("chunkBytes must be a positive integer.");
   const reader = new ProjectDataImportStreamReader(options);
   try {
-    for (let offset = 0; offset < bytes.byteLength; offset += READ_CHUNK_BYTES) {
-      reader.push(bytes.subarray(offset, Math.min(bytes.byteLength, offset + READ_CHUNK_BYTES)));
+    for (let offset = 0; offset < bytes.byteLength; offset += chunkBytes) {
+      reader.push(bytes.subarray(offset, Math.min(bytes.byteLength, offset + chunkBytes)));
     }
   } catch (error) {
     reader.abort();

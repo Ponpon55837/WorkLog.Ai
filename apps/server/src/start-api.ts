@@ -194,7 +194,7 @@ export function startApi(options: StartApiOptions = {}): StartedApi {
       "找不到 Web 介面檔案（套件內的 web/ 不完整）；只提供 API。請重新安裝，或執行 work-intelligence check。",
     );
   }
-  // Uploads and exports a crash left behind in `<data>/tmp`; this never blocks or fails the start.
+  // Uploads and exports a crash left behind in `<data>/.work-intelligence-transfer`; this never blocks or fails the start.
   sweepTransferDirectories(transferRoot(databasePath));
   let apiHandler: ReturnType<typeof createApiHandler>;
   let server: ReturnType<typeof createServer>;

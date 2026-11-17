@@ -20,7 +20,7 @@ This release finishes the large-transfer part of stage 4 of the desktop app plan
 ### Changed
 
 - Backups, exports, import previews and imports run in a forked background child process with its own heap limit (default 1 GiB, `WORK_INTELLIGENCE_BACKGROUND_HEAP_MB`) instead of a worker thread. A child that runs out of memory exits on its own; the API answers 413 `backup_worker_out_of_memory` and keeps serving, and the next request starts a new child.
-- Imports are streamed to `<database dir>/tmp/import-*` and read row by row; row text is spilled to a file beside it, so memory holds only what merge planning needs. Exports are written row by row to a file and streamed to the client. REST, the inline fallback and `db:import` (including `--dry-run`) share one reader; previews, conflicts and export bytes are unchanged and still all-or-nothing. On Linux with a 17.5 MiB export, peak RSS fell from 172 to 129 MiB for import, 154 to 103 MiB for preview and 140 to 109 MiB for export; at 100 MiB peaks are 199, 220 and 128 MiB.
+- Imports are streamed to `<database dir>/.work-intelligence-transfer/import-*` and read row by row; row text is spilled to a file beside it, so memory holds only what merge planning needs. Exports are written row by row to a file and streamed to the client. REST, the inline fallback and `db:import` (including `--dry-run`) share one reader; previews, conflicts and export bytes are unchanged and still all-or-nothing. On Linux with a 17.5 MiB export, peak RSS fell from 172 to 129 MiB for import, 154 to 103 MiB for preview and 140 to 109 MiB for export; at 100 MiB peaks are 199, 220 and 128 MiB.
 - Import cap raised from 50 MiB to 256 MiB for REST, the CLI and the Web UI. The upload is refused with 507 `database_disk_full` unless free disk space is at least 2.5 times its size, and with 413 before reading when Content-Length is over the cap. The 200,000-rows-per-table limit is unchanged (about 14,000 Sessions per export at about 14 work events per Session) and its message now names the table.
 - The Web UI no longer reads or parses the import file; it streams it to the staged endpoint and shows an indeterminate uploading state.
 - The desktop App icon is generated from `apps/web/public/favicon.svg` and all `.png`, `.ico` and `.icns` files were regenerated.
@@ -34,6 +34,8 @@ This release finishes the large-transfer part of stage 4 of the desktop app plan
 ### Fixed
 
 - On Node 24, exhausting the background heap could end the whole backend process; it now ends only the child.
+- The start-up sweep removes only directories it made: under the dedicated `.work-intelligence-transfer` folder, named exactly as created, holding a marker file, and never through a symbolic link, so a user's own `export-*` or `import-*` folder beside the database is never touched.
+- The streaming reader reads a number or literal (`1`, `null`, `true`) cut by a chunk boundary the same as a whole one, refuses a bracket closed by the other kind (`[}`) as invalid JSON, counts masked secrets only in the rows the import keeps when a table, `tables` or `bundle` key repeats, and looks for a string's closing quote only in the bytes it holds.
 - Tests: kill the child mid-import (database intact, nothing written, re-import works), 48 corrupt-file cases with the 1.6.47 messages, streaming reader edge cases, staged import expiry, binding, reuse and cleanup, the web store, and an end-to-end import of a file over 50 MiB.
 
 ## [1.6.47] - 2026-11-17

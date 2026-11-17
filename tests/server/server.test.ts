@@ -21,6 +21,7 @@ import {
   WorkIntelligenceStore,
 } from "../../packages/storage/src/index.js";
 import { MAX_PROJECT_IMPORT_BYTES } from "../../apps/server/src/http.js";
+import { transferRoot } from "../../apps/server/src/transfer-workspace.js";
 import { createApiHandler, type ApiHandlerOptions } from "../../apps/server/src/server.js";
 import { getUserServiceStatusAsync } from "../../apps/server/src/user-service.js";
 import { BackupWorkerClient } from "../../apps/server/src/backup-worker-client.js";
@@ -2202,7 +2203,7 @@ describe("Work Intelligence REST API", () => {
         });
       }
       expect((await fetch(`${baseUrl}/api/health`)).status).toBe(200);
-      expect(readdirSync(join(root, "tmp"))).toEqual([]);
+      expect(readdirSync(transferRoot(databasePath))).toEqual([]);
     } finally {
       await backgroundStore.close();
     }

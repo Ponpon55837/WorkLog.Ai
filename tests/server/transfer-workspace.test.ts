@@ -1,4 +1,15 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer, request as httpRequest, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -15,6 +26,9 @@ import {
   ORPHAN_TRANSFER_AGE_MS,
   TRANSFER_DISK_FULL_MESSAGE,
   TRANSFER_FREE_SPACE_FACTOR,
+  TRANSFER_MARKER_CONTENT,
+  TRANSFER_MARKER_FILE,
+  TRANSFER_ROOT_NAME,
   createTransferDirectory,
   hasTransferSpace,
   removeTransferDirectory,
@@ -48,10 +62,17 @@ function createRoot(): string {
   return root;
 }
 
-function makeDirectory(root: string, name: string, ageMs: number): string {
+/** A directory as createTransferDirectory leaves it (with its marker, unless `marker` says otherwise), `ageMs` old. */
+function makeDirectory(
+  root: string,
+  name: string,
+  ageMs: number,
+  marker: string | null = TRANSFER_MARKER_CONTENT,
+): string {
   const path = join(root, name);
   mkdirSync(path, { recursive: true });
   writeFileSync(join(path, "import.json"), "{}");
+  if (marker !== null) writeFileSync(join(path, TRANSFER_MARKER_FILE), marker);
   const time = new Date(Date.now() - ageMs);
   utimesSync(path, time, time);
   return path;
@@ -150,14 +171,14 @@ describe("transferRoot", () => {
     expect(transferRoot("")).toBe(join(tmpdir(), "work-intelligence-transfers"));
   });
 
-  it("uses tmp beside the database file", () => {
+  it("uses a dedicated folder beside the database file", () => {
     const database = join(createRoot(), "data", "work.sqlite");
-    expect(transferRoot(database)).toBe(join(dirname(database), "tmp"));
+    expect(transferRoot(database)).toBe(join(dirname(database), TRANSFER_ROOT_NAME));
   });
 
   it("resolves a relative database path against the working directory", () => {
     expect(transferRoot(join("relative", "work.sqlite"))).toBe(
-      join(dirname(resolve("relative", "work.sqlite")), "tmp"),
+      join(dirname(resolve("relative", "work.sqlite")), TRANSFER_ROOT_NAME),
     );
   });
 });
@@ -170,9 +191,10 @@ describe("createTransferDirectory and removeTransferDirectory", () => {
     const exported = createTransferDirectory(root, "export");
     expect(dirname(first)).toBe(root);
     expect(first).not.toBe(second);
-    expect(first.slice(root.length + 1)).toMatch(/^import-[A-Za-z0-9]+$/);
-    expect(exported.slice(root.length + 1)).toMatch(/^export-[A-Za-z0-9]+$/);
+    expect(first.slice(root.length + 1)).toMatch(/^import-[A-Za-z0-9]{6}$/);
+    expect(exported.slice(root.length + 1)).toMatch(/^export-[A-Za-z0-9]{6}$/);
     expect(statSync(first).isDirectory()).toBe(true);
+    expect(readFileSync(join(first, TRANSFER_MARKER_FILE), "utf8")).toBe(TRANSFER_MARKER_CONTENT);
   });
 
   it("makes the directory private to the owner", () => {
@@ -199,15 +221,15 @@ describe("createTransferDirectory and removeTransferDirectory", () => {
 describe("sweepTransferDirectories", () => {
   it("removes only old import and export directories", () => {
     const root = createRoot();
-    const old = [makeDirectory(root, "import-Old1", 2 * HOUR_MS), makeDirectory(root, "export-Old2", 3 * HOUR_MS)];
+    const old = [makeDirectory(root, "import-OldAA1", 2 * HOUR_MS), makeDirectory(root, "export-OldAA2", 3 * HOUR_MS)];
     const keep = [
-      makeDirectory(root, "import-Young1", 5 * 60 * 1000),
-      makeDirectory(root, "export-Young2", HOUR_MS - 60_000),
+      makeDirectory(root, "import-YngAA1", 5 * 60 * 1000),
+      makeDirectory(root, "export-YngAA2", HOUR_MS - 60_000),
       makeDirectory(root, "backup-Old3", 5 * HOUR_MS),
       makeDirectory(root, "import-with_underscore", 5 * HOUR_MS),
       makeDirectory(root, "import-", 5 * HOUR_MS),
-      makeDirectory(root, "myimport-Old4", 5 * HOUR_MS),
-      makeDirectory(root, "Import-Old5", 5 * HOUR_MS),
+      makeDirectory(root, "myimport-OldAA4", 5 * HOUR_MS),
+      makeDirectory(root, "Import-OldAA5", 5 * HOUR_MS),
     ];
     writeFileSync(join(root, "notes.txt"), "keep");
     const oldTime = new Date(Date.now() - 5 * HOUR_MS);
@@ -220,9 +242,41 @@ describe("sweepTransferDirectories", () => {
     expect(existsSync(join(root, "notes.txt"))).toBe(true);
   });
 
+  it("keeps a user's folder that only looks like a transfer directory", () => {
+    const root = createRoot();
+    const ours = makeDirectory(root, "export-OldAA1", 5 * HOUR_MS);
+    const user = [
+      makeDirectory(root, "export-backup", 5 * HOUR_MS, null),
+      makeDirectory(root, "import-photos", 5 * HOUR_MS, null),
+      makeDirectory(root, "export-2024AB", 5 * HOUR_MS, "notes"),
+      makeDirectory(root, "import-2024", 5 * HOUR_MS),
+      makeDirectory(root, "import-Photos2", 5 * HOUR_MS),
+    ];
+    expect(sweepTransferDirectories(root)).toBe(1);
+    expect(existsSync(ours)).toBe(false);
+    for (const path of user) expect(existsSync(join(path, "import.json"))).toBe(true);
+  });
+
+  it("follows no symbolic link, neither an entry nor the root", () => {
+    const root = createRoot();
+    // A junction on Windows needs no extra privilege; elsewhere the type is ignored.
+    const elsewhere = makeDirectory(join(root, "elsewhere"), "export-Target", 5 * HOUR_MS);
+    const transfers = join(root, "transfers");
+    mkdirSync(transfers);
+    symlinkSync(elsewhere, join(transfers, "export-Link01"), "junction");
+    expect(sweepTransferDirectories(transfers)).toBe(0);
+    expect(existsSync(join(elsewhere, "import.json"))).toBe(true);
+
+    const linkedRoot = join(root, "linked-root");
+    symlinkSync(join(root, "elsewhere"), linkedRoot, "junction");
+    const target = makeDirectory(join(root, "elsewhere"), "import-Real01", 5 * HOUR_MS);
+    expect(sweepTransferDirectories(linkedRoot)).toBe(0);
+    expect(existsSync(join(target, "import.json"))).toBe(true);
+  });
+
   it("removes an old directory together with what is in it", () => {
     const root = createRoot();
-    const directory = makeDirectory(root, "import-Nested", 2 * HOUR_MS);
+    const directory = makeDirectory(root, "import-Nest01", 2 * HOUR_MS);
     mkdirSync(join(directory, "deeper"));
     writeFileSync(join(directory, "deeper", "import.spill"), "x");
     const time = new Date(Date.now() - 2 * HOUR_MS);
@@ -233,12 +287,12 @@ describe("sweepTransferDirectories", () => {
 
   it("uses the age limit and the clock it is given", () => {
     const root = createRoot();
-    const directory = makeDirectory(root, "import-Clock", 0);
+    const directory = makeDirectory(root, "import-Clock1", 0);
     expect(sweepTransferDirectories(root)).toBe(0);
     expect(sweepTransferDirectories(root, Date.now() + ORPHAN_TRANSFER_AGE_MS - 60_000)).toBe(0);
     expect(existsSync(directory)).toBe(true);
     expect(sweepTransferDirectories(root, Date.now() + ORPHAN_TRANSFER_AGE_MS + 60_000)).toBe(1);
-    const another = makeDirectory(root, "export-Limit", 10 * 60 * 1000);
+    const another = makeDirectory(root, "export-Limit1", 10 * 60 * 1000);
     expect(sweepTransferDirectories(root, Date.now(), 5 * 60 * 1000)).toBe(1);
     expect(existsSync(another)).toBe(false);
   });
@@ -379,9 +433,11 @@ describe("import uploads and the transfer root, over HTTP", () => {
     const baseUrl = await startServer({ store });
     const text = JSON.stringify({ bundle: bundle() });
     expect((await post(baseUrl, "/api/import", text)).status).toBe(200);
-    const staging = join(dirname(databasePath), "tmp");
+    const staging = transferRoot(databasePath);
     expect(existsSync(staging)).toBe(true);
     expect(readdirSync(staging)).toEqual([]);
+    // The folder is dedicated to transfers, never the database's own folder or a generic name like tmp.
+    expect(staging).toBe(join(dirname(databasePath), TRANSFER_ROOT_NAME));
   });
 });
 
@@ -398,9 +454,9 @@ describe("startApi sweeps orphan transfer directories", () => {
     const root = createRoot();
     const database = await databaseIn(root);
     const staging = transferRoot(database.path);
-    const orphan = makeDirectory(staging, "import-Orphan1", 2 * HOUR_MS);
-    const orphanExport = makeDirectory(staging, "export-Orphan2", 25 * HOUR_MS);
-    const young = makeDirectory(staging, "import-Live1", 2 * 60 * 1000);
+    const orphan = makeDirectory(staging, "import-Orph01", 2 * HOUR_MS);
+    const orphanExport = makeDirectory(staging, "export-Orph02", 25 * HOUR_MS);
+    const young = makeDirectory(staging, "import-Live01", 2 * 60 * 1000);
     const unrelated = makeDirectory(staging, "other-Old", 5 * HOUR_MS);
     vi.spyOn(console, "error").mockImplementation(() => undefined);
 
