@@ -22,6 +22,7 @@ import process from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { windowsCommandShell } from "@work-intelligence/shared/windows-system-tool";
+import { packagedRuntimeNode } from "./packaged-runtime.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = join(here, "..");
@@ -30,7 +31,13 @@ const require = createRequire(join(repositoryRoot, "package.json"));
 const PRODUCT_NAME = "Work Intelligence";
 
 /** Specs that need the App and sandboxes only (phase one) and the ones that change or remove the installation (phase two). */
-const APP_SPECS = ["app.spec.ts", "bundle.spec.ts", "launcher.spec.ts", "performance.spec.ts"];
+const APP_SPECS = [
+  "app.spec.ts",
+  "bundle.spec.ts",
+  "launcher.spec.ts",
+  "runtime-sqlite.spec.ts",
+  "performance.spec.ts",
+];
 const LIFECYCLE_SPEC = "lifecycle.spec.ts";
 
 function run(command, args, options = {}) {
@@ -149,6 +156,29 @@ function playwright(environment, specs) {
     : run(process.execPath, playwrightArguments, { cwd: desktopRoot, env: environment });
 }
 
+/**
+ * DT-07 with the Node binary the packaged App ships (R33): the stress suite (tests/stress/) runs under it for a short
+ * load. Opt-in through WI_PACKAGED_STRESS_SECONDS (CI sets it; a local run skips it). Runs before the lifecycle spec,
+ * which uninstalls the App. The report goes next to the other package results.
+ */
+function runtimeStress(executable) {
+  const seconds = process.env.WI_PACKAGED_STRESS_SECONDS;
+  if (!seconds) return 0;
+  const { nodePath, runtimeId } = packagedRuntimeNode(executable);
+  process.stdout.write(`[packaged-stress] runtime ${runtimeId}, ${seconds}s load\n`);
+  return run(
+    process.execPath,
+    [
+      join(repositoryRoot, "scripts", "run-sqlite-stress-with-node.mjs"),
+      "--node",
+      nodePath,
+      "--copy-to",
+      join(desktopRoot, "package-results", `package-sqlite-stress-${process.platform}-${process.arch}.json`),
+    ],
+    { cwd: repositoryRoot, env: { ...process.env, WI_SQLITE_STRESS_SECONDS: seconds } },
+  );
+}
+
 async function main() {
   const app = prepare();
   try {
@@ -158,9 +188,10 @@ async function main() {
       WORK_INTELLIGENCE_PACKAGED_EXE: app.executable,
     };
     const appStatus = playwright(environment, APP_SPECS);
+    const stressStatus = runtimeStress(app.executable);
     // Linux has no installer; the lifecycle spec is skipped there rather than started to skip itself.
     const lifecycleStatus = process.platform === "linux" ? 0 : playwright(environment, [LIFECYCLE_SPEC]);
-    return appStatus !== 0 ? appStatus : lifecycleStatus;
+    return appStatus !== 0 ? appStatus : stressStatus !== 0 ? stressStatus : lifecycleStatus;
   } finally {
     await app.cleanup();
   }

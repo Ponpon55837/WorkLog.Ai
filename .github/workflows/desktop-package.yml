@@ -170,20 +170,19 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload the package results
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: desktop-package-results-${{ matrix.slug }}
-          path: apps/desktop/package-results/package-*.json
-          if-no-files-found: warn
-          retention-days: 30
-
       # run-packaged-smoke.mjs installs the NSIS installer silently on Windows (or extracts the zip and checks the DMG on
       # macOS; GitHub's macOS runners have a GUI session, so no display setup is needed), starts the installed App against
       # synthetic data directories, measures it, then upgrades over a running App and uninstalls. It prints the
       # performance JSON to the log and writes apps/desktop/perf-results/packaged-perf-<os>.json.
+      #
+      # R33 / DT-06 and DT-07 on the Node runtime the packaged App ships: runtime-sqlite.spec.ts prints and asserts its
+      # sqlite_version() (WAL-reset fix present, FTS5 available), and WI_PACKAGED_STRESS_SECONDS adds a short run of the
+      # DT-07 multi-process stress under that same Node binary (scripts/run-sqlite-stress-with-node.mjs, before the
+      # lifecycle spec uninstalls the App). Both write package-*.json files next to the packaging results. The load is
+      # 6 s so the stress adds no more than ~30 s to a job (about 12 s measured on Linux, startup and teardown included).
       - name: Packaged smoke test
+        env:
+          WI_PACKAGED_STRESS_SECONDS: "6"
         run: pnpm test:desktop-packaged
 
       - name: Upload the packaged performance results
@@ -192,5 +191,14 @@ jobs:
         with:
           name: desktop-packaged-perf-${{ matrix.slug }}
           path: apps/desktop/perf-results/packaged-perf-*.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload the package results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-package-results-${{ matrix.slug }}
+          path: apps/desktop/package-results/package-*.json
           if-no-files-found: warn
           retention-days: 30
