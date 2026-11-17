@@ -1,4 +1,4 @@
-import { execFile as nodeExecFile, type ExecFileException } from "node:child_process";
+import { execFile as nodeExecFile, spawn as nodeSpawnProcess, type ExecFileException } from "node:child_process";
 import path from "node:path";
 import {
   windowsPowerShell,
@@ -45,6 +45,8 @@ export interface AclSnapshot {
   readonly currentUserSid: string;
   /** One SDDL string per requested path, in order. */
   readonly sddls: readonly string[];
+  /** Set when a prewarmed PowerShell answered: milliseconds from its spawn to its first output (how long its start-up took). */
+  readonly prewarmMs?: number;
 }
 
 /**
@@ -71,11 +73,29 @@ export interface AclReadReport {
   readonly tier: AclReadTier;
   /** Every tier tried, in order; the last one is the successful `tier`. */
   readonly attempts: readonly AclReadAttempt[];
+  /**
+   * Set when the answering tier ran in a prewarmed PowerShell: how long that process took from spawn to its first output.
+   * The `ms` of the answering attempt is then only the wait after the paths were handed over, so the start-up cost that
+   * overlapped the file copy shows here and nowhere else.
+   */
+  readonly prewarmMs?: number;
+}
+
+/** A started prewarm. `release` kills the process unless a read took it over; call it on every exit path. */
+export interface AclPrewarm {
+  release(): void;
 }
 
 /** Reads the current user's SID and the SDDL of each path; injectable so tests need no Windows. */
 export interface WindowsAclReader {
   read(paths: readonly string[], tier?: AclReadTier): Promise<AclSnapshot>;
+  /**
+   * Starts the tier-1 PowerShell now, so its start-up (about 2 s cold) overlaps work the caller does before it knows the
+   * paths. The next `read(paths, "dotnet")` hands the paths to that process; any other read, or a prewarm that died, hung
+   * or was refused by Constrained Language Mode, behaves as if there had been no prewarm. Never throws. Absent on a
+   * reader that has nothing to warm.
+   */
+  prewarm?(): AclPrewarm;
 }
 
 /**
@@ -108,6 +128,38 @@ export type ExecFileLike = (
     readonly maxBuffer: number;
   },
 ) => Promise<{ readonly stdout: string }>;
+
+/** A started child process whose standard input the caller feeds; see {@link SpawnAclLike}. */
+export interface AclChild {
+  /** Resolves with the standard output when the process exits with code 0; rejects with an `ExecFileFailure` otherwise. */
+  readonly exited: Promise<{ readonly stdout: string }>;
+  /** Resolves when the process wrote its first output (it is running and past its start-up). Never rejects. */
+  readonly ready: Promise<void>;
+  /** Writes `input` to the standard input and closes it. */
+  send(input: string): void;
+  /** Kills the process; a no-op once it has exited. */
+  kill(): void;
+}
+
+/** What the fixed `spawn` seam needs for the prewarmed process; injectable so the reader is testable on any platform. */
+export type SpawnAclLike = (
+  file: string,
+  args: readonly string[],
+  options: {
+    readonly env: NodeJS.ProcessEnv;
+    readonly windowsHide: true;
+    readonly maxBuffer: number;
+  },
+) => AclChild;
+
+/** The prewarmed tier-1 process as the reader holds it. */
+interface PrewarmedProcess {
+  /** Hands over the paths and resolves with the process's standard output; rejects like `ExecFileLike` does. */
+  read(paths: readonly string[]): Promise<string>;
+  /** Milliseconds from its spawn to its first output, once it has written any. */
+  readyMs(): number | undefined;
+  kill(): void;
+}
 
 /** An error that names its failure kind; the reader throws it when it composes several processes into one tier failure. */
 interface TierFailure extends Error {
@@ -244,12 +296,19 @@ const WHOAMI_TIMEOUT_MS = 15_000;
 const CONSTRAINED_LANGUAGE_EXIT_CODE = 3;
 const TIMEOUT_RETRIES = 1;
 const ACL_MAX_BUFFER = 1024 * 1024;
+/**
+ * How long a prewarmed PowerShell may wait for its paths before it is killed: the copy it overlaps takes seconds, so this
+ * only bounds a caller that never gets to the read (the read then spawns a fresh process).
+ */
+const PREWARM_IDLE_LIMIT_MS = 120_000;
 const PATH_SEPARATOR = "|";
 const PATHS_VARIABLE = "WI_ACL_PATHS";
 const SID_PATTERN = /^S-1-\d+(?:-\d+)+$/;
 const WHOAMI_SID_PATTERN = /"(S-1-\d+(?:-\d+)+)"\s*$/;
 /** `-InputFormat None` and a closed stdin: PowerShell never waits for input. */
 const POWERSHELL_ARGUMENTS = ["-NoLogo", "-NoProfile", "-NonInteractive", "-InputFormat", "None", "-Command"] as const;
+/** The prewarmed process reads its paths from stdin, so it must not be started with `-InputFormat None`. */
+const PREWARM_ARGUMENTS = ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"] as const;
 const STDERR_LIMIT = 500;
 const CLIXML_HEADER = "#< CLIXML";
 const CLIXML_ERROR_ELEMENT = /<S S="Error">([\s\S]*?)<\/S>/g;
@@ -284,14 +343,26 @@ const SCRIPT_PREFERENCES = "$ProgressPreference='SilentlyContinue';$PSModuleAuto
  * never in the command text, so no quoting can be abused. With auto-loading off it must stay cmdlet-free. Outside Full Language Mode the method calls would fail with a
  * localized message, so the script exits with a fixed code instead (CONSTRAINED_LANGUAGE_EXIT_CODE).
  */
-const DOTNET_SCRIPT =
+const DOTNET_HEAD =
   `${SCRIPT_PREFERENCES}if($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage'){exit 3};` +
   "$ErrorActionPreference='Stop';try{$s=[Security.AccessControl.AccessControlSections]'Owner,Group,Access';" +
-  "[Console]::Out.WriteLine([Security.Principal.WindowsIdentity]::GetCurrent().User.Value);" +
-  "foreach($p in $env:WI_ACL_PATHS.Split('|')){" +
+  "[Console]::Out.WriteLine([Security.Principal.WindowsIdentity]::GetCurrent().User.Value);";
+/** Writes the SDDL line of the object at `$p`. */
+const DOTNET_READ_ONE =
   "if([IO.Directory]::Exists($p)){$a=[IO.Directory]::GetAccessControl($p,$s)}else{$a=[IO.File]::GetAccessControl($p,$s)}" +
-  "[Console]::Out.WriteLine($a.GetSecurityDescriptorSddlForm($s))}}" +
-  "catch{[Console]::Error.WriteLine($_.Exception.Message);exit 1}";
+  "[Console]::Out.WriteLine($a.GetSecurityDescriptorSddlForm($s))";
+const DOTNET_TAIL = "}catch{[Console]::Error.WriteLine($_.Exception.Message);exit 1}";
+const DOTNET_SCRIPT = `${DOTNET_HEAD}foreach($p in $env:WI_ACL_PATHS.Split('|')){${DOTNET_READ_ONE}}${DOTNET_TAIL}`;
+/**
+ * Tier 1 for a prewarmed process: the same checks and the same output, but the paths arrive on stdin after the SID line
+ * is written (the process is loaded and its .NET types are warm by then). One path per line, each the Base64 of its UTF-8
+ * bytes, so the transport is pure ASCII whatever the console code page (`C:\Users\測試 使用者\...`) and no character
+ * of a path can be taken for syntax. Stdin ending finishes the loop; a parent that died closes it, so no process waits forever.
+ */
+const DOTNET_STDIN_SCRIPT =
+  `${DOTNET_HEAD}$e=[Text.Encoding]::UTF8;` +
+  "while($null -ne ($l=[Console]::In.ReadLine())){if($l.Length -eq 0){continue};" +
+  `$p=$e.GetString([Convert]::FromBase64String($l));${DOTNET_READ_ONE}}${DOTNET_TAIL}`;
 /**
  * Tier 2, for Constrained Language Mode, where tier 1's method calls fail: one SDDL line per path. The security module
  * is imported by absolute path first (allowed in Constrained Language Mode for a system module): without it `Get-Acl`
@@ -406,6 +477,83 @@ export const nodeExec: ExecFileLike = (file, args, options) =>
     // it leaves no pending write that could fail with EPIPE when the child exits first.
     child.stdin?.destroy();
   });
+
+/** A rejection of a run that was killed because it outlived `timeoutMs`; its time is measured from the start of the wait. */
+function timeoutFailure(elapsedMs: number, timeoutMs: number): ExecFileFailure {
+  const failure = {
+    exitCode: undefined,
+    errno: undefined,
+    signal: "SIGTERM",
+    killed: true,
+    timedOut: true,
+    elapsedMs,
+    timeoutMs,
+    stderr: "",
+  };
+  return Object.assign(new Error(""), failure, { message: describeExecFailure(failure) });
+}
+
+/**
+ * `spawn` (no shell: the arguments are an argv) with piped standard streams, for a process that is started now and fed
+ * later. Output is collected up to `maxBuffer`; a write to a process that already exited is ignored (its exit is the
+ * result). Timeouts are the caller's: this one never kills by time.
+ */
+export const nodeSpawn: SpawnAclLike = (file, args, options) => {
+  const started = performance.now();
+  const child = nodeSpawnProcess(file, [...args], { env: options.env, windowsHide: true });
+  let stdout = "";
+  let stderr = "";
+  let overflowed = false;
+  let signalReady = () => {};
+  const ready = new Promise<void>((resolve) => {
+    signalReady = resolve;
+  });
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => {
+    signalReady();
+    stdout += chunk;
+    if (stdout.length > options.maxBuffer && !overflowed) {
+      overflowed = true;
+      child.kill();
+    }
+  });
+  child.stderr.on("data", (chunk: string) => {
+    if (stderr.length < options.maxBuffer) stderr += chunk;
+  });
+  child.stdin.on("error", () => undefined);
+  const exited = new Promise<{ readonly stdout: string }>((resolve, reject) => {
+    const fail = (exitCode: number | null, errno: string | undefined, signal: string | null) => {
+      const failure = {
+        exitCode: exitCode ?? undefined,
+        errno,
+        signal: signal ?? undefined,
+        killed: child.killed,
+        timedOut: false,
+        elapsedMs: performance.now() - started,
+        timeoutMs: 0,
+        stderr: cleanPowerShellStderr(stderr),
+      };
+      reject(Object.assign(new Error(""), failure, { message: describeExecFailure(failure) }));
+    };
+    child.once("error", (error: NodeJS.ErrnoException) => fail(null, error.code ?? error.name, null));
+    child.once("close", (code, signal) => {
+      if (overflowed) fail(null, "ERR_CHILD_PROCESS_STDIO_MAXBUFFER", signal);
+      else if (code === 0) resolve({ stdout });
+      else fail(code, undefined, signal);
+    });
+  });
+  return {
+    exited,
+    ready,
+    send: (input) => {
+      child.stdin.end(input);
+    },
+    kill: () => {
+      child.kill();
+    },
+  };
+};
 
 /** The numeric mask of an SDDL rights string: hex, decimal, or concatenated two-letter codes. Throws on anything else. */
 function parseRights(text: string): number {
@@ -542,10 +690,10 @@ export function parseWhoamiSid(output: string): string {
 
 /**
  * The environment of the child PowerShell: only the allow-listed variables copied from the parent (names matched
- * case-insensitively), then a module path, a search path and the ACL paths set here. A parent's PSModulePath (PowerShell 7
+ * case-insensitively), then a module path, a search path and, when `paths` is given, the ACL paths set here (the prewarmed process gets none: its paths come on stdin). A parent's PSModulePath (PowerShell 7
  * entries make Windows PowerShell 5.1 fail to load its own modules) and Path never reach the child. One key per name.
  */
-function powerShellEnvironment(env: NodeJS.ProcessEnv, paths: readonly string[]): NodeJS.ProcessEnv {
+function powerShellEnvironment(env: NodeJS.ProcessEnv, paths?: readonly string[]): NodeJS.ProcessEnv {
   const child: NodeJS.ProcessEnv = {};
   for (const name of INHERITED_VARIABLES) {
     const key = Object.keys(env).find((candidate) => candidate.toLowerCase() === name.toLowerCase());
@@ -556,22 +704,29 @@ function powerShellEnvironment(env: NodeJS.ProcessEnv, paths: readonly string[])
   const powerShellDirectory = path.win32.dirname(windowsPowerShell(child));
   child.PSModulePath = path.win32.join(powerShellDirectory, "Modules");
   child.Path = [windowsSystem32Directory(child), systemRoot, powerShellDirectory].join(";");
-  child[PATHS_VARIABLE] = paths.join(PATH_SEPARATOR);
+  if (paths !== undefined) child[PATHS_VARIABLE] = paths.join(PATH_SEPARATOR);
   return child;
 }
+
+const roundMs = (ms: number) => Math.round(ms * 10) / 10;
 
 /**
  * The real reader. Both tiers start Windows PowerShell 5.1 by absolute path, without a shell, in a clean environment (see
  * powerShellEnvironment), and fail on any error, a malformed SID or a wrong line count. Tier `dotnet` is the default; its
  * script exits with CONSTRAINED_LANGUAGE_EXIT_CODE in Constrained Language Mode, which is reported as such. Tier
  * `get-acl` takes the SID from `whoami` (cached for this reader) because it must not call .NET methods. The reader makes
- * one try per call: retrying a timeout is the caller's decision (see assertWindowsAcl).
+ * one try per call: retrying a timeout is the caller's decision (see assertWindowsAcl). `prewarm` starts a tier-1
+ * process (`spawn` seam) that reads its paths from stdin; the next tier-1 read takes it over, and every way it can fail
+ * falls back to the one-shot read described above.
  */
 export function createWindowsAclReader(
   exec: ExecFileLike = nodeExec,
   env: NodeJS.ProcessEnv = process.env,
+  spawn: SpawnAclLike = nodeSpawn,
 ): WindowsAclReader {
   let whoamiSid: string | undefined;
+  /** The prewarmed tier-1 process nobody has read from yet; at most one. */
+  let pending: PrewarmedProcess | undefined;
 
   const run = (file: string, args: readonly string[], childEnv: NodeJS.ProcessEnv, timeout: number) =>
     exec(file, args, { env: childEnv, timeout, windowsHide: true, maxBuffer: ACL_MAX_BUFFER });
@@ -621,16 +776,13 @@ export function createWindowsAclReader(
     return { currentUserSid: whoamiSid as string, sddls };
   };
 
-  const readDotnet = async (paths: readonly string[]): Promise<AclSnapshot> => {
-    let stdout: string;
-    try {
-      ({ stdout } = await runPowerShell(DOTNET_SCRIPT, paths, DOTNET_TIMEOUT_MS));
-    } catch (error) {
-      if (isExecFailure(error) && !error.timedOut && error.exitCode === CONSTRAINED_LANGUAGE_EXIT_CODE) {
-        throw tierFailure(describeExecFailure(error, "ConstrainedLanguage"), "constrained-language");
-      }
-      throw error;
-    }
+  /** A tier-1 exit with CONSTRAINED_LANGUAGE_EXIT_CODE is Constrained Language Mode, whichever process produced it. */
+  const classifyDotnetFailure = (error: unknown): unknown =>
+    isExecFailure(error) && !error.timedOut && error.exitCode === CONSTRAINED_LANGUAGE_EXIT_CODE
+      ? tierFailure(describeExecFailure(error, "ConstrainedLanguage"), "constrained-language")
+      : error;
+
+  const parseDotnet = (stdout: string, paths: readonly string[]): AclSnapshot => {
     const output = lines(stdout);
     const currentUserSid = output.shift()?.trim() ?? "";
     if (!SID_PATTERN.test(currentUserSid)) throw new RangeError("the current user's SID was not returned");
@@ -638,23 +790,130 @@ export function createWindowsAclReader(
     return { currentUserSid, sddls: output };
   };
 
-  return { read: async (paths, tier = "dotnet") => (tier === "get-acl" ? readGetAcl(paths) : readDotnet(paths)) };
+  const startPrewarmed = (): PrewarmedProcess => {
+    const started = performance.now();
+    const child = spawn(windowsPowerShell(env), [...PREWARM_ARGUMENTS, DOTNET_STDIN_SCRIPT], {
+      env: powerShellEnvironment(env),
+      windowsHide: true,
+      maxBuffer: ACL_MAX_BUFFER,
+    });
+    let ended = false;
+    let readyMs: number | undefined;
+    const exited = child.exited.finally(() => {
+      ended = true;
+    });
+    // Whoever never reads from this process must not see its failure as an unhandled rejection.
+    exited.catch(() => undefined);
+    void child.ready.then(() => {
+      readyMs ??= performance.now() - started;
+    });
+    const idleTimer = setTimeout(() => child.kill(), PREWARM_IDLE_LIMIT_MS);
+    idleTimer.unref();
+    const kill = () => {
+      clearTimeout(idleTimer);
+      child.kill();
+    };
+    return {
+      kill,
+      readyMs: () => (readyMs === undefined ? undefined : roundMs(readyMs)),
+      read: async (paths) => {
+        clearTimeout(idleTimer);
+        if (ended) {
+          // It ended before it had any paths: its failure, or (exit 0 without input) a protocol that cannot have worked.
+          return exited.then(() => {
+            throw new RangeError("the prewarmed PowerShell ended before it was given the paths");
+          });
+        }
+        child.send(`${paths.map((target) => Buffer.from(target, "utf8").toString("base64")).join("\n")}\n`);
+        const waited = performance.now();
+        let timer: NodeJS.Timeout | undefined;
+        const timeout = new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            child.kill();
+            reject(timeoutFailure(performance.now() - waited, DOTNET_TIMEOUT_MS));
+          }, DOTNET_TIMEOUT_MS);
+        });
+        try {
+          return (await Promise.race([exited, timeout])).stdout;
+        } finally {
+          clearTimeout(timer);
+        }
+      },
+    };
+  };
+
+  /**
+   * Reads through the prewarmed process, if one is waiting. Its answer, a timeout of its read and Constrained Language
+   * Mode count as the tier's outcome; every other failure (it died before it had paths, bad output, an error exit) says
+   * nothing about the paths, so the read is made again in a fresh process, exactly as without a prewarm.
+   */
+  const readPrewarmed = async (paths: readonly string[]): Promise<AclSnapshot | undefined> => {
+    const warm = pending;
+    pending = undefined;
+    if (warm === undefined) return undefined;
+    try {
+      const snapshot = parseDotnet(await warm.read(paths), paths);
+      const prewarmMs = warm.readyMs();
+      return prewarmMs === undefined ? snapshot : { ...snapshot, prewarmMs };
+    } catch (error) {
+      const classified = classifyDotnetFailure(error);
+      if (classified !== error || (isExecFailure(error) && error.timedOut)) throw classified;
+      return undefined;
+    } finally {
+      warm.kill();
+    }
+  };
+
+  const readDotnet = async (paths: readonly string[]): Promise<AclSnapshot> => {
+    const prewarmed = await readPrewarmed(paths);
+    if (prewarmed !== undefined) return prewarmed;
+    let stdout: string;
+    try {
+      ({ stdout } = await runPowerShell(DOTNET_SCRIPT, paths, DOTNET_TIMEOUT_MS));
+    } catch (error) {
+      throw classifyDotnetFailure(error);
+    }
+    return parseDotnet(stdout, paths);
+  };
+
+  const prewarm = (): AclPrewarm => {
+    if (pending === undefined) {
+      try {
+        pending = startPrewarmed();
+      } catch {
+        // The read will meet the same problem (no PowerShell, a bad SystemRoot) and report it.
+        return { release: () => undefined };
+      }
+    }
+    const mine = pending;
+    return {
+      release: () => {
+        if (pending !== mine) return;
+        pending = undefined;
+        mine.kill();
+      },
+    };
+  };
+
+  return {
+    read: async (paths, tier = "dotnet") => (tier === "get-acl" ? readGetAcl(paths) : readDotnet(paths)),
+    prewarm,
+  };
 }
 
 async function readAndParse(
   paths: readonly string[],
   reader: WindowsAclReader,
   tier: AclReadTier,
-): Promise<{ descriptors: ParsedSddl[]; trust: AclTrust }> {
+): Promise<{ descriptors: ParsedSddl[]; trust: AclTrust; prewarmMs: number | undefined }> {
   const snapshot = await reader.read(paths, tier);
   if (snapshot.sddls.length !== paths.length) throw new RangeError("unexpected number of ACLs returned");
   return {
     descriptors: snapshot.sddls.map((sddl) => parseSddl(sddl)),
     trust: { currentUserSid: snapshot.currentUserSid },
+    prewarmMs: snapshot.prewarmMs,
   };
 }
-
-const roundMs = (ms: number) => Math.round(ms * 10) / 10;
 
 /**
  * One tier: reads and parses, and tries once more when (and only when) the first try timed out, because the second start
@@ -720,5 +979,10 @@ export async function assertWindowsAcl(paths: readonly string[], reader: Windows
       });
     }
   }
-  return { tier: attempts[attempts.length - 1]?.tier as AclReadTier, attempts };
+  const { prewarmMs } = outcome.read;
+  return {
+    tier: attempts[attempts.length - 1]?.tier as AclReadTier,
+    attempts,
+    ...(prewarmMs === undefined ? {} : { prewarmMs }),
+  };
 }

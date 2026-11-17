@@ -54,6 +54,7 @@ interface MetricResult {
 const samples: Record<Metric, number[]> = {
   firstStartMs: [],
   firstStartAclMs: [],
+  firstStartAclPrewarmMs: [],
   warmStartMs: [],
   repairWindowMs: [],
   quitMs: [],
@@ -66,11 +67,20 @@ const idleBreakdowns: MemoryBreakdown[] = [];
 let sandbox: PackagedSandbox | undefined;
 let app: RunningApp | undefined;
 
-/** The ACL read time of a `runtime installed` line: ` acl=<tier> <ms> ms` plus every ` acl-failed=<tier> <ms> ms`. */
+/**
+ * The ACL wait of a `runtime installed` line: ` acl=<tier> <ms> ms` plus every ` acl-failed=<tier> <ms> ms`. With a
+ * prewarmed PowerShell that is only the time after the files were in place; the start-up that overlapped the copy is
+ * `aclPrewarmMilliseconds`, which is not part of this sum.
+ */
 function aclMilliseconds(line: string): number {
   let total = 0;
   for (const [, ms] of line.matchAll(/ acl(?:-failed)?=[\w-]+ (\d+(?:\.\d+)?) ms/g)) total += Number(ms);
   return total;
+}
+
+/** The start-up time of the prewarmed PowerShell of a `runtime installed` line (` acl-prewarm=<ms> ms`); 0 when none ran. */
+function aclPrewarmMilliseconds(line: string): number {
+  return Number(/ acl-prewarm=(\d+(?:\.\d+)?) ms/.exec(line)?.[1] ?? 0);
 }
 
 test.describe.configure({ mode: "serial" });
@@ -94,6 +104,7 @@ for (let run = 1; run <= PACKAGED_PERF_RUNS; run += 1) {
     const installed = logLines(sandbox, /\[shell\] runtime installed /);
     expect(installed).toHaveLength(1);
     samples.firstStartAclMs.push(aclMilliseconds(installed[0] ?? ""));
+    samples.firstStartAclPrewarmMs.push(aclPrewarmMilliseconds(installed[0] ?? ""));
 
     const since = readLog(sandbox).length;
     started = performance.now();
