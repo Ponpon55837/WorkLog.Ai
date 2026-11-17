@@ -194,6 +194,67 @@ rl.on("line", (line) => {
     expect(result).toMatchObject({ ok: true, toolNames: ["a", "b"], serverInfo: { name: "fake", version: "9" } });
   });
 
+  /** Runs a fake server that records its pid, answers initialize, and then runs `afterInitialize`. */
+  async function probeMisbehavingServer(afterInitialize: string): Promise<{ result: unknown; pid: number }> {
+    const pidFile = join(temporaryDirectory(), "pid");
+    const server = fakeServer(`require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+${INITIALIZE_REPLY}
+  if (message.method === "tools/list") {
+    ${afterInitialize}
+  }
+});
+setInterval(() => {}, 1000);`);
+    const result = await probeMcpHandshake({ ...server, timeoutMs: 10_000 });
+    return { result, pid: Number(readFileSync(pidFile, "utf8")) };
+  }
+
+  it("answers HANDSHAKE_PROTOCOL_ERROR for a tools/list result without named tools, and kills the server", async () => {
+    const { result, pid } = await probeMisbehavingServer(
+      `process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { tools: [{ description: "no name" }] } }) + "\\n");`,
+    );
+
+    expect(result).toMatchObject({ ok: false, code: "HANDSHAKE_PROTOCOL_ERROR" });
+    expect(() => process.kill(pid, 0)).toThrow();
+  });
+
+  it("answers HANDSHAKE_PROTOCOL_ERROR when tools/list keeps returning pages, and kills the server", async () => {
+    const { result, pid } = await probeMisbehavingServer(
+      `process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { tools: [{ name: "t" + message.id }], nextCursor: "again" } }) + "\\n");`,
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: "HANDSHAKE_PROTOCOL_ERROR",
+      message: expect.stringContaining("pages"),
+    });
+    expect(() => process.kill(pid, 0)).toThrow();
+  });
+
+  it.each([
+    ["an array", "[1]"],
+    ["a number", "42"],
+    ["null", "null"],
+  ])(
+    "answers HANDSHAKE_PROTOCOL_ERROR when stdout carries a JSON value that is not a message (%s)",
+    async (_label, value) => {
+      const { result, pid } = await probeMisbehavingServer(`process.stdout.write(${JSON.stringify(value)} + "\\n");`);
+
+      expect(result).toMatchObject({ ok: false, code: "HANDSHAKE_PROTOCOL_ERROR" });
+      expect(() => process.kill(pid, 0)).toThrow();
+    },
+  );
+
+  it("answers HANDSHAKE_PROTOCOL_ERROR for a line that never ends, and kills the server", async () => {
+    const { result, pid } = await probeMisbehavingServer(`process.stdout.write("x".repeat(5 * 1024 * 1024));`);
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: "HANDSHAKE_PROTOCOL_ERROR",
+      message: expect.stringContaining("long line"),
+    });
+    expect(() => process.kill(pid, 0)).toThrow();
+  });
+
   it("never throws for a working directory that does not exist", async () => {
     const result = await probeMcpHandshake({
       command: process.execPath,
@@ -368,6 +429,58 @@ describe("probeMcpHandshake on Windows (injected spawn)", () => {
 
     expect(spawned).toHaveLength(1);
     expect(child.killed).toBeUndefined();
+  });
+});
+
+describe("probeMcpHandshake when the server closes its stdin early (injected spawn)", () => {
+  it("ignores the stdin error, still reads the answers and ends the tree", async () => {
+    const child = new EventEmitter() as EventEmitter & Record<string, unknown>;
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    child.pid = 4321;
+    child.exitCode = null;
+    child.signalCode = null;
+    child.stdin = stdin;
+    child.stdout = stdout;
+    child.stderr = new PassThrough();
+    child.kill = () => {
+      child.killed = true;
+      queueMicrotask(() => child.emit("close", null, "SIGTERM"));
+      return true;
+    };
+    const reply = (id: number, result: unknown): void => {
+      stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`);
+    };
+    stdin.on("data", (chunk: Buffer) => {
+      const message = JSON.parse(chunk.toString("utf8").split("\n")[0] as string) as { id?: number; method: string };
+      // Writing to a pipe whose reader is gone reports EPIPE on the stream, never as a thrown exception.
+      stdin.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+      if (message.method === "initialize") {
+        reply(message.id as number, { protocolVersion: "2025-11-25", serverInfo: { name: "fake", version: "1" } });
+      } else if (message.method === "tools/list") reply(message.id as number, { tools: [{ name: "only" }] });
+    });
+    const spawned: string[] = [];
+
+    const result = await probeMcpHandshake(
+      { command: "C:\\runtime\\server.exe", args: [], timeoutMs: 5_000 },
+      {
+        platform: "win32",
+        environment: { SystemRoot: "C:\\Windows" },
+        spawn: (file) => {
+          spawned.push(file);
+          if (spawned.length === 1) return child as unknown as ChildProcess;
+          const killer = new EventEmitter();
+          queueMicrotask(() => {
+            killer.emit("exit", 0);
+            child.emit("close", 1, null);
+          });
+          return killer as unknown as ChildProcess;
+        },
+      },
+    );
+
+    expect(result).toMatchObject({ ok: true, toolNames: ["only"] });
+    expect(spawned[1]).toBe("C:\\Windows\\System32\\taskkill.exe");
   });
 });
 

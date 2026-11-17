@@ -508,7 +508,7 @@ export const nodeSpawn: SpawnAclLike = (file, args, options) => {
   let stdout = "";
   let stderr = "";
   let overflowed = false;
-  let signalReady = () => {};
+  let signalReady: () => void;
   const ready = new Promise<void>((resolve) => {
     signalReady = resolve;
   });

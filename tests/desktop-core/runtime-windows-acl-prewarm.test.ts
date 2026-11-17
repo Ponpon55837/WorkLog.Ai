@@ -41,6 +41,7 @@ type Behavior =
   | "hang"
   | "bad-output"
   | "exit-1-at-start"
+  | "exit-0-at-start"
   | "constrained-at-start"
   | "constrained-after-paths"
   | "exit-1-after-paths";
@@ -65,6 +66,7 @@ function fakeSpawner(behavior: Behavior = "answer", startupMs = 0) {
     const started = new Promise<void>((resolve) => setTimeout(resolve, startupMs));
     void started.then(() => {
       if (behavior === "exit-1-at-start") settle?.reject(failure({ exitCode: 1 }));
+      else if (behavior === "exit-0-at-start") settle?.resolve({ stdout: "" });
       else if (behavior === "constrained-at-start") settle?.reject(failure({ exitCode: 3 }));
       else signalReady();
     });
@@ -253,6 +255,20 @@ describe("the prewarmed tier-1 PowerShell", () => {
       expect(processes[0]?.killed).toBe(true);
     });
 
+    it("a process that exited cleanly without ever getting paths is a broken protocol: the read spawns again (one-shot)", async () => {
+      const { spawn, processes } = fakeSpawner("exit-0-at-start");
+      const exec = fakeExec();
+      const reader = createWindowsAclReader(exec, env, spawn);
+      reader.prewarm?.();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      const report = await assertWindowsAcl(["a"], reader);
+      expect(report).toMatchObject({ tier: "dotnet", attempts: [{ tier: "dotnet", ok: true }] });
+      expect(report.prewarmMs).toBeUndefined();
+      expect(processes[0]?.received).toBeUndefined();
+      expect(processes[0]?.killed).toBe(true);
+      expect(exec).toHaveBeenCalledTimes(1);
+    });
+
     it("Constrained Language Mode reported by the prewarmed process goes to tier two", async () => {
       const { spawn } = fakeSpawner("constrained-at-start");
       const exec = fakeExec();
@@ -350,6 +366,16 @@ describe("nodeSpawn", () => {
     child.kill();
     await expect(child.exited).rejects.toMatchObject({ killed: true });
     expect(() => child.send("late\n")).not.toThrow();
+  });
+
+  it("survives the process closing its stdin: the write error is ignored and the exit is still reported", async () => {
+    const child = run(
+      "process.stdout.write('ready\\n');require('node:fs').closeSync(0);setTimeout(()=>process.stdout.write('done'),300)",
+    );
+    await child.ready;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    child.send("x".repeat(1_000_000));
+    await expect(child.exited).resolves.toEqual({ stdout: "ready\ndone" });
   });
 
   it("kills a process whose output outgrows the buffer", async () => {

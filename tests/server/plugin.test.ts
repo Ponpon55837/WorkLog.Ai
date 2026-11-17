@@ -409,6 +409,16 @@ function rewriteRecord(desktop: FakeDesktop, change: (record: Record<string, unk
   writeFileSync(desktop.recordFile, JSON.stringify(change(record)));
 }
 
+/**
+ * The plugin copied out of this repository, as an Agent's plugin cache holds it: run in place, it would find this
+ * checkout as its own location, and whether that checkout is built depends on what ran before the tests.
+ */
+function cachedPluginLauncher(home: string): string {
+  const cached = join(home, "cache/work-intelligence");
+  cpSync(pluginRoot, cached, { recursive: true });
+  return join(cached, "scripts/launch.mjs");
+}
+
 async function waitForFile(path: string): Promise<string> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (existsSync(path)) return readFileSync(path, "utf8");
@@ -606,11 +616,12 @@ describe.skipIf(process.platform === "win32")("plugin launcher with the desktop 
     const home = temporaryDirectory();
     const desktop = await fakeDesktop(home);
     const unbuilt = fakeRepository(join(home, "checkout"), false);
-    const explicit = run(launcher, ["dashboard"], { HOME: home, WORK_INTELLIGENCE_HOME: unbuilt });
+    const cachedLauncher = cachedPluginLauncher(home);
+    const explicit = run(cachedLauncher, ["dashboard"], { HOME: home, WORK_INTELLIGENCE_HOME: unbuilt });
     expect(explicit.status).toBe(1);
     expect(existsSync(desktop.appArguments)).toBe(false);
     rmSync(desktop.appExecutable);
-    const gone = run(launcher, ["dashboard"], { HOME: home, WORK_INTELLIGENCE_HOME: join(home, "none") });
+    const gone = run(cachedLauncher, ["dashboard"], { HOME: home, WORK_INTELLIGENCE_HOME: join(home, "none") });
     expect(gone.status).toBe(1);
     expect(existsSync(desktop.appArguments)).toBe(false);
   });
@@ -631,7 +642,7 @@ describe.skipIf(process.platform === "win32")("plugin launcher with the desktop 
     writeFileSync(real, APP_STUB, { mode: 0o755 });
     rmSync(desktop.appExecutable);
     symlinkSync(real, desktop.appExecutable);
-    const result = run(launcher, ["dashboard"], { HOME: home });
+    const result = run(cachedPluginLauncher(home), ["dashboard"], { HOME: home });
     expect(result.status).toBe(1);
     expect(existsSync(desktop.appArguments)).toBe(false);
   });
@@ -813,7 +824,7 @@ describe.skipIf(process.platform === "win32")("plugin launcher with the desktop 
       '#!/bin/sh\nprintf \'%s|%s\' "${ELECTRON_RUN_AS_NODE-unset}" "${ELECTRON_NO_ASAR-unset}" > "$(dirname "$0")/app-arguments.txt"\n',
       { mode: 0o755 },
     );
-    run(launcher, ["dashboard"], { HOME: home, ELECTRON_RUN_AS_NODE: "1", ELECTRON_NO_ASAR: "1" });
+    run(cachedPluginLauncher(home), ["dashboard"], { HOME: home, ELECTRON_RUN_AS_NODE: "1", ELECTRON_NO_ASAR: "1" });
     expect(await waitForFile(desktop.appArguments)).toBe("unset|unset");
   });
 });
