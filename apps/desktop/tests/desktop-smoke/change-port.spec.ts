@@ -142,11 +142,14 @@ test("the Dashboard's request carries its whitelisted preferences and route to t
   await window.locator('[data-id="port-input"]').fill(String(newPort));
   await window.locator('[data-id="port-apply"]').click();
 
+  // The App already opened the Dashboard on the old port at start; wait for the address it opens after the change.
   const after = await waitForSnapshot(
     app,
-    (state) => state.backend?.port === newPort && state.openedExternal.length > 0,
+    (state) =>
+      state.backend?.port === newPort &&
+      state.openedExternal.some((url) => new URL(url).origin === `http://127.0.0.1:${newPort}`),
   );
-  const opened = new URL(after.openedExternal.at(-1) ?? "");
+  const opened = new URL(after.openedExternal.filter((url) => new URL(url).port === String(newPort)).at(-1) ?? "");
   expect(opened.origin).toBe(`http://127.0.0.1:${newPort}`);
   expect(opened.hash.startsWith("#wi-handoff=")).toBe(true);
   expect(decodePortHandoffFragment(opened.hash)).toEqual({

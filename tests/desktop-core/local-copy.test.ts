@@ -148,7 +148,10 @@ describe("a switch to the copy that fails", () => {
       switchOutcome: { ok: false, code: "SCHEMA_TOO_NEW" },
       restart: true,
     });
-    expect(await copy(undefined)).toEqual({ ok: false, reason: "failed", errorCode: "SCHEMA_TOO_NEW" });
+    const result = await copy(undefined);
+    expect(result).toEqual({ ok: false, reason: "failed", errorCode: "SCHEMA_TOO_NEW", message: expect.any(String) });
+    // The real error comes with the reassurance that the settings and the original are unchanged.
+    expect(result.ok ? "" : result.message).toContain("The original file was not changed.");
     expect(recorded).toEqual(["SCHEMA_TOO_NEW"]);
     expect(events).toEqual(["start-change-db", "start-restart", "clear"]);
   });
