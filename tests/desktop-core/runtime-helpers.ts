@@ -41,7 +41,7 @@ export function fixtureDefinition(runtimeId: string, runtimeKind: RuntimeKind = 
   };
 }
 
-/** What `runtime-global-setup.ts` provided: the locked parent of every launcher root and, on Windows, its one ACL read. */
+/** What `runtime-global-setup.ts` provided: the locked parent of every launcher root. */
 function fixtures(): DesktopRuntimeFixtures {
   const provided = inject("desktopRuntimeFixtures");
   if (provided === undefined) {
@@ -60,20 +60,17 @@ export async function makeRoot(label = "desktop-runtime"): Promise<string> {
   return fs.mkdtemp(path.join(fixtures().parent, `${label} 測試-`));
 }
 
+/** A synthetic user SID and the descriptor the App gives its launcher root: owner and full control for that user, SYSTEM and Administrators only. */
+const FIXTURE_USER_SID = "S-1-5-21-1111111111-2222222222-3333333333-1001";
+const FIXTURE_SDDL = `O:${FIXTURE_USER_SID}G:DUD:PAI(A;OICI;FA;;;${FIXTURE_USER_SID})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)`;
+
 /**
- * For tests whose subject is not the ACL check: on Windows, a reader that answers every path with the ONE real read
- * (real SDDL and SID, taken once per run by the global setup) of the shared parent, whose ACL every root and file below it
- * inherits, so no test starts PowerShell. Undefined elsewhere, where no reader is used. Tests of the ACL check itself must
- * not use it.
+ * For tests whose subject is not the ACL check: on Windows, a reader that answers every path with the synthetic locked
+ * descriptor, so no test (and no setup) starts PowerShell and none depends on the machine's language mode. Undefined
+ * elsewhere, where no reader is used. The real reader and the ACL check are tested in runtime-windows-acl.test.ts.
  */
 const inheritedAclReader: WindowsAclReader | undefined = IS_WINDOWS
-  ? {
-      read: async (paths) => {
-        const snapshot = fixtures().aclSnapshot;
-        if (snapshot === undefined) throw new Error("the global setup provided no ACL snapshot on Windows");
-        return { currentUserSid: snapshot.currentUserSid, sddls: paths.map(() => snapshot.sddl) };
-      },
-    }
+  ? { read: async (paths) => ({ currentUserSid: FIXTURE_USER_SID, sddls: paths.map(() => FIXTURE_SDDL) }) }
   : undefined;
 
 /** `{ aclReader }` on Windows, `{}` elsewhere: spread it into the options of `installRuntime`, `commitCurrent` and `verifyRuntime`. */
