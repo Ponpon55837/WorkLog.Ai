@@ -133,6 +133,11 @@ const setCount = (copy: ProjectDataExport): void => void Object.assign(sessionRo
 const CASES: ParityCase[] = [
   { name: "valid file", body: valid, expected: "accepted" },
   {
+    name: "whitespace only",
+    body: () => " \n\t ",
+    expected: { status: 400, code: "invalid_input", message: "Invalid JSON request body." },
+  },
+  {
     name: "truncated JSON",
     body: (bundle) => valid(bundle).slice(0, 300),
     expected: { status: 400, code: "invalid_input", message: "Invalid JSON request body." },

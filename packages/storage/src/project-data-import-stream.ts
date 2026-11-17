@@ -201,6 +201,8 @@ class ProjectDataImportStreamReader {
   private capture?: Capture;
   private rootDone = false;
   private rootStarted = false;
+  /** Bytes pushed so far: only a body with none at all counts as `{}`. */
+  private received = 0;
   private root: unknown;
   private bundle?: Record<string, unknown>;
   private tables?: Record<string, unknown>;
@@ -250,6 +252,7 @@ class ProjectDataImportStreamReader {
     }
     this.buffer.set(chunk, this.end);
     this.end += chunk.byteLength;
+    this.received += chunk.byteLength;
   }
 
   /** Moves every offset after the buffer dropped `by` consumed bytes from its front. */
@@ -620,8 +623,11 @@ class ProjectDataImportStreamReader {
       this.completeCapture(capture, end);
     }
     if (!this.rootStarted) {
-      // An empty body is an empty object, as the REST route has always read it.
-      this.root = this.options.envelope === "request" ? {} : { bundle: {} };
+      // An empty request body is an empty object, as the REST route has always read it; whitespace alone, or an empty
+      // export file, is not JSON (JSON.parse refused both before the reader streamed them).
+      if (this.received > 0 || this.options.envelope !== "request")
+        throw new ProjectDataImportSyntaxError("invalid_json");
+      this.root = {};
       return;
     }
     if (!this.rootDone || this.frames.length > 0) throw new ProjectDataImportSyntaxError("invalid_json");

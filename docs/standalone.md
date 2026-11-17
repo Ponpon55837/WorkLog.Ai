@@ -29,7 +29,7 @@ work-intelligence-<版本>/
   package.json                     private、bin、engines.node（與根目錄相同）
 ```
 
-所有相依套件都是純 JavaScript，已打包進 `libexec/`，資料夾內沒有 `node_modules`，也沒有原生模組。`backup-worker.js` 必須與 `standalone-cli.js` 在同一個資料夾，API 的備份與匯出由它在 worker thread 執行。
+所有相依套件都是純 JavaScript，已打包進 `libexec/`，資料夾內沒有 `node_modules`，也沒有原生模組。`backup-worker.js` 必須與 `standalone-cli.js` 在同一個資料夾，API 的備份、匯出與匯入由它在獨立的背景子行程執行（1.6.48 起；之前是 worker thread）。
 
 ## 下載與驗證
 
@@ -83,7 +83,7 @@ node work-intelligence-<版本>/bin/work-intelligence.mjs --help
 
 ## 測試
 
-`pnpm test:standalone`（需要先 `pnpm build`）在暫存目錄建置、解開 tarball，再以假的 HOME、`WORK_INTELLIGENCE_CONFIG_DIR` 與隨機空閒 port 執行：`--version`、`start`（`/api/health`、`/`、Web 的 JS、經 worker thread 的備份、SIGTERM 後釋放 port）、`track`、`db backups`、`check` 與 MCP stdio 的 `initialize`、`tools/list` 與專案狀態。它不會碰 `data/`、`~/.work-intelligence`、`~/.claude`、登入服務，也不使用預設的 3210。單元測試在 `tests/server/standalone-*.test.ts`、`tests/server/web-directory.test.ts`、`tests/shared/command-name.test.ts`。
+`pnpm test:standalone`（需要先 `pnpm build`）在暫存目錄建置、解開 tarball，再以假的 HOME、`WORK_INTELLIGENCE_CONFIG_DIR` 與隨機空閒 port 執行：`--version`、`start`（`/api/health`、`/`、Web 的 JS、經背景子行程的備份、SIGTERM 後釋放 port）、`track`、`db backups`、`check` 與 MCP stdio 的 `initialize`、`tools/list` 與專案狀態。它不會碰 `data/`、`~/.work-intelligence`、`~/.claude`、登入服務，也不使用預設的 3210。單元測試在 `tests/server/standalone-*.test.ts`、`tests/server/web-directory.test.ts`、`tests/shared/command-name.test.ts`。
 
 ## 尚未提供
 

@@ -136,7 +136,7 @@ R4 的補充用法：
 
 ## 1.6.47 任務（階段 3：Agent 整合）與本文件的關係
 
-本版實作階段 3 的 CI 可驗證部分。Windows 11 與 macOS 的實機驗收仍為**待實機驗收**；CI 結果見 PR [#369](https://github.com/Ponpon55837/WorkLog.Ai/pull/369) 的 CI：[Desktop package](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/44017057384)、[Desktop smoke](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/44017057465)、[Desktop runtime spike](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/44017057421)、[CI](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/44017057526)（以 PR 最新 head 的 CI 為準）。階段 3 的 gate（host 真正 handshake、hook fail-open、更新後 runtime 不失效）尚未通過，本文件不宣稱實機或 gate 已通過。
+本版實作階段 3 的 CI 可驗證部分。Windows 11 與 macOS 的實機驗收仍為**待實機驗收**；CI 結果見 PR [#369](https://github.com/Ponpon55837/WorkLog.Ai/pull/369) 合併前最後一個 head 的 CI：[Desktop package](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/44038144921)、[Desktop smoke](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/44038145033)、[Desktop runtime spike](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/44038144908)、[CI](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/44038144926)（20 項全部通過；合併後 main 的 [CI](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/44039318088) 也通過）。階段 3 的 gate（host 真正 handshake、hook fail-open、更新後 runtime 不失效）尚未通過，本文件不宣稱實機或 gate 已通過。
 
 | 任務 | 內容 | 狀態 | 本文件位置 | 證據路徑 |
 |---|---|---|---|---|
