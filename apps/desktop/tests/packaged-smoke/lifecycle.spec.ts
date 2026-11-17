@@ -35,6 +35,7 @@ import {
   type PackagedSandbox,
   type RunningApp,
 } from "./helpers.js";
+import { decideInstallerProfile } from "./installer-profile.js";
 
 /**
  * What installing, upgrading and removing do, seen from outside. Windows: the NSIS installer run again over the running
@@ -93,28 +94,24 @@ function snapshot(directory: string, base = directory): Record<string, number> {
   return entries;
 }
 
-test("an installer run over the running App stops it through --quit", async ({
-  browserName: _browserName,
-}, testInfo) => {
+test("an installer run over the running App stops it through --quit", async () => {
   test.skip(process.platform !== "win32", "Windows only");
+  // The real profile is used only where that is safe (see installer-profile.ts): skipped on a developer's machine,
+  // refused before anything is created when its default userData already exists.
+  const existingDefaults = defaultUserDataDirectories(process.env).filter((directory) => existsSync(directory));
+  const decision = decideInstallerProfile(process.env, existingDefaults);
+  test.skip(decision.mode === "skip", decision.mode === "skip" ? decision.reason : "");
+  if (decision.mode === "refuse") throw new Error(decision.reason);
   const installer = requiredEnvironment("WORK_INTELLIGENCE_PACKAGED_INSTALLER");
   const installDirectory = requiredEnvironment("WORK_INTELLIGENCE_PACKAGED_INSTALL_DIR");
+  const [realDefault] = defaultUserDataDirectories(process.env) as [string];
   const current = await createSandbox({ withDatabase: true });
   sandbox = current;
 
-  // The installer asks the running App to quit with a bare `<exe> --quit`, which can only find an instance that uses the
-  // default userData. So that step is asserted on CI, where the default folder is a throwaway runner's and is removed
-  // afterwards; on a developer machine the App runs in the sandbox and only the outcome is asserted, because the real
-  // default userData is never touched.
-  const [realDefault] = defaultUserDataDirectories(process.env) as [string];
-  const strict = Boolean(process.env.CI) && !existsSync(realDefault);
-  let observed = current;
-  if (strict) {
-    mkdirSync(realDefault, { recursive: true });
-    cleanupPaths.push(realDefault);
-    copyFileSync(join(current.userData, "desktop-settings.json"), join(realDefault, "desktop-settings.json"));
-    observed = { ...current, userData: realDefault, logFile: join(realDefault, "logs", "desktop-main.log") };
-  }
+  mkdirSync(realDefault, { recursive: true });
+  cleanupPaths.push(realDefault);
+  copyFileSync(join(current.userData, "desktop-settings.json"), join(realDefault, "desktop-settings.json"));
+  const observed = { ...current, userData: realDefault, logFile: join(realDefault, "logs", "desktop-main.log") };
   // The profile of the installer, which runs with this process's environment. Electron finds the default userData
   // through the Windows known folder, which can expand %USERPROFILE%, so USERPROFILE must be the real one too, not only
   // APPDATA: with the sandbox's, the App's userData (its log and its single-instance lock) is in the sandbox home, where
@@ -124,7 +121,7 @@ test("an installer run over the running App stops it through --quit", async ({
     const value = process.env[name];
     if (value !== undefined) realProfile[name] = value;
   }
-  const running = startApp(current, [], strict ? { defaultUserData: true, environment: realProfile } : {});
+  const running = startApp(current, [], { defaultUserData: true, environment: realProfile });
   app = running;
   const backend = await waitForManaged(observed).catch((error: unknown) => {
     // Every folder the log could have gone to: the observed one, and the default userData of the real and the sandbox
@@ -150,12 +147,7 @@ test("an installer run over the running App stops it through --quit", async ({
   expect(existsSync(packagedExecutable())).toBe(true);
   expect(existsSync(current.databasePath)).toBe(true);
   expect(leftoverProcesses([current.root, installDirectory])).toEqual([]);
-  if (strict) expect(logLines(observed, /\[shell\] quit requested by --quit/)).toHaveLength(1);
-  else
-    testInfo.annotations.push({
-      type: "note",
-      description: "--quit step not asserted outside CI (default userData is not touched)",
-    });
+  expect(logLines(observed, /\[shell\] quit requested by --quit/)).toHaveLength(1);
 });
 
 test("the uninstaller removes the program files and keeps the user's data", async () => {
