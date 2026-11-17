@@ -74,7 +74,7 @@ export const repairInputSchemas = {
   /** `adopt`: also take over the hand-written checkout registrations ("改由桌面 App 管理"). Nothing is written. */
   agentsPreview: z.strictObject({ adopt: z.boolean() }),
   /** Applies exactly the plan this preview showed; a file changed since then makes the apply refuse. */
-  agentsApply: z.strictObject({ previewId: z.uuid() }),
+  agentsApply: z.strictObject({ previewId: z.uuid(), acknowledgeUndiffable: z.boolean().optional() }),
   agentsDiscard: z.strictObject({}),
   agentsUndo: z.strictObject({}),
   agentsSelfTest: z.strictObject({}),
@@ -132,7 +132,7 @@ export interface RepairApi {
   showAgents(): Promise<{ readonly ok: boolean }>;
   agentsGetState(): Promise<AgentsState>;
   agentsPreview(adopt: boolean): Promise<AgentsActionResult>;
-  agentsApply(previewId: string): Promise<AgentsActionResult>;
+  agentsApply(previewId: string, acknowledgeUndiffable?: boolean): Promise<AgentsActionResult>;
   agentsDiscard(): Promise<AgentsActionResult>;
   agentsUndo(): Promise<AgentsActionResult>;
   agentsSelfTest(): Promise<AgentsActionResult>;

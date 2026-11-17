@@ -1,7 +1,8 @@
 import { expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { join, relative, sep } from "node:path";
+import { maskHome } from "@work-intelligence/desktop-core";
 import { setupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
 import {
   attachLog,
@@ -20,8 +21,41 @@ import {
 /**
  * The Agent page ("設定 Agent…"): nothing is written by looking or previewing, "套用變更" writes exactly the previewed
  * plan into the Agents' files under the (sandbox) home, the self-test talks MCP through the fixed launcher, and "復原上次
- * 變更" puts every file back. Synthetic data only: the home is the sandbox's, empty before the test.
+ * 變更" puts every file back. Synthetic data only: the home is the sandbox's and holds, before the App starts, only the
+ * synthetic Agent files seeded below, so apply has real files to back up and undo has real files to restore.
  */
+
+const JOURNAL_FILE = ".work-intelligence-agent-setup.journal.json";
+const MANIFEST_FILE = ".work-intelligence-agent-setup.json";
+const BACKUP_MARK = ".work-intelligence.backup-";
+
+/** Pre-existing Agent files with an entry that is not ours; the bytes are compared after apply and after undo. */
+const SEEDS: Readonly<Record<string, string>> = {
+  ".claude.json": `${JSON.stringify(
+    { numStartups: 3, mcpServers: { other: { command: "synthetic-other", args: ["serve"] } } },
+    null,
+    2,
+  )}\n`,
+  ".codex/config.toml": 'model = "synthetic-model"\n\n[mcp_servers.other]\ncommand = "synthetic-other"\n',
+};
+
+function seedHome(home: string): void {
+  for (const [name, content] of Object.entries(SEEDS)) {
+    const path = join(home, ...name.split("/"));
+    mkdirSync(join(path, ".."), { recursive: true });
+    writeFileSync(path, content);
+  }
+}
+
+/** The App's own data under the sandbox home: its database and backups. Logs live under the data folder, outside home. */
+function isAppData(key: string): boolean {
+  const path = key.replaceAll("\\", "/");
+  return [".work-intelligence/data", ".work-intelligence/backups"].some(
+    (folder) => path === folder || path.startsWith(`${folder}/`),
+  );
+}
+
+const posix = (key: string): string => key.replaceAll("\\", "/");
 
 let sandbox: Sandbox | undefined;
 let app: ElectronApplication | undefined;
@@ -54,7 +88,15 @@ interface PageAgentsState {
   launcherReady: boolean;
   selfTest: { outcome: string };
   undoAvailable: boolean;
-  preview: { files: unknown[]; conflicts: unknown[] } | null;
+  preview: {
+    files: {
+      display: string;
+      change: "create" | "update" | "delete";
+      tooLarge: boolean;
+      hunks: { lines: { type: "context" | "add" | "remove" | "note"; text: string }[] }[];
+    }[];
+    conflicts: unknown[];
+  } | null;
 }
 
 function agentsState(window: Page): Promise<PageAgentsState> {
@@ -72,9 +114,9 @@ async function pageText(window: Page) {
 
 test("the Agent page previews, applies exactly the preview, passes the self-test and undoes it all", async () => {
   sandbox = await createSandbox({ withDatabase: true });
-  // The App's own data (database, backups) is not an Agent file; the home is otherwise empty.
-  const skip = (path: string) => path.startsWith(".work-intelligence");
   const home = sandbox.home;
+  seedHome(home);
+  const skip = isAppData;
   app = await launchApp(sandbox, {}, ["--open-agent-setup"]);
   await waitForManagedSnapshot(app);
 
@@ -102,11 +144,73 @@ test("the Agent page previews, applies exactly the preview, passes the self-test
   expect(applied).not.toEqual(before);
   expect(Object.keys(applied).some((path) => path.endsWith("SKILL.md"))).toBe(true);
 
+  // Exactly the preview: the files written (created or changed, apart from the journal and the backups) are the files
+  // the preview listed, nothing was deleted, and every added line of the preview is what the file now holds.
+  const isBookkeeping = (key: string) => posix(key) === JOURNAL_FILE || key.includes(BACKUP_MARK);
+  expect(Object.keys(before).filter((key) => !(key in applied))).toEqual([]);
+  const written = Object.keys(applied)
+    .filter((key) => applied[key] !== before[key] && !isBookkeeping(key))
+    .map(posix)
+    .sort();
+  const previewedFiles = previewed.preview?.files ?? [];
+  const previewedPaths = previewedFiles.map((file) =>
+    file.display.replace(/^~/, "").replaceAll("\\", "/").replace(/^\/+/, ""),
+  );
+  expect(written).toEqual([...previewedPaths].sort());
+  expect(written).toContain(MANIFEST_FILE);
+  for (const file of previewedFiles) {
+    expect(file.tooLarge).toBe(false);
+    const key = file.display.replace(/^~/, "").replaceAll("\\", "/").replace(/^\/+/, "");
+    const lines = maskHome(readFileSync(join(home, ...key.split("/")), "utf8"), home, process.platform)
+      .split(/\r?\n/)
+      .filter((line, index, all) => !(index === all.length - 1 && line === ""));
+    // A secret-looking value is masked as `***` in the preview; those lines cannot be compared.
+    const added = file.hunks.flatMap((hunk) =>
+      hunk.lines.filter((line) => line.type === "add").map((line) => line.text),
+    );
+    const comparable = added.filter((line) => !line.includes("***"));
+    if (file.change === "create") {
+      // A created file is entirely the preview's added lines.
+      expect(lines.length).toBe(added.length);
+      expect(lines.filter((_, index) => !added[index]?.includes("***"))).toEqual(comparable);
+    } else {
+      // An updated file holds every added line, in the preview's order.
+      let from = 0;
+      for (const line of comparable) {
+        const found = lines.indexOf(line, from);
+        expect(found, `added line missing from ${key}: ${line}`).toBeGreaterThanOrEqual(from);
+        from = found + 1;
+      }
+    }
+  }
+
+  // The seeded files were backed up byte for byte and keep the entries that are not ours.
+  for (const [name, content] of Object.entries(SEEDS)) {
+    const backups = Object.keys(applied).filter((key) => posix(key).startsWith(`${name}${BACKUP_MARK}`));
+    expect(backups, `a backup of ${name}`).toHaveLength(1);
+    expect(applied[backups[0] as string]).toBe(before[name.split("/").join(sep)]);
+    expect(readFileSync(join(home, ...(backups[0] as string).split(/[\\/]/)), "utf8")).toBe(content);
+  }
+  expect(JSON.parse(readFileSync(join(home, ".claude.json"), "utf8")).mcpServers.other).toEqual({
+    command: "synthetic-other",
+    args: ["serve"],
+  });
+  expect(readFileSync(join(home, ".codex", "config.toml"), "utf8")).toContain("[mcp_servers.other]");
+  expect(JSON.parse(readFileSync(join(home, JOURNAL_FILE), "utf8")).state).toBe("committed");
+
   await window.locator('[data-id="self-test"]').click();
   await expect.poll(async () => (await agentsState(window)).selfTest.outcome, { timeout: 30_000 }).toBe("ok");
 
   await window.locator('[data-id="undo"]').click();
-  await expect.poll(() => tree(home, skip), { timeout: 15_000 }).toEqual(before);
+  // Undo puts everything back, the manifest, the backups and the created files included; only the journal stays, as the
+  // record of what was undone, and says so.
+  await expect
+    .poll(() => tree(home, skip), { timeout: 15_000 })
+    .toEqual({ ...before, [JOURNAL_FILE]: expect.any(String) });
+  expect(JSON.parse(readFileSync(join(home, JOURNAL_FILE), "utf8")).state).toBe("compensated");
+  for (const [name, content] of Object.entries(SEEDS)) {
+    expect(readFileSync(join(home, ...name.split("/")), "utf8")).toBe(content);
+  }
   expect(readMainLog(sandbox)).toMatch(/\[shell\] agent setup /);
 });
 

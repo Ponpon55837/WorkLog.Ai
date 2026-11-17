@@ -2,16 +2,22 @@ import { describe, expect, it } from "vitest";
 import {
   buildRepairState,
   buildTrayMenu,
+  canApplyPreview,
+  errorHintFor,
   errorMessageFor,
+  hasUndiffableFile,
+  isFileOpen,
   interpretSecondInstanceData,
   isDeterministicFailure,
   isOpenAgentSetupLaunch,
   maskHome,
   OPEN_AGENT_SETUP_FLAG,
   OPEN_AGENT_SETUP_SECOND_INSTANCE_DATA,
+  repairInputSchemas,
   RestartPolicy,
   setupMessages,
   shellMessages,
+  type AgentsPreview,
   type RepairStateInputs,
 } from "../../packages/desktop-core/src/shell/index.js";
 import type { LegacyServiceDetection } from "../../packages/desktop-core/src/legacy-service/types.js";
@@ -207,5 +213,84 @@ describe("legacy service messages", () => {
   it("defines the same keys in both setup locales", () => {
     expect(keyPaths(enSetup).sort()).toEqual(keyPaths(zhSetup).sort());
     expect(keyPaths(enSetup).length).toBeGreaterThan(20);
+  });
+});
+
+describe("LEGACY_SERVICE_ACTIVE hint selection", () => {
+  it.each(["zh-TW", "en"] as const)("names 'start anyway' only where the button exists (%s)", (locale) => {
+    const messages = shellMessages(locale);
+    const withButton = errorHintFor(messages, "LEGACY_SERVICE_ACTIVE", true);
+    const without = errorHintFor(messages, "LEGACY_SERVICE_ACTIVE", false);
+    expect(withButton).toBe(messages.errors.LEGACY_SERVICE_ACTIVE.hint);
+    expect(without).toBe(messages.legacyActiveNoOverrideHint);
+    expect(without).toContain("pnpm service:uninstall");
+    expect(without).not.toMatch(/仍要啟動|Start anyway/);
+  });
+
+  it("leaves every other code's hint alone", () => {
+    const messages = shellMessages("en");
+    expect(errorHintFor(messages, "DB_MISSING", false)).toBe(messages.errors.DB_MISSING.hint);
+    expect(errorHintFor(messages, "UNKNOWN_CODE", false)).toBe(messages.errors.REPAIR_REQUIRED.hint);
+  });
+
+  it("words the large-file note and the acknowledgement in both languages", () => {
+    expect(shellMessages("zh-TW").agentsTooLargeNote).toBe("檔案過大，無法顯示差異");
+    expect(shellMessages("zh-TW").agentsAckUndiffable).toBe("我了解有檔案無法顯示差異");
+    expect(shellMessages("en").agentsTooLargeNote.length).toBeGreaterThan(0);
+    expect(shellMessages("en").agentsAckUndiffable.length).toBeGreaterThan(0);
+  });
+});
+
+describe("applying a preview with a file that has no diff shown", () => {
+  const file = (display: string, tooLarge: boolean): AgentsPreview["files"][number] => ({
+    display,
+    label: "config",
+    change: "update",
+    tooLarge,
+    hunks: [],
+  });
+  const preview = (files: AgentsPreview["files"], conflicts: string[] = []): AgentsPreview => ({
+    id: "11111111-1111-4111-8111-111111111111",
+    adopt: false,
+    files,
+    actions: [],
+    conflicts,
+  });
+
+  it("finds an undiffable file", () => {
+    expect(hasUndiffableFile(preview([file("~/a", false)]))).toBe(false);
+    expect(hasUndiffableFile(preview([file("~/a", false), file("~/b", true)]))).toBe(true);
+  });
+
+  it("needs the acknowledgement only when a file is undiffable", () => {
+    expect(canApplyPreview(preview([file("~/a", false)]), false)).toBe(true);
+    expect(canApplyPreview(preview([file("~/a", false), file("~/b", true)]), false)).toBe(false);
+    expect(canApplyPreview(preview([file("~/a", false), file("~/b", true)]), true)).toBe(true);
+  });
+
+  it("never applies an empty or conflicting plan", () => {
+    expect(canApplyPreview(preview([]), true)).toBe(false);
+    expect(canApplyPreview(preview([file("~/a", false)], ["conflict"]), true)).toBe(false);
+  });
+
+  it("accepts the acknowledgement flag in the apply input and rejects anything else", () => {
+    const schema = repairInputSchemas.agentsApply;
+    const previewId = "11111111-1111-4111-8111-111111111111";
+    expect(schema.safeParse({ previewId }).success).toBe(true);
+    expect(schema.safeParse({ previewId, acknowledgeUndiffable: true }).success).toBe(true);
+    expect(schema.safeParse({ previewId, acknowledgeUndiffable: "yes" }).success).toBe(false);
+    expect(schema.safeParse({ previewId, extra: 1 }).success).toBe(false);
+  });
+});
+
+describe("which diffs stay open across a refresh", () => {
+  it("opens the first file by default and keeps the user's choice", () => {
+    const chosen = new Map<string, boolean>();
+    expect(isFileOpen(chosen, "~/a", 0)).toBe(true);
+    expect(isFileOpen(chosen, "~/b", 1)).toBe(false);
+    chosen.set("~/b", true);
+    chosen.set("~/a", false);
+    expect(isFileOpen(chosen, "~/b", 1)).toBe(true);
+    expect(isFileOpen(chosen, "~/a", 0)).toBe(false);
   });
 });

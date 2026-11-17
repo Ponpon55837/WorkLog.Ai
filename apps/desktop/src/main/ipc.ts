@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { clipboard, dialog, ipcMain, shell } from "electron";
 import type { IpcMainInvokeEvent } from "electron";
 import {
+  canApplyPreview,
   isTrustedRepairSender,
   previewToCandidate,
   REPAIR_CHANNELS,
@@ -235,8 +236,17 @@ export function registerRepairIpc(options: IpcOptions): void {
   });
 
   handle(REPAIR_CHANNELS.agentsPreview, parser(repairInputSchemas.agentsPreview), ({ adopt }) => agents.preview(adopt));
-  handle(REPAIR_CHANNELS.agentsApply, parser(repairInputSchemas.agentsApply), ({ previewId }) =>
-    agents.apply(previewId),
+  handle(
+    REPAIR_CHANNELS.agentsApply,
+    parser(repairInputSchemas.agentsApply),
+    async ({ previewId, acknowledgeUndiffable }) => {
+      // A file whose diff was not shown is applied only after the user said so; the page's disabled button is not the guard.
+      const shown = agents.snapshot().preview;
+      if (shown?.id === previewId && !canApplyPreview(shown, acknowledgeUndiffable === true)) {
+        return { ok: false, reason: "invalid", state: agents.snapshot() };
+      }
+      return agents.apply(previewId);
+    },
   );
   handle(REPAIR_CHANNELS.agentsDiscard, parser(repairInputSchemas.agentsDiscard), async () => agents.discard());
   handle(REPAIR_CHANNELS.agentsUndo, parser(repairInputSchemas.agentsUndo), () => agents.undo());

@@ -1,5 +1,6 @@
 import type { RepairApi, RepairState, RepairActionId } from "@work-intelligence/desktop-core";
 import {
+  errorHintFor,
   errorMessageFor,
   formatMessage,
   shellMessages,
@@ -123,12 +124,13 @@ function render(state: RepairState): void {
 
   const errors = element("ul", { className: "list" });
   if (state.recentErrors.length === 0) errors.append(element("li", { text: messages.repairNoErrors }));
+  const startAnywayAvailable = state.actions.some((action) => action.id === "start-anyway");
   for (const entry of [...state.recentErrors].reverse()) {
     const message = errorMessageFor(messages, entry.code);
     errors.append(
       element("li", { className: "error-item" }, [
         element("strong", { text: message.title }),
-        element("div", { className: "hint", text: message.hint }),
+        element("div", { className: "hint", text: errorHintFor(messages, entry.code, startAnywayAvailable) }),
         element("div", { className: "error-code", text: entry.code }),
       ]),
     );

@@ -90,3 +90,22 @@ export function maskHome(text: string, homeDirectory: string, platform: NodeJS.P
   }
   return masked;
 }
+
+/** A file of the preview whose diff the page cannot show (too large to compare): the user cannot review what changes. */
+export function hasUndiffableFile(preview: Pick<AgentsPreview, "files">): boolean {
+  return preview.files.some((file) => file.tooLarge);
+}
+
+/**
+ * Whether the preview may be applied. Conflicts block it; a file without a shown diff needs the user's explicit
+ * acknowledgement. The page uses this to enable "套用變更" and main uses it again before it applies.
+ */
+export function canApplyPreview(preview: AgentsPreview, acknowledgedUndiffable: boolean): boolean {
+  if (preview.conflicts.length > 0 || preview.files.length === 0) return false;
+  return !hasUndiffableFile(preview) || acknowledgedUndiffable;
+}
+
+/** Whether a file's `<details>` is open: what the user chose wins, otherwise only the first file opens by itself. */
+export function isFileOpen(chosen: ReadonlyMap<string, boolean>, display: string, index: number): boolean {
+  return chosen.get(display) ?? index === 0;
+}

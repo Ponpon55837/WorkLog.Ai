@@ -1,13 +1,16 @@
-import type {
-  AgentCardView,
+import {
+  canApplyPreview,
+  hasUndiffableFile,
+  isFileOpen,
+  type AgentCardView,
   AgentsActionResult,
   AgentsPreview,
   AgentsState,
   RepairApi,
 } from "@work-intelligence/desktop-core";
-import { formatMessage } from "@work-intelligence/desktop-core/shell/i18n";
+import { formatMessage, shellMessages } from "@work-intelligence/desktop-core/shell/i18n";
 import { setupMessages, type SetupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
-import { button, element, fact, focusedId, restoreFocus, section, setLanguage } from "./dom.js";
+import { button, checkbox, element, fact, focusedId, restoreFocus, section, setLanguage } from "./dom.js";
 
 /**
  * The Agent page. Nothing is written by looking at it: "預覽變更" (or "改由桌面 App 管理…") computes a plan and shows its
@@ -59,13 +62,24 @@ function agentCard(card: AgentCardView, text: SetupMessages): HTMLElement {
   return node;
 }
 
+interface PreviewControls {
+  readonly busy: boolean;
+  /** Which files the user opened or closed, by path; a file not listed follows the default. */
+  readonly chosen: Map<string, boolean>;
+  readonly acknowledged: boolean;
+  readonly acknowledge: (value: boolean) => void;
+  readonly apply: () => void;
+  readonly discard: () => void;
+}
+
 function previewBlock(
   preview: AgentsPreview,
   text: SetupMessages,
-  busy: boolean,
-  apply: () => void,
-  discard: () => void,
+  locale: AgentsState["locale"],
+  controls: PreviewControls,
 ) {
+  const { busy, chosen, acknowledged } = controls;
+  const shell = shellMessages(locale);
   const content: Node[] = [];
   if (preview.files.length === 0 && preview.conflicts.length === 0) {
     content.push(element("p", { className: "hint", text: text.agentsNoChanges }));
@@ -82,7 +96,7 @@ function previewBlock(
       ]),
     );
   }
-  for (const file of preview.files) {
+  for (const [index, file] of preview.files.entries()) {
     const lines = element("pre", { className: "diff" });
     for (const hunk of file.hunks) {
       lines.append(element("span", { className: "diff-hunk", text: `@@ -${hunk.oldStart} +${hunk.newStart} @@\n` }));
@@ -91,36 +105,47 @@ function previewBlock(
         lines.append(element("span", { className: `diff-${line.type}`, text: `${sign} ${line.text}\n` }));
       }
     }
-    content.push(
-      element("details", { className: "file", ...{} }, [
-        element("summary", {}, [
-          element("span", { className: "badge", text: text.agentsChange[file.change] }),
-          " ",
-          element("span", { className: "path", text: file.display }),
-          " ",
-          element("span", { className: "hint", text: file.label }),
-        ]),
-        file.tooLarge ? element("p", { className: "hint", text: "…" }) : lines,
+    const details = element("details", { className: "file" }, [
+      element("summary", {}, [
+        element("span", { className: "badge", text: text.agentsChange[file.change] }),
+        " ",
+        element("span", { className: "path", text: file.display }),
+        " ",
+        element("span", { className: "hint", text: file.label }),
       ]),
-    );
+      file.tooLarge ? element("p", { className: "hint", text: shell.agentsTooLargeNote }) : lines,
+    ]);
+    // The first file opens by itself; after that the user's choice stays through every refresh.
+    details.open = isFileOpen(chosen, file.display, index);
+    details.addEventListener("toggle", () => chosen.set(file.display, details.open));
+    content.push(details);
   }
-  const canApply = !busy && preview.conflicts.length === 0 && preview.files.length > 0;
+  if (hasUndiffableFile(preview)) {
+    const box = checkbox(shell.agentsAckUndiffable, "ack-undiffable", acknowledged, !busy);
+    box.querySelector("input")?.addEventListener("change", (event) => {
+      controls.acknowledge((event.target as HTMLInputElement).checked);
+    });
+    content.push(box);
+  }
   content.push(
     element("div", { className: "actions" }, [
-      button(text.agentsApply, "apply", canApply, apply, true),
-      button(text.agentsDiscard, "discard", !busy, discard),
+      button(text.agentsApply, "apply", !busy && canApplyPreview(preview, acknowledged), controls.apply, true),
+      button(text.agentsDiscard, "discard", !busy, controls.discard),
     ]),
   );
   const block = section(text.agentsPreviewHeading, ...content);
   block.id = "agents-preview";
-  // The first file opens by itself, so the user sees what changes without a click.
-  block.querySelector("details")?.setAttribute("open", "");
   return block;
 }
 
 export function mountAgents(app: HTMLElement, say: (text: string) => void, api: RepairApi): void {
   let current: AgentsState | undefined;
   let working = false;
+  // What belongs to the preview on screen; a new preview starts clean.
+  let previewId: string | undefined;
+  let chosen = new Map<string, boolean>();
+  let acknowledged = false;
+  let drawn: string | undefined;
 
   async function act(task: () => Promise<AgentsActionResult>): Promise<void> {
     if (!current || working) return;
@@ -141,6 +166,15 @@ export function mountAgents(app: HTMLElement, say: (text: string) => void, api: 
   }
 
   function render(state: AgentsState): void {
+    if (state.preview?.id !== previewId) {
+      previewId = state.preview?.id;
+      chosen = new Map();
+      acknowledged = false;
+    }
+    // The page polls; the same state draws the same page, so leave it alone (an opened diff keeps its scroll).
+    const key = JSON.stringify([state, working, acknowledged]);
+    if (key === drawn) return;
+    drawn = key;
     const text = setupMessages(state.locale);
     const focus = focusedId();
     setLanguage(state.locale, text.agentsWindowTitle);
@@ -155,16 +189,20 @@ export function mountAgents(app: HTMLElement, say: (text: string) => void, api: 
     if (outcome) blocks.push(element("p", { className: "result", text: outcome }));
     if (state.preview) {
       blocks.push(
-        previewBlock(
-          state.preview,
-          text,
+        previewBlock(state.preview, text, state.locale, {
           busy,
-          () => {
-            const id = state.preview?.id;
-            if (id) void act(() => api.agentsApply(id));
+          chosen,
+          acknowledged,
+          acknowledge: (value) => {
+            acknowledged = value;
+            render(state);
           },
-          () => void act(() => api.agentsDiscard()),
-        ),
+          apply: () => {
+            const id = state.preview?.id;
+            if (id) void act(() => api.agentsApply(id, acknowledged));
+          },
+          discard: () => void act(() => api.agentsDiscard()),
+        }),
       );
     }
     const adoptable = state.cards.some((card) => card.adoptable);
