@@ -9,9 +9,12 @@ import { describe, expect, it, vi } from "vitest";
 import {
   aclProblem,
   assertWindowsAcl,
+  cleanPowerShellStderr,
   createWindowsAclReader,
+  nodeExec,
   parseSddl,
   parseWhoamiSid,
+  type ExecFileFailure,
   type ExecFileLike,
   type WindowsAclReader,
 } from "../../packages/desktop-core/src/runtime/index.js";
@@ -29,6 +32,21 @@ const TRUST = { currentUserSid: USER };
 /** What `Get-Acl` returns for a profile folder: the user, SYSTEM and Administrators with full control. */
 const PROFILE_SDDL = `O:${USER}G:DUD:PAI(A;OICI;FA;;;${USER})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)`;
 
+/** What a failed child process rejects with (see `nodeExec`): a fake `ExecFileLike` throws the same shape. */
+function failure(overrides: Partial<ExecFileFailure> = {}): ExecFileFailure {
+  return Object.assign(new Error("failed"), {
+    killed: false,
+    timedOut: false,
+    elapsedMs: 100,
+    timeoutMs: 20_000,
+    stderr: "",
+    ...overrides,
+  });
+}
+
+const timeoutFailure = (timeoutMs: number) =>
+  failure({ killed: true, signal: "SIGTERM", timedOut: true, elapsedMs: timeoutMs, timeoutMs });
+
 function reader(sddls: readonly string[], sid = USER): WindowsAclReader {
   return { read: async () => ({ currentUserSid: sid, sddls }) };
 }
@@ -41,12 +59,86 @@ describe("parseSddl", () => {
     expect(parsed.aces[0]).toMatchObject({ type: "A", flags: "OICI", rights: 0x1f01ff });
   });
 
+  it.each([
+    ["WD", "S-1-1-0"],
+    ["CO", "S-1-3-0"],
+    ["CG", "S-1-3-1"],
+    ["OW", "S-1-3-4"],
+    ["NU", "S-1-5-2"],
+    ["IU", "S-1-5-4"],
+    ["SU", "S-1-5-6"],
+    ["AN", "S-1-5-7"],
+    ["ED", "S-1-5-9"],
+    ["PS", "S-1-5-10"],
+    ["AU", "S-1-5-11"],
+    ["RC", "S-1-5-12"],
+    ["SY", "S-1-5-18"],
+    ["LS", "S-1-5-19"],
+    ["NS", "S-1-5-20"],
+    ["WR", "S-1-5-33"],
+    ["BA", "S-1-5-32-544"],
+    ["BU", "S-1-5-32-545"],
+    ["BG", "S-1-5-32-546"],
+    ["PU", "S-1-5-32-547"],
+    ["AO", "S-1-5-32-548"],
+    ["SO", "S-1-5-32-549"],
+    ["PO", "S-1-5-32-550"],
+    ["BO", "S-1-5-32-551"],
+    ["RE", "S-1-5-32-552"],
+    ["RU", "S-1-5-32-554"],
+    ["RD", "S-1-5-32-555"],
+    ["NO", "S-1-5-32-556"],
+    ["MU", "S-1-5-32-558"],
+    ["LU", "S-1-5-32-559"],
+    ["IS", "S-1-5-32-568"],
+    ["CY", "S-1-5-32-569"],
+    ["ER", "S-1-5-32-573"],
+    ["CD", "S-1-5-32-574"],
+    ["RA", "S-1-5-32-575"],
+    ["ES", "S-1-5-32-576"],
+    ["MS", "S-1-5-32-577"],
+    ["HA", "S-1-5-32-578"],
+    ["AA", "S-1-5-32-579"],
+    ["RM", "S-1-5-32-580"],
+    ["AC", "S-1-15-2-1"],
+    ["LW", "S-1-16-4096"],
+    ["ME", "S-1-16-8192"],
+    ["MP", "S-1-16-8448"],
+    ["HI", "S-1-16-12288"],
+    ["SI", "S-1-16-16384"],
+  ])("expands the fixed alias %s to %s and remembers the alias", (alias, sid) => {
+    const parsed = parseSddl(`O:${alias}G:DUD:(A;;FR;;;${alias})`);
+    expect(parsed).toMatchObject({ ownerSid: sid, ownerAlias: alias });
+    expect(parsed.aces[0]).toMatchObject({ sid, alias });
+  });
+
+  it.each(["LA", "LG", "DA", "DU", "DG", "DC", "DD", "CA", "SA", "EA", "PA", "RS", "RO", "CN", "AP", "KA", "EK"])(
+    "keeps the domain or machine relative alias %s as an unknown principal",
+    (alias) => {
+      const parsed = parseSddl(`O:BAG:DUD:(A;;FR;;;${alias})`);
+      expect(parsed.aces[0]).toMatchObject({ sid: alias });
+      expect(parsed.aces[0]?.alias).toBeUndefined();
+    },
+  );
+
+  it("upper-cases a SID written in lower case, and fails closed on a principal that is neither SID nor alias", () => {
+    expect(parseSddl(`O:${USER.toLowerCase()}G:DUD:(A;;FR;;;${USER.toLowerCase()})`).aces[0]?.sid).toBe(USER);
+    for (const principal of ["bu", "S-1-", "S-2-5-18", "WORLD", "B", "S-1-5-18x"]) {
+      expect(() => parseSddl(`O:BAG:DUD:(A;;FR;;;${principal})`)).toThrow(RangeError);
+      expect(() => parseSddl(`O:${principal}G:DUD:(A;;FR;;;BA)`)).toThrow(RangeError);
+    }
+  });
+
+  it("does not read an object property name as an alias", () => {
+    expect(() => parseSddl("O:BAG:DUD:(A;;FR;;;constructor)")).toThrow(RangeError);
+  });
+
   it("reads numeric rights, nested conditions and a SACL that follows", () => {
     const parsed = parseSddl(`O:BAG:SYD:AI(A;ID;0x1301bf;;;BU)(XA;;FA;;;WD;(Member_of{SID(BA)}))S:AI(AU;SA;FA;;;WD)`);
     expect(parsed.ownerSid).toBe("S-1-5-32-544");
     expect(parsed.aces.map((ace) => [ace.type, ace.rights, ace.sid])).toEqual([
-      ["A", 0x1301bf, "BU"],
-      ["XA", 0x1f01ff, "WD"],
+      ["A", 0x1301bf, "S-1-5-32-545"],
+      ["XA", 0x1f01ff, "S-1-1-0"],
     ]);
   });
 
@@ -92,6 +184,29 @@ describe("aclProblem", () => {
     ["Everyone", "WD"],
   ])("rejects an owner that is %s", (_name, owner) => {
     expect(problem(`O:${owner}G:DUD:PAI(A;;FA;;;${USER})`)).toContain("擁有者");
+  });
+
+  it.each([
+    ["CREATOR OWNER", "CO"],
+    ["OWNER RIGHTS", "OW"],
+  ])("refuses %s as the owner although it may hold entries", (_name, owner) => {
+    expect(problem(`O:${owner}G:DUD:PAI(A;;FA;;;${USER})`)).toContain("擁有者");
+    expect(problem(`O:BAG:DUD:PAI(A;;FA;;;${owner})`)).toBeUndefined();
+  });
+
+  it.each([
+    ["SYSTEM", "SY"],
+    ["Administrators", "BA"],
+    ["TrustedInstaller", "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464"],
+    ["the current user in lower case", USER.toLowerCase()],
+  ])("accepts %s as the owner", (_name, owner) => {
+    expect(problem(`O:${owner}G:DUD:PAI(A;;FA;;;${USER})`)).toBeUndefined();
+  });
+
+  it("names the SID, and the alias in parentheses, of the principal that holds the write right", () => {
+    expect(problem(`O:${USER}G:DUD:PAI(A;OICI;0x1301bf;;;BU)`)).toBe("S-1-5-32-545 (BU) 擁有寫入權限（0x1301bf）");
+    expect(problem(`O:${USER}G:DUD:PAI(A;;FA;;;S-1-5-32-545)`)).toBe("S-1-5-32-545 擁有寫入權限（0x1f01ff）");
+    expect(problem(`O:BUG:DUD:PAI(A;;FA;;;${USER})`)).toContain("S-1-5-32-545 (BU)");
   });
 
   it("compares SIDs, never names, so the Windows display language does not matter", () => {
@@ -190,7 +305,7 @@ describe("assertWindowsAcl", () => {
     const report = await assertWindowsAcl(["a"], { read });
     expect(report.tier).toBe("get-acl");
     expect(report.attempts).toEqual([
-      { tier: "dotnet", ms: expect.any(Number), ok: false },
+      { tier: "dotnet", ms: expect.any(Number), ok: false, failure: "invalid" },
       { tier: "get-acl", ms: expect.any(Number), ok: true },
     ]);
     for (const attempt of report.attempts) expect(attempt.ms).toBeGreaterThanOrEqual(0);
@@ -215,6 +330,43 @@ describe("assertWindowsAcl", () => {
       },
     });
     expect(read.mock.calls.map((call) => call[1])).toEqual(["dotnet", "get-acl"]);
+  });
+
+  it("retries a timed-out tier once, and records both attempts", async () => {
+    const read = vi
+      .fn()
+      .mockRejectedValueOnce(timeoutFailure(20_000))
+      .mockResolvedValueOnce({ currentUserSid: USER, sddls: [PROFILE_SDDL] });
+    const report = await assertWindowsAcl(["a"], { read });
+    expect(report.tier).toBe("dotnet");
+    expect(read.mock.calls.map((call) => call[1])).toEqual(["dotnet", "dotnet"]);
+    expect(report.attempts).toEqual([
+      { tier: "dotnet", ms: expect.any(Number), ok: false, failure: "timeout" },
+      { tier: "dotnet", ms: expect.any(Number), ok: true },
+    ]);
+  });
+
+  it("does not retry a failure that is not a timeout", async () => {
+    const read = vi.fn<WindowsAclReader["read"]>(async (_paths, tier) =>
+      tier === "dotnet" ? Promise.reject(failure({ exitCode: 1 })) : { currentUserSid: USER, sddls: [PROFILE_SDDL] },
+    );
+    const report = await assertWindowsAcl(["a"], { read });
+    expect(read.mock.calls.map((call) => call[1])).toEqual(["dotnet", "get-acl"]);
+    expect(report.attempts.map((attempt) => attempt.failure)).toEqual(["exit", undefined]);
+  });
+
+  it("retries each tier once and gives up with every reason when both keep timing out", async () => {
+    const read = vi.fn<WindowsAclReader["read"]>(async (_paths, tier) =>
+      Promise.reject(timeoutFailure(tier === "dotnet" ? 20_000 : 60_000)),
+    );
+    await expect(assertWindowsAcl(["a"], { read })).rejects.toMatchObject({
+      code: "RUNTIME_ACL_UNREADABLE",
+      detail: {
+        actual:
+          "dotnet: timeout after 20000 ms, then timeout after 20000 ms; get-acl: timeout after 60000 ms, then timeout after 60000 ms",
+      },
+    });
+    expect(read).toHaveBeenCalledTimes(4);
   });
 
   it("describes a thrown non-error", async () => {
@@ -265,6 +417,40 @@ describe("parseWhoamiSid", () => {
   );
 });
 
+describe("cleanPowerShellStderr", () => {
+  const clixml = (...records: string[]) =>
+    `#< CLIXML\r\n<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">${records.join("")}</Objs>`;
+  const errorRecord = (text: string) => `<S S="Error">${text}</S>`;
+
+  it("keeps plain text, trimmed", () => {
+    expect(cleanPowerShellStderr("  boom\r\n")).toBe("boom");
+    expect(cleanPowerShellStderr("")).toBe("");
+  });
+
+  it("keeps only the Error elements of a CLIXML document, decoded, and drops progress records", () => {
+    const text = clixml(
+      '<Obj S="progress" RefId="0"><MS><I64 N="SourceId">1</I64><PR N="Record"><AV>Preparing modules</AV></PR></MS></Obj>',
+      errorRecord("Get-Acl : Cannot find path &apos;C:\\x&apos; &lt;here&gt; &amp; &quot;there&quot;_x000D__x000A_"),
+      errorRecord("At line:1 char:1_x000D__x000A_"),
+    );
+    expect(cleanPowerShellStderr(text)).toBe("Get-Acl : Cannot find path 'C:\\x' <here> & \"there\"\nAt line:1 char:1");
+  });
+
+  it("decodes other _xHHHH_ escapes", () => {
+    expect(cleanPowerShellStderr(clixml(errorRecord("a_x0009_b_x4E2D_c")))).toBe("a\tb中c");
+  });
+
+  it("is empty for a CLIXML document without an error", () => {
+    expect(cleanPowerShellStderr(clixml('<Obj S="progress" RefId="0"></Obj>'))).toBe("");
+  });
+
+  it("cuts long text to about 500 characters", () => {
+    const cleaned = cleanPowerShellStderr("x".repeat(2_000));
+    expect(cleaned).toHaveLength(501);
+    expect(cleaned.endsWith("…")).toBe(true);
+  });
+});
+
 describe("the Windows reader", () => {
   const SYSTEM32 = "C:\\Windows\\System32";
   const POWERSHELL = `${SYSTEM32}\\WindowsPowerShell\\v1.0\\powershell.exe`;
@@ -280,19 +466,19 @@ describe("the Windows reader", () => {
     expect(exec).toHaveBeenCalledTimes(1);
     const [file, args, options] = exec.mock.calls[0] as Call;
     expect(file).toBe(POWERSHELL);
-    expect(args.slice(0, 4)).toEqual(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"]);
+    expect(args.slice(0, 6)).toEqual(["-NoLogo", "-NoProfile", "-NonInteractive", "-InputFormat", "None", "-Command"]);
     expect(args.join(" ")).not.toContain("runtime");
     expect(options.env.WI_ACL_PATHS).toBe("C:\\Users\\me\\a b\\runtime|C:\\Users\\me\\x");
     expect(options.windowsHide).toBe(true);
-    expect(options.timeout).toBe(10_000);
+    expect(options.timeout).toBe(20_000);
   });
 
-  it("gives tier two its own, longer timeout for PowerShell and for whoami", async () => {
+  it("gives tier two its own, longer timeout for PowerShell, and whoami a timeout of its own", async () => {
     const exec = vi.fn<ExecFileLike>(async (file) =>
       file.endsWith("whoami.exe") ? output(`"HOST\\me","${USER}"`) : output(PROFILE_SDDL),
     );
     await createWindowsAclReader(exec, env).read(["a"], "get-acl");
-    expect((exec.mock.calls as Call[]).map((call) => call[2].timeout)).toEqual([30_000, 30_000]);
+    expect((exec.mock.calls as Call[]).map((call) => call[2].timeout)).toEqual([15_000, 60_000]);
   });
 
   it("starts PowerShell with an allow-listed environment and its own module path", async () => {
@@ -330,6 +516,11 @@ describe("the Windows reader", () => {
     const script = (exec.mock.calls[0] as Call)[1].at(-1) as string;
     expect(script).toContain("GetAccessControl");
     expect(script).not.toMatch(/Get-Acl|Get-Item/);
+    // Constrained Language Mode is detected by the exit code, before any method call, not by a localized message.
+    expect(script.startsWith("$ProgressPreference='SilentlyContinue';$PSModuleAutoLoadingPreference='None';")).toBe(
+      true,
+    );
+    expect(script).toContain("if($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage'){exit 3}");
   });
 
   it("tier two runs Get-Acl and takes the SID from whoami, once per reader", async () => {
@@ -345,10 +536,15 @@ describe("the Windows reader", () => {
     const script = calls[1]?.[1].at(-1) as string;
     expect(script).toContain("Get-Acl -LiteralPath");
     expect(script).toContain("$ErrorActionPreference='Stop'");
+    expect(script.startsWith("$ProgressPreference='SilentlyContinue';$PSModuleAutoLoadingPreference='None';")).toBe(
+      true,
+    );
     // The module is imported by absolute path, from $PSHOME, before Get-Acl runs: no auto-loading across PSModulePath.
     expect(script).toContain(
-      "Import-Module -Name (Join-Path $PSHOME 'Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1')",
+      "Import-Module -Name ($PSHOME + '\\Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1')",
     );
+    expect(script).not.toContain("Join-Path");
+    expect(script).toContain("Get-Acl -LiteralPath $p | ForEach-Object Sddl");
     expect(script.indexOf("Import-Module")).toBeLessThan(script.indexOf("Get-Acl"));
     expect(calls[1]?.[2].env.FOO).toBeUndefined();
   });
@@ -375,7 +571,7 @@ describe("the Windows reader", () => {
       throw new Error(file.endsWith("whoami.exe") ? "whoami blocked" : "powershell blocked");
     };
     await expect(createWindowsAclReader(both, env).read(["a"], "get-acl")).rejects.toThrow(
-      "whoami: whoami blocked; powershell: powershell blocked",
+      "powershell blocked; whoami: whoami blocked",
     );
     const onlyWhoami: ExecFileLike = async (file) => {
       if (file.endsWith("whoami.exe")) throw new Error("whoami blocked");
@@ -414,7 +610,9 @@ describe("the Windows reader", () => {
       file.endsWith("whoami.exe") ? output(`"HOST\\me","${USER}"`) : output(PROFILE_SDDL);
     await expect(createWindowsAclReader(wrongCount, env).read(["a", "b"], "get-acl")).rejects.toThrow(RangeError);
     const noSid: ExecFileLike = async () => output("garbage");
-    await expect(createWindowsAclReader(noSid, env).read(["a"], "get-acl")).rejects.toThrow(RangeError);
+    await expect(createWindowsAclReader(noSid, env).read(["a"], "get-acl")).rejects.toThrow(
+      "whoami: the current user's SID was not in the whoami output",
+    );
   });
 
   it("through assertWindowsAcl, a tier one module error leads to tier two", async () => {
@@ -437,9 +635,58 @@ describe("the Windows reader", () => {
       code: "RUNTIME_ACL_UNREADABLE",
       detail: {
         actual: expect.stringMatching(
-          /dotnet: powershell blocked .*; get-acl: whoami: whoami blocked; powershell: powershell blocked/,
+          /dotnet: powershell blocked \(.* ms\); get-acl: powershell blocked; whoami: whoami blocked/,
         ),
       },
+    });
+  });
+
+  it("reports Constrained Language Mode from tier one's exit code 3, whatever the localized stderr says", async () => {
+    const exec = vi.fn<ExecFileLike>(async (file, args) => {
+      if (file.endsWith("whoami.exe")) return output(`"HOST\\me","${USER}"`);
+      if (args.at(-1)?.includes("GetAccessControl"))
+        throw failure({ exitCode: 3, elapsedMs: 412.4, stderr: "ausgeschaltet" });
+      return output(PROFILE_SDDL);
+    });
+    await expect(createWindowsAclReader(exec, env).read(["a"])).rejects.toMatchObject({
+      kind: "constrained-language",
+      message: "exit=3 (ConstrainedLanguage) 412 ms",
+    });
+    const report = await assertWindowsAcl(["a"], createWindowsAclReader(exec, env));
+    expect(report.tier).toBe("get-acl");
+    expect(report.attempts[0]).toMatchObject({ tier: "dotnet", ok: false, failure: "constrained-language" });
+  });
+
+  it("describes every failed tier and whoami as one line", async () => {
+    const exec: ExecFileLike = async (file, args) => {
+      if (file.endsWith("whoami.exe")) return output(`"HOST\\me","${USER}"`);
+      if (args.at(-1)?.includes("GetAccessControl")) throw failure({ exitCode: 3, elapsedMs: 412 });
+      throw timeoutFailure(60_000);
+    };
+    await expect(assertWindowsAcl(["a"], createWindowsAclReader(exec, env))).rejects.toMatchObject({
+      code: "RUNTIME_ACL_UNREADABLE",
+      detail: {
+        actual: expect.stringMatching(
+          /^dotnet: exit=3 \(ConstrainedLanguage\) 412 ms; get-acl: timeout after 60000 ms; whoami: ok \d+ ms, then timeout after 60000 ms; whoami: cached$/,
+        ),
+      },
+    });
+  });
+
+  it("describes an exit code with its cleaned stderr and a spawn error, never with the command", async () => {
+    const exit: ExecFileLike = async () => {
+      throw failure({ exitCode: 1, elapsedMs: 12.6, stderr: "first line\nsecond line" });
+    };
+    await expect(createWindowsAclReader(exit, env).read(["a"])).rejects.toMatchObject({ exitCode: 1 });
+    const outcome = await assertWindowsAcl(["a"], createWindowsAclReader(exit, env)).catch((error: unknown) => error);
+    expect(outcome).toMatchObject({
+      detail: { actual: expect.stringContaining("dotnet: exit=1 13 ms, stderr: first line | second line") },
+    });
+    const spawn: ExecFileLike = async () => {
+      throw failure({ errno: "ENOENT", elapsedMs: 3 });
+    };
+    await expect(assertWindowsAcl(["a"], createWindowsAclReader(spawn, env))).rejects.toMatchObject({
+      detail: { actual: expect.stringContaining("dotnet: ENOENT 3 ms") },
     });
   });
 
@@ -451,6 +698,46 @@ describe("the Windows reader", () => {
   it("fails when the first line is not a SID", async () => {
     const exec: ExecFileLike = async () => output("DESKTOP\\me", PROFILE_SDDL);
     await expect(createWindowsAclReader(exec, env).read(["a"])).rejects.toThrow(RangeError);
+  });
+
+  it("the real process runner rejects with the facts of the failure and no command line", async () => {
+    const error = await nodeExec("/wi-no-such-tool", ["--secret-script"], {
+      env: {},
+      timeout: 5_000,
+      windowsHide: true,
+      maxBuffer: 1024,
+    }).then(
+      () => undefined,
+      (caught: ExecFileFailure) => caught,
+    );
+    if (error === undefined) throw new Error("the runner should have failed");
+    expect(error).toMatchObject({ errno: "ENOENT", killed: false, timedOut: false, timeoutMs: 5_000, stderr: "" });
+    expect(error.elapsedMs).toBeGreaterThanOrEqual(0);
+    expect(error.message).not.toContain("wi-no-such-tool");
+    expect(error.message).not.toContain("secret-script");
+  });
+
+  it("the real process runner closes stdin and reports a timeout and an exit code", async () => {
+    const run = (script: string, timeout: number) =>
+      nodeExec(process.execPath, ["-e", script], { env: {}, timeout, windowsHide: true, maxBuffer: 1024 }).then(
+        () => undefined,
+        (caught: ExecFileFailure) => caught,
+      );
+    // Reads stdin to its end: this only returns when stdin was closed.
+    expect(
+      await nodeExec(process.execPath, ["-e", "process.stdin.on('data',()=>{}).on('end',()=>console.log('closed'))"], {
+        env: {},
+        timeout: 20_000,
+        windowsHide: true,
+        maxBuffer: 1024,
+      }),
+    ).toMatchObject({ stdout: expect.stringContaining("closed") });
+    expect(await run("process.stderr.write('oops');process.exit(7)", 20_000)).toMatchObject({
+      exitCode: 7,
+      timedOut: false,
+      stderr: "oops",
+    });
+    expect(await run("setInterval(()=>{},1000)", 300)).toMatchObject({ timedOut: true, killed: true });
   });
 
   it("uses the real process runner by default and reports a tool that cannot be started", async () => {
@@ -472,53 +759,64 @@ describe.runIf(process.platform === "win32")("the real Windows reader (Windows o
   }
 
   /**
-   * CI measured tier two (Get-Acl, then whoami) at 5 to 10 s before the security module was imported by path, which
-   * overran vitest's 5 s default; the real-reader tests get a generous limit and print where the time goes.
+   * CI measured tier one (.NET) at about 0.4 s and tier two (Get-Acl) at about 6 s typical with a heavy tail (28.7 s and a
+   * 30 s timeout were seen); the real-reader tests get a generous limit and print where the time goes.
    */
   const REAL_READER_TIMEOUT_MS = 60_000;
+  const DIAGNOSTIC_TIMEOUT_MS = 120_000;
+  const SECURITY_MODULE = "$PSHOME + '\\Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1'";
+  const PREFERENCES = "$ProgressPreference='SilentlyContinue';$PSModuleAutoLoadingPreference='None';";
   const execFileAsync = promisify(execFile);
+  const childEnv = () => ({
+    ...ps7Env,
+    PSModulePath: path.win32.join(path.win32.dirname(windowsPowerShell(ps7Env)), "Modules"),
+  });
 
+  /** The reader on the real process runner (`nodeExec`), recording which program each call started. */
   function spied() {
     const calls: string[] = [];
-    const exec: ExecFileLike = async (file, args, options) => {
+    const exec: ExecFileLike = (file, args, options) => {
       calls.push(args.at(-1)?.includes("GetAccessControl") ? "dotnet" : path.win32.basename(file));
-      return { stdout: (await execFileAsync(file, [...args], { env: options.env, timeout: options.timeout })).stdout };
+      return nodeExec(file, args, options);
     };
     return { calls, reader: createWindowsAclReader(exec, ps7Env) };
   }
 
-  async function timed(label: string, step: () => Promise<unknown>): Promise<string> {
+  /** Runs `step` and appends `label=ms` to `steps` even when it throws, so a failure still shows what ran before it. */
+  async function timed<T>(steps: string[], label: string, step: () => Promise<T>): Promise<T> {
     const started = performance.now();
-    await step();
-    return `${label}=${(performance.now() - started).toFixed(1)}ms`;
+    try {
+      return await step();
+    } finally {
+      steps.push(`${label}=${(performance.now() - started).toFixed(1)}ms`);
+    }
   }
+
+  const powerShell = (script: string, extraArguments: readonly string[] = []) =>
+    execFileAsync(
+      windowsPowerShell(ps7Env),
+      ["-NoLogo", "-NoProfile", "-NonInteractive", "-InputFormat", "None", ...extraArguments, "-Command", script],
+      { env: childEnv(), timeout: REAL_READER_TIMEOUT_MS },
+    );
 
   it(
     "reads a locked directory with tier one under a PowerShell 7 module path, and both tiers agree",
     { timeout: REAL_READER_TIMEOUT_MS },
     async () => {
       const dir = await directory((created) => securePrivateDirectory(created));
+      const steps: string[] = [];
       try {
-        // CI evidence for the first-launch cost, one line per step so the log shows the bottleneck.
-        const powerShell = windowsPowerShell(ps7Env);
-        const run = (script: string) => () =>
-          execFileAsync(powerShell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], {
-            env: { ...ps7Env, PSModulePath: path.win32.join(path.win32.dirname(powerShell), "Modules") },
-          });
-        const importModule =
-          "Import-Module -Name (Join-Path $PSHOME 'Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1')";
+        // CI evidence for the first-launch cost, one entry per step, printed even when a step fails.
         const timing = spied().reader;
-        console.info(
-          `ACL steps: ${[
-            await timed("powershell-start", run("$null")),
-            await timed("import-module", run(importModule)),
-            await timed("whoami", () => execFileAsync(windowsSystemTool("whoami.exe"), ["/user", "/fo", "csv", "/nh"])),
-            await timed("tier-get-acl-cold", () => timing.read([dir], "get-acl")),
-            await timed("tier-get-acl-warm", () => timing.read([dir], "get-acl")),
-            await timed("tier-dotnet-cold", () => timing.read([dir], "dotnet")),
-            await timed("tier-dotnet-warm", () => timing.read([dir], "dotnet")),
-          ].join(" ")}`,
+        await timed(steps, "powershell-start", () => powerShell("$null"));
+        await timed(steps, "import-module", () => powerShell(`Import-Module -Name (${SECURITY_MODULE})`));
+        await timed(steps, "whoami", () =>
+          execFileAsync(windowsSystemTool("whoami.exe"), ["/user", "/fo", "csv", "/nh"]),
         );
+        await timed(steps, "tier-get-acl-cold", () => timing.read([dir], "get-acl"));
+        await timed(steps, "tier-get-acl-warm", () => timing.read([dir], "get-acl"));
+        await timed(steps, "tier-dotnet-cold", () => timing.read([dir], "dotnet"));
+        await timed(steps, "tier-dotnet-warm", () => timing.read([dir], "dotnet"));
         const { calls, reader } = spied();
         const report = await assertWindowsAcl([dir], reader);
         expect(report.tier).toBe("dotnet");
@@ -531,6 +829,7 @@ describe.runIf(process.platform === "win32")("the real Windows reader (Windows o
           aclProblem(parseSddl(second.sddls[0] as string), { currentUserSid: second.currentUserSid }),
         ).toBeUndefined();
       } finally {
+        console.info(`ACL steps: ${steps.join(" ")}`);
         await rm(dir, { recursive: true, force: true });
       }
     },
@@ -543,12 +842,156 @@ describe.runIf(process.platform === "win32")("the real Windows reader (Windows o
       const dir = await directory((created) => allowBuiltinUsersToWrite(securePrivateDirectory(created)));
       try {
         const { calls, reader } = spied();
-        await expect(assertWindowsAcl([dir], reader)).rejects.toMatchObject({ code: "RUNTIME_UNSAFE_PERMISSIONS" });
+        await expect(assertWindowsAcl([dir], reader)).rejects.toMatchObject({
+          code: "RUNTIME_UNSAFE_PERMISSIONS",
+          detail: { actual: expect.stringContaining("S-1-5-32-545") },
+        });
         expect(calls).toEqual(["dotnet"]);
-        const second = await reader.read([dir], "get-acl");
-        expect(aclProblem(parseSddl(second.sddls[0] as string), { currentUserSid: second.currentUserSid })).toContain(
-          "S-1-5-32-545",
+        for (const tier of ["dotnet", "get-acl"] as const) {
+          const snapshot = await reader.read([dir], tier);
+          const descriptor = parseSddl(snapshot.sddls[0] as string);
+          expect(descriptor.aces.some((ace) => ace.sid === "S-1-5-32-545")).toBe(true);
+          expect(aclProblem(descriptor, { currentUserSid: snapshot.currentUserSid })).toContain("S-1-5-32-545");
+        }
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it(
+    "tier two reads a locked directory through its explicit import with module auto-loading off",
+    { timeout: REAL_READER_TIMEOUT_MS },
+    async () => {
+      const dir = await directory((created) => securePrivateDirectory(created));
+      try {
+        const inner = spied().reader;
+        const onlyGetAcl: WindowsAclReader = {
+          read: (paths, tier) => (tier === "dotnet" ? Promise.reject(new Error("skipped")) : inner.read(paths, tier)),
+        };
+        const report = await assertWindowsAcl([dir], onlyGetAcl);
+        expect(report.tier).toBe("get-acl");
+        expect(report.attempts.at(-1)).toMatchObject({ tier: "get-acl", ok: true });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it(
+    "tier one runs with module auto-loading off and loads no module of its own",
+    { timeout: REAL_READER_TIMEOUT_MS },
+    async () => {
+      const dir = await directory((created) => securePrivateDirectory(created));
+      try {
+        // The exact script and environment the reader uses, captured from its call, plus a test-only module listing.
+        let captured: Parameters<ExecFileLike> | undefined;
+        const capture: ExecFileLike = async (file, args, options) => {
+          captured = [file, args, options];
+          return nodeExec(file, args, options);
+        };
+        await createWindowsAclReader(capture, ps7Env).read([dir], "dotnet");
+        const [file, args, options] = captured as Parameters<ExecFileLike>;
+        const script = args.at(-1) as string;
+        expect(script).toContain("$PSModuleAutoLoadingPreference='None'");
+        const listing = "[Console]::Out.WriteLine('modules='+((Get-Module).Name -join ','))";
+        const { stdout } = await execFileAsync(file, [...args.slice(0, -1), `${script};${listing}`], {
+          env: options.env,
+          timeout: REAL_READER_TIMEOUT_MS,
+        });
+        const lines = stdout.split(/\r?\n/).filter((line) => line.trim() !== "");
+        expect(lines).toHaveLength(3);
+        expect(lines[0]).toBe(currentUserSid());
+        // Nothing was auto-loaded: tier one calls only language constructs and .NET types.
+        expect(lines[2]).toBe("modules=");
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  // Informative, not a gate: prints where the time of one tier-two run goes, and what the PowerShell start costs.
+  it(
+    "prints a timing breakdown of PowerShell and Get-Acl (diagnostic)",
+    { timeout: DIAGNOSTIC_TIMEOUT_MS },
+    async () => {
+      const steps: string[] = [];
+      const stopwatch = (label: string) => `$o+='${label}='+$sw.ElapsedMilliseconds;`;
+      const breakdown =
+        "$sw=[Diagnostics.Stopwatch]::StartNew();$o=@();" +
+        stopwatch("start") +
+        `Import-Module -Name (${SECURITY_MODULE});` +
+        stopwatch("import") +
+        "$null=Get-Acl -LiteralPath $env:TEMP;" +
+        stopwatch("get-acl-1") +
+        "$null=Get-Acl -LiteralPath $env:TEMP;" +
+        stopwatch("get-acl-2") +
+        "$o+=('modules='+((Get-Module).Name -join ','));$o -join ' '";
+      const tierTwo = `${PREFERENCES}Import-Module -Name (${SECURITY_MODULE});(Get-Acl -LiteralPath $env:TEMP).Sddl`;
+      const tierOne =
+        "$s=[Security.AccessControl.AccessControlSections]'Owner,Group,Access';" +
+        "[Console]::Out.WriteLine([IO.Directory]::GetAccessControl($env:TEMP,$s).GetSecurityDescriptorSddlForm($s))";
+      const attempt = async (label: string, run: () => Promise<{ stdout: string }>) => {
+        try {
+          await timed(steps, label, run);
+        } catch (error) {
+          steps.push(`${label}=FAILED(${String(error).slice(0, 120)})`);
+        }
+      };
+      try {
+        await attempt("breakdown", async () => {
+          const result = await powerShell(breakdown);
+          console.info(`ACL breakdown (ms): ${result.stdout.trim()}`);
+          return result;
+        });
+        await attempt("tier2-policy-default", () => powerShell(tierTwo));
+        await attempt("tier2-policy-bypass", () => powerShell(tierTwo, ["-ExecutionPolicy", "Bypass"]));
+        await attempt("tier2-policy-restricted", () => powerShell(tierTwo, ["-ExecutionPolicy", "Restricted"]));
+        await attempt("tier1-without-preferences", () => powerShell(tierOne));
+        await attempt("tier1-with-preferences", () => powerShell(`${PREFERENCES}${tierOne}`));
+        await attempt("tier1-without-preferences-again", () => powerShell(tierOne));
+        await attempt("tier1-with-preferences-again", () => powerShell(`${PREFERENCES}${tierOne}`));
+        await attempt("authenticode-security-psd1", () =>
+          powerShell(
+            `${PREFERENCES}Import-Module -Name (${SECURITY_MODULE});` +
+              `$f=${SECURITY_MODULE};$sig=Get-AuthenticodeSignature -LiteralPath $f;[Console]::Out.WriteLine($sig.Status)`,
+          ),
         );
+      } finally {
+        console.info(`ACL diagnostic: ${steps.join(" ")}`);
+      }
+    },
+  );
+
+  // Needs a machine with the PowerShell lockdown policy (see the Constrained Language Mode step of ci.yml).
+  it.runIf(process.env.WI_ACL_CLM_TEST === "1")(
+    "reads under Constrained Language Mode: tier one reports it by exit code 3, tier two answers",
+    { timeout: 180_000 },
+    async () => {
+      const mode = (
+        await execFileAsync(
+          windowsPowerShell(),
+          ["-NoProfile", "-Command", "$ExecutionContext.SessionState.LanguageMode"],
+          {
+            timeout: REAL_READER_TIMEOUT_MS,
+          },
+        )
+      ).stdout.trim();
+      if (mode !== "ConstrainedLanguage") {
+        expect.fail(
+          `a fresh powershell.exe reports ${mode}, not ConstrainedLanguage: the lockdown policy did not apply`,
+        );
+      }
+      const dir = await directory((created) => securePrivateDirectory(created));
+      try {
+        const { reader } = spied();
+        await expect(reader.read([dir], "dotnet")).rejects.toMatchObject({
+          kind: "constrained-language",
+          message: expect.stringContaining("exit=3 (ConstrainedLanguage)"),
+        });
+        const report = await assertWindowsAcl([dir], reader);
+        expect(report.tier).toBe("get-acl");
+        expect(report.attempts[0]).toMatchObject({ tier: "dotnet", ok: false, failure: "constrained-language" });
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
