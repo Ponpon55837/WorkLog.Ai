@@ -10,6 +10,7 @@ import { setupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n"
 import { mountAgents } from "./agents-view.js";
 import { element, fact, section } from "./dom.js";
 import { legacyBlock } from "./legacy-block.js";
+import { legacyDisableControls, legacyDisableOutcome, type LegacyDisableHost } from "./legacy-disable-view.js";
 import { mountSetup } from "./setup-view.js";
 
 declare global {
@@ -152,9 +153,7 @@ function render(state: RepairState): void {
   const blocks: Node[] = [
     element("h1", { text: messages.repairHeading }),
     element("p", { className: "intro", text: messages.repairIntro }),
-    ...(state.legacyService
-      ? [legacyBlock(window.workIntelligenceRepair, setupMessages(state.locale), state.legacyService)]
-      : []),
+    ...legacyCards(state),
     section(messages.repairServiceHeading, facts),
     section(messages.repairDatabaseHeading, databaseFacts),
     section(messages.repairErrorsHeading, errors),
@@ -195,6 +194,24 @@ function render(state: RepairState): void {
   app.replaceChildren(...blocks);
   app.setAttribute("aria-busy", "false");
   if (focusedId) app.querySelector<HTMLElement>(`[data-id="${CSS.escape(focusedId)}"]`)?.focus();
+}
+
+/** The old-service card with 「停用舊的登入服務…」, or after a disable only its outcome. */
+function legacyCards(state: RepairState): Node[] {
+  const host: LegacyDisableHost = {
+    api: window.workIntelligenceRepair,
+    text: setupMessages(state.locale),
+    rerender: () => {
+      if (current) render(current);
+    },
+    refresh: () => void refresh(),
+  };
+  if (state.legacyService) {
+    const controls = legacyDisableControls(host, state.legacyService.canDisable, !working);
+    return [legacyBlock(host.api, host.text, state.legacyService, controls)];
+  }
+  const outcome = legacyDisableOutcome(host);
+  return outcome ? [outcome] : [];
 }
 
 function failureText(messages: ShellMessages, errorCode: string | undefined): string {

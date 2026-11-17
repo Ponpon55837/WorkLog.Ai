@@ -3,6 +3,7 @@ import type { ServiceOwnerState } from "../operations/service-owner-state.js";
 import type { ShellLocale } from "./i18n.js";
 import type { LastBackupInfo } from "./last-backup.js";
 import type { RecordedError } from "./recent-errors.js";
+import { canDisableLegacyService } from "../legacy-service/disable.js";
 import type { LegacyServiceDetection } from "../legacy-service/types.js";
 
 export type BackendRunState = "running" | "starting" | "stopped" | "crashed";
@@ -59,6 +60,8 @@ export interface RepairState {
     readonly blocked: boolean;
     /** The backend could not bind its port, and the old service listens on that port: the page names it. */
     readonly portInUse: boolean;
+    /** 「停用舊的登入服務」 is offered: the definition is the one `service:install` writes, for a known checkout. */
+    readonly canDisable: boolean;
     readonly removeCommand?: string;
     readonly fallbackRemoveCommand: string;
   } | null;
@@ -156,6 +159,7 @@ export function buildRepairState(inputs: RepairStateInputs): RepairState {
             running: inputs.legacyService.running,
             blocked: inputs.legacyBlocked === true,
             portInUse: inputs.legacyPortInUse === true,
+            canDisable: canDisableLegacyService(inputs.legacyService),
             ...(inputs.legacyService.removeCommand === undefined
               ? {}
               : { removeCommand: inputs.legacyService.removeCommand }),

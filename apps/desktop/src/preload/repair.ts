@@ -26,6 +26,10 @@ const channels: typeof REPAIR_CHANNELS = {
   agentsDiscard: "agents:discard",
   agentsUndo: "agents:undo",
   agentsSelfTest: "agents:self-test",
+  agentsUseCheckoutDatabase: "agents:use-checkout-database",
+  legacyDisablePreview: "legacy:disable-preview",
+  legacyDisableConfirm: "legacy:disable-confirm",
+  legacyStartNow: "legacy:start-now",
 };
 
 const api: RepairApi = {
@@ -68,6 +72,14 @@ const api: RepairApi = {
   agentsDiscard: () => ipcRenderer.invoke(channels.agentsDiscard, {}),
   agentsUndo: () => ipcRenderer.invoke(channels.agentsUndo, {}),
   agentsSelfTest: () => ipcRenderer.invoke(channels.agentsSelfTest, {}),
+  agentsUseCheckoutDatabase: (agent) => ipcRenderer.invoke(channels.agentsUseCheckoutDatabase, { agent }),
+  legacyDisablePreview: () => ipcRenderer.invoke(channels.legacyDisablePreview, {}),
+  legacyDisableConfirm: (previewId, continueWhileBusy) =>
+    ipcRenderer.invoke(channels.legacyDisableConfirm, {
+      previewId,
+      ...(continueWhileBusy === undefined ? {} : { continueWhileBusy }),
+    }),
+  legacyStartNow: () => ipcRenderer.invoke(channels.legacyStartNow, {}),
 };
 
 contextBridge.exposeInMainWorld("workIntelligenceRepair", api);

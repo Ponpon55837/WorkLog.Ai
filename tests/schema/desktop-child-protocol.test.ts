@@ -32,6 +32,9 @@ describe("parent messages", () => {
     expect(
       parseDesktopParentMessage({ type: "preflight", path: "/synthetic/work.sqlite", createIfMissing: true }).ok,
     ).toBe(true);
+    expect(parseDesktopParentMessage({ type: "preflight", path: "/synthetic/work.sqlite", quickCheck: true }).ok).toBe(
+      true,
+    );
     const start = parseDesktopParentMessage({
       type: "start",
       runId: RUN_ID,
@@ -60,6 +63,9 @@ describe("parent messages", () => {
     ["an empty path", { type: "preflight", path: "" }],
     ["createIfMissing false", { type: "preflight", path: "/p", createIfMissing: false }],
     ["createIfMissing as a string", { type: "preflight", path: "/p", createIfMissing: "true" }],
+    ["quickCheck false", { type: "preflight", path: "/p", quickCheck: false }],
+    ["quickCheck as a string", { type: "preflight", path: "/p", quickCheck: "true" }],
+    ["quickCheck as a number", { type: "preflight", path: "/p", quickCheck: 1 }],
     ["createIfMissing on a start", { type: "shutdown", createIfMissing: true }],
   ])("rejects %s without throwing", (_name, value) => {
     expect(parseDesktopParentMessage(value).ok).toBe(false);

@@ -14,6 +14,8 @@ export interface LegacyFacts {
   readonly fallbackRemoveCommand: string;
   readonly portInUse?: boolean;
   readonly blocked?: boolean;
+  /** 「停用舊的登入服務…」 is offered; the view adds its controls through `extra`. */
+  readonly canDisable?: boolean;
 }
 
 function commandRow(

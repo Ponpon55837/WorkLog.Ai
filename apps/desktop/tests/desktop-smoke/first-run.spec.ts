@@ -1,7 +1,9 @@
 import { expect, test, type ElectronApplication, type Page } from "@playwright/test";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
-import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { dirname, join } from "node:path";
 import { setupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
 import {
   attachLog,
@@ -141,7 +143,9 @@ test("a new install shows the first-run page with the defaults one click away an
   expect(firstPaintMs).toBeLessThan(FIRST_PAINT_BUDGET_MS);
 
   await defaults.click();
-  const ready = await waitForManagedSnapshot(app, 60_000);
+  await waitForManagedSnapshot(app, 60_000);
+  // Only a start that worked commits the settings (then needsSetup clears): MANAGED comes a moment before that.
+  const ready = await waitForSnapshot(app, (state) => state.owner === "MANAGED" && !state.needsSetup, 15_000);
   expect(ready.backend?.port).toBe(sandbox.port);
   expect(ready.needsSetup).toBe(false);
   const written = JSON.parse(readFileSync(settingsFile(sandbox), "utf8")) as {
@@ -192,6 +196,144 @@ test("the old login service on the App's database holds the start back until the
   const log = readMainLog(sandbox);
   expect(log).toMatch(/\[shell\] start held back/);
   expect(log).toMatch(/\[shell\] start anyway/);
+});
+
+/** A disable-able synthetic old service on the App's database: a definition file and a detection with its digest. */
+function writeDisableableLegacyService(box: Sandbox): { legacyFile: string; definition: string } {
+  const definition = join(box.home, "synthetic-service-definition");
+  const contents = "synthetic recognised definition\n";
+  writeFileSync(definition, contents);
+  const legacyFile = writeLegacyService(box, box.databasePath);
+  const detection = JSON.parse(readFileSync(legacyFile, "utf8")) as Record<string, unknown>;
+  writeFileSync(
+    legacyFile,
+    JSON.stringify({
+      ...detection,
+      port: box.port,
+      definitionDigest: createHash("sha256").update(contents, "utf8").digest("hex"),
+    }),
+  );
+  return { legacyFile, definition };
+}
+
+/** Zeroes the start of an index page no project query reads: the store still opens, `PRAGMA quick_check` fails. */
+function damageIndexPage(path: string): void {
+  const database = new DatabaseSync(path);
+  const pageSize = Number((database.prepare("PRAGMA page_size").get() as { page_size: number | bigint }).page_size);
+  const index = database
+    .prepare(
+      `SELECT rootpage FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL
+         AND tbl_name NOT IN ('projects', 'schema_migrations') AND rootpage > 1 ORDER BY rootpage DESC LIMIT 1`,
+    )
+    .get() as { rootpage: number | bigint } | undefined;
+  database.close();
+  if (!index) throw new Error("the synthetic store has no index to damage");
+  const bytes = readFileSync(path);
+  bytes.fill(0, (Number(index.rootpage) - 1) * pageSize, (Number(index.rootpage) - 1) * pageSize + 16);
+  writeFileSync(path, bytes);
+}
+
+test("停用舊的登入服務 previews in plain words, warns about an import, disables exactly that definition, then offers 立即啟動", async () => {
+  sandbox = await createSandbox({ withDatabase: true });
+  const box = sandbox;
+  const { legacyFile, definition } = writeDisableableLegacyService(box);
+  // An import of the old service that looks like it is still running.
+  const importDirectory = join(dirname(box.databasePath), ".work-intelligence-transfer", "import-Ab12Cd");
+  mkdirSync(importDirectory, { recursive: true });
+  writeFileSync(join(importDirectory, ".wi-transfer"), "work-intelligence transfer directory v1\n");
+  app = await launchApp(box, { WORK_INTELLIGENCE_DESKTOP_TEST_LEGACY_SERVICE_FILE: legacyFile });
+
+  const window = await app.firstWindow({ timeout: 45_000 });
+  await waitForSnapshot(
+    app,
+    (state) => state.owner === "NEEDS_REPAIR" && state.recentErrors.includes("LEGACY_SERVICE_ACTIVE"),
+  );
+  const text = await pageText(window);
+  const card = window.locator("#legacy-service");
+  await card.locator('[data-id="legacy-disable"]').click();
+
+  const preview = window.locator("#legacy-disable");
+  await expect(preview).toContainText(text.legacyDisableIntro);
+  await expect(preview).toContainText(
+    process.platform === "win32" ? text.legacyDisableHardStop : text.legacyDisableGraceful,
+  );
+  await expect(preview).toContainText(text.legacyDisableSameDatabase);
+  await expect(preview.locator(".warning-text")).toHaveText(text.legacyDisableBusy);
+  // The commands are only under 「詳細步驟」, never in the main text.
+  await expect(preview.locator("details .command-text").first()).toBeAttached();
+  await expect(preview.locator("details .command-text").first()).toBeHidden();
+  // Nothing was touched by the preview: at most the read-only Windows process list ran (to warn about a live runner).
+  expect(existsSync(definition)).toBe(true);
+  const beforeConfirm = existsSync(`${legacyFile}.commands.jsonl`)
+    ? readFileSync(`${legacyFile}.commands.jsonl`, "utf8").trim().split("\n")
+    : [];
+  expect(beforeConfirm.filter((line) => !/powershell/i.test(line))).toEqual([]);
+
+  const confirm = preview.locator('[data-id="legacy-disable-confirm"]');
+  await expect(confirm).toHaveText(text.legacyDisableConfirmBusy);
+  await confirm.click();
+
+  const result = window.locator("#legacy-disable-result");
+  await expect(result).toContainText(text.legacyDisableDoneStart, { timeout: 30_000 });
+  await expect(window.locator("#legacy-service")).toHaveCount(0);
+  expect(existsSync(definition)).toBe(false);
+  const recorded = readFileSync(`${legacyFile}.commands.jsonl`, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as { dialog?: string; command?: string; args?: string[] })
+    .slice(beforeConfirm.length);
+  expect(recorded[0]).toMatchObject({ dialog: "legacy-disable", hardStop: process.platform === "win32" });
+  const first = recorded[1]!;
+  if (process.platform === "darwin") expect(first.command).toBe("launchctl");
+  else if (process.platform === "linux") {
+    expect(first).toMatchObject({
+      command: "systemctl",
+      args: ["--user", "disable", "--now", "work-intelligence.service"],
+    });
+    // Proven no longer enabled before anything is removed.
+    expect(recorded[2]).toMatchObject({
+      command: "systemctl",
+      args: ["--user", "is-enabled", "work-intelligence.service"],
+    });
+  } else expect(first.command?.toLowerCase().endsWith("schtasks.exe")).toBe(true);
+  // Never started by itself: only 立即啟動 starts the App's backend.
+  expect((await readSnapshot(app)).backend).toBeNull();
+
+  await result.locator('[data-id="legacy-start-now"]').click();
+  const ready = await waitForSnapshot(app, (state) => state.owner === "MANAGED" && state.backend !== null);
+  expect(ready.backend?.port).toBe(box.port);
+  expect(readMainLog(box)).toMatch(/\[shell\] legacy disable: disabled/);
+  expect(readMainLog(box)).toMatch(/\[shell\] legacy disable: the database check passed/);
+});
+
+test("a database that fails its check after 停用舊的登入服務 is not opened: the repair flow shows it and nothing starts", async () => {
+  sandbox = await createSandbox({ withDatabase: true });
+  const box = sandbox;
+  const { legacyFile, definition } = writeDisableableLegacyService(box);
+  app = await launchApp(box, { WORK_INTELLIGENCE_DESKTOP_TEST_LEGACY_SERVICE_FILE: legacyFile });
+
+  const window = await app.firstWindow({ timeout: 45_000 });
+  await waitForSnapshot(
+    app,
+    (state) => state.owner === "NEEDS_REPAIR" && state.recentErrors.includes("LEGACY_SERVICE_ACTIVE"),
+  );
+  // As if the old service had been stopped halfway through a write.
+  damageIndexPage(box.databasePath);
+  const text = await pageText(window);
+  await window.locator('[data-id="legacy-disable"]').click();
+  await window.locator('[data-id="legacy-disable-confirm"]').click();
+
+  await expect(window.locator("#legacy-disable-result")).toContainText(text.legacyDisableCheckFailed, {
+    timeout: 30_000,
+  });
+  await expect(window.locator('[data-id="legacy-start-now"]')).toHaveCount(0);
+  expect(existsSync(definition)).toBe(false);
+  const state = await waitForSnapshot(app, (snapshot) => snapshot.recentErrors.includes("DB_INTEGRITY_CHECK_FAILED"));
+  expect(state.backend).toBeNull();
+  // Held back on purpose: nothing starts on its own behind the user's back.
+  await new Promise((resolveWait) => setTimeout(resolveWait, 3_000));
+  expect((await readSnapshot(app)).backend).toBeNull();
+  expect(readMainLog(box)).toMatch(/database check after the old service stopped did not pass/);
 });
 
 test("the old login service on another database does not hold the App back", async () => {

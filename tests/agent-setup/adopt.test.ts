@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -728,6 +728,145 @@ describe("adopt option", () => {
         expect(readFileSync(fixture.paths.codexConfig, "utf8"), name).not.toContain("work-intelligence");
       },
     );
+  });
+
+  describe("with the App's database", () => {
+    /** A Claude MCP entry on `mcpDatabase` (relative to the checkout) and both finalize hooks of that checkout. */
+    function seedCheckout(fixture: SetupFixture, mcpDatabase: string | undefined): void {
+      const root = fixture.options.repositoryRoot;
+      seedClaudeMcp(fixture, {
+        command: "node",
+        args: [script(root, "index.js")],
+        ...(mcpDatabase === undefined ? {} : { env: { WORK_INTELLIGENCE_DB: mcpDatabase } }),
+      });
+      seedHooks(fixture.paths.claudeSettings, {
+        Stop: [
+          {
+            hooks: [{ type: "command", command: commandForAgentHook(script(root, "finalize-reminder.js"), PLATFORM) }],
+          },
+        ],
+      });
+    }
+
+    /** Creates a synthetic SQLite-named file so the same-file check has something to identify. */
+    function touch(path: string): string {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, "synthetic");
+      return path;
+    }
+
+    function withApp(fixture: SetupFixture, databasePath: string): AgentSetupPlanOptions {
+      const root = fixture.options.repositoryRoot;
+      return launcherOptions(fixture, undefined, { adopt: { repositoryRoots: [root], databasePath } });
+    }
+
+    it("adopts MCP and hooks when the checkout uses the App's database", () => {
+      const fixture = hostFixture();
+      const root = fixture.options.repositoryRoot;
+      const database = touch(join(root, "data", "work-intelligence.sqlite"));
+      seedCheckout(fixture, undefined);
+      const plan = adoptAndApply(withApp(fixture, database));
+      expect(plan.adopted?.map((entry) => [entry.kind, entry.effectiveDatabase])).toEqual([
+        ["mcp", database],
+        ["hook", database],
+      ]);
+      expect(claudeServer(fixture).command).toBe(HOST_SHIM);
+    });
+
+    it("counts a hard link to the App's database as the same database", () => {
+      const fixture = hostFixture();
+      const root = fixture.options.repositoryRoot;
+      const database = touch(join(root, "data", "work-intelligence.sqlite"));
+      const appDatabase = join(fixture.options.homeDirectory, "app.sqlite");
+      linkSync(database, appDatabase);
+      seedCheckout(fixture, undefined);
+      expect(adoptAndApply(withApp(fixture, appDatabase)).adopted).toHaveLength(2);
+    });
+
+    it.each([
+      ["an absolute custom database", (root: string) => join(root, "custom", "other.sqlite")],
+      ["a relative custom database", () => "data/custom.sqlite"],
+    ])("refuses MCP on %s and the checkout's hooks on its default database, rewriting nothing", (_name, database) => {
+      const fixture = hostFixture();
+      const root = fixture.options.repositoryRoot;
+      const appDatabase = touch(join(fixture.options.homeDirectory, "app.sqlite"));
+      const mcpDatabase = database(root);
+      touch(join(root, mcpDatabase.startsWith(root) ? mcpDatabase.slice(root.length + 1) : mcpDatabase));
+      touch(join(root, "data", "work-intelligence.sqlite"));
+      seedCheckout(fixture, mcpDatabase);
+      const before = [
+        readFileSync(fixture.paths.claudeJson, "utf8"),
+        readFileSync(fixture.paths.claudeSettings, "utf8"),
+      ];
+
+      const plan = createAgentSetupPlan(withApp(fixture, appDatabase));
+
+      expect(plan.adopted).toEqual([]);
+      expect(plan.conflicts.filter((line) => line.includes("不是 App 目前的資料庫"))).toHaveLength(2);
+      expect(applyAgentSetupPlan(plan).applied).toBe(false);
+      expect([
+        readFileSync(fixture.paths.claudeJson, "utf8"),
+        readFileSync(fixture.paths.claudeSettings, "utf8"),
+      ]).toEqual(before);
+    });
+
+    it("refuses the whole Agent when its MCP server is on the App's database but its hook is not", () => {
+      const fixture = hostFixture();
+      const root = fixture.options.repositoryRoot;
+      const appDatabase = touch(join(fixture.options.homeDirectory, "app.sqlite"));
+      touch(join(root, "data", "work-intelligence.sqlite"));
+      seedCheckout(fixture, appDatabase);
+      const before = [
+        readFileSync(fixture.paths.claudeJson, "utf8"),
+        readFileSync(fixture.paths.claudeSettings, "utf8"),
+      ];
+
+      const plan = createAgentSetupPlan(withApp(fixture, appDatabase));
+
+      expect(plan.adopted).toEqual([]);
+      // The hook is refused for its own database, the MCP server because its Agent's hook is.
+      expect(plan.conflicts.filter((line) => line.includes("使用的資料庫（"))).toHaveLength(1);
+      expect(plan.conflicts.filter((line) => line.includes("整個 Agent 都不改由 App 管理"))).toHaveLength(1);
+      expect(applyAgentSetupPlan(plan).applied).toBe(false);
+      expect([
+        readFileSync(fixture.paths.claudeJson, "utf8"),
+        readFileSync(fixture.paths.claudeSettings, "utf8"),
+      ]).toEqual(before);
+    });
+
+    it("refuses an entry whose database cannot be identified (missing file)", () => {
+      const fixture = hostFixture();
+      const appDatabase = touch(join(fixture.options.homeDirectory, "app.sqlite"));
+      seedCheckout(fixture, undefined);
+      const plan = createAgentSetupPlan(withApp(fixture, appDatabase));
+      expect(plan.adopted).toEqual([]);
+      expect(plan.conflicts.filter((line) => line.includes("不是 App 目前的資料庫"))).toHaveLength(2);
+    });
+
+    it("tells, per entry, which database it uses and whether it is the App's", () => {
+      const fixture = hostFixture();
+      const root = fixture.options.repositoryRoot;
+      const appDatabase = touch(join(fixture.options.homeDirectory, "app.sqlite"));
+      const custom = touch(join(root, "custom.sqlite"));
+      seedCheckout(fixture, custom);
+      const found = findCheckoutRegistrations({ ...fixture.options, platform: PLATFORM }, { appDatabase });
+      expect(
+        found.map((entry) => [
+          entry.kind,
+          entry.effectiveDatabase,
+          entry.databaseFromCheckoutDefault,
+          entry.sameAsAppDatabase,
+        ]),
+      ).toEqual([
+        ["mcp", custom, undefined, false],
+        ["hook", join(root, "data", "work-intelligence.sqlite"), true, false],
+      ]);
+      expect(
+        findCheckoutRegistrations({ ...fixture.options, platform: PLATFORM }, { appDatabase: custom }).map(
+          (entry) => entry.sameAsAppDatabase,
+        ),
+      ).toEqual([true, false]);
+    });
   });
 
   it("migrates setup-owned checkout entries as before while adopting a hand-written one beside them", () => {

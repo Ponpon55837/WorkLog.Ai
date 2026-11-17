@@ -14,6 +14,7 @@ export const OPERATION_KINDS = [
   "restart",
   "restore",
   "update-install",
+  "legacy-disable",
 ] as const;
 export type OperationKind = (typeof OPERATION_KINDS)[number];
 

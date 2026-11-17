@@ -36,6 +36,26 @@ function tempDir(): string {
   return directory;
 }
 
+/**
+ * Zeroes the first bytes of the root page of an index on a table the preflight never reads, so the header, the schema and
+ * the project queries still work while `PRAGMA quick_check` finds an invalid b-tree page.
+ */
+function corruptUnrelatedIndexPage(path: string): void {
+  const database = new DatabaseSync(path);
+  const pageSize = Number((database.prepare("PRAGMA page_size").get() as { page_size: number | bigint }).page_size);
+  const index = database
+    .prepare(
+      `SELECT rootpage FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL
+         AND tbl_name NOT IN ('projects', 'schema_migrations') AND rootpage > 1 ORDER BY rootpage DESC LIMIT 1`,
+    )
+    .get() as { rootpage: number | bigint } | undefined;
+  database.close();
+  if (!index) throw new Error("the synthetic store has no index to damage");
+  const bytes = readFileSync(path);
+  bytes.fill(0, (Number(index.rootpage) - 1) * pageSize, (Number(index.rootpage) - 1) * pageSize + 16);
+  writeFileSync(path, bytes);
+}
+
 /** Hand-built database: only the tables the preflight reads, so schema versions can be chosen freely. */
 function createDatabase(
   path: string,
@@ -121,6 +141,42 @@ describe("preflightDatabase statuses", () => {
     new WorkIntelligenceStore(path).close();
     const result = await preflightDatabase(path);
     expect(result).toMatchObject({ status: "ok", compatibility: "current", projectCount: 0, projectNames: [] });
+  });
+
+  it("runs quick_check only on request, and an intact database stays ok", async () => {
+    const path = join(tempDir(), "intact.sqlite");
+    new WorkIntelligenceStore(path).close();
+    const checked = await preflightDatabase(path, { quickCheck: true });
+    expect(checked).toMatchObject({ status: "ok", compatibility: "current", projectCount: 0 });
+    expect(checked.detail).toBeUndefined();
+  });
+
+  it("reports a database whose pages are damaged as unreadable only when quick_check is requested", async () => {
+    const path = join(tempDir(), "damaged.sqlite");
+    new WorkIntelligenceStore(path).close();
+    corruptUnrelatedIndexPage(path);
+
+    const plain = await preflightDatabase(path);
+    expect(plain).toMatchObject({ status: "ok", compatibility: "current" });
+    expect(plain.detail).toBeUndefined();
+
+    const checked = await preflightDatabase(path, { quickCheck: true });
+    expect(checked).toMatchObject({
+      status: "unreadable",
+      detail: "quick_check failed",
+      compatibility: "current",
+      schemaVersion: LATEST_SCHEMA_VERSION,
+    });
+    expect(checked.identity?.lineageId).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("leaves a damaged database byte for byte unchanged by the quick_check", async () => {
+    const path = join(tempDir(), "damaged-readonly.sqlite");
+    new WorkIntelligenceStore(path).close();
+    corruptUnrelatedIndexPage(path);
+    const before = readFileSync(path);
+    await preflightDatabase(path, { quickCheck: true });
+    expect(readFileSync(path).equals(before)).toBe(true);
   });
 
   it("shows up to five project names, most recently updated first, without writing anything", async () => {

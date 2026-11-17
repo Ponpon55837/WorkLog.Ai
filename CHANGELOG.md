@@ -4,6 +4,52 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.50] - 2026-11-17
+
+[繁體中文更新說明](docs/releases/1.6.50.md).
+
+This release finishes the old-service and Agent-takeover parts of stage 4 of the desktop app plan. The schema stays at 33 and no migration is needed.
+
+### Added
+
+- **「停用舊的登入服務…」 in the App.** It is on the old-service card of the first-run page and the repair window, and in the tray, which opens the repair window. There is no Web button. It is offered only for a definition that detection recognises and whose checkout is known.
+  - A read-only preview explains in plain zh-TW what happens. The commands are only under 「詳細步驟」.
+    - On Windows: 「正在執行的舊服務會被立即結束；已儲存的資料不受影響，正在寫入的一筆可能需要重做。」
+    - On macOS and Linux the service stops gracefully.
+  - An import (a fresh `import-*` transfer directory with its marker) or a backup (a staging directory whose owner is alive) shows 「舊服務可能正在匯入或備份，建議稍後再停用。」. The user may continue with 「仍要停用」.
+  - 「停用」 asks once more in a native dialog, with Cancel as the default.
+  - The disable acts only on exactly what was previewed:
+    - detection now carries a SHA-256 of a recognised definition, and the disable detects again first: if the definition, checkout or port changed, nothing is done;
+    - the file is removed only while it is still that regular file;
+    - commands are argv arrays with fixed names only.
+  - Same steps as `pnpm service:uninstall`. Nothing is removed until the port is free and, on Windows, the runner's process trees are gone (bounded). A final detection must find nothing.
+  - It runs under the operation lock as a new `legacy-disable` journal kind.
+  - When the old service used the App's database, a read-only `PRAGMA quick_check` runs before the App opens it. On failure:
+    - `DB_INTEGRITY_CHECK_FAILED` is recorded;
+    - the repair window shows the database;
+    - nothing starts.
+  - 「立即啟動」 is offered only in an interactive launch with settings and no backend running. The App never starts by itself after a disable.
+- **Windows runner descendants (DT-13).** Only `node.exe` processes whose command line names this checkout's `scripts\service-runner.mjs` are ended (`taskkill /T`). The match is normalised and case-insensitive, and the path must stand alone. Every descendant (pnpm, the old server, conhost) is found by parent id and waited for, never ended on its own.
+- **Desktop preview `quickCheck`.** The child preflight message gains optional `quickCheck: true`. It runs `PRAGMA quick_check` on the same read-only handle, and a failure reports `unreadable` with a fixed detail.
+
+### Changed
+
+- **"改由桌面 App 管理" takes over checkout entries only when they use the App's database.** The database is compared by file identity. An entry on another database (explicit `WORK_INTELLIGENCE_DB`, or the checkout default) is refused and nothing is rewritten. Its card instead offers 「改用這份資料庫」, which previews that database in the repair window for the user to confirm.
+- **Tray:** "如何移除舊服務" is now 「停用舊的登入服務…」.
+
+### Fixed
+
+- **Independent review of the disable and adoption (this release).**
+  - The App's own backend on the old port counts as the port being free.
+  - After a failed `bootout` / `disable --now`, nothing is removed while `launchctl print` / `systemctl is-enabled` still finds the service.
+  - The database is checked after any stop, also when a later step fails. Only a failed `quick_check` is reported as `DB_INTEGRITY_CHECK_FAILED`. A check that could not finish (locked, a 5-minute timeout, a child failure) is "unverified": no error is recorded and 「立即啟動」 is not offered.
+  - Windows warns about the hard stop when a runner of the checkout is alive even though the task reads as stopped.
+  - An import or backup that starts after the preview is warned about before the dialog.
+  - Adoption is refused per Agent, and not at all without an App database.
+  - The packaged-smoke pid-reuse guard compares each ancestor with the earliest known time on the walk.
+
+- **Windows packaged smoke: a Firefox background task's own children no longer count as a browser the App opened.** The v1.6.49 release run (44091619638) failed the uninstaller test on a `-contentproc` child of the Firefox Default Browser Agent. A candidate is now excluded when its nearest browser ancestor, found by parent pid with a pid-reuse guard, is a Firefox `--backgroundtask` that does not name the Dashboard. A new child of an already running normal Firefox still counts. Failure lines also print the start of the parent's command line.
+
 ## [1.6.49] - 2026-11-17
 
 [繁體中文更新說明](docs/releases/1.6.49.md).

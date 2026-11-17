@@ -162,6 +162,8 @@ describe("buildRepairState legacyService", () => {
       running: "running",
       blocked: true,
       portInUse: true,
+      // No definition digest in the fixture: not one the App may disable.
+      canDisable: false,
       removeCommand: "cd /home/tester/checkout && pnpm service:uninstall",
       fallbackRemoveCommand: "systemctl --user disable work-intelligence",
     });
@@ -280,6 +282,14 @@ describe("applying a preview with a file that has no diff shown", () => {
     expect(schema.safeParse({ previewId, acknowledgeUndiffable: true }).success).toBe(true);
     expect(schema.safeParse({ previewId, acknowledgeUndiffable: "yes" }).success).toBe(false);
     expect(schema.safeParse({ previewId, extra: 1 }).success).toBe(false);
+  });
+
+  it("lets the page name only a known Agent when it asks to use the checkout's database, never a path", () => {
+    const schema = repairInputSchemas.agentsUseCheckoutDatabase;
+    expect(schema.safeParse({ agent: "codex" }).success).toBe(true);
+    expect(schema.safeParse({ agent: "claude-code" }).success).toBe(true);
+    expect(schema.safeParse({ agent: "claude-desktop" }).success).toBe(false);
+    expect(schema.safeParse({ agent: "codex", path: "/synthetic/other.sqlite" }).success).toBe(false);
   });
 });
 

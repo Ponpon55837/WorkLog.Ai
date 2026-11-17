@@ -19,6 +19,7 @@ import {
 import {
   descendantsOf,
   describeProcessLine,
+  inFirefoxBackgroundTask,
   isExternalBrowser,
   parseElapsedSeconds,
   startedSince,
@@ -264,6 +265,7 @@ export function browserProcesses(
     (candidate) =>
       candidate.pid !== process.pid &&
       isExternalBrowser(candidate, dashboardPort) &&
+      !inFirefoxBackgroundTask(candidate, processes, dashboardPort) &&
       !(sandboxRoot !== undefined && candidate.commandLine.includes(sandboxRoot)),
   );
 }
@@ -401,7 +403,11 @@ function describeProcess(candidate: ProcessInfo, processes: readonly ProcessInfo
   const parent = processes.find((member) => member.pid === candidate.ppid);
   return describeProcessLine(
     candidate,
-    { alive: parent !== undefined, executable: parent ? executablePathOf(parent.pid, processes) : undefined },
+    {
+      alive: parent !== undefined,
+      executable: parent ? executablePathOf(parent.pid, processes) : undefined,
+      commandLine: parent?.commandLine,
+    },
     HOLDER_COMMAND_LIMIT,
   );
 }

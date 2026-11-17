@@ -104,6 +104,21 @@ describe("desktop facts and open-agent-setup", () => {
 });
 
 describe("preview of a candidate database", () => {
+  it("sends quickCheck only when the preview asks for it", async () => {
+    const harness = makeHarness();
+    await harness.supervisor.preview("/synthetic/other/candidate.sqlite");
+    await harness.supervisor.preview("/synthetic/other/candidate.sqlite", { quickCheck: true });
+    const preflightOf = (index: number): Record<string, unknown> | undefined =>
+      harness.children[index]?.sent.find((message) => message.type === "preflight");
+
+    expect(preflightOf(0)).toEqual({ type: "preflight", path: "/synthetic/other/candidate.sqlite" });
+    expect(preflightOf(1)).toEqual({
+      type: "preflight",
+      path: "/synthetic/other/candidate.sqlite",
+      quickCheck: true,
+    });
+  });
+
   it("asks only hello and preflight, never start, and shuts the child down without a port", async () => {
     const harness = makeHarness();
     const result = await harness.supervisor.preview("/synthetic/other/candidate.sqlite");

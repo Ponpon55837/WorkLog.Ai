@@ -46,6 +46,12 @@ export type AgentSetupTarget =
 export interface AgentSetupAdoptOptions {
   /** Checkout roots whose registrations may be adopted; compared case-insensitively on Windows, `\` and `/` alike. */
   repositoryRoots: string[];
+  /**
+   * The App's database. When set, an entry is adopted only when the database it used is this same file (same real path
+   * or same device and file id): after adoption MCP keeps its own database and hooks follow the App's, so adopting an
+   * entry of a checkout on another database would split one Agent across two. Such an entry is reported, not rewritten.
+   */
+  databasePath?: string;
 }
 
 export interface AgentSetupPlanOptions {
@@ -84,7 +90,7 @@ export interface AgentSetupAdoptedRegistration {
   location: string;
   /** The checkout the registration pointed at. */
   repositoryRoot: string;
-  /** MCP only: the database the registration used before adoption (and still uses afterwards). */
+  /** The database the registration used before adoption; with `adopt.databasePath` set, it is the App's database. */
   effectiveDatabase?: string;
 }
 

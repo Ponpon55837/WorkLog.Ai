@@ -35,7 +35,11 @@ function selfTestText(state: AgentsState, text: SetupMessages): string {
   return text.agentsSelfTestNotRun;
 }
 
-function agentCard(card: AgentCardView, text: SetupMessages): HTMLElement {
+function agentCard(
+  card: AgentCardView,
+  text: SetupMessages,
+  controls: { readonly busy: boolean; readonly useDatabase: (card: AgentCardView) => void },
+): HTMLElement {
   const facts = element("dl", { className: "facts" });
   facts.append(
     ...fact(text.agentsMcp, text.agentOwners[card.mcp]),
@@ -57,6 +61,22 @@ function agentCard(card: AgentCardView, text: SetupMessages): HTMLElement {
   if (card.adoptable) node.append(element("p", { className: "hint", text: text.agentsAdoptHint }));
   if (card.notAdoptableReason) {
     node.append(element("p", { className: "hint", text: `${text.agentsNotAdoptable}${card.notAdoptableReason}` }));
+  }
+  if (card.otherDatabase) {
+    const message = card.otherDatabase.fromCheckoutDefault ? text.agentsOtherDatabaseDefault : text.agentsOtherDatabase;
+    node.append(
+      element("p", { className: "hint", text: formatMessage(message, { path: card.otherDatabase.display }) }),
+      element("div", { className: "actions" }, [
+        button(
+          text.agentsUseOtherDatabase,
+          `use-database-${card.id}`,
+          !controls.busy,
+          () => controls.useDatabase(card),
+          true,
+        ),
+      ]),
+      element("p", { className: "hint", text: text.agentsKeepCheckout }),
+    );
   }
   return node;
 }
@@ -183,7 +203,14 @@ export function mountAgents(app: HTMLElement, say: (text: string) => void, api: 
       element("p", { className: "intro", text: text.agentsIntro }),
     ];
     if (!state.launcherReady) blocks.push(element("p", { className: "hint", text: text.agentsLauncherNotReady }));
-    blocks.push(...state.cards.map((card) => agentCard(card, text)));
+    blocks.push(
+      ...state.cards.map((card) =>
+        agentCard(card, text, {
+          busy,
+          useDatabase: (chosen) => void act(() => api.agentsUseCheckoutDatabase(chosen.id)),
+        }),
+      ),
+    );
     const outcome = resultText(state, text);
     if (outcome) blocks.push(element("p", { className: "result", text: outcome }));
     if (state.preview) {

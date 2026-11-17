@@ -47,6 +47,11 @@ export interface AgentsPage {
   discard(): AgentsActionResult;
   undo(): Promise<AgentsActionResult>;
   selfTest(): Promise<AgentsActionResult>;
+  /**
+   * The way out of a checkout on another database: hands the database that Agent's checkout uses to the App's own
+   * database change (preview, then the user confirms). Main reads the path; the page only names the Agent.
+   */
+  useCheckoutDatabase(agent: SetupAgentId): Promise<AgentsActionResult>;
   /** Finishes an apply or undo a crash left half done; called once at start-up. */
   recover(): void;
 }
@@ -57,6 +62,8 @@ export interface AgentsPageOptions {
   /** The canonical `work-intelligence` SKILL.md the App ships. */
   readonly skillSourcePath: string;
   readonly log: Logger;
+  /** Opens the App's database change for this file (read-only preview first; nothing switches before the user confirms). */
+  readonly offerDatabase: (path: string) => Promise<void>;
 }
 
 const SELF_TEST_TIMEOUT_MS = 15_000;
@@ -84,13 +91,18 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
 
   function checkoutRegistrations(): CheckoutRegistration[] {
     try {
-      return findCheckoutRegistrations({ homeDirectory: home, repositoryRoot: home, platform });
+      const appDatabase = state.databasePath();
+      return findCheckoutRegistrations(
+        { homeDirectory: home, repositoryRoot: home, platform },
+        appDatabase ? { appDatabase } : {},
+      );
     } catch {
       return [];
     }
   }
 
   function planOptions(adopt: boolean, registrations: readonly CheckoutRegistration[]): AgentSetupPlanOptions {
+    const databasePath = state.databasePath();
     const roots = [
       ...new Set(
         registrations
@@ -104,8 +116,16 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
       repositoryRoot: roots[0] ?? home,
       target: { kind: "launcher", shimPath, skillSourcePath: options.skillSourcePath },
       platform,
-      ...(adopt ? { adopt: { repositoryRoots: roots } } : {}),
+      // Only entries on the App's own database are taken over: one Agent must not end up writing to two databases.
+      // Without an App database nothing is adopted (there is nothing to compare with).
+      ...(adopt && databasePath ? { adopt: { repositoryRoots: roots, databasePath } } : {}),
     };
+  }
+
+  /** The checkout database an Agent's hand-written entries use when it is not the App's: MCP's first, else a hook's. */
+  function otherDatabaseOf(entries: readonly CheckoutRegistration[]): CheckoutRegistration | undefined {
+    const other = entries.filter((entry) => entry.sameAsAppDatabase === false && entry.effectiveDatabase);
+    return other.find((entry) => entry.kind === "mcp") ?? other[0];
   }
 
   function cards(): AgentCardView[] {
@@ -123,6 +143,7 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
       const handWritten = checkout.filter((entry) => entry.agent === id && !entry.owned);
       const firstRoot = handWritten.find((entry) => entry.repositoryRoot)?.repositoryRoot;
       const notRecognised = handWritten.find((entry) => !entry.recognised);
+      const other = otherDatabaseOf(handWritten);
       const status = classifyAgentStatus({
         source: mcp?.source ?? "unknown",
         configWritten: mcp !== undefined,
@@ -140,8 +161,17 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
         hooks: ownerOf(hook?.source),
         ...(firstRoot ? { checkoutDisplay: show(firstRoot) } : {}),
         checkoutMissing: handWritten.some((entry) => entry.repositoryRoot !== undefined && !entry.rootExists),
-        adoptable: handWritten.length > 0 && notRecognised === undefined,
+        adoptable:
+          state.databasePath() !== null && handWritten.length > 0 && notRecognised === undefined && other === undefined,
         ...(notRecognised?.reason ? { notAdoptableReason: notRecognised.reason } : {}),
+        ...(other?.effectiveDatabase
+          ? {
+              otherDatabase: {
+                display: show(other.effectiveDatabase),
+                fromCheckoutDefault: other.kind === "hook" && other.databaseFromCheckoutDefault === true,
+              },
+            }
+          : {}),
       };
     });
   }
@@ -258,6 +288,15 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
           };
           return { ok: false, reason: "failed", errorCode: undone.code ?? undone.status, state: snapshot() };
         }
+        return { ok: true, state: snapshot() };
+      }),
+    useCheckoutDatabase: (agent) =>
+      exclusive(async () => {
+        const entries = checkoutRegistrations().filter((entry) => entry.agent === agent && !entry.owned);
+        const database = otherDatabaseOf(entries)?.effectiveDatabase;
+        if (!database) return { ok: false, reason: "invalid", state: snapshot() };
+        log("[shell] agent page: offering the checkout's database to the database change");
+        await options.offerDatabase(database);
         return { ok: true, state: snapshot() };
       }),
     selfTest: () =>

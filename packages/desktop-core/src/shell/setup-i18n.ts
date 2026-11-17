@@ -49,6 +49,30 @@ export interface SetupMessages {
   readonly legacyStartAnywayConfirm: string;
   readonly legacyBlocked: string;
   readonly legacyStartsAtLogin: string;
+  readonly legacyDisable: string;
+  readonly legacyDisableHeading: string;
+  readonly legacyDisableIntro: string;
+  readonly legacyDisableNotRunning: string;
+  readonly legacyDisableGraceful: string;
+  readonly legacyDisableHardStop: string;
+  readonly legacyDisableSameDatabase: string;
+  readonly legacyDisableBusy: string;
+  readonly legacyDisableSteps: string;
+  readonly legacyDisableConfirm: string;
+  readonly legacyDisableConfirmBusy: string;
+  readonly legacyDisableCancel: string;
+  readonly legacyDisableDialog: string;
+  readonly legacyDisableDone: string;
+  readonly legacyDisableDoneStart: string;
+  readonly legacyStartNow: string;
+  readonly legacyDisableChanged: string;
+  readonly legacyDisableStillRunning: string;
+  readonly legacyDisableFailed: string;
+  readonly legacyDisableFailedPartly: string;
+  readonly legacyDisableCheckFailed: string;
+  readonly legacyDisableCheckUnverified: string;
+  readonly legacyDisableUnavailable: string;
+  readonly legacyDisableBusyOther: string;
   readonly setupDetectingHint: string;
   readonly trayLegacyStatus: string;
   readonly trayLegacyStartAnyway: string;
@@ -72,6 +96,12 @@ export interface SetupMessages {
   readonly agentsCheckoutMissing: string;
   readonly agentsAdoptHint: string;
   readonly agentsNotAdoptable: string;
+  /** `{path}`: the database the checkout's MCP entry uses. */
+  readonly agentsOtherDatabase: string;
+  /** `{path}`: the checkout default a hook uses when the Agent's environment does not name a database. */
+  readonly agentsOtherDatabaseDefault: string;
+  readonly agentsUseOtherDatabase: string;
+  readonly agentsKeepCheckout: string;
   readonly agentsPreview: string;
   readonly agentsPreviewAdopt: string;
   readonly agentsPreviewHeading: string;
@@ -157,10 +187,36 @@ const zhTW: SetupMessages = {
   legacyStartAnywayConfirm: "確定要在舊服務也在執行時啟動嗎？兩個後端同時寫入同一份資料庫可能造成問題。",
   legacyBlocked: "為了避免兩個後端同時使用同一份資料庫，App 還沒有啟動自己的後端。",
   legacyStartsAtLogin: "下次登入時會啟動。",
+  legacyDisable: "停用舊的登入服務…",
+  legacyDisableHeading: "停用舊的登入服務",
+  legacyDisableIntro:
+    "這會停下舊的登入服務，並移除它在登入時自動啟動的設定，之後改由這個 App 管理。資料庫和備份都不會被刪除。",
+  legacyDisableNotRunning: "舊服務目前沒有在執行，只會移除它在登入時自動啟動的設定。",
+  legacyDisableGraceful: "舊服務會先把手上的工作完成再停下。",
+  legacyDisableHardStop: "正在執行的舊服務會被立即結束；已儲存的資料不受影響，正在寫入的一筆可能需要重做。",
+  legacyDisableSameDatabase: "停下之後，App 會先檢查這份資料庫，沒有問題才會使用。",
+  legacyDisableBusy: "舊服務可能正在匯入或備份，建議稍後再停用。",
+  legacyDisableSteps: "詳細步驟",
+  legacyDisableConfirm: "停用",
+  legacyDisableConfirmBusy: "仍要停用",
+  legacyDisableCancel: "取消",
+  legacyDisableDialog: "確定要停用舊的登入服務嗎？",
+  legacyDisableDone: "舊的登入服務已停用。",
+  legacyDisableDoneStart: "舊的登入服務已停用。現在可以啟動這個 App 的服務。",
+  legacyStartNow: "立即啟動",
+  legacyDisableChanged: "舊服務的設定在檢查之後有變動，所以沒有做任何更改。請再按一次「停用舊的登入服務…」。",
+  legacyDisableStillRunning: "舊服務沒有及時停下，所以還沒有移除它的設定。請稍後再試一次。",
+  legacyDisableFailed: "停用沒有完成，也沒有移除任何設定。請改用下方的指令。",
+  legacyDisableFailedPartly: "停用只完成了一部分。請改用下方的指令完成移除。",
+  legacyDisableCheckFailed: "舊服務已停用，但資料庫檢查沒有通過，App 沒有開啟它。請在修復視窗處理。",
+  legacyDisableCheckUnverified:
+    "舊的登入服務已停用，但這次沒能完成資料庫檢查（資料庫可能暫時被占用），所以沒有立即啟動。請稍後重新開啟 App。",
+  legacyDisableUnavailable: "這個服務無法由 App 停用，請改用下方的指令。",
+  legacyDisableBusyOther: "另一個操作正在進行，請稍後再試。",
   setupDetectingHint: "正在檢查…完成後即可使用",
   trayLegacyStatus: "偵測到舊的登入服務也使用這份資料庫，未自動啟動",
   trayLegacyStartAnyway: "仍要啟動",
-  trayLegacyHowToRemove: "如何移除舊服務",
+  trayLegacyHowToRemove: "停用舊的登入服務…",
   legacyPortInUse: "連接埠已被舊的登入服務（pnpm bootstrap）使用。請先移除舊服務，再重試。",
   trayCompleteSetup: "完成首次設定…",
   trayAgentSetup: "設定 Agent…",
@@ -196,6 +252,12 @@ const zhTW: SetupMessages = {
   agentsCheckoutMissing: "這個原始碼目錄已經不在，目前的設定無法啟動。",
   agentsAdoptHint: "目前直接執行原始碼目錄。可以改由桌面 App 管理；使用的資料庫不變。",
   agentsNotAdoptable: "這個設定不是 setup 寫入的格式，App 不會改動它：",
+  agentsOtherDatabase:
+    "這個原始碼目錄使用另一份資料庫：{path}。App 只接管使用同一份資料庫的設定，否則這個 Agent 的工作記錄會分散在兩個地方。",
+  agentsOtherDatabaseDefault:
+    "這個原始碼目錄的 hook 使用 {path}（除非 Agent 的環境另外指定了資料庫）。App 只接管使用同一份資料庫的設定，否則這個 Agent 的工作記錄會分散在兩個地方。",
+  agentsUseOtherDatabase: "改用這份資料庫",
+  agentsKeepCheckout: "也可以保留原本的設定，App 不會改動它。",
   agentsPreview: "預覽變更",
   agentsPreviewAdopt: "改由桌面 App 管理…",
   agentsPreviewHeading: "將要寫入的變更",
@@ -278,10 +340,40 @@ const en: SetupMessages = {
     "Start while the old service may be running? Two backends writing to one database can cause problems.",
   legacyBlocked: "To keep two backends off one database, the App has not started its own backend yet.",
   legacyStartsAtLogin: "It will start at the next login.",
+  legacyDisable: "Turn off the old login service…",
+  legacyDisableHeading: "Turn off the old login service",
+  legacyDisableIntro:
+    "This stops the old login service and removes its start-at-login setting, so this App takes over. No database or backup is deleted.",
+  legacyDisableNotRunning: "The old service is not running now; only its start-at-login setting is removed.",
+  legacyDisableGraceful: "The old service finishes what it is doing before it stops.",
+  legacyDisableHardStop:
+    "The running old service is ended at once; saved data is not affected, but an entry being written may have to be redone.",
+  legacyDisableSameDatabase: "Once it has stopped, the App checks this database before using it.",
+  legacyDisableBusy: "The old service may be importing or backing up. It is better to turn it off later.",
+  legacyDisableSteps: "Detailed steps",
+  legacyDisableConfirm: "Turn off",
+  legacyDisableConfirmBusy: "Turn off anyway",
+  legacyDisableCancel: "Cancel",
+  legacyDisableDialog: "Turn off the old login service?",
+  legacyDisableDone: "The old login service is turned off.",
+  legacyDisableDoneStart: "The old login service is turned off. You can start this App's service now.",
+  legacyStartNow: "Start now",
+  legacyDisableChanged:
+    "The old service's setup changed after it was checked, so nothing was changed. Press “Turn off the old login service…” again.",
+  legacyDisableStillRunning:
+    "The old service did not stop in time, so its setup was not removed yet. Try again in a moment.",
+  legacyDisableFailed: "Turning it off did not finish and nothing was removed. Use the command below instead.",
+  legacyDisableFailedPartly: "Turning it off only partly finished. Use the command below to finish removing it.",
+  legacyDisableCheckFailed:
+    "The old service is turned off, but the database did not pass its check, so the App did not open it. Continue in the repair window.",
+  legacyDisableCheckUnverified:
+    "The old login service is turned off, but the database check could not finish this time (the database may be in use), so nothing was started. Open the App again later.",
+  legacyDisableUnavailable: "The App cannot turn this service off. Use the command below instead.",
+  legacyDisableBusyOther: "Another operation is running. Try again in a moment.",
   setupDetectingHint: "Checking… available when done",
   trayLegacyStatus: "The old login service also uses this database; the App did not start automatically",
   trayLegacyStartAnyway: "Start anyway",
-  trayLegacyHowToRemove: "How to remove the old service",
+  trayLegacyHowToRemove: "Turn off the old login service…",
   legacyPortInUse: "The port is used by the old login service (pnpm bootstrap). Remove it first, then try again.",
   trayCompleteSetup: "Finish setup…",
   trayAgentSetup: "Set up Agents…",
@@ -318,6 +410,12 @@ const en: SetupMessages = {
   agentsAdoptHint:
     "It runs a source checkout directly. The desktop App can manage it instead; the database stays the same.",
   agentsNotAdoptable: "These settings are not in the form setup writes, so the App leaves them alone:",
+  agentsOtherDatabase:
+    "This source checkout uses another database: {path}. The App only takes over settings on the same database; otherwise this Agent's work would be recorded in two places.",
+  agentsOtherDatabaseDefault:
+    "This source checkout's hooks use {path} (unless the Agent's environment names another database). The App only takes over settings on the same database; otherwise this Agent's work would be recorded in two places.",
+  agentsUseOtherDatabase: "Use this database",
+  agentsKeepCheckout: "Or keep the current settings; the App leaves them alone.",
   agentsPreview: "Preview changes",
   agentsPreviewAdopt: "Let the desktop App manage it…",
   agentsPreviewHeading: "Changes to be written",

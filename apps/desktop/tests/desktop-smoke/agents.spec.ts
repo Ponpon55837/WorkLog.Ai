@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { maskHome } from "@work-intelligence/desktop-core";
+import { WorkIntelligenceStore } from "@work-intelligence/storage";
 import { setupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
 import {
   attachLog,
@@ -222,6 +223,53 @@ test("the Agent page previews, applies exactly the preview, passes the self-test
     expect(readFileSync(join(home, ...name.split("/")), "utf8")).toBe(content);
   }
   expect(readMainLog(sandbox)).toMatch(/\[shell\] agent setup /);
+});
+
+test("a checkout on another database is not taken over, and 「改用這份資料庫」 previews that database in the repair view", async () => {
+  sandbox = await createSandbox({ withDatabase: true });
+  const home = sandbox.home;
+  // A hand-written Claude MCP entry of a synthetic checkout that names its own (synthetic) database.
+  const checkout = join(sandbox.root, "synthetic checkout");
+  const otherDatabase = join(checkout, "data", "other.sqlite");
+  mkdirSync(join(otherDatabase, ".."), { recursive: true });
+  new WorkIntelligenceStore(otherDatabase).close();
+  const claudeJson = {
+    mcpServers: {
+      "work-intelligence": {
+        command: "node",
+        args: [join(checkout, "apps", "mcp", "dist", "index.js")],
+        env: { WORK_INTELLIGENCE_DB: otherDatabase },
+      },
+    },
+  };
+  writeFileSync(join(home, ".claude.json"), `${JSON.stringify(claudeJson, null, 2)}\n`);
+  app = await launchApp(sandbox, {}, ["--open-agent-setup"]);
+  await waitForManagedSnapshot(app);
+
+  const window = await app.firstWindow({ timeout: 45_000 });
+  const text = await pageText(window);
+  const card = window.locator('[data-agent="claude-code"]');
+  await expect(card).toContainText(text.agentsUseOtherDatabase);
+  // Not offered for take-over, and the database is named the way the page names paths.
+  await expect(window.locator('[data-id="preview-adopt"]')).toHaveCount(0);
+  expect(await card.innerText()).not.toContain(sandbox.home);
+  const before = readFileSync(join(home, ".claude.json"), "utf8");
+
+  await window.locator('[data-id="use-database-claude-code"]').click();
+  await waitForSnapshot(app, (state) => state.repairWindowOpen && state.view === "repair");
+  // The window navigates to the repair page after main switches the view: wait until that page shows the candidate
+  // before reading its state (an evaluate during the navigation has no page to run in).
+  const shown = maskHome(otherDatabase, home, process.platform);
+  await expect(window.locator(".path", { hasText: shown })).toBeVisible({ timeout: 30_000 });
+  const repair = (await window.evaluate(() =>
+    (
+      globalThis as unknown as { workIntelligenceRepair: { getState(): Promise<unknown> } }
+    ).workIntelligenceRepair.getState(),
+  )) as { database: { display: string | null }; candidates: { display: string; status: string }[] };
+  expect(repair.candidates.map((candidate) => [candidate.display, candidate.status])).toContainEqual([shown, "ok"]);
+  // Nothing switched and the Agent file is untouched: switching still needs the user's confirm.
+  expect(repair.database.display).toBe(maskHome(sandbox.databasePath, home, process.platform));
+  expect(readFileSync(join(home, ".claude.json"), "utf8")).toBe(before);
 });
 
 test("a second launch with --open-agent-setup shows the Agent page in the running App", async () => {

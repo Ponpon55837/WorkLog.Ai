@@ -74,6 +74,21 @@ describe("process descriptions", () => {
     expect(line).toContain("-contentproc");
   });
 
+  it("prints the start of the parent's command line", () => {
+    const line = describeProcessLine(
+      content,
+      {
+        alive: true,
+        executable: FIREFOX,
+        commandLine: `"${FIREFOX}" --backgroundtask defaultagent do-task ${"X".repeat(200)}`,
+      },
+      120,
+    );
+    expect(line).toContain(`parent pid 4321 ${FIREFOX} (command: "${FIREFOX}" --backgroundtask`);
+    expect(line).toContain("--backgroundtask");
+    expect(line).not.toContain("X".repeat(100));
+  });
+
   it("says the parent is gone when it no longer runs", () => {
     expect(describeProcessLine(content, { alive: false, executable: undefined }, 160)).toContain(
       "parent pid 4321 (gone)",

@@ -5,7 +5,7 @@ const messages = shellMessages("en");
 const base = { messages, owner: "NEEDS_REPAIR" as const, backendRunning: false };
 
 describe("buildTrayMenu with a login start held back by the old service", () => {
-  it("shows the status line, 仍要啟動 and 如何移除舊服務", () => {
+  it("shows the status line, 仍要啟動 and 停用舊的登入服務…", () => {
     const text = setupMessages("zh-TW");
     const items = buildTrayMenu({ ...base, legacyHeld: text });
     expect(items[0]).toEqual({
@@ -18,7 +18,7 @@ describe("buildTrayMenu with a login start held back by the old service", () => 
     ).toEqual([
       ["legacy-status", "偵測到舊的登入服務也使用這份資料庫，未自動啟動", false],
       ["legacy-start-anyway", "仍要啟動", true],
-      ["legacy-remove-help", "如何移除舊服務", true],
+      ["legacy-remove-help", "停用舊的登入服務…", true],
     ]);
     expect(items.map((item) => item.id).slice(-2)).toEqual(["separator", "quit"]);
   });

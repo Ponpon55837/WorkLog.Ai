@@ -7,6 +7,7 @@ import {
   createLegacyCommandRunner,
   decodeLegacyDefinition,
   detectLegacyService,
+  legacyDefinitionDigest,
   legacyFallbackRemoveCommand,
   legacyRemoveCommand,
   legacyServiceDefinitionPath,
@@ -223,6 +224,25 @@ describe("detectLegacyService: recognised definitions", () => {
     expect(result.fallbackRemoveCommand).toBe(
       `systemctl --user disable --now work-intelligence.service; rm -f '${path}'; systemctl --user daemon-reload`,
     );
+  });
+
+  it("fingerprints only a recognised definition, so the disable acts on exactly what was previewed", async () => {
+    const home = "/home/tester";
+    const file = planFor("linux", home, POSIX_ROOT).files[0]!;
+    const detect = (contents: string) =>
+      detectLegacyService({
+        platform: "linux",
+        homeDirectory: home,
+        environment: {},
+        ...fakeRunner({ systemctl: systemdReply({ LoadState: "loaded", ActiveState: "active" }) }),
+        ...virtualFiles({ [file.path]: contents }),
+      }).then(found);
+    const recognised = await detect(file.contents);
+    expect(recognised.definitionDigest).toBe(legacyDefinitionDigest(file.contents));
+    expect(recognised.definitionDigest).toMatch(/^[0-9a-f]{64}$/);
+    const foreign = await detect("[Unit]\nDescription=something else\n");
+    expect(foreign.recognised).toBe(false);
+    expect(foreign.definitionDigest).toBeUndefined();
   });
 
   it("recognises the Windows task XML copy, decodes quoting, and reads the numeric task state", async () => {
