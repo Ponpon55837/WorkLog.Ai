@@ -71,9 +71,12 @@ test("the repair page changes the port: the old one is released and the settings
   await window.locator('[data-id="port-input"]').fill(String(newPort));
   await window.locator('[data-id="port-apply"]').click();
 
+  // The Dashboard opens on the new port only after the settings commit; the startup URL already filled openedExternal.
   const after = await waitForSnapshot(
     app,
-    (state) => state.backend?.port === newPort && state.openedExternal.length > 0,
+    (state) =>
+      state.backend?.port === newPort &&
+      state.openedExternal.some((url) => new URL(url).origin === `http://127.0.0.1:${newPort}`),
   );
   expect(after.owner).toBe("MANAGED");
   expect(await healthProofIsValid(newPort, after.backend?.runId ?? "")).toBe(true);
