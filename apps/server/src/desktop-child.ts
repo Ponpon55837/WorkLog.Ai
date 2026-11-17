@@ -1,3 +1,7 @@
+import { existsSync } from "node:fs";
+import { rename, writeFile } from "node:fs/promises";
+import { isAbsolute } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import {
   DESKTOP_CHILD_PROTOCOL_VERSION,
   DESKTOP_INTEGRITY_CHECK_FAILED_DETAIL,
@@ -46,6 +50,38 @@ export interface DesktopChildDependencies {
   copyDatabase?: (source: string, target: string) => Promise<DatabaseCopyResult>;
   probePort: (port: number) => Promise<LoopbackPortProbe>;
   startApi: (options: StartApiOptions) => StartedApi;
+  /**
+   * Test seam of the desktop smoke tests: resolves when the child may open the store (and so migrate). It is given a
+   * predicate that turns false once the start was abandoned, so a held child still shuts down. Absent in production:
+   * see {@link migrationHoldFromEnvironment}.
+   */
+  holdBeforeOpen?: (stillStarting: () => boolean) => Promise<void>;
+}
+
+/**
+ * The name of the variable that holds a child before it opens the database. Only the desktop App's main process sets
+ * it, and only in a test build that is not packaged (`testSwitch` gating in apps/desktop/src/main/config.ts): the child
+ * environment is an allowlist (`buildChildEnvironment`), so a variable in the user's own environment never reaches it.
+ */
+export const TEST_HOLD_MIGRATION_ENVIRONMENT = "WORK_INTELLIGENCE_TEST_HOLD_MIGRATION_FILE";
+
+/**
+ * The hold for the variable's absolute path `P`, or undefined when it is not set (the production case). The hold writes
+ * the child's pid to `P.held` and waits until the file `P` exists; the smoke test kills the child while it waits, or
+ * creates `P` to let the migration go on.
+ */
+export function migrationHoldFromEnvironment(
+  environment: Readonly<Record<string, string | undefined>>,
+  pollMs = 50,
+): DesktopChildDependencies["holdBeforeOpen"] {
+  const release = environment[TEST_HOLD_MIGRATION_ENVIRONMENT];
+  if (!release || !isAbsolute(release)) return undefined;
+  return async (stillStarting) => {
+    // Written whole and renamed into place, so a reader that sees the file sees the pid.
+    await writeFile(`${release}.held.tmp`, String(process.pid));
+    await rename(`${release}.held.tmp`, `${release}.held`);
+    while (stillStarting() && !existsSync(release)) await sleep(pollMs);
+  };
 }
 
 /** A failure the parent can act on: the error code and a short detail that carries no path. */
@@ -134,6 +170,7 @@ const defaultDependencies: DesktopChildDependencies = {
   copyDatabase: copyDatabaseConsistently,
   probePort: probeLoopbackPort,
   startApi,
+  holdBeforeOpen: migrationHoldFromEnvironment(process.env),
 };
 
 /**
@@ -275,6 +312,16 @@ export class DesktopChild {
     if (this.phase !== "starting") return;
     if (!probe.free) {
       return this.fail({ code: portFailureCode(probe.code), detail: `listen failed (${probe.code})` });
+    }
+    const hold = this.dependencies.holdBeforeOpen;
+    // Without the seam (always, in production) nothing is awaited here, so the start's timing is unchanged.
+    if (hold) {
+      try {
+        await hold(() => this.phase === "starting");
+      } catch {
+        return this.fail({ code: "REPAIR_REQUIRED", detail: "the test hold failed" });
+      }
+      if (this.phase !== "starting") return;
     }
     let api: StartedApi | undefined;
     try {

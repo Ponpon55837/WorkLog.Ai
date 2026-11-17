@@ -34,6 +34,11 @@ const TEST_ENVIRONMENT = {
    * share or plug in a drive, and the real classifier is unit-tested per platform with fakes.
    */
   storageRiskFile: "WORK_INTELLIGENCE_DESKTOP_TEST_STORAGE_RISK_FILE",
+  /**
+   * An absolute path `P`: the backend child waits before opening the database (so before any migration) until the file
+   * `P` exists, and writes its pid to `P.held`, so a smoke test can kill it mid-upgrade or let it go on.
+   */
+  holdMigrationFile: "WORK_INTELLIGENCE_DESKTOP_TEST_HOLD_MIGRATION_FILE",
 } as const;
 
 /** One of the test switches, by the name it has in {@link TEST_ENVIRONMENT}. */
@@ -130,6 +135,19 @@ export function storageRiskFileOverride(inputs: EnvironmentInputs): string | und
 /** Whether a test-only switch is on; always false in a production build or a packaged App. */
 export function testSwitch(inputs: EnvironmentInputs, key: TestEnvironmentKey): boolean {
   return __WI_TEST_BUILD__ && !inputs.isPackaged && inputs.environment[TEST_ENVIRONMENT[key]] === "1";
+}
+
+/**
+ * Extra environment for the backend child: the migration hold in a test build that is not packaged, else undefined. The
+ * name the child reads sits inside the build-flag block, so a production bundle contains neither it nor this variable.
+ * The child's own environment is an allowlist, so nothing else a user sets can reach it either.
+ */
+export function backendTestEnvironment(inputs: EnvironmentInputs): Readonly<Record<string, string>> | undefined {
+  if (__WI_TEST_BUILD__ && !inputs.isPackaged) {
+    const file = overrideFromEnvironment(inputs, "holdMigrationFile");
+    if (file) return { WORK_INTELLIGENCE_TEST_HOLD_MIGRATION_FILE: file };
+  }
+  return undefined;
 }
 
 /**

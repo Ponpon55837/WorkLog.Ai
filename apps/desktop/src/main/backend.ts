@@ -97,6 +97,8 @@ export interface BackendControllerOptions {
   readonly storageRefused?: (databasePath: string) => boolean;
   /** Facts the Web status page shows for this database (the old login service); read after `legacyBlocks`. */
   readonly desktopFacts?: (databasePath: string) => DesktopFacts | undefined;
+  /** Extra `WORK_INTELLIGENCE_*` variables for every backend child; only a test build passes any (see config.ts). */
+  readonly backendEnvironment?: Readonly<Record<string, string>>;
 }
 
 export function createBackendController(options: BackendControllerOptions): BackendController {
@@ -230,6 +232,7 @@ export function createBackendController(options: BackendControllerOptions): Back
         ...(override ? { expectedIdentity: override.expectedIdentity } : {}),
         ...(override?.allowSchemaMigration ? { allowSchemaMigration: true } : {}),
         desktop,
+        ...(options.backendEnvironment ? { environment: options.backendEnvironment } : {}),
       },
       ...(portChange ? { details: { from: portChange.from, to: portChange.port } } : {}),
       stopRunning: supervisor.running !== undefined,

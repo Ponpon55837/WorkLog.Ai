@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 const FORBIDDEN = [
   "WORK_INTELLIGENCE_DESKTOP_",
   "WORK_INTELLIGENCE_SMOKE_",
+  "WORK_INTELLIGENCE_TEST_",
   "__workIntelligenceDesktopTest",
   "__WI_TEST_BUILD__",
 ];
