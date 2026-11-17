@@ -47,7 +47,7 @@
 | R30 | P1 | 關機、睡眠或斷電使 operation phase 與實際狀態不符 | G-SVC-02、G-UPD-01 | DT-09、DT-31 | 恢復時重讀 OS、DB 與 manifest 並重建狀態；不只依賴 journal |
 | R31 | P2 | 安裝包肥大、冷啟慢、閒置記憶體高 | G-UX-01 | DT-25 | A 階段比較標準 Node 與 `utilityProcess`；記錄基準數字。**1.6.43 數字**：標準 Node 與 Electron RUN_AS_NODE 的量測見 ADR-04（Linux 與 macOS） 三平台；spike 未量測 `utilityProcess` **1.6.45 數字（本機 Linux）**：解開後 405.8 → 395.9 MiB；`app.asar` 3.3 → 0.66 MB；隨包 runtime 135.5 MB（Node 122 MB）；打包 11.8–15.2 s；首次啟動含 runtime 安裝 1028 ms、熱啟動 563 ms；閒置記憶體（打包後的 App，PSS）352 → 292 MiB，RSS 合計 662 → 538 MiB（3 次中位數）。Windows 與 macOS 的數字待 CI；記憶體門檻為 Linux PSS 360 MiB、後端 128 MiB，Windows 與 macOS 暫定 1024 MiB 與 192 MiB。 |
 | R32 | P2 | 完整診斷匯出洩漏個資路徑或秘密 | G-SEC-01 | DT-19 | 匯出前預覽、掃描、遮蔽；只手動匯出，不自動上傳 |
-| R33 | P0 | bundled Node 的 SQLite 未含 2026 WAL-reset 修補，可能損毀 | G-DB-03、G-MCP-01 | DT-06、DT-07 | release 產物列印 `sqlite_version()` 並保存修補證據（**1.6.41 T3 已實作（commit 4420951）**）；多程序 WAL 壓力與 restore 測試（1.6.52：DT-07 壓力測試與打包 smoke 的 `sqlite_version()` 斷言已實作；壓力測試不取代修補證據；Windows 與 macOS 打包數字待 CI 結果補上） |
+| R33 | P0 | bundled Node 的 SQLite 未含 2026 WAL-reset 修補，可能損毀 | G-DB-03、G-MCP-01 | DT-06、DT-07 | release 產物列印 `sqlite_version()` 並保存修補證據（**1.6.41 T3 已實作（commit 4420951）**）；多程序 WAL 壓力與 restore 測試（1.6.52：DT-07 壓力測試與打包 smoke 的 `sqlite_version()` 斷言已實作；壓力測試不取代修補證據；Windows x64、macOS x64、macOS arm64 的打包 runtime 皆為 Node 24.22.3、SQLite 3.54.1（含修補）；6 秒壓力測試全部通過，每個 OS 的總時間 14.0／16.7／11.9 秒（PR #374 CI）） |
 | R34 | P1 | 唯讀 DB 預覽在 WAL 中建立 `-shm`、`-wal`，或誤用 `immutable=1` | G-DB-01 | DT-02 | 檔案系統副作用測試；不刪 sidecar；活躍 DB 不使用 immutable |
 
 **級別統計**：P0 = R01–R14、R33（15 項）；P1 = R15–R30、R34（17 項）；P2 = R31、R32（2 項）。與 R3 相同。

@@ -159,7 +159,7 @@
 ### ADR-19 SQLite 版本以實際 `sqlite_version()` 判定，不以 Node 版本推定
 
 - **狀態**：已採用（判定規則）；1.6.41 T3 **已實作**（commit 4420951）
-- **1.6.52 狀態**：打包的 runtime 現在斷言 `sqlite_version()`（含修補與 FTS5），並把 Node 與 SQLite 版本及修補狀態記錄於打包結果；打包 smoke 另以內建 runtime 執行 6 秒的 DT-07 壓力測試。壓力測試（`pnpm test:sqlite-stress`）不取代打包版的修補證據。Windows 與 macOS 的打包數字待 CI 結果補上。
+- **1.6.52 狀態**：打包的 runtime 現在斷言 `sqlite_version()`（含修補與 FTS5），並把 Node 與 SQLite 版本及修補狀態記錄於打包結果；打包 smoke 另以內建 runtime 執行 6 秒的 DT-07 壓力測試。壓力測試（`pnpm test:sqlite-stress`）不取代打包版的修補證據。Windows x64、macOS x64、macOS arm64 的打包 runtime 皆為 Node 24.22.3、SQLite 3.54.1（含修補）；6 秒壓力測試全部通過，每個 OS 的總時間 14.0／16.7／11.9 秒（PR #374 CI）。
 - **脈絡**：`engines` 為 `>=22.16.0 <23 || >=24.0.0` `[R]`，無法保證含 WAL-reset 修補 `[U]`。開發機 Node 22.23.4 回報 SQLite 3.53.4 `[T]`，但那是開發機的值，不是發行產物。
 - **決策**：打包規格記錄 bundled Node 的 `sqlite_version()`。`doctor`、`pnpm check`、`/api/health` 報告版本並於低於修補版時警告；standalone smoke 與 release workflow 列印並檢查。落在疑似受影響區間且無回補證據者，不得公開發行多寫入端的桌面 runtime。
 - **後果**：release 流程需多一道檢查。開發機的量測不能作為發行證據。
