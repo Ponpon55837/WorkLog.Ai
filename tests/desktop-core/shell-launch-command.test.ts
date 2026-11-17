@@ -7,6 +7,9 @@ import {
   decideRuntimeRecovery,
   findForbiddenDebugSwitch,
   interpretSecondInstanceData,
+  isOpenDashboardLaunch,
+  OPEN_DASHBOARD_FLAG,
+  OPEN_DASHBOARD_SECOND_INSTANCE_DATA,
   isQuitLaunch,
 } from "../../packages/desktop-core/src/shell/index.js";
 
@@ -14,6 +17,20 @@ describe("interpretSecondInstanceData", () => {
   it("accepts exactly { action: 'quit' } as a quit request", () => {
     expect(interpretSecondInstanceData({ action: "quit" })).toEqual({ command: "quit" });
     expect(interpretSecondInstanceData(QUIT_SECOND_INSTANCE_DATA)).toEqual({ command: "quit" });
+  });
+
+  it("reads exactly { action: 'open-dashboard' } as a request for the Dashboard", () => {
+    expect(interpretSecondInstanceData(OPEN_DASHBOARD_SECOND_INSTANCE_DATA)).toEqual({ command: "open-dashboard" });
+    expect(interpretSecondInstanceData({ action: "open-dashboard", url: "https://example.com" })).toEqual({
+      command: "open",
+      rejected: true,
+    });
+  });
+
+  it("recognizes the --open-dashboard flag by its exact spelling", () => {
+    expect(OPEN_DASHBOARD_FLAG).toBe("--open-dashboard");
+    expect(isOpenDashboardLaunch(["app", "--open-dashboard"])).toBe(true);
+    expect(isOpenDashboardLaunch(["app", "--open-dashboard=1", "--open"])).toBe(false);
   });
 
   it.each([undefined, null, {}])("treats %j as a normal second launch", (data) => {

@@ -125,6 +125,9 @@ describe("pnpm build:plugin", () => {
     const extension = readFileSync(join(output, `work-intelligence-${version}.mcpb`));
     for (const name of [
       "manifest.json",
+      // The start script that prefers the desktop App's launcher, and the reader it needs.
+      "scripts/launch.mjs",
+      "scripts/desktop-integration.mjs",
       "server/apps/mcp/dist/index.js",
       "server/docs/work-record-and-report-format.md",
       ...SKILL_GUIDES.map((guide) => `server/.agents/skills/work-intelligence/${guide}`),
@@ -132,6 +135,7 @@ describe("pnpm build:plugin", () => {
       expect(extension.includes(Buffer.from(name))).toBe(true);
     }
     expect(existsSync(join(output, `work-intelligence-plugin-${version}.zip`))).toBe(true);
+    expect(existsSync(join(output, "work-intelligence/scripts/desktop-integration.mjs"))).toBe(true);
   });
 
   it("bundles a server that runs with no checkout and keeps its database in the user's directory", () => {
@@ -152,6 +156,52 @@ describe("pnpm build:plugin", () => {
       }
       expect(stderr).toContain(join(home, ".work-intelligence", "data", "work-intelligence.sqlite"));
       expect(existsSync(join(home, ".work-intelligence", "data", "work-intelligence.sqlite"))).toBe(true);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("starts the extension's bundled server, or the desktop App's launcher when one is recorded", () => {
+    const home = mkdtempSync(join(testTemporaryRoot(), "work-intelligence-mcpb-home-"));
+    try {
+      const extension = join(home, "extension");
+      cpSync(join(output, "work-intelligence/server"), join(extension, "server"), { recursive: true });
+      mkdirSync(join(extension, "scripts"));
+      cpSync(join(repositoryRoot, "scripts/mcpb-launch.mjs"), join(extension, "scripts/launch.mjs"));
+      cpSync(
+        join(repositoryRoot, "plugins/work-intelligence/scripts/desktop-integration.mjs"),
+        join(extension, "scripts/desktop-integration.mjs"),
+      );
+      const start = () =>
+        spawnSync(process.execPath, [join(extension, "scripts/launch.mjs")], {
+          input: `${INITIALIZE}\n`,
+          encoding: "utf8",
+          env: environmentFor(home),
+          cwd: home,
+          timeout: 30_000,
+        });
+      expect(JSON.parse(start().stdout.split("\n")[0] as string).result.serverInfo).toEqual({
+        name: "work-intelligence",
+        version,
+      });
+      if (process.platform === "win32") return;
+      const runtimeRoot = join(home, "runtime");
+      const shim = join(runtimeRoot, "bin/work-intelligence-launcher");
+      mkdirSync(dirname(shim), { recursive: true });
+      writeFileSync(shim, "#!/bin/sh\nprintf 'launcher:%s' \"$1\"\n", { mode: 0o755 });
+      mkdirSync(join(home, ".work-intelligence"), { recursive: true });
+      writeFileSync(
+        join(home, ".work-intelligence/desktop-integration.json"),
+        JSON.stringify({
+          version: 1,
+          launcherPath: shim,
+          runtimeRoot,
+          appExecutable: shim,
+          appVersion: "1.0.0",
+          writtenAt: "2026-01-01T00:00:00.000Z",
+        }),
+      );
+      expect(start().stdout).toBe("launcher:mcp");
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

@@ -21,6 +21,11 @@ import console from "node:console";
 import { build } from "esbuild";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+/** Dependency-free reader of the desktop App's integration record; the plugin, the MCPB and the standalone package carry it. */
+export const DESKTOP_INTEGRATION_SCRIPT = join(
+  repositoryRoot,
+  "plugins/work-intelligence/scripts/desktop-integration.mjs",
+);
 const ENTRY_POINTS = ["index", "finalize-reminder", "codex-finalize-reminder"];
 /** Copied beside the bundle at the paths apps/mcp/src/agent-resources.ts reads. */
 export const AGENT_RESOURCES = [
@@ -107,10 +112,10 @@ function mcpbManifest(plugin, version) {
     keywords: plugin.keywords,
     server: {
       type: "node",
-      entry_point: "server/apps/mcp/dist/index.js",
+      entry_point: "scripts/launch.mjs",
       mcp_config: {
         command: "node",
-        args: ["${__dirname}/server/apps/mcp/dist/index.js"],
+        args: ["${__dirname}/scripts/launch.mjs"],
         env: { WORK_INTELLIGENCE_DB: "${user_config.database_path}" },
       },
     },
@@ -199,6 +204,10 @@ export async function buildPlugin(outputDirectory = join(repositoryRoot, "dist/p
 
   const extensionDirectory = join(outputDirectory, "mcpb");
   await buildServer(extensionDirectory, version);
+  // The start script prefers the desktop App's launcher and otherwise runs the bundled server (see mcpb-launch.mjs).
+  mkdirSync(join(extensionDirectory, "scripts"), { recursive: true });
+  cpSync(join(repositoryRoot, "scripts/mcpb-launch.mjs"), join(extensionDirectory, "scripts/launch.mjs"));
+  cpSync(DESKTOP_INTEGRATION_SCRIPT, join(extensionDirectory, "scripts/desktop-integration.mjs"));
   writeFileSync(
     join(extensionDirectory, "manifest.json"),
     `${JSON.stringify(mcpbManifest(plugin, version), null, 2)}\n`,

@@ -30,7 +30,7 @@ const require = createRequire(join(repositoryRoot, "package.json"));
 const PRODUCT_NAME = "Work Intelligence";
 
 /** Specs that need the App and sandboxes only (phase one) and the ones that change or remove the installation (phase two). */
-const APP_SPECS = ["app.spec.ts", "bundle.spec.ts", "performance.spec.ts"];
+const APP_SPECS = ["app.spec.ts", "bundle.spec.ts", "launcher.spec.ts", "performance.spec.ts"];
 const LIFECYCLE_SPEC = "lifecycle.spec.ts";
 
 function run(command, args, options = {}) {

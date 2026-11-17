@@ -10,10 +10,12 @@ import {
   FileOperationJournalStore,
   findForbiddenDebugSwitch,
   interpretSecondInstanceData,
+  isOpenDashboardLaunch,
   isQuitLaunch,
   LAUNCH_EXIT_OK,
   LastBackupTracker,
   ManagedBackendService,
+  OPEN_DASHBOARD_SECOND_INSTANCE_DATA,
   OperationCoordinator,
   OperationJournal,
   QUIT_SECOND_INSTANCE_DATA,
@@ -34,6 +36,7 @@ import {
   type DesktopPaths,
 } from "./config.js";
 import { createDashboard } from "./dashboard.js";
+import { createIntegrationPublisher } from "./integration-record.js";
 import { registerRepairIpc } from "./ipc.js";
 import { createLogger } from "./log.js";
 import { createErrorNotifier } from "./notify.js";
@@ -78,14 +81,22 @@ function failStartup(detail: string): void {
   app.exit(1);
 }
 
+/** What a second launch hands to the running instance: its one request, or nothing for a plain launch. */
+function secondInstanceData(quitRequested: boolean, openDashboardRequested: boolean): object | undefined {
+  if (quitRequested) return { ...QUIT_SECOND_INSTANCE_DATA };
+  return openDashboardRequested ? { ...OPEN_DASHBOARD_SECOND_INSTANCE_DATA } : undefined;
+}
+
 /** Everything else: the shell, its backend and the quit flow, once the data folder is known. */
 function runShell(configInputs: DesktopConfigInputs): void {
   // Decided first, before any path, runtime install or backend: a `--quit` launch passes its request in the lock's data
   // (Chromium rewrites argv, so the second launch's own arguments are never read by the running instance).
   const quitRequested = isQuitLaunch(process.argv);
+  // `--quit` wins over `--open-dashboard`: a launch that asks for both only stops the App.
+  const openDashboardRequested = !quitRequested && isOpenDashboardLaunch(process.argv);
   const decision = decideLaunch({
     quitRequested,
-    gotLock: app.requestSingleInstanceLock(quitRequested ? { ...QUIT_SECOND_INSTANCE_DATA } : undefined),
+    gotLock: app.requestSingleInstanceLock(secondInstanceData(quitRequested, openDashboardRequested)),
   });
   if (decision === "hand-over-and-exit") {
     // Another instance owns this user's data: start nothing, in particular no backend.
@@ -141,6 +152,15 @@ function runShell(configInputs: DesktopConfigInputs): void {
     log,
     record: testSwitch(configInputs, "recordExternal"),
   });
+  const integration = createIntegrationPublisher({
+    paths,
+    appExecutable: process.execPath,
+    appVersion: app.getVersion(),
+    platform: process.platform,
+    env: configInputs.environment,
+    homedir: configInputs.homeDirectory,
+    log,
+  });
   const backend = createBackendController({
     state,
     paths,
@@ -150,7 +170,12 @@ function runShell(configInputs: DesktopConfigInputs): void {
     lastBackup,
     log,
     openRepairWindow: window.open,
-    prepareRuntime: runtime.prepare,
+    prepareRuntime: async (verifyInstalled) => {
+      const status = await runtime.prepare(verifyInstalled);
+      // Only a runtime the App itself provisions is one the fixed launcher can run (nothing is provisioned unpackaged).
+      if (status !== undefined) await integration.publish();
+      return status;
+    },
     reinstallOnRefusal: app.isPackaged,
     notifyError: createErrorNotifier(state),
     whenReady: () => app.whenReady(),
@@ -176,7 +201,20 @@ function runShell(configInputs: DesktopConfigInputs): void {
     requestQuit: () => void requestQuit(true),
     log,
   });
-  const secondInstance = createSecondInstance({ state, window, supervisor, openDashboard: dashboard.open });
+  // The Dashboard was asked for with `--open-dashboard` (this launch, or a second one while this was still starting):
+  // the start opens it once, when the backend is ready, even in a background launch.
+  let dashboardRequested = openDashboardRequested;
+  let starting = true;
+  const secondInstance = createSecondInstance({
+    state,
+    window,
+    supervisor,
+    openDashboard: dashboard.open,
+    starting: () => starting,
+    deferDashboard: () => {
+      dashboardRequested = true;
+    },
+  });
 
   /**
    * The backend does not need Electron to be ready: its settings are a file and the child is a plain process. So it
@@ -194,6 +232,14 @@ function runShell(configInputs: DesktopConfigInputs): void {
   }
 
   async function presentStart(early: ReturnType<typeof startBackend>): Promise<void> {
+    try {
+      await present(early);
+    } finally {
+      starting = false;
+    }
+  }
+
+  async function present(early: ReturnType<typeof startBackend>): Promise<void> {
     state.launchMode = detectLaunchMode({
       platform: process.platform,
       argv: process.argv,
@@ -213,7 +259,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     if (!outcome) return;
     if (outcome.ok) {
       backend.presenter().clear();
-      if (state.launchMode === "interactive") dashboard.open();
+      if (state.launchMode === "interactive" || dashboardRequested) dashboard.open();
     } else if (outcome.busy) {
       log("[shell] the first start found another operation running");
     } else {
@@ -237,6 +283,11 @@ function runShell(configInputs: DesktopConfigInputs): void {
 
   app.on("second-instance", (_event, _argv, _workingDirectory, additionalData) => {
     const command = interpretSecondInstanceData(additionalData);
+    if (command.command === "open-dashboard") {
+      log("[shell] dashboard requested by --open-dashboard");
+      secondInstance.handle("open-dashboard");
+      return;
+    }
     if (command.command === "quit") {
       // Only the payload is read, never the second launch's arguments: it can ask for exactly this and nothing else.
       log("[shell] quit requested by --quit");
@@ -244,7 +295,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
       return;
     }
     if (command.rejected) log("[shell] second launch carried data that was not understood; treated as a normal launch");
-    secondInstance.handle();
+    secondInstance.handle("open");
   });
   // The App lives in the tray; closing the repair window never quits it.
   app.on("window-all-closed", () => undefined);

@@ -138,10 +138,14 @@ export function launchArguments(): string[] {
 
 const closedApplications = new WeakSet<ElectronApplication>();
 
-export async function launchApp(sandbox: Sandbox, extra: Record<string, string> = {}): Promise<ElectronApplication> {
+export async function launchApp(
+  sandbox: Sandbox,
+  extra: Record<string, string> = {},
+  extraArguments: readonly string[] = [],
+): Promise<ElectronApplication> {
   const launched = await _electron.launch({
     executablePath: electronBinary,
-    args: launchArguments(),
+    args: [...launchArguments(), ...extraArguments],
     env: appEnvironment(sandbox, extra),
     timeout: 60_000,
   });

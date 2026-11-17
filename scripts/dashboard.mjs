@@ -4,6 +4,10 @@
  * WORK_INTELLIGENCE_PORT (default 3210) it only prints the URL; otherwise it starts the production server from this
  * checkout in the background (the same `node scripts/start.mjs` that `pnpm start` runs), waits until it is healthy,
  * and prints the URL. `--open` also opens it in the default browser. The plugin's dashboard skill runs this script.
+ *
+ * When the desktop App is installed (it wrote `desktop-integration.json`), the request goes to the App instead and no
+ * checkout server is started, even if the App is not running or its port changed: the App starts, manages its own
+ * backend and opens the Dashboard itself, so `--open` is implied. WORK_INTELLIGENCE_HOME keeps this checkout's server.
  */
 import { spawn } from "node:child_process";
 import console from "node:console";
@@ -102,7 +106,22 @@ function isEntryPoint() {
   }
 }
 
-if (isEntryPoint()) {
+/**
+ * Hands the request to the desktop App; false when none is recorded or it could not be started. The reader is loaded on
+ * demand and a checkout without the plugin folder simply has no App to ask (some tests run a lone copy of this script).
+ */
+export async function handOffToDesktopApp(options) {
+  let integration;
+  try {
+    integration = await import("../plugins/work-intelligence/scripts/desktop-integration.mjs");
+  } catch {
+    return false;
+  }
+  const app = integration.resolveDesktopApp(options);
+  return app !== undefined && (await integration.openDashboardInApp(app, options));
+}
+
+async function printDashboard() {
   const result = await ensureDashboard();
   if (result.error) {
     console.error(result.error);
@@ -111,4 +130,9 @@ if (isEntryPoint()) {
     console.log(result.started ? `Started the Work Intelligence server: ${result.url}` : `Dashboard: ${result.url}`);
     if (process.argv.includes("--open")) await openInBrowser(result.url);
   }
+}
+
+if (isEntryPoint()) {
+  if (await handOffToDesktopApp()) console.log("Opening the Work Intelligence Dashboard in the desktop App.");
+  else await printDashboard();
 }

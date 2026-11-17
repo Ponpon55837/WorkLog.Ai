@@ -81,6 +81,48 @@ test("a second launch exits at once and the first keeps the only backend", async
   expect(readMainLog(sandbox).match(/\[shell\] backend started/g)).toHaveLength(1);
 });
 
+test("a second launch with --open-dashboard opens the Dashboard once more and starts no second backend", async () => {
+  sandbox = await createSandbox({ withDatabase: true });
+  app = await launchApp(sandbox);
+  const first = await waitForManagedSnapshot(app);
+  const pid = first.backend?.pid;
+  if (!pid) throw new Error("no backend");
+  // The interactive start opens the Dashboard once; the request below must add exactly one more.
+  await waitForSnapshot(app, (state) => state.openedExternal.length === 1);
+
+  const second = await runToExit(sandbox, {}, 20_000, ["--open-dashboard"]);
+  expect({ code: second.code, signal: second.signal }, `second instance stderr:\n${second.stderr}`).toEqual({
+    code: 0,
+    signal: null,
+  });
+
+  const after = await waitForSnapshot(app, (state) => state.openedExternal.length >= 2);
+  expect(after.lastSecondInstanceDecision).toBe("open-dashboard");
+  expect(after.secondInstanceCount).toBe(1);
+  // It reaches the running instance at its current port, and nothing else happens after it.
+  expect(after.openedExternal).toEqual(Array(2).fill(`http://127.0.0.1:${sandbox.port}/`));
+  await new Promise((resolveWait) => setTimeout(resolveWait, 1_000));
+  const settled = await readSnapshot(app);
+  expect(settled.openedExternal).toHaveLength(2);
+  expect(settled.backend?.pid).toBe(pid);
+  expect(await portIsFree(sandbox.port)).toBe(false);
+  const log = readMainLog(sandbox);
+  expect(log.match(/\[shell\] backend started/g)).toHaveLength(1);
+  expect(log.match(/\[shell\] dashboard requested by --open-dashboard/g)).toHaveLength(1);
+});
+
+test("a first launch with --open-dashboard opens the Dashboard once, when the backend is ready, even in the background", async () => {
+  sandbox = await createSandbox({ withDatabase: true });
+  // `--background` alone opens nothing; the flag is what asks for the Dashboard.
+  app = await launchApp(sandbox, {}, ["--background", "--open-dashboard"]);
+  const ready = await waitForManagedSnapshot(app);
+  const opened = await waitForSnapshot(app, (state) => state.openedExternal.length > 0);
+  expect(opened.openedExternal).toEqual([`http://127.0.0.1:${ready.backend?.port}/`]);
+  await new Promise((resolveWait) => setTimeout(resolveWait, 1_000));
+  expect((await readSnapshot(app)).openedExternal).toHaveLength(1);
+  expect(readMainLog(sandbox).match(/\[shell\] dashboard opened/g)).toHaveLength(1);
+});
+
 test("a missing database opens the repair window and creates nothing", async () => {
   sandbox = await createSandbox({ withDatabase: false });
   app = await launchApp(sandbox);

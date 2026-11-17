@@ -15,6 +15,9 @@ export type Logger = (line: string) => void;
  *   [shell] backend started pid=<pid> port=<port>                                             the backend answered and was verified
  *   [shell] owner <UNCONFIGURED|PREPARING|QUIESCING|STARTING|MANAGED|NEEDS_REPAIR|EXTERNAL>   every change of the service owner
  *   [shell] dashboard opened                                                                  the Dashboard was handed to the external browser (an interactive launch that reached MANAGED, the tray, a second launch); never logged by a `--background` launch
+ *   [shell] desktop integration record written                                               desktop-integration.json (launcher and App paths for Agents) was created or changed; a warm start writes nothing
+ *   [shell] desktop integration record failed: <code>                                         it could not be written; the App starts without it
+ *   [shell] dashboard requested by --open-dashboard                                           a second launch asked the running App for the Dashboard (a deferred one opens when the start is ready)
  *   [shell] repair window shown                                                               the repair window is visible
  *   [shell] quit requested by --quit                                                          the non-interactive quit began
  *   [shell] second launch carried data that was not understood; treated as a normal launch   (a rejected second-instance payload)

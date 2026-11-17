@@ -5,3 +5,5 @@ export * from "./operations/index.js";
 export * from "./runtime/index.js";
 export * from "./backend/index.js";
 export * from "./shell/index.js";
+export * from "./integration/index.js";
+export * from "./agents/index.js";
