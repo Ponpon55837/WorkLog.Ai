@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createUserServicePlan } from "../../apps/server/src/user-service.js";
 import {
+  createLegacyCommandRunner,
   decodeLegacyDefinition,
   detectLegacyService,
   legacyFallbackRemoveCommand,
@@ -62,8 +63,8 @@ function fakeRunner(replies: Record<string, Reply> = {}) {
   return { calls, runCommand };
 }
 
-/** A virtual file system for Windows, where the definition path cannot exist on the POSIX test host. */
-function windowsFiles(files: Record<string, string | LegacyServiceFileStat>) {
+/** A virtual file system for a definition path that cannot exist on the test host (Windows paths on POSIX, and back). */
+function virtualFiles(files: Record<string, string | LegacyServiceFileStat>) {
   return {
     lstatFile: (path: string) => {
       const entry = files[path];
@@ -109,7 +110,7 @@ describe("detectLegacyService: nothing installed", () => {
       homeDirectory: WINDOWS_HOME,
       environment: { SystemRoot: "C:\\Windows" },
       runCommand: runner.runCommand,
-      ...windowsFiles({}),
+      ...virtualFiles({}),
     });
     expect(result).toEqual({ kind: "none" });
     expect(runner.calls).toEqual([{ command: SCHTASKS, args: ["/Query", "/TN", "\\Work Intelligence", "/XML"] }]);
@@ -148,12 +149,23 @@ describe("detectLegacyService: recognised definitions", () => {
   });
 
   it("recognises the Linux unit, honours XDG_CONFIG_HOME, and reports stopped", async () => {
-    const home = tempHome();
-    const environment = { XDG_CONFIG_HOME: join(home, "xdg ünï") };
-    const path = installPosix("linux", home, environment);
+    // A POSIX home with in-memory files: on a Windows test host a real temp folder is not POSIX-absolute, so it could
+    // never be a Linux XDG_CONFIG_HOME.
+    const home = "/home/tester";
+    const environment = { XDG_CONFIG_HOME: "/home/tester/xdg ünï" };
+    const file = planFor("linux", home, POSIX_ROOT, environment).files[0]!;
+    const path = file.path;
     const runner = fakeRunner({ systemctl: { stdout: "inactive\n", code: 3 } });
-    const result = found(await detectLegacyService({ platform: "linux", homeDirectory: home, environment, ...runner }));
-    expect(path).toBe(join(home, "xdg ünï", "systemd", "user", "work-intelligence.service"));
+    const result = found(
+      await detectLegacyService({
+        platform: "linux",
+        homeDirectory: home,
+        environment,
+        ...runner,
+        ...virtualFiles({ [path]: file.contents }),
+      }),
+    );
+    expect(path).toBe("/home/tester/xdg ünï/systemd/user/work-intelligence.service");
     expect(result).toMatchObject({
       definitionPath: path,
       recognised: true,
@@ -184,7 +196,7 @@ describe("detectLegacyService: recognised definitions", () => {
         homeDirectory: WINDOWS_HOME,
         environment: { SystemRoot: "C:\\Windows" },
         runCommand: runner.runCommand,
-        ...windowsFiles({ [file.path]: file.contents }),
+        ...virtualFiles({ [file.path]: file.contents }),
       }),
     );
     expect(result).toMatchObject({
@@ -218,7 +230,7 @@ describe("detectLegacyService: recognised definitions", () => {
         homeDirectory: WINDOWS_HOME,
         environment: { SystemRoot: "C:\\Windows" },
         runCommand: runner.runCommand,
-        ...windowsFiles({}),
+        ...virtualFiles({}),
       }),
     );
     expect(result).toMatchObject({
@@ -327,7 +339,7 @@ describe("detectLegacyService: unrecognised definitions", () => {
         homeDirectory: WINDOWS_HOME,
         environment: { SystemRoot: "C:\\Windows" },
         runCommand: fakeRunner().runCommand,
-        ...windowsFiles({ [file.path]: file.contents.replace("<URI>\\Work Intelligence", "<URI>\\Other") }),
+        ...virtualFiles({ [file.path]: file.contents.replace("<URI>\\Work Intelligence", "<URI>\\Other") }),
       }),
     );
     expect(result.recognised).toBe(false);
@@ -371,7 +383,7 @@ describe("detectLegacyService: unrecognised definitions", () => {
           homeDirectory: WINDOWS_HOME,
           environment: { SystemRoot: "C:\\Windows" },
           runCommand: fakeRunner().runCommand,
-          ...windowsFiles({ [file.path]: stat }),
+          ...virtualFiles({ [file.path]: stat }),
         }),
       );
       expect(result.recognised).toBe(false);
@@ -434,7 +446,7 @@ describe("detectLegacyService: running status", () => {
           homeDirectory: WINDOWS_HOME,
           environment: { SystemRoot: "C:\\Windows" },
           runCommand: fakeRunner({ [SCHTASKS]: { stdout, code: 0 } }).runCommand,
-          ...windowsFiles({ [file.path]: file.contents }),
+          ...virtualFiles({ [file.path]: file.contents }),
         }),
       );
       expect(result.running).toBe("unknown");
@@ -449,10 +461,85 @@ describe("detectLegacyService: running status", () => {
       environment: { SystemRoot: "C:\\Windows" },
       runCommand: fakeRunner({ [SCHTASKS]: "hang" }).runCommand,
       timeoutMs: 80,
-      ...windowsFiles({}),
+      ...virtualFiles({}),
     });
     expect(result).toEqual({ kind: "none" });
     expect(Date.now() - started).toBeLessThan(1500);
+  });
+});
+
+describe("the default command runner", () => {
+  const node = process.execPath;
+
+  it("returns stdout and code 0 for a command that succeeds", async () => {
+    expect(await createLegacyCommandRunner(5000)(node, ["-e", "process.stdout.write('active\\n')"])).toEqual({
+      stdout: "active\n",
+      code: 0,
+    });
+  });
+
+  it("keeps stdout and the exit code of a command that fails", async () => {
+    expect(
+      await createLegacyCommandRunner(5000)(node, ["-e", "process.stdout.write('inactive'); process.exit(3)"]),
+    ).toEqual({ stdout: "inactive", code: 3 });
+  });
+
+  it("drops the output of a command killed at the deadline and reports -1", async () => {
+    expect(
+      await createLegacyCommandRunner(100)(node, [
+        "-e",
+        "process.stdout.write('partial'); setInterval(() => {}, 1000)",
+      ]),
+    ).toEqual({ stdout: "", code: -1 });
+  });
+
+  it("reports code 1 when the command cannot be started", async () => {
+    const result = await createLegacyCommandRunner(5000)(join(tempHome(), "no-such-tool"), []);
+    expect(result.code).toBe(1);
+  });
+});
+
+describe("detectLegacyService: the default file readers", () => {
+  it("reads a real definition through lstat and the UTF-8/UTF-16 decoder", async () => {
+    const home = tempHome();
+    installPosix("linux", home);
+    const result = found(
+      await detectLegacyService({ platform: "linux", homeDirectory: home, environment: {}, ...fakeRunner() }),
+    );
+    expect(result).toMatchObject({ recognised: true, repositoryRoot: POSIX_ROOT });
+  });
+
+  it("treats an lstat that throws as present but unrecognised", async () => {
+    const result = found(
+      await detectLegacyService({
+        platform: "linux",
+        homeDirectory: tempHome(),
+        environment: {},
+        lstatFile: () => {
+          throw new Error("EACCES");
+        },
+        ...fakeRunner(),
+      }),
+    );
+    expect(result).toMatchObject({ recognised: false, running: "unknown" });
+  });
+
+  it("does no work with a zero budget and swallows what was started", async () => {
+    const runner = fakeRunner();
+    const result = found(
+      await detectLegacyService({
+        platform: "linux",
+        homeDirectory: tempHome(),
+        environment: {},
+        timeoutMs: 0,
+        lstatFile: () => Promise.reject(new Error("too late")),
+        runCommand: (command, args) => {
+          void runner.runCommand(command, args);
+          return Promise.reject(new Error("too late"));
+        },
+      }),
+    );
+    expect(result).toMatchObject({ recognised: false, running: "unknown" });
   });
 });
 

@@ -50,7 +50,8 @@ async function withinDeadline<T>(promise: Promise<T>, milliseconds: number): Pro
   }
 }
 
-function createSystemRunner(timeoutMs: number): LegacyServiceCommandRunner {
+/** The default read-only runner: `execFile` without a shell or window, killed after `timeoutMs` (code -1, no output). */
+export function createLegacyCommandRunner(timeoutMs: number): LegacyServiceCommandRunner {
   return (command, args) =>
     new Promise<LegacyServiceCommandResult>((resolve) => {
       execFile(
@@ -143,7 +144,7 @@ export async function detectLegacyService(options: DetectLegacyServiceOptions): 
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const deadline = Date.now() + timeoutMs;
   const remaining = (): number => Math.max(0, deadline - Date.now());
-  const runner = options.runCommand ?? createSystemRunner(timeoutMs);
+  const runner = options.runCommand ?? createLegacyCommandRunner(timeoutMs);
   const run = (command: string, args: string[]): Promise<LegacyServiceCommandResult | undefined> =>
     withinDeadline(runner(command, args), remaining());
   const definitionFile = legacyServiceDefinitionPath({
