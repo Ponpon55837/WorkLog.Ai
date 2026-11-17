@@ -40,6 +40,8 @@ export interface DatabasePreflightResult {
   schemaVersion?: number;
   compatibility?: SchemaCompatibility;
   projectCount?: number;
+  /** Up to {@link PREVIEW_PROJECT_NAMES} project names, most recently updated first, so the user recognises the database. */
+  projectNames?: string[];
   /** Recorded before and after the probe: a read-only open is not guaranteed to be 0-write, so the difference is evidence. */
   sidecars?: { before: SidecarState; after: SidecarState };
   detail?: string;
@@ -127,6 +129,27 @@ export function readLineageId(database: ReadOnlySqliteDatabase): string | null {
   return createHash("sha256").update(`${row.version}|${row.name}|${row.applied_at}`).digest("hex");
 }
 
+/** How many project names a preview shows, and how long each may be. */
+export const PREVIEW_PROJECT_NAMES = 5;
+export const PREVIEW_PROJECT_NAME_LENGTH = 120;
+
+/** A nicety for the preview only: a database whose projects table lacks the columns (an old or foreign one) shows none. */
+function readProjectNames(database: ReadOnlySqliteDatabase): string[] | undefined {
+  if (!readOnlyTableExists(database, "projects")) return undefined;
+  let rows: { name: unknown }[];
+  try {
+    rows = database
+      // The limit is a constant integer; the read-only wrapper binds no parameters.
+      .prepare(`SELECT name FROM projects ORDER BY updated_at DESC, name ASC LIMIT ${PREVIEW_PROJECT_NAMES}`)
+      .all() as { name: unknown }[];
+  } catch {
+    return undefined;
+  }
+  return rows
+    .map((row) => (typeof row.name === "string" ? row.name.slice(0, PREVIEW_PROJECT_NAME_LENGTH) : ""))
+    .filter((name) => name.length > 0);
+}
+
 function readProjectCount(database: ReadOnlySqliteDatabase): number | undefined {
   if (!readOnlyTableExists(database, "projects")) return undefined;
   const row = database.prepare("SELECT COUNT(*) AS total FROM projects").get() as { total: number | bigint };
@@ -192,12 +215,14 @@ function preflightSync(path: string, supportedSchemaVersion: number): DatabasePr
     }
     const compatibility = compatibilityOf(schemaVersion, supportedSchemaVersion);
     const projectCount = readProjectCount(database);
+    const projectNames = readProjectNames(database);
     return finish({
       status: compatibility === "newer-unsupported" ? "unsupported-schema" : "ok",
       identity,
       schemaVersion,
       compatibility,
       ...(projectCount === undefined ? {} : { projectCount }),
+      ...(projectNames === undefined ? {} : { projectNames }),
       ...(compatibility === "newer-unsupported"
         ? { detail: `schema version ${schemaVersion} is newer than the supported ${supportedSchemaVersion}` }
         : {}),

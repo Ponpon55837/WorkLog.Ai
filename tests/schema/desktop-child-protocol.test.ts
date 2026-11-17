@@ -29,6 +29,9 @@ describe("parent messages", () => {
   it("accepts preflight, start and shutdown", () => {
     expect(parseDesktopParentMessage({ type: "preflight", path: "/synthetic/work.sqlite" }).ok).toBe(true);
     expect(parseDesktopParentMessage({ type: "shutdown" }).ok).toBe(true);
+    expect(
+      parseDesktopParentMessage({ type: "preflight", path: "/synthetic/work.sqlite", createIfMissing: true }).ok,
+    ).toBe(true);
     const start = parseDesktopParentMessage({
       type: "start",
       runId: RUN_ID,
@@ -55,6 +58,9 @@ describe("parent messages", () => {
     ],
     ["an extra field", { type: "shutdown", force: true }],
     ["an empty path", { type: "preflight", path: "" }],
+    ["createIfMissing false", { type: "preflight", path: "/p", createIfMissing: false }],
+    ["createIfMissing as a string", { type: "preflight", path: "/p", createIfMissing: "true" }],
+    ["createIfMissing on a start", { type: "shutdown", createIfMissing: true }],
   ])("rejects %s without throwing", (_name, value) => {
     expect(parseDesktopParentMessage(value).ok).toBe(false);
   });
@@ -126,6 +132,46 @@ describe("child messages", () => {
     ["an array", [READY]],
   ])("rejects %s", (_name, value) => {
     expect(parseDesktopChildMessage(value).ok).toBe(false);
+  });
+});
+
+describe("desktop facts and open-agent-setup", () => {
+  const START = {
+    type: "start",
+    runId: RUN_ID,
+    port: 40_123,
+    database: { path: "/synthetic/work.sqlite", identity: IDENTITY },
+  };
+  const LEGACY = { running: "running", removeCommand: "synthetic remove", fallbackRemoveCommand: "synthetic fallback" };
+
+  it("accepts start with or without the optional desktop facts", () => {
+    expect(parseDesktopParentMessage(START).ok).toBe(true);
+    expect(parseDesktopParentMessage({ ...START, desktop: {} }).ok).toBe(true);
+    expect(parseDesktopParentMessage({ ...START, desktop: { legacyService: LEGACY } })).toMatchObject({
+      ok: true,
+      message: { desktop: { legacyService: LEGACY } },
+    });
+    const withoutRemove = { running: "unknown", fallbackRemoveCommand: "synthetic fallback" };
+    expect(parseDesktopParentMessage({ ...START, desktop: { legacyService: withoutRemove } }).ok).toBe(true);
+  });
+
+  it("rejects unknown or malformed desktop facts", () => {
+    expect(parseDesktopParentMessage({ ...START, desktop: { other: true } }).ok).toBe(false);
+    expect(parseDesktopParentMessage({ ...START, desktop: { legacyService: { ...LEGACY, running: "yes" } } }).ok).toBe(
+      false,
+    );
+    expect(parseDesktopParentMessage({ ...START, desktop: { legacyService: { running: "running" } } }).ok).toBe(false);
+    expect(
+      parseDesktopParentMessage({
+        ...START,
+        desktop: { legacyService: { ...LEGACY, fallbackRemoveCommand: "x".repeat(4097) } },
+      }).ok,
+    ).toBe(false);
+  });
+
+  it("accepts a bare open-agent-setup from the child and rejects extra fields", () => {
+    expect(parseDesktopChildMessage({ type: "open-agent-setup" }).ok).toBe(true);
+    expect(parseDesktopChildMessage({ type: "open-agent-setup", path: "/synthetic" }).ok).toBe(false);
   });
 });
 

@@ -3585,6 +3585,18 @@ export interface SqliteRuntimeStatus {
   fixedIn?: string;
 }
 
+/** What the desktop App tells its backend about the machine it manages; the legacy fields are all optional. */
+export interface SystemDesktopStatus {
+  /** Always true: the backend runs as the desktop App's child process. */
+  managed: true;
+  /** An older pnpm-bootstrap login service that may use the same database. */
+  legacyService?: {
+    running: "running" | "stopped" | "unknown";
+    removeCommand?: string;
+    fallbackRemoveCommand: string;
+  };
+}
+
 export interface SystemStatus {
   version: string;
   /** The latest schema version supported by this application build. */
@@ -3604,6 +3616,8 @@ export interface SystemStatus {
   maintenance: DatabaseMaintenanceRecord | null;
   /** Read-only state of this user's optional login service. */
   userService: UserServiceStatus;
+  /** Present only when the desktop App manages this backend (never in a standalone install). */
+  desktop?: SystemDesktopStatus;
   /** Shared MCP heartbeat status for this installation root. */
   mcp: {
     restartRequired: boolean;

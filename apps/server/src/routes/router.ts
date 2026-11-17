@@ -9,6 +9,7 @@ import type {
   ProjectDataImportStagedHeader,
   ProjectFolderStatus,
   SystemAgentConnections,
+  SystemDesktopStatus,
   UserServiceStatus,
 } from "@work-intelligence/core";
 import type { z } from "zod";
@@ -56,6 +57,13 @@ export interface BackgroundStoreOperations {
   close(): Promise<void>;
 }
 
+/** What a route may do for the desktop App; the App is only ever asked to open its window. */
+export interface DesktopRouteServices {
+  status: SystemDesktopStatus;
+  /** Asks the App to open its Agent setup window; calls closer than one second apart are dropped. */
+  requestOpenAgentSetup(): void;
+}
+
 /** What the shared server flow hands a route after Host, Origin, and CORS checks have passed. */
 export interface RouteServices {
   pickFolder(): Promise<FolderPickResult>;
@@ -64,6 +72,8 @@ export interface RouteServices {
   mcpRuntimeStatus(): McpRuntimeStatus;
   agentConnections(): SystemAgentConnections;
   userServiceStatus(): UserServiceStatus | Promise<UserServiceStatus>;
+  /** Present only in desktop-child mode; absent for a standalone server. */
+  desktop?: DesktopRouteServices;
   backgroundStore: BackgroundStoreOperations;
   /** Where large uploads and exports are staged: `tmp` beside the database (see transfer-workspace.ts). */
   transferRoot: string;
