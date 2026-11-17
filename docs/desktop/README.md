@@ -122,7 +122,7 @@ R4 的補充用法：
 
 | 任務 | 內容 | 狀態 | 本文件位置 | 證據路徑 |
 |---|---|---|---|---|
-| DT-23 | Windows ACL 檢查由 `not-implemented` 改為實作：SDDL 分兩層讀取（.NET 優先，失敗才用 `Get-Acl` 加 `whoami /user`），依 SID 判斷擁有者與可寫 ACE，失敗封閉；只在安裝、切換、完整驗證或 root 相關時間戳改變時讀取 | 1.6.45 已實作（fixture 驗證）；真實 Windows 行為待 CI 或實機 | §3.3；ADR-15 | `packages/desktop-core/src/runtime/windows-acl.ts`；`tests/desktop-core/runtime-windows-acl.test.ts` |
+| DT-23 | Windows ACL 檢查由 `not-implemented` 改為實作：SDDL 分兩層讀取（.NET 優先，失敗才用 `Get-Acl` 加 `whoami /user`），依 SID 判斷擁有者（目前使用者、SYSTEM、Administrators 或 TrustedInstaller）與可寫 ACE，固定 SID 的 SDDL 別名先展開，失敗封閉；第一層以結束碼 3 回報 Constrained Language Mode；逾時第一層 20 秒、第二層 60 秒、逾時重試一次；只在安裝、切換、完整驗證或 root 相關時間戳改變時讀取 | 1.6.45 已實作（fixture 驗證）；真實 Windows 行為待 CI 或實機 | §3.3；ADR-15 | `packages/desktop-core/src/runtime/windows-acl.ts`；`tests/desktop-core/runtime-windows-acl.test.ts` |
 | DT-24 | 舊 runtime 背景清理：只保留目前與前一版；尚未證明「無現役連線」 | 1.6.45 部分實作；DT-24 未完成 | ADR-16；§3.3 | `packages/desktop-core/src/runtime/runtime-gc.ts` |
 | DT-28 | 更新來源版本鎖定與 metadata 驗證：選擇 v26，不做自動更新，改為手動下載經平台驗證的安裝包 | 決策已記錄（ADR-25）；v26 的 metadata 簽章驗證未實作，因此 DT-28 的篡改測試不適用 | §7.1；ADR-25 | `apps/desktop/package.json`（electron-builder 26.18.1）；`apps/desktop/electron-builder.config.mjs` |
 | DT-33 | 同批產物暫存與聯合發行閘：`desktop-package` 三平台成功才允許 release 公開 | 1.6.45 已接線（`release.yml` 呼叫、發行須等待成功）；三平台實跑結果待確認 | ADR-03；§9.4 | `.github/workflows/desktop-package.yml`；`.github/workflows/release.yml` |
@@ -132,7 +132,22 @@ R4 的補充用法：
 
 **macOS 簽章與首次啟動**：Electron 翻轉 fuse 後原簽章失效，而 electron-builder 在 GitHub `pull_request` 執行時會略過所有簽章，所以 `electron-builder.config.mjs` 設 `mac.identity: null`，改由 `afterPack` hook（`apps/desktop/scripts/after-pack.mjs`）在 PR 與 release 建置走同一條路徑：先翻轉 fuse，再由 `mac-ad-hoc-sign.mjs` 以 ad-hoc 由內而外簽署整個 .app（`runtime-bundle` 不動，官方 Node 保有自己的簽章）。尚無 Developer ID，不做公證；在 macOS 15 上，帶隔離屬性的 ad-hoc App 須於「系統設定 → 隱私權與安全性」按「強制打開」（Open Anyway）才能首次開啟，右鍵 → 打開已不能繞過 Gatekeeper。`package.mjs` 以 `codesign --verify --deep --strict`（含解壓後的 zip）、內附 Node 的 `codesign --verify --strict` 與 fuse 回讀作為硬性閘；`spctl` 只記錄結果。
 
-**Windows ACL 與打包補充（1.6.45）**：Windows ACL 第二層（`Get-Acl`，供 Constrained Language Mode 使用）以絕對路徑匯入 `Microsoft.PowerShell.Security`，並與 `whoami` 一同執行。CI 量到第二層需 5–10 秒，因此第二層有自己的 30 秒逾時，第一層（.NET）維持 10 秒；逾時待 CI 數字後收緊。`commitCurrent` 可重用同一行程中剛執行之 `installRuntime` 的 ACL 讀取（`reuseAclStamp`，只存在記憶體中，不從 `.verified.json` 讀取）；只有在所有受涵蓋物件的變更時間、inode 與物件集合都相同，且沒有檔案漏掉雜湊快取時才重用，否則重新讀取，佈建日誌以 `acl-reads=N` 顯示次數。打包方面，每次 `build()` 使用新的 electron-builder 設定（electron-builder 會原地正規化 `files`）；`beforeBuild` 回傳 false 以跳過約 7 秒的 node_modules 搜尋，因為暫存的 App 沒有 node_modules。`afterPack` 與 `package.mjs` 會輸出 `[afterPack]` 與 `[package]` 行，記錄 fuses、ad-hoc 簽章的路徑數、codesign、`spctl` 結束碼等。PR 建置時 electron-builder 出現「code signing will be skipped」是預期的，簽章由 `afterPack` 完成。
+**Windows ACL 與打包補充（1.6.45）**：Windows ACL 第二層（`Get-Acl`，供 Constrained Language Mode 使用）以絕對路徑匯入 `Microsoft.PowerShell.Security`，並與 `whoami` 一同執行；兩層腳本都關閉進度輸出與模組自動載入。逾時為第一層 20 秒、第二層 60 秒、`whoami` 15 秒，逾時重試一次；CI 量到第一層約 0.4 秒、第二層一般約 6 秒，逾時待實際數據後收緊。失敗訊息每層一段，含結束碼、訊號或逾時、耗時與去除 CLIXML 的 stderr。Windows CI 另在真實 Constrained Language Mode 下執行 ACL 測試。打包 smoke 除非測的是互動行為，一律以 `--background` 啟動，因為互動啟動會依 ADR-01 以外部瀏覽器開 Dashboard；App 會記錄 `[shell] dashboard opened`。沙盒清理會先等待並結束仍在使用沙盒的程序，刪不掉時列出佔用者；打包記憶體只計 App 自己的程序。`commitCurrent` 可重用同一行程中剛執行之 `installRuntime` 的 ACL 讀取（`reuseAclStamp`，只存在記憶體中，不從 `.verified.json` 讀取）；只有在所有受涵蓋物件的變更時間、inode 與物件集合都相同，且沒有檔案漏掉雜湊快取時才重用，否則重新讀取，佈建日誌以 `acl-reads=N` 顯示次數。打包方面，每次 `build()` 使用新的 electron-builder 設定（electron-builder 會原地正規化 `files`）；`beforeBuild` 回傳 false 以跳過約 7 秒的 node_modules 搜尋，因為暫存的 App 沒有 node_modules。`afterPack` 與 `package.mjs` 會輸出 `[afterPack]` 與 `[package]` 行，記錄 fuses、ad-hoc 簽章的路徑數、codesign、`spctl` 結束碼等。PR 建置時 electron-builder 出現「code signing will be skipped」是預期的，簽章由 `afterPack` 完成。
+
+## 本機打包
+
+依 ADR-38，本機打包是主要的取得方式；CI 與 GitHub Release 的產物為輔。打包只能建置執行它的平台與架構（隨包 Node.js 是該平台的官方執行檔），因此 Windows 與 macOS 各自在本機執行。
+
+| 平台 | 指令 | 產物 |
+|---|---|---|
+| Windows 11 x64 | `pnpm install --frozen-lockfile`，然後 `pnpm package:desktop` | `dist/desktop-package/win32-x64/out/Work-Intelligence-<版本>-win-x64-setup.exe`（NSIS，目前使用者安裝） |
+| macOS（arm64 或 x64，依本機） | 同上 | `dist/desktop-package/darwin-<arch>/out/` 下的 `Work-Intelligence-<版本>-mac-<arch>.dmg` 與 `.zip`；`.app` 在同一資料夾的 `mac*/` 下 |
+
+- **一個指令**：`pnpm package:desktop` 會先執行整個 `pnpm build`（失敗即中止，不打包），再打包；建置耗時印成 `[package] build N s`，並寫入結果 JSON 的 `timings.buildSeconds`。已自行建置過時可加 `--skip-build`，CI 的 `desktop-package.yml` 就是如此，因為它另有建置步驟。
+- **首次打包會下載**：Electron 與 electron-builder 的檔案，以及官方 Node.js runtime（依 `SHASUMS256.txt` 核對雜湊後才使用，快取在 `dist/desktop-runtime-spike/downloads`）；之後的打包重用快取。
+- **只要解開的 App**：`pnpm package:desktop --dir`，停在未封裝成安裝包的 App；同樣會先建置，也可加 `--skip-build`。
+- **結果與檢查**：大小、時間與各項 gate 寫入 `apps/desktop/package-results/package-<platform>-<arch>.json`；fuse 讀回、雜湊與（macOS）`codesign --verify --deep --strict` 等檢查與 CI 相同，任一失敗即中止。
+- **安全提示**：本機建置的檔案通常沒有 macOS 的隔離屬性（`com.apple.quarantine`）或 Windows 的 Mark of the Web，所以多半不會出現 Gatekeeper 或 SmartScreen 提示；從網路下載的 CI 或 Release 產物則會出現，需要使用者自行允許開啟（macOS ad-hoc 簽章、Windows 未簽章）。
 
 ## R3 → R4 修訂紀錄
 

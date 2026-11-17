@@ -220,7 +220,7 @@ Agent 的顯示狀態與最低證據見 §3.2.1；決策見 ADR-14（寫入交�
 - runtime 目錄以不可覆寫的版本或內容識別管理；更新只改 manifest 指向新版本。仍被舊程序占用的 runtime 延後清理（ADR-16）。launcher 檢查所有權與 ACL，拒絕指向不可信或 world-writable 目錄。[D][T]
 - App 關閉後必須能啟動 MCP／hook，不依賴 Electron GUI、Node PATH 或 repo。MCP stdout 只有 MCP protocol，錯誤走 stderr；hook 找不到 runtime 時**放行**，並提供後續可修復的診斷，避免靜默長期失效。[D]
 - 驗收涵蓋：無 Node 與無 PATH、中文與空格路徑、Windows 防毒與檔案鎖、macOS quarantine、離線、更新中既有 MCP、解除安裝未清乾淨的 hook。每個組合都需真實 `initialize`、`tools/list` 與讀寫合成 DB 測試。[T]
-- **階段 1 進度與選定的 layout（1.6.43）**：runtime 選 B，隨包官方 Node.js（ADR-04）。實作的 layout 為：`<root>/bin/work-intelligence-launcher`（Windows 另有 `.cmd`）為固定 shim；`<root>/current` 為單行 runtime id 指標，是唯一的原子切換點；`<root>/runtimes/<id>/` 內含 `runtime-manifest.json`（v1）、`runtime-launch.txt`（單行，記錄可執行檔的相對路徑）、`launcher.mjs`、`.verified.json`（stat 指紋快取，只加速、不作為信任依據）與官方 Node.js 執行檔。shim 只讀取 `current` 與 `runtime-launch.txt` 後執行 launcher；manifest 解析、逐檔 SHA-256、拒絕未列出的檔案與 symlink、路徑與權限檢查、動作白名單與錯誤碼都在共用的 TypeScript 中（`packages/desktop-core/src/runtime`）。已實作：runtime 目錄不可覆寫、指標原子切換、無 Node 的離線煙霧測試（CI）。**1.6.45 更新**：Windows ACL 檢查已實作（以 `Get-Acl` 的 SDDL 依 SID 判斷；擁有者須為目前使用者、SYSTEM 或 Administrators；其他主體的可寫 ACE 與 null DACL 一律拒絕；失敗封閉），目前僅以 fixture 驗證，真實 Windows 行為待 CI 或實機確認。舊 runtime 清理部分實作（DT-24，只保留目前與前一版）。未實作：無現役連線的證明，以及 Agent 設定接線。[T]
+- **階段 1 進度與選定的 layout（1.6.43）**：runtime 選 B，隨包官方 Node.js（ADR-04）。實作的 layout 為：`<root>/bin/work-intelligence-launcher`（Windows 另有 `.cmd`）為固定 shim；`<root>/current` 為單行 runtime id 指標，是唯一的原子切換點；`<root>/runtimes/<id>/` 內含 `runtime-manifest.json`（v1）、`runtime-launch.txt`（單行，記錄可執行檔的相對路徑）、`launcher.mjs`、`.verified.json`（stat 指紋快取，只加速、不作為信任依據）與官方 Node.js 執行檔。shim 只讀取 `current` 與 `runtime-launch.txt` 後執行 launcher；manifest 解析、逐檔 SHA-256、拒絕未列出的檔案與 symlink、路徑與權限檢查、動作白名單與錯誤碼都在共用的 TypeScript 中（`packages/desktop-core/src/runtime`）。已實作：runtime 目錄不可覆寫、指標原子切換、無 Node 的離線煙霧測試（CI）。**1.6.45 更新**：Windows ACL 檢查已實作（以 .NET，失敗才以 `Get-Acl` 讀取 SDDL，依 SID 判斷；擁有者須為目前使用者、SYSTEM、Administrators 或 TrustedInstaller，CREATOR OWNER 與 OWNER RIGHTS 不能當擁有者；其他主體的可寫 ACE 與 null DACL 一律拒絕；失敗封閉），目前僅以 fixture 驗證，真實 Windows 行為待 CI 或實機確認。舊 runtime 清理部分實作（DT-24，只保留目前與前一版）。未實作：無現役連線的證明，以及 Agent 設定接線。[T]
 
 ---
 
@@ -505,8 +505,10 @@ Web 只能送固定動作與經 schema 驗證的值。特權資料夾選擇、�
 | 2. 安全最小桌面 | Electron main、單例、tray、唯讀 preflight、API child、repair window | 不開錯 DB、不雙開、不依賴 browser 才能修復 |
 | 3. Agent 整合 | 非互動 plan／apply／compensate、固定 launcher、來源辨識 | host 真正 handshake、hook fail-open、更新後 runtime 不失效 |
 | 4. 接管與改設定 | OS service adapter（含 schtasks）、管理者轉移、換 port、設定日誌 | 手動或外部服務不被 kill；每個中斷階段都可恢復 |
-| 5. 自動更新與 schema | 固定發布鏈、簽章驗證、DB migration／restore 屏障 | 簽署的 N→N+1、篡改拒絕、斷電復原演練 |
-| 6. 同批發行 | Windows 11 x64 與 macOS 的簽章安裝包實測 | 兩平台同批產物完成 §9.5 全部 gate，否則整版不發 |
+| 5. 自動更新與 schema | 固定發布鏈、SHA256SUMS 與自有 manifest 簽章驗證、DB migration／restore 屏障 | 以 SHA256SUMS 與自有 manifest 簽章驗證的 N→N+1（若做更新檢查）、篡改拒絕、斷電復原演練 |
+| 6. 同批發行 | Windows 11 x64（未簽章）與 macOS（ad-hoc 簽章）安裝包並附 SHA256SUMS 的實測 | 兩平台同批產物完成 §9.5 全部 gate，否則整版不發 |
+
+階段 5、6 的 gate 依 ADR-38 重新定義：不使用付費簽章憑證，macOS 維持 ad-hoc、Windows 未簽章，主要取得方式為本機打包。
 
 不得用 mock 服務管理器或 fake Agent 的成功取代最後的 OS／host 實測。CI 用 fake home 的測試是必要條件，**不是**充分條件。
 

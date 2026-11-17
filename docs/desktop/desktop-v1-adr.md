@@ -36,7 +36,7 @@
 
 - **狀態**：已採用；聯合發行門檻待使用者確認
 - **脈絡**：兩平台同批發行，若允許單平台先發，會造成使用者得到不一致的版本，也使更新 metadata 缺附件。
-- **決策**：Release 先暫存全部首發平台的簽章產物，完整且驗證通過才一次公開。任一平台的 gate 未過，整版不公開。
+- **決策**：Release 先暫存全部首發平台的產物（ad-hoc 簽章或未簽章，見 ADR-38），完整且驗證通過才一次公開。任一平台的 gate 未過，整版不公開。
 - **後果**：更新時程由較慢的平台決定。需在里程碑中預留 Windows 實機時間。
 - **1.6.45 的實作**：`desktop-package`（windows-x64、macos-arm64、macos-x64）與 `release.yml` 已接線，發行 job 必須等它成功，安裝包才會加入 `SHA256SUMS.txt` 與 GitHub Release。三平台實際執行的結果於發行前確認。
 - **關聯**：§9.0、§9.5；DT-33。
@@ -279,7 +279,7 @@
 - **決策**：Agent 的 `command` 指向使用者層固定 launcher。launcher 讀取原子提交的 manifest，以 argv array 啟動，只允許指定動作（`mcp`、`serve`、`codex-finalize-reminder`、`claude-finalize-reminder`）。檢查 manifest 與 binary 的所有權與權限：POSIX 拒絕 world-writable 與非目前使用者擁有的項目；Windows 的 ACL 於 1.6.45 起檢查（見下方實作狀態）。
 - **1.6.43 的實作**：`bin/` 下的 shim 只讀取 `current` 與 `runtime-launch.txt` 後執行 launcher；所有驗證（manifest 嚴格解析、逐檔 SHA-256 與大小、未列出的檔案與 symlink、路徑、動作白名單、錯誤碼）都在共用的 TypeScript 中。manifest 為 v1，列出 runtime 目錄內的每一個檔案，未列出的檔案使 runtime 無效。
 - **後果**：多一層 launcher 需要測試；換版透過 manifest 切換。
-- **1.6.45 的實作**：Windows ACL 分兩層讀取，第一層為 .NET，失敗才用 `Get-Acl` 加 `whoami /user`；PowerShell 5.1 以絕對路徑與允許清單環境啟動。兩層都失敗回報 `RUNTIME_ACL_UNREADABLE`。`icacls` 未採用，因為 `icacls /save` 沒有擁有者資訊，而擁有者必須被驗證。真實 Windows 行為待 CI 或實機確認。
+- **1.6.45 的實作**：Windows ACL 分兩層讀取，第一層為 .NET，失敗才用 `Get-Acl` 加 `whoami /user`；PowerShell 5.1 以絕對路徑與允許清單環境啟動，腳本關閉模組自動載入與進度輸出。第一層以結束碼 3 回報 Constrained Language Mode。逾時第一層 20 秒、第二層 60 秒，逾時重試一次。固定 SID 的 SDDL 別名展開為 SID 後再判斷，相對別名不受信任；擁有者限目前使用者、SYSTEM、Administrators 或 TrustedInstaller。兩層都失敗回報 `RUNTIME_ACL_UNREADABLE`，附各層結束碼、耗時與 stderr。`icacls` 未採用，因為 `icacls /save` 沒有擁有者資訊，而擁有者必須被驗證。真實 Windows 行為待 CI 或實機確認。
 - **關聯**：§3.3、§10.2；DT-23；R07、R13。
 
 ### ADR-16 Runtime 延後清理：無現役連線且可安全刪除才 GC
@@ -379,3 +379,26 @@
 - **決策**：量測只作為方向性證據，發行判定以 release 產物的 bundled 值為準（ADR-19）。WAL 壓力測試與 integrity 測試不能取代修補證據。
 - **後果**：發行前仍需 release 產物的列印與保存。
 - **關聯**：§7.3.1；DT-06、DT-07。
+
+### ADR-37 安裝包壓縮：DMG 用 ULFO，NSIS 與 ZIP 用 normal
+
+- **狀態**：已採用（1.6.45）
+- **脈絡**：1.6.45 的 CI 對每個平台建置兩種壓縮並記錄大小與時間（MiB／建置秒數）。darwin-arm64：DMG UDZO 151.87／48.3、ULFO 148.93／9.0；ZIP normal 146.51／62.3、maximum 145.89／440.1。darwin-x64：DMG UDZO 159.97／38.8、ULFO 156.88／11.8；ZIP normal 154.63／118.3、maximum 154.00／634.8。win32-x64：NSIS normal 120.63／132.9、maximum 120.63／264.3。
+- **決策**：DMG 預設 ULFO（lzfse），比 UDZO 小約 2% 且快 3–5 倍；lzfse 映像需 macOS 10.11 以上，而 Electron 45 本身需 macOS 12，沒有受支援的 Mac 受影響。NSIS 與 ZIP 維持 normal：maximum 大小相同或只小不到 0.5%，建置時間卻是 2–7 倍。預設值在 `apps/desktop/scripts/package-gates.mjs`。
+- **後果**：比較功能保留，只在手動執行或呼叫端傳入 `compare-compression` 時建置，pull request 不再執行（原本讓每個 macOS job 多 8–10 分鐘）。Windows 打包時間主要在 NSIS normal 的約 133 秒，目前沒有不增加安裝包大小、且已量測證實的加速方式，因此維持。
+- **關聯**：`.github/workflows/desktop-package.yml`；CHANGELOG 1.6.45。
+
+### ADR-38 不使用付費簽章憑證：macOS ad-hoc、Windows 未簽章，以本機打包為主
+
+- **狀態**：已採用（使用者決策，1.6.45）
+- **脈絡**：正式簽章需要 Apple Developer ID（年費）與 Windows 程式碼簽章憑證，公證也需要 Developer ID。原本的 §9.4 階段 5、6 以「簽署的 N→N+1」與「簽章安裝包」為 gate，ADR-03 也以簽章產物為暫存條件。
+- **決策**：
+  - 不購買 Apple Developer ID 與 Windows 程式碼簽章憑證，長期維持 macOS ad-hoc 簽章（`afterPack` hook）、Windows 不簽章，也不做公證。
+  - 主要取得方式是使用者在自己的電腦上以 `pnpm package:desktop` 打包（它會先執行 `pnpm build`）（見[桌面設計索引](README.md)「本機打包」）；CI 與 GitHub Release 的產物為輔。
+  - 產物的完整性以 `SHA256SUMS.txt` 核對；之後若加入更新檢查，改以我們自己的 manifest 簽章驗證，不依賴平台的程式碼簽章。
+- **後果**：
+  - 下載的安裝包會出現 macOS Gatekeeper 與 Windows SmartScreen 提示，使用者需自行允許開啟；本機打包的產物通常沒有隔離屬性（macOS `com.apple.quarantine`）或 Mark of the Web，所以多半不會出現這些提示。
+  - macOS 無法使用 Squirrel.Mac 自動更新（它要求 Developer ID 簽章），所以更新維持手動下載或本機重新打包（ADR-25）。
+  - 打包流程中所有現有的 gate 與測試維持原有嚴格度：fuse 讀回、ad-hoc 簽章驗證（`codesign --verify --deep --strict`）、隨包 Node 簽章、雜湊與大小 gate。只有原本以付費簽章為前提的 gate 依下列方式重新定義。
+  - §9.4 的 gate 重新定義：階段 5 的「簽署的 N→N+1」改為「以 SHA256SUMS 與我們自己的 manifest 簽章驗證的 N→N+1」（若之後做更新檢查）；階段 6 的「簽章安裝包」改為「ad-hoc（macOS）／未簽章（Windows）安裝包，並附 SHA256SUMS」。ADR-03 的暫存條件改為同樣的產物。
+- **關聯**：ADR-03、ADR-25；§9.4；`apps/desktop/scripts/after-pack.mjs`；`.github/workflows/release.yml`。
