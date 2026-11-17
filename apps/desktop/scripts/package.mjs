@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 /**
- * `pnpm package:desktop [--dir] [--arch <arch>] [--compression store|normal|maximum] [--dmg-format UDZO|ULFO]
- *                       [--compare-compression] [--electron-dist <directory>] [--baseline]`
+ * `pnpm package:desktop [--dir] [--skip-build] [--arch <arch>] [--compression store|normal|maximum]
+ *                       [--dmg-format UDZO|ULFO] [--compare-compression] [--electron-dist <directory>] [--baseline]`
  *
  * Packages the desktop App for the host platform (a runtime is the host's own official Node binary, so each OS and
  * architecture builds natively; `--arch` must be the host's):
  *
+ *   0. runs the workspace build (`pnpm build`, scripts/workspace-build.mjs) unless `--skip-build`, so a local package is
+ *      one command; CI builds in its own step and passes `--skip-build`
  *   1. builds the runtime (scripts/desktop-runtime-spike/build.mjs) and stages runtime-bundle/{current,runtimes/<id>}
  *   2. builds the shell with --production and the SHA-256 of the runtime manifest, and checks the bundle has no test hooks
  *   3. stages a clean app directory (package.json + dist/, no dependencies)
@@ -59,6 +61,7 @@ import {
 import { APP_FUSES } from "./app-fuses.mjs";
 import { verifyIconFiles } from "./icon-files.mjs";
 import { DEFAULT_COMPRESSION, DEFAULT_DMG_FORMAT, SIZE_GATES } from "./package-gates.mjs";
+import { runWorkspaceBuild } from "./workspace-build.mjs";
 
 const desktopDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryRoot = resolve(desktopDirectory, "../..");
@@ -80,6 +83,7 @@ function parseOptions() {
   const { values } = parseArgs({
     options: {
       dir: { type: "boolean", default: false },
+      "skip-build": { type: "boolean", default: false },
       arch: { type: "string", default: process.arch },
       compression: { type: "string", default: DEFAULT_COMPRESSION },
       "dmg-format": { type: "string", default: DEFAULT_DMG_FORMAT },
@@ -105,6 +109,7 @@ function parseOptions() {
   }
   return {
     directoryOnly: values.dir || process.platform === "linux",
+    skipBuild: values["skip-build"],
     arch: values.arch,
     compression: values.compression,
     dmgFormat: values["dmg-format"],
@@ -440,6 +445,8 @@ function printComparison(options, installers, targetSeconds, comparison) {
 async function main() {
   const options = parseOptions();
   const startedAt = Date.now();
+  const buildSeconds = runWorkspaceBuild({ repositoryRoot, skip: options.skipBuild });
+  logStep(buildSeconds === undefined ? "build skipped (--skip-build)" : `build ${buildSeconds} s`);
   const version = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")).version;
   const launcherRoot = join(workDirectory, "runtime-root");
   const paths = {
@@ -450,7 +457,7 @@ async function main() {
   };
   rmSync(workDirectory, { recursive: true, force: true });
   mkdirSync(workDirectory, { recursive: true });
-  const timings = {};
+  const timings = buildSeconds === undefined ? {} : { buildSeconds };
 
   let step = Date.now();
   run(

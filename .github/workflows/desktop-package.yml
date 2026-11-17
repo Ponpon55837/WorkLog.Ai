@@ -82,11 +82,9 @@ jobs:
     env:
       PACKAGE_COMPRESSION: ${{ inputs.compression }}
       PACKAGE_DMG_FORMAT: ${{ inputs.dmg-format }}
-      # TEMPORARY: pull-request runs always compare the compression variants (NSIS normal vs maximum, DMG UDZO vs ULFO) and
-      # print the table to the job log, because this workflow is not on the default branch and cannot be dispatched yet.
-      # Remove the pull_request clause once the defaults in package-gates.mjs are chosen. A release (workflow_call from
-      # release.yml, never a pull_request event) compares only when it passes compare-compression.
-      PACKAGE_COMPARE: ${{ github.event_name == 'pull_request' || inputs.compare-compression }}
+      # The compression comparison (the defaults in package-gates.mjs were chosen from it) runs only when asked for: a
+      # manual run or a caller that passes compare-compression. It adds 8-10 minutes to a macOS job.
+      PACKAGE_COMPARE: ${{ inputs.compare-compression }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -153,7 +151,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          args=()
+          # The workspace was built by the step above.
+          args=(--skip-build)
           if [ -n "$PACKAGE_COMPRESSION" ]; then args+=(--compression "$PACKAGE_COMPRESSION"); fi
           if [ -n "$PACKAGE_DMG_FORMAT" ]; then args+=(--dmg-format "$PACKAGE_DMG_FORMAT"); fi
           if [ "$PACKAGE_COMPARE" = "true" ]; then args+=(--compare-compression); fi

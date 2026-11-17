@@ -44,13 +44,15 @@ export const SIZE_GATES = {
 };
 
 /**
- * Compression defaults, PROVISIONAL until CI reports size and time for both settings (pull-request runs of the workflow, or a manual run with
- * `compare-compression`, record the alternative next to the default in the results JSON).
+ * Compression defaults, chosen from the 1.6.45 CI comparison (size in MiB / build seconds; a manual run with
+ * `compare-compression` records the alternative next to the default again):
  *
- *  - NSIS/zip `normal`: LZMA at the default level. `maximum` usually saves a few percent of a one-time download at the
- *    cost of a slower build and a slightly slower install; switch only if CI shows more than ~5% smaller for under ~60 s.
- *  - DMG `UDZO` (zlib): opens on every macOS version Electron 45 supports. `ULFO` (lzfse) is smaller and mounts faster
- *    but needs macOS 10.15+; Electron 45 already needs macOS 12+, so it is a candidate if CI shows a gain.
+ *  - NSIS `normal`: 120.63 / 132.9 against `maximum` 120.63 / 264.3 on win32-x64. The same size for twice the time.
+ *  - zip `normal`: 146.51 / 62.3 against `maximum` 145.89 / 440.1 on darwin-arm64 (x64: 154.63 / 118.3 against
+ *    154.00 / 634.8). Under 0.5% smaller for five to seven times the time.
+ *  - DMG `ULFO` (lzfse): 148.93 / 9.0 against `UDZO` (zlib) 151.87 / 48.3 on darwin-arm64 (x64: 156.88 / 11.8 against
+ *    159.97 / 38.8). Smaller and three to five times faster. lzfse images open on macOS 10.11 and later; Electron 45
+ *    already needs macOS 12, so no supported Mac loses anything.
  */
 export const DEFAULT_COMPRESSION = "normal";
-export const DEFAULT_DMG_FORMAT = "UDZO";
+export const DEFAULT_DMG_FORMAT = "ULFO";
