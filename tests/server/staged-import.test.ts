@@ -1,4 +1,4 @@
-import { createServer, type Server } from "node:http";
+import { createServer, request as httpRequest, type Server } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -80,6 +80,22 @@ async function post<T>(baseUrl: string, path: string, body: string | object): Pr
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
   return { status: response.status, body: (await response.json()) as T };
+}
+
+/** Sends a raw POST with chosen headers (fetch cannot set Host) and resolves with the status code. */
+function rawPost(baseUrl: string, path: string, headers: Record<string, string>, body: string): Promise<number> {
+  const url = new URL(path, baseUrl);
+  return new Promise((resolve, reject) => {
+    const outgoing = httpRequest(
+      { host: url.hostname, port: url.port, path: url.pathname, method: "POST", headers },
+      (incoming) => {
+        incoming.resume();
+        incoming.on("end", () => resolve(incoming.statusCode ?? 0));
+      },
+    );
+    outgoing.on("error", reject);
+    outgoing.end(body);
+  });
 }
 
 function stagedDirectories(transferRoot: string): string[] {
@@ -228,6 +244,19 @@ describe("staged import over HTTP", () => {
 
     const text = await fetch(`${baseUrl}/api/import/staged`, { method: "POST", body: "{}" });
     expect(text.status).toBe(415);
+    expect(stagedDirectories(transferRoot)).toEqual([]);
+  });
+
+  it("refuses a foreign Host or Origin before reading the body, so nothing is written", async () => {
+    const root = tempRoot();
+    const transferRoot = join(root, "tmp");
+    const { baseUrl } = await startApi(transferRoot);
+    const body = syntheticExport(root);
+    const json = { "content-type": "application/json" };
+    expect(await rawPost(baseUrl, "/api/import/staged", { ...json, host: "attacker.example" }, body)).toBe(421);
+    expect(await rawPost(baseUrl, "/api/import/staged", { ...json, origin: "https://attacker.example" }, body)).toBe(
+      403,
+    );
     expect(stagedDirectories(transferRoot)).toEqual([]);
   });
 
