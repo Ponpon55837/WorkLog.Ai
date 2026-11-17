@@ -66,6 +66,8 @@ function migrationBackups(box: Sandbox): string[] {
 }
 
 test("a backend killed while it is held at the start of an approved update ends in NEEDS_REPAIR, never EXTERNAL; repairing updates once", async () => {
+  // Its own waits add up to about 285 s in the worst case (45 + 30 + 60 + 60 + 30 + 90 plus the snapshot waits).
+  test.setTimeout(300_000);
   // An existing install (settings) whose database is one release behind: the start is refused until the user agrees.
   const box = await createSandbox({ withDatabase: true });
   sandbox = box;

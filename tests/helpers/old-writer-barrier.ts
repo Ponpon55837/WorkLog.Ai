@@ -13,7 +13,13 @@ export interface Waiter {
   readonly child: ChildProcess;
   /** Resolves with the next IPC message of this type (earlier ones are kept, so none is missed). */
   waitFor<T extends { type: string }>(type: string): Promise<T>;
+  /** Sends over IPC. Errors (EPIPE, closed channel) are swallowed for a child marked killed, else recorded in ipcErrors. */
   send(message: Record<string, unknown>): void;
+  /** Call BEFORE intentionally killing the child: later IPC errors to it are expected and ignored. */
+  markKilled(): void;
+  readonly killed: boolean;
+  /** IPC/child errors that were NOT caused by an intentional kill; a test must treat a non-empty list as a failure. */
+  ipcErrors(): string[];
   /** Resolves when the process has exited. */
   exited: Promise<number | null>;
   stderr(): string;
@@ -138,6 +144,13 @@ export class BarrierSandbox {
     const received: Array<{ type: string }> = [];
     const pending: Array<{ type: string; resolve: (message: never) => void }> = [];
     let stderr = "";
+    let killed = false;
+    const ipcErrors: string[] = [];
+    const recordError = (error: Error): void => {
+      if (!killed) ipcErrors.push(error.message);
+    };
+    // Without a listener an EPIPE / ERR_IPC_CHANNEL_CLOSED would be an unhandled 'error' event on the ChildProcess.
+    child.on("error", recordError);
     child.stderr?.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
     child.stdout?.resume();
     child.on("message", (message: { type: string }) => {
@@ -150,7 +163,23 @@ export class BarrierSandbox {
       child,
       exited,
       stderr: () => stderr,
-      send: (message) => child.send(message),
+      send: (message) => {
+        if (killed) return;
+        try {
+          child.send(message, (error) => {
+            if (error) recordError(error);
+          });
+        } catch (error) {
+          recordError(error as Error);
+        }
+      },
+      markKilled: () => {
+        killed = true;
+      },
+      get killed() {
+        return killed;
+      },
+      ipcErrors: () => [...ipcErrors],
       waitFor: <T extends { type: string }>(type: string): Promise<T> => {
         const index = received.findIndex((message) => message.type === type);
         if (index >= 0) return Promise.resolve(received.splice(index, 1)[0] as T);

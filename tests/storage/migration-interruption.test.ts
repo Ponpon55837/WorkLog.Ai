@@ -17,7 +17,8 @@ import {
 // Real child processes are killed with SIGKILL (TerminateProcess on Windows) at known points of the pre-migration
 // backup, the migration transaction and a restore, and at random moments of the unmodified production path. Every case
 // ends with the same checks: the database is whole, no half-written backup is published, and the next open finishes
-// the upgrade with the content an uninterrupted upgrade gives. Fictional data only.
+// the upgrade with the content an uninterrupted upgrade gives. Fictional data only. The seed reproduces the delays and
+// plan shapes, not the exact wall-clock moments at which a kill lands.
 const WORKER = join(import.meta.dirname, "../helpers/migration-interruption-worker.ts");
 const OLD_VERSION = DEFAULT_OLD_SCHEMA_VERSION;
 /** The one value an upgrade writes with the wall clock; everything else is content a second upgrade reproduces. */
@@ -30,17 +31,28 @@ const RESTORE_COMPARISON: FingerprintOptions = {
   excludeTables: ["schema_migrations"],
   ignoreColumns: { change_revisions: ["database_id", "data_revision", "audit_revision"] },
 };
-const KILL_ITERATIONS = Number(process.env.WI_MIGRATION_KILL_ITERATIONS ?? 20);
+const KILL_ITERATIONS = parseKillIterations(process.env.WI_MIGRATION_KILL_ITERATIONS);
 const KILL_BATCH_SIZE = 5;
 const KILL_SEED = Number(process.env.WI_MIGRATION_KILL_SEED ?? Math.floor(Math.random() * 2 ** 31));
 const KILL_TOTAL_BUDGET_MS = 60_000;
+/** Per batch: spawning five workers, a calibration run and five kill/reopen cycles; the shared budget above still bounds the series. */
+const KILL_BATCH_TIMEOUT_MS = 90_000;
 const SOURCE_DATABASE = process.env.WI_MIGRATION_SOURCE_DB;
 
 let sandbox: BarrierSandbox;
 let sourcePath: string;
 let counter = 0;
-/** Shared by the random-kill batches so the whole series stays inside its budget. */
+/** Shared by the random-kill batches so the whole series stays inside its budget; started once a batch's workers are ready. */
 let killSeriesStartedAt: number | undefined;
+
+function parseKillIterations(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === "") return 20;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`WI_MIGRATION_KILL_ITERATIONS must be a positive integer (got "${raw}").`);
+  }
+  return value;
+}
 
 /** A small deterministic generator, so a failing run can be repeated from its printed seed. */
 function seededRandom(seed: number): () => number {
@@ -188,71 +200,75 @@ describe("an upgrade killed at a known point", () => {
 describe.each(Array.from({ length: Math.ceil(KILL_ITERATIONS / KILL_BATCH_SIZE) }, (_unused, batch) => batch))(
   "an upgrade killed at a random moment, batch %i",
   (batch) => {
-    it(`leaves the database whole and finishes on the next open (seed ${KILL_SEED})`, async () => {
-      killSeriesStartedAt ??= Date.now();
-      const killLog: string[] = [];
-      const reference = uninterruptedUpgrade();
-      const sourceContent = fingerprintDatabase(sourcePath);
-      const first = batch * KILL_BATCH_SIZE;
-      const count = Math.min(KILL_BATCH_SIZE, KILL_ITERATIONS - first);
-      // All workers of the batch are started together; each waits at `ready` with its imports loaded.
-      const runs = Array.from({ length: count }, (_unused, index) => {
-        const location = copyOfSource(`kill-${first + index}`);
-        return { iteration: first + index, location, child: worker("open-store", location) };
-      });
-      await Promise.all(runs.map((run) => run.child.waitFor("ready")));
-      // The span of an uninterrupted open, measured once here, bounds the random delays.
-      const calibration = copyOfSource("calibration");
-      const timer = worker("open-store", calibration);
-      await timer.waitFor("ready");
-      const measuredFrom = performance.now();
-      timer.send({ type: "go" });
-      await timer.waitFor("done");
-      const window = Math.max(25, (performance.now() - measuredFrom) * 1.5);
+    it(
+      `leaves the database whole and finishes on the next open (seed ${KILL_SEED})`,
+      async () => {
+        const killLog: string[] = [];
+        const reference = uninterruptedUpgrade();
+        const sourceContent = fingerprintDatabase(sourcePath);
+        const first = batch * KILL_BATCH_SIZE;
+        const count = Math.min(KILL_BATCH_SIZE, KILL_ITERATIONS - first);
+        // All workers of the batch are started together; each waits at `ready` with its imports loaded.
+        const runs = Array.from({ length: count }, (_unused, index) => {
+          const location = copyOfSource(`kill-${first + index}`);
+          return { iteration: first + index, location, child: worker("open-store", location) };
+        });
+        await Promise.all(runs.map((run) => run.child.waitFor("ready")));
+        killSeriesStartedAt ??= Date.now();
+        // The span of an uninterrupted open, measured once here, bounds the random delays.
+        const calibration = copyOfSource("calibration");
+        const timer = worker("open-store", calibration);
+        await timer.waitFor("ready");
+        const measuredFrom = performance.now();
+        timer.send({ type: "go" });
+        await timer.waitFor("done");
+        const window = Math.max(25, (performance.now() - measuredFrom) * 1.5);
 
-      for (const run of runs) {
-        const elapsed = Date.now() - killSeriesStartedAt;
-        if (elapsed > KILL_TOTAL_BUDGET_MS) {
-          throw new Error(
-            `Random kill series exceeded ${KILL_TOTAL_BUDGET_MS} ms at iteration ${run.iteration} (seed ${KILL_SEED}).\n${killLog.join("\n")}`,
-          );
-        }
-        const delay = seededRandom(KILL_SEED + run.iteration)() * window;
-        run.child.send({ type: "go" });
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        run.child.child.kill("SIGKILL");
-        await run.child.exited;
+        for (const run of runs) {
+          const elapsed = Date.now() - killSeriesStartedAt;
+          if (elapsed > KILL_TOTAL_BUDGET_MS) {
+            throw new Error(
+              `Random kill series exceeded ${KILL_TOTAL_BUDGET_MS} ms at iteration ${run.iteration} (seed ${KILL_SEED}).\n${killLog.join("\n")}`,
+            );
+          }
+          const delay = seededRandom(KILL_SEED + run.iteration)() * window;
+          run.child.send({ type: "go" });
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          run.child.child.kill("SIGKILL");
+          await run.child.exited;
 
-        const state = inspectDatabase(run.location.databasePath);
-        const outcome = state.highestMigration === LATEST_SCHEMA_VERSION ? "new" : "old";
-        killLog.push(`#${run.iteration} delay=${delay.toFixed(1)}ms -> ${outcome}`);
-        const context = `seed ${KILL_SEED}, iteration ${run.iteration}, delay ${delay.toFixed(1)} ms\n${killLog.join("\n")}`;
-        expect(state.integrity, context).toBe("ok");
-        expect([OLD_VERSION, LATEST_SCHEMA_VERSION], context).toContain(state.highestMigration);
-        if (outcome === "old") {
-          expect(fingerprintDatabase(run.location.databasePath), context).toEqual(sourceContent);
-        } else {
+          const state = inspectDatabase(run.location.databasePath);
+          const outcome = state.highestMigration === LATEST_SCHEMA_VERSION ? "new" : "old";
+          killLog.push(`#${run.iteration} delay=${delay.toFixed(1)}ms -> ${outcome}`);
+          const context = `seed ${KILL_SEED}, iteration ${run.iteration}, delay ${delay.toFixed(1)} ms\n${killLog.join("\n")}`;
+          expect(state.integrity, context).toBe("ok");
+          expect([OLD_VERSION, LATEST_SCHEMA_VERSION], context).toContain(state.highestMigration);
+          if (outcome === "old") {
+            expect(fingerprintDatabase(run.location.databasePath), context).toEqual(sourceContent);
+          } else {
+            expect(fingerprintDatabase(run.location.databasePath, UPGRADE_COMPARISON), context).toEqual(reference);
+          }
+          // Any backup that was published is whole and holds the pre-upgrade content.
+          for (const backup of publishedBackups(run.location)) {
+            const backupPath = join(run.location.backupDirectory, backup.fileName);
+            expect(quickCheck(backupPath), context).toBe("ok");
+            expect(fingerprintDatabase(backupPath), context).toEqual(sourceContent);
+          }
+
+          openAndClose(run.location);
+
+          expect(inspectDatabase(run.location.databasePath), context).toMatchObject({
+            integrity: "ok",
+            highestMigration: LATEST_SCHEMA_VERSION,
+          });
           expect(fingerprintDatabase(run.location.databasePath, UPGRADE_COMPARISON), context).toEqual(reference);
         }
-        // Any backup that was published is whole and holds the pre-upgrade content.
-        for (const backup of publishedBackups(run.location)) {
-          const backupPath = join(run.location.backupDirectory, backup.fileName);
-          expect(quickCheck(backupPath), context).toBe("ok");
-          expect(fingerprintDatabase(backupPath), context).toEqual(sourceContent);
-        }
-
-        openAndClose(run.location);
-
-        expect(inspectDatabase(run.location.databasePath), context).toMatchObject({
-          integrity: "ok",
-          highestMigration: LATEST_SCHEMA_VERSION,
-        });
-        expect(fingerprintDatabase(run.location.databasePath, UPGRADE_COMPARISON), context).toEqual(reference);
-      }
-      console.info(
-        `migration kill series seed ${KILL_SEED}, batch ${batch}, window ${window.toFixed(1)} ms\n${killLog.join("\n")}`,
-      );
-    });
+        console.info(
+          `migration kill series seed ${KILL_SEED}, batch ${batch}, window ${window.toFixed(1)} ms\n${killLog.join("\n")}`,
+        );
+      },
+      KILL_BATCH_TIMEOUT_MS,
+    );
   },
 );
 

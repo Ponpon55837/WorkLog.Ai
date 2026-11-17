@@ -28,9 +28,11 @@ import {
 // respawned. Every correctness assertion is absolute. SQLITE_BUSY is only counted and reported (no threshold yet).
 //
 // Environment: WI_SQLITE_STRESS_SECONDS (load duration, default 45), WI_SQLITE_STRESS_SEED (default: random, printed).
+// The seed reproduces the plan and write shapes (kill victims, think times, event counts), not the exact wall-clock kill moments.
 
 const WORKER_SCRIPT = join(REPOSITORY_ROOT, "tests/stress/stress-worker.ts");
-const DURATION_SECONDS = Math.max(3, Number(process.env.WI_SQLITE_STRESS_SECONDS ?? 45));
+const MIN_DURATION_SECONDS = 3;
+const DURATION_SECONDS = parseDurationSeconds(process.env.WI_SQLITE_STRESS_SECONDS);
 const SEED = process.env.WI_SQLITE_STRESS_SEED
   ? Number(process.env.WI_SQLITE_STRESS_SEED) >>> 0
   : Math.floor(Math.random() * 2 ** 32);
@@ -83,6 +85,32 @@ interface KillRecord {
   writer: number;
   lastAckedSeq: number;
   inFlight: "committed" | "absent";
+}
+
+function parseDurationSeconds(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === "") return 45;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < MIN_DURATION_SECONDS) {
+    throw new Error(
+      `WI_SQLITE_STRESS_SECONDS must be a number >= ${MIN_DURATION_SECONDS} (got "${raw}"); the kill plan needs at least ${MIN_DURATION_SECONDS} s.`,
+    );
+  }
+  return value;
+}
+
+/** Removes absolute POSIX/Windows/UNC paths and file:// URLs so a report never carries local paths or stack frames. */
+function redactPaths(text: string): string {
+  return text
+    .replace(/file:\/\/[^\s)'"]*/gi, "<path>")
+    .replace(/\\\\[^\s\\/)'"]+[\\/][^\s)'"]*/g, "<path>")
+    .replace(/\b[A-Za-z]:[\\/][^\s)'"]*/g, "<path>")
+    .replace(/(^|[\s(='"])\/(?:[^\s/)'"]+\/)*[^\s/)'"]*/g, "$1<path>");
+}
+
+/** First line of an error only, paths redacted: assertion labels survive, stack traces and stderr dumps do not. */
+function redactedFailure(failure: unknown): string {
+  const text = String((failure as Error)?.message ?? failure);
+  return redactPaths(text.split("\n")[0] ?? "").slice(0, 500);
 }
 
 function emptyStats(): Stats {
@@ -216,7 +244,10 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
       const watchdog = setTimeout(() => {
         const reason = `no completion after ${WATCHDOG_MS / 1000}s`;
         dumpDiagnostics(reason);
-        for (const handle of handles) handle.waiter.child.kill("SIGKILL");
+        for (const handle of handles) {
+          handle.waiter.markKilled();
+          handle.waiter.child.kill("SIGKILL");
+        }
         rejectWatchdog(new Error(`Stress watchdog: ${reason}; see the dumped process logs.`));
       }, WATCHDOG_MS);
 
@@ -333,7 +364,7 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
         const handle = writerHandle.get(writer);
         if (!handle) return;
         const send = (): void => {
-          if (stopping || writerHandle.get(writer) !== handle) return;
+          if (stopping || writerHandle.get(writer) !== handle || handle.waiter.killed) return;
           if (killPending.delete(writer)) {
             // Kill within ~15 ms of the write starting, so it often lands inside the transaction.
             handle.waiter.send({ type: "go" });
@@ -347,6 +378,8 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
 
       async function killAndRespawn(writer: number, handle: Handle, delayMs: number): Promise<void> {
         await sleep(delayMs);
+        // Marked first so IPC to this child that races the kill is ignored instead of emitting an unhandled 'error'.
+        handle.waiter.markKilled();
         handle.waiter.child.kill("SIGKILL");
         await handle.closed;
         const lastAcked = highWater[writer] ?? 0;
@@ -374,7 +407,9 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
           db.close();
         }
         kills.push({ writer, lastAckedSeq: lastAcked, inFlight });
-        if (stopping) return;
+        // After the load ends, a committed-but-unacked write is still respawned and retried to its ack (below), so the final
+        // state has acked == committed; an absent in-flight write needs no retry.
+        if (stopping && inFlight === "absent") return;
         // Continue the sequence from the last acked seq + 1; an in-flight write that did commit is a harmless idempotent retry.
         const next = spawn(
           "writer",
@@ -384,7 +419,22 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
         );
         writerHandle.set(writer, next);
         await next.waiter.waitFor("ready");
-        dispatch(writer);
+        if (!stopping) {
+          dispatch(writer);
+          return;
+        }
+        // Draining: retry exactly the committed in-flight seq and wait for its ack before the processes are stopped.
+        next.waiter.send({ type: "go" });
+        const deadline = Date.now() + 30_000;
+        while ((highWater[writer] ?? 0) < lastAcked + 1) {
+          if (fatals.length > 0 || next.waiter.child.exitCode !== null) break;
+          if (Date.now() > deadline)
+            throw new Error(`writer ${writer}: the retry of committed seq ${lastAcked + 1} was never acked`);
+          await sleep(10);
+        }
+        expect(highWater[writer], `writer ${writer}: retried committed seq ${lastAcked + 1} acked exactly once`).toBe(
+          lastAcked + 1,
+        );
       }
 
       try {
@@ -411,8 +461,9 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
 
             // Seeded chaos plan: kill times spread over the middle of the run, victims and jitter from the seed.
             const killCount = Math.max(3, Math.round(DURATION_SECONDS / 4));
-            const killPlan = Array.from({ length: killCount }, () => ({
-              at: (0.1 + sharedRandom() * 0.8) * DURATION_SECONDS * 1000,
+            // The first kill is always in the first half so even the minimum run schedules (and consumes) at least one.
+            const killPlan = Array.from({ length: killCount }, (_unused, index) => ({
+              at: (0.1 + sharedRandom() * (index === 0 ? 0.4 : 0.8)) * DURATION_SECONDS * 1000,
               writer: Math.floor(sharedRandom() * WRITER_COUNT),
             }));
             loadStartedAt = Date.now();
@@ -441,6 +492,11 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
               if (state === "exited") expect(handle.finalReceived, `${handle.name} sent its final report`).toBe(true);
             }
             expect(fatals, "worker failures other than SQLITE_BUSY").toEqual([]);
+            expect(
+              handles.flatMap((handle) => handle.waiter.ipcErrors().map((error) => `${handle.name}: ${error}`)),
+              "IPC errors to workers that were not killed on purpose",
+            ).toEqual([]);
+            expect(kills.length, "SIGKILL coverage: at least one writer was killed").toBeGreaterThan(0);
           })(),
         ]);
 
@@ -451,7 +507,7 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
         try {
           live.exec("PRAGMA busy_timeout = 5000");
           assertConsistent(live, "final database", { fts: true });
-          // Writers are gone: the rows are exactly the acked seqs (a retried in-flight write is among them).
+          // Writers are gone and every committed in-flight write was retried to its ack: rows are exactly the acked seqs.
           assertPrefixes(live, "final database", acked, acked);
           const checkpoint = live.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get() as { busy: number };
           expect(checkpoint.busy, "final TRUNCATE checkpoint was not blocked").toBe(0);
@@ -597,7 +653,8 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
             seed: SEED,
             configuredDurationSeconds: DURATION_SECONDS,
             passed: false,
-            failure: String((failure as Error)?.message ?? failure).slice(0, 2000),
+            // Labels only: no raw worker stderr, stack traces or absolute paths (the console diagnostics keep full detail).
+            failure: redactedFailure(failure),
             kills: kills.length,
             highWater,
           });

@@ -147,7 +147,8 @@ jobs:
 
   # DT-07: multi-process WAL write + checkpoint stress (integrity_check, snapshot and restore comparison). Evidence next
   # to, never instead of, the SQLite version check above. Not part of `pnpm test`; the vitest suite runs the workers from
-  # the TypeScript sources, so no build is needed. Only correctness is asserted; SQLITE_BUSY counts are just reported.
+  # the TypeScript sources (a build step below still runs for the shared workspace packages). Only correctness is
+  # asserted; SQLITE_BUSY counts are just reported.
   sqlite-stress:
     name: SQLite stress (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

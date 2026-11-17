@@ -51,8 +51,19 @@ if (result.error) {
   process.exit(1);
 }
 process.stdout.write(`[sqlite-stress] total wall time with the packaged runtime Node: ${seconds}s\n`);
-if (values["copy-to"] && existsSync(reportFile)) {
-  mkdirSync(dirname(resolve(values["copy-to"])), { recursive: true });
-  copyFileSync(reportFile, resolve(values["copy-to"]));
+if (Number(seconds) > 30) {
+  process.stdout.write(
+    `[sqlite-stress] WARNING: total wall time ${seconds}s exceeds the expected 30s (not a failure)\n`,
+  );
 }
-process.exit(result.status ?? 1);
+let status = result.status ?? 1;
+if (values["copy-to"]) {
+  if (existsSync(reportFile)) {
+    mkdirSync(dirname(resolve(values["copy-to"])), { recursive: true });
+    copyFileSync(reportFile, resolve(values["copy-to"]));
+  } else {
+    process.stderr.write("run-sqlite-stress-with-node: --copy-to was given but the suite wrote no report file\n");
+    status = status === 0 ? 1 : status;
+  }
+}
+process.exit(status);

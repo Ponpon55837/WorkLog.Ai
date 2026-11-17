@@ -176,14 +176,24 @@ describe("upgrading committed samples", () => {
         });
       }
 
-      // Columns added by later migrations are NULL on rows that predate them.
+      // Columns added by later migrations: a column added without a DEFAULT (migrations 32 and 33 add only such columns)
+      // is NULL on rows that predate it; a column added with a DEFAULT must hold exactly that default on old rows.
       withDatabase(location.databasePath, (db) => {
         for (const [table, before] of Object.entries(fixture.fingerprint)) {
-          const added = (
-            db.prepare(`PRAGMA table_info("${table}")`).all() as Array<{ name: string; dflt_value: unknown }>
-          )
-            .filter((column) => !before.columns.includes(column.name) && column.dflt_value === null)
-            .map((column) => column.name);
+          const addedColumns = (
+            db.prepare(`PRAGMA table_info("${table}")`).all() as Array<{ name: string; dflt_value: string | null }>
+          ).filter((column) => !before.columns.includes(column.name));
+          for (const column of addedColumns.filter((entry) => entry.dflt_value !== null)) {
+            const count = db
+              .prepare(`SELECT COUNT(*) AS count FROM "${table}" WHERE "${column.name}" IS NOT ${column.dflt_value}`)
+              .get() as { count: number };
+            expect({ table, column: column.name, differsFromDefault: count.count }).toEqual({
+              table,
+              column: column.name,
+              differsFromDefault: 0,
+            });
+          }
+          const added = addedColumns.filter((entry) => entry.dflt_value === null).map((entry) => entry.name);
           for (const column of added) {
             const count = db
               .prepare(`SELECT COUNT(*) AS count FROM "${table}" WHERE "${column}" IS NOT NULL`)
