@@ -29,7 +29,7 @@ The schema stays at 33 and no migration is needed.
   - Each database gets one read-only preview, with its status and project count. A database that needs a schema update needs an explicit tick.
   - Nothing is written, created or bound before the user chooses.
   - The default start creates a new empty database at the default location, writes the settings only once the start worked, and opens the Dashboard. A failed start removes the database it created (ADR-27).
-  - "之後再說" and a `--background` new install show no window; the tray offers "完成首次設定…".
+  - "稍後再說" and a `--background` new install show no window; the tray offers "完成首次設定…".
 - **Agent page in the App window.** It opens from the tray ("設定 Agent…") or with `--open-agent-setup`, including as a second launch.
   - Cards for Codex and Claude Code show:
     - the status (ADR-34);

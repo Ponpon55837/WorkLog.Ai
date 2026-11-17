@@ -1528,7 +1528,7 @@
     "followSystemSwitchesWithYour": "“Follow system” switches with your operating system's light or dark setting.",
     "latestAutomaticBackup": "Latest automatic backup",
     "latestDataMaintenance": "Latest data maintenance",
-    "legacyServiceRemoveCommand": "Run this command in the Work Intelligence project folder to remove the old login service:",
+    "legacyServiceRemoveCommand": "Run this command in a terminal to remove the old login service (on Windows, in PowerShell):",
     "legacyServiceWarning": "An old login service (pnpm bootstrap) is also using this database; running two backends at the same time can cause problems",
     "light": "Light",
     "liveUpdateConnectionsCurrentlyOpen": "Live update connections currently open",
