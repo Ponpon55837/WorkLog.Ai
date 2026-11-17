@@ -1,6 +1,5 @@
 import type { ServerResponse } from "node:http";
-import { createReadStream, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { createReadStream } from "node:fs";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { DatabaseBackup, ProjectDataExportScope, SystemStatus } from "@work-intelligence/core";
@@ -15,24 +14,24 @@ import { LATEST_SCHEMA_VERSION } from "@work-intelligence/storage";
 import { inspectDatabaseReadOnlyMetadata } from "../database-inspection.js";
 import {
   MAX_PROJECT_IMPORT_BYTES,
+  PROJECT_EXPORT_TOO_LARGE_MESSAGE,
   readJsonBody,
-  readJsonBytesBody,
+  receiveJsonBodyFile,
   sendError,
   sendJson,
   sendProjectDataTransferError,
 } from "../http.js";
 import { getSqliteRuntimeStatus } from "../sqlite-runtime.js";
-import { parseRequestInput, type Route, type RouteContext } from "./router.js";
+import { createTransferDirectory, removeTransferDirectory } from "../transfer-workspace.js";
+import { parseRequestInput, type ProjectDataImportUpload, type Route, type RouteContext } from "./router.js";
 
 /** Read size for streaming a database export: large reads cut the per-chunk overhead of a file of tens of MB. */
 const EXPORT_READ_CHUNK_BYTES = 1024 * 1024;
 
 /** Streams a fresh snapshot of the whole database as a download and removes the temporary copy. */
-async function sendDatabaseExport(
-  backgroundStore: RouteContext["services"]["backgroundStore"],
-  response: ServerResponse,
-): Promise<void> {
-  const directory = mkdtempSync(join(tmpdir(), "work-intelligence-export-"));
+async function sendDatabaseExport(services: RouteContext["services"], response: ServerResponse): Promise<void> {
+  const { backgroundStore } = services;
+  const directory = createTransferDirectory(services.transferRoot, "export");
   try {
     const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, "");
     const fileName = `work-intelligence-export-${stamp}.sqlite`;
@@ -49,30 +48,56 @@ async function sendDatabaseExport(
     // 1 MiB reads: a 25 MB snapshot in ~25 chunks instead of ~400, which shortens and steadies the transfer.
     await pipeline(createReadStream(target, { highWaterMark: EXPORT_READ_CHUNK_BYTES }), response);
   } finally {
-    rmSync(directory, { recursive: true, force: true });
+    removeTransferDirectory(directory);
   }
 }
 
+/** Writes the portable export to a transfer file in the background process and streams it as a download. */
 async function sendProjectDataExport(
-  backgroundStore: RouteContext["services"]["backgroundStore"],
+  services: RouteContext["services"],
   scope: ProjectDataExportScope,
   response: ServerResponse,
 ): Promise<void> {
-  const { content, bytes } = await backgroundStore.exportProjectData(scope);
-  if (bytes > MAX_PROJECT_IMPORT_BYTES) {
-    sendError(response, 413, "這份專案匯出檔超過 50 MiB，請改用整份 SQLite 快照。");
-    return;
+  const directory = createTransferDirectory(services.transferRoot, "export");
+  try {
+    const target = join(directory, "export.json");
+    const { bytes } = await services.backgroundStore.exportProjectData(scope, target);
+    if (bytes > MAX_PROJECT_IMPORT_BYTES) {
+      // A file this size could not be imported again, so a whole-database snapshot is the way to move it.
+      sendError(response, 413, PROJECT_EXPORT_TOO_LARGE_MESSAGE);
+      return;
+    }
+    const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const fileName = `work-intelligence-projects-${stamp}.json`;
+    response.writeHead(200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Content-Length": String(bytes),
+      "Content-Disposition": `attachment; filename="${fileName}"`,
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    });
+    await pipeline(createReadStream(target, { highWaterMark: EXPORT_READ_CHUNK_BYTES }), response);
+  } finally {
+    removeTransferDirectory(directory);
   }
-  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-  const fileName = `work-intelligence-projects-${stamp}.json`;
-  response.writeHead(200, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Content-Length": String(bytes),
-    "Content-Disposition": `attachment; filename="${fileName}"`,
-    "Cache-Control": "no-store",
-    "X-Content-Type-Options": "nosniff",
-  });
-  response.end(content);
+}
+
+/**
+ * Saves the import request body to a transfer directory and hands it to `operation`, which streams it in the
+ * background process; the directory (body and spill file) is removed afterwards, whatever happens.
+ */
+async function withImportUpload<T>(
+  context: RouteContext,
+  operation: (upload: ProjectDataImportUpload) => Promise<T>,
+): Promise<T> {
+  const directory = createTransferDirectory(context.services.transferRoot, "import");
+  try {
+    const path = join(directory, "import.json");
+    await receiveJsonBodyFile(context.request, path, MAX_PROJECT_IMPORT_BYTES);
+    return await operation({ path, directory });
+  } finally {
+    removeTransferDirectory(directory);
+  }
 }
 
 async function systemStatus({ store, response, services }: RouteContext): Promise<void> {
@@ -151,7 +176,7 @@ async function deleteBackup({ store, request, response, params }: RouteContext):
 async function exportData({ request, response, services }: RouteContext): Promise<void> {
   const body = await readJsonBody(request);
   if (typeof body === "object" && body !== null && Object.keys(body).length === 0) {
-    await sendDatabaseExport(services.backgroundStore, response);
+    await sendDatabaseExport(services, response);
     return;
   }
   const parsed = parseRequestInput(projectDataExportRequestSchema, body);
@@ -162,7 +187,7 @@ async function exportData({ request, response, services }: RouteContext): Promis
   const scope: ProjectDataExportScope =
     parsed.data.scope === "all" ? { type: "all" } : { type: "project", projectId: parsed.data.projectId ?? "" };
   try {
-    await sendProjectDataExport(services.backgroundStore, scope, response);
+    await sendProjectDataExport(services, scope, response);
   } catch (error) {
     if (!sendProjectDataTransferError(response, error)) throw error;
   }
@@ -170,19 +195,22 @@ async function exportData({ request, response, services }: RouteContext): Promis
 
 async function previewImport(context: RouteContext): Promise<void> {
   try {
-    const input = await readJsonBytesBody(context.request, MAX_PROJECT_IMPORT_BYTES);
-    const preview = await context.services.backgroundStore.previewProjectDataImport(input);
+    const preview = await withImportUpload(context, (upload) =>
+      context.services.backgroundStore.previewProjectDataImport(upload),
+    );
     sendJson(context.response, 200, preview);
   } catch (error) {
     if (!sendProjectDataTransferError(context.response, error)) throw error;
   }
 }
 
-/** The bytes go to the background worker, which parses, validates, backs up and imports away from this thread. */
+/** The body goes to disk and then to the background process, which validates, backs up and imports it. */
 async function importData(context: RouteContext): Promise<void> {
   try {
-    const input = await readJsonBytesBody(context.request, MAX_PROJECT_IMPORT_BYTES);
-    sendJson(context.response, 200, await context.services.backgroundStore.importProjectData(input));
+    const result = await withImportUpload(context, (upload) =>
+      context.services.backgroundStore.importProjectData(upload),
+    );
+    sendJson(context.response, 200, result);
   } catch (error) {
     if (!sendProjectDataTransferError(context.response, error)) throw error;
   }

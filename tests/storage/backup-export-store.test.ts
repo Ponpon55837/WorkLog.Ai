@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -191,6 +191,18 @@ function sha256(exported: ProjectDataExport): string {
   return createHash("sha256").update(JSON.stringify(exported)).digest("hex");
 }
 
+/** The streamed export of `scope`, read back as text. */
+async function writtenExport(store: BackupExportStore, scope: ProjectDataExport["scope"]): Promise<string> {
+  const root = mkdtempSync(join(tmpdir(), "work-intelligence-export-stream-"));
+  roots.push(root);
+  const target = join(root, "export.json");
+  const { bytes } = await store.writeProjectData(scope, target);
+  const content = readFileSync(target);
+  expect(content.byteLength).toBe(bytes);
+  expect(readdirSync(root)).toEqual(["export.json"]);
+  return content.toString("utf8");
+}
+
 afterEach(() => {
   vi.useRealTimers();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -213,6 +225,8 @@ describe("BackupExportStore", () => {
         expect(JSON.stringify(actual)).not.toContain(TOKEN);
         // exportedAt is the export time; everything else must be identical.
         expect(JSON.stringify({ ...actual, exportedAt: "" })).toBe(JSON.stringify({ ...expected, exportedAt: "" }));
+        const streamed = JSON.parse(await writtenExport(lean, scope)) as ProjectDataExport;
+        expect(JSON.stringify({ ...streamed, exportedAt: "" })).toBe(JSON.stringify({ ...expected, exportedAt: "" }));
       }
     } finally {
       lean.close();
@@ -236,6 +250,8 @@ describe("BackupExportStore", () => {
         const reference = alwaysSorted(actual);
         expect(sha256(actual)).toBe(sha256(reference));
         expect(sha256(full.exportProjectData(scope))).toBe(sha256(actual));
+        // The streamed file is byte for byte the serialized export.
+        expect(await writtenExport(lean, scope)).toBe(JSON.stringify(actual));
         expect(actual.exportedAt).toBe("2026-06-07T08:09:10.000Z");
         expect(JSON.stringify(actual)).not.toContain(GOLDEN_TOKEN);
         expect(actual.tables.report_summaries).toHaveLength(0);

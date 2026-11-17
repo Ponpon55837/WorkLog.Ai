@@ -10,6 +10,7 @@ import { readFileIdentity, sameFileIdentity } from "@work-intelligence/shared/fi
 import { STANDALONE } from "@work-intelligence/shared/database-location";
 import { databasePath as configuredDatabasePath, storeOptions as configuredStoreOptions } from "./config.js";
 import { BackupWorkerClient } from "./backup-worker-client.js";
+import { sweepTransferDirectories, transferRoot } from "./transfer-workspace.js";
 import {
   readOpenedIdentity,
   revalidateBeforeCommit,
@@ -182,6 +183,8 @@ export function startApi(options: StartApiOptions = {}): StartedApi {
       "找不到 Web 介面檔案（套件內的 web/ 不完整）；只提供 API。請重新安裝，或執行 work-intelligence check。",
     );
   }
+  // Uploads and exports a crash left behind in `<data>/tmp`; this never blocks or fails the start.
+  sweepTransferDirectories(transferRoot(databasePath));
   let apiHandler: ReturnType<typeof createApiHandler>;
   let server: ReturnType<typeof createServer>;
   try {

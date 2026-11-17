@@ -4,7 +4,6 @@ import type {
   DatabaseBackupUnavailable,
   FolderPickResult,
   ProjectDataExportScope,
-  ProjectDataImportInput,
   ProjectDataImportPreview,
   ProjectDataImportResult,
   ProjectFolderStatus,
@@ -19,9 +18,10 @@ import { sendError, sendJson } from "../http.js";
 
 export type RouteMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
-export interface ProjectDataExportDocument {
-  content: string | Uint8Array;
-  bytes: number;
+/** An import request body saved to disk, and the private transfer directory it is in (its spill file goes there too). */
+export interface ProjectDataImportUpload {
+  path: string;
+  directory: string;
 }
 
 export type ProjectDataImportPreviewWithFolderStatus = Omit<ProjectDataImportPreview, "selectedProjects"> & {
@@ -34,12 +34,12 @@ export interface BackgroundStoreOperations {
   backupIfDue(): Promise<DatabaseBackupCreated | null>;
   /** `durable: false` for a staging copy that is streamed once and removed; see `ExportOptions` in storage. */
   exportTo(target: string, options?: ExportOptions): Promise<{ bytes: number }>;
-  exportProjectData(scope: ProjectDataExportScope): Promise<ProjectDataExportDocument>;
-  previewProjectDataImport(
-    input: ProjectDataImportInput | Uint8Array,
-  ): Promise<ProjectDataImportPreviewWithFolderStatus>;
-  /** Validates, backs up and imports; the search index is synced before it resolves. */
-  importProjectData(input: ProjectDataImportInput | Uint8Array): Promise<ProjectDataImportResult>;
+  /** Writes the portable export of `scope` to `target`, which must not exist yet, in bounded memory. */
+  exportProjectData(scope: ProjectDataExportScope, target: string): Promise<{ bytes: number }>;
+  /** Streams and validates the uploaded request, then counts what an import would change. */
+  previewProjectDataImport(upload: ProjectDataImportUpload): Promise<ProjectDataImportPreviewWithFolderStatus>;
+  /** Streams and validates the uploaded request, backs up and imports; the search index is synced before it resolves. */
+  importProjectData(upload: ProjectDataImportUpload): Promise<ProjectDataImportResult>;
   close(): Promise<void>;
 }
 
@@ -52,6 +52,8 @@ export interface RouteServices {
   agentConnections(): SystemAgentConnections;
   userServiceStatus(): UserServiceStatus | Promise<UserServiceStatus>;
   backgroundStore: BackgroundStoreOperations;
+  /** Where large uploads and exports are staged: `tmp` beside the database (see transfer-workspace.ts). */
+  transferRoot: string;
   /** The health instance proof for this request's challenge header, or undefined when none applies. */
   instanceProof(request: IncomingMessage): string | undefined;
 }

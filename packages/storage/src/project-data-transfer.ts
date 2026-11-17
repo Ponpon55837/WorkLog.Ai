@@ -41,6 +41,8 @@ import {
   runReadTransaction,
   type ProjectDataTransferErrorCode,
 } from "./project-data-export.js";
+import { writeProjectDataExport } from "./project-data-export-stream.js";
+import { hashProjectDataImportInput, hydrateRow, type ProjectDataSpill } from "./project-data-spill.js";
 import { remapPathPrefix, storedProjectRoot } from "./project-path-remap.js";
 import { databaseUnavailableReason } from "./sqlite-errors.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
@@ -184,6 +186,38 @@ const IMMUTABLE_PARENT_COLUMNS: Partial<Record<ProjectDataTable, readonly string
   outstanding_cleanup_request_items: ["request_id", "item_id", "source_session_id"],
   outstanding_cleanup_proposals: ["request_id", "request_item_id"],
 };
+/** Content conflicts leave the local row in place, so rows that depend on it can still be imported. */
+const NON_BLOCKING_CONFLICTS: ReadonlySet<ProjectDataImportConflictCategory> = new Set(["content", "newer_content"]);
+/** Columns that hold machine-specific paths; a row differing only here is a path conflict. */
+const PATH_COLUMNS: Partial<Record<ProjectDataTable, readonly string[]>> = { raw_snapshots: ["source_path"] };
+/**
+ * Columns the planner reads or changes on an imported row besides ids and parent ids (every `id` and `*_id` column),
+ * the unique, version-time, parent and path columns listed above and the derived columns it copies from the local
+ * row. A streamed import keeps them in memory; every other long value waits in the spill file until the row is
+ * compared or written. tests/storage/project-data-import-stream.test.ts plans with every other value spilled and
+ * fails on any read of one, so a planner change that needs another column fails there first.
+ */
+const PLANNER_VALUE_COLUMNS: ReadonlySet<string> = new Set([
+  "status",
+  "root_path",
+  "name",
+  "repository_url",
+  "version",
+  "kind",
+  "target_type",
+  "target_status",
+  "review_status",
+  "to_status",
+  "scope_type",
+  "source_session_ids_json",
+  "period",
+  "range_from",
+  "range_to",
+  "state",
+  "snoozed_until",
+  "redaction_count",
+]);
+const plannerColumnCache = new Map<ProjectDataTable, ReadonlySet<string>>();
 /** Temporary shift while renumbering local page versions, so the unique (page, version) index never collides mid-update. */
 const PAGE_VERSION_OFFSET = 1_000_000;
 const CONFLICT_GROUP_SAMPLE_LIMIT = 5;
@@ -207,7 +241,7 @@ function firstIssueMessage(issues: Parameters<typeof validationIssueMessage>[0][
   return validationIssueMessage(issues[0]) ?? "欄位驗證失敗。";
 }
 
-function assertImportableSchemaVersion(schemaVersion: number): void {
+export function assertImportableSchemaVersion(schemaVersion: number): void {
   if (schemaVersion > LATEST_SCHEMA_VERSION) {
     throw new ProjectDataTransferError(
       "unsupported_schema",
@@ -222,6 +256,28 @@ function assertImportableSchemaVersion(schemaVersion: number): void {
   }
 }
 
+/** The columns of `table` that a streamed import keeps in memory however long they are (PLANNER_VALUE_COLUMNS). */
+export function plannerColumns(table: ProjectDataTable): ReadonlySet<string> {
+  let columns = plannerColumnCache.get(table);
+  if (!columns) {
+    const listed = [
+      ...(UNIQUE_FIELDS[table] ?? []).flat(),
+      ...(VERSION_TIME_FIELDS[table] ?? []),
+      ...(IMMUTABLE_PARENT_COLUMNS[table] ?? []),
+      ...(PATH_COLUMNS[table] ?? []),
+      ...(LOCAL_DERIVED_FIELDS[table] ?? []),
+    ];
+    columns = new Set(
+      projectDataExportTableColumns[table].filter(
+        (column) =>
+          column === "id" || column.endsWith("_id") || PLANNER_VALUE_COLUMNS.has(column) || listed.includes(column),
+      ),
+    );
+    plannerColumnCache.set(table, columns);
+  }
+  return columns;
+}
+
 /**
  * An import input that has passed every validation rule exactly once: the bundle schema with its per-row rules, the
  * import options, the supported schema range, and then the portable redaction. Only `validate` creates one, and the
@@ -233,7 +289,21 @@ export class ValidatedProjectDataImport {
     /** The redacted input the planner reads. Planning copies its rows, so the same input can be planned again. */
     public readonly input: ProjectDataImportInput,
     public readonly redactions: RedactionSummary,
+    /** Holds the long values of a streamed import; its rows are hydrated from it (project-data-spill.ts). */
+    private readonly spill?: ProjectDataSpill,
   ) {}
+
+  /**
+   * An input the streaming reader has checked with the same rules as `validate` (project-data-import-stream.ts).
+   * Not exported from the package: only that reader may vouch for an input this way.
+   */
+  public static fromStream(
+    input: ProjectDataImportInput,
+    redactions: RedactionSummary,
+    spill: ProjectDataSpill,
+  ): ValidatedProjectDataImport {
+    return new ValidatedProjectDataImport(input, redactions, spill);
+  }
 
   public static validate(value: unknown): ValidatedProjectDataImport {
     try {
@@ -272,7 +342,19 @@ export class ValidatedProjectDataImport {
         `匯入選項格式錯誤：${firstIssueMessage(parsed.error.issues)}`,
       );
     }
-    return new ValidatedProjectDataImport({ bundle: this.input.bundle, ...parsed.data }, this.redactions);
+    return new ValidatedProjectDataImport({ bundle: this.input.bundle, ...parsed.data }, this.redactions, this.spill);
+  }
+
+  /** The sha256 of the input as JSON, which the import audit keeps; hashed row by row, never built as one string. */
+  public sourceDigest(): string {
+    const hash = createHash("sha256");
+    hashProjectDataImportInput(hash, this.input);
+    return hash.digest("hex");
+  }
+
+  /** Removes the spill file of a streamed import; the input cannot be planned afterwards. Safe to call twice. */
+  public dispose(): void {
+    this.spill?.dispose();
   }
 }
 
@@ -316,11 +398,6 @@ interface PlannedImport {
   backedUp: boolean;
   backupFileName?: string;
 }
-
-/** Content conflicts leave the local row in place, so rows that depend on it can still be imported. */
-const NON_BLOCKING_CONFLICTS: ReadonlySet<ProjectDataImportConflictCategory> = new Set(["content", "newer_content"]);
-/** Columns that hold machine-specific paths; a row differing only here is a path conflict. */
-const PATH_COLUMNS: Partial<Record<ProjectDataTable, readonly string[]>> = { raw_snapshots: ["source_path"] };
 
 function emptyCounts(): Record<ProjectDataTable, number> {
   return Object.fromEntries(PROJECT_DATA_TABLES.map((table) => [table, 0])) as Record<ProjectDataTable, number>;
@@ -643,7 +720,8 @@ function sameComparableColumns(table: ProjectDataTable, left: ProjectDataRow, ri
  * Compares a local row with an already sanitized imported row, ignoring columns each machine derives itself.
  * The local row is redacted with the same rules first, so text masked only by the newer rules is not a difference.
  */
-function equalRows(table: ProjectDataTable, local: ProjectDataRow, imported: ProjectDataRow): boolean {
+function equalRows(table: ProjectDataTable, local: ProjectDataRow, light: ProjectDataRow): boolean {
+  const imported = hydrateRow(light);
   if (sameComparableColumns(table, local, imported)) {
     return true;
   }
@@ -1378,6 +1456,8 @@ function planExistingRow(
     addPlan(table, row, "skip");
     return;
   }
+  // The comparisons below read every column; the plan keeps the light row, which is hydrated again when written.
+  const full = hydrateRow(row);
   const pathColumns = PATH_COLUMNS[table] ?? [];
   if (
     pathColumns.length > 0 &&
@@ -1388,7 +1468,7 @@ function planExistingRow(
           table,
           column,
           projectDataColumnValue(table, current, column),
-          projectDataColumnValue(table, row, column),
+          projectDataColumnValue(table, full, column),
         ),
     )
   ) {
@@ -1950,7 +2030,7 @@ function rowValues(table: ProjectDataTable, row: ProjectDataRow, columns: readon
 }
 
 function insertRow(table: ProjectDataTable, row: ProjectDataRow, statement: InsertStatement): void {
-  statement.run(...rowValues(table, row, projectDataExportTableColumns[table]));
+  statement.run(...rowValues(table, hydrateRow(row), projectDataExportTableColumns[table]));
 }
 
 function updatableColumns(table: ProjectDataTable): string[] {
@@ -1962,7 +2042,7 @@ function updatableColumns(table: ProjectDataTable): string[] {
 }
 
 function updateRow(table: ProjectDataTable, row: ProjectDataRow, statement: InsertStatement): void {
-  statement.run(...rowValues(table, row, updatableColumns(table)), String(row.id));
+  statement.run(...rowValues(table, hydrateRow(row), updatableColumns(table)), String(row.id));
 }
 
 /** Moves local page versions to their new numbers in two steps, so no step reuses a number still in use. */
@@ -2041,6 +2121,10 @@ export class ProjectDataTransferService {
     return buildProjectDataExport(readProjectDataRows(this.db, scope), scope, redactArchitectureDiagramSource);
   }
 
+  public writeExport(scope: ProjectDataExportScope, target: string): { bytes: number } {
+    return writeProjectDataExport(this.db, scope, redactArchitectureDiagramSource, target);
+  }
+
   public preview(validated: ValidatedProjectDataImport): ProjectDataImportPreview {
     return runReadTransaction(this.db, () => previewFromPlan(makePlan(this.db, validated)));
   }
@@ -2054,7 +2138,7 @@ export class ProjectDataTransferService {
    * the import releases the lock without writing, backs up and tries once more; the retry always backs up first.
    */
   public import(validated: ValidatedProjectDataImport): ProjectDataImportResult {
-    const sourceDigest = createHash("sha256").update(JSON.stringify(validated.input)).digest("hex");
+    const sourceDigest = validated.sourceDigest();
     for (const alwaysBackUp of [false, true]) {
       const result = this.writePlanned(validated, this.planWithBackup(validated, alwaysBackUp), sourceDigest);
       if (result) return result;

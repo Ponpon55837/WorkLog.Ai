@@ -1,4 +1,3 @@
-import { parentPort, workerData } from "node:worker_threads";
 import { BackupExportStore, type BackupRetentionOptions } from "@work-intelligence/storage/backup-export";
 import type { WorkIntelligenceStore } from "@work-intelligence/storage";
 import type {
@@ -13,11 +12,6 @@ interface BackupWorkerData {
   databasePath: string;
   backup: BackupRetentionOptions;
   expectedSchemaVersion: number;
-}
-
-interface WorkerOperationResult {
-  value: unknown;
-  transferList?: ArrayBuffer[];
 }
 
 function serializeError(error: unknown, depth = 0): SerializedWorkerError {
@@ -91,99 +85,74 @@ class WorkerStores {
   }
 }
 
-/**
- * `content` on a memory block of its own, ready to transfer. A small Buffer is a slice of Node's shared pool: posting it
- * would clone the whole pool (other calls' bytes included) and transferring it would detach the pool in this worker,
- * so that one is copied into its own block first. A large Buffer already owns its block and is sent as is.
- */
-function ownedBytes(content: Buffer): Uint8Array<ArrayBuffer> {
-  const { buffer } = content;
-  const owns = buffer instanceof ArrayBuffer && content.byteOffset === 0 && content.byteLength === buffer.byteLength;
-  return owns ? (content as Uint8Array<ArrayBuffer>) : new Uint8Array(content);
-}
-
-async function executeOperation(
-  stores: WorkerStores,
-  operation: BackupWorkerOperation,
-): Promise<WorkerOperationResult> {
+async function executeOperation(stores: WorkerStores, operation: BackupWorkerOperation): Promise<unknown> {
   switch (operation.type) {
     case "createBackup":
-      return { value: stores.exportStore().createBackup() };
+      return stores.exportStore().createBackup();
     case "backupIfDue":
-      return { value: stores.exportStore().backupIfDue() };
+      return stores.exportStore().backupIfDue();
     case "exportTo":
-      return { value: stores.exportStore().exportTo(operation.target, operation.options) };
-    case "exportProjectData": {
-      // Buffer.from encodes UTF-8 about a third faster than TextEncoder, to the same bytes.
-      const content = ownedBytes(
-        Buffer.from(JSON.stringify(await stores.exportStore().exportProjectData(operation.scope)), "utf8"),
-      );
-      return { value: { content, bytes: content.byteLength }, transferList: [content.buffer] };
-    }
+      return stores.exportStore().exportTo(operation.target, operation.options);
+    case "exportProjectData":
+      return stores.exportStore().writeProjectData(operation.scope, operation.target);
     case "previewProjectDataImport": {
       const store = await stores.previewStore();
-      const { inspectProjectFolder, parseProjectDataImportBytes } = await import("./http.js");
-      const input =
-        operation.input instanceof Uint8Array ? parseProjectDataImportBytes(operation.input) : operation.input;
-      const preview = store.previewProjectDataImport(input);
-      return {
-        value: {
-          ...preview,
-          selectedProjects: preview.selectedProjects.map((project) => ({
-            ...project,
-            folderStatus: inspectProjectFolder(project.rootPath),
-          })),
-        },
-      };
+      const { previewProjectDataImportUpload } = await import("./http.js");
+      return previewProjectDataImportUpload(store, operation.upload);
     }
     case "importProjectData": {
-      // Parsing, validation, planning and the search-index sync after the commit all run here, off the API thread.
+      // Streaming, validation, planning and the search-index sync after the commit all run here, off the API process.
       const store = await stores.importStore();
-      const { parseProjectDataImportBytes } = await import("./http.js");
-      const input =
-        operation.input instanceof Uint8Array ? parseProjectDataImportBytes(operation.input) : operation.input;
-      return { value: store.importProjectData(input) };
+      const { importProjectDataUpload } = await import("./http.js");
+      return importProjectDataUpload(store, operation.upload);
     }
   }
 }
 
-function handleClose(stores: WorkerStores, request: BackupWorkerCloseRequest): void {
-  try {
-    stores.close();
-    parentPort?.postMessage({ id: request.id, ok: true, value: null } satisfies BackupWorkerReply);
-  } catch (error) {
-    parentPort?.postMessage(errorResponse(request.id, error));
-  } finally {
-    parentPort?.close();
-  }
+function send(reply: BackupWorkerReply, callback?: () => void): void {
+  process.send?.(reply, undefined, undefined, callback);
 }
 
-const workerContext = workerData as BackupWorkerData;
-const port = parentPort;
-const stores = new WorkerStores(workerContext);
+/** Set once the API asked this process to close: the channel then closes by request, not because the API is gone. */
+let closing = false;
+
+function handleClose(stores: WorkerStores, request: BackupWorkerCloseRequest): void {
+  closing = true;
+  let reply: BackupWorkerReply;
+  try {
+    stores.close();
+    reply = { id: request.id, ok: true, value: null };
+  } catch (error) {
+    reply = errorResponse(request.id, error);
+  }
+  // Disconnect once the reply is written; with nothing else left the process then exits on its own.
+  send(reply, () => process.disconnect?.());
+}
+
+if (!process.send) {
+  throw new Error("The background worker must be started by the API process.");
+}
+const stores = new WorkerStores(JSON.parse(process.argv[2] ?? "{}") as BackupWorkerData);
 // Operations run one at a time in arrival order, as they did when each was synchronous; a lazy import must not let
 // a later request (or the close) overtake an earlier one.
 let queue: Promise<void> = Promise.resolve();
 
-if (!port) {
-  throw new Error("The backup worker requires a parent thread.");
-}
+// The API process is gone (crashed or killed): nothing can receive a reply, so stop. This runs between operations
+// (each one is synchronous); queued ones are dropped, and SQLite needs no cleanup beyond what a kill would leave.
+process.on("disconnect", () => {
+  if (!closing) process.exit(0);
+});
 
-port.on("message", (message: BackupWorkerRequest | BackupWorkerCloseRequest) => {
+process.on("message", (message: BackupWorkerRequest | BackupWorkerCloseRequest) => {
   queue = queue.then(async () => {
     if ("close" in message) {
       handleClose(stores, message);
       return;
     }
-
     try {
-      const result = await executeOperation(stores, message.operation);
-      port.postMessage(
-        { id: message.id, ok: true, value: result.value } satisfies BackupWorkerReply,
-        result.transferList,
-      );
+      send({ id: message.id, ok: true, value: await executeOperation(stores, message.operation) });
     } catch (error) {
-      port.postMessage(errorResponse(message.id, error));
+      send(errorResponse(message.id, error));
     }
   });
 });

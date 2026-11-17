@@ -1530,8 +1530,13 @@ export function jsonTextExceedsDepth(text: string, limit: number = MAX_STORED_JS
 }
 
 const projectDataValueSchema = z.union([z.string().max(2_000_000), z.number().finite(), z.null()]);
-const projectDataRowSchema = z.record(z.string().regex(/^[a-z_]+$/), projectDataValueSchema);
-const projectDataRows = z.array(projectDataRowSchema).max(200_000);
+/** The most rows one table, and the whole bundle, may hold. */
+export const MAX_PROJECT_DATA_ROWS = 200_000;
+/** The structure of one row (column names and scalar values); the streaming import checks each row with it. */
+export const projectDataImportRowSchema = z.record(z.string().regex(/^[a-z_]+$/), projectDataValueSchema);
+const projectDataRows = z.array(projectDataImportRowSchema).max(MAX_PROJECT_DATA_ROWS);
+/** The row-count rule of one table on its own, so the streaming import reports a too-long table as zod words it. */
+export const projectDataTableLengthSchema = z.array(z.unknown()).max(MAX_PROJECT_DATA_ROWS);
 const projectDataTablesShape = {
   projects: projectDataRows,
   sessions: projectDataRows,
@@ -1565,6 +1570,9 @@ const projectDataTablesShape = {
   outstanding_cleanup_proposals: projectDataRows,
   outstanding_cleanup_proposal_evidence: projectDataRows,
 };
+
+/** The order zod checks the tables in (and reports their issues in); the streaming import ranks issues by it. */
+export const PROJECT_DATA_IMPORT_TABLE_ORDER: readonly string[] = Object.keys(projectDataTablesShape);
 
 export const projectDataExportScopeSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("all") }).strict(),
@@ -1890,7 +1898,187 @@ function validStoredOverlaps(value: string | number | null | undefined): boolean
   }
 }
 
-const projectDataExportObjectSchema = z
+/** One import issue: the path is relative to the bundle (`["tables", table, index, column]`). */
+export interface ProjectDataBundleIssue {
+  path: (string | number)[];
+  message: string;
+}
+
+export type ProjectDataBundleIssueSink = (issue: ProjectDataBundleIssue) => void;
+
+export type ProjectDataRowChecker = (
+  row: Readonly<Record<string, string | number | null>>,
+  index: number,
+  addIssue: ProjectDataBundleIssueSink,
+) => void;
+
+/**
+ * The content rules for the rows of one table, in row order: columns, types, JSON text, statuses, and ids unique within
+ * the table. It keeps only the ids it has seen, so the streaming import checks rows as they arrive; the bundle schema
+ * runs the same checker over every table.
+ */
+export function createProjectDataRowChecker(table: (typeof PROJECT_DATA_TABLES)[number]): ProjectDataRowChecker {
+  const expected = new Set<string>(projectDataExportTableColumns[table]);
+  const defaults = projectDataColumnDefaults[table] ?? {};
+  // Built once per table: the row check runs up to 200,000 times.
+  const required = new Set(projectDataRequiredColumns[table]);
+  const numeric = new Set(projectDataNumericColumns[table] ?? []);
+  const ids = new Set<string>();
+  return (row, index, addIssue) => {
+    // Before any JSON.parse below: a hostile deeply nested value must be rejected by a linear scan, not parsed.
+    const tooDeep = Object.entries(row).find(
+      ([column, value]) => column.endsWith("_json") && typeof value === "string" && jsonTextExceedsDepth(value),
+    );
+    if (tooDeep) {
+      addIssue({
+        path: ["tables", table, index, tooDeep[0]],
+        message: `${table}.${tooDeep[0]} 的巢狀層數不可超過 ${MAX_STORED_JSON_DEPTH} 層。`,
+      });
+      return;
+    }
+    if (
+      table === "session_diagrams" &&
+      (projectDataColumnValue(table, row, "format_version") !== 1 ||
+        (row.kind === "architecture" && (typeof row.source !== "string" || !parseArchitectureDiagram(row.source))))
+    ) {
+      addIssue({
+        path: ["tables", table, index],
+        message: "Invalid diagram version or architecture source.",
+      });
+    }
+    if (
+      table === "attention_preferences" &&
+      (typeof row.revision !== "number" ||
+        !Number.isSafeInteger(row.revision) ||
+        row.revision < 1 ||
+        typeof row.source_revision !== "string" ||
+        !/^[a-f0-9]{64}$/.test(row.source_revision) ||
+        (row.state === "snoozed"
+          ? typeof row.snoozed_until !== "string" || !Number.isFinite(Date.parse(row.snoozed_until))
+          : row.snoozed_until !== null))
+    )
+      addIssue({
+        path: ["tables", table, index],
+        message: "Invalid attention preference.",
+      });
+    if (table === "report_presentations") {
+      let valid = false;
+      try {
+        valid =
+          typeof row.state_json === "string" &&
+          reportPresentationStateSchema.safeParse(JSON.parse(row.state_json)).success &&
+          typeof row.revision === "number" &&
+          Number.isSafeInteger(row.revision) &&
+          row.revision > 0;
+      } catch {
+        /* invalid portable state */
+      }
+      if (!valid)
+        addIssue({
+          path: ["tables", table, index],
+          message: "Invalid report presentation state or revision.",
+        });
+    }
+    if (
+      (table === "knowledge" || table === "knowledge_candidates") &&
+      typeof row.applies_to_json === "string" &&
+      !validStoredAppliesTo(row.applies_to_json)
+    )
+      addIssue({
+        path: ["tables", table, index, "applies_to_json"],
+        message: `${table}.applies_to_json 必須是最多 ${MAX_STORED_APPLIES_TO_ENTRIES} 筆、每筆最多 ${MAX_STORED_APPLIES_TO_ENTRY_LENGTH.toLocaleString("en-US")} 字元的文字清單。`,
+      });
+    if (table === "knowledge_candidates" && !validStoredOverlaps(row.overlaps_json))
+      addIssue({
+        path: ["tables", table, index, "overlaps_json"],
+        message: "Invalid knowledge candidate overlap advisory.",
+      });
+    const keys = Object.keys(row);
+    const missingRequired = projectDataExportTableColumns[table].some(
+      (column) => !Object.hasOwn(row, column) && !(column in defaults),
+    );
+    if (missingRequired || keys.some((key) => !expected.has(key))) {
+      addIssue({
+        path: ["tables", table, index],
+        message: `Each ${table} row must contain exactly the supported columns.`,
+      });
+    }
+    if (typeof row.id !== "string" || row.id.length === 0 || ids.has(row.id)) {
+      addIssue({
+        path: ["tables", table, index, "id"],
+        message: "Each row id must be unique and non-empty.",
+      });
+    } else {
+      ids.add(row.id);
+    }
+    for (const column of projectDataExportTableColumns[table]) {
+      const value = projectDataColumnValue(table, row, column);
+      if (numeric.has(column)) {
+        if (
+          typeof value !== "number" ||
+          !Number.isInteger(value) ||
+          value < 0 ||
+          ((column === "is_current" || column === "changed_files_confirmed") && value > 1)
+        ) {
+          addIssue({
+            path: ["tables", table, index, column],
+            message: `${table}.${column} 必須是有效的整數。`,
+          });
+        }
+      } else if (required.has(column) ? typeof value !== "string" : value !== null && typeof value !== "string") {
+        addIssue({
+          path: ["tables", table, index, column],
+          message: `${table}.${column} 必須是文字或允許的空值。`,
+        });
+      }
+      if (typeof value === "string" && column.endsWith("_json")) {
+        try {
+          JSON.parse(value);
+        } catch {
+          addIssue({
+            path: ["tables", table, index, column],
+            message: `${table}.${column} 必須包含有效的 JSON。`,
+          });
+        }
+      }
+    }
+    if (
+      table === "projects" &&
+      typeof row.root_path === "string" &&
+      !/^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(row.root_path)
+    ) {
+      addIssue({
+        path: ["tables", table, index, "root_path"],
+        message: "專案根路徑必須是絕對路徑。",
+      });
+    }
+    for (const [column, allowed] of Object.entries(projectDataImportStatusValues[table] ?? {})) {
+      if (column === "from_status" && row[column] === null) continue;
+      if (typeof row[column] !== "string" || !allowed.includes(row[column])) {
+        addIssue({
+          path: ["tables", table, index, column],
+          message: `The ${column} value is not supported for ${table}.`,
+        });
+      }
+    }
+  };
+}
+
+/** The checks that follow the rows: the total row count and, for a single-project export, its project. */
+export function checkProjectDataBundleSummary(
+  summary: { totalRows: number; scope: { type: string; projectId?: string }; hasProject(id: string): boolean },
+  addIssue: ProjectDataBundleIssueSink,
+): void {
+  if (summary.totalRows > MAX_PROJECT_DATA_ROWS) {
+    addIssue({ path: ["tables"], message: "The export contains too many records." });
+  }
+  if (summary.scope.type === "project" && !summary.hasProject(summary.scope.projectId ?? "")) {
+    addIssue({ path: ["scope", "projectId"], message: "The selected project is missing from the export." });
+  }
+}
+
+/** The bundle's structure without the row content rules; the streaming import checks its envelope with this. */
+const projectDataExportBaseSchema = z
   .object({
     format: z.literal("work-intelligence-export"),
     formatVersion: z.literal(1),
@@ -1899,191 +2087,29 @@ const projectDataExportObjectSchema = z
     scope: projectDataExportScopeSchema,
     tables: z.object(projectDataTablesShape).strict(),
   })
-  .strict()
-  .superRefine((bundle, context) => {
-    let totalRows = 0;
-    for (const table of PROJECT_DATA_TABLES) {
-      const rows = bundle.tables[table];
-      totalRows += rows.length;
-      const expected = new Set<string>(projectDataExportTableColumns[table]);
-      const defaults = projectDataColumnDefaults[table] ?? {};
-      // Built once per table: the row loop below runs up to 200,000 times.
-      const required = new Set(projectDataRequiredColumns[table]);
-      const numeric = new Set(projectDataNumericColumns[table] ?? []);
-      const ids = new Set<string>();
-      rows.forEach((row, index) => {
-        // Before any JSON.parse below: a hostile deeply nested value must be rejected by a linear scan, not parsed.
-        const tooDeep = Object.entries(row).find(
-          ([column, value]) => column.endsWith("_json") && typeof value === "string" && jsonTextExceedsDepth(value),
-        );
-        if (tooDeep) {
-          context.addIssue({
-            code: "custom",
-            path: ["tables", table, index, tooDeep[0]],
-            message: `${table}.${tooDeep[0]} 的巢狀層數不可超過 ${MAX_STORED_JSON_DEPTH} 層。`,
-          });
-          return;
-        }
-        if (
-          table === "session_diagrams" &&
-          (projectDataColumnValue(table, row, "format_version") !== 1 ||
-            (row.kind === "architecture" && (typeof row.source !== "string" || !parseArchitectureDiagram(row.source))))
-        ) {
-          context.addIssue({
-            code: "custom",
-            path: ["tables", table, index],
-            message: "Invalid diagram version or architecture source.",
-          });
-        }
-        if (
-          table === "attention_preferences" &&
-          (typeof row.revision !== "number" ||
-            !Number.isSafeInteger(row.revision) ||
-            row.revision < 1 ||
-            typeof row.source_revision !== "string" ||
-            !/^[a-f0-9]{64}$/.test(row.source_revision) ||
-            (row.state === "snoozed"
-              ? typeof row.snoozed_until !== "string" || !Number.isFinite(Date.parse(row.snoozed_until))
-              : row.snoozed_until !== null))
-        )
-          context.addIssue({
-            code: "custom",
-            path: ["tables", table, index],
-            message: "Invalid attention preference.",
-          });
-        if (table === "report_presentations") {
-          let valid = false;
-          try {
-            valid =
-              typeof row.state_json === "string" &&
-              reportPresentationStateSchema.safeParse(JSON.parse(row.state_json)).success &&
-              typeof row.revision === "number" &&
-              Number.isSafeInteger(row.revision) &&
-              row.revision > 0;
-          } catch {
-            /* invalid portable state */
-          }
-          if (!valid)
-            context.addIssue({
-              code: "custom",
-              path: ["tables", table, index],
-              message: "Invalid report presentation state or revision.",
-            });
-        }
-        if (
-          (table === "knowledge" || table === "knowledge_candidates") &&
-          typeof row.applies_to_json === "string" &&
-          !validStoredAppliesTo(row.applies_to_json)
-        )
-          context.addIssue({
-            code: "custom",
-            path: ["tables", table, index, "applies_to_json"],
-            message: `${table}.applies_to_json 必須是最多 ${MAX_STORED_APPLIES_TO_ENTRIES} 筆、每筆最多 ${MAX_STORED_APPLIES_TO_ENTRY_LENGTH.toLocaleString("en-US")} 字元的文字清單。`,
-          });
-        if (table === "knowledge_candidates" && !validStoredOverlaps(row.overlaps_json))
-          context.addIssue({
-            code: "custom",
-            path: ["tables", table, index, "overlaps_json"],
-            message: "Invalid knowledge candidate overlap advisory.",
-          });
-        const keys = Object.keys(row);
-        const missingRequired = projectDataExportTableColumns[table].some(
-          (column) => !Object.hasOwn(row, column) && !(column in defaults),
-        );
-        if (missingRequired || keys.some((key) => !expected.has(key))) {
-          context.addIssue({
-            code: "custom",
-            path: ["tables", table, index],
-            message: `Each ${table} row must contain exactly the supported columns.`,
-          });
-        }
-        if (typeof row.id !== "string" || row.id.length === 0 || ids.has(row.id)) {
-          context.addIssue({
-            code: "custom",
-            path: ["tables", table, index, "id"],
-            message: "Each row id must be unique and non-empty.",
-          });
-        } else {
-          ids.add(row.id);
-        }
-        for (const column of projectDataExportTableColumns[table]) {
-          const value = projectDataColumnValue(table, row, column);
-          if (numeric.has(column)) {
-            if (
-              typeof value !== "number" ||
-              !Number.isInteger(value) ||
-              value < 0 ||
-              ((column === "is_current" || column === "changed_files_confirmed") && value > 1)
-            ) {
-              context.addIssue({
-                code: "custom",
-                path: ["tables", table, index, column],
-                message: `${table}.${column} 必須是有效的整數。`,
-              });
-            }
-          } else if (required.has(column) ? typeof value !== "string" : value !== null && typeof value !== "string") {
-            context.addIssue({
-              code: "custom",
-              path: ["tables", table, index, column],
-              message: `${table}.${column} 必須是文字或允許的空值。`,
-            });
-          }
-          if (typeof value === "string" && column.endsWith("_json")) {
-            try {
-              JSON.parse(value);
-            } catch {
-              context.addIssue({
-                code: "custom",
-                path: ["tables", table, index, column],
-                message: `${table}.${column} 必須包含有效的 JSON。`,
-              });
-            }
-          }
-        }
-        if (
-          table === "projects" &&
-          typeof row.root_path === "string" &&
-          !/^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(row.root_path)
-        ) {
-          context.addIssue({
-            code: "custom",
-            path: ["tables", table, index, "root_path"],
-            message: "專案根路徑必須是絕對路徑。",
-          });
-        }
-        for (const [column, allowed] of Object.entries(projectDataImportStatusValues[table] ?? {})) {
-          if (column === "from_status" && row[column] === null) continue;
-          if (typeof row[column] !== "string" || !allowed.includes(row[column])) {
-            context.addIssue({
-              code: "custom",
-              path: ["tables", table, index, column],
-              message: `The ${column} value is not supported for ${table}.`,
-            });
-          }
-        }
-      });
-    }
-    if (totalRows > 200_000) {
-      context.addIssue({
-        code: "custom",
-        path: ["tables"],
-        message: "The export contains too many records.",
-      });
-    }
-    if (bundle.scope.type === "project") {
-      const projectId = bundle.scope.projectId;
-      if (!bundle.tables.projects.some((project) => project.id === projectId)) {
-        context.addIssue({
-          code: "custom",
-          path: ["scope", "projectId"],
-          message: "The selected project is missing from the export.",
-        });
-      }
-    }
-  });
+  .strict();
 
-/** Let validators recognize pre-23 export shapes; the storage importer separately rejects unsupported versions. */
-export const projectDataExportSchema = z.preprocess((input: unknown) => {
+const projectDataExportObjectSchema = projectDataExportBaseSchema.superRefine((bundle, context) => {
+  const addIssue: ProjectDataBundleIssueSink = (issue) => context.addIssue({ code: "custom", ...issue });
+  let totalRows = 0;
+  for (const table of PROJECT_DATA_TABLES) {
+    const rows = bundle.tables[table];
+    totalRows += rows.length;
+    const checkRow = createProjectDataRowChecker(table);
+    rows.forEach((row, index) => checkRow(row, index, addIssue));
+  }
+  checkProjectDataBundleSummary(
+    {
+      totalRows,
+      scope: bundle.scope,
+      hasProject: (id) => bundle.tables.projects.some((project) => project.id === id),
+    },
+    addIssue,
+  );
+});
+
+/** Adds the tables pre-23 exports lack, so validators recognize those shapes; the importer checks the version. */
+export function withLegacyProjectDataTables(input: unknown): unknown {
   if (!input || typeof input !== "object" || Array.isArray(input)) return input;
   const bundle = input as Record<string, unknown>;
   const tables = bundle.tables;
@@ -2114,7 +2140,13 @@ export const projectDataExportSchema = z.preprocess((input: unknown) => {
       outstanding_cleanup_proposal_evidence: sourceTables.outstanding_cleanup_proposal_evidence ?? [],
     },
   };
-}, projectDataExportObjectSchema);
+}
+
+/** Let validators recognize pre-23 export shapes; the storage importer separately rejects unsupported versions. */
+export const projectDataExportSchema = z.preprocess(withLegacyProjectDataTables, projectDataExportObjectSchema);
+
+/** The bundle envelope with its row content rules left out, for the streaming import (rows are checked one by one). */
+export const projectDataExportEnvelopeSchema = z.preprocess(withLegacyProjectDataTables, projectDataExportBaseSchema);
 
 export const projectDataExportRequestSchema = z
   .object({ scope: z.enum(["all", "project"]), projectId: z.string().trim().min(1).max(200).optional() })
@@ -2176,3 +2208,11 @@ export const projectDataImportInputSchema = z
   .object({ bundle: projectDataExportSchema, ...projectDataImportOptionsShape })
   .strict()
   .superRefine(refineUniqueRemapSources);
+
+/**
+ * The import request without the row content rules or the remap check that follows them: the streaming import checks
+ * the envelope with this, the rows one by one, and then the options with projectDataImportOptionsSchema.
+ */
+export const projectDataImportEnvelopeSchema = z
+  .object({ bundle: projectDataExportEnvelopeSchema, ...projectDataImportOptionsShape })
+  .strict();

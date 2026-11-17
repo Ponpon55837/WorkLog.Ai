@@ -1751,9 +1751,9 @@ try {
         createBackup: () => runColdStartWorker((worker) => worker.createBackup()),
         backupIfDue: () => runColdStartWorker((worker) => worker.backupIfDue()),
         exportTo: (target) => runColdStartWorker((worker) => worker.exportTo(target)),
-        exportProjectData: (scope) => runColdStartWorker((worker) => worker.exportProjectData(scope)),
-        previewProjectDataImport: (input) => runColdStartWorker((worker) => worker.previewProjectDataImport(input)),
-        importProjectData: (input) => runColdStartWorker((worker) => worker.importProjectData(input)),
+        exportProjectData: (scope, target) => runColdStartWorker((worker) => worker.exportProjectData(scope, target)),
+        previewProjectDataImport: (upload) => runColdStartWorker((worker) => worker.previewProjectDataImport(upload)),
+        importProjectData: (upload) => runColdStartWorker((worker) => worker.importProjectData(upload)),
         async close() {
           await Promise.all([...coldStartWorkers].map((worker) => worker.close()));
           await waitForColdStartWorkersClosed();

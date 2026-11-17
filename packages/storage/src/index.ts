@@ -42,6 +42,15 @@ export {
   type ProjectDataTransferErrorCode,
 } from "./project-data-transfer.js";
 export {
+  MAX_IMPORT_ROW_BYTES,
+  ProjectDataImportSyntaxError,
+  readProjectDataImportBytes,
+  readProjectDataImportFile,
+  type ProjectDataImportEnvelope,
+  type ProjectDataImportStreamOptions,
+  type ProjectDataImportSyntaxErrorKind,
+} from "./project-data-import-stream.js";
+export {
   assertDatabaseSchemaVersion,
   DatabaseInitializationError,
   type DatabaseInitializationErrorCode,

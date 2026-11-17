@@ -1,4 +1,5 @@
-// Cold-start benchmark for the backup/export worker, using the built dist output the app ships with.
+// Cold-start benchmark for the background worker (a child process since 1.6.48), using the built dist output the app
+// ships with.
 //
 // Usage:
 //   pnpm --filter @work-intelligence/storage --filter @work-intelligence/server build
@@ -6,16 +7,16 @@
 //
 // Each run is a fresh Node process on a synthetic database. It reports, per run:
 //   import:  time to import the backup worker client in the API process (not part of the worker's own start)
-//   export:  time from starting a fresh worker thread to its first completed project-data export (the worker's
-//            module loading is inside it)
+//   export:  time from forking a fresh worker process to its first completed project-data export, written to a file
+//            (the fork and the child's module loading are inside it)
 //   process: wall time of the whole child process
 // Prints median and p90 over the runs. --hash prints the sha256 of the export bytes (byte-identity evidence).
 import console from "node:console";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL, URL } from "node:url";
 import { performance } from "node:perf_hooks";
@@ -41,11 +42,14 @@ async function runChild(databasePath) {
   );
   const importMs = performance.now() - importStart;
   const worker = new BackupWorkerClient(databasePath);
+  const directory = mkdtempSync(join(dirname(databasePath), "export-"));
+  const target = join(directory, "export.json");
   const exportStart = performance.now();
-  const exported = await worker.exportProjectData({ type: "all" });
+  await worker.exportProjectData({ type: "all" }, target);
   const exportMs = performance.now() - exportStart;
   await worker.close();
-  const hash = createHash("sha256").update(exported.content).digest("hex");
+  const hash = createHash("sha256").update(readFileSync(target)).digest("hex");
+  rmSync(directory, { recursive: true, force: true });
   process.stdout.write(JSON.stringify({ importMs, exportMs, hash }));
 }
 

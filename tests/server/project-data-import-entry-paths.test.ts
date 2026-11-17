@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProjectDataExport } from "@work-intelligence/core";
-import { projectDataExportSchema, projectDataImportInputSchema } from "../../packages/schema/src/index.js";
+import {
+  projectDataExportSchema,
+  projectDataImportEnvelopeSchema,
+  projectDataImportInputSchema,
+} from "../../packages/schema/src/index.js";
 import {
   LATEST_SCHEMA_VERSION,
   ProjectDataTransferError,
@@ -287,21 +291,25 @@ describe("project-data import entry paths", () => {
     const bundle = exportedBundle();
     const inputParse = vi.spyOn(projectDataImportInputSchema, "safeParse");
     const bundleParse = vi.spyOn(projectDataExportSchema, "safeParse");
-    const counted = async (run: () => unknown): Promise<number> => {
+    const envelopeParse = vi.spyOn(projectDataImportEnvelopeSchema, "safeParse");
+    /** Whole-input validations of one run: the input schema in memory, or the envelope schema of a streamed file. */
+    const counted = async (run: () => unknown): Promise<{ input: number; streamed: number }> => {
       inputParse.mockClear();
+      envelopeParse.mockClear();
       await run();
       expect(bundleParse).not.toHaveBeenCalled();
-      return inputParse.mock.calls.length;
+      return { input: inputParse.mock.calls.length, streamed: envelopeParse.mock.calls.length };
     };
 
     const direct = destination();
-    expect(await counted(() => direct.store.previewProjectDataImport({ bundle }))).toBe(1);
-    expect(await counted(() => direct.store.importProjectData({ bundle }))).toBe(1);
+    expect(await counted(() => direct.store.previewProjectDataImport({ bundle }))).toEqual({ input: 1, streamed: 0 });
+    expect(await counted(() => direct.store.importProjectData({ bundle }))).toEqual({ input: 1, streamed: 0 });
 
     const inline = destination();
     const inlineUrl = await listen(createApiHandler(inline.store));
-    expect(await counted(() => post(inlineUrl, "/api/import/preview", { bundle }))).toBe(1);
-    expect(await counted(() => post(inlineUrl, "/api/import", { bundle }))).toBe(1);
+    // REST and the CLI stream the file: rows are checked one at a time and the envelope once, never the whole input.
+    expect(await counted(() => post(inlineUrl, "/api/import/preview", { bundle }))).toEqual({ input: 0, streamed: 1 });
+    expect(await counted(() => post(inlineUrl, "/api/import", { bundle }))).toEqual({ input: 0, streamed: 1 });
 
     const cli = destination();
     const root = createRoot();
@@ -315,7 +323,7 @@ describe("project-data import entry paths", () => {
         confirmPortableImport: async () => true,
       });
     // One validation covers the preview and the import that follows it.
-    expect(await counted(cliRun)).toBe(1);
+    expect(await counted(cliRun)).toEqual({ input: 0, streamed: 1 });
     expect(cli.store.listProjects()).toHaveLength(1);
   });
 });

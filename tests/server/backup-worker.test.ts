@@ -1,10 +1,19 @@
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ProjectDataExport, ProjectDataImportInput } from "@work-intelligence/core";
+import type { ProjectDataExport } from "@work-intelligence/core";
 import {
   isDatabaseBusyError,
   LATEST_SCHEMA_VERSION,
@@ -14,11 +23,12 @@ import {
 import { BackupWorkerOutOfMemoryError } from "../../apps/server/src/backup-worker-errors.js";
 import {
   BackupWorkerClient,
-  BACKUP_WORKER_RESOURCE_LIMITS,
+  BACKUP_WORKER_HEAP_MB,
   DEFAULT_IDLE_TIMEOUT_MS,
   HEAVY_IDLE_TIMEOUT_MS,
 } from "../../apps/server/src/backup-worker-client.js";
-import { failWorkerWithOutOfMemory, holdWorkerRequests } from "../helpers/worker-out-of-memory.js";
+import type { ProjectDataImportUpload } from "../../apps/server/src/routes/router.js";
+import { writeImportRequest, writeSyntheticProjectExport } from "../helpers/synthetic-project-export.js";
 import { undoMigrationsAfter } from "../helpers/schema-migration-fixture.js";
 
 const roots: string[] = [];
@@ -39,8 +49,20 @@ function syntheticProject(store: WorkIntelligenceStore, projectRoot: string): vo
   if (result.outcome !== "finalized") throw new Error("Could not create the synthetic worker Session.");
 }
 
-function smallInvalidImportBytes(): Uint8Array {
-  return new TextEncoder().encode('{"bundle":{"padding":[0]}}');
+/** An import request body in its own transfer directory, as the REST route hands it to the worker. */
+function upload(root: string, content: string): ProjectDataImportUpload {
+  const directory = mkdtempSync(join(root, "import-"));
+  const path = join(directory, "import.json");
+  writeFileSync(path, content);
+  return { path, directory };
+}
+
+/** The portable export of every project, written by the worker to a fresh file and read back. */
+async function exportedText(worker: BackupWorkerClient, root: string): Promise<{ text: string; bytes: number }> {
+  const directory = mkdtempSync(join(root, "export-"));
+  const target = join(directory, "export.json");
+  const { bytes } = await worker.exportProjectData({ type: "all" }, target);
+  return { text: readFileSync(target, "utf8"), bytes };
 }
 
 function assertHealthy(path: string): void {
@@ -50,10 +72,6 @@ function assertHealthy(path: string): void {
   } finally {
     database.close();
   }
-}
-
-function decodeProjectDataExport(content: string | Uint8Array): string {
-  return typeof content === "string" ? content : new TextDecoder().decode(content);
 }
 
 describe("backup worker", () => {
@@ -103,26 +121,15 @@ describe("backup worker", () => {
       expect(backup.outcome).toBe("database_backups");
       const exportedDatabase = await worker.exportTo(join(root, "export.sqlite"));
       expect(exportedDatabase.bytes).toBeGreaterThan(0);
-      const exportedData = await worker.exportProjectData({ type: "all" });
-      if (!(exportedData.content instanceof Uint8Array)) throw new Error("Expected transferred UTF-8 export bytes.");
-      expect(exportedData.bytes).toBe(exportedData.content.byteLength);
-      expect(
-        (JSON.parse(decodeProjectDataExport(exportedData.content)) as ProjectDataExport).tables.sessions,
-      ).toHaveLength(1);
-      // A small export is a slice of Node's buffer pool: it is copied onto its own block before the transfer, so the
-      // worker's pool survives, a second export is whole, and no other bytes of the pool come along.
-      const again = await worker.exportProjectData({ type: "all" });
-      expect(again.bytes).toBeLessThan(Buffer.poolSize / 2);
-      if (!(again.content instanceof Uint8Array)) throw new Error("Expected transferred UTF-8 export bytes.");
-      expect({ offset: again.content.byteOffset, block: again.content.buffer.byteLength }).toEqual({
-        offset: 0,
-        block: again.bytes,
-      });
-      const withoutStamp = (content: Uint8Array) => {
-        const { exportedAt: _exportedAt, ...rest } = JSON.parse(decodeProjectDataExport(content)) as ProjectDataExport;
+      const exportedData = await exportedText(worker, root);
+      expect(exportedData.bytes).toBe(Buffer.byteLength(exportedData.text));
+      expect((JSON.parse(exportedData.text) as ProjectDataExport).tables.sessions).toHaveLength(1);
+      const again = await exportedText(worker, root);
+      const withoutStamp = (text: string) => {
+        const { exportedAt: _exportedAt, ...rest } = JSON.parse(text) as ProjectDataExport;
         return rest;
       };
-      expect(withoutStamp(again.content)).toEqual(withoutStamp(exportedData.content));
+      expect(withoutStamp(again.text)).toEqual(withoutStamp(exportedData.text));
       expect((await worker.createBackup()).outcome).toBe("database_backups");
       const staging = await worker.exportTo(join(root, "staging.sqlite"), { durable: false });
       expect(staging.bytes).toBe(statSync(join(root, "staging.sqlite")).size);
@@ -149,9 +156,9 @@ describe("backup worker", () => {
     const worker = new BackupWorkerClient(databasePath);
     const lock = new DatabaseSync(databasePath);
     try {
-      await worker.exportProjectData({ type: "all" });
+      await exportedText(worker, root);
       lock.exec("BEGIN EXCLUSIVE");
-      const failure = await worker.exportProjectData({ type: "all" }).then(
+      const failure = await exportedText(worker, root).then(
         () => undefined,
         (error: unknown) => error,
       );
@@ -184,31 +191,23 @@ describe("backup worker", () => {
       if (backup.outcome !== "database_backups") throw new Error("The file database should be backed up.");
       expect(existsSync(join(root, "backups", backup.created.fileName))).toBe(true);
 
-      const exported = await worker.exportProjectData({ type: "all" });
-      const exportedContent = decodeProjectDataExport(exported.content);
-      expect(exported.content).toBeInstanceOf(Uint8Array);
-      expect(exported.bytes).toBe(Buffer.byteLength(exportedContent));
-      const bundle = JSON.parse(exportedContent) as ProjectDataExport;
+      const exported = await exportedText(worker, root);
+      const bundle = JSON.parse(exported.text) as ProjectDataExport;
       expect(bundle.tables.sessions).toHaveLength(1);
 
-      const preview = await worker.previewProjectDataImport({ bundle });
+      const request = JSON.stringify({ bundle });
+      const preview = await worker.previewProjectDataImport(upload(root, request));
       expect(preview.outcome).toBe("project_data_import_preview");
       expect(preview.skipped.sessions).toBe(1);
       expect(preview.selectedProjects[0]?.folderStatus).toBe("found");
-
-      const transferredPreview = await worker.previewProjectDataImport(
-        new TextEncoder().encode(JSON.stringify({ bundle })),
-      );
-      expect(transferredPreview.outcome).toBe("project_data_import_preview");
-      expect(transferredPreview.skipped.sessions).toBe(1);
-      await expect(worker.previewProjectDataImport(new TextEncoder().encode("{"))).rejects.toMatchObject({
+      await expect(worker.previewProjectDataImport(upload(root, "{"))).rejects.toMatchObject({
         name: "RequestBodyError",
         statusCode: 400,
         message: "Invalid JSON request body.",
       });
-
-      const invalidInput = { bundle: {} as ProjectDataExport } as ProjectDataImportInput;
-      await expect(worker.previewProjectDataImport(invalidInput)).rejects.toBeInstanceOf(ProjectDataTransferError);
+      await expect(worker.previewProjectDataImport(upload(root, '{"bundle":{}}'))).rejects.toBeInstanceOf(
+        ProjectDataTransferError,
+      );
 
       const exportDirectory = join(root, "user-selected-export");
       mkdirSync(exportDirectory);
@@ -218,7 +217,7 @@ describe("backup worker", () => {
       expect(readdirSync(exportDirectory)).toEqual(["whole-database.sqlite"]);
       assertHealthy(wholeDatabasePath);
 
-      const activePreview = worker.previewProjectDataImport({ bundle });
+      const activePreview = worker.previewProjectDataImport(upload(root, request));
       const workerClosing = worker.close();
       expect((await activePreview).outcome).toBe("project_data_import_preview");
       await workerClosing;
@@ -244,7 +243,7 @@ describe("backup worker", () => {
     };
 
     try {
-      await worker.exportProjectData({ type: "all" });
+      await exportedText(worker, root);
       const previousLifetime = workerState.lifetime;
       if (!previousLifetime) throw new Error("Expected a live backup worker lifetime.");
 
@@ -275,17 +274,17 @@ describe("backup worker", () => {
     const databasePath = join(root, "work-intelligence.sqlite");
     const store = new WorkIntelligenceStore(databasePath);
     const worker = new BackupWorkerClient(databasePath, {}, LATEST_SCHEMA_VERSION, { idleTimeoutMs: 25 });
-    const workerState = worker as unknown as { lifetime?: { worker: { threadId: number } } };
+    const workerState = worker as unknown as { lifetime?: { child: { pid?: number } } };
 
     try {
-      await worker.exportProjectData({ type: "all" });
-      const firstThreadId = workerState.lifetime?.worker.threadId;
-      expect(firstThreadId).toBeDefined();
+      await exportedText(worker, root);
+      const firstPid = workerState.lifetime?.child.pid;
+      expect(firstPid).toBeDefined();
       await new Promise((resolve) => setTimeout(resolve, 250));
       expect(workerState.lifetime).toBeUndefined();
 
-      await worker.exportProjectData({ type: "all" });
-      expect(workerState.lifetime?.worker.threadId).not.toBe(firstThreadId);
+      await exportedText(worker, root);
+      expect(workerState.lifetime?.child.pid).not.toBe(firstPid);
     } finally {
       await worker.close();
       store.close();
@@ -312,7 +311,7 @@ describe("backup worker", () => {
 });
 
 interface IdleWorkerState {
-  lifetime?: { worker: { threadId: number }; heavy: boolean; retiring: boolean };
+  lifetime?: { child: { pid?: number }; heavy: boolean; retiring: boolean };
 }
 
 function createIdleFixture(options?: { idleTimeoutMs?: number }) {
@@ -325,7 +324,7 @@ function createIdleFixture(options?: { idleTimeoutMs?: number }) {
   return { root, store, worker, state };
 }
 
-/** Waits on real I/O (not the faked timers) until the worker thread has exited. */
+/** Waits on real I/O (not the faked timers) until the worker process has exited. */
 async function waitForWorkerExit(state: IdleWorkerState): Promise<void> {
   const deadline = Date.now() + 10_000;
   while (state.lifetime && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
@@ -339,14 +338,14 @@ describe("backup worker idle policy", () => {
 
   it("exits one heavy-idle period after a heavy operation and not before", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const { store, worker, state } = createIdleFixture();
+    const { root, store, worker, state } = createIdleFixture();
     try {
-      await worker.exportProjectData({ type: "all" });
-      const threadId = state.lifetime?.worker.threadId;
-      expect(threadId).toBeDefined();
+      await exportedText(worker, root);
+      const pid = state.lifetime?.child.pid;
+      expect(pid).toBeDefined();
 
       await vi.advanceTimersByTimeAsync(HEAVY_IDLE_TIMEOUT_MS - 1);
-      expect(state.lifetime?.worker.threadId).toBe(threadId);
+      expect(state.lifetime?.child.pid).toBe(pid);
 
       await vi.advanceTimersByTimeAsync(1);
       await waitForWorkerExit(state);
@@ -380,15 +379,15 @@ describe("backup worker idle policy", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const { root, store, worker, state } = createIdleFixture();
     try {
-      await worker.exportProjectData({ type: "all" });
-      const threadId = state.lifetime?.worker.threadId;
+      await exportedText(worker, root);
+      const pid = state.lifetime?.child.pid;
       await vi.advanceTimersByTimeAsync(HEAVY_IDLE_TIMEOUT_MS - 100);
 
       // A request that lands just before the timer would fire cancels it and keeps the same worker.
       await worker.exportTo(join(root, "second.sqlite"));
-      expect(state.lifetime?.worker.threadId).toBe(threadId);
+      expect(state.lifetime?.child.pid).toBe(pid);
       await vi.advanceTimersByTimeAsync(HEAVY_IDLE_TIMEOUT_MS - 1);
-      expect(state.lifetime?.worker.threadId).toBe(threadId);
+      expect(state.lifetime?.child.pid).toBe(pid);
 
       await vi.advanceTimersByTimeAsync(1);
       await waitForWorkerExit(state);
@@ -400,17 +399,17 @@ describe("backup worker idle policy", () => {
 
   it("does not cut an in-flight request when the idle period elapses", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const { store, worker, state } = createIdleFixture();
+    const { root, store, worker, state } = createIdleFixture();
     try {
-      await worker.exportProjectData({ type: "all" });
-      const threadId = state.lifetime?.worker.threadId;
+      await exportedText(worker, root);
+      const pid = state.lifetime?.child.pid;
       await vi.advanceTimersByTimeAsync(HEAVY_IDLE_TIMEOUT_MS - 1);
 
-      const inFlight = worker.exportProjectData({ type: "all" });
+      const inFlight = exportedText(worker, root);
       await vi.advanceTimersByTimeAsync(HEAVY_IDLE_TIMEOUT_MS * 2);
 
       expect((await inFlight).bytes).toBeGreaterThan(0);
-      expect(state.lifetime?.worker.threadId).toBe(threadId);
+      expect(state.lifetime?.child.pid).toBe(pid);
     } finally {
       await worker.close();
       store.close();
@@ -419,9 +418,9 @@ describe("backup worker idle policy", () => {
 
   it("does not keep a heavy worker's short timeout for the next worker", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const { store, worker, state } = createIdleFixture();
+    const { root, store, worker, state } = createIdleFixture();
     try {
-      await worker.exportProjectData({ type: "all" });
+      await exportedText(worker, root);
       await vi.advanceTimersByTimeAsync(HEAVY_IDLE_TIMEOUT_MS);
       await waitForWorkerExit(state);
 
@@ -437,19 +436,19 @@ describe("backup worker idle policy", () => {
 
   it("starts a fresh worker for a request that arrives while the idle worker is terminating", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const { store, worker, state } = createIdleFixture();
+    const { root, store, worker, state } = createIdleFixture();
     try {
-      await worker.exportProjectData({ type: "all" });
-      const firstThreadId = state.lifetime?.worker.threadId;
+      await exportedText(worker, root);
+      const firstThreadId = state.lifetime?.child.pid;
 
       // The idle timer fires and the old worker starts retiring; the next request arrives before it has exited.
       await vi.advanceTimersByTimeAsync(HEAVY_IDLE_TIMEOUT_MS);
       expect(state.lifetime?.retiring).toBe(true);
-      const next = worker.exportProjectData({ type: "all" });
+      const next = exportedText(worker, root);
 
       expect((await next).bytes).toBeGreaterThan(0);
-      expect(state.lifetime?.worker.threadId).toBeDefined();
-      expect(state.lifetime?.worker.threadId).not.toBe(firstThreadId);
+      expect(state.lifetime?.child.pid).toBeDefined();
+      expect(state.lifetime?.child.pid).not.toBe(firstThreadId);
     } finally {
       await worker.close();
       store.close();
@@ -458,9 +457,9 @@ describe("backup worker idle policy", () => {
 
   it("lets an explicit idle timeout override both defaults", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const { store, worker, state } = createIdleFixture({ idleTimeoutMs: 40_000 });
+    const { root, store, worker, state } = createIdleFixture({ idleTimeoutMs: 40_000 });
     try {
-      await worker.exportProjectData({ type: "all" });
+      await exportedText(worker, root);
       await vi.advanceTimersByTimeAsync(DEFAULT_IDLE_TIMEOUT_MS + 1);
       expect(state.lifetime).toBeDefined();
 
@@ -473,58 +472,75 @@ describe("backup worker idle policy", () => {
   });
 });
 
+/**
+ * A heap large enough to start the worker (through tsx, as in these tests) and answer a small request, and too small
+ * for the planner's rows of {@link OUT_OF_MEMORY_SESSIONS} Sessions; measured on Linux with Node 22: a 17.5 MiB request
+ * needs 48 MiB and fails at 32, an empty one passes at 20.
+ */
+const OUT_OF_MEMORY_HEAP_MB = 32;
+const OUT_OF_MEMORY_SESSIONS = 4_000;
+
 describe("backup worker memory limits", () => {
-  it("bounds the worker's heap by default to the measured need with headroom", () => {
-    expect(BACKUP_WORKER_RESOURCE_LIMITS).toEqual({ maxOldGenerationSizeMb: 1024, maxYoungGenerationSizeMb: 6 });
+  it("bounds the worker's heap by default like the desktop backend", () => {
+    expect(BACKUP_WORKER_HEAP_MB).toBe(1024);
   });
 
-  it("rejects with a recognizable error when the worker runs out of memory and serves the next request on a new worker", async () => {
+  it("refuses a heap too small to start, before starting anything", async () => {
+    const worker = new BackupWorkerClient(":memory:", {}, LATEST_SCHEMA_VERSION, { heapMb: 8 });
+    await expect(worker.createBackup()).rejects.toBeInstanceOf(RangeError);
+    await worker.close();
+  });
+
+  it("survives a real out-of-memory exit, rejects every queued request, and serves the next one on a new process", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-backup-worker-oom-"));
     roots.push(root);
     const databasePath = join(root, "work-intelligence.sqlite");
     const projectRoot = join(root, "project");
     const store = new WorkIntelligenceStore(databasePath);
     syntheticProject(store, projectRoot);
-    const worker = new BackupWorkerClient(databasePath);
-    const threadIds = new Set<number>();
-    const state = worker as unknown as { lifetime?: { worker: { threadId: number } } };
+    const bundleFile = join(root, "large-export.json");
+    writeSyntheticProjectExport(bundleFile, OUT_OF_MEMORY_SESSIONS);
+    const large = (): ProjectDataImportUpload => {
+      const directory = mkdtempSync(join(root, "import-"));
+      const path = join(directory, "import.json");
+      writeImportRequest(bundleFile, path);
+      return { path, directory };
+    };
+    const worker = new BackupWorkerClient(databasePath, {}, LATEST_SCHEMA_VERSION, { heapMb: OUT_OF_MEMORY_HEAP_MB });
+    const pids = new Set<number>();
+    const state = worker as unknown as { lifetime?: { child: { pid?: number } } };
 
     try {
-      expect((await worker.exportProjectData({ type: "all" })).bytes).toBeGreaterThan(0);
-      threadIds.add(state.lifetime?.worker.threadId ?? -1);
+      const small = JSON.stringify({
+        bundle: JSON.parse((await exportedText(worker, root)).text) as ProjectDataExport,
+      });
+      pids.add(state.lifetime?.child.pid ?? -1);
 
-      // Two requests are queued in the doomed worker: both reject, not only the one that ran out of memory. The
-      // worker never sees them; the injected error ends it while both are pending. A real heap exhaustion can abort the
-      // whole process on Node 24, so the out-of-memory error is injected.
-      holdWorkerRequests(worker);
-      const queued = [
-        worker.previewProjectDataImport(smallInvalidImportBytes()),
-        worker.importProjectData(smallInvalidImportBytes()),
-      ];
-      const settled = Promise.allSettled(queued);
-      await failWorkerWithOutOfMemory(worker, 2);
-      const failures = await settled;
-      for (const failure of failures) {
+      // The import exhausts the heap for real; the preview queued behind it is rejected with the same error, not left
+      // waiting. The test process is a different process, so it is not affected.
+      const settled = await Promise.allSettled([
+        worker.importProjectData(large()),
+        worker.previewProjectDataImport(upload(root, small)),
+      ]);
+      for (const failure of settled) {
         expect(failure.status).toBe("rejected");
         const reason = (failure as PromiseRejectedResult).reason as BackupWorkerOutOfMemoryError;
         expect(reason).toBeInstanceOf(BackupWorkerOutOfMemoryError);
         expect(reason.code).toBe("backup_worker_out_of_memory");
         expect(reason.message).not.toContain(root);
       }
-
-      // The test process survived, and the next request gets a fresh worker that works.
-      const exported = await worker.exportProjectData({ type: "all" });
-      expect(exported.bytes).toBeGreaterThan(0);
-      threadIds.add(state.lifetime?.worker.threadId ?? -1);
-      expect(threadIds.size).toBe(2);
-      const bundle = JSON.parse(decodeProjectDataExport(exported.content)) as ProjectDataExport;
-      expect((await worker.previewProjectDataImport({ bundle })).outcome).toBe("project_data_import_preview");
+      expect(store.listProjects()).toHaveLength(1);
       assertHealthy(databasePath);
+
+      // The next request gets a fresh process that works.
+      expect((await worker.previewProjectDataImport(upload(root, small))).outcome).toBe("project_data_import_preview");
+      pids.add(state.lifetime?.child.pid ?? -1);
+      expect(pids.size).toBe(2);
     } finally {
       await worker.close();
       store.close();
     }
-  }, 60_000);
+  }, 120_000);
 });
 
 afterEach(() => {

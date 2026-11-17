@@ -1,4 +1,4 @@
-import { Worker, type ResourceLimits } from "node:worker_threads";
+import { fork, type ChildProcess } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
@@ -10,14 +10,13 @@ import type {
   DatabaseBackupCreated,
   DatabaseBackupUnavailable,
   ProjectDataExportScope,
-  ProjectDataImportInput,
   ProjectDataImportResult,
 } from "@work-intelligence/core";
 import type { BackupRetentionOptions, ExportOptions } from "@work-intelligence/storage";
 import type {
   BackgroundStoreOperations,
-  ProjectDataExportDocument,
   ProjectDataImportPreviewWithFolderStatus,
+  ProjectDataImportUpload,
 } from "./routes/router.js";
 import { BackupWorkerOutOfMemoryError } from "./backup-worker-errors.js";
 import { RequestBodyError } from "./http.js";
@@ -26,9 +25,9 @@ export type BackupWorkerOperation =
   | { type: "createBackup" }
   | { type: "backupIfDue" }
   | { type: "exportTo"; target: string; options?: ExportOptions }
-  | { type: "exportProjectData"; scope: ProjectDataExportScope }
-  | { type: "previewProjectDataImport"; input: ProjectDataImportInput | Uint8Array }
-  | { type: "importProjectData"; input: ProjectDataImportInput | Uint8Array };
+  | { type: "exportProjectData"; scope: ProjectDataExportScope; target: string }
+  | { type: "previewProjectDataImport"; upload: ProjectDataImportUpload }
+  | { type: "importProjectData"; upload: ProjectDataImportUpload };
 
 export interface BackupWorkerRequest {
   id: number;
@@ -71,7 +70,7 @@ interface PendingRequest {
 }
 
 interface WorkerLifetime {
-  worker: Worker;
+  child: ChildProcess;
   exited: Promise<void>;
   retiring: boolean;
   /** A heavy operation ran in this worker, so it exits quickly once idle. */
@@ -83,8 +82,11 @@ interface WorkerLifetime {
 export interface BackupWorkerClientOptions {
   /** Idle time before the worker exits; one value for every operation (tests use it to pin timing). */
   idleTimeoutMs?: number;
-  /** Replaces {@link BACKUP_WORKER_RESOURCE_LIMITS}; tests use a tiny heap to force an out-of-memory exit. */
-  resourceLimits?: ResourceLimits;
+  /**
+   * Old-generation heap of the process in MiB, instead of {@link BACKUP_WORKER_HEAP_MB} (or the
+   * `WORK_INTELLIGENCE_BACKGROUND_HEAP_MB` override); tests use a tiny heap to force an out-of-memory exit.
+   */
+  heapMb?: number;
 }
 
 export const DEFAULT_IDLE_TIMEOUT_MS = 15_000;
@@ -97,20 +99,19 @@ export const DEFAULT_IDLE_TIMEOUT_MS = 15_000;
  */
 export const HEAVY_IDLE_TIMEOUT_MS = 1_000;
 /**
- * Heap limits of the worker, which has its own isolate beside the API's. Measured on synthetic project data with the
- * desktop flags (`--max-old-space-size=1024 --max-semi-space-size=2`, three runs, median of the worker's peak
- * `heapUsed`): preview 46 MiB for a 10 MB document and 163 MiB for 47.6 MB; import 59 MiB and 193 MiB. The largest
- * accepted import (50 MiB) therefore needs about 210 MiB, and the old generation is set to 1 GiB, five times that.
- * It matches the desktop flag, so a server started without flags (dev, standalone CLI) is bounded the same instead of
- * taking Node's default of about 2 GiB on a 16 GB machine. With the flag present V8 uses the flag and ignores this
- * value; the process then holds at most the API's 1 GiB, this worker's 1 GiB and its buffers. A 6 MiB young
- * generation (three 2 MiB semi-spaces, as the flag gives the API) took the same time as the default 48 MiB on the
- * 47.6 MB import (7.6 s) and kept about 35 MiB less resident.
+ * Heap of the background process. Import, preview and export stream their files, so what they hold is bounded by
+ * the row limits of the schema (200,000 rows), not by the file size; see docs/standalone.md for the measurements. The
+ * flags match the desktop backend's (`--max-old-space-size=1024 --max-semi-space-size=2`), so a server started without
+ * flags (dev, standalone CLI) is bounded the same instead of taking Node's default of about 2 GiB on a 16 GB machine.
+ * Running out of it ends only this process: the API reports `backup_worker_out_of_memory` and keeps serving.
  */
-export const BACKUP_WORKER_RESOURCE_LIMITS: ResourceLimits = {
-  maxOldGenerationSizeMb: 1024,
-  maxYoungGenerationSizeMb: 6,
-};
+export const BACKUP_WORKER_HEAP_MB = 1024;
+const BACKUP_WORKER_SEMI_SPACE_MB = 2;
+export const BACKUP_WORKER_HEAP_ENVIRONMENT = "WORK_INTELLIGENCE_BACKGROUND_HEAP_MB";
+/** The last stderr bytes kept to recognise how the process ended; V8's fatal out-of-memory report fits easily. */
+const STDERR_TAIL_BYTES = 8 * 1024;
+const OUT_OF_MEMORY_REPORT =
+  /JavaScript heap out of memory|Reached heap limit|Allocation failed|Fatal JavaScript out of memory/;
 const HEAVY_OPERATIONS: ReadonlySet<BackupWorkerOperation["type"]> = new Set([
   "exportTo",
   "exportProjectData",
@@ -118,32 +119,40 @@ const HEAVY_OPERATIONS: ReadonlySet<BackupWorkerOperation["type"]> = new Set([
   "importProjectData",
 ]);
 
-function workerEntryUrl(): URL {
+function workerEntryPath(): string {
   const extension = fileURLToPath(import.meta.url).endsWith(".ts") ? "ts" : "js";
-  return new URL(`./backup-worker.${extension}`, import.meta.url);
+  return fileURLToPath(new URL(`./backup-worker.${extension}`, import.meta.url));
 }
 
-function workerOptions(
+function heapMb(option: number | undefined): number {
+  const configured = option ?? Number(process.env[BACKUP_WORKER_HEAP_ENVIRONMENT] || BACKUP_WORKER_HEAP_MB);
+  if (!Number.isSafeInteger(configured) || configured < 16) {
+    throw new RangeError("The background worker heap must be a whole number of MiB, at least 16.");
+  }
+  return configured;
+}
+
+/**
+ * Starts the background process on the same Node binary as the API (the bundled runtime on desktop), with its own
+ * heap flags instead of the API's. In a TypeScript checkout it runs through tsx, like the API.
+ */
+function startWorkerProcess(
   databasePath: string,
   backup: BackupRetentionOptions,
   expectedSchemaVersion: number,
-  resourceLimits: ResourceLimits,
-): ConstructorParameters<typeof Worker>[1] {
-  const entry = workerEntryUrl();
-  const isTypeScript = entry.pathname.endsWith(".ts");
-  return {
-    workerData: { databasePath, backup, expectedSchemaVersion },
-    resourceLimits,
-    ...(isTypeScript
-      ? { execArgv: ["--import", pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href] }
-      : {}),
-  };
-}
-
-function isWorkerOutOfMemory(error: unknown): boolean {
-  return (
-    typeof error === "object" && error !== null && (error as { code?: unknown }).code === "ERR_WORKER_OUT_OF_MEMORY"
-  );
+  heap: number,
+): ChildProcess {
+  const entry = workerEntryPath();
+  const tsx = entry.endsWith(".ts")
+    ? ["--import", pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href]
+    : [];
+  return fork(entry, [JSON.stringify({ databasePath, backup, expectedSchemaVersion })], {
+    execPath: process.execPath,
+    execArgv: [...tsx, `--max-old-space-size=${heap}`, `--max-semi-space-size=${BACKUP_WORKER_SEMI_SPACE_MB}`],
+    serialization: "advanced",
+    stdio: ["ignore", "inherit", "pipe", "ipc"],
+    windowsHide: true,
+  });
 }
 
 function restoredError(error: SerializedWorkerError): Error {
@@ -172,13 +181,11 @@ function restoredError(error: SerializedWorkerError): Error {
   });
 }
 
-function inputTransferBuffer(input: ProjectDataImportInput | Uint8Array): ArrayBuffer | undefined {
-  if (!(input instanceof Uint8Array) || !(input.buffer instanceof ArrayBuffer)) return undefined;
-  if (input.byteOffset !== 0 || input.byteLength !== input.buffer.byteLength) return undefined;
-  return input.buffer;
-}
-
-/** A single database worker for large snapshots and portable import/export preparation. */
+/**
+ * One background process for database snapshots and portable import, preview and export. It is a child process, not
+ * a worker thread: on Node 24 a worker that exhausts its heap can abort the whole process, and a separate process
+ * also gives all of its memory back when it exits.
+ */
 export class BackupWorkerClient implements BackgroundStoreOperations {
   private readonly pending = new Map<number, PendingRequest>();
   private readonly active = new Set<Promise<unknown>>();
@@ -211,18 +218,16 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
     return this.run({ type: "exportTo", target, ...(options ? { options } : {}) });
   }
 
-  public exportProjectData(scope: ProjectDataExportScope): Promise<ProjectDataExportDocument> {
-    return this.run({ type: "exportProjectData", scope });
+  public exportProjectData(scope: ProjectDataExportScope, target: string): Promise<{ bytes: number }> {
+    return this.run({ type: "exportProjectData", scope, target });
   }
 
-  public previewProjectDataImport(
-    input: ProjectDataImportInput | Uint8Array,
-  ): Promise<ProjectDataImportPreviewWithFolderStatus> {
-    return this.run({ type: "previewProjectDataImport", input });
+  public previewProjectDataImport(upload: ProjectDataImportUpload): Promise<ProjectDataImportPreviewWithFolderStatus> {
+    return this.run({ type: "previewProjectDataImport", upload });
   }
 
-  public importProjectData(input: ProjectDataImportInput | Uint8Array): Promise<ProjectDataImportResult> {
-    return this.run({ type: "importProjectData", input });
+  public importProjectData(upload: ProjectDataImportUpload): Promise<ProjectDataImportResult> {
+    return this.run({ type: "importProjectData", upload });
   }
 
   public close(): Promise<void> {
@@ -230,7 +235,7 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
       this.accepting = false;
       clearTimeout(this.idleTimer);
       this.idleTimer = undefined;
-      this.lifetime?.worker.ref();
+      this.lifetime?.child.ref();
       this.closePromise = this.drainAndClose();
     }
     return this.closePromise;
@@ -259,16 +264,11 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
     if (HEAVY_OPERATIONS.has(operation.type)) lifetime.heavy = true;
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { lifetime, resolve: (value) => resolve(value as T), reject });
+      this.addPending(id, { lifetime, resolve: (value) => resolve(value as T), reject });
       try {
-        const request = { id, operation } satisfies BackupWorkerRequest;
-        const transferBuffer =
-          operation.type === "previewProjectDataImport" || operation.type === "importProjectData"
-            ? inputTransferBuffer(operation.input)
-            : undefined;
-        lifetime.worker.postMessage(request, transferBuffer ? [transferBuffer] : []);
+        lifetime.child.send({ id, operation } satisfies BackupWorkerRequest);
       } catch (error) {
-        this.pending.delete(id);
+        this.removePending(id);
         reject(error);
       }
     });
@@ -282,16 +282,22 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
     }
     if (this.lifetime) return this.lifetime;
 
-    const worker = new Worker(
-      workerEntryUrl(),
-      workerOptions(
-        this.databasePath,
-        this.backup,
-        this.expectedSchemaVersion,
-        this.options.resourceLimits ?? BACKUP_WORKER_RESOURCE_LIMITS,
-      ),
+    const child = startWorkerProcess(
+      this.databasePath,
+      this.backup,
+      this.expectedSchemaVersion,
+      heapMb(this.options.heapMb),
     );
-    worker.unref();
+    // Like the worker thread it replaces, the process never keeps the API alive by itself.
+    child.unref();
+    child.channel?.unref();
+    let stderrTail = "";
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (text: string) => {
+      process.stderr.write(text);
+      stderrTail = (stderrTail + text).slice(-STDERR_TAIL_BYTES);
+    });
+    (child.stderr as { unref?: () => void } | null)?.unref?.();
     let resolveExit!: () => void;
     let rejectExit!: (error: unknown) => void;
     const exited = new Promise<void>((resolve, reject) => {
@@ -299,33 +305,39 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
       rejectExit = reject;
     });
     void exited.catch(() => undefined);
-    const lifetime: WorkerLifetime = { worker, exited, retiring: false, heavy: false };
+    const lifetime: WorkerLifetime = { child, exited, retiring: false, heavy: false };
     this.lifetime = lifetime;
 
-    worker.on("message", (message: BackupWorkerReply) => {
+    child.on("message", (message: BackupWorkerReply) => {
       const request = this.pending.get(message.id);
       if (!request || request.lifetime !== lifetime) return;
-      this.pending.delete(message.id);
+      this.removePending(message.id);
       if (message.ok) request.resolve(message.value);
       else request.reject(restoredError(message.error));
     });
-    worker.once("error", (workerError: unknown) => {
-      // The worker is gone either way; an out-of-memory exit gets its own error so the API can say what happened.
-      const error = isWorkerOutOfMemory(workerError)
-        ? new BackupWorkerOutOfMemoryError({ cause: workerError })
-        : workerError;
+    const fail = (error: unknown): void => {
       if (this.lifetime === lifetime) this.lifetime = undefined;
       lifetime.failure = error;
       this.rejectPending(error, lifetime);
       rejectExit(error);
+    };
+    // A process that could not be started has no pid. Other errors (a failed send) reject their own request, and an
+    // exit is reported by "close" below.
+    child.on("error", (error) => {
+      if (child.pid === undefined) fail(error);
     });
-    worker.once("exit", (code) => {
+    // "close" comes after stderr is drained, so the out-of-memory report is in the tail by then.
+    child.once("close", (code, signal) => {
       if (this.lifetime === lifetime) this.lifetime = undefined;
       if (code === 0 && lifetime.retiring && !this.hasPendingRequests(lifetime)) {
         resolveExit();
         return;
       }
-      const error = new Error(`The backup worker exited unexpectedly with code ${code}.`);
+      // The process is gone either way; an out-of-memory exit gets its own error so the API can say what happened.
+      const cause = new Error(
+        `The background worker exited unexpectedly with ${signal ? `signal ${signal}` : `code ${code}`}.`,
+      );
+      const error = OUT_OF_MEMORY_REPORT.test(stderrTail) ? new BackupWorkerOutOfMemoryError({ cause }) : cause;
       lifetime.failure = error;
       this.rejectPending(error, lifetime);
       if (code === 0 && lifetime.retiring) resolveExit();
@@ -367,7 +379,7 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
   private async closeLifetime(lifetime: WorkerLifetime): Promise<void> {
     if (!lifetime.closePromise) {
       lifetime.retiring = true;
-      lifetime.worker.ref();
+      lifetime.child.ref();
       lifetime.closePromise = this.sendCloseRequest(lifetime);
     }
     await lifetime.closePromise;
@@ -378,17 +390,43 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
   private async sendCloseRequest(lifetime: WorkerLifetime): Promise<void> {
     const id = this.nextId++;
     const acknowledgement = new Promise<void>((resolve, reject) => {
-      this.pending.set(id, { lifetime, resolve: () => resolve(), reject });
+      this.addPending(id, { lifetime, resolve: () => resolve(), reject });
       try {
-        lifetime.worker.postMessage({ id, close: true } satisfies BackupWorkerCloseRequest);
+        lifetime.child.send({ id, close: true } satisfies BackupWorkerCloseRequest);
       } catch (error) {
-        this.pending.delete(id);
+        this.removePending(id);
         reject(error);
       }
     });
     const [ackResult, exitResult] = await Promise.allSettled([acknowledgement, lifetime.exited]);
     if (ackResult.status === "rejected") throw ackResult.reason;
     if (exitResult.status === "rejected") throw exitResult.reason;
+  }
+
+  private addPending(id: number, request: PendingRequest): void {
+    this.pending.set(id, request);
+    this.holdOpen(request.lifetime);
+  }
+
+  private removePending(id: number): void {
+    const request = this.pending.get(id);
+    this.pending.delete(id);
+    if (request) this.holdOpen(request.lifetime);
+  }
+
+  /**
+   * The process keeps the API alive only while a request (or its close) waits on it, so an idle one never holds a
+   * shutdown and a CLI or test that awaits a request is not left with an empty event loop.
+   */
+  private holdOpen(lifetime: WorkerLifetime): void {
+    const busy = lifetime.retiring || this.hasPendingRequests(lifetime);
+    if (busy) {
+      lifetime.child.ref();
+      lifetime.child.channel?.ref();
+    } else {
+      lifetime.child.unref();
+      lifetime.child.channel?.unref();
+    }
   }
 
   private hasPendingRequests(lifetime: WorkerLifetime): boolean {
@@ -398,7 +436,7 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
   private rejectPending(error: unknown, lifetime: WorkerLifetime): void {
     for (const [id, request] of this.pending) {
       if (request.lifetime !== lifetime) continue;
-      this.pending.delete(id);
+      this.removePending(id);
       request.reject(error);
     }
   }

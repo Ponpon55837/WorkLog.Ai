@@ -1,11 +1,11 @@
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, statSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type {
   DatabaseBackup,
   DatabaseBackupKind,
-  ProjectDataExport,
+  ProjectDataExportScope,
   ProjectDataImportInput,
   ProjectDataImportPreview,
   ProjectDataImportConflictCategory,
@@ -18,7 +18,9 @@ import {
   redactDatabase,
   canonicalizeProjectRoot,
   initializeWorkIntelligenceDatabase,
+  ProjectDataImportSyntaxError,
   ProjectDataTransferError,
+  readProjectDataImportFile,
   restoreDatabase,
   ValidatedProjectDataImport,
   WorkIntelligenceStore,
@@ -35,7 +37,12 @@ import {
   isDatabaseInUseError,
   type DatabaseBusyDiagnosisDependencies,
 } from "./database-busy-diagnosis.js";
-import { MAX_PROJECT_IMPORT_BYTES, RequestBodyError, assertProjectImportFitsHeap } from "./http.js";
+import {
+  MAX_PROJECT_IMPORT_BYTES,
+  PROJECT_EXPORT_TOO_LARGE_MESSAGE,
+  PROJECT_IMPORT_TOO_LARGE_MESSAGE,
+} from "./http.js";
+import { createTransferDirectory, removeTransferDirectory, transferRoot } from "./transfer-workspace.js";
 import { runTrackCommand, type TrackCliDependencies } from "./track-cli.js";
 
 /** Database maintenance from the terminal: backup, export for another computer, and restore. */
@@ -196,15 +203,32 @@ function defaultPortableFileName(scope: "all" | "project", invocationDirectory: 
   return resolve(invocationDirectory, `work-intelligence-${suffix}-${stamp}.json`);
 }
 
-function writePortableExport(target: string, bundle: ProjectDataExport): number {
-  const content = JSON.stringify(bundle);
-  const bytes = Buffer.byteLength(content);
-  if (bytes > MAX_PROJECT_IMPORT_BYTES) {
-    fail("可攜式匯出檔超過 50 MiB，請改用整份 SQLite 快照。");
-  }
+/** Streams the portable export to `target` (which must not exist yet); one that could not be imported is removed. */
+function writePortableExport(store: WorkIntelligenceStore, scope: ProjectDataExportScope, target: string): number {
   mkdirSync(resolve(target, ".."), { recursive: true, mode: 0o700 });
-  writeFileSync(target, content, { flag: "wx", mode: 0o600 });
+  const { bytes } = store.writeProjectDataExport(scope, target);
+  if (bytes > MAX_PROJECT_IMPORT_BYTES) {
+    rmSync(target, { force: true });
+    fail(PROJECT_EXPORT_TOO_LARGE_MESSAGE);
+  }
   return bytes;
+}
+
+/**
+ * Streams and validates an export file in bounded memory, as the API does; long values are spilled to `directory`.
+ * Refusals are printed in the CLI's own words.
+ */
+function readPortableImport(source: string, directory: string): ValidatedProjectDataImport {
+  if (statSync(source).size > MAX_PROJECT_IMPORT_BYTES) fail(PROJECT_IMPORT_TOO_LARGE_MESSAGE);
+  try {
+    return readProjectDataImportFile(source, { envelope: "bundle", spillPath: join(directory, "import.spill") });
+  } catch (error) {
+    if (error instanceof ProjectDataImportSyntaxError) {
+      fail(error.kind === "invalid_json" ? "匯入檔不是有效的 JSON。" : error.message);
+    }
+    if (error instanceof ProjectDataTransferError) fail(error.message);
+    throw error;
+  }
 }
 
 const IMPORT_CONFLICT_CATEGORY_LABELS: Record<ProjectDataImportConflictCategory, string> = {
@@ -462,11 +486,10 @@ export async function runDatabaseCli(
                 )
               : undefined;
           const scope = projectId ? { type: "project" as const, projectId } : { type: "all" as const };
-          const bundle = store.exportProjectData(scope);
           const target = output
             ? fromInvocation(output)
             : defaultPortableFileName(scopeType, invocationDirectory, projectId);
-          return { target, bytes: writePortableExport(target, bundle) };
+          return { target, bytes: writePortableExport(store, scope, target) };
         });
         print(`已匯出到 ${result.target}（${(result.bytes / 1024 / 1024).toFixed(1)} MiB）。JSON 未加密，請妥善保管。`);
       } else {
@@ -492,93 +515,77 @@ export async function runDatabaseCli(
       if (!source) {
         fail("請指定要匯入的 JSON 檔案。");
       }
-      if (statSync(source).size > MAX_PROJECT_IMPORT_BYTES) {
-        fail("匯入檔不可超過 50 MiB。");
-      }
-      const file = readFileSync(source);
-      if (file.byteLength > MAX_PROJECT_IMPORT_BYTES) {
-        fail("匯入檔不可超過 50 MiB。");
-      }
-      // The same estimate as the API: a body of tiny containers can abort the process inside the native parse.
+      // The file is validated once; a location chosen below re-validates only the small options object.
+      const directory = createTransferDirectory(transferRoot(databasePath), "import");
       try {
-        assertProjectImportFitsHeap(file);
-      } catch (error) {
-        if (!(error instanceof RequestBodyError)) throw error;
-        fail(error.message);
-      }
-      let parsedJson: unknown;
-      try {
-        parsedJson = JSON.parse(file.toString("utf8"));
-      } catch {
-        fail("匯入檔不是有效的 JSON。");
-      }
-      // The whole file is validated once; a location chosen below re-validates only the small options object.
-      let validatedInput: ValidatedProjectDataImport;
-      try {
-        validatedInput = ValidatedProjectDataImport.validate({ bundle: parsedJson });
-      } catch (error) {
-        if (!(error instanceof ProjectDataTransferError)) throw error;
-        fail(error.message);
-      }
-      const bundle = validatedInput.input.bundle;
-      const projectId = projectValue
-        ? findProjectId(
-            bundle.tables.projects.map((project) => ({ id: String(project.id), name: String(project.name) })),
-            projectValue,
-          )
-        : undefined;
-      const withOptions = (options: Omit<ProjectDataImportInput, "bundle">): ValidatedProjectDataImport => {
+        let validatedInput = readPortableImport(source, directory);
         try {
-          return validatedInput.withOptions(options);
-        } catch (error) {
-          if (!(error instanceof ProjectDataTransferError)) throw error;
-          fail(error.message);
-        }
-      };
-      validatedInput = withOptions({
-        ...(projectId ? { projectId } : {}),
-        ...(remap.length > 0 ? { remap } : {}),
-        ...(strategy ? { strategy } : {}),
-      });
-      let preview = runWithStore((store) => store.previewProjectDataImport(validatedInput));
-      const canAskForLocations =
-        Boolean(dependencies.chooseImportProjectLocation) || (process.stdin.isTTY && process.stdout.isTTY);
-      if (!dryRun && canAskForLocations) {
-        for (const project of preview.selectedProjects) {
-          if (isLocalProjectFolder(project.rootPath)) continue;
-          const selectedRoot = (await chooseImportProjectLocation(project)).trim();
-          if (!selectedRoot) continue;
-          if (!isLocalProjectFolder(selectedRoot)) {
-            print(`略過「${project.name}」：選擇的位置不是可用資料夾。`);
-            continue;
-          }
-          const current = validatedInput.input;
-          const remapsBySource = new Map((current.remap ?? []).map((mapping) => [mapping.from, mapping]));
-          remapsBySource.set(project.rootPath, { from: project.rootPath, to: selectedRoot });
+          const bundle = validatedInput.input.bundle;
+          const projectId = projectValue
+            ? findProjectId(
+                bundle.tables.projects.map((project) => ({ id: String(project.id), name: String(project.name) })),
+                projectValue,
+              )
+            : undefined;
+          const withOptions = (options: Omit<ProjectDataImportInput, "bundle">): ValidatedProjectDataImport => {
+            try {
+              return validatedInput.withOptions(options);
+            } catch (error) {
+              if (!(error instanceof ProjectDataTransferError)) throw error;
+              fail(error.message);
+            }
+          };
           validatedInput = withOptions({
-            ...(current.projectId ? { projectId: current.projectId } : {}),
-            remap: [...remapsBySource.values()],
-            ...(current.strategy ? { strategy: current.strategy } : {}),
+            ...(projectId ? { projectId } : {}),
+            ...(remap.length > 0 ? { remap } : {}),
+            ...(strategy ? { strategy } : {}),
           });
-          preview = runWithStore((store) => store.previewProjectDataImport(validatedInput));
+          let preview = runWithStore((store) => store.previewProjectDataImport(validatedInput));
+          const canAskForLocations =
+            Boolean(dependencies.chooseImportProjectLocation) || (process.stdin.isTTY && process.stdout.isTTY);
+          if (!dryRun && canAskForLocations) {
+            for (const project of preview.selectedProjects) {
+              if (isLocalProjectFolder(project.rootPath)) continue;
+              const selectedRoot = (await chooseImportProjectLocation(project)).trim();
+              if (!selectedRoot) continue;
+              if (!isLocalProjectFolder(selectedRoot)) {
+                print(`略過「${project.name}」：選擇的位置不是可用資料夾。`);
+                continue;
+              }
+              const current = validatedInput.input;
+              const remapsBySource = new Map((current.remap ?? []).map((mapping) => [mapping.from, mapping]));
+              remapsBySource.set(project.rootPath, { from: project.rootPath, to: selectedRoot });
+              validatedInput = withOptions({
+                ...(current.projectId ? { projectId: current.projectId } : {}),
+                remap: [...remapsBySource.values()],
+                ...(current.strategy ? { strategy: current.strategy } : {}),
+              });
+              preview = runWithStore((store) => store.previewProjectDataImport(validatedInput));
+            }
+          }
+          printImportPreview(preview, print);
+          if (dryRun) {
+            print("僅預覽，資料沒有變更。");
+          } else if (await confirmImport()) {
+            const result = runWithStore((store) => store.importProjectData(validatedInput));
+            print(
+              `匯入完成：新增 ${totalCounts(result.additions)} 筆，更新 ${totalCounts(result.updates)} 筆，保留本機 ${totalCounts(result.keptLocal)} 筆，略過 ${totalCounts(result.skipped)} 筆，衝突 ${totalCounts(result.conflicts)} 筆。`,
+            );
+            if (result.backupFileName) print(`匯入前的資料已備份為 ${result.backupFileName}。`);
+            if (result.changed) {
+              print("新匯入的專案已暫停；確認專案路徑後，可在專案頁啟用記錄。");
+            } else {
+              print("檔案中的資料這裡都已經有了，資料沒有變更，也沒有建立備份。");
+            }
+          } else {
+            print("已取消匯入，資料沒有變更。");
+          }
+        } finally {
+          // Every copy made with withOptions shares the one spill file, so disposing the last one closes it.
+          validatedInput.dispose();
         }
-      }
-      printImportPreview(preview, print);
-      if (dryRun) {
-        print("僅預覽，資料沒有變更。");
-      } else if (await confirmImport()) {
-        const result = runWithStore((store) => store.importProjectData(validatedInput));
-        print(
-          `匯入完成：新增 ${totalCounts(result.additions)} 筆，更新 ${totalCounts(result.updates)} 筆，保留本機 ${totalCounts(result.keptLocal)} 筆，略過 ${totalCounts(result.skipped)} 筆，衝突 ${totalCounts(result.conflicts)} 筆。`,
-        );
-        if (result.backupFileName) print(`匯入前的資料已備份為 ${result.backupFileName}。`);
-        if (result.changed) {
-          print("新匯入的專案已暫停；確認專案路徑後，可在專案頁啟用記錄。");
-        } else {
-          print("檔案中的資料這裡都已經有了，資料沒有變更，也沒有建立備份。");
-        }
-      } else {
-        print("已取消匯入，資料沒有變更。");
+      } finally {
+        removeTransferDirectory(directory);
       }
     } else if (command === "restore") {
       if (parsed.positionals.length > 1) fail(`看不懂的參數：${parsed.positionals[1]}`);

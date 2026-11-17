@@ -9,6 +9,7 @@ import {
 } from "./backup.js";
 import { assertDatabaseSchemaVersion, configureWorkIntelligenceDatabaseConnection } from "./database-initialization.js";
 import { buildProjectDataExport, readProjectDataRows } from "./project-data-export.js";
+import { writeProjectDataExport } from "./project-data-export-stream.js";
 
 /**
  * Page cache of the worker's connection. An export reads every row once, so a large cache saves no reads, and on the
@@ -23,8 +24,11 @@ export interface BackupExportStoreOptions {
   expectedSchemaVersion: number;
 }
 
+/** Thrown by the placeholder masking when an export meets an architecture diagram before the real one is loaded. */
+class ArchitectureDiagramMaskingNotLoaded extends Error {}
+
 function refuseArchitectureDiagram(): never {
-  throw new Error("Architecture diagram masking was not loaded.");
+  throw new ArchitectureDiagramMaskingNotLoaded("Architecture diagram masking was not loaded.");
 }
 
 /**
@@ -88,5 +92,20 @@ export class BackupExportStore {
       ? (await import("./diagram-source-redaction.js")).redactArchitectureDiagramSource
       : refuseArchitectureDiagram;
     return buildProjectDataExport(rows, scope, redactArchitectureDiagram);
+  }
+
+  /**
+   * Writes the portable export of `scope` to `target` (which must not exist yet) row by row, in bounded memory; the
+   * bytes are those of `JSON.stringify(await exportProjectData(scope))`. Most exports have no architecture diagram, so
+   * the masking that loads zod is imported only when one is met, and the export is then written again from the start.
+   */
+  public async writeProjectData(scope: ProjectDataExportScope, target: string): Promise<{ bytes: number }> {
+    try {
+      return writeProjectDataExport(this.db, scope, refuseArchitectureDiagram, target);
+    } catch (error) {
+      if (!(error instanceof ArchitectureDiagramMaskingNotLoaded)) throw error;
+    }
+    const { redactArchitectureDiagramSource } = await import("./diagram-source-redaction.js");
+    return writeProjectDataExport(this.db, scope, redactArchitectureDiagramSource, target);
   }
 }
