@@ -16,7 +16,15 @@ import {
   processIsAlive,
   profileDirectories,
 } from "../support/process-tools.js";
-import { isExternalBrowser } from "./browser-process.js";
+import {
+  descendantsOf,
+  describeProcessLine,
+  isExternalBrowser,
+  parseElapsedSeconds,
+  startedSince,
+  survivingTree,
+  type BrowserSnapshot,
+} from "./browser-process.js";
 import { isStrictPackagedRun, STRICT_OPT_IN_VARIABLE } from "./installer-profile.js";
 
 /**
@@ -40,8 +48,13 @@ const HOLDER_GRACE_MS = 5_000;
 const HOLDER_TERMINATE_MS = 5_000;
 const HOLDER_COMMAND_LIMIT = 160;
 const BROWSER_TERMINATE_MS = 5_000;
-/** What identifies a browser process that was already running before a test: a pid can be reused, so the command too. */
-export type BrowserBaseline = ReadonlyArray<{ readonly pid: number; readonly commandLine: string }>;
+/** How long the whole tree of an ended browser (content processes included) may take to be gone. */
+const BROWSER_TREE_EXIT_MS = 10_000;
+/**
+ * What was running before a test: when the scan was taken (a process created earlier is never blamed on the test), and
+ * pid plus command line (a pid can be reused) for platforms that report no creation time.
+ */
+export type BrowserBaseline = BrowserSnapshot;
 
 /** The App's main pid of every launch, per sandbox root, and the processes seen below them (see `removeSandbox`). */
 const launchedPids = new Map<string, number[]>();
@@ -95,6 +108,8 @@ export interface ProcessInfo {
   readonly commandLine: string;
   /** Known on Windows only; use {@link executablePathOf} elsewhere. */
   readonly executable: string | undefined;
+  /** When the process was created, in epoch milliseconds (CIM `CreationDate`; `ps` elapsed time, to the second); undefined if unknown. */
+  readonly startedAt?: number | undefined;
 }
 
 export function requiredEnvironment(name: string): string {
@@ -192,7 +207,11 @@ export async function createSandbox(options: {
  * seconds to exit by itself and is then terminated. If the removal still fails, the error lists who holds the sandbox.
  */
 export async function removeSandbox(sandbox: PackagedSandbox): Promise<void> {
-  const browsers = await settleBrowsersStartedSince(browsersBeforeTests ?? [], sandbox.root, sandbox.port);
+  const { browsers, survivors } = await settleBrowsersStartedSince(
+    browsersBeforeTests ?? { takenAt: 0, processes: [] },
+    sandbox.root,
+    sandbox.port,
+  );
   try {
     await pollUntil(
       () => (sandboxHolders(sandbox).length === 0 ? true : undefined),
@@ -210,7 +229,7 @@ export async function removeSandbox(sandbox: PackagedSandbox): Promise<void> {
   try {
     rmSync(sandbox.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
   } catch (error) {
-    const holders = sandboxHolders(sandbox).map(describeProcess);
+    const holders = describeProcesses(sandboxHolders(sandbox));
     const cause = error instanceof Error ? error.message : String(error);
     throw new Error(
       `${sandbox.root} could not be removed: ${cause}\n${
@@ -222,6 +241,12 @@ export async function removeSandbox(sandbox: PackagedSandbox): Promise<void> {
     launchedPids.delete(sandbox.root);
     knownProcesses.delete(sandbox.root);
   }
+  // A process of an ended browser that outlived it fails this test, the one that caused it, not a later one.
+  if (survivors.length > 0) {
+    throw new Error(
+      `processes of a browser this test started were still running ${BROWSER_TREE_EXIT_MS / 1000} s after it was ended:\n${survivors.join("\n")}`,
+    );
+  }
   // A background launch (and `--quit`) must open no browser: the list names what appeared (ended on a strict run).
   const opened = browserOpeningLaunches.delete(sandbox.root);
   if (!opened && browsers.length > 0) {
@@ -230,8 +255,12 @@ export async function removeSandbox(sandbox: PackagedSandbox): Promise<void> {
 }
 
 /** The browsers running now, outside the sandbox (the App's own helpers name its root on their command line). */
-export function browserProcesses(sandboxRoot?: string, dashboardPort?: number): ProcessInfo[] {
-  return listProcesses().filter(
+export function browserProcesses(
+  sandboxRoot?: string,
+  dashboardPort?: number,
+  processes: readonly ProcessInfo[] = listProcesses(),
+): ProcessInfo[] {
+  return processes.filter(
     (candidate) =>
       candidate.pid !== process.pid &&
       isExternalBrowser(candidate, dashboardPort) &&
@@ -241,44 +270,58 @@ export function browserProcesses(sandboxRoot?: string, dashboardPort?: number): 
 
 /** The browsers running now, to be told apart from the ones a test starts. */
 export function browserBaseline(sandboxRoot?: string): BrowserBaseline {
-  return browserProcesses(sandboxRoot).map(({ pid, commandLine }) => ({ pid, commandLine }));
+  const takenAt = Date.now();
+  return { takenAt, processes: browserProcesses(sandboxRoot).map(({ pid, commandLine }) => ({ pid, commandLine })) };
 }
 
 /**
- * The browsers that were not in `baseline`: an external browser the OS started for the Dashboard is outside the App's
- * process tree and carries no sandbox path, so `sandboxHolders` cannot find it. On a strict run (CI, or the opt-in; see
- * `isStrictPackagedRun`) they are ended, and this waits briefly until none is left. Elsewhere one of them may be a
- * browser the developer opened during the test, so they are only listed in a warning and added to the baseline (each
- * is reported once). Returns a description of each one found.
+ * The browsers that appeared after `baseline` (not in it by pid and command line, and, where the platform reports it, not
+ * created before it): an external browser the OS started for the Dashboard is outside the App's process tree and carries
+ * no sandbox path, so `sandboxHolders` cannot find it. On a strict run (CI, or the opt-in; see `isStrictPackagedRun`) they
+ * are ended, and then the whole process tree of each (taken from the scan before the kill, plus any later child of it) is
+ * waited for: a child (Firefox's `-contentproc`) may outlive its main process, and must not be found, and blamed, by the
+ * next test. `survivors` describes what still ran after `BROWSER_TREE_EXIT_MS`. Elsewhere one of them may be a browser the
+ * developer opened during the test, so they are only listed in a warning and added to the baseline (each is reported once).
+ * `browsers` describes each browser found.
  */
 export async function settleBrowsersStartedSince(
   baseline: BrowserBaseline,
   sandboxRoot?: string,
   dashboardPort?: number,
   environment: Readonly<Record<string, string | undefined>> = process.env,
-): Promise<string[]> {
+): Promise<{ browsers: string[]; survivors: string[] }> {
   const found = new Map<number, string>();
-  const started = () =>
-    browserProcesses(sandboxRoot, dashboardPort).filter(
-      (candidate) =>
-        !baseline.some((known) => known.pid === candidate.pid && known.commandLine === candidate.commandLine),
-    );
+  const started = (processes: readonly ProcessInfo[]) =>
+    startedSince(browserProcesses(sandboxRoot, dashboardPort, processes), baseline);
   if (!isStrictPackagedRun(environment)) {
-    const targets = started();
-    if (targets.length === 0) return [];
-    const descriptions = targets.map(describeProcess);
+    const processes = listProcesses();
+    const targets = started(processes);
+    if (targets.length === 0) return { browsers: [], survivors: [] };
+    const descriptions = targets.map((target) => describeProcess(target, processes));
     console.warn(
       `browsers appeared during the test and are left running (they end only with CI=true or ${STRICT_OPT_IN_VARIABLE}=1):\n${descriptions.join("\n")}`,
     );
-    browsersBeforeTests = [...baseline, ...targets.map(({ pid, commandLine }) => ({ pid, commandLine }))];
-    return descriptions;
+    browsersBeforeTests = {
+      takenAt: baseline.takenAt,
+      processes: [...baseline.processes, ...targets.map(({ pid, commandLine }) => ({ pid, commandLine }))],
+    };
+    return { browsers: descriptions, survivors: [] };
   }
+  // The tree of every browser ended, as it was just before: pid to process.
+  const tree = new Map<number, ProcessInfo>();
   try {
     await pollUntil(
       () => {
-        const targets = started();
+        const processes = listProcesses();
+        const targets = started(processes);
         if (targets.length === 0) return true;
-        for (const target of targets) found.set(target.pid, describeProcess(target));
+        for (const member of descendantsOf(
+          processes,
+          targets.map(({ pid }) => pid),
+        )) {
+          if (!tree.has(member.pid)) tree.set(member.pid, member);
+        }
+        for (const target of targets) found.set(target.pid, describeProcess(target, processes));
         terminateProcesses(targets);
         return undefined;
       },
@@ -286,9 +329,34 @@ export async function settleBrowsersStartedSince(
       BROWSER_TERMINATE_MS,
     );
   } catch {
-    // Still listed after the grace period: they are reported below and the next scan of a later test finds them again.
+    // Still listed after the grace period: they are reported below and the tree wait names them as survivors.
   }
-  return [...found.values()];
+  if (tree.size === 0) return { browsers: [...found.values()], survivors: [] };
+  const signalled = new Set<number>();
+  let last: ProcessInfo[] = [];
+  try {
+    await pollUntil(
+      () => {
+        const processes = listProcesses();
+        last = survivingTree(tree, processes).filter((member) => member.pid !== process.pid);
+        if (last.length === 0) return true;
+        // Members that are not browsers themselves (or whose main process is already gone) are ended once as well.
+        terminateProcesses(last.filter((member) => !signalled.has(member.pid)));
+        for (const member of last) signalled.add(member.pid);
+        return undefined;
+      },
+      "the browser process tree ended",
+      BROWSER_TREE_EXIT_MS,
+    );
+    last = [];
+  } catch {
+    // Reported through `survivors`: the test that ended the browsers fails, not a later one.
+  }
+  const snapshot = last.length > 0 ? listProcesses() : [];
+  return {
+    browsers: [...found.values()],
+    survivors: last.map((member) => describeProcess(member, snapshot)),
+  };
 }
 
 /** Remembers the process tree of a launch while it is alive: once its main process ends, its children are orphans. */
@@ -321,9 +389,21 @@ function sandboxHolders(sandbox: PackagedSandbox): ProcessInfo[] {
   );
 }
 
-function describeProcess(candidate: ProcessInfo): string {
-  const command = candidate.commandLine.slice(0, HOLDER_COMMAND_LIMIT);
-  return `  pid ${candidate.pid} ${candidate.executable ?? "(executable unknown)"} ${command}`;
+/** `describeProcess` for each of `candidates`, with one process scan for all. */
+function describeProcesses(candidates: readonly ProcessInfo[]): string[] {
+  if (candidates.length === 0) return [];
+  const processes = listProcesses();
+  return candidates.map((candidate) => describeProcess(candidate, processes));
+}
+
+/** One line per process: pid, parent pid and the parent's executable while it is alive, creation time, command. */
+function describeProcess(candidate: ProcessInfo, processes: readonly ProcessInfo[] = listProcesses()): string {
+  const parent = processes.find((member) => member.pid === candidate.ppid);
+  return describeProcessLine(
+    candidate,
+    { alive: parent !== undefined, executable: parent ? executablePathOf(parent.pid, processes) : undefined },
+    HOLDER_COMMAND_LIMIT,
+  );
 }
 
 /** Windows: `taskkill /T /F` by absolute System32 path (the tree goes with the root); elsewhere SIGKILL. */
@@ -531,7 +611,7 @@ export async function stopApp(sandbox: PackagedSandbox, app: RunningApp | undefi
 
 function windowsProcesses(): ProcessInfo[] {
   const script =
-    "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,WorkingSetSize,ExecutablePath,CommandLine | ConvertTo-Json -Compress";
+    "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,WorkingSetSize,ExecutablePath,CommandLine,@{n='StartedAt';e={if($_.CreationDate){[DateTimeOffset]::new($_.CreationDate).ToUnixTimeMilliseconds()}else{$null}}} | ConvertTo-Json -Compress";
   const output = execFileSync(windowsPowerShell(), powershellArguments(script), {
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
@@ -545,6 +625,7 @@ function windowsProcesses(): ProcessInfo[] {
     WorkingSetSize: number | null;
     ExecutablePath: string | null;
     CommandLine: string | null;
+    StartedAt: number | null;
   }>;
   return rows.map((row) => ({
     pid: row.ProcessId,
@@ -552,24 +633,28 @@ function windowsProcesses(): ProcessInfo[] {
     rssBytes: row.WorkingSetSize ?? 0,
     commandLine: row.CommandLine ?? "",
     executable: row.ExecutablePath ?? undefined,
+    startedAt: row.StartedAt ?? undefined,
   }));
 }
 
 function posixProcesses(): ProcessInfo[] {
-  const output = execFileSync("ps", ["-axo", "pid=,ppid=,rss=,args="], {
+  const output = execFileSync("ps", ["-axo", "pid=,ppid=,rss=,etime=,args="], {
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
   });
+  const scannedAt = Date.now();
   const processes: ProcessInfo[] = [];
   for (const line of output.split("\n")) {
-    const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+    const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/.exec(line);
     if (!match) continue;
+    const elapsed = parseElapsedSeconds(match[4] ?? "");
     processes.push({
       pid: Number(match[1]),
       ppid: Number(match[2]),
       rssBytes: Number(match[3]) * 1024,
-      commandLine: match[4] ?? "",
+      commandLine: match[5] ?? "",
       executable: undefined,
+      startedAt: elapsed === undefined ? undefined : scannedAt - elapsed * 1000,
     });
   }
   return processes;
@@ -710,7 +795,7 @@ export function describeLaunch(app: RunningApp, logFiles: readonly string[]): st
       : `the App (pid ${app.pid}) is still running`,
     `stdout tail:\n${stdout.slice(-DIAGNOSTIC_TAIL_CHARS) || "(empty)"}`,
     `stderr tail:\n${stderr.slice(-DIAGNOSTIC_TAIL_CHARS) || "(empty)"}`,
-    `App processes:\n${appProcesses.map(describeProcess).join("\n") || "  (none)"}`,
+    `App processes:\n${describeProcesses(appProcesses).join("\n") || "  (none)"}`,
     `log files:\n${logs.join("\n")}`,
   ].join("\n");
 }
