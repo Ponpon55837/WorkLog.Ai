@@ -67,12 +67,14 @@ export const desktopPreflightResultSchema = z.strictObject({
 
 /**
  * `createIfMissing` asks the child to create a new empty database first, but only when nothing at all exists at the path;
- * without it the preflight stays read-only.
+ * without it the preflight stays read-only. `quickCheck` asks for an extra read-only `PRAGMA quick_check` on a database
+ * that otherwise reads fine, for a database an old service may have been hard-stopped on.
  */
 const preflightRequestSchema = z.strictObject({
   type: z.literal("preflight"),
   path: pathSchema,
   createIfMissing: z.literal(true).optional(),
+  quickCheck: z.literal(true).optional(),
 });
 
 /**

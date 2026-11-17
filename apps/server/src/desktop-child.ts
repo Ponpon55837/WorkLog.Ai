@@ -33,7 +33,7 @@ export interface DesktopChildHost {
 }
 
 export interface DesktopChildDependencies {
-  preflight: (path: string) => Promise<DatabasePreflightResult>;
+  preflight: (path: string, options?: { quickCheck?: boolean }) => Promise<DatabasePreflightResult>;
   /** Creates a new empty database when nothing exists at the path; a failure result, or `undefined` to go on to preflight. */
   createDatabase?: (path: string) => DatabasePreflightResult | undefined;
   probePort: (port: number) => Promise<LoopbackPortProbe>;
@@ -99,6 +99,13 @@ const PREFLIGHT_DETAILS: Record<DatabasePreflightResult["status"], string> = {
   "unsupported-schema": "the database schema is not supported by this build",
 };
 
+/** The one raw detail that may be named: the fixed text for a failed quick_check, so the App can tell it from a read failure. */
+function preflightReplyDetail(result: DatabasePreflightResult): string {
+  return result.status === "unreadable" && result.detail === "quick_check failed"
+    ? "the database failed its integrity check"
+    : PREFLIGHT_DETAILS[result.status];
+}
+
 function preflightReply(result: DatabasePreflightResult): DesktopChildMessage {
   return {
     type: "preflight-result",
@@ -109,12 +116,12 @@ function preflightReply(result: DatabasePreflightResult): DesktopChildMessage {
     ...(result.projectCount === undefined ? {} : { projectCount: result.projectCount }),
     ...(result.projectNames === undefined ? {} : { projectNames: result.projectNames }),
     ...(result.sidecars ? { sidecars: result.sidecars } : {}),
-    ...(result.status === "ok" ? {} : { detail: PREFLIGHT_DETAILS[result.status] }),
+    ...(result.status === "ok" ? {} : { detail: preflightReplyDetail(result) }),
   };
 }
 
 const defaultDependencies: DesktopChildDependencies = {
-  preflight: (path) => preflightDatabase(path),
+  preflight: (path, options) => preflightDatabase(path, options),
   createDatabase: createDatabaseIfMissing,
   probePort: probeLoopbackPort,
   startApi,
@@ -170,13 +177,13 @@ export class DesktopChild {
     if (message.type === "shutdown") {
       await this.stop({ notify: true });
     } else if (message.type === "preflight") {
-      await this.preflight(message.path, message.createIfMissing === true);
+      await this.preflight(message.path, message.createIfMissing === true, message.quickCheck === true);
     } else {
       await this.start(message);
     }
   }
 
-  private async preflight(path: string, createIfMissing: boolean): Promise<void> {
+  private async preflight(path: string, createIfMissing: boolean, quickCheck: boolean): Promise<void> {
     if (this.phase !== "idle") {
       this.host.log("[desktop-child] dropped a preflight request: already started");
       return;
@@ -184,7 +191,7 @@ export class DesktopChild {
     let result: DatabasePreflightResult;
     try {
       const creation = createIfMissing ? this.dependencies.createDatabase?.(path) : undefined;
-      result = creation ?? (await this.dependencies.preflight(path));
+      result = creation ?? (await this.dependencies.preflight(path, quickCheck ? { quickCheck } : undefined));
     } catch {
       result = { status: "unreadable" };
     }

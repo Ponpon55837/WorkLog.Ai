@@ -220,6 +220,36 @@ describe("DesktopChild", () => {
     });
   });
 
+  it("passes quickCheck to the preflight and names a failed quick_check with a fixed text", async () => {
+    const preflight = vi.fn(async (_path: string, _options?: { quickCheck?: boolean }) => ({
+      status: "unreadable" as const,
+      detail: "quick_check failed",
+    }));
+    const { child, sent } = setup({ preflight });
+
+    await child.handle({ type: "preflight", path: "/synthetic/work.sqlite", quickCheck: true });
+
+    expect(preflight).toHaveBeenCalledWith("/synthetic/work.sqlite", { quickCheck: true });
+    expect(sent[1]).toEqual({
+      type: "preflight-result",
+      status: "unreadable",
+      detail: "the database failed its integrity check",
+    });
+  });
+
+  it("does not ask for a quick_check unless the message does", async () => {
+    const preflight = vi.fn(async (_path: string, _options?: { quickCheck?: boolean }) => ({
+      status: "ok" as const,
+      identity: IDENTITY,
+      schemaVersion: 33,
+    }));
+    const { child } = setup({ preflight });
+
+    await child.handle({ type: "preflight", path: "/synthetic/work.sqlite" });
+
+    expect(preflight).toHaveBeenCalledWith("/synthetic/work.sqlite", undefined);
+  });
+
   it("drops a malformed message and logs only the field names", async () => {
     const { child, sent, logs } = setup();
 

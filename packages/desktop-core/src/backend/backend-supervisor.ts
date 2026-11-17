@@ -310,17 +310,21 @@ export class BackendSupervisor {
    * It is independent of `start`/`stop` on purpose: the repair page must be able to preview a candidate while the current
    * backend runs, and a second child that holds no port cannot conflict with it. Previews run one at a time.
    */
-  preview(databasePath: string): Promise<DatabasePreviewResult> {
-    return this.previewMany([databasePath]).then((results) => results[0] as DatabasePreviewResult);
+  preview(databasePath: string, options: { quickCheck?: boolean } = {}): Promise<DatabasePreviewResult> {
+    return this.previewMany([databasePath], options).then((results) => results[0] as DatabasePreviewResult);
   }
 
   /**
    * {@link preview} for several databases with one child: it says hello once and answers one preflight per path, so the
    * first-run detection pays one child start, not one per candidate. Results keep the order of `databasePaths`. A
-   * failure of the child itself fails the paths it had not answered yet.
+   * failure of the child itself fails the paths it had not answered yet. `quickCheck` also asks the child for a read-only
+   * `PRAGMA quick_check` on each database that otherwise reads fine.
    */
-  previewMany(databasePaths: readonly string[]): Promise<DatabasePreviewResult[]> {
-    return this.queuePreview(databasePaths, false);
+  previewMany(
+    databasePaths: readonly string[],
+    options: { quickCheck?: boolean } = {},
+  ): Promise<DatabasePreviewResult[]> {
+    return this.queuePreview(databasePaths, false, options.quickCheck === true);
   }
 
   /**
@@ -330,13 +334,18 @@ export class BackendSupervisor {
    * stop handling of {@link preview}.
    */
   createDatabase(databasePath: string): Promise<DatabasePreviewResult> {
-    return this.queuePreview([databasePath], true).then((results) => results[0] as DatabasePreviewResult);
+    return this.queuePreview([databasePath], true, false).then((results) => results[0] as DatabasePreviewResult);
   }
 
-  private queuePreview(databasePaths: readonly string[], createIfMissing: boolean): Promise<DatabasePreviewResult[]> {
+  private queuePreview(
+    databasePaths: readonly string[],
+    createIfMissing: boolean,
+    quickCheck: boolean,
+  ): Promise<DatabasePreviewResult[]> {
     if (databasePaths.length === 0) return Promise.resolve([]);
     const generation = this.previewGeneration;
-    const run = (): Promise<DatabasePreviewResult[]> => this.runPreview(databasePaths, generation, createIfMissing);
+    const run = (): Promise<DatabasePreviewResult[]> =>
+      this.runPreview(databasePaths, generation, createIfMissing, quickCheck);
     const next = this.previewing ? this.previewing.then(run, run) : run();
     // The tracking chain swallows its own outcome: the caller of `preview` is the only one who sees a rejection.
     let settled: Promise<void> | undefined;
@@ -352,6 +361,7 @@ export class BackendSupervisor {
     databasePaths: readonly string[],
     generation: number,
     createIfMissing: boolean,
+    quickCheck: boolean,
   ): Promise<DatabasePreviewResult[]> {
     const results: DatabasePreviewResult[] = [];
     let child: ActiveChild | undefined;
@@ -368,6 +378,7 @@ export class BackendSupervisor {
           type: "preflight",
           path: databasePath,
           ...(createIfMissing ? { createIfMissing: true as const } : {}),
+          ...(quickCheck ? { quickCheck: true as const } : {}),
         });
         const preflight = await child.channel.expect("preflight-result", this.timeouts.preflightMs);
         // Same rule as a start: an `ok` verdict without the database's identity is not a verdict (nothing could be

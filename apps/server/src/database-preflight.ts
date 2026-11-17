@@ -49,6 +49,8 @@ export interface DatabasePreflightResult {
 
 export interface PreflightOptions {
   supportedSchemaVersion?: number;
+  /** Also run a read-only `PRAGMA quick_check` on a Work Intelligence database that otherwise reads `ok`. */
+  quickCheck?: boolean;
 }
 
 /** A database the shell has verified and handed to `startApi`; startApi re-checks it right before opening. */
@@ -178,7 +180,13 @@ function compatibilityOf(schemaVersion: number, supported: number): SchemaCompat
   return schemaVersion === supported ? "current" : "older-needs-migration";
 }
 
-function preflightSync(path: string, supportedSchemaVersion: number): DatabasePreflightResult {
+/** True only when `PRAGMA quick_check` returns exactly one row, `ok`. Read-only; a throw is left to the caller. */
+function quickCheckPasses(database: ReadOnlySqliteDatabase): boolean {
+  const rows = database.prepare("PRAGMA quick_check").all() as { quick_check?: unknown }[];
+  return rows.length === 1 && rows[0]?.quick_check === "ok";
+}
+
+function preflightSync(path: string, supportedSchemaVersion: number, quickCheck: boolean): DatabasePreflightResult {
   const located = readFileIdentity(path);
   if (!located.ok) {
     return { status: located.kind, detail: `${located.code}: ${located.message}` };
@@ -214,6 +222,9 @@ function preflightSync(path: string, supportedSchemaVersion: number): DatabasePr
       }
     }
     const compatibility = compatibilityOf(schemaVersion, supportedSchemaVersion);
+    if (quickCheck && compatibility !== "newer-unsupported" && !quickCheckPasses(database)) {
+      return finish({ status: "unreadable", identity, schemaVersion, compatibility, detail: "quick_check failed" });
+    }
     const projectCount = readProjectCount(database);
     const projectNames = readProjectNames(database);
     return finish({
@@ -254,7 +265,7 @@ export async function preflightDatabase(
   path: string,
   options: PreflightOptions = {},
 ): Promise<DatabasePreflightResult> {
-  return preflightSync(path, options.supportedSchemaVersion ?? LATEST_SCHEMA_VERSION);
+  return preflightSync(path, options.supportedSchemaVersion ?? LATEST_SCHEMA_VERSION, options.quickCheck === true);
 }
 
 /** Same physical file: both ids are known and equal. */
