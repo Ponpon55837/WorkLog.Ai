@@ -5,15 +5,18 @@ import { app } from "electron";
 import {
   buildDiagnostics,
   buildRepairState,
+  buildStorageRiskView,
   databaseStatusFor,
   legacyServiceRelevance,
   type BackendSupervisor,
+  type RepairPortSection,
   type LastBackupTracker,
   type RepairFolderTarget,
   type RepairState,
 } from "@work-intelligence/desktop-core";
 import type { DesktopPaths } from "./config.js";
 import type { LegacyGuard } from "./legacy.js";
+import type { StorageRiskService } from "./storage-risk.js";
 import type { ShellState } from "./state.js";
 
 export interface RepairInfo {
@@ -32,10 +35,14 @@ export interface RepairInfoOptions {
   readonly supervisor: BackendSupervisor;
   readonly lastBackup: LastBackupTracker;
   readonly legacy: LegacyGuard;
+  /** The storage verdicts this run reached (DT-08). */
+  readonly storage: StorageRiskService;
+  /** What the 「連接埠」 section shows. */
+  readonly port?: () => RepairPortSection;
 }
 
 export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
-  const { state, paths, supervisor, lastBackup, legacy } = options;
+  const { state, paths, supervisor, lastBackup, legacy, storage } = options;
 
   function databaseStatus(): RepairState["database"]["status"] {
     return databaseStatusFor(supervisor.running !== undefined, state.recentErrors.latest()?.code);
@@ -51,6 +58,16 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
       platform: process.platform,
     });
     const running = supervisor.running !== undefined;
+    const ownPath = state.databasePath();
+    const ownRisk =
+      ownPath === null
+        ? undefined
+        : buildStorageRiskView({
+            risk: storage.last(ownPath)?.risk,
+            locale: state.locale,
+            chosenByUser: true,
+            needsMigration: latestCode === "SCHEMA_MIGRATION_BLOCKED",
+          });
     return buildRepairState({
       platform: process.platform,
       homeDirectory: homedir(),
@@ -59,20 +76,33 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
       backend: supervisor.running ? "running" : state.backend,
       databasePath: state.databasePath(),
       databaseStatus: databaseStatus(),
-      candidates: state.candidates.list().map((entry) => ({
-        id: entry.id,
-        path: entry.path,
-        status: entry.preview?.status ?? ("unknown" as const),
-        needsMigration: entry.preview?.needsMigration ?? false,
-        ...(entry.preview?.errorCode ? { errorCode: entry.preview.errorCode } : {}),
-        canConfirm: state.candidates.checkConfirm(entry.id, true).ok,
-      })),
+      ...(ownRisk ? { databaseStorageRisk: ownRisk } : {}),
+      candidates: state.candidates.list().map((entry) => {
+        const needsMigration = entry.preview?.needsMigration ?? false;
+        const storageRisk = buildStorageRiskView({
+          risk: entry.storageRisk,
+          locale: state.locale,
+          chosenByUser: true,
+          needsMigration,
+        });
+        return {
+          id: entry.id,
+          path: entry.path,
+          status: entry.preview?.status ?? ("unknown" as const),
+          needsMigration,
+          ...(entry.preview?.errorCode ? { errorCode: entry.preview.errorCode } : {}),
+          // The consent boxes are the page's to ask for: this says whether confirming can ever work for the file.
+          canConfirm: state.candidates.checkConfirm(entry.id, true, true).ok,
+          ...(storageRisk ? { storageRisk } : {}),
+        };
+      }),
       recentErrors: state.recentErrors.list(),
       lastBackup: await lastBackup.current(),
       // The same id while the page polls; it is replaced only when it is used or the state changes.
       retryOperationId: state.retryIds.current(),
       busy: state.busy,
       recovered: state.recovered,
+      ...(options.port ? { port: options.port() } : {}),
       // Shown only where it matters: the old service may serve this database, or it holds the port.
       legacyService: relevance.conflict || relevance.portInUse ? legacy.latest() : null,
       legacyBlocked: !running && latestCode === "LEGACY_SERVICE_ACTIVE",

@@ -46,6 +46,7 @@ export function createNodeBackendDependencies(options: NodeBackendDependenciesOp
     },
     spawn: (command, args, spawnOptions) => spawn(command, [...args], spawnOptions),
     isPortFree: async (port) => (await probeLoopbackPort(port)).free,
+    probePort: probeLoopbackPort,
     fetchHealth: async (url, headers, timeoutMs) => {
       const response = await fetch(url, { headers, redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
       await response.body?.cancel();

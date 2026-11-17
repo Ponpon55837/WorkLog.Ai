@@ -118,8 +118,30 @@ function decideWithMigration(record: OperationRecord, report: ProbeReport): Reco
   return repair(record, true, "migration started: the old service must not be restarted automatically (ADR-22)");
 }
 
+/**
+ * A port change never edits `desired.port` before the new backend is verified, and the child ends with the App, so an
+ * interrupted change leaves the settings naming the old port: the managed owner stands and the next ordinary start uses
+ * it. A child that still runs cannot be told apart (old or new port), so that case needs repair.
+ */
+function decideInterruptedPortChange(record: OperationRecord, report: ProbeReport): RecoveryDecision | undefined {
+  if (record.previousOwner !== "MANAGED" || record.phase === "NEEDS_REPAIR") return undefined;
+  if (report.desktopChild.running) return repair(record, false, "a port change was interrupted while a child runs");
+  return {
+    nextState: "MANAGED",
+    action: "none",
+    recoveryPolicy: record.recoveryPolicy,
+    migrationStarted: false,
+    restore: null,
+    reason: "the port change never committed; the settings still name the old port",
+  };
+}
+
 function decideWithoutMigration(record: OperationRecord, report: ProbeReport): RecoveryDecision {
   const child = report.desktopChild;
+  if (record.kind === "change-port") {
+    const decision = decideInterruptedPortChange(record, report);
+    if (decision) return decision;
+  }
   switch (record.phase) {
     case "PREPARING":
       return rollback(record, report);

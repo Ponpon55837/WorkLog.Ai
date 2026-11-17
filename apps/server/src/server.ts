@@ -19,6 +19,7 @@ import {
   INSTANCE_CHALLENGE_HEADER,
   isValidInstanceChallenge,
 } from "@work-intelligence/shared/instance-proof";
+import type { DesktopBackendActivity } from "@work-intelligence/schema";
 import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import { createFolderPicker } from "./folder-picker.js";
 import { BackupWorkerOutOfMemoryError } from "./backup-worker-errors.js";
@@ -149,6 +150,8 @@ export interface ApiHandlerOptions {
   userServiceStatus?: () => UserServiceStatus | Promise<UserServiceStatus>;
   /** Offloads disk snapshots and large project-data preparation from the API event loop. */
   backgroundStore?: BackgroundStoreOperations;
+  /** What the background worker is doing, when there is one (desktop child only). */
+  backgroundActivity?: () => readonly DesktopBackendActivity[];
   /** Where large uploads and exports are staged; defaults to `tmp` beside the store's database. */
   transferRoot?: string;
   /**
@@ -164,6 +167,8 @@ export type ApiHandler = ((request: IncomingMessage, response: ServerResponse) =
   closeEventStreams: () => void;
   /** Removes the export files staged for an import (shutdown); a crash leaves them to the start-up sweep. */
   discardStagedImports: () => void;
+  /** The long jobs running now (an import upload, a backup, an export); read by the desktop child's `activity` reply. */
+  activity: () => DesktopBackendActivity[];
 };
 
 function createInlineBackgroundStore(store: WorkIntelligenceStore): BackgroundStoreOperations {
@@ -429,6 +434,11 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
     },
     discardStagedImports(): void {
       stagedImports.clear();
+    },
+    activity(): DesktopBackendActivity[] {
+      const kinds = new Set<DesktopBackendActivity>(options.backgroundActivity?.() ?? []);
+      if (stagedImports.inUse) kinds.add("import");
+      return [...kinds];
     },
   });
 }

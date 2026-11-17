@@ -12,6 +12,7 @@ import type {
   ProjectDataExportScope,
   ProjectDataImportResult,
 } from "@work-intelligence/core";
+import type { DesktopBackendActivity } from "@work-intelligence/schema";
 import type { BackupRetentionOptions, ExportOptions } from "@work-intelligence/storage";
 import type {
   BackgroundStoreOperations,
@@ -148,6 +149,17 @@ export function createOutOfMemoryScanner(): OutOfMemoryScanner {
     },
   };
 }
+/** Which desktop activity each worker operation counts as. */
+const ACTIVITY_OF_OPERATION: Readonly<Record<BackupWorkerOperation["type"], DesktopBackendActivity>> = {
+  createBackup: "backup",
+  backupIfDue: "backup",
+  exportTo: "export",
+  exportProjectData: "export",
+  previewProjectDataImport: "import",
+  importProjectData: "import",
+  inspectStagedProjectDataImport: "import",
+};
+
 const HEAVY_OPERATIONS: ReadonlySet<BackupWorkerOperation["type"]> = new Set([
   "exportTo",
   "exportProjectData",
@@ -226,6 +238,8 @@ function restoredError(error: SerializedWorkerError): Error {
 export class BackupWorkerClient implements BackgroundStoreOperations {
   private readonly pending = new Map<number, PendingRequest>();
   private readonly active = new Set<Promise<unknown>>();
+  /** Requests in flight by operation type, so the desktop App can ask what is busy without touching the worker. */
+  private readonly inFlight = new Map<BackupWorkerOperation["type"], number>();
   private lifetime?: WorkerLifetime;
   private closePromise?: Promise<void>;
   private idleTimer?: NodeJS.Timeout;
@@ -271,6 +285,13 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
     return this.run({ type: "inspectStagedProjectDataImport", upload });
   }
 
+  /** The long jobs running right now: `backup` (snapshots), `export` and `import` (preview, inspection and import). */
+  public activity(): DesktopBackendActivity[] {
+    const kinds = new Set<DesktopBackendActivity>();
+    for (const [type, count] of this.inFlight) if (count > 0) kinds.add(ACTIVITY_OF_OPERATION[type]);
+    return [...kinds];
+  }
+
   public close(): Promise<void> {
     if (!this.closePromise) {
       this.accepting = false;
@@ -290,9 +311,11 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
     this.idleTimer = undefined;
     const promise = this.send<T>(operation);
     this.active.add(promise);
+    this.inFlight.set(operation.type, (this.inFlight.get(operation.type) ?? 0) + 1);
     void promise
       .finally(() => {
         this.active.delete(promise);
+        this.inFlight.set(operation.type, (this.inFlight.get(operation.type) ?? 1) - 1);
         this.scheduleIdleClose();
       })
       .catch(() => undefined);

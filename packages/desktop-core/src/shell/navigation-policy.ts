@@ -1,3 +1,5 @@
+import { PORT_HANDOFF_FRAGMENT_KEY, decodePortHandoffFragment } from "@work-intelligence/schema";
+
 /** Custom scheme of the repair page. Registered as privileged before the app is ready. */
 export const REPAIR_SCHEME = "wi-repair";
 export const REPAIR_ORIGIN = `${REPAIR_SCHEME}://app`;
@@ -62,6 +64,20 @@ export function isDashboardUrl(url: string, activePort: number | null): boolean 
     parsed.port === String(activePort) &&
     parsed.username === "" &&
     parsed.password === ""
+  );
+}
+
+/**
+ * The Dashboard address the App itself opens: exactly the root path, and either no fragment or the one handoff fragment
+ * `dashboardUrlFor` builds (nothing else: no query, no other hash).
+ */
+export function isDashboardOpenUrl(url: string, activePort: number | null): boolean {
+  const parsed = parse(url);
+  if (parsed === undefined || !isDashboardUrl(url, activePort)) return false;
+  if (parsed.pathname !== "/" || parsed.search !== "") return false;
+  return (
+    parsed.hash === "" ||
+    (parsed.hash.startsWith(`#${PORT_HANDOFF_FRAGMENT_KEY}=`) && decodePortHandoffFragment(parsed.hash) !== undefined)
   );
 }
 

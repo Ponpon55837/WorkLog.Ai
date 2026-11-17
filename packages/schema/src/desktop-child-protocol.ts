@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_HANDOFF_ROUTE_LENGTH } from "./port-handoff.js";
 
 /** Version of the private parent/child control protocol; a different version is a repair case, never a fallback. */
 export const DESKTOP_CHILD_PROTOCOL_VERSION = 1;
@@ -15,6 +16,7 @@ export const DESKTOP_BACKEND_ERROR_CODES = [
   "SCHEMA_TOO_NEW",
   "SCHEMA_MIGRATION_BLOCKED",
   "PORT_OCCUPIED_BY_OTHER",
+  "PORT_NOT_PERMITTED",
   "PORT_NOT_RELEASED",
   "RUNTIME_MISSING",
   "SERVICE_IDENTITY_MISMATCH",
@@ -96,6 +98,18 @@ export const desktopFactsSchema = z.strictObject({
       fallbackRemoveCommand: z.string().max(MAX_PATH_LENGTH),
     })
     .optional(),
+  /** The port the App committed for this backend, so the status page can show the effective address. */
+  activePort: portSchema.optional(),
+  /**
+   * Positively detected risky storage for the database (DT-08). `unknown` means detection failed or timed out and is a
+   * soft note only; it never blocks anything.
+   */
+  storageRisk: z
+    .strictObject({
+      risk: z.enum(["network", "removable", "cloud-sync", "hard-link", "unknown"]),
+      migrationBlocked: z.boolean(),
+    })
+    .optional(),
 });
 
 const startRequestSchema = z.strictObject({
@@ -108,6 +122,25 @@ const startRequestSchema = z.strictObject({
 });
 
 const shutdownRequestSchema = z.strictObject({ type: z.literal("shutdown") });
+
+/** A short id the parent picks so it can match a reply to its request. */
+const requestIdSchema = z.string().regex(/^[A-Za-z0-9_-]{8,64}$/);
+
+/** Asks a running backend which long jobs are in progress, so the App can refuse a port change while one runs. */
+const activityQuerySchema = z.strictObject({ type: z.literal("activity-query"), requestId: requestIdSchema });
+
+/** Replaces the desktop facts of a running backend, for facts the App learns after start (DT-08 storage risk). */
+const updateFactsSchema = z.strictObject({ type: z.literal("update-facts"), desktop: desktopFactsSchema });
+
+/**
+ * Asks a preview child (never a serving one) for a consistent copy of `source` at `target`, which must not exist yet.
+ * The source is never migrated or changed; the child runs PRAGMA quick_check on the copy before it answers (DT-08).
+ */
+const copyDatabaseRequestSchema = z.strictObject({
+  type: z.literal("copy-database"),
+  source: pathSchema,
+  target: pathSchema,
+});
 
 const helloSchema = z.strictObject({
   type: z.literal("hello"),
@@ -150,11 +183,41 @@ const backupsChangedSchema = z.strictObject({ type: z.literal("backups-changed")
 /** The web UI asked the App to open its Agent setup window; it carries nothing and never changes any Agent config. */
 const openAgentSetupSchema = z.strictObject({ type: z.literal("open-agent-setup") });
 
+/**
+ * The web UI asked the App to open its port settings (DT-14). It may carry the page's whitelisted preferences and route
+ * so the App can restore them on the new origin; the App sanitizes both again and keeps them in memory only.
+ */
+const openPortSettingsSchema = z.strictObject({
+  type: z.literal("open-port-settings"),
+  preferences: z.unknown().optional(),
+  route: z.string().max(MAX_HANDOFF_ROUTE_LENGTH).optional(),
+});
+
+/** The long jobs a running backend reports; any of them makes a port change wait. */
+export const DESKTOP_BACKEND_ACTIVITIES = ["import", "backup", "export", "restore"] as const;
+
+const activitySchema = z.strictObject({
+  type: z.literal("activity"),
+  requestId: requestIdSchema,
+  busy: z.array(z.enum(DESKTOP_BACKEND_ACTIVITIES)).max(DESKTOP_BACKEND_ACTIVITIES.length),
+});
+
+/** Result of `copy-database`; on `ok` the identity is the copy's, read back after the integrity check. */
+const copyResultSchema = z.strictObject({
+  type: z.literal("copy-result"),
+  status: z.enum(["ok", "no-space", "target-exists", "integrity-failed", "failed"]),
+  identity: desktopDatabaseIdentitySchema.optional(),
+  detail: z.string().max(MAX_DETAIL_LENGTH).optional(),
+});
+
 /** Parent to child. */
 export const desktopParentMessageSchema = z.discriminatedUnion("type", [
   preflightRequestSchema,
   startRequestSchema,
   shutdownRequestSchema,
+  activityQuerySchema,
+  updateFactsSchema,
+  copyDatabaseRequestSchema,
 ]);
 
 /** Child to parent. */
@@ -167,6 +230,9 @@ export const desktopChildMessageSchema = z.discriminatedUnion("type", [
   backupCompletedSchema,
   backupsChangedSchema,
   openAgentSetupSchema,
+  openPortSettingsSchema,
+  activitySchema,
+  copyResultSchema,
 ]);
 
 export type DesktopDatabaseIdentity = z.infer<typeof desktopDatabaseIdentitySchema>;
@@ -177,6 +243,8 @@ export type DesktopFacts = z.infer<typeof desktopFactsSchema>;
 export type DesktopStartMessage = z.infer<typeof startRequestSchema>;
 export type DesktopReadyMessage = z.infer<typeof readySchema>;
 export type DesktopHelloMessage = z.infer<typeof helloSchema>;
+export type DesktopBackendActivity = (typeof DESKTOP_BACKEND_ACTIVITIES)[number];
+export type DesktopCopyResultMessage = z.infer<typeof copyResultSchema>;
 
 export type ParsedDesktopMessage<T> = { ok: true; message: T } | { ok: false; reason: string };
 

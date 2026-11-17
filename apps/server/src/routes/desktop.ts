@@ -1,3 +1,4 @@
+import { openPortSettingsInputSchema } from "@work-intelligence/schema";
 import { z } from "zod";
 import { readJsonBody, sendError, sendJson } from "../http.js";
 import { parseRequestInput, type Route } from "./router.js";
@@ -23,6 +24,27 @@ export const desktopRoutes: Route[] = [
       }
       // Only asks the App to show its window; the App, not the server, decides and writes any Agent config.
       services.desktop.requestOpenAgentSetup();
+      sendJson(response, 202, { ok: true });
+    },
+  },
+  {
+    method: "POST",
+    pattern: "/api/desktop/open-port-settings",
+    handler: async ({ request, response, services }) => {
+      const parsed = parseRequestInput(openPortSettingsInputSchema, (await readJsonBody(request)) ?? {});
+      if (!parsed.success) {
+        sendError(response, 400, "Invalid request body.", parsed.error.flatten(), "invalid_input");
+        return;
+      }
+      if (!services.desktop) {
+        sendError(response, 404, "只有桌面 App 管理的後端提供這個功能。");
+        return;
+      }
+      // The App confirms the change itself; the page only hands over its whitelisted preferences and route.
+      services.desktop.requestOpenPortSettings({
+        ...(parsed.data.preferences === undefined ? {} : { preferences: parsed.data.preferences }),
+        ...(parsed.data.route === undefined ? {} : { route: parsed.data.route }),
+      });
       sendJson(response, 202, { ok: true });
     },
   },

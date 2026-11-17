@@ -1,6 +1,8 @@
+import type { StoragePolicyRisk } from "../db-source/storage-policy.js";
 import type { DbGroupStatus, DbSourceKind } from "../db-source/types.js";
 import type { AgentDisplayState } from "../agents/status.js";
 import type { AgentRegistrationOwner, SetupAgentId } from "./agents-state.js";
+import type { CopyToLocalFailure } from "./copy-to-local.js";
 import type { ShellLocale } from "./i18n.js";
 
 /**
@@ -19,6 +21,8 @@ export interface SetupMessages {
   readonly setupChooseIntro: string;
   readonly setupChooseConflict: string;
   readonly setupChooseBlocked: string;
+  /** A found database is on storage that is never taken on one click (DT-08). */
+  readonly setupChooseRisky: string;
   readonly setupUseThis: string;
   readonly setupBrowse: string;
   readonly setupLater: string;
@@ -127,6 +131,29 @@ export interface SetupMessages {
   readonly agentsLauncherNotReady: string;
   readonly agentsChange: Readonly<Record<"create" | "update" | "delete", string>>;
   readonly agentsBusy: string;
+  /** DT-08: what each kind of risky storage means, in plain words. `why` says what can go wrong, `todo` what to do. */
+  readonly storageRisk: Readonly<Record<StoragePolicyRisk, StorageRiskText>>;
+  /** `{label}`: a schema update on this database was refused because of where it is stored. */
+  readonly storageMigrationBlocked: string;
+  readonly storageRefused: string;
+  readonly storageCopyToLocal: string;
+  /** The native confirmation before the copy starts. */
+  readonly copyConfirmMessage: string;
+  readonly copyConfirmDetail: string;
+  readonly copyConfirmYes: string;
+  readonly copyConfirmNo: string;
+  readonly copyWorking: string;
+  readonly copyDone: string;
+  readonly copyErrors: Readonly<Record<CopyToLocalFailure, string>>;
+}
+
+export interface StorageRiskText {
+  /** Short name: 網路磁碟, 外接磁碟, 雲端同步資料夾, 硬連結, 無法確認磁碟類型. */
+  readonly label: string;
+  readonly why: string;
+  readonly todo: string;
+  /** The checkbox that must be ticked before this database may be used; `unknown` needs it only for a one-click choice. */
+  readonly consent: string;
 }
 
 const zhTW: SetupMessages = {
@@ -141,6 +168,7 @@ const zhTW: SetupMessages = {
   setupChooseIntro: "找到多份資料，請選擇要使用哪一份。不會合併，也不會刪除其他份。",
   setupChooseConflict: "這些資料庫來自同一份資料，但內容已經分開。請選擇一份。",
   setupChooseBlocked: "原本設定的資料庫目前無法讀取。請確認磁碟已連接，或選擇其他資料庫。",
+  setupChooseRisky: "找到的資料庫放在需要小心的位置。請先看下面的說明，再決定是否使用。",
   setupUseThis: "使用這份",
   setupBrowse: "瀏覽其他位置…",
   setupLater: "稍後再說",
@@ -278,6 +306,55 @@ const zhTW: SetupMessages = {
   agentsLauncherNotReady: "App 的執行環境還沒準備好；完成首次設定後再試。",
   agentsChange: { create: "新增", update: "修改", delete: "刪除" },
   agentsBusy: "處理中…",
+  storageRisk: {
+    network: {
+      label: "網路磁碟",
+      why: "這份資料庫放在網路磁碟上。SQLite 在網路磁碟上可能損壞資料，所以 App 不會使用它。",
+      todo: "請先把資料庫複製到這台電腦的本機磁碟，再選擇複製後的檔案。",
+      consent: "",
+    },
+    removable: {
+      label: "外接磁碟",
+      why: "這份資料庫放在外接磁碟上。磁碟被拔掉或休眠時，寫到一半的資料可能損壞。",
+      todo: "建議複製到本機磁碟。若仍要使用，請先勾選下方的確認。",
+      consent: "我知道這份資料庫在外接磁碟上，拔掉磁碟可能損壞資料，仍要使用。",
+    },
+    "cloud-sync": {
+      label: "雲端同步資料夾",
+      why: "這份資料庫放在雲端同步資料夾裡。同步程式可能在寫入到一半時上傳或改動檔案，造成資料損壞或衝突的副本。",
+      todo: "建議複製到本機磁碟。若仍要使用，請先勾選下方的確認。",
+      consent: "我知道這份資料庫在雲端同步資料夾裡，同步可能損壞資料，仍要使用。",
+    },
+    "hard-link": {
+      label: "硬連結",
+      why: "這個檔案有其他名稱（硬連結）指向同一份內容。備份或還原時，可能改到別處的檔案。",
+      todo: "建議複製成一個獨立的檔案。若仍要使用，請先勾選下方的確認。",
+      consent: "我知道這份資料庫是硬連結，仍要使用。",
+    },
+    unknown: {
+      label: "無法確認磁碟類型",
+      why: "App 無法確認這份資料庫放在哪種磁碟上（可能是網路磁碟或外接磁碟）。",
+      todo: "如果它在這台電腦的本機磁碟上，可以放心使用。",
+      consent: "我知道無法確認磁碟類型，仍要使用。",
+    },
+  },
+  storageMigrationBlocked: "這份資料庫在{label}上，所以不會更新它的格式。請改用「複製到本機磁碟並改用」。",
+  storageRefused: "App 不會使用這份資料庫。",
+  storageCopyToLocal: "複製到本機磁碟並改用",
+  copyConfirmMessage: "要把這份資料庫複製到本機磁碟並改用嗎？",
+  copyConfirmDetail:
+    "App 會把它複製到預設的資料資料夾，改用複製後的檔案，並更新複製後檔案的格式。原本的檔案不會被改動，也不會被刪除。",
+  copyConfirmYes: "複製並改用",
+  copyConfirmNo: "取消",
+  copyWorking: "正在複製…",
+  copyDone: "已改用本機磁碟上的副本。原本的檔案沒有被改動。",
+  copyErrors: {
+    "no-space": "本機磁碟的可用空間不夠，沒有複製。請清出空間後再試。",
+    "target-exists": "複製的目標檔名已經存在，沒有覆蓋任何檔案。請再試一次。",
+    "integrity-failed": "複製後的檢查沒有通過，所以沒有使用它。原本的檔案沒有被改動。",
+    "copy-failed": "複製沒有完成。原本的檔案沒有被改動。",
+    "start-failed": "已複製，但改用後無法啟動，設定已維持原樣，副本也已移除。原本的檔案沒有被改動。",
+  },
 };
 
 const en: SetupMessages = {
@@ -292,6 +369,8 @@ const en: SetupMessages = {
   setupChooseIntro: "Several databases were found. Choose the one to use; nothing is merged or deleted.",
   setupChooseConflict: "These databases come from the same data but have diverged. Choose one.",
   setupChooseBlocked: "The database that was set up cannot be read right now. Connect its disk, or choose another one.",
+  setupChooseRisky:
+    "The database that was found is in a place that needs care. Read the notes below before you decide to use it.",
   setupUseThis: "Use this one",
   setupBrowse: "Browse…",
   setupLater: "Not now",
@@ -436,6 +515,57 @@ const en: SetupMessages = {
   agentsLauncherNotReady: "The App's runtime is not ready yet; finish the first-run setup, then try again.",
   agentsChange: { create: "New", update: "Changed", delete: "Removed" },
   agentsBusy: "Working…",
+  storageRisk: {
+    network: {
+      label: "Network drive",
+      why: "This database is on a network drive. SQLite can corrupt data there, so the App will not use it.",
+      todo: "Copy the database to a local disk on this computer first, then choose the copy.",
+      consent: "",
+    },
+    removable: {
+      label: "External drive",
+      why: "This database is on an external drive. If the drive is unplugged or goes to sleep, a half-written change can corrupt it.",
+      todo: "Copying it to a local disk is recommended. To use it anyway, tick the confirmation below first.",
+      consent: "I know this database is on an external drive and unplugging it can corrupt the data. Use it anyway.",
+    },
+    "cloud-sync": {
+      label: "Cloud-sync folder",
+      why: "This database is in a cloud-sync folder. The sync app can upload or change the file halfway through a write, which can corrupt it or create conflicting copies.",
+      todo: "Copying it to a local disk is recommended. To use it anyway, tick the confirmation below first.",
+      consent: "I know this database is in a cloud-sync folder and syncing can corrupt the data. Use it anyway.",
+    },
+    "hard-link": {
+      label: "Hard link",
+      why: "This file has other names (hard links) pointing at the same content. A backup or restore may change a file somewhere else.",
+      todo: "Copying it to a separate file is recommended. To use it anyway, tick the confirmation below first.",
+      consent: "I know this database is a hard link. Use it anyway.",
+    },
+    unknown: {
+      label: "Disk type unknown",
+      why: "The App could not tell what kind of disk this database is on (it might be a network or external drive).",
+      todo: "If it is on a local disk of this computer, it is fine to use.",
+      consent: "I know the disk type could not be confirmed. Use it anyway.",
+    },
+  },
+  storageMigrationBlocked:
+    "This database is on a {label}, so its format will not be updated. Use “Copy to local disk and switch” instead.",
+  storageRefused: "The App will not use this database.",
+  storageCopyToLocal: "Copy to local disk and switch",
+  copyConfirmMessage: "Copy this database to the local disk and switch to the copy?",
+  copyConfirmDetail:
+    "The App copies it to its default data folder, switches to the copy, and updates the format of the copy. The original file is not changed or deleted.",
+  copyConfirmYes: "Copy and switch",
+  copyConfirmNo: "Cancel",
+  copyWorking: "Copying…",
+  copyDone: "Now using the copy on the local disk. The original file was not changed.",
+  copyErrors: {
+    "no-space": "The local disk does not have enough free space, so nothing was copied. Free some space and try again.",
+    "target-exists": "The name for the copy already exists, so nothing was overwritten. Please try again.",
+    "integrity-failed": "The copy did not pass its check, so it was not used. The original file was not changed.",
+    "copy-failed": "The copy did not finish. The original file was not changed.",
+    "start-failed":
+      "The copy was made but could not be started, so the settings stay as they were and the copy was removed. The original file was not changed.",
+  },
 };
 
 export function setupMessages(locale: ShellLocale): SetupMessages {

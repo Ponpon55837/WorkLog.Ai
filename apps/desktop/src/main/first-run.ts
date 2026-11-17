@@ -7,7 +7,10 @@ import {
   buildSetupState,
   canCreateNewDatabase,
   chosenPathProblem,
+  allowMigrationFor,
   collectDbCandidates,
+  needsStorageConsent,
+  storagePolicy,
   missingParentDirectories,
   previewToCandidate,
   removeCreatedDatabase,
@@ -31,6 +34,7 @@ import type { BackendController, StartOverride } from "./backend.js";
 import type { DesktopPaths } from "./config.js";
 import type { LegacyGuard } from "./legacy.js";
 import type { Logger } from "./log.js";
+import type { StorageRiskService } from "./storage-risk.js";
 import type { RepairWindow } from "./repair-window.js";
 import { applyLoginItem, commitSettings, defaultSettings } from "./settings.js";
 import type { ShellState } from "./state.js";
@@ -50,6 +54,7 @@ export interface FirstRun {
     readonly sourceId: string;
     readonly launchAtLogin: boolean;
     readonly allowMigration?: boolean;
+    readonly acknowledgeStorageRisk?: boolean;
     readonly startAnyway?: boolean;
   }): Promise<SetupActionResult>;
   chooseFile(): Promise<SetupActionResult>;
@@ -72,6 +77,8 @@ export interface FirstRunOptions {
   /** A start from this page worked: open the Dashboard once. */
   readonly onStarted: () => void;
   readonly environment: NodeJS.ProcessEnv;
+  /** The storage classifier (DT-08): every source the page offers carries its verdict. */
+  readonly storage: StorageRiskService;
   /** The port of a new default setup; the product default unless a test build overrides it. */
   readonly defaultPort?: number;
 }
@@ -203,6 +210,7 @@ export function createFirstRun(options: FirstRunOptions): FirstRun {
       candidates,
       platform: process.platform,
       probe: async (path) => probeResultFrom(previews.get(path)),
+      classifyStorage: (path) => options.storage.classify(path),
     });
     decision = resolution.decision;
     // A database that is not there is not something to choose; the defaults button covers a new one.
@@ -331,16 +339,25 @@ export function createFirstRun(options: FirstRunOptions): FirstRun {
       if (!canCreateNewDatabase(phase)) return { ok: false, reason: "busy", state: snapshot() };
       return startWith(defaults.desired.databasePath, undefined, launchAtLogin, startAnyway, true);
     },
-    useSource: async ({ sourceId, launchAtLogin, allowMigration, startAnyway }) => {
+    useSource: async ({ sourceId, launchAtLogin, allowMigration, acknowledgeStorageRisk, startAnyway }) => {
       const entry = sources.find((source) => source.input.id === sourceId);
       if (!entry?.input.canUse || !entry.preview.identity) return { ok: false, reason: "invalid" };
       if (entry.input.needsMigration && allowMigration !== true) return { ok: false, reason: "invalid" };
+      // DT-08, enforced here and not only by the page: refused storage, an update the storage forbids, and a risky
+      // source without the ticked consent never start.
+      const risk = entry.input.group.storageRisk?.risk;
+      const chosenByUser = entry.input.group.kinds.includes("explicit-selection");
+      if (storagePolicy(risk).refused) return { ok: false, reason: "invalid" };
+      if (entry.input.needsMigration && storagePolicy(risk).migrationBlocked) return { ok: false, reason: "invalid" };
+      if (needsStorageConsent(risk, chosenByUser) && acknowledgeStorageRisk !== true) {
+        return { ok: false, reason: "invalid" };
+      }
       return startWith(
         entry.path,
         {
           databasePath: entry.path,
           expectedIdentity: entry.preview.identity,
-          allowSchemaMigration: entry.input.needsMigration,
+          allowSchemaMigration: allowMigrationFor(entry.input.needsMigration, risk),
         },
         launchAtLogin,
         startAnyway === true,
@@ -369,7 +386,10 @@ export function createFirstRun(options: FirstRunOptions): FirstRun {
       state.touch();
       try {
         await options.prepareRuntime();
-        const [result] = await supervisor.previewMany([file]);
+        const [[result], storageRisk] = await Promise.all([
+          supervisor.previewMany([file]),
+          options.storage.classify(file),
+        ]);
         const probe = probeResultFrom(result);
         const group: DbSourceGroup = {
           id: randomUUID(),
@@ -380,6 +400,7 @@ export function createFirstRun(options: FirstRunOptions): FirstRun {
           identity: probe.identity ?? null,
           preview: { schemaVersion: probe.schemaVersion, projectCount: probe.projectCount },
           absolutePath: file,
+          storageRisk,
         };
         sources = [...sources.filter((source) => source.path !== file), entryFor(group, result)];
         chosen = true;

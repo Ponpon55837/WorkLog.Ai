@@ -238,6 +238,22 @@ describe("resolveDbSource", () => {
     expect(result.decision).toMatchObject({ kind: "use", reason: "default" });
   });
 
+  it("never takes risky or unclassified storage on one click, and keeps a fine verdict one click", async () => {
+    const root = tempDir();
+    const db = createDb(join(root, "s.sqlite"));
+    const verdict = (risk: "none" | "network" | "removable" | "cloud-sync" | "hard-link" | "unknown") => ({
+      candidates: [candidate("standalone-default", db)],
+      probe: fakeProbe(),
+      classifyStorage: async () => ({ risk, evidence: [], symlinked: false }),
+    });
+    for (const risk of ["network", "removable", "cloud-sync", "hard-link", "unknown"] as const) {
+      const result = await resolveDbSource(verdict(risk));
+      expect(result.decision).toMatchObject({ kind: "needs-user-choice", reason: "risky-storage" });
+      expect(result.groups[0]?.storageRisk?.risk).toBe(risk);
+    }
+    expect((await resolveDbSource(verdict("none"))).decision).toMatchObject({ kind: "use" });
+  });
+
   it("uses a plugin-linked database as consistent legacy", async () => {
     const root = tempDir();
     const db = createDb(join(root, "p.sqlite"));

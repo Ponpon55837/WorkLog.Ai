@@ -1,6 +1,7 @@
 import { posix, win32 } from "node:path";
 import { decideDbSource } from "./decide.js";
 import { groupCandidates } from "./grouping.js";
+import type { StorageRiskResult } from "./storage-risk.js";
 import type { DbCandidate, DbProbe, DbProbeResult, DbSourceResolution, ResolvedCandidate } from "./types.js";
 
 export interface ResolveDbSourceOptions {
@@ -11,6 +12,11 @@ export interface ResolveDbSourceOptions {
   isOfflineVolume?: (directory: string) => boolean;
   /** Maximum probes in flight at once (positive integer); unbounded when omitted. */
   concurrency?: number;
+  /**
+   * Classifies the storage of a group's database (DT-08); the verdict is kept on the group and read by the decision.
+   * It never throws (a failure is `unknown`), and is called once per group, all together.
+   */
+  classifyStorage?: (absolutePath: string) => Promise<StorageRiskResult>;
 }
 
 /** Run `task` over `items` with at most `limit` in flight; results keep the input order. */
@@ -68,6 +74,20 @@ export async function resolveDbSource(options: ResolveDbSourceOptions): Promise<
     return toResolved(candidate, await pending);
   });
   const groups = groupCandidates(resolved, platform);
+  const classify = options.classifyStorage;
+  if (classify) {
+    await Promise.all(
+      groups
+        .filter((group) => group.probeStatus !== "missing")
+        .map(async (group) => {
+          group.storageRisk = await classify(group.absolutePath).catch((): StorageRiskResult => ({
+            risk: "unknown",
+            evidence: ["classifier-error"],
+            symlinked: false,
+          }));
+        }),
+    );
+  }
   const api = platform === "win32" ? win32 : posix;
   const decision = decideDbSource(groups, resolved, {
     isOfflineVolume: options.isOfflineVolume,

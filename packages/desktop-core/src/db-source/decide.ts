@@ -6,6 +6,7 @@ import type {
   ResolvedCandidate,
   UseReason,
 } from "./types.js";
+import { storagePolicy } from "./storage-policy.js";
 
 export interface DecideOptions {
   /** True when the volume holding this directory is known to be offline (an unplugged drive). */
@@ -50,6 +51,11 @@ function decideInferred(groups: readonly DbSourceGroup[], reason: UseReason): Db
   const only = ok[0]!;
   if (only.status === "conflict") return { kind: "needs-user-choice", groups: [only], reason: "conflict" };
   if (present.length > 1) return { kind: "needs-user-choice", groups: present, reason: "unverifiable" };
+  // A network share, a removable disk, a sync folder, a hard link, or storage nobody could classify is never taken on
+  // one click: the user picks it on purpose (and a positive risk also ticks a consent).
+  if (storagePolicy(only.storageRisk?.risk).note) {
+    return { kind: "needs-user-choice", groups: [only], reason: "risky-storage" };
+  }
   return { kind: "use", group: only, reason };
 }
 

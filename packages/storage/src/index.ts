@@ -30,6 +30,7 @@ export {
   deleteDatabaseBackup,
   isSafeDatabaseBackupFileName,
   restoreDatabase,
+  writeSnapshot,
   type BackupRetentionOptions,
   type ExportOptions,
   type RestoreDatabaseResult,

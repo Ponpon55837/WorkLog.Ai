@@ -14,6 +14,10 @@
     "./architecture-diagram": {
       "types": "./dist/architecture-diagram.d.ts",
       "import": "./dist/architecture-diagram.js"
+    },
+    "./port-handoff": {
+      "types": "./dist/port-handoff.d.ts",
+      "import": "./dist/port-handoff.js"
     }
   },
   "dependencies": {

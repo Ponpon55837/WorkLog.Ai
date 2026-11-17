@@ -6,6 +6,7 @@ import {
   WorkIntelligenceStore,
   type WorkIntelligenceStoreOptions,
 } from "@work-intelligence/storage";
+import type { DesktopBackendActivity } from "@work-intelligence/schema";
 import { readFileIdentity, sameFileIdentity } from "@work-intelligence/shared/file-identity";
 import { STANDALONE } from "@work-intelligence/shared/database-location";
 import { databasePath as configuredDatabasePath, storeOptions as configuredStoreOptions } from "./config.js";
@@ -65,6 +66,8 @@ export interface StartedApi {
   listening: Promise<ApiListening>;
   /** Graceful stop (timers, SSE, HTTP drain, worker, SQLite); resolves when SQLite is closed. Safe to call twice. */
   shutdown(): Promise<void>;
+  /** The long jobs running now; empty for an API that never started. */
+  activity(): DesktopBackendActivity[];
 }
 
 /** Requests that never write a backup file. */
@@ -123,7 +126,7 @@ function failedStart(error: StartApiError): StartedApi {
   const listening = Promise.reject<ApiListening>(error);
   // The CLI never reads `listening`; mark it handled so a refusal is not also an unhandled rejection.
   listening.catch(() => undefined);
-  return { listening, shutdown: () => Promise.resolve() };
+  return { listening, shutdown: () => Promise.resolve(), activity: () => [] };
 }
 
 /**
@@ -208,7 +211,9 @@ export function startApi(options: StartApiOptions = {}): StartedApi {
         : new BackupWorkerClient(databasePath, storeOptions.backup, LATEST_SCHEMA_VERSION);
     apiHandler = createApiHandler(store, {
       ...(webDirectory ? { webDirectory } : {}),
-      ...(backupWorker ? { backgroundStore: backupWorker } : {}),
+      ...(backupWorker
+        ? { backgroundStore: backupWorker, backgroundActivity: () => backupWorker?.activity() ?? [] }
+        : {}),
       ...(options.instanceRunId ? { instanceRunId: options.instanceRunId } : {}),
       ...(options.desktop ? { desktop: options.desktop } : {}),
     });
@@ -338,5 +343,5 @@ export function startApi(options: StartApiOptions = {}): StartedApi {
     },
     process,
   );
-  return { listening, shutdown };
+  return { listening, shutdown, activity: () => apiHandler.activity() };
 }

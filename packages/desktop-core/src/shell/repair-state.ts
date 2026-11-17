@@ -3,6 +3,7 @@ import type { ServiceOwnerState } from "../operations/service-owner-state.js";
 import type { ShellLocale } from "./i18n.js";
 import type { LastBackupInfo } from "./last-backup.js";
 import type { RecordedError } from "./recent-errors.js";
+import type { StorageRiskView } from "./storage-risk-view.js";
 import { canDisableLegacyService } from "../legacy-service/disable.js";
 import type { LegacyServiceDetection } from "../legacy-service/types.js";
 
@@ -35,6 +36,8 @@ export interface RepairCandidateView {
   readonly canConfirm: boolean;
   /** Confirming also updates its schema; the page asks the user for explicit consent first. */
   readonly needsMigration: boolean;
+  /** The file is on risky storage (DT-08): the reason, the consent checkbox and the copy button follow from it. */
+  readonly storageRisk?: StorageRiskView;
 }
 
 /** The snapshot the repair page renders. It holds no real path: those stay in main. */
@@ -42,7 +45,12 @@ export interface RepairState {
   readonly locale: ShellLocale;
   readonly owner: ServiceOwnerState;
   readonly backend: BackendRunState;
-  readonly database: { readonly display: string | null; readonly status: DbProbeStatus | "unknown" };
+  readonly database: {
+    readonly display: string | null;
+    readonly status: DbProbeStatus | "unknown";
+    /** The App's own database is on risky storage and its schema update was refused: the copy button is offered (DT-08). */
+    readonly storageRisk?: StorageRiskView;
+  };
   readonly candidates: readonly RepairCandidateView[];
   readonly recentErrors: readonly RecordedError[];
   readonly lastBackup: LastBackupInfo;
@@ -51,6 +59,8 @@ export interface RepairState {
   readonly retryOperationId: string;
   /** Set only while the success card shows, right after a repair the user started worked. */
   readonly recovered: RepairRecovered | null;
+  /** The 「連接埠」 section (null before the App has settings). */
+  readonly port: RepairPortSection | null;
   /**
    * The old login service (`pnpm bootstrap`) is installed and may serve this database. `blocked`: the App did not start
    * its backend because of it; only "仍要啟動" (the `start-anyway` action) starts it.
@@ -67,6 +77,18 @@ export interface RepairState {
   } | null;
 }
 
+/** The 「連接埠」 section: always shown, so a port that cannot start can still be changed from here. */
+export interface RepairPortSection {
+  /** The port the settings name (what the next start uses). */
+  readonly port: number | null;
+  /** The port the running backend serves, when one runs. */
+  readonly activePort: number | null;
+  /** Bumps each time main asks for the section to be shown (the tray item, the Dashboard's link); the page scrolls to it. */
+  readonly focusToken: number;
+  /** The Dashboard's preferences wait in memory to be carried over. */
+  readonly handoffHeld: boolean;
+}
+
 export interface RepairRecovered {
   /** Projects in the database, when the backend reported it; the page hides the count without it. */
   readonly projectCount?: number;
@@ -80,6 +102,8 @@ export interface RepairStateInputs {
   readonly backend: BackendRunState;
   readonly databasePath: string | null;
   readonly databaseStatus: DbProbeStatus | "unknown";
+  /** How the App's own database is shown when its storage is risky (DT-08). */
+  readonly databaseStorageRisk?: StorageRiskView;
   readonly candidates: readonly {
     readonly id: string;
     readonly path: string;
@@ -88,11 +112,13 @@ export interface RepairStateInputs {
     readonly errorCode?: string;
     /** Confirming is allowed (an `ok` preview that carries an identity). Defaults to `status === "ok"`. */
     readonly canConfirm?: boolean;
+    readonly storageRisk?: StorageRiskView;
   }[];
   readonly recentErrors: readonly RecordedError[];
   readonly lastBackup: LastBackupInfo;
   readonly retryOperationId: string;
   readonly recovered?: RepairRecovered | null;
+  readonly port?: RepairPortSection | null;
   /** What the start-up check found, when it found the old login service on this database. */
   readonly legacyService?: LegacyServiceDetection | null;
   /** The App held its backend back because of that service. */
@@ -140,6 +166,7 @@ export function buildRepairState(inputs: RepairStateInputs): RepairState {
     database: {
       display: inputs.databasePath === null ? null : show(inputs.databasePath),
       status: inputs.databaseStatus,
+      ...(inputs.databaseStorageRisk ? { storageRisk: inputs.databaseStorageRisk } : {}),
     },
     candidates: inputs.candidates.map((candidate) => ({
       id: candidate.id,
@@ -147,12 +174,14 @@ export function buildRepairState(inputs: RepairStateInputs): RepairState {
       status: candidate.status,
       canConfirm: candidate.canConfirm ?? candidate.status === "ok",
       needsMigration: candidate.needsMigration === true,
+      ...(candidate.storageRisk ? { storageRisk: candidate.storageRisk } : {}),
       ...(candidate.errorCode ? { errorCode: candidate.errorCode } : {}),
     })),
     recentErrors: inputs.recentErrors,
     lastBackup: inputs.lastBackup,
     retryOperationId: inputs.retryOperationId,
     recovered: inputs.recovered ?? null,
+    port: inputs.port ?? null,
     legacyService:
       inputs.legacyService?.kind === "found"
         ? {

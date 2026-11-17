@@ -4,6 +4,8 @@ import type { BackendErrorCode } from "../backend/errors.js";
 const DETERMINISTIC_PREFIXES = ["DB_", "SCHEMA_", "RUNTIME_"] as const;
 const DETERMINISTIC_CODES: ReadonlySet<string> = new Set([
   "PORT_OCCUPIED_BY_OTHER",
+  // The OS does not let this user bind it (for example a Windows excluded range): only another port helps.
+  "PORT_NOT_PERMITTED",
   "REPAIR_REQUIRED",
   // Only the user can resolve it: remove the old service, or say "仍要啟動".
   "LEGACY_SERVICE_ACTIVE",

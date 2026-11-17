@@ -5,6 +5,7 @@ import { button, checkbox, element, fact, focusedId, isChecked, restoreFocus, se
 import { legacyBlock } from "./legacy-block.js";
 import { legacyDisableControls, legacyDisableOutcome, type LegacyDisableHost } from "./legacy-disable-view.js";
 import { createSetupMemory } from "./setup-memory.js";
+import { storageRiskNote } from "./storage-risk-card.js";
 
 /**
  * The first-run page (DT-01). "使用預設設定開始" is on the first screen from the first paint, but disabled (with a short
@@ -71,11 +72,13 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
   function useSource(source: SetupSourceView): void {
     const login = launchAtLogin();
     const allowMigration = source.needsMigration ? isChecked(app, `migrate:${source.id}`) : undefined;
+    const acknowledgeStorageRisk = source.storageRisk?.consent ? isChecked(app, `risk:${source.id}`) : undefined;
     const run: Retry = (startAnyway) =>
       api.setupUseSource({
         sourceId: source.id,
         launchAtLogin: login,
         ...(allowMigration === undefined ? {} : { allowMigration }),
+        ...(acknowledgeStorageRisk === undefined ? {} : { acknowledgeStorageRisk }),
         ...(startAnyway ? { startAnyway } : {}),
       });
     void act(() => run(false), run);
@@ -114,21 +117,30 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
     }
     const card = element("div", { className: recommended ? "source recommended" : "source" }, [facts]);
     card.dataset.source = source.id;
+    if (source.storageRisk) card.append(storageRiskNote(source.storageRisk));
     if (!source.canUse) return card;
     const busy = state.busy || working;
     if (source.needsMigration) {
       card.append(checkbox(text.setupMigrationConsent, `migrate:${source.id}`, memory.consent(source.id), !busy));
     }
+    const riskConsent = source.storageRisk?.consent;
+    if (riskConsent) {
+      card.append(checkbox(riskConsent, `risk:${source.id}`, memory.consent(`risk:${source.id}`), !busy));
+    }
     const label = recommended ? text.setupKeepThisData : text.setupUseThis;
     const use = button(label, `use:${source.id}`, !busy, () => useSource(source), recommended);
     card.append(element("div", { className: "actions" }, [use]));
-    if (source.needsMigration) {
-      // The button only works once the user agreed to the schema update.
-      const box = card.querySelector<HTMLInputElement>(`input[data-id="migrate:${CSS.escape(source.id)}"]`);
-      use.disabled = busy || !box?.checked;
+    // The button only works once the user agreed to every consent it needs: the schema update and the risky storage.
+    const boxes = [
+      ...(source.needsMigration ? [`migrate:${source.id}`] : []),
+      ...(riskConsent ? [`risk:${source.id}`] : []),
+    ].map((id) => ({ id, box: card.querySelector<HTMLInputElement>(`input[data-id="${CSS.escape(id)}"]`) }));
+    const allTicked = (): boolean => boxes.every(({ box }) => box?.checked === true);
+    use.disabled = busy || !allTicked();
+    for (const { id, box } of boxes) {
       box?.addEventListener("change", () => {
-        memory.setConsent(source.id, box.checked);
-        use.disabled = busy || !box.checked;
+        memory.setConsent(id === `migrate:${source.id}` ? source.id : id, box.checked);
+        use.disabled = busy || !allTicked();
       });
     }
     return card;
@@ -152,7 +164,7 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
     const busy = state.busy || working;
     const login = app.querySelector(`input[data-id="${LOGIN_ID}"]`) ? launchAtLogin() : state.defaults.launchAtLogin;
     const blocks: Node[] = [element("h1", { text: text.setupHeading })];
-    memory.keepConsentFor(state.sources.map((source) => source.id));
+    memory.keepConsentFor(state.sources.flatMap((source) => [source.id, `risk:${source.id}`]));
 
     if (state.phase === "done") {
       blocks.push(

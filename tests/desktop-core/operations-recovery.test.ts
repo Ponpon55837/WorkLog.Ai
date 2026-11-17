@@ -240,3 +240,45 @@ describe("recover identity check", () => {
     expect(vanished.action).toBe("repair");
   });
 });
+
+describe("recover a port change", () => {
+  const change = {
+    kind: "change-port" as const,
+    previousOwner: "MANAGED" as const,
+    details: { from: 3210, to: 43_210 },
+  };
+
+  it("keeps the managed owner when the child ended with the App, because the settings still name the old port", async () => {
+    for (const phase of ["PREPARING", "STARTING"] as const) {
+      const record = await recordAt(phase, change);
+      expect(record.details).toEqual({ from: 3210, to: 43_210 });
+      const decision = await recover(record, probe({ oldServiceRunning: false }));
+      expect(decision).toMatchObject({ nextState: "MANAGED", action: "none", restore: null, migrationStarted: false });
+    }
+  });
+
+  it("needs repair when a child still runs, since its port cannot be told from the journal", async () => {
+    const decision = await recover(
+      await recordAt("STARTING", change),
+      probe({ desktopChild: VERIFIED, oldServiceRunning: false }),
+    );
+    expect(decision).toMatchObject({ nextState: "NEEDS_REPAIR", action: "repair" });
+  });
+
+  it("does not bypass the database identity check or a migration", async () => {
+    const other = await recover(await recordAt("STARTING", change), probe({ dbIdentity: DB_B }));
+    expect(other).toMatchObject({ nextState: "NEEDS_REPAIR", action: "repair" });
+    const migrated = await recover(await recordAt("STARTING", change), probe({ migrationEvidence: true }));
+    expect(migrated).toMatchObject({ nextState: "NEEDS_REPAIR", migrationStarted: true });
+  });
+
+  it("leaves an operation that was already NEEDS_REPAIR to the generic rule", async () => {
+    const record = { ...(await recordAt("STARTING", change)), phase: "NEEDS_REPAIR" as const };
+    expect(await recover(record, probe())).toMatchObject({ nextState: "NEEDS_REPAIR", action: "repair" });
+  });
+
+  it("falls back to the generic rule when the owner before was not MANAGED", async () => {
+    const decision = await recover(await recordAt("STARTING", { kind: "change-port" }), probe());
+    expect(decision.action).toBe("restore-previous");
+  });
+});

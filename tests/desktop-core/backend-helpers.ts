@@ -39,6 +39,8 @@ export interface ChildScript {
   onSigkill?: "exit" | "ignore";
   /** What the child does right after it said `ready`: end itself, optionally after reporting `failed`. */
   afterReady?: { exit: number; failed?: { code: string; detail: string } };
+  /** The answer to `copy-database`; false stays silent. */
+  copy?: Record<string, unknown> | false;
 }
 
 /** A `ChildProcess` stand-in driven by a script, with real streams and EventEmitter semantics. */
@@ -126,6 +128,8 @@ export class FakeChild extends EventEmitter {
           this.exit(after.exit);
         }
       }
+    } else if (message.type === "copy-database" && this.script.copy !== false) {
+      this.say({ type: "copy-result", status: "ok", identity: IDENTITY, ...this.script.copy });
     } else if (message.type === "shutdown") {
       const action = this.script.onShutdown ?? { exit: 0 };
       if (action !== "ignore") this.exit(action.exit);

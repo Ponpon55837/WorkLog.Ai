@@ -1,5 +1,6 @@
 import type { ServiceOwnerState } from "../operations/service-owner-state.js";
 import { formatMessage, type ShellMessages } from "./i18n.js";
+import type { PortMessages } from "./port-i18n.js";
 import type { SetupMessages } from "./setup-i18n.js";
 
 export type TrayItemId =
@@ -10,6 +11,7 @@ export type TrayItemId =
   | "legacy-start-anyway"
   | "legacy-remove-help"
   | "repair"
+  | "change-port"
   | "separator"
   | "quit";
 
@@ -36,6 +38,8 @@ export interface TrayMenuInputs {
    * A login start was held back because the old login service is enabled on this database: the status line says so, and
    * the two ways out follow. Omitted when nothing was held back.
    */
+  /** The 「變更連接埠…」 item, shown after "Repair…" once the App is set up. Omitted: no item. */
+  readonly port?: Pick<PortMessages, "trayChangePort">;
   readonly legacyHeld?: Pick<SetupMessages, "trayLegacyStatus" | "trayLegacyStartAnyway" | "trayLegacyHowToRemove">;
 }
 
@@ -81,6 +85,9 @@ export function buildTrayMenu(inputs: TrayMenuInputs): TrayMenuItem[] {
         ]
       : []),
     { id: "repair", label: messages.trayRepair, enabled: true },
+    ...(inputs.port && !setup?.needsSetup
+      ? [{ id: "change-port" as const, label: inputs.port.trayChangePort, enabled: true }]
+      : []),
     ...(setup && !setup.needsSetup ? setupItems : []),
     { id: "separator", label: "", enabled: false },
     { id: "quit", label: messages.trayQuit, enabled: true },

@@ -1,5 +1,6 @@
 import { createServer, type Server } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { DesktopFacts } from "../../packages/schema/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 import { createApiHandler, type ApiHandlerOptions } from "../../apps/server/src/server.js";
 import { OPEN_AGENT_SETUP_MIN_INTERVAL_MS } from "../../apps/server/src/desktop-services.js";
@@ -61,6 +62,96 @@ describe("system status in desktop mode", () => {
     const baseUrl = await listen({ desktop: { facts: { legacyService: LEGACY }, onOpenAgentSetup: vi.fn() } });
     const status = (await (await fetch(`${baseUrl}/api/system/status`)).json()) as { desktop: unknown };
     expect(status.desktop).toEqual({ managed: true, legacyService: LEGACY });
+  });
+});
+
+describe("system status port and storage facts", () => {
+  it("reports the active port and storage risk", async () => {
+    const facts = { activePort: 40_321, storageRisk: { risk: "network", migrationBlocked: true } } as const;
+    const baseUrl = await listen({ desktop: { facts, onOpenAgentSetup: vi.fn() } });
+    const status = (await (await fetch(`${baseUrl}/api/system/status`)).json()) as { desktop: unknown };
+    expect(status.desktop).toEqual({ managed: true, ...facts });
+  });
+
+  it("reads the current facts on every request", async () => {
+    let facts: DesktopFacts | undefined = { activePort: 40_321 };
+    const baseUrl = await listen({ desktop: { getFacts: () => facts, onOpenAgentSetup: vi.fn() } });
+    const read = async () =>
+      ((await (await fetch(`${baseUrl}/api/system/status`)).json()) as { desktop: unknown }).desktop;
+    expect(await read()).toEqual({ managed: true, activePort: 40_321 });
+    facts = { activePort: 40_322, storageRisk: { risk: "unknown", migrationBlocked: false } };
+    expect(await read()).toEqual({
+      managed: true,
+      activePort: 40_322,
+      storageRisk: { risk: "unknown", migrationBlocked: false },
+    });
+  });
+});
+
+describe("POST /api/desktop/open-port-settings", () => {
+  function postPort(baseUrl: string, body: unknown, headers: Record<string, string> = JSON_HEADERS): Promise<Response> {
+    return fetch(`${baseUrl}/api/desktop/open-port-settings`, {
+      method: "POST",
+      headers,
+      body: typeof body === "string" ? body : JSON.stringify(body),
+    });
+  }
+
+  it("answers 404 outside desktop mode", async () => {
+    const response = await postPort(await listen(), {});
+    expect(response.status).toBe(404);
+  });
+
+  it("sends only the sanitized preferences and route to the App and answers 202", async () => {
+    const onOpenPortSettings = vi.fn();
+    const baseUrl = await listen({ desktop: { onOpenAgentSetup: vi.fn(), onOpenPortSettings } });
+    const response = await postPort(baseUrl, {
+      preferences: { theme: "dark", locale: "xx", token: "secret", sidePanelWidths: { session: 480, other: 9 } },
+      route: "/sessions/abc",
+    });
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ ok: true });
+    expect(onOpenPortSettings).toHaveBeenCalledWith({
+      preferences: { theme: "dark", sidePanelWidths: { session: 480 } },
+      route: "/sessions/abc",
+    });
+  });
+
+  it("falls back to the home route for an unsafe route and accepts an empty body", async () => {
+    const onOpenPortSettings = vi.fn();
+    const baseUrl = await listen({ desktop: { onOpenAgentSetup: vi.fn(), onOpenPortSettings } });
+    expect((await postPort(baseUrl, { route: "//evil" })).status).toBe(202);
+    expect((await postPort(baseUrl, {})).status).toBe(202);
+    expect(onOpenPortSettings).toHaveBeenNthCalledWith(1, { preferences: {}, route: "/" });
+    expect(onOpenPortSettings).toHaveBeenNthCalledWith(2, { preferences: {}, route: "/" });
+  });
+
+  it("refuses an unknown field and a wrongly typed route with 400", async () => {
+    const onOpenPortSettings = vi.fn();
+    const baseUrl = await listen({ desktop: { onOpenAgentSetup: vi.fn(), onOpenPortSettings } });
+    expect((await postPort(baseUrl, { extra: 1 })).status).toBe(400);
+    expect((await postPort(baseUrl, { route: 5 })).status).toBe(400);
+    expect(onOpenPortSettings).not.toHaveBeenCalled();
+  });
+
+  it("stays 202 when the App channel throws", async () => {
+    const baseUrl = await listen({
+      desktop: {
+        onOpenAgentSetup: vi.fn(),
+        onOpenPortSettings: () => {
+          throw new Error("channel closed");
+        },
+      },
+    });
+    expect((await postPort(baseUrl, {})).status).toBe(202);
+  });
+
+  it("refuses a foreign Origin and a non-JSON body without notifying the App", async () => {
+    const onOpenPortSettings = vi.fn();
+    const baseUrl = await listen({ desktop: { onOpenAgentSetup: vi.fn(), onOpenPortSettings } });
+    expect((await postPort(baseUrl, {}, { ...JSON_HEADERS, origin: "http://evil.example" })).status).toBe(403);
+    expect((await postPort(baseUrl, "{}", { "content-type": "text/plain" })).status).toBeGreaterThanOrEqual(400);
+    expect(onOpenPortSettings).not.toHaveBeenCalled();
   });
 });
 

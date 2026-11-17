@@ -3595,6 +3595,13 @@ export interface SystemDesktopStatus {
     removeCommand?: string;
     fallbackRemoveCommand: string;
   };
+  /** The port the App committed for this backend; the page shows it as the effective address. */
+  activePort?: number;
+  /** Positively detected risky database storage (DT-08); `unknown` is a soft note only. */
+  storageRisk?: {
+    risk: "network" | "removable" | "cloud-sync" | "hard-link" | "unknown";
+    migrationBlocked: boolean;
+  };
 }
 
 export interface SystemStatus {

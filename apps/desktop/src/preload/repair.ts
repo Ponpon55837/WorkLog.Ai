@@ -30,17 +30,22 @@ const channels: typeof REPAIR_CHANNELS = {
   legacyDisablePreview: "legacy:disable-preview",
   legacyDisableConfirm: "legacy:disable-confirm",
   legacyStartNow: "legacy:start-now",
+  portChange: "port:change",
+  copyToLocal: "repair:copy-to-local",
 };
 
 const api: RepairApi = {
   getState: () => ipcRenderer.invoke(channels.getState),
   retryStart: (operationId) => ipcRenderer.invoke(channels.retryStart, { operationId }),
   chooseDatabase: () => ipcRenderer.invoke(channels.chooseDatabase, {}),
-  confirmDatabase: (candidateId, allowMigration) =>
+  confirmDatabase: (candidateId, allowMigration, acknowledgeStorageRisk) =>
     ipcRenderer.invoke(channels.confirmDatabase, {
       candidateId,
       ...(allowMigration === undefined ? {} : { allowMigration }),
+      ...(acknowledgeStorageRisk === undefined ? {} : { acknowledgeStorageRisk }),
     }),
+  copyToLocal: (candidateId) =>
+    ipcRenderer.invoke(channels.copyToLocal, candidateId === undefined ? {} : { candidateId }),
   openFolder: (target) => ipcRenderer.invoke(channels.openFolder, { target }),
   exportDiagnostics: () => ipcRenderer.invoke(channels.exportDiagnostics, {}),
   startAnyway: (operationId) => ipcRenderer.invoke(channels.startAnyway, { operationId }),
@@ -57,6 +62,7 @@ const api: RepairApi = {
       sourceId: input.sourceId,
       launchAtLogin: input.launchAtLogin,
       ...(input.allowMigration === undefined ? {} : { allowMigration: input.allowMigration }),
+      ...(input.acknowledgeStorageRisk === undefined ? {} : { acknowledgeStorageRisk: input.acknowledgeStorageRisk }),
       ...(input.startAnyway === undefined ? {} : { startAnyway: input.startAnyway }),
     }),
   setupChooseFile: () => ipcRenderer.invoke(channels.setupChooseFile, {}),
@@ -80,6 +86,7 @@ const api: RepairApi = {
       ...(continueWhileBusy === undefined ? {} : { continueWhileBusy }),
     }),
   legacyStartNow: () => ipcRenderer.invoke(channels.legacyStartNow, {}),
+  portChange: (port) => ipcRenderer.invoke(channels.portChange, { port }),
 };
 
 contextBridge.exposeInMainWorld("workIntelligenceRepair", api);

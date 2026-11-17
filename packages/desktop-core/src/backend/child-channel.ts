@@ -44,6 +44,7 @@ export class ChildChannel {
   private backupListener: ((at: string) => void) | undefined;
   private changedListener: (() => void) | undefined;
   private openAgentSetupListener: (() => void) | undefined;
+  private openPortSettingsListener: ((request: { preferences?: unknown; route?: string }) => void) | undefined;
   /** Sticky: once the child failed or ended, every later `expect` fails the same way. */
   private ended: BackendFailure | undefined;
   private exit: ChildExit | undefined;
@@ -134,6 +135,11 @@ export class ChildChannel {
     this.openAgentSetupListener = listener;
   }
 
+  /** Receives each `open-port-settings` event: the web UI asked the App to open its port settings. */
+  onOpenPortSettings(listener: (request: { preferences?: unknown; route?: string }) => void): void {
+    this.openPortSettingsListener = listener;
+  }
+
   private receive(raw: unknown): void {
     const parsed = parseDesktopChildMessage(raw);
     if (!parsed.ok) {
@@ -151,6 +157,13 @@ export class ChildChannel {
     }
     if (message.type === "open-agent-setup") {
       this.openAgentSetupListener?.();
+      return;
+    }
+    if (message.type === "open-port-settings") {
+      this.openPortSettingsListener?.({
+        ...(message.preferences === undefined ? {} : { preferences: message.preferences }),
+        ...(message.route === undefined ? {} : { route: message.route }),
+      });
       return;
     }
     if (message.type === "failed") {

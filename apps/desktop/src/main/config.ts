@@ -11,6 +11,8 @@ const TEST_ENVIRONMENT = {
   dataDirectory: "WORK_INTELLIGENCE_DESKTOP_DATA_DIR",
   runtimeRoot: "WORK_INTELLIGENCE_DESKTOP_RUNTIME_ROOT",
   autoConfirmQuit: "WORK_INTELLIGENCE_DESKTOP_TEST_AUTOCONFIRM_QUIT",
+  /** Answers the native port-change confirmation with 「變更」 instead of showing it. */
+  autoConfirmPort: "WORK_INTELLIGENCE_DESKTOP_TEST_AUTOCONFIRM_PORT",
   recordExternal: "WORK_INTELLIGENCE_DESKTOP_TEST_RECORD_EXTERNAL",
   /** Makes reading userData throw, as Windows does without a Roaming AppData folder, on any platform. */
   failUserData: "WORK_INTELLIGENCE_DESKTOP_TEST_FAIL_USER_DATA",
@@ -18,6 +20,8 @@ const TEST_ENVIRONMENT = {
   recordErrorBox: "WORK_INTELLIGENCE_DESKTOP_TEST_RECORD_ERROR_BOX",
   /** Milliseconds the success card stays before the repair window closes (default 1500). */
   repairSuccessDelayMs: "WORK_INTELLIGENCE_DESKTOP_TEST_REPAIR_SUCCESS_DELAY_MS",
+  /** Answers the native 「複製到本機磁碟並改用」 confirmation with 「複製並改用」 instead of showing it. */
+  autoConfirmCopy: "WORK_INTELLIGENCE_DESKTOP_TEST_AUTOCONFIRM_COPY",
   /** The port a first-run default setup uses instead of the product default, so a smoke test never needs a fixed port. */
   defaultPort: "WORK_INTELLIGENCE_DESKTOP_TEST_DEFAULT_PORT",
   /**
@@ -25,6 +29,11 @@ const TEST_ENVIRONMENT = {
    * service, and the file-level detection is unit-tested per platform (tests/desktop-core/legacy-service.test.ts).
    */
   legacyServiceFile: "WORK_INTELLIGENCE_DESKTOP_TEST_LEGACY_SERVICE_FILE",
+  /**
+   * A JSON file that maps a path prefix to a storage verdict (network, removable, ...): the smoke tests cannot mount a
+   * share or plug in a drive, and the real classifier is unit-tested per platform with fakes.
+   */
+  storageRiskFile: "WORK_INTELLIGENCE_DESKTOP_TEST_STORAGE_RISK_FILE",
 } as const;
 
 /** One of the test switches, by the name it has in {@link TEST_ENVIRONMENT}. */
@@ -111,6 +120,11 @@ export function legacyServiceFileOverride(inputs: EnvironmentInputs): string | u
     if (value && isAbsolute(value)) return value;
   }
   return undefined;
+}
+
+/** The synthetic storage-verdict file of a test build, else undefined (the real classifier answers every path). */
+export function storageRiskFileOverride(inputs: EnvironmentInputs): string | undefined {
+  return overrideFromEnvironment(inputs, "storageRiskFile");
 }
 
 /** Whether a test-only switch is on; always false in a production build or a packaged App. */

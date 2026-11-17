@@ -5,3 +5,7 @@ export * from "./grouping.js";
 export * from "./identity-compare.js";
 export * from "./resolve.js";
 export * from "./types.js";
+export * from "./storage-policy.js";
+export * from "./storage-risk.js";
+export * from "./storage-risk-node.js";
+export * from "./storage-risk-override.js";

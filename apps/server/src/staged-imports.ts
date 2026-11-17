@@ -128,6 +128,11 @@ export class StagedImports {
     for (const id of [...this.entries.keys()]) this.remove(id);
   }
 
+  /** An upload is being saved, or an operation is reading a staged file: an import is in progress. */
+  public get inUse(): boolean {
+    return [...this.entries.values()].some((entry) => entry.uses > 0);
+  }
+
   public get size(): number {
     return this.entries.size;
   }

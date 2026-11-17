@@ -3,6 +3,7 @@ import type { RepairActionId, RepairState } from "./repair-state.js";
 import type { SetupState } from "./setup-state.js";
 import { SETUP_AGENT_IDS, type AgentsState, type SetupAgentId } from "./agents-state.js";
 import { isRepairPageUrl } from "./navigation-policy.js";
+import type { PortProblem } from "./port-policy.js";
 
 /** IPC channel names between the repair page (through its preload) and main. */
 export const REPAIR_CHANNELS = {
@@ -31,6 +32,8 @@ export const REPAIR_CHANNELS = {
   legacyDisablePreview: "legacy:disable-preview",
   legacyDisableConfirm: "legacy:disable-confirm",
   legacyStartNow: "legacy:start-now",
+  portChange: "port:change",
+  copyToLocal: "repair:copy-to-local",
 } as const;
 
 /** What the one App window shows; main decides, the page asks. */
@@ -55,6 +58,8 @@ export const repairInputSchemas = {
     candidateId: z.string().min(1).max(64),
     /** The user agreed to a schema update (only meaningful for a database that needs one). */
     allowMigration: z.boolean().optional(),
+    /** The user ticked the checkbox that states why this database's storage is risky (DT-08). */
+    acknowledgeStorageRisk: z.boolean().optional(),
   }),
   openFolder: z.strictObject({ target: z.enum(REPAIR_FOLDER_TARGETS) }),
   exportDiagnostics: z.strictObject({}),
@@ -67,6 +72,7 @@ export const repairInputSchemas = {
   setupUseSource: z.strictObject({
     sourceId: z.string().min(1).max(64),
     allowMigration: z.boolean().optional(),
+    acknowledgeStorageRisk: z.boolean().optional(),
     startAnyway: z.boolean().optional(),
     launchAtLogin: z.boolean(),
   }),
@@ -90,6 +96,10 @@ export const repairInputSchemas = {
   legacyDisableConfirm: z.strictObject({ previewId: z.uuid(), continueWhileBusy: z.boolean().optional() }),
   /** 「立即啟動」 after a disable; main checks again that it is still offered. */
   legacyStartNow: z.strictObject({}),
+  /** The port the user typed, as text or a number; main validates it (range, restricted ports) and runs the change. */
+  portChange: z.strictObject({ port: z.union([z.string().max(16), z.number()]) }),
+  /** 「複製到本機磁碟並改用」: for a browsed candidate, or (no id) the App's own database. Main reads every path itself. */
+  copyToLocal: z.strictObject({ candidateId: z.string().min(1).max(64).optional() }),
 } as const;
 
 /** What the 「停用舊的登入服務」 preview shows; the step lines are for 「詳細步驟」 only. */
@@ -132,6 +142,24 @@ export type LegacyDisableStartResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly reason: "invalid" | "busy" | "failed"; readonly errorCode?: string };
 
+/** Why a port change was refused because something is running. */
+export type PortBusyReason = "operation" | "activity" | "unknown";
+
+/** What 「變更連接埠」 answers; `ok: false` carries a reason the page maps to a sentence, never a path or a message. */
+export type PortChangeResult =
+  | { readonly ok: true; readonly changed: boolean; readonly port: number }
+  | {
+      readonly ok: false;
+      readonly reason: "invalid" | "occupied" | "not-permitted" | "busy" | "cancelled" | "failed";
+      /** `invalid`: what is wrong with the input. */
+      readonly problem?: PortProblem;
+      /** `busy`: what holds the change back. */
+      readonly busy?: PortBusyReason;
+      /** `failed`: the backend is back on the old port (otherwise the repair state shows the failure). */
+      readonly rolledBack?: boolean;
+      readonly errorCode?: string;
+    };
+
 /** What an Agent page action answers. */
 export type AgentsActionResult =
   | { readonly ok: true; readonly state: AgentsState }
@@ -155,7 +183,13 @@ export type SetupActionResult =
 /** What an action answers; `ok: false` carries a code the page maps to a message, never a path or a stack. */
 export type RepairActionResult =
   | { readonly ok: true; readonly state: RepairState }
-  | { readonly ok: false; readonly reason: "busy" | "invalid" | "cancelled" | "failed"; readonly errorCode?: string };
+  | {
+      readonly ok: false;
+      readonly reason: "busy" | "invalid" | "cancelled" | "failed";
+      readonly errorCode?: string;
+      /** Why a chosen database was refused before any preview opened it, in the page's language (DT-08). */
+      readonly message?: string;
+    };
 
 export type RepairExportResult =
   { readonly ok: true } | { readonly ok: false; readonly reason: "cancelled" | "failed" };
@@ -165,7 +199,12 @@ export interface RepairApi {
   getState(): Promise<RepairState>;
   retryStart(operationId: string): Promise<RepairActionResult>;
   chooseDatabase(): Promise<RepairActionResult>;
-  confirmDatabase(candidateId: string, allowMigration?: boolean): Promise<RepairActionResult>;
+  confirmDatabase(
+    candidateId: string,
+    allowMigration?: boolean,
+    acknowledgeStorageRisk?: boolean,
+  ): Promise<RepairActionResult>;
+  copyToLocal(candidateId?: string): Promise<RepairActionResult>;
   openFolder(target: RepairFolderTarget): Promise<{ readonly ok: boolean }>;
   exportDiagnostics(): Promise<RepairExportResult>;
   startAnyway(operationId: string): Promise<RepairActionResult>;
@@ -177,6 +216,7 @@ export interface RepairApi {
     readonly sourceId: string;
     readonly launchAtLogin: boolean;
     readonly allowMigration?: boolean;
+    readonly acknowledgeStorageRisk?: boolean;
     readonly startAnyway?: boolean;
   }): Promise<SetupActionResult>;
   setupChooseFile(): Promise<SetupActionResult>;
@@ -192,6 +232,7 @@ export interface RepairApi {
   legacyStartNow(): Promise<LegacyDisableStartResult>;
   agentsSelfTest(): Promise<AgentsActionResult>;
   agentsUseCheckoutDatabase(agent: SetupAgentId): Promise<AgentsActionResult>;
+  portChange(port: string | number): Promise<PortChangeResult>;
 }
 
 /** The facts main reads from `event.senderFrame` and its window. */

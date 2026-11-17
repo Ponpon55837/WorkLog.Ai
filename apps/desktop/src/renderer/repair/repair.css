@@ -358,3 +358,22 @@ button:disabled {
 .success-text {
   color: var(--success);
 }
+
+.field {
+  display: block;
+  margin: 8px 0;
+}
+
+.field input {
+  font: inherit;
+  padding: 4px 8px;
+  width: 8em;
+}
+
+/* DT-08: the note about risky storage sits inside its card and keeps the same rhythm as the other hints. */
+.storage-risk {
+  margin: 8px 0;
+}
+.storage-risk .hint {
+  margin-top: 2px;
+}

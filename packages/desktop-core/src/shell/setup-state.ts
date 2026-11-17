@@ -5,6 +5,8 @@ import { canonicalInstallationPath } from "../integration/record.js";
 import { canDisableLegacyService } from "../legacy-service/disable.js";
 import type { LegacyServiceDetection, LegacyServiceFound } from "../legacy-service/types.js";
 import { canCreateNewDatabase } from "./setup-start.js";
+import { storageBlocksUse } from "../db-source/storage-policy.js";
+import { buildStorageRiskView, type StorageRiskView } from "./storage-risk-view.js";
 import type { LaunchMode } from "./launch-mode.js";
 import type { ShellLocale } from "./i18n.js";
 import { displayPath } from "./repair-state.js";
@@ -35,6 +37,8 @@ export interface SetupSourceView {
   readonly errorCode?: string;
   /** The old login service serves this database, or starts at the next login and then will: the page shows its warning. */
   readonly legacyConflict: boolean;
+  /** The database is on a network drive, a removable disk, a cloud-sync folder, a hard link, or an unknown disk (DT-08). */
+  readonly storageRisk?: StorageRiskView;
 }
 
 export interface SetupLegacyView {
@@ -55,7 +59,7 @@ export interface SetupState {
   readonly phase: SetupPhase;
   readonly screen: SetupScreen;
   /** Why the user has to choose. */
-  readonly reason?: "multiple-distinct" | "conflict" | "unverifiable" | "blocked";
+  readonly reason?: "multiple-distinct" | "conflict" | "unverifiable" | "blocked" | "risky-storage";
   readonly defaults: {
     readonly databaseDisplay: string;
     readonly url: string;
@@ -267,6 +271,13 @@ export function buildSetupState(inputs: SetupStateInputs): SetupState {
   const show = (value: string): string => displayPath(value, inputs.homeDirectory, inputs.platform);
   const legacy = inputs.legacy?.kind === "found" ? inputs.legacy : null;
   const conflicts = (databasePath: string): boolean => legacyServiceWarns(inputs.legacy, databasePath, inputs.platform);
+  const riskOf = (source: SetupSourceInput): StorageRiskView | undefined =>
+    buildStorageRiskView({
+      risk: source.group.storageRisk?.risk,
+      locale: inputs.locale,
+      chosenByUser: source.group.kinds.includes("explicit-selection"),
+      needsMigration: source.needsMigration,
+    });
   return {
     locale: inputs.locale,
     phase: inputs.phase,
@@ -280,18 +291,22 @@ export function buildSetupState(inputs: SetupStateInputs): SetupState {
       launchAtLogin: inputs.defaults.launchAtLogin,
       legacyConflict: conflicts(inputs.defaults.databasePath),
     },
-    sources: inputs.sources.map((source) => ({
-      id: source.id,
-      display: show(source.group.absolutePath),
-      status: source.group.status,
-      kinds: source.group.kinds,
-      ...(source.group.preview.projectCount === undefined ? {} : { projectCount: source.group.preview.projectCount }),
-      projectNames: source.projectNames,
-      canUse: source.canUse,
-      needsMigration: source.needsMigration,
-      ...(source.errorCode ? { errorCode: source.errorCode } : {}),
-      legacyConflict: conflicts(source.group.absolutePath),
-    })),
+    sources: inputs.sources.map((source) => {
+      const storageRisk = riskOf(source);
+      return {
+        id: source.id,
+        display: show(source.group.absolutePath),
+        status: source.group.status,
+        kinds: source.group.kinds,
+        ...(source.group.preview.projectCount === undefined ? {} : { projectCount: source.group.preview.projectCount }),
+        projectNames: source.projectNames,
+        canUse: source.canUse && !storageBlocksUse(source.group.storageRisk?.risk, source.needsMigration),
+        needsMigration: source.needsMigration,
+        ...(source.errorCode ? { errorCode: source.errorCode } : {}),
+        legacyConflict: conflicts(source.group.absolutePath),
+        ...(storageRisk ? { storageRisk } : {}),
+      };
+    }),
     legacy: legacy
       ? {
           running: legacy.running,

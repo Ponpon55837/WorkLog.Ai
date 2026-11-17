@@ -7,7 +7,7 @@ import type {
   OperationRunResult,
   OperationStep,
 } from "../operations/coordinator.js";
-import type { OperationKind } from "../operations/journal-record.js";
+import type { JournalJson, OperationKind } from "../operations/journal-record.js";
 import type { ServiceOwnerState } from "../operations/service-owner-state.js";
 
 /** Operation kinds that end with the desktop owning a running backend. */
@@ -21,6 +21,8 @@ export interface ManagedStartRequest {
   readonly previousOwner: ServiceOwnerState;
   readonly backend: Omit<BackendStartRequest, "beforeStart">;
   readonly selectedDb?: DatabaseIdentityRecord | null;
+  /** Descriptive facts the journal keeps (a port change: `{ from, to }`); never a path or a secret. */
+  readonly details?: Readonly<Record<string, JournalJson>>;
   /** Stop the running backend first (restart, change of port or database). Default false: a running one is kept. */
   readonly stopRunning?: boolean;
 }
@@ -71,6 +73,7 @@ export class ManagedBackendService {
         kind: request.kind,
         previousOwner: request.previousOwner,
         ...(request.selectedDb === undefined ? {} : { selectedDb: request.selectedDb }),
+        ...(request.details === undefined ? {} : { details: request.details }),
       },
       this.startSteps(request),
     );

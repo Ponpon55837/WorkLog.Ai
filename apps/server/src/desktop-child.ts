@@ -2,14 +2,18 @@ import {
   DESKTOP_CHILD_PROTOCOL_VERSION,
   DESKTOP_INTEGRITY_CHECK_FAILED_DETAIL,
   parseDesktopParentMessage,
+  sanitizeBrowserPreferences,
+  sanitizeHandoffRoute,
   type DesktopBackendErrorCode,
   type DesktopChildMessage,
+  type DesktopFacts,
   type DesktopStartMessage,
 } from "@work-intelligence/schema";
 import { LATEST_SCHEMA_VERSION } from "@work-intelligence/storage";
 import { APP_VERSION } from "@work-intelligence/shared/app-version";
 import { probeLoopbackPort, type LoopbackPortProbe } from "@work-intelligence/shared/loopback-port";
 import { createDatabaseIfMissing } from "./database-create.js";
+import { copyDatabaseConsistently, type DatabaseCopyResult } from "./database-copy.js";
 import {
   preflightDatabase,
   type DatabasePreflightResult,
@@ -37,6 +41,8 @@ export interface DesktopChildDependencies {
   preflight: (path: string, options?: { quickCheck?: boolean }) => Promise<DatabasePreflightResult>;
   /** Creates a new empty database when nothing exists at the path; a failure result, or `undefined` to go on to preflight. */
   createDatabase?: (path: string) => DatabasePreflightResult | undefined;
+  /** A consistent copy of `source` at `target` for a preview child (DT-08); never touches the source. */
+  copyDatabase?: (source: string, target: string) => Promise<DatabaseCopyResult>;
   probePort: (port: number) => Promise<LoopbackPortProbe>;
   startApi: (options: StartApiOptions) => StartedApi;
 }
@@ -73,6 +79,11 @@ const STORE_OPEN_FAILURES = new Map<string, ChildFailure>([
 /** `listen` errno codes that mean the port cannot be used by this user right now. */
 const PORT_ERRNO_CODES = new Set(["EADDRINUSE", "EACCES", "EADDRNOTAVAIL"]);
 
+/** A bind the OS refused for this user (EACCES, EADDRNOTAVAIL: for example a Windows excluded range) is not "in use". */
+function portFailureCode(errno: string): "PORT_NOT_PERMITTED" | "PORT_OCCUPIED_BY_OTHER" {
+  return errno === "EACCES" || errno === "EADDRNOTAVAIL" ? "PORT_NOT_PERMITTED" : "PORT_OCCUPIED_BY_OTHER";
+}
+
 function startFailure(error: unknown): ChildFailure {
   if (!(error instanceof StartApiError)) return { code: "REPAIR_REQUIRED", detail: "unexpected start failure" };
   if (error.kind === "revalidation" && error.revalidation) return REVALIDATION_FAILURES[error.revalidation];
@@ -80,7 +91,7 @@ function startFailure(error: unknown): ChildFailure {
   if (error.kind === "file-replaced") return REVALIDATION_FAILURES["file-replaced"];
   if (error.kind === "listen") {
     return PORT_ERRNO_CODES.has(error.listenCode ?? "")
-      ? { code: "PORT_OCCUPIED_BY_OTHER", detail: `listen failed (${error.listenCode})` }
+      ? { code: portFailureCode(error.listenCode ?? ""), detail: `listen failed (${error.listenCode})` }
       : { code: "REPAIR_REQUIRED", detail: `listen failed (${error.listenCode ?? "unknown"})` };
   }
   const known = error.storeError ? STORE_OPEN_FAILURES.get(error.storeError.code) : undefined;
@@ -124,6 +135,7 @@ function preflightReply(result: DatabasePreflightResult): DesktopChildMessage {
 const defaultDependencies: DesktopChildDependencies = {
   preflight: (path, options) => preflightDatabase(path, options),
   createDatabase: createDatabaseIfMissing,
+  copyDatabase: copyDatabaseConsistently,
   probePort: probeLoopbackPort,
   startApi,
 };
@@ -141,6 +153,8 @@ export class DesktopChild {
   private api: StartedApi | undefined;
   private starting: Promise<void> | undefined;
   private stopping: Promise<void> | undefined;
+  /** The App's current facts; read on every status request, so an `update-facts` can replace them after start. */
+  private facts: DesktopFacts | undefined;
   private failed = false;
   private exited = false;
 
@@ -177,11 +191,51 @@ export class DesktopChild {
     const message = parsed.message;
     if (message.type === "shutdown") {
       await this.stop({ notify: true });
+    } else if (message.type === "update-facts") {
+      // The App learned something after the start (DT-08 storage risk): the status endpoint reads `facts` per request.
+      this.facts = message.desktop;
+    } else if (message.type === "copy-database") {
+      await this.copyDatabase(message.source, message.target);
+    } else if (message.type === "activity-query") {
+      this.reportActivity(message.requestId);
     } else if (message.type === "preflight") {
       await this.preflight(message.path, message.createIfMissing === true, message.quickCheck === true);
     } else {
       await this.start(message);
     }
+  }
+
+  /** Answers which long jobs run now; a backend that is not serving has none. */
+  private reportActivity(requestId: string): void {
+    const busy = this.phase === "running" ? (this.api?.activity() ?? []) : [];
+    this.host.send({ type: "activity", requestId, busy }, () => undefined);
+  }
+
+  /** Only a child that has not started (a preview child) copies: a serving backend never reads another database. */
+  private async copyDatabase(source: string, target: string): Promise<void> {
+    if (this.phase !== "idle" || !this.dependencies.copyDatabase) {
+      this.host.log("[desktop-child] dropped a copy request: not a preview child");
+      this.host.send(
+        { type: "copy-result", status: "failed", detail: "this process cannot copy a database" },
+        () => undefined,
+      );
+      return;
+    }
+    let result: DatabaseCopyResult;
+    try {
+      result = await this.dependencies.copyDatabase(source, target);
+    } catch {
+      result = { status: "failed", detail: "the copy could not be made" };
+    }
+    this.host.send(
+      {
+        type: "copy-result",
+        status: result.status,
+        ...(result.identity ? { identity: result.identity } : {}),
+        ...(result.detail ? { detail: result.detail } : {}),
+      },
+      () => undefined,
+    );
   }
 
   private async preflight(path: string, createIfMissing: boolean, quickCheck: boolean): Promise<void> {
@@ -205,6 +259,7 @@ export class DesktopChild {
       return Promise.resolve();
     }
     this.phase = "starting";
+    this.facts = message.desktop;
     this.starting = this.run(message);
     return this.starting;
   }
@@ -223,7 +278,7 @@ export class DesktopChild {
     // A shutdown, disconnect or signal that arrived during the probe wins: nothing is opened, and `shutDown` finishes it.
     if (this.phase !== "starting") return;
     if (!probe.free) {
-      return this.fail({ code: "PORT_OCCUPIED_BY_OTHER", detail: `listen failed (${probe.code})` });
+      return this.fail({ code: portFailureCode(probe.code), detail: `listen failed (${probe.code})` });
     }
     let api: StartedApi | undefined;
     try {
@@ -238,8 +293,18 @@ export class DesktopChild {
         onBackupCompleted: (at) => this.host.send({ type: "backup-completed", at }, () => undefined),
         onBackupsChanged: () => this.host.send({ type: "backups-changed" }, () => undefined),
         desktop: {
-          ...(message.desktop?.legacyService ? { facts: { legacyService: message.desktop.legacyService } } : {}),
+          getFacts: () => this.facts,
           onOpenAgentSetup: () => this.host.send({ type: "open-agent-setup" }, () => undefined),
+          // Already sanitized by the route service; the preferences are only handed on, never logged.
+          onOpenPortSettings: ({ preferences, route }) =>
+            this.host.send(
+              {
+                type: "open-port-settings",
+                preferences: sanitizeBrowserPreferences(preferences),
+                route: sanitizeHandoffRoute(route),
+              },
+              () => undefined,
+            ),
         },
       });
       this.api = api;

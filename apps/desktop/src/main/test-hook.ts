@@ -67,5 +67,9 @@ export function installTestHook(options: TestHookOptions): void {
       firstRunDetectionMs: options.firstRunDetectionMs() ?? null,
     };
   };
-  Object.defineProperty(globalThis, "__workIntelligenceDesktopTest", { value: Object.freeze({ snapshot: read }) });
+  // What the tray's 「變更連接埠…」 does, without a native menu: shows the repair window (the tray cannot be clicked in a test).
+  const openRepair = (): void => options.window.open("repair");
+  Object.defineProperty(globalThis, "__workIntelligenceDesktopTest", {
+    value: Object.freeze({ snapshot: read, openRepair }),
+  });
 }
