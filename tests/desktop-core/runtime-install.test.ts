@@ -189,9 +189,9 @@ describe("commitCurrent and the current pointer", () => {
     await installFixture(root, "rt-1", { commit: true });
     const { runtimeDirectory } = await installFixture(root, "rt-2");
     await flipFirstByte(path.join(runtimeDirectory, "app/mcp.js"));
-    await expect(commitCurrent(root, "rt-2")).rejects.toMatchObject({ code: "RUNTIME_FILE_TAMPERED" });
+    await expect(commitCurrent(root, "rt-2", fixtureAcl)).rejects.toMatchObject({ code: "RUNTIME_FILE_TAMPERED" });
     expect(await readCurrentRuntimeId(root)).toBe("rt-1");
-    await expect(commitCurrent(root, "rt-3")).rejects.toMatchObject({ code: "RUNTIME_FILE_MISSING" });
+    await expect(commitCurrent(root, "rt-3", fixtureAcl)).rejects.toMatchObject({ code: "RUNTIME_FILE_MISSING" });
     expect(await readCurrentRuntimeId(root)).toBe("rt-1");
   });
 
@@ -254,7 +254,7 @@ describe("commitCurrent and the current pointer", () => {
 describe("planLaunch", () => {
   it("plans an argv-array launch of the current runtime's executable", async () => {
     const { runtimeDirectory } = await installFixture(root, "rt-1", { commit: true });
-    const plan = await planLaunch(root, "serve", ["--port", "65000"], { env: { KEEP: "1" } });
+    const plan = await planLaunch(root, "serve", ["--port", "65000"], { ...fixtureAcl, env: { KEEP: "1" } });
     expect(plan.command).toBe(path.join(runtimeDirectory, "node/bin/node"));
     expect(plan.args).toEqual([path.join(runtimeDirectory, "app/serve.mjs"), "start", "--port", "65000"]);
     expect(plan.env).toEqual({ KEEP: "1" });
@@ -262,39 +262,41 @@ describe("planLaunch", () => {
 
   it("sets ELECTRON_RUN_AS_NODE for an Electron runtime and only then", async () => {
     await installFixture(root, "rt-e", { kind: "electron-run-as-node", commit: true });
-    expect((await planLaunch(root, "mcp", [], { env: { A: "1" } })).env).toEqual({
+    expect((await planLaunch(root, "mcp", [], { ...fixtureAcl, env: { A: "1" } })).env).toEqual({
       A: "1",
       ELECTRON_RUN_AS_NODE: "1",
       ELECTRON_NO_ASAR: "1",
     });
     await installFixture(root, "rt-n", { kind: "node", commit: true });
-    expect((await planLaunch(root, "mcp", [], { env: { A: "1" } })).env).toEqual({ A: "1" });
+    expect((await planLaunch(root, "mcp", [], { ...fixtureAcl, env: { A: "1" } })).env).toEqual({ A: "1" });
   });
 
   it("refuses a runtime of another kind than the required one, and accepts the required kind", async () => {
     await installFixture(root, "rt-e", { kind: "electron-run-as-node", commit: true });
-    await expect(planLaunch(root, "serve", [], { requiredRuntimeKind: "node" })).rejects.toMatchObject({
+    await expect(planLaunch(root, "serve", [], { ...fixtureAcl, requiredRuntimeKind: "node" })).rejects.toMatchObject({
       code: "RUNTIME_KIND_NOT_ALLOWED",
     });
     await installFixture(root, "rt-n", { kind: "node", commit: true });
-    await expect(planLaunch(root, "serve", [], { requiredRuntimeKind: "node" })).resolves.toMatchObject({
+    await expect(planLaunch(root, "serve", [], { ...fixtureAcl, requiredRuntimeKind: "node" })).resolves.toMatchObject({
       args: expect.any(Array),
     });
   });
 
   it("uses the process environment by default", async () => {
     await installFixture(root, "rt-1", { commit: true });
-    expect((await planLaunch(root, "mcp", [])).env.PATH).toBe(process.env.PATH);
+    expect((await planLaunch(root, "mcp", [], fixtureAcl)).env.PATH).toBe(process.env.PATH);
   });
 
   it("does not interpret arguments: they stay separate array items", async () => {
     await installFixture(root, "rt-1", { commit: true });
-    const plan = await planLaunch(root, "mcp", ["a b", "$(id)", "; rm -rf /", ""]);
+    const plan = await planLaunch(root, "mcp", ["a b", "$(id)", "; rm -rf /", ""], fixtureAcl);
     expect(plan.args.slice(1)).toEqual(["a b", "$(id)", "; rm -rf /", ""]);
   });
 
   it("refuses an action that is not on the fixed list before reading anything", async () => {
-    await expect(planLaunch(root, "bash", [])).rejects.toMatchObject({ code: "RUNTIME_ACTION_NOT_ALLOWED" });
+    await expect(planLaunch(root, "bash", [], fixtureAcl)).rejects.toMatchObject({
+      code: "RUNTIME_ACTION_NOT_ALLOWED",
+    });
     expect(() => assertAllowedAction("serve")).not.toThrow();
     expect(() => assertAllowedAction("__proto__")).toThrow(/不允許/);
   });
@@ -304,7 +306,9 @@ describe("planLaunch", () => {
     const definition = fixtureDefinition("rt-1");
     await installRuntime(root, { ...definition, actions: { mcp: definition.actions.mcp! } }, fixtureAcl);
     await commitCurrent(root, "rt-1", fixtureAcl);
-    await expect(planLaunch(root, "serve", [])).rejects.toMatchObject({ code: "RUNTIME_ACTION_NOT_ALLOWED" });
+    await expect(planLaunch(root, "serve", [], fixtureAcl)).rejects.toMatchObject({
+      code: "RUNTIME_ACTION_NOT_ALLOWED",
+    });
     const verified = await verifyRuntime(root, "rt-1", fixtureAcl);
     expect(() => buildLaunchPlan(verified.runtimeDirectory, verified.manifest, "codex-finalize-reminder", [])).toThrow(
       /沒有提供/,
@@ -313,23 +317,25 @@ describe("planLaunch", () => {
 
   it("fails when current points at a runtime that is not installed", async () => {
     await fs.writeFile(path.join(root, "current"), "rt-gone\n");
-    await expect(planLaunch(root, "mcp", [])).rejects.toMatchObject({ code: "RUNTIME_FILE_MISSING" });
+    await expect(planLaunch(root, "mcp", [], fixtureAcl)).rejects.toMatchObject({ code: "RUNTIME_FILE_MISSING" });
   });
 
   it("fails when there is no pointer", async () => {
-    await expect(planLaunch(root, "mcp", [])).rejects.toMatchObject({ code: "RUNTIME_POINTER_MISSING" });
+    await expect(planLaunch(root, "mcp", [], fixtureAcl)).rejects.toMatchObject({ code: "RUNTIME_POINTER_MISSING" });
   });
 
   it("fails on a tampered runtime", async () => {
     const { runtimeDirectory } = await installFixture(root, "rt-1", { commit: true });
     await flipFirstByte(path.join(runtimeDirectory, "launcher.mjs"));
-    await expect(planLaunch(root, "mcp", [])).rejects.toMatchObject({ code: "RUNTIME_FILE_TAMPERED" });
+    await expect(planLaunch(root, "mcp", [], fixtureAcl)).rejects.toMatchObject({ code: "RUNTIME_FILE_TAMPERED" });
   });
 
   it("builds paths below a root with spaces and non-ASCII characters", async () => {
     const { runtimeDirectory } = await installFixture(root, "rt-1", { commit: true });
     expect(runtimeDirectory).toMatch(/ 測試-/);
-    expect((await planLaunch(root, "mcp", [])).command.startsWith(runtimeDirectoryFor(root, "rt-1"))).toBe(true);
+    expect((await planLaunch(root, "mcp", [], fixtureAcl)).command.startsWith(runtimeDirectoryFor(root, "rt-1"))).toBe(
+      true,
+    );
   });
 });
 
