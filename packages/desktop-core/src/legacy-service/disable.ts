@@ -54,6 +54,11 @@ export type LegacyDisableStep =
       readonly stage: "stop" | "remove";
       readonly run: LegacyDisableCommand;
       readonly tolerateFailure: boolean;
+      /**
+       * A read-only check that must fail: exit code 0 means the old service is still loaded or enabled (a tolerated stop
+       * command did not work), so nothing may be removed.
+       */
+      readonly mustFail?: true;
     }
   /** Windows: end the process trees whose command line names this checkout's runner (`taskkill /PID <pid> /T /F`). */
   | { readonly kind: "end-runners"; readonly stage: "stop"; readonly runnerPath: string }
@@ -136,6 +141,13 @@ export function planLegacyDisable(
           run: { command: "launchctl", args: ["bootout", launchdTarget(options.uid)] },
           tolerateFailure: true,
         },
+        {
+          kind: "command",
+          stage: "stop",
+          run: { command: "launchctl", args: ["print", launchdTarget(options.uid)] },
+          tolerateFailure: false,
+          mustFail: true,
+        },
         ...removeFile,
       ],
     };
@@ -150,6 +162,13 @@ export function planLegacyDisable(
           stage: "stop",
           run: { command: "systemctl", args: ["--user", "disable", "--now", LEGACY_SYSTEMD_UNIT] },
           tolerateFailure: true,
+        },
+        {
+          kind: "command",
+          stage: "stop",
+          run: { command: "systemctl", args: ["--user", "is-enabled", LEGACY_SYSTEMD_UNIT] },
+          tolerateFailure: false,
+          mustFail: true,
         },
         ...removeFile,
         {
@@ -262,8 +281,10 @@ export function parseWindowsProcesses(stdout: string): WindowsProcessEntry[] | n
 /**
  * DT-13: the node.exe processes that run exactly this checkout's runner, and every descendant of theirs (pnpm, the old
  * server, conhost), found by walking parent ids. `taskkill /T` ends the roots' trees; the disable then waits until every
- * member is gone. A member is only ever waited for, never ended on its own, so a parent id Windows reused can at worst
- * make the wait run out (and nothing is removed), never end an unrelated process.
+ * member is gone. The disable ends no member by its own pid: only the roots, whose command line names this checkout's
+ * runner, are passed to `taskkill`. A parent id Windows reused can make the wait here run out (and nothing is removed).
+ * Known limit: `taskkill /T` walks parent ids itself, so a process whose original parent has exited and whose parent id
+ * Windows then gave to a runner would be ended with that runner's tree.
  */
 export function legacyRunnerTrees(
   processes: readonly WindowsProcessEntry[],
@@ -383,8 +404,17 @@ export type LegacyDisableOutcome =
   | { readonly outcome: "changed" }
   /** The old backend still holds the port (or its processes) after the bounded wait: nothing was removed. */
   | { readonly outcome: "still-running"; readonly port: number }
-  /** A step failed; `removed` says whether any part of the registration was already removed. */
-  | { readonly outcome: "failed"; readonly step: string; readonly detail: string; readonly removed: boolean };
+  /**
+   * A step failed; `removed` says whether any part of the registration was already removed, `stopAttempted` whether a
+   * stop step had already run (the old backend may have been ended in the middle of a write).
+   */
+  | {
+      readonly outcome: "failed";
+      readonly step: string;
+      readonly detail: string;
+      readonly removed: boolean;
+      readonly stopAttempted: boolean;
+    };
 
 /** The fields a re-detection must still show for the plan to be acted on. */
 function samePlan(plan: LegacyDisablePlan, found: LegacyServiceFound): boolean {
@@ -431,8 +461,10 @@ export async function executeLegacyDisable(
 
   const endedProcesses: number[] = [];
   let removed = false;
+  let stopAttempted = false;
   try {
     for (const step of plan.steps.filter((entry) => entry.stage === "stop")) {
+      stopAttempted = true;
       if (step.kind === "command") await runCommandStep(step, dependencies);
       else if (step.kind === "end-runners") endedProcesses.push(...(await endRunners(step.runnerPath, dependencies)));
     }
@@ -450,11 +482,17 @@ export async function executeLegacyDisable(
   } catch (error) {
     const failure =
       error instanceof StepFailure ? error : new StepFailure("unknown", error instanceof Error ? error.name : "error");
-    return { outcome: "failed", step: failure.step, detail: failure.message, removed };
+    return { outcome: "failed", step: failure.step, detail: failure.message, removed, stopAttempted };
   }
   const after = await dependencies.detect();
   if (after.kind !== "none") {
-    return { outcome: "failed", step: "verify", detail: "the old service is still registered", removed };
+    return {
+      outcome: "failed",
+      step: "verify",
+      detail: "the old service is still registered",
+      removed,
+      stopAttempted,
+    };
   }
   return { outcome: "disabled", endedProcesses: endedProcesses.length };
 }
@@ -464,6 +502,12 @@ async function runCommandStep(
   dependencies: LegacyDisableDependencies,
 ): Promise<void> {
   const name = `${path.win32.basename(step.run.command)} ${step.run.args[0] ?? ""}`.trim();
+  if (step.mustFail) {
+    // Thrown or non-zero both mean "not loaded / not enabled": only a clean exit proves the service is still there.
+    const result = await dependencies.runCommand(step.run.command, [...step.run.args]).catch(() => ({ code: -1 }));
+    if (result.code === 0) throw new StepFailure(name, "the old service is still loaded or enabled");
+    return;
+  }
   let code: number;
   try {
     code = (await dependencies.runCommand(step.run.command, [...step.run.args])).code;
@@ -474,17 +518,35 @@ async function runCommandStep(
   if (code !== 0 && !step.tolerateFailure) throw new StepFailure(name, `exit code ${code}`);
 }
 
-/** Windows: end each process tree that runs this checkout's runner. Returns every process of those trees (DT-13). */
-async function endRunners(runnerPath: string, dependencies: LegacyDisableDependencies): Promise<number[]> {
+async function listWindowsProcesses(
+  dependencies: Pick<LegacyDisableDependencies, "runCommand" | "environment">,
+): Promise<{ processes: WindowsProcessEntry[] | null; code: number }> {
   const listed = await dependencies.runCommand(windowsPowerShell(dependencies.environment), [
     "-NoProfile",
     "-NonInteractive",
     "-Command",
     WINDOWS_PROCESSES_SCRIPT,
   ]);
-  const processes = listed.code === 0 ? parseWindowsProcesses(listed.stdout) : null;
+  return { processes: listed.code === 0 ? parseWindowsProcesses(listed.stdout) : null, code: listed.code };
+}
+
+/**
+ * Windows, for the preview: how many processes run this checkout's runner right now (a runner started by hand, or left
+ * behind, is ended too even when the task reads as stopped). Null when the list could not be read.
+ */
+export async function countLegacyRunners(
+  runnerPath: string,
+  dependencies: Pick<LegacyDisableDependencies, "runCommand" | "environment">,
+): Promise<number | null> {
+  const { processes } = await listWindowsProcesses(dependencies).catch(() => ({ processes: null }));
+  return processes ? legacyRunnerTrees(processes, runnerPath).roots.length : null;
+}
+
+/** Windows: end each process tree that runs this checkout's runner. Returns every process of those trees (DT-13). */
+async function endRunners(runnerPath: string, dependencies: LegacyDisableDependencies): Promise<number[]> {
+  const { processes, code } = await listWindowsProcesses(dependencies);
   // Without the list nothing can be proven stopped: refuse rather than guess, and keep the registration.
-  if (!processes) throw new StepFailure("list-runners", `exit code ${listed.code}`);
+  if (!processes) throw new StepFailure("list-runners", `exit code ${code}`);
   const taskkill = windowsSystemTool("taskkill.exe", dependencies.environment);
   const { roots, members } = legacyRunnerTrees(processes, runnerPath);
   for (const pid of roots) {

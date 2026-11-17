@@ -810,6 +810,30 @@ describe("adopt option", () => {
       ]).toEqual(before);
     });
 
+    it("refuses the whole Agent when its MCP server is on the App's database but its hook is not", () => {
+      const fixture = hostFixture();
+      const root = fixture.options.repositoryRoot;
+      const appDatabase = touch(join(fixture.options.homeDirectory, "app.sqlite"));
+      touch(join(root, "data", "work-intelligence.sqlite"));
+      seedCheckout(fixture, appDatabase);
+      const before = [
+        readFileSync(fixture.paths.claudeJson, "utf8"),
+        readFileSync(fixture.paths.claudeSettings, "utf8"),
+      ];
+
+      const plan = createAgentSetupPlan(withApp(fixture, appDatabase));
+
+      expect(plan.adopted).toEqual([]);
+      // The hook is refused for its own database, the MCP server because its Agent's hook is.
+      expect(plan.conflicts.filter((line) => line.includes("使用的資料庫（"))).toHaveLength(1);
+      expect(plan.conflicts.filter((line) => line.includes("整個 Agent 都不改由 App 管理"))).toHaveLength(1);
+      expect(applyAgentSetupPlan(plan).applied).toBe(false);
+      expect([
+        readFileSync(fixture.paths.claudeJson, "utf8"),
+        readFileSync(fixture.paths.claudeSettings, "utf8"),
+      ]).toEqual(before);
+    });
+
     it("refuses an entry whose database cannot be identified (missing file)", () => {
       const fixture = hostFixture();
       const appDatabase = touch(join(fixture.options.homeDirectory, "app.sqlite"));

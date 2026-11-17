@@ -25,7 +25,10 @@ export interface LegacyDisableHost {
 }
 
 function resultMessage(text: SetupMessages, result: LegacyDisableConfirmResult): string {
-  if (result.ok) return result.offerStart ? text.legacyDisableDoneStart : text.legacyDisableDone;
+  if (result.ok) {
+    if (result.databaseUnverified) return text.legacyDisableCheckUnverified;
+    return result.offerStart ? text.legacyDisableDoneStart : text.legacyDisableDone;
+  }
   switch (result.reason) {
     case "changed":
       return text.legacyDisableChanged;
@@ -58,7 +61,10 @@ async function confirm(host: LegacyDisableHost, preview: LegacyDisablePreview): 
   const result = await host.api
     .legacyDisableConfirm(preview.previewId, preview.busy)
     .catch((): LegacyDisableConfirmResult => ({ ok: false, reason: "failed" }));
-  if (!result.ok && (result.reason === "cancelled" || result.reason === "invalid")) {
+  if (!result.ok && result.reason === "now-busy") {
+    // Nothing happened: the same preview again, now with the import/backup warning and 「仍要停用」.
+    phase = { kind: "preview", preview: { ...preview, busy: true } };
+  } else if (!result.ok && (result.reason === "cancelled" || result.reason === "invalid")) {
     // Cancelled in the native dialog: back to the same preview, nothing happened.
     phase = result.reason === "cancelled" ? { kind: "preview", preview } : { kind: "idle" };
   } else {

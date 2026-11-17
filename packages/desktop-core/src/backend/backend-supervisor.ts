@@ -380,7 +380,10 @@ export class BackendSupervisor {
           ...(createIfMissing ? { createIfMissing: true as const } : {}),
           ...(quickCheck ? { quickCheck: true as const } : {}),
         });
-        const preflight = await child.channel.expect("preflight-result", this.timeouts.preflightMs);
+        const preflight = await child.channel.expect(
+          "preflight-result",
+          quickCheck ? this.timeouts.quickCheckMs : this.timeouts.preflightMs,
+        );
         // Same rule as a start: an `ok` verdict without the database's identity is not a verdict (nothing could be
         // confirmed against it). Other statuses are findings the repair page shows.
         // A verdict that fails this check is a failure of this path only; the child answers the next one as usual.

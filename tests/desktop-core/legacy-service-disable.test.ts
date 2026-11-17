@@ -1,15 +1,18 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { repairInputSchemas } from "../../packages/desktop-core/src/shell/repair-ipc.js";
 import {
   canDisableLegacyService,
+  countLegacyRunners,
   describeLegacyDisableSteps,
   detectLegacyBusy,
   executeLegacyDisable,
   legacyDefinitionDigest,
   legacyDisableFileSystem,
+  legacyProcessIsAlive,
   matchesLegacyRunner,
   legacyRunnerTrees,
   parseWindowsProcesses,
@@ -48,7 +51,7 @@ function found(overrides: Partial<LegacyServiceFound> = {}): LegacyServiceFound 
     recognised: true,
     repositoryRoot: "/srv/synthetic-checkout",
     databasePath: "/srv/synthetic-checkout/data/work-intelligence.sqlite",
-    port: 3210,
+    port: 43210,
     running: "running",
     enabled: "enabled",
     definitionDigest: legacyDefinitionDigest(DEFINITION),
@@ -72,6 +75,8 @@ function harness(options: {
   listCode?: number;
   alive?: Set<number>;
   failing?: Record<string, number>;
+  /** `launchctl print` / `systemctl is-enabled` still succeed after the stop: the service is still loaded or enabled. */
+  stillLoaded?: boolean;
 }): Harness {
   const calls: string[] = [];
   const files = new Map(Object.entries(options.files ?? {}));
@@ -100,6 +105,9 @@ function harness(options: {
             "KILL-ROOT",
           );
           for (const pid of tree.members) alive.delete(pid);
+        }
+        if (args[0] === "print" || args.includes("is-enabled")) {
+          return { stdout: "", code: options.stillLoaded ? 0 : 113 };
         }
         const key = `${command} ${args[0] ?? ""}`.trim();
         return { stdout: "", code: options.failing?.[key] ?? 0 };
@@ -145,10 +153,12 @@ describe("planLegacyDisable", () => {
   it("follows pnpm service:uninstall on each platform, with fixed names only", () => {
     expect(describeLegacyDisableSteps(plan(found({ platform: "darwin", definitionPath: "/p/ai.plist" })))).toEqual([
       "launchctl bootout gui/501/ai.workintelligence.server",
+      "launchctl print gui/501/ai.workintelligence.server",
       "rm /p/ai.plist",
     ]);
     expect(describeLegacyDisableSteps(plan(found()))).toEqual([
       "systemctl --user disable --now work-intelligence.service",
+      "systemctl --user is-enabled work-intelligence.service",
       "rm /home/synthetic/.config/systemd/user/work-intelligence.service",
       "systemctl --user daemon-reload",
     ]);
@@ -193,7 +203,7 @@ describe("matchesLegacyRunner", () => {
     `node.exe "${WINDOWS_ROOT} 2\\scripts\\service-runner.mjs"`,
     `node.exe "${runner}.bak"`,
     `node.exe "C:\\other\\scripts\\service-runner.mjs"`,
-    "node.exe server.js --port 3210",
+    "node.exe server.js --port 43210",
   ])("does not match any other process: %s", (commandLine) => {
     expect(matchesLegacyRunner(commandLine, runner)).toBe(false);
   });
@@ -259,9 +269,73 @@ describe("executeLegacyDisable", () => {
     expect(await executeLegacyDisable(plan(linux), dependencies)).toEqual({ outcome: "disabled", endedProcesses: 0 });
     expect(calls).toEqual([
       "systemctl --user disable --now work-intelligence.service",
+      "systemctl --user is-enabled work-intelligence.service",
       `unlink ${linux.definitionPath}`,
       "systemctl --user daemon-reload",
     ]);
+    expect(files.size).toBe(0);
+  });
+
+  it("removes nothing while the unit is still enabled after a failed disable", async () => {
+    const { dependencies, calls, files } = harness({
+      detections: [linux],
+      files: definition,
+      failing: { "systemctl --user": 1 },
+      stillLoaded: true,
+    });
+    expect(await executeLegacyDisable(plan(linux), dependencies)).toEqual({
+      outcome: "failed",
+      step: "systemctl --user",
+      detail: "the old service is still loaded or enabled",
+      removed: false,
+      stopAttempted: true,
+    });
+    expect(calls.some((call) => call.startsWith("unlink") || call.includes("daemon-reload"))).toBe(false);
+    expect(files.size).toBe(1);
+  });
+
+  it("removes nothing on macOS while launchd still holds the job after a failed bootout", async () => {
+    const mac = found({ platform: "darwin", definitionPath: "/p/ai.plist" });
+    const { dependencies, calls, files } = harness({
+      detections: [mac],
+      files: { "/p/ai.plist": DEFINITION },
+      failing: { "launchctl bootout": 5 },
+      stillLoaded: true,
+    });
+    expect(await executeLegacyDisable(plan(mac), dependencies)).toMatchObject({
+      outcome: "failed",
+      step: "launchctl print",
+      removed: false,
+      stopAttempted: true,
+    });
+    expect(calls).toEqual([
+      "launchctl bootout gui/501/ai.workintelligence.server",
+      "launchctl print gui/501/ai.workintelligence.server",
+    ]);
+    expect(files.size).toBe(1);
+  });
+
+  it("treats a verification command that cannot run as not loaded", async () => {
+    const { dependencies, files } = harness({ detections: [linux, { kind: "none" }], files: definition });
+    const throwing: LegacyDisableDependencies = {
+      ...dependencies,
+      runCommand: async (command, args) => {
+        if (args.includes("is-enabled")) throw new Error("spawn failed");
+        return dependencies.runCommand(command, args);
+      },
+    };
+    expect(await executeLegacyDisable(plan(linux), throwing)).toEqual({ outcome: "disabled", endedProcesses: 0 });
+    expect(files.size).toBe(0);
+  });
+
+  it("goes on on macOS when bootout fails only because the job was not loaded", async () => {
+    const mac = found({ platform: "darwin", definitionPath: "/p/ai.plist" });
+    const { dependencies, files } = harness({
+      detections: [mac, { kind: "none" }],
+      files: { "/p/ai.plist": DEFINITION },
+      failing: { "launchctl bootout": 5 },
+    });
+    expect(await executeLegacyDisable(plan(mac), dependencies)).toEqual({ outcome: "disabled", endedProcesses: 0 });
     expect(files.size).toBe(0);
   });
 
@@ -279,8 +353,11 @@ describe("executeLegacyDisable", () => {
 
   it("removes nothing while the old backend still holds the port", async () => {
     const { dependencies, calls, files } = harness({ detections: [linux], files: definition, busyPolls: 1_000 });
-    expect(await executeLegacyDisable(plan(linux), dependencies)).toEqual({ outcome: "still-running", port: 3210 });
-    expect(calls).toEqual(["systemctl --user disable --now work-intelligence.service"]);
+    expect(await executeLegacyDisable(plan(linux), dependencies)).toEqual({ outcome: "still-running", port: 43210 });
+    expect(calls).toEqual([
+      "systemctl --user disable --now work-intelligence.service",
+      "systemctl --user is-enabled work-intelligence.service",
+    ]);
     expect(files.size).toBe(1);
   });
 
@@ -293,6 +370,7 @@ describe("executeLegacyDisable", () => {
       outcome: "failed",
       step: "remove-definition",
       removed: false,
+      stopAttempted: true,
     });
     expect(calls.some((call) => call.startsWith("unlink"))).toBe(false);
   });
@@ -317,7 +395,7 @@ describe("executeLegacyDisable", () => {
       entry(45, 41, "pnpm start", "cmd.exe"),
       entry(46, 45, "node.exe apps/server/dist/start-api.js"),
       entry(42, 900, `"C:\\nodejs\\node.exe" "C:\\other\\scripts\\service-runner.mjs" db`),
-      entry(43, 900, "node.exe vite --port 3210"),
+      entry(43, 900, "node.exe vite --port 43210"),
     ];
 
     it("ends only this checkout's runner trees, waits for them, then deletes the task", async () => {
@@ -352,7 +430,7 @@ describe("executeLegacyDisable", () => {
         ...dependencies,
         isProcessAlive: (pid) => pid === 46 || dependencies.isProcessAlive(pid),
       };
-      expect(await executeLegacyDisable(plan(windows), lingering)).toEqual({ outcome: "still-running", port: 3210 });
+      expect(await executeLegacyDisable(plan(windows), lingering)).toEqual({ outcome: "still-running", port: 43210 });
       expect(calls.filter((call) => call.startsWith(TASKKILL))).toEqual([`${TASKKILL} /PID 41 /T /F`]);
       expect(calls.some((call) => call.includes("/Delete"))).toBe(false);
     });
@@ -367,6 +445,23 @@ describe("executeLegacyDisable", () => {
       expect(calls.some((call) => call.includes("/Delete"))).toBe(false);
     });
 
+    it("goes on when taskkill cannot run because the runner already exited", async () => {
+      const { dependencies, files } = harness({
+        detections: [windows, { kind: "none" }],
+        files: { [xml]: DEFINITION },
+        processes,
+      });
+      const exited: LegacyDisableDependencies = {
+        ...dependencies,
+        runCommand: async (command, args) => {
+          if (command === TASKKILL) throw new Error("no such process");
+          return dependencies.runCommand(command, args);
+        },
+      };
+      expect(await executeLegacyDisable(plan(windows), exited)).toMatchObject({ outcome: "disabled" });
+      expect(files.size).toBe(0);
+    });
+
     it("keeps the task while an ended tree is still alive", async () => {
       const { dependencies, calls } = harness({
         detections: [windows],
@@ -379,7 +474,7 @@ describe("executeLegacyDisable", () => {
         runCommand: async (command, args) =>
           command === TASKKILL ? { stdout: "", code: 128 } : dependencies.runCommand(command, args),
       };
-      expect(await executeLegacyDisable(plan(windows), stubborn)).toEqual({ outcome: "still-running", port: 3210 });
+      expect(await executeLegacyDisable(plan(windows), stubborn)).toEqual({ outcome: "still-running", port: 43210 });
       expect(calls.some((call) => call.includes("/Delete"))).toBe(false);
     });
 
@@ -413,6 +508,24 @@ describe("executeLegacyDisable", () => {
     });
     expect(existsSync(link)).toBe(true);
     expect(existsSync(target)).toBe(true);
+  });
+
+  it("removes the regular definition file it previewed (real file system)", async () => {
+    const file = join(tempDirectory(), "work-intelligence.service");
+    writeFileSync(file, DEFINITION);
+    const detection = found({ definitionPath: file });
+    const { dependencies } = harness({ detections: [detection, { kind: "none" }] });
+    const real = { ...dependencies, ...legacyDisableFileSystem };
+    expect(await executeLegacyDisable(plan(detection), real)).toEqual({ outcome: "disabled", endedProcesses: 0 });
+    expect(existsSync(file)).toBe(false);
+  });
+});
+
+describe("legacyProcessIsAlive", () => {
+  it("tells a live process from an exited one", () => {
+    expect(legacyProcessIsAlive(process.pid)).toBe(true);
+    const exited = spawnSync(process.execPath, ["-e", ""]);
+    expect(legacyProcessIsAlive(exited.pid as number)).toBe(false);
   });
 });
 
@@ -486,5 +599,35 @@ describe("the page's 停用舊的登入服務 inputs", () => {
     expect(canDisableLegacyService(found({ recognised: false }))).toBe(false);
     expect(canDisableLegacyService({ kind: "none" })).toBe(false);
     expect(canDisableLegacyService(null)).toBe(false);
+  });
+});
+
+describe("countLegacyRunners", () => {
+  const runner = `${WINDOWS_ROOT}\\scripts\\service-runner.mjs`;
+  const listing = (entries: WindowsProcessEntry[], code = 0) => ({
+    runCommand: async () => ({ stdout: Buffer.from(JSON.stringify(entries), "utf8").toString("base64"), code }),
+    environment: WINDOWS_ENVIRONMENT,
+  });
+
+  it("counts only this checkout's node.exe runners", async () => {
+    const entries: WindowsProcessEntry[] = [
+      { pid: 41, parentPid: 1, name: "node.exe", commandLine: `node.exe "${runner}"` },
+      { pid: 42, parentPid: 41, name: "node.exe", commandLine: "node.exe apps/server/dist/start-api.js" },
+      { pid: 43, parentPid: 1, name: "node.exe", commandLine: 'node.exe "C:\\other\\scripts\\service-runner.mjs"' },
+    ];
+    expect(await countLegacyRunners(runner, listing(entries))).toBe(1);
+    expect(await countLegacyRunners(runner, listing([]))).toBe(0);
+  });
+
+  it("is null when the process list cannot be read", async () => {
+    expect(await countLegacyRunners(runner, listing([], 1))).toBeNull();
+    expect(
+      await countLegacyRunners(runner, {
+        runCommand: async () => {
+          throw new Error("spawn failed");
+        },
+        environment: WINDOWS_ENVIRONMENT,
+      }),
+    ).toBeNull();
   });
 });

@@ -102,6 +102,7 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
   }
 
   function planOptions(adopt: boolean, registrations: readonly CheckoutRegistration[]): AgentSetupPlanOptions {
+    const databasePath = state.databasePath();
     const roots = [
       ...new Set(
         registrations
@@ -115,14 +116,10 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
       repositoryRoot: roots[0] ?? home,
       target: { kind: "launcher", shimPath, skillSourcePath: options.skillSourcePath },
       platform,
-      ...(adopt ? { adopt: { repositoryRoots: roots, ...databaseRule() } } : {}),
+      // Only entries on the App's own database are taken over: one Agent must not end up writing to two databases.
+      // Without an App database nothing is adopted (there is nothing to compare with).
+      ...(adopt && databasePath ? { adopt: { repositoryRoots: roots, databasePath } } : {}),
     };
-  }
-
-  // Only entries on the App's own database are taken over: one Agent must not end up writing to two databases.
-  function databaseRule(): { databasePath?: string } {
-    const databasePath = state.databasePath();
-    return databasePath ? { databasePath } : {};
   }
 
   /** The checkout database an Agent's hand-written entries use when it is not the App's: MCP's first, else a hook's. */
@@ -164,7 +161,8 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
         hooks: ownerOf(hook?.source),
         ...(firstRoot ? { checkoutDisplay: show(firstRoot) } : {}),
         checkoutMissing: handWritten.some((entry) => entry.repositoryRoot !== undefined && !entry.rootExists),
-        adoptable: handWritten.length > 0 && notRecognised === undefined && other === undefined,
+        adoptable:
+          state.databasePath() !== null && handWritten.length > 0 && notRecognised === undefined && other === undefined,
         ...(notRecognised?.reason ? { notAdoptableReason: notRecognised.reason } : {}),
         ...(other?.effectiveDatabase
           ? {

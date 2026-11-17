@@ -260,9 +260,12 @@ test("停用舊的登入服務 previews in plain words, warns about an import, d
   // The commands are only under 「詳細步驟」, never in the main text.
   await expect(preview.locator("details .command-text").first()).toBeAttached();
   await expect(preview.locator("details .command-text").first()).toBeHidden();
-  // Nothing was touched by the preview.
+  // Nothing was touched by the preview: at most the read-only Windows process list ran (to warn about a live runner).
   expect(existsSync(definition)).toBe(true);
-  expect(existsSync(`${legacyFile}.commands.jsonl`)).toBe(false);
+  const beforeConfirm = existsSync(`${legacyFile}.commands.jsonl`)
+    ? readFileSync(`${legacyFile}.commands.jsonl`, "utf8").trim().split("\n")
+    : [];
+  expect(beforeConfirm.filter((line) => !/powershell/i.test(line))).toEqual([]);
 
   const confirm = preview.locator('[data-id="legacy-disable-confirm"]');
   await expect(confirm).toHaveText(text.legacyDisableConfirmBusy);
@@ -275,16 +278,22 @@ test("停用舊的登入服務 previews in plain words, warns about an import, d
   const recorded = readFileSync(`${legacyFile}.commands.jsonl`, "utf8")
     .trim()
     .split("\n")
-    .map((line) => JSON.parse(line) as { dialog?: string; command?: string; args?: string[] });
+    .map((line) => JSON.parse(line) as { dialog?: string; command?: string; args?: string[] })
+    .slice(beforeConfirm.length);
   expect(recorded[0]).toMatchObject({ dialog: "legacy-disable", hardStop: process.platform === "win32" });
   const first = recorded[1]!;
   if (process.platform === "darwin") expect(first.command).toBe("launchctl");
-  else if (process.platform === "linux")
+  else if (process.platform === "linux") {
     expect(first).toMatchObject({
       command: "systemctl",
       args: ["--user", "disable", "--now", "work-intelligence.service"],
     });
-  else expect(first.command?.toLowerCase().endsWith("schtasks.exe")).toBe(true);
+    // Proven no longer enabled before anything is removed.
+    expect(recorded[2]).toMatchObject({
+      command: "systemctl",
+      args: ["--user", "is-enabled", "work-intelligence.service"],
+    });
+  } else expect(first.command?.toLowerCase().endsWith("schtasks.exe")).toBe(true);
   // Never started by itself: only 立即啟動 starts the App's backend.
   expect((await readSnapshot(app)).backend).toBeNull();
 

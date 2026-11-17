@@ -70,6 +70,7 @@ export interface SetupMessages {
   readonly legacyDisableFailed: string;
   readonly legacyDisableFailedPartly: string;
   readonly legacyDisableCheckFailed: string;
+  readonly legacyDisableCheckUnverified: string;
   readonly legacyDisableUnavailable: string;
   readonly legacyDisableBusyOther: string;
   readonly setupDetectingHint: string;
@@ -208,6 +209,8 @@ const zhTW: SetupMessages = {
   legacyDisableFailed: "停用沒有完成，也沒有移除任何設定。請改用下方的指令。",
   legacyDisableFailedPartly: "停用只完成了一部分。請改用下方的指令完成移除。",
   legacyDisableCheckFailed: "舊服務已停用，但資料庫檢查沒有通過，App 沒有開啟它。請在修復視窗處理。",
+  legacyDisableCheckUnverified:
+    "舊的登入服務已停用，但這次沒能完成資料庫檢查（資料庫可能暫時被占用），所以沒有立即啟動。請稍後重新開啟 App。",
   legacyDisableUnavailable: "這個服務無法由 App 停用，請改用下方的指令。",
   legacyDisableBusyOther: "另一個操作正在進行，請稍後再試。",
   setupDetectingHint: "正在檢查…完成後即可使用",
@@ -363,6 +366,8 @@ const en: SetupMessages = {
   legacyDisableFailedPartly: "Turning it off only partly finished. Use the command below to finish removing it.",
   legacyDisableCheckFailed:
     "The old service is turned off, but the database did not pass its check, so the App did not open it. Continue in the repair window.",
+  legacyDisableCheckUnverified:
+    "The old login service is turned off, but the database check could not finish this time (the database may be in use), so nothing was started. Open the App again later.",
   legacyDisableUnavailable: "The App cannot turn this service off. Use the command below instead.",
   legacyDisableBusyOther: "Another operation is running. Try again in a moment.",
   setupDetectingHint: "Checking… available when done",

@@ -89,6 +89,18 @@ describe("children of a Firefox background task", () => {
     expect(inFirefoxBackgroundTask(content, [reused, content], DASHBOARD_PORT)).toBe(false);
   });
 
+  it("does not attribute a child to a reused pid further up, past an ancestor whose start time is unknown", () => {
+    const helper = {
+      pid: 1300,
+      ppid: 1452,
+      executable: "C:\\Windows\\System32\\conhost.exe",
+      commandLine: "conhost.exe 0x4",
+    };
+    const child = ffProc(1232, 1300, "-contentproc -childID 1 tab", T + 6_000);
+    const reused = ffProc(1452, 900, "--backgroundtask defaultagent do-task 0123456789ABCDEF", T + 60_000);
+    expect(inFirefoxBackgroundTask(child, [reused, helper, child], DASHBOARD_PORT)).toBe(false);
+  });
+
   it("stops at a missing parent or a parent-pid cycle", () => {
     expect(inFirefoxBackgroundTask(content, [content], DASHBOARD_PORT)).toBe(false);
     const a = { pid: 10, ppid: 11, executable: "a.exe", commandLine: "a.exe" };

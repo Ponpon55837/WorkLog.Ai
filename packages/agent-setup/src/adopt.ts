@@ -84,6 +84,11 @@ export interface AdoptContext {
   labelOf: (id: AgentSetupComponentId) => string;
   /** The App's database; when set, only entries on this same file are adopted. */
   appDatabase?: string;
+  /**
+   * With `appDatabase`: Agents with an entry (to adopt) on another database. None of their entries is adopted, so one
+   * Agent never ends up with its MCP server on the App's database and its hook on another, or the other way round.
+   */
+  refusedAgents?: ReadonlySet<CheckoutAgent>;
 }
 
 interface ScanContext {
@@ -775,6 +780,13 @@ function shouldAdopt(info: CheckoutRegistration, context: AdoptContext): boolean
     );
     return false;
   }
+  if (context.refusedAgents?.has(info.agent)) {
+    conflictOnce(
+      context.plan,
+      `${label}：這個 Agent 的另一個 checkout 項目使用的不是 App 目前的資料庫；整個 Agent 都不改由 App 管理，保留且拒絕修改。`,
+    );
+    return false;
+  }
   return true;
 }
 
@@ -824,16 +836,47 @@ export function createAdoptContext(input: {
   labels: ReadonlyMap<AgentSetupComponentId, string>;
 }): AdoptContext {
   const roots = (input.options.adopt?.repositoryRoots ?? []).filter((root): root is string => typeof root === "string");
+  const comparableRoots = new Set(roots.map((root) => comparableRoot(root, input.platform)));
+  const appDatabase = input.options.adopt?.databasePath;
   return {
     plan: input.plan,
     components: input.components,
     homeDirectory: input.options.homeDirectory,
     shimPath: input.shimPath,
     platform: input.platform,
-    roots: new Set(roots.map((root) => comparableRoot(root, input.platform))),
+    roots: comparableRoots,
     labelOf: (id) => input.labels.get(id) ?? id,
-    ...(input.options.adopt?.databasePath ? { appDatabase: input.options.adopt.databasePath } : {}),
+    ...(appDatabase
+      ? {
+          appDatabase,
+          refusedAgents: refusedAgentsOf(
+            findCheckoutRegistrations({ ...input.options, platform: input.platform }, { appDatabase }),
+            comparableRoots,
+            input.platform,
+          ),
+        }
+      : {}),
   };
+}
+
+/** The Agents with an entry that would be adopted (hand-written, recognised, in the list) but is on another database. */
+function refusedAgentsOf(
+  registrations: readonly CheckoutRegistration[],
+  roots: ReadonlySet<string>,
+  platform: NodeJS.Platform,
+): Set<CheckoutAgent> {
+  return new Set(
+    registrations
+      .filter(
+        (info) =>
+          !info.owned &&
+          info.recognised &&
+          info.repositoryRoot !== undefined &&
+          roots.has(comparableRoot(info.repositoryRoot, platform)) &&
+          info.sameAsAppDatabase === false,
+      )
+      .map((info) => info.agent),
+  );
 }
 
 /**

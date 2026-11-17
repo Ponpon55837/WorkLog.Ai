@@ -1,5 +1,6 @@
 import {
   DESKTOP_CHILD_PROTOCOL_VERSION,
+  DESKTOP_INTEGRITY_CHECK_FAILED_DETAIL,
   parseDesktopParentMessage,
   type DesktopBackendErrorCode,
   type DesktopChildMessage,
@@ -102,7 +103,7 @@ const PREFLIGHT_DETAILS: Record<DatabasePreflightResult["status"], string> = {
 /** The one raw detail that may be named: the fixed text for a failed quick_check, so the App can tell it from a read failure. */
 function preflightReplyDetail(result: DatabasePreflightResult): string {
   return result.status === "unreadable" && result.detail === "quick_check failed"
-    ? "the database failed its integrity check"
+    ? DESKTOP_INTEGRITY_CHECK_FAILED_DETAIL
     : PREFLIGHT_DETAILS[result.status];
 }
 

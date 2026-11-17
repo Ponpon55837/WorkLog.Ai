@@ -39,6 +39,15 @@ This release finishes the old-service and Agent-takeover parts of stage 4 of the
 
 ### Fixed
 
+- **Independent review of the disable and adoption (this release).**
+  - The App's own backend on the old port counts as the port being free.
+  - After a failed `bootout` / `disable --now`, nothing is removed while `launchctl print` / `systemctl is-enabled` still finds the service.
+  - The database is checked after any stop, also when a later step fails. Only a failed `quick_check` is reported as `DB_INTEGRITY_CHECK_FAILED`. A check that could not finish (locked, a 5-minute timeout, a child failure) is "unverified": no error is recorded and 「立即啟動」 is not offered.
+  - Windows warns about the hard stop when a runner of the checkout is alive even though the task reads as stopped.
+  - An import or backup that starts after the preview is warned about before the dialog.
+  - Adoption is refused per Agent, and not at all without an App database.
+  - The packaged-smoke pid-reuse guard compares each ancestor with the earliest known time on the walk.
+
 - **Windows packaged smoke: a Firefox background task's own children no longer count as a browser the App opened.** The v1.6.49 release run (44091619638) failed the uninstaller test on a `-contentproc` child of the Firefox Default Browser Agent. A candidate is now excluded when its nearest browser ancestor, found by parent pid with a pid-reuse guard, is a Firefox `--backgroundtask` that does not name the Dashboard. A new child of an already running normal Firefox still counts. Failure lines also print the start of the parent's command line.
 
 ## [1.6.49] - 2026-11-17

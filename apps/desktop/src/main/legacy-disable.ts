@@ -1,13 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { appendFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
+import { DESKTOP_INTEGRITY_CHECK_FAILED_DETAIL } from "@work-intelligence/schema";
 import {
+  countLegacyRunners,
   createLegacyCommandRunner,
   describeLegacyDisableSteps,
   detectLegacyBusy,
   executeLegacyDisable,
   legacyDisableFileSystem,
   legacyProcessIsAlive,
+  legacyRunnerPath,
   planLegacyDisable,
   previewToCandidate,
   type BackendSupervisor,
@@ -59,8 +62,15 @@ export interface LegacyDisableOptions {
 interface Pending {
   readonly id: string;
   readonly plan: LegacyDisablePlan;
-  readonly busy: boolean;
+  /** The preview warned about an import or backup (then only 「仍要停用」 confirms). */
+  busy: boolean;
+  /** Whether the old backend is (or may be) running: the task says so, or on Windows a runner of this checkout is alive. */
+  readonly running: boolean;
+  readonly hardStop: boolean;
 }
+
+/** What the read-only check of the App's database after the stop found. */
+type DatabaseCheck = "passed" | "damaged" | "unverified";
 
 export function createLegacyDisable(options: LegacyDisableOptions): LegacyDisableController {
   const { state, legacy, coordinator, supervisor, backend, log } = options;
@@ -71,7 +81,8 @@ export function createLegacyDisable(options: LegacyDisableOptions): LegacyDisabl
   const dependencies: LegacyDisableDependencies = {
     runCommand: createLegacyCommandRunner(COMMAND_TIMEOUT_MS),
     detect: () => legacy.refresh(),
-    isPortFree: async (port) => (await probeLoopbackPort(port)).free,
+    // The App's own backend on that port proves the old one is not listening there (one listener per port).
+    isPortFree: async (port) => supervisor.running?.port === port || (await probeLoopbackPort(port)).free,
     isProcessAlive: legacyProcessIsAlive,
     ...legacyDisableFileSystem,
     sleep: (milliseconds) => delay(milliseconds),
@@ -93,15 +104,31 @@ export function createLegacyDisable(options: LegacyDisableOptions): LegacyDisabl
     return database !== null && plan.databasePath !== undefined && pathsReferToSameFile(database, plan.databasePath);
   }
 
-  /** Read-only integrity check of the App's database; on failure the repair window shows it as the candidate to act on. */
-  async function checkAppDatabase(): Promise<boolean> {
+  /**
+   * Read-only integrity check of the App's database. Only a failed `quick_check` counts as damage (recorded, and the
+   * repair window shows the database as the candidate to act on); a database that could not be read this time (locked,
+   * timed out, the child failed) is "unverified", which is not reported as damage.
+   */
+  async function checkAppDatabase(): Promise<DatabaseCheck> {
     const database = state.databasePath();
-    if (!database) return true;
-    const result = await supervisor.preview(database, { quickCheck: true });
+    if (!database) return "passed";
+    const result = await supervisor.preview(database, { quickCheck: true }).catch(() => null);
+    if (result === null) {
+      log("[shell] legacy disable: the database check could not run");
+      return "unverified";
+    }
     const candidate = previewToCandidate(result);
     if (candidate.status === "ok") {
       log("[shell] legacy disable: the database check passed");
-      return true;
+      return "passed";
+    }
+    const damaged =
+      result.outcome === "checked" &&
+      result.preflight.status === "unreadable" &&
+      result.preflight.detail === DESKTOP_INTEGRITY_CHECK_FAILED_DETAIL;
+    if (!damaged) {
+      log(`[shell] legacy disable: the database check could not finish (${candidate.status})`);
+      return "unverified";
     }
     log("[shell] legacy disable: the database check after the old service stopped did not pass");
     state.recentErrors.record("DB_INTEGRITY_CHECK_FAILED", new Date());
@@ -109,7 +136,22 @@ export function createLegacyDisable(options: LegacyDisableOptions): LegacyDisabl
     state.candidates.setPreview(id, candidate);
     state.touch();
     options.openRepairWindow();
-    return false;
+    return "damaged";
+  }
+
+  /** Windows: a runner of this checkout alive right now, whatever the task says (null: the list could not be read). */
+  async function runnersAlive(plan: LegacyDisablePlan): Promise<boolean | null> {
+    if (plan.platform !== "win32") return false;
+    const count = await countLegacyRunners(legacyRunnerPath(plan.platform, plan.repositoryRoot), dependencies);
+    return count === null ? null : count > 0;
+  }
+
+  async function isBusy(plan: LegacyDisablePlan): Promise<boolean> {
+    const busy = await detectLegacyBusy({
+      ...(plan.databasePath ? { databasePath: plan.databasePath } : {}),
+      ...(plan.backupDirectory ? { backupDirectory: plan.backupDirectory } : {}),
+    });
+    return busy.importRunning || busy.backupRunning;
   }
 
   async function run(plan: LegacyDisablePlan, operationId: string): Promise<LegacyDisableOutcome | "busy"> {
@@ -137,7 +179,8 @@ export function createLegacyDisable(options: LegacyDisableOptions): LegacyDisabl
     );
     if (result.status === "busy") return "busy";
     if (result.status === "completed") return result.result as unknown as LegacyDisableOutcome;
-    return { outcome: "failed", step: "operation", detail: result.status, removed: false };
+    // Interrupted or failed inside the coordinator: assume the stop may have run, so the database still gets checked.
+    return { outcome: "failed", step: "operation", detail: result.status, removed: false, stopAttempted: true };
   }
 
   return {
@@ -148,17 +191,18 @@ export function createLegacyDisable(options: LegacyDisableOptions): LegacyDisabl
         pending = null;
         return { ok: false, reason: "unavailable" };
       }
-      const busy = await detectLegacyBusy({
-        ...(plan.databasePath ? { databasePath: plan.databasePath } : {}),
-        ...(plan.backupDirectory ? { backupDirectory: plan.backupDirectory } : {}),
-      });
-      pending = { id: randomUUID(), plan, busy: busy.importRunning || busy.backupRunning };
+      const busy = await isBusy(plan);
+      // A runner that is alive while the task reads as stopped is still ended at once: warn about that too. When the
+      // list cannot be read, warn rather than promise a graceful stop.
+      const alive = await runnersAlive(plan);
+      const running = plan.wasRunning || alive !== false;
+      pending = { id: randomUUID(), plan, busy, running, hardStop: plan.hardStop && running };
       return {
         ok: true,
         preview: {
           previewId: pending.id,
-          running: plan.wasRunning,
-          hardStop: plan.hardStop && plan.wasRunning,
+          running: pending.running,
+          hardStop: pending.hardStop,
           busy: pending.busy,
           sameDatabase: sameDatabase(plan),
           steps: describeLegacyDisableSteps(plan),
@@ -171,7 +215,12 @@ export function createLegacyDisable(options: LegacyDisableOptions): LegacyDisabl
       if (!current || current.id !== previewId || (current.busy && !continueWhileBusy)) {
         return { ok: false, reason: "invalid" };
       }
-      if (!(await options.confirmDialog(current.plan.hardStop && current.plan.wasRunning))) {
+      // An import or backup that started after the preview: show the warning first, nothing is done yet.
+      if (!current.busy && (await isBusy(current.plan))) {
+        current.busy = true;
+        return { ok: false, reason: "now-busy" };
+      }
+      if (!(await options.confirmDialog(current.hardStop))) {
         return { ok: false, reason: "cancelled" };
       }
       pending = null;
@@ -179,6 +228,10 @@ export function createLegacyDisable(options: LegacyDisableOptions): LegacyDisabl
       await legacy.refresh();
       if (outcome === "busy") return { ok: false, reason: "busy" };
       log(`[shell] legacy disable: ${outcome.outcome}${outcome.outcome === "failed" ? ` at ${outcome.step}` : ""}`);
+      // The old backend may have been ended in the middle of a write to this database: check it before the App opens it,
+      // also when a later step failed. Not after `changed` (nothing ran) or `still-running` (it is still writing).
+      const stopped = outcome.outcome === "disabled" || (outcome.outcome === "failed" && outcome.stopAttempted);
+      const check: DatabaseCheck = stopped && sameDatabase(current.plan) ? await checkAppDatabase() : "passed";
       if (outcome.outcome !== "disabled") {
         return {
           ok: false,
@@ -186,11 +239,10 @@ export function createLegacyDisable(options: LegacyDisableOptions): LegacyDisabl
           ...(outcome.outcome === "failed" ? { removed: outcome.removed } : {}),
         };
       }
-      // The old backend may have been writing to this database when it stopped: check it before the App opens it.
-      const checked = sameDatabase(current.plan) ? await checkAppDatabase() : true;
-      if (!checked) return { ok: false, reason: "database-check-failed" };
-      startOffered = canStart();
-      return { ok: true, offerStart: startOffered };
+      if (check === "damaged") return { ok: false, reason: "database-check-failed" };
+      // Not verified this time: the disable worked, but 「立即啟動」 is offered only after a passed check.
+      startOffered = check === "passed" && canStart();
+      return { ok: true, offerStart: startOffered, ...(check === "unverified" ? { databaseUnverified: true } : {}) };
     },
 
     startNow: async () => {
@@ -222,7 +274,9 @@ export function syntheticLegacyDisable(
       runCommand: async (command, args) => {
         record({ command, args });
         const listing = /powershell/i.test(command);
-        return { stdout: listing ? Buffer.from("[]", "utf8").toString("base64") : "", code: 0 };
+        // `launchctl print` / `systemctl is-enabled` after the stop: the old service is no longer loaded or enabled.
+        const verify = args[0] === "print" || args.includes("is-enabled");
+        return { stdout: listing ? Buffer.from("[]", "utf8").toString("base64") : "", code: verify ? 113 : 0 };
       },
     },
     confirmDialog: async (hardStop) => {

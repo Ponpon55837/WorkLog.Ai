@@ -153,7 +153,7 @@ export function survivingTree<T extends TreeProcess>(tracked: Map<number, T>, li
  * parent pids through `processes`) is Firefox in background-task mode whose command line does not name the Dashboard. Such
  * a task may start its own `-contentproc` children, which carry no `--backgroundtask` token. A child of a normal browser
  * main process, already running or not, is not excluded: `shell.openExternal` into a running browser shows up exactly as a
- * new child there. A parent created after its supposed child is a reused pid, and the walk stops there.
+ * new child there. An ancestor created after any process below it on the walk is a reused pid, and the walk stops there.
  */
 export function inFirefoxBackgroundTask(
   candidate: TreeProcess & BrowserCandidate,
@@ -162,15 +162,20 @@ export function inFirefoxBackgroundTask(
 ): boolean {
   const visited = new Set<number>([candidate.pid]);
   let child = candidate;
+  // The earliest known creation time on the walk so far: every ancestor must be older than each of its descendants, so
+  // an ancestor is checked against it, also across a process whose time is unknown.
+  let earliest = candidate.startedAt;
   for (;;) {
     const parent = processes.find((member) => member.pid === child.ppid);
     if (!parent || visited.has(parent.pid)) return false;
-    if (child.startedAt !== undefined && parent.startedAt !== undefined && child.startedAt < parent.startedAt) {
-      return false; // created before its supposed parent: the parent pid was reused
+    if (earliest !== undefined && parent.startedAt !== undefined && earliest < parent.startedAt) {
+      return false; // created after one of its supposed descendants: that parent pid was reused
     }
     if (BROWSER_COMMANDS.test(parent.executable ?? parent.commandLine)) {
       return isFirefoxBackgroundTask(parent) && !namesDashboard(parent.commandLine, dashboardPort);
     }
+    if (parent.startedAt !== undefined)
+      earliest = earliest === undefined ? parent.startedAt : Math.min(earliest, parent.startedAt);
     visited.add(parent.pid);
     child = parent;
   }

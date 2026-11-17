@@ -110,11 +110,20 @@ export type LegacyDisablePreviewResult =
   | { readonly ok: false; readonly reason: "unavailable" };
 
 export type LegacyDisableConfirmResult =
-  | { readonly ok: true; readonly offerStart: boolean }
+  /** `databaseUnverified`: the database check could not finish this time (not damage); no 「立即啟動」 then. */
+  | { readonly ok: true; readonly offerStart: boolean; readonly databaseUnverified?: boolean }
   | {
       readonly ok: false;
+      /** `now-busy`: an import or backup started after the preview; nothing was done, the preview now warns. */
       readonly reason:
-        "invalid" | "cancelled" | "busy" | "changed" | "still-running" | "failed" | "database-check-failed";
+        | "invalid"
+        | "cancelled"
+        | "now-busy"
+        | "busy"
+        | "changed"
+        | "still-running"
+        | "failed"
+        | "database-check-failed";
       /** `failed`: whether part of the registration was already removed. */
       readonly removed?: boolean;
     };

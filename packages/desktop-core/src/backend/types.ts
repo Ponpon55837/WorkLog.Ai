@@ -43,6 +43,8 @@ export interface BackendTimeouts {
   /** Child process start to its `hello`. */
   readonly helloMs: number;
   readonly preflightMs: number;
+  /** One preflight that also runs `PRAGMA quick_check`, which reads the whole database. */
+  readonly quickCheckMs: number;
   /** `start` sent to `ready` (a schema migration happens here). */
   readonly readyMs: number;
   /** One HTTP readiness request. */
@@ -61,6 +63,7 @@ export interface BackendTimeouts {
 export const DEFAULT_BACKEND_TIMEOUTS: BackendTimeouts = {
   helloMs: 10_000,
   preflightMs: 15_000,
+  quickCheckMs: 300_000,
   readyMs: 60_000,
   healthMs: 5_000,
   gracefulMs: 10_000,

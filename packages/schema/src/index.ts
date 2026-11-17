@@ -69,6 +69,7 @@ export {
 } from "./file-history.js";
 export { relatedWorkQuerySchema } from "./related-work.js";
 export {
+  DESKTOP_INTEGRITY_CHECK_FAILED_DETAIL,
   DESKTOP_BACKEND_ERROR_CODES,
   DESKTOP_CHILD_PROTOCOL_VERSION,
   desktopChildMessageSchema,

@@ -66,6 +66,12 @@ export const desktopPreflightResultSchema = z.strictObject({
 });
 
 /**
+ * The one fixed `detail` a preflight result may carry for a failed `quickCheck`, so the App can tell a damaged database
+ * from one it merely could not read (locked, timed out, denied).
+ */
+export const DESKTOP_INTEGRITY_CHECK_FAILED_DETAIL = "the database failed its integrity check";
+
+/**
  * `createIfMissing` asks the child to create a new empty database first, but only when nothing at all exists at the path;
  * without it the preflight stays read-only. `quickCheck` asks for an extra read-only `PRAGMA quick_check` on a database
  * that otherwise reads fine, for a database an old service may have been hard-stopped on.
