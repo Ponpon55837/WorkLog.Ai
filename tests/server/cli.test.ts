@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { MAX_PROJECT_IMPORT_PARSED_HEAP_BYTES } from "../../apps/server/src/http.js";
 import { databaseUsage, runDatabaseCli, type DatabaseCliDependencies } from "../../apps/server/src/cli.js";
 import { canonicalizeProjectRoot } from "../../packages/project-policy/src/index.js";
 import {
@@ -310,6 +311,21 @@ describe("database maintenance CLI", () => {
     writeFileSync(bundleFile, "not JSON");
     expect(await runDatabaseCli(["import", "portable.json", "--dry-run"], deps)).toBe(1);
     expect(messages.error.join("\n")).toContain("不是有效的 JSON");
+  });
+
+  it("refuses an import whose parsed heap would exceed the budget before parsing or writing", async () => {
+    const root = createRoot();
+    const store = createStore();
+    // 78 estimated bytes per "{}," (72 per container, 2 per byte): 5.3 million of them pass 384 MiB in a 16 MB file.
+    const containers = Math.ceil(MAX_PROJECT_IMPORT_PARSED_HEAP_BYTES / 78) + 100_000;
+    writeFileSync(join(root, "dense.json"), `[${"{},".repeat(containers)}{}]`);
+    const messages = { log: [] as string[], error: [] as string[] };
+    const deps = dependencies(store, root, messages, async () => true);
+
+    expect(await runDatabaseCli(["import", "dense.json"], deps)).toBe(1);
+    expect(messages.error.join("\n")).toContain("匯入檔內容結構過於龐大");
+    expect(messages.log).toEqual([]);
+    expect(store.listProjects()).toEqual([]);
   });
 
   it("prints the safe newer-schema refusal when startup cannot open the database", async () => {
