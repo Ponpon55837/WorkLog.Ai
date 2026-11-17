@@ -21,7 +21,7 @@
 | R04 | P0 | 手動複製或錯誤備份漏掉 WAL 中已提交資料 | G-DB-03 | DT-05 | 重用 `VACUUM INTO` 與 staging；快照必須可讀回並通過 `integrity_check` |
 | R05 | P0 | 接管時殺掉另一個 checkout 或使用者服務 | G-SVC-01 | DT-12、DT-13 | 服務身分、runner、port、DB 多證據；陌生程序不 kill；Windows 驗證 schtasks 子孫程序 |
 | R06 | P0 | 接管時已 migration，卻自動恢復舊服務 | G-SVC-01、G-DB-02 | DT-09、DT-12、DT-32 | phase journal；migration 開始後禁止自動重啟舊服務 |
-| R07 | P0 | 無系統 Node 的環境中 Agent MCP 失效 | G-MCP-01 | DT-23、DT-25 | 隨包標準 Node＋固定 launcher；App 退出後仍可獨立運作。**1.6.43 證據**：`scripts/desktop-runtime-spike/smoke.mjs` 在無 `node` 的 PATH、離線、只啟動固定 shim 的環境中，於 serve 停止後 MCP 仍完成 `initialize` 與 `tools/list`，hook 動作通過（Windows 與 macOS 45/45、Linux 46/46，run 43864453651）；見 §4c |
+| R07 | P0 | 無系統 Node 的環境中 Agent MCP 失效 | G-MCP-01 | DT-23、DT-25 | 隨包標準 Node＋固定 launcher；App 退出後仍可獨立運作。**1.6.43 證據**：`scripts/desktop-runtime-spike/smoke.mjs` 在無 `node` 的 PATH、離線、只啟動固定 shim 的環境中，於 serve 停止後 MCP 仍完成 `initialize` 與 `tools/list`，hook 動作通過（Windows 與 macOS 45/45、Linux 46/46，run 43864453651）；見 §4c。**1.6.47 已實作（CI 可驗證部分）**：plugin `launch.mjs`、MCPB 與獨立版優先使用固定 shim，App 以 `desktop-integration.json` 記錄 launcher 路徑；hook 經 shim 靜默、25 秒上限、一律 exit 0。Agent 的 host handshake 與 Windows、macOS 實機待實機驗收；plugin manifest 仍以 `node launch.mjs` 啟動。 |
 | R08 | P0 | 更新刪除使用中的 runtime（Windows 檔案鎖） | G-MCP-01 | DT-24 | 版本化 runtime、延後 GC（需無現役連線）、manifest 原子切換 **1.6.45 狀態**：背景清理只保留目前與前一版，尚未證明「無現役連線」，風險只部分緩解（見 DT-24）。 |
 | R09 | P0 | 本機網站偽造管理 API 請求 | G-SEC-01 | DT-17 | 精確 Host:port、Origin、短期會話、CSRF、原生高風險確認；**1.6.41 T4 已實作（commit dadaae4）** |
 | R10 | P0 | 同機程序偽造 Origin 或 Host 使用管理 API | G-SEC-01 | DT-17 | 不只依賴 CORS 或 Origin；能力憑證與私有 IPC（§5.2 威脅模型） |
@@ -29,9 +29,9 @@
 | R12 | P0 | DB restore 覆寫活躍 DB 或遺失新 Session | G-DB-03 | DT-05 | 先停寫入端；保存當前快照；明示資料損失窗口 |
 | R13 | P0 | 被竄改的 runtime、launcher 或設定路徑 | G-MCP-01、G-SEC-01 | DT-23 | 只信任已驗證的 manifest；ACL；checksum；絕對路徑。**1.6.43 證據**：smoke 的竄改情境（改一個位元組、manifest 損壞、多放檔案、遺失 `current`、不允許的動作）皆被拒並回對應錯誤碼，修復後可再執行；Windows ACL 已於 1.6.45 實作（僅 fixture 驗證，真實 Windows 行為待 CI 或實機，不算通過；見 DT-23） |
 | R14 | P0 | 更新成功但新後端無法啟動，修復入口也壞 | G-UPD-01 | DT-16、DT-31 | App 獨立的修復安裝包；tray 與修復視窗；三階段分段提交 |
-| R15 | P1 | Agent plugin 與手動註冊並存，造成重複的 tools 與 hooks | G-MCP-01 | DT-21 | 分來源偵測；plan 預覽；按所有權修復 |
-| R16 | P1 | 使用者在 plan 之後改了 Agent 設定 | G-MCP-01 | DT-21 | apply 前逐項指紋重驗；不覆蓋外部異動 |
-| R17 | P1 | 多檔案的 Agent 設定只套用了一部分 | G-MCP-01 | DT-21 | 操作日誌、補償回復、每項驗證；必要時人工衝突修復 |
+| R15 | P1 | Agent plugin 與手動註冊並存，造成重複的 tools 與 hooks | G-MCP-01 | DT-21 | 分來源偵測；plan 預覽；按所有權修復。**1.6.47 已實作（CI 可驗證部分）**：`packages/agent-setup` 的來源偵測（desktop-managed、manual、plugin、mcpb、unknown）與重複註冊標示；plan 拒絕再加入第二個註冊。實機待實機驗收（Claude Desktop 的 MCPB 偵測依檔案配置推測）。 |
+| R16 | P1 | 使用者在 plan 之後改了 Agent 設定 | G-MCP-01 | DT-21 | apply 前逐項指紋重驗；不覆蓋外部異動。**1.6.47 已實作（CI 可驗證部分）**：apply 前、寫入前後與 rename 前逐項重驗，發現外部異動即停止；測試見 `tests/agent-setup/toctou.test.ts`。實機待實機驗收。 |
+| R17 | P1 | 多檔案的 Agent 設定只套用了一部分 | G-MCP-01 | DT-21 | 操作日誌、補償回復、每項驗證；必要時人工衝突修復。**1.6.47 已實作（CI 可驗證部分）**：持久化操作日誌先於第一次寫入；補償只回復本次寫入且內容仍相同的項目，由新到舊；遇外部異動標記 `needs-manual-repair`。測試見 `tests/agent-setup/transaction.test.ts`。實機待實機驗收。 |
 | R18 | P1 | Linux 無系統匣；Windows 登入任務無視窗 | G-UX-01 | DT-15、DT-16 | Windows 與 macOS：修復視窗與明確的 UX；**Linux 部分：V1 不做，於發行聲明排除（§5）** |
 | R19 | P1 | port 競態與 health 誤辨身分 | G-SVC-02 | DT-10、DT-11、DT-27 | IPC runId＋DB 身分＋HTTP readiness 多層驗證；operationId 去重；Agent 開頁交給 App |
 | R20 | P1 | 切換 port 後 browser 偏好或管理 token 遺失 | G-SEC-01 | DT-14 | 白名單搬運非秘密偏好；重新授權；不跨 origin 復用 |
@@ -42,7 +42,7 @@
 | R25 | P1 | Browser 或 local API 不隔離其他 OS 帳號 | G-SEC-01 | DT-18 | **管理 API：** DT-18 跨使用者測試。**資料 API：V1 不做，於發行聲明排除（ADR-33）** |
 | R26 | P1 | macOS App 從 DMG 執行，無法安裝更新 | G-UPD-01 | DT-29 | 啟動時檢測 App 位置，導引移到 Applications |
 | R27 | P1 | Windows NSIS 解除安裝器清掉未受管理的資料 | G-UX-01 | DT-34 | 只移除 App 擁有項；DB 與備份保留 **1.6.45 證據**：NSIS 解除安裝只移除程式檔，設定、DB 與備份保留（`deleteAppDataOnUninstall` 為 false）；Windows 打包煙霧測試的靜默解除安裝斷言資料保留（Linux 不執行此項）。實機待驗收。 |
-| R28 | P1 | 陳舊的 Agent skill 或 MCP schema 被顯示為已就緒 | G-MCP-01 | DT-22 | 實際 host handshake；版本契約；需重新連線的狀態 |
+| R28 | P1 | 陳舊的 Agent skill 或 MCP schema 被顯示為已就緒 | G-MCP-01 | DT-22 | 實際 host handshake；版本契約；需重新連線的狀態。**1.6.47 已實作（CI 可驗證部分）**：MCP stdio 握手探測、契約指紋比對（指紋不同顯示需要重新連線）、host 首次 `initialize` 的觀察紀錄（`agent-observations.json`，fail-open）；只有指紋相同的觀察才顯示已觀察到連線。實機 handshake（Claude Code、Codex、Claude Desktop）待實機驗收。 |
 | R29 | P1 | 設定檔半寫入或無法解析時被當作全新安裝 | G-DB-01 | DT-20 | 原子替換、recovery copy、修復模式；不開空庫 |
 | R30 | P1 | 關機、睡眠或斷電使 operation phase 與實際狀態不符 | G-SVC-02、G-UPD-01 | DT-09、DT-31 | 恢復時重讀 OS、DB 與 manifest 並重建狀態；不只依賴 journal |
 | R31 | P2 | 安裝包肥大、冷啟慢、閒置記憶體高 | G-UX-01 | DT-25 | A 階段比較標準 Node 與 `utilityProcess`；記錄基準數字。**1.6.43 數字**：標準 Node 與 Electron RUN_AS_NODE 的量測見 ADR-04（Linux 與 macOS） 三平台；spike 未量測 `utilityProcess` **1.6.45 數字（本機 Linux）**：解開後 405.8 → 395.9 MiB；`app.asar` 3.3 → 0.66 MB；隨包 runtime 135.5 MB（Node 122 MB）；打包 11.8–15.2 s；首次啟動含 runtime 安裝 1028 ms、熱啟動 563 ms；閒置記憶體（打包後的 App，PSS）352 → 292 MiB，RSS 合計 662 → 538 MiB（3 次中位數）。Windows 與 macOS 的數字待 CI；記憶體門檻為 Linux PSS 360 MiB、後端 128 MiB，Windows 與 macOS 暫定 1024 MiB 與 192 MiB。 |
@@ -96,13 +96,13 @@
 | DT-18 | 管理 API 跨使用者與 XSS 回歸測試；資料 API 的發行聲明 | E2-03 | DT-17 | 不同 OS 帳號連線測試；發行說明已列出排除項 | W、M | R25（管理 API 部分） |
 | DT-19 | 診斷匯出遮蔽與秘密掃描 | E5-02 | DT-11 | 匯出內容無授權碼與個資路徑；不自動上傳。**1.6.44 註記**：本版的診斷匯出已遮蔽 home、使用者名稱、DB／備份路徑、runId 與秘密樣式（`packages/desktop-core/src/shell/diagnostics.ts`；`tests/desktop-core/shell-policy.test.ts`）；完整版（dry-run 預覽、秘密掃描報告）仍屬 DT-19 | W、M | R32 |
 | DT-20 | 設定檔原子寫入與 fail-closed 讀取 | E0-02 | — | 半寫入與毀損情境不開空庫；recovery copy 可用。**1.6.42 已實作**：`packages/desktop-core/src/settings/`；`tests/desktop-core/settings.test.ts` | W、M | R29 |
-| DT-21 | Agent plan／apply／verify／compensate 共用 API（擷取自 `agent-setup.ts`） | E3-01 | DT-23 | 指紋重驗；補償只回復 App 擁有項；CLI 行為不變 | W、M | R15、R16、R17 |
-| DT-22 | Agent 狀態分級與 host handshake | E3-01 | DT-21 | 檔案已寫入不顯示「已連接」；握手測試通過 | W、M | R28 |
-| DT-23 | 固定 launcher 與版本化 runtime manifest | E1-02 | DT-25 | App 退出後 MCP 仍可 `initialize`；manifest 篡改被拒。**1.6.43 已實作（CI 可驗證部分）**：`packages/desktop-core/src/runtime/*.ts`；`tests/desktop-core/runtime-install.test.ts`、`runtime-launcher.test.ts`、`runtime-manifest.test.ts`、`runtime-verify.test.ts`；煙霧測試覆蓋竄改拒絕；**1.6.45**：Windows ACL 已實作（`packages/desktop-core/src/runtime/windows-acl.ts`；`tests/desktop-core/runtime-windows-acl.test.ts`，僅 fixture 驗證）；runtime GC 只部分實作（DT-24）；Agent 接線未做；實機待實機驗收 | W、M | R07、R13 |
+| DT-21 | Agent plan／apply／verify／compensate 共用 API（擷取自 `agent-setup.ts`） | E3-01 | DT-23 | 指紋重驗；補償只回復 App 擁有項；CLI 行為不變。**1.6.47 已實作（CI 可驗證部分）**：`packages/agent-setup/`；`apps/server/src/agent-setup.ts`（薄 CLI）；`tests/agent-setup/*.test.ts`、`tests/server/agent-setup-golden.test.ts`（CLI 輸出與檔案位元組不變）；App 設定中心尚未呼叫；實機待實機驗收。 | W、M | R15、R16、R17 |
+| DT-22 | Agent 狀態分級與 host handshake | E3-01 | DT-21 | 檔案已寫入不顯示「已連接」；握手測試通過。**1.6.47 已實作（CI 可驗證部分）**：`packages/desktop-core/src/agents/`；`packages/shared/src/mcp-contract-fingerprint.ts`；`apps/mcp/src/agent-observation.ts`；`tests/desktop-core/agents-handshake.test.ts`、`agents-status.test.ts`；真實 host 握手待實機驗收。 | W、M | R28 |
+| DT-23 | 固定 launcher 與版本化 runtime manifest | E1-02 | DT-25 | App 退出後 MCP 仍可 `initialize`；manifest 篡改被拒。**1.6.43 已實作（CI 可驗證部分）**：`packages/desktop-core/src/runtime/*.ts`；`tests/desktop-core/runtime-install.test.ts`、`runtime-launcher.test.ts`、`runtime-manifest.test.ts`、`runtime-verify.test.ts`；煙霧測試覆蓋竄改拒絕；**1.6.45**：Windows ACL 已實作（`packages/desktop-core/src/runtime/windows-acl.ts`；`tests/desktop-core/runtime-windows-acl.test.ts`，僅 fixture 驗證）；runtime GC 只部分實作（DT-24）；**1.6.47 已實作 launcher 接線（CI 可驗證部分）**：plugin `launch.mjs`、MCPB 與獨立版優先使用固定 shim；`desktop-integration.json` 紀錄（`packages/desktop-core/src/integration/`；`tests/desktop-core/integration-record.test.ts`）；`setup:agents` launcher 目標；plugin manifest 仍以 `node launch.mjs` 啟動；實機待實機驗收 | W、M | R07、R13 |
 | DT-24 | runtime 延後 GC 與 Windows 檔案鎖 | E1-02 | DT-23 | 檔案鎖下更新不失敗；無現役連線才刪除 | W | R08 **1.6.45 部分實作**：`packages/desktop-core/src/runtime/runtime-gc.ts`，背景清理保留目前與前一版；無現役連線的證明未做，DT-24 未完成。 |
 | DT-25 | 無 Node 封裝 spike、大小與冷啟動基準、FTS5 與 worker 驗證 | E1-01 | — | 無 Node 離線開頁、寫 DB、搜尋、備份、stdio 握手；基準數字紀錄。**1.6.43 已實作（CI 可驗證部分）**：`scripts/desktop-runtime-spike/`（build、smoke、harness、report）、`.github/workflows/desktop-runtime-spike.yml`；三平台數字與檢查見 ADR-04；階段 1 gate 未通過（實機驗收未做） | W、M | R07、R31 |
 | DT-26 | Windows 資料夾選擇：`IFileOpenDialog`（**1.6.41 T1 已實作，commit 1257d3a**；實機待實機驗收） | R4 新增 | — | Windows 11 實機通過 `docs/release-checklist.md` 的條目；取消 exit 2；fallback 可用 | W（M 驗證 `osascript`） | — |
-| DT-27 | Dashboard bridge：Agent 開頁交給 App，不自啟 checkout server | E3-02 | DT-11、DT-21 | 換 port 與 App 離線後從 Agent 開頁，不產生第二個 server | W、M | R19（次要） |
+| DT-27 | Dashboard bridge：Agent 開頁交給 App，不自啟 checkout server | E3-02 | DT-11、DT-21 | 換 port 與 App 離線後從 Agent 開頁，不產生第二個 server。**1.6.47 已實作（CI 可驗證部分）**：`scripts/dashboard.mjs`、`plugins/work-intelligence/scripts/desktop-integration.mjs`、`apps/desktop/src/main/second-instance.ts`；`apps/desktop/tests/desktop-smoke/dashboard-handoff.spec.ts`；換 port 與 App 離線的實機情境待實機驗收。 | W、M | R19（次要） |
 | DT-28 | 更新來源鎖版本與 metadata 驗證（v26 或 v27 決策） | E5-01 | DT-37 | 篡改、漏簽、錯 key、key rotation 測試；無法證明時改手動下載 | W、M | R11 **1.6.45 決策**：選 v26，本版不做自動更新（`publish` 為 null）；改為手動下載經平台驗證的安裝包（ADR-25）。篡改、漏簽、錯 key 測試不適用於本版，待日後決定是否導入。 |
 | DT-29 | macOS 安裝位置檢測與 DMG 導引 | E5-01 | DT-28 | 從 DMG 啟動時顯示導引；移到 Applications 後可更新 | M | R26 |
 | DT-30 | 更新安裝時機：使用者明確安裝、先排空，不在退出時靜默安裝 | E5-01 | DT-28 | `autoInstallEvent` 行為實測；退出時無意外安裝 | W、M | R21 |
@@ -155,7 +155,7 @@
 | A | 無 Node 封裝 spike：建置、離線煙霧測試，以及大小、冷啟動與閒置記憶體量測（官方 Node.js 與 Electron RUN_AS_NODE） | DT-25 | R07、R31；§9.4；ADR-04 | 1.6.43 已實作（d879dc4）；三平台量測完成（run 43864453651） |
 | B | 固定 launcher、manifest v1、shim、`current` 指標與 `runtimes/<id>/` 安裝、launch 一致性檢查 | DT-23 | R07、R13；§3.3、§10.2；ADR-15 | 1.6.43 已實作（e571b31；修正 7c75778、6419aaf；精簡 shim 與 launch 一致性檢查 1b09081）；Windows ACL 為 `not-implemented`；實機待實機驗收 |
 | C | CI workflow（Windows、macOS、Ubuntu × Node、Electron） | DT-25 | R07、R31 | 1.6.43 已實作（d879dc4；觸發條件為 pull request 與手動觸發；分支 push 觸發於 e987168 加入，1b09081 移除） |
-| D | runtime 延後 GC（DT-24）、Windows ACL、Agent 與 plugin 接線 | DT-24、DT-23 後續 | R08、R13、R07；§9.4 階段 3 | 未實作 |
+| D | runtime 延後 GC（DT-24）、Windows ACL、Agent 與 plugin 接線 | DT-24、DT-23 後續 | R08、R13、R07；§9.4 階段 3 | 1.6.47 已實作（CI 可驗證部分）；實機待實機驗收（Agent 與 plugin 接線）。runtime GC 仍為部分實作（DT-24，見 1.6.45） |
 
 **1.6.43 的非 CI 項目**：Windows 11 與 macOS 實機煙霧測試、Windows ACL 檢查、NTFS 變更時間對 stat 快取的影響、Windows `.cmd` 的 `%*`／`!` 行為，以及所有實機驗收。
 

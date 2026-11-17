@@ -9,6 +9,15 @@
 
 export const STRICT_OPT_IN_VARIABLE = "WI_PACKAGED_STRICT";
 
+/**
+ * Whether this run may act on the machine beyond its sandbox: on CI (`CI=true`) or with the opt-in. The installer test
+ * uses the real profile only then, and only then does `removeSandbox` end a browser that appeared during a test (on a
+ * developer's machine it could be one they opened themselves, with unsaved tabs).
+ */
+export function isStrictPackagedRun(environment: Readonly<Record<string, string | undefined>>): boolean {
+  return environment.CI === "true" || environment[STRICT_OPT_IN_VARIABLE] === "1";
+}
+
 export type InstallerProfileDecision =
   | { readonly mode: "real-profile" }
   | { readonly mode: "skip"; readonly reason: string }
@@ -22,7 +31,7 @@ export function decideInstallerProfile(
   environment: Readonly<Record<string, string | undefined>>,
   existingDefaults: readonly string[],
 ): InstallerProfileDecision {
-  if (environment.CI !== "true" && environment[STRICT_OPT_IN_VARIABLE] !== "1") {
+  if (!isStrictPackagedRun(environment)) {
     return {
       mode: "skip",
       reason: `uses the real user profile and its --quit would close a running App: runs only with CI=true or ${STRICT_OPT_IN_VARIABLE}=1`,

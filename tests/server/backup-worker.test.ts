@@ -18,6 +18,7 @@ import {
   DEFAULT_IDLE_TIMEOUT_MS,
   HEAVY_IDLE_TIMEOUT_MS,
 } from "../../apps/server/src/backup-worker-client.js";
+import { failWorkerWithOutOfMemory, holdWorkerRequests } from "../helpers/worker-out-of-memory.js";
 import { undoMigrationsAfter } from "../helpers/schema-migration-fixture.js";
 
 const roots: string[] = [];
@@ -38,12 +39,8 @@ function syntheticProject(store: WorkIntelligenceStore, projectRoot: string): vo
   if (result.outcome !== "finalized") throw new Error("Could not create the synthetic worker Session.");
 }
 
-// A heap far below the production limit. The document is millions of small objects, which grow the worker's heap
-// gradually until it hits the limit (one huge string would be a single allocation that aborts the whole process).
-const TINY_WORKER_LIMITS = { maxOldGenerationSizeMb: 64, maxYoungGenerationSizeMb: 6 };
-
-function oversizedImportBytes(objects: number): Uint8Array {
-  return new TextEncoder().encode(`{"bundle":{"padding":[${'{"a":1},'.repeat(objects)}0]}}`);
+function smallInvalidImportBytes(): Uint8Array {
+  return new TextEncoder().encode('{"bundle":{"padding":[0]}}');
 }
 
 function assertHealthy(path: string): void {
@@ -488,9 +485,7 @@ describe("backup worker memory limits", () => {
     const projectRoot = join(root, "project");
     const store = new WorkIntelligenceStore(databasePath);
     syntheticProject(store, projectRoot);
-    const worker = new BackupWorkerClient(databasePath, {}, LATEST_SCHEMA_VERSION, {
-      resourceLimits: TINY_WORKER_LIMITS,
-    });
+    const worker = new BackupWorkerClient(databasePath);
     const threadIds = new Set<number>();
     const state = worker as unknown as { lifetime?: { worker: { threadId: number } } };
 
@@ -498,11 +493,17 @@ describe("backup worker memory limits", () => {
       expect((await worker.exportProjectData({ type: "all" })).bytes).toBeGreaterThan(0);
       threadIds.add(state.lifetime?.worker.threadId ?? -1);
 
-      // Two requests are queued in the doomed worker: both reject, not only the one that ran out of memory.
-      const failures = await Promise.allSettled([
-        worker.previewProjectDataImport(oversizedImportBytes(6_000_000)),
-        worker.importProjectData(oversizedImportBytes(10)),
-      ]);
+      // Two requests are queued in the doomed worker: both reject, not only the one that ran out of memory. The
+      // worker never sees them; the injected error ends it while both are pending. A real heap exhaustion can abort the
+      // whole process on Node 24, so the out-of-memory error is injected.
+      holdWorkerRequests(worker);
+      const queued = [
+        worker.previewProjectDataImport(smallInvalidImportBytes()),
+        worker.importProjectData(smallInvalidImportBytes()),
+      ];
+      const settled = Promise.allSettled(queued);
+      await failWorkerWithOutOfMemory(worker, 2);
+      const failures = await settled;
       for (const failure of failures) {
         expect(failure.status).toBe("rejected");
         const reason = (failure as PromiseRejectedResult).reason as BackupWorkerOutOfMemoryError;

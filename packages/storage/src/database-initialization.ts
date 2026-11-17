@@ -49,9 +49,19 @@ const SCHEMA_DROPPED_OBJECTS = [...DATABASE_SCHEMA.matchAll(/DROP (?:TABLE|INDEX
   (match) => match[1]!,
 );
 
-/** Applies connection-local settings shared by writable stores and read-only workers. */
-export function configureWorkIntelligenceDatabaseConnection(db: DatabaseSync): void {
-  db.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA cache_size = -16000;");
+/** Page cache of a connection, in KiB: what the API and the Agent processes use for their repeated reads. */
+const DEFAULT_CACHE_SIZE_KIB = 16_000;
+
+/**
+ * Applies connection-local settings shared by writable stores and read-only workers. A connection that reads
+ * each page once (the export worker) passes a smaller `cacheSizeKib`: the page cache is malloc memory, and what it
+ * leaves in the allocator's free lists stays resident after the connection closes.
+ */
+export function configureWorkIntelligenceDatabaseConnection(
+  db: DatabaseSync,
+  cacheSizeKib = DEFAULT_CACHE_SIZE_KIB,
+): void {
+  db.exec(`PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA cache_size = -${Math.trunc(cacheSizeKib)};`);
 }
 
 /** Verifies an existing schema without changing it; background readers use this instead of initialization. */

@@ -12,6 +12,22 @@ import {
 export const MAX_INPUT_PAYLOAD_BYTES = 1_500_000;
 export const MAX_PROJECT_IMPORT_BYTES = 50 * 1024 * 1024;
 
+/**
+ * Heap that `JSON.parse` keeps per container (`{` or `[`) and per input byte, measured with `--expose-gc` on Node 22
+ * as the heapUsed delta after the parse. Per input byte: `{},` 22.3x, `[[]],` 20.2x, `[],` 14.3x, `{"a":1},` 6.0x, and
+ * 2.07x (89 MiB) for a 42.9 MiB export bundle of 72,837 containers. The model is rounded up so it never falls below
+ * a measurement: 72 B per container and 2 B per byte give 78 B for `{},` (measured 67), 154 B for `[[]],` (100) and
+ * 95 MiB for that bundle (89).
+ */
+export const IMPORT_PARSED_BYTES_PER_CONTAINER = 72;
+export const IMPORT_PARSED_BYTES_PER_BYTE = 2;
+/**
+ * The most parsed heap an import may need. Validation, redaction and planning then copy the document: the worker peaks
+ * at 2.2 times the parse (193 MiB against 89 MiB for the bundle above), so 384 MiB keeps the worker near 850 MiB, below
+ * its 1 GiB old-generation limit, while a legitimate 50 MiB bundle (about 100 to 300 MiB estimated) passes.
+ */
+export const MAX_PROJECT_IMPORT_PARSED_HEAP_BYTES = 384 * 1024 * 1024;
+
 export const JSON_HEADERS = {
   "Content-Type": "application/json; charset=utf-8",
 };
@@ -113,9 +129,61 @@ export async function readJsonBytesBody(
   return total === target.length ? target : target.slice(0, total);
 }
 
+/**
+ * Counts the `{` and `[` bytes that are not inside a JSON string, in one pass. Bytes of multibyte UTF-8 sequences are
+ * all 0x80 or above, so they never equal a quote, backslash or bracket. Strings are skipped with `indexOf`, which is
+ * why a bundle of mostly text scans three times faster than a byte loop; a closing quote counts only when an even
+ * number of backslashes precedes it.
+ */
+export function countJsonContainers(bytes: Uint8Array): number {
+  let count = 0;
+  let index = 0;
+  while (index < bytes.length) {
+    const byte = bytes[index++];
+    if (byte === 0x7b || byte === 0x5b) {
+      count += 1;
+    } else if (byte === 0x22) {
+      for (;;) {
+        const quote = bytes.indexOf(0x22, index);
+        if (quote === -1) return count;
+        let backslash = quote - 1;
+        while (backslash >= index && bytes[backslash] === 0x5c) backslash -= 1;
+        index = quote + 1;
+        if ((quote - 1 - backslash) % 2 === 0) break;
+      }
+    }
+  }
+  return count;
+}
+
+/** Estimated heap that `JSON.parse` keeps for the document: every container plus every input byte. */
+export function estimateProjectImportParsedHeapBytes(bytes: Uint8Array): number {
+  return (
+    countJsonContainers(bytes) * IMPORT_PARSED_BYTES_PER_CONTAINER + bytes.byteLength * IMPORT_PARSED_BYTES_PER_BYTE
+  );
+}
+
+/**
+ * Rejects, before `JSON.parse`, a document whose parsed form would not fit the worker's heap. V8 cannot interrupt the
+ * native parse: when a worker's heap limit is reached inside it, Node raises the limit in steps and finally aborts the
+ * whole process (measured: 278 MB reached under a 64 MB limit, then "FATAL ERROR: Reached heap limit"). On Node 24 a
+ * worker heap exhaustion can abort the whole process even in ordinary JavaScript, so this check is the guard, not the
+ * worker's own limit. Small containers are the dangerous shape: a body of `{},` costs 22 times its size in heap.
+ * The budget parameter exists for tests; production callers use the default.
+ */
+export function assertProjectImportFitsHeap(
+  bytes: Uint8Array,
+  budget: number = MAX_PROJECT_IMPORT_PARSED_HEAP_BYTES,
+): void {
+  if (estimateProjectImportParsedHeapBytes(bytes) > budget) {
+    throw new RequestBodyError(413, "匯入檔內容結構過於龐大，無法安全處理；請改為分批匯出較小的專案資料。");
+  }
+}
+
 /** Parses and validates an import payload after it reaches the worker or inline fallback. */
 /** Parses an import request body and validates it once; the result goes straight to the planner. */
 export function parseProjectDataImportBytes(bytes: Uint8Array): ValidatedProjectDataImport {
+  assertProjectImportFitsHeap(bytes);
   let value: unknown;
   try {
     value = JSON.parse(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("utf8"));

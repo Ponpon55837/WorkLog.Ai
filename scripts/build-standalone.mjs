@@ -24,7 +24,7 @@ import { Buffer } from "node:buffer";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
 import { build } from "esbuild";
-import { AGENT_RESOURCES, bundleOptions, filesUnder } from "./build-plugin.mjs";
+import { AGENT_RESOURCES, DESKTOP_INTEGRATION_SCRIPT, bundleOptions, filesUnder } from "./build-plugin.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /**
@@ -169,6 +169,7 @@ export async function buildStandalone(outputDirectory = join(repositoryRoot, "di
   for (const file of ["work-intelligence.mjs", "node-range.mjs"]) {
     cpSync(join(repositoryRoot, "scripts/standalone", file), join(packageDirectory, "bin", file));
   }
+  cpSync(DESKTOP_INTEGRATION_SCRIPT, join(packageDirectory, "bin/desktop-integration.mjs"));
   writeFileSync(
     join(packageDirectory, "package.json"),
     `${JSON.stringify(packageManifest(version, rootPackage.engines.node, plugin), null, 2)}\n`,

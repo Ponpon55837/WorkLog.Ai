@@ -1,0 +1,25 @@
+{
+  "name": "@work-intelligence/agent-setup",
+  "version": "0.1.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "smol-toml": "^1.9.1",
+    "zod": "^4.6.7"
+  },
+  "scripts": {
+    "build": "node ../../scripts/clean-dist.mjs && tsc -p tsconfig.json",
+    "test": "vitest run --root ../.. --config packages/agent-setup/vitest.config.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.tests.json",
+    "test:coverage": "vitest run --root ../.. --config packages/agent-setup/vitest.coverage.config.ts"
+  }
+}

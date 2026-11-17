@@ -8,6 +8,7 @@ on:
     paths:
       - "apps/desktop/**"
       - "packages/desktop-core/**"
+      - "packages/agent-setup/**"
       - "packages/shared/**"
       - "packages/schema/**"
       - "apps/server/**"

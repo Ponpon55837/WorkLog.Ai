@@ -31,7 +31,7 @@ import {
   mcpRegistrationKind,
   type AgentSetupFinding,
   type CodexHooksFeature,
-} from "./agent-setup.js";
+} from "@work-intelligence/agent-setup";
 
 const ROOT_DIRECTORY = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const PACKAGE_MANAGER_SCHEMA = z.string().regex(/^pnpm@\d+\.\d+\.\d+(?:\+.*)?$/);

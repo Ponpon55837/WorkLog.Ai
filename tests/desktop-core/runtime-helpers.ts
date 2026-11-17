@@ -1,11 +1,8 @@
 import fs from "node:fs/promises";
-import { realpathSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { afterAll } from "vitest";
+import { inject } from "vitest";
 import {
   commitCurrent,
-  createWindowsAclReader,
   installRuntime,
   runtimeDirectoryFor,
   type InstalledRuntime,
@@ -13,10 +10,9 @@ import {
   type RuntimeKind,
   type WindowsAclReader,
 } from "../../packages/desktop-core/src/runtime/index.js";
-import { securePrivateDirectory } from "../../scripts/desktop-runtime-spike/secure-directory.mjs";
+import type { DesktopRuntimeFixtures } from "./runtime-global-setup.js";
 
 export const IS_WINDOWS = process.platform === "win32";
-
 /** A fake runtime executable: prints the Electron flag and its arguments, one per line (POSIX only). */
 const FAKE_EXECUTABLE = '#!/bin/sh\nprintf \'%s\\n\' "${ELECTRON_RUN_AS_NODE-unset}${ELECTRON_NO_ASAR-unset}" "$@"\n';
 
@@ -45,46 +41,36 @@ export function fixtureDefinition(runtimeId: string, runtimeKind: RuntimeKind = 
   };
 }
 
-let sharedParent: Promise<string> | undefined;
-let parentAclSnapshot: Promise<Awaited<ReturnType<WindowsAclReader["read"]>>> | undefined;
+/** What `runtime-global-setup.ts` provided: the locked parent of every launcher root. */
+function fixtures(): DesktopRuntimeFixtures {
+  const provided = inject("desktopRuntimeFixtures");
+  if (provided === undefined) {
+    throw new Error(
+      "desktop runtime fixtures are missing: run the suites through packages/desktop-core/vitest.config.ts",
+    );
+  }
+  return provided;
+}
 
 /**
- * The one directory per test process that holds every launcher root. On Windows it is locked like the App's real root
- * (the runner's temp folder grants BUILTIN\Users write access, which the runtime's ACL check refuses), once: `icacls`
- * costs hundreds of milliseconds, and every folder created inside inherits the locked ACL. `realpath.native` so
- * comparisons survive macOS /private/var and Windows 8.3 names. Removed after the file's tests.
+ * A fresh launcher root inside the run's shared parent, which the global setup locked like the App's real root (once, so
+ * no test pays `icacls`); the root inherits that ACL.
  */
-function sharedParentDirectory(): Promise<string> {
-  sharedParent ??= fs
-    .mkdtemp(path.join(os.tmpdir(), "desktop-runtime-tests-"))
-    .then((directory) => securePrivateDirectory(realpathSync.native(directory)));
-  return sharedParent;
-}
-
-afterAll(async () => {
-  if (sharedParent !== undefined) await fs.rm(await sharedParent, { recursive: true, force: true });
-  sharedParent = undefined;
-  parentAclSnapshot = undefined;
-});
-
-/** A fresh launcher root inside the shared locked parent, so it carries the App root's ACL without its own `icacls`. */
 export async function makeRoot(label = "desktop-runtime"): Promise<string> {
-  return fs.mkdtemp(path.join(await sharedParentDirectory(), `${label} 測試-`));
+  return fs.mkdtemp(path.join(fixtures().parent, `${label} 測試-`));
 }
+
+/** A synthetic user SID and the descriptor the App gives its launcher root: owner and full control for that user, SYSTEM and Administrators only. */
+const FIXTURE_USER_SID = "S-1-5-21-1111111111-2222222222-3333333333-1001";
+const FIXTURE_SDDL = `O:${FIXTURE_USER_SID}G:DUD:PAI(A;OICI;FA;;;${FIXTURE_USER_SID})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)`;
 
 /**
- * For tests whose subject is not the ACL check: on Windows, a reader that answers every path with the ONE real read
- * (real SDDL and SID, taken once per process) of the shared parent, whose ACL every root and file below it inherits, so
- * no test starts PowerShell. Undefined elsewhere, where no reader is used. Tests of the ACL check itself must not use it.
+ * For tests whose subject is not the ACL check: on Windows, a reader that answers every path with the synthetic locked
+ * descriptor, so no test (and no setup) starts PowerShell and none depends on the machine's language mode. Undefined
+ * elsewhere, where no reader is used. The real reader and the ACL check are tested in runtime-windows-acl.test.ts.
  */
 const inheritedAclReader: WindowsAclReader | undefined = IS_WINDOWS
-  ? {
-      read: async (paths) => {
-        parentAclSnapshot ??= sharedParentDirectory().then((parent) => createWindowsAclReader().read([parent]));
-        const { currentUserSid, sddls } = await parentAclSnapshot;
-        return { currentUserSid, sddls: paths.map(() => sddls[0] as string) };
-      },
-    }
+  ? { read: async (paths) => ({ currentUserSid: FIXTURE_USER_SID, sddls: paths.map(() => FIXTURE_SDDL) }) }
   : undefined;
 
 /** `{ aclReader }` on Windows, `{}` elsewhere: spread it into the options of `installRuntime`, `commitCurrent` and `verifyRuntime`. */

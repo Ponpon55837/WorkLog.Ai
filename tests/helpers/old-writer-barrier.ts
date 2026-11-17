@@ -48,6 +48,7 @@ const WORKSPACE_PATHS: Record<string, string> = {
   "@work-intelligence/shared/database-location": "packages/shared/src/database-location.ts",
   "@work-intelligence/shared/database-path": "packages/shared/src/database-path.ts",
   "@work-intelligence/shared/instance-proof": "packages/shared/src/instance-proof.ts",
+  "@work-intelligence/shared/mcp-contract-fingerprint": "packages/shared/src/mcp-contract-fingerprint.ts",
   "@work-intelligence/shared/loopback-port": "packages/shared/src/loopback-port.ts",
   "@work-intelligence/shared/mcp-runtime": "packages/shared/src/mcp-runtime.ts",
   "@work-intelligence/shared/sqlite-version": "packages/shared/src/sqlite-version.ts",

@@ -4,6 +4,21 @@
  * repository checkout and runs the same built entry points that `pnpm setup:agents` registers, so the MCP server,
  * database location, and build checks behave exactly as they do without the plugin.
  *
+ * Where `mcp` and the hook commands run, in this order (the first that applies wins):
+ *   1. a checkout named by WORK_INTELLIGENCE_HOME that is built (an explicit choice, for developers);
+ *   2. the desktop App's fixed launcher, when the App wrote a valid `desktop-integration.json` and its shim is there
+ *      (desktop-integration.mjs): it keeps working while the App is closed and follows App updates;
+ *   3. the checkout the plugin sits in, then the one `pnpm plugin:link` recorded;
+ *   4. the server bundled in a release build.
+ * `dashboard` runs the built checkout's scripts/dashboard.mjs, which prints the URL of a server that already answers and
+ * otherwise hands the request to the desktop App (it opens the Dashboard itself, starting if it must), unless
+ * WORK_INTELLIGENCE_HOME names a checkout. Where no checkout is built, the App is asked directly.
+ *
+ * The desktop launcher is used only when its runtime is ready (desktop-integration.mjs checks what the shim would). A
+ * launcher that fails after it started cannot be retried: the host's first MCP message may already be consumed.
+ *
+ * Hook commands never block the Agent: through the launcher they are silent, time out, and always exit 0.
+ *
  * In a checkout, `mcp` runs the stable MCP launcher (apps/mcp/dist/launcher.js), which swaps in each new build of the
  * server without the Agent reconnecting; an older checkout without the launcher runs the server directly.
  *
@@ -18,6 +33,13 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+  configDirectory,
+  openDashboardInApp,
+  resolveDesktopApp,
+  resolveDesktopLauncher,
+  runDesktopLauncher,
+} from "./desktop-integration.mjs";
 
 export const ENTRY_POINTS = {
   mcp: "apps/mcp/dist/index.js",
@@ -37,8 +59,7 @@ const HOOK_COMMANDS = new Set(["finalize-reminder", "codex-finalize-reminder"]);
 
 /** Written by `pnpm plugin:link`; read when the plugin runs from an agent's plugin cache outside the repository. */
 export function linkFilePath(environment = process.env, home = homedir()) {
-  const directory = environment.WORK_INTELLIGENCE_CONFIG_DIR?.trim() || join(home, ".work-intelligence");
-  return join(directory, "plugin-link.json");
+  return join(configDirectory(environment, home), "plugin-link.json");
 }
 
 function isRepository(directory) {
@@ -127,10 +148,38 @@ export function resolveEntryPoint(command, options) {
   };
 }
 
-function main() {
+/**
+ * What to run for a command: a checkout's script, the desktop App's launcher, or the explanation why nothing can run.
+ * Only a built checkout named by WORK_INTELLIGENCE_HOME outranks the desktop launcher. `skipped` says why an installed
+ * desktop App's launcher was not used (its runtime is not ready) when something else runs instead.
+ */
+export function resolveLaunch(command, options) {
+  const entry = resolveEntryPoint(command, options);
+  if (entry.repository?.source === "WORK_INTELLIGENCE_HOME") return entry;
+  let skipped;
+  const launcher = resolveDesktopLauncher(command, { ...options, onProblem: (problem) => (skipped = problem) });
+  return launcher ? { launcher } : { ...entry, skipped };
+}
+
+async function main() {
   const [command = "", ...rest] = process.argv.slice(2);
   const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-  const result = resolveEntryPoint(command, { pluginRoot });
+  const result = resolveLaunch(command, { pluginRoot });
+  if (command === "dashboard" && result.error) {
+    // No built checkout to run scripts/dashboard.mjs from: the App is the only dashboard there can be.
+    const app = resolveDesktopApp();
+    if (app !== undefined && (await openDashboardInApp(app))) {
+      console.log("Opening the Work Intelligence Dashboard in the desktop App.");
+      return;
+    }
+  }
+  if (result.skipped && !HOOK_COMMANDS.has(command)) {
+    console.error(`Work Intelligence plugin: the desktop App's launcher is not used: ${result.skipped}.`);
+  }
+  if (result.launcher) {
+    runDesktopLauncher(result.launcher, { hook: HOOK_COMMANDS.has(command) });
+    return;
+  }
   if (result.error) {
     // A hook must never block the Agent because Work Intelligence is unavailable; the MCP server should fail.
     if (HOOK_COMMANDS.has(command)) return;
@@ -161,4 +210,4 @@ function isEntryPoint() {
   }
 }
 
-if (isEntryPoint()) main();
+if (isEntryPoint()) await main();

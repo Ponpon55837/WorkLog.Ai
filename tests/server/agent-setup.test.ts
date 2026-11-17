@@ -11,9 +11,9 @@ import {
   inspectAgentSkillCopies,
   inspectCodexHooksFeature,
   mcpRegistrationKind,
-  runAgentSetupCli,
   type AgentSetupPlanOptions,
-} from "../../apps/server/src/agent-setup.js";
+} from "@work-intelligence/agent-setup";
+import { runAgentSetupCli } from "../../apps/server/src/agent-setup.js";
 
 interface Fixture {
   temporaryRoot: string;

@@ -2410,6 +2410,96 @@ describe("deeply nested JSON columns in an import", () => {
     expect(String(validated.input.bundle.tables.work_events[0]?.details_json)).not.toContain(SECRET);
   });
 
+  describe("pruned work-summary replay columns", () => {
+    const replayOf = (store: WorkIntelligenceStore) =>
+      readRows(
+        store,
+        "SELECT previous_work_summary_json, resulting_work_summary_json FROM session_work_summary_updates WHERE id = 'work-summary-update-1'",
+      );
+    const updateOf = (bundle: ProjectDataExport): ProjectDataRow | undefined =>
+      bundle.tables.session_work_summary_updates.find((update) => update.id === "work-summary-update-1");
+    const setReplay = (store: WorkIntelligenceStore, previous: string, resulting: string) =>
+      runSql(
+        store,
+        "UPDATE session_work_summary_updates SET previous_work_summary_json = ?, resulting_work_summary_json = ? WHERE id = 'work-summary-update-1'",
+        previous,
+        resulting,
+      );
+    const importedCopy = (strategy: "merge" | "newer-wins") => {
+      const source = createSource();
+      const bundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+      const local = new WorkIntelligenceStore(join(source.root, `replay-${strategy}.sqlite`));
+      stores.push(local);
+      local.importProjectData({ bundle, remap: [], strategy });
+      return { bundle, local, strategy };
+    };
+
+    for (const strategy of ["merge", "newer-wins"] as const) {
+      it(`skips a pruned local copy against a full imported copy (${strategy})`, () => {
+        const { bundle, local } = importedCopy(strategy);
+        setReplay(local, "{}", "{}");
+        const preview = local.previewProjectDataImport({ bundle, remap: [], strategy });
+        expect(total(preview.conflicts)).toBe(0);
+        expect(total(preview.additions)).toBe(0);
+        local.importProjectData({ bundle, remap: [], strategy });
+        expect(replayOf(local)).toEqual([{ previous_work_summary_json: "{}", resulting_work_summary_json: "{}" }]);
+      });
+
+      it(`skips a full local copy against a pruned imported copy (${strategy})`, () => {
+        const { bundle, local } = importedCopy(strategy);
+        const pruned = structuredClone(bundle);
+        for (const update of pruned.tables.session_work_summary_updates) {
+          update.previous_work_summary_json = "{}";
+          update.resulting_work_summary_json = "{}";
+        }
+        const before = replayOf(local);
+        const preview = local.previewProjectDataImport({ bundle: pruned, remap: [], strategy });
+        expect(total(preview.conflicts)).toBe(0);
+        expect(total(preview.additions)).toBe(0);
+        local.importProjectData({ bundle: pruned, remap: [], strategy });
+        expect(replayOf(local)).toEqual(before);
+        expect(before).not.toEqual([{ previous_work_summary_json: "{}", resulting_work_summary_json: "{}" }]);
+      });
+    }
+
+    it("still reports a conflict when both copies are full and different", () => {
+      const { bundle, local } = importedCopy("merge");
+      const changed = JSON.stringify({ decisions: ["另一個決策"] });
+      setReplay(local, changed, changed);
+      const preview = local.previewProjectDataImport({ bundle, remap: [] });
+      expect(preview.conflicts.session_work_summary_updates).toBe(1);
+      local.importProjectData({ bundle, remap: [] });
+      expect(replayOf(local)).toEqual([{ previous_work_summary_json: changed, resulting_work_summary_json: changed }]);
+    });
+
+    it("imports without conflicts both ways when only one machine ran the real prune", () => {
+      const source = createSource();
+      const full = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+      const machineB = new WorkIntelligenceStore(join(source.root, "machine-b.sqlite"));
+      stores.push(machineB);
+      machineB.importProjectData({ bundle: full, remap: [] });
+      const eightDaysLater = new Date(Date.parse("2026-09-21T11:09:01.000Z") + 8 * 24 * 60 * 60 * 1000);
+      expect(source.store.pruneWorkSummaryUpdateHistory(eightDaysLater)).toBe(1);
+      const prunedBundle = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+      const fullBundle = machineB.exportProjectData({ type: "project", projectId: source.projectId });
+      expect(updateOf(prunedBundle)?.resulting_work_summary_json).toBe("{}");
+      expect(updateOf(fullBundle)?.resulting_work_summary_json).not.toBe("{}");
+
+      const prunedBefore = replayOf(source.store);
+      const fullBefore = replayOf(machineB);
+      for (const strategy of ["merge", "newer-wins"] as const) {
+        const intoA = source.store.previewProjectDataImport({ bundle: fullBundle, remap: [], strategy });
+        const intoB = machineB.previewProjectDataImport({ bundle: prunedBundle, remap: [], strategy });
+        expect(total(intoA.conflicts)).toBe(0);
+        expect(total(intoB.conflicts)).toBe(0);
+        source.store.importProjectData({ bundle: fullBundle, remap: [], strategy });
+        machineB.importProjectData({ bundle: prunedBundle, remap: [], strategy });
+      }
+      expect(replayOf(source.store)).toEqual(prunedBefore);
+      expect(replayOf(machineB)).toEqual(fullBefore);
+    });
+  });
+
   it("turns an unexpected failure while validating into invalid_input", () => {
     const hostile = {
       get bundle(): never {

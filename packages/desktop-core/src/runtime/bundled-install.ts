@@ -15,10 +15,11 @@ import {
   runtimeDirectoryFor,
 } from "./layout.js";
 import { SHA256_PATTERN, parseRuntimeManifest, type RuntimeKind, type RuntimeManifest } from "./manifest.js";
+import { currentPermissionPolicy } from "./permissions.js";
 import { scanRuntimeDirectory } from "./scan.js";
 import { assertSymlinksStayInside } from "./symlinks.js";
 import { verifyRuntime, type VerifyRuntimeOptions } from "./verify.js";
-import type { AclReadReport } from "./windows-acl.js";
+import { createWindowsAclReader, type AclPrewarm, type AclReadReport, type WindowsAclReader } from "./windows-acl.js";
 
 /** How `ensureBundledRuntime` found the installed runtime and what it did about it. */
 export type BundledRuntimeStatus = "already-current" | "switched" | "installed" | "reinstalled";
@@ -261,6 +262,26 @@ async function copyBundle(
   return bytes + bundle.manifestBytes.length;
 }
 
+/** The ACL reader of one install, and the prewarm that must be released when the install ends. */
+interface AclWarmup {
+  readonly reader: WindowsAclReader;
+  readonly prewarm: AclPrewarm;
+}
+
+/**
+ * Windows only: starts the tier-1 PowerShell now, while the bundle is copied, so its cold start (about 2 s) is over by the
+ * time the verification has the paths. Called only on the install path, where the verification always reads the ACLs, and
+ * never on the fast path. The verification must use the returned reader (that is how it takes the process over), and the
+ * caller must `release` the prewarm on every exit path so no `powershell.exe` outlives a failed install. A reader with no
+ * prewarm (a test fixture) and every other platform start nothing.
+ */
+function startAclWarmup(verify: EnsureBundledRuntimeOptions["verify"]): AclWarmup | undefined {
+  if ((verify?.policy ?? currentPermissionPolicy()).platform !== "win32") return undefined;
+  const reader = verify?.aclReader ?? createWindowsAclReader();
+  const prewarm = reader.prewarm?.();
+  return prewarm === undefined ? undefined : { reader, prewarm };
+}
+
 /** Copies, renames into place, writes the shims, verifies every file against the bundle manifest and points `current` at it. */
 async function installFromBundle(
   root: string,
@@ -273,18 +294,25 @@ async function installFromBundle(
   const target = runtimeDirectoryFor(root, bundle.runtimeId);
   await fs.mkdir(runtimes, { recursive: true });
   let bytesCopied: number;
+  let warmup: AclWarmup | undefined;
   try {
     const scan = await checkBundleContent(bundle);
+    warmup = startAclWarmup(options.verify);
     bytesCopied = await copyBundle(bundle, scan, staging);
     await renameWithRetry(deps, staging, target);
   } catch (error) {
+    warmup?.prewarm.release();
     await removeQuietly(staging);
     throw error instanceof RuntimeError ? error : installFailed("無法把 runtime 複製到安裝目錄", target, error);
   }
   try {
     await writeShims(root);
     // No cache exists yet, so this reads and hashes every file once, against the bundle's own manifest, and writes the cache.
-    const verification = await commitCurrent(root, bundle.runtimeId, { ...options.verify, useCache: true });
+    const verification = await commitCurrent(root, bundle.runtimeId, {
+      ...options.verify,
+      ...(warmup ? { aclReader: warmup.reader } : {}),
+      useCache: true,
+    });
     return { bytesCopied, hashedCount: verification.hashedCount, aclReport: verification.aclReport };
   } catch (error) {
     // Wrong content must not stay where `current` or a retry could pick it up. A permission problem is not the files'
@@ -293,6 +321,8 @@ async function installFromBundle(
       await quarantine(root, bundle.runtimeId, deps).catch(() => undefined);
     }
     throw error instanceof RuntimeError ? error : installFailed("無法完成 runtime 安裝", target, error);
+  } finally {
+    warmup?.prewarm.release();
   }
 }
 

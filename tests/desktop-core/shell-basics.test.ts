@@ -244,7 +244,42 @@ describe("decideSecondInstance", () => {
     [{ repairWindowOpen: false, owner: "MANAGED", backendRunning: true }, "open-dashboard"],
     [{ repairWindowOpen: false, owner: "MANAGED", backendRunning: false }, "open-repair"],
     [{ repairWindowOpen: false, owner: "NEEDS_REPAIR", backendRunning: false }, "open-repair"],
-  ] as const)("%j -> %s", (inputs, expected) => {
+    // An explicit `--open-dashboard` while the first start runs waits for it; a plain second launch keeps its old answer.
+    [
+      { repairWindowOpen: false, owner: "STARTING", backendRunning: false, request: "open-dashboard", starting: true },
+      "defer-dashboard",
+    ],
+    [
+      { repairWindowOpen: false, owner: "STARTING", backendRunning: false, request: "open", starting: true },
+      "open-repair",
+    ],
+    [
+      { repairWindowOpen: false, owner: "MANAGED", backendRunning: true, request: "open-dashboard", starting: true },
+      "open-dashboard",
+    ],
+    [
+      { repairWindowOpen: true, owner: "STARTING", backendRunning: false, request: "open-dashboard", starting: true },
+      "focus-repair",
+    ],
+    [
+      {
+        repairWindowOpen: false,
+        owner: "NEEDS_REPAIR",
+        backendRunning: false,
+        request: "open-dashboard",
+        starting: false,
+      },
+      "open-repair",
+    ],
+  ] as const)("%j -> %s", (partial, expected) => {
+    const inputs = { request: "open" as const, starting: false, ...partial };
     expect(decideSecondInstance(inputs)).toBe(expected);
+  });
+
+  // After the first start, an owner that is preparing, quiescing or starting is not ready yet either.
+  it.each(["PREPARING", "QUIESCING", "STARTING"] as const)("defers --open-dashboard while the owner is %s", (owner) => {
+    const inputs = { repairWindowOpen: false, owner, backendRunning: false, starting: false } as const;
+    expect(decideSecondInstance({ ...inputs, request: "open-dashboard" })).toBe("defer-dashboard");
+    expect(decideSecondInstance({ ...inputs, request: "open" })).toBe("open-repair");
   });
 });

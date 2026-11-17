@@ -23,7 +23,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run --root ../.. tests/desktop-core",
+    "test": "vitest run --root ../.. --config packages/desktop-core/vitest.config.ts tests/desktop-core",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.tests.json",
     "test:coverage": "vitest run --root ../.. --config packages/desktop-core/vitest.coverage.config.ts"
   }

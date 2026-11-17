@@ -5,8 +5,13 @@
  * What is measured, on the packaged App with synthetic data (an empty database made by the real store):
  * - `firstStartMs`: a fresh userData to MANAGED with `GET /api/health` 200. It includes installing the bundled runtime
  *   (about 135 MB copied and hashed), so it is the slowest item and the one antivirus or a slow disk moves most.
- * - `firstStartAclMs`: the Windows ACL reads of that first start, summed from the `runtime installed` log line (` acl=`
- *   plus every ` acl-failed=` tier), so a slow PowerShell start shows on its own. macOS and Linux read no ACL: 0.
+ * - `firstStartAclMs`: the Windows ACL wait of that first start, summed from the `runtime installed` log line (` acl=`
+ *   plus every ` acl-failed=` tier). Since 1.6.47 the tier-1 PowerShell is started while the bundle is copied, so this is
+ *   only what the install waited for after the files were in place (before, it included the whole ~2 s cold start). It is
+ *   the number that proves the prewarm: compare it with `firstStartAclPrewarmMs`. macOS and Linux read no ACL: 0.
+ * - `firstStartAclPrewarmMs`: the start-up of that prewarmed PowerShell (spawn to first output, ` acl-prewarm=` of the
+ *   same line), which overlapped the copy. 0 when no prewarm answered (other platforms, or it fell back). A sanity bound,
+ *   not a goal: the cold start is outside the install's critical path.
  * - `warmStartMs`: the same with the runtime already installed (`runtime already-current`): what a user waits for at
  *   every login.
  * - `repairWindowMs`: a missing database to the `repair window shown` log line.
@@ -35,6 +40,7 @@ export const PACKAGED_IDLE_SETTLE_MS = 5_000;
 export interface PackagedPerfGates {
   readonly firstStartMs: number;
   readonly firstStartAclMs: number;
+  readonly firstStartAclPrewarmMs: number;
   readonly warmStartMs: number;
   readonly repairWindowMs: number;
   readonly quitMs: number;
@@ -53,6 +59,7 @@ export const PACKAGED_PERF_GATES: Readonly<Record<"linux" | "darwin" | "win32", 
   linux: {
     firstStartMs: 4_000,
     firstStartAclMs: 0,
+    firstStartAclPrewarmMs: 0,
     warmStartMs: 2_500,
     repairWindowMs: 3_500,
     quitMs: 1_000,
@@ -64,11 +71,13 @@ export const PACKAGED_PERF_GATES: Readonly<Record<"linux" | "darwin" | "win32", 
   // backend 68; conhost and the Dashboard's Edge are not the App's and are excluded), backend 71.6 MiB. Times are about
   // three times the median (four for the short warm start and almost nine for quit, whose 114 ms a scan by real-time
   // antivirus alone can triple); the ACL gate stays under the 2-2.6 s a cold Windows PowerShell start costs, so a read
-  // that is cold on every run fails it. Memory is the median plus about a quarter (330 MiB) and, for the backend, plus
+  // that is cold on every run fails it. 1.6.47 starts that PowerShell during the copy, so the ACL gate is kept until a CI
+  // run shows the new median (then tighten it); `firstStartAclPrewarmMs` (8 s) only guards a hung prewarm. Memory is the median plus about a quarter (330 MiB) and, for the backend, plus
   // about 40% (100 MiB), as on the other platforms.
   win32: {
     firstStartMs: 7_000,
     firstStartAclMs: 1_500,
+    firstStartAclPrewarmMs: 8_000,
     warmStartMs: 2_000,
     repairWindowMs: 6_000,
     quitMs: 1_000,
@@ -84,6 +93,7 @@ export const PACKAGED_PERF_GATES: Readonly<Record<"linux" | "darwin" | "win32", 
   darwin: {
     firstStartMs: 7_000,
     firstStartAclMs: 0,
+    firstStartAclPrewarmMs: 0,
     warmStartMs: 4_000,
     repairWindowMs: 8_000,
     quitMs: 2_000,

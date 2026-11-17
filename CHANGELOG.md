@@ -4,7 +4,46 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
-## [1.6.46] - 2026-11-17
+## [1.6.47] - 2026-11-17
+
+[繁體中文更新說明](docs/releases/1.6.47.md).
+
+This release is the CI-verifiable part of stage 3 (Agent integration) of the desktop app plan. It adds a shared, non-interactive Agent setup API with fingerprint checks, a durable operation journal and compensation; an MCP stdio handshake probe and observed-connection status for Agents; the fixed launcher wiring for the plugin, MCPB and standalone entry points; and a Dashboard hand-off to the desktop App. It also pre-warms the Windows ACL reader during first start. The stage 3 gate is not passed: real host handshakes and the Windows and macOS behaviour still need CI or a real machine. The schema stays at 33 and no migration is needed.
+
+### Added
+
+- `packages/agent-setup` (`@work-intelligence/agent-setup`): plan, apply, verify and compensate for Agent configuration. Each plan records a SHA-256 fingerprint per file. Apply re-checks every item before each write and stops at an external change (`externally-modified`) without overwriting it. A durable journal is written before the first write, and compensation only restores items this operation wrote that still hold the written content. `pnpm setup:agents` output and written files are byte-for-byte unchanged (golden tests).
+- Registration inspection for Codex, Claude Code and Claude Desktop, with sources `desktop-managed`, `manual`, `plugin`, `mcpb` or `unknown`. Duplicate registrations are flagged, and a plan refuses to add a second registration. The Claude Desktop MCPB detection is inferred from file layout and is pending real-machine verification.
+- A launcher target for `setup:agents`: MCP runs the fixed shim with `mcp`; hooks run the quoted shim with `claude-finalize-reminder` or `codex-finalize-reminder`. Windows accepts only drive-letter shim paths.
+- An MCP stdio handshake probe and Agent status grading in `packages/desktop-core/src/agents`. States: observed-connected, configured-unverified, needs-trust, externally-managed, conflict, runtime-incompatible and needs-reconnect.
+- `apps/mcp` records the host's first `initialize` (client name and version, protocol version, contract fingerprint, server version and time) in `agent-observations.json`, fail-open. `WORK_INTELLIGENCE_MCP_SELFTEST=1` opens no database and writes no runtime state.
+- An MCP contract fingerprint (`packages/shared/src/mcp-contract-fingerprint.ts`): a SHA-256 of each tool's name, input schema, output schema and annotations.
+- `desktop-integration.json` (version 1), written by the packaged App once the runtime is current. It holds the launcher path, runtime root, App executable and App version, and no database path or user data.
+- Dashboard hand-off (`launch.mjs dashboard`, `pnpm dashboard`): when no server answers on the port and a valid record exists, the App is started detached with `--open-dashboard`. The command never starts a checkout server. The App opens the Dashboard once the backend is ready, and a second instance forwards its request through single-instance data.
+- Windows ACL pre-warm: on a fresh install the tier-1 PowerShell reader starts before the runtime copy and falls back to the one-shot reader on failure. The provisioning log gains `acl-prewarm=<ms> ms` and the performance metric `firstStartAclPrewarmMs`.
+
+### Changed
+
+- `desktop-integration.json` now stores the canonical real path of `runtimeRoot` and `appExecutable` (`realpathSync.native`: no symlink such as macOS `/var` → `/private/var`; on Windows the real letter case and long names). An unresolvable path, or a Windows path that resolves to a UNC share, keeps the original value. A warm start still writes nothing.
+- Tests: the packaged smoke ends a browser that the OS opened outside the App's process tree for the Dashboard (Safari on macOS, Edge on Windows) only with `CI=true` or `WI_PACKAGED_STRICT=1`. On a developer's machine it only lists such a browser in a warning, because it could be one the developer opened. A test whose launches are all `--background` or `--quit` fails if a browser appeared. The second-instance hand-over, which opens the Dashboard by design, is marked as such.
+- Backend memory after a large export or import: the export's read-only connection uses a 1 MB SQLite page cache instead of 16 MB (an export reads each page once), and the backup worker exits 1 s instead of 5 s after a heavy operation. On Linux (33 MiB synthetic project data, median of 3) idle RSS after an export fell from 122 to 92 MiB (baseline 85 MiB), and RSS 3 s after an export or import from 237–280 to 121–130 MiB; idle RSS after an import is unchanged. Export bytes are unchanged.
+- The plugin, MCPB and standalone entry points prefer the fixed launcher shim. The order is: an explicitly set `WORK_INTELLIGENCE_HOME` checkout, the desktop shim, the plugin-location checkout, then the bundled server. A runtime that is not ready falls back to the next entry with a stderr line.
+- Hooks that run through the shim are silent, end after 25 seconds (on Windows the process tree is ended with `taskkill /T`), and always exit 0.
+- `WORK_INTELLIGENCE_DB` from the MCPB user configuration passes through the launcher.
+
+### Fixed
+
+- Project-data import: a request body of many tiny JSON containers (for example `{},` repeated up to the 50 MiB limit) could abort the whole server process instead of returning 413. The backup worker parses the body with one native `JSON.parse`, which V8 cannot interrupt: under a 64 MB worker limit the heap reached 278 MB and the process died with "Reached heap limit" ("`{},`" keeps about 22 times its size in heap, `[[]],` 20, `[],` 14, `{"a":1},` 6, against 2.1 for a real export). A new precheck makes one pass over the raw bytes (no string is allocated), counts the `{` and `[` outside JSON strings, and answers 413 `payload_too_large` when 72 B per container plus 2 B per byte exceeds 384 MiB, before anything is parsed, in the worker, in the inline fallback and in `db:import` (which prints the same message and exits 1 without writing). A 43 MiB synthetic export estimates 95 MiB (measured 89 MiB) and a 33 MiB one 70 MiB (measured 68 MiB), so real exports pass with about 4-5 times the margin. The scan takes 28 ms for a 50 MiB export-shaped body and at most about 110 ms for 50 MiB of containers or whitespace. The out-of-memory tests now use a valid bundle that exhausts the 64 MB worker in interruptible JavaScript (worker heap peaked at 64.6 MB), and a new test covers the old padding body.
+- Portable JSON import no longer reports a conflict for work-summary update rows when only one machine has pruned their replay columns. At startup the server clears `previous_work_summary_json` and `resulting_work_summary_json` of update rows older than 7 days to `'{}'`, and the table has no version column, so "newer wins" could not resolve it. These two columns now count as equal when either side is `'{}'`; the local value is kept, and two different non-empty values are still a conflict. No data was lost: the work summary itself was identical on both sides.
+- Tests: on Windows, the suites that install, verify and launch real fixture runtimes use a stated 30 s per-test timeout and half the logical CPUs as workers, set once in `packages/desktop-core/vitest.config.ts` (POSIX keeps vitest's defaults); the directory lock runs once per run in a global setup instead of once per file, and the fixture suites answer the ACL check with a synthetic descriptor instead of a real PowerShell read (the real reader stays covered by the ACL suite). The Windows desktop-core run went from 46.2 s wall and 125.4 s summed test time to 34.4 s and 49.4 s. No test is skipped.
+- Tests: the `setup:agents` golden test compares Windows output with the same golden files. The CLI prints and writes native paths (`~\.codex\config.toml`), and only the separators of `<TMP>` and `~` paths are made portable; the shell-quoted repository name is protected.
+- Tests: the non-Windows-policy ACL prewarm case is pinned on both hosts. A Windows runner reports every file as 0o666, so the POSIX policy refuses the install there.
+
+### Notes
+
+- Plugin manifests still start `node launch.mjs`, so Agents still need Node to start the plugin itself. The App UI does not call the Agent setup API yet.
+- DT-24 remains partial: old runtime cleanup does not yet prove that no live connection uses a runtime.
+- Schema unchanged (33). No migration.
 
 [繁體中文更新說明](docs/releases/1.6.46.md).
 

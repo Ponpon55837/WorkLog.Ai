@@ -49,7 +49,11 @@ import {
  *
  * A launch is `--background` unless its test is about what only an interactive launch does (it opens the Dashboard in the
  * external browser; it shows the repair window): see `startApp`. Production builds ignore test switches, so an
- * interactive launch really starts the machine's browser; `removeSandbox` ends whatever that left in the sandbox.
+ * interactive launch really starts the machine's browser. `removeSandbox` ends whatever that left in the sandbox; a browser
+ * the OS started outside the App's process tree (LaunchServices, ShellExecute) is ended only on CI or with
+ * `WI_PACKAGED_STRICT=1`, and elsewhere listed in a warning (it could be one the developer opened). It fails a test whose launches
+ * were all background (or `--quit`) if a browser appeared. A test never asserts that a browser opened: the log line
+ * `[shell] dashboard opened` is the evidence.
  */
 
 /** After MANAGED: long enough for the Dashboard to have been opened (it is the next statement after the start). */
@@ -182,7 +186,8 @@ test("a second launch exits quickly and leaves the first instance with the only 
   expect(logLines(current, /\[shell\] dashboard opened/), "a background launch opens no Dashboard").toEqual([]);
 
   const started = performance.now();
-  const second = await runToExit(current, [], 20_000);
+  // The hand-over makes the first instance open the Dashboard: the browser it starts is expected (and ended on CI).
+  const second = await runToExit(current, [], 20_000, { opensDashboard: true });
   expect(second.code).toBe(0);
   expect(performance.now() - started).toBeLessThan(10_000);
   await waitForLog(current, /\[shell\] dashboard opened/, 20_000);

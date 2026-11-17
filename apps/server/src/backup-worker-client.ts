@@ -90,11 +90,12 @@ export interface BackupWorkerClientOptions {
 export const DEFAULT_IDLE_TIMEOUT_MS = 15_000;
 /**
  * Import, preview and export leave the worker holding the parsed document (hundreds of MiB for a large project) in
- * a heap V8 does not shrink while idle, so the worker exits sooner after them and that memory goes back to the system.
- * 5 s keeps a cold start (about 500 ms) out of back-to-back work such as a preview followed by its import, or an
- * export retried right away, while holding the memory for seconds rather than the 15 s of a light operation.
+ * a heap V8 does not shrink while idle, and what SQLite and the allocator held stays with the process until the thread
+ * is gone, so the worker exits one second after them and that memory goes back to the system: on a 33 MiB synthetic
+ * export the process stayed at 237 MiB for the 5 s this used to wait, against 85 MiB before the operation. The second
+ * keeps a cold start (about 500 ms) out of work that arrives right behind, such as the next request of one upload.
  */
-export const HEAVY_IDLE_TIMEOUT_MS = 5_000;
+export const HEAVY_IDLE_TIMEOUT_MS = 1_000;
 /**
  * Heap limits of the worker, which has its own isolate beside the API's. Measured on synthetic project data with the
  * desktop flags (`--max-old-space-size=1024 --max-semi-space-size=2`, three runs, median of the worker's peak

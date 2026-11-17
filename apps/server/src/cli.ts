@@ -35,10 +35,10 @@ import {
   isDatabaseInUseError,
   type DatabaseBusyDiagnosisDependencies,
 } from "./database-busy-diagnosis.js";
+import { MAX_PROJECT_IMPORT_BYTES, RequestBodyError, assertProjectImportFitsHeap } from "./http.js";
 import { runTrackCommand, type TrackCliDependencies } from "./track-cli.js";
 
 /** Database maintenance from the terminal: backup, export for another computer, and restore. */
-const MAX_PROJECT_IMPORT_BYTES = 50 * 1024 * 1024;
 const NO_PARSED_ARGS: ParsedCliArgs = { kind: "ok", flags: new Set(), values: new Map(), positionals: [] };
 const COMMAND_SUMMARIES: readonly (readonly [script: string, summary: string])[] = [
   ["db:maintain", "備份後檢查、整理資料庫並重建搜尋索引"],
@@ -498,6 +498,13 @@ export async function runDatabaseCli(
       const file = readFileSync(source);
       if (file.byteLength > MAX_PROJECT_IMPORT_BYTES) {
         fail("匯入檔不可超過 50 MiB。");
+      }
+      // The same estimate as the API: a body of tiny containers can abort the process inside the native parse.
+      try {
+        assertProjectImportFitsHeap(file);
+      } catch (error) {
+        if (!(error instanceof RequestBodyError)) throw error;
+        fail(error.message);
       }
       let parsedJson: unknown;
       try {

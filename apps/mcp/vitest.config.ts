@@ -20,6 +20,10 @@ export const mcpAliases = [
     replacement: fileURLToPath(new URL("../../packages/shared/src/windows-system-tool.ts", import.meta.url)),
   },
   {
+    find: "@work-intelligence/shared/mcp-contract-fingerprint",
+    replacement: fileURLToPath(new URL("../../packages/shared/src/mcp-contract-fingerprint.ts", import.meta.url)),
+  },
+  {
     find: "@work-intelligence/shared/database-path",
     replacement: fileURLToPath(new URL("../../packages/shared/src/database-path.ts", import.meta.url)),
   },

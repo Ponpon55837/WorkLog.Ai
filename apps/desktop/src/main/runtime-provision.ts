@@ -47,8 +47,10 @@ export class RuntimeProvisionError extends Error {
 }
 
 /**
- * ` acl=<tier> <ms> ms` (plus ` acl-failed=<tier> <ms> ms` per tier that failed first) and ` acl-reads=<n>` when the ACLs
- * were read; else empty.
+ * ` acl=<tier> <ms> ms` (plus ` acl-failed=<tier> <ms> ms` per tier that failed first), ` acl-prewarm=<ms> ms` when the
+ * answering read ran in a PowerShell started during the copy, and ` acl-reads=<n>` when the ACLs were read; else empty.
+ * `acl=` is the wait the install actually had for the answer: with a prewarm it starts when the files are in place, so
+ * the start-up cost that overlapped the copy is `acl-prewarm=` (spawn to first output) and not part of `acl=`.
  */
 function describeAclRead(ensured: Pick<EnsuredRuntime, "aclReport" | "aclReads">): string {
   const { aclReport: report } = ensured;
@@ -58,6 +60,7 @@ function describeAclRead(ensured: Pick<EnsuredRuntime, "aclReport" | "aclReads">
   return [
     ...failed.map((attempt) => ` acl-failed=${attempt.tier} ${attempt.ms} ms`),
     ` acl=${report.tier} ${answered?.ms} ms`,
+    ...(report.prewarmMs === undefined ? [] : [` acl-prewarm=${report.prewarmMs} ms`]),
     ` acl-reads=${ensured.aclReads}`,
   ].join("");
 }
