@@ -474,8 +474,19 @@ async function main() {
   step = Date.now();
   const shellArguments = options.baseline ? [] : ["--production", "--bundled-runtime-sha256", runtime.manifestSha256];
   run(process.execPath, [join(desktopDirectory, "scripts/build.mjs"), ...shellArguments], "shell build");
-  if (!options.baseline)
+  if (!options.baseline) {
     run(process.execPath, [join(desktopDirectory, "scripts/check-production-bundle.mjs")], "production bundle check");
+    // The backend child ships in the runtime, not in dist/: its test-only hold must be compiled out of that bundle too.
+    run(
+      process.execPath,
+      [
+        join(desktopDirectory, "scripts/check-production-bundle.mjs"),
+        "--runtime",
+        join(paths.runtimeBundleDirectory, "runtimes", runtime.runtimeId, "app", "libexec"),
+      ],
+      "production runtime bundle check",
+    );
+  }
   stageAppDirectory(paths.stageDirectory, version);
   timings.shellBuildSeconds = seconds(step);
 

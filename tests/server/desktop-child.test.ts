@@ -5,12 +5,14 @@ import { DatabaseInitializationError } from "@work-intelligence/storage";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DesktopChild,
-  migrationHoldFromEnvironment,
   runDesktopChild,
-  TEST_HOLD_MIGRATION_ENVIRONMENT,
   type DesktopChildDependencies,
   type DesktopChildHost,
 } from "../../apps/server/src/desktop-child.js";
+import {
+  migrationHoldFromEnvironment,
+  TEST_HOLD_MIGRATION_ENVIRONMENT,
+} from "../../apps/server/src/desktop-child-test-hold.js";
 import { StartApiError, type ApiListening, type StartedApi } from "../../apps/server/src/start-api.js";
 
 // The child's decisions with a fake host and fake dependencies: no process, no socket, no SQLite.
@@ -664,14 +666,22 @@ describe("the test hold before the store is opened", () => {
   }
 
   it("is absent without the variable, and ignores one that is not an absolute path", () => {
-    expect(migrationHoldFromEnvironment({})).toBeUndefined();
-    expect(migrationHoldFromEnvironment({ [TEST_HOLD_MIGRATION_ENVIRONMENT]: "" })).toBeUndefined();
-    expect(migrationHoldFromEnvironment({ [TEST_HOLD_MIGRATION_ENVIRONMENT]: "relative/release" })).toBeUndefined();
+    expect(migrationHoldFromEnvironment({}, true)).toBeUndefined();
+    expect(migrationHoldFromEnvironment({ [TEST_HOLD_MIGRATION_ENVIRONMENT]: "" }, true)).toBeUndefined();
+    expect(
+      migrationHoldFromEnvironment({ [TEST_HOLD_MIGRATION_ENVIRONMENT]: "relative/release" }, true),
+    ).toBeUndefined();
+  });
+
+  it("is ignored outside a test build even when the variable names an absolute path", async () => {
+    const release = releaseFile();
+    expect(migrationHoldFromEnvironment({ [TEST_HOLD_MIGRATION_ENVIRONMENT]: release }, false)).toBeUndefined();
+    expect(existsSync(`${release}.held`)).toBe(false);
   });
 
   it("writes the pid beside the release file and waits until the release file exists", async () => {
     const release = releaseFile();
-    const hold = migrationHoldFromEnvironment({ [TEST_HOLD_MIGRATION_ENVIRONMENT]: release }, 5);
+    const hold = migrationHoldFromEnvironment({ [TEST_HOLD_MIGRATION_ENVIRONMENT]: release }, true, 5);
     let released = false;
     const held = hold?.(() => true).then(() => (released = true));
 
@@ -685,7 +695,7 @@ describe("the test hold before the store is opened", () => {
 
   it("stops waiting when the start was abandoned", async () => {
     const release = releaseFile();
-    const hold = migrationHoldFromEnvironment({ [TEST_HOLD_MIGRATION_ENVIRONMENT]: release }, 5);
+    const hold = migrationHoldFromEnvironment({ [TEST_HOLD_MIGRATION_ENVIRONMENT]: release }, true, 5);
     let starting = true;
     const held = hold?.(() => starting);
 

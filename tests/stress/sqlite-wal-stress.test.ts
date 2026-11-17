@@ -25,7 +25,9 @@ import {
 // scripts/check-sqlite-version.mjs), never a replacement for it. Four writer processes write through the real
 // WorkIntelligenceStore while two readers (one holding long read transactions), a checkpointer cycling all four
 // wal_checkpoint modes and a VACUUM INTO snapshotter share the file; writers are SIGKILLed at seeded moments and
-// respawned. Every correctness assertion is absolute. SQLITE_BUSY is only counted and reported (no threshold yet).
+// respawned. Every correctness assertion is absolute. SQLITE_BUSY that reaches a caller
+// (a thrown error after the 5 s busy_timeout) is gated: writers may throw at most max(5, ceil(2% of their ops)), readers, the
+// checkpointer and the snapshotter none (see BUSY_GATE). The `busy` flag PRAGMA wal_checkpoint returns stays report-only.
 //
 // Environment: WI_SQLITE_STRESS_SECONDS (load duration, default 45), WI_SQLITE_STRESS_SEED (default: random, printed).
 // The seed reproduces the plan and write shapes (kill victims, think times, event counts), not the exact wall-clock kill moments.
@@ -41,6 +43,8 @@ const WATCHDOG_MS = (DURATION_SECONDS + 150) * 1000;
 const TEST_TIMEOUT_MS = (DURATION_SECONDS + 240) * 1000;
 const RESULT_FILE = join(REPOSITORY_ROOT, "perf-results", `sqlite-stress-${process.platform}.json`);
 const LOG_LINES = 25;
+/** Thrown SQLITE_BUSY gate: writers get 2% of their ops with a floor (a short run has few ops), everyone else gets none. */
+const BUSY_GATE = { writerFraction: 0.02, writerFloor: 5 };
 
 type Role = "writer" | "reader-long" | "reader-short" | "checkpointer" | "snapshotter";
 type Message = { type: string; [key: string]: unknown };
@@ -79,6 +83,17 @@ interface CheckpointStat {
   logFramesTotal: number;
   logFramesMax: number;
   checkpointedFramesTotal: number;
+}
+
+interface BusyGate {
+  writerLimit: number;
+  writerBusy: number;
+  writerOps: number;
+  writerFraction: number;
+  writerFloor: number;
+  /** Thrown BUSY of the roles that must have none. */
+  otherRolesBusy: { readerLong: number; readerShort: number; checkpointer: number; snapshotter: number };
+  passed: boolean;
 }
 
 interface KillRecord {
@@ -209,6 +224,7 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
       let loadStartedAt = 0;
       let loadSeconds = 0;
       let failure: unknown;
+      let finalReport: object | undefined;
       const sharedRandom = createRandom(SEED);
       const writerRandom = Array.from({ length: WRITER_COUNT }, (_unused, writer) =>
         createRandom(SEED ^ ((writer + 1) * 977)),
@@ -579,7 +595,7 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
           }
         }
 
-        // ---- Report (measured numbers; BUSY is reported, never asserted). ----
+        // ---- Report (measured numbers) and the thrown-BUSY gate. ----
         const sum = (role: Role, pick: (stats: Stats) => number): number =>
           handles.filter((handle) => handle.role === role).reduce((total, handle) => total + pick(handle.stats), 0);
         const writes = acked.reduce((total, seq) => total + seq, 0);
@@ -590,6 +606,23 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
           busy: sum(role, (stats) => stats.busy),
           otherErrors: sum(role, (stats) => stats.otherErrors),
         });
+        const writerBusy = sum("writer", (stats) => stats.busy);
+        const otherRolesBusy = {
+          readerLong: sum("reader-long", (stats) => stats.busy),
+          readerShort: sum("reader-short", (stats) => stats.busy),
+          checkpointer: sum("checkpointer", (stats) => stats.busy),
+          snapshotter: sum("snapshotter", (stats) => stats.busy),
+        };
+        const writerLimit = Math.max(BUSY_GATE.writerFloor, Math.ceil(BUSY_GATE.writerFraction * writes));
+        const busyGate: BusyGate = {
+          writerLimit,
+          writerBusy,
+          writerOps: writes,
+          writerFraction: BUSY_GATE.writerFraction,
+          writerFloor: BUSY_GATE.writerFloor,
+          otherRolesBusy,
+          passed: writerBusy <= writerLimit && Object.values(otherRolesBusy).every((count) => count === 0),
+        };
         const report = {
           ticket: "DT-07",
           platform: process.platform,
@@ -631,12 +664,25 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
             inFlightCommitted: kills.filter((kill) => kill.inFlight === "committed").length,
             inFlightAbsent: kills.filter((kill) => kill.inFlight === "absent").length,
           },
+          busyGate,
           finalWalBytes: walBytes,
-          note: "Busy counts of a SIGKILLed process cover only what it reported before dying (stats are sent once a second).",
-          passed: true,
+          note: "Busy counts of a SIGKILLed process cover only what it reported before dying (stats are sent once a second). busyGate counts thrown SQLITE_BUSY only; the checkpoint busy flag is report-only.",
+          passed: busyGate.passed,
         };
+        finalReport = report;
         console.log(`[sqlite-stress] result ${JSON.stringify(report)}`);
+        // The result file is written first, so a failed gate still leaves its numbers behind.
         writeResult(report);
+        expect(
+          writerBusy,
+          `thrown SQLITE_BUSY in writers: ${writerBusy} of ${writes} ops, limit ${writerLimit} (max(${BUSY_GATE.writerFloor}, ceil(${BUSY_GATE.writerFraction * 100}%)))`,
+        ).toBeLessThanOrEqual(writerLimit);
+        expect(otherRolesBusy, "thrown SQLITE_BUSY in readers, checkpointer and snapshotter (none allowed)").toEqual({
+          readerLong: 0,
+          readerShort: 0,
+          checkpointer: 0,
+          snapshotter: 0,
+        });
       } catch (error) {
         failure = error;
         throw error;
@@ -644,7 +690,11 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
         clearTimeout(watchdog);
         stopping = true;
         await sandbox.stopAll();
-        if (failure) {
+        if (failure && finalReport) {
+          // The measured numbers (and the busy gate) are kept; only the verdict changes.
+          writeResult({ ...finalReport, passed: false, failure: redactedFailure(failure) });
+          dumpDiagnostics(`test failed: ${String((failure as Error)?.message ?? failure).slice(0, 300)}`);
+        } else if (failure) {
           writeResult({
             ticket: "DT-07",
             platform: process.platform,

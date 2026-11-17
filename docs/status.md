@@ -12,7 +12,7 @@
 
 - migration 前備份與 N→N+1 樣本升級測試（DT-32）：三份真實舊版（v1.6.8、v1.6.21、1.6.51）的樣本升級；以真實程序中斷 migration、備份與還原；桌面 smoke 確認 migration 開始後不回到舊服務。
 - 還原前先驗證遷移後的副本：`quick_check` 與 `foreign_key_check` 通過才取代現行資料庫；失敗回傳 `RESTORE_VERIFY_FAILED`，現行資料庫不變。
-- 多程序 WAL 寫入與 checkpoint 壓力測試（DT-07）：`pnpm test:sqlite-stress`，CI 在 Linux、Windows 與 macOS 執行；必要檢查增為 23 項。
+- 多程序 WAL 寫入與 checkpoint 壓力測試（DT-07）：`pnpm test:sqlite-stress`，CI 在 Linux、Windows 與 macOS 執行；拋出的 `SQLITE_BUSY` 設門檻（寫入程序 ≤ max(5, 2%)，其他角色 0）；必要檢查增為 23 項。
 
 CI 結果待 PR 檢查完成後補上。Windows 11 與 macOS 實機驗收尚未進行。
 

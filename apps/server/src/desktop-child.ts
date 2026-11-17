@@ -1,7 +1,3 @@
-import { existsSync } from "node:fs";
-import { rename, writeFile } from "node:fs/promises";
-import { isAbsolute } from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
 import {
   DESKTOP_CHILD_PROTOCOL_VERSION,
   DESKTOP_INTEGRITY_CHECK_FAILED_DETAIL,
@@ -53,36 +49,17 @@ export interface DesktopChildDependencies {
   /**
    * Test seam of the desktop smoke tests: resolves when the child may open the store (and so migrate). It is given a
    * predicate that turns false once the start was abandoned, so a held child still shuts down. Absent in production:
-   * see {@link migrationHoldFromEnvironment}.
+   * see desktop-child-test-hold.ts.
    */
   holdBeforeOpen?: (stillStarting: () => boolean) => Promise<void>;
 }
 
 /**
- * The name of the variable that holds a child before it opens the database. Only the desktop App's main process sets
- * it, and only in a test build that is not packaged (`testSwitch` gating in apps/desktop/src/main/config.ts): the child
- * environment is an allowlist (`buildChildEnvironment`), so a variable in the user's own environment never reaches it.
+ * Set by esbuild when the desktop runtime is bundled (scripts/build-standalone.mjs, `desktopTestBuild`): true only for
+ * the smoke-test runtime (`scripts/desktop-runtime-spike/build.mjs --desktop-test-build`), false in every other bundle,
+ * including the one a packaged App ships. A plain `tsc`/vitest/tsx run defines nothing, so it reads as false.
  */
-export const TEST_HOLD_MIGRATION_ENVIRONMENT = "WORK_INTELLIGENCE_TEST_HOLD_MIGRATION_FILE";
-
-/**
- * The hold for the variable's absolute path `P`, or undefined when it is not set (the production case). The hold writes
- * the child's pid to `P.held` and waits until the file `P` exists; the smoke test kills the child while it waits, or
- * creates `P` to let the migration go on.
- */
-export function migrationHoldFromEnvironment(
-  environment: Readonly<Record<string, string | undefined>>,
-  pollMs = 50,
-): DesktopChildDependencies["holdBeforeOpen"] {
-  const release = environment[TEST_HOLD_MIGRATION_ENVIRONMENT];
-  if (!release || !isAbsolute(release)) return undefined;
-  return async (stillStarting) => {
-    // Written whole and renamed into place, so a reader that sees the file sees the pid.
-    await writeFile(`${release}.held.tmp`, String(process.pid));
-    await rename(`${release}.held.tmp`, `${release}.held`);
-    while (stillStarting() && !existsSync(release)) await sleep(pollMs);
-  };
-}
+declare const __WI_DESKTOP_TEST_BUILD__: boolean | undefined;
 
 /** A failure the parent can act on: the error code and a short detail that carries no path. */
 interface ChildFailure {
@@ -170,7 +147,15 @@ const defaultDependencies: DesktopChildDependencies = {
   copyDatabase: copyDatabaseConsistently,
   probePort: probeLoopbackPort,
   startApi,
-  holdBeforeOpen: migrationHoldFromEnvironment(process.env),
+  // The condition folds to a constant in a bundle, so a production bundle drops this branch together with the hold
+  // module it imports (and the variable name inside it); the module is loaded only in the smoke-test runtime.
+  holdBeforeOpen:
+    typeof __WI_DESKTOP_TEST_BUILD__ !== "undefined" && __WI_DESKTOP_TEST_BUILD__
+      ? async (stillStarting) => {
+          const { migrationHoldFromEnvironment } = await import("./desktop-child-test-hold.js");
+          await migrationHoldFromEnvironment(process.env, true)?.(stillStarting);
+        }
+      : undefined,
 };
 
 /**
