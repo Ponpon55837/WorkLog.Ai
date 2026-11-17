@@ -54,6 +54,7 @@ The schema stays at 33 and no migration is needed.
 ### Fixed
 
 - **Masking the home folder no longer touches a sibling folder** that shares its prefix (for example `/home/tester2`).
+- **A background-process out-of-memory is reported as 413 again on macOS arm64** (1.6.48). V8's native stack trace after its report could be longer than the 8 KiB of stderr that was searched, so the exit was reported as a plain 500. The report is now recognised as it arrives, carrying only a few bytes between chunks.
 
 ## [1.6.48] - 2026-11-17
 
