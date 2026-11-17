@@ -1,6 +1,9 @@
-import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { spawn, type ChildProcess } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import process from "node:process";
 import { expect, test } from "@playwright/test";
 import { WorkIntelligenceStore } from "../../packages/storage/dist/index.js";
 import { tt, ttPattern } from "./helpers/i18n.js";
@@ -12,8 +15,77 @@ const SESSION_COUNT = 56;
 const SUMMARY_BYTES = MIB;
 const projectName = `Large Import Fixture ${process.pid}`;
 
+// The import adds a project; the suite's shared database must not see it (deleting it afterwards would leave a
+// project deletion audit that other specs do not expect), so this spec runs its own API server on its own database.
+let server: ChildProcess | undefined;
+let serverRoot = "";
+let baseUrl = "";
+
+function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = createServer();
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const address = probe.address();
+      probe.close(() =>
+        address && typeof address === "object" ? resolve(address.port) : reject(new Error("no port")),
+      );
+    });
+  });
+}
+
+async function waitForHealth(url: string, child: ChildProcess): Promise<void> {
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) throw new Error(`The isolated API server exited with ${child.exitCode}.`);
+    try {
+      if ((await fetch(`${url}/api/health`)).ok) return;
+    } catch {
+      // Not listening yet.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("Timed out waiting for the isolated API server.");
+}
+
+test.beforeAll(async () => {
+  serverRoot = mkdtempSync(join(tmpdir(), "work-intelligence-e2e-large-import-server-"));
+  const home = join(serverRoot, "home");
+  mkdirSync(home);
+  const port = await freePort();
+  server = spawn(process.execPath, ["tests/e2e/server.mjs"], {
+    stdio: "ignore",
+    env: {
+      ...process.env,
+      WORK_INTELLIGENCE_PORT: String(port),
+      WORK_INTELLIGENCE_DB: join(serverRoot, "work-intelligence.sqlite"),
+      WORK_INTELLIGENCE_BACKUP: "off",
+      WORK_INTELLIGENCE_BACKUP_DIR: join(serverRoot, "backups"),
+      WORK_INTELLIGENCE_ALLOWED_ORIGINS: "",
+      WORK_INTELLIGENCE_CONFIG_DIR: join(home, ".work-intelligence"),
+      HOME: home,
+      USERPROFILE: home,
+      APPDATA: join(home, "AppData", "Roaming"),
+      LOCALAPPDATA: join(home, "AppData", "Local"),
+      CODEX_HOME: join(home, ".codex"),
+      CLAUDE_CONFIG_DIR: join(home, ".claude"),
+    },
+  });
+  baseUrl = `http://127.0.0.1:${port}`;
+  await waitForHealth(baseUrl, server);
+});
+
+test.afterAll(async () => {
+  if (server && server.exitCode === null) {
+    const exited = new Promise((resolve) => server?.once("exit", resolve));
+    server.kill();
+    await exited;
+  }
+  rmSync(serverRoot, { recursive: true, force: true });
+});
+
 /** Builds a synthetic project export (one project, many Sessions with long synthetic summaries) as JSON text. */
-function writeLargeExport(directory: string, projectRoot: string): { filePath: string; projectId: string } {
+function writeLargeExport(directory: string, projectRoot: string): string {
   const fixture = new WorkIntelligenceStore(":memory:");
   try {
     const project = fixture.addProject(projectName, projectRoot);
@@ -43,22 +115,22 @@ function writeLargeExport(directory: string, projectRoot: string): { filePath: s
     }));
     const filePath = join(directory, "large-export.json");
     writeFileSync(filePath, JSON.stringify(bundle));
-    return { filePath, projectId: project.id };
+    return filePath;
   } finally {
     fixture.close();
   }
 }
 
 test.describe("large project import", () => {
-  test("imports an export over the old 50 MiB limit through the staged upload", async ({ page, request }) => {
+  test("imports an export over the old 50 MiB limit through the staged upload", async ({ page }) => {
     test.setTimeout(240_000);
     const directory = mkdtempSync(join(tmpdir(), "work-intelligence-e2e-large-import-"));
     const projectRoot = mkdtempSync(join(directory, "project-"));
-    const { filePath, projectId } = writeLargeExport(directory, projectRoot);
+    const filePath = writeLargeExport(directory, projectRoot);
     try {
       expect(statSync(filePath).size).toBeGreaterThan(OLD_UI_LIMIT_BYTES);
 
-      await page.goto("/projects/backup");
+      await page.goto(`${baseUrl}/projects/backup`);
       const backups = page.getByRole("tabpanel", { name: tt("projects.dataBackup") });
       await backups.getByLabel(tt("projects.importFile")).setInputFiles(filePath);
 
@@ -74,13 +146,9 @@ test.describe("large project import", () => {
         timeout: 120_000,
       });
 
-      await page.goto("/projects");
+      await page.goto(`${baseUrl}/projects`);
       await expect(page.getByText(projectName).first()).toBeVisible();
     } finally {
-      // Remove the fixture so later specs see the database they expect.
-      await request
-        .delete(`/api/projects/${projectId}`, { data: { confirmationName: projectName } })
-        .catch(() => undefined);
       rmSync(directory, { recursive: true, force: true });
     }
   });
