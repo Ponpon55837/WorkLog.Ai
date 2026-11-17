@@ -23,8 +23,9 @@ export const DATABASE_PATH_PROBLEM_MESSAGES: Readonly<Record<DatabasePathProblem
   empty: { "zh-TW": "請輸入資料庫路徑。", en: "Enter a database path." },
   "not-absolute": { "zh-TW": "資料庫路徑必須是絕對路徑。", en: "The database path must be absolute." },
   unc: {
-    "zh-TW": "不支援網路共用路徑（\\\\伺服器\\共用），SQLite 在 SMB 上不安全；請選擇本機磁碟上的位置。",
-    en: "Network share paths (\\\\server\\share) are not supported because SQLite over SMB is unsafe; choose a location on a local drive.",
+    "zh-TW":
+      "不支援網路共用路徑（\\\\伺服器\\共用），SQLite 在 SMB 上不安全。請先自己把資料庫複製到這台電腦的本機磁碟，再選擇複製後的檔案。",
+    en: "Network share paths (\\\\server\\share) are not supported because SQLite over SMB is unsafe. Copy the database to a local disk on this computer yourself first, then choose the copy.",
   },
   device: {
     "zh-TW": "不支援 \\\\?\\ 或 \\\\.\\ 裝置路徑；請選擇一般的本機磁碟路徑。",

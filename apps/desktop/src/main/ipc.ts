@@ -2,9 +2,10 @@ import { writeFile } from "node:fs/promises";
 import { clipboard, dialog, ipcMain, shell } from "electron";
 import type { IpcMainInvokeEvent } from "electron";
 import {
+  allowMigrationFor,
   canApplyPreview,
+  chosenPathProblem,
   isTrustedRepairSender,
-  previewToCandidate,
   REPAIR_CHANNELS,
   repairInputSchemas,
   writeDesktopSettingsAtomic,
@@ -12,7 +13,10 @@ import {
   type RepairActionResult,
 } from "@work-intelligence/desktop-core";
 import type { AgentsPage } from "./agents.js";
+import { offerCandidate } from "./candidate-offer.js";
+import type { StorageRiskService } from "./storage-risk.js";
 import type { BackendController } from "./backend.js";
+import type { ChangePortController } from "./change-port.js";
 import type { FirstRun } from "./first-run.js";
 import type { LegacyGuard } from "./legacy.js";
 import type { LegacyDisableController } from "./legacy-disable.js";
@@ -39,6 +43,10 @@ export interface IpcOptions {
   readonly agents: AgentsPage;
   readonly legacy: LegacyGuard;
   readonly legacyDisable: LegacyDisableController;
+  readonly changePort: ChangePortController;
+  readonly storage: StorageRiskService;
+  /** 「複製到本機磁碟並改用」: for a candidate id, or (no id) the App's own database. */
+  readonly copyToLocal: (candidateId: string | undefined) => Promise<RepairActionResult>;
   readonly log: Logger;
 }
 
@@ -48,8 +56,22 @@ const parser =
     schema.safeParse(raw);
 
 export function registerRepairIpc(options: IpcOptions): void {
-  const { state, paths, window, info, backend, supervisor, success, firstRun, agents, legacy, legacyDisable, log } =
-    options;
+  const {
+    state,
+    paths,
+    window,
+    info,
+    backend,
+    supervisor,
+    success,
+    firstRun,
+    agents,
+    legacy,
+    legacyDisable,
+    changePort,
+    storage,
+    log,
+  } = options;
 
   function isTrusted(event: IpcMainInvokeEvent): boolean {
     const frame = event.senderFrame;
@@ -115,9 +137,15 @@ export function registerRepairIpc(options: IpcOptions): void {
       });
       const file = picked.filePaths[0];
       if (picked.canceled || !file) return { ok: false, reason: "cancelled" };
-      const id = state.candidates.add(file);
-      // A read-only look by a separate short-lived child: nothing is written and the running backend is untouched.
-      state.candidates.setPreview(id, previewToCandidate(await supervisor.preview(file)));
+      // A network share or device path is refused before any preview touches it (the same rule as the first-run page).
+      const problem = chosenPathProblem(file, process.platform, state.locale);
+      if (problem) {
+        log("[shell] repair refused the chosen database path");
+        return { ok: false, reason: "invalid", message: problem };
+      }
+      // A read-only look by a separate short-lived child, and the storage verdict: nothing is written and the running
+      // backend is untouched.
+      await offerCandidate({ state, supervisor, storage }, file);
       return { ok: true, state: await info.snapshot() };
     }),
   );
@@ -125,9 +153,14 @@ export function registerRepairIpc(options: IpcOptions): void {
   handle(
     REPAIR_CHANNELS.confirmDatabase,
     parser(repairInputSchemas.confirmDatabase),
-    ({ candidateId, allowMigration }) =>
+    ({ candidateId, allowMigration, acknowledgeStorageRisk }) =>
       withBusy(async () => {
-        const check = state.candidates.checkConfirm(candidateId, allowMigration === true);
+        // Refused storage, an update the storage forbids and a risky file without its ticked consent stop here, in main.
+        const check = state.candidates.checkConfirm(
+          candidateId,
+          allowMigration === true,
+          acknowledgeStorageRisk === true,
+        );
         if (!check.ok) return { ok: false, reason: "invalid" };
         // A pending automatic retry must not start the old database while the user's choice runs.
         backend.recovery.cancel();
@@ -135,7 +168,7 @@ export function registerRepairIpc(options: IpcOptions): void {
         const outcome = await backend.start("change-db", {
           databasePath: check.entry.path,
           expectedIdentity: check.identity,
-          allowSchemaMigration: check.preview.needsMigration,
+          allowSchemaMigration: allowMigrationFor(check.preview.needsMigration, check.entry.storageRisk),
         });
         if (!outcome.ok) {
           if (outcome.busy) return { ok: false, reason: "busy" };
@@ -148,6 +181,10 @@ export function registerRepairIpc(options: IpcOptions): void {
         success.finish(outcome, opensAtStart);
         return { ok: true, state: await info.snapshot() };
       }),
+  );
+
+  handle(REPAIR_CHANNELS.copyToLocal, parser(repairInputSchemas.copyToLocal), ({ candidateId }) =>
+    withBusy(() => options.copyToLocal(candidateId)),
   );
 
   handle(REPAIR_CHANNELS.openFolder, parser(repairInputSchemas.openFolder), async ({ target }) => {
@@ -221,6 +258,13 @@ export function registerRepairIpc(options: IpcOptions): void {
 
   handle(REPAIR_CHANNELS.setupChooseFile, parser(repairInputSchemas.setupChooseFile), () => firstRun.chooseFile());
 
+  // The same single lock as every other page action: a copy never overlaps a retry, a port change or another start.
+  handle(REPAIR_CHANNELS.setupCopyToLocal, parser(repairInputSchemas.setupCopyToLocal), (input) =>
+    exclusive({ ok: false, reason: "busy" } as const, () =>
+      firstRun.copyToLocal(input.sourceId, input.launchAtLogin === true),
+    ),
+  );
+
   handle(REPAIR_CHANNELS.setupLater, parser(repairInputSchemas.setupLater), async () => {
     firstRun.later();
     return { ok: true };
@@ -278,6 +322,10 @@ export function registerRepairIpc(options: IpcOptions): void {
     exclusive({ ok: false, reason: "busy" } as const, () =>
       legacyDisable.confirm(input.previewId, input.continueWhileBusy === true),
     ),
+  );
+  // One page action at a time, so a port change never overlaps a retry or a database change.
+  handle(REPAIR_CHANNELS.portChange, parser(repairInputSchemas.portChange), ({ port }) =>
+    exclusive({ ok: false, reason: "busy", busy: "operation" } as const, () => changePort.change(port)),
   );
   handle(REPAIR_CHANNELS.legacyStartNow, parser(repairInputSchemas.legacyStartNow), () =>
     exclusive({ ok: false, reason: "busy" } as const, () => legacyDisable.startNow()),

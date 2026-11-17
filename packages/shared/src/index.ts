@@ -1,4 +1,5 @@
 export * from "./backup-name.js";
+export { portFailureCode, type PortFailureCode } from "./port-failure.js";
 export { commandName, STANDALONE_COMMAND_NAME } from "./command-name.js";
 
 /**

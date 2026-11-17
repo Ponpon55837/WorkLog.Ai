@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount } from "vue";
+import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import {
   Activity,
@@ -10,6 +11,7 @@ import {
   Clock3,
   Code2,
   Database,
+  Globe,
   Power,
   RefreshCw,
   Settings2,
@@ -45,16 +47,23 @@ import {
   userServiceStatusVisual,
   type StatusVisual,
 } from "../utils/status";
-import { LOCALE_OPTIONS, t } from "../i18n";
+import { LOCALE_OPTIONS, t, type MessageKey } from "../i18n";
 
 const SETUP_COMMAND = "pnpm setup:agents";
 const editorOptions = EDITOR_PROTOCOLS.map((value) => ({ value, label: editorProtocolLabels[value] }));
+const STORAGE_RISK_TITLES = {
+  network: "systemStatus.storageRiskNetwork",
+  removable: "systemStatus.storageRiskRemovable",
+  "cloud-sync": "systemStatus.storageRiskCloudSync",
+  "hard-link": "systemStatus.storageRiskHardLink",
+} as const satisfies Record<string, MessageKey>;
 const themeOptions: Array<{ value: ThemePreference; label: string }> = [
   { value: "system", label: t("systemStatus.followSystem") },
   { value: "light", label: t("systemStatus.light") },
   { value: "dark", label: t("systemStatus.dark") },
 ];
 
+const router = useRouter();
 const systemStatusStore = useSystemStatusStore();
 const { editor, locale, theme } = storeToRefs(usePreferencesStore());
 const {
@@ -63,8 +72,8 @@ const {
   systemStatusError: error,
   databaseStatus,
 } = storeToRefs(systemStatusStore);
-const { agentSetupOpening } = storeToRefs(systemStatusStore);
-const { refreshSystemStatus, openDesktopAgentSetup } = systemStatusStore;
+const { agentSetupOpening, portSettingsOpening } = storeToRefs(systemStatusStore);
+const { refreshSystemStatus, openDesktopAgentSetup, openDesktopPortSettings } = systemStatusStore;
 
 const mcpStatus = computed(() => (status.value ? mcpRuntimeStatusVisual(status.value.mcp) : undefined));
 const agentGroups = computed(() => (status.value ? agentConnectionGroups(status.value.agents) : []));
@@ -83,6 +92,19 @@ const agentSummary = computed<StatusVisual>(() =>
 const userServiceStatus = computed(() =>
   status.value ? userServiceStatusVisual(status.value.userService) : undefined,
 );
+
+/** The address the App serves; the committed port, or the one this page was opened on when the App did not report it. */
+const desktopAddress = computed(() => `http://127.0.0.1:${status.value?.desktop?.activePort ?? window.location.port}`);
+const storageRisk = computed(() => status.value?.desktop?.storageRisk);
+const storageRiskTitle = computed(() => {
+  const risk = storageRisk.value?.risk;
+  return risk && risk !== "unknown" ? t(STORAGE_RISK_TITLES[risk]) : "";
+});
+
+/** Hands the App the current page path only: the query and hash stay behind. */
+function changePortInDesktopApp(): void {
+  void openDesktopPortSettings(router.currentRoute.value.path);
+}
 
 systemStatusStore.setSystemStatusActive(true);
 onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
@@ -154,6 +176,38 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
 
     <UiSplitLayout :aside-label="t('systemStatus.dataAndConnections')">
       <template #main>
+        <UiBox v-if="status.desktop?.managed" data-testid="desktop-port">
+          <template #header><UiBoxTitle :icon="Globe" :title="t('systemStatus.desktopApp')" /></template>
+          <UiBoxRow :title="t('systemStatus.effectiveAddress')">
+            <template #meta
+              ><code class="system-status__location" data-testid="desktop-address">{{ desktopAddress }}</code></template
+            >
+          </UiBoxRow>
+          <div class="system-status__setup">
+            <p>{{ t("systemStatus.portChangeHint") }}</p>
+            <div>
+              <UiButton :disabled="portSettingsOpening" @click="changePortInDesktopApp">{{
+                t("systemStatus.changePortInDesktopApp")
+              }}</UiButton>
+            </div>
+          </div>
+          <div v-if="storageRisk" class="system-status__setup" data-testid="storage-risk">
+            <template v-if="storageRisk.risk === 'unknown'">
+              <p data-testid="storage-risk-unknown">{{ t("systemStatus.storageRiskUnknown") }}</p>
+            </template>
+            <UiFlash v-else tone="attention" :title="storageRiskTitle">
+              {{
+                storageRisk.risk === "hard-link"
+                  ? t("systemStatus.storageRiskHardLinkBody")
+                  : t("systemStatus.storageRiskBody")
+              }}
+              <template v-if="storageRisk.migrationBlocked">
+                {{ t("systemStatus.storageRiskMigrationBlocked") }}
+              </template>
+            </UiFlash>
+          </div>
+        </UiBox>
+
         <UiBox data-testid="agent-connections">
           <template #header>
             <UiBoxTitle :icon="Bot" :title="t('systemStatus.agentConnections')" />

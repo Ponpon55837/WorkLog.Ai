@@ -1,12 +1,15 @@
 import { StringDecoder } from "node:string_decoder";
 import {
   DESKTOP_CHILD_PROTOCOL_VERSION,
+  type DesktopBackendActivity,
+  type DesktopCopyResultMessage,
   type DesktopFacts,
   type DesktopHelloMessage,
   type DesktopPreflightResultMessage,
   type DesktopReadyMessage,
 } from "@work-intelligence/schema";
 import { normalizePathForCompare } from "@work-intelligence/shared/file-identity";
+import { portFailureCode } from "@work-intelligence/shared/port-failure";
 import {
   INSTANCE_CHALLENGE_HEADER,
   INSTANCE_PROOF_HEADER,
@@ -45,6 +48,10 @@ export interface BackendStartRequest {
   /** Extra `WORK_INTELLIGENCE_*` variables for the child. */
   readonly environment?: Readonly<Record<string, string>>;
 }
+
+/** What the running backend said it is busy with; `unknown` means it could not be asked in time. */
+export type BackendActivityReport =
+  { readonly status: "known"; readonly busy: readonly DesktopBackendActivity[] } | { readonly status: "unknown" };
 
 /** What a verified, running backend looks like. `runId` is a secret of this main process: never log or persist it. */
 export interface BackendInfo {
@@ -100,6 +107,11 @@ export type DatabasePreviewResult =
     }
   | { readonly outcome: "failed"; readonly code: BackendErrorCode; readonly detail: string };
 
+/** What a copy asked of a preview child came to: the child's verdict, or a failure of the child itself. */
+export type DatabaseCopyOutcome =
+  | { readonly outcome: "checked"; readonly result: DesktopCopyResultMessage }
+  | { readonly outcome: "failed"; readonly code: BackendErrorCode; readonly detail: string };
+
 /** A backend that was running and ended without a `stop()`. The shell moves to NEEDS_REPAIR; no restart happens here. */
 export interface BackendExitEvent {
   readonly code: BackendErrorCode;
@@ -141,6 +153,7 @@ const DESKTOP_IPC_ARGV = ["--desktop-ipc"] as const;
 const HEALTH_ATTEMPTS = 3;
 const HEALTH_RETRY_MS = 100;
 const DEFAULT_OUTPUT_LINES = 200;
+const ACTIVITY_QUERY_TIMEOUT_MS = 2000;
 const MIN_PORT = 1;
 const MAX_PORT = 65_535;
 /** The fixed text of the failure when the child's working directory cannot be created. */
@@ -207,6 +220,7 @@ export class BackendSupervisor {
   /** Bumped by `stop()`: a preview queued before a stop never starts after it. */
   private previewGeneration = 0;
   private readonly openAgentSetupListeners = new Set<() => void>();
+  private readonly openPortSettingsListeners = new Set<(request: { preferences?: unknown; route?: string }) => void>();
   private readonly changedListeners = new Set<(database: DatabaseIdentity) => void>();
   private readonly workingDirectory: string | undefined;
   private active: ActiveChild | undefined;
@@ -254,6 +268,50 @@ export class BackendSupervisor {
   onOpenAgentSetup(listener: () => void): () => void {
     this.openAgentSetupListeners.add(listener);
     return () => this.openAgentSetupListeners.delete(listener);
+  }
+
+  /** Subscribes to the web UI asking the App to open its port settings (from the running backend only). */
+  onOpenPortSettings(listener: (request: { preferences?: unknown; route?: string }) => void): () => void {
+    this.openPortSettingsListeners.add(listener);
+    return () => this.openPortSettingsListeners.delete(listener);
+  }
+
+  /**
+   * Asks the running backend which long jobs it is doing (import, backup, export, restore). `unknown` when no verified
+   * backend runs, the channel is closed, or no answer comes within `timeoutMs`: the caller treats that as busy.
+   */
+  async queryActivity(timeoutMs = ACTIVITY_QUERY_TIMEOUT_MS): Promise<BackendActivityReport> {
+    const active = this.running ? this.active : undefined;
+    if (!active) return { status: "unknown" };
+    const requestId = this.deps.randomRunId().slice(0, 32);
+    const answer = async (): Promise<readonly DesktopBackendActivity[]> => {
+      await active.channel.send({ type: "activity-query", requestId });
+      // A late answer to an earlier query carries another id: it is dropped and the wait goes on.
+      for (;;) {
+        const reply = await active.channel.expect("activity", timeoutMs);
+        if (reply.requestId === requestId) return reply.busy;
+      }
+    };
+    const busy = await this.within(
+      answer().catch(() => undefined),
+      timeoutMs,
+    );
+    return busy === undefined ? { status: "unknown" } : { status: "known", busy };
+  }
+
+  /**
+   * Replaces the desktop facts of the running backend (facts the App learns after the start, such as a risky storage
+   * verdict). False when no verified backend runs or the channel is closed; nothing else changes.
+   */
+  async updateFacts(desktop: DesktopFacts): Promise<boolean> {
+    const active = this.running ? this.active : undefined;
+    if (!active) return false;
+    try {
+      await active.channel.send({ type: "update-facts", desktop });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /** Subscribes to unexpected exits; returns the unsubscribe function. */
@@ -344,8 +402,20 @@ export class BackendSupervisor {
   ): Promise<DatabasePreviewResult[]> {
     if (databasePaths.length === 0) return Promise.resolve([]);
     const generation = this.previewGeneration;
-    const run = (): Promise<DatabasePreviewResult[]> =>
-      this.runPreview(databasePaths, generation, createIfMissing, quickCheck);
+    return this.enqueuePreview(() => this.runPreview(databasePaths, generation, createIfMissing, quickCheck));
+  }
+
+  /**
+   * Asks a preview child for a consistent copy of `source` at `target` (which must not exist): the child opens the source
+   * read-only, never migrates it, checks the copy with `PRAGMA quick_check` and answers with the copy's identity. Never
+   * touches the serving backend; shares the preview queue and its stop handling.
+   */
+  copyDatabase(source: string, target: string): Promise<DatabaseCopyOutcome> {
+    const generation = this.previewGeneration;
+    return this.enqueuePreview(() => this.runCopy(source, target, generation));
+  }
+
+  private enqueuePreview<T>(run: () => Promise<T>): Promise<T> {
     const next = this.previewing ? this.previewing.then(run, run) : run();
     // The tracking chain swallows its own outcome: the caller of `preview` is the only one who sees a rejection.
     let settled: Promise<void> | undefined;
@@ -418,6 +488,34 @@ export class BackendSupervisor {
     }
   }
 
+  private async runCopy(source: string, target: string, generation: number): Promise<DatabaseCopyOutcome> {
+    let child: ActiveChild | undefined;
+    try {
+      if (generation !== this.previewGeneration) {
+        throw new BackendFailure("REPAIR_REQUIRED", "the copy was cancelled because the backend was stopped");
+      }
+      child = await this.spawnChild(
+        { port: 0, databasePath: source },
+        this.deps.randomRunId(),
+        this.deps.randomChallenge(),
+        "preview",
+      );
+      this.verifyHello(await child.channel.expect("hello", this.timeouts.helloMs), child);
+      await child.channel.send({ type: "copy-database", source, target });
+      const result = await child.channel.expect("copy-result", this.timeouts.copyMs);
+      return { outcome: "checked", result };
+    } catch (error) {
+      const failure = describeUnexpected(error);
+      return { outcome: "failed", code: failure.code, detail: failure.detail };
+    } finally {
+      if (child) {
+        const ended = await this.terminate(child);
+        this.previews.delete(child);
+        if (!ended.exited) this.log("a preview child did not exit after it was asked to stop and killed");
+      }
+    }
+  }
+
   private stopCurrent(): Promise<BackendStopReport> {
     if (this.stopping) return this.stopping;
     const active = this.active;
@@ -451,8 +549,11 @@ export class BackendSupervisor {
     if (!Number.isInteger(request.port) || request.port < MIN_PORT || request.port > MAX_PORT) {
       throw new BackendFailure("REPAIR_REQUIRED", "the port is not an integer from 1 to 65535");
     }
-    if (!(await this.deps.isPortFree(request.port))) {
-      throw new BackendFailure("PORT_OCCUPIED_BY_OTHER", `127.0.0.1:${request.port} is already in use`);
+    const probe = await this.probePort(request.port);
+    if (!probe.free) {
+      throw probe.code === "PORT_NOT_PERMITTED"
+        ? new BackendFailure("PORT_NOT_PERMITTED", `127.0.0.1:${request.port} cannot be bound by this user`)
+        : new BackendFailure("PORT_OCCUPIED_BY_OTHER", `127.0.0.1:${request.port} is already in use`);
     }
     const runId = this.deps.randomRunId();
     const challenge = this.deps.randomChallenge();
@@ -546,6 +647,9 @@ export class BackendSupervisor {
         if (database) this.notify(this.changedListeners, (listener) => listener(database));
       });
       channel.onOpenAgentSetup(() => this.notify(this.openAgentSetupListeners, (listener) => listener()));
+      channel.onOpenPortSettings((request) =>
+        this.notify(this.openPortSettingsListeners, (listener) => listener(request)),
+      );
     } else {
       this.previews.add(active);
     }
@@ -773,6 +877,19 @@ export class BackendSupervisor {
     } catch {
       // The report says `exited: false` when no exit event follows.
     }
+  }
+
+  /** The bind probe with its reason; a dependency without `probePort` can only say "in use". */
+  private async probePort(
+    port: number,
+  ): Promise<
+    { readonly free: true } | { readonly free: false; readonly code: "PORT_NOT_PERMITTED" | "PORT_OCCUPIED_BY_OTHER" }
+  > {
+    if (this.deps.probePort) {
+      const probe = await this.deps.probePort(port);
+      return probe.free ? probe : { free: false, code: portFailureCode(probe.code) };
+    }
+    return (await this.deps.isPortFree(port)) ? { free: true } : { free: false, code: "PORT_OCCUPIED_BY_OTHER" };
   }
 
   private async waitForPortFree(port: number): Promise<boolean> {

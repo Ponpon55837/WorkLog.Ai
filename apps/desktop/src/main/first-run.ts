@@ -7,7 +7,11 @@ import {
   buildSetupState,
   canCreateNewDatabase,
   chosenPathProblem,
+  allowMigrationFor,
   collectDbCandidates,
+  needsStorageConsent,
+  storageBlocksUse,
+  storagePolicy,
   missingParentDirectories,
   previewToCandidate,
   removeCreatedDatabase,
@@ -26,11 +30,14 @@ import {
   type SetupPhase,
   type SetupSourceInput,
   type SetupState,
+  setupMessages,
 } from "@work-intelligence/desktop-core";
 import type { BackendController, StartOverride } from "./backend.js";
 import type { DesktopPaths } from "./config.js";
+import type { CopyRunner } from "./local-copy.js";
 import type { LegacyGuard } from "./legacy.js";
 import type { Logger } from "./log.js";
+import type { StorageRiskService } from "./storage-risk.js";
 import type { RepairWindow } from "./repair-window.js";
 import { applyLoginItem, commitSettings, defaultSettings } from "./settings.js";
 import type { ShellState } from "./state.js";
@@ -50,9 +57,15 @@ export interface FirstRun {
     readonly sourceId: string;
     readonly launchAtLogin: boolean;
     readonly allowMigration?: boolean;
+    readonly acknowledgeStorageRisk?: boolean;
     readonly startAnyway?: boolean;
   }): Promise<SetupActionResult>;
   chooseFile(): Promise<SetupActionResult>;
+  /**
+   * 「複製到本機磁碟並改用」 for a listed source the storage forbids (a network share, or a risky place that cannot be
+   * updated in place): a checked local copy, then the normal first-run start on the copy. The original is never written.
+   */
+  copyToLocal(sourceId: string, launchAtLogin: boolean): Promise<SetupActionResult>;
   /** "稍後再說": the window closes and the tray keeps "完成首次設定…". */
   later(): void;
   /** Milliseconds the last detection took (diagnostics and the performance gate). */
@@ -72,6 +85,10 @@ export interface FirstRunOptions {
   /** A start from this page worked: open the Dashboard once. */
   readonly onStarted: () => void;
   readonly environment: NodeJS.ProcessEnv;
+  /** The storage classifier (DT-08): every source the page offers carries its verdict. */
+  readonly storage: StorageRiskService;
+  /** The copy to the local disk; its switch step is this page's own start. */
+  readonly copyRunner: CopyRunner;
   /** The port of a new default setup; the product default unless a test build overrides it. */
   readonly defaultPort?: number;
 }
@@ -203,6 +220,7 @@ export function createFirstRun(options: FirstRunOptions): FirstRun {
       candidates,
       platform: process.platform,
       probe: async (path) => probeResultFrom(previews.get(path)),
+      classifyStorage: (path) => options.storage.classify(path),
     });
     decision = resolution.decision;
     // A database that is not there is not something to choose; the defaults button covers a new one.
@@ -266,58 +284,69 @@ export function createFirstRun(options: FirstRunOptions): FirstRun {
   ): Promise<SetupActionResult> {
     if (busy || !state.needsSetup) return { ok: false, reason: "busy" };
     busy = true;
-    phase = "starting";
-    errorCode = undefined;
-    state.touch();
     try {
-      const result = await runSetupStart(
-        { databasePath, override, createNew, startAnyway },
-        {
-          nothingExistsAt,
-          legacyBlocks: (path) => legacy.blocks(path),
-          allowLegacy: (path) => legacy.allow(path),
-          prepareRuntime: () => options.prepareRuntime(),
-          missingParentDirectories,
-          createDatabase: (path) => supervisor.createDatabase(path),
-          removeCreatedDatabase,
-          removeEmptyDirectories,
-          stageSettings: (path) => {
-            const base = defaultSettings(launchAtLogin, options.defaultPort);
-            state.settings = { ...base, desired: { ...base.desired, databasePath: path } };
-          },
-          createdOverride: (path, identity): StartOverride => ({
-            databasePath: path,
-            expectedIdentity: identity,
-            allowSchemaMigration: false,
-          }),
-          start: (chosen) => backend.start("takeover", chosen as StartOverride | undefined),
-          stopBackend: async () => {
-            await supervisor.stop();
-          },
-          commit: () => commitSettings(state, paths),
-          log,
-        },
-      );
-      if (result.kind === "started") {
-        try {
-          applyLoginItem(state);
-        } catch (error) {
-          log(`[shell] first-run login item not applied: ${error instanceof Error ? error.name : "unknown"}`);
-        }
-        phase = "done";
-        options.onStarted();
-        return { ok: true, state: snapshot() };
-      }
-      // Nothing is committed: no settings file, and the owner goes back to UNCONFIGURED, not NEEDS_REPAIR.
-      failSetup();
-      if (result.kind === "busy") return { ok: false, reason: "busy", state: snapshot() };
-      if (result.kind === "held-back") return { ok: false, reason: "legacy-service", state: snapshot() };
-      errorCode = result.errorCode;
-      return { ok: false, reason: "failed", errorCode: result.errorCode, state: snapshot() };
+      return await startLocked(databasePath, override, launchAtLogin, startAnyway, createNew);
     } finally {
       busy = false;
       state.touch();
     }
+  }
+
+  /** The start itself, for a caller that already holds `busy` (a start, or the copy whose last step is a start). */
+  async function startLocked(
+    databasePath: string,
+    override: StartOverride | undefined,
+    launchAtLogin: boolean,
+    startAnyway: boolean,
+    createNew = false,
+  ): Promise<SetupActionResult> {
+    phase = "starting";
+    errorCode = undefined;
+    state.touch();
+    const result = await runSetupStart(
+      { databasePath, override, createNew, startAnyway },
+      {
+        nothingExistsAt,
+        legacyBlocks: (path) => legacy.blocks(path),
+        allowLegacy: (path) => legacy.allow(path),
+        prepareRuntime: () => options.prepareRuntime(),
+        missingParentDirectories,
+        createDatabase: (path) => supervisor.createDatabase(path),
+        removeCreatedDatabase,
+        removeEmptyDirectories,
+        stageSettings: (path) => {
+          const base = defaultSettings(launchAtLogin, options.defaultPort);
+          state.settings = { ...base, desired: { ...base.desired, databasePath: path } };
+        },
+        createdOverride: (path, identity): StartOverride => ({
+          databasePath: path,
+          expectedIdentity: identity,
+          allowSchemaMigration: false,
+        }),
+        start: (chosen) => backend.start("takeover", chosen as StartOverride | undefined),
+        stopBackend: async () => {
+          await supervisor.stop();
+        },
+        commit: () => commitSettings(state, paths),
+        log,
+      },
+    );
+    if (result.kind === "started") {
+      try {
+        applyLoginItem(state);
+      } catch (error) {
+        log(`[shell] first-run login item not applied: ${error instanceof Error ? error.name : "unknown"}`);
+      }
+      phase = "done";
+      options.onStarted();
+      return { ok: true, state: snapshot() };
+    }
+    // Nothing is committed: no settings file, and the owner goes back to UNCONFIGURED, not NEEDS_REPAIR.
+    failSetup();
+    if (result.kind === "busy") return { ok: false, reason: "busy", state: snapshot() };
+    if (result.kind === "held-back") return { ok: false, reason: "legacy-service", state: snapshot() };
+    errorCode = result.errorCode;
+    return { ok: false, reason: "failed", errorCode: result.errorCode, state: snapshot() };
   }
 
   return {
@@ -331,20 +360,71 @@ export function createFirstRun(options: FirstRunOptions): FirstRun {
       if (!canCreateNewDatabase(phase)) return { ok: false, reason: "busy", state: snapshot() };
       return startWith(defaults.desired.databasePath, undefined, launchAtLogin, startAnyway, true);
     },
-    useSource: async ({ sourceId, launchAtLogin, allowMigration, startAnyway }) => {
+    useSource: async ({ sourceId, launchAtLogin, allowMigration, acknowledgeStorageRisk, startAnyway }) => {
       const entry = sources.find((source) => source.input.id === sourceId);
       if (!entry?.input.canUse || !entry.preview.identity) return { ok: false, reason: "invalid" };
       if (entry.input.needsMigration && allowMigration !== true) return { ok: false, reason: "invalid" };
+      // DT-08, enforced here and not only by the page: refused storage, an update the storage forbids, and a risky
+      // source without the ticked consent never start.
+      const risk = entry.input.group.storageRisk?.risk;
+      const chosenByUser = entry.input.group.kinds.includes("explicit-selection");
+      if (storagePolicy(risk).refused) return { ok: false, reason: "invalid" };
+      if (entry.input.needsMigration && storagePolicy(risk).migrationBlocked) return { ok: false, reason: "invalid" };
+      if (needsStorageConsent(risk, chosenByUser) && acknowledgeStorageRisk !== true) {
+        return { ok: false, reason: "invalid" };
+      }
       return startWith(
         entry.path,
         {
           databasePath: entry.path,
           expectedIdentity: entry.preview.identity,
-          allowSchemaMigration: entry.input.needsMigration,
+          allowSchemaMigration: allowMigrationFor(entry.input.needsMigration, risk),
         },
         launchAtLogin,
         startAnyway === true,
       );
+    },
+    copyToLocal: async (sourceId, launchAtLogin) => {
+      const entry = sources.find((source) => source.input.id === sourceId);
+      if (!entry?.input.canUse || !entry.preview.identity) return { ok: false, reason: "invalid" };
+      // Offered only where the page offers it: refused storage, or an update the storage forbids.
+      if (!storageBlocksUse(entry.input.group.storageRisk?.risk, entry.input.needsMigration)) {
+        return { ok: false, reason: "invalid" };
+      }
+      if (busy || !state.needsSetup) return { ok: false, reason: "busy" };
+      busy = true;
+      state.touch();
+      try {
+        // A single failed step is shown by the page: the start's own code, or the copy's message.
+        let started: SetupActionResult | undefined;
+        const copied = await options.copyRunner(entry.path, async (target, identity) => {
+          started = await startLocked(
+            target,
+            // The copy is local, and the click was the consent to update it.
+            { databasePath: target, expectedIdentity: identity, allowSchemaMigration: true },
+            launchAtLogin,
+            false,
+          );
+          if (started.ok) return { ok: true };
+          if (started.reason === "busy") return { ok: false, busy: true };
+          if (started.reason === "legacy-service") return { ok: false, code: "LEGACY_SERVICE_ACTIVE" };
+          return { ok: false, code: started.errorCode ?? "REPAIR_REQUIRED" };
+        });
+        if (copied.ok) return started ?? { ok: true, state: snapshot() };
+        if (copied.reason !== "failed") return { ok: false, reason: copied.reason, state: snapshot() };
+        // The start's code (already the page's error) is kept as it is; any other failure carries the copy's message.
+        if (copied.backendCode !== undefined) return started ?? { ok: false, reason: "failed" };
+        return {
+          ok: false,
+          reason: "failed",
+          errorCode: copied.errorCode,
+          message: setupMessages(state.locale).copyErrors[copied.failure],
+          state: snapshot(),
+        };
+      } finally {
+        busy = false;
+        state.touch();
+      }
     },
     chooseFile: async () => {
       if (busy) return { ok: false, reason: "busy" };
@@ -369,7 +449,10 @@ export function createFirstRun(options: FirstRunOptions): FirstRun {
       state.touch();
       try {
         await options.prepareRuntime();
-        const [result] = await supervisor.previewMany([file]);
+        const [[result], storageRisk] = await Promise.all([
+          supervisor.previewMany([file]),
+          options.storage.classify(file),
+        ]);
         const probe = probeResultFrom(result);
         const group: DbSourceGroup = {
           id: randomUUID(),
@@ -380,6 +463,7 @@ export function createFirstRun(options: FirstRunOptions): FirstRun {
           identity: probe.identity ?? null,
           preview: { schemaVersion: probe.schemaVersion, projectCount: probe.projectCount },
           absolutePath: file,
+          storageRisk,
         };
         sources = [...sources.filter((source) => source.path !== file), entryFor(group, result)];
         chosen = true;

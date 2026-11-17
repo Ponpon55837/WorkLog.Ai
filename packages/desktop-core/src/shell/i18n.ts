@@ -9,7 +9,9 @@ export type ShellErrorCode =
   | "RUNTIME_UNSAFE_PERMISSIONS"
   | "RUNTIME_ACL_UNREADABLE"
   | "LEGACY_SERVICE_ACTIVE"
-  | "DB_INTEGRITY_CHECK_FAILED";
+  | "DB_INTEGRITY_CHECK_FAILED"
+  /** The database is on a network drive (DT-08): the App stops and does not use it. */
+  | "DB_STORAGE_NETWORK";
 
 /** One error code as the user reads it: what happened and what to try. */
 export interface ErrorMessage {
@@ -207,9 +209,20 @@ const zhTW: ShellMessages = {
       title: "資料庫檢查沒有通過",
       hint: "舊的登入服務停下後，這份資料庫的檢查發現問題，App 沒有開啟它。請從備份還原，或選擇另一份資料庫。",
     },
+    DB_STORAGE_NETWORK: {
+      title: "資料庫放在網路磁碟上",
+      hint: "SQLite 在網路磁碟上可能損壞資料，所以 App 沒有使用它。請把資料庫複製到這台電腦的本機磁碟，再選擇複製後的檔案。",
+    },
     SCHEMA_TOO_NEW: { title: "資料庫比這個版本新", hint: "請更新 Work Intelligence 後重試。" },
     SCHEMA_MIGRATION_BLOCKED: { title: "資料庫需要更新但沒有完成", hint: "你的資料沒有被改動。請查看備份後重試。" },
-    PORT_OCCUPIED_BY_OTHER: { title: "連接埠被其他程式占用", hint: "請關閉占用的程式，或在設定中換一個連接埠。" },
+    PORT_OCCUPIED_BY_OTHER: {
+      title: "連接埠被其他程式占用",
+      hint: "請關閉占用的程式，或在「修復」視窗的「連接埠」區塊（也可從工具列選單的「變更連接埠…」）換一個連接埠。",
+    },
+    PORT_NOT_PERMITTED: {
+      title: "系統不允許使用這個連接埠",
+      hint: "作業系統沒有讓 Work Intelligence 使用這個連接埠（例如 Windows 保留的連接埠範圍）。請在「連接埠」區塊換一個連接埠。",
+    },
     PORT_NOT_RELEASED: { title: "連接埠尚未釋放", hint: "稍等幾秒後重試。" },
     RUNTIME_MISSING: { title: "找不到執行環境", hint: "安裝可能不完整。請重新安裝 Work Intelligence。" },
     RUNTIME_UNSAFE_PERMISSIONS: {
@@ -388,6 +401,10 @@ const en: ShellMessages = {
       title: "The database did not pass its check",
       hint: "After the old login service stopped, a check of this database found a problem, so the App did not open it. Restore it from a backup, or choose another database.",
     },
+    DB_STORAGE_NETWORK: {
+      title: "The database is on a network drive",
+      hint: "SQLite can corrupt data on a network drive, so the App did not use it. Copy the database to a local disk on this computer, then choose the copy.",
+    },
     SCHEMA_TOO_NEW: { title: "The database is newer than this version", hint: "Update Work Intelligence and retry." },
     SCHEMA_MIGRATION_BLOCKED: {
       title: "The database needed an update that did not finish",
@@ -395,7 +412,11 @@ const en: ShellMessages = {
     },
     PORT_OCCUPIED_BY_OTHER: {
       title: "Another program is using the port",
-      hint: "Close that program, or pick another port in the settings.",
+      hint: 'Close that program, or pick another port in the Port section of the repair window (also reachable from the tray menu\'s "Change port…").',
+    },
+    PORT_NOT_PERMITTED: {
+      title: "The system does not allow this port",
+      hint: "The operating system did not let Work Intelligence use this port (for example a range Windows reserves). Pick another port in the Port section.",
     },
     PORT_NOT_RELEASED: { title: "The port is not released yet", hint: "Wait a few seconds and retry." },
     RUNTIME_MISSING: {

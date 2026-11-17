@@ -1,3 +1,5 @@
+import type { StorageRiskResult } from "./storage-risk.js";
+
 /**
  * Composite identity of a database file (never a path string or project count alone): see the DB identity strategy.
  * `identity-schema.ts` holds the matching zod schema.
@@ -81,13 +83,19 @@ export interface DbSourceGroup {
   identity: DatabaseIdentity | null;
   preview: DbPreview;
   absolutePath: string;
+  /** What kind of storage the file is on (DT-08); absent when it was not classified. */
+  storageRisk?: StorageRiskResult;
 }
 
 export type UseReason = "desktop-committed" | "explicit-selection" | "consistent-legacy" | "default";
 
 export type DbSourceDecision =
   | { kind: "use"; group: DbSourceGroup; reason: UseReason }
-  | { kind: "needs-user-choice"; groups: DbSourceGroup[]; reason: "multiple-distinct" | "conflict" | "unverifiable" }
+  | {
+      kind: "needs-user-choice";
+      groups: DbSourceGroup[];
+      reason: "multiple-distinct" | "conflict" | "unverifiable" | "risky-storage";
+    }
   | {
       kind: "blocked";
       reason: "selected-source-unavailable";

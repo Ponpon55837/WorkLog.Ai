@@ -128,6 +128,15 @@ export class StagedImports {
     for (const id of [...this.entries.keys()]) this.remove(id);
   }
 
+  /**
+   * An import is in progress: an upload is being saved, an operation is reading a staged file, or an uploaded file is
+   * waiting for the user's confirm and has not expired (stopping the backend would throw it away).
+   */
+  public get inUse(): boolean {
+    const at = this.now();
+    return [...this.entries.values()].some((entry) => entry.uses > 0 || entry.expiresAt > at);
+  }
+
   public get size(): number {
     return this.entries.size;
   }

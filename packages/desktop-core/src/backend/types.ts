@@ -22,6 +22,11 @@ export interface BackendSupervisorDependencies {
   spawn(command: string, args: readonly string[], options: SpawnOptions): SupervisedChild;
   /** Whether `127.0.0.1:port` can be bound right now. */
   isPortFree(port: number): Promise<boolean>;
+  /**
+   * Like `isPortFree`, and says why when it is not: the errno of the failed bind (`EADDRINUSE`, or `EACCES` /
+   * `EADDRNOTAVAIL` for a port the OS does not let this user bind). Optional: without it a busy port reads as in use.
+   */
+  probePort?(port: number): Promise<{ readonly free: true } | { readonly free: false; readonly code: string }>;
   /** One GET of the health URL with `headers`, ending after `timeoutMs`; rejects on a connection error. */
   fetchHealth(url: string, headers: Readonly<Record<string, string>>, timeoutMs: number): Promise<HealthResponse>;
   /** A fresh unpredictable per-spawn secret. */
@@ -49,6 +54,8 @@ export interface BackendTimeouts {
   readonly readyMs: number;
   /** One HTTP readiness request. */
   readonly healthMs: number;
+  /** A consistent copy of a database (`copy-database`): it reads the whole file and runs `quick_check` on the copy. */
+  readonly copyMs: number;
   /** After the IPC `shutdown`, before escalating. */
   readonly gracefulMs: number;
   /** After SIGTERM (POSIX only), before the final kill. */
@@ -66,6 +73,7 @@ export const DEFAULT_BACKEND_TIMEOUTS: BackendTimeouts = {
   quickCheckMs: 300_000,
   readyMs: 60_000,
   healthMs: 5_000,
+  copyMs: 600_000,
   gracefulMs: 10_000,
   terminateMs: 3_000,
   killMs: 3_000,

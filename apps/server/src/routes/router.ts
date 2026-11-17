@@ -62,6 +62,8 @@ export interface DesktopRouteServices {
   status: SystemDesktopStatus;
   /** Asks the App to open its Agent setup window; calls closer than one second apart are dropped. */
   requestOpenAgentSetup(): void;
+  /** Asks the App to open its port settings; the preferences and route are sanitized before they leave the server. */
+  requestOpenPortSettings(handoff: { preferences?: unknown; route?: string }): void;
 }
 
 /** What the shared server flow hands a route after Host, Origin, and CORS checks have passed. */

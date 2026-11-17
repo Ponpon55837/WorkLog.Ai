@@ -6,9 +6,12 @@ import {
   shellMessages,
   type ShellMessages,
 } from "@work-intelligence/desktop-core/shell/i18n";
+import { portMessages } from "@work-intelligence/desktop-core/shell/port-i18n";
 import { setupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
 import { mountAgents } from "./agents-view.js";
-import { element, fact, section } from "./dom.js";
+import { checkbox, element, fact, isChecked, section } from "./dom.js";
+import { portSection } from "./port-view.js";
+import { storageRiskNote } from "./storage-risk-card.js";
 import { legacyBlock } from "./legacy-block.js";
 import { legacyDisableControls, legacyDisableOutcome, type LegacyDisableHost } from "./legacy-disable-view.js";
 import { mountSetup } from "./setup-view.js";
@@ -25,6 +28,8 @@ const app = document.getElementById("app") as HTMLElement;
 const statusRegion = document.getElementById("status") as HTMLElement;
 let current: RepairState | undefined;
 let working = false;
+/** Candidates whose storage-risk checkbox is ticked: the page is rebuilt on every poll and must keep the tick. */
+const riskTicked = new Set<string>();
 
 function say(text: string): void {
   statusRegion.textContent = text;
@@ -123,6 +128,12 @@ function render(state: RepairState): void {
     ...fact(messages.lastBackupLabel, formatBackup(state, messages)),
   );
 
+  const databaseCard: HTMLElement[] = [databaseFacts];
+  if (state.database.storageRisk) {
+    databaseCard.push(storageRiskNote(state.database.storageRisk));
+    if (state.database.storageRisk.canCopyToLocal) databaseCard.push(copyButton(state, undefined));
+  }
+
   const errors = element("ul", { className: "list" });
   if (state.recentErrors.length === 0) errors.append(element("li", { text: messages.repairNoErrors }));
   const startAnywayAvailable = state.actions.some((action) => action.id === "start-anyway");
@@ -155,8 +166,9 @@ function render(state: RepairState): void {
     element("p", { className: "intro", text: messages.repairIntro }),
     ...legacyCards(state),
     section(messages.repairServiceHeading, facts),
-    section(messages.repairDatabaseHeading, databaseFacts),
+    section(messages.repairDatabaseHeading, ...databaseCard),
     section(messages.repairErrorsHeading, errors),
+    ...portCards(state),
   ];
   if (state.candidates.length > 0) {
     const list = element("ul", { className: "list" });
@@ -176,15 +188,34 @@ function render(state: RepairState): void {
         }),
         " ",
       ];
+      const risk = candidate.storageRisk;
+      if (risk) parts.push(storageRiskNote(risk));
       if (candidate.canConfirm) {
         if (candidate.needsMigration)
           parts.push(element("div", { className: "hint", text: messages.repairMigrationNote }));
-        parts.push(
-          button(label, `candidate:${candidate.id}`, true, () => void confirm(candidate.id, candidate.needsMigration)),
+        // A risky file is confirmed only after the checkbox that states why; main checks it again.
+        const consentText = risk?.consent;
+        const confirmButton = button(
+          label,
+          `candidate:${candidate.id}`,
+          consentText === undefined || riskTicked.has(candidate.id),
+          () => void confirm(candidate.id, candidate.needsMigration, consentText !== undefined),
         );
-      } else {
+        if (consentText !== undefined) {
+          const box = checkbox(consentText, `risk:${candidate.id}`, riskTicked.has(candidate.id), !working);
+          box.querySelector("input")?.addEventListener("change", (event) => {
+            const ticked = (event.target as HTMLInputElement).checked;
+            if (ticked) riskTicked.add(candidate.id);
+            else riskTicked.delete(candidate.id);
+            confirmButton.disabled = working || !ticked;
+          });
+          parts.push(box);
+        }
+        parts.push(confirmButton);
+      } else if (!risk) {
         parts.push(element("div", { className: "hint", text: messages.repairCandidateNotUsable }));
       }
+      if (risk?.canCopyToLocal) parts.push(copyButton(state, candidate.id));
       list.append(element("li", {}, parts));
     }
     blocks.push(section(messages.repairCandidates, list));
@@ -194,6 +225,35 @@ function render(state: RepairState): void {
   app.replaceChildren(...blocks);
   app.setAttribute("aria-busy", "false");
   if (focusedId) app.querySelector<HTMLElement>(`[data-id="${CSS.escape(focusedId)}"]`)?.focus();
+}
+
+/** 「複製到本機磁碟並改用」 for a candidate, or (no id) for the App's own database. */
+function copyButton(state: RepairState, candidateId: string | undefined): HTMLButtonElement {
+  return button(
+    setupMessages(state.locale).storageCopyToLocal,
+    candidateId === undefined ? "copy-to-local" : `copy-to-local:${candidateId}`,
+    true,
+    () => void copyToLocal(candidateId),
+  );
+}
+
+/** The 「連接埠」 card: always there, so a port that cannot start can be changed from here. */
+function portCards(state: RepairState): Node[] {
+  if (!state.port) return [];
+  return [
+    portSection(
+      {
+        api: window.workIntelligenceRepair,
+        text: portMessages(state.locale),
+        working,
+        rerender: () => {
+          if (current) render(current);
+        },
+        refresh: () => void refresh(),
+      },
+      state.port,
+    ),
+  ];
 }
 
 /** The old-service card with 「停用舊的登入服務…」, or after a disable only its outcome. */
@@ -242,10 +302,25 @@ function failedAnswer(
   return result.reason === "busy" ? messages.repairRestarting : failureText(messages, result.errorCode);
 }
 
-async function confirm(candidateId: string, allowMigration: boolean): Promise<void> {
+async function confirm(candidateId: string, allowMigration: boolean, riskConsent: boolean): Promise<void> {
   await guarded(async (messages) => {
-    const result = await window.workIntelligenceRepair.confirmDatabase(candidateId, allowMigration);
-    say(result.ok ? messages.repairDone : failedAnswer(messages, result));
+    const result = await window.workIntelligenceRepair.confirmDatabase(
+      candidateId,
+      allowMigration,
+      riskConsent ? isChecked(app, `risk:${candidateId}`) : undefined,
+    );
+    if (result.ok) riskTicked.delete(candidateId);
+    say(result.ok ? messages.repairDone : (result.message ?? failedAnswer(messages, result)));
+  });
+}
+
+async function copyToLocal(candidateId: string | undefined): Promise<void> {
+  await guarded(async (messages) => {
+    const text = setupMessages(current?.locale ?? "en");
+    say(text.copyWorking);
+    const result = await window.workIntelligenceRepair.copyToLocal(candidateId);
+    if (result.ok) say(text.copyDone);
+    else say(result.reason === "cancelled" ? "" : (result.message ?? failedAnswer(messages, result)));
   });
 }
 
@@ -262,7 +337,7 @@ async function perform(id: RepairActionId, state: RepairState): Promise<void> {
       say(result.ok ? messages.repairDone : failedAnswer(messages, result));
     } else if (id === "choose-database") {
       const result = await api.chooseDatabase();
-      say(result.ok || result.reason === "cancelled" ? "" : messages.repairFailedGeneric);
+      say(result.ok || result.reason === "cancelled" ? "" : (result.message ?? messages.repairFailedGeneric));
     } else if (id === "export-diagnostics") {
       const result = await api.exportDiagnostics();
       say(result.ok ? messages.repairDone : result.reason === "cancelled" ? "" : messages.repairFailedGeneric);

@@ -1,6 +1,7 @@
 import { existsSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { lstat, readdir, readFile } from "node:fs/promises";
+import { probeLoopbackPort } from "@work-intelligence/shared/loopback-port";
 import { app, dialog } from "electron";
 import {
   BackendSupervisor,
@@ -20,24 +21,33 @@ import {
   OPEN_DASHBOARD_SECOND_INSTANCE_DATA,
   OperationCoordinator,
   OperationJournal,
-  previewToCandidate,
+  applyStartTimeStorageRisk,
+  PortHandoffStore,
+  portMessages,
   QUIT_SECOND_INSTANCE_DATA,
   readLastBackupFromDirectory,
   resolveShellLocale,
   resolveUserDataDirectory,
   setupMessages,
+  storagePolicy,
+  formatMessage,
   shellMessages,
   type LegacyServiceDetection,
   type RestartOutcome,
+  type StorageRiskResult,
   type ShellLocale,
 } from "@work-intelligence/desktop-core";
+import type { DesktopFacts } from "@work-intelligence/schema";
 import { createAgentsPage } from "./agents.js";
+import { offerCandidate } from "./candidate-offer.js";
 import { createBackendController } from "./backend.js";
+import { createChangePort } from "./change-port.js";
 import {
   ASSET_FILES,
   overrideFromEnvironment,
   defaultPortOverride,
   legacyServiceFileOverride,
+  storageRiskFileOverride,
   repairSuccessDelayMs,
   resolveDesktopPaths,
   skillSourceFile,
@@ -49,12 +59,14 @@ import { createDashboard } from "./dashboard.js";
 import { createFirstRun } from "./first-run.js";
 import { createIntegrationPublisher } from "./integration-record.js";
 import { registerRepairIpc } from "./ipc.js";
+import { createCopyRunner, createLocalCopy } from "./local-copy.js";
 import { createLegacyGuard } from "./legacy.js";
 import { createLegacyDisable, syntheticLegacyDisable } from "./legacy-disable.js";
 import { createLogger } from "./log.js";
 import { createErrorNotifier, createRecoveredNotifier } from "./notify.js";
 import { createQuit } from "./quit.js";
 import { createRepairInfo } from "./repair-info.js";
+import { createStorageRiskService } from "./storage-risk.js";
 import { createRepairSuccess } from "./repair-success.js";
 import { createRepairWindow } from "./repair-window.js";
 import { createRuntimeProvisioner } from "./runtime-provision.js";
@@ -214,11 +226,18 @@ function runShell(configInputs: DesktopConfigInputs): void {
           },
         }),
   });
+  const storage = createStorageRiskService({ overrideFile: storageRiskFileOverride(configInputs) });
   const prepareRuntime = async (verifyInstalled: boolean) => {
     const status = await runtime.prepare(verifyInstalled);
     // Only a runtime the App itself provisions is one the fixed launcher can run (nothing is provisioned unpackaged).
     if (status !== undefined) await integration.publish();
     return status;
+  };
+  // The facts a backend carries: the old-service warning and the storage verdict this run already reached.
+  const currentFacts = (databasePath: string): DesktopFacts | undefined => {
+    const storageRisk = storage.fact(databasePath);
+    const legacyFacts = legacy.facts(databasePath);
+    return storageRisk ? { ...legacyFacts, storageRisk } : legacyFacts;
   };
   const backend = createBackendController({
     state,
@@ -231,7 +250,8 @@ function runShell(configInputs: DesktopConfigInputs): void {
     openRepairWindow: () => window.open("repair"),
     prepareRuntime,
     legacyBlocks: (databasePath) => legacy.blocks(databasePath),
-    desktopFacts: (databasePath) => legacy.facts(databasePath),
+    storageRefused: (databasePath) => storagePolicy(storage.last(databasePath)?.risk).refused,
+    desktopFacts: (databasePath) => currentFacts(databasePath),
     reinstallOnRefusal: app.isPackaged,
     notifyError: createErrorNotifier(state),
     whenReady: () => app.whenReady(),
@@ -247,8 +267,44 @@ function runShell(configInputs: DesktopConfigInputs): void {
     notifyRecovered: createRecoveredNotifier(state, notifications),
     delayMs: repairSuccessDelayMs(configInputs),
   });
-  const info = createRepairInfo({ state, paths, supervisor, lastBackup, legacy });
+  const changePort = createChangePort({
+    state,
+    coordinator,
+    supervisor,
+    backend,
+    probePort: probeLoopbackPort,
+    confirmDialog: async (from, to) => {
+      if (testSwitch(configInputs, "autoConfirmPort")) return true;
+      const text = portMessages(state.locale);
+      const { response } = await dialog.showMessageBox({
+        type: "question",
+        message: formatMessage(text.confirmMessage, { from: String(from), to: String(to) }),
+        detail: text.confirmDetail,
+        buttons: [text.confirmButton, text.cancelButton],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      });
+      return response === 0;
+    },
+    handoff: new PortHandoffStore(() => Date.now()),
+    openDashboard: (handoff) => dashboard.open(handoff),
+    showSection: () => window.open("repair"),
+    log,
+  });
+  const info = createRepairInfo({ state, paths, supervisor, lastBackup, legacy, storage, port: changePort.section });
+  const copyRunner = createCopyRunner({
+    state,
+    window,
+    backend,
+    supervisor,
+    storage,
+    prepareRuntime: () => prepareRuntime(false),
+    autoConfirm: testSwitch(configInputs, "autoConfirmCopy"),
+    log,
+  });
   const firstRun = createFirstRun({
+    copyRunner,
     state,
     paths,
     supervisor,
@@ -257,6 +313,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     window,
     log,
     prepareRuntime: () => prepareRuntime(false),
+    storage,
     onStarted: () => dashboard.open(),
     environment: process.env,
     ...(defaultPortOverride(configInputs) === undefined ? {} : { defaultPort: defaultPortOverride(configInputs) }),
@@ -268,8 +325,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     log,
     // The same read-only preview the repair window's "選擇資料庫…" makes; switching still needs the user's confirm.
     offerDatabase: async (path) => {
-      const id = state.candidates.add(path);
-      state.candidates.setPreview(id, previewToCandidate(await supervisor.preview(path)));
+      await offerCandidate({ state, supervisor, storage }, path);
       window.open("repair");
     },
   });
@@ -302,6 +358,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     void firstRun.begin();
   };
   const openAgents = (): void => window.open("agents");
+  const openPortSettings = (): void => changePort.openSection();
   const requestQuit = createQuit({
     state,
     supervisor,
@@ -322,6 +379,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     openRepairWindow: () => window.open("repair"),
     openSetup,
     openAgents,
+    openPortSettings,
     requestQuit: () => void requestQuit(true),
     legacy: {
       heldAtLogin: () => legacy.heldAtLogin(),
@@ -382,16 +440,59 @@ function runShell(configInputs: DesktopConfigInputs): void {
     backend.attach();
     agents.recover();
     // The Web status page's "在桌面 App 設定 Agent" asks through the running backend; it only opens the window.
+    // The Web page asked for the port settings; its preferences wait in memory (never logged) for the change.
+    supervisor.onOpenPortSettings((request) => {
+      log("[shell] port settings requested by the Dashboard");
+      void app.whenReady().then(() => changePort.offer(request));
+    });
     supervisor.onOpenAgentSetup(() => {
       log("[shell] Agent page requested by the Dashboard");
       void app.whenReady().then(openAgents);
     });
     const settingsLoaded = loadSettings(state, paths, log);
     // A new install starts nothing: the first-run page asks first (DT-01).
-    const started = settingsLoaded.then((loaded) =>
-      loaded === "ok" ? backend.start(state.owner === "UNCONFIGURED" ? "takeover" : "restart") : undefined,
-    );
+    const started = settingsLoaded.then(async (loaded) => {
+      if (loaded !== "ok") return undefined;
+      // DT-08: the committed database is classified beside the bring-up. The start's outcome is presented as soon as the
+      // backend is up; the verdict is applied when it arrives (a network share stops the backend again, anything else only
+      // updates the facts). A start that fails leaves the verdict known, so a retry is refused before it starts anything.
+      const databasePath = state.databasePath();
+      const classified = databasePath === null ? undefined : storage.classify(databasePath);
+      const outcome = await backend.start(state.owner === "UNCONFIGURED" ? "takeover" : "restart");
+      if (outcome.ok && databasePath !== null && classified) void settleStorageRisk(databasePath, classified);
+      return outcome;
+    });
     return { settingsLoaded, started };
+  }
+
+  /** The verdict for the database the backend came up on: a network share refuses it after the fact, as a failed start. */
+  async function settleStorageRisk(databasePath: string, classified: Promise<StorageRiskResult>): Promise<void> {
+    try {
+      const risk = await classified;
+      // The user changed the database meanwhile: this verdict belongs to the old one.
+      if (state.databasePath() !== databasePath || supervisor.running === undefined) return;
+      const outcome = await applyStartTimeStorageRisk(
+        { ok: true },
+        {
+          risk,
+          currentFacts: () => {
+            const port = state.settings?.active?.port ?? state.settings?.desired.port;
+            return { ...currentFacts(databasePath), ...(port === undefined ? {} : { activePort: port }) };
+          },
+          stopBackend: async () => {
+            await supervisor.stop();
+            state.backend = "stopped";
+          },
+          updateFacts: (facts) => supervisor.updateFacts(facts),
+        },
+      );
+      if (outcome?.ok === false && !outcome.busy) {
+        await app.whenReady();
+        backend.recovery.handleFailure(outcome.code);
+      }
+    } catch (error) {
+      log(`[shell] storage verdict not applied: ${error instanceof Error ? error.message : "unknown error"}`);
+    }
   }
 
   async function presentStart(early: ReturnType<typeof startBackend>): Promise<void> {
@@ -422,6 +523,9 @@ function runShell(configInputs: DesktopConfigInputs): void {
       agents,
       legacy,
       legacyDisable,
+      changePort,
+      storage,
+      copyToLocal: createLocalCopy({ state, paths, info, backend, supervisor, success, runner: copyRunner, log }),
       log,
     });
     if (process.platform === "darwin" && state.launchMode === "background") app.dock?.hide();
@@ -473,6 +577,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
       dashboard,
       notifications: notifications ?? [],
       firstRunDetectionMs: () => firstRun.detectionMs,
+      openPortSettings,
     });
   applySecurityPolicy();
 

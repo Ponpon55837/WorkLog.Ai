@@ -51,6 +51,10 @@
       "types": "./dist/loopback-port.d.ts",
       "import": "./dist/loopback-port.js"
     },
+    "./port-failure": {
+      "types": "./dist/port-failure.d.ts",
+      "import": "./dist/port-failure.js"
+    },
     "./mcp-contract-fingerprint": {
       "types": "./dist/mcp-contract-fingerprint.d.ts",
       "import": "./dist/mcp-contract-fingerprint.js"

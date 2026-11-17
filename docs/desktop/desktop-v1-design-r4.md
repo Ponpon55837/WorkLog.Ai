@@ -179,6 +179,8 @@ Desktop 相關 package 應位於獨立界線（建議 `apps/desktop`），核心
 - **風險來源**：軟連結、硬連結、UNC/SMB/NFS、可移除裝置與會自行同步的雲端資料夾都標示為風險來源。SQLite WAL 官方不支援多主機網路檔案系統上的共享記憶體模式；V1 對不可靠的網路共享 DB **禁止自動接管與遷移**，僅提供診斷與轉存建議。[U][D]
 - **1.6.42 觀察（本機 Node 22.23.4／SQLite 3.53.4，`[T]`，非發行產物）**：唯讀開啟已正常關閉的 WAL 資料庫，會在同一資料夾建立並保留 `-wal`、`-shm`；主檔的 SHA-256、mtime 與業務資料列皆不變。另一寫入端持續寫入且 WAL 非空時，preflight 不改變 sidecar，並讀得到只存在於 WAL 中的資料列。因此「唯讀不等於 0 寫入」已確認，預覽不刪除任何 sidecar；Windows 行為待實機驗證。詳見 [ADR-07](desktop-v1-adr.md)。
 
+**1.6.51 實作**：啟動與選擇資料庫時判定位置，類別為 none、網路、可移除、雲端同步、硬連結與 unknown（`apps/desktop/src/main/storage-risk.ts`、`packages/desktop-core/src/db-source/storage-policy.ts`）。Windows 以 DriveInfo（3 秒上限）、macOS 以 mount 與 diskutil（2 秒上限）、Linux 以 `/proc/mounts` 判定；系統磁碟上且不在雲端根目錄下的位置不啟動子程序。符號連結只作為證據記錄；失敗與逾時為 unknown，且不快取。網路磁碟不能作為 App 的資料庫，啟動時停止後端並進入修復（`DB_STORAGE_NETWORK`）。可移除、雲端同步與硬連結只能在勾選說明理由的同意方塊後選擇，且 App 不在這些位置更新 schema；unknown 只阻擋一鍵選擇。「複製到本機磁碟並改用」先確認與檢查空間，以 `VACUUM INTO`（唯讀預覽子程序）做一致的複製，再對複本執行 `PRAGMA quick_check`；檔名不覆寫，放在不屬於風險位置的 App 預設資料夾。之後以日誌化的切換改用複本，原檔不變、不刪除（`apps/desktop/src/main/local-copy.ts`、`apps/server/src/database-copy.ts`）。已知未偵測 macOS 的 iCloud「桌面與文件」同步；Windows 的 Google Drive 虛擬磁碟為盡力偵測。實機結果待驗收。
+
 ### 3.2 Agent 整合：安裝、驗證、修復與移除
 
 | 對象 | 桌面設定中心的處理方式 |
@@ -317,6 +319,8 @@ Web 只能送固定動作與經 schema 驗證的值。特權資料夾選擇、�
 3. 新服務通過 IPC 身分、DB 與 HTTP 驗證後，才提交新 port。相同 port 的頁面自動重連；換 port 時由 App 開啟新網址。保留可安全還原的頁面路徑；有未儲存的編輯時先提示儲存。跨 port 的瀏覽器儲存屬於不同 origin，語言與佈景等偏好從已知偏好還原（§6.2）。
 4. 新服務未就緒則以最後成功設定復原。原 port 也被占用時，tray 的「修復連線」可選別的 port、重試或看日誌。啟動期間崩潰採有上限的退避重試，例如兩分鐘內三次後轉為待處理；權限、格式、schema 等確定錯誤直接進修復。睡眠喚醒時重查現況。正常結束不觸發自動重啟。
 
+**1.6.51 實作**：換 port 只在 App 內進行（修復視窗的「連接埠」區段與工作列「變更連接埠…」）。Web 狀態頁的按鈕只請 App 開啟該區段，經 `POST /api/desktop/open-port-settings` 交給 App 的白名單偏好與路由只存在記憶體中，一次使用、最久 2 分鐘。流程為：原生確認、停止、在新 port 啟動、以 IPC 與 HTTP 證明驗證，通過後才原子寫入 `desired.port`、`active` 與 `lastKnownGood`；失敗回舊 port，中途當機保留舊 port。忙碌（其他操作、匯入、備份、匯出）時拒絕。占用在停止前拒絕，OS 不允許的 port 回報 `PORT_NOT_PERMITTED`（`apps/desktop/src/main/change-port.ts`、`packages/desktop-core/src/shell/port-policy.ts`）。
+
 ### 6.1 操作佇列、取消與回復（ADR-21）
 
 所有會影響管理權的動作（接管、換 DB、換 port、套用 Agent、重啟、還原、更新安裝）由單一全域 `OperationCoordinator` 協調。提交時產生具來源、參數摘要、預期狀態、階段與完成結果的 `operationId`。**重送同 ID 只回傳同一操作**；不同 ID 的互斥變更回 `BUSY` 並附目前操作。讀取診斷可在安全處並行。[D]
@@ -332,6 +336,8 @@ Web 只能送固定動作與經 schema 驗證的值。特權資料夾選擇、�
 2. port 空閒預檢只是提示，**實際 bind 才是準據**。任何 port 失敗都不得先建立另一份空 DB（見 §5.1）。`[R][D]`
 3. `127.0.0.1:3210` 改為新 port 後，`localStorage` 與 cookie 的 origin 已改。跨 port 偏好只搬運白名單的非秘密值；不移轉管理會話或 DB 路徑 token。[D]
 4. 舊 App 書籤或 Agent 舊 dashboard script 可能仍指向 3210。固定 launcher 的 `dashboard` 命令應詢問管理者目前的 port，不要因舊 script 的 health 檢查而重啟 checkout server。[R][D]
+
+   **1.6.51 實作**：瀏覽器限制的 port 以 Chromium `kRestrictedPorts` 與 Firefox `network.security.ports` 的聯集判定，在 1024–65535 範圍內為 1719、1720、1723、2049、3659、4045、4190、5060、5061、6000、6566、6665–6669、6679、6697、10080。與目前相同的 port 不做任何事。新位址以一次性 URL fragment 開啟 Dashboard，頁面還原白名單偏好與路由後立即從網址列移除 fragment，session、token 與 DB 路徑不跨 port。`apps/web/src/utils/port-handoff.ts`、`packages/schema/src/port-handoff.ts`。
 
 ---
 

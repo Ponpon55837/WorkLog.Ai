@@ -30,6 +30,8 @@ interface Harness {
   handlers: { message?: (raw: unknown) => void; disconnect?: () => void; signal?: () => void };
 }
 
+let activityNow: Array<"import" | "backup" | "export" | "restore"> = [];
+
 function setup(overrides: Partial<DesktopChildDependencies> & { listening?: Promise<ApiListening> } = {}): Harness {
   const sent: Record<string, unknown>[] = [];
   const logs: string[] = [];
@@ -58,6 +60,7 @@ function setup(overrides: Partial<DesktopChildDependencies> & { listening?: Prom
   const startApi = vi.fn((): StartedApi => ({
     listening: overrides.listening ?? Promise.resolve({ port: START.port, databaseIdentity: IDENTITY }),
     shutdown,
+    activity: () => activityNow,
   }));
   const dependencies: DesktopChildDependencies = {
     preflight: overrides.preflight ?? (async () => ({ status: "ok", identity: IDENTITY, schemaVersion: 33 })),
@@ -72,7 +75,7 @@ function setup(overrides: Partial<DesktopChildDependencies> & { listening?: Prom
 function failing(error: unknown): Pick<DesktopChildDependencies, "startApi"> {
   const listening = Promise.reject(error);
   listening.catch(() => undefined);
-  return { startApi: () => ({ listening, shutdown: async () => undefined }) };
+  return { startApi: () => ({ listening, shutdown: async () => undefined, activity: () => [] }) };
 }
 
 describe("DesktopChild", () => {
@@ -98,7 +101,11 @@ describe("DesktopChild", () => {
       instanceRunId: RUN_ID,
       onBackupCompleted: expect.any(Function),
       onBackupsChanged: expect.any(Function),
-      desktop: { onOpenAgentSetup: expect.any(Function) },
+      desktop: {
+        getFacts: expect.any(Function),
+        onOpenAgentSetup: expect.any(Function),
+        onOpenPortSettings: expect.any(Function),
+      },
     });
   });
 
@@ -112,11 +119,29 @@ describe("DesktopChild", () => {
     await child.handle({ ...START, desktop: { legacyService } });
 
     const options = startApi.mock.calls[0]?.[0] as {
-      desktop: { facts: { legacyService: unknown }; onOpenAgentSetup: () => void };
+      desktop: { getFacts: () => unknown; onOpenAgentSetup: () => void };
     };
-    expect(options.desktop.facts).toEqual({ legacyService });
+    expect(options.desktop.getFacts()).toEqual({ legacyService });
     options.desktop.onOpenAgentSetup();
     expect(sent.at(-1)).toEqual({ type: "open-agent-setup" });
+  });
+
+  it("passes the active port and storage risk through the current facts", async () => {
+    const { child, startApi } = setup();
+    const desktop = { activePort: 40_321, storageRisk: { risk: "network", migrationBlocked: true } };
+    await child.handle({ ...START, desktop });
+    const options = startApi.mock.calls[0]?.[0] as { desktop: { getFacts: () => unknown } };
+    expect(options.desktop.getFacts()).toEqual(desktop);
+  });
+
+  it("relays a sanitized open-port-settings request to the parent", async () => {
+    const { child, sent, startApi } = setup();
+    await child.handle(START);
+    const options = startApi.mock.calls[0]?.[0] as {
+      desktop: { onOpenPortSettings: (handoff: { preferences?: unknown; route?: string }) => void };
+    };
+    options.desktop.onOpenPortSettings({ preferences: { theme: "dark", token: "secret" }, route: "//evil" });
+    expect(sent.at(-1)).toEqual({ type: "open-port-settings", preferences: { theme: "dark" }, route: "/" });
   });
 
   it("tells the parent when the running API completes a backup", async () => {
@@ -286,6 +311,29 @@ describe("DesktopChild", () => {
     expect(startApi).not.toHaveBeenCalled();
   });
 
+  it("maps a probe that the OS refused (EACCES) to PORT_NOT_PERMITTED, not to an occupied port", async () => {
+    const { child, sent, startApi } = setup({ probePort: async () => ({ free: false, code: "EACCES" }) });
+    await child.handle(START);
+    expect(sent[1]).toEqual({ type: "failed", code: "PORT_NOT_PERMITTED", detail: "listen failed (EACCES)" });
+    expect(startApi).not.toHaveBeenCalled();
+  });
+
+  it("answers an activity query with what the running API is busy with, and nothing before it serves", async () => {
+    activityNow = [];
+    const { child, sent } = setup();
+    await child.handle({ type: "activity-query", requestId: "request-before" });
+    await child.handle(START);
+    activityNow = ["import", "backup"];
+    await child.handle({ type: "activity-query", requestId: "request-busy" });
+    activityNow = [];
+    await child.handle({ type: "activity-query", requestId: "request-idle" });
+    expect(sent.filter((message) => message.type === "activity")).toEqual([
+      { type: "activity", requestId: "request-before", busy: [] },
+      { type: "activity", requestId: "request-busy", busy: ["import", "backup"] },
+      { type: "activity", requestId: "request-idle", busy: [] },
+    ]);
+  });
+
   it.each([
     ["missing", "DB_MISSING"],
     ["offline", "DB_OFFLINE"],
@@ -324,7 +372,8 @@ describe("DesktopChild", () => {
       [new StartApiError("store-open", "d"), "REPAIR_REQUIRED"],
       [new StartApiError("file-replaced", "d"), "DB_IDENTITY_CHANGED"],
       [new StartApiError("listen", "d", { listenCode: "EADDRINUSE" }), "PORT_OCCUPIED_BY_OTHER"],
-      [new StartApiError("listen", "d", { listenCode: "EACCES" }), "PORT_OCCUPIED_BY_OTHER"],
+      [new StartApiError("listen", "d", { listenCode: "EACCES" }), "PORT_NOT_PERMITTED"],
+      [new StartApiError("listen", "d", { listenCode: "EADDRNOTAVAIL" }), "PORT_NOT_PERMITTED"],
       [new StartApiError("listen", "d", { listenCode: "EMFILE" }), "REPAIR_REQUIRED"],
       [new StartApiError("listen", "d"), "REPAIR_REQUIRED"],
       [new Error("anything"), "REPAIR_REQUIRED"],
@@ -510,7 +559,7 @@ describe("DesktopChild stop and failure races", () => {
     const shutdown = vi.fn(async () => undefined);
     const listening = Promise.reject(new StartApiError("setup", "x"));
     listening.catch(() => undefined);
-    const { child, sent } = setup({ startApi: () => ({ listening, shutdown }) });
+    const { child, sent } = setup({ startApi: () => ({ listening, shutdown, activity: () => [] }) });
 
     await child.handle(START);
 

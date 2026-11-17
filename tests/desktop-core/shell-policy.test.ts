@@ -111,6 +111,9 @@ describe("repair IPC", () => {
     expect(repairInputSchemas.openFolder.safeParse({ target: "logs" }).success).toBe(true);
     expect(repairInputSchemas.openFolder.safeParse({ target: "/etc" }).success).toBe(false);
     expect(repairInputSchemas.openFolder.safeParse({ target: "database", extra: 1 }).success).toBe(false);
+    expect(repairInputSchemas.setupCopyToLocal.safeParse({ sourceId: "s1", launchAtLogin: true }).success).toBe(true);
+    expect(repairInputSchemas.setupCopyToLocal.safeParse({ sourceId: "s1", path: "/x" }).success).toBe(false);
+    expect(repairInputSchemas.setupCopyToLocal.safeParse({ sourceId: "" }).success).toBe(false);
     expect(repairInputSchemas.getState.safeParse(undefined).success).toBe(true);
     expect(repairInputSchemas.exportDiagnostics.safeParse({ path: "/x" }).success).toBe(false);
   });
@@ -130,14 +133,17 @@ describe("repair IPC", () => {
       "legacy:disable-confirm",
       "legacy:disable-preview",
       "legacy:start-now",
+      "port:change",
       "repair:choose-database",
       "repair:confirm-database",
+      "repair:copy-to-local",
       "repair:export-diagnostics",
       "repair:get-state",
       "repair:open-folder",
       "repair:retry-start",
       "repair:start-anyway",
       "setup:choose-file",
+      "setup:copy-to-local",
       "setup:get-state",
       "setup:later",
       "setup:use-defaults",

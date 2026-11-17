@@ -1,5 +1,11 @@
 import { Menu, nativeImage, Notification, Tray, type NativeImage } from "electron";
-import { buildTrayMenu, setupMessages, trayBackgroundHint, trayTooltip } from "@work-intelligence/desktop-core";
+import {
+  buildTrayMenu,
+  portMessages,
+  setupMessages,
+  trayBackgroundHint,
+  trayTooltip,
+} from "@work-intelligence/desktop-core";
 import type { Logger } from "./log.js";
 import type { ShellState } from "./state.js";
 
@@ -23,6 +29,8 @@ export interface ShellTrayOptions {
   readonly openSetup: () => void;
   /** "設定 Agent…": the Agent page. */
   readonly openAgents: () => void;
+  /** 「變更連接埠…」: the repair window's port section. */
+  readonly openPortSettings: () => void;
   readonly requestQuit: () => void;
   readonly log: Logger;
   /**
@@ -71,6 +79,7 @@ export function createShellTray(options: ShellTrayOptions): ShellTray {
       owner: state.owner,
       backendRunning: running,
       setup: { messages: setup, needsSetup: state.needsSetup },
+      port: portMessages(state.locale),
       ...(held ? { legacyHeld: setup } : {}),
     });
     tray.setToolTip(trayTooltip(state.owner, running, text));
@@ -87,6 +96,7 @@ export function createShellTray(options: ShellTrayOptions): ShellTray {
               else if (item.id === "legacy-start-anyway") options.legacy?.startAnyway();
               else if (item.id === "complete-setup") options.openSetup();
               else if (item.id === "agent-setup") options.openAgents();
+              else if (item.id === "change-port") options.openPortSettings();
               else if (item.id === "quit") options.requestQuit();
             },
           };

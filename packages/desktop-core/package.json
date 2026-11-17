@@ -19,6 +19,10 @@
       "types": "./dist/shell/setup-i18n.d.ts",
       "import": "./dist/shell/setup-i18n.js"
     },
+    "./shell/port-i18n": {
+      "types": "./dist/shell/port-i18n.d.ts",
+      "import": "./dist/shell/port-i18n.js"
+    },
     "./shell/agents-state": {
       "types": "./dist/shell/agents-state.d.ts",
       "import": "./dist/shell/agents-state.js"

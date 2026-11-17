@@ -103,6 +103,38 @@ function stagedDirectories(transferRoot: string): string[] {
 }
 
 describe("StagedImports", () => {
+  it("reports itself in use while an upload is being saved or an operation reads a staged file", async () => {
+    const staged = new StagedImports(tempRoot());
+    expect(staged.inUse).toBe(false);
+    const reservation = staged.reserve();
+    expect(staged.inUse).toBe(true);
+    writeFileSync(reservation.path, "{}");
+    reservation.commit();
+
+    let during = false;
+    await staged.use(reservation.id, {}, async () => {
+      during = staged.inUse;
+    });
+    expect(during).toBe(true);
+    staged.remove(reservation.id);
+    expect(staged.inUse).toBe(false);
+    staged.clear();
+  });
+
+  it("counts an uploaded file that waits for the user's confirm until it expires", () => {
+    let now = 1_000;
+    const staged = new StagedImports(tempRoot(), () => now);
+    const reservation = staged.reserve();
+    writeFileSync(reservation.path, "{}");
+    reservation.commit();
+    expect(staged.inUse).toBe(true);
+    now += STAGED_IMPORT_TTL_MS - 1;
+    expect(staged.inUse).toBe(true);
+    now += 1;
+    expect(staged.inUse).toBe(false);
+    staged.clear();
+  });
+
   it("expires a staged file after its time to live, and the id then answers not found", async () => {
     const root = tempRoot();
     let now = 1_000;

@@ -49,6 +49,8 @@ export const operationRecordSchema = z.strictObject({
    * `in-progress` + `cancelRequested`: a cancel arrived after side effects, so only recovery may close it.
    */
   status: z.enum(["in-progress", "completed", "cancelled", "failed", "interrupted"]),
+  /** Descriptive, non-secret facts of the operation (a port change records `{ from, to }`); absent in older journals. */
+  details: jsonRecordSchema.nullable().default(null),
   /** Persisted cancel request; defaults to false so journals written before this field still load (version 1). */
   cancelRequested: z.boolean().default(false),
   completedSteps: z.array(z.string()),
@@ -78,6 +80,7 @@ export interface NewOperationInput {
   readonly oldEnabledState?: boolean | null;
   readonly oldRunningState?: boolean | null;
   readonly lastKnownGood?: JournalJson | null;
+  readonly details?: Readonly<Record<string, JournalJson>> | null;
   readonly schemaVersionAtStart?: number | null;
   readonly migrationStarted?: boolean;
 }
@@ -99,6 +102,7 @@ export function createOperationRecord(input: NewOperationInput, now: string): Op
     recoveryPolicy: migrationStarted ? "repair-only" : "restore-previous",
     schemaVersionAtStart: input.schemaVersionAtStart ?? null,
     status: "in-progress",
+    details: (input.details as Record<string, JournalJson> | null | undefined) ?? null,
     cancelRequested: false,
     completedSteps: [],
     stepResults: {},

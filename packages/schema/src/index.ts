@@ -69,6 +69,7 @@ export {
 } from "./file-history.js";
 export { relatedWorkQuerySchema } from "./related-work.js";
 export {
+  DESKTOP_BACKEND_ACTIVITIES,
   DESKTOP_INTEGRITY_CHECK_FAILED_DETAIL,
   DESKTOP_BACKEND_ERROR_CODES,
   DESKTOP_CHILD_PROTOCOL_VERSION,
@@ -79,7 +80,9 @@ export {
   desktopPreflightResultSchema,
   parseDesktopChildMessage,
   parseDesktopParentMessage,
+  type DesktopBackendActivity,
   type DesktopBackendErrorCode,
+  type DesktopCopyResultMessage,
   type DesktopChildMessage,
   type DesktopDatabaseIdentity,
   type DesktopFacts,
@@ -90,6 +93,20 @@ export {
   type DesktopStartMessage,
   type ParsedDesktopMessage,
 } from "./desktop-child-protocol.js";
+export {
+  MAX_HANDOFF_ROUTE_LENGTH,
+  PORT_HANDOFF_FRAGMENT_KEY,
+  SIDE_PANEL_WIDTH_KEYS,
+  browserPreferencesSchema,
+  decodePortHandoffFragment,
+  encodePortHandoffFragment,
+  isSafeHandoffRoute,
+  openPortSettingsInputSchema,
+  sanitizeBrowserPreferences,
+  sanitizeHandoffRoute,
+  type BrowserPreferences,
+  type PortHandoff,
+} from "./port-handoff.js";
 export {
   reportPresentationStateSchema,
   reportPresentationQuerySchema,
