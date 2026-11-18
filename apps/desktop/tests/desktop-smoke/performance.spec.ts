@@ -121,6 +121,9 @@ for (let run = 1; run <= PERF_RUNS; run += 1) {
     const started = performance.now();
     app = await launchApp(sandbox);
     const launched = app;
+    // TEMPORARY (perf investigation): where the cold start goes. Removed before release.
+    const phaseLaunched = performance.now() - started;
+    let phaseManaged = 0;
     let last: { snapshot?: MainSnapshot; proof?: boolean } = {};
     const managed = await pollUntil(
       async () => {
@@ -128,6 +131,7 @@ for (let run = 1; run <= PERF_RUNS; run += 1) {
         const backend = snapshot.backend;
         last = { snapshot };
         if (snapshot.owner !== "MANAGED" || !backend) return undefined;
+        if (phaseManaged === 0) phaseManaged = performance.now() - started;
         const proof = await healthProofIsValid(backend.port, backend.runId);
         last = { snapshot, proof };
         return proof ? backend : undefined;
@@ -136,6 +140,9 @@ for (let run = 1; run <= PERF_RUNS; run += 1) {
       () => JSON.stringify(last),
     );
     samples.coldStartMs.push(performance.now() - started);
+    process.stdout.write(
+      `[perf phases] cold start run ${run}: launchApp=${Math.round(phaseLaunched)} managed=${Math.round(phaseManaged)} proof=${Math.round(performance.now() - started)} ms\n`,
+    );
 
     await sleep(IDLE_SETTLE_MS);
     samples.mainMemoryBytes.push(await mainProcessBytes(launched));
@@ -159,11 +166,16 @@ for (let run = 1; run <= PERF_RUNS; run += 1) {
     sandbox = await createSandbox({ withDatabase: false });
     const started = performance.now();
     app = await launchApp(sandbox);
+    const phaseLaunched = performance.now() - started;
     const window = await app.firstWindow({ timeout: STEP_TIMEOUT_MS });
+    const phaseWindow = performance.now() - started;
     // The tabbed window opens on Status for a missing database: the metric ends when its blocking card is on screen (the
     // same "window opened and showing the repair content" the Data tab's choose button used to mark).
     await window.getByText("DB_MISSING").waitFor({ state: "visible", timeout: STEP_TIMEOUT_MS });
     samples.repairWindowMs.push(performance.now() - started);
+    process.stdout.write(
+      `[perf phases] repair window run ${run}: launchApp=${Math.round(phaseLaunched)} firstWindow=${Math.round(phaseWindow)} card=${Math.round(performance.now() - started)} ms\n`,
+    );
   });
 }
 
