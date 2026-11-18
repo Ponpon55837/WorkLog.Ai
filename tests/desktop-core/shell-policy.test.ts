@@ -29,8 +29,9 @@ import {
 } from "../../packages/desktop-core/src/index.js";
 
 describe("navigation policy", () => {
-  it("serves only the three fixed assets and the page for /", () => {
-    expect([...REPAIR_ASSETS.keys()].sort()).toEqual(["/index.html", "/repair.css", "/repair.js"]);
+  it("serves only the four fixed assets and the page for /", () => {
+    expect([...REPAIR_ASSETS.keys()].sort()).toEqual(["/index.html", "/repair.css", "/repair.js", "/tokens.css"]);
+    expect(resolveRepairAsset("wi-repair://app/tokens.css")?.contentType).toBe("text/css; charset=utf-8");
     expect(resolveRepairAsset("wi-repair://app/")?.file).toBe("index.html");
     expect(resolveRepairAsset("wi-repair://app/repair.js")?.contentType).toContain("javascript");
     expect(resolveRepairAsset("wi-repair://app/repair.css?x=1#y")?.file).toBe("repair.css");
@@ -135,7 +136,9 @@ describe("repair IPC", () => {
       "agents:undo",
       "agents:use-checkout-database",
       "app:copy-command",
-      "app:get-view",
+      "app:get-tab",
+      "app:remember-tab",
+      "app:select-tab",
       "app:show-view",
       "legacy:disable-confirm",
       "legacy:disable-preview",

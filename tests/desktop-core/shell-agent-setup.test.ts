@@ -59,25 +59,24 @@ function keyPaths(value: unknown, prefix = ""): string[] {
 
 describe("buildTrayMenu with setup items", () => {
   const setup = (needsSetup: boolean) => ({
-    messages: { trayCompleteSetup: "COMPLETE", trayAgentSetup: "AGENT" },
+    messages: { trayCompleteSetup: "COMPLETE" },
     needsSetup,
   });
 
   it("puts complete-setup first while the App still needs setup", () => {
     const menu = buildTrayMenu({ messages: zh, owner: "MANAGED", backendRunning: true, setup: setup(true) });
-    expect(menu.map((item) => item.id)).toEqual(["complete-setup", "open-dashboard", "repair", "separator", "quit"]);
+    expect(menu.map((item) => item.id)).toEqual(["complete-setup", "open-dashboard", "open-app", "separator", "quit"]);
     expect(menu[0]).toEqual({ id: "complete-setup", label: "COMPLETE", enabled: true });
   });
 
-  it("puts agent-setup right after repair once setup is done", () => {
+  it("drops complete-setup once setup is done (Agent setup is a tab, not a tray item)", () => {
     const menu = buildTrayMenu({ messages: zh, owner: "MANAGED", backendRunning: true, setup: setup(false) });
-    expect(menu.map((item) => item.id)).toEqual(["open-dashboard", "repair", "agent-setup", "separator", "quit"]);
-    expect(menu[2]).toEqual({ id: "agent-setup", label: "AGENT", enabled: true });
+    expect(menu.map((item) => item.id)).toEqual(["open-dashboard", "open-app", "separator", "quit"]);
   });
 
   it("leaves the menu unchanged without setup", () => {
     const menu = buildTrayMenu({ messages: zh, owner: "MANAGED", backendRunning: true });
-    expect(menu.map((item) => item.id)).toEqual(["open-dashboard", "repair", "separator", "quit"]);
+    expect(menu.map((item) => item.id)).toEqual(["open-dashboard", "open-app", "separator", "quit"]);
   });
 });
 

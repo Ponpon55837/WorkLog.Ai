@@ -1,4 +1,21 @@
+/**
+ * Contract of the one App window (tabbed shell). The window is created once and never reloaded to change tab.
+ *
+ * - Tabs: `APP_TABS` = setup, status, agent, settings, data, diagnostics (display order). `setup` exists only while
+ *   `needsSetup`. See app-tabs.ts for the selection rule: requested tab > blocking tab > remembered tab > default.
+ * - page asks main: `getTab()` (`app:get-tab`) answers `{ tab, tabs }` on mount; `rememberTab(tab)`
+ *   (`app:remember-tab`, `{ tab }`) tells main which tab the user chose (memory only, validated against `APP_TABS`).
+ * - main tells the page: `onSelectTab(cb)` (`app:select-tab`, payload an `AppTab`) whenever an open window is asked to
+ *   show another tab. The page switches in place.
+ * - `getState()` (`RepairState`) carries `shell: AppShellState` (`tabs`, `blockingTab`, `badges[tab] = { attention,
+ *   busy }`) beside every field the earlier single-page view used. `attention` marks the blocking tab (Status while the
+ *   service needs repair or the old login service holds the database); `busy` marks the tab whose coordinator operation
+ *   is running.
+ * - Every channel is checked in main: trusted sender (main frame of the one window on the fixed page URL), then input.
+ */
+
 import { z } from "zod";
+import { APP_TABS, type AppTab, type AppTabSelection } from "./app-tabs.js";
 import type { DiagnosticsReport } from "./diagnostics.js";
 import type { RepairActionId, RepairState } from "./repair-state.js";
 import type { SetupState } from "./setup-state.js";
@@ -22,7 +39,8 @@ export const REPAIR_CHANNELS = {
   previewDiagnostics: "repair:preview-diagnostics",
   saveDiagnostics: "repair:save-diagnostics",
   startAnyway: "repair:start-anyway",
-  getView: "app:get-view",
+  getTab: "app:get-tab",
+  rememberTab: "app:remember-tab",
   copyCommand: "app:copy-command",
   setupGetState: "setup:get-state",
   setupUseDefaults: "setup:use-defaults",
@@ -45,13 +63,11 @@ export const REPAIR_CHANNELS = {
   copyToLocal: "repair:copy-to-local",
   updateCheck: "update:check",
   updateOpenLink: "update:open-link",
+  /** Main to the page (not a request): select this tab (the payload is an `AppTab`); the window is never reloaded for it. */
+  selectTab: "app:select-tab",
   /** Main to the page (not a request): the update check started or finished, so the page reads the state again. */
   updateChanged: "update:changed",
 } as const;
-
-/** What the one App window shows; main decides, the page asks. */
-export const APP_VIEWS = ["repair", "setup", "agents"] as const;
-export type AppView = (typeof APP_VIEWS)[number];
 
 /** Commands the page may ask main to copy to the clipboard; the text itself never comes from the page. */
 export const COPY_COMMAND_TARGETS = ["legacy-remove", "legacy-fallback"] as const;
@@ -81,7 +97,9 @@ export const repairInputSchemas = {
   saveDiagnostics: z.strictObject({ previewId: z.uuid() }),
   /** Start although the old login service may serve the same database; the user said "仍要啟動". */
   startAnyway: z.strictObject({ operationId: z.uuid() }),
-  getView: z.undefined(),
+  getTab: z.undefined(),
+  /** The tab the user selected; main remembers it for this session only and rejects any id outside `APP_TABS`. */
+  rememberTab: z.strictObject({ tab: z.enum(APP_TABS) }),
   copyCommand: z.strictObject({ target: z.enum(COPY_COMMAND_TARGETS) }),
   setupGetState: z.undefined(),
   setupUseDefaults: z.strictObject({ launchAtLogin: z.boolean(), startAnyway: z.boolean().optional() }),
@@ -96,7 +114,7 @@ export const repairInputSchemas = {
   /** 「複製到本機磁碟並改用」 on the first-run page: for a source the page lists; main reads every path itself. */
   setupCopyToLocal: z.strictObject({ sourceId: z.string().min(1).max(64), launchAtLogin: z.boolean().optional() }),
   setupLater: z.strictObject({}),
-  /** The page may only move to the Agent page (after the first run); main opens every other view itself. */
+  /** The page may only move to the Agent tab (after the first run); main selects every other tab itself. */
   showView: z.strictObject({ view: z.literal("agents") }),
   agentsGetState: z.undefined(),
   /** `adopt`: also take over the hand-written checkout registrations ("改由桌面 App 管理"). Nothing is written. */
@@ -256,7 +274,12 @@ export interface RepairApi {
   previewDiagnostics(): Promise<DiagnosticsPreviewResult>;
   saveDiagnostics(previewId: string): Promise<DiagnosticsSaveResult>;
   startAnyway(operationId: string): Promise<RepairActionResult>;
-  getView(): Promise<AppView>;
+  /** Which tab to show and which tabs exist; main decides, the page follows. */
+  getTab(): Promise<AppTabSelection>;
+  /** The user selected `tab`; main keeps it for this App session (memory only). `ok: false` for a tab not available now. */
+  rememberTab(tab: AppTab): Promise<{ readonly ok: boolean }>;
+  /** Calls `listener` whenever main asks the page to select a tab (the tray, a launch flag); the window is not reloaded. */
+  onSelectTab(listener: (tab: AppTab) => void): void;
   copyCommand(target: CopyCommandTarget): Promise<{ readonly ok: boolean }>;
   setupGetState(): Promise<SetupState>;
   setupUseDefaults(launchAtLogin: boolean, startAnyway?: boolean): Promise<SetupActionResult>;

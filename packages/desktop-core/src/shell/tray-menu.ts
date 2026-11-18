@@ -1,21 +1,10 @@
 import type { ServiceOwnerState } from "../operations/service-owner-state.js";
 import { formatMessage, type ShellMessages } from "./i18n.js";
-import type { PortMessages } from "./port-i18n.js";
 import type { SetupMessages } from "./setup-i18n.js";
 import type { UpdateMessages } from "./update-i18n.js";
 
 export type TrayItemId =
-  | "open-dashboard"
-  | "complete-setup"
-  | "agent-setup"
-  | "legacy-status"
-  | "legacy-start-anyway"
-  | "legacy-remove-help"
-  | "repair"
-  | "change-port"
-  | "check-updates"
-  | "separator"
-  | "quit";
+  "legacy-status" | "complete-setup" | "open-dashboard" | "open-app" | "check-updates" | "separator" | "quit";
 
 /** One row of the tray menu as data; the Electron layer only turns it into a native menu. */
 export interface TrayMenuItem {
@@ -29,22 +18,21 @@ export interface TrayMenuInputs {
   readonly owner: ServiceOwnerState;
   readonly backendRunning: boolean;
   /**
-   * The first-run and Agent items. `needsSetup`: the App has no settings yet (the first-run page was closed or never
-   * shown), so "完成首次設定…" comes first; otherwise "設定 Agent…" follows "Repair…". Omitted: neither item.
+   * The first-run item. `needsSetup`: the App has no settings yet (the first-run page was closed or never shown), so
+   * "完成首次設定…" (the Setup tab) comes first. Omitted, or set up already: no item.
    */
   readonly setup?: {
-    readonly messages: Pick<SetupMessages, "trayCompleteSetup" | "trayAgentSetup">;
+    readonly messages: Pick<SetupMessages, "trayCompleteSetup">;
     readonly needsSetup: boolean;
   };
-  /**
-   * A login start was held back because the old login service is enabled on this database: the status line says so, and
-   * the two ways out follow. Omitted when nothing was held back.
-   */
-  /** The 「變更連接埠…」 item, shown after "Repair…" once the App is set up. Omitted: no item. */
-  readonly port?: Pick<PortMessages, "trayChangePort">;
-  /** The 「檢查更新…」 item, after the setup items. Omitted: no item. The App never checks by itself; this item is a way to ask. */
+  /** The 「檢查更新…」 item (opens the Settings tab and starts the check). Omitted: no item. The App never checks by itself. */
   readonly update?: Pick<UpdateMessages, "trayCheckUpdates">;
-  readonly legacyHeld?: Pick<SetupMessages, "trayLegacyStatus" | "trayLegacyStartAnyway" | "trayLegacyHowToRemove">;
+  /**
+   * A login start was held back because the old login service is enabled on this database: the disabled status line
+   * says so. What to do about it is on the Status tab, which "Open Work Intelligence…" selects. Omitted when nothing
+   * was held back.
+   */
+  readonly legacyHeld?: Pick<SetupMessages, "trayLegacyStatus">;
 }
 
 /** Why the Dashboard cannot open right now, in the user's words; undefined when it can. */
@@ -57,24 +45,19 @@ function dashboardDisabledReason(inputs: TrayMenuInputs): string | undefined {
 }
 
 /**
- * The tray menu: "Open Dashboard" always comes first and is enabled only when the managed service runs, otherwise its
- * label says why it is disabled. Then "Repair…", a separator, and "Quit" with its consequence in the label.
+ * The tray menu, short on purpose: the old login service's status line (disabled, only while held), "完成首次設定…" (only
+ * while the App needs setup), "Open Dashboard" (enabled only when the managed service runs, otherwise its label says
+ * why), "Open <App name>…" (the window), "檢查更新…", a separator and "Quit" with its consequence in the label. Everything
+ * else (repair, port, Agent setup, the old service) lives in the window's tabs.
  */
 export function buildTrayMenu(inputs: TrayMenuInputs): TrayMenuItem[] {
-  const { messages } = inputs;
+  const { messages, legacyHeld, setup } = inputs;
   const reason = dashboardDisabledReason(inputs);
-  const { setup } = inputs;
-  const setupItems: TrayMenuItem[] = setup
-    ? [
-        setup.needsSetup
-          ? { id: "complete-setup", label: setup.messages.trayCompleteSetup, enabled: true }
-          : { id: "agent-setup", label: setup.messages.trayAgentSetup, enabled: true },
-      ]
-    : [];
-  const { legacyHeld } = inputs;
   return [
     ...(legacyHeld ? [{ id: "legacy-status" as const, label: legacyHeld.trayLegacyStatus, enabled: false }] : []),
-    ...(setup?.needsSetup ? setupItems : []),
+    ...(setup?.needsSetup
+      ? [{ id: "complete-setup" as const, label: setup.messages.trayCompleteSetup, enabled: true }]
+      : []),
     {
       id: "open-dashboard",
       label: reason
@@ -82,17 +65,7 @@ export function buildTrayMenu(inputs: TrayMenuInputs): TrayMenuItem[] {
         : messages.trayOpenDashboard,
       enabled: reason === undefined,
     },
-    ...(legacyHeld
-      ? [
-          { id: "legacy-start-anyway" as const, label: legacyHeld.trayLegacyStartAnyway, enabled: true },
-          { id: "legacy-remove-help" as const, label: legacyHeld.trayLegacyHowToRemove, enabled: true },
-        ]
-      : []),
-    { id: "repair", label: messages.trayRepair, enabled: true },
-    ...(inputs.port && !setup?.needsSetup
-      ? [{ id: "change-port" as const, label: inputs.port.trayChangePort, enabled: true }]
-      : []),
-    ...(setup && !setup.needsSetup ? setupItems : []),
+    { id: "open-app", label: formatMessage(messages.trayOpenApp, { name: messages.appName }), enabled: true },
     ...(inputs.update ? [{ id: "check-updates" as const, label: inputs.update.trayCheckUpdates, enabled: true }] : []),
     { id: "separator", label: "", enabled: false },
     { id: "quit", label: messages.trayQuit, enabled: true },

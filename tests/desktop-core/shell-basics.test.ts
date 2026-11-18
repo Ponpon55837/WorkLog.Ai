@@ -103,8 +103,9 @@ describe("ErrorPresenter", () => {
 describe("buildTrayMenu", () => {
   it("puts the Dashboard first and enabled only for a running managed service", () => {
     const menu = buildTrayMenu({ messages: zh, owner: "MANAGED", backendRunning: true });
-    expect(menu.map((item) => item.id)).toEqual(["open-dashboard", "repair", "separator", "quit"]);
+    expect(menu.map((item) => item.id)).toEqual(["open-dashboard", "open-app", "separator", "quit"]);
     expect(menu[0]).toEqual({ id: "open-dashboard", label: "開啟 Dashboard", enabled: true });
+    expect(menu[1]).toEqual({ id: "open-app", label: "開啟 Work Intelligence…", enabled: true });
     expect(menu[3]?.label).toBe("退出（退出後不會每日備份）");
   });
 
