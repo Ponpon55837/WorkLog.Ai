@@ -15,7 +15,7 @@
 - Windows SQLite 量測（僅測試）：`WI_SQLITE_TIMING=1` 只在 Windows CI 的測試工作中開啟，結果以 artifact 上傳；不改變門檻、逾時或斷言。量測結果：5 個測試程序有超過 1 秒的呼叫（最長 5.5 秒，為 `BEGIN IMMEDIATE` 等待寫入鎖）；開啟資料庫與 checkpoint 都不慢。本版不修正。
 - 閒置的匯入預覽不再擋住連接埠變更；只有真的捨棄預覽時才顯示提示（ADR-27）。
 - Hook 與 MCP 狀態辨識 launcher 形式的安裝：Web 狀態頁與桌面 Agent 頁共用同一個辨識器。
-- CI：PR #382 的 23 項必要檢查全部通過（commit c4e67ea）。Windows 11 與 macOS 實機驗收尚未進行，仍為**待實機驗收**。
+- CI：PR #382 的 23 項必要檢查全部通過（commit d0fa5e4）。Windows 11 與 macOS 實機驗收尚未進行，仍為**待實機驗收**。
 
 沒有 schema 變更（33），沒有 migration。詳見 [1.6.54 更新說明](releases/1.6.54.md)。
 
