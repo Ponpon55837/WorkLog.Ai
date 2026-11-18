@@ -1,5 +1,6 @@
-import { clipboard, dialog, ipcMain, shell } from "electron";
+import { dialog, ipcMain, shell } from "electron";
 import type { IpcMainInvokeEvent } from "electron";
+import { homedir } from "node:os";
 import {
   allowMigrationFor,
   canApplyPreview,
@@ -8,6 +9,7 @@ import {
   DiagnosticsPreviewStore,
   initialTab,
   isTrustedRepairSender,
+  openSystemSettings,
   REPAIR_CHANNELS,
   repairInputSchemas,
   tabsFor,
@@ -281,13 +283,14 @@ export function registerRepairIpc(options: IpcOptions): void {
     return { ok: true };
   });
 
-  handle(REPAIR_CHANNELS.copyCommand, parser(repairInputSchemas.copyCommand), async ({ target }) => {
-    const detection = legacy.latest();
-    if (detection?.kind !== "found") return { ok: false };
-    // The text comes from main's own detection, never from the page.
-    const text = target === "legacy-remove" ? detection.removeCommand : detection.fallbackRemoveCommand;
-    if (!text) return { ok: false };
-    clipboard.writeText(text);
+  // The page sends an enum; main opens one fixed place of the OS for it (never a path or a URL from the page).
+  handle(REPAIR_CHANNELS.openSystemSettings, parser(repairInputSchemas.openSystemSettings), ({ target }) =>
+    openSystemSettings(target, { platform: process.platform, env: process.env, homeDirectory: homedir(), shell }),
+  );
+
+  // "Check again": the user turned the old service off by hand, so detect it afresh; the page then reads the state.
+  handle(REPAIR_CHANNELS.legacyRecheck, parser(repairInputSchemas.legacyRecheck), async () => {
+    await legacy.refresh();
     return { ok: true };
   });
 

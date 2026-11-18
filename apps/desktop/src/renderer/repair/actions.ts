@@ -34,12 +34,12 @@ function failureText(messages: ShellMessages, errorCode: string | undefined): st
   return errorCode ? errorMessageFor(messages, errorCode).title : messages.repairFailedGeneric;
 }
 
-/** The answer to a request that did not succeed: a restart in progress is shown as such, never as an error. */
+/** The answer to a request that did not succeed: another operation holding the App is said as such, never as an error. */
 function failedAnswer(
   messages: ShellMessages,
   result: { readonly reason: string; readonly errorCode?: string },
 ): string {
-  return result.reason === "busy" ? messages.repairRestarting : failureText(messages, result.errorCode);
+  return result.reason === "busy" ? messages.repairBusyOperation : failureText(messages, result.errorCode);
 }
 
 export function createActions(host: ActionHost): Actions {

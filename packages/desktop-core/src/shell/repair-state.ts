@@ -8,6 +8,7 @@ import type { RecordedError } from "./recent-errors.js";
 import type { StorageRiskView } from "./storage-risk-view.js";
 import type { RepairUpdateSection } from "../update-check/result.js";
 import { canDisableLegacyService } from "../legacy-service/disable.js";
+import { systemSettingsField, type SystemSettingsTarget } from "../legacy-service/system-settings.js";
 import type { LegacyServiceDetection } from "../legacy-service/types.js";
 
 export type BackendRunState = "running" | "starting" | "stopped" | "crashed";
@@ -69,7 +70,7 @@ export interface RepairState {
   /** What the tab strip needs: the tab list, the blocking tab and one badge per tab (see repair-ipc.ts). */
   readonly shell: AppShellState;
   /**
-   * The old login service (`pnpm bootstrap`) is installed and may serve this database. `blocked`: the App did not start
+   * The old login service is installed and may serve this database. `blocked`: the App did not start
    * its backend because of it; only "仍要啟動" (the `start-anyway` action) starts it.
    */
   readonly legacyService: {
@@ -79,8 +80,8 @@ export interface RepairState {
     readonly portInUse: boolean;
     /** 「停用舊的登入服務」 is offered: the definition is the one `service:install` writes, for a known checkout. */
     readonly canDisable: boolean;
-    readonly removeCommand?: string;
-    readonly fallbackRemoveCommand: string;
+    /** Where the App opens for the user to turn the service off by hand; absent where it has no such place. */
+    readonly systemSettings?: SystemSettingsTarget;
   } | null;
 }
 
@@ -213,10 +214,7 @@ export function buildRepairState(inputs: RepairStateInputs): RepairState {
             blocked: inputs.legacyBlocked === true,
             portInUse: inputs.legacyPortInUse === true,
             canDisable: canDisableLegacyService(inputs.legacyService),
-            ...(inputs.legacyService.removeCommand === undefined
-              ? {}
-              : { removeCommand: inputs.legacyService.removeCommand }),
-            fallbackRemoveCommand: inputs.legacyService.fallbackRemoveCommand,
+            ...systemSettingsField(inputs.legacyService.platform),
           }
         : null,
     actions: [

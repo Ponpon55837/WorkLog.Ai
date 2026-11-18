@@ -11,7 +11,6 @@ import {
   legacyWindowsTaskTarget,
 } from "./constants.js";
 import { decodeLegacyDefinition, interpretLegacyDefinition, type InterpretedDefinition } from "./parse.js";
-import { legacyFallbackRemoveCommand, legacyRemoveCommand } from "./remove-command.js";
 import type {
   DetectLegacyServiceOptions,
   LegacyServiceCommandResult,
@@ -299,7 +298,5 @@ export async function detectLegacyService(options: DetectLegacyServiceOptions): 
     ...(interpreted.recognised && text !== undefined ? { definitionDigest: legacyDefinitionDigest(text) } : {}),
     running: query.running,
     ...(enabled === undefined ? {} : { enabled }),
-    ...(repositoryRoot ? { removeCommand: legacyRemoveCommand(platform, repositoryRoot) } : {}),
-    fallbackRemoveCommand: legacyFallbackRemoveCommand(platform, definitionFile),
   };
 }

@@ -1,8 +1,8 @@
-import type { CopyCommandTarget, RepairApi } from "@work-intelligence/desktop-core";
+import type { RepairApi, SystemSettingsTarget } from "@work-intelligence/desktop-core";
 import type { SetupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
-import { button, cardBody, element, hint, section } from "./dom.js";
+import { actions, button, cardBody, element, hint, section } from "./dom.js";
 
-/** What every view knows about the old login service; the commands come from main's detection, never from the page. */
+/** What every view knows about the old login service; where to send the user comes from main, never from the page. */
 export interface LegacyFacts {
   readonly running: "running" | "stopped" | "unknown";
   /**
@@ -10,38 +10,79 @@ export interface LegacyFacts {
    * service when this is so, which is why the repair window (no such field in its state) infers it from `stopped`.
    */
   readonly startsAtLogin?: boolean;
-  readonly removeCommand?: string;
-  readonly fallbackRemoveCommand: string;
+  /** The OS place that lists the service, for turning it off by hand; absent where the App has none to open. */
+  readonly systemSettings?: SystemSettingsTarget;
   readonly portInUse?: boolean;
   readonly blocked?: boolean;
   /** 「停用舊的登入服務…」 is offered; the view adds its controls through `extra`. */
   readonly canDisable?: boolean;
 }
 
-function commandRow(
+/** How long 「仍偵測到…」 stays after 「重新檢查」, which redraws the card from a new state. */
+const STILL_THERE_MS = 12_000;
+let stillThereUntil = 0;
+
+/**
+ * The hand-off for turning the service off by hand: numbered steps, a button that opens the one OS place, and
+ * 「重新檢查」. Open at once when the App cannot turn the service off itself; a fold-out below the App's own button
+ * otherwise.
+ */
+function manualSteps(
   api: RepairApi,
   text: SetupMessages,
-  note: string,
-  command: string,
-  target: CopyCommandTarget,
+  target: SystemSettingsTarget,
+  open: boolean,
+  recheck: () => void,
 ): HTMLElement {
-  const copy = button(text.legacyCopy, `copy:${target}`, true, () => {
-    void api.copyCommand(target).then((result) => {
-      if (result.ok) copy.textContent = text.legacyCopied;
-    });
+  const notice = hint(text.legacyStillThere);
+  notice.hidden = Date.now() >= stillThereUntil;
+  const failed = hint(text.legacyOpenFailed[target]);
+  failed.hidden = true;
+  const openButton = button(text.legacyOpenSettings[target], "open-system-settings", true, () => {
+    void api
+      .openSystemSettings(target)
+      .then((result) => {
+        failed.hidden = result.ok;
+      })
+      .catch(() => {
+        failed.hidden = false;
+      });
   });
-  return element("div", { className: "command" }, [
-    hint(note, "div"),
-    element("code", { className: "command-text", text: command }),
-    copy,
+  const recheckButton = button(text.legacyRecheck, "legacy-recheck", true, () => {
+    stillThereUntil = Date.now() + STILL_THERE_MS;
+    notice.hidden = false;
+    void api
+      .legacyRecheck()
+      .catch(() => ({ ok: false }))
+      .then(recheck);
+  });
+  const details = element("details", { className: "advanced manual-steps" }, [
+    element("summary", { text: text.legacyManualHeading }),
+    element(
+      "ol",
+      { className: "steps" },
+      text.legacyManualSteps[target].map((step) => element("li", { text: step })),
+    ),
+    actions(openButton, recheckButton),
+    failed,
+    notice,
   ]);
+  details.open = open;
+  return details;
 }
 
 /**
- * The warning, word for word as agreed: the old service (`pnpm bootstrap`) may use the same database. It shows the exact
- * removal command with a copy button; "仍要啟動" is added by the view that can start.
+ * The warning, in the words agreed: the old service may use the same database. It never asks for a command: the App
+ * turns the service off itself (the view's `extra` controls), and when it cannot, the steps name the OS place to open.
+ * 「仍要啟動」 is added by the view that can start.
  */
-export function legacyBlock(api: RepairApi, text: SetupMessages, facts: LegacyFacts, extra: Node[] = []): HTMLElement {
+export function legacyBlock(
+  api: RepairApi,
+  text: SetupMessages,
+  facts: LegacyFacts,
+  extra: Node[] = [],
+  recheck: () => void = () => undefined,
+): HTMLElement {
   const running =
     facts.running === "running"
       ? text.legacyRunning
@@ -60,18 +101,9 @@ export function legacyBlock(api: RepairApi, text: SetupMessages, facts: LegacyFa
     body.append(hint(text.legacyStartsAtLogin));
   }
   if (facts.blocked) body.append(hint(text.legacyBlocked));
-  if (facts.removeCommand) {
-    body.append(commandRow(api, text, text.legacyRemoveHint, facts.removeCommand, "legacy-remove"));
+  body.append(...extra);
+  if (facts.systemSettings) {
+    body.append(manualSteps(api, text, facts.systemSettings, facts.canDisable !== true, recheck));
   }
-  body.append(
-    commandRow(
-      api,
-      text,
-      facts.removeCommand ? text.legacyFallbackHint : text.legacyRemoveHint,
-      facts.fallbackRemoveCommand,
-      "legacy-fallback",
-    ),
-    ...extra,
-  );
   return card;
 }

@@ -31,7 +31,7 @@ function legacyCards(ctx: ViewContext): Node[] {
   };
   if (state.legacyService) {
     const controls = legacyDisableControls(host, state.legacyService.canDisable, !ctx.busy);
-    return [legacyBlock(host.api, host.text, state.legacyService, controls)];
+    return [legacyBlock(host.api, host.text, state.legacyService, controls, act.refresh)];
   }
   const outcome = legacyDisableOutcome(host);
   return outcome ? [outcome] : [];

@@ -148,7 +148,7 @@ describe("desktop facts and open-agent-setup", () => {
     port: 40_123,
     database: { path: "/synthetic/work.sqlite", identity: IDENTITY },
   };
-  const LEGACY = { running: "running", removeCommand: "synthetic remove", fallbackRemoveCommand: "synthetic fallback" };
+  const LEGACY = { running: "running" };
 
   it("accepts start with or without the optional desktop facts", () => {
     expect(parseDesktopParentMessage(START).ok).toBe(true);
@@ -157,8 +157,12 @@ describe("desktop facts and open-agent-setup", () => {
       ok: true,
       message: { desktop: { legacyService: LEGACY } },
     });
-    const withoutRemove = { running: "unknown", fallbackRemoveCommand: "synthetic fallback" };
-    expect(parseDesktopParentMessage({ ...START, desktop: { legacyService: withoutRemove } }).ok).toBe(true);
+    // An older shell still sends the removal commands; they are accepted and dropped, never carried on.
+    const olderShell = { running: "unknown", removeCommand: "synthetic", fallbackRemoveCommand: "synthetic fallback" };
+    expect(parseDesktopParentMessage({ ...START, desktop: { legacyService: olderShell } })).toMatchObject({
+      ok: true,
+      message: { desktop: { legacyService: { running: "unknown" } } },
+    });
   });
 
   it("carries the App's launcher shim path in the desktop facts", () => {
@@ -175,13 +179,7 @@ describe("desktop facts and open-agent-setup", () => {
     expect(parseDesktopParentMessage({ ...START, desktop: { legacyService: { ...LEGACY, running: "yes" } } }).ok).toBe(
       false,
     );
-    expect(parseDesktopParentMessage({ ...START, desktop: { legacyService: { running: "running" } } }).ok).toBe(false);
-    expect(
-      parseDesktopParentMessage({
-        ...START,
-        desktop: { legacyService: { ...LEGACY, fallbackRemoveCommand: "x".repeat(4097) } },
-      }).ok,
-    ).toBe(false);
+    expect(parseDesktopParentMessage({ ...START, desktop: { legacyService: {} } }).ok).toBe(false);
   });
 
   it("accepts a bare open-agent-setup from the child and rejects extra fields", () => {

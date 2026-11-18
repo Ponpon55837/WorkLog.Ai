@@ -20,6 +20,7 @@ import type { DiagnosticsReport } from "./diagnostics.js";
 import type { RepairActionId, RepairState } from "./repair-state.js";
 import type { SetupState } from "./setup-state.js";
 import { SETUP_AGENT_IDS, type AgentsState, type SetupAgentId } from "./agents-state.js";
+import { SYSTEM_SETTINGS_TARGETS, type SystemSettingsTarget } from "../legacy-service/system-settings.js";
 import { isRepairPageUrl } from "./navigation-policy.js";
 import type { PortProblem } from "./port-policy.js";
 import {
@@ -41,7 +42,10 @@ export const REPAIR_CHANNELS = {
   startAnyway: "repair:start-anyway",
   getTab: "app:get-tab",
   rememberTab: "app:remember-tab",
-  copyCommand: "app:copy-command",
+  /** The page names one of `SYSTEM_SETTINGS_TARGETS`; main opens one fixed OS place for it. */
+  openSystemSettings: "app:open-system-settings",
+  /** Read the old login service again (the user turned it off by hand). No input. */
+  legacyRecheck: "legacy:recheck",
   setupGetState: "setup:get-state",
   setupUseDefaults: "setup:use-defaults",
   setupUseSource: "setup:use-source",
@@ -68,10 +72,6 @@ export const REPAIR_CHANNELS = {
   /** Main to the page (not a request): the update check started or finished, so the page reads the state again. */
   updateChanged: "update:changed",
 } as const;
-
-/** Commands the page may ask main to copy to the clipboard; the text itself never comes from the page. */
-export const COPY_COMMAND_TARGETS = ["legacy-remove", "legacy-fallback"] as const;
-export type CopyCommandTarget = (typeof COPY_COMMAND_TARGETS)[number];
 
 export type RepairChannel = (typeof REPAIR_CHANNELS)[keyof typeof REPAIR_CHANNELS];
 
@@ -100,7 +100,8 @@ export const repairInputSchemas = {
   getTab: z.undefined(),
   /** The tab the user selected; main remembers it for this session only and rejects any id outside `APP_TABS`. */
   rememberTab: z.strictObject({ tab: z.enum(APP_TABS) }),
-  copyCommand: z.strictObject({ target: z.enum(COPY_COMMAND_TARGETS) }),
+  openSystemSettings: z.strictObject({ target: z.enum(SYSTEM_SETTINGS_TARGETS) }),
+  legacyRecheck: z.strictObject({}),
   setupGetState: z.undefined(),
   setupUseDefaults: z.strictObject({ launchAtLogin: z.boolean(), startAnyway: z.boolean().optional() }),
   setupUseSource: z.strictObject({
@@ -280,7 +281,10 @@ export interface RepairApi {
   rememberTab(tab: AppTab): Promise<{ readonly ok: boolean }>;
   /** Calls `listener` whenever main asks the page to select a tab (the tray, a launch flag); the window is not reloaded. */
   onSelectTab(listener: (tab: AppTab) => void): void;
-  copyCommand(target: CopyCommandTarget): Promise<{ readonly ok: boolean }>;
+  /** Opens the OS place where the user can turn the old login service off by hand (an enum, never a path). */
+  openSystemSettings(target: SystemSettingsTarget): Promise<{ readonly ok: boolean }>;
+  /** Detects the old login service again; the page then reads the state. */
+  legacyRecheck(): Promise<{ readonly ok: boolean }>;
   setupGetState(): Promise<SetupState>;
   setupUseDefaults(launchAtLogin: boolean, startAnyway?: boolean): Promise<SetupActionResult>;
   setupUseSource(input: {

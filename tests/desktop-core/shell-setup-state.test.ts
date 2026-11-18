@@ -47,7 +47,6 @@ function found(overrides: Partial<LegacyServiceFound> = {}): LegacyServiceFound 
     databasePath: DB_PATH,
     port: 4317,
     running: "running",
-    fallbackRemoveCommand: "systemctl --user disable work-intelligence",
     ...overrides,
   };
 }
@@ -165,7 +164,6 @@ describe("buildSetupState content", () => {
       // The fixture carries no definition digest, so the App does not offer to disable it.
       canDisable: false,
       databaseDisplay: "~/.work-intelligence/data.db",
-      fallbackRemoveCommand: "systemctl --user disable work-intelligence",
     });
     expect(state.errorCode).toBe("DB_MISSING");
     expect(state.busy).toBe(true);

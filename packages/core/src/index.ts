@@ -3620,8 +3620,6 @@ export interface SystemDesktopStatus {
   /** An older pnpm-bootstrap login service that may use the same database. */
   legacyService?: {
     running: "running" | "stopped" | "unknown";
-    removeCommand?: string;
-    fallbackRemoveCommand: string;
   };
   /** The port the App committed for this backend; the page shows it as the effective address. */
   activePort?: number;
