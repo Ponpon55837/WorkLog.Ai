@@ -374,6 +374,7 @@
 ### ADR-25 更新工具版本鎖定；無法證明 metadata 驗證時改為手動下載
 
 - **狀態**：待驗證（版本待鎖）；**1.6.45 採用手動下載路徑**：electron-builder 鎖定 26.18.1（v26 穩定線），不做自動更新，`publish` 為 null，未加入 electron-updater。
+- **1.6.53 狀態**：手動下載路徑已確認。App 內的更新檢查只開啟發行頁面與安裝檔下載，不下載、不安裝（ADR-40）。
 - **脈絡**：electron-builder v27 的 Security & Hardening 文件明示 v27 為 next `[U]`；v26 只靠 `sha512` 不能保護 manifest 本身（R11）。
 - **決策**：A 階段鎖定精確的 electron、electron-builder、electron-updater 版本，並實測 metadata 簽章與篡改拒絕。若使用 v27 的能力，需以實測證明。若 v26 無法提出等價的來源驗證方案，V1 改為手動前往官方 Releases 下載經平台驗證的安裝包，不宣稱自動更新已完成。
 - **後果**：V1 可能只有手動更新。
@@ -395,6 +396,27 @@
 - **決策**：改用 `IFileOpenDialog`（PowerShell `-STA` + `Add-Type` C# COM interop）；選項 `FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST`；DPI aware；TopMost owner。取消（HRESULT `0x800704C7`）→ exit `2`。COM 不可用時 fallback 到 `FolderBrowserDialog`（`EnableVisualStyles`）。輸出 UTF-8。
 - **後果**：需要 Windows 11 實機驗收，對應 `docs/release-checklist.md` 的條目；CI 無法取代。
 - **關聯**：§9.1；DT-26。
+
+### ADR-40 手動更新檢查
+
+- **狀態**：已採用（使用者決策，1.6.53）
+- **脈絡**：ADR-25 的 V1 只能手動下載新版。使用者需要知道有沒有新版，但若 App 自行查詢，會在使用者沒有察覺時連線到外部服務，也會增加背景行為的風險。
+- **決策**：
+  - 只提供手動的「檢查更新」：修復視窗的「更新」卡片，以及工作列的「檢查更新…」（它開啟卡片並開始檢查）。啟動、背景與閒置時都不查詢，也不設定計時器。
+  - **沒有設定開關**。使用者按下「檢查更新」即為同意連線到 GitHub。「預設關閉」的意思是：沒有任何東西會自動執行。
+  - 請求只在主程序發出，請求內容只含固定的 API 路徑與標頭，不含版本、作業系統、機器識別碼或權杖；使用不帶憑證、不快取、不接受重新導向的記憶體內 session。
+  - 下載的對象只能是安裝檔或發行頁面，由使用者的瀏覽器開啟。App 內不下載、不安裝（ADR-25）。
+  - 下載網址由 tag 重新組成，只允許本儲存庫 github.com 的發行網址。畫面不顯示來自網路的網址，跨入主程序的只有固定的選項。
+- **理由**：
+  - 按鈕本身就是使用者明確的動作，不需要額外的設定頁面。
+  - 沒有背景行為，離線與隱私的預期最簡單，也最容易測試（啟動與閒置時不得有請求，由 smoke 測試證明）。
+  - 不做 App 內安裝，就不需要我們自己的 manifest 簽章（ADR-38）。
+- **後果**：
+  - 使用者需要主動檢查，App 不會提醒有新版。
+  - 查詢受 GitHub 配額限制；配額用盡時顯示可再試的時間，不自動重試。
+  - 新版仍需手動安裝，安裝檔未簽署時會出現 Gatekeeper 或 SmartScreen 提示。
+  - 若日後加入 App 內下載或安裝，本條須重新評估，並以我們自己的 manifest 簽章驗證（ADR-24、ADR-38）。
+- **關聯**：ADR-24、ADR-25、ADR-38；[1.6.53 更新說明](../releases/1.6.53.md)；[使用指南](../user-guide.md)「桌面 App 檢查更新」。
 
 ---
 
@@ -429,4 +451,5 @@
   - macOS 無法使用 Squirrel.Mac 自動更新（它要求 Developer ID 簽章），所以更新維持手動下載或本機重新打包（ADR-25）。
   - 打包流程中所有現有的 gate 與測試維持原有嚴格度：fuse 讀回、ad-hoc 簽章驗證（`codesign --verify --deep --strict`）、隨包 Node 簽章、雜湊與大小 gate。只有原本以付費簽章為前提的 gate 依下列方式重新定義。
   - §9.4 的 gate 重新定義：階段 5 的「簽署的 N→N+1」改為「以 SHA256SUMS 與我們自己的 manifest 簽章驗證的 N→N+1」（若之後做更新檢查）；階段 6 的「簽章安裝包」改為「ad-hoc（macOS）／未簽章（Windows）安裝包，並附 SHA256SUMS」。ADR-03 的暫存條件改為同樣的產物。
+- **1.6.53 補充**：更新檢查（ADR-40）不在 App 內下載或安裝，因此目前不需要我們自己的 manifest 簽章；使用者以發行頁面上的 `SHA256SUMS.txt` 核對安裝檔。只有日後加入 App 內安裝時，才需要以我們自己的 manifest 簽章驗證。
 - **關聯**：ADR-03、ADR-25；§9.4；`apps/desktop/scripts/after-pack.mjs`；`.github/workflows/release.yml`。

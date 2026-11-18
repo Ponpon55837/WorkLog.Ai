@@ -205,6 +205,17 @@ R4 的補充用法：
 
 下一版（1.6.53）為更新檢查：預設關閉，由手動的「檢查更新」按鈕觸發；Windows 與 macOS 都顯示版本與更新說明，並開啟下載頁面，App 內不安裝。
 
+## 1.6.53 任務（手動更新檢查）與本文件的關係
+
+本版實作下列項目；Windows 11 與 macOS 的實機驗收仍為**待實機驗收**。CI 結果待 PR 檢查完成後補上。
+
+| 任務 | 內容 | 狀態 | 本文件位置 | 證據路徑 |
+|---|---|---|---|---|
+| 手動更新檢查 | 修復視窗的「更新」卡片與工作列的「檢查更新…」。只在按下按鈕時由主程序請求 GitHub releases API（`per_page=20`），記憶體內 session、不帶憑證、不快取、不接受重新導向；標頭只有 `Accept`、`X-GitHub-Api-Version`、`User-Agent`，不送版本、作業系統、機器識別碼或權杖；10 秒逾時、1 MiB 上限、同時只一次。略過草稿與預發布，tag 須為 `vX.Y.Z`。狀態：最新、有新版、離線、查詢次數受限（不自動重試）、錯誤；每個狀態都有「開啟發行頁面」。更新說明純文字、移除控制與雙向字元、上限 20 000 字元。下載按鈕以預設瀏覽器開啟該平台安裝檔，網址由 tag 重建且只允許本儲存庫的發行網址；其他平台只提供發行頁面。App 內不下載、不安裝 | 1.6.53 已實作；單元測試 62 項、桌面 smoke 17 項；Windows 11 與 macOS 實機待實機驗收 | ADR-40（新增）；ADR-25（手動下載路徑）；ADR-38（未簽署與 SHA256SUMS）；[1.6.53 更新說明](../releases/1.6.53.md) | `packages/desktop-core/src/update-check/`；`apps/desktop/src/main/update-check.ts`；`apps/desktop/src/main/update-session.ts`；`apps/desktop/src/renderer/repair/update-view.ts`；`tests/desktop-core/update-check-{logic,request,controller}.test.ts`；`apps/desktop/tests/desktop-smoke/update-check.spec.ts` |
+| 每日稽核例外監看 | `audit-exceptions-watch`：每天 UTC 03:37 與手動觸發，`contents: read`，無 secret，不是 PR 的必要檢查；執行 `node scripts/check-audit-ignores.mjs --registry`，npm 出現修補版或 advisory 不再回報時失敗並通知維護者 | 1.6.53 已加入 | [相依套件稽核例外](../security/audit-exceptions.md) | `.github/workflows/audit-exceptions-watch.yml`；`scripts/check-audit-ignores.mjs` |
+
+沒有 schema 變更（33），沒有 migration。下一版（1.6.54）為 Windows 上 SQLite 鎖等待與儲存停滯的量測（instrumentation）；1.6.54 之後進行跨版本的完整檢視。
+
 ## 本機打包
 
 依 ADR-38，本機打包是主要的取得方式；CI 與 GitHub Release 的產物為輔。打包只能建置執行它的平台與架構（隨包 Node.js 是該平台的官方執行檔），因此 Windows 與 macOS 各自在本機執行。
