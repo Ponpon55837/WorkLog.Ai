@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -83,6 +83,23 @@ function writeTsconfig(directory: string): string {
   return path;
 }
 
+let sharedChildTemporary: string | undefined;
+
+/**
+ * One temporary directory for every child this test process spawns, removed when it exits. tsx keeps its transform
+ * cache in `<tmpdir>/tsx-<uid>` (about 110 files per run of the storage sources); a TMPDIR of its own per sandbox made
+ * every child start with an empty cache, transforming and writing all of them again (about 1 s per start here,
+ * against 0.45 s with a warm cache), which on a loaded Windows runner is what stretched the barrier tests past 20 s.
+ */
+function childTemporaryDirectory(): string {
+  if (sharedChildTemporary === undefined) {
+    const directory = mkdtempSync(join(tmpdir(), "work-intelligence-old-writer-tmp-"));
+    process.once("exit", () => rmSync(directory, { recursive: true, force: true }));
+    sharedChildTemporary = directory;
+  }
+  return sharedChildTemporary;
+}
+
 function tsxLoaderUrl(): string {
   const require = createRequire(join(REPOSITORY_ROOT, "apps/server/package.json"));
   return pathToFileURL(require.resolve("tsx/esm")).href;
@@ -100,7 +117,6 @@ export class BarrierSandbox {
   public constructor() {
     mkdirSync(this.projectRoot, { recursive: true });
     mkdirSync(join(this.root, "home"), { recursive: true });
-    mkdirSync(join(this.root, "tmp"), { recursive: true });
     this.tsconfigPath = writeTsconfig(this.root);
   }
 
@@ -115,9 +131,9 @@ export class BarrierSandbox {
       ...inherited,
       HOME: home,
       USERPROFILE: home,
-      TMPDIR: join(this.root, "tmp"),
-      TEMP: join(this.root, "tmp"),
-      TMP: join(this.root, "tmp"),
+      TMPDIR: childTemporaryDirectory(),
+      TEMP: childTemporaryDirectory(),
+      TMP: childTemporaryDirectory(),
       WORK_INTELLIGENCE_DB: this.databasePath,
       WORK_INTELLIGENCE_CONFIG_DIR: join(home, ".work-intelligence"),
       WORK_INTELLIGENCE_BACKUP: "off",

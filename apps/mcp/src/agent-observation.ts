@@ -84,6 +84,7 @@ export class AgentObservationRecorder {
   private readonly options: AgentObservationRecorderOptions;
   private protocolVersion: string | undefined;
   private recorded = false;
+  private pendingWrite: Promise<void> = Promise.resolve();
 
   public constructor(options: AgentObservationRecorderOptions) {
     this.options = options;
@@ -102,6 +103,16 @@ export class AgentObservationRecorder {
         this.options.onError?.(error);
       }
     };
+  }
+
+  /**
+   * Resolves once the write that the observed `tools/list` response started has finished, failed or not (failures
+   * reach `onError`); immediately when nothing was observed. Waits one event-loop turn first, so a response that was
+   * only just sent has already been inspected. A process has no need for it, a test uses it instead of a fixed delay.
+   */
+  public async settled(): Promise<void> {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await this.pendingWrite;
   }
 
   private inspect(server: McpServer, message: JSONRPCMessage): void {
@@ -124,7 +135,13 @@ export class AgentObservationRecorder {
       serverVersion: this.options.serverVersion,
       observedAt: (this.options.now?.() ?? new Date()).toISOString(),
     };
-    setImmediate(() => void this.write(observation).catch((error: unknown) => this.options.onError?.(error)));
+    this.pendingWrite = new Promise<void>((resolve) => {
+      setImmediate(() => {
+        this.write(observation)
+          .catch((error: unknown) => this.options.onError?.(error))
+          .finally(resolve);
+      });
+    });
   }
 
   private async write(observation: AgentObservation): Promise<void> {

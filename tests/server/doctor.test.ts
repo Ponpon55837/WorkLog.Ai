@@ -386,13 +386,18 @@ describe("pnpm doctor read-only checks", () => {
     const directory = temporaryDirectory();
     const databasePath = join(directory, "reclaimable.sqlite");
     const database = new DatabaseSync(databasePath);
+    // Building the fixture is not what the test is about. One transaction per step and no fsync keep it to a few disk
+    // syncs instead of the ~180 that 40 autocommit inserts cost, each of which can take seconds on a CI runner's disk.
+    database.exec("PRAGMA synchronous = OFF");
     database.exec(
       "CREATE TABLE schema_migrations (version INTEGER NOT NULL, name TEXT NOT NULL, applied_at TEXT NOT NULL);" +
         "INSERT INTO schema_migrations VALUES (30, 'synthetic', '2026-10-16T00:00:00.000Z');" +
         "CREATE TABLE filler (body BLOB);",
     );
+    database.exec("BEGIN");
     const insert = database.prepare("INSERT INTO filler VALUES (zeroblob(65536))");
     for (let index = 0; index < 40; index += 1) insert.run();
+    database.exec("COMMIT");
     database.exec("DROP TABLE filler;");
     database.close();
     const before = createHash("sha256").update(readFileSync(databasePath)).digest("hex");
