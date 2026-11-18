@@ -167,26 +167,6 @@ for (let run = 1; run <= PERF_RUNS; run += 1) {
   });
 }
 
-// TEMPORARY A/B: the same window-open measurement with the default width (920) and with 780, interleaved; markers from main.
-for (let round = 1; round <= 4; round += 1) {
-  for (const width of ["920", "780"]) {
-    test(`TEMP ab width ${width} round ${round}`, async () => {
-      sandbox = await createSandbox({ withDatabase: false });
-      const started = performance.now();
-      app = await launchApp(sandbox, { WORK_INTELLIGENCE_PERF_WIDTH: width });
-      const launchedAt = performance.now() - started;
-      const window = await app.firstWindow({ timeout: STEP_TIMEOUT_MS });
-      const windowAt = performance.now() - started;
-      await window.getByText("DB_MISSING").waitFor({ state: "visible", timeout: STEP_TIMEOUT_MS });
-      const cardAt = performance.now() - started;
-      const marks = await app.evaluate(() => ((globalThis as { __wiMarks?: string[] }).__wiMarks ?? []).join(" "));
-      process.stdout.write(
-        `[perf ab] width=${width} round=${round} launchApp=${Math.round(launchedAt)} firstWindow=${Math.round(windowAt)} card=${Math.round(cardAt)} | main(uptime ms): ${marks}\n`,
-      );
-    });
-  }
-}
-
 /** The nearest-rank 95th percentile (with three runs it is the slowest one). */
 function p95(values: readonly number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
