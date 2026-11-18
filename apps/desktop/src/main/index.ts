@@ -76,7 +76,7 @@ import { createQuit } from "./quit.js";
 import { createRepairInfo } from "./repair-info.js";
 import { createStorageRiskService } from "./storage-risk.js";
 import { createRepairSuccess } from "./repair-success.js";
-import { createRepairWindow } from "./repair-window.js";
+import { createRepairWindow, perfMark } from "./repair-window.js";
 import { createRuntimeProvisioner } from "./runtime-provision.js";
 import { createSecondInstance } from "./second-instance.js";
 import { applySecurityPolicy, createSessionPolicy, registerRepairScheme } from "./security.js";
@@ -198,8 +198,11 @@ function runShell(configInputs: DesktopConfigInputs): void {
     preloadFile: ASSET_FILES.preloadFile,
     prepareSession: () => {
       // The menu is set before the first window exists (none on Windows and Linux, a minimal one on macOS).
+      perfMark("menuStart");
       applyAppMenu(process.platform, state.messages());
+      perfMark("menuEnd");
       applySessionPolicy();
+      perfMark("policyEnd");
     },
     onShown: () => log("[shell] repair window shown"),
   });
@@ -656,6 +659,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
   early.started.catch(() => undefined);
   void app
     .whenReady()
+    .then(() => perfMark("ready"))
     .then(() => presentStart(early))
     .catch((error: unknown) => {
       log(`[shell] start failed: ${error instanceof Error ? error.message : "unknown error"}`);

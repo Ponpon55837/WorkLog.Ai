@@ -46,6 +46,12 @@ function toRect(bounds: { x: number; y: number; width: number; height: number })
   return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
 }
 
+/** TEMPORARY perf marker: ms since the main process started. */
+export function perfMark(name: string): void {
+  const g = globalThis as { __wiMarks?: string[] };
+  (g.__wiMarks ??= []).push(`${name}=${Math.round(process.uptime() * 1000)}`);
+}
+
 export function createRepairWindow(options: RepairWindowOptions): RepairWindow {
   let current: BrowserWindow | null = null;
   /** Size and position the window had when it was last closed; memory only, for this App session. */
@@ -54,8 +60,12 @@ export function createRepairWindow(options: RepairWindowOptions): RepairWindow {
   const alive = (): BrowserWindow | null => (current && !current.isDestroyed() ? current : null);
 
   function openBounds(): ReturnType<typeof windowBoundsFor> {
+    perfMark("boundsStart");
     const display = lastBounds ? screen.getDisplayMatching(lastBounds) : screen.getPrimaryDisplay();
-    return windowBoundsFor(toRect(display.workArea), lastBounds);
+    const result = windowBoundsFor(toRect(display.workArea), lastBounds);
+    perfMark("boundsEnd");
+    const override = Number(process.env.WORK_INTELLIGENCE_PERF_WIDTH);
+    return override > 0 ? { ...result, width: override } : result;
   }
 
   function open(requested?: AppTab, choice: TabChoice = {}): void {
@@ -74,7 +84,9 @@ export function createRepairWindow(options: RepairWindowOptions): RepairWindow {
       return;
     }
     if (process.platform === "darwin") void app.dock?.show();
+    perfMark("prepareStart");
     options.prepareSession();
+    perfMark("prepareEnd");
     const created = new BrowserWindow({
       ...openBounds(),
       show: false,
@@ -92,9 +104,12 @@ export function createRepairWindow(options: RepairWindowOptions): RepairWindow {
         preload: options.preloadFile,
       },
     });
+    perfMark("constructed");
     if (process.platform !== "darwin") created.removeMenu();
     current = created;
+    created.webContents.once("did-finish-load", () => perfMark("didFinishLoad"));
     created.once("ready-to-show", () => {
+      perfMark("readyToShow");
       created.show();
       options.onShown?.();
     });
@@ -106,6 +121,7 @@ export function createRepairWindow(options: RepairWindowOptions): RepairWindow {
       // A background (login) start leaves no Dock icon when no window is open.
       if (process.platform === "darwin" && BrowserWindow.getAllWindows().length === 0) app.dock?.hide();
     });
+    perfMark("loadURL");
     void created.loadURL(REPAIR_PAGE_URL);
   }
 
