@@ -127,6 +127,26 @@ function writeSyncedFile(path: string, bytes: Buffer, mode: number): void {
   }
 }
 
+/** Errors a Windows file lock raises while an antivirus scanner or the search indexer briefly holds a file. */
+const RENAME_RETRYABLE_CODES: ReadonlySet<string> = new Set(["EBUSY", "EPERM", "EACCES"]);
+/** Waits before each retry: five attempts, 0.75 s in all. */
+const RENAME_RETRY_DELAYS_MS: readonly number[] = [50, 100, 200, 400];
+
+/** `renameSync` that tries again when a file lock refuses it; any other error, and the last refusal, is thrown. */
+function renameWithRetry(from: string, to: string): void {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      renameSync(from, to);
+      return;
+    } catch (error) {
+      const delay = RENAME_RETRY_DELAYS_MS[attempt];
+      const { code } = (error ?? {}) as { code?: unknown };
+      if (delay === undefined || typeof code !== "string" || !RENAME_RETRYABLE_CODES.has(code)) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delay);
+    }
+  }
+}
+
 /**
  * Temp file (fsynced), fingerprint re-check, rename, directory sync. When `expectedFingerprint` is given the target is
  * re-read after the temp file is complete and the rename is skipped, with a {@link FingerprintMismatchError}, if it
@@ -140,7 +160,7 @@ export function writeAtomically(path: string, bytes: Buffer, mode: number, expec
     if (expectedFingerprint !== undefined && fingerprintOf(readCurrent(path)) !== expectedFingerprint) {
       throw new FingerprintMismatchError(path);
     }
-    renameSync(temporaryPath, path);
+    renameWithRetry(temporaryPath, path);
   } catch (error) {
     try {
       rmSync(temporaryPath, { force: true });
