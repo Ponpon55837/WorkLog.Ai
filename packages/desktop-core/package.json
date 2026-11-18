@@ -39,6 +39,10 @@
       "types": "./dist/shell/diagnostics-i18n.d.ts",
       "import": "./dist/shell/diagnostics-i18n.js"
     },
+    "./shell/restore-i18n": {
+      "types": "./dist/shell/restore-i18n.d.ts",
+      "import": "./dist/shell/restore-i18n.js"
+    },
     "./update-check/result": {
       "types": "./dist/update-check/result.d.ts",
       "import": "./dist/update-check/result.js"

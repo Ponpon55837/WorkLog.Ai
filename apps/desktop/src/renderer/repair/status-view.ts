@@ -8,7 +8,7 @@ import {
 import { setupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
 import { backendTone, databaseLabel, label, ownerTone } from "./badge.js";
 import type { ViewContext } from "./context.js";
-import { candidatesCard, databaseCard, databasePath } from "./data-view.js";
+import { candidatesCard, databaseCard, databasePath, restoreCard } from "./data-view.js";
 import { actions, button, cardBody, element, facts, hint, section } from "./dom.js";
 import { legacyBlock } from "./legacy-block.js";
 import { legacyDisableControls, legacyDisableOutcome, type LegacyDisableHost } from "./legacy-disable-view.js";
@@ -130,7 +130,7 @@ export function statusPanel(ctx: ViewContext): Node[] {
   }
   blocks.push(serviceCard(ctx, blocking));
   if (blocking) {
-    blocks.push(databaseCard(ctx));
+    blocks.push(databaseCard(ctx), restoreCard(ctx));
     const candidates = candidatesCard(ctx);
     if (candidates) blocks.push(candidates);
   }

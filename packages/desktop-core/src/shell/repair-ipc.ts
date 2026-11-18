@@ -28,6 +28,7 @@ import {
   type UpdateLinkTarget,
   type UpdateOpenLinkResult,
 } from "../update-check/result.js";
+import type { RestoreListResult, RestorePickResult, RestoreRunResult } from "./restore-types.js";
 
 /** IPC channel names between the repair page (through its preload) and main. */
 export const REPAIR_CHANNELS = {
@@ -63,6 +64,9 @@ export const REPAIR_CHANNELS = {
   copyToLocal: "repair:copy-to-local",
   updateCheck: "update:check",
   updateOpenLink: "update:open-link",
+  restoreList: "restore:list",
+  restorePick: "restore:pick",
+  restoreRun: "restore:run",
   /** Main to the page (not a request): select this tab (the payload is an `AppTab`); the window is never reloaded for it. */
   selectTab: "app:select-tab",
   /** Main to the page (not a request): the update check started or finished, so the page reads the state again. */
@@ -140,6 +144,12 @@ export const repairInputSchemas = {
   updateCheck: z.strictObject({}),
   /** Which kept link to open: a name, never a URL. */
   updateOpenLink: z.strictObject({ target: z.enum(UPDATE_LINK_TARGETS) }),
+  /** 「從備份還原」: the backups of the App's database. Main reads every path itself; the answer carries one-time ids only. */
+  restoreList: z.strictObject({}),
+  /** 「選擇備份檔…」: main opens the native chooser; the answer is one backup with a one-time id. No input, so no path. */
+  restorePick: z.strictObject({}),
+  /** Restores exactly the backup this id stands for (single use, this window, expires). The page never sends a path. */
+  restoreRun: z.strictObject({ backupId: z.uuid() }),
 } as const;
 
 /** What the 「停用舊的登入服務」 preview shows; the step lines are for 「詳細步驟」 only. */
@@ -307,6 +317,9 @@ export interface RepairApi {
   portChange(port: string | number): Promise<PortChangeResult>;
   checkForUpdates(): Promise<UpdateCheckResult>;
   openUpdateLink(target: UpdateLinkTarget): Promise<UpdateOpenLinkResult>;
+  restoreList(): Promise<RestoreListResult>;
+  restorePick(): Promise<RestorePickResult>;
+  restoreRun(backupId: string): Promise<RestoreRunResult>;
   /** Calls `listener` whenever main starts or finishes an update check (the button's or the tray item's). */
   onUpdateChanged(listener: () => void): void;
 }

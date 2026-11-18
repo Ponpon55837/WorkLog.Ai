@@ -38,6 +38,9 @@ const channels: typeof REPAIR_CHANNELS = {
   updateCheck: "update:check",
   updateOpenLink: "update:open-link",
   updateChanged: "update:changed",
+  restoreList: "restore:list",
+  restorePick: "restore:pick",
+  restoreRun: "restore:run",
   selectTab: "app:select-tab",
 };
 
@@ -103,6 +106,9 @@ const api: RepairApi = {
   portChange: (port) => ipcRenderer.invoke(channels.portChange, { port }),
   checkForUpdates: () => ipcRenderer.invoke(channels.updateCheck, {}),
   openUpdateLink: (target) => ipcRenderer.invoke(channels.updateOpenLink, { target }),
+  restoreList: () => ipcRenderer.invoke(channels.restoreList, {}),
+  restorePick: () => ipcRenderer.invoke(channels.restorePick, {}),
+  restoreRun: (backupId) => ipcRenderer.invoke(channels.restoreRun, { backupId }),
   onSelectTab: (listener) => {
     // Forwarded as sent; the page checks the id against the tab list before it switches.
     ipcRenderer.on(channels.selectTab, (_event, tab: unknown) => {

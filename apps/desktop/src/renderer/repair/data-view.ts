@@ -1,9 +1,11 @@
 import type { RepairActionId, RepairState } from "@work-intelligence/desktop-core";
 import type { ShellMessages } from "@work-intelligence/desktop-core/shell/i18n";
+import { restoreMessages } from "@work-intelligence/desktop-core/shell/restore-i18n";
 import { setupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
 import { databaseLabel } from "./badge.js";
 import type { ViewContext } from "./context.js";
 import { actions, button, checkbox, element, facts, hint, path, section } from "./dom.js";
+import { restoreSection } from "./restore-view.js";
 import { storageRiskNote } from "./storage-risk-card.js";
 
 /** The Data tab: the database in use and what can be done with it, the backups, the logs and the databases found. */
@@ -124,7 +126,19 @@ export function candidatesCard(ctx: ViewContext): HTMLElement | null {
   return section(messages.repairCandidates, list);
 }
 
+/** 「從備份還原」: the backups of the database in use and a file chooser. Reachable while the database is missing too. */
+export function restoreCard(ctx: ViewContext): HTMLElement {
+  return restoreSection({
+    api: ctx.act.api,
+    text: restoreMessages(ctx.state.locale),
+    locale: ctx.state.locale,
+    pageBusy: ctx.busy,
+    rerender: ctx.act.rerender,
+    refresh: ctx.act.refresh,
+  });
+}
+
 export function dataPanel(ctx: ViewContext): Node[] {
   const candidates = candidatesCard(ctx);
-  return candidates ? [databaseCard(ctx), candidates] : [databaseCard(ctx)];
+  return candidates ? [databaseCard(ctx), restoreCard(ctx), candidates] : [databaseCard(ctx), restoreCard(ctx)];
 }
