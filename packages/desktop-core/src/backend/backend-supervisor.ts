@@ -993,6 +993,8 @@ export class BackendSupervisor {
     }
     if (!exit) {
       forced = true;
+      // Windows: the tree first, so the import worker does not outlive its parent and keep writing a database that was switched away.
+      if (platform === "win32" && child.pid !== undefined) this.tryKillTree(child.pid);
       this.tryKill(child, platform === "win32" ? undefined : "SIGKILL");
       exit = await this.within(channel.exited, this.timeouts.killMs);
     }
@@ -1007,6 +1009,14 @@ export class BackendSupervisor {
       portReleased,
       wasRunning: true,
     };
+  }
+
+  private tryKillTree(pid: number): void {
+    try {
+      this.deps.killTree?.(pid);
+    } catch {
+      // The plain kill that follows still ends the child itself.
+    }
   }
 
   /** A kill that throws or returns false changes nothing: only the exit event proves the child ended. */

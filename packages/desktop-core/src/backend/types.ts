@@ -35,6 +35,11 @@ export interface BackendSupervisorDependencies {
   randomChallenge(): string;
   /** `fs.realpathSync.native`, so a Windows 8.3 name or a symlinked path compares equal to the real executable. */
   realpath(path: string): string;
+  /**
+   * Ends the process `pid` together with every process it started. Windows only, and only for the final kill there:
+   * `kill()` is TerminateProcess, which leaves a child of the child (the import worker) running as an orphan.
+   */
+  killTree?(pid: number): void;
   /** Creates `path` (and its parents) when it is missing; used for the fixed working directory before every spawn. */
   ensureDirectory?(path: string): Promise<void>;
   setTimer(callback: () => void, ms: number): unknown;

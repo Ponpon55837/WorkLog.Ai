@@ -736,6 +736,32 @@ describe("stop", () => {
     expect(report).toMatchObject({ graceful: false, forced: true, exitCode: 1, exited: true });
   });
 
+  it("ends the whole process tree before the Windows kill, so the import worker is not left running", async () => {
+    const harness = makeHarness({ platform: "win32", scripts: [{ onShutdown: "ignore" }] });
+    await harness.supervisor.start(startRequest());
+    const stopping = harness.supervisor.stop();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await stopping;
+
+    expect(harness.killTree).toHaveBeenCalledExactlyOnceWith(harness.children[0]?.pid);
+  });
+
+  it("never ends a process tree on POSIX, and not after a graceful stop on Windows", async () => {
+    const posix = makeHarness({ scripts: [{ onShutdown: "ignore", onSigterm: "ignore" }] });
+    await posix.supervisor.start(startRequest());
+    const stoppingPosix = posix.supervisor.stop();
+    await vi.advanceTimersByTimeAsync(13_000);
+    await stoppingPosix;
+    expect(posix.killTree).not.toHaveBeenCalled();
+
+    const windows = makeHarness({ platform: "win32" });
+    await windows.supervisor.start(startRequest());
+    const stoppingWindows = windows.supervisor.stop();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await stoppingWindows;
+    expect(windows.killTree).not.toHaveBeenCalled();
+  });
+
   it("does not claim the child exited when no exit event arrives after the final kill", async () => {
     const harness = makeHarness({ scripts: [{ onShutdown: "ignore", onSigterm: "ignore", onSigkill: "ignore" }] });
     await harness.supervisor.start(startRequest());

@@ -147,6 +147,7 @@ export class FakeChild extends EventEmitter {
 }
 
 export interface Harness {
+  readonly killTree: ReturnType<typeof vi.fn>;
   readonly supervisor: BackendSupervisor;
   readonly children: FakeChild[];
   readonly deps: BackendSupervisorDependencies;
@@ -169,6 +170,8 @@ export interface HarnessOptions {
   workingDirectory?: string;
   /** Makes the working directory exist; absent, the supervisor creates nothing. */
   ensureDirectory?: (path: string) => Promise<void>;
+  /** Stands in for the Windows process-tree kill; the harness records its calls. */
+  killTree?: (pid: number) => void;
 }
 
 /** The proof a genuine child with `runId` would send for the request's challenge. */
@@ -209,7 +212,9 @@ export function makeHarness(options: HarnessOptions = {}): Harness {
       ? options.health(url, { ...headers }, children[children.length - 1]?.runId)
       : genuineHealth(children[children.length - 1]?.runId, { ...headers }),
   );
+  const killTree = vi.fn((pid: number) => options.killTree?.(pid));
   const deps: BackendSupervisorDependencies = {
+    killTree,
     planLaunch,
     spawn,
     isPortFree,
@@ -229,7 +234,7 @@ export function makeHarness(options: HarnessOptions = {}): Harness {
     ...(options.timeouts ? { timeouts: options.timeouts } : {}),
     ...(options.workingDirectory ? { workingDirectory: options.workingDirectory } : {}),
   });
-  return { supervisor, children, deps, spawn, isPortFree, fetchHealth, planLaunch, logs };
+  return { killTree, supervisor, children, deps, spawn, isPortFree, fetchHealth, planLaunch, logs };
 }
 
 export function startRequest(overrides: Partial<BackendStartRequest> = {}): BackendStartRequest {
