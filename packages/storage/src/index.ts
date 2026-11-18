@@ -27,11 +27,15 @@ export type { SessionDigest } from "@work-intelligence/core";
 export { backupOptionsFromEnvironment } from "./backup-environment.js";
 export {
   DEFAULT_BACKUP_KEEP,
+  defaultBackupDirectory,
   deleteDatabaseBackup,
+  inspectDatabaseBackup,
+  listDatabaseBackups,
   isSafeDatabaseBackupFileName,
   restoreDatabase,
   RestoreDatabaseError,
   writeSnapshot,
+  type BackupInspection,
   type BackupRetentionOptions,
   type ExportOptions,
   type RestoreDatabaseErrorCode,

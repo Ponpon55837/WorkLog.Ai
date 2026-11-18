@@ -18,7 +18,9 @@ import {
   type LastBackupTracker,
   type LaunchMode,
   type ManagedBackendService,
+  type JournalJson,
   type OperationCoordinator,
+  type OperationStepContext,
   type RestartOutcome,
 } from "@work-intelligence/desktop-core";
 import type { DesktopFacts } from "@work-intelligence/schema";
@@ -35,7 +37,7 @@ export interface StartOverride {
   readonly allowSchemaMigration: boolean;
 }
 
-export type StartKind = "takeover" | "restart" | "change-db" | "change-port";
+export type StartKind = "takeover" | "restart" | "change-db" | "change-port" | "restore";
 
 /** A start on another port than the settings name (DT-14): the settings change only once the backend is verified. */
 export interface PortStart {
@@ -48,6 +50,15 @@ export interface BackendController {
   /** One managed start under the operation coordinator. `busy` means another operation holds the lock: nothing changed. */
   start(kind: StartKind, override?: StartOverride, operationId?: string): Promise<RestartOutcome>;
   readonly recovery: BackendRecovery;
+  /**
+   * 「從備份還原」: one `restore` operation that stops the running backend, runs `replace` while it is stopped, and starts
+   * the backend again on the settings' database (verified: health, identity, schema). `replace` throwing fails the operation
+   * with the backend stopped; the caller then restarts it. `busy` means another operation holds the lock: nothing changed.
+   */
+  restoreWhileStopped(
+    replace: (context: OperationStepContext) => Promise<JournalJson | void>,
+    operationId?: string,
+  ): Promise<RestartOutcome>;
   /**
    * Stops the running backend and starts it on `change.port`; only a verified start commits `desired.port`, `active`
    * and `lastKnownGood` together in one settings write. A failure leaves the settings untouched and the backend
@@ -191,6 +202,7 @@ export function createBackendController(options: BackendControllerOptions): Back
     override: StartOverride | undefined,
     operationId: string,
     portChange?: PortStart,
+    whileStopped?: (context: OperationStepContext) => Promise<JournalJson | void>,
   ): Promise<RestartOutcome> {
     const { settings } = state;
     if (!settings) return { ok: false, code: "REPAIR_REQUIRED" };
@@ -234,8 +246,11 @@ export function createBackendController(options: BackendControllerOptions): Back
         desktop,
         ...(options.backendEnvironment ? { environment: options.backendEnvironment } : {}),
       },
+      // The identity the user confirmed: what startup recovery compares the settings' database with after a crash.
+      ...(override ? { selectedDb: override.expectedIdentity } : {}),
       ...(portChange ? { details: { from: portChange.from, to: portChange.port } } : {}),
       stopRunning: supervisor.running !== undefined,
+      ...(whileStopped ? { whileStopped } : {}),
     });
     const outcome = interpretManagedStart(result);
     if (outcome.kind === "busy") {
@@ -285,6 +300,8 @@ export function createBackendController(options: BackendControllerOptions): Back
 
   return {
     start,
+    restoreWhileStopped: (replace, operationId = randomUUID()) =>
+      startOnce("restore", undefined, operationId, undefined, replace),
     startOnPort: (change, operationId = randomUUID()) => startOnce("change-port", undefined, operationId, change),
     recovery,
     presenter: () => presenter,

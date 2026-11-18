@@ -1,5 +1,6 @@
-import { clipboard, dialog, ipcMain, shell } from "electron";
+import { dialog, ipcMain, shell } from "electron";
 import type { IpcMainInvokeEvent } from "electron";
+import { homedir } from "node:os";
 import {
   allowMigrationFor,
   canApplyPreview,
@@ -8,14 +9,19 @@ import {
   DiagnosticsPreviewStore,
   initialTab,
   isTrustedRepairSender,
+  openSystemSettings,
   REPAIR_CHANNELS,
   repairInputSchemas,
   tabsFor,
   writeDesktopSettingsAtomic,
   writePrivateFile,
   type BackendSupervisor,
+  type OperationJournal,
+  type OperationKind,
   type AppTabSelection,
   type RepairActionResult,
+  type RepairBusyReason,
+  type RepairBusyWhat,
 } from "@work-intelligence/desktop-core";
 import type { AgentsPage } from "./agents.js";
 import { offerCandidate } from "./candidate-offer.js";
@@ -30,6 +36,7 @@ import type { Logger } from "./log.js";
 import type { RepairInfo } from "./repair-info.js";
 import type { RepairSuccess } from "./repair-success.js";
 import type { RepairWindow } from "./repair-window.js";
+import type { RestoreController } from "./restore.js";
 import type { ShellState } from "./state.js";
 import type { UpdateController } from "./update-check.js";
 
@@ -52,8 +59,14 @@ export interface IpcOptions {
   readonly changePort: ChangePortController;
   readonly storage: StorageRiskService;
   readonly updates: UpdateController;
+  /** 「從備份還原」: the page holds only one-time ids; main keeps every path. */
+  readonly restore: RestoreController;
+  /** Holds the recovery notices the Status tab shows. */
+  readonly journal: Pick<OperationJournal, "acknowledgeNotice">;
   /** 「複製到本機磁碟並改用」: for a candidate id, or (no id) the App's own database. */
   readonly copyToLocal: (candidateId: string | undefined) => Promise<RepairActionResult>;
+  /** The coordinator's running operation, if any: what a busy refusal names. */
+  readonly currentOperation: () => OperationKind | null;
   readonly log: Logger;
 }
 
@@ -78,6 +91,9 @@ export function registerRepairIpc(options: IpcOptions): void {
     changePort,
     storage,
     updates,
+    restore,
+    journal,
+    currentOperation,
     log,
   } = options;
 
@@ -107,9 +123,26 @@ export function registerRepairIpc(options: IpcOptions): void {
     });
   }
 
-  async function withBusy(task: () => Promise<RepairActionResult>): Promise<RepairActionResult> {
-    if (state.busy) return { ok: false, reason: "busy" };
+  /** What holds the App right now: the running operation first, then the page action that holds the lock. */
+  function busyReason(): RepairBusyReason {
+    const operation = currentOperation();
+    if (operation !== null) return { source: "operation", what: operation };
+    return state.busyAction === null ? { source: "unknown" } : { source: "operation", what: state.busyAction };
+  }
+
+  /** A busy answer from a controller that holds the lock itself gets the reason the page will say. */
+  function tagBusy<T extends { readonly ok: boolean }>(result: T): T {
+    if (result.ok || (result as { reason?: string }).reason !== "busy") return result;
+    return { ...result, busyReason: busyReason() };
+  }
+
+  async function withBusy(
+    action: RepairBusyWhat,
+    task: () => Promise<RepairActionResult>,
+  ): Promise<RepairActionResult> {
+    if (state.busy) return { ok: false, reason: "busy", busyReason: busyReason() };
     state.busy = true;
+    state.busyAction = action;
     try {
       return await task();
     } catch (error) {
@@ -117,6 +150,7 @@ export function registerRepairIpc(options: IpcOptions): void {
       return { ok: false, reason: "failed" };
     } finally {
       state.busy = false;
+      state.busyAction = null;
     }
   }
 
@@ -126,20 +160,20 @@ export function registerRepairIpc(options: IpcOptions): void {
   });
 
   handle(REPAIR_CHANNELS.retryStart, parser(repairInputSchemas.retryStart), ({ operationId }) =>
-    withBusy(async () => {
+    withBusy("takeover", async () => {
       if (!state.retryIds.consume(operationId)) return { ok: false, reason: "invalid" };
       const opensAtStart = success.opens();
       const outcome = await backend.recovery.retryNow(operationId);
       success.finish(outcome, opensAtStart);
       if (outcome.ok) return { ok: true, state: await info.snapshot() };
       // A restart already running is not an error: the page shows "restarting" and polls.
-      if (outcome.busy) return { ok: false, reason: "busy" };
+      if (outcome.busy) return { ok: false, reason: "busy", busyReason: busyReason() };
       return { ok: false, reason: "failed", errorCode: outcome.code };
     }),
   );
 
   handle(REPAIR_CHANNELS.chooseDatabase, parser(repairInputSchemas.chooseDatabase), () =>
-    withBusy(async () => {
+    withBusy("change-db", async () => {
       const owner = window.window();
       if (!owner) return { ok: false, reason: "failed" };
       const picked = await dialog.showOpenDialog(owner, {
@@ -165,7 +199,7 @@ export function registerRepairIpc(options: IpcOptions): void {
     REPAIR_CHANNELS.confirmDatabase,
     parser(repairInputSchemas.confirmDatabase),
     ({ candidateId, allowMigration, acknowledgeStorageRisk }) =>
-      withBusy(async () => {
+      withBusy("change-db", async () => {
         // Refused storage, an update the storage forbids and a risky file without its ticked consent stop here, in main.
         const check = state.candidates.checkConfirm(
           candidateId,
@@ -182,7 +216,7 @@ export function registerRepairIpc(options: IpcOptions): void {
           allowSchemaMigration: allowMigrationFor(check.preview.needsMigration, check.entry.storageRisk),
         });
         if (!outcome.ok) {
-          if (outcome.busy) return { ok: false, reason: "busy" };
+          if (outcome.busy) return { ok: false, reason: "busy", busyReason: busyReason() };
           success.finish(outcome, opensAtStart);
           backend.presenter().present(outcome.code);
           return { ok: false, reason: "failed", errorCode: outcome.code };
@@ -195,7 +229,7 @@ export function registerRepairIpc(options: IpcOptions): void {
   );
 
   handle(REPAIR_CHANNELS.copyToLocal, parser(repairInputSchemas.copyToLocal), ({ candidateId }) =>
-    withBusy(() => options.copyToLocal(candidateId)),
+    withBusy("copy-to-local", () => options.copyToLocal(candidateId)),
   );
 
   handle(REPAIR_CHANNELS.openFolder, parser(repairInputSchemas.openFolder), async ({ target }) => {
@@ -250,7 +284,7 @@ export function registerRepairIpc(options: IpcOptions): void {
   );
 
   handle(REPAIR_CHANNELS.startAnyway, parser(repairInputSchemas.startAnyway), ({ operationId }) =>
-    withBusy(async () => {
+    withBusy("takeover", async () => {
       const database = state.databasePath();
       if (!database || !state.retryIds.consume(operationId)) return { ok: false, reason: "invalid" };
       // The user said "仍要啟動": this database may start beside the old service until the App quits.
@@ -259,7 +293,7 @@ export function registerRepairIpc(options: IpcOptions): void {
       const outcome = await backend.recovery.retryNow(operationId);
       success.finish(outcome, opensAtStart);
       if (outcome.ok) return { ok: true, state: await info.snapshot() };
-      if (outcome.busy) return { ok: false, reason: "busy" };
+      if (outcome.busy) return { ok: false, reason: "busy", busyReason: busyReason() };
       return { ok: false, reason: "failed", errorCode: outcome.code };
     }),
   );
@@ -281,15 +315,21 @@ export function registerRepairIpc(options: IpcOptions): void {
     return { ok: true };
   });
 
-  handle(REPAIR_CHANNELS.copyCommand, parser(repairInputSchemas.copyCommand), async ({ target }) => {
-    const detection = legacy.latest();
-    if (detection?.kind !== "found") return { ok: false };
-    // The text comes from main's own detection, never from the page.
-    const text = target === "legacy-remove" ? detection.removeCommand : detection.fallbackRemoveCommand;
-    if (!text) return { ok: false };
-    clipboard.writeText(text);
+  // The page sends an enum; main opens one fixed place of the OS for it (never a path or a URL from the page).
+  handle(REPAIR_CHANNELS.openSystemSettings, parser(repairInputSchemas.openSystemSettings), ({ target }) =>
+    openSystemSettings(target, { platform: process.platform, env: process.env, homeDirectory: homedir(), shell }),
+  );
+
+  // "Check again": the user turned the old service off by hand, so detect it afresh; the page then reads the state.
+  handle(REPAIR_CHANNELS.legacyRecheck, parser(repairInputSchemas.legacyRecheck), async () => {
+    await legacy.refresh();
     return { ok: true };
   });
+
+  // Dismissing a recovery notice is written to the journal, so the banner does not come back after a restart.
+  handle(REPAIR_CHANNELS.recoveryAcknowledge, parser(repairInputSchemas.recoveryAcknowledge), async ({ id }) => ({
+    ok: await journal.acknowledgeNotice(id).catch(() => false),
+  }));
 
   ipcMain.handle(REPAIR_CHANNELS.setupGetState, async (event, raw: unknown) => {
     if (!isTrusted(event) || !repairInputSchemas.setupGetState.safeParse(raw).success) {
@@ -312,8 +352,10 @@ export function registerRepairIpc(options: IpcOptions): void {
 
   // The same single lock as every other page action: a copy never overlaps a retry, a port change or another start.
   handle(REPAIR_CHANNELS.setupCopyToLocal, parser(repairInputSchemas.setupCopyToLocal), (input) =>
-    exclusive({ ok: false, reason: "busy" } as const, () =>
-      firstRun.copyToLocal(input.sourceId, input.launchAtLogin === true),
+    exclusive(
+      "copy-to-local",
+      () => ({ ok: false, reason: "busy" }) as const,
+      () => firstRun.copyToLocal(input.sourceId, input.launchAtLogin === true),
     ),
   );
 
@@ -335,6 +377,9 @@ export function registerRepairIpc(options: IpcOptions): void {
   });
 
   handle(REPAIR_CHANNELS.agentsPreview, parser(repairInputSchemas.agentsPreview), ({ adopt }) => agents.preview(adopt));
+  handle(REPAIR_CHANNELS.agentsRemovePreview, parser(repairInputSchemas.agentsRemovePreview), () =>
+    agents.previewRemove(),
+  );
   handle(
     REPAIR_CHANNELS.agentsApply,
     parser(repairInputSchemas.agentsApply),
@@ -355,14 +400,20 @@ export function registerRepairIpc(options: IpcOptions): void {
   );
 
   /** One page action at a time, like the repair actions; the disable and its start never overlap another. */
-  async function exclusive<T>(busy: T, task: () => Promise<T>): Promise<T> {
-    if (state.busy) return busy;
+  async function exclusive<T extends { readonly ok: boolean }>(
+    action: RepairBusyWhat,
+    busy: () => NoInfer<Extract<T, { readonly ok: false }>>,
+    task: () => Promise<T>,
+  ): Promise<T> {
+    if (state.busy) return busy();
     state.busy = true;
+    state.busyAction = action;
     state.touch();
     try {
       return await task();
     } finally {
       state.busy = false;
+      state.busyAction = null;
       state.touch();
     }
   }
@@ -371,20 +422,40 @@ export function registerRepairIpc(options: IpcOptions): void {
     legacyDisable.preview(),
   );
   handle(REPAIR_CHANNELS.legacyDisableConfirm, parser(repairInputSchemas.legacyDisableConfirm), (input) =>
-    exclusive({ ok: false, reason: "busy" } as const, () =>
-      legacyDisable.confirm(input.previewId, input.continueWhileBusy === true),
+    exclusive(
+      "legacy-disable",
+      () => ({ ok: false, reason: "busy", busyReason: busyReason() }) as const,
+      async () => tagBusy(await legacyDisable.confirm(input.previewId, input.continueWhileBusy === true)),
     ),
   );
   // One page action at a time, so a port change never overlaps a retry or a database change.
   handle(REPAIR_CHANNELS.portChange, parser(repairInputSchemas.portChange), ({ port }) =>
-    exclusive({ ok: false, reason: "busy", busy: "operation" } as const, () => changePort.change(port)),
+    exclusive(
+      "change-port",
+      () => ({ ok: false, reason: "busy", busy: "operation" }) as const,
+      () => changePort.change(port),
+    ),
   );
   // Not behind the page-action lock: a check changes nothing, and a second click joins the one that runs.
   handle(REPAIR_CHANNELS.updateCheck, parser(repairInputSchemas.updateCheck), () => updates.check());
   handle(REPAIR_CHANNELS.updateOpenLink, parser(repairInputSchemas.updateOpenLink), async ({ target }) => ({
     ok: await updates.openLink(target),
   }));
+  // Not behind the page-action lock: listing and choosing change nothing; the restore takes the lock itself after its checks.
+  handle(REPAIR_CHANNELS.restoreList, parser(repairInputSchemas.restoreList), (_input, senderId) =>
+    restore.list(senderId),
+  );
+  handle(REPAIR_CHANNELS.restorePick, parser(repairInputSchemas.restorePick), (_input, senderId) =>
+    restore.pick(senderId),
+  );
+  handle(REPAIR_CHANNELS.restoreRun, parser(repairInputSchemas.restoreRun), ({ backupId }, senderId) =>
+    restore.run(senderId, backupId),
+  );
   handle(REPAIR_CHANNELS.legacyStartNow, parser(repairInputSchemas.legacyStartNow), () =>
-    exclusive({ ok: false, reason: "busy" } as const, () => legacyDisable.startNow()),
+    exclusive(
+      "takeover",
+      () => ({ ok: false, reason: "busy", busyReason: busyReason() }) as const,
+      async () => tagBusy(await legacyDisable.startNow()),
+    ),
   );
 }

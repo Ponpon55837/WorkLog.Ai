@@ -1,18 +1,20 @@
 import type { RepairState } from "@work-intelligence/desktop-core";
 import {
   errorHintFor,
+  busyReasonText,
   errorMessageFor,
   formatMessage,
+  shellMessages,
   type ShellMessages,
 } from "@work-intelligence/desktop-core/shell/i18n";
 import { setupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
 import { backendTone, databaseLabel, label, ownerTone } from "./badge.js";
 import type { ViewContext } from "./context.js";
-import { candidatesCard, databaseCard, databasePath } from "./data-view.js";
+import { candidatesCard, databaseCard, databasePath, restoreCard } from "./data-view.js";
 import { actions, button, cardBody, element, facts, hint, section } from "./dom.js";
 import { legacyBlock } from "./legacy-block.js";
 import { legacyDisableControls, legacyDisableOutcome, type LegacyDisableHost } from "./legacy-disable-view.js";
-import { isBlockingDatabase } from "./view-model.js";
+import { isBlockingDatabase, recoveryBannerText } from "./view-model.js";
 
 /**
  * The Status tab: a compact summary of the service (who runs it, whether it runs, the database in one line), what
@@ -26,12 +28,13 @@ function legacyCards(ctx: ViewContext): Node[] {
   const host: LegacyDisableHost = {
     api: act.api,
     text: setupMessages(state.locale),
+    busyText: (reason) => busyReasonText(shellMessages(state.locale), reason),
     rerender: act.rerender,
     refresh: act.refresh,
   };
   if (state.legacyService) {
     const controls = legacyDisableControls(host, state.legacyService.canDisable, !ctx.busy);
-    return [legacyBlock(host.api, host.text, state.legacyService, controls)];
+    return [legacyBlock(host.api, host.text, state.legacyService, controls, act.refresh)];
   }
   const outcome = legacyDisableOutcome(host);
   return outcome ? [outcome] : [];
@@ -67,6 +70,35 @@ function setupFinishedCard(ctx: ViewContext): HTMLElement {
   card.id = "setup-finished";
   card.classList.add("card--success");
   return card;
+}
+
+/**
+ * One card per operation a crash interrupted: what happened (from the real state start-up recovery verified), what the
+ * user can do and where, and a button that dismisses it for good. A notice that needs repair is a warning; the others are
+ * calm information.
+ */
+function recoveryCards(ctx: ViewContext): HTMLElement[] {
+  const { state, messages, act } = ctx;
+  return state.recoveryNotices.map((notice) => {
+    const text = recoveryBannerText(notice, messages);
+    const card = section(
+      messages.recoveryHeading,
+      element("p", { className: "intro", text: text.message }),
+      hint(text.nextStep),
+      actions(
+        ...(text.tab === "status"
+          ? []
+          : [button(text.openTabLabel, `recovery-open:${notice.id}`, true, () => act.openTab(text.tab), "link")]),
+        button(messages.recoveryDismiss, `recovery-dismiss:${notice.id}`, !ctx.busy, () =>
+          act.acknowledgeRecovery(notice.id),
+        ),
+      ),
+    );
+    card.dataset.id = `recovery-notice:${notice.id}`;
+    card.dataset.kind = notice.kind;
+    if (notice.kind === "needs-repair" || notice.kind === "journal-unreadable") card.classList.add("card--attention");
+    return card;
+  });
 }
 
 function serviceCard(ctx: ViewContext, blocking: boolean): HTMLElement {
@@ -121,7 +153,7 @@ function errorsCard(ctx: ViewContext): HTMLElement {
 
 export function statusPanel(ctx: ViewContext): Node[] {
   const { state, messages } = ctx;
-  const finished = ctx.setupFinished ? [setupFinishedCard(ctx)] : [];
+  const finished = [...(ctx.setupFinished ? [setupFinishedCard(ctx)] : []), ...recoveryCards(ctx)];
   if (state.recovered) return [...finished, recoveredCard(state, state.recovered, messages)];
   const blocking = isBlockingDatabase(state);
   const blocks: Node[] = [...finished, ...legacyCards(ctx)];
@@ -130,7 +162,7 @@ export function statusPanel(ctx: ViewContext): Node[] {
   }
   blocks.push(serviceCard(ctx, blocking));
   if (blocking) {
-    blocks.push(databaseCard(ctx));
+    blocks.push(databaseCard(ctx), restoreCard(ctx));
     const candidates = candidatesCard(ctx);
     if (candidates) blocks.push(candidates);
   }

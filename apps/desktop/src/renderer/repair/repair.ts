@@ -143,6 +143,9 @@ function viewActions(): ViewActions {
       setupFinished = false;
       renderPanel(true);
     },
+    acknowledgeRecovery: (id) => {
+      void api.acknowledgeRecovery(id).then(() => refresh());
+    },
     rerender: () => renderPanel(true),
     refresh: () => void refresh(),
   };

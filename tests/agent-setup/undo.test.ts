@@ -40,6 +40,17 @@ function undoAt(fixture: SetupFixture, options?: Parameters<typeof undoAgentSetu
   return undoAgentSetupOperation(fixture.paths.journal, { homeDirectory: fixture.options.homeDirectory }, options);
 }
 
+/** Changes our own Claude MCP entry (not just the file around it), so no safe entry-level removal exists. */
+function editOurClaudeEntry(fixture: SetupFixture): void {
+  const root = JSON.parse(readFileSync(fixture.paths.claudeJson, "utf8")) as {
+    mcpServers: Record<string, { args: string[] }>;
+  };
+  const ours = root.mcpServers["work-intelligence"];
+  if (!ours) throw new Error("missing entry");
+  ours.args = [...ours.args, "--changed-by-someone-else"];
+  writeFileSync(fixture.paths.claudeJson, JSON.stringify(root, null, 2) + "\n");
+}
+
 function commit(fixture: SetupFixture, plan: AgentSetupPlan = createAgentSetupPlan(fixture.options)): AgentSetupPlan {
   expect(applyAgentSetupTransaction(plan, { journalPath: fixture.paths.journal }).outcome).toBe("committed");
   return plan;
@@ -144,7 +155,9 @@ describe("undoAgentSetupOperation", () => {
   it("stops at the first item changed after the operation, reports its path and leaves it and the earlier items alone", () => {
     const fixture = createFixture();
     const plan = commit(fixture);
-    writeFileSync(fixture.paths.claudeJson, readFileSync(fixture.paths.claudeJson, "utf8") + " ");
+    // Our own entry was changed, so it cannot be taken out without guessing; a harmless rewrite would be handled by
+    // the entry-level fallback instead (see "after an Agent rewrote its config" below).
+    editOurClaudeEntry(fixture);
     const edited = readFileSync(fixture.paths.claudeJson);
     const claudeIndex = plan.mutations.findIndex((mutation) => mutation.path === fixture.paths.claudeJson);
     const installedSkill = readFileSync(fixture.paths.codexSkill);
@@ -176,7 +189,12 @@ describe("undoAgentSetupOperation", () => {
     const before = snapshot(fixture);
     commit(fixture);
     const written = readFileSync(fixture.paths.codexConfig);
-    writeFileSync(fixture.paths.codexConfig, `${written.toString("utf8")} `);
+    writeFileSync(
+      fixture.paths.codexConfig,
+      written
+        .toString("utf8")
+        .replace("[mcp_servers.work-intelligence]", "[mcp_servers.work-intelligence]\nstartup_timeout_sec = 5"),
+    );
 
     expect(undoAt(fixture).status).toBe("needs-manual-repair");
 
@@ -381,5 +399,96 @@ describe("undoAgentSetupOperation", () => {
 
     expect(result.status).toBe("undone");
     expectSnapshot(before);
+  });
+});
+
+describe("undoAgentSetupOperation after an Agent rewrote its config", () => {
+  function parsed(path: string): Record<string, unknown> {
+    return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+  }
+
+  it("removes only our entry from a re-serialised Claude JSON that gained extra keys, then has nothing left to undo", () => {
+    const fixture = createFixture();
+    const before = snapshot(fixture);
+    commit(fixture);
+    const rewritten = parsed(fixture.paths.claudeJson);
+    (rewritten.mcpServers as Record<string, unknown>).added = { command: "synthetic-added" };
+    rewritten.numStartups = 7;
+    rewritten.projects = { "/synthetic/project": { allowedTools: [] } };
+    // Compact, differently indented: whole-file equality can never hold again.
+    writeFileSync(fixture.paths.claudeJson, JSON.stringify(rewritten));
+
+    const result = undoAt(fixture);
+
+    expect(result.status).toBe("undone");
+    expect(parsed(fixture.paths.claudeJson)).toEqual({
+      mcpServers: { existing: { command: "node", args: ["existing.js"] }, added: { command: "synthetic-added" } },
+      numStartups: 7,
+      projects: { "/synthetic/project": { allowedTools: [] } },
+    });
+    // The files the Agent did not touch are back exactly, and the manifest follows.
+    expect(existsSync(fixture.paths.manifest)).toBe(false);
+    expect(readFileSync(fixture.paths.codexConfig)).toEqual(before.get(fixture.paths.codexConfig));
+    expect(journalState(fixture)).toBe("compensated");
+
+    const afterFirst = readFileSync(fixture.paths.claudeJson);
+    expect(undoAt(fixture).status).toBe("nothing-to-undo");
+    expect(readFileSync(fixture.paths.claudeJson)).toEqual(afterFirst);
+  });
+
+  it("keeps foreign hooks, in the same array and beside it, when it takes out its own hook groups", () => {
+    const fixture = createFixture();
+    commit(fixture);
+    const settings = parsed(fixture.paths.claudeSettings) as { hooks: Record<string, unknown[]> };
+    const foreignStop = { hooks: [{ type: "command", command: "synthetic-foreign-stop" }] };
+    settings.hooks.Stop = [foreignStop, ...(settings.hooks.Stop ?? [])];
+    settings.hooks.Notification = [{ hooks: [{ type: "command", command: "synthetic-notify" }] }];
+    writeFileSync(fixture.paths.claudeSettings, JSON.stringify({ theme: "synthetic", ...settings }, null, 4));
+
+    const result = undoAt(fixture);
+
+    expect(result.status).toBe("undone");
+    expect(parsed(fixture.paths.claudeSettings)).toEqual({
+      theme: "synthetic",
+      hooks: {
+        Stop: [foreignStop],
+        Notification: [{ hooks: [{ type: "command", command: "synthetic-notify" }] }],
+      },
+    });
+    expect(existsSync(fixture.paths.manifest)).toBe(false);
+  });
+
+  it("removes only our Codex block from a config.toml the Agent rewrote around it", () => {
+    const fixture = createFixture();
+    commit(fixture);
+    const written = readFileSync(fixture.paths.codexConfig, "utf8");
+    expect(written).toContain("# >>> Work Intelligence setup:agents >>>");
+    writeFileSync(
+      fixture.paths.codexConfig,
+      `# rewritten by the Agent\n${written}\n[projects."/synthetic/project"]\ntrust_level = "trusted"\n`,
+    );
+
+    const result = undoAt(fixture);
+
+    expect(result.status).toBe("undone");
+    const after = readFileSync(fixture.paths.codexConfig, "utf8");
+    expect(after).not.toContain("work-intelligence");
+    expect(after).toContain("# rewritten by the Agent");
+    expect(after).toContain('model = "fixture-model"');
+    expect(after).toContain('trust_level = "trusted"');
+    expect(undoAt(fixture).status).toBe("nothing-to-undo");
+  });
+
+  it("re-verifies and leaves the file alone when our entry was altered, instead of guessing", () => {
+    const fixture = createFixture();
+    commit(fixture);
+    editOurClaudeEntry(fixture);
+    const edited = readFileSync(fixture.paths.claudeJson);
+
+    const result = undoAt(fixture);
+
+    expect(result.status).toBe("needs-manual-repair");
+    expect(result.manualRepairPath).toBe(fixture.paths.claudeJson);
+    expect(readFileSync(fixture.paths.claudeJson)).toEqual(edited);
   });
 });

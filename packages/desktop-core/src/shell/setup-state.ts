@@ -3,6 +3,7 @@ import path from "node:path";
 import type { DbGroupStatus, DbSourceDecision, DbSourceGroup, DbSourceKind } from "../db-source/types.js";
 import { canonicalInstallationPath } from "../integration/record.js";
 import { canDisableLegacyService } from "../legacy-service/disable.js";
+import { systemSettingsField, type SystemSettingsTarget } from "../legacy-service/system-settings.js";
 import type { LegacyServiceDetection, LegacyServiceFound } from "../legacy-service/types.js";
 import { canCreateNewDatabase } from "./setup-start.js";
 import { storageBlocksUse } from "../db-source/storage-policy.js";
@@ -49,9 +50,8 @@ export interface SetupLegacyView {
   /** 「停用舊的登入服務」 is offered (see `canDisableLegacyService`). */
   readonly canDisable: boolean;
   readonly databaseDisplay?: string;
-  /** `cd … && pnpm service:uninstall` (PowerShell form on Windows), when the checkout is known. */
-  readonly removeCommand?: string;
-  readonly fallbackRemoveCommand: string;
+  /** Where the App opens for the user to turn the service off by hand; absent where it has no such place. */
+  readonly systemSettings?: SystemSettingsTarget;
 }
 
 export interface SetupState {
@@ -314,8 +314,7 @@ export function buildSetupState(inputs: SetupStateInputs): SetupState {
           recognised: legacy.recognised,
           canDisable: canDisableLegacyService(legacy),
           ...(legacy.databasePath === undefined ? {} : { databaseDisplay: show(legacy.databasePath) }),
-          ...(legacy.removeCommand === undefined ? {} : { removeCommand: legacy.removeCommand }),
-          fallbackRemoveCommand: legacy.fallbackRemoveCommand,
+          ...systemSettingsField(legacy.platform),
         }
       : null,
     canUseDefaults: canCreateNewDatabase(inputs.phase),

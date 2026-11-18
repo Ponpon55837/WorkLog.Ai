@@ -1,9 +1,10 @@
 import { expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { maskHome } from "@work-intelligence/desktop-core";
 import { WorkIntelligenceStore } from "@work-intelligence/storage";
+import { agentRemoveMessages } from "@work-intelligence/desktop-core/shell/agent-remove-i18n";
 import { setupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
 import {
   attachLog,
@@ -54,10 +55,14 @@ function seedHome(home: string): void {
   }
 }
 
-/** The App's own data under the sandbox home: its database and backups. Logs live under the data folder, outside home. */
+/**
+ * What under the sandbox home is not the Agent setup's to write: the App's own data (its database and backups; logs live
+ * under the data folder, outside home) and the browser engine's `.cache` (font and GPU shader caches Chromium fills in on
+ * its own schedule, so one can appear between two reads of the tree).
+ */
 function isAppData(key: string): boolean {
   const path = key.replaceAll("\\", "/");
-  return [".work-intelligence/data", ".work-intelligence/backups"].some(
+  return [".work-intelligence/data", ".work-intelligence/backups", ".cache"].some(
     (folder) => path === folder || path.startsWith(`${folder}/`),
   );
 }
@@ -96,6 +101,7 @@ interface PageAgentsState {
   selfTest: { outcome: string };
   undoAvailable: boolean;
   preview: {
+    mode: "install" | "uninstall";
     files: {
       display: string;
       change: "create" | "update" | "delete";
@@ -297,4 +303,110 @@ test("a second launch with --open-agent-setup shows the Agent page in the runnin
   const window = await app.firstWindow({ timeout: 45_000 });
   await expectTabShown(window, "agent");
   expect(await windowCount(app)).toBe(1);
+});
+
+/** Previews and applies the install through the page, then waits until the journal says it is committed. */
+async function installThroughPage(window: Page, home: string): Promise<void> {
+  await window.locator('[data-id="preview"]').click();
+  await expect(window.locator("#agents-preview")).toBeVisible();
+  await window.locator('[data-id="apply"]').click();
+  // A removal that came before is journaled and undoable too, so "undo is available" alone can be that earlier journal:
+  // wait for this install's own manifest first, which exists only once this install's journal has replaced it.
+  await expect.poll(() => existsSync(join(home, MANIFEST_FILE)), { timeout: 15_000, intervals: [25] }).toBe(true);
+  await expect.poll(async () => (await agentsState(window)).undoAvailable, { timeout: 15_000 }).toBe(true);
+}
+
+async function pageLocale(window: Page) {
+  const lang = await window.evaluate(() => document.documentElement.lang);
+  return lang === "zh-Hant" ? "zh-TW" : "en";
+}
+
+/** Previews the removal and checks it is a removal preview that lists files and has no conflict. */
+async function previewRemoval(window: Page, home: string): Promise<void> {
+  const before = tree(home, isAppData);
+  await window.locator('[data-id="remove"]').click();
+  await expect(window.locator("#agents-preview")).toBeVisible();
+  await expect(window.locator("#agents-preview")).toContainText(
+    agentRemoveMessages(await pageLocale(window)).agentsRemoveApply,
+  );
+  const state = await agentsState(window);
+  expect(state.preview?.mode).toBe("uninstall");
+  expect(state.preview?.conflicts).toEqual([]);
+  expect(state.preview?.files.length).toBeGreaterThan(0);
+  // Previewing a removal writes nothing, and the diff shows `~`, never the real home.
+  expect(tree(home, isAppData)).toEqual(before);
+  expect(await window.locator("#agents-preview").innerText()).not.toContain(home);
+}
+
+test("「移除 Agent 設定」 previews what it would remove, removes only what setup wrote and can be undone", async () => {
+  sandbox = await createSandbox({ withDatabase: true });
+  const home = sandbox.home;
+  seedHome(home);
+  app = await launchApp(sandbox, {}, ["--open-agent-setup"]);
+  await waitForManagedSnapshot(app);
+  const window = await app.firstWindow({ timeout: 45_000 });
+  await expectTabShown(window, "agent");
+  await installThroughPage(window, home);
+  expect(JSON.parse(readFileSync(join(home, ".claude.json"), "utf8")).mcpServers).toHaveProperty("work-intelligence");
+
+  await previewRemoval(window, home);
+  await window.locator('[data-id="apply"]').click();
+  await expect.poll(() => existsSync(join(home, MANIFEST_FILE)), { timeout: 15_000, intervals: [25] }).toBe(false);
+
+  // Only what setup wrote is gone; the entries that are not ours stay.
+  expect(JSON.parse(readFileSync(join(home, ".claude.json"), "utf8"))).toEqual(
+    JSON.parse(SEEDS[".claude.json"] as string),
+  );
+  const toml = readFileSync(join(home, ".codex", "config.toml"), "utf8");
+  expect(toml).toContain("[mcp_servers.other]");
+  expect(toml).not.toContain("work-intelligence");
+  expect(Object.keys(tree(home, isAppData)).some((path) => path.endsWith("SKILL.md"))).toBe(false);
+  // The files go before the commit is logged, so the line can land a moment after the manifest is gone.
+  const box = sandbox;
+  await expect.poll(() => readMainLog(box), { timeout: 15_000 }).toMatch(/\[shell\] agent setup remove committed/);
+
+  // The removal is one journaled operation like the install, so it can be undone: the setup is back.
+  await expect.poll(async () => (await agentsState(window)).undoAvailable, { timeout: 15_000 }).toBe(true);
+  await window.locator('[data-id="undo"]').click();
+  await expect.poll(() => existsSync(join(home, MANIFEST_FILE)), { timeout: 15_000, intervals: [25] }).toBe(true);
+  expect(JSON.parse(readFileSync(join(home, ".claude.json"), "utf8")).mcpServers).toHaveProperty("work-intelligence");
+});
+
+test("after an Agent rewrote its config, 「移除 Agent 設定」 and the undo take out only our own entries", async () => {
+  sandbox = await createSandbox({ withDatabase: true });
+  const home = sandbox.home;
+  seedHome(home);
+  app = await launchApp(sandbox, {}, ["--open-agent-setup"]);
+  await waitForManagedSnapshot(app);
+  const window = await app.firstWindow({ timeout: 45_000 });
+  await expectTabShown(window, "agent");
+  await installThroughPage(window, home);
+
+  // The Agent re-serialises its own file (compact) and adds keys: the whole file no longer matches what setup wrote.
+  const rewrite = () => {
+    const root = JSON.parse(readFileSync(join(home, ".claude.json"), "utf8"));
+    root.numStartups = 9;
+    root.mcpServers.added = { command: "synthetic-added" };
+    writeFileSync(join(home, ".claude.json"), JSON.stringify(root));
+  };
+  const expectedRest = {
+    numStartups: 9,
+    mcpServers: { other: { command: "synthetic-other", args: ["serve"] }, added: { command: "synthetic-added" } },
+  };
+
+  rewrite();
+  await previewRemoval(window, home);
+  await window.locator('[data-id="apply"]').click();
+  await expect.poll(() => existsSync(join(home, MANIFEST_FILE)), { timeout: 15_000, intervals: [25] }).toBe(false);
+  expect(JSON.parse(readFileSync(join(home, ".claude.json"), "utf8"))).toEqual(expectedRest);
+
+  // Bring the setup back, let the Agent rewrite the file again, and undo that install: only our entry goes.
+  await installThroughPage(window, home);
+  rewrite();
+  await window.locator('[data-id="undo"]').click();
+  await expect.poll(() => existsSync(join(home, MANIFEST_FILE)), { timeout: 15_000, intervals: [25] }).toBe(false);
+  expect(JSON.parse(readFileSync(join(home, ".claude.json"), "utf8"))).toEqual(expectedRest);
+  const toml = readFileSync(join(home, ".codex", "config.toml"), "utf8");
+  expect(toml).toContain("[mcp_servers.other]");
+  expect(toml).not.toContain("work-intelligence");
 });

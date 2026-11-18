@@ -1,4 +1,34 @@
-import type { AppTab, RepairState } from "@work-intelligence/desktop-core";
+import type { AppTab, RepairRecoveryNotice, RepairState } from "@work-intelligence/desktop-core";
+import { formatMessage, type ShellMessages } from "@work-intelligence/desktop-core/shell/i18n";
+
+/** What the Status tab's banner says about one interrupted operation: what happened, what can be done and where. */
+export interface RecoveryBannerText {
+  readonly message: string;
+  readonly nextStep: string;
+  /** The tab where the user can act, and its label for the button that goes there. */
+  readonly tab: AppTab;
+  readonly openTabLabel: string;
+}
+
+/**
+ * The words of a recovery notice. A notice that needs repair keeps the Status tab (its retry is there); every other one
+ * points at the tab of the operation it belongs to. The text states the verified fact (the port still in use, the
+ * database kept) and never a bare "an error occurred".
+ */
+export function recoveryBannerText(notice: RepairRecoveryNotice, messages: ShellMessages): RecoveryBannerText {
+  const values = {
+    port: String(notice.port ?? ""),
+    attempted: String(notice.attemptedPort ?? ""),
+    operation: messages.recoveryOperationNames[notice.operation],
+  };
+  const tab: AppTab = notice.kind === "needs-repair" || notice.kind === "journal-unreadable" ? "status" : notice.tab;
+  return {
+    message: formatMessage(messages.recoveryNotices[notice.kind], values),
+    nextStep: messages.recoveryNextSteps[notice.kind],
+    tab,
+    openTabLabel: formatMessage(messages.recoveryOpenTab, { tab: messages.tabLabels[tab] }),
+  };
+}
 
 /**
  * The service needs repair because of its database: the file cannot be used, other databases were found to choose from,

@@ -112,11 +112,7 @@ export function createLegacyGuard(options: LegacyGuardOptions): LegacyGuard {
     facts: (databasePath) => {
       if (latest?.kind !== "found" || !legacyServiceWarns(latest, databasePath, platform)) return undefined;
       return {
-        legacyService: {
-          running: latest.running,
-          fallbackRemoveCommand: latest.fallbackRemoveCommand,
-          ...(latest.removeCommand === undefined ? {} : { removeCommand: latest.removeCommand }),
-        },
+        legacyService: { running: latest.running },
       };
     },
     allow: (databasePath) => {

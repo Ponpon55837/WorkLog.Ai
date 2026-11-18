@@ -14,12 +14,14 @@
  * - Every channel is checked in main: trusted sender (main frame of the one window on the fixed page URL), then input.
  */
 
+import type { RepairBusyReason } from "./repair-busy.js";
 import { z } from "zod";
 import { APP_TABS, type AppTab, type AppTabSelection } from "./app-tabs.js";
 import type { DiagnosticsReport } from "./diagnostics.js";
 import type { RepairActionId, RepairState } from "./repair-state.js";
 import type { SetupState } from "./setup-state.js";
 import { SETUP_AGENT_IDS, type AgentsState, type SetupAgentId } from "./agents-state.js";
+import { SYSTEM_SETTINGS_TARGETS, type SystemSettingsTarget } from "../legacy-service/system-settings.js";
 import { isRepairPageUrl } from "./navigation-policy.js";
 import type { PortProblem } from "./port-policy.js";
 import {
@@ -28,6 +30,7 @@ import {
   type UpdateLinkTarget,
   type UpdateOpenLinkResult,
 } from "../update-check/result.js";
+import type { RestoreListResult, RestorePickResult, RestoreRunResult } from "./restore-types.js";
 
 /** IPC channel names between the repair page (through its preload) and main. */
 export const REPAIR_CHANNELS = {
@@ -41,7 +44,11 @@ export const REPAIR_CHANNELS = {
   startAnyway: "repair:start-anyway",
   getTab: "app:get-tab",
   rememberTab: "app:remember-tab",
-  copyCommand: "app:copy-command",
+  /** The page names one of `SYSTEM_SETTINGS_TARGETS`; main opens one fixed OS place for it. */
+  openSystemSettings: "app:open-system-settings",
+  /** Read the old login service again (the user turned it off by hand). No input. */
+  legacyRecheck: "legacy:recheck",
+  recoveryAcknowledge: "app:recovery-acknowledge",
   setupGetState: "setup:get-state",
   setupUseDefaults: "setup:use-defaults",
   setupUseSource: "setup:use-source",
@@ -51,6 +58,7 @@ export const REPAIR_CHANNELS = {
   showView: "app:show-view",
   agentsGetState: "agents:get-state",
   agentsPreview: "agents:preview",
+  agentsRemovePreview: "agents:remove-preview",
   agentsApply: "agents:apply",
   agentsDiscard: "agents:discard",
   agentsUndo: "agents:undo",
@@ -63,15 +71,14 @@ export const REPAIR_CHANNELS = {
   copyToLocal: "repair:copy-to-local",
   updateCheck: "update:check",
   updateOpenLink: "update:open-link",
+  restoreList: "restore:list",
+  restorePick: "restore:pick",
+  restoreRun: "restore:run",
   /** Main to the page (not a request): select this tab (the payload is an `AppTab`); the window is never reloaded for it. */
   selectTab: "app:select-tab",
   /** Main to the page (not a request): the update check started or finished, so the page reads the state again. */
   updateChanged: "update:changed",
 } as const;
-
-/** Commands the page may ask main to copy to the clipboard; the text itself never comes from the page. */
-export const COPY_COMMAND_TARGETS = ["legacy-remove", "legacy-fallback"] as const;
-export type CopyCommandTarget = (typeof COPY_COMMAND_TARGETS)[number];
 
 export type RepairChannel = (typeof REPAIR_CHANNELS)[keyof typeof REPAIR_CHANNELS];
 
@@ -100,7 +107,10 @@ export const repairInputSchemas = {
   getTab: z.undefined(),
   /** The tab the user selected; main remembers it for this session only and rejects any id outside `APP_TABS`. */
   rememberTab: z.strictObject({ tab: z.enum(APP_TABS) }),
-  copyCommand: z.strictObject({ target: z.enum(COPY_COMMAND_TARGETS) }),
+  openSystemSettings: z.strictObject({ target: z.enum(SYSTEM_SETTINGS_TARGETS) }),
+  legacyRecheck: z.strictObject({}),
+  /** Dismisses one recovery notice (an interrupted operation's id); persisted, so it does not come back. */
+  recoveryAcknowledge: z.strictObject({ id: z.string().min(1).max(128) }),
   setupGetState: z.undefined(),
   setupUseDefaults: z.strictObject({ launchAtLogin: z.boolean(), startAnyway: z.boolean().optional() }),
   setupUseSource: z.strictObject({
@@ -120,6 +130,8 @@ export const repairInputSchemas = {
   /** `adopt`: also take over the hand-written checkout registrations ("改由桌面 App 管理"). Nothing is written. */
   agentsPreview: z.strictObject({ adopt: z.boolean() }),
   /** Applies exactly the plan this preview showed; a file changed since then makes the apply refuse. */
+  /** Previews removing what setup wrote; applying it goes through `agentsApply` with the preview's id. */
+  agentsRemovePreview: z.strictObject({}),
   agentsApply: z.strictObject({ previewId: z.uuid(), acknowledgeUndiffable: z.boolean().optional() }),
   agentsDiscard: z.strictObject({}),
   agentsUndo: z.strictObject({}),
@@ -140,6 +152,12 @@ export const repairInputSchemas = {
   updateCheck: z.strictObject({}),
   /** Which kept link to open: a name, never a URL. */
   updateOpenLink: z.strictObject({ target: z.enum(UPDATE_LINK_TARGETS) }),
+  /** 「從備份還原」: the backups of the App's database. Main reads every path itself; the answer carries one-time ids only. */
+  restoreList: z.strictObject({}),
+  /** 「選擇備份檔…」: main opens the native chooser; the answer is one backup with a one-time id. No input, so no path. */
+  restorePick: z.strictObject({}),
+  /** Restores exactly the backup this id stands for (single use, this window, expires). The page never sends a path. */
+  restoreRun: z.strictObject({ backupId: z.uuid() }),
 } as const;
 
 /** What the 「停用舊的登入服務」 preview shows; the step lines are for 「詳細步驟」 only. */
@@ -176,11 +194,19 @@ export type LegacyDisableConfirmResult =
         | "database-check-failed";
       /** `failed`: whether part of the registration was already removed. */
       readonly removed?: boolean;
+      /** `busy`: what holds the App, so the page can say it. */
+      readonly busyReason?: RepairBusyReason;
     };
 
 export type LegacyDisableStartResult =
   | { readonly ok: true }
-  | { readonly ok: false; readonly reason: "invalid" | "busy" | "failed"; readonly errorCode?: string };
+  | {
+      readonly ok: false;
+      readonly reason: "invalid" | "busy" | "failed";
+      readonly errorCode?: string;
+      /** `busy`: what holds the App, so the page can say it. */
+      readonly busyReason?: RepairBusyReason;
+    };
 
 /** Why a port change was refused because something is running. */
 export type PortBusyReason = "operation" | "activity" | "unknown";
@@ -235,6 +261,8 @@ export type RepairActionResult =
       readonly ok: false;
       readonly reason: "busy" | "invalid" | "cancelled" | "failed";
       readonly errorCode?: string;
+      /** `busy`: what holds the App, so the page can say it (generic only when this is absent). */
+      readonly busyReason?: RepairBusyReason;
       /** Why a chosen database was refused before any preview opened it, in the page's language (DT-08). */
       readonly message?: string;
     };
@@ -278,9 +306,14 @@ export interface RepairApi {
   getTab(): Promise<AppTabSelection>;
   /** The user selected `tab`; main keeps it for this App session (memory only). `ok: false` for a tab not available now. */
   rememberTab(tab: AppTab): Promise<{ readonly ok: boolean }>;
+  /** The user dismissed a recovery notice (the Status tab's banner); `ok: false` when there was nothing to dismiss. */
+  acknowledgeRecovery(id: string): Promise<{ readonly ok: boolean }>;
   /** Calls `listener` whenever main asks the page to select a tab (the tray, a launch flag); the window is not reloaded. */
   onSelectTab(listener: (tab: AppTab) => void): void;
-  copyCommand(target: CopyCommandTarget): Promise<{ readonly ok: boolean }>;
+  /** Opens the OS place where the user can turn the old login service off by hand (an enum, never a path). */
+  openSystemSettings(target: SystemSettingsTarget): Promise<{ readonly ok: boolean }>;
+  /** Detects the old login service again; the page then reads the state. */
+  legacyRecheck(): Promise<{ readonly ok: boolean }>;
   setupGetState(): Promise<SetupState>;
   setupUseDefaults(launchAtLogin: boolean, startAnyway?: boolean): Promise<SetupActionResult>;
   setupUseSource(input: {
@@ -296,6 +329,7 @@ export interface RepairApi {
   showAgents(): Promise<{ readonly ok: boolean }>;
   agentsGetState(): Promise<AgentsState>;
   agentsPreview(adopt: boolean): Promise<AgentsActionResult>;
+  agentsRemovePreview(): Promise<AgentsActionResult>;
   agentsApply(previewId: string, acknowledgeUndiffable?: boolean): Promise<AgentsActionResult>;
   agentsDiscard(): Promise<AgentsActionResult>;
   agentsUndo(): Promise<AgentsActionResult>;
@@ -307,6 +341,9 @@ export interface RepairApi {
   portChange(port: string | number): Promise<PortChangeResult>;
   checkForUpdates(): Promise<UpdateCheckResult>;
   openUpdateLink(target: UpdateLinkTarget): Promise<UpdateOpenLinkResult>;
+  restoreList(): Promise<RestoreListResult>;
+  restorePick(): Promise<RestorePickResult>;
+  restoreRun(backupId: string): Promise<RestoreRunResult>;
   /** Calls `listener` whenever main starts or finishes an update check (the button's or the tray item's). */
   onUpdateChanged(listener: () => void): void;
 }

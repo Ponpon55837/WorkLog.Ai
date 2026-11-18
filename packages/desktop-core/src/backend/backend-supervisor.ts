@@ -5,6 +5,8 @@ import {
   type DesktopCopyResultMessage,
   type DesktopFacts,
   type DesktopHelloMessage,
+  type DesktopInspectResultMessage,
+  type DesktopRestoreResultMessage,
   type DesktopPreflightResultMessage,
   type DesktopReadyMessage,
 } from "@work-intelligence/schema";
@@ -117,6 +119,21 @@ export type DatabasePreviewResult =
 export type DatabaseCopyOutcome =
   | { readonly outcome: "checked"; readonly result: DesktopCopyResultMessage }
   | { readonly outcome: "failed"; readonly code: BackendErrorCode; readonly detail: string };
+
+/** What a read-only look at backup files came to: the child's findings, or a failure of the child itself. */
+export type BackupInspectOutcome =
+  | { readonly outcome: "checked"; readonly result: DesktopInspectResultMessage }
+  | { readonly outcome: "failed"; readonly code: BackendErrorCode; readonly detail: string };
+
+/**
+ * What a restore asked of a preview child came to: the child's verdict; `failed` when the request never reached the child
+ * (the database was not touched); `unknown` when the request was sent and the child then ended or went silent without a
+ * verdict (the database may or may not have been replaced: the caller must look at the files).
+ */
+export type DatabaseRestoreOutcome =
+  | { readonly outcome: "checked"; readonly result: DesktopRestoreResultMessage }
+  | { readonly outcome: "failed"; readonly code: BackendErrorCode; readonly detail: string }
+  | { readonly outcome: "unknown"; readonly code: BackendErrorCode; readonly detail: string };
 
 /** A backend that was running and ended without a `stop()`. The shell moves to NEEDS_REPAIR; no restart happens here. */
 export interface BackendExitEvent {
@@ -419,6 +436,122 @@ export class BackendSupervisor {
   copyDatabase(source: string, target: string): Promise<DatabaseCopyOutcome> {
     const generation = this.previewGeneration;
     return this.enqueuePreview(() => this.runCopy(source, target, generation));
+  }
+
+  /**
+   * A read-only look, by a preview child, at the backups of `databasePath` (its backup folder, or `backupDirectory`), or at
+   * exactly `files`: for each, whether it is a database of ours, its schema version and counts. Never touches the serving
+   * backend; shares the preview queue and its stop handling.
+   */
+  inspectBackups(request: {
+    readonly databasePath: string;
+    readonly backupDirectory?: string;
+    readonly files?: readonly string[];
+    /** Default true; false skips the whole-file integrity check (a listing of several files). */
+    readonly integrity?: boolean;
+    /** The newest N backups of the folder. */
+    readonly limit?: number;
+  }): Promise<BackupInspectOutcome> {
+    const generation = this.previewGeneration;
+    return this.enqueuePreview(() => this.runInspect(request, generation));
+  }
+
+  /**
+   * Replaces `databasePath` with the backup `source` through a preview child (storage's `restoreDatabase`: checks first, an
+   * automatic safety backup of the current database, nothing else may hold it). Call it only with the backend stopped: it
+   * is the operation's step, never a side path. The previous queue is waited for, so a restore never overlaps a preview.
+   */
+  restoreDatabase(request: {
+    readonly source: string;
+    readonly databasePath: string;
+    readonly backupDirectory?: string;
+  }): Promise<DatabaseRestoreOutcome> {
+    const generation = this.previewGeneration;
+    return this.enqueuePreview(() => this.runRestore(request, generation));
+  }
+
+  private async runInspect(
+    request: {
+      readonly databasePath: string;
+      readonly backupDirectory?: string;
+      readonly files?: readonly string[];
+      readonly integrity?: boolean;
+      readonly limit?: number;
+    },
+    generation: number,
+  ): Promise<BackupInspectOutcome> {
+    let child: ActiveChild | undefined;
+    try {
+      if (generation !== this.previewGeneration) {
+        throw new BackendFailure("REPAIR_REQUIRED", "the look was cancelled because the backend was stopped");
+      }
+      child = await this.spawnChild(
+        { port: 0, databasePath: request.databasePath },
+        this.deps.randomRunId(),
+        this.deps.randomChallenge(),
+        "preview",
+      );
+      this.verifyHello(await child.channel.expect("hello", this.timeouts.helloMs), child);
+      await child.channel.send({
+        type: "inspect-backups",
+        databasePath: request.databasePath,
+        ...(request.backupDirectory ? { backupDirectory: request.backupDirectory } : {}),
+        ...(request.files ? { files: [...request.files] } : {}),
+        ...(request.integrity === undefined ? {} : { integrity: request.integrity }),
+        ...(request.limit === undefined ? {} : { limit: request.limit }),
+      });
+      return {
+        outcome: "checked",
+        result: await child.channel.expect("inspect-result", this.timeouts.quickCheckMs),
+      };
+    } catch (error) {
+      const failure = describeUnexpected(error);
+      return { outcome: "failed", code: failure.code, detail: failure.detail };
+    } finally {
+      if (child) {
+        const ended = await this.terminate(child);
+        this.previews.delete(child);
+        if (!ended.exited) this.log("a preview child did not exit after it was asked to stop and killed");
+      }
+    }
+  }
+
+  private async runRestore(
+    request: { readonly source: string; readonly databasePath: string; readonly backupDirectory?: string },
+    generation: number,
+  ): Promise<DatabaseRestoreOutcome> {
+    let child: ActiveChild | undefined;
+    let sent = false;
+    try {
+      if (generation !== this.previewGeneration) {
+        throw new BackendFailure("REPAIR_REQUIRED", "the restore was cancelled because the backend was stopped");
+      }
+      child = await this.spawnChild(
+        { port: 0, databasePath: request.databasePath },
+        this.deps.randomRunId(),
+        this.deps.randomChallenge(),
+        "preview",
+      );
+      this.verifyHello(await child.channel.expect("hello", this.timeouts.helloMs), child);
+      await child.channel.send({
+        type: "restore-database",
+        source: request.source,
+        databasePath: request.databasePath,
+        ...(request.backupDirectory ? { backupDirectory: request.backupDirectory } : {}),
+      });
+      sent = true;
+      // No timer: a restoring child is never killed because it takes long. Only its answer or its own exit ends the wait.
+      return { outcome: "checked", result: await child.channel.expect("restore-result", null) };
+    } catch (error) {
+      const failure = describeUnexpected(error);
+      return { outcome: sent ? "unknown" : "failed", code: failure.code, detail: failure.detail };
+    } finally {
+      if (child) {
+        const ended = await this.terminate(child);
+        this.previews.delete(child);
+        if (!ended.exited) this.log("a preview child did not exit after it was asked to stop and killed");
+      }
+    }
   }
 
   private enqueuePreview<T>(run: () => Promise<T>): Promise<T> {

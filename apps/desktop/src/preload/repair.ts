@@ -15,7 +15,9 @@ const channels: typeof REPAIR_CHANNELS = {
   startAnyway: "repair:start-anyway",
   getTab: "app:get-tab",
   rememberTab: "app:remember-tab",
-  copyCommand: "app:copy-command",
+  openSystemSettings: "app:open-system-settings",
+  legacyRecheck: "legacy:recheck",
+  recoveryAcknowledge: "app:recovery-acknowledge",
   setupGetState: "setup:get-state",
   setupUseDefaults: "setup:use-defaults",
   setupUseSource: "setup:use-source",
@@ -25,6 +27,7 @@ const channels: typeof REPAIR_CHANNELS = {
   showView: "app:show-view",
   agentsGetState: "agents:get-state",
   agentsPreview: "agents:preview",
+  agentsRemovePreview: "agents:remove-preview",
   agentsApply: "agents:apply",
   agentsDiscard: "agents:discard",
   agentsUndo: "agents:undo",
@@ -38,6 +41,9 @@ const channels: typeof REPAIR_CHANNELS = {
   updateCheck: "update:check",
   updateOpenLink: "update:open-link",
   updateChanged: "update:changed",
+  restoreList: "restore:list",
+  restorePick: "restore:pick",
+  restoreRun: "restore:run",
   selectTab: "app:select-tab",
 };
 
@@ -59,7 +65,9 @@ const api: RepairApi = {
   startAnyway: (operationId) => ipcRenderer.invoke(channels.startAnyway, { operationId }),
   getTab: () => ipcRenderer.invoke(channels.getTab),
   rememberTab: (tab) => ipcRenderer.invoke(channels.rememberTab, { tab }),
-  copyCommand: (target) => ipcRenderer.invoke(channels.copyCommand, { target }),
+  openSystemSettings: (target) => ipcRenderer.invoke(channels.openSystemSettings, { target }),
+  legacyRecheck: () => ipcRenderer.invoke(channels.legacyRecheck, {}),
+  acknowledgeRecovery: (id) => ipcRenderer.invoke(channels.recoveryAcknowledge, { id }),
   setupGetState: () => ipcRenderer.invoke(channels.setupGetState),
   setupUseDefaults: (launchAtLogin, startAnyway) =>
     ipcRenderer.invoke(channels.setupUseDefaults, {
@@ -84,6 +92,7 @@ const api: RepairApi = {
   showAgents: () => ipcRenderer.invoke(channels.showView, { view: "agents" }),
   agentsGetState: () => ipcRenderer.invoke(channels.agentsGetState),
   agentsPreview: (adopt) => ipcRenderer.invoke(channels.agentsPreview, { adopt }),
+  agentsRemovePreview: () => ipcRenderer.invoke(channels.agentsRemovePreview, {}),
   agentsApply: (previewId, acknowledgeUndiffable) =>
     ipcRenderer.invoke(channels.agentsApply, {
       previewId,
@@ -103,6 +112,9 @@ const api: RepairApi = {
   portChange: (port) => ipcRenderer.invoke(channels.portChange, { port }),
   checkForUpdates: () => ipcRenderer.invoke(channels.updateCheck, {}),
   openUpdateLink: (target) => ipcRenderer.invoke(channels.updateOpenLink, { target }),
+  restoreList: () => ipcRenderer.invoke(channels.restoreList, {}),
+  restorePick: () => ipcRenderer.invoke(channels.restorePick, {}),
+  restoreRun: (backupId) => ipcRenderer.invoke(channels.restoreRun, { backupId }),
   onSelectTab: (listener) => {
     // Forwarded as sent; the page checks the id against the tab list before it switches.
     ipcRenderer.on(channels.selectTab, (_event, tab: unknown) => {

@@ -4,6 +4,30 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.56] - 2026-11-18
+
+[繁體中文更新說明](docs/releases/1.6.56.md).
+
+This release fixes the high-severity findings of the 1.6.55 review. Crash recovery now runs at startup, restore is available inside the App, and the App no longer asks users to run commands. The schema stays at 33 and no migration is needed. Real-device acceptance on Windows 11 and macOS is not done yet, and restore still does not retry the final rename on Windows (M-14, planned for 1.6.57).
+
+### Fixed
+
+- **Crash recovery is wired into startup (H-01, M-06, L-10).** The main process runs `recoverAtStartup` after settings are read and before first-run setup or backend start. Interrupted operations are closed from real state (settings file, database identity and schema, child process, old-service detection), never from the journal. An empty journal costs one read. Results appear as a dismissible banner on the Status tab. A corrupt journal is renamed aside and recovery starts from an empty journal. An orphaned local copy is removed by recovery.
+- **Restore inside the App (H-02).** The Data tab has a restore flow that uses opaque one-time backup tokens, runs through `OperationCoordinator` as kind `restore`, rejects newer-schema and non-Work Intelligence files, and warns to close Agents first.
+- **Remove Agent setup (M-11).** The Agent tab has a Remove Agent setup action that uses `uninstallPlan`, with the same preview and transaction as install.
+- **Undo falls back to entry-level removal (M-12).** When the file hash no longer matches, undo removes only the entries this app added.
+- **No commands in the legacy-service flow (M-15).** The copy-command button is removed. The `openSystemSettings` action opens Task Scheduler on Windows (`%SystemRoot%\System32\taskschd.msc` through `shell.openPath`), and Login Items on macOS with a LaunchAgents folder fallback.
+- **Copy and busy messages (M-16, L-08).** Copy points at the Status, Settings and Agent tabs, dead strings are deleted, and the busy message gives the real reason.
+- **Manual-repair message (L-20).** The result no longer claims that a rollback happened when manual repair is needed.
+- **Operation kinds.** The unused `update-install` kind and `advance()` are removed. The kinds in use are `apply-agent` and `restore`.
+- **Guard test.** `tests/desktop-core/no-command-copy.test.ts` forbids pnpm, npm, terminal and command wording in desktop strings.
+- **Schema:** no change (33).
+
+### Known gaps
+
+- M-14: the final rename in restore is not retried on Windows (planned for 1.6.57).
+- Windows 11 and macOS real-device acceptance is not done.
+
 ## [1.6.55] - 2026-11-18
 
 [繁體中文更新說明](docs/releases/1.6.55.md).

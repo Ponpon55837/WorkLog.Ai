@@ -13,7 +13,6 @@ export const OPERATION_KINDS = [
   "apply-agent",
   "restart",
   "restore",
-  "update-install",
   "legacy-disable",
 ] as const;
 export type OperationKind = (typeof OPERATION_KINDS)[number];
@@ -28,6 +27,38 @@ const jsonSchema = z.json() as z.ZodType<JournalJson>;
 
 const stateSchema = z.enum(SERVICE_OWNER_STATES);
 const jsonRecordSchema = z.record(z.string(), jsonSchema);
+
+/**
+ * What a startup recovery tells the user about an operation it found interrupted. The kinds are facts about the real
+ * state it verified, not about the journal; the page words each of them (what happened, what the user can do).
+ */
+export const RECOVERY_NOTICE_KINDS = [
+  "port-kept",
+  "port-applied",
+  "db-kept",
+  "db-applied",
+  "copy-removed",
+  "legacy-present",
+  "legacy-disabled",
+  "agent-interrupted",
+  "needs-repair",
+  /** The journal file itself could not be read and was set aside: what an earlier operation did is unknown. */
+  "journal-unreadable",
+] as const;
+export type RecoveryNoticeKind = (typeof RECOVERY_NOTICE_KINDS)[number];
+
+/** Persisted notice: descriptive and non-secret (a port number at most), acknowledged by the user once. */
+export const recoveryNoticeSchema = z.strictObject({
+  kind: z.enum(RECOVERY_NOTICE_KINDS),
+  /** The operation that was interrupted; the page maps it to the tab where the user can act. */
+  operation: z.enum(OPERATION_KINDS),
+  /** The port the App uses now (port notices only). */
+  port: z.number().int().nullable(),
+  /** The port the interrupted change was moving to (port notices only). */
+  attemptedPort: z.number().int().nullable(),
+  acknowledged: z.boolean(),
+});
+export type RecoveryNotice = z.infer<typeof recoveryNoticeSchema>;
 
 /** Zod schema of one persisted operation (R4 §4.1 fields plus replay bookkeeping). */
 export const operationRecordSchema = z.strictObject({
@@ -51,6 +82,8 @@ export const operationRecordSchema = z.strictObject({
   status: z.enum(["in-progress", "completed", "cancelled", "failed", "interrupted"]),
   /** Descriptive, non-secret facts of the operation (a port change records `{ from, to }`); absent in older journals. */
   details: jsonRecordSchema.nullable().default(null),
+  /** What startup recovery told the user about this operation; null when it was not interrupted or needs no notice. */
+  recoveryNotice: recoveryNoticeSchema.nullable().default(null),
   /** Persisted cancel request; defaults to false so journals written before this field still load (version 1). */
   cancelRequested: z.boolean().default(false),
   completedSteps: z.array(z.string()),
@@ -103,6 +136,7 @@ export function createOperationRecord(input: NewOperationInput, now: string): Op
     schemaVersionAtStart: input.schemaVersionAtStart ?? null,
     status: "in-progress",
     details: (input.details as Record<string, JournalJson> | null | undefined) ?? null,
+    recoveryNotice: null,
     cancelRequested: false,
     completedSteps: [],
     stepResults: {},
@@ -171,4 +205,19 @@ export function withTerminalStatus(
 ): OperationRecord {
   if (record.status !== "in-progress") return record;
   return { ...record, status, result: detail.result ?? null, error: detail.error ?? null, updatedAt: now };
+}
+
+/** Attach the notice recovery decided on; it starts unacknowledged. */
+export function withRecoveryNotice(
+  record: OperationRecord,
+  notice: Omit<RecoveryNotice, "acknowledged">,
+  now: string,
+): OperationRecord {
+  return { ...record, recoveryNotice: { ...notice, acknowledged: false }, updatedAt: now };
+}
+
+/** The user dismissed the notice; a record without one, or already acknowledged, stays as it is. */
+export function withNoticeAcknowledged(record: OperationRecord, now: string): OperationRecord {
+  if (!record.recoveryNotice || record.recoveryNotice.acknowledged) return record;
+  return { ...record, recoveryNotice: { ...record.recoveryNotice, acknowledged: true }, updatedAt: now };
 }

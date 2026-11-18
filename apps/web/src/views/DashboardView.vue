@@ -117,6 +117,7 @@ onBeforeUnmount(() => {
     :agent-connections="systemStatus?.agents ?? null"
     :agent-status-loading="systemStatusLoading"
     :agent-status-error="systemStatusError"
+    :desktop-managed="systemStatus?.desktop?.managed === true"
   />
 
   <UiBox class="dashboard__activity" data-testid="dashboard-activity">

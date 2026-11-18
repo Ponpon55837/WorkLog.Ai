@@ -18,6 +18,8 @@ const props = defineProps<{
   agentConnections: SystemAgentConnections | null;
   agentStatusLoading: boolean;
   agentStatusError: string;
+  /** The Dashboard runs inside the desktop App: no command is offered there. */
+  desktopManaged?: boolean;
 }>();
 
 const agentStepState = computed(() =>
@@ -62,7 +64,12 @@ const agentConnected = computed(() => (props.agentConnections ? agentStepState.v
         </div>
         <div v-if="!agentConnected" class="first-run-checklist__actions">
           <UiButton size="sm" :to="{ name: 'system-status' }">{{ t("dashboard.viewConnectionStatus") }}</UiButton>
-          <UiCopyButton size="sm" :label="t('dashboard.copyInstallCommand')" text="pnpm setup:agents" />
+          <UiCopyButton
+            v-if="!desktopManaged"
+            size="sm"
+            :label="t('dashboard.copyInstallCommand')"
+            text="pnpm setup:agents"
+          />
         </div>
       </li>
       <li data-testid="first-run-step-session">

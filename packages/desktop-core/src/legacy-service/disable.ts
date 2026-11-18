@@ -204,19 +204,54 @@ export function planLegacyDisable(
   };
 }
 
-/** Quotes one argv entry for display only (the steps never run through a shell). */
-function displayArgument(value: string): string {
-  return /^[A-Za-z0-9_./:=\\-]+$/.test(value) ? value : `"${value.replaceAll('"', '\\"')}"`;
+/**
+ * The plain-language sentences of 「詳細步驟」, in the user's language; `{name}` is a task or service name, `{path}` a
+ * file path. The preview never shows the commands the steps run.
+ */
+export interface LegacyDisableStepText {
+  /** Windows: stop the scheduled task `{name}`. */
+  readonly stopTask: string;
+  /** Windows: remove the scheduled task `{name}`. */
+  readonly removeTask: string;
+  readonly endRunners: string;
+  /** macOS and Linux: stop the old service `{name}` and take it out of the login items. */
+  readonly stopService: string;
+  /** The read-only check that the old service is no longer loaded or enabled. */
+  readonly checkStopped: string;
+  /** Linux: let the system read its service list again. */
+  readonly refreshService: string;
+  readonly deleteFile: string;
+  readonly other: string;
 }
 
-/** One line per step for 「詳細步驟」. */
-export function describeLegacyDisableSteps(plan: LegacyDisablePlan): string[] {
+function fill(template: string, values: Readonly<Record<string, string>>): string {
+  return template.replace(/\{(\w+)\}/g, (match, key: string) => values[key] ?? match);
+}
+
+function commandSentence(step: Extract<LegacyDisableStep, { kind: "command" }>, text: LegacyDisableStepText): string {
+  const tool = path.win32.basename(step.run.command).toLowerCase();
+  const first = step.run.args[0];
+  if (tool === "schtasks.exe" || tool === "schtasks") {
+    const name = legacyWindowsTaskTarget().replace(/^\\+/, "");
+    if (first === "/End") return fill(text.stopTask, { name });
+    if (first === "/Delete") return fill(text.removeTask, { name });
+  } else if (tool === "launchctl") {
+    if (first === "bootout") return fill(text.stopService, { name: LEGACY_LAUNCHD_LABEL });
+    if (first === "print") return text.checkStopped;
+  } else if (tool === "systemctl") {
+    if (step.run.args.includes("disable")) return fill(text.stopService, { name: LEGACY_SYSTEMD_UNIT });
+    if (step.run.args.includes("is-enabled")) return text.checkStopped;
+    if (step.run.args.includes("daemon-reload")) return text.refreshService;
+  }
+  return text.other;
+}
+
+/** One plain sentence per step for 「詳細步驟」; execution never reads these. */
+export function describeLegacyDisableSteps(plan: LegacyDisablePlan, text: LegacyDisableStepText): string[] {
   return plan.steps.map((step) => {
-    if (step.kind === "command") {
-      return [path.win32.basename(step.run.command), ...step.run.args].map(displayArgument).join(" ");
-    }
-    if (step.kind === "end-runners") return `taskkill /PID <${displayArgument(step.runnerPath)} 的程序> /T /F`;
-    return `${plan.platform === "win32" ? "Remove-Item" : "rm"} ${displayArgument(step.path)}`;
+    if (step.kind === "command") return commandSentence(step, text);
+    if (step.kind === "end-runners") return text.endRunners;
+    return fill(text.deleteFile, { path: step.path });
   });
 }
 

@@ -134,7 +134,6 @@ describe("portMessages", () => {
       for (const problem of ["not-a-number", "out-of-range", "below-1024", "browser-restricted"] as const) {
         expect(text.problems[problem].length).toBeGreaterThan(0);
       }
-      expect(text.trayChangePort.length).toBeGreaterThan(0);
     }
   });
 

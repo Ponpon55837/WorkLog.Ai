@@ -90,14 +90,11 @@ const preflightRequestSchema = z.strictObject({
  * older shell and a newer child (or the reverse) still understand each other.
  */
 export const desktopFactsSchema = z.strictObject({
-  /** A login service from the pnpm bootstrap that may share this database with the App's own backend. */
-  legacyService: z
-    .strictObject({
-      running: z.enum(["running", "stopped", "unknown"]),
-      removeCommand: z.string().max(MAX_PATH_LENGTH).optional(),
-      fallbackRemoveCommand: z.string().max(MAX_PATH_LENGTH),
-    })
-    .optional(),
+  /**
+   * A login service from the pnpm bootstrap that may share this database with the App's own backend. Not strict: an
+   * older shell still sends the removal commands this version no longer reads, and they are dropped.
+   */
+  legacyService: z.object({ running: z.enum(["running", "stopped", "unknown"]) }).optional(),
   /** The port the App committed for this backend, so the status page can show the effective address. */
   activePort: portSchema.optional(),
   /**
@@ -145,6 +142,36 @@ const copyDatabaseRequestSchema = z.strictObject({
   type: z.literal("copy-database"),
   source: pathSchema,
   target: pathSchema,
+});
+
+/** Most backup files one `inspect-backups` answers for; the page lists the newest ones only. */
+export const DESKTOP_MAX_INSPECTED_BACKUPS = 50;
+
+/**
+ * Asks a preview child to look, read-only, at the backups of `databasePath` (its backup folder, or `backupDirectory`) or,
+ * when `files` is given, at exactly those files (a file the user picked). Nothing is opened for writing or migrated.
+ */
+const inspectBackupsRequestSchema = z.strictObject({
+  type: z.literal("inspect-backups"),
+  databasePath: pathSchema,
+  backupDirectory: pathSchema.optional(),
+  files: z.array(pathSchema).min(1).max(DESKTOP_MAX_INSPECTED_BACKUPS).optional(),
+  /** False: skip `PRAGMA quick_check` (a listing); absent or true: run it (one chosen file). */
+  integrity: z.boolean().optional(),
+  /** At most this many of the newest backups of the folder (default and maximum: `DESKTOP_MAX_INSPECTED_BACKUPS`). */
+  limit: z.number().int().min(1).max(DESKTOP_MAX_INSPECTED_BACKUPS).optional(),
+});
+
+/**
+ * Asks a preview child to replace `databasePath` with the snapshot `source` (restoreDatabase of the storage package: the
+ * snapshot is checked, the current database is backed up first, nothing else may hold it open). Sent only while the
+ * backend is stopped.
+ */
+const restoreDatabaseRequestSchema = z.strictObject({
+  type: z.literal("restore-database"),
+  source: pathSchema,
+  databasePath: pathSchema,
+  backupDirectory: pathSchema.optional(),
 });
 
 const helloSchema = z.strictObject({
@@ -224,6 +251,56 @@ const copyResultSchema = z.strictObject({
   detail: z.string().max(MAX_DETAIL_LENGTH).optional(),
 });
 
+/** What the child found in one backup file; names and numbers only. `path` is for the parent, never for a page. */
+const inspectedBackupSchema = z.strictObject({
+  path: pathSchema,
+  fileName: z.string().min(1).max(512),
+  /** Only for a file of the backup folder (the file name carries it). */
+  kind: z
+    .enum(["automatic", "manual", "migration", "deletion", "session_deletion", "maintenance", "import"])
+    .optional(),
+  createdAt: z.string().max(64).optional(),
+  bytes: z.number().int().nonnegative(),
+  status: z.enum(["ok", "newer-schema", "not-database", "corrupt", "unreadable", "missing"]),
+  schemaVersion: z.number().int().nonnegative().optional(),
+  projects: z.number().int().nonnegative().optional(),
+  sessions: z.number().int().nonnegative().optional(),
+});
+
+const inspectResultSchema = z.strictObject({
+  type: z.literal("inspect-result"),
+  items: z.array(inspectedBackupSchema).max(DESKTOP_MAX_INSPECTED_BACKUPS),
+  /** The backup folder could not be read at all (the files are missing or the folder is not readable). */
+  directoryReadable: z.boolean(),
+});
+
+/**
+ * Result of `restore-database`. Everything but `ok` means the current database was NOT replaced; `locked` is a file lock
+ * (EBUSY / EPERM, mostly Windows), `in-use` another process holding the database (an Agent).
+ */
+const restoreResultSchema = z.strictObject({
+  type: z.literal("restore-result"),
+  status: z.enum([
+    "ok",
+    "in-use",
+    "locked",
+    "newer-schema",
+    "not-database",
+    "corrupt",
+    "verify-failed",
+    "missing",
+    "same-file",
+    "no-space",
+    "failed",
+  ]),
+  /** The file name of the backup made of the replaced database. */
+  safetyBackup: z.string().max(512).optional(),
+  schemaVersion: z.number().int().nonnegative().optional(),
+  projects: z.number().int().nonnegative().optional(),
+  sessions: z.number().int().nonnegative().optional(),
+  detail: z.string().max(MAX_DETAIL_LENGTH).optional(),
+});
+
 /** Parent to child. */
 export const desktopParentMessageSchema = z.discriminatedUnion("type", [
   preflightRequestSchema,
@@ -232,6 +309,8 @@ export const desktopParentMessageSchema = z.discriminatedUnion("type", [
   activityQuerySchema,
   updateFactsSchema,
   copyDatabaseRequestSchema,
+  inspectBackupsRequestSchema,
+  restoreDatabaseRequestSchema,
 ]);
 
 /** Child to parent. */
@@ -247,6 +326,8 @@ export const desktopChildMessageSchema = z.discriminatedUnion("type", [
   openPortSettingsSchema,
   activitySchema,
   copyResultSchema,
+  inspectResultSchema,
+  restoreResultSchema,
 ]);
 
 export type DesktopDatabaseIdentity = z.infer<typeof desktopDatabaseIdentitySchema>;
@@ -259,6 +340,9 @@ export type DesktopReadyMessage = z.infer<typeof readySchema>;
 export type DesktopHelloMessage = z.infer<typeof helloSchema>;
 export type DesktopBackendActivity = (typeof DESKTOP_BACKEND_ACTIVITIES)[number];
 export type DesktopCopyResultMessage = z.infer<typeof copyResultSchema>;
+export type DesktopInspectResultMessage = z.infer<typeof inspectResultSchema>;
+export type DesktopInspectedBackup = z.infer<typeof inspectedBackupSchema>;
+export type DesktopRestoreResultMessage = z.infer<typeof restoreResultSchema>;
 
 export type ParsedDesktopMessage<T> = { ok: true; message: T } | { ok: false; reason: string };
 

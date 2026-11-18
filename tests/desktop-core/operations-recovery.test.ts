@@ -248,25 +248,38 @@ describe("recover a port change", () => {
     details: { from: 3210, to: 43_210 },
   };
 
-  it("keeps the managed owner when the child ended with the App, because the settings still name the old port", async () => {
+  it("keeps the managed owner when the child ended with the App and the settings still name the old port", async () => {
     for (const phase of ["PREPARING", "STARTING"] as const) {
       const record = await recordAt(phase, change);
       expect(record.details).toEqual({ from: 3210, to: 43_210 });
-      const decision = await recover(record, probe({ oldServiceRunning: false }));
+      const decision = await recover(record, probe({ oldServiceRunning: false, settingsPort: 3210 }));
       expect(decision).toMatchObject({ nextState: "MANAGED", action: "none", restore: null, migrationStarted: false });
     }
   });
 
-  it("needs repair when a child still runs, since its port cannot be told from the journal", async () => {
+  it("closes without undoing anything when the settings already name the new port (the commit landed)", async () => {
+    const decision = await recover(await recordAt("STARTING", change), probe({ settingsPort: 43_210 }));
+    expect(decision).toMatchObject({ nextState: "MANAGED", action: "none", restore: null });
+  });
+
+  it("needs repair when the settings name neither port or no port at all", async () => {
+    for (const settingsPort of [null, 9999]) {
+      const decision = await recover(await recordAt("STARTING", change), probe({ settingsPort }));
+      expect(decision).toMatchObject({ nextState: "NEEDS_REPAIR", action: "repair", restore: null });
+    }
+  });
+
+  it("does not decide by the settings while a child still runs (its port cannot be told from the journal)", async () => {
     const decision = await recover(
       await recordAt("STARTING", change),
-      probe({ desktopChild: VERIFIED, oldServiceRunning: false }),
+      probe({ desktopChild: VERIFIED, oldServiceRunning: false, settingsPort: 3210 }),
     );
-    expect(decision).toMatchObject({ nextState: "NEEDS_REPAIR", action: "repair" });
+    // the generic rule only resumes verification; start-up recovery turns a resume into repair-only (see startup-recovery)
+    expect(decision.action).toBe("resume");
   });
 
   it("does not bypass the database identity check or a migration", async () => {
-    const other = await recover(await recordAt("STARTING", change), probe({ dbIdentity: DB_B }));
+    const other = await recover(await recordAt("STARTING", change), probe({ dbIdentity: DB_B, settingsPort: 3210 }));
     expect(other).toMatchObject({ nextState: "NEEDS_REPAIR", action: "repair" });
     const migrated = await recover(await recordAt("STARTING", change), probe({ migrationEvidence: true }));
     expect(migrated).toMatchObject({ nextState: "NEEDS_REPAIR", migrationStarted: true });
@@ -277,8 +290,44 @@ describe("recover a port change", () => {
     expect(await recover(record, probe())).toMatchObject({ nextState: "NEEDS_REPAIR", action: "repair" });
   });
 
-  it("falls back to the generic rule when the owner before was not MANAGED", async () => {
-    const decision = await recover(await recordAt("STARTING", { kind: "change-port" }), probe());
-    expect(decision.action).toBe("restore-previous");
+  it("needs repair when the change recorded no ports, whatever the owner before was", async () => {
+    const decision = await recover(await recordAt("STARTING", { kind: "change-port" }), probe({ settingsPort: 3210 }));
+    // previousOwner EXTERNAL and no recorded ports: the settings cannot say which port won, so nothing is assumed
+    expect(decision.action).toBe("repair");
+  });
+});
+
+describe("recover with a different or unverifiable database", () => {
+  // The ordinary kinds record the database in use: a mismatch or a database that could not be read is never closed silently.
+  it.each([
+    [
+      "takeover",
+      { kind: "takeover" as const, previousOwner: "MANAGED" as const },
+      { settingsState: "active" as const },
+    ],
+    ["restart", { kind: "restart" as const, previousOwner: "MANAGED" as const }, { settingsState: "active" as const }],
+    [
+      "change-port",
+      { kind: "change-port" as const, previousOwner: "MANAGED" as const, details: { from: 3210, to: 43_210 } },
+      { settingsPort: 3210 },
+    ],
+    [
+      "legacy-disable",
+      { kind: "legacy-disable" as const, previousOwner: "EXTERNAL" as const },
+      { oldServiceRegistered: false, oldServiceRunning: false },
+    ],
+  ])("%s: a mismatching or missing database identity is repair", async (_name, input, report) => {
+    for (const dbIdentity of [DB_B, null]) {
+      const decision = await recover(await recordAt("STARTING", input), probe({ ...report, dbIdentity }));
+      expect(decision).toMatchObject({ nextState: "NEEDS_REPAIR", action: "repair" });
+    }
+  });
+
+  it("a database switch still closes quietly when the settings name the previous database", async () => {
+    const decision = await recover(
+      await recordAt("STARTING", { kind: "change-db", previousOwner: "MANAGED", selectedDb: DB_B }),
+      probe({ dbIdentity: DB_A }),
+    );
+    expect(decision.action).toBe("none");
   });
 });

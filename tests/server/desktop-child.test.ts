@@ -125,8 +125,6 @@ describe("DesktopChild", () => {
     const { child, sent, startApi } = setup();
     const legacyService = {
       running: "running",
-      removeCommand: "synthetic remove",
-      fallbackRemoveCommand: "synthetic fallback",
     };
     await child.handle({ ...START, desktop: { legacyService } });
 

@@ -8,8 +8,6 @@ import {
   decodeLegacyDefinition,
   detectLegacyService,
   legacyDefinitionDigest,
-  legacyFallbackRemoveCommand,
-  legacyRemoveCommand,
   legacyServiceDefinitionPath,
   type DetectLegacyServiceOptions,
   type LegacyServiceCommandResult,
@@ -175,10 +173,6 @@ describe("detectLegacyService: recognised definitions", () => {
       running: "running",
     });
     expect(runner.calls).toEqual([{ command: "launchctl", args: ["print", "gui/501/ai.workintelligence.server"] }]);
-    expect(result.removeCommand).toBe(`cd '/srv/Work Log ünï 專案/it'\\''s $HOME' && pnpm service:uninstall`);
-    expect(result.fallbackRemoveCommand).toBe(
-      `launchctl bootout "gui/$(id -u)/ai.workintelligence.server"; rm -f '${path}'`,
-    );
   });
 
   it("recognises the Linux unit, honours XDG_CONFIG_HOME, and reports stopped", async () => {
@@ -221,9 +215,6 @@ describe("detectLegacyService: recognised definitions", () => {
         ],
       },
     ]);
-    expect(result.fallbackRemoveCommand).toBe(
-      `systemctl --user disable --now work-intelligence.service; rm -f '${path}'; systemctl --user daemon-reload`,
-    );
   });
 
   it("fingerprints only a recognised definition, so the disable acts on exactly what was previewed", async () => {
@@ -268,10 +259,6 @@ describe("detectLegacyService: recognised definitions", () => {
       port: 3210,
       running: "running",
     });
-    expect(result.removeCommand).toBe(`Set-Location -LiteralPath '${WINDOWS_ROOT}'; pnpm service:uninstall`);
-    expect(result.fallbackRemoveCommand).toBe(
-      `schtasks.exe /Delete /TN "\\Work Intelligence" /F; Remove-Item -LiteralPath '${file.path}' -ErrorAction SilentlyContinue`,
-    );
   });
 
   it("falls back to the task XML on Windows when the copy is gone", async () => {
@@ -367,8 +354,6 @@ describe("detectLegacyService: unrecognised definitions", () => {
       expect(result.recognised).toBe(false);
       expect(result.repositoryRoot).toBeUndefined();
       expect(result.databasePath).toBeUndefined();
-      expect(result.removeCommand).toBeUndefined();
-      expect(result.fallbackRemoveCommand).toContain(path);
     }
   });
 
@@ -717,25 +702,5 @@ describe("detectLegacyService: the default file readers", () => {
       }),
     );
     expect(result).toMatchObject({ recognised: false, running: "unknown" });
-  });
-});
-
-describe("remove commands", () => {
-  it("quotes the checkout for POSIX shells", () => {
-    expect(legacyRemoveCommand("linux", "/srv/my repo/a'b")).toBe(
-      `cd '/srv/my repo/a'\\''b' && pnpm service:uninstall`,
-    );
-    expect(legacyRemoveCommand("darwin", "/Users/ü/$(x)`y`")).toBe("cd '/Users/ü/$(x)`y`' && pnpm service:uninstall");
-  });
-
-  it("quotes the checkout for PowerShell, doubling every kind of single quote", () => {
-    expect(legacyRemoveCommand("win32", "C:\\My Repo\\it's \u2018x\u2019 [1]")).toBe(
-      "Set-Location -LiteralPath 'C:\\My Repo\\it''s \u2018\u2018x\u2019\u2019 [1]'; pnpm service:uninstall",
-    );
-  });
-
-  it("quotes the definition file in the fallback commands", () => {
-    expect(legacyFallbackRemoveCommand("linux", "/h/it's/x.service")).toContain("rm -f '/h/it'\\''s/x.service'");
-    expect(legacyFallbackRemoveCommand("win32", "C:\\a b\\t.xml")).toContain("-LiteralPath 'C:\\a b\\t.xml'");
   });
 });

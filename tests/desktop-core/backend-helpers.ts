@@ -41,6 +41,10 @@ export interface ChildScript {
   afterReady?: { exit: number; failed?: { code: string; detail: string } };
   /** The answer to `copy-database`; false stays silent. */
   copy?: Record<string, unknown> | false;
+  /** The answer to `inspect-backups`; false stays silent. */
+  inspect?: Record<string, unknown> | false;
+  /** The answer to `restore-database`; false stays silent, "exit" ends the child without an answer. */
+  restore?: Record<string, unknown> | false | "exit";
 }
 
 /** A `ChildProcess` stand-in driven by a script, with real streams and EventEmitter semantics. */
@@ -130,6 +134,11 @@ export class FakeChild extends EventEmitter {
       }
     } else if (message.type === "copy-database" && this.script.copy !== false) {
       this.say({ type: "copy-result", status: "ok", identity: IDENTITY, ...this.script.copy });
+    } else if (message.type === "inspect-backups" && this.script.inspect !== false) {
+      this.say({ type: "inspect-result", items: [], directoryReadable: true, ...this.script.inspect });
+    } else if (message.type === "restore-database" && this.script.restore !== false) {
+      if (this.script.restore === "exit") this.exit(1);
+      else this.say({ type: "restore-result", status: "ok", ...this.script.restore });
     } else if (message.type === "shutdown") {
       const action = this.script.onShutdown ?? { exit: 0 };
       if (action !== "ignore") this.exit(action.exit);

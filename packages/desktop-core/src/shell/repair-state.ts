@@ -1,6 +1,6 @@
 import type { DbProbeStatus } from "../db-source/types.js";
-import { buildAppShellState, type AppShellState } from "./app-tabs.js";
-import type { OperationKind } from "../operations/journal-record.js";
+import { buildAppShellState, tabForOperation, type AppShellState, type AppTab } from "./app-tabs.js";
+import type { OperationKind, RecoveryNotice } from "../operations/journal-record.js";
 import type { ServiceOwnerState } from "../operations/service-owner-state.js";
 import type { ShellLocale } from "./i18n.js";
 import type { LastBackupInfo } from "./last-backup.js";
@@ -8,6 +8,7 @@ import type { RecordedError } from "./recent-errors.js";
 import type { StorageRiskView } from "./storage-risk-view.js";
 import type { RepairUpdateSection } from "../update-check/result.js";
 import { canDisableLegacyService } from "../legacy-service/disable.js";
+import { systemSettingsField, type SystemSettingsTarget } from "../legacy-service/system-settings.js";
 import type { LegacyServiceDetection } from "../legacy-service/types.js";
 
 export type BackendRunState = "running" | "starting" | "stopped" | "crashed";
@@ -43,6 +44,23 @@ export interface RepairCandidateView {
   readonly storageRisk?: StorageRiskView;
 }
 
+/**
+ * What start-up recovery found an interrupted operation left in, as the Status tab's banner shows it: the page words it
+ * from `kind` and the ports, and offers `tab` as the place to act. Dismissing it (`recoveryAcknowledge`) is persisted.
+ */
+export interface RepairRecoveryNotice {
+  /** The interrupted operation's id: what the page sends back to dismiss it. */
+  readonly id: string;
+  readonly kind: RecoveryNotice["kind"];
+  readonly operation: OperationKind;
+  /** The port in use (port notices). */
+  readonly port: number | null;
+  /** The port the interrupted change was moving to (port notices). */
+  readonly attemptedPort: number | null;
+  /** The tab where the user can act on it. */
+  readonly tab: AppTab;
+}
+
 /** The snapshot the repair page renders. It holds no real path: those stay in main. */
 export interface RepairState {
   readonly locale: ShellLocale;
@@ -62,6 +80,8 @@ export interface RepairState {
   readonly retryOperationId: string;
   /** Set only while the success card shows, right after a repair the user started worked. */
   readonly recovered: RepairRecovered | null;
+  /** Notices about operations a crash interrupted, newest first, until the user dismisses each. */
+  readonly recoveryNotices: readonly RepairRecoveryNotice[];
   /** The 「連接埠」 section (null before the App has settings). */
   readonly port: RepairPortSection | null;
   /** The 「更新」 card: the running version, and the check's progress and last answer (kept in main). Absent: no card. */
@@ -69,7 +89,7 @@ export interface RepairState {
   /** What the tab strip needs: the tab list, the blocking tab and one badge per tab (see repair-ipc.ts). */
   readonly shell: AppShellState;
   /**
-   * The old login service (`pnpm bootstrap`) is installed and may serve this database. `blocked`: the App did not start
+   * The old login service is installed and may serve this database. `blocked`: the App did not start
    * its backend because of it; only "仍要啟動" (the `start-anyway` action) starts it.
    */
   readonly legacyService: {
@@ -79,8 +99,8 @@ export interface RepairState {
     readonly portInUse: boolean;
     /** 「停用舊的登入服務」 is offered: the definition is the one `service:install` writes, for a known checkout. */
     readonly canDisable: boolean;
-    readonly removeCommand?: string;
-    readonly fallbackRemoveCommand: string;
+    /** Where the App opens for the user to turn the service off by hand; absent where it has no such place. */
+    readonly systemSettings?: SystemSettingsTarget;
   } | null;
 }
 
@@ -128,6 +148,7 @@ export interface RepairStateInputs {
   readonly lastBackup: LastBackupInfo;
   readonly retryOperationId: string;
   readonly recovered?: RepairRecovered | null;
+  readonly recoveryNotices?: readonly { readonly id: string; readonly notice: RecoveryNotice }[];
   readonly port?: RepairPortSection | null;
   readonly update?: RepairUpdateSection;
   /** What the start-up check found, when it found the old login service on this database. */
@@ -198,6 +219,14 @@ export function buildRepairState(inputs: RepairStateInputs): RepairState {
     lastBackup: inputs.lastBackup,
     retryOperationId: inputs.retryOperationId,
     recovered: inputs.recovered ?? null,
+    recoveryNotices: (inputs.recoveryNotices ?? []).map(({ id, notice }) => ({
+      id,
+      kind: notice.kind,
+      operation: notice.operation,
+      port: notice.port,
+      attemptedPort: notice.attemptedPort,
+      tab: tabForOperation(notice.operation, false),
+    })),
     port: inputs.port ?? null,
     ...(inputs.update ? { update: inputs.update } : {}),
     shell: buildAppShellState({
@@ -213,10 +242,7 @@ export function buildRepairState(inputs: RepairStateInputs): RepairState {
             blocked: inputs.legacyBlocked === true,
             portInUse: inputs.legacyPortInUse === true,
             canDisable: canDisableLegacyService(inputs.legacyService),
-            ...(inputs.legacyService.removeCommand === undefined
-              ? {}
-              : { removeCommand: inputs.legacyService.removeCommand }),
-            fallbackRemoveCommand: inputs.legacyService.fallbackRemoveCommand,
+            ...systemSettingsField(inputs.legacyService.platform),
           }
         : null,
     actions: [

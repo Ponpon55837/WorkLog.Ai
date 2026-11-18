@@ -85,7 +85,6 @@ export function tabForOperation(kind: OperationKind, needsSetup: boolean): AppTa
     case "takeover":
       return needsSetup ? "setup" : "status";
     case "change-port":
-    case "update-install":
       return "settings";
     case "change-db":
     case "restore":

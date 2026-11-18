@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import {
+  filesLeftByTransaction,
   agentSetupJournalPath,
   applyAgentSetupTransaction,
   createAgentSetupPlan,
@@ -14,6 +15,7 @@ import {
   undoAgentSetupOperation,
   type AgentSetupPlan,
   type AgentSetupPlanOptions,
+  type AgentSetupTransactionResult,
   type CheckoutRegistration,
 } from "@work-intelligence/agent-setup";
 import {
@@ -29,8 +31,10 @@ import {
   type AgentsPreview,
   type AgentsResult,
   type AgentsState,
+  type OperationCoordinator,
   type SetupAgentId,
 } from "@work-intelligence/desktop-core";
+import { runAgentOperation } from "./agent-operation.js";
 import type { DesktopPaths } from "./config.js";
 import type { Logger } from "./log.js";
 import type { ShellState } from "./state.js";
@@ -44,6 +48,8 @@ import type { ShellState } from "./state.js";
 export interface AgentsPage {
   snapshot(): AgentsState;
   preview(adopt: boolean): Promise<AgentsActionResult>;
+  /** "移除 Agent 設定": previews the removal of what setup wrote; `apply` then runs it the way it runs an install. */
+  previewRemove(): Promise<AgentsActionResult>;
   apply(previewId: string): Promise<AgentsActionResult>;
   discard(): AgentsActionResult;
   undo(): Promise<AgentsActionResult>;
@@ -59,6 +65,8 @@ export interface AgentsPage {
 
 export interface AgentsPageOptions {
   readonly state: ShellState;
+  /** Every apply runs as an `apply-agent` operation, so a crash in the middle is found and told at the next start. */
+  readonly coordinator: OperationCoordinator;
   readonly paths: Pick<DesktopPaths, "runtimeRoot">;
   /** The canonical `work-intelligence` SKILL.md the App ships. */
   readonly skillSourcePath: string;
@@ -68,6 +76,14 @@ export interface AgentsPageOptions {
 }
 
 const SELF_TEST_TIMEOUT_MS = 15_000;
+
+/**
+ * The one entry point that writes an Agent plan, install or removal: the journaled transaction. The preview's plan is
+ * applied as it is; agent-setup re-fingerprints every file before writing it. Operation bookkeeping wraps this call.
+ */
+export function commitAgentPlan(plan: AgentSetupPlan, journalPath: string): AgentSetupTransactionResult {
+  return applyAgentSetupTransaction(plan, { journalPath });
+}
 
 function ownerOf(source: string | undefined): AgentRegistrationOwner {
   if (!source) return "none";
@@ -186,6 +202,28 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
     });
   }
 
+  /** The preview the page shows for a plan: the diff of every file, with `~` for the home folder. */
+  function previewOf(plan: AgentSetupPlan, mode: AgentsPreview["mode"], adopt: boolean): AgentsPreview {
+    return {
+      id: randomUUID(),
+      mode,
+      adopt,
+      files: describeAgentSetupMutations(plan).map((file) => ({
+        display: show(file.path),
+        label: file.label,
+        change: file.change,
+        tooLarge: file.tooLarge,
+        hunks: file.hunks.map((hunk) => ({
+          oldStart: hunk.oldStart,
+          newStart: hunk.newStart,
+          lines: hunk.lines.map((line) => ({ type: line.type, text: show(line.text) })),
+        })),
+      })),
+      actions: plan.actions.map(show),
+      conflicts: plan.conflicts.map(show),
+    };
+  }
+
   function undoAvailable(): boolean {
     const read = readAgentSetupJournal(journalPath);
     return read.status === "found" && read.journal.state === "committed";
@@ -240,44 +278,57 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
         if (!launcherReady())
           return { ok: false, reason: "failed", errorCode: "LAUNCHER_NOT_READY", state: snapshot() };
         const plan = createAgentSetupPlan(planOptions(adopt, checkoutRegistrations()), "install");
-        const id = randomUUID();
-        const view: AgentsPreview = {
-          id,
-          adopt,
-          files: describeAgentSetupMutations(plan).map((file) => ({
-            display: show(file.path),
-            label: file.label,
-            change: file.change,
-            tooLarge: file.tooLarge,
-            hunks: file.hunks.map((hunk) => ({
-              oldStart: hunk.oldStart,
-              newStart: hunk.newStart,
-              lines: hunk.lines.map((line) => ({ type: line.type, text: show(line.text) })),
-            })),
-          })),
-          actions: plan.actions.map(show),
-          conflicts: plan.conflicts.map(show),
-        };
-        pending = { id, plan, view };
+        const view = previewOf(plan, "install", adopt);
+        pending = { id: view.id, plan, view };
         result = null;
         log(`[shell] agent setup preview adopt=${adopt} files=${view.files.length} conflicts=${view.conflicts.length}`);
         return { ok: true, state: snapshot() };
       }),
-    apply: (previewId) =>
+    previewRemove: () =>
       exclusive(() => {
+        // Removal needs no launcher: it only takes out what the setup manifest says setup wrote.
+        const plan = createAgentSetupPlan({ homeDirectory: home, repositoryRoot: home, platform }, "uninstall");
+        const view = previewOf(plan, "uninstall", false);
+        pending = { id: view.id, plan, view };
+        result = null;
+        log(`[shell] agent setup remove preview files=${view.files.length} conflicts=${view.conflicts.length}`);
+        return { ok: true, state: snapshot() };
+      }),
+    apply: (previewId) =>
+      exclusive(async () => {
         if (!pending || pending.id !== previewId) return { ok: false, reason: "invalid", state: snapshot() };
         if (pending.plan.conflicts.length > 0) return { ok: false, reason: "invalid", state: snapshot() };
-        const { plan } = pending;
+        const { plan, view } = pending;
+        const run = await runAgentOperation(options.coordinator, state.owner, () => commitAgentPlan(plan, journalPath));
+        // Another operation (a start, a port change) holds the lock: nothing was written, and the preview stays usable.
+        if (run.status === "busy") return { ok: false, reason: "busy", state: snapshot() };
         pending = null;
-        const applied = applyAgentSetupTransaction(plan, { journalPath });
-        log(`[shell] agent setup apply ${applied.outcome}${applied.code ? ` ${applied.code}` : ""}`);
+        if (run.status === "failed") {
+          log("[shell] agent setup apply failed inside the operation");
+          result = { kind: "failed", code: "APPLY_FAILED" };
+          return { ok: false, reason: "failed", errorCode: "APPLY_FAILED", state: snapshot() };
+        }
+        const applied = run.value;
+        log(
+          `[shell] agent setup ${view.mode === "uninstall" ? "remove" : "apply"} ${applied.outcome}${applied.code ? ` ${applied.code}` : ""}`,
+        );
         if (applied.outcome === "committed") {
-          result = { kind: "applied", changed: plan.mutations.length };
+          result =
+            view.mode === "uninstall"
+              ? { kind: "removed", changed: plan.mutations.length }
+              : { kind: "applied", changed: plan.mutations.length };
           selfTest = { outcome: "not-run" };
           return { ok: true, state: snapshot() };
         }
-        result = { kind: "failed", code: applied.code ?? applied.outcome };
-        return { ok: false, reason: "failed", errorCode: applied.code ?? applied.outcome, state: snapshot() };
+        const code = applied.code ?? applied.outcome;
+        // Some of what was written could not be put back: name those files, and never say it was all rolled back.
+        const left = applied.outcome === "needs-manual-repair" ? filesLeftByTransaction(applied) : [];
+        result = {
+          kind: "failed",
+          code,
+          ...(left.length > 0 ? { manualRepairDisplay: left.map(show).join(", ") } : {}),
+        };
+        return { ok: false, reason: "failed", errorCode: code, state: snapshot() };
       }),
     discard: () => {
       pending = null;

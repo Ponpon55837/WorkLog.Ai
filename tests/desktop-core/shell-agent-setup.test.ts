@@ -33,8 +33,6 @@ const legacyFound: LegacyServiceDetection = {
   definitionSource: "file",
   recognised: true,
   running: "running",
-  removeCommand: "cd /home/tester/checkout && pnpm service:uninstall",
-  fallbackRemoveCommand: "systemctl --user disable work-intelligence",
 };
 
 const repairBase: RepairStateInputs = {
@@ -163,8 +161,6 @@ describe("buildRepairState legacyService", () => {
       portInUse: true,
       // No definition digest in the fixture: not one the App may disable.
       canDisable: false,
-      removeCommand: "cd /home/tester/checkout && pnpm service:uninstall",
-      fallbackRemoveCommand: "systemctl --user disable work-intelligence",
     });
     const other = buildRepairState({ ...repairBase, legacyService: legacyFound, legacyPortInUse: true });
     expect(other.legacyService).toMatchObject({ blocked: false, portInUse: true });
@@ -172,13 +168,13 @@ describe("buildRepairState legacyService", () => {
     expect(blockedOnly.legacyService).toMatchObject({ blocked: true, portInUse: false });
   });
 
-  it("omits removeCommand when the checkout is unknown", () => {
-    const { removeCommand: _removed, ...withoutCommand } = legacyFound as Extract<
-      LegacyServiceDetection,
-      { kind: "found" }
-    >;
-    const state = buildRepairState({ ...repairBase, legacyService: withoutCommand });
-    expect(state.legacyService).not.toHaveProperty("removeCommand");
+  it("names the OS place to open by hand per platform, and none where the App has no such place", () => {
+    const stateOn = (platform: "darwin" | "linux" | "win32") =>
+      buildRepairState({ ...repairBase, legacyService: { ...legacyFound, platform } }).legacyService;
+    expect(stateOn("win32")).toMatchObject({ systemSettings: "task-scheduler" });
+    expect(stateOn("darwin")).toMatchObject({ systemSettings: "login-items" });
+    expect(stateOn("linux")).not.toHaveProperty("systemSettings");
+    expect(JSON.stringify(stateOn("win32"))).not.toMatch(/Command|pnpm/);
   });
 
   it("offers start-anyway only when blocked, enabled while idle", () => {
@@ -206,9 +202,7 @@ describe("legacy service messages", () => {
   });
 
   it("words the zh-TW legacy warning exactly", () => {
-    expect(zhSetup.legacyWarning).toBe(
-      "偵測到舊的登入服務（pnpm bootstrap）也在使用這份資料庫；同時執行兩個後端可能造成問題",
-    );
+    expect(zhSetup.legacyWarning).toBe("偵測到舊的登入服務也在使用這份資料庫；同時執行兩個後端可能造成問題");
   });
 
   it("defines the same keys in both setup locales", () => {
@@ -249,7 +243,9 @@ describe("LEGACY_SERVICE_ACTIVE hint selection", () => {
     const without = errorHintFor(messages, "LEGACY_SERVICE_ACTIVE", false);
     expect(withButton).toBe(messages.errors.LEGACY_SERVICE_ACTIVE.hint);
     expect(without).toBe(messages.legacyActiveNoOverrideHint);
-    expect(without).toContain("pnpm service:uninstall");
+    // Both hints say where to turn the service off, in the one wording, and neither asks for a command.
+    expect(withButton).toContain(locale === "zh-TW" ? "「狀態」分頁" : "Status tab");
+    expect(without).toContain(locale === "zh-TW" ? "「狀態」分頁" : "Status tab");
     expect(without).not.toMatch(/仍要啟動|Start anyway/);
   });
 
@@ -277,6 +273,7 @@ describe("applying a preview with a file that has no diff shown", () => {
   });
   const preview = (files: AgentsPreview["files"], conflicts: string[] = []): AgentsPreview => ({
     id: "11111111-1111-4111-8111-111111111111",
+    mode: "install",
     adopt: false,
     files,
     actions: [],

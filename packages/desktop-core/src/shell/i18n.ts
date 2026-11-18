@@ -1,5 +1,7 @@
 import type { BackendErrorCode } from "../backend/errors.js";
+import type { OperationKind, RecoveryNoticeKind } from "../operations/journal-record.js";
 import type { AppTab } from "./app-tabs.js";
+import type { RepairBusyReason, RepairBusyWhat } from "./repair-busy.js";
 
 /** Languages the shell speaks: Traditional Chinese for any `zh-*` locale, English for everything else. */
 export type ShellLocale = "zh-TW" | "en";
@@ -26,7 +28,6 @@ export interface ErrorMessage {
 export interface ShellMessages {
   readonly appName: string;
   readonly trayOpenDashboard: string;
-  readonly trayRepair: string;
   /** Opens the App window; `{name}` is `appName`. */
   readonly trayOpenApp: string;
   readonly trayQuit: string;
@@ -51,6 +52,16 @@ export interface ShellMessages {
   readonly tabBusyLabel: string;
   /** The Status tab's one-line database state links to the Data tab with this text. */
   readonly statusOpenData: string;
+  /** The banner about an operation a crash interrupted (what happened, what to do, how to dismiss it). */
+  readonly recoveryHeading: string;
+  /** `{port}` is the port in use, `{attempted}` the one the interrupted change was moving to, `{operation}` its name. */
+  readonly recoveryNotices: Readonly<Record<RecoveryNoticeKind, string>>;
+  /** What the user can do next; names the tab and the button where that is. */
+  readonly recoveryNextSteps: Readonly<Record<RecoveryNoticeKind, string>>;
+  readonly recoveryOperationNames: Readonly<Record<OperationKind, string>>;
+  /** `{tab}` is the tab's label. */
+  readonly recoveryOpenTab: string;
+  readonly recoveryDismiss: string;
   /** macOS menu bar: `{name}` is `appName`. */
   readonly menuAbout: string;
   readonly menuEdit: string;
@@ -68,6 +79,8 @@ export interface ShellMessages {
   /** The native error box shown when the App cannot even find its data folder and must close. */
   readonly startupFailedTitle: string;
   readonly startupFailedMessage: string;
+  /** The operations journal was written by a newer App: nothing is started on it and nothing is changed. */
+  readonly journalNewerVersion: string;
   /** `{title}` is the error title. */
   readonly notifyBody: string;
   readonly repairWindowTitle: string;
@@ -83,8 +96,16 @@ export interface ShellMessages {
   readonly repairCandidates: string;
   readonly repairConfirmCandidate: string;
   readonly repairBusy: string;
-  /** A restart is already running (an automatic retry or another operation): not an error. */
-  readonly repairRestarting: string;
+  /** Another operation holds the App (a restart, an import, a backup, a port change): not an error, try again later. */
+  readonly repairBusyOperation: string;
+  /** Names what holds the App, as a gerund phrase for `repairBusyNamed`. */
+  readonly repairBusyWhat: Readonly<Record<RepairBusyWhat, string>>;
+  /** `{what}` is one of `repairBusyWhat`. */
+  readonly repairBusyNamed: string;
+  /** The Dashboard itself is importing, backing up or exporting. */
+  readonly repairBusyActivity: string;
+  /** The App could not tell whether the Dashboard is working on data. */
+  readonly repairBusyUnknown: string;
   /** Confirm button for a database whose schema must be updated; pressing it is the user's consent. */
   readonly repairConfirmMigrate: string;
   readonly repairMigrationNote: string;
@@ -129,7 +150,6 @@ export interface ShellMessages {
 const zhTW: ShellMessages = {
   appName: "Work Intelligence",
   trayOpenDashboard: "開啟 Dashboard",
-  trayRepair: "修復…",
   trayOpenApp: "開啟 {name}…",
   trayQuit: "退出（退出後不會每日備份）",
   trayDisabledTemplate: "{label}（{reason}）",
@@ -147,6 +167,46 @@ const zhTW: ShellMessages = {
   tabAttentionLabel: "需要處理",
   tabBusyLabel: "進行中",
   statusOpenData: "前往「資料」分頁",
+  recoveryHeading: "上次被中斷的操作",
+  recoveryNotices: {
+    "journal-unreadable":
+      "App 上次留下的操作紀錄無法讀取，已移到一旁。這代表更早之前被中斷的操作（例如切換資料庫或還原備份）可能沒有完成，App 無法確認資料目前處於哪個狀態，所以先沒有自動啟動服務，也沒有改動任何資料。",
+    "port-kept":
+      "上次變更連接埠時 App 被中斷，已確認仍使用原連接埠 {port}。新的連接埠 {attempted} 沒有生效，資料沒有被改動。",
+    "port-applied": "上次變更連接埠時 App 被中斷，但新的連接埠 {port} 已經生效。",
+    "db-kept": "上次切換資料庫時 App 被中斷，切換沒有生效，仍使用原本的資料庫，資料沒有被改動。",
+    "db-applied": "上次切換資料庫時 App 被中斷，但切換已經完成，現在使用的是你選的資料庫。",
+    "copy-removed": "上次複製資料庫到本機磁碟時 App 被中斷，已清除未完成的副本，原本的資料庫沒有被改動。",
+    "legacy-present": "上次停用舊的登入服務時 App 被中斷，舊的登入服務仍在，App 沒有動它。",
+    "legacy-disabled": "上次停用舊的登入服務時 App 被中斷，但舊的登入服務已經停用。",
+    "agent-interrupted": "上次設定 Agent 時 App 被中斷，未完成的變更已經還原或補完。",
+    "needs-repair":
+      "上次{operation}時 App 被中斷，無法確認資料目前處於哪個狀態，所以 App 先沒有自動啟動服務，也沒有改動任何資料。",
+  },
+  recoveryNextSteps: {
+    "journal-unreadable":
+      "請在「狀態」分頁確認服務與資料庫是否正常；如果資料看起來不對，可以到「資料」分頁選擇資料庫，或從備份還原。",
+    "port-kept": "想改用新的連接埠，可以到「設定」分頁再變更一次。",
+    "port-applied": "可以到「設定」分頁確認目前的連接埠。",
+    "db-kept": "想改用另一個資料庫，可以到「資料」分頁再選一次。",
+    "db-applied": "可以到「資料」分頁確認目前使用的資料庫。",
+    "copy-removed": "想再複製一次，可以到「資料」分頁按「複製到本機磁碟並改用」。",
+    "legacy-present": "想再試一次，可以在「狀態」分頁按「停用舊的登入服務…」。",
+    "legacy-disabled": "不需要再做任何事。",
+    "agent-interrupted": "請到「Agent」分頁確認各 Agent 的狀態，需要時再設定一次。",
+    "needs-repair": "請在「狀態」分頁按「重試啟動」；若仍無法啟動，可以到「資料」分頁選擇資料庫。",
+  },
+  recoveryOperationNames: {
+    takeover: "啟動服務",
+    restart: "重新啟動服務",
+    "change-port": "變更連接埠",
+    "change-db": "切換資料庫",
+    "apply-agent": "設定 Agent",
+    restore: "還原資料庫",
+    "legacy-disable": "停用舊的登入服務",
+  },
+  recoveryOpenTab: "前往「{tab}」分頁",
+  recoveryDismiss: "知道了",
   menuAbout: "關於 {name}",
   menuEdit: "編輯",
   menuWindow: "視窗",
@@ -162,7 +222,9 @@ const zhTW: ShellMessages = {
   startupFailedTitle: "Work Intelligence 無法啟動",
   startupFailedMessage:
     "找不到這個使用者的應用程式資料夾（Windows 為 AppData），App 必須關閉，資料沒有任何變更。請確認使用者設定檔完整後再開啟。",
-  notifyBody: "{title}。從工具列選單開啟「修復…」。",
+  journalNewerVersion:
+    "這個資料夾的操作紀錄是由較新版本的 Work Intelligence 寫入的，這個版本無法讀取。為了不影響資料，App 沒有自動啟動服務，也沒有改動任何資料。請先更新 App，再開啟一次。",
+  notifyBody: "{title}。請開啟 App 的「狀態」分頁。",
   repairWindowTitle: "Work Intelligence 修復",
   repairHeading: "修復 Work Intelligence",
   repairIntro: "服務沒有正常執行。你的資料沒有被改動；下面列出目前的狀況和可以做的事。",
@@ -176,7 +238,20 @@ const zhTW: ShellMessages = {
   repairCandidates: "你選擇的資料庫",
   repairConfirmCandidate: "使用這個資料庫並重試",
   repairBusy: "處理中…",
-  repairRestarting: "正在重新啟動服務，請稍候。",
+  repairBusyOperation: "App 正在處理另一項操作，請稍後再試。",
+  repairBusyWhat: {
+    takeover: "啟動服務",
+    restart: "重新啟動服務",
+    "change-port": "變更連接埠",
+    "change-db": "切換資料庫",
+    "apply-agent": "設定 Agent",
+    restore: "還原備份",
+    "legacy-disable": "停用舊的登入服務",
+    "copy-to-local": "複製資料庫到本機磁碟",
+  },
+  repairBusyNamed: "App 正在{what}，請等它完成後再試。沒有變更任何資料。",
+  repairBusyActivity: "Dashboard 正在匯入、備份或匯出資料，請等它完成後再試。沒有變更任何資料。",
+  repairBusyUnknown: "暫時無法確認 Dashboard 是否正在處理資料，請稍後再試。沒有變更任何資料。",
   repairConfirmMigrate: "同意更新資料庫結構，使用這個資料庫並重試",
   repairMigrationNote: "這個資料庫需要更新結構才能使用；更新前會先備份。",
   repairCandidateNotUsable: "這個資料庫目前不能使用。",
@@ -201,7 +276,7 @@ const zhTW: ShellMessages = {
   agentsTooLargeNote: "檔案過大，無法顯示差異",
   agentsAckUndiffable: "我了解有檔案無法顯示差異",
   legacyActiveNoOverrideHint:
-    "為了避免兩個後端同時使用同一份資料庫，App 沒有啟動自己的後端。請先移除舊的登入服務（pnpm service:uninstall），或改選另一份資料庫。",
+    "為了避免兩個後端同時使用同一份資料庫，App 沒有啟動自己的後端。請在「狀態」分頁停用舊的登入服務，或改選另一份資料庫。",
   ownerLabel: "服務狀態",
   backendLabel: "背景程序",
   databaseStatusLabel: "資料庫狀態",
@@ -228,15 +303,18 @@ const zhTW: ShellMessages = {
   errors: {
     LEGACY_SERVICE_ACTIVE: {
       title: "舊的登入服務也在使用這份資料庫",
-      hint: "為了避免兩個後端同時使用同一份資料庫，App 沒有啟動自己的後端。請先移除舊的登入服務（pnpm bootstrap），或在這個視窗對目前的資料庫選擇「仍要啟動」。",
+      hint: "為了避免兩個後端同時使用同一份資料庫，App 沒有啟動自己的後端。請在「狀態」分頁停用舊的登入服務，或對目前的資料庫選擇「仍要啟動」。",
     },
-    DB_MISSING: { title: "找不到資料庫檔案", hint: "檔案可能被移動或刪除。請選擇資料庫，或從備份還原。" },
+    DB_MISSING: {
+      title: "找不到資料庫檔案",
+      hint: "檔案可能被移動或刪除。請選擇資料庫，或到「資料」分頁 → 「從備份還原」。",
+    },
     DB_OFFLINE: { title: "資料庫所在的儲存位置離線", hint: "請接上外接硬碟或網路磁碟後重試。" },
     DB_PERMISSION: { title: "沒有權限讀取資料庫", hint: "請確認檔案的存取權限後重試。" },
     DB_IDENTITY_CHANGED: { title: "資料庫已不是先前確認的那一份", hint: "檔案可能被取代。請重新選擇並確認資料庫。" },
     DB_INTEGRITY_CHECK_FAILED: {
       title: "資料庫檢查沒有通過",
-      hint: "舊的登入服務停下後，這份資料庫的檢查發現問題，App 沒有開啟它。請從備份還原，或選擇另一份資料庫。",
+      hint: "舊的登入服務停下後，這份資料庫的檢查發現問題，App 沒有開啟它。請到「資料」分頁 → 「從備份還原」，或選擇另一份資料庫。",
     },
     DB_STORAGE_NETWORK: {
       title: "資料庫放在網路磁碟上",
@@ -250,7 +328,7 @@ const zhTW: ShellMessages = {
     SCHEMA_MIGRATION_BLOCKED: { title: "資料庫需要更新但沒有完成", hint: "你的資料沒有被改動。請查看備份後重試。" },
     PORT_OCCUPIED_BY_OTHER: {
       title: "連接埠被其他程式占用",
-      hint: "請關閉占用的程式，或在「修復」視窗的「連接埠」區塊（也可從工具列選單的「變更連接埠…」）換一個連接埠。",
+      hint: "請關閉占用的程式，或在「設定」分頁的「連接埠」區塊換一個連接埠。",
     },
     PORT_NOT_PERMITTED: {
       title: "系統不允許使用這個連接埠",
@@ -325,7 +403,6 @@ const zhTW: ShellMessages = {
 const en: ShellMessages = {
   appName: "Work Intelligence",
   trayOpenDashboard: "Open Dashboard",
-  trayRepair: "Repair…",
   trayOpenApp: "Open {name}…",
   trayQuit: "Quit (no daily backup after quitting)",
   trayDisabledTemplate: "{label} ({reason})",
@@ -350,6 +427,54 @@ const en: ShellMessages = {
   tabAttentionLabel: "Needs attention",
   tabBusyLabel: "In progress",
   statusOpenData: "Open the Data tab",
+  recoveryHeading: "An operation was interrupted last time",
+  recoveryNotices: {
+    "journal-unreadable":
+      "The App's record of earlier operations could not be read and was set aside. An operation that was interrupted earlier (for example switching the database or restoring a backup) may not have finished, and the App cannot confirm what state your data is in. So it did not start the service by itself and did not change any data.",
+    "port-kept":
+      "The App was interrupted while changing the port last time. Confirmed: it still uses the original port {port}. The new port {attempted} did not take effect, and your data was not changed.",
+    "port-applied":
+      "The App was interrupted while changing the port last time, but the new port {port} did take effect.",
+    "db-kept":
+      "The App was interrupted while switching the database last time. The switch did not take effect: the original database is still in use and your data was not changed.",
+    "db-applied":
+      "The App was interrupted while switching the database last time, but the switch had finished: the database you chose is now in use.",
+    "copy-removed":
+      "The App was interrupted while copying the database to the local disk last time. The unfinished copy was removed and the original database was not changed.",
+    "legacy-present":
+      "The App was interrupted while turning off the old login service last time. The old login service is still there and the App did not touch it.",
+    "legacy-disabled":
+      "The App was interrupted while turning off the old login service last time, but the old login service is now turned off.",
+    "agent-interrupted":
+      "The App was interrupted while setting up an Agent last time. The unfinished changes were reverted or completed.",
+    "needs-repair":
+      "The App was interrupted during the last attempt to {operation}, and it cannot confirm what state your data is in. So the App did not start the service by itself and did not change any data.",
+  },
+  recoveryNextSteps: {
+    "journal-unreadable":
+      "Check on the Status tab that the service and database look right. If your data looks wrong, choose a database on the Data tab or restore from a backup.",
+    "port-kept": "To use the new port, change it again on the Settings tab.",
+    "port-applied": "You can check the current port on the Settings tab.",
+    "db-kept": "To use another database, choose it again on the Data tab.",
+    "db-applied": "You can check the database in use on the Data tab.",
+    "copy-removed": 'To copy again, choose "Copy to local disk and switch" on the Data tab.',
+    "legacy-present": 'To try again, choose "Turn off the old login service…" on the Status tab.',
+    "legacy-disabled": "There is nothing more to do.",
+    "agent-interrupted": "Check each Agent's state on the Agent tab and set it up again if needed.",
+    "needs-repair":
+      'Choose "Retry start" on the Status tab; if it still cannot start, choose a database on the Data tab.',
+  },
+  recoveryOperationNames: {
+    takeover: "start the service",
+    restart: "restart the service",
+    "change-port": "change the port",
+    "change-db": "switch the database",
+    "apply-agent": "set up an Agent",
+    restore: "restore the database",
+    "legacy-disable": "turn off the old login service",
+  },
+  recoveryOpenTab: "Open the {tab} tab",
+  recoveryDismiss: "Got it",
   menuAbout: "About {name}",
   menuEdit: "Edit",
   menuWindow: "Window",
@@ -365,7 +490,9 @@ const en: ShellMessages = {
   startupFailedTitle: "Work Intelligence cannot start",
   startupFailedMessage:
     "The App could not find this user's application data folder (AppData on Windows) and has to close. Nothing was changed. Check that the user profile is complete, then open the App again.",
-  notifyBody: "{title}. Open “Repair…” from the tray menu.",
+  journalNewerVersion:
+    "The App's record of operations was written by a newer version of Work Intelligence, which this version cannot read. To protect your data, the App did not start the service by itself and did not change any data. Update the App, then open it again.",
+  notifyBody: "{title}. Open the Status tab in the App.",
   repairWindowTitle: "Work Intelligence Repair",
   repairHeading: "Repair Work Intelligence",
   repairIntro:
@@ -380,7 +507,22 @@ const en: ShellMessages = {
   repairCandidates: "The database you chose",
   repairConfirmCandidate: "Use this database and retry",
   repairBusy: "Working…",
-  repairRestarting: "The service is restarting. Please wait.",
+  repairBusyOperation: "The App is working on another operation. Try again in a moment.",
+  repairBusyWhat: {
+    takeover: "starting the service",
+    restart: "restarting the service",
+    "change-port": "changing the port",
+    "change-db": "switching the database",
+    "apply-agent": "setting up an Agent",
+    restore: "restoring a backup",
+    "legacy-disable": "disabling the old login service",
+    "copy-to-local": "copying the database to the local disk",
+  },
+  repairBusyNamed: "The App is busy: {what}. Wait for it to finish, then try again. Nothing was changed.",
+  repairBusyActivity:
+    "The Dashboard is importing, backing up or exporting data. Wait for it to finish, then try again. Nothing was changed.",
+  repairBusyUnknown:
+    "The App could not confirm whether the Dashboard is working on data right now. Try again in a moment. Nothing was changed.",
   repairConfirmMigrate: "Allow a schema update, use this database and retry",
   repairMigrationNote: "This database needs a schema update before it can be used; a backup is made first.",
   repairCandidateNotUsable: "This database cannot be used right now.",
@@ -405,7 +547,7 @@ const en: ShellMessages = {
   agentsTooLargeNote: "File too large to show a diff",
   agentsAckUndiffable: "I understand some files have no diff shown",
   legacyActiveNoOverrideHint:
-    "To keep two backends off one database, the App did not start its own backend. Remove the old login service first (pnpm service:uninstall), or choose another database.",
+    "To keep two backends off one database, the App did not start its own backend. Turn off the old login service in the Status tab, or choose another database.",
   ownerLabel: "Service",
   backendLabel: "Background process",
   databaseStatusLabel: "Database status",
@@ -432,11 +574,11 @@ const en: ShellMessages = {
   errors: {
     LEGACY_SERVICE_ACTIVE: {
       title: "The old login service also uses this database",
-      hint: "To keep two backends off one database, the App did not start its own backend. Remove the old login service (pnpm bootstrap) first, or choose “Start anyway” for the current database in this window.",
+      hint: "To keep two backends off one database, the App did not start its own backend. Turn off the old login service in the Status tab, or choose “Start anyway” for the current database.",
     },
     DB_MISSING: {
       title: "The database file was not found",
-      hint: "It may have been moved or deleted. Choose a database, or restore from a backup.",
+      hint: "It may have been moved or deleted. Choose a database, or open the Data tab → “Restore from backup”.",
     },
     DB_OFFLINE: {
       title: "The storage holding the database is offline",
@@ -449,7 +591,7 @@ const en: ShellMessages = {
     },
     DB_INTEGRITY_CHECK_FAILED: {
       title: "The database did not pass its check",
-      hint: "After the old login service stopped, a check of this database found a problem, so the App did not open it. Restore it from a backup, or choose another database.",
+      hint: "After the old login service stopped, a check of this database found a problem, so the App did not open it. Open the Data tab → “Restore from backup”, or choose another database.",
     },
     DB_STORAGE_NETWORK: {
       title: "The database is on a network drive",
@@ -466,7 +608,7 @@ const en: ShellMessages = {
     },
     PORT_OCCUPIED_BY_OTHER: {
       title: "Another program is using the port",
-      hint: 'Close that program, or pick another port in the Port section of the repair window (also reachable from the tray menu\'s "Change port…").',
+      hint: "Close that program, or pick another port in the Port section of the Settings tab.",
     },
     PORT_NOT_PERMITTED: {
       title: "The system does not allow this port",
@@ -577,4 +719,18 @@ export function errorHintFor(messages: ShellMessages, code: string, startAnywayA
 /** The message of an error code, or the generic repair one for a code this build does not know. */
 export function errorMessageFor(messages: ShellMessages, code: string): ErrorMessage {
   return (messages.errors as Readonly<Record<string, ErrorMessage>>)[code] ?? messages.errors.REPAIR_REQUIRED;
+}
+
+/** The sentence for what holds the App back; it names the real reason, and is generic only when the reason is unknown. */
+export function busyReasonText(messages: ShellMessages, reason: RepairBusyReason | undefined): string {
+  switch (reason?.source) {
+    case "operation":
+      return formatMessage(messages.repairBusyNamed, { what: messages.repairBusyWhat[reason.what] });
+    case "activity":
+      return messages.repairBusyActivity;
+    case "unknown":
+      return messages.repairBusyUnknown;
+    default:
+      return messages.repairBusyOperation;
+  }
 }

@@ -1,5 +1,10 @@
 import type { RepairApi, SetupActionResult, SetupSourceView, SetupState } from "@work-intelligence/desktop-core";
-import { errorMessageFor, formatMessage, shellMessages } from "@work-intelligence/desktop-core/shell/i18n";
+import {
+  busyReasonText,
+  errorMessageFor,
+  formatMessage,
+  shellMessages,
+} from "@work-intelligence/desktop-core/shell/i18n";
 import { setupMessages, type SetupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
 import { databaseTone, label } from "./badge.js";
 import { actions, button, byId, checkbox, element, facts, hint, isChecked, path, section, setLanguage } from "./dom.js";
@@ -170,10 +175,11 @@ export function mountSetup(
     return card;
   }
 
-  function disableHost(text: SetupMessages): LegacyDisableHost {
+  function disableHost(text: SetupMessages, locale: SetupState["locale"]): LegacyDisableHost {
     return {
       api,
       text,
+      busyText: (reason) => busyReasonText(shellMessages(locale), reason),
       rerender: () => {
         if (current) render(current);
       },
@@ -237,10 +243,12 @@ export function mountSetup(
       const extra: Node[] = heldBack
         ? [actions(button(text.legacyStartAnyway, "start-anyway", !busy, () => startAnyway(text)))]
         : [];
-      extra.push(...legacyDisableControls(disableHost(text), state.legacy.canDisable, !busy));
-      blocks.push(legacyBlock(api, text, { ...state.legacy, blocked: heldBack !== undefined }, extra));
+      extra.push(...legacyDisableControls(disableHost(text, state.locale), state.legacy.canDisable, !busy));
+      blocks.push(
+        legacyBlock(api, text, { ...state.legacy, blocked: heldBack !== undefined }, extra, () => void refresh()),
+      );
     } else if (!state.legacy) {
-      const outcome = legacyDisableOutcome(disableHost(text));
+      const outcome = legacyDisableOutcome(disableHost(text, state.locale));
       if (outcome) blocks.push(outcome);
     }
 

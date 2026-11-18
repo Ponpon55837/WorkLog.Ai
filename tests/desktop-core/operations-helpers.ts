@@ -43,6 +43,8 @@ export function probe(overrides: Partial<ProbeReport> = {}): () => ProbeReport {
     dbSchemaVersion: 5,
     dbIdentity: DB_A,
     migrationEvidence: false,
+    settingsPort: null,
+    settingsState: "no-active",
     ...overrides,
   };
   return () => report;

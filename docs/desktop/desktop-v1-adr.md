@@ -175,15 +175,16 @@
 
 ### ADR-21 操作日誌、單一 OperationCoordinator 與 idempotent replay
 
-- **狀態**：已採用；1.6.42 已實作契約與測試（packages/desktop-core）
+- **狀態**：已採用；1.6.42 已實作契約與測試（packages/desktop-core）；1.6.56 將復原接到主程序啟動流程（H-01）
 - **脈絡**：接管、換 port、換 DB、套用 Agent、更新等操作可能重送、中斷或併發（R19、R30）。
-- **決策**：所有影響管理權的操作經單一 `OperationCoordinator`。每個操作有 `operationId` 與持久化的階段。重送同 ID 回傳同一結果；不同 ID 的互斥操作回 `BUSY`。中斷後依真實 OS 服務、DB 與 manifest 重建狀態，不只依賴 journal 文字。
-- **後果**：需實作 journal 與對應的測試替身（DT-09、DT-10）。
+- **決策**：所有影響管理權的操作經單一 `OperationCoordinator`。每個操作有 `operationId` 與持久化的階段。重送同 ID 回傳同一結果；不同 ID 的互斥操作回 `BUSY`。中斷後依真實 OS 服務、DB 與 manifest 重建狀態，不只依賴 journal 文字。主程序啟動時，於讀取設定之後、首次設定與後端啟動之前執行復原。復原依真實狀態（設定檔、DB 身分與 schema、子程序、舊服務偵測）關閉中斷的操作，不採信 journal 的階段文字。
+- **後果**：journal 為空時，啟動只多一次讀取。損毀的 journal 改名隔離後從空白重來（M-06）。需實作對應的測試替身（DT-09、DT-10）。
 - **關聯**：§4.1、§6.1；R30；G-SVC-02。
 
 ### ADR-22 migration 之後不自動重啟舊服務，DB 不自動回退
 
 - **狀態**：已採用
+- **1.6.56 狀態**：啟動復原（H-01）依真實狀態判斷是否已 migration（DB 身分與 schema），不讀 journal 的 `migrationStarted`。已 migration 或 DB 身分不確定時，不自動重啟舊服務，改進入修復或還原流程。App 內還原（H-02）見 C-15。
 - **1.6.52 狀態**：DT-32 的測試已實作（CI 可驗證部分）：三份真實舊版樣本的升級測試（`tests/storage/upgrade-samples.test.ts`）、以真實程序中斷 migration、備份與還原的測試（`tests/storage/migration-interruption.test.ts`），以及桌面 smoke（`apps/desktop/tests/desktop-smoke/migration-interruption.spec.ts`）驗證 migration 開始後不回到舊服務。還原前驗證遷移後的副本，失敗回傳 `RESTORE_VERIFY_FAILED` 且現行資料庫不變。實機行為待實機驗收。
 - **脈絡**：舊程式開新版 DB 會造成寫入不相容；非可逆 schema 變更不能以程式降版來回復資料。
 - **決策**：schema 尚未變更且舊版相容時，可恢復外部服務先前狀態。migration 開始或 DB 身分不確定後，禁止自動重啟舊服務，只能進入修復或備份選擇流程。若要還原 DB，先保存當前快照並揭露可能流失的資料，由使用者選擇。

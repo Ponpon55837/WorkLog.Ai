@@ -63,7 +63,6 @@ function setup(options: Setup = {}) {
     running: options.running ?? "running",
     enabled: "enabled",
     definitionDigest: legacyDefinitionDigest(DEFINITION),
-    fallbackRemoveCommand: "synthetic",
   };
   const commands: string[] = [];
   const dialogs: boolean[] = [];

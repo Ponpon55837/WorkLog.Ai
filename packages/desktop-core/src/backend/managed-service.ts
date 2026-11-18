@@ -6,12 +6,13 @@ import type {
   OperationCoordinator,
   OperationRunResult,
   OperationStep,
+  OperationStepContext,
 } from "../operations/coordinator.js";
 import type { JournalJson, OperationKind } from "../operations/journal-record.js";
 import type { ServiceOwnerState } from "../operations/service-owner-state.js";
 
 /** Operation kinds that end with the desktop owning a running backend. */
-export type ManagedStartKind = Extract<OperationKind, "takeover" | "restart" | "change-port" | "change-db">;
+export type ManagedStartKind = Extract<OperationKind, "takeover" | "restart" | "change-port" | "change-db" | "restore">;
 
 export interface ManagedStartRequest {
   /** Resubmitting the same id returns the same result; a different id while one runs is `busy`. */
@@ -25,6 +26,12 @@ export interface ManagedStartRequest {
   readonly details?: Readonly<Record<string, JournalJson>>;
   /** Stop the running backend first (restart, change of port or database). Default false: a running one is kept. */
   readonly stopRunning?: boolean;
+  /**
+   * A step that runs once the backend is stopped and before the new one starts (a restore replaces the database here). It
+   * is the point of no return of the operation, so it is never cancelled. When it throws, the operation fails and the
+   * owner is NEEDS_REPAIR; the caller restarts the backend it stopped.
+   */
+  readonly whileStopped?: (context: OperationStepContext) => Promise<JournalJson | void>;
 }
 
 export interface ManagedStartResult {
@@ -34,6 +41,13 @@ export interface ManagedStartResult {
   /** The backend error code, when the operation failed with one. */
   readonly errorCode?: BackendErrorCode;
 }
+
+/**
+ * A seam for the smoke tests: awaited at the start of the commit step, after the child is verified and before the
+ * operation is closed. A test build passes one that never returns for a port or database change, so the test can end the
+ * App at exactly that point. A production build passes none.
+ */
+export type ManagedStartHold = (point: { readonly kind: ManagedStartKind }) => Promise<void>;
 
 export type ManagedStopResult =
   | { readonly status: "stopped"; readonly report: BackendStopReport }
@@ -59,10 +73,12 @@ function errorCodeOf(message: string): BackendErrorCode | undefined {
 export class ManagedBackendService {
   private readonly coordinator: OperationCoordinator;
   private readonly supervisor: BackendSupervisor;
+  private readonly hold: ManagedStartHold | undefined;
 
-  constructor(coordinator: OperationCoordinator, supervisor: BackendSupervisor) {
+  constructor(coordinator: OperationCoordinator, supervisor: BackendSupervisor, hold?: ManagedStartHold) {
     this.coordinator = coordinator;
     this.supervisor = supervisor;
+    this.hold = hold;
   }
 
   /** Runs (or joins) the start operation described by `request`. */
@@ -107,6 +123,15 @@ export class ManagedBackendService {
           return { stoppedPrevious: report.wasRunning };
         },
       },
+      ...(request.whileStopped
+        ? [
+            {
+              name: "while-stopped",
+              cancellable: false,
+              run: request.whileStopped,
+            } satisfies OperationStep,
+          ]
+        : []),
       {
         name: "start-backend",
         phase: "STARTING",
@@ -135,6 +160,7 @@ export class ManagedBackendService {
         phase: "MANAGED",
         cancellable: false,
         run: async () => {
+          await this.hold?.({ kind: request.kind });
           const info = this.supervisor.running;
           if (!info) throw new BackendFailure("CHILD_EXITED", "the backend is not running at commit time");
           return { port: info.port, pid: info.pid };

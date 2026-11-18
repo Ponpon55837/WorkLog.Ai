@@ -66,6 +66,8 @@ export interface AgentsFileChange {
 /** A plan computed but not applied: nothing has been written yet. */
 export interface AgentsPreview {
   readonly id: string;
+  /** `uninstall` is "移除 Agent 設定": the same preview, confirm and transaction path, planned from the setup manifest. */
+  readonly mode: "install" | "uninstall";
   readonly adopt: boolean;
   readonly files: readonly AgentsFileChange[];
   readonly actions: readonly string[];
@@ -75,8 +77,10 @@ export interface AgentsPreview {
 
 export type AgentsResult =
   | { readonly kind: "applied"; readonly changed: number }
+  | { readonly kind: "removed"; readonly changed: number }
   | { readonly kind: "undone" }
   | { readonly kind: "nothing-to-undo" }
+  /** `manualRepairDisplay`: the files left as they are, with `~` for the home folder, joined by ", ". */
   | { readonly kind: "failed"; readonly code: string; readonly manualRepairDisplay?: string };
 
 export interface AgentsState {

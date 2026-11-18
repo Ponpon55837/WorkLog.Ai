@@ -13,6 +13,7 @@ import {
   legacyRunnerPath,
   planLegacyDisable,
   previewToCandidate,
+  setupMessages,
   type BackendSupervisor,
   type LegacyDisableDependencies,
   type LegacyDisableOutcome,
@@ -205,7 +206,7 @@ export function createLegacyDisable(options: LegacyDisableOptions): LegacyDisabl
           hardStop: pending.hardStop,
           busy: pending.busy,
           sameDatabase: sameDatabase(plan),
-          steps: describeLegacyDisableSteps(plan),
+          steps: describeLegacyDisableSteps(plan, setupMessages(state.locale).legacyDisableStepText),
         },
       };
     },

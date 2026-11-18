@@ -27,6 +27,10 @@
       "types": "./dist/shell/port-i18n.d.ts",
       "import": "./dist/shell/port-i18n.js"
     },
+    "./shell/agent-remove-i18n": {
+      "types": "./dist/shell/agent-remove-i18n.d.ts",
+      "import": "./dist/shell/agent-remove-i18n.js"
+    },
     "./shell/agents-state": {
       "types": "./dist/shell/agents-state.d.ts",
       "import": "./dist/shell/agents-state.js"
@@ -38,6 +42,10 @@
     "./shell/diagnostics-i18n": {
       "types": "./dist/shell/diagnostics-i18n.d.ts",
       "import": "./dist/shell/diagnostics-i18n.js"
+    },
+    "./shell/restore-i18n": {
+      "types": "./dist/shell/restore-i18n.d.ts",
+      "import": "./dist/shell/restore-i18n.js"
     },
     "./update-check/result": {
       "types": "./dist/update-check/result.d.ts",

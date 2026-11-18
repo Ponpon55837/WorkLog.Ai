@@ -14,7 +14,7 @@ interface Waiter {
   readonly type: DesktopChildMessage["type"];
   readonly resolve: (message: DesktopChildMessage) => void;
   readonly reject: (failure: BackendFailure) => void;
-  readonly timer: unknown;
+  readonly timer: unknown | undefined;
 }
 
 /** Messages kept for a later `expect` (a child may answer before the parent waits); older ones are dropped. */
@@ -89,8 +89,11 @@ export class ChildChannel {
     return this.exit;
   }
 
-  /** The next message of `type`, or a {@link BackendFailure} (the child's own, `CHILD_EXITED`, or a timeout). */
-  expect<T extends DesktopChildMessage["type"]>(type: T, timeoutMs: number): Promise<MessageOfType<T>> {
+  /**
+   * The next message of `type`, or a {@link BackendFailure} (the child's own, `CHILD_EXITED`, or a timeout). `null` waits
+   * with no deadline (only the child's answer or its exit ends it): for a step that must never be cut short by a timer.
+   */
+  expect<T extends DesktopChildMessage["type"]>(type: T, timeoutMs: number | null): Promise<MessageOfType<T>> {
     const index = this.pending.findIndex((message) => message.type === type);
     if (index >= 0) return Promise.resolve(this.pending.splice(index, 1)[0] as MessageOfType<T>);
     if (this.ended) return Promise.reject(this.ended);
@@ -99,10 +102,13 @@ export class ChildChannel {
         type,
         resolve: (message) => resolve(message as MessageOfType<T>),
         reject,
-        timer: this.timers.setTimer(() => {
-          this.waiters.delete(waiter);
-          reject(new BackendFailure("CHILD_START_TIMEOUT", `no ${type} message within ${timeoutMs} ms`));
-        }, timeoutMs),
+        timer:
+          timeoutMs === null
+            ? undefined
+            : this.timers.setTimer(() => {
+                this.waiters.delete(waiter);
+                reject(new BackendFailure("CHILD_START_TIMEOUT", `no ${type} message within ${timeoutMs} ms`));
+              }, timeoutMs),
       };
       this.waiters.add(waiter);
     });
@@ -174,7 +180,7 @@ export class ChildChannel {
     const waiter = [...this.waiters].find((candidate) => candidate.type === message.type);
     if (waiter) {
       this.waiters.delete(waiter);
-      this.timers.clearTimer(waiter.timer);
+      if (waiter.timer !== undefined) this.timers.clearTimer(waiter.timer);
       waiter.resolve(message);
       return;
     }
@@ -185,7 +191,7 @@ export class ChildChannel {
   private end(failure: BackendFailure): void {
     this.ended ??= failure;
     for (const waiter of this.waiters) {
-      this.timers.clearTimer(waiter.timer);
+      if (waiter.timer !== undefined) this.timers.clearTimer(waiter.timer);
       waiter.reject(this.ended);
     }
     this.waiters.clear();

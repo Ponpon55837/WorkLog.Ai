@@ -13,8 +13,6 @@ const STORE_KEYS = new Map<string, string>();
 
 const LEGACY = {
   running: "running",
-  removeCommand: "synthetic-remove --legacy",
-  fallbackRemoveCommand: "synthetic-fallback --legacy",
 };
 
 let harness: ReturnType<typeof createStoreHarness>;

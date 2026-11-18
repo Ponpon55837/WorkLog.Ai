@@ -26,6 +26,7 @@ import {
   type AgentSetupJournalItem,
 } from "./journal.js";
 import { MANIFEST_FILENAME } from "./constants.js";
+import { undoOwnedEntries } from "./entry-undo.js";
 import { parseManifest } from "./manifest.js";
 import { knownTargetPaths, targetPath, type AgentSetupLocation } from "./paths.js";
 import type { AgentSetupFileMutation, AgentSetupPlan } from "./types.js";
@@ -188,7 +189,9 @@ function loadFromBackup(item: AgentSetupJournalItem): Buffer | null {
 
 /**
  * Undoes what this operation wrote, newest first. An item is restored only if it is ours (`writing` or `written`) and
- * still holds exactly what we wrote; anything else changed since, so it is left alone and compensation stops there:
+ * still holds exactly what we wrote. A file changed since (an Agent rewrote it) first gets the entry-level fallback of
+ * {@link undoOwnedEntries}, which removes only our own entries; when that cannot be done safely it is left alone and
+ * compensation stops there:
  * restoring older items around someone else's edit could leave the configs inconsistent.
  */
 function compensate(
@@ -233,8 +236,18 @@ function compensate(
       if (current === item.beforeFingerprint) {
         statuses[index] = "unchanged";
       } else if (current !== item.afterFingerprint) {
-        statuses[index] = "manual-repair";
-        stopped = true;
+        // The Agent rewrote the file after us (M-12): take out only our own entries, or leave it for manual repair.
+        const manifestEntry = entries.find((other) => isManifest(other));
+        const outcome = undoOwnedEntries(
+          item,
+          manifestEntry ? { path: manifestEntry.item.path, loadBefore: manifestEntry.loadBefore } : undefined,
+        );
+        if (outcome === "restored") {
+          statuses[index] = "restored";
+        } else {
+          statuses[index] = "manual-repair";
+          stopped = true;
+        }
       } else {
         const before = entry.loadBefore();
         if (before === null) {

@@ -4,3 +4,6 @@ export * from "./journal-store.js";
 export * from "./operation-journal.js";
 export * from "./recovery.js";
 export * from "./coordinator.js";
+export * from "./recovery-notice.js";
+export * from "./startup-recovery.js";
+export * from "./orphan-copy.js";
