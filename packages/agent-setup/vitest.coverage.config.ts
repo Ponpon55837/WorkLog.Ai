@@ -1,11 +1,11 @@
 import { defineConfig } from "vitest/config";
 import { isolatedEnvironmentSetup } from "../../tests/helpers/isolated-environment-setup";
-import { agentSetupAliases } from "./vitest.config";
+import { agentSetupAliases, skipFsyncSetup } from "./vitest.config";
 
 export default defineConfig({
   resolve: { alias: agentSetupAliases },
   test: {
-    setupFiles: [isolatedEnvironmentSetup],
+    setupFiles: [isolatedEnvironmentSetup, skipFsyncSetup],
     // The CLI regression suites exercise the plan and apply logic end to end; their coverage counts for this package.
     include: [
       "tests/agent-setup/**/*.test.ts",
