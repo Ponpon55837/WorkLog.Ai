@@ -1274,6 +1274,33 @@ describe("portable project data transfer", () => {
     expect(importedBundle.tables.sessions.find((item) => item.id === source.sessionIds[0])?.redaction_count).toBe(6);
   });
 
+  it("keeps redaction_count equal across an export, an import into a fresh database and a second export", () => {
+    const source = createSource();
+    const connection = "postgres://worker:supersecretpw@db.example.test/work";
+    const sourceDb = new DatabaseSync(source.store.databasePath);
+    try {
+      sourceDb
+        .prepare("UPDATE raw_snapshots SET content = ? WHERE session_id = ?")
+        .run(`handoff ${connection}`, source.sessionIds[0]);
+    } finally {
+      sourceDb.close();
+    }
+    const countOf = (bundle: ProjectDataExport): unknown =>
+      bundle.tables.sessions.find((session) => session.id === source.sessionIds[0])?.redaction_count;
+
+    const first = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+    expect(JSON.stringify(first)).not.toContain("supersecretpw");
+    const firstCount = countOf(first);
+    expect(Number(firstCount)).toBeGreaterThan(0);
+
+    const destination = new WorkIntelligenceStore(":memory:");
+    stores.push(destination);
+    const imported = destination.importProjectData({ bundle: first, remap: [] });
+    expect(imported.redactions?.total ?? 0).toBe(0);
+    const second = destination.exportProjectData({ type: "all" });
+    expect(countOf(second)).toBe(firstCount);
+  });
+
   it("redacts cleanup snapshot text and proposal reasons in exports and imports", () => {
     const source = createSource();
     seedCleanupReview(source.store, source.projectId, source.sessionIds[0], source.sessionIds[1], "cleanup-redaction");

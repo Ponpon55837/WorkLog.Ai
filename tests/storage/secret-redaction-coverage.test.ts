@@ -229,6 +229,54 @@ describe("secret redaction coverage", () => {
     });
   });
 
+  describe("masking twice", () => {
+    it("finds nothing in an already masked connection string", () => {
+      const once = redactText("postgres://u:supersecretpw@db.example.com/x");
+      expect(once.redactions.total).toBe(1);
+      const twice = redactText(once.value);
+      expect(twice.redactions.total).toBe(0);
+      expect(twice.value).toBe(once.value);
+    });
+
+    it("leaves every corpus sample unchanged and uncounted on a second pass, plain and inside surrounding text", () => {
+      const unstable: string[] = [];
+      const kinds = new Set<string>();
+      for (const entry of SECRET_CORPUS) {
+        for (const text of [entry.text, `記錄：${entry.text}\n之後的文字`]) {
+          const once = redactText(text);
+          for (const kind of Object.keys(once.redactions.byKind)) kinds.add(kind);
+          const twice = redactText(once.value);
+          if (twice.redactions.total !== 0 || twice.value !== once.value) unstable.push(text);
+        }
+      }
+      expect(unstable).toEqual([]);
+      expect(kinds.size).toBeGreaterThan(5);
+    });
+
+    it("leaves every JSON corpus sample unchanged and uncounted on a second pass", () => {
+      const unstable: string[] = [];
+      for (const entry of SECRET_CORPUS) {
+        const once = redactJsonText(entry.text);
+        const twice = redactJsonText(once.value);
+        if (twice.redactions.total !== 0 || twice.value !== once.value) unstable.push(entry.text);
+      }
+      expect(unstable).toEqual([]);
+    });
+
+    it("leaves stored JSON unchanged and uncounted on a second pass", () => {
+      const stored = JSON.stringify({
+        url: "postgres://u:supersecretpw@db.example.com/x",
+        password: "hunter2hunter2",
+        text: "DB_PASSWORD=hunter2hunter2 in prose",
+      });
+      const once = redactJsonText(stored);
+      expect(once.redactions.total).toBeGreaterThan(0);
+      const twice = redactJsonText(once.value);
+      expect(twice.redactions.total).toBe(0);
+      expect(twice.value).toBe(once.value);
+    });
+  });
+
   describe("false positives", () => {
     it.each(BENIGN_TEXTS.map((text) => [text]))("leaves %j unchanged", (text) => {
       expect(redactText(text)).toEqual({ value: text, redactions: { total: 0, byKind: {} } });

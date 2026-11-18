@@ -104,6 +104,37 @@ describe("secret redaction", () => {
     }
   });
 
+  it("finds nothing in text that is already masked, for every supported token class", () => {
+    const values = [
+      `ghp_${"A".repeat(36)}`,
+      `github_pat_${"B".repeat(50)}`,
+      `sk-${"C".repeat(24)}`,
+      `sk-ant-api03-${"D".repeat(24)}`,
+      `xoxb-${"1234567890-".repeat(2)}${"E".repeat(12)}`,
+      `AIza${"F".repeat(35)}`,
+      `AKIA${"G".repeat(16)}`,
+      `aws_secret_access_key=${"J".repeat(40)}`,
+      `-----BEGIN PRIVATE KEY-----\n${"K".repeat(64)}\n-----END PRIVATE KEY-----`,
+      `eyJ${"a".repeat(18)}.${"b".repeat(20)}.${"c".repeat(20)}`,
+      `postgres://worker:${"M".repeat(20)}@db.local/work`,
+      `postgres://worker:${"M".repeat(8)}@${"M".repeat(8)}@db.local/work`,
+      `redis://:${"M".repeat(20)}@cache.local`,
+      `API_KEY=${"N".repeat(20)}`,
+      `Password: ${"N".repeat(20)}`,
+    ];
+
+    for (const value of values) {
+      for (const redact of [redactText, redactJsonText]) {
+        const text = redact === redactJsonText ? JSON.stringify({ note: `設定 ${value} 完成` }) : `設定 ${value} 完成`;
+        const once = redact(text);
+        expect(once.redactions.total, value).toBeGreaterThan(0);
+        const twice = redact(once.value);
+        expect(twice.redactions.total, value).toBe(0);
+        expect(twice.value, value).toBe(once.value);
+      }
+    }
+  });
+
   it("does not mask commit identifiers, UUIDs, or common placeholders", () => {
     const commit = "a1b2c3d4e5f678901234567890abcdef12345678";
     const uuid = "123e4567-e89b-42d3-a456-426614174000";
