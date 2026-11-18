@@ -220,7 +220,8 @@ export function mountSetup(
               : state.reason === "blocked"
                 ? text.setupChooseBlocked
                 : text.setupChooseIntro;
-    blocks.push(element("p", { className: "intro", text: intro }));
+    // The intro, the sources, the buttons, the checkbox and the advanced facts are one card (UiBox) with the page title.
+    const main: Node[] = [element("p", { className: "intro", text: intro })];
 
     if (state.errorCode) {
       const message = errorMessageFor(shellMessages(state.locale), state.errorCode);
@@ -229,7 +230,7 @@ export function mountSetup(
       blocks.push(failed);
     }
 
-    if (state.pathProblem) blocks.push(hint(state.pathProblem));
+    if (state.pathProblem) main.push(hint(state.pathProblem));
 
     const conflictShown = state.defaults.legacyConflict || state.sources.some((source) => source.legacyConflict);
     if (state.legacy && (conflictShown || heldBack)) {
@@ -245,12 +246,12 @@ export function mountSetup(
 
     const recommended = state.sources.find((source) => source.id === state.recommendedId);
     if (state.phase !== "detecting" && recommended && state.screen === "existing") {
-      blocks.push(sourceCard(state, recommended, text, true));
+      main.push(sourceCard(state, recommended, text, true));
     }
     if (state.phase !== "detecting" && state.screen === "choose") {
       const list = element("div", { className: "sources" });
       for (const source of state.sources) list.append(sourceCard(state, source, text, false));
-      blocks.push(list);
+      main.push(list);
     }
 
     // The defaults are one click from the first paint; on the "existing" screen they are the second choice.
@@ -272,7 +273,7 @@ export function mountSetup(
     ]);
     advanced.open = memory.advancedOpen();
     advanced.addEventListener("toggle", () => memory.setAdvancedOpen(advanced.open));
-    blocks.push(
+    main.push(
       actions(
         defaults,
         button(text.setupUseExisting, "browse", !busy, () => void act(() => api.setupChooseFile())),
@@ -281,8 +282,9 @@ export function mountSetup(
       checkbox(text.setupLaunchAtLogin, LOGIN_ID, login, !busy),
       advanced,
     );
-    if (!state.canUseDefaults) blocks.push(hint(text.setupDetectingHint));
-    if (state.phase === "starting") blocks.push(hint(text.setupStarting));
+    if (!state.canUseDefaults) main.push(hint(text.setupDetectingHint));
+    if (state.phase === "starting") main.push(hint(text.setupStarting));
+    blocks.push(section(text.setupHeading, ...main));
 
     app.replaceChildren(...blocks);
     app.setAttribute("aria-busy", state.phase === "ready" ? "false" : "true");

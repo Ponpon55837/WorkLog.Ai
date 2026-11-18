@@ -42,6 +42,8 @@ export async function requestDiagnosticsPreview(host: DiagnosticsViewHost): Prom
     host.say(failureText(host.text, result));
     return;
   }
+  // The "working" line of the button that asked is over: it must not stay on the page behind the modal.
+  host.say("");
   showDialog(host, result);
 }
 
