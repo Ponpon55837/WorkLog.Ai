@@ -9,6 +9,7 @@ import {
   databaseStatusFor,
   legacyServiceRelevance,
   type BackendSupervisor,
+  type BuiltDiagnostics,
   type RepairPortSection,
   type RepairUpdateSection,
   type LastBackupTracker,
@@ -23,8 +24,8 @@ import type { ShellState } from "./state.js";
 export interface RepairInfo {
   /** What the repair page renders: no real path in it. */
   snapshot(): Promise<RepairState>;
-  /** The redacted text the user may export. */
-  diagnosticsText(): Promise<string>;
+  /** The redacted text the user may export, and what was masked; nothing is written. Throws `DiagnosticsError` when the last check refuses it. */
+  diagnosticsPreview(): Promise<BuiltDiagnostics>;
   /** The folder a button opens (created when missing), or null when there is none to open. */
   folderFor(target: RepairFolderTarget): Promise<string | null>;
   databaseStatus(): RepairState["database"]["status"];
@@ -114,7 +115,7 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
     });
   }
 
-  async function diagnosticsText(): Promise<string> {
+  async function diagnosticsPreview(): Promise<BuiltDiagnostics> {
     const running = supervisor.running;
     return buildDiagnostics({
       platform: process.platform,
@@ -148,5 +149,5 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
     return directory;
   }
 
-  return { snapshot, diagnosticsText, folderFor, databaseStatus };
+  return { snapshot, diagnosticsPreview, folderFor, databaseStatus };
 }

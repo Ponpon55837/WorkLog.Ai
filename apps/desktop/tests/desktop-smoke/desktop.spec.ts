@@ -1,5 +1,7 @@
 import { expect, test, type ElectronApplication } from "@playwright/test";
-import { existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
+import { diagnosticsMessages } from "@work-intelligence/desktop-core/shell/diagnostics-i18n";
+import { formatMessage } from "@work-intelligence/desktop-core/shell/i18n";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { realpathSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
 import {
@@ -182,7 +184,6 @@ test("a missing database opens the repair window and creates nothing", async () 
     "confirmDatabase",
     "copyCommand",
     "copyToLocal",
-    "exportDiagnostics",
     "getState",
     "getView",
     "legacyDisableConfirm",
@@ -192,7 +193,9 @@ test("a missing database opens the repair window and creates nothing", async () 
     "openFolder",
     "openUpdateLink",
     "portChange",
+    "previewDiagnostics",
     "retryStart",
+    "saveDiagnostics",
     "setupChooseFile",
     "setupCopyToLocal",
     "setupGetState",
@@ -465,4 +468,129 @@ test("a relaunch with the same backend leaves the settings file as it was", asyn
   expect(readFileSync(settingsFile, "utf8")).toBe(recorded);
   const after = statSync(settingsFile);
   expect({ ino: after.ino, mtimeMs: after.mtimeMs }).toEqual({ ino: before.ino, mtimeMs: before.mtimeMs });
+});
+
+test("exports diagnostics through a preview: the saved file is the previewed text and holds none of what was planted", async () => {
+  sandbox = await createSandbox({ withDatabase: true });
+  app = await launchApp(sandbox);
+  await waitForManagedSnapshot(app);
+
+  // Synthetic markers the file must not contain: a token, another user's home paths, an e-mail address, a line of work content.
+  const planted = {
+    token: ["ghp", "SyntheticSmokeToken0123456789abcdef"].join("_"),
+    posixPath: "/home/synthetic-other-user/ClientX/notes.md",
+    windowsPath: "C:\\Users\\SyntheticOtherUser\\ClientX\\notes.md",
+    email: "synthetic.person@example.test",
+    work: "SYNTHETIC-WORK-CONTENT rewrote the orchard irrigation schedule",
+  };
+  type TestHook = { plantOutput(lines: readonly string[]): void; openRepair(): void };
+  await app.evaluate(
+    (_electron, lines) =>
+      (globalThis as unknown as { __workIntelligenceDesktopTest: TestHook }).__workIntelligenceDesktopTest.plantOutput(
+        lines,
+      ),
+    [
+      `[backend] token=${planted.token}`,
+      `[shell] opening ${planted.posixPath}`,
+      `[shell] opening ${planted.windowsPath}`,
+      `[shell] mail ${planted.email}`,
+      planted.work,
+    ],
+  );
+  await app.evaluate(() =>
+    (globalThis as unknown as { __workIntelligenceDesktopTest: TestHook }).__workIntelligenceDesktopTest.openRepair(),
+  );
+  const window = await app.firstWindow({ timeout: 45_000 });
+  const lang = await window.evaluate(() => document.documentElement.lang);
+  const text = diagnosticsMessages(lang === "zh-Hant" ? "zh-TW" : "en");
+  const trigger = window.locator('[data-id="export-diagnostics"]');
+  const panel = window.locator("dialog.preview-dialog");
+  const box = panel.locator("textarea.preview-text");
+
+  // A preview that was replaced by a newer one, or already saved, cannot be saved: the page previews again.
+  const stale = await window.evaluate(async () => {
+    const api = (
+      globalThis as unknown as {
+        workIntelligenceRepair: {
+          previewDiagnostics(): Promise<{ ok: boolean; previewId?: string }>;
+          saveDiagnostics(previewId: string): Promise<{ ok: boolean; reason?: string }>;
+        };
+      }
+    ).workIntelligenceRepair;
+    const first = await api.previewDiagnostics();
+    await api.previewDiagnostics();
+    return {
+      first: await api.saveDiagnostics(first.previewId ?? ""),
+      unknown: await api.saveDiagnostics("00000000-0000-4000-8000-000000000000"),
+    };
+  });
+  expect(stale).toEqual({ first: { ok: false, reason: "expired" }, unknown: { ok: false, reason: "expired" } });
+
+  // Esc closes the panel and focus goes back to the button that opened it.
+  await expect(trigger).toBeVisible({ timeout: 30_000 });
+  await trigger.click();
+  await expect(panel).toBeVisible();
+  await expect(box).toBeFocused();
+  await window.keyboard.press("Escape");
+  await expect(panel).toBeHidden();
+  await expect(trigger).toBeFocused();
+
+  // The saved file's place is chosen by the (stubbed) native dialog.
+  const outputDirectory = join(sandbox.root, "exported");
+  mkdirSync(outputDirectory);
+  const target = join(outputDirectory, "work-intelligence-diagnostics.json");
+  await app.evaluate(({ dialog }, file) => {
+    dialog.showSaveDialog = (async () => ({ canceled: false, filePath: file })) as typeof dialog.showSaveDialog;
+  }, target);
+
+  await trigger.click();
+  await expect(panel).toBeVisible();
+  const previewed = await box.inputValue();
+  expect(existsSync(target)).toBe(false);
+
+  // The summary says what was masked and how many lines of other output were skipped.
+  const parsed = JSON.parse(previewed) as { omittedOutputLines: number; recentOutput: string[] };
+  expect(parsed.omittedOutputLines).toBeGreaterThanOrEqual(1);
+  const summary = (await panel.locator(".preview-summary p").first().innerText()).trim();
+  const numbers = summary.match(/\d+/g)?.map(Number) ?? [];
+  const [paths = 0, authCodes = 0, tokens = 0, emails = 0, omitted = 0] = numbers;
+  expect(paths).toBeGreaterThanOrEqual(2);
+  expect(authCodes).toBe(0);
+  expect(tokens).toBeGreaterThanOrEqual(1);
+  expect(emails).toBe(1);
+  expect(omitted).toBe(parsed.omittedOutputLines);
+  expect(summary).toBe(
+    formatMessage(text.summary, {
+      paths: String(paths),
+      authCodes: String(authCodes),
+      tokens: String(tokens),
+      emails: String(emails),
+      omitted: String(omitted),
+    }),
+  );
+
+  await panel.locator('[data-id="diagnostics-save"]').click();
+  await expect(panel).toBeHidden();
+  await expect(window.locator("#status")).toHaveText(text.saved);
+
+  // The file is exactly the text the user read, and the planted values are in neither.
+  const saved = readFileSync(target, "utf8");
+  expect(saved).toBe(previewed);
+  if (process.platform !== "win32") expect(statSync(target).mode & 0o777).toBe(0o600);
+  for (const value of [
+    planted.token,
+    "SyntheticSmokeToken",
+    "synthetic-other-user",
+    "SyntheticOtherUser",
+    "ClientX",
+    planted.email,
+    "SYNTHETIC-WORK-CONTENT",
+    "orchard",
+    sandbox.root,
+  ]) {
+    expect(saved, value).not.toContain(value);
+  }
+  expect(parsed.recentOutput).toContain("[backend] token=[redacted]");
+  expect(parsed.recentOutput.filter((line) => line === "[shell] opening [redacted path]")).toHaveLength(2);
+  expect(parsed.recentOutput).toContain("[shell] mail [redacted email]");
 });

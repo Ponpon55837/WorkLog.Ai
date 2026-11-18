@@ -11,7 +11,9 @@ export type ShellErrorCode =
   | "LEGACY_SERVICE_ACTIVE"
   | "DB_INTEGRITY_CHECK_FAILED"
   /** The database is on a network drive (DT-08): the App stops and does not use it. */
-  | "DB_STORAGE_NETWORK";
+  | "DB_STORAGE_NETWORK"
+  /** The diagnostics file was not made: a last check still found a secret or a path in it (DT-19). Nothing was written. */
+  | "DIAGNOSTICS_SCAN_FAILED";
 
 /** One error code as the user reads it: what happened and what to try. */
 export interface ErrorMessage {
@@ -213,6 +215,10 @@ const zhTW: ShellMessages = {
       title: "資料庫放在網路磁碟上",
       hint: "SQLite 在網路磁碟上可能損壞資料，所以 App 沒有使用它。請把資料庫複製到這台電腦的本機磁碟，再選擇複製後的檔案。",
     },
+    DIAGNOSTICS_SCAN_FAILED: {
+      title: "無法產生診斷資訊",
+      hint: "最後的檢查仍發現可能的個人資訊或授權碼，為了安全沒有產生檔案。請回報這個代碼，不要附上原始記錄。",
+    },
     SCHEMA_TOO_NEW: { title: "資料庫比這個版本新", hint: "請更新 Work Intelligence 後重試。" },
     SCHEMA_MIGRATION_BLOCKED: { title: "資料庫需要更新但沒有完成", hint: "你的資料沒有被改動。請查看備份後重試。" },
     PORT_OCCUPIED_BY_OTHER: {
@@ -404,6 +410,10 @@ const en: ShellMessages = {
     DB_STORAGE_NETWORK: {
       title: "The database is on a network drive",
       hint: "SQLite can corrupt data on a network drive, so the App did not use it. Copy the database to a local disk on this computer, then choose the copy.",
+    },
+    DIAGNOSTICS_SCAN_FAILED: {
+      title: "The diagnostics could not be prepared",
+      hint: "A final check still found what may be personal information or a secret, so no file was made. Report this code, and do not attach raw logs.",
     },
     SCHEMA_TOO_NEW: { title: "The database is newer than this version", hint: "Update Work Intelligence and retry." },
     SCHEMA_MIGRATION_BLOCKED: {

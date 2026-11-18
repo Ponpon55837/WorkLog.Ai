@@ -6,10 +6,12 @@ import {
   shellMessages,
   type ShellMessages,
 } from "@work-intelligence/desktop-core/shell/i18n";
+import { diagnosticsMessages } from "@work-intelligence/desktop-core/shell/diagnostics-i18n";
 import { portMessages } from "@work-intelligence/desktop-core/shell/port-i18n";
 import { setupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
 import { updateMessages } from "@work-intelligence/desktop-core/shell/update-i18n";
 import { mountAgents } from "./agents-view.js";
+import { requestDiagnosticsPreview } from "./diagnostics-view.js";
 import { checkbox, element, fact, isChecked, section } from "./dom.js";
 import { portSection } from "./port-view.js";
 import { storageRiskNote } from "./storage-risk-card.js";
@@ -364,8 +366,13 @@ async function perform(id: RepairActionId, state: RepairState): Promise<void> {
       const result = await api.chooseDatabase();
       say(result.ok || result.reason === "cancelled" ? "" : (result.message ?? messages.repairFailedGeneric));
     } else if (id === "export-diagnostics") {
-      const result = await api.exportDiagnostics();
-      say(result.ok ? messages.repairDone : result.reason === "cancelled" ? "" : messages.repairFailedGeneric);
+      // The panel opens over the page and stays after this action ends; saving happens inside it.
+      await requestDiagnosticsPreview({
+        api,
+        text: diagnosticsMessages(state.locale),
+        say,
+        returnFocus: () => app.querySelector<HTMLElement>('[data-id="export-diagnostics"]')?.focus(),
+      });
     } else {
       const target = id === "open-database-folder" ? "database" : id === "open-backups-folder" ? "backups" : "logs";
       const result = await api.openFolder(target);
