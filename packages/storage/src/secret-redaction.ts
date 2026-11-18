@@ -542,8 +542,9 @@ const DETECTORS: readonly Detector[] = [
     pattern:
       /(?<![A-Za-z0-9+.-])([0-9+.-]*[A-Za-z][A-Za-z0-9+.-]*:\/\/[^:\s/@]*:)([^\s"'?#]{8,256}?)(@[^\s@/?#"'<>]+)(?![^\s/?#"'<>])/g,
     masksGroup: true,
-    // `http://localhost:3000/user@example.com` is a host, a port and a path, not a password.
-    accept: (groups) => !/^[0-9]{1,5}\//.test(groups[1] ?? ""),
+    // `http://localhost:3000/user@example.com` is a host, a port and a path, not a password. A password that is already
+    // a redaction marker is not counted again, so masking a masked text finds nothing.
+    accept: (groups) => !/^[0-9]{1,5}\//.test(groups[1] ?? "") && !(groups[1] ?? "").startsWith(REDACTED_MARKER_PREFIX),
     mayMatch: (text) => text.includes("://"),
   },
   {

@@ -113,7 +113,7 @@ jobs:
 
       - name: Cache the Electron download
         id: cache-electron
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.os == 'Windows' && '~/AppData/Local/electron/Cache' || '~/Library/Caches/electron' }}
           key: electron-package-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/desktop/package.json') }}
@@ -125,7 +125,7 @@ jobs:
       # NSIS, the DMG tools and app-builder helpers electron-builder downloads once per version.
       - name: Cache the electron-builder tools
         id: cache-builder
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.os == 'Windows' && '~/AppData/Local/electron-builder/Cache' || '~/Library/Caches/electron-builder' }}
           key: electron-builder-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/desktop/package.json') }}
@@ -137,7 +137,7 @@ jobs:
       # The official Node archive of the runtime; common.mjs pins the Node (and Electron) versions in the key.
       - name: Cache the runtime downloads
         id: cache-runtime
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: dist/desktop-runtime-spike/downloads
           key: runtime-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/desktop-runtime-spike/common.mjs', 'scripts/desktop-runtime-spike/download.mjs') }}

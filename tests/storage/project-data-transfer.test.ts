@@ -1274,6 +1274,33 @@ describe("portable project data transfer", () => {
     expect(importedBundle.tables.sessions.find((item) => item.id === source.sessionIds[0])?.redaction_count).toBe(6);
   });
 
+  it("keeps redaction_count equal across an export, an import into a fresh database and a second export", () => {
+    const source = createSource();
+    const connection = "postgres://worker:supersecretpw@db.example.test/work";
+    const sourceDb = new DatabaseSync(source.store.databasePath);
+    try {
+      sourceDb
+        .prepare("UPDATE raw_snapshots SET content = ? WHERE session_id = ?")
+        .run(`handoff ${connection}`, source.sessionIds[0]);
+    } finally {
+      sourceDb.close();
+    }
+    const countOf = (bundle: ProjectDataExport): unknown =>
+      bundle.tables.sessions.find((session) => session.id === source.sessionIds[0])?.redaction_count;
+
+    const first = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+    expect(JSON.stringify(first)).not.toContain("supersecretpw");
+    const firstCount = countOf(first);
+    expect(Number(firstCount)).toBeGreaterThan(0);
+
+    const destination = new WorkIntelligenceStore(":memory:");
+    stores.push(destination);
+    const imported = destination.importProjectData({ bundle: first, remap: [] });
+    expect(imported.redactions?.total ?? 0).toBe(0);
+    const second = destination.exportProjectData({ type: "all" });
+    expect(countOf(second)).toBe(firstCount);
+  });
+
   it("redacts cleanup snapshot text and proposal reasons in exports and imports", () => {
     const source = createSource();
     seedCleanupReview(source.store, source.projectId, source.sessionIds[0], source.sessionIds[1], "cleanup-redaction");
@@ -2509,5 +2536,206 @@ describe("deeply nested JSON columns in an import", () => {
     expect(() => ValidatedProjectDataImport.validate(hostile)).toThrowError(
       expect.objectContaining({ name: "ProjectDataTransferError", code: "invalid_input" }),
     );
+  });
+});
+
+describe("knowledge page checked cursor across machines", () => {
+  const pageId = "cursor-page";
+
+  /** Two machines holding the same page; the page has never been checked on either. */
+  function createCursorMachines() {
+    const machineA = createSource();
+    twoMachineClock = Date.now() + 60_000;
+    const dbA = new DatabaseSync(machineA.store.databasePath);
+    try {
+      insertRow(
+        dbA,
+        "knowledge_pages",
+        row("knowledge_pages", {
+          id: pageId,
+          project_id: machineA.projectId,
+          slug: "cursor-notes",
+          title: "檢查游標",
+          question: "檢查到哪一筆？",
+          sections_json: JSON.stringify([{ heading: "進度", body: "原始內容" }]),
+          version: 1,
+          sourced_through: null,
+          update_requested_at: null,
+          last_author: "agent",
+          checked_through_session_id: null,
+          created_at: "2026-10-01T00:00:00.000Z",
+          updated_at: "2026-10-01T00:00:00.000Z",
+        }),
+      );
+      insertRow(
+        dbA,
+        "knowledge_page_versions",
+        row("knowledge_page_versions", {
+          id: "cursor-page-v1",
+          page_id: pageId,
+          project_id: machineA.projectId,
+          version: 1,
+          title: "檢查游標",
+          question: "檢查到哪一筆？",
+          sections_json: JSON.stringify([{ heading: "進度", body: "原始內容" }]),
+          author: "agent",
+          idempotency_key: "cursor-page-v1-key",
+          created_at: "2026-10-01T00:00:00.000Z",
+        }),
+      );
+    } finally {
+      dbA.close();
+    }
+    mkdirSync(join(machineA.root, "machine-b-checkout"));
+    const machineBRoot = canonicalizeProjectRoot(join(machineA.root, "machine-b-checkout"));
+    const machineARoot = canonicalizeProjectRoot(machineA.projectRoot);
+    const machineB = new WorkIntelligenceStore(join(machineA.root, "machine-b.sqlite"));
+    stores.push(machineB);
+    machineB.importProjectData({
+      bundle: machineA.store.exportProjectData({ type: "project", projectId: machineA.projectId }),
+      remap: [{ from: machineARoot, to: machineBRoot }],
+    });
+    machineB.updateProject(machineA.projectId, { status: "tracked" });
+    const exportOf = (store: WorkIntelligenceStore) =>
+      store.exportProjectData({ type: "project", projectId: machineA.projectId });
+    const [first, second] = machineA.sessionIds;
+    return { machineA, machineB, machineBRoot, first, second, exportOf };
+  }
+
+  const cursorOf = (store: WorkIntelligenceStore): unknown =>
+    (
+      readRows(store, "SELECT checked_through_session_id AS cursor FROM knowledge_pages WHERE id = ?", pageId)[0] as {
+        cursor: string | null;
+      }
+    ).cursor;
+  const stampOf = (store: WorkIntelligenceStore): unknown =>
+    (readRows(store, "SELECT updated_at FROM knowledge_pages WHERE id = ?", pageId)[0] as { updated_at: string })
+      .updated_at;
+  const setCursor = (store: WorkIntelligenceStore, sessionId: string | null): void =>
+    runSql(store, "UPDATE knowledge_pages SET checked_through_session_id = ? WHERE id = ?", sessionId, pageId);
+  const editContent = (store: WorkIntelligenceStore, body: string, updatedAt: string): void =>
+    runSql(
+      store,
+      "UPDATE knowledge_pages SET sections_json = ?, updated_at = ?, checked_through_session_id = NULL WHERE id = ?",
+      JSON.stringify([{ heading: "進度", body }]),
+      updatedAt,
+      pageId,
+    );
+
+  it("marking a page checked moves the cursor but not updated_at, the premise of the merge", () => {
+    const { machineB, machineBRoot, second } = createCursorMachines();
+    const before = stampOf(machineB);
+    const checked = machineB.markKnowledgePageChecked({
+      projectRoot: machineBRoot,
+      slug: "cursor-notes",
+      throughSessionId: second,
+    });
+    expect(checked).toMatchObject({ outcome: "knowledge_page_checked" });
+    expect(cursorOf(machineB)).toBe(second);
+    expect(stampOf(machineB)).toBe(before);
+  });
+
+  it("advances the local cursor from an export that checked further, with no conflict, under newer-wins", () => {
+    const { machineA, machineB, first, second, exportOf } = createCursorMachines();
+    setCursor(machineB, second);
+    const stamp = stampOf(machineA.store);
+    const into = { bundle: exportOf(machineB), strategy: "newer-wins" as const };
+
+    const preview = machineA.store.previewProjectDataImport(into);
+    expect(preview.conflictGroups).toEqual([]);
+    expect(total(preview.conflicts)).toBe(0);
+    expect(preview.updates).toMatchObject({ knowledge_pages: 1 });
+    machineA.store.importProjectData(into);
+    expect(cursorOf(machineA.store)).toBe(second);
+    expect(stampOf(machineA.store)).toBe(stamp);
+
+    // From an earlier cursor to a later one as well.
+    setCursor(machineA.store, first);
+    expect(total(machineA.store.previewProjectDataImport(into).conflicts)).toBe(0);
+    machineA.store.importProjectData(into);
+    expect(cursorOf(machineA.store)).toBe(second);
+  });
+
+  it("never moves the local cursor backwards, from an export that is behind or has none", () => {
+    const { machineA, machineB, first, second, exportOf } = createCursorMachines();
+    setCursor(machineA.store, second);
+
+    const unchecked = { bundle: exportOf(machineB), strategy: "newer-wins" as const };
+    expect(total(machineA.store.previewProjectDataImport(unchecked).conflicts)).toBe(0);
+    machineA.store.importProjectData(unchecked);
+    expect(cursorOf(machineA.store)).toBe(second);
+
+    setCursor(machineB, first);
+    const behind = { bundle: exportOf(machineB), strategy: "newer-wins" as const };
+    const preview = machineA.store.previewProjectDataImport(behind);
+    expect(total(preview.conflicts)).toBe(0);
+    expect(preview.keptLocal).toMatchObject({ knowledge_pages: 1 });
+    machineA.store.importProjectData(behind);
+    expect(cursorOf(machineA.store)).toBe(second);
+  });
+
+  it("converges both ways: each machine ends on the later cursor", () => {
+    const { machineA, machineB, first, second, exportOf } = createCursorMachines();
+    setCursor(machineA.store, first);
+    setCursor(machineB, second);
+    machineA.store.importProjectData({ bundle: exportOf(machineB), strategy: "newer-wins" });
+    machineB.importProjectData({ bundle: exportOf(machineA.store), strategy: "newer-wins" });
+    expect(cursorOf(machineA.store)).toBe(second);
+    expect(cursorOf(machineB)).toBe(second);
+  });
+
+  it("adds nothing under merge and reports no conflict, because the page content is the same", () => {
+    const { machineA, machineB, second, exportOf } = createCursorMachines();
+    setCursor(machineB, second);
+    const into = { bundle: exportOf(machineB), strategy: "merge" as const };
+    const preview = machineA.store.previewProjectDataImport(into);
+    expect(preview.conflictGroups).toEqual([]);
+    expect(total(preview.conflicts)).toBe(0);
+    machineA.store.importProjectData(into);
+    expect(cursorOf(machineA.store)).toBeNull();
+  });
+
+  it("lets a content edit win with its own cursor, and a check on the older content never overrides it", () => {
+    const { machineA, machineB, first, second, exportOf } = createCursorMachines();
+    // B edited the page, then checked it; A only checked the older content further.
+    editContent(machineB, "B 的新內容", later(2));
+    setCursor(machineB, first);
+    setCursor(machineA.store, second);
+
+    const intoA = { bundle: exportOf(machineB), strategy: "newer-wins" as const };
+    expect(total(machineA.store.previewProjectDataImport(intoA).conflicts)).toBe(0);
+    machineA.store.importProjectData(intoA);
+    expect(readRows(machineA.store, "SELECT sections_json FROM knowledge_pages WHERE id = ?", pageId)).toEqual([
+      { sections_json: JSON.stringify([{ heading: "進度", body: "B 的新內容" }]) },
+    ]);
+    expect(cursorOf(machineA.store)).toBe(first);
+
+    // The older copy never takes the edit back, whatever its cursor says.
+    setCursor(machineA.store, second);
+    editContent(machineA.store, "A 之前的內容", later(1));
+    setCursor(machineA.store, second);
+    const intoB = { bundle: exportOf(machineA.store), strategy: "newer-wins" as const };
+    expect(total(machineB.previewProjectDataImport(intoB).conflicts)).toBe(0);
+    machineB.importProjectData(intoB);
+    expect(readRows(machineB, "SELECT sections_json FROM knowledge_pages WHERE id = ?", pageId)).toEqual([
+      { sections_json: JSON.stringify([{ heading: "進度", body: "B 的新內容" }]) },
+    ]);
+    expect(cursorOf(machineB)).toBe(first);
+  });
+
+  it("still reports a conflict when the content differs at an equal updated_at", () => {
+    const { machineA, machineB, second, exportOf } = createCursorMachines();
+    runSql(
+      machineB,
+      "UPDATE knowledge_pages SET sections_json = ?, checked_through_session_id = ? WHERE id = ?",
+      JSON.stringify([{ heading: "進度", body: "同一時間的不同內容" }]),
+      second,
+      pageId,
+    );
+    const preview = machineA.store.previewProjectDataImport({
+      bundle: exportOf(machineB),
+      strategy: "newer-wins",
+    });
+    expect(preview.conflicts).toMatchObject({ knowledge_pages: 1 });
   });
 });
