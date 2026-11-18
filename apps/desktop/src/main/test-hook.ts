@@ -25,8 +25,8 @@ interface TestSnapshot {
   readonly logFile: string;
   /** No settings file yet: the first-run page is (or will be) shown instead of a start. */
   readonly needsSetup: boolean;
-  /** The page the App window shows (or would show when it opens). */
-  readonly view: string;
+  /** The tab the App window shows (or would show when it opens). */
+  readonly tab: string;
   /** How long the first-run detection took, once it ran. */
   readonly firstRunDetectionMs: number | null;
 }
@@ -67,13 +67,13 @@ export function installTestHook(options: TestHookOptions): void {
       notifications: [...options.notifications],
       logFile: options.paths.logFile,
       needsSetup: options.state.needsSetup,
-      view: options.state.view,
+      tab: options.state.tab,
       firstRunDetectionMs: options.firstRunDetectionMs() ?? null,
     };
   };
-  // The tray cannot be clicked in a test: the repair window as the tray's 「開啟修復視窗」 shows it, and the port section
+  // The tray cannot be clicked in a test: the window's Status tab (what the old tray 「修復…」 showed), and the port section
   // through the very handler the 「變更連接埠…」 item runs, and the update check through the one 「檢查更新…」 runs.
-  const openRepair = (): void => options.window.open("repair");
+  const openRepair = (): void => options.window.open("status");
   const openPortSettings = (): void => options.openPortSettings();
   const openUpdateCheck = (): void => options.openUpdateCheck();
   // A real backend cannot be made to print chosen text, so the diagnostics test adds the lines it wants to see handled

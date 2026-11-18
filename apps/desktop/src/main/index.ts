@@ -8,6 +8,7 @@ import {
   createNodeBackendDependencies,
   decideLaunch,
   detectLaunchMode,
+  initialTab,
   FileOperationJournalStore,
   findForbiddenDebugSwitch,
   interpretSecondInstanceData,
@@ -34,6 +35,7 @@ import {
   storagePolicy,
   formatMessage,
   shellMessages,
+  type AppTab,
   type LegacyServiceDetection,
   type RestartOutcome,
   type StorageRiskResult,
@@ -41,6 +43,7 @@ import {
 } from "@work-intelligence/desktop-core";
 import type { DesktopFacts } from "@work-intelligence/schema";
 import { createAgentsPage } from "./agents.js";
+import { applyAppMenu } from "./app-menu.js";
 import { offerCandidate } from "./candidate-offer.js";
 import { createBackendController } from "./backend.js";
 import { createChangePort } from "./change-port.js";
@@ -183,16 +186,20 @@ function runShell(configInputs: DesktopConfigInputs): void {
     resourcesPath: process.resourcesPath,
     log,
   });
+  const applySessionPolicy = createSessionPolicy(ASSET_FILES.rendererDirectory);
   const window = createRepairWindow({
-    title: (view) =>
-      view === "repair" ? state.messages().repairWindowTitle : setupMessages(state.locale).setupWindowTitle,
-    setView: (view) => {
-      state.view = view;
-    },
-    // A plain launch, a second launch or the presenter: the first-run page while the App is not set up yet.
-    defaultView: () => (state.needsSetup ? "setup" : "repair"),
+    title: () => state.messages().appName,
+    // A plain launch, a second launch or the tray: the Setup tab while the App is not set up yet, else a blocking state's
+    // tab, the remembered tab or Status; an explicit request (`open("settings")`) wins over all of them.
+    selectTab: (requested) => selectTab(requested),
+    // Developer tools exist only where the App is not packaged (development and the smoke tests).
+    devTools: !app.isPackaged,
     preloadFile: ASSET_FILES.preloadFile,
-    prepareSession: createSessionPolicy(ASSET_FILES.rendererDirectory),
+    prepareSession: () => {
+      // The menu is set before the first window exists (none on Windows and Linux, a minimal one on macOS).
+      applyAppMenu(process.platform, state.messages());
+      applySessionPolicy();
+    },
     onShown: () => log("[shell] repair window shown"),
   });
   const dashboard = createDashboard({
@@ -258,7 +265,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     coordinator,
     lastBackup,
     log,
-    openRepairWindow: () => window.open("repair"),
+    openRepairWindow: () => window.open("status"),
     prepareRuntime,
     legacyBlocks: (databasePath) => legacy.blocks(databasePath),
     storageRefused: (databasePath) => storagePolicy(storage.last(databasePath)?.risk).refused,
@@ -301,7 +308,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     },
     handoff: new PortHandoffStore(() => Date.now()),
     openDashboard: (handoff) => dashboard.open(handoff),
-    showSection: () => window.open("repair"),
+    showSection: () => window.open("settings"),
     log,
   });
   const apiOrigin = updateApiOriginOverride(configInputs);
@@ -311,7 +318,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     ...updateTarget(configInputs, { platform: process.platform, arch: process.arch }),
     ...(apiOrigin === undefined ? {} : { apiOrigin }),
     openExternal: (url) => dashboard.openLink(url),
-    showSection: () => window.open("repair"),
+    showSection: () => window.open("settings"),
     // The page reads the section again when a check starts or ends (its own 4 s poll is only the fallback).
     changed: () => {
       try {
@@ -328,6 +335,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     supervisor,
     lastBackup,
     legacy,
+    coordinator,
     storage,
     port: changePort.section,
     update: updates.section,
@@ -365,7 +373,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     // The same read-only preview the repair window's "選擇資料庫…" makes; switching still needs the user's confirm.
     offerDatabase: async (path) => {
       await offerCandidate({ state, supervisor, storage }, path);
-      window.open("repair");
+      window.open("data");
     },
   });
   const legacyDisable = createLegacyDisable({
@@ -374,7 +382,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     coordinator,
     supervisor,
     backend,
-    openRepairWindow: () => window.open("repair"),
+    openRepairWindow: () => window.open("status"),
     log,
     environment: process.env,
     confirmDialog: async (hardStop) => {
@@ -396,7 +404,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     window.open("setup");
     void firstRun.begin();
   };
-  const openAgents = (): void => window.open("agents");
+  const openAgents = (): void => window.open("agent");
   const openPortSettings = (): void => changePort.openSection();
   const openUpdateCheck = (): void => updates.requestFromTray();
   const requestQuit = createQuit({
@@ -416,39 +424,26 @@ function runShell(configInputs: DesktopConfigInputs): void {
     templateIconFile: ASSET_FILES.trayTemplateFile,
     backendRunning: () => supervisor.running !== undefined,
     openDashboard: dashboard.open,
-    openRepairWindow: () => window.open("repair"),
+    openStatus: () => window.open("status"),
+    openApp: () => window.open(),
     openSetup,
-    openAgents,
-    openPortSettings,
     openUpdateCheck,
     requestQuit: () => void requestQuit(true),
-    legacy: {
-      heldAtLogin: () => legacy.heldAtLogin(),
-      startAnyway: () => void startDespiteLegacyService(),
-    },
+    legacy: { heldAtLogin: () => legacy.heldAtLogin() },
     log,
   });
 
-  /** The tray's "仍要啟動" after a login start held back: the same confirmation as the window, then start this database. */
-  async function startDespiteLegacyService(): Promise<void> {
-    const database = state.databasePath();
-    if (!database) return;
-    const text = setupMessages(state.locale);
-    const { response } = await dialog.showMessageBox({
-      type: "warning",
-      message: text.legacyStartAnywayConfirm,
-      buttons: [text.legacyStartAnyway, shellMessages(state.locale).quitCancel],
-      defaultId: 1,
-      cancelId: 1,
-      noLink: true,
-    });
-    if (response !== 0) return;
-    // This database may start beside the old service until the App quits, as with "仍要啟動" in the window.
-    legacy.allow(database);
-    const outcome = await backend.start("restart");
-    if (outcome.ok) backend.presenter().clear();
-    else if (!outcome.busy) backend.recovery.handleFailure(outcome.code);
+  /**
+   * Decides and stores the tab the window shows: an explicit request wins, else the blocking state's tab, the tab the user
+   * last used this session (memory only) or the default. What is shown is also what is remembered.
+   */
+  function selectTab(requested?: AppTab): AppTab {
+    const tab = initialTab({ ...info.tabInputs(), requested, remembered: state.tabMemory.recall() });
+    state.tab = tab;
+    state.tabMemory.remember(tab, state.needsSetup);
+    return tab;
   }
+
   // The Dashboard was asked for with `--open-dashboard` (this launch, or a second one while this was still starting or
   // the service was changing owner): it opens once, when the backend is ready, even in a background launch.
   let dashboardRequested = openDashboardRequested;

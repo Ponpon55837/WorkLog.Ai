@@ -1,4 +1,4 @@
-/* Repair page. Colour values are the worklog-ui tokens (apps/web/src/styles/tokens.css), copied because this page is
+/* Repair page. Colour values are the worklog-ui tokens (packages/ui-tokens/tokens.css, loaded before this file), copied because this page is
  * served from its own scheme and cannot import the web app's CSS. Dark is the default; the system setting picks light. */
 :root {
   color-scheme: dark;

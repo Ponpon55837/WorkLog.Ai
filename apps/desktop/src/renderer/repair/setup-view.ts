@@ -291,12 +291,15 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
 
   async function refresh(): Promise<void> {
     if (timer) clearTimeout(timer);
+    // The window moved to another tab's page: this page is gone and stops polling.
+    if (!app.isConnected) return;
     try {
       current = await api.setupGetState();
       if (!working) render(current);
     } catch {
       say("…");
     }
+    if (!app.isConnected) return;
     const fast = !current || current.phase === "detecting" || current.phase === "starting";
     timer = setTimeout(() => void refresh(), fast ? FAST_REFRESH_MS : REFRESH_MS);
   }

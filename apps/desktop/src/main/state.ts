@@ -11,7 +11,8 @@ import {
   type ShellLocale,
   type ShellMessages,
   type ServiceOwnerState,
-  type AppView,
+  type AppTab,
+  TabMemory,
 } from "@work-intelligence/desktop-core";
 
 const MAX_CANDIDATES = 5;
@@ -28,8 +29,10 @@ export class ShellState {
   locale: ShellLocale = "en";
   /** No settings file yet: the first-run page has not finished. The tray offers "完成首次設定…". */
   needsSetup = false;
-  /** What the App window shows; main decides, the page asks (`app:get-view`). */
-  view: AppView = "repair";
+  /** The tab the App window shows; main decides, the page asks (`app:get-tab`) and follows `app:select-tab`. */
+  tab: AppTab = "status";
+  /** The tab the user last selected this session (memory only; the page reports it through `app:remember-tab`). */
+  readonly tabMemory = new TabMemory();
   /** A repair action is running: the page's other actions wait. */
   busy = false;
   /** The success card the repair page shows for a moment after a user-started repair worked. */

@@ -6,12 +6,15 @@ import {
   chosenPathProblem,
   DiagnosticsError,
   DiagnosticsPreviewStore,
+  initialTab,
   isTrustedRepairSender,
   REPAIR_CHANNELS,
   repairInputSchemas,
+  tabsFor,
   writeDesktopSettingsAtomic,
   writePrivateFile,
   type BackendSupervisor,
+  type AppTabSelection,
   type RepairActionResult,
 } from "@work-intelligence/desktop-core";
 import type { AgentsPage } from "./agents.js";
@@ -261,9 +264,21 @@ export function registerRepairIpc(options: IpcOptions): void {
     }),
   );
 
-  ipcMain.handle(REPAIR_CHANNELS.getView, (event, raw: unknown) => {
-    if (!isTrusted(event) || !repairInputSchemas.getView.safeParse(raw).success) throw new Error("untrusted sender");
-    return state.view;
+  ipcMain.handle(REPAIR_CHANNELS.getTab, (event, raw: unknown): AppTabSelection => {
+    if (!isTrusted(event) || !repairInputSchemas.getTab.safeParse(raw).success) throw new Error("untrusted sender");
+    const tabs = tabsFor(state.needsSetup);
+    // The tab main chose may no longer exist (Setup after the first run): the same rule picks another.
+    const tab = tabs.includes(state.tab)
+      ? state.tab
+      : initialTab({ ...info.tabInputs(), remembered: state.tabMemory.recall() });
+    return { tab, tabs };
+  });
+
+  // The page reports the tab the user selected; main keeps it in memory for this session and answers only yes or no.
+  handle(REPAIR_CHANNELS.rememberTab, parser(repairInputSchemas.rememberTab), async ({ tab }) => {
+    if (!state.tabMemory.remember(tab, state.needsSetup)) return { ok: false };
+    state.tab = tab;
+    return { ok: true };
   });
 
   handle(REPAIR_CHANNELS.copyCommand, parser(repairInputSchemas.copyCommand), async ({ target }) => {
@@ -307,8 +322,8 @@ export function registerRepairIpc(options: IpcOptions): void {
     return { ok: true };
   });
 
-  handle(REPAIR_CHANNELS.showView, parser(repairInputSchemas.showView), async ({ view }) => {
-    window.open(view);
+  handle(REPAIR_CHANNELS.showView, parser(repairInputSchemas.showView), async () => {
+    window.open("agent");
     return { ok: true };
   });
 

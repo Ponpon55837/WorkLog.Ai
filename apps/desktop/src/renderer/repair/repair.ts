@@ -1,4 +1,5 @@
-import type { RepairApi, RepairState, RepairActionId } from "@work-intelligence/desktop-core";
+import type { AppTab, RepairApi, RepairState, RepairActionId } from "@work-intelligence/desktop-core";
+import { isAppTab } from "@work-intelligence/desktop-core/shell/app-tabs";
 import {
   errorHintFor,
   errorMessageFor,
@@ -28,7 +29,7 @@ declare global {
 
 const REFRESH_MS = 4000;
 
-const app = document.getElementById("app") as HTMLElement;
+let app = document.getElementById("app") as HTMLElement;
 const statusRegion = document.getElementById("status") as HTMLElement;
 let current: RepairState | undefined;
 let working = false;
@@ -390,16 +391,49 @@ async function refresh(): Promise<void> {
   }
 }
 
-/** Main decides which page this window shows: repair, first-run setup or the Agent page. */
+/** The page each tab shows until the tabbed UI lands: Setup and Agent have their own pages, every other tab the repair page. */
+type Page = "setup" | "agents" | "repair";
+
+function pageFor(tab: AppTab): Page {
+  if (tab === "setup") return "setup";
+  return tab === "agent" ? "agents" : "repair";
+}
+
+let mountedPage: Page | undefined;
+let repairTimer: ReturnType<typeof setInterval> | undefined;
+
+/** Shows the page of `tab` in place (no reload): a fresh container replaces the old one, whose polling then stops. */
+function show(tab: AppTab, api: RepairApi): void {
+  const page = pageFor(tab);
+  if (page === mountedPage) return;
+  const first = mountedPage === undefined;
+  mountedPage = page;
+  if (repairTimer !== undefined) clearInterval(repairTimer);
+  repairTimer = undefined;
+  if (!first) {
+    const fresh = app.cloneNode(false) as HTMLElement;
+    fresh.setAttribute("aria-busy", "true");
+    app.replaceWith(fresh);
+    app = fresh;
+  }
+  if (page === "setup") return mountSetup(app, say, api);
+  if (page === "agents") return mountAgents(app, say, api);
+  void refresh();
+  repairTimer = setInterval(() => void refresh(), REFRESH_MS);
+}
+
+/** Main decides which tab this window shows and tells the page when it changes; the page follows and never reloads. */
 async function mount(): Promise<void> {
   const api = window.workIntelligenceRepair;
-  const view = await api.getView().catch(() => "repair" as const);
-  if (view === "setup") return mountSetup(app, say, api);
-  if (view === "agents") return mountAgents(app, say, api);
+  const selection = await api.getTab().catch(() => ({ tab: "status" as const }));
   // Main tells the page when an update check starts or ends (the tray item starts one without the page), so it shows at once.
-  api.onUpdateChanged(() => void refresh());
-  void refresh();
-  setInterval(() => void refresh(), REFRESH_MS);
+  api.onUpdateChanged(() => {
+    if (mountedPage === "repair") void refresh();
+  });
+  api.onSelectTab((tab) => {
+    if (isAppTab(tab)) show(tab, api);
+  });
+  show(selection.tab, api);
 }
 
 void mount();

@@ -5,7 +5,7 @@
  *   dist/main/index.mjs            main process, ESM (Electron 45 loads an ESM main; `electron` stays external, everything else
  *                                  is bundled so the shell does not depend on node_modules at run time)
  *   dist/preload/repair.cjs        sandboxed preload, CommonJS (a sandboxed preload cannot be ESM and may only require "electron")
- *   dist/renderer/repair/          repair page: index.html and repair.css copied, repair.js bundled as an IIFE
+ *   dist/renderer/repair/          repair page: index.html, repair.css and the shared tokens.css copied, repair.js bundled as an IIFE
  *   dist/skills/work-intelligence/SKILL.md   the canonical Agent skill (.agents/skills/work-intelligence), which the Agent page
  *                                  installs for Codex and Claude Code; a packaged App reads its extraResources copy instead
  *   dist/assets/tray*.png          tray icons, copies of build/tray.png and build/trayTemplate*.png (rendered by generate-icons.mjs)
@@ -90,6 +90,8 @@ await build({
 
 cpSync(join(root, "src/renderer/repair/index.html"), join(dist, "renderer/repair/index.html"));
 cpSync(join(root, "src/renderer/repair/repair.css"), join(dist, "renderer/repair/repair.css"));
+// The design tokens shared with the web UI (packages/ui-tokens); the page loads them before repair.css.
+cpSync(join(root, "..", "..", "packages", "ui-tokens", "tokens.css"), join(dist, "renderer/repair/tokens.css"));
 mkdirSync(join(dist, "skills", "work-intelligence"), { recursive: true });
 cpSync(
   join(root, "..", "..", ".agents", "skills", "work-intelligence", "SKILL.md"),

@@ -13,7 +13,8 @@ const channels: typeof REPAIR_CHANNELS = {
   previewDiagnostics: "repair:preview-diagnostics",
   saveDiagnostics: "repair:save-diagnostics",
   startAnyway: "repair:start-anyway",
-  getView: "app:get-view",
+  getTab: "app:get-tab",
+  rememberTab: "app:remember-tab",
   copyCommand: "app:copy-command",
   setupGetState: "setup:get-state",
   setupUseDefaults: "setup:use-defaults",
@@ -37,6 +38,7 @@ const channels: typeof REPAIR_CHANNELS = {
   updateCheck: "update:check",
   updateOpenLink: "update:open-link",
   updateChanged: "update:changed",
+  selectTab: "app:select-tab",
 };
 
 const api: RepairApi = {
@@ -55,7 +57,8 @@ const api: RepairApi = {
   previewDiagnostics: () => ipcRenderer.invoke(channels.previewDiagnostics, {}),
   saveDiagnostics: (previewId) => ipcRenderer.invoke(channels.saveDiagnostics, { previewId }),
   startAnyway: (operationId) => ipcRenderer.invoke(channels.startAnyway, { operationId }),
-  getView: () => ipcRenderer.invoke(channels.getView),
+  getTab: () => ipcRenderer.invoke(channels.getTab),
+  rememberTab: (tab) => ipcRenderer.invoke(channels.rememberTab, { tab }),
   copyCommand: (target) => ipcRenderer.invoke(channels.copyCommand, { target }),
   setupGetState: () => ipcRenderer.invoke(channels.setupGetState),
   setupUseDefaults: (launchAtLogin, startAnyway) =>
@@ -100,6 +103,12 @@ const api: RepairApi = {
   portChange: (port) => ipcRenderer.invoke(channels.portChange, { port }),
   checkForUpdates: () => ipcRenderer.invoke(channels.updateCheck, {}),
   openUpdateLink: (target) => ipcRenderer.invoke(channels.updateOpenLink, { target }),
+  onSelectTab: (listener) => {
+    // Forwarded as sent; the page checks the id against the tab list before it switches.
+    ipcRenderer.on(channels.selectTab, (_event, tab: unknown) => {
+      if (typeof tab === "string") listener(tab as Parameters<typeof listener>[0]);
+    });
+  },
   onUpdateChanged: (listener) => {
     // The event carries nothing: the page reads the state through `getState`.
     ipcRenderer.on(channels.updateChanged, () => listener());

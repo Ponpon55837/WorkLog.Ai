@@ -286,7 +286,12 @@ export function mountAgents(app: HTMLElement, say: (text: string) => void, api: 
   }
 
   void refresh();
-  setInterval(() => {
+  const timer = setInterval(() => {
+    // The window moved to another tab's page: this page is gone and stops polling.
+    if (!app.isConnected) {
+      clearInterval(timer);
+      return;
+    }
     // A preview stays as it was shown; re-reading while it is open would not change the plan, only the cards.
     if (!working) void refresh();
   }, REFRESH_MS);
