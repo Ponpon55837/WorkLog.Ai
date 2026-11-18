@@ -14,6 +14,7 @@ import { APP_VERSION } from "@work-intelligence/shared/app-version";
 import { probeLoopbackPort, type LoopbackPortProbe } from "@work-intelligence/shared/loopback-port";
 import { portFailureCode } from "@work-intelligence/shared/port-failure";
 import { createDatabaseIfMissing } from "./database-create.js";
+import { inspectBackups, restoreFromBackup, type InspectBackupsResult } from "./backup-restore.js";
 import { copyDatabaseConsistently, type DatabaseCopyResult } from "./database-copy.js";
 import {
   preflightDatabase,
@@ -44,6 +45,10 @@ export interface DesktopChildDependencies {
   createDatabase?: (path: string) => DatabasePreflightResult | undefined;
   /** A consistent copy of `source` at `target` for a preview child (DT-08); never touches the source. */
   copyDatabase?: (source: string, target: string) => Promise<DatabaseCopyResult>;
+  /** Read-only look at the backups of a database or at the files given (the App's 「從備份還原」); a preview child only. */
+  inspectBackups?: typeof inspectBackups;
+  /** Replaces the database with a backup (a preview child only, and only while the backend is stopped). */
+  restoreFromBackup?: typeof restoreFromBackup;
   probePort: (port: number) => Promise<LoopbackPortProbe>;
   startApi: (options: StartApiOptions) => StartedApi;
   /**
@@ -145,6 +150,8 @@ const defaultDependencies: DesktopChildDependencies = {
   preflight: (path, options) => preflightDatabase(path, options),
   createDatabase: createDatabaseIfMissing,
   copyDatabase: copyDatabaseConsistently,
+  inspectBackups,
+  restoreFromBackup,
   probePort: probeLoopbackPort,
   startApi,
   // The condition folds to a constant in a bundle, so a production bundle drops this branch together with the hold
@@ -214,6 +221,10 @@ export class DesktopChild {
       this.facts = message.desktop;
     } else if (message.type === "copy-database") {
       await this.copyDatabase(message.source, message.target);
+    } else if (message.type === "inspect-backups") {
+      this.inspectBackups(message);
+    } else if (message.type === "restore-database") {
+      this.restoreDatabase(message);
     } else if (message.type === "activity-query") {
       this.reportActivity(message.requestId);
     } else if (message.type === "preflight") {
@@ -255,6 +266,53 @@ export class DesktopChild {
       },
       () => undefined,
     );
+  }
+
+  private inspectBackups(request: {
+    readonly databasePath: string;
+    readonly backupDirectory?: string;
+    readonly files?: readonly string[];
+    readonly integrity?: boolean;
+    readonly limit?: number;
+  }): void {
+    if (this.phase !== "idle" || !this.dependencies.inspectBackups) {
+      this.host.log("[desktop-child] dropped an inspect request: not a preview child");
+      this.host.send({ type: "inspect-result", items: [], directoryReadable: false }, () => undefined);
+      return;
+    }
+    let result: InspectBackupsResult;
+    try {
+      result = this.dependencies.inspectBackups(request);
+    } catch {
+      result = { items: [], directoryReadable: false };
+    }
+    this.host.send(
+      { type: "inspect-result", items: [...result.items], directoryReadable: result.directoryReadable },
+      () => undefined,
+    );
+  }
+
+  /** Only a child that has not started replaces a database: a serving backend never does. */
+  private restoreDatabase(request: {
+    readonly source: string;
+    readonly databasePath: string;
+    readonly backupDirectory?: string;
+  }): void {
+    if (this.phase !== "idle" || !this.dependencies.restoreFromBackup) {
+      this.host.log("[desktop-child] dropped a restore request: not a preview child");
+      this.host.send(
+        { type: "restore-result", status: "failed", detail: "this process cannot restore" },
+        () => undefined,
+      );
+      return;
+    }
+    let result: ReturnType<typeof restoreFromBackup>;
+    try {
+      result = this.dependencies.restoreFromBackup(request);
+    } catch {
+      result = { status: "failed", detail: "the restore did not replace the database (failed)" };
+    }
+    this.host.send({ type: "restore-result", ...result }, () => undefined);
   }
 
   private async preflight(path: string, createIfMissing: boolean, quickCheck: boolean): Promise<void> {

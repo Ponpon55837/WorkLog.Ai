@@ -13,3 +13,4 @@ export * from "./bundled-install.js";
 export * from "./windows-acl.js";
 export * from "./runtime-gc.js";
 export * from "./lease.js";
+export * from "./agent-activity.js";

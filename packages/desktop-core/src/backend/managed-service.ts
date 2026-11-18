@@ -6,12 +6,13 @@ import type {
   OperationCoordinator,
   OperationRunResult,
   OperationStep,
+  OperationStepContext,
 } from "../operations/coordinator.js";
 import type { JournalJson, OperationKind } from "../operations/journal-record.js";
 import type { ServiceOwnerState } from "../operations/service-owner-state.js";
 
 /** Operation kinds that end with the desktop owning a running backend. */
-export type ManagedStartKind = Extract<OperationKind, "takeover" | "restart" | "change-port" | "change-db">;
+export type ManagedStartKind = Extract<OperationKind, "takeover" | "restart" | "change-port" | "change-db" | "restore">;
 
 export interface ManagedStartRequest {
   /** Resubmitting the same id returns the same result; a different id while one runs is `busy`. */
@@ -25,6 +26,12 @@ export interface ManagedStartRequest {
   readonly details?: Readonly<Record<string, JournalJson>>;
   /** Stop the running backend first (restart, change of port or database). Default false: a running one is kept. */
   readonly stopRunning?: boolean;
+  /**
+   * A step that runs once the backend is stopped and before the new one starts (a restore replaces the database here). It
+   * is the point of no return of the operation, so it is never cancelled. When it throws, the operation fails and the
+   * owner is NEEDS_REPAIR; the caller restarts the backend it stopped.
+   */
+  readonly whileStopped?: (context: OperationStepContext) => Promise<JournalJson | void>;
 }
 
 export interface ManagedStartResult {
@@ -107,6 +114,15 @@ export class ManagedBackendService {
           return { stoppedPrevious: report.wasRunning };
         },
       },
+      ...(request.whileStopped
+        ? [
+            {
+              name: "while-stopped",
+              cancellable: false,
+              run: request.whileStopped,
+            } satisfies OperationStep,
+          ]
+        : []),
       {
         name: "start-backend",
         phase: "STARTING",

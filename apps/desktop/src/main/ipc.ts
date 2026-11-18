@@ -32,6 +32,7 @@ import type { Logger } from "./log.js";
 import type { RepairInfo } from "./repair-info.js";
 import type { RepairSuccess } from "./repair-success.js";
 import type { RepairWindow } from "./repair-window.js";
+import type { RestoreController } from "./restore.js";
 import type { ShellState } from "./state.js";
 import type { UpdateController } from "./update-check.js";
 
@@ -54,6 +55,8 @@ export interface IpcOptions {
   readonly changePort: ChangePortController;
   readonly storage: StorageRiskService;
   readonly updates: UpdateController;
+  /** 「從備份還原」: the page holds only one-time ids; main keeps every path. */
+  readonly restore: RestoreController;
   /** 「複製到本機磁碟並改用」: for a candidate id, or (no id) the App's own database. */
   readonly copyToLocal: (candidateId: string | undefined) => Promise<RepairActionResult>;
   readonly log: Logger;
@@ -80,6 +83,7 @@ export function registerRepairIpc(options: IpcOptions): void {
     changePort,
     storage,
     updates,
+    restore,
     log,
   } = options;
 
@@ -390,6 +394,16 @@ export function registerRepairIpc(options: IpcOptions): void {
   handle(REPAIR_CHANNELS.updateOpenLink, parser(repairInputSchemas.updateOpenLink), async ({ target }) => ({
     ok: await updates.openLink(target),
   }));
+  // Not behind the page-action lock: listing and choosing change nothing; the restore takes the lock itself after its checks.
+  handle(REPAIR_CHANNELS.restoreList, parser(repairInputSchemas.restoreList), (_input, senderId) =>
+    restore.list(senderId),
+  );
+  handle(REPAIR_CHANNELS.restorePick, parser(repairInputSchemas.restorePick), (_input, senderId) =>
+    restore.pick(senderId),
+  );
+  handle(REPAIR_CHANNELS.restoreRun, parser(repairInputSchemas.restoreRun), ({ backupId }, senderId) =>
+    restore.run(senderId, backupId),
+  );
   handle(REPAIR_CHANNELS.legacyStartNow, parser(repairInputSchemas.legacyStartNow), () =>
     exclusive({ ok: false, reason: "busy" } as const, () => legacyDisable.startNow()),
   );

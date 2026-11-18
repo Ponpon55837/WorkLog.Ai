@@ -458,9 +458,19 @@ export function isBackupDue(databasePath: string, directory?: string, now = new 
 
 const RESTORE_VERIFY_MESSAGE = "還原用的資料庫副本在升級後未通過完整性檢查；目前的資料庫沒有被取代。請改用其他備份檔。";
 
-export type RestoreDatabaseErrorCode = "RESTORE_VERIFY_FAILED";
+export type RestoreDatabaseErrorCode =
+  | "RESTORE_VERIFY_FAILED"
+  | "RESTORE_SOURCE_MISSING"
+  | "RESTORE_SAME_FILE"
+  | "RESTORE_NOT_DATABASE"
+  | "RESTORE_SOURCE_CORRUPT"
+  | "RESTORE_SCHEMA_TOO_NEW"
+  | "RESTORE_DATABASE_IN_USE";
 
-/** A safe, classified restore failure: the staging copy failed its post-migration checks, so nothing was replaced. */
+/**
+ * A safe, classified restore failure. Every one of them is raised before the current database is replaced (the staging
+ * copy failed a check, the file is not ours, the database is in use), so nothing was lost when it is thrown.
+ */
 export class RestoreDatabaseError extends Error {
   public constructor(
     public readonly code: RestoreDatabaseErrorCode,
@@ -486,28 +496,103 @@ export interface RestoreDatabaseResult {
   safetyBackup?: string;
 }
 
-function inspectSnapshot(source: string): { schemaVersion: number; projects: number; sessions: number } {
-  assertHealthy(source, "The file to restore");
-  const db = new DatabaseSync(source, { readOnly: true });
+/** What a read-only look at a file that might be a backup found; nothing is written, migrated or repaired. */
+export type BackupInspection =
+  | { status: "ok"; schemaVersion: number; projects: number; sessions: number }
+  /** A Work Intelligence database written by a newer App than this one. */
+  | { status: "newer-schema"; schemaVersion: number }
+  /** Not an SQLite file, or an SQLite file without our tables. */
+  | { status: "not-database" }
+  /** An SQLite file that failed its integrity check or could not be read through. */
+  | { status: "corrupt"; detail?: string }
+  /** The file could not be opened at all (permissions, a lock). */
+  | { status: "unreadable" };
+
+const SQLITE_CORRUPT = 11;
+const SQLITE_NOTADB = 26;
+const SQLITE_CANTOPEN = 14;
+const SQLITE_PERM = 3;
+const SQLITE_BUSY = 5;
+const SQLITE_READONLY = 8;
+const SQLITE_IOERR = 10;
+
+function sqliteResultCode(error: unknown): number | undefined {
+  const { errcode } = (error ?? {}) as { errcode?: unknown };
+  return typeof errcode === "number" ? errcode & 0xff : undefined;
+}
+
+function classifyOpenFailure(error: unknown): BackupInspection {
+  const code = sqliteResultCode(error);
+  if (code === SQLITE_NOTADB) return { status: "not-database" };
+  if (code === SQLITE_CANTOPEN || code === SQLITE_PERM || code === SQLITE_BUSY || code === SQLITE_READONLY) {
+    return { status: "unreadable" };
+  }
+  if (code === SQLITE_IOERR) return { status: "unreadable" };
+  if (code === SQLITE_CORRUPT) return { status: "corrupt" };
+  const fsCode = (error as { code?: unknown } | null)?.code;
+  if (fsCode === "EACCES" || fsCode === "EPERM" || fsCode === "EBUSY" || fsCode === "ENOENT") {
+    return { status: "unreadable" };
+  }
+  return { status: "not-database" };
+}
+
+/**
+ * Reads `source` read-only and says whether it can be restored from: a Work Intelligence database (our tables), not newer
+ * than this version supports, and (unless `integrity` is false, which a listing of many files uses) passing
+ * `PRAGMA quick_check`. The schema version is decided before the integrity check, so
+ * a file from a newer App is reported as such. Never throws.
+ */
+export function inspectDatabaseBackup(source: string, options: { integrity?: boolean } = {}): BackupInspection {
+  let db: DatabaseSync | undefined;
   try {
+    db = new DatabaseSync(source, { readOnly: true });
     const tables = new Set(
       (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(
         (row) => row.name,
       ),
     );
-    if (!tables.has("projects") || !tables.has("sessions")) {
-      throw new Error("The file is not a Work Intelligence database.");
-    }
+    if (!tables.has("projects") || !tables.has("sessions")) return { status: "not-database" };
     const schemaVersion = tables.has("schema_migrations")
       ? ((db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number | null })
           .version ?? 0)
       : 0;
+    if (schemaVersion > LATEST_SCHEMA_VERSION) return { status: "newer-schema", schemaVersion };
+    if (options.integrity !== false) {
+      const quick = db.prepare("PRAGMA quick_check").get() as { quick_check?: string } | undefined;
+      if (quick?.quick_check !== "ok") {
+        return { status: "corrupt", detail: quick?.quick_check ?? "no result" };
+      }
+    }
     const count = (table: string): number =>
-      (db.prepare(`SELECT COUNT(*) AS total FROM ${table}`).get() as { total: number }).total;
-    return { schemaVersion, projects: count("projects"), sessions: count("sessions") };
+      (db?.prepare(`SELECT COUNT(*) AS total FROM ${table}`).get() as { total: number }).total;
+    return { status: "ok", schemaVersion, projects: count("projects"), sessions: count("sessions") };
+  } catch (error) {
+    return classifyOpenFailure(error);
   } finally {
-    db.close();
+    try {
+      db?.close();
+    } catch {
+      // A connection that never opened has nothing to close.
+    }
   }
+}
+
+function inspectSnapshot(source: string): { schemaVersion: number; projects: number; sessions: number } {
+  const found = inspectDatabaseBackup(source);
+  if (found.status === "ok") return found;
+  if (found.status === "newer-schema") {
+    throw new RestoreDatabaseError(
+      "RESTORE_SCHEMA_TOO_NEW",
+      `The file uses schema version ${found.schemaVersion}, newer than this version supports (${LATEST_SCHEMA_VERSION}); update Work Intelligence first.`,
+    );
+  }
+  if (found.status === "not-database") {
+    throw new RestoreDatabaseError("RESTORE_NOT_DATABASE", "The file is not a Work Intelligence database.");
+  }
+  throw new RestoreDatabaseError(
+    "RESTORE_SOURCE_CORRUPT",
+    `The file to restore failed its integrity check: ${found.status === "corrupt" ? (found.detail ?? "damaged") : "unreadable"}`,
+  );
 }
 
 /** Another open connection (the API server or an Agent's MCP server) keeps an exclusive lock from being taken. */
@@ -566,19 +651,17 @@ export function restoreDatabase(options: {
 }): RestoreDatabaseResult {
   const { source, databasePath } = options;
   if (!existsSync(source)) {
-    throw new Error("The file to restore does not exist.");
+    throw new RestoreDatabaseError("RESTORE_SOURCE_MISSING", "The file to restore does not exist.");
   }
   if (existsSync(databasePath) && pathsReferToSameFile(source, databasePath)) {
-    throw new Error("The file to restore is the current database.");
+    throw new RestoreDatabaseError("RESTORE_SAME_FILE", "The file to restore is the current database.");
   }
   const inspected = inspectSnapshot(source);
-  if (inspected.schemaVersion > LATEST_SCHEMA_VERSION) {
-    throw new Error(
-      `The file uses schema version ${inspected.schemaVersion}, newer than this version supports (${LATEST_SCHEMA_VERSION}); update Work Intelligence first.`,
-    );
-  }
   if (existsSync(databasePath) && isInUse(databasePath)) {
-    throw new Error("The database is in use. Stop the API server and close Agents first.");
+    throw new RestoreDatabaseError(
+      "RESTORE_DATABASE_IN_USE",
+      "The database is in use. Stop the API server and close Agents first.",
+    );
   }
 
   let safetyBackup: string | undefined;
@@ -661,6 +744,13 @@ export function restoreDatabase(options: {
   rmSync(`${staging}-shm`, { force: true });
   rmSync(`${databasePath}-wal`, { force: true });
   rmSync(`${databasePath}-shm`, { force: true });
-  renameSync(staging, databasePath);
+  try {
+    renameSync(staging, databasePath);
+  } catch (error) {
+    // A file lock (Windows EBUSY / EPERM) refuses the replacement: the current database is untouched, and the staging copy
+    // is taken away so a later restore starts clean. The error keeps its errno for the caller's classification.
+    rmSync(staging, { force: true });
+    throw error;
+  }
   return { ...inspected, schemaVersion: LATEST_SCHEMA_VERSION, remapped, safetyBackup };
 }

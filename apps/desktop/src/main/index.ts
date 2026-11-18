@@ -5,6 +5,7 @@ import { probeLoopbackPort } from "@work-intelligence/shared/loopback-port";
 import { app, dialog } from "electron";
 import {
   BackendSupervisor,
+  countActiveAgentLeases,
   createNodeBackendDependencies,
   decideLaunch,
   detectLaunchMode,
@@ -56,6 +57,7 @@ import {
   storageRiskFileOverride,
   repairSuccessDelayMs,
   resolveDesktopPaths,
+  restoreChooseFileOverride,
   skillSourceFile,
   testSwitch,
   updateApiOriginOverride,
@@ -73,6 +75,8 @@ import { createLegacyDisable, syntheticLegacyDisable } from "./legacy-disable.js
 import { createLogger } from "./log.js";
 import { createErrorNotifier, createRecoveredNotifier } from "./notify.js";
 import { createQuit } from "./quit.js";
+import { createRestore } from "./restore.js";
+import { createRestoreDialogs } from "./restore-dialogs.js";
 import { createRepairInfo } from "./repair-info.js";
 import { createStorageRiskService } from "./storage-risk.js";
 import { createRepairSuccess } from "./repair-success.js";
@@ -310,6 +314,21 @@ function runShell(configInputs: DesktopConfigInputs): void {
     handoff: new PortHandoffStore(() => Date.now()),
     openDashboard: (handoff) => dashboard.open(handoff),
     showSection: () => window.open("settings"),
+    log,
+  });
+  const restore = createRestore({
+    state,
+    coordinator,
+    supervisor,
+    backend,
+    agentsRunning: async () => (await countActiveAgentLeases(paths.runtimeRoot)) > 0,
+    ...createRestoreDialogs({
+      state,
+      window,
+      autoConfirm: testSwitch(configInputs, "autoConfirmRestore"),
+      chooseFileOverride: restoreChooseFileOverride(configInputs),
+    }),
+    backupsChanged: () => lastBackup.invalidate(),
     log,
   });
   const apiOrigin = updateApiOriginOverride(configInputs);
@@ -564,6 +583,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
       changePort,
       storage,
       updates,
+      restore,
       copyToLocal: createLocalCopy({ state, paths, info, backend, supervisor, success, runner: copyRunner, log }),
       log,
     });

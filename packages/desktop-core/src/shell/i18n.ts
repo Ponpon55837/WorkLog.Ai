@@ -228,13 +228,16 @@ const zhTW: ShellMessages = {
       title: "舊的登入服務也在使用這份資料庫",
       hint: "為了避免兩個後端同時使用同一份資料庫，App 沒有啟動自己的後端。請在「狀態」分頁停用舊的登入服務，或對目前的資料庫選擇「仍要啟動」。",
     },
-    DB_MISSING: { title: "找不到資料庫檔案", hint: "檔案可能被移動或刪除。請選擇資料庫，或從備份還原。" },
+    DB_MISSING: {
+      title: "找不到資料庫檔案",
+      hint: "檔案可能被移動或刪除。請選擇資料庫，或到「資料」分頁 → 「從備份還原」。",
+    },
     DB_OFFLINE: { title: "資料庫所在的儲存位置離線", hint: "請接上外接硬碟或網路磁碟後重試。" },
     DB_PERMISSION: { title: "沒有權限讀取資料庫", hint: "請確認檔案的存取權限後重試。" },
     DB_IDENTITY_CHANGED: { title: "資料庫已不是先前確認的那一份", hint: "檔案可能被取代。請重新選擇並確認資料庫。" },
     DB_INTEGRITY_CHECK_FAILED: {
       title: "資料庫檢查沒有通過",
-      hint: "舊的登入服務停下後，這份資料庫的檢查發現問題，App 沒有開啟它。請從備份還原，或選擇另一份資料庫。",
+      hint: "舊的登入服務停下後，這份資料庫的檢查發現問題，App 沒有開啟它。請到「資料」分頁 → 「從備份還原」，或選擇另一份資料庫。",
     },
     DB_STORAGE_NETWORK: {
       title: "資料庫放在網路磁碟上",
@@ -433,7 +436,7 @@ const en: ShellMessages = {
     },
     DB_MISSING: {
       title: "The database file was not found",
-      hint: "It may have been moved or deleted. Choose a database, or restore from a backup.",
+      hint: "It may have been moved or deleted. Choose a database, or open the Data tab → “Restore from backup”.",
     },
     DB_OFFLINE: {
       title: "The storage holding the database is offline",
@@ -446,7 +449,7 @@ const en: ShellMessages = {
     },
     DB_INTEGRITY_CHECK_FAILED: {
       title: "The database did not pass its check",
-      hint: "After the old login service stopped, a check of this database found a problem, so the App did not open it. Restore it from a backup, or choose another database.",
+      hint: "After the old login service stopped, a check of this database found a problem, so the App did not open it. Open the Data tab → “Restore from backup”, or choose another database.",
     },
     DB_STORAGE_NETWORK: {
       title: "The database is on a network drive",

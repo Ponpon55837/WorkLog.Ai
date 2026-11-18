@@ -24,6 +24,10 @@ const TEST_ENVIRONMENT = {
   repairSuccessDelayMs: "WORK_INTELLIGENCE_DESKTOP_TEST_REPAIR_SUCCESS_DELAY_MS",
   /** Answers the native 「複製到本機磁碟並改用」 confirmation with 「複製並改用」 instead of showing it. */
   autoConfirmCopy: "WORK_INTELLIGENCE_DESKTOP_TEST_AUTOCONFIRM_COPY",
+  /** Answers the native 「從備份還原」 confirmation with 「還原」 instead of showing it. */
+  autoConfirmRestore: "WORK_INTELLIGENCE_DESKTOP_TEST_AUTOCONFIRM_RESTORE",
+  /** A file whose text is the path the native backup chooser returns (read at each use, so a test can change it). */
+  restoreChooseFile: "WORK_INTELLIGENCE_DESKTOP_TEST_RESTORE_CHOOSE_FILE",
   /** The port a first-run default setup uses instead of the product default, so a smoke test never needs a fixed port. */
   defaultPort: "WORK_INTELLIGENCE_DESKTOP_TEST_DEFAULT_PORT",
   /**
@@ -139,6 +143,11 @@ export function legacyServiceFileOverride(inputs: EnvironmentInputs): string | u
 /** The synthetic storage-verdict file of a test build, else undefined (the real classifier answers every path). */
 export function storageRiskFileOverride(inputs: EnvironmentInputs): string | undefined {
   return overrideFromEnvironment(inputs, "storageRiskFile");
+}
+
+/** The pointer file of the native backup chooser in a test build, else undefined (the real dialog is shown). */
+export function restoreChooseFileOverride(inputs: EnvironmentInputs): string | undefined {
+  return overrideFromEnvironment(inputs, "restoreChooseFile");
 }
 
 /** The fake update server's origin in a test build that is not packaged, else undefined (the GitHub API answers). */
