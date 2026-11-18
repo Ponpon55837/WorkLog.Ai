@@ -64,6 +64,16 @@ function seedWithBackup(box: Sandbox, options: { keepDatabase: boolean }): void 
   }
 }
 
+/**
+ * The runtime root is shared by the whole smoke run, and an earlier spec's Agent self-test leaves a fresh lease there (it
+ * counts as a live Agent for a few minutes by design, and a restore then refuses with "close your Agents"). Each restore spec
+ * starts from a root with no Agent lease, as a user with no Agent running has.
+ */
+function launchWithoutAgentLeases(box: Sandbox, env: Record<string, string>): ReturnType<typeof launchApp> {
+  rmSync(join(box.runtimeRoot, "leases"), { recursive: true, force: true });
+  return launchApp(box, env);
+}
+
 function pointerTo(box: Sandbox, file: string): string {
   const pointer = join(box.root, "chosen-file.txt");
   writeFileSync(pointer, file);
@@ -86,7 +96,7 @@ test("restores a listed backup: confirmed, replaced, the service is back, and th
   sandbox = await createSandbox({ withDatabase: false });
   seedWithBackup(sandbox, { keepDatabase: true });
   const filesBefore = readdirSync(backupsDirectory(sandbox)).length;
-  app = await launchApp(sandbox, { WORK_INTELLIGENCE_DESKTOP_TEST_AUTOCONFIRM_RESTORE: "1" });
+  app = await launchWithoutAgentLeases(sandbox, { WORK_INTELLIGENCE_DESKTOP_TEST_AUTOCONFIRM_RESTORE: "1" });
   await waitForManagedSnapshot(app);
   const window = await openDataTab(app);
 
@@ -106,7 +116,7 @@ test("refuses a chosen file that is not a Work Intelligence database, before any
   seedWithBackup(sandbox, { keepDatabase: true });
   const corrupt = join(sandbox.root, "not-a-database.sqlite");
   writeFileSync(corrupt, "synthetic bytes that are not a database ".repeat(50));
-  app = await launchApp(sandbox, {
+  app = await launchWithoutAgentLeases(sandbox, {
     WORK_INTELLIGENCE_DESKTOP_TEST_AUTOCONFIRM_RESTORE: "1",
     WORK_INTELLIGENCE_DESKTOP_TEST_RESTORE_CHOOSE_FILE: pointerTo(sandbox, corrupt),
   });
@@ -138,7 +148,7 @@ test("refuses a backup made by a newer version of the App", async () => {
   const database = new DatabaseSync(newer);
   database.exec("INSERT INTO schema_migrations (version, name, applied_at) VALUES (9999, 'future', '2030-01-01')");
   database.close();
-  app = await launchApp(sandbox, {
+  app = await launchWithoutAgentLeases(sandbox, {
     WORK_INTELLIGENCE_DESKTOP_TEST_AUTOCONFIRM_RESTORE: "1",
     WORK_INTELLIGENCE_DESKTOP_TEST_RESTORE_CHOOSE_FILE: pointerTo(sandbox, newer),
   });
@@ -161,7 +171,7 @@ test("is reachable while the database is missing: restores a backup and the serv
   sandbox = await createSandbox({ withDatabase: false });
   seedWithBackup(sandbox, { keepDatabase: false });
   expect(existsSync(sandbox.databasePath)).toBe(false);
-  app = await launchApp(sandbox, { WORK_INTELLIGENCE_DESKTOP_TEST_AUTOCONFIRM_RESTORE: "1" });
+  app = await launchWithoutAgentLeases(sandbox, { WORK_INTELLIGENCE_DESKTOP_TEST_AUTOCONFIRM_RESTORE: "1" });
   const window = await app.firstWindow({ timeout: 45_000 });
   const snapshot = await waitForSnapshot(app, (state) => state.owner === "NEEDS_REPAIR" && state.repairWindowOpen);
   expect(snapshot.recentErrors).toContain("DB_MISSING");
