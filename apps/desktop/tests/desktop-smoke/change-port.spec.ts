@@ -1,8 +1,10 @@
 import { expect, test, type ElectronApplication, type Page } from "@playwright/test";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { decodePortHandoffFragment } from "@work-intelligence/schema";
+import { WorkIntelligenceStore } from "@work-intelligence/storage";
 import { createServer, type Server } from "node:net";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { portMessages } from "@work-intelligence/desktop-core/shell/port-i18n";
 import {
   attachLog,
   closeQuietly,
@@ -88,6 +90,77 @@ test("the repair page changes the port: the old one is released and the settings
   expect(after.openedExternal.at(-1)).toBe(`http://127.0.0.1:${newPort}/`);
   // The log never carries the address the Dashboard was opened with.
   expect(readMainLog(sandbox)).not.toContain(`127.0.0.1:${newPort}`);
+});
+
+/** The sentence for the sandbox's locale (the App follows the system language; the sandbox does not fix it). */
+const discardedNote = new RegExp(
+  ["zh-TW", "en"].map((locale) => portMessages(locale as "zh-TW" | "en").importPreviewDiscarded).join("|"),
+);
+
+/** Stages a synthetic export of the sandbox's own database the way the Dashboard does; returns the staging id. */
+async function stageImportPreview(port: number): Promise<string> {
+  const origin = `http://127.0.0.1:${port}`;
+  const exported = await fetch(`${origin}/api/export`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: origin },
+    body: JSON.stringify({ scope: "all" }),
+  });
+  expect(exported.status).toBe(200);
+  const staged = await fetch(`${origin}/api/import/staged`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: origin },
+    body: await exported.text(),
+  });
+  expect(staged.status, await staged.clone().text()).toBe(201);
+  return ((await staged.json()) as { stagingId: string }).stagingId;
+}
+
+function stagedDirectories(box: Sandbox): string[] {
+  const root = join(dirname(box.databasePath), ".work-intelligence-transfer");
+  return existsSync(root) ? readdirSync(root).filter((name) => name.startsWith("import-")) : [];
+}
+
+test("an idle import preview does not block the port change; the restart discards it and the page says so", async () => {
+  sandbox = await createSandbox({ withDatabase: true });
+  // A synthetic project, so the export has something to stage.
+  const projectRoot = join(sandbox.root, "synthetic-project");
+  mkdirSync(projectRoot);
+  const seed = new WorkIntelligenceStore(sandbox.databasePath);
+  seed.addProject("Synthetic preview project", projectRoot);
+  seed.close();
+  const oldPort = sandbox.port;
+  const newPort = await freePort();
+  app = await launchApp(sandbox, { WORK_INTELLIGENCE_DESKTOP_TEST_AUTOCONFIRM_PORT: "1" });
+  await waitForManagedSnapshot(app);
+  await stageImportPreview(oldPort);
+  expect(stagedDirectories(sandbox)).toHaveLength(1);
+  const window = await openPortSection(app);
+
+  await window.locator('[data-id="port-input"]').fill(String(newPort));
+  await window.locator('[data-id="port-apply"]').click();
+
+  const after = await waitForSnapshot(app, (state) => state.backend?.port === newPort);
+  expect(after.owner).toBe("MANAGED");
+  await expect(window.locator("#port-section .success-text")).toBeVisible({ timeout: 30_000 });
+  await expect(window.locator("#port-section")).toContainText(discardedNote);
+  expect(await portIsFree(oldPort)).toBe(true);
+  expect(readSettings(sandbox).desired.port).toBe(newPort);
+  expect(stagedDirectories(sandbox)).toEqual([]);
+});
+
+test("a change with no import preview does not mention one", async () => {
+  sandbox = await createSandbox({ withDatabase: true });
+  const newPort = await freePort();
+  app = await launchApp(sandbox, { WORK_INTELLIGENCE_DESKTOP_TEST_AUTOCONFIRM_PORT: "1" });
+  await waitForManagedSnapshot(app);
+  const window = await openPortSection(app);
+
+  await window.locator('[data-id="port-input"]').fill(String(newPort));
+  await window.locator('[data-id="port-apply"]').click();
+
+  await waitForSnapshot(app, (state) => state.backend?.port === newPort);
+  await expect(window.locator("#port-section .success-text")).toBeVisible({ timeout: 30_000 });
+  await expect(window.locator("#port-section")).not.toContainText(discardedNote);
 });
 
 test("an occupied target is refused, nothing is stopped and the backend stays on its port", async () => {

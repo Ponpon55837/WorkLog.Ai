@@ -86,12 +86,16 @@ describe("inspectAgentRegistrations", () => {
         ],
       },
     });
-    const inspection = inspectAgentRegistrations(fixture.options);
+    const inspection = inspectAgentRegistrations({ ...fixture.options, isFile: (path) => path === SHIM });
     expect(summary(inspection)).toEqual([
       "claude-code:hook:desktop-managed",
       "claude-code:hook:manual",
       "claude-code:mcp:desktop-managed",
     ]);
+    // A shim that is gone is not the App's registration any more.
+    expect(summary(inspectAgentRegistrations({ ...fixture.options, isFile: () => false }))).toContain(
+      "claude-code:mcp:manual",
+    );
     expect(inspection.duplicates).toEqual([
       { code: "duplicate-registration", agent: "claude-code", kind: "hook", sources: ["desktop-managed", "manual"] },
     ]);

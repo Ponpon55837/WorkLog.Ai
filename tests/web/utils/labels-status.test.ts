@@ -25,9 +25,11 @@ import {
   voidedFilterOptions,
   workSummarySectionLabels,
 } from "../../../apps/web/src/utils/labels.js";
-import type { SystemStatus } from "../../../packages/core/src/index.js";
+import type { SystemAgentConnections, SystemStatus } from "../../../packages/core/src/index.js";
 import {
   agentConnectionGroups,
+  agentConnectionStepState,
+  onboardingStepStatusVisual,
   agentHookInstallStatus,
   databaseInspectionStatus,
   databaseMaintenanceStatus,
@@ -271,6 +273,66 @@ describe("hotspotRiskVisual", () => {
     expect(agentHookInstallStatus.stale).toMatchObject({ tone: "attention", label: t("status.updateNeeded") });
   });
 
+  it("names who manages a working hook and explains that a checkout's setup keeps working", () => {
+    const rowsFor = (hookSource: "app" | "checkout" | "plugin") =>
+      agentConnectionGroups({
+        codex: {
+          mcpRegistered: "registered",
+          canonicalSkill: "current",
+          legacySkill: "current",
+          hook: "installed",
+          hookSource,
+        },
+        claudeCode: { mcpRegistered: "registered", skill: "current", hook: "installed", hookSource },
+      }).map((group) => group.rows.find((row) => row.title === t("status.globalHook")));
+
+    for (const row of rowsFor("app")) {
+      expect(row).toMatchObject({ ok: true, status: { tone: "success", label: t("status.installedByApp") } });
+      expect(row?.note).toBeUndefined();
+    }
+    for (const row of rowsFor("plugin")) {
+      expect(row).toMatchObject({ ok: true, status: { label: t("status.installedByPlugin") } });
+      expect(row?.note).toBeUndefined();
+    }
+    for (const row of rowsFor("checkout")) {
+      expect(row).toMatchObject({
+        ok: true,
+        status: { tone: "success", label: t("status.installedByCheckout") },
+        note: t("status.checkoutHookKeepsWorking"),
+      });
+    }
+    expect(t("status.installedByCheckout")).toBe("已安裝（由 checkout 管理）");
+    expect(t("status.installedByApp")).toBe("已安裝（由 App 管理）");
+    expect(t("status.checkoutHookKeepsWorking")).toContain("改由桌面 App 管理…");
+  });
+
+  it("falls back to the plain hook states when no owner is known or the hook is not working", () => {
+    const hookRowOf = (hook: "installed" | "stale" | "missing" | "disabled" | "unknown") =>
+      agentConnectionGroups({
+        codex: { mcpRegistered: "registered", canonicalSkill: "current", legacySkill: "current", hook },
+        claudeCode: { mcpRegistered: "registered", skill: "current", hook, hookSource: null },
+      })[0]?.rows.at(-1);
+
+    expect(hookRowOf("installed")).toMatchObject({ ok: true, status: { label: t("status.installed") } });
+    expect(hookRowOf("stale")).toMatchObject({ ok: false, status: { label: t("status.updateNeeded") } });
+    expect(hookRowOf("missing")).toMatchObject({ ok: false, status: { label: t("status.notInstalled") } });
+    expect(hookRowOf("disabled")).toMatchObject({ ok: true, status: { label: t("status.disabled") } });
+    expect(hookRowOf("unknown")).toMatchObject({ ok: false, status: { label: t("status.cannotConfirm") } });
+    expect(hookRowOf("stale")?.note).toBeUndefined();
+  });
+
+  it("flags an MCP entry named work-intelligence whose command is not Work Intelligence", () => {
+    const groups = agentConnectionGroups({
+      codex: { mcpRegistered: "other", canonicalSkill: "current", legacySkill: "current", hook: "installed" },
+      claudeCode: { mcpRegistered: "registered", skill: "current", hook: "installed" },
+    });
+    expect(groups[0]?.rows[0]).toMatchObject({
+      ok: false,
+      status: { tone: "attention", label: t("status.registeredOther") },
+    });
+    expect(t("status.registeredOther")).toBe("已登錄，但指令不是 Work Intelligence");
+  });
+
   it("flags an MCP registration that runs the server directly instead of the launcher", () => {
     const groups = agentConnectionGroups({
       codex: { mcpRegistered: "direct", canonicalSkill: "current", legacySkill: "current", hook: "installed" },
@@ -280,5 +342,30 @@ describe("hotspotRiskVisual", () => {
       ok: false,
       status: { tone: "attention", label: t("status.directRegistration") },
     });
+  });
+});
+
+describe("agentConnectionStepState", () => {
+  const connections = (codex: string, claudeCode: string): SystemAgentConnections =>
+    ({ codex: { mcpRegistered: codex }, claudeCode: { mcpRegistered: claudeCode } }) as SystemAgentConnections;
+
+  it("completes on a registered or direct entry, and is a to-do when nothing is registered", () => {
+    expect(agentConnectionStepState(connections("registered", "missing"), false, "")).toBe("complete");
+    expect(agentConnectionStepState(connections("missing", "direct"), false, "")).toBe("complete");
+    expect(agentConnectionStepState(connections("missing", "missing"), false, "")).toBe("pending");
+  });
+
+  it("gives a registration that runs another command its own state, not cannot-confirm", () => {
+    expect(agentConnectionStepState(connections("other", "missing"), false, "")).toBe("other");
+    expect(agentConnectionStepState(connections("unknown", "other"), false, "")).toBe("other");
+    expect(onboardingStepStatusVisual("other").label).toBe(t("status.registeredOther"));
+    expect(onboardingStepStatusVisual("other").label).not.toBe(t("status.cannotConfirm"));
+  });
+
+  it("stays checking or unknown while the status is not available", () => {
+    expect(agentConnectionStepState(null, true, "")).toBe("checking");
+    expect(agentConnectionStepState(null, false, "")).toBe("unknown");
+    expect(agentConnectionStepState(null, false, "boom")).toBe("unknown");
+    expect(agentConnectionStepState(connections("unknown", "missing"), false, "")).toBe("unknown");
   });
 });

@@ -291,11 +291,21 @@
 
 ### ADR-16 Runtime 延後清理：無現役連線且可安全刪除才 GC
 
-- **狀態**：已採用（Windows 檔案鎖待驗證；DT-24 部分實作）
+- **狀態**：已採用（Windows 檔案鎖待實機驗證；DT-24 已實作）
 - **脈絡**：Windows 會鎖住執行中的檔案（R08）；PID 可能被重用，不能以 PID 不存在作為可刪除的依據。
 - **決策**：runtime 版本化；更新時先安裝新版、驗證完整性、再原子切換 manifest。舊 runtime 的清理需要「無現役連線」與「可安全刪除」兩項條件，失敗則延後重試。
 - **1.6.43 的實作**：runtime 的檔案寫入 `runtimes/<id>/` 後不再修改（只有 `.verified.json` 快取例外）；切換只改 `current` 單行指標。清理（GC）尚未實作，舊版目錄會保留。
 - **1.6.45 的實作**：背景的 best-effort 清理只保留目前與前一版。尚未證明「無現役連線」（PID 可能被重用，不能以 PID 不存在作為依據），因此 DT-24 只完成一部分；其餘舊版目錄仍會保留。
+- **DT-24 的實作（無現役連線的證明）**：
+  - launcher 的每個 action（含 hook，不含 `--print-runtime-info`）在驗證 runtime 之前，於 `<launcher root>/leases/<runtimeId>/` 以獨佔方式建立 `<隨機>.lease`（0600，內容只有 `action` 與 `createdAt`），程序結束時移除；`mcp` 與 `serve` 每 60 秒更新 mtime。建立或更新失敗（沙箱、唯讀 HOME）不影響也不拖慢 action：hook 保持靜默，其他 action 每個程序最多一行不含路徑的 stderr（只有錯誤碼）。
+  - GC 一律保留 `current` 與前一版（前一版與退役時間記錄在 `leases/gc-state.json`，放在 leases 內使寫入不改變 launcher root 的變更時間，因此不會多花一次 Windows ACL 讀取）。其他 runtime 先記錄「首次被視為退役」的時間，滿 7 天才可能被清理：沒有 lease 的程序（建立 lease 失敗者）必然啟動於其 runtime 被退役兩次之前，7 天的下限把殘餘風險限縮在「在沙箱內跑超過 7 天、且來自兩個版本以前的程序」。
+  - 證明：（a）該 runtime 所有 lease 的 mtime 都早於 2 倍心跳，並在 GC 自己的單調時鐘走過 2 倍心跳後仍未更新（不使用 PID）；（b）將目錄改名為 `.quarantine-<id>-<隨機>`，Windows 上被鎖住則延後；（c）改名後重新讀取 lease，若有新出現者就改名回來並延後，否則刪除。不存在的 runtime 的 lease 目錄與檔案另行清除，且不跟隨符號連結。
+  - 改名移開的 `.quarantine-<id>-<隨機>` 目錄不再只憑名稱刪除。GC 從名稱取出 runtime id，套用同樣的證明：該 id 不是 `current` 或前一版；`leases/<id>` 沒有新的 lease，且在 2 倍心跳內沒有任何變化；刪除前再讀一次 `current`。若 lease 仍有效而原名稱空著，先把目錄改名回去；前一版與 `current` 的 id 不改名回去（安裝進行中會暫時移開同一個目錄），只保留。不是這個格式的名稱不屬於 GC，原樣保留。這裡不再套用 7 天下限：GC 自己移開的目錄，其 runtime 早已退役滿 7 天；安裝移開的目錄與安裝剛取代的是同一個 id，仍在使用它的程序由該 id 的 lease 涵蓋。
+  - 找不到已知的保留清單時（`gc-state.json` 遺失、損壞或無法寫入，且呼叫者沒有指定前一版），本次不記錄任何退役時間，也沒有 runtime 成為可清理對象，因為此時看不出哪一個是前一版。安裝指定前一版，或有一份有效的記錄之後，才開始計算退役。1.6.54 第一次啟動且 runtime id 不變時，就是這種情況。
+  - `current` 與前一版的 lease 若已證明失效（超過 2 倍心跳未更新，且在 GC 等待期間仍未更新），GC 會刪除這些 lease 檔；只處理一般的 `*.lease` 檔，用 `lstat` 檢查，不跟隨連結，也從不刪除保留中的 runtime 目錄。
+  - `<launcher root>/leases`、`leases/<id>` 必須是真正的目錄（`lstat` 判斷，符號連結與 Windows junction 都不算）。建立 lease 前先檢查：`leases` 不存在時，在已驗證的 root 之下以非遞迴方式建立；不是真正的目錄時略過 lease，action 照常執行，沉默規則不變。GC 的每項 lease 操作也先檢查：`leases` 不是真正的目錄時，不讀、不寫、不清除，所有未保留的 runtime 都以 `live-lease` 延後。
+  - 競態：每次改名前再讀一次 `current` 與保留清單，已成為 `current` 或保留者就延後；`refresh` 發現 lease 檔不存在（例如被孤兒清理刪除）時，以獨佔方式重建一次；Windows 與 macOS 比對 runtime id 時不分大小寫。有 quarantine 目錄的 runtime，其 lease 目錄不算孤兒。
+  - 延後或失敗時，App 以 10 分鐘、30 分鐘、之後每小時在背景重試；安裝從不刪除也不等待鎖。
 - **後果**：磁碟上會暫時保留多個 runtime 版本。
 - **關聯**：§3.3、§10.2；DT-24；R08；G-MCP-01。
 
@@ -337,6 +347,7 @@
 
 - **狀態**：已採用
 - **1.6.51 狀態**：換 port 已實作於 App 內（修復視窗「連接埠」與工作列「變更連接埠…」）。實際 bind 或 IPC 與 HTTP 證明失敗時不寫入設定、回到舊 port；OS 不允許的 port 回報 `PORT_NOT_PERMITTED`，與占用分開。新位址以一次性 fragment 還原白名單偏好，不移轉 session 或 DB 路徑（`apps/desktop/src/main/change-port.ts`）。實機行為待驗收。
+- **2026-11-18（1.6.54）**：閒置的匯入預覽（暫存檔，沒有任何操作正在讀取）不再阻擋換 port；匯入、備份、匯出與還原仍阻擋。換 port 成功且確實捨棄預覽時，連接埠區段才顯示提示。暫存檔於 App 重新啟動、Web 離開頁面與 `pagehide` 時移除；沒有人移除的暫存檔 30 分鐘後過期。
 - **脈絡**：port 預檢無法代表實際 bind 結果；port 改變後 browser origin 也改變（R20）。
 - **決策**：預設 `127.0.0.1:3210`，接管時記住既有 port。僅 loopback。實際 bind 失敗不得先建立空 DB。跨 port 只搬運白名單非秘密偏好，不移轉管理會話或 DB 路徑 token。
 - **後果**：換 port 時使用者可能需要重新登入管理授權。
@@ -344,9 +355,16 @@
 
 ### ADR-29 診斷匯出：手動、遮蔽、不預設上傳
 
-- **狀態**：已採用
+- **狀態**：已採用（DT-19 已實作（CI 可驗證部分）；實機待驗收）
 - **脈絡**：診斷可能含 Agent config、路徑、工作內容與授權碼（R32）。
 - **決策**：只在使用者主動匯出時寫檔。匯出前 dry-run、遮蔽個資路徑與授權碼、掃描秘密。不預設上傳 GitHub Issue 或遠端 API。無預設遙測。
+- **1.6.54 的實作**：
+  - 「匯出診斷資訊」先建立預覽（`packages/desktop-core/src/shell/diagnostics*.ts`；`apps/desktop/src/renderer/repair/diagnostics-view.ts`）。預覽包含將寫入的確切文字，以及遮蔽摘要：依類別的數量，與因非 App 日誌而捨去的行數。摘要不顯示被遮蔽的值。
+  - 「儲存檔案…」寫入預覽中的同一份文字（POSIX 上為 0600）。預覽 10 分鐘內有效，只能儲存一次，且只能從要求它的視窗儲存；否則 App 顯示新的預覽。
+  - 第二道獨立掃描檢查已遮蔽的文字並遮蔽殘留內容；最後的檢查仍找到內容時，匯出被拒絕（`DIAGNOSTICS_SCAN_FAILED`）。
+  - 輸出行只保留以 App 日誌前綴（例如 `[shell]`、`[desktop-child]`、`[work-intelligence]`）開頭的行。檔案上限 1 MiB；超過時先捨去最舊的輸出行，再捨去最舊的錯誤，並記錄捨去的數量。
+  - 所有遮蔽模式以線性時間執行。舊的遮蔽程式有一個在特定輸入下可能耗時數分鐘的模式，已改寫。
+  - 只有手動匯出會寫檔；不上傳，無遙測。Windows 與 macOS 實機待驗收。
 - **後果**：支援人員需依賴使用者手動提供診斷。
 - **關聯**：§8、§8.1；DT-19；R32。
 

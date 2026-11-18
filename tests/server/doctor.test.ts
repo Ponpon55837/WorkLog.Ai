@@ -17,7 +17,7 @@ import {
   shouldSuggestReclaim,
   sqliteFinding,
 } from "../../apps/server/src/doctor.js";
-import { inspectAgentSkillCopies, commandForAgentHook } from "@work-intelligence/agent-setup";
+import { commandForAgentHook, commandForLauncherHook, inspectAgentSkillCopies } from "@work-intelligence/agent-setup";
 import {
   getMcpRuntimeDirectory,
   getMcpRuntimeStatus,
@@ -30,6 +30,8 @@ const temporaryDirectories: string[] = [];
 const UNUSED_PORT = "65533";
 const CODEX_POST_TOOL_USE_MATCHER = "^(apply_patch|.*(work_finalize_session|work_write_idempotent))$";
 const LEGACY_CODEX_POST_TOOL_USE_MATCHER = "^(apply_patch|.*work_finalize_session)$";
+const CLAUDE_PRE_TOOL_USE_MATCHER = "^mcp__.*(work_finalize_session|work_write_idempotent)$";
+const CODEX_PRE_TOOL_USE_MATCHER = "^.*(work_finalize_session|work_write_idempotent)$";
 
 function isolatedUserServiceStatus(directory: string): UserServiceStatus {
   const manager: UserServiceManager | null =
@@ -423,6 +425,9 @@ describe("pnpm doctor read-only checks", () => {
     const repositoryRoot = join(directory, "repository");
     const claudeHook = resolve(repositoryRoot, "apps/mcp/dist/finalize-reminder.js");
     const codexHook = resolve(repositoryRoot, "apps/mcp/dist/codex-finalize-reminder.js");
+    mkdirSync(join(repositoryRoot, "apps/mcp/dist"), { recursive: true });
+    writeFileSync(claudeHook, "// fixture\n");
+    writeFileSync(codexHook, "// fixture\n");
     mkdirSync(join(homeDirectory, ".claude"), { recursive: true });
     mkdirSync(join(homeDirectory, ".codex"), { recursive: true });
     const claudeSettingsPath = join(homeDirectory, ".claude", "settings.json");
@@ -536,6 +541,8 @@ describe("pnpm doctor read-only checks", () => {
     const homeDirectory = join(directory, "home");
     const repositoryRoot = join(directory, "repository");
     const claudeHook = resolve(repositoryRoot, "apps/mcp/dist/finalize-reminder.js");
+    mkdirSync(join(repositoryRoot, "apps/mcp/dist"), { recursive: true });
+    writeFileSync(claudeHook, "// fixture\n");
     mkdirSync(join(homeDirectory, ".claude"), { recursive: true });
     const claudeSettingsPath = join(homeDirectory, ".claude", "settings.json");
     const settingsWith = (args: string[]) =>
@@ -558,6 +565,9 @@ describe("pnpm doctor read-only checks", () => {
     const codexHook = resolve(repositoryRoot, "apps/mcp/dist/codex-finalize-reminder.js");
     mkdirSync(join(claudeConfigDirectory), { recursive: true });
     mkdirSync(codexHomeDirectory, { recursive: true });
+    mkdirSync(join(repositoryRoot, "apps/mcp/dist"), { recursive: true });
+    writeFileSync(claudeHook, "// fixture\n");
+    writeFileSync(codexHook, "// fixture\n");
     writeFileSync(
       join(claudeConfigDirectory, "settings.json"),
       JSON.stringify({
@@ -663,8 +673,16 @@ describe("pnpm doctor read-only checks", () => {
     writeFileSync(codexHook, "// fixture\n");
     mkdirSync(codexHomeDirectory, { recursive: true });
     mkdirSync(claudeConfigDirectory, { recursive: true });
-    writeFileSync(join(homeDirectory, ".claude.json"), JSON.stringify({ mcpServers: { "work-intelligence": {} } }));
-    writeFileSync(join(codexHomeDirectory, "config.toml"), "[mcp_servers.work-intelligence]\ncommand = 'node'\n");
+    const launcherPath = join(repositoryRoot, "apps/mcp/dist/launcher.js");
+    writeFileSync(launcherPath, "// fixture\n");
+    writeFileSync(
+      join(homeDirectory, ".claude.json"),
+      JSON.stringify({ mcpServers: { "work-intelligence": { command: "node", args: [launcherPath] } } }),
+    );
+    writeFileSync(
+      join(codexHomeDirectory, "config.toml"),
+      `[mcp_servers.work-intelligence]\ncommand = "node"\nargs = [${JSON.stringify(launcherPath)}]\n`,
+    );
     writeFileSync(
       join(codexHomeDirectory, "hooks.json"),
       JSON.stringify({
@@ -698,11 +716,50 @@ describe("pnpm doctor read-only checks", () => {
     ).toEqual({
       codex: {
         mcpRegistered: "registered",
+        mcpSource: "checkout",
         canonicalSkill: "current",
         legacySkill: "current",
         hook: "installed",
+        hookSource: "checkout",
+        hookEvents: [
+          { event: "Stop", matcher: null, required: true, state: "installed", source: "checkout" },
+          {
+            event: "PostToolUse",
+            matcher: CODEX_POST_TOOL_USE_MATCHER,
+            required: true,
+            state: "installed",
+            source: "checkout",
+          },
+          { event: "UserPromptSubmit", matcher: null, required: false, state: "missing", source: null },
+          { event: "SessionStart", matcher: "compact", required: false, state: "missing", source: null },
+          {
+            event: "PreToolUse",
+            matcher: CODEX_PRE_TOOL_USE_MATCHER,
+            required: false,
+            state: "missing",
+            source: null,
+          },
+        ],
       },
-      claudeCode: { mcpRegistered: "registered", skill: "current", hook: "installed" },
+      claudeCode: {
+        mcpRegistered: "registered",
+        mcpSource: "checkout",
+        skill: "current",
+        hook: "installed",
+        hookSource: "checkout",
+        hookEvents: [
+          { event: "Stop", matcher: null, required: true, state: "installed", source: "checkout" },
+          { event: "PreCompact", matcher: null, required: false, state: "missing", source: null },
+          { event: "SessionStart", matcher: "compact", required: false, state: "missing", source: null },
+          {
+            event: "PreToolUse",
+            matcher: CLAUDE_PRE_TOOL_USE_MATCHER,
+            required: false,
+            state: "missing",
+            source: null,
+          },
+        ],
+      },
     });
     expect([...configPaths, ...skillPaths].map((path) => readFileSync(path))).toEqual(before);
 
@@ -746,6 +803,8 @@ describe("pnpm doctor read-only checks", () => {
       join(homeDirectory, ".claude.json"),
       JSON.stringify({ mcpServers: { "work-intelligence": { command: "node", args: [serverPath] } } }),
     );
+    writeFileSync(launcherPath, "// fixture\n");
+    writeFileSync(serverPath, "// fixture\n");
     writeFileSync(
       join(codexHomeDirectory, "config.toml"),
       `[mcp_servers.work-intelligence]\ncommand = "node"\nargs = [${JSON.stringify(launcherPath)}]\n`,
@@ -856,6 +915,144 @@ describe("pnpm doctor read-only checks", () => {
       detail:
         "PostToolUse、Stop 與 UserPromptSubmit hook 已設定；Codex 仍需在 /hooks 審查並信任，doctor 沒有執行 hook。",
       recommendation: expect.stringContaining("/hooks"),
+    });
+  });
+
+  describe("hook statuses of the Web view", () => {
+    /** A synthetic home with the three Agent config directories and an environment that points at it. */
+    function agentHome() {
+      const directory = temporaryDirectory();
+      const homeDirectory = join(directory, "home");
+      const repositoryRoot = join(directory, "repository");
+      const codexHomeDirectory = join(homeDirectory, ".codex");
+      const claudeConfigDirectory = join(homeDirectory, ".claude");
+      mkdirSync(join(repositoryRoot, "apps/mcp/dist"), { recursive: true });
+      mkdirSync(codexHomeDirectory, { recursive: true });
+      mkdirSync(claudeConfigDirectory, { recursive: true });
+      const environment = {
+        HOME: homeDirectory,
+        CODEX_HOME: codexHomeDirectory,
+        CLAUDE_CONFIG_DIR: claudeConfigDirectory,
+        WORK_INTELLIGENCE_DB: join(directory, "synthetic.sqlite"),
+        WORK_INTELLIGENCE_PORT: "65533",
+      };
+      return { directory, homeDirectory, repositoryRoot, codexHomeDirectory, claudeConfigDirectory, environment };
+    }
+
+    function onWindows<T>(body: () => T): T {
+      const original = Object.getOwnPropertyDescriptor(process, "platform");
+      Object.defineProperty(process, "platform", { value: "win32" });
+      try {
+        return body();
+      } finally {
+        if (original) Object.defineProperty(process, "platform", original);
+      }
+    }
+
+    it("reads unquoted Windows hook commands on win32 instead of dropping their backslashes", () => {
+      const home = agentHome();
+      const claudeCommands = [
+        String.raw`node C:\repo\apps\mcp\dist\finalize-reminder.js`,
+        String.raw`C:\nodejs\node.exe "C:\repo\apps\mcp\dist\finalize-reminder.js"`,
+        String.raw`C:\Users\me\bin\work-intelligence-launcher.cmd claude-finalize-reminder`,
+      ];
+      for (const command of claudeCommands) {
+        writeFileSync(
+          join(home.claudeConfigDirectory, "settings.json"),
+          JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command }] }] } }),
+        );
+        const stop = onWindows(() => inspectAgentConnections(home).claudeCode.hookEvents?.[0]);
+        // The files are not on this machine, so the entry is ours but stale; a mis-split command would read missing.
+        expect(stop, command).toMatchObject({ event: "Stop", state: "stale" });
+        expect(stop?.reason === "script-missing" || stop?.reason === "shim-differs").toBe(true);
+      }
+    });
+
+    it("reports every Codex hook event unknown when the hooks switch cannot be read", () => {
+      const home = agentHome();
+      const codexHook = resolve(home.repositoryRoot, "apps/mcp/dist/codex-finalize-reminder.js");
+      writeFileSync(codexHook, "// fixture\n");
+      const handler = [{ type: "command", command: commandForAgentHook(codexHook, process.platform) }];
+      writeFileSync(
+        join(home.codexHomeDirectory, "hooks.json"),
+        JSON.stringify({
+          hooks: {
+            Stop: [{ hooks: handler }],
+            PostToolUse: [{ matcher: CODEX_POST_TOOL_USE_MATCHER, hooks: handler }],
+          },
+        }),
+      );
+      expect(inspectAgentConnections(home).codex.hook).toBe("installed");
+      writeFileSync(join(home.codexHomeDirectory, "config.toml"), '[features]\nhooks = "maybe"\n');
+      const { codex } = inspectAgentConnections(home);
+      expect(codex.hook).toBe("unknown");
+      expect(codex.hookSource).toBeNull();
+      expect(codex.hookEvents?.length).toBeGreaterThan(0);
+      expect(codex.hookEvents?.every((event) => event.state === "unknown" && event.source === null)).toBe(true);
+    });
+
+    it("does not count a stale entry as a configured optional hook", () => {
+      const home = agentHome();
+      const claudeHook = resolve(home.repositoryRoot, "apps/mcp/dist/finalize-reminder.js");
+      const handler = [{ type: "command", command: commandForAgentHook(claudeHook, process.platform) }];
+      writeFileSync(
+        join(home.claudeConfigDirectory, "settings.json"),
+        JSON.stringify({
+          hooks: {
+            Stop: [{ hooks: handler }],
+            PreCompact: [{ hooks: handler }],
+            SessionStart: [{ matcher: "compact", hooks: handler }],
+            PreToolUse: [{ matcher: CLAUDE_PRE_TOOL_USE_MATCHER, hooks: handler }],
+          },
+        }),
+      );
+      // The script is not built: every entry is stale and none is configured.
+      expect(inspectGlobalHooks(home.homeDirectory, home.repositoryRoot)).toMatchObject({
+        claudeConfigured: false,
+        claudeCompactionConfigured: false,
+        claudeStartGuardConfigured: false,
+      });
+      writeFileSync(claudeHook, "// fixture\n");
+      expect(inspectGlobalHooks(home.homeDirectory, home.repositoryRoot)).toMatchObject({
+        claudeConfigured: true,
+        claudeCompactionConfigured: true,
+        claudeStartGuardConfigured: true,
+      });
+    });
+
+    it("names what to delete from the Codex plugin duplicate by where the hook points", async () => {
+      const home = agentHome();
+      const shim = join(home.directory, "app", "bin", "work-intelligence-launcher");
+      const script = resolve(home.repositoryRoot, "apps/mcp/dist/codex-finalize-reminder.js");
+      mkdirSync(join(shim, ".."), { recursive: true });
+      writeFileSync(shim, "#!/bin/sh\n");
+      writeFileSync(script, "// fixture\n");
+      writeFileSync(
+        join(home.codexHomeDirectory, "config.toml"),
+        '[plugins."work-intelligence@fixture"]\nenabled = true\n',
+      );
+      const recommendationFor = async (command: string): Promise<string | undefined> => {
+        const handler = [{ type: "command", command }];
+        writeFileSync(
+          join(home.codexHomeDirectory, "hooks.json"),
+          JSON.stringify({
+            hooks: {
+              Stop: [{ hooks: handler }],
+              PostToolUse: [{ matcher: CODEX_POST_TOOL_USE_MATCHER, hooks: handler }],
+            },
+          }),
+        );
+        const findings = await collectDoctorFindings(home);
+        return findings.find((finding) => finding.title === "Codex plugin")?.recommendation;
+      };
+      const launcher = await recommendationFor(
+        commandForLauncherHook(shim, "codex-finalize-reminder", process.platform),
+      );
+      expect(launcher).toContain("指向桌面 App 啟動器");
+      expect(launcher).not.toContain("codex-finalize-reminder.js");
+      const checkout = await recommendationFor(commandForAgentHook(script, process.platform));
+      expect(checkout).toContain("指向 apps/mcp/dist/codex-finalize-reminder.js");
+      expect(checkout).not.toContain("啟動器");
     });
   });
 
@@ -1011,6 +1208,201 @@ describe("pnpm doctor read-only checks", () => {
       expect(readFileSync(codexConfigPath)).toEqual(before);
       expect(readFileSync(codexHooksPath)).toEqual(hooksBefore);
     }
+  });
+
+  describe("hooks and MCP entries written by the desktop App or by a checkout", () => {
+    function agentHome() {
+      const directory = temporaryDirectory();
+      const homeDirectory = join(directory, "home");
+      const repositoryRoot = join(directory, "app resources");
+      const codexHomeDirectory = join(homeDirectory, ".codex");
+      const claudeConfigDirectory = join(homeDirectory, ".claude");
+      mkdirSync(join(repositoryRoot, "apps/mcp/dist"), { recursive: true });
+      mkdirSync(codexHomeDirectory, { recursive: true });
+      mkdirSync(claudeConfigDirectory, { recursive: true });
+      const shim = join(directory, "App Data", "runtime", "bin", "work-intelligence-launcher");
+      mkdirSync(join(shim, ".."), { recursive: true });
+      writeFileSync(shim, "#!/bin/sh\n");
+      const environment = {
+        HOME: homeDirectory,
+        CODEX_HOME: codexHomeDirectory,
+        CLAUDE_CONFIG_DIR: claudeConfigDirectory,
+        WORK_INTELLIGENCE_DB: join(directory, "synthetic.sqlite"),
+        WORK_INTELLIGENCE_PORT: "65533",
+      };
+      const writeClaude = (settings: unknown) =>
+        writeFileSync(join(claudeConfigDirectory, "settings.json"), JSON.stringify(settings));
+      const writeCodexHooks = (hooks: unknown) =>
+        writeFileSync(join(codexHomeDirectory, "hooks.json"), JSON.stringify(hooks));
+      return {
+        directory,
+        homeDirectory,
+        repositoryRoot,
+        codexHomeDirectory,
+        shim,
+        environment,
+        writeClaude,
+        writeCodexHooks,
+        options: { homeDirectory, repositoryRoot, environment },
+      };
+    }
+
+    function launcherHooks(shim: string, action: string, codex: boolean) {
+      const handler = [{ type: "command", command: commandForLauncherHook(shim, action, process.platform) }];
+      return codex
+        ? {
+            hooks: {
+              PostToolUse: [{ matcher: CODEX_POST_TOOL_USE_MATCHER, hooks: handler }],
+              Stop: [{ hooks: handler }],
+              UserPromptSubmit: [{ hooks: handler }],
+              SessionStart: [{ matcher: "compact", hooks: handler }],
+              PreToolUse: [{ matcher: CODEX_PRE_TOOL_USE_MATCHER, hooks: handler }],
+            },
+          }
+        : {
+            hooks: {
+              Stop: [{ hooks: handler }],
+              PreCompact: [{ hooks: handler }],
+              SessionStart: [{ matcher: "compact", hooks: handler }],
+              PreToolUse: [{ matcher: CLAUDE_PRE_TOOL_USE_MATCHER, hooks: handler }],
+            },
+          };
+    }
+
+    it("reads hooks installed in launcher form as installed by the App, for both Agents", async () => {
+      const home = agentHome();
+      home.writeClaude(launcherHooks(home.shim, "claude-finalize-reminder", false));
+      home.writeCodexHooks(launcherHooks(home.shim, "codex-finalize-reminder", true));
+
+      const connections = inspectAgentConnections(home.options);
+      expect(connections.claudeCode).toMatchObject({ hook: "installed", hookSource: "app" });
+      expect(connections.codex).toMatchObject({ hook: "installed", hookSource: "app" });
+      expect(connections.claudeCode.hookEvents?.every((event) => event.state === "installed")).toBe(true);
+      expect(connections.codex.hookEvents?.map((event) => [event.event, event.state, event.source])).toEqual([
+        ["Stop", "installed", "app"],
+        ["PostToolUse", "installed", "app"],
+        ["UserPromptSubmit", "installed", "app"],
+        ["SessionStart", "installed", "app"],
+        ["PreToolUse", "installed", "app"],
+      ]);
+
+      const findings = await collectDoctorFindings(home.options);
+      expect(findings.find((finding) => finding.title === "Claude 全域 hook")).toMatchObject({
+        severity: "ok",
+        detail: expect.stringContaining("桌面 App 的啟動器"),
+      });
+      expect(findings.find((finding) => finding.title === "Codex 全域 hook")).toMatchObject({ severity: "ok" });
+    });
+
+    it("keeps a checkout hook that works installed when the App's resources are another checkout", async () => {
+      const home = agentHome();
+      const otherCheckout = join(home.directory, "my checkout", "apps/mcp/dist");
+      mkdirSync(otherCheckout, { recursive: true });
+      const claudeScript = join(otherCheckout, "finalize-reminder.js");
+      const codexScript = join(otherCheckout, "codex-finalize-reminder.js");
+      writeFileSync(claudeScript, "// fixture\n");
+      writeFileSync(codexScript, "// fixture\n");
+      const claudeHandler = [{ type: "command", command: commandForAgentHook(claudeScript, process.platform) }];
+      const codexHandler = [{ type: "command", command: commandForAgentHook(codexScript, process.platform) }];
+      home.writeClaude({ hooks: { Stop: [{ hooks: claudeHandler }] } });
+      home.writeCodexHooks({
+        hooks: {
+          PostToolUse: [{ matcher: CODEX_POST_TOOL_USE_MATCHER, hooks: codexHandler }],
+          Stop: [{ hooks: codexHandler }],
+        },
+      });
+
+      const connections = inspectAgentConnections(home.options);
+      expect(connections.claudeCode).toMatchObject({ hook: "installed", hookSource: "checkout" });
+      expect(connections.codex).toMatchObject({ hook: "installed", hookSource: "checkout" });
+      const findings = await collectDoctorFindings(home.options);
+      expect(findings.find((finding) => finding.title === "Claude 全域 hook")?.severity).toBe("ok");
+    });
+
+    it("reports a checkout hook whose script is gone, and a launcher hook on another shim, as stale", async () => {
+      const home = agentHome();
+      const gone = join(home.directory, "moved checkout", "apps/mcp/dist/finalize-reminder.js");
+      home.writeClaude({ hooks: { Stop: [{ hooks: [{ type: "command", command: commandForAgentHook(gone) }] }] } });
+      const otherShim = join(home.directory, "uninstalled app", "bin", "work-intelligence-launcher");
+      home.writeCodexHooks(launcherHooks(otherShim, "codex-finalize-reminder", true));
+
+      const connections = inspectAgentConnections(home.options);
+      expect(connections.claudeCode.hook).toBe("stale");
+      expect(connections.claudeCode.hookEvents?.[0]).toMatchObject({ state: "stale", reason: "script-missing" });
+      expect(connections.codex.hook).toBe("stale");
+      expect(connections.codex.hookEvents?.[0]).toMatchObject({ state: "stale", reason: "shim-differs" });
+
+      const findings = await collectDoctorFindings(home.options);
+      expect(findings.find((finding) => finding.title === "Claude 全域 hook")).toMatchObject({
+        severity: "warning",
+        detail: expect.stringContaining("dist 腳本已不存在"),
+        recommendation: expect.stringContaining("改由桌面 App 管理"),
+      });
+      expect(findings.find((finding) => finding.title === "Codex 全域 hook")).toMatchObject({
+        severity: "warning",
+        detail: expect.stringContaining("App 啟動器已不存在"),
+      });
+    });
+
+    it("keeps other tools' hooks out of the way and reports Claude's disableAllHooks", async () => {
+      const home = agentHome();
+      const settings = launcherHooks(home.shim, "claude-finalize-reminder", false);
+      (settings.hooks.Stop as unknown[]).unshift({ hooks: [{ type: "command", command: "notify-send done" }] });
+      home.writeClaude(settings);
+      expect(inspectAgentConnections(home.options).claudeCode.hook).toBe("installed");
+
+      home.writeClaude({ ...settings, disableAllHooks: true });
+      expect(inspectAgentConnections(home.options).claudeCode.hook).toBe("disabled");
+      const findings = await collectDoctorFindings(home.options);
+      expect(findings.find((finding) => finding.title === "Claude 全域 hook")).toMatchObject({
+        severity: "warning",
+        detail: expect.stringContaining("disableAllHooks"),
+      });
+    });
+
+    it("counts the enabled Claude plugin as installed by the plugin", () => {
+      const home = agentHome();
+      home.writeClaude({ enabledPlugins: { "work-intelligence@fixture": true } });
+      expect(inspectAgentConnections(home.options).claudeCode).toMatchObject({
+        hook: "installed",
+        hookSource: "plugin",
+      });
+    });
+
+    it("tells the App's launcher and a working checkout from any other work-intelligence entry", async () => {
+      const home = agentHome();
+      const launcherPath = join(home.repositoryRoot, "apps/mcp/dist/launcher.js");
+      writeFileSync(launcherPath, "// fixture\n");
+      writeFileSync(
+        join(home.homeDirectory, ".claude.json"),
+        JSON.stringify({ mcpServers: { "work-intelligence": { type: "stdio", command: home.shim, args: ["mcp"] } } }),
+      );
+      writeFileSync(
+        join(home.codexHomeDirectory, "config.toml"),
+        `[mcp_servers.work-intelligence]\ncommand = "pnpm"\nargs = ["--dir", ${JSON.stringify(home.repositoryRoot)}, "start:mcp"]\n`,
+      );
+      let connections = inspectAgentConnections(home.options);
+      expect(connections.claudeCode).toMatchObject({ mcpRegistered: "registered", mcpSource: "app" });
+      expect(connections.codex).toMatchObject({ mcpRegistered: "registered", mcpSource: "checkout" });
+
+      writeFileSync(
+        join(home.homeDirectory, ".claude.json"),
+        JSON.stringify({ mcpServers: { "work-intelligence": { command: "foo" } } }),
+      );
+      writeFileSync(join(home.codexHomeDirectory, "config.toml"), "[mcp_servers.work-intelligence]\ncommand = 'foo'\n");
+      connections = inspectAgentConnections(home.options);
+      expect(connections.claudeCode).toMatchObject({ mcpRegistered: "other", mcpSource: null });
+      expect(connections.codex.mcpRegistered).toBe("other");
+
+      const findings = await collectDoctorFindings(home.options);
+      for (const title of ["Claude MCP", "Codex MCP"]) {
+        expect(findings.find((finding) => finding.title === title)).toMatchObject({
+          severity: "warning",
+          detail: expect.stringContaining("已登錄，但指令不是 Work Intelligence"),
+          recommendation: expect.stringContaining("改由桌面 App 管理"),
+        });
+      }
+    });
   });
 });
 

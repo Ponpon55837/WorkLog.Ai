@@ -10,6 +10,7 @@ export type StoreRequest = {
   /** The body exactly as passed to fetch (a File for streamed uploads, a string for JSON). */
   rawBody?: BodyInit | null;
   signal: AbortSignal | undefined;
+  keepalive?: boolean;
 };
 
 export type StoreResponder = (request: StoreRequest) => unknown | Response | Promise<unknown | Response>;
@@ -29,6 +30,7 @@ export function createStoreHarness(responder: StoreResponder = () => ({})) {
       body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
       rawBody: init?.body,
       signal: init?.signal ?? undefined,
+      ...(init?.keepalive ? { keepalive: true } : {}),
     };
     calls.push(request);
     const result = await respond(request);

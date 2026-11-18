@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { isMissingError } from "../internal/error-code.js";
+import { errorCode, isMissingError } from "../internal/error-code.js";
 import { forEachLimited } from "./concurrency.js";
 import { RuntimeError } from "./errors.js";
 import { hashFile } from "./hash.js";
@@ -119,7 +119,7 @@ async function readManifest(runtimeDirectory: string, runtimeId: string): Promis
   return manifest;
 }
 
-/** The launcher root, its `bin` and `runtimes` folders and the pointer must not be writable by other users. */
+/** The launcher root, its `bin`, `leases` and `runtimes` folders and the pointer must not be writable by other users. */
 async function checkRootPermissions(root: string, policy: PermissionPolicy): Promise<void> {
   const layout = runtimeLayout(root);
   // The root may be reached through a link (macOS /private/var, Windows short names): its target is what gets checked.
@@ -127,6 +127,8 @@ async function checkRootPermissions(root: string, policy: PermissionPolicy): Pro
   const candidates = [
     { path: root, follow: true },
     { path: path.join(root, BIN_DIRECTORY_NAME), follow: false },
+    { path: layout.leasesDirectory, follow: false },
+    { path: layout.gcStateFile, follow: false },
     { path: layout.runtimesDirectory, follow: false },
     { path: layout.currentFile, follow: false },
   ];
@@ -135,13 +137,18 @@ async function checkRootPermissions(root: string, policy: PermissionPolicy): Pro
     try {
       stat = candidate.follow ? await fs.stat(candidate.path) : await fs.lstat(candidate.path);
     } catch (error) {
-      if (isMissingError(error) && candidate.path !== root) continue;
+      // ENOTDIR: the state file below a `leases` that is not a folder; that is reported for `leases` itself.
+      if ((isMissingError(error) || errorCode(error) === "ENOTDIR") && candidate.path !== root) continue;
       throw error;
     }
     if (stat.isSymbolicLink()) {
-      throw new RuntimeError("RUNTIME_SYMLINK_REJECTED", "launcher 的 bin、runtimes 或 current 是符號連結", {
-        file: candidate.path,
-      });
+      throw new RuntimeError(
+        "RUNTIME_SYMLINK_REJECTED",
+        "launcher 的 bin、leases、gc-state.json、runtimes 或 current 是符號連結",
+        {
+          file: candidate.path,
+        },
+      );
     }
     const problem = permissionProblem(stat, policy);
     if (problem !== undefined) {
@@ -167,6 +174,8 @@ async function aclTargets(root: string, runtimeDirectory: string, manifest: Runt
     { label: "root", path: root, stamped: true },
     { label: "bin", path: path.join(root, BIN_DIRECTORY_NAME), stamped: true },
     { label: "runtimes", path: layout.runtimesDirectory, stamped: true },
+    // Like the runtime directory, its change time moves (a new runtime gets a lease folder), so it is checked, not stamped.
+    { label: "leases", path: layout.leasesDirectory, stamped: false },
     { label: "current", path: layout.currentFile, stamped: true },
     { label: "shim", path: path.join(root, BIN_DIRECTORY_NAME, POSIX_SHIM_NAME), stamped: true },
     { label: "shim-cmd", path: path.join(root, BIN_DIRECTORY_NAME, WINDOWS_SHIM_NAME), stamped: true },

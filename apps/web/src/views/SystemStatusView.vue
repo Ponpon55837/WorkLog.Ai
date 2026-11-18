@@ -255,6 +255,7 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
               <template #meta
                 ><code class="system-status__location">{{ row.location }}</code></template
               >
+              <p v-if="row.note" class="system-status__row-note">{{ row.note }}</p>
             </UiBoxRow>
           </template>
         </UiBox>
@@ -448,6 +449,12 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
   min-width: 0;
   color: var(--fg);
   font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.system-status__row-note {
+  margin: var(--space-1) 0 0;
+  color: var(--fg-muted);
   font-size: var(--text-sm);
 }
 

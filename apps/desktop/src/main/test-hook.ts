@@ -76,7 +76,18 @@ export function installTestHook(options: TestHookOptions): void {
   const openRepair = (): void => options.window.open("repair");
   const openPortSettings = (): void => options.openPortSettings();
   const openUpdateCheck = (): void => options.openUpdateCheck();
+  // A real backend cannot be made to print chosen text, so the diagnostics test adds the lines it wants to see handled
+  // (a token, another user's path, a line of work content) to what the supervisor reports as the child's recent output.
+  const planted: string[] = [];
+  const realOutput = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(options.supervisor), "recentOutput")?.get;
+  if (realOutput)
+    Object.defineProperty(options.supervisor, "recentOutput", {
+      get: () => [...(realOutput.call(options.supervisor) as readonly string[]), ...planted],
+    });
+  const plantOutput = (lines: readonly string[]): void => {
+    planted.push(...lines);
+  };
   Object.defineProperty(globalThis, "__workIntelligenceDesktopTest", {
-    value: Object.freeze({ snapshot: read, openRepair, openPortSettings, openUpdateCheck }),
+    value: Object.freeze({ snapshot: read, openRepair, openPortSettings, openUpdateCheck, plantOutput }),
   });
 }

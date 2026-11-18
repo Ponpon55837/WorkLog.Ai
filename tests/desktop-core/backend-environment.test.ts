@@ -229,6 +229,20 @@ describe("SecretMasker", () => {
     expect(windows.apply("c:\\USERS\\me and C:/Users/Me")).toBe("[redacted] and [redacted]");
     expect(masker("C:\\Users\\Me").apply("c:\\users\\me")).toBe("c:\\users\\me");
   });
+
+  it("masks every occurrence in a long line, and still masks a line whose lower case changes length", () => {
+    const windows = new SecretMasker({ caseInsensitive: true });
+    windows.add("C:\\Users\\Me");
+    expect(windows.applyCounted("x c:\\users\\ME y ".repeat(3))).toEqual({
+      line: "x [redacted] y ".repeat(3),
+      replaced: 3,
+    });
+    // "İ" lower-cases to two code units, so offsets in the lower-cased line no longer match the original's.
+    expect(windows.applyCounted("İ c:\\USERS\\me İ C:/Users/Me")).toEqual({
+      line: "İ [redacted] İ [redacted]",
+      replaced: 2,
+    });
+  });
 });
 
 describe("BackendFailure", () => {

@@ -161,6 +161,15 @@ describe("desktop facts and open-agent-setup", () => {
     expect(parseDesktopParentMessage({ ...START, desktop: { legacyService: withoutRemove } }).ok).toBe(true);
   });
 
+  it("carries the App's launcher shim path in the desktop facts", () => {
+    const launcherShimPath = "/synthetic/runtime/bin/work-intelligence-launcher";
+    expect(parseDesktopParentMessage({ ...START, desktop: { launcherShimPath } })).toMatchObject({
+      ok: true,
+      message: { desktop: { launcherShimPath } },
+    });
+    expect(parseDesktopParentMessage({ ...START, desktop: { launcherShimPath: "" } }).ok).toBe(false);
+  });
+
   it("rejects unknown or malformed desktop facts", () => {
     expect(parseDesktopParentMessage({ ...START, desktop: { other: true } }).ok).toBe(false);
     expect(parseDesktopParentMessage({ ...START, desktop: { legacyService: { ...LEGACY, running: "yes" } } }).ok).toBe(
@@ -178,6 +187,22 @@ describe("desktop facts and open-agent-setup", () => {
   it("accepts a bare open-agent-setup from the child and rejects extra fields", () => {
     expect(parseDesktopChildMessage({ type: "open-agent-setup" }).ok).toBe(true);
     expect(parseDesktopChildMessage({ type: "open-agent-setup", path: "/synthetic" }).ok).toBe(false);
+  });
+});
+
+describe("activity reply", () => {
+  const base = { type: "activity", requestId: "request-1", busy: ["import", "backup"] };
+
+  it("accepts the busy kinds with or without the idle import preview flag", () => {
+    expect(parseDesktopChildMessage(base).ok).toBe(true);
+    expect(parseDesktopChildMessage({ ...base, pendingImport: true }).ok).toBe(true);
+    expect(parseDesktopChildMessage({ ...base, busy: [], pendingImport: false }).ok).toBe(true);
+  });
+
+  it("rejects a preview that is named as a busy kind, a malformed flag and unknown fields", () => {
+    expect(parseDesktopChildMessage({ ...base, busy: ["import-pending"] }).ok).toBe(false);
+    expect(parseDesktopChildMessage({ ...base, pendingImport: "yes" }).ok).toBe(false);
+    expect(parseDesktopChildMessage({ ...base, pendingImport: true, path: "/synthetic" }).ok).toBe(false);
   });
 });
 

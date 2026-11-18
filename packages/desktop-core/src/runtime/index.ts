@@ -12,3 +12,4 @@ export * from "./launch-consistency.js";
 export * from "./bundled-install.js";
 export * from "./windows-acl.js";
 export * from "./runtime-gc.js";
+export * from "./lease.js";

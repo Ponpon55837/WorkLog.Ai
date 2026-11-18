@@ -14,12 +14,22 @@ export type SetupAgentId = (typeof SETUP_AGENT_IDS)[number];
 /** Who wrote an Agent's registration, as the page names it; `none` when there is no registration. */
 export type AgentRegistrationOwner = "desktop-managed" | "manual" | "plugin" | "mcpb" | "unknown" | "none";
 
+/** What the page knows about an Agent's save-reminder hooks, checked per event (see agent-setup `inspectHookInstallation`). */
+export type AgentHookState = "installed" | "stale" | "missing" | "disabled" | "unknown";
+
+/** Who manages working hooks: the App's launcher, a source checkout's scripts, or the Agent's plugin. */
+export type AgentHookSource = "app" | "checkout" | "plugin";
+
 export interface AgentCardView {
   readonly id: SetupAgentId;
   readonly state: AgentDisplayState;
   readonly nextStep: AgentNextStep;
   readonly mcp: AgentRegistrationOwner;
   readonly hooks: AgentRegistrationOwner;
+  /** The state of the hooks the Agent needs; `hooks` above only says who wrote an entry. */
+  readonly hookState?: AgentHookState;
+  /** Who manages the hooks when `hookState` is `installed`. */
+  readonly hookSource?: AgentHookSource | null;
   /** The hand-written registration runs a source checkout (`node <checkout>/…`); shown with `~`. */
   readonly checkoutDisplay?: string;
   /** The checkout is gone: the registration cannot start at all. */

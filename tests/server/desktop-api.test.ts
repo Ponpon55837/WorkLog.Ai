@@ -1,4 +1,7 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DesktopFacts } from "../../packages/schema/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
@@ -88,6 +91,48 @@ describe("system status port and storage facts", () => {
       activePort: 40_322,
       storageRisk: { risk: "unknown", migrationBlocked: false },
     });
+  });
+});
+
+describe("system status agents in desktop mode", () => {
+  it("judges hooks against the launcher shim the App reported, like the Agent page", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-desktop-agents-"));
+    try {
+      const home = join(root, "home");
+      const appShim = join(root, "app", "bin", "work-intelligence-launcher");
+      const otherShim = join(root, "other", "bin", "work-intelligence-launcher");
+      for (const shim of [appShim, otherShim]) {
+        mkdirSync(join(shim, ".."), { recursive: true });
+        writeFileSync(shim, "#!/bin/sh\n");
+      }
+      mkdirSync(join(home, ".claude"), { recursive: true });
+      mkdirSync(join(home, ".codex"), { recursive: true });
+      const hook = (shim: string) => ({
+        hooks: { Stop: [{ hooks: [{ type: "command", command: `'${shim}' claude-finalize-reminder` }] }] },
+      });
+      writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify(hook(otherShim)));
+      vi.stubEnv("HOME", home);
+      vi.stubEnv("USERPROFILE", home);
+      vi.stubEnv("CODEX_HOME", join(home, ".codex"));
+      vi.stubEnv("CLAUDE_CONFIG_DIR", join(home, ".claude"));
+      const claudeHook = async (facts: DesktopFacts): Promise<unknown> => {
+        const baseUrl = await listen({ agentConnections: undefined, desktop: { facts, onOpenAgentSetup: vi.fn() } });
+        const status = (await (await fetch(`${baseUrl}/api/system/status`)).json()) as {
+          agents: { claudeCode: { hook: string } };
+          desktop: Record<string, unknown>;
+        };
+        // The shim path stays inside the backend.
+        expect(status.desktop).not.toHaveProperty("launcherShimPath");
+        return status.agents.claudeCode.hook;
+      };
+      // Another shim than the App's own is stale; without the App's shim any existing shim is accepted.
+      expect(await claudeHook({ launcherShimPath: appShim })).toBe("stale");
+      expect(await claudeHook({ launcherShimPath: otherShim })).toBe("installed");
+      expect(await claudeHook({})).toBe("installed");
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

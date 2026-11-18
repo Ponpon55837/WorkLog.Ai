@@ -128,13 +128,18 @@ export class StagedImports {
     for (const id of [...this.entries.keys()]) this.remove(id);
   }
 
-  /**
-   * An import is in progress: an upload is being saved, an operation is reading a staged file, or an uploaded file is
-   * waiting for the user's confirm and has not expired (stopping the backend would throw it away).
-   */
+  /** An import is in progress: an upload is being saved or an operation is reading a staged file. */
   public get inUse(): boolean {
+    return [...this.entries.values()].some((entry) => entry.uses > 0);
+  }
+
+  /**
+   * An uploaded file is waiting for the user's confirm: nothing reads it and it has not expired. Stopping the backend
+   * throws it away, so this is worth telling the user about but is not work in progress.
+   */
+  public get pending(): boolean {
     const at = this.now();
-    return [...this.entries.values()].some((entry) => entry.uses > 0 || entry.expiresAt > at);
+    return [...this.entries.values()].some((entry) => entry.uses === 0 && entry.expiresAt > at);
   }
 
   public get size(): number {

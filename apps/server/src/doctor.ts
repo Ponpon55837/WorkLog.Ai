@@ -10,7 +10,13 @@ import { APP_VERSION } from "@work-intelligence/shared/app-version";
 import { configDirectory, databasePathFor, STANDALONE } from "@work-intelligence/shared/database-location";
 import { isDriveRelativePath } from "@work-intelligence/shared/database-path";
 import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
-import type { AgentMcpRegistrationState, SystemAgentConnections, UserServiceStatus } from "@work-intelligence/core";
+import type {
+  AgentHookEventStatus,
+  AgentMcpRegistrationState,
+  AgentRegistrationSource,
+  SystemAgentConnections,
+  UserServiceStatus,
+} from "@work-intelligence/core";
 import { sqliteRuntimeStatusFromVersion } from "./sqlite-runtime.js";
 import { DEFAULT_SERVER_PORT } from "./server-port.js";
 import { claudePluginEnabled, codexPluginEnabled } from "./agent-plugins.js";
@@ -24,13 +30,14 @@ import {
   type ReadOnlyDatabaseInspection,
 } from "./database-inspection.js";
 import {
-  CODEX_POST_TOOL_USE_MATCHER,
-  COMPACT_SESSION_START_MATCHER,
+  classifyMcpRegistration,
   inspectAgentSkillCopies,
-  LEGACY_CODEX_POST_TOOL_USE_MATCHER,
-  mcpRegistrationKind,
+  inspectHookInstallation,
   type AgentSetupFinding,
   type CodexHooksFeature,
+  type HookEventInspection,
+  type HookInstallation,
+  unknownHookInstallation,
 } from "@work-intelligence/agent-setup";
 
 const ROOT_DIRECTORY = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -93,10 +100,6 @@ export interface DoctorFinding {
 
 export type { ReadOnlyDatabaseInspection } from "./database-inspection.js";
 
-/** Tool names a finalize call arrives under; the PreToolUse matchers must select them. */
-const CLAUDE_PRE_TOOL_USE_TOOL_NAME = "mcp__work-intelligence__work_write_idempotent";
-const CODEX_PRE_TOOL_USE_TOOL_NAME = "mcp__work_intelligence__work_write_idempotent";
-
 export interface GlobalHookInspection {
   claudeConfigured: boolean;
   codexConfigured: boolean;
@@ -127,10 +130,21 @@ interface CodexTomlConfigInspection {
   config?: ReturnType<typeof parseToml>;
 }
 
+interface McpRegistrationInspection {
+  state: AgentMcpRegistrationState;
+  source: AgentRegistrationSource | null;
+}
+
 interface AgentConnectionInspection {
   connections: SystemAgentConnections;
   claudeMcp: AgentMcpRegistrationState;
   codexMcp: AgentMcpRegistrationState;
+  /** Per-event hook state including the plugin; the booleans in `globalHooks` describe our own entries only. */
+  claudeHooks: HookInstallation;
+  codexHooks: HookInstallation;
+  /** Our own entries only (no plugin, no hooks switch); the plugin duplicate findings say what to delete from these. */
+  claudeOwnHooks: HookInstallation;
+  codexOwnHooks: HookInstallation;
   skillFindings: AgentSetupFinding[];
   globalHooks: GlobalHookInspection;
   claudeHookExists: boolean;
@@ -145,6 +159,8 @@ interface AgentConnectionInspectionOptions {
   homeDirectory?: string;
   repositoryRoot?: string;
   environment?: NodeJS.ProcessEnv;
+  /** The App's launcher shim (desktop child only): a hook that runs another shim reads stale, as on the Agent page. */
+  shimPath?: string;
 }
 
 function addFinding(
@@ -200,244 +216,160 @@ function codexHooksFeatureFromConfig(inspection: CodexTomlConfigInspection): Cod
   return configuredValues.includes(false) ? "disabled" : "enabled";
 }
 
-function inspectCodexMcpState(
-  inspection: CodexTomlConfigInspection,
-  repositoryRoot: string,
-): AgentMcpRegistrationState {
-  if (inspection.state === "unreadable") return "unknown";
-  if (inspection.state === "missing") return "missing";
+/** The state of a `work-intelligence` MCP entry: ours (and who manages it), the legacy direct form, or another command. */
+function mcpRegistrationOf(server: unknown): McpRegistrationInspection {
+  const classified = classifyMcpRegistration(server);
+  if (classified.kind === "direct") return { state: "direct", source: null };
+  if (classified.kind === "other") return { state: "other", source: null };
+  return { state: "registered", source: classified.source };
+}
+
+function inspectCodexMcpState(inspection: CodexTomlConfigInspection): McpRegistrationInspection {
+  const none = (state: AgentMcpRegistrationState): McpRegistrationInspection => ({ state, source: null });
+  if (inspection.state === "unreadable") return none("unknown");
+  if (inspection.state === "missing") return none("missing");
   const mcpServersValue = inspection.config?.mcp_servers;
-  if (mcpServersValue === undefined) return "missing";
+  if (mcpServersValue === undefined) return none("missing");
   const mcpServers = record(mcpServersValue);
-  if (!mcpServers) return "unknown";
+  if (!mcpServers) return none("unknown");
   const workIntelligenceServer = mcpServers["work-intelligence"];
-  if (workIntelligenceServer === undefined) return "missing";
-  if (!record(workIntelligenceServer)) return "unknown";
-  return mcpRegistrationKind(workIntelligenceServer, repositoryRoot) === "direct" ? "direct" : "registered";
+  if (workIntelligenceServer === undefined) return none("missing");
+  if (!record(workIntelligenceServer)) return none("unknown");
+  return mcpRegistrationOf(workIntelligenceServer);
 }
 
-function entries(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : [];
+function hookEvent(installation: HookInstallation, event: string): HookEventInspection | undefined {
+  return installation.events.find((entry) => entry.event === event);
 }
 
-function collectCommands(value: unknown): string[] {
-  const stack: unknown[] = [value];
-  const visited = new Set<object>();
-  const commands: string[] = [];
-  let inspected = 0;
-
-  while (stack.length > 0 && inspected < 500) {
-    const current = stack.pop();
-    inspected += 1;
-    if (Array.isArray(current)) {
-      stack.push(...current);
-      continue;
-    }
-    const currentRecord = record(current);
-    if (!currentRecord || visited.has(current as object)) {
-      continue;
-    }
-    visited.add(current as object);
-    if (typeof currentRecord.command === "string") {
-      commands.push(currentRecord.command);
-      // Claude Code also accepts the exec form: `command` is the runtime and the script path sits in `args`.
-      commands.push(...entries(currentRecord.args).filter((arg): arg is string => typeof arg === "string"));
-    }
-    stack.push(...Object.values(currentRecord));
-  }
-  return commands;
+/** An entry of ours is there for this event and works: a stale one (script or shim gone) does not count. */
+function hookConfigured(event: HookEventInspection | undefined): boolean {
+  return event?.state === "installed";
 }
 
-function normalizeConfigPath(value: string): string {
-  const normalized = value.replaceAll("\\", "/").replace(/\/+/g, "/");
-  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
-}
-
-function commandPointsTo(command: string, scriptPath: string): boolean {
-  const normalizedCommand = normalizeConfigPath(command.trim()).replace(/["']+$/g, "");
-  const normalizedPath = normalizeConfigPath(scriptPath);
-  if (!normalizedCommand.endsWith(normalizedPath)) {
-    if (process.platform === "win32") return false;
-    return parsePosixShellWords(command).some((part) => normalizeConfigPath(part) === normalizedPath);
-  }
-  const prefix = normalizedCommand.slice(0, -normalizedPath.length);
-  if (prefix.length === 0 || /\s$/.test(prefix) || /["']$/.test(prefix)) return true;
-  if (process.platform === "win32") return false;
-  return parsePosixShellWords(command).some((part) => normalizeConfigPath(part) === normalizedPath);
-}
-
-function parsePosixShellWords(command: string): string[] {
-  const words: string[] = [];
-  let word = "";
-  let quote: "'" | '"' | undefined;
-  let escaping = false;
-  let hasWord = false;
-  for (const char of command) {
-    if (escaping) {
-      word += char;
-      hasWord = true;
-      escaping = false;
-    } else if (quote === "'") {
-      if (char === "'") quote = undefined;
-      else word += char;
-      hasWord = true;
-    } else if (quote === '"') {
-      if (char === '"') quote = undefined;
-      else if (char === "\\") escaping = true;
-      else word += char;
-      hasWord = true;
-    } else if (char === "'") {
-      quote = "'";
-      hasWord = true;
-    } else if (char === '"') {
-      quote = '"';
-      hasWord = true;
-    } else if (char === "\\") {
-      escaping = true;
-    } else if (/\s/.test(char)) {
-      if (hasWord) words.push(word);
-      word = "";
-      hasWord = false;
-    } else {
-      word += char;
-      hasWord = true;
-    }
-  }
-  if (escaping) word += "\\";
-  if (hasWord) words.push(word);
-  return words;
-}
-
-/** Whether a hook matcher selects the given value: absent, "", and "*" match everything; plain names match exactly. */
-function matcherSelects(matcher: unknown, value: string): boolean {
-  if (matcher === undefined || matcher === "" || matcher === "*") return true;
-  if (typeof matcher !== "string") return false;
-  if (/^[\w|]+$/.test(matcher)) return matcher.split("|").includes(value);
-  try {
-    return new RegExp(matcher).test(value);
-  } catch {
-    return false;
-  }
-}
-
-/** A hook under `event` whose matcher selects `matcherValue` (when given) runs the script. */
-function hasHookFor(
-  hooks: Record<string, unknown> | undefined,
-  event: string,
-  scriptPath: string,
-  matcherValue?: string,
-): boolean {
-  return entries(hooks?.[event]).some((entry) => {
-    const hookEntry = record(entry);
-    if (matcherValue !== undefined && !matcherSelects(hookEntry?.matcher, matcherValue)) return false;
-    return collectCommands(hookEntry?.hooks).some((command) => commandPointsTo(command, scriptPath));
-  });
-}
-
-function hasClaudeStopHook(config: Record<string, unknown> | undefined, scriptPath: string): boolean {
-  const hooks = record(config?.hooks);
-  return collectCommands(entries(hooks?.Stop)).some((command) => commandPointsTo(command, scriptPath));
-}
-
-/**
- * `legacy` means the Stop hook and a PostToolUse hook exist, but the PostToolUse matcher predates the MCP
- * dispatchers and misses `work_write_idempotent` finalize calls; re-running setup upgrades it.
- */
-function codexGlobalHookState(
-  config: Record<string, unknown> | undefined,
-  scriptPath: string,
-): "current" | "legacy" | "missing" {
-  const hooks = record(config?.hooks);
-  const matchersPointingToScript = entries(hooks?.PostToolUse)
-    .map((entry) => record(entry))
-    .filter((hookEntry) => collectCommands(hookEntry?.hooks).some((command) => commandPointsTo(command, scriptPath)))
-    .map((hookEntry) => hookEntry?.matcher);
-  const stopMatches = collectCommands(entries(hooks?.Stop)).some((command) => commandPointsTo(command, scriptPath));
-  if (!stopMatches) return "missing";
-  if (matchersPointingToScript.includes(CODEX_POST_TOOL_USE_MATCHER)) return "current";
-  return matchersPointingToScript.includes(LEGACY_CODEX_POST_TOOL_USE_MATCHER) ? "legacy" : "missing";
+function hookStatusEvents(installation: HookInstallation): AgentHookEventStatus[] {
+  return installation.events.map((event) => ({
+    event: event.event,
+    matcher: event.matcher,
+    required: event.required,
+    state: event.state,
+    source: event.source,
+    ...(event.reason ? { reason: event.reason } : {}),
+  }));
 }
 
 /** Inspects only the global Claude and Codex hook configuration files. */
 function inspectGlobalHookConfigs(
-  homeDirectory: string,
-  repositoryRoot: string,
   codexHomeDirectory: string,
   claudeConfigDirectory: string,
   codexHooksFeature: CodexHooksFeature,
+  codexPlugin: boolean,
+  shimPath?: string,
 ): {
   inspection: GlobalHookInspection;
-  claudeSettingsState: AgentConfigReadState;
-  codexHooksState: AgentConfigReadState;
+  claudeHooks: HookInstallation;
+  codexHooks: HookInstallation;
+  /** Our own entries only, before the plugin or a hooks switch is taken into account. */
+  claudeOwn: HookInstallation;
+  codexOwn: HookInstallation;
+  claudePlugin: boolean;
 } {
-  const claudeScript = resolve(repositoryRoot, "apps/mcp/dist/finalize-reminder.js");
-  const codexScript = resolve(repositoryRoot, "apps/mcp/dist/codex-finalize-reminder.js");
   const claudeSettingsFile = inspectJsonConfigFile(join(claudeConfigDirectory, "settings.json"));
   const codexSettingsFile = inspectJsonConfigFile(join(codexHomeDirectory, "hooks.json"));
-  const claudeSettings = claudeSettingsFile.config;
-  const codexSettings = codexSettingsFile.config;
-  const codexHookState = codexGlobalHookState(codexSettings, codexScript);
+  // `null` is a file that could not be read, `undefined` one that is not there.
+  const configOf = (file: AgentJsonConfigInspection): Record<string, unknown> | null | undefined =>
+    file.state === "unreadable" ? null : file.config;
+  const claudePlugin = claudePluginEnabled(claudeSettingsFile.config);
+  // Our own entries only: neither the plugin nor a switch that turns hooks off changes what the files configure.
+  const shim = shimPath === undefined ? {} : { shimPath };
+  const own = { pluginEnabled: false, hooksDisabled: false, ...shim };
+  const claudeOwn = inspectHookInstallation(configOf(claudeSettingsFile), "claude-code", own);
+  const codexOwn = inspectHookInstallation(configOf(codexSettingsFile), "codex", own);
+  const configured = (installation: HookInstallation, event: string): boolean =>
+    hookConfigured(hookEvent(installation, event));
+  const codexStopConfigured = configured(codexOwn, "Stop");
+  const postToolUse = hookEvent(codexOwn, "PostToolUse");
   return {
     inspection: {
-      claudeConfigured: hasClaudeStopHook(claudeSettings, claudeScript),
-      codexConfigured: codexHookState === "current",
-      codexLegacyMatcher: codexHookState === "legacy",
-      codexSegmentStartConfigured: collectCommands(entries(record(codexSettings?.hooks)?.UserPromptSubmit)).some(
-        (command) => commandPointsTo(command, codexScript),
-      ),
-      claudeCompactionConfigured:
-        hasHookFor(record(claudeSettings?.hooks), "PreCompact", claudeScript) &&
-        hasHookFor(record(claudeSettings?.hooks), "SessionStart", claudeScript, COMPACT_SESSION_START_MATCHER),
-      codexCompactionConfigured: hasHookFor(
-        record(codexSettings?.hooks),
-        "SessionStart",
-        codexScript,
-        COMPACT_SESSION_START_MATCHER,
-      ),
-      claudeStartGuardConfigured: hasHookFor(
-        record(claudeSettings?.hooks),
-        "PreToolUse",
-        claudeScript,
-        CLAUDE_PRE_TOOL_USE_TOOL_NAME,
-      ),
-      codexStartGuardConfigured: hasHookFor(
-        record(codexSettings?.hooks),
-        "PreToolUse",
-        codexScript,
-        CODEX_PRE_TOOL_USE_TOOL_NAME,
-      ),
+      claudeConfigured: configured(claudeOwn, "Stop"),
+      codexConfigured: codexStopConfigured && hookConfigured(postToolUse),
+      codexLegacyMatcher: codexStopConfigured && postToolUse?.reason === "matcher-outdated",
+      codexSegmentStartConfigured: configured(codexOwn, "UserPromptSubmit"),
+      claudeCompactionConfigured: configured(claudeOwn, "PreCompact") && configured(claudeOwn, "SessionStart"),
+      codexCompactionConfigured: configured(codexOwn, "SessionStart"),
+      claudeStartGuardConfigured: configured(claudeOwn, "PreToolUse"),
+      codexStartGuardConfigured: configured(codexOwn, "PreToolUse"),
       codexHooksFeature,
     },
-    claudeSettingsState: claudeSettingsFile.state,
-    codexHooksState: codexSettingsFile.state,
+    claudeHooks: inspectHookInstallation(configOf(claudeSettingsFile), "claude-code", {
+      pluginEnabled: claudePlugin,
+      ...shim,
+    }),
+    // A hooks switch Doctor cannot read leaves every hook, and so every event, unconfirmed.
+    codexHooks:
+      codexHooksFeature === "unknown"
+        ? unknownHookInstallation("codex")
+        : inspectHookInstallation(configOf(codexSettingsFile), "codex", {
+            pluginEnabled: codexPlugin,
+            hooksDisabled: codexHooksFeature === "disabled",
+            ...shim,
+          }),
+    claudeOwn,
+    codexOwn,
+    claudePlugin,
   };
 }
 
 /** Inspects only the global Claude and Codex hook configuration files. */
 export function inspectGlobalHooks(
   homeDirectory: string,
+  /** Kept for callers: hook commands now carry their own script or shim path, so the checkout is not consulted. */
   repositoryRoot: string,
   codexHomeDirectory = join(homeDirectory, ".codex"),
   claudeConfigDirectory = join(homeDirectory, ".claude"),
 ): GlobalHookInspection {
   const codexConfig = inspectCodexTomlConfig(codexHomeDirectory);
-  const codexHooksFeature = codexHooksFeatureFromConfig(codexConfig);
   return inspectGlobalHookConfigs(
-    homeDirectory,
-    repositoryRoot,
     codexHomeDirectory,
     claudeConfigDirectory,
-    codexHooksFeature,
+    codexHooksFeatureFromConfig(codexConfig),
+    codexPluginEnabled(codexConfig.config),
   ).inspection;
 }
 
-function inspectClaudeMcpState(homeDirectory: string, repositoryRoot: string): AgentMcpRegistrationState {
+function inspectClaudeMcpState(homeDirectory: string): McpRegistrationInspection {
+  const none = (state: AgentMcpRegistrationState): McpRegistrationInspection => ({ state, source: null });
   const file = inspectJsonConfigFile(join(homeDirectory, ".claude.json"));
-  if (file.state === "unreadable") return "unknown";
-  if (file.state === "missing") return "missing";
+  if (file.state === "unreadable") return none("unknown");
+  if (file.state === "missing") return none("missing");
   const server = record(record(file.config?.mcpServers)?.["work-intelligence"]);
-  if (!server) return "missing";
-  return mcpRegistrationKind(server, repositoryRoot) === "direct" ? "direct" : "registered";
+  if (!server) return none("missing");
+  return mcpRegistrationOf(server);
+}
+
+/** What a leftover entry of ours points at, from the sources of its installed events; for the plugin duplicate advice. */
+function hookEntryTarget(installation: HookInstallation, script: string): string {
+  const sources = new Set(installation.events.map((event) => (event.state === "installed" ? event.source : null)));
+  const launcher = sources.has("app");
+  const checkout = sources.has("checkout");
+  if (launcher && checkout) return `指向桌面 App 啟動器或 ${script}`;
+  if (launcher) return "指向桌面 App 啟動器";
+  if (checkout) return `指向 ${script}`;
+  return "屬於 Work Intelligence";
+}
+
+function hookTargetLabel(source: AgentRegistrationSource | null): string {
+  return source === "app" ? "桌面 App 的啟動器" : "checkout 的 dist 腳本";
+}
+
+/** Why a hook entry that exists no longer works, from the first required event that went stale. */
+function staleHookDetail(installation: HookInstallation): string {
+  const reason = installation.events.find((event) => event.required && event.state === "stale")?.reason;
+  if (reason === "shim-differs") return "hook 指向的 App 啟動器已不存在，或不是目前這份 App 的啟動器。";
+  if (reason === "script-missing") {
+    return "hook 指向的 dist 腳本已不存在；checkout 可能被移動或刪除，或尚未執行 pnpm build。";
+  }
+  return "hook 的設定已過期，沒有符合目前的事件與 matcher。";
 }
 
 /** Doctor finding for one Agent's MCP registration. */
@@ -459,6 +391,14 @@ function addMcpRegistrationFinding(
       "work-intelligence 直接執行 apps/mcp/dist/index.js；每次 pnpm build 後都要重新連線 MCP。",
       "執行 pnpm setup:agents 改用 apps/mcp/dist/launcher.js，之後的建置更新會自動切換，不必重新連線。",
     );
+  } else if (state === "other") {
+    addFinding(
+      findings,
+      "warning",
+      label,
+      "work-intelligence 已登錄，但指令不是 Work Intelligence；它可能是舊設定、自訂指令，或指向已不存在的 checkout。",
+      `確認這個項目是否還需要。要改用 Work Intelligence：在桌面 App 的 Agent 頁選擇「改由桌面 App 管理…」，或執行 ${commandName("setup:agents")} 預覽後確認。`,
+    );
   } else if (state === "missing") {
     addFinding(findings, "warning", label, "未找到全域 work-intelligence MCP 註冊。", missingFix);
   } else {
@@ -473,74 +413,63 @@ function inspectAgentConnectionDetails(options: AgentConnectionInspectionOptions
   const repositoryRoot = options.repositoryRoot ?? ROOT_DIRECTORY;
   const codexHomeDirectory = resolve(environment.CODEX_HOME?.trim() || join(homeDirectory, ".codex"));
   const claudeConfigDirectory = resolve(environment.CLAUDE_CONFIG_DIR?.trim() || join(homeDirectory, ".claude"));
-  const claudeMcp = inspectClaudeMcpState(homeDirectory, repositoryRoot);
+  const claudeMcp = inspectClaudeMcpState(homeDirectory);
   const codexConfig = inspectCodexTomlConfig(codexHomeDirectory);
   const codexHooksFeature = codexHooksFeatureFromConfig(codexConfig);
+  const codexPlugin = codexPluginEnabled(codexConfig.config);
   const globalHookConfigs = inspectGlobalHookConfigs(
-    homeDirectory,
-    repositoryRoot,
     codexHomeDirectory,
     claudeConfigDirectory,
     codexHooksFeature,
+    codexPlugin,
+    options.shimPath,
   );
   const globalHooks = globalHookConfigs.inspection;
-  const codexMcp = inspectCodexMcpState(codexConfig, repositoryRoot);
-  const codexPlugin = codexPluginEnabled(codexConfig.config);
+  const { claudeHooks, codexHooks } = globalHookConfigs;
+  const codexMcp = inspectCodexMcpState(codexConfig);
   const skillFindings = inspectAgentSkillCopies(
     homeDirectory,
     repositoryRoot,
     codexHomeDirectory,
     claudeConfigDirectory,
   );
-  const claudePlugin = claudePluginEnabled(inspectJsonConfigFile(join(claudeConfigDirectory, "settings.json")).config);
   const claudeHookExists = existsSync(resolve(repositoryRoot, "apps/mcp/dist/finalize-reminder.js"));
   const codexHookExists = existsSync(resolve(repositoryRoot, "apps/mcp/dist/codex-finalize-reminder.js"));
   const skillState = (
     componentId: AgentSetupFinding["componentId"],
   ): SystemAgentConnections["codex"]["canonicalSkill"] =>
     skillFindings.find((finding) => finding.componentId === componentId)?.state ?? "unreadable";
-  const claudeHook = !claudeHookExists
-    ? "missing"
-    : globalHookConfigs.claudeSettingsState === "unreadable"
-      ? "unknown"
-      : globalHooks.claudeConfigured
-        ? "installed"
-        : "missing";
-  const codexHook = !codexHookExists
-    ? "missing"
-    : globalHooks.codexHooksFeature === "disabled"
-      ? "disabled"
-      : globalHooks.codexHooksFeature === "unknown"
-        ? "unknown"
-        : globalHookConfigs.codexHooksState === "unreadable"
-          ? "unknown"
-          : globalHooks.codexConfigured
-            ? "installed"
-            : globalHooks.codexLegacyMatcher
-              ? "stale"
-              : "missing";
-
   return {
     connections: {
       codex: {
-        mcpRegistered: codexMcp,
+        mcpRegistered: codexMcp.state,
+        mcpSource: codexMcp.source,
         canonicalSkill: skillState("codexSkill"),
         legacySkill: skillState("codexLegacySkill"),
-        hook: codexHook,
+        hook: codexHooks.state,
+        hookSource: codexHooks.state === "installed" ? codexHooks.source : null,
+        hookEvents: hookStatusEvents(codexHooks),
       },
       claudeCode: {
-        mcpRegistered: claudeMcp,
+        mcpRegistered: claudeMcp.state,
+        mcpSource: claudeMcp.source,
         skill: skillState("claudeSkill"),
-        hook: claudeHook,
+        hook: claudeHooks.state,
+        hookSource: claudeHooks.source,
+        hookEvents: hookStatusEvents(claudeHooks),
       },
     },
-    claudeMcp,
-    codexMcp,
+    claudeMcp: claudeMcp.state,
+    codexMcp: codexMcp.state,
+    claudeHooks,
+    codexHooks,
+    claudeOwnHooks: globalHookConfigs.claudeOwn,
+    codexOwnHooks: globalHookConfigs.codexOwn,
     skillFindings,
     globalHooks,
     claudeHookExists,
     codexHookExists,
-    claudePluginEnabled: claudePlugin,
+    claudePluginEnabled: globalHookConfigs.claudePlugin,
     codexPluginEnabled: codexPlugin,
   };
 }
@@ -1209,7 +1138,7 @@ export async function collectDoctorFindings(
         ? "work-intelligence plugin 已啟用，但全域設定也註冊了 work-intelligence MCP 或 Stop hook；Agent 會看到兩份相同工具與提醒。"
         : "work-intelligence plugin 已啟用，提供 MCP、skill 與 Stop hook。",
       duplicated
-        ? `保留一種接法即可：停用 plugin，或移除手動註冊。由 ${cmd("setup:agents")} 安裝的用 ${cmd("setup:agents")} --uninstall 移除（也會移除 Codex 的設定）；手動加入的請執行 claude mcp remove work-intelligence --scope user，並刪除 Claude settings.json 中指向 apps/mcp/dist/finalize-reminder.js 的 Stop hook。plugin 不會自動移除任何設定。`
+        ? `保留一種接法即可：停用 plugin，或移除手動註冊。由 ${cmd("setup:agents")} 安裝的用 ${cmd("setup:agents")} --uninstall 移除（也會移除 Codex 的設定）；手動加入的請執行 claude mcp remove work-intelligence --scope user，並刪除 Claude settings.json 中${hookEntryTarget(agentInspection.claudeOwnHooks, "apps/mcp/dist/finalize-reminder.js")}的 Stop hook。plugin 不會自動移除任何設定。`
         : undefined,
     );
   }
@@ -1243,7 +1172,9 @@ export async function collectDoctorFindings(
         ? [
             "保留一種接法即可：停用 plugin，或移除手動設定。",
             duplicateMcp ? "執行 codex mcp remove work-intelligence。" : "",
-            duplicateHook ? "刪除 Codex hooks.json 中指向 apps/mcp/dist/codex-finalize-reminder.js 的項目。" : "",
+            duplicateHook
+              ? `刪除 Codex hooks.json 中${hookEntryTarget(agentInspection.codexOwnHooks, "apps/mcp/dist/codex-finalize-reminder.js")}的項目。`
+              : "",
             "plugin 不會自動移除任何設定。",
           ].join("")
         : "在 Codex 執行 /hooks，檢視並信任 work-intelligence plugin 的 hooks。",
@@ -1279,23 +1210,30 @@ export async function collectDoctorFindings(
     );
   }
 
+  const claudeHooks = agentInspection.claudeHooks;
   const claudeHookState = agentInspection.connections.claudeCode.hook;
-  if (!(claudePlugin && claudeHookState === "missing"))
+  const staleFix = `重新執行 ${cmd("setup:agents")} 預覽後確認，或在桌面 App 的 Agent 頁選擇「改由桌面 App 管理…」。`;
+  // The plugin finding above reports hooks the plugin brings.
+  if (!(claudePlugin && claudeHooks.source === "plugin"))
     addFinding(
       findings,
       claudeHookState === "installed" ? "ok" : "warning",
       "Claude 全域 hook",
       claudeHookState === "unknown"
         ? "無法判定 Claude Stop hook 狀態；settings.json 無法讀取或不是有效 JSON。"
-        : claudeHookExists
-          ? globalHooks.claudeConfigured
-            ? globalHooks.claudeCompactionConfigured
-              ? `全域 Stop、PreCompact 與 SessionStart（compact）hook 已設定指向目前專案的 dist 腳本${
-                  globalHooks.claudeStartGuardConfigured ? "" : "，未設定 PreToolUse hook（保存前提示開始時間）"
-                }；doctor 只檢查設定檔，沒有執行 hook。`
-              : "全域 Stop hook 已設定，但未設定 PreCompact 與 SessionStart（compact）hook，上下文壓縮後可能遺失未保存工作的開始時間與改過的檔案；doctor 沒有執行 hook。"
-            : "dist 腳本存在，但目前 Claude 設定目錄的 settings.json 沒有指向它的 Stop hook。"
-          : "apps/mcp/dist/finalize-reminder.js 不存在。",
+        : claudeHookState === "disabled"
+          ? "settings.json 設定了 disableAllHooks；Claude Code 不會執行任何 hook。"
+          : claudeHookState === "stale"
+            ? staleHookDetail(claudeHooks)
+            : claudeHookState === "installed"
+              ? globalHooks.claudeCompactionConfigured
+                ? `全域 Stop、PreCompact 與 SessionStart（compact）hook 已設定指向${hookTargetLabel(claudeHooks.source)}${
+                    globalHooks.claudeStartGuardConfigured ? "" : "，未設定 PreToolUse hook（保存前提示開始時間）"
+                  }；doctor 只檢查設定檔，沒有執行 hook。`
+                : "全域 Stop hook 已設定，但未設定 PreCompact 與 SessionStart（compact）hook，上下文壓縮後可能遺失未保存工作的開始時間與改過的檔案；doctor 沒有執行 hook。"
+              : claudeHookExists
+                ? "dist 腳本存在，但目前 Claude 設定目錄的 settings.json 沒有指向它的 Stop hook。"
+                : "apps/mcp/dist/finalize-reminder.js 不存在。",
       claudeHookState === "installed"
         ? globalHooks.claudeCompactionConfigured
           ? globalHooks.claudeStartGuardConfigured
@@ -1304,12 +1242,16 @@ export async function collectDoctorFindings(
           : `執行 ${cmd("setup:agents")}，預覽後確認即可補上壓縮前後的提醒 hook。`
         : claudeHookState === "unknown"
           ? `確認 Claude 設定目錄中的 settings.json 存在且可讀、格式有效後重新執行 ${cmd("check")}。`
-          : standalone
-            ? `執行 ${cmd("setup:agents")} 設定全域 Claude hook。`
-            : "先執行 pnpm build，再依 docs/agent-setup.md 設定全域 Claude hook。",
+          : claudeHookState === "disabled"
+            ? `如要使用保存提醒，請手動移除 settings.json 的 disableAllHooks，再重跑 ${cmd("check")}。`
+            : claudeHookState === "stale"
+              ? staleFix
+              : standalone
+                ? `執行 ${cmd("setup:agents")} 設定全域 Claude hook。`
+                : "先執行 pnpm build，再依 docs/agent-setup.md 設定全域 Claude hook。",
     );
+  const codexHooks = agentInspection.codexHooks;
   const codexHookState = agentInspection.connections.codex.hook;
-  const codexHooksDisabled = globalHooks.codexHooksFeature === "disabled";
   // The Codex plugin carries its own hooks; the Codex plugin finding above reports them.
   if (!(codexPlugin && (codexHookState === "missing" || codexHookState === "installed" || codexHookState === "stale")))
     addFinding(
@@ -1318,38 +1260,40 @@ export async function collectDoctorFindings(
       "Codex 全域 hook",
       codexHookState === "unknown"
         ? "無法判定 Codex hook 狀態；config.toml 或 hooks.json 無法讀取或格式無法判定。"
-        : codexHooksDisabled
+        : codexHookState === "disabled"
           ? "config.toml 明確停用了 Codex hooks；hooks.json 即使有設定也不代表會執行。"
-          : codexHookExists
-            ? globalHooks.codexConfigured
-              ? `${
-                  globalHooks.codexSegmentStartConfigured
-                    ? "PostToolUse、Stop 與 UserPromptSubmit hook 已設定"
-                    : "PostToolUse 與 Stop hook 已設定，未設定 UserPromptSubmit"
-                }${
-                  globalHooks.codexCompactionConfigured ? "" : "，未設定壓縮後提醒的 SessionStart（compact）hook"
-                }${globalHooks.codexStartGuardConfigured ? "" : "，未設定 PreToolUse hook（保存前提示開始時間）"}；Codex 仍需在 /hooks 審查並信任，doctor 沒有執行 hook。`
-              : globalHooks.codexLegacyMatcher
+          : codexHookState === "installed"
+            ? `${
+                globalHooks.codexSegmentStartConfigured
+                  ? "PostToolUse、Stop 與 UserPromptSubmit hook 已設定"
+                  : "PostToolUse 與 Stop hook 已設定，未設定 UserPromptSubmit"
+              }${
+                globalHooks.codexCompactionConfigured ? "" : "，未設定壓縮後提醒的 SessionStart（compact）hook"
+              }${globalHooks.codexStartGuardConfigured ? "" : "，未設定 PreToolUse hook（保存前提示開始時間）"}；Codex 仍需在 /hooks 審查並信任，doctor 沒有執行 hook。`
+            : codexHookState === "stale"
+              ? globalHooks.codexLegacyMatcher
                 ? "PostToolUse hook 仍使用 MCP dispatcher 之前的舊 matcher，漏掉 work_write_idempotent 的 finalize 呼叫。"
-                : "dist 腳本存在，但目前 Codex hooks 設定目錄未同時設定指定的 PostToolUse 與 Stop hook。"
-            : "apps/mcp/dist/codex-finalize-reminder.js 不存在。",
+                : staleHookDetail(codexHooks)
+              : codexHookExists
+                ? "dist 腳本存在，但目前 Codex hooks 設定目錄未同時設定指定的 PostToolUse 與 Stop hook。"
+                : "apps/mcp/dist/codex-finalize-reminder.js 不存在。",
       codexHookState === "unknown"
         ? `確認 CODEX_HOME 下的 config.toml 與 hooks.json 存在且可讀、格式有效後重新執行 ${cmd("check")}。`
-        : codexHooksDisabled
+        : codexHookState === "disabled"
           ? `如要使用此 hook，請先手動檢視並調整 Codex config.toml 的 [features].hooks 設定，再重跑 ${cmd("check")}。`
-          : codexHookExists && globalHooks.codexConfigured
+          : codexHookState === "installed"
             ? globalHooks.codexCompactionConfigured &&
               globalHooks.codexSegmentStartConfigured &&
               globalHooks.codexStartGuardConfigured
               ? "在 Codex 執行 /hooks，檢視並信任 Work Intelligence hooks；再於工作階段確認執行結果。"
               : `執行 ${cmd("setup:agents")} 補上缺少的選用 hook；之後在 Codex 執行 /hooks，檢視並信任 Work Intelligence hooks。`
-            : globalHooks.codexHooksFeature === "unknown"
-              ? `無法安全判定 Codex hooks 開關；確認 config.toml 結構後重跑 ${cmd("check")}。`
-              : globalHooks.codexLegacyMatcher
+            : codexHookState === "stale"
+              ? globalHooks.codexLegacyMatcher
                 ? `執行 ${cmd("setup:agents")}，預覽後確認即可更新 matcher；更新後在 Codex /hooks 重新信任。`
-                : standalone
-                  ? `執行 ${cmd("setup:agents")} 設定全域 Codex hook。`
-                  : "先執行 pnpm build，再依 docs/agent-setup.md 設定全域 Codex hook。",
+                : staleFix
+              : standalone
+                ? `執行 ${cmd("setup:agents")} 設定全域 Codex hook。`
+                : "先執行 pnpm build，再依 docs/agent-setup.md 設定全域 Codex hook。",
     );
   return findings;
 }

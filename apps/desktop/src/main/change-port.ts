@@ -58,13 +58,20 @@ export function createChangePort(options: ChangePortOptions): ChangePortControll
   /** The section was asked for and no state has carried that to a page yet. */
   let focusPending = false;
 
-  /** A refusal because something runs, or null when nothing does. The backend is asked only while one runs. */
-  async function busyReason(): Promise<Extract<PortChangeResult, { ok: false }> | null> {
-    if (coordinator.current() !== null) return { ok: false, reason: "busy", busy: "operation" };
-    if (supervisor.running === undefined) return null;
+  /**
+   * A refusal because something runs, or what the restart would throw away when nothing does. The backend is asked only
+   * while one runs. An idle staged import preview is not work: it never refuses, it is only reported.
+   */
+  async function busyReason(): Promise<
+    { readonly refusal: Extract<PortChangeResult, { ok: false }> } | { readonly pendingImport: boolean }
+  > {
+    if (coordinator.current() !== null) return { refusal: { ok: false, reason: "busy", busy: "operation" } };
+    if (supervisor.running === undefined) return { pendingImport: false };
     const activity = await supervisor.queryActivity();
-    if (activity.status === "unknown") return { ok: false, reason: "busy", busy: "unknown" };
-    return activity.busy.length > 0 ? { ok: false, reason: "busy", busy: "activity" } : null;
+    if (activity.status === "unknown") return { refusal: { ok: false, reason: "busy", busy: "unknown" } };
+    return activity.busy.length > 0
+      ? { refusal: { ok: false, reason: "busy", busy: "activity" } }
+      : { pendingImport: activity.pendingImport };
   }
 
   function failureOf(code: string, rolledBack: boolean): PortChangeResult {
@@ -103,7 +110,7 @@ export function createChangePort(options: ChangePortOptions): ChangePortControll
     if (checked.kind === "same") return { ok: true, changed: false, port: checked.port };
     const to = checked.port;
     const early = await busyReason();
-    if (early) return early;
+    if ("refusal" in early) return early.refusal;
     // Only a hint (the real bind stays the authority), but an occupied target stops nothing.
     const probe = await options.probePort(to);
     if (!probe.free) {
@@ -112,7 +119,7 @@ export function createChangePort(options: ChangePortOptions): ChangePortControll
     if (!(await options.confirmDialog(from, to))) return { ok: false, reason: "cancelled" };
     // Something may have started while the dialog was open.
     const late = await busyReason();
-    if (late) return late;
+    if ("refusal" in late) return late.refusal;
     const outcome = await backend.startOnPort({ port: to, from });
     if (!outcome.ok) {
       if (outcome.busy) return { ok: false, reason: "busy", busy: "operation" };
@@ -123,7 +130,10 @@ export function createChangePort(options: ChangePortOptions): ChangePortControll
     const taken = options.handoff.take();
     options.openDashboard(taken);
     state.touch();
-    return { ok: true, changed: true, port: to };
+    // The restart stops the old backend, whose shutdown removes the staged file; only a preview that was there counts.
+    return late.pendingImport
+      ? { ok: true, changed: true, port: to, discardedImportPreview: true }
+      : { ok: true, changed: true, port: to };
   }
 
   return {

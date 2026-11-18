@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { hashFile } from "../../packages/desktop-core/src/runtime/hash.js";
 import {
   commitCurrent,
+  RETIRED_GRACE_MS,
   collectOldRuntimes,
   ensureBundledRuntime,
   installRuntime,
@@ -370,6 +371,23 @@ describe("ensureBundledRuntime: shims, previous runtime and rollback", () => {
 });
 
 describe("collectOldRuntimes", () => {
+  /**
+   * Two collections: the first records when each old runtime was seen retired, the second runs after the grace period.
+   * Returns what both did together (a leftover is removed by the first, an old runtime by the second).
+   */
+  async function collectAged(options: Parameters<typeof collectOldRuntimes>[1]): ReturnType<typeof collectOldRuntimes> {
+    const first = await collectOldRuntimes(root, options);
+    const second = await collectOldRuntimes(root, {
+      ...options,
+      deps: { now: () => Date.now() + RETIRED_GRACE_MS + 1_000 },
+    });
+    return {
+      removed: [...first.removed, ...second.removed],
+      deferred: second.deferred,
+      failed: [...first.failed, ...second.failed],
+    };
+  }
+
   async function layout(): Promise<void> {
     await installFixture(root, "old-1");
     await installFixture(root, "old-2");
@@ -381,7 +399,7 @@ describe("collectOldRuntimes", () => {
 
   it("removes old runtimes and quarantined directories, keeping current, the previous one and any staging directory", async () => {
     await layout();
-    const result = await collectOldRuntimes(root, { keep: ["previous"] });
+    const result = await collectAged({ keep: ["previous"] });
     expect([...result.removed].sort()).toEqual([".quarantine-old-1-aa", "old-1", "old-2"]);
     expect(result.failed).toEqual([]);
     expect((await fs.readdir(path.join(root, "runtimes"))).sort()).toEqual([".staging-x-bb", "current-id", "previous"]);
@@ -390,7 +408,7 @@ describe("collectOldRuntimes", () => {
 
   it("never removes the current runtime, even when it is not listed to keep", async () => {
     await layout();
-    await collectOldRuntimes(root, {});
+    await collectAged({});
     await expect(fs.access(path.join(root, "runtimes", "current-id"))).resolves.toBeUndefined();
   });
 
@@ -411,17 +429,21 @@ describe("collectOldRuntimes", () => {
   it("leaves a directory that cannot be removed and reports it, without failing", async () => {
     await layout();
     const remove = vi.fn(async (directory: string) => {
-      if (directory.endsWith("old-1")) throw Object.assign(new Error("in use"), { code: "EBUSY" });
+      // old-1 is renamed aside before it is removed; the quarantined directory the layout already holds is a different one.
+      const name = path.basename(directory);
+      if (name.startsWith(".quarantine-old-1-") && name !== ".quarantine-old-1-aa")
+        throw Object.assign(new Error("in use"), { code: "EBUSY" });
       await fs.rm(directory, { recursive: true, force: true });
     });
-    const result = await collectOldRuntimes(root, { keep: ["previous"], remove });
+    const result = await collectAged({ keep: ["previous"], remove });
     expect(result.failed).toEqual(["old-1"]);
     expect(result.removed).toContain("old-2");
-    expect(await fs.readdir(path.join(root, "runtimes"))).toContain("old-1");
+    const left = await fs.readdir(path.join(root, "runtimes"));
+    expect(left.some((name) => name.startsWith(".quarantine-old-1-") && name !== ".quarantine-old-1-aa")).toBe(true);
   });
 
   it("copes with a root that has no runtimes directory", async () => {
-    expect(await collectOldRuntimes(root, {})).toEqual({ removed: [], failed: [] });
+    expect(await collectOldRuntimes(root, {})).toEqual({ removed: [], deferred: [], failed: [] });
   });
 });
 

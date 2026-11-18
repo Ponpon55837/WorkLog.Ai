@@ -7,7 +7,7 @@ import UiBoxTitle from "../ui/UiBoxTitle.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiCommandBlock from "../ui/UiCommandBlock.vue";
 import UiCopyButton from "../ui/UiCopyButton.vue";
-import { onboardingStepStatusVisual } from "../../utils/status";
+import { agentConnectionStepState, onboardingStepStatusVisual } from "../../utils/status";
 import { t } from "../../i18n";
 
 /** Inputs summarize project setup and read-only Agent diagnostics for the first-run steps. */
@@ -20,24 +20,10 @@ const props = defineProps<{
   agentStatusError: string;
 }>();
 
-const agentConnected = computed(() =>
-  props.agentConnections
-    ? [props.agentConnections.codex.mcpRegistered, props.agentConnections.claudeCode.mcpRegistered].some(
-        (state) => state === "registered" || state === "direct",
-      )
-    : null,
+const agentStepState = computed(() =>
+  agentConnectionStepState(props.agentConnections, props.agentStatusLoading, props.agentStatusError),
 );
-const agentStepState = computed(() => {
-  if (agentConnected.value) return "complete";
-  if (
-    props.agentConnections?.codex.mcpRegistered === "missing" &&
-    props.agentConnections.claudeCode.mcpRegistered === "missing"
-  ) {
-    return "pending";
-  }
-  if (props.agentStatusError) return "unknown";
-  return props.agentStatusLoading ? "checking" : "unknown";
-});
+const agentConnected = computed(() => (props.agentConnections ? agentStepState.value === "complete" : null));
 </script>
 
 <template>

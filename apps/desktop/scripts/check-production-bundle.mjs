@@ -24,6 +24,9 @@ const FORBIDDEN = [
   "__workIntelligenceDesktopTest",
   "__WI_TEST_BUILD__",
   "__WI_DESKTOP_TEST_BUILD__",
+  // tests/helpers/sqlite-timing.ts (test-only SQLite timing): its env variables and its global state key.
+  "WI_SQLITE_TIMING",
+  "work-intelligence.sqliteTiming",
 ];
 const SCANNED_EXTENSIONS = new Set([".js", ".mjs", ".cjs", ".html", ".css", ".map", ".json"]);
 

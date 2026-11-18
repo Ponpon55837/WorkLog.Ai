@@ -13,6 +13,14 @@ import {
 import type { DesktopRuntimeFixtures } from "./runtime-global-setup.js";
 
 export const IS_WINDOWS = process.platform === "win32";
+/** The most a hook may pay for one extra step of the launcher: the budget of the `[hook cost]` measurement. */
+export const HOOK_BUDGET_MS = 5;
+/** The lease members of a `LauncherHost` for tests whose subject is not the lease: they do nothing. */
+export const INERT_LEASE_HOST = {
+  acquireLease: () => ({ refresh: () => undefined, remove: () => undefined }),
+  onExit: () => undefined,
+  startHeartbeat: () => undefined,
+} as const;
 /** A fake runtime executable: prints the Electron flag and its arguments, one per line (POSIX only). */
 const FAKE_EXECUTABLE = '#!/bin/sh\nprintf \'%s\\n\' "${ELECTRON_RUN_AS_NODE-unset}${ELECTRON_NO_ASAR-unset}" "$@"\n';
 

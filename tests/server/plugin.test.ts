@@ -860,9 +860,13 @@ describe("doctor with the Claude Code plugin", () => {
       JSON.stringify({ enabledPlugins: { "work-intelligence@worklog-ai": true } }),
     );
     if (registered) {
+      // A checkout registration: the launcher the entry names exists.
+      const launcher = join(home, "apps/mcp/dist/launcher.js");
+      mkdirSync(dirname(launcher), { recursive: true });
+      writeFileSync(launcher, "");
       writeFileSync(
         join(home, ".claude.json"),
-        JSON.stringify({ mcpServers: { "work-intelligence": { command: "node", args: ["index.js"] } } }),
+        JSON.stringify({ mcpServers: { "work-intelligence": { command: "node", args: [launcher] } } }),
       );
     }
     const findings = await collectDoctorFindings({
@@ -928,12 +932,19 @@ describe("doctor with the Codex plugin", () => {
         }),
       );
     }
+    const launcher = join(repositoryRoot, "apps/mcp/dist/launcher.js");
+    if (registered) {
+      mkdirSync(dirname(launcher), { recursive: true });
+      writeFileSync(launcher, "");
+    }
     writeFileSync(
       join(home, ".codex/config.toml"),
       [
         '[plugins."work-intelligence@worklog-ai"]',
         "enabled = true",
-        ...(registered ? ["", "[mcp_servers.work-intelligence]", 'command = "node"', 'args = ["index.js"]'] : []),
+        ...(registered
+          ? ["", "[mcp_servers.work-intelligence]", 'command = "node"', `args = [${JSON.stringify(launcher)}]`]
+          : []),
         "",
       ].join("\n"),
     );

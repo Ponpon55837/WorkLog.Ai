@@ -101,6 +101,11 @@ export const desktopFactsSchema = z.strictObject({
   /** The port the App committed for this backend, so the status page can show the effective address. */
   activePort: portSchema.optional(),
   /**
+   * The App's launcher shim, so the Web status judges an Agent's hooks by the same rule as the Agent page: a hook that
+   * runs another shim is stale.
+   */
+  launcherShimPath: pathSchema.optional(),
+  /**
    * Positively detected risky storage for the database (DT-08). `unknown` means detection failed or timed out and is a
    * soft note only; it never blocks anything.
    */
@@ -194,7 +199,8 @@ const openPortSettingsSchema = z.strictObject({
 });
 
 /**
- * The long jobs a running backend reports; any of them makes a port change wait. `restore` is reserved for a future
+ * The long jobs a running backend reports; any of them makes a port change wait. `import` means an upload is being
+ * saved or an import or preview is reading a staged file; a staged file nobody reads is `pendingImport` instead. `restore` is reserved for a future
  * restore flow: the server has no restore route yet, so nothing reports it today.
  */
 export const DESKTOP_BACKEND_ACTIVITIES = ["import", "backup", "export", "restore"] as const;
@@ -203,6 +209,11 @@ const activitySchema = z.strictObject({
   type: z.literal("activity"),
   requestId: requestIdSchema,
   busy: z.array(z.enum(DESKTOP_BACKEND_ACTIVITIES)).max(DESKTOP_BACKEND_ACTIVITIES.length),
+  /**
+   * An uploaded import file is staged and idle (nobody reads it, it has not expired). It is not a job: a restart throws
+   * it away, so it never blocks a port change, but the App tells the user afterwards. Absent means false.
+   */
+  pendingImport: z.boolean().optional(),
 });
 
 /** Result of `copy-database`; on `ok` the identity is the copy's, read back after the integrity check. */

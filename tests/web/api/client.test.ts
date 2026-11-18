@@ -213,3 +213,25 @@ describe("ApiClient.pageInfo", () => {
     expect(ApiClient.pageInfo(25, 2, 10)).toMatchObject({ hasPrevious: true, hasNext: true, from: 11, to: 20 });
   });
 });
+
+describe("ApiClient.discardStagedProjectDataImport", () => {
+  it("sends the same JSON DELETE with and without keepalive; keepalive adds nothing else", async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new ApiClient();
+    await client.discardStagedProjectDataImport("stage-1");
+    await client.discardStagedProjectDataImport("stage-1", { keepalive: true });
+    const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit]>;
+    const [plainPath, plain] = calls[0] ?? ["", {}];
+    const [livePath, live] = calls[1] ?? ["", {}];
+    expect(plainPath).toBe("/api/import/staged/stage-1");
+    expect(livePath).toBe(plainPath);
+    expect(plain).toEqual({
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+      signal: undefined,
+    });
+    expect(live).toEqual({ ...plain, keepalive: true });
+  });
+});

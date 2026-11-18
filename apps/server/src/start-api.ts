@@ -68,6 +68,8 @@ export interface StartedApi {
   shutdown(): Promise<void>;
   /** The long jobs running now; empty for an API that never started. */
   activity(): DesktopBackendActivity[];
+  /** An uploaded import file waits unread for the user's confirm; false for an API that never started. */
+  hasPendingImport(): boolean;
 }
 
 /** Requests that never write a backup file. */
@@ -126,7 +128,7 @@ function failedStart(error: StartApiError): StartedApi {
   const listening = Promise.reject<ApiListening>(error);
   // The CLI never reads `listening`; mark it handled so a refusal is not also an unhandled rejection.
   listening.catch(() => undefined);
-  return { listening, shutdown: () => Promise.resolve(), activity: () => [] };
+  return { listening, shutdown: () => Promise.resolve(), activity: () => [], hasPendingImport: () => false };
 }
 
 /**
@@ -343,5 +345,10 @@ export function startApi(options: StartApiOptions = {}): StartedApi {
     },
     process,
   );
-  return { listening, shutdown, activity: () => apiHandler.activity() };
+  return {
+    listening,
+    shutdown,
+    activity: () => apiHandler.activity(),
+    hasPendingImport: () => apiHandler.hasPendingImport(),
+  };
 }

@@ -55,24 +55,60 @@ export class SecretMasker {
 
   /** The whole line with every occurrence of every secret replaced. */
   apply(line: string): string {
-    return this.secrets.reduce((masked, secret) => this.replaceAll(masked, secret), line);
+    return this.applyCounted(line).line;
   }
 
-  private replaceAll(line: string, secret: string): string {
-    if (!this.caseInsensitive) return line.split(secret).join(REDACTED);
+  /** Like {@link apply}, and how many occurrences were replaced (the diagnostics report counts them, never their values). */
+  applyCounted(line: string): { readonly line: string; readonly replaced: number } {
+    let replaced = 0;
+    const masked = this.secrets.reduce((current, secret) => {
+      const result = this.replaceAll(current, secret);
+      replaced += result.replaced;
+      return result.line;
+    }, line);
+    return { line: masked, replaced };
+  }
+
+  private replaceAll(line: string, secret: string): { line: string; replaced: number } {
+    if (!this.caseInsensitive) {
+      const parts = line.split(secret);
+      return { line: parts.join(REDACTED), replaced: parts.length - 1 };
+    }
     const needle = secret.toLowerCase();
+    const lower = line.toLowerCase();
+    // Lower-casing keeps the length for almost every text, so offsets in `lower` are offsets in `line`: jump between
+    // matches with indexOf and copy the text between them in one slice each.
+    if (lower.length === line.length && needle.length === secret.length) {
+      const parts: string[] = [];
+      let start = 0;
+      let found = lower.indexOf(needle);
+      while (found !== -1) {
+        parts.push(line.slice(start, found));
+        start = found + needle.length;
+        found = lower.indexOf(needle, start);
+      }
+      parts.push(line.slice(start));
+      return { line: parts.join(REDACTED), replaced: parts.length - 1 };
+    }
+    // A character whose lower case has another length (such as "İ"): compare position by position.
     let output = "";
     let index = 0;
+    let replaced = 0;
     while (index < line.length) {
-      if (line.slice(index, index + secret.length).toLowerCase() === needle) {
+      // The first character is compared before slicing, so a long text does not allocate a slice per position.
+      if (
+        needle.startsWith(line.charAt(index).toLowerCase()) &&
+        line.slice(index, index + secret.length).toLowerCase() === needle
+      ) {
         output += REDACTED;
         index += secret.length;
+        replaced += 1;
       } else {
         output += line.charAt(index);
         index += 1;
       }
     }
-    return output;
+    return { line: output, replaced };
   }
 }
 

@@ -35,6 +35,7 @@ function setup(overrides: Partial<DesktopChildDependencies> = {}) {
   const startApi = vi.fn((_options?: unknown): StartedApi => ({
     listening: Promise.resolve({ port: START.port, databaseIdentity: IDENTITY }),
     shutdown: async () => undefined,
+    hasPendingImport: () => false,
     activity: () => [],
   }));
   const dependencies: DesktopChildDependencies = {

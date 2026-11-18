@@ -53,8 +53,11 @@ export function isPnpmExecutable(command: string): boolean {
   return executable === "pnpm" || executable === "pnpm.cmd" || executable === "pnpm.exe";
 }
 
-/** Split the quoted command form emitted by setup without evaluating shell syntax. */
-export function commandWords(command: string): string[] | undefined {
+/**
+ * Split the quoted command form emitted by setup without evaluating shell syntax. On `win32` a backslash outside
+ * quotes is a path separator, not an escape (inside double quotes only `\"` is an escape on every platform).
+ */
+export function commandWords(command: string, platform?: NodeJS.Platform): string[] | undefined {
   const words: string[] = [];
   let word = "";
   let quote: "'" | '"' | undefined;
@@ -82,7 +85,7 @@ export function commandWords(command: string): string[] | undefined {
     if (character === "'" || character === '"') {
       quote = character;
       wordStarted = true;
-    } else if (character === "\\") {
+    } else if (character === "\\" && platform !== "win32") {
       if (next === undefined) word += character;
       else {
         word += next;

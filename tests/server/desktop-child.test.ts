@@ -38,6 +38,7 @@ interface Harness {
 }
 
 let activityNow: Array<"import" | "backup" | "export" | "restore"> = [];
+let pendingImportNow = false;
 
 function setup(overrides: Partial<DesktopChildDependencies> & { listening?: Promise<ApiListening> } = {}): Harness {
   const sent: Record<string, unknown>[] = [];
@@ -68,6 +69,7 @@ function setup(overrides: Partial<DesktopChildDependencies> & { listening?: Prom
     listening: overrides.listening ?? Promise.resolve({ port: START.port, databaseIdentity: IDENTITY }),
     shutdown,
     activity: () => activityNow,
+    hasPendingImport: () => pendingImportNow,
   }));
   const dependencies: DesktopChildDependencies = {
     preflight: overrides.preflight ?? (async () => ({ status: "ok", identity: IDENTITY, schemaVersion: 33 })),
@@ -83,7 +85,9 @@ function setup(overrides: Partial<DesktopChildDependencies> & { listening?: Prom
 function failing(error: unknown): Pick<DesktopChildDependencies, "startApi"> {
   const listening = Promise.reject(error);
   listening.catch(() => undefined);
-  return { startApi: () => ({ listening, shutdown: async () => undefined, activity: () => [] }) };
+  return {
+    startApi: () => ({ listening, shutdown: async () => undefined, activity: () => [], hasPendingImport: () => false }),
+  };
 }
 
 describe("DesktopChild", () => {
@@ -328,6 +332,7 @@ describe("DesktopChild", () => {
 
   it("answers an activity query with what the running API is busy with, and nothing before it serves", async () => {
     activityNow = [];
+    pendingImportNow = true;
     const { child, sent } = setup();
     await child.handle({ type: "activity-query", requestId: "request-before" });
     await child.handle(START);
@@ -335,10 +340,13 @@ describe("DesktopChild", () => {
     await child.handle({ type: "activity-query", requestId: "request-busy" });
     activityNow = [];
     await child.handle({ type: "activity-query", requestId: "request-idle" });
+    pendingImportNow = false;
+    await child.handle({ type: "activity-query", requestId: "request-none" });
     expect(sent.filter((message) => message.type === "activity")).toEqual([
-      { type: "activity", requestId: "request-before", busy: [] },
-      { type: "activity", requestId: "request-busy", busy: ["import", "backup"] },
-      { type: "activity", requestId: "request-idle", busy: [] },
+      { type: "activity", requestId: "request-before", busy: [], pendingImport: false },
+      { type: "activity", requestId: "request-busy", busy: ["import", "backup"], pendingImport: true },
+      { type: "activity", requestId: "request-idle", busy: [], pendingImport: true },
+      { type: "activity", requestId: "request-none", busy: [], pendingImport: false },
     ]);
   });
 
@@ -567,7 +575,9 @@ describe("DesktopChild stop and failure races", () => {
     const shutdown = vi.fn(async () => undefined);
     const listening = Promise.reject(new StartApiError("setup", "x"));
     listening.catch(() => undefined);
-    const { child, sent } = setup({ startApi: () => ({ listening, shutdown, activity: () => [] }) });
+    const { child, sent } = setup({
+      startApi: () => ({ listening, shutdown, activity: () => [], hasPendingImport: () => false }),
+    });
 
     await child.handle(START);
 

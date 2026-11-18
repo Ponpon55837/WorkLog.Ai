@@ -393,3 +393,43 @@ button:disabled {
 .update-newer {
   font-weight: 600;
 }
+
+/* 「匯出診斷資訊」: the preview is a native modal dialog over the page; the text is plain, read-only and never markup. */
+.preview-dialog {
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-outer);
+  background: var(--bg-surface);
+  color: var(--fg);
+}
+
+.preview-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.preview-dialog[open] {
+  display: grid;
+  gap: 8px;
+}
+
+.preview-text {
+  width: 100%;
+  height: min(50vh, 420px);
+  margin: 0;
+  padding: 8px;
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius);
+  background: var(--bg-subtle);
+  color: var(--fg);
+  font: 12px / 1.45 var(--font-mono);
+  white-space: pre;
+  overflow: auto;
+  resize: vertical;
+}
+
+.preview-summary {
+  display: grid;
+  gap: 4px;
+}

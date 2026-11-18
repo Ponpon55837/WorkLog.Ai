@@ -1,10 +1,12 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { errorCode } from "../internal/error-code.js";
 import { RuntimeError, runtimeErrorCode } from "./errors.js";
 import { DATABASE_ENVIRONMENT_VARIABLE, type DesktopDatabaseResolution } from "./desktop-database.js";
 import { checkLaunchConsistency } from "./launch-consistency.js";
 import { ELECTRON_AS_NODE_ENV, assertAllowedAction, buildLaunchPlan } from "./launch-plan.js";
 import { RUNTIMES_DIRECTORY_NAME } from "./layout.js";
+import { LEASE_HEARTBEAT_MS, type LeaseHandle } from "./lease.js";
 import { HOOK_ACTIONS } from "./manifest.js";
 import { verifyRuntime, type VerifiedRuntime } from "./verify.js";
 
@@ -29,6 +31,12 @@ export interface LauncherHost {
   desktopDatabase(launcherRoot: string): DesktopDatabaseResolution;
   /** Dynamic `import()` of the action's entry, in this same process. */
   importModule(url: string): Promise<unknown>;
+  /** Creates this process's lease for the runtime (see lease.ts). One synchronous attempt; throws when it cannot. */
+  acquireLease(launcherRoot: string, runtimeId: string, action: string): LeaseHandle;
+  /** Runs `handler` synchronously when the process exits. */
+  onExit(handler: () => void): void;
+  /** Calls `tick` every `intervalMs` for as long as the process runs, on a timer that does not keep it alive. */
+  startHeartbeat(tick: () => void, intervalMs: number): void;
 }
 
 /** The runtime directory this launcher script lives in, and the command line after the script name. */
@@ -58,6 +66,8 @@ export const PRINT_RUNTIME_INFO_FLAG = "--print-runtime-info";
 
 /** The backend the App itself starts; it is always given its database explicitly. */
 const SERVE_ACTION = "serve";
+/** Actions that keep running and so keep their lease fresh; a hook lives too short to need it. */
+const LONG_LIVED_ACTIONS: ReadonlySet<string> = new Set(["mcp", SERVE_ACTION]);
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -111,6 +121,36 @@ function useDesktopDatabase(launcherRoot: string, host: LauncherHost, quiet: boo
   return true;
 }
 
+/**
+ * Takes this process's lease so the garbage collector can tell that a connection to the runtime is live (DT-24), and
+ * removes it on exit. A lease that cannot be created or refreshed (an Agent sandbox, a read-only home) never fails or
+ * slows the action: at most ONE stderr line per process, an error code and no path, and none for a hook (hooks stay silent).
+ */
+function startLease(host: LauncherHost, launcherRoot: string, runtimeId: string, action: string, quiet: boolean): void {
+  let warned = false;
+  const warnOnce = (error: unknown): void => {
+    if (warned || quiet) return;
+    warned = true;
+    host.stderr(`無法記錄這個程序正在使用 runtime（${errorCode(error) ?? "UNKNOWN"}），不影響這次執行。\n`);
+  };
+  let lease: LeaseHandle;
+  try {
+    lease = host.acquireLease(launcherRoot, runtimeId, action);
+  } catch (error) {
+    warnOnce(error);
+    return;
+  }
+  host.onExit(() => lease.remove());
+  if (!LONG_LIVED_ACTIONS.has(action)) return;
+  host.startHeartbeat(() => {
+    try {
+      lease.refresh();
+    } catch (error) {
+      warnOnce(error);
+    }
+  }, LEASE_HEARTBEAT_MS);
+}
+
 /** The launcher root and runtime id implied by where this script lives: `<root>/runtimes/<runtimeId>/`. */
 function locate(runtimeDirectory: string): { root: string; runtimeId: string } {
   const runtimes = path.dirname(runtimeDirectory);
@@ -157,6 +197,8 @@ async function runtimeInfo(verified: VerifiedRuntime, host: LauncherHost): Promi
  * costs no second Node start-up (about 40 ms per spawn, measured) and leaves signals, stdio and the exit code to the
  * action itself; a spawned child would need all three forwarded. Nothing here goes through a shell.
  *
+ * Every action but `--print-runtime-info` takes a lease first (see startLease), as proof to the garbage collector.
+ *
  * stdout is never written, so `mcp` keeps a clean protocol stream. If the runtime is unusable the launcher exits 78
  * with the error code and a repair hint on stderr, except for hook actions, which exit 0 (fail open: a broken
  * runtime must not block the Agent) after the same diagnostic on stderr.
@@ -188,6 +230,8 @@ export async function runLauncher(input: LauncherInput, host: LauncherHost): Pro
   try {
     const { root, runtimeId } = locate(input.runtimeDirectory);
     launcherRoot = root;
+    // Before verification and import, so no runtime file is read by a process the collector cannot see.
+    if (!diagnosticsOnly) startLease(host, root, runtimeId, action, failOpen);
     verified = await verifyRuntime(root, runtimeId);
     await checkLaunchConsistency({
       root,

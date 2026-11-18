@@ -13,6 +13,8 @@ export interface PortMessages {
   readonly applying: string;
   /** `{port}` is the new port; the Dashboard reopens there. */
   readonly done: string;
+  /** Shown after `done` when the change threw away an idle staged import preview. */
+  readonly importPreviewDiscarded: string;
   readonly unchanged: string;
   readonly cancelled: string;
   readonly occupied: string;
@@ -43,6 +45,7 @@ const zhTW: PortMessages = {
   apply: "變更連接埠",
   applying: "正在變更連接埠…",
   done: "已改用連接埠 {port}，Dashboard 已在新的位址開啟。",
+  importPreviewDiscarded: "未完成的匯入預覽已捨棄，請在專案頁重新選擇檔案。",
   unchanged: "這已經是目前的連接埠，沒有變更。",
   cancelled: "已取消，沒有變更。",
   occupied: "這個連接埠已被其他程式使用，沒有變更任何設定。請換一個連接埠。",
@@ -75,6 +78,7 @@ const en: PortMessages = {
   apply: "Change port",
   applying: "Changing the port…",
   done: "Now using port {port}; the Dashboard opened at the new address.",
+  importPreviewDiscarded: "The unfinished import preview was discarded. Choose the file again on the Projects page.",
   unchanged: "That is already the current port; nothing changed.",
   cancelled: "Cancelled; nothing changed.",
   occupied: "Another program is using this port. Nothing was changed. Pick another port.",

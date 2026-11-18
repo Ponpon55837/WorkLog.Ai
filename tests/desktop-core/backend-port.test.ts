@@ -53,9 +53,20 @@ describe("queryActivity", () => {
     const harness = makeHarness();
     await harness.supervisor.start(startRequest());
     answerActivity(harness, (requestId) => [{ type: "activity", requestId, busy: ["import", "export"] }]);
-    expect(await harness.supervisor.queryActivity()).toEqual({ status: "known", busy: ["import", "export"] });
+    expect(await harness.supervisor.queryActivity()).toEqual({
+      status: "known",
+      busy: ["import", "export"],
+      pendingImport: false,
+    });
     answerActivity(harness, (requestId) => [{ type: "activity", requestId, busy: [] }]);
-    expect(await harness.supervisor.queryActivity()).toEqual({ status: "known", busy: [] });
+    expect(await harness.supervisor.queryActivity()).toEqual({ status: "known", busy: [], pendingImport: false });
+  });
+
+  it("carries the idle import preview flag apart from the busy kinds", async () => {
+    const harness = makeHarness();
+    await harness.supervisor.start(startRequest());
+    answerActivity(harness, (requestId) => [{ type: "activity", requestId, busy: [], pendingImport: true }]);
+    expect(await harness.supervisor.queryActivity()).toEqual({ status: "known", busy: [], pendingImport: true });
   });
 
   it("skips a late answer to an earlier query and waits for its own", async () => {
@@ -65,7 +76,7 @@ describe("queryActivity", () => {
       { type: "activity", requestId: "stale-request-id", busy: ["backup"] },
       { type: "activity", requestId, busy: [] },
     ]);
-    expect(await harness.supervisor.queryActivity()).toEqual({ status: "known", busy: [] });
+    expect(await harness.supervisor.queryActivity()).toEqual({ status: "known", busy: [], pendingImport: false });
   });
 
   it("is unknown without a running backend and when no answer comes in time", async () => {

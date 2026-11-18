@@ -7,6 +7,7 @@ import {
   createAgentSetupPlan,
   describeAgentSetupMutations,
   findCheckoutRegistrations,
+  inspectAgentHooks,
   inspectAgentRegistrations,
   readAgentSetupJournal,
   recoverAgentSetupJournal,
@@ -137,9 +138,17 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
       }
     })();
     const checkout = checkoutRegistrations();
+    const hookStates = (() => {
+      try {
+        return inspectAgentHooks({ homeDirectory: home, repositoryRoot: home, platform, shimPath });
+      } catch {
+        return undefined;
+      }
+    })();
     return SETUP_AGENT_IDS.map((id: SetupAgentId): AgentCardView => {
       const mcp = inspection.registrations.find((entry) => entry.agent === id && entry.kind === "mcp");
       const hook = inspection.registrations.find((entry) => entry.agent === id && entry.kind === "hook");
+      const hookInstallation = hookStates?.[id];
       const handWritten = checkout.filter((entry) => entry.agent === id && !entry.owned);
       const firstRoot = handWritten.find((entry) => entry.repositoryRoot)?.repositoryRoot;
       const notRecognised = handWritten.find((entry) => !entry.recognised);
@@ -159,6 +168,7 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
         nextStep: status.nextStep,
         mcp: ownerOf(mcp?.source),
         hooks: ownerOf(hook?.source),
+        ...(hookInstallation ? { hookState: hookInstallation.state, hookSource: hookInstallation.source } : {}),
         ...(firstRoot ? { checkoutDisplay: show(firstRoot) } : {}),
         checkoutMissing: handWritten.some((entry) => entry.repositoryRoot !== undefined && !entry.rootExists),
         adoptable:

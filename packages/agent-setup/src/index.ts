@@ -34,7 +34,28 @@ export {
   type AgentSetupMutationDescription,
 } from "./diff.js";
 export {
+  classifyHookCommand,
+  classifyMcpRegistration,
+  inspectHookInstallation,
+  unknownHookInstallation,
+  type HookAgent,
+  type HookCommandClassification,
+  type HookCommandKind,
+  type HookCommandOptions,
+  type HookEventInspection,
+  type HookInspectionContext,
+  type HookInstallation,
+  type HookInstallSource,
+  type HookInstallState,
+  type HookStaleReason,
+  type McpRegistrationClassification,
+  type McpRegistrationContext,
+  type McpRegistrationKind,
+} from "./hook-command.js";
+export {
+  inspectAgentHooks,
   inspectAgentRegistrations,
+  type AgentHookInspectOptions,
   type AgentId,
   type AgentInspectOptions,
   type AgentRegistration,

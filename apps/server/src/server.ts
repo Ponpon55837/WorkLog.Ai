@@ -169,6 +169,8 @@ export type ApiHandler = ((request: IncomingMessage, response: ServerResponse) =
   discardStagedImports: () => void;
   /** The long jobs running now (an import upload, a backup, an export); read by the desktop child's `activity` reply. */
   activity: () => DesktopBackendActivity[];
+  /** An uploaded import file waits unread for the user's confirm; a restart discards it (not a long job). */
+  hasPendingImport: () => boolean;
 };
 
 function createInlineBackgroundStore(store: WorkIntelligenceStore): BackgroundStoreOperations {
@@ -202,7 +204,15 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
   const pickFolder = options.pickFolder ?? createFolderPicker();
   const serveWebFiles = options.webDirectory ? createStaticFilesHandler(options.webDirectory) : undefined;
   const repositoryRoot = options.repositoryRoot ?? DEFAULT_REPOSITORY_ROOT;
-  const inspectConnections = options.agentConnections ?? (() => inspectAgentConnections({ repositoryRoot }));
+  const inspectConnections =
+    options.agentConnections ??
+    (() => {
+      const facts = options.desktop?.getFacts ? options.desktop.getFacts() : options.desktop?.facts;
+      return inspectAgentConnections({
+        repositoryRoot,
+        ...(facts?.launcherShimPath ? { shimPath: facts.launcherShimPath } : {}),
+      });
+    });
   const queryUserService = options.userServiceStatus ?? (() => getUserServiceStatusAsync({ repositoryRoot }));
   const backgroundStore = options.backgroundStore ?? createInlineBackgroundStore(store);
   const transferRoot = options.transferRoot ?? defaultTransferRoot(store.databasePath);
@@ -439,6 +449,9 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
       const kinds = new Set<DesktopBackendActivity>(options.backgroundActivity?.() ?? []);
       if (stagedImports.inUse) kinds.add("import");
       return [...kinds];
+    },
+    hasPendingImport(): boolean {
+      return stagedImports.pending;
     },
   });
 }

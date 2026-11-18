@@ -23,6 +23,7 @@ import UiStack from "../ui/UiStack.vue";
 import UiStatCard from "../ui/UiStatCard.vue";
 import UiStatGrid from "../ui/UiStatGrid.vue";
 import VirtualList from "../VirtualList.vue";
+import { useDiscardImportOnLeave } from "../../composables/useDiscardImportOnLeave";
 import { t } from "../../i18n";
 
 /**
@@ -65,6 +66,7 @@ const {
   applyProjectDataImport,
   exportProjectData,
 } = projectDataTransferStore;
+useDiscardImportOnLeave();
 
 const scrollAfter = 6;
 

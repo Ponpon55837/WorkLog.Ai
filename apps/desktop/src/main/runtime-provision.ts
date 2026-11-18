@@ -32,6 +32,10 @@ export interface RuntimeProvisioner {
 /** Folder inside the App's resources that holds the bundled runtime (`current` and `runtimes/<id>/`). */
 export const BUNDLE_DIRECTORY_NAME = "runtime-bundle";
 
+/** Waits before each retry of a collection that deferred something; after the last one it retries hourly. */
+const RETRY_DELAYS_MS: readonly number[] = [10 * 60_000, 30 * 60_000];
+const RETRY_HOURLY_MS = 60 * 60_000;
+
 /** Runtime errors the repair page explains in their own words; every other failure reads as "could not be prepared". */
 const OWN_CODES: ReadonlySet<string> = new Set(["RUNTIME_UNSAFE_PERMISSIONS", "RUNTIME_ACL_UNREADABLE"]);
 
@@ -67,16 +71,38 @@ function describeAclRead(ensured: Pick<EnsuredRuntime, "aclReport" | "aclReads">
 
 export function createRuntimeProvisioner(options: RuntimeProvisionerOptions): RuntimeProvisioner {
   let queue: Promise<unknown> = Promise.resolve();
+  let collections: Promise<unknown> = Promise.resolve();
+  let retryTimer: NodeJS.Timeout | undefined;
+  /** Bumped by every new collection; a result of an older one schedules no retry. */
+  let generation = 0;
 
-  /** Cleanup is a background job: it never delays a start, and a directory that stays is tried again next time. */
-  function collectInBackground(keep: readonly string[], onlyLeftovers: boolean): void {
-    void collectOldRuntimes(options.paths.runtimeRoot, { keep, onlyLeftovers })
-      .then((result) => {
-        if (result.removed.length > 0 || result.failed.length > 0) {
-          options.log(`[shell] runtime cleanup removed=${result.removed.length} kept-locked=${result.failed.length}`);
-        }
-      })
-      .catch(() => undefined);
+  /**
+   * Cleanup is a background job: it never delays a start. A runtime that stays (not yet provably unused, or locked on
+   * Windows) is tried again after 10 min, 30 min and then hourly while the App runs, on a timer that does not keep it alive;
+   * a new collection cancels the pending retry. Collections run one after another: one can wait minutes to prove a lease
+   * was not renewed.
+   */
+  function collectInBackground(keep: readonly string[], retries = 0): void {
+    if (retries === 0) {
+      generation += 1;
+      clearTimeout(retryTimer);
+    }
+    const mine = generation;
+    collections = collections.then(() =>
+      collectOldRuntimes(options.paths.runtimeRoot, { keep })
+        .then((result) => {
+          if (result.removed.length > 0 || result.deferred.length > 0 || result.failed.length > 0) {
+            options.log(
+              `[shell] runtime cleanup removed=${result.removed.length} deferred=${result.deferred.length} kept-locked=${result.failed.length}`,
+            );
+          }
+          if (mine !== generation || (result.deferred.length === 0 && result.failed.length === 0)) return;
+          const delay = RETRY_DELAYS_MS[retries] ?? RETRY_HOURLY_MS;
+          retryTimer = setTimeout(() => collectInBackground(keep, retries + 1), delay);
+          retryTimer.unref();
+        })
+        .catch(() => undefined),
+    );
   }
 
   async function run(verifyInstalled: boolean): Promise<BundledRuntimeStatus | undefined> {
@@ -94,8 +120,7 @@ export function createRuntimeProvisioner(options: RuntimeProvisionerOptions): Ru
       options.log(
         `[shell] runtime ${ensured.status} ${ensured.runtimeId} in ${ensured.elapsedMs} ms${describeAclRead(ensured)}`,
       );
-      const fresh = ensured.status !== "already-current";
-      collectInBackground(ensured.previousRuntimeId ? [ensured.previousRuntimeId] : [], !fresh);
+      collectInBackground(ensured.previousRuntimeId ? [ensured.previousRuntimeId] : []);
       return ensured.status;
     } catch (error) {
       // Codes only: the message of a runtime error carries paths.

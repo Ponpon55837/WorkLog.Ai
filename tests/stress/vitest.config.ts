@@ -1,5 +1,5 @@
 import { defineConfig } from "vitest/config";
-import { storageAliases } from "../../packages/storage/vitest.config";
+import { sqliteTimingSetup, storageAliases } from "../../packages/storage/vitest.config";
 import { isolatedEnvironmentSetup } from "../helpers/isolated-environment-setup";
 
 // Own config so the multi-process SQLite stress suite never runs inside `pnpm test`; `pnpm test:sqlite-stress` runs it.
@@ -7,7 +7,7 @@ import { isolatedEnvironmentSetup } from "../helpers/isolated-environment-setup"
 export default defineConfig({
   resolve: { alias: storageAliases },
   test: {
-    setupFiles: [isolatedEnvironmentSetup],
+    setupFiles: [sqliteTimingSetup, isolatedEnvironmentSetup],
     include: ["tests/stress/**/*.test.ts"],
     testTimeout: 600_000,
     hookTimeout: 120_000,

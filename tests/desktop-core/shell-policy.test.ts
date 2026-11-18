@@ -115,7 +115,14 @@ describe("repair IPC", () => {
     expect(repairInputSchemas.setupCopyToLocal.safeParse({ sourceId: "s1", path: "/x" }).success).toBe(false);
     expect(repairInputSchemas.setupCopyToLocal.safeParse({ sourceId: "" }).success).toBe(false);
     expect(repairInputSchemas.getState.safeParse(undefined).success).toBe(true);
-    expect(repairInputSchemas.exportDiagnostics.safeParse({ path: "/x" }).success).toBe(false);
+    expect(repairInputSchemas.previewDiagnostics.safeParse({ path: "/x" }).success).toBe(false);
+    expect(repairInputSchemas.previewDiagnostics.safeParse({}).success).toBe(true);
+    const previewId = "6f1c1c0e-5b53-4c53-9a53-0c9d2b7a1f11";
+    expect(repairInputSchemas.saveDiagnostics.safeParse({ previewId }).success).toBe(true);
+    expect(repairInputSchemas.saveDiagnostics.safeParse({ previewId, text: "x" }).success).toBe(false);
+    expect(repairInputSchemas.saveDiagnostics.safeParse({ previewId, path: "/x" }).success).toBe(false);
+    expect(repairInputSchemas.saveDiagnostics.safeParse({ previewId: "not-an-id" }).success).toBe(false);
+    expect(repairInputSchemas.saveDiagnostics.safeParse({}).success).toBe(false);
   });
 
   it("names its channels and action ids", () => {
@@ -137,10 +144,11 @@ describe("repair IPC", () => {
       "repair:choose-database",
       "repair:confirm-database",
       "repair:copy-to-local",
-      "repair:export-diagnostics",
       "repair:get-state",
       "repair:open-folder",
+      "repair:preview-diagnostics",
       "repair:retry-start",
+      "repair:save-diagnostics",
       "repair:start-anyway",
       "setup:choose-file",
       "setup:copy-to-local",
@@ -236,9 +244,9 @@ describe("RecentErrors", () => {
 
 describe("diagnostics redaction", () => {
   const secrets = {
-    token: "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
-    patToken: "github_pat_11ABCDEFG0abcdefghijklmnop_qrstuvwxyz",
-    sk: "sk-proj-abcdefghijklmnopqrstuvwxyz",
+    token: ["ghp", "abcdefghijklmnopqrstuvwxyz0123456789"].join("_"),
+    patToken: ["github", "pat", "11ABCDEFG0abcdefghijklmnop_qrstuvwxyz"].join("_"),
+    sk: ["sk", "proj", "abcdefghijklmnopqrstuvwxyz"].join("-"),
     bearer: "Bearer abc.def-ghi_jkl123456",
     runId: "synthetic-run-id-0123456789abcdef",
     long: "A".repeat(20) + "b".repeat(20),
@@ -247,7 +255,7 @@ describe("diagnostics redaction", () => {
     cookie: "sessionid=zzz999synthetic",
   };
 
-  function build(platform: NodeJS.Platform, extras: Partial<Parameters<typeof buildDiagnostics>[0]> = {}) {
+  function build(platform: NodeJS.Platform, extras: Partial<Parameters<typeof buildDiagnostics>[0]> = {}): string {
     const home = platform === "win32" ? "C:\\Users\\Someone" : "/synthetic/home/someone";
     const dbPath =
       platform === "win32" ? "C:\\Users\\Someone\\AppData\\work.sqlite" : "/synthetic/home/someone/work.sqlite";
@@ -276,9 +284,9 @@ describe("diagnostics redaction", () => {
         `{"password":"${secrets.password}","api_key": "${secrets.sk}"}`,
         `Cookie: ${secrets.cookie}`,
         "D:\\Backups (x86)\\daily\\a.sqlite and d:/backups (X86)/daily/b",
-      ],
+      ].map((line) => `[shell] ${line}`), // only the App's own lines are kept; the secrets are in them
       ...extras,
-    });
+    }).text;
   }
 
   it.each(["linux", "win32"] as const)("contains none of the injected secrets or paths on %s", (platform) => {

@@ -76,9 +76,25 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: pnpm lint && pnpm format:check
 
+      # Windows also records SQLite call timings (tests/helpers/sqlite-timing.ts; test-only, '' means off) to find lock stalls.
       - name: Unit and integration tests
         if: matrix.os != 'ubuntu-latest'
+        env:
+          WI_SQLITE_TIMING: ${{ matrix.os == 'windows-latest' && '1' || '' }}
         run: pnpm test
+
+      # The slowest calls and the long BEGIN IMMEDIATE waits with their likely holders, readable from the job log.
+      - name: SQLite timing report
+        if: always() && matrix.os == 'windows-latest'
+        run: node tests/helpers/sqlite-timing-report.mjs perf-results
+
+      - if: always() && matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sqlite-timing-${{ matrix.os }}
+          path: perf-results/sqlite-timing-*.jsonl
+          if-no-files-found: warn
+          retention-days: 14
 
       # Windows PowerShell 5.1 under Constrained Language Mode (the machine-level lockdown policy): tier one of the ACL
       # check must report it by exit code and tier two (Get-Acl) must read the descriptors. The variable is removed
@@ -182,13 +198,22 @@ jobs:
       - run: pnpm build
 
       - name: SQLite WAL stress
+        env:
+          WI_SQLITE_TIMING: ${{ matrix.os == 'windows-latest' && '1' || '' }}
+          WI_SQLITE_TIMING_LABEL: stress
         run: pnpm test:sqlite-stress
+
+      - name: SQLite timing report
+        if: always() && matrix.os == 'windows-latest'
+        run: node tests/helpers/sqlite-timing-report.mjs perf-results
 
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sqlite-stress-${{ matrix.os }}
-          path: perf-results/sqlite-stress-*.json
+          path: |
+            perf-results/sqlite-stress-*.json
+            perf-results/sqlite-timing-*.jsonl
           if-no-files-found: warn
           retention-days: 14
 

@@ -137,4 +137,15 @@ describe("portMessages", () => {
       expect(text.trayChangePort.length).toBeGreaterThan(0);
     }
   });
+
+  it("says exactly what the restart discarded, and keeps the busy sentence for the running jobs", () => {
+    expect(portMessages("zh-TW").importPreviewDiscarded).toBe("未完成的匯入預覽已捨棄，請在專案頁重新選擇檔案。");
+    expect(portMessages("en").importPreviewDiscarded).toBe(
+      "The unfinished import preview was discarded. Choose the file again on the Projects page.",
+    );
+    expect(portMessages("zh-TW").busyActivity).toBe("Dashboard 正在匯入、備份或匯出資料，請等它完成後再變更連接埠。");
+    expect(portMessages("en").busyActivity).toBe(
+      "The Dashboard is importing, backing up or exporting. Change the port after it finishes.",
+    );
+  });
 });

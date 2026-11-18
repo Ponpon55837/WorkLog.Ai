@@ -1,14 +1,16 @@
-import { writeFile } from "node:fs/promises";
 import { clipboard, dialog, ipcMain, shell } from "electron";
 import type { IpcMainInvokeEvent } from "electron";
 import {
   allowMigrationFor,
   canApplyPreview,
   chosenPathProblem,
+  DiagnosticsError,
+  DiagnosticsPreviewStore,
   isTrustedRepairSender,
   REPAIR_CHANNELS,
   repairInputSchemas,
   writeDesktopSettingsAtomic,
+  writePrivateFile,
   type BackendSupervisor,
   type RepairActionResult,
 } from "@work-intelligence/desktop-core";
@@ -76,6 +78,9 @@ export function registerRepairIpc(options: IpcOptions): void {
     log,
   } = options;
 
+  /** The diagnostics text the user is reading, kept here (never in the page) until it is saved or expires. */
+  const diagnosticPreviews = new DiagnosticsPreviewStore({ clock: Date.now });
+
   function isTrusted(event: IpcMainInvokeEvent): boolean {
     const frame = event.senderFrame;
     return isTrustedRepairSender({
@@ -89,13 +94,13 @@ export function registerRepairIpc(options: IpcOptions): void {
   function handle<T>(
     channel: string,
     parse: (raw: unknown) => { success: true; data: T } | { success: false },
-    run: (input: T) => Promise<unknown>,
+    run: (input: T, senderId: number) => Promise<unknown>,
   ): void {
     ipcMain.handle(channel, async (event, raw: unknown) => {
       if (!isTrusted(event)) throw new Error("untrusted sender");
       const parsed = parse(raw);
       if (!parsed.success) return { ok: false, reason: "invalid" };
-      return run(parsed.data);
+      return run(parsed.data, event.sender.id);
     });
   }
 
@@ -196,21 +201,50 @@ export function registerRepairIpc(options: IpcOptions): void {
     return { ok: (await shell.openPath(directory)) === "" };
   });
 
-  handle(REPAIR_CHANNELS.exportDiagnostics, parser(repairInputSchemas.exportDiagnostics), async () => {
-    const owner = window.window();
-    if (!owner) return { ok: false, reason: "failed" };
-    const chosen = await dialog.showSaveDialog(owner, {
-      defaultPath: "work-intelligence-diagnostics.json",
-      filters: [{ name: "JSON", extensions: ["json"] }],
-    });
-    if (chosen.canceled || !chosen.filePath) return { ok: false, reason: "cancelled" };
-    try {
-      await writeFile(chosen.filePath, await info.diagnosticsText(), { mode: 0o600 });
-      return { ok: true };
-    } catch {
-      return { ok: false, reason: "failed" };
-    }
-  });
+  handle(
+    REPAIR_CHANNELS.previewDiagnostics,
+    parser(repairInputSchemas.previewDiagnostics),
+    async (_input, senderId) => {
+      try {
+        const { text, report } = await info.diagnosticsPreview();
+        return { ok: true, previewId: diagnosticPreviews.put(senderId, text), text, report };
+      } catch (error) {
+        return { ok: false, reason: error instanceof DiagnosticsError ? "scan-failed" : "failed" };
+      }
+    },
+  );
+
+  handle(
+    REPAIR_CHANNELS.saveDiagnostics,
+    parser(repairInputSchemas.saveDiagnostics),
+    async ({ previewId }, senderId) => {
+      // An unknown, used, expired or foreign id is the same answer; the page previews again.
+      const claim = diagnosticPreviews.claim(senderId, previewId);
+      if (!claim) return { ok: false, reason: "expired" };
+      const owner = window.window();
+      if (!owner) {
+        claim.release();
+        return { ok: false, reason: "failed" };
+      }
+      try {
+        const chosen = await dialog.showSaveDialog(owner, {
+          defaultPath: "work-intelligence-diagnostics.json",
+          filters: [{ name: "JSON", extensions: ["json"] }],
+        });
+        if (chosen.canceled || !chosen.filePath) {
+          claim.release();
+          return { ok: false, reason: "cancelled" };
+        }
+        // Exactly the previewed bytes: the text is not built again. Owner-only also over an existing file.
+        await writePrivateFile(chosen.filePath, claim.bytes);
+        return { ok: true };
+      } catch {
+        // Nothing was saved: the same preview may be tried again.
+        claim.release();
+        return { ok: false, reason: "failed" };
+      }
+    },
+  );
 
   handle(REPAIR_CHANNELS.startAnyway, parser(repairInputSchemas.startAnyway), ({ operationId }) =>
     withBusy(async () => {

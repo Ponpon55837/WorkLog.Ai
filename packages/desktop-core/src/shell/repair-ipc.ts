@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { DiagnosticsReport } from "./diagnostics.js";
 import type { RepairActionId, RepairState } from "./repair-state.js";
 import type { SetupState } from "./setup-state.js";
 import { SETUP_AGENT_IDS, type AgentsState, type SetupAgentId } from "./agents-state.js";
@@ -18,7 +19,8 @@ export const REPAIR_CHANNELS = {
   chooseDatabase: "repair:choose-database",
   confirmDatabase: "repair:confirm-database",
   openFolder: "repair:open-folder",
-  exportDiagnostics: "repair:export-diagnostics",
+  previewDiagnostics: "repair:preview-diagnostics",
+  saveDiagnostics: "repair:save-diagnostics",
   startAnyway: "repair:start-anyway",
   getView: "app:get-view",
   copyCommand: "app:copy-command",
@@ -73,7 +75,10 @@ export const repairInputSchemas = {
     acknowledgeStorageRisk: z.boolean().optional(),
   }),
   openFolder: z.strictObject({ target: z.enum(REPAIR_FOLDER_TARGETS) }),
-  exportDiagnostics: z.strictObject({}),
+  /** Builds the diagnostics text and keeps it in main; nothing is written. */
+  previewDiagnostics: z.strictObject({}),
+  /** Saves exactly the bytes of this preview (single use); the page never sends text or a path. */
+  saveDiagnostics: z.strictObject({ previewId: z.uuid() }),
   /** Start although the old login service may serve the same database; the user said "仍要啟動". */
   startAnyway: z.strictObject({ operationId: z.uuid() }),
   getView: z.undefined(),
@@ -164,7 +169,13 @@ export type PortBusyReason = "operation" | "activity" | "unknown";
 
 /** What 「變更連接埠」 answers; `ok: false` carries a reason the page maps to a sentence, never a path or a message. */
 export type PortChangeResult =
-  | { readonly ok: true; readonly changed: boolean; readonly port: number }
+  | {
+      readonly ok: true;
+      readonly changed: boolean;
+      readonly port: number;
+      /** The restart threw away an idle staged import preview; the page says so. Absent otherwise. */
+      readonly discardedImportPreview?: true;
+    }
   | {
       readonly ok: false;
       readonly reason: "invalid" | "occupied" | "not-permitted" | "busy" | "cancelled" | "failed";
@@ -210,8 +221,25 @@ export type RepairActionResult =
       readonly message?: string;
     };
 
-export type RepairExportResult =
-  { readonly ok: true } | { readonly ok: false; readonly reason: "cancelled" | "failed" };
+/** What 「匯出診斷」 shows before anything is written: the exact text, and what was masked (counts only). */
+export type DiagnosticsPreviewResult =
+  | { readonly ok: true; readonly previewId: string; readonly text: string; readonly report: DiagnosticsReport }
+  | {
+      readonly ok: false;
+      /** `scan-failed`: a last check still found a secret or a path, so no text was made. */
+      readonly reason: "failed" | "scan-failed";
+    };
+
+export type DiagnosticsSaveResult =
+  | { readonly ok: true }
+  | {
+      readonly ok: false;
+      /**
+       * `expired`: the preview is unknown, used, past its ten minutes, replaced, or was made for another sender; the
+       * page previews again. `invalid`: the input did not parse.
+       */
+      readonly reason: "expired" | "cancelled" | "failed" | "invalid";
+    };
 
 /** The API the preload exposes as `window.workIntelligenceRepair`. */
 export interface RepairApi {
@@ -225,7 +253,8 @@ export interface RepairApi {
   ): Promise<RepairActionResult>;
   copyToLocal(candidateId?: string): Promise<RepairActionResult>;
   openFolder(target: RepairFolderTarget): Promise<{ readonly ok: boolean }>;
-  exportDiagnostics(): Promise<RepairExportResult>;
+  previewDiagnostics(): Promise<DiagnosticsPreviewResult>;
+  saveDiagnostics(previewId: string): Promise<DiagnosticsSaveResult>;
   startAnyway(operationId: string): Promise<RepairActionResult>;
   getView(): Promise<AppView>;
   copyCommand(target: CopyCommandTarget): Promise<{ readonly ok: boolean }>;
