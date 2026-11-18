@@ -1,4 +1,5 @@
 import { expect, test, type ElectronApplication } from "@playwright/test";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { formatMessage } from "@work-intelligence/desktop-core/shell/i18n";
@@ -12,7 +13,6 @@ import {
   launchApp,
   openWindow,
   portIsFree,
-  processIsAlive,
   readSnapshot,
   removeSandbox,
   shellText,
@@ -71,10 +71,14 @@ async function crash(running: ElectronApplication, box: Sandbox, pauseFile: stri
   expect(pid).toBeGreaterThan(0);
   // What runs at this moment: the backend that is up while the commit step is held (it may serve another port).
   const backend = (await readSnapshot(running)).backend;
-  process.kill(pid as number, "SIGKILL");
-  // A power loss ends every process of the App. A forced end of the main process on Windows does not reach its child (no
-  // process tree), so the backend is ended too; the point here is what the next start recovers from, not the orphan.
-  if (process.platform === "win32" && backend && processIsAlive(backend.pid)) process.kill(backend.pid, "SIGKILL");
+  // A power loss ends every process of the App at once. On Windows a forced end of the main process alone leaves its child
+  // processes (the backend, Chromium's GPU and renderer helpers) running, and they keep the profile folder locked so the
+  // next launch cannot start; the whole tree is ended instead. Elsewhere the backend follows its parent by itself.
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+  } else {
+    process.kill(pid as number, "SIGKILL");
+  }
   // Nothing of the App holds a port any more, so the next start can use them.
   for (const port of new Set([box.port, backend?.port ?? box.port])) {
     await expect.poll(() => portIsFree(port), { timeout: 60_000 }).toBe(true);
