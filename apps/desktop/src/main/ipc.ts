@@ -24,6 +24,7 @@ import {
   type RepairBusyWhat,
 } from "@work-intelligence/desktop-core";
 import type { AgentsPage } from "./agents.js";
+import { busyReasonOf, checkActivity } from "./activity-gate.js";
 import { offerCandidate } from "./candidate-offer.js";
 import type { StorageRiskService } from "./storage-risk.js";
 import type { BackendController } from "./backend.js";
@@ -226,6 +227,10 @@ export function registerRepairIpc(options: IpcOptions): void {
           acknowledgeStorageRisk === true,
         );
         if (!check.ok) return { ok: false, reason: "invalid" };
+        // Switching stops the running backend: not while the Dashboard imports, backs up or exports (M-02).
+        const gate = await checkActivity({ operationRunning: () => currentOperation() !== null, supervisor });
+        if ("refusal" in gate)
+          return { ok: false, reason: "busy", busyReason: busyReasonOf(gate.refusal, busyReason()) };
         // A pending automatic retry must not start the old database while the user's choice runs.
         backend.recovery.cancel();
         const opensAtStart = success.opens();
@@ -248,7 +253,16 @@ export function registerRepairIpc(options: IpcOptions): void {
   );
 
   handle(REPAIR_CHANNELS.copyToLocal, parser(repairInputSchemas.copyToLocal), ({ candidateId }) =>
-    withBusy("copy-to-local", () => options.copyToLocal(candidateId)),
+    withBusy("copy-to-local", async () => {
+      // The App's own database is copied with its backend stopped: not while the Dashboard imports or backs up (M-01).
+      if (candidateId === undefined) {
+        const gate = await checkActivity({ operationRunning: () => currentOperation() !== null, supervisor });
+        if ("refusal" in gate) {
+          return { ok: false, reason: "busy", busyReason: busyReasonOf(gate.refusal, busyReason()) };
+        }
+      }
+      return options.copyToLocal(candidateId);
+    }),
   );
 
   handle(REPAIR_CHANNELS.openFolder, parser(repairInputSchemas.openFolder), async ({ target }) => {
@@ -408,22 +422,19 @@ export function registerRepairIpc(options: IpcOptions): void {
   handle(REPAIR_CHANNELS.agentsRemovePreview, parser(repairInputSchemas.agentsRemovePreview), () =>
     agents.previewRemove(),
   );
-  handle(
-    REPAIR_CHANNELS.agentsApply,
-    parser(repairInputSchemas.agentsApply),
-    ({ previewId, acknowledgeUndiffable }) =>
-      exclusive(
-        "apply-agent",
-        () => ({ ok: false, reason: "busy", state: agents.snapshot() }) as const,
-        async () => {
-          // A file whose diff was not shown is applied only after the user said so; the page's disabled button is not the guard.
-          const shown = agents.snapshot().preview;
-          if (shown?.id === previewId && !canApplyPreview(shown, acknowledgeUndiffable === true)) {
-            return { ok: false, reason: "invalid", state: agents.snapshot() } as const;
-          }
-          return agents.apply(previewId);
-        },
-      ),
+  handle(REPAIR_CHANNELS.agentsApply, parser(repairInputSchemas.agentsApply), ({ previewId, acknowledgeUndiffable }) =>
+    exclusive(
+      "apply-agent",
+      () => ({ ok: false, reason: "busy", state: agents.snapshot() }) as const,
+      async () => {
+        // A file whose diff was not shown is applied only after the user said so; the page's disabled button is not the guard.
+        const shown = agents.snapshot().preview;
+        if (shown?.id === previewId && !canApplyPreview(shown, acknowledgeUndiffable === true)) {
+          return { ok: false, reason: "invalid", state: agents.snapshot() } as const;
+        }
+        return agents.apply(previewId);
+      },
+    ),
   );
   handle(REPAIR_CHANNELS.agentsDiscard, parser(repairInputSchemas.agentsDiscard), async () => agents.discard());
   handle(REPAIR_CHANNELS.agentsUndo, parser(repairInputSchemas.agentsUndo), () =>

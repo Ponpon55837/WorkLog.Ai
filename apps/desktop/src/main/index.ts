@@ -649,7 +649,22 @@ function runShell(configInputs: DesktopConfigInputs): void {
       restore,
       journal,
       currentOperation: () => coordinator.current()?.kind ?? null,
-      copyToLocal: createLocalCopy({ state, paths, info, backend, supervisor, success, runner: copyRunner, log }),
+      copyToLocal: createLocalCopy({
+        state,
+        paths,
+        info,
+        backend,
+        supervisor,
+        success,
+        runner: copyRunner,
+        stopForCopy: async () => {
+          const stopped = await managed.stop();
+          if (stopped.status !== "stopped") return false;
+          state.backend = "stopped";
+          return true;
+        },
+        log,
+      }),
       log,
     });
     if (process.platform === "darwin" && state.launchMode === "background") app.dock?.hide();

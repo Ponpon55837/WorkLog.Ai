@@ -9,6 +9,7 @@ import {
 } from "@work-intelligence/desktop-core";
 import type { PortHandoff } from "@work-intelligence/schema";
 import { portFailureCode } from "@work-intelligence/shared/port-failure";
+import { checkActivity } from "./activity-gate.js";
 import type { BackendController } from "./backend.js";
 import type { Logger } from "./log.js";
 import type { ShellState } from "./state.js";
@@ -58,20 +59,12 @@ export function createChangePort(options: ChangePortOptions): ChangePortControll
   /** The section was asked for and no state has carried that to a page yet. */
   let focusPending = false;
 
-  /**
-   * A refusal because something runs, or what the restart would throw away when nothing does. The backend is asked only
-   * while one runs. An idle staged import preview is not work: it never refuses, it is only reported.
-   */
+  /** A refusal because something runs, or what the restart would throw away when nothing does (see `checkActivity`). */
   async function busyReason(): Promise<
     { readonly refusal: Extract<PortChangeResult, { ok: false }> } | { readonly pendingImport: boolean }
   > {
-    if (coordinator.current() !== null) return { refusal: { ok: false, reason: "busy", busy: "operation" } };
-    if (supervisor.running === undefined) return { pendingImport: false };
-    const activity = await supervisor.queryActivity();
-    if (activity.status === "unknown") return { refusal: { ok: false, reason: "busy", busy: "unknown" } };
-    return activity.busy.length > 0
-      ? { refusal: { ok: false, reason: "busy", busy: "activity" } }
-      : { pendingImport: activity.pendingImport };
+    const gate = await checkActivity({ operationRunning: () => coordinator.current() !== null, supervisor });
+    return "refusal" in gate ? { refusal: { ok: false, reason: "busy", busy: gate.refusal } } : gate;
   }
 
   function failureOf(code: string, rolledBack: boolean): PortChangeResult {
