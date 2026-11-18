@@ -1076,3 +1076,79 @@ describe("masking of captured output", () => {
     expect(lines.some((line) => line.startsWith("first [redacted] end"))).toBe(true);
   });
 });
+
+describe("health checks of a running backend (L-09)", () => {
+  const EVERY = 1000;
+
+  /** A harness whose health endpoint answers like a genuine child until `stuck.on`, then not at all. */
+  function stuckHarness(monitorMs = EVERY) {
+    const stuck = { on: false };
+    const harness = makeHarness({
+      timeouts: { monitorMs },
+      health: async (_url, headers, runId) => {
+        if (stuck.on) throw new Error("timeout");
+        return genuineHealth(runId, headers);
+      },
+    });
+    return { harness, stuck };
+  }
+
+  it("ends a backend that stays alive but stops answering, and reports it like an unexpected exit", async () => {
+    const { harness, stuck } = stuckHarness();
+    const events: BackendExitEvent[] = [];
+    harness.supervisor.onUnexpectedExit((event) => events.push(event));
+    const started = await harness.supervisor.start(startRequest());
+    stuck.on = true;
+
+    await vi.advanceTimersByTimeAsync(EVERY * 2);
+    expect(events).toEqual([]);
+    await vi.advanceTimersByTimeAsync(EVERY * 12);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ code: "CHILD_EXITED", detail: "the backend stopped answering health checks" });
+    expect(events[0]?.info).toBe((started as { info: unknown }).info);
+    expect(harness.supervisor.running).toBeUndefined();
+  });
+
+  it("does not end a backend after one or two slow checks that are followed by an answer", async () => {
+    const { harness, stuck } = stuckHarness();
+    const events: BackendExitEvent[] = [];
+    harness.supervisor.onUnexpectedExit((event) => events.push(event));
+    await harness.supervisor.start(startRequest());
+    const callsAfterStart = harness.fetchHealth.mock.calls.length;
+
+    stuck.on = true;
+    await vi.advanceTimersByTimeAsync(EVERY * 2);
+    stuck.on = false;
+    await vi.advanceTimersByTimeAsync(EVERY * 10);
+
+    expect(harness.fetchHealth.mock.calls.length).toBeGreaterThan(callsAfterStart + 2);
+    expect(events).toEqual([]);
+    expect(harness.supervisor.running).toBeDefined();
+  });
+
+  it("checks nothing once the backend is stopped, and nothing at all when turned off", async () => {
+    const { harness } = stuckHarness();
+    await harness.supervisor.start(startRequest());
+    await harness.supervisor.stop();
+    const calls = harness.fetchHealth.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(EVERY * 10);
+    expect(harness.fetchHealth.mock.calls.length).toBe(calls);
+
+    const off = stuckHarness(0);
+    await off.harness.supervisor.start(startRequest());
+    const before = off.harness.fetchHealth.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(EVERY * 10);
+    expect(off.harness.fetchHealth.mock.calls.length).toBe(before);
+  });
+
+  it("treats an answer without the right proof as no answer", async () => {
+    const harness = makeHarness({ timeouts: { monitorMs: EVERY } });
+    const events: BackendExitEvent[] = [];
+    harness.supervisor.onUnexpectedExit((event) => events.push(event));
+    await harness.supervisor.start(startRequest());
+    harness.fetchHealth.mockImplementation(async () => ({ status: 200, header: () => "not-the-proof" }));
+    await vi.advanceTimersByTimeAsync(EVERY * 14);
+    expect(events).toHaveLength(1);
+  });
+});

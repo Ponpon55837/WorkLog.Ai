@@ -70,6 +70,8 @@ export interface BackendTimeouts {
   /** How long to poll for the port to become free after exit. */
   readonly portReleaseMs: number;
   readonly pollMs: number;
+  /** Between two health checks of a running backend; 0 turns them off. A backend that stops answering is not left up (L-09). */
+  readonly monitorMs: number;
 }
 
 export const DEFAULT_BACKEND_TIMEOUTS: BackendTimeouts = {
@@ -84,6 +86,7 @@ export const DEFAULT_BACKEND_TIMEOUTS: BackendTimeouts = {
   killMs: 3_000,
   portReleaseMs: 5_000,
   pollMs: 100,
+  monitorMs: 60_000,
 };
 
 /** What the preflight found, handed to `beforeStart` so the caller can persist intent before anything can write. */
