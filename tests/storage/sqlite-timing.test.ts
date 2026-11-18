@@ -9,7 +9,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   flushSqliteTiming,
   installSqliteTiming,
+  isBusyError,
   isSqliteTimingInstalled,
+  isWriteSql,
   uninstallSqliteTiming,
 } from "../helpers/sqlite-timing.js";
 import { sqliteTimingReport } from "../helpers/sqlite-timing-report.mjs";
@@ -127,15 +129,19 @@ describe("sqlite timing hook", () => {
     expect(begin).toMatchObject({ db: databaseLabel, at: expect.any(Number) });
     expect(Math.abs((begin?.at as number) - Date.now())).toBeLessThan(60_000);
     const transactions = records.filter((record) => record.kind === "transaction");
-    expect(transactions).toHaveLength(1);
-    expect(transactions[0]).toMatchObject({ op: "transaction", sql: "COMMIT", db: databaseLabel });
-    expect(transactions[0]?.ms as number).toBeGreaterThanOrEqual(140);
+    expect(transactions).toHaveLength(3);
+    expect(transactions[0]).toMatchObject({ op: "transaction", sql: "COMMIT", db: databaseLabel, write: true });
+    expect(transactions[1]).toMatchObject({ op: "transaction", sql: "COMMIT", db: databaseLabel, write: false });
+    expect(transactions[2]).toMatchObject({ op: "transaction", sql: "ROLLBACK", db: databaseLabel, write: true });
+    for (const transaction of transactions) expect(transaction.ms as number).toBeGreaterThanOrEqual(140);
+    expect(records.find((record) => record.kind === "checkpoint")).toMatchObject({ db: databaseLabel });
 
     // The report names the wait; its holder (this test process) is not instrumented, so it says so.
     const report = sqliteTimingReport(records).join("\n");
     expect(report).toContain("BEGIN IMMEDIATE waits (>= 1 s): 1");
     expect(report).toContain(`db=${databaseLabel}`);
-    expect(report).toContain("holder: not inferred");
+    expect(report).toContain("holder: not inferred (below threshold)");
+    expect(report).toContain("waits with an inferred holder: 0; not inferred: 1");
   }, 30_000);
 
   it("reports the ten slowest calls and the overlapping transactions on the same file as likely holders", () => {
@@ -160,9 +166,18 @@ describe("sqlite timing hook", () => {
       db: "a/db.sqlite",
       pid: 3,
       role: "writer",
+      write: true,
       startTest: "w",
     };
-    const otherFile = { kind: "transaction", ms: 3000, at: at - 600, db: "b/db.sqlite", pid: 4, role: "test" };
+    const otherFile = {
+      kind: "transaction",
+      ms: 3000,
+      at: at - 600,
+      db: "b/db.sqlite",
+      pid: 4,
+      role: "test",
+      write: true,
+    };
     const lines = sqliteTimingReport([...slowCalls, wait, holder, otherFile]);
     expect(lines[0]).toBe("[sqlite timing report] slow calls (>= 1 s): 12; top 10:");
     expect(lines.slice(1, 11).map((line) => line.trim().split(" ")[0])).toEqual(
@@ -175,7 +190,94 @@ describe("sqlite timing hook", () => {
     const holderLines = lines.filter((line) => line.includes("holder?"));
     expect(holderLines).toHaveLength(1);
     expect(holderLines[0]).toContain("pid=3");
-    expect(holderLines[0]).toContain("overlapping 2400 ms");
+    expect(holderLines[0]).toContain("write transaction overlapping 2400 ms");
+    expect(lines.at(-1)).toBe("[sqlite timing report] waits with an inferred holder: 1; not inferred: 0");
+  });
+
+  it("recognizes write SQL in a deferred transaction without reading a write into a read", () => {
+    for (const sql of [
+      "INSERT INTO t (a) VALUES (1)",
+      "  update t SET a = 2",
+      "DELETE FROM t",
+      "REPLACE INTO t (a) VALUES (1)",
+      "CREATE INDEX i ON t (a)",
+      "-- note\nINSERT INTO t (a) VALUES (1)",
+      "/* note */ DELETE FROM t",
+      "SELECT 1; INSERT INTO t (a) VALUES (1)",
+      "WITH x AS (SELECT 1 AS a) INSERT INTO t (a) SELECT a FROM x",
+      "WITH x AS (SELECT 1) INSERT OR IGNORE INTO t (a) SELECT 1",
+      "WITH x AS (SELECT 1) UPDATE t SET a = 1",
+      'WITH x AS (SELECT 1) UPDATE "t" SET a = 1',
+      "WITH x AS (SELECT 1) DELETE FROM t",
+      "INSERT INTO t (a) VALUES (1) RETURNING a",
+    ]) {
+      expect(isWriteSql(sql), sql).toBe(true);
+    }
+    for (const sql of [
+      "SELECT COUNT(*) AS changes FROM t",
+      "WITH x AS (SELECT replace(a, 'b', 'c') AS a FROM t) SELECT a FROM x",
+      "WITH x AS (SELECT 1 AS a) SELECT a FROM x WHERE a = 'delete'",
+      "SELECT updated_at FROM t",
+      "-- INSERT INTO t\nSELECT 1",
+      "PRAGMA busy_timeout = 5000",
+      undefined,
+    ]) {
+      expect(isWriteSql(sql), String(sql)).toBe(false);
+    }
+  });
+
+  it("treats only SQLITE_BUSY and SQLITE_LOCKED, extended codes included, as a lock that was not taken", () => {
+    expect(isBusyError({ errcode: 5 })).toBe(true);
+    expect(isBusyError({ errcode: 6 })).toBe(true);
+    expect(isBusyError({ errcode: 517 })).toBe(true);
+    expect(isBusyError({ errcode: 19 })).toBe(false);
+    expect(isBusyError({ errcode: 2067 })).toBe(false);
+    expect(isBusyError(new Error("x"))).toBe(false);
+    expect(isBusyError(null)).toBe(false);
+  });
+
+  it("never names a WAL read transaction as the holder of a BEGIN IMMEDIATE wait", () => {
+    const at = 2_000_000;
+    const wait = { kind: "begin-immediate", ms: 5000, at, db: "a/db.sqlite", failed: true, pid: 2, role: "writer-1" };
+    const reader = {
+      kind: "transaction",
+      ms: 1200,
+      at: at + 100,
+      db: "a/db.sqlite",
+      pid: 5,
+      role: "reader-long",
+      write: false,
+    };
+    const passive = {
+      kind: "checkpoint",
+      mode: "PASSIVE",
+      ms: 900,
+      at: at + 200,
+      db: "a/db.sqlite",
+      pid: 6,
+      busy: 0,
+      failed: false,
+    };
+    expect(sqliteTimingReport([wait, reader, passive])).toEqual([
+      "[sqlite timing report] slow calls (>= 1 s): 0; top 0:",
+      "[sqlite timing report] BEGIN IMMEDIATE waits (>= 1 s): 1",
+      '  5000 ms db=a/db.sqlite failed=true file=- test="-" role=writer-1 pid=2',
+      "    holder: not inferred (below threshold)",
+      "[sqlite timing report] waits with an inferred holder: 0; not inferred: 1",
+    ]);
+
+    // A writing transaction and a writer-blocking checkpoint over the same wait are named; the reader still is not.
+    const writer = { ...reader, pid: 7, role: "writer-0", write: true, ms: 800, at: at + 1000 };
+    const truncate = { ...passive, mode: "TRUNCATE", pid: 8, role: "checkpointer", ms: 2000, at: at + 3000 };
+    // A checkpoint that failed may never have had the lock, so it is not named either.
+    const failedRestart = { ...truncate, mode: "RESTART", pid: 9, failed: true };
+    const holderLines = sqliteTimingReport([wait, reader, passive, writer, truncate, failedRestart]).filter((line) =>
+      line.includes("holder?"),
+    );
+    expect(holderLines).toEqual([
+      '    holder? 2000 ms TRUNCATE checkpoint busy=0 overlapping 2000 ms file=- test="-" role=checkpointer pid=8',
+      '    holder? 800 ms write transaction overlapping 800 ms file=- test="-" role=writer-0 pid=7',
+    ]);
   });
 
   it("writes nothing and leaves DatabaseSync untouched when the variable is empty", async () => {

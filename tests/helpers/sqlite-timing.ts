@@ -9,7 +9,8 @@
  *
  * Recorded: every call over 1000 ms (with a stack), every BEGIN IMMEDIATE (histogram plus records over 100 ms), every
  * open (constructor time and the gap to the first statement), every wal_checkpoint pragma (mode, time, busy/log/
- * checkpointed) and, from the vitest setup file, tests over 10 s. SQL text is cut to 120 characters; bound parameter
+ * checkpointed), every transaction held 100 ms or more (with whether it took the write lock) and, from the vitest setup
+ * file, tests over 10 s. SQL text is cut to 120 characters; bound parameter
  * values are never read. This module must never be imported from production code (check-production-bundle.mjs fails on
  * the "WI_SQLITE_TIMING" marker).
  */
@@ -54,6 +55,11 @@ interface OpenInfo {
   /** performance.now() when this connection's BEGIN IMMEDIATE returned; 0 outside a transaction. */
   transactionStart: number;
   transactionTest: string | null;
+  /**
+   * Whether the open transaction took the write lock: BEGIN IMMEDIATE or EXCLUSIVE, or a deferred one that wrote. In WAL
+   * mode a read transaction never blocks another connection's BEGIN IMMEDIATE, so only these can be a wait's holder.
+   */
+  transactionWrites: boolean;
 }
 
 interface TimingState {
@@ -99,6 +105,18 @@ const OPEN_KEY = Symbol("work-intelligence.sqliteTiming.open");
 const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const BEGIN_IMMEDIATE_PATTERN = /^\s*begin\s+immediate\b/i;
 const BEGIN_PATTERN = /^\s*begin\b/i;
+const BEGIN_EXCLUSIVE_PATTERN = /^\s*begin\s+exclusive\b/i;
+/**
+ * A statement that takes the write lock in a deferred transaction: a write keyword at the start of any statement in the
+ * text (after leading comments), or a CTE whose closing parenthesis is followed by INSERT/REPLACE INTO, UPDATE or
+ * DELETE FROM (so `WITH ... SELECT replace(...)` is a read). Writing PRAGMAs are not recognized.
+ */
+const WRITE_PATTERN =
+  /(?:^|;)(?:\s|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*(?:insert|update|delete|replace|create|drop|alter|reindex|analyze)\b/i;
+const CTE_WRITE_PATTERN =
+  /(?:^|;)(?:\s|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*with\b[\s\S]*?\)\s*(?:(?:insert|replace)\s+(?:or\s+[a-z]+\s+)?into\b|update\s+(?:or\s+[a-z]+\s+)?[\w"`[]|delete\s+from\b)/i;
+/** SQLITE_BUSY and SQLITE_LOCKED: the statement did not get the lock, so it did not take the write lock either. */
+const BUSY_CODES = new Set([5, 6]);
 const TRANSACTION_END_PATTERN = /^\s*(commit|end|rollback)\b(?!\s+to\b)/i;
 const CHECKPOINT_PATTERN = /wal_checkpoint/i;
 const CHECKPOINT_MODE_PATTERN = /wal_checkpoint\s*\(\s*([a-z]+)/i;
@@ -111,6 +129,32 @@ function getState(): TimingState | undefined {
 
 function sqlPrefix(sql: unknown): string {
   return typeof sql === "string" ? sql.slice(0, SQL_PREFIX_LENGTH) : "";
+}
+
+/** Exported for tests: whether a statement's SQL takes the write lock inside a deferred transaction. */
+export function isWriteSql(sql: unknown): boolean {
+  return typeof sql === "string" && (WRITE_PATTERN.test(sql) || CTE_WRITE_PATTERN.test(sql));
+}
+
+/** Exported for tests: whether an error is SQLITE_BUSY or SQLITE_LOCKED (extended codes included). */
+export function isBusyError(error: unknown): boolean {
+  const code = (error as { errcode?: unknown } | null | undefined)?.errcode;
+  return typeof code === "number" && BUSY_CODES.has(code & 0xff);
+}
+
+/** The connection's open transaction while it has not taken the write lock yet; undefined otherwise (the common case). */
+function deferredReader(open: OpenInfo | undefined): OpenInfo | undefined {
+  return open !== undefined && open.transactionStart !== 0 && !open.transactionWrites ? open : undefined;
+}
+
+/**
+ * Marks a deferred transaction as a writer once a statement in it changed rows (`changes` from run()) or is write SQL.
+ * A write that failed for another reason than busy (a constraint, say) still took the lock, so it counts too.
+ */
+function noteWrite(open: OpenInfo, sql: unknown, changes: unknown, error: unknown): void {
+  if (error !== undefined && isBusyError(error)) return;
+  if ((typeof changes === "number" || typeof changes === "bigint") && changes > 0) open.transactionWrites = true;
+  else if (isWriteSql(sql)) open.transactionWrites = true;
 }
 
 function stackOfCaller(): string {
@@ -175,7 +219,14 @@ function recordBegin(state: TimingState, sql: unknown, ms: number, failed: boole
   }
 }
 
-function recordCheckpoint(state: TimingState, sql: unknown, ms: number, row: unknown, failed: boolean): void {
+function recordCheckpoint(
+  state: TimingState,
+  sql: unknown,
+  ms: number,
+  row: unknown,
+  failed: boolean,
+  db: string | null,
+): void {
   state.checkpointCount += 1;
   if (ms > state.checkpointMax) state.checkpointMax = ms;
   const values = (Array.isArray(row) ? row[0] : row) as
@@ -188,6 +239,8 @@ function recordCheckpoint(state: TimingState, sql: unknown, ms: number, row: unk
     baseRecord(state, "checkpoint", {
       mode: (match?.[1] ?? "PASSIVE").toUpperCase(),
       ms: Math.round(ms * 10) / 10,
+      at: wallClockAgo(ms),
+      db,
       failed,
       busy: busy ?? null,
       log: values && typeof values === "object" && values.log !== undefined ? Number(values.log) : null,
@@ -197,7 +250,10 @@ function recordCheckpoint(state: TimingState, sql: unknown, ms: number, row: unk
   );
 }
 
-/** A transaction that held the write lock for 100 ms or more: the candidate holder for another connection's wait. */
+/**
+ * A transaction held 100 ms or more. `write` says whether it took the write lock; only such a transaction can be the
+ * holder of another connection's BEGIN IMMEDIATE wait.
+ */
 function recordTransaction(state: TimingState, open: OpenInfo, ms: number, sql: unknown): void {
   if (ms < BEGIN_RECORD_MS) return;
   state.records.push(
@@ -207,6 +263,7 @@ function recordTransaction(state: TimingState, open: OpenInfo, ms: number, sql: 
       ms: Math.round(ms * 10) / 10,
       at: wallClockAgo(ms),
       db: open.db,
+      write: open.transactionWrites,
       startTest: open.transactionTest,
     }),
   );
@@ -240,6 +297,7 @@ function trackOpen(state: TimingState, db: object, path: unknown, options: unkno
     db: location === ":memory:" ? location : segments.slice(-2).join("/"),
     transactionStart: 0,
     transactionTest: null,
+    transactionWrites: false,
   };
 }
 
@@ -461,7 +519,10 @@ export function installSqliteTiming(options: SqliteTimingOptions = {}): void {
   const originalExec = databaseProto.exec as AnyFunction;
   const originalPrepare = databaseProto.prepare as AnyFunction;
 
-  const watchCheckpointStatement = (statement: Record<string, AnyFunction>, sql: string): void => {
+  // The connection each prepared statement belongs to, so a write through it marks that connection's transaction.
+  const statementOpen = new WeakMap<object, OpenInfo>();
+
+  const watchCheckpointStatement = (statement: Record<string, AnyFunction>, sql: string, db: string | null): void => {
     for (const method of ["get", "all", "run"] as const) {
       const inner = statement[method] as AnyFunction;
       // Own property on this one statement only; every other statement pays nothing for this.
@@ -474,7 +535,7 @@ export function installSqliteTiming(options: SqliteTimingOptions = {}): void {
           failed = false;
           return result;
         } finally {
-          recordCheckpoint(state, sql, now() - start, result, failed);
+          recordCheckpoint(state, sql, now() - start, result, failed, db);
         }
       };
     }
@@ -486,10 +547,14 @@ export function installSqliteTiming(options: SqliteTimingOptions = {}): void {
     const start = now();
     if (open !== undefined && open.openedAt !== 0) markFirstStatement(open, start);
     let failed = true;
+    let error: unknown;
     try {
       const result = Reflect.apply(originalExec, this, arguments as unknown as unknown[]);
       failed = false;
       return result;
+    } catch (caught) {
+      error = caught ?? null;
+      throw caught;
     } finally {
       const end = now();
       const ms = end - start;
@@ -498,11 +563,15 @@ export function installSqliteTiming(options: SqliteTimingOptions = {}): void {
         if (open !== undefined && !failed) {
           open.transactionStart = end;
           open.transactionTest = state.testNameProvider() ?? null;
+          open.transactionWrites = kind === 1 || BEGIN_EXCLUSIVE_PATTERN.test(sql as string);
         }
-      } else if (kind === 2) recordCheckpoint(state, sql, ms, undefined, failed);
+      } else if (kind === 2) recordCheckpoint(state, sql, ms, undefined, failed, open?.db ?? null);
       else if (kind === 3 && open !== undefined && open.transactionStart !== 0) {
         recordTransaction(state, open, end - open.transactionStart, sql);
         open.transactionStart = 0;
+      } else if (kind === 0) {
+        const reader = deferredReader(open);
+        if (reader !== undefined) noteWrite(reader, sql, undefined, error);
       }
       if (ms >= SLOW_CALL_MS) recordSlow(state, "exec", sql, ms, failed, open?.db);
     }
@@ -524,8 +593,9 @@ export function installSqliteTiming(options: SqliteTimingOptions = {}): void {
     } finally {
       const ms = now() - start;
       if (ms >= SLOW_CALL_MS) recordSlow(state, "prepare", sql, ms, failed);
+      if (statement !== undefined && open !== undefined) statementOpen.set(statement, open);
       if (statement !== undefined && typeof sql === "string" && sql.length < 200 && CHECKPOINT_PATTERN.test(sql)) {
-        watchCheckpointStatement(statement, sql);
+        watchCheckpointStatement(statement, sql, open?.db ?? null);
       }
     }
   });
@@ -535,12 +605,23 @@ export function installSqliteTiming(options: SqliteTimingOptions = {}): void {
     patch(statementProto, method, function (this: { sourceSQL?: string }) {
       const start = now();
       let failed = true;
+      let result: unknown;
+      let error: unknown;
       try {
-        const result = Reflect.apply(original, this, arguments as unknown as unknown[]);
+        result = Reflect.apply(original, this, arguments as unknown as unknown[]);
         failed = false;
         return result;
+      } catch (caught) {
+        error = caught ?? null;
+        throw caught;
       } finally {
         const ms = now() - start;
+        // sourceSQL is a getter that allocates; it is read only inside a deferred transaction that has not written yet.
+        const reader = deferredReader(statementOpen.get(this));
+        if (reader !== undefined) {
+          const changes = method === "run" ? (result as { changes?: unknown } | undefined)?.changes : undefined;
+          noteWrite(reader, this.sourceSQL, changes, error);
+        }
         if (ms >= SLOW_CALL_MS) recordSlow(state, method, this.sourceSQL, ms, failed);
       }
     });
@@ -559,12 +640,18 @@ export function installSqliteTiming(options: SqliteTimingOptions = {}): void {
       iterator.next = originalNext;
       const stepStart = now();
       let failed = true;
+      let error: unknown;
       try {
         const result = Reflect.apply(originalNext, this, arguments as unknown as unknown[]);
         failed = false;
         return result;
+      } catch (caught) {
+        error = caught ?? null;
+        throw caught;
       } finally {
         const ms = now() - stepStart + (stepStart - start);
+        const reader = deferredReader(statementOpen.get(statement));
+        if (reader !== undefined) noteWrite(reader, statement.sourceSQL, undefined, error);
         if (ms >= SLOW_CALL_MS) recordSlow(state, "iterate", statement.sourceSQL, ms, failed);
       }
     };

@@ -11,11 +11,26 @@ process.stdout.write("ready\n");
 db.exec("BEGIN IMMEDIATE");
 db.prepare("INSERT INTO items (name) VALUES (?)").run("secret-parameter-value");
 db.exec("COMMIT");
-// A deferred transaction held for 150 ms: recorded as a "transaction", the candidate holder in the timing report.
+// A deferred transaction that writes, held for 150 ms: recorded with write true, a candidate holder in the report.
 db.exec("BEGIN");
 db.prepare("INSERT INTO items (name) VALUES (?)").run("second");
 Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 150);
 db.exec("COMMIT");
+// A deferred transaction that only reads, held for 150 ms: recorded with write false, never a holder. Its column is named
+// `changes` on purpose: only run() reports changed rows, a row from get() must not count as a write.
+db.exec("BEGIN");
+db.prepare("SELECT COUNT(*) AS changes FROM items").get();
+Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 150);
+db.exec("COMMIT");
+// A deferred transaction whose INSERT fails on a constraint: the statement still took the write lock, so write is true.
+db.exec("BEGIN");
+try {
+  db.prepare("INSERT INTO items (id, name) VALUES (1, 'duplicate')").run();
+} catch {
+  // Expected: the primary key 1 exists.
+}
+Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 150);
+db.exec("ROLLBACK");
 db.prepare("PRAGMA wal_checkpoint(PASSIVE)").get();
 for (const row of db.prepare("SELECT name FROM items").iterate()) void row;
 db.close();
