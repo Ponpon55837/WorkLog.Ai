@@ -4,12 +4,15 @@ import {
   withCancelRequested,
   withCompletedStep,
   withMigrationStarted,
+  withNoticeAcknowledged,
   withPhase,
+  withRecoveryNotice,
   withRepairOnly,
   withTerminalStatus,
   type JournalJson,
   type NewOperationInput,
   type OperationRecord,
+  type RecoveryNotice,
 } from "./journal-record.js";
 import type { OperationJournalStore } from "./journal-store.js";
 import type { RecoveryDecision } from "./recovery.js";
@@ -51,6 +54,21 @@ export class OperationJournal {
     this.maxTerminalRecords = maxTerminalRecords;
   }
 
+  /** Closed operations whose notice the user has not dismissed yet, newest first (the Status tab's banner). */
+  async pendingNotices(): Promise<OperationRecord[]> {
+    return [...(await this.load()).values()]
+      .filter((record) => record.recoveryNotice !== null && !record.recoveryNotice.acknowledged)
+      .reverse();
+  }
+
+  /** The user dismissed this operation's notice; false when there is nothing to dismiss. */
+  async acknowledgeNotice(operationId: string): Promise<boolean> {
+    const before = await this.get(operationId);
+    if (!before?.recoveryNotice || before.recoveryNotice.acknowledged) return false;
+    await this.update(operationId, (record) => withNoticeAcknowledged(record, this.now()));
+    return true;
+  }
+
   /** Read one operation (loads the store on first use; a corrupt store throws, never reads as empty). */
   async get(operationId: string): Promise<OperationRecord | null> {
     return (await this.load()).get(operationId) ?? null;
@@ -89,15 +107,6 @@ export class OperationJournal {
     return this.update(operationId, (record) => withCompletedStep(record, step, result, this.now()));
   }
 
-  /** `(operationId, step)` applied twice yields the same record and no second side effect. */
-  advance(operationId: string, step: string, to: ServiceOwnerState): Promise<OperationRecord> {
-    return this.update(operationId, (record) =>
-      record.completedSteps.includes(step)
-        ? record
-        : withCompletedStep(withPhase(record, to, this.now()), step, null, this.now()),
-    );
-  }
-
   /** Monotonic: call before the first SQLite write that may migrate or restore. */
   markMigrationStarted(operationId: string): Promise<OperationRecord> {
     return this.update(operationId, (record) => withMigrationStarted(record, this.now()));
@@ -123,9 +132,16 @@ export class OperationJournal {
    * restore -> `cancelled`, repair -> `failed`, and `none` (real state already consistent, nothing to undo or fix)
    * -> `interrupted` with `result = { recoveredState, reason }`. `interrupted` rather than `completed` because the
    * journal cannot prove every step finished; replaying the id returns that stored result and pruning may drop it.
+   * `notice` (what the user is told) is stored in the same write that closes the record, so a crash cannot leave a
+   * closed operation whose banner was lost.
    */
-  applyRecovery(operationId: string, decision: RecoveryDecision): Promise<OperationRecord> {
-    return this.update(operationId, (record) => {
+  applyRecovery(
+    operationId: string,
+    decision: RecoveryDecision,
+    notice?: Omit<RecoveryNotice, "acknowledged">,
+  ): Promise<OperationRecord> {
+    return this.update(operationId, (stored) => {
+      const record = notice ? withRecoveryNotice(stored, notice, this.now()) : stored;
       let next = decision.migrationStarted ? withMigrationStarted(record, this.now()) : record;
       if (decision.recoveryPolicy === "repair-only") next = withRepairOnly(next, this.now());
       if (decision.nextState !== next.phase) next = withPhase(next, decision.nextState, this.now());

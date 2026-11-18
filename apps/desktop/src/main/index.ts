@@ -1,5 +1,6 @@
 import { existsSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
+import { basename } from "node:path";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { probeLoopbackPort } from "@work-intelligence/shared/loopback-port";
 import { app, dialog } from "electron";
@@ -39,6 +40,7 @@ import {
   type AppTab,
   type LegacyServiceDetection,
   type RestartOutcome,
+  type StartupRecoveryResult,
   type StorageRiskResult,
   type ShellLocale,
 } from "@work-intelligence/desktop-core";
@@ -80,6 +82,8 @@ import { createRestoreDialogs } from "./restore-dialogs.js";
 import { createRepairInfo } from "./repair-info.js";
 import { createStorageRiskService } from "./storage-risk.js";
 import { createRepairSuccess } from "./repair-success.js";
+import { recoverAtStartup } from "./recovery-startup.js";
+import { operationPause } from "./test-pause.js";
 import { createRepairWindow } from "./repair-window.js";
 import { createRuntimeProvisioner } from "./runtime-provision.js";
 import { createSecondInstance } from "./second-instance.js";
@@ -165,8 +169,22 @@ function runShell(configInputs: DesktopConfigInputs): void {
     log: (line) => log(`[backend] ${line}`),
     workingDirectory: paths.backendWorkingDirectory,
   });
-  const coordinator = new OperationCoordinator(new OperationJournal(new FileOperationJournalStore(paths.journalFile)));
-  const managed = new ManagedBackendService(coordinator, supervisor);
+  // One journal for the coordinator, start-up recovery, the copy flow and the Status tab's notices: its file is read once.
+  const journal = new OperationJournal(
+    new FileOperationJournalStore(paths.journalFile, {
+      onQuarantine: ({ to, reason }) =>
+        log(
+          `[shell] the operations journal could not be read (${reason}); moved aside to ${basename(to)}, starting empty`,
+        ),
+    }),
+  );
+  const coordinator = new OperationCoordinator(journal);
+  const pauseFile = __WI_TEST_BUILD__ ? overrideFromEnvironment(configInputs, "pauseOperationFile") : undefined;
+  const managed = new ManagedBackendService(
+    coordinator,
+    supervisor,
+    pauseFile === undefined ? undefined : operationPause(pauseFile),
+  );
   const lastBackup = new LastBackupTracker(async () => {
     const database = state.databasePath();
     const directory = state.backupDirectory();
@@ -359,6 +377,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     storage,
     port: changePort.section,
     update: updates.section,
+    journal,
   });
   const copyRunner = createCopyRunner({
     state,
@@ -368,6 +387,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     storage,
     prepareRuntime: () => prepareRuntime(false),
     autoConfirm: testSwitch(configInputs, "autoConfirmCopy"),
+    journal,
     log,
   });
   const firstRun = createFirstRun({
@@ -387,6 +407,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
   });
   const agents = createAgentsPage({
     state,
+    coordinator,
     paths,
     skillSourcePath: skillSourceFile(app.isPackaged, process.resourcesPath),
     log,
@@ -493,7 +514,11 @@ function runShell(configInputs: DesktopConfigInputs): void {
    * IPC and the session policy are set up. Only what shows something (a window, the Dashboard, a notification, the
    * login item) waits for `ready`.
    */
-  function startBackend(): { settingsLoaded: Promise<SettingsLoad>; started: Promise<RestartOutcome | undefined> } {
+  function startBackend(): {
+    settingsLoaded: Promise<SettingsLoad>;
+    recovered: Promise<StartupRecoveryResult>;
+    started: Promise<RestartOutcome | undefined>;
+  } {
     backend.attach();
     agents.recover();
     // The Web status page's "在桌面 App 設定 Agent" asks through the running backend; it only opens the window.
@@ -507,9 +532,33 @@ function runShell(configInputs: DesktopConfigInputs): void {
       void app.whenReady().then(openAgents);
     });
     const settingsLoaded = loadSettings(state, paths, log);
+    // H-01: operations a crash left in progress are closed from the real state after the settings are read and before the
+    // first-run page or any start. With nothing in progress this is the journal's one read.
+    const recovered = settingsLoaded
+      .then(() =>
+        recoverAtStartup({
+          journal,
+          state,
+          supervisor,
+          detectLegacy: () => legacy.refresh(),
+          prepareRuntime: () => prepareRuntime(false),
+          platform: process.platform,
+          log,
+        }),
+      )
+      .catch((error: unknown): StartupRecoveryResult => {
+        log(`[shell] recovery failed: ${error instanceof Error ? error.message : "unknown error"}`);
+        return { closed: 0, holdStart: true };
+      });
     // A new install starts nothing: the first-run page asks first (DT-01).
-    const started = settingsLoaded.then(async (loaded) => {
+    const started = Promise.all([settingsLoaded, recovered]).then(async ([loaded, recovery]) => {
       if (loaded !== "ok") return undefined;
+      if (recovery.holdStart) {
+        // The interrupted operation's real state could not be confirmed: starting would touch data nobody verified.
+        log("[shell] start held back: an interrupted operation needs repair first");
+        state.setOwner("NEEDS_REPAIR");
+        return { ok: false, code: "REPAIR_REQUIRED" } satisfies RestartOutcome;
+      }
       // DT-08: the committed database is classified beside the bring-up. The start's outcome is presented as soon as the
       // backend is up; the verdict is applied when it arrives (a network share stops the backend again, anything else only
       // updates the facts). A start that fails leaves the verdict known, so a retry is refused before it starts anything.
@@ -519,7 +568,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
       if (outcome.ok && databasePath !== null && classified) void settleStorageRisk(databasePath, classified);
       return outcome;
     });
-    return { settingsLoaded, started };
+    return { settingsLoaded, recovered, started };
   }
 
   /** The verdict for the database the backend came up on: a network share refuses it after the fact, as a failed start. */
@@ -584,12 +633,18 @@ function runShell(configInputs: DesktopConfigInputs): void {
       storage,
       updates,
       restore,
+      journal,
       copyToLocal: createLocalCopy({ state, paths, info, backend, supervisor, success, runner: copyRunner, log }),
       log,
     });
     if (process.platform === "darwin" && state.launchMode === "background") app.dock?.hide();
     tray.create();
     const loaded = await early.settingsLoaded;
+    const recovery = await early.recovered;
+    if (recovery.closed > 0 && state.launchMode === "interactive" && (await journal.pendingNotices()).length > 0) {
+      // What a crash interrupted is told on the Status tab; an interactive launch opens it so the user sees it.
+      window.open("status", { remember: false });
+    }
     if (loaded === "repair") {
       backend.recovery.handleFailure("REPAIR_REQUIRED");
       return;

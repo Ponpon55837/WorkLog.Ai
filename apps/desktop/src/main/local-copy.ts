@@ -1,8 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { stat, statfs } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { dialog } from "electron";
 import {
+  COPY_PATH_DETAIL,
   errorMessageFor,
   isPositiveRisk,
   removeCreatedDatabase,
@@ -12,6 +14,7 @@ import {
   writeDesktopSettingsAtomic,
   type BackendSupervisor,
   type CopyToLocalResult,
+  type OperationJournal,
   type RepairActionResult,
   type RestartOutcome,
 } from "@work-intelligence/desktop-core";
@@ -36,6 +39,8 @@ export interface CopyRunnerOptions {
   readonly prepareRuntime: () => Promise<unknown>;
   /** A test build answers the native confirmation itself (the switch `autoConfirmCopy`). */
   readonly autoConfirm: boolean;
+  /** The copy is journaled before it starts, so a crash leaves a record that start-up recovery cleans up (L-10). */
+  readonly journal: OperationJournal;
   readonly log: Logger;
 }
 
@@ -77,11 +82,13 @@ async function sizeOf(path: string): Promise<number> {
 
 /** The copy sequence with its Electron and file-system effects (confirmation, sizes, free space, the child that copies). */
 export function createCopyRunner(options: CopyRunnerOptions): CopyRunner {
-  const { state, backend, supervisor, storage, log } = options;
+  const { state, backend, supervisor, storage, journal, log } = options;
   const directory = dirname(defaultSettings().desired.databasePath);
-  return (source, switchTo) => {
+  return async (source, switchTo) => {
     const text = setupMessages(state.locale);
-    return runCopyToLocal({
+    /** The journal record of this copy, written before the first byte is copied (L-10). */
+    let copyOperationId: string | null = null;
+    const result = await runCopyToLocal({
       // A copy made beside a risk is no safer than the original: the target folder is classified, and none/unknown go on.
       targetFolderRisky: async () => isPositiveRisk((await storage.classify(uniqueCopyTarget(directory))).risk),
       confirm: async () => {
@@ -104,6 +111,16 @@ export function createCopyRunner(options: CopyRunnerOptions): CopyRunner {
       chooseTarget: async () => uniqueCopyTarget(directory),
       prepareRuntime: options.prepareRuntime,
       copyDatabase: async (target) => {
+        // Journaled first: a crash from here until the settings name the copy leaves a record, and the next start deletes the
+        // orphan copy (recovery checks the path is a copy file inside the App's own folder). A journal that cannot be
+        // written fails the copy before anything is copied.
+        copyOperationId = randomUUID();
+        await journal.begin({
+          operationId: copyOperationId,
+          kind: "change-db",
+          previousOwner: state.owner,
+          details: { [COPY_PATH_DETAIL]: target },
+        });
         const copied = await supervisor.copyDatabase(source, target);
         // A preview child that could not run is a failed copy; its detail stays out of the page.
         return copied.outcome === "checked" ? copied.result : { type: "copy-result", status: "failed" };
@@ -114,6 +131,18 @@ export function createCopyRunner(options: CopyRunnerOptions): CopyRunner {
       },
       log,
     });
+    const closing: string | null = copyOperationId;
+    if (closing !== null) {
+      // The copy is either the database now (the settings were written by `switchTo`) or already removed by the sequence.
+      await journal
+        .finish(closing, result.ok ? "completed" : "failed", result.ok ? {} : { error: "the copy was not switched to" })
+        .catch((error: unknown) => {
+          log(
+            `[shell] copy to local disk: the journal record was not closed (${error instanceof Error ? error.name : "unknown error"})`,
+          );
+        });
+    }
+    return result;
   };
 }
 

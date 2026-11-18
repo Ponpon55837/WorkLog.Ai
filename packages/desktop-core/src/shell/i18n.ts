@@ -1,4 +1,5 @@
 import type { BackendErrorCode } from "../backend/errors.js";
+import type { OperationKind, RecoveryNoticeKind } from "../operations/journal-record.js";
 import type { AppTab } from "./app-tabs.js";
 
 /** Languages the shell speaks: Traditional Chinese for any `zh-*` locale, English for everything else. */
@@ -50,6 +51,16 @@ export interface ShellMessages {
   readonly tabBusyLabel: string;
   /** The Status tab's one-line database state links to the Data tab with this text. */
   readonly statusOpenData: string;
+  /** The banner about an operation a crash interrupted (what happened, what to do, how to dismiss it). */
+  readonly recoveryHeading: string;
+  /** `{port}` is the port in use, `{attempted}` the one the interrupted change was moving to, `{operation}` its name. */
+  readonly recoveryNotices: Readonly<Record<RecoveryNoticeKind, string>>;
+  /** What the user can do next; names the tab and the button where that is. */
+  readonly recoveryNextSteps: Readonly<Record<RecoveryNoticeKind, string>>;
+  readonly recoveryOperationNames: Readonly<Record<OperationKind, string>>;
+  /** `{tab}` is the tab's label. */
+  readonly recoveryOpenTab: string;
+  readonly recoveryDismiss: string;
   /** macOS menu bar: `{name}` is `appName`. */
   readonly menuAbout: string;
   readonly menuEdit: string;
@@ -145,6 +156,42 @@ const zhTW: ShellMessages = {
   tabAttentionLabel: "需要處理",
   tabBusyLabel: "進行中",
   statusOpenData: "前往「資料」分頁",
+  recoveryHeading: "上次被中斷的操作",
+  recoveryNotices: {
+    "port-kept":
+      "上次變更連接埠時 App 被中斷，已確認仍使用原連接埠 {port}。新的連接埠 {attempted} 沒有生效，資料沒有被改動。",
+    "port-applied": "上次變更連接埠時 App 被中斷，但新的連接埠 {port} 已經生效。",
+    "db-kept": "上次切換資料庫時 App 被中斷，切換沒有生效，仍使用原本的資料庫，資料沒有被改動。",
+    "db-applied": "上次切換資料庫時 App 被中斷，但切換已經完成，現在使用的是你選的資料庫。",
+    "copy-removed": "上次複製資料庫到本機磁碟時 App 被中斷，已清除未完成的副本，原本的資料庫沒有被改動。",
+    "legacy-present": "上次停用舊的登入服務時 App 被中斷，舊的登入服務仍在，App 沒有動它。",
+    "legacy-disabled": "上次停用舊的登入服務時 App 被中斷，但舊的登入服務已經停用。",
+    "agent-interrupted": "上次設定 Agent 時 App 被中斷，未完成的變更已經還原或補完。",
+    "needs-repair":
+      "上次{operation}時 App 被中斷，無法確認資料目前處於哪個狀態，所以 App 先沒有自動啟動服務，也沒有改動任何資料。",
+  },
+  recoveryNextSteps: {
+    "port-kept": "想改用新的連接埠，可以到「設定」分頁再變更一次。",
+    "port-applied": "可以到「設定」分頁確認目前的連接埠。",
+    "db-kept": "想改用另一個資料庫，可以到「資料」分頁再選一次。",
+    "db-applied": "可以到「資料」分頁確認目前使用的資料庫。",
+    "copy-removed": "想再複製一次，可以到「資料」分頁按「複製到本機磁碟並改用」。",
+    "legacy-present": "想再試一次，可以在「狀態」分頁按「停用舊的登入服務…」。",
+    "legacy-disabled": "不需要再做任何事。",
+    "agent-interrupted": "請到「Agent」分頁確認各 Agent 的狀態，需要時再設定一次。",
+    "needs-repair": "請在「狀態」分頁按「重試啟動」；若仍無法啟動，可以到「資料」分頁選擇資料庫。",
+  },
+  recoveryOperationNames: {
+    takeover: "啟動服務",
+    restart: "重新啟動服務",
+    "change-port": "變更連接埠",
+    "change-db": "切換資料庫",
+    "apply-agent": "設定 Agent",
+    restore: "還原資料庫",
+    "legacy-disable": "停用舊的登入服務",
+  },
+  recoveryOpenTab: "前往「{tab}」分頁",
+  recoveryDismiss: "知道了",
   menuAbout: "關於 {name}",
   menuEdit: "編輯",
   menuWindow: "視窗",
@@ -350,6 +397,50 @@ const en: ShellMessages = {
   tabAttentionLabel: "Needs attention",
   tabBusyLabel: "In progress",
   statusOpenData: "Open the Data tab",
+  recoveryHeading: "An operation was interrupted last time",
+  recoveryNotices: {
+    "port-kept":
+      "The App was interrupted while changing the port last time. Confirmed: it still uses the original port {port}. The new port {attempted} did not take effect, and your data was not changed.",
+    "port-applied":
+      "The App was interrupted while changing the port last time, but the new port {port} did take effect.",
+    "db-kept":
+      "The App was interrupted while switching the database last time. The switch did not take effect: the original database is still in use and your data was not changed.",
+    "db-applied":
+      "The App was interrupted while switching the database last time, but the switch had finished: the database you chose is now in use.",
+    "copy-removed":
+      "The App was interrupted while copying the database to the local disk last time. The unfinished copy was removed and the original database was not changed.",
+    "legacy-present":
+      "The App was interrupted while turning off the old login service last time. The old login service is still there and the App did not touch it.",
+    "legacy-disabled":
+      "The App was interrupted while turning off the old login service last time, but the old login service is now turned off.",
+    "agent-interrupted":
+      "The App was interrupted while setting up an Agent last time. The unfinished changes were reverted or completed.",
+    "needs-repair":
+      "The App was interrupted during the last attempt to {operation}, and it cannot confirm what state your data is in. So the App did not start the service by itself and did not change any data.",
+  },
+  recoveryNextSteps: {
+    "port-kept": "To use the new port, change it again on the Settings tab.",
+    "port-applied": "You can check the current port on the Settings tab.",
+    "db-kept": "To use another database, choose it again on the Data tab.",
+    "db-applied": "You can check the database in use on the Data tab.",
+    "copy-removed": 'To copy again, choose "Copy to local disk and switch" on the Data tab.',
+    "legacy-present": 'To try again, choose "Turn off the old login service…" on the Status tab.',
+    "legacy-disabled": "There is nothing more to do.",
+    "agent-interrupted": "Check each Agent's state on the Agent tab and set it up again if needed.",
+    "needs-repair":
+      'Choose "Retry start" on the Status tab; if it still cannot start, choose a database on the Data tab.',
+  },
+  recoveryOperationNames: {
+    takeover: "start the service",
+    restart: "restart the service",
+    "change-port": "change the port",
+    "change-db": "switch the database",
+    "apply-agent": "set up an Agent",
+    restore: "restore the database",
+    "legacy-disable": "turn off the old login service",
+  },
+  recoveryOpenTab: "Open the {tab} tab",
+  recoveryDismiss: "Got it",
   menuAbout: "About {name}",
   menuEdit: "Edit",
   menuWindow: "Window",

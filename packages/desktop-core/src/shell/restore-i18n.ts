@@ -133,7 +133,6 @@ const zhTW: RestoreMessages = {
     "apply-agent": "設定 Agent",
     restart: "重新啟動服務",
     restore: "還原備份",
-    "update-install": "安裝更新",
     "legacy-disable": "停用舊的登入服務",
   },
   locked:
@@ -220,7 +219,6 @@ const en: RestoreMessages = {
     "apply-agent": "setting up an Agent",
     restart: "restarting the service",
     restore: "restoring a backup",
-    "update-install": "installing an update",
     "legacy-disable": "disabling the old login service",
   },
   locked:

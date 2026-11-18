@@ -46,6 +46,11 @@ const TEST_ENVIRONMENT = {
    */
   holdMigrationFile: "WORK_INTELLIGENCE_DESKTOP_TEST_HOLD_MIGRATION_FILE",
   /**
+   * An absolute path `P`: a port or database change stops at its commit step (the new backend verified, the settings not
+   * written yet) and writes `P.reached`, so a smoke test can end the App there and look at what recovery makes of it.
+   */
+  pauseOperationFile: "WORK_INTELLIGENCE_DESKTOP_TEST_PAUSE_OPERATION_FILE",
+  /**
    * `http://127.0.0.1:<port>`: a local fake server the update check asks instead of the GitHub API. Only the API origin
    * changes; the release page and installer links it returns must still be github.com links of the repository.
    */

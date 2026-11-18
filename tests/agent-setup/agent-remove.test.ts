@@ -3,9 +3,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   applyAgentSetupTransaction,
   createAgentSetupPlan,
+  filesLeftByTransaction,
   readAgentSetupJournal,
 } from "@work-intelligence/agent-setup";
-import { commitAgentPlan, filesLeftByTransaction } from "../../apps/desktop/src/main/agents.js";
 import { createFixture, removeFixtures } from "./fixture.js";
 
 afterEach(removeFixtures);
@@ -46,7 +46,9 @@ describe("what an unfinished Agent apply leaves behind (L-20)", () => {
 describe("removing Agent setup goes through the same plan, apply and undo path as installing", () => {
   it("previews only what setup wrote, applies it through the single commit function and can be undone", () => {
     const fixture = createFixture();
-    expect(commitAgentPlan(createAgentSetupPlan(fixture.options), fixture.paths.journal).outcome).toBe("committed");
+    expect(
+      applyAgentSetupTransaction(createAgentSetupPlan(fixture.options), { journalPath: fixture.paths.journal }).outcome,
+    ).toBe("committed");
     const installed = readFileSync(fixture.paths.claudeJson, "utf8");
     expect(installed).toContain("work-intelligence");
 
@@ -55,7 +57,7 @@ describe("removing Agent setup goes through the same plan, apply and undo path a
     expect(removal.conflicts).toEqual([]);
     expect(removal.mutations.length).toBeGreaterThan(0);
 
-    expect(commitAgentPlan(removal, fixture.paths.journal).outcome).toBe("committed");
+    expect(applyAgentSetupTransaction(removal, { journalPath: fixture.paths.journal }).outcome).toBe("committed");
     const claude = JSON.parse(readFileSync(fixture.paths.claudeJson, "utf8")) as {
       mcpServers: Record<string, unknown>;
     };

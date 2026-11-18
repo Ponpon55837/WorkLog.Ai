@@ -47,6 +47,7 @@ export const REPAIR_CHANNELS = {
   openSystemSettings: "app:open-system-settings",
   /** Read the old login service again (the user turned it off by hand). No input. */
   legacyRecheck: "legacy:recheck",
+  recoveryAcknowledge: "app:recovery-acknowledge",
   setupGetState: "setup:get-state",
   setupUseDefaults: "setup:use-defaults",
   setupUseSource: "setup:use-source",
@@ -107,6 +108,8 @@ export const repairInputSchemas = {
   rememberTab: z.strictObject({ tab: z.enum(APP_TABS) }),
   openSystemSettings: z.strictObject({ target: z.enum(SYSTEM_SETTINGS_TARGETS) }),
   legacyRecheck: z.strictObject({}),
+  /** Dismisses one recovery notice (an interrupted operation's id); persisted, so it does not come back. */
+  recoveryAcknowledge: z.strictObject({ id: z.string().min(1).max(128) }),
   setupGetState: z.undefined(),
   setupUseDefaults: z.strictObject({ launchAtLogin: z.boolean(), startAnyway: z.boolean().optional() }),
   setupUseSource: z.strictObject({
@@ -292,6 +295,8 @@ export interface RepairApi {
   getTab(): Promise<AppTabSelection>;
   /** The user selected `tab`; main keeps it for this App session (memory only). `ok: false` for a tab not available now. */
   rememberTab(tab: AppTab): Promise<{ readonly ok: boolean }>;
+  /** The user dismissed a recovery notice (the Status tab's banner); `ok: false` when there was nothing to dismiss. */
+  acknowledgeRecovery(id: string): Promise<{ readonly ok: boolean }>;
   /** Calls `listener` whenever main asks the page to select a tab (the tray, a launch flag); the window is not reloaded. */
   onSelectTab(listener: (tab: AppTab) => void): void;
   /** Opens the OS place where the user can turn the old login service off by hand (an enum, never a path). */

@@ -12,6 +12,7 @@ import {
   type BackendSupervisor,
   type BuiltDiagnostics,
   type OperationCoordinator,
+  type OperationJournal,
   type RepairPortSection,
   type RepairUpdateSection,
   type LastBackupTracker,
@@ -43,6 +44,8 @@ export interface RepairInfoOptions {
   readonly legacy: LegacyGuard;
   /** Its running operation (if any) puts a busy mark on the tab it belongs to. */
   readonly coordinator?: Pick<OperationCoordinator, "current">;
+  /** Where the recovery notices of interrupted operations are kept (the Status tab's banner). */
+  readonly journal: Pick<OperationJournal, "pendingNotices">;
   /** The storage verdicts this run reached (DT-08). */
   readonly storage: StorageRiskService;
   /** What the 「連接埠」 section shows. */
@@ -90,6 +93,8 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
             chosenByUser: true,
             needsMigration: latestCode === "SCHEMA_MIGRATION_BLOCKED",
           });
+    // Served from the journal's in-memory copy; an unreadable journal simply shows no banner.
+    const pending = await options.journal.pendingNotices().catch(() => []);
     return buildRepairState({
       platform: process.platform,
       homeDirectory: homedir(),
@@ -124,6 +129,9 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
       retryOperationId: state.retryIds.current(),
       busy: state.busy,
       recovered: state.recovered,
+      recoveryNotices: pending.flatMap((record) =>
+        record.recoveryNotice ? [{ id: record.operationId, notice: record.recoveryNotice }] : [],
+      ),
       ...(options.port ? { port: options.port() } : {}),
       ...(options.update ? { update: options.update() } : {}),
       // Shown only where it matters: the old service may serve this database, or it holds the port.

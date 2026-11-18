@@ -3,6 +3,13 @@
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { StorageRisk } from "../../packages/desktop-core/src/index.js";
+// The main-process module reads the built package, so the journal comes from the same build (one class, one type).
+import {
+  COPY_PATH_DETAIL,
+  InMemoryOperationJournalStore,
+  OperationJournal,
+  type OperationRecord,
+} from "../../packages/desktop-core/dist/index.js";
 
 // Only `app` and `dialog` of Electron are read by these modules, and neither runs here.
 vi.mock("electron", () => ({ app: {}, dialog: { showMessageBox: vi.fn() } }));
@@ -36,13 +43,22 @@ function runnerHarness(options: { targetRisk?: StorageRisk; classifierThrows?: b
   const events: string[] = [];
   const classified: string[] = [];
   const copyRequests: Array<[string, string]> = [];
+  const openRecords: OperationRecord[] = [];
+  const journal = new OperationJournal(new InMemoryOperationJournalStore());
   const runner = createCopyRunner({
-    state: { locale: "en" } as never,
+    journal,
+    state: { locale: "en", owner: "EXTERNAL" } as never,
     window: { window: () => null } as never,
     backend: { recovery: { cancel: () => events.push("cancel-retry") } } as never,
     supervisor: {
       copyDatabase: async (source: string, target: string) => {
         copyRequests.push([source, target]);
+        // L-10: the record naming the copy exists before the first byte is copied.
+        const open = await journal.findInProgress();
+        if (open) {
+          openRecords.push(open);
+          events.push("journaled");
+        }
         return { outcome: "checked", result: { type: "copy-result", status: "ok", identity: IDENTITY } };
       },
     } as never,
@@ -56,7 +72,7 @@ function runnerHarness(options: { targetRisk?: StorageRisk; classifierThrows?: b
     autoConfirm: true,
     log: () => undefined,
   });
-  return { runner, events, classified, copyRequests };
+  return { runner, events, classified, copyRequests, journal, openRecords };
 }
 
 describe("the target folder of the copy", () => {
@@ -83,10 +99,24 @@ describe("the target folder of the copy", () => {
     expect(copyRequests).toHaveLength(1);
   });
 
+  it("journals the copy path before copying and closes the record afterwards (L-10)", async () => {
+    const done = runnerHarness();
+    await done.runner("/synthetic/source.sqlite", async () => ({ ok: true }));
+    expect(done.events).toContain("journaled");
+    const open = done.openRecords[0]!;
+    expect(open.details?.[COPY_PATH_DETAIL]).toBe(done.copyRequests[0]?.[1]);
+    expect(await done.journal.get(open.operationId)).toMatchObject({ kind: "change-db", status: "completed" });
+    expect(await done.journal.findInProgress()).toBeNull();
+
+    const failed = runnerHarness();
+    await failed.runner("/synthetic/source.sqlite", async () => ({ ok: false, busy: false, code: "X" }) as never);
+    expect(await failed.journal.get(failed.openRecords[0]!.operationId)).toMatchObject({ status: "failed" });
+  });
+
   it("cancels a pending automatic retry only once the user confirmed the copy", async () => {
     const confirmed = runnerHarness();
     await confirmed.runner("/synthetic/source.sqlite", async () => ({ ok: true }));
-    expect(confirmed.events).toEqual(["cancel-retry"]);
+    expect(confirmed.events).toEqual(["cancel-retry", "journaled"]);
   });
 });
 

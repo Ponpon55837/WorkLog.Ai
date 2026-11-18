@@ -1,3 +1,4 @@
+export { filesLeftByTransaction } from "./files-left.js";
 export { findCheckoutRegistrations, type CheckoutRegistration } from "./adopt.js";
 export {
   applyAgentSetupPlan,

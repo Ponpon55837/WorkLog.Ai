@@ -17,6 +17,7 @@ const channels: typeof REPAIR_CHANNELS = {
   rememberTab: "app:remember-tab",
   openSystemSettings: "app:open-system-settings",
   legacyRecheck: "legacy:recheck",
+  recoveryAcknowledge: "app:recovery-acknowledge",
   setupGetState: "setup:get-state",
   setupUseDefaults: "setup:use-defaults",
   setupUseSource: "setup:use-source",
@@ -66,6 +67,7 @@ const api: RepairApi = {
   rememberTab: (tab) => ipcRenderer.invoke(channels.rememberTab, { tab }),
   openSystemSettings: (target) => ipcRenderer.invoke(channels.openSystemSettings, { target }),
   legacyRecheck: () => ipcRenderer.invoke(channels.legacyRecheck, {}),
+  acknowledgeRecovery: (id) => ipcRenderer.invoke(channels.recoveryAcknowledge, { id }),
   setupGetState: () => ipcRenderer.invoke(channels.setupGetState),
   setupUseDefaults: (launchAtLogin, startAnyway) =>
     ipcRenderer.invoke(channels.setupUseDefaults, {

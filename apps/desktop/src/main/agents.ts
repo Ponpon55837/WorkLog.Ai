@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import {
+  filesLeftByTransaction,
   agentSetupJournalPath,
   applyAgentSetupTransaction,
   createAgentSetupPlan,
@@ -30,8 +31,10 @@ import {
   type AgentsPreview,
   type AgentsResult,
   type AgentsState,
+  type OperationCoordinator,
   type SetupAgentId,
 } from "@work-intelligence/desktop-core";
+import { runAgentOperation } from "./agent-operation.js";
 import type { DesktopPaths } from "./config.js";
 import type { Logger } from "./log.js";
 import type { ShellState } from "./state.js";
@@ -62,6 +65,8 @@ export interface AgentsPage {
 
 export interface AgentsPageOptions {
   readonly state: ShellState;
+  /** Every apply runs as an `apply-agent` operation, so a crash in the middle is found and told at the next start. */
+  readonly coordinator: OperationCoordinator;
   readonly paths: Pick<DesktopPaths, "runtimeRoot">;
   /** The canonical `work-intelligence` SKILL.md the App ships. */
   readonly skillSourcePath: string;
@@ -71,23 +76,6 @@ export interface AgentsPageOptions {
 }
 
 const SELF_TEST_TIMEOUT_MS = 15_000;
-
-/**
- * The files an unfinished apply or undo left as they are: an item that someone else changed (so it was not restored),
- * one compensation never reached, or one it failed on. Those are the files the user may have to look at; the ones
- * compensation restored are not listed.
- */
-export function filesLeftByTransaction(applied: Pick<AgentSetupTransactionResult, "items">): string[] {
-  const left = applied.items.filter(
-    (item) =>
-      item.compensation === "manual-repair" || item.compensation === "not-attempted" || item.compensation === "failed",
-  );
-  const modified = applied.items.filter((item) => item.status === "externally-modified");
-  const named = [...new Set([...left, ...modified].map((item) => item.path))];
-  if (named.length > 0) return named;
-  // Never an empty list for an unfinished repair: fall back to every file that was written.
-  return [...new Set(applied.items.filter((item) => item.status === "written").map((item) => item.path))];
-}
 
 /**
  * The one entry point that writes an Agent plan, install or removal: the journaled transaction. The preview's plan is
@@ -307,12 +295,20 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
         return { ok: true, state: snapshot() };
       }),
     apply: (previewId) =>
-      exclusive(() => {
+      exclusive(async () => {
         if (!pending || pending.id !== previewId) return { ok: false, reason: "invalid", state: snapshot() };
         if (pending.plan.conflicts.length > 0) return { ok: false, reason: "invalid", state: snapshot() };
         const { plan, view } = pending;
+        const run = await runAgentOperation(options.coordinator, state.owner, () => commitAgentPlan(plan, journalPath));
+        // Another operation (a start, a port change) holds the lock: nothing was written, and the preview stays usable.
+        if (run.status === "busy") return { ok: false, reason: "busy", state: snapshot() };
         pending = null;
-        const applied = commitAgentPlan(plan, journalPath);
+        if (run.status === "failed") {
+          log("[shell] agent setup apply failed inside the operation");
+          result = { kind: "failed", code: "APPLY_FAILED" };
+          return { ok: false, reason: "failed", errorCode: "APPLY_FAILED", state: snapshot() };
+        }
+        const applied = run.value;
         log(
           `[shell] agent setup ${view.mode === "uninstall" ? "remove" : "apply"} ${applied.outcome}${applied.code ? ` ${applied.code}` : ""}`,
         );
