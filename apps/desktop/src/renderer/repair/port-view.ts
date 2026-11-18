@@ -19,6 +19,8 @@ export interface PortViewHost {
   readonly text: PortMessages;
   /** Another page action is running (or a start): the button waits. */
   readonly working: boolean;
+  /** Focus the input when main's state asks for it: only while the user has not moved the focus or the tab since the request. */
+  readonly focusPort: boolean;
   /** Draw the view again from its last state. */
   readonly rerender: () => void;
   /** Ask main for a fresh state (the port or the service changed). */
@@ -108,7 +110,7 @@ export function portSection(host: PortViewHost, port: RepairPortSection): HTMLEl
   );
   card.id = "port-section";
   // The tray item (or the Dashboard's link) asked for the section: main reports it in one state only.
-  if (port.focus && !scrolledTo.has(port)) {
+  if (port.focus && host.focusPort && !scrolledTo.has(port)) {
     scrolledTo.add(port);
     queueMicrotask(() => {
       card.scrollIntoView({ block: "center" });

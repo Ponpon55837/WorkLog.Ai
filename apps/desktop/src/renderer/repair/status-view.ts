@@ -52,6 +52,23 @@ function recoveredCard(state: RepairState, recovered: NonNullable<RepairState["r
   return card;
 }
 
+/** The one-time card after the first run finished in this window: the Setup tab is gone, so the next step is offered here. */
+function setupFinishedCard(ctx: ViewContext): HTMLElement {
+  const text = setupMessages(ctx.state.locale);
+  const card = section(
+    text.setupHeading,
+    element("p", { className: "intro", text: text.setupDone }),
+    hint(text.setupNextAgents),
+    actions(
+      button(text.setupOpenAgents, "open-agents", true, () => ctx.act.openAgents(), true),
+      button(text.setupClose, "close", true, () => ctx.act.dismissFinished()),
+    ),
+  );
+  card.id = "setup-finished";
+  card.classList.add("card--success");
+  return card;
+}
+
 function serviceCard(ctx: ViewContext, blocking: boolean): HTMLElement {
   const { state, messages } = ctx;
   const rows: [string, Node | string][] = [
@@ -104,9 +121,10 @@ function errorsCard(ctx: ViewContext): HTMLElement {
 
 export function statusPanel(ctx: ViewContext): Node[] {
   const { state, messages } = ctx;
-  if (state.recovered) return [recoveredCard(state, state.recovered, messages)];
+  const finished = ctx.setupFinished ? [setupFinishedCard(ctx)] : [];
+  if (state.recovered) return [...finished, recoveredCard(state, state.recovered, messages)];
   const blocking = isBlockingDatabase(state);
-  const blocks: Node[] = [...legacyCards(ctx)];
+  const blocks: Node[] = [...finished, ...legacyCards(ctx)];
   if (state.owner === "NEEDS_REPAIR") {
     blocks.push(element("p", { className: "flash flash--danger", text: messages.repairIntro }));
   }

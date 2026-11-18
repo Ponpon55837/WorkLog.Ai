@@ -21,7 +21,11 @@ const LOGIN_ID = "launch-at-login";
 
 type Retry = (startAnyway: boolean) => Promise<SetupActionResult>;
 
-export function mountSetup(app: HTMLElement, say: (text: string) => void, api: RepairApi): { refresh(): void } {
+export function mountSetup(
+  app: HTMLElement,
+  say: (text: string) => void,
+  api: RepairApi,
+): { refresh(): void; unmount(): void } {
   let current: SetupState | undefined;
   let working = false;
   /** The last start was held back by the old login service: "仍要啟動" repeats it with consent. */
@@ -29,6 +33,8 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
   let timer: ReturnType<typeof setTimeout> | undefined;
   /** Each read bumps it; only the newest one schedules the next poll, so the polls never double up. */
   let generation = 0;
+  /** The first run is over and the page took this view out for good: nothing is read or scheduled any more. */
+  let disposed = false;
   const memory = createSetupMemory();
 
   function launchAtLogin(): boolean {
@@ -285,6 +291,7 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
 
   async function refresh(): Promise<void> {
     if (timer) clearTimeout(timer);
+    if (disposed) return;
     const mine = (generation += 1);
     // Another tab is open: this view is out of the page (its state stays here) and only waits to be shown again.
     if (!app.isConnected) {
@@ -292,10 +299,12 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
       return;
     }
     try {
-      current = await api.setupGetState();
+      const next = await api.setupGetState();
+      if (disposed) return;
+      current = next;
       if (!working) render(current);
     } catch {
-      say("…");
+      if (!disposed) say("…");
     }
     if (mine !== generation) return;
     const fast = !current || current.phase === "detecting" || current.phase === "starting";
@@ -303,5 +312,13 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
   }
 
   void refresh();
-  return { refresh: () => void refresh() };
+  return {
+    refresh: () => void refresh(),
+    unmount: () => {
+      disposed = true;
+      generation += 1;
+      if (timer) clearTimeout(timer);
+      timer = undefined;
+    },
+  };
 }

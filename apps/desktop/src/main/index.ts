@@ -191,7 +191,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     title: () => state.messages().appName,
     // A plain launch, a second launch or the tray: the Setup tab while the App is not set up yet, else a blocking state's
     // tab, the remembered tab or Status; an explicit request (`open("settings")`) wins over all of them.
-    selectTab: (requested) => selectTab(requested),
+    selectTab: (requested, remember) => selectTab(requested, remember),
     // Developer tools exist only where the App is not packaged (development and the smoke tests). A test build can also turn
     // them off, which is how the smoke test proves what a packaged App gets from this setting.
     devTools: !app.isPackaged && !testSwitch(configInputs, "devToolsOff"),
@@ -266,7 +266,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     coordinator,
     lastBackup,
     log,
-    openRepairWindow: () => window.open("status"),
+    openRepairWindow: () => window.open("status", { remember: false }),
     prepareRuntime,
     legacyBlocks: (databasePath) => legacy.blocks(databasePath),
     storageRefused: (databasePath) => storagePolicy(storage.last(databasePath)?.risk).refused,
@@ -383,7 +383,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     coordinator,
     supervisor,
     backend,
-    openRepairWindow: () => window.open("status"),
+    openRepairWindow: () => window.open("status", { remember: false }),
     log,
     environment: process.env,
     confirmDialog: async (hardStop) => {
@@ -436,12 +436,13 @@ function runShell(configInputs: DesktopConfigInputs): void {
 
   /**
    * Decides and stores the tab the window shows: an explicit request wins, else the blocking state's tab, the tab the user
-   * last used this session (memory only) or the default. What is shown is also what is remembered.
+   * last used this session (memory only) or the default. Only a tab the user chose is remembered (an explicit tray or
+   * route request here, or the page's `app:remember-tab`); recovery and legacy-disable redirects are not.
    */
-  function selectTab(requested?: AppTab): AppTab {
+  function selectTab(requested?: AppTab, remember = requested !== undefined): AppTab {
     const tab = initialTab({ ...info.tabInputs(), requested, remembered: state.tabMemory.recall() });
     state.tab = tab;
-    state.tabMemory.remember(tab, state.needsSetup);
+    if (remember) state.tabMemory.remember(tab, state.needsSetup);
     return tab;
   }
 

@@ -10,6 +10,10 @@ export interface ViewActions {
   /** 「複製到本機磁碟並改用」 for a candidate, or (no id) for the App's own database. */
   copyToLocal(candidateId?: string): void;
   openTab(tab: AppTab): void;
+  /** The "Setup finished" card's 「設定 Agent…」: opens the Agent tab and puts the card away. */
+  openAgents(): void;
+  /** The "Setup finished" card's 「關閉」: puts the card away for this window session. */
+  dismissFinished(): void;
   /** Draws the open panel again from the last state (a view's own state changed). */
   rerender(): void;
   /** Reads the state from main again, then draws it. */
@@ -24,5 +28,9 @@ export interface ViewContext {
   readonly busy: boolean;
   /** Candidates whose storage-risk checkbox is ticked: the panel is redrawn on changes and must keep the tick. */
   readonly riskTicked: Set<string>;
+  /** The first run just finished in this window and its card was not dismissed yet: Status shows it, no other tab does. */
+  readonly setupFinished: boolean;
+  /** An explicit request (tray item, Dashboard link) asked for the port input and the user has not moved on since. */
+  readonly focusPort: boolean;
   readonly act: ViewActions;
 }

@@ -8,19 +8,40 @@ export interface FocusSnapshot {
   readonly selectionEnd: number | null;
 }
 
+/**
+ * The control each root last had the keyboard on. A guarded action redraws with the pressed button disabled, so the
+ * focus falls to the root; the next capture answers with this control, and it gets the focus back once it is enabled.
+ */
+const lastFocused = new WeakMap<HTMLElement, FocusSnapshot>();
+
+/** Drops what a root remembers (the user left it for another place on purpose). */
+export function forgetFocus(root: HTMLElement): void {
+  lastFocused.delete(root);
+}
+
 /** What is focused inside `root` (null when the focus is elsewhere: nothing to restore, and nothing to steal). */
 export function captureFocus(root: HTMLElement): FocusSnapshot | null {
   const active = document.activeElement;
-  if (!(active instanceof HTMLElement) || active === root || !root.contains(active)) return null;
+  // The root itself holds the focus: the control the user was on could not take it back yet (it was disabled).
+  if (active === root) return lastFocused.get(root) ?? null;
+  if (!(active instanceof HTMLElement) || !root.contains(active)) {
+    lastFocused.delete(root);
+    return null;
+  }
   const id = active.dataset.id;
   const selector = id ? `[data-id="${CSS.escape(id)}"]` : active.id ? `#${CSS.escape(active.id)}` : null;
-  if (selector === null) return null;
+  if (selector === null) {
+    lastFocused.delete(root);
+    return null;
+  }
   const text = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement ? active : null;
-  return {
+  const snapshot = {
     selector,
     selectionStart: text?.selectionStart ?? null,
     selectionEnd: text?.selectionEnd ?? null,
   };
+  lastFocused.set(root, snapshot);
+  return snapshot;
 }
 
 /** Puts the focus back; when that control is gone (or cannot take focus now) the panel itself holds it, so Tab continues from there. */

@@ -159,17 +159,22 @@ test("a new install shows the first-run page with the defaults one click away an
   expect(existsSync(sandbox.databasePath)).toBe(true);
 
   // Done: Setup is a tab that exists only while the App needs it, so the tab list drops it once the settings are
-  // committed (the done card's "open agents" button is gone with it). The next step, the Agent tab, is reached through
-  // the same route the button used (`showAgents`, the bridge call behind it) and opens in the same window, writing
-  // nothing by itself.
+  // committed. The window then shows Status with a one-time "Setup finished" card on top; its primary button is the
+  // way to the next step, the Agent tab (the same window, writing nothing by itself).
   await expect(tabButton(window, "setup")).toHaveCount(0, { timeout: 15_000 });
-  await window.evaluate(() =>
-    (
-      window as unknown as { workIntelligenceRepair: { showAgents(): Promise<unknown> } }
-    ).workIntelligenceRepair.showAgents(),
-  );
+  await expectTabShown(window, "status");
+  const text = await pageText(window);
+  const finished = window.locator("#setup-finished");
+  await expect(finished).toBeVisible();
+  await expect(finished).toContainText(text.setupDone);
+  await expect(finished.locator('[data-id="close"]')).toHaveText(text.setupClose);
+  // It lives on Status only and survives the poll that redraws the panel.
+  await new Promise((resolveWait) => setTimeout(resolveWait, 4_500));
+  await expect(finished).toBeVisible();
+  await finished.locator('[data-id="open-agents"]').click();
   await expectTabShown(window, "agent");
   await expect(window.locator("[data-agent]")).toHaveCount(2);
+  await expect(window.locator("#setup-finished")).toHaveCount(0);
   expect((await readSnapshot(app)).tab).toBe("agent");
   expect(readMainLog(sandbox)).toMatch(/\[shell\] first-run detection /);
 });

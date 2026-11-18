@@ -7,6 +7,11 @@ import {
   type WindowRect,
 } from "@work-intelligence/desktop-core";
 
+/** Whether the tab main shows counts as the user's choice (and is remembered); an explicit request does, a recovery redirect does not. */
+export interface TabChoice {
+  readonly remember?: boolean;
+}
+
 export interface RepairWindow {
   /**
    * Shows the App window. `requested` is an explicit tab request (the tray, a launch flag, a route inside main) and wins
@@ -14,7 +19,7 @@ export interface RepairWindow {
    * restored when minimised) and told to select the tab; it never reloads. Only a brand-new window loads the page,
    * which asks main for its tab (`app:get-tab`). There is never a second window.
    */
-  open(requested?: AppTab): void;
+  open(requested?: AppTab, choice?: TabChoice): void;
   isOpen(): boolean;
   /** Closes the window when one is open. */
   close(): void;
@@ -27,7 +32,7 @@ export interface RepairWindow {
 export interface RepairWindowOptions {
   readonly title: () => string;
   /** Decides and stores the tab to show (explicit request, blocking state, remembered tab, default) and returns it. */
-  readonly selectTab: (requested?: AppTab) => AppTab;
+  readonly selectTab: (requested?: AppTab, remember?: boolean) => AppTab;
   readonly preloadFile: string;
   /** Called before every new window is created; it must be safe to call again (the session policy is applied here). */
   readonly prepareSession: () => void;
@@ -53,8 +58,8 @@ export function createRepairWindow(options: RepairWindowOptions): RepairWindow {
     return windowBoundsFor(toRect(display.workArea), lastBounds);
   }
 
-  function open(requested?: AppTab): void {
-    const tab = options.selectTab(requested);
+  function open(requested?: AppTab, choice: TabChoice = {}): void {
+    const tab = options.selectTab(requested, choice.remember ?? requested !== undefined);
     const existing = alive();
     if (existing) {
       if (existing.isMinimized()) existing.restore();

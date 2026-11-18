@@ -15,6 +15,7 @@ export function settingsPanel(ctx: ViewContext): Node[] {
           api: act.api,
           text: portMessages(state.locale),
           working: ctx.busy,
+          focusPort: ctx.focusPort,
           rerender: act.rerender,
           refresh: act.refresh,
         },

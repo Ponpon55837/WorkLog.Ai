@@ -5,7 +5,7 @@ import { createActions } from "./actions.js";
 import type { ViewActions, ViewContext } from "./context.js";
 import { createChangeTracker } from "./diff.js";
 import { element, setLanguage } from "./dom.js";
-import { captureFocus, restoreSnapshot } from "./focus.js";
+import { captureFocus, forgetFocus, restoreSnapshot } from "./focus.js";
 import { mountAgents } from "./agents-view.js";
 import { buildPanel, drawsFromRepairState } from "./panels.js";
 import { mountSetup } from "./setup-view.js";
@@ -32,6 +32,8 @@ declare global {
 interface MountedView {
   readonly container: HTMLElement;
   readonly refresh: () => void;
+  /** Stops the view's own polling for good (it is never mounted again). */
+  readonly unmount?: () => void;
 }
 
 const REFRESH_MS = 4000;
@@ -56,7 +58,15 @@ let shown = false;
 let ready = false;
 let pendingTab: AppTab | undefined;
 let fixingTab = false;
+/** An explicit request (the tray item, the Dashboard's link) asked for the port input; any key or click of the user ends it. */
+let focusPending = false;
+/** The first run finished in this window and the user has not put its card away yet. */
+let setupFinished = false;
 let fallbackTabs: readonly AppTab[] = APP_TABS.filter((tab) => tab !== "setup");
+
+function setupInTabs(state: RepairState | undefined): boolean {
+  return state?.shell.tabs.includes("setup") ?? false;
+}
 
 function say(text: string): void {
   statusRegion.textContent = text;
@@ -125,6 +135,14 @@ function viewActions(): ViewActions {
       selectTab(tab);
       tabStrip.focusTab(tab);
     },
+    openAgents: () => {
+      setupFinished = false;
+      viewActions().openTab("agent");
+    },
+    dismissFinished: () => {
+      setupFinished = false;
+      renderPanel(true);
+    },
     rerender: () => renderPanel(true),
     refresh: () => void refresh(),
   };
@@ -135,7 +153,8 @@ function renderPanel(force: boolean): void {
   const state = current;
   const tab = selected;
   if (!state || !shown || !drawsFromRepairState(tab)) return;
-  const changed = changes.changed(tab, { inputs: panelInputs(tab, state), busy: working });
+  const finished = setupFinished && tab === "status";
+  const changed = changes.changed(tab, { inputs: panelInputs(tab, state), busy: working, finished });
   if (!force && !changed) return;
   const panel = panelOf(tab);
   const context: ViewContext = {
@@ -143,6 +162,8 @@ function renderPanel(force: boolean): void {
     messages: shellMessages(state.locale),
     busy: working,
     riskTicked,
+    setupFinished: finished,
+    focusPort: focusPending,
     act: viewActions(),
   };
   const focus = captureFocus(panel);
@@ -152,6 +173,8 @@ function renderPanel(force: boolean): void {
   restoreNotesScroll(panel);
   app.scrollTop = top;
   restoreSnapshot(panel, focus);
+  // The request for the port input was answered by this drawing: it is not asked again.
+  if (tab === "settings" && state.port?.focus) focusPending = false;
   app.setAttribute("aria-busy", "false");
 }
 
@@ -169,8 +192,12 @@ function enterPanel(tab: AppTab): void {
     } else {
       const container = element("div", { className: "view-host" });
       panel.replaceChildren(container);
-      const handle = tab === "setup" ? mountSetup(container, say, api) : mountAgents(container, say, api);
-      mounted.set(tab, { container, refresh: handle.refresh });
+      if (tab === "setup") {
+        const handle = mountSetup(container, say, api);
+        mounted.set(tab, { container, refresh: handle.refresh, unmount: handle.unmount });
+      } else {
+        mounted.set(tab, { container, refresh: mountAgents(container, say, api).refresh });
+      }
     }
     app.setAttribute("aria-busy", "false");
   }
@@ -189,11 +216,24 @@ function leavePanel(tab: AppTab): void {
 function selectTab(tab: AppTab, remember = true): void {
   if (!isAppTab(tab) || !availableTabs().includes(tab)) return;
   if (shown && tab === selected) return;
-  if (shown) leavePanel(selected);
+  // Focus inside the panel that goes away, or on the tab strip, follows to the new tab; focus elsewhere is left alone.
+  const active = document.activeElement;
+  const carryFocus =
+    shown &&
+    active instanceof HTMLElement &&
+    active !== document.body &&
+    (panelOf(selected).contains(active) || tabStrip.element.contains(active));
+  if (shown) {
+    forgetFocus(panelOf(selected));
+    leavePanel(selected);
+  }
   selected = tab;
   shown = true;
+  // What the page said about the last tab (a status line) is not about this one.
+  say("");
   tabStrip.update(stripModel());
   enterPanel(tab);
+  if (carryFocus) tabStrip.focusTab(tab);
   if (remember) void api.rememberTab(tab).catch(() => undefined);
 }
 
@@ -207,6 +247,14 @@ async function chooseAnotherTab(): Promise<void> {
   if (next && next !== selected) selectTab(next, false);
 }
 
+/** The Setup tab went away in this window (the settings were committed): its view is put away and Status carries on. */
+function setupFinishedHere(): void {
+  if (selected === "setup" && availableTabs().includes("status")) selectTab("status", false);
+  setupFinished = true;
+  mounted.get("setup")?.unmount?.();
+  mounted.delete("setup");
+}
+
 /** The page language, the window title and the hidden page heading, in the state's language. */
 function applyLocale(locale: ShellLocale): void {
   const { appName } = shellMessages(locale);
@@ -217,12 +265,17 @@ function applyLocale(locale: ShellLocale): void {
 }
 
 function applyState(state: RepairState): void {
+  const hadSetup = setupInTabs(current);
   current = state;
   applyLocale(state.locale);
+  if (hadSetup && !setupInTabs(state)) setupFinishedHere();
   if (!availableTabs().includes(selected)) void chooseAnotherTab();
   tabStrip.update(stripModel());
   // The tray item or the Dashboard's link asked for the port section: it is on Settings, which comes forward for it.
-  if (state.port?.focus && selected !== "settings") selectTab("settings");
+  if (state.port?.focus) {
+    focusPending = true;
+    if (selected !== "settings") selectTab("settings");
+  }
   if (!working) renderPanel(false);
 }
 
@@ -255,10 +308,15 @@ function buildFrame(): void {
 async function start(): Promise<void> {
   api = window.workIntelligenceRepair;
   buildFrame();
+  // The user moving the keyboard or the pointer ends a pending request for the port input: a poll never takes the focus after that.
+  for (const type of ["keydown", "pointerdown"]) document.addEventListener(type, () => (focusPending = false), true);
   api.onSelectTab((tab) => {
     if (!isAppTab(tab)) return;
-    if (ready) selectTab(tab);
-    else pendingTab = tab;
+    if (ready) {
+      selectTab(tab);
+      // A pending request (the port input) or a new database candidate comes with the next state: read it now, not in 4 s.
+      void refresh();
+    } else pendingTab = tab;
   });
   // Main tells the page when an update check starts or ends (the tray item starts one without the page), so it shows at once.
   api.onUpdateChanged(() => void refresh());
@@ -272,9 +330,11 @@ async function start(): Promise<void> {
     applyLocale(state.locale);
   }
   ready = true;
+  // The first drawing may already be the Settings tab with the port request in the state: the flag comes first.
+  focusPending = state?.port?.focus === true;
   selectTab(pendingTab ?? selection?.tab ?? availableTabs()[0] ?? "status", false);
   app.setAttribute("aria-busy", "false");
-  if (state?.port?.focus && selected !== "settings") selectTab("settings");
+  if (focusPending && selected !== "settings") selectTab("settings");
   setInterval(() => void refresh(), REFRESH_MS);
 }
 
