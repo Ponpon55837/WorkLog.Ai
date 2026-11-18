@@ -158,7 +158,7 @@ describe("detectLegacyService: recognised definitions", () => {
   it("recognises the macOS LaunchAgent, reads root, database and default port, and queries launchctl", async () => {
     const home = tempHome();
     const path = installPosix("darwin", home);
-    const runner = fakeRunner({ launchctl: { stdout: "state = running\n\tpid = 42", code: 0 } });
+    const runner = fakeRunner({ "/bin/launchctl": { stdout: "state = running\n\tpid = 42", code: 0 } });
     const result = found(
       await detectLegacyService({ platform: "darwin", homeDirectory: home, environment: {}, uid: 501, ...runner }),
     );
@@ -172,7 +172,9 @@ describe("detectLegacyService: recognised definitions", () => {
       port: 3210,
       running: "running",
     });
-    expect(runner.calls).toEqual([{ command: "launchctl", args: ["print", "gui/501/ai.workintelligence.server"] }]);
+    expect(runner.calls).toEqual([
+      { command: "/bin/launchctl", args: ["print", "gui/501/ai.workintelligence.server"] },
+    ]);
   });
 
   it("recognises the Linux unit, honours XDG_CONFIG_HOME, and reports stopped", async () => {
@@ -434,7 +436,7 @@ describe("detectLegacyService: running status", () => {
   async function runningOn(platform: "darwin" | "linux", reply: Reply, timeoutMs?: number) {
     const home = tempHome();
     installPosix(platform, home);
-    const command = platform === "darwin" ? "launchctl" : "systemctl";
+    const command = platform === "darwin" ? "/bin/launchctl" : "systemctl";
     return found(
       await detectLegacyService({
         platform,
@@ -544,7 +546,7 @@ describe("detectLegacyService: starts at login", () => {
       homeDirectory: home,
       environment: {},
       uid: 501,
-      ...fakeRunner({ [platform === "darwin" ? "launchctl" : "systemctl"]: reply }),
+      ...fakeRunner({ [platform === "darwin" ? "/bin/launchctl" : "systemctl"]: reply }),
     });
   }
 

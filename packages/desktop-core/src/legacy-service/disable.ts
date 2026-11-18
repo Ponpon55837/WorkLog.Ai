@@ -9,7 +9,7 @@ import {
   LEGACY_SYSTEMD_UNIT,
   legacyWindowsTaskTarget,
 } from "./constants.js";
-import { legacyDefinitionDigest } from "./detect.js";
+import { LAUNCHCTL, legacyDefinitionDigest } from "./detect.js";
 import { decodeLegacyDefinition } from "./parse.js";
 import type {
   LegacyServiceCommandRunner,
@@ -138,13 +138,13 @@ export function planLegacyDisable(
         {
           kind: "command",
           stage: "stop",
-          run: { command: "launchctl", args: ["bootout", launchdTarget(options.uid)] },
+          run: { command: LAUNCHCTL, args: ["bootout", launchdTarget(options.uid)] },
           tolerateFailure: true,
         },
         {
           kind: "command",
           stage: "stop",
-          run: { command: "launchctl", args: ["print", launchdTarget(options.uid)] },
+          run: { command: LAUNCHCTL, args: ["print", launchdTarget(options.uid)] },
           tolerateFailure: false,
           mustFail: true,
         },

@@ -28,6 +28,9 @@ const MAX_DEFINITION_BYTES = 64 * 1024;
 const MISSING_CODES = new Set(["ENOENT", "ENOTDIR"]);
 /** `launchctl print` exits with this code when the label is not loaded ("Could not find service"). */
 const LAUNCHD_NOT_FOUND_CODE = 113;
+
+/** The fixed system path of launchctl, never resolved through PATH (like the Windows tools from System32). */
+export const LAUNCHCTL = "/bin/launchctl";
 /** The `Get-ScheduledTask` State values (ScheduledTaskState): numbers, so no system language is parsed. */
 const TASK_STATE_DISABLED = 1;
 const TASK_STATE_QUEUED = 2;
@@ -169,7 +172,7 @@ async function queryService(
 ): Promise<ServiceQuery> {
   const unknown: ServiceQuery = { registration: "unknown", running: "unknown" };
   if (platform === "darwin") {
-    const result = await run("launchctl", ["print", launchdTarget(options.uid)]);
+    const result = await run(LAUNCHCTL, ["print", launchdTarget(options.uid)]);
     if (result?.code === LAUNCHD_NOT_FOUND_CODE) return { registration: "absent", running: "unknown" };
     if (result?.code !== 0) return unknown;
     return {
