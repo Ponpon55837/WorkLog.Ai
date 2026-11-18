@@ -46,7 +46,10 @@ function rootTokenNames(css: string): Set<string> {
 
 describe("the App window uses the shared design tokens only", () => {
   it("finds the renderer files it scans", () => {
-    expect(rendererFiles.map((file) => relative(rendererDirectory, file))).toContain("repair/repair.css");
+    // Normalised: on Windows `relative` returns backslashes.
+    expect(rendererFiles.map((file) => relative(rendererDirectory, file).replaceAll("\\", "/"))).toContain(
+      "repair/repair.css",
+    );
     expect(rendererFiles.length).toBeGreaterThan(10);
   });
 
