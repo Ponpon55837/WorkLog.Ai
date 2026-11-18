@@ -24,7 +24,6 @@ import {
 type Outcome = { ok: true; digest: string; redactions: number } | { ok: false; kind: string; message?: string };
 
 const CHUNK = 1024 * 1024;
-const BYTE_ORDER_MARK = String.fromCharCode(0xfeff);
 const roots: string[] = [];
 const stores: WorkIntelligenceStore[] = [];
 let spillCounter = 0;
@@ -190,9 +189,14 @@ describe("streaming import reader, chunk boundaries", () => {
 });
 
 /** The reader fed `chunkBytes` at a time; 1 puts a chunk boundary on every offset of the input at once. */
-function streamedInChunks(text: string, envelope: ProjectDataImportEnvelope, chunkBytes: number): Outcome {
+function streamedInChunks(
+  input: string | Uint8Array,
+  envelope: ProjectDataImportEnvelope,
+  chunkBytes: number,
+): Outcome {
+  const bytes = typeof input === "string" ? Buffer.from(input) : input;
   try {
-    return summarize(readProjectDataImportBytes(Buffer.from(text), { envelope, spillPath: spillPath() }, chunkBytes));
+    return summarize(readProjectDataImportBytes(bytes, { envelope, spillPath: spillPath() }, chunkBytes));
   } catch (error) {
     return outcomeOfError(error);
   }
@@ -284,10 +288,32 @@ describe("streaming import reader, document shape", () => {
     expect(streamed(Buffer.from(text), "request").ok).toBe(true);
   });
 
-  it("refuses a UTF-8 byte order mark as invalid JSON, as JSON.parse does", () => {
-    const text = `${BYTE_ORDER_MARK}${JSON.stringify({ bundle: exportedBundle() })}`;
-    expect(wholeDocument(text, "request")).toEqual({ ok: false, kind: "invalid_json" });
-    expect(streamed(Buffer.from(text), "request")).toEqual({ ok: false, kind: "invalid_json" });
+  it("skips a leading UTF-8 byte order mark, as the 1.6.46 page did by reading the file as text", () => {
+    const text = JSON.stringify({ bundle: exportedBundle() });
+    const expected = streamed(Buffer.from(text), "request");
+    expect(expected.ok).toBe(true);
+    const withMark = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(text)]);
+    expect(streamed(withMark, "request")).toEqual(expected);
+  });
+
+  it("skips the byte order mark when a chunk boundary cuts it in two", () => {
+    const text = JSON.stringify({ bundle: exportedBundle() });
+    const expected = streamed(Buffer.from(text), "request");
+    const withMark = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(text)]);
+    for (const chunkBytes of [1, 2, 3]) {
+      expect(streamedInChunks(withMark, "request", chunkBytes)).toEqual(expected);
+    }
+  });
+
+  it("still refuses a body that is only a byte order mark, a broken one and a second one", () => {
+    for (const bytes of [
+      Buffer.from([0xef, 0xbb, 0xbf]),
+      Buffer.from([0xef, 0xbb]),
+      Buffer.concat([Buffer.from([0xef, 0xbb, 0x20]), Buffer.from("{}")]),
+      Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf, 0xef, 0xbb, 0xbf]), Buffer.from("{}")]),
+    ]) {
+      expect(streamed(bytes, "request")).toEqual({ ok: false, kind: "invalid_json" });
+    }
   });
 
   it.each([
