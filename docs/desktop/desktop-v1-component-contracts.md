@@ -136,7 +136,7 @@
   - 備份失敗時不進行 migration。
 - **平台**：W 的備份目錄與空間檢查需實機測試；M 同。
 - **對應**：DT-05、DT-07；R04、R12、R33。
-- **1.6.52 實作**：restore 在取代現行資料庫之前，先把備份遷移到暫存副本，並對副本執行 `quick_check` 與 `foreign_key_check`；兩者都通過才改名（rename）取代現行資料庫。驗證失敗回傳 `RESTORE_VERIFY_FAILED`，現行資料庫不變，暫存副本移除（`packages/storage/src/backup.ts`）。以真實程序強制結束還原途中的程序時，現行資料庫不變；還原後保留一份安全快照（`tests/storage/migration-interruption.test.ts`）。DT-07 的壓力測試（`pnpm test:sqlite-stress`）另外驗證已還原快照的指紋與來源相同。桌面 App 目前沒有還原流程，只有 CLI `pnpm db:restore` 適用。
+- **1.6.52 實作**：restore 在取代現行資料庫之前，先把備份遷移到暫存副本，並對副本執行 `quick_check` 與 `foreign_key_check`；兩者都通過才改名（rename）取代現行資料庫。驗證失敗回傳 `RESTORE_VERIFY_FAILED`，現行資料庫不變，暫存副本移除（`packages/storage/src/backup.ts`）。以真實程序強制結束還原途中的程序時，現行資料庫不變；還原後保留一份安全快照（`tests/storage/migration-interruption.test.ts`）。DT-07 的壓力測試（`pnpm test:sqlite-stress`）另外驗證已還原快照的指紋與來源相同。1.6.56 起 App 內「資料」分頁提供還原（H-02）：備份以不透明的一次性權杖選取（不接受任意路徑）；經 OperationCoordinator 以 `restore` 種類執行；拒絕較新 schema 與非 Work Intelligence 的檔案；開始前提示先關閉 Agent。還原仍沿用上述驗證流程。M-14（最後的 rename 沒有重試）尚未修復，排在 1.6.57。
 
 ### C-21 SqliteRuntimeCheck
 
@@ -155,7 +155,7 @@
 
 ### C-04 OperationCoordinator 與 OperationJournal
 
-- **責任**：協調所有影響管理權的操作（接管、換 DB、換 port、套用 Agent、重啟、還原、更新安裝）；持久化操作紀錄與階段。
+- **責任**：協調所有影響管理權的操作（接管、換 DB、換 port、套用 Agent、重啟、還原）；持久化操作紀錄與階段。
 - **輸入**：操作請求（`operationId`、來源、參數摘要、預期狀態）。
 - **輸出**：操作結果；`BUSY`（附目前操作）；可查詢的狀態。
 - **不變條件**（ADR-21）：
@@ -166,6 +166,7 @@
 - **平台**：W 與 M 的操作紀錄都放在使用者可寫的固定目錄。
 - **對應**：DT-09、DT-10；R19、R30。
 - **1.6.42 實作**：`packages/desktop-core/src/operations/`（`service-owner-state.ts`、`operation-journal.ts`、`journal-store.ts`、`coordinator.ts`、`recovery.ts`）；ServiceOwner 的狀態轉移表以資料表示；檔案式原子 journal，重送冪等；`recover()` 依注入的 OS／DB 探測結果重建狀態，而非依 journal 文字；migration 有證據後禁止還原舊服務，並進入 NEEDS_REPAIR。單一行程內的全域鎖：同 ID 回傳同一結果，不同 ID 回 BUSY；跨程序鎖屬 DT-15。取消在副作用發生後延後到恢復處理。
+- **1.6.56 接線（H-01、M-06、L-10）**：`recoverAtStartup` 於主程序讀取設定之後、首次設定與後端啟動之前執行。中斷的操作只依真實狀態關閉：設定檔、DB 身分與 schema、子程序、舊服務偵測；不採信 journal 的階段文字。空的 journal 只多一次讀取。結果以可關閉的橫幅顯示在 Status 分頁。損毀的 journal 改名隔離後從空白重來（M-06）。孤兒的本機副本由復原清除（L-10）。移除未使用的 `update-install` 種類與 `advance()`；使用中的種類為 `apply-agent` 與 `restore`。
 
 ### C-08 BackendChild（後端子程序）
 

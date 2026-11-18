@@ -15,6 +15,12 @@
 4. **設計文件沒有跟上程式碼。** R4、契約與矩陣的標頭與狀態段仍停在 1.6.40 至 1.6.47，且與 ADR-38、ADR-40 矛盾。兩份 README 完全沒有提到桌面 App。詳見 §5。
 5. **1.6.55 的「單一分頁視窗」沒有內嵌 Dashboard。** 分頁是原修復視窗內的頁籤；Dashboard 仍由 `shell.openExternal` 在系統瀏覽器開啟（`apps/desktop/src/main/dashboard.ts:41-52`）。因此 ADR-01 與「內嵌 Dashboard 視窗非 V1」仍然成立。
 
+**§ 修復進度（1.6.56）**
+
+- **已修復**：H-01、H-02、M-06、M-11、M-12、M-15、M-16、L-08、L-10、L-20。以上皆為 CI 可驗證部分，Windows 與 macOS 實機尚未驗收。
+- **未修復**：M-14（還原的最後 rename 沒有重試），排在 1.6.57。其餘項目沿用本表的原判定。
+- **文件**：DT-09、ADR-21、ADR-22、C-04、C-15 已依實作改寫（`docs/desktop/`）。版本說明見 `docs/releases/1.6.56.md`。
+
 ### 0.1 查證方式與限制
 
 - 五個方向平行閱讀：安全性、操作協調、runtime 與 CI、Agent 整合與 server/storage、文件一致性。高嚴重度與下表標「已複核」的項目，我另外開檔逐行確認過。
@@ -87,11 +93,11 @@
 | DT-02 | 唯讀 preflight | 已完成（CI） | `apps/server/src/database-preflight.ts`；`tests/server/database-preflight.test.ts` | 需要（Windows sidecar） |
 | DT-03 | 寫入端 schema 閘 | 已完成（CI） | `tests/server/schema-gate.test.ts`、`tests/storage/schema-gate-surface.test.ts`。矩陣該列沒有狀態註記 | 需要 |
 | DT-04 | 舊寫入端屏障實驗 | 部分完成 | 組合 1 至 3 已做；組合 4 未做 | 需要 |
-| DT-05 | 備份驗證與 restore 守門 | 部分完成 | `tests/storage/restore-verify.test.ts`。缺口：M-14（最後的 rename 沒有重試）；App 內沒有還原（H-02）。矩陣該列沒有狀態註記 | 需要 |
+| DT-05 | 備份驗證與 restore 守門 | 部分完成 | `tests/storage/restore-verify.test.ts`。缺口：M-14（最後的 rename 沒有重試，排在 1.6.57）。App 內還原已於 1.6.56 加入（H-02 已修，「資料」分頁）。矩陣該列沒有狀態註記 | 需要 |
 | DT-06 | SQLite 版本檢查 | 已完成（CI） | `apps/server/src/sqlite-runtime.ts`；`apps/desktop/tests/packaged-smoke/runtime-sqlite.spec.ts:75` | 不需要 |
 | DT-07 | 多程序 WAL 壓力 | 已完成（CI） | `tests/stress/sqlite-wal-stress.test.ts`，三個 OS 都跑 | 建議 |
 | DT-08 | 檔案系統風險政策 | 部分完成 | `packages/desktop-core/src/db-source/storage-risk.ts`；`storage-risk.spec.ts`。缺口：Windows USB 外接硬碟判為本機、iCloud「桌面與文件」不偵測（L-11）；M-04 | 需要 |
-| DT-09 | ServiceOwner 狀態機與 journal | **部分完成，文件標為已實作** | 狀態表與 journal 寫入都在。`recover()` 沒有接線（H-01） | 需要 |
+| DT-09 | ServiceOwner 狀態機與 journal | **已完成（CI）；1.6.56 接線** | 狀態表與 journal 寫入都在。1.6.56 起主程序啟動時執行 `recoverAtStartup`，中斷操作依真實狀態關閉（H-01 已修）。實機待驗收 | 需要 |
 | DT-10 | OperationCoordinator | 已完成（CI） | `packages/desktop-core/src/operations/coordinator.ts`。缺口：部分 handler 繞過（M-04、L-07） | 不需要 |
 | DT-11 | 子程序 lifecycle | 部分完成 | `packages/desktop-core/src/backend/`。缺口：Windows 不清孫行程（M-02） | 需要 |
 | DT-12 | 服務擁有權證據（macOS LaunchAgent） | 部分完成 | 偵測與停用在 `packages/desktop-core/src/legacy-service/`。矩陣該列沒有狀態註記；真實 `launchctl` 只用 fake 測 | 需要 |
@@ -116,7 +122,7 @@
 | DT-31 | 三階段更新與修復安裝包 | 已取消（更新部分） | 修復入口由 App 視窗的「狀態」分頁提供 | 需要（修復入口） |
 | DT-32 | migration 前備份與樣本升級 | 已完成（CI） | `tests/storage/{upgrade-samples,migration-interruption}.test.ts`；`migration-interruption.spec.ts`（只殺後端子行程，不殺主行程） | 需要 |
 | DT-33 | 聯合發行閘 | 已完成（CI） | `.github/workflows/release.yml:384-390`。矩陣仍寫「實跑待確認」，實際已在 9 個版本跑過 | 不需要 |
-| DT-34 | 解除安裝與移除入口 | 部分完成 | NSIS 已做。macOS「移除桌面整合」入口未做，Agent 設定也沒有 App 內的移除（M-11） | 需要 |
+| DT-34 | 解除安裝與移除入口 | 部分完成 | NSIS 已做。Agent 設定的 App 內移除已於 1.6.56 加入（M-11 已修）。macOS「移除桌面整合」入口未做 | 需要 |
 | DT-35 | 退出語意 UI | 已完成（CI） | `apps/desktop/src/main/quit.ts` | 需要 |
 | DT-36 | CI 隔離與實機環境清單 | 部分完成 | 隔離已做。實機環境清單與驗收清單不存在；本報告 §4 提供一份 | 需要 |
 | DT-37 | 簽章與公證 | 已取消 | ADR-38。矩陣該列沒有狀態，§5 仍寫「未就緒」 | 不適用 |
@@ -161,7 +167,7 @@
 
 ### 2.1 高嚴重度
 
-#### H-01 當機復原沒有接到產品（已複核）
+#### H-01 當機復原沒有接到產品（已複核）（已於 1.6.56 修復）
 
 - **位置**：`packages/desktop-core/src/operations/recovery.ts:196`（`recover`）、`operation-journal.ts:60`（`findInProgress`）、`:127`（`applyRecovery`）。`apps/desktop/src/main/` 中沒有任何呼叫；`journalFile` 只在 `index.ts:164` 用來建立 coordinator。
 - **失敗情境**：主行程在 migration、換連接埠、換資料庫或停用舊服務途中當機或被強制結束。下次啟動時 App 不讀 journal：
@@ -173,7 +179,7 @@
   1. 在 `index.ts` 讀設定之後、首次設定之前呼叫 `findInProgress()` 與 `recover()`，並加一個「殺主行程後重啟」的 smoke。
   2. 刪除未使用的模組，把 DT-09、ADR-21、ADR-22、C-04 改寫為「以原子設定寫入取代 journal 復原」。
 
-#### H-02 App 內沒有還原，卻要使用者「從備份還原」（已複核）
+#### H-02 App 內沒有還原，卻要使用者「從備份還原」（已複核）（已於 1.6.56 修復）
 
 - **位置**：`packages/desktop-core/src/shell/i18n.ts:233`（`DB_MISSING` 的提示）、`:239`；`restoreDatabase` 唯一的產品呼叫點是 `apps/server/src/cli.ts:597`。
 - **失敗情境**：使用者的資料庫檔案遺失或檢查失敗。App 顯示「請選擇資料庫，或從備份還原」，但六個分頁裡沒有還原按鈕。使用者只能開終端機執行 `pnpm db:restore`；只安裝桌面 App 的使用者沒有 pnpm，等於無路可走。
@@ -188,7 +194,7 @@
 | M-03 | `packages/desktop-core/src/legacy-service/detect.ts:202-208`、`:264-276` | Windows 上沒有定義檔時，偵測完全依賴 PowerShell 查詢。查詢逾時（上限 2 秒）或失敗時 `taskXml` 為空，回傳 `kind: "none"`。只登錄了排程工作的舊服務偵測不到，App 與舊服務同時開同一個資料庫。macOS 沒有這個路徑 | 逾時時回傳「無法判定」而不是「沒有」；同一次執行內快取結果 | 是 |
 | M-04 | `apps/desktop/src/main/index.ts:507-534` | `settleStorageRisk` 直接呼叫 `supervisor.stop()`（:521），不經 coordinator。換連接埠或複製進行中，後端可能被它停掉。後端重啟中時（:511）直接 return，網路磁碟的判定不會套用到之後起來的後端 | 改走 coordinator；重啟中時延後重試 | 是 |
 | M-05 | `packages/desktop-core/src/shell/backend-recovery.ts:88-98` | 後端意外結束時剛好有別的操作在跑，自動重試遇到 BUSY 只寫 log，不重排也不顯示視窗。視窗關著的使用者不會知道服務已停 | BUSY 時延後重排，或顯示視窗 | 否 |
-| M-06 | `packages/desktop-core/src/operations/journal-store.ts:47-60` | `operations-journal.json` 損毀時 `load()` 拋出例外，之後每次啟動後端都失敗。App 內沒有重置的動作，使用者只能自己刪檔 | 讀取失敗時把壞檔改名隔離，從空 journal 重來並記 log | 部分 |
+| M-06（已於 1.6.56 修復） | `packages/desktop-core/src/operations/journal-store.ts:47-60` | `operations-journal.json` 損毀時 `load()` 拋出例外，之後每次啟動後端都失敗。App 內沒有重置的動作，使用者只能自己刪檔 | 讀取失敗時把壞檔改名隔離，從空 journal 重來並記 log | 部分 |
 
 ### 2.3 中嚴重度：跨版本互動
 
@@ -197,7 +203,7 @@
 | M-07 | 1.6.49 × 1.6.51 | `packages/desktop-core/src/runtime/launcher-main.ts:108-122` | launcher 只在行程啟動時讀一次 App 的資料庫路徑。使用者之後在 App 換資料庫或複製到本機，已開著的 Agent（MCP 行程）仍寫舊檔，沒有偵測也沒有提示 | MCP 寫入前重讀指標，不一致就拒寫；或在切換成功後明示「請重新開啟 Agent」 | 否 |
 | M-08 | 1.6.45 × 1.6.54 | `packages/desktop-core/src/runtime/bundled-install.ts:201-210`、`:410` | Windows 上重裝同一個 runtime id（檔案損壞，或同版號不同 build）要先改名整個目錄。Agent 正從該目錄執行時改名失敗，約 4.5 秒後回 `RUNTIME_INSTALL_FAILED`，提示是「重新安裝」，沒有說要先關閉 Agent | 專屬錯誤碼與文案；runtime id 納入內容雜湊 | 否 |
 | M-09 | 1.6.47 × 1.6.54 | `runtime/install.ts:187-188`；`verify.ts:171-189`；`windows-acl.ts:296-301` | ACL 戳記在改寫 `current` 之前取得，所以每次安裝後第一次啟動都會再開一次 PowerShell；GC 動到 `runtimes/` 後也會再讀一次。這次讀取可能落在 Agent 的 hook 上，最壞等待 160 秒。1.6.47 的 ACL 預熱只涵蓋安裝那一次，效能門檻也只量那一次 | 寫完 `current` 後再取戳記；hook 用短逾時後放行 | 否 |
-| M-16 | 1.6.49、1.6.51 × 1.6.55 | `packages/desktop-core/src/shell/i18n.ts:165`、`:253`；`setup-i18n.ts:191` | 1.6.55 把工作列選單縮為六項，但三段文案仍指向已不存在的入口：「從工具列選單開啟『修復…』」「工具列選單的『變更連接埠…』」「在『設定 Agent…』連接」。使用者在工作列找不到這些項目。`port-i18n.ts:40` 的 `trayChangePort` 與 `setup-i18n.ts:256` 的 `trayAgentSetup` 也成了死字串 | 改為「狀態」「設定」「Agent」分頁；刪除死字串 | 是 |
+| M-16（已於 1.6.56 修復） | 1.6.49、1.6.51 × 1.6.55 | `packages/desktop-core/src/shell/i18n.ts:165`、`:253`；`setup-i18n.ts:191` | 1.6.55 把工作列選單縮為六項，但三段文案仍指向已不存在的入口：「從工具列選單開啟『修復…』」「工具列選單的『變更連接埠…』」「在『設定 Agent…』連接」。使用者在工作列找不到這些項目。`port-i18n.ts:40` 的 `trayChangePort` 與 `setup-i18n.ts:256` 的 `trayAgentSetup` 也成了死字串 | 改為「狀態」「設定」「Agent」分頁；刪除死字串 | 是 |
 | M-18 | 1.6.46 → 1.6.48 | `packages/storage/src/project-data-import-stream.ts:121-123` | 1.6.48 改為把原始位元組直接送到 server。開頭有 UTF-8 BOM 的匯入檔會被判為 `invalid_json`；1.6.46 的 Web 用 `file.text()`，會自動去掉 BOM。這是讀碼推論，沒有實跑 | 開頭略過 `EF BB BF`，並補測試 | 否 |
 
 **查過且沒有問題的跨版本互動**：
@@ -212,11 +218,11 @@
 
 | ID | 位置 | 失敗情境 | 建議 | 複核 |
 |---|---|---|---|---|
-| M-11 | `apps/desktop/src/main/agents.ts:242`；`packages/agent-setup/src/plan.ts:448` | App 只建立 `"install"` 計畫。`uninstallPlan` 只有 CLI 會用。使用者想解除 Agent 整合只能下指令 | 「Agent」分頁加「移除 Agent 設定」，走同一套預覽與交易 | 是 |
-| M-12 | `packages/agent-setup/src/apply.ts:232-238` | 「復原上次變更」要求整個檔案的雜湊等於套用後的值。`~/.claude.json` 只要被 Agent 自己改寫過，復原就停在「需要手動修復」。加上 M-11，使用者沒有可用的移除路徑。Agent 改寫該檔的頻率沒有驗證 | 雜湊不符時退回條目層級的移除（`removeJsonSpec`、`findOwnedHook` 已存在） | 是 |
+| M-11（已於 1.6.56 修復） | `apps/desktop/src/main/agents.ts:242`；`packages/agent-setup/src/plan.ts:448` | App 只建立 `"install"` 計畫。`uninstallPlan` 只有 CLI 會用。使用者想解除 Agent 整合只能下指令 | 「Agent」分頁加「移除 Agent 設定」，走同一套預覽與交易 | 是 |
+| M-12（已於 1.6.56 修復） | `packages/agent-setup/src/apply.ts:232-238` | 「復原上次變更」要求整個檔案的雜湊等於套用後的值。`~/.claude.json` 只要被 Agent 自己改寫過，復原就停在「需要手動修復」。加上 M-11，使用者沒有可用的移除路徑。Agent 改寫該檔的頻率沒有驗證 | 雜湊不符時退回條目層級的移除（`removeJsonSpec`、`findOwnedHook` 已存在） | 是 |
 | M-13 | `packages/agent-setup/src/commands.ts:10-13`、`:160-166` | Windows 的 hook 字串是 `"C:\…\work-intelligence-launcher.cmd" <action>`。cmd 與 Git Bash 可以解析；PowerShell 需要 `& "…"`，否則是語法錯誤。測試只有字串比對，沒有交給真實 shell 執行。MCP 自我測試用 App 自己的 `cmd.exe /d /s /c` 包裝，不能證明 Agent 能直接啟動 `.cmd` | Windows CI 加測試，把字串分別交給 cmd、bash、PowerShell 執行 | 否 |
 | M-14 | `packages/storage/src/backup.ts:660-664` | 還原的最後一步先刪正式資料庫的 `-wal` 與 `-shm`，再 `renameSync`，沒有重試。Windows 上檔案被防毒或索引器鎖住時直接拋出例外。「使用中」的檢查在更早的 :580，檢查之後才開庫寫入的行程，其 WAL 會被刪掉。這段不在本次範圍的 diff 內；1.6.52 只加了驗證 | rename 加重試；rename 成功後再清 WAL；交換前重做獨占檢查 | 是 |
-| M-15 | `packages/desktop-core/src/shell/setup-i18n.ts:216`、`:243-248`；`i18n.ts:204`、`:231`；`legacy-service/remove-command.ts:17-19` | 舊服務無法由 App 停用時，App 顯示「在終端機執行這個指令移除它」並提供「複製指令」。違反「桌面 App 不得要求指令」。`i18n.ts:204` 與 `:231` 對同一件事給了兩個不同的指令（`pnpm service:uninstall` 與 `pnpm bootstrap`） | 無法辨識的服務改為「開啟系統的登入項目設定」這類 App 內可完成的引導；統一文案 | 是 |
+| M-15（已於 1.6.56 修復） | `packages/desktop-core/src/shell/setup-i18n.ts:216`、`:243-248`；`i18n.ts:204`、`:231`；`legacy-service/remove-command.ts:17-19` | 舊服務無法由 App 停用時，App 顯示「在終端機執行這個指令移除它」並提供「複製指令」。違反「桌面 App 不得要求指令」。`i18n.ts:204` 與 `:231` 對同一件事給了兩個不同的指令（`pnpm service:uninstall` 與 `pnpm bootstrap`） | 無法辨識的服務改為「開啟系統的登入項目設定」這類 App 內可完成的引導；統一文案 | 是 |
 | M-17 | `apps/desktop/src/main/agents.ts:105-124` | 計畫永遠同時涵蓋 Codex 與 Claude Code，不偵測是否安裝。只用 Claude Code 的人也會被建立 `~/.codex/*`。任一個 Agent 有衝突就整批拒絕 | 讓使用者按 Agent 選擇；衝突只擋該 Agent | 否 |
 | M-10 | `scripts/desktop-runtime-spike/download.mjs:6-8`、`:106` | 內建的 Node 只對同一來源的 `SHASUMS256.txt` 驗證。檔頭註解自己寫「release 必須驗簽章或在 repo 釘 hash」，兩者都沒做。安裝檔本身沒有簽章，所以這是唯一的供應鏈檢查 | 在 repo 釘 Node 各平台的 SHA-256 | 否 |
 
@@ -271,9 +277,9 @@
 | L-05 | `electron-builder.config.mjs:132-133`；`release.yml:416-442` | 安裝檔未簽章，Release 只附 `SHA256SUMS.txt`。屬 ADR-38 的已知取捨 | 加 `actions/attest-build-provenance` |
 | L-06 | `apps/desktop/src/main/change-port.ts:119` | 已知有待處理的匯入預覽，卻沒有傳給確認框。預覽被捨棄是事後才告知 | 確認框加一句 |
 | L-07 | `apps/desktop/src/main/ipc.ts:303-311`、`:337-355`、`:370` | 首次設定、Agent、舊服務預覽的 handler 不經共用的 `state.busy`。Agent 套用可以和換連接埠並行 | 統一走 `exclusive` |
-| L-08 | `apps/desktop/src/renderer/repair/actions.ts:37-42` | 任何 BUSY 都顯示「正在重新啟動服務」，把「另一個動作進行中」說錯 | 像 `port-view.ts:42-45` 一樣區分原因 |
+| L-08（已於 1.6.56 修復） | `apps/desktop/src/renderer/repair/actions.ts:37-42` | 任何 BUSY 都顯示「正在重新啟動服務」，把「另一個動作進行中」說錯 | 像 `port-view.ts:42-45` 一樣區分原因 |
 | L-09 | `backend/backend-supervisor.ts:826` | 後端就緒後沒有週期性健康檢查。卡住但還活著的後端偵測不到 | 加低頻探測 |
-| L-10 | `apps/desktop/src/main/local-copy.ts:157` | 後端啟動成功到寫入設定之間當機，副本成為孤兒。不傷資料 | 隨 H-01 一併處理 |
+| L-10（已於 1.6.56 修復） | `apps/desktop/src/main/local-copy.ts:157` | 後端啟動成功到寫入設定之間當機，副本成為孤兒。不傷資料 | 隨 H-01 一併處理 |
 | L-11 | `db-source/storage-risk-node.ts:279`、`:344-346` | Windows USB 硬碟判為本機；iCloud「桌面與文件」與 Google Drive 虛擬磁碟不偵測 | Windows 加查 BusType；文件列出已知缺口 |
 | L-12 | `apps/desktop/src/main/runtime-provision.ts:94-102` | 更新後 7 天內，GC 每小時空跑一次並寫一行 log | 「剛退役」這個原因不重試 |
 | L-13 | `runtime/runtime-gc.ts:178-183`、`:430-433` | `gc-state.json` 寫入失敗時沿用舊的保留名單，真正的前一版可能在 7 天後被收掉 | 記憶體內保留本次指名的保留名單 |
@@ -283,7 +289,7 @@
 | L-17 | `runtime/permissions.ts:28-36` | POSIX 不查 group 可寫 | 加查，或在文件載明差異 |
 | L-18 | `.github/workflows/desktop-smoke.yml`；`desktop-package.yml:8-25` | `desktop-smoke` 只在 PR 且路徑符合時跑，不在發行閘內。`plugins/**` 不在路徑清單，但 `launcher.spec.ts:30` 用到 plugin 的 `launch.mjs` | 補路徑；發行前要求 desktop-smoke 成功 |
 | L-19 | `.github/workflows/desktop-runtime-spike.yml:34` | matrix 的 `electron` 那一半（3 個 job）測的是 App 拒收的 runtime 種類 | 移除那一半；workflow 改名去掉「spike」 |
-| L-20 | `apps/desktop/src/main/agents.ts:279` | 套用結果是「需要手動修復」時，畫面顯示「已寫入的部分已還原」，與事實不符 | 改用 `agentsManualRepair` 並帶路徑 |
+| L-20（已於 1.6.56 修復） | `apps/desktop/src/main/agents.ts:279` | 套用結果是「需要手動修復」時，畫面顯示「已寫入的部分已還原」，與事實不符 | 改用 `agentsManualRepair` 並帶路徑 |
 | L-21 | `packages/agent-setup/src/files.ts:143` | `renameSync` 沒有 Windows 的 EPERM、EBUSY 重試。回滾安全，但使用者看到失敗 | 短暫重試 3 至 5 次 |
 | L-22 | `packages/agent-setup/src/json-config.ts:129-138` | Tab 縮排的 JSON 被改成空白縮排，差異預覽變成整個檔案 | 保留原縮排字元與結尾換行 |
 | L-23 | `apps/server/src/routes/system.ts:59-70` | 匯出先把整份寫到磁碟才比 256 MiB。大資料庫會白寫數 GB 再回 413 | 寫入時計數，超限即中止 |
