@@ -154,6 +154,25 @@ export function registerRepairIpc(options: IpcOptions): void {
     }
   }
 
+  /** One page action at a time, like the repair actions; the disable and its start never overlap another. */
+  async function exclusive<T extends { readonly ok: boolean }>(
+    action: RepairBusyWhat,
+    busy: () => NoInfer<Extract<T, { readonly ok: false }>>,
+    task: () => Promise<T>,
+  ): Promise<T> {
+    if (state.busy) return busy();
+    state.busy = true;
+    state.busyAction = action;
+    state.touch();
+    try {
+      return await task();
+    } finally {
+      state.busy = false;
+      state.busyAction = null;
+      state.touch();
+    }
+  }
+
   ipcMain.handle(REPAIR_CHANNELS.getState, async (event, raw: unknown) => {
     if (!isTrusted(event) || !repairInputSchemas.getState.safeParse(raw).success) throw new Error("untrusted sender");
     return info.snapshot();
@@ -340,12 +359,21 @@ export function registerRepairIpc(options: IpcOptions): void {
     return firstRun.snapshot();
   });
 
+  // Like every action that starts or moves the service, behind the one page-action lock (L-07).
   handle(REPAIR_CHANNELS.setupUseDefaults, parser(repairInputSchemas.setupUseDefaults), (input) =>
-    firstRun.useDefaults(input.launchAtLogin, input.startAnyway === true),
+    exclusive(
+      "takeover",
+      () => ({ ok: false, reason: "busy" }) as const,
+      () => firstRun.useDefaults(input.launchAtLogin, input.startAnyway === true),
+    ),
   );
 
   handle(REPAIR_CHANNELS.setupUseSource, parser(repairInputSchemas.setupUseSource), (input) =>
-    firstRun.useSource(input),
+    exclusive(
+      "takeover",
+      () => ({ ok: false, reason: "busy" }) as const,
+      () => firstRun.useSource(input),
+    ),
   );
 
   handle(REPAIR_CHANNELS.setupChooseFile, parser(repairInputSchemas.setupChooseFile), () => firstRun.chooseFile());
@@ -383,40 +411,36 @@ export function registerRepairIpc(options: IpcOptions): void {
   handle(
     REPAIR_CHANNELS.agentsApply,
     parser(repairInputSchemas.agentsApply),
-    async ({ previewId, acknowledgeUndiffable }) => {
-      // A file whose diff was not shown is applied only after the user said so; the page's disabled button is not the guard.
-      const shown = agents.snapshot().preview;
-      if (shown?.id === previewId && !canApplyPreview(shown, acknowledgeUndiffable === true)) {
-        return { ok: false, reason: "invalid", state: agents.snapshot() };
-      }
-      return agents.apply(previewId);
-    },
+    ({ previewId, acknowledgeUndiffable }) =>
+      exclusive(
+        "apply-agent",
+        () => ({ ok: false, reason: "busy", state: agents.snapshot() }) as const,
+        async () => {
+          // A file whose diff was not shown is applied only after the user said so; the page's disabled button is not the guard.
+          const shown = agents.snapshot().preview;
+          if (shown?.id === previewId && !canApplyPreview(shown, acknowledgeUndiffable === true)) {
+            return { ok: false, reason: "invalid", state: agents.snapshot() } as const;
+          }
+          return agents.apply(previewId);
+        },
+      ),
   );
   handle(REPAIR_CHANNELS.agentsDiscard, parser(repairInputSchemas.agentsDiscard), async () => agents.discard());
-  handle(REPAIR_CHANNELS.agentsUndo, parser(repairInputSchemas.agentsUndo), () => agents.undo());
+  handle(REPAIR_CHANNELS.agentsUndo, parser(repairInputSchemas.agentsUndo), () =>
+    exclusive(
+      "apply-agent",
+      () => ({ ok: false, reason: "busy", state: agents.snapshot() }) as const,
+      () => agents.undo(),
+    ),
+  );
   handle(REPAIR_CHANNELS.agentsSelfTest, parser(repairInputSchemas.agentsSelfTest), () => agents.selfTest());
   handle(REPAIR_CHANNELS.agentsUseCheckoutDatabase, parser(repairInputSchemas.agentsUseCheckoutDatabase), ({ agent }) =>
-    agents.useCheckoutDatabase(agent),
+    exclusive(
+      "change-db",
+      () => ({ ok: false, reason: "busy", state: agents.snapshot() }) as const,
+      () => agents.useCheckoutDatabase(agent),
+    ),
   );
-
-  /** One page action at a time, like the repair actions; the disable and its start never overlap another. */
-  async function exclusive<T extends { readonly ok: boolean }>(
-    action: RepairBusyWhat,
-    busy: () => NoInfer<Extract<T, { readonly ok: false }>>,
-    task: () => Promise<T>,
-  ): Promise<T> {
-    if (state.busy) return busy();
-    state.busy = true;
-    state.busyAction = action;
-    state.touch();
-    try {
-      return await task();
-    } finally {
-      state.busy = false;
-      state.busyAction = null;
-      state.touch();
-    }
-  }
 
   handle(REPAIR_CHANNELS.legacyDisablePreview, parser(repairInputSchemas.legacyDisablePreview), () =>
     legacyDisable.preview(),
