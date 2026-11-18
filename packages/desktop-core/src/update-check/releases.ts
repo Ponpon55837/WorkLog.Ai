@@ -56,7 +56,12 @@ export function evaluateReleases(releases: ReleaseList, inputs: EvaluateInputs):
   const running = parseRunningVersion(inputs.currentVersion);
   if (!running) return { result: { kind: "error", reason: "bad-version" }, links: NO_LINKS };
   const newest = newestStable(releases);
-  if (!newest || !isNewerThanRunning(newest.tag, running)) {
+  // No stable release in the list (an empty list, only drafts and pre-releases, or odd tags) says nothing about whether
+  // this version is current, so it is not "up to date": the error keeps the releases page as the one link.
+  if (!newest) {
+    return { result: { kind: "error", reason: "no-release" }, links: { asset: null, page: releasesPageUrl(slug) } };
+  }
+  if (!isNewerThanRunning(newest.tag, running)) {
     return { result: { kind: "up-to-date", current: inputs.currentVersion }, links: NO_LINKS };
   }
   const { release, tag } = newest;

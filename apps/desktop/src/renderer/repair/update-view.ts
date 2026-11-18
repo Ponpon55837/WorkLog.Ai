@@ -1,30 +1,26 @@
 import type { RepairApi, RepairUpdateSection } from "@work-intelligence/desktop-core";
 import type { UpdateMessages } from "@work-intelligence/desktop-core/shell/update-i18n";
 import { formatMessage } from "@work-intelligence/desktop-core/shell/i18n";
+// Types only, from the module that has no zod: the page bundle must not pull the schemas in.
 import type { UpdateCheckResult, UpdateLinkTarget } from "@work-intelligence/desktop-core/update-check/result";
 import { button, element, section } from "./dom.js";
 
 /**
  * The 「更新」 card of the repair window. The App never checks by itself: the one request starts when the user presses
- * 「檢查更新」 (or the tray item, which opens this card and asks the page to press it for them). The page holds no URL: it
- * names "asset" or "page" and main opens the link it kept. Release notes are untrusted text and are only ever set as
+ * 「檢查更新」 or the tray item. Both start it in main, and this card only displays what main reports (`update`: whether a
+ * check runs and the last answer), so a redraw, a reload or a poll can never start one. The page holds no URL: it names
+ * "asset" or "page" and main opens the link it kept. Release notes are untrusted text and are only ever set as
  * `textContent` in a block that keeps their line breaks; there is no markup, no link and no innerHTML.
  */
-let checking = false;
-let result: UpdateCheckResult | null = null;
+/** The button was pressed and main has not answered yet: keeps it disabled before main's own "running" state arrives. */
+let pressed = false;
+/** An answer the page made up when the check call itself failed (main's answers come through the state). */
+let failure: UpdateCheckResult | null = null;
 let linkFailed = false;
-/**
- * Main already checked the answer against its schema (zod stays out of this bundle); this only keeps a refusal such as
- * `{ ok: false, reason: "invalid" }` from being drawn as a result.
- */
-const KINDS: readonly string[] = ["up-to-date", "newer", "offline", "rate-limited", "error"];
-
-function isResult(value: unknown): value is UpdateCheckResult {
-  return typeof value === "object" && value !== null && KINDS.includes((value as { kind?: string }).kind ?? "");
-}
-
-/** Sections whose tray request was already carried out: a redraw of the same state must not check again. */
-const started = new WeakSet<RepairUpdateSection>();
+/** The last drawn state was "checking": a new one that the page did not press for itself brings the card into view. */
+let wasChecking = false;
+/** Where the release notes were scrolled to, per release: a redraw replaces the box and must put it back. */
+let notesScroll: { readonly version: string; readonly top: number } | null = null;
 
 export interface UpdateViewHost {
   readonly api: RepairApi;
@@ -32,22 +28,23 @@ export interface UpdateViewHost {
   readonly locale: string;
   /** Draw the view again from its last state. */
   readonly rerender: () => void;
+  /** Read the state from main again, then draw it. */
+  readonly refresh: () => void;
 }
 
 async function check(host: UpdateViewHost): Promise<void> {
-  if (checking) return;
-  checking = true;
-  result = null;
+  if (pressed) return;
+  pressed = true;
+  failure = null;
   linkFailed = false;
   host.rerender();
   try {
-    const answer: unknown = await host.api.checkForUpdates();
-    result = isResult(answer) ? answer : { kind: "error", reason: "bad-shape" };
+    await host.api.checkForUpdates();
   } catch {
-    result = { kind: "error", reason: "unexpected" };
+    failure = { kind: "error", reason: "unexpected" };
   }
-  checking = false;
-  host.rerender();
+  pressed = false;
+  host.refresh();
 }
 
 async function open(host: UpdateViewHost, target: UpdateLinkTarget): Promise<void> {
@@ -56,28 +53,37 @@ async function open(host: UpdateViewHost, target: UpdateLinkTarget): Promise<voi
   host.rerender();
 }
 
-function formatDate(locale: string, iso: string | null): string | null {
-  if (iso === null) return null;
-  return new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(new Date(iso));
+/** A date or time of an ISO text, or null when the text is not a date (a bad answer must not break the page). */
+function formatted(locale: string, iso: string | null, style: Intl.DateTimeFormatOptions): string | null {
+  const date = iso === null ? new Date(Number.NaN) : new Date(iso);
+  return Number.isNaN(date.getTime()) ? null : new Intl.DateTimeFormat(locale, style).format(date);
 }
 
-function formatTime(locale: string, iso: string): string {
-  return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
+/** Remembers how far the release notes are scrolled; call before the page replaces its content. */
+export function saveNotesScroll(root: ParentNode): void {
+  const box = root.querySelector<HTMLElement>(".update-notes");
+  if (box?.dataset.version !== undefined) notesScroll = { version: box.dataset.version, top: box.scrollTop };
+}
+
+/** Puts the release notes back where they were; call after the new content is in the document (a detached box cannot scroll). */
+export function restoreNotesScroll(root: ParentNode): void {
+  const box = root.querySelector<HTMLElement>(".update-notes");
+  const saved = notesScroll;
+  if (box && saved !== null && saved.version === box.dataset.version) box.scrollTop = saved.top;
 }
 
 function newerBlock(host: UpdateViewHost, found: Extract<UpdateCheckResult, { kind: "newer" }>): Node[] {
   const { text } = host;
-  const date = formatDate(host.locale, found.publishedAt);
+  const date = formatted(host.locale, found.publishedAt, { dateStyle: "medium" });
   const actions = element("div", { className: "actions" });
   const blocks: Node[] = [
     element("p", { className: "update-newer", text: formatMessage(text.newerVersion, { version: found.version }) }),
     ...(date === null ? [] : [element("p", { className: "hint", text: formatMessage(text.published, { date }) })]),
   ];
   if (found.notes.length > 0) {
-    blocks.push(
-      element("h3", { text: text.notesHeading }),
-      element("div", { className: "update-notes", text: found.notes }),
-    );
+    const notes = element("div", { className: "update-notes", text: found.notes });
+    notes.dataset.version = found.version;
+    blocks.push(element("h3", { text: text.notesHeading }), notes);
     if (found.notesTruncated) blocks.push(element("p", { className: "hint", text: text.notesTruncated }));
   }
   if (found.asset) {
@@ -97,6 +103,22 @@ function newerBlock(host: UpdateViewHost, found: Extract<UpdateCheckResult, { ki
   return blocks;
 }
 
+/** The message of a failed check; a release-less answer and a failed secure connection each have their own words. */
+function errorBlock(host: UpdateViewHost, reason: Extract<UpdateCheckResult, { kind: "error" }>["reason"]): Node[] {
+  const { text } = host;
+  if (reason === "tls") return [element("p", { className: "warning-text", text: text.tlsFailed })];
+  if (reason === "no-release") {
+    return [
+      element("p", { className: "warning-text", text: text.noRelease }),
+      element("div", { className: "actions" }, [
+        button(text.openPage, "update-page", true, () => void open(host, "page")),
+      ]),
+      ...(linkFailed ? [element("p", { className: "warning-text", text: text.linkFailed })] : []),
+    ];
+  }
+  return [element("p", { className: "warning-text", text: formatMessage(text.failed, { code: reason }) })];
+}
+
 function answerBlock(host: UpdateViewHost, answer: UpdateCheckResult): Node[] {
   const { text } = host;
   switch (answer.kind) {
@@ -106,40 +128,37 @@ function answerBlock(host: UpdateViewHost, answer: UpdateCheckResult): Node[] {
       return newerBlock(host, answer);
     case "offline":
       return [element("p", { className: "warning-text", text: answer.timedOut ? text.timedOut : text.offline })];
-    case "rate-limited":
+    case "rate-limited": {
+      const time = formatted(host.locale, answer.resetAt, { dateStyle: "medium", timeStyle: "short" });
       return [
         element("p", {
           className: "warning-text",
-          text:
-            answer.resetAt === null
-              ? text.rateLimited
-              : formatMessage(text.rateLimitedUntil, { time: formatTime(host.locale, answer.resetAt) }),
+          text: time === null ? text.rateLimited : formatMessage(text.rateLimitedUntil, { time }),
         }),
       ];
+    }
     case "error":
-      return [element("p", { className: "warning-text", text: formatMessage(text.failed, { code: answer.reason }) })];
+      return errorBlock(host, answer.reason);
   }
 }
 
-/** The section's card. `update` is main's snapshot: the running version and whether the tray asked for a check. */
+/** The section's card, drawn from main's report: the running version, whether a check runs, and the last answer. */
 export function updateSection(host: UpdateViewHost, update: RepairUpdateSection): HTMLElement {
   const { text } = host;
+  const busy = update.checking || pressed;
+  const answer = busy ? null : (failure ?? update.result);
   const card = section(
     text.heading,
     element("p", { className: "hint", text: text.intro }),
     element("p", { className: "hint", text: formatMessage(text.current, { version: update.currentVersion }) }),
     element("div", { className: "actions" }, [
-      button(checking ? text.checking : text.check, "update-check", !checking, () => void check(host), true),
+      button(busy ? text.checking : text.check, "update-check", !busy, () => void check(host), true),
     ]),
-    ...(result ? answerBlock(host, result) : []),
+    ...(answer ? answerBlock(host, answer) : []),
   );
   card.id = "update-section";
-  if (update.startCheck && !started.has(update)) {
-    started.add(update);
-    queueMicrotask(() => {
-      card.scrollIntoView({ block: "center" });
-      void check(host);
-    });
-  }
+  // A check that started without this page's button (the tray item) brings the card into view; the draw only shows it.
+  if (update.checking && !wasChecking && !pressed) queueMicrotask(() => card.scrollIntoView({ block: "center" }));
+  wasChecking = update.checking;
   return card;
 }

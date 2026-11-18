@@ -70,30 +70,64 @@ function isRateLimited(response: UpdateResponse): boolean {
   return response.status === 403 && response.headers.get("x-ratelimit-remaining")?.trim() === "0";
 }
 
-/** What a thrown error means: a timeout and every connection failure are "offline"; a refused redirect is not. */
+/** Electron's net error code in a message (`net::ERR_CERT_DATE_INVALID`), when the transport gives one. */
+const NET_ERROR_CODE = /net::(ERR_[A-Z0-9_]+)/;
+/** Net error codes of a failed secure connection: certificate problems and TLS handshake or protocol failures. */
+const TLS_NET_ERROR = /^ERR_(?:CERT_|SSL_|BAD_SSL_|INSECURE_RESPONSE|TLS_)/;
+/** Free text of a TLS failure from a transport that gives no net error code (Node and OpenSSL spell them out). */
+const TLS_TEXT = /certificate|(?<![a-z0-9])(?:ssl|tls)(?![a-z0-9])|self[- ]signed|unable to verify|handshake/i;
+
+/** Everything an error says about itself, including nested causes (a few levels: a cause can point back), as one string. */
+function describe(error: unknown, depth = 0): string {
+  if (!(error instanceof Error)) return "";
+  const { code, cause } = error as Error & { code?: unknown; cause?: unknown };
+  const nested = cause === undefined || depth >= 3 ? "" : describe(cause, depth + 1);
+  return [error.name, error.message, typeof code === "string" ? code : "", nested].join(" ");
+}
+
+/**
+ * What a thrown error means: a timeout and every connection failure are "offline"; a refused redirect and a failed
+ * secure connection (a certificate the system does not trust, often a proxy or security software in the way) are not.
+ * Electron's net error code decides when there is one; the free text is only the fallback.
+ */
 function thrownOutcome(error: unknown, signal: AbortSignal): UpdateOutcome {
   if (signal.aborted) return failure({ kind: "offline", timedOut: true });
-  const text = error instanceof Error ? `${error.name} ${error.message}` : "";
+  const text = describe(error);
   if (/redirect/i.test(text)) return failed("redirect");
+  const code = NET_ERROR_CODE.exec(text)?.[1];
+  if (code !== undefined ? TLS_NET_ERROR.test(code) : TLS_TEXT.test(text)) return failed("tls");
   return failure({ kind: "offline", timedOut: false });
 }
 
 class ResponseTooLarge extends Error {}
 
-/** Stops reading a body that will not be used; a stream that cannot be cancelled is no reason to fail the check. */
-async function discard(stream: { cancel(): Promise<void> } | null): Promise<void> {
+/** Stops reading a body that will not be used. It never waits: a stream that cannot be cancelled must not hold the check. */
+function discard(stream: { cancel(): Promise<void> } | null): void {
   try {
-    await stream?.cancel();
+    stream?.cancel().catch(() => undefined);
   } catch {
     // Nothing is left to release.
   }
 }
 
+/**
+ * The promise's answer, or a rejection the moment `signal` aborts, whether or not the transport reacts to the abort: a
+ * server that sends the headers and then stalls must still end the check at the timeout.
+ */
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => reject(signal.reason);
+    if (signal.aborted) return onAbort();
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
 /** Reads the body up to `maxBytes`; a longer one is cancelled and refused rather than cut. */
-async function readLimited(response: UpdateResponse, maxBytes: number): Promise<string> {
+async function readLimited(response: UpdateResponse, maxBytes: number, signal: AbortSignal): Promise<string> {
   const declared = seconds(response.headers.get("content-length"));
   if (declared !== undefined && declared > maxBytes) {
-    await discard(response.body);
+    discard(response.body);
     throw new ResponseTooLarge();
   }
   if (!response.body) return "";
@@ -101,15 +135,18 @@ async function readLimited(response: UpdateResponse, maxBytes: number): Promise<
   const decoder = new TextDecoder();
   let text = "";
   let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await discard(reader);
-      throw new ResponseTooLarge();
+  try {
+    for (;;) {
+      const { done, value } = await untilAborted(reader.read(), signal);
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) throw new ResponseTooLarge();
+      text += decoder.decode(value, { stream: true });
     }
-    text += decoder.decode(value, { stream: true });
+  } catch (error) {
+    // Too large, aborted or failed: the rest of the body is not wanted.
+    discard(reader);
+    throw error;
   }
   return text + decoder.decode();
 }
@@ -126,24 +163,27 @@ export async function checkForUpdates(inputs: CheckForUpdatesInputs): Promise<Up
   let response: UpdateResponse;
   let text: string;
   try {
-    response = await inputs.fetch(url, {
-      method: "GET",
-      headers: { ...UPDATE_REQUEST_HEADERS },
-      credentials: "omit",
-      cache: "no-store",
-      redirect: "error",
+    response = await untilAborted(
+      inputs.fetch(url, {
+        method: "GET",
+        headers: { ...UPDATE_REQUEST_HEADERS },
+        credentials: "omit",
+        cache: "no-store",
+        redirect: "error",
+        signal,
+      }),
       signal,
-    });
+    );
     if (isRateLimited(response)) {
-      await discard(response.body);
+      discard(response.body);
       return failure({ kind: "rate-limited", resetAt: resetTime(response.headers, now()) });
     }
     if (response.status !== 200) {
-      await discard(response.body);
+      discard(response.body);
       if (response.status >= 400 && response.status < 500) return failed("client-error");
       return failed(response.status >= 500 ? "server-error" : "unexpected-status");
     }
-    text = await readLimited(response, maxBytes);
+    text = await readLimited(response, maxBytes, signal);
   } catch (error) {
     return error instanceof ResponseTooLarge ? failed("too-large") : thrownOutcome(error, signal);
   }

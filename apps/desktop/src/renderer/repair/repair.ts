@@ -16,7 +16,7 @@ import { storageRiskNote } from "./storage-risk-card.js";
 import { legacyBlock } from "./legacy-block.js";
 import { legacyDisableControls, legacyDisableOutcome, type LegacyDisableHost } from "./legacy-disable-view.js";
 import { mountSetup } from "./setup-view.js";
-import { updateSection } from "./update-view.js";
+import { restoreNotesScroll, saveNotesScroll, updateSection } from "./update-view.js";
 
 declare global {
   interface Window {
@@ -225,7 +225,10 @@ function render(state: RepairState): void {
   }
   blocks.push(section(messages.repairActionsHeading, actions));
 
+  // The poll rebuilds the page: the release notes box is new each time and is put back where the reader had scrolled it.
+  saveNotesScroll(app);
   app.replaceChildren(...blocks);
+  restoreNotesScroll(app);
   app.setAttribute("aria-busy", "false");
   if (focusedId) app.querySelector<HTMLElement>(`[data-id="${CSS.escape(focusedId)}"]`)?.focus();
 }
@@ -259,7 +262,7 @@ function portCards(state: RepairState): Node[] {
   ];
 }
 
-/** The 「更新」 card: always there; the check starts only when the user presses its button or the tray item. */
+/** The 「更新」 card: always there; it shows what main reports, and a check starts only from a click (its button or the tray item). */
 function updateCards(state: RepairState): Node[] {
   if (!state.update) return [];
   return [
@@ -271,6 +274,7 @@ function updateCards(state: RepairState): Node[] {
         rerender: () => {
           if (current) render(current);
         },
+        refresh: () => void refresh(),
       },
       state.update,
     ),
@@ -385,6 +389,8 @@ async function mount(): Promise<void> {
   const view = await api.getView().catch(() => "repair" as const);
   if (view === "setup") return mountSetup(app, say, api);
   if (view === "agents") return mountAgents(app, say, api);
+  // Main tells the page when an update check starts or ends (the tray item starts one without the page), so it shows at once.
+  api.onUpdateChanged(() => void refresh());
   void refresh();
   setInterval(() => void refresh(), REFRESH_MS);
 }

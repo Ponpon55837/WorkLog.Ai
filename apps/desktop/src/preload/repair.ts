@@ -35,6 +35,7 @@ const channels: typeof REPAIR_CHANNELS = {
   copyToLocal: "repair:copy-to-local",
   updateCheck: "update:check",
   updateOpenLink: "update:open-link",
+  updateChanged: "update:changed",
 };
 
 const api: RepairApi = {
@@ -97,6 +98,10 @@ const api: RepairApi = {
   portChange: (port) => ipcRenderer.invoke(channels.portChange, { port }),
   checkForUpdates: () => ipcRenderer.invoke(channels.updateCheck, {}),
   openUpdateLink: (target) => ipcRenderer.invoke(channels.updateOpenLink, { target }),
+  onUpdateChanged: (listener) => {
+    // The event carries nothing: the page reads the state through `getState`.
+    ipcRenderer.on(channels.updateChanged, () => listener());
+  },
 };
 
 contextBridge.exposeInMainWorld("workIntelligenceRepair", api);

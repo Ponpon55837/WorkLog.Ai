@@ -43,6 +43,8 @@ export const REPAIR_CHANNELS = {
   copyToLocal: "repair:copy-to-local",
   updateCheck: "update:check",
   updateOpenLink: "update:open-link",
+  /** Main to the page (not a request): the update check started or finished, so the page reads the state again. */
+  updateChanged: "update:changed",
 } as const;
 
 /** What the one App window shows; main decides, the page asks. */
@@ -253,6 +255,8 @@ export interface RepairApi {
   portChange(port: string | number): Promise<PortChangeResult>;
   checkForUpdates(): Promise<UpdateCheckResult>;
   openUpdateLink(target: UpdateLinkTarget): Promise<UpdateOpenLinkResult>;
+  /** Calls `listener` whenever main starts or finishes an update check (the button's or the tray item's). */
+  onUpdateChanged(listener: () => void): void;
 }
 
 /** The facts main reads from `event.senderFrame` and its window. */

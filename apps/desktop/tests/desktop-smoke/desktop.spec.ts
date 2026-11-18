@@ -188,6 +188,7 @@ test("a missing database opens the repair window and creates nothing", async () 
     "legacyDisableConfirm",
     "legacyDisablePreview",
     "legacyStartNow",
+    "onUpdateChanged",
     "openFolder",
     "openUpdateLink",
     "portChange",

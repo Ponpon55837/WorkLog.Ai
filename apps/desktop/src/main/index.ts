@@ -26,6 +26,7 @@ import {
   portMessages,
   QUIT_SECOND_INSTANCE_DATA,
   readLastBackupFromDirectory,
+  REPAIR_CHANNELS,
   resolveShellLocale,
   resolveUserDataDirectory,
   setupMessages,
@@ -306,6 +307,14 @@ function runShell(configInputs: DesktopConfigInputs): void {
     ...(apiOrigin === undefined ? {} : { apiOrigin }),
     openExternal: (url) => dashboard.openLink(url),
     showSection: () => window.open("repair"),
+    // The page reads the section again when a check starts or ends (its own 4 s poll is only the fallback).
+    changed: () => {
+      try {
+        window.contents()?.send(REPAIR_CHANNELS.updateChanged);
+      } catch {
+        // A window that is closing has no page left to tell.
+      }
+    },
     log,
   });
   const info = createRepairInfo({

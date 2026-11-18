@@ -62,7 +62,7 @@ export interface RepairState {
   readonly recovered: RepairRecovered | null;
   /** The 「連接埠」 section (null before the App has settings). */
   readonly port: RepairPortSection | null;
-  /** The 「更新」 card: the running version and whether the tray asked for a check. Absent: no card. */
+  /** The 「更新」 card: the running version, and the check's progress and last answer (kept in main). Absent: no card. */
   readonly update?: RepairUpdateSection;
   /**
    * The old login service (`pnpm bootstrap`) is installed and may serve this database. `blocked`: the App did not start

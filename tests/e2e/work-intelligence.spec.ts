@@ -1345,7 +1345,10 @@ test.describe("Work Intelligence browser regression", () => {
     await page.goto("/system-status");
     await expect(page.getByRole("heading", { name: tt("nav.systemStatus") }).first()).toBeVisible();
     // In-app navigation (RouterLink → router.push), so back/forward go through the router's history mode.
-    await page.getByRole("link", { name: tt("common.workHistory") }).first().click();
+    await page
+      .getByRole("link", { name: tt("common.workHistory") })
+      .first()
+      .click();
     await expect(page).toHaveURL(/\/sessions$/);
     await expect(page.getByRole("heading", { name: tt("common.workHistory") }).first()).toBeVisible();
 

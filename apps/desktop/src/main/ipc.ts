@@ -333,7 +333,7 @@ export function registerRepairIpc(options: IpcOptions): void {
   // Not behind the page-action lock: a check changes nothing, and a second click joins the one that runs.
   handle(REPAIR_CHANNELS.updateCheck, parser(repairInputSchemas.updateCheck), () => updates.check());
   handle(REPAIR_CHANNELS.updateOpenLink, parser(repairInputSchemas.updateOpenLink), async ({ target }) => ({
-    ok: updates.openLink(target),
+    ok: await updates.openLink(target),
   }));
   handle(REPAIR_CHANNELS.legacyStartNow, parser(repairInputSchemas.legacyStartNow), () =>
     exclusive({ ok: false, reason: "busy" } as const, () => legacyDisable.startNow()),

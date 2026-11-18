@@ -148,6 +148,7 @@ describe("repair IPC", () => {
       "setup:later",
       "setup:use-defaults",
       "setup:use-source",
+      "update:changed",
       "update:check",
       "update:open-link",
     ]);

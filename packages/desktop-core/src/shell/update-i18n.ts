@@ -27,6 +27,10 @@ export interface UpdateMessages {
   readonly noInstaller: string;
   readonly offline: string;
   readonly timedOut: string;
+  /** The secure connection failed (certificate or TLS): a proxy or security software may be intercepting it. */
+  readonly tlsFailed: string;
+  /** GitHub listed no stable release, so "up to date" cannot be said; the release page is offered. */
+  readonly noRelease: string;
   /** `{time}` is when GitHub lifts the limit. */
   readonly rateLimitedUntil: string;
   readonly rateLimited: string;
@@ -55,6 +59,8 @@ const zhTW: UpdateMessages = {
   noInstaller: "這個平台沒有提供安裝檔，請到發行頁面查看。",
   offline: "無法連線到 GitHub，請確認網路後再試一次。",
   timedOut: "連線逾時，請確認網路後再試一次。",
+  tlsFailed: "與 GitHub 的安全連線失敗。可能是代理伺服器或資安軟體攔截了連線，請檢查後再試一次。",
+  noRelease: "GitHub 沒有列出任何正式版本，無法判斷是否為最新版本。請到發行頁面查看。",
   rateLimitedUntil: "GitHub 暫時限制了查詢次數，請在 {time} 之後再試。",
   rateLimited: "GitHub 暫時限制了查詢次數，請稍後再試。",
   failed: "無法取得更新資訊，請稍後再試。（代碼：{code}）",
@@ -82,6 +88,9 @@ const en: UpdateMessages = {
   noInstaller: "No installer is published for this platform; see the release page.",
   offline: "Cannot reach GitHub. Check your network and try again.",
   timedOut: "The connection timed out. Check your network and try again.",
+  tlsFailed:
+    "The secure connection to GitHub failed. A proxy or security software may be intercepting it; check it and try again.",
+  noRelease: "GitHub lists no stable release, so it cannot tell whether you are up to date. See the release page.",
   rateLimitedUntil: "GitHub is limiting requests for now. Try again after {time}.",
   rateLimited: "GitHub is limiting requests for now. Try again later.",
   failed: "Could not get the update information. Try again later. (code: {code})",

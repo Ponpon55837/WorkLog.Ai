@@ -100,6 +100,10 @@ describe("release tags and versions", () => {
       "v1.6.53-rc.1",
       "v1.6.53+build",
       "v1.6.53.1",
+      "v1.6.053",
+      "v01.6.53",
+      "v1.06.53",
+      "v1.6.00",
       "V1.6.53",
       " v1.6.53",
       "vx.y.z",
@@ -113,8 +117,13 @@ describe("release tags and versions", () => {
   it("reads the running version, with or without a suffix", () => {
     expect(parseRunningVersion("1.6.53")).toEqual({ major: 1, minor: 6, patch: 53, preRelease: false });
     expect(parseRunningVersion("1.6.53-dev")).toMatchObject({ preRelease: true });
-    expect(parseRunningVersion("1.6.53+local.1")).toMatchObject({ preRelease: true });
-    expect(parseRunningVersion("not-a-version")).toBeNull();
+    expect(parseRunningVersion("1.6.53-dev+local.1")).toMatchObject({ preRelease: true });
+    // Build metadata does not make a build older: the core alone decides.
+    expect(parseRunningVersion("1.6.53+local.1")).toEqual({ major: 1, minor: 6, patch: 53, preRelease: false });
+    expect(parseRunningVersion("1.6.0")).toMatchObject({ patch: 0 });
+    for (const bad of ["1.6.053", "01.6.53", "1.06.53", "not-a-version", "1.6", "1.6.53.1"]) {
+      expect(parseRunningVersion(bad), bad).toBeNull();
+    }
     expect(parseRunningVersion(`${"9".repeat(40)}.0.0`)).toBeNull();
   });
 
@@ -136,6 +145,12 @@ describe("release tags and versions", () => {
     expect(isNewerThanRunning(tag, parseRunningVersion("1.6.54-dev") as never)).toBe(false);
     expect(isNewerThanRunning(tag, parseRunningVersion("1.6.52-dev") as never)).toBe(true);
   });
+
+  it("does not offer the release a build of it (1.6.53+x) already is", () => {
+    const tag = parseReleaseTag("v1.6.53") as NonNullable<ReturnType<typeof parseReleaseTag>>;
+    expect(isNewerThanRunning(tag, parseRunningVersion("1.6.53+x") as never)).toBe(false);
+    expect(isNewerThanRunning(tag, parseRunningVersion("1.6.52+x") as never)).toBe(true);
+  });
 });
 
 describe("choosing the release", () => {
@@ -156,17 +171,25 @@ describe("choosing the release", () => {
     expect(outcome.result).toMatchObject({ kind: "newer", version: "1.6.53" });
   });
 
-  it("says up to date for an equal or lower release, an empty list or nothing stable", () => {
+  it("says up to date for an equal or lower release", () => {
     expect(evaluate([{ tag: "v1.6.52" }]).result).toEqual({ kind: "up-to-date", current: "1.6.52" });
     expect(evaluate([{ tag: "v1.6.51" }]).result.kind).toBe("up-to-date");
-    expect(evaluate([]).result.kind).toBe("up-to-date");
-    expect(
-      evaluate([
-        { tag: "v9.9.9", draft: true },
-        { tag: "v9.9.8", prerelease: true },
-      ]).result.kind,
-    ).toBe("up-to-date");
     expect(evaluate([{ tag: "v1.6.52" }]).links).toEqual({ asset: null, page: null });
+  });
+
+  it("does not say up to date when there is no stable release at all, and keeps the releases page link", () => {
+    const expected = { kind: "error", reason: "no-release" };
+    const page = `https://github.com/${SLUG}/releases`;
+    expect(evaluate([]).result).toEqual(expected);
+    expect(evaluate([]).links).toEqual({ asset: null, page });
+    const unstable = evaluate([
+      { tag: "v9.9.9", draft: true },
+      { tag: "v9.9.8", prerelease: true },
+      { tag: "v1.6.054" },
+    ]);
+    expect(unstable.result).toEqual(expected);
+    expect(unstable.links).toEqual({ asset: null, page });
+    expect(updateCheckResultSchema.safeParse(unstable.result).success).toBe(true);
   });
 
   it("counts a stable release with the running development build's core as newer", () => {
@@ -417,6 +440,8 @@ describe("the IPC contract", () => {
       { kind: "offline", timedOut: true },
       { kind: "rate-limited", resetAt: null },
       { kind: "error", reason: "not-json" },
+      { kind: "error", reason: "tls" },
+      { kind: "error", reason: "no-release" },
       {
         kind: "newer",
         current: "1.6.52",
@@ -472,6 +497,14 @@ describe("the tray item and the page state", () => {
     expect(zh.downloadAsset.macos).toBe("下載 macOS 安裝檔");
     expect(zh.notesTruncated).toBe("完整內容請見發行頁面");
     expect(zh.verifyHint).toContain("SHA256SUMS.txt");
+    expect(zh.tlsFailed).toContain("安全連線");
+    expect(zh.tlsFailed).toContain("資安軟體");
+    expect(en.tlsFailed).toContain("secure connection");
+    expect(en.tlsFailed).toContain("security software");
+    // A TLS failure and a missing release are told apart from an outage and from an up-to-date answer.
+    for (const text of [zh, en]) {
+      expect(new Set([text.offline, text.tlsFailed, text.noRelease, text.upToDate]).size).toBe(4);
+    }
   });
 
   it("carries the update section in the repair state only when main gives one", () => {
@@ -490,9 +523,7 @@ describe("the tray item and the page state", () => {
       busy: false,
     };
     expect(buildRepairState(inputs).update).toBeUndefined();
-    expect(buildRepairState({ ...inputs, update: { currentVersion: "1.6.53", startCheck: true } }).update).toEqual({
-      currentVersion: "1.6.53",
-      startCheck: true,
-    });
+    const update = { currentVersion: "1.6.53", checking: true, result: null };
+    expect(buildRepairState({ ...inputs, update }).update).toEqual(update);
   });
 });

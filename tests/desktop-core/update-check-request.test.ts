@@ -125,7 +125,11 @@ describe("the request", () => {
     const outcome = await run(answering(json([goodRelease])));
     expect(outcome.result).toMatchObject({ kind: "newer", version: "1.6.53", asset: { platform: "windows" } });
     expect(outcome.links.asset).toBe(goodRelease.assets[0]?.browser_download_url);
-    expect((await run(answering(json([])))).result).toEqual({ kind: "up-to-date", current: "1.6.52" });
+    expect((await run(answering(json([{ ...goodRelease, tag_name: "v1.6.52" }])))).result).toEqual({
+      kind: "up-to-date",
+      current: "1.6.52",
+    });
+    expect((await run(answering(json([])))).result).toEqual({ kind: "error", reason: "no-release" });
   });
 
   it("reads a body that arrives in several chunks, including a multi-byte character cut in two", async () => {
@@ -238,7 +242,7 @@ describe("errors", () => {
     });
     // The read stopped soon after the cap: it did not drain the stream.
     expect(pulled).toBeLessThan(10);
-    const small = respond(200, JSON.stringify([]), { "content-length": "2" });
+    const small = respond(200, JSON.stringify([{ ...goodRelease, tag_name: "v1.6.52" }]), { "content-length": "2" });
     expect((await run(answering(small))).result.kind).toBe("up-to-date");
   });
 
@@ -260,12 +264,14 @@ describe("being offline", () => {
     for (const message of [
       "net::ERR_NAME_NOT_RESOLVED",
       "net::ERR_CONNECTION_REFUSED",
-      "net::ERR_CERT_AUTHORITY_INVALID",
+      "net::ERR_INTERNET_DISCONNECTED",
+      "net::ERR_CONNECTION_TIMED_OUT",
+      "fetch failed",
     ]) {
       const fetch: UpdateFetch = async () => {
         throw new TypeError(message);
       };
-      expect((await run(fetch)).result).toEqual({ kind: "offline", timedOut: false });
+      expect((await run(fetch)).result, message).toEqual({ kind: "offline", timedOut: false });
     }
     const notAnError: UpdateFetch = async () => {
       throw "plain string";
@@ -289,5 +295,111 @@ describe("being offline", () => {
       }),
     });
     expect((await run(stalled, { timeoutMs: 30 })).result).toEqual({ kind: "offline", timedOut: true });
+  });
+
+  it("ends at the timeout even when neither the body nor the transport reacts to the abort", async () => {
+    let cancelled = 0;
+    // The body never produces a chunk, never errors and ignores both the signal and `cancel()`'s completion.
+    const deaf: UpdateFetch = async () => ({
+      status: 200,
+      headers: { get: () => null },
+      body: new ReadableStream<Uint8Array>({
+        pull: () => new Promise<void>(() => undefined),
+        cancel: () => {
+          cancelled += 1;
+          return new Promise<void>(() => undefined);
+        },
+      }),
+    });
+    const started = Date.now();
+    expect((await run(deaf, { timeoutMs: 50 })).result).toEqual({ kind: "offline", timedOut: true });
+    expect(Date.now() - started).toBeLessThan(2_000);
+    // The reader is released rather than left open.
+    expect(cancelled).toBe(1);
+  });
+
+  it("ends at the timeout when the transport never answers and ignores the abort", async () => {
+    const deafFetch: UpdateFetch = () => new Promise<UpdateResponse>(() => undefined);
+    expect((await run(deafFetch, { timeoutMs: 50 })).result).toEqual({ kind: "offline", timedOut: true });
+  });
+
+  it("is not hurt by a body whose cancel fails, whether it rejects or throws", async () => {
+    const rejecting = new ReadableStream<Uint8Array>({ cancel: () => Promise.reject(new Error("synthetic")) });
+    const throwing = {
+      cancel: () => {
+        throw new Error("synthetic");
+      },
+    } as unknown as ReadableStream<Uint8Array>;
+    for (const body of [rejecting, throwing]) {
+      const response: UpdateResponse = { status: 502, headers: { get: () => null }, body };
+      expect((await run(answering(response))).result).toEqual({ kind: "error", reason: "server-error" });
+    }
+  });
+
+  it("does not wait for a body it refuses to be cancelled", async () => {
+    const stuck: UpdateResponse = {
+      status: 503,
+      headers: { get: () => null },
+      body: new ReadableStream<Uint8Array>({ cancel: () => new Promise<void>(() => undefined) }),
+    };
+    expect((await run(answering(stuck))).result).toEqual({ kind: "error", reason: "server-error" });
+  });
+});
+
+describe("a failed secure connection", () => {
+  const throwing =
+    (error: unknown): UpdateFetch =>
+    async () => {
+      throw error;
+    };
+  const tls = { kind: "error", reason: "tls" };
+
+  it("is told apart from an outage by Electron's net error code", async () => {
+    for (const code of [
+      "ERR_CERT_AUTHORITY_INVALID",
+      "ERR_CERT_COMMON_NAME_INVALID",
+      "ERR_CERT_DATE_INVALID",
+      "ERR_CERT_REVOKED",
+      "ERR_SSL_PROTOCOL_ERROR",
+      "ERR_SSL_VERSION_OR_CIPHER_MISMATCH",
+      "ERR_BAD_SSL_CLIENT_AUTH_CERT",
+      "ERR_INSECURE_RESPONSE",
+    ]) {
+      expect((await run(throwing(new TypeError(`net::${code}`)))).result, code).toEqual(tls);
+    }
+  });
+
+  it("trusts the code over the words: a connection error that mentions TLS in text is still an outage", async () => {
+    const error = new TypeError("net::ERR_CONNECTION_RESET while reading the tls handshake certificate");
+    expect((await run(throwing(error))).result).toEqual({ kind: "offline", timedOut: false });
+  });
+
+  it("falls back to the words when the transport gives no net error code, including a nested cause", async () => {
+    const cause = Object.assign(new Error("unable to verify the first certificate"), {
+      code: "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+    });
+    for (const error of [
+      new TypeError("fetch failed", { cause }),
+      new Error("self-signed certificate in certificate chain"),
+      new Error("SSL handshake failed"),
+      Object.assign(new Error("request failed"), { code: "ERR_TLS_CERT_ALTNAME_INVALID" }),
+    ]) {
+      expect((await run(throwing(error))).result).toEqual(tls);
+    }
+  });
+
+  it("is never confused with a refused redirect, and a timeout still wins", async () => {
+    const redirect = new TypeError("net::ERR_CERT_DATE_INVALID after redirect was refused");
+    expect((await run(throwing(redirect))).result).toEqual({ kind: "error", reason: "redirect" });
+    const slowTls: UpdateFetch = (_url, init) =>
+      new Promise((_resolve, reject) => {
+        init.signal.addEventListener("abort", () => reject(new TypeError("net::ERR_CERT_DATE_INVALID")));
+      });
+    expect((await run(slowTls, { timeoutMs: 30 })).result).toEqual({ kind: "offline", timedOut: true });
+  });
+
+  it("carries no message in the answer", async () => {
+    const outcome = await run(throwing(new TypeError("net::ERR_CERT_AUTHORITY_INVALID synthetic-detail")));
+    expect(JSON.stringify(outcome)).not.toContain("synthetic-detail");
   });
 });

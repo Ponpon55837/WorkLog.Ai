@@ -123,6 +123,24 @@ async function textOf(window: Page): Promise<UpdateMessages> {
   return updateMessages(lang === "zh-Hant" ? "zh-TW" : "en");
 }
 
+/** The tray item 「檢查更新…」, through the very handler it runs (the tray itself cannot be clicked in a test). */
+async function trayCheck(running: ElectronApplication): Promise<void> {
+  await running.evaluate(() =>
+    (
+      globalThis as unknown as { __workIntelligenceDesktopTest: { openUpdateCheck(): void } }
+    ).__workIntelligenceDesktopTest.openUpdateCheck(),
+  );
+}
+
+/** Closes the App window (the App keeps running in the tray) and waits until it is gone. */
+async function closeWindow(running: ElectronApplication): Promise<void> {
+  await running.evaluate(({ BrowserWindow }) => {
+    for (const window of BrowserWindow.getAllWindows()) window.close();
+  });
+  await expect.poll(async () => (await readSnapshot(running)).repairWindowOpen).toBe(false);
+  await expect.poll(() => running.windows().length).toBe(0);
+}
+
 async function checkNow(window: Page): Promise<void> {
   await window.locator('[data-id="update-check"]').click();
 }
@@ -138,6 +156,14 @@ test("nothing is requested at launch or while the page sits open and idle", asyn
   await expect(window.locator('[data-id="update-check"]')).toBeEnabled();
   // The repair page polls every 4 s; wait past two polls.
   await window.waitForTimeout(9_000);
+  expect(requests).toHaveLength(0);
+  // Opening it again, a reload and a window closed and opened never check either: only a click does.
+  await window.reload();
+  await expect(window.locator("#update-section")).toBeVisible();
+  await closeWindow(running);
+  const again = await openRepairPage(running);
+  await expect(again.locator('[data-id="update-check"]')).toBeEnabled();
+  await again.waitForTimeout(5_000);
   expect(requests).toHaveLength(0);
 });
 
@@ -176,9 +202,9 @@ test("a newer release shows its details, and each button records exactly the exp
   expect(requests[0]?.url).toBe(`/repos/${SLUG}/releases?per_page=20`);
 });
 
-test("the request carries exactly the three headers, no cookie and no credentials", async () => {
+test("the request carries exactly the three headers, no cookie, no credentials and no language", async () => {
   const { running } = await launch();
-  handler = (response) => sendJson(response, []);
+  handler = (response) => sendJson(response, [releaseJson("v0.0.1")]);
   const window = await openRepairPage(running);
   await checkNow(window);
   await expect(window.locator("#update-section .update-current")).toHaveText((await textOf(window)).upToDate);
@@ -187,23 +213,30 @@ test("the request carries exactly the three headers, no cookie and no credential
   expect(headers.accept).toBe("application/vnd.github+json");
   expect(headers["x-github-api-version"]).toBe("2022-11-28");
   expect(headers["user-agent"]).toBe("WorkIntelligence-UpdateCheck");
-  for (const forbidden of ["cookie", "authorization", "referer", "origin", "proxy-authorization"]) {
+  // Nothing that says who the user is: no interface language, no cookie, no credential, no page or origin.
+  for (const forbidden of ["accept-language", "cookie", "authorization", "proxy-authorization", "referer", "origin"]) {
     expect(headers, forbidden).not.toHaveProperty(forbidden);
   }
-  // Everything else is the transport's own.
-  const transport = new Set([
-    "host",
-    "connection",
+  // The exact set. `accept`, `x-github-api-version` and `user-agent` are the check's own. The rest is what the HTTP stack
+  // adds to any request, and none of it says anything about the user:
+  //   host             the server's own name, which HTTP/1.1 requires;
+  //   connection       keep-alive;
+  //   accept-encoding  which compressions the client can read (the same for every Chromium);
+  //   sec-fetch-site, sec-fetch-mode, sec-fetch-dest
+  //                    Chromium adds these to every fetch it makes and does not let a request drop them; each is a
+  //                    fixed word about the kind of request (where from, how, for what), never about the user.
+  const allowed = [
+    "accept",
     "accept-encoding",
-    "accept-language",
-    "sec-fetch-site",
-    "sec-fetch-mode",
+    "connection",
+    "host",
     "sec-fetch-dest",
-  ]);
-  const unexpected = Object.keys(headers).filter(
-    (name) => !["accept", "x-github-api-version", "user-agent"].includes(name) && !transport.has(name),
-  );
-  expect(unexpected).toEqual([]);
+    "sec-fetch-mode",
+    "sec-fetch-site",
+    "user-agent",
+    "x-github-api-version",
+  ];
+  expect(Object.keys(headers).sort()).toEqual(allowed);
 });
 
 test("the running version or an older release is up to date", async () => {
@@ -271,6 +304,44 @@ test("a response over 1 MiB is refused", async () => {
   const window = await openRepairPage(running);
   await checkNow(window);
   await expect(window.locator("#update-section")).toContainText("too-large");
+});
+
+test("a response over 1 MiB with no Content-Length (chunked) is refused while it streams", async () => {
+  const { running } = await launch();
+  let written = 0;
+  handler = (response) => {
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.on("error", () => undefined);
+    // No Content-Length: Node sends it chunked. The client must stop reading at the cap, not wait for the end.
+    const writeMore = (): void => {
+      if (response.destroyed || written > 8 * 1024 * 1024) return;
+      written += 64 * 1024;
+      response.write(" ".repeat(64 * 1024), writeMore);
+    };
+    response.write("[");
+    writeMore();
+  };
+  const window = await openRepairPage(running);
+  await checkNow(window);
+  await expect(window.locator("#update-section")).toContainText("too-large", { timeout: 20_000 });
+  expect(requests).toHaveLength(1);
+  expect(requests[0]?.headers).not.toHaveProperty("content-length");
+  await expect(window.locator('[data-id="update-check"]')).toBeEnabled();
+});
+
+test("a list with no stable release is not called up to date, and the releases page is offered", async () => {
+  const { running } = await launch();
+  handler = (response) =>
+    sendJson(response, [releaseJson("v99.0.0", { prerelease: true }), releaseJson("v98.0.0", { draft: true })]);
+  const window = await openRepairPage(running);
+  await checkNow(window);
+  const card = window.locator("#update-section");
+  const text = await textOf(window);
+  await expect(card).toContainText(text.noRelease);
+  await expect(card.locator(".update-current")).toHaveCount(0);
+  await expect(card.locator('[data-id="update-asset"]')).toHaveCount(0);
+  await card.locator('[data-id="update-page"]').click();
+  await expect.poll(() => lastOpened(running)).toBe(BASE);
 });
 
 test("a redirect is refused, not followed", async () => {
@@ -369,23 +440,101 @@ test("concurrent clicks make one request and the button is disabled while it run
   expect(requests).toHaveLength(1);
 });
 
-test("the tray item opens the page and starts the check", async () => {
+test("the tray item with the window already open starts one check at once, without waiting for a poll", async () => {
+  const { running, version } = await launch();
+  const tag = newerTag(version);
+  handler = (response) => {
+    setTimeout(() => sendJson(response, [releaseJson(tag)]), 2_000);
+  };
+  const window = await openRepairPage(running);
+  const text = await textOf(window);
+  await trayCheck(running);
+  // Well inside the page's 4 s poll: main pushed the state, so the card already shows that it is checking.
+  await expect.poll(() => requests.length, { timeout: 1_500 }).toBe(1);
+  await expect(window.locator('[data-id="update-check"]')).toHaveText(text.checking, { timeout: 1_500 });
+  await expect(window.locator('[data-id="update-check"]')).toBeDisabled();
+  await expect(window.locator("#update-section")).toContainText(tag.slice(1), { timeout: 10_000 });
+  await expect(window.locator('[data-id="update-check"]')).toBeEnabled();
+  // The page's own button after it joined the same flow: one request still, however many polls pass.
+  await window.waitForTimeout(5_000);
+  expect(requests).toHaveLength(1);
+});
+
+test("the tray item with the window closed opens it with the check running; a later reopen asks nothing more", async () => {
   const { running, version } = await launch();
   const tag = newerTag(version);
   handler = (response) => sendJson(response, [releaseJson(tag)]);
-  await running.evaluate(() =>
-    (
-      globalThis as unknown as { __workIntelligenceDesktopTest: { openUpdateCheck(): void } }
-    ).__workIntelligenceDesktopTest.openUpdateCheck(),
-  );
+  await trayCheck(running);
   const window = await running.firstWindow({ timeout: 45_000 });
   await expect(window.locator("#update-section")).toContainText(tag.slice(1), { timeout: 30_000 });
   expect(requests).toHaveLength(1);
-  // Opening the page again does not check again.
+  // A reload shows the answer again and does not check again.
   await window.reload();
-  await expect(window.locator("#update-section")).toBeVisible();
-  await window.waitForTimeout(1_000);
+  await expect(window.locator("#update-section")).toContainText(tag.slice(1));
+  await closeWindow(running);
+  // Hours later in real life; here, past several polls' worth of time. The answer is shown, nothing is requested.
+  await new Promise((done) => setTimeout(done, 6_000));
+  const again = await openRepairPage(running);
+  await expect(again.locator("#update-section")).toContainText(tag.slice(1));
+  await expect(again.locator('[data-id="update-check"]')).toBeEnabled();
+  await again.waitForTimeout(6_000);
   expect(requests).toHaveLength(1);
+});
+
+test("closing the window right after a tray click leaves no deferred request for a later window", async () => {
+  const { running, version } = await launch();
+  const tag = newerTag(version);
+  handler = (response) => sendJson(response, [releaseJson(tag)]);
+  await openRepairPage(running);
+  await trayCheck(running);
+  await closeWindow(running);
+  await expect.poll(() => requests.length, { timeout: 5_000 }).toBe(1);
+  await new Promise((done) => setTimeout(done, 6_000));
+  // The window opens for another reason (the tray's 「開啟修復視窗」): it shows the answer and checks nothing.
+  const again = await openRepairPage(running);
+  await expect(again.locator("#update-section")).toContainText(tag.slice(1));
+  await again.waitForTimeout(6_000);
+  expect(requests).toHaveLength(1);
+});
+
+test("the release notes keep their scroll position across the page's polls", async () => {
+  const { running, version } = await launch();
+  const tag = newerTag(version);
+  const notes = Array.from({ length: 300 }, (_unused, index) => `- synthetic change ${index}`).join("\n");
+  handler = (response) => sendJson(response, [releaseJson(tag, { body: notes })]);
+  const window = await openRepairPage(running);
+  await checkNow(window);
+  const box = window.locator("#update-section .update-notes");
+  await expect(box).toContainText("synthetic change 0");
+  await box.evaluate((node) => {
+    node.scrollTop = 400;
+  });
+  const before = await box.evaluate((node) => node.scrollTop);
+  expect(before).toBeGreaterThan(300);
+  // Two polls (every 4 s) rebuild the page; the box is a new element each time.
+  await window.evaluate(() => {
+    (globalThis as { __notesBox?: Element | null }).__notesBox = document.querySelector(".update-notes");
+  });
+  await window.waitForTimeout(9_000);
+  const replaced = await window.evaluate(
+    () => (globalThis as { __notesBox?: Element | null }).__notesBox !== document.querySelector(".update-notes"),
+  );
+  expect(replaced).toBe(true);
+  expect(await window.locator("#update-section .update-notes").evaluate((node) => node.scrollTop)).toBe(before);
+  expect(requests).toHaveLength(1);
+});
+
+test("a publish date that does not parse is left out and the card still works", async () => {
+  const { running, version } = await launch();
+  const tag = newerTag(version);
+  // Main turns a date it cannot read into null; the card then shows no date line at all.
+  handler = (response) => sendJson(response, [releaseJson(tag, { published_at: "not a date" })]);
+  const window = await openRepairPage(running);
+  await checkNow(window);
+  const card = window.locator("#update-section");
+  await expect(card).toContainText(tag.slice(1));
+  await expect(card.locator('[data-id="update-page"]')).toBeVisible();
+  await expect(card).not.toContainText((await textOf(window)).published.split("{date}")[0] ?? "NEVER-MATCHES");
 });
 
 test("a request that never answers times out after 10 seconds", async () => {
@@ -400,4 +549,23 @@ test("a request that never answers times out after 10 seconds", async () => {
   });
   expect(Date.now() - started).toBeGreaterThanOrEqual(9_000);
   await expect(window.locator('[data-id="update-check"]')).toBeEnabled();
+});
+
+test("a body that stalls after a 200 times out and the button is usable again", async () => {
+  test.setTimeout(60_000);
+  const { running } = await launch();
+  handler = (response) => {
+    response.on("error", () => undefined);
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.write("[");
+    // Never ends, never errors: the connection just sits there.
+  };
+  const window = await openRepairPage(running);
+  const started = Date.now();
+  await checkNow(window);
+  await expect(window.locator("#update-section")).toContainText((await textOf(window)).timedOut, { timeout: 20_000 });
+  expect(Date.now() - started).toBeGreaterThanOrEqual(9_000);
+  expect(Date.now() - started).toBeLessThan(18_000);
+  await expect(window.locator('[data-id="update-check"]')).toBeEnabled();
+  expect(requests).toHaveLength(1);
 });
