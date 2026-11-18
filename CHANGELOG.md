@@ -4,6 +4,33 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.54] - 2026-11-18
+
+[繁體中文更新說明](docs/releases/1.6.54.md).
+
+This release makes diagnostics export preview-first, removes old runtimes only when no running process holds them, and adds a test-only Windows SQLite timing measurement. The schema stays at 33 and no migration is needed. Real-device acceptance on Windows 11 and macOS is not done yet.
+
+### Added
+
+- **Diagnostics export preview (DT-19).** 「匯出診斷資訊」 in the repair window opens a preview of the exact text to be saved, with a masking summary per category and a count of the non-App output lines left out. 「儲存檔案…」 writes exactly the previewed text (mode 0600 on POSIX); 「取消」 or Esc closes it. Only a manual export writes a file. Nothing is uploaded and there is no telemetry (ADR-29).
+  - Masking covers user home folders on Windows, macOS and Linux (including names with spaces and the JSON-escaped form), UNC paths, the database and backup paths, email addresses, the dashboard one-time handoff code, secrets in URL parameters and fragments, URL credentials, and token shapes (JWT, PEM private keys, AWS, Slack, GitHub and OpenAI-style keys).
+  - A second, independent scan checks the masked text. If anything is still found, the export is refused with `DIAGNOSTICS_SCAN_FAILED`.
+  - The file is capped at 1 MiB. The oldest output lines are dropped first, then the oldest errors, and the file records how much was dropped.
+  - A preview is valid for 10 minutes, can be saved once, and only from the window that asked for it.
+- **Runtime leases (DT-24).** Every launcher action (MCP, serve and hooks) writes a lease containing only the action name and creation time, and removes it on exit. MCP and serve renew it every 60 seconds. A lease not renewed across two heartbeats of the App's monotonic clock counts as gone.
+- **Windows SQLite timing (test only).** With `WI_SQLITE_TIMING=1`, set only on Windows CI for the unit tests and the SQLite stress job, a test helper records SQLite calls over 1 second, `BEGIN IMMEDIATE` waits, database open times, every `wal_checkpoint` call and tests over 10 seconds. It never records bound values. The production bundle check fails if the helper reaches a bundle. No threshold, timeout or assertion changed.
+- **Tests.** Diagnostics tests, including linear-time checks on about 75 adversarial input shapes of 200,000 characters (each under 200 ms); runtime lease and cleanup tests; a Windows-only file-lock test; and a desktop smoke test that checks the saved file equals the preview.
+
+### Changed
+
+- **Old runtimes are removed after a deferred check.** An older runtime is removed only when it has been retired for at least 7 days, no lease holds it, and Windows lets the folder be renamed aside. Updates never delete a runtime or wait on a lock. A deferred removal is retried after 10 and 30 minutes, then hourly while the App runs, and at the next start (ADR-16).
+- **Schema:** no change (33).
+
+### Security
+
+- **Linear-time redaction.** The old redactor had a pattern that could take minutes on crafted input. The patterns were rewritten to run in linear time.
+- **Refuse on a failed final scan.** An export whose masked text still matches a secret pattern is refused, not written.
+
 ## [1.6.53] - 2026-11-18
 
 [繁體中文更新說明](docs/releases/1.6.53.md).

@@ -22,7 +22,7 @@
 | R05 | P0 | 接管時殺掉另一個 checkout 或使用者服務 | G-SVC-01 | DT-12、DT-13 | 服務身分、runner、port、DB 多證據；陌生程序不 kill；Windows 驗證 schtasks 子孫程序 |
 | R06 | P0 | 接管時已 migration，卻自動恢復舊服務 | G-SVC-01、G-DB-02 | DT-09、DT-12、DT-32 | phase journal；migration 開始後禁止自動重啟舊服務（1.6.52：桌面 smoke `migration-interruption.spec.ts` 驗證後端在 migration 開始後被強制結束時不回到舊服務） |
 | R07 | P0 | 無系統 Node 的環境中 Agent MCP 失效 | G-MCP-01 | DT-23、DT-25 | 隨包標準 Node＋固定 launcher；App 退出後仍可獨立運作。**1.6.43 證據**：`scripts/desktop-runtime-spike/smoke.mjs` 在無 `node` 的 PATH、離線、只啟動固定 shim 的環境中，於 serve 停止後 MCP 仍完成 `initialize` 與 `tools/list`，hook 動作通過（Windows 與 macOS 45/45、Linux 46/46，run 43864453651）；見 §4c。**1.6.47 已實作（CI 可驗證部分）**：plugin `launch.mjs`、MCPB 與獨立版優先使用固定 shim，App 以 `desktop-integration.json` 記錄 launcher 路徑；hook 經 shim 靜默、25 秒上限、一律 exit 0。Agent 的 host handshake 與 Windows、macOS 實機待實機驗收；plugin manifest 仍以 `node launch.mjs` 啟動。 |
-| R08 | P0 | 更新刪除使用中的 runtime（Windows 檔案鎖） | G-MCP-01 | DT-24 | 版本化 runtime、延後 GC（需無現役連線）、manifest 原子切換 **1.6.45 狀態**：背景清理只保留目前與前一版，尚未證明「無現役連線」，風險只部分緩解（見 DT-24）。 |
+| R08 | P0 | 更新刪除使用中的 runtime（Windows 檔案鎖） | G-MCP-01 | DT-24 | 版本化 runtime、延後 GC（需無現役連線）、manifest 原子切換 **1.6.45 狀態**：背景清理只保留目前與前一版，尚未證明「無現役連線」，風險只部分緩解（見 DT-24）。**1.6.54 狀態**：DT-24 的 CI 可驗證部分已實作。舊 runtime 只在退役滿 7 天、無 lease 且可改名移開時刪除；Windows 檔案鎖的實機行為待實機驗收。 |
 | R09 | P0 | 本機網站偽造管理 API 請求 | G-SEC-01 | DT-17 | 精確 Host:port、Origin、短期會話、CSRF、原生高風險確認；**1.6.41 T4 已實作（commit dadaae4）** |
 | R10 | P0 | 同機程序偽造 Origin 或 Host 使用管理 API | G-SEC-01 | DT-17 | 不只依賴 CORS 或 Origin；能力憑證與私有 IPC（§5.2 威脅模型） |
 | R11 | P0 | 更新 manifest 被替換，只有 hash 卻無來源可信性 | G-UPD-01 | DT-28 | 鎖定工具版本；metadata 簽章驗證；無法證明時禁用自動更新 **1.6.45 狀態**：選擇 electron-builder 26（v26）且本版不做自動更新（ADR-25），因此不信任 metadata 的自動更新路徑未被啟用；v26 的 metadata 簽章驗證未實作，DT-28 的篡改測試不適用。 |
@@ -46,7 +46,7 @@
 | R29 | P1 | 設定檔半寫入或無法解析時被當作全新安裝 | G-DB-01 | DT-20 | 原子替換、recovery copy、修復模式；不開空庫 |
 | R30 | P1 | 關機、睡眠或斷電使 operation phase 與實際狀態不符 | G-SVC-02、G-UPD-01 | DT-09、DT-31 | 恢復時重讀 OS、DB 與 manifest 並重建狀態；不只依賴 journal |
 | R31 | P2 | 安裝包肥大、冷啟慢、閒置記憶體高 | G-UX-01 | DT-25 | A 階段比較標準 Node 與 `utilityProcess`；記錄基準數字。**1.6.43 數字**：標準 Node 與 Electron RUN_AS_NODE 的量測見 ADR-04（Linux 與 macOS） 三平台；spike 未量測 `utilityProcess` **1.6.45 數字（本機 Linux）**：解開後 405.8 → 395.9 MiB；`app.asar` 3.3 → 0.66 MB；隨包 runtime 135.5 MB（Node 122 MB）；打包 11.8–15.2 s；首次啟動含 runtime 安裝 1028 ms、熱啟動 563 ms；閒置記憶體（打包後的 App，PSS）352 → 292 MiB，RSS 合計 662 → 538 MiB（3 次中位數）。Windows 與 macOS 的數字待 CI；記憶體門檻為 Linux PSS 360 MiB、後端 128 MiB，Windows 與 macOS 暫定 1024 MiB 與 192 MiB。 |
-| R32 | P2 | 完整診斷匯出洩漏個資路徑或秘密 | G-SEC-01 | DT-19 | 匯出前預覽、掃描、遮蔽；只手動匯出，不自動上傳 |
+| R32 | P2 | 完整診斷匯出洩漏個資路徑或秘密 | G-SEC-01 | DT-19 | 匯出前預覽、掃描、遮蔽；只手動匯出，不自動上傳。**1.6.54 狀態**：預覽、遮蔽與第二道掃描（失敗時拒絕寫檔）已實作（DT-19）；CI 可驗證部分已實作，實機待實機驗收。 |
 | R33 | P0 | bundled Node 的 SQLite 未含 2026 WAL-reset 修補，可能損毀 | G-DB-03、G-MCP-01 | DT-06、DT-07 | release 產物列印 `sqlite_version()` 並保存修補證據（**1.6.41 T3 已實作（commit 4420951）**）；多程序 WAL 壓力與 restore 測試（1.6.52：DT-07 壓力測試與打包 smoke 的 `sqlite_version()` 斷言已實作；壓力測試不取代修補證據；Windows x64、macOS x64、macOS arm64 的打包 runtime 皆為 Node 24.22.3、SQLite 3.54.1（含修補）；6 秒壓力測試全部通過，每個 OS 的總時間 14.0／16.7／11.9 秒（PR #374 CI）） |
 | R34 | P1 | 唯讀 DB 預覽在 WAL 中建立 `-shm`、`-wal`，或誤用 `immutable=1` | G-DB-01 | DT-02 | 檔案系統副作用測試；不刪 sidecar；活躍 DB 不使用 immutable |
 
@@ -94,12 +94,12 @@
 | DT-16 | 修復視窗（隔離、sandbox、不依賴 Web 或 API） | E2-01 | DT-15 | 無 tray 或服務壞掉時仍可修復。**1.6.44 已實作**：`apps/desktop/src/main/repair-window.ts`、`security.ts`、`ipc.ts`；`apps/desktop/src/preload/repair.ts`；`apps/desktop/src/renderer/repair/`；`packages/desktop-core/src/shell/navigation-policy.ts`、`repair-ipc.ts`；`tests/desktop-core/shell-policy.test.ts`；`apps/desktop/tests/desktop-smoke/desktop.spec.ts`；實機待實機驗收 | W、M | R14、R18 |
 | DT-17 | 管理 API 授權：精確 Host:port（**1.6.41 T4 已實作**）、Origin、CSRF、會話、原生確認 | E2-03 | DT-15 | 假 Host、假 Origin、跨 port、重播、過期的測試皆拒絕 | W、M | R09、R10 |
 | DT-18 | 管理 API 跨使用者與 XSS 回歸測試；資料 API 的發行聲明 | E2-03 | DT-17 | 不同 OS 帳號連線測試；發行說明已列出排除項 | W、M | R25（管理 API 部分） |
-| DT-19 | 診斷匯出遮蔽與秘密掃描 | E5-02 | DT-11 | 匯出內容無授權碼與個資路徑；不自動上傳。**1.6.44 註記**：本版的診斷匯出已遮蔽 home、使用者名稱、DB／備份路徑、runId 與秘密樣式（`packages/desktop-core/src/shell/diagnostics.ts`；`tests/desktop-core/shell-policy.test.ts`）；完整版（dry-run 預覽、秘密掃描報告）仍屬 DT-19 | W、M | R32 |
+| DT-19 | 診斷匯出遮蔽與秘密掃描 | E5-02 | DT-11 | 匯出內容無授權碼與個資路徑；不自動上傳。**1.6.44 註記**：本版的診斷匯出已遮蔽 home、使用者名稱、DB／備份路徑、runId 與秘密樣式（`packages/desktop-core/src/shell/diagnostics.ts`；`tests/desktop-core/shell-policy.test.ts`）；完整版（dry-run 預覽、秘密掃描報告）仍屬 DT-19。**1.6.54 註記**：完整版已實作（CI 可驗證部分）：「匯出診斷資訊」先預覽，儲存只寫入預覽中的同一份文字；遮蔽涵蓋使用者主目錄、UNC、資料庫與備份路徑、電子郵件、交接代碼、URL 秘密與權杖形狀；第二道掃描失敗回 `DIAGNOSTICS_SCAN_FAILED`；1 MiB 上限；所有模式線性時間。實機待實機驗收。 | W、M | R32 |
 | DT-20 | 設定檔原子寫入與 fail-closed 讀取 | E0-02 | — | 半寫入與毀損情境不開空庫；recovery copy 可用。**1.6.42 已實作**：`packages/desktop-core/src/settings/`；`tests/desktop-core/settings.test.ts` | W、M | R29 |
 | DT-21 | Agent plan／apply／verify／compensate 共用 API（擷取自 `agent-setup.ts`） | E3-01 | DT-23 | 指紋重驗；補償只回復 App 擁有項；CLI 行為不變。**1.6.47 已實作（CI 可驗證部分）**：`packages/agent-setup/`；`apps/server/src/agent-setup.ts`（薄 CLI）；`tests/agent-setup/*.test.ts`、`tests/server/agent-setup-golden.test.ts`（CLI 輸出與檔案位元組不變）；App 設定中心尚未呼叫；實機待實機驗收。 | W、M | R15、R16、R17 |
 | DT-22 | Agent 狀態分級與 host handshake | E3-01 | DT-21 | 檔案已寫入不顯示「已連接」；握手測試通過。**1.6.47 已實作（CI 可驗證部分）**：`packages/desktop-core/src/agents/`；`packages/shared/src/mcp-contract-fingerprint.ts`；`apps/mcp/src/agent-observation.ts`；`tests/desktop-core/agents-handshake.test.ts`、`agents-status.test.ts`；真實 host 握手待實機驗收。 | W、M | R28 |
 | DT-23 | 固定 launcher 與版本化 runtime manifest | E1-02 | DT-25 | App 退出後 MCP 仍可 `initialize`；manifest 篡改被拒。**1.6.43 已實作（CI 可驗證部分）**：`packages/desktop-core/src/runtime/*.ts`；`tests/desktop-core/runtime-install.test.ts`、`runtime-launcher.test.ts`、`runtime-manifest.test.ts`、`runtime-verify.test.ts`；煙霧測試覆蓋竄改拒絕；**1.6.45**：Windows ACL 已實作（`packages/desktop-core/src/runtime/windows-acl.ts`；`tests/desktop-core/runtime-windows-acl.test.ts`，僅 fixture 驗證）；runtime GC 只部分實作（DT-24）；**1.6.47 已實作 launcher 接線（CI 可驗證部分）**：plugin `launch.mjs`、MCPB 與獨立版優先使用固定 shim；`desktop-integration.json` 紀錄（`packages/desktop-core/src/integration/`；`tests/desktop-core/integration-record.test.ts`）；`setup:agents` launcher 目標；plugin manifest 仍以 `node launch.mjs` 啟動；實機待實機驗收 | W、M | R07、R13 |
-| DT-24 | runtime 延後 GC 與 Windows 檔案鎖 | E1-02 | DT-23 | 檔案鎖下更新不失敗；無現役連線才刪除 | W | R08 **1.6.45 部分實作**：`packages/desktop-core/src/runtime/runtime-gc.ts`，背景清理保留目前與前一版；無現役連線的證明未做，DT-24 未完成。 |
+| DT-24 | runtime 延後 GC 與 Windows 檔案鎖 | E1-02 | DT-23 | 檔案鎖下更新不失敗；無現役連線才刪除 | W | R08 **1.6.45 部分實作**：`packages/desktop-core/src/runtime/runtime-gc.ts`，背景清理保留目前與前一版；無現役連線的證明未做，DT-24 未完成。 **1.6.54 實作（CI 可驗證部分）**：lease（`packages/desktop-core/src/runtime/lease.ts`）與延後 GC（`runtime-gc.ts`）已加入；退役滿 7 天、無 lease、改名移開後才刪除，改名失敗則 10 分鐘、30 分鐘與每小時重試；Windows 檔案鎖的實機行為待實機驗收。 |
 | DT-25 | 無 Node 封裝 spike、大小與冷啟動基準、FTS5 與 worker 驗證 | E1-01 | — | 無 Node 離線開頁、寫 DB、搜尋、備份、stdio 握手；基準數字紀錄。**1.6.43 已實作（CI 可驗證部分）**：`scripts/desktop-runtime-spike/`（build、smoke、harness、report）、`.github/workflows/desktop-runtime-spike.yml`；三平台數字與檢查見 ADR-04；階段 1 gate 未通過（實機驗收未做） | W、M | R07、R31 |
 | DT-26 | Windows 資料夾選擇：`IFileOpenDialog`（**1.6.41 T1 已實作，commit 1257d3a**；實機待實機驗收） | R4 新增 | — | Windows 11 實機通過 `docs/release-checklist.md` 的條目；取消 exit 2；fallback 可用 | W（M 驗證 `osascript`） | — |
 | DT-27 | Dashboard bridge：Agent 開頁交給 App，不自啟 checkout server | E3-02 | DT-11、DT-21 | 換 port 與 App 離線後從 Agent 開頁，不產生第二個 server。**1.6.47 已實作（CI 可驗證部分）**：`scripts/dashboard.mjs`、`plugins/work-intelligence/scripts/desktop-integration.mjs`、`apps/desktop/src/main/second-instance.ts`；`apps/desktop/tests/desktop-smoke/dashboard-handoff.spec.ts`；換 port 與 App 離線的實機情境待實機驗收。 | W、M | R19（次要） |
@@ -155,7 +155,7 @@
 | A | 無 Node 封裝 spike：建置、離線煙霧測試，以及大小、冷啟動與閒置記憶體量測（官方 Node.js 與 Electron RUN_AS_NODE） | DT-25 | R07、R31；§9.4；ADR-04 | 1.6.43 已實作（d879dc4）；三平台量測完成（run 43864453651） |
 | B | 固定 launcher、manifest v1、shim、`current` 指標與 `runtimes/<id>/` 安裝、launch 一致性檢查 | DT-23 | R07、R13；§3.3、§10.2；ADR-15 | 1.6.43 已實作（e571b31；修正 7c75778、6419aaf；精簡 shim 與 launch 一致性檢查 1b09081）；Windows ACL 為 `not-implemented`；實機待實機驗收 |
 | C | CI workflow（Windows、macOS、Ubuntu × Node、Electron） | DT-25 | R07、R31 | 1.6.43 已實作（d879dc4；觸發條件為 pull request 與手動觸發；分支 push 觸發於 e987168 加入，1b09081 移除） |
-| D | runtime 延後 GC（DT-24）、Windows ACL、Agent 與 plugin 接線 | DT-24、DT-23 後續 | R08、R13、R07；§9.4 階段 3 | 1.6.47 已實作（CI 可驗證部分）；實機待實機驗收（Agent 與 plugin 接線）。runtime GC 仍為部分實作（DT-24，見 1.6.45） |
+| D | runtime 延後 GC（DT-24）、Windows ACL、Agent 與 plugin 接線 | DT-24、DT-23 後續 | R08、R13、R07；§9.4 階段 3 | 1.6.47 已實作（CI 可驗證部分）；實機待實機驗收（Agent 與 plugin 接線）。runtime GC 仍為部分實作（DT-24，見 1.6.45）；**1.6.54 狀態**：CI 可驗證部分已實作（見 ADR-16） |
 
 **1.6.43 的非 CI 項目**：Windows 11 與 macOS 實機煙霧測試、Windows ACL 檢查、NTFS 變更時間對 stat 快取的影響、Windows `.cmd` 的 `%*`／`!` 行為，以及所有實機驗收。
 
@@ -168,7 +168,7 @@
 | 打包：electron-builder 26.18.1、NSIS（Windows 11 x64）、DMG 與 ZIP（macOS arm64、x64 分開） | DT-34、DT-33 | R27、R31 | §9.1、§9.2；ADR-02、ADR-30 | 1.6.45 已實作（Linux `dir` 本機驗證）；Windows 與 macOS 實跑待確認 |
 | 隨包 runtime（Node 24.22.3）與首次啟動安裝到 launcher root | DT-23 | R07、R13 | §3.3；ADR-04、ADR-15 | 1.6.45 已實作；實機待驗收 |
 | Windows ACL 檢查 | DT-23 | R13 | §3.3；ADR-15 | 1.6.45 已實作（fixture）；真實行為待驗收 |
-| runtime 背景清理 | DT-24 | R08 | ADR-16 | 部分實作（保留目前與前一版） |
+| runtime 背景清理 | DT-24 | R08 | ADR-16 | 部分實作（保留目前與前一版）；**1.6.54 狀態**：CI 可驗證部分已實作（lease、退役滿 7 天、改名移開後刪除；見 ADR-16） |
 | 更新來源 metadata 驗證與自動更新 | DT-28、DT-30 | R11、R21 | §7.1；ADR-24、ADR-25 | 未做（v26，手動下載） |
 | 發行聯合閘（`desktop-package` 與 `release.yml`） | DT-33 | — | ADR-03；§9.5 | 1.6.45 已接線；三平台實跑待確認 |
 | 打包後的黑箱煙霧測試與生產建置的後門檢查 | DT-34、DT-36 | R13、R27 | apps/desktop/tests/packaged-smoke | 1.6.45 已實作；Linux 15 項通過 ×2 |

@@ -214,7 +214,19 @@ R4 的補充用法：
 | 手動更新檢查 | 修復視窗的「更新」卡片與工作列的「檢查更新…」。只在按下按鈕時由主程序請求 GitHub releases API（`per_page=20`），記憶體內 session、不帶憑證、不快取、不接受重新導向；標頭只有 `Accept`、`X-GitHub-Api-Version`、`User-Agent`（移除 `Accept-Language`），不送版本、作業系統、機器識別碼或權杖；10 秒逾時、1 MiB 上限、同時只一次。略過草稿與預發布，tag 須為 `vX.Y.Z`。工作列項目由主程序直接開始檢查。狀態：最新、有新版、離線、查詢次數受限（不自動重試）、安全連線失敗、沒有正式版、錯誤；每個狀態都有「開啟發行頁面」。更新說明純文字、移除控制與雙向字元、上限 20 000 字元。下載按鈕以預設瀏覽器開啟該平台安裝檔，網址由 tag 重建且只允許本儲存庫的發行網址；其他平台只提供發行頁面。App 內不下載、不安裝 | 1.6.53 已實作；單元測試 82 項、桌面 smoke 24 項；Windows 11 與 macOS 實機待實機驗收 | ADR-40（新增）；ADR-25（手動下載路徑）；ADR-38（未簽署與 SHA256SUMS）；[1.6.53 更新說明](../releases/1.6.53.md) | `packages/desktop-core/src/update-check/`；`apps/desktop/src/main/update-check.ts`；`apps/desktop/src/main/update-session.ts`；`apps/desktop/src/renderer/repair/update-view.ts`；`tests/desktop-core/update-check-{logic,request,controller}.test.ts`；`tests/desktop-core/dashboard-link.test.ts`；`apps/desktop/tests/desktop-smoke/update-check.spec.ts` |
 | 每日稽核例外監看 | `audit-exceptions-watch`：每天 UTC 03:37 與手動觸發，`contents: read`，無 secret，不是 PR 的必要檢查；執行 `node scripts/check-audit-ignores.mjs --registry`，npm 出現修補版或 advisory 不再回報時失敗並通知維護者 | 1.6.53 已加入 | [相依套件稽核例外](../security/audit-exceptions.md) | `.github/workflows/audit-exceptions-watch.yml`；`scripts/check-audit-ignores.mjs` |
 
-沒有 schema 變更（33），沒有 migration。下一版（1.6.54）為 Windows 上 SQLite 鎖等待與儲存停滯的量測（instrumentation）；1.6.54 之後進行跨版本的完整檢視。
+沒有 schema 變更（33），沒有 migration。下一版（1.6.54）為診斷匯出、runtime 延後清理與 Windows SQLite 量測，見下節。
+
+## 1.6.54 任務（診斷匯出、runtime 延後清理與 Windows SQLite 量測）與本文件的關係
+
+本版實作下列項目的 CI 可驗證部分；Windows 11 與 macOS 的實機驗收仍為**待實機驗收**。CI 結果：「CI：待補」。
+
+| 任務 | 內容 | 狀態 | 本文件位置 | 證據路徑 |
+|---|---|---|---|---|
+| 診斷匯出預覽與遮蔽（DT-19） | 修復視窗的「匯出診斷資訊」先開啟預覽；「儲存檔案…」寫入預覽中的同一份文字（POSIX 0600）；「取消」與 Esc 關閉；只手動匯出，不上傳，沒有遙測。內容為固定欄位，輸出行只保留 App 日誌前綴的行。遮蔽涵蓋使用者主目錄、UNC、資料庫與備份路徑、電子郵件、交接代碼、URL 秘密與權杖形狀；第二道掃描失敗回 `DIAGNOSTICS_SCAN_FAILED`；1 MiB 上限；預覽 10 分鐘有效、只能儲存一次；所有遮蔽模式以線性時間執行 | 1.6.54 已實作（CI 可驗證部分）；桌面 smoke 檢查儲存的檔案與預覽相同且不含植入標記；實機待實機驗收 | ADR-29；C-18；R32 | `packages/desktop-core/src/shell/diagnostics*.ts`；`apps/desktop/src/renderer/repair/diagnostics-view.ts`；`tests/desktop-core/diagnostics.test.ts`、`diagnostics-preview-store.test.ts`、`diagnostics-linear-time.test.ts`、`shell-policy.test.ts`；`apps/desktop/tests/desktop-smoke/desktop.spec.ts` |
+| 舊 runtime 延後清理（DT-24） | 目前與前一版永遠保留；其餘舊版在退役滿 7 天、沒有 lease、且可改名移開時才刪除。launcher 的每個 action 建立與移除 lease（只含 action 與建立時間），MCP 與 serve 每 60 秒更新；兩次心跳未更新的 lease 視為已不存在；改名失敗則 10 分鐘、30 分鐘、之後每小時重試；更新不刪除、不等待鎖 | 1.6.54 已實作（CI 可驗證部分）；Windows 檔案鎖的實機行為待實機驗收；lease 成本的 Windows 與 macOS 數字「CI：待補」 | ADR-16；C-14；R08 | `packages/desktop-core/src/runtime/lease.ts`、`runtime-gc.ts`；`apps/desktop/src/main/runtime-provision.ts`；`tests/desktop-core/runtime-lease.test.ts`、`runtime-gc.test.ts`、`runtime-gc-live.test.ts` |
+| Windows SQLite 停滯量測（僅測試） | `WI_SQLITE_TIMING=1` 只在 Windows CI 的單元測試與 SQLite 壓力測試工作中開啟；記錄超過 1 秒的呼叫、`BEGIN IMMEDIATE` 等待直方圖、資料庫開啟時間、每次 `wal_checkpoint` 與超過 10 秒的測試；不記錄繫結值；生產版建置檢查若發現 helper 即失敗；不改變門檻、逾時或斷言 | 1.6.54 已加入（僅測試）；量測結果「Windows 量測結果：待補」 | — | `tests/helpers/sqlite-timing.ts`；CI artifact `sqlite-timing-windows-latest` 與 `sqlite-stress-windows-latest` |
+
+沒有 schema 變更（33），沒有 migration。
 
 ## 本機打包
 

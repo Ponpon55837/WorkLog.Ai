@@ -253,6 +253,7 @@
   - **W**：檔案鎖可能阻止刪除；GC 延後重試，更新不因鎖而失敗（DT-24，R08）。
   - **M**：從 DMG 執行時不可更新；quarantine 屬性需測試（DT-29）。
 - **對應**：DT-23、DT-24；R07、R08、R13。
+- **1.6.54 實作**：lease 建立與移除在 `packages/desktop-core/src/runtime/lease.ts`；延後 GC（退役時間、七天下限、改名移開與改名回復）在 `runtime-gc.ts`；App 端位於 `apps/desktop/src/main/runtime-provision.ts`。lease 寫入失敗不影響 action（hook 靜默，MCP 寫一行不含路徑的 stderr）。`.quarantine-<id>-<隨機>` 目錄須通過與 runtime 相同的 lease 證明才會刪除（`current` 與前一版的 id 一律保留）。找不到已知的保留清單（`gc-state.json` 遺失或損壞，且呼叫者未指定前一版）時，本次不記錄退役，也不清理任何 runtime。GC 會刪除 `current` 與前一版已證明失效的 lease 檔。`leases` 或 `leases/<id>` 是符號連結或 junction 時，略過 lease，action 照常執行，GC 也不做任何 lease 操作，並把未保留的 runtime 以 `live-lease` 延後。每次改名前重讀 `current`；`refresh` 發現檔案不存在時重建一次。僅 Windows 執行的測試以真實檔案鎖驗證更新成功、清理等待與鎖釋放後移除。lease 成本的 Windows 與 macOS 數字：「CI：待補」。
 
 ### C-20 DashboardBridge
 
@@ -315,6 +316,7 @@
   - 不預設上傳，不包含整份 Agent config、MCP 工具輸入輸出或完整環境變數。
   - 無預設遙測。
 - **對應**：DT-19；R32。
+- **1.6.54 實作**：匯出分為預覽與儲存兩步。預覽顯示確切的待存文字與遮蔽摘要；儲存只寫入預覽中的同一份文字；第二道掃描失敗時拒絕寫檔；檔案上限 1 MiB（ADR-29）。輸出行只保留 App 日誌前綴的行（`packages/desktop-core/src/shell/diagnostics*.ts`；`apps/desktop/src/renderer/repair/diagnostics-view.ts`）。
 
 ### C-19 UninstallAndIntegrationCleanup
 
