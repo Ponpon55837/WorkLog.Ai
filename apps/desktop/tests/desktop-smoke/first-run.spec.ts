@@ -22,7 +22,7 @@ import {
 } from "./helpers.js";
 
 /**
- * The first-run page (DT-01) and the old login service (`pnpm bootstrap`). Synthetic data only: every database is made
+ * The first-run page (DT-01) and the old login service. Synthetic data only: every database is made
  * by the real store in the sandbox, and the old service is a synthetic detection result (the file detection itself is
  * unit-tested per platform in tests/desktop-core/legacy-service.test.ts).
  */
@@ -58,7 +58,6 @@ function writeLegacyService(
   state: { running: "running" | "stopped"; enabled?: "enabled" | "disabled" } = { running: "running" },
 ): string {
   const file = join(box.root, "legacy-service.json");
-  const windows = process.platform === "win32";
   writeFileSync(
     file,
     JSON.stringify({
@@ -72,10 +71,6 @@ function writeLegacyService(
       port: 3210,
       running: state.running,
       ...(state.enabled === undefined ? {} : { enabled: state.enabled }),
-      removeCommand: windows
-        ? `cd /d "${join(box.root, "checkout")}" && pnpm service:uninstall`
-        : `cd '${join(box.root, "checkout")}' && pnpm service:uninstall`,
-      fallbackRemoveCommand: "synthetic-fallback-command",
     }),
   );
   return file;
@@ -198,7 +193,9 @@ test("the old login service on the App's database holds the start back until the
   const card = window.locator("#legacy-service");
   await expect(card).toBeVisible();
   await expect(card).toContainText(text.legacyWarning);
-  await expect(card.locator(".command-text").first()).toContainText("pnpm service:uninstall");
+  // No command to copy or type: only the App's own button and the hand-off steps.
+  await expect(card.locator(".command-text")).toHaveCount(0);
+  await expect(card.locator(".manual-steps")).toHaveCount(1);
   // Held back on purpose: no automatic retry starts it behind the user's back.
   await new Promise((resolveWait) => setTimeout(resolveWait, 3_000));
   expect((await readSnapshot(app)).backend).toBeNull();

@@ -14,8 +14,6 @@ import {
 // Fictional values only; the status never touches a real service manager or Agent settings.
 const LEGACY = {
   running: "running",
-  removeCommand: "synthetic-remove --legacy",
-  fallbackRemoveCommand: "synthetic-fallback --legacy",
 } as const;
 const JSON_HEADERS = { "content-type": "application/json" };
 

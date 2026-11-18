@@ -238,7 +238,9 @@ export function mountSetup(
         ? [actions(button(text.legacyStartAnyway, "start-anyway", !busy, () => startAnyway(text)))]
         : [];
       extra.push(...legacyDisableControls(disableHost(text), state.legacy.canDisable, !busy));
-      blocks.push(legacyBlock(api, text, { ...state.legacy, blocked: heldBack !== undefined }, extra));
+      blocks.push(
+        legacyBlock(api, text, { ...state.legacy, blocked: heldBack !== undefined }, extra, () => void refresh()),
+      );
     } else if (!state.legacy) {
       const outcome = legacyDisableOutcome(disableHost(text));
       if (outcome) blocks.push(outcome);

@@ -26,7 +26,6 @@ export interface ErrorMessage {
 export interface ShellMessages {
   readonly appName: string;
   readonly trayOpenDashboard: string;
-  readonly trayRepair: string;
   /** Opens the App window; `{name}` is `appName`. */
   readonly trayOpenApp: string;
   readonly trayQuit: string;
@@ -83,8 +82,8 @@ export interface ShellMessages {
   readonly repairCandidates: string;
   readonly repairConfirmCandidate: string;
   readonly repairBusy: string;
-  /** A restart is already running (an automatic retry or another operation): not an error. */
-  readonly repairRestarting: string;
+  /** Another operation holds the App (a restart, an import, a backup, a port change): not an error, try again later. */
+  readonly repairBusyOperation: string;
   /** Confirm button for a database whose schema must be updated; pressing it is the user's consent. */
   readonly repairConfirmMigrate: string;
   readonly repairMigrationNote: string;
@@ -129,7 +128,6 @@ export interface ShellMessages {
 const zhTW: ShellMessages = {
   appName: "Work Intelligence",
   trayOpenDashboard: "開啟 Dashboard",
-  trayRepair: "修復…",
   trayOpenApp: "開啟 {name}…",
   trayQuit: "退出（退出後不會每日備份）",
   trayDisabledTemplate: "{label}（{reason}）",
@@ -162,7 +160,7 @@ const zhTW: ShellMessages = {
   startupFailedTitle: "Work Intelligence 無法啟動",
   startupFailedMessage:
     "找不到這個使用者的應用程式資料夾（Windows 為 AppData），App 必須關閉，資料沒有任何變更。請確認使用者設定檔完整後再開啟。",
-  notifyBody: "{title}。從工具列選單開啟「修復…」。",
+  notifyBody: "{title}。請開啟 App 的「狀態」分頁。",
   repairWindowTitle: "Work Intelligence 修復",
   repairHeading: "修復 Work Intelligence",
   repairIntro: "服務沒有正常執行。你的資料沒有被改動；下面列出目前的狀況和可以做的事。",
@@ -176,7 +174,7 @@ const zhTW: ShellMessages = {
   repairCandidates: "你選擇的資料庫",
   repairConfirmCandidate: "使用這個資料庫並重試",
   repairBusy: "處理中…",
-  repairRestarting: "正在重新啟動服務，請稍候。",
+  repairBusyOperation: "App 正在處理另一項操作，請稍後再試。",
   repairConfirmMigrate: "同意更新資料庫結構，使用這個資料庫並重試",
   repairMigrationNote: "這個資料庫需要更新結構才能使用；更新前會先備份。",
   repairCandidateNotUsable: "這個資料庫目前不能使用。",
@@ -201,7 +199,7 @@ const zhTW: ShellMessages = {
   agentsTooLargeNote: "檔案過大，無法顯示差異",
   agentsAckUndiffable: "我了解有檔案無法顯示差異",
   legacyActiveNoOverrideHint:
-    "為了避免兩個後端同時使用同一份資料庫，App 沒有啟動自己的後端。請先移除舊的登入服務（pnpm service:uninstall），或改選另一份資料庫。",
+    "為了避免兩個後端同時使用同一份資料庫，App 沒有啟動自己的後端。請在「狀態」分頁停用舊的登入服務，或改選另一份資料庫。",
   ownerLabel: "服務狀態",
   backendLabel: "背景程序",
   databaseStatusLabel: "資料庫狀態",
@@ -228,7 +226,7 @@ const zhTW: ShellMessages = {
   errors: {
     LEGACY_SERVICE_ACTIVE: {
       title: "舊的登入服務也在使用這份資料庫",
-      hint: "為了避免兩個後端同時使用同一份資料庫，App 沒有啟動自己的後端。請先移除舊的登入服務（pnpm bootstrap），或在這個視窗對目前的資料庫選擇「仍要啟動」。",
+      hint: "為了避免兩個後端同時使用同一份資料庫，App 沒有啟動自己的後端。請在「狀態」分頁停用舊的登入服務，或對目前的資料庫選擇「仍要啟動」。",
     },
     DB_MISSING: { title: "找不到資料庫檔案", hint: "檔案可能被移動或刪除。請選擇資料庫，或從備份還原。" },
     DB_OFFLINE: { title: "資料庫所在的儲存位置離線", hint: "請接上外接硬碟或網路磁碟後重試。" },
@@ -250,7 +248,7 @@ const zhTW: ShellMessages = {
     SCHEMA_MIGRATION_BLOCKED: { title: "資料庫需要更新但沒有完成", hint: "你的資料沒有被改動。請查看備份後重試。" },
     PORT_OCCUPIED_BY_OTHER: {
       title: "連接埠被其他程式占用",
-      hint: "請關閉占用的程式，或在「修復」視窗的「連接埠」區塊（也可從工具列選單的「變更連接埠…」）換一個連接埠。",
+      hint: "請關閉占用的程式，或在「設定」分頁的「連接埠」區塊換一個連接埠。",
     },
     PORT_NOT_PERMITTED: {
       title: "系統不允許使用這個連接埠",
@@ -325,7 +323,6 @@ const zhTW: ShellMessages = {
 const en: ShellMessages = {
   appName: "Work Intelligence",
   trayOpenDashboard: "Open Dashboard",
-  trayRepair: "Repair…",
   trayOpenApp: "Open {name}…",
   trayQuit: "Quit (no daily backup after quitting)",
   trayDisabledTemplate: "{label} ({reason})",
@@ -365,7 +362,7 @@ const en: ShellMessages = {
   startupFailedTitle: "Work Intelligence cannot start",
   startupFailedMessage:
     "The App could not find this user's application data folder (AppData on Windows) and has to close. Nothing was changed. Check that the user profile is complete, then open the App again.",
-  notifyBody: "{title}. Open “Repair…” from the tray menu.",
+  notifyBody: "{title}. Open the Status tab in the App.",
   repairWindowTitle: "Work Intelligence Repair",
   repairHeading: "Repair Work Intelligence",
   repairIntro:
@@ -380,7 +377,7 @@ const en: ShellMessages = {
   repairCandidates: "The database you chose",
   repairConfirmCandidate: "Use this database and retry",
   repairBusy: "Working…",
-  repairRestarting: "The service is restarting. Please wait.",
+  repairBusyOperation: "The App is working on another operation. Try again in a moment.",
   repairConfirmMigrate: "Allow a schema update, use this database and retry",
   repairMigrationNote: "This database needs a schema update before it can be used; a backup is made first.",
   repairCandidateNotUsable: "This database cannot be used right now.",
@@ -405,7 +402,7 @@ const en: ShellMessages = {
   agentsTooLargeNote: "File too large to show a diff",
   agentsAckUndiffable: "I understand some files have no diff shown",
   legacyActiveNoOverrideHint:
-    "To keep two backends off one database, the App did not start its own backend. Remove the old login service first (pnpm service:uninstall), or choose another database.",
+    "To keep two backends off one database, the App did not start its own backend. Turn off the old login service in the Status tab, or choose another database.",
   ownerLabel: "Service",
   backendLabel: "Background process",
   databaseStatusLabel: "Database status",
@@ -432,7 +429,7 @@ const en: ShellMessages = {
   errors: {
     LEGACY_SERVICE_ACTIVE: {
       title: "The old login service also uses this database",
-      hint: "To keep two backends off one database, the App did not start its own backend. Remove the old login service (pnpm bootstrap) first, or choose “Start anyway” for the current database in this window.",
+      hint: "To keep two backends off one database, the App did not start its own backend. Turn off the old login service in the Status tab, or choose “Start anyway” for the current database.",
     },
     DB_MISSING: {
       title: "The database file was not found",
@@ -466,7 +463,7 @@ const en: ShellMessages = {
     },
     PORT_OCCUPIED_BY_OTHER: {
       title: "Another program is using the port",
-      hint: 'Close that program, or pick another port in the Port section of the repair window (also reachable from the tray menu\'s "Change port…").',
+      hint: "Close that program, or pick another port in the Port section of the Settings tab.",
     },
     PORT_NOT_PERMITTED: {
       title: "The system does not allow this port",

@@ -55,10 +55,6 @@ export interface LegacyServiceFound {
   running: LegacyServiceRunning;
   /** Starts at the next login (launchd loaded with RunAtLoad, systemd enabled, a logon-triggered enabled task); absent means unknown. */
   enabled?: LegacyServiceEnabled;
-  /** `cd <checkout> && pnpm service:uninstall`, quoted for the OS shell; only when the checkout is known. */
-  removeCommand?: string;
-  /** The raw OS commands that remove the service without the checkout. */
-  fallbackRemoveCommand: string;
 }
 
 export type LegacyServiceDetection = { kind: "none" } | LegacyServiceFound;

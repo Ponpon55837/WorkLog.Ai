@@ -1,9 +1,8 @@
 import type { ShellLocale } from "./i18n.js";
 import type { PortProblem } from "./port-policy.js";
 
-/** The strings of the port change: the tray item, the repair window's section and the native confirmation. */
+/** The strings of the port change: the Settings tab's section and the native confirmation. */
 export interface PortMessages {
-  readonly trayChangePort: string;
   readonly heading: string;
   /** `{port}` is the port the backend serves now. */
   readonly current: string;
@@ -37,7 +36,6 @@ export interface PortMessages {
 }
 
 const zhTW: PortMessages = {
-  trayChangePort: "變更連接埠…",
   heading: "連接埠",
   current: "目前的連接埠：{port}",
   intro: "輸入 1024 到 65535 之間的連接埠。變更時服務會短暫重新啟動，並在新的位址重新開啟 Dashboard。",
@@ -70,7 +68,6 @@ const zhTW: PortMessages = {
 };
 
 const en: PortMessages = {
-  trayChangePort: "Change port…",
   heading: "Port",
   current: "Current port: {port}",
   intro: "Enter a port from 1024 to 65535. The service restarts briefly, and the Dashboard reopens at the new address.",

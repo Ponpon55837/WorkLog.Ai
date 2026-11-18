@@ -104,7 +104,7 @@ function setup(options: { startResult?: "ok" | "fail"; stopped?: boolean; refuse
     reinstallOnRefusal: false,
     notifyError: () => undefined,
     whenReady: async () => undefined,
-    desktopFacts: () => ({ legacyService: { running: "stopped", fallbackRemoveCommand: "synthetic" } }),
+    desktopFacts: () => ({ legacyService: { running: "stopped" } }),
     storageRefused: () => options.refused === true,
   } as unknown as BackendControllerOptions);
   const onDisk = (): DesktopSettingsV1 => JSON.parse(readFileSync(settingsFile, "utf8")) as DesktopSettingsV1;

@@ -4,6 +4,7 @@ import type { AgentDisplayState } from "../agents/status.js";
 import type { AgentHookSource, AgentHookState, AgentRegistrationOwner, SetupAgentId } from "./agents-state.js";
 import type { CopyToLocalFailure } from "./copy-to-local.js";
 import type { ShellLocale } from "./i18n.js";
+import type { SystemSettingsTarget } from "../legacy-service/system-settings.js";
 
 /**
  * Strings of the first-run page, the Agent page and the old-login-service warning. Kept apart from ShellMessages so the
@@ -45,10 +46,15 @@ export interface SetupMessages {
   readonly legacyRunning: string;
   readonly legacyStopped: string;
   readonly legacyUnknown: string;
-  readonly legacyRemoveHint: string;
-  readonly legacyFallbackHint: string;
-  readonly legacyCopy: string;
-  readonly legacyCopied: string;
+  /** Heading of the hand-off for a service the App cannot turn off itself, and the steps for each OS place. */
+  readonly legacyManualHeading: string;
+  readonly legacyManualSteps: Readonly<Record<SystemSettingsTarget, readonly string[]>>;
+  readonly legacyOpenSettings: Readonly<Record<SystemSettingsTarget, string>>;
+  /** The OS place could not be opened; says where to find it by hand. */
+  readonly legacyOpenFailed: Readonly<Record<SystemSettingsTarget, string>>;
+  readonly legacyRecheck: string;
+  /** The check after 「重新檢查」 still finds the service. */
+  readonly legacyStillThere: string;
   readonly legacyStartAnyway: string;
   readonly legacyStartAnywayConfirm: string;
   readonly legacyBlocked: string;
@@ -84,7 +90,6 @@ export interface SetupMessages {
   /** The backend could not bind its port and the old service is installed: say which one holds it. */
   readonly legacyPortInUse: string;
   readonly trayCompleteSetup: string;
-  readonly trayAgentSetup: string;
   readonly setupDone: string;
   readonly setupOpenAgents: string;
   readonly setupClose: string;
@@ -188,7 +193,7 @@ const zhTW: SetupMessages = {
   setupFoundBy: "來源",
   setupMigrationConsent: "這份資料庫需要更新格式；會先備份再更新。",
   setupFailed: "無法開始",
-  setupNextAgents: "接下來可以在「設定 Agent…」連接 Codex 或 Claude Code。",
+  setupNextAgents: "接下來可以在「Agent」分頁連接 Codex 或 Claude Code。",
   sourceKinds: {
     "desktop-committed": "App 設定",
     "explicit-selection": "你選擇的",
@@ -209,14 +214,32 @@ const zhTW: SetupMessages = {
     unknown: "尚未檢查",
   },
   legacyHeading: "舊的登入服務",
-  legacyWarning: "偵測到舊的登入服務（pnpm bootstrap）也在使用這份資料庫；同時執行兩個後端可能造成問題",
+  legacyWarning: "偵測到舊的登入服務也在使用這份資料庫；同時執行兩個後端可能造成問題",
   legacyRunning: "目前正在執行。",
   legacyStopped: "目前沒有執行。",
   legacyUnknown: "無法確認是否正在執行。",
-  legacyRemoveHint: "在終端機執行這個指令移除它：",
-  legacyFallbackHint: "如果原始碼目錄已經不在，改用：",
-  legacyCopy: "複製指令",
-  legacyCopied: "已複製",
+  legacyManualHeading: "自行停用舊的登入服務",
+  legacyManualSteps: {
+    "task-scheduler": [
+      "按下方的「開啟工作排程器」。",
+      "在左側選「工作排程器程式庫」，找到名為「Work Intelligence」的工作。",
+      "在這個工作上按右鍵，選「停用」，或選「刪除」永久移除。",
+      "回到這個視窗，按「重新檢查」。",
+    ],
+    "login-items": [
+      "按下方的「開啟登入項目」。",
+      "在「允許在背景執行」清單找到名為「Work Intelligence」、「node」或「ai.workintelligence.server」的項目，把它關閉。",
+      "如果找不到，會改為開啟 LaunchAgents 資料夾；把「ai.workintelligence.server.plist」移到垃圾桶。",
+      "回到這個視窗，按「重新檢查」。",
+    ],
+  },
+  legacyOpenSettings: { "task-scheduler": "開啟工作排程器", "login-items": "開啟登入項目" },
+  legacyOpenFailed: {
+    "task-scheduler": "無法自動開啟。請在「開始」功能表搜尋「工作排程器」，再照上面的步驟操作。",
+    "login-items": "無法自動開啟。請打開「系統設定」，到「一般」＞「登入項目與延伸功能」，再照上面的步驟操作。",
+  },
+  legacyRecheck: "重新檢查",
+  legacyStillThere: "仍偵測到舊的登入服務。請確認已停用，再按一次「重新檢查」。",
   legacyStartAnyway: "仍要啟動",
   legacyStartAnywayConfirm: "確定要在舊服務也在執行時啟動嗎？兩個後端同時寫入同一份資料庫可能造成問題。",
   legacyBlocked: "為了避免兩個後端同時使用同一份資料庫，App 還沒有啟動自己的後端。",
@@ -240,20 +263,19 @@ const zhTW: SetupMessages = {
   legacyStartNow: "立即啟動",
   legacyDisableChanged: "舊服務的設定在檢查之後有變動，所以沒有做任何更改。請再按一次「停用舊的登入服務…」。",
   legacyDisableStillRunning: "舊服務沒有及時停下，所以還沒有移除它的設定。請稍後再試一次。",
-  legacyDisableFailed: "停用沒有完成，也沒有移除任何設定。請改用下方的指令。",
-  legacyDisableFailedPartly: "停用只完成了一部分。請改用下方的指令完成移除。",
-  legacyDisableCheckFailed: "舊服務已停用，但資料庫檢查沒有通過，App 沒有開啟它。請在修復視窗處理。",
+  legacyDisableFailed: "停用沒有完成，也沒有移除任何設定。請依下方的步驟自行停用。",
+  legacyDisableFailedPartly: "停用只完成了一部分。請依下方的步驟完成停用。",
+  legacyDisableCheckFailed: "舊服務已停用，但資料庫檢查沒有通過，App 沒有開啟它。請在「狀態」分頁處理。",
   legacyDisableCheckUnverified:
     "舊的登入服務已停用，但這次沒能完成資料庫檢查（資料庫可能暫時被占用），所以沒有立即啟動。請稍後重新開啟 App。",
-  legacyDisableUnavailable: "這個服務無法由 App 停用，請改用下方的指令。",
+  legacyDisableUnavailable: "這個服務無法由 App 停用，請依下方的步驟自行停用。",
   legacyDisableBusyOther: "另一個操作正在進行，請稍後再試。",
   setupDetectingHint: "正在檢查…完成後即可使用",
   trayLegacyStatus: "偵測到舊的登入服務也使用這份資料庫，未自動啟動",
   trayLegacyStartAnyway: "仍要啟動",
   trayLegacyHowToRemove: "停用舊的登入服務…",
-  legacyPortInUse: "連接埠已被舊的登入服務（pnpm bootstrap）使用。請先移除舊服務，再重試。",
+  legacyPortInUse: "連接埠已被舊的登入服務使用。請先停用舊服務，再重試。",
   trayCompleteSetup: "完成首次設定…",
-  trayAgentSetup: "設定 Agent…",
   setupDone: "已可以開始使用。Dashboard 已開啟。",
   setupOpenAgents: "設定 Agent…",
   setupClose: "關閉",
@@ -400,7 +422,7 @@ const en: SetupMessages = {
   setupFoundBy: "Found in",
   setupMigrationConsent: "This database needs a format update; it is backed up first.",
   setupFailed: "Could not start",
-  setupNextAgents: "Next, connect Codex or Claude Code from “Set up Agents…”.",
+  setupNextAgents: "Next, connect Codex or Claude Code in the Agent tab.",
   sourceKinds: {
     "desktop-committed": "App settings",
     "explicit-selection": "Your choice",
@@ -421,15 +443,34 @@ const en: SetupMessages = {
     unknown: "Not checked yet",
   },
   legacyHeading: "Old login service",
-  legacyWarning:
-    "The old login service (pnpm bootstrap) also uses this database; running two backends at once can cause problems",
+  legacyWarning: "The old login service also uses this database; running two backends at once can cause problems",
   legacyRunning: "It is running now.",
   legacyStopped: "It is not running now.",
   legacyUnknown: "Whether it is running cannot be told.",
-  legacyRemoveHint: "Remove it by running this command in a terminal:",
-  legacyFallbackHint: "If the source checkout is gone, use:",
-  legacyCopy: "Copy command",
-  legacyCopied: "Copied",
+  legacyManualHeading: "Turn off the old login service yourself",
+  legacyManualSteps: {
+    "task-scheduler": [
+      "Press “Open Task Scheduler” below.",
+      "In the left pane choose “Task Scheduler Library” and find the task named “Work Intelligence”.",
+      "Right-click that task and choose “Disable”, or “Delete” to remove it for good.",
+      "Come back to this window and press “Check again”.",
+    ],
+    "login-items": [
+      "Press “Open Login Items” below.",
+      "In the “Allow in the Background” list, find the item named “Work Intelligence”, “node” or “ai.workintelligence.server” and turn it off.",
+      "If you cannot find it, the LaunchAgents folder opens instead; move “ai.workintelligence.server.plist” to the Trash.",
+      "Come back to this window and press “Check again”.",
+    ],
+  },
+  legacyOpenSettings: { "task-scheduler": "Open Task Scheduler", "login-items": "Open Login Items" },
+  legacyOpenFailed: {
+    "task-scheduler":
+      "It could not be opened automatically. Search for “Task Scheduler” in the Start menu, then follow the steps above.",
+    "login-items":
+      "It could not be opened automatically. Open System Settings, go to General > Login Items & Extensions, then follow the steps above.",
+  },
+  legacyRecheck: "Check again",
+  legacyStillThere: "The old login service is still found. Make sure it is turned off, then press “Check again”.",
   legacyStartAnyway: "Start anyway",
   legacyStartAnywayConfirm:
     "Start while the old service may be running? Two backends writing to one database can cause problems.",
@@ -457,21 +498,21 @@ const en: SetupMessages = {
     "The old service's setup changed after it was checked, so nothing was changed. Press “Turn off the old login service…” again.",
   legacyDisableStillRunning:
     "The old service did not stop in time, so its setup was not removed yet. Try again in a moment.",
-  legacyDisableFailed: "Turning it off did not finish and nothing was removed. Use the command below instead.",
-  legacyDisableFailedPartly: "Turning it off only partly finished. Use the command below to finish removing it.",
+  legacyDisableFailed:
+    "Turning it off did not finish and nothing was removed. Follow the steps below to turn it off yourself.",
+  legacyDisableFailedPartly: "Turning it off only partly finished. Follow the steps below to finish turning it off.",
   legacyDisableCheckFailed:
-    "The old service is turned off, but the database did not pass its check, so the App did not open it. Continue in the repair window.",
+    "The old service is turned off, but the database did not pass its check, so the App did not open it. Continue in the Status tab.",
   legacyDisableCheckUnverified:
     "The old login service is turned off, but the database check could not finish this time (the database may be in use), so nothing was started. Open the App again later.",
-  legacyDisableUnavailable: "The App cannot turn this service off. Use the command below instead.",
+  legacyDisableUnavailable: "The App cannot turn this service off. Follow the steps below to turn it off yourself.",
   legacyDisableBusyOther: "Another operation is running. Try again in a moment.",
   setupDetectingHint: "Checking… available when done",
   trayLegacyStatus: "The old login service also uses this database; the App did not start automatically",
   trayLegacyStartAnyway: "Start anyway",
   trayLegacyHowToRemove: "Turn off the old login service…",
-  legacyPortInUse: "The port is used by the old login service (pnpm bootstrap). Remove it first, then try again.",
+  legacyPortInUse: "The port is used by the old login service. Turn it off first, then try again.",
   trayCompleteSetup: "Finish setup…",
-  trayAgentSetup: "Set up Agents…",
   setupDone: "You are ready to go. The Dashboard is open.",
   setupOpenAgents: "Set up Agents…",
   setupClose: "Close",

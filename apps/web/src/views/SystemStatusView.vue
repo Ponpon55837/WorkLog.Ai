@@ -227,17 +227,7 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
             <p v-if="status.desktop.legacyService.running === 'stopped'" data-testid="legacy-service-starts-at-login">
               {{ t("systemStatus.legacyServiceStartsAtLogin") }}
             </p>
-            <p>{{ t("systemStatus.legacyServiceRemoveCommand") }}</p>
-            <div class="system-status__command">
-              <code>{{
-                status.desktop.legacyService.removeCommand ?? status.desktop.legacyService.fallbackRemoveCommand
-              }}</code>
-              <UiCopyButton
-                :text="status.desktop.legacyService.removeCommand ?? status.desktop.legacyService.fallbackRemoveCommand"
-                size="sm"
-                :label="t('systemStatus.copyRemoveCommand')"
-              />
-            </div>
+            <p data-testid="legacy-service-turn-off">{{ t("systemStatus.legacyServiceTurnOffInApp") }}</p>
           </div>
           <div v-if="agentIssueCount > 0" class="system-status__setup" data-testid="agent-setup-hint">
             <p>

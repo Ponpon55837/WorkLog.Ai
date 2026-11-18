@@ -90,14 +90,11 @@ const preflightRequestSchema = z.strictObject({
  * older shell and a newer child (or the reverse) still understand each other.
  */
 export const desktopFactsSchema = z.strictObject({
-  /** A login service from the pnpm bootstrap that may share this database with the App's own backend. */
-  legacyService: z
-    .strictObject({
-      running: z.enum(["running", "stopped", "unknown"]),
-      removeCommand: z.string().max(MAX_PATH_LENGTH).optional(),
-      fallbackRemoveCommand: z.string().max(MAX_PATH_LENGTH),
-    })
-    .optional(),
+  /**
+   * A login service from the pnpm bootstrap that may share this database with the App's own backend. Not strict: an
+   * older shell still sends the removal commands this version no longer reads, and they are dropped.
+   */
+  legacyService: z.object({ running: z.enum(["running", "stopped", "unknown"]) }).optional(),
   /** The port the App committed for this backend, so the status page can show the effective address. */
   activePort: portSchema.optional(),
   /**

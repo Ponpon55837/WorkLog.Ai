@@ -58,8 +58,6 @@ describe("desktop facts and open-agent-setup", () => {
   it("sends the desktop facts inside start, and nothing when there are none", async () => {
     const legacyService = {
       running: "stopped",
-      removeCommand: "synthetic remove",
-      fallbackRemoveCommand: "synthetic fb",
     } as const;
     const withFacts = makeHarness();
     await withFacts.supervisor.start(startRequest({ desktop: { legacyService } }));

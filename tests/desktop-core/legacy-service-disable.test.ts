@@ -55,7 +55,6 @@ function found(overrides: Partial<LegacyServiceFound> = {}): LegacyServiceFound 
     running: "running",
     enabled: "enabled",
     definitionDigest: legacyDefinitionDigest(DEFINITION),
-    fallbackRemoveCommand: "synthetic",
     ...overrides,
   };
 }

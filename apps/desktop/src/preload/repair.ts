@@ -15,7 +15,8 @@ const channels: typeof REPAIR_CHANNELS = {
   startAnyway: "repair:start-anyway",
   getTab: "app:get-tab",
   rememberTab: "app:remember-tab",
-  copyCommand: "app:copy-command",
+  openSystemSettings: "app:open-system-settings",
+  legacyRecheck: "legacy:recheck",
   setupGetState: "setup:get-state",
   setupUseDefaults: "setup:use-defaults",
   setupUseSource: "setup:use-source",
@@ -60,7 +61,8 @@ const api: RepairApi = {
   startAnyway: (operationId) => ipcRenderer.invoke(channels.startAnyway, { operationId }),
   getTab: () => ipcRenderer.invoke(channels.getTab),
   rememberTab: (tab) => ipcRenderer.invoke(channels.rememberTab, { tab }),
-  copyCommand: (target) => ipcRenderer.invoke(channels.copyCommand, { target }),
+  openSystemSettings: (target) => ipcRenderer.invoke(channels.openSystemSettings, { target }),
+  legacyRecheck: () => ipcRenderer.invoke(channels.legacyRecheck, {}),
   setupGetState: () => ipcRenderer.invoke(channels.setupGetState),
   setupUseDefaults: (launchAtLogin, startAnyway) =>
     ipcRenderer.invoke(channels.setupUseDefaults, {

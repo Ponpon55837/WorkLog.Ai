@@ -52,7 +52,7 @@ function setup(overrides: Partial<DesktopChildDependencies> = {}) {
 describe("update-facts", () => {
   it("replaces the facts the running backend's status endpoint reads, keeping nothing of the old ones", async () => {
     const { child, startApi } = setup();
-    const legacyService = { running: "running", fallbackRemoveCommand: "synthetic fallback" };
+    const legacyService = { running: "running" };
     await child.handle({ ...START, desktop: { legacyService, activePort: 43_211 } });
     const options = startApi.mock.calls[0]?.[0] as unknown as { desktop: { getFacts: () => unknown } };
     expect(options.desktop.getFacts()).toEqual({ legacyService, activePort: 43_211 });

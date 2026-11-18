@@ -569,18 +569,7 @@ ul.list {
   opacity: 0.5;
 }
 
-/* Command and path blocks (UiCommandBlock) */
-.command {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content;
-  gap: var(--space-1) var(--space-2);
-  align-items: center;
-}
-
-.command .hint {
-  grid-column: 1 / -1;
-}
-
+/* The detail lines of a disable preview (UiCommandBlock) */
 .command-text {
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border);
@@ -705,7 +694,8 @@ details:is(.advanced, .file) > :not(summary) {
   border-top: 1px solid var(--border-muted);
 }
 
-.legacy-disable .steps {
+.legacy-disable .steps,
+.manual-steps .steps {
   display: grid;
   gap: var(--space-2);
   padding-left: var(--space-6);
@@ -800,10 +790,6 @@ details:is(.advanced, .file) > :not(summary) {
 
   .facts dd {
     margin-bottom: var(--space-2);
-  }
-
-  .command {
-    grid-template-columns: minmax(0, 1fr);
   }
 }
 

@@ -3,7 +3,6 @@ import {
   buildRepairState,
   buildTrayMenu,
   errorHintFor,
-  portMessages,
   repairInputSchemas,
   setupMessages,
   shellMessages,
@@ -19,7 +18,6 @@ describe("the tray no longer carries 「變更連接埠…」 (the port is on th
       expect(ids).not.toContain("change-port");
       expect(ids).not.toContain("repair");
     }
-    expect(portMessages("zh-TW").trayChangePort).toBe("變更連接埠…");
   });
 });
 
