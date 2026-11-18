@@ -201,8 +201,12 @@ function pathModule(platform: NodeJS.Platform | undefined): typeof posix {
   return (platform ?? process.platform) === "win32" ? win32 : posix;
 }
 
+/**
+ * Forward slashes, with repeated separators collapsed: a path with doubled backslashes, as JSON escapes them (`C:\\repo\\apps`), names the same file.
+ * A leading `//` (a UNC share) is kept.
+ */
 function slashPath(value: string): string {
-  return value.replaceAll("\\", "/");
+  return value.replaceAll("\\", "/").replace(/(?!^)\/{2,}/g, "/");
 }
 
 function stringList(value: unknown): string[] {

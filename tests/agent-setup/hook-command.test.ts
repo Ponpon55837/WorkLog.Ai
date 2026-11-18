@@ -52,6 +52,23 @@ afterEach(() => {
 });
 
 describe("classifyHookCommand", () => {
+  it("recognises a checkout script whose path has doubled separators, as a JSON-escaped path does", () => {
+    // `node "C:\\repo\\apps\\mcp\\dist\\finalize-reminder.js"`: the old doctor collapsed repeated separators too.
+    const doubled = String.raw`node "C:\\repo\\apps\\mcp\\dist\\finalize-reminder.js"`;
+    expect(classifyHookCommand(doubled, { platform: "win32" })).toMatchObject({
+      kind: "checkout",
+      action: CLAUDE_ACTION,
+    });
+    const unc = String.raw`node \\server\share\repo\apps\mcp\dist\codex-finalize-reminder.js`;
+    expect(classifyHookCommand(unc, { platform: "win32" })).toMatchObject({ kind: "checkout" });
+    expect(classifyHookCommand("node /repo//apps/mcp//dist/finalize-reminder.js", { platform: "linux" })).toMatchObject(
+      {
+        kind: "checkout",
+        action: CLAUDE_ACTION,
+      },
+    );
+  });
+
   it("recognises the launcher form with a Windows .cmd shim in a path with spaces", () => {
     const command = commandForLauncherHook(WINDOWS_SHIM, CLAUDE_ACTION, "win32");
     expect(command).toBe(`"${WINDOWS_SHIM}" ${CLAUDE_ACTION}`);
