@@ -21,3 +21,21 @@ CI 與 release 的「Production dependency audit」執行 `pnpm audit --prod --a
 - **觸發條件無法到達**：要觸發這個漏洞，攻擊者必須能控制 extglob 樣式。即使在建置時，所有 glob 樣式都來自儲存庫本身，從不來自使用者輸入。
 - **沒有修補版**：npm 的最新版是 4.0.7，advisory 列出的受影響範圍是 `<=4.0.7`，且沒有修補版本。
 - **移除條件**：picomatch 發布 ≥ 4.0.8 或其他修補版後，升級相依套件，並刪除 `pnpm-workspace.yaml` 的這一項與 `ALLOWED_AUDIT_IGNORES` 的對應項目。`check-audit-ignores.mjs` 會在修補版安裝後或 advisory 不再回報時失敗，提醒移除。
+
+## 每日監看（audit-exceptions-watch）
+
+Dependabot 警示在本儲存庫是關閉的，而 picomatch 是間接相依套件，每週的 Dependabot 版本更新不一定會升級它。因此另設每日排程，在修補版發布時通知維護者：
+
+- **工作流程**：`.github/workflows/audit-exceptions-watch.yml`。每天 UTC 03:37 執行，也可手動觸發（`workflow_dispatch`）。它不是 PR 的必要檢查。
+- **權限**：只有 `contents: read`，不需要任何 secret。actions 都以 commit SHA 鎖定。
+- **步驟**：checkout，以與 CI 相同的 pnpm 與 Node 設定執行 `pnpm install --frozen-lockfile`，再執行 `node scripts/check-audit-ignores.mjs --registry`。
+- **失敗條件**：除了一般檢查（清單一致、lockfile 仍含受影響版本、移除例外後 `pnpm audit --prod` 仍回報）之外，還會用 `npm view <套件> versions --json` 查詢 npm registry。下列任一情況都會讓工作失敗，GitHub 會寄信通知擁有者：
+  - registry 已發布高於受影響範圍的正式版（預發布版本不算），例如 picomatch 出現 4.0.8 以上；
+  - 移除例外後 `pnpm audit --prod` 不再回報該 GHSA；
+  - 無法讀取 registry，以免監看在無聲中失效。
+- **失敗訊息會列出移除步驟**：
+  1. 升級套件（`pnpm update --recursive <套件>`，或升級鎖定它的上層套件）；
+  2. 以 `pnpm install` 重新產生 lockfile；
+  3. 刪除 `pnpm-workspace.yaml` 的 `auditConfig.ignoreGhsas` 與 `scripts/check-audit-ignores.mjs` 的 `ALLOWED_AUDIT_IGNORES` 中的項目；
+  4. 刪除本文件中對應的段落。
+- **判斷邏輯的測試**：`tests/web/scripts/check-audit-ignores.test.ts` 以假的 registry 與 audit 輸出測試判斷邏輯。

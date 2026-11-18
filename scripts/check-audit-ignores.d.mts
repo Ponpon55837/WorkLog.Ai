@@ -15,3 +15,9 @@ export declare function auditIgnoreProblems(input: {
   reportedGhsas: readonly string[] | null;
   allowed?: Readonly<Record<string, AllowedAuditIgnore>>;
 }): string[];
+export declare const REMOVAL_STEPS: string;
+export declare function registryProblems(input: {
+  ignored: readonly string[];
+  registryVersions: Readonly<Record<string, readonly string[] | undefined>>;
+  allowed?: Readonly<Record<string, AllowedAuditIgnore>>;
+}): string[];
