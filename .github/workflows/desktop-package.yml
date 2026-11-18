@@ -18,6 +18,7 @@ on:
       - "packages/core/**"
       - "packages/project-policy/**"
       - "packages/ui-tokens/**"
+      - "plugins/**"
       - "scripts/desktop-runtime-spike/**"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"

@@ -1,18 +1,11 @@
-name: Desktop runtime spike
+name: Desktop runtime
 
+# Builds the bundled runtime (official Node; the Electron variant is the rejected candidate kept as a comparison) and
+# smokes the fixed launcher on each platform. The six `Spike (os, runtime)` jobs are required checks, so the workflow
+# always starts, even for a pull request that changes nothing they cover. Each job then decides inside itself whether
+# the change touches what the runtime is built from, and finishes at once with success when it does not.
 on:
   pull_request:
-    paths:
-      - "packages/desktop-core/**"
-      - "packages/storage/**"
-      - "packages/shared/**"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "scripts/desktop-runtime-spike/**"
-      - "scripts/build-standalone.mjs"
-      - "apps/server/**"
-      - "apps/mcp/**"
-      - ".github/workflows/desktop-runtime-spike.yml"
   workflow_dispatch:
 
 concurrency:
@@ -36,31 +29,52 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 2
 
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      # A pull request is checked out as a merge commit whose first parent is the base branch.
+      - name: Decide whether this change touches the runtime
+        id: scope
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ] || git diff --name-only HEAD^1 HEAD | grep -qE "$RELEVANT"; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "No runtime input changed; nothing to build."
+          fi
+        env:
+          RELEVANT: ^(packages/(desktop-core|storage|shared)/|apps/(server|mcp)/|scripts/desktop-runtime-spike/|scripts/build-standalone\.mjs$|package\.json$|pnpm-lock\.yaml$|\.github/workflows/desktop-runtime-spike\.yml$)
+
+      - if: steps.scope.outputs.relevant == 'true'
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: 11.16.0
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - if: steps.scope.outputs.relevant == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
+      - if: steps.scope.outputs.relevant == 'true'
+        run: pnpm install --frozen-lockfile
 
-      - run: pnpm build
+      - if: steps.scope.outputs.relevant == 'true'
+        run: pnpm build
 
       # The output path has spaces and Chinese on purpose: the launcher must survive both.
       - name: Build the runtime
+        if: steps.scope.outputs.relevant == 'true'
         shell: bash
         run: pnpm spike:runtime:build --runtime ${{ matrix.runtime }} --out "$RUNNER_TEMP/啟動器 spike"
 
       - name: Smoke the runtime
+        if: steps.scope.outputs.relevant == 'true'
         shell: bash
         run: pnpm spike:runtime:smoke --runtime ${{ matrix.runtime }} --out "$RUNNER_TEMP/啟動器 spike"
 
       - name: Upload the measurements
-        if: always()
+        if: always() && steps.scope.outputs.relevant == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: runtime-spike-${{ matrix.os }}-${{ matrix.runtime }}
