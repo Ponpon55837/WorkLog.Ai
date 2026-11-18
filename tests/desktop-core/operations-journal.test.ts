@@ -258,6 +258,30 @@ describe("FileOperationJournalStore", () => {
     expect((await journal.get("op-1"))?.status).toBe("in-progress");
   });
 
+  it("quarantines with the real clock when none is injected, and names a non-Error cause as unparseable", async () => {
+    const dir = await tempDir();
+    const file = path.join(dir, "journal.json");
+    const quarantined: { from: string; to: string; reason: string }[] = [];
+    const store = new FileOperationJournalStore(file, { onQuarantine: (q) => quarantined.push(q) });
+    await writeFile(file, "{not json");
+    expect(await store.load()).toBeNull();
+    expect(quarantined).toHaveLength(1);
+    expect(quarantined[0]?.reason).toBe("SyntaxError");
+    expect(path.basename(quarantined[0]!.to)).toMatch(/^journal\.json\.corrupt-\d{4}-\d{2}-\d{2}T/);
+    expect(await readdir(dir)).toEqual([path.basename(quarantined[0]!.to)]);
+  });
+
+  it("fails with 'invalid' when a corrupt journal cannot be moved aside, and leaves it in place", async () => {
+    const dir = await tempDir();
+    const file = path.join(dir, "journal.json");
+    await writeFile(file, "{not json");
+    // A stamp with a path separator points the aside file into a folder that does not exist, so the rename fails.
+    const clock = () => ({ toISOString: () => "missing-folder/stamp" }) as unknown as Date;
+    const store = new FileOperationJournalStore(file, { clock });
+    await expect(store.load()).rejects.toMatchObject({ code: "invalid" });
+    expect(await readFile(file, "utf8")).toBe("{not json");
+  });
+
   it("fails closed on a journal written by a newer version: it is not damaged, so it is neither moved nor emptied", async () => {
     const dir = await tempDir();
     const file = path.join(dir, "journal.json");
