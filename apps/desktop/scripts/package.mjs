@@ -46,7 +46,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import fuses from "@electron/fuses";
+import { FuseV1Options, getCurrentFuseWire } from "@electron/fuses";
 import { Arch, Platform, build } from "electron-builder";
 import {
   ARCHITECTURES_BY_PLATFORM,
@@ -68,7 +68,6 @@ const repositoryRoot = resolve(desktopDirectory, "../..");
 const platformTag = `${process.platform}-${process.arch}`;
 const workDirectory = join(repositoryRoot, "dist", "desktop-package", platformTag);
 const resultsDirectory = join(desktopDirectory, "package-results");
-const { FuseV1Options, getCurrentFuseWire } = fuses;
 /** A fuse wire byte: the ASCII digit "1" (enabled) or "0" (disabled), as @electron/fuses writes it. */
 const FUSE_ENABLED = 0x31;
 const FUSE_DISABLED = 0x30;
