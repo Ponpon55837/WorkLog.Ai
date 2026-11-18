@@ -1,9 +1,9 @@
 import type { RepairActionId, RepairState } from "@work-intelligence/desktop-core";
-import { errorMessageFor, type ShellMessages } from "@work-intelligence/desktop-core/shell/i18n";
+import type { ShellMessages } from "@work-intelligence/desktop-core/shell/i18n";
 import { setupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
-import { databaseTone, label } from "./badge.js";
+import { databaseLabel } from "./badge.js";
 import type { ViewContext } from "./context.js";
-import { button, checkbox, element, fact, section } from "./dom.js";
+import { actions, button, checkbox, element, facts, hint, path, section } from "./dom.js";
 import { storageRiskNote } from "./storage-risk-card.js";
 
 /** The Data tab: the database in use and what can be done with it, the backups, the logs and the databases found. */
@@ -44,31 +44,24 @@ function copyButton(ctx: ViewContext, candidateId: string | undefined): HTMLButt
   );
 }
 
+/** The database file in use, or the words for "none". */
+export function databasePath(state: RepairState, messages: ShellMessages): Node | string {
+  return state.database.display === null ? messages.repairNoDatabase : path(state.database.display);
+}
+
 /** The database in use: its facts, the storage-risk note, and choose / open-folder actions. */
 export function databaseCard(ctx: ViewContext): HTMLElement {
   const { state, messages } = ctx;
-  const facts = element("dl", { className: "facts" });
-  facts.append(
-    ...fact(
-      messages.repairDatabaseHeading,
-      state.database.display === null
-        ? messages.repairNoDatabase
-        : element("span", { className: "path", text: state.database.display }),
+  const content: Node[] = [
+    facts(
+      [messages.repairDatabaseHeading, databasePath(state, messages)],
+      [messages.databaseStatusLabel, databaseLabel(messages, state.database.status)],
+      [messages.lastBackupLabel, formatBackup(state, messages)],
     ),
-    ...fact(
-      messages.databaseStatusLabel,
-      label(
-        messages.databaseStatuses[state.database.status] ?? state.database.status,
-        databaseTone(state.database.status),
-      ),
-    ),
-    ...fact(messages.lastBackupLabel, formatBackup(state, messages)),
-  );
-  const content: Node[] = [facts];
+  ];
   if (state.database.storageRisk) {
     content.push(storageRiskNote(state.database.storageRisk));
-    if (state.database.storageRisk.canCopyToLocal)
-      content.push(element("div", { className: "actions" }, [copyButton(ctx, undefined)]));
+    if (state.database.storageRisk.canCopyToLocal) content.push(actions(copyButton(ctx, undefined)));
   }
   const buttons = state.actions
     .filter((action) => DATA_ACTIONS.includes(action.id))
@@ -77,7 +70,7 @@ export function databaseCard(ctx: ViewContext): HTMLElement {
         ctx.act.perform(action.id),
       ),
     );
-  content.push(element("div", { className: "actions" }, buttons));
+  content.push(actions(...buttons));
   return section(messages.repairDatabaseHeading, ...content);
 }
 
@@ -88,20 +81,15 @@ function candidateItem(ctx: ViewContext, candidate: RepairState["candidates"][nu
   const confirmLabel = candidate.needsMigration ? messages.repairConfirmMigrate : messages.repairConfirmCandidate;
   const parts: Node[] = [
     element("div", { className: "candidate-head" }, [
-      element("span", { className: "path", text: candidate.display }),
+      path(candidate.display),
       // A preview that could not run says why (the runtime is missing, the check timed out, ...).
-      label(
-        candidate.errorCode
-          ? errorMessageFor(messages, candidate.errorCode).title
-          : (messages.databaseStatuses[candidate.status] ?? candidate.status),
-        candidate.errorCode ? "danger" : databaseTone(candidate.status),
-      ),
+      databaseLabel(messages, candidate.status, candidate.errorCode),
     ]),
   ];
   const risk = candidate.storageRisk;
   if (risk) parts.push(storageRiskNote(risk));
   if (candidate.canConfirm) {
-    if (candidate.needsMigration) parts.push(element("div", { className: "hint", text: messages.repairMigrationNote }));
+    if (candidate.needsMigration) parts.push(hint(messages.repairMigrationNote, "div"));
     // A risky file is confirmed only after the checkbox that states why; main checks it again.
     const consentText = risk?.consent;
     const confirmButton = button(
@@ -111,20 +99,19 @@ function candidateItem(ctx: ViewContext, candidate: RepairState["candidates"][nu
       () => ctx.act.confirm(candidate.id, candidate.needsMigration, consentText !== undefined),
     );
     if (consentText !== undefined) {
-      const box = checkbox(consentText, `risk:${candidate.id}`, riskTicked.has(candidate.id), !ctx.busy);
-      box.querySelector("input")?.addEventListener("change", (event) => {
-        const ticked = (event.target as HTMLInputElement).checked;
-        if (ticked) riskTicked.add(candidate.id);
-        else riskTicked.delete(candidate.id);
-        confirmButton.disabled = ctx.busy || !ticked;
-      });
-      parts.push(box);
+      parts.push(
+        checkbox(consentText, `risk:${candidate.id}`, riskTicked.has(candidate.id), !ctx.busy, (ticked) => {
+          if (ticked) riskTicked.add(candidate.id);
+          else riskTicked.delete(candidate.id);
+          confirmButton.disabled = ctx.busy || !ticked;
+        }),
+      );
     }
-    parts.push(element("div", { className: "actions" }, [confirmButton]));
+    parts.push(actions(confirmButton));
   } else if (!risk) {
-    parts.push(element("div", { className: "hint", text: messages.repairCandidateNotUsable }));
+    parts.push(hint(messages.repairCandidateNotUsable, "div"));
   }
-  if (risk?.canCopyToLocal) parts.push(element("div", { className: "actions" }, [copyButton(ctx, candidate.id)]));
+  if (risk?.canCopyToLocal) parts.push(actions(copyButton(ctx, candidate.id)));
   return element("li", { className: "candidate" }, parts);
 }
 

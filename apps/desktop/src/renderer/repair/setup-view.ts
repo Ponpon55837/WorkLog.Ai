@@ -2,7 +2,8 @@ import type { RepairApi, SetupActionResult, SetupSourceView, SetupState } from "
 import { errorMessageFor, formatMessage, shellMessages } from "@work-intelligence/desktop-core/shell/i18n";
 import { setupMessages, type SetupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
 import { databaseTone, label } from "./badge.js";
-import { button, checkbox, element, fact, focusedId, isChecked, restoreFocus, section, setLanguage } from "./dom.js";
+import { actions, button, byId, checkbox, element, facts, hint, isChecked, path, section, setLanguage } from "./dom.js";
+import { captureFocus, restoreSnapshot } from "./focus.js";
 import { legacyBlock } from "./legacy-block.js";
 import { legacyDisableControls, legacyDisableOutcome, type LegacyDisableHost } from "./legacy-disable-view.js";
 import { createSetupMemory } from "./setup-memory.js";
@@ -108,37 +109,32 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
     recommended: boolean,
   ): HTMLElement {
     const shell = shellMessages(state.locale);
-    const facts = element("dl", { className: "facts" });
-    facts.append(
-      ...fact(text.setupDatabase, element("span", { className: "path", text: source.display })),
-      ...fact(text.setupFoundBy, source.kinds.map((kind) => text.sourceKinds[kind]).join("、")),
-      ...fact(
+    const rows: [string, Node | string][] = [
+      [text.setupDatabase, path(source.display)],
+      [text.setupFoundBy, source.kinds.map((kind) => text.sourceKinds[kind]).join("、")],
+      [
         shell.databaseStatusLabel,
         label(
           source.errorCode ? errorMessageFor(shell, source.errorCode).title : text.sourceStatus[source.status],
           source.errorCode ? "danger" : databaseTone(source.status),
         ),
-      ),
-    );
+      ],
+    ];
     if (source.projectCount !== undefined) {
       const names = source.projectNames.length > 0 ? `：${source.projectNames.join("、")}` : "";
-      facts.append(
-        ...fact(
-          shell.repairProjectCountLabel,
-          `${formatMessage(text.setupProjectCount, { count: String(source.projectCount) })}${names}`,
-        ),
-      );
+      rows.push([
+        shell.repairProjectCountLabel,
+        `${formatMessage(text.setupProjectCount, { count: String(source.projectCount) })}${names}`,
+      ]);
     }
-    const card = element("div", { className: recommended ? "source recommended" : "source" }, [facts]);
+    const card = element("div", { className: recommended ? "source recommended" : "source" }, [facts(...rows)]);
     card.dataset.source = source.id;
     if (source.storageRisk) card.append(storageRiskNote(source.storageRisk));
     const busy = state.busy || working;
     // The way out of a source the storage forbids; it is there even when "use" is not (the note points at it).
     if (source.storageRisk?.canCopyToLocal) {
       card.append(
-        element("div", { className: "actions" }, [
-          button(text.storageCopyToLocal, `copy-to-local:${source.id}`, !busy, () => copyToLocal(source)),
-        ]),
+        actions(button(text.storageCopyToLocal, `copy-to-local:${source.id}`, !busy, () => copyToLocal(source))),
       );
     }
     if (!source.canUse) return card;
@@ -151,12 +147,12 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
     }
     const useLabel = recommended ? text.setupKeepThisData : text.setupUseThis;
     const use = button(useLabel, `use:${source.id}`, !busy, () => useSource(source), recommended);
-    card.append(element("div", { className: "actions" }, [use]));
+    card.append(actions(use));
     // The button only works once the user agreed to every consent it needs: the schema update and the risky storage.
     const boxes = [
       ...(source.needsMigration ? [`migrate:${source.id}`] : []),
       ...(riskConsent ? [`risk:${source.id}`] : []),
-    ].map((id) => ({ id, box: card.querySelector<HTMLInputElement>(`input[data-id="${CSS.escape(id)}"]`) }));
+    ].map((id) => ({ id, box: byId<HTMLInputElement>(card, id) }));
     const allTicked = (): boolean => boxes.every(({ box }) => box?.checked === true);
     use.disabled = busy || !allTicked();
     for (const { id, box } of boxes) {
@@ -181,10 +177,10 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
 
   function render(state: SetupState): void {
     const text = setupMessages(state.locale);
-    const focus = focusedId();
+    const focus = captureFocus(app);
     setLanguage(state.locale);
     const busy = state.busy || working;
-    const login = app.querySelector(`input[data-id="${LOGIN_ID}"]`) ? launchAtLogin() : state.defaults.launchAtLogin;
+    const login = byId(app, LOGIN_ID) ? launchAtLogin() : state.defaults.launchAtLogin;
     const blocks: Node[] = [];
     memory.keepConsentFor(state.sources.flatMap((source) => [source.id, `risk:${source.id}`]));
 
@@ -193,16 +189,16 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
         section(
           text.setupHeading,
           element("p", { className: "intro", text: text.setupDone }),
-          element("p", { className: "hint", text: text.setupNextAgents }),
-          element("div", { className: "actions" }, [
+          hint(text.setupNextAgents),
+          actions(
             button(text.setupOpenAgents, "open-agents", true, () => void api.showAgents(), true),
             button(text.setupClose, "close", true, () => void api.setupLater()),
-          ]),
+          ),
         ),
       );
       app.replaceChildren(...blocks);
       app.setAttribute("aria-busy", "false");
-      restoreFocus(app, focus);
+      restoreSnapshot(app, focus);
       return;
     }
 
@@ -222,25 +218,17 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
 
     if (state.errorCode) {
       const message = errorMessageFor(shellMessages(state.locale), state.errorCode);
-      const failed = section(
-        text.setupFailed,
-        element("strong", { text: message.title }),
-        element("p", { className: "hint", text: message.hint }),
-      );
+      const failed = section(text.setupFailed, element("strong", { text: message.title }), hint(message.hint));
       failed.classList.add("card--danger");
       blocks.push(failed);
     }
 
-    if (state.pathProblem) blocks.push(element("p", { className: "hint", text: state.pathProblem }));
+    if (state.pathProblem) blocks.push(hint(state.pathProblem));
 
     const conflictShown = state.defaults.legacyConflict || state.sources.some((source) => source.legacyConflict);
     if (state.legacy && (conflictShown || heldBack)) {
       const extra: Node[] = heldBack
-        ? [
-            element("div", { className: "actions" }, [
-              button(text.legacyStartAnyway, "start-anyway", !busy, () => startAnyway(text)),
-            ]),
-          ]
+        ? [actions(button(text.legacyStartAnyway, "start-anyway", !busy, () => startAnyway(text)))]
         : [];
       extra.push(...legacyDisableControls(disableHost(text), state.legacy.canDisable, !busy));
       blocks.push(legacyBlock(api, text, { ...state.legacy, blocked: heldBack !== undefined }, extra));
@@ -270,29 +258,29 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
     );
     const advanced = element("details", { className: "advanced" }, [
       element("summary", { text: text.setupAdvanced }),
-      element("dl", { className: "facts" }, [
-        ...fact(text.setupDatabase, element("span", { className: "path", text: state.defaults.databaseDisplay })),
-        ...fact(text.setupUrl, state.defaults.url),
-        ...fact(text.setupBackups, element("span", { className: "path", text: state.defaults.backupDisplay })),
-      ]),
+      facts(
+        [text.setupDatabase, path(state.defaults.databaseDisplay)],
+        [text.setupUrl, state.defaults.url],
+        [text.setupBackups, path(state.defaults.backupDisplay)],
+      ),
     ]);
     advanced.open = memory.advancedOpen();
     advanced.addEventListener("toggle", () => memory.setAdvancedOpen(advanced.open));
     blocks.push(
-      element("div", { className: "actions" }, [
+      actions(
         defaults,
         button(text.setupUseExisting, "browse", !busy, () => void act(() => api.setupChooseFile())),
         button(text.setupLater, "later", !busy, () => void api.setupLater()),
-      ]),
+      ),
       checkbox(text.setupLaunchAtLogin, LOGIN_ID, login, !busy),
       advanced,
     );
-    if (!state.canUseDefaults) blocks.push(element("p", { className: "hint", text: text.setupDetectingHint }));
-    if (state.phase === "starting") blocks.push(element("p", { className: "hint", text: text.setupStarting }));
+    if (!state.canUseDefaults) blocks.push(hint(text.setupDetectingHint));
+    if (state.phase === "starting") blocks.push(hint(text.setupStarting));
 
     app.replaceChildren(...blocks);
     app.setAttribute("aria-busy", state.phase === "ready" ? "false" : "true");
-    restoreFocus(app, focus);
+    restoreSnapshot(app, focus);
   }
 
   async function refresh(): Promise<void> {

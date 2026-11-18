@@ -4,7 +4,7 @@ import {
   type DiagnosticsMessages,
 } from "@work-intelligence/desktop-core/shell/diagnostics-i18n";
 import { openModal } from "./dialog.js";
-import { button, element } from "./dom.js";
+import { button, element, hint } from "./dom.js";
 
 /**
  * The preview of 「匯出診斷資訊」: a modal dialog with the exact text that would be saved (read-only), what was masked,
@@ -58,7 +58,7 @@ function showDialog(host: DiagnosticsViewHost, first: Preview): void {
   box.wrap = "off";
   box.setAttribute("aria-label", text.textLabel);
   const summary = element("div", { className: "preview-summary" });
-  const status = element("p", { className: "hint" });
+  const status = hint("");
   status.setAttribute("role", "status");
   const save = button(text.save, "diagnostics-save", true, () => void saveFile(), true);
   const cancel = button(text.cancel, "diagnostics-cancel", true, () => closeDialog());
@@ -67,9 +67,7 @@ function showDialog(host: DiagnosticsViewHost, first: Preview): void {
     previewId = preview.previewId;
     box.value = preview.text;
     box.scrollTop = 0;
-    summary.replaceChildren(
-      ...diagnosticsSummaryLines(text, preview.report).map((line) => element("p", { className: "hint", text: line })),
-    );
+    summary.replaceChildren(...diagnosticsSummaryLines(text, preview.report).map((line) => hint(line)));
   }
 
   function setSaving(value: boolean): void {
@@ -107,7 +105,7 @@ function showDialog(host: DiagnosticsViewHost, first: Preview): void {
     title: text.heading,
     headingId: "diagnostics-heading",
     className: "preview-dialog",
-    body: [element("p", { className: "hint", text: text.intro }), box, summary, status],
+    body: [hint(text.intro), box, summary, status],
     footer: [cancel, save],
     returnFocus: host.returnFocus,
     initialFocus: () => box,

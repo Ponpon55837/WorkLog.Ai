@@ -4,7 +4,7 @@ import { shellMessages, type ShellLocale } from "@work-intelligence/desktop-core
 import { createActions } from "./actions.js";
 import type { ViewActions, ViewContext } from "./context.js";
 import { createChangeTracker } from "./diff.js";
-import { element } from "./dom.js";
+import { element, setLanguage } from "./dom.js";
 import { captureFocus, restoreSnapshot } from "./focus.js";
 import { mountAgents } from "./agents-view.js";
 import { buildPanel, drawsFromRepairState } from "./panels.js";
@@ -207,13 +207,18 @@ async function chooseAnotherTab(): Promise<void> {
   if (next && next !== selected) selectTab(next, false);
 }
 
+/** The page language, the window title and the hidden page heading, in the state's language. */
+function applyLocale(locale: ShellLocale): void {
+  const { appName } = shellMessages(locale);
+  setLanguage(locale);
+  document.title = appName;
+  const title = document.getElementById("app-title");
+  if (title && title.textContent !== appName) title.textContent = appName;
+}
+
 function applyState(state: RepairState): void {
   current = state;
-  const messages = shellMessages(state.locale);
-  document.documentElement.lang = state.locale === "zh-TW" ? "zh-Hant" : "en";
-  document.title = messages.appName;
-  const title = document.getElementById("app-title");
-  if (title && title.textContent !== messages.appName) title.textContent = messages.appName;
+  applyLocale(state.locale);
   if (!availableTabs().includes(selected)) void chooseAnotherTab();
   tabStrip.update(stripModel());
   // The tray item or the Dashboard's link asked for the port section: it is on Settings, which comes forward for it.
@@ -264,9 +269,7 @@ async function start(): Promise<void> {
   if (selection) fallbackTabs = selection.tabs;
   if (state) {
     current = state;
-    document.documentElement.lang = state.locale === "zh-TW" ? "zh-Hant" : "en";
-    document.title = shellMessages(state.locale).appName;
-    (document.getElementById("app-title") as HTMLElement).textContent = shellMessages(state.locale).appName;
+    applyLocale(state.locale);
   }
   ready = true;
   selectTab(pendingTab ?? selection?.tab ?? availableTabs()[0] ?? "status", false);

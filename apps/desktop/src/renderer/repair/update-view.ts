@@ -3,7 +3,7 @@ import type { UpdateMessages } from "@work-intelligence/desktop-core/shell/updat
 import { formatMessage } from "@work-intelligence/desktop-core/shell/i18n";
 // Types only, from the module that has no zod: the page bundle must not pull the schemas in.
 import type { UpdateCheckResult, UpdateLinkTarget } from "@work-intelligence/desktop-core/update-check/result";
-import { button, element, section } from "./dom.js";
+import { actions, button, element, hint, section } from "./dom.js";
 
 /**
  * The 「更新」 card of the repair window. The App never checks by itself: the one request starts when the user presses
@@ -75,29 +75,25 @@ export function restoreNotesScroll(root: ParentNode): void {
 function newerBlock(host: UpdateViewHost, found: Extract<UpdateCheckResult, { kind: "newer" }>): Node[] {
   const { text } = host;
   const date = formatted(host.locale, found.publishedAt, { dateStyle: "medium" });
-  const actions = element("div", { className: "actions" });
   const blocks: Node[] = [
     element("p", { className: "update-newer", text: formatMessage(text.newerVersion, { version: found.version }) }),
-    ...(date === null ? [] : [element("p", { className: "hint", text: formatMessage(text.published, { date }) })]),
+    ...(date === null ? [] : [hint(formatMessage(text.published, { date }))]),
   ];
   if (found.notes.length > 0) {
     const notes = element("div", { className: "update-notes", text: found.notes });
     notes.dataset.version = found.version;
     blocks.push(element("h3", { text: text.notesHeading }), notes);
-    if (found.notesTruncated) blocks.push(element("p", { className: "hint", text: text.notesTruncated }));
+    if (found.notesTruncated) blocks.push(hint(text.notesTruncated));
   }
-  if (found.asset) {
-    actions.append(
-      button(text.downloadAsset[found.asset.platform], "update-asset", true, () => void open(host, "asset"), true),
-    );
-  }
-  actions.append(button(text.openPage, "update-page", true, () => void open(host, "page")));
-  blocks.push(actions);
   blocks.push(
-    found.asset
-      ? element("p", { className: "hint", text: text.verifyHint })
-      : element("p", { className: "hint", text: text.noInstaller }),
-    element("p", { className: "hint update-unsigned", text: text.unsignedNote }),
+    actions(
+      ...(found.asset
+        ? [button(text.downloadAsset[found.asset.platform], "update-asset", true, () => void open(host, "asset"), true)]
+        : []),
+      button(text.openPage, "update-page", true, () => void open(host, "page")),
+    ),
+    hint(found.asset ? text.verifyHint : text.noInstaller),
+    hint(text.unsignedNote),
   );
   if (linkFailed) blocks.push(element("p", { className: "warning-text", text: text.linkFailed }));
   return blocks;
@@ -110,9 +106,7 @@ function errorBlock(host: UpdateViewHost, reason: Extract<UpdateCheckResult, { k
   if (reason === "no-release") {
     return [
       element("p", { className: "warning-text", text: text.noRelease }),
-      element("div", { className: "actions" }, [
-        button(text.openPage, "update-page", true, () => void open(host, "page")),
-      ]),
+      actions(button(text.openPage, "update-page", true, () => void open(host, "page"))),
       ...(linkFailed ? [element("p", { className: "warning-text", text: text.linkFailed })] : []),
     ];
   }
@@ -149,11 +143,9 @@ export function updateSection(host: UpdateViewHost, update: RepairUpdateSection)
   const answer = busy ? null : (failure ?? update.result);
   const card = section(
     text.heading,
-    element("p", { className: "hint", text: text.intro }),
-    element("p", { className: "hint", text: formatMessage(text.current, { version: update.currentVersion }) }),
-    element("div", { className: "actions" }, [
-      button(busy ? text.checking : text.check, "update-check", !busy, () => void check(host), true),
-    ]),
+    hint(text.intro),
+    hint(formatMessage(text.current, { version: update.currentVersion })),
+    actions(button(busy ? text.checking : text.check, "update-check", !busy, () => void check(host), true)),
     ...(answer ? answerBlock(host, answer) : []),
   );
   card.id = "update-section";

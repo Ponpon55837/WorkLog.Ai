@@ -10,7 +10,8 @@ import { canApplyPreview, hasUndiffableFile, isFileOpen } from "@work-intelligen
 import { formatMessage, shellMessages } from "@work-intelligence/desktop-core/shell/i18n";
 import { setupMessages, type SetupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
 import { label, type Tone } from "./badge.js";
-import { button, cardBody, checkbox, element, fact, focusedId, restoreFocus, section, setLanguage } from "./dom.js";
+import { captureFocus, restoreSnapshot } from "./focus.js";
+import { actions, button, cardBody, checkbox, element, facts, hint, path, section, setLanguage } from "./dom.js";
 
 /**
  * The Agent page. Nothing is written by looking at it: "預覽變更" (or "改由桌面 App 管理…") computes a plan and shows its
@@ -54,28 +55,29 @@ function agentCard(
   text: SetupMessages,
   controls: { readonly busy: boolean; readonly useDatabase: (card: AgentCardView) => void },
 ): HTMLElement {
-  const facts = element("dl", { className: "facts" });
-  facts.append(...fact(text.agentsMcp, text.agentOwners[card.mcp]), ...fact(text.agentsHooks, hookText(card, text)));
-  if (card.checkoutDisplay) {
-    facts.append(...fact(text.agentsCheckout, element("span", { className: "path", text: card.checkoutDisplay })));
-  }
-  const node = section([text.agentNames[card.id], label(text.agentStates[card.state], stateTone(card.state))], facts);
+  const rows: [string, Node | string][] = [
+    [text.agentsMcp, text.agentOwners[card.mcp]],
+    [text.agentsHooks, hookText(card, text)],
+  ];
+  if (card.checkoutDisplay) rows.push([text.agentsCheckout, path(card.checkoutDisplay)]);
+  const node = section(
+    [text.agentNames[card.id], label(text.agentStates[card.state], stateTone(card.state))],
+    facts(...rows),
+  );
   node.classList.add("agent");
   node.dataset.agent = card.id;
   const body = cardBody(node);
-  if (card.checkoutMissing) body.append(element("p", { className: "hint", text: text.agentsCheckoutMissing }));
-  if (card.adoptable) body.append(element("p", { className: "hint", text: text.agentsAdoptHint }));
+  if (card.checkoutMissing) body.append(hint(text.agentsCheckoutMissing));
+  if (card.adoptable) body.append(hint(text.agentsAdoptHint));
   if (card.adoptable && card.hookState === "installed" && card.hookSource === "checkout") {
-    body.append(element("p", { className: "hint", text: text.agentsHookCheckoutNote }));
+    body.append(hint(text.agentsHookCheckoutNote));
   }
-  if (card.notAdoptableReason) {
-    body.append(element("p", { className: "hint", text: `${text.agentsNotAdoptable}${card.notAdoptableReason}` }));
-  }
+  if (card.notAdoptableReason) body.append(hint(`${text.agentsNotAdoptable}${card.notAdoptableReason}`));
   if (card.otherDatabase) {
     const message = card.otherDatabase.fromCheckoutDefault ? text.agentsOtherDatabaseDefault : text.agentsOtherDatabase;
     body.append(
-      element("p", { className: "hint", text: formatMessage(message, { path: card.otherDatabase.display }) }),
-      element("div", { className: "actions" }, [
+      hint(formatMessage(message, { path: card.otherDatabase.display })),
+      actions(
         button(
           text.agentsUseOtherDatabase,
           `use-database-${card.id}`,
@@ -83,8 +85,8 @@ function agentCard(
           () => controls.useDatabase(card),
           true,
         ),
-      ]),
-      element("p", { className: "hint", text: text.agentsKeepCheckout }),
+      ),
+      hint(text.agentsKeepCheckout),
     );
   }
   return node;
@@ -110,7 +112,7 @@ function previewBlock(
   const shell = shellMessages(locale);
   const content: Node[] = [];
   if (preview.files.length === 0 && preview.conflicts.length === 0) {
-    content.push(element("p", { className: "hint", text: text.agentsNoChanges }));
+    content.push(hint(text.agentsNoChanges));
   }
   if (preview.conflicts.length > 0) {
     content.push(
@@ -137,11 +139,11 @@ function previewBlock(
       element("summary", {}, [
         label(text.agentsChange[file.change], file.change === "delete" ? "danger" : "neutral"),
         " ",
-        element("span", { className: "path", text: file.display }),
+        path(file.display),
         " ",
         element("span", { className: "hint", text: file.label }),
       ]),
-      file.tooLarge ? element("p", { className: "hint", text: shell.agentsTooLargeNote }) : lines,
+      file.tooLarge ? hint(shell.agentsTooLargeNote) : lines,
     ]);
     // The first file opens by itself; after that the user's choice stays through every refresh.
     details.open = isFileOpen(chosen, file.display, index);
@@ -149,17 +151,13 @@ function previewBlock(
     content.push(details);
   }
   if (hasUndiffableFile(preview)) {
-    const box = checkbox(shell.agentsAckUndiffable, "ack-undiffable", acknowledged, !busy);
-    box.querySelector("input")?.addEventListener("change", (event) => {
-      controls.acknowledge((event.target as HTMLInputElement).checked);
-    });
-    content.push(box);
+    content.push(checkbox(shell.agentsAckUndiffable, "ack-undiffable", acknowledged, !busy, controls.acknowledge));
   }
   content.push(
-    element("div", { className: "actions" }, [
+    actions(
       button(text.agentsApply, "apply", !busy && canApplyPreview(preview, acknowledged), controls.apply, true),
       button(text.agentsDiscard, "discard", !busy, controls.discard),
-    ]),
+    ),
   );
   const block = section(text.agentsPreviewHeading, ...content);
   block.id = "agents-preview";
@@ -204,11 +202,11 @@ export function mountAgents(app: HTMLElement, say: (text: string) => void, api: 
     if (key === drawn) return;
     drawn = key;
     const text = setupMessages(state.locale);
-    const focus = focusedId();
+    const focus = captureFocus(app);
     setLanguage(state.locale);
     const busy = state.busy || working;
     const blocks: Node[] = [element("p", { className: "intro", text: text.agentsIntro })];
-    if (!state.launcherReady) blocks.push(element("p", { className: "hint", text: text.agentsLauncherNotReady }));
+    if (!state.launcherReady) blocks.push(hint(text.agentsLauncherNotReady));
     blocks.push(
       ...state.cards.map((card) =>
         agentCard(card, text, {
@@ -241,8 +239,8 @@ export function mountAgents(app: HTMLElement, say: (text: string) => void, api: 
     blocks.push(
       section(
         text.agentsSelfTest,
-        element("p", { className: "hint", text: selfTestText(state, text) }),
-        element("div", { className: "actions" }, [
+        hint(selfTestText(state, text)),
+        actions(
           button(
             text.agentsPreview,
             "preview",
@@ -268,12 +266,12 @@ export function mountAgents(app: HTMLElement, say: (text: string) => void, api: 
             () => void act(() => api.agentsSelfTest()),
           ),
           button(text.agentsUndo, "undo", !busy && state.undoAvailable, () => void act(() => api.agentsUndo())),
-        ]),
+        ),
       ),
     );
     app.replaceChildren(...blocks);
     app.setAttribute("aria-busy", busy ? "true" : "false");
-    restoreFocus(app, focus);
+    restoreSnapshot(app, focus);
   }
 
   async function refresh(): Promise<void> {

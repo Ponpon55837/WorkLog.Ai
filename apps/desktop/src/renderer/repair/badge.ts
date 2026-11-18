@@ -1,4 +1,5 @@
 import type { RepairState } from "@work-intelligence/desktop-core";
+import { errorMessageFor, type ShellMessages } from "@work-intelligence/desktop-core/shell/i18n";
 import { element } from "./dom.js";
 
 /** A status pill (UiLabel): the text always says the state, the tone only adds to it. */
@@ -33,4 +34,10 @@ export function databaseTone(status: string): Tone {
 
 export function label(text: string, tone: Tone = "neutral"): HTMLElement {
   return element("span", { className: `label label--${tone}`, text });
+}
+
+/** The pill of a database's status, or, when a preview could not run, of the error that says why. */
+export function databaseLabel(messages: ShellMessages, status: string, errorCode?: string): HTMLElement {
+  if (errorCode) return label(errorMessageFor(messages, errorCode).title, "danger");
+  return label(messages.databaseStatuses[status] ?? status, databaseTone(status));
 }

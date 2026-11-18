@@ -33,8 +33,28 @@ export function cardBody(card: HTMLElement): HTMLElement {
   return card.querySelector<HTMLElement>(":scope > .card-body") ?? card;
 }
 
-export function fact(label: string, value: Node | string): [HTMLElement, HTMLElement] {
-  return [element("dt", { text: label }), element("dd", {}, [value])];
+/** A paragraph (or, with `tag`, another element) of muted helper text. */
+export function hint(text: string, tag: "p" | "div" | "li" = "p"): HTMLElement {
+  return element(tag, { className: "hint", text });
+}
+
+/** A row of buttons. */
+export function actions(...buttons: Node[]): HTMLElement {
+  return element("div", { className: "actions" }, buttons);
+}
+
+/** A term/description list from [label, value] rows. */
+export function facts(...rows: (readonly [string, Node | string])[]): HTMLElement {
+  return element(
+    "dl",
+    { className: "facts" },
+    rows.flatMap(([label, value]) => [element("dt", { text: label }), element("dd", {}, [value])]),
+  );
+}
+
+/** A database path or other file name, in the monospace face. */
+export function path(text: string): HTMLElement {
+  return element("span", { className: "path", text });
 }
 
 /** A button; `enabled` also covers "another action is running", which the caller passes in. `true` means primary. */
@@ -54,26 +74,29 @@ export function button(
   return node;
 }
 
-export function checkbox(label: string, id: string, checked: boolean, enabled: boolean): HTMLLabelElement {
+export function checkbox(
+  label: string,
+  id: string,
+  checked: boolean,
+  enabled: boolean,
+  onChange?: (checked: boolean) => void,
+): HTMLLabelElement {
   const input = element("input", { className: "checkbox" });
   input.type = "checkbox";
   input.checked = checked;
   input.disabled = !enabled;
   input.dataset.id = id;
+  if (onChange) input.addEventListener("change", () => onChange(input.checked));
   return element("label", { className: "check" }, [input, element("span", { text: label })]);
 }
 
+/** The control with this `data-id` below `root`. */
+export function byId<T extends HTMLElement = HTMLElement>(root: ParentNode, id: string): T | null {
+  return root.querySelector<T>(`[data-id="${CSS.escape(id)}"]`);
+}
+
 export function isChecked(root: ParentNode, id: string): boolean {
-  return root.querySelector<HTMLInputElement>(`input[data-id="${CSS.escape(id)}"]`)?.checked === true;
-}
-
-/** Keeps keyboard focus on the same control across a re-render. */
-export function focusedId(): string | undefined {
-  return document.activeElement instanceof HTMLElement ? document.activeElement.dataset.id : undefined;
-}
-
-export function restoreFocus(root: ParentNode, id: string | undefined): void {
-  if (id) root.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`)?.focus();
+  return byId<HTMLInputElement>(root, id)?.checked === true;
 }
 
 /** The page language only; the window title belongs to the page shell, which does not change with the tab. */

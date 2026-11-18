@@ -1,7 +1,7 @@
 import type { PortChangeResult, RepairApi, RepairPortSection } from "@work-intelligence/desktop-core";
 import type { PortMessages } from "@work-intelligence/desktop-core/shell/port-i18n";
 import { formatMessage } from "@work-intelligence/desktop-core/shell/i18n";
-import { button, element, section } from "./dom.js";
+import { actions, button, element, hint, section } from "./dom.js";
 
 /**
  * The 「連接埠」 section of the repair window: the port in use, an input and 「變更連接埠」. The page only sends what the
@@ -87,16 +87,14 @@ export function portSection(host: PortViewHost, port: RepairPortSection): HTMLEl
   const shown = port.activePort ?? port.port;
   const card = section(
     text.heading,
-    ...(shown === null
-      ? []
-      : [element("p", { className: "hint", text: formatMessage(text.current, { port: String(shown) }) })]),
-    element("p", { className: "hint", text: text.intro }),
-    ...(port.handoffHeld ? [element("p", { className: "hint", text: text.handoffNote })] : []),
+    ...(shown === null ? [] : [hint(formatMessage(text.current, { port: String(shown) }))]),
+    hint(text.intro),
+    ...(port.handoffHeld ? [hint(text.handoffNote)] : []),
     element("label", { className: "field" }, [
       element("span", { className: "field-label", text: text.inputLabel }),
       input,
     ]),
-    element("div", { className: "actions" }, [
+    actions(
       button(
         applying ? text.applying : text.apply,
         "port-apply",
@@ -104,9 +102,9 @@ export function portSection(host: PortViewHost, port: RepairPortSection): HTMLEl
         () => void apply(host, port),
         true,
       ),
-    ]),
+    ),
     ...(answer ? [element("p", { className: answer.ok ? "success-text" : "warning-text", text: answer.text })] : []),
-    ...(answer?.note ? [element("p", { className: "hint", text: answer.note })] : []),
+    ...(answer?.note ? [hint(answer.note)] : []),
   );
   card.id = "port-section";
   // The tray item (or the Dashboard's link) asked for the section: main reports it in one state only.
