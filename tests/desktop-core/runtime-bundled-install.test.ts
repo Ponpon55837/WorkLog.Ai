@@ -358,12 +358,12 @@ describe("ensureBundledRuntime: shims, previous runtime and rollback", () => {
     expect(await fs.readdir(path.join(root, "runtimes"))).toEqual(["bundle-1"]);
   });
 
-  it("reports a directory it cannot move aside as an install failure and changes nothing", async () => {
+  it("reports a directory that a running process holds as in use (close the Agent), and changes nothing", async () => {
     await installFixture(root, "bundle-1", { commit: true, files: { ...FIXTURE_FILES, "app/other.js": "// other\n" } });
     const rename = vi.fn(async () => Promise.reject(Object.assign(new Error("in use"), { code: "EBUSY" })));
     const sleep = vi.fn(async (_milliseconds: number) => undefined);
     await expect(ensureBundledRuntime(root, bundleRoot, options({ deps: { rename, sleep } }))).rejects.toMatchObject({
-      code: "RUNTIME_INSTALL_FAILED",
+      code: "RUNTIME_IN_USE",
     });
     expect(await readCurrentRuntimeId(root)).toBe("bundle-1");
     expect(await fs.readdir(path.join(root, "runtimes"))).toEqual(["bundle-1"]);
@@ -517,5 +517,14 @@ describe("ensureBundledRuntime: failures around the install", () => {
     await expect(ensureBundledRuntime(root, bundleRoot, options({ deps: { rename: failing } }))).rejects.toMatchObject({
       code: "RUNTIME_INSTALL_FAILED",
     });
+  });
+
+  it("reports a directory it cannot move aside for another reason as an install failure", async () => {
+    await installFixture(root, "bundle-1", { commit: true, files: { ...FIXTURE_FILES, "app/other.js": "// other\n" } });
+    const rename = vi.fn(async () => Promise.reject(Object.assign(new Error("no space"), { code: "ENOSPC" })));
+    await expect(ensureBundledRuntime(root, bundleRoot, options({ deps: { rename } }))).rejects.toMatchObject({
+      code: "RUNTIME_INSTALL_FAILED",
+    });
+    expect(await readCurrentRuntimeId(root)).toBe("bundle-1");
   });
 });

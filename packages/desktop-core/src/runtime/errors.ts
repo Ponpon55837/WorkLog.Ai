@@ -14,6 +14,8 @@ export const RUNTIME_ERROR_CODES = [
   "RUNTIME_ALREADY_INSTALLED",
   "RUNTIME_BUNDLE_INVALID",
   "RUNTIME_INSTALL_FAILED",
+  /** The runtime directory to replace is held by a running process (an Agent on Windows): close it and retry. */
+  "RUNTIME_IN_USE",
 ] as const;
 
 /** One of {@link RUNTIME_ERROR_CODES}. */

@@ -9,6 +9,8 @@ export type ShellLocale = "zh-TW" | "en";
 /** Codes of failures that happen in the shell itself, before or around the backend child. */
 export type ShellErrorCode =
   | "RUNTIME_INSTALL_FAILED"
+  /** Windows: an Agent still runs from the runtime folder that has to be replaced (M-08). */
+  | "RUNTIME_IN_USE"
   | "RUNTIME_UNSAFE_PERMISSIONS"
   | "RUNTIME_ACL_UNREADABLE"
   | "LEGACY_SERVICE_ACTIVE"
@@ -115,6 +117,8 @@ export interface ShellMessages {
   readonly quitStopIncompleteMessage: string;
   readonly quitStopIncompleteOk: string;
   readonly repairDone: string;
+  /** After the App's database was changed: Agents that are already open keep writing to the old one (M-07). */
+  readonly databaseChangedDone: string;
   /** Heading of the card the repair window shows once a repair the user started has worked. */
   readonly repairRecovered: string;
   readonly repairRecoveredHint: string;
@@ -260,6 +264,7 @@ const zhTW: ShellMessages = {
     "無法確認 Work Intelligence 的背景服務已完全停止。若稍後仍無法重新開啟，請在工作管理員或活動監視器中結束它，或重新啟動電腦。細節已寫入記錄檔。",
   quitStopIncompleteOk: "知道了",
   repairDone: "已完成。",
+  databaseChangedDone: "已完成。已經開著的 Agent 仍會寫入原本的資料庫，請關閉後重新開啟，才會改用新的。",
   repairRecovered: "✓ 已恢復",
   repairRecoveredHint: "資料庫已可使用，正在為你開啟 Dashboard。",
   repairProjectCount: "{count} 個專案",
@@ -387,6 +392,10 @@ const zhTW: ShellMessages = {
     RUNTIME_BUNDLE_INVALID: {
       title: "App 內附的執行環境無效",
       hint: "安裝檔可能已損毀。請重新下載並安裝 Work Intelligence。",
+    },
+    RUNTIME_IN_USE: {
+      title: "執行環境正被使用，無法更新",
+      hint: "請先關閉正在使用 Work Intelligence 的 Agent（Codex、Claude Code 等），再按重試。",
     },
     RUNTIME_INSTALL_FAILED: {
       title: "無法準備執行環境",
@@ -531,6 +540,8 @@ const en: ShellMessages = {
     "Work Intelligence could not confirm that its background service has fully stopped. If it will not reopen, end it in Task Manager or Activity Monitor, or restart the computer. Details are in the log file.",
   quitStopIncompleteOk: "OK",
   repairDone: "Done.",
+  databaseChangedDone:
+    "Done. Agents that are already open keep writing to the previous database; close and reopen them to use the new one.",
   repairRecovered: "✓ Recovered",
   repairRecoveredHint: "The database is ready to use. Opening the Dashboard for you.",
   repairProjectCount: "{count} projects",
@@ -670,6 +681,10 @@ const en: ShellMessages = {
     RUNTIME_BUNDLE_INVALID: {
       title: "The runtime bundled with the app is invalid",
       hint: "The installer may be damaged. Download and install Work Intelligence again.",
+    },
+    RUNTIME_IN_USE: {
+      title: "The runtime is in use and cannot be updated",
+      hint: "Close the Agents that use Work Intelligence (Codex, Claude Code, ...) and retry.",
     },
     RUNTIME_INSTALL_FAILED: {
       title: "The runtime could not be prepared",

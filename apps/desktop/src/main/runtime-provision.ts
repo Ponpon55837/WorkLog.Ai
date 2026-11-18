@@ -37,7 +37,11 @@ const RETRY_DELAYS_MS: readonly number[] = [10 * 60_000, 30 * 60_000];
 const RETRY_HOURLY_MS = 60 * 60_000;
 
 /** Runtime errors the repair page explains in their own words; every other failure reads as "could not be prepared". */
-const OWN_CODES: ReadonlySet<string> = new Set(["RUNTIME_UNSAFE_PERMISSIONS", "RUNTIME_ACL_UNREADABLE"]);
+const OWN_CODES: ReadonlySet<string> = new Set([
+  "RUNTIME_UNSAFE_PERMISSIONS",
+  "RUNTIME_ACL_UNREADABLE",
+  "RUNTIME_IN_USE",
+]);
 
 /** The runtime could not be prepared; `code` is the repair page's error code. */
 export class RuntimeProvisionError extends Error {

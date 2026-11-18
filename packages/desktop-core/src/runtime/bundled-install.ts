@@ -205,6 +205,15 @@ async function quarantine(root: string, runtimeId: string, deps: BundledInstallD
     await renameWithRetry(deps, target, aside);
     return aside;
   } catch (error) {
+    // Still locked after the retries: a process runs from this directory (an Agent on Windows), which is for the user to close.
+    if (RENAME_RETRYABLE.has(errorCode(error) ?? "")) {
+      throw new RuntimeError(
+        "RUNTIME_IN_USE",
+        "runtime 目錄正被執行中的程序使用",
+        { file: target, actual: error instanceof Error ? error.message : String(error) },
+        { cause: error },
+      );
+    }
     throw installFailed("無法移開損壞的 runtime 目錄", target, error);
   }
 }
