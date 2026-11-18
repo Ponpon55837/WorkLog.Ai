@@ -10,7 +10,7 @@ export const spikeDirectory = join(repositoryRoot, "dist", "desktop-runtime-spik
 export const RUNTIME_CHOICES = ["node", "electron"];
 /**
  * Node 24 is the LTS line the desktop App would bundle (the repository supports 22.16+ and 24+). Pinned to an exact
- * release so every run measures the same binary; pass `--node-version 24` to take the newest 24 LTS instead.
+ * release so every run measures the same binary, and its archives' SHA-256 are pinned in node-checksums.mjs.
  */
 export const DEFAULT_NODE_VERSION = "v24.22.3";
 export const DEFAULT_ELECTRON_VERSION = "45.3.3";

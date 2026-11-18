@@ -13,7 +13,7 @@
  *
  * Needs `pnpm build` first (apps/web/dist and packages/desktop-core/dist). The default root is under
  * dist/desktop-runtime-spike/ and contains a space and Chinese characters. Downloads are cached in
- * dist/desktop-runtime-spike/downloads. `--node-version` takes a major ("24") or an exact version ("v24.22.3");
+ * dist/desktop-runtime-spike/downloads. `--node-version` takes an exact version ("v24.22.3") whose archives are pinned in node-checksums.mjs;
  * `--electron-version` an exact Electron version.
  *
  * Symlinks (an Electron.app bundle on macOS has them) are kept as links and listed in the manifest with their
