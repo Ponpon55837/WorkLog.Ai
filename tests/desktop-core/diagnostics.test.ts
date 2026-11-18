@@ -602,11 +602,26 @@ describe("diagnostics other absolute paths, case and key names", () => {
     "/Library/Application Support/Acme/plan.db",
     "/Applications/Acme.app/Contents/x",
     "/root/.ssh/config",
+    "/etc/acme/plan.conf",
+    "/usr/local/share/acme/plan.db",
+    "/data/acme/plan.db",
+    "/workspace/acme/plan.db",
+    "/nix/store/abc-acme/bin/acme",
   ])("masks %s", (path) => {
     const text = linux(`opening ${path}`);
     expect(text).toBe("opening [redacted path]");
     expect(scanText(path).found.paths).toBe(1);
   });
+
+  it.each(["\\\\?\\C:\\Users\\Alice\\Acme\\plan.db", "\\\\.\\D:\\Acme\\plan.db"])(
+    "masks the extended-length prefix with the path: %s",
+    (path) => {
+      expect(
+        createRedactor({ platform: "win32", homeDirectory: "C:\\Users\\Current", userName: "Current" })(`at ${path}`),
+      ).toBe("at [redacted path]");
+      expect(scanText(path).found.paths).toBe(1);
+    },
+  );
 
   it("leaves URL paths, relative paths and bare folder words alone", () => {
     for (const text of [
