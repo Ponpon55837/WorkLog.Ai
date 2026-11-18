@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
@@ -12,6 +12,7 @@ import {
   isSqliteTimingInstalled,
   uninstallSqliteTiming,
 } from "../helpers/sqlite-timing.js";
+import { sqliteTimingReport } from "../helpers/sqlite-timing-report.mjs";
 
 const require = createRequire(import.meta.url);
 const CHILD_SCRIPT = join(import.meta.dirname, "..", "helpers", "sqlite-timing-child.ts");
@@ -120,7 +121,62 @@ describe("sqlite timing hook", () => {
       checkpointed: expect.any(Number),
     });
     expect(JSON.stringify(records)).not.toContain("secret-parameter-value");
+
+    // Wall-clock start and the database's last two path segments line records up across processes.
+    const databaseLabel = `${basename(directory)}/timing.sqlite`;
+    expect(begin).toMatchObject({ db: databaseLabel, at: expect.any(Number) });
+    expect(Math.abs((begin?.at as number) - Date.now())).toBeLessThan(60_000);
+    const transactions = records.filter((record) => record.kind === "transaction");
+    expect(transactions).toHaveLength(1);
+    expect(transactions[0]).toMatchObject({ op: "transaction", sql: "COMMIT", db: databaseLabel });
+    expect(transactions[0]?.ms as number).toBeGreaterThanOrEqual(140);
+
+    // The report names the wait; its holder (this test process) is not instrumented, so it says so.
+    const report = sqliteTimingReport(records).join("\n");
+    expect(report).toContain("BEGIN IMMEDIATE waits (>= 1 s): 1");
+    expect(report).toContain(`db=${databaseLabel}`);
+    expect(report).toContain("holder: not inferred");
   }, 30_000);
+
+  it("reports the ten slowest calls and the overlapping transactions on the same file as likely holders", () => {
+    const at = 1_000_000;
+    const slowCalls = Array.from({ length: 12 }, (_unused, index) => ({
+      kind: "slow",
+      op: "run",
+      sql: `UPDATE t${index} SET a = ?`.padEnd(200, " x"),
+      ms: 1000 + index,
+      at,
+      db: "a/db.sqlite",
+      test: `test ${index}`,
+      testFile: "tests/storage/x.test.ts",
+      role: "test",
+      pid: 1,
+    }));
+    const wait = { kind: "begin-immediate", ms: 2500, at, db: "a/db.sqlite", failed: false, pid: 2, role: "test" };
+    const holder = {
+      kind: "transaction",
+      ms: 3000,
+      at: at - 600,
+      db: "a/db.sqlite",
+      pid: 3,
+      role: "writer",
+      startTest: "w",
+    };
+    const otherFile = { kind: "transaction", ms: 3000, at: at - 600, db: "b/db.sqlite", pid: 4, role: "test" };
+    const lines = sqliteTimingReport([...slowCalls, wait, holder, otherFile]);
+    expect(lines[0]).toBe("[sqlite timing report] slow calls (>= 1 s): 12; top 10:");
+    expect(lines.slice(1, 11).map((line) => line.trim().split(" ")[0])).toEqual(
+      Array.from({ length: 10 }, (_unused, index) => String(1011 - index)),
+    );
+    expect(lines[1]).toContain('test="test 11"');
+    expect(lines[1]).toContain("file=tests/storage/x.test.ts");
+    expect(lines[1]?.match(/sql="([^"]*)"/)?.[1]).toHaveLength(120);
+    expect(lines).toContain("[sqlite timing report] BEGIN IMMEDIATE waits (>= 1 s): 1");
+    const holderLines = lines.filter((line) => line.includes("holder?"));
+    expect(holderLines).toHaveLength(1);
+    expect(holderLines[0]).toContain("pid=3");
+    expect(holderLines[0]).toContain("overlapping 2400 ms");
+  });
 
   it("writes nothing and leaves DatabaseSync untouched when the variable is empty", async () => {
     const { className, directory } = await runChildBehindLock(false);

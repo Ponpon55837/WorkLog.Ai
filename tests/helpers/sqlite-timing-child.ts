@@ -11,6 +11,11 @@ process.stdout.write("ready\n");
 db.exec("BEGIN IMMEDIATE");
 db.prepare("INSERT INTO items (name) VALUES (?)").run("secret-parameter-value");
 db.exec("COMMIT");
+// A deferred transaction held for 150 ms: recorded as a "transaction", the candidate holder in the timing report.
+db.exec("BEGIN");
+db.prepare("INSERT INTO items (name) VALUES (?)").run("second");
+Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 150);
+db.exec("COMMIT");
 db.prepare("PRAGMA wal_checkpoint(PASSIVE)").get();
 for (const row of db.prepare("SELECT name FROM items").iterate()) void row;
 db.close();

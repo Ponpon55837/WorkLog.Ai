@@ -83,6 +83,11 @@ jobs:
           WI_SQLITE_TIMING: ${{ matrix.os == 'windows-latest' && '1' || '' }}
         run: pnpm test
 
+      # The slowest calls and the long BEGIN IMMEDIATE waits with their likely holders, readable from the job log.
+      - name: SQLite timing report
+        if: always() && matrix.os == 'windows-latest'
+        run: node tests/helpers/sqlite-timing-report.mjs perf-results
+
       - if: always() && matrix.os == 'windows-latest'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -197,6 +202,10 @@ jobs:
           WI_SQLITE_TIMING: ${{ matrix.os == 'windows-latest' && '1' || '' }}
           WI_SQLITE_TIMING_LABEL: stress
         run: pnpm test:sqlite-stress
+
+      - name: SQLite timing report
+        if: always() && matrix.os == 'windows-latest'
+        run: node tests/helpers/sqlite-timing-report.mjs perf-results
 
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

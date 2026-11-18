@@ -20,7 +20,8 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 export interface SqliteTimingRecord {
-  kind: "slow" | "begin-immediate" | "open" | "checkpoint" | "test-duration" | "begin-immediate-histogram";
+  kind:
+    "slow" | "begin-immediate" | "transaction" | "open" | "checkpoint" | "test-duration" | "begin-immediate-histogram";
   [key: string]: unknown;
 }
 
@@ -48,6 +49,11 @@ interface OpenInfo {
   /** performance.now() at the end of the constructor; 0 once the first statement was seen. */
   openedAt: number;
   record: SqliteTimingRecord;
+  /** The database's last two path segments: names the file across processes without the temp root. */
+  db: string;
+  /** performance.now() when this connection's BEGIN IMMEDIATE returned; 0 outside a transaction. */
+  transactionStart: number;
+  transactionTest: string | null;
 }
 
 interface TimingState {
@@ -70,6 +76,7 @@ interface TimingState {
   slowTests: number;
   histogramDirty: boolean;
   testNameProvider: () => string | undefined;
+  testFileProvider: () => string | undefined;
   restore: () => void;
   timer: NodeJS.Timeout | undefined;
   summaryPrinted: boolean;
@@ -91,6 +98,8 @@ const STATE_KEY = Symbol.for("work-intelligence.sqliteTiming");
 const OPEN_KEY = Symbol("work-intelligence.sqliteTiming.open");
 const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const BEGIN_IMMEDIATE_PATTERN = /^\s*begin\s+immediate\b/i;
+const BEGIN_PATTERN = /^\s*begin\b/i;
+const TRANSACTION_END_PATTERN = /^\s*(commit|end|rollback)\b(?!\s+to\b)/i;
 const CHECKPOINT_PATTERN = /wal_checkpoint/i;
 const CHECKPOINT_MODE_PATTERN = /wal_checkpoint\s*\(\s*([a-z]+)/i;
 
@@ -108,11 +117,17 @@ function stackOfCaller(): string {
   return (new Error().stack ?? "").split("\n").slice(4, 12).join("\n");
 }
 
+/** Wall-clock milliseconds of a moment `agoMs` before now: lines records up across processes. */
+function wallClockAgo(agoMs: number): number {
+  return Math.round(Date.now() - agoMs);
+}
+
 function baseRecord(state: TimingState, kind: SqliteTimingRecord["kind"], fields: Record<string, unknown>) {
   return {
     kind,
     ...fields,
     test: state.testNameProvider() ?? null,
+    testFile: state.testFileProvider() ?? null,
     pid: process.pid,
     role: process.env.WI_STRESS_ROLE || "test",
   } as SqliteTimingRecord;
@@ -124,7 +139,7 @@ function bucketIndex(ms: number): number {
   return index;
 }
 
-function recordSlow(state: TimingState, op: string, sql: unknown, ms: number, failed: boolean): void {
+function recordSlow(state: TimingState, op: string, sql: unknown, ms: number, failed: boolean, db?: string): void {
   state.slowCount += 1;
   if (ms > state.slowMax) state.slowMax = ms;
   state.records.push(
@@ -132,13 +147,15 @@ function recordSlow(state: TimingState, op: string, sql: unknown, ms: number, fa
       op,
       sql: sqlPrefix(sql),
       ms: Math.round(ms * 10) / 10,
+      at: wallClockAgo(ms),
+      db: db ?? null,
       failed,
       stack: stackOfCaller(),
     }),
   );
 }
 
-function recordBegin(state: TimingState, sql: unknown, ms: number, failed: boolean): void {
+function recordBegin(state: TimingState, sql: unknown, ms: number, failed: boolean, db: string | null): void {
   state.beginCount += 1;
   state.beginTotal += ms;
   if (ms > state.beginMax) state.beginMax = ms;
@@ -146,7 +163,14 @@ function recordBegin(state: TimingState, sql: unknown, ms: number, failed: boole
   state.histogramDirty = true;
   if (ms >= BEGIN_RECORD_MS) {
     state.records.push(
-      baseRecord(state, "begin-immediate", { op: "exec", sql: sqlPrefix(sql), ms: Math.round(ms * 10) / 10, failed }),
+      baseRecord(state, "begin-immediate", {
+        op: "exec",
+        sql: sqlPrefix(sql),
+        ms: Math.round(ms * 10) / 10,
+        at: wallClockAgo(ms),
+        db,
+        failed,
+      }),
     );
   }
 }
@@ -173,6 +197,21 @@ function recordCheckpoint(state: TimingState, sql: unknown, ms: number, row: unk
   );
 }
 
+/** A transaction that held the write lock for 100 ms or more: the candidate holder for another connection's wait. */
+function recordTransaction(state: TimingState, open: OpenInfo, ms: number, sql: unknown): void {
+  if (ms < BEGIN_RECORD_MS) return;
+  state.records.push(
+    baseRecord(state, "transaction", {
+      op: "transaction",
+      sql: sqlPrefix(sql),
+      ms: Math.round(ms * 10) / 10,
+      at: wallClockAgo(ms),
+      db: open.db,
+      startTest: open.transactionTest,
+    }),
+  );
+}
+
 /** First statement on a fresh connection: stores the open-to-first-statement gap. */
 function markFirstStatement(open: OpenInfo, now: number): void {
   const gap = Math.round((now - open.openedAt) * 10) / 10;
@@ -194,17 +233,33 @@ function trackOpen(state: TimingState, db: object, path: unknown, options: unkno
     gapMs: null,
   });
   state.records.push(record);
-  (db as { [OPEN_KEY]?: OpenInfo })[OPEN_KEY] = { openedAt: now, record };
+  const segments = location.split("/").filter(Boolean);
+  (db as { [OPEN_KEY]?: OpenInfo })[OPEN_KEY] = {
+    openedAt: now,
+    record,
+    db: location === ":memory:" ? location : segments.slice(-2).join("/"),
+    transactionStart: 0,
+    transactionTest: null,
+  };
 }
 
-/** Classifies an exec() SQL string: 1 = BEGIN IMMEDIATE, 2 = wal_checkpoint pragma, 0 = anything else. */
+/**
+ * Classifies an exec() SQL string: 1 = BEGIN IMMEDIATE, 2 = wal_checkpoint pragma, 3 = COMMIT, END or ROLLBACK (not
+ * ROLLBACK TO a savepoint), 4 = another BEGIN (its write lock comes later, so only the transaction is timed), 0 =
+ * anything else.
+ */
 function classifyExec(sql: unknown): number {
   if (typeof sql !== "string") return 0;
   const first = sql.charCodeAt(0);
-  // B, b, P, p or leading whitespace; everything else cannot be one of the two statements.
-  if (first === 66 || first === 98) return BEGIN_IMMEDIATE_PATTERN.test(sql) ? 1 : 0;
+  // B, b, P, p, C, c, E, e, R, r or leading whitespace; everything else cannot be one of the statements.
+  if (first === 66 || first === 98) return BEGIN_IMMEDIATE_PATTERN.test(sql) ? 1 : BEGIN_PATTERN.test(sql) ? 4 : 0;
+  if (first === 67 || first === 99 || first === 69 || first === 101 || first === 82 || first === 114) {
+    return TRANSACTION_END_PATTERN.test(sql) ? 3 : 0;
+  }
   if (first === 80 || first === 112 || first <= 32) {
     if (BEGIN_IMMEDIATE_PATTERN.test(sql)) return 1;
+    if (BEGIN_PATTERN.test(sql)) return 4;
+    if (TRANSACTION_END_PATTERN.test(sql)) return 3;
     return sql.length < 200 && CHECKPOINT_PATTERN.test(sql) ? 2 : 0;
   }
   return 0;
@@ -279,9 +334,14 @@ export function recordTestDuration(name: string, durationMs: number): void {
 }
 
 /** Lets the vitest setup file name the current test on slow-call records. */
-export function setSqliteTimingTestNameProvider(provider: () => string | undefined): void {
+export function setSqliteTimingTestNameProvider(
+  provider: () => string | undefined,
+  fileProvider: () => string | undefined = () => undefined,
+): void {
   const state = getState();
-  if (state) state.testNameProvider = provider;
+  if (!state) return;
+  state.testNameProvider = provider;
+  state.testFileProvider = fileProvider;
 }
 
 export function isSqliteTimingInstalled(): boolean {
@@ -383,6 +443,7 @@ export function installSqliteTiming(options: SqliteTimingOptions = {}): void {
     slowTests: 0,
     histogramDirty: false,
     testNameProvider: () => undefined,
+    testFileProvider: () => undefined,
     restore: () => undefined,
     timer: undefined,
     summaryPrinted: false,
@@ -430,10 +491,20 @@ export function installSqliteTiming(options: SqliteTimingOptions = {}): void {
       failed = false;
       return result;
     } finally {
-      const ms = now() - start;
-      if (kind === 1) recordBegin(state, sql, ms, failed);
-      else if (kind === 2) recordCheckpoint(state, sql, ms, undefined, failed);
-      if (ms >= SLOW_CALL_MS) recordSlow(state, "exec", sql, ms, failed);
+      const end = now();
+      const ms = end - start;
+      if (kind === 1 || kind === 4) {
+        if (kind === 1) recordBegin(state, sql, ms, failed, open?.db ?? null);
+        if (open !== undefined && !failed) {
+          open.transactionStart = end;
+          open.transactionTest = state.testNameProvider() ?? null;
+        }
+      } else if (kind === 2) recordCheckpoint(state, sql, ms, undefined, failed);
+      else if (kind === 3 && open !== undefined && open.transactionStart !== 0) {
+        recordTransaction(state, open, end - open.transactionStart, sql);
+        open.transactionStart = 0;
+      }
+      if (ms >= SLOW_CALL_MS) recordSlow(state, "exec", sql, ms, failed, open?.db);
     }
   });
 
