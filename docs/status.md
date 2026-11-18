@@ -17,7 +17,7 @@
 - 經使用者核准，`vue-router` 由 5.5.0 改回 4.6.5，picomatch 不再出現在 production 相依樹；稽核例外 GHSA-fc5q-39xc-vjpf 已移除，不帶例外即通過稽核。Dependabot 忽略 vue-router ≥ 5，待重新評估。
 - 每日的 `audit-exceptions-watch` 工作流程：npm 出現修補版時失敗並通知維護者；目前沒有例外，保留為通用機制（見[相依套件稽核例外](security/audit-exceptions.md)）。
 - 測試：單元測試 82 項、桌面 smoke 24 項（`apps/desktop/tests/desktop-smoke/update-check.spec.ts`）。
-- CI 結果待 PR 檢查完成後補上。Windows 11 與 macOS 實機驗收為**待實機驗收**。
+- CI：PR #375 的 23 項必要檢查全部通過（commit c8efde0）。Windows 11 與 macOS 實機驗收為**待實機驗收**。
 
 沒有 schema 變更（33），沒有 migration。詳見 [1.6.53 更新說明](releases/1.6.53.md)。
 
