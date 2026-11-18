@@ -335,6 +335,9 @@ export function registerRepairIpc(options: IpcOptions): void {
   });
 
   handle(REPAIR_CHANNELS.agentsPreview, parser(repairInputSchemas.agentsPreview), ({ adopt }) => agents.preview(adopt));
+  handle(REPAIR_CHANNELS.agentsRemovePreview, parser(repairInputSchemas.agentsRemovePreview), () =>
+    agents.previewRemove(),
+  );
   handle(
     REPAIR_CHANNELS.agentsApply,
     parser(repairInputSchemas.agentsApply),

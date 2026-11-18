@@ -51,6 +51,7 @@ export const REPAIR_CHANNELS = {
   showView: "app:show-view",
   agentsGetState: "agents:get-state",
   agentsPreview: "agents:preview",
+  agentsRemovePreview: "agents:remove-preview",
   agentsApply: "agents:apply",
   agentsDiscard: "agents:discard",
   agentsUndo: "agents:undo",
@@ -120,6 +121,8 @@ export const repairInputSchemas = {
   /** `adopt`: also take over the hand-written checkout registrations ("改由桌面 App 管理"). Nothing is written. */
   agentsPreview: z.strictObject({ adopt: z.boolean() }),
   /** Applies exactly the plan this preview showed; a file changed since then makes the apply refuse. */
+  /** Previews removing what setup wrote; applying it goes through `agentsApply` with the preview's id. */
+  agentsRemovePreview: z.strictObject({}),
   agentsApply: z.strictObject({ previewId: z.uuid(), acknowledgeUndiffable: z.boolean().optional() }),
   agentsDiscard: z.strictObject({}),
   agentsUndo: z.strictObject({}),
@@ -296,6 +299,7 @@ export interface RepairApi {
   showAgents(): Promise<{ readonly ok: boolean }>;
   agentsGetState(): Promise<AgentsState>;
   agentsPreview(adopt: boolean): Promise<AgentsActionResult>;
+  agentsRemovePreview(): Promise<AgentsActionResult>;
   agentsApply(previewId: string, acknowledgeUndiffable?: boolean): Promise<AgentsActionResult>;
   agentsDiscard(): Promise<AgentsActionResult>;
   agentsUndo(): Promise<AgentsActionResult>;

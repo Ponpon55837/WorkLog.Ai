@@ -277,6 +277,7 @@ describe("applying a preview with a file that has no diff shown", () => {
   });
   const preview = (files: AgentsPreview["files"], conflicts: string[] = []): AgentsPreview => ({
     id: "11111111-1111-4111-8111-111111111111",
+    mode: "install",
     adopt: false,
     files,
     actions: [],

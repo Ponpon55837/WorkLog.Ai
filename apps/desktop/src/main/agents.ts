@@ -14,6 +14,7 @@ import {
   undoAgentSetupOperation,
   type AgentSetupPlan,
   type AgentSetupPlanOptions,
+  type AgentSetupTransactionResult,
   type CheckoutRegistration,
 } from "@work-intelligence/agent-setup";
 import {
@@ -44,6 +45,8 @@ import type { ShellState } from "./state.js";
 export interface AgentsPage {
   snapshot(): AgentsState;
   preview(adopt: boolean): Promise<AgentsActionResult>;
+  /** "移除 Agent 設定": previews the removal of what setup wrote; `apply` then runs it the way it runs an install. */
+  previewRemove(): Promise<AgentsActionResult>;
   apply(previewId: string): Promise<AgentsActionResult>;
   discard(): AgentsActionResult;
   undo(): Promise<AgentsActionResult>;
@@ -68,6 +71,31 @@ export interface AgentsPageOptions {
 }
 
 const SELF_TEST_TIMEOUT_MS = 15_000;
+
+/**
+ * The files an unfinished apply or undo left as they are: an item that someone else changed (so it was not restored),
+ * one compensation never reached, or one it failed on. Those are the files the user may have to look at; the ones
+ * compensation restored are not listed.
+ */
+export function filesLeftByTransaction(applied: Pick<AgentSetupTransactionResult, "items">): string[] {
+  const left = applied.items.filter(
+    (item) =>
+      item.compensation === "manual-repair" || item.compensation === "not-attempted" || item.compensation === "failed",
+  );
+  const modified = applied.items.filter((item) => item.status === "externally-modified");
+  const named = [...new Set([...left, ...modified].map((item) => item.path))];
+  if (named.length > 0) return named;
+  // Never an empty list for an unfinished repair: fall back to every file that was written.
+  return [...new Set(applied.items.filter((item) => item.status === "written").map((item) => item.path))];
+}
+
+/**
+ * The one entry point that writes an Agent plan, install or removal: the journaled transaction. The preview's plan is
+ * applied as it is; agent-setup re-fingerprints every file before writing it. Operation bookkeeping wraps this call.
+ */
+export function commitAgentPlan(plan: AgentSetupPlan, journalPath: string): AgentSetupTransactionResult {
+  return applyAgentSetupTransaction(plan, { journalPath });
+}
 
 function ownerOf(source: string | undefined): AgentRegistrationOwner {
   if (!source) return "none";
@@ -186,6 +214,28 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
     });
   }
 
+  /** The preview the page shows for a plan: the diff of every file, with `~` for the home folder. */
+  function previewOf(plan: AgentSetupPlan, mode: AgentsPreview["mode"], adopt: boolean): AgentsPreview {
+    return {
+      id: randomUUID(),
+      mode,
+      adopt,
+      files: describeAgentSetupMutations(plan).map((file) => ({
+        display: show(file.path),
+        label: file.label,
+        change: file.change,
+        tooLarge: file.tooLarge,
+        hunks: file.hunks.map((hunk) => ({
+          oldStart: hunk.oldStart,
+          newStart: hunk.newStart,
+          lines: hunk.lines.map((line) => ({ type: line.type, text: show(line.text) })),
+        })),
+      })),
+      actions: plan.actions.map(show),
+      conflicts: plan.conflicts.map(show),
+    };
+  }
+
   function undoAvailable(): boolean {
     const read = readAgentSetupJournal(journalPath);
     return read.status === "found" && read.journal.state === "committed";
@@ -240,44 +290,49 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
         if (!launcherReady())
           return { ok: false, reason: "failed", errorCode: "LAUNCHER_NOT_READY", state: snapshot() };
         const plan = createAgentSetupPlan(planOptions(adopt, checkoutRegistrations()), "install");
-        const id = randomUUID();
-        const view: AgentsPreview = {
-          id,
-          adopt,
-          files: describeAgentSetupMutations(plan).map((file) => ({
-            display: show(file.path),
-            label: file.label,
-            change: file.change,
-            tooLarge: file.tooLarge,
-            hunks: file.hunks.map((hunk) => ({
-              oldStart: hunk.oldStart,
-              newStart: hunk.newStart,
-              lines: hunk.lines.map((line) => ({ type: line.type, text: show(line.text) })),
-            })),
-          })),
-          actions: plan.actions.map(show),
-          conflicts: plan.conflicts.map(show),
-        };
-        pending = { id, plan, view };
+        const view = previewOf(plan, "install", adopt);
+        pending = { id: view.id, plan, view };
         result = null;
         log(`[shell] agent setup preview adopt=${adopt} files=${view.files.length} conflicts=${view.conflicts.length}`);
+        return { ok: true, state: snapshot() };
+      }),
+    previewRemove: () =>
+      exclusive(() => {
+        // Removal needs no launcher: it only takes out what the setup manifest says setup wrote.
+        const plan = createAgentSetupPlan({ homeDirectory: home, repositoryRoot: home, platform }, "uninstall");
+        const view = previewOf(plan, "uninstall", false);
+        pending = { id: view.id, plan, view };
+        result = null;
+        log(`[shell] agent setup remove preview files=${view.files.length} conflicts=${view.conflicts.length}`);
         return { ok: true, state: snapshot() };
       }),
     apply: (previewId) =>
       exclusive(() => {
         if (!pending || pending.id !== previewId) return { ok: false, reason: "invalid", state: snapshot() };
         if (pending.plan.conflicts.length > 0) return { ok: false, reason: "invalid", state: snapshot() };
-        const { plan } = pending;
+        const { plan, view } = pending;
         pending = null;
-        const applied = applyAgentSetupTransaction(plan, { journalPath });
-        log(`[shell] agent setup apply ${applied.outcome}${applied.code ? ` ${applied.code}` : ""}`);
+        const applied = commitAgentPlan(plan, journalPath);
+        log(
+          `[shell] agent setup ${view.mode === "uninstall" ? "remove" : "apply"} ${applied.outcome}${applied.code ? ` ${applied.code}` : ""}`,
+        );
         if (applied.outcome === "committed") {
-          result = { kind: "applied", changed: plan.mutations.length };
+          result =
+            view.mode === "uninstall"
+              ? { kind: "removed", changed: plan.mutations.length }
+              : { kind: "applied", changed: plan.mutations.length };
           selfTest = { outcome: "not-run" };
           return { ok: true, state: snapshot() };
         }
-        result = { kind: "failed", code: applied.code ?? applied.outcome };
-        return { ok: false, reason: "failed", errorCode: applied.code ?? applied.outcome, state: snapshot() };
+        const code = applied.code ?? applied.outcome;
+        // Some of what was written could not be put back: name those files, and never say it was all rolled back.
+        const left = applied.outcome === "needs-manual-repair" ? filesLeftByTransaction(applied) : [];
+        result = {
+          kind: "failed",
+          code,
+          ...(left.length > 0 ? { manualRepairDisplay: left.map(show).join(", ") } : {}),
+        };
+        return { ok: false, reason: "failed", errorCode: code, state: snapshot() };
       }),
     discard: () => {
       pending = null;
