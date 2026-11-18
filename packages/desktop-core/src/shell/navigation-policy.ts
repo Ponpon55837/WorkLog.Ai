@@ -11,9 +11,13 @@ export interface RepairAsset {
   readonly contentType: string;
 }
 
-/** The only three things the repair scheme serves. The request picks a key; it never contributes to a path. */
+/**
+ * The only four things the repair scheme serves (`tokens.css` is the shared design tokens, copied beside the page at
+ * build time). The request picks a key; it never contributes to a path.
+ */
 export const REPAIR_ASSETS: ReadonlyMap<string, RepairAsset> = new Map([
   ["/index.html", { file: "index.html", contentType: "text/html; charset=utf-8" }],
+  ["/tokens.css", { file: "tokens.css", contentType: "text/css; charset=utf-8" }],
   ["/repair.css", { file: "repair.css", contentType: "text/css; charset=utf-8" }],
   ["/repair.js", { file: "repair.js", contentType: "text/javascript; charset=utf-8" }],
 ]);

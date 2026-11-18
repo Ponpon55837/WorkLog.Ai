@@ -4,6 +4,34 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.55] - 2026-11-18
+
+[繁體中文更新說明](docs/releases/1.6.55.md).
+
+This release turns the desktop App into one window with tabs (Status, Agent, Settings, Data and Diagnostics, plus Setup while first-run setup is needed), and moves the design tokens into a package shared with the Web app. The schema stays at 33 and no migration is needed. Real-device acceptance on Windows 11 and macOS is not done yet.
+
+### Added
+
+- **Single window with tabs.** The App opens one window with WAI-ARIA tabs. Setup appears first and only while first-run setup is needed. Switching between settings pages no longer needs the tray menu. The last tab is remembered for the App session only, through the new `app:get-tab` and `app:remember-tab` IPC, which check the sender and validate input strictly.
+  - Tabs support arrow keys, Home and End, roving tabindex and a visible focus ring. A busy badge shows on a tab while an operation runs.
+  - Diagnostics preview, a pending confirmation and in-flight operations survive tab switches.
+  - The 4-second poll updates only what changed and never moves focus.
+- **Setup complete card.** After first-run setup finishes, the Status tab shows a one-time 「設定完成」 card with a button to Set up Agents.
+- **Shared design tokens.** `packages/ui-tokens` holds the tokens moved verbatim from `apps/web/src/styles/tokens.css`. The Web build output is byte-identical apart from the import path.
+- **Tests.** 12 new shell-window tests in the Linux desktop smoke (89 passed on Linux), a macOS-only shortcut test for Cmd+C/V/X/A/Z/W, and a test that forbids raw colours in the desktop renderer. Packaged smoke and packaged page screenshots run in the Desktop package, and light and dark screenshots of every tab, plus the NEEDS_REPAIR and needsSetup states, are uploaded as CI artifacts.
+
+### Changed
+
+- **Tray menu is shorter.** It shows an optional legacy-service status line (only while the start is held), 「完成設定…」 (only while setup is needed), Open Dashboard, 「開啟 Work Intelligence…」, Check for updates… and Quit. Check for updates… opens Settings and starts a check. Tray items and `wi-repair://` routes focus the single window and select the tab; they never open a second window.
+- **Menu bar is reduced.** Windows and Linux have no application menu. macOS has a minimal menu: App (About, Hide, Hide Others, Show All, Quit), Edit (undo, redo, cut, copy, paste, select all) and Window (Minimize, Close Window with Cmd+W, which closes the window and does not quit). There is no View, reload or DevTools menu, and DevTools is off in packaged builds.
+- **Theme follows the OS.** The window switches between light and dark live with the operating system setting.
+- **Window size.** Default 920x760, minimum 720x560, clamped to the work area. The last size and position are kept for the session only.
+- **Schema:** no change (33).
+
+### Security
+
+- **No new privileged IPC.** The CSP, the IPC allowlists and the OperationCoordinator BUSY rules are unchanged.
+
 ## [1.6.54] - 2026-11-18
 
 [繁體中文更新說明](docs/releases/1.6.54.md).

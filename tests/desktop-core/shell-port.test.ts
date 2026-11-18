@@ -9,23 +9,17 @@ import {
   shellMessages,
 } from "../../packages/desktop-core/src/index.js";
 
-describe("the tray's 「變更連接埠…」", () => {
+describe("the tray no longer carries 「變更連接埠…」 (the port is on the Settings tab)", () => {
   const base = { messages: shellMessages("zh-TW"), owner: "MANAGED" as const, backendRunning: true };
 
-  it("follows 修復 once the App is set up, and is absent without the port messages", () => {
-    const setup = { messages: setupMessages("zh-TW"), needsSetup: false };
-    const ids = buildTrayMenu({ ...base, setup, port: portMessages("zh-TW") }).map((item) => item.id);
-    expect(ids.indexOf("change-port")).toBe(ids.indexOf("repair") + 1);
-    expect(buildTrayMenu(base).some((item) => item.id === "change-port")).toBe(false);
-    const item = buildTrayMenu({ ...base, port: portMessages("zh-TW") }).find((entry) => entry.id === "change-port");
-    expect(item).toEqual({ id: "change-port", label: "變更連接埠…", enabled: true });
-  });
-
-  it("is not offered before the first-run setup finished", () => {
-    const setup = { messages: setupMessages("en"), needsSetup: true };
-    expect(buildTrayMenu({ ...base, setup, port: portMessages("en") }).some((item) => item.id === "change-port")).toBe(
-      false,
-    );
+  it("has no port item, set up or not", () => {
+    for (const needsSetup of [false, true]) {
+      const setup = { messages: setupMessages("zh-TW"), needsSetup };
+      const ids: string[] = buildTrayMenu({ ...base, setup }).map((item) => item.id);
+      expect(ids).not.toContain("change-port");
+      expect(ids).not.toContain("repair");
+    }
+    expect(portMessages("zh-TW").trayChangePort).toBe("變更連接埠…");
   });
 });
 

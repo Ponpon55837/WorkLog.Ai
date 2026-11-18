@@ -11,6 +11,11 @@ import {
   removeSandbox,
   waitForManagedSnapshot,
   type Sandbox,
+  closeAppWindow,
+  expectTabShown,
+  openTab,
+  openWindow,
+  trayClick,
 } from "./helpers.js";
 
 /**
@@ -106,13 +111,11 @@ function newerTag(version: string): string {
   return `v${major}.${minor}.${Number(patch) + 1}`;
 }
 
+/** The update card lives on the Settings tab: opens the App window with that tab requested (as a route inside main does). */
 async function openRepairPage(running: ElectronApplication): Promise<Page> {
-  await running.evaluate(() =>
-    (
-      globalThis as unknown as { __workIntelligenceDesktopTest: { openRepair(): void } }
-    ).__workIntelligenceDesktopTest.openRepair(),
-  );
+  await openWindow(running, "settings");
   const window = await running.firstWindow({ timeout: 45_000 });
+  await expectTabShown(window, "settings");
   await expect(window.locator("#update-section")).toBeVisible({ timeout: 30_000 });
   return window;
 }
@@ -123,23 +126,13 @@ async function textOf(window: Page): Promise<UpdateMessages> {
   return updateMessages(lang === "zh-Hant" ? "zh-TW" : "en");
 }
 
-/** The tray item 「檢查更新…」, through the very handler it runs (the tray itself cannot be clicked in a test). */
+/** The tray item "Check for updates…", through the very handler the native menu calls (the tray itself cannot be clicked in a test). */
 async function trayCheck(running: ElectronApplication): Promise<void> {
-  await running.evaluate(() =>
-    (
-      globalThis as unknown as { __workIntelligenceDesktopTest: { openUpdateCheck(): void } }
-    ).__workIntelligenceDesktopTest.openUpdateCheck(),
-  );
+  await trayClick(running, "check-updates");
 }
 
 /** Closes the App window (the App keeps running in the tray) and waits until it is gone. */
-async function closeWindow(running: ElectronApplication): Promise<void> {
-  await running.evaluate(({ BrowserWindow }) => {
-    for (const window of BrowserWindow.getAllWindows()) window.close();
-  });
-  await expect.poll(async () => (await readSnapshot(running)).repairWindowOpen).toBe(false);
-  await expect.poll(() => running.windows().length).toBe(0);
-}
+const closeWindow = closeAppWindow;
 
 async function checkNow(window: Page): Promise<void> {
   await window.locator('[data-id="update-check"]').click();
@@ -159,6 +152,7 @@ test("nothing is requested at launch or while the page sits open and idle", asyn
   expect(requests).toHaveLength(0);
   // Opening it again, a reload and a window closed and opened never check either: only a click does.
   await window.reload();
+  await openTab(window, "settings");
   await expect(window.locator("#update-section")).toBeVisible();
   await closeWindow(running);
   const again = await openRepairPage(running);
@@ -466,10 +460,13 @@ test("the tray item with the window closed opens it with the check running; a la
   handler = (response) => sendJson(response, [releaseJson(tag)]);
   await trayCheck(running);
   const window = await running.firstWindow({ timeout: 45_000 });
+  // The tray item selects the Settings tab itself (where the update card is) and starts the check, in the one window.
+  await expectTabShown(window, "settings");
   await expect(window.locator("#update-section")).toContainText(tag.slice(1), { timeout: 30_000 });
   expect(requests).toHaveLength(1);
   // A reload shows the answer again and does not check again.
   await window.reload();
+  await openTab(window, "settings");
   await expect(window.locator("#update-section")).toContainText(tag.slice(1));
   await closeWindow(running);
   // Hours later in real life; here, past several polls' worth of time. The answer is shown, nothing is requested.
@@ -490,7 +487,7 @@ test("closing the window right after a tray click leaves no deferred request for
   await closeWindow(running);
   await expect.poll(() => requests.length, { timeout: 5_000 }).toBe(1);
   await new Promise((done) => setTimeout(done, 6_000));
-  // The window opens for another reason (the tray's 「開啟修復視窗」): it shows the answer and checks nothing.
+  // The window opens for another reason (the tray's "Open Work Intelligence…"): it shows the answer and checks nothing.
   const again = await openRepairPage(running);
   await expect(again.locator("#update-section")).toContainText(tag.slice(1));
   await again.waitForTimeout(6_000);
@@ -511,15 +508,21 @@ test("the release notes keep their scroll position across the page's polls", asy
   });
   const before = await box.evaluate((node) => node.scrollTop);
   expect(before).toBeGreaterThan(300);
-  // Two polls (every 4 s) rebuild the page; the box is a new element each time.
+  // A poll with unchanged state no longer redraws the panel (the page redraws only what changed), so the redraw is forced
+  // the way a user does it: a click on the card's "open page" button, which redraws the panel. The box is a new element.
   await window.evaluate(() => {
     (globalThis as { __notesBox?: Element | null }).__notesBox = document.querySelector(".update-notes");
   });
+  await window.locator('[data-id="update-page"]').click();
+  await expect
+    .poll(() =>
+      window.evaluate(
+        () => (globalThis as { __notesBox?: Element | null }).__notesBox !== document.querySelector(".update-notes"),
+      ),
+    )
+    .toBe(true);
+  // Two polls (every 4 s) pass on top of that: the position holds.
   await window.waitForTimeout(9_000);
-  const replaced = await window.evaluate(
-    () => (globalThis as { __notesBox?: Element | null }).__notesBox !== document.querySelector(".update-notes"),
-  );
-  expect(replaced).toBe(true);
   expect(await window.locator("#update-section .update-notes").evaluate((node) => node.scrollTop)).toBe(before);
   expect(requests).toHaveLength(1);
 });

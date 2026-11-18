@@ -1,10 +1,11 @@
 import { app } from "electron";
-import type { BackendSupervisor, ServiceOwnerState } from "@work-intelligence/desktop-core";
+import { isAppTab, type BackendSupervisor, type ServiceOwnerState } from "@work-intelligence/desktop-core";
 import type { DesktopPaths } from "./config.js";
 import type { Dashboard } from "./dashboard.js";
 import type { RepairWindow } from "./repair-window.js";
 import type { SecondInstance } from "./second-instance.js";
 import type { ShellState } from "./state.js";
+import type { ShellTray } from "./tray.js";
 
 /** What the test hook shows; present only when the App is not packaged. */
 interface TestSnapshot {
@@ -25,8 +26,8 @@ interface TestSnapshot {
   readonly logFile: string;
   /** No settings file yet: the first-run page is (or will be) shown instead of a start. */
   readonly needsSetup: boolean;
-  /** The page the App window shows (or would show when it opens). */
-  readonly view: string;
+  /** The tab the App window shows (or would show when it opens). */
+  readonly tab: string;
   /** How long the first-run detection took, once it ran. */
   readonly firstRunDetectionMs: number | null;
 }
@@ -44,6 +45,8 @@ export interface TestHookOptions {
   readonly openPortSettings: () => void;
   /** What the tray's 「檢查更新…」 item runs. */
   readonly openUpdateCheck: () => void;
+  /** The tray: its menu items as data, and what a click on one of them runs. */
+  readonly tray: Pick<ShellTray, "menu" | "activate">;
 }
 
 /**
@@ -67,15 +70,25 @@ export function installTestHook(options: TestHookOptions): void {
       notifications: [...options.notifications],
       logFile: options.paths.logFile,
       needsSetup: options.state.needsSetup,
-      view: options.state.view,
+      tab: options.state.tab,
       firstRunDetectionMs: options.firstRunDetectionMs() ?? null,
     };
   };
-  // The tray cannot be clicked in a test: the repair window as the tray's 「開啟修復視窗」 shows it, and the port section
+  // The tray cannot be clicked in a test: the window's Status tab (what the old tray 「修復…」 showed), and the port section
   // through the very handler the 「變更連接埠…」 item runs, and the update check through the one 「檢查更新…」 runs.
-  const openRepair = (): void => options.window.open("repair");
+  const openRepair = (): void => options.window.open("status");
   const openPortSettings = (): void => options.openPortSettings();
   const openUpdateCheck = (): void => options.openUpdateCheck();
+  // `openWindow()` is the tray's "Open Work Intelligence…" (the window asks main which tab); `openWindow("settings")` is an
+  // explicit request, as a route inside main makes it. An id that is not a tab is ignored.
+  const openWindow = (tab?: string): void => {
+    if (tab === undefined) options.window.open();
+    else if (isAppTab(tab)) options.window.open(tab);
+  };
+  // What the tray shows and what a click on an item does: the very list and handler the native menu uses.
+  const trayMenu = (): readonly { id: string; label: string; enabled: boolean }[] =>
+    options.tray.menu().map((item) => ({ id: item.id, label: item.label, enabled: item.enabled }));
+  const trayClick = (id: string): void => options.tray.activate(id);
   // A real backend cannot be made to print chosen text, so the diagnostics test adds the lines it wants to see handled
   // (a token, another user's path, a line of work content) to what the supervisor reports as the child's recent output.
   const planted: string[] = [];
@@ -88,6 +101,15 @@ export function installTestHook(options: TestHookOptions): void {
     planted.push(...lines);
   };
   Object.defineProperty(globalThis, "__workIntelligenceDesktopTest", {
-    value: Object.freeze({ snapshot: read, openRepair, openPortSettings, openUpdateCheck, plantOutput }),
+    value: Object.freeze({
+      snapshot: read,
+      openRepair,
+      openPortSettings,
+      openUpdateCheck,
+      openWindow,
+      trayMenu,
+      trayClick,
+      plantOutput,
+    }),
   });
 }

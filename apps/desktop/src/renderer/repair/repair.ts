@@ -1,24 +1,27 @@
-import type { RepairApi, RepairState, RepairActionId } from "@work-intelligence/desktop-core";
-import {
-  errorHintFor,
-  errorMessageFor,
-  formatMessage,
-  shellMessages,
-  type ShellMessages,
-} from "@work-intelligence/desktop-core/shell/i18n";
-import { diagnosticsMessages } from "@work-intelligence/desktop-core/shell/diagnostics-i18n";
-import { portMessages } from "@work-intelligence/desktop-core/shell/port-i18n";
-import { setupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
-import { updateMessages } from "@work-intelligence/desktop-core/shell/update-i18n";
+import type { AppTab, RepairApi, RepairState } from "@work-intelligence/desktop-core";
+import { APP_TABS, isAppTab } from "@work-intelligence/desktop-core/shell/app-tabs";
+import { shellMessages, type ShellLocale } from "@work-intelligence/desktop-core/shell/i18n";
+import { createActions } from "./actions.js";
+import type { ViewActions, ViewContext } from "./context.js";
+import { createChangeTracker } from "./diff.js";
+import { element, setLanguage } from "./dom.js";
+import { captureFocus, forgetFocus, restoreSnapshot } from "./focus.js";
 import { mountAgents } from "./agents-view.js";
-import { requestDiagnosticsPreview } from "./diagnostics-view.js";
-import { checkbox, element, fact, isChecked, section } from "./dom.js";
-import { portSection } from "./port-view.js";
-import { storageRiskNote } from "./storage-risk-card.js";
-import { legacyBlock } from "./legacy-block.js";
-import { legacyDisableControls, legacyDisableOutcome, type LegacyDisableHost } from "./legacy-disable-view.js";
+import { buildPanel, drawsFromRepairState } from "./panels.js";
 import { mountSetup } from "./setup-view.js";
-import { restoreNotesScroll, saveNotesScroll, updateSection } from "./update-view.js";
+import { createTabStrip, tabButtonId, tabPanelId, type TabStripModel } from "./tabs.js";
+import { followSystemTheme, LIGHT_SCHEME_QUERY } from "./theme.js";
+import { restoreNotesScroll, saveNotesScroll } from "./update-view.js";
+import { panelInputs } from "./view-model.js";
+
+/**
+ * The App window: one page with a tab strip (see tabs.ts) whose tabs main chooses and the page follows (`getTab`,
+ * `onSelectTab`); switching a tab never reloads the page. Only the open tab's panel has content. The Status, Data,
+ * Settings and Diagnostics panels are drawn here from the repair state, which is read every few seconds and redraws a panel
+ * only when what it is drawn from changed. The first-run and Agent views keep their own state and polling, and are moved
+ * in and out of their panel whole, so nothing they hold is lost on a tab change. Everything that must outlive a redraw
+ * (the running operation, the ticked storage-risk boxes, the diagnostics dialog in the overlay root) is kept out of the panels.
+ */
 
 declare global {
   interface Window {
@@ -26,380 +29,314 @@ declare global {
   }
 }
 
+interface MountedView {
+  readonly container: HTMLElement;
+  readonly refresh: () => void;
+  /** Stops the view's own polling for good (it is never mounted again). */
+  readonly unmount?: () => void;
+}
+
 const REFRESH_MS = 4000;
 
-const app = document.getElementById("app") as HTMLElement;
-const statusRegion = document.getElementById("status") as HTMLElement;
+// The theme comes before anything is drawn, so the first paint already has the right colours.
+followSystemTheme(document.documentElement, window.matchMedia(LIGHT_SCHEME_QUERY));
+
+const riskTicked = new Set<string>();
+const changes = createChangeTracker();
+const panels = new Map<AppTab, HTMLElement>();
+const mounted = new Map<AppTab, MountedView>();
+const scrolls = new Map<AppTab, number>();
+const tabStrip = createTabStrip((tab) => selectTab(tab));
+
+let api: RepairApi;
+let app: HTMLElement;
+let statusRegion: HTMLElement;
 let current: RepairState | undefined;
 let working = false;
-/** Candidates whose storage-risk checkbox is ticked: the page is rebuilt on every poll and must keep the tick. */
-const riskTicked = new Set<string>();
+let selected: AppTab = "status";
+let shown = false;
+let ready = false;
+let pendingTab: AppTab | undefined;
+let fixingTab = false;
+/** An explicit request (the tray item, the Dashboard's link) asked for the port input; any key or click of the user ends it. */
+let focusPending = false;
+/** The first run finished in this window and the user has not put its card away yet. */
+let setupFinished = false;
+let fallbackTabs: readonly AppTab[] = APP_TABS.filter((tab) => tab !== "setup");
+
+function setupInTabs(state: RepairState | undefined): boolean {
+  return state?.shell.tabs.includes("setup") ?? false;
+}
 
 function say(text: string): void {
   statusRegion.textContent = text;
 }
 
-function formatBackup(state: RepairState, messages: ShellMessages): string {
-  const { lastBackup } = state;
-  if (lastBackup.status === "none") return messages.quitNoBackup;
-  if (lastBackup.status === "unknown") return messages.quitUnknownBackup;
-  return new Intl.DateTimeFormat(state.locale, { dateStyle: "medium", timeStyle: "short" }).format(
-    new Date(lastBackup.at),
-  );
+function currentLocale(): ShellLocale {
+  return current?.locale ?? (navigator.language.startsWith("zh") ? "zh-TW" : "en");
 }
 
-function actionLabel(id: RepairActionId, messages: ShellMessages): string {
-  const labels: Record<RepairActionId, string> = {
-    "retry-start": messages.actionRetry,
-    "choose-database": messages.actionChooseDatabase,
-    "open-database-folder": messages.actionOpenDatabaseFolder,
-    "open-backups-folder": messages.actionOpenBackups,
-    "open-logs-folder": messages.actionOpenLogs,
-    "export-diagnostics": messages.actionExport,
-    "start-anyway": setupMessages(current?.locale ?? "en").legacyStartAnyway,
+function availableTabs(): readonly AppTab[] {
+  return current?.shell.tabs ?? fallbackTabs;
+}
+
+function stripModel(): TabStripModel {
+  const messages = shellMessages(currentLocale());
+  const tabs = availableTabs();
+  return {
+    tabs,
+    selected,
+    badges:
+      current?.shell.badges ??
+      (Object.fromEntries(APP_TABS.map((tab) => [tab, { attention: false, busy: false }])) as TabStripModel["badges"]),
+    labels: messages.tabLabels,
+    listLabel: messages.tabListLabel,
+    attentionLabel: messages.tabAttentionLabel,
+    busyLabel: messages.tabBusyLabel,
   };
-  return labels[id];
 }
 
-function button(label: string, id: string, enabled: boolean, onClick: () => void, primary = false): HTMLButtonElement {
-  const node = element("button", { text: label, className: primary ? "primary" : "" });
-  node.type = "button";
-  node.dataset.id = id;
-  node.disabled = !enabled || working;
-  node.addEventListener("click", onClick);
-  return node;
+function panelOf(tab: AppTab): HTMLElement {
+  const panel = panels.get(tab);
+  if (!panel) throw new Error(`no panel for ${tab}`);
+  return panel;
 }
 
-/** The card shown for a moment after a repair the user started worked: the database and, when known, its project count. */
-function recoveredCard(state: RepairState, recovered: NonNullable<RepairState["recovered"]>, messages: ShellMessages) {
-  const facts = element("dl", { className: "facts" });
-  facts.append(
-    ...fact(
-      messages.repairDatabaseHeading,
-      state.database.display === null
-        ? messages.repairNoDatabase
-        : element("span", { className: "path", text: state.database.display }),
-    ),
-  );
-  if (recovered.projectCount !== undefined) {
-    facts.append(
-      ...fact(
-        messages.repairProjectCountLabel,
-        formatMessage(messages.repairProjectCount, { count: String(recovered.projectCount) }),
-      ),
-    );
-  }
-  const card = section(
-    messages.repairRecovered,
-    element("p", { className: "hint", text: messages.repairRecoveredHint }),
-    facts,
-  );
-  card.id = "recovered";
-  card.classList.add("success");
-  return card;
+/** After the diagnostics dialog closed and its button was redrawn: back to that button, or else to the tab. */
+function returnFocus(): void {
+  const target = panelOf(selected).querySelector<HTMLElement>('[data-id="export-diagnostics"]');
+  if (target) target.focus();
+  else tabStrip.focusTab(selected);
 }
 
-function render(state: RepairState): void {
-  const messages = shellMessages(state.locale);
-  const focusedId = document.activeElement instanceof HTMLElement ? document.activeElement.dataset.id : undefined;
-  document.documentElement.lang = state.locale === "zh-TW" ? "zh-Hant" : "en";
-  document.title = messages.repairWindowTitle;
+const actions = createActions({
+  get api() {
+    return api;
+  },
+  current: () => current,
+  isWorking: () => working,
+  setWorking: (value) => {
+    working = value;
+  },
+  say,
+  rerender: () => renderPanel(true),
+  refresh: () => refresh(),
+  riskTicked,
+  returnFocus,
+});
 
-  if (state.recovered) {
-    app.replaceChildren(
-      element("h1", { text: messages.repairHeading }),
-      recoveredCard(state, state.recovered, messages),
-    );
-    app.setAttribute("aria-busy", "false");
-    return;
-  }
-
-  const facts = element("dl", { className: "facts" });
-  facts.append(
-    ...fact(messages.ownerLabel, messages.owners[state.owner] ?? state.owner),
-    ...fact(messages.backendLabel, messages.backends[state.backend] ?? state.backend),
-  );
-
-  const databaseFacts = element("dl", { className: "facts" });
-  databaseFacts.append(
-    ...fact(
-      messages.repairDatabaseHeading,
-      state.database.display === null
-        ? messages.repairNoDatabase
-        : element("span", { className: "path", text: state.database.display }),
-    ),
-    ...fact(messages.databaseStatusLabel, messages.databaseStatuses[state.database.status] ?? state.database.status),
-    ...fact(messages.lastBackupLabel, formatBackup(state, messages)),
-  );
-
-  const databaseCard: HTMLElement[] = [databaseFacts];
-  if (state.database.storageRisk) {
-    databaseCard.push(storageRiskNote(state.database.storageRisk));
-    if (state.database.storageRisk.canCopyToLocal) databaseCard.push(copyButton(state, undefined));
-  }
-
-  const errors = element("ul", { className: "list" });
-  if (state.recentErrors.length === 0) errors.append(element("li", { text: messages.repairNoErrors }));
-  const startAnywayAvailable = state.actions.some((action) => action.id === "start-anyway");
-  for (const entry of [...state.recentErrors].reverse()) {
-    const message = errorMessageFor(messages, entry.code);
-    errors.append(
-      element("li", { className: "error-item" }, [
-        element("strong", { text: message.title }),
-        element("div", { className: "hint", text: errorHintFor(messages, entry.code, startAnywayAvailable) }),
-        element("div", { className: "error-code", text: entry.code }),
-      ]),
-    );
-  }
-
-  const actions = element("div", { className: "actions" });
-  for (const action of state.actions) {
-    actions.append(
-      button(
-        actionLabel(action.id, messages),
-        action.id,
-        action.enabled,
-        () => void perform(action.id, state),
-        action.id === "retry-start" || action.id === "start-anyway",
-      ),
-    );
-  }
-
-  const blocks: Node[] = [
-    element("h1", { text: messages.repairHeading }),
-    element("p", { className: "intro", text: messages.repairIntro }),
-    ...legacyCards(state),
-    section(messages.repairServiceHeading, facts),
-    section(messages.repairDatabaseHeading, ...databaseCard),
-    section(messages.repairErrorsHeading, errors),
-    ...portCards(state),
-    ...updateCards(state),
-  ];
-  if (state.candidates.length > 0) {
-    const list = element("ul", { className: "list" });
-    for (const candidate of state.candidates) {
-      // Only a database whose read-only preview said "ok" can be confirmed; one that needs a schema update only through
-      // the button that says so: pressing it is the user's consent.
-      const label = candidate.needsMigration ? messages.repairConfirmMigrate : messages.repairConfirmCandidate;
-      const parts: (Node | string)[] = [
-        element("span", { className: "path", text: candidate.display }),
-        " ",
-        element("span", {
-          className: "hint",
-          // A preview that could not run says why (the runtime is missing, the check timed out, ...).
-          text: candidate.errorCode
-            ? errorMessageFor(messages, candidate.errorCode).title
-            : (messages.databaseStatuses[candidate.status] ?? candidate.status),
-        }),
-        " ",
-      ];
-      const risk = candidate.storageRisk;
-      if (risk) parts.push(storageRiskNote(risk));
-      if (candidate.canConfirm) {
-        if (candidate.needsMigration)
-          parts.push(element("div", { className: "hint", text: messages.repairMigrationNote }));
-        // A risky file is confirmed only after the checkbox that states why; main checks it again.
-        const consentText = risk?.consent;
-        const confirmButton = button(
-          label,
-          `candidate:${candidate.id}`,
-          consentText === undefined || riskTicked.has(candidate.id),
-          () => void confirm(candidate.id, candidate.needsMigration, consentText !== undefined),
-        );
-        if (consentText !== undefined) {
-          const box = checkbox(consentText, `risk:${candidate.id}`, riskTicked.has(candidate.id), !working);
-          box.querySelector("input")?.addEventListener("change", (event) => {
-            const ticked = (event.target as HTMLInputElement).checked;
-            if (ticked) riskTicked.add(candidate.id);
-            else riskTicked.delete(candidate.id);
-            confirmButton.disabled = working || !ticked;
-          });
-          parts.push(box);
-        }
-        parts.push(confirmButton);
-      } else if (!risk) {
-        parts.push(element("div", { className: "hint", text: messages.repairCandidateNotUsable }));
-      }
-      if (risk?.canCopyToLocal) parts.push(copyButton(state, candidate.id));
-      list.append(element("li", {}, parts));
-    }
-    blocks.push(section(messages.repairCandidates, list));
-  }
-  blocks.push(section(messages.repairActionsHeading, actions));
-
-  // The poll rebuilds the page: the release notes box is new each time and is put back where the reader had scrolled it.
-  saveNotesScroll(app);
-  app.replaceChildren(...blocks);
-  restoreNotesScroll(app);
-  app.setAttribute("aria-busy", "false");
-  if (focusedId) app.querySelector<HTMLElement>(`[data-id="${CSS.escape(focusedId)}"]`)?.focus();
-}
-
-/** 「複製到本機磁碟並改用」 for a candidate, or (no id) for the App's own database. */
-function copyButton(state: RepairState, candidateId: string | undefined): HTMLButtonElement {
-  return button(
-    setupMessages(state.locale).storageCopyToLocal,
-    candidateId === undefined ? "copy-to-local" : `copy-to-local:${candidateId}`,
-    true,
-    () => void copyToLocal(candidateId),
-  );
-}
-
-/** The 「連接埠」 card: always there, so a port that cannot start can be changed from here. */
-function portCards(state: RepairState): Node[] {
-  if (!state.port) return [];
-  return [
-    portSection(
-      {
-        api: window.workIntelligenceRepair,
-        text: portMessages(state.locale),
-        working,
-        rerender: () => {
-          if (current) render(current);
-        },
-        refresh: () => void refresh(),
-      },
-      state.port,
-    ),
-  ];
-}
-
-/** The 「更新」 card: always there; it shows what main reports, and a check starts only from a click (its button or the tray item). */
-function updateCards(state: RepairState): Node[] {
-  if (!state.update) return [];
-  return [
-    updateSection(
-      {
-        api: window.workIntelligenceRepair,
-        text: updateMessages(state.locale),
-        locale: state.locale,
-        rerender: () => {
-          if (current) render(current);
-        },
-        refresh: () => void refresh(),
-      },
-      state.update,
-    ),
-  ];
-}
-
-/** The old-service card with 「停用舊的登入服務…」, or after a disable only its outcome. */
-function legacyCards(state: RepairState): Node[] {
-  const host: LegacyDisableHost = {
-    api: window.workIntelligenceRepair,
-    text: setupMessages(state.locale),
-    rerender: () => {
-      if (current) render(current);
+function viewActions(): ViewActions {
+  return {
+    api,
+    perform: (id) => void actions.perform(id),
+    confirm: (id, migrate, consent) => void actions.confirm(id, migrate, consent),
+    copyToLocal: (id) => void actions.copyToLocal(id),
+    openTab: (tab) => {
+      selectTab(tab);
+      tabStrip.focusTab(tab);
     },
+    openAgents: () => {
+      setupFinished = false;
+      viewActions().openTab("agent");
+    },
+    dismissFinished: () => {
+      setupFinished = false;
+      renderPanel(true);
+    },
+    rerender: () => renderPanel(true),
     refresh: () => void refresh(),
   };
-  if (state.legacyService) {
-    const controls = legacyDisableControls(host, state.legacyService.canDisable, !working);
-    return [legacyBlock(host.api, host.text, state.legacyService, controls)];
-  }
-  const outcome = legacyDisableOutcome(host);
-  return outcome ? [outcome] : [];
 }
 
-function failureText(messages: ShellMessages, errorCode: string | undefined): string {
-  return errorCode ? errorMessageFor(messages, errorCode).title : messages.repairFailedGeneric;
+/** Draws the open panel from the last state: only when forced or when what it is drawn from changed. */
+function renderPanel(force: boolean): void {
+  const state = current;
+  const tab = selected;
+  if (!state || !shown || !drawsFromRepairState(tab)) return;
+  const finished = setupFinished && tab === "status";
+  const changed = changes.changed(tab, { inputs: panelInputs(tab, state), busy: working, finished });
+  if (!force && !changed) return;
+  const panel = panelOf(tab);
+  const context: ViewContext = {
+    state,
+    messages: shellMessages(state.locale),
+    busy: working,
+    riskTicked,
+    setupFinished: finished,
+    focusPort: focusPending,
+    act: viewActions(),
+  };
+  const focus = captureFocus(panel);
+  const top = app.scrollTop;
+  saveNotesScroll(panel);
+  panel.replaceChildren(...buildPanel(tab, context));
+  restoreNotesScroll(panel);
+  app.scrollTop = top;
+  restoreSnapshot(panel, focus);
+  // The request for the port input was answered by this drawing: it is not asked again.
+  if (tab === "settings" && state.port?.focus) focusPending = false;
+  app.setAttribute("aria-busy", "false");
 }
 
-async function guarded(task: (messages: ShellMessages) => Promise<void>): Promise<void> {
-  if (!current || working) return;
-  const messages = shellMessages(current.locale);
-  working = true;
-  say(messages.repairBusy);
-  render(current);
-  try {
-    await task(messages);
-  } catch {
-    say(messages.repairFailedGeneric);
-  } finally {
-    working = false;
-    await refresh();
-  }
-}
-
-/** The answer to a request that did not succeed: a restart in progress is shown as such, never as an error. */
-function failedAnswer(
-  messages: ShellMessages,
-  result: { readonly reason: string; readonly errorCode?: string },
-): string {
-  return result.reason === "busy" ? messages.repairRestarting : failureText(messages, result.errorCode);
-}
-
-async function confirm(candidateId: string, allowMigration: boolean, riskConsent: boolean): Promise<void> {
-  await guarded(async (messages) => {
-    const result = await window.workIntelligenceRepair.confirmDatabase(
-      candidateId,
-      allowMigration,
-      riskConsent ? isChecked(app, `risk:${candidateId}`) : undefined,
-    );
-    if (result.ok) riskTicked.delete(candidateId);
-    say(result.ok ? messages.repairDone : (result.message ?? failedAnswer(messages, result)));
-  });
-}
-
-async function copyToLocal(candidateId: string | undefined): Promise<void> {
-  await guarded(async (messages) => {
-    const text = setupMessages(current?.locale ?? "en");
-    say(text.copyWorking);
-    const result = await window.workIntelligenceRepair.copyToLocal(candidateId);
-    if (result.ok) say(text.copyDone);
-    else say(result.reason === "cancelled" ? "" : (result.message ?? failedAnswer(messages, result)));
-  });
-}
-
-async function perform(id: RepairActionId, state: RepairState): Promise<void> {
-  const api = window.workIntelligenceRepair;
-  await guarded(async (messages) => {
-    if (id === "start-anyway") {
-      // Starting next to the old login service is the user's explicit choice, asked once more in plain words.
-      if (!window.confirm(setupMessages(state.locale).legacyStartAnywayConfirm)) return;
-      const result = await api.startAnyway(state.retryOperationId);
-      say(result.ok ? messages.repairDone : failedAnswer(messages, result));
-    } else if (id === "retry-start") {
-      const result = await api.retryStart(state.retryOperationId);
-      say(result.ok ? messages.repairDone : failedAnswer(messages, result));
-    } else if (id === "choose-database") {
-      const result = await api.chooseDatabase();
-      say(result.ok || result.reason === "cancelled" ? "" : (result.message ?? messages.repairFailedGeneric));
-    } else if (id === "export-diagnostics") {
-      // The panel opens over the page and stays after this action ends; saving happens inside it.
-      await requestDiagnosticsPreview({
-        api,
-        text: diagnosticsMessages(state.locale),
-        say,
-        returnFocus: () => app.querySelector<HTMLElement>('[data-id="export-diagnostics"]')?.focus(),
-      });
+/** Puts a tab's panel in the page. The first-run and Agent views are created once and moved back in afterwards. */
+function enterPanel(tab: AppTab): void {
+  const panel = panelOf(tab);
+  panel.hidden = false;
+  if (drawsFromRepairState(tab)) {
+    renderPanel(true);
+  } else {
+    const view = mounted.get(tab);
+    if (view) {
+      panel.replaceChildren(view.container);
+      view.refresh();
     } else {
-      const target = id === "open-database-folder" ? "database" : id === "open-backups-folder" ? "backups" : "logs";
-      const result = await api.openFolder(target);
-      say(result.ok ? "" : messages.repairFailedGeneric);
+      const container = element("div", { className: "view-host" });
+      panel.replaceChildren(container);
+      if (tab === "setup") {
+        const handle = mountSetup(container, say, api);
+        mounted.set(tab, { container, refresh: handle.refresh, unmount: handle.unmount });
+      } else {
+        mounted.set(tab, { container, refresh: mountAgents(container, say, api).refresh });
+      }
     }
-  });
+    app.setAttribute("aria-busy", "false");
+  }
+  app.scrollTop = scrolls.get(tab) ?? 0;
+}
+
+/** Takes a tab's panel out of the page; the first-run and Agent views stay alive in `mounted`. */
+function leavePanel(tab: AppTab): void {
+  const panel = panelOf(tab);
+  scrolls.set(tab, app.scrollTop);
+  panel.hidden = true;
+  panel.replaceChildren();
+  changes.forget(tab);
+}
+
+function selectTab(tab: AppTab, remember = true): void {
+  if (!isAppTab(tab) || !availableTabs().includes(tab)) return;
+  if (shown && tab === selected) return;
+  // Focus inside the panel that goes away, or on the tab strip, follows to the new tab; focus elsewhere is left alone.
+  const active = document.activeElement;
+  const carryFocus =
+    shown &&
+    active instanceof HTMLElement &&
+    active !== document.body &&
+    (panelOf(selected).contains(active) || tabStrip.element.contains(active));
+  if (shown) {
+    forgetFocus(panelOf(selected));
+    leavePanel(selected);
+  }
+  selected = tab;
+  shown = true;
+  // What the page said about the last tab (a status line) is not about this one.
+  say("");
+  tabStrip.update(stripModel());
+  enterPanel(tab);
+  if (carryFocus) tabStrip.focusTab(tab);
+  if (remember) void api.rememberTab(tab).catch(() => undefined);
+}
+
+/** The tab on screen is gone (the first run finished): main says which one to show now. */
+async function chooseAnotherTab(): Promise<void> {
+  if (fixingTab) return;
+  fixingTab = true;
+  const selection = await api.getTab().catch(() => undefined);
+  fixingTab = false;
+  const next = selection?.tab ?? availableTabs()[0];
+  if (next && next !== selected) selectTab(next, false);
+}
+
+/** The Setup tab went away in this window (the settings were committed): its view is put away and Status carries on. */
+function setupFinishedHere(): void {
+  if (selected === "setup" && availableTabs().includes("status")) selectTab("status", false);
+  setupFinished = true;
+  mounted.get("setup")?.unmount?.();
+  mounted.delete("setup");
+}
+
+/** The page language, the window title and the hidden page heading, in the state's language. */
+function applyLocale(locale: ShellLocale): void {
+  const { appName } = shellMessages(locale);
+  setLanguage(locale);
+  document.title = appName;
+  const title = document.getElementById("app-title");
+  if (title && title.textContent !== appName) title.textContent = appName;
+}
+
+function applyState(state: RepairState): void {
+  const hadSetup = setupInTabs(current);
+  current = state;
+  applyLocale(state.locale);
+  if (hadSetup && !setupInTabs(state)) setupFinishedHere();
+  if (!availableTabs().includes(selected)) void chooseAnotherTab();
+  tabStrip.update(stripModel());
+  // The tray item or the Dashboard's link asked for the port section: it is on Settings, which comes forward for it.
+  if (state.port?.focus) {
+    focusPending = true;
+    if (selected !== "settings") selectTab("settings");
+  }
+  if (!working) renderPanel(false);
 }
 
 async function refresh(): Promise<void> {
   try {
-    current = await window.workIntelligenceRepair.getState();
-    if (!working) render(current);
+    applyState(await api.getState());
   } catch {
-    if (current) say(formatMessage(shellMessages(current.locale).repairFailedGeneric, {}));
+    if (current) say(shellMessages(current.locale).repairFailedGeneric);
   }
 }
 
-/** Main decides which page this window shows: repair, first-run setup or the Agent page. */
-async function mount(): Promise<void> {
-  const api = window.workIntelligenceRepair;
-  const view = await api.getView().catch(() => "repair" as const);
-  if (view === "setup") return mountSetup(app, say, api);
-  if (view === "agents") return mountAgents(app, say, api);
+/** Builds the page's frame: the tab strip and one empty panel per tab (only the open one is shown and filled). */
+function buildFrame(): void {
+  app = document.getElementById("app") as HTMLElement;
+  statusRegion = document.getElementById("status") as HTMLElement;
+  (document.getElementById("tabs") as HTMLElement).append(tabStrip.element);
+  for (const tab of APP_TABS) {
+    const panel = element("div", { className: "panel" });
+    panel.id = tabPanelId(tab);
+    panel.setAttribute("role", "tabpanel");
+    panel.setAttribute("aria-labelledby", tabButtonId(tab));
+    panel.tabIndex = -1;
+    panel.hidden = true;
+    panels.set(tab, panel);
+    app.append(panel);
+  }
+}
+
+/** Main decides which tab this window shows and tells the page when it changes; the page follows and never reloads. */
+async function start(): Promise<void> {
+  api = window.workIntelligenceRepair;
+  buildFrame();
+  // The user moving the keyboard or the pointer ends a pending request for the port input: a poll never takes the focus after that.
+  for (const type of ["keydown", "pointerdown"]) document.addEventListener(type, () => (focusPending = false), true);
+  api.onSelectTab((tab) => {
+    if (!isAppTab(tab)) return;
+    if (ready) {
+      selectTab(tab);
+      // A pending request (the port input) or a new database candidate comes with the next state: read it now, not in 4 s.
+      void refresh();
+    } else pendingTab = tab;
+  });
   // Main tells the page when an update check starts or ends (the tray item starts one without the page), so it shows at once.
   api.onUpdateChanged(() => void refresh());
-  void refresh();
+  const [selection, state] = await Promise.all([
+    api.getTab().catch(() => undefined),
+    api.getState().catch(() => undefined),
+  ]);
+  if (selection) fallbackTabs = selection.tabs;
+  if (state) {
+    current = state;
+    applyLocale(state.locale);
+  }
+  ready = true;
+  // The first drawing may already be the Settings tab with the port request in the state: the flag comes first.
+  focusPending = state?.port?.focus === true;
+  selectTab(pendingTab ?? selection?.tab ?? availableTabs()[0] ?? "status", false);
+  app.setAttribute("aria-busy", "false");
+  if (focusPending && selected !== "settings") selectTab("settings");
   setInterval(() => void refresh(), REFRESH_MS);
 }
 
-void mount();
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => void start());
+else void start();

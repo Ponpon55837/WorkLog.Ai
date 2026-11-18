@@ -18,6 +18,8 @@ const TEST_ENVIRONMENT = {
   failUserData: "WORK_INTELLIGENCE_DESKTOP_TEST_FAIL_USER_DATA",
   /** Writes a native error box to stderr instead of showing it, so a test is not left waiting on a modal. */
   recordErrorBox: "WORK_INTELLIGENCE_DESKTOP_TEST_RECORD_ERROR_BOX",
+  /** Turns the window's developer tools off in an unpackaged build, as they are in a packaged App (the smoke test proves the setting). */
+  devToolsOff: "WORK_INTELLIGENCE_DESKTOP_TEST_DEVTOOLS_OFF",
   /** Milliseconds the success card stays before the repair window closes (default 1500). */
   repairSuccessDelayMs: "WORK_INTELLIGENCE_DESKTOP_TEST_REPAIR_SUCCESS_DELAY_MS",
   /** Answers the native 「複製到本機磁碟並改用」 confirmation with 「複製並改用」 instead of showing it. */

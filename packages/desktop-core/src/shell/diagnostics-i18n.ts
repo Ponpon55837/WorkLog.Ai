@@ -4,6 +4,8 @@ import { formatMessage, type ShellLocale } from "./i18n.js";
 /** The strings of the diagnostics preview on the repair page (DT-19). */
 export interface DiagnosticsMessages {
   readonly heading: string;
+  /** The Diagnostics tab: what the export is for and that nothing leaves the computer. */
+  readonly tabIntro: string;
   /** Says what the text is and that nothing is sent anywhere. */
   readonly intro: string;
   /** The accessible name of the read-only text box. */
@@ -29,6 +31,8 @@ export interface DiagnosticsMessages {
 
 const zhTW: DiagnosticsMessages = {
   heading: "診斷資訊預覽",
+  tabIntro:
+    "需要協助時，可匯出一份診斷檔案。儲存前會先顯示完整內容，並已遮蔽個人路徑、授權碼與電子郵件；App 不會上傳或自動傳送這份檔案。",
   intro:
     "以下是將儲存的完整內容，已遮蔽個人路徑、授權碼與電子郵件，且不含工作內容。App 不會上傳這份檔案，也不會自動傳送給任何人。",
   textLabel: "診斷資訊內容（唯讀）",
@@ -48,6 +52,8 @@ const zhTW: DiagnosticsMessages = {
 
 const en: DiagnosticsMessages = {
   heading: "Diagnostics preview",
+  tabIntro:
+    "When you need help, export a diagnostics file. The full content is shown before anything is saved, with personal paths, auth codes and e-mail addresses masked; the App does not upload or send the file anywhere.",
   intro:
     "This is the full content that will be saved, with personal paths, auth codes and e-mail addresses masked and no work content. The App does not upload this file or send it to anyone.",
   textLabel: "Diagnostics content (read-only)",

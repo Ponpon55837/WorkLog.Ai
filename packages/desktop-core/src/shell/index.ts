@@ -37,3 +37,6 @@ export * from "./copy-to-local.js";
 export * from "./storage-risk-view.js";
 export * from "./storage-start-policy.js";
 export * from "./update-i18n.js";
+export * from "./app-tabs.js";
+export * from "./app-menu.js";
+export * from "./window-bounds.js";

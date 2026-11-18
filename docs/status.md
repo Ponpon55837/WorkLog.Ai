@@ -6,7 +6,23 @@
 
 - 最後更新：2026-11-18
 
-## 1.6.54（進行中）
+## 1.6.55（進行中）
+
+桌面 App 單一視窗與分頁、設計 token 共用、無障礙與首次設定完成卡片：
+
+- 單一視窗與分頁：Status、Agent、Settings、Data、Diagnostics；Setup 只在需要首次設定時出現。切換設定頁不再需要工作列選單。工作列項目與 `wi-repair://` 連結只聚焦同一個視窗。
+- 工作列選單縮短；Windows 與 Linux 沒有應用程式選單，macOS 只保留 App、Edit 與 Window 選單（Cmd+W 關閉視窗，不結束 App）。
+- 設計 token 移到 `packages/ui-tokens`，與 Web 版共用；視窗即時跟隨系統淺色與深色模式。
+- 無障礙：WAI-ARIA tablist、方向鍵與 roving tabindex、可見焦點、分頁忙碌徽章；切換分頁後狀態保留；4 秒輪詢不搶走焦點。
+- 首次設定完成後，Status 分頁顯示一次性的「設定完成」卡片。
+- CI：Desktop smoke 在 Windows、macOS 與 Linux 全部通過（PR #385，head 見 PR）。Windows 11 與 macOS 實機驗收尚未進行，125% 與 150% DPI 未實測，仍為**待實機驗收**。
+- 量測：合計 gzip 28,859 → 34,758 B（+20.4%），增加來自功能本身；Windows 修復視窗開啟時間 1543 → 1715 ms（+11%）。效能門檻未變更。
+
+沒有 schema 變更（33），沒有 migration。詳見 [1.6.55 更新說明](releases/1.6.55.md)。
+
+接下來：1.6.55 實機驗收（Windows 11、macOS、DPI）；Agent 分頁在設定完成前可選取的行為待確認。
+
+## 1.6.54（已完成，已合併）
 
 診斷匯出、舊 runtime 延後清理、Windows SQLite 停滯量測、匯入預覽與連接埠變更，以及 hook 與 MCP 狀態辨識：
 

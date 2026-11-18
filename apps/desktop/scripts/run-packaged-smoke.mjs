@@ -37,6 +37,8 @@ const APP_SPECS = [
   "launcher.spec.ts",
   "runtime-sqlite.spec.ts",
   "performance.spec.ts",
+  // Shows the page files of the packaged asar in the repository's own Electron binary (the packaged App cannot be driven).
+  "screenshots.spec.ts",
 ];
 const LIFECYCLE_SPEC = "lifecycle.spec.ts";
 
@@ -152,7 +154,10 @@ function playwright(environment, specs) {
   ];
   const needsDisplay = process.platform === "linux" && !process.env.DISPLAY;
   return needsDisplay
-    ? run("xvfb-run", ["-a", process.execPath, ...playwrightArguments], { cwd: desktopRoot, env: environment })
+    ? run("xvfb-run", ["-a", "-s", "-screen 0 1280x1024x24", process.execPath, ...playwrightArguments], {
+        cwd: desktopRoot,
+        env: environment,
+      })
     : run(process.execPath, playwrightArguments, { cwd: desktopRoot, env: environment });
 }
 
@@ -180,6 +185,10 @@ function runtimeStress(executable) {
 }
 
 async function main() {
+  // The screenshot spec runs the page in a plain Electron (the packaged App is closed to Playwright); a cached binary
+  // makes this a no-op, otherwise it is the one download.
+  const ensured = run(process.execPath, [join(here, "ensure-electron.mjs")]);
+  if (ensured !== 0) return ensured;
   const app = prepare();
   try {
     const environment = {

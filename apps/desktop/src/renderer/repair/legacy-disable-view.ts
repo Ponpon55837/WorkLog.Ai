@@ -1,6 +1,6 @@
 import type { LegacyDisableConfirmResult, LegacyDisablePreview, RepairApi } from "@work-intelligence/desktop-core";
 import type { SetupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
-import { button, element } from "./dom.js";
+import { actions, button, element } from "./dom.js";
 
 /**
  * 「停用舊的登入服務…」 inside the old-service card: a read-only preview in plain words (the commands only under
@@ -105,19 +105,19 @@ function previewPanel(host: LegacyDisableHost, preview: LegacyDisablePreview): H
     ...lines.map((line) => element("p", { text: line })),
     ...(preview.busy ? [element("p", { className: "warning-text", text: text.legacyDisableBusy })] : []),
     element("details", { className: "advanced" }, [element("summary", { text: text.legacyDisableSteps }), steps]),
-    element("div", { className: "actions" }, [
+    actions(
       button(
         preview.busy ? text.legacyDisableConfirmBusy : text.legacyDisableConfirm,
         "legacy-disable-confirm",
         true,
         () => void confirm(host, preview),
-        true,
+        "danger",
       ),
       button(text.legacyDisableCancel, "legacy-disable-cancel", true, () => {
         phase = { kind: "idle" };
         host.rerender();
       }),
-    ]),
+    ),
   ]);
   panel.id = "legacy-disable";
   return panel;
@@ -128,11 +128,7 @@ function resultPanel(host: LegacyDisableHost, result: Extract<Phase, { kind: "re
     element("p", { className: result.ok ? "success-text" : "warning-text", text: result.message }),
   ]);
   if (result.offerStart) {
-    panel.append(
-      element("div", { className: "actions" }, [
-        button(host.text.legacyStartNow, "legacy-start-now", true, () => void startNow(host), true),
-      ]),
-    );
+    panel.append(actions(button(host.text.legacyStartNow, "legacy-start-now", true, () => void startNow(host), true)));
   }
   panel.id = "legacy-disable-result";
   return panel;
@@ -144,15 +140,16 @@ export function legacyDisableControls(host: LegacyDisableHost, canDisable: boole
   if (phase.kind === "result") return [resultPanel(host, phase)];
   if (!canDisable) return [];
   return [
-    element("div", { className: "actions" }, [
+    actions(
       button(host.text.legacyDisable, "legacy-disable", enabled && phase.kind === "idle", () => void openPreview(host)),
-    ]),
+    ),
   ];
 }
 
 /** After a disable the card is gone (no old service any more): the outcome and 「立即啟動」 stay on their own. */
 export function legacyDisableOutcome(host: LegacyDisableHost): HTMLElement | null {
   if (phase.kind !== "result") return null;
-  const card = element("section", { className: "card" }, [resultPanel(host, phase)]);
-  return card;
+  return element("section", { className: "card" }, [
+    element("div", { className: "card-body" }, [resultPanel(host, phase)]),
+  ]);
 }

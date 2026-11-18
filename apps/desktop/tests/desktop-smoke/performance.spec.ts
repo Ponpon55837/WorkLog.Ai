@@ -160,9 +160,29 @@ for (let run = 1; run <= PERF_RUNS; run += 1) {
     const started = performance.now();
     app = await launchApp(sandbox);
     const window = await app.firstWindow({ timeout: STEP_TIMEOUT_MS });
-    await window.locator('[data-id="choose-database"]').waitFor({ state: "visible", timeout: STEP_TIMEOUT_MS });
+    // The tabbed window opens on Status for a missing database: the metric ends when its blocking card is on screen (the
+    // same "window opened and showing the repair content" the Data tab's choose button used to mark).
+    await window.getByText("DB_MISSING").waitFor({ state: "visible", timeout: STEP_TIMEOUT_MS });
     samples.repairWindowMs.push(performance.now() - started);
   });
+}
+
+/** The nearest-rank 95th percentile (with three runs it is the slowest one). */
+function p95(values: readonly number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] ?? 0;
+}
+
+/** One compact line for the job log; the numbers are the ones the gates use, only rounded for reading. */
+function perfSummary(results: Record<Metric, MetricResult>): string {
+  const mib = (bytes: number): string => (bytes / (1024 * 1024)).toFixed(1);
+  const repair = results.repairWindowMs;
+  return (
+    `[perf summary] ${process.platform} ` +
+    `repairWindowMs median=${repair.median} p95=${p95(repair.samples)} (gate=${repair.gate}) | ` +
+    `coldStartMs median=${results.coldStartMs.median} | quitMs median=${results.quitMs.median} | ` +
+    `idleRssMiB median=${mib(results.mainMemoryBytes.median)} backend=${mib(results.backendMemoryBytes.median)}`
+  );
 }
 
 test("the medians stay inside the gates and are written for CI", () => {
@@ -194,6 +214,7 @@ test("the medians stay inside the gates and are written for CI", () => {
   writeFileSync(join(resultsDirectory, `desktop-perf-${process.platform}.json`), json);
   // Also in the log: the CI artifact is not always reachable, the job log is.
   process.stdout.write(`desktop-perf-${process.platform}.json\n${json}`);
+  process.stdout.write(`${perfSummary(results)}\n`);
   for (const [metric, result] of Object.entries(results)) {
     expect(result.median, `${metric} median ${result.median} ${result.unit} (gate ${result.gate})`).toBeLessThanOrEqual(
       result.gate,

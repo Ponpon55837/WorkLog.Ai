@@ -5,7 +5,7 @@
  *   dist/main/index.mjs            main process, ESM (Electron 45 loads an ESM main; `electron` stays external, everything else
  *                                  is bundled so the shell does not depend on node_modules at run time)
  *   dist/preload/repair.cjs        sandboxed preload, CommonJS (a sandboxed preload cannot be ESM and may only require "electron")
- *   dist/renderer/repair/          repair page: index.html and repair.css copied, repair.js bundled as an IIFE
+ *   dist/renderer/repair/          repair page: index.html, repair.css and the shared tokens.css (both minified in a production build), repair.js bundled as an IIFE
  *   dist/skills/work-intelligence/SKILL.md   the canonical Agent skill (.agents/skills/work-intelligence), which the Agent page
  *                                  installs for Codex and Claude Code; a packaged App reads its extraResources copy instead
  *   dist/assets/tray*.png          tray icons, copies of build/tray.png and build/trayTemplate*.png (rendered by generate-icons.mjs)
@@ -17,11 +17,11 @@
  *   --bundled-runtime-sha256 <hex>    SHA-256 of the bundled runtime's runtime-manifest.json, baked into the main bundle
  *                                     as `__WI_BUNDLED_RUNTIME_SHA256__`; required with --production.
  */
-import { cpSync, mkdirSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { build } from "esbuild";
+import { build, transformSync } from "esbuild";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = join(root, "dist");
@@ -89,7 +89,29 @@ await build({
 });
 
 cpSync(join(root, "src/renderer/repair/index.html"), join(dist, "renderer/repair/index.html"));
-cpSync(join(root, "src/renderer/repair/repair.css"), join(dist, "renderer/repair/repair.css"));
+
+/**
+ * Copies a stylesheet into the page folder. The release bundle passes it through esbuild's CSS minifier (same rules, fewer
+ * bytes: comments and whitespace go, custom properties and selectors keep their names); the smoke build copies it as it is
+ * so a failure can be debugged against the source.
+ */
+function copyStylesheet(source, target) {
+  if (!production) {
+    cpSync(source, target);
+    return;
+  }
+  const { code } = transformSync(readFileSync(source, "utf8"), {
+    loader: "css",
+    minify: true,
+    target: "chrome140",
+    legalComments: "none",
+  });
+  writeFileSync(target, code);
+}
+
+copyStylesheet(join(root, "src/renderer/repair/repair.css"), join(dist, "renderer/repair/repair.css"));
+// The design tokens shared with the web UI (packages/ui-tokens); the page loads them before repair.css.
+copyStylesheet(join(root, "..", "..", "packages", "ui-tokens", "tokens.css"), join(dist, "renderer/repair/tokens.css"));
 mkdirSync(join(dist, "skills", "work-intelligence"), { recursive: true });
 cpSync(
   join(root, "..", "..", ".agents", "skills", "work-intelligence", "SKILL.md"),

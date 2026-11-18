@@ -1,6 +1,6 @@
 import type { CopyCommandTarget, RepairApi } from "@work-intelligence/desktop-core";
 import type { SetupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
-import { button, element } from "./dom.js";
+import { button, cardBody, element, hint, section } from "./dom.js";
 
 /** What every view knows about the old login service; the commands come from main's detection, never from the page. */
 export interface LegacyFacts {
@@ -21,7 +21,7 @@ export interface LegacyFacts {
 function commandRow(
   api: RepairApi,
   text: SetupMessages,
-  hint: string,
+  note: string,
   command: string,
   target: CopyCommandTarget,
 ): HTMLElement {
@@ -31,7 +31,7 @@ function commandRow(
     });
   });
   return element("div", { className: "command" }, [
-    element("div", { className: "hint", text: hint }),
+    hint(note, "div"),
     element("code", { className: "command-text", text: command }),
     copy,
   ]);
@@ -48,22 +48,30 @@ export function legacyBlock(api: RepairApi, text: SetupMessages, facts: LegacyFa
       : facts.running === "stopped"
         ? text.legacyStopped
         : text.legacyUnknown;
-  const card = element("section", { className: "card warning" }, [
-    element("h2", { text: text.legacyHeading }),
+  const card = section(
+    text.legacyHeading,
     element("p", { className: "warning-text", text: facts.portInUse ? text.legacyPortInUse : text.legacyWarning }),
-    element("p", { className: "hint", text: running }),
-  ]);
-  if (facts.running === "stopped" && !facts.portInUse && facts.startsAtLogin !== false) {
-    card.append(element("p", { className: "hint", text: text.legacyStartsAtLogin }));
-  }
+    hint(running),
+  );
+  card.classList.add("card--attention");
   card.id = "legacy-service";
-  if (facts.blocked) card.append(element("p", { className: "hint", text: text.legacyBlocked }));
-  if (facts.removeCommand) {
-    card.append(commandRow(api, text, text.legacyRemoveHint, facts.removeCommand, "legacy-remove"));
-    card.append(commandRow(api, text, text.legacyFallbackHint, facts.fallbackRemoveCommand, "legacy-fallback"));
-  } else {
-    card.append(commandRow(api, text, text.legacyRemoveHint, facts.fallbackRemoveCommand, "legacy-fallback"));
+  const body = cardBody(card);
+  if (facts.running === "stopped" && !facts.portInUse && facts.startsAtLogin !== false) {
+    body.append(hint(text.legacyStartsAtLogin));
   }
-  card.append(...extra);
+  if (facts.blocked) body.append(hint(text.legacyBlocked));
+  if (facts.removeCommand) {
+    body.append(commandRow(api, text, text.legacyRemoveHint, facts.removeCommand, "legacy-remove"));
+  }
+  body.append(
+    commandRow(
+      api,
+      text,
+      facts.removeCommand ? text.legacyFallbackHint : text.legacyRemoveHint,
+      facts.fallbackRemoveCommand,
+      "legacy-fallback",
+    ),
+    ...extra,
+  );
   return card;
 }

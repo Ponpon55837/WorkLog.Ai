@@ -15,6 +15,10 @@
       "types": "./dist/shell/i18n.d.ts",
       "import": "./dist/shell/i18n.js"
     },
+    "./shell/app-tabs": {
+      "types": "./dist/shell/app-tabs.d.ts",
+      "import": "./dist/shell/app-tabs.js"
+    },
     "./shell/setup-i18n": {
       "types": "./dist/shell/setup-i18n.d.ts",
       "import": "./dist/shell/setup-i18n.js"

@@ -16,6 +16,7 @@ on:
       - "apps/mcp/**"
       - "packages/core/**"
       - "packages/project-policy/**"
+      - "packages/ui-tokens/**"
       - "scripts/desktop-runtime-spike/**"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
@@ -93,6 +94,17 @@ jobs:
           path: apps/desktop/perf-results/desktop-perf-*.json
           if-no-files-found: warn
           retention-days: 30
+
+      # Real-Electron screenshots of every tab (light and dark), two languages and the blocking and first-run states, under
+      # apps/desktop/screenshots/<platform>/ (screenshots.spec.ts prints each path). For review; nothing is compared.
+      - name: Upload the desktop screenshots
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-screenshots-${{ matrix.os }}
+          path: apps/desktop/screenshots
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload the report and the main-process log
         if: failure()

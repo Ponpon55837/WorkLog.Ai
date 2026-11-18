@@ -1,4 +1,6 @@
 import type { DbProbeStatus } from "../db-source/types.js";
+import { buildAppShellState, type AppShellState } from "./app-tabs.js";
+import type { OperationKind } from "../operations/journal-record.js";
 import type { ServiceOwnerState } from "../operations/service-owner-state.js";
 import type { ShellLocale } from "./i18n.js";
 import type { LastBackupInfo } from "./last-backup.js";
@@ -64,6 +66,8 @@ export interface RepairState {
   readonly port: RepairPortSection | null;
   /** The 「更新」 card: the running version, and the check's progress and last answer (kept in main). Absent: no card. */
   readonly update?: RepairUpdateSection;
+  /** What the tab strip needs: the tab list, the blocking tab and one badge per tab (see repair-ipc.ts). */
+  readonly shell: AppShellState;
   /**
    * The old login service (`pnpm bootstrap`) is installed and may serve this database. `blocked`: the App did not start
    * its backend because of it; only "仍要啟動" (the `start-anyway` action) starts it.
@@ -134,6 +138,12 @@ export interface RepairStateInputs {
   readonly legacyPortInUse?: boolean;
   /** A retry or another operation is running: actions are disabled until it ends. */
   readonly busy: boolean;
+  /** No settings file yet: the Setup tab exists. Defaults to false. */
+  readonly needsSetup?: boolean;
+  /** A login start was held back by the old login service (besides `legacyBlocked`). Defaults to false. */
+  readonly legacyHeld?: boolean;
+  /** The kind of the operation the coordinator runs right now (its busy badge goes on the tab it belongs to). */
+  readonly operation?: OperationKind | null;
 }
 
 /** The database status the page shows: a running backend proves `ok`; otherwise the latest error code says what was found. */
@@ -190,6 +200,12 @@ export function buildRepairState(inputs: RepairStateInputs): RepairState {
     recovered: inputs.recovered ?? null,
     port: inputs.port ?? null,
     ...(inputs.update ? { update: inputs.update } : {}),
+    shell: buildAppShellState({
+      needsSetup: inputs.needsSetup === true,
+      owner: inputs.owner,
+      legacyHeld: inputs.legacyHeld === true || inputs.legacyBlocked === true,
+      operation: inputs.operation ?? null,
+    }),
     legacyService:
       inputs.legacyService?.kind === "found"
         ? {

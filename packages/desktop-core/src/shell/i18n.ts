@@ -1,4 +1,5 @@
 import type { BackendErrorCode } from "../backend/errors.js";
+import type { AppTab } from "./app-tabs.js";
 
 /** Languages the shell speaks: Traditional Chinese for any `zh-*` locale, English for everything else. */
 export type ShellLocale = "zh-TW" | "en";
@@ -26,6 +27,8 @@ export interface ShellMessages {
   readonly appName: string;
   readonly trayOpenDashboard: string;
   readonly trayRepair: string;
+  /** Opens the App window; `{name}` is `appName`. */
+  readonly trayOpenApp: string;
   readonly trayQuit: string;
   /** `{reason}` is one of the `trayReason*` texts. */
   readonly trayDisabledTemplate: string;
@@ -39,6 +42,20 @@ export interface ShellMessages {
   readonly trayLocationMac: string;
   readonly trayLocationWindows: string;
   readonly trayLocationOther: string;
+  /** The window's tab labels, in the page's language. */
+  readonly tabLabels: Readonly<Record<AppTab, string>>;
+  /** Accessible name of the tab strip. */
+  readonly tabListLabel: string;
+  /** Spoken after a tab's name when it has the attention dot or the busy mark. */
+  readonly tabAttentionLabel: string;
+  readonly tabBusyLabel: string;
+  /** The Status tab's one-line database state links to the Data tab with this text. */
+  readonly statusOpenData: string;
+  /** macOS menu bar: `{name}` is `appName`. */
+  readonly menuAbout: string;
+  readonly menuEdit: string;
+  readonly menuWindow: string;
+  readonly menuCloseWindow: string;
   readonly quitTitle: string;
   readonly quitMessage: string;
   /** `{time}` is the local time of the last successful backup. */
@@ -113,6 +130,7 @@ const zhTW: ShellMessages = {
   appName: "Work Intelligence",
   trayOpenDashboard: "開啟 Dashboard",
   trayRepair: "修復…",
+  trayOpenApp: "開啟 {name}…",
   trayQuit: "退出（退出後不會每日備份）",
   trayDisabledTemplate: "{label}（{reason}）",
   trayReasonStarting: "服務啟動中",
@@ -124,6 +142,15 @@ const zhTW: ShellMessages = {
   trayLocationMac: "選單列",
   trayLocationWindows: "通知區",
   trayLocationOther: "系統匣",
+  tabLabels: { setup: "首次設定", status: "狀態", agent: "Agent", settings: "設定", data: "資料", diagnostics: "診斷" },
+  tabListLabel: "Work Intelligence 分頁",
+  tabAttentionLabel: "需要處理",
+  tabBusyLabel: "進行中",
+  statusOpenData: "前往「資料」分頁",
+  menuAbout: "關於 {name}",
+  menuEdit: "編輯",
+  menuWindow: "視窗",
+  menuCloseWindow: "關閉視窗",
   quitTitle: "退出 Work Intelligence？",
   quitMessage: "退出後不會每日備份。",
   quitLastBackup: "最後成功備份：{time}",
@@ -299,6 +326,7 @@ const en: ShellMessages = {
   appName: "Work Intelligence",
   trayOpenDashboard: "Open Dashboard",
   trayRepair: "Repair…",
+  trayOpenApp: "Open {name}…",
   trayQuit: "Quit (no daily backup after quitting)",
   trayDisabledTemplate: "{label} ({reason})",
   trayReasonStarting: "service is starting",
@@ -310,6 +338,22 @@ const en: ShellMessages = {
   trayLocationMac: "menu bar",
   trayLocationWindows: "notification area",
   trayLocationOther: "system tray",
+  tabLabels: {
+    setup: "Setup",
+    status: "Status",
+    agent: "Agent",
+    settings: "Settings",
+    data: "Data",
+    diagnostics: "Diagnostics",
+  },
+  tabListLabel: "Work Intelligence sections",
+  tabAttentionLabel: "Needs attention",
+  tabBusyLabel: "In progress",
+  statusOpenData: "Open the Data tab",
+  menuAbout: "About {name}",
+  menuEdit: "Edit",
+  menuWindow: "Window",
+  menuCloseWindow: "Close Window",
   quitTitle: "Quit Work Intelligence?",
   quitMessage: "No daily backup will run after you quit.",
   quitLastBackup: "Last successful backup: {time}",

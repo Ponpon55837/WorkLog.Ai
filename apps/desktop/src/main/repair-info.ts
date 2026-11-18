@@ -8,8 +8,10 @@ import {
   buildStorageRiskView,
   databaseStatusFor,
   legacyServiceRelevance,
+  type AppTabInputs,
   type BackendSupervisor,
   type BuiltDiagnostics,
+  type OperationCoordinator,
   type RepairPortSection,
   type RepairUpdateSection,
   type LastBackupTracker,
@@ -29,6 +31,8 @@ export interface RepairInfo {
   /** The folder a button opens (created when missing), or null when there is none to open. */
   folderFor(target: RepairFolderTarget): Promise<string | null>;
   databaseStatus(): RepairState["database"]["status"];
+  /** What decides the window's tab list and its blocking tab right now. */
+  tabInputs(): AppTabInputs;
 }
 
 export interface RepairInfoOptions {
@@ -37,6 +41,8 @@ export interface RepairInfoOptions {
   readonly supervisor: BackendSupervisor;
   readonly lastBackup: LastBackupTracker;
   readonly legacy: LegacyGuard;
+  /** Its running operation (if any) puts a busy mark on the tab it belongs to. */
+  readonly coordinator?: Pick<OperationCoordinator, "current">;
   /** The storage verdicts this run reached (DT-08). */
   readonly storage: StorageRiskService;
   /** What the 「連接埠」 section shows. */
@@ -50,6 +56,18 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
 
   function databaseStatus(): RepairState["database"]["status"] {
     return databaseStatusFor(supervisor.running !== undefined, state.recentErrors.latest()?.code);
+  }
+
+  /** The old login service holds the database: a login start was held back, or the last start was refused for it. */
+  function legacyHeld(): boolean {
+    return (
+      legacy.heldAtLogin() ||
+      (supervisor.running === undefined && state.recentErrors.latest()?.code === "LEGACY_SERVICE_ACTIVE")
+    );
+  }
+
+  function tabInputs(): AppTabInputs {
+    return { needsSetup: state.needsSetup, owner: state.owner, legacyHeld: legacyHeld() };
   }
 
   async function snapshot(): Promise<RepairState> {
@@ -112,6 +130,9 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
       legacyService: relevance.conflict || relevance.portInUse ? legacy.latest() : null,
       legacyBlocked: !running && latestCode === "LEGACY_SERVICE_ACTIVE",
       legacyPortInUse: relevance.portInUse,
+      needsSetup: state.needsSetup,
+      legacyHeld: legacyHeld(),
+      operation: options.coordinator?.current()?.kind ?? null,
     });
   }
 
@@ -149,5 +170,5 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
     return directory;
   }
 
-  return { snapshot, diagnosticsPreview, folderFor, databaseStatus };
+  return { snapshot, diagnosticsPreview, folderFor, databaseStatus, tabInputs };
 }

@@ -8,6 +8,7 @@
     "@pinia/colada": "1.4.9",
     "@work-intelligence/core": "workspace:*",
     "@work-intelligence/schema": "workspace:*",
+    "@work-intelligence/ui-tokens": "workspace:*",
     "lucide-vue-next": "^1.0.0",
     "pinia": "4.1.0",
     "vue": "^3.5.13",

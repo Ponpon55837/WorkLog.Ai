@@ -1,6 +1,6 @@
 # Design tokens
 
-All values live in `apps/web/src/styles/tokens.css`. Components reference tokens only.
+All values live in `packages/ui-tokens/tokens.css`. Components reference tokens only.
 
 ## Color
 

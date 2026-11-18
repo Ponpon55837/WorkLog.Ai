@@ -10,7 +10,9 @@ import {
   createSandbox,
   freePort,
   launchApp,
+  expectTabShown,
   makeSchemaOlder,
+  openTab,
   portIsFree,
   readMainLog,
   removeSandbox,
@@ -74,6 +76,9 @@ test("a committed database on a network drive stops the backend; 複製到本機
     ).__workIntelligenceDesktopTest.openRepair(),
   );
   const window = await app.firstWindow({ timeout: 45_000 });
+  // The blocking state opened Status; the storage note and its copy button are the Data tab's.
+  await expectTabShown(window, "status");
+  await openTab(window, "data");
   const copy = window.locator('[data-id="copy-to-local"]');
   await expect(copy).toBeVisible({ timeout: 30_000 });
   await expect(copy).toHaveText((await pageText(window)).storageCopyToLocal);
@@ -156,9 +161,11 @@ test("retry after DB_STORAGE_NETWORK stays refused, and so does a port change: n
     ).__workIntelligenceDesktopTest.openPortSettings(),
   );
   const window = await app.firstWindow({ timeout: 45_000 });
+  await expectTabShown(window, "settings");
   await expect(window.locator("#port-section")).toBeVisible({ timeout: 30_000 });
 
-  // The repair page's retry: refused again, before anything is started.
+  // The Status tab's retry: refused again, before anything is started.
+  await openTab(window, "status");
   const afterFirst = refusedStarts(sandbox);
   await window.locator('[data-id="retry-start"]').click();
   await expect.poll(() => refusedStarts(sandbox as Sandbox), { timeout: 30_000 }).toBeGreaterThan(afterFirst);
@@ -170,6 +177,7 @@ test("retry after DB_STORAGE_NETWORK stays refused, and so does a port change: n
   // 「變更連接埠」 while stopped: also refused, and the new port is never bound.
   const newPort = await freePort();
   const afterRetry = refusedStarts(sandbox);
+  await openTab(window, "settings");
   await window.locator('[data-id="port-input"]').fill(String(newPort));
   await window.locator('[data-id="port-apply"]').click();
   await expect.poll(() => refusedStarts(sandbox as Sandbox), { timeout: 30_000 }).toBeGreaterThan(afterRetry);

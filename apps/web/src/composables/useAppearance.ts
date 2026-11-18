@@ -5,7 +5,7 @@ import { intlLocale } from "../i18n";
 
 /**
  * Applies the theme and language preferences to the document: `data-theme` selects the token set in
- * styles/tokens.css and `lang` keeps screen readers and font fallback right. Call once from App.vue.
+ * packages/ui-tokens/tokens.css and `lang` keeps screen readers and font fallback right. Call once from App.vue.
  */
 export function useAppearance(): void {
   const { resolvedTheme, systemPrefersDark, locale } = storeToRefs(usePreferencesStore());

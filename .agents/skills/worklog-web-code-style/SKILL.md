@@ -12,12 +12,12 @@ These rules describe how `apps/web` is already written. Follow them for new code
 ```
 apps/web/src/
 ├─ App.vue              AppShell + <RouterView> + global overlays only (no page logic)
-├─ main.ts              app bootstrap; imports styles/tokens.css and styles/base.css
+├─ main.ts              app bootstrap; imports @work-intelligence/ui-tokens/tokens.css and styles/base.css
 ├─ router.ts            routes, lazy views, route meta (title/group)
 ├─ api/                 transport.ts is the only place that calls fetch(); one module per domain
 │                       (projects.ts, sessions.ts…), composed by client.ts
 ├─ i18n/                index.ts (t, translatedRecord, locale) and locales/zh-TW.json + en-US.json (message catalogs)
-├─ styles/              tokens.css (all raw colours, dark + light sets) and base.css (reset/typography/focus/motion)
+├─ styles/              base.css (reset/typography/focus/motion)
 ├─ utils/               pure functions and constant maps, no Vue reactivity
 │  ├─ format.ts         dates, relative time, text formatting
 │  ├─ labels.ts         UI label maps and option lists
@@ -139,7 +139,7 @@ The UI ships in 繁體中文 and English. Every interface string lives in one JS
 
 ## 8. CSS
 
-- `<style scoped>` only; global CSS is limited to `styles/tokens.css` and `styles/base.css`.
+- `<style scoped>` only; global CSS is limited to `packages/ui-tokens/tokens.css` and `styles/base.css`.
 - Only design tokens (`var(--…)`); raw hex/rgba are allowed only in `tokens.css`.
 - Minimum font size 12px.
 - Breakpoints: `@media (max-width: 1279px)`, `(max-width: 959px)`, `(max-width: 639px)`. Mobile rules go last.

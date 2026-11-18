@@ -1,7 +1,7 @@
 import type { PortChangeResult, RepairApi, RepairPortSection } from "@work-intelligence/desktop-core";
 import type { PortMessages } from "@work-intelligence/desktop-core/shell/port-i18n";
 import { formatMessage } from "@work-intelligence/desktop-core/shell/i18n";
-import { button, element, section } from "./dom.js";
+import { actions, button, element, hint, section } from "./dom.js";
 
 /**
  * The 「連接埠」 section of the repair window: the port in use, an input and 「變更連接埠」. The page only sends what the
@@ -19,6 +19,8 @@ export interface PortViewHost {
   readonly text: PortMessages;
   /** Another page action is running (or a start): the button waits. */
   readonly working: boolean;
+  /** Focus the input when main's state asks for it: only while the user has not moved the focus or the tab since the request. */
+  readonly focusPort: boolean;
   /** Draw the view again from its last state. */
   readonly rerender: () => void;
   /** Ask main for a fresh state (the port or the service changed). */
@@ -69,7 +71,7 @@ async function apply(host: PortViewHost, port: RepairPortSection): Promise<void>
 /** The section's card. `port` is main's snapshot of the setting and the running port. */
 export function portSection(host: PortViewHost, port: RepairPortSection): HTMLElement {
   const { text } = host;
-  const input = element("input");
+  const input = element("input", { className: "text-input" });
   input.type = "text";
   input.inputMode = "numeric";
   input.id = "port-input";
@@ -87,13 +89,14 @@ export function portSection(host: PortViewHost, port: RepairPortSection): HTMLEl
   const shown = port.activePort ?? port.port;
   const card = section(
     text.heading,
-    ...(shown === null
-      ? []
-      : [element("p", { className: "hint", text: formatMessage(text.current, { port: String(shown) }) })]),
-    element("p", { className: "hint", text: text.intro }),
-    ...(port.handoffHeld ? [element("p", { className: "hint", text: text.handoffNote })] : []),
-    element("label", { className: "field" }, [text.inputLabel, " ", input]),
-    element("div", { className: "actions" }, [
+    ...(shown === null ? [] : [hint(formatMessage(text.current, { port: String(shown) }))]),
+    hint(text.intro),
+    ...(port.handoffHeld ? [hint(text.handoffNote)] : []),
+    element("label", { className: "field" }, [
+      element("span", { className: "field-label", text: text.inputLabel }),
+      input,
+    ]),
+    actions(
       button(
         applying ? text.applying : text.apply,
         "port-apply",
@@ -101,13 +104,13 @@ export function portSection(host: PortViewHost, port: RepairPortSection): HTMLEl
         () => void apply(host, port),
         true,
       ),
-    ]),
+    ),
     ...(answer ? [element("p", { className: answer.ok ? "success-text" : "warning-text", text: answer.text })] : []),
-    ...(answer?.note ? [element("p", { className: "hint", text: answer.note })] : []),
+    ...(answer?.note ? [hint(answer.note)] : []),
   );
   card.id = "port-section";
   // The tray item (or the Dashboard's link) asked for the section: main reports it in one state only.
-  if (port.focus && !scrolledTo.has(port)) {
+  if (port.focus && host.focusPort && !scrolledTo.has(port)) {
     scrolledTo.add(port);
     queueMicrotask(() => {
       card.scrollIntoView({ block: "center" });

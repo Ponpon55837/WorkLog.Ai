@@ -9,7 +9,7 @@ import { router } from "./router";
 import { usePreferencesStore } from "./stores/preferences";
 import { gateHandoffRoute } from "./utils/port-handoff";
 import { localeReady } from "./i18n";
-import "./styles/tokens.css";
+import "@work-intelligence/ui-tokens/tokens.css";
 import "./styles/base.css";
 
 z.config({ jitless: true });

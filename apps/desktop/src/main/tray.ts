@@ -1,11 +1,11 @@
 import { Menu, nativeImage, Notification, Tray, type NativeImage } from "electron";
 import {
   buildTrayMenu,
-  portMessages,
   setupMessages,
   trayBackgroundHint,
   trayTooltip,
   updateMessages,
+  type TrayMenuItem,
 } from "@work-intelligence/desktop-core";
 import type { Logger } from "./log.js";
 import type { ShellState } from "./state.js";
@@ -15,6 +15,10 @@ export interface ShellTray {
   create(): void;
   /** Whether a tray icon exists. */
   readonly present: boolean;
+  /** The items the menu shows now; the native menu is built from this very list (a smoke test reads it). */
+  menu(): readonly TrayMenuItem[];
+  /** Does what a click on the item with this id does (a smoke test cannot click the native tray). */
+  activate(id: string): void;
 }
 
 export interface ShellTrayOptions {
@@ -25,22 +29,18 @@ export interface ShellTrayOptions {
   readonly templateIconFile: string;
   readonly backendRunning: () => boolean;
   readonly openDashboard: () => void;
-  readonly openRepairWindow: () => void;
-  /** "完成首次設定…": the first-run page. */
+  /** Clicking the "old login service" notification: the Status tab. */
+  readonly openStatus: () => void;
+  /** "Open Work Intelligence…": the window, on the blocking tab if any, else the remembered or default tab. */
+  readonly openApp: () => void;
+  /** "完成首次設定…": the Setup tab. */
   readonly openSetup: () => void;
-  /** "設定 Agent…": the Agent page. */
-  readonly openAgents: () => void;
-  /** 「變更連接埠…」: the repair window's port section. */
-  readonly openPortSettings: () => void;
-  /** 「檢查更新…」: the repair window's update card, with the check started. */
+  /** 「檢查更新…」: the Settings tab, with the check started. */
   readonly openUpdateCheck: () => void;
   readonly requestQuit: () => void;
   readonly log: Logger;
-  /**
-   * The old login service is enabled on the App's database and a login start was held back: the tray says so and offers
-   * "仍要啟動" (`startAnyway`) and "如何移除舊服務" (the repair window).
-   */
-  readonly legacy?: { readonly heldAtLogin: () => boolean; readonly startAnyway: () => void };
+  /** The old login service is enabled on the App's database and a login start was held back: the tray says so. */
+  readonly legacy?: { readonly heldAtLogin: () => boolean };
 }
 
 export function createShellTray(options: ShellTrayOptions): ShellTray {
@@ -64,48 +64,47 @@ export function createShellTray(options: ShellTrayOptions): ShellTray {
         options.log("[shell] legacy notification unavailable");
         return;
       }
-      new Notification({ title: setupMessages(state.locale).legacyHeading, body: message }).show();
+      const notification = new Notification({ title: setupMessages(state.locale).legacyHeading, body: message });
+      notification.on("click", () => options.openStatus());
+      notification.show();
     } catch (error) {
       options.log(`[shell] legacy notification failed: ${error instanceof Error ? error.name : "unknown"}`);
     }
   }
 
-  function refresh(): void {
-    if (!tray) return;
-    const text = state.messages();
+  /** The menu for the state as it is now. */
+  function items(): TrayMenuItem[] {
     const setup = setupMessages(state.locale);
     const held = options.legacy?.heldAtLogin() === true;
-    if (held) notifyHeldOnce(setup.trayLegacyStatus);
-    const running = options.backendRunning();
-    const items = buildTrayMenu({
-      messages: text,
+    return buildTrayMenu({
+      messages: state.messages(),
       owner: state.owner,
-      backendRunning: running,
+      backendRunning: options.backendRunning(),
       setup: { messages: setup, needsSetup: state.needsSetup },
-      port: portMessages(state.locale),
       update: updateMessages(state.locale),
       ...(held ? { legacyHeld: setup } : {}),
     });
-    tray.setToolTip(trayTooltip(state.owner, running, text));
+  }
+
+  function activate(id: string): void {
+    if (id === "open-dashboard") options.openDashboard();
+    else if (id === "open-app") options.openApp();
+    else if (id === "complete-setup") options.openSetup();
+    else if (id === "check-updates") options.openUpdateCheck();
+    else if (id === "quit") options.requestQuit();
+  }
+
+  function refresh(): void {
+    if (!tray) return;
+    if (options.legacy?.heldAtLogin() === true) notifyHeldOnce(setupMessages(state.locale).trayLegacyStatus);
+    tray.setToolTip(trayTooltip(state.owner, options.backendRunning(), state.messages()));
     tray.setContextMenu(
       Menu.buildFromTemplate(
-        items.map((item) => {
-          if (item.id === "separator") return { type: "separator" as const };
-          return {
-            label: item.label,
-            enabled: item.enabled,
-            click: () => {
-              if (item.id === "open-dashboard") options.openDashboard();
-              else if (item.id === "repair" || item.id === "legacy-remove-help") options.openRepairWindow();
-              else if (item.id === "legacy-start-anyway") options.legacy?.startAnyway();
-              else if (item.id === "complete-setup") options.openSetup();
-              else if (item.id === "agent-setup") options.openAgents();
-              else if (item.id === "change-port") options.openPortSettings();
-              else if (item.id === "check-updates") options.openUpdateCheck();
-              else if (item.id === "quit") options.requestQuit();
-            },
-          };
-        }),
+        items().map((item) =>
+          item.id === "separator"
+            ? { type: "separator" as const }
+            : { label: item.label, enabled: item.enabled, click: () => activate(item.id) },
+        ),
       ),
     );
   }
@@ -128,5 +127,7 @@ export function createShellTray(options: ShellTrayOptions): ShellTray {
     get present() {
       return tray !== null;
     },
+    menu: items,
+    activate,
   };
 }

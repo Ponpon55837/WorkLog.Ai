@@ -155,6 +155,25 @@ for (let run = 1; run <= PACKAGED_PERF_RUNS; run += 1) {
   });
 }
 
+/** The nearest-rank 95th percentile (with three runs it is the slowest one). */
+function p95(values: readonly number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] ?? 0;
+}
+
+/** One compact line for the job log; the numbers are the ones the gates use, only rounded for reading. */
+function perfSummary(results: Record<Metric, MetricResult>): string {
+  const mib = (bytes: number): string => (bytes / (1024 * 1024)).toFixed(1);
+  const repair = results.repairWindowMs;
+  return (
+    `[perf summary] ${process.platform} ` +
+    `repairWindowMs median=${repair.median} p95=${p95(repair.samples)} (gate=${repair.gate}) | ` +
+    `coldStartMs median=${results.firstStartMs.median} (warmStartMs median=${results.warmStartMs.median}) | ` +
+    `quitMs median=${results.quitMs.median} | ` +
+    `idleRssMiB median=${mib(results.idleMemoryBytes.median)} backend=${mib(results.backendMemoryBytes.median)}`
+  );
+}
+
 test("the medians stay inside the gates and are written for CI", () => {
   const gates = packagedGatesForPlatform(process.platform);
   const results = {} as Record<Metric, MetricResult>;
@@ -189,6 +208,7 @@ test("the medians stay inside the gates and are written for CI", () => {
   mkdirSync(resultsDirectory, { recursive: true });
   writeFileSync(join(resultsDirectory, `packaged-perf-${process.platform}.json`), json);
   process.stdout.write(`packaged-perf-${process.platform}.json\n${json}`);
+  process.stdout.write(`${perfSummary(results)}\n`);
   for (const [metric, result] of Object.entries(results)) {
     expect(result.median, `${metric} median ${result.median} ${result.unit} (gate ${result.gate})`).toBeLessThanOrEqual(
       result.gate,
