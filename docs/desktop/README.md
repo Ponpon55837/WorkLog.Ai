@@ -228,6 +228,27 @@ R4 的補充用法：
 
 沒有 schema 變更（33），沒有 migration。
 
+## 1.6.55 任務（單一視窗與分頁、共用設計 token 與無障礙）與本文件的關係
+
+本版實作下列項目的 CI 可驗證部分；Windows 11 與 macOS 的實機驗收，以及 125% 與 150% DPI 的實測，仍為**待實機驗收**。CI：PR #385 的 head commit 見 PR；Desktop smoke 在 Windows、macOS 與 Linux 全部通過（Linux 89 項通過，其中 12 項為新的視窗殼層測試）。
+
+| 任務 | 內容 | 狀態 | 本文件位置 | 證據路徑 |
+|---|---|---|---|---|
+| 單一視窗與分頁 | 一個視窗，分頁為 Status、Agent、Settings、Data、Diagnostics；Setup 只在需要首次設定時出現並排在最前。切換設定頁不需要工作列選單。工作列項目與 `wi-repair://` 連結只聚焦同一個視窗並選取分頁，不開第二個視窗；最後的分頁只在本次 App 執行期間記住（`app:get-tab`、`app:remember-tab`，檢查傳送者並嚴格驗證）。修復流程、阻擋式卡片與後端停止時的行為不變 | 1.6.55 已實作（CI 可驗證部分）；Windows 11 與 macOS 實機待實機驗收 | — | `apps/desktop/src/renderer/repair/tabs.ts`；`apps/desktop/src/main/repair-window.ts`；`apps/desktop/src/main/tray.ts`；`tests/desktop-core/app-tabs.test.ts`、`renderer-tabs.test.ts`；`apps/desktop/tests/desktop-smoke/shell-window.spec.ts` |
+| 工作列與選單精簡 | 工作列：（僅在啟動被保留時）舊服務狀態行、（僅在需要設定時）「完成設定…」、Open Dashboard、「開啟 Work Intelligence…」、Check for updates…（開啟設定並開始檢查）、Quit。Windows 與 Linux 沒有應用程式選單；macOS 為 App、Edit、Window 三組（Cmd+W 關閉視窗，不結束 App）；沒有 View、重新載入或 DevTools，打包版關閉 DevTools | 1.6.55 已實作；macOS Cmd+C/V/X/A/Z/W 測試只在 macOS 執行；實機待實機驗收 | — | `apps/desktop/src/main/app-menu.ts`；`apps/desktop/src/main/tray.ts` |
+| 共用設計 token 與主題 | 設計 token 移到 `packages/ui-tokens`（由 `apps/web/src/styles/tokens.css` 原樣移入）；Web 版建置輸出除 import 路徑外位元組相同；視窗即時跟隨系統淺色與深色模式；測試禁止桌面 renderer 使用原始色碼 | 1.6.55 已實作；打包版頁面截圖與淺色、深色截圖以 CI artifact 上傳；實機待實機驗收 | — | `packages/ui-tokens/`；`apps/desktop/src/renderer/repair/theme.ts`；`apps/desktop/src/renderer/repair/repair.css` |
+| 無障礙與狀態保留 | WAI-ARIA tablist、tab、tabpanel；方向鍵、Home、End；roving tabindex；可見焦點；分頁上的忙碌徽章；診斷預覽、待確認操作與進行中操作在切換分頁後保留；4 秒輪詢只更新有變化的部分（`diff.ts`），不搶走焦點（`focus.ts`） | 1.6.55 已實作；鍵盤與焦點的實機行為待實機驗收 | — | `apps/desktop/src/renderer/repair/diff.ts`；`apps/desktop/src/renderer/repair/focus.ts` |
+| 首次設定完成卡片 | 首次設定完成後，Status 分頁顯示一次性的「設定完成」卡片，按鈕前往設定 Agent | 1.6.55 已實作；截圖見 CI artifact；實機待實機驗收 | — | `apps/desktop/src/renderer/repair/status-view.ts` |
+| 視窗大小 | 預設 920x760，最小 720x560，夾在工作區內；上次大小與位置只在本次 App 執行期間保留。已知限制：最大化的視窗重新開啟時會還原為非最大化 | 1.6.55 已實作；125% 與 150% DPI 版面依 CSS 與最小尺寸設計，未在實機量測 | — | `apps/desktop/src/main/repair-window.ts` |
+
+量測（production renderer，raw / gzip，位元組）：
+
+- 1.6.54 → 1.6.55：repair.js 97,104 / 25,999 → 106,756 / 30,414；repair.css 8,197 / 2,576 → 11,249 / 2,679；index.html 441 / 284 → 799 / 425；新增 tokens.css 3,488 / 1,240（與 Web 共用）。合計 gzip 28,859 → 34,758 B（+20.4%），raw 105,742 → 122,292 B（+15.7%）。增加來自功能本身：六個分頁、原生對話框、差異式重繪、主題處理與共用 token。
+- 修復視窗開啟時間（缺少資料庫，中位數，三次取中位數，CI runner，門檻未變更）：Linux 610 → 620 ms；Windows 1543 → 1715 ms（+11%）；macOS 1426 → 1176 ms。此指標現在結束於 DB_MISSING 狀態在分頁視窗中可見的時間點。
+- 閒置主程序記憶體：Linux 約 180 → 約 173 MiB；Windows 約 96 → 約 95 MiB；macOS 約 163 MiB（基準 163）。
+
+沒有 schema 變更（33），沒有 migration。NEEDS_REPAIR、首次執行與舊服務保留的修復流程不變；CSP、IPC allowlist 與 OperationCoordinator BUSY 規則不變；沒有新的特權 IPC。
+
 ## 本機打包
 
 依 ADR-38，本機打包是主要的取得方式；CI 與 GitHub Release 的產物為輔。打包只能建置執行它的平台與架構（隨包 Node.js 是該平台的官方執行檔），因此 Windows 與 macOS 各自在本機執行。
