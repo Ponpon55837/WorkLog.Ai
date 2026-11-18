@@ -82,8 +82,8 @@ function setup(options: Setup = {}) {
       recovery: { handleFailure: (code: string) => failures.push(code) },
     },
     probePort: async () => options.probe ?? { free: true as const },
-    confirmDialog: async (from: number, to: number) => {
-      events.push(`confirm ${from}->${to}`);
+    confirmDialog: async (from: number, to: number, pendingImport: boolean) => {
+      events.push(`confirm ${from}->${to}${pendingImport ? " with a staged import" : ""}`);
       dialogDone = true;
       return options.dialog ?? true;
     },
@@ -126,7 +126,8 @@ describe("the port change controller", () => {
       port: NEW,
       discardedImportPreview: true,
     });
-    expect(events).toEqual([`confirm ${OLD}->${NEW}`, "start-new", "touch"]);
+    // The confirmation says so before the click, not only afterwards (L-06).
+    expect(events).toEqual([`confirm ${OLD}->${NEW} with a staged import`, "start-new", "touch"]);
     expect(opened).toHaveLength(1);
   });
 

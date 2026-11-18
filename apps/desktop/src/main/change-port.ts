@@ -46,7 +46,8 @@ export interface ChangePortOptions {
     port: number,
   ) => Promise<{ readonly free: true } | { readonly free: false; readonly code: string }>;
   /** The native confirmation; Cancel is the default button. */
-  readonly confirmDialog: (from: number, to: number) => Promise<boolean>;
+  /** `pendingImport`: a staged import preview exists and the restart will discard it; the dialog says so before the click. */
+  readonly confirmDialog: (from: number, to: number, pendingImport: boolean) => Promise<boolean>;
   readonly handoff: PortHandoffStore;
   /** Opens the Dashboard at the running backend's port, with the handoff fragment when one is given. */
   readonly openDashboard: (handoff?: PortHandoff) => void;
@@ -109,7 +110,7 @@ export function createChangePort(options: ChangePortOptions): ChangePortControll
     if (!probe.free) {
       return { ok: false, reason: portFailureCode(probe.code) === "PORT_NOT_PERMITTED" ? "not-permitted" : "occupied" };
     }
-    if (!(await options.confirmDialog(from, to))) return { ok: false, reason: "cancelled" };
+    if (!(await options.confirmDialog(from, to, early.pendingImport))) return { ok: false, reason: "cancelled" };
     // Something may have started while the dialog was open.
     const late = await busyReason();
     if ("refusal" in late) return late.refusal;

@@ -326,13 +326,13 @@ function runShell(configInputs: DesktopConfigInputs): void {
     supervisor,
     backend,
     probePort: probeLoopbackPort,
-    confirmDialog: async (from, to) => {
+    confirmDialog: async (from, to, pendingImport) => {
       if (testSwitch(configInputs, "autoConfirmPort")) return true;
       const text = portMessages(state.locale);
       const { response } = await dialog.showMessageBox({
         type: "question",
         message: formatMessage(text.confirmMessage, { from: String(from), to: String(to) }),
-        detail: text.confirmDetail,
+        detail: pendingImport ? `${text.confirmDetail}\n${text.confirmImportNote}` : text.confirmDetail,
         buttons: [text.confirmButton, text.cancelButton],
         defaultId: 1,
         cancelId: 1,
