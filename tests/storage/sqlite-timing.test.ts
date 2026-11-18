@@ -129,10 +129,11 @@ describe("sqlite timing hook", () => {
     expect(begin).toMatchObject({ db: databaseLabel, at: expect.any(Number) });
     expect(Math.abs((begin?.at as number) - Date.now())).toBeLessThan(60_000);
     const transactions = records.filter((record) => record.kind === "transaction");
-    expect(transactions).toHaveLength(3);
+    expect(transactions).toHaveLength(4);
     expect(transactions[0]).toMatchObject({ op: "transaction", sql: "COMMIT", db: databaseLabel, write: true });
-    expect(transactions[1]).toMatchObject({ op: "transaction", sql: "COMMIT", db: databaseLabel, write: false });
-    expect(transactions[2]).toMatchObject({ op: "transaction", sql: "ROLLBACK", db: databaseLabel, write: true });
+    expect(transactions[1]).toMatchObject({ op: "transaction", sql: "COMMIT", db: databaseLabel, write: true });
+    expect(transactions[2]).toMatchObject({ op: "transaction", sql: "COMMIT", db: databaseLabel, write: false });
+    expect(transactions[3]).toMatchObject({ op: "transaction", sql: "ROLLBACK", db: databaseLabel, write: true });
     for (const transaction of transactions) expect(transaction.ms as number).toBeGreaterThanOrEqual(140);
     expect(records.find((record) => record.kind === "checkpoint")).toMatchObject({ db: databaseLabel });
 
