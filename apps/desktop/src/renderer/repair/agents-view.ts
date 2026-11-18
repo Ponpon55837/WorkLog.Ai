@@ -7,6 +7,7 @@ import type {
 } from "@work-intelligence/desktop-core";
 // The renderer bundle may only take values from browser-safe subpaths; the package root pulls in Node modules.
 import { canApplyPreview, hasUndiffableFile, isFileOpen } from "@work-intelligence/desktop-core/shell/agents-state";
+import { agentRemoveMessages, agentsResultMessage } from "@work-intelligence/desktop-core/shell/agent-remove-i18n";
 import { formatMessage, shellMessages } from "@work-intelligence/desktop-core/shell/i18n";
 import { setupMessages, type SetupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
 import { label, type Tone } from "./badge.js";
@@ -15,19 +16,14 @@ import { actions, button, cardBody, checkbox, element, facts, hint, path, sectio
 
 /**
  * The Agent page. Nothing is written by looking at it: "預覽變更" (or "改由桌面 App 管理…") computes a plan and shows its
- * diff; only "套用變更" writes, and only that very plan. "復原上次變更" undoes the last apply.
+ * diff; only "套用變更" writes, and only that very plan. "移除 Agent 設定" is the same path with a removal plan: its
+ * preview lists what would be taken out, and only "確認移除" writes. "復原上次變更" undoes the last apply or removal.
  */
 
 const REFRESH_MS = 5000;
 
-function resultText(state: AgentsState, text: SetupMessages): string | undefined {
-  const { result } = state;
-  if (!result) return undefined;
-  if (result.kind === "applied") return formatMessage(text.agentsApplied, { count: String(result.changed) });
-  if (result.kind === "undone") return text.agentsUndone;
-  if (result.kind === "nothing-to-undo") return text.agentsNothingToUndo;
-  if (result.manualRepairDisplay) return formatMessage(text.agentsManualRepair, { path: result.manualRepairDisplay });
-  return formatMessage(text.agentsFailed, { code: result.code });
+function resultText(state: AgentsState): string | undefined {
+  return agentsResultMessage(state.result, state.locale);
 }
 
 function selfTestText(state: AgentsState, text: SetupMessages): string {
@@ -110,9 +106,12 @@ function previewBlock(
 ) {
   const { busy, chosen, acknowledged } = controls;
   const shell = shellMessages(locale);
+  const removal = agentRemoveMessages(locale);
+  const removing = preview.mode === "uninstall";
   const content: Node[] = [];
+  if (removing) content.push(hint(removal.agentsRemoveHint));
   if (preview.files.length === 0 && preview.conflicts.length === 0) {
-    content.push(hint(text.agentsNoChanges));
+    content.push(hint(removing ? removal.agentsRemoveNothing : text.agentsNoChanges));
   }
   if (preview.conflicts.length > 0) {
     content.push(
@@ -155,11 +154,17 @@ function previewBlock(
   }
   content.push(
     actions(
-      button(text.agentsApply, "apply", !busy && canApplyPreview(preview, acknowledged), controls.apply, true),
+      button(
+        removing ? removal.agentsRemoveApply : text.agentsApply,
+        "apply",
+        !busy && canApplyPreview(preview, acknowledged),
+        controls.apply,
+        true,
+      ),
       button(text.agentsDiscard, "discard", !busy, controls.discard),
     ),
   );
-  const block = section(text.agentsPreviewHeading, ...content);
+  const block = section(removing ? removal.agentsRemovePreviewHeading : text.agentsPreviewHeading, ...content);
   block.id = "agents-preview";
   return block;
 }
@@ -182,7 +187,7 @@ export function mountAgents(app: HTMLElement, say: (text: string) => void, api: 
     try {
       const result = await task();
       if (result.state) current = result.state;
-      say(result.ok ? (resultText(current, text) ?? "") : (resultText(current, text) ?? text.setupFailed));
+      say(result.ok ? (resultText(current) ?? "") : (resultText(current) ?? text.setupFailed));
     } catch {
       say(text.setupFailed);
     } finally {
@@ -215,7 +220,7 @@ export function mountAgents(app: HTMLElement, say: (text: string) => void, api: 
         }),
       ),
     );
-    const outcome = resultText(state, text);
+    const outcome = resultText(state);
     if (outcome) blocks.push(element("p", { className: "result", text: outcome }));
     if (state.preview) {
       blocks.push(
@@ -264,6 +269,12 @@ export function mountAgents(app: HTMLElement, say: (text: string) => void, api: 
             "self-test",
             !busy && state.launcherReady,
             () => void act(() => api.agentsSelfTest()),
+          ),
+          button(
+            agentRemoveMessages(state.locale).agentsRemove,
+            "remove",
+            !busy,
+            () => void act(() => api.agentsRemovePreview()),
           ),
           button(text.agentsUndo, "undo", !busy && state.undoAvailable, () => void act(() => api.agentsUndo())),
         ),

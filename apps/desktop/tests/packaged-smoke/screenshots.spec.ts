@@ -60,6 +60,7 @@ const BRIDGE_METHODS = [
   "showAgents",
   "agentsGetState",
   "agentsPreview",
+  "agentsRemovePreview",
   "agentsApply",
   "agentsDiscard",
   "agentsUndo",

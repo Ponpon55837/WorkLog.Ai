@@ -27,6 +27,10 @@
       "types": "./dist/shell/port-i18n.d.ts",
       "import": "./dist/shell/port-i18n.js"
     },
+    "./shell/agent-remove-i18n": {
+      "types": "./dist/shell/agent-remove-i18n.d.ts",
+      "import": "./dist/shell/agent-remove-i18n.js"
+    },
     "./shell/agents-state": {
       "types": "./dist/shell/agents-state.d.ts",
       "import": "./dist/shell/agents-state.js"

@@ -25,6 +25,7 @@ const channels: typeof REPAIR_CHANNELS = {
   showView: "app:show-view",
   agentsGetState: "agents:get-state",
   agentsPreview: "agents:preview",
+  agentsRemovePreview: "agents:remove-preview",
   agentsApply: "agents:apply",
   agentsDiscard: "agents:discard",
   agentsUndo: "agents:undo",
@@ -84,6 +85,7 @@ const api: RepairApi = {
   showAgents: () => ipcRenderer.invoke(channels.showView, { view: "agents" }),
   agentsGetState: () => ipcRenderer.invoke(channels.agentsGetState),
   agentsPreview: (adopt) => ipcRenderer.invoke(channels.agentsPreview, { adopt }),
+  agentsRemovePreview: () => ipcRenderer.invoke(channels.agentsRemovePreview, {}),
   agentsApply: (previewId, acknowledgeUndiffable) =>
     ipcRenderer.invoke(channels.agentsApply, {
       previewId,

@@ -132,6 +132,7 @@ describe("repair IPC", () => {
       "agents:discard",
       "agents:get-state",
       "agents:preview",
+      "agents:remove-preview",
       "agents:self-test",
       "agents:undo",
       "agents:use-checkout-database",

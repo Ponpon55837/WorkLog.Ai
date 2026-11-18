@@ -177,6 +177,7 @@ test("a missing database opens the repair window and creates nothing", async () 
     "agentsDiscard",
     "agentsGetState",
     "agentsPreview",
+    "agentsRemovePreview",
     "agentsSelfTest",
     "agentsUndo",
     "agentsUseCheckoutDatabase",
