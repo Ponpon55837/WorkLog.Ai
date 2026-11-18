@@ -12,6 +12,8 @@ import {
   launchApp,
   openWindow,
   portIsFree,
+  processIsAlive,
+  readSnapshot,
   removeSandbox,
   shellText,
   waitForManagedSnapshot,
@@ -67,9 +69,16 @@ async function crash(running: ElectronApplication, box: Sandbox, pauseFile: stri
   expect(open).toHaveLength(1);
   const pid = running.process().pid;
   expect(pid).toBeGreaterThan(0);
+  // What runs at this moment: the backend that is up while the commit step is held (it may serve another port).
+  const backend = (await readSnapshot(running)).backend;
   process.kill(pid as number, "SIGKILL");
-  // The backend ends with its parent: the port is free again for the next start.
-  await expect.poll(() => portIsFree(box.port), { timeout: 60_000 }).toBe(true);
+  // A power loss ends every process of the App. A forced end of the main process on Windows does not reach its child (no
+  // process tree), so the backend is ended too; the point here is what the next start recovers from, not the orphan.
+  if (process.platform === "win32" && backend && processIsAlive(backend.pid)) process.kill(backend.pid, "SIGKILL");
+  // Nothing of the App holds a port any more, so the next start can use them.
+  for (const port of new Set([box.port, backend?.port ?? box.port])) {
+    await expect.poll(() => portIsFree(port), { timeout: 60_000 }).toBe(true);
+  }
 }
 
 /** After the restart: every operation is closed, and the Status tab shows the one notice for the interrupted kind. */
