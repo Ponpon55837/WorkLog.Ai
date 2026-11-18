@@ -167,15 +167,6 @@ export async function observeLeases(directory: string): Promise<LeaseObservation
   return found;
 }
 
-/** Whether `directory` exists as something other than a real directory (a link, a file): its leases cannot be trusted or followed. */
-export async function isForeignLeaseDirectory(directory: string): Promise<boolean> {
-  try {
-    return !(await fsp.lstat(directory)).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
 /**
  * The leases of one runtime for the collector: `undefined` when the folder exists but is not a real directory (nothing
  * can be proven then), else the observation (empty when the folder is missing).

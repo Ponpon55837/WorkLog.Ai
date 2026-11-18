@@ -23,7 +23,11 @@ export async function writePrivateFile(target: string, bytes: Uint8Array): Promi
     }
     await rename(temporary, target);
   } catch (error) {
-    await rm(temporary, { force: true }).catch(() => undefined);
+    try {
+      await rm(temporary, { force: true });
+    } catch {
+      // The first error is the one to report; a leftover temporary file holds no more than the target would.
+    }
     throw error;
   }
 }

@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { writeFileAtomic } from "../internal/atomic-file.js";
 import { errorCode } from "../internal/error-code.js";
 import {
@@ -118,13 +119,12 @@ const MAX_KEPT = 8;
 /** A lease untouched for this long, and not renewed while the collector waited as long again, is a crash leftover. */
 const STALE_AFTER_MS = 2 * LEASE_HEARTBEAT_MS;
 
-const REAL_DEPS: RuntimeCollectionDeps = {
+/** The real clock, timer and rename; exported for its own test, the collector's tests inject fakes. */
+export const REAL_COLLECTION_DEPS: RuntimeCollectionDeps = {
   now: () => Date.now(),
   monotonic: () => performance.now(),
-  sleep: (milliseconds) =>
-    new Promise((resolve) => {
-      setTimeout(resolve, milliseconds).unref();
-    }),
+  // An unref'd timer: a collection waiting on a silent lease never keeps the App from quitting.
+  sleep: (milliseconds) => delay(milliseconds, undefined, { ref: false }),
   rename: (from, to) => fs.rename(from, to),
   caseInsensitiveIds: IDS_CASE_INSENSITIVE,
 };
@@ -422,7 +422,7 @@ export async function collectOldRuntimes(
 ): Promise<RuntimeCollection> {
   const runtimes = path.join(root, RUNTIMES_DIRECTORY_NAME);
   const remove = options.remove ?? removeTree;
-  const deps: RuntimeCollectionDeps = { ...REAL_DEPS, ...options.deps };
+  const deps: RuntimeCollectionDeps = { ...REAL_COLLECTION_DEPS, ...options.deps };
   const current = await readCurrentRuntimeId(root).catch(() => undefined);
   const leasesUsable = (await leaseDirectoryState(runtimeLayout(root).leasesDirectory)) !== "foreign";
   const saved = await readState(root);
@@ -509,7 +509,12 @@ export async function collectOldRuntimes(
   if (leasesUsable) {
     await pruneKeptLeases(root, [...new Set([...kept, current])], deps);
     // A quarantined directory still holds its runtime's leases as proof: its id counts as installed.
-    const present = await fs.readdir(runtimes).catch(() => names);
+    let present = names;
+    try {
+      present = await fs.readdir(runtimes);
+    } catch {
+      // The folder went away meanwhile: the names read before still name every id that may hold leases.
+    }
     const installed = new Set(
       present.flatMap((name) => {
         const id = quarantineRuntimeId(name) ?? name;

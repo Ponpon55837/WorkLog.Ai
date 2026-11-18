@@ -85,6 +85,16 @@ afterEach(() => {
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
+/**
+ * The name of node:sqlite's own class. Node 26 renamed it (`DatabaseSync` is an alias of `Database`), so compare with
+ * the builtin's name instead of a literal; with the hook already installed, the builtin is the timed class's parent.
+ */
+function builtinClassName(): string {
+  return DatabaseSync.name === "TimedDatabaseSync"
+    ? (Object.getPrototypeOf(DatabaseSync) as { name: string }).name
+    : DatabaseSync.name;
+}
+
 describe("sqlite timing hook", () => {
   it("records the slow BEGIN IMMEDIATE, the slow call, the open and the checkpoint when enabled", async () => {
     const { className, directory } = await runChildBehindLock(true);
@@ -114,7 +124,7 @@ describe("sqlite timing hook", () => {
 
   it("writes nothing and leaves DatabaseSync untouched when the variable is empty", async () => {
     const { className, directory } = await runChildBehindLock(false);
-    expect(className).toBe("DatabaseSync");
+    expect(className).toBe(builtinClassName());
     expect(readdirSync(directory).filter((name) => name.endsWith(".jsonl"))).toEqual([]);
   }, 30_000);
 
@@ -125,12 +135,14 @@ describe("sqlite timing hook", () => {
       expect(DatabaseSync.name).toBe("TimedDatabaseSync");
       return;
     }
-    expect(DatabaseSync.name).toBe("DatabaseSync");
+    expect(DatabaseSync.name).toBe(builtinClassName());
     installSqliteTiming({ directory, label: "unit" });
+    let timedClass: unknown;
     try {
       // Vitest caches its own imports of the builtin, so ask Node's loader directly: this resolves node:sqlite through the
       // hook exactly like a freshly loaded storage module does.
       const imported = await nativeImport();
+      timedClass = imported.DatabaseSync;
       expect(imported.DatabaseSync.name).toBe("TimedDatabaseSync");
       const db = new imported.DatabaseSync(":memory:");
       db.exec("CREATE TABLE t (x)");
@@ -142,6 +154,7 @@ describe("sqlite timing hook", () => {
       uninstallSqliteTiming();
     }
     const restored = await nativeImport();
-    expect(restored.DatabaseSync.name).toBe("DatabaseSync");
+    expect(restored.DatabaseSync).not.toBe(timedClass);
+    expect(restored.DatabaseSync.name).toBe(builtinClassName());
   });
 });

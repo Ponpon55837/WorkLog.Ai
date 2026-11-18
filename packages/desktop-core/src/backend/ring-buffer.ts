@@ -75,6 +75,22 @@ export class SecretMasker {
       return { line: parts.join(REDACTED), replaced: parts.length - 1 };
     }
     const needle = secret.toLowerCase();
+    const lower = line.toLowerCase();
+    // Lower-casing keeps the length for almost every text, so offsets in `lower` are offsets in `line`: jump between
+    // matches with indexOf and copy the text between them in one slice each.
+    if (lower.length === line.length && needle.length === secret.length) {
+      const parts: string[] = [];
+      let start = 0;
+      let found = lower.indexOf(needle);
+      while (found !== -1) {
+        parts.push(line.slice(start, found));
+        start = found + needle.length;
+        found = lower.indexOf(needle, start);
+      }
+      parts.push(line.slice(start));
+      return { line: parts.join(REDACTED), replaced: parts.length - 1 };
+    }
+    // A character whose lower case has another length (such as "İ"): compare position by position.
     let output = "";
     let index = 0;
     let replaced = 0;

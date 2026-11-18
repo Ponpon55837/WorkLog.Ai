@@ -11,6 +11,7 @@ import {
   type RuntimeCollection,
   type RuntimeCollectionDeps,
 } from "../../packages/desktop-core/src/runtime/index.js";
+import { REAL_COLLECTION_DEPS } from "../../packages/desktop-core/src/runtime/runtime-gc.js";
 import { IS_WINDOWS, installFixture, makeRoot } from "./runtime-helpers.js";
 
 // Synthetic runtime ids and lease names only. A fake clock drives both the wall time and the monotonic time.
@@ -603,6 +604,25 @@ describe("collectOldRuntimes: races", () => {
     await expect(fs.access(leaseDirectoryFor(root, "OLD-1"))).resolves.toBeUndefined();
     await collect(clock, { deps: { caseInsensitiveIds: false } });
     await expect(fs.access(leaseDirectoryFor(root, "OLD-1"))).rejects.toThrow();
+  });
+});
+
+describe("collectOldRuntimes: the record cannot be written", () => {
+  it("still collects when the record's path is taken by a folder", async () => {
+    const clock = new FakeClock();
+    await fs.mkdir(statePath(), { recursive: true });
+    const result = await collect(clock);
+    expect(result.failed).toEqual([]);
+    expect((await fs.lstat(statePath())).isDirectory()).toBe(true);
+    expect(await runtimeNames()).toEqual(expect.arrayContaining(["cur-1", "prev-1"]));
+  });
+});
+
+describe("REAL_COLLECTION_DEPS", () => {
+  it("sleeps for the time asked", async () => {
+    const started = performance.now();
+    await REAL_COLLECTION_DEPS.sleep(5);
+    expect(performance.now() - started).toBeGreaterThanOrEqual(4);
   });
 });
 
