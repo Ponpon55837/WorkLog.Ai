@@ -120,6 +120,9 @@ export interface SetupMessages {
   readonly agentsKeepCheckout: string;
   readonly agentsPreview: string;
   readonly agentsPreviewAdopt: string;
+  /** The checkbox on an Agent's card: whether the next preview sets this Agent up. */
+  readonly agentsSelect: string;
+  readonly agentsNotDetected: string;
   readonly agentsPreviewHeading: string;
   readonly agentsApply: string;
   readonly agentsDiscard: string;
@@ -333,6 +336,8 @@ const zhTW: SetupMessages = {
   agentsKeepCheckout: "也可以保留原本的設定，App 不會改動它。",
   agentsPreview: "預覽變更",
   agentsPreviewAdopt: "改由桌面 App 管理…",
+  agentsSelect: "設定這個 Agent",
+  agentsNotDetected: "這台電腦上沒有找到它的設定資料夾，預設不會設定。要設定請勾選上面的選項。",
   agentsPreviewHeading: "將要寫入的變更",
   agentsApply: "套用變更",
   agentsDiscard: "取消",
@@ -584,6 +589,9 @@ const en: SetupMessages = {
   agentsKeepCheckout: "Or keep the current settings; the App leaves them alone.",
   agentsPreview: "Preview changes",
   agentsPreviewAdopt: "Let the desktop App manage it…",
+  agentsSelect: "Set up this Agent",
+  agentsNotDetected:
+    "Its settings folder was not found on this computer, so it is not set up by default. Tick the box above to set it up.",
   agentsPreviewHeading: "Changes to be written",
   agentsApply: "Apply changes",
   agentsDiscard: "Cancel",

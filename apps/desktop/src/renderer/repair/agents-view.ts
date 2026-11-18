@@ -4,6 +4,7 @@ import type {
   AgentsPreview,
   AgentsState,
   RepairApi,
+  SetupAgentId,
 } from "@work-intelligence/desktop-core";
 // The renderer bundle may only take values from browser-safe subpaths; the package root pulls in Node modules.
 import { canApplyPreview, hasUndiffableFile, isFileOpen } from "@work-intelligence/desktop-core/shell/agents-state";
@@ -49,7 +50,12 @@ function hookText(card: AgentCardView, text: SetupMessages): string {
 function agentCard(
   card: AgentCardView,
   text: SetupMessages,
-  controls: { readonly busy: boolean; readonly useDatabase: (card: AgentCardView) => void },
+  controls: {
+    readonly busy: boolean;
+    readonly selected: boolean;
+    readonly select: (card: AgentCardView, selected: boolean) => void;
+    readonly useDatabase: (card: AgentCardView) => void;
+  },
 ): HTMLElement {
   const rows: [string, Node | string][] = [
     [text.agentsMcp, text.agentOwners[card.mcp]],
@@ -63,6 +69,12 @@ function agentCard(
   node.classList.add("agent");
   node.dataset.agent = card.id;
   const body = cardBody(node);
+  body.append(
+    checkbox(text.agentsSelect, `select-${card.id}`, controls.selected, !controls.busy, (checked) =>
+      controls.select(card, checked),
+    ),
+  );
+  if (!card.detected) body.append(hint(text.agentsNotDetected));
   if (card.checkoutMissing) body.append(hint(text.agentsCheckoutMissing));
   if (card.adoptable) body.append(hint(text.agentsAdoptHint));
   if (card.adoptable && card.hookState === "installed" && card.hookSource === "checkout") {
@@ -177,6 +189,17 @@ export function mountAgents(app: HTMLElement, say: (text: string) => void, api: 
   let chosen = new Map<string, boolean>();
   let acknowledged = false;
   let drawn: string | undefined;
+  // The Agents the next preview sets up; until the user chooses, the ones found on this computer (both when none is).
+  let selection: Set<SetupAgentId> | undefined;
+
+  function selectedAgents(state: AgentsState): SetupAgentId[] {
+    selection ??= new Set(
+      state.cards.some((card) => card.detected)
+        ? state.cards.filter((card) => card.detected).map((card) => card.id)
+        : state.cards.map((card) => card.id),
+    );
+    return state.cards.map((card) => card.id).filter((id) => selection?.has(id));
+  }
 
   async function act(task: () => Promise<AgentsActionResult>): Promise<void> {
     if (!current || working) return;
@@ -203,7 +226,8 @@ export function mountAgents(app: HTMLElement, say: (text: string) => void, api: 
       acknowledged = false;
     }
     // The page polls; the same state draws the same page, so leave it alone (an opened diff keeps its scroll).
-    const key = JSON.stringify([state, working, acknowledged]);
+    const chosenAgents = selectedAgents(state);
+    const key = JSON.stringify([state, working, acknowledged, chosenAgents]);
     if (key === drawn) return;
     drawn = key;
     const text = setupMessages(state.locale);
@@ -216,6 +240,12 @@ export function mountAgents(app: HTMLElement, say: (text: string) => void, api: 
       ...state.cards.map((card) =>
         agentCard(card, text, {
           busy,
+          selected: chosenAgents.includes(card.id),
+          select: (picked, value) => {
+            if (value) selection?.add(picked.id);
+            else selection?.delete(picked.id);
+            render(state);
+          },
           useDatabase: (chosen) => void act(() => api.agentsUseCheckoutDatabase(chosen.id)),
         }),
       ),
@@ -249,8 +279,8 @@ export function mountAgents(app: HTMLElement, say: (text: string) => void, api: 
           button(
             text.agentsPreview,
             "preview",
-            !busy && state.launcherReady,
-            () => void act(() => api.agentsPreview(false)),
+            !busy && state.launcherReady && chosenAgents.length > 0,
+            () => void act(() => api.agentsPreview(false, chosenAgents)),
             !adoptable,
           ),
           ...(adoptable
@@ -258,8 +288,8 @@ export function mountAgents(app: HTMLElement, say: (text: string) => void, api: 
                 button(
                   text.agentsPreviewAdopt,
                   "preview-adopt",
-                  !busy && state.launcherReady,
-                  () => void act(() => api.agentsPreview(true)),
+                  !busy && state.launcherReady && chosenAgents.length > 0,
+                  () => void act(() => api.agentsPreview(true, chosenAgents)),
                   true,
                 ),
               ]

@@ -128,7 +128,7 @@ export const repairInputSchemas = {
   showView: z.strictObject({ view: z.literal("agents") }),
   agentsGetState: z.undefined(),
   /** `adopt`: also take over the hand-written checkout registrations ("改由桌面 App 管理"). Nothing is written. */
-  agentsPreview: z.strictObject({ adopt: z.boolean() }),
+  agentsPreview: z.strictObject({ adopt: z.boolean(), agents: z.array(z.enum(SETUP_AGENT_IDS)).min(1).optional() }),
   /** Applies exactly the plan this preview showed; a file changed since then makes the apply refuse. */
   /** Previews removing what setup wrote; applying it goes through `agentsApply` with the preview's id. */
   agentsRemovePreview: z.strictObject({}),
@@ -328,7 +328,8 @@ export interface RepairApi {
   setupLater(): Promise<{ readonly ok: boolean }>;
   showAgents(): Promise<{ readonly ok: boolean }>;
   agentsGetState(): Promise<AgentsState>;
-  agentsPreview(adopt: boolean): Promise<AgentsActionResult>;
+  /** `agents`: the Agents to set up; omitted means both. */
+  agentsPreview(adopt: boolean, agents?: readonly SetupAgentId[]): Promise<AgentsActionResult>;
   agentsRemovePreview(): Promise<AgentsActionResult>;
   agentsApply(previewId: string, acknowledgeUndiffable?: boolean): Promise<AgentsActionResult>;
   agentsDiscard(): Promise<AgentsActionResult>;

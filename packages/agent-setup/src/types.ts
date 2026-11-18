@@ -64,6 +64,8 @@ export interface AgentSetupPlanOptions {
   adopt?: AgentSetupAdoptOptions;
   codexHomeDirectory?: string;
   claudeConfigDirectory?: string;
+  /** Install only for these Agents; their files are the only ones read, so a conflict elsewhere does not block them. Defaults to both. */
+  agents?: readonly ("codex" | "claude-code")[];
   now?: Date;
   platform?: NodeJS.Platform;
 }

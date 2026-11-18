@@ -41,6 +41,7 @@ import type {
   AgentSetupPlanOptions,
   CodexHooksFeature,
   JsonMutationSpec,
+  ReadFileResult,
   SetupManifest,
 } from "./types.js";
 
@@ -224,6 +225,11 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
   // An enabled plugin already provides MCP, skill and hooks for that Agent; registering them again would duplicate them.
   const claudePlugin = readClaudePluginEnabled(options.claudeConfigDirectory!);
   const codexPlugin = readCodexPluginEnabled(options.codexHomeDirectory!);
+  // An Agent the caller did not select is left alone like one a plugin serves: its files are not even read, so a conflict
+  // there never blocks the other Agent (M-17).
+  const selected = new Set(options.agents ?? ["codex", "claude-code"]);
+  const skipClaude = claudePlugin || !selected.has("claude-code");
+  const skipCodex = codexPlugin || !selected.has("codex");
   if (claudePlugin) {
     plan.actions.push(
       "Claude Code 已啟用 work-intelligence plugin，略過手動註冊（plugin 已提供 MCP、skill 與 hook）。",
@@ -245,7 +251,7 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
     !launcherTarget && (publishedHashes ??= publishedSkillHashes(repositoryRoot)).has(lineEndingNeutralSha256(bytes));
 
   for (const id of ["codexSkill", "codexLegacySkill", "claudeSkill"] as const) {
-    if (id === "claudeSkill" ? claudePlugin : codexPlugin) continue;
+    if (id === "claudeSkill" ? skipClaude : skipCodex) continue;
     const path = targetPath(id, options);
     const current = readRegularFile(path);
     if (current.conflict) addConflict(plan, current.conflict);
@@ -266,7 +272,7 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
   }
 
   const tomlPath = targetPath("codexMcp", options);
-  const tomlFile = readRegularFile(tomlPath);
+  const tomlFile: ReadFileResult = skipCodex ? { bytes: null, mode: 0o600 } : readRegularFile(tomlPath);
   if (tomlFile.conflict) addConflict(plan, tomlFile.conflict);
   const tomlText = tomlFile.bytes?.toString("utf8") ?? "";
   const tomlNewline = tomlText.includes("\r\n") ? "\r\n" : "\n";
@@ -275,9 +281,9 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
   const tomlOwned = tomlEntryIndex >= 0 ? components[tomlEntryIndex] : undefined;
   const tomlOwnedExpected = tomlOwned?.kind === "toml-block" ? tomlOwned.expected : undefined;
   const codexRegistration = registrationKind(codexWorkIntelligenceServer(tomlText), options);
-  const adoptedToml = !codexPlugin && adoptContext ? adoptCodexToml(tomlText, adoptContext, tomlPath) : undefined;
-  if (codexPlugin) {
-    // The plugin registers the MCP server; leave config.toml alone.
+  const adoptedToml = !skipCodex && adoptContext ? adoptCodexToml(tomlText, adoptContext, tomlPath) : undefined;
+  if (skipCodex) {
+    // A plugin registers the MCP server, or Codex was not selected; leave config.toml alone.
   } else if (adoptedToml !== undefined) {
     stageMutation(
       plan,
@@ -368,7 +374,7 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
     setEntry(components, { id: "codexMcp", kind: "toml-block", expected: desiredBlock });
   }
 
-  const codexFeature = codexPlugin ? "enabled" : codexHooksFeatureFromToml(tomlText);
+  const codexFeature = skipCodex ? "enabled" : codexHooksFeatureFromToml(tomlText);
   if (codexFeature === "disabled") {
     plan.actions.push("保留 ~/.codex/config.toml 的 [features].hooks=false；略過 Codex hooks 設定。");
   } else if (codexFeature === "unknown") {
@@ -388,7 +394,7 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
     jsonFileChanges.set(path, changes);
   };
 
-  if (!claudePlugin) {
+  if (!skipClaude) {
     const claudeJsonPath = targetPath("claudeMcp", options);
     const claudeSettingsPath = targetPath("claudeStopHook", options);
     mutateJson(
@@ -402,7 +408,7 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
       adoptContext && ((root) => adoptHooks(root, "claude-code", adoptContext, claudeSettingsPath)),
     );
   }
-  if (!codexPlugin && codexFeature !== "disabled" && codexFeature !== "unknown") {
+  if (!skipCodex && codexFeature !== "disabled" && codexFeature !== "unknown") {
     const codexHooksPath = targetPath("codexStopHook", options);
     mutateJson(
       codexHooksPath,

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
+import { join } from "node:path";
 import {
   filesLeftByTransaction,
   agentSetupJournalPath,
@@ -47,7 +48,7 @@ import type { ShellState } from "./state.js";
  */
 export interface AgentsPage {
   snapshot(): AgentsState;
-  preview(adopt: boolean): Promise<AgentsActionResult>;
+  preview(adopt: boolean, agents?: readonly SetupAgentId[]): Promise<AgentsActionResult>;
   /** "移除 Agent 設定": previews the removal of what setup wrote; `apply` then runs it the way it runs an install. */
   previewRemove(): Promise<AgentsActionResult>;
   apply(previewId: string): Promise<AgentsActionResult>;
@@ -118,7 +119,11 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
     }
   }
 
-  function planOptions(adopt: boolean, registrations: readonly CheckoutRegistration[]): AgentSetupPlanOptions {
+  function planOptions(
+    adopt: boolean,
+    registrations: readonly CheckoutRegistration[],
+    selected?: readonly SetupAgentId[],
+  ): AgentSetupPlanOptions {
     const databasePath = state.databasePath();
     const roots = [
       ...new Set(
@@ -133,6 +138,7 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
       repositoryRoot: roots[0] ?? home,
       target: { kind: "launcher", shimPath, skillSourcePath: options.skillSourcePath },
       platform,
+      ...(selected ? { agents: selected } : {}),
       // Only entries on the App's own database are taken over: one Agent must not end up writing to two databases.
       // Without an App database nothing is adopted (there is nothing to compare with).
       ...(adopt && databasePath ? { adopt: { repositoryRoots: roots, databasePath } } : {}),
@@ -143,6 +149,15 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
   function otherDatabaseOf(entries: readonly CheckoutRegistration[]): CheckoutRegistration | undefined {
     const other = entries.filter((entry) => entry.sameAsAppDatabase === false && entry.effectiveDatabase);
     return other.find((entry) => entry.kind === "mcp") ?? other[0];
+  }
+
+  /** Whether the Agent has a settings folder here (its own override variable, else the default under the home folder). */
+  function isDetected(id: SetupAgentId): boolean {
+    const folder =
+      id === "codex"
+        ? process.env.CODEX_HOME?.trim() || join(home, ".codex")
+        : process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, ".claude");
+    return existsSync(folder) || (id === "claude-code" && existsSync(join(home, ".claude.json")));
   }
 
   function cards(): AgentCardView[] {
@@ -186,6 +201,7 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
         hooks: ownerOf(hook?.source),
         ...(hookInstallation ? { hookState: hookInstallation.state, hookSource: hookInstallation.source } : {}),
         ...(firstRoot ? { checkoutDisplay: show(firstRoot) } : {}),
+        detected: isDetected(id),
         checkoutMissing: handWritten.some((entry) => entry.repositoryRoot !== undefined && !entry.rootExists),
         adoptable:
           state.databasePath() !== null && handWritten.length > 0 && notRecognised === undefined && other === undefined,
@@ -273,11 +289,11 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
         log(`[shell] agent setup journal recovery failed: ${error instanceof Error ? error.name : "unknown error"}`);
       }
     },
-    preview: (adopt) =>
+    preview: (adopt, selected) =>
       exclusive(() => {
         if (!launcherReady())
           return { ok: false, reason: "failed", errorCode: "LAUNCHER_NOT_READY", state: snapshot() };
-        const plan = createAgentSetupPlan(planOptions(adopt, checkoutRegistrations()), "install");
+        const plan = createAgentSetupPlan(planOptions(adopt, checkoutRegistrations(), selected), "install");
         const view = previewOf(plan, "install", adopt);
         pending = { id: view.id, plan, view };
         result = null;
