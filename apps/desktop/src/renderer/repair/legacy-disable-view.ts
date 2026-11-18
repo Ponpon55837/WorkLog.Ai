@@ -1,10 +1,15 @@
-import type { LegacyDisableConfirmResult, LegacyDisablePreview, RepairApi } from "@work-intelligence/desktop-core";
+import type {
+  LegacyDisableConfirmResult,
+  LegacyDisablePreview,
+  RepairApi,
+  RepairBusyReason,
+} from "@work-intelligence/desktop-core";
 import type { SetupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
 import { actions, button, element } from "./dom.js";
 
 /**
- * 「停用舊的登入服務…」 inside the old-service card: a read-only preview in plain words (the commands only under
- * 「詳細步驟」), then 「停用」, which main confirms once more natively. The state lives here, across the views'
+ * 「停用舊的登入服務…」 inside the old-service card: a read-only preview in plain words (each step is one plain sentence
+ * under 「詳細步驟」, never a command), then 「停用」, which main confirms once more natively. The state lives here, across the views'
  * periodic re-renders, so a preview or a result is not lost when the page refreshes.
  */
 type Phase =
@@ -18,13 +23,16 @@ let phase: Phase = { kind: "idle" };
 export interface LegacyDisableHost {
   readonly api: RepairApi;
   readonly text: SetupMessages;
+  /** The sentence for what held a request back (the real operation, generic only when unknown). */
+  readonly busyText: (reason: RepairBusyReason | undefined) => string;
   /** Draw the view again from its last state. */
   readonly rerender: () => void;
   /** Ask main for a fresh state (the old service may be gone now). */
   readonly refresh: () => void;
 }
 
-function resultMessage(text: SetupMessages, result: LegacyDisableConfirmResult): string {
+function resultMessage(host: LegacyDisableHost, result: LegacyDisableConfirmResult): string {
+  const { text } = host;
   if (result.ok) {
     if (result.databaseUnverified) return text.legacyDisableCheckUnverified;
     return result.offerStart ? text.legacyDisableDoneStart : text.legacyDisableDone;
@@ -37,7 +45,7 @@ function resultMessage(text: SetupMessages, result: LegacyDisableConfirmResult):
     case "database-check-failed":
       return text.legacyDisableCheckFailed;
     case "busy":
-      return text.legacyDisableBusyOther;
+      return result.busyReason ? host.busyText(result.busyReason) : text.legacyDisableBusyOther;
     case "failed":
       return result.removed ? text.legacyDisableFailedPartly : text.legacyDisableFailed;
     default:
@@ -72,7 +80,7 @@ async function confirm(host: LegacyDisableHost, preview: LegacyDisablePreview): 
       kind: "result",
       ok: result.ok,
       offerStart: result.ok && result.offerStart,
-      message: resultMessage(host.text, result),
+      message: resultMessage(host, result),
     };
   }
   host.rerender();
@@ -85,7 +93,15 @@ async function startNow(host: LegacyDisableHost): Promise<void> {
   const result = await host.api.legacyStartNow().catch(() => ({ ok: false as const, reason: "failed" as const }));
   phase = result.ok
     ? { kind: "idle" }
-    : { kind: "result", ok: false, offerStart: false, message: host.text.legacyDisableBusyOther };
+    : {
+        kind: "result",
+        ok: false,
+        offerStart: false,
+        message:
+          "busyReason" in result && result.busyReason
+            ? host.busyText(result.busyReason)
+            : host.text.legacyDisableBusyOther,
+      };
   host.rerender();
   host.refresh();
 }

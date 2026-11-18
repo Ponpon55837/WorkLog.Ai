@@ -4,7 +4,9 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import {
+  describeLegacyDisableSteps,
   diagnosticsMessages,
+  planLegacyDisable,
   portMessages,
   setupMessages,
   shellMessages,
@@ -169,6 +171,42 @@ describe("no command copy in the desktop App (M-15)", () => {
 
   it("no renderer string asks the user to run a command", () => {
     expect(violations(rendererStrings().found)).toEqual([]);
+  });
+
+  it("the 「詳細步驟」 lines of a legacy-disable preview are plain sentences, not shell commands", () => {
+    const lines: Found[] = [];
+    const root = {
+      win32: "C:\\Users\\synthetic\\work-log",
+      darwin: "/Users/synthetic/work-log",
+      linux: "/home/synthetic/work-log",
+    };
+    for (const platform of ["win32", "darwin", "linux"] as const) {
+      const plan = planLegacyDisable(
+        {
+          kind: "found" as const,
+          platform,
+          recognised: true,
+          running: "running" as const,
+          definitionSource: "file",
+          definitionPath: platform === "win32" ? "C:\\data\\task.xml" : "/home/synthetic/definition.plist",
+          definitionDigest: "a".repeat(64),
+          repositoryRoot: root[platform],
+          port: 3000,
+        },
+        { uid: 501, environment: { SystemRoot: "C:\\Windows" } },
+      );
+      expect(plan, platform).not.toBeNull();
+      for (const locale of LOCALES) {
+        const steps = describeLegacyDisableSteps(plan!, setupMessages(locale).legacyDisableStepText);
+        expect(steps.length, `${platform} ${locale}`).toBe(plan!.steps.length);
+        steps.forEach((text, index) => lines.push({ where: `legacy-steps[${platform}][${locale}][${index}]`, text }));
+      }
+    }
+    expect(violations(lines)).toEqual([]);
+    // A command line would show its tool name; none of the generated lines may.
+    for (const { where, text } of lines) {
+      expect(text, where).not.toMatch(/schtasks|launchctl|systemctl|taskkill|Remove-Item|\/(?:TN|PID|F)\b/i);
+    }
   });
 
   it("the patterns do recognise the copy this guard exists for", () => {

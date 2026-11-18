@@ -17,6 +17,7 @@ export * from "./setup-i18n.js";
 export * from "./agents-state.js";
 export * from "./agent-remove-i18n.js";
 export * from "./navigation-policy.js";
+export * from "./repair-busy.js";
 export * from "./repair-ipc.js";
 export * from "./diagnostics.js";
 export * from "./diagnostics-i18n.js";

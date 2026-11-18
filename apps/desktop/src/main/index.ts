@@ -634,6 +634,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
       updates,
       restore,
       journal,
+      currentOperation: () => coordinator.current()?.kind ?? null,
       copyToLocal: createLocalCopy({ state, paths, info, backend, supervisor, success, runner: copyRunner, log }),
       log,
     });

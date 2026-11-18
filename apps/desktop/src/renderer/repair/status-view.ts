@@ -1,8 +1,10 @@
 import type { RepairState } from "@work-intelligence/desktop-core";
 import {
   errorHintFor,
+  busyReasonText,
   errorMessageFor,
   formatMessage,
+  shellMessages,
   type ShellMessages,
 } from "@work-intelligence/desktop-core/shell/i18n";
 import { setupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
@@ -26,6 +28,7 @@ function legacyCards(ctx: ViewContext): Node[] {
   const host: LegacyDisableHost = {
     api: act.api,
     text: setupMessages(state.locale),
+    busyText: (reason) => busyReasonText(shellMessages(state.locale), reason),
     rerender: act.rerender,
     refresh: act.refresh,
   };

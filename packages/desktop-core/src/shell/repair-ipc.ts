@@ -14,6 +14,7 @@
  * - Every channel is checked in main: trusted sender (main frame of the one window on the fixed page URL), then input.
  */
 
+import type { RepairBusyReason } from "./repair-busy.js";
 import { z } from "zod";
 import { APP_TABS, type AppTab, type AppTabSelection } from "./app-tabs.js";
 import type { DiagnosticsReport } from "./diagnostics.js";
@@ -193,11 +194,19 @@ export type LegacyDisableConfirmResult =
         | "database-check-failed";
       /** `failed`: whether part of the registration was already removed. */
       readonly removed?: boolean;
+      /** `busy`: what holds the App, so the page can say it. */
+      readonly busyReason?: RepairBusyReason;
     };
 
 export type LegacyDisableStartResult =
   | { readonly ok: true }
-  | { readonly ok: false; readonly reason: "invalid" | "busy" | "failed"; readonly errorCode?: string };
+  | {
+      readonly ok: false;
+      readonly reason: "invalid" | "busy" | "failed";
+      readonly errorCode?: string;
+      /** `busy`: what holds the App, so the page can say it. */
+      readonly busyReason?: RepairBusyReason;
+    };
 
 /** Why a port change was refused because something is running. */
 export type PortBusyReason = "operation" | "activity" | "unknown";
@@ -252,6 +261,8 @@ export type RepairActionResult =
       readonly ok: false;
       readonly reason: "busy" | "invalid" | "cancelled" | "failed";
       readonly errorCode?: string;
+      /** `busy`: what holds the App, so the page can say it (generic only when this is absent). */
+      readonly busyReason?: RepairBusyReason;
       /** Why a chosen database was refused before any preview opened it, in the page's language (DT-08). */
       readonly message?: string;
     };

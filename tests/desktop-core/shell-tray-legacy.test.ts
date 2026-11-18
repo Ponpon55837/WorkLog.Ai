@@ -27,6 +27,6 @@ describe("buildTrayMenu with a login start held back by the old service", () => 
     const keys = (locale: "zh-TW" | "en") =>
       Object.keys(setupMessages(locale)).filter((key) => key.startsWith("trayLegacy") || key === "legacyStartsAtLogin");
     expect(keys("en").sort()).toEqual(keys("zh-TW").sort());
-    expect(keys("en")).toHaveLength(4);
+    expect(keys("en").sort()).toEqual(["legacyStartsAtLogin", "trayLegacyStatus"]);
   });
 });

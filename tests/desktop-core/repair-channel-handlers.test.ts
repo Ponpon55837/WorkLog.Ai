@@ -18,4 +18,12 @@ describe("repair channel and handler pairing", () => {
   it("lists the restore channels in the preload", () => {
     for (const key of ["restoreList", "restorePick", "restoreRun"]) expect(preload).toContain(key);
   });
+
+  it("every lock holder in main names its action, so a busy answer can say what is running", () => {
+    const all = ipc.match(/(?<!function )\b(?:withBusy|exclusive)\(/g)?.length ?? 0;
+    const named = ipc.match(/(?<!function )\b(?:withBusy|exclusive)\(\s*"[a-z-]+"/g)?.length ?? 0;
+    expect(all).toBeGreaterThan(5);
+    expect(named).toBe(all);
+    expect(ipc).toContain("state.busyAction = action");
+  });
 });

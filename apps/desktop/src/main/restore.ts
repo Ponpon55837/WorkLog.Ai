@@ -239,11 +239,13 @@ export function createRestore(options: RestoreOptions): RestoreController {
     }
     // The window's other actions wait while the restore runs (the same single lock as every page action).
     state.busy = true;
+    state.busyAction = "restore";
     state.touch();
     try {
       return await execute(claim, entry, databasePath);
     } finally {
       state.busy = false;
+      state.busyAction = null;
       state.touch();
     }
   }

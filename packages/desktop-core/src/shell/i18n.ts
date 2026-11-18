@@ -1,6 +1,7 @@
 import type { BackendErrorCode } from "../backend/errors.js";
 import type { OperationKind, RecoveryNoticeKind } from "../operations/journal-record.js";
 import type { AppTab } from "./app-tabs.js";
+import type { RepairBusyReason, RepairBusyWhat } from "./repair-busy.js";
 
 /** Languages the shell speaks: Traditional Chinese for any `zh-*` locale, English for everything else. */
 export type ShellLocale = "zh-TW" | "en";
@@ -95,6 +96,14 @@ export interface ShellMessages {
   readonly repairBusy: string;
   /** Another operation holds the App (a restart, an import, a backup, a port change): not an error, try again later. */
   readonly repairBusyOperation: string;
+  /** Names what holds the App, as a gerund phrase for `repairBusyNamed`. */
+  readonly repairBusyWhat: Readonly<Record<RepairBusyWhat, string>>;
+  /** `{what}` is one of `repairBusyWhat`. */
+  readonly repairBusyNamed: string;
+  /** The Dashboard itself is importing, backing up or exporting. */
+  readonly repairBusyActivity: string;
+  /** The App could not tell whether the Dashboard is working on data. */
+  readonly repairBusyUnknown: string;
   /** Confirm button for a database whose schema must be updated; pressing it is the user's consent. */
   readonly repairConfirmMigrate: string;
   readonly repairMigrationNote: string;
@@ -222,6 +231,19 @@ const zhTW: ShellMessages = {
   repairConfirmCandidate: "使用這個資料庫並重試",
   repairBusy: "處理中…",
   repairBusyOperation: "App 正在處理另一項操作，請稍後再試。",
+  repairBusyWhat: {
+    takeover: "啟動服務",
+    restart: "重新啟動服務",
+    "change-port": "變更連接埠",
+    "change-db": "切換資料庫",
+    "apply-agent": "設定 Agent",
+    restore: "還原備份",
+    "legacy-disable": "停用舊的登入服務",
+    "copy-to-local": "複製資料庫到本機磁碟",
+  },
+  repairBusyNamed: "App 正在{what}，請等它完成後再試。沒有變更任何資料。",
+  repairBusyActivity: "Dashboard 正在匯入、備份或匯出資料，請等它完成後再試。沒有變更任何資料。",
+  repairBusyUnknown: "暫時無法確認 Dashboard 是否正在處理資料，請稍後再試。沒有變更任何資料。",
   repairConfirmMigrate: "同意更新資料庫結構，使用這個資料庫並重試",
   repairMigrationNote: "這個資料庫需要更新結構才能使用；更新前會先備份。",
   repairCandidateNotUsable: "這個資料庫目前不能使用。",
@@ -472,6 +494,21 @@ const en: ShellMessages = {
   repairConfirmCandidate: "Use this database and retry",
   repairBusy: "Working…",
   repairBusyOperation: "The App is working on another operation. Try again in a moment.",
+  repairBusyWhat: {
+    takeover: "starting the service",
+    restart: "restarting the service",
+    "change-port": "changing the port",
+    "change-db": "switching the database",
+    "apply-agent": "setting up an Agent",
+    restore: "restoring a backup",
+    "legacy-disable": "disabling the old login service",
+    "copy-to-local": "copying the database to the local disk",
+  },
+  repairBusyNamed: "The App is busy: {what}. Wait for it to finish, then try again. Nothing was changed.",
+  repairBusyActivity:
+    "The Dashboard is importing, backing up or exporting data. Wait for it to finish, then try again. Nothing was changed.",
+  repairBusyUnknown:
+    "The App could not confirm whether the Dashboard is working on data right now. Try again in a moment. Nothing was changed.",
   repairConfirmMigrate: "Allow a schema update, use this database and retry",
   repairMigrationNote: "This database needs a schema update before it can be used; a backup is made first.",
   repairCandidateNotUsable: "This database cannot be used right now.",
@@ -668,4 +705,18 @@ export function errorHintFor(messages: ShellMessages, code: string, startAnywayA
 /** The message of an error code, or the generic repair one for a code this build does not know. */
 export function errorMessageFor(messages: ShellMessages, code: string): ErrorMessage {
   return (messages.errors as Readonly<Record<string, ErrorMessage>>)[code] ?? messages.errors.REPAIR_REQUIRED;
+}
+
+/** The sentence for what holds the App back; it names the real reason, and is generic only when the reason is unknown. */
+export function busyReasonText(messages: ShellMessages, reason: RepairBusyReason | undefined): string {
+  switch (reason?.source) {
+    case "operation":
+      return formatMessage(messages.repairBusyNamed, { what: messages.repairBusyWhat[reason.what] });
+    case "activity":
+      return messages.repairBusyActivity;
+    case "unknown":
+      return messages.repairBusyUnknown;
+    default:
+      return messages.repairBusyOperation;
+  }
 }

@@ -3,6 +3,7 @@ import {
   BACKGROUND_FLAG,
   buildQuitNotice,
   buildTrayMenu,
+  busyReasonText,
   changeLoginItem,
   decideSecondInstance,
   detectLaunchMode,
@@ -282,5 +283,32 @@ describe("decideSecondInstance", () => {
     const inputs = { repairWindowOpen: false, owner, backendRunning: false, starting: false } as const;
     expect(decideSecondInstance({ ...inputs, request: "open-dashboard" })).toBe("defer-dashboard");
     expect(decideSecondInstance({ ...inputs, request: "open" })).toBe("open-repair");
+  });
+});
+
+describe("busyReasonText", () => {
+  it("names the operation that holds the App, in both languages", () => {
+    expect(busyReasonText(zh, { source: "operation", what: "change-port" })).toContain("變更連接埠");
+    expect(busyReasonText(zh, { source: "operation", what: "restore" })).toContain("還原備份");
+    expect(busyReasonText(shellMessages("en"), { source: "operation", what: "change-db" })).toContain(
+      "switching the database",
+    );
+    expect(busyReasonText(shellMessages("en"), { source: "operation", what: "apply-agent" })).toContain(
+      "setting up an Agent",
+    );
+    expect(busyReasonText(zh, { source: "operation", what: "takeover" })).toContain("啟動服務");
+  });
+
+  it("says import or backup for Dashboard activity and keeps the generic sentence only for an unknown reason", () => {
+    expect(busyReasonText(zh, { source: "activity" })).toContain("匯入");
+    expect(busyReasonText(shellMessages("en"), { source: "activity" })).toContain("importing");
+    expect(busyReasonText(zh, { source: "unknown" })).toBe(zh.repairBusyUnknown);
+    expect(busyReasonText(zh, undefined)).toBe(zh.repairBusyOperation);
+    for (const locale of ["zh-TW", "en"] as const) {
+      const text = shellMessages(locale);
+      expect(Object.keys(text.repairBusyWhat).sort()).toEqual(
+        Object.keys(text.recoveryOperationNames).concat("copy-to-local").sort(),
+      );
+    }
   });
 });

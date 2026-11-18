@@ -1,5 +1,10 @@
-import type { RepairActionId, RepairApi, RepairState } from "@work-intelligence/desktop-core";
-import { errorMessageFor, shellMessages, type ShellMessages } from "@work-intelligence/desktop-core/shell/i18n";
+import type { RepairActionId, RepairApi, RepairBusyReason, RepairState } from "@work-intelligence/desktop-core";
+import {
+  busyReasonText,
+  errorMessageFor,
+  shellMessages,
+  type ShellMessages,
+} from "@work-intelligence/desktop-core/shell/i18n";
 import { diagnosticsMessages } from "@work-intelligence/desktop-core/shell/diagnostics-i18n";
 import { setupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
 import { requestDiagnosticsPreview } from "./diagnostics-view.js";
@@ -37,9 +42,11 @@ function failureText(messages: ShellMessages, errorCode: string | undefined): st
 /** The answer to a request that did not succeed: another operation holding the App is said as such, never as an error. */
 function failedAnswer(
   messages: ShellMessages,
-  result: { readonly reason: string; readonly errorCode?: string },
+  result: { readonly reason: string; readonly errorCode?: string; readonly busyReason?: RepairBusyReason },
 ): string {
-  return result.reason === "busy" ? messages.repairBusyOperation : failureText(messages, result.errorCode);
+  return result.reason === "busy"
+    ? busyReasonText(messages, result.busyReason)
+    : failureText(messages, result.errorCode);
 }
 
 export function createActions(host: ActionHost): Actions {

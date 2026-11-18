@@ -7,6 +7,7 @@ import {
   type BackendRunState,
   type DesktopSettingsV1,
   type LaunchMode,
+  type RepairBusyWhat,
   type RepairRecovered,
   type ShellLocale,
   type ShellMessages,
@@ -35,6 +36,8 @@ export class ShellState {
   readonly tabMemory = new TabMemory();
   /** A repair action is running: the page's other actions wait. */
   busy = false;
+  /** What the running page action is, so a refused request can say it; null while none runs. */
+  busyAction: RepairBusyWhat | null = null;
   /** The success card the repair page shows for a moment after a user-started repair worked. */
   recovered: RepairRecovered | null = null;
   readonly retryIds = new RetryIdIssuer(() => randomUUID());

@@ -19,6 +19,7 @@ import {
   planLegacyDisable,
   type LegacyDisableDependencies,
   type LegacyDisablePlan,
+  type LegacyDisableStepText,
   type LegacyServiceDetection,
   type LegacyServiceFound,
   type WindowsProcessEntry,
@@ -141,6 +142,18 @@ function plan(detection: LegacyServiceFound): LegacyDisablePlan {
   return result;
 }
 
+/** Each step's sentence is a marker here, so the test pins which step maps to which sentence, not the wording. */
+const STEP_TEXT: LegacyDisableStepText = {
+  stopTask: "stop-task:{name}",
+  removeTask: "remove-task:{name}",
+  endRunners: "end",
+  stopService: "stop:{name}",
+  checkStopped: "check",
+  refreshService: "refresh",
+  deleteFile: "delete:{path}",
+  other: "other",
+};
+
 describe("planLegacyDisable", () => {
   it("never plans for an unrecognised definition, an unknown checkout or a missing digest", () => {
     expect(planLegacyDisable({ kind: "none" })).toBeNull();
@@ -150,16 +163,14 @@ describe("planLegacyDisable", () => {
   });
 
   it("follows pnpm service:uninstall on each platform, with fixed names only", () => {
-    expect(describeLegacyDisableSteps(plan(found({ platform: "darwin", definitionPath: "/p/ai.plist" })))).toEqual([
-      "launchctl bootout gui/501/ai.workintelligence.server",
-      "launchctl print gui/501/ai.workintelligence.server",
-      "rm /p/ai.plist",
-    ]);
-    expect(describeLegacyDisableSteps(plan(found()))).toEqual([
-      "systemctl --user disable --now work-intelligence.service",
-      "systemctl --user is-enabled work-intelligence.service",
-      "rm /home/synthetic/.config/systemd/user/work-intelligence.service",
-      "systemctl --user daemon-reload",
+    expect(
+      describeLegacyDisableSteps(plan(found({ platform: "darwin", definitionPath: "/p/ai.plist" })), STEP_TEXT),
+    ).toEqual(["stop:ai.workintelligence.server", "check", "delete:/p/ai.plist"]);
+    expect(describeLegacyDisableSteps(plan(found()), STEP_TEXT)).toEqual([
+      "stop:work-intelligence.service",
+      "check",
+      "delete:/home/synthetic/.config/systemd/user/work-intelligence.service",
+      "refresh",
     ]);
     const windows = plan(
       found({ platform: "win32", repositoryRoot: WINDOWS_ROOT, definitionPath: "C:\\data\\task.xml" }),
@@ -170,6 +181,12 @@ describe("planLegacyDisable", () => {
     expect(windows.steps[0]).toMatchObject({
       run: { command: SCHTASKS, args: ["/End", "/TN", "\\Work Intelligence"] },
     });
+    expect(describeLegacyDisableSteps(windows, STEP_TEXT)).toEqual([
+      "stop-task:Work Intelligence",
+      "end",
+      "remove-task:Work Intelligence",
+      "delete:C:\\data\\task.xml",
+    ]);
   });
 
   it("does not remove a file for a task found only through the task query", () => {

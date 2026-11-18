@@ -2,6 +2,7 @@ import type { StoragePolicyRisk } from "../db-source/storage-policy.js";
 import type { DbGroupStatus, DbSourceKind } from "../db-source/types.js";
 import type { AgentDisplayState } from "../agents/status.js";
 import type { AgentHookSource, AgentHookState, AgentRegistrationOwner, SetupAgentId } from "./agents-state.js";
+import type { LegacyDisableStepText } from "../legacy-service/disable.js";
 import type { CopyToLocalFailure } from "./copy-to-local.js";
 import type { ShellLocale } from "./i18n.js";
 import type { SystemSettingsTarget } from "../legacy-service/system-settings.js";
@@ -68,6 +69,8 @@ export interface SetupMessages {
   readonly legacyDisableSameDatabase: string;
   readonly legacyDisableBusy: string;
   readonly legacyDisableSteps: string;
+  /** One plain sentence per step under 「詳細步驟」; never a command. */
+  readonly legacyDisableStepText: LegacyDisableStepText;
   readonly legacyDisableConfirm: string;
   readonly legacyDisableConfirmBusy: string;
   readonly legacyDisableCancel: string;
@@ -85,8 +88,6 @@ export interface SetupMessages {
   readonly legacyDisableBusyOther: string;
   readonly setupDetectingHint: string;
   readonly trayLegacyStatus: string;
-  readonly trayLegacyStartAnyway: string;
-  readonly trayLegacyHowToRemove: string;
   /** The backend could not bind its port and the old service is installed: say which one holds it. */
   readonly legacyPortInUse: string;
   readonly trayCompleteSetup: string;
@@ -254,6 +255,16 @@ const zhTW: SetupMessages = {
   legacyDisableSameDatabase: "停下之後，App 會先檢查這份資料庫，沒有問題才會使用。",
   legacyDisableBusy: "舊服務可能正在匯入或備份，建議稍後再停用。",
   legacyDisableSteps: "詳細步驟",
+  legacyDisableStepText: {
+    stopTask: "停止排程工作「{name}」",
+    removeTask: "移除排程工作「{name}」",
+    endRunners: "結束舊服務還在執行的程序",
+    stopService: "停止舊服務「{name}」，並移除它在登入時自動啟動的設定",
+    checkStopped: "確認舊服務已經停止、不會再自動啟動",
+    refreshService: "讓系統重新讀取服務清單",
+    deleteFile: "刪除檔案 {path}",
+    other: "清理舊服務留下的設定",
+  },
   legacyDisableConfirm: "停用",
   legacyDisableConfirmBusy: "仍要停用",
   legacyDisableCancel: "取消",
@@ -272,8 +283,6 @@ const zhTW: SetupMessages = {
   legacyDisableBusyOther: "另一個操作正在進行，請稍後再試。",
   setupDetectingHint: "正在檢查…完成後即可使用",
   trayLegacyStatus: "偵測到舊的登入服務也使用這份資料庫，未自動啟動",
-  trayLegacyStartAnyway: "仍要啟動",
-  trayLegacyHowToRemove: "停用舊的登入服務…",
   legacyPortInUse: "連接埠已被舊的登入服務使用。請先停用舊服務，再重試。",
   trayCompleteSetup: "完成首次設定…",
   setupDone: "已可以開始使用。Dashboard 已開啟。",
@@ -487,6 +496,16 @@ const en: SetupMessages = {
   legacyDisableSameDatabase: "Once it has stopped, the App checks this database before using it.",
   legacyDisableBusy: "The old service may be importing or backing up. It is better to turn it off later.",
   legacyDisableSteps: "Detailed steps",
+  legacyDisableStepText: {
+    stopTask: "Stop the scheduled task “{name}”",
+    removeTask: "Remove the scheduled task “{name}”",
+    endRunners: "End the programs the old service is still running",
+    stopService: "Stop the old service “{name}” and remove its start-at-login setting",
+    checkStopped: "Check that the old service is stopped and will not start again by itself",
+    refreshService: "Let the system read its service list again",
+    deleteFile: "Delete the file {path}",
+    other: "Clean up what the old service left behind",
+  },
   legacyDisableConfirm: "Turn off",
   legacyDisableConfirmBusy: "Turn off anyway",
   legacyDisableCancel: "Cancel",
@@ -509,8 +528,6 @@ const en: SetupMessages = {
   legacyDisableBusyOther: "Another operation is running. Try again in a moment.",
   setupDetectingHint: "Checking… available when done",
   trayLegacyStatus: "The old login service also uses this database; the App did not start automatically",
-  trayLegacyStartAnyway: "Start anyway",
-  trayLegacyHowToRemove: "Turn off the old login service…",
   legacyPortInUse: "The port is used by the old login service. Turn it off first, then try again.",
   trayCompleteSetup: "Finish setup…",
   setupDone: "You are ready to go. The Dashboard is open.",
