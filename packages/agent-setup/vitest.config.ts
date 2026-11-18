@@ -11,7 +11,7 @@ export const agentSetupAliases = {
 export default defineConfig({
   resolve: { alias: agentSetupAliases },
   test: {
-    setupFiles: [isolatedEnvironmentSetup, skipFsyncSetup],
+    setupFiles: [skipFsyncSetup, isolatedEnvironmentSetup],
     include: ["tests/agent-setup/**/*.test.ts"],
   },
 });
