@@ -1443,6 +1443,95 @@ function belongsToAnotherOwner(table: ProjectDataTable, current: ProjectDataRow,
   );
 }
 
+/**
+ * Whether two copies of a knowledge page are the same page content and differ only in how far it was checked.
+ * Marking a page checked moves checked_through_session_id but not updated_at, so the two copies keep an equal
+ * updated_at and every other column.
+ */
+function differsOnlyInCheckedCursor(current: ProjectDataRow, light: ProjectDataRow): boolean {
+  const imported = hydrateRow(light);
+  return projectDataExportTableColumns.knowledge_pages.every(
+    (column) =>
+      column === "checked_through_session_id" ||
+      sameColumnValue(
+        "knowledge_pages",
+        column,
+        projectDataColumnValue("knowledge_pages", current, column),
+        projectDataColumnValue("knowledge_pages", imported, column),
+      ),
+  );
+}
+
+/** The completion time of a Session, from the import file first and then from this database. */
+function sessionCompletedAt(
+  db: DatabaseSync,
+  sessionId: string,
+  importedSessionCompletedAt: ReadonlyMap<string, string>,
+): string | undefined {
+  const fromFile = importedSessionCompletedAt.get(sessionId);
+  if (fromFile !== undefined) return fromFile;
+  const stored = cachedStatement(db, "SELECT completed_at FROM sessions WHERE id = ?").get(sessionId) as
+    { completed_at: string } | undefined;
+  return stored?.completed_at;
+}
+
+/**
+ * Whether the imported copy has checked a page further than the local copy: the later Session by completed_at, then
+ * by ID, the same order the review cursor itself moves in. A page that was never checked is behind any checked one.
+ */
+function importedCursorIsAhead(
+  db: DatabaseSync,
+  current: ProjectDataRow,
+  row: ProjectDataRow,
+  importedSessionCompletedAt: ReadonlyMap<string, string>,
+): boolean {
+  const importedId = typeof row.checked_through_session_id === "string" ? row.checked_through_session_id : undefined;
+  if (importedId === undefined) return false;
+  const localId =
+    typeof current.checked_through_session_id === "string" ? current.checked_through_session_id : undefined;
+  if (localId === undefined) return true;
+  const importedAt = sessionCompletedAt(db, importedId, importedSessionCompletedAt);
+  const localAt = sessionCompletedAt(db, localId, importedSessionCompletedAt);
+  // A cursor whose Session cannot be dated is never trusted to move the local one.
+  if (importedAt === undefined || localAt === undefined) return false;
+  return (importedAt.localeCompare(localAt) || importedId.localeCompare(localId)) > 0;
+}
+
+/**
+ * A page whose copies differ only in the checked cursor. Checking a page is not a content edit and only moves
+ * forward, so the cursor merges as "the later of the two": newer-wins advances the local cursor to an imported one
+ * that is further along, and never moves it back. Merge (add-only) changes no stored row, so it leaves the local
+ * cursor as it is, and reports nothing: the page content is the same, so there is nothing to decide.
+ */
+function planCheckedCursor(
+  db: DatabaseSync,
+  current: ProjectDataRow,
+  row: ProjectDataRow,
+  strategy: ProjectDataImportStrategy,
+  addPlan: AddPlan,
+  importedSessionCompletedAt: ReadonlyMap<string, string>,
+): void {
+  if (!importedCursorIsAhead(db, current, row, importedSessionCompletedAt)) {
+    addPlan("knowledge_pages", row, "keep");
+    return;
+  }
+  if (strategy !== "newer-wins") {
+    addPlan("knowledge_pages", row, "skip");
+    return;
+  }
+  if (belongsToAnotherOwner("knowledge_pages", current, row)) {
+    addPlan(
+      "knowledge_pages",
+      row,
+      "conflict",
+      "相同 ID 的既有資料屬於另一個專案或上層資料，不會被覆寫。",
+      "dependency",
+    );
+    return;
+  }
+  addPlan("knowledge_pages", row, "update");
+}
+
 /** Decides how an imported row with an ID that already exists locally is handled. */
 function planExistingRow(
   db: DatabaseSync,
@@ -1451,9 +1540,14 @@ function planExistingRow(
   row: ProjectDataRow,
   strategy: ProjectDataImportStrategy,
   addPlan: AddPlan,
+  importedSessionCompletedAt: ReadonlyMap<string, string>,
 ): void {
   if (equalRows(table, current, row)) {
     addPlan(table, row, "skip");
+    return;
+  }
+  if (table === "knowledge_pages" && differsOnlyInCheckedCursor(current, row)) {
+    planCheckedCursor(db, current, row, strategy, addPlan, importedSessionCompletedAt);
     return;
   }
   // The comparisons below read every column; the plan keeps the light row, which is hydrated again when written.
@@ -1902,6 +1996,9 @@ function makePlan(db: DatabaseSync, validated: ValidatedProjectDataImport): Tran
     });
   }
 
+  const importedSessionCompletedAt = new Map(
+    selectedBundle.tables.sessions.map((session) => [String(session.id), String(session.completed_at)] as const),
+  );
   const parentOwners = collectParentOwners(db, selectedBundle.tables, projectIds);
   for (const table of TABLE_ORDER) {
     if (table === "projects") {
@@ -1939,7 +2036,7 @@ function makePlan(db: DatabaseSync, validated: ValidatedProjectDataImport): Tran
         continue;
       }
       if (current) {
-        planExistingRow(db, table, current, row, strategy, addPlan);
+        planExistingRow(db, table, current, row, strategy, addPlan, importedSessionCompletedAt);
         continue;
       }
 
