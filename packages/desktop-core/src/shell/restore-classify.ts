@@ -49,9 +49,11 @@ export function inspectedItems(outcome: BackupInspectOutcome): readonly DesktopI
 
 /**
  * The reason a restore did not replace the database, from what the preview child answered. Every one of them means the
- * database in use was not replaced; `failed` is also what a child that could not answer at all comes to.
+ * database in use was not replaced, except `outcome-unknown`: the request reached the child and no verdict came back, so
+ * nothing may be claimed until the files are looked at. `failed` is what a child that never got the request comes to.
  */
 export function restoreFailureOf(outcome: DatabaseRestoreOutcome): RestoreFailureReason | null {
+  if (outcome.outcome === "unknown") return "outcome-unknown";
   if (outcome.outcome === "failed") return "failed";
   switch (outcome.result.status) {
     case "ok":

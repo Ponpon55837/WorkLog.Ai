@@ -11,7 +11,7 @@ import {
   type StartupRecoveryResult,
 } from "@work-intelligence/desktop-core";
 import type { Logger } from "./log.js";
-import { defaultSettings } from "./settings.js";
+import { defaultSettings, type SettingsLoad } from "./settings.js";
 import type { ShellState } from "./state.js";
 
 export interface StartupRecoveryOptions {
@@ -23,6 +23,8 @@ export interface StartupRecoveryOptions {
   /** Makes the runtime ready for the read-only database check; only called when a record needs that check. */
   readonly prepareRuntime: () => Promise<unknown>;
   readonly platform: NodeJS.Platform;
+  /** How reading the settings ended: an unreadable file ("repair") is never treated as "no settings". */
+  readonly settingsLoad: SettingsLoad;
   readonly log: Logger;
 }
 
@@ -83,15 +85,19 @@ export function recoverAtStartup(options: StartupRecoveryOptions): Promise<Start
 
   return runStartupRecovery({
     journal,
+    settingsUnreadable: options.settingsLoad === "repair",
     probe,
-    settleCopy: (copyPath) =>
+    settleCopy: (copyPath, record) =>
       settleOrphanCopy({
         copyPath,
         copyDirectory,
+        // Every database this App knows it uses: the settings' two paths and the one the state serves right now.
         settingsDatabasePaths: [
           state.settings?.desired.databasePath,
           state.settings?.active?.databaseIdentity.realPath,
+          state.databasePath(),
         ],
+        recordUpdatedAt: record.updatedAt,
         platform,
       }),
     log,

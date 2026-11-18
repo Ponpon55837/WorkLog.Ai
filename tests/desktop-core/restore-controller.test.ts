@@ -26,6 +26,12 @@ interface Setup {
   readonly restore?: RestoreStatus;
   /** The operation's start after a replacement fails (the new database does not start). */
   readonly startFails?: boolean;
+  /** The restore child was sent the request and gave no verdict (it crashed or ended). */
+  readonly noVerdict?: boolean;
+  /** The database file as the restore found it, and after: what the controller compares when there was no verdict. */
+  readonly fingerprints?: readonly [string | null, string | null];
+  /** Another page action takes the lock while the second busy check waits for the backend's activity report. */
+  readonly lockDuringLateCheck?: boolean;
   readonly restart?: { ok: true } | { ok: false; code: string };
 }
 
@@ -37,6 +43,8 @@ function setup(options: Setup = {}) {
   let running: { port: number } | undefined = { port: 43_100 };
   let cleared = 0;
   const failures: string[] = [];
+  let fingerprintCalls = 0;
+  let activityCalls = 0;
   const state = {
     busy: false,
     locale: "en" as const,
@@ -52,10 +60,13 @@ function setup(options: Setup = {}) {
       get running() {
         return running;
       },
-      queryActivity: async () =>
-        options.busyActivity
+      queryActivity: async () => {
+        activityCalls += 1;
+        if (options.lockDuringLateCheck && activityCalls === 2) state.busy = true;
+        return options.busyActivity
           ? { status: "known" as const, busy: ["import" as const], pendingImport: false }
-          : { status: "known" as const, busy: [], pendingImport: false },
+          : { status: "known" as const, busy: [], pendingImport: false };
+      },
       inspectBackups: async (request: Record<string, unknown>) => {
         inspectRequests.push(request);
         const files = request.files as string[] | undefined;
@@ -85,6 +96,7 @@ function setup(options: Setup = {}) {
       restoreDatabase: async (request: unknown) => {
         events.push("replace");
         restoreRequests.push(request);
+        if (options.noVerdict) return { outcome: "unknown" as const, code: "CHILD_EXITED", detail: "the child ended" };
         const status = options.restore ?? "ok";
         return {
           outcome: "checked" as const,
@@ -119,6 +131,11 @@ function setup(options: Setup = {}) {
       },
       presenter: () => ({ clear: () => (cleared += 1), present: (code: string) => failures.push(`present:${code}`) }),
       recovery: { cancel: () => events.push("cancel-recovery"), handleFailure: (code: string) => failures.push(code) },
+    },
+    fingerprint: () => {
+      const [before, after] = options.fingerprints ?? [null, null];
+      fingerprintCalls += 1;
+      return fingerprintCalls === 1 ? before : after;
     },
     agentsRunning: async () => options.agents === true,
     chooseFile: async () => (options.chosen === undefined ? "/synthetic/backups/chosen.sqlite" : options.chosen),
@@ -298,6 +315,36 @@ describe("running a restore", () => {
       backendRunning: false,
     });
     expect(failures).toContain("REPAIR_REQUIRED");
+  });
+
+  it("claims nothing when the restore child gave no verdict and the database cannot be shown unchanged", async () => {
+    for (const fingerprints of [undefined, ["a", "b"], ["a", null]] as const) {
+      const { controller, isRunning, state } = setup({ noVerdict: true, ...(fingerprints ? { fingerprints } : {}) });
+      const id = await firstListedId(controller);
+      const result = await controller.run(WINDOW, id);
+      expect(result).toMatchObject({ ok: false, reason: "outcome-unknown", dataIntact: false });
+      expect(isRunning()).toBe(true);
+      expect(state.busy).toBe(false);
+      // The token is spent: the list is read again for a new one.
+      expect(await controller.run(WINDOW, id)).toMatchObject({ reason: "expired" });
+    }
+  });
+
+  it("calls the original kept after a silent child only when the file is provably the same", async () => {
+    const { controller } = setup({ noVerdict: true, fingerprints: ["same", "same"] });
+    expect(await controller.run(WINDOW, await firstListedId(controller))).toMatchObject({
+      ok: false,
+      reason: "failed",
+      dataIntact: true,
+    });
+  });
+
+  it("does not take, or clear, the lock of a page action that started during the last busy check", async () => {
+    const { controller, state, events } = setup({ lockDuringLateCheck: true });
+    const result = await controller.run(WINDOW, await firstListedId(controller));
+    expect(result).toMatchObject({ ok: false, reason: "busy", busy: { source: "page-action" } });
+    expect(state.busy).toBe(true);
+    expect(events).not.toContain("stop");
   });
 
   it("when the restored database does not start, says so and points to the safety backup", async () => {

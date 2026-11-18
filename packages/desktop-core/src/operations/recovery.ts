@@ -292,13 +292,18 @@ export async function recover(record: OperationRecord, probe: StateProbe): Promi
     report.dbSchemaVersion !== null &&
     report.dbSchemaVersion > record.schemaVersionAtStart;
   const migration = record.migrationStarted || report.migrationEvidence || advanced;
+  const touchesDb = record.phase !== "UNCONFIGURED" && record.phase !== "EXTERNAL" && record.phase !== "NEEDS_REPAIR";
+  // A database switch records the TARGET database, so "the settings name another one" is its normal "never committed"
+  // answer (decided by kind below). For every other operation the recorded database is the one in use: a different or
+  // unverifiable one is repair, whatever the kind's own rule would say.
+  const identityDiffers =
+    touchesDb && record.selectedDb !== null && !isSameDatabase(record.selectedDb, report.dbIdentity);
+  if (identityDiffers && (record.kind !== "change-db" || migration)) {
+    return repair(record, migration, "database identity differs from the selected database or is unknown");
+  }
   if (!migration) {
     const byKind = decideByKind(record, report);
     if (byKind) return byKind;
-  }
-  const touchesDb = record.phase !== "UNCONFIGURED" && record.phase !== "EXTERNAL" && record.phase !== "NEEDS_REPAIR";
-  if (touchesDb && record.selectedDb !== null && !isSameDatabase(record.selectedDb, report.dbIdentity)) {
-    return repair(record, migration, "database identity differs from the selected database or is unknown");
   }
   if (migration) {
     if (record.phase === "UNCONFIGURED" || record.phase === "EXTERNAL" || record.phase === "NEEDS_REPAIR") {

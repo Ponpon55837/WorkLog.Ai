@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   COPY_PATH_DETAIL,
   InMemoryOperationJournalStore,
+  JournalStoreError,
   OPERATION_KINDS,
   OperationJournal,
   describeRecovery,
@@ -70,6 +71,59 @@ function run(journal: OperationJournal, report: ProbeReport | (() => ProbeReport
   };
 }
 
+describe("start-up recovery when the journal cannot be read", () => {
+  it.each(["newer-version", "unreadable"] as const)("holds the start and names the problem (%s)", async (code) => {
+    const journal = new OperationJournal(
+      {
+        load: async () => {
+          throw new JournalStoreError(code, "synthetic");
+        },
+        save: async () => undefined,
+      },
+      makeClock(),
+    );
+    expect(await runStartupRecovery({ journal, probe: probe(), settleCopy: noCopy, log: () => undefined })).toEqual({
+      closed: 0,
+      holdStart: true,
+      journalProblem: code,
+    });
+  });
+});
+
+describe("start-up recovery when the settings file cannot be read", () => {
+  it("closes nothing, deletes no copy, probes nothing and holds the start; the record stays open", async () => {
+    const journal = await journalWith("change-db", "STARTING", {
+      details: { [COPY_PATH_DETAIL]: "/synthetic/data/work-intelligence-local.sqlite" },
+    });
+    const settle = vi.fn(noCopy);
+    const probeFn = vi.fn(probe());
+    const result = await runStartupRecovery({
+      journal,
+      probe: probeFn,
+      settleCopy: settle,
+      settingsUnreadable: true,
+      log: () => undefined,
+    });
+    expect(result).toEqual({ closed: 0, holdStart: true });
+    expect(settle).not.toHaveBeenCalled();
+    expect(probeFn).not.toHaveBeenCalled();
+    expect(await journal.findInProgress()).not.toBeNull();
+  });
+
+  it("holds nothing when no operation is in progress", async () => {
+    const journal = new OperationJournal(new InMemoryOperationJournalStore(), makeClock());
+    expect(
+      await runStartupRecovery({
+        journal,
+        probe: probe(),
+        settleCopy: noCopy,
+        settingsUnreadable: true,
+        log: () => undefined,
+      }),
+    ).toEqual({ closed: 0, holdStart: false });
+  });
+});
+
 describe("start-up recovery with nothing to recover", () => {
   it("reads the journal once, never probes and never writes (the cost of an empty journal)", async () => {
     const store = new CountingStore();
@@ -108,7 +162,8 @@ describe("start-up recovery with nothing to recover", () => {
       save: async () => undefined,
     };
     const { probeFn, result } = run(new OperationJournal(failing, makeClock()), probe());
-    expect(await result).toEqual({ closed: 0, holdStart: false });
+    // Fail closed: an unreadable journal may hold an interrupted operation, so the automatic start is held.
+    expect(await result).toEqual({ closed: 0, holdStart: true, journalProblem: "unreadable" });
     expect(probeFn).not.toHaveBeenCalled();
   });
 });
@@ -231,7 +286,7 @@ describe("the copy to the local disk (L-10)", () => {
     const settle = vi.fn(async () => "removed" as CopySettlement);
     const { probeFn, result } = run(journal, probe(), settle);
     expect(await result).toEqual({ closed: 1, holdStart: false });
-    expect(settle).toHaveBeenCalledWith("/synthetic/copy.sqlite");
+    expect(settle).toHaveBeenCalledWith("/synthetic/copy.sqlite", expect.objectContaining({ operationId: "op-1" }));
     expect(probeFn).not.toHaveBeenCalled();
     expect((await journal.get("op-1"))?.recoveryNotice?.kind).toBe("copy-removed");
   });
@@ -293,6 +348,33 @@ describe("settleOrphanCopy containment", () => {
     expect(await settleOrphanCopy({ copyPath: copy, copyDirectory: dir, settingsDatabasePaths: [], platform })).toBe(
       "absent",
     );
+  });
+
+  it("refuses a copy file that was written long after its record: something uses it, it is not an orphan", async () => {
+    const dir = await copyFolder();
+    const copy = path.join(dir, "work-intelligence-local.sqlite");
+    await writeFile(copy, "x");
+    const recordWritten = new Date(Date.now() - 3_600_000).toISOString();
+    expect(
+      await settleOrphanCopy({
+        copyPath: copy,
+        copyDirectory: dir,
+        settingsDatabasePaths: [],
+        recordUpdatedAt: recordWritten,
+        platform,
+      }),
+    ).toBe("refused");
+    expect(await readdir(dir)).toEqual(["work-intelligence-local.sqlite"]);
+    // Written within the copy's own time budget of the record: an interrupted copy, removed as before.
+    expect(
+      await settleOrphanCopy({
+        copyPath: copy,
+        copyDirectory: dir,
+        settingsDatabasePaths: [],
+        recordUpdatedAt: new Date().toISOString(),
+        platform,
+      }),
+    ).toBe("removed");
   });
 
   it("refuses anything outside the copy folder or not named like a copy, and touches nothing", async () => {

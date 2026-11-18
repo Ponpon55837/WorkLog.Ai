@@ -79,6 +79,8 @@ export interface ShellMessages {
   /** The native error box shown when the App cannot even find its data folder and must close. */
   readonly startupFailedTitle: string;
   readonly startupFailedMessage: string;
+  /** The operations journal was written by a newer App: nothing is started on it and nothing is changed. */
+  readonly journalNewerVersion: string;
   /** `{title}` is the error title. */
   readonly notifyBody: string;
   readonly repairWindowTitle: string;
@@ -167,6 +169,8 @@ const zhTW: ShellMessages = {
   statusOpenData: "前往「資料」分頁",
   recoveryHeading: "上次被中斷的操作",
   recoveryNotices: {
+    "journal-unreadable":
+      "App 上次留下的操作紀錄無法讀取，已移到一旁。這代表更早之前被中斷的操作（例如切換資料庫或還原備份）可能沒有完成，App 無法確認資料目前處於哪個狀態，所以先沒有自動啟動服務，也沒有改動任何資料。",
     "port-kept":
       "上次變更連接埠時 App 被中斷，已確認仍使用原連接埠 {port}。新的連接埠 {attempted} 沒有生效，資料沒有被改動。",
     "port-applied": "上次變更連接埠時 App 被中斷，但新的連接埠 {port} 已經生效。",
@@ -180,6 +184,8 @@ const zhTW: ShellMessages = {
       "上次{operation}時 App 被中斷，無法確認資料目前處於哪個狀態，所以 App 先沒有自動啟動服務，也沒有改動任何資料。",
   },
   recoveryNextSteps: {
+    "journal-unreadable":
+      "請在「狀態」分頁確認服務與資料庫是否正常；如果資料看起來不對，可以到「資料」分頁選擇資料庫，或從備份還原。",
     "port-kept": "想改用新的連接埠，可以到「設定」分頁再變更一次。",
     "port-applied": "可以到「設定」分頁確認目前的連接埠。",
     "db-kept": "想改用另一個資料庫，可以到「資料」分頁再選一次。",
@@ -216,6 +222,8 @@ const zhTW: ShellMessages = {
   startupFailedTitle: "Work Intelligence 無法啟動",
   startupFailedMessage:
     "找不到這個使用者的應用程式資料夾（Windows 為 AppData），App 必須關閉，資料沒有任何變更。請確認使用者設定檔完整後再開啟。",
+  journalNewerVersion:
+    "這個資料夾的操作紀錄是由較新版本的 Work Intelligence 寫入的，這個版本無法讀取。為了不影響資料，App 沒有自動啟動服務，也沒有改動任何資料。請先更新 App，再開啟一次。",
   notifyBody: "{title}。請開啟 App 的「狀態」分頁。",
   repairWindowTitle: "Work Intelligence 修復",
   repairHeading: "修復 Work Intelligence",
@@ -421,6 +429,8 @@ const en: ShellMessages = {
   statusOpenData: "Open the Data tab",
   recoveryHeading: "An operation was interrupted last time",
   recoveryNotices: {
+    "journal-unreadable":
+      "The App's record of earlier operations could not be read and was set aside. An operation that was interrupted earlier (for example switching the database or restoring a backup) may not have finished, and the App cannot confirm what state your data is in. So it did not start the service by itself and did not change any data.",
     "port-kept":
       "The App was interrupted while changing the port last time. Confirmed: it still uses the original port {port}. The new port {attempted} did not take effect, and your data was not changed.",
     "port-applied":
@@ -441,6 +451,8 @@ const en: ShellMessages = {
       "The App was interrupted during the last attempt to {operation}, and it cannot confirm what state your data is in. So the App did not start the service by itself and did not change any data.",
   },
   recoveryNextSteps: {
+    "journal-unreadable":
+      "Check on the Status tab that the service and database look right. If your data looks wrong, choose a database on the Data tab or restore from a backup.",
     "port-kept": "To use the new port, change it again on the Settings tab.",
     "port-applied": "You can check the current port on the Settings tab.",
     "db-kept": "To use another database, choose it again on the Data tab.",
@@ -478,6 +490,8 @@ const en: ShellMessages = {
   startupFailedTitle: "Work Intelligence cannot start",
   startupFailedMessage:
     "The App could not find this user's application data folder (AppData on Windows) and has to close. Nothing was changed. Check that the user profile is complete, then open the App again.",
+  journalNewerVersion:
+    "The App's record of operations was written by a newer version of Work Intelligence, which this version cannot read. To protect your data, the App did not start the service by itself and did not change any data. Update the App, then open it again.",
   notifyBody: "{title}. Open the Status tab in the App.",
   repairWindowTitle: "Work Intelligence Repair",
   repairHeading: "Repair Work Intelligence",

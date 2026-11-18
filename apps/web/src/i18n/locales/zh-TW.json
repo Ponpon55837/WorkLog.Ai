@@ -1507,6 +1507,7 @@
     "agentConnections": "Agent 連線",
     "agentSetupOpenedInDesktopApp": "已在桌面 App 開啟 Agent 設定",
     "agentsInOtherProjectsNeed": "其他專案的 Agent 需要使用者層級的 skill 與 hook，才會自動讀取說明並提醒保存工作記錄。在 Work Intelligence 專案目錄執行下列指令：先預覽要寫入的設定，確認後才寫入；完成後重新連線 Agent。",
+    "agentsInOtherProjectsNeedDesktop": "其他專案的 Agent 需要使用者層級的 skill 與 hook，才會自動讀取說明並提醒保存工作記錄。請用上方的「在桌面 App 設定 Agent」：App 會先預覽要寫入的設定，確認後才寫入；完成後重新連線 Agent。",
     "allHealthy": "全部正常",
     "appVersion": "程式版本",
     "appearance": "外觀主題",

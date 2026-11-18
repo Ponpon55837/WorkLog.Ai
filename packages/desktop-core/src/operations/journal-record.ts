@@ -42,6 +42,8 @@ export const RECOVERY_NOTICE_KINDS = [
   "legacy-disabled",
   "agent-interrupted",
   "needs-repair",
+  /** The journal file itself could not be read and was set aside: what an earlier operation did is unknown. */
+  "journal-unreadable",
 ] as const;
 export type RecoveryNoticeKind = (typeof RECOVERY_NOTICE_KINDS)[number];
 

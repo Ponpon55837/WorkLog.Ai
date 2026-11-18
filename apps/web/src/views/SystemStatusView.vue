@@ -229,7 +229,15 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
             </p>
             <p data-testid="legacy-service-turn-off">{{ t("systemStatus.legacyServiceTurnOffInApp") }}</p>
           </div>
-          <div v-if="agentIssueCount > 0" class="system-status__setup" data-testid="agent-setup-hint">
+          <!-- The desktop App never shows a command: its own Agent setup (the button above) does the same work. -->
+          <div
+            v-if="agentIssueCount > 0 && status.desktop?.managed"
+            class="system-status__setup"
+            data-testid="agent-setup-hint-desktop"
+          >
+            <p>{{ t("systemStatus.agentsInOtherProjectsNeedDesktop") }}</p>
+          </div>
+          <div v-else-if="agentIssueCount > 0" class="system-status__setup" data-testid="agent-setup-hint">
             <p>
               {{ t("systemStatus.agentsInOtherProjectsNeed") }}
             </p>

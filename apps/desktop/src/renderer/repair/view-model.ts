@@ -21,7 +21,7 @@ export function recoveryBannerText(notice: RepairRecoveryNotice, messages: Shell
     attempted: String(notice.attemptedPort ?? ""),
     operation: messages.recoveryOperationNames[notice.operation],
   };
-  const tab: AppTab = notice.kind === "needs-repair" ? "status" : notice.tab;
+  const tab: AppTab = notice.kind === "needs-repair" || notice.kind === "journal-unreadable" ? "status" : notice.tab;
   return {
     message: formatMessage(messages.recoveryNotices[notice.kind], values),
     nextStep: messages.recoveryNextSteps[notice.kind],

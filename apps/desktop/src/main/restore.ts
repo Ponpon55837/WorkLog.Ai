@@ -59,6 +59,11 @@ export interface RestoreOptions {
   readonly chooseFile: () => Promise<string | null>;
   /** The native confirmation; Cancel is the default button. */
   readonly confirm: (details: RestoreConfirmDetails) => Promise<boolean>;
+  /**
+   * A fingerprint of the database file (identity and content marker), or null when it cannot be read. Used only to tell
+   * whether the file is still the one the restore started from when the restore child gave no verdict.
+   */
+  readonly fingerprint?: (databasePath: string) => string | null;
   /** Some backup file was written (the safety backup): the "last backup" shown is read again. */
   readonly backupsChanged: () => void;
   readonly store?: RestoreBackupStore<RestoreEntry>;
@@ -84,6 +89,15 @@ function modifiedAt(path: string): string | null {
   }
 }
 
+function fileFingerprint(path: string): string | null {
+  try {
+    const stat = statSync(path);
+    return `${stat.ino}:${stat.size}:${stat.mtimeMs}`;
+  } catch {
+    return null;
+  }
+}
+
 function describeTime(locale: string, iso: string | null, unknown: string): string {
   if (iso === null) return unknown;
   const date = new Date(iso);
@@ -94,6 +108,7 @@ function describeTime(locale: string, iso: string | null, unknown: string): stri
 
 export function createRestore(options: RestoreOptions): RestoreController {
   const { state, coordinator, supervisor, backend, log } = options;
+  const fingerprintOf = options.fingerprint ?? fileFingerprint;
   const store = options.store ?? new RestoreBackupStore<RestoreEntry>({ clock: options.clock ?? Date.now });
 
   function backupDirectory(): string | undefined {
@@ -170,11 +185,13 @@ export function createRestore(options: RestoreOptions): RestoreController {
   function replaceStep(
     entry: RestoreEntry,
     databasePath: string,
-    seen: { child?: DatabaseRestoreOutcome },
+    seen: { child?: DatabaseRestoreOutcome; before?: string | null },
   ): (context: OperationStepContext) => Promise<JournalJson> {
     return async (context) => {
       // The point of no return of the operation: a crash from here on is resolved from the real state, never resumed.
       await context.markMigrationStarted();
+      // The backend is stopped here: this is the file as the restore finds it.
+      seen.before = fingerprintOf(databasePath);
       const child = await supervisor.restoreDatabase({
         source: entry.path,
         databasePath,
@@ -237,16 +254,24 @@ export function createRestore(options: RestoreOptions): RestoreController {
       claim.release();
       return failure("busy", { busy: late });
     }
-    // The window's other actions wait while the restore runs (the same single lock as every page action).
+    // The window's other actions wait while the restore runs (the same single lock as every page action). Tested and set in
+    // one synchronous step: another action may have taken the lock during the awaits above, and it is never overwritten.
+    if (state.busy) {
+      claim.release();
+      return failure("busy", { busy: { source: "page-action" } });
+    }
     state.busy = true;
     state.busyAction = "restore";
     state.touch();
     try {
       return await execute(claim, entry, databasePath);
     } finally {
-      state.busy = false;
-      state.busyAction = null;
-      state.touch();
+      // Only what this run set is cleared.
+      if (state.busyAction === "restore") {
+        state.busy = false;
+        state.busyAction = null;
+        state.touch();
+      }
     }
   }
 
@@ -258,7 +283,7 @@ export function createRestore(options: RestoreOptions): RestoreController {
   ): Promise<RestoreRunResult> {
     // A pending automatic retry must not start the old database while the restore runs.
     backend.recovery.cancel();
-    const seen: { child?: DatabaseRestoreOutcome } = {};
+    const seen: { child?: DatabaseRestoreOutcome; before?: string | null } = {};
     const outcome = await backend.restoreWhileStopped(replaceStep(entry, databasePath, seen));
     options.backupsChanged();
     if (outcome.ok) {
@@ -296,7 +321,18 @@ export function createRestore(options: RestoreOptions): RestoreController {
       });
     }
     // Not replaced: classify why, bring the backend back on the original database.
-    const reason = child ? (restoreFailureOf(child) ?? "failed") : "failed";
+    let reason = child ? (restoreFailureOf(child) ?? "failed") : "failed";
+    if (reason === "outcome-unknown") {
+      // The child was sent the request and gave no verdict (it crashed or ended). Only a file that is provably the same
+      // one it was before may be called unchanged; otherwise nothing is claimed and the user is pointed to the safety backup.
+      const now = fingerprintOf(databasePath);
+      if (seen.before != null && now === seen.before) reason = "failed";
+      else {
+        log("[shell] restore gave no verdict and the database could not be shown unchanged");
+        const running = await bringBackOriginal();
+        return failure("outcome-unknown", { dataIntact: false, backendRunning: running });
+      }
+    }
     log(`[shell] restore did not replace the database (${reason})`);
     // A file that is itself unusable stays refused; one that was merely held (lock, Agent, space) may be tried again.
     if (reason === "locked" || reason === "agents-running" || reason === "no-space" || reason === "failed") {

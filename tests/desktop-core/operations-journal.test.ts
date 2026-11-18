@@ -232,7 +232,7 @@ describe("FileOperationJournalStore", () => {
     expect(await readdir(path.dirname(file))).toEqual(["journal.json"]);
   });
 
-  it("quarantines corrupt JSON, schema violations and unknown versions, then starts empty", async () => {
+  it("quarantines corrupt JSON and schema violations, then starts empty", async () => {
     const dir = await tempDir();
     const file = path.join(dir, "journal.json");
     const quarantined: { from: string; to: string; reason: string }[] = [];
@@ -241,12 +241,7 @@ describe("FileOperationJournalStore", () => {
       onQuarantine: (q) => quarantined.push(q),
       clock: () => new Date(Date.UTC(2026, 0, 1, 0, 0, tick++)),
     });
-    const contents = [
-      "{not json",
-      "{}",
-      JSON.stringify({ journalVersion: 99, records: [] }),
-      JSON.stringify({ journalVersion: 1, records: [{ operationId: "x" }] }),
-    ];
+    const contents = ["{not json", "{}", JSON.stringify({ journalVersion: 1, records: [{ operationId: "x" }] })];
     for (const content of contents) {
       await writeFile(file, content);
       expect(await store.load()).toBeNull();
@@ -261,6 +256,31 @@ describe("FileOperationJournalStore", () => {
     const journal = new OperationJournal(store, makeClock());
     await journal.begin(newInput());
     expect((await journal.get("op-1"))?.status).toBe("in-progress");
+  });
+
+  it("fails closed on a journal written by a newer version: it is not damaged, so it is neither moved nor emptied", async () => {
+    const dir = await tempDir();
+    const file = path.join(dir, "journal.json");
+    const quarantined: unknown[] = [];
+    const store = new FileOperationJournalStore(file, { onQuarantine: (q) => quarantined.push(q) });
+    const content = JSON.stringify({ journalVersion: 99, records: [] });
+    await writeFile(file, content);
+    await expect(store.load()).rejects.toMatchObject({ code: "newer-version" });
+    expect(quarantined).toEqual([]);
+    expect(await readFile(file, "utf8")).toBe(content);
+    expect(await readdir(dir)).toEqual(["journal.json"]);
+  });
+
+  it("records a quarantined journal as one closed record with a journal-unreadable notice", async () => {
+    const journal = new OperationJournal(new InMemoryOperationJournalStore(), makeClock());
+    await journal.recordUnreadableJournal();
+    const notices = await journal.pendingNotices();
+    expect(notices).toHaveLength(1);
+    expect(notices[0]?.recoveryNotice).toMatchObject({ kind: "journal-unreadable", acknowledged: false });
+    expect(notices[0]?.status).toBe("failed");
+    expect(await journal.findInProgress()).toBeNull();
+    expect(await journal.acknowledgeNotice(notices[0]!.operationId)).toBe(true);
+    expect(await journal.pendingNotices()).toEqual([]);
   });
 
   it("fails closed when the path is unreadable (not ENOENT)", async () => {

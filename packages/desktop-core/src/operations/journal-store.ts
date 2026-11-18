@@ -1,9 +1,9 @@
 import { readFile, rename } from "node:fs/promises";
 import { writeFileAtomic } from "../internal/atomic-file.js";
-import { operationJournalFileSchema, type OperationJournalFile } from "./journal-record.js";
+import { OPERATION_JOURNAL_VERSION, operationJournalFileSchema, type OperationJournalFile } from "./journal-record.js";
 
 /** Why a journal could not be loaded or saved. */
-export type JournalStoreErrorCode = "unreadable" | "invalid" | "unwritable";
+export type JournalStoreErrorCode = "unreadable" | "invalid" | "unwritable" | "newer-version";
 
 /** Fail-closed error: callers must treat the journal state as unknown and go to repair, never "empty". */
 export class JournalStoreError extends Error {
@@ -52,7 +52,8 @@ export interface FileOperationJournalStoreOptions {
 
 /**
  * File-backed store: atomic replace with mode 0o600. Only ENOENT means "no journal". A file that is there but cannot be
- * read stays fail-closed (`unreadable`). A file that cannot be parsed (corrupt, truncated, unknown version) is moved
+ * read stays fail-closed (`unreadable`), and so does one written by a newer App (`newer-version`, left untouched). A file
+ * that cannot be parsed (corrupt, truncated, a shape this version does not know) is moved
  * aside to `<file>.corrupt-<time>` and the journal starts empty, so one damaged file cannot stop every later start;
  * the records it held cannot be recovered, which the caller's log line records.
  */
@@ -75,8 +76,19 @@ export class FileOperationJournalStore implements OperationJournalStore {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw new JournalStoreError("unreadable", `cannot read operation journal ${this.filePath}`, error);
     }
+    let parsed: unknown;
     try {
-      return operationJournalFileSchema.parse(JSON.parse(text));
+      parsed = JSON.parse(text);
+    } catch (error) {
+      return this.quarantine(error);
+    }
+    // A journal written by a newer App is not damaged: it is left exactly where it is and nothing is started on it.
+    const version = (parsed as { journalVersion?: unknown } | null)?.journalVersion;
+    if (typeof version === "number" && version > OPERATION_JOURNAL_VERSION) {
+      throw new JournalStoreError("newer-version", `operation journal ${this.filePath} was written by a newer version`);
+    }
+    try {
+      return operationJournalFileSchema.parse(parsed);
     } catch (error) {
       return this.quarantine(error);
     }

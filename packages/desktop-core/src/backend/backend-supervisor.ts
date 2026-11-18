@@ -125,10 +125,15 @@ export type BackupInspectOutcome =
   | { readonly outcome: "checked"; readonly result: DesktopInspectResultMessage }
   | { readonly outcome: "failed"; readonly code: BackendErrorCode; readonly detail: string };
 
-/** What a restore asked of a preview child came to: the child's verdict, or a failure of the child itself. */
+/**
+ * What a restore asked of a preview child came to: the child's verdict; `failed` when the request never reached the child
+ * (the database was not touched); `unknown` when the request was sent and the child then ended or went silent without a
+ * verdict (the database may or may not have been replaced: the caller must look at the files).
+ */
 export type DatabaseRestoreOutcome =
   | { readonly outcome: "checked"; readonly result: DesktopRestoreResultMessage }
-  | { readonly outcome: "failed"; readonly code: BackendErrorCode; readonly detail: string };
+  | { readonly outcome: "failed"; readonly code: BackendErrorCode; readonly detail: string }
+  | { readonly outcome: "unknown"; readonly code: BackendErrorCode; readonly detail: string };
 
 /** A backend that was running and ended without a `stop()`. The shell moves to NEEDS_REPAIR; no restart happens here. */
 export interface BackendExitEvent {
@@ -516,6 +521,7 @@ export class BackendSupervisor {
     generation: number,
   ): Promise<DatabaseRestoreOutcome> {
     let child: ActiveChild | undefined;
+    let sent = false;
     try {
       if (generation !== this.previewGeneration) {
         throw new BackendFailure("REPAIR_REQUIRED", "the restore was cancelled because the backend was stopped");
@@ -533,10 +539,12 @@ export class BackendSupervisor {
         databasePath: request.databasePath,
         ...(request.backupDirectory ? { backupDirectory: request.backupDirectory } : {}),
       });
-      return { outcome: "checked", result: await child.channel.expect("restore-result", this.timeouts.copyMs) };
+      sent = true;
+      // No timer: a restoring child is never killed because it takes long. Only its answer or its own exit ends the wait.
+      return { outcome: "checked", result: await child.channel.expect("restore-result", null) };
     } catch (error) {
       const failure = describeUnexpected(error);
-      return { outcome: "failed", code: failure.code, detail: failure.detail };
+      return { outcome: sent ? "unknown" : "failed", code: failure.code, detail: failure.detail };
     } finally {
       if (child) {
         const ended = await this.terminate(child);

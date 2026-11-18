@@ -61,6 +61,8 @@ export interface RestoreMessages {
   readonly notRunning: string;
   /** Appended after a failure that touched nothing. */
   readonly dataIntact: string;
+  /** The restore gave no answer and the database could not be shown unchanged; no claim about the data is made. */
+  readonly outcomeUnknown: string;
   /** `{safety}` is the file name of the safety backup. */
   readonly startFailed: string;
   /** `{safety}` is the file name; `{projects}` and `{sessions}` are counts. */
@@ -144,6 +146,8 @@ const zhTW: RestoreMessages = {
   failed: "還原沒有成功。原本的資料庫沒有任何變更。",
   notRunning: "服務目前沒有執行。請到「狀態」分頁按「重試」，或再試一次還原。",
   dataIntact: "原本的資料庫沒有任何變更。",
+  outcomeUnknown:
+    "還原沒有回報結果，無法確定資料庫目前是原本的資料還是還原後的資料。還原前 App 會先自動備份目前的資料，那份備份應該在備份資料夾中（可在這一頁的清單看到最新的備份）。請先確認資料是否正常，需要的話可以再選一份備份重新還原。",
   startFailed:
     "備份已還原，但服務沒能用還原後的資料啟動。還原前的資料已備份為「{safety}」，仍在備份資料夾中。請到「狀態」分頁查看，或選擇另一份備份還原。",
   done: "已還原：{projects} 個專案、{sessions} 筆 Session。還原前的資料已備份為「{safety}」。",
@@ -232,6 +236,8 @@ const en: RestoreMessages = {
   failed: "The restore did not succeed. The original database was not changed.",
   notRunning: "The service is not running. Open the Status tab and press Retry, or try the restore again.",
   dataIntact: "The original database was not changed.",
+  outcomeUnknown:
+    "The restore did not report a result, so it is not certain whether the database now holds the original data or the restored data. Before replacing anything the App makes an automatic backup of the current data; it should be in the backup folder (the newest backup in the list on this page). Check that your data looks right, and restore a backup again if you need to.",
   startFailed:
     "The backup was restored, but the service could not start on the restored data. The data from before the restore was backed up as “{safety}” and is still in the backup folder. Check the Status tab, or restore another backup.",
   done: "Restored: {projects} projects, {sessions} sessions. The data from before the restore was backed up as “{safety}”.",
@@ -325,6 +331,8 @@ export function runFailureText(messages: RestoreMessages, result: Extract<Restor
     case "corrupt":
     case "missing":
       return `${messages.problems[result.reason]} ${messages.dataIntact}${tail}`;
+    case "outcome-unknown":
+      return `${messages.outcomeUnknown}${tail}`;
     case "start-failed":
       return formatMessage(messages.startFailed, { safety: result.safetyBackup ?? "" });
     default:

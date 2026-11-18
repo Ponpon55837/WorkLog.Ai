@@ -15,7 +15,17 @@ export interface SettleOrphanCopyInput {
   /** Every database path the settings name (the database to start, the last verified one); the copy is kept if one is it. */
   readonly settingsDatabasePaths: readonly (string | null | undefined)[];
   readonly platform: NodeJS.Platform;
+  /**
+   * When the interrupted operation's record was last written (ISO). A copy file modified well after that is in use by
+   * something (the copy itself is only written while the record was being made), so it is refused, never deleted.
+   */
+  readonly recordUpdatedAt?: string;
+  /** How long after `recordUpdatedAt` the copy itself may still have been writing (the copy's own time limit). */
+  readonly copyGraceMs?: number;
 }
+
+/** The copy's own time limit is ten minutes; a file touched later than that after the record was written is not an orphan. */
+export const DEFAULT_COPY_GRACE_MS = 600_000;
 
 /** The copy path is exactly a copy file name directly inside the copy folder (no other folder, no `..`, no other name). */
 export function isOwnCopyPath(copyPath: string, copyDirectory: string, platform: NodeJS.Platform): boolean {
@@ -54,6 +64,10 @@ export async function settleOrphanCopy(input: SettleOrphanCopyInput): Promise<Co
     const stat = await lstat(copyPath);
     if (!stat.isFile()) return "refused";
     present = true;
+    if (input.recordUpdatedAt !== undefined) {
+      const wrote = Date.parse(input.recordUpdatedAt);
+      if (!Number.isNaN(wrote) && stat.mtimeMs > wrote + (input.copyGraceMs ?? DEFAULT_COPY_GRACE_MS)) return "refused";
+    }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") return "refused";
   }

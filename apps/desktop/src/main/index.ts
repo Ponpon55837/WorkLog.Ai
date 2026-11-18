@@ -170,12 +170,16 @@ function runShell(configInputs: DesktopConfigInputs): void {
     workingDirectory: paths.backendWorkingDirectory,
   });
   // One journal for the coordinator, start-up recovery, the copy flow and the Status tab's notices: its file is read once.
+  // A journal that had to be set aside held records of unknown operations: this launch is held for repair (see `recovered`).
+  let journalQuarantined = false;
   const journal = new OperationJournal(
     new FileOperationJournalStore(paths.journalFile, {
-      onQuarantine: ({ to, reason }) =>
+      onQuarantine: ({ to, reason }) => {
+        journalQuarantined = true;
         log(
           `[shell] the operations journal could not be read (${reason}); moved aside to ${basename(to)}, starting empty`,
-        ),
+        );
+      },
     }),
   );
   const coordinator = new OperationCoordinator(journal);
@@ -535,9 +539,10 @@ function runShell(configInputs: DesktopConfigInputs): void {
     // H-01: operations a crash left in progress are closed from the real state after the settings are read and before the
     // first-run page or any start. With nothing in progress this is the journal's one read.
     const recovered = settingsLoaded
-      .then(() =>
+      .then((settingsLoad) =>
         recoverAtStartup({
           journal,
+          settingsLoad,
           state,
           supervisor,
           detectLegacy: () => legacy.refresh(),
@@ -546,6 +551,15 @@ function runShell(configInputs: DesktopConfigInputs): void {
           log,
         }),
       )
+      .then(async (result): Promise<StartupRecoveryResult> => {
+        if (!journalQuarantined) return result;
+        // The set-aside journal may have held an interrupted operation: tell the user on the Status tab and do not start.
+        const noticed = await journal.recordUnreadableJournal().then(
+          () => 1,
+          () => 0,
+        );
+        return { ...result, closed: result.closed + noticed, holdStart: true };
+      })
       .catch((error: unknown): StartupRecoveryResult => {
         log(`[shell] recovery failed: ${error instanceof Error ? error.message : "unknown error"}`);
         return { closed: 0, holdStart: true };
@@ -642,6 +656,9 @@ function runShell(configInputs: DesktopConfigInputs): void {
     tray.create();
     const loaded = await early.settingsLoaded;
     const recovery = await early.recovered;
+    if (recovery.journalProblem === "newer-version" && state.launchMode === "interactive") {
+      void dialog.showMessageBox({ type: "warning", message: shellMessages(state.locale).journalNewerVersion });
+    }
     if (recovery.closed > 0 && state.launchMode === "interactive" && (await journal.pendingNotices()).length > 0) {
       // What a crash interrupted is told on the Status tab; an interactive launch opens it so the user sees it.
       window.open("status", { remember: false });

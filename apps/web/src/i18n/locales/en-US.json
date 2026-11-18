@@ -1507,6 +1507,7 @@
     "agentConnections": "Agent connections",
     "agentSetupOpenedInDesktopApp": "Agent setup opened in the desktop app",
     "agentsInOtherProjectsNeed": "Agents in other projects need the user-level skill and hook to read the instructions automatically and be reminded to save work records. Run the commands below in the Work Intelligence project folder: preview the settings first, then write them after you confirm, and reconnect the Agent afterwards.",
+    "agentsInOtherProjectsNeedDesktop": "Agents in other projects need the user-level skill and hook to read the instructions automatically and be reminded to save work records. Use “Set up Agents in the desktop app” above: the App previews the settings first and writes them only after you confirm. Reconnect the Agent afterwards.",
     "allHealthy": "All healthy",
     "appVersion": "App version",
     "appearance": "Appearance",

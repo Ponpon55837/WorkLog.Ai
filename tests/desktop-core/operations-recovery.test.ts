@@ -279,7 +279,7 @@ describe("recover a port change", () => {
   });
 
   it("does not bypass the database identity check or a migration", async () => {
-    const other = await recover(await recordAt("STARTING", change), probe({ dbIdentity: DB_B }));
+    const other = await recover(await recordAt("STARTING", change), probe({ dbIdentity: DB_B, settingsPort: 3210 }));
     expect(other).toMatchObject({ nextState: "NEEDS_REPAIR", action: "repair" });
     const migrated = await recover(await recordAt("STARTING", change), probe({ migrationEvidence: true }));
     expect(migrated).toMatchObject({ nextState: "NEEDS_REPAIR", migrationStarted: true });
@@ -294,5 +294,40 @@ describe("recover a port change", () => {
     const decision = await recover(await recordAt("STARTING", { kind: "change-port" }), probe({ settingsPort: 3210 }));
     // previousOwner EXTERNAL and no recorded ports: the settings cannot say which port won, so nothing is assumed
     expect(decision.action).toBe("repair");
+  });
+});
+
+describe("recover with a different or unverifiable database", () => {
+  // The ordinary kinds record the database in use: a mismatch or a database that could not be read is never closed silently.
+  it.each([
+    [
+      "takeover",
+      { kind: "takeover" as const, previousOwner: "MANAGED" as const },
+      { settingsState: "active" as const },
+    ],
+    ["restart", { kind: "restart" as const, previousOwner: "MANAGED" as const }, { settingsState: "active" as const }],
+    [
+      "change-port",
+      { kind: "change-port" as const, previousOwner: "MANAGED" as const, details: { from: 3210, to: 43_210 } },
+      { settingsPort: 3210 },
+    ],
+    [
+      "legacy-disable",
+      { kind: "legacy-disable" as const, previousOwner: "EXTERNAL" as const },
+      { oldServiceRegistered: false, oldServiceRunning: false },
+    ],
+  ])("%s: a mismatching or missing database identity is repair", async (_name, input, report) => {
+    for (const dbIdentity of [DB_B, null]) {
+      const decision = await recover(await recordAt("STARTING", input), probe({ ...report, dbIdentity }));
+      expect(decision).toMatchObject({ nextState: "NEEDS_REPAIR", action: "repair" });
+    }
+  });
+
+  it("a database switch still closes quietly when the settings name the previous database", async () => {
+    const decision = await recover(
+      await recordAt("STARTING", { kind: "change-db", previousOwner: "MANAGED", selectedDb: DB_B }),
+      probe({ dbIdentity: DB_A }),
+    );
+    expect(decision.action).toBe("none");
   });
 });

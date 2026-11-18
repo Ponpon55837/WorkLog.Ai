@@ -113,6 +113,15 @@ describe("the target folder of the copy", () => {
     expect(await failed.journal.get(failed.openRecords[0]!.operationId)).toMatchObject({ status: "failed" });
   });
 
+  it("tries again to close the record when the first close fails, so a live copy is never left as an orphan", async () => {
+    const harness = runnerHarness();
+    const finish = vi.spyOn(harness.journal, "finish");
+    finish.mockRejectedValueOnce(new Error("EIO")).mockRejectedValueOnce(new Error("EIO"));
+    await harness.runner("/synthetic/source.sqlite", async () => ({ ok: true }));
+    expect(finish).toHaveBeenCalledTimes(3);
+    expect(await harness.journal.findInProgress()).toBeNull();
+  });
+
   it("cancels a pending automatic retry only once the user confirmed the copy", async () => {
     const confirmed = runnerHarness();
     await confirmed.runner("/synthetic/source.sqlite", async () => ({ ok: true }));

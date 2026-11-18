@@ -96,7 +96,7 @@ function recoveryCards(ctx: ViewContext): HTMLElement[] {
     );
     card.dataset.id = `recovery-notice:${notice.id}`;
     card.dataset.kind = notice.kind;
-    if (notice.kind === "needs-repair") card.classList.add("card--attention");
+    if (notice.kind === "needs-repair" || notice.kind === "journal-unreadable") card.classList.add("card--attention");
     return card;
   });
 }

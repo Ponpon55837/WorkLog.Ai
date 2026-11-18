@@ -73,6 +73,7 @@ export const RESTORE_FAILURE_REASONS = [
   "same-file",
   "no-database",
   "start-failed",
+  "outcome-unknown",
   "failed",
   "invalid",
 ] as const;
@@ -91,8 +92,9 @@ export type RestoreRunResult =
       readonly reason: RestoreFailureReason;
       readonly busy?: RestoreBusyDetail;
       /**
-       * True when the database that was in use is exactly as it was before the restore began. False only for `start-failed`:
-       * the restore itself worked but the service did not start on the restored data.
+       * True when the database that was in use is exactly as it was before the restore began. False for `start-failed` (the restore
+       * worked but the service did not start on the restored data) and `outcome-unknown` (the restore child gave no verdict and the
+       * database could not be shown unchanged).
        */
       readonly dataIntact: boolean;
       /** The service is running again (on the original data) after the failure. */

@@ -46,6 +46,22 @@ describe("restore failure classification", () => {
     expect(restoreFailureOf({ outcome: "failed" } as unknown as DatabaseRestoreOutcome)).toBe("failed");
   });
 
+  it("does not call a request that got no verdict a plain failure, and the text claims nothing about the data", () => {
+    const unknown = { outcome: "unknown", code: "CHILD_EXITED", detail: "x" } as unknown as DatabaseRestoreOutcome;
+    expect(restoreFailureOf(unknown)).toBe("outcome-unknown");
+    for (const locale of ["en", "zh-TW"] as const) {
+      const messages = restoreMessages(locale);
+      const text = runFailureText(messages, {
+        ok: false,
+        reason: "outcome-unknown",
+        dataIntact: false,
+        backendRunning: true,
+      });
+      expect(text).toBe(messages.outcomeUnknown);
+      expect(text).not.toContain(messages.dataIntact);
+    }
+  });
+
   it("names what holds a restore back", () => {
     expect(busyDetailOf({ current: { kind: "restore" }, pageAction: false, activity: null })).toEqual({
       source: "operation",

@@ -80,6 +80,9 @@ async function sizeOf(path: string): Promise<number> {
   }
 }
 
+/** How often a failed close of the copy's journal record is tried. */
+const FINISH_ATTEMPTS = 3;
+
 /** The copy sequence with its Electron and file-system effects (confirmation, sizes, free space, the child that copies). */
 export function createCopyRunner(options: CopyRunnerOptions): CopyRunner {
   const { state, backend, supervisor, storage, journal, log } = options;
@@ -134,13 +137,22 @@ export function createCopyRunner(options: CopyRunnerOptions): CopyRunner {
     const closing: string | null = copyOperationId;
     if (closing !== null) {
       // The copy is either the database now (the settings were written by `switchTo`) or already removed by the sequence.
-      await journal
-        .finish(closing, result.ok ? "completed" : "failed", result.ok ? {} : { error: "the copy was not switched to" })
-        .catch((error: unknown) => {
-          log(
-            `[shell] copy to local disk: the journal record was not closed (${error instanceof Error ? error.name : "unknown error"})`,
+      // A record left open would later be read as an orphan copy, so a failed close is tried again before it is given up.
+      let closedRecord = false;
+      for (let attempt = 1; attempt <= FINISH_ATTEMPTS && !closedRecord; attempt += 1) {
+        try {
+          await journal.finish(
+            closing,
+            result.ok ? "completed" : "failed",
+            result.ok ? {} : { error: "the copy was not switched to" },
           );
-        });
+          closedRecord = true;
+        } catch (error) {
+          log(
+            `[shell] copy to local disk: the journal record was not closed, attempt ${attempt} (${error instanceof Error ? error.name : "unknown error"})`,
+          );
+        }
+      }
     }
     return result;
   };

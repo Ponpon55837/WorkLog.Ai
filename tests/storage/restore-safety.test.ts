@@ -21,12 +21,18 @@ import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
 const failures = vi.hoisted(() => ({
   rename: undefined as { code: string; message: string } | undefined,
+  /** Every path the restore asked to remove (so the order of removals against the replacement can be checked). */
+  removed: [] as string[],
 }));
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
   return {
     ...actual,
+    rmSync: vi.fn((...args: Parameters<typeof actual.rmSync>) => {
+      failures.removed.push(String(args[0]));
+      return actual.rmSync(...args);
+    }),
     renameSync: vi.fn((...args: Parameters<typeof actual.renameSync>) => {
       const failure = failures.rename;
       // Only the replacement of the database is refused; the snapshot publication inside writeSnapshot uses hard links.
@@ -44,6 +50,7 @@ const tempDirs: string[] = [];
 
 afterEach(() => {
   failures.rename = undefined;
+  failures.removed = [];
   for (const store of stores.splice(0)) store.close();
   for (const directory of tempDirs.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
@@ -214,6 +221,28 @@ describe("a restore that cannot finish never loses data", () => {
       expect(readdirSync(root).filter((name) => name.includes(".restoring"))).toEqual([]);
     },
   );
+
+  it("does not touch the current database's WAL and shared-memory files when the replacement is refused", () => {
+    const { store, databasePath, snapshot } = fixture();
+    closeStore(store);
+    failures.rename = { code: "EBUSY", message: "EBUSY: resource busy or locked" };
+    expect(codeOf(() => restoreDatabase({ source: snapshot, databasePath, initializeStaging }))).toBe("EBUSY");
+    expect(failures.removed).not.toContain(`${databasePath}-wal`);
+    expect(failures.removed).not.toContain(`${databasePath}-shm`);
+    expect(projectNames(databasePath)).toEqual(["Apiary", "Beehive"]);
+  });
+
+  it("removes the replaced database's side files once the new file is in place", () => {
+    const { store, databasePath, snapshot } = fixture();
+    closeStore(store);
+    writeFileSync(`${databasePath}-wal`, "");
+    writeFileSync(`${databasePath}-shm`, "");
+    restoreDatabase({ source: snapshot, databasePath, initializeStaging });
+    expect(failures.removed).toEqual(expect.arrayContaining([`${databasePath}-wal`, `${databasePath}-shm`]));
+    expect(existsSync(`${databasePath}-wal`)).toBe(false);
+    expect(existsSync(`${databasePath}-shm`)).toBe(false);
+    expect(projectNames(databasePath)).toEqual(["Apiary", "Beehive"]);
+  });
 
   it("restores when nothing is wrong, and the safety backup holds what was replaced", () => {
     const { root, store, databasePath, snapshot } = fixture();

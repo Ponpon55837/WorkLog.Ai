@@ -157,6 +157,39 @@ export class OperationJournal {
     });
   }
 
+  /**
+   * Records that the journal file itself could not be read and was set aside, so what an earlier operation did is unknown.
+   * It is one closed record carrying a `journal-unreadable` notice (the Status tab's banner); the start-up recovery holds the
+   * automatic start for the launch that found it. Not called from inside the store's own `load` (it waits for the load).
+   */
+  recordUnreadableJournal(): Promise<OperationRecord> {
+    return this.enqueue(async (records) => {
+      const now = this.now();
+      const created = createOperationRecord(
+        { operationId: `journal-unreadable-${now}`, kind: "restart", previousOwner: "UNCONFIGURED" },
+        now,
+      );
+      const closed = withTerminalStatus(
+        withRecoveryNotice(
+          created,
+          { kind: "journal-unreadable", operation: "restart", port: null, attemptedPort: null },
+          now,
+        ),
+        "failed",
+        now,
+        { error: "the operations journal could not be read and was set aside" },
+      );
+      records.set(closed.operationId, closed);
+      try {
+        await this.persist(records);
+      } catch (error) {
+        records.delete(closed.operationId);
+        throw error;
+      }
+      return closed;
+    });
+  }
+
   private now(): string {
     return this.clock().toISOString();
   }

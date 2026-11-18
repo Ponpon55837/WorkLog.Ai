@@ -3,14 +3,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
+import * as desktopCore from "../../packages/desktop-core/src/index.js";
 import {
   describeLegacyDisableSteps,
-  diagnosticsMessages,
   planLegacyDisable,
-  portMessages,
   setupMessages,
-  shellMessages,
-  updateMessages,
   type ShellLocale,
 } from "../../packages/desktop-core/src/index.js";
 
@@ -19,6 +16,8 @@ import {
  * i18n dictionaries (both languages) and every string or template literal in the renderer sources.
  */
 
+const WEB_LOCALES = ["zh-TW", "en-US"] as const;
+const WEB_LOCALE_ROOT = fileURLToPath(new URL("../../apps/web/src/i18n/locales", import.meta.url));
 const RENDERER_ROOT = fileURLToPath(new URL("../../apps/desktop/src/renderer", import.meta.url));
 const LOCALES: readonly ShellLocale[] = ["zh-TW", "en"];
 
@@ -59,14 +58,51 @@ function collectDictionary(value: unknown, where: string, out: Found[]): void {
   }
 }
 
+/**
+ * Every dictionary the shell module exports, found by name (`...Messages(locale)`) so a new one is scanned without anyone
+ * remembering to add it here; a list kept by hand is how restoreMessages and agentRemoveMessages were once missed.
+ */
+function dictionaryFunctions(): readonly [string, (locale: ShellLocale) => unknown][] {
+  return Object.entries(desktopCore)
+    .filter(([name, value]) => /Messages$/.test(name) && typeof value === "function" && value.length === 1)
+    .map(([name, value]) => [name, value as (locale: ShellLocale) => unknown]);
+}
+
 function dictionaryStrings(): Found[] {
   const out: Found[] = [];
   for (const locale of LOCALES) {
-    collectDictionary(shellMessages(locale), `shell[${locale}]`, out);
-    collectDictionary(setupMessages(locale), `setup[${locale}]`, out);
-    collectDictionary(portMessages(locale), `port[${locale}]`, out);
-    collectDictionary(updateMessages(locale), `update[${locale}]`, out);
-    collectDictionary(diagnosticsMessages(locale), `diagnostics[${locale}]`, out);
+    for (const [name, messages] of dictionaryFunctions())
+      collectDictionary(messages(locale), `${name}[${locale}]`, out);
+  }
+  return out;
+}
+
+/**
+ * The web page strings a desktop-managed window shows: the Agent connections and legacy-service parts of the status page
+ * and the first-run checklist's Agent step. The web's CLI help pages (and the command shown to a user of the plain web
+ * server) are for people who run the server themselves and stay outside this guard on purpose.
+ */
+const DESKTOP_WEB_KEYS: readonly string[] = [
+  "systemStatus.agentsInOtherProjectsNeedDesktop",
+  "systemStatus.openAgentSetupInDesktopApp",
+  "systemStatus.legacyServiceWarning",
+  "systemStatus.legacyServiceStartsAtLogin",
+  "systemStatus.legacyServiceTurnOffInApp",
+];
+
+function webDesktopStrings(): Found[] {
+  const out: Found[] = [];
+  for (const locale of WEB_LOCALES) {
+    const messages = JSON.parse(readFileSync(path.join(WEB_LOCALE_ROOT, `${locale}.json`), "utf8")) as Record<
+      string,
+      unknown
+    >;
+    for (const key of DESKTOP_WEB_KEYS) {
+      const value = key
+        .split(".")
+        .reduce<unknown>((node, part) => (node as Record<string, unknown> | undefined)?.[part], messages);
+      if (typeof value === "string") out.push({ where: `web[${locale}].${key}`, text: value });
+    }
   }
   return out;
 }
@@ -159,14 +195,26 @@ describe("no command copy in the desktop App (M-15)", () => {
     const dictionary = dictionaryStrings();
     const renderer = rendererStrings();
     expect(dictionary.length).toBeGreaterThan(500);
-    expect(dictionary.filter((entry) => entry.where.startsWith("shell[zh-TW]")).length).toBeGreaterThan(50);
-    expect(dictionary.filter((entry) => entry.where.startsWith("setup[en]")).length).toBeGreaterThan(100);
+    expect(dictionary.filter((entry) => entry.where.startsWith("shellMessages[zh-TW]")).length).toBeGreaterThan(50);
+    expect(dictionary.filter((entry) => entry.where.startsWith("setupMessages[en]")).length).toBeGreaterThan(100);
+    // The dictionaries found by name include the ones that were once left off a hand-written list.
+    const names = new Set(dictionaryFunctions().map(([name]) => name));
+    for (const name of ["shellMessages", "setupMessages", "restoreMessages", "agentRemoveMessages"]) {
+      expect(names.has(name), name).toBe(true);
+      expect(dictionary.filter((entry) => entry.where.startsWith(`${name}[`)).length, name).toBeGreaterThan(10);
+    }
+    // Every desktop-facing web key exists in both languages (a renamed key must not silently leave the guard).
+    expect(webDesktopStrings()).toHaveLength(DESKTOP_WEB_KEYS.length * WEB_LOCALES.length);
     expect(renderer.files).toBeGreaterThan(15);
     expect(renderer.found.length).toBeGreaterThan(30);
   });
 
   it("no dictionary string (zh-TW or en) asks the user to run a command", () => {
     expect(violations(dictionaryStrings())).toEqual([]);
+  });
+
+  it("no web string shown in the desktop-managed window asks the user to run a command", () => {
+    expect(violations(webDesktopStrings())).toEqual([]);
   });
 
   it("no renderer string asks the user to run a command", () => {

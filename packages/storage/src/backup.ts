@@ -13,6 +13,7 @@ import {
   rmSync,
   statSync,
   unlinkSync,
+  writeFileSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -637,6 +638,15 @@ function assertRestoredCopyHealthy(db: DatabaseSync): void {
   }
 }
 
+/** Removes a side file of the replaced database; when it cannot be removed it is emptied, and when neither works it throws. */
+function discardStaleSideFile(path: string): void {
+  try {
+    rmSync(path, { force: true });
+  } catch {
+    writeFileSync(path, "");
+  }
+}
+
 /**
  * Replaces the database with a snapshot, e.g. one exported on another computer. The snapshot is checked
  * first, the current database is backed up, and project roots / handoff paths can be moved to the new
@@ -742,8 +752,8 @@ export function restoreDatabase(options: {
 
   rmSync(`${staging}-wal`, { force: true });
   rmSync(`${staging}-shm`, { force: true });
-  rmSync(`${databasePath}-wal`, { force: true });
-  rmSync(`${databasePath}-shm`, { force: true });
+  // The replacement comes first: a refusal (a Windows file lock) must leave the current database together with its own
+  // WAL and shared-memory files, exactly as they were.
   try {
     renameSync(staging, databasePath);
   } catch (error) {
@@ -752,5 +762,8 @@ export function restoreDatabase(options: {
     rmSync(staging, { force: true });
     throw error;
   }
+  // Only now are the old file's side files stale: SQLite would apply a leftover WAL to the new file, so they are removed
+  // right after the replacement (emptied when they cannot be removed: an empty WAL is no WAL).
+  for (const side of [`${databasePath}-wal`, `${databasePath}-shm`]) discardStaleSideFile(side);
   return { ...inspected, schemaVersion: LATEST_SCHEMA_VERSION, remapped, safetyBackup };
 }
