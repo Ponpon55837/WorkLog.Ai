@@ -14,6 +14,8 @@ export interface ViewActions {
   openAgents(): void;
   /** The "Setup finished" card's 「關閉」: puts the card away for this window session. */
   dismissFinished(): void;
+  /** The banner's 「知道了」: the notice is dismissed for good (persisted by main), then the state is read again. */
+  acknowledgeRecovery(id: string): void;
   /** Draws the open panel again from the last state (a view's own state changed). */
   rerender(): void;
   /** Reads the state from main again, then draws it. */

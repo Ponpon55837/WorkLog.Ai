@@ -14,6 +14,7 @@ import {
   writeDesktopSettingsAtomic,
   writePrivateFile,
   type BackendSupervisor,
+  type OperationJournal,
   type AppTabSelection,
   type RepairActionResult,
 } from "@work-intelligence/desktop-core";
@@ -52,6 +53,8 @@ export interface IpcOptions {
   readonly changePort: ChangePortController;
   readonly storage: StorageRiskService;
   readonly updates: UpdateController;
+  /** Holds the recovery notices the Status tab shows. */
+  readonly journal: Pick<OperationJournal, "acknowledgeNotice">;
   /** 「複製到本機磁碟並改用」: for a candidate id, or (no id) the App's own database. */
   readonly copyToLocal: (candidateId: string | undefined) => Promise<RepairActionResult>;
   readonly log: Logger;
@@ -78,6 +81,7 @@ export function registerRepairIpc(options: IpcOptions): void {
     changePort,
     storage,
     updates,
+    journal,
     log,
   } = options;
 
@@ -280,6 +284,11 @@ export function registerRepairIpc(options: IpcOptions): void {
     state.tab = tab;
     return { ok: true };
   });
+
+  // Dismissing a recovery notice is written to the journal, so the banner does not come back after a restart.
+  handle(REPAIR_CHANNELS.recoveryAcknowledge, parser(repairInputSchemas.recoveryAcknowledge), async ({ id }) => ({
+    ok: await journal.acknowledgeNotice(id).catch(() => false),
+  }));
 
   handle(REPAIR_CHANNELS.copyCommand, parser(repairInputSchemas.copyCommand), async ({ target }) => {
     const detection = legacy.latest();

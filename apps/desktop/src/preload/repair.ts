@@ -15,6 +15,7 @@ const channels: typeof REPAIR_CHANNELS = {
   startAnyway: "repair:start-anyway",
   getTab: "app:get-tab",
   rememberTab: "app:remember-tab",
+  recoveryAcknowledge: "app:recovery-acknowledge",
   copyCommand: "app:copy-command",
   setupGetState: "setup:get-state",
   setupUseDefaults: "setup:use-defaults",
@@ -59,6 +60,7 @@ const api: RepairApi = {
   startAnyway: (operationId) => ipcRenderer.invoke(channels.startAnyway, { operationId }),
   getTab: () => ipcRenderer.invoke(channels.getTab),
   rememberTab: (tab) => ipcRenderer.invoke(channels.rememberTab, { tab }),
+  acknowledgeRecovery: (id) => ipcRenderer.invoke(channels.recoveryAcknowledge, { id }),
   copyCommand: (target) => ipcRenderer.invoke(channels.copyCommand, { target }),
   setupGetState: () => ipcRenderer.invoke(channels.setupGetState),
   setupUseDefaults: (launchAtLogin, startAnyway) =>

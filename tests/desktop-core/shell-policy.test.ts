@@ -137,6 +137,7 @@ describe("repair IPC", () => {
       "agents:use-checkout-database",
       "app:copy-command",
       "app:get-tab",
+      "app:recovery-acknowledge",
       "app:remember-tab",
       "app:select-tab",
       "app:show-view",

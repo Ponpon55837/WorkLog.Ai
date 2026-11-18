@@ -156,7 +156,6 @@ describe("the shell state", () => {
   it("puts the busy mark on the tab the running operation belongs to", () => {
     const kinds: [Parameters<typeof tabForOperation>[0], AppTab][] = [
       ["change-port", "settings"],
-      ["update-install", "settings"],
       ["change-db", "data"],
       ["restore", "data"],
       ["apply-agent", "agent"],

@@ -41,6 +41,7 @@ export const REPAIR_CHANNELS = {
   startAnyway: "repair:start-anyway",
   getTab: "app:get-tab",
   rememberTab: "app:remember-tab",
+  recoveryAcknowledge: "app:recovery-acknowledge",
   copyCommand: "app:copy-command",
   setupGetState: "setup:get-state",
   setupUseDefaults: "setup:use-defaults",
@@ -100,6 +101,8 @@ export const repairInputSchemas = {
   getTab: z.undefined(),
   /** The tab the user selected; main remembers it for this session only and rejects any id outside `APP_TABS`. */
   rememberTab: z.strictObject({ tab: z.enum(APP_TABS) }),
+  /** Dismisses one recovery notice (an interrupted operation's id); persisted, so it does not come back. */
+  recoveryAcknowledge: z.strictObject({ id: z.string().min(1).max(128) }),
   copyCommand: z.strictObject({ target: z.enum(COPY_COMMAND_TARGETS) }),
   setupGetState: z.undefined(),
   setupUseDefaults: z.strictObject({ launchAtLogin: z.boolean(), startAnyway: z.boolean().optional() }),
@@ -278,6 +281,8 @@ export interface RepairApi {
   getTab(): Promise<AppTabSelection>;
   /** The user selected `tab`; main keeps it for this App session (memory only). `ok: false` for a tab not available now. */
   rememberTab(tab: AppTab): Promise<{ readonly ok: boolean }>;
+  /** The user dismissed a recovery notice (the Status tab's banner); `ok: false` when there was nothing to dismiss. */
+  acknowledgeRecovery(id: string): Promise<{ readonly ok: boolean }>;
   /** Calls `listener` whenever main asks the page to select a tab (the tray, a launch flag); the window is not reloaded. */
   onSelectTab(listener: (tab: AppTab) => void): void;
   copyCommand(target: CopyCommandTarget): Promise<{ readonly ok: boolean }>;

@@ -35,6 +35,13 @@ export interface ManagedStartResult {
   readonly errorCode?: BackendErrorCode;
 }
 
+/**
+ * A seam for the smoke tests: awaited at the start of the commit step, after the child is verified and before the
+ * operation is closed. A test build passes one that never returns for a port or database change, so the test can end the
+ * App at exactly that point. A production build passes none.
+ */
+export type ManagedStartHold = (point: { readonly kind: ManagedStartKind }) => Promise<void>;
+
 export type ManagedStopResult =
   | { readonly status: "stopped"; readonly report: BackendStopReport }
   | { readonly status: "busy"; readonly current: BusyOperationInfo };
@@ -59,10 +66,12 @@ function errorCodeOf(message: string): BackendErrorCode | undefined {
 export class ManagedBackendService {
   private readonly coordinator: OperationCoordinator;
   private readonly supervisor: BackendSupervisor;
+  private readonly hold: ManagedStartHold | undefined;
 
-  constructor(coordinator: OperationCoordinator, supervisor: BackendSupervisor) {
+  constructor(coordinator: OperationCoordinator, supervisor: BackendSupervisor, hold?: ManagedStartHold) {
     this.coordinator = coordinator;
     this.supervisor = supervisor;
+    this.hold = hold;
   }
 
   /** Runs (or joins) the start operation described by `request`. */
@@ -135,6 +144,7 @@ export class ManagedBackendService {
         phase: "MANAGED",
         cancellable: false,
         run: async () => {
+          await this.hold?.({ kind: request.kind });
           const info = this.supervisor.running;
           if (!info) throw new BackendFailure("CHILD_EXITED", "the backend is not running at commit time");
           return { port: info.port, pid: info.pid };

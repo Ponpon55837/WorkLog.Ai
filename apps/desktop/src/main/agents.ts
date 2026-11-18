@@ -29,8 +29,10 @@ import {
   type AgentsPreview,
   type AgentsResult,
   type AgentsState,
+  type OperationCoordinator,
   type SetupAgentId,
 } from "@work-intelligence/desktop-core";
+import { runAgentOperation } from "./agent-operation.js";
 import type { DesktopPaths } from "./config.js";
 import type { Logger } from "./log.js";
 import type { ShellState } from "./state.js";
@@ -59,6 +61,8 @@ export interface AgentsPage {
 
 export interface AgentsPageOptions {
   readonly state: ShellState;
+  /** Every apply runs as an `apply-agent` operation, so a crash in the middle is found and told at the next start. */
+  readonly coordinator: OperationCoordinator;
   readonly paths: Pick<DesktopPaths, "runtimeRoot">;
   /** The canonical `work-intelligence` SKILL.md the App ships. */
   readonly skillSourcePath: string;
@@ -264,12 +268,22 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
         return { ok: true, state: snapshot() };
       }),
     apply: (previewId) =>
-      exclusive(() => {
+      exclusive(async () => {
         if (!pending || pending.id !== previewId) return { ok: false, reason: "invalid", state: snapshot() };
         if (pending.plan.conflicts.length > 0) return { ok: false, reason: "invalid", state: snapshot() };
         const { plan } = pending;
+        const run = await runAgentOperation(options.coordinator, state.owner, () =>
+          applyAgentSetupTransaction(plan, { journalPath }),
+        );
+        // Another operation (a start, a port change) holds the lock: nothing was written, and the preview stays usable.
+        if (run.status === "busy") return { ok: false, reason: "busy", state: snapshot() };
         pending = null;
-        const applied = applyAgentSetupTransaction(plan, { journalPath });
+        if (run.status === "failed") {
+          log("[shell] agent setup apply failed inside the operation");
+          result = { kind: "failed", code: "APPLY_FAILED" };
+          return { ok: false, reason: "failed", errorCode: "APPLY_FAILED", state: snapshot() };
+        }
+        const applied = run.value;
         log(`[shell] agent setup apply ${applied.outcome}${applied.code ? ` ${applied.code}` : ""}`);
         if (applied.outcome === "committed") {
           result = { kind: "applied", changed: plan.mutations.length };

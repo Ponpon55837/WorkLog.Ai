@@ -234,6 +234,8 @@ export function createBackendController(options: BackendControllerOptions): Back
         desktop,
         ...(options.backendEnvironment ? { environment: options.backendEnvironment } : {}),
       },
+      // The identity the user confirmed: what startup recovery compares the settings' database with after a crash.
+      ...(override ? { selectedDb: override.expectedIdentity } : {}),
       ...(portChange ? { details: { from: portChange.from, to: portChange.port } } : {}),
       stopRunning: supervisor.running !== undefined,
     });
