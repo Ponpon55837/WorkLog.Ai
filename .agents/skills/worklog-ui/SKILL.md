@@ -9,7 +9,7 @@ The web UI (`apps/web`, Vue 3 + vue-router + Vite) is a **GitHub (Primer-like)**
 
 ## Fixed decisions (do not re-ask the user)
 
-- Two themes, GitHub dark (default) and a softened light theme (cool grey surfaces, never paper white), chosen in the header or System status → 個人偏好 (跟隨系統 / 淺色 / 深色). Both are the same token names in `styles/tokens.css` (`:root` and `:root[data-theme="light"]`); components never branch on the theme or use `prefers-color-scheme` themselves — `composables/useAppearance.ts` sets `data-theme`.
+- Two themes, GitHub dark (default) and a softened light theme (cool grey surfaces, never paper white), chosen in the header or System status → 個人偏好 (跟隨系統 / 淺色 / 深色). Both are the same token names in `packages/ui-tokens/tokens.css` (`:root` and `:root[data-theme="light"]`); components never branch on the theme or use `prefers-color-scheme` themselves — `composables/useAppearance.ts` sets `data-theme`.
 - GitHub/Primer visual language: Box lists, Label pills, Counter, UnderlineNav, SegmentedControl, ActionMenu.
 - Icons: `lucide-vue-next` only, 16px, `stroke-width` 1.75. No Unicode glyph icons (⌂ ◈ ▥ ✦ ◎ ≡ ⌕ ↻).
 - No English uppercase eyebrow beside titles (removed in 1.6.36): `PageHeader` and `UiBoxTitle` show the title only. Page headers are one compact row; data, not the title block, fills the first screen.
@@ -21,7 +21,7 @@ The web UI (`apps/web`, Vue 3 + vue-router + Vite) is a **GitHub (Primer-like)**
 
 1. The P0–P4 migration is complete; new work builds on the shipped design system.
 2. Before writing UI, check `apps/web/src/components/ui/` and `components/layout/` for an existing component. Reuse it. If it does not exist yet, build it to the spec in [references/components.md](references/components.md) — never hand-roll a one-off.
-3. Use only tokens from [references/tokens.md](references/tokens.md). No raw hex / rgba in component CSS except inside `styles/tokens.css`.
+3. Use only tokens from [references/tokens.md](references/tokens.md). No raw hex / rgba in component CSS except inside `packages/ui-tokens/tokens.css`.
 4. Follow page and interaction patterns in [references/patterns.md](references/patterns.md).
 5. Whenever a view displays Sessions, verification, changed files, reports/synthesis, metadata backfill or project status, apply [references/domain-semantics.md](references/domain-semantics.md). It is derived from `docs/work-record-and-report-format.md` and the [`work-intelligence` skill](../work-intelligence/SKILL.md); those sources win on conflict.
 6. Run the verification checklist below and report results honestly.
@@ -32,7 +32,7 @@ The web UI (`apps/web`, Vue 3 + vue-router + Vite) is a **GitHub (Primer-like)**
 - **URL is the state for filters.** Filters, pagination, report tabs and the open Session (`?session=<id>`) are synced through `useRouteQuery`.
 - **Long data tables own their scrolling.** When rows exceed the available height, put bounded vertical scrolling on the list/table body (reuse `VirtualList` with a finite `maxHeight` where appropriate); keep the box header, filters, and pagination outside that scroller. Do not make the whole page the only scroll surface for long rows. Verify that wheel/keyboard scrolling moves the list while its page remains in place.
 - **Navigation uses `RouterLink`**, page title comes from route `meta`.
-- **Styling**: component styles use `<style scoped>` and tokens. Global CSS is only `styles/tokens.css` + `styles/base.css`. Never append "refinement" override blocks to a global stylesheet.
+- **Styling**: component styles use `<style scoped>` and tokens. Global CSS is only `packages/ui-tokens/tokens.css` + `styles/base.css`. Never append "refinement" override blocks to a global stylesheet.
 - **Minimum font size 12px.** Body text is 14px.
 - **One component per concept**: one date-range picker, one filter pattern, one pagination, one status Label mapping.
 - **Accessibility**: every icon-only button has `aria-label`; focus is always visible (`:focus-visible` accent outline); Dialog/SidePanel trap focus, close on Esc, restore focus to the trigger, lock background scroll.

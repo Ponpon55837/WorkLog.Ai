@@ -17,6 +17,7 @@ on:
       - "apps/mcp/**"
       - "packages/core/**"
       - "packages/project-policy/**"
+      - "packages/ui-tokens/**"
       - "scripts/desktop-runtime-spike/**"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"

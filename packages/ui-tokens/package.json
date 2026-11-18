@@ -1,0 +1,11 @@
+{
+  "name": "@work-intelligence/ui-tokens",
+  "version": "0.1.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "description": "Design tokens (CSS custom properties) shared by the web UI and the desktop window.",
+  "exports": {
+    "./tokens.css": "./tokens.css"
+  }
+}

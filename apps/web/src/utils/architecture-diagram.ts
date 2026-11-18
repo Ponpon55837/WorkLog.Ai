@@ -84,7 +84,7 @@ interface Port {
 
 export const ARCHITECTURE_NODE_WIDTH = 200;
 export const ARCHITECTURE_NODE_HEIGHT = 86;
-/** Number of `--diagram-tone-N` tokens in styles/tokens.css. */
+/** Number of `--diagram-tone-N` tokens in packages/ui-tokens/tokens.css. */
 export const ARCHITECTURE_TONE_COUNT = 6;
 
 const MARGIN = 40;
