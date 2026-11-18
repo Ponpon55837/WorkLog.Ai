@@ -16,7 +16,9 @@ interface Setup {
   readonly settings?: boolean;
   readonly running?: boolean;
   readonly operation?: boolean;
-  readonly activity?: "idle" | "busy" | "unknown" | "busy-after-dialog";
+  readonly activity?: "idle" | "busy" | "unknown" | "busy-after-dialog" | "preview";
+  /** The kind the backend reports while it is busy (default import). */
+  readonly busyKind?: "import" | "backup" | "export" | "restore";
   readonly probe?: { free: true } | { free: false; code: string };
   readonly dialog?: boolean;
   /** The start on the new port is refused before anything is stopped (the old backend keeps serving). */
@@ -54,9 +56,9 @@ function setup(options: Setup = {}) {
         const mode = options.activity ?? "idle";
         if (mode === "unknown") return { status: "unknown" as const };
         if (mode === "busy" || (mode === "busy-after-dialog" && dialogDone)) {
-          return { status: "known" as const, busy: ["import" as const] };
+          return { status: "known" as const, busy: [options.busyKind ?? ("import" as const)], pendingImport: false };
         }
-        return { status: "known" as const, busy: [] };
+        return { status: "known" as const, busy: [], pendingImport: mode === "preview" };
       },
     },
     backend: {
@@ -114,6 +116,41 @@ describe("the port change controller", () => {
     expect(starts).toEqual([{ port: NEW, from: OLD }]);
     expect(opened).toEqual([undefined]);
     expect(cleared()).toBe(1);
+  });
+
+  it("goes ahead with only an idle import preview, and says the restart discarded it", async () => {
+    const { controller, events, opened } = setup({ activity: "preview" });
+    expect(await controller.change(String(NEW))).toEqual({
+      ok: true,
+      changed: true,
+      port: NEW,
+      discardedImportPreview: true,
+    });
+    expect(events).toEqual([`confirm ${OLD}->${NEW}`, "start-new", "touch"]);
+    expect(opened).toHaveLength(1);
+  });
+
+  it("carries no discarded flag when no preview exists, and none when the change does not happen", async () => {
+    expect(await setup().controller.change(String(NEW))).toEqual({ ok: true, changed: true, port: NEW });
+    expect(await setup({ activity: "preview", dialog: false }).controller.change(String(NEW))).toEqual({
+      ok: false,
+      reason: "cancelled",
+    });
+    expect(
+      await setup({ activity: "preview", probe: { free: false, code: "EADDRINUSE" } }).controller.change(NEW),
+    ).toMatchObject({
+      ok: false,
+      reason: "occupied",
+    });
+  });
+
+  it.each(["import", "backup", "export", "restore"] as const)("still refuses while %s runs", async (busyKind) => {
+    const busy = setup({ activity: "busy", busyKind });
+    expect(await busy.controller.change(NEW)).toEqual({ ok: false, reason: "busy", busy: "activity" });
+    expect(busy.events).toEqual([]);
+    const late = setup({ activity: "busy-after-dialog", busyKind });
+    expect(await late.controller.change(NEW)).toEqual({ ok: false, reason: "busy", busy: "activity" });
+    expect(late.starts).toEqual([]);
   });
 
   it("carries the Dashboard's preferences once: consumed by the first Dashboard it opens", async () => {

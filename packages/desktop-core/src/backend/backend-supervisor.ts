@@ -51,7 +51,13 @@ export interface BackendStartRequest {
 
 /** What the running backend said it is busy with; `unknown` means it could not be asked in time. */
 export type BackendActivityReport =
-  { readonly status: "known"; readonly busy: readonly DesktopBackendActivity[] } | { readonly status: "unknown" };
+  | {
+      readonly status: "known";
+      readonly busy: readonly DesktopBackendActivity[];
+      /** An uploaded import file waits unread; a restart discards it, so it is no reason to refuse a change. */
+      readonly pendingImport: boolean;
+    }
+  | { readonly status: "unknown" };
 
 /** What a verified, running backend looks like. `runId` is a secret of this main process: never log or persist it. */
 export interface BackendInfo {
@@ -277,26 +283,26 @@ export class BackendSupervisor {
   }
 
   /**
-   * Asks the running backend which long jobs it is doing (import, backup, export, restore). `unknown` when no verified
+   * Asks the running backend which long jobs it is doing (import, backup, export, restore) and whether an idle import preview waits. `unknown` when no verified
    * backend runs, the channel is closed, or no answer comes within `timeoutMs`: the caller treats that as busy.
    */
   async queryActivity(timeoutMs = ACTIVITY_QUERY_TIMEOUT_MS): Promise<BackendActivityReport> {
     const active = this.running ? this.active : undefined;
     if (!active) return { status: "unknown" };
     const requestId = this.deps.randomRunId().slice(0, 32);
-    const answer = async (): Promise<readonly DesktopBackendActivity[]> => {
+    const answer = async (): Promise<{ busy: readonly DesktopBackendActivity[]; pendingImport: boolean }> => {
       await active.channel.send({ type: "activity-query", requestId });
       // A late answer to an earlier query carries another id: it is dropped and the wait goes on.
       for (;;) {
         const reply = await active.channel.expect("activity", timeoutMs);
-        if (reply.requestId === requestId) return reply.busy;
+        if (reply.requestId === requestId) return { busy: reply.busy, pendingImport: reply.pendingImport === true };
       }
     };
-    const busy = await this.within(
+    const reply = await this.within(
       answer().catch(() => undefined),
       timeoutMs,
     );
-    return busy === undefined ? { status: "unknown" } : { status: "known", busy };
+    return reply === undefined ? { status: "unknown" } : { status: "known", ...reply };
   }
 
   /**

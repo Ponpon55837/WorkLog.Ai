@@ -9,7 +9,7 @@ import { button, element, section } from "./dom.js";
  * re-renders, so typing is not lost when the page refreshes.
  */
 let draft = "";
-let answer: { readonly text: string; readonly ok: boolean } | null = null;
+let answer: { readonly text: string; readonly ok: boolean; readonly note?: string } | null = null;
 let applying = false;
 /** Sections already scrolled to: a redraw of the same state must not scroll again. */
 const scrolledTo = new WeakSet<RepairPortSection>();
@@ -56,7 +56,11 @@ async function apply(host: PortViewHost, port: RepairPortSection): Promise<void>
   host.rerender();
   const result = await host.api.portChange(draft).catch((): PortChangeResult => ({ ok: false, reason: "failed" }));
   applying = false;
-  answer = { text: answerText(host.text, result, port.port), ok: result.ok };
+  answer = {
+    text: answerText(host.text, result, port.port),
+    ok: result.ok,
+    ...(result.ok && result.changed && result.discardedImportPreview ? { note: host.text.importPreviewDiscarded } : {}),
+  };
   if (result.ok && result.changed) draft = "";
   host.rerender();
   host.refresh();
@@ -99,6 +103,7 @@ export function portSection(host: PortViewHost, port: RepairPortSection): HTMLEl
       ),
     ]),
     ...(answer ? [element("p", { className: answer.ok ? "success-text" : "warning-text", text: answer.text })] : []),
+    ...(answer?.note ? [element("p", { className: "hint", text: answer.note })] : []),
   );
   card.id = "port-section";
   // The tray item (or the Dashboard's link) asked for the section: main reports it in one state only.

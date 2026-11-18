@@ -181,6 +181,22 @@ describe("desktop facts and open-agent-setup", () => {
   });
 });
 
+describe("activity reply", () => {
+  const base = { type: "activity", requestId: "request-1", busy: ["import", "backup"] };
+
+  it("accepts the busy kinds with or without the idle import preview flag", () => {
+    expect(parseDesktopChildMessage(base).ok).toBe(true);
+    expect(parseDesktopChildMessage({ ...base, pendingImport: true }).ok).toBe(true);
+    expect(parseDesktopChildMessage({ ...base, busy: [], pendingImport: false }).ok).toBe(true);
+  });
+
+  it("rejects a preview that is named as a busy kind, a malformed flag and unknown fields", () => {
+    expect(parseDesktopChildMessage({ ...base, busy: ["import-pending"] }).ok).toBe(false);
+    expect(parseDesktopChildMessage({ ...base, pendingImport: "yes" }).ok).toBe(false);
+    expect(parseDesktopChildMessage({ ...base, pendingImport: true, path: "/synthetic" }).ok).toBe(false);
+  });
+});
+
 describe("error codes", () => {
   it("lists every R4 section 8.1 backend code once", () => {
     expect(new Set(DESKTOP_BACKEND_ERROR_CODES).size).toBe(DESKTOP_BACKEND_ERROR_CODES.length);

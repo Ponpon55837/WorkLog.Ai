@@ -2,12 +2,12 @@ import { createServer, request as httpRequest, type Server } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProjectDataImportResult, ProjectDataImportStaged } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
 import { BackupWorkerClient } from "../../apps/server/src/backup-worker-client.js";
-import { createApiHandler } from "../../apps/server/src/server.js";
+import { createApiHandler, type ApiHandlerOptions } from "../../apps/server/src/server.js";
 import {
   MAX_STAGED_IMPORTS,
   STAGED_IMPORT_BUSY_MESSAGE,
@@ -102,6 +102,102 @@ function stagedDirectories(transferRoot: string): string[] {
   return existsSync(transferRoot) ? readdirSync(transferRoot).filter((name) => name.startsWith("import-")) : [];
 }
 
+describe("API handler activity with staged imports", () => {
+  it("reports an idle preview as pending only, an upload being saved as import, and nothing once discarded", async () => {
+    const root = tempRoot();
+    const store = new WorkIntelligenceStore(":memory:");
+    stores.push(store);
+    const handler = createApiHandler(store, { transferRoot: root });
+    const server = createServer(handler);
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("The test API did not expose a TCP address.");
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+
+    expect(handler.activity()).toEqual([]);
+    expect(handler.hasPendingImport()).toBe(false);
+    const staged = await post<ProjectDataImportStaged>(baseUrl, "/api/import/staged", syntheticExport(root));
+    expect(staged.status).toBe(201);
+    expect(handler.activity()).toEqual([]);
+    expect(handler.hasPendingImport()).toBe(true);
+    handler.discardStagedImports();
+    expect(handler.hasPendingImport()).toBe(false);
+    expect(stagedDirectories(root)).toEqual([]);
+  });
+
+  it("reports import while an upload is still being received", async () => {
+    const root = tempRoot();
+    const store = new WorkIntelligenceStore(":memory:");
+    stores.push(store);
+    const handler = createApiHandler(store, { transferRoot: root });
+    const server = createServer(handler);
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("The test API did not expose a TCP address.");
+    const outgoing = httpRequest({
+      host: "127.0.0.1",
+      port: address.port,
+      path: "/api/import/staged",
+      method: "POST",
+      headers: { "content-type": "application/json", "content-length": "1000" },
+    });
+    outgoing.on("error", () => undefined);
+    outgoing.write("{");
+    const deadline = Date.now() + 5_000;
+    while (handler.activity().length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10));
+    expect(handler.activity()).toEqual(["import"]);
+    expect(handler.hasPendingImport()).toBe(false);
+    outgoing.destroy();
+    handler.discardStagedImports();
+  });
+});
+
+describe("a client that leaves while its upload is inspected", () => {
+  it("does not keep the staged file: nothing is pending, no directory is left, and the slot is free", async () => {
+    const root = tempRoot();
+    const store = new WorkIntelligenceStore(":memory:");
+    stores.push(store);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let started: () => void = () => undefined;
+    const inspecting = new Promise<void>((resolve) => (started = resolve));
+    const backgroundStore = {
+      inspectStagedProjectDataImport: async () => {
+        started();
+        await gate;
+        return { header: { scope: { type: "all" }, projects: [] }, preview: {} };
+      },
+    } as unknown as NonNullable<ApiHandlerOptions["backgroundStore"]>;
+    const handler = createApiHandler(store, { transferRoot: root, backgroundStore });
+    const server = createServer(handler);
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("The test API did not expose a TCP address.");
+
+    const outgoing = httpRequest({
+      host: "127.0.0.1",
+      port: address.port,
+      path: "/api/import/staged",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+    });
+    outgoing.on("error", () => undefined);
+    outgoing.end(syntheticExport(root));
+    await inspecting;
+    // The whole body is in and the file is being inspected; now the client goes away.
+    outgoing.destroy();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    release();
+    await vi.waitFor(() => expect(handler.activity()).toEqual([]));
+
+    expect(handler.hasPendingImport()).toBe(false);
+    expect(stagedDirectories(root)).toEqual([]);
+  });
+});
+
 describe("StagedImports", () => {
   it("reports itself in use while an upload is being saved or an operation reads a staged file", async () => {
     const staged = new StagedImports(tempRoot());
@@ -121,18 +217,48 @@ describe("StagedImports", () => {
     staged.clear();
   });
 
-  it("counts an uploaded file that waits for the user's confirm until it expires", () => {
+  it("reports an idle uploaded file as pending, not in use, until it expires", () => {
     let now = 1_000;
     const staged = new StagedImports(tempRoot(), () => now);
+    expect(staged.pending).toBe(false);
+    const reservation = staged.reserve();
+    expect(staged.pending).toBe(false);
+    writeFileSync(reservation.path, "{}");
+    reservation.commit();
+    expect(staged.inUse).toBe(false);
+    expect(staged.pending).toBe(true);
+    now += STAGED_IMPORT_TTL_MS - 1;
+    expect(staged.pending).toBe(true);
+    now += 1;
+    expect(staged.pending).toBe(false);
+    expect(staged.inUse).toBe(false);
+    staged.clear();
+  });
+
+  it("is in use, and not pending, while an operation reads the staged file", async () => {
+    const staged = new StagedImports(tempRoot());
     const reservation = staged.reserve();
     writeFileSync(reservation.path, "{}");
     reservation.commit();
-    expect(staged.inUse).toBe(true);
-    now += STAGED_IMPORT_TTL_MS - 1;
-    expect(staged.inUse).toBe(true);
-    now += 1;
-    expect(staged.inUse).toBe(false);
+    let during = { inUse: false, pending: true };
+    await staged.use(reservation.id, {}, async () => {
+      during = { inUse: staged.inUse, pending: staged.pending };
+    });
+    expect(during).toEqual({ inUse: true, pending: false });
+    expect(staged.pending).toBe(true);
     staged.clear();
+  });
+
+  it("removes the directory of an idle preview when the staged files are cleared", () => {
+    const root = tempRoot();
+    const staged = new StagedImports(root);
+    const reservation = staged.reserve();
+    writeFileSync(reservation.path, "{}");
+    reservation.commit();
+    expect(stagedDirectories(root)).toHaveLength(1);
+    staged.clear();
+    expect(stagedDirectories(root)).toEqual([]);
+    expect(staged.pending).toBe(false);
   });
 
   it("expires a staged file after its time to live, and the id then answers not found", async () => {

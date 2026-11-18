@@ -668,6 +668,40 @@ describe("resource stores", () => {
       expect(store.importPreview).toBeNull();
     });
 
+    it("discards a staged file when the page is left, with keepalive only when asked, and only once", async () => {
+      const store = useProjectDataTransferStore();
+      store.discardImportFile();
+      expect(pathsOf("DELETE")).toEqual([]);
+
+      await store.loadImportFile(exportFile("first.json"));
+      store.discardImportFile();
+      await vi.waitFor(() => expect(pathsOf("DELETE")).toEqual(["/api/import/staged/stage-1"]));
+      expect(harness.calls.find((call) => call.method === "DELETE")?.keepalive).toBeUndefined();
+      expect(store.importFileName).toBe("");
+      expect(store.importPreview).toBeNull();
+      store.discardImportFile(true);
+      expect(pathsOf("DELETE")).toHaveLength(1);
+
+      await store.loadImportFile(exportFile("second.json"));
+      store.discardImportFile(true);
+      await vi.waitFor(() => expect(pathsOf("DELETE")).toHaveLength(2));
+      const keepalive = harness.calls.filter((call) => call.method === "DELETE").at(-1);
+      expect(keepalive).toMatchObject({ keepalive: true, body: {} });
+    });
+
+    it("aborts an upload that is still running when the page is left", async () => {
+      const store = useProjectDataTransferStore();
+      harness.setResponder(async (request) => {
+        if (request.url.pathname === "/api/import/staged") await new Promise<void>(() => undefined);
+        return resourceResponder(request);
+      });
+      void store.loadImportFile(exportFile());
+      expect(store.importUploading).toBe(true);
+      store.discardImportFile(true);
+      expect(store.importUploading).toBe(false);
+      expect(harness.calls.find((call) => call.url.pathname === "/api/import/staged")?.signal?.aborted).toBe(true);
+    });
+
     it("ignores a failing discard request", async () => {
       const store = useProjectDataTransferStore();
       harness.setResponder((request) =>
@@ -679,6 +713,54 @@ describe("resource stores", () => {
       await store.loadImportFile(undefined);
       await vi.waitFor(() => expect(pathsOf("DELETE")).toHaveLength(1));
       expect(store.importError).toBe("");
+    });
+
+    it("does not import after the page was left while the confirm dialog was open", async () => {
+      const store = useProjectDataTransferStore();
+      await store.loadImportFile(exportFile());
+      let answer: (confirmed: boolean) => void = () => undefined;
+      mocks.confirmAction.mockImplementationOnce(() => new Promise<boolean>((resolve) => (answer = resolve)));
+      const applying = store.applyProjectDataImport();
+      store.discardImportFile();
+      await vi.waitFor(() => expect(pathsOf("DELETE")).toEqual(["/api/import/staged/stage-1"]));
+      answer(true);
+      await applying;
+      // Neither the discarded file nor an empty id is posted, and the user sees no error.
+      expect(
+        harness.calls.filter((call) => call.method === "POST" && call.url.pathname.startsWith("/api/import/staged/")),
+      ).toEqual([]);
+      expect(store.importError).toBe("");
+      expect(store.importLoading).toBe(false);
+      expect(mocks.showToast).not.toHaveBeenCalledWith(expect.anything(), "success");
+    });
+
+    it("keeps the staged file when the page is left while an import runs, so a failed import can be retried", async () => {
+      const store = useProjectDataTransferStore();
+      await store.loadImportFile(exportFile());
+      let fail: () => void = () => undefined;
+      let failures = 1;
+      harness.setResponder(async (request) => {
+        if (request.method === "POST" && request.url.pathname === "/api/import/staged/stage-1" && failures > 0) {
+          failures -= 1;
+          await new Promise<void>((resolve) => (fail = resolve));
+          return jsonResponse({ error: "boom", code: "internal_error" }, 500);
+        }
+        return resourceResponder(request);
+      });
+      const applying = store.applyProjectDataImport();
+      await vi.waitFor(() => expect(store.importLoading).toBe(true));
+      store.discardImportFile();
+      store.discardImportFile(true);
+      fail();
+      await applying;
+      expect(pathsOf("DELETE")).toEqual([]);
+      // The failed import left the file in place: the same id can be tried again.
+      expect(store.importFileName).not.toBe("");
+      await store.applyProjectDataImport();
+      expect(
+        harness.calls.filter((call) => call.method === "POST" && call.url.pathname === "/api/import/staged/stage-1"),
+      ).toHaveLength(2);
+      expect(pathsOf("DELETE")).toEqual([]);
     });
 
     it("resets and shows the server message when the staged file expired during preview", async () => {

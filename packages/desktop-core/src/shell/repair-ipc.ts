@@ -169,7 +169,13 @@ export type PortBusyReason = "operation" | "activity" | "unknown";
 
 /** What 「變更連接埠」 answers; `ok: false` carries a reason the page maps to a sentence, never a path or a message. */
 export type PortChangeResult =
-  | { readonly ok: true; readonly changed: boolean; readonly port: number }
+  | {
+      readonly ok: true;
+      readonly changed: boolean;
+      readonly port: number;
+      /** The restart threw away an idle staged import preview; the page says so. Absent otherwise. */
+      readonly discardedImportPreview?: true;
+    }
   | {
       readonly ok: false;
       readonly reason: "invalid" | "occupied" | "not-permitted" | "busy" | "cancelled" | "failed";

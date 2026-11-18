@@ -142,13 +142,24 @@ export class ApiTransport {
     return this.request<T>(path, { method, body: JSON.stringify(body), signal });
   }
 
-  /** Sends a JSON body and expects no response body (204); errors surface like every other request. */
-  public async send(path: string, method: "DELETE" | "POST", body: unknown, signal?: AbortSignal): Promise<void> {
+  /**
+   * Sends a JSON body and expects no response body (204); errors surface like every other request. `keepalive` lets the
+   * browser finish the request after the page is gone (pagehide); it is the same fetch with the same headers, and the
+   * browser adds the Origin header exactly as for any other same-origin write.
+   */
+  public async send(
+    path: string,
+    method: "DELETE" | "POST",
+    body: unknown,
+    signal?: AbortSignal,
+    keepalive = false,
+  ): Promise<void> {
     const response = await this.fetchResponse(path, {
       method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal,
+      ...(keepalive ? { keepalive } : {}),
     });
     if (!response.ok) throw await this.responseError(response, t("api.theRequestFailedCheckThat"));
   }

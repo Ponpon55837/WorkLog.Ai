@@ -106,20 +106,20 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
   }
 
   /** Cancels the staged file on the API; a failure only means it expires on its own. */
-  function discardStaging(stagingId: string): void {
+  function discardStaging(stagingId: string, keepalive = false): void {
     if (!stagingId) return;
     void useApi()
-      .client.discardStagedProjectDataImport(stagingId)
+      .client.discardStagedProjectDataImport(stagingId, keepalive ? { keepalive } : undefined)
       .catch(() => undefined);
   }
 
   /** Forgets the staged file locally; `discard` also tells the API to remove it. */
-  function resetImportFile(discard: boolean): void {
+  function resetImportFile(discard: boolean, keepalive = false): void {
     uploadRequestId += 1;
     uploadAbort?.abort();
     uploadAbort = null;
     cancelImportPreview();
-    if (discard) discardStaging(importStagingId.value);
+    if (discard) discardStaging(importStagingId.value, keepalive);
     importStagingId.value = "";
     importHeader.value = null;
     importFileName.value = "";
@@ -133,6 +133,18 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
   function handleStagedImportError(error: unknown, fallback: string): void {
     if (isStagedImportGone(error)) resetImportFile(false);
     importError.value = stagedImportErrorMessage(error, fallback);
+  }
+
+  /**
+   * The user leaves the page (route leave, pagehide) with a file staged or uploading: the staged file is removed on
+   * the API so an unfinished preview does not linger, and the local state forgets it. `keepalive` is for pagehide,
+   * where an ordinary request would be cancelled with the page. A running import is left alone: if it fails, the file
+   * must stay so the import can be retried (it expires on its own otherwise).
+   */
+  function discardImportFile(keepalive = false): void {
+    if (importApplying.value) return;
+    if (!importStagingId.value && !importUploading.value) return;
+    resetImportFile(true, keepalive);
   }
 
   /** Uploads the chosen export to the API as a raw body; the server validates it and returns the first preview. */
@@ -243,6 +255,7 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
   async function applyProjectDataImport(): Promise<void> {
     const preview = importPreview.value;
     if (!preview) return;
+    const stagingId = importStagingId.value;
     const additions = countItems(preview.additions);
     const updates = countItems(preview.updates);
     const keptLocal = countItems(preview.keptLocal);
@@ -253,13 +266,14 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
       message: t("projects.recordsWillBeAddedAnd", { additions, updates, keptLocal, skipped, conflicts }),
       confirmLabel: t("projects.import"),
     });
-    if (!confirmed) return;
+    // The page was left while the dialog was open: the staged file is gone, so there is nothing to import.
+    if (!confirmed || !stagingId || importStagingId.value !== stagingId) return;
 
     importApplying.value = true;
     importError.value = "";
     try {
       const result = await importProjectDataMutation.mutateAsync({
-        stagingId: importStagingId.value,
+        stagingId,
         options: currentOptions(),
       });
       useToast().showToast(
@@ -393,6 +407,7 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     importPreview,
     importError,
     loadImportFile,
+    discardImportFile,
     previewProjectDataImport,
     chooseImportProjectLocation,
     applyProjectDataImport,

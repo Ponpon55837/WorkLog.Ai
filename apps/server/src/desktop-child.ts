@@ -226,7 +226,8 @@ export class DesktopChild {
   /** Answers which long jobs run now; a backend that is not serving has none. */
   private reportActivity(requestId: string): void {
     const busy = this.phase === "running" ? (this.api?.activity() ?? []) : [];
-    this.host.send({ type: "activity", requestId, busy }, () => undefined);
+    const pendingImport = this.phase === "running" && (this.api?.hasPendingImport() ?? false);
+    this.host.send({ type: "activity", requestId, busy, pendingImport }, () => undefined);
   }
 
   /** Only a child that has not started (a preview child) copies: a serving backend never reads another database. */

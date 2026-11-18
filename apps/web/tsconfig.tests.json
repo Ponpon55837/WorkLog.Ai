@@ -9,6 +9,7 @@
       "@work-intelligence/core": ["../../packages/core/src/index.ts"],
       "pinia": ["node_modules/pinia"],
       "vue": ["node_modules/vue"],
+      "vue-router": ["node_modules/vue-router"],
       "vue/*": ["node_modules/vue/*"]
     }
   },

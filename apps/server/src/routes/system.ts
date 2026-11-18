@@ -127,6 +127,11 @@ async function stageImport(context: RouteContext): Promise<void> {
         envelope: "bundle",
         options: strategy === null ? {} : { strategy },
       });
+      // The client left after the body arrived: nobody learns the id, so keeping the file would only hold a slot.
+      if (response.destroyed || response.closed) {
+        reservation.discard();
+        return;
+      }
       reservation.commit();
       sendJson(response, 201, {
         stagingId: reservation.id,

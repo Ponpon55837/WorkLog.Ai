@@ -35,7 +35,8 @@ export interface ProjectsApi {
     stagingId: string,
     options: ProjectDataStagedImportOptions,
   ): Promise<ProjectDataImportResult>;
-  discardStagedProjectDataImport(stagingId: string): Promise<void>;
+  /** `keepalive` lets the request outlive the page (used when the page is being left). */
+  discardStagedProjectDataImport(stagingId: string, options?: { keepalive?: boolean }): Promise<void>;
   getDashboard(signal?: AbortSignal): Promise<DashboardSummary>;
   listProjects(signal?: AbortSignal): Promise<ProjectListRecord[]>;
   listProjectDeletionAudits(signal?: AbortSignal): Promise<ProjectDeletionAuditRecord[]>;
@@ -95,8 +96,8 @@ export function createProjectsApi(client: ApiTransport): ProjectsApi {
       return client.write<ProjectDataImportResult>(stagedPath(stagingId), "POST", options);
     },
 
-    async discardStagedProjectDataImport(stagingId: string): Promise<void> {
-      await client.send(stagedPath(stagingId), "DELETE", {});
+    async discardStagedProjectDataImport(stagingId: string, options?: { keepalive?: boolean }): Promise<void> {
+      await client.send(stagedPath(stagingId), "DELETE", {}, undefined, options?.keepalive === true);
     },
 
     getDashboard(signal?: AbortSignal): Promise<DashboardSummary> {
