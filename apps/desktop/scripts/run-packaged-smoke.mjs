@@ -152,7 +152,7 @@ function playwright(environment, specs) {
   ];
   const needsDisplay = process.platform === "linux" && !process.env.DISPLAY;
   return needsDisplay
-    ? run("xvfb-run", ["-a", process.execPath, ...playwrightArguments], { cwd: desktopRoot, env: environment })
+    ? run("xvfb-run", ["-a", "-s", "-screen 0 1280x1024x24", process.execPath, ...playwrightArguments], { cwd: desktopRoot, env: environment })
     : run(process.execPath, playwrightArguments, { cwd: desktopRoot, env: environment });
 }
 

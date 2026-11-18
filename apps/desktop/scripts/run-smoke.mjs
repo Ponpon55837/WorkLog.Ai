@@ -63,7 +63,7 @@ function main() {
     const environment = { ...process.env, WORK_INTELLIGENCE_SMOKE_RUNTIME_ROOT: runtimeRoot };
     const needsDisplay = process.platform === "linux" && !process.env.DISPLAY;
     return needsDisplay
-      ? run("xvfb-run", ["-a", process.execPath, ...playwrightArguments], { cwd: desktopRoot, env: environment })
+      ? run("xvfb-run", ["-a", "-s", "-screen 0 1280x1024x24", process.execPath, ...playwrightArguments], { cwd: desktopRoot, env: environment })
       : run(process.execPath, playwrightArguments, { cwd: desktopRoot, env: environment });
   } finally {
     rmSync(temporary, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });

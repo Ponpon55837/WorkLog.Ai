@@ -101,7 +101,8 @@ export function installTestHook(options: TestHookOptions): void {
     planted.push(...lines);
   };
   Object.defineProperty(globalThis, "__workIntelligenceDesktopTest", {
-    value: Object.freeze({ snapshot: read,
+    value: Object.freeze({
+      snapshot: read,
       openRepair,
       openPortSettings,
       openUpdateCheck,
@@ -109,6 +110,6 @@ export function installTestHook(options: TestHookOptions): void {
       trayMenu,
       trayClick,
       plantOutput,
-     }),
+    }),
   });
 }

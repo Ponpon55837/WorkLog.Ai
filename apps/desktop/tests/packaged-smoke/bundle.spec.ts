@@ -71,6 +71,20 @@ test("app.asar contains no test hook and no test environment variable", () => {
   expect(scanned).toBeGreaterThan(5);
 });
 
+test("the packaged main bundle keeps DevTools tied to the App not being packaged", () => {
+  // The packaged App cannot be driven, so this reads the one place the window's `devTools` option is set: it must be
+  // derived from `isPackaged` (so false here), never a literal true. The unpackaged smoke asserts the runtime side.
+  const main = [...asarFiles(asarPath(packagedExecutable()))].filter(([path]) =>
+    /\/dist\/main\/index\.mjs$/.test(path),
+  );
+  expect(main.length).toBeGreaterThan(0);
+  for (const [path, content] of main) {
+    const text = content.toString("utf8");
+    expect(text, path).toMatch(/devTools:\s*!\s*[\w$]+\.isPackaged/);
+    expect(text, path).not.toMatch(/devTools:\s*(!0|true)\b/);
+  }
+});
+
 test("the Agent skill ships once, beside the asar, exactly as the repository has it", () => {
   // The Agent page installs this file (main/config.ts skillSourceFile); a missing one would only fail at "套用變更".
   const shipped = join(resourcesPath(packagedExecutable()), "skills", "work-intelligence", "SKILL.md");

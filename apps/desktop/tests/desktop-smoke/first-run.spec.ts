@@ -187,6 +187,8 @@ test("the old login service on the App's database holds the start back until the
   expect(held.backend).toBeNull();
   expect(await portIsFree(sandbox.port)).toBe(true);
 
+  // The old login service holds the database: the window opens on Status, where the legacy card is.
+  await expectTabShown(window, "status");
   const text = await pageText(window);
   const card = window.locator("#legacy-service");
   await expect(card).toBeVisible();
@@ -257,6 +259,8 @@ test("停用舊的登入服務 previews in plain words, warns about an import, d
     app,
     (state) => state.owner === "NEEDS_REPAIR" && state.recentErrors.includes("LEGACY_SERVICE_ACTIVE"),
   );
+  // The old login service holds the database: the window opens on Status, where the legacy card is.
+  await expectTabShown(window, "status");
   const text = await pageText(window);
   const card = window.locator("#legacy-service");
   await card.locator('[data-id="legacy-disable"]').click();

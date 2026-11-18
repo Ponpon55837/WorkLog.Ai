@@ -8,8 +8,13 @@ import {
   closeQuietly,
   createSandbox,
   launchApp,
+  expectTabShown,
   makeSchemaOlder,
   openTab,
+  openWindow,
+  shellText,
+  tabButton,
+  windowCount,
   processIsAlive,
   readSnapshot,
   removeSandbox,
@@ -120,6 +125,18 @@ test("a backend killed while it is held at the start of an approved update ends 
     expect(during).toHaveLength(1);
     expect(during[0]).toMatchObject({ status: "in-progress", recoveryPolicy: "repair-only" });
     expect(schemaVersion(box.databasePath)).toBe(olderVersion);
+
+    // The operation in flight is marked on the tab it belongs to (Data), by the tab's accessible name, and nowhere else.
+    const text = await shellText(window);
+    await expect(tabButton(window, "data")).toHaveAccessibleName(new RegExp(text.tabBusyLabel));
+    await expect(tabButton(window, "settings")).not.toHaveAccessibleName(new RegExp(text.tabBusyLabel));
+    // A tray or route request for another tab and a manual switch back do not start the operation a second time.
+    await openWindow(app, "settings");
+    await expectTabShown(window, "settings");
+    await openTab(window, "data");
+    expect(await windowCount(app)).toBe(1);
+    await expect(tabButton(window, "data")).toHaveAccessibleName(new RegExp(text.tabBusyLabel));
+    expect(journalRecords(box).filter((record) => record.migrationStarted)).toHaveLength(1);
 
     process.kill(childPid, "SIGKILL");
 
