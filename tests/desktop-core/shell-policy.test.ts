@@ -148,6 +148,8 @@ describe("repair IPC", () => {
       "setup:later",
       "setup:use-defaults",
       "setup:use-source",
+      "update:check",
+      "update:open-link",
     ]);
     expect(isRepairActionId("retry-start")).toBe(true);
     expect(isRepairActionId("start-anyway")).toBe(true);

@@ -8,6 +8,7 @@ import {
 } from "@work-intelligence/desktop-core/shell/i18n";
 import { portMessages } from "@work-intelligence/desktop-core/shell/port-i18n";
 import { setupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
+import { updateMessages } from "@work-intelligence/desktop-core/shell/update-i18n";
 import { mountAgents } from "./agents-view.js";
 import { checkbox, element, fact, isChecked, section } from "./dom.js";
 import { portSection } from "./port-view.js";
@@ -15,6 +16,7 @@ import { storageRiskNote } from "./storage-risk-card.js";
 import { legacyBlock } from "./legacy-block.js";
 import { legacyDisableControls, legacyDisableOutcome, type LegacyDisableHost } from "./legacy-disable-view.js";
 import { mountSetup } from "./setup-view.js";
+import { updateSection } from "./update-view.js";
 
 declare global {
   interface Window {
@@ -169,6 +171,7 @@ function render(state: RepairState): void {
     section(messages.repairDatabaseHeading, ...databaseCard),
     section(messages.repairErrorsHeading, errors),
     ...portCards(state),
+    ...updateCards(state),
   ];
   if (state.candidates.length > 0) {
     const list = element("ul", { className: "list" });
@@ -252,6 +255,24 @@ function portCards(state: RepairState): Node[] {
         refresh: () => void refresh(),
       },
       state.port,
+    ),
+  ];
+}
+
+/** The 「更新」 card: always there; the check starts only when the user presses its button or the tray item. */
+function updateCards(state: RepairState): Node[] {
+  if (!state.update) return [];
+  return [
+    updateSection(
+      {
+        api: window.workIntelligenceRepair,
+        text: updateMessages(state.locale),
+        locale: state.locale,
+        rerender: () => {
+          if (current) render(current);
+        },
+      },
+      state.update,
     ),
   ];
 }

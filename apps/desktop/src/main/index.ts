@@ -53,6 +53,8 @@ import {
   resolveDesktopPaths,
   skillSourceFile,
   testSwitch,
+  updateApiOriginOverride,
+  updateTarget,
   type DesktopConfigInputs,
   type DesktopPaths,
 } from "./config.js";
@@ -77,6 +79,8 @@ import { applyLoginItem, loadSettings, type SettingsLoad } from "./settings.js";
 import { ShellState } from "./state.js";
 import { installTestHook } from "./test-hook.js";
 import { createShellTray } from "./tray.js";
+import { createUpdateController } from "./update-check.js";
+import { createUpdateSessionFetch } from "./update-session.js";
 
 const environmentInputs = { isPackaged: app.isPackaged, environment: process.env };
 
@@ -294,7 +298,26 @@ function runShell(configInputs: DesktopConfigInputs): void {
     showSection: () => window.open("repair"),
     log,
   });
-  const info = createRepairInfo({ state, paths, supervisor, lastBackup, legacy, storage, port: changePort.section });
+  const apiOrigin = updateApiOriginOverride(configInputs);
+  const updates = createUpdateController({
+    currentVersion: app.getVersion(),
+    fetch: createUpdateSessionFetch(),
+    ...updateTarget(configInputs, { platform: process.platform, arch: process.arch }),
+    ...(apiOrigin === undefined ? {} : { apiOrigin }),
+    openExternal: (url) => dashboard.openLink(url),
+    showSection: () => window.open("repair"),
+    log,
+  });
+  const info = createRepairInfo({
+    state,
+    paths,
+    supervisor,
+    lastBackup,
+    legacy,
+    storage,
+    port: changePort.section,
+    update: updates.section,
+  });
   const copyRunner = createCopyRunner({
     state,
     window,
@@ -361,6 +384,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
   };
   const openAgents = (): void => window.open("agents");
   const openPortSettings = (): void => changePort.openSection();
+  const openUpdateCheck = (): void => updates.requestFromTray();
   const requestQuit = createQuit({
     state,
     supervisor,
@@ -382,6 +406,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     openSetup,
     openAgents,
     openPortSettings,
+    openUpdateCheck,
     requestQuit: () => void requestQuit(true),
     legacy: {
       heldAtLogin: () => legacy.heldAtLogin(),
@@ -527,6 +552,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
       legacyDisable,
       changePort,
       storage,
+      updates,
       copyToLocal: createLocalCopy({ state, paths, info, backend, supervisor, success, runner: copyRunner, log }),
       log,
     });
@@ -580,6 +606,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
       notifications: notifications ?? [],
       firstRunDetectionMs: () => firstRun.detectionMs,
       openPortSettings,
+      openUpdateCheck,
     });
   applySecurityPolicy();
 

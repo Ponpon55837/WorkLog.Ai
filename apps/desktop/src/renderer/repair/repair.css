@@ -377,3 +377,19 @@ button:disabled {
 .storage-risk .hint {
   margin-top: 2px;
 }
+
+/* 「更新」: release notes are untrusted plain text, shown with their own line breaks and never as markup. */
+.update-notes {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 14em;
+  overflow-y: auto;
+  margin: 4px 0 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.update-newer {
+  font-weight: 600;
+}

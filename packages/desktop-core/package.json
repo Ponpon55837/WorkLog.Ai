@@ -26,6 +26,14 @@
     "./shell/agents-state": {
       "types": "./dist/shell/agents-state.d.ts",
       "import": "./dist/shell/agents-state.js"
+    },
+    "./shell/update-i18n": {
+      "types": "./dist/shell/update-i18n.d.ts",
+      "import": "./dist/shell/update-i18n.js"
+    },
+    "./update-check/result": {
+      "types": "./dist/update-check/result.d.ts",
+      "import": "./dist/update-check/result.js"
     }
   },
   "dependencies": {

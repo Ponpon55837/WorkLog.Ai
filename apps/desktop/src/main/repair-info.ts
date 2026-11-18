@@ -10,6 +10,7 @@ import {
   legacyServiceRelevance,
   type BackendSupervisor,
   type RepairPortSection,
+  type RepairUpdateSection,
   type LastBackupTracker,
   type RepairFolderTarget,
   type RepairState,
@@ -39,6 +40,8 @@ export interface RepairInfoOptions {
   readonly storage: StorageRiskService;
   /** What the 「連接埠」 section shows. */
   readonly port?: () => RepairPortSection;
+  /** What the 「更新」 card shows. */
+  readonly update?: () => RepairUpdateSection;
 }
 
 export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
@@ -103,6 +106,7 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
       busy: state.busy,
       recovered: state.recovered,
       ...(options.port ? { port: options.port() } : {}),
+      ...(options.update ? { update: options.update() } : {}),
       // Shown only where it matters: the old service may serve this database, or it holds the port.
       legacyService: relevance.conflict || relevance.portInUse ? legacy.latest() : null,
       legacyBlocked: !running && latestCode === "LEGACY_SERVICE_ACTIVE",

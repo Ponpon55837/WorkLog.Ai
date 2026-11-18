@@ -26,6 +26,7 @@ import type { RepairInfo } from "./repair-info.js";
 import type { RepairSuccess } from "./repair-success.js";
 import type { RepairWindow } from "./repair-window.js";
 import type { ShellState } from "./state.js";
+import type { UpdateController } from "./update-check.js";
 
 interface Parser<T> {
   safeParse(value: unknown): { success: true; data: T } | { success: false };
@@ -45,6 +46,7 @@ export interface IpcOptions {
   readonly legacyDisable: LegacyDisableController;
   readonly changePort: ChangePortController;
   readonly storage: StorageRiskService;
+  readonly updates: UpdateController;
   /** 「複製到本機磁碟並改用」: for a candidate id, or (no id) the App's own database. */
   readonly copyToLocal: (candidateId: string | undefined) => Promise<RepairActionResult>;
   readonly log: Logger;
@@ -70,6 +72,7 @@ export function registerRepairIpc(options: IpcOptions): void {
     legacyDisable,
     changePort,
     storage,
+    updates,
     log,
   } = options;
 
@@ -327,6 +330,11 @@ export function registerRepairIpc(options: IpcOptions): void {
   handle(REPAIR_CHANNELS.portChange, parser(repairInputSchemas.portChange), ({ port }) =>
     exclusive({ ok: false, reason: "busy", busy: "operation" } as const, () => changePort.change(port)),
   );
+  // Not behind the page-action lock: a check changes nothing, and a second click joins the one that runs.
+  handle(REPAIR_CHANNELS.updateCheck, parser(repairInputSchemas.updateCheck), () => updates.check());
+  handle(REPAIR_CHANNELS.updateOpenLink, parser(repairInputSchemas.updateOpenLink), async ({ target }) => ({
+    ok: updates.openLink(target),
+  }));
   handle(REPAIR_CHANNELS.legacyStartNow, parser(repairInputSchemas.legacyStartNow), () =>
     exclusive({ ok: false, reason: "busy" } as const, () => legacyDisable.startNow()),
   );

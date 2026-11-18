@@ -4,6 +4,12 @@ import type { SetupState } from "./setup-state.js";
 import { SETUP_AGENT_IDS, type AgentsState, type SetupAgentId } from "./agents-state.js";
 import { isRepairPageUrl } from "./navigation-policy.js";
 import type { PortProblem } from "./port-policy.js";
+import {
+  UPDATE_LINK_TARGETS,
+  type UpdateCheckResult,
+  type UpdateLinkTarget,
+  type UpdateOpenLinkResult,
+} from "../update-check/result.js";
 
 /** IPC channel names between the repair page (through its preload) and main. */
 export const REPAIR_CHANNELS = {
@@ -35,6 +41,8 @@ export const REPAIR_CHANNELS = {
   legacyStartNow: "legacy:start-now",
   portChange: "port:change",
   copyToLocal: "repair:copy-to-local",
+  updateCheck: "update:check",
+  updateOpenLink: "update:open-link",
 } as const;
 
 /** What the one App window shows; main decides, the page asks. */
@@ -103,6 +111,10 @@ export const repairInputSchemas = {
   portChange: z.strictObject({ port: z.union([z.string().max(16), z.number()]) }),
   /** 「複製到本機磁碟並改用」: for a browsed candidate, or (no id) the App's own database. Main reads every path itself. */
   copyToLocal: z.strictObject({ candidateId: z.string().min(1).max(64).optional() }),
+  /** 「檢查更新」: no input; the one request goes to the fixed GitHub endpoint. */
+  updateCheck: z.strictObject({}),
+  /** Which kept link to open: a name, never a URL. */
+  updateOpenLink: z.strictObject({ target: z.enum(UPDATE_LINK_TARGETS) }),
 } as const;
 
 /** What the 「停用舊的登入服務」 preview shows; the step lines are for 「詳細步驟」 only. */
@@ -239,6 +251,8 @@ export interface RepairApi {
   agentsSelfTest(): Promise<AgentsActionResult>;
   agentsUseCheckoutDatabase(agent: SetupAgentId): Promise<AgentsActionResult>;
   portChange(port: string | number): Promise<PortChangeResult>;
+  checkForUpdates(): Promise<UpdateCheckResult>;
+  openUpdateLink(target: UpdateLinkTarget): Promise<UpdateOpenLinkResult>;
 }
 
 /** The facts main reads from `event.senderFrame` and its window. */

@@ -33,6 +33,8 @@ const channels: typeof REPAIR_CHANNELS = {
   legacyStartNow: "legacy:start-now",
   portChange: "port:change",
   copyToLocal: "repair:copy-to-local",
+  updateCheck: "update:check",
+  updateOpenLink: "update:open-link",
 };
 
 const api: RepairApi = {
@@ -93,6 +95,8 @@ const api: RepairApi = {
     }),
   legacyStartNow: () => ipcRenderer.invoke(channels.legacyStartNow, {}),
   portChange: (port) => ipcRenderer.invoke(channels.portChange, { port }),
+  checkForUpdates: () => ipcRenderer.invoke(channels.updateCheck, {}),
+  openUpdateLink: (target) => ipcRenderer.invoke(channels.updateOpenLink, { target }),
 };
 
 contextBridge.exposeInMainWorld("workIntelligenceRepair", api);

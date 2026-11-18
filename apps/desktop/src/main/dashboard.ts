@@ -14,6 +14,11 @@ export interface Dashboard {
    * handoff fragment after a port change when `handoff` is given.
    */
   open(handoff?: PortHandoff): void;
+  /**
+   * Opens a link in the browser, or records it (a test switch). The caller has already checked it; the update check
+   * does (only links of the repository's releases).
+   */
+  openLink(url: string): void;
   /** The URLs recorded instead of opened (a test switch); empty otherwise. */
   readonly recorded: readonly string[];
   /** How many times the Dashboard was opened; a flow compares it before and after to avoid opening it twice. */
@@ -43,5 +48,10 @@ export function createDashboard(options: DashboardOptions): Dashboard {
     else void shell.openExternal(url);
   }
 
-  return { open, recorded, opens: () => counter.count };
+  function openLink(url: string): void {
+    if (options.record) recorded.push(url);
+    else void shell.openExternal(url);
+  }
+
+  return { open, openLink, recorded, opens: () => counter.count };
 }
