@@ -55,10 +55,14 @@ function seedHome(home: string): void {
   }
 }
 
-/** The App's own data under the sandbox home: its database and backups. Logs live under the data folder, outside home. */
+/**
+ * What under the sandbox home is not the Agent setup's to write: the App's own data (its database and backups; logs live
+ * under the data folder, outside home) and the browser engine's `.cache` (font and GPU shader caches Chromium fills in on
+ * its own schedule, so one can appear between two reads of the tree).
+ */
 function isAppData(key: string): boolean {
   const path = key.replaceAll("\\", "/");
-  return [".work-intelligence/data", ".work-intelligence/backups"].some(
+  return [".work-intelligence/data", ".work-intelligence/backups", ".cache"].some(
     (folder) => path === folder || path.startsWith(`${folder}/`),
   );
 }
@@ -302,10 +306,13 @@ test("a second launch with --open-agent-setup shows the Agent page in the runnin
 });
 
 /** Previews and applies the install through the page, then waits until the journal says it is committed. */
-async function installThroughPage(window: Page): Promise<void> {
+async function installThroughPage(window: Page, home: string): Promise<void> {
   await window.locator('[data-id="preview"]').click();
   await expect(window.locator("#agents-preview")).toBeVisible();
   await window.locator('[data-id="apply"]').click();
+  // A removal that came before is journaled and undoable too, so "undo is available" alone can be that earlier journal:
+  // wait for this install's own manifest first, which exists only once this install's journal has replaced it.
+  await expect.poll(() => existsSync(join(home, MANIFEST_FILE)), { timeout: 15_000, intervals: [25] }).toBe(true);
   await expect.poll(async () => (await agentsState(window)).undoAvailable, { timeout: 15_000 }).toBe(true);
 }
 
@@ -339,7 +346,7 @@ test("「移除 Agent 設定」 previews what it would remove, removes only what
   await waitForManagedSnapshot(app);
   const window = await app.firstWindow({ timeout: 45_000 });
   await expectTabShown(window, "agent");
-  await installThroughPage(window);
+  await installThroughPage(window, home);
   expect(JSON.parse(readFileSync(join(home, ".claude.json"), "utf8")).mcpServers).toHaveProperty("work-intelligence");
 
   await previewRemoval(window, home);
@@ -354,7 +361,9 @@ test("「移除 Agent 設定」 previews what it would remove, removes only what
   expect(toml).toContain("[mcp_servers.other]");
   expect(toml).not.toContain("work-intelligence");
   expect(Object.keys(tree(home, isAppData)).some((path) => path.endsWith("SKILL.md"))).toBe(false);
-  expect(readMainLog(sandbox)).toMatch(/\[shell\] agent setup remove committed/);
+  // The files go before the commit is logged, so the line can land a moment after the manifest is gone.
+  const box = sandbox;
+  await expect.poll(() => readMainLog(box), { timeout: 15_000 }).toMatch(/\[shell\] agent setup remove committed/);
 
   // The removal is one journaled operation like the install, so it can be undone: the setup is back.
   await expect.poll(async () => (await agentsState(window)).undoAvailable, { timeout: 15_000 }).toBe(true);
@@ -371,7 +380,7 @@ test("after an Agent rewrote its config, 「移除 Agent 設定」 and the undo 
   await waitForManagedSnapshot(app);
   const window = await app.firstWindow({ timeout: 45_000 });
   await expectTabShown(window, "agent");
-  await installThroughPage(window);
+  await installThroughPage(window, home);
 
   // The Agent re-serialises its own file (compact) and adds keys: the whole file no longer matches what setup wrote.
   const rewrite = () => {
@@ -392,7 +401,7 @@ test("after an Agent rewrote its config, 「移除 Agent 設定」 and the undo 
   expect(JSON.parse(readFileSync(join(home, ".claude.json"), "utf8"))).toEqual(expectedRest);
 
   // Bring the setup back, let the Agent rewrite the file again, and undo that install: only our entry goes.
-  await installThroughPage(window);
+  await installThroughPage(window, home);
   rewrite();
   await window.locator('[data-id="undo"]').click();
   await expect.poll(() => existsSync(join(home, MANIFEST_FILE)), { timeout: 15_000, intervals: [25] }).toBe(false);

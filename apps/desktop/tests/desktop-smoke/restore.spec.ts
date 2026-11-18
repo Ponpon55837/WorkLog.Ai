@@ -1,7 +1,7 @@
 import { expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { WorkIntelligenceStore } from "@work-intelligence/storage";
 import { restoreMessages, pickFailureText } from "@work-intelligence/desktop-core/shell/restore-i18n";
 import {
@@ -35,8 +35,9 @@ test.afterEach(async ({ browserName: _browserName }, testInfo) => {
   sandbox = undefined;
 });
 
+/** The backup folder the App's settings name (the sandbox settings put it under the home), which is where it lists from. */
 function backupsDirectory(box: Sandbox): string {
-  return join(dirname(box.databasePath), "backups");
+  return join(box.home, ".work-intelligence", "backups");
 }
 
 function projectNames(databasePath: string): string[] {
@@ -52,7 +53,7 @@ function projectNames(databasePath: string): string[] {
 
 /** A database with one project ("Kept") and a real backup of it, then one more project ("Added later") only in the database. */
 function seedWithBackup(box: Sandbox, options: { keepDatabase: boolean }): void {
-  const store = new WorkIntelligenceStore(box.databasePath);
+  const store = new WorkIntelligenceStore(box.databasePath, { backup: { directory: backupsDirectory(box) } });
   store.addProject("Kept", join(box.root, "kept"));
   const created = store.createBackup();
   expect(created).toHaveProperty("created");
@@ -169,7 +170,9 @@ test("is reachable while the database is missing: restores a backup and the serv
   await expect(window.locator('[data-id="restore-item-0"]')).toBeVisible({ timeout: 30_000 });
   await window.locator('[data-id="restore-item-0-run"]').click();
 
-  await waitForManagedSnapshot(app, 60_000);
+  // The earlier DB_MISSING stays the latest error until the restored database starts, so wait for MANAGED itself rather
+  // than failing fast on that expected, already-settled NEEDS_REPAIR.
+  await waitForSnapshot(app, (state) => state.owner === "MANAGED" && state.backend !== null, 60_000);
   expect(existsSync(sandbox.databasePath)).toBe(true);
   expect(projectNames(sandbox.databasePath)).toEqual(["Kept"]);
 });

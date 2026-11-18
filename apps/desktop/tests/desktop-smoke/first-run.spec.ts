@@ -195,7 +195,10 @@ test("the old login service on the App's database holds the start back until the
   await expect(card).toContainText(text.legacyWarning);
   // No command to copy or type: only the App's own button and the hand-off steps.
   await expect(card.locator(".command-text")).toHaveCount(0);
-  await expect(card.locator(".manual-steps")).toHaveCount(1);
+  // The hand-off steps name an OS place to open, so they exist where the App has one (Windows, macOS), not on Linux.
+  await expect(card.locator(".manual-steps")).toHaveCount(
+    process.platform === "win32" || process.platform === "darwin" ? 1 : 0,
+  );
   // Held back on purpose: no automatic retry starts it behind the user's back.
   await new Promise((resolveWait) => setTimeout(resolveWait, 3_000));
   expect((await readSnapshot(app)).backend).toBeNull();

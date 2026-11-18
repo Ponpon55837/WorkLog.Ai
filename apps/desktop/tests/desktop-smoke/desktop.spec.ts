@@ -173,6 +173,7 @@ test("a missing database opens the repair window and creates nothing", async () 
   expect(page.inlineScript).toBe("blocked");
   // The whole bridge, so a new method is a reviewed change: every one sends only ids, booleans and enum names to main.
   expect(page.bridge).toEqual([
+    "acknowledgeRecovery",
     "agentsApply",
     "agentsDiscard",
     "agentsGetState",
@@ -199,6 +200,9 @@ test("a missing database opens the repair window and creates nothing", async () 
     "portChange",
     "previewDiagnostics",
     "rememberTab",
+    "restoreList",
+    "restorePick",
+    "restoreRun",
     "retryStart",
     "saveDiagnostics",
     "setupChooseFile",
