@@ -49,6 +49,8 @@ export interface ShellMessages {
   /** Spoken after a tab's name when it has the attention dot or the busy mark. */
   readonly tabAttentionLabel: string;
   readonly tabBusyLabel: string;
+  /** The Status tab's one-line database state links to the Data tab with this text. */
+  readonly statusOpenData: string;
   /** macOS menu bar: `{name}` is `appName`. */
   readonly menuAbout: string;
   readonly menuEdit: string;
@@ -144,6 +146,7 @@ const zhTW: ShellMessages = {
   tabListLabel: "Work Intelligence 分頁",
   tabAttentionLabel: "需要處理",
   tabBusyLabel: "進行中",
+  statusOpenData: "前往「資料」分頁",
   menuAbout: "關於 {name}",
   menuEdit: "編輯",
   menuWindow: "視窗",
@@ -346,6 +349,7 @@ const en: ShellMessages = {
   tabListLabel: "Work Intelligence sections",
   tabAttentionLabel: "Needs attention",
   tabBusyLabel: "In progress",
+  statusOpenData: "Open the Data tab",
   menuAbout: "About {name}",
   menuEdit: "Edit",
   menuWindow: "Window",
