@@ -24,6 +24,8 @@ This release makes diagnostics export preview-first, removes old runtimes only w
 ### Changed
 
 - **Old runtimes are removed after a deferred check.** An older runtime is removed only when it has been retired for at least 7 days, no lease holds it, and Windows lets the folder be renamed aside. Updates never delete a runtime or wait on a lock. A deferred removal is retried after 10 and 30 minutes, then hourly while the App runs, and at the next start (ADR-16).
+- **Idle import previews no longer block a port change.** A staged import preview that no operation is reading no longer blocks a port change, which previously could be refused for up to 30 minutes. Running imports, backups, exports and restores still block. The port section shows a notice only when the change actually discarded a preview; the staged file is removed on App restart, when the Web page is left, and on `pagehide` (ADR-27).
+- **Hook and MCP status recognizes launcher installs.** The Web status page and the desktop Agent page share one recognizer for hook commands (launcher, checkout or other), and each required event and matcher gets its own state. An MCP entry named work-intelligence counts as registered only when its command is Work Intelligence. The API stays backward compatible.
 - **Schema:** no change (33).
 
 ### Security

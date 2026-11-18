@@ -8,11 +8,13 @@
 
 ## 1.6.54（進行中）
 
-診斷匯出、舊 runtime 延後清理與 Windows SQLite 停滯量測：
+診斷匯出、舊 runtime 延後清理、Windows SQLite 停滯量測、匯入預覽與連接埠變更，以及 hook 與 MCP 狀態辨識：
 
 - 診斷匯出（DT-19）：修復視窗的「匯出診斷資訊」先開啟預覽，顯示將寫入的確切文字與遮蔽摘要。「儲存檔案…」寫入預覽中的同一份文字；只手動匯出，不上傳，沒有遙測（ADR-29）。
 - 舊 runtime 延後清理（DT-24）：只有退役滿 7 天、沒有 lease 且可改名移開時才刪除；更新不因檔案鎖失敗（ADR-16）。
-- Windows SQLite 量測（僅測試）：`WI_SQLITE_TIMING=1` 只在 Windows CI 的測試工作中開啟，結果以 artifact 上傳；不改變門檻、逾時或斷言。量測結果：「Windows 量測結果：待補」。
+- Windows SQLite 量測（僅測試）：`WI_SQLITE_TIMING=1` 只在 Windows CI 的測試工作中開啟，結果以 artifact 上傳；不改變門檻、逾時或斷言。量測結果：5 個測試程序有超過 1 秒的呼叫（最長 5.5 秒，為 `BEGIN IMMEDIATE` 等待寫入鎖）；開啟資料庫與 checkpoint 都不慢。本版不修正。
+- 閒置的匯入預覽不再擋住連接埠變更；只有真的捨棄預覽時才顯示提示（ADR-27）。
+- Hook 與 MCP 狀態辨識 launcher 形式的安裝：Web 狀態頁與桌面 Agent 頁共用同一個辨識器。
 - CI 結果：「CI：待補」。Windows 11 與 macOS 實機驗收尚未進行，仍為**待實機驗收**。
 
 沒有 schema 變更（33），沒有 migration。詳見 [1.6.54 更新說明](releases/1.6.54.md)。
