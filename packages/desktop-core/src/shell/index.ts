@@ -33,3 +33,4 @@ export * from "./port-i18n.js";
 export * from "./copy-to-local.js";
 export * from "./storage-risk-view.js";
 export * from "./storage-start-policy.js";
+export * from "./update-i18n.js";

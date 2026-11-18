@@ -280,8 +280,9 @@ describe("backup worker", () => {
       await exportedText(worker, root);
       const firstPid = workerState.lifetime?.child.pid;
       expect(firstPid).toBeDefined();
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      expect(workerState.lifetime).toBeUndefined();
+      // The idle timer fires after 25 ms, but the worker then closes its database and exits; wait for that exit (it is
+      // what clears the lifetime) instead of a fixed time, which a slow runner can exceed. No operation runs meanwhile.
+      await vi.waitFor(() => expect(workerState.lifetime).toBeUndefined(), { timeout: 10_000, interval: 25 });
 
       await exportedText(worker, root);
       expect(workerState.lifetime?.child.pid).not.toBe(firstPid);

@@ -4,6 +4,35 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.53] - 2026-11-18
+
+[繁體中文更新說明](docs/releases/1.6.53.md).
+
+This release adds a manual update check to the desktop App. It runs only when you press 「檢查更新」: nothing is checked at launch, in the background or while idle, and there is no setting to turn it on, because the press is the consent. The App shows the latest version and its release notes, offers the installer for your platform in the default browser, and never installs anything itself. The schema stays at 33 and no migration is needed. Real-device acceptance on Windows 11 and macOS is not done yet.
+
+### Added
+
+- **Manual update check.** The repair window's 「更新」 card has 「檢查更新」, and the tray has 「檢查更新…」, which starts the check in the main process (sharing one request with the button) and opens the window (ADR-40).
+  - The request is made only by the main process: `GET https://api.github.com/repos/<owner>/WorkLog.Ai/releases?per_page=20`, in a memory-only session with no cookies or credentials, no cache and no redirects. It sends no version, OS, machine id or token, and the `Accept-Language` header the browser stack adds is stripped. It times out after 10 seconds, also when a response stalls after its headers, and the response is capped at 1 MiB, also when it is chunked. Only one check runs at a time.
+  - Drafts and pre-releases are skipped. A tag must be `vX.Y.Z`; the highest version is compared with the installed one.
+  - The states are: up to date; newer (version, date and release notes); offline; rate limited (403 with no quota left, or 429), with the reset time and no automatic retry; secure connection failed (an untrusted certificate or TLS failure, often a proxy or security software); no stable release; and error. A link the system cannot open is reported, not shown as opened. Every state offers 「開啟發行頁面」.
+  - Release notes are plain text only, with control and bidi characters removed, capped at 20 000 characters.
+  - The primary button opens the platform installer (`Work-Intelligence-<x.y.z>-win-x64-setup.exe`, `-mac-arm64.dmg` or `-mac-x64.dmg`) in the default browser. A hint next to it says to verify the download with `SHA256SUMS.txt` from the release page. Other platforms and architectures get the release page only.
+  - Download links are rebuilt from the tag and opened only when they are exactly this repository's github.com release URLs.
+- **Daily audit-exception watch.** `.github/workflows/audit-exceptions-watch.yml` runs `node scripts/check-audit-ignores.mjs --registry` at 03:37 UTC and on manual dispatch. It has `contents: read`, no secrets, no install step, and is not a PR check. It fails, and GitHub emails the owner, when npm publishes a patched release of an ignored package or the audit no longer reports the advisory; the failure prints the removal steps. There are no exceptions now, so it passes; it stays as general infrastructure. See [相依套件稽核例外](docs/security/audit-exceptions.md).
+- **Tests.** 82 unit tests (`tests/desktop-core/update-check-{logic,request,controller}.test.ts`, `tests/desktop-core/dashboard-link.test.ts`) and 24 desktop smoke tests (`apps/desktop/tests/desktop-smoke/update-check.spec.ts`) against a local fake GitHub server. The smoke tests prove that no request is made at launch or while idle, and cover the button flows, rate limiting, timeout, malformed responses, HTML shown as text, a bad asset URL (release page only), the exact request header set, one request per tray click with none on window close or reopen, a stalled body, a chunked body over 1 MiB, no stable release, and the notes keeping their scroll position on refresh. The test-only API-origin and platform overrides exist only in unpackaged test builds.
+
+### Changed
+
+- **Installers are not signed.** The update card says so: macOS is ad-hoc signed and Windows is unsigned, so Gatekeeper or SmartScreen may prompt when you install manually (ADR-38). Your data is kept.
+- **Schema:** no change (33).
+
+### Security
+
+- **vue-router 5.5.0 → 4.6.5; the GHSA-fc5q-39xc-vjpf exception is removed.** vue-router 5.x pulled picomatch (ReDoS, no patched release) into the production tree through its build-time file-routing tools. 4.6.5 depends only on `@vue/devtools-api`, so `pnpm why picomatch --prod -r` is empty and `pnpm audit --prod --audit-level high` passes with no exception; the audit command and level are unchanged. `auditConfig.ignoreGhsas` and `ALLOWED_AUDIT_IGNORES` are both empty, and the unit test pins the allowed list to empty. The web app uses no 5.x-only API, so no code changed; history mode, deep links and back/forward behave as before. Web JavaScript grows by 1,936 B (899 B gzipped): 1,008,770 → 1,010,706 B.
+- **Dependabot ignores vue-router >= 5.** Revisit when vue-router 5.x no longer depends on picomatch or picomatch ships a fix (>= 4.0.8); tracked under 「待重新評估」 in [相依套件稽核例外](docs/security/audit-exceptions.md), because the daily watch only covers listed exceptions.
+- **Update check.** The App sends one anonymous GET to the GitHub releases API, and only after a button press. It never installs an update in-app (ADR-25).
+
 ## [1.6.52] - 2026-11-17
 
 [繁體中文更新說明](docs/releases/1.6.52.md).

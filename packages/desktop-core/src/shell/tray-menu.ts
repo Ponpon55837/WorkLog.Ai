@@ -2,6 +2,7 @@ import type { ServiceOwnerState } from "../operations/service-owner-state.js";
 import { formatMessage, type ShellMessages } from "./i18n.js";
 import type { PortMessages } from "./port-i18n.js";
 import type { SetupMessages } from "./setup-i18n.js";
+import type { UpdateMessages } from "./update-i18n.js";
 
 export type TrayItemId =
   | "open-dashboard"
@@ -12,6 +13,7 @@ export type TrayItemId =
   | "legacy-remove-help"
   | "repair"
   | "change-port"
+  | "check-updates"
   | "separator"
   | "quit";
 
@@ -40,6 +42,8 @@ export interface TrayMenuInputs {
    */
   /** The 「變更連接埠…」 item, shown after "Repair…" once the App is set up. Omitted: no item. */
   readonly port?: Pick<PortMessages, "trayChangePort">;
+  /** The 「檢查更新…」 item, after the setup items. Omitted: no item. The App never checks by itself; this item is a way to ask. */
+  readonly update?: Pick<UpdateMessages, "trayCheckUpdates">;
   readonly legacyHeld?: Pick<SetupMessages, "trayLegacyStatus" | "trayLegacyStartAnyway" | "trayLegacyHowToRemove">;
 }
 
@@ -89,6 +93,7 @@ export function buildTrayMenu(inputs: TrayMenuInputs): TrayMenuItem[] {
       ? [{ id: "change-port" as const, label: inputs.port.trayChangePort, enabled: true }]
       : []),
     ...(setup && !setup.needsSetup ? setupItems : []),
+    ...(inputs.update ? [{ id: "check-updates" as const, label: inputs.update.trayCheckUpdates, enabled: true }] : []),
     { id: "separator", label: "", enabled: false },
     { id: "quit", label: messages.trayQuit, enabled: true },
   ];

@@ -5,6 +5,7 @@ import {
   setupMessages,
   trayBackgroundHint,
   trayTooltip,
+  updateMessages,
 } from "@work-intelligence/desktop-core";
 import type { Logger } from "./log.js";
 import type { ShellState } from "./state.js";
@@ -31,6 +32,8 @@ export interface ShellTrayOptions {
   readonly openAgents: () => void;
   /** 「變更連接埠…」: the repair window's port section. */
   readonly openPortSettings: () => void;
+  /** 「檢查更新…」: the repair window's update card, with the check started. */
+  readonly openUpdateCheck: () => void;
   readonly requestQuit: () => void;
   readonly log: Logger;
   /**
@@ -80,6 +83,7 @@ export function createShellTray(options: ShellTrayOptions): ShellTray {
       backendRunning: running,
       setup: { messages: setup, needsSetup: state.needsSetup },
       port: portMessages(state.locale),
+      update: updateMessages(state.locale),
       ...(held ? { legacyHeld: setup } : {}),
     });
     tray.setToolTip(trayTooltip(state.owner, running, text));
@@ -97,6 +101,7 @@ export function createShellTray(options: ShellTrayOptions): ShellTray {
               else if (item.id === "complete-setup") options.openSetup();
               else if (item.id === "agent-setup") options.openAgents();
               else if (item.id === "change-port") options.openPortSettings();
+              else if (item.id === "check-updates") options.openUpdateCheck();
               else if (item.id === "quit") options.requestQuit();
             },
           };

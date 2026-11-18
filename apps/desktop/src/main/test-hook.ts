@@ -42,6 +42,8 @@ export interface TestHookOptions {
   readonly firstRunDetectionMs: () => number | undefined;
   /** What the tray's 「變更連接埠…」 item runs (the same function), so a test goes through the real path. */
   readonly openPortSettings: () => void;
+  /** What the tray's 「檢查更新…」 item runs. */
+  readonly openUpdateCheck: () => void;
 }
 
 /**
@@ -70,10 +72,11 @@ export function installTestHook(options: TestHookOptions): void {
     };
   };
   // The tray cannot be clicked in a test: the repair window as the tray's 「開啟修復視窗」 shows it, and the port section
-  // through the very handler the 「變更連接埠…」 item runs.
+  // through the very handler the 「變更連接埠…」 item runs, and the update check through the one 「檢查更新…」 runs.
   const openRepair = (): void => options.window.open("repair");
   const openPortSettings = (): void => options.openPortSettings();
+  const openUpdateCheck = (): void => options.openUpdateCheck();
   Object.defineProperty(globalThis, "__workIntelligenceDesktopTest", {
-    value: Object.freeze({ snapshot: read, openRepair, openPortSettings }),
+    value: Object.freeze({ snapshot: read, openRepair, openPortSettings, openUpdateCheck }),
   });
 }

@@ -7,8 +7,12 @@
  * - an ignored advisory is no longer reported by `pnpm audit --prod` (run on a temporary copy without the ignore list);
  * - the lockfile no longer resolves any vulnerable version of the advisory's package (a patched release is installed).
  *
- * Usage: node scripts/check-audit-ignores.mjs [--offline]
- *   --offline  skips the `pnpm audit` call (list and lockfile checks only); the unit test covers the pure functions.
+ * With --registry (the daily .github/workflows/audit-exceptions-watch.yml), it also fails when the npm registry already
+ * publishes a stable version of the advisory's package above its vulnerable range, i.e. a patched release exists.
+ *
+ * Usage: node scripts/check-audit-ignores.mjs [--offline | --registry]
+ *   --offline   skips the `pnpm audit` call (list and lockfile checks only); the unit test covers the pure functions.
+ *   --registry  adds the registry check (`npm view <package> versions --json`) to the full check.
  */
 import { spawnSync } from "node:child_process";
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -22,9 +26,9 @@ import { fileURLToPath } from "node:url";
  * Every allowed exception. `vulnerableUpTo` is the highest affected version (the advisory's range is `<= vulnerableUpTo`).
  * See docs/security/audit-exceptions.md for the reasoning and the removal condition of each entry.
  */
-export const ALLOWED_AUDIT_IGNORES = Object.freeze({
-  "GHSA-fc5q-39xc-vjpf": Object.freeze({ package: "picomatch", vulnerableUpTo: "4.0.7" }),
-});
+// Empty since 1.6.53: GHSA-fc5q-39xc-vjpf (picomatch) was resolved by moving vue-router back to 4.6.5, which drops
+// picomatch from the production tree. Add an entry here only together with auditConfig.ignoreGhsas and the docs.
+export const ALLOWED_AUDIT_IGNORES = Object.freeze({});
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -117,10 +121,61 @@ export function auditIgnoreProblems({ ignored, lockfileText, reportedGhsas, allo
       );
     }
     if (reportedGhsas && !reportedGhsas.includes(id)) {
-      problems.push(`${id}: pnpm audit --prod no longer reports it; delete the ignore`);
+      problems.push(`${id}: pnpm audit --prod no longer reports it; ${REMOVAL_STEPS.replaceAll("<package>", name)}`);
     }
   }
   return problems;
+}
+
+/** The steps that retire an exception, printed with every failure that means it can go. */
+export const REMOVAL_STEPS =
+  "upgrade the package (pnpm update --recursive <package>, or bump the parent that pins it), regenerate the lockfile with pnpm install, delete the entry from auditConfig.ignoreGhsas in pnpm-workspace.yaml and from ALLOWED_AUDIT_IGNORES in scripts/check-audit-ignores.mjs, and delete its section in docs/security/audit-exceptions.md";
+
+/** True for a plain x.y.z release (no pre-release suffix). */
+function isStableVersion(version) {
+  return /^\d+\.\d+\.\d+$/.test(version);
+}
+
+/**
+ * Problems for the registry check: for each allowed and ignored advisory, the stable versions the registry publishes
+ * above its vulnerable range (`registryVersions` maps a package name to every published version, or is missing it when
+ * the lookup failed, which is itself a problem so the watch never passes silently).
+ */
+export function registryProblems({ ignored, registryVersions, allowed = ALLOWED_AUDIT_IGNORES }) {
+  const problems = [];
+  for (const id of [...ignored].sort().filter((entry) => allowed[entry])) {
+    const { package: name, vulnerableUpTo } = allowed[id];
+    const versions = registryVersions[name];
+    if (!Array.isArray(versions)) {
+      problems.push(`${id}: could not read the published versions of ${name} from the npm registry`);
+      continue;
+    }
+    const patched = versions
+      .filter((version) => isStableVersion(version) && compareVersions(version, vulnerableUpTo) > 0)
+      .sort(compareVersions);
+    if (patched.length > 0) {
+      problems.push(
+        `${id}: ${name} ${patched.at(-1)} is published (vulnerable range is <= ${vulnerableUpTo}); ${REMOVAL_STEPS.replaceAll("<package>", name)}`,
+      );
+    }
+  }
+  return problems;
+}
+
+/** Every published version of `name`, from `npm view <name> versions --json`; undefined when the lookup fails. */
+function publishedVersions(name) {
+  const result = spawnSync("npm", ["view", name, "versions", "--json"], {
+    encoding: "utf8",
+    shell: process.platform === "win32",
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  if (result.status !== 0) return undefined;
+  try {
+    const parsed = JSON.parse(result.stdout);
+    return Array.isArray(parsed) ? parsed : typeof parsed === "string" ? [parsed] : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** This repository's pnpm-workspace.yaml and pnpm-lock.yaml texts. */
@@ -161,17 +216,26 @@ function reportedWithoutIgnores(workspaceYaml) {
 
 function main() {
   const offline = process.argv.includes("--offline");
+  const registry = process.argv.includes("--registry");
+  if (offline && registry) throw new Error("--offline and --registry cannot be combined");
   const { workspaceYaml, lockfileText } = readWorkspaceFiles();
   const ignored = parseIgnoreGhsas(workspaceYaml);
   const reportedGhsas = offline || ignored.length === 0 ? null : reportedWithoutIgnores(workspaceYaml);
   const problems = auditIgnoreProblems({ ignored, lockfileText, reportedGhsas });
+  if (registry) {
+    const names = [
+      ...new Set(ignored.filter((id) => ALLOWED_AUDIT_IGNORES[id]).map((id) => ALLOWED_AUDIT_IGNORES[id].package)),
+    ];
+    const registryVersions = Object.fromEntries(names.map((name) => [name, publishedVersions(name)]));
+    problems.push(...registryProblems({ ignored, registryVersions }));
+  }
   if (problems.length > 0) {
     for (const problem of problems) console.error(`audit-ignores: ${problem}`);
     console.error("audit-ignores: see docs/security/audit-exceptions.md");
     process.exit(1);
   }
   console.log(
-    `audit-ignores: ${ignored.length} exception(s), each still needed${offline ? " (offline: audit not re-run)" : ""}: ${ignored.join(", ") || "none"}`,
+    `audit-ignores: ${ignored.length} exception(s), each still needed${offline ? " (offline: audit not re-run)" : registry ? " (no patched release published)" : ""}: ${ignored.join(", ") || "none"}`,
   );
 }
 

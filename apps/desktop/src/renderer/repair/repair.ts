@@ -8,6 +8,7 @@ import {
 } from "@work-intelligence/desktop-core/shell/i18n";
 import { portMessages } from "@work-intelligence/desktop-core/shell/port-i18n";
 import { setupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
+import { updateMessages } from "@work-intelligence/desktop-core/shell/update-i18n";
 import { mountAgents } from "./agents-view.js";
 import { checkbox, element, fact, isChecked, section } from "./dom.js";
 import { portSection } from "./port-view.js";
@@ -15,6 +16,7 @@ import { storageRiskNote } from "./storage-risk-card.js";
 import { legacyBlock } from "./legacy-block.js";
 import { legacyDisableControls, legacyDisableOutcome, type LegacyDisableHost } from "./legacy-disable-view.js";
 import { mountSetup } from "./setup-view.js";
+import { restoreNotesScroll, saveNotesScroll, updateSection } from "./update-view.js";
 
 declare global {
   interface Window {
@@ -169,6 +171,7 @@ function render(state: RepairState): void {
     section(messages.repairDatabaseHeading, ...databaseCard),
     section(messages.repairErrorsHeading, errors),
     ...portCards(state),
+    ...updateCards(state),
   ];
   if (state.candidates.length > 0) {
     const list = element("ul", { className: "list" });
@@ -222,7 +225,10 @@ function render(state: RepairState): void {
   }
   blocks.push(section(messages.repairActionsHeading, actions));
 
+  // The poll rebuilds the page: the release notes box is new each time and is put back where the reader had scrolled it.
+  saveNotesScroll(app);
   app.replaceChildren(...blocks);
+  restoreNotesScroll(app);
   app.setAttribute("aria-busy", "false");
   if (focusedId) app.querySelector<HTMLElement>(`[data-id="${CSS.escape(focusedId)}"]`)?.focus();
 }
@@ -252,6 +258,25 @@ function portCards(state: RepairState): Node[] {
         refresh: () => void refresh(),
       },
       state.port,
+    ),
+  ];
+}
+
+/** The 「更新」 card: always there; it shows what main reports, and a check starts only from a click (its button or the tray item). */
+function updateCards(state: RepairState): Node[] {
+  if (!state.update) return [];
+  return [
+    updateSection(
+      {
+        api: window.workIntelligenceRepair,
+        text: updateMessages(state.locale),
+        locale: state.locale,
+        rerender: () => {
+          if (current) render(current);
+        },
+        refresh: () => void refresh(),
+      },
+      state.update,
     ),
   ];
 }
@@ -364,6 +389,8 @@ async function mount(): Promise<void> {
   const view = await api.getView().catch(() => "repair" as const);
   if (view === "setup") return mountSetup(app, say, api);
   if (view === "agents") return mountAgents(app, say, api);
+  // Main tells the page when an update check starts or ends (the tray item starts one without the page), so it shows at once.
+  api.onUpdateChanged(() => void refresh());
   void refresh();
   setInterval(() => void refresh(), REFRESH_MS);
 }

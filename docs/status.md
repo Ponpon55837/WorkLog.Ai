@@ -4,20 +4,37 @@
 
 > 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
-- 最後更新：2026-11-17
+- 最後更新：2026-11-18
 
-## 1.6.52（已完成，待合併）
+## 1.6.53（進行中）
+
+桌面 App 的手動更新檢查（ADR-40）：
+
+- 只在按下「檢查更新」時連線到 GitHub。沒有自動檢查，也沒有開關；按下按鈕即為同意。修復視窗的「更新」卡片與工作列的「檢查更新…」都會開始檢查。
+- 請求只在主程序發出，不含版本、作業系統、機器識別碼或權杖；不帶憑證，不快取，不接受重新導向。
+- 狀態：已是最新版本、有新版本（版本、日期與純文字更新說明）、離線、查詢次數受限（顯示可再試的時間，不自動重試）與錯誤；每個狀態都提供「開啟發行頁面」。
+- 下載按鈕在瀏覽器中開啟該平台的安裝檔（Windows x64、macOS arm64 與 x64）；按鈕旁提示以 `SHA256SUMS.txt` 驗證。其他平台只提供發行頁面。App 內不下載、不安裝（ADR-25）；安裝檔未簽署（ADR-38）。
+- 經使用者核准，`vue-router` 由 5.5.0 改回 4.6.5，picomatch 不再出現在 production 相依樹；稽核例外 GHSA-fc5q-39xc-vjpf 已移除，不帶例外即通過稽核。Dependabot 忽略 vue-router ≥ 5，待重新評估。
+- 每日的 `audit-exceptions-watch` 工作流程：npm 出現修補版時失敗並通知維護者；目前沒有例外，保留為通用機制（見[相依套件稽核例外](security/audit-exceptions.md)）。
+- 測試：單元測試 82 項、桌面 smoke 24 項（`apps/desktop/tests/desktop-smoke/update-check.spec.ts`）。
+- CI：PR #375 的 23 項必要檢查全部通過（commit c8efde0）。Windows 11 與 macOS 實機驗收為**待實機驗收**。
+
+沒有 schema 變更（33），沒有 migration。詳見 [1.6.53 更新說明](releases/1.6.53.md)。
+
+接下來：1.6.54 為 Windows 上 SQLite 鎖等待與儲存停滯的量測（instrumentation）。1.6.54 之後進行跨版本的完整檢視。
+
+## 1.6.52（已完成，已合併）
 
 v1.6.52 一併發布 1.6.51 的全部變更（1.6.51 沒有單獨發布）。資料庫升級、還原與多程序寫入的驗證：
 
 - migration 前備份與 N→N+1 樣本升級測試（DT-32）：三份真實舊版（v1.6.8、v1.6.21、1.6.51）的樣本升級；以真實程序中斷 migration、備份與還原；桌面 smoke 確認 migration 開始後不回到舊服務。
 - 還原前先驗證遷移後的副本：`quick_check` 與 `foreign_key_check` 通過才取代現行資料庫；失敗回傳 `RESTORE_VERIFY_FAILED`，現行資料庫不變。
 - 多程序 WAL 寫入與 checkpoint 壓力測試（DT-07）：`pnpm test:sqlite-stress`，CI 在 Linux、Windows 與 macOS 執行；拋出的 `SQLITE_BUSY` 設門檻（寫入程序 ≤ max(5, 2%)，其他角色 0）；必要檢查增為 23 項。
-- 相依套件稽核例外：經使用者核准，只忽略 GHSA-fc5q-39xc-vjpf（picomatch ≤ 4.0.7，只在建置時使用，目前沒有修補版）；`scripts/check-audit-ignores.mjs` 在例外過時時失敗。詳見 [相依套件稽核例外](security/audit-exceptions.md)。
+- 相依套件稽核例外：經使用者核准，只忽略 GHSA-fc5q-39xc-vjpf（picomatch ≤ 4.0.7，只在建置時使用，目前沒有修補版）；`scripts/check-audit-ignores.mjs` 在例外過時時失敗。1.6.53 已移除。詳見 [相依套件稽核例外](security/audit-exceptions.md)。
 
 CI：PR #374 的 23 項必要檢查全部通過（commit 6916e49）。Windows 11 與 macOS 實機驗收尚未進行。
 
-接下來：1.6.53 為更新檢查：預設關閉，由手動的「檢查更新」按鈕觸發；Windows 與 macOS 都顯示版本與更新說明，並開啟下載頁面，App 內不安裝。1.6.54 之後進行跨版本的完整檢視。沒有 schema 變更（33），沒有 migration。詳見 [1.6.52 更新說明](releases/1.6.52.md)。
+詳見 [1.6.52 更新說明](releases/1.6.52.md)。
 
 ## 1.6.51（已完成，隨 v1.6.52 發布）
 

@@ -168,7 +168,7 @@ test("a missing database opens the repair window and creates nothing", async () 
   expect(page.require).toBe("undefined");
   expect(page.process).toBe("undefined");
   expect(page.inlineScript).toBe("blocked");
-  // The whole bridge, so a new method is a reviewed change: every one sends only ids and booleans to main.
+  // The whole bridge, so a new method is a reviewed change: every one sends only ids, booleans and enum names to main.
   expect(page.bridge).toEqual([
     "agentsApply",
     "agentsDiscard",
@@ -177,6 +177,7 @@ test("a missing database opens the repair window and creates nothing", async () 
     "agentsSelfTest",
     "agentsUndo",
     "agentsUseCheckoutDatabase",
+    "checkForUpdates",
     "chooseDatabase",
     "confirmDatabase",
     "copyCommand",
@@ -187,7 +188,9 @@ test("a missing database opens the repair window and creates nothing", async () 
     "legacyDisableConfirm",
     "legacyDisablePreview",
     "legacyStartNow",
+    "onUpdateChanged",
     "openFolder",
+    "openUpdateLink",
     "portChange",
     "retryStart",
     "setupChooseFile",

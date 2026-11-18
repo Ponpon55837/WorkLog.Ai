@@ -4,6 +4,7 @@ import type { ShellLocale } from "./i18n.js";
 import type { LastBackupInfo } from "./last-backup.js";
 import type { RecordedError } from "./recent-errors.js";
 import type { StorageRiskView } from "./storage-risk-view.js";
+import type { RepairUpdateSection } from "../update-check/result.js";
 import { canDisableLegacyService } from "../legacy-service/disable.js";
 import type { LegacyServiceDetection } from "../legacy-service/types.js";
 
@@ -61,6 +62,8 @@ export interface RepairState {
   readonly recovered: RepairRecovered | null;
   /** The 「連接埠」 section (null before the App has settings). */
   readonly port: RepairPortSection | null;
+  /** The 「更新」 card: the running version, and the check's progress and last answer (kept in main). Absent: no card. */
+  readonly update?: RepairUpdateSection;
   /**
    * The old login service (`pnpm bootstrap`) is installed and may serve this database. `blocked`: the App did not start
    * its backend because of it; only "仍要啟動" (the `start-anyway` action) starts it.
@@ -122,6 +125,7 @@ export interface RepairStateInputs {
   readonly retryOperationId: string;
   readonly recovered?: RepairRecovered | null;
   readonly port?: RepairPortSection | null;
+  readonly update?: RepairUpdateSection;
   /** What the start-up check found, when it found the old login service on this database. */
   readonly legacyService?: LegacyServiceDetection | null;
   /** The App held its backend back because of that service. */
@@ -185,6 +189,7 @@ export function buildRepairState(inputs: RepairStateInputs): RepairState {
     retryOperationId: inputs.retryOperationId,
     recovered: inputs.recovered ?? null,
     port: inputs.port ?? null,
+    ...(inputs.update ? { update: inputs.update } : {}),
     legacyService:
       inputs.legacyService?.kind === "found"
         ? {

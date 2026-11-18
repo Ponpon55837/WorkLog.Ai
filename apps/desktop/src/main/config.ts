@@ -39,6 +39,13 @@ const TEST_ENVIRONMENT = {
    * `P` exists, and writes its pid to `P.held`, so a smoke test can kill it mid-upgrade or let it go on.
    */
   holdMigrationFile: "WORK_INTELLIGENCE_DESKTOP_TEST_HOLD_MIGRATION_FILE",
+  /**
+   * `http://127.0.0.1:<port>`: a local fake server the update check asks instead of the GitHub API. Only the API origin
+   * changes; the release page and installer links it returns must still be github.com links of the repository.
+   */
+  updateApiOrigin: "WORK_INTELLIGENCE_DESKTOP_TEST_UPDATE_API_ORIGIN",
+  /** `<platform>/<arch>` (for example `win32/x64`) the update check uses to pick the installer, so any host can test each one. */
+  updatePlatform: "WORK_INTELLIGENCE_DESKTOP_TEST_UPDATE_PLATFORM",
 } as const;
 
 /** One of the test switches, by the name it has in {@link TEST_ENVIRONMENT}. */
@@ -130,6 +137,44 @@ export function legacyServiceFileOverride(inputs: EnvironmentInputs): string | u
 /** The synthetic storage-verdict file of a test build, else undefined (the real classifier answers every path). */
 export function storageRiskFileOverride(inputs: EnvironmentInputs): string | undefined {
   return overrideFromEnvironment(inputs, "storageRiskFile");
+}
+
+/** The fake update server's origin in a test build that is not packaged, else undefined (the GitHub API answers). */
+export function updateApiOriginOverride(inputs: EnvironmentInputs): string | undefined {
+  if (__WI_TEST_BUILD__ && !inputs.isPackaged) {
+    try {
+      const url = new URL(inputs.environment[TEST_ENVIRONMENT.updateApiOrigin] ?? "");
+      // Loopback over plain http with an explicit port: the one shape a local fake server has, and nothing a user's own
+      // environment could use to send the request anywhere else.
+      const plain = url.username === "" && url.password === "" && url.search === "" && url.hash === "";
+      if (
+        plain &&
+        url.protocol === "http:" &&
+        url.hostname === "127.0.0.1" &&
+        url.port !== "" &&
+        url.pathname === "/"
+      ) {
+        return url.origin;
+      }
+    } catch {
+      // Not a URL: the real endpoint is used.
+    }
+  }
+  return undefined;
+}
+
+/** The platform and architecture the update check reports: the test build's override, else the real ones. */
+export function updateTarget(
+  inputs: EnvironmentInputs,
+  real: { readonly platform: string; readonly arch: string },
+): { readonly platform: string; readonly arch: string } {
+  if (__WI_TEST_BUILD__ && !inputs.isPackaged) {
+    const [platform, arch, ...rest] = (inputs.environment[TEST_ENVIRONMENT.updatePlatform] ?? "").split("/");
+    if (platform && arch && rest.length === 0 && /^[a-z0-9]+$/.test(platform) && /^[a-z0-9]+$/.test(arch)) {
+      return { platform, arch };
+    }
+  }
+  return real;
 }
 
 /** Whether a test-only switch is on; always false in a production build or a packaged App. */

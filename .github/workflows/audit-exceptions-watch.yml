@@ -1,0 +1,40 @@
+name: Audit exceptions watch
+
+# Daily check that every pnpm audit exception (auditConfig.ignoreGhsas in pnpm-workspace.yaml) is still needed.
+# It fails, so GitHub notifies the owner, once the npm registry publishes a patched release of an ignored package
+# or `pnpm audit --prod` without the ignore list no longer reports the advisory. The failure message lists the
+# removal steps. Not a pull-request check; needs no secrets. See docs/security/audit-exceptions.md.
+
+on:
+  schedule:
+    - cron: "37 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: audit-exceptions-watch
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    name: Audit exceptions still needed
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 11.16.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      # No install: the script reads the lockfile and runs `pnpm audit` and `npm view`, which need no node_modules.
+      - name: Check each audit exception against the npm registry and pnpm audit
+        run: node scripts/check-audit-ignores.mjs --registry
