@@ -10,11 +10,3 @@ allowBuilds:
   electron: false
   # Reviewed: only the Squirrel.Windows target uses electron-winstaller's postinstall (it picks a 7-Zip binary); the desktop package builds NSIS, never Squirrel.
   electron-winstaller: false
-# Audit exceptions. Each entry must also be listed in ALLOWED_AUDIT_IGNORES in scripts/check-audit-ignores.mjs, which
-# fails once an entry is stale (no longer reported, or a patched version is installed). See docs/security/audit-exceptions.md.
-auditConfig:
-  ignoreGhsas:
-    # picomatch <=4.0.7 ReDoS. Build-time only (apps/web > vue-router 5.5.0 > picomatch, tinyglobby/fdir, unplugin-utils);
-    # every glob comes from the repository, never from user input. No patched release exists yet.
-    # Remove when picomatch >=4.0.8 (or another patched release) is published: upgrade it and delete this entry.
-    - GHSA-fc5q-39xc-vjpf

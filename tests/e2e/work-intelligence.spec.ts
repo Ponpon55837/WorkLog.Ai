@@ -1336,6 +1336,27 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page.getByRole("heading", { name: tt("common.workHistory") }).first()).toBeVisible();
   });
 
+  test("redirects the root and unknown paths and keeps back/forward history @cross-browser", async ({ page }) => {
+    await page.goto("/");
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await page.goto("/no-such-page");
+    await expect(page).toHaveURL(/\/dashboard$/);
+
+    await page.goto("/system-status");
+    await expect(page.getByRole("heading", { name: tt("nav.systemStatus") }).first()).toBeVisible();
+    // In-app navigation (RouterLink → router.push), so back/forward go through the router's history mode.
+    await page.getByRole("link", { name: tt("common.workHistory") }).first().click();
+    await expect(page).toHaveURL(/\/sessions$/);
+    await expect(page.getByRole("heading", { name: tt("common.workHistory") }).first()).toBeVisible();
+
+    await page.goBack();
+    await expect(page).toHaveURL(/\/system-status$/);
+    await expect(page.getByRole("heading", { name: tt("nav.systemStatus") }).first()).toBeVisible();
+    await page.goForward();
+    await expect(page).toHaveURL(/\/sessions$/);
+    await expect(page.getByRole("heading", { name: tt("common.workHistory") }).first()).toBeVisible();
+  });
+
   test("shows the read-only system status page", async ({ page }) => {
     await page.goto("/system-status");
     await expect(page.getByRole("heading", { name: tt("nav.systemStatus") })).toBeVisible();

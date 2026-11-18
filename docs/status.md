@@ -14,7 +14,8 @@
 - 請求只在主程序發出，不含版本、作業系統、機器識別碼或權杖；不帶憑證，不快取，不接受重新導向。
 - 狀態：已是最新版本、有新版本（版本、日期與純文字更新說明）、離線、查詢次數受限（顯示可再試的時間，不自動重試）與錯誤；每個狀態都提供「開啟發行頁面」。
 - 下載按鈕在瀏覽器中開啟該平台的安裝檔（Windows x64、macOS arm64 與 x64）；按鈕旁提示以 `SHA256SUMS.txt` 驗證。其他平台只提供發行頁面。App 內不下載、不安裝（ADR-25）；安裝檔未簽署（ADR-38）。
-- 每日的 `audit-exceptions-watch` 工作流程：npm 出現修補版時失敗並通知維護者（見[相依套件稽核例外](security/audit-exceptions.md)）。
+- 經使用者核准，`vue-router` 由 5.5.0 改回 4.6.5，picomatch 不再出現在 production 相依樹；稽核例外 GHSA-fc5q-39xc-vjpf 已移除，不帶例外即通過稽核。Dependabot 忽略 vue-router ≥ 5，待重新評估。
+- 每日的 `audit-exceptions-watch` 工作流程：npm 出現修補版時失敗並通知維護者；目前沒有例外，保留為通用機制（見[相依套件稽核例外](security/audit-exceptions.md)）。
 - 測試：單元測試 62 項、桌面 smoke 17 項（`apps/desktop/tests/desktop-smoke/update-check.spec.ts`）。
 - CI 結果待 PR 檢查完成後補上。Windows 11 與 macOS 實機驗收為**待實機驗收**。
 
@@ -29,7 +30,7 @@ v1.6.52 一併發布 1.6.51 的全部變更（1.6.51 沒有單獨發布）。資
 - migration 前備份與 N→N+1 樣本升級測試（DT-32）：三份真實舊版（v1.6.8、v1.6.21、1.6.51）的樣本升級；以真實程序中斷 migration、備份與還原；桌面 smoke 確認 migration 開始後不回到舊服務。
 - 還原前先驗證遷移後的副本：`quick_check` 與 `foreign_key_check` 通過才取代現行資料庫；失敗回傳 `RESTORE_VERIFY_FAILED`，現行資料庫不變。
 - 多程序 WAL 寫入與 checkpoint 壓力測試（DT-07）：`pnpm test:sqlite-stress`，CI 在 Linux、Windows 與 macOS 執行；拋出的 `SQLITE_BUSY` 設門檻（寫入程序 ≤ max(5, 2%)，其他角色 0）；必要檢查增為 23 項。
-- 相依套件稽核例外：經使用者核准，只忽略 GHSA-fc5q-39xc-vjpf（picomatch ≤ 4.0.7，只在建置時使用，目前沒有修補版）；`scripts/check-audit-ignores.mjs` 在例外過時時失敗。詳見 [相依套件稽核例外](security/audit-exceptions.md)。
+- 相依套件稽核例外：經使用者核准，只忽略 GHSA-fc5q-39xc-vjpf（picomatch ≤ 4.0.7，只在建置時使用，目前沒有修補版）；`scripts/check-audit-ignores.mjs` 在例外過時時失敗。1.6.53 已移除。詳見 [相依套件稽核例外](security/audit-exceptions.md)。
 
 CI：PR #374 的 23 項必要檢查全部通過（commit 6916e49）。Windows 11 與 macOS 實機驗收尚未進行。
 

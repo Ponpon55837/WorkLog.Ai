@@ -26,9 +26,9 @@ import { fileURLToPath } from "node:url";
  * Every allowed exception. `vulnerableUpTo` is the highest affected version (the advisory's range is `<= vulnerableUpTo`).
  * See docs/security/audit-exceptions.md for the reasoning and the removal condition of each entry.
  */
-export const ALLOWED_AUDIT_IGNORES = Object.freeze({
-  "GHSA-fc5q-39xc-vjpf": Object.freeze({ package: "picomatch", vulnerableUpTo: "4.0.7" }),
-});
+// Empty since 1.6.53: GHSA-fc5q-39xc-vjpf (picomatch) was resolved by moving vue-router back to 4.6.5, which drops
+// picomatch from the production tree. Add an entry here only together with auditConfig.ignoreGhsas and the docs.
+export const ALLOWED_AUDIT_IGNORES = Object.freeze({});
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 

@@ -34,9 +34,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
-
+      # No install: the script reads the lockfile and runs `pnpm audit` and `npm view`, which need no node_modules.
       - name: Check each audit exception against the npm registry and pnpm audit
         run: node scripts/check-audit-ignores.mjs --registry

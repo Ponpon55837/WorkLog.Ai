@@ -15,3 +15,9 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # vue-router 5.x pulls picomatch (GHSA-fc5q-39xc-vjpf, no patched release yet) into the production tree; 1.6.53
+      # moved back to 4.6.5 to drop it. Revisit when vue-router 5.x no longer depends on picomatch or picomatch ships a
+      # fix (tracked in docs/security/audit-exceptions.md; the daily audit watch cannot see this case).
+      - dependency-name: vue-router
+        versions: [">=5.0.0"]

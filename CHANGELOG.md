@@ -19,7 +19,7 @@ This release adds a manual update check to the desktop App. It runs only when yo
   - Release notes are plain text only, with control and bidi characters removed, capped at 20 000 characters.
   - The primary button opens the platform installer (`Work-Intelligence-<x.y.z>-win-x64-setup.exe`, `-mac-arm64.dmg` or `-mac-x64.dmg`) in the default browser. A hint next to it says to verify the download with `SHA256SUMS.txt` from the release page. Other platforms and architectures get the release page only.
   - Download links are rebuilt from the tag and opened only when they are exactly this repository's github.com release URLs.
-- **Daily audit-exception watch.** `.github/workflows/audit-exceptions-watch.yml` runs `node scripts/check-audit-ignores.mjs --registry` at 03:37 UTC and on manual dispatch. It has `contents: read`, no secrets, and is not a PR check. It fails, and GitHub emails the owner, when npm publishes a patched release of an ignored package or the audit no longer reports the advisory; the failure prints the removal steps. See [相依套件稽核例外](docs/security/audit-exceptions.md).
+- **Daily audit-exception watch.** `.github/workflows/audit-exceptions-watch.yml` runs `node scripts/check-audit-ignores.mjs --registry` at 03:37 UTC and on manual dispatch. It has `contents: read`, no secrets, no install step, and is not a PR check. It fails, and GitHub emails the owner, when npm publishes a patched release of an ignored package or the audit no longer reports the advisory; the failure prints the removal steps. There are no exceptions now, so it passes; it stays as general infrastructure. See [相依套件稽核例外](docs/security/audit-exceptions.md).
 - **Tests.** 62 unit tests (`tests/desktop-core/update-check-{logic,request,controller}.test.ts`) and 17 desktop smoke tests (`apps/desktop/tests/desktop-smoke/update-check.spec.ts`) against a local fake GitHub server. The smoke tests prove that no request is made at launch or while idle, and cover the button flows, rate limiting, timeout, malformed responses, HTML shown as text, a bad asset URL (release page only) and the request headers. The test-only API-origin and platform overrides exist only in unpackaged test builds.
 
 ### Changed
@@ -29,7 +29,8 @@ This release adds a manual update check to the desktop App. It runs only when yo
 
 ### Security
 
-- **Audit-exception watch.** The daily workflow above fails as soon as a patched picomatch (above 4.0.7) is published, so the exception for GHSA-fc5q-39xc-vjpf can be removed. The exception itself is unchanged.
+- **vue-router 5.5.0 → 4.6.5; the GHSA-fc5q-39xc-vjpf exception is removed.** vue-router 5.x pulled picomatch (ReDoS, no patched release) into the production tree through its build-time file-routing tools. 4.6.5 depends only on `@vue/devtools-api`, so `pnpm why picomatch --prod -r` is empty and `pnpm audit --prod --audit-level high` passes with no exception; the audit command and level are unchanged. `auditConfig.ignoreGhsas` and `ALLOWED_AUDIT_IGNORES` are both empty, and the unit test pins the allowed list to empty. The web app uses no 5.x-only API, so no code changed; history mode, deep links and back/forward behave as before. Web JavaScript grows by 1,936 B (899 B gzipped): 1,008,770 → 1,010,706 B.
+- **Dependabot ignores vue-router >= 5.** Revisit when vue-router 5.x no longer depends on picomatch or picomatch ships a fix (>= 4.0.8); tracked under 「待重新評估」 in [相依套件稽核例外](docs/security/audit-exceptions.md), because the daily watch only covers listed exceptions.
 - **Update check.** The App sends one anonymous GET to the GitHub releases API, and only after a button press. It never installs an update in-app (ADR-25).
 
 ## [1.6.52] - 2026-11-17
