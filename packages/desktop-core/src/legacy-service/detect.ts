@@ -272,6 +272,8 @@ export async function detectLegacyService(options: DetectLegacyServiceOptions): 
   if (stat) {
     text = await readDefinition(stat, definitionFile, options.readTextFile ?? defaultReadText, remaining);
   } else if (!present) {
+    // Without a file the task query is the only evidence: a query that did not answer is not an answer of "nothing".
+    if (query.registration === "unknown") return { kind: "unknown" };
     if (!query.taskXml?.includes("<Task")) return { kind: "none" };
     definitionPath = legacyWindowsTaskTarget();
     definitionSource = "task-query";

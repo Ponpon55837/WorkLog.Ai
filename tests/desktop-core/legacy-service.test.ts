@@ -132,7 +132,7 @@ describe("detectLegacyService: nothing installed", () => {
   });
 
   it("reports none on Windows when neither the XML copy nor the task exists", async () => {
-    const runner = fakeRunner();
+    const runner = fakeRunner({ [POWERSHELL]: taskReply("absent") });
     const result = await detectLegacyService({
       platform: "win32",
       homeDirectory: WINDOWS_HOME,
@@ -512,8 +512,25 @@ describe("detectLegacyService: running status", () => {
       timeoutMs: 80,
       ...virtualFiles({}),
     });
-    expect(result).toEqual({ kind: "none" });
+    // No answer is not "nothing": an old task registered without a definition file cannot be ruled out.
+    expect(result).toEqual({ kind: "unknown" });
     expect(Date.now() - started).toBeLessThan(1500);
+  });
+
+  it("reports unknown on Windows when the task query fails or answers with something unreadable, without a file", async () => {
+    for (const reply of [
+      { stdout: "", code: 1 },
+      { stdout: "garbage", code: 0 },
+    ]) {
+      const result = await detectLegacyService({
+        platform: "win32",
+        homeDirectory: WINDOWS_HOME,
+        environment: WINDOWS_ENVIRONMENT,
+        runCommand: fakeRunner({ [POWERSHELL]: reply }).runCommand,
+        ...virtualFiles({}),
+      });
+      expect(result).toEqual({ kind: "unknown" });
+    }
   });
 });
 

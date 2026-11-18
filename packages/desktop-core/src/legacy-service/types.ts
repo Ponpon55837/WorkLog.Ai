@@ -57,4 +57,8 @@ export interface LegacyServiceFound {
   enabled?: LegacyServiceEnabled;
 }
 
-export type LegacyServiceDetection = { kind: "none" } | LegacyServiceFound;
+/**
+ * `none`: nothing was found. `unknown`: Windows could not be asked (the PowerShell query timed out or failed) and no
+ * definition file exists, so an old task registered without a file can be neither ruled out nor shown. `found`: see above.
+ */
+export type LegacyServiceDetection = { kind: "none" } | { kind: "unknown" } | LegacyServiceFound;
