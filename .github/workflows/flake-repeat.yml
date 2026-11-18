@@ -1,0 +1,48 @@
+# TEMPORARY: repeats the tests fixed on fix/main-ci-flakes on every OS. Removed before the PR is ready for review.
+name: Flake repeat (temporary)
+
+on:
+  pull_request:
+    paths: [".github/workflows/flake-repeat.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  repeat:
+    name: Repeat (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 11.16.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      # The whole server suite, as in CI, so the barrier and doctor tests run beside the same heavy neighbours.
+      - name: Server suite x6
+        shell: bash
+        working-directory: apps/server
+        run: |
+          for i in 1 2 3 4 5 6; do
+            echo "::group::server suite run $i"
+            pnpm test || exit 1
+            echo "::endgroup::"
+          done
+      - name: Agent observation x25
+        shell: bash
+        working-directory: apps/mcp
+        run: |
+          for i in $(seq 1 25); do
+            pnpm exec vitest run --root ../.. --config apps/mcp/vitest.config.ts tests/mcp/agent-observation.test.ts || exit 1
+          done

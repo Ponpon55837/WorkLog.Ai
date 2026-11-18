@@ -32,15 +32,13 @@ async function hostSession(
 ): Promise<{ tools: Awaited<ReturnType<Client["listTools"]>>["tools"] }> {
   const server = createWorkIntelligenceMcpServer(null, "1.2.3", 1, { code: "TEST", message: "no database" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  new AgentObservationRecorder({ directory, serverVersion: "1.2.3", onError: options.onError }).attach(
-    server,
-    serverTransport,
-  );
+  const recorder = new AgentObservationRecorder({ directory, serverVersion: "1.2.3", onError: options.onError });
+  recorder.attach(server, serverTransport);
   const client = new Client({ name: clientName, version: "9.9" });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   const tools = options.listTools === false ? [] : (await client.listTools()).tools;
-  // The write runs just after the response is sent; let it finish.
-  await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+  // The write runs just after the response is sent; wait for it to finish instead of for a guessed time.
+  await recorder.settled();
   await client.close();
   return { tools };
 }
@@ -106,15 +104,17 @@ describe("AgentObservationRecorder", () => {
     let writes = 0;
     const server = createWorkIntelligenceMcpServer(null, "1.2.3", 1, { code: "TEST", message: "no database" });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    new AgentObservationRecorder({ directory, serverVersion: "1.2.3", now: () => new Date(++writes * 1000) }).attach(
-      server,
-      serverTransport,
-    );
+    const recorder = new AgentObservationRecorder({
+      directory,
+      serverVersion: "1.2.3",
+      now: () => new Date(++writes * 1000),
+    });
+    recorder.attach(server, serverTransport);
     const client = new Client({ name: "codex-mcp-client", version: "1" });
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
     await client.listTools();
     await client.listTools();
-    await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+    await recorder.settled();
     await client.close();
 
     expect(writes).toBe(1);
@@ -213,7 +213,7 @@ describe("the built MCP process", () => {
     for (let waited = 0; !stdout.includes('"id":2') && waited < 15_000; waited += 25) {
       await new Promise((resolveWait) => setTimeout(resolveWait, 25));
     }
-    await new Promise((resolveWait) => setTimeout(resolveWait, 300));
+    // The write is pending work, so the process ends only after it finished or failed: no fixed delay is needed.
     child.stdin.end();
     await new Promise((resolveExit) => child.once("close", resolveExit));
     return { stdout: stdout.split("\n").filter(Boolean), stderr };
