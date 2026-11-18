@@ -218,6 +218,8 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
       const kills: KillRecord[] = [];
       const fatals: string[] = [];
       const killPending = new Set<number>();
+      /** Writers whose current "go" has not been acknowledged yet: their write is running, or waiting for a lock. */
+      const writing = new Set<number>();
       const writerHandle = new Map<number, Handle>();
       const killTasks: Array<Promise<void>> = [];
       let stopping = false;
@@ -329,6 +331,7 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
             if (seq !== (highWater[writer] ?? 0) + 1)
               fatals.push(`${handle.name}: ack ${seq} after ${highWater[writer]}`);
             highWater[writer] = seq;
+            writing.delete(writer);
             dispatch(writer);
             break;
           }
@@ -381,6 +384,7 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
         if (!handle) return;
         const send = (): void => {
           if (stopping || writerHandle.get(writer) !== handle || handle.waiter.killed) return;
+          writing.add(writer);
           if (killPending.delete(writer)) {
             // Kill within ~15 ms of the write starting, so it often lands inside the transaction.
             handle.waiter.send({ type: "go" });
@@ -392,10 +396,26 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
         else setTimeout(send, think);
       }
 
+      /**
+       * A planned kill. A writer between writes is killed as its next write starts (see dispatch). A writer whose write is
+       * already running, or waiting for a lock (a RESTART or TRUNCATE checkpoint can hold one for seconds), would never
+       * reach its next write in time, so it is killed now: that is also a kill inside a write.
+       */
+      function planKill(writer: number): void {
+        if (stopping) return;
+        const handle = writerHandle.get(writer);
+        if (handle && writing.has(writer) && !handle.waiter.killed) {
+          killTasks.push(killAndRespawn(writer, handle, 0));
+        } else killPending.add(writer);
+      }
+
       async function killAndRespawn(writer: number, handle: Handle, delayMs: number): Promise<void> {
         await sleep(delayMs);
+        if (handle.waiter.killed) return;
         // Marked first so IPC to this child that races the kill is ignored instead of emitting an unhandled 'error'.
         handle.waiter.markKilled();
+        // Its write ends with it; the replacement is between writes until dispatch sends it the next one.
+        writing.delete(writer);
         handle.waiter.child.kill("SIGKILL");
         await handle.closed;
         const lastAcked = highWater[writer] ?? 0;
@@ -483,7 +503,7 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
               writer: Math.floor(sharedRandom() * WRITER_COUNT),
             }));
             loadStartedAt = Date.now();
-            for (const planned of killPlan) setTimeout(() => !stopping && killPending.add(planned.writer), planned.at);
+            for (const planned of killPlan) setTimeout(() => planKill(planned.writer), planned.at);
             for (let writer = 0; writer < WRITER_COUNT; writer += 1) dispatch(writer);
 
             await new Promise<void>((resolve) => {
