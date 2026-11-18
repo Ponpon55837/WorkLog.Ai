@@ -320,6 +320,7 @@ describe("BackendRecovery under load", () => {
   function setup(options: {
     restart: (operationId?: string) => Promise<RestartOutcome>;
     shouldAutoRetry?: () => boolean;
+    isServing?: () => boolean;
     mode?: "interactive" | "background";
     onOwnerChange?: (owner: string) => void;
   }) {
@@ -336,6 +337,7 @@ describe("BackendRecovery under load", () => {
       errors,
       restart: options.restart,
       shouldAutoRetry: options.shouldAutoRetry ?? (() => true),
+      ...(options.isServing ? { isServing: options.isServing } : {}),
       now: () => new Date(),
       setTimer: (callback, ms) => setTimeout(callback, ms),
       clearTimer: (handle) => clearTimeout(handle as NodeJS.Timeout),
@@ -408,6 +410,44 @@ describe("BackendRecovery under load", () => {
     recovery.handleFailure("CHILD_EXITED");
     await vi.advanceTimersByTimeAsync(5_000);
     expect(restart).toHaveBeenCalledTimes(1);
+  });
+
+  it("tries again when an operation held the lock, and starts once the lock is free (M-05)", async () => {
+    let allowed = false;
+    const restart = vi.fn(async (): Promise<RestartOutcome> => ({ ok: true }));
+    const { recovery } = setup({ restart, shouldAutoRetry: () => allowed, isServing: () => false });
+    recovery.handleFailure("CHILD_EXITED");
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(restart).not.toHaveBeenCalled();
+    allowed = true;
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(restart).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries after a restart that found the lock held, and does not wait once a backend serves", async () => {
+    const outcomes: RestartOutcome[] = [{ ok: false, busy: true }, { ok: true }];
+    const restart = vi.fn(async (): Promise<RestartOutcome> => outcomes.shift() ?? { ok: true });
+    const { recovery } = setup({ restart, isServing: () => false });
+    recovery.handleFailure("CHILD_EXITED");
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(restart).toHaveBeenCalledTimes(2);
+
+    const serving = vi.fn(async (): Promise<RestartOutcome> => ({ ok: false, busy: true }));
+    const second = setup({ restart: serving, isServing: () => true });
+    second.recovery.handleFailure("CHILD_EXITED");
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(serving).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the failure when the lock stays held for a minute, instead of staying silent", async () => {
+    const restart = vi.fn(async (): Promise<RestartOutcome> => ({ ok: false, busy: true }));
+    const { recovery, calls } = setup({ restart, isServing: () => false });
+    recovery.handleFailure("CHILD_EXITED");
+    expect(calls).not.toContain("window");
+    await vi.advanceTimersByTimeAsync(70_000);
+    expect(calls).toContain("window");
+    expect(restart.mock.calls.length).toBeLessThanOrEqual(21);
   });
 
   it("answers busy, changes nothing and keeps no operation id while a restart is running", async () => {

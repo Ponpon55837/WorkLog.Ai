@@ -289,6 +289,7 @@ export function createBackendController(options: BackendControllerOptions): Back
     },
     errors: state.recentErrors,
     restart: (operationId) => start("restart", undefined, operationId),
+    isServing: () => supervisor.running !== undefined,
     // A timer must not touch a backend that is healthy, or one an operation is already (re)starting.
     shouldAutoRetry: () => coordinator.current() === null && supervisor.running === undefined,
     now: () => new Date(),
