@@ -5,6 +5,7 @@ import {
   trayBackgroundHint,
   trayTooltip,
   updateMessages,
+  type TrayMenuItem,
 } from "@work-intelligence/desktop-core";
 import type { Logger } from "./log.js";
 import type { ShellState } from "./state.js";
@@ -14,6 +15,10 @@ export interface ShellTray {
   create(): void;
   /** Whether a tray icon exists. */
   readonly present: boolean;
+  /** The items the menu shows now; the native menu is built from this very list (a smoke test reads it). */
+  menu(): readonly TrayMenuItem[];
+  /** Does what a click on the item with this id does (a smoke test cannot click the native tray). */
+  activate(id: string): void;
 }
 
 export interface ShellTrayOptions {
@@ -67,38 +72,39 @@ export function createShellTray(options: ShellTrayOptions): ShellTray {
     }
   }
 
-  function refresh(): void {
-    if (!tray) return;
-    const text = state.messages();
+  /** The menu for the state as it is now. */
+  function items(): TrayMenuItem[] {
     const setup = setupMessages(state.locale);
     const held = options.legacy?.heldAtLogin() === true;
-    if (held) notifyHeldOnce(setup.trayLegacyStatus);
-    const running = options.backendRunning();
-    const items = buildTrayMenu({
-      messages: text,
+    return buildTrayMenu({
+      messages: state.messages(),
       owner: state.owner,
-      backendRunning: running,
+      backendRunning: options.backendRunning(),
       setup: { messages: setup, needsSetup: state.needsSetup },
       update: updateMessages(state.locale),
       ...(held ? { legacyHeld: setup } : {}),
     });
-    tray.setToolTip(trayTooltip(state.owner, running, text));
+  }
+
+  function activate(id: string): void {
+    if (id === "open-dashboard") options.openDashboard();
+    else if (id === "open-app") options.openApp();
+    else if (id === "complete-setup") options.openSetup();
+    else if (id === "check-updates") options.openUpdateCheck();
+    else if (id === "quit") options.requestQuit();
+  }
+
+  function refresh(): void {
+    if (!tray) return;
+    if (options.legacy?.heldAtLogin() === true) notifyHeldOnce(setupMessages(state.locale).trayLegacyStatus);
+    tray.setToolTip(trayTooltip(state.owner, options.backendRunning(), state.messages()));
     tray.setContextMenu(
       Menu.buildFromTemplate(
-        items.map((item) => {
-          if (item.id === "separator") return { type: "separator" as const };
-          return {
-            label: item.label,
-            enabled: item.enabled,
-            click: () => {
-              if (item.id === "open-dashboard") options.openDashboard();
-              else if (item.id === "open-app") options.openApp();
-              else if (item.id === "complete-setup") options.openSetup();
-              else if (item.id === "check-updates") options.openUpdateCheck();
-              else if (item.id === "quit") options.requestQuit();
-            },
-          };
-        }),
+        items().map((item) =>
+          item.id === "separator"
+            ? { type: "separator" as const }
+            : { label: item.label, enabled: item.enabled, click: () => activate(item.id) },
+        ),
       ),
     );
   }
@@ -121,5 +127,7 @@ export function createShellTray(options: ShellTrayOptions): ShellTray {
     get present() {
       return tray !== null;
     },
+    menu: items,
+    activate,
   };
 }

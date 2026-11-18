@@ -9,13 +9,19 @@ import {
   attachLog,
   closeQuietly,
   createSandbox,
+  expectTabShown,
   launchApp,
+  markPage,
+  pageMarker,
   readMainLog,
   readSnapshot,
   removeSandbox,
   runToExit,
+  shellText,
+  tabButton,
   waitForManagedSnapshot,
   waitForSnapshot,
+  windowCount,
   type Sandbox,
 } from "./helpers.js";
 
@@ -122,10 +128,11 @@ test("the Agent page previews, applies exactly the preview, passes the self-test
   await waitForManagedSnapshot(app);
 
   const window = await app.firstWindow({ timeout: 45_000 });
-  const text = await pageText(window);
-  await expect(window.getByRole("heading", { level: 1, name: text.agentsHeading })).toBeVisible();
+  // The Agent page is the Agent tab of the one window (it has no heading of its own any more: the tab names it).
+  await expectTabShown(window, "agent");
+  await expect(tabButton(window, "agent")).toContainText((await shellText(window)).tabLabels.agent);
   await expect(window.locator("[data-agent]")).toHaveCount(2);
-  expect((await readSnapshot(app)).view).toBe("agents");
+  expect((await readSnapshot(app)).tab).toBe("agent");
   expect((await agentsState(window)).launcherReady).toBe(true);
   const before = tree(home, skip);
 
@@ -225,7 +232,7 @@ test("the Agent page previews, applies exactly the preview, passes the self-test
   expect(readMainLog(sandbox)).toMatch(/\[shell\] agent setup /);
 });
 
-test("a checkout on another database is not taken over, and 「改用這份資料庫」 previews that database in the repair view", async () => {
+test("a checkout on another database is not taken over, and 「改用這份資料庫」 previews that database on the Data tab", async () => {
   sandbox = await createSandbox({ withDatabase: true });
   const home = sandbox.home;
   // A hand-written Claude MCP entry of a synthetic checkout that names its own (synthetic) database.
@@ -248,6 +255,8 @@ test("a checkout on another database is not taken over, and 「改用這份資�
 
   const window = await app.firstWindow({ timeout: 45_000 });
   const text = await pageText(window);
+  await expectTabShown(window, "agent");
+  const marker = await markPage(window);
   const card = window.locator('[data-agent="claude-code"]');
   await expect(card).toContainText(text.agentsUseOtherDatabase);
   // Not offered for take-over, and the database is named the way the page names paths.
@@ -256,11 +265,14 @@ test("a checkout on another database is not taken over, and 「改用這份資�
   const before = readFileSync(join(home, ".claude.json"), "utf8");
 
   await window.locator('[data-id="use-database-claude-code"]').click();
-  await waitForSnapshot(app, (state) => state.repairWindowOpen && state.view === "repair");
-  // The window navigates to the repair page after main switches the view: wait until that page shows the candidate
-  // before reading its state (an evaluate during the navigation has no page to run in).
+  // Main selects the Data tab in the same window: the page is not navigated or reloaded, so the candidate is shown once
+  // main has previewed it and the tab changed.
+  await waitForSnapshot(app, (state) => state.repairWindowOpen && state.tab === "data");
+  await expectTabShown(window, "data");
   const shown = maskHome(otherDatabase, home, process.platform);
   await expect(window.locator(".path", { hasText: shown })).toBeVisible({ timeout: 30_000 });
+  expect(await pageMarker(window)).toBe(marker);
+  expect(await windowCount(app)).toBe(1);
   const repair = (await window.evaluate(() =>
     (
       globalThis as unknown as { workIntelligenceRepair: { getState(): Promise<unknown> } }
@@ -280,6 +292,9 @@ test("a second launch with --open-agent-setup shows the Agent page in the runnin
 
   const second = await runToExit(sandbox, {}, 20_000, ["--open-agent-setup"]);
   expect(second.code).toBe(0);
-  const shown = await waitForSnapshot(app, (state) => state.repairWindowOpen && state.view === "agents");
+  const shown = await waitForSnapshot(app, (state) => state.repairWindowOpen && state.tab === "agent");
   expect(shown.backend).not.toBeNull();
+  const window = await app.firstWindow({ timeout: 45_000 });
+  await expectTabShown(window, "agent");
+  expect(await windowCount(app)).toBe(1);
 });

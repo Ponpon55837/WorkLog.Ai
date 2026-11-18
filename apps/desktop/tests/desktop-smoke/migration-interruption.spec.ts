@@ -9,6 +9,7 @@ import {
   createSandbox,
   launchApp,
   makeSchemaOlder,
+  openTab,
   processIsAlive,
   readSnapshot,
   removeSandbox,
@@ -102,6 +103,8 @@ test("a backend killed while it is held at the start of an approved update ends 
         filePaths: [picked],
       })) as typeof dialog.showOpenDialog;
     }, box.databasePath);
+    // The refusal opened Status; choosing a database is the Data tab's.
+    await openTab(window, "data");
     await window.locator('[data-id="choose-database"]').click();
     // Pressing the candidate's button is the user's consent to the update.
     const confirm = window.locator('[data-id^="candidate:"]');

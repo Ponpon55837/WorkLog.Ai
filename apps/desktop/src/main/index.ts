@@ -192,8 +192,9 @@ function runShell(configInputs: DesktopConfigInputs): void {
     // A plain launch, a second launch or the tray: the Setup tab while the App is not set up yet, else a blocking state's
     // tab, the remembered tab or Status; an explicit request (`open("settings")`) wins over all of them.
     selectTab: (requested) => selectTab(requested),
-    // Developer tools exist only where the App is not packaged (development and the smoke tests).
-    devTools: !app.isPackaged,
+    // Developer tools exist only where the App is not packaged (development and the smoke tests). A test build can also turn
+    // them off, which is how the smoke test proves what a packaged App gets from this setting.
+    devTools: !app.isPackaged && !testSwitch(configInputs, "devToolsOff"),
     preloadFile: ASSET_FILES.preloadFile,
     prepareSession: () => {
       // The menu is set before the first window exists (none on Windows and Linux, a minimal one on macOS).
@@ -616,6 +617,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
       firstRunDetectionMs: () => firstRun.detectionMs,
       openPortSettings,
       openUpdateCheck,
+      tray,
     });
   applySecurityPolicy();
 

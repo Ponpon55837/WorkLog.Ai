@@ -8,12 +8,14 @@ import { setupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n"
 import {
   attachLog,
   closeQuietly,
+  expectTabShown,
   createSandbox,
   launchApp,
   portIsFree,
   readMainLog,
   readSnapshot,
   removeSandbox,
+  tabButton,
   waitForManagedSnapshot,
   waitForSnapshot,
   type Sandbox,
@@ -86,7 +88,7 @@ test("an install with settings (an upgrade from 1.6.47/1.6.48) never shows the f
 
   const ready = await waitForManagedSnapshot(app);
   expect(ready.needsSetup).toBe(false);
-  expect(ready.view).toBe("repair");
+  expect(ready.tab).toBe("status");
   expect(ready.repairWindowOpen).toBe(false);
   expect(ready.firstRunDetectionMs).toBeNull();
   expect(readMainLog(sandbox)).not.toMatch(/first-run/);
@@ -120,7 +122,7 @@ test("a new install shows the first-run page with the defaults one click away an
 
   const waiting = afterPaint;
   expect(waiting.needsSetup).toBe(true);
-  expect(waiting.view).toBe("setup");
+  expect(waiting.tab).toBe("setup");
   expect(waiting.owner).toBe("UNCONFIGURED");
   expect(waiting.backend).toBeNull();
   // Nothing is written or created before the user chose.
@@ -156,12 +158,19 @@ test("a new install shows the first-run page with the defaults one click away an
   expect(written.desired.launchAtLogin).toBe(false);
   expect(existsSync(sandbox.databasePath)).toBe(true);
 
-  // Done: the next step is the Agent page, which opens in the same window and writes nothing by itself.
-  const text = await pageText(window);
-  await window.locator('[data-id="open-agents"]').click();
-  await expect(window.getByRole("heading", { level: 1, name: text.agentsHeading })).toBeVisible();
+  // Done: Setup is a tab that exists only while the App needs it, so the tab list drops it once the settings are
+  // committed (the done card's "open agents" button is gone with it). The next step, the Agent tab, is reached through
+  // the same route the button used (`showAgents`, the bridge call behind it) and opens in the same window, writing
+  // nothing by itself.
+  await expect(tabButton(window, "setup")).toHaveCount(0, { timeout: 15_000 });
+  await window.evaluate(() =>
+    (
+      window as unknown as { workIntelligenceRepair: { showAgents(): Promise<unknown> } }
+    ).workIntelligenceRepair.showAgents(),
+  );
+  await expectTabShown(window, "agent");
   await expect(window.locator("[data-agent]")).toHaveCount(2);
-  expect((await readSnapshot(app)).view).toBe("agents");
+  expect((await readSnapshot(app)).tab).toBe("agent");
   expect(readMainLog(sandbox)).toMatch(/\[shell\] first-run detection /);
 });
 
@@ -357,12 +366,14 @@ test("a failed default start takes back the database it created and writes no se
   try {
     app = await launchApp(sandbox, { WORK_INTELLIGENCE_DESKTOP_TEST_DEFAULT_PORT: String(sandbox.port) });
     const window = await app.firstWindow({ timeout: 45_000 });
+    const text = await pageText(window);
     const defaults = window.locator('[data-id="use-defaults"]');
     await waitForSnapshot(app, (state) => state.firstRunDetectionMs !== null, 30_000);
     await expect(defaults).toBeEnabled();
     await defaults.click();
 
-    await expect(window.locator(".card.error")).toBeVisible({ timeout: 60_000 });
+    // The failed-start card is the setup tab's error card (a level-2 heading with the failure text), found by role.
+    await expect(window.getByRole("heading", { level: 2, name: text.setupFailed })).toBeVisible({ timeout: 60_000 });
     expect(existsSync(sandbox.databasePath)).toBe(false);
     expect(existsSync(settingsFile(sandbox))).toBe(false);
     const state = await readSnapshot(app);

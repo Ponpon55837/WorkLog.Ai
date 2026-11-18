@@ -9,6 +9,7 @@ import {
   attachLog,
   closeQuietly,
   createSandbox,
+  expectTabShown,
   freePort,
   healthProofIsValid,
   launchApp,
@@ -49,7 +50,10 @@ function readSettings(box: Sandbox): SettingsFile {
   return JSON.parse(readFileSync(join(box.dataDirectory, "desktop-settings.json"), "utf8")) as SettingsFile;
 }
 
-/** Runs what the tray's 「變更連接埠…」 item runs (`changePort.openSection()`) and returns the window with the section ready. */
+/**
+ * Runs what the old tray item 「變更連接埠…」 ran (`changePort.openSection()`: the tray no longer has the item, the Dashboard's
+ * link and this hook reach the same function) and returns the window with the port section ready, on the Settings tab.
+ */
 async function openPortSection(running: ElectronApplication): Promise<Page> {
   await running.evaluate(() =>
     (
@@ -57,6 +61,7 @@ async function openPortSection(running: ElectronApplication): Promise<Page> {
     ).__workIntelligenceDesktopTest.openPortSettings(),
   );
   const window = await running.firstWindow({ timeout: 45_000 });
+  await expectTabShown(window, "settings");
   await expect(window.locator("#port-section")).toBeVisible({ timeout: 30_000 });
   return window;
 }
@@ -214,6 +219,7 @@ test("the Dashboard's request carries its whitelisted preferences and route to t
   // The App shows the port section by itself; nothing was changed by the request.
   await waitForSnapshot(app, (state) => state.repairWindowOpen, 30_000);
   const window = await app.firstWindow({ timeout: 45_000 });
+  await expectTabShown(window, "settings");
   await expect(window.locator("#port-section")).toBeVisible({ timeout: 30_000 });
   await window.locator('[data-id="port-input"]').fill(String(newPort));
   await window.locator('[data-id="port-apply"]').click();

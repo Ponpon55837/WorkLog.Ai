@@ -21,6 +21,7 @@ import {
   waitForManagedSnapshot,
   waitForSnapshot,
   type Sandbox,
+  openTab,
 } from "./helpers.js";
 
 let sandbox: Sandbox | undefined;
@@ -185,15 +186,17 @@ test("a missing database opens the repair window and creates nothing", async () 
     "copyCommand",
     "copyToLocal",
     "getState",
-    "getView",
+    "getTab",
     "legacyDisableConfirm",
     "legacyDisablePreview",
     "legacyStartNow",
+    "onSelectTab",
     "onUpdateChanged",
     "openFolder",
     "openUpdateLink",
     "portChange",
     "previewDiagnostics",
+    "rememberTab",
     "retryStart",
     "saveDiagnostics",
     "setupChooseFile",
@@ -215,6 +218,8 @@ test("a missing database opens the repair window and creates nothing", async () 
     return {
       page: await answer("wi-repair://app/index.html"),
       script: await answer("wi-repair://app/repair.js"),
+      styles: await answer("wi-repair://app/repair.css"),
+      tokens: await answer("wi-repair://app/tokens.css"),
       traversal: await answer("wi-repair://app/../../etc/passwd"),
       unknown: await answer("wi-repair://app/secret.txt"),
     };
@@ -223,6 +228,8 @@ test("a missing database opens the repair window and creates nothing", async () 
     "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
   expect(served.page).toEqual({ status: 200, csp: policy });
   expect(served.script).toEqual({ status: 200, csp: policy });
+  expect(served.styles).toEqual({ status: 200, csp: policy });
+  expect(served.tokens).toEqual({ status: 200, csp: policy });
   expect(served.traversal.status).toBe(404);
   expect(served.unknown.status).toBe(404);
 
@@ -326,6 +333,8 @@ test("the repair page previews a chosen database and confirms only one that is o
     expect(failed.openedExternal).toEqual([]);
     expect(failed.notifications).toEqual([]);
 
+    // The failed start opened Status (the blocking tab); choosing a database is the Data tab's.
+    await openTab(window, "data");
     const choose = async (path: string) => {
       // The native file dialog cannot be driven: main's dialog answers with the path under test.
       await app?.evaluate(({ dialog }, picked) => {
@@ -360,6 +369,8 @@ test("the repair page previews a chosen database and confirms only one that is o
 
     // The user's repair worked: the window shows the success card (the language follows the OS) with the database and
     // the project count of the fictional donor database, and the stale DB_MISSING error is gone.
+    // (The success card is the Status tab's; the user is looking at Data, so the test goes back to Status as a user does.)
+    await openTab(window, "status");
     const card = window.locator("#recovered");
     await expect(card).toContainText(/✓ (已恢復|Recovered)/);
     await expect(card).toContainText(/0 (projects|個專案)/);
@@ -526,6 +537,8 @@ test("exports diagnostics through a preview: the saved file is the previewed tex
   });
   expect(stale).toEqual({ first: { ok: false, reason: "expired" }, unknown: { ok: false, reason: "expired" } });
 
+  // The export button lives on the Diagnostics tab; the window opened on Status, so the test selects the tab as a user does.
+  await openTab(window, "diagnostics");
   // Esc closes the panel and focus goes back to the button that opened it.
   await expect(trigger).toBeVisible({ timeout: 30_000 });
   await trigger.click();

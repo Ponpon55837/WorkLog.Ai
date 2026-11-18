@@ -1,4 +1,4 @@
-import { _electron, type ElectronApplication, type TestInfo } from "@playwright/test";
+import { _electron, expect, type ElectronApplication, type Page, type TestInfo } from "@playwright/test";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -6,7 +6,8 @@ import os from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
-import { isSettledRepairFailure } from "@work-intelligence/desktop-core";
+import { isSettledRepairFailure, type AppTab } from "@work-intelligence/desktop-core";
+import { shellMessages, type ShellMessages } from "@work-intelligence/desktop-core/shell/i18n";
 import { windowsPowerShell } from "@work-intelligence/shared/windows-system-tool";
 import { WorkIntelligenceStore } from "@work-intelligence/storage";
 import {
@@ -47,7 +48,8 @@ export interface MainSnapshot {
   notifications: string[];
   logFile: string;
   needsSetup: boolean;
-  view: string;
+  /** The tab the App window shows (or would show when it opens). */
+  tab: string;
   firstRunDetectionMs: number | null;
 }
 
@@ -345,4 +347,106 @@ export async function closeQuietly(app: ElectronApplication | undefined): Promis
   await app.evaluate(({ app: electron }) => electron.quit()).catch(() => undefined);
   await closed;
   await app.close().catch(() => undefined);
+}
+
+/** What the main process's test hook offers beyond the snapshot (see apps/desktop/src/main/test-hook.ts). */
+interface TestHook {
+  openWindow(tab?: string): void;
+  trayMenu(): { id: string; label: string; enabled: boolean }[];
+  trayClick(id: string): void;
+}
+
+/** The tray's "Open Work Intelligence…" (no tab) or an explicit request for one tab, as a route inside main makes it. */
+export async function openWindow(app: ElectronApplication, tab?: AppTab): Promise<void> {
+  await app.evaluate(
+    (_electron, requested) =>
+      (globalThis as unknown as { __workIntelligenceDesktopTest: TestHook }).__workIntelligenceDesktopTest.openWindow(
+        requested,
+      ),
+    tab,
+  );
+}
+
+/** The items the tray menu shows now (id, label, enabled), in order. */
+export function trayMenu(app: ElectronApplication): Promise<{ id: string; label: string; enabled: boolean }[]> {
+  return app.evaluate(() =>
+    (globalThis as unknown as { __workIntelligenceDesktopTest: TestHook }).__workIntelligenceDesktopTest.trayMenu(),
+  );
+}
+
+/** Does what a click on a tray item does, through the very handler the native tray menu calls. */
+export async function trayClick(app: ElectronApplication, id: string): Promise<void> {
+  await app.evaluate(
+    (_electron, itemId) =>
+      (globalThis as unknown as { __workIntelligenceDesktopTest: TestHook }).__workIntelligenceDesktopTest.trayClick(
+        itemId,
+      ),
+    id,
+  );
+}
+
+/** How many windows the App has right now (it must never be more than one). */
+export function windowCount(app: ElectronApplication): Promise<number> {
+  return app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
+}
+
+/** Closes the App window the way its close button does (the App keeps running in the tray) and waits until it is gone. */
+export async function closeAppWindow(app: ElectronApplication): Promise<void> {
+  await app.evaluate(({ BrowserWindow }) => {
+    for (const win of BrowserWindow.getAllWindows()) win.close();
+  });
+  await expect.poll(async () => (await readSnapshot(app)).repairWindowOpen).toBe(false);
+  await expect.poll(() => app.windows().length).toBe(0);
+}
+
+/** The page's own language decides which copy it shows; the test compares with the same catalogue. */
+export async function shellText(window: Page): Promise<ShellMessages> {
+  const lang = await window.evaluate(() => document.documentElement.lang);
+  return shellMessages(lang === "zh-Hant" ? "zh-TW" : "en");
+}
+
+/** The tab button of a tab, found by its role and its stable `data-tab` id (the label depends on the language). */
+export function tabButton(window: Page, tab: AppTab) {
+  return window.locator(`[role="tab"][data-tab="${tab}"]`);
+}
+
+/** The ids of the tab buttons, in the order the strip shows them. */
+export function tabIds(window: Page): Promise<string[]> {
+  return window
+    .locator('[role="tablist"] [role="tab"]')
+    .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.tab ?? ""));
+}
+
+/** The tab that is selected now, or undefined while none is. */
+export async function selectedTab(window: Page): Promise<string | undefined> {
+  const ids = await window
+    .locator('[role="tablist"] [role="tab"][aria-selected="true"]')
+    .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.tab ?? ""));
+  return ids.length === 1 ? ids[0] : undefined;
+}
+
+/** Waits until this tab is the selected one and its panel is the only one shown. */
+export async function expectTabShown(window: Page, tab: AppTab): Promise<void> {
+  await expect(tabButton(window, tab)).toHaveAttribute("aria-selected", "true", { timeout: 30_000 });
+  await expect(window.locator('[role="tabpanel"]:not([hidden])')).toHaveCount(1);
+  await expect(window.locator(`#panel-${tab}`)).toBeVisible();
+}
+
+/** Clicks the tab button and waits until its panel is shown (a user's click, never a route). */
+export async function openTab(window: Page, tab: AppTab): Promise<void> {
+  await tabButton(window, tab).click();
+  await expectTabShown(window, tab);
+}
+
+/** Puts a value on the page object; it is gone after any reload or navigation, so finding it again proves there was none. */
+export async function markPage(window: Page): Promise<string> {
+  const marker = `marker-${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+  await window.evaluate((value) => {
+    (globalThis as { __wiMarker?: string }).__wiMarker = value;
+  }, marker);
+  return marker;
+}
+
+export function pageMarker(window: Page): Promise<string | undefined> {
+  return window.evaluate(() => (globalThis as { __wiMarker?: string }).__wiMarker);
 }
