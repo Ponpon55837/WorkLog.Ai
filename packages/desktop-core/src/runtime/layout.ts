@@ -10,6 +10,13 @@ export const CURRENT_FILE_NAME = "current";
 export const BIN_DIRECTORY_NAME = "bin";
 /** Folder holding one immutable directory per installed runtime. */
 export const RUNTIMES_DIRECTORY_NAME = "runtimes";
+/** Folder holding one directory of lease files per runtime id: the proof that a launcher process uses that runtime (DT-24). */
+export const LEASES_DIRECTORY_NAME = "leases";
+/**
+ * The record of when each retired runtime was first seen retired (see runtime-gc.ts), inside the leases folder: writing
+ * it there never changes the launcher root's change time, which the Windows ACL stamp covers.
+ */
+export const GC_STATE_FILE_NAME = "gc-state.json";
 /** Prefix of the directory an install is copied into before it is renamed into place; no runtime id can start with a dot. */
 export const STAGING_DIRECTORY_PREFIX = ".staging-";
 /** Prefix of a runtime directory renamed aside instead of deleted (a process may still run from it). */
@@ -43,6 +50,8 @@ export interface RuntimeLayout {
   readonly binDirectory: string;
   readonly currentFile: string;
   readonly runtimesDirectory: string;
+  readonly leasesDirectory: string;
+  readonly gcStateFile: string;
 }
 
 /**
@@ -70,6 +79,8 @@ export function runtimeLayout(root: string): RuntimeLayout {
     binDirectory: path.join(root, BIN_DIRECTORY_NAME),
     currentFile: path.join(root, CURRENT_FILE_NAME),
     runtimesDirectory: path.join(root, RUNTIMES_DIRECTORY_NAME),
+    leasesDirectory: path.join(root, LEASES_DIRECTORY_NAME),
+    gcStateFile: path.join(root, LEASES_DIRECTORY_NAME, GC_STATE_FILE_NAME),
   };
 }
 
@@ -79,6 +90,14 @@ export function runtimeDirectoryFor(root: string, runtimeId: string): string {
     throw new RuntimeError("RUNTIME_POINTER_INVALID", "runtime id 含有不允許的字元或長度不正確", { actual: runtimeId });
   }
   return path.join(root, RUNTIMES_DIRECTORY_NAME, runtimeId);
+}
+
+/** Whether runtime ids that differ only in case name the same directory on this platform (Windows and macOS file systems). */
+export const IDS_CASE_INSENSITIVE = process.platform === "win32" || process.platform === "darwin";
+
+/** The form of a runtime id to compare by: lower case where the file system ignores case, else the id itself. */
+export function runtimeIdKey(runtimeId: string, caseInsensitive: boolean = IDS_CASE_INSENSITIVE): string {
+  return caseInsensitive ? runtimeId.toLowerCase() : runtimeId;
 }
 
 /** The shim an Agent's `command` should point at. */

@@ -13,7 +13,7 @@ import {
   type DesktopDatabaseDeps,
   type LauncherHost,
 } from "../../packages/desktop-core/src/runtime/index.js";
-import { IS_WINDOWS, installFixture, makeRoot } from "./runtime-helpers.js";
+import { HOOK_BUDGET_MS, INERT_LEASE_HOST, IS_WINDOWS, installFixture, makeRoot } from "./runtime-helpers.js";
 
 // Fictional paths only. The launcher hands the App's committed database to every Agent action it starts (ADR-39).
 
@@ -64,6 +64,7 @@ function launchHost(environment: Record<string, string | undefined> = {}): Launc
     desktopDatabase: (launcherRoot) => resolveDesktopDatabase(launcherRoot),
     setArgv: () => undefined,
     importModule: async () => void seen.push(env.WORK_INTELLIGENCE_DB),
+    ...INERT_LEASE_HOST,
   };
   return { host, stderr, seen };
 }
@@ -108,7 +109,7 @@ describe("resolveDesktopDatabase", () => {
       `[hook cost] ${JSON.stringify({ platform: process.platform, coldMs: Number(coldMs.toFixed(3)), medianMs: Number(medianMs.toFixed(3)) })}`,
     );
     // The median, so one slow sample on a busy runner does not decide it; a regression to real work would.
-    expect(medianMs).toBeLessThan(5);
+    expect(medianMs).toBeLessThan(HOOK_BUDGET_MS);
   });
 
   it("writes the pointer once and leaves an identical one alone", async () => {

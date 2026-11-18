@@ -181,7 +181,7 @@ async function removeQuietly(target: string): Promise<void> {
   }
 }
 
-/** Removes staging directories a crashed attempt left. Quarantined directories are collected later (see runtime-gc.ts). */
+/** Removes staging directories a crashed attempt left. Quarantined directories are collected later, and only with the lease proof (see runtime-gc.ts). */
 async function cleanLeftovers(root: string): Promise<void> {
   const runtimes = path.join(root, RUNTIMES_DIRECTORY_NAME);
   let names: string[];

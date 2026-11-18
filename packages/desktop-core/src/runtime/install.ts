@@ -71,9 +71,14 @@ async function writeIfChanged(target: string, content: string, mode: number): Pr
   await writeFileAtomic(target, content, { mode });
 }
 
-/** Writes the two fixed shims into `<root>/bin`, leaving a shim that already holds the right text untouched. */
+/**
+ * Writes the two fixed shims into `<root>/bin`, leaving a shim that already holds the right text untouched, and makes
+ * sure `<root>/leases` exists. The folder is created here, before the verification stamps the root, so a launcher that
+ * creates its lease later does not change the root and cost the next start an ACL read.
+ */
 export async function writeShims(root: string): Promise<void> {
-  const { binDirectory } = runtimeLayout(root);
+  const { binDirectory, leasesDirectory } = runtimeLayout(root);
+  await fs.mkdir(leasesDirectory, { recursive: true, mode: 0o700 });
   await writeIfChanged(path.join(binDirectory, POSIX_SHIM_NAME), renderPosixShim(), SHIM_MODE);
   await writeIfChanged(path.join(binDirectory, WINDOWS_SHIM_NAME), renderWindowsShim(), SHIM_MODE);
 }

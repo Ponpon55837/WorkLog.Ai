@@ -22,7 +22,14 @@ import {
   type RuntimeManifest,
   verifyRuntime,
 } from "../../packages/desktop-core/src/runtime/index.js";
-import { IS_WINDOWS, fixtureAcl, flipFirstByte, installFixture, makeRoot } from "./runtime-helpers.js";
+import {
+  INERT_LEASE_HOST,
+  IS_WINDOWS,
+  fixtureAcl,
+  flipFirstByte,
+  installFixture,
+  makeRoot,
+} from "./runtime-helpers.js";
 
 let root = "";
 let runtimeDirectory = "";
@@ -68,6 +75,7 @@ function recordingHost(options: { importFails?: Error; execPath?: string } = {})
       imported.push(url);
       if (options.importFails) throw options.importFails;
     },
+    ...INERT_LEASE_HOST,
   };
   return { host, stdout, stderr, argv, imported, unset };
 }

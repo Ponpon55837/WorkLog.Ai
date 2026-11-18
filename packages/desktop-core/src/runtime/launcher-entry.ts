@@ -2,6 +2,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { resolveDesktopDatabase } from "./desktop-database.js";
+import { createLease } from "./lease.js";
 import { runLauncher, type LauncherHost } from "./launcher-main.js";
 
 /**
@@ -25,6 +26,9 @@ const host: LauncherHost = {
   desktopDatabase: (launcherRoot) => resolveDesktopDatabase(launcherRoot),
   setArgv: (argv) => void (process.argv = argv),
   importModule: (url) => import(url),
+  acquireLease: createLease,
+  onExit: (handler) => void process.once("exit", handler),
+  startHeartbeat: (tick, intervalMs) => void setInterval(tick, intervalMs).unref(),
 };
 
 const outcome = await runLauncher(
