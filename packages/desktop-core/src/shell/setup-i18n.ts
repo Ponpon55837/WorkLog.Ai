@@ -1,7 +1,7 @@
 import type { StoragePolicyRisk } from "../db-source/storage-policy.js";
 import type { DbGroupStatus, DbSourceKind } from "../db-source/types.js";
 import type { AgentDisplayState } from "../agents/status.js";
-import type { AgentRegistrationOwner, SetupAgentId } from "./agents-state.js";
+import type { AgentHookSource, AgentHookState, AgentRegistrationOwner, SetupAgentId } from "./agents-state.js";
 import type { CopyToLocalFailure } from "./copy-to-local.js";
 import type { ShellLocale } from "./i18n.js";
 
@@ -94,6 +94,12 @@ export interface SetupMessages {
   readonly agentNames: Readonly<Record<SetupAgentId, string>>;
   readonly agentStates: Readonly<Record<AgentDisplayState, string>>;
   readonly agentOwners: Readonly<Record<AgentRegistrationOwner, string>>;
+  /** Hooks that work, by who manages them. */
+  readonly agentHookInstalled: Readonly<Record<AgentHookSource, string>>;
+  /** Hooks that are not working, by state. */
+  readonly agentHookNotInstalled: Readonly<Record<Exclude<AgentHookState, "installed">, string>>;
+  /** Hooks run from a source checkout keep working; moving them to the App is optional. */
+  readonly agentsHookCheckoutNote: string;
   readonly agentsMcp: string;
   readonly agentsHooks: string;
   readonly agentsCheckout: string;
@@ -274,6 +280,14 @@ const zhTW: SetupMessages = {
     unknown: "無法判斷",
     none: "未設定",
   },
+  agentHookInstalled: {
+    app: "已安裝（由 App 管理）",
+    checkout: "已安裝（由 checkout 管理）",
+    plugin: "已安裝（由 plugin 管理）",
+  },
+  agentHookNotInstalled: { stale: "需要更新", missing: "未設定", disabled: "已停用", unknown: "無法判斷" },
+  agentsHookCheckoutNote:
+    "checkout 的 hook 設定仍然有效。「改由桌面 App 管理…」是選用的；改用後，移動 checkout、更換 Node 或更新 App 都不必重新設定。",
   agentsMcp: "MCP",
   agentsHooks: "Hook",
   agentsCheckout: "原始碼目錄",
@@ -484,6 +498,19 @@ const en: SetupMessages = {
     unknown: "Cannot tell",
     none: "Not set up",
   },
+  agentHookInstalled: {
+    app: "Installed (managed by the App)",
+    checkout: "Installed (managed by the checkout)",
+    plugin: "Installed (managed by the plugin)",
+  },
+  agentHookNotInstalled: {
+    stale: "Needs an update",
+    missing: "Not set up",
+    disabled: "Disabled",
+    unknown: "Cannot tell",
+  },
+  agentsHookCheckoutNote:
+    "The checkout's hook setup keeps working. “Let the desktop App manage it…” is optional; afterwards, moving the checkout, changing Node or updating the App no longer needs a new setup.",
   agentsMcp: "MCP",
   agentsHooks: "Hooks",
   agentsCheckout: "Source checkout",

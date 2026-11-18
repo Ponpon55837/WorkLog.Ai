@@ -14,6 +14,7 @@ import {
   isOpenAgentSetupLaunch,
   isOpenDashboardLaunch,
   isQuitLaunch,
+  launcherShimPath,
   LAUNCH_EXIT_OK,
   LastBackupTracker,
   ManagedBackendService,
@@ -242,8 +243,12 @@ function runShell(configInputs: DesktopConfigInputs): void {
   // The facts a backend carries: the old-service warning and the storage verdict this run already reached.
   const currentFacts = (databasePath: string): DesktopFacts | undefined => {
     const storageRisk = storage.fact(databasePath);
-    const legacyFacts = legacy.facts(databasePath);
-    return storageRisk ? { ...legacyFacts, storageRisk } : legacyFacts;
+    // The launcher shim the Agent page compares hooks against; the Web status must use the same one.
+    const facts: DesktopFacts = {
+      ...legacy.facts(databasePath),
+      launcherShimPath: launcherShimPath(paths.runtimeRoot, process.platform),
+    };
+    return storageRisk ? { ...facts, storageRisk } : facts;
   };
   const backend = createBackendController({
     state,

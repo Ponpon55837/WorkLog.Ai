@@ -161,6 +161,15 @@ describe("desktop facts and open-agent-setup", () => {
     expect(parseDesktopParentMessage({ ...START, desktop: { legacyService: withoutRemove } }).ok).toBe(true);
   });
 
+  it("carries the App's launcher shim path in the desktop facts", () => {
+    const launcherShimPath = "/synthetic/runtime/bin/work-intelligence-launcher";
+    expect(parseDesktopParentMessage({ ...START, desktop: { launcherShimPath } })).toMatchObject({
+      ok: true,
+      message: { desktop: { launcherShimPath } },
+    });
+    expect(parseDesktopParentMessage({ ...START, desktop: { launcherShimPath: "" } }).ok).toBe(false);
+  });
+
   it("rejects unknown or malformed desktop facts", () => {
     expect(parseDesktopParentMessage({ ...START, desktop: { other: true } }).ok).toBe(false);
     expect(parseDesktopParentMessage({ ...START, desktop: { legacyService: { ...LEGACY, running: "yes" } } }).ok).toBe(

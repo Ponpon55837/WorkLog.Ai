@@ -3543,20 +3543,48 @@ export type AgentSkillCopyState = "current" | "missing" | "stale" | "unreadable"
 /** `stale`: the hook is installed but uses an older matcher that misses current MCP operation calls. */
 export type AgentHookInstallState = "installed" | "stale" | "missing" | "disabled" | "unknown";
 
-/** `direct` runs the server entry point instead of the launcher, so every build needs a reconnect. */
-export type AgentMcpRegistrationState = "registered" | "direct" | "missing" | "unknown";
+/**
+ * `direct` runs the server entry point instead of the launcher, so every build needs a reconnect; `other` is an entry
+ * named work-intelligence whose command is not Work Intelligence (or points at a checkout that no longer exists).
+ */
+export type AgentMcpRegistrationState = "registered" | "direct" | "other" | "missing" | "unknown";
+
+/** Who manages a registration: the desktop App's launcher, a source checkout, or the Agent's plugin. */
+export type AgentRegistrationSource = "app" | "checkout" | "plugin";
+
+/** Why a hook entry is `stale`: its script or shim is gone, or its matcher predates the current one. */
+export type AgentHookStaleReason = "script-missing" | "shim-differs" | "matcher-outdated";
+
+/** One hook the Agent needs: an event (with the matcher setup writes for it) and its state. */
+export interface AgentHookEventStatus {
+  event: string;
+  matcher: string | null;
+  /** Only required events decide the overall hook state. */
+  required: boolean;
+  state: AgentHookInstallState;
+  source: AgentRegistrationSource | null;
+  reason?: AgentHookStaleReason;
+}
 
 export interface SystemAgentConnections {
   codex: {
     mcpRegistered: AgentMcpRegistrationState;
+    /** Who manages the MCP registration when it is `registered`. */
+    mcpSource?: AgentRegistrationSource | null;
     canonicalSkill: AgentSkillCopyState;
     legacySkill: AgentSkillCopyState;
     hook: AgentHookInstallState;
+    /** Who manages the hooks when `hook` is `installed`. */
+    hookSource?: AgentRegistrationSource | null;
+    hookEvents?: AgentHookEventStatus[];
   };
   claudeCode: {
     mcpRegistered: AgentMcpRegistrationState;
+    mcpSource?: AgentRegistrationSource | null;
     skill: AgentSkillCopyState;
     hook: AgentHookInstallState;
+    hookSource?: AgentRegistrationSource | null;
+    hookEvents?: AgentHookEventStatus[];
   };
 }
 

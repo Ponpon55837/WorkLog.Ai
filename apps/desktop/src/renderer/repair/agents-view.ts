@@ -35,16 +35,19 @@ function selfTestText(state: AgentsState, text: SetupMessages): string {
   return text.agentsSelfTestNotRun;
 }
 
+function hookText(card: AgentCardView, text: SetupMessages): string {
+  if (card.hookState === undefined) return text.agentOwners[card.hooks];
+  if (card.hookState === "installed") return text.agentHookInstalled[card.hookSource ?? "checkout"];
+  return text.agentHookNotInstalled[card.hookState];
+}
+
 function agentCard(
   card: AgentCardView,
   text: SetupMessages,
   controls: { readonly busy: boolean; readonly useDatabase: (card: AgentCardView) => void },
 ): HTMLElement {
   const facts = element("dl", { className: "facts" });
-  facts.append(
-    ...fact(text.agentsMcp, text.agentOwners[card.mcp]),
-    ...fact(text.agentsHooks, text.agentOwners[card.hooks]),
-  );
+  facts.append(...fact(text.agentsMcp, text.agentOwners[card.mcp]), ...fact(text.agentsHooks, hookText(card, text)));
   if (card.checkoutDisplay) {
     facts.append(...fact(text.agentsCheckout, element("span", { className: "path", text: card.checkoutDisplay })));
   }
@@ -59,6 +62,9 @@ function agentCard(
   node.dataset.agent = card.id;
   if (card.checkoutMissing) node.append(element("p", { className: "hint", text: text.agentsCheckoutMissing }));
   if (card.adoptable) node.append(element("p", { className: "hint", text: text.agentsAdoptHint }));
+  if (card.adoptable && card.hookState === "installed" && card.hookSource === "checkout") {
+    node.append(element("p", { className: "hint", text: text.agentsHookCheckoutNote }));
+  }
   if (card.notAdoptableReason) {
     node.append(element("p", { className: "hint", text: `${text.agentsNotAdoptable}${card.notAdoptableReason}` }));
   }

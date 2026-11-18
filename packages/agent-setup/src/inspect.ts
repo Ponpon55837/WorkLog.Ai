@@ -1,9 +1,15 @@
 import { join } from "node:path";
 import { parse as parseToml } from "smol-toml";
-import { commandWords, isLauncherMcpRegistration, isLauncherShimCommand } from "./commands.js";
-import { CLAUDE_HOOK_ACTION, CODEX_HOOK_ACTION } from "./constants.js";
 import { JSON_OBJECT, readRegularFile } from "./files.js";
+import {
+  classifyHookCommand,
+  classifyMcpRegistration,
+  inspectHookInstallation,
+  unknownHookInstallation,
+  type HookInstallation,
+} from "./hook-command.js";
 import { normalizePlanOptions, targetPath } from "./paths.js";
+import { inspectCodexHooksFeature } from "./plan.js";
 import { claudePluginEnabled, codexPluginEnabled } from "./plugins.js";
 import { codexWorkIntelligenceServer } from "./toml.js";
 import type { AgentSetupPlanOptions } from "./types.js";
@@ -45,11 +51,17 @@ export interface AgentRegistrationInspection {
 export interface AgentInspectOptions extends AgentSetupPlanOptions {
   /** Claude Desktop's config directory; defaults to the per-platform location under the home directory. */
   claudeDesktopConfigDirectory?: string;
+  /** Whether a path is a regular file (the launcher shim or checkout script an entry names); defaults to a real `stat`. */
+  isFile?: (path: string) => boolean;
+}
+
+export interface AgentHookInspectOptions extends AgentInspectOptions {
+  /** The current launcher shim, so a hook that runs another shim is reported as stale. */
+  shimPath?: string;
 }
 
 const SERVER_NAME = "work-intelligence";
 const FINALIZE_REMINDER_MARKER = "finalize-reminder";
-const HOOK_ACTIONS: ReadonlySet<string> = new Set([CLAUDE_HOOK_ACTION, CODEX_HOOK_ACTION]);
 
 function claudeDesktopDirectory(options: AgentInspectOptions): string {
   if (options.claudeDesktopConfigDirectory) return options.claudeDesktopConfigDirectory;
@@ -59,13 +71,20 @@ function claudeDesktopDirectory(options: AgentInspectOptions): string {
   return join(options.homeDirectory, ".config", "Claude");
 }
 
-function classifyMcpEntry(value: unknown): RegistrationSource {
-  if (isLauncherMcpRegistration(value)) return "desktop-managed";
+function classifyMcpEntry(value: unknown, options: AgentInspectOptions): RegistrationSource {
+  const context = {
+    ...(options.platform ? { platform: options.platform } : {}),
+    ...(options.isFile ? { isFile: options.isFile } : {}),
+  };
+  if (classifyMcpRegistration(value, context).kind === "launcher") return "desktop-managed";
   return JSON_OBJECT(value) && typeof value.command === "string" ? "manual" : "unknown";
 }
 
 /** The `finalize-reminder` commands in a hooks config, as the sources that wrote them. */
-function hookSources(root: Record<string, unknown> | undefined): Set<RegistrationSource> {
+function hookSources(
+  root: Record<string, unknown> | undefined,
+  platform: NodeJS.Platform | undefined,
+): Set<RegistrationSource> {
   const sources = new Set<RegistrationSource>();
   const hooks = root?.hooks;
   if (!JSON_OBJECT(hooks)) return sources;
@@ -73,9 +92,8 @@ function hookSources(root: Record<string, unknown> | undefined): Set<Registratio
     if (Array.isArray(value)) return value.forEach(visit);
     if (!JSON_OBJECT(value)) return;
     if (typeof value.command === "string" && value.command.includes(FINALIZE_REMINDER_MARKER)) {
-      const words = commandWords(value.command);
       sources.add(
-        words?.[0] && isLauncherShimCommand(words[0]) && HOOK_ACTIONS.has(words[1] ?? "")
+        classifyHookCommand(value.command, platform ? { platform } : {}).kind === "launcher"
           ? "desktop-managed"
           : "manual",
       );
@@ -131,7 +149,7 @@ export function inspectAgentRegistrations(options: AgentInspectOptions): AgentRe
     return undefined;
   };
   const addHooks = (agent: AgentId, path: string, root: Record<string, unknown> | undefined): void => {
-    for (const source of hookSources(root)) add(agent, "hook", source, path);
+    for (const source of hookSources(root, options.platform)) add(agent, "hook", source, path);
   };
 
   const codexConfigPath = targetPath("codexMcp", normalized);
@@ -146,7 +164,7 @@ export function inspectAgentRegistrations(options: AgentInspectOptions): AgentRe
         add("codex", "hook", "plugin", codexConfigPath);
       }
       const server = codexWorkIntelligenceServer(text);
-      if (server !== undefined) add("codex", "mcp", classifyMcpEntry(server), codexConfigPath);
+      if (server !== undefined) add("codex", "mcp", classifyMcpEntry(server, options), codexConfigPath);
     } catch {
       unreadable.push(codexConfigPath);
     }
@@ -157,7 +175,7 @@ export function inspectAgentRegistrations(options: AgentInspectOptions): AgentRe
   const claudeJsonPath = targetPath("claudeMcp", normalized);
   const claudeServers = readJsonObject(claudeJsonPath)?.mcpServers;
   if (JSON_OBJECT(claudeServers) && claudeServers[SERVER_NAME] !== undefined) {
-    add("claude-code", "mcp", classifyMcpEntry(claudeServers[SERVER_NAME]), claudeJsonPath);
+    add("claude-code", "mcp", classifyMcpEntry(claudeServers[SERVER_NAME], options), claudeJsonPath);
   }
   const claudeSettingsPath = targetPath("claudeStopHook", normalized);
   const claudeSettings = readJsonObject(claudeSettingsPath);
@@ -171,7 +189,7 @@ export function inspectAgentRegistrations(options: AgentInspectOptions): AgentRe
   const desktopConfigPath = join(desktopDirectory, "claude_desktop_config.json");
   const desktopServers = readJsonObject(desktopConfigPath)?.mcpServers;
   if (JSON_OBJECT(desktopServers) && desktopServers[SERVER_NAME] !== undefined) {
-    add("claude-desktop", "mcp", classifyMcpEntry(desktopServers[SERVER_NAME]), desktopConfigPath);
+    add("claude-desktop", "mcp", classifyMcpEntry(desktopServers[SERVER_NAME], options), desktopConfigPath);
   }
   const extensionsPath = join(desktopDirectory, "extensions-installations.json");
   const extensions = readJsonObject(extensionsPath)?.extensions;
@@ -180,4 +198,57 @@ export function inspectAgentRegistrations(options: AgentInspectOptions): AgentRe
   }
 
   return { registrations, duplicates: findDuplicates(registrations), unreadable };
+}
+
+/**
+ * Read-only: the per-event state of the finalize hooks of Claude Code and Codex (see {@link inspectHookInstallation}).
+ * A hooks file that is missing means nothing installed; one that does not parse as a JSON object is `unknown`.
+ * Codex hooks switched off in `config.toml` read as `disabled`.
+ */
+export function inspectAgentHooks(options: AgentHookInspectOptions): Record<"claude-code" | "codex", HookInstallation> {
+  const normalized = normalizePlanOptions(options);
+  const readHooksConfig = (path: string): Record<string, unknown> | null | undefined => {
+    const file = readRegularFile(path);
+    if (file.conflict) return null;
+    if (!file.bytes) return undefined;
+    try {
+      const value: unknown = JSON.parse(file.bytes.toString("utf8"));
+      return JSON_OBJECT(value) ? value : null;
+    } catch {
+      return null;
+    }
+  };
+  const context = {
+    ...(options.platform ? { platform: options.platform } : {}),
+    ...(options.shimPath ? { shimPath: options.shimPath } : {}),
+    ...(options.isFile ? { isFile: options.isFile } : {}),
+  };
+  const codexConfig = readRegularFile(targetPath("codexMcp", normalized));
+  let codexPlugin = false;
+  if (codexConfig.bytes) {
+    try {
+      codexPlugin = codexPluginEnabled(
+        parseToml(codexConfig.bytes.toString("utf8"), { maxDepth: 128, unsafeKeyBehaviour: "throw" }),
+      );
+    } catch {
+      // An unreadable config.toml says nothing about the plugin; the hooks file is judged on its own.
+    }
+  }
+  const codexHooksFeature = inspectCodexHooksFeature(normalized.homeDirectory, normalized.codexHomeDirectory);
+  return {
+    "claude-code": inspectHookInstallation(
+      readHooksConfig(targetPath("claudeStopHook", normalized)),
+      "claude-code",
+      context,
+    ),
+    // A hooks switch that cannot be read leaves every hook unconfirmed, the same as the doctor reports it.
+    codex:
+      codexHooksFeature === "unknown"
+        ? unknownHookInstallation("codex")
+        : inspectHookInstallation(readHooksConfig(targetPath("codexStopHook", normalized)), "codex", {
+            ...context,
+            pluginEnabled: codexPlugin,
+            hooksDisabled: codexHooksFeature === "disabled",
+          }),
+  };
 }

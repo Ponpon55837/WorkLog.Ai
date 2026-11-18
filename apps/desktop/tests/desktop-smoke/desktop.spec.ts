@@ -594,3 +594,54 @@ test("exports diagnostics through a preview: the saved file is the previewed tex
   expect(parsed.recentOutput.filter((line) => line === "[shell] opening [redacted path]")).toHaveLength(2);
   expect(parsed.recentOutput).toContain("[shell] mail [redacted email]");
 });
+
+test("hooks installed in launcher form read as installed on the Agent page and in the status API", async () => {
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  const { CODEX_POST_TOOL_USE_MATCHER, commandForLauncherHook } = await import("@work-intelligence/agent-setup");
+  const { launcherShimPath } = await import("@work-intelligence/desktop-core");
+  const { setupMessages } = await import("@work-intelligence/desktop-core/shell/setup-i18n");
+
+  sandbox = await createSandbox({ withDatabase: true });
+  // What the App's "套用變更" writes: the fixed launcher shim and the plain launcher action, in the sandbox home only.
+  const shim = launcherShimPath(sandbox.runtimeRoot, process.platform);
+  const claudeCommand = commandForLauncherHook(shim, "claude-finalize-reminder", process.platform);
+  const codexCommand = commandForLauncherHook(shim, "codex-finalize-reminder", process.platform);
+  const handler = (command: string) => [{ type: "command", command }];
+  mkdirSync(join(sandbox.home, ".claude"), { recursive: true });
+  mkdirSync(join(sandbox.home, ".codex"), { recursive: true });
+  writeFileSync(
+    join(sandbox.home, ".claude", "settings.json"),
+    JSON.stringify({ hooks: { Stop: [{ hooks: handler(claudeCommand) }] } }),
+  );
+  writeFileSync(
+    join(sandbox.home, ".codex", "hooks.json"),
+    JSON.stringify({
+      hooks: {
+        Stop: [{ hooks: handler(codexCommand) }],
+        PostToolUse: [{ matcher: CODEX_POST_TOOL_USE_MATCHER, hooks: handler(codexCommand) }],
+      },
+    }),
+  );
+
+  app = await launchApp(sandbox, {}, ["--open-agent-setup"]);
+  const running = await waitForManagedSnapshot(app);
+  const window = await app.firstWindow({ timeout: 45_000 });
+  const language = await window.evaluate(() => document.documentElement.lang);
+  const text = setupMessages(language === "zh-Hant" ? "zh-TW" : "en");
+
+  // The Agent page: the hook is installed, managed by the App.
+  for (const agent of ["codex", "claude-code"]) {
+    await expect(window.locator(`[data-agent="${agent}"]`)).toContainText(text.agentHookInstalled.app);
+  }
+
+  // The status the Web UI shows (the doctor's view of the same files).
+  const response = await fetch(`http://127.0.0.1:${running.backend?.port}/api/system/status`);
+  const body = (await response.json()) as {
+    agents?: Record<"codex" | "claudeCode", { hook: string; hookSource?: string; hookEvents?: { state: string }[] }>;
+  };
+  for (const agent of ["codex", "claudeCode"] as const) {
+    expect(body.agents?.[agent]?.hook).toBe("installed");
+    expect(body.agents?.[agent]?.hookSource).toBe("app");
+  }
+  expect(body.agents?.codex.hookEvents?.filter((event) => event.state === "installed")).toHaveLength(2);
+});

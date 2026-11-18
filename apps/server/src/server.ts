@@ -204,7 +204,15 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
   const pickFolder = options.pickFolder ?? createFolderPicker();
   const serveWebFiles = options.webDirectory ? createStaticFilesHandler(options.webDirectory) : undefined;
   const repositoryRoot = options.repositoryRoot ?? DEFAULT_REPOSITORY_ROOT;
-  const inspectConnections = options.agentConnections ?? (() => inspectAgentConnections({ repositoryRoot }));
+  const inspectConnections =
+    options.agentConnections ??
+    (() => {
+      const facts = options.desktop?.getFacts ? options.desktop.getFacts() : options.desktop?.facts;
+      return inspectAgentConnections({
+        repositoryRoot,
+        ...(facts?.launcherShimPath ? { shimPath: facts.launcherShimPath } : {}),
+      });
+    });
   const queryUserService = options.userServiceStatus ?? (() => getUserServiceStatusAsync({ repositoryRoot }));
   const backgroundStore = options.backgroundStore ?? createInlineBackgroundStore(store);
   const transferRoot = options.transferRoot ?? defaultTransferRoot(store.databasePath);

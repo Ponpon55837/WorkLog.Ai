@@ -101,6 +101,11 @@ export const desktopFactsSchema = z.strictObject({
   /** The port the App committed for this backend, so the status page can show the effective address. */
   activePort: portSchema.optional(),
   /**
+   * The App's launcher shim, so the Web status judges an Agent's hooks by the same rule as the Agent page: a hook that
+   * runs another shim is stale.
+   */
+  launcherShimPath: pathSchema.optional(),
+  /**
    * Positively detected risky storage for the database (DT-08). `unknown` means detection failed or timed out and is a
    * soft note only; it never blocks anything.
    */

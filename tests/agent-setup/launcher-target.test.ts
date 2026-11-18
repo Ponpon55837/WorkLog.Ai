@@ -69,7 +69,8 @@ describe.each([
     const again = createAgentSetupPlan(options);
     expect(again.mutations).toEqual([]);
     expect(again.conflicts).toEqual([]);
-    const inspection = inspectAgentRegistrations(options);
+    // The shim path is synthetic (a Windows path on a Linux host), so its existence is stated, not read.
+    const inspection = inspectAgentRegistrations({ ...options, isFile: (path) => path === shim });
     expect(inspection.duplicates).toEqual([]);
     expect(inspection.registrations.map((item) => `${item.agent}:${item.kind}:${item.source}`).sort()).toEqual([
       "claude-code:hook:desktop-managed",

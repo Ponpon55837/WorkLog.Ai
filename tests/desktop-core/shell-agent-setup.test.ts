@@ -218,6 +218,31 @@ describe("legacy service messages", () => {
   });
 });
 
+describe("Agent hook texts", () => {
+  it("names who manages a working hook and says a checkout's setup keeps working", () => {
+    expect(zhSetup.agentHookInstalled).toEqual({
+      app: "已安裝（由 App 管理）",
+      checkout: "已安裝（由 checkout 管理）",
+      plugin: "已安裝（由 plugin 管理）",
+    });
+    expect(zhSetup.agentHookNotInstalled).toEqual({
+      stale: "需要更新",
+      missing: "未設定",
+      disabled: "已停用",
+      unknown: "無法判斷",
+    });
+    expect(zhSetup.agentsHookCheckoutNote).toContain(zhSetup.agentsPreviewAdopt);
+    expect(zhSetup.agentsHookCheckoutNote).toContain("選用");
+    expect(enSetup.agentsHookCheckoutNote).toContain("optional");
+  });
+
+  it("defines the same hook keys in both setup locales", () => {
+    for (const name of ["agentHookInstalled", "agentHookNotInstalled"] as const) {
+      expect(keyPaths(enSetup[name])).toEqual(keyPaths(zhSetup[name]));
+    }
+  });
+});
+
 describe("LEGACY_SERVICE_ACTIVE hint selection", () => {
   it.each(["zh-TW", "en"] as const)("names 'start anyway' only where the button exists (%s)", (locale) => {
     const messages = shellMessages(locale);

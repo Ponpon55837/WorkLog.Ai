@@ -23,6 +23,7 @@ import type {
   DatabaseMaintenanceStatus,
   AgentHookInstallState,
   AgentMcpRegistrationState,
+  AgentRegistrationSource,
   AgentSkillCopyState,
   KnowledgeKind,
   KnowledgePageStatus,
@@ -95,6 +96,7 @@ export function userServiceStatusVisual(status: SystemStatus["userService"]): St
 export function agentMcpRegistrationVisual(state: AgentMcpRegistrationState): StatusVisual {
   if (state === "registered") return visual("success", CircleCheck, "status.registered");
   if (state === "direct") return visual("attention", Clock3, "status.directRegistration");
+  if (state === "other") return visual("attention", CircleAlert, "status.registeredOther");
   if (state === "unknown") return visual("attention", CircleAlert, "status.cannotConfirm");
   return visual("attention", CircleDashed, "status.unregistered");
 }
@@ -121,6 +123,8 @@ export interface AgentConnectionRow {
   status: StatusVisual;
   /** Registered, current, installed, or deliberately disabled; anything else needs setup. */
   ok: boolean;
+  /** A short extra line under the row, when the state needs one. */
+  note?: string;
 }
 
 export interface AgentConnectionGroup {
@@ -141,12 +145,25 @@ function skillRow(title: string, location: string, state: AgentSkillCopyState): 
   return { title, location, status: agentSkillCopyStatus[state], ok: state === "current" };
 }
 
-function hookRow(location: string, state: AgentHookInstallState): AgentConnectionRow {
+const hookInstalledBySource: Record<AgentRegistrationSource, StatusVisual> = {
+  app: visual("success", CircleCheck, "status.installedByApp"),
+  checkout: visual("success", CircleCheck, "status.installedByCheckout"),
+  plugin: visual("success", CircleCheck, "status.installedByPlugin"),
+};
+
+/** A working hook says who manages it; a checkout's also says it keeps working and that moving to the App is optional. */
+function hookRow(
+  location: string,
+  state: AgentHookInstallState,
+  source: AgentRegistrationSource | null | undefined,
+): AgentConnectionRow {
+  const owned = state === "installed" && source ? hookInstalledBySource[source] : undefined;
   return {
     title: t("status.globalHook"),
     location,
-    status: agentHookInstallStatus[state],
+    status: owned ?? agentHookInstallStatus[state],
     ok: state === "installed" || state === "disabled",
+    ...(owned && source === "checkout" ? { note: t("status.checkoutHookKeepsWorking") } : {}),
   };
 }
 
@@ -159,7 +176,7 @@ export function agentConnectionGroups(agents: SystemAgentConnections): AgentConn
         mcpRow("CODEX_HOME/config.toml", agents.codex.mcpRegistered),
         skillRow("Skill", "~/.agents/skills/work-intelligence", agents.codex.canonicalSkill),
         skillRow(t("status.compatibilitySkill"), t("status.codexHomeSkillsWorkIntelligence"), agents.codex.legacySkill),
-        hookRow(t("status.codexHomeHooksJsonSave"), agents.codex.hook),
+        hookRow(t("status.codexHomeHooksJsonSave"), agents.codex.hook, agents.codex.hookSource),
       ],
     },
     {
@@ -167,14 +184,35 @@ export function agentConnectionGroups(agents: SystemAgentConnections): AgentConn
       rows: [
         mcpRow("~/.claude.json", agents.claudeCode.mcpRegistered),
         skillRow("Skill", "~/.claude/skills/work-intelligence", agents.claudeCode.skill),
-        hookRow(t("status.claudeSettingsJsonSaveReminder"), agents.claudeCode.hook),
+        hookRow(t("status.claudeSettingsJsonSaveReminder"), agents.claudeCode.hook, agents.claudeCode.hookSource),
       ],
     },
   ];
 }
 
-export function onboardingStepStatusVisual(state: "complete" | "pending" | "checking" | "unknown"): StatusVisual {
+export type OnboardingStepState = "complete" | "pending" | "checking" | "unknown" | "other";
+
+/**
+ * The first-run "connect an Agent" step. An MCP entry that is registered or runs the server directly completes it;
+ * nothing registered anywhere is a to-do; an entry that exists but runs another command is `other`, which is not
+ * "cannot confirm" because the state is known.
+ */
+export function agentConnectionStepState(
+  agents: SystemAgentConnections | null,
+  loading: boolean,
+  error: string,
+): OnboardingStepState {
+  const states = agents ? [agents.codex.mcpRegistered, agents.claudeCode.mcpRegistered] : [];
+  if (states.some((state) => state === "registered" || state === "direct")) return "complete";
+  if (states.length > 0 && states.every((state) => state === "missing")) return "pending";
+  if (states.includes("other")) return "other";
+  if (error) return "unknown";
+  return loading ? "checking" : "unknown";
+}
+
+export function onboardingStepStatusVisual(state: OnboardingStepState): StatusVisual {
   if (state === "complete") return visual("success", CircleCheck, "common.completedStatus");
+  if (state === "other") return visual("attention", CircleAlert, "status.registeredOther");
   if (state === "checking") return visual("accent", LoaderCircle, "status.checking");
   if (state === "unknown") return visual("attention", CircleAlert, "status.cannotConfirm");
   return visual("attention", CircleDashed, "status.toDo");

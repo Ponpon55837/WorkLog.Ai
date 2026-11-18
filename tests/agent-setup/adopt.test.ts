@@ -626,7 +626,7 @@ describe("adopt option", () => {
     );
     const options = launcherOptions(fixture, [root]);
     adoptAndApply(options);
-    const inspection = inspectAgentRegistrations(options);
+    const inspection = inspectAgentRegistrations({ ...options, isFile: (path) => path === HOST_SHIM });
     expect(inspection.registrations.every((item) => item.source === "desktop-managed")).toBe(true);
 
     const removal = createAgentSetupPlan(fixture.options, "uninstall");
