@@ -20,7 +20,9 @@ import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
  */
 
 const failures = vi.hoisted(() => ({
-  rename: undefined as { code: string; message: string } | undefined,
+  rename: undefined as { code: string; message: string; times: number } | undefined,
+  /** Paths whose emptying (a write of zero bytes) is refused, as when a scanner holds the file. */
+  locked: [] as string[],
   /** Every path the restore asked to remove (so the order of removals against the replacement can be checked). */
   removed: [] as string[],
 }));
@@ -33,11 +35,16 @@ vi.mock("node:fs", async (importOriginal) => {
       failures.removed.push(String(args[0]));
       return actual.rmSync(...args);
     }),
+    writeFileSync: vi.fn((...args: Parameters<typeof actual.writeFileSync>) => {
+      if (failures.locked.includes(String(args[0]))) throw Object.assign(new Error("EBUSY"), { code: "EBUSY" });
+      return actual.writeFileSync(...args);
+    }),
     renameSync: vi.fn((...args: Parameters<typeof actual.renameSync>) => {
       const failure = failures.rename;
       // Only the replacement of the database is refused; the snapshot publication inside writeSnapshot uses hard links.
       if (failure && String(args[0]).endsWith(".restoring")) {
-        failures.rename = undefined;
+        failure.times -= 1;
+        if (failure.times <= 0) failures.rename = undefined;
         throw Object.assign(new Error(failure.message), { code: failure.code });
       }
       return actual.renameSync(...args);
@@ -50,6 +57,7 @@ const tempDirs: string[] = [];
 
 afterEach(() => {
   failures.rename = undefined;
+  failures.locked = [];
   failures.removed = [];
   for (const store of stores.splice(0)) store.close();
   for (const directory of tempDirs.splice(0)) rmSync(directory, { recursive: true, force: true });
@@ -207,7 +215,7 @@ describe("a restore that cannot finish never loses data", () => {
       original.close();
       expect(projectNames(databasePath)).toEqual(["Apiary"]);
 
-      failures.rename = { code, message: `${code}: resource busy or locked` };
+      failures.rename = { code, message: `${code}: resource busy or locked`, times: Infinity };
       expect(codeOf(() => restoreDatabase({ source: snapshot, databasePath, initializeStaging }))).toBe(code);
 
       // The original database is intact and opens.
@@ -225,11 +233,38 @@ describe("a restore that cannot finish never loses data", () => {
   it("does not touch the current database's WAL and shared-memory files when the replacement is refused", () => {
     const { store, databasePath, snapshot } = fixture();
     closeStore(store);
-    failures.rename = { code: "EBUSY", message: "EBUSY: resource busy or locked" };
+    failures.rename = { code: "EBUSY", message: "EBUSY: resource busy or locked", times: Infinity };
     expect(codeOf(() => restoreDatabase({ source: snapshot, databasePath, initializeStaging }))).toBe("EBUSY");
     expect(failures.removed).not.toContain(`${databasePath}-wal`);
     expect(failures.removed).not.toContain(`${databasePath}-shm`);
     expect(projectNames(databasePath)).toEqual(["Apiary", "Beehive"]);
+  });
+
+  it("retries a replacement that a file lock refuses only briefly", () => {
+    const { store, databasePath, snapshot } = fixture();
+    closeStore(store);
+    failures.rename = { code: "EBUSY", message: "EBUSY: resource busy or locked", times: 2 };
+    restoreDatabase({ source: snapshot, databasePath, initializeStaging });
+    expect(projectNames(databasePath)).toEqual(["Apiary", "Beehive"]);
+  });
+
+  it("does not retry an error that is not a file lock", () => {
+    const { store, databasePath, snapshot } = fixture();
+    closeStore(store);
+    failures.rename = { code: "ENOSPC", message: "ENOSPC: no space left on device", times: 1 };
+    expect(codeOf(() => restoreDatabase({ source: snapshot, databasePath, initializeStaging }))).toBe("ENOSPC");
+    expect(projectNames(databasePath)).toEqual(["Apiary", "Beehive"]);
+  });
+
+  it("refuses before replacing anything when the old WAL can be neither removed nor emptied", () => {
+    const { store, databasePath, snapshot } = fixture();
+    closeStore(store);
+    failures.locked = [`${databasePath}-wal`];
+    expect(codeOf(() => restoreDatabase({ source: snapshot, databasePath, initializeStaging }))).toBe(
+      "RESTORE_FILES_LOCKED",
+    );
+    expect(projectNames(databasePath)).toEqual(["Apiary", "Beehive"]);
+    expect(existsSync(`${databasePath}.restoring`)).toBe(false);
   });
 
   it("removes the replaced database's side files once the new file is in place", () => {

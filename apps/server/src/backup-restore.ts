@@ -118,6 +118,8 @@ export function classifyRestoreFailure(error: unknown): RestoreFailureStatus {
         return "missing";
       case "RESTORE_SAME_FILE":
         return "same-file";
+      case "RESTORE_FILES_LOCKED":
+        return "locked";
     }
   }
   const code = errnoOf(error);
