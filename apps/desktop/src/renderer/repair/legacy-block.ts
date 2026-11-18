@@ -1,6 +1,6 @@
 import type { CopyCommandTarget, RepairApi } from "@work-intelligence/desktop-core";
 import type { SetupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
-import { button, element } from "./dom.js";
+import { button, cardBody, element, section } from "./dom.js";
 
 /** What every view knows about the old login service; the commands come from main's detection, never from the page. */
 export interface LegacyFacts {
@@ -48,22 +48,24 @@ export function legacyBlock(api: RepairApi, text: SetupMessages, facts: LegacyFa
       : facts.running === "stopped"
         ? text.legacyStopped
         : text.legacyUnknown;
-  const card = element("section", { className: "card warning" }, [
-    element("h2", { text: text.legacyHeading }),
+  const card = section(
+    text.legacyHeading,
     element("p", { className: "warning-text", text: facts.portInUse ? text.legacyPortInUse : text.legacyWarning }),
     element("p", { className: "hint", text: running }),
-  ]);
+  );
+  card.classList.add("card--attention");
+  const body = cardBody(card);
   if (facts.running === "stopped" && !facts.portInUse && facts.startsAtLogin !== false) {
-    card.append(element("p", { className: "hint", text: text.legacyStartsAtLogin }));
+    body.append(element("p", { className: "hint", text: text.legacyStartsAtLogin }));
   }
   card.id = "legacy-service";
-  if (facts.blocked) card.append(element("p", { className: "hint", text: text.legacyBlocked }));
+  if (facts.blocked) body.append(element("p", { className: "hint", text: text.legacyBlocked }));
   if (facts.removeCommand) {
-    card.append(commandRow(api, text, text.legacyRemoveHint, facts.removeCommand, "legacy-remove"));
-    card.append(commandRow(api, text, text.legacyFallbackHint, facts.fallbackRemoveCommand, "legacy-fallback"));
+    body.append(commandRow(api, text, text.legacyRemoveHint, facts.removeCommand, "legacy-remove"));
+    body.append(commandRow(api, text, text.legacyFallbackHint, facts.fallbackRemoveCommand, "legacy-fallback"));
   } else {
-    card.append(commandRow(api, text, text.legacyRemoveHint, facts.fallbackRemoveCommand, "legacy-fallback"));
+    body.append(commandRow(api, text, text.legacyRemoveHint, facts.fallbackRemoveCommand, "legacy-fallback"));
   }
-  card.append(...extra);
+  body.append(...extra);
   return card;
 }

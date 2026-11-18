@@ -1,5 +1,7 @@
-// Small DOM helpers shared by the App window's views (repair, first run, Agents). Text is always set as text, never as
-// HTML: everything the page shows comes from main, and none of it is markup.
+// Small DOM helpers shared by the App window's views (Status, Data, Settings, Diagnostics, first run, Agents). Text is
+// always set as text, never as HTML: everything the page shows comes from main, and none of it is markup.
+
+export type ButtonVariant = "default" | "primary" | "danger" | "link";
 
 export function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -13,23 +15,38 @@ export function element<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-export function section(title: string, ...content: Node[]): HTMLElement {
-  return element("section", { className: "card" }, [element("h2", { text: title }), ...content]);
+/** A card (UiBox): a header row with the title, then a padded body. `title` may carry a label pill beside the text. */
+export function section(title: string | readonly (Node | string)[], ...content: Node[]): HTMLElement {
+  const heading = element(
+    "h2",
+    typeof title === "string" ? { text: title } : {},
+    typeof title === "string" ? [] : title,
+  );
+  return element("section", { className: "card" }, [
+    element("header", { className: "card-head" }, [heading]),
+    element("div", { className: "card-body" }, content),
+  ]);
+}
+
+/** The body of a card made by `section`, where more content goes. */
+export function cardBody(card: HTMLElement): HTMLElement {
+  return card.querySelector<HTMLElement>(":scope > .card-body") ?? card;
 }
 
 export function fact(label: string, value: Node | string): [HTMLElement, HTMLElement] {
   return [element("dt", { text: label }), element("dd", {}, [value])];
 }
 
-/** A button; `disabled` also covers "another action is running", which the caller passes in. */
+/** A button; `enabled` also covers "another action is running", which the caller passes in. `true` means primary. */
 export function button(
   label: string,
   id: string,
   enabled: boolean,
   onClick: () => void,
-  primary = false,
+  variant: boolean | ButtonVariant = "default",
 ): HTMLButtonElement {
-  const node = element("button", { text: label, className: primary ? "primary" : "" });
+  const kind = variant === true ? "primary" : variant === false ? "default" : variant;
+  const node = element("button", { text: label, className: `btn btn--${kind}` });
   node.type = "button";
   node.dataset.id = id;
   node.disabled = !enabled;
@@ -38,12 +55,12 @@ export function button(
 }
 
 export function checkbox(label: string, id: string, checked: boolean, enabled: boolean): HTMLLabelElement {
-  const input = element("input");
+  const input = element("input", { className: "checkbox" });
   input.type = "checkbox";
   input.checked = checked;
   input.disabled = !enabled;
   input.dataset.id = id;
-  return element("label", { className: "check" }, [input, " ", label]);
+  return element("label", { className: "check" }, [input, element("span", { text: label })]);
 }
 
 export function isChecked(root: ParentNode, id: string): boolean {
@@ -59,7 +76,7 @@ export function restoreFocus(root: ParentNode, id: string | undefined): void {
   if (id) root.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`)?.focus();
 }
 
-export function setLanguage(locale: string, title: string): void {
+/** The page language only; the window title belongs to the page shell, which does not change with the tab. */
+export function setLanguage(locale: string): void {
   document.documentElement.lang = locale === "zh-TW" ? "zh-Hant" : "en";
-  document.title = title;
 }

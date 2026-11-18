@@ -111,7 +111,7 @@ function previewPanel(host: LegacyDisableHost, preview: LegacyDisablePreview): H
         "legacy-disable-confirm",
         true,
         () => void confirm(host, preview),
-        true,
+        "danger",
       ),
       button(text.legacyDisableCancel, "legacy-disable-cancel", true, () => {
         phase = { kind: "idle" };
@@ -153,6 +153,7 @@ export function legacyDisableControls(host: LegacyDisableHost, canDisable: boole
 /** After a disable the card is gone (no old service any more): the outcome and 「立即啟動」 stay on their own. */
 export function legacyDisableOutcome(host: LegacyDisableHost): HTMLElement | null {
   if (phase.kind !== "result") return null;
-  const card = element("section", { className: "card" }, [resultPanel(host, phase)]);
-  return card;
+  return element("section", { className: "card" }, [
+    element("div", { className: "card-body" }, [resultPanel(host, phase)]),
+  ]);
 }

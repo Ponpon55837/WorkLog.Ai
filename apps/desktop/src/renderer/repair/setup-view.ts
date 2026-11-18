@@ -1,6 +1,7 @@
 import type { RepairApi, SetupActionResult, SetupSourceView, SetupState } from "@work-intelligence/desktop-core";
 import { errorMessageFor, formatMessage, shellMessages } from "@work-intelligence/desktop-core/shell/i18n";
 import { setupMessages, type SetupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
+import { databaseTone, label } from "./badge.js";
 import { button, checkbox, element, fact, focusedId, isChecked, restoreFocus, section, setLanguage } from "./dom.js";
 import { legacyBlock } from "./legacy-block.js";
 import { legacyDisableControls, legacyDisableOutcome, type LegacyDisableHost } from "./legacy-disable-view.js";
@@ -19,12 +20,14 @@ const LOGIN_ID = "launch-at-login";
 
 type Retry = (startAnyway: boolean) => Promise<SetupActionResult>;
 
-export function mountSetup(app: HTMLElement, say: (text: string) => void, api: RepairApi): void {
+export function mountSetup(app: HTMLElement, say: (text: string) => void, api: RepairApi): { refresh(): void } {
   let current: SetupState | undefined;
   let working = false;
   /** The last start was held back by the old login service: "仍要啟動" repeats it with consent. */
   let heldBack: Retry | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  /** Each read bumps it; only the newest one schedules the next poll, so the polls never double up. */
+  let generation = 0;
   const memory = createSetupMemory();
 
   function launchAtLogin(): boolean {
@@ -111,7 +114,10 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
       ...fact(text.setupFoundBy, source.kinds.map((kind) => text.sourceKinds[kind]).join("、")),
       ...fact(
         shell.databaseStatusLabel,
-        source.errorCode ? errorMessageFor(shell, source.errorCode).title : text.sourceStatus[source.status],
+        label(
+          source.errorCode ? errorMessageFor(shell, source.errorCode).title : text.sourceStatus[source.status],
+          source.errorCode ? "danger" : databaseTone(source.status),
+        ),
       ),
     );
     if (source.projectCount !== undefined) {
@@ -143,8 +149,8 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
     if (riskConsent) {
       card.append(checkbox(riskConsent, `risk:${source.id}`, memory.consent(`risk:${source.id}`), !busy));
     }
-    const label = recommended ? text.setupKeepThisData : text.setupUseThis;
-    const use = button(label, `use:${source.id}`, !busy, () => useSource(source), recommended);
+    const useLabel = recommended ? text.setupKeepThisData : text.setupUseThis;
+    const use = button(useLabel, `use:${source.id}`, !busy, () => useSource(source), recommended);
     card.append(element("div", { className: "actions" }, [use]));
     // The button only works once the user agreed to every consent it needs: the schema update and the risky storage.
     const boxes = [
@@ -176,10 +182,10 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
   function render(state: SetupState): void {
     const text = setupMessages(state.locale);
     const focus = focusedId();
-    setLanguage(state.locale, text.setupWindowTitle);
+    setLanguage(state.locale);
     const busy = state.busy || working;
     const login = app.querySelector(`input[data-id="${LOGIN_ID}"]`) ? launchAtLogin() : state.defaults.launchAtLogin;
-    const blocks: Node[] = [element("h1", { text: text.setupHeading })];
+    const blocks: Node[] = [];
     memory.keepConsentFor(state.sources.flatMap((source) => [source.id, `risk:${source.id}`]));
 
     if (state.phase === "done") {
@@ -216,13 +222,13 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
 
     if (state.errorCode) {
       const message = errorMessageFor(shellMessages(state.locale), state.errorCode);
-      blocks.push(
-        element("section", { className: "card error" }, [
-          element("h2", { text: text.setupFailed }),
-          element("strong", { text: message.title }),
-          element("p", { className: "hint", text: message.hint }),
-        ]),
+      const failed = section(
+        text.setupFailed,
+        element("strong", { text: message.title }),
+        element("p", { className: "hint", text: message.hint }),
       );
+      failed.classList.add("card--danger");
+      blocks.push(failed);
     }
 
     if (state.pathProblem) blocks.push(element("p", { className: "hint", text: state.pathProblem }));
@@ -291,18 +297,23 @@ export function mountSetup(app: HTMLElement, say: (text: string) => void, api: R
 
   async function refresh(): Promise<void> {
     if (timer) clearTimeout(timer);
-    // The window moved to another tab's page: this page is gone and stops polling.
-    if (!app.isConnected) return;
+    const mine = (generation += 1);
+    // Another tab is open: this view is out of the page (its state stays here) and only waits to be shown again.
+    if (!app.isConnected) {
+      timer = setTimeout(() => void refresh(), REFRESH_MS);
+      return;
+    }
     try {
       current = await api.setupGetState();
       if (!working) render(current);
     } catch {
       say("…");
     }
-    if (!app.isConnected) return;
+    if (mine !== generation) return;
     const fast = !current || current.phase === "detecting" || current.phase === "starting";
     timer = setTimeout(() => void refresh(), fast ? FAST_REFRESH_MS : REFRESH_MS);
   }
 
   void refresh();
+  return { refresh: () => void refresh() };
 }

@@ -6,10 +6,18 @@
     <title>Work Intelligence</title>
     <link rel="stylesheet" href="tokens.css" />
     <link rel="stylesheet" href="repair.css" />
+    <!-- Not deferred on purpose: the script sets the theme before the first paint, then waits for the page to start. -->
+    <script src="repair.js"></script>
   </head>
   <body>
+    <header class="shell">
+      <div class="shell-inner">
+        <h1 id="app-title" class="sr-only"></h1>
+        <div id="tabs"></div>
+      </div>
+    </header>
     <main id="app" class="page" aria-busy="true"></main>
     <p id="status" class="status" role="status" aria-live="polite"></p>
-    <script src="repair.js" defer></script>
+    <div id="overlay"></div>
   </body>
 </html>

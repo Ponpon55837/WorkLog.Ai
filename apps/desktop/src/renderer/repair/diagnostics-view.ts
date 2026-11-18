@@ -3,24 +3,28 @@ import {
   diagnosticsSummaryLines,
   type DiagnosticsMessages,
 } from "@work-intelligence/desktop-core/shell/diagnostics-i18n";
+import { openModal } from "./dialog.js";
 import { button, element } from "./dom.js";
 
 /**
- * The preview of 「匯出診斷資訊」: a modal panel with the exact text that would be saved (read-only), what was masked,
+ * The preview of 「匯出診斷資訊」: a modal dialog with the exact text that would be saved (read-only), what was masked,
  * and 「儲存檔案…」 / 「取消」. Main keeps the text; the page sends only the preview id back, so the file is the previewed
- * bytes. The panel lives outside the page's content, so the page's periodic redraw does not touch it. It is a native
- * modal dialog: focus moves into it and stays there, Esc closes it, and focus goes back to the button that opened it.
+ * bytes. The dialog lives in the overlay root, outside every tab panel, so a tab change or the page's periodic redraw
+ * does not touch it. It is a native modal dialog: focus moves into it and stays there, Esc closes it, and focus goes
+ * back to the button that opened it. Only one preview is open at a time.
  */
 export interface DiagnosticsViewHost {
   readonly api: RepairApi;
   readonly text: DiagnosticsMessages;
-  /** The page's status line (a live region), for what is left to say after the panel closed. */
+  /** The page's status line (a live region), for what is left to say after the dialog closed. */
   readonly say: (text: string) => void;
-  /** Puts focus back on the button that opened the panel. */
+  /** Puts focus back where the dialog was opened from, when that control has been redrawn since. */
   readonly returnFocus: () => void;
 }
 
 type Preview = Extract<DiagnosticsPreviewResult, { ok: true }>;
+
+let open = false;
 
 function failureText(text: DiagnosticsMessages, result: Extract<DiagnosticsPreviewResult, { ok: false }>): string {
   return result.reason === "scan-failed" ? text.scanFailed : text.previewFailed;
@@ -28,25 +32,26 @@ function failureText(text: DiagnosticsMessages, result: Extract<DiagnosticsPrevi
 
 /** Asks main for a preview and shows it; a refusal or failure is said on the status line. */
 export async function requestDiagnosticsPreview(host: DiagnosticsViewHost): Promise<void> {
+  if (open) return;
+  open = true;
   const result = await host.api
     .previewDiagnostics()
     .catch((): DiagnosticsPreviewResult => ({ ok: false, reason: "failed" }));
   if (!result.ok) {
+    open = false;
     host.say(failureText(host.text, result));
     return;
   }
-  showPanel(host, result);
+  showDialog(host, result);
 }
 
-function showPanel(host: DiagnosticsViewHost, first: Preview): void {
+function showDialog(host: DiagnosticsViewHost, first: Preview): void {
   const { text } = host;
   let previewId = first.previewId;
   let saving = false;
+  /** Closes the dialog; set once it is open (the buttons are made before it). */
+  let closeDialog = (): void => undefined;
 
-  const panel = element("dialog", { className: "preview-dialog" });
-  const heading = element("h2", { text: text.heading });
-  heading.id = "diagnostics-heading";
-  panel.setAttribute("aria-labelledby", heading.id);
   const box = element("textarea", { className: "preview-text" });
   box.readOnly = true;
   box.spellcheck = false;
@@ -56,7 +61,7 @@ function showPanel(host: DiagnosticsViewHost, first: Preview): void {
   const status = element("p", { className: "hint" });
   status.setAttribute("role", "status");
   const save = button(text.save, "diagnostics-save", true, () => void saveFile(), true);
-  const cancel = button(text.cancel, "diagnostics-cancel", true, () => panel.close());
+  const cancel = button(text.cancel, "diagnostics-cancel", true, () => closeDialog());
 
   function show(preview: Preview): void {
     previewId = preview.previewId;
@@ -78,7 +83,7 @@ function showPanel(host: DiagnosticsViewHost, first: Preview): void {
     status.textContent = "";
     const result = await host.api.saveDiagnostics(previewId).catch(() => ({ ok: false, reason: "failed" }) as const);
     if (result.ok) {
-      panel.close();
+      closeDialog();
       host.say(text.saved);
       return;
     }
@@ -98,19 +103,21 @@ function showPanel(host: DiagnosticsViewHost, first: Preview): void {
   }
 
   show(first);
-  panel.append(
-    heading,
-    element("p", { className: "hint", text: text.intro }),
-    box,
-    summary,
-    status,
-    element("div", { className: "actions" }, [save, cancel]),
-  );
-  panel.addEventListener("close", () => {
-    panel.remove();
-    host.returnFocus();
+  const modal = openModal({
+    title: text.heading,
+    headingId: "diagnostics-heading",
+    className: "preview-dialog",
+    body: [element("p", { className: "hint", text: text.intro }), box, summary, status],
+    footer: [cancel, save],
+    returnFocus: host.returnFocus,
+    initialFocus: () => box,
+    canClose: () => !saving,
   });
-  document.body.append(panel);
-  panel.showModal();
-  box.focus();
+  closeDialog = modal.close;
+  // Focusing the box may move its caret to the end and scroll there; the text is read from the top.
+  box.scrollTop = 0;
+  box.setSelectionRange(0, 0);
+  modal.dialog.addEventListener("close", () => {
+    open = false;
+  });
 }

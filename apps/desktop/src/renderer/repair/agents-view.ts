@@ -9,7 +9,8 @@ import type {
 import { canApplyPreview, hasUndiffableFile, isFileOpen } from "@work-intelligence/desktop-core/shell/agents-state";
 import { formatMessage, shellMessages } from "@work-intelligence/desktop-core/shell/i18n";
 import { setupMessages, type SetupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
-import { button, checkbox, element, fact, focusedId, restoreFocus, section, setLanguage } from "./dom.js";
+import { label, type Tone } from "./badge.js";
+import { button, cardBody, checkbox, element, fact, focusedId, restoreFocus, section, setLanguage } from "./dom.js";
 
 /**
  * The Agent page. Nothing is written by looking at it: "預覽變更" (or "改由桌面 App 管理…") computes a plan and shows its
@@ -35,6 +36,13 @@ function selfTestText(state: AgentsState, text: SetupMessages): string {
   return text.agentsSelfTestNotRun;
 }
 
+function stateTone(state: AgentCardView["state"]): Tone {
+  if (state === "observed-connected") return "success";
+  if (state === "conflict" || state === "runtime-incompatible") return "danger";
+  if (state === "not-configured" || state === "externally-managed") return "neutral";
+  return "attention";
+}
+
 function hookText(card: AgentCardView, text: SetupMessages): string {
   if (card.hookState === undefined) return text.agentOwners[card.hooks];
   if (card.hookState === "installed") return text.agentHookInstalled[card.hookSource ?? "checkout"];
@@ -51,26 +59,21 @@ function agentCard(
   if (card.checkoutDisplay) {
     facts.append(...fact(text.agentsCheckout, element("span", { className: "path", text: card.checkoutDisplay })));
   }
-  const node = element("section", { className: "card agent" }, [
-    element("h2", {}, [
-      text.agentNames[card.id],
-      " ",
-      element("span", { className: "badge", text: text.agentStates[card.state] }),
-    ]),
-    facts,
-  ]);
+  const node = section([text.agentNames[card.id], label(text.agentStates[card.state], stateTone(card.state))], facts);
+  node.classList.add("agent");
   node.dataset.agent = card.id;
-  if (card.checkoutMissing) node.append(element("p", { className: "hint", text: text.agentsCheckoutMissing }));
-  if (card.adoptable) node.append(element("p", { className: "hint", text: text.agentsAdoptHint }));
+  const body = cardBody(node);
+  if (card.checkoutMissing) body.append(element("p", { className: "hint", text: text.agentsCheckoutMissing }));
+  if (card.adoptable) body.append(element("p", { className: "hint", text: text.agentsAdoptHint }));
   if (card.adoptable && card.hookState === "installed" && card.hookSource === "checkout") {
-    node.append(element("p", { className: "hint", text: text.agentsHookCheckoutNote }));
+    body.append(element("p", { className: "hint", text: text.agentsHookCheckoutNote }));
   }
   if (card.notAdoptableReason) {
-    node.append(element("p", { className: "hint", text: `${text.agentsNotAdoptable}${card.notAdoptableReason}` }));
+    body.append(element("p", { className: "hint", text: `${text.agentsNotAdoptable}${card.notAdoptableReason}` }));
   }
   if (card.otherDatabase) {
     const message = card.otherDatabase.fromCheckoutDefault ? text.agentsOtherDatabaseDefault : text.agentsOtherDatabase;
-    node.append(
+    body.append(
       element("p", { className: "hint", text: formatMessage(message, { path: card.otherDatabase.display }) }),
       element("div", { className: "actions" }, [
         button(
@@ -132,7 +135,7 @@ function previewBlock(
     }
     const details = element("details", { className: "file" }, [
       element("summary", {}, [
-        element("span", { className: "badge", text: text.agentsChange[file.change] }),
+        label(text.agentsChange[file.change], file.change === "delete" ? "danger" : "neutral"),
         " ",
         element("span", { className: "path", text: file.display }),
         " ",
@@ -163,7 +166,7 @@ function previewBlock(
   return block;
 }
 
-export function mountAgents(app: HTMLElement, say: (text: string) => void, api: RepairApi): void {
+export function mountAgents(app: HTMLElement, say: (text: string) => void, api: RepairApi): { refresh(): void } {
   let current: AgentsState | undefined;
   let working = false;
   // What belongs to the preview on screen; a new preview starts clean.
@@ -202,12 +205,9 @@ export function mountAgents(app: HTMLElement, say: (text: string) => void, api: 
     drawn = key;
     const text = setupMessages(state.locale);
     const focus = focusedId();
-    setLanguage(state.locale, text.agentsWindowTitle);
+    setLanguage(state.locale);
     const busy = state.busy || working;
-    const blocks: Node[] = [
-      element("h1", { text: text.agentsHeading }),
-      element("p", { className: "intro", text: text.agentsIntro }),
-    ];
+    const blocks: Node[] = [element("p", { className: "intro", text: text.agentsIntro })];
     if (!state.launcherReady) blocks.push(element("p", { className: "hint", text: text.agentsLauncherNotReady }));
     blocks.push(
       ...state.cards.map((card) =>
@@ -286,13 +286,15 @@ export function mountAgents(app: HTMLElement, say: (text: string) => void, api: 
   }
 
   void refresh();
-  const timer = setInterval(() => {
-    // The window moved to another tab's page: this page is gone and stops polling.
-    if (!app.isConnected) {
-      clearInterval(timer);
-      return;
-    }
+  setInterval(() => {
+    // Another tab is open: this view is out of the page (its state stays here) and does not poll until it is back.
+    if (!app.isConnected) return;
     // A preview stays as it was shown; re-reading while it is open would not change the plan, only the cards.
     if (!working) void refresh();
   }, REFRESH_MS);
+  return {
+    refresh: () => {
+      if (!working) void refresh();
+    },
+  };
 }

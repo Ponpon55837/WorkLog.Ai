@@ -69,7 +69,7 @@ async function apply(host: PortViewHost, port: RepairPortSection): Promise<void>
 /** The section's card. `port` is main's snapshot of the setting and the running port. */
 export function portSection(host: PortViewHost, port: RepairPortSection): HTMLElement {
   const { text } = host;
-  const input = element("input");
+  const input = element("input", { className: "text-input" });
   input.type = "text";
   input.inputMode = "numeric";
   input.id = "port-input";
@@ -92,7 +92,10 @@ export function portSection(host: PortViewHost, port: RepairPortSection): HTMLEl
       : [element("p", { className: "hint", text: formatMessage(text.current, { port: String(shown) }) })]),
     element("p", { className: "hint", text: text.intro }),
     ...(port.handoffHeld ? [element("p", { className: "hint", text: text.handoffNote })] : []),
-    element("label", { className: "field" }, [text.inputLabel, " ", input]),
+    element("label", { className: "field" }, [
+      element("span", { className: "field-label", text: text.inputLabel }),
+      input,
+    ]),
     element("div", { className: "actions" }, [
       button(
         applying ? text.applying : text.apply,
