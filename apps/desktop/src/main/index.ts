@@ -44,6 +44,7 @@ import { createBackendController } from "./backend.js";
 import { createChangePort } from "./change-port.js";
 import {
   ASSET_FILES,
+  backendTestEnvironment,
   overrideFromEnvironment,
   defaultPortOverride,
   legacyServiceFileOverride,
@@ -252,6 +253,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     legacyBlocks: (databasePath) => legacy.blocks(databasePath),
     storageRefused: (databasePath) => storagePolicy(storage.last(databasePath)?.risk).refused,
     desktopFacts: (databasePath) => currentFacts(databasePath),
+    backendEnvironment: backendTestEnvironment(environmentInputs),
     reinstallOnRefusal: app.isPackaged,
     notifyError: createErrorNotifier(state),
     whenReady: () => app.whenReady(),

@@ -1,11 +1,18 @@
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { DatabaseInitializationError } from "@work-intelligence/storage";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DesktopChild,
   runDesktopChild,
   type DesktopChildDependencies,
   type DesktopChildHost,
 } from "../../apps/server/src/desktop-child.js";
+import {
+  migrationHoldFromEnvironment,
+  TEST_HOLD_MIGRATION_ENVIRONMENT,
+} from "../../apps/server/src/desktop-child-test-hold.js";
 import { StartApiError, type ApiListening, type StartedApi } from "../../apps/server/src/start-api.js";
 
 // The child's decisions with a fake host and fake dependencies: no process, no socket, no SQLite.
@@ -66,6 +73,7 @@ function setup(overrides: Partial<DesktopChildDependencies> & { listening?: Prom
     preflight: overrides.preflight ?? (async () => ({ status: "ok", identity: IDENTITY, schemaVersion: 33 })),
     probePort: overrides.probePort ?? (async () => ({ free: true })),
     startApi: overrides.startApi ?? (startApi as unknown as DesktopChildDependencies["startApi"]),
+    ...(overrides.holdBeforeOpen ? { holdBeforeOpen: overrides.holdBeforeOpen } : {}),
   };
   const child = new DesktopChild(host, dependencies);
   child.begin();
@@ -641,5 +649,104 @@ describe("runDesktopChild", () => {
 
     expect(await runDesktopChild(quiet)).toBe(0);
     expect(sent).toHaveLength(1);
+  });
+});
+
+describe("the test hold before the store is opened", () => {
+  const directories: string[] = [];
+
+  afterEach(() => {
+    for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
+  });
+
+  function releaseFile(): string {
+    const directory = mkdtempSync(join(tmpdir(), "wi-child-hold-"));
+    directories.push(directory);
+    return join(directory, "release");
+  }
+
+  it("is absent without the variable, and ignores one that is not an absolute path", () => {
+    expect(migrationHoldFromEnvironment({}, true)).toBeUndefined();
+    expect(migrationHoldFromEnvironment({ [TEST_HOLD_MIGRATION_ENVIRONMENT]: "" }, true)).toBeUndefined();
+    expect(
+      migrationHoldFromEnvironment({ [TEST_HOLD_MIGRATION_ENVIRONMENT]: "relative/release" }, true),
+    ).toBeUndefined();
+  });
+
+  it("is ignored outside a test build even when the variable names an absolute path", async () => {
+    const release = releaseFile();
+    expect(migrationHoldFromEnvironment({ [TEST_HOLD_MIGRATION_ENVIRONMENT]: release }, false)).toBeUndefined();
+    expect(existsSync(`${release}.held`)).toBe(false);
+  });
+
+  it("writes the pid beside the release file and waits until the release file exists", async () => {
+    const release = releaseFile();
+    const hold = migrationHoldFromEnvironment({ [TEST_HOLD_MIGRATION_ENVIRONMENT]: release }, true, 5);
+    let released = false;
+    const held = hold?.(() => true).then(() => (released = true));
+
+    await vi.waitFor(() => expect(existsSync(`${release}.held`)).toBe(true));
+    expect(readFileSync(`${release}.held`, "utf8")).toBe(String(process.pid));
+    expect(released).toBe(false);
+    writeFileSync(release, "");
+    await held;
+    expect(released).toBe(true);
+  });
+
+  it("stops waiting when the start was abandoned", async () => {
+    const release = releaseFile();
+    const hold = migrationHoldFromEnvironment({ [TEST_HOLD_MIGRATION_ENVIRONMENT]: release }, true, 5);
+    let starting = true;
+    const held = hold?.(() => starting);
+
+    await vi.waitFor(() => expect(existsSync(`${release}.held`)).toBe(true));
+    starting = false;
+    await held;
+    expect(existsSync(release)).toBe(false);
+  });
+
+  it("keeps the child from opening the store until the hold ends", async () => {
+    let release: () => void = () => undefined;
+    const holdBeforeOpen = vi.fn(() => new Promise<void>((resolve) => (release = resolve)));
+    const { child, sent, startApi } = setup({ holdBeforeOpen });
+
+    const starting = child.handle(START);
+    await vi.waitFor(() => expect(holdBeforeOpen).toHaveBeenCalledTimes(1));
+    expect(startApi).not.toHaveBeenCalled();
+    release();
+    await starting;
+
+    expect(startApi).toHaveBeenCalledTimes(1);
+    expect(sent.at(-1)).toMatchObject({ type: "ready" });
+  });
+
+  it("never opens the store when a shutdown arrives during the hold", async () => {
+    const holdBeforeOpen = vi.fn(async (stillStarting: () => boolean) => {
+      while (stillStarting()) await new Promise((resolve) => setTimeout(resolve, 2));
+    });
+    const { child, sent, startApi, exits } = setup({ holdBeforeOpen });
+
+    const starting = child.handle(START);
+    await vi.waitFor(() => expect(holdBeforeOpen).toHaveBeenCalledTimes(1));
+    await child.handle({ type: "shutdown" });
+    await starting;
+
+    expect(startApi).not.toHaveBeenCalled();
+    expect(sent.map((message) => message.type)).toEqual(["hello", "stopped"]);
+    expect(exits).toEqual([0]);
+  });
+
+  it("reports a hold that fails as a start that needs repair", async () => {
+    const { child, sent, exits, startApi } = setup({
+      holdBeforeOpen: async () => {
+        throw new Error("synthetic hold failure");
+      },
+    });
+
+    await child.handle(START);
+
+    expect(startApi).not.toHaveBeenCalled();
+    expect(sent.at(-1)).toMatchObject({ type: "failed", code: "REPAIR_REQUIRED" });
+    expect(exits).toEqual([1]);
   });
 });

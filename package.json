@@ -1,6 +1,6 @@
 {
   "name": "work-intelligence",
-  "version": "1.6.51",
+  "version": "1.6.52",
   "license": "MIT",
   "private": true,
   "description": "Local-first developer work intelligence MVP",
@@ -53,6 +53,7 @@
     "test:coverage": "pnpm --filter @work-intelligence/core test:coverage && pnpm --filter @work-intelligence/project-policy test:coverage && pnpm --filter @work-intelligence/shared test:coverage && pnpm --filter @work-intelligence/desktop-core test:coverage && pnpm --filter @work-intelligence/agent-setup test:coverage && pnpm --filter @work-intelligence/schema test:coverage && pnpm --filter @work-intelligence/storage test:coverage && pnpm --filter @work-intelligence/server test:coverage && pnpm --filter @work-intelligence/mcp test:coverage && pnpm --filter @work-intelligence/web test:coverage",
     "test:e2e": "pnpm build && node scripts/run-e2e.mjs",
     "test:performance": "pnpm exec node packages/storage/bench/read-paths.bench.mjs 5000 --check && pnpm exec node apps/server/bench/project-transfer.bench.mjs --check",
+    "test:sqlite-stress": "pnpm exec vitest run --root . --config tests/stress/vitest.config.ts --disableConsoleIntercept",
     "test:retrieval-quality": "pnpm exec vitest run --root . --config packages/storage/vitest.config.ts tests/storage/retrieval-quality.test.ts --disableConsoleIntercept",
     "test:response-size": "pnpm --filter @work-intelligence/mcp exec vitest run --root ../.. --config apps/mcp/vitest.config.ts tests/mcp/response-size.test.ts --disableConsoleIntercept",
     "typecheck": "pnpm -r typecheck && pnpm run typecheck:e2e",

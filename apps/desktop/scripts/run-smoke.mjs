@@ -46,6 +46,7 @@ function main() {
         "node",
         "--out",
         runtimeRoot,
+        "--desktop-test-build",
       ],
       { cwd: repositoryRoot },
     );

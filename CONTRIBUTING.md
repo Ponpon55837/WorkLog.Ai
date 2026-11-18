@@ -31,6 +31,8 @@ pnpm dev
 
 任何修改 `packages/`、`apps/server`、`apps/mcp` 前，先讀 [worklog-backend skill](.agents/skills/worklog-backend/SKILL.md)：service 分工、migration 與交易、錯誤代碼、MCP 工具定義、效能規則（先量測再優化、每個讀取路徑都要有效能門檻），以及新資料表或欄位必須納入匯出、匯入與專案刪除的規則。
 
+每個新 migration 都需要「前一版 schema」的升級樣本：把發行該版的 commit 加進 `scripts/generate-upgrade-fixtures.mjs` 的 `SOURCES`，手動執行 `node scripts/generate-upgrade-fixtures.mjs`（需要網路），再提交 `tests/fixtures/upgrade/` 下新的 `schema-<N>.sqlite` 與 `manifest.json`。`tests/storage/upgrade-samples.test.ts` 的守門測試會在最新樣本落後 `LATEST_SCHEMA_VERSION` 時失敗。
+
 ## 實作規則
 
 - 新邏輯放在獨立模組，`store.ts` 只保留轉接與既有 public API 相容層。

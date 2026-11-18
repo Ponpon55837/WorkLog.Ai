@@ -101,6 +101,14 @@ MCP 啟動時遇到這三種情況，不會一直保留錯誤：資料庫已是�
 
 CLI 的 `db:restore` 不再提供 `--force` 略過使用中檢查；資料庫被占用時，還原會停止。請先關閉所有 server 與 MCP 連線並等待 Node 程序退出，再重試。不要在 API 或 MCP 仍開啟資料庫時手動覆蓋 SQLite 檔案。
 
+## 還原時顯示 `RESTORE_VERIFY_FAILED`
+
+`pnpm db:restore` 取代現行資料庫之前，會先把備份升級到暫存副本，並檢查它的完整性與外鍵（`quick_check`、`foreign_key_check`）。檢查未通過時會顯示「還原用的資料庫副本在升級後未通過完整性檢查；目前的資料庫沒有被取代。請改用其他備份檔。」
+
+- 現行資料庫沒有被改變，已保存的資料都還在；暫存副本已被移除，不需要清理。
+- 請改用其他的備份檔再執行 `pnpm db:restore <檔案>`。可用的備份可在 Web UI 的「專案 → 資料備份」查看，或到備份資料夾（預設為資料庫旁的 `backups/`，或 `WORK_INTELLIGENCE_BACKUP_DIR` 指定的位置）找到。
+- 桌面 App 目前沒有還原流程，這個錯誤只會出現在 `pnpm db:restore`。
+
 ## `pnpm db:maintain` 顯示資料庫使用中
 
 維護會執行 `VACUUM` 並重建搜尋索引，需要獨占資料庫。只要 API server 或 MCP 還開著資料庫（即使閒置），就無法取得獨占鎖，維護會在做任何變更前停止：

@@ -55,6 +55,7 @@ tests/<package>/   all tests live here, never beside src
 
 - Writes that must be atomic run inside `runImmediateTransaction(db, () => …)`. Re-check preconditions inside the transaction (the row may have changed since the pre-check).
 - Schema changes are a new entry at the end of `MIGRATIONS` in `schema-migrations.ts` (never edit a shipped migration). Migrations run in one transaction after an automatic pre-migration backup. Add a test in `tests/storage/schema-migrations.test.ts` that upgrades from the previous version.
+- Every new migration N+1 needs the upgrade sample of schema N: add the releasing commit to `SOURCES` in `scripts/generate-upgrade-fixtures.mjs`, run `node scripts/generate-upgrade-fixtures.mjs` (by hand, needs network), and commit the new `tests/fixtures/upgrade/schema-<N>.sqlite` and `manifest.json`. The guard in `tests/storage/upgrade-samples.test.ts` fails while the newest sample is older than `LATEST_SCHEMA_VERSION`. Never open a committed fixture in place (WAL creates `-wal`/`-shm`); copy it to a temp dir first.
 - Existing rows need a sensible value: give new columns a `DEFAULT` and backfill in the migration when the default is wrong for old data.
 
 ### Every new table or column is project data unless proven otherwise

@@ -41,9 +41,10 @@ function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-function bundle(app, entries, outdir) {
+function bundle(app, entries, outdir, define = {}) {
   return build({
     ...bundleOptions,
+    define: { ...bundleOptions.define, ...define },
     entryPoints: entries.map((name) => join(repositoryRoot, `apps/${app}/src/${name}.ts`)),
     outdir,
   });
@@ -136,7 +137,15 @@ function directoryBytes(directory) {
   return filesUnder(directory).reduce((total, file) => total + statSync(file).size, 0);
 }
 
-export async function buildStandalone(outputDirectory = join(repositoryRoot, "dist/standalone")) {
+/**
+ * `desktopTestBuild` (default false) sets `__WI_DESKTOP_TEST_BUILD__` in the server bundle, which turns on the desktop
+ * child's test-only migration hold. Only the desktop smoke runtime passes true; the release package and the runtime a
+ * packaged App ships never do.
+ */
+export async function buildStandalone(
+  outputDirectory = join(repositoryRoot, "dist/standalone"),
+  { desktopTestBuild = false } = {},
+) {
   const rootPackage = readJson(join(repositoryRoot, "package.json"));
   const version = rootPackage.version;
   const webSource = join(repositoryRoot, "apps/web/dist");
@@ -153,7 +162,9 @@ export async function buildStandalone(outputDirectory = join(repositoryRoot, "di
   // libexec keeps the repository layout: APP_VERSION, the agent resources and the doctor read paths relative to
   // the bundles, and libexec/package.json is where the bundled APP_VERSION finds the version.
   const libexec = join(packageDirectory, "libexec");
-  await bundle("server", SERVER_ENTRIES, join(libexec, "apps/server/dist"));
+  await bundle("server", SERVER_ENTRIES, join(libexec, "apps/server/dist"), {
+    __WI_DESKTOP_TEST_BUILD__: String(desktopTestBuild),
+  });
   await bundle("mcp", MCP_ENTRIES, join(libexec, "apps/mcp/dist"));
   writeFileSync(
     join(libexec, "package.json"),

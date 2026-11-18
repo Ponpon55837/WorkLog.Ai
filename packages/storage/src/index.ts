@@ -30,9 +30,11 @@ export {
   deleteDatabaseBackup,
   isSafeDatabaseBackupFileName,
   restoreDatabase,
+  RestoreDatabaseError,
   writeSnapshot,
   type BackupRetentionOptions,
   type ExportOptions,
+  type RestoreDatabaseErrorCode,
   type RestoreDatabaseResult,
   type RestorePathRemap,
 } from "./backup.js";

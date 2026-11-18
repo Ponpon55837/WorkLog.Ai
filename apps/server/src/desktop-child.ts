@@ -46,7 +46,20 @@ export interface DesktopChildDependencies {
   copyDatabase?: (source: string, target: string) => Promise<DatabaseCopyResult>;
   probePort: (port: number) => Promise<LoopbackPortProbe>;
   startApi: (options: StartApiOptions) => StartedApi;
+  /**
+   * Test seam of the desktop smoke tests: resolves when the child may open the store (and so migrate). It is given a
+   * predicate that turns false once the start was abandoned, so a held child still shuts down. Absent in production:
+   * see desktop-child-test-hold.ts.
+   */
+  holdBeforeOpen?: (stillStarting: () => boolean) => Promise<void>;
 }
+
+/**
+ * Set by esbuild when the desktop runtime is bundled (scripts/build-standalone.mjs, `desktopTestBuild`): true only for
+ * the smoke-test runtime (`scripts/desktop-runtime-spike/build.mjs --desktop-test-build`), false in every other bundle,
+ * including the one a packaged App ships. A plain `tsc`/vitest/tsx run defines nothing, so it reads as false.
+ */
+declare const __WI_DESKTOP_TEST_BUILD__: boolean | undefined;
 
 /** A failure the parent can act on: the error code and a short detail that carries no path. */
 interface ChildFailure {
@@ -134,6 +147,15 @@ const defaultDependencies: DesktopChildDependencies = {
   copyDatabase: copyDatabaseConsistently,
   probePort: probeLoopbackPort,
   startApi,
+  // The condition folds to a constant in a bundle, so a production bundle drops this branch together with the hold
+  // module it imports (and the variable name inside it); the module is loaded only in the smoke-test runtime.
+  holdBeforeOpen:
+    typeof __WI_DESKTOP_TEST_BUILD__ !== "undefined" && __WI_DESKTOP_TEST_BUILD__
+      ? async (stillStarting) => {
+          const { migrationHoldFromEnvironment } = await import("./desktop-child-test-hold.js");
+          await migrationHoldFromEnvironment(process.env, true)?.(stillStarting);
+        }
+      : undefined,
 };
 
 /**
@@ -275,6 +297,16 @@ export class DesktopChild {
     if (this.phase !== "starting") return;
     if (!probe.free) {
       return this.fail({ code: portFailureCode(probe.code), detail: `listen failed (${probe.code})` });
+    }
+    const hold = this.dependencies.holdBeforeOpen;
+    // Without the seam (always, in production) nothing is awaited here, so the start's timing is unchanged.
+    if (hold) {
+      try {
+        await hold(() => this.phase === "starting");
+      } catch {
+        return this.fail({ code: "REPAIR_REQUIRED", detail: "the test hold failed" });
+      }
+      if (this.phase !== "starting") return;
     }
     let api: StartedApi | undefined;
     try {

@@ -97,6 +97,8 @@ async function main() {
   const options = parseSpikeArguments(process.argv.slice(2), {
     "node-version": { type: "string", default: DEFAULT_NODE_VERSION },
     "electron-version": { type: "string", default: DEFAULT_ELECTRON_VERSION },
+    // Smoke tests only: bundles the backend child's test-only migration hold. Never set for a packaged App.
+    "desktop-test-build": { type: "boolean", default: false },
   });
   const { installRuntime, commitCurrent } = await import(
     pathToFileURL(join(repositoryRoot, "packages/desktop-core/dist/index.js")).href
@@ -116,7 +118,9 @@ async function main() {
     prepareOutputRoot(options.root);
     const stage = ensureDirectory(join(options.root, "runtimes", runtimeId));
     await placeRuntime(prepared, stage);
-    const standalone = await buildStandalone(join(workDirectory, "standalone"));
+    const standalone = await buildStandalone(join(workDirectory, "standalone"), {
+      desktopTestBuild: options["desktop-test-build"],
+    });
     cpSync(standalone.packageDirectory, join(stage, "app"), { recursive: true });
     await bundleLauncher(join(stage, "launcher.mjs"));
 
