@@ -74,6 +74,9 @@ export function mcpRuntimeStatusVisual(status: SystemStatus["mcp"]): StatusVisua
   if (status.restartRequired) return visual("attention", TriangleAlert, "status.reconnectNeeded");
   if (!status.monitoringAvailable) return visual("attention", CircleAlert, "status.cannotConfirm");
   if (status.updateAvailable) return visual("accent", CircleAlert, "status.updateAvailable");
+  if (status.activeProcesses === 0 && status.agentObservedWithoutLease) {
+    return visual("attention", CircleAlert, "status.agentSeenButNoConnectionRecord");
+  }
   if (status.activeProcesses === 0) return visual("neutral", CircleDashed, "status.noConnectionsToMonitorYet");
   return visual("success", CircleCheck, "status.currentVersion");
 }

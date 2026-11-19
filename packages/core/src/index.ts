@@ -3678,6 +3678,11 @@ export interface SystemStatus {
     updateAvailableProcesses: number;
     updateAvailable?: boolean;
     message?: string;
+    /**
+     * An Agent host has been observed connecting (its observation file) yet no live MCP lease is visible here: either the
+     * Agent has disconnected since, or its lease is kept somewhere this backend does not look.
+     */
+    agentObservedWithoutLease?: boolean;
   };
   /** Read-only snapshots of registered Agent clients, skill copies, and reminder hooks. */
   agents: SystemAgentConnections;

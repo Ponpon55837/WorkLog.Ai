@@ -20,6 +20,8 @@ This minor release wires the gaps 1.6.58's guards listed, so every setting, mess
 
 ### Fixed
 
+- **MCP connection count stayed 0 on Windows.** 1.6.58 made the launcher name one lease scope for the backend and for an Agent's MCP, but the backend is not started through the launcher, so it never got the variable and counted leases in a different directory. The App now sets the scope for the backend too, and a process inside `<App root>/runtimes/<id>/` finds its App root from its own location when no variable is set (an older launcher, a client that starts the MCP another way). When an Agent has been seen connecting but no live record is visible, the Web status says so instead of "no connections to monitor yet".
+- **Web status layout.** The note under the start-at-login rows ("change it in the desktop App's Settings tab") had no side padding and touched the card edge; it now lines up with the rows in light and dark and at narrow widths.
 - **Concurrent settings writes.** All settings changes go through one serial queue that writes the file before it updates memory, so two overlapping changes cannot overwrite each other's fields.
 - **Windows startup entry.** The App no longer re-registers its login item at every start when the system already holds a matching entry, so a "disabled" mark set in Windows' startup settings is not cleared.
 

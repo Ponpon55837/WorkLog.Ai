@@ -19,6 +19,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import {
   computeMcpBuildIdentity,
   getMcpRestartStatus,
+  appRootOf,
   getMcpRuntimeDirectory,
   getMcpRuntimeStatus,
   readMcpBuildIdentity,
@@ -851,6 +852,30 @@ describe("MCP lease scope under the desktop App", () => {
 
     const status = getMcpRuntimeStatus(backendRoot, readMcpBuildIdentity(backendRoot), { now, environment: {} });
     expect(status.activeProcesses).toBe(0);
+  });
+
+  it("finds the App root from the runtime's own location when no launcher named it", () => {
+    const { backendRoot, mcpRoot, appRoot } = twoRuntimes();
+    // The pointer file marks the root as the App's, which a repository checkout under a folder named runtimes lacks.
+    writeFileSync(join(appRoot, "current"), "rt-new\n");
+    expect(appRootOf(backendRoot)).toBe(appRoot);
+
+    const build = readMcpBuildIdentity(mcpRoot);
+    if (!build) throw new Error("The synthetic runtime has no build identity.");
+    cleanups.push(registerMcpProcess(mcpRoot, build, { now: () => now, environment: {} }));
+
+    // The MCP that an older launcher or a plain client started (no variable) and the backend (no variable either).
+    expect(getMcpRuntimeDirectory(backendRoot, {})).toBe(getMcpRuntimeDirectory(mcpRoot, {}));
+    expect(getMcpRuntimeStatus(backendRoot, readMcpBuildIdentity(backendRoot), { now, environment: {} })).toMatchObject(
+      {
+        activeProcesses: 1,
+      },
+    );
+  });
+
+  it("does not take a folder named runtimes without the App's pointer for an App root", () => {
+    const { backendRoot } = twoRuntimes();
+    expect(appRootOf(backendRoot)).toBeUndefined();
   });
 
   it("hashes one Windows install to one scope however its path is spelled", () => {

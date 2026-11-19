@@ -194,6 +194,11 @@ async function systemStatus({ store, response, services }: RouteContext): Promis
   } catch {
     // Report backup metrics as unavailable without exposing filesystem details.
   }
+  const mcp = services.mcpRuntimeStatus();
+  const agents = services.agentConnections();
+  const agentObserved = [agents.codex?.observation, agents.claudeCode?.observation].some(
+    (state) => state === "current" || state === "stale",
+  );
   const automaticBackup = backupSnapshot.backups.find((backup) => backup.kind === "automatic") ?? null;
   const status: SystemStatus = {
     version: APP_VERSION,
@@ -219,8 +224,8 @@ async function systemStatus({ store, response, services }: RouteContext): Promis
     maintenance: database.maintenance ?? null,
     userService: await services.userServiceStatus(),
     ...(services.desktop ? { desktop: services.desktop.status } : {}),
-    mcp: services.mcpRuntimeStatus(),
-    agents: services.agentConnections(),
+    mcp: mcp.activeProcesses === 0 && agentObserved ? { ...mcp, agentObservedWithoutLease: true } : mcp,
+    agents,
     sseConnections: services.eventClientCount(),
     sqlite: getSqliteRuntimeStatus(),
   };

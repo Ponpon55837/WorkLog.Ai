@@ -305,10 +305,14 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
               }}</template>
             </UiBoxRow>
           </template>
-          <p v-if="desktopLoginItemMismatched" class="system-status__row-note" data-testid="app-login-item-mismatch">
+          <p
+            v-if="desktopLoginItemMismatched"
+            class="system-status__row-note system-status__box-note"
+            data-testid="app-login-item-mismatch"
+          >
             {{ t("systemStatus.appLoginItemMismatch") }}
           </p>
-          <p v-if="desktopLoginItem?.supported" class="system-status__row-note">
+          <p v-if="desktopLoginItem?.supported" class="system-status__row-note system-status__box-note">
             {{ t("systemStatus.appLoginItemChangeInApp") }}
           </p>
           <UiBoxRow :title="t('systemStatus.appDatabase')">
@@ -388,6 +392,13 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
             <template #labels><StatusLabel :status="mcpReconnectStatusVisual(status.mcp)" /></template>
             <template #meta>{{ status.mcp.message ?? t("systemStatus.usesTheMcpHeartbeatTo") }}</template>
           </UiBoxRow>
+          <p
+            v-if="status.mcp.activeProcesses === 0 && status.mcp.agentObservedWithoutLease"
+            class="system-status__row-note system-status__box-note"
+            data-testid="mcp-agent-seen-without-lease"
+          >
+            {{ t("systemStatus.agentSeenWithoutLeaseNote") }}
+          </p>
           <UiBoxRow
             :title="t('systemStatus.processesWithAnUpdateAvailable')"
             :meta="
@@ -532,6 +543,14 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
   margin: var(--space-1) 0 0;
   color: var(--fg-muted);
   font-size: var(--text-sm);
+}
+
+/* A note placed between a box's rows rather than inside one: it takes the rows' own side padding. */
+.system-status__box-note {
+  margin: 0;
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  border-top: 1px solid var(--border-muted);
+  overflow-wrap: anywhere;
 }
 
 .system-status__location {

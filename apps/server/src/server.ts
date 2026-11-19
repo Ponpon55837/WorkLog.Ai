@@ -147,6 +147,8 @@ export interface ApiHandlerOptions {
   webDirectory?: string;
   /** Install root used for the shared MCP runtime registry; injectable for isolated tests. */
   repositoryRoot?: string;
+  /** Shared MCP connection status; injectable so API tests need no lease files. */
+  mcpRuntimeStatus?: () => ReturnType<typeof getMcpRuntimeStatus>;
   /** Read-only Agent diagnostics; injectable so API tests never inspect real user settings. */
   agentConnections?: () => SystemAgentConnections;
   /** Read-only login-service status; injectable so API tests never query the host service manager. */
@@ -334,7 +336,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
     pickFolder,
     startEventStream,
     eventClientCount: () => eventClients.size,
-    mcpRuntimeStatus: () => getMcpRuntimeStatus(repositoryRoot),
+    mcpRuntimeStatus: options.mcpRuntimeStatus ?? (() => getMcpRuntimeStatus(repositoryRoot)),
     agentConnections: inspectConnections,
     userServiceStatus: inspectUserService,
     ...(options.desktop ? { desktop: createDesktopRouteServices(options.desktop, store.backupDirectory) } : {}),
