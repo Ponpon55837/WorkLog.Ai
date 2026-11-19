@@ -322,6 +322,24 @@ describe("ensureBundledRuntime: permissions are not a reason to reinstall", () =
     await fs.rm(path.join(installedDirectory(), ".verified.json"), { force: true });
   }
 
+  it("skips the ACL read of the next start while the stamp the install left is still valid (M-09)", async () => {
+    const safeReads = vi.fn(async (paths: readonly string[]) => ({
+      currentUserSid: "S-1-5-21-1-2-3-1001",
+      sddls: paths.map(() => "O:BAG:BAD:PAI(A;OICI;FA;;;BA)"),
+    }));
+    await ensureBundledRuntime(root, bundleRoot, options({ verify: { policy: WIN, aclReader: { read: safeReads } } }));
+    expect(safeReads).toHaveBeenCalled();
+
+    const unsafeReads = vi.fn(unsafe.read);
+    const second = await ensureBundledRuntime(
+      root,
+      bundleRoot,
+      options({ verifyInstalled: true, verify: { policy: WIN, aclReader: { read: unsafeReads } } }),
+    );
+    expect(second).toMatchObject({ status: "already-current", aclReads: 0 });
+    expect(unsafeReads).not.toHaveBeenCalled();
+  });
+
   it("propagates unsafe permissions of an installed runtime without touching it", async () => {
     await ensureBundledRuntime(root, bundleRoot, options());
     await forgetVerifiedCache();
