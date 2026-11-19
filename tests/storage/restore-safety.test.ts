@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -25,6 +25,10 @@ const failures = vi.hoisted(() => ({
   locked: [] as string[],
   /** Every path the restore asked to remove (so the order of removals against the replacement can be checked). */
   removed: [] as string[],
+  /** Paths whose removal fails, like a file a Windows scanner holds open. */
+  unremovable: [] as string[],
+  /** Paths that hold stale content right before they are emptied (SQLite deletes a WAL when its last connection closes). */
+  stale: [] as string[],
 }));
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -33,7 +37,14 @@ vi.mock("node:fs", async (importOriginal) => {
     ...actual,
     rmSync: vi.fn((...args: Parameters<typeof actual.rmSync>) => {
       failures.removed.push(String(args[0]));
+      if (failures.unremovable.includes(String(args[0]))) throw Object.assign(new Error("EBUSY"), { code: "EBUSY" });
       return actual.rmSync(...args);
+    }),
+    truncateSync: vi.fn((...args: Parameters<typeof actual.truncateSync>) => {
+      if (failures.stale.includes(String(args[0])))
+        actual.writeFileSync(args[0], "stale frames that must not be replayed");
+      if (failures.locked.includes(String(args[0]))) throw Object.assign(new Error("EBUSY"), { code: "EBUSY" });
+      return actual.truncateSync(...args);
     }),
     writeFileSync: vi.fn((...args: Parameters<typeof actual.writeFileSync>) => {
       if (failures.locked.includes(String(args[0]))) throw Object.assign(new Error("EBUSY"), { code: "EBUSY" });
@@ -58,6 +69,8 @@ const tempDirs: string[] = [];
 afterEach(() => {
   failures.rename = undefined;
   failures.locked = [];
+  failures.unremovable = [];
+  failures.stale = [];
   failures.removed = [];
   for (const store of stores.splice(0)) store.close();
   for (const directory of tempDirs.splice(0)) rmSync(directory, { recursive: true, force: true });
@@ -276,6 +289,17 @@ describe("a restore that cannot finish never loses data", () => {
     expect(failures.removed).toEqual(expect.arrayContaining([`${databasePath}-wal`, `${databasePath}-shm`]));
     expect(existsSync(`${databasePath}-wal`)).toBe(false);
     expect(existsSync(`${databasePath}-shm`)).toBe(false);
+    expect(projectNames(databasePath)).toEqual(["Apiary", "Beehive"]);
+  });
+
+  it("leaves an emptied, not a stale, side file when it cannot be removed", () => {
+    const { store, databasePath, snapshot } = fixture();
+    closeStore(store);
+    failures.stale = [`${databasePath}-wal`];
+    failures.unremovable = [`${databasePath}-wal`];
+    restoreDatabase({ source: snapshot, databasePath, initializeStaging });
+    expect(existsSync(`${databasePath}-wal`)).toBe(true);
+    expect(statSync(`${databasePath}-wal`).size).toBe(0);
     expect(projectNames(databasePath)).toEqual(["Apiary", "Beehive"]);
   });
 

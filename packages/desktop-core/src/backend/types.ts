@@ -39,7 +39,7 @@ export interface BackendSupervisorDependencies {
    * Ends the process `pid` together with every process it started. Windows only, and only for the final kill there:
    * `kill()` is TerminateProcess, which leaves a child of the child (the import worker) running as an orphan.
    */
-  killTree?(pid: number): void;
+  killTree?(pid: number): void | Promise<void>;
   /** Creates `path` (and its parents) when it is missing; used for the fixed working directory before every spawn. */
   ensureDirectory?(path: string): Promise<void>;
   setTimer(callback: () => void, ms: number): unknown;

@@ -46,15 +46,18 @@ export function createNodeBackendDependencies(options: NodeBackendDependenciesOp
       return { ...plan, args: [...BACKEND_NODE_FLAGS, ...plan.args] };
     },
     spawn: (command, args, spawnOptions) => spawn(command, [...args], spawnOptions),
-    killTree: (pid) => {
-      // /T takes the whole tree, /F does not ask the processes. Fire and forget: the exit event is the proof.
-      const killer = spawn(windowsSystemTool("taskkill.exe"), ["/PID", String(pid), "/T", "/F"], {
-        stdio: "ignore",
-        windowsHide: true,
-      });
-      killer.on("error", () => undefined);
-      killer.unref();
-    },
+    killTree: (pid) =>
+      // /T takes the whole tree, /F does not ask the processes. Resolves when taskkill ends (or cannot start): the
+      // caller waits, so the root process is still there for it to walk from.
+      new Promise<void>((resolve) => {
+        const killer = spawn(windowsSystemTool("taskkill.exe"), ["/PID", String(pid), "/T", "/F"], {
+          stdio: "ignore",
+          windowsHide: true,
+        });
+        killer.on("error", () => resolve());
+        killer.on("close", () => resolve());
+        killer.unref();
+      }),
     isPortFree: async (port) => (await probeLoopbackPort(port)).free,
     probePort: probeLoopbackPort,
     fetchHealth: async (url, headers, timeoutMs) => {

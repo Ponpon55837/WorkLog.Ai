@@ -1007,18 +1007,20 @@ export class BackendSupervisor {
     if (!info) return;
     this.log("[backend] the backend stopped answering health checks; ending it");
     const recentOutput = active.output.lines();
-    void this.stopCurrent().then((report) => {
-      this.notify(this.exitListeners, (listener) =>
-        listener({
-          code: "CHILD_EXITED",
-          detail: "the backend stopped answering health checks",
-          exitCode: report.exitCode,
-          signal: report.signal,
-          info,
-          recentOutput,
-        }),
-      );
-    });
+    void this.stopCurrent()
+      .then((report) => {
+        this.notify(this.exitListeners, (listener) =>
+          listener({
+            code: "CHILD_EXITED",
+            detail: "the backend stopped answering health checks",
+            exitCode: report.exitCode,
+            signal: report.signal,
+            info,
+            recentOutput,
+          }),
+        );
+      })
+      .catch(() => undefined);
   }
 
   private watchForUnexpectedExit(active: ActiveChild): void {
@@ -1061,7 +1063,7 @@ export class BackendSupervisor {
     if (!exit) {
       forced = true;
       // Windows: the tree first, so the import worker does not outlive its parent and keep writing a database that was switched away.
-      if (platform === "win32" && child.pid !== undefined) this.tryKillTree(child.pid);
+      if (platform === "win32" && child.pid !== undefined) await this.tryKillTree(child.pid);
       this.tryKill(child, platform === "win32" ? undefined : "SIGKILL");
       exit = await this.within(channel.exited, this.timeouts.killMs);
     }
@@ -1078,9 +1080,13 @@ export class BackendSupervisor {
     };
   }
 
-  private tryKillTree(pid: number): void {
+  /**
+   * Ends the tree and waits for the tool to finish (bounded): once the root is gone `taskkill /T` finds no process to
+   * walk from, so the plain kill must come after it, not beside it.
+   */
+  private async tryKillTree(pid: number): Promise<void> {
     try {
-      this.deps.killTree?.(pid);
+      await this.within(Promise.resolve(this.deps.killTree?.(pid)), this.timeouts.killMs);
     } catch {
       // The plain kill that follows still ends the child itself.
     }

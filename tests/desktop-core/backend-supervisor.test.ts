@@ -746,6 +746,35 @@ describe("stop", () => {
     expect(harness.killTree).toHaveBeenCalledExactlyOnceWith(harness.children[0]?.pid);
   });
 
+  it("waits for the tree kill to finish before the plain Windows kill, so the root is still there to walk from", async () => {
+    let finishTree: () => void = () => undefined;
+    const events: string[] = [];
+    const harness = makeHarness({
+      platform: "win32",
+      scripts: [{ onShutdown: "ignore" }],
+      killTree: () => {
+        events.push("tree-start");
+        return new Promise<void>((resolve) => {
+          finishTree = () => {
+            events.push("tree-done");
+            resolve();
+          };
+        });
+      },
+    });
+    await harness.supervisor.start(startRequest());
+    const child = harness.children[0];
+    const originalKill = child?.kill.bind(child);
+    if (child) child.kill = ((signal?: NodeJS.Signals) => (events.push("kill"), originalKill?.(signal))) as never;
+    const stopping = harness.supervisor.stop();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(events).toEqual(["tree-start"]);
+    finishTree();
+    await vi.advanceTimersByTimeAsync(10);
+    await stopping;
+    expect(events).toEqual(["tree-start", "tree-done", "kill"]);
+  });
+
   it("never ends a process tree on POSIX, and not after a graceful stop on Windows", async () => {
     const posix = makeHarness({ scripts: [{ onShutdown: "ignore", onSigterm: "ignore" }] });
     await posix.supervisor.start(startRequest());

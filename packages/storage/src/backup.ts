@@ -12,8 +12,8 @@ import {
   renameSync,
   rmSync,
   statSync,
+  truncateSync,
   unlinkSync,
-  writeFileSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -653,8 +653,8 @@ function assertRestoredCopyHealthy(db: DatabaseSync): void {
  */
 function emptySideFile(path: string): boolean {
   try {
-    // "r+" never creates the file: there is nothing to empty when the database was closed cleanly.
-    writeFileSync(path, "", { flag: "r+" });
+    // Truncating never creates the file: there is nothing to empty when the database was closed cleanly.
+    truncateSync(path, 0);
     return true;
   } catch (error) {
     return (error as { code?: unknown } | null)?.code === "ENOENT";

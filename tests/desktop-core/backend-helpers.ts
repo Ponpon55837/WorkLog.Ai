@@ -171,7 +171,7 @@ export interface HarnessOptions {
   /** Makes the working directory exist; absent, the supervisor creates nothing. */
   ensureDirectory?: (path: string) => Promise<void>;
   /** Stands in for the Windows process-tree kill; the harness records its calls. */
-  killTree?: (pid: number) => void;
+  killTree?: (pid: number) => void | Promise<void>;
 }
 
 /** The proof a genuine child with `runId` would send for the request's challenge. */
