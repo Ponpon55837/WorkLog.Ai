@@ -45,6 +45,10 @@ export interface ChildScript {
   inspect?: Record<string, unknown> | false;
   /** The answer to `restore-database`; false stays silent, "exit" ends the child without an answer. */
   restore?: Record<string, unknown> | false | "exit";
+  /** The answer to `backup-roots`; false stays silent, "exit" ends the child without an answer. */
+  roots?: Record<string, unknown> | false | "exit";
+  /** The answer to `maintain-database`; false stays silent, "exit" ends the child without an answer. */
+  maintain?: Record<string, unknown> | false | "exit";
 }
 
 /** A `ChildProcess` stand-in driven by a script, with real streams and EventEmitter semantics. */
@@ -139,6 +143,12 @@ export class FakeChild extends EventEmitter {
     } else if (message.type === "restore-database" && this.script.restore !== false) {
       if (this.script.restore === "exit") this.exit(1);
       else this.say({ type: "restore-result", status: "ok", ...this.script.restore });
+    } else if (message.type === "backup-roots" && this.script.roots !== false) {
+      if (this.script.roots === "exit") this.exit(1);
+      else this.say({ type: "backup-roots-result", status: "ok", roots: [], ...this.script.roots });
+    } else if (message.type === "maintain-database" && this.script.maintain !== false) {
+      if (this.script.maintain === "exit") this.exit(1);
+      else this.say({ type: "maintain-result", mode: message.mode, status: "ok", ...this.script.maintain });
     } else if (message.type === "shutdown") {
       const action = this.script.onShutdown ?? { exit: 0 };
       if (action !== "ignore") this.exit(action.exit);

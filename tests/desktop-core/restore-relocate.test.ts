@@ -58,3 +58,25 @@ describe("restore relocation", () => {
     expect(list.map((entry) => entry.from)).toEqual(["/old/work/nested/app", "/old/work"]);
   });
 });
+
+describe("restore relocation when a probe throws", () => {
+  it("treats a root whose existence check throws as missing", async () => {
+    const roots = [{ path: "/old/a", name: "a" }];
+    const missing = await missingRoots(roots, async () => {
+      throw new Error("offline drive");
+    });
+    expect(missing).toEqual(roots);
+  });
+
+  it("leaves a project unmapped when looking inside the chosen folder throws", async () => {
+    const mapped = await planRelocation({
+      missing: [{ path: "/old/alpha", name: "alpha" }],
+      chosen: "/new/projects",
+      caseInsensitive: false,
+      directoryExists: async () => {
+        throw new Error("offline drive");
+      },
+    });
+    expect(mapped.size).toBe(0);
+  });
+});
