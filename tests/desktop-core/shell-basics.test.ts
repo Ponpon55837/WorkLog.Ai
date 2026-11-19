@@ -307,7 +307,7 @@ describe("busyReasonText", () => {
     for (const locale of ["zh-TW", "en"] as const) {
       const text = shellMessages(locale);
       expect(Object.keys(text.repairBusyWhat).sort()).toEqual(
-        Object.keys(text.recoveryOperationNames).concat("copy-to-local", "login-item").sort(),
+        Object.keys(text.recoveryOperationNames).concat("copy-to-local", "login-item", "backup-directory").sort(),
       );
     }
   });

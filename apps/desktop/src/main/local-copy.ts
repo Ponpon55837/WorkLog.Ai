@@ -11,7 +11,6 @@ import {
   runCopyToLocal,
   setupMessages,
   shellMessages,
-  writeDesktopSettingsAtomic,
   type BackendSupervisor,
   type CopyToLocalResult,
   type OperationJournal,
@@ -70,7 +69,10 @@ export type CopyRunner = (
 
 const COPY_BASE_NAME = "work-intelligence-local";
 
-/** A file name beside the App's default database that nothing uses yet; an existing file is never a target. */
+/**
+ * A file name beside the App's default database that nothing uses yet; an existing file is never a target.
+ * @internal test-only
+ */
 export function uniqueCopyTarget(directory: string, exists: (path: string) => boolean = existsSync): string {
   for (let index = 1; ; index += 1) {
     const name = index === 1 ? `${COPY_BASE_NAME}.sqlite` : `${COPY_BASE_NAME}-${index}.sqlite`;
@@ -221,7 +223,7 @@ export function createLocalCopy(
           // The copy is local, and the click was the consent to update it.
           allowSchemaMigration: true,
         });
-        if (outcome.ok && state.settings) await writeDesktopSettingsAtomic(paths.settingsFile, state.settings);
+        if (outcome.ok) await state.updateSettings(paths.settingsFile, (current) => current);
         return outcome;
       },
       async () => {

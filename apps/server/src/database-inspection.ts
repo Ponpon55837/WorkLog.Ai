@@ -182,3 +182,17 @@ export function findLatestAutomaticBackup(databasePath: string, backupDirectory:
     return undefined;
   }
 }
+
+/** Free pages below 1 MiB are never worth stopping the server for; from 5 MiB or a fifth of the file they are. */
+const RECLAIMABLE_SPACE_MIN_BYTES = 1024 * 1024;
+const RECLAIMABLE_SPACE_SUGGEST_BYTES = 5 * 1024 * 1024;
+const RECLAIMABLE_SPACE_SUGGEST_RATIO = 0.2;
+
+/** True when the free space inside the database file is large enough to be worth a VACUUM. */
+export function shouldSuggestReclaim(reclaimableBytes: number, databaseBytes: number): boolean {
+  if (reclaimableBytes < RECLAIMABLE_SPACE_MIN_BYTES) return false;
+  return (
+    reclaimableBytes >= RECLAIMABLE_SPACE_SUGGEST_BYTES ||
+    (databaseBytes > 0 && reclaimableBytes / databaseBytes >= RECLAIMABLE_SPACE_SUGGEST_RATIO)
+  );
+}

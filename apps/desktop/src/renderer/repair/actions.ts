@@ -29,6 +29,7 @@ export interface ActionHost {
   returnFocus(): void;
 }
 
+/** @internal test-only */
 export interface Actions {
   perform(id: RepairActionId): Promise<void>;
   confirm(candidateId: string, allowMigration: boolean, riskConsent: boolean): Promise<void>;

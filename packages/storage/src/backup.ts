@@ -39,7 +39,10 @@ import { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
 export { isSafeDatabaseBackupFileName };
 export const DEFAULT_BACKUP_KEEP = 3;
 export const DEFAULT_AUTOMATIC_BACKUP_KEEP = 3;
-/** Session deletions keep their own few snapshots so a cleanup spree cannot push out manual backups. */
+/**
+ * Session deletions keep their own few snapshots so a cleanup spree cannot push out manual backups.
+ * @internal test-only
+ */
 export const SESSION_DELETION_BACKUP_KEEP = 3;
 
 type RetentionBucket = "automatic" | "session_deletion" | "import" | "manual";
@@ -200,7 +203,10 @@ function publishSnapshotNoClobber(staging: string, target: string): void {
   }
 }
 
-/** Removes only private staging directories whose recorded owner process is no longer running. */
+/**
+ * Removes only private staging directories whose recorded owner process is no longer running.
+ * @internal test-only
+ */
 export function cleanupOrphanedBackupStagingDirectories(
   directory: string,
   isProcessAlive: (processId: number) => boolean = processIsAlive,

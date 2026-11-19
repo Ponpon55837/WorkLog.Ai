@@ -150,6 +150,7 @@ function parseCandidate(projectRoot: string, filePath: string, sourcePath: strin
   }
 }
 
+/** @internal test-only */
 export function discoverHandoffCandidates(
   projectRoot: string,
   options: HandoffDiscoveryOptions = {},

@@ -30,7 +30,10 @@ export interface DatabaseRedactionResult {
   redactions: RedactionSummary;
 }
 
-/** Free-text columns db:redact scans in every project data table (checked by project-data-coverage.test.ts). */
+/**
+ * Free-text columns db:redact scans in every project data table (checked by project-data-coverage.test.ts).
+ * @internal test-only
+ */
 export const REDACTED_TEXT_FIELDS = {
   sessions: ["title", "summary", "work_summary_json", "verification_json", "void_reason"],
   work_events: ["summary", "details_json"],

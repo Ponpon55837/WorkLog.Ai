@@ -15,10 +15,16 @@ import type { ProjectDataImportUpload } from "./routes/router.js";
  * was saved, and by the start-up sweep of the transfer root if the process died first.
  */
 
+/** @internal test-only */
 export const STAGED_IMPORT_TTL_MS = 30 * 60 * 1000;
-/** Staged files kept at once; another upload removes the oldest one not in use, or is refused when all are. */
+/**
+ * Staged files kept at once; another upload removes the oldest one not in use, or is refused when all are.
+ * @internal test-only
+ */
 export const MAX_STAGED_IMPORTS = 2;
+/** @internal test-only */
 export const STAGED_IMPORT_NOT_FOUND_MESSAGE = "暫存的匯入檔已過期或不存在；請重新選擇檔案。";
+/** @internal test-only */
 export const STAGED_IMPORT_BUSY_MESSAGE = "匯入檔仍在處理中，請稍後再試。";
 
 const STAGING_ID = /^[A-Za-z0-9_-]{43}$/;

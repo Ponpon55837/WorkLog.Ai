@@ -60,6 +60,7 @@ function toUnchangedStructuredContent(value: unknown): StructuredContent | undef
  * The structured form of a Session tool's result. A result that carries a Session gets the stable Session fields;
  * any other result (skipped, idempotency_conflict, not_found) is passed through unchanged, because defaults such as
  * executionStatus "completed" would tell a client that reads only structuredContent that something was saved.
+ * @internal test-only
  */
 export function toSessionStructuredContent(value: unknown): StructuredContent | undefined {
   if (!isRecord(value)) {
@@ -69,6 +70,7 @@ export function toSessionStructuredContent(value: unknown): StructuredContent | 
   return isRecord(value.session) ? buildSessionStructuredContent(value) : value;
 }
 
+/** @internal test-only */
 export function toStructuredContent(value: unknown): StructuredContent | undefined {
   if (!isRecord(value) || !isRecord(value.session)) {
     return undefined;

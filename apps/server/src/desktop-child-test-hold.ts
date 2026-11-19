@@ -16,6 +16,7 @@ import type { DesktopChildDependencies } from "./desktop-child.js";
  * process sets it only in a test build that is not packaged (`backendTestEnvironment` in apps/desktop/src/main/config.ts;
  * the child environment is an allowlist, so a variable in the user's own environment never reaches it), and this child
  * was bundled as a test runtime (`testBuild`, from `__WI_DESKTOP_TEST_BUILD__`).
+ * @internal test-only
  */
 export const TEST_HOLD_MIGRATION_ENVIRONMENT = "WORK_INTELLIGENCE_TEST_HOLD_MIGRATION_FILE";
 

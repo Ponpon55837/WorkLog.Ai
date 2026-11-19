@@ -1044,7 +1044,7 @@
     "conflictCategoryUnique": "唯一識別值",
     "conflictCategoryDependency": "依賴連帶",
     "conflictCategoryMissingParent": "匯入檔缺少上層資料",
-    "restoreInDesktopApp": "請在桌面 App 的「資料」分頁還原備份，也可以選擇其他位置的備份檔。還原前 App 會先自動備份目前的資料。"
+    "restoreInDesktopApp": "請在桌面 App 的「資料」分頁還原備份，也可以選擇其他位置的備份檔。換新電腦時，App 會找出新電腦上不存在的專案資料夾，讓你指定它們現在的位置並自動對應路徑，不必自己輸入任何東西。還原前 App 會先自動備份目前的資料。"
   },
   "reports": {
     "aCustomRangeCanSpan": "自訂期間最長 {days} 天。",
@@ -1476,6 +1476,7 @@
     "neverFailed": "未曾失敗",
     "noConnectionsToConfirmYet": "尚無可確認連線",
     "noConnectionsToMonitorYet": "尚無可監測連線",
+    "agentSeenButNoConnectionRecord": "Agent 連線過，但這裡看不到連線記錄",
     "noReconnectNeeded": "不需要重新連線",
     "notInstalled": "未安裝",
     "notSupported": "不支援",
@@ -1569,6 +1570,11 @@
     "sqliteWalResetBody": "內建 SQLite {version} 可能受 WAL-reset 資料庫損毀問題影響。請升級 Node.js，使內建 SQLite 達到 3.51.3 以上（或同系列的 3.50.7、3.44.6 以上）。",
     "needAttention": "{agentIssueCount} 項需處理",
     "noAutomaticBackupsYet": "尚無自動備份",
+    "reclaimableSpace": "可回收空間",
+    "reclaimWorthIt": "建議整理",
+    "reclaimNotNeeded": "不需要整理",
+    "agentSeenWithoutLeaseNote": "已觀察到 Agent 連線過，但這裡看不到它的連線記錄。可能是 Agent 之後已經斷線；如果重新啟動 Agent 後仍是這個狀態，表示它的連線記錄存放在別的位置，請到桌面 App 的「診斷」分頁匯出診斷摘要回報。",
+    "reclaimInApp": "到桌面 App 的「資料」分頁按「整理資料庫」，就會先自動備份再回收這些空間。",
     "noMaintenanceHistory": "尚無維護紀錄",
     "notApplicable": "不適用",
     "notSupportedOnThisPlatform": "此平台不支援",

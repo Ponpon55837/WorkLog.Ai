@@ -74,7 +74,7 @@ jobs:
       # Ubuntu runs lint + format:check + coverage, Windows and macOS run pnpm test (lint + format:check + tests).
       - name: Lint and format
         if: matrix.os == 'ubuntu-latest'
-        run: pnpm lint && pnpm format:check
+        run: pnpm lint && pnpm format:check && pnpm check:unused-exports
 
       # Windows also records SQLite call timings (tests/helpers/sqlite-timing.ts; test-only, '' means off) to find lock stalls.
       - name: Unit and integration tests

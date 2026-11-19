@@ -180,11 +180,40 @@ const inspectBackupsRequestSchema = z.strictObject({
  * snapshot is checked, the current database is backed up first, nothing else may hold it open). Sent only while the
  * backend is stopped.
  */
+/** The most project folders one restore moves to a new place (a computer with more projects than this is restored in parts). */
+export const DESKTOP_MAX_RESTORE_REMAPS = 500;
+
 const restoreDatabaseRequestSchema = z.strictObject({
   type: z.literal("restore-database"),
   source: pathSchema,
   databasePath: pathSchema,
   backupDirectory: pathSchema.optional(),
+  /** Project folders that moved to another place on this computer: each `from` prefix becomes `to` (the CLI's `--remap-root`). */
+  remap: z
+    .array(z.strictObject({ from: pathSchema, to: pathSchema }))
+    .max(DESKTOP_MAX_RESTORE_REMAPS)
+    .optional(),
+});
+
+/** Asks a preview child for the project folders a backup file records, read-only; the App checks which exist on this computer. */
+const backupRootsRequestSchema = z.strictObject({ type: z.literal("backup-roots"), source: pathSchema });
+
+/**
+ * Asks a preview child to maintain `databasePath` while the backend is stopped: `maintain` backs the database up, checks
+ * it, compacts it (VACUUM), rebuilds the search index and checks it again; `check` only reads it and runs the integrity
+ * check. Nothing else may hold the database open.
+ */
+const maintainDatabaseRequestSchema = z.strictObject({
+  type: z.literal("maintain-database"),
+  mode: z.enum(["maintain", "check"]),
+  databasePath: pathSchema,
+  backupDirectory: pathSchema.optional(),
+});
+
+/** Asks a serving backend how much space a compaction would give back and how the last maintenance ended. */
+const maintenanceHintQuerySchema = z.strictObject({
+  type: z.literal("maintenance-hint-query"),
+  requestId: requestIdSchema,
 });
 
 const helloSchema = z.strictObject({
@@ -256,6 +285,43 @@ const activitySchema = z.strictObject({
   pendingImport: z.boolean().optional(),
 });
 
+/** The project folders of a backup, as the file records them (`path` is for the parent and never goes to a page). */
+export const DESKTOP_MAX_BACKUP_ROOTS = 2000;
+const backupRootsResultSchema = z.strictObject({
+  type: z.literal("backup-roots-result"),
+  status: z.enum(["ok", "failed"]),
+  roots: z.array(z.strictObject({ path: pathSchema, name: z.string().max(512) })).max(DESKTOP_MAX_BACKUP_ROOTS),
+  /** The file holds more projects than were listed. */
+  truncated: z.boolean().optional(),
+});
+
+/** Result of `maintain-database`. Everything but `ok` means the database was left as it was (the backup, when made, is kept). */
+const maintainResultSchema = z.strictObject({
+  type: z.literal("maintain-result"),
+  mode: z.enum(["maintain", "check"]),
+  status: z.enum(["ok", "in-use", "missing", "invalid", "integrity-failed", "backup-failed", "failed"]),
+  backupFileName: z.string().max(512).optional(),
+  reclaimedBytes: z.number().int().nonnegative().optional(),
+});
+
+/** How the last maintenance run ended, from the database's own record. */
+const maintenanceRunSchema = z.strictObject({
+  status: z.enum(["running", "completed", "failed"]),
+  at: z.string().max(64),
+  failureCode: z.enum(["DATABASE_INTEGRITY_FAILED", "DATABASE_MAINTENANCE_FAILED"]).optional(),
+});
+
+const maintenanceHintSchema = z.strictObject({
+  type: z.literal("maintenance-hint"),
+  requestId: requestIdSchema,
+  /** Free pages times page size; absent when the database could not be read. */
+  reclaimableBytes: z.number().int().nonnegative().optional(),
+  databaseBytes: z.number().int().nonnegative().optional(),
+  /** The free space is large enough to be worth a compaction (the same rule the command line's check uses). */
+  suggest: z.boolean().optional(),
+  last: maintenanceRunSchema.optional(),
+});
+
 /** Result of `copy-database`; on `ok` the identity is the copy's, read back after the integrity check. */
 const copyResultSchema = z.strictObject({
   type: z.literal("copy-result"),
@@ -311,6 +377,8 @@ const restoreResultSchema = z.strictObject({
   schemaVersion: z.number().int().nonnegative().optional(),
   projects: z.number().int().nonnegative().optional(),
   sessions: z.number().int().nonnegative().optional(),
+  /** How many projects had their folder moved to a new place by the request's `remap`. */
+  remappedProjects: z.number().int().nonnegative().optional(),
   detail: z.string().max(MAX_DETAIL_LENGTH).optional(),
 });
 
@@ -324,6 +392,9 @@ export const desktopParentMessageSchema = z.discriminatedUnion("type", [
   copyDatabaseRequestSchema,
   inspectBackupsRequestSchema,
   restoreDatabaseRequestSchema,
+  backupRootsRequestSchema,
+  maintainDatabaseRequestSchema,
+  maintenanceHintQuerySchema,
 ]);
 
 /** Child to parent. */
@@ -341,6 +412,9 @@ export const desktopChildMessageSchema = z.discriminatedUnion("type", [
   copyResultSchema,
   inspectResultSchema,
   restoreResultSchema,
+  backupRootsResultSchema,
+  maintainResultSchema,
+  maintenanceHintSchema,
 ]);
 
 export type DesktopDatabaseIdentity = z.infer<typeof desktopDatabaseIdentitySchema>;
@@ -356,6 +430,9 @@ export type DesktopCopyResultMessage = z.infer<typeof copyResultSchema>;
 export type DesktopInspectResultMessage = z.infer<typeof inspectResultSchema>;
 export type DesktopInspectedBackup = z.infer<typeof inspectedBackupSchema>;
 export type DesktopRestoreResultMessage = z.infer<typeof restoreResultSchema>;
+export type DesktopBackupRootsResultMessage = z.infer<typeof backupRootsResultSchema>;
+export type DesktopMaintainResultMessage = z.infer<typeof maintainResultSchema>;
+export type DesktopMaintenanceHintMessage = z.infer<typeof maintenanceHintSchema>;
 
 export type ParsedDesktopMessage<T> = { ok: true; message: T } | { ok: false; reason: string };
 

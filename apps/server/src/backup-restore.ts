@@ -1,4 +1,5 @@
 import { lstatSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { basename, join } from "node:path";
 import {
   defaultBackupDirectory,
@@ -10,6 +11,8 @@ import {
 } from "@work-intelligence/storage";
 import {
   DESKTOP_MAX_INSPECTED_BACKUPS,
+  DESKTOP_MAX_BACKUP_ROOTS,
+  type DesktopBackupRootsResultMessage,
   type DesktopInspectedBackup,
   type DesktopRestoreResultMessage,
 } from "@work-intelligence/schema";
@@ -100,7 +103,10 @@ function outOfSpace(error: unknown): boolean {
 
 export type RestoreFailureStatus = Exclude<DesktopRestoreResultMessage["status"], "ok">;
 
-/** The status a failed restore is reported as. Every one of them means the current database was not replaced. */
+/**
+ * The status a failed restore is reported as. Every one of them means the current database was not replaced.
+ * @internal test-only
+ */
 export function classifyRestoreFailure(error: unknown): RestoreFailureStatus {
   if (error instanceof RestoreDatabaseError) {
     switch (error.code) {
@@ -137,6 +143,7 @@ export function restoreFromBackup(request: {
   readonly source: string;
   readonly databasePath: string;
   readonly backupDirectory?: string;
+  readonly remap?: readonly { readonly from: string; readonly to: string }[];
 }): Omit<DesktopRestoreResultMessage, "type"> {
   try {
     const result = restoreDatabase({
@@ -144,6 +151,7 @@ export function restoreFromBackup(request: {
       databasePath: request.databasePath,
       initializeStaging: (database) => initializeWorkIntelligenceDatabase(database, ":memory:"),
       ...(request.backupDirectory ? { backupDirectory: request.backupDirectory } : {}),
+      ...(request.remap && request.remap.length > 0 ? { remap: request.remap } : {}),
     });
     return {
       status: "ok",
@@ -151,9 +159,33 @@ export function restoreFromBackup(request: {
       schemaVersion: result.schemaVersion,
       projects: result.projects,
       sessions: result.sessions,
+      ...(result.remapped.projects > 0 ? { remappedProjects: result.remapped.projects } : {}),
     };
   } catch (error) {
     const status = classifyRestoreFailure(error);
     return { status, detail: `the restore did not replace the database (${status})` };
+  }
+}
+
+/**
+ * The project folders a backup records, read-only (the App's restore on a new computer asks which of them exist here). A file
+ * that cannot be read is a failure with no roots; the list is cut at `DESKTOP_MAX_BACKUP_ROOTS` and says so.
+ */
+export function listBackupProjectRoots(source: string): Omit<DesktopBackupRootsResultMessage, "type"> {
+  let database: DatabaseSync | undefined;
+  try {
+    database = new DatabaseSync(source, { readOnly: true });
+    const rows = database
+      .prepare("SELECT name, root_path AS path FROM projects WHERE root_path IS NOT NULL ORDER BY root_path LIMIT ?")
+      .all(DESKTOP_MAX_BACKUP_ROOTS + 1) as Array<{ name: unknown; path: unknown }>;
+    const roots = rows
+      .filter((row) => typeof row.path === "string" && row.path.length > 0 && row.path.length <= 4096)
+      .slice(0, DESKTOP_MAX_BACKUP_ROOTS)
+      .map((row) => ({ path: row.path as string, name: typeof row.name === "string" ? row.name.slice(0, 512) : "" }));
+    return { status: "ok", roots, ...(rows.length > DESKTOP_MAX_BACKUP_ROOTS ? { truncated: true } : {}) };
+  } catch {
+    return { status: "failed", roots: [] };
+  } finally {
+    database?.close();
   }
 }

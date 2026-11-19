@@ -1,8 +1,12 @@
 import { existsSync, statSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import {
   busyDetailOf,
   formatBackupSize,
   inspectedItems,
+  missingRoots,
+  planRelocation,
+  remapList,
   restoreFailureOf,
   restoreMessages,
   RestoreBackupStore,
@@ -46,17 +50,44 @@ export interface RestoreConfirmDetails {
   readonly database: string | null;
   readonly time: string;
   readonly size: string;
+  /** How many project folders will point at a new place (0 when none were mapped). */
+  readonly remapped: number;
 }
 
+/** What the user answered when the backup's project folders were not found here. */
+export type RelocateChoice = "choose" | "skip" | "cancel";
+
+/** What the native question about the missing project folders shows. */
+export interface RelocateDetails {
+  readonly total: number;
+  readonly missing: number;
+  readonly mapped: number;
+  /** The folder chosen just before matched nothing. */
+  readonly noMatch: boolean;
+}
+
+/** @internal test-only */
 export interface RestoreOptions {
   readonly state: ShellState;
   readonly coordinator: Pick<OperationCoordinator, "current">;
-  readonly supervisor: Pick<BackendSupervisor, "running" | "queryActivity" | "inspectBackups" | "restoreDatabase">;
+  readonly supervisor: Pick<
+    BackendSupervisor,
+    "running" | "queryActivity" | "inspectBackups" | "restoreDatabase" | "backupRoots"
+  >;
   readonly backend: Pick<BackendController, "restoreWhileStopped" | "start" | "presenter" | "recovery">;
   /** Whether an Agent (MCP) connection looks alive (a fresh lease of the launcher root). */
   readonly agentsRunning: () => Promise<boolean>;
   /** The native chooser; the path of the chosen file, or null when cancelled. */
   readonly chooseFile: () => Promise<string | null>;
+  /**
+   * The native question when the backup records project folders that are not on this computer (a restore on a new computer):
+   * choose where they are now, restore with the old paths, or cancel. Absent: the old paths are kept without asking.
+   */
+  readonly relocate?: (details: RelocateDetails) => Promise<RelocateChoice>;
+  /** The native folder chooser for the new place of the projects; the path, or null when cancelled. */
+  readonly chooseFolder?: () => Promise<string | null>;
+  /** Whether a folder exists here; injectable for tests. */
+  readonly directoryExists?: (folder: string) => Promise<boolean>;
   /** The native confirmation; Cancel is the default button. */
   readonly confirm: (details: RestoreConfirmDetails) => Promise<boolean>;
   /**
@@ -109,6 +140,13 @@ function describeTime(locale: string, iso: string | null, unknown: string): stri
 export function createRestore(options: RestoreOptions): RestoreController {
   const { state, coordinator, supervisor, backend, log } = options;
   const fingerprintOf = options.fingerprint ?? fileFingerprint;
+  const directoryExists =
+    options.directoryExists ??
+    ((folder: string) =>
+      stat(folder).then(
+        (found) => found.isDirectory(),
+        () => false,
+      ));
   const store = options.store ?? new RestoreBackupStore<RestoreEntry>({ clock: options.clock ?? Date.now });
 
   function backupDirectory(): string | undefined {
@@ -186,6 +224,7 @@ export function createRestore(options: RestoreOptions): RestoreController {
     entry: RestoreEntry,
     databasePath: string,
     seen: { child?: DatabaseRestoreOutcome; before?: string | null },
+    remap: readonly { from: string; to: string }[],
   ): (context: OperationStepContext) => Promise<JournalJson> {
     return async (context) => {
       // The point of no return of the operation: a crash from here on is resolved from the real state, never resumed.
@@ -196,6 +235,7 @@ export function createRestore(options: RestoreOptions): RestoreController {
         source: entry.path,
         databasePath,
         ...(backupDirectory() ? { backupDirectory: backupDirectory() } : {}),
+        ...(remap.length > 0 ? { remap } : {}),
       });
       seen.child = child;
       const reason = restoreFailureOf(child);
@@ -219,6 +259,35 @@ export function createRestore(options: RestoreOptions): RestoreController {
     return false;
   }
 
+  /**
+   * The project folders of the backup that are not on this computer, matched to a place the user chooses in the native
+   * dialog. `null`: the user cancelled. An empty map: nothing to move (every folder exists, the file could not be read, or the
+   * user chose to keep the old paths). Every path stays in main.
+   */
+  async function relocation(entry: RestoreEntry, databasePath: string): Promise<Map<string, string> | null> {
+    const mapped = new Map<string, string>();
+    const { relocate, chooseFolder } = options;
+    if (!relocate || !chooseFolder) return mapped;
+    const found = await supervisor.backupRoots(entry.path, databasePath).catch(() => undefined);
+    // A listing that failed is not a reason to refuse the restore: the old paths are kept, as before.
+    if (found?.outcome !== "checked" || found.result.status !== "ok") return mapped;
+    const roots = found.result.roots;
+    const missing = await missingRoots(roots, (candidate) => directoryExists(candidate));
+    let noMatch = false;
+    for (;;) {
+      const remaining = missing.filter((root) => !mapped.has(root.path));
+      if (remaining.length === 0) return mapped;
+      const choice = await relocate({ total: roots.length, missing: remaining.length, mapped: mapped.size, noMatch });
+      if (choice === "cancel") return null;
+      if (choice === "skip") return mapped;
+      const folder = await chooseFolder();
+      if (folder === null) continue;
+      const found = await planRelocation({ missing: remaining, chosen: folder, directoryExists });
+      noMatch = found.size === 0;
+      for (const [from, to] of found) mapped.set(from, to);
+    }
+  }
+
   async function run(senderId: number, backupId: string): Promise<RestoreRunResult> {
     const claim = store.claim(senderId, backupId);
     if (!claim) return failure("expired");
@@ -238,11 +307,18 @@ export function createRestore(options: RestoreOptions): RestoreController {
       claim.release();
       return failure("agents-running");
     }
+    const mapped = await relocation(entry, databasePath);
+    if (mapped === null) {
+      claim.release();
+      return failure("cancelled");
+    }
+    const remap = remapList(mapped);
     const messages = restoreMessages(state.locale);
     const confirmed = await options.confirm({
       database: existsSync(databasePath) ? databasePath : null,
       time: describeTime(state.locale, entry.view.createdAt, messages.unknownTime),
       size: formatBackupSize(entry.view.bytes),
+      remapped: remap.length,
     });
     if (!confirmed) {
       claim.release();
@@ -264,7 +340,7 @@ export function createRestore(options: RestoreOptions): RestoreController {
     state.busyAction = "restore";
     state.touch();
     try {
-      return await execute(claim, entry, databasePath);
+      return await execute(claim, entry, databasePath, remap);
     } finally {
       // Only what this run set is cleared.
       if (state.busyAction === "restore") {
@@ -280,11 +356,12 @@ export function createRestore(options: RestoreOptions): RestoreController {
     claim: { release(): void },
     entry: RestoreEntry,
     databasePath: string,
+    remap: readonly { from: string; to: string }[],
   ): Promise<RestoreRunResult> {
     // A pending automatic retry must not start the old database while the restore runs.
     backend.recovery.cancel();
     const seen: { child?: DatabaseRestoreOutcome; before?: string | null } = {};
-    const outcome = await backend.restoreWhileStopped(replaceStep(entry, databasePath, seen));
+    const outcome = await backend.restoreWhileStopped(replaceStep(entry, databasePath, seen, remap));
     options.backupsChanged();
     if (outcome.ok) {
       backend.presenter().clear();
@@ -299,6 +376,7 @@ export function createRestore(options: RestoreOptions): RestoreController {
         ...(child.result.safetyBackup ? { safetyBackup: child.result.safetyBackup } : {}),
         projects: child.result.projects ?? 0,
         sessions: child.result.sessions ?? 0,
+        ...(child.result.remappedProjects ? { remapped: child.result.remappedProjects } : {}),
       };
     }
     if (outcome.busy) {

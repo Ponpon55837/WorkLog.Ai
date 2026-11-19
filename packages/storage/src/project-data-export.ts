@@ -204,6 +204,7 @@ function compareExportRows(table: ProjectDataTable, left: ProjectDataRow, right:
  * Orders rows by the export comparator. SQL already returns them by id (binary order), which is usually the collator
  * order too, so one linear pass skips the sort when every neighbour pair is in order; a stable sort leaves such an
  * array unchanged, so the output is the same either way.
+ * @internal test-only
  */
 export function sortExportRows(table: ProjectDataTable, rows: ProjectDataRow[]): ProjectDataRow[] {
   let ordered = true;

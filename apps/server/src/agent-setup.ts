@@ -8,6 +8,7 @@ import {
   type AgentSetupPlanOptions,
 } from "@work-intelligence/agent-setup";
 
+/** @internal test-only */
 export interface AgentSetupCliDependencies extends AgentSetupPlanOptions {
   print: (message: string) => void;
   confirm?: (question: string) => Promise<boolean>;

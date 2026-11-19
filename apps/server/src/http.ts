@@ -28,6 +28,7 @@ import type {
 } from "./routes/router.js";
 import { hasTransferSpace, TRANSFER_DISK_FULL_MESSAGE } from "./transfer-workspace.js";
 
+/** @internal test-only */
 export const MAX_INPUT_PAYLOAD_BYTES = 1_500_000;
 /**
  * The largest portable import (and export) file. Import, preview and export stream the file in the background process
@@ -139,6 +140,7 @@ export async function receiveJsonBodyFile(request: IncomingMessage, target: stri
  * Validates an uploaded import, streamed in bounded memory; long values go to a spill file of its own in `directory`,
  * so a preview and an import of the same staged file never share one. A request body (`{bundle, ...choices}`) carries
  * its choices; a staged export file takes them from `upload.options`. The caller disposes the result.
+ * @internal test-only
  */
 export function validateProjectDataImportUpload(upload: ProjectDataImportUpload): ValidatedProjectDataImport {
   const envelope = upload.envelope ?? "request";

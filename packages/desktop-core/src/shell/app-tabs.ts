@@ -87,6 +87,7 @@ export function tabForOperation(kind: OperationKind, needsSetup: boolean): AppTa
       return "settings";
     case "change-db":
     case "restore":
+    case "maintenance":
       return "data";
     case "apply-agent":
       return "agent";

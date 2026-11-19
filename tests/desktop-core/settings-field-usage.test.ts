@@ -20,16 +20,8 @@ const NO_READER = new Map<string, string>([
     "active.serviceOwner",
     "kept for a downgrade to 1.6.57 (its strict schema rejects a file without it); handled in 1.6.58 by keeping it",
   ],
-  ["lastKnownGood.databaseIdentity", "1.6.59 接上回退"],
-  ["lastKnownGood.port", "1.6.59 接上回退"],
-  ["lastKnownGood.runtimeVersion", "1.6.59 接上回退"],
-  ["installId", "written as an install label, never read; 1.6.59 decides its use or plans its removal"],
 ]);
-const NO_WRITER = new Map<string, string>([
-  ["lastKnownGood.databaseIdentity", "1.6.59 接上回退"],
-  ["lastKnownGood.port", "1.6.59 接上回退"],
-  ["lastKnownGood.runtimeVersion", "1.6.59 接上回退"],
-]);
+const NO_WRITER = new Map<string, string>([]);
 
 interface ZodNode {
   readonly def: { readonly type: string; readonly shape?: Record<string, ZodNode>; readonly innerType?: ZodNode };

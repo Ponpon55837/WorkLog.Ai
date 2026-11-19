@@ -5,7 +5,10 @@ import {
   type DesktopCopyResultMessage,
   type DesktopFacts,
   type DesktopHelloMessage,
+  type DesktopBackupRootsResultMessage,
   type DesktopInspectResultMessage,
+  type DesktopMaintainResultMessage,
+  type DesktopMaintenanceHintMessage,
   type DesktopRestoreResultMessage,
   type DesktopPreflightResultMessage,
   type DesktopReadyMessage,
@@ -21,7 +24,7 @@ import { runtimeErrorCode } from "../runtime/errors.js";
 import type { LaunchPlan } from "../runtime/launch-plan.js";
 import { compareDatabaseIdentity } from "../db-source/identity-compare.js";
 import type { DatabaseIdentity } from "../db-source/types.js";
-import { ChildChannel } from "./child-channel.js";
+import { ChildChannel, type MessageOfType } from "./child-channel.js";
 import { buildChildEnvironment } from "./child-environment.js";
 import { BackendFailure, backendErrorCode, type BackendErrorCode } from "./errors.js";
 import { LineCollector, LineRingBuffer, SecretMasker } from "./ring-buffer.js";
@@ -134,6 +137,22 @@ export type DatabaseRestoreOutcome =
   | { readonly outcome: "checked"; readonly result: DesktopRestoreResultMessage }
   | { readonly outcome: "failed"; readonly code: BackendErrorCode; readonly detail: string }
   | { readonly outcome: "unknown"; readonly code: BackendErrorCode; readonly detail: string };
+
+/** What reading the project folders of a backup came to. */
+export type BackupRootsOutcome =
+  | { readonly outcome: "checked"; readonly result: DesktopBackupRootsResultMessage }
+  | { readonly outcome: "failed"; readonly code: BackendErrorCode; readonly detail: string };
+
+/** As {@link DatabaseRestoreOutcome}: `unknown` when the request was sent and the child gave no verdict. */
+export type DatabaseMaintainOutcome =
+  | { readonly outcome: "checked"; readonly result: DesktopMaintainResultMessage }
+  | { readonly outcome: "failed"; readonly code: BackendErrorCode; readonly detail: string }
+  | { readonly outcome: "unknown"; readonly code: BackendErrorCode; readonly detail: string };
+
+/** How much space a compaction would give back and how the last maintenance ended; `unknown` when no backend answered. */
+export type MaintenanceHintReport =
+  | { readonly status: "unknown" }
+  | ({ readonly status: "known" } & Omit<DesktopMaintenanceHintMessage, "type" | "requestId">);
 
 /** A backend that was running and ended without a `stop()`. The shell moves to NEEDS_REPAIR; no restart happens here. */
 export interface BackendExitEvent {
@@ -469,9 +488,122 @@ export class BackendSupervisor {
     readonly source: string;
     readonly databasePath: string;
     readonly backupDirectory?: string;
+    /** Project folders that moved: each `from` prefix becomes `to`. */
+    readonly remap?: readonly { readonly from: string; readonly to: string }[];
   }): Promise<DatabaseRestoreOutcome> {
     const generation = this.previewGeneration;
     return this.enqueuePreview(() => this.runRestore(request, generation));
+  }
+
+  /** The project folders a backup records, read by a preview child (read-only). */
+  backupRoots(source: string, databasePath: string): Promise<BackupRootsOutcome> {
+    const generation = this.previewGeneration;
+    return this.enqueuePreview(async (): Promise<BackupRootsOutcome> => {
+      try {
+        const result = await this.askPreview(
+          databasePath,
+          generation,
+          { type: "backup-roots", source },
+          "backup-roots-result",
+          this.timeouts.quickCheckMs,
+        );
+        return { outcome: "checked", result: result.reply };
+      } catch (error) {
+        const failure = describeUnexpected(error);
+        return { outcome: "failed", code: failure.code, detail: failure.detail };
+      }
+    });
+  }
+
+  /**
+   * Maintains (backup, check, compact, rebuild the search index) or only checks `databasePath` through a preview child. Call it
+   * with the backend stopped, as the operation's step: nothing else may hold the database.
+   */
+  maintainDatabase(request: {
+    readonly mode: "maintain" | "check";
+    readonly databasePath: string;
+    readonly backupDirectory?: string;
+  }): Promise<DatabaseMaintainOutcome> {
+    const generation = this.previewGeneration;
+    return this.enqueuePreview(async (): Promise<DatabaseMaintainOutcome> => {
+      let sent = false;
+      try {
+        // No timer: a compaction is never killed because it takes long; only its answer or its own exit ends the wait.
+        const { reply } = await this.askPreview(
+          request.databasePath,
+          generation,
+          {
+            type: "maintain-database",
+            mode: request.mode,
+            databasePath: request.databasePath,
+            ...(request.backupDirectory ? { backupDirectory: request.backupDirectory } : {}),
+          },
+          "maintain-result",
+          null,
+          () => {
+            sent = true;
+          },
+        );
+        return { outcome: "checked", result: reply };
+      } catch (error) {
+        const failure = describeUnexpected(error);
+        return { outcome: sent ? "unknown" : "failed", code: failure.code, detail: failure.detail };
+      }
+    });
+  }
+
+  /** Asks the serving backend about reclaimable space and the last maintenance; `unknown` when it does not answer in time. */
+  async queryMaintenanceHint(timeoutMs = ACTIVITY_QUERY_TIMEOUT_MS): Promise<MaintenanceHintReport> {
+    const active = this.running ? this.active : undefined;
+    if (!active) return { status: "unknown" };
+    const requestId = this.deps.randomRunId().slice(0, 32);
+    const answer = async (): Promise<DesktopMaintenanceHintMessage> => {
+      await active.channel.send({ type: "maintenance-hint-query", requestId });
+      for (;;) {
+        const reply = await active.channel.expect("maintenance-hint", timeoutMs);
+        if (reply.requestId === requestId) return reply;
+      }
+    };
+    const reply = await this.within(
+      answer().catch(() => undefined),
+      timeoutMs,
+    );
+    if (reply === undefined) return { status: "unknown" };
+    const { type: _type, requestId: _id, ...hint } = reply;
+    return { status: "known", ...hint };
+  }
+
+  /** Starts a preview child on `databasePath`, sends one request and waits for the one reply type; the child always ends. */
+  private async askPreview<K extends "backup-roots-result" | "maintain-result">(
+    databasePath: string,
+    generation: number,
+    message: Record<string, unknown>,
+    replyType: K,
+    timeoutMs: number | null,
+    onSent?: () => void,
+  ): Promise<{ reply: MessageOfType<K> }> {
+    let child: ActiveChild | undefined;
+    try {
+      if (generation !== this.previewGeneration) {
+        throw new BackendFailure("REPAIR_REQUIRED", "the request was cancelled because the backend was stopped");
+      }
+      child = await this.spawnChild(
+        { port: 0, databasePath },
+        this.deps.randomRunId(),
+        this.deps.randomChallenge(),
+        "preview",
+      );
+      this.verifyHello(await child.channel.expect("hello", this.timeouts.helloMs), child);
+      await child.channel.send(message);
+      onSent?.();
+      return { reply: await child.channel.expect(replyType, timeoutMs) };
+    } finally {
+      if (child) {
+        const ended = await this.terminate(child);
+        this.previews.delete(child);
+        if (!ended.exited) this.log("a preview child did not exit after it was asked to stop and killed");
+      }
+    }
   }
 
   private async runInspect(
@@ -521,7 +653,12 @@ export class BackendSupervisor {
   }
 
   private async runRestore(
-    request: { readonly source: string; readonly databasePath: string; readonly backupDirectory?: string },
+    request: {
+      readonly source: string;
+      readonly databasePath: string;
+      readonly backupDirectory?: string;
+      readonly remap?: readonly { readonly from: string; readonly to: string }[];
+    },
     generation: number,
   ): Promise<DatabaseRestoreOutcome> {
     let child: ActiveChild | undefined;
@@ -542,6 +679,7 @@ export class BackendSupervisor {
         source: request.source,
         databasePath: request.databasePath,
         ...(request.backupDirectory ? { backupDirectory: request.backupDirectory } : {}),
+        ...(request.remap && request.remap.length > 0 ? { remap: request.remap.map((entry) => ({ ...entry })) } : {}),
       });
       sent = true;
       // No timer: a restoring child is never killed because it takes long. Only its answer or its own exit ends the wait.

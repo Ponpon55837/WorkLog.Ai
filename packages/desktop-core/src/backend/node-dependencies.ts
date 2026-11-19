@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
+import { MCP_LEASE_SCOPE_ENVIRONMENT } from "@work-intelligence/shared/mcp-runtime";
 import { createInstanceChallenge } from "@work-intelligence/shared/instance-proof";
 import { probeLoopbackPort } from "@work-intelligence/shared/loopback-port";
 import { windowsSystemTool } from "@work-intelligence/shared/windows-system-tool";
@@ -40,7 +41,9 @@ export function createNodeBackendDependencies(options: NodeBackendDependenciesOp
     planLaunch: async (argv, env) => {
       const plan = await planLaunch(options.runtimeRoot, "serve", argv, {
         ...options.verify,
-        env,
+        // The backend does not start through the launcher, which is what sets the lease scope for an Agent's MCP: without
+        // this the two count leases in different directories and the connection count stays 0.
+        env: { ...env, [MCP_LEASE_SCOPE_ENVIRONMENT]: options.runtimeRoot },
         requiredRuntimeKind: "node",
       });
       return { ...plan, args: [...BACKEND_NODE_FLAGS, ...plan.args] };

@@ -78,6 +78,7 @@ function describeAclRead(ensured: Pick<EnsuredRuntime, "aclReport" | "aclReads">
  * Whether a collection that left something behind is worth trying again while the App runs. A runtime retired a moment
  * ago waits for its grace period, which hours of retries would not shorten: the next start collects it (L-12). Only a
  * lease that may still be live, or a directory that is locked, can clear up by itself.
+ * @internal test-only
  */
 export function worthRetrying(result: Pick<RuntimeCollection, "deferred" | "failed">): boolean {
   return result.failed.length > 0 || result.deferred.some((entry) => entry.reason !== "retired-recently");

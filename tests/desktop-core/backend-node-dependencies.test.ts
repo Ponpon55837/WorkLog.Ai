@@ -48,7 +48,20 @@ describe("createNodeBackendDependencies", () => {
     }
   });
 
-  it("plans the serve action of the runtime root with exactly the given environment", async () => {
+  it("names the App's runtime root as the lease scope, as the launcher does for an Agent's MCP", async () => {
+    await dependencies.planLaunch(["start", "--desktop-ipc"], { HOME: "/synthetic/home" });
+
+    expect(vi.mocked(planLaunch)).toHaveBeenLastCalledWith(
+      "/synthetic/runtime",
+      "serve",
+      ["start", "--desktop-ipc"],
+      expect.objectContaining({
+        env: { HOME: "/synthetic/home", WORK_INTELLIGENCE_APP_LEASE_SCOPE: "/synthetic/runtime" },
+      }),
+    );
+  });
+
+  it("plans the serve action of the runtime root with the given environment", async () => {
     const plan = await dependencies.planLaunch(["start", "--desktop-ipc"], { HOME: "/synthetic/home" });
 
     expect(plan.command).toBe("synthetic-node");
@@ -57,7 +70,10 @@ describe("createNodeBackendDependencies", () => {
       "/synthetic/runtime",
       "serve",
       ["start", "--desktop-ipc"],
-      expect.objectContaining({ env: { HOME: "/synthetic/home" }, requiredRuntimeKind: "node" }),
+      expect.objectContaining({
+        env: expect.objectContaining({ HOME: "/synthetic/home" }),
+        requiredRuntimeKind: "node",
+      }),
     );
   });
 

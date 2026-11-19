@@ -54,6 +54,8 @@ pnpm test:coverage
 pnpm test:e2e
 ```
 
+`pnpm check:unused-exports`（CI 的 Lint and format 步驟會跑）用 knip 檢查沒有人使用的 export：新增的 export 必須被 app 入口、script 或套件匯出用到（測試不算入口）；只有測試用的 helper 在註解中加上 `@internal test-only`，不要改 `knip-baseline.json`（它只會變少）。
+
 `pnpm test` 包含 lint、Prettier 檢查與各 workspace 單元測試。E2E 使用獨立暫存資料庫。診斷命令是 `pnpm check`（舊名稱 `pnpm run doctor` 仍可使用）；pnpm 11 的 `pnpm doctor` 是套件管理器保留命令。
 
 ## 分支與 Pull Request

@@ -5,6 +5,7 @@ import {
   loginItemQueryFor,
   readSystemLoginItem,
   repairInputSchemas,
+  shouldApplyLoginItemAtStart,
   type RepairLoginItemSection,
 } from "../../packages/desktop-core/src/index.js";
 
@@ -90,5 +91,29 @@ describe("the login item request", () => {
     expect(schema.safeParse({}).success).toBe(false);
     expect(schema.safeParse({ enable: true, consent: true }).success).toBe(false);
     expect(schema.safeParse({ enable: true, path: "/x" }).success).toBe(false);
+  });
+});
+
+describe("shouldApplyLoginItemAtStart", () => {
+  it("leaves a registered entry alone, even one the user switched off in the system", () => {
+    expect(shouldApplyLoginItemAtStart("win32", { openAtLogin: true, executableWillLaunchAtLogin: false }, true)).toBe(
+      false,
+    );
+    expect(shouldApplyLoginItemAtStart("win32", { openAtLogin: true, executableWillLaunchAtLogin: true }, true)).toBe(
+      false,
+    );
+    expect(shouldApplyLoginItemAtStart("darwin", { status: "requires-approval" }, true)).toBe(false);
+  });
+
+  it("writes a missing entry the user wants and removes one the user does not want", () => {
+    expect(shouldApplyLoginItemAtStart("win32", { openAtLogin: false }, true)).toBe(true);
+    expect(shouldApplyLoginItemAtStart("darwin", { status: "not-registered" }, true)).toBe(true);
+    expect(shouldApplyLoginItemAtStart("win32", { openAtLogin: true }, false)).toBe(true);
+    expect(shouldApplyLoginItemAtStart("win32", { openAtLogin: false }, false)).toBe(false);
+  });
+
+  it("applies when the answer cannot be read", () => {
+    expect(shouldApplyLoginItemAtStart("win32", undefined, true)).toBe(true);
+    expect(shouldApplyLoginItemAtStart("darwin", { status: "not-found" }, false)).toBe(true);
   });
 });

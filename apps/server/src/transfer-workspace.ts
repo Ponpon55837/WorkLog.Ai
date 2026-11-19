@@ -18,19 +18,30 @@ import { dirname, join, resolve } from "node:path";
 
 export type TransferKind = "import" | "export";
 
-/** A directory left by a crashed operation is removed at start once it is this old; a live one is minutes old. */
+/**
+ * A directory left by a crashed operation is removed at start once it is this old; a live one is minutes old.
+ * @internal test-only
+ */
 export const ORPHAN_TRANSFER_AGE_MS = 60 * 60 * 1000;
 /**
  * Free space an upload needs, as a multiple of its size: the upload itself, the spill file (at most the upload's
  * size) and the database growth and pre-import snapshot that follow, with a margin.
+ * @internal test-only
  */
 export const TRANSFER_FREE_SPACE_FACTOR = 2.5;
 export const TRANSFER_DISK_FULL_MESSAGE = "磁碟空間不足，無法暫存匯入檔；請先釋出空間再試。";
 
-/** The folder beside the database that holds every transfer directory, and nothing else. */
+/**
+ * The folder beside the database that holds every transfer directory, and nothing else.
+ * @internal test-only
+ */
 export const TRANSFER_ROOT_NAME = ".work-intelligence-transfer";
-/** The file each transfer directory gets when it is created; the sweep removes only a directory that has it. */
+/**
+ * The file each transfer directory gets when it is created; the sweep removes only a directory that has it.
+ * @internal test-only
+ */
 export const TRANSFER_MARKER_FILE = ".wi-transfer";
+/** @internal test-only */
 export const TRANSFER_MARKER_CONTENT = "work-intelligence transfer directory v1\n";
 
 /** How often a running server sweeps what a crashed operation left (the App can stay open for weeks). */

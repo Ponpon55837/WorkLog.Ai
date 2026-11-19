@@ -16,7 +16,10 @@ const SIDE_PANEL_WIDTH_KEY_PREFIX = "wi.side-panel-width.";
 /** The part of `Storage` the handoff needs; browser storage can be missing or blocked, so every access is guarded. */
 type HandoffStorage = Pick<Storage, "getItem" | "setItem">;
 
-/** What `consumePortHandoff` needs from the page; the browser entry passes `window.location` and `history`. */
+/**
+ * What `consumePortHandoff` needs from the page; the browser entry passes `window.location` and `history`.
+ * @internal test-only
+ */
 export interface PortHandoffHost {
   hash: string;
   pathname: string;

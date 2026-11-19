@@ -4,6 +4,33 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.59] - 2026-11-19
+
+[繁體中文更新說明](docs/releases/1.6.59.md).
+
+This minor release wires the gaps 1.6.58's guards listed, so every setting, message and channel the App ships is reachable from a window. The schema stays at 33 and no migration is needed. Real-device acceptance on Windows 11 and macOS is still pending.
+
+### Added
+
+- **Restore on a new computer.** 「從備份還原」 finds the backup's project folders that do not exist on this computer and asks, in a native dialog, where they are now: choose a folder (the App matches same-named project folders and maps the paths with the same logic as the CLI's `--remap-root`), repeat, skip or cancel. The page still sends only an opaque backup id; every path stays in main. The Web backup page's desktop text describes this.
+- **Database maintenance in the App.** The Data tab can maintain the database (automatic backup, integrity check, VACUUM, search index rebuild) and check integrity read-only. It runs as a `maintenance` operation of the coordinator, is refused while another operation, an Agent connection or an import or backup is active, and asks first. The Status tab and the Web System Status show the reclaimable space and how the last run ended.
+- **Last-working-port fallback.** When the chosen port is taken or not allowed, the service starts on the port the last verified start used, only after the usual health and identity check, and the Status tab says so. The user's setting is not rewritten. A database is never swapped automatically and a runtime is not rolled back; a fallback that fails too ends in the repair flow with the original error and no change to the data.
+- **Backup location.** The Settings tab can change where backups go: native folder dialog, a write test, the database's storage policy (a network drive is refused; an external, cloud-synced or hard-linked folder needs a yes), a service restart so it uses the folder, and the old folder is restored if that fails. Existing backups are never moved, and the card says so.
+- **Install label in diagnostics.** The diagnostics preview carries a short install label (the first 8 characters of the install id), so a report can be matched to an install without the full id.
+
+### Fixed
+
+- **MCP connection count stayed 0 on Windows.** 1.6.58 made the launcher name one lease scope for the backend and for an Agent's MCP, but the backend is not started through the launcher, so it never got the variable and counted leases in a different directory. The App now sets the scope for the backend too, and a process inside `<App root>/runtimes/<id>/` finds its App root from its own location when no variable is set (an older launcher, a client that starts the MCP another way). When an Agent has been seen connecting but no live record is visible, the Web status says so instead of "no connections to monitor yet".
+- **Web status layout.** The note under the start-at-login rows ("change it in the desktop App's Settings tab") had no side padding and touched the card edge; it now lines up with the rows in light and dark and at narrow widths.
+- **Concurrent settings writes.** All settings changes go through one serial queue that writes the file before it updates memory, so two overlapping changes cannot overwrite each other's fields.
+- **Windows startup entry.** The App no longer re-registers its login item at every start when the system already holds a matching entry, so a "disabled" mark set in Windows' startup settings is not cleared.
+
+### Tests and guards
+
+- `lastKnownGood` and `installId` are no longer exempt from the settings-field guard.
+- A new unused-export guard (`pnpm check:unused-exports`, knip, with a baseline that only shrinks); test-only helpers are tagged `@internal test-only`.
+- A docs-claims guard fails CI when the user documents repeat a superseded claim (for example 「目前沒有還原流程」 or 「修復視窗」); the release checklist asks for `docs/user-guide.md` to change with every user-visible feature.
+
 ## [1.6.58] - 2026-11-19
 
 [繁體中文更新說明](docs/releases/1.6.58.md).

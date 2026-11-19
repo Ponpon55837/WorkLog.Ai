@@ -15,6 +15,8 @@ import {
   type OperationJournal,
   type RepairPortSection,
   type RepairLoginItemSection,
+  type RepairBackupDirectorySection,
+  type RepairMaintenanceSection,
   type RepairUpdateSection,
   type LastBackupTracker,
   type RepairFolderTarget,
@@ -55,6 +57,10 @@ export interface RepairInfoOptions {
   readonly update?: () => RepairUpdateSection;
   /** What the 「登入時自動啟動」 switch shows. */
   readonly loginItem?: () => RepairLoginItemSection;
+  /** What the 「備份位置」 card shows. */
+  readonly backupDirectory?: () => RepairBackupDirectorySection | undefined;
+  /** What the 「整理資料庫」 card shows. */
+  readonly maintenance?: () => RepairMaintenanceSection;
 }
 
 export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
@@ -138,6 +144,9 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
       ...(options.port ? { port: options.port() } : {}),
       ...(options.update ? { update: options.update() } : {}),
       ...(options.loginItem ? { loginItem: options.loginItem() } : {}),
+      ...(options.maintenance ? { maintenance: options.maintenance() } : {}),
+      ...(options.backupDirectory?.() ? { backupDirectory: options.backupDirectory() } : {}),
+      fallback: state.startupFallback,
       // Shown only where it matters: the old service may serve this database, or it holds the port.
       legacyService: relevance.conflict || relevance.portInUse ? legacy.latest() : null,
       legacyBlocked: !running && latestCode === "LEGACY_SERVICE_ACTIVE",
@@ -167,6 +176,7 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
       ],
       secrets: [running?.runId],
       appVersion: app.getVersion(),
+      ...(state.settings ? { installId: state.settings.installId } : {}),
       arch: process.arch,
       locale: app.getLocale(),
       owner: state.owner,

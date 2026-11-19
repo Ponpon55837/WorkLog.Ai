@@ -74,6 +74,9 @@ export function mcpRuntimeStatusVisual(status: SystemStatus["mcp"]): StatusVisua
   if (status.restartRequired) return visual("attention", TriangleAlert, "status.reconnectNeeded");
   if (!status.monitoringAvailable) return visual("attention", CircleAlert, "status.cannotConfirm");
   if (status.updateAvailable) return visual("accent", CircleAlert, "status.updateAvailable");
+  if (status.activeProcesses === 0 && status.agentObservedWithoutLease) {
+    return visual("attention", CircleAlert, "status.agentSeenButNoConnectionRecord");
+  }
   if (status.activeProcesses === 0) return visual("neutral", CircleDashed, "status.noConnectionsToMonitorYet");
   return visual("success", CircleCheck, "status.currentVersion");
 }
@@ -96,10 +99,17 @@ export function userServiceStatusVisual(status: SystemStatus["userService"]): St
 
 type DesktopLoginItem = NonNullable<NonNullable<SystemStatus["desktop"]>["loginItem"]>;
 
-/** Whether the App's own login item agrees with what the user chose; an old App that reports nothing needs checking. */
+/** Whether the App's own login item disagrees with what the user chose; an unsupported or unreadable state is never a mismatch. */
 export function desktopLoginItemMismatch(item: DesktopLoginItem): boolean {
   if (!item.supported || item.system === "unknown") return false;
   return item.desired !== (item.system === "enabled");
+}
+
+/** Whether the free space inside the database file is worth compacting. */
+export function reclaimVisual(suggested: boolean | undefined): StatusVisual {
+  return suggested
+    ? visual("attention", CircleAlert, "systemStatus.reclaimWorthIt")
+    : visual("neutral", CircleMinus, "systemStatus.reclaimNotNeeded");
 }
 
 /** The status label of the App's login item card. */
@@ -128,6 +138,7 @@ export const agentSkillCopyStatus: Record<AgentSkillCopyState, StatusVisual> = {
   unreadable: visual("attention", CircleAlert, "status.cannotConfirm"),
 };
 
+/** @internal test-only */
 export const agentHookInstallStatus: Record<AgentHookInstallState, StatusVisual> = {
   installed: visual("success", CircleCheck, "status.installed"),
   stale: visual("attention", Clock3, "status.updateNeeded"),

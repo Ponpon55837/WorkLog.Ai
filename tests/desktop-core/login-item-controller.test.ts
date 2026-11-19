@@ -1,5 +1,6 @@
 // The main-process modules this test loads use the desktop build flags; declare them as the desktop build does.
 /// <reference path="../../apps/desktop/src/main/build-flags.d.ts" />
+import { readFileSync } from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -78,10 +79,17 @@ describe.each([
   });
 
   it("turns on: writes the settings file first, then applies, then tells the backend", async () => {
-    const { controller, settingsFile, applied, changed, state } = setup(platform, enabled, false);
+    const order: string[] = [];
+    const { controller, settingsFile, changed, state } = setup(platform, enabled, false, (s) => {
+      // At the moment the system is touched, the file on disk already holds the new choice.
+      order.push(
+        `apply:${JSON.parse(readFileSync(path.join(directory, "desktop-settings.json"), "utf8")).desired.launchAtLogin}`,
+      );
+      void s;
+    });
     const result = await controller.set(true);
+    expect(order).toEqual(["apply:true"]);
     expect(result.ok).toBe(true);
-    expect(applied).toEqual([true]);
     expect(changed()).toBe(1);
     expect(state.settings?.desired.launchAtLogin).toBe(true);
     const read = await readDesktopSettings(settingsFile);
@@ -175,5 +183,27 @@ describe("how often the system is asked", () => {
     expect(reads).toHaveBeenCalledTimes(2);
     await controller.set(true);
     expect(reads).toHaveBeenCalledTimes(3);
+  });
+});
+
+const syntheticIdentity = { realPath: "/synthetic/db.sqlite", fileId: null, lineageId: null };
+
+describe("overlapping settings writes", () => {
+  it("keeps the other writer's field when the switch and a record of the active service overlap", async () => {
+    const { controller, state, settingsFile } = setup(
+      "win32",
+      { openAtLogin: true, executableWillLaunchAtLogin: true },
+      false,
+    );
+    await fsp.writeFile(settingsFile, JSON.stringify(settings(false)));
+    const record = state.updateSettings(settingsFile, (current) => ({
+      ...current,
+      lastKnownGood: { databaseIdentity: syntheticIdentity, port: 43_100, runtimeVersion: "1.0.0" },
+    }));
+    const toggle = controller.set(true);
+    await Promise.all([record, toggle]);
+    const read = await readDesktopSettings(settingsFile);
+    expect(read.kind === "ok" && read.settings.desired.launchAtLogin).toBe(true);
+    expect(read.kind === "ok" && read.settings.lastKnownGood?.port).toBe(43_100);
   });
 });

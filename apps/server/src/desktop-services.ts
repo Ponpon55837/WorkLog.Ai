@@ -21,10 +21,16 @@ export interface DesktopHandlerOptions {
   now?: () => number;
 }
 
-/** At most one message to the App per interval, however often the endpoint is called. */
+/**
+ * At most one message to the App per interval, however often the endpoint is called.
+ * @internal test-only
+ */
 export const OPEN_AGENT_SETUP_MIN_INTERVAL_MS = 1000;
 
-/** The same limit for the port settings request. */
+/**
+ * The same limit for the port settings request.
+ * @internal test-only
+ */
 export const OPEN_PORT_SETTINGS_MIN_INTERVAL_MS = 1000;
 
 export function createDesktopRouteServices(

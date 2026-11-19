@@ -47,7 +47,10 @@ export interface StartApiOptions {
   desktop?: DesktopHandlerOptions;
 }
 
-/** What `startApi` reports once the server accepts connections. */
+/**
+ * What `startApi` reports once the server accepts connections.
+ * @internal test-only
+ */
 export interface ApiListening {
   /** The port actually bound (the requested one; the OS-chosen one if 0 was requested). */
   port: number;
@@ -114,7 +117,10 @@ function stillSameFile(identity: DatabaseIdentity): boolean {
   );
 }
 
-/** The project count as an optional field: a failing read is fail-open and leaves the field out. */
+/**
+ * The project count as an optional field: a failing read is fail-open and leaves the field out.
+ * @internal test-only
+ */
 export function readProjectCount(store: Pick<WorkIntelligenceStore, "countProjects">): { projectCount?: number } {
   try {
     return { projectCount: store.countProjects() };

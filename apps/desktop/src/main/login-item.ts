@@ -3,7 +3,6 @@ import {
   changeLoginItem,
   loginItemQueryFor,
   readSystemLoginItem,
-  writeDesktopSettingsAtomic,
   type LoginItemSetResult,
   type RepairLoginItemSection,
 } from "@work-intelligence/desktop-core";
@@ -69,26 +68,31 @@ export function createLoginItemController(options: LoginItemControllerOptions): 
   return {
     section,
     async set(enable) {
-      const { settings } = state;
       if (!supported) return { ok: false, reason: "unsupported" };
-      if (!settings) return { ok: false, reason: "failed" };
-      const change = changeLoginItem(settings, enable ? { enable: true, consent: true } : { enable: false }, platform);
-      if (!change.ok) return { ok: false, reason: "failed" };
+      if (!state.settings) return { ok: false, reason: "failed" };
+      const request = enable ? ({ enable: true, consent: true } as const) : ({ enable: false } as const);
+      let before = state.settings.desired.launchAtLogin;
       try {
-        await writeDesktopSettingsAtomic(paths.settingsFile, change.settings);
+        // Only this one field changes, on the settings as they are when the write's turn comes (see updateSettings).
+        await state.updateSettings(paths.settingsFile, (current) => {
+          before = current.desired.launchAtLogin;
+          const change = changeLoginItem(current, request, platform);
+          return change.ok ? change.settings : null;
+        });
       } catch (error) {
         log(`[shell] login item setting not saved: ${error instanceof Error ? error.name : "unknown"}`);
         return { ok: false, reason: "failed" };
       }
-      state.settings = change.settings;
       try {
         apply(state);
       } catch (error) {
         log(`[shell] login item not applied: ${error instanceof Error ? error.name : "unknown"}`);
         // The system refused: keep the file telling what the system really does, then report the failure with the real state.
-        state.settings = settings;
         try {
-          await writeDesktopSettingsAtomic(paths.settingsFile, settings);
+          await state.updateSettings(paths.settingsFile, (current) => ({
+            ...current,
+            desired: { ...current.desired, launchAtLogin: before },
+          }));
         } catch {
           log("[shell] login item setting not restored");
         }

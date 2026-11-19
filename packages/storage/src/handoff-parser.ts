@@ -9,7 +9,9 @@ export type HandoffClassification = {
 };
 
 export const MAX_HANDOFF_CONTENT_LENGTH = 200_000;
+/** @internal test-only */
 export const MAX_HANDOFF_STATUS_SIGNALS = 32;
+/** @internal test-only */
 export const MAX_PARSED_CHANGED_FILES = 200;
 
 export type ParsedHandoffContent = {
@@ -484,6 +486,7 @@ function createFileTokenReader(text: string): (start: number, end: number) => st
   };
 }
 
+/** @internal test-only */
 export function stripFencedCodeBlocks(content: string): string {
   const lines = content.slice(0, MAX_HANDOFF_CONTENT_LENGTH).split(/\r?\n/);
   const visibleLines: string[] = [];
@@ -509,12 +512,14 @@ export function stripFencedCodeBlocks(content: string): string {
   return visibleLines.join("\n");
 }
 
+/** @internal test-only */
 export function titleFromContent(content: string, sourcePath: string): string {
   const heading = findTitleHeading(content.slice(0, MAX_HANDOFF_CONTENT_LENGTH));
   const fallback = basename(sourcePath).replace(/\.md$/i, "");
   return truncateText(heading || fallback, 300);
 }
 
+/** @internal test-only */
 export function findStatusSignals(content: string): string[] {
   return statusSignalsFromSource(stripFencedCodeBlocks(content));
 }
@@ -564,6 +569,7 @@ function statusSignalsFromSource(source: string): string[] {
   return [...new Set(signals)].slice(0, MAX_HANDOFF_STATUS_SIGNALS);
 }
 
+/** @internal test-only */
 export function classifyHandoff(title: string, statusSignals: string[]): HandoffClassification {
   const statusText = [title, ...statusSignals].join(" ");
   if (/\bblocked\b|\bblocking\b|阻塞|被阻擋/i.test(statusText)) {
@@ -593,12 +599,14 @@ export function classifyHandoff(title: string, statusSignals: string[]): Handoff
   };
 }
 
+/** @internal test-only */
 export function parseRecordedDate(content: string): string | undefined {
   return content
     .slice(0, MAX_HANDOFF_CONTENT_LENGTH)
     .match(/(?:recorded\s+date|recorded|記錄日期)\s*(?:[:：]\s*)?(\d{4}-\d{2}-\d{2})/i)?.[1];
 }
 
+/** @internal test-only */
 export function parseVerification(content: string): VerificationSummary {
   return verificationFromSource(stripFencedCodeBlocks(content));
 }
@@ -651,10 +659,12 @@ function normalizeFileCandidate(projectRoot: string, value: string): string {
   return normalized;
 }
 
+/** @internal test-only */
 export function fileTokenFromLine(line: string): string | undefined {
   return createFileTokenReader(line)(0, line.length);
 }
 
+/** @internal test-only */
 export function extractChangedFiles(content: string, projectRoot: string): string[] {
   return changedFilesFromSource(stripFencedCodeBlocks(content), projectRoot);
 }
@@ -742,6 +752,7 @@ function changedFilesFromSource(source: string, projectRoot: string): string[] {
   return values;
 }
 
+/** @internal test-only */
 export function summaryFromContent(content: string, sourcePath: string): string {
   return summaryFromSource(stripFencedCodeBlocks(content), sourcePath);
 }

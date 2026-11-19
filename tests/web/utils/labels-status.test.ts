@@ -148,6 +148,17 @@ describe("status and label maps", () => {
         updateAvailableProcesses: 0,
       }),
     ).toMatchObject({ tone: "neutral", label: t("status.noConnectionsToMonitorYet") });
+    // An Agent that was seen connecting must not read as "no connections yet": its record is missing here.
+    expect(
+      mcpRuntimeStatusVisual({
+        restartRequired: false,
+        monitoringAvailable: true,
+        activeProcesses: 0,
+        outdatedProcesses: 0,
+        updateAvailableProcesses: 0,
+        agentObservedWithoutLease: true,
+      }),
+    ).toMatchObject({ tone: "attention", label: t("status.agentSeenButNoConnectionRecord") });
     expect(
       mcpReconnectStatusVisual({
         restartRequired: true,

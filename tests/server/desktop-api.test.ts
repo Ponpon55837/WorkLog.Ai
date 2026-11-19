@@ -91,6 +91,40 @@ describe("system status database and login item in desktop mode", () => {
   });
 });
 
+describe("system status MCP connection record", () => {
+  const status = async (options: ApiHandlerOptions): Promise<{ mcp: Record<string, unknown> }> =>
+    (await (await fetch(`${await listen(options)}/api/system/status`)).json()) as { mcp: Record<string, unknown> };
+  const mcp = (activeProcesses: number) => () =>
+    ({
+      restartRequired: false,
+      monitoringAvailable: true,
+      activeProcesses,
+      outdatedProcesses: 0,
+      updateAvailableProcesses: 0,
+    }) as never;
+
+  it("says an Agent was seen but no live connection record is visible here", async () => {
+    const seen = await status({
+      mcpRuntimeStatus: mcp(0),
+      agentConnections: () => ({ codex: { observation: "current" }, claudeCode: {} }) as never,
+    });
+    expect(seen.mcp.agentObservedWithoutLease).toBe(true);
+  });
+
+  it("says nothing when a connection record is visible, or no Agent was ever seen", async () => {
+    const visible = await status({
+      mcpRuntimeStatus: mcp(2),
+      agentConnections: () => ({ codex: { observation: "current" }, claudeCode: {} }) as never,
+    });
+    expect(visible.mcp).not.toHaveProperty("agentObservedWithoutLease");
+    const never = await status({
+      mcpRuntimeStatus: mcp(0),
+      agentConnections: () => ({ codex: { observation: "none" }, claudeCode: {} }) as never,
+    });
+    expect(never.mcp).not.toHaveProperty("agentObservedWithoutLease");
+  });
+});
+
 describe("system status port and storage facts", () => {
   it("reports the active port and storage risk", async () => {
     const facts = { activePort: 40_321, storageRisk: { risk: "network", migrationBlocked: true } } as const;

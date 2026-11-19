@@ -25,7 +25,10 @@ export interface KnowledgePageDiff {
   changed: number;
 }
 
-/** Line diff by longest common subsequence; pages are small, so the quadratic table is fine. */
+/**
+ * Line diff by longest common subsequence; pages are small, so the quadratic table is fine.
+ * @internal test-only
+ */
 export function diffLines(before: string, after: string): LineDiffEntry[] {
   const a = before === "" ? [] : before.split("\n");
   const b = after === "" ? [] : after.split("\n");

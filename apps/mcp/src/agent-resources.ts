@@ -20,6 +20,7 @@ export interface AgentToolContractOperation {
 }
 
 const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+/** @internal test-only */
 export const TOOL_CONTRACT_RESOURCE_URI = "work-intelligence://agent/tool-contracts";
 /** One operation's complete contract; the index above lists every operation id. */
 export const TOOL_CONTRACT_OPERATION_URI_TEMPLATE = `${TOOL_CONTRACT_RESOURCE_URI}/{operation}`;

@@ -15,7 +15,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 
 export interface McpBuildIdentity {
   version: string;
@@ -352,6 +352,24 @@ function canonicalPath(path: string, platform: NodeJS.Platform): string {
 }
 
 /**
+ * The App's runtime root when `path` lies inside one of its runtimes (`<root>/runtimes/<id>/...`, the root holding the
+ * `current` pointer); undefined for a repository checkout or a standalone install.
+ */
+export function appRootOf(path: string): string | undefined {
+  let current = resolve(path);
+  for (let depth = 0; depth < 12; depth += 1) {
+    const parent = dirname(current);
+    if (parent === current) return undefined;
+    if (basename(parent) === "runtimes") {
+      const root = dirname(parent);
+      return existsSync(join(root, "current")) ? root : undefined;
+    }
+    current = parent;
+  }
+  return undefined;
+}
+
+/**
  * Returns the process-lease directory shared by the MCP, local API server, and doctor for one install. Under the
  * desktop App the scope is the App's stable runtime root (see {@link MCP_LEASE_SCOPE_ENVIRONMENT}); otherwise it is the
  * installation root, as before.
@@ -361,7 +379,9 @@ export function getMcpRuntimeDirectory(
   environment: Readonly<Record<string, string | undefined>> = process.env,
   platform: NodeJS.Platform = process.platform,
 ): string {
-  const appScope = environment[MCP_LEASE_SCOPE_ENVIRONMENT]?.trim();
+  // The variable is only set by the launcher; a process started another way (the backend, an Agent's older launcher) still sits
+  // inside `<App root>/runtimes/<id>/`, which names the same App root without it.
+  const appScope = environment[MCP_LEASE_SCOPE_ENVIRONMENT]?.trim() || appRootOf(repositoryRoot);
   const scopeKey = appScope ? `app:${canonicalPath(appScope, platform)}` : canonicalPath(repositoryRoot, platform);
   const scopeId = createHash("sha256").update(scopeKey).digest("hex").slice(0, 24);
   return join(tmpdir(), "work-intelligence", "mcp-runtime", scopeId);

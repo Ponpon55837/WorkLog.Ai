@@ -33,6 +33,7 @@ export interface ChangePortController {
   section(): RepairPortSection;
 }
 
+/** @internal test-only */
 export interface ChangePortOptions {
   readonly state: ShellState;
   readonly coordinator: Pick<OperationCoordinator, "current">;

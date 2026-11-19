@@ -57,6 +57,7 @@ interface ServerConnection {
 
 /** Bumped only when the launcher protocol with the child (environment, status fields) changes. */
 export const MCP_LAUNCHER_VERSION = 1;
+/** @internal test-only */
 export const MCP_LAUNCHER_ENVIRONMENT = {
   path: "WORK_INTELLIGENCE_MCP_LAUNCHER_PATH",
   hash: "WORK_INTELLIGENCE_MCP_LAUNCHER_HASH",
@@ -151,6 +152,7 @@ export function launcherFileHash(path: string): string | undefined {
  * The server build on disk as `<package version>:<dist hash>`, the same build id as `readMcpBuildIdentity`. It reads
  * the hash that `pnpm build` embeds in `index.js` last, and only while no build is in progress; the started server
  * verifies the whole dist itself. A stat signature keeps the per-request check to three `stat` calls.
+ * @internal test-only
  */
 export function createBuildIdReader(repositoryRoot: string, entryPath: string): () => string | undefined {
   const markerPath = resolve(repositoryRoot, BUILD_PROGRESS_FILE);
@@ -189,6 +191,7 @@ export function createBuildIdReader(repositoryRoot: string, entryPath: string): 
 /**
  * Stops a server child: close its stdin so it can finish, then force it. On Windows `kill()` is TerminateProcess,
  * which cannot be caught; elsewhere SIGTERM comes first and SIGKILL only if the child ignores it.
+ * @internal test-only
  */
 export async function stopServerProcess(
   child: ChildProcess,
@@ -211,6 +214,7 @@ export async function stopServerProcess(
   await finished(timeoutMs);
 }
 
+/** @internal test-only */
 export class McpSupervisor {
   private readonly options: Required<
     Pick<McpSupervisorOptions, "pollIntervalMs" | "startupTimeoutMs" | "drainTimeoutMs" | "stopTimeoutMs">

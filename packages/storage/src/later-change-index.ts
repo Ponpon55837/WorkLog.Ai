@@ -90,6 +90,7 @@ interface Candidates {
  * 110-character project root, costs 708M units (0.48 s); 20,000 ordinary Sessions cost 53M. The limit leaves 3.1
  * times the first; reaching it took at most 2.4 s and 380 MB on the development machine (9,200 Sessions of 200
  * distinct two-character paths; 20,500 Sessions of the first shape took 1.7 s).
+ * @internal test-only
  */
 export const STALENESS_HISTORY_UNIT_LIMIT = 2_200_000_000;
 
@@ -100,6 +101,7 @@ export const STALENESS_HISTORY_UNIT_LIMIT = 2_200_000_000;
  * fall under cost far more: a page of 50 over 2,000 Sessions of 50 distinct files, with a directory entry of about
  * 8,000 candidates per item, needed between 50M and 150M in the release review, which is why the ceiling is 300M and
  * not the 50M first chosen. At about 4 ns per unit, reaching it is roughly 1.2 s (estimated from the unit cost).
+ * @internal test-only
  */
 export const STALENESS_MATCH_UNIT_LIMIT = 300_000_000;
 
@@ -136,7 +138,10 @@ export function stalenessUnitLimits(): StalenessUnitLimits {
   };
 }
 
-/** Test instrumentation only: lowers the staleness limits of later reads until called again without arguments. */
+/**
+ * Test instrumentation only: lowers the staleness limits of later reads until called again without arguments.
+ * @internal test-only
+ */
 export function setStalenessUnitLimits(limits: Partial<StalenessUnitLimits> | undefined): void {
   limitOverride = limits;
 }

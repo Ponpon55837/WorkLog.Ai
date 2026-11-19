@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { findUnrecognizedKeys } from "@work-intelligence/schema";
 
+/** @internal test-only */
 export const MAX_INPUT_PAYLOAD_BYTES = 1_500_000;
 
 const CUSTOM_ISSUE_CODE = "custom";

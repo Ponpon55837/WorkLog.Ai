@@ -101,6 +101,7 @@ export interface BackupWorkerClientOptions {
  */
 export const OPERATION_WATCHDOG_MS = 30 * 60_000;
 
+/** @internal test-only */
 export const DEFAULT_IDLE_TIMEOUT_MS = 15_000;
 /**
  * Import, preview and export leave the worker holding the parsed document (hundreds of MiB for a large project) in
@@ -108,6 +109,7 @@ export const DEFAULT_IDLE_TIMEOUT_MS = 15_000;
  * is gone, so the worker exits one second after them and that memory goes back to the system: on a 33 MiB synthetic
  * export the process stayed at 237 MiB for the 5 s this used to wait, against 85 MiB before the operation. The second
  * keeps a cold start (about 500 ms) out of work that arrives right behind, such as the next request of one upload.
+ * @internal test-only
  */
 export const HEAVY_IDLE_TIMEOUT_MS = 1_000;
 /**
@@ -116,6 +118,7 @@ export const HEAVY_IDLE_TIMEOUT_MS = 1_000;
  * flags match the desktop backend's (`--max-old-space-size=1024 --max-semi-space-size=2`), so a server started without
  * flags (dev, standalone CLI) is bounded the same instead of taking Node's default of about 2 GiB on a 16 GB machine.
  * Running out of it ends only this process: the API reports `backup_worker_out_of_memory` and keeps serving.
+ * @internal test-only
  */
 export const BACKUP_WORKER_HEAP_MB = 1024;
 const BACKUP_WORKER_SEMI_SPACE_MB = 2;
@@ -142,6 +145,7 @@ export interface OutOfMemoryScanner {
  * A scanner for one process. The report is recorded when it arrives rather than searched for in the end of stderr:
  * V8 prints a native stack trace after it, which on macOS arm64 can be longer than any tail kept. Only a few bytes are
  * carried between chunks.
+ * @internal test-only
  */
 export function createOutOfMemoryScanner(): OutOfMemoryScanner {
   let carry = "";

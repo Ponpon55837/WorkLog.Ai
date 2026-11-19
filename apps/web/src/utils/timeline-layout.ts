@@ -114,7 +114,10 @@ export interface DayBucket {
   total: number;
 }
 
-/** Local midnight of the day a timestamp falls on. */
+/**
+ * Local midnight of the day a timestamp falls on.
+ * @internal test-only
+ */
 export function startOfLocalDay(time: number): number {
   const date = new Date(time);
   date.setHours(0, 0, 0, 0);

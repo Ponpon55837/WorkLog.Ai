@@ -86,6 +86,8 @@ export type RestoreRunResult =
       readonly safetyBackup?: string;
       readonly projects: number;
       readonly sessions: number;
+      /** How many project folders now point at a new place on this computer; absent when none were moved. */
+      readonly remapped?: number;
     }
   | {
       readonly ok: false;

@@ -1044,7 +1044,7 @@
     "conflictCategoryUnique": "Unique key",
     "conflictCategoryDependency": "Dependency",
     "conflictCategoryMissingParent": "Missing from the file",
-    "restoreInDesktopApp": "Restore a backup from the Data tab of the desktop app; you can also choose a backup file from another location. Before restoring, the App backs up the current data automatically."
+    "restoreInDesktopApp": "Restore a backup from the Data tab of the desktop app; you can also choose a backup file from another location. On a new computer the App finds the project folders that do not exist there, lets you point to where they are now and maps the paths for you, so there is nothing to type. Before restoring, the App backs up the current data automatically."
   },
   "reports": {
     "aCustomRangeCanSpan": "A custom range can span at most {days} day.|A custom range can span at most {days} days.",
@@ -1476,6 +1476,7 @@
     "neverFailed": "Never failed",
     "noConnectionsToConfirmYet": "No connections to confirm yet",
     "noConnectionsToMonitorYet": "No connections to monitor yet",
+    "agentSeenButNoConnectionRecord": "Agent connected before, but no connection record is visible here",
     "noReconnectNeeded": "No reconnect needed",
     "notInstalled": "Not installed",
     "notSupported": "Not supported",
@@ -1569,6 +1570,11 @@
     "sqliteWalResetBody": "The bundled SQLite {version} may be affected by the WAL-reset database corruption bug. Upgrade Node.js so its SQLite is 3.51.3 or newer (or 3.50.7 / 3.44.6 or newer on those lines).",
     "needAttention": "{agentIssueCount} need attention",
     "noAutomaticBackupsYet": "No automatic backups yet",
+    "reclaimableSpace": "Reclaimable space",
+    "reclaimWorthIt": "Worth compacting",
+    "reclaimNotNeeded": "No need",
+    "agentSeenWithoutLeaseNote": "An Agent has been seen connecting, but its connection record is not visible here. The Agent may have disconnected since; if this stays after you restart the Agent, its record is kept somewhere else, so export the diagnostics summary from the desktop App's Diagnostics tab and report it.",
+    "reclaimInApp": "Open the desktop App's Data tab and press “Maintain the database”: it backs up first, then gives this space back.",
     "noMaintenanceHistory": "No maintenance history",
     "notApplicable": "Not applicable",
     "notSupportedOnThisPlatform": "Not supported on this platform",

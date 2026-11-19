@@ -135,6 +135,7 @@ function isSameOrigin(request: IncomingMessage, origin: string): boolean {
   }
 }
 
+/** @internal test-only */
 export interface ApiHandlerOptions {
   /** Shows the native folder dialog; injectable so tests never open a real window. */
   pickFolder?: () => Promise<FolderPickResult>;
@@ -146,6 +147,8 @@ export interface ApiHandlerOptions {
   webDirectory?: string;
   /** Install root used for the shared MCP runtime registry; injectable for isolated tests. */
   repositoryRoot?: string;
+  /** Shared MCP connection status; injectable so API tests need no lease files. */
+  mcpRuntimeStatus?: () => ReturnType<typeof getMcpRuntimeStatus>;
   /** Read-only Agent diagnostics; injectable so API tests never inspect real user settings. */
   agentConnections?: () => SystemAgentConnections;
   /** Read-only login-service status; injectable so API tests never query the host service manager. */
@@ -165,6 +168,7 @@ export interface ApiHandlerOptions {
   desktop?: DesktopHandlerOptions;
 }
 
+/** @internal test-only */
 export type ApiHandler = ((request: IncomingMessage, response: ServerResponse) => Promise<void>) & {
   closeEventStreams: () => void;
   /** Removes the export files staged for an import (shutdown); a crash leaves them to the start-up sweep. */
@@ -332,7 +336,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
     pickFolder,
     startEventStream,
     eventClientCount: () => eventClients.size,
-    mcpRuntimeStatus: () => getMcpRuntimeStatus(repositoryRoot),
+    mcpRuntimeStatus: options.mcpRuntimeStatus ?? (() => getMcpRuntimeStatus(repositoryRoot)),
     agentConnections: inspectConnections,
     userServiceStatus: inspectUserService,
     ...(options.desktop ? { desktop: createDesktopRouteServices(options.desktop, store.backupDirectory) } : {}),

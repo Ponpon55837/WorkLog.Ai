@@ -3,6 +3,7 @@ import { useToastsStore, type ToastTone } from "../stores/toasts";
 import { useClipboard } from "./useClipboard";
 import { t } from "../i18n";
 
+/** @internal test-only */
 export type { Toast, ToastTone } from "../stores/toasts";
 
 async function copyWithToast(text: string, successMessage: string): Promise<boolean> {

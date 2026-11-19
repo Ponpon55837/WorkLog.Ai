@@ -9,6 +9,7 @@ import { databasePathFor } from "@work-intelligence/shared/database-location";
 import { windowsPowerShell, windowsSystemTool } from "@work-intelligence/shared/windows-system-tool";
 import type { UserServiceManager, UserServiceState, UserServiceStatus } from "@work-intelligence/core";
 
+/** @internal test-only */
 export type UserServicePlatform = "darwin" | "linux" | "win32" | "unsupported";
 
 export interface UserServiceFile {
@@ -516,6 +517,7 @@ export function createUserServicePlan(options: UserServiceOptions = {}): UserSer
   return buildPlan(options);
 }
 
+/** @internal test-only */
 export function formatUserServicePreview(plan: UserServicePlan): string {
   const files = plan.files
     .map((file) => `將寫入：${file.path}\n--- ${file.path} ---\n${file.contents.trimEnd()}\n---`)

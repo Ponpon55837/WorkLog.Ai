@@ -54,6 +54,7 @@ export function describeRecovery(
     case "takeover":
     case "restart":
     case "restore":
+    case "maintenance":
       return null;
   }
 }
