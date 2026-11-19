@@ -314,8 +314,17 @@ describe("ensureBundledRuntime: permissions are not a reason to reinstall", () =
   };
   const unreadable = { read: async () => Promise.reject(new Error("blocked")) };
 
+  /**
+   * An install on Windows leaves an ACL stamp in the verified cache that is valid on arrival (M-09), so the next start
+   * rightly skips the ACL read. Dropping the cache makes the next start read the ACLs, which is the path these tests are about.
+   */
+  async function forgetVerifiedCache(): Promise<void> {
+    await fs.rm(path.join(installedDirectory(), ".verified.json"), { force: true });
+  }
+
   it("propagates unsafe permissions of an installed runtime without touching it", async () => {
     await ensureBundledRuntime(root, bundleRoot, options());
+    await forgetVerifiedCache();
     const before = await fs.readdir(path.join(root, "runtimes"));
     await expect(
       ensureBundledRuntime(
@@ -329,6 +338,7 @@ describe("ensureBundledRuntime: permissions are not a reason to reinstall", () =
 
   it("propagates an unreadable ACL the same way", async () => {
     await ensureBundledRuntime(root, bundleRoot, options());
+    await forgetVerifiedCache();
     await expect(
       ensureBundledRuntime(
         root,
