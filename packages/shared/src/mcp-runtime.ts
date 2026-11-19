@@ -16,6 +16,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
+import { configDirectory } from "./database-location.js";
 
 export interface McpBuildIdentity {
   version: string;
@@ -336,15 +337,27 @@ export function getMcpRestartStatus(
  */
 export const MCP_LEASE_SCOPE_ENVIRONMENT = "WORK_INTELLIGENCE_APP_LEASE_SCOPE";
 
-/** Windows paths are case-insensitive and accept both separators: one install must hash to one scope however it is spelled. */
+/**
+ * Windows paths are case-insensitive, accept both separators and may carry the `\\?\` long-path prefix or a trailing
+ * separator: one install must hash to one scope however it is spelled.
+ */
 export function normalizeScopePath(path: string, platform: NodeJS.Platform = process.platform): string {
-  return platform === "win32" ? path.replace(/\\/g, "/").toLowerCase() : path;
+  if (platform !== "win32") return path;
+  const unified = path.replace(/\\/g, "/").replace(/^\/\/[?.]\//, "");
+  const trimmed = unified.length > 3 ? unified.replace(/\/+$/, "") : unified;
+  return trimmed.toLowerCase();
 }
 
-function canonicalPath(path: string, platform: NodeJS.Platform): string {
+type RealPath = (path: string) => string;
+
+/**
+ * The scope path of an install. `realpathSync.native` asks the OS, so a Windows 8.3 short name (`PROGRA~1`) and the
+ * long name it stands for, or a junction, give one path; the JavaScript implementation `legacy` keeps does not.
+ */
+function canonicalPath(path: string, platform: NodeJS.Platform, realpath: RealPath): string {
   const resolved = resolve(path);
   try {
-    return normalizeScopePath(realpathSync(resolved), platform);
+    return normalizeScopePath(realpath(resolved), platform);
   } catch {
     // Keep the resolved path for a not-yet-created synthetic installation in tests.
     return normalizeScopePath(resolved, platform);
@@ -370,25 +383,120 @@ export function appRootOf(path: string): string | undefined {
 }
 
 /**
+ * Whether an MCP process keeps a lease. A repository checkout always does. A standalone bundle is replaced as a whole on
+ * update and has no on-disk build to watch, so a plain standalone install does not; but the desktop App's runtime is a
+ * standalone bundle too, and its connection count is exactly what the lease feeds, so a bundle that runs inside the App
+ * (its scope variable is set, or it sits in `<App root>/runtimes/<id>/`) registers like any other.
+ */
+export function mcpKeepsLease(
+  standalone: boolean,
+  repositoryRoot: string,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  return (
+    !standalone || Boolean(environment[MCP_LEASE_SCOPE_ENVIRONMENT]?.trim()) || appRootOf(repositoryRoot) !== undefined
+  );
+}
+
+function scopeIdFor(
+  repositoryRoot: string,
+  environment: Readonly<Record<string, string | undefined>>,
+  platform: NodeJS.Platform,
+  realpath: RealPath,
+): string {
+  // The variable is only set by the launcher; a process started another way (the backend, an Agent's older launcher) still sits
+  // inside `<App root>/runtimes/<id>/`, which names the same App root without it.
+  const appScope = environment[MCP_LEASE_SCOPE_ENVIRONMENT]?.trim() || appRootOf(repositoryRoot);
+  const scopeKey = appScope
+    ? `app:${canonicalPath(appScope, platform, realpath)}`
+    : canonicalPath(repositoryRoot, platform, realpath);
+  return createHash("sha256").update(scopeKey).digest("hex").slice(0, 24);
+}
+
+/**
+ * The opaque id (24 hex characters of a hash, no path) of the lease scope of one install. The MCP records it in its
+ * observation and the backend compares it with its own, so a mismatch is stated instead of guessed.
+ */
+export function getMcpLeaseScopeId(
+  repositoryRoot: string,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+  platform: NodeJS.Platform = process.platform,
+  realpath: RealPath = realpathSync.native,
+): string {
+  return scopeIdFor(repositoryRoot, environment, platform, realpath);
+}
+
+/**
  * Returns the process-lease directory shared by the MCP, local API server, and doctor for one install. Under the
  * desktop App the scope is the App's stable runtime root (see {@link MCP_LEASE_SCOPE_ENVIRONMENT}); otherwise it is the
- * installation root, as before.
+ * installation root, as before. The directory sits in the config directory, the place the Agent observations already
+ * rely on: an Agent that starts the MCP with another `TEMP`/`TMP` (or none) still writes where the backend reads.
  */
 export function getMcpRuntimeDirectory(
   repositoryRoot: string,
   environment: Readonly<Record<string, string | undefined>> = process.env,
   platform: NodeJS.Platform = process.platform,
+  realpath: RealPath = realpathSync.native,
 ): string {
-  // The variable is only set by the launcher; a process started another way (the backend, an Agent's older launcher) still sits
-  // inside `<App root>/runtimes/<id>/`, which names the same App root without it.
-  const appScope = environment[MCP_LEASE_SCOPE_ENVIRONMENT]?.trim() || appRootOf(repositoryRoot);
-  const scopeKey = appScope ? `app:${canonicalPath(appScope, platform)}` : canonicalPath(repositoryRoot, platform);
-  const scopeId = createHash("sha256").update(scopeKey).digest("hex").slice(0, 24);
-  return join(tmpdir(), "work-intelligence", "mcp-runtime", scopeId);
+  return join(
+    configDirectory({ environment, platform }),
+    "mcp-runtime",
+    scopeIdFor(repositoryRoot, environment, platform, realpath),
+  );
 }
 
-/** Registers one MCP process with an atomic lease file; each client process has its own independent lease. */
-export function registerMcpProcess(
+/**
+ * Where 1.6.59 and earlier kept the leases: the system temp directory, scoped by a hash of the JavaScript `realpathSync`
+ * path. Read only, so an MCP process that was already running before the upgrade is still counted.
+ * TODO: remove in 1.8.0 together with its use in getMcpRuntimeStatus.
+ */
+function legacyMcpRuntimeDirectory(
+  repositoryRoot: string,
+  environment: Readonly<Record<string, string | undefined>>,
+  platform: NodeJS.Platform,
+): string {
+  return join(
+    tmpdir(),
+    "work-intelligence",
+    "mcp-runtime",
+    scopeIdFor(repositoryRoot, environment, platform, realpathSync),
+  );
+}
+
+/** Why a lease could not be kept: a code, never a path or a system message. */
+export type McpLeaseFailure = "directory_unavailable" | "write_failed";
+
+/** What one MCP process knows about its own lease; ids, booleans and a code, no path. */
+export interface McpLeaseRegistration {
+  /** {@link getMcpLeaseScopeId} of this process. */
+  scopeId: string;
+  /** The lease directory could be created and the lease file written. */
+  directoryWritable: boolean;
+  failure?: McpLeaseFailure;
+  /** The system error code (`EACCES`, `ENOENT`…) of the failure, when it is one. */
+  errorCode?: string;
+}
+
+export interface McpProcessRegistration {
+  /** Stops the heartbeat and removes the lease. */
+  release: () => void;
+  /** The state right now: a failed heartbeat shows here, and a later one that succeeds clears it. */
+  registration: () => McpLeaseRegistration;
+}
+
+const ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]{1,23}$/;
+
+function errorCodeOf(error: unknown): string | undefined {
+  const code = error !== null && typeof error === "object" && "code" in error ? error.code : undefined;
+  return typeof code === "string" && ERROR_CODE_PATTERN.test(code) ? code : undefined;
+}
+
+/**
+ * Registers one MCP process with an atomic lease file; each client process has its own independent lease. A failure is
+ * not thrown (a stdio process must keep serving) and not hidden either: {@link McpProcessRegistration.registration}
+ * says whether the directory is writable and why not, for the observation file and the status page.
+ */
+export function registerMcpLease(
   repositoryRoot: string,
   build: McpBuildIdentity | undefined,
   options: {
@@ -396,12 +504,25 @@ export function registerMcpProcess(
     now?: () => Date;
     environment?: Readonly<Record<string, string | undefined>>;
   } = {},
-): () => void {
+): McpProcessRegistration {
   const directory = getMcpRuntimeDirectory(repositoryRoot, options.environment);
+  const state: McpLeaseRegistration = {
+    scopeId: getMcpLeaseScopeId(repositoryRoot, options.environment),
+    directoryWritable: true,
+  };
+  const registration = (): McpLeaseRegistration => ({ ...state });
+  const fail = (failure: McpLeaseFailure, error: unknown): void => {
+    state.directoryWritable = false;
+    state.failure = failure;
+    const code = errorCodeOf(error);
+    if (code) state.errorCode = code;
+    else delete state.errorCode;
+  };
   try {
     mkdirSync(directory, { recursive: true, mode: 0o700 });
-  } catch {
-    return () => undefined;
+  } catch (error) {
+    fail("directory_unavailable", error);
+    return { release: () => undefined, registration };
   }
   cleanupRegistrationLeases(directory, (options.now?.() ?? new Date()).getTime());
   const instanceId = randomUUID();
@@ -424,8 +545,12 @@ export function registerMcpProcess(
     try {
       writeFileSync(temporaryPath, JSON.stringify(lease), { encoding: "utf8", mode: 0o600 });
       renameSync(temporaryPath, leasePath);
-    } catch {
+      state.directoryWritable = true;
+      delete state.failure;
+      delete state.errorCode;
+    } catch (error) {
       // An unavailable registry must not crash the stdio process; the MCP response still reports local status.
+      fail("write_failed", error);
       try {
         rmSync(temporaryPath, { force: true });
       } catch {
@@ -451,7 +576,19 @@ export function registerMcpProcess(
     process.off("exit", cleanup);
   };
   process.once("exit", cleanup);
-  return cleanup;
+  return { release: cleanup, registration };
+}
+
+/**
+ * {@link registerMcpLease} for a caller that only needs the release function.
+ * @internal test-only
+ */
+export function registerMcpProcess(
+  repositoryRoot: string,
+  build: McpBuildIdentity | undefined,
+  options: Parameters<typeof registerMcpLease>[2] = {},
+): () => void {
+  return registerMcpLease(repositoryRoot, build, options).release;
 }
 
 function probeRuntimeDirectoryWritable(directory: string): boolean {
@@ -469,6 +606,76 @@ function probeRuntimeDirectoryWritable(directory: string): boolean {
     }
     return false;
   }
+}
+
+/** The leases of `entries` (the files of `directory`) whose heartbeat is fresh; expired files are cleaned up on the way. */
+function freshLeases(
+  directory: string,
+  entries: readonly Dirent[],
+  now: number,
+  heartbeatTtlMs: number,
+  cleanupBudget: { attempts: number },
+): McpProcessLease[] {
+  return entries.flatMap((file) => {
+    if (!file.isFile() || !MCP_LEASE_FILE_PATTERN.test(file.name)) return [];
+    const lease = file.name.endsWith(".json") ? readProcessLease(join(directory, file.name)) : undefined;
+    cleanupExpiredLease(directory, file.name, now, heartbeatTtlMs, cleanupBudget, lease);
+    if (
+      !lease ||
+      typeof lease.instanceId !== "string" ||
+      basename(file.name) !== `${lease.instanceId}.json` ||
+      typeof lease.buildId !== "string" ||
+      typeof lease.heartbeatAt !== "string"
+    ) {
+      return [];
+    }
+    const heartbeatTime = Date.parse(lease.heartbeatAt);
+    const age = now - heartbeatTime;
+    return Number.isFinite(heartbeatTime) && age <= heartbeatTtlMs && age >= -5_000 ? [lease as McpProcessLease] : [];
+  });
+}
+
+/** What the lease registry of one install holds right now; ids, a count and a boolean, no path. */
+export interface McpLeaseCensus {
+  scopeId: string;
+  directoryWritable: boolean;
+  activeLeases: number;
+}
+
+/**
+ * The scope id of `repositoryRoot`'s lease registry, whether it can be written and how many fresh leases it holds (the
+ * old temp-directory registry included, see {@link getMcpRuntimeStatus}). For the diagnostics summary, which has no build
+ * to compare with.
+ */
+export function readMcpLeaseCensus(
+  repositoryRoot: string,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+  now: Date = new Date(),
+): McpLeaseCensus {
+  const directory = getMcpRuntimeDirectory(repositoryRoot, environment);
+  const directories = [directory, legacyMcpRuntimeDirectory(repositoryRoot, environment, process.platform)];
+  const seen = new Set<string>();
+  for (const [index, candidate] of directories.entries()) {
+    if (index === 1 && candidate === directory) continue;
+    try {
+      for (const lease of freshLeases(
+        candidate,
+        readdirSync(candidate, { withFileTypes: true }),
+        now.getTime(),
+        MCP_HEARTBEAT_TTL_MS,
+        { attempts: 0 },
+      )) {
+        seen.add(lease.instanceId);
+      }
+    } catch {
+      // A registry that does not exist or cannot be read holds no lease.
+    }
+  }
+  return {
+    scopeId: getMcpLeaseScopeId(repositoryRoot, environment),
+    directoryWritable: probeRuntimeDirectoryWritable(directory),
+    activeLeases: seen.size,
+  };
 }
 
 /** Reads only fresh process leases and reports whether any currently observable MCP process is outdated. */
@@ -515,23 +722,26 @@ export function getMcpRuntimeStatus(
   }
 
   const cleanupBudget = { attempts: 0 };
-  const activeLeases = files.flatMap((file) => {
-    if (!file.isFile() || !MCP_LEASE_FILE_PATTERN.test(file.name)) return [];
-    const lease = file.name.endsWith(".json") ? readProcessLease(join(directory, file.name)) : undefined;
-    cleanupExpiredLease(directory, file.name, now, heartbeatTtlMs, cleanupBudget, lease);
-    if (
-      !lease ||
-      typeof lease.instanceId !== "string" ||
-      basename(file.name) !== `${lease.instanceId}.json` ||
-      typeof lease.buildId !== "string" ||
-      typeof lease.heartbeatAt !== "string"
-    ) {
-      return [];
+  const readActiveLeases = (leaseDirectory: string, entries: readonly Dirent[]): McpProcessLease[] =>
+    freshLeases(leaseDirectory, entries, now, heartbeatTtlMs, cleanupBudget);
+  const activeLeases = readActiveLeases(directory, files);
+  // TODO: remove in 1.8.0. An MCP process started by 1.6.59 or earlier keeps writing to the system temp directory until
+  // its Agent reconnects; it is counted from there when this process sees the same temp directory.
+  try {
+    const legacyDirectory = legacyMcpRuntimeDirectory(
+      repositoryRoot,
+      options.environment ?? process.env,
+      process.platform,
+    );
+    if (legacyDirectory !== directory && lstatSync(legacyDirectory).isDirectory()) {
+      const known = new Set(activeLeases.map((lease) => lease.instanceId));
+      for (const lease of readActiveLeases(legacyDirectory, readdirSync(legacyDirectory, { withFileTypes: true }))) {
+        if (!known.has(lease.instanceId)) activeLeases.push(lease);
+      }
     }
-    const heartbeatTime = Date.parse(lease.heartbeatAt);
-    const age = now - heartbeatTime;
-    return Number.isFinite(heartbeatTime) && age <= heartbeatTtlMs && age >= -5_000 ? [lease] : [];
-  });
+  } catch {
+    // No legacy registry (the usual case after the upgrade): nothing to add.
+  }
   const outdatedProcesses = currentBuild
     ? activeLeases.filter(
         (lease) =>

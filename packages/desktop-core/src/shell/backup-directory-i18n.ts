@@ -19,6 +19,7 @@ export interface BackupDirectoryMessages {
   readonly refused: string;
   readonly declined: string;
   readonly startFailed: string;
+  readonly notRestored: string;
   readonly failed: string;
   /** `{folder}` is the new folder. */
   readonly done: string;
@@ -46,6 +47,8 @@ const zhTW: BackupDirectoryMessages = {
     "這個資料夾在「{label}」上，備份可能寫到一半就中斷，所以 App 不使用它。備份位置沒有變更。請選擇這台電腦的本機磁碟。",
   declined: "已取消，備份位置沒有變更。",
   startFailed: "備份位置已改回原來的設定，但服務沒能重新啟動。請到「狀態」分頁按「重試」。",
+  notRestored:
+    "備份位置已經改成新的資料夾，但服務用它啟動失敗，也沒能改回原來的資料夾。請到「狀態」分頁按「重試」，或再次更換備份位置。",
   failed: "更換備份位置沒有完成，備份位置沒有變更。",
   done: "之後的備份會存到「{folder}」。已經存在的備份沒有被移動，仍在原來的資料夾。",
   riskTitle: "這個資料夾可能不適合放備份",
@@ -75,6 +78,8 @@ const en: BackupDirectoryMessages = {
   declined: "Cancelled. The backup location was not changed.",
   startFailed:
     "The backup location was set back, but the service could not start again. Open the Status tab and press Retry.",
+  notRestored:
+    "The backup location is now the new folder, but the service could not start with it and the old folder could not be put back. Open the Status tab and press Retry, or change the backup location again.",
   failed: "Changing the backup location did not finish. The backup location was not changed.",
   done: "Later backups go to “{folder}”. Backups that already exist were not moved and stay in their old folder.",
   riskTitle: "This folder may not be a good place for backups",
@@ -112,6 +117,8 @@ export function backupDirectoryResultText(
       return messages.declined;
     case "start-failed":
       return messages.startFailed;
+    case "not-restored":
+      return messages.notRestored;
     default:
       return messages.failed;
   }

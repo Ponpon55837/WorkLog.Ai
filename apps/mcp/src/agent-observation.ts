@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
+import type { McpLeaseRegistration } from "@work-intelligence/shared/mcp-runtime";
 import {
   AGENT_OBSERVATIONS_FILE,
   mcpContractFingerprint,
@@ -18,6 +19,8 @@ export interface AgentObservation {
   contractFingerprint: string;
   serverVersion: string;
   observedAt: string;
+  /** This process's lease scope id and whether its lease directory worked (no path); absent in files of 1.6.59 and earlier. */
+  lease?: McpLeaseRegistration;
 }
 
 export interface AgentObservationFile {
@@ -31,6 +34,8 @@ export interface AgentObservationRecorderOptions {
   directory: string;
   serverVersion: string;
   now?: () => Date;
+  /** The process's lease state, read when the observation is made; omitted when the process keeps no lease. */
+  lease?: () => McpLeaseRegistration;
   /** Failures are reported here (stderr) and never thrown: observing a host must not affect its MCP session. */
   onError?: (error: unknown) => void;
 }
@@ -142,6 +147,7 @@ export class AgentObservationRecorder {
       contractFingerprint: mcpContractFingerprint(result.tools),
       serverVersion: this.options.serverVersion,
       observedAt: (this.options.now?.() ?? new Date()).toISOString(),
+      ...(this.options.lease ? { lease: this.options.lease() } : {}),
     };
     this.pendingWrite = new Promise<void>((resolve) => {
       setImmediate(() => {

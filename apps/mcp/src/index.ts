@@ -3,7 +3,13 @@ import { fileURLToPath } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { APP_VERSION } from "@work-intelligence/shared/app-version";
 import { MCP_SELFTEST_ENVIRONMENT } from "@work-intelligence/shared/mcp-contract-fingerprint";
-import { getMcpRestartStatus, type McpRestartStatus, registerMcpProcess } from "@work-intelligence/shared/mcp-runtime";
+import {
+  getMcpRestartStatus,
+  type McpProcessRegistration,
+  type McpRestartStatus,
+  mcpKeepsLease,
+  registerMcpLease,
+} from "@work-intelligence/shared/mcp-runtime";
 import { backupOptionsFromEnvironment, LATEST_SCHEMA_VERSION, WorkIntelligenceStore } from "@work-intelligence/storage";
 import { AgentObservationRecorder } from "./agent-observation.js";
 import { configDirectory, databasePathFor, STANDALONE } from "./database-location.js";
@@ -58,13 +64,22 @@ async function startMcpServer(): Promise<void> {
   );
   const startupFailure = storeAccess.startupFailure;
 
+  let lease: McpProcessRegistration | undefined;
   try {
-    // A standalone bundle is replaced as a whole on update, so there is no on-disk build to watch.
-    if (!STANDALONE) {
+    // A standalone bundle is replaced as a whole on update, so there is no on-disk build to watch; the desktop App's runtime is
+    // a standalone bundle that still keeps a lease, because the connection count comes from it.
+    if (mcpKeepsLease(STANDALONE, repositoryRoot)) {
       try {
-        registerMcpProcess(repositoryRoot, runningBuild);
+        lease = registerMcpLease(repositoryRoot, runningBuild);
       } catch {
         console.error("Work Intelligence MCP runtime 狀態無法寫入；本次連線仍會回報本機建置狀態。");
+      }
+      const registration = lease?.registration();
+      if (registration && !registration.directoryWritable) {
+        // A code only (no path): the same facts the observation file carries for the status page.
+        console.error(
+          `Work Intelligence MCP lease 無法寫入（${registration.failure ?? "unknown"}${registration.errorCode ? ` ${registration.errorCode}` : ""}）；系統狀態可能看不到本次連線。`,
+        );
       }
     }
     const server = createWorkIntelligenceMcpServer(
@@ -79,6 +94,7 @@ async function startMcpServer(): Promise<void> {
     new AgentObservationRecorder({
       directory: configDirectory(),
       serverVersion: APP_VERSION,
+      ...(lease ? { lease: lease.registration } : {}),
       onError: () => console.error("Work Intelligence MCP 無法記錄 Agent 連線觀察；MCP 連線不受影響。"),
     }).attach(server, transport);
     await server.connect(transport);

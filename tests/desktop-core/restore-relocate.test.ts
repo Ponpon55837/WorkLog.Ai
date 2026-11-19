@@ -49,6 +49,35 @@ describe("restore relocation", () => {
     expect([...itself]).toEqual([["C:\\Users\\old\\work\\beta", "/Users/new/Beta"]]);
   });
 
+  it("does not point two missing projects of the chosen folder's name at that one folder", async () => {
+    const missing = [
+      { path: "C:\\work\\app", name: "app" },
+      { path: "D:\\other\\app", name: "app" },
+    ];
+    const ambiguous = await planRelocation({
+      missing,
+      chosen: "/Users/new/app",
+      directoryExists: async () => false,
+      caseInsensitive: false,
+    });
+    expect([...ambiguous]).toEqual([]);
+    // The same collision through a folder of that name inside the chosen one.
+    const collided = await planRelocation({
+      missing,
+      chosen: "/Users/new/projects",
+      directoryExists: async (folder) => folder.endsWith("app"),
+      caseInsensitive: false,
+    });
+    expect([...collided]).toEqual([]);
+    const single = await planRelocation({
+      missing: [missing[0] as (typeof missing)[number]],
+      chosen: "/Users/new/app",
+      directoryExists: async () => false,
+      caseInsensitive: false,
+    });
+    expect([...single]).toEqual([["C:\\work\\app", "/Users/new/app"]]);
+  });
+
   it("orders the remap longest source first so a nested project is moved before its parent", () => {
     const list = remapList(
       new Map([

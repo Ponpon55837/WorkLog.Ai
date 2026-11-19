@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { unlink, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import {
   backupDirectoryVerdict,
@@ -43,11 +43,14 @@ export interface BackupDirectoryController {
   choose(): Promise<BackupDirectoryChooseResult>;
 }
 
-/** A file written and removed again proves the App can put a backup there; a folder that only looks writable does not. */
+/**
+ * A file written and removed again proves the App can put a backup there; a folder that only looks writable does not. It
+ * creates nothing but the probe file (a folder that does not exist is not writable), and it runs only after the storage
+ * verdict allowed the folder, so a refused location is never touched.
+ */
 async function writableFolder(folder: string): Promise<boolean> {
   const probe = join(folder, `.work-intelligence-write-test-${randomUUID()}`);
   try {
-    await mkdir(folder, { recursive: true });
     await writeFile(probe, "", { flag: "wx" });
     await unlink(probe);
     return true;
@@ -59,8 +62,8 @@ async function writableFolder(folder: string): Promise<boolean> {
 
 /**
  * 「更換備份位置」 (Settings tab). The page sends nothing; main opens the native folder dialog and reads every path. Order:
- * choose, prove the folder writable, classify its storage (a network drive is refused, an external, cloud-synced or
- * hard-linked folder needs a yes), refuse while the service does work that a restart would cut short, write the settings,
+ * choose, classify its storage (a network drive is refused, an external, cloud-synced or hard-linked folder needs a yes),
+ * prove the folder writable (only now: a refused location is never written to), refuse while the service does work that a restart would cut short, write the settings,
  * restart the service so it uses the folder, and put the old folder back if that restart fails. Backups made before are
  * never moved or deleted.
  */
@@ -85,7 +88,18 @@ export function createBackupDirectory(options: BackupDirectoryOptions): BackupDi
       .start("restart")
       .catch((): RestartOutcome => ({ ok: false, code: "REPAIR_REQUIRED" }));
     if (restarted.ok) return null;
-    await setFolder(previous).catch(() => log("[shell] backup folder not restored"));
+    const restored = await setFolder(previous).then(
+      () => true,
+      () => false,
+    );
+    if (!restored) {
+      // The settings still name the new folder: saying "not changed", or starting again as if it were the old one, would be false.
+      log("[shell] backup folder not restored");
+      if (restarted.busy)
+        return { ok: false, reason: "not-restored", backendRunning: supervisor.running !== undefined };
+      backend.recovery.handleFailure(restarted.code);
+      return { ok: false, reason: "not-restored", backendRunning: false };
+    }
     if (restarted.busy) return { ok: false, reason: "busy", busy: { source: "unknown" } };
     log(`[shell] restart after the backup folder change failed (${restarted.code})`);
     const again = await backend.start("restart").catch((): RestartOutcome => ({ ok: false, code: "REPAIR_REQUIRED" }));
@@ -110,13 +124,14 @@ export function createBackupDirectory(options: BackupDirectoryOptions): BackupDi
       if (busy) return { ok: false, reason: "busy", busy };
       const folder = await options.chooseFolder();
       if (folder === null) return { ok: false, reason: "cancelled" };
-      if (!isAbsolute(folder) || !(await probeWritable(folder))) return { ok: false, reason: "not-writable" };
+      if (!isAbsolute(folder)) return { ok: false, reason: "not-writable" };
       const { risk } = await options.classify(folder);
       const verdict = backupDirectoryVerdict(risk);
       if (verdict === "refuse" && risk !== "none") return { ok: false, reason: "refused", risk };
       if (verdict === "confirm" && risk !== "none" && !(await options.confirmRisk(risk))) {
         return { ok: false, reason: "declined", risk };
       }
+      if (!(await probeWritable(folder))) return { ok: false, reason: "not-writable" };
       // Something may have started while the dialogs were open.
       const late = busyDetailOf({
         current: coordinator.current(),

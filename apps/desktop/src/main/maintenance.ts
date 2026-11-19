@@ -175,9 +175,10 @@ export function createMaintenance(options: MaintenanceOptions): MaintenanceContr
 
   async function execute(databasePath: string): Promise<MaintenanceRunResult> {
     backend.recovery.cancel();
-    const seen: { child?: DatabaseMaintainOutcome; before?: string | null } = {};
+    const seen: { child?: DatabaseMaintainOutcome; before?: string | null; entered?: boolean } = {};
     const backupDirectory = state.backupDirectory() ?? undefined;
     const step = async (context: OperationStepContext): Promise<JournalJson> => {
+      seen.entered = true;
       await context.markMigrationStarted();
       seen.before = fingerprintOf(databasePath);
       const child = await supervisor.maintainDatabase({
@@ -238,6 +239,11 @@ export function createMaintenance(options: MaintenanceOptions): MaintenanceContr
     }
     log(`[shell] database maintenance did not finish (${reason})`);
     const running = await bringBack();
+    if (!seen.entered) {
+      // The work never began (a refused start, a runtime that could not be prepared, a service that would not stop): the
+      // database was not touched, whatever the reason says.
+      return failure("maintain", reason, { dataIntact: true, backendRunning: running });
+    }
     // A refusal before the compaction (in use, missing, invalid, integrity, backup) leaves the file as it was; a failure during it does not claim that.
     const untouched = reason !== "failed" && reason !== "integrity-failed";
     return failure("maintain", reason, {

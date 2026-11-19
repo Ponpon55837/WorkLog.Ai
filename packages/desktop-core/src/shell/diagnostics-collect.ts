@@ -18,6 +18,36 @@ export interface DiagnosticsInputs {
   readonly lastBackup: LastBackupInfo;
   readonly recentOutput: readonly string[];
   readonly generatedAt: Date;
+  /** The MCP lease census and the Agent observation's lease state; ids, counts and booleans, never a path. */
+  readonly mcpLease?: McpLeaseDiagnosticsInput;
+}
+
+/** What the App knows about the MCP lease when the diagnostics are made. */
+export interface McpLeaseDiagnosticsInput {
+  /** The backend's lease scope id (an opaque hash). */
+  readonly backendScopeId: string;
+  readonly backendDirectoryWritable: boolean;
+  readonly activeLeases: number;
+  /** An Agent has been seen connecting (an observation exists). */
+  readonly agentObserved: boolean;
+  /** The scope id the newest observation reports, when it reports one. */
+  readonly observedScopeId?: string;
+  readonly observedDirectoryWritable?: boolean;
+  /** Why no lease is visible although an Agent was seen; absent when none applies. */
+  readonly cause?: string;
+}
+
+/** The lease section of the file: scope ids shortened to 8 characters like `installLabel` (enough to compare, short enough not to look like a token). */
+interface McpLeaseDiagnostics {
+  readonly backendScope: string;
+  readonly backendDirectoryWritable: boolean;
+  readonly activeLeases: number;
+  readonly agentObserved: boolean;
+  readonly observedScope?: string;
+  readonly observedDirectoryWritable?: boolean;
+  /** Both scopes are known and equal; absent when the observation reports none. */
+  readonly scopesMatch?: boolean;
+  readonly cause?: string;
 }
 
 /** The diagnostics file as data: a fixed, allow-listed shape. */
@@ -31,6 +61,8 @@ export interface DiagnosticsDocument {
     readonly databaseStatus: string;
     readonly lastBackup: LastBackupInfo;
   };
+  /** The MCP lease census next to what the Agent's MCP reported about its own; absent when the App could not read it. */
+  readonly mcpLease?: McpLeaseDiagnostics;
   readonly recentErrors: readonly RecordedError[];
   /** Output lines that were not one of this App's own log lines; dropped, only counted. */
   readonly omittedOutputLines: number;
@@ -110,6 +142,25 @@ function lastBackupOf(info: LastBackupInfo): LastBackupInfo {
   return info.status === "known" ? { status: "known", at: info.at } : { status: info.status };
 }
 
+const SCOPE_LABEL_LENGTH = 8;
+
+function mcpLeaseOf(input: McpLeaseDiagnosticsInput): McpLeaseDiagnostics {
+  const label = (id: string): string => id.replace(/[^0-9a-f]/g, "").slice(0, SCOPE_LABEL_LENGTH);
+  return {
+    backendScope: label(input.backendScopeId),
+    backendDirectoryWritable: input.backendDirectoryWritable,
+    activeLeases: Math.max(0, Math.trunc(input.activeLeases)),
+    agentObserved: input.agentObserved,
+    ...(input.observedScopeId === undefined
+      ? {}
+      : { observedScope: label(input.observedScopeId), scopesMatch: input.observedScopeId === input.backendScopeId }),
+    ...(input.observedDirectoryWritable === undefined
+      ? {}
+      : { observedDirectoryWritable: input.observedDirectoryWritable }),
+    ...(input.cause && /^[a-z_]{1,32}$/.test(input.cause) ? { cause: input.cause } : {}),
+  };
+}
+
 /** The result of {@link collectDiagnosticsWithStats}: the document and how many own lines lost their error detail. */
 export interface CollectedDiagnostics {
   readonly document: DiagnosticsDocument;
@@ -138,6 +189,7 @@ export function collectDiagnosticsWithStats(inputs: DiagnosticsInputs): Collecte
       databaseStatus: inputs.databaseStatus,
       lastBackup: lastBackupOf(inputs.lastBackup),
     },
+    ...(inputs.mcpLease ? { mcpLease: mcpLeaseOf(inputs.mcpLease) } : {}),
     recentErrors: inputs.recentErrors.map((entry) => ({ code: entry.code, at: entry.at })),
     omittedOutputLines: inputs.recentOutput.length - recentOutput.length,
     recentOutput,

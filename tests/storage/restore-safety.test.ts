@@ -189,6 +189,35 @@ describe("a restore that cannot finish never loses data", () => {
     expect(existsSync(`${databasePath}.restoring`)).toBe(false);
   });
 
+  it("looks again right before emptying the WAL: a connection opened during the restore refuses it, and nothing is touched", () => {
+    const { store, databasePath, snapshot } = fixture();
+    closeStore(store);
+    const before = projectNames(databasePath);
+    let holder: DatabaseSync | undefined;
+    try {
+      const code = codeOf(() =>
+        restoreDatabase({
+          source: snapshot,
+          databasePath,
+          // Runs while the staging copy is built: an Agent opens the current database and starts writing.
+          initializeStaging: (database) => {
+            initializeStaging(database);
+            holder = new DatabaseSync(databasePath);
+            holder.exec("BEGIN IMMEDIATE");
+          },
+        }),
+      );
+      expect(code).toBe("RESTORE_DATABASE_IN_USE");
+    } finally {
+      holder?.exec("ROLLBACK");
+      holder?.close();
+    }
+    expect(failures.removed).not.toContain(`${databasePath}-wal`);
+    expect(failures.removed).not.toContain(`${databasePath}-shm`);
+    expect(existsSync(`${databasePath}.restoring`)).toBe(false);
+    expect(projectNames(databasePath)).toEqual(before);
+  });
+
   it("refuses a newer schema or a foreign file before the current database is even backed up", () => {
     const { root, store, databasePath, snapshot } = fixture();
     closeStore(store);

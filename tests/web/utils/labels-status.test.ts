@@ -40,6 +40,7 @@ import {
   metadataGapStatus,
   metadataGapsOf,
   mcpReconnectStatusVisual,
+  agentSeenLeaseNoteKey,
   mcpRuntimeStatusVisual,
   outstandingItemStatusVisual,
   requestStatus,
@@ -245,6 +246,26 @@ describe("status and label maps", () => {
       tone: "attention",
       label: t("status.needsChecking"),
     });
+  });
+});
+
+describe("agentSeenLeaseNoteKey", () => {
+  const base = {
+    restartRequired: false,
+    monitoringAvailable: true,
+    activeProcesses: 0,
+    outdatedProcesses: 0,
+    updateAvailableProcesses: 0,
+    agentObservedWithoutLease: true,
+  };
+
+  it("names the cause the server found, and falls back to the general note without one", () => {
+    const keys = (["lease_unreported", "directory_unwritable", "scope_mismatch", "agent_disconnected"] as const).map(
+      (cause) => agentSeenLeaseNoteKey({ ...base, leaseDiagnosis: { cause, backendScopeId: "a".repeat(24) } }),
+    );
+    expect(new Set(keys).size).toBe(4);
+    expect(keys).not.toContain("systemStatus.agentSeenWithoutLeaseNote");
+    expect(agentSeenLeaseNoteKey(base)).toBe("systemStatus.agentSeenWithoutLeaseNote");
   });
 });
 

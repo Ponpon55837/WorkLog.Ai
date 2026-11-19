@@ -81,7 +81,14 @@ describe("planPortFallback", () => {
   });
 });
 
-function setup(options: { goodRecord?: boolean; fallbackFails?: boolean; identity?: typeof IDENTITY } = {}) {
+function setup(
+  options: {
+    goodRecord?: boolean;
+    fallbackFails?: boolean;
+    identity?: typeof IDENTITY;
+    sameDatabaseServer?: boolean;
+  } = {},
+) {
   const root = mkdtempSync(join(tmpdir(), "wi-fallback-"));
   directories.push(root);
   const settingsFile = join(root, "settings.json");
@@ -149,6 +156,9 @@ function setup(options: { goodRecord?: boolean; fallbackFails?: boolean; identit
     reinstallOnRefusal: false,
     notifyError: () => undefined,
     whenReady: async () => undefined,
+    ...(options.sameDatabaseServer === undefined
+      ? {}
+      : { sameDatabaseServerOn: async () => options.sameDatabaseServer === true }),
   } as unknown as BackendControllerOptions);
   const onDisk = (): DesktopSettingsV1 => JSON.parse(readFileSync(settingsFile, "utf8")) as DesktopSettingsV1;
   return { controller, state, ports, onDisk };
@@ -186,6 +196,27 @@ describe("the backend controller falls back to the last working port", () => {
     expect(JSON.stringify(onDisk())).toBe(before);
     await controller.start("restart");
     expect(ports).toEqual([WANTED, GOOD, WANTED]);
+  });
+
+  it("does not start a second server on one database when the port is held by another Work Intelligence server", async () => {
+    const { controller, state, ports } = setup({ sameDatabaseServer: true });
+    expect(await controller.start("restart")).toEqual({ ok: false, code: "PORT_OCCUPIED_BY_OTHER" });
+    // Only the wanted port was tried, and the repair flow gets the original failure with no fallback note.
+    expect(ports).toEqual([WANTED]);
+    expect(state.owner).toBe("NEEDS_REPAIR");
+    expect(state.startupFallback).toBeNull();
+    // The same holds for the starts the user asked for (a database change or a takeover).
+    for (const kind of ["change-db", "takeover"] as const) {
+      const asked = setup({ sameDatabaseServer: true });
+      expect(await asked.controller.start(kind)).toEqual({ ok: false, code: "PORT_OCCUPIED_BY_OTHER" });
+      expect(asked.ports).toEqual([WANTED]);
+    }
+  });
+
+  it("still falls back when the holder is another program", async () => {
+    const { controller, ports } = setup({ sameDatabaseServer: false });
+    expect(await controller.start("restart")).toEqual({ ok: true });
+    expect(ports).toEqual([WANTED, GOOD]);
   });
 
   it("does nothing without a record, and never for a port change the user asked for", async () => {

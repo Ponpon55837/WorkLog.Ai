@@ -25,7 +25,13 @@ import {
 import { getSqliteRuntimeStatus } from "../sqlite-runtime.js";
 import { StagedImportError } from "../staged-imports.js";
 import { createTransferDirectory, removeTransferDirectory } from "../transfer-workspace.js";
-import { parseRequestInput, type ProjectDataImportUpload, type Route, type RouteContext } from "./router.js";
+import {
+  parseRequestInput,
+  type ProjectDataImportUpload,
+  type Route,
+  type RouteContext,
+  type RouteServices,
+} from "./router.js";
 
 /** Read size for streaming a database export: large reads cut the per-chunk overhead of a file of tens of MB. */
 const EXPORT_READ_CHUNK_BYTES = 1024 * 1024;
@@ -180,6 +186,24 @@ async function discardStagedImport({ request, response, services, params }: Rout
   response.end();
 }
 
+/** The MCP status plus the reason no lease is visible although an Agent was seen: the observation's scope id against this backend's. */
+function mcpWithoutLease(
+  mcp: ReturnType<RouteServices["mcpRuntimeStatus"]>,
+  services: RouteServices,
+): SystemStatus["mcp"] {
+  const { backendScopeId, observedScopeId, directoryWritable, cause } = services.mcpLeaseDiagnosis(mcp.activeProcesses);
+  return {
+    ...mcp,
+    agentObservedWithoutLease: true,
+    leaseDiagnosis: {
+      cause: cause ?? "lease_unreported",
+      backendScopeId,
+      ...(observedScopeId ? { observedScopeId } : {}),
+      ...(directoryWritable === undefined ? {} : { directoryWritable }),
+    },
+  };
+}
+
 async function systemStatus({ store, response, services }: RouteContext): Promise<void> {
   const database =
     store.databasePath === ":memory:"
@@ -224,7 +248,7 @@ async function systemStatus({ store, response, services }: RouteContext): Promis
     maintenance: database.maintenance ?? null,
     userService: await services.userServiceStatus(),
     ...(services.desktop ? { desktop: services.desktop.status } : {}),
-    mcp: mcp.activeProcesses === 0 && agentObserved ? { ...mcp, agentObservedWithoutLease: true } : mcp,
+    mcp: mcp.activeProcesses === 0 && agentObserved ? mcpWithoutLease(mcp, services) : mcp,
     agents,
     sseConnections: services.eventClientCount(),
     sqlite: getSqliteRuntimeStatus(),

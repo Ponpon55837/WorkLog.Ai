@@ -40,6 +40,7 @@ import { EDITOR_PROTOCOLS, editorProtocolLabels } from "../utils/code-links";
 import { formatBytes, formatDate } from "../utils/format";
 import {
   agentConnectionGroups,
+  agentSeenLeaseNoteKey,
   databaseInspectionStatus,
   databaseMaintenanceStatus,
   mcpReconnectStatusVisual,
@@ -397,7 +398,7 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
             class="system-status__row-note system-status__box-note"
             data-testid="mcp-agent-seen-without-lease"
           >
-            {{ t("systemStatus.agentSeenWithoutLeaseNote") }}
+            {{ t(agentSeenLeaseNoteKey(status.mcp)) }}
           </p>
           <UiBoxRow
             :title="t('systemStatus.processesWithAnUpdateAvailable')"

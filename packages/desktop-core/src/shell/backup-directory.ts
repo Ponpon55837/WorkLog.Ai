@@ -21,6 +21,8 @@ export const BACKUP_DIRECTORY_FAILURE_REASONS = [
   "refused",
   "declined",
   "start-failed",
+  /** The service could not start on the new folder and the old folder could not be written back: the settings name the new one. */
+  "not-restored",
   "failed",
 ] as const;
 export type BackupDirectoryFailureReason = (typeof BACKUP_DIRECTORY_FAILURE_REASONS)[number];

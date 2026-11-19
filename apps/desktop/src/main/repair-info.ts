@@ -2,12 +2,14 @@ import { mkdir, realpath } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { dirname } from "node:path";
 import { app } from "electron";
+import { configDirectory } from "@work-intelligence/shared/database-location";
 import {
   buildDiagnostics,
   buildRepairState,
   buildStorageRiskView,
   databaseStatusFor,
   legacyServiceRelevance,
+  readMcpLeaseInput,
   type AppTabInputs,
   type BackendSupervisor,
   type BuiltDiagnostics,
@@ -157,6 +159,15 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
     });
   }
 
+  /** The lease facts for the summary; left out when the registry or the observation file cannot be read at all. */
+  function mcpLeaseInput(): { mcpLease: ReturnType<typeof readMcpLeaseInput> } | Record<string, never> {
+    try {
+      return { mcpLease: readMcpLeaseInput(paths.runtimeRoot, configDirectory()) };
+    } catch {
+      return {};
+    }
+  }
+
   async function diagnosticsPreview(): Promise<BuiltDiagnostics> {
     const running = supervisor.running;
     // A database reached through a link or a mapped drive shows up under its real path in an error text (L-01).
@@ -186,6 +197,7 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
       lastBackup: await lastBackup.current(),
       recentOutput: supervisor.recentOutput,
       generatedAt: new Date(),
+      ...mcpLeaseInput(),
     });
   }
 

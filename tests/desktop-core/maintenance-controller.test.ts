@@ -27,6 +27,8 @@ interface Setup {
   readonly child?: ChildStatus;
   readonly noVerdict?: boolean;
   readonly startFails?: boolean;
+  /** The operation fails before its step runs (runtime not prepared, service would not stop). */
+  readonly stepNeverRuns?: boolean;
   readonly fingerprints?: readonly [string | null, string | null];
 }
 
@@ -78,6 +80,7 @@ function setup(options: Setup = {}) {
     },
     backend: {
       maintainWhileStopped: (async (work: (context: unknown) => Promise<unknown>) => {
+        if (options.stepNeverRuns) return { ok: false as const, code: "RUNTIME_INSTALL_FAILED" };
         events.push("stop");
         running = undefined;
         try {
@@ -195,6 +198,17 @@ describe("maintenance controller: a run", () => {
       dataIntact: false,
       backendRunning: false,
     });
+  });
+
+  it("calls the data intact when the step never ran, and brings the service back if it is not running", async () => {
+    const run = setup({ stepNeverRuns: true });
+    expect(await run.controller.run("maintain")).toMatchObject({
+      ok: false,
+      reason: "failed",
+      dataIntact: true,
+      backendRunning: true,
+    });
+    expect(run.requests).toEqual([]);
   });
 
   it("with no verdict, calls the data unchanged only when the file is provably the same", async () => {

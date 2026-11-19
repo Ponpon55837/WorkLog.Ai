@@ -25,6 +25,8 @@ interface Setup {
   readonly operation?: boolean;
   readonly busyActivity?: boolean;
   readonly stopped?: boolean;
+  /** Writing the old folder back throws (the settings file cannot be written). */
+  readonly restoreFails?: boolean;
   /** Restart results in order; the default is one success. */
   readonly restarts?: readonly ({ ok: true } | { ok: false; code: string } | { ok: false; busy: true })[];
 }
@@ -41,6 +43,8 @@ function setup(options: Setup = {}) {
     touch: () => events.push("touch"),
     updateSettings: async (_file: string, mutate: (current: { desired: { backupDirectory: string } }) => unknown) => {
       const next = mutate({ desired: { backupDirectory: folder } }) as { desired: { backupDirectory: string } } | null;
+      if (next && options.restoreFails && next.desired.backupDirectory === OLD)
+        throw new Error("synthetic write failure");
       if (next) {
         folder = next.desired.backupDirectory;
         written.push(folder);
@@ -78,7 +82,10 @@ function setup(options: Setup = {}) {
       events.push("confirm-risk");
       return options.confirmRisk !== false;
     },
-    probeWritable: async () => options.writable !== false,
+    probeWritable: async () => {
+      events.push("probe");
+      return options.writable !== false;
+    },
     homeDirectory: "/synthetic",
     platform: "linux",
     backupsChanged: () => events.push("backups"),
@@ -159,6 +166,34 @@ describe("backup directory controller", () => {
     expect(await run.controller.choose()).toEqual({ ok: false, reason: "failed", backendRunning: true });
     expect(run.written).toEqual([NEW, OLD]);
     expect(run.folder()).toBe(OLD);
+  });
+
+  it("does not probe a folder the storage verdict refused or the user declined, so it is never written to", async () => {
+    const refused = setup({ risk: "network" });
+    expect(await refused.controller.choose()).toMatchObject({ ok: false, reason: "refused" });
+    expect(refused.events).not.toContain("probe");
+    const declined = setup({ risk: "removable", confirmRisk: false });
+    expect(await declined.controller.choose()).toMatchObject({ ok: false, reason: "declined" });
+    expect(declined.events).not.toContain("probe");
+    const accepted = setup({ risk: "removable" });
+    expect(await accepted.controller.choose()).toMatchObject({ ok: true });
+    expect(accepted.events.indexOf("confirm-risk")).toBeLessThan(accepted.events.indexOf("probe"));
+  });
+
+  it("says so, and does not claim the old folder, when the old folder cannot be written back", async () => {
+    const run = setup({ restoreFails: true, restarts: [{ ok: false, code: "DB_OFFLINE" }] });
+    expect(await run.controller.choose()).toEqual({ ok: false, reason: "not-restored", backendRunning: false });
+    expect(run.folder()).toBe(NEW);
+    // No second start: it would run on the new folder that just failed.
+    expect(run.events.filter((event) => event === "restart")).toHaveLength(1);
+    expect(run.events).toContain("repair");
+    const busy = setup({ restoreFails: true, restarts: [{ ok: false, busy: true }] });
+    expect(await busy.controller.choose()).toMatchObject({ ok: false, reason: "not-restored" });
+    for (const locale of ["en", "zh-TW"] as const) {
+      const text = backupDirectoryMessages(locale);
+      expect(backupDirectoryResultText(text, locale, { ok: false, reason: "not-restored" }, "")).toBe(text.notRestored);
+      expect(text.notRestored).not.toBe(text.failed);
+    }
   });
 
   it("goes to repair when the service cannot start again either, without touching data", async () => {

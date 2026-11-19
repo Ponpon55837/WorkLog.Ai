@@ -40,6 +40,37 @@ export function hostForClientName(clientName: string): AgentHostId | undefined {
 export interface HostObservation {
   readonly contractFingerprint: string;
   readonly observedAt: string;
+  /** What the MCP process said about its own lease; absent in a file written by 1.6.59 or earlier. */
+  readonly lease?: ObservedLease;
+}
+
+/**
+ * The lease state the MCP records next to its observation: an opaque scope id, whether its lease directory was writable
+ * and, when not, a code. No path. The file keeps `version: 1`: the field is additive, and a reader that does not know it
+ * (an older App) only looks at the fingerprint and the time.
+ */
+export interface ObservedLease {
+  readonly scopeId: string;
+  readonly directoryWritable: boolean;
+  readonly failure?: "directory_unavailable" | "write_failed";
+  readonly errorCode?: string;
+}
+
+const SCOPE_ID = /^[a-f0-9]{24}$/;
+const LEASE_FAILURES: ReadonlySet<unknown> = new Set(["directory_unavailable", "write_failed"]);
+const LEASE_ERROR_CODE = /^[A-Z][A-Z0-9_]{1,23}$/;
+
+function leaseOf(value: unknown): ObservedLease | undefined {
+  if (value === null || typeof value !== "object") return undefined;
+  const { scopeId, directoryWritable, failure, errorCode } = value as Record<string, unknown>;
+  if (typeof scopeId !== "string" || !SCOPE_ID.test(scopeId) || typeof directoryWritable !== "boolean")
+    return undefined;
+  return {
+    scopeId,
+    directoryWritable,
+    ...(LEASE_FAILURES.has(failure) ? { failure: failure as ObservedLease["failure"] } : {}),
+    ...(typeof errorCode === "string" && LEASE_ERROR_CODE.test(errorCode) ? { errorCode } : {}),
+  };
 }
 
 /** The files are a few hundred bytes; anything past this is not ours and is read as absent. */
@@ -96,12 +127,15 @@ export function readHostObservations(configDirectory: string): Partial<Record<Ag
   for (const [clientName, value] of Object.entries(entries)) {
     const host = hostForClientName(clientName);
     if (host === undefined || !AGENT_HOST_IDS.includes(host) || value === null || typeof value !== "object") continue;
-    const { contractFingerprint, observedAt } = value as Record<string, unknown>;
+    const { contractFingerprint, observedAt, lease } = value as Record<string, unknown>;
     if (typeof contractFingerprint !== "string" || !FINGERPRINT.test(contractFingerprint)) continue;
     const at = typeof observedAt === "string" ? observedAt : "";
     const known = result[host];
     // ISO timestamps compare as text; a missing time sorts first.
-    if (known === undefined || at >= known.observedAt) result[host] = { contractFingerprint, observedAt: at };
+    const observedLease = leaseOf(lease);
+    if (known === undefined || at >= known.observedAt) {
+      result[host] = { contractFingerprint, observedAt: at, ...(observedLease ? { lease: observedLease } : {}) };
+    }
   }
   return result;
 }
@@ -135,4 +169,53 @@ export function classifyHostObservation(
   return currentContractFingerprint !== undefined && observation.contractFingerprint === currentContractFingerprint
     ? "current"
     : "stale";
+}
+
+/** Why the backend sees no MCP lease although an Agent was seen connecting. */
+export type McpLeaseCause =
+  /** The MCP recorded no lease state (an MCP from 1.6.59 or earlier): reconnect the Agent to learn more. */
+  | "lease_unreported"
+  /** The MCP could not create or write its lease directory. */
+  | "directory_unwritable"
+  /** The MCP and this backend name different lease scopes (another install or runtime root). */
+  | "scope_mismatch"
+  /** Same scope, writable directory, no live lease: the Agent has disconnected since. */
+  | "agent_disconnected";
+
+/** The comparison of the observation and the backend's own lease scope; ids, a count and booleans only. */
+export interface McpLeaseDiagnosis {
+  readonly backendScopeId: string;
+  /** The scope id the newest observation reports, when it reports one. */
+  readonly observedScopeId?: string;
+  readonly directoryWritable?: boolean;
+  readonly activeLeases: number;
+  /** Set only when an Agent was observed and no lease is visible. */
+  readonly cause?: McpLeaseCause;
+}
+
+/**
+ * Compares what the MCP recorded about its lease with the backend's scope. The newest observation that carries lease
+ * state decides; observed hosts without any lease state read as `lease_unreported`.
+ */
+export function diagnoseMcpLease(
+  observations: Partial<Record<AgentHostId, HostObservation>>,
+  backendScopeId: string,
+  activeLeases: number,
+): McpLeaseDiagnosis {
+  const observed = Object.values(observations);
+  const newest = observed
+    .filter((entry) => entry.lease !== undefined)
+    .sort((left, right) =>
+      left.observedAt < right.observedAt ? 1 : left.observedAt > right.observedAt ? -1 : 0,
+    )[0]?.lease;
+  const base = {
+    backendScopeId,
+    ...(newest ? { observedScopeId: newest.scopeId, directoryWritable: newest.directoryWritable } : {}),
+    activeLeases,
+  };
+  if (observed.length === 0 || activeLeases > 0) return base;
+  if (!newest) return { ...base, cause: "lease_unreported" };
+  if (!newest.directoryWritable) return { ...base, cause: "directory_unwritable" };
+  if (newest.scopeId !== backendScopeId) return { ...base, cause: "scope_mismatch" };
+  return { ...base, cause: "agent_disconnected" };
 }

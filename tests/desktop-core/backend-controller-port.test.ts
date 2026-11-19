@@ -43,7 +43,9 @@ function info(port: number): BackendInfo {
   };
 }
 
-function setup(options: { startResult?: "ok" | "fail"; stopped?: boolean; refused?: boolean } = {}) {
+function setup(
+  options: { startResult?: "ok" | "fail"; stopped?: boolean; refused?: boolean; prepareFails?: boolean } = {},
+) {
   const root = mkdtempSync(join(tmpdir(), "wi-backend-port-"));
   directories.push(root);
   const settingsFile = join(root, "settings.json");
@@ -100,7 +102,9 @@ function setup(options: { startResult?: "ok" | "fail"; stopped?: boolean; refuse
     lastBackup: { bindDatabase: () => undefined },
     log: () => undefined,
     openRepairWindow: () => undefined,
-    prepareRuntime: async () => undefined,
+    prepareRuntime: async () => {
+      if (options.prepareFails) throw new Error("synthetic runtime failure");
+    },
     reinstallOnRefusal: false,
     notifyError: () => undefined,
     whenReady: async () => undefined,
@@ -175,6 +179,21 @@ describe("a port change in the backend controller", () => {
     expect(serving.requests).toEqual([]);
     expect(serving.running()?.port).toBe(OLD);
     expect(serving.state.owner).toBe("MANAGED");
+  });
+
+  it("does not mark a still-running service stopped or in need of repair when the runtime cannot be prepared", async () => {
+    const serving = setup({ prepareFails: true });
+    serving.state.backend = "running";
+    expect(await serving.controller.start("restart")).toEqual({ ok: false, code: "RUNTIME_INSTALL_FAILED" });
+    expect(serving.requests).toEqual([]);
+    expect(serving.running()?.port).toBe(OLD);
+    expect(serving.state.owner).toBe("MANAGED");
+    expect(serving.state.backend).toBe("running");
+    // With nothing running there is nothing to protect: repair is the honest state.
+    const idle = setup({ prepareFails: true, stopped: true });
+    expect(await idle.controller.start("restart")).toEqual({ ok: false, code: "RUNTIME_INSTALL_FAILED" });
+    expect(idle.state.owner).toBe("NEEDS_REPAIR");
+    expect(idle.state.backend).toBe("stopped");
   });
 
   it("makes the refusal deterministic, so an automatic restart schedules no retry that would loop", () => {

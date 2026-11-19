@@ -7,7 +7,7 @@ import { createCountingRedactor, type DiagnosticsCounts, type RedactionContext }
 import { SCAN_RULES, scanText, type ScanRule } from "./diagnostics-scan.js";
 
 export { collectDiagnostics, dropErrorDetail, isOwnOutputLine, OWN_OUTPUT_PREFIXES } from "./diagnostics-collect.js";
-export type { DiagnosticsDocument, DiagnosticsInputs } from "./diagnostics-collect.js";
+export type { DiagnosticsDocument, DiagnosticsInputs, McpLeaseDiagnosticsInput } from "./diagnostics-collect.js";
 export { createCountingRedactor, createRedactor, emptyDiagnosticsCounts } from "./diagnostics-redact.js";
 export type {
   CountingRedactor,

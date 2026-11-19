@@ -55,12 +55,15 @@ export async function planRelocation(inputs: RelocationInputs): Promise<Map<stri
   const insensitive = inputs.caseInsensitive ?? process.platform === "win32";
   const fold = (value: string): string => (insensitive ? value.toLowerCase() : value);
   const chosenName = fold(lastSegment(inputs.chosen));
+  // Two missing projects with the chosen folder's name (`a/app` and `b/app`) cannot both live in it: the folder itself is not
+  // guessed for either, so neither is silently pointed at the wrong code. A folder of that name inside it still matches.
+  const sameName = inputs.missing.filter((root) => fold(lastSegment(root.path)) === chosenName).length;
   const mapped = new Map<string, string>();
   await Promise.all(
     inputs.missing.map(async (root) => {
       const name = lastSegment(root.path);
       if (name.length === 0) return;
-      if (fold(name) === chosenName) {
+      if (fold(name) === chosenName && sameName === 1) {
         mapped.set(root.path, inputs.chosen);
         return;
       }
@@ -68,6 +71,11 @@ export async function planRelocation(inputs: RelocationInputs): Promise<Map<stri
       if (await inputs.directoryExists(inside).catch(() => false)) mapped.set(root.path, inside);
     }),
   );
+  // Two projects that end up in one folder cannot both be right (`a/app` and `b/app` with the chosen folder holding `app/app`):
+  // neither is mapped, so a restore never points two projects at the same code.
+  const targets = new Map<string, number>();
+  for (const target of mapped.values()) targets.set(fold(target), (targets.get(fold(target)) ?? 0) + 1);
+  for (const [from, target] of mapped) if ((targets.get(fold(target)) ?? 0) > 1) mapped.delete(from);
   return mapped;
 }
 

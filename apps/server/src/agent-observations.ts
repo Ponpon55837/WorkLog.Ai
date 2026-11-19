@@ -1,6 +1,8 @@
 import type { SystemAgentConnections } from "@work-intelligence/core";
 import {
   classifyHostObservation,
+  diagnoseMcpLease,
+  type McpLeaseDiagnosis,
   readCurrentContractFingerprint,
   readHostObservations,
 } from "@work-intelligence/shared/agent-observations";
@@ -24,4 +26,16 @@ export function withHostObservations(
       observation: classifyHostObservation(observations["claude-code"], current),
     },
   };
+}
+
+/**
+ * Compares the lease state the MCP recorded in its observation with this backend's scope (see `diagnoseMcpLease`); one
+ * small file read, made only when an Agent was seen and no lease is visible.
+ */
+export function mcpLeaseDiagnosis(
+  backendScopeId: string,
+  activeLeases: number,
+  directory: string = configDirectory(),
+): McpLeaseDiagnosis {
+  return diagnoseMcpLease(readHostObservations(directory), backendScopeId, activeLeases);
 }

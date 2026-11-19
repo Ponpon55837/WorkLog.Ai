@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DesktopFacts } from "../../packages/schema/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
+import { configDirectory } from "../../packages/shared/src/database-location.js";
+import { getMcpLeaseScopeId } from "../../packages/shared/src/mcp-runtime.js";
 import { createApiHandler, type ApiHandlerOptions } from "../../apps/server/src/server.js";
 import {
   OPEN_AGENT_SETUP_MIN_INTERVAL_MS,
@@ -122,6 +124,81 @@ describe("system status MCP connection record", () => {
       agentConnections: () => ({ codex: { observation: "none" }, claudeCode: {} }) as never,
     });
     expect(never.mcp).not.toHaveProperty("agentObservedWithoutLease");
+  });
+});
+
+describe("system status says why an observed Agent has no visible lease", () => {
+  const FINGERPRINT = "f".repeat(64);
+  const repositoryRoot = process.cwd();
+  const ownScope = getMcpLeaseScopeId(repositoryRoot);
+  const noLease = () =>
+    ({
+      restartRequired: false,
+      monitoringAvailable: true,
+      activeProcesses: 0,
+      outdatedProcesses: 0,
+      updateAvailableProcesses: 0,
+    }) as never;
+
+  async function diagnosis(lease: unknown): Promise<unknown> {
+    mkdirSync(configDirectory(), { recursive: true });
+    writeFileSync(
+      join(configDirectory(), "agent-observations.json"),
+      JSON.stringify({
+        version: 1,
+        observations: {
+          "codex-mcp-client": {
+            clientName: "codex-mcp-client",
+            contractFingerprint: FINGERPRINT,
+            observedAt: "2026-11-19T01:00:00.000Z",
+            ...(lease ? { lease } : {}),
+          },
+        },
+      }),
+    );
+    const baseUrl = await listen({
+      repositoryRoot,
+      mcpRuntimeStatus: noLease,
+      agentConnections: () => ({ codex: { observation: "current" }, claudeCode: {} }) as never,
+    });
+    const status = (await (await fetch(`${baseUrl}/api/system/status`)).json()) as {
+      mcp: { leaseDiagnosis?: unknown };
+    };
+    return status.mcp.leaseDiagnosis;
+  }
+
+  it("a different scope", async () => {
+    expect(await diagnosis({ scopeId: "d4".repeat(12), directoryWritable: true })).toEqual({
+      cause: "scope_mismatch",
+      backendScopeId: ownScope,
+      observedScopeId: "d4".repeat(12),
+      directoryWritable: true,
+    });
+  });
+
+  it("an unwritable lease directory", async () => {
+    expect(
+      await diagnosis({ scopeId: ownScope, directoryWritable: false, failure: "directory_unavailable" }),
+    ).toMatchObject({
+      cause: "directory_unwritable",
+      directoryWritable: false,
+    });
+  });
+
+  it("an Agent that has disconnected since", async () => {
+    expect(await diagnosis({ scopeId: ownScope, directoryWritable: true })).toMatchObject({
+      cause: "agent_disconnected",
+    });
+  });
+
+  it("an MCP that recorded no lease state", async () => {
+    expect(await diagnosis(undefined)).toMatchObject({ cause: "lease_unreported", backendScopeId: ownScope });
+  });
+
+  it("carries no path, only ids and booleans", async () => {
+    expect(JSON.stringify(await diagnosis({ scopeId: ownScope, directoryWritable: true }))).not.toContain(
+      repositoryRoot,
+    );
   });
 });
 
