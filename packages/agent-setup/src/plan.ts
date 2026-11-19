@@ -29,7 +29,9 @@ import {
   codexHooksFeatureFromToml,
   codexTomlBlock,
   codexWorkIntelligenceServer,
+  insertCodexBlockBeforeToolApprovals,
   moveCodexToolTablesOutOfBlock,
+  removeCodexBlockWithToolApprovals,
   tomlHasUnsupportedMcpEntry,
   upgradeDirectCodexRegistration,
 } from "./toml.js";
@@ -281,6 +283,12 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
   const tomlOwned = tomlEntryIndex >= 0 ? components[tomlEntryIndex] : undefined;
   const tomlOwnedExpected = tomlOwned?.kind === "toml-block" ? tomlOwned.expected : undefined;
   const codexRegistration = registrationKind(codexWorkIntelligenceServer(tomlText), options);
+  /** A removal used to leave Codex's tool approvals alone in the file: the block goes in front of them and they stay. */
+  const stageToolApprovalBlock = (): void => {
+    const next = insertCodexBlockBeforeToolApprovals(tomlText, desiredBlock) ?? tomlText;
+    stageMutation(plan, options, tomlPath, "Codex MCP 註冊", tomlFile.bytes, Buffer.from(next, "utf8"), tomlFile.mode);
+    setEntry(components, { id: "codexMcp", kind: "toml-block", expected: desiredBlock });
+  };
   const adoptedToml = !skipCodex && adoptContext ? adoptCodexToml(tomlText, adoptContext, tomlPath) : undefined;
   if (skipCodex) {
     // A plugin registers the MCP server, or Codex was not selected; leave config.toml alone.
@@ -343,6 +351,8 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
       setEntry(components, { id: "codexMcp", kind: "toml-block", expected: desiredBlock });
     } else if (tomlText.includes(TOML_BLOCK_START) || tomlText.includes(TOML_BLOCK_END)) {
       addConflict(plan, "Codex MCP 的安裝區塊已被修改；保留且拒絕覆寫。");
+    } else if (insertCodexBlockBeforeToolApprovals(tomlText, desiredBlock) !== undefined) {
+      stageToolApprovalBlock();
     } else if (!tomlHasUnsupportedMcpEntry(tomlText)) {
       const prefix = tomlText && !tomlText.endsWith("\n") ? tomlText + tomlNewline : tomlText;
       stageMutation(
@@ -358,6 +368,8 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
     } else {
       addConflict(plan, "Codex config.toml 已有未支援的 mcp_servers 結構；保留且拒絕修改。");
     }
+  } else if (insertCodexBlockBeforeToolApprovals(tomlText, desiredBlock) !== undefined) {
+    stageToolApprovalBlock();
   } else if (tomlHasUnsupportedMcpEntry(tomlText)) {
     addConflict(plan, "Codex config.toml 已有未支援的 mcp_servers 結構；保留且拒絕修改。");
   } else {
@@ -506,11 +518,19 @@ export function uninstallPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
       const text = current.bytes?.toString("utf8") ?? "";
       const openCount = text.split(TOML_BLOCK_START).length - 1;
       const closeCount = text.split(TOML_BLOCK_END).length - 1;
+      const removed = removeCodexBlockWithToolApprovals(text, entry.expected, text.includes("\r\n") ? "\r\n" : "\n");
       if (!current.bytes || (openCount === 0 && closeCount === 0)) {
         removeEntry(remaining, entry.id);
-      } else if (openCount === 1 && closeCount === 1 && text.includes(entry.expected)) {
-        const next = text.replace(entry.expected, "");
-        stageMutation(plan, options, target, "Codex MCP 註冊", current.bytes, Buffer.from(next, "utf8"), current.mode);
+      } else if (openCount === 1 && closeCount === 1 && removed !== undefined) {
+        stageMutation(
+          plan,
+          options,
+          target,
+          "Codex MCP 註冊",
+          current.bytes,
+          Buffer.from(removed, "utf8"),
+          current.mode,
+        );
         removeEntry(remaining, entry.id);
       } else {
         addConflict(plan, "Codex MCP 的安裝區塊已在安裝後修改；保留且不解除安裝。");

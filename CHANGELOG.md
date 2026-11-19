@@ -18,6 +18,7 @@ This is the last V1 patch. It fixes the medium and low findings of the 1.6.55 re
 - **First start after an install (M-09).** On Windows the ACL stamp is taken after `current` moves, so the first start reads no ACL again; a failed check restores the previous pointer.
 - **Supply chain (M-10).** The SHA-256 of the bundled Node.js archives is pinned.
 - **Agents one by one (M-17).** Agent setup is chosen per Agent; a conflict in one Agent no longer blocks the other.
+- **Codex: remove, then set up again.** Removing Codex also removes the per-tool approval tables Codex adds after our block (an undo restores them), and a file that holds only such approvals is no longer reported as a conflict: setup writes its block in front of them and keeps the approvals. A registration that is not a command (for example a `url`) is still left alone.
 - **Restore (M-14, L-24).** The final rename retries under a Windows file lock, old WAL/SHM files are settled before the replacement, and the restore check is a full `integrity_check`.
 - **Import (M-18).** A UTF-8 byte order mark at the start of an import file is skipped.
 - **Hook command (M-13).** A Windows-only test hands the hook command to cmd.exe and PowerShell.

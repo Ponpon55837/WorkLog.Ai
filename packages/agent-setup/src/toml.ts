@@ -11,12 +11,16 @@ import {
 } from "./constants.js";
 import type { AgentSetupPlanOptions, CodexHooksFeature } from "./types.js";
 
-/** Reads `[mcp_servers.work-intelligence]` from config.toml when it parses; undefined otherwise. */
+/**
+ * Reads `[mcp_servers.work-intelligence]` from config.toml when it parses; undefined otherwise. What Codex's own tool
+ * approvals leave behind after a removal (see {@link codexToolApprovalLeftover}) is not a registration.
+ */
 export function codexWorkIntelligenceServer(tomlText: string): unknown {
   try {
     const config = parseToml(tomlText, { maxDepth: 128, unsafeKeyBehaviour: "throw" }) as Record<string, unknown>;
     const servers = config.mcp_servers;
-    return JSON_OBJECT(servers) ? servers["work-intelligence"] : undefined;
+    if (!JSON_OBJECT(servers)) return undefined;
+    return codexToolApprovalLeftover(tomlText) ? undefined : servers["work-intelligence"];
   } catch {
     return undefined;
   }
@@ -106,6 +110,99 @@ export function moveCodexToolTablesOutOfBlock(
   const meaningful = (lines: string[]) => lines.filter((line) => line.trim() !== "").join("\n");
   if (!toolLines.length || meaningful(blockLines) !== meaningful(ownedBlock.split(newline))) return undefined;
   return text.slice(0, start) + desiredBlock + toolLines.join(newline) + newline + text.slice(end);
+}
+
+interface TomlSection {
+  readonly start: number;
+  readonly end: number;
+  readonly path: string[] | undefined;
+}
+
+/** Every `[table]` and `[[array table]]` of the text, each running from its header line to the next header line. */
+function tomlSections(text: string): TomlSection[] {
+  const headers: Array<{ start: number; path: string[] | undefined }> = [];
+  let offset = 0;
+  for (const line of text.split("\n")) {
+    const header = /^\[\[?(.+?)\]\]?\s*(?:#.*)?$/.exec(line.trim());
+    if (header) headers.push({ start: offset, path: parseTomlKeyPath(header[1] ?? "") });
+    offset += line.length + 1;
+  }
+  return headers.map((header, index) => ({ ...header, end: headers[index + 1]?.start ?? text.length }));
+}
+
+/** The tables Codex appends to approve each tool of the server: `[mcp_servers.work-intelligence.tools.<tool>]`. */
+function codexToolApprovalSections(text: string): TomlSection[] {
+  return tomlSections(text).filter(
+    ({ path }) => path?.[0] === "mcp_servers" && path[1] === "work-intelligence" && path[2] === "tools",
+  );
+}
+
+/**
+ * What a removal of the Codex registration used to leave behind: Codex's own tool-approval tables and nothing else of
+ * the server (no command, args, url or any other key). Returns where the first of them starts, or undefined when the
+ * server has anything else, so a registration of another shape is never taken for leftovers.
+ */
+export function codexToolApprovalLeftover(text: string): { readonly start: number } | undefined {
+  const sections = codexToolApprovalSections(text);
+  const first = sections[0];
+  if (!first) return undefined;
+  let rest = "";
+  let cursor = 0;
+  for (const section of sections) {
+    rest += text.slice(cursor, section.start);
+    cursor = section.end;
+  }
+  rest += text.slice(cursor);
+  if (tomlHasUnsupportedMcpEntry(rest)) return undefined;
+  try {
+    const config = parseToml(text, { maxDepth: 128, unsafeKeyBehaviour: "throw" }) as Record<string, unknown>;
+    const servers = config.mcp_servers;
+    const server = JSON_OBJECT(servers) ? servers["work-intelligence"] : undefined;
+    return JSON_OBJECT(server) && Object.keys(server).every((key) => key === "tools")
+      ? { start: first.start }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** `text` with `block` written in front of the approval tables a removal left, which keeps every approval. */
+export function insertCodexBlockBeforeToolApprovals(text: string, block: string): string | undefined {
+  const leftover = codexToolApprovalLeftover(text);
+  return leftover ? text.slice(0, leftover.start) + block + text.slice(leftover.start) : undefined;
+}
+
+/**
+ * `text` without our block and without the tool-approval tables that follow it (Codex approves each tool in a table of
+ * its own after the block, and they only make sense next to the registration they approve). Undefined when the block
+ * is not there exactly as `ownedBlock`, even after moving approvals out of it.
+ */
+export function removeCodexBlockWithToolApprovals(
+  text: string,
+  ownedBlock: string,
+  newline: string,
+): string | undefined {
+  const normalized = text.includes(ownedBlock)
+    ? text
+    : moveCodexToolTablesOutOfBlock(text, ownedBlock, ownedBlock, newline);
+  const start = normalized?.indexOf(ownedBlock) ?? -1;
+  if (normalized === undefined || start < 0) return undefined;
+  const approvals = codexToolApprovalSections(normalized);
+  let cursor = start + ownedBlock.length;
+  for (;;) {
+    let next = cursor;
+    for (
+      let blank = /^[ \t]*\r?\n/.exec(normalized.slice(next));
+      blank;
+      blank = /^[ \t]*\r?\n/.exec(normalized.slice(next))
+    ) {
+      next += blank[0].length;
+    }
+    const section = approvals.find((candidate) => candidate.start === next);
+    if (!section) break;
+    cursor = section.end;
+  }
+  return normalized.slice(0, start) + normalized.slice(cursor);
 }
 
 export function parseTomlKeyPath(source: string): string[] | undefined {
