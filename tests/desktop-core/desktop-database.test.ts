@@ -213,21 +213,27 @@ describe("runLauncher hands the App's database to Agent actions", () => {
     expect(serve.seen).toEqual([undefined]);
   });
 
-  it("lets an adopted entry's explicit WORK_INTELLIGENCE_DB win, and agrees with the hooks while it names the App's file", async () => {
+  it("an adopted entry carries no database variable, so MCP and the hooks both follow the App when it changes database", async () => {
     const app = path.join(root, "app 資料", "work-intelligence.sqlite");
     await writeDesktopSettingsPointer(root, settingsFile);
     await writeDesktopSettingsAtomic(settingsFile, settings(app));
-    // An adopted pnpm registration keeps the variable it had; here it names the App's own file.
-    const mcp = launchHost({ WORK_INTELLIGENCE_DB: app });
+    // Adopt removes WORK_INTELLIGENCE_DB (see tests/agent-setup/adopt-pnpm.test.ts): the entry's environment is empty.
+    const mcp = launchHost();
     await launch("mcp", mcp);
     const hooks = launchHost();
     for (const action of ["claude-finalize-reminder", "codex-finalize-reminder"]) await launch(action, hooks);
     expect([...mcp.seen, ...hooks.seen]).toEqual([app, app, app]);
     expect(mcp.stderr).toEqual([]);
 
-    // The explicit variable stays in force after the App moves to another file: the entry is not silently re-pointed.
     const moved = path.join(root, "moved", "work-intelligence.sqlite");
     await writeDesktopSettingsAtomic(settingsFile, settings(moved));
+    const mcpAfter = launchHost();
+    await launch("mcp", mcpAfter);
+    const hooksAfter = launchHost();
+    await launch("codex-finalize-reminder", hooksAfter);
+    expect([...mcpAfter.seen, ...hooksAfter.seen]).toEqual([moved, moved]);
+
+    // The explicit variable an entry keeps (a registration that was not adopted) still wins over the App's database.
     const pinned = launchHost({ WORK_INTELLIGENCE_DB: app });
     await launch("mcp", pinned);
     expect(pinned.seen).toEqual([app]);

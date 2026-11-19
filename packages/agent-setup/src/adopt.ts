@@ -754,6 +754,36 @@ function findDatabaseToken(text: string, layout: TomlServerLayout): { start: num
   return { start, end: start + match[1].length };
 }
 
+/**
+ * The edit that removes `WORK_INTELLIGENCE_DB` wherever the table keeps it. The key's own line goes; when it was the
+ * only entry of the `env` table (or of a dotted / inline `env`), the `env` goes with it. Undefined for any other shape.
+ */
+function databaseRemoval(text: string, layout: TomlServerLayout): TomlEdit | undefined {
+  const own = layout.envPairs.find((statement) => samePath(statement.keyPath ?? [], [DATABASE_ENV]));
+  if (own) {
+    if (layout.envPairs.length === 1 && layout.envHeader && layout.envHeader.eolEnd <= own.start) {
+      return { start: layout.envHeader.start, end: own.eolEnd, text: "" };
+    }
+    return { start: own.start, end: own.eolEnd, text: "" };
+  }
+  const dotted = layout.body.find((statement) => samePath(statement.keyPath ?? [], ["env", DATABASE_ENV]));
+  if (dotted) return { start: dotted.start, end: dotted.eolEnd, text: "" };
+  const inline = findBodyPair(layout, "env");
+  if (!inline || inline.valueStart === undefined || inline.valueEnd === undefined) return undefined;
+  const value = pairValue(text, inline);
+  const string = `(?:"(?:[^"\\\\\\r\\n]|\\\\.)*"|'[^'\\r\\n]*')`;
+  const key = `(?:"${DATABASE_ENV}"|'${DATABASE_ENV}'|${DATABASE_ENV})`;
+  const entry = `${key}\\s*=\\s*${string}`;
+  const only = new RegExp(`^\\{\\s*${entry}\\s*\\}$`);
+  if (only.test(value)) return { start: inline.start, end: inline.eolEnd, text: "" };
+  const trailing = new RegExp(`(?<=[{,]\\s*)${entry}\\s*,\\s*`);
+  const leading = new RegExp(`\\s*,\\s*${entry}(?=\\s*\\})`);
+  const match = trailing.exec(value) ?? leading.exec(value);
+  if (!match) return undefined;
+  const start = inline.valueStart + match.index;
+  return { start, end: start + match[0].length, text: "" };
+}
+
 /** Where the end marker goes: after the main table and the sub-tables that directly follow it. */
 function sectionEnd(layout: TomlServerLayout): number {
   return layout.blockEnd;
@@ -944,20 +974,39 @@ function recordAdoption(context: AdoptContext, info: CheckoutRegistration, root:
   };
   (context.plan.adopted ??= []).push(adopted);
   const database = info.effectiveDatabase ? displayPath(info.effectiveDatabase, context.homeDirectory) : undefined;
-  // MCP keeps the database its entry names; a hook follows the App's database through the launcher afterwards.
+  // With the App's database known, the entry is the same file as the App's and follows it afterwards (see followsApp).
   const databaseNote =
     database === undefined
       ? ""
-      : info.kind === "mcp" || context.appDatabase !== undefined
-        ? `；資料庫維持 ${database}`
-        : `；之後使用 App 的資料庫（原為 ${database}，除非 Agent 的環境另有設定）`;
+      : context.appDatabase !== undefined
+        ? `；資料庫 ${database} 與 App 相同，之後跟隨 App`
+        : info.kind === "mcp"
+          ? `；資料庫維持 ${database}`
+          : `；之後使用 App 的資料庫（原為 ${database}，除非 Agent 的環境另有設定）`;
   context.plan.actions.push(
     `改由桌面 App 管理 ${context.labelOf(adopted.componentId)}：${displayPath(info.location, context.homeDirectory)}` +
       `（原指向 checkout：${root}）${databaseNote}。`,
   );
 }
 
+/**
+ * An adopted entry follows the App's database: it is only adopted when its database is the App's file, so the
+ * `WORK_INTELLIGENCE_DB` it carries is dropped (an explicit one would win over the App's and split MCP from the hooks
+ * once the App changes its database). Without an App database to compare with, the variable stays (written absolute).
+ */
+function followsApp(context: AdoptContext): boolean {
+  return context.appDatabase !== undefined;
+}
+
 function announceDatabase(context: AdoptContext, analysis: McpAnalysis, label: string): void {
+  if (followsApp(context)) {
+    context.plan.actions.push(
+      analysis.missingDatabase
+        ? `${label} 原未設定 ${DATABASE_ENV}，使用的就是 App 的資料庫，之後跟隨 App 的資料庫。`
+        : `${label} 的 ${DATABASE_ENV} 原指向 App 的資料庫，已移除，之後跟隨 App 的資料庫。`,
+    );
+    return;
+  }
   if (analysis.missingDatabase) {
     context.plan.actions.push(
       `${label} 原未設定 ${DATABASE_ENV}（使用 checkout 內的資料庫），已寫入絕對路徑「${analysis.effectiveDatabase}」，實際使用的資料庫不變。`,
@@ -1071,10 +1120,15 @@ export function adoptClaudeMcp(root: Record<string, unknown>, context: AdoptCont
   entry.args = [LAUNCHER_MCP_ARGUMENT];
   // A `cwd` that only named the checkout would make the launcher fail to start once that folder is gone.
   if (analysis.cwdIsRoot) delete entry.cwd;
-  if (analysis.relativeDatabase !== undefined && JSON_OBJECT(entry.env)) {
+  if (followsApp(context)) {
+    // The launcher gives an entry without this variable the App's database; an explicit one always wins.
+    if (JSON_OBJECT(entry.env)) {
+      delete entry.env[DATABASE_ENV];
+      if (Object.keys(entry.env).length === 0) delete entry.env;
+    }
+  } else if (analysis.relativeDatabase !== undefined && JSON_OBJECT(entry.env)) {
     entry.env[DATABASE_ENV] = analysis.effectiveDatabase;
   } else if (analysis.missingDatabase) {
-    // The launcher gives an entry without this variable the App's database; an explicit one always wins.
     entry.env = { ...(JSON_OBJECT(entry.env) ? entry.env : {}), [DATABASE_ENV]: analysis.effectiveDatabase };
   }
   setEntry(context.components, {
@@ -1160,7 +1214,20 @@ export function adoptCodexToml(text: string, context: AdoptContext, location: st
   ];
   const cwd = analysis.cwdIsRoot ? findBodyPair(layout, "cwd") : undefined;
   if (cwd) edits.push({ start: cwd.start, end: cwd.eolEnd, text: "" });
-  if (analysis.relativeDatabase !== undefined) {
+  const follows = followsApp(context);
+  if (follows) {
+    if (!analysis.missingDatabase) {
+      const removal = databaseRemoval(text, layout);
+      if (!removal) {
+        conflictOnce(
+          context.plan,
+          `${context.labelOf("codexMcp")}（${displayPath(location, context.homeDirectory)}）：${DATABASE_ENV} 不是可安全移除的單純寫法；保留且拒絕修改。`,
+        );
+        return undefined;
+      }
+      edits.push(removal);
+    }
+  } else if (analysis.relativeDatabase !== undefined) {
     const token = findDatabaseToken(text, layout);
     if (!token) return undefined;
     edits.push({ ...token, text: JSON.stringify(analysis.effectiveDatabase) });
@@ -1174,7 +1241,7 @@ export function adoptCodexToml(text: string, context: AdoptContext, location: st
       text: (text.slice(0, end).endsWith("\n") ? "" : newline) + TOML_BLOCK_END + newline,
     });
   }
-  if (analysis.missingDatabase) {
+  if (analysis.missingDatabase && !follows) {
     // Pushed after the end marker, which sorts first at the same offset, so the new line lands inside the block.
     const insertion = databaseInsertion(text, layout, analysis.effectiveDatabase ?? "");
     if (!insertion) return undefined;
@@ -1191,7 +1258,12 @@ export function adoptCodexToml(text: string, context: AdoptContext, location: st
   expectedServer.command = context.shimPath;
   expectedServer.args = [LAUNCHER_MCP_ARGUMENT];
   if (analysis.cwdIsRoot) delete expectedServer.cwd;
-  if (analysis.relativeDatabase !== undefined && JSON_OBJECT(expectedServer.env)) {
+  if (follows) {
+    if (JSON_OBJECT(expectedServer.env)) {
+      delete expectedServer.env[DATABASE_ENV];
+      if (Object.keys(expectedServer.env).length === 0) delete expectedServer.env;
+    }
+  } else if (analysis.relativeDatabase !== undefined && JSON_OBJECT(expectedServer.env)) {
     expectedServer.env[DATABASE_ENV] = analysis.effectiveDatabase;
   } else if (analysis.missingDatabase) {
     expectedServer.env = {

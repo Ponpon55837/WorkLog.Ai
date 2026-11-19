@@ -108,8 +108,11 @@ describe("adopting a hand-written pnpm start:mcp registration", () => {
       command: hostShim(),
       args: ["mcp"],
       enabled: true,
-      env: { WORK_INTELLIGENCE_DB: database },
     });
+    // The variable is dropped (an explicit one would pin the entry when the App changes its database), and the env
+    // table that held only it goes too.
+    expect(after).not.toContain("WORK_INTELLIGENCE_DB");
+    expect(after).not.toContain("[mcp_servers.work-intelligence.env]");
     expect(parsed.mcp_servers["other-tool"]).toEqual({
       command: "npx",
       args: ["-y", "other-tool"],
@@ -155,7 +158,7 @@ describe("adopting a hand-written pnpm start:mcp registration", () => {
           type: "stdio",
           command: hostShim(),
           args: ["mcp"],
-          env: { WORK_INTELLIGENCE_DB: database, KEEP: "1" },
+          env: { KEEP: "1" },
           note: "mine",
         },
       },
@@ -222,7 +225,7 @@ describe("adopting a hand-written pnpm start:mcp registration", () => {
     expect(readFileSync(fixture.paths.codexConfig, "utf8")).toBe(before);
   });
 
-  it("writes the checkout default database explicitly when the entry names none, so the launcher cannot pick another", () => {
+  it("leaves an entry that names no database without one: the checkout default is the App's file, so it follows the App", () => {
     const fixture = hostFixture();
     const root = fixture.options.repositoryRoot;
     const database = touch(join(root, "data", "work-intelligence.sqlite"));
@@ -234,9 +237,113 @@ describe("adopting a hand-written pnpm start:mcp registration", () => {
     );
     expect(plan.conflicts).toEqual([]);
     expect(applyAgentSetupPlan(plan).applied).toBe(true);
-    expect(readJson(fixture.paths.claudeJson).mcpServers).toMatchObject({
-      "work-intelligence": { env: { WORK_INTELLIGENCE_DB: database } },
+    const server = (readJson(fixture.paths.claudeJson).mcpServers as Record<string, Record<string, unknown>>)[
+      "work-intelligence"
+    ];
+    expect(server).toMatchObject({ command: hostShim(), args: ["mcp"] });
+    expect(server).not.toHaveProperty("env");
+  });
+
+  it("without the App's database to compare with, keeps the variable (written absolute) as before", () => {
+    const fixture = hostFixture();
+    const root = fixture.options.repositoryRoot;
+    writeJson(fixture.paths.claudeJson, {
+      mcpServers: { "work-intelligence": { command: "pnpm", args: ["--dir", root, "start:mcp"] } },
     });
+    const plan = createAgentSetupPlan(launcher(fixture, { adopt: { repositoryRoots: [root] } }));
+    expect(plan.conflicts).toEqual([]);
+    expect(applyAgentSetupPlan(plan).applied).toBe(true);
+    expect(readJson(fixture.paths.claudeJson).mcpServers).toMatchObject({
+      "work-intelligence": { env: { WORK_INTELLIGENCE_DB: join(root, "data", "work-intelligence.sqlite") } },
+    });
+  });
+
+  it("drops the variable from a node entry too, in JSON, and removes an env that held only it", () => {
+    const fixture = hostFixture();
+    const root = fixture.options.repositoryRoot;
+    const database = touch(join(root, "data", "work-intelligence.sqlite"));
+    const entry = (script: string, env: Record<string, string>) => ({
+      type: "stdio",
+      command: "node",
+      args: [script],
+      env,
+    });
+    const scripts = join(root, "apps", "mcp", "dist", "index.js");
+    for (const [env, expected] of [
+      [{ WORK_INTELLIGENCE_DB: database }, undefined],
+      [{ WORK_INTELLIGENCE_DB: database, KEEP: "1" }, { KEEP: "1" }],
+    ] as const) {
+      writeJson(fixture.paths.claudeJson, { mcpServers: { "work-intelligence": entry(scripts, { ...env }) } });
+      const before = readFileSync(fixture.paths.claudeJson);
+      const plan = createAgentSetupPlan(
+        launcher(fixture, { adopt: { repositoryRoots: [root], databasePath: database } }),
+      );
+      expect(plan.conflicts).toEqual([]);
+      expect(applyAgentSetupTransaction(plan, { journalPath: fixture.paths.journal }).outcome).toBe("committed");
+      const server = (readJson(fixture.paths.claudeJson).mcpServers as Record<string, Record<string, unknown>>)[
+        "work-intelligence"
+      ];
+      expect(server.env).toEqual(expected);
+      expect(server).toMatchObject({ command: hostShim(), args: ["mcp"] });
+      expect(
+        undoAgentSetupOperation(fixture.paths.journal, { homeDirectory: fixture.options.homeDirectory }).status,
+      ).toBe("undone");
+      expect(readFileSync(fixture.paths.claudeJson)).toEqual(before);
+    }
+  });
+
+  it.each([
+    [
+      "an env table with another key",
+      (db: string) => `[mcp_servers.work-intelligence.env]\nKEEP = "1"\nWORK_INTELLIGENCE_DB = ${JSON.stringify(db)}\n`,
+      { KEEP: "1" },
+    ],
+    ["a dotted key alone", (db: string) => `env.WORK_INTELLIGENCE_DB = ${JSON.stringify(db)}\n`, undefined],
+    [
+      "a dotted key beside another",
+      (db: string) => `env.KEEP = "1"\nenv.WORK_INTELLIGENCE_DB = ${JSON.stringify(db)}\n`,
+      { KEEP: "1" },
+    ],
+    [
+      "an inline env holding only it",
+      (db: string) => `env = { WORK_INTELLIGENCE_DB = ${JSON.stringify(db)} }\n`,
+      undefined,
+    ],
+    [
+      "an inline env with another key after it",
+      (db: string) => `env = { WORK_INTELLIGENCE_DB = ${JSON.stringify(db)}, KEEP = "1" }\n`,
+      { KEEP: "1" },
+    ],
+    [
+      "an inline env with another key before it",
+      (db: string) => `env = { KEEP = "1", WORK_INTELLIGENCE_DB = ${JSON.stringify(db)} }\n`,
+      { KEEP: "1" },
+    ],
+  ])("drops the variable from Codex TOML with %s, keeps the rest, and undoes completely", (_name, env, expected) => {
+    const fixture = hostFixture();
+    const root = fixture.options.repositoryRoot;
+    const database = touch(join(root, "data", "work-intelligence.sqlite"));
+    const subTable = _name.startsWith("an env table");
+    const body = `command = "node"\nargs = [${JSON.stringify(join(root, "apps", "mcp", "dist", "index.js"))}]\n`;
+    const text = subTable
+      ? `[mcp_servers.work-intelligence]\n${body}\n${env(database)}\n[other]\nx = 1\n`
+      : `[mcp_servers.work-intelligence]\n${body}${env(database)}\n[other]\nx = 1\n`;
+    writeFileSync(fixture.paths.codexConfig, text);
+    const plan = createAgentSetupPlan(
+      launcher(fixture, { adopt: { repositoryRoots: [root], databasePath: database } }),
+    );
+    expect(plan.conflicts).toEqual([]);
+    expect(applyAgentSetupTransaction(plan, { journalPath: fixture.paths.journal }).outcome).toBe("committed");
+    const after = readFileSync(fixture.paths.codexConfig, "utf8");
+    const parsed = parseToml(after) as Record<string, any>;
+    expect(parsed.mcp_servers["work-intelligence"].env).toEqual(expected);
+    expect(parsed.mcp_servers["work-intelligence"]).toMatchObject({ command: hostShim(), args: ["mcp"] });
+    expect(after).not.toContain("WORK_INTELLIGENCE_DB");
+    expect(parsed.other).toEqual({ x: 1 });
+    expect(
+      undoAgentSetupOperation(fixture.paths.journal, { homeDirectory: fixture.options.homeDirectory }).status,
+    ).toBe("undone");
+    expect(readFileSync(fixture.paths.codexConfig, "utf8")).toBe(text);
   });
 
   it("refuses pnpm forms it cannot trace to one checkout and leaves the files alone", () => {
