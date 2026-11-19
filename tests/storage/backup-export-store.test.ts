@@ -271,6 +271,27 @@ describe("BackupExportStore", () => {
     }
   });
 
+  it("stops writing an export that passes the byte limit and leaves nothing behind (L-23)", async () => {
+    const { databasePath } = seededDatabase();
+    const lean = new BackupExportStore(databasePath, { expectedSchemaVersion: LATEST_SCHEMA_VERSION });
+    try {
+      const root = mkdtempSync(join(tmpdir(), "work-intelligence-export-limit-"));
+      roots.push(root);
+      const full = await lean.writeProjectData({ type: "all" }, join(root, "full.json"));
+      // Exactly the size passes; one byte less is refused, whichever of the two files the limit falls in.
+      await expect(lean.writeProjectData({ type: "all" }, join(root, "exact.json"), full.bytes)).resolves.toEqual(full);
+      for (const limit of [full.bytes - 1, Math.floor(full.bytes / 2), 10]) {
+        await expect(lean.writeProjectData({ type: "all" }, join(root, "small.json"), limit)).rejects.toMatchObject({
+          name: "ProjectDataTransferError",
+          code: "export_too_large",
+        });
+        expect(readdirSync(root).sort()).toEqual(["exact.json", "full.json"]);
+      }
+    } finally {
+      lean.close();
+    }
+  });
+
   it("refuses an unknown project the way the store does", async () => {
     const { databasePath } = seededDatabase();
     const lean = new BackupExportStore(databasePath, { expectedSchemaVersion: LATEST_SCHEMA_VERSION });

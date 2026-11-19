@@ -184,8 +184,8 @@ function createInlineBackgroundStore(store: WorkIntelligenceStore): BackgroundSt
     async exportTo(target, options) {
       return store.exportTo(target, options);
     },
-    async exportProjectData(scope, target) {
-      return store.writeProjectDataExport(scope, target);
+    async exportProjectData(scope, target, maxBytes) {
+      return store.writeProjectDataExport(scope, target, maxBytes);
     },
     async previewProjectDataImport(upload) {
       return previewProjectDataImportUpload(store, upload);

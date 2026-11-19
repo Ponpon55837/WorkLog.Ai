@@ -131,6 +131,13 @@ describe("backup worker", () => {
       };
       expect(withoutStamp(again.text)).toEqual(withoutStamp(exportedData.text));
       expect((await worker.createBackup()).outcome).toBe("database_backups");
+      // A size limit is enforced while writing, and the refusal keeps its type across the worker boundary (L-23).
+      const limited = join(mkdtempSync(join(root, "export-")), "limited.json");
+      await expect(worker.exportProjectData({ type: "all" }, limited, 10)).rejects.toMatchObject({
+        name: "ProjectDataTransferError",
+        code: "export_too_large",
+      });
+      expect(existsSync(limited)).toBe(false);
       const staging = await worker.exportTo(join(root, "staging.sqlite"), { durable: false });
       expect(staging.bytes).toBe(statSync(join(root, "staging.sqlite")).size);
     } finally {

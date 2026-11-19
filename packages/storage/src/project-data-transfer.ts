@@ -2218,8 +2218,8 @@ export class ProjectDataTransferService {
     return buildProjectDataExport(readProjectDataRows(this.db, scope), scope, redactArchitectureDiagramSource);
   }
 
-  public writeExport(scope: ProjectDataExportScope, target: string): { bytes: number } {
-    return writeProjectDataExport(this.db, scope, redactArchitectureDiagramSource, target);
+  public writeExport(scope: ProjectDataExportScope, target: string, maxBytes?: number): { bytes: number } {
+    return writeProjectDataExport(this.db, scope, redactArchitectureDiagramSource, target, maxBytes);
   }
 
   public preview(validated: ValidatedProjectDataImport): ProjectDataImportPreview {

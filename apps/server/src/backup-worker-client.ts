@@ -27,7 +27,7 @@ export type BackupWorkerOperation =
   | { type: "createBackup" }
   | { type: "backupIfDue" }
   | { type: "exportTo"; target: string; options?: ExportOptions }
-  | { type: "exportProjectData"; scope: ProjectDataExportScope; target: string }
+  | { type: "exportProjectData"; scope: ProjectDataExportScope; target: string; maxBytes?: number }
   | { type: "previewProjectDataImport"; upload: ProjectDataImportUpload }
   | { type: "importProjectData"; upload: ProjectDataImportUpload }
   | { type: "inspectStagedProjectDataImport"; upload: ProjectDataImportUpload };
@@ -217,6 +217,7 @@ function restoredError(error: SerializedWorkerError): Error {
     "unsupported_schema",
     "project_not_found",
     "project_backup_failed",
+    "export_too_large",
   ];
   if (transferCodes.includes(error.code as ProjectDataTransferErrorCode)) {
     return new ProjectDataTransferError(error.code as ProjectDataTransferErrorCode, error.message);
@@ -269,8 +270,12 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
     return this.run({ type: "exportTo", target, ...(options ? { options } : {}) });
   }
 
-  public exportProjectData(scope: ProjectDataExportScope, target: string): Promise<{ bytes: number }> {
-    return this.run({ type: "exportProjectData", scope, target });
+  public exportProjectData(
+    scope: ProjectDataExportScope,
+    target: string,
+    maxBytes?: number,
+  ): Promise<{ bytes: number }> {
+    return this.run({ type: "exportProjectData", scope, target, maxBytes });
   }
 
   public previewProjectDataImport(upload: ProjectDataImportUpload): Promise<ProjectDataImportPreviewWithFolderStatus> {

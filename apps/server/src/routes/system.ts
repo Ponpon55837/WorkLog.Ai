@@ -16,7 +16,6 @@ import { LATEST_SCHEMA_VERSION } from "@work-intelligence/storage";
 import { inspectDatabaseReadOnlyMetadata } from "../database-inspection.js";
 import {
   MAX_PROJECT_IMPORT_BYTES,
-  PROJECT_EXPORT_TOO_LARGE_MESSAGE,
   readJsonBody,
   receiveJsonBodyFile,
   sendError,
@@ -64,12 +63,9 @@ async function sendProjectDataExport(
   const directory = createTransferDirectory(services.transferRoot, "export");
   try {
     const target = join(directory, "export.json");
-    const { bytes } = await services.backgroundStore.exportProjectData(scope, target);
-    if (bytes > MAX_PROJECT_IMPORT_BYTES) {
-      // A file this size could not be imported again, so a whole-database snapshot is the way to move it.
-      sendError(response, 413, PROJECT_EXPORT_TOO_LARGE_MESSAGE);
-      return;
-    }
+    // Counted while it is written: a file over the import limit could not be imported again (a whole-database
+    // snapshot is the way to move it), and writing gigabytes first only to answer 413 wastes the disk and the time.
+    const { bytes } = await services.backgroundStore.exportProjectData(scope, target, MAX_PROJECT_IMPORT_BYTES);
     const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
     const fileName = `work-intelligence-projects-${stamp}.json`;
     response.writeHead(200, {

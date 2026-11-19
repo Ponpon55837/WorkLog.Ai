@@ -782,8 +782,8 @@ export class WorkIntelligenceStore {
    * Writes the same export as {@link exportProjectData} to `target` (which must not exist yet) row by row, so its
    * memory does not grow with the data; the bytes are those of `JSON.stringify(exportProjectData(scope))`.
    */
-  public writeProjectDataExport(scope: ProjectDataExportScope, target: string): { bytes: number } {
-    return this.projectDataTransfer.writeExport(scope, target);
+  public writeProjectDataExport(scope: ProjectDataExportScope, target: string, maxBytes?: number): { bytes: number } {
+    return this.projectDataTransfer.writeExport(scope, target, maxBytes);
   }
 
   /** Counts additions, duplicates, and conflicts without writing anything, not even a backup. */

@@ -94,7 +94,7 @@ async function executeOperation(stores: WorkerStores, operation: BackupWorkerOpe
     case "exportTo":
       return stores.exportStore().exportTo(operation.target, operation.options);
     case "exportProjectData":
-      return stores.exportStore().writeProjectData(operation.scope, operation.target);
+      return stores.exportStore().writeProjectData(operation.scope, operation.target, operation.maxBytes);
     case "previewProjectDataImport": {
       const store = await stores.previewStore();
       const { previewProjectDataImportUpload } = await import("./http.js");

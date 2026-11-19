@@ -261,6 +261,9 @@ export function sendProjectDataTransferError(response: ServerResponse, error: un
     case "unsupported_schema":
       sendError(response, 400, error.message, undefined, error.code);
       return true;
+    case "export_too_large":
+      sendError(response, 413, PROJECT_EXPORT_TOO_LARGE_MESSAGE, undefined, "payload_too_large");
+      return true;
     case "project_backup_failed":
       sendError(
         response,
