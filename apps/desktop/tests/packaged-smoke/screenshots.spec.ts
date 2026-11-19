@@ -133,7 +133,7 @@ function repairState(locale: ShellLocale, overrides: Partial<RepairStateInputs> 
     lastBackup: { status: "known", at: now },
     retryOperationId: randomUUID(),
     port: { port: 3210, activePort: 3210, focus: false, handoffHeld: false },
-    update: { currentVersion: "1.6.57", checking: false, result: null },
+    update: { currentVersion: "1.6.58", checking: false, result: null },
     busy: false,
     ...overrides,
   });

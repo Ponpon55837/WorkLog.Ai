@@ -7,6 +7,8 @@ export * from "./tray-menu.js";
 export * from "./last-backup.js";
 export * from "./quit-notice.js";
 export * from "./login-item.js";
+export * from "./login-item-status.js";
+export * from "./login-item-i18n.js";
 export * from "./error-presentation.js";
 export * from "./restart-policy.js";
 export * from "./recent-errors.js";

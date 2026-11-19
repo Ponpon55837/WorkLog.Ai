@@ -19,8 +19,7 @@ const JSON_HEADERS = { "content-type": "application/json" };
 
 const resources: Array<{ server: Server; store: WorkIntelligenceStore }> = [];
 
-async function listen(options: ApiHandlerOptions = {}): Promise<string> {
-  const store = new WorkIntelligenceStore(":memory:");
+async function listen(options: ApiHandlerOptions = {}, store = new WorkIntelligenceStore(":memory:")): Promise<string> {
   const server = createServer(
     createApiHandler(store, {
       agentConnections: () => ({ codex: {}, claudeCode: {} }) as never,
@@ -66,6 +65,28 @@ describe("system status in desktop mode", () => {
     const baseUrl = await listen({ desktop: { facts: { legacyService: LEGACY }, onOpenAgentSetup: vi.fn() } });
     const status = (await (await fetch(`${baseUrl}/api/system/status`)).json()) as { desktop: unknown };
     expect(status.desktop).toEqual({ managed: true, legacyService: LEGACY });
+  });
+});
+
+describe("system status database and login item in desktop mode", () => {
+  it("reports the database and backup folder the backend really uses, and the App's login item", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "desktop-status-"));
+    try {
+      const databasePath = join(directory, "App 資料", "work-intelligence.sqlite");
+      const backupDirectory = join(directory, "App 備份");
+      mkdirSync(join(directory, "App 資料"), { recursive: true });
+      const store = new WorkIntelligenceStore(databasePath, { backup: { directory: backupDirectory } });
+      const loginItem = { supported: true, desired: true, system: "disabled" } as const;
+      const baseUrl = await listen({ desktop: { facts: { loginItem }, onOpenAgentSetup: vi.fn() } }, store);
+      const status = (await (await fetch(`${baseUrl}/api/system/status`)).json()) as {
+        database: { path: string };
+        desktop: unknown;
+      };
+      expect(status.database.path).toBe(databasePath);
+      expect(status.desktop).toEqual({ managed: true, loginItem, backupDirectory });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });
 

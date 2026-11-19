@@ -252,6 +252,7 @@ const zhTW: ShellMessages = {
     restore: "還原備份",
     "legacy-disable": "停用舊的登入服務",
     "copy-to-local": "複製資料庫到本機磁碟",
+    "login-item": "變更登入時自動啟動",
   },
   repairBusyNamed: "App 正在{what}，請等它完成後再試。沒有變更任何資料。",
   repairBusyActivity: "Dashboard 正在匯入、備份或匯出資料，請等它完成後再試。沒有變更任何資料。",
@@ -526,6 +527,7 @@ const en: ShellMessages = {
     restore: "restoring a backup",
     "legacy-disable": "disabling the old login service",
     "copy-to-local": "copying the database to the local disk",
+    "login-item": "changing the start-at-login setting",
   },
   repairBusyNamed: "The App is busy: {what}. Wait for it to finish, then try again. Nothing was changed.",
   repairBusyActivity:

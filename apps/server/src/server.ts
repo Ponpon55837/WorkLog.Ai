@@ -333,7 +333,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
     mcpRuntimeStatus: () => getMcpRuntimeStatus(repositoryRoot),
     agentConnections: inspectConnections,
     userServiceStatus: inspectUserService,
-    ...(options.desktop ? { desktop: createDesktopRouteServices(options.desktop) } : {}),
+    ...(options.desktop ? { desktop: createDesktopRouteServices(options.desktop, store.backupDirectory) } : {}),
     backgroundStore,
     transferRoot,
     stagedImports,

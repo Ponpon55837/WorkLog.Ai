@@ -141,6 +141,7 @@ describe("repair IPC", () => {
       "legacy:disable-preview",
       "legacy:recheck",
       "legacy:start-now",
+      "login-item:set",
       "port:change",
       "repair:choose-database",
       "repair:confirm-database",

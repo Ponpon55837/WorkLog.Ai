@@ -4,6 +4,18 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.58] - 2026-11-19
+
+[繁體中文更新說明](docs/releases/1.6.58.md).
+
+This patch fixes three things seen in the packaged Windows App 1.6.57. The schema stays at 33 and no migration is needed. Real-device acceptance on Windows 11 and macOS is still pending.
+
+### Fixed
+
+- **Start at login can be changed after setup.** The Settings tab has a 「登入時自動啟動」 switch on Windows and macOS. The page sends only a boolean; turning it on still needs the user's own click as consent, the settings file is written atomically before the system login item is touched, and the card shows what the system really reports (for example, the entry was turned off in the system's startup settings) in zh-TW and English, with no command.
+- **System Status shows the App, not the old service.** Under the desktop App, the 「登入自動啟動」 card shows the App's own login state and the database and backup folder the backend really uses. They were computed with the repository defaults, so the card showed `data` in a checkout, the Task Scheduler entry, `service\work-intelligence.task.xml` and `logs\server.log`. The old service appears only when it is detected, and points to the App's Status tab. This was a display error only: the backend opened the database the App passed, and no second database was in use.
+- **MCP connections are counted for the App.** The lease directory was derived from each runtime's own root, and the backend and an Agent's MCP run from different `runtimes/<id>` folders, so the page showed 0. The launcher now gives both one scope, the App's runtime root (`WORK_INTELLIGENCE_APP_LEASE_SCOPE`). A runtime or launcher without the variable keeps the older root-based scope; old lease folders are not migrated because a lease lives only seconds.
+
 ## [1.6.57] - 2026-11-19
 
 [繁體中文更新說明](docs/releases/1.6.57.md).

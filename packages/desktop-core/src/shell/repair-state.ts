@@ -7,6 +7,7 @@ import type { LastBackupInfo } from "./last-backup.js";
 import type { RecordedError } from "./recent-errors.js";
 import type { StorageRiskView } from "./storage-risk-view.js";
 import type { RepairUpdateSection } from "../update-check/result.js";
+import type { RepairLoginItemSection } from "./login-item-status.js";
 import { canDisableLegacyService } from "../legacy-service/disable.js";
 import { systemSettingsField, type SystemSettingsTarget } from "../legacy-service/system-settings.js";
 import type { LegacyServiceDetection } from "../legacy-service/types.js";
@@ -86,6 +87,8 @@ export interface RepairState {
   readonly port: RepairPortSection | null;
   /** The 「更新」 card: the running version, and the check's progress and last answer (kept in main). Absent: no card. */
   readonly update?: RepairUpdateSection;
+  /** The 「登入時自動啟動」 switch: the user's choice and the system's state. Absent: no section. */
+  readonly loginItem?: RepairLoginItemSection;
   /** What the tab strip needs: the tab list, the blocking tab and one badge per tab (see repair-ipc.ts). */
   readonly shell: AppShellState;
   /**
@@ -151,6 +154,7 @@ export interface RepairStateInputs {
   readonly recoveryNotices?: readonly { readonly id: string; readonly notice: RecoveryNotice }[];
   readonly port?: RepairPortSection | null;
   readonly update?: RepairUpdateSection;
+  readonly loginItem?: RepairLoginItemSection;
   /** What the start-up check found, when it found the old login service on this database. */
   readonly legacyService?: LegacyServiceDetection | null;
   /** The App held its backend back because of that service. */
@@ -229,6 +233,7 @@ export function buildRepairState(inputs: RepairStateInputs): RepairState {
     })),
     port: inputs.port ?? null,
     ...(inputs.update ? { update: inputs.update } : {}),
+    ...(inputs.loginItem ? { loginItem: inputs.loginItem } : {}),
     shell: buildAppShellState({
       needsSetup: inputs.needsSetup === true,
       owner: inputs.owner,

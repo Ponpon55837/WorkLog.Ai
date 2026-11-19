@@ -35,6 +35,14 @@
       "types": "./dist/shell/agents-state.d.ts",
       "import": "./dist/shell/agents-state.js"
     },
+    "./shell/login-item-i18n": {
+      "types": "./dist/shell/login-item-i18n.d.ts",
+      "import": "./dist/shell/login-item-i18n.js"
+    },
+    "./shell/login-item-status": {
+      "types": "./dist/shell/login-item-status.d.ts",
+      "import": "./dist/shell/login-item-status.js"
+    },
     "./shell/update-i18n": {
       "types": "./dist/shell/update-i18n.d.ts",
       "import": "./dist/shell/update-i18n.js"

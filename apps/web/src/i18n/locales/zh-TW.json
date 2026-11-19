@@ -1628,7 +1628,16 @@
     "agentReadStatsP95": "p95",
     "agentReadStatsErrors": "失敗",
     "localServiceStatusDesktop": "查看本機服務、資料庫、備份、維護與連線狀態。需要完整檢查時，請到桌面 App 的「診斷」分頁。",
-    "recentResultsAppearAfterMaintenance": "維護執行後會顯示最近結果"
+    "recentResultsAppearAfterMaintenance": "維護執行後會顯示最近結果",
+    "appBackupFolder": "App 備份目錄",
+    "appDatabase": "App 使用的資料庫",
+    "appLoginItemChoice": "App 內的設定",
+    "appLoginItemMismatch": "設定與系統實際狀態不一致。請到桌面 App 的「設定」分頁查看原因。",
+    "appLoginItemOff": "已關閉",
+    "appLoginItemOn": "已開啟",
+    "appLoginItemSystem": "系統實際狀態",
+    "appLoginItemUnknown": "無法從系統確認",
+    "appLoginItemChangeInApp": "要變更登入自動啟動，請到桌面 App 的「設定」分頁。"
   },
   "ui": {
     "actualCountsPerPeriod": "每期實際數量",

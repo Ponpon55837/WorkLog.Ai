@@ -39,6 +39,7 @@ import type { RepairSuccess } from "./repair-success.js";
 import type { RepairWindow } from "./repair-window.js";
 import type { RestoreController } from "./restore.js";
 import type { ShellState } from "./state.js";
+import type { LoginItemController } from "./login-item.js";
 import type { UpdateController } from "./update-check.js";
 
 interface Parser<T> {
@@ -59,6 +60,7 @@ export interface IpcOptions {
   readonly legacyDisable: LegacyDisableController;
   readonly changePort: ChangePortController;
   readonly storage: StorageRiskService;
+  readonly loginItem: LoginItemController;
   readonly updates: UpdateController;
   /** 「從備份還原」: the page holds only one-time ids; main keeps every path. */
   readonly restore: RestoreController;
@@ -90,6 +92,7 @@ export function registerRepairIpc(options: IpcOptions): void {
     legacy,
     legacyDisable,
     changePort,
+    loginItem,
     storage,
     updates,
     restore,
@@ -471,6 +474,14 @@ export function registerRepairIpc(options: IpcOptions): void {
       "change-port",
       () => ({ ok: false, reason: "busy", busy: "operation" }) as const,
       () => changePort.change(port),
+    ),
+  );
+  // Only a boolean comes in. It shares the page-action lock with every other change of the settings file.
+  handle(REPAIR_CHANNELS.loginItemSet, parser(repairInputSchemas.loginItemSet), ({ enable }) =>
+    exclusive(
+      "login-item",
+      () => ({ ok: false, reason: "busy" }) as const,
+      () => loginItem.set(enable),
     ),
   );
   // Not behind the page-action lock: a check changes nothing, and a second click joins the one that runs.

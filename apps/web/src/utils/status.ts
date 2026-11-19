@@ -93,6 +93,25 @@ export function userServiceStatusVisual(status: SystemStatus["userService"]): St
   return visual("attention", CircleAlert, "status.needsChecking");
 }
 
+type DesktopLoginItem = NonNullable<NonNullable<SystemStatus["desktop"]>["loginItem"]>;
+
+/** Whether the App's own login item agrees with what the user chose; an old App that reports nothing needs checking. */
+export function desktopLoginItemMismatch(item: DesktopLoginItem): boolean {
+  if (!item.supported || item.system === "unknown") return false;
+  return item.desired !== (item.system === "enabled");
+}
+
+/** The status label of the App's login item card. */
+export function desktopLoginItemStatusVisual(item: DesktopLoginItem | undefined): StatusVisual {
+  if (!item) return visual("attention", CircleAlert, "status.cannotConfirm");
+  if (!item.supported) return visual("neutral", CircleMinus, "status.notSupported");
+  if (item.system === "unknown") return visual("attention", CircleAlert, "status.cannotConfirm");
+  if (desktopLoginItemMismatch(item)) return visual("attention", CircleAlert, "status.needsChecking");
+  return item.system === "enabled"
+    ? visual("success", CircleCheck, "systemStatus.appLoginItemOn")
+    : visual("neutral", CircleMinus, "systemStatus.appLoginItemOff");
+}
+
 export function agentMcpRegistrationVisual(state: AgentMcpRegistrationState): StatusVisual {
   if (state === "registered") return visual("success", CircleCheck, "status.registered");
   if (state === "direct") return visual("attention", Clock3, "status.directRegistration");

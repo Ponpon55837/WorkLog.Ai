@@ -809,3 +809,55 @@ describe("MCP process lease cleanup", () => {
     expect(staleTemporaryLeases.every((path) => existsSync(path))).toBe(true);
   });
 });
+
+describe("MCP lease scope under the desktop App", () => {
+  const now = new Date("2026-11-19T12:00:00.000Z");
+
+  function twoRuntimes(): { backendRoot: string; mcpRoot: string; appRoot: string } {
+    const base = mkdtempSync(join(testTmpDirectory, "app-scope-"));
+    roots.push(base);
+    const appRoot = join(base, "App Runtime Root");
+    mkdirSync(appRoot, { recursive: true });
+    // Two runtimes of one installation: the backend runs from an older one than the launcher starts for the Agent.
+    const backendRoot = createMcpRuntimeFixture(join(appRoot, "runtimes", "rt-old", "libexec"));
+    const mcpRoot = createMcpRuntimeFixture(join(appRoot, "runtimes", "rt-new", "libexec"));
+    return { backendRoot, mcpRoot, appRoot };
+  }
+
+  it("keeps the older root-based scope when no App scope is set", () => {
+    const { backendRoot, mcpRoot } = twoRuntimes();
+    expect(getMcpRuntimeDirectory(backendRoot, {})).not.toBe(getMcpRuntimeDirectory(mcpRoot, {}));
+  });
+
+  it("lets the backend see an MCP lease written from a different runtime root of the same App", () => {
+    const { backendRoot, mcpRoot, appRoot } = twoRuntimes();
+    const environment = { WORK_INTELLIGENCE_APP_LEASE_SCOPE: appRoot };
+    const build = readMcpBuildIdentity(mcpRoot);
+    if (!build) throw new Error("The synthetic runtime has no build identity.");
+
+    cleanups.push(registerMcpProcess(mcpRoot, build, { now: () => now, environment }));
+
+    expect(getMcpRuntimeDirectory(backendRoot, environment)).toBe(getMcpRuntimeDirectory(mcpRoot, environment));
+    const status = getMcpRuntimeStatus(backendRoot, readMcpBuildIdentity(backendRoot), { now, environment });
+    expect(status.activeProcesses).toBe(1);
+  });
+
+  it("does not see the lease without the shared scope (the failure this scope fixes)", () => {
+    const { backendRoot, mcpRoot } = twoRuntimes();
+    const build = readMcpBuildIdentity(mcpRoot);
+    if (!build) throw new Error("The synthetic runtime has no build identity.");
+
+    cleanups.push(registerMcpProcess(mcpRoot, build, { now: () => now, environment: {} }));
+
+    const status = getMcpRuntimeStatus(backendRoot, readMcpBuildIdentity(backendRoot), { now, environment: {} });
+    expect(status.activeProcesses).toBe(0);
+  });
+
+  it("keeps two different App installations apart", () => {
+    const { backendRoot, appRoot } = twoRuntimes();
+    const other = { WORK_INTELLIGENCE_APP_LEASE_SCOPE: join(appRoot, "other") };
+    expect(getMcpRuntimeDirectory(backendRoot, { WORK_INTELLIGENCE_APP_LEASE_SCOPE: appRoot })).not.toBe(
+      getMcpRuntimeDirectory(backendRoot, other),
+    );
+  });
+});

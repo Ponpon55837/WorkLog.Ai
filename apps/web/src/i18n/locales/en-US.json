@@ -1628,7 +1628,16 @@
     "agentReadStatsP95": "p95",
     "agentReadStatsErrors": "Failed",
     "localServiceStatusDesktop": "Local service, database, backup, maintenance and connection status. For a full check, open the Diagnostics tab of the desktop app.",
-    "recentResultsAppearAfterMaintenance": "Recent results appear after maintenance runs"
+    "recentResultsAppearAfterMaintenance": "Recent results appear after maintenance runs",
+    "appBackupFolder": "App backup folder",
+    "appDatabase": "Database used by the App",
+    "appLoginItemChoice": "Setting in the App",
+    "appLoginItemMismatch": "The setting and the system's actual state differ. Open the Settings tab of the desktop App to see why.",
+    "appLoginItemOff": "Off",
+    "appLoginItemOn": "On",
+    "appLoginItemSystem": "State in the system",
+    "appLoginItemUnknown": "Could not be confirmed from the system",
+    "appLoginItemChangeInApp": "To change start at login, open the Settings tab of the desktop App."
   },
   "ui": {
     "actualCountsPerPeriod": "Actual counts per period",

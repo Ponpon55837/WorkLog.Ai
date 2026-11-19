@@ -3623,6 +3623,14 @@ export interface SystemDesktopStatus {
   };
   /** The port the App committed for this backend; the page shows it as the effective address. */
   activePort?: number;
+  /** The App's own login item: the user's choice and what the system reports. Absent from an older App. */
+  loginItem?: {
+    supported: boolean;
+    desired: boolean;
+    system: "enabled" | "disabled" | "needs-approval" | "unknown";
+  };
+  /** The folder the App's backend really writes backups to (the same database the page shows under `database.path`). */
+  backupDirectory?: string;
   /** Positively detected risky database storage (DT-08); `unknown` is a soft note only. */
   storageRisk?: {
     risk: "network" | "removable" | "cloud-sync" | "hard-link" | "unknown";

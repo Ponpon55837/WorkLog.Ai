@@ -88,6 +88,7 @@ import { createRepairWindow } from "./repair-window.js";
 import { createRuntimeProvisioner } from "./runtime-provision.js";
 import { createSecondInstance } from "./second-instance.js";
 import { applySecurityPolicy, createSessionPolicy, registerRepairScheme } from "./security.js";
+import { createLoginItemController } from "./login-item.js";
 import { applyLoginItem, loadSettings, type SettingsLoad } from "./settings.js";
 import { ShellState } from "./state.js";
 import { installTestHook } from "./test-hook.js";
@@ -281,6 +282,14 @@ function runShell(configInputs: DesktopConfigInputs): void {
     if (status !== undefined) await integration.publish();
     return status;
   };
+  // The Settings tab's start-at-login switch; a change reaches the running backend so the Web status follows.
+  let pushLoginItemFacts: () => void = () => undefined;
+  const loginItem = createLoginItemController({
+    state,
+    paths,
+    log,
+    changed: () => pushLoginItemFacts(),
+  });
   // The facts a backend carries: the old-service warning and the storage verdict this run already reached.
   const currentFacts = (databasePath: string): DesktopFacts | undefined => {
     const storageRisk = storage.fact(databasePath);
@@ -288,8 +297,18 @@ function runShell(configInputs: DesktopConfigInputs): void {
     const facts: DesktopFacts = {
       ...legacy.facts(databasePath),
       launcherShimPath: launcherShimPath(paths.runtimeRoot, process.platform),
+      loginItem: loginItem.section(),
     };
     return storageRisk ? { ...facts, storageRisk } : facts;
+  };
+  pushLoginItemFacts = () => {
+    const databasePath = state.databasePath();
+    if (databasePath === null) return;
+    const port = state.settings?.active?.port ?? state.settings?.desired.port;
+    void supervisor.updateFacts({
+      ...currentFacts(databasePath),
+      ...(port === undefined ? {} : { activePort: port }),
+    });
   };
   const backend = createBackendController({
     state,
@@ -388,6 +407,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     storage,
     port: changePort.section,
     update: updates.section,
+    loginItem: loginItem.section,
     journal,
   });
   const copyRunner = createCopyRunner({
@@ -669,6 +689,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
       legacy,
       legacyDisable,
       changePort,
+      loginItem,
       storage,
       updates,
       restore,
