@@ -78,6 +78,8 @@ import { createLogger } from "./log.js";
 import { createErrorNotifier, createRecoveredNotifier } from "./notify.js";
 import { createQuit } from "./quit.js";
 import { createRepairInfo } from "./repair-info.js";
+import { createMaintenance } from "./maintenance.js";
+import { createMaintenanceDialogs } from "./maintenance-dialogs.js";
 import { createRestore } from "./restore.js";
 import { createRestoreDialogs } from "./restore-dialogs.js";
 import { createStorageRiskService } from "./storage-risk.js";
@@ -393,6 +395,19 @@ function runShell(configInputs: DesktopConfigInputs): void {
     backupsChanged: () => lastBackup.invalidate(),
     log,
   });
+  const maintenance = createMaintenance({
+    state,
+    coordinator,
+    supervisor,
+    backend,
+    agentsRunning: async () => (await countActiveAgentLeases(paths.runtimeRoot)) > 0,
+    confirm: createMaintenanceDialogs({ state, window, autoConfirm: testSwitch(configInputs, "autoConfirmRestore") })
+      .confirm,
+    backupsChanged: () => lastBackup.invalidate(),
+    // The page reads the state again; its own poll is only the fallback.
+    changed: () => state.touch(),
+    log,
+  });
   const apiOrigin = updateApiOriginOverride(configInputs);
   const updates = createUpdateController({
     currentVersion: app.getVersion(),
@@ -422,6 +437,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     port: changePort.section,
     update: updates.section,
     loginItem: loginItem.section,
+    maintenance: maintenance.section,
     journal,
   });
   const copyRunner = createCopyRunner({
@@ -704,6 +720,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
       legacyDisable,
       changePort,
       loginItem,
+      maintenance,
       storage,
       updates,
       restore,

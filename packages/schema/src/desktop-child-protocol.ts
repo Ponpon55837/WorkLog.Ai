@@ -317,6 +317,8 @@ const maintenanceHintSchema = z.strictObject({
   /** Free pages times page size; absent when the database could not be read. */
   reclaimableBytes: z.number().int().nonnegative().optional(),
   databaseBytes: z.number().int().nonnegative().optional(),
+  /** The free space is large enough to be worth a compaction (the same rule the command line's check uses). */
+  suggest: z.boolean().optional(),
   last: maintenanceRunSchema.optional(),
 });
 

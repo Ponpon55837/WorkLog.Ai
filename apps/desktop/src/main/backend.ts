@@ -59,6 +59,14 @@ export interface BackendController {
     operationId?: string,
   ): Promise<RestartOutcome>;
   /**
+   * 「整理資料庫」: the same shape as {@link restoreWhileStopped}, journaled as a `maintenance` operation. `work` runs while
+   * the backend is stopped; the backend starts again on the settings' database afterwards.
+   */
+  maintainWhileStopped(
+    work: (context: OperationStepContext) => Promise<JournalJson | void>,
+    operationId?: string,
+  ): Promise<RestartOutcome>;
+  /**
    * Stops the running backend and starts it on `change.port`; only a verified start commits `desired.port`, `active`
    * and `lastKnownGood` together in one settings write. A failure leaves the settings untouched and the backend
    * stopped (the caller restarts on the old port).
@@ -302,6 +310,8 @@ export function createBackendController(options: BackendControllerOptions): Back
     start,
     restoreWhileStopped: (replace, operationId = randomUUID()) =>
       startOnce("restore", undefined, operationId, undefined, replace),
+    maintainWhileStopped: (work, operationId = randomUUID()) =>
+      startOnce("maintenance", undefined, operationId, undefined, work),
     startOnPort: (change, operationId = randomUUID()) => startOnce("change-port", undefined, operationId, change),
     recovery,
     presenter: () => presenter,

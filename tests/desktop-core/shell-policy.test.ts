@@ -142,6 +142,7 @@ describe("repair IPC", () => {
       "legacy:recheck",
       "legacy:start-now",
       "login-item:set",
+      "maintenance:run",
       "port:change",
       "repair:choose-database",
       "repair:confirm-database",

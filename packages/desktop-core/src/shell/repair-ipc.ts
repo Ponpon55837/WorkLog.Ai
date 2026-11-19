@@ -31,6 +31,7 @@ import {
   type UpdateLinkTarget,
   type UpdateOpenLinkResult,
 } from "../update-check/result.js";
+import { MAINTENANCE_MODES, type MaintenanceMode, type MaintenanceRunResult } from "./maintenance-types.js";
 import type { RestoreListResult, RestorePickResult, RestoreRunResult } from "./restore-types.js";
 
 /** IPC channel names between the repair page (through its preload) and main. */
@@ -70,6 +71,7 @@ export const REPAIR_CHANNELS = {
   legacyStartNow: "legacy:start-now",
   portChange: "port:change",
   loginItemSet: "login-item:set",
+  maintenanceRun: "maintenance:run",
   copyToLocal: "repair:copy-to-local",
   updateCheck: "update:check",
   updateOpenLink: "update:open-link",
@@ -151,6 +153,8 @@ export const repairInputSchemas = {
   /** The 「登入時自動啟動」 switch: only the new state. Main treats the user's own click as the consent and reads every path itself. */
   loginItemSet: z.strictObject({ enable: z.boolean() }),
   /** 「複製到本機磁碟並改用」: for a browsed candidate, or (no id) the App's own database. Main reads every path itself. */
+  /** 「整理資料庫」 / 「檢查完整性」: only the mode. Main reads every path and asks the user before it changes anything. */
+  maintenanceRun: z.strictObject({ mode: z.enum(MAINTENANCE_MODES) }),
   copyToLocal: z.strictObject({ candidateId: z.string().min(1).max(64).optional() }),
   /** 「檢查更新」: no input; the one request goes to the fixed GitHub endpoint. */
   updateCheck: z.strictObject({}),
@@ -357,6 +361,7 @@ export interface RepairApi {
   setLaunchAtLogin(enable: boolean): Promise<LoginItemSetResult>;
   checkForUpdates(): Promise<UpdateCheckResult>;
   openUpdateLink(target: UpdateLinkTarget): Promise<UpdateOpenLinkResult>;
+  runMaintenance(mode: MaintenanceMode): Promise<MaintenanceRunResult>;
   restoreList(): Promise<RestoreListResult>;
   restorePick(): Promise<RestorePickResult>;
   restoreRun(backupId: string): Promise<RestoreRunResult>;

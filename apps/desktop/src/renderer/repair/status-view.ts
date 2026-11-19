@@ -13,6 +13,7 @@ import type { ViewContext } from "./context.js";
 import { candidatesCard, databaseCard, databasePath, restoreCard } from "./data-view.js";
 import { actions, button, cardBody, element, facts, hint, section } from "./dom.js";
 import { legacyBlock } from "./legacy-block.js";
+import { maintenanceSummary } from "./maintenance-view.js";
 import { legacyDisableControls, legacyDisableOutcome, type LegacyDisableHost } from "./legacy-disable-view.js";
 import { isBlockingDatabase, recoveryBannerText } from "./view-model.js";
 
@@ -166,6 +167,7 @@ export function statusPanel(ctx: ViewContext): Node[] {
     const candidates = candidatesCard(ctx);
     if (candidates) blocks.push(candidates);
   }
+  if (state.maintenance && !blocking) blocks.push(maintenanceSummary(state.locale, state.maintenance));
   blocks.push(errorsCard(ctx));
   return blocks;
 }

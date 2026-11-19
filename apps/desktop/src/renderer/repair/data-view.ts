@@ -5,6 +5,7 @@ import { setupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n"
 import { databaseLabel } from "./badge.js";
 import type { ViewContext } from "./context.js";
 import { actions, button, checkbox, element, facts, hint, path, section } from "./dom.js";
+import { maintenanceSection } from "./maintenance-view.js";
 import { restoreSection } from "./restore-view.js";
 import { storageRiskNote } from "./storage-risk-card.js";
 
@@ -138,7 +139,26 @@ export function restoreCard(ctx: ViewContext): HTMLElement {
   });
 }
 
+/** 「整理資料庫」: absent until main has told the page about it. */
+export function maintenanceCard(ctx: ViewContext): HTMLElement | null {
+  if (!ctx.state.maintenance) return null;
+  return maintenanceSection({
+    api: ctx.act.api,
+    locale: ctx.state.locale,
+    maintenance: ctx.state.maintenance,
+    pageBusy: ctx.busy,
+    rerender: ctx.act.rerender,
+    refresh: ctx.act.refresh,
+  });
+}
+
 export function dataPanel(ctx: ViewContext): Node[] {
   const candidates = candidatesCard(ctx);
-  return candidates ? [databaseCard(ctx), restoreCard(ctx), candidates] : [databaseCard(ctx), restoreCard(ctx)];
+  const maintenance = maintenanceCard(ctx);
+  return [
+    databaseCard(ctx),
+    restoreCard(ctx),
+    ...(maintenance ? [maintenance] : []),
+    ...(candidates ? [candidates] : []),
+  ];
 }

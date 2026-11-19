@@ -80,7 +80,7 @@ describe.each([
 
   it("turns on: writes the settings file first, then applies, then tells the backend", async () => {
     const order: string[] = [];
-    const { controller, settingsFile, applied, changed, state } = setup(platform, enabled, false, (s) => {
+    const { controller, settingsFile, changed, state } = setup(platform, enabled, false, (s) => {
       // At the moment the system is touched, the file on disk already holds the new choice.
       order.push(
         `apply:${JSON.parse(readFileSync(path.join(directory, "desktop-settings.json"), "utf8")).desired.launchAtLogin}`,

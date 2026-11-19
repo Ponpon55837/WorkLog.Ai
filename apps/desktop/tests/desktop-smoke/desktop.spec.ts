@@ -204,6 +204,7 @@ test("a missing database opens the repair window and creates nothing", async () 
     "restorePick",
     "restoreRun",
     "retryStart",
+    "runMaintenance",
     "saveDiagnostics",
     "setLaunchAtLogin",
     "setupChooseFile",

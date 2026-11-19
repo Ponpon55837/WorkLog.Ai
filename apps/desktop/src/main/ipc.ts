@@ -39,6 +39,7 @@ import type { RepairWindow } from "./repair-window.js";
 import type { RestoreController } from "./restore.js";
 import type { ShellState } from "./state.js";
 import type { LoginItemController } from "./login-item.js";
+import type { MaintenanceController } from "./maintenance.js";
 import type { UpdateController } from "./update-check.js";
 
 interface Parser<T> {
@@ -60,6 +61,8 @@ export interface IpcOptions {
   readonly changePort: ChangePortController;
   readonly storage: StorageRiskService;
   readonly loginItem: LoginItemController;
+  /** 「整理資料庫」: takes the page-action lock itself, after its checks and the native confirmation. */
+  readonly maintenance: MaintenanceController;
   readonly updates: UpdateController;
   /** 「從備份還原」: the page holds only one-time ids; main keeps every path. */
   readonly restore: RestoreController;
@@ -92,6 +95,7 @@ export function registerRepairIpc(options: IpcOptions): void {
     legacyDisable,
     changePort,
     loginItem,
+    maintenance,
     storage,
     updates,
     restore,
@@ -482,6 +486,10 @@ export function registerRepairIpc(options: IpcOptions): void {
       () => ({ ok: false, reason: "busy" }) as const,
       () => loginItem.set(enable),
     ),
+  );
+  // Not behind `exclusive`: the controller refuses while anything runs, asks first, then takes the lock itself.
+  handle(REPAIR_CHANNELS.maintenanceRun, parser(repairInputSchemas.maintenanceRun), ({ mode }) =>
+    maintenance.run(mode),
   );
   // Not behind the page-action lock: a check changes nothing, and a second click joins the one that runs.
   handle(REPAIR_CHANNELS.updateCheck, parser(repairInputSchemas.updateCheck), () => updates.check());

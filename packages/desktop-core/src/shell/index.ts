@@ -26,6 +26,8 @@ export * from "./diagnostics-i18n.js";
 export * from "./diagnostics-preview-store.js";
 export * from "./restore-backup-store.js";
 export * from "./restore-classify.js";
+export * from "./maintenance-i18n.js";
+export * from "./maintenance-types.js";
 export * from "./restore-relocate.js";
 export * from "./restore-types.js";
 export * from "./restore-i18n.js";
