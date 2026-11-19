@@ -1044,7 +1044,7 @@
     "conflictCategoryUnique": "Unique key",
     "conflictCategoryDependency": "Dependency",
     "conflictCategoryMissingParent": "Missing from the file",
-    "restoreInDesktopApp": "Restore a backup from the Data tab of the desktop app; you can also choose a backup file from another location. On a new computer the App finds the project folders that do not exist there, lets you point to where they are now and maps the paths for you, with no command to type. Before restoring, the App backs up the current data automatically."
+    "restoreInDesktopApp": "Restore a backup from the Data tab of the desktop app; you can also choose a backup file from another location. On a new computer the App finds the project folders that do not exist there, lets you point to where they are now and maps the paths for you, so there is nothing to type. Before restoring, the App backs up the current data automatically."
   },
   "reports": {
     "aCustomRangeCanSpan": "A custom range can span at most {days} day.|A custom range can span at most {days} days.",

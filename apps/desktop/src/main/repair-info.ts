@@ -142,6 +142,7 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
       ...(options.update ? { update: options.update() } : {}),
       ...(options.loginItem ? { loginItem: options.loginItem() } : {}),
       ...(options.maintenance ? { maintenance: options.maintenance() } : {}),
+      fallback: state.startupFallback,
       // Shown only where it matters: the old service may serve this database, or it holds the port.
       legacyService: relevance.conflict || relevance.portInUse ? legacy.latest() : null,
       legacyBlocked: !running && latestCode === "LEGACY_SERVICE_ACTIVE",

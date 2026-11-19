@@ -1044,7 +1044,7 @@
     "conflictCategoryUnique": "唯一識別值",
     "conflictCategoryDependency": "依賴連帶",
     "conflictCategoryMissingParent": "匯入檔缺少上層資料",
-    "restoreInDesktopApp": "請在桌面 App 的「資料」分頁還原備份，也可以選擇其他位置的備份檔。換新電腦時，App 會找出新電腦上不存在的專案資料夾，讓你指定它們現在的位置並自動對應路徑，不需要輸入任何指令。還原前 App 會先自動備份目前的資料。"
+    "restoreInDesktopApp": "請在桌面 App 的「資料」分頁還原備份，也可以選擇其他位置的備份檔。換新電腦時，App 會找出新電腦上不存在的專案資料夾，讓你指定它們現在的位置並自動對應路徑，不必自己輸入任何東西。還原前 App 會先自動備份目前的資料。"
   },
   "reports": {
     "aCustomRangeCanSpan": "自訂期間最長 {days} 天。",

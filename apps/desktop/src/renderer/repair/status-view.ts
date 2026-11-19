@@ -13,6 +13,10 @@ import type { ViewContext } from "./context.js";
 import { candidatesCard, databaseCard, databasePath, restoreCard } from "./data-view.js";
 import { actions, button, cardBody, element, facts, hint, section } from "./dom.js";
 import { legacyBlock } from "./legacy-block.js";
+import {
+  startupFallbackMessages,
+  startupFallbackText,
+} from "@work-intelligence/desktop-core/shell/startup-fallback-i18n";
 import { maintenanceSummary } from "./maintenance-view.js";
 import { legacyDisableControls, legacyDisableOutcome, type LegacyDisableHost } from "./legacy-disable-view.js";
 import { isBlockingDatabase, recoveryBannerText } from "./view-model.js";
@@ -152,6 +156,18 @@ function errorsCard(ctx: ViewContext): HTMLElement {
   return section(messages.repairErrorsHeading, errors);
 }
 
+/** What was rolled back to the last working setup, in plain words; shown while it applies and when it did not help. */
+function fallbackCard(state: RepairState): HTMLElement {
+  const note = state.fallback as NonNullable<RepairState["fallback"]>;
+  const card = section(
+    startupFallbackMessages(state.locale).heading,
+    element("p", { text: startupFallbackText(state.locale, note) }),
+  );
+  card.id = "startup-fallback";
+  card.classList.add(note.kind === "port-restored" ? "card--attention" : "card--danger");
+  return card;
+}
+
 export function statusPanel(ctx: ViewContext): Node[] {
   const { state, messages } = ctx;
   const finished = [...(ctx.setupFinished ? [setupFinishedCard(ctx)] : []), ...recoveryCards(ctx)];
@@ -161,6 +177,7 @@ export function statusPanel(ctx: ViewContext): Node[] {
   if (state.owner === "NEEDS_REPAIR") {
     blocks.push(element("p", { className: "flash flash--danger", text: messages.repairIntro }));
   }
+  if (state.fallback) blocks.push(fallbackCard(state));
   blocks.push(serviceCard(ctx, blocking));
   if (blocking) {
     blocks.push(databaseCard(ctx), restoreCard(ctx));

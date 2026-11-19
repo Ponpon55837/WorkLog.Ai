@@ -29,6 +29,8 @@ export * from "./restore-classify.js";
 export * from "./maintenance-i18n.js";
 export * from "./maintenance-types.js";
 export * from "./restore-relocate.js";
+export * from "./startup-fallback-i18n.js";
+export * from "./startup-fallback.js";
 export * from "./restore-types.js";
 export * from "./restore-i18n.js";
 export * from "./private-file.js";

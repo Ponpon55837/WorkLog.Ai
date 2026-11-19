@@ -15,6 +15,7 @@ import {
   type AppTab,
   TabMemory,
   writeDesktopSettingsAtomic,
+  type StartupFallbackNote,
 } from "@work-intelligence/desktop-core";
 
 const MAX_CANDIDATES = 5;
@@ -41,6 +42,8 @@ export class ShellState {
   busyAction: RepairBusyWhat | null = null;
   /** The success card the repair page shows for a moment after a user-started repair worked. */
   recovered: RepairRecovered | null = null;
+  /** What a fallback to the last working port did in this App run (memory only), for the Status tab; null: none. */
+  startupFallback: StartupFallbackNote | null = null;
   readonly retryIds = new RetryIdIssuer(() => randomUUID());
   readonly candidates = new CandidateRegistry(() => randomUUID(), MAX_CANDIDATES);
   readonly recentErrors = new RecentErrors();

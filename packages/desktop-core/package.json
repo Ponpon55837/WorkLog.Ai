@@ -55,6 +55,10 @@
       "types": "./dist/shell/maintenance-i18n.d.ts",
       "import": "./dist/shell/maintenance-i18n.js"
     },
+    "./shell/startup-fallback-i18n": {
+      "types": "./dist/shell/startup-fallback-i18n.d.ts",
+      "import": "./dist/shell/startup-fallback-i18n.js"
+    },
     "./shell/restore-i18n": {
       "types": "./dist/shell/restore-i18n.d.ts",
       "import": "./dist/shell/restore-i18n.js"

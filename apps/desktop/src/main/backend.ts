@@ -8,6 +8,8 @@ import {
   interpretManagedStart,
   RestartPolicy,
   decideRuntimeRecovery,
+  planPortFallback,
+  sameAsLastKnownGood,
   isRuntimeReinstallable,
   type BackendInfo,
   type BundledRuntimeStatus,
@@ -126,6 +128,8 @@ export function createBackendController(options: BackendControllerOptions): Back
   let runtimeSuspect = false;
   /** The automatic reinstall is tried once per App start: a runtime that keeps being refused goes to repair. */
   let reinstallAttempted = false;
+  /** The settings' port a fallback already failed for in this App run; never tried twice. */
+  let portFallbackFailed: number | null = null;
 
   function presenterActions() {
     return {
@@ -173,10 +177,54 @@ export function createBackendController(options: BackendControllerOptions): Back
     }
   }
 
+  /**
+   * A start that failed because its port is unusable gets one more try on the port the last verified start used (a start
+   * the user asked to move to another port never does). The settings' own port stays as the user chose it; a fallback that
+   * fails too returns the original failure, so the repair flow shows the real reason. See startup-fallback.ts.
+   */
   async function start(
     kind: StartKind,
     override?: StartOverride,
     operationId: string = randomUUID(),
+  ): Promise<RestartOutcome> {
+    const outcome = await startWithRuntimeRecovery(kind, override, operationId);
+    if (outcome.ok || outcome.busy || kind === "change-port" || !state.settings) return outcome;
+    const wantedPort = state.settings.desired.port;
+    // Read before the fallback start: a verified start overwrites it with its own record.
+    const lastGood = state.settings.lastKnownGood;
+    const plan = planPortFallback({
+      failureCode: outcome.code,
+      attemptedPort: wantedPort,
+      lastKnownGood: lastGood,
+      alreadyTried: portFallbackFailed === wantedPort,
+    });
+    if (!plan) return outcome;
+    log(`[shell] port ${wantedPort} unusable (${outcome.code}); trying the last working port ${plan.port}`);
+    const fallback = await startOnce(kind, override, randomUUID(), undefined, undefined, plan.port);
+    if (fallback.ok) {
+      const started = supervisor.running;
+      state.startupFallback = {
+        kind: "port-restored",
+        wantedPort,
+        usedPort: plan.port,
+        code: outcome.code,
+        runtimeVersion: plan.runtimeVersion,
+        sameDatabase: started ? sameAsLastKnownGood(lastGood, started.databaseIdentity) : false,
+      };
+      state.touch();
+      return fallback;
+    }
+    // Remembered, so the automatic restarts do not try the same port again this App run.
+    portFallbackFailed = wantedPort;
+    state.startupFallback = { kind: "port-failed", wantedPort, triedPort: plan.port, code: outcome.code };
+    state.touch();
+    return outcome;
+  }
+
+  async function startWithRuntimeRecovery(
+    kind: StartKind,
+    override: StartOverride | undefined,
+    operationId: string,
   ): Promise<RestartOutcome> {
     const outcome = await startOnce(kind, override, operationId);
     if (
@@ -210,6 +258,8 @@ export function createBackendController(options: BackendControllerOptions): Back
     operationId: string,
     portChange?: PortStart,
     whileStopped?: (context: OperationStepContext) => Promise<JournalJson | void>,
+    /** The port of the last verified start, tried because the settings' port is unusable; the settings are not changed. */
+    fallbackPort?: number,
   ): Promise<RestartOutcome> {
     const { settings } = state;
     if (!settings) return { ok: false, code: "REPAIR_REQUIRED" };
@@ -227,7 +277,7 @@ export function createBackendController(options: BackendControllerOptions): Back
       state.setOwner(supervisor.running === undefined ? "NEEDS_REPAIR" : state.owner);
       return { ok: false, code: STORAGE_NETWORK_CODE };
     }
-    const port = portChange?.port ?? settings.desired.port;
+    const port = portChange?.port ?? fallbackPort ?? settings.desired.port;
     // The status page shows the port the App committed for this backend.
     const desktop: DesktopFacts = { ...options.desktopFacts?.(databasePath), activePort: port };
     const previousState = state.backend;
@@ -268,6 +318,11 @@ export function createBackendController(options: BackendControllerOptions): Back
     runtimeSuspect = outcome.kind === "failed" && isRuntimeReinstallable(outcome.code);
     if (outcome.kind === "started" && result.backend) {
       state.backend = "running";
+      // A start on the port the settings name ends any earlier fallback note.
+      if (fallbackPort === undefined) {
+        state.startupFallback = null;
+        portFallbackFailed = null;
+      }
       log(`[shell] backend started pid=${result.backend.pid} port=${result.backend.port}`);
       if (override) {
         state.settings = { ...settings, desired: { ...settings.desired, databasePath: override.databasePath } };
