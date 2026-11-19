@@ -20,7 +20,7 @@ import type {
   ProjectDataImportUpload,
   StagedProjectDataImportInspection,
 } from "./routes/router.js";
-import { BackupWorkerOutOfMemoryError } from "./backup-worker-errors.js";
+import { BackupWorkerOutOfMemoryError, BackupWorkerTimeoutError } from "./backup-worker-errors.js";
 import { RequestBodyError } from "./http.js";
 
 export type BackupWorkerOperation =
@@ -90,7 +90,16 @@ export interface BackupWorkerClientOptions {
    * `WORK_INTELLIGENCE_BACKGROUND_HEAP_MB` override); tests use a tiny heap to force an out-of-memory exit.
    */
   heapMb?: number;
+  /** Longest a single operation may take before its process is stopped, instead of {@link OPERATION_WATCHDOG_MS}. */
+  operationTimeoutMs?: number;
 }
+
+/**
+ * A request the process never answers (a hung disk, a stuck read) would hold its HTTP request and the desktop's
+ * activity gate forever. The largest legitimate operation, an import at the 256 MiB limit, takes minutes, so this is
+ * generous: it only ends what is certainly stuck. The process is killed and the next request starts a fresh one.
+ */
+export const OPERATION_WATCHDOG_MS = 30 * 60_000;
 
 export const DEFAULT_IDLE_TIMEOUT_MS = 15_000;
 /**
@@ -332,12 +341,32 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
     if (lifetime.failure !== undefined) throw lifetime.failure;
     if (HEAVY_OPERATIONS.has(operation.type)) lifetime.heavy = true;
     const id = this.nextId++;
+    const timeoutMs = this.options.operationTimeoutMs ?? OPERATION_WATCHDOG_MS;
     return new Promise<T>((resolve, reject) => {
-      this.addPending(id, { lifetime, resolve: (value) => resolve(value as T), reject });
+      const watchdog = setTimeout(() => {
+        if (!this.pending.has(id)) return;
+        this.removePending(id);
+        reject(new BackupWorkerTimeoutError(operation.type, timeoutMs));
+        // Its other requests fail with the exit; the next request starts a new process.
+        lifetime.child.kill("SIGKILL");
+      }, timeoutMs);
+      watchdog.unref();
+      this.addPending(id, {
+        lifetime,
+        resolve: (value) => {
+          clearTimeout(watchdog);
+          resolve(value as T);
+        },
+        reject: (error) => {
+          clearTimeout(watchdog);
+          reject(error);
+        },
+      });
       try {
         lifetime.child.send({ id, operation } satisfies BackupWorkerRequest);
       } catch (error) {
         this.removePending(id);
+        clearTimeout(watchdog);
         reject(error);
       }
     });

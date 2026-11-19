@@ -11,3 +11,13 @@ export class BackupWorkerOutOfMemoryError extends Error {
     this.name = "BackupWorkerOutOfMemoryError";
   }
 }
+
+/** An operation did not finish within the watchdog time and its process was stopped. */
+export class BackupWorkerTimeoutError extends Error {
+  public constructor(operation: string, timeoutMs: number) {
+    super(
+      `The background worker did not finish "${operation}" within ${Math.round(timeoutMs / 1000)} s and was stopped.`,
+    );
+    this.name = "BackupWorkerTimeoutError";
+  }
+}
