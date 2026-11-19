@@ -302,7 +302,7 @@ test("停用舊的登入服務 previews in plain words, warns about an import, d
     .slice(beforeConfirm.length);
   expect(recorded[0]).toMatchObject({ dialog: "legacy-disable", hardStop: process.platform === "win32" });
   const first = recorded[1]!;
-  if (process.platform === "darwin") expect(first.command).toBe("launchctl");
+  if (process.platform === "darwin") expect(first.command).toBe("/bin/launchctl");
   else if (process.platform === "linux") {
     expect(first).toMatchObject({
       command: "systemctl",
