@@ -106,7 +106,16 @@ export interface SetupMessages {
   readonly agentsCheckout: string;
   readonly agentsCheckoutMissing: string;
   readonly agentsAdoptHint: string;
+  /** Followed by the reason (zh-TW, from agent-setup): why the App cannot rewrite it and what the person can do. */
   readonly agentsNotAdoptable: string;
+  /** Shown with a refused preview when the Agent has a hand-written registration the App can take over. */
+  readonly agentsAdoptInstead: string;
+  /** An old checkout hook sits beside the App's hook, so the reminder fires twice. */
+  readonly agentsDuplicateOldHook: string;
+  /** A checkout's own project hooks file also runs the reminder; the App leaves it alone. */
+  readonly agentsProjectHooksNote: string;
+  /** The Agent's plugin brings its own finalize hooks, and the App's global hook runs the same reminder. */
+  readonly agentsPluginHooksDuplicate: string;
   /** `{path}`: the database the checkout's MCP entry uses. */
   readonly agentsOtherDatabase: string;
   /** `{path}`: the checkout default a hook uses when the Agent's environment does not name a database. */
@@ -317,7 +326,16 @@ const zhTW: SetupMessages = {
   agentsCheckout: "原始碼目錄",
   agentsCheckoutMissing: "這個原始碼目錄已經不在，目前的設定無法啟動。",
   agentsAdoptHint: "目前直接執行原始碼目錄。可以改由桌面 App 管理；使用的資料庫不變。",
-  agentsNotAdoptable: "這個設定不是 setup 寫入的格式，App 不會改動它：",
+  agentsNotAdoptable:
+    "App 不會改動這個設定，因為它不是 App 能安全改寫的形式，保留原樣仍可使用。要改由桌面 App 管理，請先在 Agent 自己的設定裡移除這個手寫的項目，再回來按「預覽變更」。原因：",
+  agentsAdoptInstead:
+    "這個 Agent 有手寫的 Work Intelligence 註冊，所以一般的「預覽變更」不會寫入。請改按「改由桌面 App 管理…」，App 會把它換成桌面 App 的啟動方式，其他自訂設定保留，並可以還原。",
+  agentsDuplicateOldHook:
+    "有一個指向原始碼目錄的舊 hook 和 App 的 hook 在同一個事件，所以會提醒兩次。按「改由桌面 App 管理…」會預覽並移除這個舊的，App 的 hook 與你其他的 hook 都保留，也可以還原。",
+  agentsProjectHooksNote:
+    "原始碼目錄自己的 .codex/hooks.json 也設定了收尾提醒，那是專案自己的開發設定，App 不會改動它；在該專案裡工作時，提醒可能出現兩次。",
+  agentsPluginHooksDuplicate:
+    "這個 Agent 的 Work Intelligence plugin 自己帶有收尾提醒 hook，和 App 安裝的 hook 可能各提醒一次。App 不會改動你的 plugin；要避免重複，可以在 Agent 裡停用 plugin 的 hook。",
   agentsOtherDatabase:
     "這個原始碼目錄使用另一份資料庫：{path}。App 只接管使用同一份資料庫的設定，否則這個 Agent 的工作記錄會分散在兩個地方。",
   agentsOtherDatabaseDefault:
@@ -564,7 +582,16 @@ const en: SetupMessages = {
   agentsCheckoutMissing: "This source checkout is gone; the current settings cannot start.",
   agentsAdoptHint:
     "It runs a source checkout directly. The desktop App can manage it instead; the database stays the same.",
-  agentsNotAdoptable: "These settings are not in the form setup writes, so the App leaves them alone:",
+  agentsNotAdoptable:
+    "The App leaves these settings alone because it cannot rewrite them safely; they keep working as they are. To let the desktop App manage them, first remove this hand-written entry in the Agent's own settings, then come back and choose “Preview changes”. Reason: ",
+  agentsAdoptInstead:
+    "This Agent has a hand-written Work Intelligence registration, so a plain “Preview changes” writes nothing. Choose “Let the desktop App manage it…” instead: the App switches it to the desktop App's launcher, keeps your other custom settings, and you can undo it.",
+  agentsDuplicateOldHook:
+    "An old hook that runs the source checkout sits beside the App's hook for the same event, so the reminder fires twice. “Let the desktop App manage it…” previews and removes the old one; the App's hook and your other hooks stay, and you can undo it.",
+  agentsProjectHooksNote:
+    "The source checkout's own .codex/hooks.json also sets up the finalize reminder. That is the project's own development setup and the App leaves it alone; while working in that project the reminder may appear twice.",
+  agentsPluginHooksDuplicate:
+    "This Agent's Work Intelligence plugin brings its own finalize-reminder hooks, so the reminder may fire once from the plugin and once from the App's hook. The App does not change your plugin; to avoid the duplicate, turn off the plugin's hooks in the Agent.",
   agentsOtherDatabase:
     "This source checkout uses another database: {path}. The App only takes over settings on the same database; otherwise this Agent's work would be recorded in two places.",
   agentsOtherDatabaseDefault:

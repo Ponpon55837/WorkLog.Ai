@@ -213,6 +213,32 @@ describe("runLauncher hands the App's database to Agent actions", () => {
     expect(serve.seen).toEqual([undefined]);
   });
 
+  it("an adopted entry carries no database variable, so MCP and the hooks both follow the App when it changes database", async () => {
+    const app = path.join(root, "app 資料", "work-intelligence.sqlite");
+    await writeDesktopSettingsPointer(root, settingsFile);
+    await writeDesktopSettingsAtomic(settingsFile, settings(app));
+    // Adopt removes WORK_INTELLIGENCE_DB (see tests/agent-setup/adopt-pnpm.test.ts): the entry's environment is empty.
+    const mcp = launchHost();
+    await launch("mcp", mcp);
+    const hooks = launchHost();
+    for (const action of ["claude-finalize-reminder", "codex-finalize-reminder"]) await launch(action, hooks);
+    expect([...mcp.seen, ...hooks.seen]).toEqual([app, app, app]);
+    expect(mcp.stderr).toEqual([]);
+
+    const moved = path.join(root, "moved", "work-intelligence.sqlite");
+    await writeDesktopSettingsAtomic(settingsFile, settings(moved));
+    const mcpAfter = launchHost();
+    await launch("mcp", mcpAfter);
+    const hooksAfter = launchHost();
+    await launch("codex-finalize-reminder", hooksAfter);
+    expect([...mcpAfter.seen, ...hooksAfter.seen]).toEqual([moved, moved]);
+
+    // The explicit variable an entry keeps (a registration that was not adopted) still wins over the App's database.
+    const pinned = launchHost({ WORK_INTELLIGENCE_DB: app });
+    await launch("mcp", pinned);
+    expect(pinned.seen).toEqual([app]);
+  });
+
   it("keeps the standalone rule without App settings", async () => {
     const none = launchHost();
     for (const action of ACTIONS) await launch(action, none);

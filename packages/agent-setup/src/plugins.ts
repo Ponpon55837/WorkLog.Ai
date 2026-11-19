@@ -29,6 +29,17 @@ export function codexPluginEnabled(config: Record<string, unknown> | undefined):
   );
 }
 
+/**
+ * Whether the Codex plugin's own hooks can run: the plugin is enabled, or Codex keeps trust state for a hook of
+ * `work-intelligence@<marketplace>` (`[hooks.state."work-intelligence@<marketplace>:…"]`). Either way the plugin's
+ * finalize reminder fires next to a global hook of the App, so the reminder would run twice.
+ */
+export function codexPluginHooksPresent(config: Record<string, unknown> | undefined): boolean {
+  if (codexPluginEnabled(config)) return true;
+  const state = record(record(config?.hooks)?.state);
+  return Object.keys(state ?? {}).some((key) => key.startsWith("work-intelligence@"));
+}
+
 /** Read-only: whether `<claudeConfigDirectory>/settings.json` enables the plugin; false when missing or unreadable. */
 export function readClaudePluginEnabled(claudeConfigDirectory: string): boolean {
   try {
@@ -43,6 +54,16 @@ export function readCodexPluginEnabled(codexHomeDirectory: string): boolean {
   try {
     const text = readFileSync(join(codexHomeDirectory, "config.toml"), "utf8");
     return codexPluginEnabled(parseToml(text, { maxDepth: 128, unsafeKeyBehaviour: "throw" }));
+  } catch {
+    return false;
+  }
+}
+
+/** Read-only: {@link codexPluginHooksPresent} for `<codexHomeDirectory>/config.toml`; false when missing or unreadable. */
+export function readCodexPluginHooksPresent(codexHomeDirectory: string): boolean {
+  try {
+    const text = readFileSync(join(codexHomeDirectory, "config.toml"), "utf8");
+    return codexPluginHooksPresent(parseToml(text, { maxDepth: 128, unsafeKeyBehaviour: "throw" }));
   } catch {
     return false;
   }

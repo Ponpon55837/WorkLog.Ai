@@ -80,6 +80,9 @@ function agentCard(
   if (card.adoptable && card.hookState === "installed" && card.hookSource === "checkout") {
     body.append(hint(text.agentsHookCheckoutNote));
   }
+  if (card.duplicateOldHook) body.append(hint(text.agentsDuplicateOldHook));
+  if (card.projectHooksNote) body.append(hint(text.agentsProjectHooksNote));
+  if (card.pluginHooksDuplicate) body.append(hint(text.agentsPluginHooksDuplicate));
   if (card.notAdoptableReason) body.append(hint(`${text.agentsNotAdoptable}${card.notAdoptableReason}`));
   if (card.otherDatabase) {
     const message = card.otherDatabase.fromCheckoutDefault ? text.agentsOtherDatabaseDefault : text.agentsOtherDatabase;
@@ -105,6 +108,8 @@ interface PreviewControls {
   /** Which files the user opened or closed, by path; a file not listed follows the default. */
   readonly chosen: Map<string, boolean>;
   readonly acknowledged: boolean;
+  /** An Agent has a hand-written registration the App can take over, so a refused plain preview can point at that. */
+  readonly adoptInstead: boolean;
   readonly acknowledge: (value: boolean) => void;
   readonly apply: () => void;
   readonly discard: () => void;
@@ -126,6 +131,7 @@ function previewBlock(
     content.push(hint(removing ? removal.agentsRemoveNothing : text.agentsNoChanges));
   }
   if (preview.conflicts.length > 0) {
+    if (controls.adoptInstead && !preview.adopt && !removing) content.push(hint(text.agentsAdoptInstead));
     content.push(
       element("div", { className: "error" }, [
         element("strong", { text: text.agentsConflicts }),
@@ -258,6 +264,7 @@ export function mountAgents(app: HTMLElement, say: (text: string) => void, api: 
           busy,
           chosen,
           acknowledged,
+          adoptInstead: state.cards.some((card) => card.adoptable),
           acknowledge: (value) => {
             acknowledged = value;
             render(state);

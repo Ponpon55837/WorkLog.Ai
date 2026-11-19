@@ -178,7 +178,18 @@ describe("findCheckoutRegistrations", () => {
   });
 
   it.each([
-    ["pnpm start", { command: "pnpm", args: ["--dir", "/x/repo", "start:mcp"] }, "node"],
+    [
+      "a command that is neither node nor pnpm",
+      { command: "yarn", args: ["--cwd", "/x/repo", "start:mcp"] },
+      "node 或 pnpm",
+    ],
+    [
+      "pnpm with another filter",
+      { command: "pnpm", args: ["--filter", "x", "--dir", "/x/repo", "start:mcp"] },
+      "start:mcp",
+    ],
+    ["pnpm with a relative directory and no cwd", { command: "pnpm", args: ["--dir", "repo", "start:mcp"] }, "絕對"],
+    ["pnpm without start:mcp", { command: "pnpm", args: ["--dir", "/x/repo", "build"] }, "start:mcp"],
     ["extra args", { command: "node", args: ["/x/repo/apps/mcp/dist/launcher.js", "--verbose"] }, "單一"],
     ["another script", { command: "node", args: ["/x/repo/apps/mcp/dist/other.js"] }, "apps/mcp/dist"],
     ["a relative script", { command: "node", args: ["apps/mcp/dist/launcher.js"] }, "絕對"],
@@ -537,7 +548,7 @@ describe("adopt option", () => {
     const fixture = hostFixture();
     const root = fixture.options.repositoryRoot;
     const other = join(fixture.temporaryRoot, "other checkout");
-    seedClaudeMcp(fixture, { type: "stdio", command: "pnpm", args: ["--dir", root, "start:mcp"] });
+    seedClaudeMcp(fixture, { type: "stdio", command: "yarn", args: ["--cwd", root, "start:mcp"] });
     seedHooks(fixture.paths.claudeSettings, {
       Stop: [
         { hooks: [{ type: "command", command: commandForAgentHook(script(other, "finalize-reminder.js"), PLATFORM) }] },

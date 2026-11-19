@@ -56,6 +56,7 @@ export {
 export {
   inspectAgentHooks,
   inspectAgentRegistrations,
+  projectCodexHooksRunFinalize,
   type AgentHookInspectOptions,
   type AgentId,
   type AgentInspectOptions,
@@ -73,7 +74,14 @@ export {
   type AgentSetupJournalRead,
 } from "./journal.js";
 export { createAgentSetupPlan, inspectAgentSkillCopies, inspectCodexHooksFeature } from "./plan.js";
-export { claudePluginEnabled, codexPluginEnabled, readClaudePluginEnabled, readCodexPluginEnabled } from "./plugins.js";
+export {
+  claudePluginEnabled,
+  codexPluginEnabled,
+  codexPluginHooksPresent,
+  readClaudePluginEnabled,
+  readCodexPluginEnabled,
+  readCodexPluginHooksPresent,
+} from "./plugins.js";
 export type {
   AgentSetupAdoptedRegistration,
   AgentSetupAdoptOptions,

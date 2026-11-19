@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { JSON_OBJECT, readRegularFile } from "./files.js";
@@ -251,4 +252,19 @@ export function inspectAgentHooks(options: AgentHookInspectOptions): Record<"cla
             hooksDisabled: codexHooksFeature === "disabled",
           }),
   };
+}
+
+/**
+ * Read-only: whether a checkout's own `<root>/.codex/hooks.json` (the repository's development setup, which the App
+ * never changes) runs the finalize reminder, so it would fire next to a global hook. A missing or unreadable file is
+ * "no".
+ */
+export function projectCodexHooksRunFinalize(repositoryRoots: readonly string[]): boolean {
+  return repositoryRoots.some((root) => {
+    try {
+      return readFileSync(join(root, ".codex", "hooks.json"), "utf8").includes(FINALIZE_REMINDER_MARKER);
+    } catch {
+      return false;
+    }
+  });
 }

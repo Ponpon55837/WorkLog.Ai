@@ -7,6 +7,7 @@ import {
   isNodeExecutable,
   isPnpmExecutable,
   normalizeConfigPath,
+  unwrapCmd,
 } from "./commands.js";
 import {
   CLAUDE_HOOK_ACTION,
@@ -427,16 +428,6 @@ function nodeScriptArgument(args: readonly string[]): string | undefined {
     if (NODE_FLAGS_WITH_VALUE.has(argument)) index += 1;
   }
   return undefined;
-}
-
-/** `cmd /c <command> <args>` is the Windows way to start a `.cmd` shim; it runs the command after `/c`. */
-function unwrapCmd(command: string, args: readonly string[]): { command: string; args: string[] } {
-  const executable = command.trim().replaceAll("\\", "/").split("/").at(-1)?.toLowerCase();
-  if (executable !== "cmd" && executable !== "cmd.exe") return { command, args: [...args] };
-  const switchIndex = args.findIndex((argument) => argument.toLowerCase() === "/c");
-  const wrapped = switchIndex >= 0 && args.slice(0, switchIndex).every((argument) => /^\/[a-z]$/i.test(argument));
-  const [inner, ...rest] = wrapped ? args.slice(switchIndex + 1) : [];
-  return inner === undefined ? { command, args: [...args] } : { command: inner, args: rest };
 }
 
 /** The `--dir`/`-C` value of a pnpm command line (`--dir <dir>`, `--dir=<dir>`, `-C <dir>`). */

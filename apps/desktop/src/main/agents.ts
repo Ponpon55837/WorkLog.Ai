@@ -11,6 +11,9 @@ import {
   findCheckoutRegistrations,
   inspectAgentHooks,
   inspectAgentRegistrations,
+  projectCodexHooksRunFinalize,
+  readClaudePluginEnabled,
+  readCodexPluginHooksPresent,
   readAgentSetupJournal,
   recoverAgentSetupJournal,
   undoAgentSetupOperation,
@@ -163,6 +166,15 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
     return existsSync(folder) || (id === "claude-code" && existsSync(join(home, ".claude.json")));
   }
 
+  /** Read-only: whether the Agent's own plugin brings finalize hooks (the plugin itself is never changed). */
+  function pluginBringsHooks(id: SetupAgentId): boolean {
+    const folder =
+      id === "codex"
+        ? process.env.CODEX_HOME?.trim() || join(home, ".codex")
+        : process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, ".claude");
+    return id === "codex" ? readCodexPluginHooksPresent(folder) : readClaudePluginEnabled(folder);
+  }
+
   function cards(): AgentCardView[] {
     const inspection = (() => {
       try {
@@ -209,7 +221,21 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
         nextStep: status.nextStep,
         mcp: ownerOf(mcp?.source),
         hooks: ownerOf(hook?.source),
+        ...(handWritten.some((entry) => entry.duplicateOfLauncher) ? { duplicateOldHook: true as const } : {}),
+        ...(id === "codex" &&
+        hookInstallation?.state === "installed" &&
+        projectCodexHooksRunFinalize([
+          ...new Set(handWritten.flatMap((entry) => (entry.repositoryRoot ? [entry.repositoryRoot] : []))),
+        ])
+          ? { projectHooksNote: true as const }
+          : {}),
         ...(hookInstallation ? { hookState: hookInstallation.state, hookSource: hookInstallation.source } : {}),
+        // A global hook (the App's or a checkout's) next to the plugin's own hooks: the reminder would run twice.
+        ...(hookInstallation?.state === "installed" &&
+        (hookInstallation.source === "app" || hookInstallation.source === "checkout") &&
+        pluginBringsHooks(id)
+          ? { pluginHooksDuplicate: true as const }
+          : {}),
         ...(firstRoot ? { checkoutDisplay: show(firstRoot) } : {}),
         detected: isDetected(id),
         checkoutMissing: handWritten.some((entry) => entry.repositoryRoot !== undefined && !entry.rootExists),
