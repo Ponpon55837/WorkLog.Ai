@@ -72,10 +72,9 @@ export interface AppTabBadge {
   readonly busy: boolean;
 }
 
-/** The tab list, the tab a blocking state wants and one badge per tab: what the page needs to draw the tab strip. */
+/** The tab list and one badge per tab (the blocking tab carries `attention`): what the page needs to draw the tab strip. */
 export interface AppShellState {
   readonly tabs: readonly AppTab[];
-  readonly blockingTab: AppTab | null;
   readonly badges: Readonly<Record<AppTab, AppTabBadge>>;
 }
 
@@ -108,7 +107,7 @@ export function buildAppShellState(inputs: AppShellInputs): AppShellState {
   const badges = Object.fromEntries(
     APP_TABS.map((tab) => [tab, { attention: tab === blocking, busy: tab === busyTab }]),
   ) as Record<AppTab, AppTabBadge>;
-  return { tabs: tabsFor(inputs.needsSetup), blockingTab: blocking, badges };
+  return { tabs: tabsFor(inputs.needsSetup), badges };
 }
 
 /**

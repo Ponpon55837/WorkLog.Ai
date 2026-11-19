@@ -1,5 +1,6 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { MCP_LEASE_SCOPE_ENVIRONMENT } from "@work-intelligence/shared/mcp-runtime";
 import { errorCode } from "../internal/error-code.js";
 import { RuntimeError, runtimeErrorCode } from "./errors.js";
 import { DATABASE_ENVIRONMENT_VARIABLE, type DesktopDatabaseResolution } from "./desktop-database.js";
@@ -257,6 +258,8 @@ export async function runLauncher(input: LauncherInput, host: LauncherHost): Pro
     if (verified.manifest.runtimeKind === "node") {
       for (const name of Object.keys(ELECTRON_AS_NODE_ENV)) host.unsetEnv(name);
     }
+    // The backend and every Agent's MCP of this App count their leases in one place, whichever runtime each runs from.
+    if (LONG_LIVED_ACTIONS.has(action)) host.setEnv(MCP_LEASE_SCOPE_ENVIRONMENT, launcherRoot);
     if (action !== SERVE_ACTION && !useDesktopDatabase(launcherRoot, host, failOpen)) {
       return { kind: "exit", code: failOpen ? 0 : LAUNCHER_EXIT_INVALID_RUNTIME };
     }

@@ -1,3 +1,4 @@
+import { classifyHostObservation } from "@work-intelligence/shared/agent-observations";
 /** Who put the MCP registration in the Agent's configuration. */
 export type AgentRegistrationSource = "desktop-managed" | "manual" | "plugin" | "mcpb" | "unknown";
 
@@ -82,12 +83,7 @@ export interface AgentStatus {
 const EXTERNAL_SOURCES: ReadonlySet<AgentRegistrationSource> = new Set(["plugin", "mcpb", "manual"]);
 
 function hostObservation(facts: AgentStatusFacts): AgentResultLevels["hostObservation"] {
-  if (!facts.observation) return "none";
-  // Without a current fingerprint nothing can be proven equal, so an observation is never "current" then.
-  return facts.currentContractFingerprint !== undefined &&
-    facts.observation.contractFingerprint === facts.currentContractFingerprint
-    ? "current"
-    : "stale";
+  return classifyHostObservation(facts.observation, facts.currentContractFingerprint);
 }
 
 function unobservedNextStep(facts: AgentStatusFacts): AgentNextStep {

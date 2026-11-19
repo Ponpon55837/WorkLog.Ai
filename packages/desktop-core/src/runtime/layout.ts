@@ -1,3 +1,4 @@
+import { RUNTIME_CURRENT_FILE_NAME, RUNTIME_DIRECTORIES_NAME } from "@work-intelligence/shared/agent-observations";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { isMissingError } from "../internal/error-code.js";
@@ -5,11 +6,11 @@ import { RuntimeError } from "./errors.js";
 import { isRuntimeId } from "./manifest.js";
 
 /** Name of the single-line file that holds the current runtime id; the one atomic switch point. */
-export const CURRENT_FILE_NAME = "current";
+export const CURRENT_FILE_NAME = RUNTIME_CURRENT_FILE_NAME;
 /** Folder of the fixed shims an Agent's `command` points at. */
 export const BIN_DIRECTORY_NAME = "bin";
 /** Folder holding one immutable directory per installed runtime. */
-export const RUNTIMES_DIRECTORY_NAME = "runtimes";
+export const RUNTIMES_DIRECTORY_NAME = RUNTIME_DIRECTORIES_NAME;
 /** Folder holding one directory of lease files per runtime id: the proof that a launcher process uses that runtime (DT-24). */
 export const LEASES_DIRECTORY_NAME = "leases";
 /**

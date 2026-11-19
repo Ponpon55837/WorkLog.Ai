@@ -12,7 +12,6 @@ import type { SystemSettingsTarget } from "../legacy-service/system-settings.js"
  * tray and repair strings stay as they are; both languages must define all of it. zh-TW copy is short and plain.
  */
 export interface SetupMessages {
-  readonly setupWindowTitle: string;
   readonly setupHeading: string;
   readonly setupDetecting: string;
   readonly setupNewIntro: string;
@@ -24,9 +23,7 @@ export interface SetupMessages {
   readonly setupChooseConflict: string;
   readonly setupChooseBlocked: string;
   /** A found database is on storage that is never taken on one click (DT-08). */
-  readonly setupChooseRisky: string;
   readonly setupUseThis: string;
-  readonly setupBrowse: string;
   readonly setupLater: string;
   readonly setupStarting: string;
   readonly setupDatabase: string;
@@ -94,8 +91,6 @@ export interface SetupMessages {
   readonly setupDone: string;
   readonly setupOpenAgents: string;
   readonly setupClose: string;
-  readonly agentsWindowTitle: string;
-  readonly agentsHeading: string;
   readonly agentsIntro: string;
   readonly agentNames: Readonly<Record<SetupAgentId, string>>;
   readonly agentStates: Readonly<Record<AgentDisplayState, string>>;
@@ -172,7 +167,6 @@ export interface StorageRiskText {
 }
 
 const zhTW: SetupMessages = {
-  setupWindowTitle: "Work Intelligence 設定",
   setupHeading: "開始使用 Work Intelligence",
   setupDetecting: "正在尋找既有資料…",
   setupNewIntro: "沒有找到既有資料。使用預設設定即可開始，之後都可以再改。",
@@ -183,9 +177,7 @@ const zhTW: SetupMessages = {
   setupChooseIntro: "找到多份資料，請選擇要使用哪一份。不會合併，也不會刪除其他份。",
   setupChooseConflict: "這些資料庫來自同一份資料，但內容已經分開。請選擇一份。",
   setupChooseBlocked: "原本設定的資料庫目前無法讀取。請確認磁碟已連接，或選擇其他資料庫。",
-  setupChooseRisky: "找到的資料庫放在需要小心的位置。請先看下面的說明，再決定是否使用。",
   setupUseThis: "使用這份",
-  setupBrowse: "瀏覽其他位置…",
   setupLater: "稍後再說",
   setupStarting: "正在啟動…",
   setupDatabase: "資料庫",
@@ -291,8 +283,6 @@ const zhTW: SetupMessages = {
   setupDone: "已可以開始使用。Dashboard 已開啟。",
   setupOpenAgents: "設定 Agent…",
   setupClose: "關閉",
-  agentsWindowTitle: "Work Intelligence Agent 設定",
-  agentsHeading: "設定 Agent",
   agentsIntro:
     "讓 Codex 與 Claude Code 透過桌面 App 使用 Work Intelligence。寫入前會先顯示每個檔案的變更，也可以復原。",
   agentNames: { codex: "Codex", "claude-code": "Claude Code" },
@@ -410,7 +400,6 @@ const zhTW: SetupMessages = {
 };
 
 const en: SetupMessages = {
-  setupWindowTitle: "Work Intelligence Setup",
   setupHeading: "Get started with Work Intelligence",
   setupDetecting: "Looking for existing data…",
   setupNewIntro: "No existing data was found. Start with the defaults; you can change them later.",
@@ -421,10 +410,7 @@ const en: SetupMessages = {
   setupChooseIntro: "Several databases were found. Choose the one to use; nothing is merged or deleted.",
   setupChooseConflict: "These databases come from the same data but have diverged. Choose one.",
   setupChooseBlocked: "The database that was set up cannot be read right now. Connect its disk, or choose another one.",
-  setupChooseRisky:
-    "The database that was found is in a place that needs care. Read the notes below before you decide to use it.",
   setupUseThis: "Use this one",
-  setupBrowse: "Browse…",
   setupLater: "Not now",
   setupStarting: "Starting…",
   setupDatabase: "Database",
@@ -538,8 +524,6 @@ const en: SetupMessages = {
   setupDone: "You are ready to go. The Dashboard is open.",
   setupOpenAgents: "Set up Agents…",
   setupClose: "Close",
-  agentsWindowTitle: "Work Intelligence Agents",
-  agentsHeading: "Set up Agents",
   agentsIntro:
     "Let Codex and Claude Code use Work Intelligence through the desktop App. Every file change is shown before it is written, and can be undone.",
   agentNames: { codex: "Codex", "claude-code": "Claude Code" },

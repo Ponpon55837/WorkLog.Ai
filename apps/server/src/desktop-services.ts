@@ -27,7 +27,10 @@ export const OPEN_AGENT_SETUP_MIN_INTERVAL_MS = 1000;
 /** The same limit for the port settings request. */
 export const OPEN_PORT_SETTINGS_MIN_INTERVAL_MS = 1000;
 
-export function createDesktopRouteServices(options: DesktopHandlerOptions): DesktopRouteServices {
+export function createDesktopRouteServices(
+  options: DesktopHandlerOptions,
+  backupDirectory?: string,
+): DesktopRouteServices {
   const now = options.now ?? Date.now;
   let lastSentAt: number | undefined;
   let lastPortSettingsSentAt: number | undefined;
@@ -37,6 +40,8 @@ export function createDesktopRouteServices(options: DesktopHandlerOptions): Desk
       managed: true,
       ...(facts?.legacyService ? { legacyService: facts.legacyService } : {}),
       ...(facts?.activePort === undefined ? {} : { activePort: facts.activePort }),
+      ...(facts?.loginItem ? { loginItem: facts.loginItem } : {}),
+      ...(backupDirectory ? { backupDirectory } : {}),
       ...(facts?.storageRisk ? { storageRisk: facts.storageRisk } : {}),
     };
   };

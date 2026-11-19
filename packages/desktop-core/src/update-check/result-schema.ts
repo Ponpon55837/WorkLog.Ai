@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { NOTES_MAX_CHARACTERS } from "./sanitize.js";
-import { UPDATE_ERROR_REASONS, UPDATE_PLATFORMS, type UpdateCheckResult, type UpdateOpenLinkResult } from "./result.js";
+import { UPDATE_ERROR_REASONS, UPDATE_PLATFORMS, type UpdateCheckResult } from "./result.js";
 
 /** The shape main checks an answer against before the page sees it (the types are in `result.ts`, which has no zod). */
 export const updateCheckResultSchema: z.ZodType<UpdateCheckResult> = z.discriminatedUnion("kind", [
@@ -18,5 +18,3 @@ export const updateCheckResultSchema: z.ZodType<UpdateCheckResult> = z.discrimin
   z.strictObject({ kind: z.literal("rate-limited"), resetAt: z.string().max(40).nullable() }),
   z.strictObject({ kind: z.literal("error"), reason: z.enum(UPDATE_ERROR_REASONS) }),
 ]);
-
-export const updateOpenLinkResultSchema: z.ZodType<UpdateOpenLinkResult> = z.strictObject({ ok: z.boolean() });

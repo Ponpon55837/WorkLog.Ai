@@ -102,6 +102,19 @@ export const desktopFactsSchema = z.strictObject({
    * runs another shim is stale.
    */
   launcherShimPath: pathSchema.optional(),
+  /** The App's runtime root, where the installed MCP contract is read from to judge what an Agent host last saw. */
+  runtimeRoot: pathSchema.optional(),
+  /**
+   * The App's login item as the system reports it (read in the shell, never from the settings file), so the Web status
+   * shows the App's own state instead of the old login service's.
+   */
+  loginItem: z
+    .strictObject({
+      supported: z.boolean(),
+      desired: z.boolean(),
+      system: z.enum(["enabled", "disabled", "needs-approval", "unknown"]),
+    })
+    .optional(),
   /**
    * Positively detected risky storage for the database (DT-08). `unknown` means detection failed or timed out and is a
    * soft note only; it never blocks anything.

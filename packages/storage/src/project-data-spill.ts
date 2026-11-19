@@ -119,11 +119,6 @@ export class ProjectDataSpill {
   }
 }
 
-/** Whether some of the row's values are in a spill file. */
-export function isSpilledRow(row: ProjectDataRow): boolean {
-  return (row as SpillableRow)[SPILLED_COLUMNS] !== undefined;
-}
-
 /**
  * The complete row, in its original column order: the light row's values (which the planner may have changed) over
  * the spilled ones. A row that was never split is returned as it is.

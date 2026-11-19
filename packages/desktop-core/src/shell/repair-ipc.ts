@@ -7,7 +7,7 @@
  *   (`app:remember-tab`, `{ tab }`) tells main which tab the user chose (memory only, validated against `APP_TABS`).
  * - main tells the page: `onSelectTab(cb)` (`app:select-tab`, payload an `AppTab`) whenever an open window is asked to
  *   show another tab. The page switches in place.
- * - `getState()` (`RepairState`) carries `shell: AppShellState` (`tabs`, `blockingTab`, `badges[tab] = { attention,
+ * - `getState()` (`RepairState`) carries `shell: AppShellState` (`tabs`, `badges[tab] = { attention,
  *   busy }`) beside every field the earlier single-page view used. `attention` marks the blocking tab (Status while the
  *   service needs repair or the old login service holds the database); `busy` marks the tab whose coordinator operation
  *   is running.
@@ -24,6 +24,7 @@ import { SETUP_AGENT_IDS, type AgentsState, type SetupAgentId } from "./agents-s
 import { SYSTEM_SETTINGS_TARGETS, type SystemSettingsTarget } from "../legacy-service/system-settings.js";
 import { isRepairPageUrl } from "./navigation-policy.js";
 import type { PortProblem } from "./port-policy.js";
+import type { RepairLoginItemSection } from "./login-item-status.js";
 import {
   UPDATE_LINK_TARGETS,
   type UpdateCheckResult,
@@ -68,6 +69,7 @@ export const REPAIR_CHANNELS = {
   legacyDisableConfirm: "legacy:disable-confirm",
   legacyStartNow: "legacy:start-now",
   portChange: "port:change",
+  loginItemSet: "login-item:set",
   copyToLocal: "repair:copy-to-local",
   updateCheck: "update:check",
   updateOpenLink: "update:open-link",
@@ -146,6 +148,8 @@ export const repairInputSchemas = {
   legacyStartNow: z.strictObject({}),
   /** The port the user typed, as text or a number; main validates it (range, restricted ports) and runs the change. */
   portChange: z.strictObject({ port: z.union([z.string().max(16), z.number()]) }),
+  /** The 「登入時自動啟動」 switch: only the new state. Main treats the user's own click as the consent and reads every path itself. */
+  loginItemSet: z.strictObject({ enable: z.boolean() }),
   /** 「複製到本機磁碟並改用」: for a browsed candidate, or (no id) the App's own database. Main reads every path itself. */
   copyToLocal: z.strictObject({ candidateId: z.string().min(1).max(64).optional() }),
   /** 「檢查更新」: no input; the one request goes to the fixed GitHub endpoint. */
@@ -206,6 +210,16 @@ export type LegacyDisableStartResult =
       readonly errorCode?: string;
       /** `busy`: what holds the App, so the page can say it. */
       readonly busyReason?: RepairBusyReason;
+    };
+
+/** The answer to the login-item switch: the section as it is now, or why nothing changed. */
+export type LoginItemSetResult =
+  | { readonly ok: true; readonly section: RepairLoginItemSection }
+  | {
+      readonly ok: false;
+      readonly reason: "busy" | "unsupported" | "failed";
+      /** `failed` after the system refused the change: what the system really says now. */
+      readonly section?: RepairLoginItemSection;
     };
 
 /** Why a port change was refused because something is running. */
@@ -340,6 +354,7 @@ export interface RepairApi {
   agentsSelfTest(): Promise<AgentsActionResult>;
   agentsUseCheckoutDatabase(agent: SetupAgentId): Promise<AgentsActionResult>;
   portChange(port: string | number): Promise<PortChangeResult>;
+  setLaunchAtLogin(enable: boolean): Promise<LoginItemSetResult>;
   checkForUpdates(): Promise<UpdateCheckResult>;
   openUpdateLink(target: UpdateLinkTarget): Promise<UpdateOpenLinkResult>;
   restoreList(): Promise<RestoreListResult>;

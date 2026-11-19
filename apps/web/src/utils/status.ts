@@ -19,6 +19,7 @@ import {
   TriangleAlert,
 } from "lucide-vue-next";
 import type {
+  AgentObservationState,
   DatabaseInspectionState,
   DatabaseMaintenanceStatus,
   AgentHookInstallState,
@@ -91,6 +92,25 @@ export function userServiceStatusVisual(status: SystemStatus["userService"]): St
     return visual("neutral", CircleMinus, "status.disabled");
   }
   return visual("attention", CircleAlert, "status.needsChecking");
+}
+
+type DesktopLoginItem = NonNullable<NonNullable<SystemStatus["desktop"]>["loginItem"]>;
+
+/** Whether the App's own login item agrees with what the user chose; an old App that reports nothing needs checking. */
+export function desktopLoginItemMismatch(item: DesktopLoginItem): boolean {
+  if (!item.supported || item.system === "unknown") return false;
+  return item.desired !== (item.system === "enabled");
+}
+
+/** The status label of the App's login item card. */
+export function desktopLoginItemStatusVisual(item: DesktopLoginItem | undefined): StatusVisual {
+  if (!item) return visual("attention", CircleAlert, "status.cannotConfirm");
+  if (!item.supported) return visual("neutral", CircleMinus, "status.notSupported");
+  if (item.system === "unknown") return visual("attention", CircleAlert, "status.cannotConfirm");
+  if (desktopLoginItemMismatch(item)) return visual("attention", CircleAlert, "status.needsChecking");
+  return item.system === "enabled"
+    ? visual("success", CircleCheck, "systemStatus.appLoginItemOn")
+    : visual("neutral", CircleMinus, "systemStatus.appLoginItemOff");
 }
 
 export function agentMcpRegistrationVisual(state: AgentMcpRegistrationState): StatusVisual {
@@ -167,6 +187,24 @@ function hookRow(
   };
 }
 
+function observationRow(state: AgentObservationState | undefined): AgentConnectionRow[] {
+  if (state === undefined) return [];
+  const status =
+    state === "current"
+      ? visual("success", CircleCheck, "status.agentObservedCurrent")
+      : state === "stale"
+        ? visual("attention", Clock3, "status.agentObservedStale")
+        : visual("neutral", CircleDashed, "status.agentObservedNone");
+  return [
+    {
+      title: t("status.agentObservation"),
+      location: t("status.agentObservationLocation"),
+      status,
+      ok: state !== "stale",
+    },
+  ];
+}
+
 /** Groups the per-Agent setup components in the order a user fixes them: MCP, then skill, then hook. */
 export function agentConnectionGroups(agents: SystemAgentConnections): AgentConnectionGroup[] {
   return [
@@ -177,6 +215,7 @@ export function agentConnectionGroups(agents: SystemAgentConnections): AgentConn
         skillRow("Skill", "~/.agents/skills/work-intelligence", agents.codex.canonicalSkill),
         skillRow(t("status.compatibilitySkill"), t("status.codexHomeSkillsWorkIntelligence"), agents.codex.legacySkill),
         hookRow(t("status.codexHomeHooksJsonSave"), agents.codex.hook, agents.codex.hookSource),
+        ...observationRow(agents.codex.observation),
       ],
     },
     {
@@ -185,6 +224,7 @@ export function agentConnectionGroups(agents: SystemAgentConnections): AgentConn
         mcpRow("~/.claude.json", agents.claudeCode.mcpRegistered),
         skillRow("Skill", "~/.claude/skills/work-intelligence", agents.claudeCode.skill),
         hookRow(t("status.claudeSettingsJsonSaveReminder"), agents.claudeCode.hook, agents.claudeCode.hookSource),
+        ...observationRow(agents.claudeCode.observation),
       ],
     },
   ];

@@ -45,7 +45,15 @@ export function isBlockingDatabase(state: Pick<RepairState, "owner" | "database"
  * own tab (port, update, shell) are left out of the tabs that do not show them.
  */
 export function panelInputs(tab: AppTab, state: RepairState): unknown {
-  if (tab === "settings") return { locale: state.locale, port: state.port, update: state.update };
-  const { retryOperationId: _retry, port: _port, update: _update, shell: _shell, ...rest } = state;
+  if (tab === "settings")
+    return { locale: state.locale, port: state.port, update: state.update, loginItem: state.loginItem };
+  const {
+    retryOperationId: _retry,
+    port: _port,
+    update: _update,
+    loginItem: _loginItem,
+    shell: _shell,
+    ...rest
+  } = state;
   return rest;
 }

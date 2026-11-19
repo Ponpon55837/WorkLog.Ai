@@ -746,6 +746,12 @@ export class WorkIntelligenceStore {
     return this.backupUnavailable() ?? backupDatabase(this.db, this.databasePath, this.backupOptions);
   }
 
+  /** The folder this store writes its backups to: the configured one, or `backups/` next to the database. */
+  public get backupDirectory(): string | undefined {
+    if (this.databasePath === ":memory:") return undefined;
+    return this.backupOptions.directory ?? defaultBackupDirectory(this.databasePath);
+  }
+
   public listBackups(): DatabaseBackupList | DatabaseBackupUnavailable {
     const unavailable = this.backupUnavailable();
     if (unavailable) {

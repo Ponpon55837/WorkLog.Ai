@@ -85,14 +85,10 @@ export interface ShellMessages {
   readonly journalNewerVersion: string;
   /** `{title}` is the error title. */
   readonly notifyBody: string;
-  readonly repairWindowTitle: string;
-  readonly repairHeading: string;
   readonly repairIntro: string;
   readonly repairServiceHeading: string;
   readonly repairDatabaseHeading: string;
   readonly repairErrorsHeading: string;
-  readonly repairBackupHeading: string;
-  readonly repairActionsHeading: string;
   readonly repairNoErrors: string;
   readonly repairNoDatabase: string;
   readonly repairCandidates: string;
@@ -229,14 +225,10 @@ const zhTW: ShellMessages = {
   journalNewerVersion:
     "這個資料夾的操作紀錄是由較新版本的 Work Intelligence 寫入的，這個版本無法讀取。為了不影響資料，App 沒有自動啟動服務，也沒有改動任何資料。請先更新 App，再開啟一次。",
   notifyBody: "{title}。請開啟 App 的「狀態」分頁。",
-  repairWindowTitle: "Work Intelligence 修復",
-  repairHeading: "修復 Work Intelligence",
   repairIntro: "服務沒有正常執行。你的資料沒有被改動；下面列出目前的狀況和可以做的事。",
   repairServiceHeading: "服務",
   repairDatabaseHeading: "資料庫",
   repairErrorsHeading: "最近的錯誤",
-  repairBackupHeading: "備份",
-  repairActionsHeading: "可以做的事",
   repairNoErrors: "沒有紀錄到錯誤。",
   repairNoDatabase: "尚未設定資料庫。",
   repairCandidates: "你選擇的資料庫",
@@ -252,6 +244,7 @@ const zhTW: ShellMessages = {
     restore: "還原備份",
     "legacy-disable": "停用舊的登入服務",
     "copy-to-local": "複製資料庫到本機磁碟",
+    "login-item": "變更登入時自動啟動",
   },
   repairBusyNamed: "App 正在{what}，請等它完成後再試。沒有變更任何資料。",
   repairBusyActivity: "Dashboard 正在匯入、備份或匯出資料，請等它完成後再試。沒有變更任何資料。",
@@ -502,15 +495,11 @@ const en: ShellMessages = {
   journalNewerVersion:
     "The App's record of operations was written by a newer version of Work Intelligence, which this version cannot read. To protect your data, the App did not start the service by itself and did not change any data. Update the App, then open it again.",
   notifyBody: "{title}. Open the Status tab in the App.",
-  repairWindowTitle: "Work Intelligence Repair",
-  repairHeading: "Repair Work Intelligence",
   repairIntro:
     "The service is not running normally. Your data was not changed; below is what is going on and what you can do.",
   repairServiceHeading: "Service",
   repairDatabaseHeading: "Database",
   repairErrorsHeading: "Recent errors",
-  repairBackupHeading: "Backups",
-  repairActionsHeading: "What you can do",
   repairNoErrors: "No errors recorded.",
   repairNoDatabase: "No database is set up yet.",
   repairCandidates: "The database you chose",
@@ -526,6 +515,7 @@ const en: ShellMessages = {
     restore: "restoring a backup",
     "legacy-disable": "disabling the old login service",
     "copy-to-local": "copying the database to the local disk",
+    "login-item": "changing the start-at-login setting",
   },
   repairBusyNamed: "The App is busy: {what}. Wait for it to finish, then try again. Nothing was changed.",
   repairBusyActivity:

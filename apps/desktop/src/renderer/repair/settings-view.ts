@@ -1,10 +1,12 @@
 import { portMessages } from "@work-intelligence/desktop-core/shell/port-i18n";
 import { updateMessages } from "@work-intelligence/desktop-core/shell/update-i18n";
 import type { ViewContext } from "./context.js";
+import { loginItemMessages } from "@work-intelligence/desktop-core/shell/login-item-i18n";
+import { loginItemSection } from "./login-item-view.js";
 import { portSection } from "./port-view.js";
 import { updateSection } from "./update-view.js";
 
-/** The Settings tab: the port the service uses and the update check. */
+/** The Settings tab: the port the service uses, start at login and the update check. */
 export function settingsPanel(ctx: ViewContext): Node[] {
   const { state, act } = ctx;
   const blocks: Node[] = [];
@@ -20,6 +22,20 @@ export function settingsPanel(ctx: ViewContext): Node[] {
           refresh: act.refresh,
         },
         state.port,
+      ),
+    );
+  }
+  if (state.loginItem) {
+    blocks.push(
+      loginItemSection(
+        {
+          api: act.api,
+          text: loginItemMessages(state.locale),
+          working: ctx.busy,
+          rerender: act.rerender,
+          refresh: act.refresh,
+        },
+        state.loginItem,
       ),
     );
   }

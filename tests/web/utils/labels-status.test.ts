@@ -46,6 +46,8 @@ import {
   trackingStatus,
   verificationOf,
   verificationStatus,
+  desktopLoginItemMismatch,
+  desktopLoginItemStatusVisual,
   userServiceStatusVisual,
 } from "../../../apps/web/src/utils/status.js";
 import { t } from "../../../apps/web/src/i18n/index.js";
@@ -367,5 +369,32 @@ describe("agentConnectionStepState", () => {
     expect(agentConnectionStepState(null, false, "")).toBe("unknown");
     expect(agentConnectionStepState(null, false, "boom")).toBe("unknown");
     expect(agentConnectionStepState(connections("unknown", "missing"), false, "")).toBe("unknown");
+  });
+});
+
+describe("the desktop App's login item status", () => {
+  const item = (
+    supported: boolean,
+    desired: boolean,
+    system: "enabled" | "disabled" | "needs-approval" | "unknown",
+  ) => ({ supported, desired, system });
+
+  it("is success or neutral when the choice and the system agree", () => {
+    expect(desktopLoginItemStatusVisual(item(true, true, "enabled"))).toMatchObject({ tone: "success" });
+    expect(desktopLoginItemStatusVisual(item(true, false, "disabled"))).toMatchObject({ tone: "neutral" });
+  });
+
+  it("asks for a look when they differ, for example the entry was turned off in the system", () => {
+    expect(desktopLoginItemMismatch(item(true, true, "disabled"))).toBe(true);
+    expect(desktopLoginItemMismatch(item(true, true, "needs-approval"))).toBe(true);
+    expect(desktopLoginItemMismatch(item(true, false, "enabled"))).toBe(true);
+    expect(desktopLoginItemStatusVisual(item(true, true, "disabled"))).toMatchObject({ tone: "attention" });
+  });
+
+  it("never claims a state it cannot read", () => {
+    expect(desktopLoginItemMismatch(item(true, true, "unknown"))).toBe(false);
+    expect(desktopLoginItemStatusVisual(item(true, true, "unknown"))).toMatchObject({ tone: "attention" });
+    expect(desktopLoginItemStatusVisual(undefined)).toMatchObject({ tone: "attention" });
+    expect(desktopLoginItemStatusVisual(item(false, false, "unknown"))).toMatchObject({ tone: "neutral" });
   });
 });

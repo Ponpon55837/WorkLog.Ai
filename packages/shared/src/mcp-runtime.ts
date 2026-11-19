@@ -53,6 +53,8 @@ interface McpRuntimeStatusOptions {
   now?: Date;
   heartbeatTtlMs?: number;
   probeRegistryWritable?: (directory: string) => boolean;
+  /** The environment that names the App's lease scope; defaults to this process's. */
+  environment?: Readonly<Record<string, string | undefined>>;
 }
 
 const MCP_RUNTIME_DIST_DIRECTORIES = [
@@ -326,15 +328,42 @@ export function getMcpRestartStatus(
   return { restartRequired: true, updateAvailable: false, monitoringAvailable: true, message: MCP_RECONNECT_MESSAGE };
 }
 
-/** Returns the process-lease directory shared by the MCP, local API server, and doctor for one install. */
-export function getMcpRuntimeDirectory(repositoryRoot: string): string {
-  let canonicalRoot = resolve(repositoryRoot);
+/**
+ * Names the one stable place an installation of the desktop App keeps behind every runtime it ships. The App's launcher
+ * sets it (to the App's runtime root) before it hands over to the backend or to an Agent's MCP, so both agree on the
+ * lease directory even though each runs from a different `runtimes/<id>` checkout. A runtime that predates the variable
+ * ignores it and keeps the older, root-based scope; a launcher that predates it never sets it, so the root decides.
+ */
+export const MCP_LEASE_SCOPE_ENVIRONMENT = "WORK_INTELLIGENCE_APP_LEASE_SCOPE";
+
+/** Windows paths are case-insensitive and accept both separators: one install must hash to one scope however it is spelled. */
+export function normalizeScopePath(path: string, platform: NodeJS.Platform = process.platform): string {
+  return platform === "win32" ? path.replace(/\\/g, "/").toLowerCase() : path;
+}
+
+function canonicalPath(path: string, platform: NodeJS.Platform): string {
+  const resolved = resolve(path);
   try {
-    canonicalRoot = realpathSync(canonicalRoot);
+    return normalizeScopePath(realpathSync(resolved), platform);
   } catch {
     // Keep the resolved path for a not-yet-created synthetic installation in tests.
+    return normalizeScopePath(resolved, platform);
   }
-  const scopeId = createHash("sha256").update(canonicalRoot).digest("hex").slice(0, 24);
+}
+
+/**
+ * Returns the process-lease directory shared by the MCP, local API server, and doctor for one install. Under the
+ * desktop App the scope is the App's stable runtime root (see {@link MCP_LEASE_SCOPE_ENVIRONMENT}); otherwise it is the
+ * installation root, as before.
+ */
+export function getMcpRuntimeDirectory(
+  repositoryRoot: string,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const appScope = environment[MCP_LEASE_SCOPE_ENVIRONMENT]?.trim();
+  const scopeKey = appScope ? `app:${canonicalPath(appScope, platform)}` : canonicalPath(repositoryRoot, platform);
+  const scopeId = createHash("sha256").update(scopeKey).digest("hex").slice(0, 24);
   return join(tmpdir(), "work-intelligence", "mcp-runtime", scopeId);
 }
 
@@ -342,9 +371,13 @@ export function getMcpRuntimeDirectory(repositoryRoot: string): string {
 export function registerMcpProcess(
   repositoryRoot: string,
   build: McpBuildIdentity | undefined,
-  options: { heartbeatIntervalMs?: number; now?: () => Date } = {},
+  options: {
+    heartbeatIntervalMs?: number;
+    now?: () => Date;
+    environment?: Readonly<Record<string, string | undefined>>;
+  } = {},
 ): () => void {
-  const directory = getMcpRuntimeDirectory(repositoryRoot);
+  const directory = getMcpRuntimeDirectory(repositoryRoot, options.environment);
   try {
     mkdirSync(directory, { recursive: true, mode: 0o700 });
   } catch {
@@ -424,7 +457,7 @@ export function getMcpRuntimeStatus(
   currentBuild: McpBuildIdentity | undefined = readMcpBuildIdentity(repositoryRoot),
   options: McpRuntimeStatusOptions = {},
 ): McpRuntimeStatus {
-  const directory = getMcpRuntimeDirectory(repositoryRoot);
+  const directory = getMcpRuntimeDirectory(repositoryRoot, options.environment);
   const requestedNow = options.now?.getTime();
   const now = requestedNow !== undefined && Number.isFinite(requestedNow) ? requestedNow : Date.now();
   const requestedTtl = options.heartbeatTtlMs;

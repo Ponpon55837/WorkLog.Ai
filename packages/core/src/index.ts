@@ -3566,8 +3566,13 @@ export interface AgentHookEventStatus {
   reason?: AgentHookStaleReason;
 }
 
+/** What an Agent host last saw of the MCP tool contract: today's (`current`), an older one (`stale`), or never (`none`). */
+export type AgentObservationState = "current" | "stale" | "none";
+
 export interface SystemAgentConnections {
   codex: {
+    /** Present only under the desktop App, which knows the installed contract; judged by the same code as its Agent tab. */
+    observation?: AgentObservationState;
     mcpRegistered: AgentMcpRegistrationState;
     /** Who manages the MCP registration when it is `registered`. */
     mcpSource?: AgentRegistrationSource | null;
@@ -3579,6 +3584,7 @@ export interface SystemAgentConnections {
     hookEvents?: AgentHookEventStatus[];
   };
   claudeCode: {
+    observation?: AgentObservationState;
     mcpRegistered: AgentMcpRegistrationState;
     mcpSource?: AgentRegistrationSource | null;
     skill: AgentSkillCopyState;
@@ -3623,6 +3629,14 @@ export interface SystemDesktopStatus {
   };
   /** The port the App committed for this backend; the page shows it as the effective address. */
   activePort?: number;
+  /** The App's own login item: the user's choice and what the system reports. Absent from an older App. */
+  loginItem?: {
+    supported: boolean;
+    desired: boolean;
+    system: "enabled" | "disabled" | "needs-approval" | "unknown";
+  };
+  /** The folder the App's backend really writes backups to (the same database the page shows under `database.path`). */
+  backupDirectory?: string;
   /** Positively detected risky database storage (DT-08); `unknown` is a soft note only. */
   storageRisk?: {
     risk: "network" | "removable" | "cloud-sync" | "hard-link" | "unknown";

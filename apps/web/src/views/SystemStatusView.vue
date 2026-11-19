@@ -44,6 +44,8 @@ import {
   databaseMaintenanceStatus,
   mcpReconnectStatusVisual,
   mcpRuntimeStatusVisual,
+  desktopLoginItemMismatch,
+  desktopLoginItemStatusVisual,
   userServiceStatusVisual,
   type StatusVisual,
 } from "../utils/status";
@@ -91,6 +93,11 @@ const agentSummary = computed<StatusVisual>(() =>
 );
 const userServiceStatus = computed(() =>
   status.value ? userServiceStatusVisual(status.value.userService) : undefined,
+);
+const desktopLoginItem = computed(() => status.value?.desktop?.loginItem);
+const desktopLoginItemStatus = computed(() => desktopLoginItemStatusVisual(desktopLoginItem.value));
+const desktopLoginItemMismatched = computed(() =>
+  desktopLoginItem.value ? desktopLoginItemMismatch(desktopLoginItem.value) : false,
 );
 
 /** The address the App serves; the committed port, or the one this page was opened on when the App did not report it. */
@@ -228,15 +235,6 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
               }}</UiButton>
             </div>
           </div>
-          <div v-if="status.desktop?.legacyService" class="system-status__setup" data-testid="legacy-service-warning">
-            <UiFlash tone="attention">
-              {{ t("systemStatus.legacyServiceWarning") }}
-            </UiFlash>
-            <p v-if="status.desktop.legacyService.running === 'stopped'" data-testid="legacy-service-starts-at-login">
-              {{ t("systemStatus.legacyServiceStartsAtLogin") }}
-            </p>
-            <p data-testid="legacy-service-turn-off">{{ t("systemStatus.legacyServiceTurnOffInApp") }}</p>
-          </div>
           <!-- The desktop App never shows a command: its own Agent setup (the button above) does the same work. -->
           <div
             v-if="agentIssueCount > 0 && status.desktop?.managed"
@@ -285,7 +283,59 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
       </template>
 
       <template #aside>
-        <UiBox data-testid="user-service">
+        <UiBox v-if="status.desktop?.managed" data-testid="user-service">
+          <template #header>
+            <UiBoxTitle :icon="Power" :title="t('systemStatus.startAutomaticallyAtLogin')" />
+            <StatusLabel :status="desktopLoginItemStatus" />
+          </template>
+          <template v-if="desktopLoginItem?.supported">
+            <UiBoxRow :title="t('systemStatus.appLoginItemChoice')" data-testid="app-login-item-choice">
+              <template #meta>{{
+                desktopLoginItem.desired ? t("systemStatus.appLoginItemOn") : t("systemStatus.appLoginItemOff")
+              }}</template>
+            </UiBoxRow>
+            <UiBoxRow :title="t('systemStatus.appLoginItemSystem')" data-testid="app-login-item-system">
+              <template #meta>{{
+                desktopLoginItem.system === "unknown"
+                  ? t("systemStatus.appLoginItemUnknown")
+                  : desktopLoginItem.system === "enabled"
+                    ? t("systemStatus.appLoginItemOn")
+                    : t("systemStatus.appLoginItemOff")
+              }}</template>
+            </UiBoxRow>
+          </template>
+          <p v-if="desktopLoginItemMismatched" class="system-status__row-note" data-testid="app-login-item-mismatch">
+            {{ t("systemStatus.appLoginItemMismatch") }}
+          </p>
+          <p v-if="desktopLoginItem?.supported" class="system-status__row-note">
+            {{ t("systemStatus.appLoginItemChangeInApp") }}
+          </p>
+          <UiBoxRow :title="t('systemStatus.appDatabase')">
+            <template #meta
+              ><code class="system-status__location" data-testid="app-database-path">{{
+                status.database.path
+              }}</code></template
+            >
+          </UiBoxRow>
+          <UiBoxRow v-if="status.desktop.backupDirectory" :title="t('systemStatus.appBackupFolder')">
+            <template #meta
+              ><code class="system-status__location" data-testid="app-backup-directory">{{
+                status.desktop.backupDirectory
+              }}</code></template
+            >
+          </UiBoxRow>
+          <!-- The old Task Scheduler / LaunchAgent / systemd service is shown only when it is still there. -->
+          <div v-if="status.desktop?.legacyService" class="system-status__setup" data-testid="legacy-service-warning">
+            <UiFlash tone="attention">
+              {{ t("systemStatus.legacyServiceWarning") }}
+            </UiFlash>
+            <p v-if="status.desktop.legacyService.running === 'stopped'" data-testid="legacy-service-starts-at-login">
+              {{ t("systemStatus.legacyServiceStartsAtLogin") }}
+            </p>
+            <p data-testid="legacy-service-turn-off">{{ t("systemStatus.legacyServiceTurnOffInApp") }}</p>
+          </div>
+        </UiBox>
+        <UiBox v-else data-testid="user-service">
           <template #header>
             <UiBoxTitle :icon="Power" :title="t('systemStatus.startAutomaticallyAtLogin')" />
             <StatusLabel v-if="userServiceStatus" :status="userServiceStatus" />

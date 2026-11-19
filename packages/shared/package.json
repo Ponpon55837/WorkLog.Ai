@@ -55,6 +55,10 @@
       "types": "./dist/port-failure.d.ts",
       "import": "./dist/port-failure.js"
     },
+    "./agent-observations": {
+      "types": "./dist/agent-observations.d.ts",
+      "import": "./dist/agent-observations.js"
+    },
     "./mcp-contract-fingerprint": {
       "types": "./dist/mcp-contract-fingerprint.d.ts",
       "import": "./dist/mcp-contract-fingerprint.js"

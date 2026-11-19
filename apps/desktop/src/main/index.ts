@@ -88,6 +88,7 @@ import { createRepairWindow } from "./repair-window.js";
 import { createRuntimeProvisioner } from "./runtime-provision.js";
 import { createSecondInstance } from "./second-instance.js";
 import { applySecurityPolicy, createSessionPolicy, registerRepairScheme } from "./security.js";
+import { createLoginItemController } from "./login-item.js";
 import { applyLoginItem, loadSettings, type SettingsLoad } from "./settings.js";
 import { ShellState } from "./state.js";
 import { installTestHook } from "./test-hook.js";
@@ -98,6 +99,8 @@ import { createUpdateSessionFetch } from "./update-session.js";
 /** How long the storage verdict waits for a restarting backend or a running operation (M-04). */
 const SETTLE_ATTEMPTS = 5;
 const SETTLE_RETRY_MS = 2000;
+/** How often main checks that the system still agrees with what the Web status was last told about login start. */
+const LOGIN_ITEM_WATCH_MS = 15_000;
 
 /** The coordinator was held when the verdict wanted to stop the backend. */
 class OperationBusyError extends Error {}
@@ -281,6 +284,21 @@ function runShell(configInputs: DesktopConfigInputs): void {
     if (status !== undefined) await integration.publish();
     return status;
   };
+  // The Settings tab's start-at-login switch; a change reaches the running backend so the Web status follows.
+  let pushLoginItemFacts: () => void = () => undefined;
+  const loginItem = createLoginItemController({
+    state,
+    paths,
+    log,
+    changed: () => pushLoginItemFacts(),
+  });
+  // What the Web status was last told; the system can change it behind the App's back (Task Manager, System Settings).
+  let lastLoginItemKey = "";
+  const sentLoginItem = () => {
+    const section = loginItem.section();
+    lastLoginItemKey = JSON.stringify(section);
+    return section;
+  };
   // The facts a backend carries: the old-service warning and the storage verdict this run already reached.
   const currentFacts = (databasePath: string): DesktopFacts | undefined => {
     const storageRisk = storage.fact(databasePath);
@@ -288,9 +306,24 @@ function runShell(configInputs: DesktopConfigInputs): void {
     const facts: DesktopFacts = {
       ...legacy.facts(databasePath),
       launcherShimPath: launcherShimPath(paths.runtimeRoot, process.platform),
+      runtimeRoot: paths.runtimeRoot,
+      loginItem: sentLoginItem(),
     };
     return storageRisk ? { ...facts, storageRisk } : facts;
   };
+  pushLoginItemFacts = () => {
+    const databasePath = state.databasePath();
+    if (databasePath === null) return;
+    const port = state.settings?.active?.port ?? state.settings?.desired.port;
+    void supervisor.updateFacts({
+      ...currentFacts(databasePath),
+      ...(port === undefined ? {} : { activePort: port }),
+    });
+  };
+  const loginItemWatch = setInterval(() => {
+    if (JSON.stringify(loginItem.section()) !== lastLoginItemKey) pushLoginItemFacts();
+  }, LOGIN_ITEM_WATCH_MS);
+  loginItemWatch.unref();
   const backend = createBackendController({
     state,
     paths,
@@ -388,6 +421,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     storage,
     port: changePort.section,
     update: updates.section,
+    loginItem: loginItem.section,
     journal,
   });
   const copyRunner = createCopyRunner({
@@ -669,6 +703,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
       legacy,
       legacyDisable,
       changePort,
+      loginItem,
       storage,
       updates,
       restore,
