@@ -242,6 +242,23 @@ describe("sweepTransferDirectories", () => {
     expect(existsSync(join(root, "notes.txt"))).toBe(true);
   });
 
+  it("never sweeps a transfer that is still running in this process (L-25)", () => {
+    const root = createRoot();
+    const running = createTransferDirectory(root, "import");
+    const idle = createTransferDirectory(root, "export");
+    const longAgo = new Date(Date.now() - 5 * HOUR_MS);
+    utimesSync(running, longAgo, longAgo);
+    utimesSync(idle, longAgo, longAgo);
+    removeTransferDirectory(idle);
+    expect(existsSync(idle)).toBe(false);
+
+    expect(sweepTransferDirectories(root)).toBe(0);
+    expect(existsSync(running)).toBe(true);
+
+    removeTransferDirectory(running);
+    expect(existsSync(running)).toBe(false);
+  });
+
   it("keeps a user's folder that only looks like a transfer directory", () => {
     const root = createRoot();
     const ours = makeDirectory(root, "export-OldAA1", 5 * HOUR_MS);

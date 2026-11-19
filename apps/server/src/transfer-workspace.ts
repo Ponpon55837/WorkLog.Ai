@@ -8,7 +8,8 @@ import { dirname, join, resolve } from "node:path";
  * It lives beside the database (`<data>/.work-intelligence-transfer/import-*` and `export-*`), on the disk the data is
  * on, instead of the system temporary directory, which on Windows is often a small system drive and is cleaned by
  * other software. Each operation removes its directory; a crash leaves one behind, which the next backend start
- * removes once it is older than {@link ORPHAN_TRANSFER_AGE_MS}.
+ * and then an hourly sweep ({@link TRANSFER_SWEEP_INTERVAL_MS}) remove once it is older than
+ * {@link ORPHAN_TRANSFER_AGE_MS}; a transfer still running in this process is never swept.
  *
  * The database may sit in any folder of the user's (for example their Documents), so the sweep removes only what this
  * module made: a directory under the dedicated root, named exactly as `mkdtemp` names it, that holds the marker file
@@ -32,6 +33,12 @@ export const TRANSFER_ROOT_NAME = ".work-intelligence-transfer";
 export const TRANSFER_MARKER_FILE = ".wi-transfer";
 export const TRANSFER_MARKER_CONTENT = "work-intelligence transfer directory v1\n";
 
+/** How often a running server sweeps what a crashed operation left (the App can stay open for weeks). */
+export const TRANSFER_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+
+/** Directories of the transfers running in this process; the sweep never removes one, however old it looks. */
+const activeDirectories = new Set<string>();
+
 /** `mkdtemp` appends exactly six characters from this set. */
 const TRANSFER_DIRECTORY = /^(import|export)-[A-Za-z0-9]{6}$/;
 
@@ -52,10 +59,12 @@ export function createTransferDirectory(root: string, kind: TransferKind): strin
     rmSync(directory, { recursive: true, force: true });
     throw error;
   }
+  activeDirectories.add(directory);
   return directory;
 }
 
 export function removeTransferDirectory(directory: string): void {
+  activeDirectories.delete(directory);
   rmSync(directory, { recursive: true, force: true });
 }
 
@@ -76,6 +85,7 @@ export function sweepTransferDirectories(root: string, now = Date.now(), maxAgeM
   for (const name of entries) {
     if (!TRANSFER_DIRECTORY.test(name)) continue;
     const path = join(root, name);
+    if (activeDirectories.has(path)) continue;
     try {
       const stats = lstatSync(path);
       if (!stats.isDirectory() || now - stats.mtimeMs < maxAgeMs || !hasTransferMarker(path)) continue;

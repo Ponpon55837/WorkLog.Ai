@@ -11,7 +11,7 @@ import { readFileIdentity, sameFileIdentity } from "@work-intelligence/shared/fi
 import { STANDALONE } from "@work-intelligence/shared/database-location";
 import { databasePath as configuredDatabasePath, storeOptions as configuredStoreOptions } from "./config.js";
 import { BackupWorkerClient } from "./backup-worker-client.js";
-import { sweepTransferDirectories, transferRoot } from "./transfer-workspace.js";
+import { sweepTransferDirectories, TRANSFER_SWEEP_INTERVAL_MS, transferRoot } from "./transfer-workspace.js";
 import {
   readOpenedIdentity,
   revalidateBeforeCommit,
@@ -246,6 +246,7 @@ export function startApi(options: StartApiOptions = {}): StartedApi {
   const backupCheckMs = 60 * 60 * 1000;
   const initialBackupDelayMs = 60 * 1000;
   let backupTimer: NodeJS.Timeout | undefined;
+  let transferSweepTimer: NodeJS.Timeout | undefined;
   let initialBackupTimer: NodeJS.Timeout | undefined;
   function backupIfDue(): void {
     const backup = backupWorker ? backupWorker.backupIfDue() : Promise.resolve(store.backupIfDue());
@@ -302,6 +303,11 @@ export function startApi(options: StartApiOptions = {}): StartedApi {
       console.error(`SQLite database: ${databasePath}`);
       backupTimer = setInterval(runMaintenance, backupCheckMs);
       backupTimer.unref();
+      transferSweepTimer = setInterval(
+        () => sweepTransferDirectories(transferRoot(databasePath)),
+        TRANSFER_SWEEP_INTERVAL_MS,
+      );
+      transferSweepTimer.unref();
       pruneHistory();
       if (process.env.WORK_INTELLIGENCE_BACKUP !== "off") {
         initialBackupTimer = setTimeout(() => {
@@ -324,6 +330,7 @@ export function startApi(options: StartApiOptions = {}): StartedApi {
       server,
       stopBackgroundWork: () => {
         clearInterval(backupTimer);
+        clearInterval(transferSweepTimer);
         clearTimeout(initialBackupTimer);
       },
       closeEventStreams: () => apiHandler.closeEventStreams(),
