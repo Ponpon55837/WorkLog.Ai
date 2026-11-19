@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { LegacyServiceDetection } from "@work-intelligence/desktop-core";
+import type { LegacyServiceDetection } from "../../packages/desktop-core/src/index.js";
 
 vi.mock("electron", () => ({ app: { getLoginItemSettings: () => ({ wasOpenedAtLogin: false }) } }));
 
