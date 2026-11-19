@@ -19,9 +19,9 @@
 - **測試連線**：「測試連線」經由 App 的固定 launcher 完成 MCP `initialize` 與 `tools/list`。
 - **使用的資料庫**：App 寫入的設定指向固定 launcher。沒有設定 `WORK_INTELLIGENCE_DB` 時，launcher 讓 MCP 與兩個 hook 使用 App 正在使用的資料庫，App 換資料庫後也一樣。
 - **接管手動設定**：Agent 設定裡已有手動加入、指向 checkout 的 Work Intelligence 項目時，頁面會出現「改由桌面 App 管理…」。一樣先預覽差異，確認後才改寫為指向 launcher，也可以復原；辨識不出的項目不會被接管。
-- **只接管同一份資料庫**：接管後 hook 會改用 App 的資料庫，所以只有 checkout 項目使用的資料庫就是 App 目前的資料庫時才會接管。使用其他資料庫時（明確設定的 `WORK_INTELLIGENCE_DB`，或 checkout 預設的 `data/work-intelligence.sqlite`），不接管也不改寫，卡片會列出那份資料庫，並提供「改用這份資料庫」：在修復視窗預覽後，由你確認是否讓 App 改用它。
+- **只接管同一份資料庫**：接管後 hook 會改用 App 的資料庫，所以只有 checkout 項目使用的資料庫就是 App 目前的資料庫時才會接管。使用其他資料庫時（明確設定的 `WORK_INTELLIGENCE_DB`，或 checkout 預設的 `data/work-intelligence.sqlite`），不接管也不改寫，卡片會列出那份資料庫，並提供「改用這份資料庫」：在 App 視窗預覽後，由你確認是否讓 App 改用它。
 
-如果曾用 `pnpm bootstrap` 或 `pnpm service:install` 安裝舊的登入服務，App 會在首次執行頁、修復視窗與 Web 狀態頁提醒，並附上移除指令；說明見[登入自動啟動服務](service.md)。
+如果曾用 `pnpm bootstrap` 或 `pnpm service:install` 安裝舊的登入服務，App 會在首次執行頁、App 視窗的「狀態」分頁與 Web 狀態頁提醒，並附上移除指令；說明見[登入自動啟動服務](service.md)。
 
 ## 以 setup 命令安裝
 
