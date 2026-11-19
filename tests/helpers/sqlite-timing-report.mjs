@@ -1,6 +1,6 @@
 /**
  * Prints the SQLite timing evidence of one CI job to stdout, so it can be read from the job log without downloading the
- * artifact: the ten slowest calls, and every BEGIN IMMEDIATE wait of 1 s or more with what overlapped it on the same
+ * artifact: the ten slowest calls, and every BEGIN IMMEDIATE wait of 1 s or more with what overlapped it in another process on the same
  * database file and held the write lock (the likely holders): a transaction that took the write lock, or a FULL, RESTART
  * or TRUNCATE checkpoint, which blocks writers while it runs. A read transaction is never named: in WAL mode it cannot
  * block BEGIN IMMEDIATE. A holder shorter than 100 ms, or in a process without the hook, is not recorded, so such a
@@ -92,7 +92,7 @@ export function sqliteTimingReport(records) {
     const holders =
       typeof wait.at === "number" && wait.db
         ? writeHolders
-            .filter((record) => record.db === wait.db && overlap(record, wait) > 0)
+            .filter((record) => record.pid !== wait.pid && record.db === wait.db && overlap(record, wait) > 0)
             .sort((left, right) => overlap(right, wait) - overlap(left, wait))
             .slice(0, MAX_HOLDERS)
         : [];

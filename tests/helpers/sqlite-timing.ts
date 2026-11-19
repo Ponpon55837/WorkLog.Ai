@@ -161,9 +161,12 @@ function stackOfCaller(): string {
   return (new Error().stack ?? "").split("\n").slice(4, 12).join("\n");
 }
 
-/** Wall-clock milliseconds of a moment `agoMs` before now: lines records up across processes. */
+/**
+ * Wall-clock milliseconds of a moment `agoMs` before now, to the microsecond: lines records up across processes. A
+ * whole-millisecond `at` made two moments 0.2 ms apart look like they overlapped, so no precision is thrown away.
+ */
 function wallClockAgo(agoMs: number): number {
-  return Math.round(Date.now() - agoMs);
+  return Math.round((performance.timeOrigin + performance.now() - agoMs) * 1000) / 1000;
 }
 
 function baseRecord(state: TimingState, kind: SqliteTimingRecord["kind"], fields: Record<string, unknown>) {

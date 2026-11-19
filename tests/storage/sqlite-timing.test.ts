@@ -195,6 +195,24 @@ describe("sqlite timing hook", () => {
     expect(lines.at(-1)).toBe("[sqlite timing report] waits with an inferred holder: 1; not inferred: 0");
   });
 
+  it("never names the waiting process's own transaction as the holder, only another process's overlapping one", () => {
+    const at = 5_000_000;
+    const wait = { kind: "begin-immediate", ms: 1200, at, db: "a/db.sqlite", failed: false, pid: 2, role: "test" };
+    // Starts 0.2 ms before the wait ends: the waiter's own next transaction, which cannot have held the lock it waited for.
+    const own = { kind: "transaction", ms: 150, at: at + 1199.8, db: "a/db.sqlite", pid: 2, role: "test", write: true };
+    const other = { ...own, at: at - 300, ms: 1500, pid: 3, role: "writer" };
+
+    const ownOnly = sqliteTimingReport([wait, own]);
+    expect(ownOnly).toContain("    holder: not inferred (below threshold)");
+    expect(ownOnly.some((line) => line.includes("holder?"))).toBe(false);
+
+    const withOther = sqliteTimingReport([wait, own, other]);
+    const holderLines = withOther.filter((line) => line.includes("holder?"));
+    expect(holderLines).toHaveLength(1);
+    expect(holderLines[0]).toContain("pid=3");
+    expect(holderLines[0]).toContain("overlapping 1200 ms");
+  });
+
   it("recognizes write SQL in a deferred transaction without reading a write into a read", () => {
     for (const sql of [
       "INSERT INTO t (a) VALUES (1)",
