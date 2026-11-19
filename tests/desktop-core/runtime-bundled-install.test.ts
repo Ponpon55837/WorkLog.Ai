@@ -91,6 +91,33 @@ describe("ensureBundledRuntime: install", () => {
     expect(await fs.readdir(path.join(root, "runtimes"))).toEqual(["bundle-1"]);
   });
 
+  it("flushes every copied file to the disk before it commits (L-15)", async () => {
+    const open = vi.spyOn(fs, "open");
+    try {
+      await ensureBundledRuntime(root, bundleRoot, options());
+      const flushed = open.mock.calls.filter(([, flags]) => flags === "r+");
+      expect(flushed.length).toBeGreaterThanOrEqual(FILE_COUNT);
+    } finally {
+      open.mockRestore();
+    }
+  });
+
+  it("does not fail an install whose files cannot be reopened for the flush", async () => {
+    const real = fs.open.bind(fs);
+    // Only the reopen for the flush is refused; every other open (the atomic writes of the shims) is the real one.
+    const open = vi
+      .spyOn(fs, "open")
+      .mockImplementation(((file: string, flags?: string, mode?: number) =>
+        flags === "r+"
+          ? Promise.reject(Object.assign(new Error("denied"), { code: "EPERM" }))
+          : real(file, flags, mode)) as typeof fs.open);
+    try {
+      expect(await ensureBundledRuntime(root, bundleRoot, options())).toMatchObject({ status: "installed" });
+    } finally {
+      open.mockRestore();
+    }
+  });
+
   it("installs the bundle's manifest bytes unchanged", async () => {
     await ensureBundledRuntime(root, bundleRoot, options());
     expect(await sha256Of(path.join(installedDirectory(), "runtime-manifest.json"))).toBe(bundleSha);
