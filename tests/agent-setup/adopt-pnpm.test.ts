@@ -21,6 +21,7 @@ const packageRequire = createRequire(
 const parseToml = (packageRequire("smol-toml") as { parse: (text: string) => unknown }).parse;
 
 const SHIM = "/opt/Work Intelligence/bin/work-intelligence-launcher";
+const PLATFORM: NodeJS.Platform = process.platform === "win32" ? "win32" : "linux";
 const WINDOWS_SHIM = "C:\\Users\\someone\\AppData\\Local\\Work Intelligence\\bin\\work-intelligence-launcher.cmd";
 
 afterEach(removeFixtures);
@@ -319,7 +320,22 @@ describe("adopting a hand-written pnpm start:mcp registration", () => {
 });
 
 function posixQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
+  return PLATFORM === "win32" ? `"${value}"` : `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+/** A fixture whose platform matches the host, because its checkout and home are real host paths. */
+function hostFixture(): SetupFixture {
+  const fixture = createFixture();
+  fixture.options = { ...fixture.options, platform: PLATFORM };
+  return fixture;
+}
+
+function hostShim(): string {
+  return PLATFORM === "win32" ? WINDOWS_SHIM : SHIM;
+}
+
+function hostTarget(fixture: SetupFixture): AgentSetupPlanOptions["target"] {
+  return { kind: "launcher", shimPath: hostShim(), skillSourcePath: fixture.paths.skillSource };
 }
 
 describe("an old checkout hook beside the App's own hook", () => {
@@ -333,7 +349,7 @@ describe("an old checkout hook beside the App's own hook", () => {
   /** The reported shape: both hooks in three events, groups with timeout/statusMessage/matcher, and a third-party hook. */
   function seedHooks(fixture: SetupFixture, oldHook: string): string {
     const root = fixture.options.repositoryRoot;
-    const launcherHook = { type: "command", command: commandForLauncherHook(SHIM, ACTION, "linux") };
+    const launcherHook = { type: "command", command: commandForLauncherHook(hostShim(), ACTION, PLATFORM) };
     const old = { type: "command", command: oldHook };
     writeJson(fixture.paths.codexHooks, {
       hooks: {
@@ -354,14 +370,17 @@ describe("an old checkout hook beside the App's own hook", () => {
   }
 
   function adoptOptions(fixture: SetupFixture): AgentSetupPlanOptions {
-    return launcher(fixture, { adopt: { repositoryRoots: [fixture.options.repositoryRoot] } });
+    return launcher(fixture, {
+      target: hostTarget(fixture),
+      adopt: { repositoryRoots: [fixture.options.repositoryRoot] },
+    });
   }
 
   it("is a conflict today and is removed on adopt, leaving the third-party hook and the App's hooks alone, undoable", () => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     const root = fixture.options.repositoryRoot;
     const before = seedHooks(fixture, oldCommand(root));
-    expect(inspectAgentRegistrations(launcher(fixture)).duplicates).toMatchObject([
+    expect(inspectAgentRegistrations(launcher(fixture, { target: hostTarget(fixture) })).duplicates).toMatchObject([
       { agent: "codex", kind: "hook", sources: ["desktop-managed", "manual"] },
     ]);
 
@@ -385,7 +404,7 @@ describe("an old checkout hook beside the App's own hook", () => {
     // The group that held only the old hook is gone; the one that also held the third-party hook keeps it.
     expect(hooks.Stop).toHaveLength(2);
     expect(hooks.Stop?.[1]).toMatchObject({ timeout: 3, hooks: [{ command: THIRD_PARTY }] });
-    expect(inspectAgentRegistrations(launcher(fixture)).duplicates).toEqual([]);
+    expect(inspectAgentRegistrations(launcher(fixture, { target: hostTarget(fixture) })).duplicates).toEqual([]);
 
     const undone = undoAgentSetupOperation(fixture.paths.journal, { homeDirectory: fixture.options.homeDirectory });
     expect(undone.status).toBe("undone");
@@ -400,7 +419,9 @@ describe("an old checkout hook beside the App's own hook", () => {
     [
       "node on PATH, unquoted",
       (root: string) =>
-        `node ${root.replaceAll(" ", "\\ ").replaceAll("'", "\\'")}/apps/mcp/dist/codex-finalize-reminder.js`,
+        PLATFORM === "win32"
+          ? `node "${root}\\apps\\mcp\\dist\\codex-finalize-reminder.js"`
+          : `node ${root.replaceAll(" ", "\\ ").replaceAll("'", "\\'")}/apps/mcp/dist/codex-finalize-reminder.js`,
     ],
     [
       "pnpm exec node with --dir",
@@ -411,7 +432,7 @@ describe("an old checkout hook beside the App's own hook", () => {
       (root: string) => `/usr/local/bin/pnpm -C ${posixQuote(root)} node apps/mcp/dist/codex-finalize-reminder.js`,
     ],
   ])("recognises %s", (_name, build) => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     seedHooks(fixture, build(fixture.options.repositoryRoot));
     const plan = createAgentSetupPlan(adoptOptions(fixture));
     expect(plan.conflicts).toEqual([]);
@@ -420,7 +441,7 @@ describe("an old checkout hook beside the App's own hook", () => {
   });
 
   it("never treats the third-party hook, a node that loads code, or a different script as ours", () => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     const root = fixture.options.repositoryRoot;
     seedHooks(fixture, `node --require ./evil.js "${root}/apps/mcp/dist/codex-finalize-reminder.js"`);
     const found = findCheckoutRegistrations(fixture.options).filter((item) => item.kind === "hook");
@@ -431,7 +452,7 @@ describe("an old checkout hook beside the App's own hook", () => {
   });
 
   it("rewrites (instead of removing) an old hook when the App has none for that event", () => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     const root = fixture.options.repositoryRoot;
     writeJson(fixture.paths.codexHooks, {
       hooks: { Stop: [{ hooks: [{ type: "command", command: oldCommand(root) }], timeout: 3 }] },
@@ -442,7 +463,7 @@ describe("an old checkout hook beside the App's own hook", () => {
   });
 
   it("reads Windows hooks with a node.exe path and backslashes", () => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     const windowsRoot = "C:\\Users\\someone\\src\\WorkLog.Ai";
     const launcherHook = { type: "command", command: commandForLauncherHook(WINDOWS_SHIM, ACTION, "win32") };
     writeJson(fixture.paths.codexHooks, {
