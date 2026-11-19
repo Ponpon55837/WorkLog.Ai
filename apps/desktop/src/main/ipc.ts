@@ -39,6 +39,7 @@ import type { RepairWindow } from "./repair-window.js";
 import type { RestoreController } from "./restore.js";
 import type { ShellState } from "./state.js";
 import type { LoginItemController } from "./login-item.js";
+import type { BackupDirectoryController } from "./backup-directory.js";
 import type { MaintenanceController } from "./maintenance.js";
 import type { UpdateController } from "./update-check.js";
 
@@ -63,6 +64,8 @@ export interface IpcOptions {
   readonly loginItem: LoginItemController;
   /** 「整理資料庫」: takes the page-action lock itself, after its checks and the native confirmation. */
   readonly maintenance: MaintenanceController;
+  /** 「更換備份位置」: the page sends nothing; main opens the folder dialog. Runs under the page-action lock. */
+  readonly backupDirectory: BackupDirectoryController;
   readonly updates: UpdateController;
   /** 「從備份還原」: the page holds only one-time ids; main keeps every path. */
   readonly restore: RestoreController;
@@ -96,6 +99,7 @@ export function registerRepairIpc(options: IpcOptions): void {
     changePort,
     loginItem,
     maintenance,
+    backupDirectory,
     storage,
     updates,
     restore,
@@ -485,6 +489,14 @@ export function registerRepairIpc(options: IpcOptions): void {
       "login-item",
       () => ({ ok: false, reason: "busy" }) as const,
       () => loginItem.set(enable),
+    ),
+  );
+  // The change restarts the service, so it shares the page-action lock with every other change of the settings.
+  handle(REPAIR_CHANNELS.backupDirectoryChoose, parser(repairInputSchemas.backupDirectoryChoose), () =>
+    exclusive(
+      "backup-directory",
+      () => ({ ok: false, reason: "busy" }) as const,
+      () => backupDirectory.choose(),
     ),
   );
   // Not behind `exclusive`: the controller refuses while anything runs, asks first, then takes the lock itself.

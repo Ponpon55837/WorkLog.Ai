@@ -51,6 +51,10 @@
       "types": "./dist/shell/diagnostics-i18n.d.ts",
       "import": "./dist/shell/diagnostics-i18n.js"
     },
+    "./shell/backup-directory-i18n": {
+      "types": "./dist/shell/backup-directory-i18n.d.ts",
+      "import": "./dist/shell/backup-directory-i18n.js"
+    },
     "./shell/maintenance-i18n": {
       "types": "./dist/shell/maintenance-i18n.d.ts",
       "import": "./dist/shell/maintenance-i18n.js"

@@ -46,12 +46,19 @@ export function isBlockingDatabase(state: Pick<RepairState, "owner" | "database"
  */
 export function panelInputs(tab: AppTab, state: RepairState): unknown {
   if (tab === "settings")
-    return { locale: state.locale, port: state.port, update: state.update, loginItem: state.loginItem };
+    return {
+      locale: state.locale,
+      port: state.port,
+      update: state.update,
+      loginItem: state.loginItem,
+      backupDirectory: state.backupDirectory,
+    };
   const {
     retryOperationId: _retry,
     port: _port,
     update: _update,
     loginItem: _loginItem,
+    backupDirectory: _backupDirectory,
     shell: _shell,
     ...rest
   } = state;

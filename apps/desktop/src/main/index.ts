@@ -78,6 +78,8 @@ import { createLogger } from "./log.js";
 import { createErrorNotifier, createRecoveredNotifier } from "./notify.js";
 import { createQuit } from "./quit.js";
 import { createRepairInfo } from "./repair-info.js";
+import { createBackupDirectory } from "./backup-directory.js";
+import { createBackupDirectoryDialogs } from "./backup-directory-dialogs.js";
 import { createMaintenance } from "./maintenance.js";
 import { createMaintenanceDialogs } from "./maintenance-dialogs.js";
 import { createRestore } from "./restore.js";
@@ -408,6 +410,22 @@ function runShell(configInputs: DesktopConfigInputs): void {
     changed: () => state.touch(),
     log,
   });
+  const backupDirectory = createBackupDirectory({
+    state,
+    paths,
+    coordinator,
+    supervisor,
+    backend,
+    classify: (folder) => storage.classify(folder),
+    ...createBackupDirectoryDialogs({
+      state,
+      window,
+      autoConfirm: testSwitch(configInputs, "autoConfirmRestore"),
+    }),
+    homeDirectory: homedir(),
+    backupsChanged: () => lastBackup.invalidate(),
+    log,
+  });
   const apiOrigin = updateApiOriginOverride(configInputs);
   const updates = createUpdateController({
     currentVersion: app.getVersion(),
@@ -438,6 +456,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     update: updates.section,
     loginItem: loginItem.section,
     maintenance: maintenance.section,
+    backupDirectory: backupDirectory.section,
     journal,
   });
   const copyRunner = createCopyRunner({
@@ -721,6 +740,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
       changePort,
       loginItem,
       maintenance,
+      backupDirectory,
       storage,
       updates,
       restore,

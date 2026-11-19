@@ -183,6 +183,7 @@ test("a missing database opens the repair window and creates nothing", async () 
     "agentsUndo",
     "agentsUseCheckoutDatabase",
     "checkForUpdates",
+    "chooseBackupDirectory",
     "chooseDatabase",
     "confirmDatabase",
     "copyToLocal",

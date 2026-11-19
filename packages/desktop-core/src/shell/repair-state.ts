@@ -8,6 +8,7 @@ import type { RecordedError } from "./recent-errors.js";
 import type { StorageRiskView } from "./storage-risk-view.js";
 import type { RepairUpdateSection } from "../update-check/result.js";
 import type { RepairLoginItemSection } from "./login-item-status.js";
+import type { RepairBackupDirectorySection } from "./backup-directory.js";
 import type { RepairMaintenanceSection } from "./maintenance-types.js";
 import type { StartupFallbackNote } from "./startup-fallback.js";
 import { canDisableLegacyService } from "../legacy-service/disable.js";
@@ -93,6 +94,8 @@ export interface RepairState {
   readonly loginItem?: RepairLoginItemSection;
   /** 「整理資料庫」: the free space, the last run and this session's check. Absent: no card. */
   readonly maintenance?: RepairMaintenanceSection;
+  /** 「備份位置」: the folder new backups go to. Absent: no card. */
+  readonly backupDirectory?: RepairBackupDirectorySection;
   /** What a fallback to the last working port did in this App run; absent: none happened. */
   readonly fallback?: StartupFallbackNote;
   /** What the tab strip needs: the tab list, the blocking tab and one badge per tab (see repair-ipc.ts). */
@@ -162,6 +165,7 @@ export interface RepairStateInputs {
   readonly update?: RepairUpdateSection;
   readonly loginItem?: RepairLoginItemSection;
   readonly maintenance?: RepairMaintenanceSection;
+  readonly backupDirectory?: RepairBackupDirectorySection;
   readonly fallback?: StartupFallbackNote | null;
   /** What the start-up check found, when it found the old login service on this database. */
   readonly legacyService?: LegacyServiceDetection | null;
@@ -243,6 +247,7 @@ export function buildRepairState(inputs: RepairStateInputs): RepairState {
     ...(inputs.update ? { update: inputs.update } : {}),
     ...(inputs.loginItem ? { loginItem: inputs.loginItem } : {}),
     ...(inputs.maintenance ? { maintenance: inputs.maintenance } : {}),
+    ...(inputs.backupDirectory ? { backupDirectory: inputs.backupDirectory } : {}),
     ...(inputs.fallback ? { fallback: inputs.fallback } : {}),
     shell: buildAppShellState({
       needsSetup: inputs.needsSetup === true,

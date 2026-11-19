@@ -15,6 +15,7 @@ import {
   type OperationJournal,
   type RepairPortSection,
   type RepairLoginItemSection,
+  type RepairBackupDirectorySection,
   type RepairMaintenanceSection,
   type RepairUpdateSection,
   type LastBackupTracker,
@@ -56,6 +57,8 @@ export interface RepairInfoOptions {
   readonly update?: () => RepairUpdateSection;
   /** What the 「登入時自動啟動」 switch shows. */
   readonly loginItem?: () => RepairLoginItemSection;
+  /** What the 「備份位置」 card shows. */
+  readonly backupDirectory?: () => RepairBackupDirectorySection | undefined;
   /** What the 「整理資料庫」 card shows. */
   readonly maintenance?: () => RepairMaintenanceSection;
 }
@@ -142,6 +145,7 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
       ...(options.update ? { update: options.update() } : {}),
       ...(options.loginItem ? { loginItem: options.loginItem() } : {}),
       ...(options.maintenance ? { maintenance: options.maintenance() } : {}),
+      ...(options.backupDirectory?.() ? { backupDirectory: options.backupDirectory() } : {}),
       fallback: state.startupFallback,
       // Shown only where it matters: the old service may serve this database, or it holds the port.
       legacyService: relevance.conflict || relevance.portInUse ? legacy.latest() : null,
