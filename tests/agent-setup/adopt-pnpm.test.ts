@@ -283,7 +283,7 @@ describe("adopting a hand-written pnpm start:mcp registration", () => {
       const server = (readJson(fixture.paths.claudeJson).mcpServers as Record<string, Record<string, unknown>>)[
         "work-intelligence"
       ];
-      expect(server.env).toEqual(expected);
+      expect(server?.env).toEqual(expected);
       expect(server).toMatchObject({ command: hostShim(), args: ["mcp"] });
       expect(
         undoAgentSetupOperation(fixture.paths.journal, { homeDirectory: fixture.options.homeDirectory }).status,
