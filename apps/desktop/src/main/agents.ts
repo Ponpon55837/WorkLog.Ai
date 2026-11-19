@@ -24,6 +24,8 @@ import {
   launcherShimPath,
   maskHome,
   probeMcpHandshake,
+  readCurrentContractFingerprint,
+  readHostObservations,
   SETUP_AGENT_IDS,
   type AgentCardView,
   type AgentRegistrationOwner,
@@ -35,6 +37,7 @@ import {
   type OperationCoordinator,
   type SetupAgentId,
 } from "@work-intelligence/desktop-core";
+import { configDirectory } from "@work-intelligence/shared/database-location";
 import { runAgentOperation } from "./agent-operation.js";
 import type { DesktopPaths } from "./config.js";
 import type { Logger } from "./log.js";
@@ -176,6 +179,11 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
         return undefined;
       }
     })();
+    // Read once per refresh: what each host last saw (the MCP server writes it into the same config directory it
+    // reads, which the launcher never changes) and the contract the installed runtime offers now. Without the
+    // runtime's fingerprint an observation can never read as current.
+    const observations = readHostObservations(configDirectory());
+    const currentContractFingerprint = readCurrentContractFingerprint(options.paths.runtimeRoot);
     return SETUP_AGENT_IDS.map((id: SetupAgentId): AgentCardView => {
       const mcp = inspection.registrations.find((entry) => entry.agent === id && entry.kind === "mcp");
       const hook = inspection.registrations.find((entry) => entry.agent === id && entry.kind === "hook");
@@ -192,6 +200,8 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
         hookTrust: "not-applicable",
         runtime: launcherReady() ? "compatible" : "unknown",
         selfTest: selfTest.outcome,
+        ...(observations[id] ? { observation: { contractFingerprint: observations[id].contractFingerprint } } : {}),
+        ...(currentContractFingerprint ? { currentContractFingerprint } : {}),
       });
       return {
         id,

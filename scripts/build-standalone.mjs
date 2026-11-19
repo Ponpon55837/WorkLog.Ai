@@ -80,7 +80,12 @@ async function embedMcpBuildIdentity(libexec, scratchDirectory) {
     );
     const pattern = /const MCP_BUILD_COMPATIBILITY_ID = "(?:[a-f0-9]{64}|__WORK_INTELLIGENCE_COMPATIBILITY__)";/g;
     if (source.match(pattern)?.length !== 1) throw new Error("Missing unique MCP compatibility identity.");
-    const { compatibilityId } = await computeMcpCompatibility();
+    const { compatibilityId, contractFingerprint } = await computeMcpCompatibility();
+    // Next to the bundles (not a .js, so it is outside the dist hash): what the desktop compares an Agent's observation with.
+    writeFileSync(
+      join(libexec, "apps/mcp/dist/contract-fingerprint.json"),
+      `${JSON.stringify({ version: 1, contractFingerprint })}\n`,
+    );
     writeFileSync(entryPath, source.replace(pattern, `const MCP_BUILD_COMPATIBILITY_ID = "${compatibilityId}";`));
     return await finalizeRuntimeBuild(libexec, computeMcpBuildIdentity);
   } finally {

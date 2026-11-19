@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { mcpContractFingerprint } from "@work-intelligence/shared/mcp-contract-fingerprint";
 import { LATEST_SCHEMA_VERSION } from "@work-intelligence/storage";
 import { createWorkIntelligenceMcpServer } from "./server.js";
 
 /** Fingerprints the actual advertised tools and resources without opening a database or registering a lease. */
 export async function computeMcpCompatibility(
   schemaVersion = LATEST_SCHEMA_VERSION,
-): Promise<{ compatibilityId: string; schemaVersion: number }> {
+): Promise<{ compatibilityId: string; schemaVersion: number; contractFingerprint: string }> {
   const server = createWorkIntelligenceMcpServer(null, "build", schemaVersion, {
     code: "BUILD_ONLY",
     message: "build",
@@ -39,7 +40,9 @@ export async function computeMcpCompatibility(
         }),
       )
       .digest("hex");
-    return { compatibilityId, schemaVersion };
+    // The same function a host's observation uses, over the same tools/list, so the two are equal exactly when the contract is.
+    const contractFingerprint = mcpContractFingerprint(tools.tools);
+    return { compatibilityId, schemaVersion, contractFingerprint };
   } finally {
     await client.close();
     await server.close();

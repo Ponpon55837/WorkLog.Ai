@@ -17,6 +17,15 @@ export const MCP_SELFTEST_ENVIRONMENT = "WORK_INTELLIGENCE_MCP_SELFTEST";
 /** The `clientInfo.name` the desktop self-test sends; the server must never record it as a real host. */
 export const SELFTEST_CLIENT_NAME = "work-intelligence-desktop-selftest";
 
+/** The file in the config directory where the MCP server records what a real Agent host saw (see the desktop Agent page). */
+export const AGENT_OBSERVATIONS_FILE = "agent-observations.json";
+
+/**
+ * The packaged runtime's own tool-contract fingerprint, written next to its MCP bundles at build time
+ * (`apps/mcp/dist/` inside the runtime), so the desktop can compare it with what a host saw without starting the server.
+ */
+export const MCP_CONTRACT_FINGERPRINT_FILE = "contract-fingerprint.json";
+
 /** JSON with every object's keys sorted, so two equal values always serialize to the same text. */
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item ?? null)).join(",")}]`;
