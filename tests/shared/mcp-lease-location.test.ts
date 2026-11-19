@@ -95,7 +95,10 @@ describe("the lease sits where the backend looks, whatever TEMP the Agent passes
   it("still counts a process of 1.6.59 that keeps its lease in the system temp directory", () => {
     const root = fixture();
     // The old location: <tmpdir>/work-intelligence/mcp-runtime/<hash of the JavaScript realpath of the root>.
-    const legacyScope = createHash("sha256").update(realpathSync(root)).digest("hex").slice(0, 24);
+    // 1.6.59 folded case and separators on Windows before hashing.
+    const legacyPath =
+      process.platform === "win32" ? realpathSync(root).replace(/\\/g, "/").toLowerCase() : realpathSync(root);
+    const legacyScope = createHash("sha256").update(legacyPath).digest("hex").slice(0, 24);
     const legacyDirectory = join(tmpdir(), "work-intelligence", "mcp-runtime", legacyScope);
     mkdirSync(legacyDirectory, { recursive: true, mode: 0o700 });
     roots.push(legacyDirectory);
