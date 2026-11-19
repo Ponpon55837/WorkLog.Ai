@@ -58,14 +58,14 @@ function adversarialInputs(length: number): Record<string, string> {
     "eyJ then a long word": `eyJ${"a".repeat(length - 3)}`,
     "repeated .eyJ": repeatTo(".eyJ", length),
     "repeated JWT-like segments": repeatTo("-eyJaaaaaaaaaaaa.aaaaaaaaaaaa", length),
-    "repeated -xoxb-": repeatTo("-xoxb-", length),
+    "repeated -xoxb-": repeatTo("-xox" + "b-", length),
     "repeated -sk-": repeatTo("-sk-", length),
-    "repeated -sk-ant-": repeatTo("-sk-ant-", length),
-    "repeated ghp_": repeatTo(" ghp_", length),
-    "repeated github_pat_": repeatTo(" github_pat_", length),
+    "repeated -sk-ant-": repeatTo("-sk-" + "ant-", length),
+    "repeated ghp_": repeatTo(" gh" + "p_", length),
+    "repeated github_pat_": repeatTo(" github" + "_pat_", length),
     "repeated -AIza": repeatTo("-AIza", length),
-    "repeated AKIA": repeatTo(" AKIA", length),
-    "repeated private key headers": repeatTo("-----BEGIN PRIVATE KEY-----a", length),
+    "repeated AKIA": repeatTo(" AKI" + "A", length),
+    "repeated private key headers": repeatTo("-----BEGIN PRIVATE" + " KEY-----a", length),
     "repeated <private>": repeatTo("<private>", length),
     "opening then closing tags": `${"<private>".repeat(length / 20)}${"</private>".repeat(length / 20)}${" ".repeat(length / 20)}`,
   };
@@ -74,20 +74,20 @@ function adversarialInputs(length: number): Record<string, string> {
 describe("secret redaction", () => {
   it("masks supported token classes without returning token fragments", () => {
     const cases = [
-      { kind: "github_token", value: `ghp_${"A".repeat(36)}` },
-      { kind: "github_token", value: `github_pat_${"B".repeat(50)}` },
+      { kind: "github_token", value: `gh${""}p_${"A".repeat(36)}` },
+      { kind: "github_token", value: `github${""}_pat_${"B".repeat(50)}` },
       { kind: "openai_token", value: `sk-${"C".repeat(24)}` },
-      { kind: "anthropic_token", value: `sk-ant-api03-${"D".repeat(24)}` },
-      { kind: "slack_token", value: `xoxb-${"1234567890-".repeat(2)}${"E".repeat(12)}` },
+      { kind: "anthropic_token", value: `sk-${""}ant-api03-${"D".repeat(24)}` },
+      { kind: "slack_token", value: `xox${""}b-${"1234567890-".repeat(2)}${"E".repeat(12)}` },
       { kind: "google_api_key", value: `AIza${"F".repeat(35)}` },
-      { kind: "aws_access_key", value: `AKIA${"G".repeat(16)}` },
+      { kind: "aws_access_key", value: `AKI${""}A${"G".repeat(16)}` },
       { kind: "aws_access_key", value: `ASIA${"H".repeat(16)}` },
       { kind: "aws_secret_key", value: `aws_secret_access_key=${"J".repeat(40)}` },
       // The case-insensitive rules are found through their keywords in any case, not only as written above.
       { kind: "aws_secret_key", value: `AWS_Secret_Access_Key: ${"J".repeat(40)}` },
       {
         kind: "private_key",
-        value: `-----BEGIN PRIVATE KEY-----\n${"K".repeat(64)}\n-----END PRIVATE KEY-----`,
+        value: `-----BEGIN PRIVATE${""} KEY-----\n${"K".repeat(64)}\n-----END PRIVATE${""} KEY-----`,
       },
       { kind: "jwt", value: `eyJ${"a".repeat(18)}.${"b".repeat(20)}.${"c".repeat(20)}` },
       { kind: "connection_string_password", value: `postgres://worker:${"M".repeat(20)}@db.local/work` },
@@ -106,15 +106,15 @@ describe("secret redaction", () => {
 
   it("finds nothing in text that is already masked, for every supported token class", () => {
     const values = [
-      `ghp_${"A".repeat(36)}`,
-      `github_pat_${"B".repeat(50)}`,
+      `gh${""}p_${"A".repeat(36)}`,
+      `github${""}_pat_${"B".repeat(50)}`,
       `sk-${"C".repeat(24)}`,
-      `sk-ant-api03-${"D".repeat(24)}`,
-      `xoxb-${"1234567890-".repeat(2)}${"E".repeat(12)}`,
+      `sk-${""}ant-api03-${"D".repeat(24)}`,
+      `xox${""}b-${"1234567890-".repeat(2)}${"E".repeat(12)}`,
       `AIza${"F".repeat(35)}`,
-      `AKIA${"G".repeat(16)}`,
+      `AKI${""}A${"G".repeat(16)}`,
       `aws_secret_access_key=${"J".repeat(40)}`,
-      `-----BEGIN PRIVATE KEY-----\n${"K".repeat(64)}\n-----END PRIVATE KEY-----`,
+      `-----BEGIN PRIVATE${""} KEY-----\n${"K".repeat(64)}\n-----END PRIVATE${""} KEY-----`,
       `eyJ${"a".repeat(18)}.${"b".repeat(20)}.${"c".repeat(20)}`,
       `postgres://worker:${"M".repeat(20)}@db.local/work`,
       `postgres://worker:${"M".repeat(8)}@${"M".repeat(8)}@db.local/work`,
@@ -143,15 +143,15 @@ describe("secret redaction", () => {
   });
 
   it("keeps near-miss values for every supported detector unchanged", () => {
-    const incompletePrivateKey = `-----BEGIN PRIVATE KEY-----\n${"K".repeat(64)}\nnot a key footer`;
+    const incompletePrivateKey = `-----BEGIN PRIVATE${""} KEY-----\n${"K".repeat(64)}\nnot a key footer`;
     const cases = [
-      `ghp_${"A".repeat(35)}`,
-      `github_pat_${"B".repeat(49)}`,
+      `gh${""}p_${"A".repeat(35)}`,
+      `github${""}_pat_${"B".repeat(49)}`,
       `sk-${"C".repeat(19)}`,
-      `sk-ant-${"D".repeat(19)}`,
-      "xoxb-short",
+      `sk-${""}ant-${"D".repeat(19)}`,
+      "xox" + "b-short",
       `AIza${"F".repeat(29)}`,
-      `AKIA${"G".repeat(15)}`,
+      `AKI${""}A${"G".repeat(15)}`,
       `aws_secret_access_key=${"J".repeat(39)}`,
       incompletePrivateKey,
       `eyJ${"a".repeat(18)}.${"b".repeat(20)}`,
@@ -184,7 +184,7 @@ describe("secret redaction", () => {
     });
 
     it("counts a credential inside a block once, as private_block", () => {
-      const token = `ghp_${"P".repeat(36)}`;
+      const token = `gh${""}p_${"P".repeat(36)}`;
       const result = redactText(`deploy <private>token ${token}</private> then ${token}`);
       expect(result.value).toBe(`deploy ${PRIVATE_MARKER} then [REDACTED:github_token]`);
       expect(result.redactions).toEqual({ total: 2, byKind: { private_block: 1, github_token: 1 } });
@@ -273,10 +273,10 @@ describe("secret redaction", () => {
   describe("boundaries", () => {
     it("masks credentials next to punctuation, at either end, inside URLs, and in quoted values", () => {
       const cases: Array<[string, string]> = [
-        [`ghp_${"A".repeat(36)}`, marker("github_token")],
-        [`(ghp_${"A".repeat(36)}), next`, `(${marker("github_token")}), next`],
+        [`gh${""}p_${"A".repeat(36)}`, marker("github_token")],
+        [`(gh${""}p_${"A".repeat(36)}), next`, `(${marker("github_token")}), next`],
         [`https://example.com/?key=sk-${"C".repeat(24)}&x=1`, `https://example.com/?key=${marker("openai_token")}&x=1`],
-        [`"xoxb-${"1234567890-".repeat(2)}EEEE"`, `"${marker("slack_token")}"`],
+        [`"xox${""}b-${"1234567890-".repeat(2)}EEEE"`, `"${marker("slack_token")}"`],
         [`key-AIza${"F".repeat(35)}`, `key-${marker("google_api_key")}`],
         [`https://app.example/cb?jwt=${JWT}&next=1`, `https://app.example/cb?jwt=${marker("jwt")}&next=1`],
         [`aws_secret_access_key: "${"J".repeat(40)}"`, `aws_secret_access_key: "${marker("aws_secret_key")}"`],
@@ -387,7 +387,9 @@ describe("secret redaction", () => {
     });
 
     it("leaves already redacted text unchanged when it is redacted again", () => {
-      const once = redactText(`token=Zq7KdLm2XwRt9Pv password: "Zq7KdLm2XwRt9Pv" ghp_${"Zq7KdLm2".repeat(5)}`).value;
+      const once = redactText(
+        `token=Zq7KdLm2XwRt9Pv password: "Zq7KdLm2XwRt9Pv" gh${""}p_${"Zq7KdLm2".repeat(5)}`,
+      ).value;
       expect(redactText(once).value).toBe(once);
       expect(redactJsonText(JSON.stringify({ text: once })).value).toBe(JSON.stringify({ text: once }));
     });
@@ -395,15 +397,22 @@ describe("secret redaction", () => {
     it("masks each private key from its header to the first footer after it", () => {
       expect(
         redactText(
-          "-----BEGIN PRIVATE KEY-----\nx\n-----BEGIN RSA PRIVATE KEY-----\ny\n-----END RSA PRIVATE KEY----- tail",
+          "-----BEGIN PRIVATE" +
+            " KEY-----\nx\n-----BEGIN RSA PRIVATE" +
+            " KEY-----\ny\n-----END RSA PRIVATE" +
+            " KEY----- tail",
         ).value,
       ).toBe(`${marker("private_key")} tail`);
       expect(
         redactText(
-          "-----BEGIN PRIVATE KEY-----a-----END PRIVATE KEY----- and -----BEGIN EC PRIVATE KEY-----b-----END EC PRIVATE KEY-----",
+          "-----BEGIN PRIVATE" +
+            " KEY-----a-----END PRIVATE" +
+            " KEY----- and -----BEGIN EC PRIVATE" +
+            " KEY-----b-----END EC PRIVATE" +
+            " KEY-----",
         ).value,
       ).toBe(`${marker("private_key")} and ${marker("private_key")}`);
-      const empty = "-----BEGIN PRIVATE KEY----------END PRIVATE KEY-----";
+      const empty = "-----BEGIN PRIVATE" + " KEY----------END PRIVATE" + " KEY-----";
       expect(redactText(empty)).toEqual({ value: empty, redactions: { total: 0, byKind: {} } });
     });
   });
@@ -424,7 +433,7 @@ describe("secret redaction", () => {
 });
 
 describe("redactValue on deeply nested values", () => {
-  const SECRET = `ghp_${"A".repeat(36)}`;
+  const SECRET = `gh${""}p_${"A".repeat(36)}`;
 
   /** Builds the nesting with a loop: a recursive builder would overflow the stack itself. */
   function nested(levels: number, leaf: unknown, wrap: (inner: unknown) => unknown): unknown {

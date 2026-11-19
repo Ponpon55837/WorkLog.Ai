@@ -264,10 +264,10 @@ describe("Session title update", () => {
 
     const masked = store.updateSessionTitle({
       sessionId,
-      title: "Rotate ghp_abcdefghijklmnopqrstuvwxyz0123456789 token",
+      title: "Rotate gh" + "p_abcdefghijklmnopqrstuvwxyz0123456789 token",
     });
     expect(masked).toMatchObject({ outcome: "title_updated", redactions: { total: 1 } });
-    expect(store.getSessionById(sessionId)?.title).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz0123456789");
+    expect(store.getSessionById(sessionId)?.title).not.toContain("gh" + "p_abcdefghijklmnopqrstuvwxyz0123456789");
 
     expect(store.updateSessionTitle({ sessionId: "missing-session", title: "Any title" })).toEqual({
       outcome: "not_found",

@@ -19,11 +19,11 @@ import {
 // Every value is synthetic: no real user, path, address or credential.
 const JWT = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJzeW50aGV0aWMtdXNlciJ9.c3ludGhldGljLXNpZ25hdHVyZS12YWx1ZQ";
 const PEM_BLOCK = [
-  "-----BEGIN RSA PRIVATE KEY-----",
+  "-----BEGIN RSA PRIVATE" + " KEY-----",
   "MIIBOgIBAAJBAKsyntheticsyntheticsyntheticsyntheticsyntheticsynthetic",
-  "-----END RSA PRIVATE KEY-----",
+  "-----END RSA PRIVATE" + " KEY-----",
 ].join("\n");
-const AWS_ACCESS = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
+const AWS_ACCESS = ["AKI" + "A", "IOSFODNN7EXAMPLE"].join("");
 const AWS_SESSION = ["ASIA", "IOSFODNN7EXAMPLE"].join("");
 // Assembled at run time so the source never holds a literal in the shape secret scanners flag.
 const SLACK = ["xoxb", "123456789012", "synthetictoken"].join("-");
@@ -213,7 +213,7 @@ describe("diagnostics redaction", () => {
   });
 
   it("masks a private-key block whose end line was cut, to the end of the text", () => {
-    const text = posix(`before\n-----BEGIN PRIVATE KEY-----\nMIIBsyntheticsyntheticsyntheticsynthetic`);
+    const text = posix(`before\n-----BEGIN PRIVATE${""} KEY-----\nMIIBsyntheticsyntheticsyntheticsynthetic`);
     expect(text).toBe("before\n[redacted]");
   });
 
