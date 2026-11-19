@@ -3683,6 +3683,17 @@ export interface SystemStatus {
      * Agent has disconnected since, or its lease is kept somewhere this backend does not look.
      */
     agentObservedWithoutLease?: boolean;
+    /**
+     * Present with `agentObservedWithoutLease`: why. The ids are opaque hashes (no path); the Agent's MCP records its own
+     * in the observation and the backend compares it with its scope.
+     */
+    leaseDiagnosis?: {
+      /** `lease_unreported`: an older MCP; `directory_unwritable`; `scope_mismatch`; `agent_disconnected`. */
+      cause: "lease_unreported" | "directory_unwritable" | "scope_mismatch" | "agent_disconnected";
+      backendScopeId: string;
+      observedScopeId?: string;
+      directoryWritable?: boolean;
+    };
   };
   /** Read-only snapshots of registered Agent clients, skill copies, and reminder hooks. */
   agents: SystemAgentConnections;

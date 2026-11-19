@@ -15,6 +15,7 @@ import type {
 import type { z } from "zod";
 import { safeParseStrict, type StrictParseResult } from "@work-intelligence/schema";
 import type { ExportOptions, WorkIntelligenceStore } from "@work-intelligence/storage";
+import type { McpLeaseDiagnosis } from "@work-intelligence/shared/agent-observations";
 import type { McpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import { sendError, sendJson } from "../http.js";
 import type { StagedImports } from "../staged-imports.js";
@@ -72,6 +73,8 @@ export interface RouteServices {
   startEventStream(response: ServerResponse): void;
   eventClientCount(): number;
   mcpRuntimeStatus(): McpRuntimeStatus;
+  /** Why no MCP lease is visible although an Agent was observed: the observation's lease state against this backend's scope. */
+  mcpLeaseDiagnosis(activeLeases: number): McpLeaseDiagnosis;
   agentConnections(): SystemAgentConnections;
   userServiceStatus(): UserServiceStatus | Promise<UserServiceStatus>;
   /** Present only in desktop-child mode; absent for a standalone server. */

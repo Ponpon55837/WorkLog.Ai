@@ -81,6 +81,21 @@ export function mcpRuntimeStatusVisual(status: SystemStatus["mcp"]): StatusVisua
   return visual("success", CircleCheck, "status.currentVersion");
 }
 
+const LEASE_CAUSE_NOTE_KEYS = {
+  lease_unreported: "systemStatus.agentSeenLeaseUnreported",
+  directory_unwritable: "systemStatus.agentSeenLeaseDirectoryUnwritable",
+  scope_mismatch: "systemStatus.agentSeenLeaseScopeMismatch",
+  agent_disconnected: "systemStatus.agentSeenLeaseAgentDisconnected",
+} as const;
+
+/** The note that says why an observed Agent has no visible connection record; the general note when the cause is unknown. */
+export function agentSeenLeaseNoteKey(
+  status: SystemStatus["mcp"],
+): (typeof LEASE_CAUSE_NOTE_KEYS)[keyof typeof LEASE_CAUSE_NOTE_KEYS] | "systemStatus.agentSeenWithoutLeaseNote" {
+  const cause = status.leaseDiagnosis?.cause;
+  return cause ? LEASE_CAUSE_NOTE_KEYS[cause] : "systemStatus.agentSeenWithoutLeaseNote";
+}
+
 export function userServiceStatusVisual(status: SystemStatus["userService"]): StatusVisual {
   if (status.state === "running" && status.enabled !== false) {
     return visual("success", CircleCheck, "status.running");

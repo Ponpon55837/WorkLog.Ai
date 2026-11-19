@@ -28,11 +28,20 @@ function temporaryDirectory(): string {
 async function hostSession(
   directory: string,
   clientName: string,
-  options: { onError?: (error: unknown) => void; listTools?: boolean } = {},
+  options: {
+    onError?: (error: unknown) => void;
+    listTools?: boolean;
+    lease?: () => { scopeId: string; directoryWritable: boolean; failure?: "directory_unavailable" | "write_failed" };
+  } = {},
 ): Promise<{ tools: Awaited<ReturnType<Client["listTools"]>>["tools"] }> {
   const server = createWorkIntelligenceMcpServer(null, "1.2.3", 1, { code: "TEST", message: "no database" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const recorder = new AgentObservationRecorder({ directory, serverVersion: "1.2.3", onError: options.onError });
+  const recorder = new AgentObservationRecorder({
+    directory,
+    serverVersion: "1.2.3",
+    onError: options.onError,
+    ...(options.lease ? { lease: options.lease } : {}),
+  });
   recorder.attach(server, serverTransport);
   const client = new Client({ name: clientName, version: "9.9" });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -71,6 +80,18 @@ describe("AgentObservationRecorder", () => {
       "protocolVersion",
       "serverVersion",
     ]);
+  });
+
+  it("records this process's lease scope and failure next to the observation, without any path", async () => {
+    const directory = temporaryDirectory();
+    const lease = { scopeId: "c3".repeat(12), directoryWritable: false, failure: "directory_unavailable" } as const;
+
+    await hostSession(directory, "codex-mcp-client", { lease: () => lease });
+
+    const stored = JSON.parse(readFileSync(join(directory, AGENT_OBSERVATIONS_FILE), "utf8"));
+    expect(stored.version).toBe(1);
+    expect(stored.observations["codex-mcp-client"].lease).toEqual(lease);
+    expect(readFileSync(join(directory, AGENT_OBSERVATIONS_FILE), "utf8")).not.toContain(directory);
   });
 
   it("keeps one entry per client and merges a second host into the same file", async () => {

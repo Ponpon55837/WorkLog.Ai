@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   classifyHostObservation,
+  diagnoseMcpLease,
   hostForClientName,
   readCurrentContractFingerprint,
   readHostObservations,
@@ -124,5 +125,85 @@ describe("classifyHostObservation", () => {
     expect(classifyHostObservation({ contractFingerprint: A }, B)).toBe("stale");
     expect(classifyHostObservation({ contractFingerprint: A }, undefined)).toBe("stale");
     expect(classifyHostObservation(undefined, A)).toBe("none");
+  });
+});
+
+describe("lease state in an observation", () => {
+  const SCOPE = "a1".repeat(12);
+  const OTHER = "b2".repeat(12);
+  const at = "2026-11-19T02:00:00.000Z";
+
+  it("reads the lease an MCP recorded, keeps only known fields and no path", () => {
+    writeObservations({
+      observations: {
+        codex: {
+          contractFingerprint: A,
+          observedAt: at,
+          lease: {
+            scopeId: SCOPE,
+            directoryWritable: false,
+            failure: "write_failed",
+            errorCode: "EACCES",
+            path: "C:\\secret",
+          },
+        },
+      },
+    });
+    expect(readHostObservations(root).codex).toEqual({
+      contractFingerprint: A,
+      observedAt: at,
+      lease: { scopeId: SCOPE, directoryWritable: false, failure: "write_failed", errorCode: "EACCES" },
+    });
+  });
+
+  it("reads a file from 1.6.59 (no lease) and drops a malformed lease instead of failing", () => {
+    writeObservations({
+      observations: {
+        codex: { contractFingerprint: A, observedAt: at },
+        "claude-code": {
+          contractFingerprint: A,
+          observedAt: at,
+          lease: { scopeId: "not-a-scope", directoryWritable: true },
+        },
+      },
+    });
+    expect(readHostObservations(root)).toEqual({
+      codex: { contractFingerprint: A, observedAt: at },
+      "claude-code": { contractFingerprint: A, observedAt: at },
+    });
+  });
+
+  it("names the cause of a missing lease, and none while a lease is visible or no Agent was seen", () => {
+    const seen = (lease: unknown) => ({
+      codex: { contractFingerprint: A, observedAt: at, ...(lease ? { lease } : {}) },
+    });
+    const writable = { scopeId: SCOPE, directoryWritable: true } as const;
+    expect(diagnoseMcpLease(seen(writable), OTHER, 0)).toMatchObject({
+      cause: "scope_mismatch",
+      backendScopeId: OTHER,
+      observedScopeId: SCOPE,
+    });
+    expect(
+      diagnoseMcpLease(seen({ ...writable, directoryWritable: false, failure: "directory_unavailable" }), SCOPE, 0)
+        .cause,
+    ).toBe("directory_unwritable");
+    // An unwritable directory is named before a scope difference: it is the more specific reason.
+    expect(diagnoseMcpLease(seen({ ...writable, directoryWritable: false }), OTHER, 0).cause).toBe(
+      "directory_unwritable",
+    );
+    expect(diagnoseMcpLease(seen(writable), SCOPE, 0).cause).toBe("agent_disconnected");
+    expect(diagnoseMcpLease(seen(undefined), SCOPE, 0).cause).toBe("lease_unreported");
+    expect(diagnoseMcpLease(seen(writable), OTHER, 2).cause).toBeUndefined();
+    expect(diagnoseMcpLease({}, SCOPE, 0).cause).toBeUndefined();
+  });
+
+  it("lets the newest observation that carries lease state decide", () => {
+    const older = {
+      contractFingerprint: A,
+      observedAt: "2026-11-19T01:00:00.000Z",
+      lease: { scopeId: OTHER, directoryWritable: true },
+    };
+    const newer = { contractFingerprint: A, observedAt: at, lease: { scopeId: SCOPE, directoryWritable: true } };
+    expect(diagnoseMcpLease({ codex: older, "claude-code": newer }, SCOPE, 0).cause).toBe("agent_disconnected");
   });
 });

@@ -20,7 +20,7 @@ import {
   isValidInstanceChallenge,
 } from "@work-intelligence/shared/instance-proof";
 import type { DesktopBackendActivity } from "@work-intelligence/schema";
-import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
+import { getMcpLeaseScopeId, getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import { createFolderPicker } from "./folder-picker.js";
 import { BackupWorkerOutOfMemoryError, BackupWorkerTimeoutError } from "./backup-worker-errors.js";
 import { inspectAgentConnections } from "./doctor.js";
@@ -35,7 +35,7 @@ import {
 import { StagedImports } from "./staged-imports.js";
 import { transferRoot as defaultTransferRoot } from "./transfer-workspace.js";
 import { getUserServiceStatusAsync } from "./user-service.js";
-import { withHostObservations } from "./agent-observations.js";
+import { mcpLeaseDiagnosis, withHostObservations } from "./agent-observations.js";
 import { createDesktopRouteServices, type DesktopHandlerOptions } from "./desktop-services.js";
 import { Router, apiRoutes, type BackgroundStoreOperations, type RouteServices } from "./routes/index.js";
 import { resolveWebDirectory } from "./web-directory.js";
@@ -337,6 +337,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
     startEventStream,
     eventClientCount: () => eventClients.size,
     mcpRuntimeStatus: options.mcpRuntimeStatus ?? (() => getMcpRuntimeStatus(repositoryRoot)),
+    mcpLeaseDiagnosis: (activeLeases) => mcpLeaseDiagnosis(getMcpLeaseScopeId(repositoryRoot), activeLeases),
     agentConnections: inspectConnections,
     userServiceStatus: inspectUserService,
     ...(options.desktop ? { desktop: createDesktopRouteServices(options.desktop, store.backupDirectory) } : {}),

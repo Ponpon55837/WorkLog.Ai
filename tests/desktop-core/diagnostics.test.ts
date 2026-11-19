@@ -686,3 +686,61 @@ describe("diagnostics other absolute paths, case and key names", () => {
     expect(JSON.parse(buildDiagnostics(inputs()).text).app.installLabel).toBeUndefined();
   });
 });
+
+describe("MCP lease section", () => {
+  const lease = {
+    backendScopeId: "0a1b2c3d4e5f60718293a4b5",
+    backendDirectoryWritable: true,
+    activeLeases: 0,
+    agentObserved: true,
+    observedScopeId: "ffeeddccbbaa99887766aa55",
+    observedDirectoryWritable: false,
+    cause: "scope_mismatch",
+  } as const;
+
+  it("carries scope labels, counts and booleans only, and no path", () => {
+    const text = buildDiagnostics(inputs({ mcpLease: lease })).text;
+    expect(JSON.parse(text).mcpLease).toEqual({
+      backendScope: "0a1b2c3d",
+      backendDirectoryWritable: true,
+      activeLeases: 0,
+      agentObserved: true,
+      observedScope: "ffeeddcc",
+      scopesMatch: false,
+      observedDirectoryWritable: false,
+      cause: "scope_mismatch",
+    });
+    expect(text).not.toContain("0a1b2c3d4e5f60718293a4b5");
+  });
+
+  it("is absent when the App could not read it, and omits what the observation does not report", () => {
+    expect(JSON.parse(buildDiagnostics(inputs()).text)).not.toHaveProperty("mcpLease");
+    const bare = JSON.parse(
+      buildDiagnostics(
+        inputs({
+          mcpLease: {
+            backendScopeId: lease.backendScopeId,
+            backendDirectoryWritable: false,
+            activeLeases: 2.9,
+            agentObserved: false,
+          },
+        }),
+      ).text,
+    ).mcpLease;
+    expect(bare).toEqual({
+      backendScope: "0a1b2c3d",
+      backendDirectoryWritable: false,
+      activeLeases: 2,
+      agentObserved: false,
+    });
+  });
+
+  it("matches scopes that are equal and drops a cause that is not a plain code", () => {
+    const text = buildDiagnostics(
+      inputs({ mcpLease: { ...lease, observedScopeId: lease.backendScopeId, cause: "C:\\Users\\x\\secret" } }),
+    ).text;
+    const section = JSON.parse(text).mcpLease;
+    expect(section.scopesMatch).toBe(true);
+    expect(section).not.toHaveProperty("cause");
+  });
+});
