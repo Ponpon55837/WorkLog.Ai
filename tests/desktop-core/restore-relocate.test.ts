@@ -61,6 +61,14 @@ describe("restore relocation", () => {
       caseInsensitive: false,
     });
     expect([...ambiguous]).toEqual([]);
+    // The same collision through a folder of that name inside the chosen one.
+    const collided = await planRelocation({
+      missing,
+      chosen: "/Users/new/projects",
+      directoryExists: async (folder) => folder.endsWith("app"),
+      caseInsensitive: false,
+    });
+    expect([...collided]).toEqual([]);
     const single = await planRelocation({
       missing: [missing[0] as (typeof missing)[number]],
       chosen: "/Users/new/app",

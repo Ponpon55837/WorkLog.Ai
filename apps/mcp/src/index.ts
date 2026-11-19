@@ -7,6 +7,7 @@ import {
   getMcpRestartStatus,
   type McpProcessRegistration,
   type McpRestartStatus,
+  mcpKeepsLease,
   registerMcpLease,
 } from "@work-intelligence/shared/mcp-runtime";
 import { backupOptionsFromEnvironment, LATEST_SCHEMA_VERSION, WorkIntelligenceStore } from "@work-intelligence/storage";
@@ -65,8 +66,9 @@ async function startMcpServer(): Promise<void> {
 
   let lease: McpProcessRegistration | undefined;
   try {
-    // A standalone bundle is replaced as a whole on update, so there is no on-disk build to watch.
-    if (!STANDALONE) {
+    // A standalone bundle is replaced as a whole on update, so there is no on-disk build to watch; the desktop App's runtime is
+    // a standalone bundle that still keeps a lease, because the connection count comes from it.
+    if (mcpKeepsLease(STANDALONE, repositoryRoot)) {
       try {
         lease = registerMcpLease(repositoryRoot, runningBuild);
       } catch {

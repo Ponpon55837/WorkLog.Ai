@@ -382,6 +382,22 @@ export function appRootOf(path: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Whether an MCP process keeps a lease. A repository checkout always does. A standalone bundle is replaced as a whole on
+ * update and has no on-disk build to watch, so a plain standalone install does not; but the desktop App's runtime is a
+ * standalone bundle too, and its connection count is exactly what the lease feeds, so a bundle that runs inside the App
+ * (its scope variable is set, or it sits in `<App root>/runtimes/<id>/`) registers like any other.
+ */
+export function mcpKeepsLease(
+  standalone: boolean,
+  repositoryRoot: string,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  return (
+    !standalone || Boolean(environment[MCP_LEASE_SCOPE_ENVIRONMENT]?.trim()) || appRootOf(repositoryRoot) !== undefined
+  );
+}
+
 function scopeIdFor(
   repositoryRoot: string,
   environment: Readonly<Record<string, string | undefined>>,

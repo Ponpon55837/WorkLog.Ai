@@ -9,6 +9,7 @@ import {
   getMcpLeaseScopeId,
   getMcpRuntimeDirectory,
   getMcpRuntimeStatus,
+  mcpKeepsLease,
   normalizeScopePath,
   readMcpBuildIdentity,
   readMcpLeaseCensus,
@@ -223,5 +224,20 @@ describe("a lease that cannot be kept is reported, not swallowed", () => {
     });
     releases.push(registerMcpLease(root, build(root), { now: () => now }).release);
     expect(readMcpLeaseCensus(root, process.env, now).activeLeases).toBe(1);
+  });
+
+  it("keeps a lease in a repository checkout and in the desktop App's standalone runtime, not in a plain standalone install", () => {
+    const root = fixture();
+    expect(mcpKeepsLease(false, root, {})).toBe(true);
+    expect(mcpKeepsLease(true, root, {})).toBe(false);
+    expect(mcpKeepsLease(true, root, { WORK_INTELLIGENCE_APP_LEASE_SCOPE: "  " })).toBe(false);
+    expect(mcpKeepsLease(true, root, { WORK_INTELLIGENCE_APP_LEASE_SCOPE: join(root, "app") })).toBe(true);
+    // Started without the variable from inside <App root>/runtimes/<id>/app/libexec.
+    const appRoot = join(roots[0] as string, "app-root");
+    const libexec = join(appRoot, "runtimes", "r1", "app", "libexec");
+    mkdirSync(libexec, { recursive: true });
+    expect(mcpKeepsLease(true, libexec, {})).toBe(false);
+    writeFileSync(join(appRoot, "current"), "r1\n");
+    expect(mcpKeepsLease(true, libexec, {})).toBe(true);
   });
 });

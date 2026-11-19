@@ -71,6 +71,11 @@ export async function planRelocation(inputs: RelocationInputs): Promise<Map<stri
       if (await inputs.directoryExists(inside).catch(() => false)) mapped.set(root.path, inside);
     }),
   );
+  // Two projects that end up in one folder cannot both be right (`a/app` and `b/app` with the chosen folder holding `app/app`):
+  // neither is mapped, so a restore never points two projects at the same code.
+  const targets = new Map<string, number>();
+  for (const target of mapped.values()) targets.set(fold(target), (targets.get(fold(target)) ?? 0) + 1);
+  for (const [from, target] of mapped) if ((targets.get(fold(target)) ?? 0) > 1) mapped.delete(from);
   return mapped;
 }
 
