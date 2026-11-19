@@ -41,11 +41,15 @@ function post(baseUrl: string, headers: Record<string, string> = JSON_HEADERS): 
   return fetch(`${baseUrl}/api/desktop/open-agent-setup`, { method: "POST", headers, body: "{}" });
 }
 
+/** Folders a test made; removed only after the stores in them are closed (Windows cannot delete an open database). */
+const folders: string[] = [];
+
 afterEach(async () => {
   for (const { server, store } of resources.splice(0)) {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     store.close();
   }
+  for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true });
 });
 
 describe("system status in desktop mode", () => {
@@ -71,22 +75,19 @@ describe("system status in desktop mode", () => {
 describe("system status database and login item in desktop mode", () => {
   it("reports the database and backup folder the backend really uses, and the App's login item", async () => {
     const directory = mkdtempSync(join(tmpdir(), "desktop-status-"));
-    try {
-      const databasePath = join(directory, "App 資料", "work-intelligence.sqlite");
-      const backupDirectory = join(directory, "App 備份");
-      mkdirSync(join(directory, "App 資料"), { recursive: true });
-      const store = new WorkIntelligenceStore(databasePath, { backup: { directory: backupDirectory } });
-      const loginItem = { supported: true, desired: true, system: "disabled" } as const;
-      const baseUrl = await listen({ desktop: { facts: { loginItem }, onOpenAgentSetup: vi.fn() } }, store);
-      const status = (await (await fetch(`${baseUrl}/api/system/status`)).json()) as {
-        database: { path: string };
-        desktop: unknown;
-      };
-      expect(status.database.path).toBe(databasePath);
-      expect(status.desktop).toEqual({ managed: true, loginItem, backupDirectory });
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
+    folders.push(directory);
+    const databasePath = join(directory, "App 資料", "work-intelligence.sqlite");
+    const backupDirectory = join(directory, "App 備份");
+    mkdirSync(join(directory, "App 資料"), { recursive: true });
+    const store = new WorkIntelligenceStore(databasePath, { backup: { directory: backupDirectory } });
+    const loginItem = { supported: true, desired: true, system: "disabled" } as const;
+    const baseUrl = await listen({ desktop: { facts: { loginItem }, onOpenAgentSetup: vi.fn() } }, store);
+    const status = (await (await fetch(`${baseUrl}/api/system/status`)).json()) as {
+      database: { path: string };
+      desktop: unknown;
+    };
+    expect(status.database.path).toBe(databasePath);
+    expect(status.desktop).toEqual({ managed: true, loginItem, backupDirectory });
   });
 });
 
