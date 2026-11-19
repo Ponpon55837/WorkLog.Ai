@@ -29,7 +29,7 @@ afterEach(removeFixtures);
 function launcher(fixture: SetupFixture, overrides: Partial<AgentSetupPlanOptions> = {}): AgentSetupPlanOptions {
   return {
     ...fixture.options,
-    target: { kind: "launcher", shimPath: SHIM, skillSourcePath: fixture.paths.skillSource },
+    target: { kind: "launcher", shimPath: hostShim(), skillSourcePath: fixture.paths.skillSource },
     ...overrides,
   };
 }
@@ -77,7 +77,7 @@ function seed(fixture: SetupFixture, root: string, database: string, extra?: str
 
 describe("adopting a hand-written pnpm start:mcp registration", () => {
   it("reproduces both conflicts without adopt, then adopts the Codex table and undoes completely", () => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     const root = fixture.options.repositoryRoot;
     const database = touch(join(root, "data", "work-intelligence.sqlite"));
     const before = seed(fixture, root, database);
@@ -105,7 +105,7 @@ describe("adopting a hand-written pnpm start:mcp registration", () => {
     const after = readFileSync(fixture.paths.codexConfig, "utf8");
     const parsed = parseToml(after) as Record<string, any>;
     expect(parsed.mcp_servers["work-intelligence"]).toEqual({
-      command: SHIM,
+      command: hostShim(),
       args: ["mcp"],
       enabled: true,
       env: { WORK_INTELLIGENCE_DB: database },
@@ -120,7 +120,7 @@ describe("adopting a hand-written pnpm start:mcp registration", () => {
       "work-intelligence@market:hooks.json:stop:0:0": { trusted_hash: "sha256:synthetic" },
     });
     expect(readJson(fixture.paths.claudeJson).mcpServers).toMatchObject({
-      "work-intelligence": { type: "stdio", command: SHIM, args: ["mcp"] },
+      "work-intelligence": { type: "stdio", command: hostShim(), args: ["mcp"] },
     });
 
     const undone = undoAgentSetupOperation(fixture.paths.journal, { homeDirectory: fixture.options.homeDirectory });
@@ -136,7 +136,7 @@ describe("adopting a hand-written pnpm start:mcp registration", () => {
     ["cwd", (root: string) => ({ command: "pnpm", args: ["start:mcp"], cwd: root })],
     ["relative --dir with cwd", (root: string) => ({ command: "pnpm", args: ["--dir", "."], cwd: root })],
   ])("adopts the Claude %s form, keeps custom keys, and drops a cwd that only named the checkout", (name, build) => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     const root = fixture.options.repositoryRoot;
     const database = touch(join(root, "data", "work-intelligence.sqlite"));
     const entry = { type: "stdio", ...build(root), env: { WORK_INTELLIGENCE_DB: database, KEEP: "1" }, note: "mine" };
@@ -153,7 +153,7 @@ describe("adopting a hand-written pnpm start:mcp registration", () => {
       mcpServers: {
         "work-intelligence": {
           type: "stdio",
-          command: SHIM,
+          command: hostShim(),
           args: ["mcp"],
           env: { WORK_INTELLIGENCE_DB: database, KEEP: "1" },
           note: "mine",
@@ -167,7 +167,7 @@ describe("adopting a hand-written pnpm start:mcp registration", () => {
   });
 
   it("keeps a cwd that names some other folder, in JSON and in TOML", () => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     const root = fixture.options.repositoryRoot;
     const database = touch(join(root, "data", "work-intelligence.sqlite"));
     const elsewhere = join(fixture.temporaryRoot, "elsewhere");
@@ -189,7 +189,7 @@ describe("adopting a hand-written pnpm start:mcp registration", () => {
   });
 
   it("removes a TOML cwd that named the checkout", () => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     const root = fixture.options.repositoryRoot;
     const database = touch(join(root, "data", "work-intelligence.sqlite"));
     const before = seed(fixture, root, database, `cwd = ${JSON.stringify(root)}\n`);
@@ -207,7 +207,7 @@ describe("adopting a hand-written pnpm start:mcp registration", () => {
   });
 
   it("never swaps in the App's database: another file is refused with both paths named by the finder", () => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     const root = fixture.options.repositoryRoot;
     const checkoutDatabase = touch(join(root, "data", "work-intelligence.sqlite"));
     const appDatabase = touch(join(fixture.temporaryRoot, "app", "work-intelligence.sqlite"));
@@ -223,7 +223,7 @@ describe("adopting a hand-written pnpm start:mcp registration", () => {
   });
 
   it("writes the checkout default database explicitly when the entry names none, so the launcher cannot pick another", () => {
-    const fixture = createFixture();
+    const fixture = hostFixture();
     const root = fixture.options.repositoryRoot;
     const database = touch(join(root, "data", "work-intelligence.sqlite"));
     writeJson(fixture.paths.claudeJson, {
@@ -249,7 +249,7 @@ describe("adopting a hand-written pnpm start:mcp registration", () => {
       { command: "pnpm", args: ["start:mcp", "-C", "/other"], cwd: "/repo" },
       { command: "pnpm", args: ["start:mcp", "--dir=/other"], cwd: "/repo" },
     ]) {
-      const fixture = createFixture();
+      const fixture = hostFixture();
       const root = fixture.options.repositoryRoot;
       writeJson(fixture.paths.claudeJson, { mcpServers: { "work-intelligence": entry } });
       const bytes = readFileSync(fixture.paths.claudeJson);
