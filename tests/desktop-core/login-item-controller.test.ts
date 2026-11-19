@@ -111,3 +111,41 @@ describe("the login item switch where there is no login item", () => {
     await expect(fsp.stat(settingsFile)).rejects.toThrow();
   });
 });
+
+describe("how often the system is asked", () => {
+  function counted(system: () => unknown) {
+    const state = new ShellState();
+    const reads = vi.fn(system);
+    const controller = createLoginItemController({
+      state,
+      paths: { settingsFile: path.join(directory, "desktop-settings.json") },
+      platform: "win32",
+      readSystem: reads,
+      apply: () => undefined,
+      log: () => undefined,
+    });
+    return { state, reads, controller };
+  }
+
+  afterEach(() => vi.useRealTimers());
+
+  it("does not ask before there are settings, so the first-run page waits for nothing", () => {
+    const { reads, controller } = counted(() => ({ openAtLogin: true, executableWillLaunchAtLogin: true }));
+    expect(controller.section()).toEqual({ supported: true, desired: false, system: "unknown" });
+    expect(reads).not.toHaveBeenCalled();
+  });
+
+  it("reuses one answer inside the window, asks again after it, and at once after a change", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { state, reads, controller } = counted(() => ({ openAtLogin: true, executableWillLaunchAtLogin: true }));
+    state.settings = settings(false);
+    controller.section();
+    controller.section();
+    expect(reads).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(Date.now() + 2_500);
+    controller.section();
+    expect(reads).toHaveBeenCalledTimes(2);
+    await controller.set(true);
+    expect(reads).toHaveBeenCalledTimes(3);
+  });
+});

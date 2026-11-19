@@ -12,6 +12,9 @@ import type { Logger } from "./log.js";
 import { applyLoginItem } from "./settings.js";
 import type { ShellState } from "./state.js";
 
+/** How long one answer of the system is reused; short enough that a change made in the system shows on the next poll. */
+const SYSTEM_READ_WINDOW_MS = 2_000;
+
 export interface LoginItemControllerOptions {
   readonly state: ShellState;
   readonly paths: Pick<DesktopPaths, "settingsFile">;
@@ -42,17 +45,25 @@ export function createLoginItemController(options: LoginItemControllerOptions): 
     options.readSystem ?? ((query: ReturnType<typeof loginItemQueryFor>) => app.getLoginItemSettings(query as never));
   const apply = options.apply ?? applyLoginItem;
   const supported = loginItemQueryFor(platform) !== undefined;
+  // The page asks several times per paint and polls; the system answer is read at most once per window, and again at once after a change.
+  let cached: { readonly at: number; readonly system: RepairLoginItemSection["system"] } | undefined;
 
   function section(): RepairLoginItemSection {
     const desired = state.settings?.desired.launchAtLogin === true;
     if (!supported) return { supported: false, desired, system: "unknown" };
+    // Before the first-run choice there are no settings and nothing to compare with: the system is not asked at all.
+    if (!state.settings) return { supported: true, desired, system: "unknown" };
+    const now = Date.now();
+    if (cached && now - cached.at < SYSTEM_READ_WINDOW_MS) return { supported: true, desired, system: cached.system };
     let raw: unknown;
     try {
       raw = readSystem(loginItemQueryFor(platform));
     } catch {
       raw = undefined;
     }
-    return { supported: true, desired, system: readSystemLoginItem(platform, raw) };
+    const system = readSystemLoginItem(platform, raw);
+    cached = { at: now, system };
+    return { supported: true, desired, system };
   }
 
   return {
@@ -75,6 +86,7 @@ export function createLoginItemController(options: LoginItemControllerOptions): 
       } catch (error) {
         log(`[shell] login item not applied: ${error instanceof Error ? error.name : "unknown"}`);
       }
+      cached = undefined;
       state.touch();
       options.changed?.();
       return { ok: true, section: section() };
