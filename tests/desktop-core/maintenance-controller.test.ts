@@ -77,7 +77,7 @@ function setup(options: Setup = {}) {
       },
     },
     backend: {
-      maintainWhileStopped: async (work: (context: unknown) => Promise<unknown>) => {
+      maintainWhileStopped: (async (work: (context: unknown) => Promise<unknown>) => {
         events.push("stop");
         running = undefined;
         try {
@@ -89,7 +89,7 @@ function setup(options: Setup = {}) {
         events.push("start");
         running = { port: 43_100 };
         return { ok: true as const };
-      },
+      }) as never,
       start: async () => {
         events.push("restart");
         running = { port: 43_100 };
