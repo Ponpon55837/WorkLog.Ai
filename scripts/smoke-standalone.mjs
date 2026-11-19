@@ -200,6 +200,14 @@ async function checkServer(bin, environment, root, port, version) {
       backup.status === 201 && backups.length === 1,
       `status ${backup.status}, files ${backups.length}`,
     );
+    // The packaged runtime has no packages/*/dist; its MCP build must still be readable, not reported as unknown.
+    const systemStatus = await globalThis.fetch(`http://127.0.0.1:${port}/api/system/status`);
+    const mcp = (await systemStatus.json()).mcp;
+    check(
+      "start: MCP build identity is known",
+      systemStatus.status === 200 && mcp?.monitoringAvailable === true && !mcp.message.includes("無法確認"),
+      JSON.stringify(mcp),
+    );
   } catch (error) {
     record("start", false, String(error?.message ?? error));
   } finally {

@@ -63,7 +63,15 @@ const MCP_RUNTIME_DIST_DIRECTORIES = [
   "packages/shared/dist",
   "packages/storage/dist",
 ] as const;
+/**
+ * The standalone package (and the desktop runtime built from it) ships the MCP server as bundles with every workspace
+ * package inlined, so its code is the bundles of apps/mcp/dist alone. `scripts/build-standalone.mjs` marks that layout
+ * with the name of the package.json it writes next to them.
+ */
+const MCP_STANDALONE_DIST_DIRECTORIES = ["apps/mcp/dist"] as const;
+const MCP_STANDALONE_PACKAGE_NAME = "work-intelligence-libexec";
 const MCP_ENTRY_FILE = "apps/mcp/dist/index.js";
+const MCP_BUILD_HASH_PLACEHOLDER = "__WORK_INTELLIGENCE_BUILD_HASH__";
 const MCP_ENTRY_IDENTITY = /const MCP_BUILD_DIST_HASH = "(?:[a-f0-9]{64}|__WORK_INTELLIGENCE_BUILD_HASH__)";/;
 const MCP_ENTRY_IDENTITY_PATTERN = /const MCP_BUILD_DIST_HASH = "(?:[a-f0-9]{64}|__WORK_INTELLIGENCE_BUILD_HASH__)";/g;
 const MCP_BUILD_PROGRESS_FILE = ".work-intelligence-build-in-progress";
@@ -97,6 +105,17 @@ function packageVersion(repositoryRoot: string): string | undefined {
   }
 }
 
+/** The dist directories whose code is the MCP process: the repository's packages, or the standalone bundles. */
+function runtimeDistDirectories(repositoryRoot: string): readonly string[] {
+  try {
+    const packageJson: unknown = JSON.parse(readFileSync(resolve(repositoryRoot, "package.json"), "utf8"));
+    const name = packageJson && typeof packageJson === "object" && "name" in packageJson ? packageJson.name : undefined;
+    return name === MCP_STANDALONE_PACKAGE_NAME ? MCP_STANDALONE_DIST_DIRECTORIES : MCP_RUNTIME_DIST_DIRECTORIES;
+  } catch {
+    return MCP_RUNTIME_DIST_DIRECTORIES;
+  }
+}
+
 function javascriptFiles(directory: string, repositoryRoot: string): string[] {
   const children = readdirSync(directory, { withFileTypes: true });
   return children.flatMap((child) => {
@@ -116,7 +135,7 @@ function runtimeDistSignature(repositoryRoot: string): string | undefined {
     const parts: string[] = [];
     for (const file of [
       "package.json",
-      ...MCP_RUNTIME_DIST_DIRECTORIES.flatMap((directory) => {
+      ...runtimeDistDirectories(repositoryRoot).flatMap((directory) => {
         const absolute = resolve(repositoryRoot, directory);
         return existsSync(absolute) ? javascriptFiles(absolute, repositoryRoot).sort() : [`missing:${directory}`];
       }),
@@ -163,14 +182,15 @@ function normalizedRuntimeFile(repositoryRoot: string, file: string): Buffer {
     throw new Error("The MCP entry point has no stable embedded build identity.");
   }
   return Buffer.from(
-    source.replace(MCP_ENTRY_IDENTITY_PATTERN, 'const MCP_BUILD_DIST_HASH = "__WORK_INTELLIGENCE_BUILD_HASH__";'),
+    // Spelled in parts: a bundle that inlines this module must not hold the declaration it looks for as a second copy.
+    source.replace(MCP_ENTRY_IDENTITY_PATTERN, `const MCP_BUILD_DIST_HASH = "${MCP_BUILD_HASH_PLACEHOLDER}";`),
   );
 }
 
 function hashMcpRuntimeDist(repositoryRoot: string): string {
   const digest = createHash("sha256");
   let filesFound = 0;
-  for (const relativeDirectory of MCP_RUNTIME_DIST_DIRECTORIES) {
+  for (const relativeDirectory of runtimeDistDirectories(repositoryRoot)) {
     const directory = resolve(repositoryRoot, relativeDirectory);
     if (!existsSync(directory)) {
       throw new Error(`Required MCP runtime dist is unavailable: ${relativeDirectory}`);

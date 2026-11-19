@@ -24,6 +24,7 @@ import { Buffer } from "node:buffer";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
 import { build } from "esbuild";
+import { finalizeRuntimeBuild } from "./runtime-build-finalizer.mjs";
 import { AGENT_RESOURCES, DESKTOP_INTEGRATION_SCRIPT, bundleOptions, filesUnder } from "./build-plugin.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -48,6 +49,43 @@ function bundle(app, entries, outdir, define = {}) {
     entryPoints: entries.map((name) => join(repositoryRoot, `apps/${app}/src/${name}.ts`)),
     outdir,
   });
+}
+
+/**
+ * Gives the bundled MCP server the build identity the repository build gives its dist (see runtime-build-finalizer), so
+ * System Status can tell this runtime's MCP build from the one an Agent is running instead of reporting it as unknown.
+ * The compatibility id comes from the same contract snapshot as the repository build, taken from this build's own
+ * sources; the dist hash is computed by the same function that later verifies it, over the bundles as shipped. Both are
+ * written into the entry bundle, so changing a bundle afterwards makes the identity unreadable again.
+ */
+async function embedMcpBuildIdentity(libexec, scratchDirectory) {
+  await build({
+    ...bundleOptions,
+    entryPoints: {
+      "build-compatibility": join(repositoryRoot, "apps/mcp/src/build-compatibility.ts"),
+      "mcp-runtime": join(repositoryRoot, "packages/shared/src/mcp-runtime.ts"),
+    },
+    outdir: scratchDirectory,
+  });
+  try {
+    const { computeMcpCompatibility } = await import(
+      pathToFileURL(join(scratchDirectory, "build-compatibility.js")).href
+    );
+    const { computeMcpBuildIdentity } = await import(pathToFileURL(join(scratchDirectory, "mcp-runtime.js")).href);
+    const entryPath = join(libexec, "apps/mcp/dist/index.js");
+    // esbuild turns the entry's top-level `const` into `var`; the identity readers look for the `const` the tsc build keeps.
+    const source = readFileSync(entryPath, "utf8").replace(
+      /^var (MCP_BUILD_DIST_HASH|MCP_BUILD_COMPATIBILITY_ID) = /gm,
+      "const $1 = ",
+    );
+    const pattern = /const MCP_BUILD_COMPATIBILITY_ID = "(?:[a-f0-9]{64}|__WORK_INTELLIGENCE_COMPATIBILITY__)";/g;
+    if (source.match(pattern)?.length !== 1) throw new Error("Missing unique MCP compatibility identity.");
+    const { compatibilityId } = await computeMcpCompatibility();
+    writeFileSync(entryPath, source.replace(pattern, `const MCP_BUILD_COMPATIBILITY_ID = "${compatibilityId}";`));
+    return await finalizeRuntimeBuild(libexec, computeMcpBuildIdentity);
+  } finally {
+    rmSync(scratchDirectory, { recursive: true, force: true });
+  }
 }
 
 function packageManifest(version, nodeRange, plugin) {
@@ -174,6 +212,8 @@ export async function buildStandalone(
     mkdirSync(dirname(join(libexec, file)), { recursive: true });
     cpSync(join(repositoryRoot, file), join(libexec, file));
   }
+  // Last of everything that is part of the MCP build: the hash covers the bundles exactly as they are shipped.
+  await embedMcpBuildIdentity(libexec, join(outputDirectory, `.identity-${name}`));
   cpSync(webSource, join(packageDirectory, "web"), { recursive: true });
 
   mkdirSync(join(packageDirectory, "bin"), { recursive: true });

@@ -299,6 +299,70 @@ describe("MCP runtime build identity and process leases", () => {
     expect(readMcpBuildIdentity(root)).toBeUndefined();
   });
 
+  describe("standalone runtime layout (bundles only, no packages/*/dist)", () => {
+    function createStandaloneFixture(): string {
+      const root = mkdtempSync(join(tmpdir(), "work-intelligence-standalone-test-"));
+      roots.push(root);
+      const libexec = join(root, "install");
+      mkdirSync(join(libexec, "apps/mcp/dist"), { recursive: true });
+      writeFileSync(
+        join(libexec, "package.json"),
+        JSON.stringify({ name: "work-intelligence-libexec", version: "1.2.3", private: true, type: "module" }),
+      );
+      writeFileSync(
+        join(libexec, "apps/mcp/dist/index.js"),
+        `const MCP_BUILD_DIST_HASH = "__WORK_INTELLIGENCE_BUILD_HASH__";\nconst MCP_BUILD_COMPATIBILITY_ID = "${"c".repeat(64)}";\nexport const runtime = "bundle";\n`,
+      );
+      writeFileSync(join(libexec, "apps/mcp/dist/finalize-reminder.js"), 'export const runtime = "reminder";\n');
+      finalizeMcpRuntimeFixture(libexec);
+      return libexec;
+    }
+
+    it("is readable from the bundle alone and is not reported as unknown", () => {
+      const root = createStandaloneFixture();
+      expect(readMcpBuildIdentity(root)).toMatchObject({ version: "1.2.3", compatibilityId: "c".repeat(64) });
+      const status = getMcpRuntimeStatus(root);
+      expect(status).toMatchObject({ monitoringAvailable: true, restartRequired: false, outdatedProcesses: 0 });
+      expect(status.message).not.toContain("無法確認");
+    });
+
+    it("counts a process that embeds the same compatibility id as current, not as needing a reconnect", () => {
+      const root = createStandaloneFixture();
+      const build = readMcpBuildIdentity(root)!;
+      const now = new Date();
+      const lease = createLease(getMcpRuntimeDirectory(root), randomUUID(), { now });
+      const withBuild = JSON.parse(readFileSync(lease, "utf8")) as Record<string, unknown>;
+      writeFileSync(
+        lease,
+        JSON.stringify({ ...withBuild, buildId: build.buildId, compatibilityId: build.compatibilityId }),
+      );
+      expect(getMcpRuntimeStatus(root, undefined, { now })).toMatchObject({
+        activeProcesses: 1,
+        outdatedProcesses: 0,
+        restartRequired: false,
+      });
+    });
+
+    it("turns unknown again when a bundle is changed after the identity was embedded", () => {
+      for (const file of ["apps/mcp/dist/finalize-reminder.js", "apps/mcp/dist/index.js"]) {
+        const root = createStandaloneFixture();
+        const path = join(root, file);
+        writeFileSync(path, `${readFileSync(path, "utf8")}// tampered\n`);
+        expect(readMcpBuildIdentity(root), file).toBeUndefined();
+        const status = getMcpRuntimeStatus(root);
+        expect(status, file).toMatchObject({ monitoringAvailable: false, restartRequired: true });
+        expect(status.message, file).toContain("無法確認");
+      }
+    });
+
+    it("stays unknown when the bundle cannot be read at all", () => {
+      const root = createStandaloneFixture();
+      rmSync(join(root, "apps/mcp/dist"), { recursive: true, force: true });
+      expect(readMcpBuildIdentity(root)).toBeUndefined();
+      expect(getMcpRuntimeStatus(root).message).toContain("無法確認");
+    });
+  });
+
   it("reports unknown during a build or when a required dist is missing or incomplete", () => {
     const root = createFixture();
     const build = readMcpBuildIdentity(root);
