@@ -9,7 +9,6 @@ import {
   RestartPolicy,
   decideRuntimeRecovery,
   isRuntimeReinstallable,
-  writeDesktopSettingsAtomic,
   type BackendInfo,
   type BundledRuntimeStatus,
   type BackendStartRequest,
@@ -146,19 +145,19 @@ export function createBackendController(options: BackendControllerOptions): Back
       port: info.port,
       runtimeVersion: info.appVersion,
     };
-    const desired = commitPort === undefined ? state.settings.desired : { ...state.settings.desired, port: commitPort };
-    // A steady-state start finds the same record: the fsync'd rewrite is skipped. Deep equality keeps up with the schema.
-    if (
-      isDeepStrictEqual(state.settings.active, active) &&
-      isDeepStrictEqual(state.settings.lastKnownGood, lastKnownGood) &&
-      isDeepStrictEqual(state.settings.desired, desired)
-    ) {
-      return true;
-    }
     try {
-      const next: DesktopSettingsV1 = { ...state.settings, desired, active, lastKnownGood };
-      await writeDesktopSettingsAtomic(paths.settingsFile, next);
-      state.settings = next;
+      await state.updateSettings(paths.settingsFile, (current) => {
+        const desired = commitPort === undefined ? current.desired : { ...current.desired, port: commitPort };
+        // A steady-state start finds the same record: the fsync'd rewrite is skipped. Deep equality keeps up with the schema.
+        if (
+          isDeepStrictEqual(current.active, active) &&
+          isDeepStrictEqual(current.lastKnownGood, lastKnownGood) &&
+          isDeepStrictEqual(current.desired, desired)
+        ) {
+          return null;
+        }
+        return { ...current, desired, active, lastKnownGood };
+      });
       return true;
     } catch (error) {
       log(`[shell] could not record the active service: ${error instanceof Error ? error.message : "unknown error"}`);

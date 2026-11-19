@@ -11,7 +11,6 @@ import {
   runCopyToLocal,
   setupMessages,
   shellMessages,
-  writeDesktopSettingsAtomic,
   type BackendSupervisor,
   type CopyToLocalResult,
   type OperationJournal,
@@ -221,7 +220,7 @@ export function createLocalCopy(
           // The copy is local, and the click was the consent to update it.
           allowSchemaMigration: true,
         });
-        if (outcome.ok && state.settings) await writeDesktopSettingsAtomic(paths.settingsFile, state.settings);
+        if (outcome.ok) await state.updateSettings(paths.settingsFile, (current) => current);
         return outcome;
       },
       async () => {

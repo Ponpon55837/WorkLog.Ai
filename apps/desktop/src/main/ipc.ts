@@ -13,7 +13,6 @@ import {
   REPAIR_CHANNELS,
   repairInputSchemas,
   tabsFor,
-  writeDesktopSettingsAtomic,
   writePrivateFile,
   type BackendSupervisor,
   type OperationJournal,
@@ -249,7 +248,7 @@ export function registerRepairIpc(options: IpcOptions): void {
           return { ok: false, reason: "failed", errorCode: outcome.code };
         }
         state.candidates.remove(candidateId);
-        if (state.settings) await writeDesktopSettingsAtomic(paths.settingsFile, state.settings);
+        await state.updateSettings(paths.settingsFile, (current) => current);
         success.finish(outcome, opensAtStart);
         return { ok: true, state: await info.snapshot() };
       }),

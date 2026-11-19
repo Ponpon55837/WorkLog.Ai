@@ -1,7 +1,7 @@
 import { existsSync, writeSync } from "node:fs";
+import { lstat, readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename } from "node:path";
-import { lstat, readdir, readFile } from "node:fs/promises";
 import { probeLoopbackPort } from "@work-intelligence/shared/loopback-port";
 import { app, dialog } from "electron";
 import {
@@ -47,8 +47,8 @@ import {
 import type { DesktopFacts } from "@work-intelligence/schema";
 import { createAgentsPage } from "./agents.js";
 import { applyAppMenu } from "./app-menu.js";
-import { offerCandidate } from "./candidate-offer.js";
 import { createBackendController } from "./backend.js";
+import { offerCandidate } from "./candidate-offer.js";
 import { createChangePort } from "./change-port.js";
 import {
   ASSET_FILES,
@@ -71,15 +71,15 @@ import { createDashboard } from "./dashboard.js";
 import { createFirstRun } from "./first-run.js";
 import { createIntegrationPublisher } from "./integration-record.js";
 import { registerRepairIpc } from "./ipc.js";
-import { createCopyRunner, createLocalCopy } from "./local-copy.js";
 import { createLegacyGuard } from "./legacy.js";
 import { createLegacyDisable, syntheticLegacyDisable } from "./legacy-disable.js";
+import { createCopyRunner, createLocalCopy } from "./local-copy.js";
 import { createLogger } from "./log.js";
 import { createErrorNotifier, createRecoveredNotifier } from "./notify.js";
 import { createQuit } from "./quit.js";
+import { createRepairInfo } from "./repair-info.js";
 import { createRestore } from "./restore.js";
 import { createRestoreDialogs } from "./restore-dialogs.js";
-import { createRepairInfo } from "./repair-info.js";
 import { createStorageRiskService } from "./storage-risk.js";
 import { createRepairSuccess } from "./repair-success.js";
 import { recoverAtStartup } from "./recovery-startup.js";
@@ -89,7 +89,7 @@ import { createRuntimeProvisioner } from "./runtime-provision.js";
 import { createSecondInstance } from "./second-instance.js";
 import { applySecurityPolicy, createSessionPolicy, registerRepairScheme } from "./security.js";
 import { createLoginItemController } from "./login-item.js";
-import { applyLoginItem, loadSettings, type SettingsLoad } from "./settings.js";
+import { applyLoginItemAtStart, loadSettings, type SettingsLoad } from "./settings.js";
 import { ShellState } from "./state.js";
 import { installTestHook } from "./test-hook.js";
 import { createShellTray } from "./tray.js";
@@ -748,7 +748,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
       else log("[shell] first-run setup waits for the user (tray)");
       return;
     }
-    applyLoginItem(state);
+    applyLoginItemAtStart(state);
     const outcome = await early.started;
     if (!outcome) return;
     if (outcome.ok) {

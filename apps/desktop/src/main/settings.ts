@@ -3,8 +3,10 @@ import { join } from "node:path";
 import { app } from "electron";
 import {
   changeLoginItem,
+  loginItemQueryFor,
   loginItemSettingsFor,
   readDesktopSettings,
+  shouldApplyLoginItemAtStart,
   writeDesktopSettingsAtomic,
   type DesktopSettingsV1,
 } from "@work-intelligence/desktop-core";
@@ -71,4 +73,21 @@ export function applyLoginItem(state: ShellState): void {
   );
   const item = change.ok ? change.loginItem : loginItemSettingsFor(process.platform, false);
   if (item) app.setLoginItemSettings({ ...item, args: item.args ? [...item.args] : undefined });
+}
+
+/**
+ * The login item at an App start. Unlike the user's own click, a start only writes the entry when it is missing (or
+ * present against the user's choice), so a "disabled" mark the user set in the system's startup settings survives.
+ */
+export function applyLoginItemAtStart(state: ShellState): void {
+  const { settings } = state;
+  if (!settings) return;
+  const query = loginItemQueryFor(process.platform);
+  let raw: unknown;
+  try {
+    raw = query ? app.getLoginItemSettings(query as never) : undefined;
+  } catch {
+    raw = undefined;
+  }
+  if (shouldApplyLoginItemAtStart(process.platform, raw, settings.desired.launchAtLogin)) applyLoginItem(state);
 }

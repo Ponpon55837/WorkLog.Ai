@@ -96,7 +96,7 @@ export function userServiceStatusVisual(status: SystemStatus["userService"]): St
 
 type DesktopLoginItem = NonNullable<NonNullable<SystemStatus["desktop"]>["loginItem"]>;
 
-/** Whether the App's own login item agrees with what the user chose; an old App that reports nothing needs checking. */
+/** Whether the App's own login item disagrees with what the user chose; an unsupported or unreadable state is never a mismatch. */
 export function desktopLoginItemMismatch(item: DesktopLoginItem): boolean {
   if (!item.supported || item.system === "unknown") return false;
   return item.desired !== (item.system === "enabled");

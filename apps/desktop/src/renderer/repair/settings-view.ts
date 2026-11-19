@@ -1,7 +1,7 @@
+import { loginItemMessages } from "@work-intelligence/desktop-core/shell/login-item-i18n";
 import { portMessages } from "@work-intelligence/desktop-core/shell/port-i18n";
 import { updateMessages } from "@work-intelligence/desktop-core/shell/update-i18n";
 import type { ViewContext } from "./context.js";
-import { loginItemMessages } from "@work-intelligence/desktop-core/shell/login-item-i18n";
 import { loginItemSection } from "./login-item-view.js";
 import { portSection } from "./port-view.js";
 import { updateSection } from "./update-view.js";

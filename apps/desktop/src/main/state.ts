@@ -14,6 +14,7 @@ import {
   type ServiceOwnerState,
   type AppTab,
   TabMemory,
+  writeDesktopSettingsAtomic,
 } from "@work-intelligence/desktop-core";
 
 const MAX_CANDIDATES = 5;
@@ -44,6 +45,8 @@ export class ShellState {
   readonly candidates = new CandidateRegistry(() => randomUUID(), MAX_CANDIDATES);
   readonly recentErrors = new RecentErrors();
   private readonly listeners = new Set<() => void>();
+  /** Tail of the settings writes: every write waits for the one before it. */
+  private settingsWrites: Promise<unknown> = Promise.resolve();
 
   messages(): ShellMessages {
     return shellMessages(this.locale);
@@ -55,6 +58,30 @@ export class ShellState {
 
   backupDirectory(): string | null {
     return this.settings?.desired.backupDirectory ?? null;
+  }
+
+  /**
+   * The only way to change and save the settings after start. Writers run one at a time and each one starts from the
+   * settings as the writer before it left them, so two overlapping writers (the login switch and a crash-restart that
+   * records the active service) never overwrite each other's field. `mutate` returns the new settings, or null to leave
+   * them alone. The file is written first; the in-memory settings change only when the write worked (a failed write throws
+   * and the settings stay as they were).
+   */
+  updateSettings(
+    file: string,
+    mutate: (current: DesktopSettingsV1) => DesktopSettingsV1 | null,
+  ): Promise<DesktopSettingsV1 | null> {
+    const run = async (): Promise<DesktopSettingsV1 | null> => {
+      if (!this.settings) return null;
+      const next = mutate(this.settings);
+      if (next === null) return null;
+      await writeDesktopSettingsAtomic(file, next);
+      this.settings = next;
+      return next;
+    };
+    const result = this.settingsWrites.then(run, run);
+    this.settingsWrites = result.catch(() => undefined);
+    return result;
   }
 
   /** Moves the owner; a button the page holds belongs to the state it was shown in, so a new owner voids its id. */

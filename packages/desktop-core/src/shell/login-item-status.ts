@@ -67,3 +67,20 @@ export function loginItemNote(section: RepairLoginItemSection): LoginItemNote {
   }
   return section.system === "enabled" || section.system === "needs-approval" ? "enabled-outside-app" : "none";
 }
+
+/**
+ * Whether the start of the App must write the login item at all. The entry is written when it is missing and the user
+ * wants it, or present and the user does not. An entry that is already registered is left alone even when the system
+ * marks it disabled: on Windows, writing `openAtLogin: true` again may clear the user's "off" mark in the system's
+ * startup settings, which would turn the entry back on without the user asking. An answer that cannot be read is applied.
+ */
+export function shouldApplyLoginItemAtStart(platform: NodeJS.Platform, raw: unknown, desired: boolean): boolean {
+  const item = object(raw);
+  let registered: boolean | undefined;
+  if (platform === "win32" && typeof item?.openAtLogin === "boolean") registered = item.openAtLogin;
+  if (platform === "darwin" && typeof item?.status === "string") {
+    if (item.status === "enabled" || item.status === "requires-approval") registered = true;
+    else if (item.status === "not-registered") registered = false;
+  }
+  return registered === undefined || registered !== desired;
+}
