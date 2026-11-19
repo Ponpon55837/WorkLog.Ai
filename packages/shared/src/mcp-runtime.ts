@@ -336,13 +336,18 @@ export function getMcpRestartStatus(
  */
 export const MCP_LEASE_SCOPE_ENVIRONMENT = "WORK_INTELLIGENCE_APP_LEASE_SCOPE";
 
-function canonicalPath(path: string): string {
+/** Windows paths are case-insensitive and accept both separators: one install must hash to one scope however it is spelled. */
+export function normalizeScopePath(path: string, platform: NodeJS.Platform = process.platform): string {
+  return platform === "win32" ? path.replace(/\\/g, "/").toLowerCase() : path;
+}
+
+function canonicalPath(path: string, platform: NodeJS.Platform): string {
   const resolved = resolve(path);
   try {
-    return realpathSync(resolved);
+    return normalizeScopePath(realpathSync(resolved), platform);
   } catch {
     // Keep the resolved path for a not-yet-created synthetic installation in tests.
-    return resolved;
+    return normalizeScopePath(resolved, platform);
   }
 }
 
@@ -354,9 +359,10 @@ function canonicalPath(path: string): string {
 export function getMcpRuntimeDirectory(
   repositoryRoot: string,
   environment: Readonly<Record<string, string | undefined>> = process.env,
+  platform: NodeJS.Platform = process.platform,
 ): string {
   const appScope = environment[MCP_LEASE_SCOPE_ENVIRONMENT]?.trim();
-  const scopeKey = appScope ? `app:${canonicalPath(appScope)}` : canonicalPath(repositoryRoot);
+  const scopeKey = appScope ? `app:${canonicalPath(appScope, platform)}` : canonicalPath(repositoryRoot, platform);
   const scopeId = createHash("sha256").update(scopeKey).digest("hex").slice(0, 24);
   return join(tmpdir(), "work-intelligence", "mcp-runtime", scopeId);
 }

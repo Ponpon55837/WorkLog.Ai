@@ -215,7 +215,12 @@ export type LegacyDisableStartResult =
 /** The answer to the login-item switch: the section as it is now, or why nothing changed. */
 export type LoginItemSetResult =
   | { readonly ok: true; readonly section: RepairLoginItemSection }
-  | { readonly ok: false; readonly reason: "busy" | "unsupported" | "failed" };
+  | {
+      readonly ok: false;
+      readonly reason: "busy" | "unsupported" | "failed";
+      /** `failed` after the system refused the change: what the system really says now. */
+      readonly section?: RepairLoginItemSection;
+    };
 
 /** Why a port change was refused because something is running. */
 export type PortBusyReason = "operation" | "activity" | "unknown";

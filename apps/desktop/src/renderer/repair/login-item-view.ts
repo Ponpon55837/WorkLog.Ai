@@ -1,7 +1,7 @@
 import type { RepairApi, RepairLoginItemSection } from "@work-intelligence/desktop-core";
 import type { LoginItemMessages } from "@work-intelligence/desktop-core/shell/login-item-i18n";
 import { loginItemNote } from "@work-intelligence/desktop-core/shell/login-item-status";
-import { checkbox, hint, section } from "./dom.js";
+import { button, checkbox, hint, section } from "./dom.js";
 
 /** The switch was changed and main has not answered yet: keeps it from being changed twice. */
 let pending = false;
@@ -41,7 +41,15 @@ export function loginItemSection(host: LoginItemViewHost, item: RepairLoginItemS
     return card;
   }
   const status =
-    item.system === "enabled" ? text.statusOn : item.system === "disabled" ? text.statusOff : text.statusUnknown;
+    item.system === "enabled"
+      ? text.statusOn
+      : item.system === "disabled"
+        ? text.statusOff
+        : item.system === "needs-approval"
+          ? text.statusNeedsApproval
+          : text.statusUnknown;
+  const openFailed = hint(text.openSettingsFailed);
+  openFailed.hidden = true;
   const note = loginItemNote(item);
   const card = section(
     text.heading,
@@ -55,6 +63,21 @@ export function loginItemSection(host: LoginItemViewHost, item: RepairLoginItemS
     ),
     hint(status),
     ...(note === "none" ? [] : [hint(text.notes[note])]),
+    ...(item.system === "needs-approval"
+      ? [
+          button(text.openSettings, "open-login-items", true, () => {
+            void host.api
+              .openSystemSettings("login-items")
+              .then((result) => {
+                openFailed.hidden = result.ok;
+              })
+              .catch(() => {
+                openFailed.hidden = false;
+              });
+          }),
+          openFailed,
+        ]
+      : []),
     ...(failed ? [hint(text.failed)] : []),
   );
   card.id = "login-item-section";

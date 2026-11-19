@@ -853,6 +853,25 @@ describe("MCP lease scope under the desktop App", () => {
     expect(status.activeProcesses).toBe(0);
   });
 
+  it("hashes one Windows install to one scope however its path is spelled", () => {
+    const { backendRoot } = twoRuntimes();
+    const spelled = (scope: string) =>
+      getMcpRuntimeDirectory(backendRoot, { WORK_INTELLIGENCE_APP_LEASE_SCOPE: scope }, "win32");
+    expect(spelled("C:\\Users\\Synthetic\\AppData\\Local\\WorkLog")).toBe(
+      spelled("c:/users/synthetic/appdata/local/worklog"),
+    );
+    expect(spelled("C:\\Users\\Synthetic\\AppData\\Local\\WorkLog")).not.toBe(
+      spelled("C:\\Users\\Synthetic\\AppData\\Local\\Other"),
+    );
+  });
+
+  it("keeps the case of a path where the file system tells names apart", () => {
+    const { backendRoot } = twoRuntimes();
+    const at = (scope: string) =>
+      getMcpRuntimeDirectory(backendRoot, { WORK_INTELLIGENCE_APP_LEASE_SCOPE: scope }, "linux");
+    expect(at("/opt/Synthetic/App")).not.toBe(at("/opt/synthetic/app"));
+  });
+
   it("keeps two different App installations apart", () => {
     const { backendRoot, appRoot } = twoRuntimes();
     const other = { WORK_INTELLIGENCE_APP_LEASE_SCOPE: join(appRoot, "other") };

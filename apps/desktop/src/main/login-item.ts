@@ -85,6 +85,17 @@ export function createLoginItemController(options: LoginItemControllerOptions): 
         apply(state);
       } catch (error) {
         log(`[shell] login item not applied: ${error instanceof Error ? error.name : "unknown"}`);
+        // The system refused: keep the file telling what the system really does, then report the failure with the real state.
+        state.settings = settings;
+        try {
+          await writeDesktopSettingsAtomic(paths.settingsFile, settings);
+        } catch {
+          log("[shell] login item setting not restored");
+        }
+        cached = undefined;
+        state.touch();
+        options.changed?.();
+        return { ok: false, reason: "failed", section: section() };
       }
       cached = undefined;
       state.touch();

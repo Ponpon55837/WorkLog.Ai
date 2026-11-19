@@ -9,6 +9,9 @@ export interface LoginItemMessages {
   readonly statusOn: string;
   readonly statusOff: string;
   readonly statusUnknown: string;
+  readonly statusNeedsApproval: string;
+  readonly openSettings: string;
+  readonly openSettingsFailed: string;
   readonly unsupported: string;
   readonly failed: string;
   readonly notes: Readonly<Record<Exclude<LoginItemNote, "none">, string>>;
@@ -21,6 +24,9 @@ const zhTW: LoginItemMessages = {
   statusOn: "目前實際狀態：已開啟",
   statusOff: "目前實際狀態：已關閉",
   statusUnknown: "目前實際狀態：無法確認",
+  statusNeedsApproval: "目前實際狀態：需要在系統設定核准",
+  openSettings: "開啟系統設定的登入項目",
+  openSettingsFailed: "無法開啟系統設定，請自行從系統設定進入登入項目。",
   unsupported: "這個作業系統不支援登入時自動啟動。",
   failed: "無法變更這項設定，請稍後再試。",
   notes: {
@@ -41,6 +47,9 @@ const en: LoginItemMessages = {
   statusOn: "Current system state: on",
   statusOff: "Current system state: off",
   statusUnknown: "Current system state: could not be confirmed",
+  statusNeedsApproval: "Current system state: needs approval in System Settings",
+  openSettings: "Open Login Items in System Settings",
+  openSettingsFailed: "Could not open System Settings. Open Login Items there yourself.",
   unsupported: "This operating system does not support starting at login.",
   failed: "Could not change this setting. Try again later.",
   notes: {

@@ -34,7 +34,7 @@ afterEach(async () => {
   await fsp.rm(directory, { recursive: true, force: true });
 });
 
-function setup(platform: NodeJS.Platform, system: unknown, launchAtLogin = false) {
+function setup(platform: NodeJS.Platform, system: unknown, launchAtLogin = false, apply?: (s: ShellState) => void) {
   const state = new ShellState();
   state.settings = settings(launchAtLogin);
   const settingsFile = path.join(directory, "desktop-settings.json");
@@ -45,7 +45,11 @@ function setup(platform: NodeJS.Platform, system: unknown, launchAtLogin = false
     paths: { settingsFile },
     platform,
     readSystem: () => system,
-    apply: (s) => void applied.push(s.settings?.desired.launchAtLogin === true),
+    apply:
+      apply ??
+      ((s) => {
+        applied.push(s.settings?.desired.launchAtLogin === true);
+      }),
     changed: () => void (changed += 1),
     log: () => undefined,
   });
@@ -100,6 +104,30 @@ describe.each([
     expect(applied).toEqual([]);
     expect(changed()).toBe(0);
     expect(state.settings?.desired.launchAtLogin).toBe(false);
+  });
+});
+
+describe("when the system refuses the change", () => {
+  it("answers failed with what the system says, and does not keep a choice the system never took", async () => {
+    const refuse = () => {
+      throw new Error("synthetic refusal");
+    };
+    const { controller, state, settingsFile, changed } = setup(
+      "win32",
+      { openAtLogin: false, executableWillLaunchAtLogin: false },
+      false,
+      refuse,
+    );
+    await fsp.writeFile(settingsFile, JSON.stringify(settings(false)));
+    const answer = await controller.set(true);
+    expect(answer).toEqual({
+      ok: false,
+      reason: "failed",
+      section: { supported: true, desired: false, system: "disabled" },
+    });
+    expect(state.settings?.desired.launchAtLogin).toBe(false);
+    expect(JSON.parse(await fsp.readFile(settingsFile, "utf8")).desired.launchAtLogin).toBe(false);
+    expect(changed()).toBe(1);
   });
 });
 
