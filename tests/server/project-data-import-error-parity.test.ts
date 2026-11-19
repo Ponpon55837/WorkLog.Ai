@@ -172,9 +172,9 @@ const CASES: ParityCase[] = [
     },
   },
   {
-    name: "UTF-8 byte order mark",
+    name: "UTF-8 byte order mark, skipped (M-18)",
     body: (bundle) => `${BYTE_ORDER_MARK}${valid(bundle)}`,
-    expected: { status: 400, code: "invalid_input", message: "Invalid JSON request body." },
+    expected: "accepted",
   },
   {
     name: "top level array",
