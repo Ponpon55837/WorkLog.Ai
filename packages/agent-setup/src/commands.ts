@@ -194,3 +194,13 @@ export function invokesLauncherAction(value: unknown, action: string, shimPath?:
   }
   return Object.values(value).some((item) => invokesLauncherAction(item, action, shimPath));
 }
+
+/** `cmd /c <command> <args>` is the Windows way to start a `.cmd` shim; it runs the command after `/c`. */
+export function unwrapCmd(command: string, args: readonly string[]): { command: string; args: string[] } {
+  const executable = command.trim().replaceAll("\\", "/").split("/").at(-1)?.toLowerCase();
+  if (executable !== "cmd" && executable !== "cmd.exe") return { command, args: [...args] };
+  const switchIndex = args.findIndex((argument) => argument.toLowerCase() === "/c");
+  const wrapped = switchIndex >= 0 && args.slice(0, switchIndex).every((argument) => /^\/[a-z]$/i.test(argument));
+  const [inner, ...rest] = wrapped ? args.slice(switchIndex + 1) : [];
+  return inner === undefined ? { command, args: [...args] } : { command: inner, args: rest };
+}

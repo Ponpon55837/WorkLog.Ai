@@ -4,6 +4,24 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.61] - 2026-11-19
+
+[繁體中文更新說明](docs/releases/1.6.61.md).
+
+This patch release lets the desktop App take over a hand-written `pnpm start:mcp` registration, which reported a conflict on macOS 1.6.60. The schema stays at 33 and no migration is needed. Real-device acceptance on Windows 11 and macOS is still pending.
+
+### Fixed
+
+- **"Conflict, nothing written" for a hand-written pnpm registration.** Adoption ("改由桌面 App 管理") only knew `node <checkout>/apps/mcp/dist/launcher.js`, so `command = "pnpm", args = ["--dir", <checkout>, "start:mcp"]` in Codex `config.toml` and the Claude MCP entry was refused. It now reads `pnpm`, `pnpm.cmd` and `pnpm.exe` (absolute or on PATH, also behind `cmd /c`) with `--dir`, `-C`, `--dir=` or `cwd`, optionally `run start:mcp`, finds the checkout root, and rewrites only `command` and `args` to the launcher shim. `enabled`, other `env` keys, the other servers, `[hooks.state]` and a `cwd` that names another folder stay; a `cwd` that only named the checkout is removed, because the launcher would fail to start once that folder is gone. Undo restores both files byte for byte.
+- **Another database is never swapped in.** `WORK_INTELLIGENCE_DB` follows the existing same-file check: when it names another file than the App's, nothing is adopted and the Agent card says so, with the choice the App already offered.
+- **The refusal now says what to do.** A plain "Preview changes" that is refused because an Agent has an adoptable hand-written registration points at "Let the desktop App manage it…". When a registration cannot be adopted, the card explains why in plain words and what the person can do; no command is asked for.
+- **Plugin hooks next to the App's hook.** The Agent card warns when the Agent's own Work Intelligence plugin brings finalize hooks (Codex: plugin enabled, or trust state for a `work-intelligence@…` hook in `[hooks.state]`; Claude Code: plugin enabled) while an App or checkout hook is installed, so the reminder may fire twice. The plugin is never changed.
+
+### Notes
+
+- An adopted entry keeps the `WORK_INTELLIGENCE_DB` it had (the explicit variable always wins in the launcher). If the App later changes its database, that entry stays on the old file until it is set up again; hooks follow the App.
+- The database path of a refused adoption is shown only on the Agent card, never in the diagnostics summary.
+
 ## [1.6.60] - 2026-11-19
 
 [繁體中文更新說明](docs/releases/1.6.60.md).

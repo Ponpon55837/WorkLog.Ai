@@ -213,6 +213,26 @@ describe("runLauncher hands the App's database to Agent actions", () => {
     expect(serve.seen).toEqual([undefined]);
   });
 
+  it("lets an adopted entry's explicit WORK_INTELLIGENCE_DB win, and agrees with the hooks while it names the App's file", async () => {
+    const app = path.join(root, "app 資料", "work-intelligence.sqlite");
+    await writeDesktopSettingsPointer(root, settingsFile);
+    await writeDesktopSettingsAtomic(settingsFile, settings(app));
+    // An adopted pnpm registration keeps the variable it had; here it names the App's own file.
+    const mcp = launchHost({ WORK_INTELLIGENCE_DB: app });
+    await launch("mcp", mcp);
+    const hooks = launchHost();
+    for (const action of ["claude-finalize-reminder", "codex-finalize-reminder"]) await launch(action, hooks);
+    expect([...mcp.seen, ...hooks.seen]).toEqual([app, app, app]);
+    expect(mcp.stderr).toEqual([]);
+
+    // The explicit variable stays in force after the App moves to another file: the entry is not silently re-pointed.
+    const moved = path.join(root, "moved", "work-intelligence.sqlite");
+    await writeDesktopSettingsAtomic(settingsFile, settings(moved));
+    const pinned = launchHost({ WORK_INTELLIGENCE_DB: app });
+    await launch("mcp", pinned);
+    expect(pinned.seen).toEqual([app]);
+  });
+
   it("keeps the standalone rule without App settings", async () => {
     const none = launchHost();
     for (const action of ACTIONS) await launch(action, none);

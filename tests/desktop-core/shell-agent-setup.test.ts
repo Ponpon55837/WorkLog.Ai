@@ -229,6 +229,20 @@ describe("Agent hook texts", () => {
     expect(enSetup.agentsHookCheckoutNote).toContain("optional");
   });
 
+  it("explains in plain words what a person can do, without asking for a command", () => {
+    for (const setup of [zhSetup, enSetup]) {
+      expect(setup.agentsAdoptInstead).toContain(
+        setup === zhSetup ? zhSetup.agentsPreviewAdopt : enSetup.agentsPreviewAdopt,
+      );
+      expect(setup.agentsNotAdoptable.length).toBeGreaterThan(40);
+      for (const text of [setup.agentsAdoptInstead, setup.agentsNotAdoptable, setup.agentsPluginHooksDuplicate]) {
+        expect(text).not.toMatch(/pnpm|\bnode\b|`|--dir/);
+      }
+    }
+    expect(zhSetup.agentsPluginHooksDuplicate).toContain("plugin");
+    expect(enSetup.agentsPluginHooksDuplicate).toContain("plugin");
+  });
+
   it("defines the same hook keys in both setup locales", () => {
     for (const name of ["agentHookInstalled", "agentHookNotInstalled"] as const) {
       expect(keyPaths(enSetup[name])).toEqual(keyPaths(zhSetup[name]));

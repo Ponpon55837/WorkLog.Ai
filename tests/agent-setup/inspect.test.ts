@@ -1,10 +1,12 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   applyAgentSetupPlan,
+  codexPluginHooksPresent,
   createAgentSetupPlan,
   inspectAgentRegistrations,
+  readCodexPluginHooksPresent,
   type AgentRegistrationInspection,
 } from "@work-intelligence/agent-setup";
 import { createFixture, readJson, removeFixtures, writeJson } from "./fixture.js";
@@ -154,5 +156,32 @@ describe("inspectAgentRegistrations", () => {
     expect(inspection.unreadable.sort()).toEqual(
       [fixture.paths.codexConfig, fixture.paths.claudeJson, fixture.paths.claudeSettings].sort(),
     );
+  });
+});
+
+describe("codexPluginHooksPresent", () => {
+  it("counts an enabled plugin or trust state kept for a work-intelligence@ hook, and nothing else", () => {
+    const state = (key: string) => ({ hooks: { state: { [key]: { trusted_hash: "sha256:synthetic" } } } });
+    expect(codexPluginHooksPresent({ plugins: { "work-intelligence@market": { enabled: true } } })).toBe(true);
+    expect(codexPluginHooksPresent(state("work-intelligence@market:hooks/codex-hooks.json:stop:0:0"))).toBe(true);
+    expect(codexPluginHooksPresent(state("another-plugin@market:hooks.json:stop:0:0"))).toBe(false);
+    expect(codexPluginHooksPresent({ plugins: { "work-intelligence@market": { enabled: false } } })).toBe(false);
+    expect(codexPluginHooksPresent({ hooks: { state: "text" } })).toBe(false);
+    expect(codexPluginHooksPresent(undefined)).toBe(false);
+  });
+
+  it("reads config.toml read-only and treats a missing or broken file as no plugin hooks", () => {
+    const fixture = createFixture();
+    const directory = dirname(fixture.paths.codexConfig);
+    writeFileSync(
+      fixture.paths.codexConfig,
+      '[hooks.state."work-intelligence@market:hooks/codex-hooks.json:stop:0:0"]\ntrusted_hash = "sha256:synthetic"\n',
+    );
+    const before = readFileSync(fixture.paths.codexConfig);
+    expect(readCodexPluginHooksPresent(directory)).toBe(true);
+    expect(readFileSync(fixture.paths.codexConfig)).toEqual(before);
+    writeFileSync(fixture.paths.codexConfig, "[broken");
+    expect(readCodexPluginHooksPresent(directory)).toBe(false);
+    expect(readCodexPluginHooksPresent(join(fixture.temporaryRoot, "missing"))).toBe(false);
   });
 });

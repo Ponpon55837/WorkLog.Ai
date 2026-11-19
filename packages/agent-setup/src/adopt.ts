@@ -15,6 +15,8 @@ import {
   isLauncherMcpRegistration,
   isLauncherShimCommand,
   isNodeExecutable,
+  isPnpmExecutable,
+  unwrapCmd,
 } from "./commands.js";
 import {
   CLAUDE_HOOK_ACTION,
@@ -118,6 +120,10 @@ interface McpAnalysis {
   relativeDatabase?: string;
   /** Set when the entry has no `WORK_INTELLIGENCE_DB`, so it used `<root>/data/work-intelligence.sqlite`. */
   missingDatabase?: true;
+  /** The entry starts the checkout with `pnpm start:mcp`; adoption then also drops a `cwd` that only named the checkout. */
+  pnpm?: true;
+  /** pnpm form: the `cwd` resolves to the checkout root itself, so it means nothing once the launcher shim runs. */
+  cwdIsRoot?: true;
 }
 
 interface JsonMcpHit {
@@ -234,30 +240,98 @@ function rootOfScript(
   return { reason: `script 路徑不是 ${relativePaths.map((path) => `<checkout>/${path}`).join(" 或 ")}` };
 }
 
+/**
+ * The checkout root of `pnpm [--dir <dir>|-C <dir>|--dir=<dir>] [run] start:mcp` (a relative directory is taken from
+ * `cwd`; without a directory `cwd` is the checkout), or why it cannot be told. Any other argument is refused: a flag
+ * such as `--filter` changes what runs, so the entry is not the form the checkout documents.
+ */
+function rootOfPnpm(
+  args: readonly unknown[],
+  cwd: unknown,
+  platform: NodeJS.Platform,
+): { root: string; cwdIsRoot: boolean } | { reason: string } {
+  const flavor = flavorOf(platform);
+  let directory: string | undefined;
+  let script = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (typeof argument !== "string") return { reason: "pnpm 的參數不是文字" };
+    if (argument === "--dir" || argument === "-C") {
+      const value = args[index + 1];
+      if (directory !== undefined || typeof value !== "string" || value === "")
+        return { reason: "pnpm 的目錄參數不完整" };
+      directory = value;
+      index += 1;
+    } else if (argument.startsWith("--dir=") && argument.length > "--dir=".length && directory === undefined) {
+      directory = argument.slice("--dir=".length);
+    } else if (argument === "start:mcp" && !script) script = true;
+    else if (argument === "run" && index === args.length - 2 && args[index + 1] === "start:mcp") continue;
+    else return { reason: "pnpm 的參數不是單純的 start:mcp 啟動形式" };
+  }
+  if (!script) return { reason: "pnpm 沒有執行 start:mcp" };
+  const base = typeof cwd === "string" && cwd !== "" ? cwd : undefined;
+  if (cwd !== undefined && base === undefined) return { reason: "cwd 不是文字路徑" };
+  const resolved =
+    directory === undefined
+      ? base
+      : flavor.isAbsolute(directory)
+        ? directory
+        : base && flavor.isAbsolute(base)
+          ? flavor.resolve(base, directory)
+          : undefined;
+  if (resolved === undefined || !flavor.isAbsolute(resolved)) {
+    return { reason: "pnpm 的目錄不是絕對路徑，無法判斷 checkout 位置" };
+  }
+  const root = resolved.length > 1 ? resolved.replace(/[\\/]+$/, "") : resolved;
+  const cwdIsRoot =
+    base !== undefined && comparableRoot(flavor.resolve(base), platform) === comparableRoot(root, platform);
+  return { root, cwdIsRoot };
+}
+
 function analyseMcpServer(server: unknown, platform: NodeJS.Platform): McpAnalysis | undefined {
   if (isLauncherMcpRegistration(server)) return undefined;
   if (!JSON_OBJECT(server) || typeof server.command !== "string") {
     return { recognised: false, reason: "不是 command 形式的 MCP 註冊" };
   }
-  const args = Array.isArray(server.args) ? server.args : undefined;
+  // `cmd /c pnpm.cmd …` is how Windows starts a `.cmd` shim; the program after `/c` is what the entry runs.
+  const wrapped =
+    Array.isArray(server.args) && server.args.every((argument) => typeof argument === "string")
+      ? unwrapCmd(server.command, server.args as string[])
+      : { command: server.command, args: Array.isArray(server.args) ? server.args : undefined };
+  const args: unknown[] | undefined = wrapped.args;
   const scripts = [MCP_LAUNCHER_RELATIVE_PATH, MCP_SERVER_RELATIVE_PATH];
-  let root: string | undefined;
-  for (const argument of args ?? []) {
-    if (typeof argument !== "string") continue;
-    const found = rootOfScript(argument, scripts, platform);
-    if ("root" in found) {
-      root = found.root;
-      break;
+  const pnpm = isPnpmExecutable(wrapped.command);
+  const pnpmRoot = pnpm ? rootOfPnpm(args ?? [], server.cwd, platform) : undefined;
+  let root: string | undefined = pnpmRoot && "root" in pnpmRoot ? pnpmRoot.root : undefined;
+  if (!pnpm) {
+    for (const argument of args ?? []) {
+      if (typeof argument !== "string") continue;
+      const located = rootOfScript(argument, scripts, platform);
+      if ("root" in located) {
+        root = located.root;
+        break;
+      }
     }
   }
   const fail = (reason: string): McpAnalysis => ({ recognised: false, reason, ...(root ? { root } : {}) });
-  if (!isNodeExecutable(server.command)) return fail("command 不是 node（例如 pnpm 啟動）");
-  if (!args || args.length !== 1 || typeof args[0] !== "string") return fail("args 不是單一 script 路徑");
-  const found = rootOfScript(args[0], scripts, platform);
-  if (!("root" in found)) return fail(found.reason);
+  let found: { root: string };
+  if (pnpmRoot) {
+    if (!("root" in pnpmRoot)) return fail(pnpmRoot.reason);
+    found = pnpmRoot;
+  } else {
+    if (!isNodeExecutable(wrapped.command)) return fail("command 不是 node 或 pnpm");
+    if (!args || args.length !== 1 || typeof args[0] !== "string") return fail("args 不是單一 script 路徑");
+    const located = rootOfScript(args[0], scripts, platform);
+    if (!("root" in located)) return fail(located.reason);
+    found = located;
+  }
   const flavor = flavorOf(platform);
   const env = server.env;
   if (env !== undefined && !JSON_OBJECT(env)) return fail("env 結構不受支援");
+  const traits = {
+    ...(pnpm ? { pnpm: true as const } : {}),
+    ...(pnpmRoot && "cwdIsRoot" in pnpmRoot && pnpmRoot.cwdIsRoot ? { cwdIsRoot: true as const } : {}),
+  };
   const database = JSON_OBJECT(env) ? env[DATABASE_ENV] : undefined;
   if (database === undefined) {
     return {
@@ -265,18 +339,20 @@ function analyseMcpServer(server: unknown, platform: NodeJS.Platform): McpAnalys
       root: found.root,
       effectiveDatabase: flavor.join(found.root, "data", "work-intelligence.sqlite"),
       missingDatabase: true,
+      ...traits,
     };
   }
   if (typeof database !== "string" || database === "" || database === ":memory:" || database.startsWith("file:")) {
     return { recognised: false, reason: `${DATABASE_ENV} 不是一般檔案路徑`, root: found.root };
   }
   return flavor.isAbsolute(database)
-    ? { recognised: true, root: found.root, effectiveDatabase: database }
+    ? { recognised: true, root: found.root, effectiveDatabase: database, ...traits }
     : {
         recognised: true,
         root: found.root,
         effectiveDatabase: flavor.resolve(found.root, database),
         relativeDatabase: database,
+        ...traits,
       };
 }
 
@@ -680,6 +756,8 @@ function scanCodexToml(text: string, context: ScanContext, location: string): To
         !pairValue(text, args).startsWith("[")
       ) {
         reason = "command 或 args 不是可安全改寫的單純寫法";
+      } else if (analysis.cwdIsRoot && !findBodyPair(layout, "cwd")) {
+        reason = "cwd 不是可安全改寫的單純寫法";
       } else if (analysis.relativeDatabase !== undefined && !findDatabaseToken(text, layout)) {
         reason = `${DATABASE_ENV} 不是可安全改寫的單純寫法`;
       } else if (analysis.missingDatabase && !databaseInsertion(text, layout, analysis.effectiveDatabase ?? "")) {
@@ -925,6 +1003,8 @@ export function adoptClaudeMcp(root: Record<string, unknown>, context: AdoptCont
   const { entry, analysis, info } = hit;
   entry.command = context.shimPath;
   entry.args = [LAUNCHER_MCP_ARGUMENT];
+  // A `cwd` that only named the checkout would make the launcher fail to start once that folder is gone.
+  if (analysis.cwdIsRoot) delete entry.cwd;
   if (analysis.relativeDatabase !== undefined && JSON_OBJECT(entry.env)) {
     entry.env[DATABASE_ENV] = analysis.effectiveDatabase;
   } else if (analysis.missingDatabase) {
@@ -986,6 +1066,8 @@ export function adoptCodexToml(text: string, context: AdoptContext, location: st
     { start: command.valueStart, end: command.valueEnd!, text: JSON.stringify(context.shimPath) },
     { start: args.valueStart, end: args.valueEnd!, text: `[${JSON.stringify(LAUNCHER_MCP_ARGUMENT)}]` },
   ];
+  const cwd = analysis.cwdIsRoot ? findBodyPair(layout, "cwd") : undefined;
+  if (cwd) edits.push({ start: cwd.start, end: cwd.eolEnd, text: "" });
   if (analysis.relativeDatabase !== undefined) {
     const token = findDatabaseToken(text, layout);
     if (!token) return undefined;
@@ -1016,6 +1098,7 @@ export function adoptCodexToml(text: string, context: AdoptContext, location: st
   if (!JSON_OBJECT(expectedServer)) return undefined;
   expectedServer.command = context.shimPath;
   expectedServer.args = [LAUNCHER_MCP_ARGUMENT];
+  if (analysis.cwdIsRoot) delete expectedServer.cwd;
   if (analysis.relativeDatabase !== undefined && JSON_OBJECT(expectedServer.env)) {
     expectedServer.env[DATABASE_ENV] = analysis.effectiveDatabase;
   } else if (analysis.missingDatabase) {
