@@ -20,14 +20,14 @@ import type {
   ProjectDataImportUpload,
   StagedProjectDataImportInspection,
 } from "./routes/router.js";
-import { BackupWorkerOutOfMemoryError } from "./backup-worker-errors.js";
+import { BackupWorkerOutOfMemoryError, BackupWorkerTimeoutError } from "./backup-worker-errors.js";
 import { RequestBodyError } from "./http.js";
 
 export type BackupWorkerOperation =
   | { type: "createBackup" }
   | { type: "backupIfDue" }
   | { type: "exportTo"; target: string; options?: ExportOptions }
-  | { type: "exportProjectData"; scope: ProjectDataExportScope; target: string }
+  | { type: "exportProjectData"; scope: ProjectDataExportScope; target: string; maxBytes?: number }
   | { type: "previewProjectDataImport"; upload: ProjectDataImportUpload }
   | { type: "importProjectData"; upload: ProjectDataImportUpload }
   | { type: "inspectStagedProjectDataImport"; upload: ProjectDataImportUpload };
@@ -90,7 +90,16 @@ export interface BackupWorkerClientOptions {
    * `WORK_INTELLIGENCE_BACKGROUND_HEAP_MB` override); tests use a tiny heap to force an out-of-memory exit.
    */
   heapMb?: number;
+  /** Longest a single operation may take before its process is stopped, instead of {@link OPERATION_WATCHDOG_MS}. */
+  operationTimeoutMs?: number;
 }
+
+/**
+ * A request the process never answers (a hung disk, a stuck read) would hold its HTTP request and the desktop's
+ * activity gate forever. The largest legitimate operation, an import at the 256 MiB limit, takes minutes, so this is
+ * generous: it only ends what is certainly stuck. The process is killed and the next request starts a fresh one.
+ */
+export const OPERATION_WATCHDOG_MS = 30 * 60_000;
 
 export const DEFAULT_IDLE_TIMEOUT_MS = 15_000;
 /**
@@ -217,6 +226,7 @@ function restoredError(error: SerializedWorkerError): Error {
     "unsupported_schema",
     "project_not_found",
     "project_backup_failed",
+    "export_too_large",
   ];
   if (transferCodes.includes(error.code as ProjectDataTransferErrorCode)) {
     return new ProjectDataTransferError(error.code as ProjectDataTransferErrorCode, error.message);
@@ -269,8 +279,12 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
     return this.run({ type: "exportTo", target, ...(options ? { options } : {}) });
   }
 
-  public exportProjectData(scope: ProjectDataExportScope, target: string): Promise<{ bytes: number }> {
-    return this.run({ type: "exportProjectData", scope, target });
+  public exportProjectData(
+    scope: ProjectDataExportScope,
+    target: string,
+    maxBytes?: number,
+  ): Promise<{ bytes: number }> {
+    return this.run({ type: "exportProjectData", scope, target, maxBytes });
   }
 
   public previewProjectDataImport(upload: ProjectDataImportUpload): Promise<ProjectDataImportPreviewWithFolderStatus> {
@@ -327,12 +341,32 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
     if (lifetime.failure !== undefined) throw lifetime.failure;
     if (HEAVY_OPERATIONS.has(operation.type)) lifetime.heavy = true;
     const id = this.nextId++;
+    const timeoutMs = this.options.operationTimeoutMs ?? OPERATION_WATCHDOG_MS;
     return new Promise<T>((resolve, reject) => {
-      this.addPending(id, { lifetime, resolve: (value) => resolve(value as T), reject });
+      const watchdog = setTimeout(() => {
+        if (!this.pending.has(id)) return;
+        this.removePending(id);
+        reject(new BackupWorkerTimeoutError(operation.type, timeoutMs));
+        // Its other requests fail with the exit; the next request starts a new process.
+        lifetime.child.kill("SIGKILL");
+      }, timeoutMs);
+      watchdog.unref();
+      this.addPending(id, {
+        lifetime,
+        resolve: (value) => {
+          clearTimeout(watchdog);
+          resolve(value as T);
+        },
+        reject: (error) => {
+          clearTimeout(watchdog);
+          reject(error);
+        },
+      });
       try {
         lifetime.child.send({ id, operation } satisfies BackupWorkerRequest);
       } catch (error) {
         this.removePending(id);
+        clearTimeout(watchdog);
         reject(error);
       }
     });

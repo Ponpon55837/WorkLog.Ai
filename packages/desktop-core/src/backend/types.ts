@@ -35,6 +35,11 @@ export interface BackendSupervisorDependencies {
   randomChallenge(): string;
   /** `fs.realpathSync.native`, so a Windows 8.3 name or a symlinked path compares equal to the real executable. */
   realpath(path: string): string;
+  /**
+   * Ends the process `pid` together with every process it started. Windows only, and only for the final kill there:
+   * `kill()` is TerminateProcess, which leaves a child of the child (the import worker) running as an orphan.
+   */
+  killTree?(pid: number): void | Promise<void>;
   /** Creates `path` (and its parents) when it is missing; used for the fixed working directory before every spawn. */
   ensureDirectory?(path: string): Promise<void>;
   setTimer(callback: () => void, ms: number): unknown;
@@ -65,6 +70,8 @@ export interface BackendTimeouts {
   /** How long to poll for the port to become free after exit. */
   readonly portReleaseMs: number;
   readonly pollMs: number;
+  /** Between two health checks of a running backend; 0 turns them off. A backend that stops answering is not left up (L-09). */
+  readonly monitorMs: number;
 }
 
 export const DEFAULT_BACKEND_TIMEOUTS: BackendTimeouts = {
@@ -79,6 +86,7 @@ export const DEFAULT_BACKEND_TIMEOUTS: BackendTimeouts = {
   killMs: 3_000,
   portReleaseMs: 5_000,
   pollMs: 100,
+  monitorMs: 60_000,
 };
 
 /** What the preflight found, handed to `beforeStart` so the caller can persist intent before anything can write. */

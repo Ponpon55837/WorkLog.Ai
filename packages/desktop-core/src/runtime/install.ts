@@ -17,6 +17,7 @@ import { lstatEntry, sameFingerprint, scanRuntimeDirectory } from "./scan.js";
 import { renderLaunchFile, renderPosixShim, renderWindowsShim } from "./shims.js";
 import { assertSymlinksStayInside } from "./symlinks.js";
 import { writeVerifiedCache, type CachedFile } from "./verified-cache.js";
+import { currentPermissionPolicy } from "./permissions.js";
 import { verifyRuntime, type VerifiedRuntime, type VerifyRuntimeOptions } from "./verify.js";
 
 /** What an installer decides about a runtime whose files are already in `runtimes/<runtimeId>/`. */
@@ -184,7 +185,29 @@ export async function commitCurrent(
   runtimeId: string,
   options: VerifyRuntimeOptions = {},
 ): Promise<VerifiedRuntime> {
-  const verification = await verifyRuntime(root, runtimeId, { alwaysCheckAcl: true, ...options });
-  await writeFileAtomic(runtimeLayout(root).currentFile, `${runtimeId}\n`, { mode: MANIFEST_MODE });
-  return verification;
+  const currentFile = runtimeLayout(root).currentFile;
+  const readsAcl = (options.policy ?? currentPermissionPolicy()).platform === "win32" && options.checkAcl !== false;
+  if (!readsAcl || options.reuseAclStamp !== undefined) {
+    const verification = await verifyRuntime(root, runtimeId, { alwaysCheckAcl: true, ...options });
+    await writeFileAtomic(currentFile, `${runtimeId}\n`, { mode: MANIFEST_MODE });
+    return verification;
+  }
+  // Windows reads the ACLs once, and the change times it stamps include `current` and the root, which the switch itself
+  // moves. Taken before the switch, that stamp was stale on arrival and the first start after every install read the
+  // ACLs again, on an Agent's hook (M-09). So the pointer moves first and the one complete verification follows it; a
+  // runtime that fails is not left named: the previous pointer is put back. A launcher verifies on every start, so the
+  // short window never runs anything unverified.
+  const previous = await fs.readFile(currentFile, "utf8").catch(() => undefined);
+  await writeFileAtomic(currentFile, `${runtimeId}\n`, { mode: MANIFEST_MODE });
+  try {
+    return await verifyRuntime(root, runtimeId, { alwaysCheckAcl: true, ...options });
+  } catch (error) {
+    try {
+      if (previous === undefined) await fs.rm(currentFile, { force: true });
+      else await writeFileAtomic(currentFile, previous, { mode: MANIFEST_MODE });
+    } catch {
+      // The verification failure below is the error to report; a pointer that cannot be put back is found by the next start.
+    }
+    throw error;
+  }
 }

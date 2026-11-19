@@ -7,10 +7,8 @@ import {
   databaseStatusFor,
   displayPath,
   ErrorPresenter,
-  isAllowedNavigation,
   isDashboardUrl,
   isDeterministicFailure,
-  isRepairActionId,
   isTrustedRepairSender,
   databaseKey,
   LastBackupTracker,
@@ -53,7 +51,6 @@ describe("navigation policy", () => {
     "",
   ])("refuses %s", (url) => {
     expect(resolveRepairAsset(url)).toBeUndefined();
-    expect(isAllowedNavigation(url, 41_000)).toBe(false);
   });
 
   it("allows the Dashboard only on the loopback address with the exact active port", () => {
@@ -72,8 +69,6 @@ describe("navigation policy", () => {
       expect(isDashboardUrl(bad, 41_000)).toBe(false);
     }
     expect(isDashboardUrl("http://127.0.0.1:41000/", null)).toBe(false);
-    expect(isAllowedNavigation("http://127.0.0.1:41000/", 41_000)).toBe(true);
-    expect(isAllowedNavigation("wi-repair://app/index.html", null)).toBe(true);
   });
 
   it("pins the CSP", () => {
@@ -169,9 +164,6 @@ describe("repair IPC", () => {
       "update:check",
       "update:open-link",
     ]);
-    expect(isRepairActionId("retry-start")).toBe(true);
-    expect(isRepairActionId("start-anyway")).toBe(true);
-    expect(isRepairActionId("rm-rf")).toBe(false);
   });
 });
 

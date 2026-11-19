@@ -29,7 +29,9 @@ import {
   codexHooksFeatureFromToml,
   codexTomlBlock,
   codexWorkIntelligenceServer,
+  insertCodexBlockBeforeToolApprovals,
   moveCodexToolTablesOutOfBlock,
+  removeCodexBlockWithToolApprovals,
   tomlHasUnsupportedMcpEntry,
   upgradeDirectCodexRegistration,
 } from "./toml.js";
@@ -41,6 +43,7 @@ import type {
   AgentSetupPlanOptions,
   CodexHooksFeature,
   JsonMutationSpec,
+  ReadFileResult,
   SetupManifest,
 } from "./types.js";
 
@@ -224,6 +227,11 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
   // An enabled plugin already provides MCP, skill and hooks for that Agent; registering them again would duplicate them.
   const claudePlugin = readClaudePluginEnabled(options.claudeConfigDirectory!);
   const codexPlugin = readCodexPluginEnabled(options.codexHomeDirectory!);
+  // An Agent the caller did not select is left alone like one a plugin serves: its files are not even read, so a conflict
+  // there never blocks the other Agent (M-17).
+  const selected = new Set(options.agents ?? ["codex", "claude-code"]);
+  const skipClaude = claudePlugin || !selected.has("claude-code");
+  const skipCodex = codexPlugin || !selected.has("codex");
   if (claudePlugin) {
     plan.actions.push(
       "Claude Code 已啟用 work-intelligence plugin，略過手動註冊（plugin 已提供 MCP、skill 與 hook）。",
@@ -245,7 +253,7 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
     !launcherTarget && (publishedHashes ??= publishedSkillHashes(repositoryRoot)).has(lineEndingNeutralSha256(bytes));
 
   for (const id of ["codexSkill", "codexLegacySkill", "claudeSkill"] as const) {
-    if (id === "claudeSkill" ? claudePlugin : codexPlugin) continue;
+    if (id === "claudeSkill" ? skipClaude : skipCodex) continue;
     const path = targetPath(id, options);
     const current = readRegularFile(path);
     if (current.conflict) addConflict(plan, current.conflict);
@@ -266,7 +274,7 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
   }
 
   const tomlPath = targetPath("codexMcp", options);
-  const tomlFile = readRegularFile(tomlPath);
+  const tomlFile: ReadFileResult = skipCodex ? { bytes: null, mode: 0o600 } : readRegularFile(tomlPath);
   if (tomlFile.conflict) addConflict(plan, tomlFile.conflict);
   const tomlText = tomlFile.bytes?.toString("utf8") ?? "";
   const tomlNewline = tomlText.includes("\r\n") ? "\r\n" : "\n";
@@ -275,9 +283,15 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
   const tomlOwned = tomlEntryIndex >= 0 ? components[tomlEntryIndex] : undefined;
   const tomlOwnedExpected = tomlOwned?.kind === "toml-block" ? tomlOwned.expected : undefined;
   const codexRegistration = registrationKind(codexWorkIntelligenceServer(tomlText), options);
-  const adoptedToml = !codexPlugin && adoptContext ? adoptCodexToml(tomlText, adoptContext, tomlPath) : undefined;
-  if (codexPlugin) {
-    // The plugin registers the MCP server; leave config.toml alone.
+  /** A removal used to leave Codex's tool approvals alone in the file: the block goes in front of them and they stay. */
+  const stageToolApprovalBlock = (): void => {
+    const next = insertCodexBlockBeforeToolApprovals(tomlText, desiredBlock) ?? tomlText;
+    stageMutation(plan, options, tomlPath, "Codex MCP 註冊", tomlFile.bytes, Buffer.from(next, "utf8"), tomlFile.mode);
+    setEntry(components, { id: "codexMcp", kind: "toml-block", expected: desiredBlock });
+  };
+  const adoptedToml = !skipCodex && adoptContext ? adoptCodexToml(tomlText, adoptContext, tomlPath) : undefined;
+  if (skipCodex) {
+    // A plugin registers the MCP server, or Codex was not selected; leave config.toml alone.
   } else if (adoptedToml !== undefined) {
     stageMutation(
       plan,
@@ -337,6 +351,8 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
       setEntry(components, { id: "codexMcp", kind: "toml-block", expected: desiredBlock });
     } else if (tomlText.includes(TOML_BLOCK_START) || tomlText.includes(TOML_BLOCK_END)) {
       addConflict(plan, "Codex MCP 的安裝區塊已被修改；保留且拒絕覆寫。");
+    } else if (insertCodexBlockBeforeToolApprovals(tomlText, desiredBlock) !== undefined) {
+      stageToolApprovalBlock();
     } else if (!tomlHasUnsupportedMcpEntry(tomlText)) {
       const prefix = tomlText && !tomlText.endsWith("\n") ? tomlText + tomlNewline : tomlText;
       stageMutation(
@@ -352,6 +368,8 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
     } else {
       addConflict(plan, "Codex config.toml 已有未支援的 mcp_servers 結構；保留且拒絕修改。");
     }
+  } else if (insertCodexBlockBeforeToolApprovals(tomlText, desiredBlock) !== undefined) {
+    stageToolApprovalBlock();
   } else if (tomlHasUnsupportedMcpEntry(tomlText)) {
     addConflict(plan, "Codex config.toml 已有未支援的 mcp_servers 結構；保留且拒絕修改。");
   } else {
@@ -368,7 +386,7 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
     setEntry(components, { id: "codexMcp", kind: "toml-block", expected: desiredBlock });
   }
 
-  const codexFeature = codexPlugin ? "enabled" : codexHooksFeatureFromToml(tomlText);
+  const codexFeature = skipCodex ? "enabled" : codexHooksFeatureFromToml(tomlText);
   if (codexFeature === "disabled") {
     plan.actions.push("保留 ~/.codex/config.toml 的 [features].hooks=false；略過 Codex hooks 設定。");
   } else if (codexFeature === "unknown") {
@@ -388,7 +406,7 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
     jsonFileChanges.set(path, changes);
   };
 
-  if (!claudePlugin) {
+  if (!skipClaude) {
     const claudeJsonPath = targetPath("claudeMcp", options);
     const claudeSettingsPath = targetPath("claudeStopHook", options);
     mutateJson(
@@ -402,7 +420,7 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
       adoptContext && ((root) => adoptHooks(root, "claude-code", adoptContext, claudeSettingsPath)),
     );
   }
-  if (!codexPlugin && codexFeature !== "disabled" && codexFeature !== "unknown") {
+  if (!skipCodex && codexFeature !== "disabled" && codexFeature !== "unknown") {
     const codexHooksPath = targetPath("codexStopHook", options);
     mutateJson(
       codexHooksPath,
@@ -500,11 +518,19 @@ export function uninstallPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
       const text = current.bytes?.toString("utf8") ?? "";
       const openCount = text.split(TOML_BLOCK_START).length - 1;
       const closeCount = text.split(TOML_BLOCK_END).length - 1;
+      const removed = removeCodexBlockWithToolApprovals(text, entry.expected, text.includes("\r\n") ? "\r\n" : "\n");
       if (!current.bytes || (openCount === 0 && closeCount === 0)) {
         removeEntry(remaining, entry.id);
-      } else if (openCount === 1 && closeCount === 1 && text.includes(entry.expected)) {
-        const next = text.replace(entry.expected, "");
-        stageMutation(plan, options, target, "Codex MCP 註冊", current.bytes, Buffer.from(next, "utf8"), current.mode);
+      } else if (openCount === 1 && closeCount === 1 && removed !== undefined) {
+        stageMutation(
+          plan,
+          options,
+          target,
+          "Codex MCP 註冊",
+          current.bytes,
+          Buffer.from(removed, "utf8"),
+          current.mode,
+        );
         removeEntry(remaining, entry.id);
       } else {
         addConflict(plan, "Codex MCP 的安裝區塊已在安裝後修改；保留且不解除安裝。");

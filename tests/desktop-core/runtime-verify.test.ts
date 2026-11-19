@@ -229,6 +229,15 @@ describe("verifyRuntime: structure", () => {
     await expectRefusal("RUNTIME_FILE_UNEXPECTED", "app/web/assets/planted.js");
   });
 
+  it("ignores the files a file manager adds by itself, but not other unlisted ones (L-16)", async () => {
+    await fs.writeFile(path.join(runtimeDirectory, ".DS_Store"), "x");
+    await fs.writeFile(path.join(runtimeDirectory, "app/web/Thumbs.db"), "x");
+    await fs.writeFile(path.join(runtimeDirectory, "app/desktop.ini"), "x");
+    expect((await verify(root, "rt-1")).fileCount).toBe(FILE_COUNT);
+    await fs.writeFile(path.join(runtimeDirectory, ".DS_Store.js"), "evil");
+    await expectRefusal("RUNTIME_FILE_UNEXPECTED", ".DS_Store.js");
+  });
+
   it("refuses a missing file", async () => {
     await fs.rm(path.join(runtimeDirectory, "app/web/index.html"));
     await expectRefusal("RUNTIME_FILE_MISSING", "app/web/index.html");

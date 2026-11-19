@@ -61,7 +61,10 @@ describe("release preparation", () => {
     expect(workflow).toContain('"$REF" != "refs/heads/main"');
     expect(workflow).toContain("INPUT_VERSION: ${{ inputs.version }}");
     expect(workflow).toContain("git tag -a");
-    expect(workflow).toContain("needs: [prepare, verify, audit, quality, e2e-browser, desktop-package]");
+    expect(workflow).toContain("needs: [prepare, verify, audit, quality, e2e-browser, desktop-package, desktop-smoke]");
+    // The real Electron shell of the release commit gates the release too (L-18).
+    expect(workflow).toContain("uses: ./.github/workflows/desktop-smoke.yml");
+    expect(workflow).toContain("needs.desktop-smoke.result == 'success'");
     // The desktop installers of the release commit gate the release (ADR-03, DT-33) and are checksummed and attached.
     expect(workflow).toContain("uses: ./.github/workflows/desktop-package.yml");
     expect(workflow).toContain("needs.desktop-package.result == 'success'");

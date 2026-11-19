@@ -3,7 +3,11 @@ import { join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
-import { mcpContractFingerprint, SELFTEST_CLIENT_NAME } from "@work-intelligence/shared/mcp-contract-fingerprint";
+import {
+  AGENT_OBSERVATIONS_FILE,
+  mcpContractFingerprint,
+  SELFTEST_CLIENT_NAME,
+} from "@work-intelligence/shared/mcp-contract-fingerprint";
 
 /** What one real Agent host showed the server; no path, project or user data. */
 export interface AgentObservation {
@@ -31,7 +35,7 @@ export interface AgentObservationRecorderOptions {
   onError?: (error: unknown) => void;
 }
 
-export const AGENT_OBSERVATIONS_FILE = "agent-observations.json";
+export { AGENT_OBSERVATIONS_FILE };
 
 const MAX_FIELD_LENGTH = 100;
 /** A hostile or buggy host cannot grow the file past this many distinct client names; the oldest are dropped. */

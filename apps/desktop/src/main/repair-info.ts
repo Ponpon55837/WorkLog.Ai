@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, realpath } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { dirname } from "node:path";
 import { app } from "electron";
@@ -146,14 +146,19 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
 
   async function diagnosticsPreview(): Promise<BuiltDiagnostics> {
     const running = supervisor.running;
+    // A database reached through a link or a mapped drive shows up under its real path in an error text (L-01).
+    const database = state.databasePath();
+    const realDatabase = database ? await realpath(database).catch(() => undefined) : undefined;
     return buildDiagnostics({
       platform: process.platform,
       homeDirectory: homedir(),
       userName: userInfo().username,
       paths: [
-        state.databasePath() ?? undefined,
+        database ?? undefined,
+        realDatabase,
         state.backupDirectory() ?? undefined,
         paths.dataDirectory,
+        paths.logsDirectory,
         paths.runtimeRoot,
       ],
       secrets: [running?.runId],

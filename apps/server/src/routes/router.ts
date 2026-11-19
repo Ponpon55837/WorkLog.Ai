@@ -47,7 +47,7 @@ export interface BackgroundStoreOperations {
   /** `durable: false` for a staging copy that is streamed once and removed; see `ExportOptions` in storage. */
   exportTo(target: string, options?: ExportOptions): Promise<{ bytes: number }>;
   /** Writes the portable export of `scope` to `target`, which must not exist yet, in bounded memory. */
-  exportProjectData(scope: ProjectDataExportScope, target: string): Promise<{ bytes: number }>;
+  exportProjectData(scope: ProjectDataExportScope, target: string, maxBytes?: number): Promise<{ bytes: number }>;
   /** Streams and validates the uploaded request, then counts what an import would change. */
   previewProjectDataImport(upload: ProjectDataImportUpload): Promise<ProjectDataImportPreviewWithFolderStatus>;
   /** Streams and validates the uploaded request, backs up and imports; the search index is synced before it resolves. */

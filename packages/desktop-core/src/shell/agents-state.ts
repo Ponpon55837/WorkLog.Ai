@@ -34,6 +34,8 @@ export interface AgentCardView {
   readonly checkoutDisplay?: string;
   /** The checkout is gone: the registration cannot start at all. */
   readonly checkoutMissing: boolean;
+  /** The Agent's settings folder exists on this computer; an Agent that is not there is not preselected for setup (M-17). */
+  readonly detected: boolean;
   /** A hand-written checkout registration the App can take over ("改由桌面 App 管理"). */
   readonly adoptable: boolean;
   /** Why a hand-written registration cannot be taken over (zh-TW from agent-setup). */

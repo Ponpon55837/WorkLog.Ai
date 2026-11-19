@@ -91,6 +91,33 @@ describe("ensureBundledRuntime: install", () => {
     expect(await fs.readdir(path.join(root, "runtimes"))).toEqual(["bundle-1"]);
   });
 
+  it("flushes every copied file to the disk before it commits (L-15)", async () => {
+    const open = vi.spyOn(fs, "open");
+    try {
+      await ensureBundledRuntime(root, bundleRoot, options());
+      const flushed = open.mock.calls.filter(([, flags]) => flags === "r+");
+      expect(flushed.length).toBeGreaterThanOrEqual(FILE_COUNT);
+    } finally {
+      open.mockRestore();
+    }
+  });
+
+  it("does not fail an install whose files cannot be reopened for the flush", async () => {
+    const real = fs.open.bind(fs);
+    // Only the reopen for the flush is refused; every other open (the atomic writes of the shims) is the real one.
+    const open = vi
+      .spyOn(fs, "open")
+      .mockImplementation(((file: string, flags?: string, mode?: number) =>
+        flags === "r+"
+          ? Promise.reject(Object.assign(new Error("denied"), { code: "EPERM" }))
+          : real(file, flags, mode)) as typeof fs.open);
+    try {
+      expect(await ensureBundledRuntime(root, bundleRoot, options())).toMatchObject({ status: "installed" });
+    } finally {
+      open.mockRestore();
+    }
+  });
+
   it("installs the bundle's manifest bytes unchanged", async () => {
     await ensureBundledRuntime(root, bundleRoot, options());
     expect(await sha256Of(path.join(installedDirectory(), "runtime-manifest.json"))).toBe(bundleSha);
@@ -287,8 +314,35 @@ describe("ensureBundledRuntime: permissions are not a reason to reinstall", () =
   };
   const unreadable = { read: async () => Promise.reject(new Error("blocked")) };
 
+  /**
+   * An install on Windows leaves an ACL stamp in the verified cache that is valid on arrival (M-09), so the next start
+   * rightly skips the ACL read. Dropping the cache makes the next start read the ACLs, which is the path these tests are about.
+   */
+  async function forgetVerifiedCache(): Promise<void> {
+    await fs.rm(path.join(installedDirectory(), ".verified.json"), { force: true });
+  }
+
+  it("skips the ACL read of the next start while the stamp the install left is still valid (M-09)", async () => {
+    const safeReads = vi.fn(async (paths: readonly string[]) => ({
+      currentUserSid: "S-1-5-21-1-2-3-1001",
+      sddls: paths.map(() => "O:BAG:BAD:PAI(A;OICI;FA;;;BA)"),
+    }));
+    await ensureBundledRuntime(root, bundleRoot, options({ verify: { policy: WIN, aclReader: { read: safeReads } } }));
+    expect(safeReads).toHaveBeenCalled();
+
+    const unsafeReads = vi.fn(unsafe.read);
+    const second = await ensureBundledRuntime(
+      root,
+      bundleRoot,
+      options({ verifyInstalled: true, verify: { policy: WIN, aclReader: { read: unsafeReads } } }),
+    );
+    expect(second).toMatchObject({ status: "already-current", aclReads: 0 });
+    expect(unsafeReads).not.toHaveBeenCalled();
+  });
+
   it("propagates unsafe permissions of an installed runtime without touching it", async () => {
     await ensureBundledRuntime(root, bundleRoot, options());
+    await forgetVerifiedCache();
     const before = await fs.readdir(path.join(root, "runtimes"));
     await expect(
       ensureBundledRuntime(
@@ -302,6 +356,7 @@ describe("ensureBundledRuntime: permissions are not a reason to reinstall", () =
 
   it("propagates an unreadable ACL the same way", async () => {
     await ensureBundledRuntime(root, bundleRoot, options());
+    await forgetVerifiedCache();
     await expect(
       ensureBundledRuntime(
         root,
@@ -358,12 +413,12 @@ describe("ensureBundledRuntime: shims, previous runtime and rollback", () => {
     expect(await fs.readdir(path.join(root, "runtimes"))).toEqual(["bundle-1"]);
   });
 
-  it("reports a directory it cannot move aside as an install failure and changes nothing", async () => {
+  it("reports a directory that a running process holds as in use (close the Agent), and changes nothing", async () => {
     await installFixture(root, "bundle-1", { commit: true, files: { ...FIXTURE_FILES, "app/other.js": "// other\n" } });
     const rename = vi.fn(async () => Promise.reject(Object.assign(new Error("in use"), { code: "EBUSY" })));
     const sleep = vi.fn(async (_milliseconds: number) => undefined);
     await expect(ensureBundledRuntime(root, bundleRoot, options({ deps: { rename, sleep } }))).rejects.toMatchObject({
-      code: "RUNTIME_INSTALL_FAILED",
+      code: "RUNTIME_IN_USE",
     });
     expect(await readCurrentRuntimeId(root)).toBe("bundle-1");
     expect(await fs.readdir(path.join(root, "runtimes"))).toEqual(["bundle-1"]);
@@ -517,5 +572,14 @@ describe("ensureBundledRuntime: failures around the install", () => {
     await expect(ensureBundledRuntime(root, bundleRoot, options({ deps: { rename: failing } }))).rejects.toMatchObject({
       code: "RUNTIME_INSTALL_FAILED",
     });
+  });
+
+  it("reports a directory it cannot move aside for another reason as an install failure", async () => {
+    await installFixture(root, "bundle-1", { commit: true, files: { ...FIXTURE_FILES, "app/other.js": "// other\n" } });
+    const rename = vi.fn(async () => Promise.reject(Object.assign(new Error("no space"), { code: "ENOSPC" })));
+    await expect(ensureBundledRuntime(root, bundleRoot, options({ deps: { rename } }))).rejects.toMatchObject({
+      code: "RUNTIME_INSTALL_FAILED",
+    });
+    expect(await readCurrentRuntimeId(root)).toBe("bundle-1");
   });
 });

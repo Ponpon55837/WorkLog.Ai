@@ -9,6 +9,7 @@ import {
 } from "@work-intelligence/desktop-core";
 import type { PortHandoff } from "@work-intelligence/schema";
 import { portFailureCode } from "@work-intelligence/shared/port-failure";
+import { checkActivity } from "./activity-gate.js";
 import type { BackendController } from "./backend.js";
 import type { Logger } from "./log.js";
 import type { ShellState } from "./state.js";
@@ -45,7 +46,8 @@ export interface ChangePortOptions {
     port: number,
   ) => Promise<{ readonly free: true } | { readonly free: false; readonly code: string }>;
   /** The native confirmation; Cancel is the default button. */
-  readonly confirmDialog: (from: number, to: number) => Promise<boolean>;
+  /** `pendingImport`: a staged import preview exists and the restart will discard it; the dialog says so before the click. */
+  readonly confirmDialog: (from: number, to: number, pendingImport: boolean) => Promise<boolean>;
   readonly handoff: PortHandoffStore;
   /** Opens the Dashboard at the running backend's port, with the handoff fragment when one is given. */
   readonly openDashboard: (handoff?: PortHandoff) => void;
@@ -58,20 +60,12 @@ export function createChangePort(options: ChangePortOptions): ChangePortControll
   /** The section was asked for and no state has carried that to a page yet. */
   let focusPending = false;
 
-  /**
-   * A refusal because something runs, or what the restart would throw away when nothing does. The backend is asked only
-   * while one runs. An idle staged import preview is not work: it never refuses, it is only reported.
-   */
+  /** A refusal because something runs, or what the restart would throw away when nothing does (see `checkActivity`). */
   async function busyReason(): Promise<
     { readonly refusal: Extract<PortChangeResult, { ok: false }> } | { readonly pendingImport: boolean }
   > {
-    if (coordinator.current() !== null) return { refusal: { ok: false, reason: "busy", busy: "operation" } };
-    if (supervisor.running === undefined) return { pendingImport: false };
-    const activity = await supervisor.queryActivity();
-    if (activity.status === "unknown") return { refusal: { ok: false, reason: "busy", busy: "unknown" } };
-    return activity.busy.length > 0
-      ? { refusal: { ok: false, reason: "busy", busy: "activity" } }
-      : { pendingImport: activity.pendingImport };
+    const gate = await checkActivity({ operationRunning: () => coordinator.current() !== null, supervisor });
+    return "refusal" in gate ? { refusal: { ok: false, reason: "busy", busy: gate.refusal } } : gate;
   }
 
   function failureOf(code: string, rolledBack: boolean): PortChangeResult {
@@ -116,7 +110,7 @@ export function createChangePort(options: ChangePortOptions): ChangePortControll
     if (!probe.free) {
       return { ok: false, reason: portFailureCode(probe.code) === "PORT_NOT_PERMITTED" ? "not-permitted" : "occupied" };
     }
-    if (!(await options.confirmDialog(from, to))) return { ok: false, reason: "cancelled" };
+    if (!(await options.confirmDialog(from, to, early.pendingImport))) return { ok: false, reason: "cancelled" };
     // Something may have started while the dialog was open.
     const late = await busyReason();
     if ("refusal" in late) return late.refusal;

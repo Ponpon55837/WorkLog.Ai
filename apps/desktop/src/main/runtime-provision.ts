@@ -5,6 +5,7 @@ import {
   runtimeErrorCode,
   type BundledRuntimeStatus,
   type EnsuredRuntime,
+  type RuntimeCollection,
   type ShellErrorCode,
 } from "@work-intelligence/desktop-core";
 import type { DesktopPaths } from "./config.js";
@@ -37,7 +38,11 @@ const RETRY_DELAYS_MS: readonly number[] = [10 * 60_000, 30 * 60_000];
 const RETRY_HOURLY_MS = 60 * 60_000;
 
 /** Runtime errors the repair page explains in their own words; every other failure reads as "could not be prepared". */
-const OWN_CODES: ReadonlySet<string> = new Set(["RUNTIME_UNSAFE_PERMISSIONS", "RUNTIME_ACL_UNREADABLE"]);
+const OWN_CODES: ReadonlySet<string> = new Set([
+  "RUNTIME_UNSAFE_PERMISSIONS",
+  "RUNTIME_ACL_UNREADABLE",
+  "RUNTIME_IN_USE",
+]);
 
 /** The runtime could not be prepared; `code` is the repair page's error code. */
 export class RuntimeProvisionError extends Error {
@@ -69,6 +74,15 @@ function describeAclRead(ensured: Pick<EnsuredRuntime, "aclReport" | "aclReads">
   ].join("");
 }
 
+/**
+ * Whether a collection that left something behind is worth trying again while the App runs. A runtime retired a moment
+ * ago waits for its grace period, which hours of retries would not shorten: the next start collects it (L-12). Only a
+ * lease that may still be live, or a directory that is locked, can clear up by itself.
+ */
+export function worthRetrying(result: Pick<RuntimeCollection, "deferred" | "failed">): boolean {
+  return result.failed.length > 0 || result.deferred.some((entry) => entry.reason !== "retired-recently");
+}
+
 export function createRuntimeProvisioner(options: RuntimeProvisionerOptions): RuntimeProvisioner {
   let queue: Promise<unknown> = Promise.resolve();
   let collections: Promise<unknown> = Promise.resolve();
@@ -96,7 +110,7 @@ export function createRuntimeProvisioner(options: RuntimeProvisionerOptions): Ru
               `[shell] runtime cleanup removed=${result.removed.length} deferred=${result.deferred.length} kept-locked=${result.failed.length}`,
             );
           }
-          if (mine !== generation || (result.deferred.length === 0 && result.failed.length === 0)) return;
+          if (mine !== generation || !worthRetrying(result)) return;
           const delay = RETRY_DELAYS_MS[retries] ?? RETRY_HOURLY_MS;
           retryTimer = setTimeout(() => collectInBackground(keep, retries + 1), delay);
           retryTimer.unref();

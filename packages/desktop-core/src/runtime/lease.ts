@@ -112,22 +112,21 @@ function writeLeaseFile(file: string, action: string): void {
  * are checked with `lstat` first and are never followed when they are links. Throws when the file cannot be created
  * (a read-only home, an Agent sandbox, a linked folder); the caller decides that this never stops the action.
  *
- * `refresh` creates the file again, once, when it finds it missing (a cleanup of orphan lease folders can race with a
- * runtime that was not installed yet), instead of silently leaving the process without a lease.
+ * `refresh` creates the file again whenever it finds it missing (a cleanup of orphan lease folders can race with a
+ * runtime that was not installed yet, and a process that was suspended for longer than the collector waits can find it
+ * removed more than once), instead of silently leaving the process without a lease.
  */
 export function createLease(root: string, runtimeId: string, action: string): LeaseHandle {
   const directory = prepareLeaseDirectory(root, runtimeId);
   const file = path.join(directory, `${randomBytes(8).toString("hex")}${LEASE_FILE_SUFFIX}`);
   writeLeaseFile(file, action);
-  let recreated = false;
   return {
     refresh: () => {
       const now = new Date();
       try {
         fs.utimesSync(file, now, now);
       } catch (error) {
-        if (errorCode(error) !== "ENOENT" || recreated) throw error;
-        recreated = true;
+        if (errorCode(error) !== "ENOENT") throw error;
         prepareLeaseDirectory(root, runtimeId);
         writeLeaseFile(file, action);
       }

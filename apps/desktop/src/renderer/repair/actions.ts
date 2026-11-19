@@ -75,7 +75,7 @@ export function createActions(host: ActionHost): Actions {
         riskConsent ? host.riskTicked.has(candidateId) : undefined,
       );
       if (result.ok) host.riskTicked.delete(candidateId);
-      host.say(result.ok ? messages.repairDone : (result.message ?? failedAnswer(messages, result)));
+      host.say(result.ok ? messages.databaseChangedDone : (result.message ?? failedAnswer(messages, result)));
     });
   }
 

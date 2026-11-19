@@ -18,6 +18,11 @@ export interface EntryOwnership {
   readonly uid: number;
 }
 
+/**
+ * Only world-writable is refused, group-writable is allowed on purpose (L-17): the entries are owned by the current
+ * user (checked below), and many Linux setups create files with umask 002 in a private per-user group (mode 664), so
+ * refusing group-write would reject a runtime the App itself just installed.
+ */
 const WORLD_WRITABLE = 0o002;
 
 /** The real platform and uid of this process. */

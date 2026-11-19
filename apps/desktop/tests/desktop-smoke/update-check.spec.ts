@@ -443,8 +443,10 @@ test("the tray item with the window already open starts one check at once, witho
   const window = await openRepairPage(running);
   const text = await textOf(window);
   await trayCheck(running);
-  // Well inside the page's 4 s poll: main pushed the state, so the card already shows that it is checking.
-  await expect.poll(() => requests.length, { timeout: 1_500 }).toBe(1);
+  // Well inside the page's 4 s poll: main pushed the state, so the card already shows that it is checking. The state is
+  // set in main before any network work; when the request reaches the server is not asserted here, because the first
+  // request of a new session waits for the OS proxy lookup, which on a loaded Windows runner takes seconds. The request
+  // count is checked once the answer is in, below.
   await expect(window.locator('[data-id="update-check"]')).toHaveText(text.checking, { timeout: 1_500 });
   await expect(window.locator('[data-id="update-check"]')).toBeDisabled();
   await expect(window.locator("#update-section")).toContainText(tag.slice(1), { timeout: 10_000 });

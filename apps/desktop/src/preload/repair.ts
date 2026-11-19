@@ -91,7 +91,8 @@ const api: RepairApi = {
   setupLater: () => ipcRenderer.invoke(channels.setupLater, {}),
   showAgents: () => ipcRenderer.invoke(channels.showView, { view: "agents" }),
   agentsGetState: () => ipcRenderer.invoke(channels.agentsGetState),
-  agentsPreview: (adopt) => ipcRenderer.invoke(channels.agentsPreview, { adopt }),
+  agentsPreview: (adopt, agents) =>
+    ipcRenderer.invoke(channels.agentsPreview, { adopt, ...(agents ? { agents } : {}) }),
   agentsRemovePreview: () => ipcRenderer.invoke(channels.agentsRemovePreview, {}),
   agentsApply: (previewId, acknowledgeUndiffable) =>
     ipcRenderer.invoke(channels.agentsApply, {

@@ -6,6 +6,7 @@ import type { ProjectDataImportConflictCategory, ProjectDataImportPreview } from
 import { useBackupsStore } from "../../stores/backups";
 import { useProjectDataTransferStore } from "../../stores/project-data-transfer";
 import { useProjectsStore } from "../../stores/projects";
+import { useSystemStatusStore } from "../../stores/system-status";
 import { formatBytes, formatDate, formatRelative } from "../../utils/format";
 import { databaseBackupKindLabels } from "../../utils/labels";
 import UiBox from "../ui/UiBox.vue";
@@ -43,6 +44,8 @@ const {
   databaseExporting,
 } = storeToRefs(backupsStore);
 const { loadBackups, createBackup, deleteBackup, exportDatabase } = backupsStore;
+const systemStatusStore = useSystemStatusStore();
+const { systemStatus } = storeToRefs(systemStatusStore);
 const projectsStore = useProjectsStore();
 const { projects } = storeToRefs(projectsStore);
 const { loadProjects } = projectsStore;
@@ -78,6 +81,8 @@ const exportScopeOptions = [
 ];
 
 const totalBackupBytes = computed(() => backups.value.reduce((total, backup) => total + backup.bytes, 0));
+// The desktop window never shows a command (M-15): it points to the App's Data tab instead.
+const desktopManaged = computed(() => systemStatus.value?.desktop?.managed === true);
 const restoreCommand = t("projects.pnpmDbRestoreExportFile");
 const exportProjectOptions = computed(() =>
   projects.value.map((project) => ({ value: project.id, label: project.name })),
@@ -149,9 +154,13 @@ function onImportFileChange(event: Event): Promise<void> {
 
 onMounted(() => {
   backupsStore.setBackupsActive(true);
+  systemStatusStore.setSystemStatusActive(true);
   void loadProjects();
 });
-onBeforeUnmount(() => backupsStore.setBackupsActive(false));
+onBeforeUnmount(() => {
+  backupsStore.setBackupsActive(false);
+  systemStatusStore.setSystemStatusActive(false);
+});
 </script>
 
 <template>
@@ -243,23 +252,26 @@ onBeforeUnmount(() => backupsStore.setBackupsActive(false));
         {{ t("projects.exportA") }} <code>.sqlite</code>
         {{ t("projects.fileContainingEveryProjectSession") }}
       </p>
-      <ol class="backup-section__steps">
-        <li>{{ t("projects.installWorkIntelligenceOnThe") }} <code>pnpm build</code>{{ t("common.sentenceEnd") }}</li>
-        <li>{{ t("projects.makeSureTheApiServer") }}</li>
-        <li>
-          {{ t("projects.runTheCommandBelowFrom") }}
-          <code>--remap-root</code> {{ t("projects.toReplaceThePathPrefix") }}
-        </li>
-      </ol>
-      <div class="backup-section__command">
-        <code>{{ restoreCommand }}</code>
-        <UiCopyButton
-          :text="restoreCommand"
-          :label="t('projects.copyRestoreCommand')"
-          :success-message="t('projects.restoreCommandCopied')"
-          size="sm"
-        />
-      </div>
+      <p v-if="desktopManaged" data-testid="restore-in-desktop-app">{{ t("projects.restoreInDesktopApp") }}</p>
+      <template v-else>
+        <ol class="backup-section__steps">
+          <li>{{ t("projects.installWorkIntelligenceOnThe") }} <code>pnpm build</code>{{ t("common.sentenceEnd") }}</li>
+          <li>{{ t("projects.makeSureTheApiServer") }}</li>
+          <li>
+            {{ t("projects.runTheCommandBelowFrom") }}
+            <code>--remap-root</code> {{ t("projects.toReplaceThePathPrefix") }}
+          </li>
+        </ol>
+        <div class="backup-section__command">
+          <code>{{ restoreCommand }}</code>
+          <UiCopyButton
+            :text="restoreCommand"
+            :label="t('projects.copyRestoreCommand')"
+            :success-message="t('projects.restoreCommandCopied')"
+            size="sm"
+          />
+        </div>
+      </template>
       <p class="backup-section__hint">
         {{ t("projects.beforeRestoringTheExistingData") }}
       </p>

@@ -1043,7 +1043,8 @@
     "conflictCategoryContent": "內容不同",
     "conflictCategoryUnique": "唯一識別值",
     "conflictCategoryDependency": "依賴連帶",
-    "conflictCategoryMissingParent": "匯入檔缺少上層資料"
+    "conflictCategoryMissingParent": "匯入檔缺少上層資料",
+    "restoreInDesktopApp": "請在桌面 App 的「資料」分頁還原備份，也可以選擇其他位置的備份檔。還原前 App 會先自動備份目前的資料。"
   },
   "reports": {
     "aCustomRangeCanSpan": "自訂期間最長 {days} 天。",
@@ -1625,7 +1626,9 @@
     "agentReadStatsCount": "次數",
     "agentReadStatsP50": "p50",
     "agentReadStatsP95": "p95",
-    "agentReadStatsErrors": "失敗"
+    "agentReadStatsErrors": "失敗",
+    "localServiceStatusDesktop": "查看本機服務、資料庫、備份、維護與連線狀態。需要完整檢查時，請到桌面 App 的「診斷」分頁。",
+    "recentResultsAppearAfterMaintenance": "維護執行後會顯示最近結果"
   },
   "ui": {
     "actualCountsPerPeriod": "每期實際數量",

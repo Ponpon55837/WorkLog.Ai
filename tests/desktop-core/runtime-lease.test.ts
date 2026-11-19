@@ -154,16 +154,16 @@ describe("createLease: folders that are links or missing", () => {
 });
 
 describe("createLease: refresh after the file went missing", () => {
-  it("creates the file again, once, instead of silently stopping", async () => {
+  it("creates the file again every time it is found missing, not only the first (L-14)", async () => {
     const lease = createLease(root, "rt-1", "mcp");
     const [name] = await leaseNames();
     const file = path.join(leaseDirectoryFor(root, "rt-1"), name as string);
-    await fs.rm(file);
-    lease.refresh();
-    expect(await leaseNames()).toEqual([name]);
-    expect(JSON.parse(await fs.readFile(file, "utf8"))).toMatchObject({ action: "mcp" });
-    await fs.rm(file);
-    expect(() => lease.refresh()).toThrow(expect.objectContaining({ code: "ENOENT" }));
+    for (let round = 0; round < 3; round += 1) {
+      await fs.rm(file);
+      lease.refresh();
+      expect(await leaseNames()).toEqual([name]);
+      expect(JSON.parse(await fs.readFile(file, "utf8"))).toMatchObject({ action: "mcp" });
+    }
   });
 
   it("also makes the runtime's lease folder again when a cleanup removed it", async () => {

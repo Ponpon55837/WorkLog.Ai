@@ -31,6 +31,8 @@ export interface PortMessages {
   /** The native confirmation: `{from}` and `{to}` are ports. */
   readonly confirmMessage: string;
   readonly confirmDetail: string;
+  /** Added to the detail when a staged import preview exists: the restart discards it. */
+  readonly confirmImportNote: string;
   readonly confirmButton: string;
   readonly cancelButton: string;
 }
@@ -63,6 +65,7 @@ const zhTW: PortMessages = {
   },
   confirmMessage: "把連接埠從 {from} 改成 {to}？",
   confirmDetail: "Dashboard 會在新的位址重新開啟，已開啟的頁面中尚未儲存的編輯會遺失。",
+  confirmImportNote: "已暫存、等待確認的匯入預覽也會被捨棄，需要重新選擇檔案。",
   confirmButton: "變更",
   cancelButton: "取消",
 };
@@ -97,6 +100,8 @@ const en: PortMessages = {
   },
   confirmMessage: "Change the port from {from} to {to}?",
   confirmDetail: "The Dashboard reopens at the new address, and unsaved edits in pages that are open are lost.",
+  confirmImportNote:
+    "The staged import preview waiting for your confirmation is also discarded; choose the file again.",
   confirmButton: "Change",
   cancelButton: "Cancel",
 };

@@ -4,6 +4,7 @@ import { realpathSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { createInstanceChallenge } from "@work-intelligence/shared/instance-proof";
 import { probeLoopbackPort } from "@work-intelligence/shared/loopback-port";
+import { windowsSystemTool } from "@work-intelligence/shared/windows-system-tool";
 import { planLaunch } from "../runtime/launch-plan.js";
 import type { VerifyRuntimeOptions } from "../runtime/verify.js";
 import type { BackendSupervisorDependencies } from "./types.js";
@@ -45,6 +46,18 @@ export function createNodeBackendDependencies(options: NodeBackendDependenciesOp
       return { ...plan, args: [...BACKEND_NODE_FLAGS, ...plan.args] };
     },
     spawn: (command, args, spawnOptions) => spawn(command, [...args], spawnOptions),
+    killTree: (pid) =>
+      // /T takes the whole tree, /F does not ask the processes. Resolves when taskkill ends (or cannot start): the
+      // caller waits, so the root process is still there for it to walk from.
+      new Promise<void>((resolve) => {
+        const killer = spawn(windowsSystemTool("taskkill.exe"), ["/PID", String(pid), "/T", "/F"], {
+          stdio: "ignore",
+          windowsHide: true,
+        });
+        killer.on("error", () => resolve());
+        killer.on("close", () => resolve());
+        killer.unref();
+      }),
     isPortFree: async (port) => (await probeLoopbackPort(port)).free,
     probePort: probeLoopbackPort,
     fetchHealth: async (url, headers, timeoutMs) => {

@@ -95,6 +95,13 @@ import { createShellTray } from "./tray.js";
 import { createUpdateController } from "./update-check.js";
 import { createUpdateSessionFetch } from "./update-session.js";
 
+/** How long the storage verdict waits for a restarting backend or a running operation (M-04). */
+const SETTLE_ATTEMPTS = 5;
+const SETTLE_RETRY_MS = 2000;
+
+/** The coordinator was held when the verdict wanted to stop the backend. */
+class OperationBusyError extends Error {}
+
 const environmentInputs = { isPackaged: app.isPackaged, environment: process.env };
 
 /** The UI language before `ready`, when `app.getLocale()` is not available yet; English if the OS will not say. */
@@ -319,13 +326,13 @@ function runShell(configInputs: DesktopConfigInputs): void {
     supervisor,
     backend,
     probePort: probeLoopbackPort,
-    confirmDialog: async (from, to) => {
+    confirmDialog: async (from, to, pendingImport) => {
       if (testSwitch(configInputs, "autoConfirmPort")) return true;
       const text = portMessages(state.locale);
       const { response } = await dialog.showMessageBox({
         type: "question",
         message: formatMessage(text.confirmMessage, { from: String(from), to: String(to) }),
-        detail: text.confirmDetail,
+        detail: pendingImport ? `${text.confirmDetail}\n${text.confirmImportNote}` : text.confirmDetail,
         buttons: [text.confirmButton, text.cancelButton],
         defaultId: 1,
         cancelId: 1,
@@ -585,31 +592,49 @@ function runShell(configInputs: DesktopConfigInputs): void {
     return { settingsLoaded, recovered, started };
   }
 
-  /** The verdict for the database the backend came up on: a network share refuses it after the fact, as a failed start. */
+  /**
+   * The verdict for the database the backend came up on: a network share refuses it after the fact, as a failed start.
+   * The stop goes through the coordinator, so it never cuts a port change or a copy short; while the backend is
+   * restarting or an operation holds the coordinator, the verdict waits and is tried again (M-04).
+   */
   async function settleStorageRisk(databasePath: string, classified: Promise<StorageRiskResult>): Promise<void> {
     try {
       const risk = await classified;
-      // The user changed the database meanwhile: this verdict belongs to the old one.
-      if (state.databasePath() !== databasePath || supervisor.running === undefined) return;
-      const outcome = await applyStartTimeStorageRisk(
-        { ok: true },
-        {
-          risk,
-          currentFacts: () => {
-            const port = state.settings?.active?.port ?? state.settings?.desired.port;
-            return { ...currentFacts(databasePath), ...(port === undefined ? {} : { activePort: port }) };
-          },
-          stopBackend: async () => {
-            await supervisor.stop();
-            state.backend = "stopped";
-          },
-          updateFacts: (facts) => supervisor.updateFacts(facts),
-        },
-      );
-      if (outcome?.ok === false && !outcome.busy) {
-        await app.whenReady();
-        backend.recovery.handleFailure(outcome.code);
+      for (let attempt = 1; attempt <= SETTLE_ATTEMPTS; attempt += 1) {
+        // The user changed the database meanwhile: this verdict belongs to the old one.
+        if (state.databasePath() !== databasePath) return;
+        if (supervisor.running !== undefined) {
+          const outcome = await applyStartTimeStorageRisk(
+            { ok: true },
+            {
+              risk,
+              currentFacts: () => {
+                const port = state.settings?.active?.port ?? state.settings?.desired.port;
+                return { ...currentFacts(databasePath), ...(port === undefined ? {} : { activePort: port }) };
+              },
+              stopBackend: async () => {
+                const stopped = await managed.stop();
+                if (stopped.status !== "stopped") throw new OperationBusyError();
+                state.backend = "stopped";
+              },
+              updateFacts: (facts) => supervisor.updateFacts(facts),
+            },
+          ).catch((error: unknown) => {
+            if (error instanceof OperationBusyError) return undefined;
+            throw error;
+          });
+          // undefined: the stop was refused because an operation holds the coordinator; try again.
+          if (outcome !== undefined) {
+            if (!outcome.ok && !outcome.busy) {
+              await app.whenReady();
+              backend.recovery.handleFailure(outcome.code);
+            }
+            return;
+          }
+        }
+        if (attempt < SETTLE_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, SETTLE_RETRY_MS));
       }
+      log("[shell] storage verdict not applied: the backend stayed busy");
     } catch (error) {
       log(`[shell] storage verdict not applied: ${error instanceof Error ? error.message : "unknown error"}`);
     }
@@ -649,7 +674,22 @@ function runShell(configInputs: DesktopConfigInputs): void {
       restore,
       journal,
       currentOperation: () => coordinator.current()?.kind ?? null,
-      copyToLocal: createLocalCopy({ state, paths, info, backend, supervisor, success, runner: copyRunner, log }),
+      copyToLocal: createLocalCopy({
+        state,
+        paths,
+        info,
+        backend,
+        supervisor,
+        success,
+        runner: copyRunner,
+        stopForCopy: async () => {
+          const stopped = await managed.stop();
+          if (stopped.status !== "stopped") return false;
+          state.backend = "stopped";
+          return true;
+        },
+        log,
+      }),
       log,
     });
     if (process.platform === "darwin" && state.launchMode === "background") app.dock?.hide();

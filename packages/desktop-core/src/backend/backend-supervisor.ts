@@ -170,11 +170,15 @@ interface ActiveChild {
   readonly kind: "backend" | "preview";
   /** The identity the preflight read; backup reports are attributed to it. */
   databaseIdentity?: DatabaseIdentity;
+  /** The pending health check of a running backend. */
+  healthTimer?: unknown;
 }
 
 const DESKTOP_IPC_ARGV = ["--desktop-ipc"] as const;
 const HEALTH_ATTEMPTS = 3;
 const HEALTH_RETRY_MS = 100;
+/** Health checks in a row that must fail before a running backend is called stuck: a slow minute is not a hang. */
+const MONITOR_STRIKES = 3;
 const DEFAULT_OUTPUT_LINES = 200;
 const ACTIVITY_QUERY_TIMEOUT_MS = 2000;
 const MIN_PORT = 1;
@@ -732,6 +736,7 @@ export class BackendSupervisor {
     };
     active.info = info;
     this.watchForUnexpectedExit(active);
+    this.watchHealth(active, runId);
     return info;
   }
 
@@ -956,6 +961,66 @@ export class BackendSupervisor {
     }
   }
 
+  /**
+   * A low-frequency health check of the running backend: one that is alive but stuck (the event loop blocked) would otherwise
+   * stay "running" for good. After `MONITOR_STRIKES` failed checks in a row it is ended and reported like an unexpected exit.
+   * Never while a stop or a start is in progress, and the timer never keeps the process alive.
+   */
+  private watchHealth(active: ActiveChild, runId: string): void {
+    const every = this.timeouts.monitorMs;
+    if (every <= 0) return;
+    let strikes = 0;
+    const arm = (): void => {
+      const handle = this.deps.setTimer(() => {
+        active.healthTimer = undefined;
+        if (this.active !== active || this.stopping) return;
+        void this.answers(active.port, runId).then((answered) => {
+          if (this.active !== active || this.stopping) return;
+          strikes = answered ? 0 : strikes + 1;
+          if (strikes < MONITOR_STRIKES) return arm();
+          this.reportUnresponsive(active);
+        });
+      }, every);
+      (handle as { unref?: () => void } | undefined)?.unref?.();
+      active.healthTimer = handle;
+    };
+    arm();
+  }
+
+  /** One health check with a fresh challenge: true only when the port proves it is this backend and says 200. */
+  private async answers(port: number, runId: string): Promise<boolean> {
+    const challenge = this.deps.randomChallenge();
+    try {
+      const response = await this.deps.fetchHealth(
+        `http://127.0.0.1:${port}/api/health`,
+        { [INSTANCE_CHALLENGE_HEADER]: challenge },
+        this.timeouts.healthMs,
+      );
+      return response.status === 200 && verifyInstanceProof(runId, challenge, response.header(INSTANCE_PROOF_HEADER));
+    } catch {
+      return false;
+    }
+  }
+
+  private reportUnresponsive(active: ActiveChild): void {
+    const { info } = active;
+    if (!info) return;
+    this.log("[backend] the backend stopped answering health checks; ending it");
+    const recentOutput = active.output.lines();
+    void this.stopCurrent().then((report) => {
+      this.notify(this.exitListeners, (listener) =>
+        listener({
+          code: "CHILD_EXITED",
+          detail: "the backend stopped answering health checks",
+          exitCode: report.exitCode,
+          signal: report.signal,
+          info,
+          recentOutput,
+        }),
+      );
+    });
+  }
+
   private watchForUnexpectedExit(active: ActiveChild): void {
     void active.channel.exited.then((exit) => {
       const { info } = active;
@@ -977,6 +1042,8 @@ export class BackendSupervisor {
 
   private async terminate(active: ActiveChild): Promise<BackendStopReport> {
     const { child, channel } = active;
+    if (active.healthTimer !== undefined) this.deps.clearTimer(active.healthTimer);
+    active.healthTimer = undefined;
     const { platform } = this.deps;
     let exit = channel.exitInfo;
     let graceful = false;
@@ -993,6 +1060,8 @@ export class BackendSupervisor {
     }
     if (!exit) {
       forced = true;
+      // Windows: the tree first, so the import worker does not outlive its parent and keep writing a database that was switched away.
+      if (platform === "win32" && child.pid !== undefined) await this.tryKillTree(child.pid);
       this.tryKill(child, platform === "win32" ? undefined : "SIGKILL");
       exit = await this.within(channel.exited, this.timeouts.killMs);
     }
@@ -1007,6 +1076,18 @@ export class BackendSupervisor {
       portReleased,
       wasRunning: true,
     };
+  }
+
+  /**
+   * Ends the tree and waits for the tool to finish (bounded): once the root is gone `taskkill /T` finds no process to
+   * walk from, so the plain kill must come after it, not beside it.
+   */
+  private async tryKillTree(pid: number): Promise<void> {
+    try {
+      await this.within(Promise.resolve(this.deps.killTree?.(pid)), this.timeouts.killMs);
+    } catch {
+      // The plain kill that follows still ends the child itself.
+    }
   }
 
   /** A kill that throws or returns false changes nothing: only the exit event proves the child ended. */

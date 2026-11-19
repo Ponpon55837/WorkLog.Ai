@@ -52,6 +52,8 @@ export interface LocalCopyOptions {
   readonly supervisor: BackendSupervisor;
   readonly success: RepairSuccess;
   readonly runner: CopyRunner;
+  /** Stops the running backend under the coordinator (false when an operation holds it); the App's own database is copied stopped. */
+  readonly stopForCopy: () => Promise<boolean>;
   readonly log: Logger;
 }
 
@@ -59,7 +61,12 @@ export interface LocalCopyOptions {
 export type CopySwitch = (target: string, identity: DesktopDatabaseIdentity) => Promise<RestartOutcome>;
 
 /** One copy of `source` into the App's default data folder, ending in `switchTo`; the pure sequence is `runCopyToLocal`. */
-export type CopyRunner = (source: string, switchTo: CopySwitch) => Promise<CopyToLocalResult>;
+export type CopyRunner = (
+  source: string,
+  switchTo: CopySwitch,
+  /** Runs after the confirmation and the journal record, right before the first byte is copied; throwing fails the copy. */
+  beforeCopy?: () => Promise<void>,
+) => Promise<CopyToLocalResult>;
 
 const COPY_BASE_NAME = "work-intelligence-local";
 
@@ -87,7 +94,7 @@ const FINISH_ATTEMPTS = 3;
 export function createCopyRunner(options: CopyRunnerOptions): CopyRunner {
   const { state, backend, supervisor, storage, journal, log } = options;
   const directory = dirname(defaultSettings().desired.databasePath);
-  return async (source, switchTo) => {
+  return async (source, switchTo, beforeCopy) => {
     const text = setupMessages(state.locale);
     /** The journal record of this copy, written before the first byte is copied (L-10). */
     let copyOperationId: string | null = null;
@@ -124,6 +131,11 @@ export function createCopyRunner(options: CopyRunnerOptions): CopyRunner {
           previousOwner: state.owner,
           details: { [COPY_PATH_DETAIL]: target },
         });
+        try {
+          await beforeCopy?.();
+        } catch {
+          return { type: "copy-result", status: "failed" };
+        }
         const copied = await supervisor.copyDatabase(source, target);
         // A preview child that could not run is a failed copy; its detail stays out of the page.
         return copied.outcome === "checked" ? copied.result : { type: "copy-result", status: "failed" };
@@ -182,43 +194,62 @@ export function createLocalCopy(
 ): (candidateId: string | undefined) => Promise<RepairActionResult> {
   const { state, paths, info, backend, supervisor, success, log } = options;
   const run = options.runner;
+  /** The backend served before the copy and does not now: a failed or refused copy must not leave the App without it. */
+  let wasRunning = false;
+
+  async function restorePrevious(): Promise<boolean> {
+    if (!wasRunning || supervisor.running !== undefined) return false;
+    const restored = await backend.start("restart").catch(() => ({ ok: false as const, code: "REPAIR_REQUIRED" }));
+    if (restored.ok) backend.presenter().clear();
+    return restored.ok;
+  }
+
   return async (candidateId) => {
     const text = setupMessages(state.locale);
     const source = candidateId === undefined ? state.databasePath() : (state.candidates.get(candidateId)?.path ?? null);
     if (source === null) return { ok: false, reason: "invalid" };
     const opensAtStart = success.opens();
-    const wasRunning = supervisor.running !== undefined;
-    const result = await run(source, async (target, identity) => {
-      const outcome = await backend.start("change-db", {
-        databasePath: target,
-        expectedIdentity: identity,
-        // The copy is local, and the click was the consent to update it.
-        allowSchemaMigration: true,
-      });
-      if (outcome.ok && state.settings) await writeDesktopSettingsAtomic(paths.settingsFile, state.settings);
-      return outcome;
-    });
+    wasRunning = supervisor.running !== undefined;
+    // The App's own database is copied with its backend stopped, so nothing written after the snapshot is left out.
+    const copiesServingDatabase = candidateId === undefined && wasRunning;
+    const result = await run(
+      source,
+      async (target, identity) => {
+        const outcome = await backend.start("change-db", {
+          databasePath: target,
+          expectedIdentity: identity,
+          // The copy is local, and the click was the consent to update it.
+          allowSchemaMigration: true,
+        });
+        if (outcome.ok && state.settings) await writeDesktopSettingsAtomic(paths.settingsFile, state.settings);
+        return outcome;
+      },
+      async () => {
+        if (copiesServingDatabase && !(await options.stopForCopy()))
+          throw new Error("the backend could not be stopped");
+      },
+    );
     if (result.ok) {
       if (candidateId !== undefined) state.candidates.remove(candidateId);
       success.finish({ ok: true }, opensAtStart);
       return { ok: true, state: await info.snapshot() };
     }
-    if (result.reason !== "failed") return { ok: false, reason: result.reason };
+    if (result.reason !== "failed") {
+      await restorePrevious();
+      return { ok: false, reason: result.reason };
+    }
     if (result.backendCode === undefined) {
+      await restorePrevious();
       return { ok: false, reason: "failed", errorCode: result.errorCode, message: text.copyErrors[result.failure] };
     }
     // The start on the copy failed: its real code is recorded and shown, as for a failed 「改用這個資料庫」, together with
     // the reassurance that the settings and the original are unchanged.
     success.finish({ ok: false, code: result.backendCode }, opensAtStart);
     const message = `${errorMessageFor(shellMessages(state.locale), result.backendCode).title} ${text.copyErrors["start-failed"]}`;
-    if (wasRunning && supervisor.running === undefined) {
-      // The failed switch stopped a backend that was serving: it serves its own database again, if it can.
-      const restored = await backend.start("restart").catch(() => ({ ok: false as const, code: "REPAIR_REQUIRED" }));
-      if (restored.ok) {
-        backend.presenter().clear();
-        log("[shell] copy to local disk: the previous database is serving again");
-        return { ok: false, reason: "failed", errorCode: result.backendCode, message };
-      }
+    // The failed switch stopped a backend that was serving: it serves its own database again, if it can.
+    if (await restorePrevious()) {
+      log("[shell] copy to local disk: the previous database is serving again");
+      return { ok: false, reason: "failed", errorCode: result.backendCode, message };
     }
     backend.presenter().present(result.backendCode);
     return { ok: false, reason: "failed", errorCode: result.backendCode, message };

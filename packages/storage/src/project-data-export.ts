@@ -22,7 +22,12 @@ import { combineRedactionSummaries, redactJsonText, redactText } from "./secret-
 export type ArchitectureDiagramRedactor = (source: string) => ReturnType<typeof redactText>;
 
 export type ProjectDataTransferErrorCode =
-  "invalid_input" | "invalid_bundle" | "unsupported_schema" | "project_not_found" | "project_backup_failed";
+  | "invalid_input"
+  | "invalid_bundle"
+  | "unsupported_schema"
+  | "project_not_found"
+  | "project_backup_failed"
+  | "export_too_large";
 
 export class ProjectDataTransferError extends Error {
   public constructor(

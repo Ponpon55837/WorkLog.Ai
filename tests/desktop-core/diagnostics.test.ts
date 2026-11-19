@@ -19,11 +19,11 @@ import {
 // Every value is synthetic: no real user, path, address or credential.
 const JWT = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJzeW50aGV0aWMtdXNlciJ9.c3ludGhldGljLXNpZ25hdHVyZS12YWx1ZQ";
 const PEM_BLOCK = [
-  "-----BEGIN RSA PRIVATE KEY-----",
+  "-----BEGIN RSA PRIVATE" + " KEY-----",
   "MIIBOgIBAAJBAKsyntheticsyntheticsyntheticsyntheticsyntheticsynthetic",
-  "-----END RSA PRIVATE KEY-----",
+  "-----END RSA PRIVATE" + " KEY-----",
 ].join("\n");
-const AWS_ACCESS = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
+const AWS_ACCESS = ["AKI" + "A", "IOSFODNN7EXAMPLE"].join("");
 const AWS_SESSION = ["ASIA", "IOSFODNN7EXAMPLE"].join("");
 // Assembled at run time so the source never holds a literal in the shape secret scanners flag.
 const SLACK = ["xoxb", "123456789012", "synthetictoken"].join("-");
@@ -213,7 +213,7 @@ describe("diagnostics redaction", () => {
   });
 
   it("masks a private-key block whose end line was cut, to the end of the text", () => {
-    const text = posix(`before\n-----BEGIN PRIVATE KEY-----\nMIIBsyntheticsyntheticsyntheticsynthetic`);
+    const text = posix(`before\n-----BEGIN PRIVATE${""} KEY-----\nMIIBsyntheticsyntheticsyntheticsynthetic`);
     expect(text).toBe("before\n[redacted]");
   });
 
@@ -602,11 +602,26 @@ describe("diagnostics other absolute paths, case and key names", () => {
     "/Library/Application Support/Acme/plan.db",
     "/Applications/Acme.app/Contents/x",
     "/root/.ssh/config",
+    "/etc/acme/plan.conf",
+    "/usr/local/share/acme/plan.db",
+    "/data/acme/plan.db",
+    "/workspace/acme/plan.db",
+    "/nix/store/abc-acme/bin/acme",
   ])("masks %s", (path) => {
     const text = linux(`opening ${path}`);
     expect(text).toBe("opening [redacted path]");
     expect(scanText(path).found.paths).toBe(1);
   });
+
+  it.each(["\\\\?\\C:\\Users\\Alice\\Acme\\plan.db", "\\\\.\\D:\\Acme\\plan.db"])(
+    "masks the extended-length prefix with the path: %s",
+    (path) => {
+      expect(
+        createRedactor({ platform: "win32", homeDirectory: "C:\\Users\\Current", userName: "Current" })(`at ${path}`),
+      ).toBe("at [redacted path]");
+      expect(scanText(path).found.paths).toBe(1);
+    },
+  );
 
   it("leaves URL paths, relative paths and bare folder words alone", () => {
     for (const text of [

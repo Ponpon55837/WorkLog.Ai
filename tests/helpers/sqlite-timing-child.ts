@@ -1,5 +1,5 @@
 // Child process for tests/storage/sqlite-timing.test.ts: waits for a write lock held by the test process, so the timing
-// hook sees a slow BEGIN IMMEDIATE, then runs a few more statements. Prints what it observed as one JSON line.
+// hook sees a slow BEGIN IMMEDIATE, then runs a few more transactions, each held 150 ms so every one is recorded. Prints what it observed as one JSON line.
 // The hook must be registered before node:sqlite is resolved, so neither may be a static import here.
 if (process.env.WI_SQLITE_TIMING === "1") await import("./sqlite-timing.js");
 const { DatabaseSync } = await import("node:sqlite");
@@ -10,6 +10,9 @@ db.exec("PRAGMA busy_timeout = 5000");
 process.stdout.write("ready\n");
 db.exec("BEGIN IMMEDIATE");
 db.prepare("INSERT INTO items (name) VALUES (?)").run("secret-parameter-value");
+// Held 150 ms on purpose: a transaction is recorded from 100 ms, and a COMMIT that merely happens to be quick must not
+// decide whether this one is counted (a loaded Windows runner fsyncs slowly, which made the record count vary).
+Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 150);
 db.exec("COMMIT");
 // A deferred transaction that writes, held for 150 ms: recorded with write true, a candidate holder in the report.
 db.exec("BEGIN");

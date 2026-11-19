@@ -657,7 +657,11 @@ test("hooks installed in launcher form read as installed on the Agent page and i
   const response = await fetch(`http://127.0.0.1:${running.backend?.port}/api/system/status`);
   const body = (await response.json()) as {
     agents?: Record<"codex" | "claudeCode", { hook: string; hookSource?: string; hookEvents?: { state: string }[] }>;
+    mcp?: { monitoringAvailable: boolean; message: string };
   };
+  // The packaged runtime's MCP build is readable: the page must not ask for a reconnect that cannot fix anything.
+  expect(body.mcp?.monitoringAvailable).toBe(true);
+  expect(body.mcp?.message).not.toContain("無法確認");
   for (const agent of ["codex", "claudeCode"] as const) {
     expect(body.agents?.[agent]?.hook).toBe("installed");
     expect(body.agents?.[agent]?.hookSource).toBe("app");

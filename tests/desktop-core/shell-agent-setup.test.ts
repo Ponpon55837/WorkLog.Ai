@@ -305,6 +305,16 @@ describe("applying a preview with a file that has no diff shown", () => {
     expect(schema.safeParse({ previewId, extra: 1 }).success).toBe(false);
   });
 
+  it("lets the preview name the Agents to set up, at least one and only known ones (M-17)", () => {
+    const schema = repairInputSchemas.agentsPreview;
+    expect(schema.safeParse({ adopt: false }).success).toBe(true);
+    expect(schema.safeParse({ adopt: false, agents: ["claude-code"] }).success).toBe(true);
+    expect(schema.safeParse({ adopt: true, agents: ["codex", "claude-code"] }).success).toBe(true);
+    expect(schema.safeParse({ adopt: false, agents: [] }).success).toBe(false);
+    expect(schema.safeParse({ adopt: false, agents: ["claude-desktop"] }).success).toBe(false);
+    expect(schema.safeParse({ adopt: false, agents: "codex" }).success).toBe(false);
+  });
+
   it("lets the page name only a known Agent when it asks to use the checkout's database, never a path", () => {
     const schema = repairInputSchemas.agentsUseCheckoutDatabase;
     expect(schema.safeParse({ agent: "codex" }).success).toBe(true);

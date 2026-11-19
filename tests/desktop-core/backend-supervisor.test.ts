@@ -736,6 +736,61 @@ describe("stop", () => {
     expect(report).toMatchObject({ graceful: false, forced: true, exitCode: 1, exited: true });
   });
 
+  it("ends the whole process tree before the Windows kill, so the import worker is not left running", async () => {
+    const harness = makeHarness({ platform: "win32", scripts: [{ onShutdown: "ignore" }] });
+    await harness.supervisor.start(startRequest());
+    const stopping = harness.supervisor.stop();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await stopping;
+
+    expect(harness.killTree).toHaveBeenCalledExactlyOnceWith(harness.children[0]?.pid);
+  });
+
+  it("waits for the tree kill to finish before the plain Windows kill, so the root is still there to walk from", async () => {
+    let finishTree: () => void = () => undefined;
+    const events: string[] = [];
+    const harness = makeHarness({
+      platform: "win32",
+      scripts: [{ onShutdown: "ignore" }],
+      killTree: () => {
+        events.push("tree-start");
+        return new Promise<void>((resolve) => {
+          finishTree = () => {
+            events.push("tree-done");
+            resolve();
+          };
+        });
+      },
+    });
+    await harness.supervisor.start(startRequest());
+    const child = harness.children[0];
+    const originalKill = child?.kill.bind(child);
+    if (child) child.kill = ((signal?: NodeJS.Signals) => (events.push("kill"), originalKill?.(signal))) as never;
+    const stopping = harness.supervisor.stop();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(events).toEqual(["tree-start"]);
+    finishTree();
+    await vi.advanceTimersByTimeAsync(10);
+    await stopping;
+    expect(events).toEqual(["tree-start", "tree-done", "kill"]);
+  });
+
+  it("never ends a process tree on POSIX, and not after a graceful stop on Windows", async () => {
+    const posix = makeHarness({ scripts: [{ onShutdown: "ignore", onSigterm: "ignore" }] });
+    await posix.supervisor.start(startRequest());
+    const stoppingPosix = posix.supervisor.stop();
+    await vi.advanceTimersByTimeAsync(13_000);
+    await stoppingPosix;
+    expect(posix.killTree).not.toHaveBeenCalled();
+
+    const windows = makeHarness({ platform: "win32" });
+    await windows.supervisor.start(startRequest());
+    const stoppingWindows = windows.supervisor.stop();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await stoppingWindows;
+    expect(windows.killTree).not.toHaveBeenCalled();
+  });
+
   it("does not claim the child exited when no exit event arrives after the final kill", async () => {
     const harness = makeHarness({ scripts: [{ onShutdown: "ignore", onSigterm: "ignore", onSigkill: "ignore" }] });
     await harness.supervisor.start(startRequest());
@@ -1048,5 +1103,81 @@ describe("masking of captured output", () => {
     expect(lines.join("\n")).not.toContain("synthetic/data");
     expect(lines.at(-1)).toBe("next line");
     expect(lines.some((line) => line.startsWith("first [redacted] end"))).toBe(true);
+  });
+});
+
+describe("health checks of a running backend (L-09)", () => {
+  const EVERY = 1000;
+
+  /** A harness whose health endpoint answers like a genuine child until `stuck.on`, then not at all. */
+  function stuckHarness(monitorMs = EVERY) {
+    const stuck = { on: false };
+    const harness = makeHarness({
+      timeouts: { monitorMs },
+      health: async (_url, headers, runId) => {
+        if (stuck.on) throw new Error("timeout");
+        return genuineHealth(runId, headers);
+      },
+    });
+    return { harness, stuck };
+  }
+
+  it("ends a backend that stays alive but stops answering, and reports it like an unexpected exit", async () => {
+    const { harness, stuck } = stuckHarness();
+    const events: BackendExitEvent[] = [];
+    harness.supervisor.onUnexpectedExit((event) => events.push(event));
+    const started = await harness.supervisor.start(startRequest());
+    stuck.on = true;
+
+    await vi.advanceTimersByTimeAsync(EVERY * 2);
+    expect(events).toEqual([]);
+    await vi.advanceTimersByTimeAsync(EVERY * 12);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ code: "CHILD_EXITED", detail: "the backend stopped answering health checks" });
+    expect(events[0]?.info).toBe((started as { info: unknown }).info);
+    expect(harness.supervisor.running).toBeUndefined();
+  });
+
+  it("does not end a backend after one or two slow checks that are followed by an answer", async () => {
+    const { harness, stuck } = stuckHarness();
+    const events: BackendExitEvent[] = [];
+    harness.supervisor.onUnexpectedExit((event) => events.push(event));
+    await harness.supervisor.start(startRequest());
+    const callsAfterStart = harness.fetchHealth.mock.calls.length;
+
+    stuck.on = true;
+    await vi.advanceTimersByTimeAsync(EVERY * 2);
+    stuck.on = false;
+    await vi.advanceTimersByTimeAsync(EVERY * 10);
+
+    expect(harness.fetchHealth.mock.calls.length).toBeGreaterThan(callsAfterStart + 2);
+    expect(events).toEqual([]);
+    expect(harness.supervisor.running).toBeDefined();
+  });
+
+  it("checks nothing once the backend is stopped, and nothing at all when turned off", async () => {
+    const { harness } = stuckHarness();
+    await harness.supervisor.start(startRequest());
+    await harness.supervisor.stop();
+    const calls = harness.fetchHealth.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(EVERY * 10);
+    expect(harness.fetchHealth.mock.calls.length).toBe(calls);
+
+    const off = stuckHarness(0);
+    await off.harness.supervisor.start(startRequest());
+    const before = off.harness.fetchHealth.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(EVERY * 10);
+    expect(off.harness.fetchHealth.mock.calls.length).toBe(before);
+  });
+
+  it("treats an answer without the right proof as no answer", async () => {
+    const harness = makeHarness({ timeouts: { monitorMs: EVERY } });
+    const events: BackendExitEvent[] = [];
+    harness.supervisor.onUnexpectedExit((event) => events.push(event));
+    await harness.supervisor.start(startRequest());
+    harness.fetchHealth.mockImplementation(async () => ({ status: 200, header: () => "not-the-proof" }));
+    await vi.advanceTimersByTimeAsync(EVERY * 14);
+    expect(events).toHaveLength(1);
   });
 });

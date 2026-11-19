@@ -205,6 +205,15 @@ async function quarantine(root: string, runtimeId: string, deps: BundledInstallD
     await renameWithRetry(deps, target, aside);
     return aside;
   } catch (error) {
+    // Still locked after the retries: a process runs from this directory (an Agent on Windows), which is for the user to close.
+    if (RENAME_RETRYABLE.has(errorCode(error) ?? "")) {
+      throw new RuntimeError(
+        "RUNTIME_IN_USE",
+        "runtime 目錄正被執行中的程序使用",
+        { file: target, actual: error instanceof Error ? error.message : String(error) },
+        { cause: error },
+      );
+    }
     throw installFailed("無法移開損壞的 runtime 目錄", target, error);
   }
 }
@@ -255,11 +264,33 @@ async function copyBundle(
     await fs.copyFile(path.join(bundle.directory, file.path), target, fsConstants.COPYFILE_FICLONE);
     const mode = file.stat.mode & 0o777 & ~GROUP_OTHER_WRITE;
     if (process.platform !== "win32") await fs.chmod(target, mode);
+    await flushFile(target);
     bytes += file.stat.size;
   });
   for (const link of scan.symlinks) await fs.symlink(link.target, path.join(staging, link.path));
   await fs.writeFile(path.join(staging, MANIFEST_FILE_NAME), bundle.manifestBytes, { mode: MANIFEST_MODE });
   return bytes + bundle.manifestBytes.length;
+}
+
+/**
+ * Writes a copied file through to the disk before the install is committed, so a power loss cannot leave content that
+ * is wrong at the right size for the next start's size-and-time fingerprint to wave through (L-15). Best effort: a file
+ * system that cannot flush (or a file that cannot be reopened for it) must not fail an install whose content is checked
+ * against the bundle manifest right afterwards.
+ */
+async function flushFile(file: string): Promise<void> {
+  let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
+  try {
+    handle = await fs.open(file, "r+");
+    await handle.sync();
+  } catch {
+    // Not flushed; the manifest verification that follows still decides.
+  }
+  try {
+    await handle?.close();
+  } catch {
+    // A handle that does not close has nothing left to flush.
+  }
 }
 
 /** The ACL reader of one install, and the prewarm that must be released when the install ends. */

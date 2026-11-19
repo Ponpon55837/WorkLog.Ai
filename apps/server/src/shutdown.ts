@@ -4,8 +4,12 @@ export interface ShutdownSignalSource {
   on(signal: "SIGINT" | "SIGTERM", listener: () => void): unknown;
 }
 
-/** How long in-flight requests may finish after shutdown starts before their sockets are destroyed. */
-export const DEFAULT_CONNECTION_GRACE_MS = 10_000;
+/**
+ * How long in-flight requests may finish after shutdown starts before their sockets are destroyed. It stays well under
+ * the 10 s the desktop App waits for the whole shutdown (`gracefulMs`), so a request that runs to the end of the grace
+ * still leaves time to close the worker and the database before the App escalates to a kill.
+ */
+export const DEFAULT_CONNECTION_GRACE_MS = 7_000;
 
 export interface GracefulShutdownOptions {
   server: Server;

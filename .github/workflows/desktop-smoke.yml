@@ -17,16 +17,25 @@ on:
       - "packages/core/**"
       - "packages/project-policy/**"
       - "packages/ui-tokens/**"
+      - "plugins/**"
       - "scripts/desktop-runtime-spike/**"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "package.json"
       - ".github/workflows/desktop-smoke.yml"
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Commit to smoke (default: the caller's commit)"
+        required: false
+        default: ""
+        type: string
 
+# Pull-request pushes cancel an older run of the same PR; a release calling this workflow has its own group by run id.
 concurrency:
-  group: desktop-smoke-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.event_name == 'pull_request' && format('desktop-smoke-pr-{0}', github.ref) || format('desktop-smoke-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -44,6 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1

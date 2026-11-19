@@ -20,7 +20,7 @@ import {
   ProjectDataTransferError,
   WorkIntelligenceStore,
 } from "../../packages/storage/src/index.js";
-import { BackupWorkerOutOfMemoryError } from "../../apps/server/src/backup-worker-errors.js";
+import { BackupWorkerOutOfMemoryError, BackupWorkerTimeoutError } from "../../apps/server/src/backup-worker-errors.js";
 import {
   BackupWorkerClient,
   BACKUP_WORKER_HEAP_MB,
@@ -131,6 +131,13 @@ describe("backup worker", () => {
       };
       expect(withoutStamp(again.text)).toEqual(withoutStamp(exportedData.text));
       expect((await worker.createBackup()).outcome).toBe("database_backups");
+      // A size limit is enforced while writing, and the refusal keeps its type across the worker boundary (L-23).
+      const limited = join(mkdtempSync(join(root, "export-")), "limited.json");
+      await expect(worker.exportProjectData({ type: "all" }, limited, 10)).rejects.toMatchObject({
+        name: "ProjectDataTransferError",
+        code: "export_too_large",
+      });
+      expect(existsSync(limited)).toBe(false);
       const staging = await worker.exportTo(join(root, "staging.sqlite"), { durable: false });
       expect(staging.bytes).toBe(statSync(join(root, "staging.sqlite")).size);
     } finally {
@@ -466,6 +473,34 @@ describe("backup worker idle policy", () => {
 
       await vi.advanceTimersByTimeAsync(40_000 - DEFAULT_IDLE_TIMEOUT_MS - 1);
       await waitForWorkerExit(state);
+    } finally {
+      await worker.close();
+      store.close();
+    }
+  });
+});
+
+describe("backup worker watchdog", () => {
+  it("stops a process that does not answer in time and serves the next request with a new one (L-26)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-backup-worker-watchdog-"));
+    roots.push(root);
+    const databasePath = join(root, "work-intelligence.sqlite");
+    const store = new WorkIntelligenceStore(databasePath);
+    syntheticProject(store, join(root, "project"));
+    // Starting the process alone takes far longer than 1 ms, so the first request always outlives its watchdog.
+    const worker = new BackupWorkerClient(databasePath, {}, LATEST_SCHEMA_VERSION, { operationTimeoutMs: 1 });
+    const state = worker as unknown as { lifetime?: { child: { pid?: number; exitCode: number | null } } };
+    try {
+      const target = join(mkdtempSync(join(root, "export-")), "export.json");
+      const failure = await worker.exportProjectData({ type: "all" }, target).catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(BackupWorkerTimeoutError);
+      expect((failure as Error).message).not.toContain(root);
+      const stopped = state.lifetime?.child;
+      await vi.waitFor(() => expect(state.lifetime?.child === stopped).toBe(false));
+
+      (worker as unknown as { options: { operationTimeoutMs?: number } }).options.operationTimeoutMs = undefined;
+      expect((await exportedText(worker, root)).bytes).toBeGreaterThan(0);
+      assertHealthy(databasePath);
     } finally {
       await worker.close();
       store.close();

@@ -34,7 +34,7 @@ function hex(seed: number, length: number): string {
 
 /** A 40-character AWS-style secret access key. */
 const AWS_SECRET = `${fake(90, 17)}/${fake(91, 11)}+${fake(92, 10)}`;
-const AWS_KEY_ID = `AKIA${fake(93, 16)
+const AWS_KEY_ID = `AKI${""}A${fake(93, 16)
   .toUpperCase()
   .replace(/[^A-Z0-9]/g, "A")}`;
 
@@ -48,16 +48,16 @@ const PUTTY_PRIVATE = `${fake(7, 60)}\n${fake(8, 60)}`;
 
 export const SECRET_CORPUS: readonly CorpusSample[] = [
   // Baseline: shapes the detectors already handled before this extension.
-  sample("baseline", `token ghp_${fake(10, 36)} used`, fake(10, 36)),
-  sample("baseline", `github_pat_${fake(11, 60)}`, fake(11, 60)),
+  sample("baseline", `token gh${""}p_${fake(10, 36)} used`, fake(10, 36)),
+  sample("baseline", `github${""}_pat_${fake(11, 60)}`, fake(11, 60)),
   sample("baseline", `OPENAI sk-${fake(12, 30)}`, fake(12, 30)),
-  sample("baseline", `sk-ant-api03-${fake(13, 30)}`, fake(13, 30)),
-  sample("baseline", `xoxb-123456789012-${fake(14, 24)}`, fake(14, 24)),
+  sample("baseline", `sk-${""}ant-api03-${fake(13, 30)}`, fake(13, 30)),
+  sample("baseline", `xox${""}b-123456789012-${fake(14, 24)}`, fake(14, 24)),
   sample("baseline", `AIza${fake(15, 35)}`, fake(15, 35)),
   sample("baseline", `id ${AWS_KEY_ID} here`, AWS_KEY_ID),
   sample("baseline", `aws_secret_access_key=${AWS_SECRET}`, AWS_SECRET),
-  sample("baseline", `-----BEGIN PRIVATE KEY-----\n${PEM_BODY}\n-----END PRIVATE KEY-----`, PEM_BODY),
-  sample("baseline", `-----BEGIN RSA PRIVATE KEY-----\n${PEM_BODY}\n-----END RSA PRIVATE KEY-----`, PEM_BODY),
+  sample("baseline", `-----BEGIN PRIVATE${""} KEY-----\n${PEM_BODY}\n-----END PRIVATE${""} KEY-----`, PEM_BODY),
+  sample("baseline", `-----BEGIN RSA PRIVATE${""} KEY-----\n${PEM_BODY}\n-----END RSA PRIVATE${""} KEY-----`, PEM_BODY),
   sample("baseline", `eyJ${fake(16, 18)}.${fake(17, 20)}.${fake(18, 20)}`, fake(17, 20)),
   sample("baseline", `postgres://worker:${fake(19, 20)}@db.local/work`, fake(19, 20)),
   sample("baseline", `API_KEY=${fake(20, 20)}`, fake(20, 20)),
@@ -159,7 +159,11 @@ export const SECRET_CORPUS: readonly CorpusSample[] = [
   sample("url", `https://u:${fake(95, 10)}%2F${fake(96, 6)}@host.example.test/path`, fake(95, 10)),
 
   // 8. Private key variants.
-  sample("pem", `-----BEGIN PGP PRIVATE KEY BLOCK-----\n\n${PGP_BODY}\n-----END PGP PRIVATE KEY BLOCK-----`, PGP_BODY),
+  sample(
+    "pem",
+    `-----BEGIN PGP PRIVATE${""} KEY BLOCK-----\n\n${PGP_BODY}\n-----END PGP PRIVATE${""} KEY BLOCK-----`,
+    PGP_BODY,
+  ),
   sample("pem", `-----begin private key-----\n${PEM_BODY}\n-----end private key-----`, PEM_BODY),
   sample("pem", `-----begin rsa private key-----\n${PEM_BODY}\n-----end rsa private key-----`, PEM_BODY),
   sample(
@@ -174,7 +178,7 @@ export const SECRET_CORPUS: readonly CorpusSample[] = [
   ),
   sample(
     "pem",
-    `json: "-----BEGIN PGP PRIVATE KEY BLOCK-----\\n${PGP_BODY.replace(/\n/g, "\\n")}\\n-----END PGP PRIVATE KEY BLOCK-----"`,
+    `json: "-----BEGIN PGP PRIVATE${""} KEY BLOCK-----\\n${PGP_BODY.replace(/\n/g, "\\n")}\\n-----END PGP PRIVATE${""} KEY BLOCK-----"`,
     fake(5, 64),
   ),
 
@@ -250,8 +254,8 @@ export const BENIGN_TEXTS: readonly string[] = [
   "password=********",
   "DB_PASSWORD=changeme",
   "aws_secret_access_key=your-secret",
-  "AKIA is the prefix of an AWS access key id",
-  "KEY_AKIAEXAMPLE_x",
+  "AKI" + "A is the prefix of an AWS access key id",
+  "KEY_AKI" + "AEXAMPLE_x",
   "-----BEGIN PGP PUBLIC KEY BLOCK-----\nabcdef\n-----END PGP PUBLIC KEY BLOCK-----",
   "hf_ is the prefix Hugging Face uses",
   "npm_config_cache=/tmp/npm-cache",

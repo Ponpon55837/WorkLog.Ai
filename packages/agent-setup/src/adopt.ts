@@ -29,7 +29,7 @@ import { JSON_OBJECT, displayPath, readRegularFile } from "./files.js";
 import { equalValue, stableJson } from "./json-config.js";
 import { entryIndex, manifestPath, parseManifest, setEntry } from "./manifest.js";
 import { normalizePlanOptions, targetPath } from "./paths.js";
-import { parseTomlKeyPath } from "./toml.js";
+import { codexToolApprovalLeftover, parseTomlKeyPath } from "./toml.js";
 import type { AgentInspectOptions, RegistrationKind } from "./inspect.js";
 import type {
   AgentSetupAdoptedRegistration,
@@ -659,7 +659,7 @@ function scanCodexToml(text: string, context: ScanContext, location: string): To
   }
   const servers = parsed.mcp_servers;
   const server = JSON_OBJECT(servers) ? servers[SERVER_NAME] : undefined;
-  if (server === undefined) return undefined;
+  if (server === undefined || codexToolApprovalLeftover(text)) return undefined;
   const analysis = analyseMcpServer(server, context.platform);
   if (!analysis) return undefined;
 

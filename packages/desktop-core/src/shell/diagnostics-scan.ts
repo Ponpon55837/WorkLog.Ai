@@ -28,13 +28,21 @@ const HARD = String.raw`"'\x60)\]},;|<>\r\n`;
 const PATH_TAIL = String.raw`[^\s${HARD}][^${HARD}]*`;
 // Not right after a letter or digit (a URL path, a relative path) or a separator; `file:///` is a local path.
 const POSIX_START = String.raw`(?:(?<![A-Za-z0-9_.~)\]/\\-])|(?<=file://))`;
-const POSIX_DIRECTORIES = "Users|home|Volumes|private|var|tmp|mnt|media|opt|srv|run|Library|Applications";
+// Home folders and the usual top-level folders a data or checkout path starts with (L-01).
+const POSIX_DIRECTORIES =
+  "Users|home|Volumes|private|var|tmp|mnt|media|opt|srv|run|Library|Applications|etc|usr|data|bin|sbin|lib|lib64|snap|nix|proc|sys|dev|boot|workspace|workspaces|projects|repos";
 
 /** The second pass over redacted text: anything it finds is a path, code or token the first pass missed. */
 export const SCAN_RULES: readonly ScanRule[] = [
   // Paths of any user: drive-letter, POSIX (home and the other absolute folders), tilde and share forms, plain or
   // JSON-escaped. Like the redactor's, a path runs to the end of the line or a hard delimiter, spaces included.
-  { category: "paths", pattern: new RegExp(String.raw`(?<![A-Za-z0-9])[A-Za-z]:[\\/]+${PATH_TAIL}`, "g") },
+  {
+    category: "paths",
+    pattern: new RegExp(
+      String.raw`(?:(?<![\\:A-Za-z0-9_.])\\{2,4}[?.]\\{1,2})?(?<![A-Za-z0-9])[A-Za-z]:[\\/]+${PATH_TAIL}`,
+      "g",
+    ),
+  },
   {
     category: "paths",
     pattern: new RegExp(

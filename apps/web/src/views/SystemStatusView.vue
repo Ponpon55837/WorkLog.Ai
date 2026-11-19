@@ -111,7 +111,15 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
 </script>
 
 <template>
-  <PageHeader :description="t('systemStatus.localServiceDatabaseBackupMaintenance')">
+  <PageHeader
+    :description="
+      t(
+        status?.desktop?.managed
+          ? 'systemStatus.localServiceStatusDesktop'
+          : 'systemStatus.localServiceDatabaseBackupMaintenance',
+      )
+    "
+  >
     <template #actions>
       <UiButton :icon="RefreshCw" :disabled="loading" @click="refreshSystemStatus">{{
         t("systemStatus.refreshStatus")
@@ -408,7 +416,13 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
           <UiBoxRow
             v-else
             :title="t('systemStatus.noMaintenanceHistory')"
-            :meta="t('systemStatus.recentResultsAppearAfterRunning')"
+            :meta="
+              t(
+                status.desktop?.managed
+                  ? 'systemStatus.recentResultsAppearAfterMaintenance'
+                  : 'systemStatus.recentResultsAppearAfterRunning',
+              )
+            "
           />
         </UiBox>
       </template>

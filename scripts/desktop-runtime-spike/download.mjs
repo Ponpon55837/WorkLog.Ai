@@ -1,11 +1,9 @@
 /**
- * Downloads the official Node.js and Electron distributions for this platform and checks them against the
- * SHASUMS256.txt published next to them. Downloads are untrusted until the hash matches, and they are extracted into a
- * directory of their own that nothing is executed from.
- *
- * Limit: SHASUMS256.txt comes from the same origin over HTTPS, so it catches corruption and a swapped file but is not
- * an independent trust root. The release pipeline must also verify the published signature (SHASUMS256.txt.sig / the
- * Electron release signature) or pin the hashes in the repository.
+ * Downloads the official Node.js and Electron distributions for this platform and checks them against a SHA-256.
+ * Node.js is checked against the hashes pinned in node-checksums.mjs, so the shipped runtime does not depend on the
+ * origin's own SHASUMS256.txt. Electron (only the rejected comparison runtime) is checked against the SHASUMS256.txt
+ * published next to it, which catches corruption but is not an independent trust root. Downloads are untrusted until
+ * the hash matches, and they are extracted into a directory of their own that nothing is executed from.
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -16,6 +14,7 @@ import process from "node:process";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { DEFAULT_NODE_VERSION } from "./common.mjs";
+import { pinnedNodeSha256 } from "./node-checksums.mjs";
 
 const NODE_DIST = "https://nodejs.org/dist";
 const ELECTRON_RELEASES = "https://github.com/electron/electron/releases/download";
@@ -103,9 +102,10 @@ export async function prepareNode({ version = DEFAULT_NODE_VERSION, cacheDirecto
   const platform = windows ? "win" : process.platform;
   const stem = `node-${resolved}-${platform}-${process.arch}`;
   const archiveName = `${stem}.${windows ? "zip" : "tar.gz"}`;
-  const sums = parseShasums(await (await fetchOk(`${NODE_DIST}/${resolved}/SHASUMS256.txt`)).text());
-  const expected = sums.get(archiveName);
-  if (!expected) throw new Error(`${archiveName} is not listed in ${NODE_DIST}/${resolved}/SHASUMS256.txt`);
+  const expected = pinnedNodeSha256(resolved, archiveName);
+  if (!expected) {
+    throw new Error(`${archiveName} has no pinned SHA-256; add it to node-checksums.mjs (see the comment there)`);
+  }
   mkdirSync(cacheDirectory, { recursive: true });
   const archive = join(cacheDirectory, archiveName);
   const downloaded = await downloadVerified(`${NODE_DIST}/${resolved}/${archiveName}`, expected, archive);

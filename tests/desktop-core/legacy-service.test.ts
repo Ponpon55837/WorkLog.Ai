@@ -132,7 +132,7 @@ describe("detectLegacyService: nothing installed", () => {
   });
 
   it("reports none on Windows when neither the XML copy nor the task exists", async () => {
-    const runner = fakeRunner();
+    const runner = fakeRunner({ [POWERSHELL]: taskReply("absent") });
     const result = await detectLegacyService({
       platform: "win32",
       homeDirectory: WINDOWS_HOME,
@@ -158,7 +158,7 @@ describe("detectLegacyService: recognised definitions", () => {
   it("recognises the macOS LaunchAgent, reads root, database and default port, and queries launchctl", async () => {
     const home = tempHome();
     const path = installPosix("darwin", home);
-    const runner = fakeRunner({ launchctl: { stdout: "state = running\n\tpid = 42", code: 0 } });
+    const runner = fakeRunner({ "/bin/launchctl": { stdout: "state = running\n\tpid = 42", code: 0 } });
     const result = found(
       await detectLegacyService({ platform: "darwin", homeDirectory: home, environment: {}, uid: 501, ...runner }),
     );
@@ -172,7 +172,9 @@ describe("detectLegacyService: recognised definitions", () => {
       port: 3210,
       running: "running",
     });
-    expect(runner.calls).toEqual([{ command: "launchctl", args: ["print", "gui/501/ai.workintelligence.server"] }]);
+    expect(runner.calls).toEqual([
+      { command: "/bin/launchctl", args: ["print", "gui/501/ai.workintelligence.server"] },
+    ]);
   });
 
   it("recognises the Linux unit, honours XDG_CONFIG_HOME, and reports stopped", async () => {
@@ -434,7 +436,7 @@ describe("detectLegacyService: running status", () => {
   async function runningOn(platform: "darwin" | "linux", reply: Reply, timeoutMs?: number) {
     const home = tempHome();
     installPosix(platform, home);
-    const command = platform === "darwin" ? "launchctl" : "systemctl";
+    const command = platform === "darwin" ? "/bin/launchctl" : "systemctl";
     return found(
       await detectLegacyService({
         platform,
@@ -512,8 +514,25 @@ describe("detectLegacyService: running status", () => {
       timeoutMs: 80,
       ...virtualFiles({}),
     });
-    expect(result).toEqual({ kind: "none" });
+    // No answer is not "nothing": an old task registered without a definition file cannot be ruled out.
+    expect(result).toEqual({ kind: "unknown" });
     expect(Date.now() - started).toBeLessThan(1500);
+  });
+
+  it("reports unknown on Windows when the task query fails or answers with something unreadable, without a file", async () => {
+    for (const reply of [
+      { stdout: "", code: 1 },
+      { stdout: "garbage", code: 0 },
+    ]) {
+      const result = await detectLegacyService({
+        platform: "win32",
+        homeDirectory: WINDOWS_HOME,
+        environment: WINDOWS_ENVIRONMENT,
+        runCommand: fakeRunner({ [POWERSHELL]: reply }).runCommand,
+        ...virtualFiles({}),
+      });
+      expect(result).toEqual({ kind: "unknown" });
+    }
   });
 });
 
@@ -527,7 +546,7 @@ describe("detectLegacyService: starts at login", () => {
       homeDirectory: home,
       environment: {},
       uid: 501,
-      ...fakeRunner({ [platform === "darwin" ? "launchctl" : "systemctl"]: reply }),
+      ...fakeRunner({ [platform === "darwin" ? "/bin/launchctl" : "systemctl"]: reply }),
     });
   }
 

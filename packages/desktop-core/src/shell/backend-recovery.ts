@@ -15,6 +15,8 @@ export interface BackendRecoveryDeps {
   readonly errors: RecentErrors;
   /** Runs the restart operation (an ordinary managed start); `operationId` is the user's, absent for an automatic retry. */
   restart(operationId?: string): Promise<RestartOutcome>;
+  /** Whether a verified backend serves now; a retry that finds the lock held waits for the lock only while none does. */
+  isServing?(): boolean;
   /** False when a retry would be wrong now: an operation is running or a healthy backend already serves. */
   shouldAutoRetry(): boolean;
   now(): Date;
@@ -25,6 +27,11 @@ export interface BackendRecoveryDeps {
   log(line: string): void;
 }
 
+/** An automatic retry that found another operation holding the lock tries again after this long. */
+const BUSY_DEFER_MS = 3_000;
+/** The tries above, in all: one minute. After that the failure is shown instead of staying silent. */
+const MAX_BUSY_DEFERRALS = 20;
+
 /**
  * What the shell does after the backend ends without being asked to (R4 section 6 point 4): record the error code, move to
  * NEEDS_REPAIR, show it the way the launch mode calls for, and retry on a bounded backoff unless the error is one a retry
@@ -34,6 +41,8 @@ export class BackendRecovery {
   private readonly deps: BackendRecoveryDeps;
   private timer: unknown;
   private running = false;
+  private lastCode = "";
+  private busyDeferrals = 0;
 
   constructor(deps: BackendRecoveryDeps) {
     this.deps = deps;
@@ -41,6 +50,8 @@ export class BackendRecovery {
 
   /** The backend ended unexpectedly, or a start failed, with `code`. */
   handleFailure(code: string): void {
+    this.lastCode = code;
+    this.busyDeferrals = 0;
     this.deps.errors.record(code, this.deps.now());
     this.deps.onOwnerChange("NEEDS_REPAIR");
     const decision = this.deps.policy.decide(code);
@@ -87,6 +98,7 @@ export class BackendRecovery {
     if (this.running) return { ok: false, busy: true };
     if (automatic && !this.deps.shouldAutoRetry()) {
       this.deps.log("[shell] automatic retry skipped: an operation runs or the backend already serves");
+      this.deferWhileBusy();
       return { ok: false, busy: true };
     }
     this.running = true;
@@ -97,6 +109,7 @@ export class BackendRecovery {
         this.deps.onOwnerChange("MANAGED");
       } else if (outcome.busy) {
         this.deps.log("[shell] restart not run: another operation holds the lock");
+        if (automatic) this.deferWhileBusy();
       } else if (automatic) {
         this.handleFailure(outcome.code);
       } else {
@@ -108,6 +121,21 @@ export class BackendRecovery {
     } finally {
       this.running = false;
     }
+  }
+
+  /**
+   * An automatic retry met a held lock (M-05). The failure that scheduled it is still unanswered, so unless a backend
+   * serves by now the retry comes again shortly, and when the lock stays held the failure is shown rather than dropped.
+   */
+  private deferWhileBusy(): void {
+    if (this.deps.isServing?.()) return;
+    if (this.busyDeferrals >= MAX_BUSY_DEFERRALS) {
+      this.deps.log(`[shell] automatic retry gave up waiting for the lock after ${this.lastCode}`);
+      this.deps.presenter.present(this.lastCode);
+      return;
+    }
+    this.busyDeferrals += 1;
+    this.schedule(BUSY_DEFER_MS);
   }
 
   /** A restart that throws is a failed restart with the generic repair code, never an unhandled rejection. */

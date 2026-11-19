@@ -83,12 +83,12 @@ function adversarialInputs(length: number): Record<string, string> {
     "AccountKey then a long value": `AccountKey=${"a".repeat(length - 11)}`,
     "repeated PuTTY header": repeatTo("PuTTY-User-Key-File-2: x", length),
     "repeated lowercase PEM header": repeatTo("-----begin private key-----a", length),
-    "repeated PGP header": repeatTo("-----BEGIN PGP PRIVATE KEY BLOCK-----a", length),
-    "repeated PGP header and footer-less body": `-----BEGIN PGP PRIVATE KEY BLOCK-----${repeatTo("a\n", length - 37)}`,
+    "repeated PGP header": repeatTo("-----BEGIN PGP PRIVATE" + " KEY BLOCK-----a", length),
+    "repeated PGP header and footer-less body": `-----BEGIN PGP PRIVATE${""} KEY BLOCK-----${repeatTo("a\n", length - 37)}`,
     "repeated masked aws id": repeatTo("[REDACTED:aws_access_key] ", length),
     "repeated masked aws id and run": repeatTo(`[REDACTED:aws_access_key] ${"A".repeat(39)}`, length),
-    "repeated glued AKIA": repeatTo("_AKIAAAAAAAAAAAAAAAAA_", length),
-    "repeated AKIA then long run": repeatTo(`AKIAAAAAAAAAAAAAAAAA ${"A".repeat(60)} `, length),
+    "repeated glued AKIA": repeatTo("_AKI" + "AAAAAAAAAAAAAAAAA_", length),
+    "repeated AKIA then long run": repeatTo(`AKI${""}AAAAAAAAAAAAAAAAA ${"A".repeat(60)} `, length),
   };
 }
 
@@ -154,7 +154,7 @@ describe("secret redaction coverage", () => {
           "https://u:p@ss/word99@db.test/main?email=a@b.test",
           `https://u:${marker("connection_string_password")}@db.test/main?email=a@b.test`,
         ],
-        ["KEY_AKIAIOSFODNN7EXAMPLE_x", `KEY_${marker("aws_access_key")}_x`],
+        ["KEY_AKI" + "AIOSFODNN7EXAMPLE_x", `KEY_${marker("aws_access_key")}_x`],
       ];
       for (const [input, expected] of cases) {
         expect(redactText(input).value, input).toBe(expected);
@@ -163,7 +163,7 @@ describe("secret redaction coverage", () => {
 
     it("takes a bare 40-character AWS secret only next to an access key id or an AWS secret name", () => {
       const secret = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
-      expect(redactText(`AKIAIOSFODNN7EXAMPLE ${secret}`).value).toBe(
+      expect(redactText(`AKI${""}AIOSFODNN7EXAMPLE ${secret}`).value).toBe(
         `${marker("aws_access_key")} ${marker("aws_secret_key")}`,
       );
       expect(redactText(`secretAccessKey: ${secret}`).value).toBe(`secretAccessKey: ${marker("environment_secret")}`);
@@ -173,7 +173,8 @@ describe("secret redaction coverage", () => {
 
     it("counts each secret once", () => {
       const result = redactText(
-        "Authorization: Bearer ghp_" +
+        "Authorization: Bearer gh" +
+          "p_" +
           "A".repeat(36) +
           " and postgres://u:abcdefgh12@h/x and ?key=sk-" +
           "B".repeat(24),

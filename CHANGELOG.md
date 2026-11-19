@@ -4,6 +4,36 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.57] - 2026-11-19
+
+[繁體中文更新說明](docs/releases/1.6.57.md).
+
+This is the last V1 patch. It fixes the medium and low findings of the 1.6.55 review that were left after 1.6.56. The schema stays at 33 and no migration is needed. Real-device acceptance on Windows 11 and macOS is still not done. Not done in this release: L-05 (build provenance attestation, no verified action SHA was available), the content hash in the runtime id (M-08), Git Bash coverage of the Windows hook command (M-13), and L-29 (a remote branch of the repository owner).
+
+### Fixed
+
+- **One activity gate for every restart (M-01, M-02, M-04).** Change database, change port, copy to a local disk and the storage verdict ask the backend what it is doing before stopping it, through the same gate and the operation coordinator. On Windows the final kill takes the whole process tree, and the server's shutdown grace (7 s) stays under the App's.
+- **Retry and recovery (M-03, M-05).** A Windows task query that does not answer is "unknown", not "none". An automatic retry that meets a held lock tries again and then shows the failure.
+- **Database switch and runtime messages (M-07, M-08).** After a database switch the page tells the user to reopen Agents. A locked runtime folder says to close the Agent that uses it (`RUNTIME_IN_USE`).
+- **First start after an install (M-09).** On Windows the ACL stamp is taken after `current` moves, so the first start reads no ACL again; a failed check restores the previous pointer.
+- **Supply chain (M-10).** The SHA-256 of the bundled Node.js archives is pinned.
+- **Agents one by one (M-17).** Agent setup is chosen per Agent; a conflict in one Agent no longer blocks the other.
+- **Codex: remove, then set up again.** Removing Codex also removes the per-tool approval tables Codex adds after our block (an undo restores them), and a file that holds only such approvals is no longer reported as a conflict: setup writes its block in front of them and keeps the approvals. A registration that is not a command (for example a `url`) is still left alone.
+- **System Status no longer asks for a reconnect that cannot help (desktop and standalone).** The packaged runtime now carries a verifiable MCP build identity: the build embeds the contract id and a hash of the shipped bundles, and the status reads the bundles themselves instead of looking for the repository's `packages/*/dist`. A bundle that was changed afterwards, or one that cannot be read, still reads as unknown.
+- **No command on the desktop status page or restore steps.** The page subtitle, the empty maintenance hint and the restore-from-export steps point to the App's Diagnostics and Data tabs instead of `pnpm` commands; the web server keeps its own wording. The no-command guard now scans the whole web locale, and a string that reads like a command has to be listed with its reason.
+- **Agent cards show a real connection.** The Agent page now reads what the MCP server records when an Agent host completes `initialize` and `tools/list` (`agent-observations.json` in the config directory, the same one the server writes) and compares it with the tool-contract fingerprint the runtime ships (written at build time, so the server need not start). A host that saw the current contract reads "observed connected", an older one "needs reconnect"; Codex (`codex-mcp-client`) and Claude Code (`claude-code`) are mapped, unknown clients and the self-test are ignored, and without the runtime's fingerprint nothing is claimed as connected. Before, both cards stayed on "configured, unverified" because the file was never read.
+- **Restore (M-14, L-24).** The final rename retries under a Windows file lock, old WAL/SHM files are settled before the replacement, and the restore check is a full `integrity_check`.
+- **Import (M-18).** A UTF-8 byte order mark at the start of an import file is skipped.
+- **Hook command (M-13).** A Windows-only test hands the hook command to cmd.exe and PowerShell.
+- **Low findings.** Diagnostics mask more absolute folders, the extended-length prefix and the real database path (L-01, L-02); the desktop log is created 0700/0600 (L-03); `launchctl` runs from its system path (L-04); the port change confirmation names a staged import preview (L-06); agent and first-run handlers take the page-action lock (L-07); a running backend is health-checked every minute and ended after three misses (L-09); Windows USB disks read as removable (L-11); runtime cleanup keeps the named fallback and stops retrying a grace period (L-12, L-13); a vanished lease is recreated again (L-14); copied runtime files are flushed before the install commits (L-15); file-manager junk files such as `.DS_Store` no longer fail runtime verification (L-16); group-writable runtime files are accepted on purpose and documented (L-17); the config rename retries under a Windows file lock (L-21); Agent setup keeps a config file's indentation and trailing newline (L-22); the project export stops as soon as it passes the 256 MiB import limit (L-23); leftover transfer folders are swept hourly while the App runs (L-25); a background worker request has a 30-minute watchdog (L-26); the App/Dashboard theme difference is documented (L-27); two helpers only tests used are removed (L-28).
+- **CI (L-18, L-19).** The runtime spike workflow always starts and decides internally which jobs run; desktop smoke covers plugins and gates the release. The six Spike check names are unchanged.
+- **Test stability.** The SQLite timing test holds every transaction so its record count is deterministic; the Windows update-check tray test asserts the pushed state, not the first request's latency.
+- **Schema:** no change (33).
+
+### Known gaps
+
+- L-05, M-08 (content hash in the runtime id), M-13 (Git Bash), L-29, and real-device acceptance, as above.
+
 ## [1.6.56] - 2026-11-18
 
 [繁體中文更新說明](docs/releases/1.6.56.md).

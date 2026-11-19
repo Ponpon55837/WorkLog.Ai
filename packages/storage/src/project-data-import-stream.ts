@@ -114,6 +114,8 @@ const OPEN_OBJECT = 0x7b;
 const CLOSE_OBJECT = 0x7d;
 const OPEN_ARRAY = 0x5b;
 const CLOSE_ARRAY = 0x5d;
+/** The UTF-8 byte order mark some editors put at the start of a file; JSON.parse of a decoded string never sees it. */
+const UTF8_BOM = [0xef, 0xbb, 0xbf];
 const KNOWN_TABLES: ReadonlySet<string> = new Set(PROJECT_DATA_TABLES);
 const REQUEST_KEY_ORDER = ["bundle", "projectId", "remap", "strategy"];
 const BUNDLE_KEY_ORDER = ["format", "formatVersion", "schemaVersion", "exportedAt", "scope", "tables"];
@@ -215,6 +217,9 @@ class ProjectDataImportStreamReader {
   private readonly inlineCharacters: number;
   private structuralFailure = false;
   private contentFailure = false;
+  /** How many bytes of a leading byte order mark were seen and dropped; `bomDone` once the start was decided. */
+  private bomSeen = 0;
+  private bomDone = false;
 
   public constructor(private readonly options: ProjectDataImportStreamOptions) {
     this.spill = new ProjectDataSpill(options.spillPath);
@@ -222,12 +227,33 @@ class ProjectDataImportStreamReader {
   }
 
   public push(chunk: Uint8Array): void {
-    this.append(chunk);
+    this.append(this.dropByteOrderMark(chunk));
     this.scan();
+  }
+
+  /** Removes a byte order mark at the very start, even when it is cut across chunks; any other start passes unchanged. */
+  private dropByteOrderMark(chunk: Uint8Array): Uint8Array {
+    if (this.bomDone) return chunk;
+    let offset = 0;
+    while (offset < chunk.byteLength && this.bomSeen < UTF8_BOM.length && chunk[offset] === UTF8_BOM[this.bomSeen]) {
+      this.bomSeen += 1;
+      offset += 1;
+    }
+    this.received += offset;
+    if (offset === chunk.byteLength && this.bomSeen < UTF8_BOM.length) return new Uint8Array(0);
+    this.bomDone = true;
+    if (this.bomSeen === UTF8_BOM.length) return chunk.subarray(offset);
+    // Only part of a mark matched, so it was never one: its bytes belong to the content (and make it invalid).
+    this.received -= this.bomSeen;
+    const kept = new Uint8Array(this.bomSeen + chunk.byteLength - offset);
+    kept.set(UTF8_BOM.slice(0, this.bomSeen));
+    kept.set(chunk.subarray(offset), this.bomSeen);
+    return kept;
   }
 
   public finish(): ValidatedProjectDataImport {
     try {
+      if (!this.bomDone && this.bomSeen > 0) this.append(Uint8Array.from(UTF8_BOM.slice(0, this.bomSeen)));
       this.scan();
       this.finishScan();
       return this.validate();

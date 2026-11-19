@@ -73,7 +73,9 @@ const SEPARATOR = String.raw`(?:\\{1,2}|/)`;
 // What may stand right before an absolute POSIX path: not a letter or digit (a URL path or a relative path), not a
 // separator. `file:///` is the one URL whose path is a local path.
 const POSIX_START = String.raw`(?:(?<![A-Za-z0-9_.~)\]/\\-])|(?<=file://))`;
-const POSIX_DIRECTORIES = "Users|home|Volumes|private|var|tmp|mnt|media|opt|srv|run|Library|Applications";
+// Home folders and the usual top-level folders a data or checkout path starts with (L-01).
+const POSIX_DIRECTORIES =
+  "Users|home|Volumes|private|var|tmp|mnt|media|opt|srv|run|Library|Applications|etc|usr|data|bin|sbin|lib|lib64|snap|nix|proc|sys|dev|boot|workspace|workspaces|projects|repos";
 const AFTER_DIRECTORY = String.raw`(?=[^\s/\\"'\x60)\]},;|<>])`;
 
 /**
@@ -85,7 +87,8 @@ const AFTER_DIRECTORY = String.raw`(?=[^\s/\\"'\x60)\]},;|<>])`;
  */
 function pathStartSource(): string {
   return [
-    String.raw`(?<![A-Za-z0-9])[A-Za-z]:${SEPARATOR}(?=${SEGMENT})`,
+    // `\\?\` and `\\.\` (the extended-length and device prefixes) go with the drive path (L-02).
+    String.raw`(?:(?<![\\:A-Za-z0-9_.])\\{2,4}[?.]\\{1,2})?(?<![A-Za-z0-9])[A-Za-z]:${SEPARATOR}(?=${SEGMENT})`,
     String.raw`${POSIX_START}/(?:root(?![A-Za-z0-9_.-])|(?:${POSIX_DIRECTORIES})/${AFTER_DIRECTORY})`,
     String.raw`(?<![A-Za-z0-9_.])~[/\\](?=${SEGMENT})`,
     String.raw`(?<![\\:A-Za-z0-9_.])\\{2,4}[A-Za-z0-9_.$-]+\\{1,2}(?=${SEGMENT})`,

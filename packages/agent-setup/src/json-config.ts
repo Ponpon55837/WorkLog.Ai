@@ -126,15 +126,19 @@ export function parseJsonFile(
   }
 }
 
-export function jsonIndent(source: Buffer | null): number {
-  if (!source) return 2;
+/** The indentation the file already uses (a tab stays a tab), two spaces for a new file. */
+function jsonIndent(source: Buffer | null): string {
+  if (!source) return "  ";
   const match = /\n([ \t]+)"/.exec(source.toString("utf8"));
-  return match?.[1]?.length ?? 2;
+  return match?.[1] ?? "  ";
 }
 
+/** Keeps the file's indentation, line endings and whether it ends with a newline (L-22); a new file ends with one. */
 export function serializeJson(root: Record<string, unknown>, source: Buffer | null): Buffer {
-  const newline = source?.toString("utf8").includes("\r\n") ? "\r\n" : "\n";
-  return Buffer.from(JSON.stringify(root, null, jsonIndent(source)).replaceAll("\n", newline) + newline, "utf8");
+  const text = source?.toString("utf8");
+  const newline = text?.includes("\r\n") ? "\r\n" : "\n";
+  const ending = text === undefined || text.trim() === "" || /\n\s*$/.test(text) ? newline : "";
+  return Buffer.from(JSON.stringify(root, null, jsonIndent(source)).replaceAll("\n", newline) + ending, "utf8");
 }
 
 export function addJsonSpec(

@@ -1,3 +1,5 @@
+import { EventEmitter } from "node:events";
+import { spawn } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -5,6 +7,11 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BACKEND_NODE_FLAGS, createNodeBackendDependencies } from "../../packages/desktop-core/src/index.js";
 import { planLaunch } from "../../packages/desktop-core/src/runtime/launch-plan.js";
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return { ...actual, spawn: vi.fn(actual.spawn) };
+});
 
 vi.mock("../../packages/desktop-core/src/runtime/launch-plan.js", () => ({
   planLaunch: vi.fn(async () => ({ command: "synthetic-node", args: ["serve"], env: {} })),
@@ -103,6 +110,35 @@ describe("createNodeBackendDependencies", () => {
     expect(fired).toHaveBeenCalledTimes(1);
     expect(dependencies.platform).toBe(process.platform);
     expect(dependencies.parentEnvironment).toBe(process.env);
+  });
+
+  it("resolves the tree kill only when taskkill has ended, or could not start", async () => {
+    const windows = createNodeBackendDependencies({
+      runtimeRoot: "/synthetic/runtime",
+      platform: "win32",
+      parentEnvironment: { SystemRoot: "C:\\Windows" },
+    });
+    const outcomes: Array<"close" | "error"> = ["close", "error"];
+    const started: unknown[][] = [];
+    vi.mocked(spawn).mockImplementation(((...args: unknown[]) => {
+      started.push(args);
+      const killer = Object.assign(new EventEmitter(), { unref: () => undefined });
+      const outcome = outcomes.shift() as "close" | "error";
+      setImmediate(() => killer.emit(outcome, outcome === "error" ? new Error("spawn failed") : 0));
+      return killer;
+    }) as never);
+
+    let settled = false;
+    const first = Promise.resolve(windows.killTree?.(4242)).then(() => (settled = true));
+    expect(settled).toBe(false);
+    await first;
+    await windows.killTree?.(4243);
+
+    expect(started.map((call) => call[1])).toEqual([
+      ["/PID", "4242", "/T", "/F"],
+      ["/PID", "4243", "/T", "/F"],
+    ]);
+    expect(String(started[0]?.[0]).toLowerCase()).toContain("taskkill.exe");
   });
 
   it("honors an injected platform and environment", () => {

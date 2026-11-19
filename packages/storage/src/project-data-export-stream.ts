@@ -35,6 +35,9 @@ const WRITE_BUFFER_BYTES = 1024 * 1024;
 /** An exclusive (`wx`, 0600) file written through a 1 MiB buffer. */
 class ExportFileWriter {
   public bytes = 0;
+  /** Bytes already written by the other writer of the same export; counted against `limit`. */
+  public carried = 0;
+  public limit = Number.POSITIVE_INFINITY;
   private readonly fd: number;
   private readonly buffer = Buffer.allocUnsafe(WRITE_BUFFER_BYTES);
   private buffered = 0;
@@ -53,6 +56,9 @@ class ExportFileWriter {
       this.buffered += this.buffer.write(text, this.buffered, "utf8");
     }
     this.bytes += length;
+    if (this.carried + this.bytes > this.limit) {
+      throw new ProjectDataTransferError("export_too_large", "The export is larger than the allowed size.");
+    }
   }
 
   /** Appends a closed writer's file, a buffer at a time. */
@@ -135,15 +141,18 @@ function writeTable(
 
 /**
  * Writes the portable export of `scope` to `target`, which must not exist yet, inside one read snapshot. On failure
- * nothing is left behind.
+ * nothing is left behind. With `maxBytes` the export is counted while it is written and stops with an
+ * `export_too_large` {@link ProjectDataTransferError} as soon as it passes that size, instead of writing it all first.
  */
 export function writeProjectDataExport(
   db: DatabaseSync,
   scope: ProjectDataExportScope,
   redactArchitectureDiagram: ArchitectureDiagramRedactor,
   target: string,
+  maxBytes?: number,
 ): { bytes: number } {
   const output = new ExportFileWriter(target);
+  if (maxBytes !== undefined) output.limit = maxBytes;
   let later: ExportFileWriter | undefined;
   try {
     runReadTransaction(db, () => {
@@ -161,11 +170,16 @@ export function writeProjectDataExport(
       output.write(`${prefix}{`);
       writeTable(output, db, sources.projects, true, mask("projects"));
       later = new ExportFileWriter(`${target}.later`);
+      // The side file and the main file together are the export: each counts what the other has written so far.
+      later.limit = output.limit;
+      later.carried = output.bytes;
       for (const table of PROJECT_DATA_TABLES.slice(2)) writeTable(later, db, sources[table], false, mask(table));
       later.close();
+      output.carried = later.bytes;
       // Every later row is counted by now; masking a Session adds its own redactions just before it is written.
       const maskSession = mask("sessions");
       writeTable(output, db, sources.sessions, false, (row) => tally.session(maskSession(row)));
+      output.carried = 0;
       output.append(later);
       output.write(`}${suffix}`);
     });

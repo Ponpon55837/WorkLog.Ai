@@ -315,7 +315,7 @@ describe("executeLegacyDisable", () => {
     const { dependencies, calls, files } = harness({
       detections: [mac],
       files: { "/p/ai.plist": DEFINITION },
-      failing: { "launchctl bootout": 5 },
+      failing: { "/bin/launchctl bootout": 5 },
       stillLoaded: true,
     });
     expect(await executeLegacyDisable(plan(mac), dependencies)).toMatchObject({
@@ -325,8 +325,8 @@ describe("executeLegacyDisable", () => {
       stopAttempted: true,
     });
     expect(calls).toEqual([
-      "launchctl bootout gui/501/ai.workintelligence.server",
-      "launchctl print gui/501/ai.workintelligence.server",
+      "/bin/launchctl bootout gui/501/ai.workintelligence.server",
+      "/bin/launchctl print gui/501/ai.workintelligence.server",
     ]);
     expect(files.size).toBe(1);
   });
@@ -349,7 +349,7 @@ describe("executeLegacyDisable", () => {
     const { dependencies, files } = harness({
       detections: [mac, { kind: "none" }],
       files: { "/p/ai.plist": DEFINITION },
-      failing: { "launchctl bootout": 5 },
+      failing: { "/bin/launchctl bootout": 5 },
     });
     expect(await executeLegacyDisable(plan(mac), dependencies)).toEqual({ outcome: "disabled", endedProcesses: 0 });
     expect(files.size).toBe(0);

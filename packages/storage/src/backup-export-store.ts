@@ -98,12 +98,16 @@ export class BackupExportStore {
    * the masking that loads zod is imported only when one exists (in any project: one index lookup decides it before
    * anything is written, instead of finding out halfway and writing the export twice).
    */
-  public async writeProjectData(scope: ProjectDataExportScope, target: string): Promise<{ bytes: number }> {
+  public async writeProjectData(
+    scope: ProjectDataExportScope,
+    target: string,
+    maxBytes?: number,
+  ): Promise<{ bytes: number }> {
     const hasArchitectureDiagram =
       this.db.prepare("SELECT 1 FROM session_diagrams WHERE kind = 'architecture' LIMIT 1").get() !== undefined;
     const redactArchitectureDiagram = hasArchitectureDiagram
       ? (await import("./diagram-source-redaction.js")).redactArchitectureDiagramSource
       : refuseArchitectureDiagram;
-    return writeProjectDataExport(this.db, scope, redactArchitectureDiagram, target);
+    return writeProjectDataExport(this.db, scope, redactArchitectureDiagram, target, maxBytes);
   }
 }

@@ -22,7 +22,7 @@ import {
 import type { DesktopBackendActivity } from "@work-intelligence/schema";
 import { getMcpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import { createFolderPicker } from "./folder-picker.js";
-import { BackupWorkerOutOfMemoryError } from "./backup-worker-errors.js";
+import { BackupWorkerOutOfMemoryError, BackupWorkerTimeoutError } from "./backup-worker-errors.js";
 import { inspectAgentConnections } from "./doctor.js";
 import {
   importProjectDataUpload,
@@ -51,6 +51,7 @@ const DATABASE_UNAVAILABLE_RESPONSES: Record<DatabaseUnavailableReason, { status
 const SERVER_RESTART_REQUIRED_MESSAGE = "資料庫 schema 已更新，請重新啟動 Work Intelligence server。";
 /** Nothing was saved; the fixed text carries no content, and the web app shows its own translated guidance. */
 const BACKUP_WORKER_OUT_OF_MEMORY_MESSAGE = "匯入檔太大，背景處理記憶體不足；後端仍正常運作。";
+const BACKUP_WORKER_TIMEOUT_MESSAGE = "背景處理逾時而被停止；後端仍正常運作，請稍後再試。";
 const DEFAULT_MAX_EVENT_CLIENTS = 32;
 const EVENT_HEARTBEAT_INTERVAL_MS = 15_000;
 const DEFAULT_REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -184,8 +185,8 @@ function createInlineBackgroundStore(store: WorkIntelligenceStore): BackgroundSt
     async exportTo(target, options) {
       return store.exportTo(target, options);
     },
-    async exportProjectData(scope, target) {
-      return store.writeProjectDataExport(scope, target);
+    async exportProjectData(scope, target, maxBytes) {
+      return store.writeProjectDataExport(scope, target, maxBytes);
     },
     async previewProjectDataImport(upload) {
       return previewProjectDataImportUpload(store, upload);
@@ -412,6 +413,11 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
         // 413: the document is too large for this server to process in one request, so retrying it cannot succeed.
         // A distinct code keeps it apart from `payload_too_large` (the body limit); the next request starts a new worker.
         sendError(response, 413, BACKUP_WORKER_OUT_OF_MEMORY_MESSAGE, undefined, error.code);
+        return;
+      }
+
+      if (error instanceof BackupWorkerTimeoutError) {
+        sendError(response, 503, BACKUP_WORKER_TIMEOUT_MESSAGE, undefined, "service_unavailable");
         return;
       }
 

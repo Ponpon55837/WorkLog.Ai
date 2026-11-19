@@ -120,6 +120,9 @@ export interface SetupMessages {
   readonly agentsKeepCheckout: string;
   readonly agentsPreview: string;
   readonly agentsPreviewAdopt: string;
+  /** The checkbox on an Agent's card: whether the next preview sets this Agent up. */
+  readonly agentsSelect: string;
+  readonly agentsNotDetected: string;
   readonly agentsPreviewHeading: string;
   readonly agentsApply: string;
   readonly agentsDiscard: string;
@@ -333,6 +336,8 @@ const zhTW: SetupMessages = {
   agentsKeepCheckout: "也可以保留原本的設定，App 不會改動它。",
   agentsPreview: "預覽變更",
   agentsPreviewAdopt: "改由桌面 App 管理…",
+  agentsSelect: "設定這個 Agent",
+  agentsNotDetected: "這台電腦上沒有找到它的設定資料夾，預設不會設定。要設定請勾選上面的選項。",
   agentsPreviewHeading: "將要寫入的變更",
   agentsApply: "套用變更",
   agentsDiscard: "取消",
@@ -392,7 +397,7 @@ const zhTW: SetupMessages = {
   copyConfirmYes: "複製並改用",
   copyConfirmNo: "取消",
   copyWorking: "正在複製…",
-  copyDone: "已改用本機磁碟上的副本。原本的檔案沒有被改動。",
+  copyDone: "已改用本機磁碟上的副本。原本的檔案沒有被改動。已經開著的 Agent 仍會寫入原本的檔案，請關閉後重新開啟。",
   copyErrors: {
     "no-space": "本機磁碟的可用空間不夠，沒有複製。請清出空間後再試。",
     "target-exists": "複製的目標檔名已經存在，沒有覆蓋任何檔案。請再試一次。",
@@ -584,6 +589,9 @@ const en: SetupMessages = {
   agentsKeepCheckout: "Or keep the current settings; the App leaves them alone.",
   agentsPreview: "Preview changes",
   agentsPreviewAdopt: "Let the desktop App manage it…",
+  agentsSelect: "Set up this Agent",
+  agentsNotDetected:
+    "Its settings folder was not found on this computer, so it is not set up by default. Tick the box above to set it up.",
   agentsPreviewHeading: "Changes to be written",
   agentsApply: "Apply changes",
   agentsDiscard: "Cancel",
@@ -644,7 +652,8 @@ const en: SetupMessages = {
   copyConfirmYes: "Copy and switch",
   copyConfirmNo: "Cancel",
   copyWorking: "Copying…",
-  copyDone: "Now using the copy on the local disk. The original file was not changed.",
+  copyDone:
+    "Now using the copy on the local disk. The original file was not changed. Agents that are already open keep writing to the original; close and reopen them.",
   copyErrors: {
     "no-space": "The local disk does not have enough free space, so nothing was copied. Free some space and try again.",
     "target-exists": "The name for the copy already exists, so nothing was overwritten. Please try again.",

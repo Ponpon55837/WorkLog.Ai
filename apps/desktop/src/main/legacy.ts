@@ -50,7 +50,7 @@ export interface LegacyGuardOptions {
 }
 
 function describe(detection: LegacyServiceDetection): string {
-  if (detection.kind === "none") return "none";
+  if (detection.kind !== "found") return detection.kind;
   return `${detection.recognised ? "recognised" : "unrecognised"} ${detection.running}${detection.enabled === "enabled" ? " enabled" : ""}`;
 }
 
@@ -82,7 +82,11 @@ export function createLegacyGuard(options: LegacyGuardOptions): LegacyGuard {
 
   async function refresh(): Promise<LegacyServiceDetection> {
     const started = Date.now();
-    latest = await detect();
+    let detection = await detect();
+    // The first PowerShell start after boot or an antivirus scan often outlasts the budget; the second one is warm.
+    if (detection.kind === "unknown") detection = await detect();
+    // A question that went unanswered does not erase the last real answer.
+    latest = detection.kind === "unknown" && latest !== null && latest.kind !== "unknown" ? latest : detection;
     const summary = describe(latest);
     // One line when what was found changes, not one per start: see the log contract in log.ts.
     if (summary !== logged) {

@@ -200,6 +200,14 @@ async function checkServer(bin, environment, root, port, version) {
       backup.status === 201 && backups.length === 1,
       `status ${backup.status}, files ${backups.length}`,
     );
+    // The packaged runtime has no packages/*/dist; its MCP build must still be readable, not reported as unknown.
+    const systemStatus = await globalThis.fetch(`http://127.0.0.1:${port}/api/system/status`);
+    const mcp = (await systemStatus.json()).mcp;
+    check(
+      "start: MCP build identity is known",
+      systemStatus.status === 200 && mcp?.monitoringAvailable === true && !mcp.message.includes("無法確認"),
+      JSON.stringify(mcp),
+    );
   } catch (error) {
     record("start", false, String(error?.message ?? error));
   } finally {
@@ -268,7 +276,10 @@ async function mcpSession(bin, environment, root, projectFolder) {
       })(),
     };
   } finally {
+    // Closing stdin lets the server finish what it is writing (the host observation) before it exits; a signal would race it.
+    const exited = new Promise((done) => child.once("exit", done));
     child.stdin.end();
+    await Promise.race([exited, sleep(5_000)]);
     await stop(child);
   }
 }
@@ -415,6 +426,27 @@ async function main() {
         mcp.toolNames.join(","),
       );
       check("mcp: sees the project tracked from the CLI", mcp.projectStatus === "tracked", String(mcp.projectStatus));
+      // What a real host saw is recorded in the config directory the desktop reads, and equals the fingerprint the
+      // build shipped, which is what lets the desktop Agent card read "connected" without starting the server.
+      const readJson = (...parts) => {
+        try {
+          return JSON.parse(readFileSync(join(...parts), "utf8"));
+        } catch {
+          return undefined;
+        }
+      };
+      const shipped = readJson(
+        installRoot,
+        `work-intelligence-${built.version}`,
+        "libexec/apps/mcp/dist/contract-fingerprint.json",
+      );
+      const observed = readJson(root, "config", "agent-observations.json")?.observations?.["standalone-smoke"];
+      check(
+        "mcp: a host's observation carries the shipped contract fingerprint",
+        /^[a-f0-9]{64}$/.test(shipped?.contractFingerprint ?? "") &&
+          observed?.contractFingerprint === shipped.contractFingerprint,
+        `${JSON.stringify(shipped)} vs ${observed?.contractFingerprint}`,
+      );
     } catch (error) {
       record("mcp", false, String(error?.message ?? error));
     }

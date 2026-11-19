@@ -88,7 +88,51 @@ const DESKTOP_WEB_KEYS: readonly string[] = [
   "systemStatus.legacyServiceWarning",
   "systemStatus.legacyServiceStartsAtLogin",
   "systemStatus.legacyServiceTurnOffInApp",
+  "systemStatus.localServiceStatusDesktop",
+  "systemStatus.recentResultsAppearAfterMaintenance",
+  "projects.restoreInDesktopApp",
 ];
+
+/**
+ * Every other string of the web locale that matches a pattern above, by key. Each is shown only outside the
+ * desktop-managed window (the web server's own wording, with the desktop sentence above taking its place there) or is a
+ * prompt pasted into an Agent conversation rather than a shell command. A new match fails the test until it is
+ * either reworded or listed here with its reason.
+ */
+const WEB_OUTSIDE_DESKTOP: ReadonlyMap<string, string> = new Map([
+  [
+    "systemStatus.localServiceDatabaseBackupMaintenance",
+    "page subtitle; the desktop window shows localServiceStatusDesktop",
+  ],
+  [
+    "systemStatus.recentResultsAppearAfterRunning",
+    "maintenance hint; the desktop window shows recentResultsAppearAfterMaintenance",
+  ],
+  [
+    "systemStatus.agentsInOtherProjectsNeed",
+    "Agent hint with the setup command; the desktop window shows agentsInOtherProjectsNeedDesktop",
+  ],
+  ["systemStatus.copyCommand", "button of the command above, not shown in the desktop window"],
+  ["projects.pnpmDbRestoreExportFile", "restore command, replaced by restoreInDesktopApp in the desktop window"],
+  ["projects.runTheCommandBelowFrom", "step of the restore command, replaced by restoreInDesktopApp"],
+  ["projects.copyRestoreCommand", "button of the restore command, not shown in the desktop window"],
+  ["projects.restoreCommandCopied", "toast of the restore command, not shown in the desktop window"],
+  ["dashboard.copyInstallCommand", "checklist button, hidden when desktop-managed"],
+  ["common.copyAgentInstruction", "copies a prompt for the Agent conversation, not a shell command"],
+  ["dashboard.workRecordInstructionCopied", "toast of a prompt for the Agent conversation"],
+  ["projects.pasteTheInstructionBelowInto", "prompt for the Agent conversation"],
+  ["reports.pasteTheInstructionBelowInto", "prompt for the Agent conversation"],
+  ["reports.naturalLanguageSynthesisInstructionCopied", "toast of a prompt for the Agent conversation"],
+]);
+
+function webLocaleStrings(): Found[] {
+  const out: Found[] = [];
+  for (const locale of WEB_LOCALES) {
+    const messages = JSON.parse(readFileSync(path.join(WEB_LOCALE_ROOT, `${locale}.json`), "utf8")) as unknown;
+    collectDictionary(messages, `web[${locale}]`, out);
+  }
+  return out;
+}
 
 function webDesktopStrings(): Found[] {
   const out: Found[] = [];
@@ -215,6 +259,19 @@ describe("no command copy in the desktop App (M-15)", () => {
 
   it("no web string shown in the desktop-managed window asks the user to run a command", () => {
     expect(violations(webDesktopStrings())).toEqual([]);
+  });
+
+  it("every web locale string that reads like a command is either reworded or listed as shown outside the desktop window", () => {
+    const strings = webLocaleStrings();
+    expect(strings.length).toBeGreaterThan(2000);
+    const matching = new Set(
+      strings
+        .filter((entry) => violations([entry]).length > 0)
+        .map((entry) => entry.where.slice(entry.where.indexOf("]") + 2)),
+    );
+    expect([...matching].filter((key) => !WEB_OUTSIDE_DESKTOP.has(key))).toEqual([]);
+    // A listed key that no longer matches (or no longer exists) is stale and must leave the list.
+    expect([...WEB_OUTSIDE_DESKTOP.keys()].filter((key) => !matching.has(key))).toEqual([]);
   });
 
   it("no renderer string asks the user to run a command", () => {

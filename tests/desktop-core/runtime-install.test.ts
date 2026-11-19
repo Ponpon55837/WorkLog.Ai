@@ -411,6 +411,33 @@ describe("ACL reads while one runtime is provisioned (Windows policy)", () => {
     expect(aclReader.read).toHaveBeenCalledTimes(2);
   });
 
+  it("the first start after a commit reads no ACL: the stamp was taken after `current` moved (M-09)", async () => {
+    const { aclReader, commit } = await installed();
+    await commitCurrent(root, "rt-1", commit);
+    const reads = aclReader.read.mock.calls.length;
+    // What the launcher does on every start: the cache and the stamp decide, nothing else changed.
+    const started = await verifyRuntime(root, "rt-1", { ...commit, useCache: true });
+    expect(started.aclRead).toBe(false);
+    expect(aclReader.read).toHaveBeenCalledTimes(reads);
+  });
+
+  it("puts the previous pointer back when the runtime fails its verification after `current` moved", async () => {
+    await installFixture(root, "older", { commit: true });
+    const { commit } = await installed();
+    await flipFirstByte(path.join(runtimeDirectoryFor(root, "rt-1"), "app/mcp.js"));
+    await expect(commitCurrent(root, "rt-1", commit)).rejects.toMatchObject({
+      code: "RUNTIME_FILE_TAMPERED",
+    });
+    expect(await readCurrentRuntimeId(root)).toBe("older");
+  });
+
+  it("removes the pointer again when there was none before", async () => {
+    const { commit } = await installed();
+    await flipFirstByte(path.join(runtimeDirectoryFor(root, "rt-1"), "app/mcp.js"));
+    await expect(commitCurrent(root, "rt-1", commit)).rejects.toMatchObject({ code: "RUNTIME_FILE_TAMPERED" });
+    expect(await readCurrentRuntimeId(root).catch(() => undefined)).toBeUndefined();
+  });
+
   it("a reused stamp never excuses changed content", async () => {
     const { verification, commit } = await installed();
     await flipFirstByte(path.join(runtimeDirectoryFor(root, "rt-1"), "app/mcp.js"));

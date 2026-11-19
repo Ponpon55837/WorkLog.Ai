@@ -18,7 +18,7 @@ import type { RepairBusyReason } from "./repair-busy.js";
 import { z } from "zod";
 import { APP_TABS, type AppTab, type AppTabSelection } from "./app-tabs.js";
 import type { DiagnosticsReport } from "./diagnostics.js";
-import type { RepairActionId, RepairState } from "./repair-state.js";
+import type { RepairState } from "./repair-state.js";
 import type { SetupState } from "./setup-state.js";
 import { SETUP_AGENT_IDS, type AgentsState, type SetupAgentId } from "./agents-state.js";
 import { SYSTEM_SETTINGS_TARGETS, type SystemSettingsTarget } from "../legacy-service/system-settings.js";
@@ -128,7 +128,7 @@ export const repairInputSchemas = {
   showView: z.strictObject({ view: z.literal("agents") }),
   agentsGetState: z.undefined(),
   /** `adopt`: also take over the hand-written checkout registrations ("改由桌面 App 管理"). Nothing is written. */
-  agentsPreview: z.strictObject({ adopt: z.boolean() }),
+  agentsPreview: z.strictObject({ adopt: z.boolean(), agents: z.array(z.enum(SETUP_AGENT_IDS)).min(1).optional() }),
   /** Applies exactly the plan this preview showed; a file changed since then makes the apply refuse. */
   /** Previews removing what setup wrote; applying it goes through `agentsApply` with the preview's id. */
   agentsRemovePreview: z.strictObject({}),
@@ -328,7 +328,8 @@ export interface RepairApi {
   setupLater(): Promise<{ readonly ok: boolean }>;
   showAgents(): Promise<{ readonly ok: boolean }>;
   agentsGetState(): Promise<AgentsState>;
-  agentsPreview(adopt: boolean): Promise<AgentsActionResult>;
+  /** `agents`: the Agents to set up; omitted means both. */
+  agentsPreview(adopt: boolean, agents?: readonly SetupAgentId[]): Promise<AgentsActionResult>;
   agentsRemovePreview(): Promise<AgentsActionResult>;
   agentsApply(previewId: string, acknowledgeUndiffable?: boolean): Promise<AgentsActionResult>;
   agentsDiscard(): Promise<AgentsActionResult>;
@@ -360,16 +361,4 @@ export interface RepairSender {
 /** Only the repair page, in the main frame of the repair window, may call these channels. */
 export function isTrustedRepairSender(sender: RepairSender): boolean {
   return sender.fromRepairWindow && sender.isMainFrame && isRepairPageUrl(sender.frameUrl);
-}
-
-export function isRepairActionId(value: string): value is RepairActionId {
-  return [
-    "retry-start",
-    "choose-database",
-    "open-database-folder",
-    "open-backups-folder",
-    "open-logs-folder",
-    "export-diagnostics",
-    "start-anyway",
-  ].includes(value);
 }

@@ -12,8 +12,8 @@ import {
   renameSync,
   rmSync,
   statSync,
+  truncateSync,
   unlinkSync,
-  writeFileSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -32,6 +32,7 @@ import {
 } from "@work-intelligence/shared";
 import { pathsReferToSameFile } from "@work-intelligence/shared/file-identity";
 import { remapPathPrefix } from "./project-path-remap.js";
+import { renameSyncWithRetry } from "./rename-retry.js";
 import { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
 
 /** Re-exported: the name rules live in the shared package, where the desktop App reads them too. */
@@ -466,7 +467,8 @@ export type RestoreDatabaseErrorCode =
   | "RESTORE_NOT_DATABASE"
   | "RESTORE_SOURCE_CORRUPT"
   | "RESTORE_SCHEMA_TOO_NEW"
-  | "RESTORE_DATABASE_IN_USE";
+  | "RESTORE_DATABASE_IN_USE"
+  | "RESTORE_FILES_LOCKED";
 
 /**
  * A safe, classified restore failure. Every one of them is raised before the current database is replaced (the staging
@@ -540,10 +542,13 @@ function classifyOpenFailure(error: unknown): BackupInspection {
 /**
  * Reads `source` read-only and says whether it can be restored from: a Work Intelligence database (our tables), not newer
  * than this version supports, and (unless `integrity` is false, which a listing of many files uses) passing
- * `PRAGMA quick_check`. The schema version is decided before the integrity check, so
+ * `PRAGMA quick_check`, or `PRAGMA integrity_check` when `full` is set (a restore is offline, so it can afford it). The schema version is decided before the integrity check, so
  * a file from a newer App is reported as such. Never throws.
  */
-export function inspectDatabaseBackup(source: string, options: { integrity?: boolean } = {}): BackupInspection {
+export function inspectDatabaseBackup(
+  source: string,
+  options: { integrity?: boolean; full?: boolean } = {},
+): BackupInspection {
   let db: DatabaseSync | undefined;
   try {
     db = new DatabaseSync(source, { readOnly: true });
@@ -559,9 +564,10 @@ export function inspectDatabaseBackup(source: string, options: { integrity?: boo
       : 0;
     if (schemaVersion > LATEST_SCHEMA_VERSION) return { status: "newer-schema", schemaVersion };
     if (options.integrity !== false) {
-      const quick = db.prepare("PRAGMA quick_check").get() as { quick_check?: string } | undefined;
-      if (quick?.quick_check !== "ok") {
-        return { status: "corrupt", detail: quick?.quick_check ?? "no result" };
+      const pragma = options.full ? "integrity_check" : "quick_check";
+      const checked = db.prepare(`PRAGMA ${pragma}`).get() as Record<string, string> | undefined;
+      if (checked?.[pragma] !== "ok") {
+        return { status: "corrupt", detail: checked?.[pragma] ?? "no result" };
       }
     }
     const count = (table: string): number =>
@@ -579,7 +585,7 @@ export function inspectDatabaseBackup(source: string, options: { integrity?: boo
 }
 
 function inspectSnapshot(source: string): { schemaVersion: number; projects: number; sessions: number } {
-  const found = inspectDatabaseBackup(source);
+  const found = inspectDatabaseBackup(source, { full: true });
   if (found.status === "ok") return found;
   if (found.status === "newer-schema") {
     throw new RestoreDatabaseError(
@@ -627,9 +633,11 @@ function readChangeRevisions(database: DatabaseSync): { dataRevision: number; au
 function assertRestoredCopyHealthy(db: DatabaseSync): void {
   let healthy: boolean;
   try {
-    const quick = db.prepare("PRAGMA quick_check").all() as Array<{ quick_check: string }>;
+    const checked = db.prepare("PRAGMA integrity_check").all() as Array<{ integrity_check: string }>;
     healthy =
-      quick.length === 1 && quick[0]?.quick_check === "ok" && db.prepare("PRAGMA foreign_key_check").all().length === 0;
+      checked.length === 1 &&
+      checked[0]?.integrity_check === "ok" &&
+      db.prepare("PRAGMA foreign_key_check").all().length === 0;
   } catch (error) {
     throw new RestoreDatabaseError("RESTORE_VERIFY_FAILED", RESTORE_VERIFY_MESSAGE, { cause: error });
   }
@@ -638,12 +646,27 @@ function assertRestoredCopyHealthy(db: DatabaseSync): void {
   }
 }
 
-/** Removes a side file of the replaced database; when it cannot be removed it is emptied, and when neither works it throws. */
-function discardStaleSideFile(path: string): void {
+/**
+ * Empties a side file of the database about to be replaced (an empty WAL is no WAL, an empty shared-memory file is
+ * rebuilt) and says whether it could. Nothing is removed yet: if the replacement is then refused, the current database
+ * is still complete, because its WAL was checkpointed into it.
+ */
+function emptySideFile(path: string): boolean {
+  try {
+    // Truncating never creates the file: there is nothing to empty when the database was closed cleanly.
+    truncateSync(path, 0);
+    return true;
+  } catch (error) {
+    return (error as { code?: unknown } | null)?.code === "ENOENT";
+  }
+}
+
+/** Removes the emptied side file once the new database is in place; one that stays is empty, so it is harmless. */
+function removeEmptiedSideFile(path: string): void {
   try {
     rmSync(path, { force: true });
   } catch {
-    writeFileSync(path, "");
+    // Already empty: SQLite starts from nothing beside the new file.
   }
 }
 
@@ -681,6 +704,14 @@ export function restoreDatabase(options: {
     try {
       previousRevisions = readChangeRevisions(current);
       safetyBackup = backupDatabase(current, databasePath, { directory: options.backupDirectory }).created.fileName;
+      // Everything the WAL holds goes into the database file, so the WAL beside it can be emptied before the replacement.
+      const checkpoint = current.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get() as { busy?: number } | undefined;
+      if (checkpoint?.busy) {
+        throw new RestoreDatabaseError(
+          "RESTORE_DATABASE_IN_USE",
+          "The database is in use. Stop the API server and close Agents first.",
+        );
+      }
     } finally {
       current.close();
     }
@@ -752,18 +783,24 @@ export function restoreDatabase(options: {
 
   rmSync(`${staging}-wal`, { force: true });
   rmSync(`${staging}-shm`, { force: true });
-  // The replacement comes first: a refusal (a Windows file lock) must leave the current database together with its own
-  // WAL and shared-memory files, exactly as they were.
+  // A leftover WAL would be applied to the new file, so the old side files must be neutralized, and that is settled before
+  // the replacement: if a lock keeps them from being emptied, nothing has changed yet and the restore is refused.
+  const sideFiles = [`${databasePath}-wal`, `${databasePath}-shm`];
+  if (!sideFiles.every(emptySideFile)) {
+    rmSync(staging, { force: true });
+    throw new RestoreDatabaseError(
+      "RESTORE_FILES_LOCKED",
+      "The current database's files are held by another program (an antivirus scanner or an indexer). Try again in a moment.",
+    );
+  }
   try {
-    renameSync(staging, databasePath);
+    renameSyncWithRetry(staging, databasePath);
   } catch (error) {
-    // A file lock (Windows EBUSY / EPERM) refuses the replacement: the current database is untouched, and the staging copy
-    // is taken away so a later restore starts clean. The error keeps its errno for the caller's classification.
+    // A file lock (Windows EBUSY / EPERM) that outlasted the retries refuses the replacement: the current database is
+    // untouched, and the staging copy is taken away so a later restore starts clean. The error keeps its errno.
     rmSync(staging, { force: true });
     throw error;
   }
-  // Only now are the old file's side files stale: SQLite would apply a leftover WAL to the new file, so they are removed
-  // right after the replacement (emptied when they cannot be removed: an empty WAL is no WAL).
-  for (const side of [`${databasePath}-wal`, `${databasePath}-shm`]) discardStaleSideFile(side);
+  for (const side of sideFiles) removeEmptiedSideFile(side);
   return { ...inspected, schemaVersion: LATEST_SCHEMA_VERSION, remapped, safetyBackup };
 }
