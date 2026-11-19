@@ -12,12 +12,18 @@ const PRODUCT_DIRECTORIES = ["packages/desktop-core/src", "apps/desktop/src"];
 
 /** Fields allowed to lack a reader or a writer, each with the reason and the release that closes the gap. */
 const NO_READER = new Map<string, string>([
-  ["active.runtimeVersion", "kept for a downgrade to 1.6.57: its strict schema rejects a file without it"],
-  ["active.serviceOwner", "kept for a downgrade to 1.6.57: its strict schema rejects a file without it"],
+  [
+    "active.runtimeVersion",
+    "kept for a downgrade to 1.6.57 (its strict schema rejects a file without it); handled in 1.6.58 by keeping it",
+  ],
+  [
+    "active.serviceOwner",
+    "kept for a downgrade to 1.6.57 (its strict schema rejects a file without it); handled in 1.6.58 by keeping it",
+  ],
   ["lastKnownGood.databaseIdentity", "1.6.59 接上回退"],
   ["lastKnownGood.port", "1.6.59 接上回退"],
   ["lastKnownGood.runtimeVersion", "1.6.59 接上回退"],
-  ["installId", "an install label kept in the file for support; nothing in the App branches on it"],
+  ["installId", "written as an install label, never read; 1.6.59 decides its use or plans its removal"],
 ]);
 const NO_WRITER = new Map<string, string>([
   ["lastKnownGood.databaseIdentity", "1.6.59 接上回退"],
