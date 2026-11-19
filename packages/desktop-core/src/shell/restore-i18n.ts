@@ -79,6 +79,24 @@ export interface RestoreMessages {
   readonly confirmDetailNoDatabase: string;
   readonly confirmButton: string;
   readonly cancelButton: string;
+  /**
+   * A backup from another computer records project folders that are not here. The native question before the confirmation:
+   * `{missing}` of `{total}` folders are not found, `{mapped}` were matched already.
+   */
+  readonly relocateTitle: string;
+  readonly relocateMessage: string;
+  readonly relocateDetail: string;
+  readonly relocateDetailPartial: string;
+  readonly relocateChoose: string;
+  readonly relocateChooseAnother: string;
+  readonly relocateSkip: string;
+  readonly relocateFolderTitle: string;
+  /** Shown after a chosen folder matched nothing. */
+  readonly relocateNoMatch: string;
+  /** Added to the confirmation: `{mapped}` projects will point at the new place. */
+  readonly confirmRemapLine: string;
+  /** Added to a success answer: `{mapped}` projects now point at the new place. */
+  readonly doneRemapped: string;
 }
 
 const zhTW: RestoreMessages = {
@@ -135,6 +153,7 @@ const zhTW: RestoreMessages = {
     "apply-agent": "設定 Agent",
     restart: "重新啟動服務",
     restore: "還原備份",
+    maintenance: "整理資料庫",
     "legacy-disable": "停用舊的登入服務",
   },
   locked:
@@ -162,6 +181,18 @@ const zhTW: RestoreMessages = {
     "目前找不到資料庫檔案，不會有資料被覆蓋。\n\n使用的備份：{time}，{size}\n\n還原後服務會用這份備份啟動。",
   confirmButton: "還原",
   cancelButton: "取消",
+  relocateTitle: "專案資料夾的位置",
+  relocateMessage: "這份備份記錄了 {total} 個專案資料夾，其中 {missing} 個在這台電腦上找不到。",
+  relocateDetail:
+    "如果這是換電腦後的還原，請選擇專案現在存放的資料夾（它的上一層也可以），App 會把名稱相符的專案改到新位置。找不到的專案仍會還原，只是路徑維持舊的，之後仍可再還原一次來對應。",
+  relocateDetailPartial: "已對應 {mapped} 個專案，還有 {missing} 個找不到。你可以再選一個資料夾，或照目前的對應還原。",
+  relocateChoose: "選擇新位置…",
+  relocateChooseAnother: "再選一個資料夾…",
+  relocateSkip: "照原路徑還原",
+  relocateFolderTitle: "選擇專案現在存放的資料夾",
+  relocateNoMatch: "選的資料夾裡沒有名稱相符的專案。",
+  confirmRemapLine: "{mapped} 個專案的路徑會改到你選的新位置。",
+  doneRemapped: "{mapped} 個專案的路徑已改到新位置。",
 };
 
 const en: RestoreMessages = {
@@ -223,6 +254,7 @@ const en: RestoreMessages = {
     "apply-agent": "setting up an Agent",
     restart: "restarting the service",
     restore: "restoring a backup",
+    maintenance: "maintaining the database",
     "legacy-disable": "disabling the old login service",
   },
   locked:
@@ -252,6 +284,19 @@ const en: RestoreMessages = {
     "No database file was found, so no data will be overwritten.\n\nBackup used: {time}, {size}\n\nAfter the restore the service starts on this backup.",
   confirmButton: "Restore",
   cancelButton: "Cancel",
+  relocateTitle: "Project folder locations",
+  relocateMessage: "This backup records {total} project folders; {missing} of them are not on this computer.",
+  relocateDetail:
+    "If you are restoring on a new computer, choose the folder where your projects are now (their parent folder works too) and the App points the projects with matching names at the new place. Projects it cannot find are still restored; they keep their old path, and a later restore can map them.",
+  relocateDetailPartial:
+    "{mapped} projects are matched; {missing} are still not found. Choose another folder, or restore with the matches so far.",
+  relocateChoose: "Choose the new location…",
+  relocateChooseAnother: "Choose another folder…",
+  relocateSkip: "Restore with the old paths",
+  relocateFolderTitle: "Choose the folder where your projects are now",
+  relocateNoMatch: "The folder you chose has no project with a matching name.",
+  confirmRemapLine: "{mapped} projects will point at the new place you chose.",
+  doneRemapped: "{mapped} projects now point at the new place.",
 };
 
 /** The string table of `locale`. */
@@ -347,5 +392,8 @@ export function runSuccessText(messages: RestoreMessages, result: Extract<Restor
     sessions: String(result.sessions),
     safety: result.safetyBackup ?? "",
   };
-  return formatMessage(result.safetyBackup ? messages.done : messages.doneNoSafety, values);
+  const base = formatMessage(result.safetyBackup ? messages.done : messages.doneNoSafety, values);
+  return result.remapped
+    ? `${base} ${formatMessage(messages.doneRemapped, { mapped: String(result.remapped) })}`
+    : base;
 }

@@ -219,6 +219,7 @@ function decideByKind(record: OperationRecord, report: ProbeReport): RecoveryDec
       }
       return undefined;
     case "restore":
+    case "maintenance":
       return undefined;
   }
 }

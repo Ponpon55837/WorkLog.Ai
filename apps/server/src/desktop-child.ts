@@ -14,7 +14,13 @@ import { APP_VERSION } from "@work-intelligence/shared/app-version";
 import { probeLoopbackPort, type LoopbackPortProbe } from "@work-intelligence/shared/loopback-port";
 import { portFailureCode } from "@work-intelligence/shared/port-failure";
 import { createDatabaseIfMissing } from "./database-create.js";
-import { inspectBackups, restoreFromBackup, type InspectBackupsResult } from "./backup-restore.js";
+import {
+  inspectBackups,
+  listBackupProjectRoots,
+  restoreFromBackup,
+  type InspectBackupsResult,
+} from "./backup-restore.js";
+import { maintainForApp, readMaintenanceHint } from "./database-maintenance-app.js";
 import { copyDatabaseConsistently, type DatabaseCopyResult } from "./database-copy.js";
 import {
   preflightDatabase,
@@ -49,6 +55,12 @@ export interface DesktopChildDependencies {
   inspectBackups?: typeof inspectBackups;
   /** Replaces the database with a backup (a preview child only, and only while the backend is stopped). */
   restoreFromBackup?: typeof restoreFromBackup;
+  /** The project folders a backup records, read-only (a preview child only). */
+  listBackupRoots?: typeof listBackupProjectRoots;
+  /** Maintains or checks the database (a preview child only, and only while the backend is stopped). */
+  maintain?: typeof maintainForApp;
+  /** Reclaimable space and the last maintenance run of the serving database. */
+  maintenanceHint?: typeof readMaintenanceHint;
   probePort: (port: number) => Promise<LoopbackPortProbe>;
   startApi: (options: StartApiOptions) => StartedApi;
   /**
@@ -152,6 +164,9 @@ const defaultDependencies: DesktopChildDependencies = {
   copyDatabase: copyDatabaseConsistently,
   inspectBackups,
   restoreFromBackup,
+  listBackupRoots: listBackupProjectRoots,
+  maintain: maintainForApp,
+  maintenanceHint: readMaintenanceHint,
   probePort: probeLoopbackPort,
   startApi,
   // The condition folds to a constant in a bundle, so a production bundle drops this branch together with the hold
@@ -182,6 +197,8 @@ export class DesktopChild {
   private facts: DesktopFacts | undefined;
   private failed = false;
   private exited = false;
+  /** The database this child serves, for the maintenance hint. */
+  private databasePath: string | undefined;
 
   constructor(host: DesktopChildHost, dependencies: DesktopChildDependencies = defaultDependencies) {
     this.host = host;
@@ -225,6 +242,12 @@ export class DesktopChild {
       this.inspectBackups(message);
     } else if (message.type === "restore-database") {
       this.restoreDatabase(message);
+    } else if (message.type === "backup-roots") {
+      this.backupRoots(message.source);
+    } else if (message.type === "maintain-database") {
+      await this.maintain(message);
+    } else if (message.type === "maintenance-hint-query") {
+      await this.reportMaintenanceHint(message.requestId);
     } else if (message.type === "activity-query") {
       this.reportActivity(message.requestId);
     } else if (message.type === "preflight") {
@@ -239,6 +262,55 @@ export class DesktopChild {
     const busy = this.phase === "running" ? (this.api?.activity() ?? []) : [];
     const pendingImport = this.phase === "running" && (this.api?.hasPendingImport() ?? false);
     this.host.send({ type: "activity", requestId, busy, pendingImport }, () => undefined);
+  }
+
+  /** Only a child that has not started reads another database's project folders. */
+  private backupRoots(source: string): void {
+    if (this.phase !== "idle" || !this.dependencies.listBackupRoots) {
+      this.host.log("[desktop-child] dropped a backup-roots request: not a preview child");
+      this.host.send({ type: "backup-roots-result", status: "failed", roots: [] }, () => undefined);
+      return;
+    }
+    let result: ReturnType<typeof listBackupProjectRoots>;
+    try {
+      result = this.dependencies.listBackupRoots(source);
+    } catch {
+      result = { status: "failed", roots: [] };
+    }
+    this.host.send({ type: "backup-roots-result", ...result }, () => undefined);
+  }
+
+  /** Only a child that has not started maintains a database: a serving backend holds it open. */
+  private async maintain(request: {
+    readonly mode: "maintain" | "check";
+    readonly databasePath: string;
+    readonly backupDirectory?: string;
+  }): Promise<void> {
+    if (this.phase !== "idle" || !this.dependencies.maintain) {
+      this.host.log("[desktop-child] dropped a maintenance request: not a preview child");
+      this.host.send({ type: "maintain-result", mode: request.mode, status: "failed" }, () => undefined);
+      return;
+    }
+    let result: Awaited<ReturnType<typeof maintainForApp>>;
+    try {
+      result = await this.dependencies.maintain(request);
+    } catch {
+      result = { mode: request.mode, status: "failed" };
+    }
+    this.host.send({ type: "maintain-result", ...result }, () => undefined);
+  }
+
+  /** Answers how much space a compaction would give back; a backend that is not serving has no answer. */
+  private async reportMaintenanceHint(requestId: string): Promise<void> {
+    let hint: Awaited<ReturnType<typeof readMaintenanceHint>> = {};
+    if (this.phase === "running" && this.databasePath && this.dependencies.maintenanceHint) {
+      try {
+        hint = await this.dependencies.maintenanceHint(this.databasePath);
+      } catch {
+        hint = {};
+      }
+    }
+    this.host.send({ type: "maintenance-hint", requestId, ...hint }, () => undefined);
   }
 
   /** Only a child that has not started (a preview child) copies: a serving backend never reads another database. */
@@ -337,6 +409,7 @@ export class DesktopChild {
     }
     this.phase = "starting";
     this.facts = message.desktop;
+    this.databasePath = message.database.path;
     this.starting = this.run(message);
     return this.starting;
   }

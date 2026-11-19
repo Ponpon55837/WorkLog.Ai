@@ -13,6 +13,7 @@ export const OPERATION_KINDS = [
   "apply-agent",
   "restart",
   "restore",
+  "maintenance",
   "legacy-disable",
 ] as const;
 export type OperationKind = (typeof OPERATION_KINDS)[number];

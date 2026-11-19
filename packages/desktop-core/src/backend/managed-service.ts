@@ -12,7 +12,10 @@ import type { JournalJson, OperationKind } from "../operations/journal-record.js
 import type { ServiceOwnerState } from "../operations/service-owner-state.js";
 
 /** Operation kinds that end with the desktop owning a running backend. */
-export type ManagedStartKind = Extract<OperationKind, "takeover" | "restart" | "change-port" | "change-db" | "restore">;
+export type ManagedStartKind = Extract<
+  OperationKind,
+  "takeover" | "restart" | "change-port" | "change-db" | "restore" | "maintenance"
+>;
 
 export interface ManagedStartRequest {
   /** Resubmitting the same id returns the same result; a different id while one runs is `busy`. */

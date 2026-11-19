@@ -8,7 +8,7 @@ export interface ChildExit {
   readonly signal: NodeJS.Signals | null;
 }
 
-type MessageOfType<T extends DesktopChildMessage["type"]> = Extract<DesktopChildMessage, { type: T }>;
+export type MessageOfType<T extends DesktopChildMessage["type"]> = Extract<DesktopChildMessage, { type: T }>;
 
 interface Waiter {
   readonly type: DesktopChildMessage["type"];

@@ -33,6 +33,13 @@ interface Setup {
   /** Another page action takes the lock while the second busy check waits for the backend's activity report. */
   readonly lockDuringLateCheck?: boolean;
   readonly restart?: { ok: true } | { ok: false; code: string };
+  /** The project folders the backup records (old computer); present: the controller asks about the ones not found here. */
+  readonly roots?: readonly string[];
+  /** The user's answers to the native question, in order, and the folders the chooser returns, in order. */
+  readonly relocateChoices?: readonly ("choose" | "skip" | "cancel")[];
+  readonly folders?: readonly (string | null)[];
+  /** Folders that exist on this computer. */
+  readonly existing?: readonly string[];
 }
 
 function setup(options: Setup = {}) {
@@ -45,6 +52,8 @@ function setup(options: Setup = {}) {
   const failures: string[] = [];
   let fingerprintCalls = 0;
   let activityCalls = 0;
+  const relocations: unknown[] = [];
+  let folderCalls = 0;
   const state = {
     busy: false,
     locale: "en" as const,
@@ -93,6 +102,14 @@ function setup(options: Setup = {}) {
           },
         };
       },
+      backupRoots: async () => ({
+        outcome: "checked" as const,
+        result: {
+          type: "backup-roots-result",
+          status: "ok",
+          roots: (options.roots ?? []).map((path) => ({ path, name: "" })),
+        },
+      }),
       restoreDatabase: async (request: unknown) => {
         events.push("replace");
         restoreRequests.push(request);
@@ -103,7 +120,15 @@ function setup(options: Setup = {}) {
           result: {
             type: "restore-result",
             status,
-            ...(status === "ok" ? { safetyBackup: "safety.sqlite", projects: 2, sessions: 5, schemaVersion: 9 } : {}),
+            ...(status === "ok"
+              ? {
+                  safetyBackup: "safety.sqlite",
+                  projects: 2,
+                  sessions: 5,
+                  schemaVersion: 9,
+                  ...(options.roots ? { remappedProjects: restoreRemapCount(request) } : {}),
+                }
+              : {}),
           },
         };
       },
@@ -138,6 +163,16 @@ function setup(options: Setup = {}) {
       return fingerprintCalls === 1 ? before : after;
     },
     agentsRunning: async () => options.agents === true,
+    ...(options.roots
+      ? {
+          relocate: async (details: unknown) => {
+            relocations.push(details);
+            return options.relocateChoices?.[relocations.length - 1] ?? "skip";
+          },
+          chooseFolder: async () => options.folders?.[folderCalls++] ?? null,
+          directoryExists: async (folder: string) => (options.existing ?? []).includes(folder),
+        }
+      : {}),
     chooseFile: async () => (options.chosen === undefined ? "/synthetic/backups/chosen.sqlite" : options.chosen),
     confirm: async (details: unknown) => {
       events.push("confirm");
@@ -153,12 +188,17 @@ function setup(options: Setup = {}) {
     events,
     state,
     confirmations,
+    relocations,
     restoreRequests,
     inspectRequests,
     failures,
     cleared: () => cleared,
     isRunning: () => running !== undefined,
   };
+}
+
+function restoreRemapCount(request: unknown): number {
+  return ((request as { remap?: unknown[] }).remap ?? []).length;
 }
 
 async function firstListedId(controller: ReturnType<typeof setup>["controller"]): Promise<string> {
@@ -356,5 +396,66 @@ describe("running a restore", () => {
       safetyBackup: "safety.sqlite",
       errorCode: "DB_INTEGRITY_CHECK_FAILED",
     });
+  });
+});
+
+describe("restoring on a new computer: project folders that are not here", () => {
+  const OLD = ["/old/home/work/alpha", "/old/home/work/beta"];
+
+  it("asks, lets the user choose the new place, and restores with the matching folders moved", async () => {
+    const { controller, relocations, restoreRequests, confirmations } = setup({
+      roots: OLD,
+      relocateChoices: ["choose"],
+      folders: ["/new/work"],
+      existing: ["/new/work/alpha", "/new/work/beta"],
+    });
+    const result = await controller.run(WINDOW, await firstListedId(controller));
+    expect(relocations).toEqual([{ total: 2, missing: 2, mapped: 0, noMatch: false }]);
+    expect(restoreRequests).toMatchObject([
+      {
+        remap: [
+          { from: "/old/home/work/alpha", to: "/new/work/alpha" },
+          { from: "/old/home/work/beta", to: "/new/work/beta" },
+        ],
+      },
+    ]);
+    expect(confirmations).toMatchObject([{ remapped: 2 }]);
+    expect(result).toMatchObject({ ok: true, remapped: 2 });
+  });
+
+  it("asks again for what is still missing, and says when a folder matched nothing", async () => {
+    const { controller, relocations, restoreRequests } = setup({
+      roots: OLD,
+      relocateChoices: ["choose", "choose", "skip"],
+      folders: ["/elsewhere", "/new/work"],
+      existing: ["/new/work/alpha"],
+    });
+    await controller.run(WINDOW, await firstListedId(controller));
+    expect(relocations).toEqual([
+      { total: 2, missing: 2, mapped: 0, noMatch: false },
+      { total: 2, missing: 2, mapped: 0, noMatch: true },
+      { total: 2, missing: 1, mapped: 1, noMatch: false },
+    ]);
+    expect(restoreRequests).toMatchObject([{ remap: [{ from: "/old/home/work/alpha", to: "/new/work/alpha" }] }]);
+  });
+
+  it("restores with the old paths when the user says so, and stops nothing when the user cancels", async () => {
+    const skipped = setup({ roots: OLD, relocateChoices: ["skip"] });
+    await skipped.controller.run(WINDOW, await firstListedId(skipped.controller));
+    expect((skipped.restoreRequests[0] as { remap?: unknown }).remap).toBeUndefined();
+
+    const cancelled = setup({ roots: OLD, relocateChoices: ["cancel"] });
+    expect(await cancelled.controller.run(WINDOW, await firstListedId(cancelled.controller))).toMatchObject({
+      ok: false,
+      reason: "cancelled",
+      dataIntact: true,
+    });
+    expect(cancelled.events).not.toContain("stop");
+  });
+
+  it("does not ask when every recorded folder exists here", async () => {
+    const { controller, relocations } = setup({ roots: OLD, existing: OLD });
+    await controller.run(WINDOW, await firstListedId(controller));
+    expect(relocations).toEqual([]);
   });
 });

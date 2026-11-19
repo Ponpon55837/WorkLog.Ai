@@ -36,7 +36,7 @@ export interface StartOverride {
   readonly allowSchemaMigration: boolean;
 }
 
-export type StartKind = "takeover" | "restart" | "change-db" | "change-port" | "restore";
+export type StartKind = "takeover" | "restart" | "change-db" | "change-port" | "restore" | "maintenance";
 
 /** A start on another port than the settings name (DT-14): the settings change only once the backend is verified. */
 export interface PortStart {
