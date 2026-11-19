@@ -970,22 +970,21 @@ export class BackendSupervisor {
     const every = this.timeouts.monitorMs;
     if (every <= 0) return;
     let strikes = 0;
-    const schedule = (): void => {
-      const handle = this.deps.setTimer(check, every);
+    const arm = (): void => {
+      const handle = this.deps.setTimer(() => {
+        active.healthTimer = undefined;
+        if (this.active !== active || this.stopping) return;
+        void this.answers(active.port, runId).then((answered) => {
+          if (this.active !== active || this.stopping) return;
+          strikes = answered ? 0 : strikes + 1;
+          if (strikes < MONITOR_STRIKES) return arm();
+          this.reportUnresponsive(active);
+        });
+      }, every);
       (handle as { unref?: () => void } | undefined)?.unref?.();
       active.healthTimer = handle;
     };
-    const check = (): void => {
-      active.healthTimer = undefined;
-      if (this.active !== active || this.stopping) return;
-      void this.answers(active.port, runId).then((answered) => {
-        if (this.active !== active || this.stopping) return;
-        strikes = answered ? 0 : strikes + 1;
-        if (strikes < MONITOR_STRIKES) return schedule();
-        this.reportUnresponsive(active);
-      });
-    };
-    schedule();
+    arm();
   }
 
   /** One health check with a fresh challenge: true only when the port proves it is this backend and says 200. */
