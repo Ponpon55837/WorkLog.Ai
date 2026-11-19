@@ -77,6 +77,8 @@ export interface VerifiedRuntime {
 
 const DEFAULT_CONCURRENCY = 4;
 const MAX_MANIFEST_BYTES = 4 * 1024 * 1024;
+/** Files the OS file managers create by themselves; an unlisted one of these does not fail verification. */
+const SYSTEM_JUNK_NAMES: ReadonlySet<string> = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]);
 
 async function readManifest(runtimeDirectory: string, runtimeId: string): Promise<RuntimeManifest> {
   const manifestPath = path.join(runtimeDirectory, MANIFEST_FILE_NAME);
@@ -301,6 +303,8 @@ function checkStructure(
   const scannedFiles = new Map<string, ScannedFile>();
   for (const file of scan.files) {
     if (!listedFiles.has(file.path)) {
+      // A file manager adds these on its own (L-16); they are metadata, never loaded, so they are not tampering.
+      if (SYSTEM_JUNK_NAMES.has(file.path.slice(file.path.lastIndexOf("/") + 1))) continue;
       throw new RuntimeError("RUNTIME_FILE_UNEXPECTED", "runtime 內有 manifest 未列出的檔案", { file: file.path });
     }
     const problem = permissionProblem(file.stat, policy);
