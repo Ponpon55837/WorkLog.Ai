@@ -11,6 +11,7 @@ import {
   getMcpRuntimeStatus,
   normalizeScopePath,
   readMcpBuildIdentity,
+  readMcpLeaseCensus,
   registerMcpLease,
 } from "../../packages/shared/src/mcp-runtime.js";
 import { createMcpRuntimeFixture } from "../helpers/mcp-runtime-fixture.js";
@@ -112,6 +113,14 @@ describe("the lease sits where the backend looks, whatever TEMP the Agent passes
     );
 
     expect(getMcpRuntimeStatus(root, identity, { now }).activeProcesses).toBe(1);
+
+    // A process that registered in the new location and still has its old file is one process, not two.
+    const registered = registerMcpLease(root, identity, { now: () => now });
+    releases.push(registered.release);
+    expect(getMcpRuntimeStatus(root, identity, { now }).activeProcesses).toBe(2);
+    const current = readdirSync(getMcpRuntimeDirectory(root)).find((name) => name.endsWith(".json")) as string;
+    fs.copyFileSync(join(getMcpRuntimeDirectory(root), current), join(legacyDirectory, current));
+    expect(getMcpRuntimeStatus(root, identity, { now }).activeProcesses).toBe(2);
   });
 });
 
@@ -203,5 +212,16 @@ describe("a lease that cannot be kept is reported, not swallowed", () => {
     }
     expect(readdirSync(getMcpRuntimeDirectory(root, environment)).some((name) => name.endsWith(".json"))).toBe(true);
     expect(existsSync(join(roots[0] as string, "config", "mcp-runtime"))).toBe(true);
+  });
+
+  it("counts the leases of both locations once and says whether the directory can be written", () => {
+    const root = fixture();
+    expect(readMcpLeaseCensus(root, process.env, now)).toEqual({
+      scopeId: getMcpLeaseScopeId(root),
+      directoryWritable: true,
+      activeLeases: 0,
+    });
+    releases.push(registerMcpLease(root, build(root), { now: () => now }).release);
+    expect(readMcpLeaseCensus(root, process.env, now).activeLeases).toBe(1);
   });
 });

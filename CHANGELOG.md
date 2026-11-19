@@ -4,6 +4,28 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.60] - 2026-11-19
+
+[繁體中文更新說明](docs/releases/1.6.60.md).
+
+This patch release fixes the MCP connection count that stayed 0 on Windows 1.6.59, and closes the review notes of the 1.6.59 desktop work. The schema stays at 33 and no migration is needed. Real-device acceptance on Windows 11 and macOS is still pending.
+
+### Fixed
+
+- **MCP connection count stayed 0 on Windows (cause found).** An Agent wrote its observation to the config directory, but the MCP's lease lived in the OS temp directory, whose path depends on the `TEMP`/`TMP` the process sees (a restricted Agent environment, an 8.3 short name, a different case). The backend counted leases in another directory. Leases now live under the config directory, next to the observation, so the two sides cannot disagree about it; the old temp location is still read until 1.8.0. The lease scope uses the real path (and, on Windows, ignores case and separators).
+- **A failed lease is no longer silent.** The MCP records its lease scope id, whether its directory is writable and the failure reason in `agent-observations.json` (an optional field; the file version stays 1 and an older App ignores it). Web System Status says why the count is 0 (different scope, unwritable directory, Agent disconnected, or not reported by an older MCP), and the diagnostics summary has an MCP lease section with the scope ids (8 characters), counts and booleans only, no paths.
+- **Start failure before the service stopped.** A failed runtime preparation no longer marks the App stopped or in need of repair while a service is still running.
+- **Database check had no deadline.** A read-only integrity check now ends with an explicit failure after the existing 5-minute limit; no timeout was raised. Maintenance no longer reports "data intact: false" when the step never ran.
+- **A second server on the same database.** When the chosen port is held by another Work Intelligence server on the same database, the App no longer starts a fallback server (also for change-database and takeover); it reports the original error.
+- **Backup location.** The folder is no longer created before it is classified, so a refused folder leaves nothing behind. If restoring the old folder fails after a failed restart, the result says so (`not-restored`) and goes through the repair flow instead of only logging.
+- **Restore.** The database's WAL and SHM files are not emptied if an Agent opened the database while the staging copy was built; the restore stops with "database in use" and the current database is untouched.
+- **Restore on a new computer.** Two missing projects with the chosen folder's name are no longer both mapped to that one folder.
+
+### Notes
+
+- Not changed, with the reason: an unresponsive backend (`reportUnresponsive`) is ended through the same single stop path as any other stop, which reports a child that will not die in its result instead of throwing.
+- Limits: the observation is written once per MCP process, so a heartbeat failure after the first tool list is not reflected in it; a `WORK_INTELLIGENCE_CONFIG_DIR` visible to the Agent but not to the backend would still split both. Whether Codex passes `TEMP`/`TMP` to its MCP could not be verified without a Windows machine.
+
 ## [1.6.59] - 2026-11-19
 
 [繁體中文更新說明](docs/releases/1.6.59.md).

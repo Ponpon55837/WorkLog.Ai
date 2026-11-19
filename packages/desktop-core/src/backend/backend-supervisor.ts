@@ -528,7 +528,9 @@ export class BackendSupervisor {
     return this.enqueuePreview(async (): Promise<DatabaseMaintainOutcome> => {
       let sent = false;
       try {
-        // No timer: a compaction is never killed because it takes long; only its answer or its own exit ends the wait.
+        // No timer for the work: a compaction is never killed because it takes long; only its answer or its own exit ends
+        // the wait. The read-only check is not work that must be allowed to finish: it has the existing check deadline, so
+        // a stuck preview child cannot hold the page-action lock for good.
         const { reply } = await this.askPreview(
           request.databasePath,
           generation,
@@ -539,7 +541,7 @@ export class BackendSupervisor {
             ...(request.backupDirectory ? { backupDirectory: request.backupDirectory } : {}),
           },
           "maintain-result",
-          null,
+          request.mode === "check" ? this.timeouts.quickCheckMs : null,
           () => {
             sent = true;
           },
@@ -547,7 +549,13 @@ export class BackendSupervisor {
         return { outcome: "checked", result: reply };
       } catch (error) {
         const failure = describeUnexpected(error);
-        return { outcome: sent ? "unknown" : "failed", code: failure.code, detail: failure.detail };
+        // A read-only check changes nothing, so even after the request was sent (a deadline passed) the result is a plain
+        // failure, never "unknown".
+        return {
+          outcome: sent && request.mode === "maintain" ? "unknown" : "failed",
+          code: failure.code,
+          detail: failure.detail,
+        };
       }
     });
   }
@@ -1145,6 +1153,8 @@ export class BackendSupervisor {
     if (!info) return;
     this.log("[backend] the backend stopped answering health checks; ending it");
     const recentOutput = active.output.lines();
+    // No catch on purpose: `stopCurrent` wraps `terminate`, which reports a child that will not die in its result instead of
+    // throwing, and the caller checked `stopping` before the timer ran, so a second stop is never started here.
     void this.stopCurrent().then((report) => {
       this.notify(this.exitListeners, (listener) =>
         listener({

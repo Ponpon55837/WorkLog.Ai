@@ -55,12 +55,15 @@ export async function planRelocation(inputs: RelocationInputs): Promise<Map<stri
   const insensitive = inputs.caseInsensitive ?? process.platform === "win32";
   const fold = (value: string): string => (insensitive ? value.toLowerCase() : value);
   const chosenName = fold(lastSegment(inputs.chosen));
+  // Two missing projects with the chosen folder's name (`a/app` and `b/app`) cannot both live in it: the folder itself is not
+  // guessed for either, so neither is silently pointed at the wrong code. A folder of that name inside it still matches.
+  const sameName = inputs.missing.filter((root) => fold(lastSegment(root.path)) === chosenName).length;
   const mapped = new Map<string, string>();
   await Promise.all(
     inputs.missing.map(async (root) => {
       const name = lastSegment(root.path);
       if (name.length === 0) return;
-      if (fold(name) === chosenName) {
+      if (fold(name) === chosenName && sameName === 1) {
         mapped.set(root.path, inputs.chosen);
         return;
       }

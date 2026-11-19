@@ -38,7 +38,7 @@ export interface McpLeaseDiagnosticsInput {
 }
 
 /** The lease section of the file: scope ids shortened to 8 characters like `installLabel` (enough to compare, short enough not to look like a token). */
-export interface McpLeaseDiagnostics {
+interface McpLeaseDiagnostics {
   readonly backendScope: string;
   readonly backendDirectoryWritable: boolean;
   readonly activeLeases: number;

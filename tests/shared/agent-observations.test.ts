@@ -8,6 +8,7 @@ import {
   hostForClientName,
   readCurrentContractFingerprint,
   readHostObservations,
+  type HostObservation,
 } from "../../packages/shared/src/agent-observations.js";
 
 // Synthetic files only.
@@ -174,7 +175,7 @@ describe("lease state in an observation", () => {
   });
 
   it("names the cause of a missing lease, and none while a lease is visible or no Agent was seen", () => {
-    const seen = (lease: unknown) => ({
+    const seen = (lease?: HostObservation["lease"]): Partial<Record<"codex", HostObservation>> => ({
       codex: { contractFingerprint: A, observedAt: at, ...(lease ? { lease } : {}) },
     });
     const writable = { scopeId: SCOPE, directoryWritable: true } as const;

@@ -792,6 +792,15 @@ export function restoreDatabase(options: {
   // A leftover WAL would be applied to the new file, so the old side files must be neutralized, and that is settled before
   // the replacement: if a lock keeps them from being emptied, nothing has changed yet and the restore is refused.
   const sideFiles = [`${databasePath}-wal`, `${databasePath}-shm`];
+  // The staging copy took a while: an Agent or the API may have opened the database since the first check, and emptying its
+  // WAL under it could drop what it wrote. Look once more right before anything is emptied; nothing is touched when it is.
+  if (existsSync(databasePath) && isInUse(databasePath)) {
+    rmSync(staging, { force: true });
+    throw new RestoreDatabaseError(
+      "RESTORE_DATABASE_IN_USE",
+      "The database is in use. Stop the API server and close Agents first.",
+    );
+  }
   if (!sideFiles.every(emptySideFile)) {
     rmSync(staging, { force: true });
     throw new RestoreDatabaseError(

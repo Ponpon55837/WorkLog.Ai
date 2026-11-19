@@ -145,7 +145,7 @@ REST 路由依領域分成 `apps/server/src/routes/` 下的路由表（system、
 
 MCP runtime identity 以根目錄版本與 MCP、core、project-policy、schema、shared、storage 的 JavaScript dist 雜湊組成；MCP entry 在載入時已帶有 build finalizer 注入的 fingerprint，不會在 static imports 載入後才推測啟動版本。根目錄 `.work-intelligence-build-in-progress` 在整個 workspace build 期間存在；缺檔、更新標記或讀取不穩定時，MCP、doctor 與 API 都回報未知。直接重建 runtime package 也會在清理 dist 前建立同一標記，完成 fingerprint 注入才移除。編譯或 finalize 失敗時，build 只移除內容仍與自己寫入相同的標記，不會刪掉其他 build 的標記；失敗後的 dist 沒有注入相符 fingerprint，MCP 仍回報未知。若 build 被中斷（行程被終止），標記會保留，確認標記所記 PID 已退出後，只移除 `.work-intelligence-build-in-progress` 再重跑完整 `pnpm build`。
 
-每個 MCP process 在 OS 暫存目錄以安裝根目錄雜湊作 scope，原子更新一份獨立 heartbeat lease；正常退出刪除自己的 lease，崩潰或強制終止的 lease 由 TTL 忽略。MCP read operations 直接比較該程序的 startup fingerprint 與磁碟建置；`pnpm check` 與 `/api/system/status` 則掃描並彙總同一組 leases，再與磁碟建置比對。registry 不可讀寫或建置身份未知時都回報未知；任一活躍舊 lease 都要求重新連線。projectRoot 只用於查詢專案 policy，不用來定位 MCP 安裝。
+每個 MCP process 在設定目錄（`configDirectory()`，與 `agent-observations.json` 同一處）的 `mcp-runtime/<scope>/` 下，以安裝根目錄雜湊（真實路徑，Windows 不分大小寫與分隔符、8.3 短名）作 scope，原子更新一份獨立 heartbeat lease；正常退出刪除自己的 lease，崩潰或強制終止的 lease 由 TTL 忽略。MCP read operations 直接比較該程序的 startup fingerprint 與磁碟建置；`pnpm check` 與 `/api/system/status` 則掃描並彙總同一組 leases，再與磁碟建置比對。registry 不可讀寫或建置身份未知時都回報未知；任一活躍舊 lease 都要求重新連線。舊版（1.6.59 以前）放在 OS 暫存目錄的 lease 在過渡期仍會被讀取（1.8.0 移除）。MCP 把自己的 lease scope、目錄是否可寫與失敗原因寫進 `agent-observations.json` 的選用欄位 `lease`（不含路徑，版本仍為 1，舊版 App 讀取不受影響）；Web 系統狀態與診斷摘要據此說明連線數為 0 的原因（範圍不同、目錄不可寫、Agent 已斷線）。projectRoot 只用於查詢專案 policy，不用來定位 MCP 安裝。
 
 日期邊界：timestamp 一律以 UTC ISO 保存；報告區間、趨勢分桶與 `from`／`to` 篩選把日曆日期換算成 server 所在系統時區的當地午夜，所以凌晨完成的工作會算在使用者看到的那一天。Session 列表與 Knowledge 搜尋的關鍵字中，`%`、`_`、`\` 照字面比對。
 

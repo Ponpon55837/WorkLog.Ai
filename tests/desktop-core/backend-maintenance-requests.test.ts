@@ -60,6 +60,19 @@ describe("maintainDatabase", () => {
     expect(harness.children[0]?.sent[0]).toEqual({ type: "maintain-database", mode: "check", databasePath: DB });
   });
 
+  it("gives a stuck read-only check the existing deadline and a plain failure, but never a deadline to the work", async () => {
+    const stuck = makeHarness({ scripts: [{ maintain: false }], timeouts: { quickCheckMs: 50 } });
+    const pending = stuck.supervisor.maintainDatabase({ mode: "check", databasePath: DB });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(await pending).toMatchObject({ outcome: "failed", code: "CHILD_START_TIMEOUT" });
+    // The compaction keeps no timer: past the same time it is still waiting.
+    const working = makeHarness({ scripts: [{ maintain: false }], timeouts: { quickCheckMs: 50 } });
+    let settled = false;
+    void working.supervisor.maintainDatabase({ mode: "maintain", databasePath: DB }).then(() => (settled = true));
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(settled).toBe(false);
+  });
+
   it("is failed before the request was sent and unknown after it", async () => {
     const hello = makeHarness({ scripts: [{ hello: false }] });
     const pending = hello.supervisor.maintainDatabase({ mode: "check", databasePath: DB });

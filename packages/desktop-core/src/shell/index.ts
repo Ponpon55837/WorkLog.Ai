@@ -25,6 +25,7 @@ export * from "./diagnostics.js";
 export * from "./diagnostics-i18n.js";
 export * from "./diagnostics-preview-store.js";
 export * from "./mcp-lease-input.js";
+export * from "./port-occupant.js";
 export * from "./restore-backup-store.js";
 export * from "./restore-classify.js";
 export * from "./backup-directory-i18n.js";

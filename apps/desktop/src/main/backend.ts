@@ -110,6 +110,8 @@ export interface BackendControllerOptions {
    * LEGACY_SERVICE_ACTIVE before anything is stopped or started.
    */
   readonly legacyBlocks?: (databasePath: string) => Promise<boolean>;
+  /** Whether another Work Intelligence server on `port` serves `databasePath`; a port fallback then would start a second one. */
+  readonly sameDatabaseServerOn?: (port: number, databasePath: string) => Promise<boolean>;
   /**
    * True when the verdict this run already reached for the database is "refused" (a network share): the start fails with
    * DB_STORAGE_NETWORK before anything is stopped or started, so a retry, a port change or an automatic restart never
@@ -200,6 +202,17 @@ export function createBackendController(options: BackendControllerOptions): Back
       alreadyTried: portFallbackFailed === wantedPort,
     });
     if (!plan) return outcome;
+    const databasePath = override?.databasePath ?? state.settings.desired.databasePath;
+    if (
+      outcome.code === "PORT_OCCUPIED_BY_OTHER" &&
+      (await options.sameDatabaseServerOn?.(wantedPort, databasePath).catch(() => false))
+    ) {
+      // Another Work Intelligence server (CLI or standalone) already serves this database on that port: a fallback would
+      // start a second server on one database. The original failure goes to repair, which names the busy port.
+      log(`[shell] port ${wantedPort} is held by another Work Intelligence server on this database; no fallback`);
+      portFallbackFailed = wantedPort;
+      return outcome;
+    }
     log(`[shell] port ${wantedPort} unusable (${outcome.code}); trying the last working port ${plan.port}`);
     const fallback = await startOnce(kind, override, randomUUID(), undefined, undefined, plan.port);
     if (fallback.ok) {
@@ -287,8 +300,13 @@ export function createBackendController(options: BackendControllerOptions): Back
       await options.prepareRuntime(runtimeSuspect);
     } catch (error) {
       runtimeSuspect = true;
-      state.backend = "stopped";
-      state.setOwner("NEEDS_REPAIR");
+      // Nothing was stopped yet: a service that is still running keeps serving, and the window must not say it needs repair.
+      if (supervisor.running === undefined) {
+        state.backend = "stopped";
+        state.setOwner("NEEDS_REPAIR");
+      } else {
+        state.backend = previousState;
+      }
       return { ok: false, code: error instanceof RuntimeProvisionError ? error.code : "RUNTIME_INSTALL_FAILED" };
     }
     const result = await managed.start({
