@@ -330,7 +330,14 @@ async function classifyWindows(located: Located, deps: StorageRiskDeps): Promise
   const systemDrive = /^([A-Za-z]):/.exec(deps.environment.SystemDrive ?? "")?.[1]?.toUpperCase() ?? "C";
   if (location.drive === systemDrive) return { risks: [], evidence: ["fast-path:system-drive"], failed: false };
   const timeoutMs = deps.windowsTimeoutMs ?? WINDOWS_DRIVE_TIMEOUT_MS;
-  const script = `[System.IO.DriveInfo]::new('${location.drive}:\\').DriveType`;
+  // An external USB disk reports DriveType Fixed, so a fixed drive is also asked for its bus (L-11). The bus lookup is
+  // best effort: where Get-Partition or Get-Disk is unavailable the answer stays the drive type alone.
+  const script = [
+    `$t = [System.IO.DriveInfo]::new('${location.drive}:\\').DriveType`,
+    `$b = ''`,
+    `if ($t -eq 'Fixed') { try { $b = (Get-Partition -DriveLetter '${location.drive}' -ErrorAction Stop | Get-Disk -ErrorAction Stop).BusType } catch {} }`,
+    `"$t $b"`,
+  ].join("; ");
   let output: string;
   try {
     output = await withTimeout(
@@ -340,9 +347,10 @@ async function classifyWindows(located: Located, deps: StorageRiskDeps): Promise
   } catch {
     return failure("drive-probe-failed");
   }
-  const type = output.trim();
+  const [type = "", bus] = output.trim().split(/\s+/);
   if (type === "Network") return { risks: ["network"], evidence: ["drive-type:network"], failed: false };
   if (type === "Removable") return { risks: ["removable"], evidence: ["drive-type:removable"], failed: false };
+  if (bus?.toUpperCase() === "USB") return { risks: ["removable"], evidence: ["bus-type:usb"], failed: false };
   return /^[A-Za-z]+$/.test(type) ? { risks: [], evidence: [], failed: false } : failure("drive-probe-no-answer");
 }
 

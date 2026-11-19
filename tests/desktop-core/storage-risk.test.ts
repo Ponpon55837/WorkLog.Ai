@@ -439,6 +439,13 @@ describe("classifyStorageRisk on Windows", () => {
     expect(await classifyStorageRisk("D:\\wi.db", answer("Network\r\n").deps)).toMatchObject({ risk: "network" });
     expect(await classifyStorageRisk("D:\\wi.db", answer("Removable").deps)).toMatchObject({ risk: "removable" });
     expect(await classifyStorageRisk("D:\\wi.db", answer("Fixed").deps)).toMatchObject({ risk: "none", evidence: [] });
+    // An external USB disk is a Fixed drive on the USB bus (L-11); SATA/NVMe and an unanswered bus stay local.
+    expect(await classifyStorageRisk("D:\\wi.db", answer("Fixed USB\r\n").deps)).toMatchObject({
+      risk: "removable",
+      evidence: ["bus-type:usb"],
+    });
+    expect(await classifyStorageRisk("D:\\wi.db", answer("Fixed NVMe").deps)).toMatchObject({ risk: "none" });
+    expect(await classifyStorageRisk("D:\\wi.db", answer("Fixed ").deps)).toMatchObject({ risk: "none" });
     expect(await classifyStorageRisk("D:\\wi.db", answer("???").deps)).toMatchObject({
       evidence: ["drive-probe-no-answer"],
     });
