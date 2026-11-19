@@ -7,6 +7,8 @@ import type { BackendRunState } from "./repair-state.js";
 export interface DiagnosticsInputs {
   readonly platform: NodeJS.Platform;
   readonly appVersion: string;
+  /** The random label of this install (settings `installId`). The file shows only its first 8 characters, as `installLabel`: enough to tell that two files come from one install, short enough not to look like the run ids and tokens the redactor masks. */
+  readonly installId?: string;
   readonly arch: string;
   readonly locale: string;
   readonly owner: ServiceOwnerState;
@@ -21,7 +23,7 @@ export interface DiagnosticsInputs {
 /** The diagnostics file as data: a fixed, allow-listed shape. */
 export interface DiagnosticsDocument {
   readonly generatedAt: string;
-  readonly app: { readonly version: string };
+  readonly app: { readonly version: string; readonly installLabel?: string };
   readonly platform: { readonly name: string; readonly arch: string; readonly locale: string };
   readonly state: {
     readonly owner: string;
@@ -125,7 +127,10 @@ export function collectDiagnosticsWithStats(inputs: DiagnosticsInputs): Collecte
   const recentOutput = cleaned.map((entry) => entry.line);
   const document: DiagnosticsDocument = {
     generatedAt: inputs.generatedAt.toISOString(),
-    app: { version: inputs.appVersion },
+    app: {
+      version: inputs.appVersion,
+      ...(inputs.installId ? { installLabel: inputs.installId.replace(/[^0-9a-zA-Z]/g, "").slice(0, 8) } : {}),
+    },
     platform: { name: inputs.platform, arch: inputs.arch, locale: inputs.locale },
     state: {
       owner: inputs.owner,

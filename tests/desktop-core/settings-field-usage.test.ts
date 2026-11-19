@@ -23,7 +23,6 @@ const NO_READER = new Map<string, string>([
   ["lastKnownGood.databaseIdentity", "1.6.59 接上回退"],
   ["lastKnownGood.port", "1.6.59 接上回退"],
   ["lastKnownGood.runtimeVersion", "1.6.59 接上回退"],
-  ["installId", "written as an install label, never read; 1.6.59 decides its use or plans its removal"],
 ]);
 const NO_WRITER = new Map<string, string>([
   ["lastKnownGood.databaseIdentity", "1.6.59 接上回退"],

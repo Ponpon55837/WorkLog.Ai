@@ -678,4 +678,11 @@ describe("diagnostics other absolute paths, case and key names", () => {
     expect(redactor.redact(`from ${glued} end`)).not.toContain("@mail");
     expect(redactor.counts.emails).toBe(1);
   });
+
+  it("carries the install label, so two files from one install can be matched", () => {
+    const installId = "3f2a9c1e-7b64-4d0a-9e55-0c1d2e3f4a5b";
+    const built = buildDiagnostics(inputs({ installId }));
+    expect((JSON.parse(built.text) as { app: { installLabel?: string } }).app.installLabel).toBe("3f2a9c1e");
+    expect(JSON.parse(buildDiagnostics(inputs()).text).app.installLabel).toBeUndefined();
+  });
 });

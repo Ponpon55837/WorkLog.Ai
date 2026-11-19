@@ -167,6 +167,7 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
       ],
       secrets: [running?.runId],
       appVersion: app.getVersion(),
+      ...(state.settings ? { installId: state.settings.installId } : {}),
       arch: process.arch,
       locale: app.getLocale(),
       owner: state.owner,
