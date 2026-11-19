@@ -36,7 +36,9 @@ describe("listBackupProjectRoots", () => {
     const file = databaseWithProjects(base, "snapshot", roots);
     const found = listBackupProjectRoots(file);
     expect(found.status).toBe("ok");
-    expect(found.roots.map((root) => root.path).sort()).toEqual(roots);
+    // The store keeps Windows paths in one case, so compare the way Windows does.
+    const fold = (value: string): string => (process.platform === "win32" ? value.toLowerCase() : value);
+    expect(found.roots.map((root) => fold(root.path)).sort()).toEqual(roots.map(fold).sort());
   });
 
   it("reports a file that is not a database as a failure with no roots", () => {
