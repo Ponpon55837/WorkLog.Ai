@@ -1,7 +1,7 @@
 import { DatabaseInitializationError, DatabaseMaintenanceError, maintainDatabase } from "@work-intelligence/storage";
 import type { DesktopMaintainResultMessage, DesktopMaintenanceHintMessage } from "@work-intelligence/schema";
 import { statSync } from "node:fs";
-import { inspectDatabaseReadOnlyMetadata } from "./database-inspection.js";
+import { inspectDatabaseReadOnlyMetadata, shouldSuggestReclaim } from "./database-inspection.js";
 
 /**
  * The database maintenance the desktop App offers: the same `maintainDatabase` of the storage package the command line runs
@@ -73,6 +73,9 @@ export async function readMaintenanceHint(
   return {
     ...(found.reclaimableBytes === undefined ? {} : { reclaimableBytes: found.reclaimableBytes }),
     ...(found.bytes === undefined ? {} : { databaseBytes: found.bytes }),
+    ...(found.reclaimableBytes === undefined
+      ? {}
+      : { suggest: shouldSuggestReclaim(found.reclaimableBytes, found.bytes ?? 0) }),
     ...(run
       ? {
           last: {

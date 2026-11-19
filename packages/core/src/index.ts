@@ -3653,6 +3653,10 @@ export interface SystemStatus {
     bytes: number | null;
     state: DatabaseInspectionState;
     schemaVersion: number | null;
+    /** Free pages inside the file that a compaction would give back to the disk; absent when it could not be read. */
+    reclaimableBytes?: number;
+    /** The free space is large enough to be worth a compaction. */
+    reclaimSuggested?: boolean;
   };
   backups: {
     available: boolean;

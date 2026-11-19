@@ -13,7 +13,7 @@ import {
   projectDataExportRequestSchema,
 } from "@work-intelligence/schema";
 import { LATEST_SCHEMA_VERSION } from "@work-intelligence/storage";
-import { inspectDatabaseReadOnlyMetadata } from "../database-inspection.js";
+import { inspectDatabaseReadOnlyMetadata, shouldSuggestReclaim } from "../database-inspection.js";
 import {
   MAX_PROJECT_IMPORT_BYTES,
   readJsonBody,
@@ -203,6 +203,12 @@ async function systemStatus({ store, response, services }: RouteContext): Promis
       bytes: database.bytes ?? null,
       state: database.state,
       schemaVersion: database.schemaVersion ?? null,
+      ...(database.reclaimableBytes === undefined
+        ? {}
+        : {
+            reclaimableBytes: database.reclaimableBytes,
+            reclaimSuggested: shouldSuggestReclaim(database.reclaimableBytes, database.bytes ?? 0),
+          }),
     },
     backups: {
       available: backupSnapshot.available,

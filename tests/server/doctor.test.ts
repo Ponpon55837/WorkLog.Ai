@@ -14,9 +14,9 @@ import {
   inspectGlobalHooks,
   pnpmRequirementSatisfied,
   wideDatabasePermissions,
-  shouldSuggestReclaim,
   sqliteFinding,
 } from "../../apps/server/src/doctor.js";
+import { shouldSuggestReclaim } from "../../apps/server/src/database-inspection.js";
 import { commandForAgentHook, commandForLauncherHook, inspectAgentSkillCopies } from "@work-intelligence/agent-setup";
 import {
   getMcpRuntimeDirectory,

@@ -102,6 +102,13 @@ export function desktopLoginItemMismatch(item: DesktopLoginItem): boolean {
   return item.desired !== (item.system === "enabled");
 }
 
+/** Whether the free space inside the database file is worth compacting. */
+export function reclaimVisual(suggested: boolean | undefined): StatusVisual {
+  return suggested
+    ? visual("attention", CircleAlert, "systemStatus.reclaimWorthIt")
+    : visual("neutral", CircleMinus, "systemStatus.reclaimNotNeeded");
+}
+
 /** The status label of the App's login item card. */
 export function desktopLoginItemStatusVisual(item: DesktopLoginItem | undefined): StatusVisual {
   if (!item) return visual("attention", CircleAlert, "status.cannotConfirm");

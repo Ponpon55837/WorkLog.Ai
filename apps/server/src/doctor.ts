@@ -26,6 +26,7 @@ export { claudePluginEnabled, codexPluginEnabled };
 import {
   findLatestAutomaticBackup,
   inspectDatabaseReadOnlyMetadata,
+  shouldSuggestReclaim,
   resolveBackupDirectory,
   type ReadOnlyDatabaseInspection,
 } from "./database-inspection.js";
@@ -77,10 +78,6 @@ const REQUIRED_DIST_FILES = [
   "packages/shared/dist/index.js",
   "packages/storage/dist/index.js",
 ] as const;
-/** Suggest pnpm db:maintain when free pages reach either limit; below 1 MiB it is never worth stopping the server. */
-const RECLAIMABLE_SPACE_MIN_BYTES = 1024 * 1024;
-const RECLAIMABLE_SPACE_SUGGEST_BYTES = 5 * 1024 * 1024;
-const RECLAIMABLE_SPACE_SUGGEST_RATIO = 0.2;
 const BUILD_SOURCE_DIRECTORIES = [
   "apps/server/src",
   "apps/mcp/src",
@@ -492,15 +489,6 @@ function formatBytes(bytes: number): string {
     return (bytes / 1024).toFixed(1) + " KiB";
   }
   return (bytes / (1024 * 1024)).toFixed(1) + " MiB";
-}
-
-/** True when the free space inside the database file is large enough to be worth a VACUUM. */
-export function shouldSuggestReclaim(reclaimableBytes: number, databaseBytes: number): boolean {
-  if (reclaimableBytes < RECLAIMABLE_SPACE_MIN_BYTES) return false;
-  return (
-    reclaimableBytes >= RECLAIMABLE_SPACE_SUGGEST_BYTES ||
-    (databaseBytes > 0 && reclaimableBytes / databaseBytes >= RECLAIMABLE_SPACE_SUGGEST_RATIO)
-  );
 }
 
 function expectedDistFiles(repositoryRoot: string): string[] {

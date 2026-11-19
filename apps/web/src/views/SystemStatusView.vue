@@ -45,6 +45,7 @@ import {
   mcpReconnectStatusVisual,
   mcpRuntimeStatusVisual,
   desktopLoginItemMismatch,
+  reclaimVisual,
   desktopLoginItemStatusVisual,
   userServiceStatusVisual,
   type StatusVisual,
@@ -464,7 +465,20 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
             </p>
           </UiBoxRow>
           <UiBoxRow
-            v-else
+            v-if="status.database.reclaimableBytes !== undefined"
+            :title="t('systemStatus.reclaimableSpace')"
+            data-testid="reclaimable-space"
+          >
+            <template #labels>
+              <StatusLabel :status="reclaimVisual(status.database.reclaimSuggested)" />
+            </template>
+            <template #meta>{{ formatBytes(status.database.reclaimableBytes) }}</template>
+            <p v-if="status.desktop?.managed" class="system-status__maintenance-meta">
+              {{ t("systemStatus.reclaimInApp") }}
+            </p>
+          </UiBoxRow>
+          <UiBoxRow
+            v-if="!status.maintenance"
             :title="t('systemStatus.noMaintenanceHistory')"
             :meta="
               t(
