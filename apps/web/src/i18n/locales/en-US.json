@@ -1043,7 +1043,8 @@
     "conflictCategoryContent": "Different content",
     "conflictCategoryUnique": "Unique key",
     "conflictCategoryDependency": "Dependency",
-    "conflictCategoryMissingParent": "Missing from the file"
+    "conflictCategoryMissingParent": "Missing from the file",
+    "restoreInDesktopApp": "Restore a backup from the Data tab of the desktop app; you can also choose a backup file from another location. Before restoring, the App backs up the current data automatically."
   },
   "reports": {
     "aCustomRangeCanSpan": "A custom range can span at most {days} day.|A custom range can span at most {days} days.",
@@ -1625,7 +1626,9 @@
     "agentReadStatsCount": "Reads",
     "agentReadStatsP50": "p50",
     "agentReadStatsP95": "p95",
-    "agentReadStatsErrors": "Failed"
+    "agentReadStatsErrors": "Failed",
+    "localServiceStatusDesktop": "Local service, database, backup, maintenance and connection status. For a full check, open the Diagnostics tab of the desktop app.",
+    "recentResultsAppearAfterMaintenance": "Recent results appear after maintenance runs"
   },
   "ui": {
     "actualCountsPerPeriod": "Actual counts per period",

@@ -11,6 +11,7 @@ const SOURCES = import.meta.glob(
     "../../../apps/web/src/views/SystemStatusView.vue",
     "../../../apps/web/src/views/DashboardView.vue",
     "../../../apps/web/src/components/domain/FirstRunChecklist.vue",
+    "../../../apps/web/src/components/domain/BackupSection.vue",
     "../../../apps/web/src/i18n/locales/*.json",
   ],
   { query: "?raw", import: "default", eager: true },
@@ -22,6 +23,7 @@ const read = (relative: string): string => {
 };
 const statusView = read("../../../apps/web/src/views/SystemStatusView.vue");
 const checklist = read("../../../apps/web/src/components/domain/FirstRunChecklist.vue");
+const backups = read("../../../apps/web/src/components/domain/BackupSection.vue");
 const dashboard = read("../../../apps/web/src/views/DashboardView.vue");
 
 describe("desktop-managed pages show no command", () => {
@@ -42,6 +44,21 @@ describe("desktop-managed pages show no command", () => {
     expect(checklist).toMatch(/<UiCopyButton\s+v-if="!desktopManaged"/);
     expect(checklist.match(/<UiCopyButton/g)).toHaveLength(1);
     expect(dashboard).toContain(':desktop-managed="systemStatus?.desktop?.managed === true"');
+  });
+
+  it("the page subtitle, the maintenance hint and the restore steps each have a command-free desktop branch", () => {
+    expect(statusView).toMatch(
+      /status\?\.desktop\?\.managed\s*\?\s*'systemStatus\.localServiceStatusDesktop'\s*:\s*'systemStatus\.localServiceDatabaseBackupMaintenance'/,
+    );
+    expect(statusView).toMatch(
+      /status\.desktop\?\.managed\s*\?\s*'systemStatus\.recentResultsAppearAfterMaintenance'\s*:\s*'systemStatus\.recentResultsAppearAfterRunning'/,
+    );
+    const desktopBranch = backups.indexOf('v-if="desktopManaged"');
+    const commandBranch = backups.indexOf("<template v-else>");
+    expect(desktopBranch).toBeGreaterThan(-1);
+    expect(commandBranch).toBeGreaterThan(desktopBranch);
+    expect(backups.slice(desktopBranch, commandBranch)).not.toMatch(/restoreCommand|pnpm|UiCopyButton/);
+    expect(backups.indexOf("<code>{{ restoreCommand }}</code>")).toBeGreaterThan(commandBranch);
   });
 
   it("the desktop sentence exists in both languages and holds no command wording", () => {
