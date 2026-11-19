@@ -56,6 +56,7 @@ export {
 export {
   inspectAgentHooks,
   inspectAgentRegistrations,
+  projectCodexHooksRunFinalize,
   type AgentHookInspectOptions,
   type AgentId,
   type AgentInspectOptions,

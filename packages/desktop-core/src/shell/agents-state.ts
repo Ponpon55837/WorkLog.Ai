@@ -30,6 +30,10 @@ export interface AgentCardView {
   readonly hookState?: AgentHookState;
   /** Who manages the hooks when `hookState` is `installed`. */
   readonly hookSource?: AgentHookSource | null;
+  /** A checkout hook runs the reminder next to the App's own hook for the same event; adopting removes it. */
+  readonly duplicateOldHook?: true;
+  /** A checkout's own `.codex/hooks.json` also runs the reminder; the App never changes it (a hint only). */
+  readonly projectHooksNote?: true;
   /** The Agent's own plugin brings finalize hooks and the App's (or a checkout's) global hook is installed too. */
   readonly pluginHooksDuplicate?: true;
   /** The hand-written registration runs a source checkout (`node <checkout>/…`); shown with `~`. */

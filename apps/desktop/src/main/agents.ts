@@ -11,6 +11,7 @@ import {
   findCheckoutRegistrations,
   inspectAgentHooks,
   inspectAgentRegistrations,
+  projectCodexHooksRunFinalize,
   readClaudePluginEnabled,
   readCodexPluginHooksPresent,
   readAgentSetupJournal,
@@ -220,6 +221,14 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
         nextStep: status.nextStep,
         mcp: ownerOf(mcp?.source),
         hooks: ownerOf(hook?.source),
+        ...(handWritten.some((entry) => entry.duplicateOfLauncher) ? { duplicateOldHook: true as const } : {}),
+        ...(id === "codex" &&
+        hookInstallation?.state === "installed" &&
+        projectCodexHooksRunFinalize([
+          ...new Set(handWritten.flatMap((entry) => (entry.repositoryRoot ? [entry.repositoryRoot] : []))),
+        ])
+          ? { projectHooksNote: true as const }
+          : {}),
         ...(hookInstallation ? { hookState: hookInstallation.state, hookSource: hookInstallation.source } : {}),
         // A global hook (the App's or a checkout's) next to the plugin's own hooks: the reminder would run twice.
         ...(hookInstallation?.state === "installed" &&

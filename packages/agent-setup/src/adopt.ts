@@ -9,7 +9,6 @@ import { posix, win32 } from "node:path";
 import { pathsReferToSameFile } from "@work-intelligence/shared/file-identity";
 import { parse as parseToml } from "smol-toml";
 import {
-  commandForAgentHook,
   commandForLauncherHook,
   commandWords,
   isLauncherMcpRegistration,
@@ -71,6 +70,11 @@ export interface CheckoutRegistration {
   effectiveDatabase?: string;
   /** Hooks: {@link effectiveDatabase} is the checkout default, true only if the Agent's environment does not override it. */
   databaseFromCheckoutDefault?: true;
+  /**
+   * Hooks: the same event already has the App's launcher hook, so this checkout hook only makes the reminder fire
+   * twice. Adoption removes it (it is not rewritten), and it has no database of its own to compare.
+   */
+  duplicateOfLauncher?: true;
   /** With `adopt.databasePath` set: whether {@link effectiveDatabase} is the App's database (the same file). */
   sameAsAppDatabase?: boolean;
 }
@@ -134,6 +138,7 @@ interface JsonMcpHit {
 
 interface HookHit {
   info: CheckoutRegistration;
+  event: string;
   item: Record<string, unknown>;
   hook: Record<string, unknown>;
 }
@@ -256,13 +261,19 @@ function rootOfPnpm(
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (typeof argument !== "string") return { reason: "pnpm 的參數不是文字" };
-    if (argument === "--dir" || argument === "-C") {
+    // pnpm hands everything after the script name to the script: a later `--dir` is not pnpm's.
+    if (!script && (argument === "--dir" || argument === "-C")) {
       const value = args[index + 1];
       if (directory !== undefined || typeof value !== "string" || value === "")
         return { reason: "pnpm 的目錄參數不完整" };
       directory = value;
       index += 1;
-    } else if (argument.startsWith("--dir=") && argument.length > "--dir=".length && directory === undefined) {
+    } else if (
+      !script &&
+      argument.startsWith("--dir=") &&
+      argument.length > "--dir=".length &&
+      directory === undefined
+    ) {
       directory = argument.slice("--dir=".length);
     } else if (argument === "start:mcp" && !script) script = true;
     else if (argument === "run" && index === args.length - 2 && args[index + 1] === "start:mcp") continue;
@@ -282,9 +293,13 @@ function rootOfPnpm(
   if (resolved === undefined || !flavor.isAbsolute(resolved)) {
     return { reason: "pnpm 的目錄不是絕對路徑，無法判斷 checkout 位置" };
   }
-  const root = resolved.length > 1 ? resolved.replace(/[\\/]+$/, "") : resolved;
+  const stripped = resolved.replace(/[\\/]+$/, "");
+  // A bare drive or filesystem root keeps its separator (`C:\`, `/`).
+  const root = stripped === "" || /^[A-Za-z]:$/.test(stripped) ? resolved : stripped;
   const cwdIsRoot =
-    base !== undefined && comparableRoot(flavor.resolve(base), platform) === comparableRoot(root, platform);
+    base !== undefined &&
+    flavor.isAbsolute(base) &&
+    comparableRoot(flavor.resolve(base), platform) === comparableRoot(root, platform);
   return { root, cwdIsRoot };
 }
 
@@ -356,27 +371,61 @@ function analyseMcpServer(server: unknown, platform: NodeJS.Platform): McpAnalys
       };
 }
 
+/** Flags of `node` that take no separate value; a flag that loads or evals code could change what runs. */
+function isPlainNodeFlag(word: string): boolean {
+  return /^--?[A-Za-z][\w-]*(=\S*)?$/.test(word) && !/^--?(?:r|require|import|loader|eval|e|p|print)(?:=|$)/.test(word);
+}
+
+/**
+ * How a hook command starts its script: `node [flags] <script>` (node by name or by absolute path, any quoting) or
+ * `pnpm [--dir <dir>|-C <dir>] [exec] node [flags] <script>`. The script is the last word; a relative one is taken
+ * from the pnpm directory.
+ */
+function hookRunner(words: readonly string[], platform: NodeJS.Platform): { script: string } | { reason: string } {
+  const flavor = flavorOf(platform);
+  let rest = [...words];
+  let directory: string | undefined;
+  if (rest[0] !== undefined && isPnpmExecutable(rest[0])) {
+    rest = rest.slice(1);
+    if (rest[0] === "--dir" || rest[0] === "-C") {
+      directory = rest[1];
+      rest = rest.slice(2);
+    } else if (rest[0]?.startsWith("--dir=")) {
+      directory = rest[0].slice("--dir=".length);
+      rest = rest.slice(1);
+    }
+    if (rest[0] === "exec") rest = rest.slice(1);
+    if (directory === undefined || !flavor.isAbsolute(directory)) {
+      return { reason: "pnpm 的目錄不是絕對路徑，無法判斷 checkout 位置" };
+    }
+  }
+  const [executable, ...tail] = rest;
+  const script = tail.at(-1);
+  if (executable === undefined || !isNodeExecutable(executable) || script === undefined) {
+    return { reason: "指令不是以 node 執行 hook script" };
+  }
+  if (!tail.slice(0, -1).every(isPlainNodeFlag)) return { reason: "指令不是單純的 node [選項] <script> 形式" };
+  return { script: directory === undefined || flavor.isAbsolute(script) ? script : flavor.resolve(directory, script) };
+}
+
 function analyseHookCommand(
   command: string,
   agent: CheckoutAgent,
   platform: NodeJS.Platform,
 ): { recognised: boolean; reason?: string; root?: string } | undefined {
-  const words = commandWords(command);
+  const words = commandWords(command, platform);
   if (words?.[0] && isLauncherShimCommand(words[0]) && words[1] === HOOK_ACTIONS[agent] && words.length === 2) {
     return undefined;
   }
-  const script = words?.[1];
-  const found = script ? rootOfScript(script, [`apps/mcp/dist/${HOOK_SCRIPTS[agent]}`], platform) : undefined;
-  const root = found && "root" in found ? found.root : undefined;
-  const fail = (reason: string) => ({ recognised: false, reason, ...(root ? { root } : {}) });
-  if (!words || words.length !== 2 || words[0] !== "node" || script === undefined) {
-    return fail("指令不是 setup 寫入的 node <script> 形式");
+  const runner = words ? hookRunner(words, platform) : { reason: "指令無法解析" };
+  const located =
+    "script" in runner ? rootOfScript(runner.script, [`apps/mcp/dist/${HOOK_SCRIPTS[agent]}`], platform) : undefined;
+  const root = located && "root" in located ? located.root : undefined;
+  if (!("script" in runner)) return { recognised: false, reason: runner.reason };
+  if (!located || !("root" in located)) {
+    return { recognised: false, reason: located?.reason ?? "指令不是 node <script> 形式" };
   }
-  if (!found || !("root" in found)) return fail(found?.reason ?? "指令不是 setup 寫入的形式");
-  if (command !== commandForAgentHook(script, "linux") && command !== commandForAgentHook(script, "win32")) {
-    return fail("指令的引號形式不是 setup 寫入的形式");
-  }
-  return { recognised: true, root: found.root };
+  return { recognised: true, root };
 }
 
 function isOwned(components: readonly ManagedEntry[], id: AgentSetupComponentId, value: unknown): boolean {
@@ -415,6 +464,7 @@ function scanHooks(
   location: string,
 ): HookHit[] {
   const hits: HookHit[] = [];
+  const launcherEvents = new Set<string>();
   const hooks = root.hooks;
   if (!JSON_OBJECT(hooks)) return hits;
   for (const [event, items] of Object.entries(hooks)) {
@@ -427,11 +477,15 @@ function scanHooks(
         if (!JSON_OBJECT(hook) || typeof hook.command !== "string") continue;
         if (!hook.command.includes(FINALIZE_REMINDER_MARKER)) continue;
         const analysis = analyseHookCommand(hook.command, agent, context.platform);
-        if (!analysis) continue;
+        if (!analysis) {
+          launcherEvents.add(event);
+          continue;
+        }
         const reason = componentId ? analysis.reason : `事件 ${event} 不在 setup 管理的 hook 範圍`;
         hits.push({
           item,
           hook,
+          event,
           info: {
             agent,
             kind: "hook",
@@ -453,12 +507,21 @@ function scanHooks(
       }
     }
   }
+  // The App's hook is already there for this event: a checkout hook beside it is a duplicate to remove, not to rewrite.
+  for (const { info, event } of hits) {
+    if (!launcherEvents.has(event) || !info.recognised || !info.componentId) continue;
+    info.duplicateOfLauncher = true;
+    delete info.effectiveDatabase;
+    delete info.databaseFromCheckoutDefault;
+  }
   // Two hooks for one component: rewriting either would leave the other, so none is safe to pick.
   const counts = new Map<string, number>();
   for (const { info } of hits)
-    if (info.componentId) counts.set(info.componentId, (counts.get(info.componentId) ?? 0) + 1);
+    if (info.componentId && !info.duplicateOfLauncher) {
+      counts.set(info.componentId, (counts.get(info.componentId) ?? 0) + 1);
+    }
   for (const { info } of hits) {
-    if (info.componentId && (counts.get(info.componentId) ?? 0) > 1 && info.recognised) {
+    if (info.componentId && !info.duplicateOfLauncher && (counts.get(info.componentId) ?? 0) > 1 && info.recognised) {
       info.recognised = false;
       info.reason = "同一個事件有多個 finalize hook，無法判斷要改寫哪一個";
     }
@@ -849,6 +912,8 @@ function shouldAdopt(info: CheckoutRegistration, context: AdoptContext): boolean
     );
     return false;
   }
+  // A duplicate is removed, not kept: it moves no data and leaves the App's own hook in place.
+  if (info.duplicateOfLauncher) return true;
   if (context.appDatabase !== undefined && !compareWithApp(info, context.appDatabase).sameAsAppDatabase) {
     // MCP keeps its own database after adoption while hooks follow the App's: one Agent would write to two databases.
     const database = info.effectiveDatabase ? displayPath(info.effectiveDatabase, context.homeDirectory) : "未知";
@@ -949,6 +1014,7 @@ function refusedAgentsOf(
         (info) =>
           !info.owned &&
           info.recognised &&
+          !info.duplicateOfLauncher &&
           info.repositoryRoot !== undefined &&
           roots.has(comparableRoot(info.repositoryRoot, platform)) &&
           info.sameAsAppDatabase === false,
@@ -1022,6 +1088,23 @@ export function adoptClaudeMcp(root: Record<string, unknown>, context: AdoptCont
   return true;
 }
 
+/** Removes one hook; its group goes too when it was the group's only hook, and a sibling hook always stays. */
+function removeHook(
+  root: Record<string, unknown>,
+  event: string,
+  item: Record<string, unknown>,
+  hook: Record<string, unknown>,
+): void {
+  const items = JSON_OBJECT(root.hooks) ? root.hooks[event] : undefined;
+  if (!Array.isArray(items)) return;
+  if (Array.isArray(item.hooks)) {
+    const remaining: unknown[] = item.hooks.filter((candidate: unknown) => candidate !== hook);
+    item.hooks = remaining;
+    if (remaining.length > 0) return;
+  }
+  items.splice(items.indexOf(item), 1);
+}
+
 /** Rewrites the recognised hand-written finalize hooks of one Agent in place; true when anything changed. */
 export function adoptHooks(
   root: Record<string, unknown>,
@@ -1030,8 +1113,17 @@ export function adoptHooks(
   location: string,
 ): boolean {
   let changed = false;
-  for (const { info, item, hook } of scanHooks(root, agent, context, location)) {
+  for (const { info, event, item, hook } of scanHooks(root, agent, context, location)) {
     if (!shouldAdopt(info, context) || !info.componentId) continue;
+    if (info.duplicateOfLauncher) {
+      removeHook(root, event, item, hook);
+      context.plan.actions.push(
+        `移除重複的舊 ${context.labelOf(info.componentId)}：${displayPath(location, context.homeDirectory)}` +
+          `（指向 checkout：${info.repositoryRoot}；App 的 hook 已在同一個事件，保留）。`,
+      );
+      changed = true;
+      continue;
+    }
     hook.command = commandForLauncherHook(context.shimPath, HOOK_ACTIONS[agent], context.platform);
     setEntry(context.components, {
       id: info.componentId as HookComponentId,

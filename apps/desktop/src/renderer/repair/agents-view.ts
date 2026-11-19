@@ -80,6 +80,8 @@ function agentCard(
   if (card.adoptable && card.hookState === "installed" && card.hookSource === "checkout") {
     body.append(hint(text.agentsHookCheckoutNote));
   }
+  if (card.duplicateOldHook) body.append(hint(text.agentsDuplicateOldHook));
+  if (card.projectHooksNote) body.append(hint(text.agentsProjectHooksNote));
   if (card.pluginHooksDuplicate) body.append(hint(text.agentsPluginHooksDuplicate));
   if (card.notAdoptableReason) body.append(hint(`${text.agentsNotAdoptable}${card.notAdoptableReason}`));
   if (card.otherDatabase) {

@@ -235,7 +235,13 @@ describe("Agent hook texts", () => {
         setup === zhSetup ? zhSetup.agentsPreviewAdopt : enSetup.agentsPreviewAdopt,
       );
       expect(setup.agentsNotAdoptable.length).toBeGreaterThan(40);
-      for (const text of [setup.agentsAdoptInstead, setup.agentsNotAdoptable, setup.agentsPluginHooksDuplicate]) {
+      for (const text of [
+        setup.agentsAdoptInstead,
+        setup.agentsNotAdoptable,
+        setup.agentsPluginHooksDuplicate,
+        setup.agentsDuplicateOldHook,
+        setup.agentsProjectHooksNote,
+      ]) {
         expect(text).not.toMatch(/pnpm|\bnode\b|`|--dir/);
       }
     }

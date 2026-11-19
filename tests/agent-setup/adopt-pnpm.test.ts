@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   applyAgentSetupPlan,
   applyAgentSetupTransaction,
+  commandForLauncherHook,
+  inspectAgentRegistrations,
   createAgentSetupPlan,
   findCheckoutRegistrations,
   undoAgentSetupOperation,
@@ -242,6 +244,9 @@ describe("adopting a hand-written pnpm start:mcp registration", () => {
       { command: "pnpm", args: ["--dir", "relative", "start:mcp"] },
       { command: "pnpm", args: ["--filter", "@work-intelligence/mcp", "start"] },
       { command: "pnpm", args: ["--dir", "/x", "--dir", "/y", "start:mcp"] },
+      { command: "pnpm", args: ["start:mcp", "--dir", "/other"], cwd: "/repo" },
+      { command: "pnpm", args: ["start:mcp", "-C", "/other"], cwd: "/repo" },
+      { command: "pnpm", args: ["start:mcp", "--dir=/other"], cwd: "/repo" },
     ]) {
       const fixture = createFixture();
       const root = fixture.options.repositoryRoot;
@@ -310,5 +315,154 @@ describe("adopting a hand-written pnpm start:mcp registration", () => {
         enabled: true,
       });
     });
+  });
+});
+
+function posixQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+describe("an old checkout hook beside the App's own hook", () => {
+  const ACTION = "codex-finalize-reminder";
+  const THIRD_PARTY = "'/usr/local/bin/node' '/Users/someone/.desktop-pet/agent-hook.mjs' codex";
+
+  function oldCommand(root: string): string {
+    return `/usr/local/bin/node "${root}/apps/mcp/dist/codex-finalize-reminder.js"`;
+  }
+
+  /** The reported shape: both hooks in three events, groups with timeout/statusMessage/matcher, and a third-party hook. */
+  function seedHooks(fixture: SetupFixture, oldHook: string): string {
+    const root = fixture.options.repositoryRoot;
+    const launcherHook = { type: "command", command: commandForLauncherHook(SHIM, ACTION, "linux") };
+    const old = { type: "command", command: oldHook };
+    writeJson(fixture.paths.codexHooks, {
+      hooks: {
+        UserPromptSubmit: [
+          { hooks: [launcherHook] },
+          { hooks: [old], timeout: 3 },
+          { hooks: [{ type: "command", command: THIRD_PARTY }] },
+        ],
+        PostToolUse: [
+          { matcher: "^(apply_patch|.*(work_finalize_session|work_write_idempotent))$", hooks: [launcherHook] },
+          { matcher: "apply_patch", hooks: [old], timeout: 3, statusMessage: "Saving" },
+        ],
+        Stop: [{ hooks: [launcherHook] }, { hooks: [old, { type: "command", command: THIRD_PARTY }], timeout: 3 }],
+      },
+    });
+    void root;
+    return readFileSync(fixture.paths.codexHooks, "utf8");
+  }
+
+  function adoptOptions(fixture: SetupFixture): AgentSetupPlanOptions {
+    return launcher(fixture, { adopt: { repositoryRoots: [fixture.options.repositoryRoot] } });
+  }
+
+  it("is a conflict today and is removed on adopt, leaving the third-party hook and the App's hooks alone, undoable", () => {
+    const fixture = createFixture();
+    const root = fixture.options.repositoryRoot;
+    const before = seedHooks(fixture, oldCommand(root));
+    expect(inspectAgentRegistrations(launcher(fixture)).duplicates).toMatchObject([
+      { agent: "codex", kind: "hook", sources: ["desktop-managed", "manual"] },
+    ]);
+
+    const found = findCheckoutRegistrations(fixture.options).filter((item) => item.kind === "hook");
+    expect(found).toHaveLength(3);
+    for (const item of found) {
+      expect(item).toMatchObject({ recognised: true, duplicateOfLauncher: true, repositoryRoot: root });
+      expect(item.effectiveDatabase).toBeUndefined();
+    }
+
+    const plan = createAgentSetupPlan(adoptOptions(fixture));
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.actions.filter((line) => line.includes("移除重複的舊"))).toHaveLength(3);
+    expect(applyAgentSetupTransaction(plan, { journalPath: fixture.paths.journal }).outcome).toBe("committed");
+
+    const after = readFileSync(fixture.paths.codexHooks, "utf8");
+    expect(after).not.toContain("codex-finalize-reminder.js");
+    expect(after.split(THIRD_PARTY).length - 1).toBe(2);
+    expect(after.split(ACTION).length - 1).toBeGreaterThanOrEqual(3);
+    const hooks = readJson(fixture.paths.codexHooks).hooks as Record<string, Array<Record<string, unknown>>>;
+    // The group that held only the old hook is gone; the one that also held the third-party hook keeps it.
+    expect(hooks.Stop).toHaveLength(2);
+    expect(hooks.Stop?.[1]).toMatchObject({ timeout: 3, hooks: [{ command: THIRD_PARTY }] });
+    expect(inspectAgentRegistrations(launcher(fixture)).duplicates).toEqual([]);
+
+    const undone = undoAgentSetupOperation(fixture.paths.journal, { homeDirectory: fixture.options.homeDirectory });
+    expect(undone.status).toBe("undone");
+    expect(readFileSync(fixture.paths.codexHooks, "utf8")).toBe(before);
+  });
+
+  it.each([
+    [
+      "an absolute node with flags",
+      (root: string) => `/usr/local/bin/node --no-warnings "${root}/apps/mcp/dist/codex-finalize-reminder.js"`,
+    ],
+    [
+      "node on PATH, unquoted",
+      (root: string) =>
+        `node ${root.replaceAll(" ", "\\ ").replaceAll("'", "\\'")}/apps/mcp/dist/codex-finalize-reminder.js`,
+    ],
+    [
+      "pnpm exec node with --dir",
+      (root: string) => `pnpm --dir "${root}" exec node apps/mcp/dist/codex-finalize-reminder.js`,
+    ],
+    [
+      "pnpm -C node with a relative script",
+      (root: string) => `/usr/local/bin/pnpm -C ${posixQuote(root)} node apps/mcp/dist/codex-finalize-reminder.js`,
+    ],
+  ])("recognises %s", (_name, build) => {
+    const fixture = createFixture();
+    seedHooks(fixture, build(fixture.options.repositoryRoot));
+    const plan = createAgentSetupPlan(adoptOptions(fixture));
+    expect(plan.conflicts).toEqual([]);
+    expect(applyAgentSetupPlan(plan).applied).toBe(true);
+    expect(readFileSync(fixture.paths.codexHooks, "utf8")).not.toContain("codex-finalize-reminder.js");
+  });
+
+  it("never treats the third-party hook, a node that loads code, or a different script as ours", () => {
+    const fixture = createFixture();
+    const root = fixture.options.repositoryRoot;
+    seedHooks(fixture, `node --require ./evil.js "${root}/apps/mcp/dist/codex-finalize-reminder.js"`);
+    const found = findCheckoutRegistrations(fixture.options).filter((item) => item.kind === "hook");
+    expect(found.every((item) => !item.recognised)).toBe(true);
+    expect(found.some((item) => item.reason?.includes("agent-hook"))).toBe(false);
+    const plan = createAgentSetupPlan(adoptOptions(fixture));
+    expect(plan.conflicts.join("\n")).toContain("無法安全改寫");
+  });
+
+  it("rewrites (instead of removing) an old hook when the App has none for that event", () => {
+    const fixture = createFixture();
+    const root = fixture.options.repositoryRoot;
+    writeJson(fixture.paths.codexHooks, {
+      hooks: { Stop: [{ hooks: [{ type: "command", command: oldCommand(root) }], timeout: 3 }] },
+    });
+    const [item] = findCheckoutRegistrations(fixture.options).filter((entry) => entry.kind === "hook");
+    expect(item?.duplicateOfLauncher).toBeUndefined();
+    expect(item?.effectiveDatabase).toBeDefined();
+  });
+
+  it("reads Windows hooks with a node.exe path and backslashes", () => {
+    const fixture = createFixture();
+    const windowsRoot = "C:\\Users\\someone\\src\\WorkLog.Ai";
+    const launcherHook = { type: "command", command: commandForLauncherHook(WINDOWS_SHIM, ACTION, "win32") };
+    writeJson(fixture.paths.codexHooks, {
+      hooks: {
+        Stop: [
+          { hooks: [launcherHook] },
+          {
+            hooks: [
+              {
+                type: "command",
+                command: `"C:\\Program Files\\nodejs\\node.exe" "${windowsRoot}\\apps\\mcp\\dist\\codex-finalize-reminder.js"`,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const hooks = findCheckoutRegistrations({ ...fixture.options, platform: "win32" }).filter(
+      (item) => item.kind === "hook",
+    );
+    expect(hooks).toMatchObject([{ recognised: true, duplicateOfLauncher: true, repositoryRoot: windowsRoot }]);
   });
 });

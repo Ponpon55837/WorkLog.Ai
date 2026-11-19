@@ -6,6 +6,7 @@ import {
   codexPluginHooksPresent,
   createAgentSetupPlan,
   inspectAgentRegistrations,
+  projectCodexHooksRunFinalize,
   readCodexPluginHooksPresent,
   type AgentRegistrationInspection,
 } from "@work-intelligence/agent-setup";
@@ -183,5 +184,26 @@ describe("codexPluginHooksPresent", () => {
     writeFileSync(fixture.paths.codexConfig, "[broken");
     expect(readCodexPluginHooksPresent(directory)).toBe(false);
     expect(readCodexPluginHooksPresent(join(fixture.temporaryRoot, "missing"))).toBe(false);
+  });
+});
+
+describe("projectCodexHooksRunFinalize", () => {
+  it("reads a checkout's own .codex/hooks.json without touching it, and ignores a missing or unrelated one", () => {
+    const fixture = createFixture();
+    const root = fixture.options.repositoryRoot;
+    const other = join(fixture.temporaryRoot, "other repo");
+    mkdirSync(join(other, ".codex"), { recursive: true });
+    writeFileSync(join(other, ".codex", "hooks.json"), JSON.stringify({ hooks: { Stop: [{ hooks: [] }] } }));
+    expect(projectCodexHooksRunFinalize([root, other])).toBe(false);
+    mkdirSync(join(root, ".codex"), { recursive: true });
+    const hooks = join(root, ".codex", "hooks.json");
+    writeFileSync(
+      hooks,
+      '{"hooks":{"Stop":[{"hooks":[{"command":"node apps/mcp/dist/codex-finalize-reminder.js"}]}]}}',
+    );
+    const before = readFileSync(hooks);
+    expect(projectCodexHooksRunFinalize([other, root])).toBe(true);
+    expect(readFileSync(hooks)).toEqual(before);
+    expect(projectCodexHooksRunFinalize([])).toBe(false);
   });
 });
