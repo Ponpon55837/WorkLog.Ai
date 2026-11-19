@@ -18,7 +18,7 @@ import type { RepairBusyReason } from "./repair-busy.js";
 import { z } from "zod";
 import { APP_TABS, type AppTab, type AppTabSelection } from "./app-tabs.js";
 import type { DiagnosticsReport } from "./diagnostics.js";
-import type { RepairActionId, RepairState } from "./repair-state.js";
+import type { RepairState } from "./repair-state.js";
 import type { SetupState } from "./setup-state.js";
 import { SETUP_AGENT_IDS, type AgentsState, type SetupAgentId } from "./agents-state.js";
 import { SYSTEM_SETTINGS_TARGETS, type SystemSettingsTarget } from "../legacy-service/system-settings.js";
@@ -361,16 +361,4 @@ export interface RepairSender {
 /** Only the repair page, in the main frame of the repair window, may call these channels. */
 export function isTrustedRepairSender(sender: RepairSender): boolean {
   return sender.fromRepairWindow && sender.isMainFrame && isRepairPageUrl(sender.frameUrl);
-}
-
-export function isRepairActionId(value: string): value is RepairActionId {
-  return [
-    "retry-start",
-    "choose-database",
-    "open-database-folder",
-    "open-backups-folder",
-    "open-logs-folder",
-    "export-diagnostics",
-    "start-anyway",
-  ].includes(value);
 }

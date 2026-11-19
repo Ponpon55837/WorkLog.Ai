@@ -84,8 +84,3 @@ export function isDashboardOpenUrl(url: string, activePort: number | null): bool
     (parsed.hash.startsWith(`#${PORT_HANDOFF_FRAGMENT_KEY}=`) && decodePortHandoffFragment(parsed.hash) !== undefined)
   );
 }
-
-/** Whether a window may navigate to `url`: the repair page or the Dashboard on the active port; nothing else. */
-export function isAllowedNavigation(url: string, activePort: number | null): boolean {
-  return isRepairPageUrl(url) || isDashboardUrl(url, activePort);
-}
