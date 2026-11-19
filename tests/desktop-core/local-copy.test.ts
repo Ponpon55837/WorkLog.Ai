@@ -173,6 +173,7 @@ function copyHarness(options: { running: boolean; switchOutcome: { ok: false; co
             backendCode: outcome.code,
           };
     },
+    stopForCopy: async () => true,
     log: () => undefined,
   });
   return { copy, events, recorded };
