@@ -1,6 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
 
-/** Weights of the value score; every signal is capped so one noisy Session cannot outrank real decisions. */
+/**
+ * Weights of the value score; every signal is capped so one noisy Session cannot outrank real decisions.
+ * @internal test-only
+ */
 export const BACKLOG_SCORE_WEIGHTS = {
   /** Per confirmed decision, up to `decisionCap`. */
   decision: 2,
@@ -77,7 +80,10 @@ function compareBacklogSessions(left: BacklogSession, right: BacklogSession): nu
   );
 }
 
-/** Weighted, capped sum of the structured signals; see BACKLOG_SCORE_WEIGHTS. */
+/**
+ * Weighted, capped sum of the structured signals; see BACKLOG_SCORE_WEIGHTS.
+ * @internal test-only
+ */
 export function scoreBacklogSession(signals: BacklogSignals): number {
   return (
     Math.min(signals.confirmedDecisions, WEIGHTS.decisionCap) * WEIGHTS.decision +

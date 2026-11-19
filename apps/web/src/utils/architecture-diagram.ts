@@ -519,7 +519,10 @@ function labelAnchor(points: ArchitecturePoint[]): ArchitecturePoint {
   return best;
 }
 
-/** Display text and estimated pill width for a 12px label; full text stays available in the SVG title. */
+/**
+ * Display text and estimated pill width for a 12px label; full text stays available in the SVG title.
+ * @internal test-only
+ */
 export function architectureLabelBox(label: string, anchor: ArchitecturePoint): ArchitectureEdgeLabel {
   const chars = [...label];
   const text = chars.length > LABEL_MAX_CHARS ? `${chars.slice(0, LABEL_MAX_CHARS - 1).join("")}…` : label;

@@ -140,7 +140,7 @@ export function restoreCard(ctx: ViewContext): HTMLElement {
 }
 
 /** 「整理資料庫」: absent until main has told the page about it. */
-export function maintenanceCard(ctx: ViewContext): HTMLElement | null {
+function maintenanceCard(ctx: ViewContext): HTMLElement | null {
   if (!ctx.state.maintenance) return null;
   return maintenanceSection({
     api: ctx.act.api,

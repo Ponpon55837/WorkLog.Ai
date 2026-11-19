@@ -69,7 +69,10 @@ export type CopyRunner = (
 
 const COPY_BASE_NAME = "work-intelligence-local";
 
-/** A file name beside the App's default database that nothing uses yet; an existing file is never a target. */
+/**
+ * A file name beside the App's default database that nothing uses yet; an existing file is never a target.
+ * @internal test-only
+ */
 export function uniqueCopyTarget(directory: string, exists: (path: string) => boolean = existsSync): string {
   for (let index = 1; ; index += 1) {
     const name = index === 1 ? `${COPY_BASE_NAME}.sqlite` : `${COPY_BASE_NAME}-${index}.sqlite`;

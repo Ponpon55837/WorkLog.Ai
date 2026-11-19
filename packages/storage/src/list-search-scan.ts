@@ -21,8 +21,10 @@ import type { DatabaseSync } from "node:sqlite";
  * Worst case at the caps (development machine): about 11 ms per Knowledge row (256 KiB x 8 words), 0.18 s per Session
  * row (4 MiB x 8 words), 20 us per stored path and queried path; ordinary text of the same size costs a fifth to a
  * tenth of that, and legitimate rows are far below the caps (a real Session is about 1.5 KB of searched text).
+ * @internal test-only
  */
 export const MAX_LIST_SEARCH_TERMS = 8;
+/** @internal test-only */
 export const MAX_LIST_SEARCH_TERM_LENGTH = 200;
 /**
  * Per-row caps on the bytes one word may scan. Each is above the largest row the write limits allow in UTF-8 (a
@@ -69,7 +71,10 @@ export interface ListSearchScan {
   rowsMeasured: number;
 }
 
-/** Test instrumentation: records every scan, and may lower the row cap of the next ones. */
+/**
+ * Test instrumentation: records every scan, and may lower the row cap of the next ones.
+ * @internal test-only
+ */
 export interface ListSearchScanProbe {
   maxRowBytes?: number;
   scans: ListSearchScan[];
@@ -237,12 +242,18 @@ export function listSearchMoreGuard(keySql: string, moreBytesSql: string): strin
   return `COALESCE(${LIST_SEARCH_MORE_AGAIN_FUNCTION}(${keySql}), ${LIST_SEARCH_MORE_FUNCTION}(${moreBytesSql}, ${keySql}))`;
 }
 
-/** Test instrumentation only: records the scans of later calls into `probe` until called again. */
+/**
+ * Test instrumentation only: records the scans of later calls into `probe` until called again.
+ * @internal test-only
+ */
 export function setListSearchScanProbe(probe: ListSearchScanProbe | undefined): void {
   scanProbe = probe;
 }
 
-/** The terms of {@link parseListSearchTerms} without the warnings. */
+/**
+ * The terms of {@link parseListSearchTerms} without the warnings.
+ * @internal test-only
+ */
 export function splitSearchTerms(query: string): string[] {
   return parseListSearchTerms(query).terms;
 }

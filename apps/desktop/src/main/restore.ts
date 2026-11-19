@@ -66,6 +66,7 @@ export interface RelocateDetails {
   readonly noMatch: boolean;
 }
 
+/** @internal test-only */
 export interface RestoreOptions {
   readonly state: ShellState;
   readonly coordinator: Pick<OperationCoordinator, "current">;

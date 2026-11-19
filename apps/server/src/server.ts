@@ -135,6 +135,7 @@ function isSameOrigin(request: IncomingMessage, origin: string): boolean {
   }
 }
 
+/** @internal test-only */
 export interface ApiHandlerOptions {
   /** Shows the native folder dialog; injectable so tests never open a real window. */
   pickFolder?: () => Promise<FolderPickResult>;
@@ -165,6 +166,7 @@ export interface ApiHandlerOptions {
   desktop?: DesktopHandlerOptions;
 }
 
+/** @internal test-only */
 export type ApiHandler = ((request: IncomingMessage, response: ServerResponse) => Promise<void>) & {
   closeEventStreams: () => void;
   /** Removes the export files staged for an import (shutdown); a crash leaves them to the start-up sweep. */

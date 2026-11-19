@@ -103,7 +103,10 @@ function outOfSpace(error: unknown): boolean {
 
 export type RestoreFailureStatus = Exclude<DesktopRestoreResultMessage["status"], "ok">;
 
-/** The status a failed restore is reported as. Every one of them means the current database was not replaced. */
+/**
+ * The status a failed restore is reported as. Every one of them means the current database was not replaced.
+ * @internal test-only
+ */
 export function classifyRestoreFailure(error: unknown): RestoreFailureStatus {
   if (error instanceof RestoreDatabaseError) {
     switch (error.code) {

@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 
 export type ToastTone = "default" | "success" | "danger";
+/** @internal test-only */
 export type Toast = { id: number; message: string; tone: ToastTone };
 
 const TIMEOUT_MS = 4_000;

@@ -3,8 +3,10 @@ import { posix, win32 } from "node:path";
 import type { FolderPickResult } from "@work-intelligence/core";
 import { windowsPowerShell } from "@work-intelligence/shared/windows-system-tool";
 
+/** @internal test-only */
 export type CommandRunner = (file: string, args: readonly string[], timeoutMs: number) => Promise<CommandResult>;
 
+/** @internal test-only */
 export type CommandResult = { code: number; stdout: string; stderr: string };
 
 const PICK_TIMEOUT_MS = 5 * 60 * 1000;
@@ -174,7 +176,10 @@ function windowsPickerScript(): string {
 /** -EncodedCommand takes base64 UTF-16LE, which avoids Windows argv quoting of a multi-line script. */
 const WINDOWS_PICKER_ENCODED_SCRIPT = Buffer.from(windowsPickerScript(), "utf16le").toString("base64");
 
-/** execFile without a shell: the dialog commands are fixed strings and never include request input. */
+/**
+ * execFile without a shell: the dialog commands are fixed strings and never include request input.
+ * @internal test-only
+ */
 export const runCommand: CommandRunner = (file, args, timeoutMs) =>
   new Promise((resolve, reject) => {
     execFile(file, [...args], { timeout: timeoutMs, windowsHide: true, encoding: "utf8" }, (error, stdout, stderr) => {
@@ -189,7 +194,10 @@ export const runCommand: CommandRunner = (file, args, timeoutMs) =>
 
 type DialogCommand = { file: string; args: string[]; isCancel: (result: CommandResult) => boolean };
 
-/** Native folder dialogs per platform, in the order to try them. */
+/**
+ * Native folder dialogs per platform, in the order to try them.
+ * @internal test-only
+ */
 export function folderDialogCommands(platform: NodeJS.Platform, env: NodeJS.ProcessEnv = process.env): DialogCommand[] {
   if (platform === "darwin") {
     return [

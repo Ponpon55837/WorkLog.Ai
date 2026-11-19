@@ -322,6 +322,7 @@ function assertReadOnlySqliteSupport(): void {
   }
 }
 
+/** @internal test-only */
 export async function createReadOnlySnapshot(
   sourcePath: string,
   snapshotPath: string,

@@ -3,7 +3,10 @@ import { toDateInputValue } from "./format";
 
 /** The timeline API caps a range at 366 days; a page that spans more shows no day summaries. */
 const MAX_RANGE_DAYS = 366;
-/** One timeline response holds at most this many Sessions and this many Knowledge events (see the storage layer). */
+/**
+ * One timeline response holds at most this many Sessions and this many Knowledge events (see the storage layer).
+ * @internal test-only
+ */
 export const TIMELINE_ROW_LIMIT = 2_000;
 const DAY_MS = 86_400_000;
 

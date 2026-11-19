@@ -61,7 +61,10 @@ function fileFingerprint(path: string): string | null {
   }
 }
 
-/** The reason a maintenance child answer did not finish the work, or null when it did. */
+/**
+ * The reason a maintenance child answer did not finish the work, or null when it did.
+ * @internal test-only
+ */
 export function maintenanceFailureOf(outcome: DatabaseMaintainOutcome): MaintenanceFailureReason | null {
   if (outcome.outcome === "unknown") return "outcome-unknown";
   if (outcome.outcome === "failed") return "failed";

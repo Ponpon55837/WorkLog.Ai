@@ -33,7 +33,10 @@ export function tabPanelId(tab: AppTab): string {
   return `panel-${tab}`;
 }
 
-/** The index a key moves to (Left / Right wrap around, Home and End go to the ends), or null for any other key. */
+/**
+ * The index a key moves to (Left / Right wrap around, Home and End go to the ends), or null for any other key.
+ * @internal test-only
+ */
 export function tabIndexForKey(key: string, index: number, count: number): number | null {
   if (count <= 0) return null;
   switch (key) {

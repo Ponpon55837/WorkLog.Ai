@@ -162,6 +162,7 @@ function registrationKind(value: unknown, options: AgentSetupPlanOptions): "laun
   return mcpRegistrationKind(value, options.repositoryRoot);
 }
 
+/** @internal test-only */
 export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
   const plan: AgentSetupPlan = { mode: "install", actions: [], conflicts: [], mutations: [], findings: [] };
   options = normalizePlanOptions(options);
@@ -463,6 +464,7 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
   return plan;
 }
 
+/** @internal test-only */
 export function uninstallPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
   const plan: AgentSetupPlan = { mode: "uninstall", actions: [], conflicts: [], mutations: [], findings: [] };
   options = normalizePlanOptions(options);

@@ -50,6 +50,7 @@ export function skippedByProjectId(projectId: string, decision?: PolicyDecision)
   };
 }
 
+/** @internal test-only */
 export function trackedProject(decision: PolicyDecision | undefined): ProjectRecord | undefined {
   return decision?.allowed ? decision.project : undefined;
 }

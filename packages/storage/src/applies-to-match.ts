@@ -111,6 +111,7 @@ export const APPLIES_TO_SCAN_LIMIT = 2_000;
  * development machine the slowest path (the 16-star simulation) cost 3.7 ns per unit, the near-miss literal search
  * 3.1, compiling 3.6, plain entries 3.5, and the ordinary-pattern mix 3.3, so 20M units is 75-90 ms there. On a copy
  * of real data the heaviest caller-path scan spent 0.3M units, 1.5% of it.
+ * @internal test-only
  */
 export const APPLIES_TO_MATCH_UNIT_LIMIT = 20_000_000;
 
@@ -128,6 +129,7 @@ export const APPLIES_TO_GRANT_FACTOR = 3;
  * characters) with every character written as a six-byte JSON escape, plus quotes, commas and brackets. Real lists are
  * a few hundred bytes; only a list written into SQLite by hand can be longer, and it is skipped like an entry above the
  * write-time limits.
+ * @internal test-only
  */
 export const MAX_STORED_APPLIES_TO_JSON_BYTES =
   MAX_STORED_APPLIES_TO_ENTRIES * (6 * MAX_STORED_APPLIES_TO_ENTRY_LENGTH + 3) + 2;
@@ -466,7 +468,10 @@ export function createAppliesToBudget(limit = APPLIES_TO_MATCH_UNIT_LIMIT): Appl
   return budget;
 }
 
-/** Test and measurement instrumentation only: records every budget created until called again. */
+/**
+ * Test and measurement instrumentation only: records every budget created until called again.
+ * @internal test-only
+ */
 export function setAppliesToBudgetProbe(probe: AppliesToBudget[] | undefined): void {
   budgetProbe = probe;
 }
@@ -502,7 +507,10 @@ export function chargeAppliesTo(budget: AppliesToBudget, units: number): boolean
   return charge(budget, units);
 }
 
-/** Test instrumentation only: counts the comparisons of the matcher's loops into `counter` until called again. */
+/**
+ * Test instrumentation only: counts the comparisons of the matcher's loops into `counter` until called again.
+ * @internal test-only
+ */
 export function setAppliesToWorkCounter(counter: AppliesToWorkCounter | undefined): void {
   workCounter = counter;
 }
@@ -635,6 +643,7 @@ export function compileAppliesTo(pattern: string, budget?: AppliesToBudget): App
  * Whether a normalized changed-file path falls under a normalized appliesTo entry: a glob
  * (`*`, `**`, `?`) must match the whole path; a plain path matches itself, files under it as a
  * directory, or a path-segment suffix.
+ * @internal test-only
  */
 export function matchesAppliesTo(path: string, pattern: string): boolean {
   return compileAppliesTo(pattern)(path);

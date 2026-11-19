@@ -82,6 +82,7 @@ export interface BackendController {
   attach(): void;
 }
 
+/** @internal test-only */
 export interface BackendControllerOptions {
   readonly state: ShellState;
   readonly paths: DesktopPaths;

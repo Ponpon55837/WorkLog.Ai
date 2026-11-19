@@ -87,6 +87,7 @@ function compareBinary(left: string, right: string): number {
  * Scores candidates and returns the positive ones, best first: relevance, then the newest source Session, its id
  * (descending), the item position, and the item id. The sum keeps the SQL scorer's term order so equal inputs give
  * bit-identical scores and the same ties.
+ * @internal test-only
  */
 export function rankRelatedPending<T extends RelatedPendingCandidate>(
   candidates: readonly T[],

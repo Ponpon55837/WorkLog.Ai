@@ -11,7 +11,10 @@ export interface ObservedSegmentStart {
 /** Entries kept at once; the oldest project is dropped first so a long-lived process stays bounded. */
 const MAX_OBSERVED_PROJECTS = 64;
 
-/** Normalizes a workspace root so the same folder always maps to one key. */
+/**
+ * Normalizes a workspace root so the same folder always maps to one key.
+ * @internal test-only
+ */
 export function segmentObserverKey(projectRoot: string): string {
   // resolve() already drops trailing separators except on a filesystem root.
   const key = resolve(projectRoot);

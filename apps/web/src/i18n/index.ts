@@ -13,6 +13,7 @@ import zhTW from "./locales/zh-TW.json";
  * 繁體中文 is bundled because it is the fallback for every other locale. Other catalogs are separate chunks loaded
  * on demand: assigning `locale.value` fetches the catalog first and only then switches, so no screen ever renders
  * half-translated. `localeReady()` resolves once a pending switch has landed.
+ * @internal test-only
  */
 export const LOCALES = ["zh-TW", "en-US"] as const;
 export type Locale = (typeof LOCALES)[number];
@@ -45,7 +46,10 @@ let currentLocale: Locale = "zh-TW";
 let requestedLocale: Locale = "zh-TW";
 let pendingSwitch: Promise<void> = Promise.resolve();
 
-/** Fetches and flattens a locale's catalog once; resolves immediately when it is already loaded. */
+/**
+ * Fetches and flattens a locale's catalog once; resolves immediately when it is already loaded.
+ * @internal test-only
+ */
 export async function loadCatalog(target: Locale): Promise<void> {
   if (catalogs[target] || target === "zh-TW") return;
   catalogs[target] = flatten((await catalogLoaders[target]()).default);
@@ -99,7 +103,10 @@ export function isLocale(value: unknown): value is Locale {
   return (LOCALES as readonly unknown[]).includes(value);
 }
 
-/** The flat key → text map of one locale, for tests and tooling that check catalogs against each other. */
+/**
+ * The flat key → text map of one locale, for tests and tooling that check catalogs against each other.
+ * @internal test-only
+ */
 export function catalogEntries(target: Locale): Readonly<Record<string, string>> {
   return catalogs[target] ?? {};
 }

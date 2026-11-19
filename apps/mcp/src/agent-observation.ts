@@ -35,6 +35,7 @@ export interface AgentObservationRecorderOptions {
   onError?: (error: unknown) => void;
 }
 
+/** @internal test-only */
 export { AGENT_OBSERVATIONS_FILE };
 
 const MAX_FIELD_LENGTH = 100;
@@ -62,7 +63,10 @@ function mergedContent(observations: Map<string, AgentObservation>, observation:
   return `${JSON.stringify(content, null, 2)}\n`;
 }
 
-/** The file's observations; a missing, unreadable or malformed file counts as empty and is rewritten whole. */
+/**
+ * The file's observations; a missing, unreadable or malformed file counts as empty and is rewritten whole.
+ * @internal test-only
+ */
 export async function readAgentObservations(directory: string): Promise<Map<string, AgentObservation>> {
   try {
     const parsed: unknown = JSON.parse(await readFile(join(directory, AGENT_OBSERVATIONS_FILE), "utf8"));

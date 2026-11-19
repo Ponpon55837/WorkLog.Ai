@@ -45,6 +45,7 @@ export interface LegacyDisableController {
   startNow(): Promise<LegacyDisableStartResult>;
 }
 
+/** @internal test-only */
 export interface LegacyDisableOptions {
   readonly state: ShellState;
   readonly legacy: LegacyGuard;

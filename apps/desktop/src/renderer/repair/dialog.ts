@@ -20,6 +20,7 @@ export interface ModalOptions {
   readonly canClose?: () => boolean;
 }
 
+/** @internal test-only */
 export interface Modal {
   readonly dialog: HTMLDialogElement;
   close(): void;

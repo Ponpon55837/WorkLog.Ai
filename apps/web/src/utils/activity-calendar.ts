@@ -44,7 +44,10 @@ export function activityRange(today: Date): { from: string; to: string } {
   return { from: toDateInputValue(addDays(mondayOf(today), -(WEEKS - 1) * 7)), to: toDateInputValue(today) };
 }
 
-/** Shade level 1–4 relative to the busiest day, so a quiet history still shows contrast. */
+/**
+ * Shade level 1–4 relative to the busiest day, so a quiet history still shows contrast.
+ * @internal test-only
+ */
 export function activityLevel(sessions: number, max: number): ActivityLevel {
   if (sessions <= 0 || max <= 0) return 0;
   return Math.min(4, Math.max(1, Math.ceil((sessions / max) * 4))) as ActivityLevel;

@@ -980,7 +980,10 @@ const MIGRATIONS: SchemaMigration[] = [
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;
 
-/** The SQL of one migration, for tests that rebuild the database as it was before that migration. */
+/**
+ * The SQL of one migration, for tests that rebuild the database as it was before that migration.
+ * @internal test-only
+ */
 export function schemaMigrationSql(version: number): string | undefined {
   return MIGRATIONS.find((migration) => migration.version === version)?.sql;
 }

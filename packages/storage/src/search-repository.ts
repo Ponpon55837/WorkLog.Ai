@@ -269,7 +269,10 @@ export interface ExtraPathKnowledge {
   matchedPath: string;
 }
 
-/** A Knowledge ranked by knowledgeForWeightedPaths: its score and every weighted file (as passed) that contributed. */
+/**
+ * A Knowledge ranked by knowledgeForWeightedPaths: its score and every weighted file (as passed) that contributed.
+ * @internal test-only
+ */
 export interface WeightedPathKnowledge extends ExtraPathKnowledge {
   score: number;
   files: string[];

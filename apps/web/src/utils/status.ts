@@ -135,6 +135,7 @@ export const agentSkillCopyStatus: Record<AgentSkillCopyState, StatusVisual> = {
   unreadable: visual("attention", CircleAlert, "status.cannotConfirm"),
 };
 
+/** @internal test-only */
 export const agentHookInstallStatus: Record<AgentHookInstallState, StatusVisual> = {
   installed: visual("success", CircleCheck, "status.installed"),
   stale: visual("attention", Clock3, "status.updateNeeded"),

@@ -41,6 +41,7 @@ const statusLabels: Record<ProjectStatus, string> = {
 const TRACKED_MEANING =
   "「記錄中」的意思：Agent 可以在這個專案讀取 handoff、Git／worktree 與 source，並保存工作紀錄；其他狀態會安靜略過所有讀取。之後可以在 Web 的「專案」頁暫停或忽略。";
 
+/** @internal test-only */
 export function trackUsage(standalone?: boolean): string {
   return `用法：
   ${commandName("track", standalone)} <資料夾> [--name <名稱>] [--yes]

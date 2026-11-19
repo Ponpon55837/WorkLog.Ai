@@ -25,12 +25,14 @@ export interface AppliesToBreadthScan {
  * files) is broad: it will be flagged possibly stale by almost any work and offered for tasks it does not describe.
  * Measured on one real project, 19% of appliesTo entries and 29% of Knowledge with appliesTo were this wide; the
  * threshold is the first value chosen from that, not a tuned one.
+ * @internal test-only
  */
 export const BROAD_APPLIES_TO_SHARE = 0.15;
 
 /**
  * Fewest compared Sessions before a share counts as broad. A share over a handful of Sessions is noise: one touch in
  * the three Sessions after a Knowledge was recorded is 33%, which says nothing about the Knowledge's scope.
+ * @internal test-only
  */
 export const MIN_BREADTH_SESSIONS = 10;
 

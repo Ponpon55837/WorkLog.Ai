@@ -1,0 +1,47 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "tags": ["-internal"],
+  "vitest": false,
+  "playwright": false,
+  "eslint": false,
+  "workspaces": {
+    ".": {
+      "entry": ["scripts/**/*.mjs", "eslint.config.js"],
+      "project": ["scripts/**/*.mjs"]
+    },
+    "apps/desktop": {
+      "entry": [
+        "src/main/index.ts",
+        "src/preload/repair.ts",
+        "src/renderer/repair/repair.ts",
+        "scripts/**/*.mjs",
+        "electron-builder.config.mjs"
+      ],
+      "project": ["src/**/*.ts", "scripts/**/*.mjs"]
+    },
+    "apps/server": {
+      "entry": [
+        "src/index.ts",
+        "src/cli.ts",
+        "src/service-cli.ts",
+        "src/doctor.ts",
+        "src/setup-agents.ts",
+        "src/desktop-child.ts",
+        "src/backup-worker.ts"
+      ],
+      "project": ["src/**/*.ts"]
+    },
+    "apps/mcp": {
+      "entry": ["src/index.ts", "src/eval-recall.ts"],
+      "project": ["src/**/*.ts"]
+    },
+    "apps/web": {
+      "entry": ["src/main.ts", "index.html"],
+      "project": ["src/**/*.{ts,vue}"]
+    },
+    "packages/*": {
+      "entry": ["src/index.ts"],
+      "project": ["src/**/*.ts"]
+    }
+  }
+}

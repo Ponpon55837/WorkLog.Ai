@@ -4,7 +4,10 @@ import type { McpRestartStatus } from "@work-intelligence/shared/mcp-runtime";
 // Types only: importing launcher.ts at runtime would bundle its entry point into the server (pnpm build:plugin).
 import type { McpLauncherIdentity } from "./launcher.js";
 
-/** Must equal MCP_LAUNCHER_ENVIRONMENT in launcher.ts; tests/mcp/launcher.test.ts checks that they match. */
+/**
+ * Must equal MCP_LAUNCHER_ENVIRONMENT in launcher.ts; tests/mcp/launcher.test.ts checks that they match.
+ * @internal test-only
+ */
 export const SUPERVISED_ENVIRONMENT = {
   path: "WORK_INTELLIGENCE_MCP_LAUNCHER_PATH",
   hash: "WORK_INTELLIGENCE_MCP_LAUNCHER_HASH",

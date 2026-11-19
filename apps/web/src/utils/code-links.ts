@@ -23,6 +23,7 @@ function slashes(value: string): string {
 /**
  * The absolute path of a changed file inside the project root, or undefined when it would leave the root.
  * Accepts project-relative paths and absolute paths under the root; ".." segments are never followed.
+ * @internal test-only
  */
 export function pathInsideProject(rootPath: string, filePath: string): string | undefined {
   const root = slashes(rootPath.trim()).replace(/\/+$/, "");
