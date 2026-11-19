@@ -285,8 +285,11 @@ async function flushFile(file: string): Promise<void> {
     await handle.sync();
   } catch {
     // Not flushed; the manifest verification that follows still decides.
-  } finally {
-    await handle?.close().catch(() => undefined);
+  }
+  try {
+    await handle?.close();
+  } catch {
+    // A handle that does not close has nothing left to flush.
   }
 }
 

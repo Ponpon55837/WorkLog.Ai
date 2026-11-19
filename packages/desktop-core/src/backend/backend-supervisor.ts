@@ -1007,20 +1007,18 @@ export class BackendSupervisor {
     if (!info) return;
     this.log("[backend] the backend stopped answering health checks; ending it");
     const recentOutput = active.output.lines();
-    void this.stopCurrent()
-      .then((report) => {
-        this.notify(this.exitListeners, (listener) =>
-          listener({
-            code: "CHILD_EXITED",
-            detail: "the backend stopped answering health checks",
-            exitCode: report.exitCode,
-            signal: report.signal,
-            info,
-            recentOutput,
-          }),
-        );
-      })
-      .catch(() => undefined);
+    void this.stopCurrent().then((report) => {
+      this.notify(this.exitListeners, (listener) =>
+        listener({
+          code: "CHILD_EXITED",
+          detail: "the backend stopped answering health checks",
+          exitCode: report.exitCode,
+          signal: report.signal,
+          info,
+          recentOutput,
+        }),
+      );
+    });
   }
 
   private watchForUnexpectedExit(active: ActiveChild): void {

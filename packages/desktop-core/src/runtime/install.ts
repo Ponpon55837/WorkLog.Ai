@@ -202,8 +202,12 @@ export async function commitCurrent(
   try {
     return await verifyRuntime(root, runtimeId, { alwaysCheckAcl: true, ...options });
   } catch (error) {
-    if (previous === undefined) await fs.rm(currentFile, { force: true }).catch(() => undefined);
-    else await writeFileAtomic(currentFile, previous, { mode: MANIFEST_MODE }).catch(() => undefined);
+    try {
+      if (previous === undefined) await fs.rm(currentFile, { force: true });
+      else await writeFileAtomic(currentFile, previous, { mode: MANIFEST_MODE });
+    } catch {
+      // The verification failure below is the error to report; a pointer that cannot be put back is found by the next start.
+    }
     throw error;
   }
 }
