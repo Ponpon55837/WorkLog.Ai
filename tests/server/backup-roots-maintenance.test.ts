@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { listBackupProjectRoots, restoreFromBackup } from "../../apps/server/src/backup-restore.js";
@@ -23,7 +23,7 @@ function directory(): string {
 function databaseWithProjects(base: string, name: string, projects: readonly string[]): string {
   const file = join(base, `${name}.sqlite`);
   const store = new WorkIntelligenceStore(file);
-  for (const path of projects) store.addProject(path.split("/").pop() ?? "project", path);
+  for (const path of projects) store.addProject(basename(path), path);
   store.close();
   return file;
 }
@@ -31,10 +31,12 @@ function databaseWithProjects(base: string, name: string, projects: readonly str
 describe("listBackupProjectRoots", () => {
   it("lists the project folders a backup records, read-only", () => {
     const base = directory();
-    const file = databaseWithProjects(base, "snapshot", ["/old/home/work/alpha", "/old/home/work/beta"]);
+    // Native paths: the store resolves a project root against the platform it runs on (a drive letter on Windows).
+    const roots = [join(base, "old", "alpha"), join(base, "old", "beta")];
+    const file = databaseWithProjects(base, "snapshot", roots);
     const found = listBackupProjectRoots(file);
     expect(found.status).toBe("ok");
-    expect(found.roots.map((root) => root.path).sort()).toEqual(["/old/home/work/alpha", "/old/home/work/beta"]);
+    expect(found.roots.map((root) => root.path).sort()).toEqual(roots);
   });
 
   it("reports a file that is not a database as a failure with no roots", () => {
@@ -45,17 +47,19 @@ describe("listBackupProjectRoots", () => {
 describe("restoreFromBackup with a remap", () => {
   it("moves the project folder prefix to the new place and says how many projects moved", () => {
     const base = directory();
-    const snapshot = databaseWithProjects(base, "snapshot", ["/old/home/work/alpha"]);
+    const oldRoot = join(base, "old", "alpha");
+    const newRoot = join(base, "new", "alpha");
+    const snapshot = databaseWithProjects(base, "snapshot", [oldRoot]);
     const target = join(base, "target.sqlite");
     const result = restoreFromBackup({
       source: snapshot,
       databasePath: target,
-      remap: [{ from: "/old/home/work/alpha", to: "/new/work/alpha" }],
+      remap: [{ from: oldRoot, to: newRoot }],
     });
     expect(result).toMatchObject({ status: "ok", projects: 1, remappedProjects: 1 });
     const database = new DatabaseSync(target, { readOnly: true });
     try {
-      expect(database.prepare("SELECT root_path AS path FROM projects").all()).toEqual([{ path: "/new/work/alpha" }]);
+      expect(database.prepare("SELECT root_path AS path FROM projects").all()).toEqual([{ path: newRoot }]);
     } finally {
       database.close();
     }
