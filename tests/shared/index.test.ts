@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  API_PREFIX,
-  APP_NAME,
-  DEFAULT_WEB_PORT,
   isSupportedNodeVersion,
   localDayStartIso,
   localTimeZone,
@@ -33,9 +30,6 @@ describe("shared runtime helpers", () => {
   });
 
   it("exports application metadata", () => {
-    expect(APP_NAME).toBe("Work Intelligence");
-    expect(API_PREFIX).toBe("/api");
-    expect(DEFAULT_WEB_PORT).toBe(5966);
     expect(APP_VERSION).toMatch(/^\d+\.\d+\.\d+/);
   });
 

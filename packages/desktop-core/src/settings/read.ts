@@ -3,8 +3,7 @@ import { recoveryPathFor } from "./atomic-write.js";
 import { parseDesktopSettings, type DesktopSettingsV1 } from "./schema.js";
 
 /** Reasons a settings read needs the user (or a repair flow) instead of silently continuing. */
-export type SettingsRepairReason =
-  "unreadable" | "invalid-json" | "invalid-schema" | "unsupported-version" | "denied" | "other-sources-present";
+export type SettingsRepairReason = "unreadable" | "invalid-json" | "invalid-schema" | "unsupported-version" | "denied";
 
 /** Result of reading the settings file; fail-closed, never a silent default. */
 export type DesktopSettingsReadResult =
@@ -28,8 +27,6 @@ export type DesktopSettingsReadResult =
 /** Injectable read dependencies. */
 export interface SettingsReadDeps {
   readFile(filePath: string): Promise<string>;
-  /** True when other data (e.g. detected databases) shows this is not really a new install. */
-  hasOtherSources?(): boolean | Promise<boolean>;
 }
 
 type FileState =
@@ -76,27 +73,6 @@ function stateLabel(state: FileState): SettingsRepairReason | "missing" | undefi
   return state.state === "missing" ? "missing" : state.reason;
 }
 
-async function resolveNothingFound(deps: SettingsReadDeps): Promise<DesktopSettingsReadResult> {
-  let others: boolean;
-  try {
-    others = (await deps.hasOtherSources?.()) ?? false;
-  } catch (error) {
-    return {
-      kind: "needs-repair",
-      reason: "unreadable",
-      detail: `cannot check other sources: ${describeError(error)}`,
-    };
-  }
-  if (others) {
-    return {
-      kind: "needs-repair",
-      reason: "other-sources-present",
-      detail: "no settings file, but other data sources exist",
-    };
-  }
-  return { kind: "new-install" };
-}
-
 /**
  * Read the settings file fail-closed. `new-install` is returned only when both the primary and the
  * recovery copy are absent and no other sources exist; anything corrupt, denied or unknown is
@@ -122,7 +98,7 @@ export async function readDesktopSettings(
   if (recovery.state === "ok") {
     return { kind: "ok", settings: recovery.settings, source: "recovery", primaryDamaged: true, primaryReason };
   }
-  if (primary.state === "missing" && recovery.state === "missing") return resolveNothingFound(deps);
+  if (primary.state === "missing" && recovery.state === "missing") return { kind: "new-install" };
 
   const recoveryReason = stateLabel(recovery);
   if (primary.state === "failed") {

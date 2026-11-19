@@ -160,7 +160,6 @@ describe("buildSetupState content", () => {
     expect(state.legacy).toEqual({
       running: "running",
       startsAtLogin: false,
-      recognised: true,
       // The fixture carries no definition digest, so the App does not offer to disable it.
       canDisable: false,
       databaseDisplay: "~/.work-intelligence/data.db",

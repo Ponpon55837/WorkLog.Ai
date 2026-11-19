@@ -72,3 +72,66 @@ describe("desktop-managed pages show no command", () => {
     }
   });
 });
+
+/**
+ * Every file under apps/web/src, not only the four above: anything that can show a shell command must be a known spot
+ * that the tests above gate on desktop-managed mode. A new spot fails here until it is reviewed and registered.
+ */
+const ALL_SOURCES = import.meta.glob(["../../../apps/web/src/**/*.{vue,ts}", "!../../../apps/web/src/**/*.d.ts"], {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+const ALL_LOCALES = import.meta.glob("../../../apps/web/src/i18n/locales/*.json", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+
+/** Files that render a command or its copy button, each gated above (or showing an Agent prompt, not a shell command). */
+const COMMAND_SPOTS = new Set([
+  "components/ui/UiCommandBlock.vue",
+  "components/ui/UiCopyButton.vue",
+  "components/domain/BackupSection.vue",
+  "components/domain/FirstRunChecklist.vue",
+  "components/domain/SynthesisCard.vue",
+  "components/domain/MetadataBackfillSection.vue",
+  "views/SystemStatusView.vue",
+  "views/UiShowcaseView.vue",
+]);
+/** Locale keys that hold a shell command, each reached only through a desktop-managed branch above. */
+const COMMAND_KEYS = new Set([
+  "projects.pnpmDbRestoreExportFile",
+  "systemStatus.localServiceDatabaseBackupMaintenance",
+  "systemStatus.recentResultsAppearAfterRunning",
+]);
+
+function flatten(value: unknown, prefix = ""): [string, string][] {
+  if (typeof value === "string") return [[prefix, value]];
+  if (value === null || typeof value !== "object") return [];
+  return Object.entries(value).flatMap(([key, child]) => flatten(child, prefix ? `${prefix}.${key}` : key));
+}
+
+describe("no new command spot appears anywhere in the web app", () => {
+  it("only the registered files render a command block or copy button", () => {
+    const found = Object.entries(ALL_SOURCES)
+      .filter(([, text]) => /\bUiCommandBlock\b|\bUiCopyButton\b|\bpnpm [a-z:]+|\bnpx \w+/.test(text))
+      .map(([file]) => file.split("apps/web/src/")[1] as string)
+      .filter((file) => !file.endsWith(".test.ts"))
+      .sort();
+    expect(found.filter((file) => !COMMAND_SPOTS.has(file))).toEqual([]);
+    expect(Object.keys(ALL_SOURCES).length).toBeGreaterThan(50);
+  });
+
+  it("only the registered locale keys hold a shell command, in both languages", () => {
+    for (const [file, raw] of Object.entries(ALL_LOCALES)) {
+      const commands = flatten(JSON.parse(raw))
+        .filter(([, text]) => /\b(?:pnpm|npx)\s+[\w:-]+|\bnpm run\b/.test(text))
+        .map(([key]) => key);
+      expect(
+        commands.filter((key) => !COMMAND_KEYS.has(key)),
+        file,
+      ).toEqual([]);
+    }
+  });
+});

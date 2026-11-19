@@ -35,6 +35,7 @@ import {
 import { StagedImports } from "./staged-imports.js";
 import { transferRoot as defaultTransferRoot } from "./transfer-workspace.js";
 import { getUserServiceStatusAsync } from "./user-service.js";
+import { withHostObservations } from "./agent-observations.js";
 import { createDesktopRouteServices, type DesktopHandlerOptions } from "./desktop-services.js";
 import { Router, apiRoutes, type BackgroundStoreOperations, type RouteServices } from "./routes/index.js";
 import { resolveWebDirectory } from "./web-directory.js";
@@ -209,10 +210,11 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
     options.agentConnections ??
     (() => {
       const facts = options.desktop?.getFacts ? options.desktop.getFacts() : options.desktop?.facts;
-      return inspectAgentConnections({
+      const connections = inspectAgentConnections({
         repositoryRoot,
         ...(facts?.launcherShimPath ? { shimPath: facts.launcherShimPath } : {}),
       });
+      return facts?.runtimeRoot ? withHostObservations(connections, facts.runtimeRoot) : connections;
     });
   const queryUserService = options.userServiceStatus ?? (() => getUserServiceStatusAsync({ repositoryRoot }));
   const backgroundStore = options.backgroundStore ?? createInlineBackgroundStore(store);

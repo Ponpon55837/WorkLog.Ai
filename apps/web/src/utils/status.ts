@@ -19,6 +19,7 @@ import {
   TriangleAlert,
 } from "lucide-vue-next";
 import type {
+  AgentObservationState,
   DatabaseInspectionState,
   DatabaseMaintenanceStatus,
   AgentHookInstallState,
@@ -186,6 +187,24 @@ function hookRow(
   };
 }
 
+function observationRow(state: AgentObservationState | undefined): AgentConnectionRow[] {
+  if (state === undefined) return [];
+  const status =
+    state === "current"
+      ? visual("success", CircleCheck, "status.agentObservedCurrent")
+      : state === "stale"
+        ? visual("attention", Clock3, "status.agentObservedStale")
+        : visual("neutral", CircleDashed, "status.agentObservedNone");
+  return [
+    {
+      title: t("status.agentObservation"),
+      location: t("status.agentObservationLocation"),
+      status,
+      ok: state !== "stale",
+    },
+  ];
+}
+
 /** Groups the per-Agent setup components in the order a user fixes them: MCP, then skill, then hook. */
 export function agentConnectionGroups(agents: SystemAgentConnections): AgentConnectionGroup[] {
   return [
@@ -196,6 +215,7 @@ export function agentConnectionGroups(agents: SystemAgentConnections): AgentConn
         skillRow("Skill", "~/.agents/skills/work-intelligence", agents.codex.canonicalSkill),
         skillRow(t("status.compatibilitySkill"), t("status.codexHomeSkillsWorkIntelligence"), agents.codex.legacySkill),
         hookRow(t("status.codexHomeHooksJsonSave"), agents.codex.hook, agents.codex.hookSource),
+        ...observationRow(agents.codex.observation),
       ],
     },
     {
@@ -204,6 +224,7 @@ export function agentConnectionGroups(agents: SystemAgentConnections): AgentConn
         mcpRow("~/.claude.json", agents.claudeCode.mcpRegistered),
         skillRow("Skill", "~/.claude/skills/work-intelligence", agents.claudeCode.skill),
         hookRow(t("status.claudeSettingsJsonSaveReminder"), agents.claudeCode.hook, agents.claudeCode.hookSource),
+        ...observationRow(agents.claudeCode.observation),
       ],
     },
   ];

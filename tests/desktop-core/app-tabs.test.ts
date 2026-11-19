@@ -147,7 +147,6 @@ describe("the page's tab channels", () => {
 describe("the shell state", () => {
   it("marks the blocking tab with the attention dot", () => {
     const shell = buildAppShellState({ ...calm, owner: "NEEDS_REPAIR", operation: null });
-    expect(shell.blockingTab).toBe("status");
     expect(shell.tabs).toEqual(tabsFor(false));
     expect(shell.badges.status).toEqual({ attention: true, busy: false });
     expect(shell.badges.data).toEqual({ attention: false, busy: false });
@@ -188,7 +187,6 @@ describe("the shell state", () => {
       legacyBlocked: true,
       operation: "legacy-disable",
     });
-    expect(state.shell.blockingTab).toBe("status");
     expect(state.shell.badges.status).toEqual({ attention: true, busy: true });
     expect(state.actions.some((action) => action.id === "start-anyway")).toBe(true);
     expect(state.port).toBeNull();

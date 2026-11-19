@@ -343,27 +343,6 @@ describe("writeDesktopSettingsAtomic + readDesktopSettings", () => {
 describe("readDesktopSettings fail-closed", () => {
   it("new install only when primary and recovery are absent", async () => {
     expect(await readDesktopSettings(file)).toEqual({ kind: "new-install" });
-    expect(
-      await readDesktopSettings(file, { readFile: fs.readFile as never, hasOtherSources: async () => false }),
-    ).toEqual({ kind: "new-install" });
-  });
-
-  it("ENOENT with other sources needs repair", async () => {
-    const result = await readDesktopSettings(file, {
-      readFile: (p) => fs.readFile(p, "utf8"),
-      hasOtherSources: () => true,
-    });
-    expect(result).toMatchObject({ kind: "needs-repair", reason: "other-sources-present" });
-  });
-
-  it("hasOtherSources failure needs repair", async () => {
-    const result = await readDesktopSettings(file, {
-      readFile: (p) => fs.readFile(p, "utf8"),
-      hasOtherSources: () => {
-        throw new Error("x");
-      },
-    });
-    expect(result).toMatchObject({ kind: "needs-repair", reason: "unreadable" });
   });
 
   it("missing primary with valid recovery returns recovery", async () => {

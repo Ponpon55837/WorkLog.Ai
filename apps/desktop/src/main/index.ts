@@ -99,6 +99,8 @@ import { createUpdateSessionFetch } from "./update-session.js";
 /** How long the storage verdict waits for a restarting backend or a running operation (M-04). */
 const SETTLE_ATTEMPTS = 5;
 const SETTLE_RETRY_MS = 2000;
+/** How often main checks that the system still agrees with what the Web status was last told about login start. */
+const LOGIN_ITEM_WATCH_MS = 15_000;
 
 /** The coordinator was held when the verdict wanted to stop the backend. */
 class OperationBusyError extends Error {}
@@ -290,6 +292,13 @@ function runShell(configInputs: DesktopConfigInputs): void {
     log,
     changed: () => pushLoginItemFacts(),
   });
+  // What the Web status was last told; the system can change it behind the App's back (Task Manager, System Settings).
+  let lastLoginItemKey = "";
+  const sentLoginItem = () => {
+    const section = loginItem.section();
+    lastLoginItemKey = JSON.stringify(section);
+    return section;
+  };
   // The facts a backend carries: the old-service warning and the storage verdict this run already reached.
   const currentFacts = (databasePath: string): DesktopFacts | undefined => {
     const storageRisk = storage.fact(databasePath);
@@ -297,7 +306,8 @@ function runShell(configInputs: DesktopConfigInputs): void {
     const facts: DesktopFacts = {
       ...legacy.facts(databasePath),
       launcherShimPath: launcherShimPath(paths.runtimeRoot, process.platform),
-      loginItem: loginItem.section(),
+      runtimeRoot: paths.runtimeRoot,
+      loginItem: sentLoginItem(),
     };
     return storageRisk ? { ...facts, storageRisk } : facts;
   };
@@ -310,6 +320,10 @@ function runShell(configInputs: DesktopConfigInputs): void {
       ...(port === undefined ? {} : { activePort: port }),
     });
   };
+  const loginItemWatch = setInterval(() => {
+    if (JSON.stringify(loginItem.section()) !== lastLoginItemKey) pushLoginItemFacts();
+  }, LOGIN_ITEM_WATCH_MS);
+  loginItemWatch.unref();
   const backend = createBackendController({
     state,
     paths,

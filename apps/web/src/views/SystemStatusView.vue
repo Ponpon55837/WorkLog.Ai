@@ -307,7 +307,9 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
           <p v-if="desktopLoginItemMismatched" class="system-status__row-note" data-testid="app-login-item-mismatch">
             {{ t("systemStatus.appLoginItemMismatch") }}
           </p>
-          <p class="system-status__row-note">{{ t("systemStatus.appLoginItemChangeInApp") }}</p>
+          <p v-if="desktopLoginItem?.supported" class="system-status__row-note">
+            {{ t("systemStatus.appLoginItemChangeInApp") }}
+          </p>
           <UiBoxRow :title="t('systemStatus.appDatabase')">
             <template #meta
               ><code class="system-status__location" data-testid="app-database-path">{{

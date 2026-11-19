@@ -28,6 +28,7 @@ async function change(host: LoginItemViewHost, enable: boolean): Promise<void> {
     failed = true;
   }
   pending = false;
+  host.rerender();
   host.refresh();
 }
 

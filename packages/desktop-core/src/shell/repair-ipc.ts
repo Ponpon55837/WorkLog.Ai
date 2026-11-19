@@ -7,7 +7,7 @@
  *   (`app:remember-tab`, `{ tab }`) tells main which tab the user chose (memory only, validated against `APP_TABS`).
  * - main tells the page: `onSelectTab(cb)` (`app:select-tab`, payload an `AppTab`) whenever an open window is asked to
  *   show another tab. The page switches in place.
- * - `getState()` (`RepairState`) carries `shell: AppShellState` (`tabs`, `blockingTab`, `badges[tab] = { attention,
+ * - `getState()` (`RepairState`) carries `shell: AppShellState` (`tabs`, `badges[tab] = { attention,
  *   busy }`) beside every field the earlier single-page view used. `attention` marks the blocking tab (Status while the
  *   service needs repair or the old login service holds the database); `busy` marks the tab whose coordinator operation
  *   is running.

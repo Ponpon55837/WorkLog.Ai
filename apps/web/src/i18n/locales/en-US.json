@@ -1502,7 +1502,12 @@
     "unregistered": "Unregistered",
     "updateAvailable": "Update available",
     "updateNeeded": "Update needed",
-    "verificationNotReported": "Verification not reported"
+    "verificationNotReported": "Verification not reported",
+    "agentObservation": "Agent connection",
+    "agentObservedCurrent": "Connection observed",
+    "agentObservedStale": "Contract updated, reconnect",
+    "agentObservedNone": "No connection observed yet",
+    "agentObservationLocation": "MCP record"
   },
   "systemStatus": {
     "agentConnections": "Agent connections",

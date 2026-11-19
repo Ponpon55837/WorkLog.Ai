@@ -3566,8 +3566,13 @@ export interface AgentHookEventStatus {
   reason?: AgentHookStaleReason;
 }
 
+/** What an Agent host last saw of the MCP tool contract: today's (`current`), an older one (`stale`), or never (`none`). */
+export type AgentObservationState = "current" | "stale" | "none";
+
 export interface SystemAgentConnections {
   codex: {
+    /** Present only under the desktop App, which knows the installed contract; judged by the same code as its Agent tab. */
+    observation?: AgentObservationState;
     mcpRegistered: AgentMcpRegistrationState;
     /** Who manages the MCP registration when it is `registered`. */
     mcpSource?: AgentRegistrationSource | null;
@@ -3579,6 +3584,7 @@ export interface SystemAgentConnections {
     hookEvents?: AgentHookEventStatus[];
   };
   claudeCode: {
+    observation?: AgentObservationState;
     mcpRegistered: AgentMcpRegistrationState;
     mcpSource?: AgentRegistrationSource | null;
     skill: AgentSkillCopyState;

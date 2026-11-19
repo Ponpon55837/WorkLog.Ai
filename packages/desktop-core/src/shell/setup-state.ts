@@ -46,7 +46,6 @@ export interface SetupLegacyView {
   readonly running: "running" | "stopped" | "unknown";
   /** It is not running now but starts at the next login. */
   readonly startsAtLogin: boolean;
-  readonly recognised: boolean;
   /** 「停用舊的登入服務」 is offered (see `canDisableLegacyService`). */
   readonly canDisable: boolean;
   readonly databaseDisplay?: string;
@@ -311,7 +310,6 @@ export function buildSetupState(inputs: SetupStateInputs): SetupState {
       ? {
           running: legacy.running,
           startsAtLogin: legacy.running === "stopped" && legacy.enabled === "enabled",
-          recognised: legacy.recognised,
           canDisable: canDisableLegacyService(legacy),
           ...(legacy.databasePath === undefined ? {} : { databaseDisplay: show(legacy.databasePath) }),
           ...systemSettingsField(legacy.platform),

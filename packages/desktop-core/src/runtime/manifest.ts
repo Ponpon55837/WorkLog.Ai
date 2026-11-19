@@ -1,3 +1,4 @@
+import { RUNTIME_ID_PATTERN } from "@work-intelligence/shared/agent-observations";
 import { RuntimeError } from "./errors.js";
 import { casefoldKey, relativePathProblem, symlinkTargetProblem } from "./paths.js";
 
@@ -23,7 +24,7 @@ export const RUNTIME_KINDS = ["node", "electron-run-as-node"] as const;
 export type RuntimeKind = (typeof RUNTIME_KINDS)[number];
 
 /** Directory names and the `current` pointer use this charset, which a shell can validate without a JSON parser. */
-export const RUNTIME_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+export { RUNTIME_ID_PATTERN };
 
 /** What one action runs: an entry script of the runtime and fixed arguments that come before the caller's. */
 export interface RuntimeActionSpec {

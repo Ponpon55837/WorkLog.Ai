@@ -15,6 +15,15 @@ This patch fixes three things seen in the packaged Windows App 1.6.57. The schem
 - **Start at login can be changed after setup.** The Settings tab has a 「登入時自動啟動」 switch on Windows and macOS. The page sends only a boolean; turning it on still needs the user's own click as consent, the settings file is written atomically before the system login item is touched, and the card shows what the system really reports (for example, the entry was turned off in the system's startup settings) in zh-TW and English, with no command.
 - **System Status shows the App, not the old service.** Under the desktop App, the 「登入自動啟動」 card shows the App's own login state and the database and backup folder the backend really uses. They were computed with the repository defaults, so the card showed `data` in a checkout, the Task Scheduler entry, `service\work-intelligence.task.xml` and `logs\server.log`. The old service appears only when it is detected, and points to the App's Status tab. This was a display error only: the backend opened the database the App passed, and no second database was in use.
 - **MCP connections are counted for the App.** The lease directory was derived from each runtime's own root, and the backend and an Agent's MCP run from different `runtimes/<id>` folders, so the page showed 0. The launcher now gives both one scope, the App's runtime root (`WORK_INTELLIGENCE_APP_LEASE_SCOPE`). A runtime or launcher without the variable keeps the older root-based scope; old lease folders are not migrated because a lease lives only seconds.
+- **Agent connection evidence on the Web page.** System Status now reads `agent-observations.json` with the same shared code as the App's Agent tab, so both show the same host clients and the same current, stale or none state. The login-start state sent to the Web page is re-sent when the system changes it behind the App's back, and the Settings switch re-enables itself after a failed change.
+
+### Removed
+
+- **Dead code and unused strings.** Unused page titles and headings in the shell messages, an unused update-link schema, two unused storage helpers, three unused shared constants, and the unused `blockingTab`, `recognised` and `other-sources-present` fields. The settings file keeps `active.runtimeVersion` and `active.serviceOwner`, because 1.6.57 refuses a file without them.
+
+### Tests
+
+- New guards: the repair channel four-way check (preload, `REPAIR_CHANNELS`, main handler, page call), a read and write check for every settings field, a use check for every shell message key, a registry of the files the product exchanges state through, and a no-command check over all of `apps/web/src`.
 
 ## [1.6.57] - 2026-11-19
 

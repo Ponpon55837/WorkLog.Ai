@@ -18,10 +18,6 @@ export function isSupportedNodeVersion(version: string): boolean {
   const minor = Number(match[2]);
   return major >= 24 || (major === 22 && minor >= 16);
 }
-export const APP_NAME = "Work Intelligence";
-export const API_PREFIX = "/api";
-export const DEFAULT_WEB_PORT = 5966;
-
 export function nowIso(): string {
   return new Date().toISOString();
 }
