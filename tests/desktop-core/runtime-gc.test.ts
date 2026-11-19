@@ -128,6 +128,24 @@ describe("collectOldRuntimes: retirement", () => {
     expect(await runtimeNames()).toEqual(["cur-1", "prev-1"]);
   });
 
+  it("keeps the runtime the last install named even when the record on disk is an older one (L-13)", async () => {
+    const clock = new FakeClock();
+    await collect(clock);
+    // The install's record could not be saved: what is on disk still names an earlier fallback and lists prev-1 as long retired.
+    await fs.writeFile(
+      statePath(),
+      JSON.stringify({
+        version: 1,
+        retiredAt: { "prev-1": new Date(clock.wall - 100 * DAY_MS).toISOString() },
+        kept: ["older-1"],
+      }),
+    );
+    clock.advance(30 * DAY_MS);
+    const result = await collectOldRuntimes(root, { deps: clock.deps });
+    expect(result.removed).not.toContain("prev-1");
+    expect(await runtimeNames()).toContain("prev-1");
+  });
+
   it("replaces a malformed record instead of trusting or failing on it", async () => {
     const clock = new FakeClock();
     for (const damaged of ["{not json", "[]", JSON.stringify({ version: 2, retiredAt: {} }), "x".repeat(300 * 1024)]) {

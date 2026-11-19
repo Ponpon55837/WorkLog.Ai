@@ -171,6 +171,9 @@ async function readState(root: string): Promise<ReadGcState> {
   }
 }
 
+/** The keep list of the last install this process made, per launcher root: what the saved record falls back to when it cannot be written. */
+const namedKept = new Map<string, readonly string[]>();
+
 /**
  * Saves the record atomically, owner-only; best effort (without it a runtime is simply seen as retired again next
  * time). Nothing is written when `leases` is a link, so the file never lands wherever the link points.
@@ -428,8 +431,11 @@ export async function collectOldRuntimes(
   const saved = await readState(root);
   // An install names the fallback runtime; a later start does not know it, so the last one named is kept in the record.
   const named = options.keep !== undefined && options.keep.length > 0 ? validRuntimeIds(options.keep) : undefined;
-  const kept = named ?? saved.kept;
-  const keptKnown = named !== undefined || saved.keptKnown;
+  if (named !== undefined) namedKept.set(root, named);
+  // The record may fail to save (read-only folder, a lock); this process still remembers the runtime it was told to keep (L-13).
+  const remembered = namedKept.get(root);
+  const kept = named ?? remembered ?? saved.kept;
+  const keptKnown = named !== undefined || remembered !== undefined || saved.keptKnown;
   const keep = idSet([...kept, current], deps);
   const context: CollectionContext = { root, remove, deps, kept };
   let names: string[];
