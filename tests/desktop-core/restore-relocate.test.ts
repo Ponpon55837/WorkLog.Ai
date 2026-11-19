@@ -1,3 +1,4 @@
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { lastSegment, missingRoots, planRelocation, remapList } from "../../packages/desktop-core/src/index.js";
 
@@ -36,8 +37,8 @@ describe("restore relocation", () => {
       caseInsensitive: false,
     });
     expect([...inside]).toEqual([
-      ["C:\\Users\\old\\work\\alpha", "/Users/new/work/alpha"],
-      ["C:\\Users\\old\\work\\beta", "/Users/new/work/beta"],
+      ["C:\\Users\\old\\work\\alpha", path.join("/Users/new/work", "alpha")],
+      ["C:\\Users\\old\\work\\beta", path.join("/Users/new/work", "beta")],
     ]);
     const itself = await planRelocation({
       missing,

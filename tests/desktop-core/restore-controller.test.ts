@@ -1,3 +1,4 @@
+import path from "node:path";
 // The main-process modules this test loads use the desktop build flags; declare them as the desktop build does.
 /// <reference path="../../apps/desktop/src/main/build-flags.d.ts" />
 import { describe, expect, it } from "vitest";
@@ -407,15 +408,15 @@ describe("restoring on a new computer: project folders that are not here", () =>
       roots: OLD,
       relocateChoices: ["choose"],
       folders: ["/new/work"],
-      existing: ["/new/work/alpha", "/new/work/beta"],
+      existing: [path.join("/new/work", "alpha"), path.join("/new/work", "beta")],
     });
     const result = await controller.run(WINDOW, await firstListedId(controller));
     expect(relocations).toEqual([{ total: 2, missing: 2, mapped: 0, noMatch: false }]);
     expect(restoreRequests).toMatchObject([
       {
         remap: [
-          { from: "/old/home/work/alpha", to: "/new/work/alpha" },
-          { from: "/old/home/work/beta", to: "/new/work/beta" },
+          { from: "/old/home/work/alpha", to: path.join("/new/work", "alpha") },
+          { from: "/old/home/work/beta", to: path.join("/new/work", "beta") },
         ],
       },
     ]);
@@ -428,7 +429,7 @@ describe("restoring on a new computer: project folders that are not here", () =>
       roots: OLD,
       relocateChoices: ["choose", "choose", "skip"],
       folders: ["/elsewhere", "/new/work"],
-      existing: ["/new/work/alpha"],
+      existing: [path.join("/new/work", "alpha")],
     });
     await controller.run(WINDOW, await firstListedId(controller));
     expect(relocations).toEqual([
@@ -436,7 +437,9 @@ describe("restoring on a new computer: project folders that are not here", () =>
       { total: 2, missing: 2, mapped: 0, noMatch: true },
       { total: 2, missing: 1, mapped: 1, noMatch: false },
     ]);
-    expect(restoreRequests).toMatchObject([{ remap: [{ from: "/old/home/work/alpha", to: "/new/work/alpha" }] }]);
+    expect(restoreRequests).toMatchObject([
+      { remap: [{ from: "/old/home/work/alpha", to: path.join("/new/work", "alpha") }] },
+    ]);
   });
 
   it("restores with the old paths when the user says so, and stops nothing when the user cancels", async () => {
