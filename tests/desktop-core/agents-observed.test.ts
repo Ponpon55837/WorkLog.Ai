@@ -7,9 +7,12 @@ import {
   OperationCoordinator,
   OperationJournal,
   launcherShimPath,
+} from "../../packages/desktop-core/dist/index.js";
+// The readers themselves come from source so their coverage is counted; the page above uses the built package.
+import {
   readCurrentContractFingerprint,
   readHostObservations,
-} from "../../packages/desktop-core/dist/index.js";
+} from "../../packages/desktop-core/src/agents/observations.js";
 import { createAgentsPage } from "../../apps/desktop/src/main/agents.js";
 
 /**
