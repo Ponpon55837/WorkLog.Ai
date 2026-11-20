@@ -197,6 +197,7 @@ $env:WORK_INTELLIGENCE_BACKUP_DIR = "C:\wi-e3-validation\backups"
 
 ## 文件同步（每次發行都檢查）
 
+- 每個版本必須在同一次變更更新 `docs/status.md`：新增該版本的段落並改「最後更新」日期，上一個「進行中」改為「已完成」；`tests/desktop-core/docs-status.test.ts` 在缺少目前版本段落時失敗。
 - 新的使用者可見功能，必須在同一次變更更新 `docs/user-guide.md`（桌面 App 的功能寫在「在桌面 App 內還原、整理與更換備份位置」一類的段落）；只改程式碼、不改使用說明的功能變更不能合併。
 - `tests/desktop-core/docs-claims.test.ts` 會在 CI 檢查 README 與使用者文件有沒有已被取代的說法（例如「目前沒有還原流程」「修復視窗」）；功能改名或補上後，把舊說法加進該測試的清單。
 
