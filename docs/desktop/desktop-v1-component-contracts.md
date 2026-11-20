@@ -165,6 +165,11 @@
   - 持久化 `phase`、`previousOwner`、`selectedDb`、`oldServiceDefinition`、`oldEnabledState`、`oldRunningState`、`lastKnownGood`、`migrationStarted`、`recoveryPolicy`（不保存密鑰）。
   - 恢復時依真實 OS 服務、DB 與 manifest 重建狀態，不只依賴 journal 文字。【依 H-01 的決定更新：1.6.56 已接線（見下方「1.6.56 接線」）。實際依據是設定檔、DB 身分與 schema、子程序、舊服務偵測；manifest 不在復原的輸入中（`apps/desktop/src/main/recovery-startup.ts:43-52`）。】
   - 「不可立即取消」階段（SQLite 寫入、installer 交接）須明確顯示，不得以 kill 取代。
+- **BUSY 規則的例外（對照 1.6.57 與目前程式）**：
+  - **經協調器**：套用 Agent（`apps/desktop/src/main/agent-operation.ts:23`）、停用舊的服務（`legacy-disable.ts:160`）、受管啟動（`backend.ts:51`，換 port 後的啟動也走這裡，`change-port.ts:23`）、從備份還原（`restore.ts`，`restoreWhileStopped`）、整理資料庫（`maintenance.ts:90`）、退出時的停止（`index.ts:668-697`，M-04）。
+  - **不經 `coordinator.run`，只檢查 `coordinator.current()` 並持有頁面動作鎖**（L-07，`ipc.ts:386`）：換 port 的入口檢查（`change-port.ts:68`）、更換備份位置（`backup-directory.ts:123`，`choose()` 不呼叫 `coordinator.run`）、登入項目（`ipc.ts`，`loginItemSet`）、以及其他改寫設定檔的入口（`ipc.ts:486`、`:494`）。這些入口的註解說明：只改設定或只讀；若需要重啟服務，重啟由受管啟動進入協調器。
+  - **不持鎖的唯讀入口**：檢查與列出備份（`ipc.ts:506`、`:511`）。
+  - 上述「不經協調器」的分類以程式為準；若日後某個入口改為 `coordinator.run`，應同步更新本段。
 - **平台**：W 與 M 的操作紀錄都放在使用者可寫的固定目錄。
 - **對應**：DT-09、DT-10；R19、R30。
 - **1.6.42 實作**：`packages/desktop-core/src/operations/`（`service-owner-state.ts`、`operation-journal.ts`、`journal-store.ts`、`coordinator.ts`、`recovery.ts`）；ServiceOwner 的狀態轉移表以資料表示；檔案式原子 journal，重送冪等；`recover()` 依注入的 OS／DB 探測結果重建狀態，而非依 journal 文字；migration 有證據後禁止還原舊服務，並進入 NEEDS_REPAIR。單一行程內的全域鎖：同 ID 回傳同一結果，不同 ID 回 BUSY；跨程序鎖屬 DT-15。取消在副作用發生後延後到恢復處理。
