@@ -461,8 +461,8 @@ Web 只能送固定動作與經 schema 驗證的值。特權資料夾選擇、�
 | 平台 | 架構 | V1 狀態 |
 |---|---|---|
 | Windows 11 x64 | x64 | **首發**，與 macOS 同批；需通過 §9.1 全部 gate |
-| macOS | Apple Silicon | **首發候選（待確認）**，與 Windows 同批；需通過 §9.2 全部 gate |
-| macOS | Intel | 首發候選（待確認；R3 列為候選）。A 階段決定能否同批驗收；若不能，依 ADR-02 變更程序排除並更新發行聲明 |
+| macOS | Apple Silicon | **首發候選（待確認）**【架構範圍已定案：CI 固定建置 arm64，`apps/desktop/electron-builder.config.mjs:54`；實機驗收未做】，與 Windows 同批；需通過 §9.2 全部 gate |
+| macOS | Intel | 首發候選（待確認；R3 列為候選）。【架構範圍已定案：CI 固定建置 x64，`apps/desktop/electron-builder.config.mjs:54`；實機驗收未做。】A 階段決定能否同批驗收；若不能，依 ADR-02 變更程序排除並更新發行聲明 |
 | Windows 11 | ARM | V1 不做，於發行聲明排除（推論，待確認；R3 §9 另行驗證項目） |
 | Linux（Ubuntu GNOME 等 AppImage、系統匣、登入項） | x64 | V1 不做，於發行聲明排除。CLI、standalone、plugin 不受影響 |
 
@@ -732,7 +732,7 @@ R01–R14 與 R33 如設計契約未通過，**不得宣稱 V1 可公開自動�
 | 自動更新是否於 V1 宣告？ | 若 metadata 可信驗證未成，改為手動下載官方安裝包（ADR-25） | 鎖工具版本與篡改測試 | Release |
 | 外部管理模式是否只提供連結？ | 是；不控制無法證明身分的服務（ADR-09） | 接管混合安裝與多 checkout | Desktop |
 | SQLite 修補的發行證據？ | 開發機 3.53.4 已量測（§7.3.1）；bundled 值待 release 產物確認 | 1.6.41 T3 CI 檢查；release 產物列印 | Runtime／Release |
-| macOS 安裝包是否按架構分開？ | **1.6.45 建議**：arm64 與 x64 分開產出，不做 universal（見 §9.0 之後的架構切分說明）。此建議待產品確認；Apple Silicon 與 Intel 的範圍仍依 §9.0 | 兩架構各自的 CI 打包、安裝與啟動；Intel 的實機 | 產品＋發行 |
+| macOS 安裝包是否按架構分開？ | **1.6.45 建議**：arm64 與 x64 分開產出，不做 universal（見 §9.0 之後的架構切分說明）。【已定案：arm64 與 x64 分開建置，見 `apps/desktop/electron-builder.config.mjs:54`；原為待產品確認。】Apple Silicon 與 Intel 的實機範圍仍依 §9.0 | 兩架構各自的 CI 打包、安裝與啟動；Intel 的實機 | 產品＋發行 |
 
 ### 14.2 非目標
 
@@ -750,7 +750,7 @@ R01–R14 與 R33 如設計契約未通過，**不得宣稱 V1 可公開自動�
 - [ ] 修復視窗不依賴 Web／API 存活；無系統匣或選單列圖示時仍可進入（G-UX-01）。
 - [ ] 備份可驗證且可還原；schema 升級與失敗回復不覆蓋唯一副本（G-DB-03）。
 - [ ] 發行 metadata 與安裝包具對應工具版本的實際可信驗證機制（G-UPD-01）。
-- [ ] 同批 Windows 11 x64 與 macOS 的正式簽章安裝包完成 N→N+1 與解除安裝演練，並輸出 `sqlite_version()` 修補證據（G-UPD-01、G-DB-03；含 1.6.41 T3）。【依 ADR-38 取代：安裝包改為未簽章（Windows）與 ad-hoc（macOS），附 `SHA256SUMS.txt`；N→N+1 演練依 ADR-25 與 ADR-40 重新界定。】
+- [ ] 同批 Windows 11 x64 與 macOS 的正式簽章安裝包完成 N→N+1 與解除安裝演練，並輸出 `sqlite_version()` 修補證據（G-UPD-01、G-DB-03；含 1.6.41 T3）。【依 ADR-38 取代：安裝包改為未簽章（Windows）與 ad-hoc（macOS），附 `SHA256SUMS.txt`；N→N+1 演練改為以 `SHA256SUMS.txt` 核對的安裝檔進行（ADR-38 對 §9.4 的重新定義）。】
 - [ ] Windows 11 實機完成資料夾選擇（IFileOpenDialog，1.6.41 T1）、NSIS、schtasks 與檔案鎖驗收，並記錄於 `docs/release-checklist.md`。
 - [ ] CLI、standalone、plugin 不安裝桌面 App 也能依既有方式使用。
 - [ ] 發行來源、更新 key rotation、發行失敗停止派送與修復安裝包程序就緒。
