@@ -1,6 +1,6 @@
 # Work Intelligence 桌面版 V1：正式設計規劃與全面風險盤查（R4）
 
-**狀態：工程實作前設計基線（未通過實機驗收）；修訂日期：2026-11-16；文件版本：R4；基準 commit：`d464ea5`（main，1.6.40，Merge PR #361）；目標修補版：1.6.41。** 除標示 `[R]` 或「現況已確認」的部分，流程、功能與門檻仍為**待實作／待驗證的要求**。
+**狀態：工程實作前設計基線（未通過實機驗收）；修訂日期：2026-11-16；文件版本：R4；設計基準 commit：`d464ea5`（main，1.6.40，Merge PR #361）；最後修訂對應 1.6.55（各節的狀態註記以實作版本為準）。** 除標示 `[R]` 或「現況已確認」的部分，流程、功能與門檻仍為**待實作／待驗證的要求**。
 
 配套文件：[風險・Gate・工程票對應](desktop-v1-risk-gate-ticket-matrix.md)（R01–R34 全表）、[元件契約](desktop-v1-component-contracts.md)、[決策紀錄（ADR）](desktop-v1-adr.md)、[索引與 R3→R4 修訂紀錄](README.md)。
 
@@ -66,7 +66,7 @@
 | 決策 | 設計 | 狀態 |
 |---|---|---|
 | 桌面框架 | Electron Main 管理系統與服務；Dashboard 仍用外部瀏覽器 | 暫定採用（ADR-01） |
-| 首發平台 | Windows 11 x64 與 macOS 同批發行；Linux 排除；Windows ARM 排除（推論，待確認）；macOS 架構範圍待確認 | **產品決策已定（ADR-02）**；實機驗收未完成 |
+| 首發平台 | Windows 11 x64 與 macOS 同批發行；Linux 排除；Windows ARM 排除（推論，待確認）；macOS 架構範圍已定案（arm64 與 x64 分開建置，`apps/desktop/electron-builder.config.mjs:54`） | **產品決策已定（ADR-02）**；實機驗收未完成 |
 | runtime | 隨包標準 Node，供後端、MCP、hook 共用 | 待原型實測：大小、FTS5、worker、各平台權限（ADR-04） |
 | DB | 沿用既有 SQLite 與 `VACUUM INTO` 備份 | 沿用現況；schema 相容契約為新增要求（ADR-05、ADR-17） |
 | 自動更新 | GitHub 固定來源、可信驗證 metadata 與安裝包、失敗可修復 | 待鎖版本；未通過前改為手動下載官方安裝包（ADR-25） |
@@ -150,7 +150,7 @@ Desktop 相關 package 應位於獨立界線（建議 `apps/desktop`），核心
 | 登入時背景執行 | 新安裝預設關閉。接管有登入服務的舊安裝時，以原有效狀態預填。 | 可於首次摘要或之後切換。顯示作業系統回讀的狀態；若被系統設定禁止，顯示對應修正入口。 |
 | 專案與追蹤 | 沿用現有專案清單，以及記錄中、暫停、忽略等狀態。新安裝預設沒有已授權的專案。 | 由使用者在 Web 選資料夾並明確啟用追蹤。安裝程式不代建測試記錄。 |
 | Agent／skill／保存提醒 | 逐一偵測 Codex、Claude Code、Claude Desktop，以及手動註冊、plugin、擴充來源。沒有安裝 Agent 也可以用 Web。 | 使用者只選想連接的 Agent，看到會變更的項目後套用；提醒可選。已有設定符合時顯示「沿用」。見 §3.4。 |
-| 更新 | 穩定版、固定 GitHub Releases 來源。可手動檢查；新安裝預設在背景低頻檢查版本，離線照常工作。 | 可關閉背景檢查。只有通過簽章、metadata 與實機升級驗收的平台提供 App 內安裝，否則只提示官方下載連結。發現版本時可延後提示，一般退出不會意外安裝。 |
+| 更新 | 穩定版、固定 GitHub Releases 來源。可手動檢查；離線照常工作。【依 ADR-40 取代：不做背景低頻檢查，也沒有開關；只有手動「檢查更新」，1.6.53 已實作，`apps/desktop/src/main/update-check.ts`。】 | 【依 ADR-40 取代：沒有背景檢查，因此也沒有關閉的開關。】【依 ADR-25、ADR-38 取代：V1 不提供 App 內安裝，只提示官方下載連結與 `SHA256SUMS.txt` 核對。】 原設計的 App 內安裝條件（簽章、metadata 與實機升級驗收）保留作為日後目標。發現版本時可延後提示，一般退出不會意外安裝。 |
 | 進階環境與權限 | 沿用必要的顯式路徑及目前使用者權限。桌面管理限定 loopback。自訂 CORS、開發 Web 路徑等列為特殊部署。 | 特殊部署預設保留外部管理，先列出無法等價轉移的項目。診斷不傾印整份環境或 Agent 設定。 |
 
 路徑解析與備份預設的依據見[資料庫位置規則](https://github.com/Ponpon55837/WorkLog.Ai/blob/d464ea5/packages/shared/src/database-location.ts)、[備份與還原](https://github.com/Ponpon55837/WorkLog.Ai/blob/d464ea5/docs/user-guide.md)及[既有服務](https://github.com/Ponpon55837/WorkLog.Ai/blob/d464ea5/docs/service.md)。
@@ -295,7 +295,7 @@ Windows 必測「停止登入排程後，runner 的子孫程序仍占 port」的
 
 **Host 比對（1.6.41 已實作，commit dadaae4）。** 現況 `[R]`：`isAllowedHost()` 以 `new URL('http://'+host).hostname` 比對 hostname，**不比對 port**。1.6.41（T4）的目標規則為：允許的 host = **loopback 名稱 × 實際 listen port**，加上**每個 allowed origin 的精確 host:port**。例如開發環境的 Vite `5966` proxy 會轉送 `Host: localhost:5966`，這是 allowed origin 之一。實際規則以 `isAllowedHost()` 為準（測試：`tests/server/host-port.test.ts`）。
 
-**管理授權設計（ADR-11、ADR-12）。** 正常開啟由 App 產生短效、一次性的授權碼，經 URL fragment 在同源頁面交換為限時的桌面會話，隨即以 `history.replaceState` 清除 fragment。交換與管理操作需驗證精確的 loopback Host:port、含 port 的 Origin、JSON、當次實例與防 CSRF 憑證。每次切換 port 或實例都重建授權，憑證不跨 port 共用，且不得出現在 URL query、日誌或持久化瀏覽器儲存中。授權碼只是候選方案，仍可能經瀏覽器歷史、擴充或畫面分享暴露，**不能作為高風險操作的唯一防護**。授權碼 TTL 短、一次性、綁定 `runId + origin + exact port`；管理授權只存記憶體。書籤與手輸網址只能讀一般 Dashboard，進入管理時引導從 tray 開啟。
+**管理授權設計（ADR-11、ADR-12）。** 【狀態：草案，未實作】程式中沒有授權碼交換、限時桌面會話與防 CSRF 憑證（`apps/server`、`apps/desktop` 無對應程式；Host 檢查只有 `apps/server/src/server.ts:94` 的 `isAllowedHost`）。目前的做法是 App 內確認：換 port 前由原生對話框確認（`apps/desktop/src/main/index.ts:371`）。以下為原設計，保留作為目標。正常開啟由 App 產生短效、一次性的授權碼，經 URL fragment 在同源頁面交換為限時的桌面會話，隨即以 `history.replaceState` 清除 fragment。交換與管理操作需驗證精確的 loopback Host:port、含 port 的 Origin、JSON、當次實例與防 CSRF 憑證。每次切換 port 或實例都重建授權，憑證不跨 port 共用，且不得出現在 URL query、日誌或持久化瀏覽器儲存中。授權碼只是候選方案，仍可能經瀏覽器歷史、擴充或畫面分享暴露，**不能作為高風險操作的唯一防護**。授權碼 TTL 短、一次性、綁定 `runId + origin + exact port`；管理授權只存記憶體。書籤與手輸網址只能讀一般 Dashboard，進入管理時引導從 tray 開啟。
 
 Web 只能送固定動作與經 schema 驗證的值。特權資料夾選擇、敏感設定預覽、恢復登入服務、刪除或還原 DB、變更路徑、安裝更新與 Agent 配置，仍須回到 App 受控的本機修復或確認視窗。禁止任意 `exec`、任意 URL、任意檔案位置與攜帶秘密的自動導覽。[D][T]
 
@@ -319,7 +319,7 @@ Web 只能送固定動作與經 schema 驗證的值。特權資料夾選擇、�
 3. 新服務通過 IPC 身分、DB 與 HTTP 驗證後，才提交新 port。相同 port 的頁面自動重連；換 port 時由 App 開啟新網址。保留可安全還原的頁面路徑；有未儲存的編輯時先提示儲存。跨 port 的瀏覽器儲存屬於不同 origin，語言與佈景等偏好從已知偏好還原（§6.2）。
 4. 新服務未就緒則以最後成功設定復原。原 port 也被占用時，tray 的「修復連線」可選別的 port、重試或看日誌。啟動期間崩潰採有上限的退避重試，例如兩分鐘內三次後轉為待處理；權限、格式、schema 等確定錯誤直接進修復。睡眠喚醒時重查現況。正常結束不觸發自動重啟。
 
-**1.6.51 實作**：換 port 只在 App 內進行（修復視窗的「連接埠」區段與工作列「變更連接埠…」）。Web 狀態頁的按鈕只請 App 開啟該區段，經 `POST /api/desktop/open-port-settings` 交給 App 的白名單偏好與路由只存在記憶體中，一次使用、最久 2 分鐘。流程為：原生確認、停止、在新 port 啟動、以 IPC 與 HTTP 證明驗證，通過後才原子寫入 `desired.port`、`active` 與 `lastKnownGood`；失敗回舊 port，中途當機保留舊 port。忙碌（其他操作、匯入、備份、匯出）時拒絕。占用在停止前拒絕，OS 不允許的 port 回報 `PORT_NOT_PERMITTED`（`apps/desktop/src/main/change-port.ts`、`packages/desktop-core/src/shell/port-policy.ts`）。
+**1.6.51 實作**：換 port 只在 App 內進行（修復視窗的「連接埠」區段；工作列的「變更連接埠…」已於 1.6.55 移除，`packages/desktop-core/src/shell/tray-menu.ts:57-71` 中已無此項目）。Web 狀態頁的按鈕只請 App 開啟該區段，經 `POST /api/desktop/open-port-settings` 交給 App 的白名單偏好與路由只存在記憶體中，一次使用、最久 2 分鐘。流程為：原生確認、停止、在新 port 啟動、以 IPC 與 HTTP 證明驗證，通過後才原子寫入 `desired.port`、`active` 與 `lastKnownGood`；失敗回舊 port，中途當機保留舊 port。忙碌（其他操作、匯入、備份、匯出）時拒絕。占用在停止前拒絕，OS 不允許的 port 回報 `PORT_NOT_PERMITTED`（`apps/desktop/src/main/change-port.ts`、`packages/desktop-core/src/shell/port-policy.ts`）。
 
 ### 6.1 操作佇列、取消與回復（ADR-21）
 
@@ -343,11 +343,11 @@ Web 只能送固定動作與經 schema 驗證的值。特權資料夾選擇、�
 
 ## 7. GitHub 更新、資料保護與復原
 
-**發行提案。** 使用 electron-builder 打包與 electron-updater，延用產品根目錄版本與同一個 release commit。Windows 11 x64 產生目前使用者安裝的簽章 NSIS；macOS 產生簽署與公證的 App、DMG 與更新 ZIP。各架構的安裝包、更新描述、校驗值與該工具版本所需的附檔必須互相匹配。固定官方 GitHub 倉庫、穩定通道與可信發布者或簽章公鑰；驗證更新清單簽章、檔案雜湊與平台支援的發行者驗證。客戶端不用 GitHub token。[現行發行程序 `[R]`](https://github.com/Ponpon55837/WorkLog.Ai/blob/d464ea5/docs/release.md) · [更新套件與平台格式](https://www.electron.build/docs/features/auto-update/) · [更新清單簽章](https://www.electron.build/docs/features/signed-update-manifests/)
+**發行提案。**【依 ADR-38、ADR-25、ADR-40 取代：V1 不做簽章與公證，也不使用 electron-updater（`apps/desktop/electron-builder.config.mjs:102` 為 `publish: null`）；只提供手動檢查與安裝檔下載。】 使用 electron-builder 打包與 electron-updater，延用產品根目錄版本與同一個 release commit。Windows 11 x64 產生目前使用者安裝的簽章 NSIS；macOS 產生簽署與公證的 App、DMG 與更新 ZIP。各架構的安裝包、更新描述、校驗值與該工具版本所需的附檔必須互相匹配。固定官方 GitHub 倉庫、穩定通道與可信發布者或簽章公鑰；驗證更新清單簽章、檔案雜湊與平台支援的發行者驗證。客戶端不用 GitHub token。[現行發行程序 `[R]`](https://github.com/Ponpon55837/WorkLog.Ai/blob/d464ea5/docs/release.md) · [更新套件與平台格式](https://www.electron.build/docs/features/auto-update/) · [更新清單簽章](https://www.electron.build/docs/features/signed-update-manifests/)
 
 | 階段 | 成功條件 | 中斷或失敗的處理 |
 |---|---|---|
-| 查詢與下載 | 顯示目前版、目標版、大小、版本說明與下載進度。背景檢查有間隔，手動可立即查。 | 離線、代理、限流或 GitHub 暫停不影響本機服務。顯示上次檢查時間與稍後重試。下載可取消；毀損快取可重抓。 |
+| 查詢與下載 | 顯示目前版、目標版、大小、版本說明與下載進度。【依 ADR-40 取代：沒有背景檢查，只有手動查詢。】 | 離線、代理、限流或 GitHub 暫停不影響本機服務。顯示上次檢查時間與稍後重試。下載可取消；毀損快取可重抓。 |
 | 驗證與安裝前檢查 | 目標 OS／架構正確，簽章與雜湊通過。確認空間、安裝位置可寫、資料位置、待完成工作、可驗證的升級前備份，以及可用的復原安裝包。 | 驗證失敗保留舊版與原服務。安裝位置唯讀，或 macOS 仍從 DMG 執行時，說明移到可更新位置的步驟（DT-29）。備份失敗顯示可重試的具體原因。 |
 | 切換版本 | 保存目標、上次成功版本與前景／背景狀態；排空服務。schema 會變更時，確認舊 MCP、CLI 等寫入端已退出，遷移期間排除重新開啟。 | 無法約束外部寫入端時暫緩安裝，說明需關閉哪類連線。下載完成不等於已安裝；使用者延後時，一般退出不得意外安裝（DT-30）。 |
 | 新版驗證 | 比對桌面、實際 API、Web 資源與 schema，核對 DB 身分、備份 worker 與管理入口。依先前狀態返回 Dashboard 或靜默回到 tray。 | 下次開啟從持久化階段判定結果。新版開不起來時，經獨立的安裝包或修復入口重裝同版或較新修正版，保留設定與資料（DT-31）。 |
@@ -440,7 +440,7 @@ Web 只能送固定動作與經 schema 驗證的值。特權資料夾選擇、�
 
 ### 8.1 錯誤分類、隱私與支援界線（ADR-29）
 
-診斷應區分 `DB_MISSING`、`DB_OFFLINE`、`DB_PERMISSION`、`SCHEMA_TOO_NEW`、`SCHEMA_MIGRATION_BLOCKED`、`PORT_OCCUPIED_BY_OTHER`、`SERVICE_OWNER_UNKNOWN`、`RUNTIME_MISSING`、`HOOK_UNTRUSTED`、`UPDATE_UNVERIFIED`、`REPAIR_REQUIRED`。每個錯誤連到**唯一可執行的下一步**。錯誤日誌不得原樣傾印整份 Agent config、MCP 工具輸入輸出、Session 工作內容、home 路徑、完整環境、API 授權碼或 webhook／token。[D]
+診斷應區分 `DB_MISSING`、`DB_OFFLINE`、`DB_PERMISSION`、`SCHEMA_TOO_NEW`、`SCHEMA_MIGRATION_BLOCKED`、`PORT_OCCUPIED_BY_OTHER`、`SERVICE_OWNER_UNKNOWN`、`RUNTIME_MISSING`、`HOOK_UNTRUSTED`、`UPDATE_UNVERIFIED`、`REPAIR_REQUIRED`。【草案：`HOOK_UNTRUSTED`、`SERVICE_OWNER_UNKNOWN`、`UPDATE_UNVERIFIED` 目前程式中沒有對應字串，代碼以 `packages/desktop-core/src/shell/i18n.ts` 為準；其餘代碼的對應未逐一查證。】每個錯誤連到**唯一可執行的下一步**。錯誤日誌不得原樣傾印整份 Agent config、MCP 工具輸入輸出、Session 工作內容、home 路徑、完整環境、API 授權碼或 webhook／token。[D]
 
 診斷封包須經 dry-run 檢查、個資路徑遮蔽與秘密掃描；只有使用者主動匯出才寫檔，**不得預設向 GitHub Issue 或遠端 API 上傳**。解除安裝不得擅自卸除外部 plugin 或 MCPB。[D]
 
@@ -487,8 +487,8 @@ Web 只能送固定動作與經 schema 驗證的值。特權資料夾選擇、�
 
 ### 9.2 macOS 需求
 
-- **簽署與公證**：App、DMG 與更新 ZIP 均須簽署與公證。Apple Silicon 與 Intel 的架構範圍待確認，見 §9.0。
-- **從 DMG 執行**：無法安裝更新。啟動時檢測 App 位置，導引使用者移到 Applications（R26、DT-29）。
+- **簽署與公證**：App、DMG 與更新 ZIP 均須簽署與公證。【依 ADR-38 取代：不做 Developer ID 簽章與公證，macOS 為 ad-hoc 簽章。】Apple Silicon 與 Intel 的架構範圍待確認，見 §9.0。
+- **從 DMG 執行**：無法安裝更新。啟動時檢測 App 位置，導引使用者移到 Applications（R26、DT-29）。【未實作（DT-29）：目前 `apps/desktop/src` 中沒有 Applications 位置檢測。】
 - **Quarantine**：以 quarantine 屬性的安裝包做測試（§3.3 驗收）。
 - **服務**：LaunchAgent 的辨識與接管（DT-12），依 §4.2 的證據層級判斷歸屬。
 - **資料夾選擇**：維持 `osascript` `choose folder` `[R]`，納入 DT-26 的驗收範圍。
@@ -514,7 +514,7 @@ Web 只能送固定動作與經 schema 驗證的值。特權資料夾選擇、�
 | 5. 自動更新與 schema | 固定發布鏈、SHA256SUMS 與自有 manifest 簽章驗證、DB migration／restore 屏障 | 以 SHA256SUMS 與自有 manifest 簽章驗證的 N→N+1（若做更新檢查）、篡改拒絕、斷電復原演練 |
 | 6. 同批發行 | Windows 11 x64（未簽章）與 macOS（ad-hoc 簽章）安裝包並附 SHA256SUMS 的實測 | 兩平台同批產物完成 §9.5 全部 gate，否則整版不發 |
 
-階段 5、6 的 gate 依 ADR-38 重新定義：不使用付費簽章憑證，macOS 維持 ad-hoc、Windows 未簽章，主要取得方式為本機打包。
+階段 5、6 的 gate 依 ADR-38 重新定義：不使用付費簽章憑證，macOS 維持 ad-hoc、Windows 未簽章，主要取得方式為本機打包。【狀態註記：「主要取得方式為本機打包」與 §1 的一般使用流程（無須開終端機）矛盾。使用者目前取得安裝檔的方式是發行頁面（[1.6.53 更新說明](../releases/1.6.53.md)，ADR-40）；本機打包為開發者選項。】
 
 不得用 mock 服務管理器或 fake Agent 的成功取代最後的 OS／host 實測。CI 用 fake home 的測試是必要條件，**不是**充分條件。
 
@@ -522,9 +522,17 @@ Web 只能送固定動作與經 schema 驗證的值。特權資料夾選擇、�
 
 **階段 2 狀態（1.6.44）**：CI 可驗證部分已實作（DT-11、DT-15、DT-16、DT-35）：Electron 殼、後端子程序生命週期與修復視窗。三平台的 desktop-smoke 已在 CI 通過（[run 43929965453](https://github.com/Ponpon55837/WorkLog.Ai/actions/runs/43929965453)）；實機驗收（Windows 11 與 macOS）未做。**階段 2 的 gate 尚未通過。** 效能量測（合成資料，`apps/desktop/tests/desktop-smoke/performance.spec.ts`，閘門與依據在同目錄的 `perf-gates.ts`）：本機 Linux（xvfb）新舊啟動流程交替各 9 個樣本，冷啟動中位數 501 ms 對 506 ms、修復視窗 530 ms 對 562 ms，差異在雜訊內（後端提早啟動在 Linux 量不到改善）；退出約 14 ms，MANAGED 後 5 秒主程序約 155 MiB、後端約 94 MiB。Windows 與 macOS 的數字見同一 CI run 上傳的 `desktop-perf-<os>` artifact。 已知限制：Windows 使用者資料夾缺少 Roaming AppData 時，Electron 在載入 App 的程式之前就由原生層結束（結束代碼 0xFFFF7003，Crashpad 的「未連上 handler」），App 無法顯示錯誤框；這屬於 OS 設定檔損壞，修復方式是重建使用者資料夾。煙霧測試斷言它不留下 logs、port 或程序。其他無法解析資料夾的情況，由 `resolveUserDataDirectory` 在 `ready` 前顯示錯誤框並以代碼 1 結束。
 
-**階段 3 狀態（1.6.47）**：CI 可驗證部分已實作：Agent 的非互動 plan／apply／verify／compensate 共用 API（DT-21，`packages/agent-setup`）、MCP stdio 握手探測與狀態分級（DT-22）、固定 launcher 接線（plugin、MCPB 與獨立版；DT-23 後續），以及 Dashboard bridge（DT-27）。Windows ACL 預熱（backlog a）也於本版實作。真實 host 的 handshake（Claude Code、Codex、Claude Desktop）、Windows 與 macOS 上更新後 runtime 的行為，以及 hook 的實機 fail-open 尚未驗證；App 設定中心尚未接上 Agent API。**階段 3 的 gate 尚未通過。** 效能（Linux）：`setup:agents` CLI 完整安裝 9–21 ms（為耐久性寫入的代價）、Agent handshake 探測中位數 287 ms；Dashboard 交接熱啟動中位數 149 ms、冷啟動 478 ms。
+**階段 3 狀態（1.6.47）**：CI 可驗證部分已實作：Agent 的非互動 plan／apply／verify／compensate 共用 API（DT-21，`packages/agent-setup`）、MCP stdio 握手探測與狀態分級（DT-22）、固定 launcher 接線（plugin、MCPB 與獨立版；DT-23 後續），以及 Dashboard bridge（DT-27）。Windows ACL 預熱（backlog a）也於本版實作。真實 host 的 handshake（Claude Code、Codex、Claude Desktop）、Windows 與 macOS 上更新後 runtime 的行為，以及 hook 的實機 fail-open 尚未驗證；App 設定中心尚未接上 Agent API。【已更新：1.6.49 起可在 App 內設定 Agent，見 [1.6.49 更新說明](../releases/1.6.49.md)；1.6.55 起位於「Agent」分頁。】**階段 3 的 gate 尚未通過。** 效能（Linux）：`setup:agents` CLI 完整安裝 9–21 ms（為耐久性寫入的代價）、Agent handshake 探測中位數 287 ms；Dashboard 交接熱啟動中位數 149 ms、冷啟動 478 ms。
 
 **階段 5 狀態（1.6.45）**：本版實作階段 5 的**打包部分**，與 §9.4 表中「自動更新與 schema」並非同一範圍；自動更新、簽名驗證、schema 屏障與斷電復原演練仍未做。已實作：electron-builder 26.18.1 的 Windows 11 x64 NSIS 一鍵安裝（目前使用者安裝，不要求 UAC）與 macOS DMG、ZIP（arm64、x64 分開）；隨包官方 Node.js 24.22.3 在首次啟動時安裝到固定的 launcher root，流程為 staging、退避重試更名、完整雜湊、指紋快取、原子切換；Windows ACL 檢查（兩層讀取，見 ADR-15）；`--quit` 退出指令供安裝程式使用；解除安裝保留設定、DB 與備份（DT-34）；`desktop-package` CI 與 `release.yml` 的聯合發行閘（DT-33）；打包後的黑箱煙霧測試與生產建置的後門檢查。沒有 Developer ID 簽章、公證與自動更新：Windows 安裝包未簽章，macOS 只做 ad-hoc 簽章（由 `afterPack` hook 完成，見[桌面設計索引](README.md)），安裝包會出現 SmartScreen 與 Gatekeeper 警告。本機驗證只在 Linux 進行（`dir` 目標與打包煙霧測試 15 項通過兩次）；Windows 與 macOS 的安裝、解除安裝、Gatekeeper、ACL 真實行為與效能數字，待 CI 或實機確認。效能（本機 Linux，三次中位數）：首次啟動含 runtime 安裝 1028 ms、熱啟動 563 ms、修復視窗 1051 ms、`--quit` 157 ms；閒置記憶體 PSS 由 352 MiB 降到 292 MiB，RSS 合計由 662 MiB 降到 538 MiB（3 次中位數）。**階段 5 的 gate 尚未通過。**
+
+**階段 0 狀態（1.6.42）**：新增純 TypeScript 套件 `packages/desktop-core`，不含 Electron（[1.6.42 更新說明](../releases/1.6.42.md)）。實機驗收未做，**階段 0 的 gate 尚未通過。**
+
+**階段 4 狀態（1.6.49、1.6.50）**：1.6.49 完成第二部分：首次執行頁（DT-01）、App 內設定 Agent、把 checkout 的 Agent 設定改由 App 管理、偵測舊的登入服務。1.6.50 收尾舊服務處理（App 內一鍵停用）與 Agent 接管。實機驗收未做，**階段 4 的 gate 尚未通過。**
+
+**階段 6 狀態**：同批發行的聯合發行閘（`release.yml`，DT-33）已於 1.6.45 建立，但 Windows 11 與 macOS 的實機驗收、同批安裝包的 N→N+1 演練都未做。**階段 6 的 gate 尚未通過。**
+
+**1.6.52 至 1.6.56 補充**：1.6.52 補上 migration 前備份與 N→N+1 樣本升級測試（DT-32），以及多程序 WAL 壓力測試（DT-07）。1.6.53 加入手動的「檢查更新」（ADR-40）。1.6.54 診斷匯出改為先預覽再儲存（DT-19），舊 runtime 的延後清理（DT-24）。1.6.55 改為單一視窗分頁（Status、Agent、Settings、Data、Diagnostics；首次設定時另有 Setup）。1.6.56 修復審查的 H-01（當機復原接到產品）與 H-02（App 內還原），見[審查文件](desktop-v1-review-1.6.55.md)。以上 CI 可驗證部分完成，Windows 與 macOS 實機驗收仍未進行。
 
 ### 9.5 發行阻斷的可觀察證據（Gate）
 
@@ -537,7 +545,7 @@ Web 只能送固定動作與經 schema 驗證的值。特權資料夾選擇、�
 - `G-SVC-02`：多次點 App、兩個瀏覽器分頁同時重啟、重送 operation ID、服務 crash 或睡醒後，沒有第二個 listener 或孤兒 process。
 - `G-MCP-01`：無 Node、App 已退出、App 升級中、Windows runtime 檔案被鎖，bundled SQLite 版本經驗證，已連結的 Agent 仍能正確 `initialize`、`tools/list`；更新契約時明確要求重連。
 - `G-SEC-01`：惡意 Origin／Host、本機 curl 假冒 headers、跨 port session、重播或過期 token、XSS、URL injection、任意設定路徑，未授權的高權限操作都無副作用。
-- `G-UPD-01`：同一簽名管道的 N→N+1 真實安裝；manifest 篡改、錯 key、錯架構、版本回退皆拒絕；失敗可透過 App 以外的修復路徑救回。
+- `G-UPD-01`：同一簽名管道的 N→N+1 真實安裝；manifest 篡改、錯 key、錯架構、版本回退皆拒絕；失敗可透過 App 以外的修復路徑救回。【依 ADR-25、ADR-38、ADR-40 改寫：V1 不做 App 內下載或安裝，本 gate 只在日後加入 App 內安裝時適用，屆時以自有 manifest 簽章驗證。目前對應的是手動檢查與 `SHA256SUMS.txt` 核對。】
 - `G-UX-01`：安裝 → 選 project → 連 Agent → 真實記錄；鍵盤操作、繁中與英文、深淺色、無 tray 場景仍能完成或修復。
 
 **以上是門檻規格，不是目前已通過的測試結果。**
@@ -742,7 +750,7 @@ R01–R14 與 R33 如設計契約未通過，**不得宣稱 V1 可公開自動�
 - [ ] 修復視窗不依賴 Web／API 存活；無系統匣或選單列圖示時仍可進入（G-UX-01）。
 - [ ] 備份可驗證且可還原；schema 升級與失敗回復不覆蓋唯一副本（G-DB-03）。
 - [ ] 發行 metadata 與安裝包具對應工具版本的實際可信驗證機制（G-UPD-01）。
-- [ ] 同批 Windows 11 x64 與 macOS 的正式簽章安裝包完成 N→N+1 與解除安裝演練，並輸出 `sqlite_version()` 修補證據（G-UPD-01、G-DB-03；含 1.6.41 T3）。
+- [ ] 同批 Windows 11 x64 與 macOS 的正式簽章安裝包完成 N→N+1 與解除安裝演練，並輸出 `sqlite_version()` 修補證據（G-UPD-01、G-DB-03；含 1.6.41 T3）。【依 ADR-38 取代：安裝包改為未簽章（Windows）與 ad-hoc（macOS），附 `SHA256SUMS.txt`；N→N+1 演練依 ADR-25 與 ADR-40 重新界定。】
 - [ ] Windows 11 實機完成資料夾選擇（IFileOpenDialog，1.6.41 T1）、NSIS、schtasks 與檔案鎖驗收，並記錄於 `docs/release-checklist.md`。
 - [ ] CLI、standalone、plugin 不安裝桌面 App 也能依既有方式使用。
 - [ ] 發行來源、更新 key rotation、發行失敗停止派送與修復安裝包程序就緒。
