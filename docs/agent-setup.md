@@ -67,6 +67,35 @@ Web 介面的「系統狀態」頁會顯示 MCP 連線數，並在數字是 0 �
 - **命令列**：在 checkout 目錄執行 `pnpm setup:agents` 會預覽同樣的設定；互動終端輸入 `yes` 才會寫入，並會先備份。`pnpm setup:agents --uninstall` 會預覽並移除它記錄的安裝。詳見[使用手冊](user-guide.md#給開發者與命令列使用者安裝與正式模式)。
 - **Codex 的使用者 skill** 位於 `$HOME/.agents/skills/`；**Claude Code 的使用者 skill** 位於 `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/`。App 與 `pnpm check` 會檢查它們是否缺少或過期。
 
+### Claude Desktop（進階，手動設定）
+
+桌面 App 目前只為 Codex 與 Claude Code 提供設定流程，Claude Desktop 沒有 App 內的設定步驟。若要在 Claude Desktop 使用 Work Intelligence，需要自己編輯它的設定檔；App 不會替你改寫這個檔案。
+
+1. 先完成 App 的首次設定，讓 App 啟用 runtime。launcher 的固定位置依系統如下（來源：`packages/desktop-core/src/runtime/layout.ts`）：
+   - Windows：`%LOCALAPPDATA%\WorkIntelligence\runtime\bin\work-intelligence-launcher.cmd`
+   - macOS：`~/Library/Application Support/WorkIntelligence/runtime/bin/work-intelligence-launcher`
+   - 其他系統：`$XDG_DATA_HOME/work-intelligence/runtime/bin/work-intelligence-launcher`（未設定 `XDG_DATA_HOME` 時為 `~/.local/share/...`）
+
+   這個路徑是固定的 shim，runtime 更新時不會改變，所以不需要因為升級而重新編輯設定檔。
+2. 關閉 Claude Desktop，打開設定檔：
+   - Windows：`%APPDATA%\Claude\claude_desktop_config.json`
+   - macOS：`~/Library/Application Support/Claude/claude_desktop_config.json`
+3. 在 `mcpServers` 中加入下面這一段，並把 `<launcher 完整路徑>` 換成第 1 步對應系統的路徑。如果檔案已有其他 `mcpServers`，只加入 `work-intelligence`，不要整份覆蓋：
+
+```json
+{
+  "mcpServers": {
+    "work-intelligence": {
+      "command": "<launcher 完整路徑>"
+    }
+  }
+}
+```
+
+4. 儲存後重新啟動 Claude Desktop，從聊天框的 `+` → `Connectors` 確認 tools 已出現。
+
+Claude Desktop 的 local MCP 與 Claude.ai/Cowork 的 remote connector 是不同機制；不能直接從 Claude.ai 使用本機 stdio server。詳見 [Claude Desktop local MCP guide](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop) 與 [Claude custom connector notes](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)。
+
 ## 在其他專案貼上使用說明
 
 任何連上 Work Intelligence MCP 的 Agent 都可以讀取完整的使用說明。若 Agent 不會主動使用 skill，可以把下列簡短規則貼到該專案的 `AGENTS.md` 或 `CLAUDE.md`。它不需要引用 Work Intelligence 的檔案：
