@@ -2,34 +2,135 @@
 
 **English** | [繁體中文](README.zh-TW.md)
 
-**Local-first work memory for developers.** When an Agent such as Codex or Claude finishes a piece of work, it writes what it did, which files it changed and how it verified the result into a single SQLite file on your computer. You review that history in the Web UI and build daily, weekly, monthly, quarterly, yearly or custom-range reports; before starting new work or when hitting an error, the Agent can look up past work and Knowledge from the same place.
+**Local-first work memory for developers.** When an Agent such as Codex or Claude Code finishes a piece of work, it saves what it did, which files changed and how the result was verified into one SQLite file on your computer. You review that history in the desktop App, and before starting new work or when you hit an error, the Agent can look up past work and Knowledge from the same place.
 
-- 🔒 **Nothing is recorded by default**: only projects you explicitly set to "Tracked" are read and saved; every other project is skipped.
-- 🏠 **Your data stays on your machine**: the API only accepts connections on `127.0.0.1`, never sends data anywhere, and never writes configuration into your project repos.
-- ✅ **Open items you can check off**: before wrapping up, the Agent fetches the items related to the task and its files and closes them only when they are done. When new work replaces an old item the Session audit is kept, and items without enough evidence stay open. The Web UI handles batches of up to 100 items with undo, and you can request a cleanup where the Agent proposes changes with evidence that you accept or reject.
-- 🧾 **Traceable**: every summary and report conclusion links back to its source Sessions, files and evidence. Changed files are not Git commits, verification results are never guessed for the Agent, and corrections and voids leave an audit trail.
-- 💾 **Portable and deletable**: daily automatic backups, whole-database SQLite snapshots, JSON export of one or all projects with merge import, and permanent per-project deletion with a content-free deletion record.
-- 🩺 **Self-diagnosing**: `pnpm check` checks the whole environment read-only; when the API drops, a banner appears and the page reloads its data once the API is back.
+- **Nothing is recorded by default.** Only projects you set to "Tracked" are read and saved.
+- **Your data stays on your machine.** The App's local service listens only on `127.0.0.1`, and nothing is sent anywhere.
+- **Traceable.** Every summary links back to its Sessions, files and evidence.
+- **Backups you control.** Automatic and manual backups, restore inside the App, and a database maintenance tool.
 
 ---
 
 ## Contents
 
-- [Quick start](#quick-start)
-- [Connect Codex / Claude](#connect-codex--claude)
+- [Download and install](#download-and-install)
+- [First-time setup](#first-time-setup)
+- [Set up your Agents](#set-up-your-agents)
 - [Everyday use](#everyday-use)
-- [Web UI tour](#web-ui-tour)
-- [Backups, moving computers and deletion](#backups-moving-computers-and-deletion)
-- [Upgrades and maintenance](#upgrades-and-maintenance)
-- [Core concepts](#core-concepts)
+- [Data, backups and moving to a new computer](#data-backups-and-moving-to-a-new-computer)
+- [Settings you can change](#settings-you-can-change)
 - [Security and privacy](#security-and-privacy)
-- [Project layout and development](#project-layout-and-development)
+- [For developers and command-line users](#for-developers-and-command-line-users)
 - [Documentation](#documentation)
 - [License](#license)
 
-## Quick start
+## Download and install
 
-Requirements: **Node.js 22.16 or later on the 22 line, or 24 and later** (24 recommended; 23.x is not supported, because 22.13–22.15 and every 23.x release ship SQLite without the FTS5 search module that the built-in `node:sqlite` index needs), and **pnpm 11.16 or later** (see `engines.pnpm` in `package.json`). Setup takes about five minutes; the first dependency download may take longer.
+Work Intelligence is a desktop App for **Windows 11 (x64)** and **macOS (Apple Silicon and Intel)**. Installers include everything the App needs, including Node.js, so you do not install Node.js yourself.
+
+1. Open the [GitHub Releases](https://github.com/Ponpon55837/WorkLog.Ai/releases) page and download the installer for your system from the newest release:
+   - Windows: `Work-Intelligence-<version>-win-x64-setup.exe`
+   - macOS: `Work-Intelligence-<version>-mac-arm64.dmg` (Apple Silicon) or `Work-Intelligence-<version>-mac-x64.dmg` (Intel)
+2. Run the installer and open **Work Intelligence**.
+
+The installers are **not code-signed**, so your system may show a warning the first time you open them. This does not mean the file is damaged.
+
+- **macOS**: if Gatekeeper blocks the App, open **System Settings → Privacy & Security**, find the message about Work Intelligence near the bottom, and choose to open it anyway.
+- **Windows**: if SmartScreen shows "Windows protected your PC", choose **More info**, then **Run anyway**.
+
+To check that a download is complete, compare its SHA-256 with the `SHA256SUMS.txt` file on the same release page. The steps are in the [user guide](docs/user-guide.md#桌面-app-檢查更新) (Traditional Chinese).
+
+The App checks for updates only when you press **Check for updates** in its Settings tab. It never checks in the background, and it does not install updates for you.
+
+## First-time setup
+
+1. Open the App. On first run, choose **Start with default settings**. If the App finds an existing database, you can choose **Keep this data** instead.
+2. Go to **Projects**, choose **Add project**, and pick the folder you want to record.
+3. Set the project to **Tracked**. Projects start as *Unregistered*, and the Agent cannot change this for you.
+4. Set up your Agents (next section), then open a new conversation in Codex or Claude Code and ask the Agent to save your work when you finish.
+
+The first-run page and the Status tab show these steps until you have a tracked project and a saved Session.
+
+## Set up your Agents
+
+In the App, open the **Agent** tab (or press **Set up Agents…** on the first-run page). The tab shows one card for Codex and one for Claude Code.
+
+- **Preview first.** **Preview changes** shows every file the App would change. Nothing is written until you confirm.
+- **Apply and undo.** **Apply changes** writes the previewed plan and records it. **Undo the last change** restores the files as they were before.
+- **Already set up by hand?** If you added the Work Intelligence server yourself, the card shows the status **Set up by hand** and offers to take it over. The App takes over the registration after you preview it, and undo returns the files to exactly how they were.
+- **Remove.** **Remove Agent setup** uses the same preview and confirmation steps as setup.
+
+Each card shows the Agent's connection status:
+
+- **Connected**: the Agent has used Work Intelligence tools.
+- **Set up, not confirmed yet**: the setup is written, but the Agent has not used the tools yet. Ask it a question about a tracked project to confirm.
+- **Reconnect needed**: the Agent loaded an older version of the server. Close the Agent conversation and open it again.
+- **Conflicting settings**: the App cannot change a setting safely. The card explains why and what to do.
+
+The System status page of the Web UI shows **MCP connections**. If it shows 0 or fewer than you expect, the page explains why. One common case after an upgrade: **Agent conversations that were already open before the upgrade keep the old MCP server and are not counted.** Close and reopen those conversations.
+
+## Everyday use
+
+You talk to the Agent in plain language. The Agent handles the tool calls.
+
+| To… | Say to the Agent |
+|---|---|
+| Check whether a project is recorded | "Is this project being recorded in Work Intelligence?" |
+| Save the work you just finished | "Done. Please record this work in Work Intelligence." Untracked projects are skipped. |
+| Look up past work or an error | "Have we dealt with the report time-zone problem before?" or paste the error message. |
+| Recover project context | "First check what has happened in this project recently in Work Intelligence." |
+| Write a report | "Summarize this week's Work Intelligence report for me." |
+| Tidy open items | "Please tidy this project's open items." |
+
+You can also do most of this in the App:
+
+- **Work history**: search Sessions, edit a summary, link or void a Session, and review open items.
+- **Work reports**: daily, weekly, monthly, quarterly, yearly or custom-range reports, exported as Markdown or JSON.
+- **Work knowledge**: accepted Knowledge, Knowledge pages and candidates. Candidates become Knowledge only after you accept them.
+- **Projects**: add, track, pause or delete projects.
+
+Every Session has a one-sentence summary and five fixed sections: **Outcomes, Scope, Decisions, Verification, and Status and open items**. Verification has five states: passed, failed, in progress, not run, and not reported. Starting work never counts as passed.
+
+## Data, backups and moving to a new computer
+
+Everything lives in one SQLite database. The **Data** tab handles backups and maintenance.
+
+- **Back up now** creates a manual backup. Automatic backups run once a day, and the App keeps the latest few of each kind.
+- **Restore from backup** replaces the database with a backup you choose. Before it starts, the App asks you to close your Agent conversations, and it backs up your current data first. A backup that fails its checks is refused, and your current data stays as it is.
+- **Moving to a new computer.** Restore on the new computer. If a project folder from the backup is missing there, the App asks where it is now. Pick a folder, and the App matches projects with the same name under it. You can pick several folders, skip a project, or cancel.
+- **Maintain the database…** backs up first, then checks integrity, compacts the file, rebuilds the search index and shows how much free space was reclaimed. **Check integrity** only reads, and changes nothing. Maintenance does not start while an Agent is connected or an import, backup or restore is running.
+- **Export and import** move projects as JSON, with a preview before anything is written. Export files are not encrypted, so keep them somewhere safe.
+- **Deleting a project** makes a full backup first. The deletion record keeps only the time, project ID and counts. Older backups still contain the project until they rotate out or you delete them.
+
+Backups and exports are not encrypted. Store and move them by trusted means.
+
+## Settings you can change
+
+The **Settings** tab holds:
+
+- **Start at login.** A switch to turn it on or off at any time (Windows and macOS). It shows the system's actual state. If the setting was changed in the system's startup settings, or macOS is waiting for your approval, the card says so.
+- **Backup location.** Choose a different folder. The App checks that the folder is writable. Network drives are refused, and external drives or cloud-synced folders ask for confirmation first. Existing backups are not moved.
+- **Updates.** Check for a new version on demand.
+
+If your chosen port is taken, the App starts on the last port that worked and explains this on the Status tab. Your setting is not changed.
+
+The **Diagnostics** tab shows a preview and then **Export diagnostics…** saves a JSON file you can attach to a bug report. It masks file paths, authorization codes, tokens and email addresses, and does not include work-record content. The App never uploads it.
+
+## Security and privacy
+
+- The local service listens only on `127.0.0.1` and checks the `Host` and `Origin` headers.
+- Text is checked for known credential formats before it is stored, and anything wrapped in `<private>…</private>` is replaced with `[REDACTED:private_block]`.
+- Backups and exports are not encrypted. Keep them private.
+- When an Agent uses Work Intelligence, the Agent host may send tool results to a remote model, according to that host's own policy.
+- Successful MCP reads are logged locally with IDs and counts only, never queries or content.
+
+The threat model and how to report vulnerabilities are in [SECURITY.md](SECURITY.md).
+
+## For developers and command-line users
+
+> **Audience: developers and people who work from a terminal.** Everything in this section is optional. The desktop App does all of it for ordinary use.
+
+A checkout requires Node.js 22.16 or later on the 22 line, or 24 and later (23.x is not supported), and pnpm 11.16 or later.
 
 ```bash
 git clone https://github.com/Ponpon55837/WorkLog.Ai && cd WorkLog.Ai
@@ -37,408 +138,69 @@ pnpm bootstrap
 pnpm start
 ```
 
-`pnpm bootstrap` is the single install path. It checks your Node.js and pnpm versions, prints its plan, and after one confirmation runs: install dependencies, build, connect your Agents (`pnpm setup:agents`), ask whether to set up start-at-login, then run `pnpm check` and print the next steps. The first two steps only write inside this repository. **Connecting Agents and start-at-login write to your global settings; each shows its own preview and asks for its own confirmation** (type `yes` for the Agent settings), and nothing changes without it. In a non-interactive terminal it only prints the plan unless you pass `--yes`; `--skip-agents` skips connecting Agents and `--service` goes straight to the start-at-login setup. If an Agent already has the Work Intelligence plugin enabled, bootstrap skips that Agent's manual registration (the plugin already provides the MCP server, skill and hooks), so nothing is registered twice. If the start-at-login service is already installed, bootstrap does not ask about it again and only reminds you to run `pnpm service:restart`. It is safe to repeat: after a `git pull`, run it again to sync. Scope, backups and uninstalling are covered in the [Agent setup guide](docs/agent-setup.md).
+`pnpm bootstrap` installs, builds, previews the Agent setup and start-at-login setup, and asks for confirmation before it writes to your global settings. `pnpm start` serves the Web UI and API at <http://127.0.0.1:3210>. `pnpm check` runs read-only diagnostics.
 
-`pnpm start` starts the local Dashboard and REST API. Keep the terminal open; press `Ctrl+C` to stop. On startup it prints a one-line reminder if an installed Agent skill or hook is out of date (it stays silent otherwise and never delays startup). In production mode one process serves the Web UI and the REST API on the same port.
+Command-line tools, the standalone package and plugin installs are covered in these guides:
 
-To start automatically when you log in, run `pnpm build` and then `pnpm service:install`. It shows the service file it will write, with its full content, and configures a service for the current user only after you confirm; no administrator rights are needed. `pnpm service:status` shows the state, `pnpm service:restart` restarts it after an update (it waits until the server reports the new version; on Windows it also stops an old server left running by Task Scheduler, and the same applies when reinstalling or removing the service), and `pnpm service:uninstall` stops and removes the service while keeping the database, backups and logs. Per-platform locations and troubleshooting are in [Start at login](docs/service.md).
+- [Command-line and development guide](docs/user-guide.md#給開發者與命令列使用者安裝與正式模式) (Traditional Chinese)
+- [Agent setup and save-reminder hooks](docs/agent-setup.md) (Traditional Chinese)
+- [Claude Code and Codex plugin](docs/plugins.md)
+- [Standalone package](docs/standalone.md) (no checkout needed)
+- [Start at login from the command line](docs/service.md)
 
-| Item | Location |
-|---|---|
-| Web UI | <http://127.0.0.1:3210> |
-| REST API | <http://127.0.0.1:3210/api/health> (returns the app version and schema version) |
-| SQLite | `data/work-intelligence.sqlite` (override with `WORK_INTELLIGENCE_DB`) |
-
-Before first use, run the diagnostics:
-
-```bash
-pnpm check
-```
-
-Run `pnpm check`; `pnpm run doctor` still works as an alias. Do not use plain `pnpm doctor`: pnpm 11 reserves it for its own command, which does not run the Work Intelligence diagnostics. The doctor checks Node.js, pnpm, the build output, database health and schema version, database file permissions (warns when the database or its folder is open to other users on the machine), recent backups and maintenance, API reachability, MCP registration, skill copies and the global save-reminder hook — all read-only — and lists fixes in Traditional Chinese. Its output contains no work-record content.
-
-Then three steps:
-
-1. Open <http://127.0.0.1:3210>, go to **Projects** → **Add project** and choose the project folder to record.
-2. Switch the project's status to **Tracked** and confirm the scope that may be read. Alternatively, skip steps 1 and 2 by running `pnpm track <folder>` from a terminal: it shows a preview (name, path, status change) and asks `[y/N]` before it adds the project and sets it to Tracked. Only you can do this; Agents cannot track a project.
-3. Reconnect the Work Intelligence MCP in Codex or Claude Code (if Codex uses the save-reminder hook, review and trust it under `/hooks`), then work as usual; when you finish, ask the Agent to save the work.
-
-Until there is a tracked project or a Session, the overview shows a four-step checklist — add a project → set it to Tracked → connect an Agent → first work record — with links to the right pages and the install command.
-
-The bottom of the sidebar shows the current app version and schema version.
-
-## Connect Codex / Claude
-
-The Work Intelligence MCP is a **local stdio server** started by the Agent itself; it does not use the Web UI's HTTP port. **`pnpm bootstrap` already connects your Agents through `pnpm setup:agents`**, so you normally need nothing below. The following are alternative install methods and are an **either-or** with bootstrap; do not use both. Use absolute paths so the API, MCP and CLI share one database.
-
-### Alternative 1: plugin (Claude Code / Codex; either-or with bootstrap)
-
-Claude Code and Codex install Work Intelligence from this repository's marketplace; the plugin runs your local checkout, so build it once and link it:
-
-```bash
-git clone https://github.com/Ponpon55837/WorkLog.Ai && cd WorkLog.Ai
-pnpm install && pnpm build && pnpm plugin:link
-```
-
-**Claude Code**
-
-```bash
-claude plugin marketplace add Ponpon55837/WorkLog.Ai
-claude plugin install work-intelligence@worklog-ai
-```
-
-Restart Claude Code; `/mcp` lists `work-intelligence` as connected. The save reminder works with no further step.
-
-**Codex**
-
-```bash
-codex plugin marketplace add Ponpon55837/WorkLog.Ai
-```
-
-In Codex, open `/plugins` and install `work-intelligence`, then open `/hooks`, review the plugin's hooks and choose **Trust** (untrusted hooks are skipped; the MCP server and skills work without them). Restart Codex; `/mcp` lists `work-intelligence` as connected.
-
-| The plugin brings | Claude Code | Codex |
-|---|---|---|
-| MCP server `work-intelligence` (recall, context, finalize, reports) | ✓ | ✓ |
-| Skill `work-intelligence` (when and how to use the tools) | ✓ | ✓ |
-| Skill `dashboard` (opens the Web UI) | ✓ `/work-intelligence:dashboard` | ✓ ask for it |
-| Save reminder hooks | ✓ | ✓ after **Trust** in `/hooks` |
-
-**Open the dashboard**: ask the Agent to "open the Work Intelligence dashboard" (in Claude Code also `/work-intelligence:dashboard`), or run `pnpm dashboard` in the checkout. It starts the server in the background when it is not running and opens <http://127.0.0.1:3210>. To have it running after every login, run `pnpm service:install` once.
-
-**Update**: in the checkout run `git pull && pnpm install && pnpm build`, then `claude plugin update work-intelligence@worklog-ai`; for Codex run `codex plugin marketplace remove worklog-ai` and add it again. Reconnect the Agent when it says so.
-
-**Already registered by hand?** Use either the plugin or the manual registration below, not both, or the Agent sees every tool and reminder twice. Remove the manual one with `claude mcp remove work-intelligence --scope user` / `codex mcp remove work-intelligence` and delete the Work Intelligence entries from the Claude `settings.json` and Codex `hooks.json` hooks; `pnpm check` reports any duplicate.
-
-**No checkout?** Each [GitHub Release](https://github.com/Ponpon55837/WorkLog.Ai/releases) attaches `work-intelligence-plugin-<version>.zip` (the plugin with a bundled MCP server) and `work-intelligence-<version>.mcpb` (a Claude Desktop extension), which carry no Web UI, plus `work-intelligence-<version>.tgz`, the full standalone package (API server, Web UI, MCP server and the `work-intelligence` command; see [docs/standalone.md](docs/standalone.md)). `SHA256SUMS.txt` lists every asset's SHA-256. All of them need Node.js 22.16+ (or 24+; not 23.x) and keep data in `~/.work-intelligence/data`.
-
-Something wrong? Run `pnpm check`, and see the [plugin guide](docs/plugins.md) for its troubleshooting table.
-
-### Alternative 2: register manually (either-or with bootstrap)
-
-To set up the MCP server and the user-level skill in one go, run `pnpm setup:agents` to preview the install plan; nothing is written by default. Usage, backups and uninstalling are in the [Agent setup guide](docs/agent-setup.md). The MCP server also serves the skill and record format through standard `resources/list` / `resources/read`, so any client that supports MCP resources can read the core every session needs at `work-intelligence://agent/work-intelligence/SKILL.md`, the guide for each other flow (reports, repair, outstanding cleanup, Knowledge, diagrams) at `work-intelligence://agent/work-intelligence/references/<guide>.md` when that flow starts, and `work-intelligence://agent/work-record-and-report-format.md`.
-
-macOS / Linux:
-
-```bash
-# Codex CLI
-codex mcp add work-intelligence --env "WORK_INTELLIGENCE_DB=/path/to/WorkLog.Ai/data/work-intelligence.sqlite" -- pnpm --dir "/path/to/WorkLog.Ai" start:mcp
-
-# Claude Code (user scope, available in every workspace)
-claude mcp add --scope user --transport stdio work-intelligence --env "WORK_INTELLIGENCE_DB=/path/to/WorkLog.Ai/data/work-intelligence.sqlite" -- pnpm --dir "/path/to/WorkLog.Ai" start:mcp
-```
-
-Windows (PowerShell):
-
-```powershell
-codex mcp add work-intelligence --env "WORK_INTELLIGENCE_DB=C:\path\to\WorkLog.Ai\data\work-intelligence.sqlite" -- pnpm.cmd --dir "C:\path\to\WorkLog.Ai" start:mcp
-
-claude mcp add --scope user --transport stdio work-intelligence --env "WORK_INTELLIGENCE_DB=C:\path\to\WorkLog.Ai\data\work-intelligence.sqlite" -- pnpm.cmd --dir "C:\path\to\WorkLog.Ai" start:mcp
-```
-
-Expired MCP leases and leftover temporary files are cleaned up in batches during MCP registration and System Status reads (90-second threshold by default, at most 64 deletion attempts per pass); see [Troubleshooting](docs/troubleshooting.md).
-
-Claude Code also gets two MCP prompts: `/mcp__work-intelligence__finalize-work` and `/mcp__work-intelligence__synthesize-report`. Claude Desktop setup, verification and common questions are in **[docs/agent-setup.md](docs/agent-setup.md)**. After updating Work Intelligence, run `pnpm build` again. Agents connect through a stable MCP launcher (`apps/mcp/dist/launcher.js`, registered by `pnpm setup:agents`, the plugin and `pnpm start:mcp`): when a new build lands it finishes the requests in flight, starts the new server and replays the handshake, so the same connection uses the new version without reconnecting. You only reconnect when the launcher itself changed. A registration that still runs `apps/mcp/dist/index.js` directly keeps the older rule (reconnect when the schema or Agent contract changed); rerun `pnpm setup:agents` to move it to the launcher.
-
-### Save-reminder hook (optional)
-
-To have the Agent reminded once when it forgets to save, add the save-reminder hook. Like the MCP server it is installed **globally** and works in any project; it only acts in "Tracked" projects, lets everything else through, and also lets the Agent through if its own check fails.
-
-| Agent | Global settings file | Events | Script |
-|---|---|---|---|
-| Claude Code | `~/.claude/settings.json` | `Stop`; optional `PreToolUse` + `PreCompact` + `SessionStart` (`compact`) | `apps/mcp/dist/finalize-reminder.js` |
-| Codex | `~/.codex/hooks.json` | `PostToolUse` (`apply_patch`, `work_finalize_session`) + `Stop`; optional `PreToolUse` + `UserPromptSubmit` + `SessionStart` (`compact`) | `apps/mcp/dist/codex-finalize-reminder.js` |
-
-- Use the repo's absolute path and run `pnpm build` first.
-- Codex requires you to review and trust the hook under `/hooks`.
-- The optional compaction hooks keep unsaved work visible after a long conversation is compacted: Claude Code's `PreCompact` asks the summary to keep the segment's start time and changed files (paths relative to the project, no contents), and `SessionStart` (`compact`) in both Agents puts the unsaved reminder and start time back into context. They never block compaction.
-- The repo does not ship a project-level `.codex/hooks.json`.
-- `pnpm check` checks whether the setup is correct.
-
-Full examples are in [Save-reminder hook](docs/agent-setup.md#保存提醒選用).
-
-## Everyday use
-
-You talk to the Agent in plain language; it handles tool names, request IDs and JSON (the rules live in [`.agents/skills/work-intelligence`](.agents/skills/work-intelligence/SKILL.md)).
-
-| To… | Say to the Agent | Or in the Web UI |
-|---|---|---|
-| Check whether a project is recorded | "Is this project being recorded in Work Intelligence?" | Projects |
-| Save this piece of work | "Done — please record this work in Work Intelligence." (untracked projects are skipped) | — |
-| Tidy existing open items | "Please tidy this project's open items." | Work history → Open items: choose a project, create a cleanup request, review the sources, reasons and evidence, and accept or reject one by one or in bulk |
-| Pick up earlier open items | "Which of the earlier open items did this work resolve?" | Work history → Open items: filter by project and status; mark done, no longer needed, or reopen |
-| Recover project context | "First check what has happened in this project recently in Work Intelligence." | Work history, Work knowledge |
-| Look up past work or errors | "Have we dealt with the report time-zone problem before?" or paste the error. (The Agent ranks Sessions, raw handoffs and Knowledge with `work_recall`; structured work fields come first, repeated old handoffs score lower, and a fixed software glossary finds low-confidence leads across Chinese and English. `work_search` returns compact Session hits with a confidence; `none` means there is nothing to cite, while `high` and `low` only describe wording overlap, so the Agent reads the full record before citing it and otherwise answers `資料不足`. A focused `work_get_context` may also add up to four compact pointers to Sessions and active Knowledge linked to its top Session hits, in a separate `relevant.supplements` list that does not change the main results, ranking or confidence.) | Work history search (every keyword must match) |
-| Write a report | "Summarize this week's Work Intelligence report for me." (The Agent creates the request if none exists; custom ranges work too.) | Work reports → **Ask Agent to synthesize this report**; the page updates when the Agent is done |
-| Synthesize Knowledge candidates | "Synthesize Work Intelligence Knowledge candidates for me." | Work knowledge → **Synthesize candidates**; candidates become Knowledge only after you accept them (optionally editing first) |
-| Update standing Knowledge pages | "Update this project's Knowledge pages." | Work knowledge → Knowledge pages: architecture and conventions, work in progress and open items, common gotchas — every section cites its source Sessions. The Agent is prompted to maintain a page when sources need checking or 3 new Sessions accumulate; the page shows when it was last checked and can be edited by hand with version history |
-| Fill missing metadata | "Fill the Work Intelligence metadata gaps." (The Agent creates the request if none exists.) | Projects → Metadata backfill → **Scan metadata gaps** |
-| Fix a saved summary | "Fix the summary of the last Session: …" | Session panel → **Edit Session** |
-| Link related work | "This implements yesterday's plan." | Session panel → **Link Session** |
-| Retract a wrongly recorded Session | "The last Session went to the wrong project; please void it." (can be restored) | Session panel → **Void** |
-| Import past handoffs | "Preview which handoffs from this project can be imported." | Projects → Handoff import |
-
-Every Session has a one-sentence summary and five fixed sections: **Outcomes / Scope / Decisions / Verification / Status and open items**. Each open item has a stable identifier and links back to its source Session; when existing data is upgraded, items start as pending and are never assumed done. The Agent can report resolved items when it saves later work, and the Open items tab of Work history can mark items done, no longer needed or reopened by hand. The format and report granularity are defined in [Work record and report format v1](docs/work-record-and-report-format.md). Before backfilling past work, the Agent checks existing Sessions and uses only conversation or hook evidence for actual start and end times; gaps stay gaps rather than being estimated from PR merge times.
-
-### Measure your own retrieval quality
-
-You can rerun recall and context with your own private questions to check that the expected Sessions / Knowledge rank near the top:
-
-```bash
-pnpm eval:recall ./recall-questions.json --db ./data/work-intelligence.sqlite --out ./recall-report.json
-```
-
-Run `pnpm build` first (this CLI needs the same Node.js as the rest of the repo: 22.16+ or 24+). Each question sets `mode: "recall"` or `"context"`, a `query`, and one or more expected ids or `expectedNoHit: true`; a project path and recall date range are optional. The report lists hit@1, hit@5 and MRR per mode, each question's rank, confidence, MCP response size and call time. The database is snapshotted to an OS temp file over a read-only SQLite connection, and retrieval and index sync only touch the snapshot; results go to the terminal or to a new file given by `--out`, are never uploaded, and never overwrite an existing file. See [`tests/fixtures/recall-eval-example.json`](tests/fixtures/recall-eval-example.json) for the format and [Testing](docs/testing.md#檢索品質評估) for limits and metric definitions.
-
-More detail is in the **[User guide](docs/user-guide.md)**.
-
-## Web UI tour
-
-A GitHub (Primer) style interface with dark and light themes, in English and Traditional Chinese. The sidebar has three groups, **Work**, **Knowledge** and **Manage**, and their names follow the interface language. Long lists scroll inside their own box instead of stretching the page. The screenshots below use fictional sample data and contain no real work records.
-
-**Work overview**
-
-![Work overview: work activity heatmap, this week's loop, stat cards and items that need attention](docs/images/en-US/overview.png)
-
-**Work history** and a Session's details
-
-![Work history: Sessions on a time rail, with whole-day summaries and new Knowledge counts](docs/images/en-US/work-history.png)
-
-![Session details panel with the five fixed sections](docs/images/en-US/session-detail.png)
-
-**Work reports**
-
-![Work reports: daily columns, a synthesis banner and the project share bar](docs/images/en-US/work-reports.png)
-
-**Work knowledge**
-
-![Work knowledge: Knowledge list with kind labels, filters and the kind breakdown](docs/images/en-US/work-knowledge.png)
-
-**Work graph** (Timeline tab)
-
-![Work graph timeline: neutral day bars, failed work in red, Knowledge markers and a fixed project column](docs/images/en-US/work-graph.png)
-
-**Projects**
-
-![Projects: tracked project list with the default-deny policy notice](docs/images/en-US/projects.png)
-
-**System status**
-
-![System status: versions, Agent connections, read log, service, database and backups](docs/images/en-US/system-status.png)
-
-- **Theme**: the sun/moon button in the header switches between light and dark. In System status → Personal preferences you can choose **Follow system**, which is also the first-visit default. The light theme uses soft grey surfaces rather than pure white.
-- **Language**: the language menu in the header switches between English and 繁體中文. The first visit follows the browser language. Only interface text is translated; Sessions, reports and anything an Agent wrote keep the language they were recorded in.
-- Theme and language are stored in this browser only and are never sent to the local API.
-- While data loads, pages show a "Loading…" caption over placeholder rows, and counts stay hidden until they are known.
-
-| Page | What it is for |
-|---|---|
-| **Work overview** | The **Work activity** heatmap comes first: one cell per day for the past 53 weeks, shaded by completed Sessions; click a day to open its report. Then **This week's loop** (record → settle → correct), which uses only counts the product records: Sessions recorded, new Knowledge, Knowledge pages updated, and confirmations and contradictions. Four stat cards follow; the completed-this-week card shows an eight-week trend. Two deterministic insights link to their reports, and attention items, recent work and project status come below. The four-step first-run checklist shows until there is a tracked project or Session |
-| **Work history** | Multi-keyword search over all Sessions, with project and date filters. The time rail gives each day a summary (passed and failed verification) and the number of new Knowledge. Clicking a Session opens its details on the right, with `J`/`K` for next and previous. The **Open items** tab pages through items by project, status and source-Session completion date, and marks up to 100 at a time done or no longer needed; every item links to its source Session. The details show which Agent client wrote the Session. **Copy as Markdown** copies it for a PR description, standup or handoff, and **Agent reads** lists when Agents read it. **Edit Session** corrects the summary, the five sections and verification, with change history; you can also link, void or restore Sessions and mark individual Evidence as wrong. New Sessions appear automatically |
-| **Work reports** | Daily, weekly, monthly, quarterly, yearly and custom-range (up to 366 days) reports, split by the system time zone shown in the header. The overview has daily columns, a project share bar stacked by project, and a timed list of what happened. Until an AI synthesis exists, a one-line banner with a button replaces the card. A synthesis cites its source Sessions, can be pinned, hidden or restored per version, and can be edited by hand with the original kept and changes audited. Trends, risks, cross-period work, raw records and source evidence follow; export to Markdown or JSON |
-| **Work knowledge** | Four tabs, each with its count. **Knowledge** (decisions, patterns, gotchas, procedures and skills an Agent submitted explicitly) has a trust bar drawn only from confirmations and contradictions, with the Sessions behind each. The reason an item may be stale appears under its title: "Possibly stale" when related files changed, "Needs review" when a Session contradicts it. A kind breakdown counts items for the current project and status; you can confirm, edit, archive and view history. **Knowledge pages** are standing pages an Agent writes from recorded Sessions, with every section citing its sources; after three new Sessions, or when sources need checking, the Agent is prompted to review, and a page is rewritten only when its answer changes. **Candidates** are Knowledge waiting for you to accept or reject. **Decisions to confirm** are decisions an Agent made on its own, which you can confirm, reject or promote to Knowledge |
-| **Work graph** | Three tabs. **Timeline**: one swimlane per project, with one neutral bar per day and failed work in red; zoom in to see Sessions as bars or dots and links as arcs. Knowledge created, confirmed, contradicted and superseded appear as markers. Weekends are shaded once days are wide enough, and project names stay in a fixed left column. A list grouped by date is used automatically at phone width. **Graph** shows projects, Sessions, Knowledge, Evidence, files and Session links; solid lines are recorded relationships, and the derived "changed together" relationship can be shown dashed. **Hotspots** lists the files or folders changed by the most Sessions, with their failed and not-run verification share and the latest five Sessions. The Risks tab of Work reports also lists files changed by two or more Sessions in the period |
-| **Projects** | The project list and tracking status. Pick a folder with the system dialog when adding a project, and optionally set an https repository URL so Session commits link to it. Also permanent project deletion, metadata backfill, handoff import and data backup (backup, export and import) |
-| **Session diagrams** | When work changes cross-module flows, data flows, state machines or architecture, an Agent attaches one or two native architecture diagrams to the Session. Cards render in the Session panel; historical Mermaid is kept as source text with copy and download. Diagrams can be voided but not deleted, and they travel with project export and import |
-| **System status** | App and schema version, database location and size, the latest automatic backup and backup totals, the last database maintenance result, the start-at-login service, and the read-only state of Codex and Claude Code MCP registration, skill copies and global hooks; the page never changes service or Agent settings. **Agent read log** lists recent MCP reads with time, Agent, tool, project, duration, failures and returned Session ids, with per-tool counts and p50 / p95 latency. **Personal preferences** sets the theme, interface language and whether to open changed files in VS Code or Cursor, stored in this browser only. For a full environment check, run `pnpm check` |
-
-Reminder rows on the overview can be hidden or snoozed for seven days; the suppressed view restores them, and open-item totals still count the underlying sources. Reports can preview and copy basic Markdown or the current synthesis presentation, which keeps pin/hide/edit choices and source references after checking the source and revision again; if clipboard access fails, select the preview text or download Markdown.
-
-Session detail also offers up to five related-work suggestions based on shared confirmed files in the same tracked project. Existing links are excluded, and a partial search is marked; opening a suggestion creates no relationship.
-
-Shortcuts: `Ctrl`/`⌘` + `K` to search, jump to a page, or switch theme and language; `/` to focus the page search; `g` + `d` / `s` / `r` / `k` / `g` / `p` to switch pages. Filters and the open Session live in the URL, so you can share or reload them.
-
-When the API is unreachable, a "Cannot reach the Work Intelligence API" banner appears at the top, and the current data reloads automatically once the connection is back.
-
-## Backups, moving computers and deletion
-
-All records live in one SQLite file.
-
-- **Automatic backups**: the API server backs up once per local calendar day into `backups/` next to the database. Automatic and manual backups are kept separately, the latest 3 of each by default, so manual backups never push out daily ones. Backup files are readable and writable only by the current user.
-- **Manual backups**: Web UI → Projects → Data backup → **Back up now**, or `pnpm db:backup`. Backups, whole-database exports, project data exports, import previews and imports run in a separate background process with its own memory, so the API and UI stay responsive and a file too large for that process's memory cannot stop the backend; the automatic backup after startup is delayed by 60 seconds.
-- **Managing backups**: Projects → Data backup lists each backup's kind, time and size plus the total; deleting shows the file name and kind and asks for confirmation, with an extra warning for the only listed backup. On the CLI, `pnpm db:backups` lists them and `pnpm db:backups --delete <file name>` deletes one after confirming in an interactive terminal. After a project is deleted, its pre-deletion backup and older backups may still contain its data; manage them from the Data backup page.
-- **Taking data per project**: Projects → Data backup exports all projects or a single project as JSON. On the CLI use `pnpm db:export --all` or `pnpm db:export --project <project name or id>`, with `--out <file.json>` for the output location (`--out` alone means `--all`; options are checked first, so a mistyped option never becomes a file name). JSON exports are not encrypted; keep them safe.
-- **Merge import**:
-  - Choose a JSON file on the same tab. The preview shows each source path and the matching folder's state on this computer; for missing projects you can pick a folder one by one, or skip and import them paused. Only whether the chosen path is a folder is checked; its contents are never read.
-  - When several exported paths have a same-named folder under their parent folder, the UI lists the candidates and asks you to confirm each one before using it.
-  - CLI: `pnpm db:import <file.json> --dry-run` only previews; an interactive import asks for a new location for each missing folder (press Enter to skip). You can also pass `--remap-root <old path>=<new path>`; nothing is written until you type `yes`.
-  - Imports can be repeated; newly imported projects start paused. A project whose ID already exists keeps this computer's root, so moving a file between a Mac and a Windows PC needs no `--remap-root`.
-  - Two computers that both keep recording the same project: choose **Newer wins** (the Web default, or `--strategy newer-wins`). Rows changed on both sides take the newer copy, newer local rows are kept, history is only added, and both sides' Knowledge page versions are kept (renumbered by time). The preview lists how many rows will be updated, how many local rows are kept, and the remaining conflicts grouped by reason. **Add only** (`merge`, the CLI default) never overwrites existing rows.
-  - Imports merge through the running API / SQLite, so there is no need to stop the service.
-- **Path remapping**: `--remap-root` can be repeated and matches whole path segments. Windows paths are case-insensitive and separators follow the new path. It only adjusts project roots and handoff source paths in the imported data and never reads or writes files through the imported paths.
-- **Relocating a project**: the Projects page flags folders that are missing or cannot be checked. **Relocate** only picks and validates a new folder, then updates the project root and the path prefix of that project's raw snapshots. If the project is tracked you are asked to confirm the new scope the Agent may read and write. The audit stores only the time, project id and whether paths changed — never the paths; MCP cannot change paths or delete anything.
-- **Moving to a new computer**:
-  1. On the old computer press **Export all data** (or run `pnpm db:export <file>`) to get a `.sqlite` file. It contains every work record and is not encrypted; move it by a trusted route.
-  2. On the new computer run `pnpm build`, stop the API server, and close any Agent conversation that starts MCP.
-  3. Restore:
-
-     ```bash
-     pnpm db:restore <export file> --remap-root <project parent path on old computer>=<path on new computer>
-     ```
-
-  Leave out `--remap-root` if projects live in the same place; you can also pass several. The restore checks file integrity and version, backs up the new computer's existing data first, and always stops if the server or an Agent still has the database open (there is no override flag). Restoring from a backup uses the same command.
-
-- **Permanently deleting a project**: press the trash button next to a project on Projects → Project list, read the scope, and type the full project name to confirm.
-  - A full backup is created and verified first; if it fails, nothing is deleted.
-  - One transaction deletes the project's Sessions, events, handoffs, Evidence, Knowledge, candidates, report synthesis, change history, search index, and other projects' links pointing to it.
-  - Only a content-free deletion record remains (time, project id, counts per kind).
-  - Projects → Deletion history shows each deletion's time, project id and counts — no project name, path or deleted content.
-  - The project folder itself is never touched. MCP has no deletion tool; only you can delete, through the UI or REST API.
-  - **After deletion the data still exists in earlier backups and exports** until they rotate out or you delete them. See the [User guide](docs/user-guide.md#永久刪除專案資料).
-
-Backup environment variables:
+Useful environment variables:
 
 | Variable | Purpose |
 |---|---|
-| `WORK_INTELLIGENCE_BACKUP_DIR` | Backup folder, `backups/` next to the database by default. Relative paths resolve from the database folder, so the API, MCP, CLI and doctor all point to the same place |
-| `WORK_INTELLIGENCE_BACKUP_KEEP` | Number of manual backups kept, 3 by default; 3 automatic backups are kept separately |
-| `WORK_INTELLIGENCE_BACKUP=off` | Turns off the daily automatic backup |
+| `WORK_INTELLIGENCE_DB` | Database location. Relative paths resolve from the repository root. |
+| `WORK_INTELLIGENCE_PORT` | Local port, `3210` by default. |
+| `WORK_INTELLIGENCE_BACKUP_DIR` | Backup folder, `backups/` next to the database by default. |
+| `WORK_INTELLIGENCE_BACKUP=off` | Turns off the daily automatic backup. |
 
-## Upgrades and maintenance
-
-**Upgrading**: run `git pull`, then `pnpm bootstrap` (it reinstalls, rebuilds, syncs the Agent setup and runs the doctor), reconnect your Agents when prompted. If you run `pnpm start`, restart it; if the start-at-login service is installed, run `pnpm service:restart` so the new version takes effect; it waits until the server reports the new version.
-
-- When a new version needs a database upgrade, a pre-migration backup (`pre-migration-v<version>-…`) is created on first open and the migration runs in a single transaction; if the backup fails, nothing is upgraded.
-- If the database schema is newer than the program (for example, a newer version was used on another computer), the API, MCP and CLI refuse to open it and ask you to update Work Intelligence first instead of crashing or half-applying anything.
-- Step-by-step instructions are in the [User guide](docs/user-guide.md#更新-work-intelligence) and version changes in the [CHANGELOG](CHANGELOG.md).
-
-**Database maintenance**:
+Development commands:
 
 ```bash
-pnpm db:maintain
+pnpm dev                 # Web UI on 5966 (Vite) and API on 3210
+pnpm build               # production build
+pnpm test                # lint, format check and unit tests
+pnpm typecheck           # types for packages, Vue and E2E
+pnpm test:e2e            # Playwright end-to-end tests after a build
 ```
 
-It creates a pre-maintenance backup, then runs `integrity_check`, `VACUUM`, `ANALYZE` and a search-index rebuild, and records the result for `pnpm check` to show. It needs the database to itself, so stop `pnpm start` and close any Agent conversation that starts MCP first; if the database is still open, it stops, tells you, and lists whether the server is running and how many Agent MCP connections are in use (read-only checks).
-
-`pnpm check` (also run at the end of `pnpm bootstrap`) shows a reminder when the database file holds at least 1 MiB of free pages and either 5 MiB or 20% of the file. It only suggests `pnpm db:maintain`; it never runs it.
-
-When something goes wrong, run `pnpm check` first, then see **[Troubleshooting](docs/troubleshooting.md)**.
-
-## Core concepts
-
-**Project recording status (default deny)**
-
-| Status | Meaning |
-|---|---|
-| Unregistered `unregistered` | The default when a project is added; nothing is read or saved |
-| Tracked `tracked` | You explicitly authorized it; the Agent may read handoffs / Git / source and save work records |
-| Paused `paused` | Recording paused; existing data is kept |
-| Ignored `ignored` | Explicitly excluded |
-
-For any project that is not "Tracked", every Agent request returns `skipped` and no file is read. The Agent cannot switch a project to "Tracked" for you.
-
-**Distinctions that are easy to mix up**
-
-- **Finalize ≠ Git commit**: a piece of work may have no commit; changed files only mean files changed.
-- **Verification has five distinct states**: passed, failed, in progress (`in_progress`), explicitly not run (`not_run`), and not reported (older data without it). Choose “In progress” in the Session editor when verification has started but its result is not confirmed; update the same record to passed or failed after checking the result. Starting work alone never implies passed. Reports and portable exports preserve this distinction; record finalization remains separate from verification.
-- **Report numbers ≠ AI summary**: statistics and trends are computed by fixed rules; every conclusion in an AI synthesis must cite source Sessions and says "insufficient data" when there is not enough.
-- **Knowledge only takes explicitly submitted content**: nothing is extracted automatically from handoffs or source code. The Agent proposes candidates; they become Knowledge only after you accept them.
-- **Corrections leave a trail instead of rewriting history**: the summary, the five-section workSummary and verification can be corrected in place by the Agent or in the Session panel (same Session, with change history). Wrongly recorded Sessions and wrong Evidence are voided (a reason is required; they can be restored). Changed files, events and Evidence content stay read-only.
-- **Changes that existed before work started are not this work's outcome**: the Agent can record pre-existing changes when starting (`baselineChangedFiles`), and finalize excludes them from changed files.
-- **Knowledge flags itself as stale**: when files listed in `appliesTo` change later, it is marked "Possibly stale".
-- **Void ≠ delete**: voids can be restored; permanent deletion applies only to whole projects and needs your confirmation.
-
-The full data contracts, consistency guarantees and design principles are in [docs/architecture.md](docs/architecture.md).
-
-## Security and privacy
-
-- The API listens only on `127.0.0.1` and checks `Host` and `Origin`. In production mode the Web UI and API share an origin and add a Content-Security-Policy, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`.
-- Static file serving blocks `..`, encoded paths and symlinks pointing outside.
-- Error responses carry fixed messages and never leak SQLite or file-system internals.
-- Before text is stored, known credential formats are masked and anything wrapped in `<private>…</private>` is replaced with `[REDACTED:private_block]` (a block needs its closing tag; an unclosed tag is stored as written). `pnpm db:redact` applies the same rules to existing data. See [SECURITY.md](SECURITY.md#敏感資料遮蔽).
-- Backups and exports are not encrypted; store and move them by trusted means.
-- When using MCP, the Agent host may send tool results to a remote model depending on its settings; that is governed by the Agent host's policy.
-- Successful MCP reads are audited locally with ids and counts only (never the query or content), kept for 30 days or the newest 5,000 reads, and removed with their project.
-
-The threat model and how to report vulnerabilities are in [SECURITY.md](SECURITY.md).
-
-## Project layout and development
+Repository layout:
 
 ```text
 apps/
-  web/       Vue 3 + Vite Web UI (GitHub/Primer design system, dark / light themes, English / 繁體中文 interface from per-locale JSON message catalogs); Pinia stores hold state, Pinia Colada caches and invalidates API data
-  server/    REST API, production static files, CLI (db:*), doctor and the standalone `work-intelligence` command
-  mcp/       MCP stdio server, the stable launcher Agents connect through, and save-reminder hooks
+  desktop/     the desktop App (Electron shell, installers)
+  web/         Vue 3 + Vite Web UI
+  server/      REST API, production static files, CLI (db:*), doctor
+  mcp/         MCP stdio server, the launcher Agents connect through, and save-reminder hooks
 packages/
-  core/            domain types and extension interfaces
-  schema/          Zod input contracts
-  storage/         SQLite schema, migrations, and services for reports, synthesis, backfill, recall, backups, data transfer, deletion and maintenance
-  project-policy/  default-deny policy gate and safe paths
-  shared/          shared constants, version and helpers
-tests/             unit / integration tests per package and Playwright E2E (one folder per package)
-scripts/           production start, builds (plugin, standalone package) and their smoke tests, pre-build dist cleanup
-data/              local SQLite and backups/ (not version-controlled)
+  core/, schema/, storage/, project-policy/, shared/, desktop-core/, agent-setup/, ui-tokens/
+tests/         unit, integration and E2E tests
+docs/          user guides, release notes and design records
 ```
 
-```bash
-pnpm dev                      # development: Web UI on 5966 (Vite) + API on 3210
-pnpm start                    # production: Web and API on one port (build first)
-pnpm dashboard                # start the production server if needed and open the Web UI
-pnpm plugin:link              # let the Claude Code / Codex plugin find this checkout
-pnpm build:plugin             # self-contained plugin zip and Claude Desktop .mcpb in dist/plugin/
-pnpm build:standalone         # checkout-free package and tarball in dist/standalone/ (docs/standalone.md)
-pnpm start:server             # API only
-pnpm start:mcp                # MCP stdio server only
-pnpm check                    # read-only diagnostics
-pnpm track <folder>           # preview, confirm, then add the folder and set it to Tracked
-pnpm db:backup                # back up now (db:export, db:import, db:restore above)
-pnpm db:backups               # list backups; add --delete <file name> to delete after confirming
-pnpm db:maintain              # offline maintenance (stop the server and MCP first)
-pnpm test                     # ESLint, code layout and Prettier checks, plus package and Web unit tests
-pnpm test:coverage            # coverage (schema, storage, server, mcp and web have thresholds)
-pnpm test:performance         # read-path performance thresholds on synthetic data (build first)
-pnpm test:retrieval-quality   # work_recall retrieval-quality thresholds on synthetic data (hit@5, MRR)
-pnpm eval:recall <questions.json>  # read-only local recall/context evaluation (accepts --db and --out)
-pnpm test:response-size       # synthetic MCP output-size baseline and CI limits
-pnpm typecheck                # packages, Vue and E2E types
-pnpm test:e2e                 # Playwright in production mode after a build (full Chromium suite, Firefox / WebKit core flows) on a separate temporary SQLite
-pnpm format                   # format the repo with Prettier
-```
-
-CI runs build, test, typecheck, coverage and the standalone-package smoke test (`pnpm test:standalone`) on Ubuntu, Windows and macOS, plus the storage suite on Node 26; Ubuntu additionally runs the production-dependency security audit (fails on high / critical), the performance, retrieval-quality and MCP response-size thresholds, and Chromium / Firefox / WebKit E2E (Chromium and Firefox run axe accessibility checks on the six main pages, System status, backup management and the first-run checklist, in both themes). Ubuntu WebKit is not a substitute for testing on a real macOS Safari. Details are in [docs/testing.md](docs/testing.md).
-
-Other settings:
-
-- `WORK_INTELLIGENCE_DB`: SQLite location. The server, CLI, `pnpm check`, login service and MCP resolve it with the same rule: a relative value resolves from the repository root (never the shell's current directory); a self-contained bundle resolves it from `~/.work-intelligence` (`WORK_INTELLIGENCE_CONFIG_DIR` changes that folder).
-- `WORK_INTELLIGENCE_PORT`: production port, `3210` by default.
-- `WORK_INTELLIGENCE_ALLOWED_ORIGINS`: not needed in production mode, which is same-origin. In development or with a custom origin, set it in `.env` (comma-separated, `*` not allowed); its exact host and port are also added to the API's `Host` allowlist.
-- Reports and date filters split days by the server's system time zone (Node honours the `TZ` environment variable).
-
-Before starting work, read the matching shared skill (shared by Codex and Claude, under `.agents/skills/`):
-
-| Area | Skill |
-|---|---|
-| Web UI design and data semantics | [`worklog-ui`](.agents/skills/worklog-ui/SKILL.md) |
-| Web code conventions (Vue, TypeScript, Pinia stores, query keys, i18n) | [`worklog-web-code-style`](.agents/skills/worklog-web-code-style/SKILL.md) |
-| Storage, server, MCP (migrations, error codes, performance rules, export and deletion of new tables) | [`worklog-backend`](.agents/skills/worklog-backend/SKILL.md) |
-| Code placement order in every file (declare before use, lifecycle position and so on; checked by `pnpm lint`) | [`worklog-code-layout`](.agents/skills/worklog-code-layout/SKILL.md) |
-| How Agents use the Work Intelligence MCP tools | [`work-intelligence`](.agents/skills/work-intelligence/SKILL.md) |
-
-Development workflow, health checks and PR rules are in [CONTRIBUTING.md](CONTRIBUTING.md).
+Screenshots of the Web UI, with fictional sample data, are in [docs/user-guide.md](docs/user-guide.md).
 
 ## Documentation
 
-The guides under `docs/` are written in Traditional Chinese.
-
 | Document | Contents |
 |---|---|
-| [docs/user-guide.md](docs/user-guide.md) | Installation, production mode, everyday use, reports, Knowledge, backups, deletion, moving computers and upgrades |
-| [docs/release.md](docs/release.md) | SemVer, pre-release checks, tag-only GitHub Releases and cross-version upgrades |
-| [docs/release-checklist.md](docs/release-checklist.md) | Per-platform manual acceptance steps with result fields; unchecked items stay pending |
-| [docs/troubleshooting.md](docs/troubleshooting.md) | Common problems with API connections, ports, MCP, global hooks, restore, import and maintenance |
-| [docs/service.md](docs/service.md) | User-level start at login on macOS, Windows and Linux, removal and troubleshooting |
-| [docs/agent-setup.md](docs/agent-setup.md) | Registering with Codex CLI, Claude Code and Claude Desktop, and the global save-reminder hook |
-| [docs/plugins.md](docs/plugins.md) | The Claude Code / Codex plugin: install, `pnpm plugin:link`, and switching from manual registration |
-| [docs/standalone.md](docs/standalone.md) | The checkout-free package: layout, the `work-intelligence` command, data location, what `check` verifies and its smoke test |
-| [docs/mcp-tools.md](docs/mcp-tools.md) | Every MCP tool's purpose, fields, examples, policy behaviour, annotations and prompts |
-| [docs/rest-api.md](docs/rest-api.md) | REST endpoints, lowercase snake_case error codes, metadata backfill, report export, backups, project data export / import, deletion and the live update stream |
-| [docs/work-record-and-report-format.md](docs/work-record-and-report-format.md) | The five-section Session format, report granularity and backfill limits |
-| [docs/architecture.md](docs/architecture.md) | Data contracts, consistency and input boundaries, the recording policy, design principles |
-| [docs/testing.md](docs/testing.md) | Test commands, coverage, performance, retrieval-quality and accessibility thresholds, and E2E scope |
-| [docs/status.md](docs/status.md) | Current status, open items and deferred work |
-| [CHANGELOG.md](CHANGELOG.md), [docs/releases/](docs/releases/) | Version history and per-version update guides (Traditional Chinese) |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Development workflow, health checks, PR and work-record rules |
-| [SECURITY.md](SECURITY.md) | Threat model, local security boundaries and private vulnerability reporting |
+| [docs/user-guide.md](docs/user-guide.md) | Everyday use, reports, Knowledge, backups, moving computers, updates (Traditional Chinese) |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | Common problems in the App and on the command line (Traditional Chinese) |
+| [docs/agent-setup.md](docs/agent-setup.md) | Agent setup, the App's Agent tab, and save-reminder hooks (Traditional Chinese) |
+| [docs/service.md](docs/service.md) | Start at login (Traditional Chinese) |
+| [docs/standalone.md](docs/standalone.md) | Standalone package for command-line users (Traditional Chinese) |
+| [docs/release.md](docs/release.md) | Releases and upgrades, for maintainers (Traditional Chinese) |
+| [docs/plugins.md](docs/plugins.md) | Claude Code and Codex plugin |
+| [docs/mcp-tools.md](docs/mcp-tools.md) | MCP tools, fields and policy behaviour |
+| [docs/rest-api.md](docs/rest-api.md) | REST endpoints and error codes |
+| [docs/architecture.md](docs/architecture.md) | Data contracts, consistency and the recording policy |
+| [docs/status.md](docs/status.md) | Current status and open items |
+| [CHANGELOG.md](CHANGELOG.md), [docs/releases/](docs/releases/) | Version history and per-version notes |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Development workflow and pull request rules |
+| [SECURITY.md](SECURITY.md) | Threat model and private vulnerability reporting |
 
 ## License
 
