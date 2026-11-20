@@ -155,7 +155,7 @@ pnpm start
 |---|---|
 | `WORK_INTELLIGENCE_DB` | 資料庫位置。相對路徑以 repo 根目錄為基準。 |
 | `WORK_INTELLIGENCE_PORT` | 本機連接埠，預設 `3210`。 |
-| `WORK_INTELLIGENCE_BACKUP_DIR` | 備份資料夾，預設為資料庫旁的 `backups/`。 |
+| `WORK_INTELLIGENCE_BACKUP_DIR` | 備份資料夾。命令列模式預設為資料庫旁的 `backups/`；桌面 App 模式預設為 `~/.work-intelligence/backups/`（可在 App 的「設定」分頁更換）。 |
 | `WORK_INTELLIGENCE_BACKUP=off` | 停用每日自動備份。 |
 
 開發指令：
