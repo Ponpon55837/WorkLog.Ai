@@ -1,6 +1,6 @@
 # Work Intelligence 桌面版 V1：決策紀錄（ADR，R4）
 
-**基準：** `d464ea5`（1.6.40）；目標 1.6.41。**修訂日期：** 2026-11-16。本檔記錄 R3 中所有決策，並更新 R4 的變更。每筆 ADR 包含脈絡、決策、後果與狀態。本檔依主題分組，編號不依出現順序排列。
+**設計基準：** `d464ea5`（1.6.40）；**最後修訂對應** 1.6.61；**狀態註記涵蓋至** 1.6.56（1.6.57 至 1.6.61 未逐筆標註，見 docs/status.md）。**修訂日期：** 2026-11-20。本檔記錄 R3 中所有決策，並更新 R4 的變更。每筆 ADR 包含脈絡、決策、後果與狀態。本檔依主題分組，編號不依出現順序排列。
 
 **狀態定義**：
 
@@ -25,9 +25,9 @@
 
 ### ADR-02 首發平台：Windows 11 x64 與 macOS 同批發行（取代 R3 的「先 macOS 再 Windows」）
 
-- **狀態**：已採用（產品決策，2026-11-16）；**取代** R3 §0.3、§14.1 的「先 macOS 再 Windows」建議
+- **狀態**：已採用（產品決策，2026-11-16）；**取代** R3 §0.3、§14.1 的「先 macOS 再 Windows」建議；**1.6.55 註記**：macOS arm64 與 x64 分開建置並發行（Release v1.6.55 含 `mac-arm64.dmg` 與 `mac-x64.dmg`），架構範圍已定案；兩個架構的實機驗收仍待進行
 - **脈絡**：R3 原建議先 macOS，視簽章與驗收能力再開放 Windows，Linux 分開。產品決定 Windows 11 x64 與 macOS 同等重要並同批發行。
-- **決策**：首發為 Windows 11 x64 與 macOS（Apple Silicon 與 Intel 皆列為候選，待確認；Intel 的 A 階段決定見 §9.0）。Linux（AppImage、系統匣、登入項）不在 V1，於發行聲明排除；Windows ARM 排除為推論，待確認。CLI、standalone、plugin 不受影響。
+- **決策**：首發為 Windows 11 x64 與 macOS（Apple Silicon 與 Intel 皆列為候選，待確認（**1.6.55 註記**：兩者已發行，見上方狀態）；Intel 的 A 階段決定見 §9.0）。Linux（AppImage、系統匣、登入項）不在 V1，於發行聲明排除；Windows ARM 排除為推論，待確認。CLI、standalone、plugin 不受影響。
 - **後果**：Windows 專屬項目（NSIS、schtasks、檔案鎖、IFileOpenDialog）進入首發範圍，排程風險上升。Windows 實機驗收成為發行前提。
 - **1.6.45 的打包**：Windows 11 x64 與 macOS 的安裝包都由 `desktop-package` 產出；macOS 以 arm64 與 x64 分開建置（不做 universal），x64 在 macos-15-intel 建置。架構分開的建議待產品確認（見 §9.0、§14.1）。
 - **關聯**：§9；DT-26、DT-34、DT-13、DT-24、DT-36。
@@ -38,7 +38,7 @@
 - **脈絡**：兩平台同批發行，若允許單平台先發，會造成使用者得到不一致的版本，也使更新 metadata 缺附件。
 - **決策**：Release 先暫存全部首發平台的產物（ad-hoc 簽章或未簽章，見 ADR-38），完整且驗證通過才一次公開。任一平台的 gate 未過，整版不公開。
 - **後果**：更新時程由較慢的平台決定。需在里程碑中預留 Windows 實機時間。
-- **1.6.45 的實作**：`desktop-package`（windows-x64、macos-arm64、macos-x64）與 `release.yml` 已接線，發行 job 必須等它成功，安裝包才會加入 `SHA256SUMS.txt` 與 GitHub Release。三平台實際執行的結果於發行前確認。
+- **1.6.45 的實作**：`desktop-package`（windows-x64、macos-arm64、macos-x64）與 `release.yml` 已接線，發行 job 必須等它成功，安裝包才會加入 `SHA256SUMS.txt` 與 GitHub Release。三平台實際執行的結果於發行前確認。**1.6.55 狀態**：Release v1.6.55（2026-11-18）已含 Windows x64 安裝檔（`win-x64-setup.exe`）、macOS arm64 與 x64 的 DMG 與 ZIP，以及 `SHA256SUMS.txt`（以 GitHub REST API 查得）；三平台的實機安裝與執行仍待實機驗收。
 - **關聯**：§9.0、§9.5；DT-33。
 
 ### ADR-04 Runtime：隨包標準 Node，供後端、MCP、hook 共用
@@ -175,7 +175,7 @@
 
 ### ADR-21 操作日誌、單一 OperationCoordinator 與 idempotent replay
 
-- **狀態**：已採用；1.6.42 已實作契約與測試（packages/desktop-core）；1.6.56 將復原接到主程序啟動流程（H-01）
+- **狀態**：已採用；1.6.42 已實作契約與測試（packages/desktop-core）；1.6.56 已接線（H-01）：主程序於讀取設定之後、首次設定與後端啟動之前呼叫 `recoverAtStartup`（`apps/desktop/src/main/index.ts:621`，實作於 `apps/desktop/src/main/recovery-startup.ts:47`）
 - **脈絡**：接管、換 port、換 DB、套用 Agent、更新等操作可能重送、中斷或併發（R19、R30）。
 - **決策**：所有影響管理權的操作經單一 `OperationCoordinator`。每個操作有 `operationId` 與持久化的階段。重送同 ID 回傳同一結果；不同 ID 的互斥操作回 `BUSY`。中斷後依真實 OS 服務、DB 與 manifest 重建狀態，不只依賴 journal 文字。主程序啟動時，於讀取設定之後、首次設定與後端啟動之前執行復原。復原依真實狀態（設定檔、DB 身分與 schema、子程序、舊服務偵測）關閉中斷的操作，不採信 journal 的階段文字。
 - **後果**：journal 為空時，啟動只多一次讀取。損毀的 journal 改名隔離後從空白重來（M-06）。需實作對應的測試替身（DT-09、DT-10）。
@@ -183,7 +183,7 @@
 
 ### ADR-22 migration 之後不自動重啟舊服務，DB 不自動回退
 
-- **狀態**：已採用
+- **狀態**：已採用（1.6.56 復原與 App 內還原已接線，見下方 1.6.56 狀態）
 - **1.6.56 狀態**：啟動復原（H-01）依真實狀態判斷是否已 migration（DB 身分與 schema），不讀 journal 的 `migrationStarted`。已 migration 或 DB 身分不確定時，不自動重啟舊服務，改進入修復或還原流程。App 內還原（H-02）見 C-15。
 - **1.6.52 狀態**：DT-32 的測試已實作（CI 可驗證部分）：三份真實舊版樣本的升級測試（`tests/storage/upgrade-samples.test.ts`）、以真實程序中斷 migration、備份與還原的測試（`tests/storage/migration-interruption.test.ts`），以及桌面 smoke（`apps/desktop/tests/desktop-smoke/migration-interruption.spec.ts`）驗證 migration 開始後不回到舊服務。還原前驗證遷移後的副本，失敗回傳 `RESTORE_VERIFY_FAILED` 且現行資料庫不變。實機行為待實機驗收。
 - **脈絡**：舊程式開新版 DB 會造成寫入不相容；非可逆 schema 變更不能以程式降版來回復資料。
@@ -226,7 +226,7 @@
 
 ### ADR-11 管理 API 授權：Host:port 精確比對、Origin、會話、CSRF 同時成立
 
-- **狀態**：已採用（判定規則）；Host:port 比對 **1.6.41 已實作**（commit dadaae4）
+- **狀態**：已採用（判定規則）；Host:port 比對 **1.6.41 已實作**（commit dadaae4）。**會話與 CSRF 未實作**：現行做法為 Host:port 精確比對（`apps/server/src/server.ts:94`，`isAllowedHost`）加上 Origin 檢查（`server.ts:117`）；`apps/server`、`packages/shared`、`packages/desktop-core` 內沒有 CSRF token 或管理會話。
 - **脈絡**：現況 `isAllowedHost()` 只比對 hostname，不比對 port `[R]`；DNS rebinding 與本機其他程序都可能帶假 Host（R09、R10）。
 - **決策**：允許的 Host = loopback 名稱 × 實際 listen port，加上每個 allowed origin 的精確 host:port。例如開發環境 Vite 5966 proxy 轉送的 `Host: localhost:5966`。管理 API 另需會話、Origin 與 CSRF。機密不放在 URL query 或日誌。
 - **後果**：port 變更時須重建授權；開發代理需明確列在 allowed origin。
@@ -235,6 +235,7 @@
 ### ADR-12 高風險操作由原生視窗確認；Web 只送固定動作
 
 - **狀態**：已採用
+- **實際做法**：Web 端的開頁與連接埠請求以固定動作進入主程序（`apps/desktop/src/main/index.ts:610`、`:839`）。原生確認已用於還原（`apps/desktop/src/main/restore.ts:40`，確認前不停止任何程序）、退出（`apps/desktop/src/main/quit.ts:37`）與備份資料夾選擇（`apps/desktop/src/main/backup-directory-dialogs.ts:49`）。其餘列出的操作未逐一核對原生確認的位置。會話與 CSRF 未實作，見 ADR-11。
 - **脈絡**：瀏覽器擴充、XSS、畫面分享都可能暴露授權碼，授權碼不能作為唯一防護（R09）。
 - **決策**：Web 只能送固定動作與經 schema 驗證的值。特權資料夾選擇、設定預覽、恢復登入服務、刪除或還原 DB、變更路徑、安裝更新、寫 Agent 設定，一律回到 App 的本機視窗確認。禁止任意 `exec`、任意 URL 與任意檔案位置。
 - **後果**：部分操作需要切換視窗，操作路徑較長。
@@ -347,6 +348,7 @@
 ### ADR-27 Port 策略：預設 3210，實際 bind 為準，跨 port 只搬白名單偏好
 
 - **狀態**：已採用
+- **1.6.55 註記**：工作列已移除「變更連接埠…」（`packages/desktop-core/src/shell/tray-menu.ts` 的項目清單不含此項）；換 port 的入口只剩 App 視窗的連接埠區段（`apps/desktop/src/renderer/repair/port-view.ts`）。
 - **1.6.51 狀態**：換 port 已實作於 App 內（修復視窗「連接埠」與工作列「變更連接埠…」）。實際 bind 或 IPC 與 HTTP 證明失敗時不寫入設定、回到舊 port；OS 不允許的 port 回報 `PORT_NOT_PERMITTED`，與占用分開。新位址以一次性 fragment 還原白名單偏好，不移轉 session 或 DB 路徑（`apps/desktop/src/main/change-port.ts`）。實機行為待驗收。
 - **2026-11-18（1.6.54）**：閒置的匯入預覽（暫存檔，沒有任何操作正在讀取）不再阻擋換 port；匯入、備份、匯出與還原仍阻擋。換 port 成功且確實捨棄預覽時，連接埠區段才顯示提示。暫存檔於 App 重新啟動、Web 離開頁面與 `pagehide` 時移除；沒有人移除的暫存檔 30 分鐘後過期。
 - **脈絡**：port 預檢無法代表實際 bind 結果；port 改變後 browser origin 也改變（R20）。
@@ -375,7 +377,7 @@
 
 ### ADR-23 更新的三階段成功定義
 
-- **狀態**：已採用
+- **狀態**：已取代（由 ADR-25、ADR-40 取代：V1 不做 App 內自動更新，三階段模型在本版不適用；保留原文供追溯）
 - **脈絡**：只用一個「成功」布林值會把安裝、後端與資料相容混為一談（R14）。
 - **決策**：分為 `desktopInstalled`、`backendReady`、`dataCompatible` 三段，各有完成條件與失敗策略。UI 分別呈現。
 - **後果**：UI 與測試需覆蓋三段各自的失敗。
@@ -383,7 +385,7 @@
 
 ### ADR-24 更新安裝時機：使用者明確安裝、先排空；不在 quit 時靜默安裝
 
-- **狀態**：已採用（實作策略待 `autoInstallEvent` 實測）
+- **狀態**：已取代（由 ADR-25、ADR-40 取代：V1 不做 App 內安裝，未加入 `electron-updater`；保留原文供追溯）
 - **1.6.45 狀態**：本版沒有自動更新（見 ADR-25），因此不存在安裝時機的問題；退出時不安裝、也不會靜默安裝。若日後加入自動更新，本條須重新評估。
 - **脈絡**：electron-updater 文件指出 Windows 與 Linux 的退出時安裝可能與 OS session 結束競爭 `[U]`（R21）。
 - **決策**：使用者明確按下安裝後，先排空後端再安裝。延後時，一般退出不得安裝。若無法證明沒有意外安裝，採用 manual 或 onNextLaunch 策略，並保留外部可啟動的修復安裝包。
@@ -421,7 +423,7 @@
 - **狀態**：已採用（使用者決策，1.6.53）
 - **脈絡**：ADR-25 的 V1 只能手動下載新版。使用者需要知道有沒有新版，但若 App 自行查詢，會在使用者沒有察覺時連線到外部服務，也會增加背景行為的風險。
 - **決策**：
-  - 只提供手動的「檢查更新」：修復視窗的「更新」卡片，以及工作列的「檢查更新…」（主程序在這次點擊時直接開始檢查，與按鈕共用同一次請求，再開啟卡片）。啟動、背景與閒置時都不查詢，也不設定計時器；沒有任何旗標等待頁面開啟後才送出請求。
+  - 只提供手動的「檢查更新」：修復視窗的「更新」卡片，以及工作列的「檢查更新…」（主程序在這次點擊時直接開始檢查，與按鈕共用同一次請求，再開啟卡片）。**1.6.55 註記**：工作列的「檢查更新…」改為開啟設定分頁並開始檢查（`apps/desktop/src/main/tray.ts:38`）；「更新」卡片的檔案為 `apps/desktop/src/renderer/repair/update-view.ts`。啟動、背景與閒置時都不查詢，也不設定計時器；沒有任何旗標等待頁面開啟後才送出請求。
   - **沒有設定開關**。使用者按下「檢查更新」即為同意連線到 GitHub。「預設關閉」的意思是：沒有任何東西會自動執行。
   - 請求只在主程序發出，請求內容只含固定的 API 路徑與標頭，不含版本、作業系統、機器識別碼或權杖，並移除瀏覽器核心自動加上的 `Accept-Language`；使用不帶憑證、不快取、不接受重新導向的記憶體內 session。
   - 下載的對象只能是安裝檔或發行頁面，由使用者的瀏覽器開啟。App 內不下載、不安裝（ADR-25）。
@@ -463,7 +465,7 @@
 - **脈絡**：正式簽章需要 Apple Developer ID（年費）與 Windows 程式碼簽章憑證，公證也需要 Developer ID。原本的 §9.4 階段 5、6 以「簽署的 N→N+1」與「簽章安裝包」為 gate，ADR-03 也以簽章產物為暫存條件。
 - **決策**：
   - 不購買 Apple Developer ID 與 Windows 程式碼簽章憑證，長期維持 macOS ad-hoc 簽章（`afterPack` hook）、Windows 不簽章，也不做公證。
-  - 主要取得方式是使用者在自己的電腦上以 `pnpm package:desktop` 打包（它會先執行 `pnpm build`）（見[桌面設計索引](README.md)「本機打包」）；CI 與 GitHub Release 的產物為輔。
+  - 主要取得方式是使用者在自己的電腦上以 `pnpm package:desktop` 打包（它會先執行 `pnpm build`）（見[桌面設計索引](README.md)「本機打包」）；CI 與 GitHub Release 的產物為輔。**1.6.55 更正**：一般使用者的主要取得方式是 GitHub Release 的安裝檔（Windows 為 `win-x64-setup.exe`，macOS 為 `mac-arm64.dmg` 或 `mac-x64.dmg`，以 `SHA256SUMS.txt` 核對）。本機打包（`pnpm package:desktop`，根目錄 `package.json` 的 `package:desktop` 腳本）改為開發者選項，不是一般使用者的步驟。
   - 產物的完整性以 `SHA256SUMS.txt` 核對；之後若加入更新檢查，改以我們自己的 manifest 簽章驗證，不依賴平台的程式碼簽章。
 - **後果**：
   - 下載的安裝包會出現 macOS Gatekeeper 與 Windows SmartScreen 提示，使用者需自行允許開啟；本機打包的產物通常沒有隔離屬性（macOS `com.apple.quarantine`）或 Mark of the Web，所以多半不會出現這些提示。

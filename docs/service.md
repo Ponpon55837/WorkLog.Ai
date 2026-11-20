@@ -1,6 +1,8 @@
 # 登入自動啟動服務
 
-Work Intelligence 可在目前使用者登入後自動執行正式模式 `pnpm start`，並讓本機 Dashboard 與 REST API 共用同一個資料庫。服務是選用功能；一般使用仍可在終端機執行 `pnpm start`。
+Work Intelligence 可在目前使用者登入後自動執行正式模式，並讓本機 Dashboard 與 REST API 共用同一個資料庫。服務是選用功能。
+
+**桌面 App 使用者**：在 App 視窗的「設定」分頁打開「登入時自動啟動」即可（Windows 與 macOS），不需要任何命令。開關會顯示系統實際狀態；若系統的啟動項目被關掉，或 macOS 還在等待核准，卡片會說明原因。以下各節是給 checkout 與命令列使用者的說明。
 
 ## 安裝前
 

@@ -1,355 +1,124 @@
-# 註冊到 Codex 與 Claude
+# 用 App 設定 Agent
 
-把 Work Intelligence MCP stdio server 註冊到 Codex CLI、Claude Code 與 Claude Desktop，並完成第一次使用。
+Work Intelligence 的 MCP 伺服器是本機 stdio 程序，由 Codex 或 Claude Code 自己啟動。它與 App 的本機服務使用同一份資料庫。這一頁說明在桌面 App 中設定 Agent 的方式，以及保存提醒 hook 的行為。
 
 > 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
-這個 MCP 是本機 stdio server。正式模式 Dashboard 預設是 `http://127.0.0.1:3210`，開發模式 Web 是 `http://127.0.0.1:5966`；兩者都不是 MCP endpoint。Codex 與 Claude Code 會各自啟動本機 MCP process，並共用同一個中央 SQLite。
+## 在桌面 App 設定（建議）
 
-> 想用 plugin 一次裝好 MCP、skill 與 Claude Code 保存提醒，見 [Claude Code 與 Codex plugin](plugins.md)。plugin 與本頁的註冊方式二選一即可。
+請在 App 視窗的「**Agent**」分頁設定。這個分頁為 Codex 與 Claude Code 各顯示一張卡片；第一次執行的首次設定頁也有「設定 Agent」按鈕，可以直接跳到這裡。
 
-## 在桌面 App 設定（1.6.49 起）
+- **只看不寫**：打開分頁不會寫入任何檔案。「預覽變更」會逐檔列出差異，家目錄一律顯示為 `~`。
+- **套用**：「套用變更」只套用剛才預覽的那份計畫，並把這次變更記錄下來；計畫有衝突時無法套用。
+- **復原**：「復原上次變更」依記錄把檔案還原成套用前的樣子。若檔案在套用後又被 Agent 改寫，App 只撤銷它自己加入的部分，其他內容保留。
+- **測試連線**：卡片可以測試 MCP 伺服器能否啟動並回應。
+- **移除**：「移除 Agent 設定」使用與設定相同的預覽與確認步驟，只移除 App 加入的內容。
+- **使用的資料庫**：App 寫入的設定會指向 App 管理的 launcher。App 換資料庫時，MCP 與 hook 會一起跟著換。
 
-使用桌面 App 時，可以直接在 App 內設定，不必執行命令：
+### 卡片狀態
 
-- **開啟方式**：工作列的「設定 Agent…」、首次執行頁完成後的「設定 Agent」，或 Web「系統狀態」頁的「在桌面 App 設定 Agent」。最後一個按鈕只會請 App 開啟這個頁面，Web 本身不寫入任何設定。
-- **頁面內容**：Codex 與 Claude Code 各有一張卡片，顯示狀態、MCP 與保存提醒 hook 目前由誰管理，以及偵測到的 checkout。
-- **只看不寫**：打開頁面不寫入任何檔案。「預覽變更」會逐檔顯示差異，家目錄一律顯示為 `~`。
-- **寫入與復原**：「套用變更」只套用剛才預覽的那份計畫，並寫入操作日誌；計畫有衝突時不能套用。「復原上次變更」依日誌把檔案還原。
-- **測試連線**：「測試連線」經由 App 的固定 launcher 完成 MCP `initialize` 與 `tools/list`。
-- **使用的資料庫**：App 寫入的設定指向固定 launcher。沒有設定 `WORK_INTELLIGENCE_DB` 時，launcher 讓 MCP 與兩個 hook 使用 App 正在使用的資料庫，App 換資料庫後也一樣。
-- **接管手動設定**：Agent 設定裡已有手動加入、指向 checkout 的 Work Intelligence 項目時，頁面會出現「改由桌面 App 管理…」。一樣先預覽差異，確認後才改寫為指向 launcher，也可以復原；辨識不出的項目不會被接管。
-- **只接管同一份資料庫**：接管後 hook 會改用 App 的資料庫，所以只有 checkout 項目使用的資料庫就是 App 目前的資料庫時才會接管。使用其他資料庫時（明確設定的 `WORK_INTELLIGENCE_DB`，或 checkout 預設的 `data/work-intelligence.sqlite`），不接管也不改寫，卡片會列出那份資料庫，並提供「改用這份資料庫」：在 App 視窗預覽後，由你確認是否讓 App 改用它。
+| 卡片上的字 | 意思 | 你要做什麼 |
+|---|---|---|
+| 已連線 | Agent 已經實際使用過 Work Intelligence 的工具 | 不需要 |
+| 已設定，待確認 | 設定已寫入，但 Agent 還沒有使用過工具 | 在 Agent 對話中，對一個記錄中的專案問一句話，例如「這個專案有在 Work Intelligence 記錄嗎？」 |
+| 需要重新連線 | Agent 載入的是舊版伺服器 | 關閉該 Agent 的對話，再重新開啟 |
+| 設定衝突 | App 無法安全地改寫現有設定 | 依卡片說明處理；通常是改由 App 管理，或手動整理衝突的那段設定 |
+| 由其他方式管理 | 設定來自 plugin 或其他安裝方式 | 依卡片說明；App 不會改動你的 plugin |
+| 需要信任／授權 | Agent 還需要你先信任或授權 Work Intelligence | 依 Agent 的提示完成信任或授權 |
+| 執行環境不相容 | 本機的執行環境版本不符合要求 | 依卡片說明更新執行環境，再預覽並套用 |
+| 尚未設定 | 還沒有寫入 | 按「預覽變更」再「套用變更」 |
 
-如果曾用 `pnpm bootstrap` 或 `pnpm service:install` 安裝舊的登入服務，App 會在首次執行頁、App 視窗的「狀態」分頁與 Web 狀態頁提醒，並附上移除指令；說明見[登入自動啟動服務](service.md)。
+### 手動加入的設定
 
-## 以 setup 命令安裝
+如果你曾自己在 Agent 的設定檔裡加入 Work Intelligence（例如指向原始碼資料夾的啟動方式），卡片會顯示「由其他方式管理」或「設定衝突」，並提供「改由桌面 App 管理…」。
 
-`pnpm bootstrap` 會自動執行這一步（在安裝依賴與建置之後呼叫 `pnpm setup:agents`，預覽與 `yes` 確認照常進行）；以下說明單獨執行時的行為。
+- 按下後 App 先顯示差異，確認後才改寫。它只接手能辨識的格式；不認得的項目不會被動到。
+- 接手時會移除指向原始碼資料夾的工作目錄，以及指向其他資料庫的設定，讓 MCP 與 hook 跟隨 App 的資料庫。其他的環境變數、其他 MCP 伺服器與你自己的 hook 都會保留。
+- 「復原上次變更」後，檔案會與接手前逐位元組相同。
 
-若 Claude Code 的 `settings.json` 已啟用 `work-intelligence@<marketplace>` plugin，或 Codex 的 `config.toml` 已啟用 `[plugins."work-intelligence@<marketplace>"]`，安裝模式會略過該 Agent 的 MCP、skill 與 hook 手動註冊，並在預覽中以一行說明（plugin 已提供這些項目），避免重複註冊；另一個 Agent 仍照常處理。解除安裝不受影響。
+### 只接手同一份資料庫
 
-在 Work Intelligence repo 根目錄先執行 `pnpm install`、`pnpm build`，再執行 `pnpm setup:agents`。缺少 dist 時設定命令會停止，不會自動 build。預設只預覽將要註冊的 MCP、安裝的 user-level skill 與保存提醒 hook，不建立目錄、不備份也不修改設定；互動終端輸入 `yes` 確認後，工具才會先備份再寫入。非互動終端一律只預覽。可以重複執行；已經指向這個 repo 的既有設定（例如手動加的 `pnpm --dir <repo> start:mcp` MCP 註冊、用 `/usr/local/bin/node` 絕對路徑或 `command` + `args` 形式寫的 hook）會原樣保留、不重複新增，也不記入安裝紀錄，所以解除安裝不會移除它們；只有舊版 Codex PostToolUse matcher 會就地升級，其他自訂欄位（timeout、statusMessage）保留。遇到指向別處或與支援格式不符的設定衝突時，整批安裝會停止，不會部分寫入或覆蓋。解除安裝使用 `pnpm setup:agents --uninstall`，同樣先預覽並確認；若 managed skill 或設定片段已被修改，解除安裝會保留並回報，讓你自行處理。Installer 會記錄安裝時使用的 `CODEX_HOME` 與 `CLAUDE_CONFIG_DIR`。已有安裝紀錄時，若目前 root 與紀錄不同，重新安裝會拒絕寫入；解除安裝則使用紀錄中的原 root 操作，即使目前環境變數已改變也不會指向別的目錄。
+接手後，hook 會改用 App 的資料庫。所以只有手動設定使用的資料庫就是 App 目前的資料庫時，App 才會接手。若手動設定指向另一份資料庫（明確設定的 `WORK_INTELLIGENCE_DB`，或 checkout 預設的 `data/work-intelligence.sqlite`），App 不會悄悄換過去。卡片會列出那份資料庫，並提供「改用這份資料庫」，由你決定。
 
-Codex 官方文件指定的 user skill 位置是 `$HOME/.agents/skills/`，不受 `CODEX_HOME` 影響。為相容本機既有 runtime，setup 也會在 `${CODEX_HOME:-~/.codex}/skills/` 安裝一份 legacy compatibility skill；這是相容複本，不是官方 canonical 路徑，兩份都以內容 hash 檢查並由 installer 管理。Codex 全域 MCP 設定位於 `${CODEX_HOME:-~/.codex}/config.toml`；hook handlers 位於 `${CODEX_HOME:-~/.codex}/hooks.json`，而 `features.hooks` 開關仍由 `config.toml` 控制。Claude Code 的 user skills 位於 `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/`，user MCP 設定由 `claude mcp add --scope user` 管理並存於 `~/.claude.json`，hook 設定位於 `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json`。`CODEX_HOME` 會移動 Codex 的設定根目錄（MCP、hooks 與 legacy skill 複本）；`CLAUDE_CONFIG_DIR` 會移動 Claude 的 `.claude` 目錄設定（skills/hooks），而 user MCP 設定仍在 home 下的 `.claude.json`。`pnpm setup:agents` 會遵循這些環境變數。官方說明：[Codex MCP](https://developers.openai.com/learn/docs-mcp)、[Codex skills](https://developers.openai.com/codex/skills)、[Codex hooks](https://developers.openai.com/codex/hooks)、[Codex configuration reference](https://developers.openai.com/codex/config-reference)、[Claude Code MCP](https://code.claude.com/docs/en/mcp)、[Claude Code skills](https://code.claude.com/docs/en/skills)、[Claude Code hooks](https://code.claude.com/docs/en/hooks)、[Claude Code directory and configuration overrides](https://code.claude.com/docs/en/claude-directory)。
+### MCP 連線
 
-安裝後若更新 Work Intelligence，請重新執行設定命令同步 skill；`pnpm check` 會以內容 hash 分別檢查 Codex canonical skill、Codex legacy compatibility 複本與 Claude Code user skill 是否缺少或過期；仍使用 MCP dispatcher 之前舊 matcher 的 Codex PostToolUse hook 會標示為「需要更新」（不是「未安裝」），重新執行設定命令即可升級。Web「系統狀態」頁依 Agent 分組列出每一項及其設定位置，有需要處理的項目時會顯示可複製的 `pnpm setup:agents`。若 Codex hooks 明確停用或無法判定，設定命令會略過 Codex hook、不會自行啟用 hooks。Codex 會略過尚未信任的 hook；連線與信任提醒見下方 Codex hook 說明。
+Web 介面的「系統狀態」頁會顯示 MCP 連線數，並在數字是 0 或偏少時說明原因，例如 MCP 伺服器是舊版、無法寫入連線記錄資料夾、設定指向另一份安裝，或 Agent 已經斷線。
 
-## 共用準備
+升級後，升級前就開著的 Agent 對話仍在使用舊版 MCP 伺服器，因此不會被計入。關閉並重新開啟該對話即可。
 
-在註冊 MCP 前，先安裝依賴並建立 MCP 的 production build：
+## 保存提醒 hook（選用）
 
-以下範例的 `C:\path\to\WorkLog.Ai` 請替換成實際專案目錄。
+工作記錄要靠 Agent 記得保存。保存提醒 hook 是**全域**設定（和 MCP 一樣，不綁單一專案）。在「記錄中」的專案裡，Agent 改過檔案、這一輪結束卻還沒保存時，hook 會提醒它一次；同一段未保存的工作只提醒一次。Agent 若判斷工作還沒完成，直接結束即可。
 
-```powershell
-cd C:\path\to\WorkLog.Ai
-pnpm install
-pnpm build
-```
-
-建議所有 client 都明確指定同一個 database path：
-
-```text
-C:\path\to\WorkLog.Ai\data\work-intelligence.sqlite
-```
-
-## Codex CLI
-
-使用 `codex mcp add` 註冊本機 stdio server。macOS／Linux：
-
-```bash
-codex mcp add work-intelligence --env "WORK_INTELLIGENCE_DB=/path/to/WorkLog.Ai/data/work-intelligence.sqlite" -- pnpm --dir "/path/to/WorkLog.Ai" start:mcp
-```
-
-Windows（PowerShell）：
-
-```powershell
-codex mcp add work-intelligence --env "WORK_INTELLIGENCE_DB=C:\path\to\WorkLog.Ai\data\work-intelligence.sqlite" -- pnpm.cmd --dir "C:\path\to\WorkLog.Ai" start:mcp
-```
-
-確認設定：
-
-```powershell
-codex mcp list
-codex mcp get work-intelligence
-```
-
-如果已經存在同名設定，可以先移除再重新加入：
-
-```powershell
-codex mcp remove work-intelligence
-```
-
-## Claude Code
-
-使用 `user` scope，讓 Claude Code 在不同 workspace 都能使用這個工具。macOS／Linux：
-
-```bash
-claude mcp add --scope user --transport stdio work-intelligence --env "WORK_INTELLIGENCE_DB=/path/to/WorkLog.Ai/data/work-intelligence.sqlite" -- pnpm --dir "/path/to/WorkLog.Ai" start:mcp
-```
-
-Windows（PowerShell）：
-
-```powershell
-claude mcp add --scope user --transport stdio work-intelligence --env "WORK_INTELLIGENCE_DB=C:\path\to\WorkLog.Ai\data\work-intelligence.sqlite" -- pnpm.cmd --dir "C:\path\to\WorkLog.Ai" start:mcp
-```
-
-確認設定與連線狀態：
-
-```powershell
-claude mcp list
-claude mcp get work-intelligence
-```
-
-進入 Claude Code 後，也可以輸入 `/mcp` 查看 server 和 tools。若同名設定已存在：
-
-```powershell
-claude mcp remove work-intelligence
-```
-
-Claude Code 的 `--` 後方是實際啟動 MCP server 的 command；`--scope user` 會將設定套用到使用者層級。詳見 [Claude Code MCP documentation](https://code.claude.com/docs/en/mcp)。
-
-`pnpm setup:agents` 註冊的是 MCP launcher（`node <repo>/apps/mcp/dist/launcher.js`），`pnpm start:mcp` 也經由它啟動。之後 `pnpm build` 更新 server 時，launcher 會在同一個連線裡換成新版，Codex、Claude Code 與 Claude Desktop 都不必重新連線；只有 launcher 本身更新時才會回報 `restartRequired: true`。直接執行 `apps/mcp/dist/index.js` 的舊註冊（不論是先前 setup 寫的或手動加的）重新執行 `pnpm setup:agents` 就會改指向 launcher，其他自訂欄位（`env`、node 絕對路徑等）保留；Codex 的手寫設定無法安全改寫時會保留並說明。`pnpm check` 與系統狀態頁會把仍直接執行 server 的註冊標成「直接執行，建置後需重連」。
-
-未經 launcher 時，僅實作改變會回傳 `updateAvailable: true`，可照常讀寫並在收尾提醒一次；只有 `restartRequired: true`（schema／契約更新或無法確認）才停止操作並要求重連。細節見[更新與重新連線](mcp-tools.md#更新與重新連線)。
-
-本輪整理未結項使用 schema 23 與新增 operation 契約；主安裝更新時，先保存正在進行的工作，再完成建置、重啟服務與 Agent 重新連線。重新連線規則見[MCP 更新對照](mcp-tools.md#更新與重新連線)。
-
-MCP server 的工具清單會在 Codex／Claude host 建立連線時載入。更新 Work Intelligence 的 MCP contract（例如新增 `work_submit_outstanding_cleanup_proposals`）後，請先重新執行 `pnpm build`，再重新啟動或重新連線目前的 Codex／Claude 對話；若工具清單仍是舊的，請移除並重新加入 `work-intelligence` MCP 設定。只要 host 尚未重新載入，舊對話即使連到同一個 SQLite，也不會看到新工具。
-
-### 保存提醒（選用）
-
-工作記錄要靠 Agent 記得保存。Claude Code 與 Codex 都能在**全域**加上 hook（和 MCP 一樣，不綁單一專案）：在「記錄中」的專案裡，Agent 上次保存之後又改了檔案、這一輪結束卻還沒保存時，提醒它一次；同一段未保存工作只提醒一次。Agent 若判斷工作還沒完成，直接結束即可。
-
-長對話會被自動壓縮，壓縮後 Agent 可能忘了這段工作何時開始、改過哪些檔案、還沒保存。同一支腳本也處理壓縮：壓縮前請摘要保留這些資訊，壓縮後再把未保存提醒（含開始時間）放回上下文。hook 無法替 Agent 保存，只負責把保存所需的事實留下來；壓縮相關的 hook 不會擋住壓縮，每次壓縮都會重新提供，不受「只提醒一次」限制。
-
-#### Claude Code
-
-先執行 `pnpm build`，再把下面的設定加到全域的 `~/.claude/settings.json`（路徑換成你的 repo 位置）。這樣任何專案都會套用，hook 會自行略過沒有記錄的專案。四個事件用同一支腳本，腳本依 `hook_event_name` 分辨：
-
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node /path/to/WorkLog.Ai/apps/mcp/dist/finalize-reminder.js",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "^mcp__.*(work_finalize_session|work_write_idempotent)$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node /path/to/WorkLog.Ai/apps/mcp/dist/finalize-reminder.js",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node /path/to/WorkLog.Ai/apps/mcp/dist/finalize-reminder.js",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "SessionStart": [
-      {
-        "matcher": "compact",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node /path/to/WorkLog.Ai/apps/mcp/dist/finalize-reminder.js",
-            "timeout": 10
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-- 只讀取 transcript 與專案清單（SQLite 唯讀開啟），不寫入資料庫；資料庫位置同樣可用 `WORK_INTELLIGENCE_DB` 指定。
-- 「改了檔案」以 transcript 工具輸入中的 `file_path` 判斷；`NotebookEdit` 使用 `notebook_path`。只有路徑落在記錄中專案根目錄內才提醒；只改專案外的檔案或只用 Bash 改檔不會觸發：Bash 指令造成的檔案改動這個 hook 看不到（只計 Edit、Write、MultiEdit 與 NotebookEdit，且工具結果未標示錯誤者）。巢狀的專案根目錄以最具體（最深）的那個判斷。
+- hook 只讀取 transcript 與專案清單（SQLite 唯讀開啟），不寫入資料庫。
 - 讀不到資料或判斷失敗時一律放行，不會擋住 Agent。
-- 提醒時會附上這段工作的**開始時間**：上一次**成功**保存之後，第一則使用者輸入訊息的時間（取自 transcript，不含工具結果與壓縮摘要）。被拒絕、衝突或略過的保存不算數，所以不會把下一段的開始時間算錯。Agent 保存時直接填入 `startedAt`，不必估計；沒有可用的時間時，提醒內容不附時間。
-- `PreToolUse`（matcher 只選 `work_finalize_session` 與 `work_write_idempotent`）：Agent 主動保存、沒等到 Stop 提醒時，也要讓它知道開始時間。保存呼叫沒有填 `startedAt` 也沒有 `completedAt`、且工作目錄在記錄中專案內、transcript 讀得到這段工作的開始時間時，**每一段只暫停一次**（`permissionDecision: "deny"`，理由列出開始時間，請 Agent 填入 `startedAt` 後重新呼叫；若這次呼叫帶有 `changedFiles` 卻沒有 `changedFileChanges`，理由也會請 Agent 依真實 diff 補上各檔案狀態）；同一段的第二次呼叫一律放行，所以不會卡住。其他情況不輸出任何東西，也從不使用 `allow` 或改寫輸入，不會改變權限行為；只有保存呼叫才會讀 transcript。補檔案狀態不會單獨造成暫停，hook 也從不讀取 Git。
-- `PreCompact`（不設 matcher，手動 `/compact` 與自動壓縮都適用）：有未保存的改動時，以純文字 stdout 提供壓縮摘要的額外指示，請摘要保留「尚未保存、開始時間、記錄中專案改過的檔案」。檔案只列相對於專案根目錄的路徑（最多 30 個，其餘以「等 N 個」表示），不含檔案內容，控制字元會移除，總長度遠低於 Claude Code 的 10,000 字元上限。它永遠不擋住壓縮（擋住會讓壓縮略過或失敗）；沒有未保存改動時不輸出任何東西。
-- `SessionStart`（matcher `compact`）：壓縮完成後，以 `additionalContext` 放回未保存提醒、開始時間與改過的檔案，即使摘要漏掉也不會遺失開始時間。壓縮後 transcript 檔仍保留壓縮前的紀錄，所以邊界之前的改動與保存都照常計入。
-- 兩個壓縮 hook 是選用的：只設 `Stop` 時保存提醒照常運作；`pnpm check` 會指出缺少的壓縮 hook。
+- 提醒會附上這段工作的開始時間，讓 Agent 保存時可以直接填入 `startedAt`。
+- 長對話被壓縮時，壓縮前會請摘要保留未保存的資訊，壓縮後會把提醒放回上下文。這些壓縮 hook 永遠不會擋住壓縮。
 
-#### Codex
+> **對象：開發者。** hook 的安裝、移除與設定細節由 App 或 `pnpm setup:agents` 管理。以下說明只供理解行為；不需要手動編輯設定檔。hook 腳本位於 checkout 的 `apps/mcp/dist/`，且只在 `pnpm build` 之後存在。
 
-hook 腳本是 `apps/mcp/src/codex-finalize-reminder.ts`。它解析 `apply_patch` 的 Add／Update／Delete／Move 標頭，只有至少一個受影響路徑位於記錄中專案根目錄內時才標記未保存工作；成功透過 `work_write_idempotent` 執行 `work_finalize_session` operation 會清除標記，也保留舊的直接工具名稱相容；Stop 時若仍有未保存的改動，就提醒一次。只用 Bash 改檔不會觸發。另外設定 `UserPromptSubmit` 時，它會記下「上一次成功保存之後，第一則訊息送出的時間」，並在這段工作的第一則訊息就以 `additionalContext` 告訴 Agent 這個開始時間（每段只告知一次），提醒時也附上開始時間。設定 `PreToolUse` 時，保存呼叫沒有填 `startedAt` 與 `completedAt` 會被暫停一次並給出該時間（標記檔 `.pre-denied`，成功保存後清除）；若該次呼叫帶有 `changedFiles` 卻沒有 `changedFileChanges`，暫停訊息也會請 Agent 依真實 diff 補上檔案狀態（補狀態本身不會新增暫停，hook 不讀 Git）；Codex 是否對 MCP 工具觸發 `PreToolUse` 尚未驗證，不觸發時無任何影響。Codex 的對話紀錄格式不是穩定的 hook 介面，所以這裡不解析對話紀錄，而是在訊息送出當下記錄時間。
+- **Claude Code**：`Stop` 事件為主，另有選用的 `PreToolUse`、`PreCompact` 與 `SessionStart`（matcher `compact`）。
+- **Codex**：`PostToolUse` 與 `Stop` 為主，另有選用的 `PreToolUse`、`UserPromptSubmit` 與 `SessionStart`（matcher `compact`）。Codex 會略過尚未信任的 hook，需要在 `/hooks` 中檢查並信任。
+- 只有在記錄中的專案內改過檔案才會觸發；只用 Bash 改檔的情況，hook 看不到。
 
-和 MCP 一樣，這個 hook 要裝在**全域**，任何專案都能用；它會自己判斷目前的工作目錄是否屬於「記錄中」的專案，其他專案一律放行。repo 不附專案層級的 `.codex/hooks.json`。
+## Plugin 與命令列（進階）
 
-先執行 `pnpm build`，再把下面五段合併到 `~/.codex/hooks.json`（Windows 為 `%USERPROFILE%\.codex\hooks.json`）。路徑換成你的 repo 位置，並保留檔案中原有的其他 hook：
+- **Claude Code 與 Codex plugin**：一次安裝 MCP、skill 與提醒 hook。詳見 [plugin 指南](plugins.md)。plugin 與 App 的設定方式二選一；兩者同時存在時，Agent 會看到重複的工具與提醒。
+- **命令列**：在 checkout 目錄執行 `pnpm setup:agents` 會預覽同樣的設定；互動終端輸入 `yes` 才會寫入，並會先備份。`pnpm setup:agents --uninstall` 會預覽並移除它記錄的安裝。詳見[使用手冊](user-guide.md#給開發者與命令列使用者安裝與正式模式)。
+- **Codex 的使用者 skill** 位於 `$HOME/.agents/skills/`；**Claude Code 的使用者 skill** 位於 `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/`。App 與 `pnpm check` 會檢查它們是否缺少或過期。
 
-```json
-{
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "^(apply_patch|.*(work_finalize_session|work_write_idempotent))$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"/path/to/WorkLog.Ai/apps/mcp/dist/codex-finalize-reminder.js\"",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "^.*(work_finalize_session|work_write_idempotent)$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"/path/to/WorkLog.Ai/apps/mcp/dist/codex-finalize-reminder.js\"",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"/path/to/WorkLog.Ai/apps/mcp/dist/codex-finalize-reminder.js\"",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"/path/to/WorkLog.Ai/apps/mcp/dist/codex-finalize-reminder.js\"",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "SessionStart": [
-      {
-        "matcher": "compact",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"/path/to/WorkLog.Ai/apps/mcp/dist/codex-finalize-reminder.js\"",
-            "timeout": 10
-          }
-        ]
-      }
-    ]
-  }
-}
-```
+### Claude Desktop（進階，手動設定）
 
-既有安裝若仍使用只匹配 `work_finalize_session` 的舊 matcher，該 matcher 不會收到新 dispatcher 的成功保存事件。下次使用者依專案更新流程執行 `pnpm setup:agents` 並確認套用時，installer 會更新它管理的 matcher；`pnpm check` 在更新前會將舊 matcher 顯示為未完整設定。此文件更新不會自行修改使用者的全域設定。
+桌面 App 目前只為 Codex 與 Claude Code 提供設定流程，Claude Desktop 沒有 App 內的設定步驟。若要在 Claude Desktop 使用 Work Intelligence，需要自己編輯它的設定檔；App 不會替你改寫這個檔案。
 
-`UserPromptSubmit` 與 `PreToolUse` 是選用的：沒有設定時提醒照常運作，只是不會在保存前告知開始時間；`pnpm check` 會指出缺少的 hook。
+1. 先完成 App 的首次設定，讓 App 啟用 runtime。launcher 的固定位置依系統如下（來源：`packages/desktop-core/src/runtime/layout.ts`）：
+   - Windows：`%LOCALAPPDATA%\WorkIntelligence\runtime\bin\work-intelligence-launcher.cmd`
+   - macOS：`~/Library/Application Support/WorkIntelligence/runtime/bin/work-intelligence-launcher`
+   - 其他系統：`$XDG_DATA_HOME/work-intelligence/runtime/bin/work-intelligence-launcher`（未設定 `XDG_DATA_HOME` 時為 `~/.local/share/...`）
 
-`SessionStart`（matcher `compact`，Codex 以 `source` 比對）也是選用的：上下文壓縮後，若仍有未保存的改動，就以 `additionalContext` 放回未保存提醒與開始時間；每次壓縮都會提供，不受「只提醒一次」限制。Codex 的 `PreCompact` 會忽略純文字 stdout，無法影響摘要內容，所以 Codex 不設定 `PreCompact`；Codex 的提醒也不列出檔案，因為它只記錄「有未保存改動」，不保存路徑。
-
-確認 `~/.codex/config.toml` 已啟用 hooks，然後在 Codex 輸入 `/hooks`，檢查並信任 Work Intelligence 保存提醒 hook。Codex 會略過尚未信任的 hook。
-
-- 只讀取專案清單（SQLite 唯讀開啟），不寫入資料庫。資料庫預設位置依 hook 腳本所在的 repo 推算，和目前開啟的專案無關；也可用 `WORK_INTELLIGENCE_DB` 指定。
-- hook marker 只存放在目前使用者的暫存目錄：資料夾權限 `0700`，標記檔權限 `0600`。不儲存 Session 或對話內容；開始時間的標記只含一個時間值。
-- 只要讀不到 hook 輸入、patch 標頭或專案清單，或路徑無法判定，就放行 Codex。
-- 使用絕對路徑，因此不需要 `git rev-parse`，也不需要 `commandWindows`。Windows 上 Codex 會用 `cmd.exe /C` 執行 hook，`node "C:\path with space\...\codex-finalize-reminder.js"` 可以直接執行。若 `node` 不在 Codex 的 `PATH` 中，請改用 node 的絕對路徑。
-- `timeout` 設為 10 秒：hook 本身很快，但 Windows 上防毒掃描可能讓每次啟動 node 超過 1 秒，3 秒容易逾時。
-- Windows CI 會在 repo 以外的目錄，用 `cmd.exe /d /s /c` 執行同樣形式的指令，並傳入格式錯誤的輸入，確認 hook 可以啟動且會放行。實際 Windows Codex 安裝仍可在信任 hook 後用 `/hooks` 確認是否載入。官方說明見 [Codex hooks](https://developers.openai.com/codex/hooks) 與 [Codex command runner](https://github.com/openai/codex/blob/main/codex-rs/hooks/src/engine/command_runner.rs)。
-
-## Claude Desktop
-
-如果使用的是 Claude Desktop GUI，將以下內容合併到 Windows 設定檔：
-
-```text
-%APPDATA%\Claude\claude_desktop_config.json
-```
+   這個路徑是固定的 shim，runtime 更新時不會改變，所以不需要因為升級而重新編輯設定檔。
+2. 關閉 Claude Desktop，打開設定檔：
+   - Windows：`%APPDATA%\Claude\claude_desktop_config.json`
+   - macOS：`~/Library/Application Support/Claude/claude_desktop_config.json`
+3. 在 `mcpServers` 中加入下面這一段，並把 `<launcher 完整路徑>` 換成第 1 步對應系統的路徑。如果檔案已有其他 `mcpServers`，只加入 `work-intelligence`，不要整份覆蓋：
 
 ```json
 {
   "mcpServers": {
     "work-intelligence": {
-      "command": "pnpm.cmd",
-      "args": ["--dir", "C:\\path\\to\\WorkLog.Ai", "start:mcp"],
-      "env": {
-        "WORK_INTELLIGENCE_DB": "C:\\path\\to\\WorkLog.Ai\\data\\work-intelligence.sqlite"
-      }
+      "command": "<launcher 完整路徑>"
     }
   }
 }
 ```
 
-如果檔案原本已有其他 `mcpServers`，只加入 `work-intelligence`，不要整份覆蓋。儲存後重新啟動 Claude Desktop，再從聊天框的 `+` → `Connectors` 確認 tools。Claude Desktop 的 local MCP 與 Claude.ai/Cowork 的 remote connector 是不同機制；目前這個 MVP 適用於 Claude Desktop 與 Claude Code，不能直接從 Claude.ai 使用本機 stdio server。詳見 [Claude Desktop local MCP guide](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop) 與 [Claude custom connector notes](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)。
+4. 儲存後重新啟動 Claude Desktop，從聊天框的 `+` → `Connectors` 確認 tools 已出現。
+
+Claude Desktop 的 local MCP 與 Claude.ai/Cowork 的 remote connector 是不同機制；不能直接從 Claude.ai 使用本機 stdio server。詳見 [Claude Desktop local MCP guide](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop) 與 [Claude custom connector notes](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)。
 
 ## 在其他專案貼上使用說明
 
-任何連上 Work Intelligence MCP 的 client 都能用標準 MCP `resources/list` 與 `resources/read` 取得完整內容：`work-intelligence://agent/work-intelligence/SKILL.md` 是每次工作都要讀的核心（隱私規則、開始與收尾流程），`work-intelligence://agent/work-intelligence/references/<guide>.md` 是各流程的指南（`reading-records`、`diagrams`、`repair-and-backfill`、`outstanding-cleanup`、`synthesis`、`knowledge`），開始該流程時才讀，`work-intelligence://agent/work-record-and-report-format.md` 是記錄欄位定義與範例，`work-intelligence://agent/tool-contracts` 是 48 項操作的精簡索引，`work-intelligence://agent/tool-contracts/<operation>` 是單一操作的完整 schema、說明與安全標註。第一次呼叫某個 operation 前讀取它的契約，只讀用得到的操作。Skill 複本供 host 自動判斷何時使用；resources 是完整內容的跨 client 來源。
-
-如果 Agent 不會主動選用 user-level skill，可將下列簡短規則貼到其他專案的 `AGENTS.md` 或 `CLAUDE.md`。它不需要引用 Work Intelligence repo 的檔案：
+任何連上 Work Intelligence MCP 的 Agent 都可以讀取完整的使用說明。若 Agent 不會主動使用 skill，可以把下列簡短規則貼到該專案的 `AGENTS.md` 或 `CLAUDE.md`。它不需要引用 Work Intelligence 的檔案：
 
 ```markdown
 ## Work Intelligence
 
-- 在已由使用者明確設為「記錄中」的專案，開始工作前透過 `work_read` 執行一次 `work_get_context`，提供 `projectRoot`、任務與已知路徑；它同時回傳 `tracked` 與 `projectStatus`，不必另外呼叫 `work_get_project_status`。結果為 `skipped` 時不要讀取該專案的任何資料。
-- 工作完成後，在完成驗證與交接後透過 `work_write_idempotent` 執行 `work_finalize_session`；只回報實際確認的成果、變更檔案與驗證結果。若專案不是 tracked，或無法確認狀態，不要建立 Work Intelligence 記錄。
-- 第一次呼叫某個 operation 前，讀取 `work-intelligence://agent/tool-contracts/<operation>` 取得該操作的完整契約（索引在 `work-intelligence://agent/tool-contracts`）；開始前先讀 `work-intelligence://agent/work-intelligence/SKILL.md`：每次工作都需要的隱私規則與開始、收尾流程，並列出報告、修正、整理未結項與 Knowledge 等流程的指南，開始該流程時再讀。
+- 在已由使用者明確設為「記錄中」的專案，開始工作前透過 `work_read` 執行一次 `work_get_context`，提供 `projectRoot`、任務與已知路徑。結果為 `skipped` 時不要讀取該專案的任何資料。
+- 工作完成後，在完成驗證與交接後透過 `work_write_idempotent` 執行 `work_finalize_session`；只回報實際確認的成果、變更檔案與驗證結果。若專案不是記錄中，或無法確認狀態，不要建立 Work Intelligence 記錄。
+- 第一次呼叫某個 operation 前，讀取 `work-intelligence://agent/tool-contracts/<operation>` 取得該操作的完整契約。
 ```
 
 ## 第一次使用
 
-一般使用先 build，再用正式模式啟動 Web UI 與 REST API（預設共用 port 3210）：
+1. 開啟 App，完成首次設定，並把專案設為「記錄中」（見 [README](../README.zh-TW.md#第一次設定)）。
+2. 到「Agent」分頁，對 Codex 與 Claude Code 分別按「預覽變更」，確認後按「套用變更」。
+3. 開新的 Agent 對話，問一句「這個專案有在 Work Intelligence 記錄嗎？」，確認卡片變成「已連線」。
+4. 工作完成時，請 Agent 保存這次工作，例如「完成了，請把這次工作記錄到 Work Intelligence。」
 
-```powershell
-cd C:\path\to\WorkLog.Ai
-pnpm build
-pnpm start
-```
+未記錄的專案會被略過：MCP 會回傳 `outcome: "skipped"`，不會讀取或保存 handoff、Git 或原始碼資料。這是預期行為。Agent 無法替你把專案切換為「記錄中」，這一步只能在 App 中完成。
 
-開啟 <http://127.0.0.1:3210>，進入左側選單的「專案」：
+整理既有未結項由 App 建立整理請求，Agent 只提交附來源的待審建議，不能以保存工作繞過你的審核。
 
-1. 按「加入專案」填入要記錄的 workspace。
-2. 將該專案狀態切換成「記錄中」，並在確認對話框中同意。
-3. 在 Codex 或 Claude Code 中確認連線與記錄狀態。
-4. Agent 完成既有 planning → execution → verification → closing 後，請它保存這次工作。
+## 疑難排解
 
-開發時可改用 `pnpm dev`；此時 Web 使用 port 5966，REST API 使用 port 3210。更多安裝、日常使用、備份與升級說明見[使用手冊](user-guide.md)；hook 沒有觸發時見[疑難排解](troubleshooting.md#全域保存提醒-hook-沒有觸發)。
-
-平常只需要用自然語言；工具名稱、JSON 與呼叫順序由 Agent 依 [`work-intelligence` skill](../.agents/skills/work-intelligence/SKILL.md) 處理。可以用以下提示測試：
-
-```text
-這個專案有在 Work Intelligence 記錄嗎？順便看一下最近做了什麼。
-```
-
-Agent 會透過 `work_read` 執行一次帶 `projectRoot` 的 operation `work_get_context`，同時確認記錄狀態並取得脈絡。完成工作時：
-
-```text
-完成了，請把這次工作記錄到 Work Intelligence。
-```
-
-Claude Code 也可以直接使用 MCP prompts：`/mcp__work-intelligence__finalize-work`（保存這次工作）與 `/mcp__work-intelligence__synthesize-report`（整理報告，可帶 `period`）。
-
-連線正確時，`/mcp` 會列出 4 個 MCP dispatcher、2 個 prompts 與 3 個 resources。`work_read` 帶有 `readOnlyHint`，可以在用戶端的權限設定中放行；寫入 dispatchers 分別標示冪等新增、新增處理和可能覆寫的操作。完整 operation 對照見 [mcp-tools.md](mcp-tools.md)，操作索引由 `work-intelligence://agent/tool-contracts` 提供，單一操作的完整契約在 `work-intelligence://agent/tool-contracts/<operation>`。
-
-如果專案還是 `unregistered`、`paused` 或 `ignored`，Agent 會在記錄狀態查詢時就停下來，MCP 也會回傳 `outcome: "skipped"`，不會讀取或保存 handoff、Git、source 資料；這是 default-deny 的預期行為。Agent 無法替你切換成「記錄中」，這一步只能在 Web UI 完成。
-
-整理既有未結項由 Web 建立專案請求，Agent 只提交附來源的待審建議；schema 23 與新增契約需要主安裝更新後重新連線，不能以 finalize 繞過使用者審核。
+Agent 相關的問題見[疑難排解](troubleshooting.md#agent-卡片顯示需要重新連線)。

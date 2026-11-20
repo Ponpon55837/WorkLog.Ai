@@ -1,5 +1,7 @@
 # 獨立套件（不需要 checkout）
 
+> **對象：命令列使用者與開發者。** 一般使用者請用桌面 App 安裝檔（見 [README](../README.zh-TW.md#下載與安裝)），它已內含 Node.js，不需要本頁的步驟。
+
 獨立套件把 API server、Web 介面、MCP server 與命令列打包成一個資料夾（或 tarball），只需要 Node.js，不需要 git、pnpm 或 build。官方管道是 GitHub Release 附件 `work-intelligence-<版本>.tgz`（發行流程會先對要上傳的那個 tarball 跑 smoke test）；目前不發佈到 npm，套件的 `package.json` 是 `private`。
 
 目前的套件提供 `start`、`mcp`、`track`、`check`、`db` 與 `--version`。Agent 註冊（`setup-agents`）與登入自動啟動服務（`service`）尚未提供，仍請用 checkout 的 `pnpm setup:agents`、`pnpm service:install`，或自行把 `node <套件>/libexec/apps/mcp/dist/index.js` 註冊到 Agent（見 [agent-setup.md](agent-setup.md)）。

@@ -28,6 +28,14 @@ const SUPERSEDED: ReadonlyArray<{ readonly phrase: RegExp; readonly now: string 
   },
   { phrase: /repair window/i, now: "the App window and its tabs" },
   { phrase: /桌面 App[^。\n]*(?:不能|無法|不支援)[^。\n]*還原/, now: "the App restores backups from the Data tab" },
+  {
+    phrase: /(?:手動執行|用) pnpm (?:--dir \S+ )?start:mcp[^\n]*(?:註冊|mcp add)/,
+    now: "set up Agents in the App's Agent tab (1.6.49+); the launcher is registered for you",
+  },
+  {
+    phrase: /手寫 (?:node|hook)|手寫的 hook/,
+    now: "the App previews and applies the Agent setup; undo returns the files",
+  },
 ];
 
 describe("user documents do not repeat superseded claims", () => {

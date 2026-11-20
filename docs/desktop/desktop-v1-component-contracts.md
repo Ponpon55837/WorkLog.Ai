@@ -1,6 +1,6 @@
 # Work Intelligence 桌面版 V1：元件契約（R4）
 
-**基準：** `d464ea5`（1.6.40）；目標 1.6.41。**修訂日期：** 2026-11-16。
+**設計基準：** `d464ea5`（1.6.40）；**最後修訂對應** 1.6.61（1.6.57 至 1.6.61 未逐節標註，見 docs/status.md）。**修訂日期：** 2026-11-20。
 
 **性質說明**：本檔是**設計契約草案**。介面以語意簽章表示，不是已實作的 API。每個元件列出責任、輸入與輸出、不變條件、平台特定要求，以及對應的工程票（DT-xx，見[風險矩陣](desktop-v1-risk-gate-ticket-matrix.md)）與 ADR（見[決策紀錄](desktop-v1-adr.md)）。平台以 **W** = Windows 11 x64、**M** = macOS 表示；Linux 不在 V1。
 
@@ -19,9 +19,9 @@
   - 單例鎖只防止本 App 多開；不用來判斷外部 API 或 checkout 程序。`[U]`
   - 只對自己啟動且能證明身分的子程序發出控制命令（DT-11）。
   - 結束前依 §5.1 的停止順序執行，不假裝已成功。
-- **平台**：W 的登入項以目前使用者為範圍；M 的 App 必須已簽署，並位於可更新的位置（DT-29）。
+- **平台**：W 的登入項以目前使用者為範圍；M 的 App 必須已簽署，並位於可更新的位置（DT-29）。【依 ADR-38 取代：macOS 採 ad-hoc 簽章，不做 Developer ID 簽章與公證；DT-29 未實作。】
 - **對應**：DT-15、DT-16、DT-35；ADR-01、ADR-26；R18、R24。
-- **1.6.44 實作**：單例鎖在 `whenReady` 之前取得，第二次啟動立即結束（`apps/desktop/src/main/index.ts`、`second-instance.ts`）。登入項預設關閉，開啟需 consent（`packages/desktop-core/src/shell/login-item.ts`、`apps/desktop/src/main/settings.ts`）。結束經 `QuitFlow`：確認、停止受管服務；若有進行中的操作，取消並有界等待，逾時直接停止子程序；最後檢查 exit 與 port 釋放。未證明停止時記錄並提示，不宣稱成功（`packages/desktop-core/src/shell/quit-flow.ts`、`apps/desktop/src/main/quit.ts`）。更新（updater）與簽章尚未實作。
+- **1.6.44 實作**：單例鎖在 `whenReady` 之前取得，第二次啟動立即結束（`apps/desktop/src/main/index.ts`、`second-instance.ts`）。登入項預設關閉，開啟需 consent（`packages/desktop-core/src/shell/login-item.ts`、`apps/desktop/src/main/settings.ts`）。結束經 `QuitFlow`：確認、停止受管服務；若有進行中的操作，取消並有界等待，逾時直接停止子程序；最後檢查 exit 與 port 釋放。未證明停止時記錄並提示，不宣稱成功（`packages/desktop-core/src/shell/quit-flow.ts`、`apps/desktop/src/main/quit.ts`）。更新（updater）與簽章尚未實作。【依 ADR-25、ADR-38、ADR-40 改寫：V1 不使用 updater 與程式簽章；App 內只有手動「檢查更新」（1.6.53，`apps/desktop/src/main/update-check.ts`）。】
 
 ### C-02 TrayController（系統匣／選單列）
 
@@ -34,7 +34,7 @@
   - 結束 App 的文字必須說明「退出後不會每日備份」（ADR-26）。
 - **平台**：W 位於通知區（可能被隱藏於溢出區）；M 位於選單列（可能被系統隱藏）。兩者都需要「無圖示」備援（C-11）。
 - **對應**：DT-15、DT-35；R18、R24。
-- **1.6.44 實作**：選單由 `buildTrayMenu` 產生（`packages/desktop-core/src/shell/tray-menu.ts`）。「開啟 Dashboard」永遠是第一項，只在受管服務執行中可用，否則標籤說明原因。「退出」的標籤含「退出後不會每日備份」（`packages/desktop-core/src/shell/i18n.ts`）。原生 tray 與選單列由 `apps/desktop/src/main/tray.ts` 呈現；位置與可見性待實機驗收。
+- **1.6.44 實作**：選單由 `buildTrayMenu` 產生（`packages/desktop-core/src/shell/tray-menu.ts`）。「開啟 Dashboard」常態為第一項；保留舊服務的狀態行或待完成的「完成首次設定…」出現時，排在它前面（`packages/desktop-core/src/shell/tray-menu.ts:57-62`）。只在受管服務執行中可用，否則標籤說明原因。「退出」的標籤含「退出後不會每日備份」（`packages/desktop-core/src/shell/i18n.ts`）。原生 tray 與選單列由 `apps/desktop/src/main/tray.ts` 呈現；位置與可見性待實機驗收。
 
 ### C-22 Web 系統狀態與管理介面（既有 Vue，新增控制）
 
@@ -62,6 +62,7 @@
 - **平台**：W 與 M 都需測試無 tray 與無預設瀏覽器的情境（DT-16）。
 - **對應**：DT-16；R14、R18。
 - **1.6.44 實作**：修復視窗為 `BrowserWindow`，`sandbox` 與 `contextIsolation` 為真，`nodeIntegration` 與 `webviewTag` 為假（`apps/desktop/src/main/repair-window.ts`）。`security.ts` 拒絕導覽、重新導向、`window.open` 與 webview，權限請求一律拒絕。修復頁只經 `wi-repair://` 的固定表提供，回應附 CSP（`packages/desktop-core/src/shell/navigation-policy.ts`）。IPC 每個通道先驗 sender（只接受修復視窗的主框架），再以 zod 驗輸入（`apps/desktop/src/main/ipc.ts`）。修復動作（重試、選擇資料庫（須先預覽）、開啟資料夾、匯出診斷）經 IPC 轉交。修復頁不經 Web 或 API 載入。無 tray 與無預設瀏覽器的情境待實機驗收。
+- **1.6.55 分頁**：修復視窗改為單一視窗、六個分頁：`setup`（只在需要首次設定時出現）、`status`、`agent`、`settings`、`data`、`diagnostics`（`packages/desktop-core/src/shell/app-tabs.ts:8`）。頁面以 `app:get-tab` 取得目前分頁，`app:remember-tab` 回報使用者的選擇（只存於本次執行的記憶體），主程序以 `app:select-tab` 切換（`apps/desktop/src/preload/repair.ts:16-17、50`；`packages/desktop-core/src/shell/repair-ipc.ts:4-7`）。工作列項目與 Web 的開啟請求只聚焦同一個視窗並選取分頁（1.6.55 更新說明，[1.6.55](../releases/1.6.55.md)）。
 
 ---
 
@@ -155,14 +156,20 @@
 
 ### C-04 OperationCoordinator 與 OperationJournal
 
+- **狀態**：已實作。1.6.42 契約與測試；1.6.56 復原接線完成（H-01），實際行為見下方「1.6.56 接線」。
 - **責任**：協調所有影響管理權的操作（接管、換 DB、換 port、套用 Agent、重啟、還原）；持久化操作紀錄與階段。
 - **輸入**：操作請求（`operationId`、來源、參數摘要、預期狀態）。
 - **輸出**：操作結果；`BUSY`（附目前操作）；可查詢的狀態。
 - **不變條件**（ADR-21）：
   - 單一全域鎖；同 ID 的重送回傳同一結果（idempotent）。
   - 持久化 `phase`、`previousOwner`、`selectedDb`、`oldServiceDefinition`、`oldEnabledState`、`oldRunningState`、`lastKnownGood`、`migrationStarted`、`recoveryPolicy`（不保存密鑰）。
-  - 恢復時依真實 OS 服務、DB 與 manifest 重建狀態，不只依賴 journal 文字。
+  - 恢復時依真實 OS 服務、DB 與 manifest 重建狀態，不只依賴 journal 文字。【依 H-01 的決定更新：1.6.56 已接線（見下方「1.6.56 接線」）。實際依據是設定檔、DB 身分與 schema、子程序、舊服務偵測；manifest 不在復原的輸入中（`apps/desktop/src/main/recovery-startup.ts:43-52`）。】
   - 「不可立即取消」階段（SQLite 寫入、installer 交接）須明確顯示，不得以 kill 取代。
+- **BUSY 規則的例外（對照 1.6.57 與目前程式）**：
+  - **經協調器**：套用 Agent（`apps/desktop/src/main/agent-operation.ts:23`）、停用舊的服務（`legacy-disable.ts:160`）、受管啟動（`backend.ts:51`，換 port 後的啟動也走這裡，`change-port.ts:23`）、從備份還原（`restore.ts`，`restoreWhileStopped`）、整理資料庫（`maintenance.ts:90`）、退出時的停止（`index.ts:668-697`，M-04）。
+  - **不經 `coordinator.run`，只檢查 `coordinator.current()` 並持有頁面動作鎖**（L-07，`ipc.ts:386`）：換 port 的入口檢查（`change-port.ts:68`）、更換備份位置（`backup-directory.ts:123`，`choose()` 不呼叫 `coordinator.run`）、登入項目（`ipc.ts`，`loginItemSet`）、以及其他改寫設定檔的入口（`ipc.ts:486`、`:494`）。這些入口的註解說明：只改設定或只讀；若需要重啟服務，重啟由受管啟動進入協調器。
+  - **不持鎖的唯讀入口**：檢查與列出備份（`ipc.ts:506`、`:511`）。
+  - 上述「不經協調器」的分類以程式為準；若日後某個入口改為 `coordinator.run`，應同步更新本段。
 - **平台**：W 與 M 的操作紀錄都放在使用者可寫的固定目錄。
 - **對應**：DT-09、DT-10；R19、R30。
 - **1.6.42 實作**：`packages/desktop-core/src/operations/`（`service-owner-state.ts`、`operation-journal.ts`、`journal-store.ts`、`coordinator.ts`、`recovery.ts`）；ServiceOwner 的狀態轉移表以資料表示；檔案式原子 journal，重送冪等；`recover()` 依注入的 OS／DB 探測結果重建狀態，而非依 journal 文字；migration 有證據後禁止還原舊服務，並進入 NEEDS_REPAIR。單一行程內的全域鎖：同 ID 回傳同一結果，不同 ID 回 BUSY；跨程序鎖屬 DT-15。取消在副作用發生後延後到恢復處理。
@@ -227,12 +234,14 @@
   - CLI 行為不變。
 - **平台**：W 的 Codex 與 Claude 設定路徑（`CODEX_HOME`、`CLAUDE_CONFIG_DIR`）需實機驗證；M 同。
 - **對應**：DT-21；R15、R16、R17。
+- **1.6.47 實作**：非互動 plan、apply、verify、compensate 的共用 API 在 `packages/agent-setup`；`apps/server/src/agent-setup.ts` 改為薄的 CLI，`pnpm setup:agents` 的輸出與寫入位元組不變（golden test）。plan 記錄每個檔案的 sha256，apply 前逐項重驗，寫入後逐項驗證；補償只回復仍是本次寫入內容的項目；操作日誌在第一次寫入前建立（[1.6.47 更新說明](../releases/1.6.47.md)）。
+- **1.6.49 實作**：App 內可設定 Agent，並可把 checkout 的 Agent 設定改由 App 管理（[1.6.49 更新說明](../releases/1.6.49.md)）。
 
 ### C-13 AgentStatusModel
 
 - **責任**：保存並計算每個 Agent 的顯示狀態與驗證等級（R4 §3.2.1）。
 - **輸入**：C-12 的寫入結果、host handshake 結果、hook 信任狀態、runtime 版本契約。
-- **輸出**：`AgentStatus`（`source`、`effectiveDb`、`launcherKind`、`manifestOwner`、`lastVerifiedAt`、`verificationLevel`、顯示狀態）。
+- **輸出**：`AgentStatus`（`state`、`levels`（`configWritten`、`selfTest`、`hostObservation`、`trustReminderPending`）、`nextStep`）。【原列的 `effectiveDb`、`launcherKind`、`manifestOwner`、`lastVerifiedAt`、`verificationLevel` 在程式中不存在。輸入事實為 `AgentStatusFacts`：`source`、`configWritten`、`configMatches`、`conflict`、`hookTrust`、`runtime`、`selfTest`、`observation`、`currentContractFingerprint`（`packages/desktop-core/src/agents/status.ts:10-27`、`77-80`）。】
 - **不變條件**（ADR-34）：
   - 只有 host handshake 或明確檢測才可顯示「已觀察到連線」。
   - 寫入檔案而未驗證載入時顯示「已配置、待確認」。
@@ -265,6 +274,7 @@
   - 不因舊 script 的 health 檢查而重啟 checkout server（R4 §6.2）。
   - 遷移預覽需標示仍自行啟動 server 的舊 plugin。
 - **對應**：DT-27；R19。
+- **1.6.47 實作**：Dashboard bridge（DT-27）。Agent 的開頁請求經 `supervisor.onOpenAgentSetup` 交由 App 的主程序處理（`apps/desktop/src/main/index.ts:612-614`；介面宣告於 `apps/server/src/desktop-services.ts:17`）。1.6.49 之後的 App 內 Agent 設定見 C-12 的實作註記。
 
 ---
 
@@ -273,6 +283,7 @@
 ### C-16 UpdateService（updater、metadata 驗證、三階段）
 
 - **責任**：查詢版本、下載、驗證 metadata 與安裝包、安裝前檢查、安裝、新版驗證、回報三階段結果（R4 §7.2）。
+- **狀態（依 ADR-25、ADR-38、ADR-40 改寫）**：V1 不使用 electron-updater（`apps/desktop/electron-builder.config.mjs:102` 為 `publish: null`），不做 App 內下載或安裝。已實作的只有手動「檢查更新」（1.6.53，`apps/desktop/src/main/update-check.ts`）：只開啟發行頁面與安裝檔下載，使用者以 `SHA256SUMS.txt` 核對。下列不變條件中的 metadata 簽章與安裝流程，只在日後加入 App 內安裝時適用。
 - **輸入**：固定官方 GitHub Releases 來源、目前版本、使用者的安裝決定。
 - **輸出**：`desktopInstalled`、`backendReady`、`dataCompatible` 三個獨立結果。
 - **不變條件**（ADR-23、ADR-24、ADR-25）：
@@ -283,8 +294,8 @@
   - 下載完成不等於已安裝。
   - 只回退程式；若 DB 已 migration，不自動回退 DB（ADR-22）。
 - **平台**：
-  - **W**：NSIS 目前使用者安裝，產物須簽章；`autoInstallEvent` 與退出競爭需實測（DT-30）。
-  - **M**：DMG 位置檢測與導引（DT-29）；App 須簽署並公證。
+  - **W**：NSIS 目前使用者安裝，產物須簽章【依 ADR-38 取代：Windows 安裝檔未簽章】；`autoInstallEvent` 與退出競爭需實測（DT-30）。
+  - **M**：DMG 位置檢測與導引（DT-29）；App 須簽署並公證【依 ADR-38 取代：macOS 為 ad-hoc 簽章，不公證】。
 - **對應**：DT-28、DT-29、DT-30、DT-31、DT-33、DT-37；R11、R14、R21、R26、R30。
 
 ### C-17 FolderPicker（資料夾選擇器）
