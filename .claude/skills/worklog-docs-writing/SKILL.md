@@ -9,7 +9,7 @@ description: Use whenever you write or edit a user-facing document in Work Intel
 
 ## 0. 出處
 
-本 skill 的去 AI 腔規則參考下列專案的思路。這些專案的文字沒有被逐句複製；下面的規則是依本專案需要用自己的話整理的。
+本 skill 的去 AI 腔規則參考下列專案的思路。2026-11-20 已讀取這三個專案的公開頁面（README 與 LICENSE），三者皆為 MIT。這些專案的文字沒有被逐句複製；下面的規則是依本專案需要用自己的話整理的。
 
 | 專案 | 用途 | 授權（依 GitHub 倉庫資訊） |
 |---|---|---|
