@@ -1,12 +1,12 @@
 # Work Intelligence 桌面版 V1 設計文件索引（R4）
 
-**狀態：工程實作前設計基線（未通過實機驗收）。** 修訂日期：2026-11-16。
+**狀態：設計基線；1.6.41 至 1.6.55 的 CI 可驗證部分已實作，各版狀態見下方各節；Windows 11 與 macOS 實機驗收尚未完成（未通過實機驗收）。** 修訂日期：2026-11-20（對應 1.6.55，發行日 2026-11-18）。
 
 | 項目 | 內容 |
 |---|---|
 | 文件版本 | R4 |
 | 基準 commit | `d464ea5`（main，Merge PR #361，release 1.6.40） |
-| 目標修補版 | 1.6.41（T1–T4）、1.6.42（DT-01/02/04/09/10/20/36）、1.6.43（DT-23、DT-25，階段 1）、1.6.44（DT-11、DT-15、DT-16、DT-35，階段 2）、1.6.45（DT-23 的 ACL、DT-24 部分、DT-28 決策、DT-33、DT-34，階段 5 的打包部分）、1.6.47（DT-21、DT-22、DT-27、launcher 接線，階段 3）、1.6.49（DT-01 精靈、App 內 Agent 設定、舊服務偵測，階段 4）；設计基準仍為 `d464ea5` |
+| 目標修補版 | 1.6.41（T1–T4）、1.6.42（DT-01/02/04/09/10/20/36）、1.6.43（DT-23、DT-25，階段 1）、1.6.44（DT-11、DT-15、DT-16、DT-35，階段 2）、1.6.45（DT-23 的 ACL、DT-24 部分、DT-28 決策、DT-33、DT-34，階段 5 的打包部分）、1.6.47（DT-21、DT-22、DT-27、launcher 接線，階段 3）、1.6.48（大檔匯入匯出串流，階段 4）、1.6.49（DT-01 精靈、App 內 Agent 設定、舊服務偵測，階段 4）；設计基準仍為 `d464ea5` |
 | 前一版 | R3（來源提交 `e46060e`，審查基準 `7723b72`） |
 | 首發平台 | Windows 11 x64 與 macOS 同批發行；Linux 不在 V1。Windows ARM 排除為推論（待確認）；macOS 架構範圍（Apple Silicon、Intel）待確認；1.6.45 的打包以 arm64 與 x64 分開產出（不做 universal），待產品確認 |
 
@@ -16,7 +16,7 @@
 
 R4 是 Work Intelligence 桌面版 V1 的設計基線，在 R3 的基礎上：
 
-1. 更新基準至 `d464ea5`（1.6.40），目標 1.6.41，並重新核對關鍵程式碼。
+1. 更新基準至 `d464ea5`（1.6.40），目標 1.6.41，並重新核對關鍵程式碼（1.6.41 至 1.6.55 的實作狀態見本文件後段各版章節與修訂紀錄）。
 2. 更正 R3 對 MCP schema 閘的描述：MCP 寫入路徑已有閘門，缺口在 HTTP API 與長駐 CLI 寫入端。
 3. 首發平台改為 **Windows 11 x64 與 macOS 同批發行**（產品決策），Windows 相關需求（檔案鎖、schtasks、NSIS、`IFileOpenDialog`）進入首發範圍。
 4. 補入 SQLite 版本的量測與 CI 檢查，以及 Host:port 比對的規則。
@@ -31,7 +31,7 @@ R4 是 Work Intelligence 桌面版 V1 的設計基線，在 R3 的基礎上：
 | 檔案 | 用途 | 主要讀者 |
 |---|---|---|
 | [desktop-v1-design-r4.md](desktop-v1-design-r4.md) | **R4 主文件**：執行摘要、使用者體驗、安裝與設定、服務交接、架構、更新與資料保護、平台需求、契約草案、開源借鑑、封版檢核。由 R3 改名（`git mv`）並修訂而來。 | 產品、實作、安全、發行 |
-| [desktop-v1-adr.md](desktop-v1-adr.md) | **決策紀錄**（ADR-01 至 ADR-39）：每筆含脈絡、決策、後果與狀態。涵蓋 R3 所有決策並更新 R4 的變更。 | 架構、審查 |
+| [desktop-v1-adr.md](desktop-v1-adr.md) | **決策紀錄**（ADR-01 至 ADR-40）：每筆含脈絡、決策、後果與狀態。涵蓋 R3 所有決策並更新 R4 的變更。 | 架構、審查 |
 | [desktop-v1-component-contracts.md](desktop-v1-component-contracts.md) | **元件契約**（C-01 至 C-22、C-T）：每個元件的責任、輸入輸出、不變條件與平台特定要求。 | 實作、測試 |
 | [desktop-v1-risk-gate-ticket-matrix.md](desktop-v1-risk-gate-ticket-matrix.md) | **風險・Gate・工程票對應**：R01–R34 全表、Gate 反向索引、工程票索引（DT-01 至 DT-37）、1.6.41 任務對應、V1 不做清單。 | 排程、追蹤、發行 |
 | 本檔（README.md） | 索引、證據標籤、修訂紀錄、去重紀錄。 | 所有人 |
@@ -114,7 +114,7 @@ R4 的補充用法：
 | DT-16 | 修復視窗：固定 scheme、sandbox、最小 preload、IPC sender 與 zod 驗證、拒絕導覽與權限、CSP | 1.6.44 已實作（CI 可驗證部分）；實機待實機驗收 | ADR-13；C-11 | `apps/desktop/src/main/repair-window.ts`、`security.ts`、`ipc.ts`；`apps/desktop/src/preload/repair.ts`；`apps/desktop/src/renderer/repair/`；`packages/desktop-core/src/shell/navigation-policy.ts`、`repair-ipc.ts`；`tests/desktop-core/shell-policy.test.ts`；`apps/desktop/tests/desktop-smoke/desktop.spec.ts` |
 | DT-35 | 退出語意：退出確認與 tray 文字寫明不會每日備份；顯示最後成功備份時間；退出流程 | 1.6.44 已實作（CI 可驗證部分）；實機待實機驗收 | ADR-26；C-02；§8.2 | `apps/desktop/src/main/quit.ts`；`packages/desktop-core/src/shell/quit-flow.ts`、`quit-notice.ts`、`last-backup.ts`；`tests/desktop-core/shell-flows.test.ts`、`shell-basics.test.ts`、`shell-policy.test.ts` |
 
-**本版的非 CI 項目**：Windows 11 與 macOS 的實機煙霧測試（Windows 登入項 `--background`、單例、tray、8.3 短名、`TerminateProcess`；macOS 的 `wasOpenedAtLogin`、`mainAppService`、Dock、選單列、Gatekeeper 與簽章），以及 Windows 與 macOS 的 CI 首次實跑。尚未做：簽章、公證、安裝包、自動更新、DT-01 完整的來源偵測精靈、DT-19 完整診斷、DT-24 runtime 清理，以及 plugin／standalone／MCPB 接線到 launcher。
+**本版的非 CI 項目**：Windows 11 與 macOS 的實機煙霧測試（Windows 登入項 `--background`、單例、tray、8.3 短名、`TerminateProcess`；macOS 的 `wasOpenedAtLogin`、`mainAppService`、Dock、選單列、Gatekeeper 與簽章），以及 Windows 與 macOS 的 CI 首次實跑。尚未做：簽章、公證、安裝包、自動更新、DT-01 完整的來源偵測精靈、DT-19 完整診斷、DT-24 runtime 清理，以及 plugin／standalone／MCPB 接線到 launcher。（狀態更新：DT-01 精靈於 1.6.49 實作；DT-19 診斷匯出與 DT-24 延後清理於 1.6.54 實作；自動更新改為 1.6.53 的手動檢查，見 ADR-40。）
 
 ## 1.6.45 任務（階段 5：打包）與本文件的關係
 
@@ -128,7 +128,7 @@ R4 的補充用法：
 | DT-33 | 同批產物暫存與聯合發行閘：`desktop-package` 三平台成功才允許 release 公開 | 1.6.45 已接線（`release.yml` 呼叫、發行須等待成功）；三平台實跑結果待確認 | ADR-03；§9.4 | `.github/workflows/desktop-package.yml`；`.github/workflows/release.yml` |
 | DT-34 | NSIS 解除安裝只移除程式檔，保留設定、資料庫與備份；安裝與解除安裝前以 `--quit` 退出 App | NSIS 設定與文件已實作；實機待驗收；macOS 拖入垃圾桶的清理入口未做 | ADR-30；§8.2；§9.1 | `apps/desktop/electron-builder.config.mjs`；`apps/desktop/build/`；`apps/desktop/tests/packaged-smoke/` |
 
-**本版的非 CI 項目**：Windows 11 的安裝、靜默安裝與 `/D=` 路徑、執行中重裝、靜默解除安裝與資料保留、Defender 更名重試的實際行為；macOS 的 DMG 掛載、`spctl` 結果（只記錄）與 Gatekeeper 提示（ad-hoc 簽章，須於系統設定中強制打開）；Windows ACL 的真實行為；打包與啟動效能在 Windows 與 macOS 的數字（`desktop-perf-<os>` 與 `package-<platform>-<arch>.json` artifact）。尚未做：簽章、公證、自動更新、DT-01 完整的來源偵測精靈、DT-19 完整診斷、DT-24 完整清理、macOS 移除桌面整合入口，以及 plugin／standalone／MCPB 接線到 launcher。
+**本版的非 CI 項目**：Windows 11 的安裝、靜默安裝與 `/D=` 路徑、執行中重裝、靜默解除安裝與資料保留、Defender 更名重試的實際行為；macOS 的 DMG 掛載、`spctl` 結果（只記錄）與 Gatekeeper 提示（ad-hoc 簽章，須於系統設定中強制打開）；Windows ACL 的真實行為；打包與啟動效能在 Windows 與 macOS 的數字（`desktop-perf-<os>` 與 `package-<platform>-<arch>.json` artifact）。尚未做：簽章、公證、自動更新、DT-01 完整的來源偵測精靈、DT-19 完整診斷、DT-24 完整清理、macOS 移除桌面整合入口，以及 plugin／standalone／MCPB 接線到 launcher。（狀態更新：DT-01 精靈於 1.6.49 實作；DT-19 診斷匯出與 DT-24 延後清理於 1.6.54 實作；自動更新改為 1.6.53 的手動檢查。）
 
 **macOS 簽章與首次啟動**：Electron 翻轉 fuse 後原簽章失效，而 electron-builder 在 GitHub `pull_request` 執行時會略過所有簽章，所以 `electron-builder.config.mjs` 設 `mac.identity: null`，改由 `afterPack` hook（`apps/desktop/scripts/after-pack.mjs`）在 PR 與 release 建置走同一條路徑：先翻轉 fuse，再由 `mac-ad-hoc-sign.mjs` 以 ad-hoc 由內而外簽署整個 .app（`runtime-bundle` 不動，官方 Node 保有自己的簽章）。尚無 Developer ID，不做公證；在 macOS 15 上，帶隔離屬性的 ad-hoc App 須於「系統設定 → 隱私權與安全性」按「強制打開」（Open Anyway）才能首次開啟，右鍵 → 打開已不能繞過 Gatekeeper。`package.mjs` 以 `codesign --verify --deep --strict`（含解壓後的 zip）、內附 Node 的 `codesign --verify --strict` 與 fuse 回讀作為硬性閘；`spctl` 只記錄結果。
 
@@ -140,14 +140,14 @@ R4 的補充用法：
 
 | 任務 | 內容 | 狀態 | 本文件位置 | 證據路徑 |
 |---|---|---|---|---|
-| DT-21 | Agent plan／apply／verify／compensate 共用 API：每檔指紋、寫入前後重驗、持久化操作日誌與補償、launcher 目標、註冊來源偵測與重複標示 | 1.6.47 已實作（CI 可驗證部分）；App 設定中心尚未呼叫此 API；實機待實機驗收 | §3.2；ADR-14；R15、R16、R17 | `packages/agent-setup/src/`；`apps/server/src/agent-setup.ts`；`tests/agent-setup/*.test.ts`；`tests/server/agent-setup-golden.test.ts`（9abe75a、112f343） |
+| DT-21 | Agent plan／apply／verify／compensate 共用 API：每檔指紋、寫入前後重驗、持久化操作日誌與補償、launcher 目標、註冊來源偵測與重複標示 | 1.6.47 已實作（CI 可驗證部分）；1.6.49 起 App 內 Agent 設定已呼叫此 API（見 1.6.49 章節）；實機待實機驗收 | §3.2；ADR-14；R15、R16、R17 | `packages/agent-setup/src/`；`apps/server/src/agent-setup.ts`；`tests/agent-setup/*.test.ts`；`tests/server/agent-setup-golden.test.ts`（9abe75a、112f343） |
 | DT-22 | Agent 狀態分級與 host handshake：MCP stdio 探測、契約指紋、host 首次 `initialize` 的觀察紀錄（fail-open） | 1.6.47 已實作（CI 可驗證部分）；真實 host（Claude Code、Codex、Claude Desktop）的 handshake 待實機驗收 | §3.2.1；ADR-34；R28 | `packages/desktop-core/src/agents/`；`packages/shared/src/mcp-contract-fingerprint.ts`；`apps/mcp/src/agent-observation.ts`；`tests/desktop-core/agents-handshake.test.ts`、`agents-status.test.ts`；`tests/shared/mcp-contract-fingerprint.test.ts`；`tests/mcp/agent-observation.test.ts`（e9f2ef6） |
 | DT-23 後續（launcher 接線） | plugin `launch.mjs`、MCPB、獨立版優先使用固定 shim；`desktop-integration.json` 紀錄；hook 經 shim 靜默、25 秒上限、一律 exit 0；`setup:agents` launcher 目標與 Windows 路徑規則 | 1.6.47 已實作（CI 可驗證部分）；plugin manifest 仍以 `node launch.mjs` 啟動；信任模型見 ADR-39；實機待實機驗收 | §3.3；ADR-15、ADR-39；R07、R13 | `packages/desktop-core/src/integration/`；`apps/desktop/src/main/integration-record.ts`；`plugins/work-intelligence/scripts/launch.mjs`、`desktop-integration.mjs`；`scripts/mcpb-launch.mjs`；`tests/desktop-core/integration-record.test.ts`、`shell-launch-command.test.ts`、`runtime-update-session.test.ts`；`apps/desktop/tests/packaged-smoke/launcher.spec.ts`（496e1e7、d63d680） |
 | DT-27 | Dashboard bridge：`launch.mjs dashboard` 轉交 App，不啟動 checkout server；App 首次開啟與第二實例轉交，合併為一次開啟 | 1.6.47 已實作（CI 可驗證部分）；換 port 與 App 離線的實機情境待實機驗收 | §6.2；ADR-28；R19（次要） | `scripts/dashboard.mjs`；`plugins/work-intelligence/scripts/desktop-integration.mjs`；`apps/desktop/src/main/second-instance.ts`；`apps/desktop/tests/desktop-smoke/dashboard-handoff.spec.ts`（496e1e7、d63d680） |
 | backlog a：Windows ACL 預熱 | 首次安裝時 tier-1 ACL reader 與 runtime 複製並行；失敗退回一次性 reader；快路徑不預熱 | 1.6.47 已實作（fixture 與 Linux 模型）；真實 Windows 數字待 CI | §3.3；ADR-15 | `apps/desktop/src/main/runtime-provision.ts`；`packages/desktop-core/src/runtime/bundled-install.ts`、`windows-acl.ts`；`tests/desktop-core/runtime-install-prewarm.test.ts`、`runtime-windows-acl-prewarm.test.ts`（c3d512b） |
 | backlog b：後端閒置 RSS | 匯出唯讀連線的 SQLite page cache 由 16 MB 改為 1 MB；重度操作後 worker 保留時間由 5 秒改為 1 秒。Linux 3 次中位數：匯出後閒置 122 → 92 MiB（基準 85），匯出／匯入後 3 秒 237–280 → 121–130 MiB；匯入後閒置未改善（約高 30 MiB） | 1.6.47 已實作（Linux 量測）；Windows 與 macOS 待量測 | 無（不屬於桌面設計文件） | `packages/storage/src/backup-export-store.ts`、`database-initialization.ts`；`apps/server/src/backup-worker-client.ts`；`packages/storage/bench/export-import-memory.bench.mjs`；`tests/storage/backup-export-store.test.ts` |
 
-**本版的非 CI 項目**：Windows 11 與 macOS 的實機 host handshake（Claude Code、Codex、Claude Desktop 的 clientInfo 與狀態顯示；`claude-ai` 未驗證）；Claude Desktop MCPB 偵測（依檔案配置推測）；Windows ACL 預熱的真實時間與 PowerShell 5.1 的 stdin 行為；Windows 的 `.cmd` 與 hook 的 `taskkill /T` 程序樹終止；`desktop-integration.json` 與 launcher 接線在真實 Agent 中的行為；Dashboard 在 Windows 與 macOS 的冷熱啟動數字；backlog b 的記憶體數字。尚未做：App 設定中心接上 DT-21 的 API、plugin manifest 改為啟動固定 launcher，以及 DT-24 的「無現役連線」證明。
+**本版的非 CI 項目**：Windows 11 與 macOS 的實機 host handshake（Claude Code、Codex、Claude Desktop 的 clientInfo 與狀態顯示；`claude-ai` 未驗證）；Claude Desktop MCPB 偵測（依檔案配置推測）；Windows ACL 預熱的真實時間與 PowerShell 5.1 的 stdin 行為；Windows 的 `.cmd` 與 hook 的 `taskkill /T` 程序樹終止；`desktop-integration.json` 與 launcher 接線在真實 Agent 中的行為；Dashboard 在 Windows 與 macOS 的冷熱啟動數字；backlog b 的記憶體數字。尚未做：plugin manifest 改為啟動固定 launcher（App 設定中心接上 DT-21 的 API 已於 1.6.49 完成），以及 DT-24 的「無現役連線」證明。
 
 ---
 
@@ -162,11 +162,11 @@ R4 的補充用法：
 | 任務 | 內容 | 狀態 | 本文件位置 | 證據路徑 |
 |---|---|---|---|---|
 | DT-01（精靈） | 首次執行頁：只在沒有設定檔時顯示；「使用預設設定開始」在第一次繪製就可按；唯讀偵測既有來源並各預覽一次；成功啟動後才寫入設定；預設啟動會建立新的空資料庫，啟動失敗時刪除（ADR-27）；升級安裝不顯示 | 1.6.49 已實作（CI 可驗證部分）；實機待實機驗收 | §3.1；R4 §5 全新安裝流程；ADR-06、ADR-27 | `apps/desktop/src/main/first-run.ts`；`packages/desktop-core/src/shell/setup-state.ts`；`apps/server/src/database-create.ts`；`apps/desktop/tests/desktop-smoke/first-run.spec.ts`；`tests/desktop-core/shell-setup-state.test.ts`、`created-database.test.ts`；`tests/server/database-create.test.ts` |
-| DT-21 後續（App 內 Agent 設定） | App 視窗的 Agent 頁、工作列「設定 Agent…」與 `--open-agent-setup`：預覽差異、只套用預覽過的計畫、測試連線、依日誌復原；「改由桌面 App 管理…」接管 checkout 的設定；Web 狀態頁按鈕只請 App 開啟頁面 | 1.6.49 已實作（CI 可驗證部分）；真實 Codex 與 Claude Code 設定待實機驗收 | §3.2；ADR-14、ADR-34 | `apps/desktop/src/main/agents.ts`；`packages/agent-setup/src/adopt.ts`、`diff.ts`；`apps/server/src/routes/desktop.ts`；`apps/desktop/tests/desktop-smoke/agents.spec.ts`；`tests/agent-setup/*.test.ts`；`tests/desktop-core/shell-agent-setup.test.ts` |
+| DT-21 後續（App 內 Agent 設定） | App 視窗的 Agent 頁、工作列「設定 Agent…」（1.6.55 起已移除，改由「Agent」分頁開啟）與 `--open-agent-setup`：預覽差異、只套用預覽過的計畫、測試連線、依日誌復原；「改由桌面 App 管理…」接管 checkout 的設定；Web 狀態頁按鈕只請 App 開啟頁面 | 1.6.49 已實作（CI 可驗證部分）；真實 Codex 與 Claude Code 設定待實機驗收 | §3.2；ADR-14、ADR-34 | `apps/desktop/src/main/agents.ts`；`packages/agent-setup/src/adopt.ts`、`diff.ts`；`apps/server/src/routes/desktop.ts`；`apps/desktop/tests/desktop-smoke/agents.spec.ts`；`tests/agent-setup/*.test.ts`；`tests/desktop-core/shell-agent-setup.test.ts` |
 | Q1（launcher 交給 Agent 的資料庫） | 沒有 `WORK_INTELLIGENCE_DB` 時，MCP 與 hook 使用 App 設定的資料庫；設定無效時退回獨立版規則；每次 hook 的額外成本中位數 0.44 ms（Linux，預算 5 ms） | 1.6.49 已實作；Windows 與 macOS 數字由 CI 印出 | §3.3；ADR-39 | `packages/desktop-core/src/runtime/desktop-database.ts`；`tests/desktop-core/desktop-database.test.ts` |
 | 舊的登入服務 | 唯讀偵測 `pnpm bootstrap` 的服務；首次執行頁、修復視窗與 Web 狀態頁顯示警告與移除指令；同一資料庫須按「仍要啟動」（`LEGACY_SERVICE_ACTIVE`，不自動重試）；連接埠被它占用時直接指出 | 1.6.49 已實作（CI 可驗證部分）；一鍵停用見下方 1.6.50；真實 LaunchAgent 與工作排程器待實機驗收 | §8；R4 §5 升級流程 | `packages/desktop-core/src/legacy-service/`；`apps/desktop/src/main/legacy.ts`；`tests/desktop-core/legacy-service.test.ts`；`apps/desktop/tests/desktop-smoke/first-run.spec.ts` |
 
-**本版的非 CI 項目**：Windows 11 與 macOS 實機上的首次執行頁、Agent 頁的套用、測試連線與復原（真實的 Agent 設定）、舊服務偵測（真實的 LaunchAgent 與工作排程器）。尚未做：DT-19 完整診斷、DT-24 完整清理、簽章與公證、自動更新。
+**本版的非 CI 項目**：Windows 11 與 macOS 實機上的首次執行頁、Agent 頁的套用、測試連線與復原（真實的 Agent 設定）、舊服務偵測（真實的 LaunchAgent 與工作排程器）。尚未做：DT-19 完整診斷、DT-24 完整清理、簽章與公證、自動更新。（狀態更新：DT-19 診斷匯出與 DT-24 延後清理於 1.6.54 實作；自動更新改為 1.6.53 的手動檢查。）
 
 ## 1.6.50 任務（階段 4：舊服務停用與 Agent 接管收尾）與本文件的關係
 
@@ -187,7 +187,7 @@ R4 的補充用法：
 
 | 任務 | 內容 | 狀態 | 本文件位置 | 證據路徑 |
 |---|---|---|---|---|
-| DT-14（連接埠變更） | 只在 App 內變更：修復視窗的「連接埠」區段與工作列「變更連接埠…」；Web 只請 App 開啟該區段（白名單偏好與路由在記憶體中一次使用，最久 2 分鐘）；拒絕 1024 以下、瀏覽器限制與被占用的連接埠；`PORT_NOT_PERMITTED` 與 `PORT_OCCUPIED_BY_OTHER` 分開；忙碌時拒絕；先停止、在新 port 啟動、以 IPC 與 HTTP 證明驗證，通過後才原子寫入 `desired.port`、`active` 與 `lastKnownGood`；失敗回舊 port；新位址以一次性 fragment 還原偏好與路由 | 1.6.51 已實作（CI 可驗證部分）；Windows 與 macOS 的實際 bind 與 Dashboard 新位址待實機驗收 | §3.1.1、§6、§6.2；ADR-27；C-22 | `apps/desktop/src/main/change-port.ts`；`apps/desktop/src/renderer/repair/port-view.ts`；`packages/desktop-core/src/shell/port-policy.ts`、`port-handoff-store.ts`、`port-i18n.ts`；`packages/schema/src/port-handoff.ts`；`apps/server/src/routes/desktop.ts`；`apps/web/src/utils/port-handoff.ts`；`tests/desktop-core/port-policy.test.ts`、`change-port-controller.test.ts`；`tests/schema/port-handoff.test.ts`；`tests/web/utils/port-handoff.test.ts`；`apps/desktop/tests/desktop-smoke/change-port.spec.ts` |
+| DT-14（連接埠變更） | 只在 App 內變更：修復視窗的「連接埠」區段與工作列「變更連接埠…」（1.6.55 起已移除，改在「設定」分頁變更）；Web 只請 App 開啟該區段（白名單偏好與路由在記憶體中一次使用，最久 2 分鐘）；拒絕 1024 以下、瀏覽器限制與被占用的連接埠；`PORT_NOT_PERMITTED` 與 `PORT_OCCUPIED_BY_OTHER` 分開；忙碌時拒絕；先停止、在新 port 啟動、以 IPC 與 HTTP 證明驗證，通過後才原子寫入 `desired.port`、`active` 與 `lastKnownGood`；失敗回舊 port；新位址以一次性 fragment 還原偏好與路由 | 1.6.51 已實作（CI 可驗證部分）；Windows 與 macOS 的實際 bind 與 Dashboard 新位址待實機驗收 | §3.1.1、§6、§6.2；ADR-27；C-22 | `apps/desktop/src/main/change-port.ts`；`apps/desktop/src/renderer/repair/port-view.ts`；`packages/desktop-core/src/shell/port-policy.ts`、`port-handoff-store.ts`、`port-i18n.ts`；`packages/schema/src/port-handoff.ts`；`apps/server/src/routes/desktop.ts`；`apps/web/src/utils/port-handoff.ts`；`tests/desktop-core/port-policy.test.ts`、`change-port-controller.test.ts`；`tests/schema/port-handoff.test.ts`；`tests/web/utils/port-handoff.test.ts`；`apps/desktop/tests/desktop-smoke/change-port.spec.ts` |
 | DT-08（檔案系統風險政策） | 啟動與選擇資料庫時分類 none、網路、可移除、雲端同步、硬連結與 unknown（Windows 以 DriveInfo、macOS 以 mount 與 diskutil、Linux 以 `/proc/mounts`；有時限，失敗不快取）；網路磁碟拒絕作為 App 資料庫並進修復（`DB_STORAGE_NETWORK`）；UNC 仍拒絕；可移除、雲端同步與硬連結只能勾選同意後選擇，且不做 schema 更新；unknown 只阻擋一鍵選擇；「複製到本機磁碟並改用」以 `VACUUM INTO`、`quick_check` 與不覆寫的檔名完成，原檔不變 | 1.6.51 已實作（CI 可驗證部分）；真實磁碟與雲端根目錄的判定待實機驗收 | §3.1.1、§5.1；C-05；ADR-07；R22 | `apps/desktop/src/main/storage-risk.ts`、`local-copy.ts`；`packages/desktop-core/src/db-source/storage-policy.ts`、`storage-risk-node.ts`、`storage-risk-override.ts`；`packages/desktop-core/src/shell/copy-to-local.ts`、`storage-risk-view.ts`、`storage-start-policy.ts`；`apps/server/src/database-copy.ts`；`tests/desktop-core/storage-policy.test.ts`、`storage-risk.test.ts`、`copy-to-local.test.ts`；`tests/server/database-copy.test.ts`；`apps/desktop/tests/desktop-smoke/storage-risk.spec.ts` |
 
 **本版的非 CI 項目**：Windows 11 與 macOS 實機上的連接埠變更（真實的服務停止與啟動、`PORT_NOT_PERMITTED`、Dashboard 新位址）、風險判定（DriveInfo、mount、diskutil 的實際結果與雲端根目錄）與「複製到本機磁碟並改用」。已知未偵測：macOS 的 iCloud「桌面與文件」同步；Windows 的 Google Drive 虛擬磁碟為盡力偵測。
@@ -201,7 +201,7 @@ R4 的補充用法：
 | DT-32（migration 前備份與 N→N+1 樣本升級） | 三份真實舊版樣本（v1.6.8 schema 31、v1.6.21 schema 32、1.6.51 schema 33，合成資料，以 `scripts/generate-upgrade-fixtures.mjs` 手動產生、不在 CI 執行）以真實 store 升級：升級前備份與樣本相同、integrity／外鍵／FTS 正常、資料列與舊欄位不變、新欄位為 NULL、搜尋可用、私人文字不出現、第二次開啟不做事；新 migration 必須附上前一版樣本；真實程序在 migration 交易中、備份途中、20 次隨機時間點與還原途中被強制結束，結果永遠是全部舊版或全部新版；還原前驗證遷移後的副本（`quick_check`、`foreign_key_check`），失敗回 `RESTORE_VERIFY_FAILED` 且現行資料庫不變；桌面 smoke：migration 開始後後端被強制結束進入 `NEEDS_REPAIR`，不回到舊服務，下一次修復只升級一次 | 1.6.52 已實作（CI 可驗證部分）；Windows 11 與 macOS 實機待實機驗收 | C-15；ADR-22；R06 | `tests/storage/upgrade-samples.test.ts`；`tests/storage/migration-interruption.test.ts`；`tests/fixtures/upgrade/`；`scripts/generate-upgrade-fixtures.mjs`；`packages/storage/src/backup.ts`；`apps/desktop/tests/desktop-smoke/migration-interruption.spec.ts` |
 | DT-07（多程序 WAL 寫入與 checkpoint 壓力） | `pnpm test:sqlite-stress`（不在 `pnpm test` 內）：4 個寫入程序、2 個唯讀程序（其中一個持有長時間讀取交易）、checkpointer 循環 PASSIVE／FULL／RESTART／TRUNCATE、`VACUUM INTO` 快照程序與隨機 SIGKILL，45 秒；絕對檢查 `integrity_check`、`foreign_key_check`、FTS5 完整性、已確認的寫入恰好一次、被中斷的寫入全有或全無、快照為無缺口前綴、還原快照指紋相同；拋出的 `SQLITE_BUSY` 設門檻（寫入程序 ≤ max(5, 寫入數 2%)、讀取／checkpointer／snapshotter 為 0；checkpoint 的 `busy` 旗標只回報），各系統數字與上限記錄在結果檔的 `busyGate`；CI 新增 `SQLite stress (ubuntu-latest／windows-latest／macos-latest)`，必要檢查增為 23 項；「Storage (Node 26)」工作同時執行 `check-sqlite-version`；打包 smoke 斷言內建 Node 的 `sqlite_version()` 與 FTS5，並在內建 runtime 下執行 6 秒壓力測試 | 1.6.52 已實作（CI 可驗證部分）；`SQLITE_BUSY` 門檻已設；Windows x64、macOS x64、macOS arm64 的打包 runtime 皆為 Node 24.22.3、SQLite 3.54.1（含修補）；6 秒壓力測試全部通過，每個 OS 的總時間 14.0／16.7／11.9 秒（PR #374 CI），實機待實機驗收。**不取代 DT-06 的 SQLite 修補證據** | ADR-19；C-21；R33 | `tests/stress/sqlite-wal-stress.test.ts`；`tests/stress/stress-support.ts`；`tests/stress/stress-worker.ts`；`tests/stress/vitest.config.ts`；`scripts/run-sqlite-stress-with-node.mjs`；`scripts/check-sqlite-version.mjs`；`.github/workflows/ci.yml`（`sqlite-stress` 工作）；`.github/workflows/desktop-package.yml` |
 
-**本版的非 CI 項目**：Windows 11 與 macOS 實機上的 migration 中斷行為與桌面 smoke 的對應行為、壓力測試的實際結果與 `SQLITE_BUSY` 計數（`busyGate`）、打包版的 SQLite 版本與數字。尚未做：桌面 App 的還原流程（目前只有 CLI `pnpm db:restore`）。
+**本版的非 CI 項目**：Windows 11 與 macOS 實機上的 migration 中斷行為與桌面 smoke 的對應行為、壓力測試的實際結果與 `SQLITE_BUSY` 計數（`busyGate`）、打包版的 SQLite 版本與數字。尚未做：桌面 App 的還原流程（目前只有 CLI `pnpm db:restore`）。（狀態更新：App 內還原仍未做，見[審查報告](desktop-v1-review-1.6.55.md) §2 H-02；DT-19 與 DT-24 已於 1.6.54 實作。）
 
 下一版（1.6.53）為更新檢查：預設關閉，由手動的「檢查更新」按鈕觸發；Windows 與 macOS 都顯示版本與更新說明，並開啟下載頁面，App 內不安裝。
 
@@ -211,8 +211,10 @@ R4 的補充用法：
 
 | 任務 | 內容 | 狀態 | 本文件位置 | 證據路徑 |
 |---|---|---|---|---|
-| 手動更新檢查 | 修復視窗的「更新」卡片與工作列的「檢查更新…」。只在按下按鈕時由主程序請求 GitHub releases API（`per_page=20`），記憶體內 session、不帶憑證、不快取、不接受重新導向；標頭只有 `Accept`、`X-GitHub-Api-Version`、`User-Agent`（移除 `Accept-Language`），不送版本、作業系統、機器識別碼或權杖；10 秒逾時、1 MiB 上限、同時只一次。略過草稿與預發布，tag 須為 `vX.Y.Z`。工作列項目由主程序直接開始檢查。狀態：最新、有新版、離線、查詢次數受限（不自動重試）、安全連線失敗、沒有正式版、錯誤；每個狀態都有「開啟發行頁面」。更新說明純文字、移除控制與雙向字元、上限 20 000 字元。下載按鈕以預設瀏覽器開啟該平台安裝檔，網址由 tag 重建且只允許本儲存庫的發行網址；其他平台只提供發行頁面。App 內不下載、不安裝 | 1.6.53 已實作；單元測試 82 項、桌面 smoke 24 項；Windows 11 與 macOS 實機待實機驗收 | ADR-40（新增）；ADR-25（手動下載路徑）；ADR-38（未簽署與 SHA256SUMS）；[1.6.53 更新說明](../releases/1.6.53.md) | `packages/desktop-core/src/update-check/`；`apps/desktop/src/main/update-check.ts`；`apps/desktop/src/main/update-session.ts`；`apps/desktop/src/renderer/repair/update-view.ts`；`tests/desktop-core/update-check-{logic,request,controller}.test.ts`；`tests/desktop-core/dashboard-link.test.ts`；`apps/desktop/tests/desktop-smoke/update-check.spec.ts` |
+| 手動更新檢查 | 修復視窗的「更新」卡片（1.6.55 起在「設定」分頁）與工作列的「檢查更新…」（開啟「設定」分頁並開始檢查）。只在按下按鈕時由主程序請求 GitHub releases API（`per_page=20`），記憶體內 session、不帶憑證、不快取、不接受重新導向；標頭只有 `Accept`、`X-GitHub-Api-Version`、`User-Agent`（移除 `Accept-Language`），不送版本、作業系統、機器識別碼或權杖；10 秒逾時、1 MiB 上限、同時只一次。略過草稿與預發布，tag 須為 `vX.Y.Z`。工作列項目由主程序直接開始檢查。狀態：最新、有新版、離線、查詢次數受限（不自動重試）、安全連線失敗、沒有正式版、錯誤；每個狀態都有「開啟發行頁面」。更新說明純文字、移除控制與雙向字元、上限 20 000 字元。下載按鈕以預設瀏覽器開啟該平台安裝檔，網址由 tag 重建且只允許本儲存庫的發行網址；其他平台只提供發行頁面。App 內不下載、不安裝 | 1.6.53 已實作；單元測試 82 項、桌面 smoke 24 項；Windows 11 與 macOS 實機待實機驗收 | ADR-40（新增）；ADR-25（手動下載路徑）；ADR-38（未簽署與 SHA256SUMS）；[1.6.53 更新說明](../releases/1.6.53.md) | `packages/desktop-core/src/update-check/`；`apps/desktop/src/main/update-check.ts`；`apps/desktop/src/main/update-session.ts`；`apps/desktop/src/renderer/repair/update-view.ts`；`tests/desktop-core/update-check-{logic,request,controller}.test.ts`；`tests/desktop-core/dashboard-link.test.ts`；`apps/desktop/tests/desktop-smoke/update-check.spec.ts` |
 | 每日稽核例外監看 | `audit-exceptions-watch`：每天 UTC 03:37 與手動觸發，`contents: read`，無 secret，不是 PR 的必要檢查；執行 `node scripts/check-audit-ignores.mjs --registry`，npm 出現修補版或 advisory 不再回報時失敗並通知維護者 | 1.6.53 已加入 | [相依套件稽核例外](../security/audit-exceptions.md) | `.github/workflows/audit-exceptions-watch.yml`；`scripts/check-audit-ignores.mjs` |
+
+**本版的非 CI 項目**：Windows 11 與 macOS 實機的 I-1 至 I-8（不自行連線檢查更新、按鈕流程、離線顯示、下載由瀏覽器開啟、覆蓋安裝後保留資料與 Agent 連線）。步驟見[審查報告](desktop-v1-review-1.6.55.md) §4 的 I 節。
 
 沒有 schema 變更（33），沒有 migration。下一版（1.6.54）為診斷匯出、runtime 延後清理與 Windows SQLite 量測，見下節。
 
@@ -226,6 +228,8 @@ R4 的補充用法：
 | 舊 runtime 延後清理（DT-24） | 目前與前一版永遠保留；其餘舊版在退役滿 7 天、沒有 lease、且可改名移開時才刪除。launcher 的每個 action 建立與移除 lease（只含 action 與建立時間），MCP 與 serve 每 60 秒更新；兩次心跳未更新的 lease 視為已不存在；改名失敗則 10 分鐘、30 分鐘、之後每小時重試；更新不刪除、不等待鎖 | 1.6.54 已實作（CI 可驗證部分）；Windows 檔案鎖的實機行為待實機驗收；lease 成本 Windows 中位數 0.75 毫秒、macOS 0.43 毫秒 | ADR-16；C-14；R08 | `packages/desktop-core/src/runtime/lease.ts`、`runtime-gc.ts`；`apps/desktop/src/main/runtime-provision.ts`；`tests/desktop-core/runtime-lease.test.ts`、`runtime-gc.test.ts`、`runtime-gc-live.test.ts` |
 | Windows SQLite 停滯量測（僅測試） | `WI_SQLITE_TIMING=1` 只在 Windows CI 的單元測試與 SQLite 壓力測試工作中開啟；記錄超過 1 秒的呼叫、`BEGIN IMMEDIATE` 等待直方圖、資料庫開啟時間、每次 `wal_checkpoint` 與超過 10 秒的測試；不記錄繫結值；生產版建置檢查若發現 helper 即失敗；不改變門檻、逾時或斷言 | 1.6.54 已加入（僅測試）；量測結果：停滯發生在 `BEGIN IMMEDIATE` 等待鎖與個別陳述式，不在開啟或 checkpoint；未修正 | — | `tests/helpers/sqlite-timing.ts`；CI artifact `sqlite-timing-windows-latest` 與 `sqlite-stress-windows-latest` |
 
+**本版的非 CI 項目**：Windows 11 與 macOS 實機的診斷匯出（J-1 至 J-5：預覽先於寫檔、預覽無個人路徑與權杖、切換分頁後預覽保留、儲存內容與預覽相同、客戶資料夾名稱遮蔽）；舊 runtime 延後清理在 Windows 檔案鎖下的實際行為；Windows SQLite 停滯量測在實機上的結果。步驟見[審查報告](desktop-v1-review-1.6.55.md) §4 的 J 節。
+
 沒有 schema 變更（33），沒有 migration。
 
 ## 1.6.55 任務（單一視窗與分頁、共用設計 token 與無障礙）與本文件的關係
@@ -234,8 +238,8 @@ R4 的補充用法：
 
 | 任務 | 內容 | 狀態 | 本文件位置 | 證據路徑 |
 |---|---|---|---|---|
-| 單一視窗與分頁 | 一個視窗，分頁為 Status、Agent、Settings、Data、Diagnostics；Setup 只在需要首次設定時出現並排在最前。切換設定頁不需要工作列選單。工作列項目與 `wi-repair://` 連結只聚焦同一個視窗並選取分頁，不開第二個視窗；最後的分頁只在本次 App 執行期間記住（`app:get-tab`、`app:remember-tab`，檢查傳送者並嚴格驗證）。修復流程、阻擋式卡片與後端停止時的行為不變 | 1.6.55 已實作（CI 可驗證部分）；Windows 11 與 macOS 實機待實機驗收 | — | `apps/desktop/src/renderer/repair/tabs.ts`；`apps/desktop/src/main/repair-window.ts`；`apps/desktop/src/main/tray.ts`；`tests/desktop-core/app-tabs.test.ts`、`renderer-tabs.test.ts`；`apps/desktop/tests/desktop-smoke/shell-window.spec.ts` |
-| 工作列與選單精簡 | 工作列：（僅在啟動被保留時）舊服務狀態行、（僅在需要設定時）「完成設定…」、Open Dashboard、「開啟 Work Intelligence…」、Check for updates…（開啟設定並開始檢查）、Quit。Windows 與 Linux 沒有應用程式選單；macOS 為 App、Edit、Window 三組（Cmd+W 關閉視窗，不結束 App）；沒有 View、重新載入或 DevTools，打包版關閉 DevTools | 1.6.55 已實作；macOS Cmd+C/V/X/A/Z/W 測試只在 macOS 執行；實機待實機驗收 | — | `apps/desktop/src/main/app-menu.ts`；`apps/desktop/src/main/tray.ts` |
+| 單一視窗與分頁 | 一個視窗，分頁為 Status、Agent、Settings、Data、Diagnostics；Setup 只在需要首次設定時出現並排在最前。切換設定頁不需要工作列選單。工作列項目、啟動旗標與 Web 的開啟請求只聚焦同一個視窗並選取分頁，不開第二個視窗；最後的分頁只在本次 App 執行期間記住（`app:get-tab`、`app:remember-tab`，檢查傳送者並嚴格驗證）。修復流程、阻擋式卡片與後端停止時的行為不變 | 1.6.55 已實作（CI 可驗證部分）；Windows 11 與 macOS 實機待實機驗收 | — | `apps/desktop/src/renderer/repair/tabs.ts`；`apps/desktop/src/main/repair-window.ts`；`apps/desktop/src/main/tray.ts`；`tests/desktop-core/app-tabs.test.ts`、`renderer-tabs.test.ts`；`apps/desktop/tests/desktop-smoke/shell-window.spec.ts` |
+| 工作列與選單精簡 | 工作列：（僅在啟動被保留時）舊服務狀態行、（僅在需要設定時）「完成首次設定…」、Open Dashboard、「開啟 Work Intelligence…」、Check for updates…（開啟設定並開始檢查）、Quit。Windows 與 Linux 沒有應用程式選單；macOS 為 App、Edit、Window 三組（Cmd+W 關閉視窗，不結束 App）；沒有 View、重新載入或 DevTools，打包版關閉 DevTools | 1.6.55 已實作；macOS Cmd+C/V/X/A/Z/W 測試只在 macOS 執行；實機待實機驗收 | — | `apps/desktop/src/main/app-menu.ts`；`apps/desktop/src/main/tray.ts` |
 | 共用設計 token 與主題 | 設計 token 移到 `packages/ui-tokens`（由 `apps/web/src/styles/tokens.css` 原樣移入）；Web 版建置輸出除 import 路徑外位元組相同；視窗即時跟隨系統淺色與深色模式；測試禁止桌面 renderer 使用原始色碼 | 1.6.55 已實作；打包版頁面截圖與淺色、深色截圖以 CI artifact 上傳；實機待實機驗收 | — | `packages/ui-tokens/`；`apps/desktop/src/renderer/repair/theme.ts`；`apps/desktop/src/renderer/repair/repair.css` |
 | 無障礙與狀態保留 | WAI-ARIA tablist、tab、tabpanel；方向鍵、Home、End；roving tabindex；可見焦點；分頁上的忙碌徽章；診斷預覽、待確認操作與進行中操作在切換分頁後保留；4 秒輪詢只更新有變化的部分（`diff.ts`），不搶走焦點（`focus.ts`） | 1.6.55 已實作；鍵盤與焦點的實機行為待實機驗收 | — | `apps/desktop/src/renderer/repair/diff.ts`；`apps/desktop/src/renderer/repair/focus.ts` |
 | 首次設定完成卡片 | 首次設定完成後，Status 分頁顯示一次性的「設定完成」卡片，按鈕前往設定 Agent | 1.6.55 已實作；截圖見 CI artifact；實機待實機驗收 | — | `apps/desktop/src/renderer/repair/status-view.ts` |
@@ -244,14 +248,16 @@ R4 的補充用法：
 量測（production renderer，raw / gzip，位元組）：
 
 - 1.6.54 → 1.6.55：repair.js 97,104 / 25,999 → 106,756 / 30,414；repair.css 8,197 / 2,576 → 11,249 / 2,679；index.html 441 / 284 → 799 / 425；新增 tokens.css 3,488 / 1,240（與 Web 共用）。合計 gzip 28,859 → 34,758 B（+20.4%），raw 105,742 → 122,292 B（+15.7%）。增加來自功能本身：六個分頁、原生對話框、差異式重繪、主題處理與共用 token。
-- 修復視窗開啟時間（缺少資料庫，中位數，三次取中位數，CI runner，門檻未變更）：Linux 610 → 620 ms；Windows 1543 → 1715 ms（+11%）；macOS 1426 → 1176 ms。此指標現在結束於 DB_MISSING 狀態在分頁視窗中可見的時間點。
+- 修復視窗開啟時間（缺少資料庫，中位數，三次取中位數，CI runner，門檻未變更）：數字未驗證，以 CI 取樣為準。此指標現在結束於 DB_MISSING 狀態在分頁視窗中可見的時間點。
 - 閒置主程序記憶體：Linux 約 180 → 約 173 MiB；Windows 約 96 → 約 95 MiB；macOS 約 163 MiB（基準 163）。
+
+**本版的非 CI 項目**：Windows 11 與 macOS 實機的分頁與鍵盤操作（B-1 至 B-3、B-8 至 B-12：分頁順序、方向鍵與 Home／End、深淺色即時切換、最小視窗、125%／150% 顯示比例、單一視窗與單例）；工作列選單（C-1 至 C-7）；Windows 無選單列與 macOS 的 Cmd+W 行為；修復視窗開啟時間的數字（見上方量測，未驗證）。步驟見[審查報告](desktop-v1-review-1.6.55.md) §4 的 B、C 節。
 
 沒有 schema 變更（33），沒有 migration。NEEDS_REPAIR、首次執行與舊服務保留的修復流程不變；CSP、IPC allowlist 與 OperationCoordinator BUSY 規則不變；沒有新的特權 IPC。
 
-## 本機打包
+## 取得安裝檔與本機打包（開發者選項）
 
-依 ADR-38，本機打包是主要的取得方式；CI 與 GitHub Release 的產物為輔。打包只能建置執行它的平台與架構（隨包 Node.js 是該平台的官方執行檔），因此 Windows 與 macOS 各自在本機執行。
+依 ADR-38，主要的取得方式是 GitHub Release 的安裝檔（Windows 為 `…-win-x64-setup.exe`，macOS 為 `…mac-arm64.dmg` 或 `…mac-x64.dmg`），一般使用者不需要執行任何指令。以下的 `pnpm package:desktop` 是開發者在本機自行打包的選項；CI 的 `desktop-package` 產物為輔。打包只能建置執行它的平台與架構（隨包 Node.js 是該平台的官方執行檔），因此 Windows 與 macOS 各自在本機執行。
 
 | 平台 | 指令 | 產物 |
 |---|---|---|
@@ -285,7 +291,7 @@ R4 的補充用法：
 |---|---|
 | 風險表移出 | R3 §11 的 34 列表格移至風險矩陣，R4 正文改為摘要與連結。 |
 | 工程拆票移出 | R3 §13 的 Epic 表移至風險矩陣 §3，並以 DT 票號與 R3 Epic 編號對照。 |
-| 決策拆出 | R3 的決策散落於各節。R4 把決策整理為 ADR-01 至 ADR-35，正文仍保留細節，ADR 為索引。 |
+| 決策拆出 | R3 的決策散落於各節。R4 把決策整理為 ADR-01 至 ADR-35（R4 撰寫時的範圍；之後新增 ADR-36 至 ADR-40，目前為 ADR-01 至 ADR-40），正文仍保留細節，ADR 為索引。 |
 | 元件契約新增 | R4 新增元件契約（C-01 至 C-22），供實作分工。 |
 | 首發決策落定 | R3 §14.1 的「是否先 macOS 再 Windows」已由產品決定，記為 ADR-02。 |
 | 新增 DT 票 | DT-26（1.6.41 T1）、DT-33（聯合發行閘）、DT-37（發行身分與簽章）為 R4 新增。 |
@@ -325,6 +331,15 @@ R4 的補充用法：
 - 1.6.45（階段 5 的打包部分；未另列修訂序號）: 階段 5 狀態（§7.1 的 DT-28 決定、§9.4、§3.3 的 ACL 與 runtime 清理）；風險矩陣與 ADR-15、ADR-16、ADR-25、ADR-30、ADR-38 的 1.6.45 註記。
 - R4 第六次修訂（1.6.47）: 階段 3 的 CI 可驗證部分（DT-21、DT-22、DT-23 後續、DT-27）與 backlog a、b；§3.3、§9.4 的階段 3 進度；風險矩陣的 R07、R15、R16、R17、R28 與 DT 票狀態；ADR-14、ADR-15、ADR-28、ADR-34 的實作註記與新增 ADR-39。
 
+- 1.6.48（階段 4 大檔匯入匯出）: 匯入、預覽與匯出改由隔離的背景子程序串流處理，記憶體不隨檔案大小成長；CI 可驗證部分已實作，實機待實機驗收。
+- 1.6.49（階段 4 第二部分）: 首次執行頁、App 內 Agent 設定與舊服務偵測已實作（CI 可驗證部分）；見上方 1.6.49 章節。
+- 1.6.50（階段 4 收尾）: 舊服務一鍵停用與只接管同一資料庫的 Agent 已實作（CI 可驗證部分）；見上方 1.6.50 章節。
+- 1.6.51（連接埠變更與檔案系統風險政策）: 未單獨發布，隨 1.6.52 發行；App 內變更連接埠與資料庫位置風險政策已實作（CI 可驗證部分）；見上方 1.6.51 章節。
+- 1.6.52（升級、還原與多程序寫入的驗證）: 升級樣本、migration 中斷與 SQLite WAL 壓力測試已實作（CI 可驗證部分）；見上方 1.6.52 章節。
+- 1.6.53（手動更新檢查）: 只在按下「檢查更新」時查詢，App 內不下載或安裝；已實作（CI 可驗證部分）；見上方 1.6.53 章節與 ADR-40。
+- 1.6.54（診斷匯出、runtime 延後清理、Windows SQLite 量測）: 診斷匯出預覽與遮蔽、舊 runtime 延後清理已實作，Windows SQLite 量測僅為測試；見上方 1.6.54 章節。
+- 1.6.55（單一視窗與分頁）: 一個視窗、分頁切換與共用設計 token 已實作（CI 可驗證部分）；Windows 11 與 macOS 實機、125%／150% DPI 驗收待完成；見上方 1.6.55 章節。
+
 ## 驗證紀錄（R4 修訂過程）
 
 以下為 R4 撰寫時的唯讀核對，**未修改任何程式碼、未執行測試**：
@@ -353,16 +368,16 @@ R4 的補充用法：
 
 ## 未確定事項
 
-1. **SQLite 修補的發行證據**：發行產物內 bundled Node 的實際 `sqlite_version()` 尚未取得。本機值不能取代它。
+1. **SQLite 修補的發行證據**：**已解決**：1.6.52 的 Windows x64、macOS x64、macOS arm64 打包 runtime 皆為 Node 24.22.3、SQLite 3.54.1（含修補），見上方 1.6.52 章節（DT-07 列）。本機開發值 3.53.4 不作為發行證據。
 2. **官方 SQLite 說明**：「3.51.3 起修復、3.50.7 與 3.44.6 回補」來自 R3 的引用，R4 未重新抓取原文，採用前應確認。
 3. **實機驗收**：Windows 11 與 macOS 實機結果全部為待實機驗收，包括 T1 的現代資料夾選擇視窗（`docs/release-checklist.md`「Windows 11：現代資料夾選擇視窗」）。
 4. **`apps/desktop` 界線與各元件的介面**：僅為草案，待原型決定。
-5. **電子與更新工具版本**：尚未鎖定；v26 與 v27 的選擇依 ADR-25 決定。
+5. **電子與更新工具版本**（已解決）：`apps/desktop/package.json` 已鎖定為精確版本（Electron 45.3.2、electron-builder 26.18.1；見 DT-28 列）；版本選擇的依據見 ADR-25。
 6. **1.6.41 之外的 PR**：本文件未檢查其他分支對上述程式的修改。
 
 ---
 
 ## 檔名異動
 
-- R3 檔名 `desktop-v1-design-r3.md` 已以 `git mv` 改名為 `desktop-v1-design-r4.md`（已暫存，未提交）。
+- R3 檔名 `desktop-v1-design-r3.md` 已以 `git mv` 改名為 `desktop-v1-design-r4.md`（已提交；HEAD 中已無 r3 檔，r4 檔存在）。
 - repo 內除 git 歷史外，不再有指向舊檔名的連結（修訂後以 `grep` 確認）。
