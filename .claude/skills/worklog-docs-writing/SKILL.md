@@ -62,14 +62,14 @@ description: Use whenever you write or edit a user-facing document in Work Intel
 | 租約 | 租約（lease） | lease | 第一次出現時附英文 |
 | 備份 | 備份 | backup | 「手動備份」「自動備份」分開說 |
 | 還原 | 還原 | restore | 不用「復原」指資料庫還原（「復原上次變更」是 Agent 設定的 undo，保留原名） |
-| 整理資料庫 | 整理資料庫 | Maintain database | |
+| 整理資料庫 | 整理資料庫 | Maintain the database | |
 | 登入時自動啟動 | 登入時自動啟動 | Start at login | |
 | 診斷匯出 | 診斷匯出 | Export diagnostics | |
-| 改由桌面 App 管理 | 改由桌面 App 管理 | Manage with the desktop App | 接管手寫註冊的按鈕 |
+| 改由桌面 App 管理 | 改由桌面 App 管理 | Let the desktop App manage it… | 接管手寫註冊的按鈕 |
 | 設定 Agent | 設定 Agent | Set up Agents | |
 | 移除 Agent 設定 | 移除 Agent 設定 | Remove Agent setup | |
 | 已連線 | 已連線 | Connected | Agent 卡片狀態 |
-| 需重新連線 | 需重新連線 | Reconnect needed | Agent 卡片狀態 |
+| 需要重新連線 | 需要重新連線 | Needs to reconnect | Agent 卡片狀態 |
 
 App 的實際字串以程式為準。寫文件前先在 `apps/desktop` 或 `packages/desktop-core` 的 i18n 檔確認字串，不要憑印象寫。
 
