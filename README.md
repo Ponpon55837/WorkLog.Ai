@@ -154,7 +154,7 @@ Useful environment variables:
 |---|---|
 | `WORK_INTELLIGENCE_DB` | Database location. Relative paths resolve from the repository root. |
 | `WORK_INTELLIGENCE_PORT` | Local port, `3210` by default. |
-| `WORK_INTELLIGENCE_BACKUP_DIR` | Backup folder, `backups/` next to the database by default. |
+| `WORK_INTELLIGENCE_BACKUP_DIR` | Backup folder. Command-line mode defaults to `backups/` next to the database; the desktop App defaults to `~/.work-intelligence/backups/` (changeable in the App's **Settings** tab). |
 | `WORK_INTELLIGENCE_BACKUP=off` | Turns off the daily automatic backup. |
 
 Development commands:
