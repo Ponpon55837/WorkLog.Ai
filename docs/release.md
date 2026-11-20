@@ -1,5 +1,7 @@
 # 發行與升級
 
+> **對象：維護者。** 本頁說明版本、tag 與 GitHub Release 的流程。一般使用者的安裝與升級請見 [README](../README.zh-TW.md) 與[使用手冊](user-guide.md#更新-work-intelligence)；桌面 App 會在「設定」分頁的「更新」卡片中檢查新版（只在按下時查詢）。
+
 Work Intelligence 使用 Semantic Versioning。根目錄 `package.json` 是應用程式版本的唯一來源；`/api/health`、MCP metadata／instructions 與 Web 側欄都由它讀取。Schema 版本獨立由 storage migrations 管理，只有資料結構變更時才遞增。
 
 需要實體作業系統、瀏覽器或私人資料才能確認的項目，請依[發行實機驗收清單](release-checklist.md)由使用者操作並填寫結果；CI 不代表這些驗收已完成。
