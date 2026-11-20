@@ -44,12 +44,12 @@ The App checks for updates only when you press **Check for updates** in its Sett
 
 ## First-time setup
 
-1. Open the App. On first run, choose **Start with default settings**. If the App finds an existing database, you can choose **Keep this data** instead.
-2. Go to **Projects**, choose **Add project**, and pick the folder you want to record.
+1. Open the App. On first run, choose **Start with the defaults**. If the App finds an existing database, you can choose **Keep using this data** instead.
+2. Open the Web dashboard from the tray menu (**Open Dashboard**), go to **Projects**, choose **Add project**, and pick the folder you want to record.
 3. Set the project to **Tracked**. Projects start as *Unregistered*, and the Agent cannot change this for you.
 4. Set up your Agents (next section), then open a new conversation in Codex or Claude Code and ask the Agent to save your work when you finish.
 
-The first-run page and the Status tab show these steps until you have a tracked project and a saved Session.
+The Web dashboard shows a short checklist of these steps until you have a tracked project and a saved Session.
 
 ## Set up your Agents
 
@@ -57,17 +57,17 @@ In the App, open the **Agent** tab (or press **Set up Agents…** on the first-r
 
 - **Preview first.** **Preview changes** shows every file the App would change. Nothing is written until you confirm.
 - **Apply and undo.** **Apply changes** writes the previewed plan and records it. **Undo the last change** restores the files as they were before.
-- **Already set up by hand?** If you added the Work Intelligence server yourself, the card shows the status **Set up by hand** and offers to take it over. The App takes over the registration after you preview it, and undo returns the files to exactly how they were.
+- **Already set up by hand?** If you added the Work Intelligence server yourself, the card shows the status **Managed elsewhere** and offers **Let the desktop App manage it…**. The App takes over the registration after you preview it, and undo returns the files to exactly how they were.
 - **Remove.** **Remove Agent setup** uses the same preview and confirmation steps as setup.
 
 Each card shows the Agent's connection status:
 
 - **Connected**: the Agent has used Work Intelligence tools.
 - **Set up, not confirmed yet**: the setup is written, but the Agent has not used the tools yet. Ask it a question about a tracked project to confirm.
-- **Reconnect needed**: the Agent loaded an older version of the server. Close the Agent conversation and open it again.
+- **Needs to reconnect**: the Agent loaded an older version of the server. Close the Agent conversation and open it again.
 - **Conflicting settings**: the App cannot change a setting safely. The card explains why and what to do.
 
-The System status page of the Web UI shows **MCP connections**. If it shows 0 or fewer than you expect, the page explains why. One common case after an upgrade: **Agent conversations that were already open before the upgrade keep the old MCP server and are not counted.** Close and reopen those conversations.
+The System status page of the Web UI shows **MCP connections**. If it shows 0 or fewer than you expect, the page explains why. One common case after an upgrade: **Agent conversations that were already open before the upgrade keep the old MCP server and are not counted.** Close and reopen those conversations, and the count updates.
 
 ## Everyday use
 
@@ -82,24 +82,24 @@ You talk to the Agent in plain language. The Agent handles the tool calls.
 | Write a report | "Summarize this week's Work Intelligence report for me." |
 | Tidy open items | "Please tidy this project's open items." |
 
-You can also do most of this in the App:
+You can also do most of this in the Web dashboard (tray menu → **Open Dashboard**):
 
-- **Work history**: search Sessions, edit a summary, link or void a Session, and review open items.
-- **Work reports**: daily, weekly, monthly, quarterly, yearly or custom-range reports, exported as Markdown or JSON.
-- **Work knowledge**: accepted Knowledge, Knowledge pages and candidates. Candidates become Knowledge only after you accept them.
-- **Projects**: add, track, pause or delete projects.
+- **Work history** (Web dashboard): search Sessions, edit a summary, link or void a Session, and review open items.
+- **Work reports** (Web dashboard): daily, weekly, monthly, quarterly, yearly or custom-range reports, exported as Markdown or JSON.
+- **Work knowledge** (Web dashboard): accepted Knowledge, Knowledge pages and candidates. Candidates become Knowledge only after you accept them.
+- **Projects** (Web dashboard): add, track, pause or delete projects.
 
 Every Session has a one-sentence summary and five fixed sections: **Outcomes, Scope, Decisions, Verification, and Status and open items**. Verification has five states: passed, failed, in progress, not run, and not reported. Starting work never counts as passed.
 
 ## Data, backups and moving to a new computer
 
-Everything lives in one SQLite database. The **Data** tab handles backups and maintenance.
+Everything lives in one SQLite database. The App's **Data** tab handles restore and database maintenance; the Web dashboard's **Projects** page handles backup lists, manual backups, export and import.
 
-- **Back up now** creates a manual backup. Automatic backups run once a day, and the App keeps the latest few of each kind.
-- **Restore from backup** replaces the database with a backup you choose. Before it starts, the App asks you to close your Agent conversations, and it backs up your current data first. A backup that fails its checks is refused, and your current data stays as it is.
-- **Moving to a new computer.** Restore on the new computer. If a project folder from the backup is missing there, the App asks where it is now. Pick a folder, and the App matches projects with the same name under it. You can pick several folders, skip a project, or cancel.
-- **Maintain the database…** backs up first, then checks integrity, compacts the file, rebuilds the search index and shows how much free space was reclaimed. **Check integrity** only reads, and changes nothing. Maintenance does not start while an Agent is connected or an import, backup or restore is running.
-- **Export and import** move projects as JSON, with a preview before anything is written. Export files are not encrypted, so keep them somewhere safe.
+- **Back up now** (Web dashboard, **Projects → Data backup**) creates a manual backup. Automatic backups run once a day, and the App keeps the latest few of each kind.
+- **Restore from backup** (App **Data** tab) replaces the database with a backup you choose. Before it starts, the App asks you to close your Agent conversations, and it backs up your current data first. A backup that fails its checks is refused, and your current data stays as it is.
+- **Moving to a new computer.** Restore on the new computer. If a project folder from the backup is missing there, the App asks where it is now. Pick a folder, and the App matches projects with the same name under it. You can pick several folders, keep the old paths for the rest, or cancel.
+- **Maintain the database…** (App **Data** tab) backs up first, then checks integrity, compacts the file, rebuilds the search index and shows how much free space was reclaimed. **Check integrity** only reads, and changes nothing. Maintenance does not start while an Agent is connected or an import, backup or restore is running.
+- **Export and import** (Web dashboard, **Projects**) move projects as JSON, with a preview before anything is written. Export files are not encrypted, so keep them somewhere safe.
 - **Deleting a project** makes a full backup first. The deletion record keeps only the time, project ID and counts. Older backups still contain the project until they rotate out or you delete them.
 
 Backups and exports are not encrypted. Store and move them by trusted means.
@@ -181,7 +181,6 @@ tests/         unit, integration and E2E tests
 docs/          user guides, release notes and design records
 ```
 
-Screenshots of the Web UI, with fictional sample data, are in [docs/user-guide.md](docs/user-guide.md).
 
 ## Documentation
 
