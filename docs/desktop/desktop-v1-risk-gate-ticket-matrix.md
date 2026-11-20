@@ -1,6 +1,6 @@
 # Work Intelligence 桌面版 V1：風險・Gate・工程票對應表（R4）
 
-**基準：** `d464ea5`（1.6.40）；目標 1.6.41。**修訂日期：** 2026-11-16。
+**設計基準：** `d464ea5`（1.6.40）；**狀態註記涵蓋至** 1.6.56。**修訂日期：** 2026-11-16。
 
 本表對應 R3 的 R01–R34（P0 15、P1 17、P2 2）。每項風險必須對應到一張工程票，或明確標示「V1 不做／以發行聲明排除」並附理由。Gate 定義見 [R4 §9.5](desktop-v1-design-r4.md#95-發行阻斷的可觀察證據gate)。
 
@@ -78,25 +78,25 @@
 |---|---|---|---|---|---|---|
 | DT-01 | DB 來源解析器與身分（唯讀候選、衝突策略） | E0-01 | — | 合成的舊 checkout、standalone、plugin 流程；多來源衝突測試。**1.6.42 已實作**：`packages/desktop-core/src/db-source/`、`packages/shared/src/file-identity.ts`；`tests/desktop-core/db-source.test.ts`、`tests/desktop-core/identity-compare.test.ts`、`tests/shared/file-identity.test.ts`；身分策略見 ADR-36；Windows 檔案 ID 待實機驗收 | W、M | R01、R23 |
 | DT-02 | 唯讀 preflight 與提交前重驗（含 sidecar 副作用測試） | E0-01、E2-02 | DT-01 | 不開錯庫；sidecar 監測；TOCTOU 測試。**1.6.42 已實作**：`apps/server/src/database-preflight.ts`、`apps/server/src/start-api.ts`；`tests/server/database-preflight.test.ts`、`tests/server/start-api-injected.test.ts`；sidecar 本機觀察見 ADR-07（Windows 待實機驗收） | W、M | R02、R23、R34 |
-| DT-03 | HTTP API 與 CLI 寫入端 schema 閘（`server_restart_required`，HTTP 503；快取戳記 `data_version` 與 `schema_version`） | E0-02 | — | 舊程序寫入被拒；快取不每請求重查 | W、M | R03 |
+| DT-03 | HTTP API 與 CLI 寫入端 schema 閘（`server_restart_required`，HTTP 503；快取戳記 `data_version` 與 `schema_version`） | E0-02 | — | 舊程序寫入被拒；快取不每請求重查。**1.6.41 T2 已實作**（commit 3ff1e45，見 §4）：錯誤碼 `server_restart_required` 定義於 `packages/core/src/index.ts:32`，HTTP 503 回應於 `apps/server/src/server.ts:415`；程序組合實驗見 DT-04 | W、M | R03 |
 | DT-04 | 舊 MCP 與長任務屏障實驗；確定方案 1、2、3 | E0-02、E4-02 | DT-03 | §10.4 的四組程序組合實驗結果。**1.6.42 已實作**：`tests/server/old-writer-barrier.test.ts`（+ `tests/helpers/old-writer-barrier*.ts`）；組合 1 至 3 的結果見 §10.4；組合 4（Codex plugin、Claude Code plugin、MCPB、手動 stdio）與 Windows 檔案鎖／WAL 待實機驗收 | W、M | R03 |
-| DT-05 | 備份快照驗證與 restore 守門（可讀回、保存當前快照） | E4-02 | DT-03 | 還原樣本通過 `integrity_check`；活躍 DB 不被覆寫 | W、M | R04、R12 |
-| DT-06 | SQLite 版本檢查（`doctor`、`pnpm check`、`/api/health` 警告；release 列印）**1.6.41 T3** | E1-01 | — | CI 檢查通過；release 產物輸出 bundled `sqlite_version()` | W、M | R33 |
+| DT-05 | 備份快照驗證與 restore 守門（可讀回、保存當前快照） | E4-02 | DT-03 | 還原樣本通過 `integrity_check`；活躍 DB 不被覆寫。**狀態：CI 可驗證部分已實作，實機待驗收**：後端還原前驗證與 `RESTORE_VERIFY_FAILED` 見 `packages/storage/src/backup.ts:648`、`:684`；還原的升級與中斷測試記在 DT-32。**1.6.56 App 內還原（H-02）**：「資料」分頁經 `apps/desktop/src/main/restore.ts` 進入 `supervisor.restoreDatabase`（`packages/desktop-core/src/backend/backend-supervisor.ts:487`），原生確認後才停止後端（`restore.ts:40`） | W、M | R04、R12 |
+| DT-06 | SQLite 版本檢查（`doctor`、`pnpm check`、`/api/health` 警告；release 列印）**1.6.41 T3** | E1-01 | — | CI 檢查通過；release 產物輸出 bundled `sqlite_version()`。**1.6.41 T3 已實作**（commit 4420951，見 §4）：`apps/server/src/sqlite-runtime.ts:31`、`apps/server/src/doctor.ts:621` 讀取版本；打包 runtime 的斷言與 SQLite 3.54.1 紀錄見 ADR-19（1.6.52） | W、M | R33 |
 | DT-07 | 多程序 WAL 寫入與 checkpoint 壓力、`integrity_check` 測試套件 | E5-01 | DT-05 | 壓力測試輸出與還原比對；不取代 DT-06 的修補證據。**1.6.52 CI 可驗證部分已實作**：`pnpm test:sqlite-stress`（不在 `pnpm test` 內）；4 寫入、2 唯讀（含長讀取交易）、checkpointer（PASSIVE／FULL／RESTART／TRUNCATE）、`VACUUM INTO` 快照與隨機 SIGKILL，45 秒；絕對檢查含 `integrity_check`、`foreign_key_check`、FTS5、已確認寫入恰好一次、中斷寫入全有或全無、快照無缺口、還原指紋相同；拋出的 `SQLITE_BUSY` 設門檻（寫入程序 ≤ max(5, 寫入數 2%)、其他角色 0；checkpoint `busy` 旗標只回報，數字記錄於結果檔 `busyGate`）；CI 工作 `SQLite stress (ubuntu-latest／windows-latest／macos-latest)`，必要檢查增為 23 項；`tests/stress/sqlite-wal-stress.test.ts`；Windows 與 macOS 實機及打包數字待實機驗收或 CI 結果補上 | W、M | R33 |
 | DT-08 | 檔案系統風險政策（SMB、NFS、同步資料夾、外接碟） | E0-01 | DT-01 | 偵測與禁止自動接管的測試；顯示理由。**1.6.51 已實作**：啟動與選擇資料庫時分類 none、網路、可移除、雲端同步、硬連結與 unknown；網路磁碟拒絕作為 App 資料庫（`DB_STORAGE_NETWORK`）；可移除、雲端同步與硬連結只能勾選同意後選擇且不做 schema 更新；「複製到本機磁碟並改用」以 `VACUUM INTO` 與 `quick_check` 完成，原檔不變；`apps/desktop/src/main/storage-risk.ts`；`packages/desktop-core/src/db-source/storage-policy.ts`；`tests/desktop-core/storage-risk.test.ts`；真實磁碟與雲端根目錄判定待實機驗收；已知未偵測 macOS 的 iCloud「桌面與文件」 | W、M | R22 |
-| DT-09 | ServiceOwner 狀態機與 operation journal（R4 §4.1） | E0-03 | DT-01 | 狀態轉移測試；中斷後依 OS／DB 重建。**1.6.42 已實作**：`packages/desktop-core/src/operations/`（狀態表、journal、recovery）；**1.6.56 接線（H-01）**：主程序啟動時執行 `recoverAtStartup`，依真實狀態關閉中斷操作；`tests/desktop-core/operations-state.test.ts`、`tests/desktop-core/operations-journal.test.ts`、`tests/desktop-core/operations-recovery.test.ts` | W、M | R06、R30 |
+| DT-09 | ServiceOwner 狀態機與 operation journal（R4 §4.1） | E0-03 | DT-01 | 狀態轉移測試；中斷後依 OS／DB 重建。**1.6.42 契約已實作，狀態：部分完成**：`packages/desktop-core/src/operations/`（狀態表、journal、recovery）；**1.6.56 接線（H-01）**：主程序啟動時執行 `recoverAtStartup`（`apps/desktop/src/main/index.ts:621`），依真實狀態關閉中斷操作；殺主行程 smoke 覆蓋換 port 與換 DB（`apps/desktop/tests/desktop-smoke/crash-recovery.spec.ts:134`、`:171`），apply-agent 與 restore 的中斷情境未列入該 smoke；`tests/desktop-core/operations-state.test.ts`、`tests/desktop-core/operations-journal.test.ts`、`tests/desktop-core/operations-recovery.test.ts` | W、M | R06、R30 |
 | DT-10 | `OperationCoordinator`（單一鎖、operationId、BUSY、重送） | E0-03 | DT-09 | 重送回傳同一結果；併發操作回 BUSY。**1.6.42 已實作**：`packages/desktop-core/src/operations/coordinator.ts`；`tests/desktop-core/operations-coordinator.test.ts`；跨程序鎖屬 DT-15 | W、M | R19 |
 | DT-11 | 子程序 lifecycle（argv、env allowlist、runId IPC、drain） | E2-02 | DT-09、DT-02 | 不開錯 DB；不雙啟；關閉可驗證。**1.6.44 已實作**：`packages/desktop-core/src/backend/`；`apps/server/src/desktop-child.ts`；`packages/shared/src/instance-proof.ts`；`tests/desktop-core/backend-supervisor.test.ts`、`backend-environment.test.ts`、`backend-managed-service.test.ts`；`tests/server/desktop-child.test.ts`、`desktop-child-process.test.ts`；實機待實機驗收 | W、M | R19 |
-| DT-12 | 服務擁有權證據與陌生程序保護（macOS LaunchAgent） | E4-01 | DT-09 | 不殺未授權程序；歸屬證據層級測試 | M | R05、R06 |
+| DT-12 | 服務擁有權證據與陌生程序保護（macOS LaunchAgent） | E4-01 | DT-09 | 不殺未授權程序；歸屬證據層級測試。**狀態：部分完成**。macOS 舊 LaunchAgent 的停用流程已於 1.6.50 實作：`launchctl bootout`、以 `launchctl print` 確認卸載，再刪除 plist（`packages/desktop-core/src/legacy-service/disable.ts:133-145`；`docs/releases/1.6.50.md:31`）。陌生程序保護與歸屬證據的測試未在本次核對範圍內；真實 LaunchAgent 實機待驗收 | M | R05、R06 |
 | DT-13 | Windows schtasks adapter 與 runner 子孫程序驗證 | E4-01 | DT-12 | 停止排程後 port 釋放；子孫程序已終止。**1.6.50 已實作（停用舊的登入服務）**：只結束命令列含該 checkout runner 的 `node.exe` 程序樹，依父程序編號等待每個子孫程序結束與 port 釋放後才刪除排程；`packages/desktop-core/src/legacy-service/disable.ts`；`tests/desktop-core/legacy-service-disable.test.ts`；真實 Windows 程序樹待實機驗收 | W | R05 |
-| DT-14 | 連接埠變更與跨 port 偏好白名單 | E2-02 | DT-11 | 換 port 後管理授權重建；偏好正確搬運。**1.6.51 已實作**：只在 App 內變更（修復視窗「連接埠」與工作列「變更連接埠…」）；Web 只請 App 開啟該區段；白名單偏好與路由以一次性 fragment 還原；占用與 `PORT_NOT_PERMITTED` 在停止服務前拒絕；通過 IPC 與 HTTP 證明驗證後才原子寫入設定，失敗回舊 port；`apps/desktop/src/main/change-port.ts`；`packages/desktop-core/src/shell/port-policy.ts`；`tests/desktop-core/change-port-controller.test.ts`；`apps/desktop/tests/desktop-smoke/change-port.spec.ts`；真實 bind 與 Dashboard 新位址待實機驗收 | W、M | R20 |
-| DT-15 | 單例、tray／選單列、登入項、靜默背景（無重複彈窗） | E2-01 | DT-10、DT-25 | 重複點擊只開一個實例；背景啟動不跳錯誤窗。**1.6.44 已實作**：`apps/desktop/src/main/index.ts`、`second-instance.ts`、`tray.ts`、`settings.ts`；`packages/desktop-core/src/shell/launch-mode.ts`、`login-item.ts`、`tray-menu.ts`；`tests/desktop-core/shell-basics.test.ts`；`apps/desktop/tests/desktop-smoke/desktop.spec.ts`；實機待實機驗收 | W、M | R18、R24 |
-| DT-16 | 修復視窗（隔離、sandbox、不依賴 Web 或 API） | E2-01 | DT-15 | 無 tray 或服務壞掉時仍可修復。**1.6.44 已實作**：`apps/desktop/src/main/repair-window.ts`、`security.ts`、`ipc.ts`；`apps/desktop/src/preload/repair.ts`；`apps/desktop/src/renderer/repair/`；`packages/desktop-core/src/shell/navigation-policy.ts`、`repair-ipc.ts`；`tests/desktop-core/shell-policy.test.ts`；`apps/desktop/tests/desktop-smoke/desktop.spec.ts`；實機待實機驗收 | W、M | R14、R18 |
-| DT-17 | 管理 API 授權：精確 Host:port（**1.6.41 T4 已實作**）、Origin、CSRF、會話、原生確認 | E2-03 | DT-15 | 假 Host、假 Origin、跨 port、重播、過期的測試皆拒絕 | W、M | R09、R10 |
-| DT-18 | 管理 API 跨使用者與 XSS 回歸測試；資料 API 的發行聲明 | E2-03 | DT-17 | 不同 OS 帳號連線測試；發行說明已列出排除項 | W、M | R25（管理 API 部分） |
+| DT-14 | 連接埠變更與跨 port 偏好白名單 | E2-02 | DT-11 | 換 port 後管理授權重建；偏好正確搬運。**1.6.51 已實作**：只在 App 內變更（修復視窗「連接埠」區段；工作列項目已於 1.6.55 移除，見下）；Web 只請 App 開啟該區段；白名單偏好與路由以一次性 fragment 還原；占用與 `PORT_NOT_PERMITTED` 在停止服務前拒絕；通過 IPC 與 HTTP 證明驗證後才原子寫入設定，失敗回舊 port；`apps/desktop/src/main/change-port.ts`；`packages/desktop-core/src/shell/port-policy.ts`；`tests/desktop-core/change-port-controller.test.ts`；`apps/desktop/tests/desktop-smoke/change-port.spec.ts`；**1.6.55 註記**：工作列的「變更連接埠…」已移除（`packages/desktop-core/src/shell/tray-menu.ts` 的項目清單不含此項）；入口只剩 App 視窗的連接埠區段（`apps/desktop/src/renderer/repair/port-view.ts`）。真實 bind 與 Dashboard 新位址待實機驗收 | W、M | R20 |
+| DT-15 | 單例、tray／選單列、登入項、靜默背景（無重複彈窗） | E2-01 | DT-10、DT-25 | 重複點擊只開一個實例；背景啟動不跳錯誤窗。**1.6.44 已實作**：`apps/desktop/src/main/index.ts`、`second-instance.ts`、`tray.ts`、`settings.ts`；`packages/desktop-core/src/shell/launch-mode.ts`、`login-item.ts`、`tray-menu.ts`；`tests/desktop-core/shell-basics.test.ts`；`apps/desktop/tests/desktop-smoke/desktop.spec.ts`；實機待實機驗收。**1.6.55 註記**：工作列縮為六項；工作列項目與啟動旗標的開啟請求都只聚焦同一個視窗並選取分頁（`docs/releases/1.6.55.md:10`；`packages/desktop-core/src/shell/tray-menu.ts:7`） | W、M | R18、R24 |
+| DT-16 | 修復視窗（隔離、sandbox、不依賴 Web 或 API） | E2-01 | DT-15 | 無 tray 或服務壞掉時仍可修復。**1.6.44 已實作**：`apps/desktop/src/main/repair-window.ts`、`security.ts`、`ipc.ts`；`apps/desktop/src/preload/repair.ts`；`apps/desktop/src/renderer/repair/`；`packages/desktop-core/src/shell/navigation-policy.ts`、`repair-ipc.ts`；`tests/desktop-core/shell-policy.test.ts`；`apps/desktop/tests/desktop-smoke/desktop.spec.ts`；實機待實機驗收。**1.6.55 註記**：修復視窗改為單一視窗分頁（`packages/desktop-core/src/shell/app-tabs.ts:8`：setup、status、agent、settings、data、diagnostics；setup 只在首次設定未完成時出現，見 `app-tabs.ts:26`）；隔離與 sandbox 要求不變 | W、M | R14、R18 |
+| DT-17 | 管理 API 授權：精確 Host:port（**1.6.41 T4 已實作**）、Origin、CSRF、會話、原生確認 | E2-03 | DT-15 | 假 Host、假 Origin、跨 port、重播、過期的測試皆拒絕。**狀態**：精確 Host:port 與 Origin 檢查已實作（`apps/server/src/server.ts:94`、`:117`）；**會話與 CSRF 未實作**（`apps/server`、`packages/shared`、`packages/desktop-core` 內無 CSRF 或管理會話，見 ADR-11），因此與會話相關的「重播、過期」測試沒有對應的實作 | W、M | R09、R10 |
+| DT-18 | 管理 API 跨使用者與 XSS 回歸測試；資料 API 的發行聲明 | E2-03 | DT-17 | 不同 OS 帳號連線測試；發行說明已列出排除項。**狀態：未做**。`tests/` 與 `apps/desktop/tests/` 內沒有跨使用者或 XSS 回歸測試（rg 無結果）；實際做法與未做項目見 ADR-11 | W、M | R25（管理 API 部分） |
 | DT-19 | 診斷匯出遮蔽與秘密掃描 | E5-02 | DT-11 | 匯出內容無授權碼與個資路徑；不自動上傳。**1.6.44 註記**：本版的診斷匯出已遮蔽 home、使用者名稱、DB／備份路徑、runId 與秘密樣式（`packages/desktop-core/src/shell/diagnostics.ts`；`tests/desktop-core/shell-policy.test.ts`）；完整版（dry-run 預覽、秘密掃描報告）仍屬 DT-19。**1.6.54 註記**：完整版已實作（CI 可驗證部分）：「匯出診斷資訊」先預覽，儲存只寫入預覽中的同一份文字；遮蔽涵蓋使用者主目錄、UNC、資料庫與備份路徑、電子郵件、交接代碼、URL 秘密與權杖形狀；第二道掃描失敗回 `DIAGNOSTICS_SCAN_FAILED`；1 MiB 上限；所有模式線性時間。實機待實機驗收。 | W、M | R32 |
 | DT-20 | 設定檔原子寫入與 fail-closed 讀取 | E0-02 | — | 半寫入與毀損情境不開空庫；recovery copy 可用。**1.6.42 已實作**：`packages/desktop-core/src/settings/`；`tests/desktop-core/settings.test.ts` | W、M | R29 |
-| DT-21 | Agent plan／apply／verify／compensate 共用 API（擷取自 `agent-setup.ts`） | E3-01 | DT-23 | 指紋重驗；補償只回復 App 擁有項；CLI 行為不變。**1.6.47 已實作（CI 可驗證部分）**：`packages/agent-setup/`；`apps/server/src/agent-setup.ts`（薄 CLI）；`tests/agent-setup/*.test.ts`、`tests/server/agent-setup-golden.test.ts`（CLI 輸出與檔案位元組不變）；App 設定中心尚未呼叫；實機待實機驗收。 | W、M | R15、R16、R17 |
+| DT-21 | Agent plan／apply／verify／compensate 共用 API（擷取自 `agent-setup.ts`） | E3-01 | DT-23 | 指紋重驗；補償只回復 App 擁有項；CLI 行為不變。**1.6.47 已實作（CI 可驗證部分）**：`packages/agent-setup/`；`apps/server/src/agent-setup.ts`（薄 CLI）；`tests/agent-setup/*.test.ts`、`tests/server/agent-setup-golden.test.ts`（CLI 輸出與檔案位元組不變）；1.6.49 起 App 的「設定 Agent」頁已呼叫此 API（`apps/desktop/src/main/agents.ts:24` 匯入 `@work-intelligence/agent-setup`）；實機待實機驗收。 | W、M | R15、R16、R17 |
 | DT-22 | Agent 狀態分級與 host handshake | E3-01 | DT-21 | 檔案已寫入不顯示「已連接」；握手測試通過。**1.6.47 已實作（CI 可驗證部分）**：`packages/desktop-core/src/agents/`；`packages/shared/src/mcp-contract-fingerprint.ts`；`apps/mcp/src/agent-observation.ts`；`tests/desktop-core/agents-handshake.test.ts`、`agents-status.test.ts`；真實 host 握手待實機驗收。 | W、M | R28 |
 | DT-23 | 固定 launcher 與版本化 runtime manifest | E1-02 | DT-25 | App 退出後 MCP 仍可 `initialize`；manifest 篡改被拒。**1.6.43 已實作（CI 可驗證部分）**：`packages/desktop-core/src/runtime/*.ts`；`tests/desktop-core/runtime-install.test.ts`、`runtime-launcher.test.ts`、`runtime-manifest.test.ts`、`runtime-verify.test.ts`；煙霧測試覆蓋竄改拒絕；**1.6.45**：Windows ACL 已實作（`packages/desktop-core/src/runtime/windows-acl.ts`；`tests/desktop-core/runtime-windows-acl.test.ts`，僅 fixture 驗證）；runtime GC 只部分實作（DT-24）；**1.6.47 已實作 launcher 接線（CI 可驗證部分）**：plugin `launch.mjs`、MCPB 與獨立版優先使用固定 shim；`desktop-integration.json` 紀錄（`packages/desktop-core/src/integration/`；`tests/desktop-core/integration-record.test.ts`）；`setup:agents` launcher 目標；plugin manifest 仍以 `node launch.mjs` 啟動；實機待實機驗收 | W、M | R07、R13 |
 | DT-24 | runtime 延後 GC 與 Windows 檔案鎖 | E1-02 | DT-23 | 檔案鎖下更新不失敗；無現役連線才刪除 | W | R08 **1.6.45 部分實作**：`packages/desktop-core/src/runtime/runtime-gc.ts`，背景清理保留目前與前一版；無現役連線的證明未做，DT-24 未完成。 **1.6.54 實作（CI 可驗證部分）**：lease（`packages/desktop-core/src/runtime/lease.ts`）與延後 GC（`runtime-gc.ts`）已加入；退役滿 7 天、無 lease、改名移開後才刪除，改名失敗則 10 分鐘、30 分鐘與每小時重試；Windows 檔案鎖的實機行為待實機驗收。 |
@@ -104,15 +104,15 @@
 | DT-26 | Windows 資料夾選擇：`IFileOpenDialog`（**1.6.41 T1 已實作，commit 1257d3a**；實機待實機驗收） | R4 新增 | — | Windows 11 實機通過 `docs/release-checklist.md` 的條目；取消 exit 2；fallback 可用 | W（M 驗證 `osascript`） | — |
 | DT-27 | Dashboard bridge：Agent 開頁交給 App，不自啟 checkout server | E3-02 | DT-11、DT-21 | 換 port 與 App 離線後從 Agent 開頁，不產生第二個 server。**1.6.47 已實作（CI 可驗證部分）**：`scripts/dashboard.mjs`、`plugins/work-intelligence/scripts/desktop-integration.mjs`、`apps/desktop/src/main/second-instance.ts`；`apps/desktop/tests/desktop-smoke/dashboard-handoff.spec.ts`；換 port 與 App 離線的實機情境待實機驗收。 | W、M | R19（次要） |
 | DT-28 | 更新來源鎖版本與 metadata 驗證（v26 或 v27 決策） | E5-01 | DT-37 | 篡改、漏簽、錯 key、key rotation 測試；無法證明時改手動下載 | W、M | R11 **1.6.45 決策**：選 v26，本版不做自動更新（`publish` 為 null）；改為手動下載經平台驗證的安裝包（ADR-25）。篡改、漏簽、錯 key 測試不適用於本版，待日後決定是否導入。 |
-| DT-29 | macOS 安裝位置檢測與 DMG 導引 | E5-01 | DT-28 | 從 DMG 啟動時顯示導引；移到 Applications 後可更新 | M | R26 |
-| DT-30 | 更新安裝時機：使用者明確安裝、先排空，不在退出時靜默安裝 | E5-01 | DT-28 | `autoInstallEvent` 行為實測；退出時無意外安裝 | W、M | R21 |
-| DT-31 | 三階段更新成功模型與獨立修復安裝包 | E5-02 | DT-30、DT-32 | 三段結果各自可見；新版開不起來時修復安裝包可用 | W、M | R14、R30 |
+| DT-29 | macOS 安裝位置檢測與 DMG 導引 | E5-01 | DT-28 | 從 DMG 啟動時顯示導引；移到 Applications 後可更新。**已取消**（附 ADR-25、ADR-40）：V1 不做 App 內更新，移到 Applications 後的更新不適用；`apps/desktop/src` 內沒有 Applications 位置檢測。R26 改以發行說明與手動下載處理（見 §5） | M | R26 |
+| DT-30 | 更新安裝時機：使用者明確安裝、先排空，不在退出時靜默安裝 | E5-01 | DT-28 | `autoInstallEvent` 行為實測；退出時無意外安裝。**已取消**（附 ADR-24、ADR-25）：V1 不做 App 內安裝，未加入 `electron-updater`（`apps/desktop/electron-builder.config.mjs:9`） | W、M | R21 |
+| DT-31 | 三階段更新成功模型與獨立修復安裝包 | E5-02 | DT-30、DT-32 | 三段結果各自可見；新版開不起來時修復安裝包可用。**部分完成**：修復視窗已實作（DT-16）；三段結果模型已取代（ADR-23）；獨立修復安裝包未做（打包目標只有 NSIS、DMG、ZIP，`apps/desktop/electron-builder.config.mjs:48-49`） | W、M | R14、R30 |
 | DT-32 | migration 前備份與 N→N+1 樣本升級測試（含中斷與還原） | E4-02 | DT-04、DT-05 | 舊版建立的樣本升級、中斷、還原皆通過。**1.6.52 CI 可驗證部分已實作**：三份真實舊版樣本（v1.6.8、v1.6.21、1.6.51）由 `tests/storage/upgrade-samples.test.ts` 升級；`tests/storage/migration-interruption.test.ts` 以真實程序中斷 migration、備份與還原；還原前驗證遷移後副本（`RESTORE_VERIFY_FAILED`）；桌面 smoke `apps/desktop/tests/desktop-smoke/migration-interruption.spec.ts`；實機待實機驗收 | W、M | R06 |
-| DT-33 | 同批產物暫存與聯合發行閘（ADR-03） | E5-01 | DT-28、DT-31 | 兩平台產物齊備且驗證後才一次公開；任一平台失敗即整版不發 | W、M | — **1.6.45 已接線**：`.github/workflows/desktop-package.yml` 於 `release.yml` 中被呼叫，發行 job 需等待其成功；三平台實跑結果待確認。 |
+| DT-33 | 同批產物暫存與聯合發行閘（ADR-03） | E5-01 | DT-28、DT-31 | 兩平台產物齊備且驗證後才一次公開；任一平台失敗即整版不發 | W、M | — **1.6.45 已接線**：`.github/workflows/desktop-package.yml` 於 `release.yml` 中被呼叫，發行 job 需等待其成功。**1.6.55 狀態**：Release v1.6.55 已含 Windows x64 安裝檔與 macOS arm64、x64 的 DMG 與 ZIP，並附 `SHA256SUMS.txt`（以 REST API 查得）；三平台的實機安裝與執行仍待實機驗收。 |
 | DT-34 | NSIS 解除安裝只移除 App 擁有項；macOS 桌面整合移除入口 | E5-02 | DT-15、DT-24 | 解除安裝後 DB 與備份保留；使用者修改項目保留 | W、M | R27 **1.6.45 已實作（NSIS 部分）**：`apps/desktop/electron-builder.config.mjs` 的 NSIS 設定與 `--quit` 退出；保留設定、DB 與備份；Windows 打包煙霧測試斷言資料保留（Linux 不執行此項）。實機待驗收；macOS 移除入口未做。 |
 | DT-35 | 退出語意 UI 與最後成功備份時間顯示 | E2-01 | DT-15、DT-11 | 退出後介面明示「不會每日備份」；時間正確。**1.6.44 已實作**：`apps/desktop/src/main/quit.ts`；`packages/desktop-core/src/shell/quit-flow.ts`、`quit-notice.ts`、`last-backup.ts`、`i18n.ts`；`tests/desktop-core/shell-basics.test.ts`、`shell-flows.test.ts`、`shell-policy.test.ts`；`apps/desktop/tests/desktop-smoke/desktop.spec.ts`；實機待實機驗收 | W、M | R24 |
 | DT-36 | CI 隔離（fake home、假 Agent、不觸碰真實 `$HOME` 與 3210）與 Windows 11、macOS 實機環境 | E0-03、CI | — | CI 不讀寫真實使用者資料；實機環境清單就緒。**1.6.42 已實作**：`tests/helpers/isolated-environment.ts`、`tests/shared/test-isolation.test.ts`、`vitest.config.ts`；Windows 11 與 macOS 實機環境清單尚未完成，仍待實機驗收 | W、M | — |
-| DT-37 | 首發平台的發行身分與簽章（Windows 簽章、macOS 公證） | R4 新增 | — | 簽章身分與憑證就緒；產物可驗證 | W、M | — |
+| DT-37 | 首發平台的發行身分與簽章（Windows 簽章、macOS 公證） | R4 新增 | — | 簽章身分與憑證就緒；產物可驗證。**已取消**（附 ADR-38）：不購買 Apple Developer ID 與 Windows 程式碼簽章憑證；macOS 為 ad-hoc 簽章、Windows 未簽章，產物以 `SHA256SUMS.txt` 核對 | W、M | — |
 
 ---
 
@@ -165,15 +165,26 @@
 
 | 階段 5 項目 | 工程票 | 風險 | 文件位置 | 狀態 |
 |---|---|---|---|---|
-| 打包：electron-builder 26.18.1、NSIS（Windows 11 x64）、DMG 與 ZIP（macOS arm64、x64 分開） | DT-34、DT-33 | R27、R31 | §9.1、§9.2；ADR-02、ADR-30 | 1.6.45 已實作（Linux `dir` 本機驗證）；Windows 與 macOS 實跑待確認 |
+| 打包：electron-builder 26.18.1、NSIS（Windows 11 x64）、DMG 與 ZIP（macOS arm64、x64 分開） | DT-34、DT-33 | R27、R31 | §9.1、§9.2；ADR-02、ADR-30 | 1.6.45 已實作（Linux `dir` 本機驗證）；Windows 與 macOS 實跑待確認。**1.6.55 狀態**：三平台安裝檔已於 Release v1.6.55 產出（見 DT-33）；實機待驗收 |
 | 隨包 runtime（Node 24.22.3）與首次啟動安裝到 launcher root | DT-23 | R07、R13 | §3.3；ADR-04、ADR-15 | 1.6.45 已實作；實機待驗收 |
 | Windows ACL 檢查 | DT-23 | R13 | §3.3；ADR-15 | 1.6.45 已實作（fixture）；真實行為待驗收 |
 | runtime 背景清理 | DT-24 | R08 | ADR-16 | 部分實作（保留目前與前一版）；**1.6.54 狀態**：CI 可驗證部分已實作（lease、退役滿 7 天、改名移開後刪除；見 ADR-16） |
 | 更新來源 metadata 驗證與自動更新 | DT-28、DT-30 | R11、R21 | §7.1；ADR-24、ADR-25 | 未做（v26，手動下載） |
-| 發行聯合閘（`desktop-package` 與 `release.yml`） | DT-33 | — | ADR-03；§9.5 | 1.6.45 已接線；三平台實跑待確認 |
+| 發行聯合閘（`desktop-package` 與 `release.yml`） | DT-33 | — | ADR-03；§9.5 | 1.6.45 已接線；三平台安裝檔已於 v1.6.55 Release 產出（見 DT-33）；實機待驗收 |
 | 打包後的黑箱煙霧測試與生產建置的後門檢查 | DT-34、DT-36 | R13、R27 | apps/desktop/tests/packaged-smoke | 1.6.45 已實作；Linux 15 項通過 ×2 |
 
 **1.6.45 的非 CI 項目**：Windows 11 與 macOS 的安裝、解除安裝與資料保留、Gatekeeper 與 SmartScreen 提示、Windows ACL 的真實行為、打包與啟動效能的 Windows 與 macOS 數字，以及 Developer ID 簽章與公證（未做；macOS 只有 ad-hoc 簽章）。
+
+## 4e. 無票號的已發行功能
+
+以下功能已發行，但沒有對應的工程票。
+
+| 版本 | 內容 | 對應 ADR | 證據 |
+|---|---|---|---|
+| 1.6.48 | 大型匯入、預覽與匯出改由背景子行程串流處理；Web 匯入改為串流上傳到暫存 id | — | `docs/releases/1.6.48.md:7-15` |
+| 1.6.50 | 「改由桌面 App 管理」只接管使用 App 目前資料庫的 checkout 項目；其他資料庫改為提供「改用這份資料庫」 | ADR-06、ADR-39 | `docs/releases/1.6.50.md:11`、`:53-56` |
+| 1.6.53 | 手動「檢查更新」（修復視窗的「更新」卡片與工作列的「檢查更新…」），不自動查詢 | ADR-40、ADR-25 | `apps/desktop/src/main/update-check.ts`；`docs/releases/1.6.53.md:9` |
+| 1.6.55 | 單一視窗六分頁；工作列縮為六項並移除「變更連接埠…」 | — | `packages/desktop-core/src/shell/app-tabs.ts:8`；`docs/releases/1.6.55.md:9-10` |
 
 ## 5. V1 不做／以發行聲明排除
 
@@ -184,8 +195,8 @@
 | Linux 桌面（AppImage、系統匣、登入項、桌面圖示） | R18、R21（Linux 部分） | 產品決定 Linux 分開、後續發行（ADR-02）；Linux 的 tray 與 session 行為需獨立驗收 | 不列為支援平台；CLI、standalone、plugin 照常使用 |
 | Windows ARM（推論，待確認） | 無獨立風險；屬平台範圍 | 首發只列 Windows 11 x64（ADR-02）；ARM 的安裝與執行需另驗證 | 不列為支援架構 |
 | 資料 API（非管理 API）的跨 OS 使用者隔離 | R25（資料 API 部分） | 既有 CLI、checkout、第三方腳本依賴目前的資料 API 契約；加認證會破壞相容性（ADR-33） | 說明 loopback 不是 per-user 權限邊界；多使用者機器的風險須由使用者評估 |
-| macOS Intel（候選，待確認；若 A 階段無法同批驗收） | 無獨立風險；屬平台範圍 | 依 ADR-02 的變更程序排除，而非在發行後單獨補上 | 若排除，明確列出支援的架構 |
-| 自動更新、Developer ID 簽章與公證（1.6.45 不做；macOS 只有 ad-hoc 簽章） | R11、R14、R21、R26（部分）；DT-28、DT-37 | electron-builder 26 不驗證 v27 的簽名 manifest（ADR-25）；Developer ID 與公證身分未就緒（DT-37） | 不宣稱自動更新；Windows 顯示 SmartScreen 警告，macOS 顯示 Gatekeeper 警告；請核對 `SHA256SUMS.txt` 並從官方 Releases 下載 |
+| macOS Intel（候選，待確認；若 A 階段無法同批驗收） | 無獨立風險；屬平台範圍 | 依 ADR-02 的變更程序排除，而非在發行後單獨補上。**1.6.55 註記**：`mac-x64` 安裝檔已於 v1.6.55 Release 發行（ADR-02），本排除已不適用 | 若排除，明確列出支援的架構 |
+| 自動更新、Developer ID 簽章與公證（1.6.45 不做；macOS 只有 ad-hoc 簽章）；**1.6.53 補充**：App 內的手動「檢查更新」已加入，只開啟發行頁面，不下載、不安裝（ADR-40） | R11、R14、R21、R26（部分）；DT-28、DT-37 | electron-builder 26 不驗證 v27 的簽名 manifest（ADR-25）；依 ADR-38 不做 Developer ID 與公證（DT-37 已取消） | 不宣稱自動更新；Windows 顯示 SmartScreen 警告，macOS 顯示 Gatekeeper 警告；請核對 `SHA256SUMS.txt` 並從官方 Releases 下載 |
 | 多資料庫切換、遠端管理、內嵌 Dashboard 視窗 | 無獨立風險；屬範圍 | 非 V1 目標（R4 §14.2） | 不宣稱支援 |
 
 ---
