@@ -1,85 +1,91 @@
-# Work Intelligence
+# WorkLog.Ai
 
 **English** | [繁體中文](README.zh-TW.md)
 
-**Local-first work memory for developers.** When an Agent such as Codex or Claude Code finishes a piece of work, it saves what it did, which files changed and how the result was verified into one SQLite file on your computer. You review that history in the desktop App, and before starting new work or when you hit an error, the Agent can look up past work and Knowledge from the same place.
+**Give AI coding agents verified experience, not just memory.**
 
-- **Nothing is recorded by default.** Only projects you set to "Tracked" are read and saved.
-- **Your data stays on your machine.** The App's local service listens only on `127.0.0.1`, and nothing is sent anywhere.
-- **Traceable.** Every summary links back to its Sessions, files and evidence.
-- **Backups you control.** Automatic and manual backups, restore inside the App, and a database maintenance tool.
+Agents forget why a change was made, which approaches already failed, and whether a fix was actually verified. WorkLog.Ai keeps structured work records, file context, evidence and reviewed project knowledge on your computer, so the Agent can pull up relevant experience before it starts the next task.
+
+Built for: Codex / Claude Code · Local-first · Evidence-backed records · MCP
+
+**Developer Work Intelligence**
 
 ---
 
 ## Contents
 
-- [Download and install](#download-and-install)
-- [First-time setup](#first-time-setup)
-- [Set up your Agents](#set-up-your-agents)
-- [Everyday use](#everyday-use)
-- [Data, backups and moving to a new computer](#data-backups-and-moving-to-a-new-computer)
-- [Settings you can change](#settings-you-can-change)
+- [Preview](#preview)
+- [Get started in three steps](#get-started-in-three-steps)
+- [Main use cases](#main-use-cases)
 - [Security and privacy](#security-and-privacy)
-- [For developers and command-line users](#for-developers-and-command-line-users)
-- [Documentation](#documentation)
+- [Advanced use and development](#advanced-use-and-development)
 - [License](#license)
 
-## Download and install
+## Preview
 
-Work Intelligence is a desktop App for **Windows 11 (x64)** and **macOS (Apple Silicon and Intel)**. Installers include everything the App needs, including Node.js, so you do not install Node.js yourself.
+![WorkLog.Ai overview](docs/images/en-US/overview.png)
+
+![Work history](docs/images/en-US/work-history.png)
+
+## Get started in three steps
+
+### 1. Download the App
+
+WorkLog.Ai is a desktop App for **Windows 11 (x64)** and **macOS (Apple Silicon and Intel)**. Installers include everything the App needs, including Node.js, so you do not install Node.js yourself.
 
 1. Open the [GitHub Releases](https://github.com/Ponpon55837/WorkLog.Ai/releases) page and download the installer for your system from the newest release:
    - Windows: `Work-Intelligence-<version>-win-x64-setup.exe`
    - macOS: `Work-Intelligence-<version>-mac-arm64.dmg` (Apple Silicon) or `Work-Intelligence-<version>-mac-x64.dmg` (Intel)
-2. Run the installer and open **Work Intelligence**.
+2. Run the installer and open the App.
 
 The installers are **not code-signed**, so your system may show a warning the first time you open them. This does not mean the file is damaged.
 
-- **macOS**: if Gatekeeper blocks the App, open **System Settings → Privacy & Security**, find the message about Work Intelligence near the bottom, and choose to open it anyway.
+- **macOS**: if Gatekeeper blocks the App, open **System Settings → Privacy & Security**, find the message about the App near the bottom, and choose to open it anyway.
 - **Windows**: if SmartScreen shows "Windows protected your PC", choose **More info**, then **Run anyway**.
 
 To check that a download is complete, compare its SHA-256 with the `SHA256SUMS.txt` file on the same release page. The steps are in the [user guide](docs/user-guide.md#桌面-app-檢查更新) (Traditional Chinese).
 
 The App checks for updates only when you press **Check for updates** in its Settings tab. It never checks in the background, and it does not install updates for you.
 
-## First-time setup
+### 2. First-time setup
 
 1. Open the App. On first run, choose **Start with the defaults**. If the App finds an existing database, you can choose **Keep using this data** instead.
 2. Open the Web dashboard from the tray menu (**Open Dashboard**), go to **Projects**, choose **Add project**, and pick the folder you want to record.
 3. Set the project to **Tracked**. Projects start as *Unregistered*, and the Agent cannot change this for you.
-4. Set up your Agents (next section), then open a new conversation in Codex or Claude Code and ask the Agent to save your work when you finish.
+4. Set up your Agents (next step), then open a new conversation in Codex or Claude Code and ask the Agent to save your work when you finish.
 
 The Web dashboard shows a short checklist of these steps until you have a tracked project and a saved Session.
 
-## Set up your Agents
+### 3. Set up your Agents with the App
 
 In the App, open the **Agent** tab (or press **Set up Agents…** on the first-run page). The tab shows one card for Codex and one for Claude Code.
 
 - **Preview first.** **Preview changes** shows every file the App would change. Nothing is written until you confirm.
 - **Apply and undo.** **Apply changes** writes the previewed plan and records it. **Undo the last change** restores the files as they were before.
-- **Already set up by hand?** If you added the Work Intelligence server yourself, the card shows the status **Managed elsewhere** and offers **Let the desktop App manage it…**. The App takes over the registration after you preview it, and undo returns the files to exactly how they were.
+- **Test connection.** The card can check that the WorkLog.Ai MCP server starts and responds.
+- **Already set up by hand?** If you added the server yourself, the card shows the status **Managed elsewhere** and offers **Let the desktop App manage it…**. The App takes over the registration after you preview it, and undo returns the files to exactly how they were.
 - **Remove.** **Remove Agent setup** uses the same preview and confirmation steps as setup.
 
 Each card shows the Agent's connection status:
 
-- **Connected**: the Agent has used Work Intelligence tools.
+- **Connected**: the Agent has used WorkLog.Ai tools.
 - **Set up, not confirmed yet**: the setup is written, but the Agent has not used the tools yet. Ask it a question about a tracked project to confirm.
 - **Needs to reconnect**: the Agent loaded an older version of the server. Close the Agent conversation and open it again.
 - **Conflicting settings**: the App cannot change a setting safely. The card explains why and what to do.
 
 The System status page of the Web UI shows **MCP connections**. If it shows 0 or fewer than you expect, the page explains why. One common case after an upgrade: **Agent conversations that were already open before the upgrade keep the old MCP server and are not counted.** Close and reopen those conversations, and the count updates.
 
-## Everyday use
+## Main use cases
 
 You talk to the Agent in plain language. The Agent handles the tool calls.
 
 | To… | Say to the Agent |
 |---|---|
-| Check whether a project is recorded | "Is this project being recorded in Work Intelligence?" |
-| Save the work you just finished | "Done. Please record this work in Work Intelligence." Untracked projects are skipped. |
+| Check whether a project is recorded | "Is this project being recorded in WorkLog.Ai?" |
+| Save the work you just finished | "Done. Please record this work in WorkLog.Ai." Untracked projects are skipped. |
 | Look up past work or an error | "Have we dealt with the report time-zone problem before?" or paste the error message. |
-| Recover project context | "First check what has happened in this project recently in Work Intelligence." |
-| Write a report | "Summarize this week's Work Intelligence report for me." |
+| Recover project context | "First check what has happened in this project recently in WorkLog.Ai." |
+| Write a report | "Summarize this week's WorkLog.Ai report for me." |
 | Tidy open items | "Please tidy this project's open items." |
 
 You can also do most of this in the Web dashboard (tray menu → **Open Dashboard**):
@@ -89,9 +95,23 @@ You can also do most of this in the Web dashboard (tray menu → **Open Dashboar
 - **Work knowledge** (Web dashboard): accepted Knowledge, Knowledge pages and candidates. Candidates become Knowledge only after you accept them.
 - **Projects** (Web dashboard): add, track, pause or delete projects.
 
-Every Session has a one-sentence summary and five fixed sections: **Outcomes, Scope, Decisions, Verification, and Status and open items**. Verification has five states: passed, failed, in progress, not run, and not reported. Starting work never counts as passed.
+Every Session has a one-sentence summary and five fixed sections: **Outcomes, Scope, Decisions, Verification, and Status and open items**. Verification has five states: passed, failed, in progress, not run, and not reported. Starting work never counts as passed. Every summary links back to its Sessions, files and evidence.
 
-## Data, backups and moving to a new computer
+## Security and privacy
+
+- **Nothing is recorded by default.** Only projects you set to "Tracked" are read and saved.
+- **Your data stays on your machine.** The App's local service listens only on `127.0.0.1`, and nothing is sent anywhere by WorkLog.Ai itself.
+- The local service checks the `Host` and `Origin` headers.
+- Text is checked for known credential formats before it is stored, and anything wrapped in `<private>…</private>` is replaced with `[REDACTED:private_block]`.
+- Backups and exports are not encrypted. Keep them private.
+- When an Agent uses WorkLog.Ai, the Agent host may send tool results to a remote model, according to that host's own policy.
+- Successful MCP reads are logged locally with IDs and counts only, never queries or content.
+
+The threat model and how to report vulnerabilities are in [SECURITY.md](SECURITY.md).
+
+## Advanced use and development
+
+### Data, backups and moving to a new computer
 
 Everything lives in one SQLite database. The App's **Data** tab handles restore and database maintenance; the Web dashboard's **Projects** page handles backup lists, manual backups, export and import.
 
@@ -104,7 +124,7 @@ Everything lives in one SQLite database. The App's **Data** tab handles restore 
 
 Backups and exports are not encrypted. Store and move them by trusted means.
 
-## Settings you can change
+### Settings you can change
 
 The **Settings** tab holds:
 
@@ -116,17 +136,7 @@ If your chosen port is taken, the App starts on the last port that worked and ex
 
 The **Diagnostics** tab shows a preview and then **Export diagnostics…** saves a JSON file you can attach to a bug report. It masks file paths, authorization codes, tokens and email addresses, and does not include work-record content. The App never uploads it.
 
-## Security and privacy
-
-- The local service listens only on `127.0.0.1` and checks the `Host` and `Origin` headers.
-- Text is checked for known credential formats before it is stored, and anything wrapped in `<private>…</private>` is replaced with `[REDACTED:private_block]`.
-- Backups and exports are not encrypted. Keep them private.
-- When an Agent uses Work Intelligence, the Agent host may send tool results to a remote model, according to that host's own policy.
-- Successful MCP reads are logged locally with IDs and counts only, never queries or content.
-
-The threat model and how to report vulnerabilities are in [SECURITY.md](SECURITY.md).
-
-## For developers and command-line users
+### For developers and command-line users
 
 > **Audience: developers and people who work from a terminal.** Everything in this section is optional. The desktop App does all of it for ordinary use.
 
@@ -140,11 +150,10 @@ pnpm start
 
 `pnpm bootstrap` installs, builds, previews the Agent setup and start-at-login setup, and asks for confirmation before it writes to your global settings. `pnpm start` serves the Web UI and API at <http://127.0.0.1:3210>. `pnpm check` runs read-only diagnostics.
 
-Command-line tools, the standalone package and plugin installs are covered in these guides:
+Command-line tools and the standalone package are covered in these guides:
 
 - [Command-line and development guide](docs/user-guide.md#給開發者與命令列使用者安裝與正式模式) (Traditional Chinese)
 - [Agent setup and save-reminder hooks](docs/agent-setup.md) (Traditional Chinese)
-- [Claude Code and Codex plugin](docs/plugins.md)
 - [Standalone package](docs/standalone.md) (no checkout needed)
 - [Start at login from the command line](docs/service.md)
 
@@ -181,8 +190,7 @@ tests/         unit, integration and E2E tests
 docs/          user guides, release notes and design records
 ```
 
-
-## Documentation
+### Documentation
 
 | Document | Contents |
 |---|---|
@@ -192,7 +200,6 @@ docs/          user guides, release notes and design records
 | [docs/service.md](docs/service.md) | Start at login (Traditional Chinese) |
 | [docs/standalone.md](docs/standalone.md) | Standalone package for command-line users (Traditional Chinese) |
 | [docs/release.md](docs/release.md) | Releases and upgrades, for maintainers (Traditional Chinese) |
-| [docs/plugins.md](docs/plugins.md) | Claude Code and Codex plugin |
 | [docs/mcp-tools.md](docs/mcp-tools.md) | MCP tools, fields and policy behaviour |
 | [docs/rest-api.md](docs/rest-api.md) | REST endpoints and error codes |
 | [docs/architecture.md](docs/architecture.md) | Data contracts, consistency and the recording policy |
