@@ -1,6 +1,6 @@
 # Work Intelligence 桌面版 V1：風險・Gate・工程票對應表（R4）
 
-**設計基準：** `d464ea5`（1.6.40）；**狀態註記涵蓋至** 1.6.56。**修訂日期：** 2026-11-16。
+**設計基準：** `d464ea5`（1.6.40）；**最後修訂對應** 1.6.61；**狀態註記涵蓋至** 1.6.56（1.6.57 至 1.6.61 未逐列標註，見 docs/status.md）。**修訂日期：** 2026-11-20。
 
 本表對應 R3 的 R01–R34（P0 15、P1 17、P2 2）。每項風險必須對應到一張工程票，或明確標示「V1 不做／以發行聲明排除」並附理由。Gate 定義見 [R4 §9.5](desktop-v1-design-r4.md#95-發行阻斷的可觀察證據gate)。
 
@@ -25,22 +25,22 @@
 | R08 | P0 | 更新刪除使用中的 runtime（Windows 檔案鎖） | G-MCP-01 | DT-24 | 版本化 runtime、延後 GC（需無現役連線）、manifest 原子切換 **1.6.45 狀態**：背景清理只保留目前與前一版，尚未證明「無現役連線」，風險只部分緩解（見 DT-24）。**1.6.54 狀態**：DT-24 的 CI 可驗證部分已實作。舊 runtime 只在退役滿 7 天、無 lease 且可改名移開時刪除；Windows 檔案鎖的實機行為待實機驗收。 |
 | R09 | P0 | 本機網站偽造管理 API 請求 | G-SEC-01 | DT-17 | 精確 Host:port、Origin、短期會話、CSRF、原生高風險確認；**1.6.41 T4 已實作（commit dadaae4）** |
 | R10 | P0 | 同機程序偽造 Origin 或 Host 使用管理 API | G-SEC-01 | DT-17 | 不只依賴 CORS 或 Origin；能力憑證與私有 IPC（§5.2 威脅模型） |
-| R11 | P0 | 更新 manifest 被替換，只有 hash 卻無來源可信性 | G-UPD-01 | DT-28 | 鎖定工具版本；metadata 簽章驗證；無法證明時禁用自動更新 **1.6.45 狀態**：選擇 electron-builder 26（v26）且本版不做自動更新（ADR-25），因此不信任 metadata 的自動更新路徑未被啟用；v26 的 metadata 簽章驗證未實作，DT-28 的篡改測試不適用。 |
+| R11 | P0 | 更新 manifest 被替換，只有 hash 卻無來源可信性 | G-UPD-01 | DT-28 | 鎖定工具版本；metadata 簽章驗證；無法證明時禁用自動更新 **1.6.45 狀態**：選擇 electron-builder 26（v26）且本版不做自動更新（ADR-25），因此不信任 metadata 的自動更新路徑未被啟用；v26 的 metadata 簽章驗證未實作，DT-28 的篡改測試不適用。**已取消（不適用）**：V1 不做 App 內自動更新（ADR-25、ADR-40）。 |
 | R12 | P0 | DB restore 覆寫活躍 DB 或遺失新 Session | G-DB-03 | DT-05 | 先停寫入端；保存當前快照；明示資料損失窗口 |
 | R13 | P0 | 被竄改的 runtime、launcher 或設定路徑 | G-MCP-01、G-SEC-01 | DT-23 | 只信任已驗證的 manifest；ACL；checksum；絕對路徑。**1.6.43 證據**：smoke 的竄改情境（改一個位元組、manifest 損壞、多放檔案、遺失 `current`、不允許的動作）皆被拒並回對應錯誤碼，修復後可再執行；Windows ACL 已於 1.6.45 實作（僅 fixture 驗證，真實 Windows 行為待 CI 或實機，不算通過；見 DT-23） |
-| R14 | P0 | 更新成功但新後端無法啟動，修復入口也壞 | G-UPD-01 | DT-16、DT-31 | App 獨立的修復安裝包；tray 與修復視窗；三階段分段提交 |
+| R14 | P0 | 更新成功但新後端無法啟動，修復入口也壞 | G-UPD-01 | DT-16、DT-31 | App 獨立的修復安裝包；tray 與修復視窗；三階段分段提交。**已取消（不適用）**：V1 無 App 內更新與安裝（ADR-25、ADR-40），更新失敗的修復情境不適用；DT-16、DT-31 的狀態見各列 |
 | R15 | P1 | Agent plugin 與手動註冊並存，造成重複的 tools 與 hooks | G-MCP-01 | DT-21 | 分來源偵測；plan 預覽；按所有權修復。**1.6.47 已實作（CI 可驗證部分）**：`packages/agent-setup` 的來源偵測（desktop-managed、manual、plugin、mcpb、unknown）與重複註冊標示；plan 拒絕再加入第二個註冊。實機待實機驗收（Claude Desktop 的 MCPB 偵測依檔案配置推測）。 |
 | R16 | P1 | 使用者在 plan 之後改了 Agent 設定 | G-MCP-01 | DT-21 | apply 前逐項指紋重驗；不覆蓋外部異動。**1.6.47 已實作（CI 可驗證部分）**：apply 前、寫入前後與 rename 前逐項重驗，發現外部異動即停止；測試見 `tests/agent-setup/toctou.test.ts`。實機待實機驗收。 |
 | R17 | P1 | 多檔案的 Agent 設定只套用了一部分 | G-MCP-01 | DT-21 | 操作日誌、補償回復、每項驗證；必要時人工衝突修復。**1.6.47 已實作（CI 可驗證部分）**：持久化操作日誌先於第一次寫入；補償只回復本次寫入且內容仍相同的項目，由新到舊；遇外部異動標記 `needs-manual-repair`。測試見 `tests/agent-setup/transaction.test.ts`。實機待實機驗收。 |
 | R18 | P1 | Linux 無系統匣；Windows 登入任務無視窗 | G-UX-01 | DT-15、DT-16 | Windows 與 macOS：修復視窗與明確的 UX；**Linux 部分：V1 不做，於發行聲明排除（§5）** |
 | R19 | P1 | port 競態與 health 誤辨身分 | G-SVC-02 | DT-10、DT-11、DT-27 | IPC runId＋DB 身分＋HTTP readiness 多層驗證；operationId 去重；Agent 開頁交給 App |
 | R20 | P1 | 切換 port 後 browser 偏好或管理 token 遺失 | G-SEC-01 | DT-14 | 白名單搬運非秘密偏好；重新授權；不跨 origin 復用 |
-| R21 | P1 | 作業系統結束階段的自動安裝被中斷 | G-UPD-01 | DT-30 | 使用者明確安裝、先排空後端；外部修復包；Windows 與 macOS 分別實測；**Linux 部分：V1 不做（§5）** |
+| R21 | P1 | 作業系統結束階段的自動安裝被中斷 | G-UPD-01 | DT-30 | 使用者明確安裝、先排空後端；外部修復包；Windows 與 macOS 分別實測；**Linux 部分：V1 不做（§5）**。**已取消（不適用）**：DT-30 已取消，依 ADR-24、ADR-25；V1 不做 App 內安裝 |
 | R22 | P1 | SQLite 放在 SMB、NFS 或同步資料夾 | G-DB-03 | DT-08 | 偵測疑似不支援環境；禁止自動 upgrade 與 restore；顯示理由 |
 | R23 | P1 | 資料來源路徑被 symlink 替換（TOCTOU） | G-DB-01 | DT-01、DT-02 | 預覽與提交前重驗 realpath 與 OS 檔案身分 |
 | R24 | P1 | App 停止後 MCP 仍寫入，使用者誤以為每日備份仍在運作 | G-UX-01 | DT-15、DT-35 | 退出提示與最後成功備份時間；登入項為使用者選擇 |
 | R25 | P1 | Browser 或 local API 不隔離其他 OS 帳號 | G-SEC-01 | DT-18 | **管理 API：** DT-18 跨使用者測試。**資料 API：V1 不做，於發行聲明排除（ADR-33）** |
-| R26 | P1 | macOS App 從 DMG 執行，無法安裝更新 | G-UPD-01 | DT-29 | 啟動時檢測 App 位置，導引移到 Applications |
+| R26 | P1 | macOS App 從 DMG 執行，無法安裝更新 | G-UPD-01 | DT-29 | 啟動時檢測 App 位置，導引移到 Applications。**已取消（不適用）**：DT-29 已取消，依 ADR-25、ADR-40；改以發行說明與手動下載處理 |
 | R27 | P1 | Windows NSIS 解除安裝器清掉未受管理的資料 | G-UX-01 | DT-34 | 只移除 App 擁有項；DB 與備份保留 **1.6.45 證據**：NSIS 解除安裝只移除程式檔，設定、DB 與備份保留（`deleteAppDataOnUninstall` 為 false）；Windows 打包煙霧測試的靜默解除安裝斷言資料保留（Linux 不執行此項）。實機待驗收。 |
 | R28 | P1 | 陳舊的 Agent skill 或 MCP schema 被顯示為已就緒 | G-MCP-01 | DT-22 | 實際 host handshake；版本契約；需重新連線的狀態。**1.6.47 已實作（CI 可驗證部分）**：MCP stdio 握手探測、契約指紋比對（指紋不同顯示需要重新連線）、host 首次 `initialize` 的觀察紀錄（`agent-observations.json`，fail-open）；只有指紋相同的觀察才顯示已觀察到連線。實機 handshake（Claude Code、Codex、Claude Desktop）待實機驗收。 |
 | R29 | P1 | 設定檔半寫入或無法解析時被當作全新安裝 | G-DB-01 | DT-20 | 原子替換、recovery copy、修復模式；不開空庫 |
@@ -84,7 +84,7 @@
 | DT-06 | SQLite 版本檢查（`doctor`、`pnpm check`、`/api/health` 警告；release 列印）**1.6.41 T3** | E1-01 | — | CI 檢查通過；release 產物輸出 bundled `sqlite_version()`。**1.6.41 T3 已實作**（commit 4420951，見 §4）：`apps/server/src/sqlite-runtime.ts:31`、`apps/server/src/doctor.ts:621` 讀取版本；打包 runtime 的斷言與 SQLite 3.54.1 紀錄見 ADR-19（1.6.52） | W、M | R33 |
 | DT-07 | 多程序 WAL 寫入與 checkpoint 壓力、`integrity_check` 測試套件 | E5-01 | DT-05 | 壓力測試輸出與還原比對；不取代 DT-06 的修補證據。**1.6.52 CI 可驗證部分已實作**：`pnpm test:sqlite-stress`（不在 `pnpm test` 內）；4 寫入、2 唯讀（含長讀取交易）、checkpointer（PASSIVE／FULL／RESTART／TRUNCATE）、`VACUUM INTO` 快照與隨機 SIGKILL，45 秒；絕對檢查含 `integrity_check`、`foreign_key_check`、FTS5、已確認寫入恰好一次、中斷寫入全有或全無、快照無缺口、還原指紋相同；拋出的 `SQLITE_BUSY` 設門檻（寫入程序 ≤ max(5, 寫入數 2%)、其他角色 0；checkpoint `busy` 旗標只回報，數字記錄於結果檔 `busyGate`）；CI 工作 `SQLite stress (ubuntu-latest／windows-latest／macos-latest)`，必要檢查增為 23 項；`tests/stress/sqlite-wal-stress.test.ts`；Windows 與 macOS 實機及打包數字待實機驗收或 CI 結果補上 | W、M | R33 |
 | DT-08 | 檔案系統風險政策（SMB、NFS、同步資料夾、外接碟） | E0-01 | DT-01 | 偵測與禁止自動接管的測試；顯示理由。**1.6.51 已實作**：啟動與選擇資料庫時分類 none、網路、可移除、雲端同步、硬連結與 unknown；網路磁碟拒絕作為 App 資料庫（`DB_STORAGE_NETWORK`）；可移除、雲端同步與硬連結只能勾選同意後選擇且不做 schema 更新；「複製到本機磁碟並改用」以 `VACUUM INTO` 與 `quick_check` 完成，原檔不變；`apps/desktop/src/main/storage-risk.ts`；`packages/desktop-core/src/db-source/storage-policy.ts`；`tests/desktop-core/storage-risk.test.ts`；真實磁碟與雲端根目錄判定待實機驗收；已知未偵測 macOS 的 iCloud「桌面與文件」 | W、M | R22 |
-| DT-09 | ServiceOwner 狀態機與 operation journal（R4 §4.1） | E0-03 | DT-01 | 狀態轉移測試；中斷後依 OS／DB 重建。**1.6.42 契約已實作，狀態：部分完成**：`packages/desktop-core/src/operations/`（狀態表、journal、recovery）；**1.6.56 接線（H-01）**：主程序啟動時執行 `recoverAtStartup`（`apps/desktop/src/main/index.ts:621`），依真實狀態關閉中斷操作；殺主行程 smoke 覆蓋換 port 與換 DB（`apps/desktop/tests/desktop-smoke/crash-recovery.spec.ts:134`、`:171`），apply-agent 與 restore 的中斷情境未列入該 smoke；`tests/desktop-core/operations-state.test.ts`、`tests/desktop-core/operations-journal.test.ts`、`tests/desktop-core/operations-recovery.test.ts` | W、M | R06、R30 |
+| DT-09 | ServiceOwner 狀態機與 operation journal（R4 §4.1） | E0-03 | DT-01 | 狀態轉移測試；中斷後依 OS／DB 重建。**狀態：1.6.56 完成（H-01 接線）**。1.6.42 契約已實作：`packages/desktop-core/src/operations/`（狀態表、journal、recovery）；**1.6.56 接線（H-01）**：主程序啟動時執行 `recoverAtStartup`（`apps/desktop/src/main/index.ts:621`），依真實狀態關閉中斷操作；殺主行程 smoke 覆蓋換 port 與換 DB（`apps/desktop/tests/desktop-smoke/crash-recovery.spec.ts:134`、`:171`），apply-agent 與 restore 的中斷情境未列入該 smoke；`tests/desktop-core/operations-state.test.ts`、`tests/desktop-core/operations-journal.test.ts`、`tests/desktop-core/operations-recovery.test.ts` | W、M | R06、R30 |
 | DT-10 | `OperationCoordinator`（單一鎖、operationId、BUSY、重送） | E0-03 | DT-09 | 重送回傳同一結果；併發操作回 BUSY。**1.6.42 已實作**：`packages/desktop-core/src/operations/coordinator.ts`；`tests/desktop-core/operations-coordinator.test.ts`；跨程序鎖屬 DT-15 | W、M | R19 |
 | DT-11 | 子程序 lifecycle（argv、env allowlist、runId IPC、drain） | E2-02 | DT-09、DT-02 | 不開錯 DB；不雙啟；關閉可驗證。**1.6.44 已實作**：`packages/desktop-core/src/backend/`；`apps/server/src/desktop-child.ts`；`packages/shared/src/instance-proof.ts`；`tests/desktop-core/backend-supervisor.test.ts`、`backend-environment.test.ts`、`backend-managed-service.test.ts`；`tests/server/desktop-child.test.ts`、`desktop-child-process.test.ts`；實機待實機驗收 | W、M | R19 |
 | DT-12 | 服務擁有權證據與陌生程序保護（macOS LaunchAgent） | E4-01 | DT-09 | 不殺未授權程序；歸屬證據層級測試。**狀態：部分完成**。macOS 舊 LaunchAgent 的停用流程已於 1.6.50 實作：`launchctl bootout`、以 `launchctl print` 確認卸載，再刪除 plist（`packages/desktop-core/src/legacy-service/disable.ts:133-153`；`docs/releases/1.6.50.md:31`）。陌生程序保護與歸屬證據的測試未在本次核對範圍內；真實 LaunchAgent 實機待驗收 | M | R05、R06 |
