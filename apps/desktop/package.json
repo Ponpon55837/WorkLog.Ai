@@ -15,7 +15,7 @@
   "devDependencies": {
     "@electron/fuses": "2.1.3",
     "@work-intelligence/storage": "workspace:*",
-    "electron": "45.3.2",
+    "electron": "45.3.4",
     "electron-builder": "26.18.1"
   },
   "scripts": {
