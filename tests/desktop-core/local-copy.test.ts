@@ -1,6 +1,5 @@
 // The main-process modules this test loads use the desktop build flags; declare them as the desktop build does.
 /// <reference path="../../apps/desktop/src/main/build-flags.d.ts" />
-import { createRequire } from "node:module";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { StorageRisk } from "../../packages/desktop-core/src/index.js";
@@ -12,9 +11,8 @@ import {
   type OperationRecord,
 } from "../../packages/desktop-core/dist/index.js";
 
-// Resolve from the desktop workspace, where the modules under test import Electron.
-const requireFromDesktop = createRequire(new URL("../../apps/desktop/package.json", import.meta.url));
-vi.doMock(requireFromDesktop.resolve("electron"), () => ({ app: {}, dialog: { showMessageBox: vi.fn() } }));
+// Only `app` and `dialog` of Electron are read by these modules, and neither runs here.
+vi.mock("electron", () => ({ app: {}, dialog: { showMessageBox: vi.fn() } }));
 
 const { createCopyRunner, createLocalCopy, uniqueCopyTarget } =
   await import("../../apps/desktop/src/main/local-copy.js");
