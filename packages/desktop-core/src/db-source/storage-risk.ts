@@ -98,7 +98,7 @@ function withTimeout<T>(task: Promise<T>, timeoutMs: number): Promise<T> {
   });
 }
 
-function pathApi(platform: NodeJS.Platform): path.PlatformPath {
+function pathApi(platform: NodeJS.Platform) {
   return platform === "win32" ? path.win32 : path.posix;
 }
 

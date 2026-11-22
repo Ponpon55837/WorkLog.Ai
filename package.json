@@ -1,6 +1,6 @@
 {
   "name": "work-intelligence",
-  "version": "1.6.61",
+  "version": "1.6.62",
   "license": "MIT",
   "private": true,
   "description": "Local-first developer work intelligence MVP",
@@ -64,7 +64,7 @@
     "@axe-core/playwright": "^4.14.0",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "1.64.1",
-    "@types/node": "^24.19.2",
+    "@types/node": "^26.6.6",
     "@vitest/coverage-v8": "4.1.11",
     "esbuild": "^0.28.2",
     "eslint": "^10.15.0",

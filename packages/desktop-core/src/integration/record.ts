@@ -62,7 +62,7 @@ export interface IntegrationDirectoryInputs {
 /** `written`: the record changed, `unchanged` the file already said this. */
 export type IntegrationPublishResult = "written" | "unchanged";
 
-function pathModule(platform: NodeJS.Platform): path.PlatformPath {
+function pathModule(platform: NodeJS.Platform) {
   return platform === "win32" ? path.win32 : path.posix;
 }
 

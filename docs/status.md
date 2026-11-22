@@ -4,7 +4,15 @@
 
 > 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
-- 最後更新：2026-11-20
+- 最後更新：2026-11-22
+
+## 1.6.62（相依套件更新）
+
+- 更新 Vue、Electron、Vite、ESLint 與開發用的 Node.js 型別。Vite 8 改用較新的 Dashboard 瀏覽器建置目標。
+- 修正桌面測試的 Electron mock 解析，單元測試與 coverage 使用同一份設定。
+- 英文與繁體中文 README、安裝與 Agent 設定指南改以桌面 App 的操作流程為主。
+
+資料庫 schema 為 33，本版不需 migration。詳見 [1.6.62 更新說明](releases/1.6.62.md)。
 
 ## 1.6.61（已完成）
 
@@ -62,7 +70,6 @@ MCP 連線數一直是 0 的根因（Windows 1.6.59 實機回報）：
 
 - 實機驗收：使用者已確認 Windows 的登入啟動開關（1.6.58），以及 macOS 1.6.60 手動移除舊設定後 Codex 與 Claude Code 沒有衝突、Agent 卡片「已連線」、MCP 連線數大於 0。Windows 上 1.6.60 之後的 MCP 連線數、1.6.61 的接手流程本身、其餘 Windows 11 與 macOS 項目仍**待實機驗收**。
 - 資料庫與 runtime 不會自動回退（只回退連接埠）。
-- docs 階段：README 與主要文件改寫（舊的 `pnpm start:mcp` 手動註冊說明改為用 App 設定 Agent）。
 - 桌面 V1 審查（1.6.55）留下的未結項，與版本無關：DT-18 跨 OS 帳號與 XSS 回歸測試未做；DT-29 macOS 安裝位置檢測未做，尚未決定是否取消；DT-34 macOS「移除桌面整合」入口未做。H-02、M-11、M-15 已於 1.6.56 修復，不在此列。
 
 ## 1.6.56（已完成）
