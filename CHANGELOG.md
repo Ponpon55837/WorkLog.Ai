@@ -4,6 +4,25 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.62] - 2026-11-22
+
+[繁體中文更新說明](docs/releases/1.6.62.md).
+
+### Changed
+
+- Updated Vue from 3.5.42 to 3.5.45, Electron from 45.3.2 to 45.3.4, Vite from 6.4.6 to 8.3.8, and ESLint from 10.14.0 to 10.15.0. Vite 8 changes the default Dashboard build targets to Chrome and Edge 111, Firefox 114, and Safari 16.4.
+- Updated the development dependency `@types/node` from 24.19.2 to 26.6.6. TypeScript now infers the path API from `path.win32` and `path.posix` in storage-risk checks and Agent integration records. Supported Node.js runtime versions are unchanged.
+
+### Fixed
+
+- Desktop unit tests and coverage resolve Electron mocks from the desktop workspace. Tests that use a mock can run without the Electron binary.
+
+### Documentation
+
+- Reworked the English and Traditional Chinese READMEs and updated the install, Agent setup, and troubleshooting guides to follow the desktop App workflow.
+
+SQLite schema 33 requires no migration for this update.
+
 ## [1.6.61] - 2026-11-19
 
 [繁體中文更新說明](docs/releases/1.6.61.md).

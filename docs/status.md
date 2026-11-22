@@ -4,7 +4,15 @@
 
 > 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
-- 最後更新：2026-11-20
+- 最後更新：2026-11-22
+
+## 1.6.62（相依套件更新）
+
+- 更新 Vue、Electron、Vite、ESLint 與開發用的 Node.js 型別。Vite 8 改用較新的 Dashboard 瀏覽器建置目標。
+- 修正桌面測試的 Electron mock 解析，單元測試與 coverage 使用同一份設定。
+- 英文與繁體中文 README、安裝與 Agent 設定指南改以桌面 App 的操作流程為主。
+
+資料庫 schema 為 33，本版不需 migration。詳見 [1.6.62 更新說明](releases/1.6.62.md)。
 
 ## 1.6.61（已完成）
 
