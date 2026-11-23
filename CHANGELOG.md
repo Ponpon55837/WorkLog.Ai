@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.63] - 2026-11-23
+
+[繁體中文更新說明](docs/releases/1.6.63.md).
+
 ### Fixed
 
 - Knowledge pages no longer mark Sessions an Agent never saw as covered. A save used to set the page's coverage to the save time, so Sessions left out of a truncated context, or finished between the read and the save, were hidden from the next review. `work_get_knowledge_page_context` now returns a `reviewToken`; when `work_save_knowledge_page` receives it, coverage ends at the last Session that read showed, and those Sessions stay new.
@@ -17,6 +21,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 ### Tests
 
 - Deterministic storage tests for Knowledge page maintenance: checking unrelated Sessions, cited-source changes, void and restore, character-budget truncation, idempotent retries, source changes between read and save, and page/version consistency after a save.
+
+The database migrates from schema 33 to 34 on first start, after an automatic pre-migration backup. Reconnect Work Intelligence MCP when an Agent reports `restartRequired`. A build older than 1.6.63 cannot open the upgraded database (`DATABASE_SCHEMA_VERSION_TOO_NEW`); restore the pre-migration backup to go back.
 
 ## [1.6.62] - 2026-11-22
 
