@@ -6,6 +6,16 @@
 
 - 最後更新：2026-11-23
 
+## 1.6.67（用量口徑改為輸入 + 輸出、依模型分列、monorepo 分配）
+
+- 用量頁、`pnpm usage:report` 與「複製給 Agent」移除成本估算。主要數字改為輸入 + 輸出（不含快取），快取讀取與寫入另列，並顯示快取讀取佔比。
+- 新增依 Agent 與模型分列的 Token、依日趨勢，以及每個 Agent 目前的 5 小時區段（規則同 ccusage `blocks`）。
+- 在 monorepo 根目錄開的 Agent 對話，會依 Work Intelligence 呼叫的 `projectRoot`、讀寫檔案的資料夾、工作目錄的順序分給分別註冊的子專案，每段對話只算一次，其餘列為「共用（未分配）」；每個專案的分配依據次數出現在頁面、API、CLI 與複製文字。
+- 用量頁改版：摘要卡片、Token 組成、依日堆疊長條與附長條的排行表格，亮暗色與窄螢幕都可閱讀。
+- 打包後測試的殘留程序檢查改以程序編號加建立時間確認父程序，避免 Windows 重用編號時誤報。
+
+沒有 schema 變更，資料庫維持 35。詳見 [1.6.67 更新說明](releases/1.6.67.md)。
+
 ## 1.6.66（Agent 用量頁面與升級流程檢查）
 
 - Web Dashboard 新增「用量」頁（桌面 App 與 `pnpm bootstrap` 都可用），依已追蹤專案自動對應本機 Claude Code 與 Codex 紀錄，顯示回合、工具呼叫、Work Intelligence 佔比、各類 Token、估算的成本佔比與 Work Intelligence 各操作的呼叫次數；「複製給 Agent」只含加總、專案名稱與對話序號。CLI 為 `pnpm usage:report`。
