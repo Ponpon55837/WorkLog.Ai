@@ -1,4 +1,4 @@
-import type { UsageProjectsResponse, UsageScanResponse } from "@work-intelligence/core";
+import type { UsageProjectsResponse, UsageScanResponse } from "../../../packages/core/src/index.js";
 
 /** Local `YYYY-MM-DD` of the day `offset` days before `now`. */
 function localDay(now: Date, offset: number): string {
