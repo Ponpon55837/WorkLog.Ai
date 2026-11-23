@@ -461,6 +461,66 @@ describe("Codex rollouts", () => {
     expect(total.unknownToolResultChars).toBe(0);
   });
 
+  it("counts code-mode McpToolCall items that have no function_call", async () => {
+    const mcpItem = (second: number, id: string, server: string, tool: string, text: string) =>
+      event(second, {
+        type: "item_completed",
+        turn_id: "t1",
+        item: {
+          type: "McpToolCall",
+          id,
+          server,
+          tool,
+          arguments: CANARY,
+          status: "completed",
+          result: { content: [{ type: "text", text }], isError: false },
+        },
+      });
+    const dir = codexDir({
+      [rolloutName(PARENT)]: [
+        codexMeta(0, PARENT),
+        // code mode: the MCP call runs inside exec, so only exec is a custom_tool_call.
+        item(1, { type: "custom_tool_call", name: "exec", call_id: "x1", input: CANARY }),
+        mcpItem(2, "m1", "work-intelligence", "work_read", "1234567890"),
+        mcpItem(3, "m1", "work-intelligence", "work_read", "1234567890"),
+        mcpItem(4, "m2", "codex", "list_mcp_resources", "abc"),
+        output(5, "x1", `${CANARY} exec output`, "custom_tool_call_output"),
+        // a direct MCP function_call with the same id as an item: counted once, the output item wins.
+        call(6, "m3", "mcp__wi__work_search"),
+        mcpItem(7, "m3", "wi", "work_search", "12"),
+        output(8, "m3", "1234"),
+        // unsafe server name.
+        mcpItem(9, "m4", `evil ${CANARY}`, "t", "zz"),
+      ],
+    });
+    const report = await summarizeFiles([dir]);
+    const { total } = report;
+    expect(total.toolCalls).toBe(5);
+    expect(total.workIntelligenceTools).toEqual({ work_read: 1, work_search: 1 });
+    expect(total.toolCallsByName).toEqual({ exec: 1, mcp__codex__list_mcp_resources: 1, "(other)": 1 });
+    expect(total.workIntelligenceToolResultChars).toBe(10 + 4);
+    expect(total.mcpToolResultChars).toBe(10 + 3 + 4 + 2);
+    expect(JSON.stringify(report)).not.toContain(CANARY);
+  });
+
+  it("does not flag the carried-over history of a rollout that starts after compaction", async () => {
+    const dir = codexDir({
+      [rolloutName(PARENT)]: [
+        codexMeta(0, PARENT),
+        { timestamp: at(1), type: "compacted", payload: { message: CANARY } },
+        // the first total already holds 500 input tokens from before compaction.
+        tokenCount(2, usageOf(600, 0, 20), usageOf(100, 0, 20)),
+        tokenCount(3, usageOf(650, 0, 25), usageOf(50, 0, 5)),
+        { timestamp: at(4), type: "token_usage_record", payload: { response_id: "r1", usage: usageOf(100, 0, 20) } },
+        { timestamp: at(5), type: "token_usage_record", payload: { response_id: "r2", usage: usageOf(50, 0, 5) } },
+      ],
+    });
+    const report = await summarizeFiles([dir]);
+    expect(report.total.tokens).toMatchObject({ input: 650, output: 25 });
+    expect(report.codexTokenMismatches).toBe(0);
+    expect(report.codexTokenSourceDisagreements).toBe(0);
+  });
+
   it("treats subagent rollouts as sidechain lines without turns", async () => {
     const dir = codexDir({
       [rolloutName(PARENT)]: [

@@ -30,6 +30,8 @@
  *   number of credited deltas. `token_usage_record` lines (deduplicated by response_id) are a fallback used only when a
  *   file has no token_count; both are never added. Canary counters (`codexTokenMismatches`,
  *   `codexTokenSourceDisagreements`) flag credited deltas that disagree with `last_token_usage` or the other source.
+ *   The first total of a file that starts after compaction or a resume already holds earlier usage; that gap is
+ *   counted (it is real usage of the thread) but is not a canary hit, and it is left out of the source comparison.
  * - Codex input is normalised to Anthropic semantics: input = input_tokens - cached_input_tokens (uncached only),
  *   cacheRead = cached_input_tokens, cacheCreation = cache_write_input_tokens (0 when absent). Whether input_tokens
  *   already includes cache writes is unverified. output_tokens already includes reasoning tokens; they are also exposed
@@ -41,6 +43,10 @@
  *   name is namespace + name when a namespace exists. A call is MCP when its name starts with `mcp__`, has a namespace
  *   and contains `__`, or has an `mcp_tool_call_begin` event. Work Intelligence tools match
  *   /(?:^|__)(work_[a-z0-9_]+)$/. Calls without a call_id are counted but cannot be deduplicated.
+ * - Code mode (Codex 0.163+): MCP calls made inside `exec` have no function_call and no mcp_tool_call_begin/end; they
+ *   leave only an `item_completed` event whose item type is McpToolCall ({id, server, tool, result.content[]}). It is
+ *   registered like mcp_tool_call_begin with item.id as the call_id, and its result is used like mcp_tool_call_end.
+ *   The `exec` call itself still counts once as an ordinary tool; its output is not MCP.
  * - Result sizes come from function_call_output / custom_tool_call_output (first per call_id wins); an
  *   `mcp_tool_call_end` result is used only when no output item exists for that call_id. Caveat: Codex may store MCP
  *   results as a JSON envelope string, which inflates characters slightly compared with Claude Code.
@@ -330,6 +336,7 @@ function createCodexContext(state) {
     prev: null,
     hasTokenCount: false,
     tokenCountSum: 0,
+    carryover: 0,
     fallback: { count: 0, ids: new Set(), mapped: null },
     stash: new Map(),
     turnCounters: [0, 1, 2, 3].map(() => ({ count: 0, ids: new Set() })),
@@ -453,6 +460,7 @@ function handleTokenCount(state, ctx, payload, ranged) {
   if (!isRecord(info) || !isRecord(info.total_token_usage)) return;
   ctx.hasTokenCount = true;
   const total = readCodexUsage(info.total_token_usage);
+  const first = ctx.prev === null;
   const prev = ctx.prev ?? readCodexUsage({});
   if (sameUsage(total, prev)) return;
   const last = isRecord(info.last_token_usage) ? readCodexUsage(info.last_token_usage) : null;
@@ -472,7 +480,12 @@ function handleTokenCount(state, ctx, payload, ranged) {
   addMappedUsage(ctx.metrics, mapped);
   ctx.metrics.assistantMessages += 1;
   ctx.tokenCountSum += mappedSum(mapped);
-  if (last && !sameUsage(delta, last)) state.codexTokenMismatches += 1;
+  if (!last || sameUsage(delta, last)) return;
+  // A rollout that starts after compaction or a resume carries earlier usage in its first cumulative total. That
+  // first difference is history, not drift: remember it so the token_usage_record comparison can leave it out.
+  if (first && CODEX_USAGE_FIELDS.every((field) => delta[field] >= last[field])) {
+    ctx.carryover += mappedSum(mapped) - mappedSum(mapCodexUsage(last));
+  } else state.codexTokenMismatches += 1;
 }
 
 function handleTokenUsageRecord(ctx, payload, ranged) {
@@ -503,6 +516,26 @@ function isUserMessageItem(item) {
   return (
     isRecord(item) && typeof item.type === "string" && item.type.replaceAll("_", "").toLowerCase() === "usermessage"
   );
+}
+
+/** Code mode (Codex 0.163+): an MCP call made inside `exec` leaves only an item_completed McpToolCall item. */
+function isMcpToolCallItem(item) {
+  return (
+    isRecord(item) && typeof item.type === "string" && item.type.replaceAll("_", "").toLowerCase() === "mcptoolcall"
+  );
+}
+
+function mcpItemResultLength(result) {
+  if (isRecord(result) && Array.isArray(result.content)) return textItemsLength(result.content);
+  return mcpResultLength(result);
+}
+
+/** Registers the call like mcp_tool_call_begin (deduped by item.id) and stashes its result like mcp_tool_call_end. */
+function handleMcpItem(state, ctx, item, ranged) {
+  const callId = typeof item.id === "string" && item.id !== "" ? item.id : null;
+  handleMcpBegin(state, ctx, { call_id: callId, invocation: { server: item.server, tool: item.tool } }, ranged);
+  if (!ranged || callId === null || state.seenToolResults.has(callId) || ctx.stash.has(callId)) return;
+  ctx.stash.set(callId, mcpItemResultLength(item.result));
 }
 
 function isPlainUserPrompt(payload) {
@@ -538,6 +571,7 @@ function handleCodexEvent(state, ctx, payload, ranged) {
       return true;
     case "item_completed":
       if (isUserMessageItem(payload.item)) countTurn(ctx, 1, payload.turn_id, ranged);
+      else if (isMcpToolCallItem(payload.item)) handleMcpItem(state, ctx, payload.item, ranged);
       return true;
     case "task_started":
     case "turn_started":
@@ -607,7 +641,9 @@ const codexParser = {
       if (!ctx.hasTokenCount) {
         addMappedUsage(ctx.metrics, fallback.mapped);
         ctx.metrics.assistantMessages += fallback.count;
-      } else if (mappedSum(fallback.mapped) !== ctx.tokenCountSum) state.codexTokenSourceDisagreements += 1;
+      } else if (mappedSum(fallback.mapped) !== ctx.tokenCountSum - ctx.carryover) {
+        state.codexTokenSourceDisagreements += 1;
+      }
     }
     if (ctx.subagent) {
       ctx.metrics.sidechainLines = ctx.lines;
