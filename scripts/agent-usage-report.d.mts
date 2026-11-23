@@ -6,7 +6,7 @@ export interface UsageMetrics {
   toolCalls: number;
   toolCallsByName: Record<string, number>;
   workIntelligenceTools: Record<string, number>;
-  tokens: { input: number; output: number; cacheRead: number; cacheCreation: number };
+  tokens: { input: number; output: number; cacheRead: number; cacheCreation: number; reasoningOutput?: number };
   mcpToolResultChars: number;
   workIntelligenceToolResultChars: number;
   unknownToolResultChars: number;
@@ -18,13 +18,21 @@ export interface SessionUsage extends UsageMetrics {
   hash: string;
 }
 export interface UsageReport {
-  format: string;
+  formats: { claudeCodeLines: number; codexLines: number };
   sessions: SessionUsage[];
   total: UsageMetrics & { sessions: number };
   skippedLines: number;
-  unsupportedLines: number;
+  codexTokenMismatches: number;
+  codexTokenSourceDisagreements: number;
+  codexForkedSessions: number;
+  codexIgnoredLines: number;
 }
 export declare function summarizeFiles(
   paths: string[],
   options?: { since?: string; until?: string },
 ): Promise<UsageReport>;
+export interface UsageShapes {
+  skippedLines: number;
+  shapes: { key: string; count: number; paths: { path: string; types: string[] }[] }[];
+}
+export declare function summarizeShapes(paths: string[]): Promise<UsageShapes>;

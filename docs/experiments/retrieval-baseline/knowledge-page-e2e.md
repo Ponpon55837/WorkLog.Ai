@@ -171,7 +171,7 @@ node scripts/agent-usage-report.mjs <session jsonl> --since <開始時間 ISO> -
 
 輸出每個 session 的：turn 數、各工具呼叫次數（Work Intelligence MCP 的工具另外列出）、input、output、cacheRead、cacheCreation token，以及 MCP tool_result 的字元數。它不輸出訊息內容或工具輸入，所以看不到 `reviewToken` 或 slug；需要這類資訊時改看資料庫狀態。
 
-目前只支援 Claude Code。Codex 的本機紀錄（`~/.codex/sessions/**/*.jsonl`）有兩種持久化模式，MCP 工具名稱可能加上環境前綴，Token 欄位也同時有累計值與單次值。本次沒有真實的 Codex 樣本可以核對，所以腳本只把這類行計為 `unsupportedLines`，不估算。要比 Codex，需要先取得樣本並補上解析器。
+Codex 的本機紀錄（`~/.codex/sessions/**/*.jsonl`）是實驗性支援：解析規則依 Codex 原始碼整理，還沒有用真實紀錄核對過。使用前先跑 `--debug-shape` 確認格式，並拿一個 session 的 Token 總數和 Codex 的 `/status` 比對；輸出中的 `codexTokenMismatches` 不是 0 時，不要採用這份數字。Codex 的 input 已換算成不含 cache 的定義，和 Claude Code 一致。
 
 ### 4. 檢查資料庫狀態
 

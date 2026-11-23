@@ -3,10 +3,14 @@
  * Prints aggregate usage numbers from local Agent session logs. It never prints message text, tool inputs, file paths,
  * working directories, branch or project names, or error messages: only counts, token sums and timestamps.
  *
- * Usage: node scripts/agent-usage-report.mjs [--since <ISO>] [--until <ISO>] [--json] <file-or-directory>...
+ * Usage: node scripts/agent-usage-report.mjs [--since <ISO>] [--until <ISO>] [--json] [--debug-shape] <file-or-directory>...
  *
- * Supported format: Claude Code session logs (*.jsonl). Codex rollout lines are detected and counted as
- * `unsupportedLines` (no guessing). Add a format by pushing another parser onto PARSERS.
+ * Supported formats: Claude Code session logs (*.jsonl) and, EXPERIMENTALLY, Codex CLI rollouts
+ * (~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl). The Codex parser was written from reading the openai/codex
+ * source, not from real logs: check it with `--debug-shape` (prints key names and JS types only, never values) and by
+ * comparing one session with the numbers Codex shows in `/status`. Add a format by pushing another parser onto PARSERS;
+ * a parser may define `endFile(state)`, called after each file, and reads per-file context from `state.file`.
+ * Lines no parser recognizes (other Claude Code line types, non-objects aside) are ignored.
  *
  * Rules (Claude Code):
  * - A streamed assistant message repeats the same `message.id` over several lines, each carrying the usage. Usage is
@@ -16,11 +20,39 @@
  * - Lines with `isSidechain: true` (subagents) stay in the session aggregate of their `sessionId`; their tokens and
  *   tool calls count, but their prompts are not turns. `turns` counts main-thread human prompts only (no `isMeta`).
  * - Time ranges filter by each line's `timestamp`; with a range, lines without a valid timestamp are excluded.
+ *
+ * Rules (Codex, experimental): lines look like `{timestamp, type, payload}`.
+ * - One file is one session, keyed by the UUID in the file name (else the first session_meta id, else the path); keys
+ *   are only ever hashed. Only the first session_meta is used.
+ * - Tokens are the delta of the cumulative `token_count.info.total_token_usage`. A repeated total is a duplicate and is
+ *   skipped; a total with any lower field is a counter reset and counts `last_token_usage` (else the total). Tracking
+ *   always advances, even outside the time range; only in-range deltas are credited. `assistantMessages` is the
+ *   number of credited deltas. `token_usage_record` lines (deduplicated by response_id) are a fallback used only when a
+ *   file has no token_count; both are never added. Canary counters (`codexTokenMismatches`,
+ *   `codexTokenSourceDisagreements`) flag credited deltas that disagree with `last_token_usage` or the other source.
+ * - Codex input is normalised to Anthropic semantics: input = input_tokens - cached_input_tokens (uncached only),
+ *   cacheRead = cached_input_tokens, cacheCreation = cache_write_input_tokens (0 when absent). Whether input_tokens
+ *   already includes cache writes is unverified. output_tokens already includes reasoning tokens; they are also exposed
+ *   as `tokens.reasoningOutput` for Codex sessions only.
+ * - Forked sessions (`forked_from_id`) replay their parent's history. Tool calls are deduplicated globally by call_id.
+ *   A fork skips token deltas whose cumulative total was already seen under its parent id (`codexForkedSessions` counts
+ *   forks). Fork-of-fork chains read in the wrong order (child before parent) can overcount.
+ * - Tool calls come from response_item function_call / custom_tool_call / local_shell_call (name `local_shell`); the
+ *   name is namespace + name when a namespace exists. A call is MCP when its name starts with `mcp__`, has a namespace
+ *   and contains `__`, or has an `mcp_tool_call_begin` event. Work Intelligence tools match
+ *   /(?:^|__)(work_[a-z0-9_]+)$/. Calls without a call_id are counted but cannot be deduplicated.
+ * - Result sizes come from function_call_output / custom_tool_call_output (first per call_id wins); an
+ *   `mcp_tool_call_end` result is used only when no output item exists for that call_id. Caveat: Codex may store MCP
+ *   results as a JSON envelope string, which inflates characters slightly compared with Claude Code.
+ * - Turns: the first non-zero of (1) user_message events, (2) item_completed UserMessage items, (3)
+ *   task_started/turn_started events, (4) user response_item messages not starting with "<"; never summed, deduplicated
+ *   by turn_id when present. Subagent files (session_meta source mentions "subagent") have 0 turns and count their
+ *   in-range lines in `sidechainLines`.
  */
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { createInterface } from "node:readline";
 import console from "node:console";
 import process from "node:process";
@@ -28,7 +60,19 @@ import { pathToFileURL } from "node:url";
 
 const SAFE_TOOL_NAME = /^[A-Za-z0-9_.:-]{1,128}$/;
 const WORK_TOOL_NAME = /^mcp__.*__(work_[a-z_]+)$/;
-const CODEX_LINE_TYPES = new Set(["session_meta", "response_item", "event_msg", "turn_context"]);
+const CODEX_WORK_TOOL_NAME = /(?:^|__)(work_[a-z0-9_]+)$/;
+const CODEX_FILE_ID = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
+const CODEX_USAGE_FIELDS = [
+  "input_tokens",
+  "cached_input_tokens",
+  "cache_write_input_tokens",
+  "output_tokens",
+  "reasoning_output_tokens",
+  "total_tokens",
+];
+const SHAPE_KEY = /^[A-Za-z_][A-Za-z0-9_]{0,40}$/;
+const SHAPE_PATH_CAP = 200;
+const SHAPE_MAX_DEPTH = 4;
 const TOKEN_FIELDS = [
   ["input", "input_tokens"],
   ["output", "output_tokens"],
@@ -72,6 +116,9 @@ function mergeMetrics(target, source) {
     bump(target.workIntelligenceTools, name, source.workIntelligenceTools[name]);
   }
   for (const [field] of TOKEN_FIELDS) target.tokens[field] += source.tokens[field];
+  if (source.tokens.reasoningOutput !== undefined) {
+    target.tokens.reasoningOutput = (target.tokens.reasoningOutput ?? 0) + source.tokens.reasoningOutput;
+  }
   if (source.firstTimestamp && (!target.firstTimestamp || source.firstTimestamp < target.firstTimestamp)) {
     target.firstTimestamp = source.firstTimestamp;
   }
@@ -111,10 +158,16 @@ function createState(options) {
     sessions: new Map(),
     total: emptyMetrics(),
     skippedLines: 0,
-    unsupportedLines: 0,
+    formats: { claudeCodeLines: 0, codexLines: 0 },
+    codexTokenMismatches: 0,
+    codexTokenSourceDisagreements: 0,
+    codexForkedSessions: 0,
+    codexIgnoredLines: 0,
     messageUsage: new Map(),
     toolNames: new Map(),
     seenToolResults: new Set(),
+    codexTokenTuples: new Set(),
+    file: { path: "", codex: null },
   };
 }
 
@@ -207,6 +260,7 @@ function handleUser(state, session, line) {
 
 const claudeCodeParser = {
   name: "claude-code",
+  formatKey: "claudeCodeLines",
   detect: (line) => (line.type === "assistant" || line.type === "user") && isRecord(line.message),
   handle(state, line) {
     if (!inRange(state, line.timestamp)) return;
@@ -218,12 +272,351 @@ const claudeCodeParser = {
   },
 };
 
-/** Codex rollout lines are recognized only to be counted as unsupported. */
+function finiteCount(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+function readCodexUsage(record) {
+  const usage = {};
+  for (const field of CODEX_USAGE_FIELDS) usage[field] = finiteCount(record[field]);
+  return usage;
+}
+
+/** Maps a raw Codex token delta to Anthropic semantics (input = uncached only). */
+function mapCodexUsage(delta) {
+  return {
+    input: Math.max(0, delta.input_tokens - delta.cached_input_tokens),
+    output: delta.output_tokens,
+    cacheRead: delta.cached_input_tokens,
+    cacheCreation: delta.cache_write_input_tokens,
+    reasoningOutput: delta.reasoning_output_tokens,
+  };
+}
+
+function addMappedUsage(metrics, mapped) {
+  for (const [field] of TOKEN_FIELDS) metrics.tokens[field] += mapped[field];
+  metrics.tokens.reasoningOutput += mapped.reasoningOutput;
+}
+
+function mappedSum(mapped) {
+  return mapped.input + mapped.output + mapped.cacheRead + mapped.cacheCreation;
+}
+
+function sameUsage(a, b) {
+  return CODEX_USAGE_FIELDS.every((field) => a[field] === b[field]);
+}
+
+function isSubagentSource(source) {
+  if (typeof source === "string") return /subagent/i.test(source);
+  if (!isRecord(source)) return false;
+  return Object.entries(source).some(
+    ([key, value]) => /subagent/i.test(key) || (typeof value === "string" && /subagent/i.test(value)),
+  );
+}
+
+function createCodexContext(state) {
+  const fileId = CODEX_FILE_ID.exec(basename(state.file.path))?.[1] ?? null;
+  const metrics = emptyMetrics();
+  metrics.tokens.reasoningOutput = 0;
+  return {
+    fileId,
+    metaSeen: false,
+    metaId: null,
+    forkedFrom: null,
+    subagent: false,
+    metrics,
+    touched: false,
+    lines: 0,
+    prev: null,
+    hasTokenCount: false,
+    tokenCountSum: 0,
+    fallback: { count: 0, ids: new Set(), mapped: null },
+    stash: new Map(),
+    turnCounters: [0, 1, 2, 3].map(() => ({ count: 0, ids: new Set() })),
+  };
+}
+
+/** Classifies a Codex tool name; `namespaced` marks a name that arrived with a namespace. */
+function classifyCodexTool(fullName, namespaced) {
+  if (typeof fullName !== "string" || !SAFE_TOOL_NAME.test(fullName))
+    return { name: "(other)", work: false, mcp: false };
+  const work = CODEX_WORK_TOOL_NAME.exec(fullName);
+  if (work) return { name: work[1], work: true, mcp: true };
+  return { name: fullName, work: false, mcp: fullName.startsWith("mcp__") || (namespaced && fullName.includes("__")) };
+}
+
+function codexCallId(payload) {
+  return typeof payload.call_id === "string" && payload.call_id !== "" ? payload.call_id : null;
+}
+
+function registerCodexTool(state, ctx, callId, tool, counted) {
+  if (counted) {
+    ctx.metrics.toolCalls += 1;
+    bump(tool.work ? ctx.metrics.workIntelligenceTools : ctx.metrics.toolCallsByName, tool.name);
+  }
+  if (callId !== null) state.toolNames.set(callId, { ...tool, counted, owner: ctx.metrics });
+}
+
+function handleCodexCall(state, ctx, payload, ranged) {
+  const callId = codexCallId(payload);
+  if (callId !== null && state.toolNames.has(callId)) return;
+  const namespace = typeof payload.namespace === "string" && payload.namespace !== "" ? payload.namespace : null;
+  const name = payload.type === "local_shell_call" ? "local_shell" : payload.name;
+  const full = typeof name === "string" && namespace !== null ? namespace + name : name;
+  registerCodexTool(state, ctx, callId, classifyCodexTool(full, namespace !== null), ranged);
+}
+
+function handleMcpBegin(state, ctx, payload, ranged) {
+  const callId = codexCallId(payload);
+  const invocation = isRecord(payload.invocation) ? payload.invocation : {};
+  const known = callId === null ? undefined : state.toolNames.get(callId);
+  const workMatch = typeof invocation.tool === "string" ? CODEX_WORK_TOOL_NAME.exec(invocation.tool) : null;
+  if (!known) {
+    const full =
+      typeof invocation.server === "string" && typeof invocation.tool === "string"
+        ? `mcp__${invocation.server}__${invocation.tool}`
+        : null;
+    registerCodexTool(state, ctx, callId, { ...classifyCodexTool(full, true), mcp: true }, ranged);
+    return;
+  }
+  known.mcp = true;
+  if (!workMatch || known.work) return;
+  if (known.counted && known.owner === ctx.metrics) {
+    const map = ctx.metrics.toolCallsByName;
+    map[known.name] -= 1;
+    if (map[known.name] <= 0) delete map[known.name];
+    bump(ctx.metrics.workIntelligenceTools, workMatch[1]);
+  }
+  known.name = workMatch[1];
+  known.work = true;
+}
+
+function textItemsLength(items) {
+  let total = 0;
+  for (const item of items) {
+    if (
+      isRecord(item) &&
+      (item.type === "text" || item.type === "input_text" || item.type === "output_text") &&
+      typeof item.text === "string"
+    ) {
+      total += item.text.length;
+    }
+  }
+  return total;
+}
+
+function codexOutputLength(output) {
+  if (typeof output === "string") return output.length;
+  if (Array.isArray(output)) return textItemsLength(output);
+  if (!isRecord(output)) return 0;
+  for (const key of ["body", "content"]) {
+    if (typeof output[key] === "string") return output[key].length;
+    if (Array.isArray(output[key])) return textItemsLength(output[key]);
+  }
+  return 0;
+}
+
+function mcpResultLength(result) {
+  if (!isRecord(result)) return 0;
+  if (typeof result.Err === "string") return result.Err.length;
+  if (isRecord(result.Ok) && Array.isArray(result.Ok.content)) return textItemsLength(result.Ok.content);
+  return 0;
+}
+
+function creditCodexResult(state, ctx, callId, length) {
+  const tool = callId === null ? undefined : state.toolNames.get(callId);
+  if (!tool) ctx.metrics.unknownToolResultChars += length;
+  else if (tool.mcp) {
+    ctx.metrics.mcpToolResultChars += length;
+    if (tool.work) ctx.metrics.workIntelligenceToolResultChars += length;
+  }
+}
+
+function handleCodexOutput(state, ctx, payload, ranged) {
+  const callId = codexCallId(payload);
+  if (callId !== null) {
+    ctx.stash.delete(callId);
+    if (state.seenToolResults.has(callId)) return;
+    state.seenToolResults.add(callId);
+  }
+  if (ranged) creditCodexResult(state, ctx, callId, codexOutputLength(payload.output));
+}
+
+function handleMcpEnd(state, ctx, payload, ranged) {
+  const callId = codexCallId(payload);
+  if (!ranged || callId === null || state.seenToolResults.has(callId) || ctx.stash.has(callId)) return;
+  ctx.stash.set(callId, mcpResultLength(payload.result));
+}
+
+function handleTokenCount(state, ctx, payload, ranged) {
+  const info = payload.info;
+  if (!isRecord(info) || !isRecord(info.total_token_usage)) return;
+  ctx.hasTokenCount = true;
+  const total = readCodexUsage(info.total_token_usage);
+  const prev = ctx.prev ?? readCodexUsage({});
+  if (sameUsage(total, prev)) return;
+  const last = isRecord(info.last_token_usage) ? readCodexUsage(info.last_token_usage) : null;
+  const delta = {};
+  if (CODEX_USAGE_FIELDS.every((field) => total[field] >= prev[field])) {
+    for (const field of CODEX_USAGE_FIELDS) delta[field] = total[field] - prev[field];
+  } else {
+    Object.assign(delta, last ?? total);
+  }
+  ctx.prev = total;
+  const tuple = CODEX_USAGE_FIELDS.map((field) => total[field]).join(",");
+  const thread = ctx.metaId ?? ctx.fileId ?? state.file.path;
+  const copiedFromParent = ctx.forkedFrom !== null && state.codexTokenTuples.has(`${ctx.forkedFrom}|${tuple}`);
+  state.codexTokenTuples.add(`${thread}|${tuple}`);
+  if (!ranged || copiedFromParent) return;
+  const mapped = mapCodexUsage(delta);
+  addMappedUsage(ctx.metrics, mapped);
+  ctx.metrics.assistantMessages += 1;
+  ctx.tokenCountSum += mappedSum(mapped);
+  if (last && !sameUsage(delta, last)) state.codexTokenMismatches += 1;
+}
+
+function handleTokenUsageRecord(ctx, payload, ranged) {
+  if (!isRecord(payload.usage)) return;
+  const id = typeof payload.response_id === "string" && payload.response_id !== "" ? payload.response_id : null;
+  if (id !== null) {
+    if (ctx.fallback.ids.has(id)) return;
+    ctx.fallback.ids.add(id);
+  }
+  if (!ranged) return;
+  const mapped = mapCodexUsage(readCodexUsage(payload.usage));
+  ctx.fallback.count += 1;
+  ctx.fallback.mapped ??= { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, reasoningOutput: 0 };
+  for (const key of Object.keys(mapped)) ctx.fallback.mapped[key] += mapped[key];
+}
+
+function countTurn(ctx, index, turnId, ranged) {
+  if (!ranged) return;
+  const counter = ctx.turnCounters[index];
+  if (typeof turnId === "string" && turnId !== "") {
+    if (counter.ids.has(turnId)) return;
+    counter.ids.add(turnId);
+  }
+  counter.count += 1;
+}
+
+function isUserMessageItem(item) {
+  return (
+    isRecord(item) && typeof item.type === "string" && item.type.replaceAll("_", "").toLowerCase() === "usermessage"
+  );
+}
+
+function isPlainUserPrompt(payload) {
+  if (payload.role !== "user" || !Array.isArray(payload.content)) return false;
+  const first = payload.content.find((item) => isRecord(item) && typeof item.text === "string");
+  return first !== undefined && !first.text.trim().startsWith("<");
+}
+
+function handleSessionMeta(state, ctx, payload) {
+  if (ctx.metaSeen) return;
+  ctx.metaSeen = true;
+  if (typeof payload.id === "string" && payload.id !== "") ctx.metaId = payload.id;
+  if (typeof payload.forked_from_id === "string" && payload.forked_from_id !== "") {
+    ctx.forkedFrom = payload.forked_from_id;
+    state.codexForkedSessions += 1;
+  }
+  ctx.subagent = isSubagentSource(payload.source);
+}
+
+function handleCodexEvent(state, ctx, payload, ranged) {
+  switch (payload.type) {
+    case "token_count":
+      handleTokenCount(state, ctx, payload, ranged);
+      return true;
+    case "mcp_tool_call_begin":
+      handleMcpBegin(state, ctx, payload, ranged);
+      return true;
+    case "mcp_tool_call_end":
+      handleMcpEnd(state, ctx, payload, ranged);
+      return true;
+    case "user_message":
+      countTurn(ctx, 0, payload.turn_id, ranged);
+      return true;
+    case "item_completed":
+      if (isUserMessageItem(payload.item)) countTurn(ctx, 1, payload.turn_id, ranged);
+      return true;
+    case "task_started":
+    case "turn_started":
+      countTurn(ctx, 2, payload.turn_id, ranged);
+      return true;
+    default:
+      return false;
+  }
+}
+
+function handleCodexResponseItem(state, ctx, payload, ranged) {
+  switch (payload.type) {
+    case "function_call":
+    case "custom_tool_call":
+    case "local_shell_call":
+      handleCodexCall(state, ctx, payload, ranged);
+      return true;
+    case "function_call_output":
+    case "custom_tool_call_output":
+      handleCodexOutput(state, ctx, payload, ranged);
+      return true;
+    case "message":
+      if (isPlainUserPrompt(payload)) countTurn(ctx, 3, payload.id, ranged);
+      return payload.role === "user";
+    default:
+      return false;
+  }
+}
+
+/** Codex CLI rollout lines (experimental): tracking state always advances; metrics are credited only in range. */
 const codexParser = {
   name: "codex",
-  detect: (line) => typeof line.type === "string" && CODEX_LINE_TYPES.has(line.type) && isRecord(line.payload),
-  handle(state) {
-    state.unsupportedLines += 1;
+  formatKey: "codexLines",
+  detect: (line) => typeof line.type === "string" && isRecord(line.payload) && !("message" in line),
+  handle(state, line) {
+    state.file.codex ??= createCodexContext(state);
+    const ctx = state.file.codex;
+    const payload = line.payload;
+    const ranged = inRange(state, line.timestamp);
+    if (ranged) {
+      touchTimestamps(ctx.metrics, line.timestamp);
+      ctx.touched = true;
+      ctx.lines += 1;
+    }
+    let handled = false;
+    if (line.type === "session_meta") {
+      handleSessionMeta(state, ctx, payload);
+      handled = true;
+    } else if (line.type === "token_usage_record" || payload.type === "token_usage_record") {
+      handleTokenUsageRecord(ctx, payload, ranged);
+      handled = true;
+    } else if (line.type === "event_msg") handled = handleCodexEvent(state, ctx, payload, ranged);
+    else if (line.type === "response_item") handled = handleCodexResponseItem(state, ctx, payload, ranged);
+    if (!handled) state.codexIgnoredLines += 1;
+  },
+  endFile(state) {
+    const ctx = state.file.codex;
+    if (!ctx) return;
+    state.file.codex = null;
+    for (const [callId, length] of ctx.stash) {
+      if (state.seenToolResults.has(callId)) continue;
+      state.seenToolResults.add(callId);
+      creditCodexResult(state, ctx, callId, length);
+    }
+    const fallback = ctx.fallback;
+    if (fallback.mapped) {
+      if (!ctx.hasTokenCount) {
+        addMappedUsage(ctx.metrics, fallback.mapped);
+        ctx.metrics.assistantMessages += fallback.count;
+      } else if (mappedSum(fallback.mapped) !== ctx.tokenCountSum) state.codexTokenSourceDisagreements += 1;
+    }
+    if (ctx.subagent) {
+      ctx.metrics.sidechainLines = ctx.lines;
+    } else {
+      ctx.metrics.turns = ctx.turnCounters.find((counter) => counter.count > 0)?.count ?? 0;
+    }
+    if (!ctx.touched) return;
+    const key = ctx.fileId ? `codex:${ctx.fileId}` : ctx.metaId ? `codex:${ctx.metaId}` : `codex:${state.file.path}`;
+    mergeMetrics(sessionFor(state, key), ctx.metrics);
   },
 };
 
@@ -243,7 +636,10 @@ function consumeLine(state, text) {
     return;
   }
   // Lines of other types (attachment, summary, ...) match no parser and are ignored.
-  PARSERS.find((parser) => parser.detect(line))?.handle(state, line);
+  const parser = PARSERS.find((candidate) => candidate.detect(line));
+  if (!parser) return;
+  state.formats[parser.formatKey] += 1;
+  parser.handle(state, line);
 }
 
 async function expandPaths(paths) {
@@ -266,16 +662,33 @@ async function expandPaths(paths) {
   return files;
 }
 
+/** Streams every line of every file; `onLine(text)` runs per line, `onFileEnd()` after each file. */
+async function forEachLine(paths, onFile, onLine, onFileEnd) {
+  for (const file of await expandPaths(paths)) {
+    onFile(file);
+    const lines = createInterface({ input: createReadStream(file, { encoding: "utf8" }), crlfDelay: Infinity });
+    for await (const text of lines) onLine(text);
+    onFileEnd();
+  }
+}
+
 /**
  * Summarizes jsonl session logs. `options`: `{ since?: string, until?: string }` (ISO 8601).
- * Returns `{ format, sessions, total, skippedLines, unsupportedLines }`; sessions carry only a label and a short hash.
+ * Returns `{ formats: {claudeCodeLines, codexLines}, sessions, total, skippedLines, codexTokenMismatches,
+ * codexTokenSourceDisagreements, codexForkedSessions, codexIgnoredLines }`; sessions carry only a label and a short hash.
  */
 export async function summarizeFiles(paths, options = {}) {
   const state = createState(options);
-  for (const file of await expandPaths(paths)) {
-    const lines = createInterface({ input: createReadStream(file, { encoding: "utf8" }), crlfDelay: Infinity });
-    for await (const text of lines) consumeLine(state, text);
-  }
+  await forEachLine(
+    paths,
+    (path) => {
+      state.file = { path, codex: null };
+    },
+    (text) => consumeLine(state, text),
+    () => {
+      for (const parser of PARSERS) parser.endFile?.(state);
+    },
+  );
   const ordered = [...state.sessions.values()].sort((a, b) =>
     (a.firstTimestamp ?? "") < (b.firstTimestamp ?? "")
       ? -1
@@ -290,12 +703,103 @@ export async function summarizeFiles(paths, options = {}) {
     return { label: `session-${index + 1}`, hash, ...metrics };
   });
   return {
-    format: "claude-code",
+    formats: state.formats,
     sessions,
     total: { sessions: sessions.length, ...state.total },
     skippedLines: state.skippedLines,
-    unsupportedLines: state.unsupportedLines,
+    codexTokenMismatches: state.codexTokenMismatches,
+    codexTokenSourceDisagreements: state.codexTokenSourceDisagreements,
+    codexForkedSessions: state.codexForkedSessions,
+    codexIgnoredLines: state.codexIgnoredLines,
   };
+}
+
+function shapeKind(value) {
+  if (value === null) return "null";
+  return Array.isArray(value) ? "array" : typeof value;
+}
+
+function walkShape(paths, value, path, depth, hops) {
+  if (path !== "") {
+    let kinds = paths.get(path);
+    if (!kinds && paths.size < SHAPE_PATH_CAP) {
+      kinds = new Set();
+      paths.set(path, kinds);
+    }
+    kinds?.add(shapeKind(value));
+  }
+  if (hops > 16) return;
+  if (Array.isArray(value)) {
+    for (const item of value) walkShape(paths, item, `${path}[]`, depth, hops + 1);
+  } else if (isRecord(value) && depth < SHAPE_MAX_DEPTH) {
+    for (const key of Object.keys(value)) {
+      const safe = SHAPE_KEY.test(key) ? key : "(key)";
+      walkShape(paths, value[key], path === "" ? safe : `${path}.${safe}`, depth + 1, hops + 1);
+    }
+  }
+}
+
+function shapeDiscriminator(value) {
+  if (value === undefined) return "-";
+  return typeof value === "string" && SAFE_TOOL_NAME.test(value) ? value : "(other)";
+}
+
+/**
+ * Describes the structure of log lines for format debugging: per `type`/`payload.type` pair a count and the key
+ * paths (depth 4) with their JS types. Values and JSON embedded in strings are never read or printed.
+ */
+export async function summarizeShapes(paths) {
+  const shapes = new Map();
+  let skippedLines = 0;
+  await forEachLine(
+    paths,
+    () => {},
+    (text) => {
+      if (text.trim() === "") return;
+      let line;
+      try {
+        line = JSON.parse(text);
+      } catch {
+        skippedLines += 1;
+        return;
+      }
+      if (!isRecord(line)) {
+        skippedLines += 1;
+        return;
+      }
+      const key = `${shapeDiscriminator(line.type)}/${isRecord(line.payload) ? shapeDiscriminator(line.payload.type) : "-"}`;
+      let entry = shapes.get(key);
+      if (!entry) {
+        entry = { count: 0, paths: new Map() };
+        shapes.set(key, entry);
+      }
+      entry.count += 1;
+      walkShape(entry.paths, line, "", 0, 0);
+    },
+    () => {},
+  );
+  return {
+    skippedLines,
+    shapes: [...shapes.entries()]
+      .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+      .map(([key, entry]) => ({
+        key,
+        count: entry.count,
+        paths: [...entry.paths.entries()]
+          .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+          .map(([path, kinds]) => ({ path, types: [...kinds].sort() })),
+      })),
+  };
+}
+
+function formatShapes(result) {
+  const out = ["shape: key paths and JS types only, never values"];
+  for (const shape of result.shapes) {
+    out.push("", `${shape.key}  lines=${shape.count}`);
+    for (const { path, types } of shape.paths) out.push(`  ${path}: ${types.join("|")}`);
+  }
+  out.push("", `skipped lines: ${result.skippedLines}`);
+  return out.join("\n");
 }
 
 function formatTable(report) {
@@ -333,26 +837,37 @@ function formatTable(report) {
     ...names("tools", report.total.toolCallsByName),
     ...names("work intelligence tools", report.total.workIntelligenceTools),
     `work intelligence result chars: ${report.total.workIntelligenceToolResultChars}; unknown result chars: ${report.total.unknownToolResultChars}`,
-    `skipped lines: ${report.skippedLines}; unsupported lines: ${report.unsupportedLines}`,
+    `skipped lines: ${report.skippedLines}; lines by format: claude-code=${report.formats.claudeCodeLines}, codex=${report.formats.codexLines}`,
+    ...(report.formats.codexLines > 0
+      ? [
+          "codex: experimental, not verified against real logs",
+          `codex canaries: token mismatches=${report.codexTokenMismatches}, token source disagreements=${report.codexTokenSourceDisagreements}, forked sessions=${report.codexForkedSessions}, ignored lines=${report.codexIgnoredLines}`,
+        ]
+      : []),
   ].join("\n");
 }
 
 const HELP = `Usage: node scripts/agent-usage-report.mjs [options] <file-or-directory>...
 
-Prints aggregate usage (turns, tool calls, tokens, MCP result sizes) from local Claude Code session logs.
+Prints aggregate usage (turns, tool calls, tokens, MCP result sizes) from local Claude Code session logs and,
+experimentally, Codex CLI rollouts (~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl). The Codex parser is not verified
+against real logs: run with --debug-shape to see the key names and types of your logs (never values), and compare one
+session with the numbers Codex shows in /status before trusting the totals.
 Directories are searched recursively for *.jsonl. Message text, tool inputs, paths and project names are never printed.
 
 Options:
   --since <ISO>   only lines at or after this timestamp
   --until <ISO>   only lines at or before this timestamp
   --json          machine-readable output
+  --debug-shape   print per line type the key paths and JS types (no values) instead of a report
   --help          show this help`;
 
 function parseArgs(argv) {
-  const options = { paths: [], json: false, help: false };
+  const options = { paths: [], json: false, help: false, debugShape: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--json") options.json = true;
+    else if (arg === "--debug-shape") options.debugShape = true;
     else if (arg === "--help" || arg === "-h") options.help = true;
     else if (arg === "--since" || arg === "--until") {
       const value = argv[index + 1];
@@ -370,6 +885,10 @@ async function main(argv) {
   if (options.help || options.paths.length === 0) {
     console.log(HELP);
     return options.help ? 0 : 1;
+  }
+  if (options.debugShape) {
+    console.log(formatShapes(await summarizeShapes(options.paths)));
+    return 0;
   }
   const report = await summarizeFiles(options.paths, { since: options.since, until: options.until });
   console.log(options.json ? JSON.stringify(report, null, 2) : formatTable(report));
