@@ -10,6 +10,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 - The Dashboard the App manages uses the same language. It switches to the App's language when it opens or refreshes its status, and changing the language in the Dashboard changes the App's setting too. If the App is on "Follow system" and you pick in the Dashboard the language the system already reads as, the App stays on "Follow system". A standalone server keeps the Dashboard's language in the browser, as before.
 - The choice is kept in its own small file next to the App's settings, not in the settings file, so an older App version ignores it. "Follow system" removes the file. A damaged file reads as "Follow system" and never stops the App from starting.
 
+### Changed
+
+- The Work Intelligence skill's Knowledge page guide has a short "Page maintenance steps" list: keep the `review` read when checking a page and request an update (`full`) only for a complete rewrite, read a `truncated` context again until no `new` Sessions are left, and mark the page checked when nothing changes instead of saving the same sections. An A/B run on the synthetic fixture kept these three steps and dropped the others; results are in `docs/experiments/retrieval-baseline/ab-report.md` and the decision in `docs/decisions/2026-11-agent-guidance-ab.md`.
+
 ### Fixed
 
 - After a desktop App upgrade, the App's own database no longer ends at a dead "Unsupported version" status. A database that only needs a schema update now shows "Needs update" (`SCHEMA_MIGRATION_BLOCKED`), and the Status and Data tabs offer one main button, "Back up and update database". "Retry start" becomes a secondary button meanwhile. A database made by a newer App still shows "Unsupported version" (`SCHEMA_TOO_NEW`).

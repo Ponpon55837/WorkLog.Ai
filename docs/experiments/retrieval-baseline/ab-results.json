@@ -1,0 +1,638 @@
+{
+  "generatedAt": "2026-11-23",
+  "fixture": "docs/experiments/retrieval-baseline/fixture.mjs (synthetic Tidewater project)",
+  "arms": {
+    "A": "guidance on main at 3458302",
+    "B1": "A + K-a, K-b, K-c, K-d (knowledge.md) + R-a, R-b (reading-records.md)"
+  },
+  "design": {
+    "repsPerCell": 2,
+    "order": "interleaved A/B1 per scenario",
+    "agentModelByRep": {
+      "1": "claude-opus-5 (fallback; requested model unavailable)",
+      "2": "claude-sonnet-5.5"
+    },
+    "metrics": {
+      "tokens": "subagent total tokens reported by the harness (includes guidance reading)",
+      "agentToolUses": "Bash tool calls by the Agent (rounds)",
+      "wiCalls": "MCP tools/call count",
+      "toolChars": "MCP tool response characters",
+      "resourceChars": "MCP resource (guidance) characters read"
+    }
+  },
+  "knowledgePages": {
+    "K1": {
+      "A": {
+        "tokens": 105160,
+        "agentToolUses": 13,
+        "wiCalls": 16,
+        "toolChars": 30280,
+        "resourceChars": 39518,
+        "passStrict": "1/2",
+        "passSemantic": "1/2",
+        "requestUpdateCalls": 0,
+        "getSession": 15
+      },
+      "B1": {
+        "tokens": 98606,
+        "agentToolUses": 11,
+        "wiCalls": 10,
+        "toolChars": 24821,
+        "resourceChars": 40754,
+        "passStrict": "2/2",
+        "passSemantic": "2/2",
+        "requestUpdateCalls": 0,
+        "getSession": 3
+      }
+    },
+    "K2": {
+      "A": {
+        "tokens": 121462,
+        "agentToolUses": 16,
+        "wiCalls": 6,
+        "toolChars": 38286,
+        "resourceChars": 47088,
+        "passStrict": "1/2",
+        "passSemantic": "1/2",
+        "requestUpdateCalls": 1,
+        "getSession": 3
+      },
+      "B1": {
+        "tokens": 119388,
+        "agentToolUses": 12,
+        "wiCalls": 6,
+        "toolChars": 40090,
+        "resourceChars": 45291,
+        "passStrict": "2/2",
+        "passSemantic": "2/2",
+        "requestUpdateCalls": 0,
+        "getSession": 0
+      }
+    },
+    "K3": {
+      "A": {
+        "tokens": 128682,
+        "agentToolUses": 16,
+        "wiCalls": 14,
+        "toolChars": 81562,
+        "resourceChars": 50062,
+        "passStrict": "1/2",
+        "passSemantic": "1/2",
+        "requestUpdateCalls": 2,
+        "getSession": 10
+      },
+      "B1": {
+        "tokens": 131462,
+        "agentToolUses": 16,
+        "wiCalls": 17,
+        "toolChars": 87218,
+        "resourceChars": 49959,
+        "passStrict": "2/2",
+        "passSemantic": "2/2",
+        "requestUpdateCalls": 0,
+        "getSession": 12
+      }
+    },
+    "K4": {
+      "A": {
+        "tokens": 114252,
+        "agentToolUses": 12,
+        "wiCalls": 6,
+        "toolChars": 34616,
+        "resourceChars": 40261,
+        "passStrict": "1/2",
+        "passSemantic": "2/2",
+        "requestUpdateCalls": 0,
+        "getSession": 6
+      },
+      "B1": {
+        "tokens": 121122,
+        "agentToolUses": 14,
+        "wiCalls": 10,
+        "toolChars": 36835,
+        "resourceChars": 49952,
+        "passStrict": "0/2",
+        "passSemantic": "2/2",
+        "requestUpdateCalls": 0,
+        "getSession": 13
+      }
+    },
+    "K5": {
+      "A": {
+        "tokens": 122356,
+        "agentToolUses": 14,
+        "wiCalls": 10,
+        "toolChars": 41754,
+        "resourceChars": 49328,
+        "passStrict": "2/2",
+        "passSemantic": "2/2",
+        "requestUpdateCalls": 0,
+        "getSession": 10
+      },
+      "B1": {
+        "tokens": 128262,
+        "agentToolUses": 18,
+        "wiCalls": 16,
+        "toolChars": 51440,
+        "resourceChars": 49318,
+        "passStrict": "2/2",
+        "passSemantic": "2/2",
+        "requestUpdateCalls": 0,
+        "getSession": 19
+      }
+    }
+  },
+  "retrieval": {
+    "A1": {
+      "A": {
+        "tokens": 89648,
+        "agentToolUses": 8,
+        "wiCalls": 4,
+        "toolChars": 15061,
+        "resourceChars": 32811,
+        "extraCallsAfterFirstCandidate": [
+          3,
+          3
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 4,
+        "fabricatedIds": 0
+      },
+      "B1": {
+        "tokens": 92347,
+        "agentToolUses": 10,
+        "wiCalls": 5,
+        "toolChars": 14990,
+        "resourceChars": 37596,
+        "extraCallsAfterFirstCandidate": [
+          4,
+          4
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 4,
+        "fabricatedIds": 0
+      }
+    },
+    "A6": {
+      "A": {
+        "tokens": 93574,
+        "agentToolUses": 12,
+        "wiCalls": 8,
+        "toolChars": 14771,
+        "resourceChars": 37462,
+        "extraCallsAfterFirstCandidate": [
+          10,
+          5
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 4,
+        "fabricatedIds": 0
+      },
+      "B1": {
+        "tokens": 88208,
+        "agentToolUses": 10,
+        "wiCalls": 6,
+        "toolChars": 7050,
+        "resourceChars": 36162,
+        "extraCallsAfterFirstCandidate": [
+          7,
+          4
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 4,
+        "fabricatedIds": 0
+      }
+    },
+    "B1": {
+      "A": {
+        "tokens": 92281,
+        "agentToolUses": 9,
+        "wiCalls": 6,
+        "toolChars": 16262,
+        "resourceChars": 34532,
+        "extraCallsAfterFirstCandidate": [
+          5,
+          4
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 4,
+        "fabricatedIds": 0
+      },
+      "B1": {
+        "tokens": 97654,
+        "agentToolUses": 10,
+        "wiCalls": 6,
+        "toolChars": 21641,
+        "resourceChars": 37245,
+        "extraCallsAfterFirstCandidate": [
+          6,
+          5
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 3,
+        "fabricatedIds": 0
+      }
+    },
+    "B4": {
+      "A": {
+        "tokens": 93021,
+        "agentToolUses": 8,
+        "wiCalls": 5,
+        "toolChars": 16133,
+        "resourceChars": 31848,
+        "extraCallsAfterFirstCandidate": [
+          5,
+          3
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 4,
+        "fabricatedIds": 0
+      },
+      "B1": {
+        "tokens": 89254,
+        "agentToolUses": 8,
+        "wiCalls": 5,
+        "toolChars": 9738,
+        "resourceChars": 34430,
+        "extraCallsAfterFirstCandidate": [
+          4,
+          4
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 3,
+        "fabricatedIds": 0
+      }
+    },
+    "B8": {
+      "A": {
+        "tokens": 91754,
+        "agentToolUses": 8,
+        "wiCalls": 6,
+        "toolChars": 13624,
+        "resourceChars": 32896,
+        "extraCallsAfterFirstCandidate": [
+          5,
+          5
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 4,
+        "fabricatedIds": 0
+      },
+      "B1": {
+        "tokens": 97510,
+        "agentToolUses": 10,
+        "wiCalls": 6,
+        "toolChars": 22746,
+        "resourceChars": 38621,
+        "extraCallsAfterFirstCandidate": [
+          6,
+          4
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 3,
+        "fabricatedIds": 0
+      }
+    },
+    "C1": {
+      "A": {
+        "tokens": 104259,
+        "agentToolUses": 12,
+        "wiCalls": 12,
+        "toolChars": 33810,
+        "resourceChars": 39155,
+        "extraCallsAfterFirstCandidate": [
+          12,
+          9
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 3,
+        "fabricatedIds": 0
+      },
+      "B1": {
+        "tokens": 108659,
+        "agentToolUses": 12,
+        "wiCalls": 15,
+        "toolChars": 33008,
+        "resourceChars": 41134,
+        "extraCallsAfterFirstCandidate": [
+          10,
+          18
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 4,
+        "fabricatedIds": 0
+      }
+    },
+    "C3": {
+      "A": {
+        "tokens": 107702,
+        "agentToolUses": 12,
+        "wiCalls": 20,
+        "toolChars": 52148,
+        "resourceChars": 41538,
+        "extraCallsAfterFirstCandidate": [
+          16,
+          22
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 4,
+        "fabricatedIds": 0
+      },
+      "B1": {
+        "tokens": 107752,
+        "agentToolUses": 13,
+        "wiCalls": 12,
+        "toolChars": 31694,
+        "resourceChars": 39254,
+        "extraCallsAfterFirstCandidate": [
+          11,
+          11
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 4,
+        "fabricatedIds": 0
+      }
+    },
+    "C6": {
+      "A": {
+        "tokens": 100772,
+        "agentToolUses": 10,
+        "wiCalls": 15,
+        "toolChars": 26357,
+        "resourceChars": 36754,
+        "extraCallsAfterFirstCandidate": [
+          16,
+          12
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 3,
+        "fabricatedIds": 0
+      },
+      "B1": {
+        "tokens": 93519,
+        "agentToolUses": 10,
+        "wiCalls": 10,
+        "toolChars": 17163,
+        "resourceChars": 34560,
+        "extraCallsAfterFirstCandidate": [
+          10,
+          9
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 4,
+        "fabricatedIds": 0
+      }
+    },
+    "D2": {
+      "A": {
+        "tokens": 96570,
+        "agentToolUses": 10,
+        "wiCalls": 6,
+        "toolChars": 16867,
+        "resourceChars": 40814,
+        "extraCallsAfterFirstCandidate": [
+          5,
+          6
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 4,
+        "fabricatedIds": 0
+      },
+      "B1": {
+        "tokens": 95924,
+        "agentToolUses": 10,
+        "wiCalls": 6,
+        "toolChars": 17048,
+        "resourceChars": 39385,
+        "extraCallsAfterFirstCandidate": [
+          5,
+          5
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 4,
+        "fabricatedIds": 0
+      }
+    },
+    "D4": {
+      "A": {
+        "tokens": 98736,
+        "agentToolUses": 10,
+        "wiCalls": 6,
+        "toolChars": 20947,
+        "resourceChars": 38486,
+        "extraCallsAfterFirstCandidate": [
+          5,
+          5
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 3,
+        "fabricatedIds": 0
+      },
+      "B1": {
+        "tokens": 94158,
+        "agentToolUses": 10,
+        "wiCalls": 5,
+        "toolChars": 16927,
+        "resourceChars": 38144,
+        "extraCallsAfterFirstCandidate": [
+          4,
+          4
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 4,
+        "fabricatedIds": 0
+      }
+    },
+    "D6": {
+      "A": {
+        "tokens": 99666,
+        "agentToolUses": 10,
+        "wiCalls": 11,
+        "toolChars": 24014,
+        "resourceChars": 39844,
+        "extraCallsAfterFirstCandidate": [
+          9,
+          11
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 4,
+        "fabricatedIds": 0
+      },
+      "B1": {
+        "tokens": 97158,
+        "agentToolUses": 12,
+        "wiCalls": 10,
+        "toolChars": 21409,
+        "resourceChars": 41282,
+        "extraCallsAfterFirstCandidate": [
+          12,
+          7
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 4,
+        "fabricatedIds": 0
+      }
+    },
+    "E1": {
+      "A": {
+        "tokens": 95898,
+        "agentToolUses": 10,
+        "wiCalls": 16,
+        "toolChars": 18254,
+        "resourceChars": 34296,
+        "extraCallsAfterFirstCandidate": [
+          12,
+          17
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 4,
+        "fabricatedIds": 0
+      },
+      "B1": {
+        "tokens": 89874,
+        "agentToolUses": 10,
+        "wiCalls": 12,
+        "toolChars": 24514,
+        "resourceChars": 29774,
+        "extraCallsAfterFirstCandidate": [
+          11,
+          10
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 4,
+        "fabricatedIds": 0
+      }
+    },
+    "E4": {
+      "A": {
+        "tokens": 95636,
+        "agentToolUses": 10,
+        "wiCalls": 12,
+        "toolChars": 42314,
+        "resourceChars": 34414,
+        "extraCallsAfterFirstCandidate": [
+          14,
+          7
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 4,
+        "fabricatedIds": 0
+      },
+      "B1": {
+        "tokens": 95174,
+        "agentToolUses": 10,
+        "wiCalls": 16,
+        "toolChars": 48791,
+        "resourceChars": 37771,
+        "extraCallsAfterFirstCandidate": [
+          24,
+          6
+        ],
+        "judgedPass": "2/2",
+        "basisScore": 4,
+        "fabricatedIds": 0
+      }
+    }
+  },
+  "totals": {
+    "knowledgePages": {
+      "A": {
+        "tokens": 1183825,
+        "agentToolUses": 144,
+        "wiCalls": 107,
+        "toolChars": 452992,
+        "resourceChars": 452513
+      },
+      "B1": {
+        "tokens": 1197680,
+        "agentToolUses": 141,
+        "wiCalls": 117,
+        "toolChars": 480807,
+        "resourceChars": 470550
+      },
+      "tokensRep1": {
+        "A": 617972,
+        "B1": 635840
+      },
+      "tokensRep2": {
+        "A": 565853,
+        "B1": 561840
+      }
+    },
+    "retrieval": {
+      "A": {
+        "tokens": 2519034,
+        "agentToolUses": 259,
+        "wiCalls": 252,
+        "toolChars": 621125,
+        "resourceChars": 949694
+      },
+      "B1": {
+        "tokens": 2494384,
+        "agentToolUses": 267,
+        "wiCalls": 231,
+        "toolChars": 573435,
+        "resourceChars": 970715
+      },
+      "tokensRep1": {
+        "A": 1323408,
+        "B1": 1328729
+      },
+      "tokensRep2": {
+        "A": 1195626,
+        "B1": 1165655
+      }
+    }
+  },
+  "mustPass": {
+    "fabricatedIds": 0,
+    "policyCasesP1toP5": "5/5 pass",
+    "retrievalRunsWithWrites": 0,
+    "unreadSessionsClaimedCovered": 0,
+    "needsReviewClearedWithoutCause": 0,
+    "testPerformanceThresholdsChanged": false
+  },
+  "rcN": {
+    "aArmExtraCalls": [
+      3,
+      3,
+      3,
+      4,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      6,
+      7,
+      9,
+      9,
+      10,
+      11,
+      12,
+      12,
+      12,
+      14,
+      16,
+      16,
+      17,
+      22
+    ],
+    "p75": 12,
+    "p90": 16,
+    "classC": [
+      9,
+      12,
+      12,
+      16,
+      16,
+      22
+    ],
+    "chosenN": 16,
+    "adopted": false,
+    "reason": "retrieval stop condition met; B2 not run"
+  }
+}
