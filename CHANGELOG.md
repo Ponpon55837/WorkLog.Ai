@@ -4,6 +4,17 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Changed
+
+- The Usage page, `pnpm usage:report` and "Copy for Agent" no longer show an estimated cost. The 1.6.66 cost split applied assumed price multipliers that ignored the model, so cache reads decided most of the number. The headline is now input + output (uncached input plus output). Cache read and cache write are listed separately and never added to it, with a cache read share (cache read ÷ all input-side tokens; the logs record no per-request hit, so it is not a hit rate). Conversations are ranked by input + output.
+- The Usage page was redesigned: stat tiles with K/M/B numbers, a two-row token composition (counted tokens and cache, each on its own scale), a daily stacked bar of input and output, and ranked tables with inline bars. Every chart has a table with the same numbers, and the page works in both themes and on narrow screens.
+- API and `--json` (breaking for the 1.6.66 fields): `costShares`, `costMultipliers` and the sessions' `estimatedCostUnits` are removed. `tokens` gains `primary` and `cacheReadShare`, sessions carry `primary`, and `models`, `daily` and `blocks` are new. The usage cache format changed, so the first scan after the update reads every log file again.
+
+### Added
+
+- Model breakdown: tokens by Agent and model. Claude Code reads the model of each response, Codex the model announced at each turn. A model name is kept only when it looks like a model id; a path-like value or a placeholder such as `<synthetic>` is stored as empty and shown as "Unlabelled model".
+- Current 5-hour block per Agent, with the ccusage `blocks` rules: the block starts at its first usage floored to the local hour and lasts 5 hours, and a 5-hour gap starts a new one. It shows input + output, elapsed time, time left in the block and input + output per minute. It appears only when the range reaches the present.
+
 ## [1.6.66] - 2026-11-23
 
 [繁體中文更新說明](docs/releases/1.6.66.md).
