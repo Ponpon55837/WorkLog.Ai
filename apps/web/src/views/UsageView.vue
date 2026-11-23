@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { Copy, Gauge, Layers, Plus, ScanSearch, Timer, Trash2, TrendingUp, Wrench } from "lucide-vue-next";
-import type { UsageRange } from "@work-intelligence/core";
+import { Copy, FolderTree, Gauge, Layers, Plus, ScanSearch, Timer, Trash2, TrendingUp, Wrench } from "lucide-vue-next";
+import type { UsageProjectItem, UsageRange } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import UiBox from "../components/ui/UiBox.vue";
 import UiBoxRow from "../components/ui/UiBoxRow.vue";
@@ -40,12 +40,15 @@ import {
   canScanUsage,
   fillDailyRange,
   MAX_MANUAL_FOLDERS,
+  toggleUsageGroup,
   USAGE_TOKEN_TONES,
   usageBlockRows,
   usageComposition,
   usageDayLabel,
   usageModelRows,
   usageProblemMessage,
+  usageProjectLayout,
+  usageSharedRows,
 } from "../utils/usage";
 import { t, type MessageKey } from "../i18n";
 
@@ -58,7 +61,7 @@ const TOKEN_KIND_KEYS = {
 
 const compact = useMediaQuery("(max-width: 639px)");
 const usageStore = useUsageStore();
-const { projects, projectsLoaded, projectsLoading, projectsError, scanResult, scanning, scanError } =
+const { projects, projectGroups, projectsLoaded, projectsLoading, projectsError, scanResult, scanning, scanError } =
   storeToRefs(usageStore);
 
 const allProjects = ref(false);
@@ -92,6 +95,20 @@ const isEmpty = computed(() => {
   const { input, output, cacheRead, cacheCreation } = value.tokens;
   return value.totals.turns === 0 && value.totals.toolCalls === 0 && input + output + cacheRead + cacheCreation === 0;
 });
+const pickerRows = computed(() => {
+  const layout = usageProjectLayout(projects.value, projectGroups.value);
+  return [
+    ...layout.sections.flatMap((section) => [
+      { kind: "group" as const, key: section.key, section },
+      ...section.members.map((project) => ({ kind: "project" as const, key: project.id, project })),
+    ]),
+    ...layout.loose.map((project) => ({ kind: "project" as const, key: project.id, project })),
+  ];
+});
+const sharedRows = computed(() => (result.value ? usageSharedRows(result.value.allocation, projects.value) : []));
+const sharedCounts = computed(
+  () => new Map(sharedRows.value.flatMap((group) => group.projects.map((entry) => [entry.projectId, entry] as const))),
+);
 const composition = computed(() => (result.value ? usageComposition(result.value.tokens) : undefined));
 const compositionRows = computed(() => {
   const value = composition.value;
@@ -208,6 +225,22 @@ function toggleAll(checked: boolean): void {
   if (checked) selectedIds.value = [];
 }
 
+function isGroupSelected(ids: readonly string[]): boolean {
+  return allProjects.value || ids.every((id) => selectedIds.value.includes(id));
+}
+
+function toggleGroup(ids: readonly string[]): void {
+  const checked = !isGroupSelected(ids);
+  allProjects.value = false;
+  selectedIds.value = toggleUsageGroup(selectedIds.value, ids, checked);
+}
+
+function allocationText(project: UsageProjectItem): string {
+  const entry = sharedCounts.value.get(project.id);
+  if (!entry) return "";
+  return `${t("usage.allocatedCount", { count: entry.conversations })} · ${t("usage.basisCounts", entry.byBasis)}`;
+}
+
 function toggleProject(id: string, checked: boolean): void {
   allProjects.value = false;
   selectedIds.value = checked
@@ -283,24 +316,50 @@ onBeforeUnmount(() => usageStore.setUsageActive(false));
           /></template>
           <template #title>{{ t("usage.allProjects") }}</template>
         </UiBoxRow>
-        <UiBoxRow v-for="project in projects" :key="project.id" data-testid="usage-project">
-          <template #leading
-            ><UiCheckbox
-              :model-value="selectedIds.includes(project.id)"
-              :label="project.name"
-              @update:model-value="toggleProject(project.id, $event)"
-          /></template>
-          <template #title>{{ project.name }}</template>
-          <template #labels
-            ><UiLabel v-if="project.current" tone="accent">{{ t("usage.currentProject") }}</UiLabel
-            ><UiLabel v-if="project.problem" tone="attention">{{
-              usageProblemMessage(project.problem)
-            }}</UiLabel></template
-          >
-          <template #meta>{{
-            t("usage.sourceCounts", { claude: project.sources.claudeFolders, codex: project.sources.codexFiles })
-          }}</template>
-        </UiBoxRow>
+        <template v-for="row in pickerRows" :key="row.key">
+          <UiBoxRow v-if="row.kind === 'group'" data-testid="usage-group">
+            <template #title>{{ row.section.names }}</template>
+            <template #labels
+              ><UiLabel tone="accent" :icon="FolderTree">{{ t("usage.groupLabel") }}</UiLabel></template
+            >
+            <template #meta>{{ t("usage.groupHint") }}</template>
+            <template #trailing
+              ><UiButton
+                size="sm"
+                :disabled="allProjects"
+                :title="row.section.names"
+                data-testid="usage-group-select"
+                @click="toggleGroup(row.section.projectIds)"
+                >{{
+                  isGroupSelected(row.section.projectIds) ? t("usage.groupClear") : t("usage.groupSelect")
+                }}</UiButton
+              ></template
+            >
+          </UiBoxRow>
+          <UiBoxRow v-else data-testid="usage-project">
+            <template #leading
+              ><UiCheckbox
+                :model-value="selectedIds.includes(row.project.id)"
+                :label="row.project.name"
+                @update:model-value="toggleProject(row.project.id, $event)"
+            /></template>
+            <template #title>{{ row.project.name }}</template>
+            <template #labels
+              ><UiLabel v-if="row.project.current" tone="accent">{{ t("usage.currentProject") }}</UiLabel
+              ><UiLabel v-if="row.project.problem" tone="attention">{{
+                usageProblemMessage(row.project.problem)
+              }}</UiLabel></template
+            >
+            <template #meta
+              >{{
+                t("usage.sourceCounts", {
+                  claude: row.project.sources.claudeFolders,
+                  codex: row.project.sources.codexFiles,
+                })
+              }}<template v-if="allocationText(row.project)"> · {{ allocationText(row.project) }}</template></template
+            >
+          </UiBoxRow>
+        </template>
         <UiEmptyState
           v-if="projects.length === 0"
           compact
@@ -414,6 +473,42 @@ onBeforeUnmount(() => usageStore.setUsageActive(false));
             :foot="t('usage.summaryCacheWriteFoot')"
           />
         </UiStatGrid>
+
+        <UiBox v-if="sharedRows.length > 0" data-testid="usage-shared">
+          <template #header><UiBoxTitle :icon="FolderTree" :title="t('usage.sharedTitle')" /></template>
+          <p class="usage__hint">{{ t("usage.sharedDescription") }}</p>
+          <template v-for="group in sharedRows" :key="group.key">
+            <UiBoxRow data-testid="usage-unallocated">
+              <template #title>{{ t("usage.sharedUnallocated", { projects: group.names }) }}</template>
+              <template #labels
+                ><UiLabel :tone="group.included ? 'success' : 'attention'">{{
+                  group.included ? t("usage.sharedCounted") : t("usage.sharedNotCounted")
+                }}</UiLabel></template
+              >
+              <template #meta>{{
+                t("usage.sharedMeta", {
+                  conversations: group.conversations,
+                  tokens: formatTokens(group.primary),
+                })
+              }}</template>
+            </UiBoxRow>
+            <UiBoxRow v-for="entry in group.projects" :key="entry.projectId" data-testid="usage-allocated">
+              <template #title>{{ entry.name }}</template>
+              <template #labels
+                ><UiLabel v-if="!entry.included" tone="neutral">{{ t("usage.sharedNotSelected") }}</UiLabel></template
+              >
+              <template #meta
+                >{{
+                  t("usage.sharedMeta", {
+                    conversations: entry.conversations,
+                    tokens: formatTokens(entry.primary),
+                  })
+                }}
+                · {{ t("usage.basisCounts", entry.byBasis) }}</template
+              >
+            </UiBoxRow>
+          </template>
+        </UiBox>
 
         <div class="usage__row">
           <UiBox v-if="blockRows.length > 0" padded class="usage__area-block" data-testid="usage-blocks">

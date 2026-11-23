@@ -4,6 +4,7 @@ import { createReadStream } from "node:fs";
 import { open, readdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { allocateSessions } from "./allocation.js";
 import { buildActiveBlocks } from "./blocks.js";
 import { endCodexFile, handleCodexLine, linkCodexCompactions } from "./codex.js";
 import { reduceClaudeRecords } from "./claude.js";
@@ -70,6 +71,7 @@ function entryFrom(
   extracted: ExtractResult,
   info: { mtimeMs: number; size: number },
   prefixHash: string,
+  evidence: boolean,
 ): UsageCacheEntry {
   return {
     version: CACHE_VERSION,
@@ -77,6 +79,7 @@ function entryFrom(
     size: info.size,
     offset: extracted.offset,
     prefixHash,
+    evidence,
     records: extracted.records,
     skippedLines: extracted.skippedLines,
     tail: { records: extracted.tail.records, skippedLines: extracted.tail.skippedLines },
@@ -87,6 +90,7 @@ function entryFrom(
 async function scanFile(
   state: ScanState,
   file: string,
+  group: number | null,
   options: UsageScanOptions,
   counts: UsageCacheCounts,
 ): Promise<void> {
@@ -95,14 +99,17 @@ async function scanFile(
   if (state.since !== null && info.mtimeMs < state.since) return;
   const { cache, signal, deadlineMs } = options;
   const key = resolve(file);
-  state.file = { path: file, codex: null };
-  const entry = cache?.get(key);
+  state.file = { path: file, codex: null, group, cwd: "" };
+  const evidence = group !== null;
+  // A file cached before it became a shared source has no evidence in its records: read it again.
+  const cached = cache?.get(key);
+  const entry = cached && (cached.evidence || !evidence) ? cached : undefined;
   let current: UsageCacheEntry | undefined;
   if (entry && entry.mtimeMs === info.mtimeMs && entry.size === info.size) {
     counts.reused += 1;
     current = entry;
   } else if (entry && info.size >= entry.offset && (await prefixUnchanged(file, entry))) {
-    const added = await extractFile(file, { start: entry.offset, signal, deadlineMs });
+    const added = await extractFile(file, { start: entry.offset, signal, deadlineMs, evidence: entry.evidence });
     counts.bytesRead += added.bytesRead;
     if (added.codexLines === 0) {
       counts.appended += 1;
@@ -123,16 +130,21 @@ async function scanFile(
   }
   if (!current) {
     // Codex lines in a file keep it out of the cache: their per-file state depends on other files.
-    const full = await extractFile(file, { signal, deadlineMs, onCodexLine: (line) => handleCodexLine(state, line) });
+    const full = await extractFile(file, {
+      signal,
+      deadlineMs,
+      evidence,
+      onCodexLine: (line) => handleCodexLine(state, line),
+    });
     counts.parsed += 1;
     counts.bytesRead += full.bytesRead;
     state.formats.codexLines += full.codexLines;
     if (full.codexLines === 0) {
-      current = entryFrom(full, info, await hashPrefix(file, full.offset));
+      current = entryFrom(full, info, await hashPrefix(file, full.offset), evidence);
       cache?.set(key, current);
     } else {
       cache?.delete(key);
-      current = entryFrom(full, info, "");
+      current = entryFrom(full, info, "", evidence);
     }
   }
   state.formats.claudeCodeLines += current.records.length + current.tail.records.length;
@@ -143,6 +155,29 @@ async function scanFile(
 }
 
 /**
+ * The files to read, each with the shared-source group it belongs to (null: a project's own source or a manual folder).
+ * A file listed by `paths` is never also a group's file, and no file is read twice for the groups.
+ */
+async function planFiles(
+  paths: string[],
+  options: UsageScanOptions,
+): Promise<{ file: string; group: number | null }[]> {
+  const plan: { file: string; group: number | null }[] = (await expandPaths(paths, options)).map((file) => ({
+    file,
+    group: null,
+  }));
+  const seen = new Set(plan.map((entry) => resolve(entry.file)));
+  for (const [index, group] of (options.allocation?.groups ?? []).entries()) {
+    for (const file of await expandPaths(group.paths, options)) {
+      if (seen.has(resolve(file))) continue;
+      seen.add(resolve(file));
+      plan.push({ file, group: index });
+    }
+  }
+  return plan;
+}
+
+/**
  * Summarizes jsonl session logs (Claude Code incrementally through `options.cache`, Codex rollouts experimental and
  * reparsed on every scan). Sessions carry only a label and a short hash. A file whose mtime precedes `since` is skipped
  * unread, so its lines count in no total (not even `formats` or `skippedLines`).
@@ -150,11 +185,17 @@ async function scanFile(
 export async function summarizeFiles(paths: string[], options: UsageScanOptions = {}): Promise<UsageReport> {
   const state = createState(options);
   const counts: UsageCacheCounts = { reused: 0, appended: 0, parsed: 0, bytesRead: 0 };
-  for (const file of await expandPaths(paths, options)) {
+  for (const { file, group } of await planFiles(paths, options)) {
     checkScanLimits(options.signal, options.deadlineMs);
-    await scanFile(state, file, options, counts);
+    await scanFile(state, file, group, options, counts);
   }
   linkCodexCompactions(state);
+  // Conversations of shared sources go to exactly one bucket; those the selection leaves out are dropped from every
+  // total, the 5-hour blocks included.
+  const { allocation, excluded } = allocateSessions(state);
+  for (const key of excluded) state.sessions.delete(key);
+  if (excluded.size > 0)
+    state.events = state.events.filter((event) => event.key === undefined || !excluded.has(event.key));
   const ordered = [...state.sessions.values()].sort((a, b) =>
     (a.firstTimestamp ?? "") < (b.firstTimestamp ?? "")
       ? -1
@@ -183,6 +224,7 @@ export async function summarizeFiles(paths: string[], options: UsageScanOptions 
     codexContextOutputs: state.codexContextOutputs,
     blocks: buildActiveBlocks(state.events, state.now),
     cache: counts,
+    allocation,
   };
 }
 

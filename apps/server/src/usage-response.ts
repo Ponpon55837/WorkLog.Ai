@@ -1,4 +1,5 @@
 import type {
+  UsageAllocation,
   UsageBlockItem,
   UsageDayItem,
   UsageModelItem,
@@ -92,12 +93,36 @@ function sessionsOf(report: UsageReport): UsageSessionItem[] {
     .slice(0, TOP_SESSIONS);
 }
 
+function allocationOf(report: UsageReport): UsageAllocation {
+  return {
+    groups: report.allocation.groups.map((group) => ({
+      projects: group.projects,
+      allocated: group.allocated.map((entry) => ({
+        projectId: entry.projectId,
+        included: entry.included,
+        conversations: entry.conversations,
+        tokens: pickTokens(entry.tokens),
+        primary: entry.primary,
+        byBasis: { ...entry.byBasis },
+      })),
+      unallocated: {
+        included: group.unallocated.included,
+        conversations: group.unallocated.conversations,
+        tokens: pickTokens(group.unallocated.tokens),
+        primary: group.unallocated.primary,
+      },
+    })),
+  };
+}
+
 /** Builds the page's numbers and the Agent text from a report; nothing in it carries a path or a message. */
 export function buildUsageResponse(
   report: UsageReport,
   extra: {
     problems: UsageScanResponse["problems"];
     projectNames: string[];
+    /** Names of every tracked project by id, to label shared-source groups in the Agent text. */
+    projectNamesById?: Record<string, string>;
     range: UsageScanResponse["range"];
     durationMs: number;
     locale: "en" | "zh-TW";
@@ -125,11 +150,13 @@ export function buildUsageResponse(
     otherTools: otherToolsOf(total),
     forAgentText: formatForAgent(report, {
       projectNames: extra.projectNames,
+      ...(extra.projectNamesById ? { projectNamesById: extra.projectNamesById } : {}),
       ...(extra.range.since ? { since: extra.range.since } : {}),
       ...(extra.range.until ? { until: extra.range.until } : {}),
       locale: extra.locale,
     }),
     cache: { reused: report.cache.reused, appended: report.cache.appended, parsed: report.cache.parsed },
+    allocation: allocationOf(report),
     durationMs: extra.durationMs,
     range: extra.range,
     problems: extra.problems,

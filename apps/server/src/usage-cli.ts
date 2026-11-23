@@ -6,6 +6,7 @@ import {
   UsageScanTimeoutError,
   formatForAgent,
   formatTable,
+  type UsageProjectInput,
 } from "@work-intelligence/shared/agent-usage";
 import { canonicalizeProjectRoot, isPathWithinProject, type WorkIntelligenceStore } from "@work-intelligence/storage";
 import { CLI_DASH_HELP, checkCliArgs, type ParsedCliArgs } from "./cli-args.js";
@@ -49,6 +50,10 @@ export function usageHelp(standalone?: boolean): string {
   --json                     輸出彙總 JSON（與 Dashboard 相同的欄位）
   --for-agent                輸出可貼給 Agent 的純文字報告
 ${CLI_DASH_HELP}`;
+}
+
+function toInput(project: ProjectRecord): UsageProjectInput {
+  return { id: project.id, name: project.name, root: project.rootPath };
 }
 
 function readOptions(parsed: ParsedCliArgs): UsageOptions | string {
@@ -129,7 +134,8 @@ export async function runUsageCommand(args: readonly string[], dependencies: Usa
     const started = Date.now();
     const outcome = await runUsageScan(
       {
-        projects: projects.map((project) => ({ id: project.id, name: project.name, root: project.rootPath })),
+        projects: projects.map(toInput),
+        allProjects: tracked.map(toInput),
         manualFolders: [],
         ...(options.since ? { since: options.since } : {}),
         ...(options.until ? { until: options.until } : {}),
@@ -140,12 +146,14 @@ export async function runUsageCommand(args: readonly string[], dependencies: Usa
     const locale = dependencies.locale ?? (/^zh/i.test(process.env.LANG ?? "") ? "zh-TW" : "en");
     const range = { since: options.since ?? null, until: options.until ?? null };
     const names = projects.map((project) => project.name);
+    const namesById = Object.fromEntries(tracked.map((project) => [project.id, project.name]));
     if (options.json) {
       dependencies.log(
         JSON.stringify(
           buildUsageResponse(outcome.report, {
             problems: outcome.problems,
             projectNames: names,
+            projectNamesById: namesById,
             range,
             durationMs: Date.now() - started,
             locale,
@@ -158,6 +166,7 @@ export async function runUsageCommand(args: readonly string[], dependencies: Usa
       dependencies.log(
         formatForAgent(outcome.report, {
           projectNames: names,
+          projectNamesById: namesById,
           ...(options.since ? { since: options.since } : {}),
           ...(options.until ? { until: options.until } : {}),
           locale,

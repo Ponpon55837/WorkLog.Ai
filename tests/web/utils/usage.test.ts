@@ -1,12 +1,21 @@
 import { describe, expect, it } from "vitest";
-import type { UsageBlockItem, UsageModelItem, UsageTokenSummary } from "@work-intelligence/core";
+import type {
+  UsageAllocation,
+  UsageBlockItem,
+  UsageModelItem,
+  UsageProjectItem,
+  UsageTokenSummary,
+} from "@work-intelligence/core";
 import { formatMultiple, formatTokens } from "../../../apps/web/src/utils/format.js";
 import {
   fillDailyRange,
   usageBlockRows,
   usageComposition,
   usageDayLabel,
+  toggleUsageGroup,
   usageModelRows,
+  usageProjectLayout,
+  usageSharedRows,
 } from "../../../apps/web/src/utils/usage.js";
 import { t } from "../../../apps/web/src/i18n/index.js";
 
@@ -144,5 +153,73 @@ describe("usage rows", () => {
       primaryPerMinute: 15,
     };
     expect(usageBlockRows([block])[0]).toMatchObject({ agentLabel: "Codex", progress: 0.2, primary: 900 });
+  });
+});
+
+describe("shared-folder groups", () => {
+  const project = (id: string, name: string): UsageProjectItem => ({
+    id,
+    name,
+    current: false,
+    sources: { claudeFolders: 0, codexFiles: 0 },
+  });
+  const projects = [
+    project("a", "assistant"),
+    project("o", "other"),
+    project("d", "devtools"),
+    project("w", "devdocs"),
+  ];
+
+  it("lists a group's projects once, larger groups first, and keeps the rest loose", () => {
+    const layout = usageProjectLayout(projects, [
+      { projects: ["d", "w"], claudeFolders: 1, codexFiles: 0 },
+      { projects: ["a", "d", "w"], claudeFolders: 1, codexFiles: 0 },
+    ]);
+
+    expect(layout.sections.map((section) => section.names)).toEqual(["assistant, devtools, devdocs"]);
+    expect(layout.sections[0]?.members.map((member) => member.id)).toEqual(["a", "d", "w"]);
+    expect(layout.sections[0]?.projectIds).toEqual(["a", "d", "w"]);
+    expect(layout.loose.map((member) => member.id)).toEqual(["o"]);
+  });
+
+  it("selects and clears a whole group without touching other selections", () => {
+    expect(toggleUsageGroup(["o", "d"], ["a", "d", "w"], true)).toEqual(["o", "a", "d", "w"]);
+    expect(toggleUsageGroup(["o", "a", "d", "w"], ["a", "d", "w"], false)).toEqual(["o"]);
+  });
+
+  it("names the unallocated bucket from project names only", () => {
+    const tokens = { input: 1, output: 2, cacheRead: 0, cacheCreation: 0 };
+    const allocation: UsageAllocation = {
+      groups: [
+        {
+          projects: ["a", "d"],
+          allocated: [
+            {
+              projectId: "a",
+              included: true,
+              conversations: 2,
+              tokens,
+              primary: 3,
+              byBasis: { projectRoot: 1, filePaths: 0, cwd: 1 },
+            },
+            {
+              projectId: "d",
+              included: false,
+              conversations: 0,
+              tokens,
+              primary: 0,
+              byBasis: { projectRoot: 0, filePaths: 0, cwd: 0 },
+            },
+          ],
+          unallocated: { included: false, conversations: 4, tokens, primary: 12 },
+        },
+      ],
+    };
+
+    const [row] = usageSharedRows(allocation, projects);
+
+    expect(t("usage.sharedUnallocated", { projects: row?.names ?? "" })).toContain("assistant, devtools");
+    expect(row).toMatchObject({ included: false, conversations: 4, primary: 12 });
+    expect(row?.projects.map((entry) => entry.name)).toEqual(["assistant", "devtools"]);
   });
 });

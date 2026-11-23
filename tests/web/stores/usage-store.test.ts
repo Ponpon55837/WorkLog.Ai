@@ -21,6 +21,7 @@ const PROJECTS: UsageProjectsResponse = {
     { id: "p1", name: "Alpha", current: true, sources: { claudeFolders: 2, codexFiles: 1 } },
     { id: "p2", name: "Beta", current: false, sources: { claudeFolders: 0, codexFiles: 0 }, problem: "none-found" },
   ],
+  groups: [{ projects: ["p1", "p2"], claudeFolders: 1, codexFiles: 0 }],
 };
 
 const SCAN: UsageScanResponse = {
@@ -57,6 +58,7 @@ const SCAN: UsageScanResponse = {
   otherTools: [{ name: "Bash", calls: 30 }],
   forAgentText: "Agent usage report\nTurns: 10",
   cache: { reused: 1, appended: 0, parsed: 2 },
+  allocation: { groups: [] },
   durationMs: 120,
   range: { since: "2026-11-16T00:00:00.000Z", until: null },
   problems: [{ projectId: "p2", problem: "none-found" }],

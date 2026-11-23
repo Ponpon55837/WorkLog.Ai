@@ -97,6 +97,62 @@ function createFixture(): Fixture {
   };
 }
 
+interface MonorepoFixture {
+  home: string;
+  mono: string;
+  context: UsageScanContext;
+  store: WorkIntelligenceStore;
+  ids: { assistant: string; devtools: string; devdocs: string };
+}
+
+/** Three tracked subfolders of one monorepo; every session was opened at the monorepo root. */
+function createMonorepoFixture(): MonorepoFixture {
+  const home = realpathSync(mkdtempSync(join(tmpdir(), "usage-mono-")));
+  roots.push(home);
+  const mono = join(home, "work", "mono-repo");
+  const claudeProjectsDir = join(home, ".claude", "projects");
+  const folder = join(claudeProjectsDir, encodeClaudeProjectDir(mono));
+  mkdirSync(folder, { recursive: true });
+  const stamp = new Date(Date.now() - 60_000).toISOString();
+  const session = (id: string, input: number, tool: unknown): void => {
+    const lines = [
+      {
+        type: "assistant",
+        sessionId: id,
+        timestamp: stamp,
+        cwd: mono,
+        message: {
+          id: `msg_${id}`,
+          role: "assistant",
+          content: tool ? [{ type: "tool_use", id: `tu_${id}`, name: "mcp__wi__work_read", input: tool }] : [],
+          usage: { input_tokens: input, output_tokens: 1 },
+        },
+      },
+    ];
+    writeFileSync(join(folder, `${id}.jsonl`), `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
+  };
+  const named = (root: string) => ({ operation: "work_get_context", arguments: { projectRoot: root } });
+  session("s-tools", 100, named(join(mono, "devtools")));
+  session("s-assistant", 10, named(join(mono, "assistant")));
+  session("s-nothing", 1000, undefined);
+  const store = new WorkIntelligenceStore(":memory:");
+  stores.push(store);
+  const add = (name: string): string => {
+    mkdirSync(join(mono, name), { recursive: true });
+    const project = store.addProject(name, join(mono, name));
+    store.updateProject(project.id, { status: "tracked" });
+    return project.id;
+  };
+  const ids = { assistant: add("assistant"), devtools: add("devtools"), devdocs: add("devdocs") };
+  return {
+    home,
+    mono,
+    context: { dirs: { claudeProjectsDir, codexSessionsDir: join(home, ".codex", "sessions") } },
+    store,
+    ids,
+  };
+}
+
 async function listen(store: WorkIntelligenceStore, usage: UsageOperations): Promise<string> {
   const server = createServer(createApiHandler(store, { usage }));
   servers.push(server);
@@ -323,7 +379,7 @@ describe("POST /api/usage/scan", () => {
     const fixture = createFixture();
     let failure: unknown = new UsageScanTimeoutError();
     const base = await listen(fixture.store, {
-      sources: async () => [],
+      sources: async () => ({ projects: [], groups: [] }),
       scan: async () => {
         throw failure;
       },
@@ -346,7 +402,7 @@ describe("POST /api/usage/scan", () => {
     let observed: AbortSignal | undefined;
     const started = new Promise<void>((resolve) => {
       void listen(fixture.store, {
-        sources: async () => [],
+        sources: async () => ({ projects: [], groups: [] }),
         scan: (_input, signal) => {
           observed = signal;
           resolve();
@@ -369,6 +425,85 @@ describe("POST /api/usage/scan", () => {
   });
 });
 
+describe("shared monorepo sources", () => {
+  const forbidden = (fixture: MonorepoFixture): string[] => [
+    fixture.home,
+    "mono-repo",
+    encodeClaudeProjectDir(fixture.mono),
+    "s-tools",
+  ];
+
+  it("lists the group of projects that share a folder without naming it", async () => {
+    const fixture = createMonorepoFixture();
+    const base = await listen(fixture.store, new InlineUsageOperations(fixture.context));
+
+    const body = (await (await fetch(`${base}/api/usage/projects`)).json()) as {
+      items: Array<{ id: string; problem?: string }>;
+      groups: unknown[];
+    };
+
+    expect(body.groups).toEqual([
+      { projects: expect.arrayContaining(Object.values(fixture.ids)), claudeFolders: 1, codexFiles: 0 },
+    ]);
+    expect(body.items.every((item) => item.problem === undefined)).toBe(true);
+    for (const secret of forbidden(fixture)) expect(JSON.stringify(body)).not.toContain(secret);
+  });
+
+  it("credits a selected project with its own conversations and the whole group with the rest", async () => {
+    const fixture = createMonorepoFixture();
+    const base = await listen(fixture.store, new InlineUsageOperations(fixture.context));
+
+    const subset = (await (await post(base, { projectIds: [fixture.ids.devtools], range: "7d" })).json()) as Record<
+      string,
+      any
+    >;
+    const whole = (await (await post(base, { projectIds: Object.values(fixture.ids), range: "7d" })).json()) as Record<
+      string,
+      any
+    >;
+
+    expect(subset.tokens.input).toBe(100);
+    expect(subset.totals.sessions).toBe(1);
+    expect(subset.allocation.groups[0].unallocated).toMatchObject({ included: false, conversations: 1, primary: 1001 });
+    const devtools = subset.allocation.groups[0].allocated.find((item: any) => item.projectId === fixture.ids.devtools);
+    expect(devtools).toMatchObject({
+      included: true,
+      conversations: 1,
+      byBasis: { projectRoot: 1, filePaths: 0, cwd: 0 },
+    });
+    expect(whole.tokens.input).toBe(1110);
+    expect(whole.allocation.groups[0].unallocated.included).toBe(true);
+    for (const body of [subset, whole]) {
+      for (const secret of forbidden(fixture)) expect(JSON.stringify(body)).not.toContain(secret);
+    }
+    expect(whole.forAgentText).toMatch(/(assistant|devtools|devdocs), .* - shared \(unallocated\): 1 conversations/);
+    expect(subset.forAgentText).toContain("not in the totals above");
+  });
+
+  it("prints the allocation with --json and --for-agent and never a path", async () => {
+    const fixture = createMonorepoFixture();
+    const messages = { log: [] as string[], error: [] as string[] };
+    const dependencies: DatabaseCliDependencies = {
+      withStore: <T>(task: (store: WorkIntelligenceStore) => T) => task(fixture.store),
+      log: (message) => messages.log.push(message),
+      error: (message) => messages.error.push(message),
+      invocationDirectory: tmpdir(),
+      usage: fixture.context,
+      usageLocale: "en",
+    };
+
+    expect(await runDatabaseCli(["usage", "--json", "--project", "devtools"], dependencies)).toBe(0);
+    expect(await runDatabaseCli(["usage", "--for-agent", "--all"], dependencies)).toBe(0);
+
+    const json = JSON.parse(messages.log[0] ?? "{}");
+    expect(json.tokens.input).toBe(100);
+    expect(json.allocation.groups[0].allocated).toHaveLength(3);
+    const text = messages.log.join("\n");
+    expect(messages.log[1]).toContain("shared (unallocated)");
+    for (const secret of forbidden(fixture)) expect(text).not.toContain(secret);
+  });
+});
+
 describe("UsageWorkerClient", () => {
   it("scans in a child process and answers like the in-process scanner", async () => {
     const fixture = createFixture();
@@ -381,7 +516,8 @@ describe("UsageWorkerClient", () => {
     const found = await client.sources(input.projects);
     const outcome = await client.scan(input);
 
-    expect(found).toEqual([{ projectId: fixture.projectId, claudeFolders: 1, codexFiles: 0 }]);
+    expect(found.projects).toEqual([{ projectId: fixture.projectId, claudeFolders: 1, codexFiles: 0 }]);
+    expect(found.groups).toEqual([]);
     expect(outcome.report.total.toolCalls).toBe(2);
   }, 30_000);
 

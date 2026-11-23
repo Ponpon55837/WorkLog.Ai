@@ -34,8 +34,21 @@ export interface UsageProjectItem {
   problem?: UsageProjectProblem;
 }
 
+/**
+ * Tracked projects that share a source: Claude Code or Codex sessions opened at a folder above all of them (a monorepo
+ * root). Ids and counts only; the folder is never named.
+ */
+export interface UsageProjectGroup {
+  /** Tracked project ids below the shared folder. */
+  projects: string[];
+  claudeFolders: number;
+  codexFiles: number;
+}
+
 export interface UsageProjectsResponse {
   items: UsageProjectItem[];
+  /** Shared sources; empty when no session was opened above a tracked project. */
+  groups: UsageProjectGroup[];
 }
 
 /** Body of `POST /api/usage/scan`. Manual folders are absolute paths; the server never echoes them back. */
@@ -156,6 +169,48 @@ export interface UsageCacheCounts {
   parsed: number;
 }
 
+/** What a conversation of a shared source showed about its project; precedence in this order. */
+export const USAGE_ALLOCATION_BASES = ["projectRoot", "filePaths", "cwd"] as const;
+
+export type UsageAllocationBasis = (typeof USAGE_ALLOCATION_BASES)[number];
+
+/** Conversations of a shared source given to one project of a group, by the basis that decided it. */
+export interface UsageAllocatedProject {
+  projectId: string;
+  /** The project was selected, so these conversations are in `totals`, `tokens` and the rest of the response. */
+  included: boolean;
+  conversations: number;
+  tokens: UsageTokens;
+  /** input + output. */
+  primary: number;
+  byBasis: Record<UsageAllocationBasis, number>;
+}
+
+/** Conversations of a shared source that no basis could give to a project. */
+export interface UsageUnallocated {
+  /** Every project of the group was selected, so these conversations are in the totals. */
+  included: boolean;
+  conversations: number;
+  tokens: UsageTokens;
+  /** input + output. */
+  primary: number;
+}
+
+export interface UsageAllocationGroup {
+  /** Project ids of the group. */
+  projects: string[];
+  allocated: UsageAllocatedProject[];
+  unallocated: UsageUnallocated;
+}
+
+/**
+ * Conversations opened above several projects, each counted once in exactly one bucket: a project of the group or
+ * the group's unallocated bucket. Only groups that have a selected project appear. Counts, ids and tokens only.
+ */
+export interface UsageAllocation {
+  groups: UsageAllocationGroup[];
+}
+
 export interface UsageScanProblem {
   projectId: string;
   problem: UsageProjectProblem;
@@ -178,6 +233,7 @@ export interface UsageScanResponse {
   /** Plain-text report for an Agent, built on the server. Copy it verbatim. */
   forAgentText: string;
   cache: UsageCacheCounts;
+  allocation: UsageAllocation;
   durationMs: number;
   range: { since: string | null; until: string | null };
   problems: UsageScanProblem[];

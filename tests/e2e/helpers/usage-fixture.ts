@@ -6,8 +6,14 @@ function localDay(now: Date, offset: number): string {
   return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
 }
 
+/** One project of its own and two projects that share a folder where sessions were opened. */
 export const USAGE_PROJECTS: UsageProjectsResponse = {
-  items: [{ id: "usage-p1", name: "Fictional Orchard", current: true, sources: { claudeFolders: 2, codexFiles: 3 } }],
+  items: [
+    { id: "usage-p1", name: "Fictional Orchard", current: true, sources: { claudeFolders: 2, codexFiles: 3 } },
+    { id: "usage-p2", name: "Fictional Barn", current: false, sources: { claudeFolders: 1, codexFiles: 0 } },
+    { id: "usage-p3", name: "Fictional Mill", current: false, sources: { claudeFolders: 0, codexFiles: 1 } },
+  ],
+  groups: [{ projects: ["usage-p2", "usage-p3"], claudeFolders: 1, codexFiles: 1 }],
 };
 
 /** A synthetic scan result: two Agents, a model without a label, a day without usage and one active 5-hour block. */
@@ -105,6 +111,37 @@ export function usageScanFixture(now = new Date()): UsageScanResponse {
     ],
     forAgentText: "Synthetic usage report",
     cache: { reused: 1, appended: 0, parsed: 4 },
+    allocation: {
+      groups: [
+        {
+          projects: ["usage-p2", "usage-p3"],
+          allocated: [
+            {
+              projectId: "usage-p2",
+              included: true,
+              conversations: 3,
+              tokens: { input: 300, output: 100, cacheRead: 0, cacheCreation: 0 },
+              primary: 400,
+              byBasis: { projectRoot: 2, filePaths: 1, cwd: 0 },
+            },
+            {
+              projectId: "usage-p3",
+              included: false,
+              conversations: 1,
+              tokens: { input: 50, output: 10, cacheRead: 0, cacheCreation: 0 },
+              primary: 60,
+              byBasis: { projectRoot: 0, filePaths: 0, cwd: 1 },
+            },
+          ],
+          unallocated: {
+            included: false,
+            conversations: 2,
+            tokens: { input: 900, output: 100, cacheRead: 0, cacheCreation: 0 },
+            primary: 1_000,
+          },
+        },
+      ],
+    },
     durationMs: 240,
     range: { since: new Date(now.getTime() - 7 * 86_400_000).toISOString(), until: null },
     problems: [],

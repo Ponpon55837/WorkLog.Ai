@@ -5,6 +5,7 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import process from "node:process";
 import { checkScanLimits } from "./errors.js";
 import { isRecord } from "./metrics.js";
+import { ancestorsOf, foldPath, nativeSpelling, normalizePath } from "./paths.js";
 
 export interface UsageProjectInput {
   id: string;
@@ -26,6 +27,21 @@ export interface UsageProjectSources {
   /** Absolute Codex rollout files whose first session_meta cwd lies in the project root. */
   codexFiles: string[];
   problem?: UsageSourceProblem;
+}
+
+/** Projects that share a source: Claude Code folders and Codex rollouts opened at a folder above all of them. */
+export interface UsageSourceGroup {
+  /** Tracked project ids below the shared folder, in input order. */
+  projectIds: string[];
+  /** Absolute folders under the Claude projects directory; for scanning only, never shown to users. */
+  claudeFolders: string[];
+  /** Absolute Codex rollout files whose session_meta cwd is the shared folder. */
+  codexFiles: string[];
+}
+
+export interface UsageSources {
+  projects: UsageProjectSources[];
+  groups: UsageSourceGroup[];
 }
 
 const WORKTREE_MARKER = "--claude-worktrees-";
@@ -51,12 +67,16 @@ export function defaultUsageSourceDirs(): UsageSourceDirs {
   };
 }
 
-function folderMatches(name: string, encoded: string): boolean {
-  const fold = process.platform === "win32" ? (value: string) => value.toLowerCase() : (value: string) => value;
-  const folded = fold(name);
-  const base = fold(encoded);
+/**
+ * `truncated` allows the shortened-name rule for a root whose encoding exceeds Claude Code's limit. A shared folder
+ * does not use it: the shortened name of a long ancestor is also a prefix of its descendants' folders, so it could not
+ * tell the ancestor's own conversations from a project's.
+ */
+function folderMatches(name: string, encoded: string, truncated = true): boolean {
+  const folded = foldPath(name);
+  const base = foldPath(encoded);
   if (folded === base || folded.startsWith(base + WORKTREE_MARKER)) return true;
-  return encoded.length > CLAUDE_NAME_LIMIT && folded.startsWith(base.slice(0, CLAUDE_NAME_LIMIT));
+  return truncated && encoded.length > CLAUDE_NAME_LIMIT && folded.startsWith(base.slice(0, CLAUDE_NAME_LIMIT));
 }
 
 function isInside(root: string, candidate: string): boolean {
@@ -162,6 +182,24 @@ export async function resolveProjectSources(
   dirs: UsageSourceDirs = defaultUsageSourceDirs(),
   options: { signal?: AbortSignal } = {},
 ): Promise<UsageProjectSources[]> {
+  return (await resolveUsageSources(projects, dirs, options)).projects;
+}
+
+/**
+ * `resolveProjectSources` plus the shared sources. A Claude Code folder, or a Codex session cwd, that is a strict
+ * ancestor of a project root is a shared source of that project: a user who registers the subfolders of a monorepo as
+ * projects often opens the Agent at the monorepo root. Folder names are a lossy encoding of the path, so an ancestor is
+ * recognised the way a project is: every ancestor directory of every root is encoded with `encodeClaudeProjectDir` and
+ * compared with the folder names (exact or worktree folder, compared case-insensitively on Windows); a Codex cwd is
+ * normalised (`\` and `/` alike, folded on Windows) and compared with the same ancestors. Ancestors that are tracked
+ * roots themselves stay the sources of that project, and a source that is already a project's own is never shared.
+ * Ancestors with the same projects form one group.
+ */
+export async function resolveUsageSources(
+  projects: UsageProjectInput[],
+  dirs: UsageSourceDirs = defaultUsageSourceDirs(),
+  options: { signal?: AbortSignal } = {},
+): Promise<UsageSources> {
   const { signal } = options;
   let claudeState: DirState = "ok";
   let claudeNames: string[] = [];
@@ -174,7 +212,7 @@ export async function resolveProjectSources(
   checkScanLimits(signal, undefined);
   const codex = await listRollouts(dirs.codexSessionsDir, signal);
   const cwds = projects.length > 0 && codex.files.length > 0 ? await readCwds(codex.files, signal) : new Map();
-  return projects.map((project) => {
+  const own = projects.map((project) => {
     const encoded = encodeClaudeProjectDir(project.root);
     const claudeFolders = claudeNames
       .filter((name) => folderMatches(name, encoded))
@@ -184,12 +222,72 @@ export async function resolveProjectSources(
       const cwd = cwds.get(file);
       return typeof cwd === "string" && isInside(project.root, cwd);
     });
-    const found = claudeFolders.length > 0 || codexFiles.length > 0;
-    return {
-      projectId: project.id,
-      claudeFolders,
-      codexFiles,
-      ...(found ? {} : { problem: problemFor(claudeState, codex.state) }),
-    };
+    return { projectId: project.id, claudeFolders, codexFiles };
   });
+  const groups = sharedGroups(projects, own, claudeNames, codex.files, cwds, dirs);
+  const shared = new Set(groups.flatMap((group) => group.projectIds));
+  return {
+    groups,
+    projects: own.map((entry) => ({
+      ...entry,
+      ...(entry.claudeFolders.length > 0 || entry.codexFiles.length > 0 || shared.has(entry.projectId)
+        ? {}
+        : { problem: problemFor(claudeState, codex.state) }),
+    })),
+  };
+}
+
+function sharedGroups(
+  projects: UsageProjectInput[],
+  own: { claudeFolders: string[]; codexFiles: string[] }[],
+  claudeNames: string[],
+  codexFiles: string[],
+  cwds: Map<string, string | null>,
+  dirs: UsageSourceDirs,
+): UsageSourceGroup[] {
+  const trackedRoots = new Set(projects.flatMap((project) => normalizedKey(project.root)));
+  const ancestors = new Map<string, { path: string; ids: string[] }>();
+  for (const project of projects) {
+    for (const path of ancestorsOf(project.root)) {
+      const key = foldPath(path);
+      if (trackedRoots.has(key)) continue;
+      const entry = ancestors.get(key) ?? { path, ids: [] };
+      entry.ids.push(project.id);
+      ancestors.set(key, entry);
+    }
+  }
+  if (ancestors.size === 0) return [];
+  const ownSources = new Set(own.flatMap((entry) => [...entry.claudeFolders, ...entry.codexFiles]));
+  const filesByCwd = new Map<string, string[]>();
+  for (const file of codexFiles) {
+    const cwd = cwds.get(file);
+    const key = typeof cwd === "string" ? normalizedKey(cwd)[0] : undefined;
+    if (key !== undefined) filesByCwd.set(key, [...(filesByCwd.get(key) ?? []), file]);
+  }
+  const groups = new Map<string, UsageSourceGroup>();
+  for (const [key, ancestor] of ancestors) {
+    const encoded = encodeClaudeProjectDir(nativeSpelling(ancestor.path));
+    const claudeFolders = claudeNames
+      .filter((name) => folderMatches(name, encoded, false))
+      .map((name) => join(dirs.claudeProjectsDir, name))
+      .filter((folder) => !ownSources.has(folder));
+    const rollouts = (filesByCwd.get(key) ?? []).filter((file) => !ownSources.has(file));
+    if (claudeFolders.length === 0 && rollouts.length === 0) continue;
+    const id = ancestor.ids.join("\0");
+    const group = groups.get(id) ?? { projectIds: ancestor.ids, claudeFolders: [], codexFiles: [] };
+    group.claudeFolders.push(...claudeFolders);
+    group.codexFiles.push(...rollouts);
+    groups.set(id, group);
+  }
+  return [...groups.values()].map((group) => ({
+    ...group,
+    claudeFolders: group.claudeFolders.sort(),
+    codexFiles: group.codexFiles.sort(),
+  }));
+}
+
+/** The folded, normalised spelling of an absolute path as a one-item list (empty for a relative path). */
+function normalizedKey(path: string): string[] {
+  const normalized = normalizePath(path);
+  return normalized === null ? [] : [foldPath(normalized)];
 }

@@ -1,8 +1,12 @@
 import type {
   UsageAgent,
+  UsageAllocation,
+  UsageAllocationBasis,
   UsageBlockItem,
   UsageDayItem,
   UsageModelItem,
+  UsageProjectGroup,
+  UsageProjectItem,
   UsageProjectProblem,
   UsageRange,
   UsageScanRequest,
@@ -200,6 +204,101 @@ export function usageBlockRows(blocks: readonly UsageBlockItem[]): UsageBlockRow
       progress: span > 0 ? Math.min(1, Math.max(0, block.elapsedMs / span)) : 0,
     };
   });
+}
+
+interface UsageProjectSection {
+  key: string;
+  /** Every project id of the group, shown or not: the whole-group control selects all of them. */
+  projectIds: string[];
+  /** Project names joined for the group label; tracked project names only. */
+  names: string;
+  /** The group's projects not already listed in an earlier group. */
+  members: UsageProjectItem[];
+}
+
+interface UsageProjectLayout {
+  sections: UsageProjectSection[];
+  /** Projects that share no source with another project. */
+  loose: UsageProjectItem[];
+}
+
+interface UsageSharedProjectRow {
+  projectId: string;
+  name: string;
+  included: boolean;
+  conversations: number;
+  primary: number;
+  byBasis: Record<UsageAllocationBasis, number>;
+}
+
+interface UsageSharedGroupRow {
+  key: string;
+  /** Names of the group's projects, in the order of the project list. */
+  names: string;
+  included: boolean;
+  conversations: number;
+  primary: number;
+  projects: UsageSharedProjectRow[];
+}
+
+/** Names of the given tracked projects in list order, e.g. `assistant, devtools, devdocs`; never a path. */
+function usageGroupNames(ids: readonly string[], projects: readonly UsageProjectItem[]): string {
+  return projects
+    .filter((project) => ids.includes(project.id))
+    .map((project) => project.name)
+    .join(", ");
+}
+
+/**
+ * Splits the project list into groups that share a source and the rest. Larger groups come first and a project is
+ * listed once, under the first group that has it; a group's control still selects all of its projects.
+ */
+export function usageProjectLayout(
+  projects: readonly UsageProjectItem[],
+  groups: readonly UsageProjectGroup[],
+): UsageProjectLayout {
+  const shown = new Set<string>();
+  const sections: UsageProjectSection[] = [];
+  const ordered = [...groups].sort((a, b) => b.projects.length - a.projects.length);
+  for (const [index, group] of ordered.entries()) {
+    const members = projects.filter((project) => group.projects.includes(project.id) && !shown.has(project.id));
+    for (const member of members) shown.add(member.id);
+    if (members.length === 0) continue;
+    sections.push({
+      key: `group-${index}`,
+      projectIds: projects.filter((project) => group.projects.includes(project.id)).map((project) => project.id),
+      names: usageGroupNames(group.projects, projects),
+      members,
+    });
+  }
+  return { sections, loose: projects.filter((project) => !shown.has(project.id)) };
+}
+
+/** Selection after the whole-group control: every project of the group added, or all of them removed. */
+export function toggleUsageGroup(selected: readonly string[], ids: readonly string[], checked: boolean): string[] {
+  return checked ? [...selected.filter((id) => !ids.includes(id)), ...ids] : selected.filter((id) => !ids.includes(id));
+}
+
+/** Conversations of shared sources by group and project, with names from the tracked project list. */
+export function usageSharedRows(
+  allocation: UsageAllocation,
+  projects: readonly UsageProjectItem[],
+): UsageSharedGroupRow[] {
+  return allocation.groups.map((group, index) => ({
+    key: `shared-${index}`,
+    names: usageGroupNames(group.projects, projects),
+    included: group.unallocated.included,
+    conversations: group.unallocated.conversations,
+    primary: group.unallocated.primary,
+    projects: group.allocated.map((entry) => ({
+      projectId: entry.projectId,
+      name: projects.find((project) => project.id === entry.projectId)?.name ?? t("usage.unknownProject"),
+      included: entry.included,
+      conversations: entry.conversations,
+      primary: entry.primary,
+      byBasis: entry.byBasis,
+    })),
+  }));
 }
 
 /** Plain-language explanation of a per-project source problem. */

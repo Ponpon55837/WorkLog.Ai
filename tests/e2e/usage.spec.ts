@@ -45,6 +45,29 @@ for (const width of [1440, 375]) {
   });
 }
 
+test("projects that share a folder are grouped, selectable as a whole, and show their unallocated conversations", async ({
+  page,
+}) => {
+  await mockUsage(page, "ok");
+  await page.setViewportSize({ width: 375, height: 900 });
+  await page.goto("/usage");
+
+  const group = page.getByTestId("usage-group");
+  await expect(group).toContainText("Fictional Barn, Fictional Mill");
+  await group.getByRole("button", { name: textIn("zh-TW", "usage.groupSelect") }).click();
+  await expect(page.getByRole("checkbox", { name: "Fictional Barn" })).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "Fictional Mill" })).toBeChecked();
+  await expect(group.getByRole("button", { name: textIn("zh-TW", "usage.groupClear") })).toBeVisible();
+
+  const shared = page.getByTestId("usage-shared");
+  await expect(shared).toContainText(
+    textIn("zh-TW", "usage.sharedUnallocated", { projects: "Fictional Barn, Fictional Mill" }),
+  );
+  await expect(shared.getByTestId("usage-allocated")).toHaveCount(2);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+});
+
 test("a failed scan shows an error with a retry that loads the result", async ({ page }) => {
   await mockUsage(page, "error");
   await page.goto("/usage");

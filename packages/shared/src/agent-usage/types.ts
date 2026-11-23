@@ -42,6 +42,8 @@ export interface UsageEvent {
   agent: UsageAgentId;
   time: number;
   tokens: TokenCounts;
+  /** Session key of the conversation, so a scan can drop the events of conversations it leaves out; never output. */
+  key?: string;
 }
 
 /** An active 5-hour block (epoch milliseconds); see `buildActiveBlocks`. */
@@ -93,6 +95,54 @@ export interface UsageCacheCounts {
   bytesRead: number;
 }
 
+/** Where an allocated conversation found its project, in precedence order. */
+export type AllocationBasis = "projectRoot" | "filePaths" | "cwd";
+
+export type AllocationBasisCounts = Record<AllocationBasis, number>;
+
+/** Conversations of a shared source allocated to one project of a group. */
+export interface AllocatedProjectUsage {
+  projectId: string;
+  /** The project was selected, so these conversations are in the report totals. */
+  included: boolean;
+  conversations: number;
+  tokens: TokenCounts;
+  /** input + output. */
+  primary: number;
+  byBasis: AllocationBasisCounts;
+}
+
+/** Conversations of a shared source that no basis could give to a project. */
+export interface UnallocatedUsage {
+  /** Every project of the group was selected, so these conversations are in the report totals. */
+  included: boolean;
+  conversations: number;
+  tokens: TokenCounts;
+  /** input + output. */
+  primary: number;
+}
+
+/** One group of projects that share a source: ids, counts and tokens only. */
+export interface UsageAllocationGroup {
+  projects: string[];
+  allocated: AllocatedProjectUsage[];
+  unallocated: UnallocatedUsage;
+}
+
+export interface UsageAllocation {
+  groups: UsageAllocationGroup[];
+}
+
+/** Input of `summarizeFiles`: the groups whose shared sources are read, and which of their projects are selected. */
+export interface UsageAllocationOptions {
+  groups: {
+    /** Project roots are used for matching only. */
+    projects: { id: string; root: string; selected: boolean }[];
+    /** Shared Claude Code folders and Codex rollouts of the group. */
+    paths: string[];
+  }[];
+}
+
 export interface UsageReport {
   formats: { claudeCodeLines: number; codexLines: number };
   sessions: SessionUsage[];
@@ -108,6 +158,8 @@ export interface UsageReport {
   /** Active 5-hour blocks at scan time (at most one per Agent). */
   blocks: UsageBlock[];
   cache: UsageCacheCounts;
+  /** Conversations of shared sources by bucket; no groups when the scan had none. */
+  allocation: UsageAllocation;
 }
 
 export interface ShapeReport {
@@ -128,6 +180,8 @@ export interface UsageScanOptions {
   now?: number;
   /** Reuse across scans (Claude Code files only). */
   cache?: import("./cache.js").UsageCache;
+  /** Shared sources (folders above several tracked projects); their conversations are allocated per conversation. */
+  allocation?: UsageAllocationOptions;
 }
 
 /** One compact record per Claude Code line, before deduplication and range filtering. */
@@ -137,6 +191,10 @@ export interface ClaudeToolUseRecord {
   n: string;
   /** Work Intelligence operation key; present only for Work Intelligence tools. */
   k?: string;
+  /** Normalised `projectRoot` argument of a Work Intelligence call; kept only for files of shared sources. */
+  r?: string;
+  /** Normalised directory of the file a Read/Edit/Write/MultiEdit/NotebookEdit call named; shared sources only. */
+  f?: string;
 }
 
 export interface ClaudeToolResultRecord {
@@ -162,4 +220,6 @@ export interface ClaudeRecord {
   /** A main-thread human prompt. */
   h?: 1;
   tr?: ClaudeToolResultRecord[];
+  /** Normalised cwd from this line on ("" = none); present only when it differs from the previous line's. */
+  c?: string;
 }

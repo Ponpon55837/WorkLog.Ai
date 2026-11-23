@@ -5,7 +5,7 @@ import { isRecord } from "./metrics.js";
 import type { ClaudeRecord } from "./types.js";
 
 /** Bump when the record or entry format changes; entries of another version are dropped on load. */
-export const CACHE_VERSION = 2;
+export const CACHE_VERSION = 3;
 
 /** What one Claude Code file contributed, valid while its size and mtime are unchanged. */
 export interface UsageCacheEntry {
@@ -16,6 +16,8 @@ export interface UsageCacheEntry {
   offset: number;
   /** sha256 of the (up to 4 KiB) bytes just before `offset`, to tell an append from a rewrite. */
   prefixHash: string;
+  /** The records carry the shared-source evidence (tool paths, cwd); a file that became shared is parsed again. */
+  evidence: boolean;
   records: ClaudeRecord[];
   skippedLines: number;
   /** The unterminated last line, replaced when the file grows. */
@@ -91,6 +93,7 @@ function isEntry(value: unknown): value is UsageCacheEntry {
     typeof value.size === "number" &&
     typeof value.offset === "number" &&
     typeof value.prefixHash === "string" &&
+    typeof value.evidence === "boolean" &&
     Array.isArray(value.records) &&
     typeof value.skippedLines === "number" &&
     isRecord(value.tail) &&

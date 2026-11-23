@@ -31,6 +31,7 @@ export const useUsageStore = defineStore("usage", () => {
   });
 
   const projects = computed(() => projectsQuery.data.value?.items ?? []);
+  const projectGroups = computed(() => projectsQuery.data.value?.groups ?? []);
   const projectsLoaded = computed(() => projectsQuery.data.value !== undefined);
   const projectsLoading = computed(() => projectsQuery.isLoading.value);
   const projectsError = computed(() => (projectsQuery.error.value ? usageErrorMessage(undefined) : ""));
@@ -88,6 +89,7 @@ export const useUsageStore = defineStore("usage", () => {
 
   return {
     projects,
+    projectGroups,
     projectsLoaded,
     projectsLoading,
     projectsError,

@@ -66,7 +66,7 @@ async function listUsageProjects(context: RouteContext): Promise<void> {
   const controller = abortOnClose(response);
   try {
     const found = await services.usage.sources(projects.map(toInput), controller.signal);
-    const byId = new Map(found.map((entry) => [entry.projectId, entry]));
+    const byId = new Map(found.projects.map((entry) => [entry.projectId, entry]));
     const current = currentProjectId(projects);
     const items: UsageProjectItem[] = projects.map((project) => {
       const entry = byId.get(project.id);
@@ -78,7 +78,12 @@ async function listUsageProjects(context: RouteContext): Promise<void> {
         ...(entry?.problem ? { problem: entry.problem } : {}),
       };
     });
-    sendJson(response, 200, { items } satisfies UsageProjectsResponse);
+    const groups = found.groups.map((group) => ({
+      projects: group.projectIds,
+      claudeFolders: group.claudeFolders,
+      codexFiles: group.codexFiles,
+    }));
+    sendJson(response, 200, { items, groups } satisfies UsageProjectsResponse);
   } catch (error) {
     sendUsageError(response, error);
   }
@@ -114,7 +119,13 @@ async function scanUsage(context: RouteContext): Promise<void> {
   const controller = abortOnClose(response);
   try {
     const outcome = await services.usage.scan(
-      { projects: projects.map(toInput), manualFolders, ...(since ? { since } : {}), ...(until ? { until } : {}) },
+      {
+        projects: projects.map(toInput),
+        allProjects: tracked.map(toInput),
+        manualFolders,
+        ...(since ? { since } : {}),
+        ...(until ? { until } : {}),
+      },
       controller.signal,
     );
     sendJson(
@@ -123,6 +134,7 @@ async function scanUsage(context: RouteContext): Promise<void> {
       buildUsageResponse(outcome.report, {
         problems: outcome.problems,
         projectNames: projects.map((project) => project.name),
+        projectNamesById: Object.fromEntries(tracked.map((project) => [project.id, project.name])),
         range: { since: since ?? null, until: until ?? null },
         durationMs: Date.now() - now,
         locale: localeOf(context),

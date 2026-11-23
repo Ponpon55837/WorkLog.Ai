@@ -12,7 +12,7 @@ import {
   type UsageScanContext,
   type UsageScanInput,
   type UsageScanOutcome,
-  type UsageSourcesFound,
+  type UsageSourcesResult,
 } from "./usage-scan.js";
 
 type UsageWorkerOperation =
@@ -76,7 +76,7 @@ export class UsageWorkerClient implements UsageOperations {
     private readonly options: UsageWorkerClientOptions = {},
   ) {}
 
-  public sources(projects: UsageProjectInput[], signal?: AbortSignal): Promise<UsageSourcesFound[]> {
+  public sources(projects: UsageProjectInput[], signal?: AbortSignal): Promise<UsageSourcesResult> {
     return this.run({ type: "sources", projects }, signal);
   }
 

@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+import { countPath, createEvidence, type SessionEvidence } from "./allocation.js";
 import {
   bump,
   bumpOperation,
@@ -15,7 +16,7 @@ import {
 import { safeModelId } from "./model.js";
 import { inRange, parseTimestamp, recordUsageEvent, sessionFor, type ScanState } from "./state.js";
 import type { UsageEvent } from "./types.js";
-import { operationOf, SAFE_TOOL_NAME, workOperationKey, type ToolInfo } from "./tools.js";
+import { operationOf, projectRootOf, SAFE_TOOL_NAME, workOperationKey, type ToolInfo } from "./tools.js";
 
 type Raw = Record<string, any>;
 type Usage = Record<string, number>;
@@ -59,6 +60,10 @@ export interface CodexContext {
   };
   stash: Map<string, number>;
   turnCounters: TurnCounter[];
+  /** What the conversation shows about its project; set only for rollouts of a shared source. */
+  evidence: SessionEvidence | null;
+  /** Index in `state.events` where this file's usage events start, to tag them with the conversation's key. */
+  eventStart: number;
 }
 
 const CODEX_WORK_TOOL_NAME = /(?:^|__)(work_[a-z0-9_]+)$/;
@@ -139,6 +144,8 @@ function createCodexContext(state: ScanState): CodexContext {
     fallback: { count: 0, ids: new Set(), mapped: null, entries: [] },
     stash: new Map(),
     turnCounters: [0, 1, 2, 3].map(() => ({ count: 0, ids: new Set<string>() })),
+    evidence: state.file.group === null ? null : createEvidence(state.file.group),
+    eventStart: state.events.length,
   };
 }
 
@@ -163,7 +170,9 @@ function registerCodexTool(
   callId: string | null,
   tool: ToolInfo,
   counted: boolean,
+  args: unknown,
 ): void {
+  if (tool.work && ctx.evidence) countPath(ctx.evidence.roots, projectRootOf(args));
   if (counted) {
     ctx.metrics.toolCalls += 1;
     bump(tool.work ? ctx.metrics.workIntelligenceTools : ctx.metrics.toolCallsByName, tool.name);
@@ -178,7 +187,14 @@ function handleCodexCall(state: ScanState, ctx: CodexContext, payload: Raw, rang
   const namespace = typeof payload.namespace === "string" && payload.namespace !== "" ? payload.namespace : null;
   const name = payload.type === "local_shell_call" ? "local_shell" : payload.name;
   const full = typeof name === "string" && namespace !== null ? namespace + name : name;
-  registerCodexTool(state, ctx, callId, classifyCodexTool(full, namespace !== null, payload.arguments), ranged);
+  registerCodexTool(
+    state,
+    ctx,
+    callId,
+    classifyCodexTool(full, namespace !== null, payload.arguments),
+    ranged,
+    payload.arguments,
+  );
 }
 
 function handleMcpBegin(state: ScanState, ctx: CodexContext, payload: Raw, ranged: boolean): void {
@@ -197,6 +213,7 @@ function handleMcpBegin(state: ScanState, ctx: CodexContext, payload: Raw, range
       callId,
       { ...classifyCodexTool(full, true, invocation.arguments), mcp: true },
       ranged,
+      invocation.arguments,
     );
     return;
   }
@@ -204,6 +221,7 @@ function handleMcpBegin(state: ScanState, ctx: CodexContext, payload: Raw, range
   const entry = workMatch?.[1];
   if (entry === undefined || known.work) return;
   const key = workOperationKey(entry, () => operationOf(invocation.arguments));
+  if (ctx.evidence) countPath(ctx.evidence.roots, projectRootOf(invocation.arguments));
   if (known.counted && known.owner === ctx.metrics) {
     const map = ctx.metrics.toolCallsByName;
     map[known.name] = (map[known.name] ?? 0) - 1;
@@ -503,10 +521,12 @@ export function handleCodexLine(state: ScanState, line: Raw): void {
   }
   let handled = false;
   if (line.type === "session_meta") {
+    if (ctx.evidence) countPath(ctx.evidence.cwds, payload.cwd);
     updateModel(ctx, payload);
     handleSessionMeta(state, ctx, payload);
     handled = true;
   } else if (line.type === "turn_context") {
+    if (ctx.evidence) countPath(ctx.evidence.cwds, payload.cwd);
     updateModel(ctx, payload);
     handled = true;
   } else if (line.type === "compacted") {
@@ -560,8 +580,10 @@ export function endCodexFile(state: ScanState): void {
     credited[field] = (credited[field] ?? 0) + ((ctx.metrics.tokens as unknown as Usage)[field] ?? 0);
   }
   state.codexThreadCredited.set(thread, credited);
-  if (!ctx.touched) return;
   const key = ctx.fileId ? `codex:${ctx.fileId}` : ctx.metaId ? `codex:${ctx.metaId}` : `codex:${state.file.path}`;
+  for (const event of state.events.slice(ctx.eventStart)) event.key = key;
+  if (!ctx.touched) return;
+  if (ctx.evidence) state.evidence.set(key, ctx.evidence);
   if (ctx.compactedFrom !== null && ctx.firstCredited !== null) {
     state.codexContinuations.push({ key, previous: ctx.compactedFrom, first: ctx.firstCredited });
   }

@@ -49,6 +49,7 @@ function report(overrides: Record<string, unknown> = {}): UsageReport {
     codexContextOutputs: 0,
     blocks: [],
     cache: { reused: 0, appended: 0, parsed: 0, bytesRead: 0 },
+    allocation: { groups: [] },
     ...overrides,
   } as unknown as UsageReport;
 }

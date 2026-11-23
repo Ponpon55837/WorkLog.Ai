@@ -4,6 +4,7 @@ import { extractClaudeLine, isClaudeLine } from "./claude.js";
 import { isCodexLine } from "./codex.js";
 import { checkScanLimits } from "./errors.js";
 import { isRecord } from "./metrics.js";
+import { normalizePath } from "./paths.js";
 import type { ClaudeRecord } from "./types.js";
 
 /** Records and counters of lines that were read in this pass. */
@@ -25,6 +26,8 @@ export interface ExtractResult extends ExtractedLines {
 interface ExtractOptions {
   /** Byte offset to start reading at (a line start). */
   start?: number;
+  /** Keep the shared-source evidence (tool paths and per-line cwd) in the records. */
+  evidence?: boolean;
   signal?: AbortSignal;
   deadlineMs?: number;
   /** Receives every parsed line the Claude Code parser does not own but the Codex parser does. */
@@ -45,7 +48,7 @@ function emptyLines(): ExtractedLines {
  * Claude Code line into a compact record. Handles CRLF; an unterminated last line goes to `tail`, never into `offset`.
  */
 export async function extractFile(path: string, options: ExtractOptions = {}): Promise<ExtractResult> {
-  const { signal, deadlineMs, onCodexLine } = options;
+  const { signal, deadlineMs, onCodexLine, evidence = false } = options;
   const start = options.start ?? 0;
   const main = emptyLines();
   const strings = new Map<string, string>();
@@ -55,6 +58,9 @@ export async function extractFile(path: string, options: ExtractOptions = {}): P
     strings.set(value, value);
     return value;
   };
+  // The cwd is stored on a record only when it differs from the previous line's, so a long conversation in one folder
+  // costs one string; the first line of every pass states it, because a pass continues no earlier one.
+  let lastCwd: string | undefined;
   const consume = (target: ExtractedLines, bytes: Buffer): void => {
     let end = bytes.length;
     if (end > 0 && bytes[end - 1] === CARRIAGE_RETURN) end -= 1;
@@ -71,7 +77,17 @@ export async function extractFile(path: string, options: ExtractOptions = {}): P
       target.skippedLines += 1;
       return;
     }
-    if (isClaudeLine(line)) target.records.push(extractClaudeLine(line, intern));
+    if (isClaudeLine(line)) {
+      const record = extractClaudeLine(line, intern, evidence);
+      if (evidence) {
+        const cwd = typeof line.cwd === "string" ? (normalizePath(line.cwd) ?? "") : "";
+        if (cwd !== lastCwd) {
+          record.c = cwd;
+          lastCwd = cwd;
+        }
+      }
+      target.records.push(record);
+    }
     // Lines of other types (attachment, summary, ...) match no parser and are ignored.
     else if (isCodexLine(line)) {
       target.codexLines += 1;

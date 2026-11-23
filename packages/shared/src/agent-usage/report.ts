@@ -3,6 +3,8 @@ import type { ShapeReport, TokenCounts, UsageMetrics, UsageReport } from "./type
 export interface ForAgentOptions {
   /** User-chosen tracked project names; the only names that may appear. */
   projectNames?: string[];
+  /** Names of the tracked projects by id; shared-source groups are labelled with them (never with a path). */
+  projectNamesById?: Record<string, string>;
   since?: string;
   until?: string;
   locale?: "en" | "zh-TW";
@@ -38,6 +40,14 @@ const LABELS = {
     topTools: "Top other tools",
     perSession: "input + output",
     none: "none",
+    shared:
+      "Shared sources (conversations opened at a folder above several projects; each conversation is counted once, matched by Work Intelligence projectRoot, then file paths, then cwd)",
+    unallocated: "shared (unallocated)",
+    conversations: "conversations",
+    notIncluded: "not in the totals above",
+
+    basisFilePaths: "file paths",
+    allocatedTo: "allocated by",
   },
   "zh-TW": {
     title: "Agent 用量報告（依本機 Agent 紀錄估算；不含訊息內容、路徑或工具輸入）",
@@ -65,6 +75,14 @@ const LABELS = {
     topTools: "其他常用工具",
     perSession: "輸入 + 輸出",
     none: "無",
+    shared:
+      "共用來源（在多個專案的上層資料夾開啟的對話；每個對話只計一次，依序以 Work Intelligence 的 projectRoot、檔案路徑、cwd 判斷）",
+    unallocated: "共用（未分配）",
+    conversations: "個對話",
+    notIncluded: "未計入上方總計",
+
+    basisFilePaths: "檔案路徑",
+    allocatedTo: "判斷依據",
   },
 } as const;
 
@@ -175,6 +193,30 @@ function percent(fraction: number): string {
   return `${(fraction * 100).toFixed(1)}%`;
 }
 
+function sharedSourceLines(
+  report: UsageReport,
+  options: ForAgentOptions,
+  text: (typeof LABELS)[keyof typeof LABELS],
+): string[] {
+  if (report.allocation.groups.length === 0) return [];
+  const names = options.projectNamesById ?? {};
+  const nameOf = (id: string): string => names[id] ?? "?";
+  const out = ["", `${text.shared}:`];
+  for (const group of report.allocation.groups) {
+    const unallocated = group.unallocated;
+    out.push(
+      `  ${group.projects.map(nameOf).join(", ")} - ${text.unallocated}: ${unallocated.conversations} ${text.conversations}, ${text.primary} ${unallocated.primary}${unallocated.included ? "" : ` (${text.notIncluded})`}`,
+    );
+    for (const entry of group.allocated) {
+      const basis = entry.byBasis;
+      out.push(
+        `    ${nameOf(entry.projectId)}: ${entry.conversations} ${text.conversations}, ${text.primary} ${entry.primary}; ${text.allocatedTo} projectRoot ${basis.projectRoot}, ${text.basisFilePaths} ${basis.filePaths}, cwd ${basis.cwd}${entry.included ? "" : ` (${text.notIncluded})`}`,
+      );
+    }
+  }
+  return out;
+}
+
 /**
  * Plain text for pasting into an Agent: totals, the input + output headline, cache numbers on their own line, the model
  * split, Work Intelligence operations, top conversations (labels only, ranked by input + output) and top other tools.
@@ -224,6 +266,7 @@ export function formatForAgent(report: UsageReport, options: ForAgentOptions = {
       `  ${session.label}: ${session.turns} ${text.turns}, ${session.toolCalls} ${text.toolCalls}, ${text.perSession} ${primary}`,
     );
   }
+  out.push(...sharedSourceLines(report, options, text));
   out.push("", `${text.topTools}:`);
   const tools = Object.entries(total.toolCallsByName)
     .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))

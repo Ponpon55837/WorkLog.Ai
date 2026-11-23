@@ -2,7 +2,7 @@ import { isAbsolute, join } from "node:path";
 import {
   UsageCache,
   defaultUsageSourceDirs,
-  resolveProjectSources,
+  resolveUsageSources,
   summarizeFiles,
   type UsageProjectInput,
   type UsageReport,
@@ -11,15 +11,30 @@ import {
 } from "@work-intelligence/shared/agent-usage";
 
 /** The scan itself, shared by the REST worker, the in-process fallback and the `usage` command. Paths never leave it. */
-export interface UsageSourcesFound {
+interface UsageSourcesFound {
   projectId: string;
   claudeFolders: number;
   codexFiles: number;
   problem?: UsageSourceProblem;
 }
 
+/** Projects that share a source opened above them; counts only. */
+interface UsageGroupFound {
+  projectIds: string[];
+  claudeFolders: number;
+  codexFiles: number;
+}
+
+export interface UsageSourcesResult {
+  projects: UsageSourcesFound[];
+  groups: UsageGroupFound[];
+}
+
 export interface UsageScanInput {
+  /** The selected projects. */
   projects: UsageProjectInput[];
+  /** Every tracked project, so shared sources know all their projects when only some are selected; default: `projects`. */
+  allProjects?: UsageProjectInput[];
   /** Absolute folders the user added by hand; scanned read-only and never echoed. */
   manualFolders: string[];
   since?: string;
@@ -41,8 +56,8 @@ export interface UsageScanContext {
 
 /** What the REST routes need from a scanner; the production one runs in a child process. */
 export interface UsageOperations {
-  /** How many Claude folders and Codex files each project has. */
-  sources(projects: UsageProjectInput[], signal?: AbortSignal): Promise<UsageSourcesFound[]>;
+  /** How many Claude folders and Codex files each project has, and which projects share a source. */
+  sources(projects: UsageProjectInput[], signal?: AbortSignal): Promise<UsageSourcesResult>;
   /** Scans the projects' logs and the manual folders. A newer scan cancels the running one. */
   scan(input: UsageScanInput, signal?: AbortSignal): Promise<UsageScanOutcome>;
 }
@@ -71,14 +86,21 @@ export async function runUsageSources(
   projects: UsageProjectInput[],
   context: UsageScanContext,
   signal?: AbortSignal,
-): Promise<UsageSourcesFound[]> {
-  const found = await resolveProjectSources(projects, context.dirs, { signal });
-  return found.map((entry) => ({
-    projectId: entry.projectId,
-    claudeFolders: entry.claudeFolders.length,
-    codexFiles: entry.codexFiles.length,
-    ...(entry.problem ? { problem: entry.problem } : {}),
-  }));
+): Promise<UsageSourcesResult> {
+  const found = await resolveUsageSources(projects, context.dirs, { signal });
+  return {
+    projects: found.projects.map((entry) => ({
+      projectId: entry.projectId,
+      claudeFolders: entry.claudeFolders.length,
+      codexFiles: entry.codexFiles.length,
+      ...(entry.problem ? { problem: entry.problem } : {}),
+    })),
+    groups: found.groups.map((group) => ({
+      projectIds: group.projectIds,
+      claudeFolders: group.claudeFolders.length,
+      codexFiles: group.codexFiles.length,
+    })),
+  };
 }
 
 export async function runUsageScan(
@@ -87,11 +109,22 @@ export async function runUsageScan(
   options: { signal?: AbortSignal; deadlineMs?: number } = {},
 ): Promise<UsageScanOutcome> {
   const { signal, deadlineMs } = options;
-  const sources = await resolveProjectSources(input.projects, context.dirs, { signal });
+  const universe = input.allProjects ?? input.projects;
+  const sources = await resolveUsageSources(universe, context.dirs, { signal });
+  const selected = new Set(input.projects.map((project) => project.id));
+  const roots = new Map(universe.map((project) => [project.id, project.root]));
+  const own = sources.projects.filter((entry) => selected.has(entry.projectId));
   const paths = [
-    ...sources.flatMap((entry) => [...entry.claudeFolders, ...entry.codexFiles]),
+    ...own.flatMap((entry) => [...entry.claudeFolders, ...entry.codexFiles]),
     ...input.manualFolders.filter(isScannableFolder),
   ];
+  // Only groups with a selected project are read; their conversations are kept per project, see agent-usage/index.ts.
+  const groups = sources.groups
+    .filter((group) => group.projectIds.some((id) => selected.has(id)))
+    .map((group) => ({
+      projects: group.projectIds.map((id) => ({ id, root: roots.get(id) ?? "", selected: selected.has(id) })),
+      paths: [...group.claudeFolders, ...group.codexFiles],
+    }));
   const cache = new UsageCache(context.cacheFile ? { file: context.cacheFile } : {});
   await cache.load();
   const report = await summarizeFiles([...new Set(paths)], {
@@ -100,6 +133,7 @@ export async function runUsageScan(
     ...(input.now === undefined ? {} : { now: input.now }),
     ...(signal ? { signal } : {}),
     ...(deadlineMs === undefined ? {} : { deadlineMs }),
+    ...(groups.length > 0 ? { allocation: { groups } } : {}),
     cache,
   });
   try {
@@ -109,9 +143,7 @@ export async function runUsageScan(
   }
   return {
     report,
-    problems: sources.flatMap((entry) =>
-      entry.problem ? [{ projectId: entry.projectId, problem: entry.problem }] : [],
-    ),
+    problems: own.flatMap((entry) => (entry.problem ? [{ projectId: entry.projectId, problem: entry.problem }] : [])),
   };
 }
 
@@ -122,7 +154,7 @@ export class InlineUsageOperations implements UsageOperations {
     private readonly timeoutMs = USAGE_SCAN_TIMEOUT_MS,
   ) {}
 
-  public sources(projects: UsageProjectInput[], signal?: AbortSignal): Promise<UsageSourcesFound[]> {
+  public sources(projects: UsageProjectInput[], signal?: AbortSignal): Promise<UsageSourcesResult> {
     return runUsageSources(projects, this.context, signal);
   }
 

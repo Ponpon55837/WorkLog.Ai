@@ -1,3 +1,4 @@
+import { prepareGroups, type PreparedGroup, type SessionEvidence } from "./allocation.js";
 import type { CodexContext, FirstCredit } from "./codex.js";
 import { emptyMetrics, type MetricsAcc } from "./metrics.js";
 import type { ToolInfo } from "./tools.js";
@@ -32,10 +33,18 @@ export interface ScanState {
   toolNames: Map<string, ToolInfo>;
   seenToolResults: Set<string>;
   codexTokenTuples: Set<string>;
-  file: { path: string; codex: CodexContext | null };
+  /** The file being read: its Codex context, the shared-source group it belongs to (null: a project's own source) and,
+   * for Claude files, the working directory of the line being reduced. */
+  file: { path: string; codex: CodexContext | null; group: number | null; cwd: string };
+  /** Shared-source groups of this scan, indexed by `file.group`. */
+  groups: PreparedGroup[];
+  /** Evidence per conversation (session key) read from a shared source. */
+  evidence: Map<string, SessionEvidence>;
+  /** Tool_use ids whose evidence was counted, so a conversation copied into a resumed file counts once. */
+  evidenceToolIds: Set<string>;
 }
 
-export function createState(options: Pick<UsageScanOptions, "since" | "until" | "now">): ScanState {
+export function createState(options: Pick<UsageScanOptions, "since" | "until" | "now" | "allocation">): ScanState {
   const since = options.since === undefined ? null : Date.parse(options.since);
   const until = options.until === undefined ? null : Date.parse(options.until);
   if ((since !== null && Number.isNaN(since)) || (until !== null && Number.isNaN(until))) {
@@ -63,7 +72,10 @@ export function createState(options: Pick<UsageScanOptions, "since" | "until" | 
     toolNames: new Map(),
     seenToolResults: new Set(),
     codexTokenTuples: new Set(),
-    file: { path: "", codex: null },
+    file: { path: "", codex: null, group: null, cwd: "" },
+    groups: prepareGroups(options.allocation),
+    evidence: new Map(),
+    evidenceToolIds: new Set(),
   };
 }
 
@@ -85,9 +97,10 @@ export function recordUsageEvent(
   agent: UsageAgentId,
   time: number | null,
   tokens: TokenCounts,
+  key?: string,
 ): UsageEvent | null {
   if (time === null || time < state.now - EVENT_WINDOW_MS) return null;
-  const event: UsageEvent = { agent, time, tokens: { ...tokens } };
+  const event: UsageEvent = { agent, time, tokens: { ...tokens }, ...(key === undefined ? {} : { key }) };
   state.events.push(event);
   return event;
 }
