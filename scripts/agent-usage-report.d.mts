@@ -26,6 +26,9 @@ export interface UsageReport {
   codexTokenSourceDisagreements: number;
   codexForkedSessions: number;
   codexIgnoredLines: number;
+  codexCompactionLinked: number;
+  codexCompactionCarryovers: number;
+  codexContextOutputs: number;
 }
 export declare function summarizeFiles(
   paths: string[],

@@ -32,6 +32,14 @@
  *   `codexTokenSourceDisagreements`) flag credited deltas that disagree with `last_token_usage` or the other source.
  *   The first total of a file that starts after compaction or a resume already holds earlier usage; that gap is
  *   counted (it is real usage of the thread) but is not a canary hit, and it is left out of the source comparison.
+ * - Compaction chains: after compaction Codex may start a new thread in a new rollout whose leading `compacted` line
+ *   names the previous thread (`latest_token_usage_record.thread_id`) and whose first total repeats that thread's
+ *   total. When the previous thread's rollout is among the inputs, its credited usage is subtracted from the new
+ *   rollout's first delta after all files are read (file order does not matter) and the replayed response is not an
+ *   assistant message (`codexCompactionLinked`). When it is not among the inputs, the carried usage stays counted
+ *   (`codexCompactionCarryovers`). The whole first delta of such a rollout is left out of the source comparison.
+ * - function_call_output lines without a call_id that Codex marks `additional_context_tool_output: true` answer no
+ *   tool call; they are skipped and counted in `codexContextOutputs`.
  * - Codex input is normalised to Anthropic semantics: input = input_tokens - cached_input_tokens (uncached only),
  *   cacheRead = cached_input_tokens, cacheCreation = cache_write_input_tokens (0 when absent). Whether input_tokens
  *   already includes cache writes is unverified. output_tokens already includes reasoning tokens; they are also exposed
@@ -169,6 +177,11 @@ function createState(options) {
     codexTokenSourceDisagreements: 0,
     codexForkedSessions: 0,
     codexIgnoredLines: 0,
+    codexCompactionLinked: 0,
+    codexCompactionCarryovers: 0,
+    codexContextOutputs: 0,
+    codexThreadCredited: new Map(),
+    codexContinuations: [],
     messageUsage: new Map(),
     toolNames: new Map(),
     seenToolResults: new Set(),
@@ -337,6 +350,8 @@ function createCodexContext(state) {
     hasTokenCount: false,
     tokenCountSum: 0,
     carryover: 0,
+    compactedFrom: null,
+    firstCredited: null,
     fallback: { count: 0, ids: new Set(), mapped: null },
     stash: new Map(),
     turnCounters: [0, 1, 2, 3].map(() => ({ count: 0, ids: new Set() })),
@@ -439,8 +454,20 @@ function creditCodexResult(state, ctx, callId, length) {
   }
 }
 
-function handleCodexOutput(state, ctx, payload, ranged) {
+/** Context outputs Codex adds by itself (no call_id, `additional_context_tool_output: true`) answer no tool call. */
+function isAdditionalContextOutput(line, payload) {
+  const passthrough = payload.internal_chat_message_metadata_passthrough;
+  return [line.metadata, payload.metadata, passthrough, isRecord(passthrough) ? passthrough.metadata : null].some(
+    (meta) => isRecord(meta) && meta.additional_context_tool_output === true,
+  );
+}
+
+function handleCodexOutput(state, ctx, payload, ranged, line) {
   const callId = codexCallId(payload);
+  if (callId === null && isAdditionalContextOutput(line, payload)) {
+    if (ranged) state.codexContextOutputs += 1;
+    return;
+  }
   if (callId !== null) {
     ctx.stash.delete(callId);
     if (state.seenToolResults.has(callId)) return;
@@ -480,9 +507,17 @@ function handleTokenCount(state, ctx, payload, ranged) {
   addMappedUsage(ctx.metrics, mapped);
   ctx.metrics.assistantMessages += 1;
   ctx.tokenCountSum += mappedSum(mapped);
+  if (first && ctx.compactedFrom !== null) {
+    // A rollout continuing a compacted thread replays that thread's total (and its last response, which has no
+    // token_usage_record here). Keep the whole first delta out of the source comparison; summarizeFiles subtracts
+    // the previous thread's usage once all files are read, so the order of files does not matter.
+    ctx.carryover += mappedSum(mapped);
+    ctx.firstCredited = mapped;
+    return;
+  }
   if (!last || sameUsage(delta, last)) return;
-  // A rollout that starts after compaction or a resume carries earlier usage in its first cumulative total. That
-  // first difference is history, not drift: remember it so the token_usage_record comparison can leave it out.
+  // A rollout that starts after a resume carries earlier usage in its first cumulative total. That first difference
+  // is history, not drift: remember it so the token_usage_record comparison can leave it out.
   if (first && CODEX_USAGE_FIELDS.every((field) => delta[field] >= last[field])) {
     ctx.carryover += mappedSum(mapped) - mappedSum(mapCodexUsage(last));
   } else state.codexTokenMismatches += 1;
@@ -544,6 +579,14 @@ function isPlainUserPrompt(payload) {
   return first !== undefined && !first.text.trim().startsWith("<");
 }
 
+/** A compacted line before any token_count that names another thread marks this rollout as that thread's sequel. */
+function handleCompacted(ctx, payload) {
+  const record = payload.latest_token_usage_record;
+  if (ctx.hasTokenCount || ctx.compactedFrom !== null || !isRecord(record)) return;
+  const threadId = typeof record.thread_id === "string" && record.thread_id !== "" ? record.thread_id : null;
+  if (threadId !== null && threadId !== ctx.metaId) ctx.compactedFrom = threadId;
+}
+
 function handleSessionMeta(state, ctx, payload) {
   if (ctx.metaSeen) return;
   ctx.metaSeen = true;
@@ -582,7 +625,7 @@ function handleCodexEvent(state, ctx, payload, ranged) {
   }
 }
 
-function handleCodexResponseItem(state, ctx, payload, ranged) {
+function handleCodexResponseItem(state, ctx, payload, ranged, line) {
   switch (payload.type) {
     case "function_call":
     case "custom_tool_call":
@@ -591,7 +634,7 @@ function handleCodexResponseItem(state, ctx, payload, ranged) {
       return true;
     case "function_call_output":
     case "custom_tool_call_output":
-      handleCodexOutput(state, ctx, payload, ranged);
+      handleCodexOutput(state, ctx, payload, ranged, line);
       return true;
     case "message":
       if (isPlainUserPrompt(payload)) countTurn(ctx, 3, payload.id, ranged);
@@ -620,11 +663,14 @@ const codexParser = {
     if (line.type === "session_meta") {
       handleSessionMeta(state, ctx, payload);
       handled = true;
+    } else if (line.type === "compacted") {
+      handleCompacted(ctx, payload);
+      handled = true;
     } else if (line.type === "token_usage_record" || payload.type === "token_usage_record") {
       handleTokenUsageRecord(ctx, payload, ranged);
       handled = true;
     } else if (line.type === "event_msg") handled = handleCodexEvent(state, ctx, payload, ranged);
-    else if (line.type === "response_item") handled = handleCodexResponseItem(state, ctx, payload, ranged);
+    else if (line.type === "response_item") handled = handleCodexResponseItem(state, ctx, payload, ranged, line);
     if (!handled) state.codexIgnoredLines += 1;
   },
   endFile(state) {
@@ -650,8 +696,15 @@ const codexParser = {
     } else {
       ctx.metrics.turns = ctx.turnCounters.find((counter) => counter.count > 0)?.count ?? 0;
     }
+    const thread = ctx.metaId ?? ctx.fileId ?? state.file.path;
+    const credited = state.codexThreadCredited.get(thread) ?? { ...emptyMetrics().tokens, reasoningOutput: 0 };
+    for (const field of Object.keys(credited)) credited[field] += ctx.metrics.tokens[field] ?? 0;
+    state.codexThreadCredited.set(thread, credited);
     if (!ctx.touched) return;
     const key = ctx.fileId ? `codex:${ctx.fileId}` : ctx.metaId ? `codex:${ctx.metaId}` : `codex:${state.file.path}`;
+    if (ctx.compactedFrom !== null && ctx.firstCredited !== null) {
+      state.codexContinuations.push({ key, previous: ctx.compactedFrom, first: ctx.firstCredited });
+    }
     mergeMetrics(sessionFor(state, key), ctx.metrics);
   },
 };
@@ -709,6 +762,27 @@ async function forEachLine(paths, onFile, onLine, onFileEnd) {
 }
 
 /**
+ * A rollout that continues a compacted thread starts from that thread's cumulative total. When the previous thread's
+ * rollout was read too, its credited usage is already counted: subtract it (never more than the first delta) and drop
+ * the replayed response. Otherwise the carried usage stays and `codexCompactionCarryovers` says so.
+ */
+function linkCodexCompactions(state) {
+  for (const { key, previous, first } of state.codexContinuations) {
+    const credited = state.codexThreadCredited.get(previous);
+    if (!credited) {
+      state.codexCompactionCarryovers += 1;
+      continue;
+    }
+    const session = state.sessions.get(key);
+    for (const field of Object.keys(first)) {
+      session.tokens[field] -= Math.min(Math.max(0, credited[field] ?? 0), first[field]);
+    }
+    session.assistantMessages = Math.max(0, session.assistantMessages - 1);
+    state.codexCompactionLinked += 1;
+  }
+}
+
+/**
  * Summarizes jsonl session logs. `options`: `{ since?: string, until?: string }` (ISO 8601).
  * Returns `{ formats: {claudeCodeLines, codexLines}, sessions, total, skippedLines, codexTokenMismatches,
  * codexTokenSourceDisagreements, codexForkedSessions, codexIgnoredLines }`; sessions carry only a label and a short hash.
@@ -725,6 +799,7 @@ export async function summarizeFiles(paths, options = {}) {
       for (const parser of PARSERS) parser.endFile?.(state);
     },
   );
+  linkCodexCompactions(state);
   const ordered = [...state.sessions.values()].sort((a, b) =>
     (a.firstTimestamp ?? "") < (b.firstTimestamp ?? "")
       ? -1
@@ -747,6 +822,9 @@ export async function summarizeFiles(paths, options = {}) {
     codexTokenSourceDisagreements: state.codexTokenSourceDisagreements,
     codexForkedSessions: state.codexForkedSessions,
     codexIgnoredLines: state.codexIgnoredLines,
+    codexCompactionLinked: state.codexCompactionLinked,
+    codexCompactionCarryovers: state.codexCompactionCarryovers,
+    codexContextOutputs: state.codexContextOutputs,
   };
 }
 
@@ -877,7 +955,7 @@ function formatTable(report) {
     ...(report.formats.codexLines > 0
       ? [
           "codex: experimental, not verified against real logs",
-          `codex canaries: token mismatches=${report.codexTokenMismatches}, token source disagreements=${report.codexTokenSourceDisagreements}, forked sessions=${report.codexForkedSessions}, ignored lines=${report.codexIgnoredLines}`,
+          `codex canaries: token mismatches=${report.codexTokenMismatches}, token source disagreements=${report.codexTokenSourceDisagreements}, forked sessions=${report.codexForkedSessions}, ignored lines=${report.codexIgnoredLines}, compactions linked=${report.codexCompactionLinked}, compaction carryovers=${report.codexCompactionCarryovers}, context outputs=${report.codexContextOutputs}`,
         ]
       : []),
   ].join("\n");

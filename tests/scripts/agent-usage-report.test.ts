@@ -521,6 +521,82 @@ describe("Codex rollouts", () => {
     expect(report.codexTokenSourceDisagreements).toBe(0);
   });
 
+  it("subtracts a compacted thread's usage from its sequel rollout, whatever the file order", async () => {
+    const A = "cccccccc-0000-4000-8000-000000000003";
+    const B = "dddddddd-0000-4000-8000-000000000004";
+    const C = "eeeeeeee-0000-4000-8000-000000000005";
+    const record = (thread: string, total: Raw, last: Raw) => ({
+      timestamp: at(1),
+      type: "compacted",
+      payload: {
+        message: CANARY,
+        latest_token_usage_record: { thread_id: thread, response_id: "x", usage: last, thread_token_usage: total },
+      },
+    });
+    const files = {
+      // thread A: two responses, final total 150/0/15.
+      [rolloutName(A, "2026-02-01T00-00-01")]: [
+        codexMeta(0, A),
+        tokenCount(1, usageOf(100, 0, 10), usageOf(100, 0, 10)),
+        { timestamp: at(1), type: "token_usage_record", payload: { response_id: "a1", usage: usageOf(100, 0, 10) } },
+        tokenCount(2, usageOf(150, 0, 15), usageOf(50, 0, 5)),
+        { timestamp: at(2), type: "token_usage_record", payload: { response_id: "a2", usage: usageOf(50, 0, 5) } },
+      ],
+      // thread B continues A: first total repeats A's total, then one new response.
+      [rolloutName(B, "2026-02-01T00-00-02")]: [
+        codexMeta(10, B),
+        record(A, usageOf(150, 0, 15), usageOf(50, 0, 5)),
+        tokenCount(11, usageOf(150, 0, 15), usageOf(50, 0, 5)),
+        tokenCount(12, usageOf(170, 0, 17), usageOf(20, 0, 2)),
+        { timestamp: at(12), type: "token_usage_record", payload: { response_id: "b1", usage: usageOf(20, 0, 2) } },
+      ],
+      // thread C continues B.
+      [rolloutName(C, "2026-02-01T00-00-03")]: [
+        codexMeta(20, C),
+        record(B, usageOf(170, 0, 17), usageOf(20, 0, 2)),
+        tokenCount(21, usageOf(170, 0, 17), usageOf(20, 0, 2)),
+        tokenCount(22, usageOf(200, 0, 20), usageOf(30, 0, 3)),
+      ],
+    };
+    // Read C, B, A (reverse) and A, B, C: the totals must equal thread C's final total either way.
+    const dir = codexDir(files);
+    const reversed = Object.keys(files)
+      .sort()
+      .reverse()
+      .map((name) => join(dir, name));
+    for (const inputs of [[dir], reversed]) {
+      const report = await summarizeFiles(inputs);
+      expect(report.total.tokens).toMatchObject({ input: 200, output: 20 });
+      expect(report.total.assistantMessages).toBe(4);
+      expect(report.codexCompactionLinked).toBe(2);
+      expect(report.codexCompactionCarryovers).toBe(0);
+      expect(report.codexTokenMismatches).toBe(0);
+      expect(report.codexTokenSourceDisagreements).toBe(0);
+    }
+    // Without the previous rollouts the carried usage stays and is flagged.
+    const alone = await summarizeFiles([join(dir, rolloutName(C, "2026-02-01T00-00-03"))]);
+    expect(alone.total.tokens).toMatchObject({ input: 200, output: 20 });
+    expect(alone.codexCompactionCarryovers).toBe(1);
+  });
+
+  it("skips context outputs without a call_id instead of counting them as unknown", async () => {
+    const dir = codexDir({
+      [rolloutName(PARENT)]: [
+        codexMeta(0, PARENT),
+        {
+          timestamp: at(1),
+          type: "response_item",
+          metadata: { additional_context_tool_output: true },
+          payload: { type: "function_call_output", id: "o1", name: "open_page", namespace: "agent", output: CANARY },
+        },
+        output(2, "missing", "1234567"),
+      ],
+    });
+    const report = await summarizeFiles([dir]);
+    expect(report.codexContextOutputs).toBe(1);
+    expect(report.total.unknownToolResultChars).toBe(7);
+  });
+
   it("treats subagent rollouts as sidechain lines without turns", async () => {
     const dir = codexDir({
       [rolloutName(PARENT)]: [
