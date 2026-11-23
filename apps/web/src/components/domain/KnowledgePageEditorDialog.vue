@@ -34,6 +34,8 @@ const title = ref("");
 const sections = ref<SectionDraft[]>([]);
 const saving = ref(false);
 const error = ref("");
+/** The version the draft started from; a background refresh of the page must not move it. */
+const baseVersion = ref(0);
 
 function splitIds(value: string): string[] {
   return [
@@ -85,7 +87,13 @@ async function save(): Promise<void> {
       pageId: page.id,
       title: title.value.trim() || undefined,
       sections: payload,
+      baseVersion: baseVersion.value,
     });
+    if (result.outcome === "version_conflict") {
+      // Keep the dialog open so the draft is not lost.
+      error.value = t("knowledge.pageChangedWhileEditing", { version: result.currentVersion });
+      return;
+    }
     if (result.outcome === "invalid_sources") {
       error.value = t("knowledge.theseSourceSessionsDoNot", {
         value: result.sessionIds.join(t("common.listSeparator")),
@@ -110,6 +118,7 @@ watch(
   () => props.open,
   (open) => {
     if (!open || !props.page) return;
+    baseVersion.value = props.page.version;
     title.value = props.page.title;
     sections.value = props.page.sections.map((section) => ({
       heading: section.heading,

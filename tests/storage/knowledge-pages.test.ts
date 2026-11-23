@@ -733,6 +733,7 @@ describe("Knowledge pages", () => {
         "omittedSessionFields",
         "sessionReadWith",
         "truncated",
+        "reviewToken",
       ]);
       expect(JSON.stringify(store.getKnowledgePageContext({ projectRoot, slug: "architecture" }))).toBe(
         JSON.stringify(plain),
@@ -845,6 +846,238 @@ describe("Knowledge pages", () => {
       expect(store.getKnowledgePageContext({ projectRoot, slug: "missing", query: "x" })).toMatchObject({
         outcome: "not_found",
       });
+    });
+  });
+
+  describe("review token: coverage and version checks", () => {
+    /** A written page saved with the token of its first full read, citing one Session. */
+    function tokenPage() {
+      const context = setup();
+      const { store, projectRoot, finalize, tick, sections } = context;
+      store.requestKnowledgePageUpdate({ projectRoot, slug: "architecture" });
+      const first = finalize("token-first");
+      const read = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "architecture" }));
+      tick();
+      const saved = store.saveKnowledgePage({
+        projectRoot,
+        slug: "architecture",
+        idempotencyKey: "token-initial",
+        sections: sections(first),
+        reviewToken: read.reviewToken,
+      });
+      if (saved.outcome !== "knowledge_page_saved") throw new Error(`Expected a save, got ${saved.outcome}`);
+      expect(saved).not.toHaveProperty("warnings");
+      return { ...context, first };
+    }
+    const pageOf = (store: WorkIntelligenceStore, projectRoot: string) => {
+      const listed = store.listKnowledgePages({ projectRoot });
+      if (listed.outcome !== "knowledge_pages") throw new Error("Expected pages");
+      return listed.items.find((page) => page.slug === "architecture")!;
+    };
+
+    it("keeps a Session that finished after the read new instead of marking it covered", () => {
+      const { store, projectRoot, finalize, tick, sections, first } = tokenPage();
+      const reviewed = finalize("token-reviewed");
+      const read = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "architecture" }));
+      expect(read.sessions.map((session) => session.id)).toEqual([reviewed]);
+      const late = finalize("token-late");
+      tick();
+      expect(
+        store.saveKnowledgePage({
+          projectRoot,
+          slug: "architecture",
+          idempotencyKey: "token-review-save",
+          sections: sections(first, "Reviewed."),
+          reviewToken: read.reviewToken,
+        }),
+      ).toMatchObject({ outcome: "knowledge_page_saved", page: { status: "has_new_data", newSessionCount: 1 } });
+      const next = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "architecture" }));
+      expect(next.sessions.map((session) => [session.id, session.reason])).toEqual([[late, "new"]]);
+    });
+
+    it("leaves Sessions a truncated read did not show for the next review, in order", () => {
+      const { store, projectRoot, finalize, tick, sections, first } = tokenPage();
+      const pending = Array.from({ length: 62 }, (_, index) => finalize(`token-bulk-${index}`));
+      const read = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "architecture" }));
+      expect(read.truncated).toBe(true);
+      const shown = read.sessions.map((session) => session.id);
+      expect(shown).toEqual(pending.slice(0, shown.length));
+      tick();
+      const saved = store.saveKnowledgePage({
+        projectRoot,
+        slug: "architecture",
+        idempotencyKey: "token-truncated-save",
+        sections: sections(first, "First batch reviewed."),
+        reviewToken: read.reviewToken,
+      });
+      expect(saved).toMatchObject({ page: { newSessionCount: pending.length - shown.length } });
+      const next = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "architecture" }));
+      expect(next.sessions[0]?.id).toBe(pending[shown.length]);
+    });
+
+    it("covers only the Sessions a full rewrite was shown", () => {
+      const { store, projectRoot, finalize, tick, sections } = setup();
+      store.requestKnowledgePageUpdate({ projectRoot, slug: "architecture" });
+      const shown = finalize("full-shown");
+      const read = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "architecture" }));
+      expect(read.mode).toBe("full");
+      const late = finalize("full-late");
+      tick();
+      store.saveKnowledgePage({
+        projectRoot,
+        slug: "architecture",
+        idempotencyKey: "full-save",
+        sections: sections(shown),
+        reviewToken: read.reviewToken,
+      });
+      expect(pageOf(store, projectRoot)).toMatchObject({ newSessionCount: 1, version: 1 });
+      expect(
+        fullContext(store.getKnowledgePageContext({ projectRoot, slug: "architecture" })).sessions.map(
+          (session) => session.id,
+        ),
+      ).toEqual([late]);
+    });
+
+    it("refuses a save from a read older than the current version and keeps the newer one", () => {
+      const { store, projectRoot, tick, sections, first } = tokenPage();
+      const left = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "architecture" }));
+      const right = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "architecture" }));
+      tick();
+      expect(
+        store.saveKnowledgePage({
+          projectRoot,
+          slug: "architecture",
+          idempotencyKey: "token-left",
+          sections: sections(first, "Left wins."),
+          reviewToken: left.reviewToken,
+        }),
+      ).toMatchObject({ outcome: "knowledge_page_saved", page: { version: 2 } });
+      tick();
+      expect(
+        store.saveKnowledgePage({
+          projectRoot,
+          slug: "architecture",
+          idempotencyKey: "token-right",
+          sections: sections(first, "Right loses."),
+          reviewToken: right.reviewToken,
+        }),
+      ).toEqual({ outcome: "version_conflict", reason: expect.any(String), baseVersion: 1, currentVersion: 2 });
+      expect(pageOf(store, projectRoot)).toMatchObject({ version: 2, sections: [{ content: "Left wins." }, {}] });
+      // A retry of the save that succeeded is still a duplicate, not a conflict.
+      expect(
+        store.saveKnowledgePage({
+          projectRoot,
+          slug: "architecture",
+          idempotencyKey: "token-left",
+          sections: sections(first, "Left wins."),
+          reviewToken: left.reviewToken,
+        }),
+      ).toMatchObject({ outcome: "knowledge_page_saved", duplicate: true, page: { version: 2 } });
+    });
+
+    it("refuses a Web edit started from an older version, and an Agent save after a Web edit", () => {
+      const { store, projectRoot, tick, sections, first } = tokenPage();
+      const page = pageOf(store, projectRoot);
+      const agentRead = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "architecture" }));
+      tick();
+      expect(
+        store.updateKnowledgePage({ pageId: page.id, sections: sections(first, "Web edit."), baseVersion: 1 }),
+      ).toMatchObject({ outcome: "knowledge_page_updated", page: { version: 2 } });
+      expect(
+        store.updateKnowledgePage({ pageId: page.id, sections: sections(first, "Stale tab."), baseVersion: 1 }),
+      ).toMatchObject({ outcome: "version_conflict", baseVersion: 1, currentVersion: 2 });
+      expect(
+        store.saveKnowledgePage({
+          projectRoot,
+          slug: "architecture",
+          idempotencyKey: "token-after-web",
+          sections: sections(first, "Agent overwrite."),
+          reviewToken: agentRead.reviewToken,
+        }),
+      ).toMatchObject({ outcome: "version_conflict", baseVersion: 1, currentVersion: 2 });
+      expect(pageOf(store, projectRoot).sections[0]?.content).toBe("Web edit.");
+      // Without baseVersion a Web edit is saved as before.
+      expect(store.updateKnowledgePage({ pageId: page.id, sections: sections(first, "Unchecked.") })).toMatchObject({
+        outcome: "knowledge_page_updated",
+        page: { version: 3 },
+      });
+    });
+
+    it("rejects a token that is malformed or belongs to another page, writing nothing", () => {
+      const { store, projectRoot, sections, first } = tokenPage();
+      store.requestKnowledgePageUpdate({ projectRoot, slug: "pitfalls" });
+      const otherToken = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "pitfalls" })).reviewToken;
+      for (const reviewToken of [
+        "not-a-token",
+        "kpr1.%%%",
+        "kpr1." + Buffer.from("[]").toString("base64url"),
+        otherToken,
+      ]) {
+        expect(
+          store.saveKnowledgePage({
+            projectRoot,
+            slug: "architecture",
+            idempotencyKey: `token-invalid-${reviewToken.length}`,
+            sections: sections(first, "Never saved."),
+            reviewToken,
+          }),
+        ).toEqual({ outcome: "invalid_review_token", reason: expect.any(String) });
+      }
+      expect(pageOf(store, projectRoot).version).toBe(1);
+    });
+
+    it("keeps the older rule and warns when the save has no token", () => {
+      const { store, projectRoot, finalize, tick, sections, first } = tokenPage();
+      finalize("legacy-unseen");
+      tick();
+      expect(
+        store.saveKnowledgePage({
+          projectRoot,
+          slug: "architecture",
+          idempotencyKey: "legacy-save",
+          sections: sections(first, "Legacy."),
+        }),
+      ).toMatchObject({
+        outcome: "knowledge_page_saved",
+        warnings: [expect.stringContaining("reviewToken")],
+        page: { version: 2, newSessionCount: 0, status: "fresh" },
+      });
+    });
+
+    it("acknowledges the maintaining Session only when no unseen Session comes before it", () => {
+      const { store, projectRoot, finalize, tick, sections, first } = tokenPage();
+      const finalizeMaintaining = (key: string) => {
+        tick();
+        const result = store.finalizeSession({
+          projectRoot,
+          idempotencyKey: key,
+          title: `Session ${key}`,
+          summary: `${key} summary.`,
+          workSummary: { outcomes: [`${key} outcome`], scope: [], decisions: [], verification: [], nextSteps: [] },
+          changedFiles: [],
+          verification: { status: "passed" },
+          maintainedKnowledgePages: ["architecture"],
+        });
+        if (result.outcome !== "finalized") throw new Error("Expected finalize");
+        return result;
+      };
+      expect(finalizeMaintaining("token-maintained").knowledgePagesAcknowledged).toEqual(["architecture"]);
+      expect(pageOf(store, projectRoot)).toMatchObject({ status: "fresh", newSessionCount: 0 });
+
+      const read = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "architecture" }));
+      const unseen = finalize("token-unseen");
+      tick();
+      store.saveKnowledgePage({
+        projectRoot,
+        slug: "architecture",
+        idempotencyKey: "token-second-save",
+        sections: sections(first, "Second."),
+        reviewToken: read.reviewToken,
+      });
+      expect(finalizeMaintaining("token-maintained-again")).not.toHaveProperty("knowledgePagesAcknowledged");
+      const next = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "architecture" }));
+      expect(next.sessions[0]?.id).toBe(unseen);
+      expect(pageOf(store, projectRoot).newSessionCount).toBe(2);
     });
   });
 });

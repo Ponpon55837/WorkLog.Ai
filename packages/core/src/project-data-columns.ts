@@ -95,6 +95,8 @@ export const PROJECT_DATA_EXPORT_COLUMNS = {
     "checked_through_session_id",
     "created_at",
     "updated_at",
+    "covered_through_completed_at",
+    "covered_through_session_id",
   ],
   knowledge_page_versions: [
     "id",

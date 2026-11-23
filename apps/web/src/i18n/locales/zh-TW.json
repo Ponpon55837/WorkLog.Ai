@@ -424,6 +424,7 @@
     "couldNotLoadTheSourceSessionOfThis": "無法載入知識頁的來源 Session。",
     "couldNotRequestAnUpdate": "無法要求更新這個知識頁。",
     "couldNotSaveTheKnowledge": "無法儲存知識頁。",
+    "pageChangedWhileEditing": "開始編輯後，這頁已經存成第 {version} 版，所以這次沒有儲存。你的修改還留在編輯框裡：先複製起來，關閉後重新開啟編輯，再套用到最新版本。",
     "couldNotUpdateKnowledge": "更新 Knowledge 失敗。",
     "couldNotUpdateTheDecision": "更新決策審核狀態失敗，請重試。",
     "createAndLinkKnowledge": "建立並連結 Knowledge",

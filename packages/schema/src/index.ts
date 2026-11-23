@@ -1141,6 +1141,13 @@ export const saveKnowledgePageInputSchema = z
     slug: knowledgePageSlugSchema,
     idempotencyKey: z.string().trim().min(1).max(300),
     sections: knowledgePageSectionsSchema,
+    reviewToken: z
+      .string()
+      .trim()
+      .min(1)
+      .max(1_000)
+      .optional()
+      .describe("The reviewToken from the work_get_knowledge_page_context read this page was written from, unchanged."),
   })
   .strict();
 export const updateKnowledgePageInputSchema = z
@@ -1148,6 +1155,7 @@ export const updateKnowledgePageInputSchema = z
     pageId: z.string().trim().min(1).max(200),
     title: z.string().trim().min(1).max(80).optional(),
     sections: knowledgePageSectionsSchema,
+    baseVersion: z.number().int().min(0).optional(),
   })
   .strict();
 
@@ -1881,7 +1889,12 @@ export const projectDataColumnDefaults: Partial<
   projects: { repository_url: null },
   session_diagrams: { format_version: 1 },
   outstanding_item_events: { cleanup_request_id: null, cleanup_proposal_id: null },
-  knowledge_pages: { checked_through_session_id: null },
+  // Schema 34: pages saved earlier have no Session coverage position; their coverage stays sourced_through.
+  knowledge_pages: {
+    checked_through_session_id: null,
+    covered_through_completed_at: null,
+    covered_through_session_id: null,
+  },
   // Schema 33: candidates submitted earlier, and every schema-32 export, carry no stored overlap advisory.
   knowledge_candidates: { overlaps_json: null },
 };

@@ -2523,6 +2523,13 @@ export interface SaveKnowledgePageInput {
   slug: string;
   idempotencyKey: string;
   sections: KnowledgePageSection[];
+  /**
+   * The reviewToken of the work_get_knowledge_page_context read this page was written from, passed back unchanged.
+   * The save is refused with version_conflict when the page changed since that read, and Sessions the read did not
+   * show (left out by truncation, or finished after it) stay new. Without it the save behaves as before: no version
+   * check, and every Session finished before the save counts as covered.
+   */
+  reviewToken?: string;
 }
 
 export interface MarkKnowledgePageCheckedInput {
@@ -2542,6 +2549,8 @@ export interface UpdateKnowledgePageInput {
   pageId: string;
   title?: string;
   sections: KnowledgePageSection[];
+  /** The page version the edit started from; a different current version returns version_conflict. */
+  baseVersion?: number;
 }
 
 /**
@@ -2571,8 +2580,13 @@ export interface KnowledgePageContext {
   /** Session fields the context leaves out; read them with sessionReadWith. */
   omittedSessionFields: Array<"summary" | "workSummary.scope" | "workSummary.verification">;
   sessionReadWith: "work_get_session";
-  /** True when older Sessions were left out to stay within the size limit. */
+  /** True when Sessions were left out to stay within the size limit. */
   truncated: boolean;
+  /**
+   * Pass unchanged to work_save_knowledge_page. It records the page version this read saw and the last Session it
+   * showed, so a save cannot overwrite a newer version or mark Sessions left out of this read as covered.
+   */
+  reviewToken: string;
 }
 
 /** A focused read: the matching sections in full and the size of the rest; no Session list. */
@@ -2631,16 +2645,35 @@ export interface KnowledgePageNotFoundResult {
 export type KnowledgePageContextResult =
   KnowledgePageContext | KnowledgePageFocusedContext | KnowledgePageNotFoundResult | KnowledgePageSkippedResult;
 
+/** The page was saved by someone else after the edit started; nothing was written. */
+export interface KnowledgePageVersionConflictResult {
+  outcome: "version_conflict";
+  reason: string;
+  /** The version the edit started from, and the page's version now. */
+  baseVersion: number;
+  currentVersion: number;
+}
+
 export type SaveKnowledgePageResult =
-  | { outcome: "knowledge_page_saved"; duplicate: boolean; page: KnowledgePageRecord; redactions?: RedactionSummary }
+  | {
+      outcome: "knowledge_page_saved";
+      duplicate: boolean;
+      page: KnowledgePageRecord;
+      redactions?: RedactionSummary;
+      /** Present when the save had no reviewToken and so used the older, unchecked coverage rule. */
+      warnings?: string[];
+    }
   | { outcome: "not_found"; slug: string; reason: string }
   | { outcome: "invalid_sources"; reason: string; sessionIds: string[] }
+  | { outcome: "invalid_review_token"; reason: string }
+  | KnowledgePageVersionConflictResult
   | KnowledgePageSkippedResult;
 
 export type UpdateKnowledgePageResult =
   | { outcome: "knowledge_page_updated"; page: KnowledgePageRecord; redactions?: RedactionSummary }
   | { outcome: "not_found"; pageId: string; reason: string }
   | { outcome: "invalid_sources"; reason: string; sessionIds: string[] }
+  | KnowledgePageVersionConflictResult
   | KnowledgePageSkippedResult;
 
 export type KnowledgePageVersionsResult =

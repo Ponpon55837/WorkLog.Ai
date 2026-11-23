@@ -139,7 +139,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | PATCH    | `/api/session-decisions/:id/review`              | 人工審核一筆決策：body `{ projectRoot, reviewStatus }`，`reviewStatus` 為 `confirmed`、`rejected` 或 `promoted`（`promoted` 另帶已存在的 `knowledgeId`）；回傳 `session_decision_reviewed`（重送相同結果為 `duplicate: true`），找不到回 `not_found` |
 | GET      | `/api/knowledge-pages`                           | 列出 tracked projects 的常駐知識頁（狀態、版本、新 Session 數與引用來源核對提示）；可用 `projectRoot` 篩選 |
 | POST     | `/api/knowledge-pages/update-requests`           | 要求 Agent 更新知識頁（`projectRoot`、`slug`；自訂頁另帶 `title`、`question`），不存在時建立 |
-| PATCH    | `/api/knowledge-pages/:id`                       | Web 手動編輯（`sections`，可帶 `title`）；每段須列來源 Session 或內容為「資料不足」，儲存為新版本 |
+| PATCH    | `/api/knowledge-pages/:id`                       | Web 手動編輯（`sections`，可帶 `title`）；每段須列來源 Session 或內容為「資料不足」，儲存為新版本。可帶 `baseVersion`（開始編輯時的版本），頁面之後已被儲存時回 200 與 `outcome: "version_conflict"`（`baseVersion`、`currentVersion`），不寫入 |
 | GET      | `/api/knowledge-pages/:id/versions`              | 最近 50 個版本（新到舊）與引用 Session 的標題                                          |
 | GET      | `/api/graph`                                     | 讀取 tracked-only deterministic work graph                                             |
 | GET      | `/api/graph/path?from=&to=`                      | 兩個節點間的最短關聯（500 節點內 BFS），逐段附理由；可帶 `projectId`、`includeDerived=true` |
