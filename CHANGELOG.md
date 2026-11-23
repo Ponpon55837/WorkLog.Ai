@@ -13,6 +13,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 - SQLite schema 34 adds two nullable columns to `knowledge_pages` for the Session coverage position. Existing pages keep their current coverage, and exports from schema 31–33 still import. Agent saves without `reviewToken` keep the old behavior and return `warnings`.
 
+### Tests
+
+- Deterministic storage tests for Knowledge page maintenance: checking unrelated Sessions, cited-source changes, void and restore, character-budget truncation, idempotent retries, source changes between read and save, and page/version consistency after a save.
+
 ## [1.6.62] - 2026-11-22
 
 [繁體中文更新說明](docs/releases/1.6.62.md).
