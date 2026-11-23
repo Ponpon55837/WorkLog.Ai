@@ -311,7 +311,7 @@ Schema 升為 23 並新增 operation 契約，更新主安裝並建置後，現�
 
 ## 讀取稽核（被動）
 
-每個唯讀 operation 會在伺服器端被動記錄一筆：operation 名稱、MCP 用戶端名稱、專案 id、`outcome`、執行耗時（整數毫秒，schema 32 起），以及回應實際帶回的 Session／Knowledge id 與數量（每種最多 50 個）。讀取失敗也會記錄，`outcome` 為 `error` 並只存固定錯誤代碼：`invalid_input`（參數驗證失敗，無耗時）、`database_busy`、`restart_required` 或 `internal_error`。`work_get_knowledge_page_context` 找不到頁面時 `outcome` 維持 `not_found`，同一欄位改存原因代碼（`page_id_as_slug`、`slug_looks_like_id`、`slug_near_match`、`page_not_requested`、`page_unknown`），統計會列入 `errorCodes` 但不算失敗數；不存 id、回應或錯誤訊息，回應與錯誤處理維持原樣。不記錄查詢文字、task、路徑、紀錄內容或錯誤訊息；跳過（skipped）的結果只記 operation 與 `skipped`。資料庫啟動失敗時不記錄。記錄失敗不影響讀取。系統狀態頁另依 operation 列出次數、p50／p95 耗時與失敗數（`GET /api/agent-reads/stats`）。資料保留 30 天且最多 5,000 筆，專案永久刪除時一併清除。Agent 不需要也不會被要求做任何事；使用者在系統狀態頁與 Session 面板查看。
+每個唯讀 operation 會在伺服器端被動記錄一筆：operation 名稱、MCP 用戶端名稱、專案 id、`outcome`、執行耗時（整數毫秒，schema 32 起）、回應字元數 `responseChars`（schema 35 起；實際送出的 `content` 文字長度加上 `structuredContent` 的 JSON 長度，以 JavaScript 字串長度即 UTF-16 code unit 計，只存數字），以及回應實際帶回的 Session／Knowledge id 與數量（每種最多 50 個）。讀取失敗也會記錄，`outcome` 為 `error` 並只存固定錯誤代碼：`invalid_input`（參數驗證失敗，無耗時）、`database_busy`、`restart_required` 或 `internal_error`。`work_get_knowledge_page_context` 找不到頁面時 `outcome` 維持 `not_found`，同一欄位改存原因代碼（`page_id_as_slug`、`slug_looks_like_id`、`slug_near_match`、`page_not_requested`、`page_unknown`），統計會列入 `errorCodes` 但不算失敗數；不存 id、回應或錯誤訊息，回應與錯誤處理維持原樣。不記錄查詢文字、task、路徑、紀錄內容或錯誤訊息；跳過（skipped）的結果只記 operation 與 `skipped`。資料庫啟動失敗時不記錄。記錄失敗不影響讀取。系統狀態頁另依 operation 列出次數、p50／p95 耗時、回應字元數的 p50／p95／總和與失敗數（`GET /api/agent-reads/stats`）。資料保留 30 天且最多 5,000 筆，專案永久刪除時一併清除。Agent 不需要也不會被要求做任何事；使用者在系統狀態頁與 Session 面板查看。
 
 ## Tool annotations 與 prompts
 

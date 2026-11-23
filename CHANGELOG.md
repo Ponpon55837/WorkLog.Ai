@@ -4,6 +4,14 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Added
+
+- The Agent read audit records `responseChars`, the number of characters in the MCP response actually sent for each read (JavaScript string length, that is UTF-16 code units, not bytes or tokens): the text content plus `structuredContent` when present. Only the number is stored, never content. `GET /api/agent-reads` items carry it, `GET /api/agent-reads/stats` returns `responseChars: { count, p50, p95, total }` per tool (nearest-rank, rows with a recorded size only), and the System status page shows both.
+
+### Changed
+
+- SQLite schema 35 adds a nullable `response_chars` column to `agent_read_audit`. Existing rows stay NULL (unknown, not 0). The audit table is not part of project data export, so export and import formats are unchanged.
+
 ### Tests
 
 - `scripts/agent-usage-report.mjs` reads local Claude Code session logs and prints only aggregates: turns, tool calls by name (Work Intelligence MCP tools listed separately), input, output and cache tokens deduplicated by message id, and MCP tool_result characters. It never prints message text, paths or project names. Codex rollout logs are supported experimentally: checked against real Codex CLI 0.163 rollouts, including code-mode MCP calls and compaction chains, but not yet against Codex `/status`. `--debug-shape` prints only key names and types so the format can be checked locally.

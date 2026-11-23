@@ -108,7 +108,7 @@ import { observeFinalizeChangedFiles, type FinalizeInput } from "./finalize-obse
 import { parseMcpInput } from "./input.js";
 import { SegmentObserver, type ObservedSegmentStart } from "./segment-observer.js";
 import { hoistItemProject, scopeProject, withoutProjectFields } from "./project-scope.js";
-import { sessionTextResult, textResult } from "./result.js";
+import { countResponseChars, sessionTextResult, textResult } from "./result.js";
 import {
   isTransientStartupFailure,
   McpStoreAccess,
@@ -473,6 +473,30 @@ function readErrorCode(error: unknown): string {
   return "internal_error";
 }
 
+/** The curated response for a failure the Agent is told about; undefined for an unknown error, which is rethrown. */
+function failureResponse(error: unknown) {
+  if (isRestartRequiredError(error)) {
+    return {
+      isError: true,
+      ...textResult({
+        code: "MCP_RESTART_REQUIRED",
+        error: "資料庫 schema 已更新，請重新連線 Work Intelligence MCP。",
+        server: { restartRequired: true, updateAvailable: false, monitoringAvailable: true },
+      }),
+    };
+  }
+  // Busy, read-only and disk-full writes changed nothing; each has a stable code and curated text.
+  const unavailable = databaseUnavailableReason(error);
+  if (!unavailable) return undefined;
+  return {
+    isError: true,
+    ...textResult({
+      code: DATABASE_UNAVAILABLE_CODES[unavailable],
+      error: databaseUnavailableMessage(unavailable),
+    }),
+  };
+}
+
 /** Best-effort read audit: whatever happens here, the tool response stays unchanged. */
 function auditRead(store: WorkIntelligenceStore, input: Parameters<WorkIntelligenceStore["recordAgentRead"]>[0]): void {
   try {
@@ -553,11 +577,19 @@ export function createWorkIntelligenceMcpServer(
         const agentClient = server.server.getClientVersion()?.name;
         const parsed = parseMcpInput(definition.schema, input);
         if (!parsed.success) {
-          if (readOnly) auditRead(store, { tool: name, agentClient, errorCode: "invalid_input" });
-          return {
+          const invalidResponse = {
             isError: true,
             ...textResult({ error: definition.invalidMessage, details: parsed.error.flatten() }),
           };
+          if (readOnly) {
+            auditRead(store, {
+              tool: name,
+              agentClient,
+              errorCode: "invalid_input",
+              responseChars: countResponseChars(invalidResponse),
+            });
+          }
+          return invalidResponse;
         }
         const inputProjectId = (parsed.data as { projectId?: unknown } | null)?.projectId;
         const projectId = typeof inputProjectId === "string" ? inputProjectId : undefined;
@@ -611,18 +643,30 @@ export function createWorkIntelligenceMcpServer(
             segmentObserver.reset(observedRoot);
           }
           const result = definition.present ? definition.present(stored, parsed.data) : stored;
-          if (readOnly) {
-            // Passive audit of what this read returned (ids only) and how long it took; never affects the response.
-            auditRead(store, { tool: name, agentClient, result, projectId, durationMs: performance.now() - startedAt });
-            audited = true;
-          }
+          // The read's duration ends here: formatting the response below is not part of the read.
+          const durationMs = performance.now() - startedAt;
           const output =
             definition.includeServerStatus || !definition.annotations.readOnlyHint
               ? withServerRestartStatus(result, () => restartStatus)
               : result;
-          return definition.sessionResult ? sessionTextResult(output) : textResult(output);
+          const response = definition.sessionResult ? sessionTextResult(output) : textResult(output);
+          if (readOnly) {
+            // Passive audit of what this read returned (ids only), how long it took, and how many characters the
+            // final response carries; never affects the response.
+            auditRead(store, {
+              tool: name,
+              agentClient,
+              result,
+              projectId,
+              durationMs,
+              responseChars: countResponseChars(response),
+            });
+            audited = true;
+          }
+          return response;
         } catch (error) {
-          // A failure after the read was audited (formatting the response) must not add a second row.
+          const failure = failureResponse(error);
+          // A failure after the read was audited must not add a second row.
           if (readOnly && !audited) {
             auditRead(store, {
               tool: name,
@@ -630,30 +674,13 @@ export function createWorkIntelligenceMcpServer(
               projectId,
               durationMs: performance.now() - startedAt,
               errorCode: readErrorCode(error),
+              responseChars: failure ? countResponseChars(failure) : undefined,
             });
           }
-          if (isRestartRequiredError(error)) {
-            return {
-              isError: true,
-              ...textResult({
-                code: "MCP_RESTART_REQUIRED",
-                error: "資料庫 schema 已更新，請重新連線 Work Intelligence MCP。",
-                server: { restartRequired: true, updateAvailable: false, monitoringAvailable: true },
-              }),
-            };
-          }
-          // Busy, read-only and disk-full writes changed nothing; each has a stable code and curated text.
-          const unavailable = databaseUnavailableReason(error);
-          if (!unavailable) {
+          if (!failure) {
             throw error;
           }
-          return {
-            isError: true,
-            ...textResult({
-              code: DATABASE_UNAVAILABLE_CODES[unavailable],
-              error: databaseUnavailableMessage(unavailable),
-            }),
-          };
+          return failure;
         }
       },
     });

@@ -219,6 +219,11 @@ export function formatMilliseconds(value: number): string {
   return t("format.milliseconds", { value: new Intl.NumberFormat(intlLocale()).format(value) });
 }
 
+/** A whole character count with locale digit grouping, e.g. 「12,345 chars」. */
+export function formatCharacters(value: number): string {
+  return t("format.characters", { value: new Intl.NumberFormat(intlLocale()).format(value) });
+}
+
 /** A 0–1 ratio as a whole percentage in the interface locale, e.g. 「42%」. */
 export function formatPercent(value: number): string {
   return new Intl.NumberFormat(intlLocale(), { style: "percent", maximumFractionDigits: 0 }).format(value);

@@ -101,6 +101,7 @@ describe("agent read audit", () => {
         "omitted_session_count",
         "outcome",
         "project_id",
+        "response_chars",
         "returned_count",
         "session_ids_json",
         "tool",
@@ -284,6 +285,7 @@ describe("agent read audit", () => {
       p50Ms: 11,
       p95Ms: 20,
       maxMs: 100,
+      responseChars: { count: 0, p50: null, p95: null, total: 0 },
       errorCodes: { database_busy: 1 },
     });
     expect(tools[0]).toMatchObject({ count: 3, timedCount: 2, p50Ms: 50, p95Ms: 70, maxMs: 70, errorCount: 1 });
@@ -296,6 +298,7 @@ describe("agent read audit", () => {
       p50Ms: null,
       p95Ms: null,
       maxMs: null,
+      responseChars: { count: 0, p50: null, p95: null, total: 0 },
       errorCodes: {},
     });
 
@@ -401,5 +404,59 @@ describe("agent read audit", () => {
       SELECT 'bulk-' || i, '2026-06-2' || (i % 10) || 'T00:00:00.000Z', 'bulk', 'ok' FROM n`);
     service.prune(now);
     expect(rows(store, "SELECT COUNT(*) AS n FROM agent_read_audit")[0]).toEqual({ n: AGENT_READ_AUDIT_MAX_ROWS });
+  });
+
+  it("stores responseChars only as a non-negative integer and lists it per read", () => {
+    const { store } = createFixture();
+    for (const responseChars of [1234, 0, -1, 1.5, Number.NaN, Infinity, null, undefined]) {
+      store.recordAgentRead({ tool: "work_recall", responseChars });
+    }
+    expect(rows(store, "SELECT response_chars FROM agent_read_audit ORDER BY rowid")).toEqual([
+      { response_chars: 1234 },
+      { response_chars: 0 },
+      { response_chars: null },
+      { response_chars: null },
+      { response_chars: null },
+      { response_chars: null },
+      { response_chars: null },
+      { response_chars: null },
+    ]);
+    const items = store.listAgentReads().items;
+    expect(items.filter((item) => item.responseChars !== undefined).map((item) => item.responseChars)).toEqual([
+      0, 1234,
+    ]);
+  });
+
+  it("summarizes response size per tool from non-null rows only, in one grouping pass", () => {
+    const { store } = createFixture();
+    // 1..20 characters x 100 for work_recall, plus two unknown rows that must not count as 0.
+    for (let size = 1; size <= 20; size += 1) store.recordAgentRead({ tool: "work_recall", responseChars: size * 100 });
+    store.recordAgentRead({ tool: "work_recall" });
+    store.recordAgentRead({ tool: "work_recall", durationMs: 5 });
+    store.recordAgentRead({ tool: "work_search", responseChars: 700 });
+    store.recordAgentRead({ tool: "work_get_context" });
+
+    const { tools } = store.summarizeAgentReads();
+    const byTool = new Map(tools.map((tool) => [tool.tool, tool]));
+    expect(byTool.get("work_recall")).toMatchObject({ count: 22 });
+    expect(byTool.get("work_recall")?.responseChars).toEqual({
+      count: 20,
+      p50: 1000,
+      p95: 1900,
+      total: 21_000,
+    });
+    expect(byTool.get("work_search")?.responseChars).toEqual({ count: 1, p50: 700, p95: 700, total: 700 });
+    expect(byTool.get("work_get_context")?.responseChars).toEqual({ count: 0, p50: null, p95: null, total: 0 });
+  });
+
+  it("prunes rows with a response size like any other row", () => {
+    const { store } = createFixture();
+    const service = (store as unknown as { agentReadAudit: { prune(now: string): void } }).agentReadAudit;
+    store.recordAgentRead({ tool: "old_read", responseChars: 10, now: "2026-05-01T00:00:00.000Z" });
+    store.recordAgentRead({ tool: "new_read", responseChars: 20, now: "2026-06-29T00:00:00.000Z" });
+    service.prune("2026-06-30T00:00:00.000Z");
+    expect(rows(store, "SELECT tool, response_chars FROM agent_read_audit")).toEqual([
+      { tool: "new_read", response_chars: 20 },
+    ]);
   });
 });
