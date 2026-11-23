@@ -16,14 +16,14 @@ import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../../composab
 import { useAgentReadsStore } from "../../stores/agent-reads";
 import { useProjectsStore } from "../../stores/projects";
 import { useSessionsStore } from "../../stores/sessions";
-import { formatDate, formatMilliseconds } from "../../utils/format";
+import { formatCharacters, formatDate, formatMilliseconds } from "../../utils/format";
 import { listPageSizeOptions } from "../../utils/labels";
 import { t, type MessageKey } from "../../i18n";
 
 /**
  * Passive audit of what Agents were given through MCP reads: when, which tool and client, which project, and the
- * returned Session ids (ids only; no query or content is stored), plus each read's duration and failure code and a
- * per-tool latency summary. Session ids open the Session panel.
+ * returned Session ids (ids only; no query or content is stored), plus each read's duration, response size
+ * (characters) and failure code and a per-tool latency and response-size summary. Session ids open the Session panel.
  */
 const agentReadsStore = useAgentReadsStore();
 const {
@@ -73,6 +73,10 @@ function errorLabel(code: string): string {
 
 function milliseconds(value: number | null): string {
   return value === null ? "—" : formatMilliseconds(value);
+}
+
+function characters(value: number | null): string {
+  return value === null ? "—" : formatCharacters(value);
 }
 
 function openSession(sessionId: string): void {
@@ -132,6 +136,9 @@ onBeforeUnmount(() => agentReadsStore.setListActive(false));
                 <th scope="col" class="is-numeric">{{ t("systemStatus.agentReadStatsCount") }}</th>
                 <th scope="col" class="is-numeric">{{ t("systemStatus.agentReadStatsP50") }}</th>
                 <th scope="col" class="is-numeric">{{ t("systemStatus.agentReadStatsP95") }}</th>
+                <th scope="col" class="is-numeric">{{ t("systemStatus.agentReadStatsResponseP50") }}</th>
+                <th scope="col" class="is-numeric">{{ t("systemStatus.agentReadStatsResponseP95") }}</th>
+                <th scope="col" class="is-numeric">{{ t("systemStatus.agentReadStatsResponseTotal") }}</th>
                 <th scope="col" class="is-numeric">{{ t("systemStatus.agentReadStatsErrors") }}</th>
               </tr>
             </thead>
@@ -143,6 +150,11 @@ onBeforeUnmount(() => agentReadsStore.setListActive(false));
                 <td class="is-numeric">{{ stat.count }}</td>
                 <td class="is-numeric">{{ milliseconds(stat.p50Ms) }}</td>
                 <td class="is-numeric">{{ milliseconds(stat.p95Ms) }}</td>
+                <td class="is-numeric">{{ characters(stat.responseChars.p50) }}</td>
+                <td class="is-numeric">{{ characters(stat.responseChars.p95) }}</td>
+                <td class="is-numeric">
+                  {{ stat.responseChars.count > 0 ? characters(stat.responseChars.total) : "—" }}
+                </td>
                 <td :class="['is-numeric', { 'is-danger': stat.errorCount > 0 }]">{{ stat.errorCount }}</td>
               </tr>
             </tbody>
@@ -186,6 +198,9 @@ onBeforeUnmount(() => agentReadsStore.setListActive(false));
           <span>{{ t("systemStatus.agentReadsReturned", { count: read.returnedCount }) }}</span>
           <span v-if="read.durationMs !== undefined">{{
             t("systemStatus.agentReadsDuration", { value: formatMilliseconds(read.durationMs) })
+          }}</span>
+          <span v-if="read.responseChars !== undefined">{{
+            t("systemStatus.agentReadsResponseSize", { value: formatCharacters(read.responseChars) })
           }}</span>
         </template>
         <div v-if="read.sessionIds.length > 0 || read.knowledgeIds.length > 0" class="agent-reads__ids">

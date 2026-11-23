@@ -1074,6 +1074,7 @@ describe("Work Intelligence REST API", () => {
       projectId: project.id,
       result: { outcome: "recall", hits: [] },
       durationMs: 40,
+      responseChars: 2500,
     });
     store.recordAgentRead({ tool: "work_recall", projectId: project.id, errorCode: "database_busy", durationMs: 10 });
     store.recordAgentRead({ tool: "work_search", result: { outcome: "search", hits: [] } });
@@ -1089,6 +1090,7 @@ describe("Work Intelligence REST API", () => {
         p50Ms: 10,
         p95Ms: 40,
         maxMs: 40,
+        responseChars: { count: 1, p50: 2500, p95: 2500, total: 2500 },
         errorCodes: { database_busy: 1 },
       },
       expect.objectContaining({ tool: "work_search", count: 1, timedCount: 0, p95Ms: null }),

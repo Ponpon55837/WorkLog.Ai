@@ -18,6 +18,7 @@ const stats = {
       p50Ms: 12,
       p95Ms: 40,
       maxMs: 40,
+      responseChars: { count: 2, p50: 900, p95: 4200, total: 5100 },
       errorCodes: { database_busy: 1 },
     },
   ],

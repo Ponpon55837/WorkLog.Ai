@@ -4,6 +4,7 @@ import type {
   AgentReadAuditItem,
   AgentReadAuditPage,
   AgentReadReferences,
+  AgentReadResponseCharsStats,
   AgentReadStats,
   AgentReadToolStats,
 } from "@work-intelligence/core";
@@ -52,6 +53,11 @@ export interface RecordAgentReadInput {
   /** Wall time of the read in milliseconds; rounded and clamped, ignored when not finite. */
   durationMs?: number;
   /**
+   * Character count (UTF-16 code units) of the MCP response sent for this read; a number only, never content.
+   * Must be a non-negative integer; anything else is stored as NULL (unknown). Omitted when not measured.
+   */
+  responseChars?: number | null;
+  /**
    * Set for a failed read: a snake_case code only (never a message); a malformed code becomes internal_error. A
    * not_found result's own `reasonCode` is stored the same way without this field.
    */
@@ -85,6 +91,7 @@ interface AuditRow {
   omitted_session_count: number;
   omitted_knowledge_count: number;
   duration_ms: number | null;
+  response_chars: number | null;
   error_code: string | null;
 }
 
@@ -92,6 +99,7 @@ interface StatsRow {
   tool: string;
   outcome: string;
   duration_ms: number | null;
+  response_chars: number | null;
   error_code: string | null;
 }
 
@@ -99,6 +107,7 @@ interface ToolAccumulator {
   count: number;
   errorCount: number;
   durations: number[];
+  responseChars: number[];
   errorCodes: Record<string, number>;
 }
 
@@ -199,6 +208,11 @@ function normalizeDuration(value: number | undefined): number | null {
   return Math.min(Math.max(Math.round(value), 0), MAX_DURATION_MS);
 }
 
+/** A response size is kept only as a non-negative safe integer; anything else is unknown (NULL), never 0. */
+function normalizeResponseChars(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
 function normalizeErrorCode(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   return CODE_PATTERN.test(value) ? value : AGENT_READ_FALLBACK_ERROR_CODE;
@@ -208,6 +222,18 @@ function normalizeErrorCode(value: string | undefined): string | undefined {
 function nearestRank(sorted: readonly number[], percentile: number): number {
   const rank = Math.ceil((percentile / 100) * sorted.length);
   return sorted[Math.min(Math.max(rank, 1), sorted.length) - 1]!;
+}
+
+function responseCharsStats(values: number[]): AgentReadResponseCharsStats {
+  const sorted = values.sort((left, right) => left - right);
+  let total = 0;
+  for (const value of sorted) total += value;
+  return {
+    count: sorted.length,
+    p50: sorted.length > 0 ? nearestRank(sorted, 50) : null,
+    p95: sorted.length > 0 ? nearestRank(sorted, 95) : null,
+    total,
+  };
 }
 
 function toolStats(tool: string, group: ToolAccumulator): AgentReadToolStats {
@@ -221,6 +247,7 @@ function toolStats(tool: string, group: ToolAccumulator): AgentReadToolStats {
     p50Ms: timed ? nearestRank(sorted, 50) : null,
     p95Ms: timed ? nearestRank(sorted, 95) : null,
     maxMs: timed ? sorted[sorted.length - 1]! : null,
+    responseChars: responseCharsStats(group.responseChars),
     errorCodes: group.errorCodes,
   };
 }
@@ -249,6 +276,7 @@ function mapRow(row: AuditRow): AgentReadAuditItem {
     omittedSessionCount: row.omitted_session_count,
     omittedKnowledgeCount: row.omitted_knowledge_count,
     ...(row.duration_ms !== null && row.duration_ms !== undefined ? { durationMs: row.duration_ms } : {}),
+    ...(row.response_chars !== null && row.response_chars !== undefined ? { responseChars: row.response_chars } : {}),
     ...(row.error_code ? { errorCode: row.error_code } : {}),
   };
 }
@@ -284,8 +312,8 @@ export class AgentReadAuditService {
               `INSERT INTO agent_read_audit
              (id, created_at, tool, agent_client, project_id, outcome, returned_count,
               session_ids_json, knowledge_ids_json, omitted_session_count, omitted_knowledge_count,
-              duration_ms, error_code)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              duration_ms, error_code, response_chars)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .run(
               auditId,
@@ -301,6 +329,7 @@ export class AgentReadAuditService {
               extraction.knowledgeIds.length - knowledgeIds.length,
               normalizeDuration(input.durationMs),
               storedCode ?? null,
+              normalizeResponseChars(input.responseChars),
             );
           if (sessionIds.length + knowledgeIds.length > 0) {
             const insertRecord = this.db.prepare(
@@ -343,14 +372,15 @@ export class AgentReadAuditService {
   }
 
   /**
-   * Per-tool counts, failures, and nearest-rank latency percentiles over the retained window (at most
-   * AGENT_READ_AUDIT_MAX_ROWS rows), slowest p95 first. One SELECT, grouped in a single pass.
+   * Per-tool counts, failures, nearest-rank latency percentiles, and response-size p50/p95/total (non-null rows
+   * only, with their count) over the retained window (at most AGENT_READ_AUDIT_MAX_ROWS rows), slowest p95 first.
+   * One SELECT, grouped in a single pass.
    */
   public summarize(options: SummarizeAgentReadsOptions = {}): AgentReadStats {
     const { where, parameters } = this.filterClause(options);
     const rows = this.db
       .prepare(
-        `SELECT a.tool, a.outcome, a.duration_ms, a.error_code
+        `SELECT a.tool, a.outcome, a.duration_ms, a.response_chars, a.error_code
          FROM agent_read_audit a LEFT JOIN projects p ON p.id = a.project_id WHERE ${where}
          ORDER BY a.created_at DESC LIMIT ?`,
       )
@@ -359,11 +389,12 @@ export class AgentReadAuditService {
     for (const row of rows) {
       let group = groups.get(row.tool);
       if (!group) {
-        group = { count: 0, errorCount: 0, durations: [], errorCodes: {} };
+        group = { count: 0, errorCount: 0, durations: [], responseChars: [], errorCodes: {} };
         groups.set(row.tool, group);
       }
       group.count += 1;
       if (row.duration_ms !== null) group.durations.push(row.duration_ms);
+      if (row.response_chars !== null) group.responseChars.push(row.response_chars);
       // A not_found cause is counted by code but is not a failed read.
       if (row.outcome === "error") group.errorCount += 1;
       if (row.error_code) group.errorCodes[row.error_code] = (group.errorCodes[row.error_code] ?? 0) + 1;
