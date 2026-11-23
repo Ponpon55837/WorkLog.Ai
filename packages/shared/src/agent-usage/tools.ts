@@ -63,3 +63,40 @@ export function classifyTool(rawName: unknown, input: unknown): ToolInfo {
   }
   return { name: rawName, work: false, mcp: rawName.startsWith("mcp__") };
 }
+
+/** Claude tools that name a file, and the input field that holds it. */
+const FILE_PATH_FIELDS: Record<string, string> = {
+  Read: "file_path",
+  Edit: "file_path",
+  Write: "file_path",
+  MultiEdit: "file_path",
+  NotebookEdit: "notebook_path",
+};
+
+/** The path a Claude file tool names (`file_path` / `notebook_path` only), or undefined. */
+export function filePathOf(rawName: unknown, input: unknown): string | undefined {
+  const field = typeof rawName === "string" ? FILE_PATH_FIELDS[rawName] : undefined;
+  if (field === undefined || !isRecord(input)) return undefined;
+  const value = input[field];
+  return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * The `projectRoot` of a Work Intelligence call, for matching a shared-source conversation to a project: dispatcher
+ * tools carry it in `arguments.projectRoot`, direct tools at the top level. Arguments may be an object or a JSON string;
+ * no other field is read.
+ */
+export function projectRootOf(args: unknown): string | undefined {
+  let value = args;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return undefined;
+    }
+  }
+  if (!isRecord(value)) return undefined;
+  const nested = isRecord(value.arguments) ? value.arguments.projectRoot : undefined;
+  const root = typeof nested === "string" ? nested : value.projectRoot;
+  return typeof root === "string" ? root : undefined;
+}

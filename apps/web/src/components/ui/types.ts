@@ -5,6 +5,9 @@ export type IconComponent = Component;
 
 export type Tone = "neutral" | "accent" | "success" | "attention" | "danger" | "done";
 
+/** Chart series color: a status-free tone, or one of the categorical diagram tones (`diagram-5`, `diagram-6`). */
+export type ChartTone = Tone | "diagram-5" | "diagram-6";
+
 export type SelectOption<T extends string | number = string> = {
   value: T;
   label: string;

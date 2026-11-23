@@ -34,8 +34,21 @@ export interface UsageProjectItem {
   problem?: UsageProjectProblem;
 }
 
+/**
+ * Tracked projects that share a source: Claude Code or Codex sessions opened at a folder above all of them (a monorepo
+ * root). Ids and counts only; the folder is never named.
+ */
+export interface UsageProjectGroup {
+  /** Tracked project ids below the shared folder. */
+  projects: string[];
+  claudeFolders: number;
+  codexFiles: number;
+}
+
 export interface UsageProjectsResponse {
   items: UsageProjectItem[];
+  /** Shared sources; empty when no session was opened above a tracked project. */
+  groups: UsageProjectGroup[];
 }
 
 /** Body of `POST /api/usage/scan`. Manual folders are absolute paths; the server never echoes them back. */
@@ -53,18 +66,64 @@ export interface UsageScanRequest {
 }
 
 export interface UsageTokens {
+  /** Fresh (uncached) input tokens. */
   input: number;
   output: number;
   cacheRead: number;
   cacheCreation: number;
 }
 
-/** Fractions of the estimated cost (0..1, sum 1 when any tokens exist). */
-export interface UsageCostShares {
-  input: number;
-  cacheCreation: number;
-  cacheRead: number;
-  output: number;
+/**
+ * Token totals plus the headline and a derived ratio. `primary` = input + output (fresh input and output); cache reads
+ * and cache writes are never added to it. `cacheReadShare` = cacheRead / (input + cacheRead + cacheCreation), the
+ * share of input-side tokens read from the cache, 0..1, or null when there are no input-side tokens. Logs carry no
+ * per-request hit or miss, so this is not a hit rate.
+ */
+export interface UsageTokenSummary extends UsageTokens {
+  primary: number;
+  cacheReadShare: number | null;
+}
+
+export const USAGE_AGENTS = ["claude-code", "codex"] as const;
+
+export type UsageAgent = (typeof USAGE_AGENTS)[number];
+
+/** Tokens of one Agent and model. `model` is "" when the log names none or names something that is not a model id. */
+export interface UsageModelItem {
+  agent: UsageAgent;
+  model: string;
+  tokens: UsageTokens;
+  /** input + output. */
+  primary: number;
+  /** Assistant responses (Claude Code messages, Codex token deltas) credited to the model. */
+  responses: number;
+}
+
+/** Tokens credited on one local calendar day of the server (`YYYY-MM-DD`). Days without usage are omitted. */
+export interface UsageDayItem {
+  date: string;
+  tokens: UsageTokens;
+}
+
+/**
+ * The 5-hour block that is active at scan time for one Agent, with the ccusage `blocks` rules: a block starts at its
+ * first usage floored to the local hour and ends 5 hours later; a gap of 5 hours since the previous usage, or reaching
+ * the end, starts a new block. Only active blocks are returned, and only when the scan range reaches the present.
+ */
+export interface UsageBlockItem {
+  agent: UsageAgent;
+  /** ISO instants. */
+  startAt: string;
+  endAt: string;
+  firstActivityAt: string;
+  lastActivityAt: string;
+  tokens: UsageTokens;
+  /** input + output. */
+  primary: number;
+  elapsedMs: number;
+  remainingMs: number;
+  /** primary per minute since the first activity; 0 with under a minute of data. */
+  primaryPerMinute: number;
 }
 
 export interface UsageTotals {
@@ -92,8 +151,8 @@ export interface UsageSessionItem {
   turns: number;
   toolCalls: number;
   tokens: UsageTokens;
-  /** Relative cost units under the assumed multipliers (uncached input = 1 per token); an estimate. */
-  estimatedCostUnits: number;
+  /** input + output. */
+  primary: number;
 }
 
 export interface UsageOtherTool {
@@ -110,6 +169,48 @@ export interface UsageCacheCounts {
   parsed: number;
 }
 
+/** What a conversation of a shared source showed about its project; precedence in this order. */
+export const USAGE_ALLOCATION_BASES = ["projectRoot", "filePaths", "cwd"] as const;
+
+export type UsageAllocationBasis = (typeof USAGE_ALLOCATION_BASES)[number];
+
+/** Conversations of a shared source given to one project of a group, by the basis that decided it. */
+export interface UsageAllocatedProject {
+  projectId: string;
+  /** The project was selected, so these conversations are in `totals`, `tokens` and the rest of the response. */
+  included: boolean;
+  conversations: number;
+  tokens: UsageTokens;
+  /** input + output. */
+  primary: number;
+  byBasis: Record<UsageAllocationBasis, number>;
+}
+
+/** Conversations of a shared source that no basis could give to a project. */
+export interface UsageUnallocated {
+  /** Every project of the group was selected, so these conversations are in the totals. */
+  included: boolean;
+  conversations: number;
+  tokens: UsageTokens;
+  /** input + output. */
+  primary: number;
+}
+
+export interface UsageAllocationGroup {
+  /** Project ids of the group. */
+  projects: string[];
+  allocated: UsageAllocatedProject[];
+  unallocated: UsageUnallocated;
+}
+
+/**
+ * Conversations opened above several projects, each counted once in exactly one bucket: a project of the group or
+ * the group's unallocated bucket. Only groups that have a selected project appear. Counts, ids and tokens only.
+ */
+export interface UsageAllocation {
+  groups: UsageAllocationGroup[];
+}
+
 export interface UsageScanProblem {
   projectId: string;
   problem: UsageProjectProblem;
@@ -117,19 +218,22 @@ export interface UsageScanProblem {
 
 export interface UsageScanResponse {
   totals: UsageTotals;
-  tokens: UsageTokens;
-  /** Estimated shares of cost per token kind; labelled as an estimate in the UI. */
-  costShares: UsageCostShares;
-  /** The multipliers behind `costShares`, relative to the uncached input price. */
-  costMultipliers: UsageCostShares;
+  tokens: UsageTokenSummary;
+  /** Tokens by Agent and model, highest `primary` first. */
+  models: UsageModelItem[];
+  /** Tokens per local day, oldest first; days without usage are omitted. */
+  daily: UsageDayItem[];
+  /** Active 5-hour blocks at scan time, one per Agent at most; empty when the range ends in the past. */
+  blocks: UsageBlockItem[];
   operations: UsageOperation[];
-  /** Top 20 sessions by estimated cost. */
+  /** Top 20 sessions by `primary` (input + output). */
   sessions: UsageSessionItem[];
   /** Top 20 non-Work-Intelligence tools. */
   otherTools: UsageOtherTool[];
   /** Plain-text report for an Agent, built on the server. Copy it verbatim. */
   forAgentText: string;
   cache: UsageCacheCounts;
+  allocation: UsageAllocation;
   durationMs: number;
   range: { since: string | null; until: string | null };
   problems: UsageScanProblem[];

@@ -282,6 +282,7 @@ describe("incremental cache", () => {
       size: 0,
       offset: 0,
       prefixHash: "",
+      evidence: false,
       records: [],
       skippedLines: 0,
       tail: { records: [], skippedLines: 0 },

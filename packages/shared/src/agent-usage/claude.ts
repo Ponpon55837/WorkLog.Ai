@@ -1,6 +1,9 @@
-import { bump, bumpOperation, isRecord, TOKEN_FIELDS, touchTimestamps } from "./metrics.js";
-import { inRange, parseTimestamp, sessionFor, type ScanState } from "./state.js";
-import { classifyTool } from "./tools.js";
+import { countPath, createEvidence, type SessionEvidence } from "./allocation.js";
+import { bump, bumpOperation, creditBreakdown, isRecord, TOKEN_FIELDS, touchTimestamps } from "./metrics.js";
+import { safeModelId } from "./model.js";
+import { dirOf, normalizePath } from "./paths.js";
+import { inRange, parseTimestamp, recordUsageEvent, sessionFor, type ScanState } from "./state.js";
+import { classifyTool, filePathOf, projectRootOf } from "./tools.js";
 import type { ClaudeRecord, ClaudeToolResultRecord, ClaudeToolUseRecord } from "./types.js";
 
 /** Length of tool_result content: a string counts fully, an array counts its text blocks only. */
@@ -39,8 +42,17 @@ export function isClaudeLine(line: Record<string, any>): boolean {
  * Phase one: turns one Claude Code line into a compact record. No deduplication and no range filter happen here, so
  * the record stays valid for any later range. Only counts, ids, timestamps and safe tool names are kept; `intern`
  * shares session id strings across the lines of a file.
+ *
+ * With `evidence` (the file is a shared source, see `allocation.ts`) a tool_use also keeps the normalised `projectRoot`
+ * of a Work Intelligence call (`r`) or the normalised directory of a file-tool path (`f`). Paths are stored, not
+ * hashed, because projects can change between scans and are only matched at reduce time; the cache file is local and
+ * owner-only (0600), and these values never reach an API, CLI or copy output. Only the directory is kept for files.
  */
-export function extractClaudeLine(line: Record<string, any>, intern: (value: string) => string): ClaudeRecord {
+export function extractClaudeLine(
+  line: Record<string, any>,
+  intern: (value: string) => string,
+  evidence = false,
+): ClaudeRecord {
   const message = line.message;
   const record: ClaudeRecord = {
     s: intern(typeof line.sessionId === "string" && line.sessionId !== "" ? line.sessionId : "(unknown)"),
@@ -50,6 +62,8 @@ export function extractClaudeLine(line: Record<string, any>, intern: (value: str
   if (line.type === "assistant") {
     if (typeof message.id === "string") {
       record.m = message.id;
+      const model = safeModelId(message.model);
+      if (model !== "") record.md = model;
       if (isRecord(message.usage)) {
         const usage = TOKEN_FIELDS.map(([, key]) => positiveNumber(message.usage[key])) as [
           number,
@@ -67,6 +81,14 @@ export function extractClaudeLine(line: Record<string, any>, intern: (value: str
         const tool = classifyTool(block.name, block.input);
         const use: ClaudeToolUseRecord = { id: block.id, n: tool.name };
         if (tool.work) use.k = tool.key;
+        if (evidence) {
+          const raw = tool.work ? projectRootOf(block.input) : filePathOf(block.name, block.input);
+          const path = raw === undefined ? null : normalizePath(raw);
+          if (path !== null) {
+            if (tool.work) use.r = path;
+            else use.f = dirOf(path);
+          }
+        }
         uses.push(use);
       }
       if (uses.length > 0) record.tu = uses;
@@ -88,6 +110,18 @@ export function extractClaudeLine(line: Record<string, any>, intern: (value: str
   return record;
 }
 
+/** Counts what one record of a shared source shows about its conversation's project; independent of the time range. */
+function collectEvidence(state: ScanState, evidence: SessionEvidence, record: ClaudeRecord): void {
+  if (record.c !== undefined) state.file.cwd = record.c;
+  if (state.file.cwd !== "") bump(evidence.cwds, state.file.cwd);
+  for (const use of record.tu ?? []) {
+    if (use.r === undefined && use.f === undefined) continue;
+    if (state.evidenceToolIds.has(use.id)) continue;
+    state.evidenceToolIds.add(use.id);
+    countPath(use.r === undefined ? evidence.files : evidence.roots, use.r ?? use.f);
+  }
+}
+
 /**
  * Phase two: applies the global deduplication (message id per-field maximum, tool_use id, tool_result id), the range
  * filter and the session grouping to records in file order. Calling it per file in path order gives the same result as
@@ -95,6 +129,14 @@ export function extractClaudeLine(line: Record<string, any>, intern: (value: str
  */
 export function reduceClaudeRecords(state: ScanState, records: readonly ClaudeRecord[]): void {
   for (const record of records) {
+    if (state.file.group !== null) {
+      let evidence = state.evidence.get(record.s);
+      if (!evidence) {
+        evidence = createEvidence(state.file.group);
+        state.evidence.set(record.s, evidence);
+      }
+      collectEvidence(state, evidence, record);
+    }
     if (!inRange(state, record.t)) continue;
     const session = sessionFor(state, record.s);
     touchTimestamps(session, record.t);
@@ -102,16 +144,31 @@ export function reduceClaudeRecords(state: ScanState, records: readonly ClaudeRe
     if (record.m !== undefined) {
       let seen = state.messageUsage.get(record.m);
       if (!seen) {
-        seen = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
+        seen = { model: "", input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
         state.messageUsage.set(record.m, seen);
         session.assistantMessages += 1;
-      }
+        if (seen.model === "" && record.md !== undefined) seen.model = record.md;
+        creditBreakdown(
+          session,
+          "claude-code",
+          seen.model,
+          record.t,
+          { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+          1,
+        );
+      } else if (seen.model === "" && record.md !== undefined) seen.model = record.md;
       if (record.u) {
+        const delta = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
         for (const [index, [field]] of TOKEN_FIELDS.entries()) {
           const value = record.u[index] ?? 0;
           if (value <= seen[field]) continue;
-          session.tokens[field] += value - seen[field];
+          delta[field] = value - seen[field];
+          session.tokens[field] += delta[field];
           seen[field] = value;
+        }
+        if (TOKEN_FIELDS.some(([field]) => delta[field] > 0)) {
+          creditBreakdown(session, "claude-code", seen.model, record.t, delta, 0);
+          recordUsageEvent(state, "claude-code", record.t, delta, record.s);
         }
       }
     }

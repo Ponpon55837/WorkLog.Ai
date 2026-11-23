@@ -3,10 +3,8 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
-  COST_MULTIPLIERS,
   defaultUsageSourceDirs,
   encodeClaudeProjectDir,
-  estimateCostShares,
   formatForAgent,
   formatTable,
   resolveProjectSources,
@@ -149,19 +147,6 @@ describe("resolveProjectSources", () => {
 });
 
 describe("report text", () => {
-  it("estimates cost shares with the documented multipliers", () => {
-    expect(COST_MULTIPLIERS).toEqual({ input: 1, cacheCreation: 1.25, cacheRead: 0.1, output: 5 });
-    expect(estimateCostShares({ input: 0, output: 0, cacheRead: 0, cacheCreation: 0 })).toEqual({
-      input: 0,
-      cacheCreation: 0,
-      cacheRead: 0,
-      output: 0,
-    });
-    const shares = estimateCostShares({ input: 10, output: 2, cacheRead: 100, cacheCreation: 8 });
-    expect(shares.input + shares.output + shares.cacheRead + shares.cacheCreation).toBeCloseTo(1, 10);
-    expect(shares.output).toBeCloseTo(10 / 40, 10);
-  });
-
   it.each(["en", "zh-TW"] as const)(
     "formatForAgent carries no paths, folder names, cwd or content (%s)",
     async (locale) => {

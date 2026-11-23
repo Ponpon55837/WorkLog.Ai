@@ -747,20 +747,9 @@ export function executablePathOf(pid: number, processes: readonly ProcessInfo[] 
   }
 }
 
-/** The process `rootPid` and all its descendants. */
+/** The process `rootPid` and all its descendants (each link checked by creation time, see `descendantsOf`). */
 export function processTree(rootPid: number, processes: readonly ProcessInfo[] = listProcesses()): ProcessInfo[] {
-  const wanted = new Set([rootPid]);
-  let grew = true;
-  while (grew) {
-    grew = false;
-    for (const candidate of processes) {
-      if (!wanted.has(candidate.pid) && wanted.has(candidate.ppid)) {
-        wanted.add(candidate.pid);
-        grew = true;
-      }
-    }
-  }
-  return processes.filter((candidate) => wanted.has(candidate.pid));
+  return descendantsOf(processes, [rootPid]);
 }
 
 /**

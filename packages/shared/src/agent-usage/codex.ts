@@ -1,20 +1,34 @@
 import { basename } from "node:path";
+import { countPath, createEvidence, type SessionEvidence } from "./allocation.js";
 import {
   bump,
   bumpOperation,
+  creditBreakdown,
   emptyMetrics,
+  modelEntry,
+  localDate,
   isRecord,
   mergeMetrics,
   TOKEN_FIELDS,
   touchTimestamps,
   type MetricsAcc,
 } from "./metrics.js";
-import { inRange, parseTimestamp, sessionFor, type ScanState } from "./state.js";
-import { operationOf, SAFE_TOOL_NAME, workOperationKey, type ToolInfo } from "./tools.js";
+import { safeModelId } from "./model.js";
+import { inRange, parseTimestamp, recordUsageEvent, sessionFor, type ScanState } from "./state.js";
+import type { UsageEvent } from "./types.js";
+import { operationOf, projectRootOf, SAFE_TOOL_NAME, workOperationKey, type ToolInfo } from "./tools.js";
 
 type Raw = Record<string, any>;
 type Usage = Record<string, number>;
 type Mapped = { input: number; output: number; cacheRead: number; cacheCreation: number; reasoningOutput: number };
+
+/** The first delta of a rollout that continues a compacted thread, with where it was credited. */
+export interface FirstCredit {
+  mapped: Mapped;
+  model: string;
+  time: number | null;
+  event: UsageEvent | null;
+}
 
 interface TurnCounter {
   count: number;
@@ -35,10 +49,21 @@ export interface CodexContext {
   tokenCountSum: number;
   carryover: number;
   compactedFrom: string | null;
-  firstCredited: Mapped | null;
-  fallback: { count: number; ids: Set<string>; mapped: Mapped | null };
+  /** Latest model id from `turn_context` / `session_meta` ("" until one passes the allowlist). */
+  model: string;
+  firstCredited: FirstCredit | null;
+  fallback: {
+    count: number;
+    ids: Set<string>;
+    mapped: Mapped | null;
+    entries: { mapped: Mapped; model: string; time: number | null }[];
+  };
   stash: Map<string, number>;
   turnCounters: TurnCounter[];
+  /** What the conversation shows about its project; set only for rollouts of a shared source. */
+  evidence: SessionEvidence | null;
+  /** Index in `state.events` where this file's usage events start, to tag them with the conversation's key. */
+  eventStart: number;
 }
 
 const CODEX_WORK_TOOL_NAME = /(?:^|__)(work_[a-z0-9_]+)$/;
@@ -114,10 +139,13 @@ function createCodexContext(state: ScanState): CodexContext {
     tokenCountSum: 0,
     carryover: 0,
     compactedFrom: null,
+    model: "",
     firstCredited: null,
-    fallback: { count: 0, ids: new Set(), mapped: null },
+    fallback: { count: 0, ids: new Set(), mapped: null, entries: [] },
     stash: new Map(),
     turnCounters: [0, 1, 2, 3].map(() => ({ count: 0, ids: new Set<string>() })),
+    evidence: state.file.group === null ? null : createEvidence(state.file.group),
+    eventStart: state.events.length,
   };
 }
 
@@ -142,7 +170,9 @@ function registerCodexTool(
   callId: string | null,
   tool: ToolInfo,
   counted: boolean,
+  args: unknown,
 ): void {
+  if (tool.work && ctx.evidence) countPath(ctx.evidence.roots, projectRootOf(args));
   if (counted) {
     ctx.metrics.toolCalls += 1;
     bump(tool.work ? ctx.metrics.workIntelligenceTools : ctx.metrics.toolCallsByName, tool.name);
@@ -157,7 +187,14 @@ function handleCodexCall(state: ScanState, ctx: CodexContext, payload: Raw, rang
   const namespace = typeof payload.namespace === "string" && payload.namespace !== "" ? payload.namespace : null;
   const name = payload.type === "local_shell_call" ? "local_shell" : payload.name;
   const full = typeof name === "string" && namespace !== null ? namespace + name : name;
-  registerCodexTool(state, ctx, callId, classifyCodexTool(full, namespace !== null, payload.arguments), ranged);
+  registerCodexTool(
+    state,
+    ctx,
+    callId,
+    classifyCodexTool(full, namespace !== null, payload.arguments),
+    ranged,
+    payload.arguments,
+  );
 }
 
 function handleMcpBegin(state: ScanState, ctx: CodexContext, payload: Raw, ranged: boolean): void {
@@ -176,6 +213,7 @@ function handleMcpBegin(state: ScanState, ctx: CodexContext, payload: Raw, range
       callId,
       { ...classifyCodexTool(full, true, invocation.arguments), mcp: true },
       ranged,
+      invocation.arguments,
     );
     return;
   }
@@ -183,6 +221,7 @@ function handleMcpBegin(state: ScanState, ctx: CodexContext, payload: Raw, range
   const entry = workMatch?.[1];
   if (entry === undefined || known.work) return;
   const key = workOperationKey(entry, () => operationOf(invocation.arguments));
+  if (ctx.evidence) countPath(ctx.evidence.roots, projectRootOf(invocation.arguments));
   if (known.counted && known.owner === ctx.metrics) {
     const map = ctx.metrics.toolCallsByName;
     map[known.name] = (map[known.name] ?? 0) - 1;
@@ -268,7 +307,13 @@ function handleMcpEnd(state: ScanState, ctx: CodexContext, payload: Raw, ranged:
   ctx.stash.set(callId, mcpResultLength(payload.result));
 }
 
-function handleTokenCount(state: ScanState, ctx: CodexContext, payload: Raw, ranged: boolean): void {
+function handleTokenCount(
+  state: ScanState,
+  ctx: CodexContext,
+  payload: Raw,
+  ranged: boolean,
+  time: number | null,
+): void {
   const info = payload.info;
   if (!isRecord(info) || !isRecord(info.total_token_usage)) return;
   ctx.hasTokenCount = true;
@@ -292,13 +337,15 @@ function handleTokenCount(state: ScanState, ctx: CodexContext, payload: Raw, ran
   const mapped = mapCodexUsage(delta);
   addMappedUsage(ctx.metrics, mapped);
   ctx.metrics.assistantMessages += 1;
+  creditBreakdown(ctx.metrics, "codex", ctx.model, time, mapped, 1);
+  const event = recordUsageEvent(state, "codex", time, mapped);
   ctx.tokenCountSum += mappedSum(mapped);
   if (first && ctx.compactedFrom !== null) {
     // A rollout continuing a compacted thread replays that thread's total (and its last response, which has no
     // token_usage_record here). Keep the whole first delta out of the source comparison; the scan subtracts
     // the previous thread's usage once all files are read, so the order of files does not matter.
     ctx.carryover += mappedSum(mapped);
-    ctx.firstCredited = mapped;
+    ctx.firstCredited = { mapped, model: ctx.model, time, event };
     return;
   }
   if (!last || sameUsage(delta, last)) return;
@@ -309,7 +356,7 @@ function handleTokenCount(state: ScanState, ctx: CodexContext, payload: Raw, ran
   } else state.codexTokenMismatches += 1;
 }
 
-function handleTokenUsageRecord(ctx: CodexContext, payload: Raw, ranged: boolean): void {
+function handleTokenUsageRecord(ctx: CodexContext, payload: Raw, ranged: boolean, time: number | null): void {
   if (!isRecord(payload.usage)) return;
   const id = typeof payload.response_id === "string" && payload.response_id !== "" ? payload.response_id : null;
   if (id !== null) {
@@ -319,6 +366,7 @@ function handleTokenUsageRecord(ctx: CodexContext, payload: Raw, ranged: boolean
   if (!ranged) return;
   const mapped = mapCodexUsage(readCodexUsage(payload.usage));
   ctx.fallback.count += 1;
+  ctx.fallback.entries.push({ mapped, model: ctx.model, time });
   const sum = (ctx.fallback.mapped ??= { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, reasoningOutput: 0 });
   for (const key of Object.keys(mapped) as (keyof Mapped)[]) sum[key] += mapped[key];
 }
@@ -371,6 +419,12 @@ function isPlainUserPrompt(payload: Raw): boolean {
   return first !== undefined && !first.text.trim().startsWith("<");
 }
 
+/** Remembers the model a `turn_context` or `session_meta` line names; an unsafe value clears it. */
+function updateModel(ctx: CodexContext, payload: Raw): void {
+  if (!("model" in payload)) return;
+  ctx.model = safeModelId(payload.model);
+}
+
 /** A compacted line before any token_count that names another thread marks this rollout as that thread's sequel. */
 function handleCompacted(ctx: CodexContext, payload: Raw): void {
   const record = payload.latest_token_usage_record;
@@ -390,10 +444,16 @@ function handleSessionMeta(state: ScanState, ctx: CodexContext, payload: Raw): v
   ctx.subagent = isSubagentSource(payload.source);
 }
 
-function handleCodexEvent(state: ScanState, ctx: CodexContext, payload: Raw, ranged: boolean): boolean {
+function handleCodexEvent(
+  state: ScanState,
+  ctx: CodexContext,
+  payload: Raw,
+  ranged: boolean,
+  time: number | null,
+): boolean {
   switch (payload.type) {
     case "token_count":
-      handleTokenCount(state, ctx, payload, ranged);
+      handleTokenCount(state, ctx, payload, ranged, time);
       return true;
     case "mcp_tool_call_begin":
       handleMcpBegin(state, ctx, payload, ranged);
@@ -461,15 +521,21 @@ export function handleCodexLine(state: ScanState, line: Raw): void {
   }
   let handled = false;
   if (line.type === "session_meta") {
+    if (ctx.evidence) countPath(ctx.evidence.cwds, payload.cwd);
+    updateModel(ctx, payload);
     handleSessionMeta(state, ctx, payload);
+    handled = true;
+  } else if (line.type === "turn_context") {
+    if (ctx.evidence) countPath(ctx.evidence.cwds, payload.cwd);
+    updateModel(ctx, payload);
     handled = true;
   } else if (line.type === "compacted") {
     handleCompacted(ctx, payload);
     handled = true;
   } else if (line.type === "token_usage_record" || payload.type === "token_usage_record") {
-    handleTokenUsageRecord(ctx, payload, ranged);
+    handleTokenUsageRecord(ctx, payload, ranged, time);
     handled = true;
-  } else if (line.type === "event_msg") handled = handleCodexEvent(state, ctx, payload, ranged);
+  } else if (line.type === "event_msg") handled = handleCodexEvent(state, ctx, payload, ranged, time);
   else if (line.type === "response_item") handled = handleCodexResponseItem(state, ctx, payload, ranged, line);
   if (!handled) state.codexIgnoredLines += 1;
 }
@@ -489,6 +555,10 @@ export function endCodexFile(state: ScanState): void {
     if (!ctx.hasTokenCount) {
       addMappedUsage(ctx.metrics, fallback.mapped);
       ctx.metrics.assistantMessages += fallback.count;
+      for (const entry of fallback.entries) {
+        creditBreakdown(ctx.metrics, "codex", entry.model, entry.time, entry.mapped, 1);
+        recordUsageEvent(state, "codex", entry.time, entry.mapped);
+      }
     } else if (mappedSum(fallback.mapped) !== ctx.tokenCountSum - ctx.carryover) {
       state.codexTokenSourceDisagreements += 1;
     }
@@ -510,10 +580,12 @@ export function endCodexFile(state: ScanState): void {
     credited[field] = (credited[field] ?? 0) + ((ctx.metrics.tokens as unknown as Usage)[field] ?? 0);
   }
   state.codexThreadCredited.set(thread, credited);
-  if (!ctx.touched) return;
   const key = ctx.fileId ? `codex:${ctx.fileId}` : ctx.metaId ? `codex:${ctx.metaId}` : `codex:${state.file.path}`;
+  for (const event of state.events.slice(ctx.eventStart)) event.key = key;
+  if (!ctx.touched) return;
+  if (ctx.evidence) state.evidence.set(key, ctx.evidence);
   if (ctx.compactedFrom !== null && ctx.firstCredited !== null) {
-    state.codexContinuations.push({ key, previous: ctx.compactedFrom, first: { ...ctx.firstCredited } });
+    state.codexContinuations.push({ key, previous: ctx.compactedFrom, first: ctx.firstCredited });
   }
   mergeMetrics(sessionFor(state, key), ctx.metrics);
 }
@@ -533,9 +605,17 @@ export function linkCodexCompactions(state: ScanState): void {
     const session = state.sessions.get(key);
     if (!session) continue;
     const tokens = session.tokens as unknown as Usage;
-    for (const field of Object.keys(first)) {
-      tokens[field] = (tokens[field] ?? 0) - Math.min(Math.max(0, credited[field] ?? 0), first[field] ?? 0);
+    const model = modelEntry(session, "codex", first.model);
+    const day = first.time === null ? undefined : session.byDay[localDate(first.time)];
+    for (const field of Object.keys(first.mapped) as (keyof Mapped)[]) {
+      const amount = Math.min(Math.max(0, credited[field] ?? 0), first.mapped[field] ?? 0);
+      tokens[field] = (tokens[field] ?? 0) - amount;
+      if (field === "reasoningOutput") continue;
+      model.tokens[field] -= amount;
+      if (day) day[field] -= amount;
+      if (first.event) first.event.tokens[field] -= amount;
     }
+    model.responses = Math.max(0, model.responses - 1);
     session.assistantMessages = Math.max(0, session.assistantMessages - 1);
     state.codexCompactionLinked += 1;
   }

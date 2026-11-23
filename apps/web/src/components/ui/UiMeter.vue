@@ -1,22 +1,28 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { Tone } from "./types";
+import type { ChartTone } from "./types";
 
 /**
  * Horizontal meter. Segment widths are proportional to their sum, or to `max` when given (a single
  * segment then reads as progress toward `max`). `size="sm"` is the thin row-level bar. Without `label`
- * the meter is decorative and hidden from assistive technology.
+ * the meter is decorative and hidden from assistive technology. `gap` separates touching segments with a 2px
+ * surface-colored gap (for part-to-whole bars) instead of letting their colors meet.
  */
 const props = withDefaults(
   defineProps<{
-    segments: readonly { value: number; tone: Tone; label: string }[];
+    segments: readonly { value: number; tone: ChartTone; label: string }[];
     label?: string;
     max?: number;
     size?: "md" | "sm";
+    gap?: boolean;
   }>(),
-  { size: "md" },
+  { size: "md", gap: false },
 );
 const total = computed(() => props.max ?? props.segments.reduce((sum, segment) => sum + segment.value, 0));
+const gapIndex = computed(() => {
+  const visible = props.segments.flatMap((segment, index) => (segment.value > 0 ? [index] : []));
+  return new Set(props.gap ? visible.slice(1) : []);
+});
 </script>
 
 <template>
@@ -27,9 +33,9 @@ const total = computed(() => props.max ?? props.segments.reduce((sum, segment) =
     :aria-hidden="label ? undefined : 'true'"
   >
     <i
-      v-for="segment in segments"
+      v-for="(segment, index) in segments"
       :key="segment.label"
-      :class="`tone-${segment.tone}`"
+      :class="[`tone-${segment.tone}`, { 'has-gap': gapIndex.has(index) }]"
       :style="{ width: total ? `${Math.min(100, (segment.value / total) * 100)}%` : '0%' }"
       :title="`${segment.label} ${segment.value}`"
     ></i>
@@ -56,6 +62,10 @@ const total = computed(() => props.max ?? props.segments.reduce((sum, segment) =
   height: 100%;
 }
 
+.has-gap {
+  box-shadow: inset 2px 0 0 var(--bg-surface);
+}
+
 .tone-success {
   background: var(--success);
 }
@@ -73,5 +83,11 @@ const total = computed(() => props.max ?? props.segments.reduce((sum, segment) =
 }
 .tone-done {
   background: var(--done);
+}
+.tone-diagram-5 {
+  background: var(--diagram-tone-5);
+}
+.tone-diagram-6 {
+  background: var(--diagram-tone-6);
 }
 </style>

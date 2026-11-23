@@ -104,7 +104,8 @@ describe("Codex rollouts", () => {
     expect(session.firstTimestamp).toBe(at(0));
     expect(report.formats).toEqual({ claudeCodeLines: 0, codexLines: 9 });
     expect(report.codexTokenMismatches).toBe(0);
-    expect(report.codexIgnoredLines).toBe(1);
+    // turn_context lines are read for the model now, so none of this profile's lines is ignored.
+    expect(report.codexIgnoredLines).toBe(0);
   });
 
   it("mid profile: {content, success} output, MCP work tool, task_started turns deduped by turn_id", async () => {
