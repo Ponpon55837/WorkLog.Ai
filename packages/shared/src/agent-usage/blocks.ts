@@ -1,11 +1,11 @@
 import type { UsageAgentId, UsageBlock, UsageEvent } from "./types.js";
 
-export const BLOCK_MS = 5 * 60 * 60 * 1000;
+const BLOCK_MS = 5 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const MINUTE_MS = 60 * 1000;
 
 /** Minutes east of UTC at an instant, from the host's time zone. */
-export function localOffsetMinutes(time: number): number {
+function localOffsetMinutes(time: number): number {
   return -new Date(time).getTimezoneOffset();
 }
 

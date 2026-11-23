@@ -54,20 +54,20 @@ const AGENT_KEYS = {
   codex: "usage.agentCodex",
 } as const satisfies Record<UsageAgent, MessageKey>;
 
-export interface UsageDailyPoint {
+interface UsageDailyPoint {
   /** Local `YYYY-MM-DD`. */
   date: string;
   input: number;
   output: number;
 }
 
-export interface UsageCompositionRow {
+interface UsageCompositionRow {
   /** Parts of the row, each with its share (0..1) of the row total. */
   parts: { kind: keyof UsageTokens; value: number; share: number }[];
   total: number;
 }
 
-export interface UsageComposition {
+interface UsageComposition {
   /** Row A: uncached input vs output; its total is the headline. */
   counted: UsageCompositionRow;
   /** Row B: cache read vs cache write; never added to the headline. */
@@ -76,7 +76,7 @@ export interface UsageComposition {
   cacheReadMultiple: number | null;
 }
 
-export interface UsageModelRow {
+interface UsageModelRow {
   key: string;
   agentLabel: string;
   modelLabel: string;
@@ -87,7 +87,7 @@ export interface UsageModelRow {
   ratio: number;
 }
 
-export interface UsageBlockRow {
+interface UsageBlockRow {
   agentLabel: string;
   primary: number;
   primaryPerMinute: number;
@@ -98,7 +98,7 @@ export interface UsageBlockRow {
 }
 
 /** Agent display name: product names stay English in both languages. */
-export function usageAgentLabel(agent: UsageAgent): string {
+function usageAgentLabel(agent: UsageAgent): string {
   return t(AGENT_KEYS[agent]);
 }
 
