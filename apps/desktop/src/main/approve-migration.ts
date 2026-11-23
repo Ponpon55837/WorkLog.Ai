@@ -16,7 +16,7 @@ import type { RepairSuccess } from "./repair-success.js";
 import type { StorageRiskService } from "./storage-risk.js";
 import type { ShellState } from "./state.js";
 
-export interface ApproveMigrationOptions {
+interface ApproveMigrationOptions {
   readonly state: Pick<ShellState, "databasePath" | "locale">;
   readonly supervisor: Pick<BackendSupervisor, "preview" | "queryActivity" | "running">;
   readonly storage: Pick<StorageRiskService, "classify" | "last">;
