@@ -44,6 +44,7 @@ export class ChildChannel {
   private backupListener: ((at: string) => void) | undefined;
   private changedListener: (() => void) | undefined;
   private openAgentSetupListener: (() => void) | undefined;
+  private setLanguageListener: ((locale: "zh-TW" | "en") => void) | undefined;
   private openPortSettingsListener: ((request: { preferences?: unknown; route?: string }) => void) | undefined;
   /** Sticky: once the child failed or ended, every later `expect` fails the same way. */
   private ended: BackendFailure | undefined;
@@ -146,6 +147,11 @@ export class ChildChannel {
     this.openPortSettingsListener = listener;
   }
 
+  /** Receives each `set-language` event: the user picked a language in the web UI. */
+  onSetLanguage(listener: (locale: "zh-TW" | "en") => void): void {
+    this.setLanguageListener = listener;
+  }
+
   private receive(raw: unknown): void {
     const parsed = parseDesktopChildMessage(raw);
     if (!parsed.ok) {
@@ -170,6 +176,10 @@ export class ChildChannel {
         ...(message.preferences === undefined ? {} : { preferences: message.preferences }),
         ...(message.route === undefined ? {} : { route: message.route }),
       });
+      return;
+    }
+    if (message.type === "set-language") {
+      this.setLanguageListener?.(message.locale);
       return;
     }
     if (message.type === "failed") {

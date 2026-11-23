@@ -25,6 +25,7 @@ import { SYSTEM_SETTINGS_TARGETS, type SystemSettingsTarget } from "../legacy-se
 import { isRepairPageUrl } from "./navigation-policy.js";
 import type { PortProblem } from "./port-policy.js";
 import type { RepairLoginItemSection } from "./login-item-status.js";
+import { SHELL_LANGUAGE_PREFERENCES, type ShellLanguagePreference } from "@work-intelligence/schema";
 import {
   UPDATE_LINK_TARGETS,
   type UpdateCheckResult,
@@ -74,6 +75,7 @@ export const REPAIR_CHANNELS = {
   legacyStartNow: "legacy:start-now",
   portChange: "port:change",
   loginItemSet: "login-item:set",
+  languageSet: "language:set",
   maintenanceRun: "maintenance:run",
   backupDirectoryChoose: "backup-directory:choose",
   copyToLocal: "repair:copy-to-local",
@@ -158,6 +160,8 @@ export const repairInputSchemas = {
   portChange: z.strictObject({ port: z.union([z.string().max(16), z.number()]) }),
   /** The 「登入時自動啟動」 switch: only the new state. Main treats the user's own click as the consent and reads every path itself. */
   loginItemSet: z.strictObject({ enable: z.boolean() }),
+  /** The 「語言」 card: only the choice. Main saves it and redraws every surface in that language. */
+  languageSet: z.strictObject({ preference: z.enum(SHELL_LANGUAGE_PREFERENCES) }),
   /** 「複製到本機磁碟並改用」: for a browsed candidate, or (no id) the App's own database. Main reads every path itself. */
   /** 「整理資料庫」 / 「檢查完整性」: only the mode. Main reads every path and asks the user before it changes anything. */
   maintenanceRun: z.strictObject({ mode: z.enum(MAINTENANCE_MODES) }),
@@ -233,6 +237,9 @@ export type LoginItemSetResult =
       /** `failed` after the system refused the change: what the system really says now. */
       readonly section?: RepairLoginItemSection;
     };
+
+/** The answer to the 「語言」 card: saved, or the settings file could not be written (nothing changed). */
+export type LanguageSetResult = { readonly ok: true } | { readonly ok: false; readonly reason: "failed" };
 
 /** Why a port change was refused because something is running. */
 export type PortBusyReason = "operation" | "activity" | "unknown";
@@ -369,6 +376,7 @@ export interface RepairApi {
   agentsUseCheckoutDatabase(agent: SetupAgentId): Promise<AgentsActionResult>;
   portChange(port: string | number): Promise<PortChangeResult>;
   setLaunchAtLogin(enable: boolean): Promise<LoginItemSetResult>;
+  setLanguage(preference: ShellLanguagePreference): Promise<LanguageSetResult>;
   checkForUpdates(): Promise<UpdateCheckResult>;
   openUpdateLink(target: UpdateLinkTarget): Promise<UpdateOpenLinkResult>;
   runMaintenance(mode: MaintenanceMode): Promise<MaintenanceRunResult>;

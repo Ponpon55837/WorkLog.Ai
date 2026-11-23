@@ -11,6 +11,7 @@ import { invalidateActiveQueries, startAppRefreshEvents } from "./composables/us
 import { useHotkeys } from "./composables/useHotkeys";
 import { useAppStore } from "./stores/app";
 import { useDashboardStore } from "./stores/dashboard";
+import { useDesktopLanguageStore } from "./stores/desktop-language";
 import { useProjectsStore } from "./stores/projects";
 import { errorMessage as toErrorMessage } from "./utils/format";
 import { locale, t } from "./i18n";
@@ -30,6 +31,8 @@ const { appHealth, appHealthError } = storeToRefs(appStore);
 const { loadHealth } = appStore;
 const { isApiOffline } = useApiConnection();
 useAppearance();
+// Created here so the App's language is adopted on load, before any page asks for the system status.
+useDesktopLanguageStore();
 
 const loading = ref(true);
 const refreshing = ref(false);

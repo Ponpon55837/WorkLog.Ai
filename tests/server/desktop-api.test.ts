@@ -405,3 +405,52 @@ describe("POST /api/desktop/open-agent-setup", () => {
     expect(onOpenAgentSetup).not.toHaveBeenCalled();
   });
 });
+
+describe("desktop language", () => {
+  function postLanguage(baseUrl: string, body: unknown): Promise<Response> {
+    return fetch(`${baseUrl}/api/desktop/language`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("carries the App's language in the system status", async () => {
+    const language = { preference: "system", locale: "en" } as const;
+    const baseUrl = await listen({ desktop: { facts: { language }, onOpenAgentSetup: vi.fn() } });
+    const status = (await (await fetch(`${baseUrl}/api/system/status`)).json()) as { desktop: { language?: unknown } };
+    expect(status.desktop.language).toEqual(language);
+  });
+
+  it("answers 404 outside desktop mode", async () => {
+    expect((await postLanguage(await listen(), { locale: "en" })).status).toBe(404);
+  });
+
+  it("refuses an unknown locale, an unknown field and an empty body with 400", async () => {
+    const onSetLanguage = vi.fn();
+    const baseUrl = await listen({ desktop: { onOpenAgentSetup: vi.fn(), onSetLanguage } });
+    expect((await postLanguage(baseUrl, { locale: "en-US" })).status).toBe(400);
+    expect((await postLanguage(baseUrl, { locale: "en", extra: 1 })).status).toBe(400);
+    expect((await postLanguage(baseUrl, {})).status).toBe(400);
+    expect(onSetLanguage).not.toHaveBeenCalled();
+  });
+
+  it("hands the locale to the App and answers 202, also when the channel throws", async () => {
+    const onSetLanguage = vi.fn();
+    const baseUrl = await listen({ desktop: { onOpenAgentSetup: vi.fn(), onSetLanguage } });
+    const response = await postLanguage(baseUrl, { locale: "zh-TW" });
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ ok: true });
+    expect(onSetLanguage).toHaveBeenCalledWith("zh-TW");
+
+    const throwing = await listen({
+      desktop: {
+        onOpenAgentSetup: vi.fn(),
+        onSetLanguage: () => {
+          throw new Error("channel closed");
+        },
+      },
+    });
+    expect((await postLanguage(throwing, { locale: "en" })).status).toBe(202);
+  });
+});

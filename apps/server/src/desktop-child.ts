@@ -456,6 +456,7 @@ export class DesktopChild {
           getFacts: () => this.facts,
           onOpenAgentSetup: () => this.host.send({ type: "open-agent-setup" }, () => undefined),
           // Already sanitized by the route service; the preferences are only handed on, never logged.
+          onSetLanguage: (locale) => this.host.send({ type: "set-language", locale }, () => undefined),
           onOpenPortSettings: ({ preferences, route }) =>
             this.host.send(
               {

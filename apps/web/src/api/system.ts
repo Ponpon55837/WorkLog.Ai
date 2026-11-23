@@ -11,6 +11,8 @@ export interface SystemApi {
   openDesktopAgentSetup(): Promise<{ ok: true }>;
   /** Desktop App only: asks the App to open its port settings with this page's whitelisted preferences and route. */
   openDesktopPortSettings(handoff: { preferences: BrowserPreferences; route: string }): Promise<{ ok: true }>;
+  /** Desktop App only: tells the App which language the user picked here ("en" is this page's "en-US"). */
+  setDesktopLanguage(locale: "zh-TW" | "en"): Promise<{ ok: true }>;
 }
 
 export function createSystemApi(client: ApiTransport): SystemApi {
@@ -33,6 +35,10 @@ export function createSystemApi(client: ApiTransport): SystemApi {
 
     openDesktopPortSettings(handoff): Promise<{ ok: true }> {
       return client.write<{ ok: true }>("/api/desktop/open-port-settings", "POST", handoff);
+    },
+
+    setDesktopLanguage(locale): Promise<{ ok: true }> {
+      return client.write<{ ok: true }>("/api/desktop/language", "POST", { locale });
     },
   };
 }

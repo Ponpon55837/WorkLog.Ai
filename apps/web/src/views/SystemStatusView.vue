@@ -34,6 +34,7 @@ import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiSplitLayout from "../components/ui/UiSplitLayout.vue";
 import UiStatCard from "../components/ui/UiStatCard.vue";
 import UiStatGrid from "../components/ui/UiStatGrid.vue";
+import { useDesktopLanguageStore } from "../stores/desktop-language";
 import { usePreferencesStore, type ThemePreference } from "../stores/preferences";
 import { useSystemStatusStore } from "../stores/system-status";
 import { EDITOR_PROTOCOLS, editorProtocolLabels } from "../utils/code-links";
@@ -70,6 +71,7 @@ const themeOptions: Array<{ value: ThemePreference; label: string }> = [
 const router = useRouter();
 const systemStatusStore = useSystemStatusStore();
 const { editor, locale, theme } = storeToRefs(usePreferencesStore());
+const { changeLocale } = useDesktopLanguageStore();
 const {
   systemStatus: status,
   systemStatusLoading: loading,
@@ -275,7 +277,12 @@ onBeforeUnmount(() => systemStatusStore.setSystemStatusActive(false));
               <UiSegmentedControl v-model="theme" :options="themeOptions" :label="t('systemStatus.appearance')" />
             </UiField>
             <UiField group :label="t('common.language')" :hint="t('systemStatus.changesInterfaceTextOnlySessions')">
-              <UiSegmentedControl v-model="locale" :options="LOCALE_OPTIONS" :label="t('common.language')" />
+              <UiSegmentedControl
+                :model-value="locale"
+                :options="LOCALE_OPTIONS"
+                :label="t('common.language')"
+                @update:model-value="changeLocale"
+              />
             </UiField>
             <UiField :label="t('systemStatus.openFilesInAnEditor')" :hint="t('systemStatus.onceChosenOpenInEditor')">
               <UiSelect v-model="editor" :options="editorOptions" :label="t('systemStatus.openFilesInAnEditor')" />

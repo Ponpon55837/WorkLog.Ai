@@ -3691,6 +3691,14 @@ export interface SystemDesktopStatus {
     risk: "network" | "removable" | "cloud-sync" | "hard-link" | "unknown";
     migrationBlocked: boolean;
   };
+  /**
+   * The App's language setting and the language it resolves to, so the Dashboard shows the App's language. Absent from
+   * an older App.
+   */
+  language?: {
+    preference: "system" | "zh-TW" | "en";
+    locale: "zh-TW" | "en";
+  };
 }
 
 export interface SystemStatus {

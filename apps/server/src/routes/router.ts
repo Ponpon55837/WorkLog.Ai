@@ -13,7 +13,7 @@ import type {
   UserServiceStatus,
 } from "@work-intelligence/core";
 import type { z } from "zod";
-import { safeParseStrict, type StrictParseResult } from "@work-intelligence/schema";
+import { safeParseStrict, type DesktopFacts, type StrictParseResult } from "@work-intelligence/schema";
 import type { ExportOptions, WorkIntelligenceStore } from "@work-intelligence/storage";
 import type { McpLeaseDiagnosis } from "@work-intelligence/shared/agent-observations";
 import type { McpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
@@ -58,6 +58,9 @@ export interface BackgroundStoreOperations {
   close(): Promise<void>;
 }
 
+/** The App's language names; "en" is the Dashboard's "en-US". */
+export type ShellLocale = NonNullable<DesktopFacts["language"]>["locale"];
+
 /** What a route may do for the desktop App; the App is only ever asked to open its window. */
 export interface DesktopRouteServices {
   status: SystemDesktopStatus;
@@ -65,6 +68,8 @@ export interface DesktopRouteServices {
   requestOpenAgentSetup(): void;
   /** Asks the App to open its port settings; the preferences and route are sanitized before they leave the server. */
   requestOpenPortSettings(handoff: { preferences?: unknown; route?: string }): void;
+  /** Tells the App which language the Dashboard user picked; the App saves it and pushes updated facts back. */
+  requestSetLanguage(locale: ShellLocale): void;
 }
 
 /** What the shared server flow hands a route after Host, Origin, and CORS checks have passed. */

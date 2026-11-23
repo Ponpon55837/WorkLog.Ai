@@ -1,4 +1,5 @@
 import path from "node:path";
+import { SHELL_LANGUAGE_PREFERENCES } from "@work-intelligence/schema";
 import { z } from "zod";
 import { databaseIdentitySchema } from "../db-source/identity-schema.js";
 
@@ -81,6 +82,11 @@ export const desktopSettingsV1Schema = z.strictObject({
     port: portSchema,
     launchAtLogin: z.boolean(),
     backupDirectory: absolutePathSchema,
+    /**
+     * The App's language. Absent means 「跟隨系統」: a file written before the setting existed reads as
+     * it always did, and 「跟隨系統」 is written by leaving the field out, so the file keeps the older shape.
+     */
+    language: z.enum(SHELL_LANGUAGE_PREFERENCES).optional(),
   }),
   active: z
     .strictObject({

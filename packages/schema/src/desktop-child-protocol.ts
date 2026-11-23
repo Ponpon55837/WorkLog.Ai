@@ -89,6 +89,11 @@ const preflightRequestSchema = z.strictObject({
  * Facts only the desktop shell knows, passed through the protocol (never the environment). Every field is optional so an
  * older shell and a newer child (or the reverse) still understand each other.
  */
+/** The App's language setting: follow the system, or one of the two UI languages. */
+export const SHELL_LANGUAGE_PREFERENCES = ["system", "zh-TW", "en"] as const;
+/** The two languages the App and the Dashboard share (the Dashboard calls English `en-US`). */
+export const SHELL_LOCALES = ["zh-TW", "en"] as const;
+
 export const desktopFactsSchema = z.strictObject({
   /**
    * A login service from the pnpm bootstrap that may share this database with the App's own backend. Not strict: an
@@ -124,6 +129,13 @@ export const desktopFactsSchema = z.strictObject({
       risk: z.enum(["network", "removable", "cloud-sync", "hard-link", "unknown"]),
       migrationBlocked: z.boolean(),
     })
+    .optional(),
+  /**
+   * The App's language: the setting and the language it resolves to on this system, so the Dashboard the App manages
+   * shows the same language as the App window.
+   */
+  language: z
+    .strictObject({ preference: z.enum(SHELL_LANGUAGE_PREFERENCES), locale: z.enum(SHELL_LOCALES) })
     .optional(),
 });
 
@@ -268,6 +280,12 @@ const openPortSettingsSchema = z.strictObject({
 });
 
 /**
+ * The user picked a language in the Dashboard the App manages; the App saves it as its own language setting, so the App
+ * window and the Dashboard keep showing the same language.
+ */
+const setLanguageSchema = z.strictObject({ type: z.literal("set-language"), locale: z.enum(SHELL_LOCALES) });
+
+/**
  * The long jobs a running backend reports; any of them makes a port change wait. `import` means an upload is being
  * saved or an import or preview is reading a staged file; a staged file nobody reads is `pendingImport` instead. `restore` is reserved for a future
  * restore flow: the server has no restore route yet, so nothing reports it today.
@@ -408,6 +426,7 @@ export const desktopChildMessageSchema = z.discriminatedUnion("type", [
   backupsChangedSchema,
   openAgentSetupSchema,
   openPortSettingsSchema,
+  setLanguageSchema,
   activitySchema,
   copyResultSchema,
   inspectResultSchema,
@@ -422,6 +441,7 @@ export type DesktopPreflightResultMessage = z.infer<typeof desktopPreflightResul
 export type DesktopParentMessage = z.infer<typeof desktopParentMessageSchema>;
 export type DesktopChildMessage = z.infer<typeof desktopChildMessageSchema>;
 export type DesktopFacts = z.infer<typeof desktopFactsSchema>;
+export type ShellLanguagePreference = (typeof SHELL_LANGUAGE_PREFERENCES)[number];
 export type DesktopStartMessage = z.infer<typeof startRequestSchema>;
 export type DesktopReadyMessage = z.infer<typeof readySchema>;
 export type DesktopHelloMessage = z.infer<typeof helloSchema>;

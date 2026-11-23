@@ -31,7 +31,7 @@ import {
   QUIT_SECOND_INSTANCE_DATA,
   readLastBackupFromDirectory,
   REPAIR_CHANNELS,
-  resolveShellLocale,
+  resolveShellLanguage,
   resolveUserDataDirectory,
   setupMessages,
   storagePolicy,
@@ -94,6 +94,7 @@ import { createRuntimeProvisioner } from "./runtime-provision.js";
 import { createSecondInstance } from "./second-instance.js";
 import { applySecurityPolicy, createSessionPolicy, registerRepairScheme } from "./security.js";
 import { createLoginItemController } from "./login-item.js";
+import { createShellLanguage } from "./language.js";
 import { applyLoginItemAtStart, loadSettings, type SettingsLoad } from "./settings.js";
 import { ShellState } from "./state.js";
 import { installTestHook } from "./test-hook.js";
@@ -115,7 +116,8 @@ const environmentInputs = { isPackaged: app.isPackaged, environment: process.env
 /** The UI language before `ready`, when `app.getLocale()` is not available yet; English if the OS will not say. */
 function earlyLocale(): ShellLocale {
   try {
-    return resolveShellLocale(app.getPreferredSystemLanguages()[0]);
+    // The settings are not read yet: the box follows the system language.
+    return resolveShellLanguage("system", app.getPreferredSystemLanguages()[0]);
   } catch {
     return "en";
   }
@@ -290,12 +292,37 @@ function runShell(configInputs: DesktopConfigInputs): void {
     return status;
   };
   // The Settings tab's start-at-login switch; a change reaches the running backend so the Web status follows.
-  let pushLoginItemFacts: () => void = () => undefined;
+  let pushFacts: () => void = () => undefined;
   const loginItem = createLoginItemController({
     state,
     paths,
     log,
-    changed: () => pushLoginItemFacts(),
+    changed: () => pushFacts(),
+  });
+  // The App's language: the setting, else the system language. Every surface reads `state.locale`, which only this sets.
+  const language = createShellLanguage({
+    state,
+    paths,
+    systemLocale: () => {
+      try {
+        return app.isReady() ? app.getLocale() : app.getPreferredSystemLanguages()[0];
+      } catch {
+        return undefined;
+      }
+    },
+    onChange: () => {
+      // Redrawn at once, no restart: the menu, the tray (it follows `touch`), the window and the Dashboard's facts.
+      if (app.isReady()) applyAppMenu(process.platform, state.messages());
+      state.touch();
+      pushFacts();
+      try {
+        // The page reads its state again now instead of at its next poll.
+        window.contents()?.send(REPAIR_CHANNELS.updateChanged);
+      } catch {
+        // A window that is closing has no page left to tell.
+      }
+    },
+    log,
   });
   // What the Web status was last told; the system can change it behind the App's back (Task Manager, System Settings).
   let lastLoginItemKey = "";
@@ -313,10 +340,11 @@ function runShell(configInputs: DesktopConfigInputs): void {
       launcherShimPath: launcherShimPath(paths.runtimeRoot, process.platform),
       runtimeRoot: paths.runtimeRoot,
       loginItem: sentLoginItem(),
+      language: language.fact(),
     };
     return storageRisk ? { ...facts, storageRisk } : facts;
   };
-  pushLoginItemFacts = () => {
+  pushFacts = () => {
     const databasePath = state.databasePath();
     if (databasePath === null) return;
     const port = state.settings?.active?.port ?? state.settings?.desired.port;
@@ -326,7 +354,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     });
   };
   const loginItemWatch = setInterval(() => {
-    if (JSON.stringify(loginItem.section()) !== lastLoginItemKey) pushLoginItemFacts();
+    if (JSON.stringify(loginItem.section()) !== lastLoginItemKey) pushFacts();
   }, LOGIN_ITEM_WATCH_MS);
   loginItemWatch.unref();
   const backend = createBackendController({
@@ -457,6 +485,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     port: changePort.section,
     update: updates.section,
     loginItem: loginItem.section,
+    language: language.section,
     maintenance: maintenance.section,
     backupDirectory: backupDirectory.section,
     journal,
@@ -609,11 +638,18 @@ function runShell(configInputs: DesktopConfigInputs): void {
       log("[shell] port settings requested by the Dashboard");
       void app.whenReady().then(() => changePort.offer(request));
     });
+    // The user picked a language in the Dashboard: it becomes the App's language too.
+    supervisor.onSetLanguage((locale) => {
+      void app.whenReady().then(() => language.setFromDashboard(locale));
+    });
     supervisor.onOpenAgentSetup(() => {
       log("[shell] Agent page requested by the Dashboard");
       void app.whenReady().then(openAgents);
     });
-    const settingsLoaded = loadSettings(state, paths, log);
+    const settingsLoaded = loadSettings(state, paths, log).then((load) => {
+      language.apply();
+      return load;
+    });
     // H-01: operations a crash left in progress are closed from the real state after the settings are read and before the
     // first-run page or any start. With nothing in progress this is the journal's one read.
     const recovered = settingsLoaded
@@ -725,7 +761,8 @@ function runShell(configInputs: DesktopConfigInputs): void {
       argv: process.argv,
       wasOpenedAtLogin: process.platform === "darwin" ? app.getLoginItemSettings().wasOpenedAtLogin : undefined,
     });
-    state.locale = resolveShellLocale(app.getLocale());
+    // Electron is ready: `app.getLocale()` is known now.
+    language.apply();
     backend.useLaunchMode(state.launchMode);
     registerRepairIpc({
       state,
@@ -741,6 +778,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
       legacyDisable,
       changePort,
       loginItem,
+      language,
       maintenance,
       backupDirectory,
       storage,
