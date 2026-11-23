@@ -251,3 +251,8 @@ export function weekdayLabel(date: Date, utc = false, width: "short" | "narrow" 
   const weekday = width === "narrow" && intlLocale() !== "zh-TW" ? "short" : width;
   return new Intl.DateTimeFormat(intlLocale(), { weekday, ...(utc ? { timeZone: "UTC" } : {}) }).format(date);
 }
+
+/** A whole count with locale digit grouping, e.g. 「12,345」. */
+export function formatCount(value: number): string {
+  return new Intl.NumberFormat(intlLocale()).format(Math.round(value));
+}

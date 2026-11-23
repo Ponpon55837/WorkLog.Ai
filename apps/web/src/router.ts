@@ -65,6 +65,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import("./views/SystemStatusView.vue"),
     meta: { title: "nav.systemStatus", navLabel: "nav.systemStatus", group: "manage" },
   },
+  {
+    path: "/usage",
+    name: "usage",
+    component: () => import("./views/UsageView.vue"),
+    meta: { title: "nav.usage", navLabel: "nav.usage", group: "manage" },
+  },
   { path: "/:pathMatch(.*)*", redirect: "/dashboard" },
 ];
 

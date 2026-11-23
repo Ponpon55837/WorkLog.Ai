@@ -54,6 +54,9 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | `session_cited_by_pending_cleanup` | 409 | 有待審核的未結項清理建議引用這個 Session 作為證據；先接受或拒絕該建議。 |
 | `session_backup_failed` | 503 | Session 刪除前無法建立必要備份。 |
 | `session_delete_failed` | 500 | Session 刪除交易失敗，既有備份仍保留。 |
+| `usage_timeout` | 504 | Agent 用量掃描超過 60 秒；縮小時間範圍或專案後再試。 |
+| `usage_cancelled` | 499 | Agent 用量掃描已取消（客戶端中斷，或被較新的掃描取代）。 |
+| `usage_failed` | 500 | Agent 用量掃描失敗；回應不含路徑或內部訊息。 |
 
 `server_restart_required` 用 503 而非 409：這不是請求內容與資源狀態衝突，而是這個 server 行程暫時無法寫入，重啟後同樣的請求即可成功，與 `database_*` 一致。`database_busy`、`database_read_only` 與 `database_disk_full` 都不代表資料損壞，也不需要從備份還原；`error` 是固定文字，不含 SQLite 訊息或路徑。處理方式見[疑難排解](troubleshooting.md#資料庫忙碌唯讀或磁碟已滿)。
 
@@ -269,6 +272,14 @@ pending／awaiting_review 整理快照中的項目受 Agent 寫入防護：final
 - `userService` 以非同步方式查詢；成功結果快取 30 秒，並行請求共用同一次查詢，失敗結果不快取。
 - Agent 與登入服務診斷只讀取設定檔或查詢作業系統服務管理器，回傳狀態而不回傳 Agent 設定值或內容；端點不寫入設定、不安裝／啟動／停止服務、不執行 setup 或 hook，也不執行資料庫 `integrity_check`。完整環境診斷請在專案目錄執行 `pnpm check`。
 - 端點受到 loopback `Host` 與 `Origin` 檢查保護；只有系統狀態頁需要的 `database.path` 會回傳完整本機路徑，備份資料仍只回傳檔名。
+
+## Agent 用量
+
+- REST：GET `/api/usage/projects` 回傳 `{ items: [{ id, name, current, sources: { claudeFolders, codexFiles }, problem? }] }`，列出記錄中的專案與各自偵測到的 Claude Code 資料夾數與 Codex rollout 檔數；`current` 是最近寫入過紀錄的專案（沒有則都是 false）；`problem` 為 `claude-dir-missing`、`codex-dir-missing`、`permission-denied` 或 `none-found`。
+- POST `/api/usage/scan`（嚴格 JSON）：body `{ projectIds?: string[]; all?: boolean; manualFolders?: string[]; range: "7d"|"30d"|"custom"; since?: ISO; until?: ISO }`。`all` 優先於 `projectIds`；未記錄的專案會安靜略過；`manualFolders` 最多 20 個、必須是絕對路徑，只讀取、不寫入，也不會出現在回應；`custom` 才使用 `since`／`until`，7d／30d 以現在往前推算。至少要有一個記錄中的專案或手動資料夾。
+- 回應（`UsageScanResponse`，定義在 `@work-intelligence/core`）只有次數、token 總和、ISO 時間、安全的工具名稱、`work_*` 操作 id 與 `session-N` 標籤：`totals`、`tokens`、`costShares`（估算）與 `costMultipliers`、`operations`、前 20 名 `sessions`、`otherTools`、`forAgentText`（伺服器端產生、可直接貼給 Agent 的純文字）、`cache`（reused／appended／parsed）、`durationMs`、`range`、`problems`。不會出現訊息內容、工具輸入、檔案路徑、cwd、分支或 Claude 資料夾名稱。`forAgentText` 的語言依 `Accept-Language`（`zh` 開頭為繁體中文，否則英文）。
+- 掃描在背景子行程執行（單次上限 60 秒）；同時只有一個掃描，新的掃描會取消進行中的那個；客戶端中斷連線時也會中止。錯誤：504 `usage_timeout`（逾時）、499 `usage_cancelled`（已取消）、500 `usage_failed`（其他失敗，不含路徑或內部訊息）。增量快取存在資料庫旁的 `cache/agent-usage-cache.json`。
+- 終端機：`pnpm usage:report`（standalone 為 `work-intelligence db usage`）以同一份快取在目前行程內掃描，支援 `--project <名稱或根目錄>`（可重複）、`--all`、`--since`、`--until`、`--json`、`--for-agent`；預設為目前資料夾所在的專案，找不到則為全部記錄中的專案。
 
 ## 永久刪除專案
 

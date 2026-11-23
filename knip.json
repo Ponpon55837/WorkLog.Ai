@@ -27,7 +27,8 @@
         "src/doctor.ts",
         "src/setup-agents.ts",
         "src/desktop-child.ts",
-        "src/backup-worker.ts"
+        "src/backup-worker.ts",
+        "src/usage-worker.ts"
       ],
       "project": ["src/**/*.ts"]
     },

@@ -63,6 +63,9 @@ export const queryKeys = {
     sessions: [...reportsViewKey, "sessions"] as const,
     synthesis: [...reportsViewKey, "synthesis"] as const,
   },
+  usage: {
+    projects: ["usage", "projects"] as const,
+  },
   views: {
     graph: ["view", "graph"] as const,
     hotspots: ["view", "graph", "hotspots"] as const,

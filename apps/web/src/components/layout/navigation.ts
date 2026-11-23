@@ -1,4 +1,13 @@
-import { Activity, BookOpen, ChartColumn, FolderGit2, LayoutDashboard, ListChecks, Share2 } from "lucide-vue-next";
+import {
+  Activity,
+  BookOpen,
+  ChartColumn,
+  FolderGit2,
+  Gauge,
+  LayoutDashboard,
+  ListChecks,
+  Share2,
+} from "lucide-vue-next";
 import type { NavGroup } from "../../router";
 import type { IconComponent } from "../ui/types";
 import { translatedOptions } from "../../i18n";
@@ -14,6 +23,7 @@ export const navItems: readonly NavItem[] = translatedOptions<NavItem, "label">(
     { name: "knowledge", label: "common.workKnowledge", icon: BookOpen, group: "knowledge", shortcut: "g k" },
     { name: "graph", label: "nav.workGraph", icon: Share2, group: "knowledge", shortcut: "g g" },
     { name: "projects", label: "nav.projects", icon: FolderGit2, group: "manage", shortcut: "g p" },
+    { name: "usage", label: "nav.usage", icon: Gauge, group: "manage", shortcut: "g u" },
     { name: "system-status", label: "nav.systemStatus", icon: Activity, group: "manage", shortcut: "g y" },
   ],
   "label",

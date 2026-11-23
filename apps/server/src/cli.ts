@@ -1,6 +1,6 @@
 import { mkdirSync, rmSync, statSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
-import { isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type {
   DatabaseBackup,
@@ -44,6 +44,8 @@ import {
 } from "./http.js";
 import { createTransferDirectory, removeTransferDirectory, transferRoot } from "./transfer-workspace.js";
 import { runTrackCommand, type TrackCliDependencies } from "./track-cli.js";
+import { defaultUsageScanContext, type UsageScanContext } from "./usage-scan.js";
+import { runUsageCommand } from "./usage-cli.js";
 
 /** Database maintenance from the terminal: backup, export for another computer, and restore. */
 const NO_PARSED_ARGS: ParsedCliArgs = { kind: "ok", flags: new Set(), values: new Map(), positionals: [] };
@@ -60,6 +62,7 @@ const COMMAND_SUMMARIES: readonly (readonly [script: string, summary: string])[]
   ["db:import <檔案> [選項]", "預覽後合併匯入可攜式 JSON"],
   ["db:restore <檔案> [選項]", "用匯出或備份的檔案取代目前的資料"],
   ["track <資料夾> [--name <名稱>] [--yes]", "預覽後把專案加入並設為記錄中"],
+  ["usage [--project <名稱>] [--all] [--json] [--for-agent]", "統計本機 Agent 用量（只有次數與 token）"],
 ];
 
 const EXPORT_OPTIONS_HELP = `export 選項：
@@ -335,6 +338,10 @@ export interface DatabaseCliDependencies {
   busyDiagnosis?: DatabaseBusyDiagnosisDependencies;
   /** Prompt and terminal probes for `track`; injectable so tests never read the real terminal. */
   track?: Pick<TrackCliDependencies, "isInteractive" | "confirm" | "port">;
+  /** Where `usage` reads the Agent logs and keeps its cache; injectable so tests never read the real home directory. */
+  usage?: UsageScanContext;
+  /** Language of `usage --for-agent`; defaults to the terminal's. */
+  usageLocale?: "en" | "zh-TW";
   /** Which command names to show in messages; defaults to the running mode. */
   standalone?: boolean;
 }
@@ -374,6 +381,17 @@ export async function runDatabaseCli(
       log: print,
       error: printError,
       ...dependencies.track,
+    });
+  }
+  if (command === "usage") {
+    return runUsageCommand(args, {
+      withStore: runWithStore,
+      invocationDirectory,
+      standalone: dependencies.standalone,
+      log: print,
+      error: printError,
+      context: dependencies.usage ?? defaultUsageScanContext(dirname(databasePath)),
+      ...(dependencies.usageLocale ? { locale: dependencies.usageLocale } : {}),
     });
   }
   const optionSpec = command ? COMMAND_OPTIONS[command] : undefined;
