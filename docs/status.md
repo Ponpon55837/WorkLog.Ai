@@ -6,11 +6,15 @@
 
 - 最後更新：2026-11-23
 
-## 未發布（Agent 讀取回應大小）
+## 1.6.64（Agent 讀取回應大小與檢索基準）
 
 - Agent 讀取稽核新增 `responseChars`：每次 MCP 讀取實際送出的回應字元數（JavaScript 字串長度，即 UTF-16 code unit；不是位元組也不是 token），只存數字，不存內容。用來判斷慢與貴是出在 SQLite、過大的回應，還是 Agent 的推理。
 - 系統狀態頁的各工具統計新增回應大小的 p50、p95 與總和；schema 35 之前的紀錄是未知，不列入。
 - 資料庫 schema 升到 35：`agent_read_audit` 新增可為空的 `response_chars`。稽核表不在專案資料匯出內，匯出與匯入格式不變。
+- 新增 Agent 用量解析腳本 `scripts/agent-usage-report.mjs`，只輸出加總數字；Codex 紀錄的支援仍屬實驗性。
+- 新增檢索與知識頁基準 `docs/experiments/retrieval-baseline/`：合成資料上檢索 30 題通過 28 題，Policy 案例全過，SQLite 讀取中位數 1.93 ms，不是瓶頸。知識頁端到端 5 題尚未用真實 Agent 執行。
+
+資料庫 schema 升到 35，首次啟動時先自動備份再執行 migration。詳見 [1.6.64 更新說明](releases/1.6.64.md)。
 
 ## 1.6.63（知識頁覆蓋範圍與版本衝突）
 

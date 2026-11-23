@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.64] - 2026-11-23
+
+[繁體中文更新說明](docs/releases/1.6.64.md).
+
 ### Added
 
 - The Agent read audit records `responseChars`, the number of characters in the MCP response actually sent for each read (JavaScript string length, that is UTF-16 code units, not bytes or tokens): the text content plus `structuredContent` when present. Only the number is stored, never content. `GET /api/agent-reads` items carry it, `GET /api/agent-reads/stats` returns `responseChars: { count, p50, p95, total }` per tool (nearest-rank, rows with a recorded size only), and the System status page shows both.
@@ -19,6 +23,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 ### Documentation
 
 - Retrieval and Knowledge page baseline in `docs/experiments/retrieval-baseline/`: a fictional fixture, 30 retrieval questions with hand-written gold, 5 policy cases, 5 Knowledge page end-to-end scenarios, a runner that calls the storage read functions directly, and a report with the A/B decision rules.
+
+The database migrates from schema 34 to 35 on first start, after an automatic pre-migration backup. Reconnect Work Intelligence MCP when an Agent reports `restartRequired`. A build older than 1.6.64 cannot open the upgraded database (`DATABASE_SCHEMA_VERSION_TOO_NEW`) or import a project export made by 1.6.64; restore the pre-migration backup to go back.
 
 ## [1.6.63] - 2026-11-23
 
