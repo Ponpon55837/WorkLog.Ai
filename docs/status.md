@@ -6,6 +6,14 @@
 
 - 最後更新：2026-11-23
 
+## 1.6.66（Agent 用量頁面與升級流程檢查）
+
+- Web Dashboard 新增「用量」頁（桌面 App 與 `pnpm bootstrap` 都可用），依已追蹤專案自動對應本機 Claude Code 與 Codex 紀錄，顯示回合、工具呼叫、Work Intelligence 佔比、各類 Token、估算的成本佔比與 Work Intelligence 各操作的呼叫次數；「複製給 Agent」只含加總、專案名稱與對話序號。CLI 為 `pnpm usage:report`。
+- `scripts/agent-usage-report.mjs` 依 Work Intelligence 操作分組，只讀呼叫參數的 `operation` 欄位。
+- 桌面 smoke 以 schema 34 與 31 樣本檢查升級後一鍵更新；packaged smoke 有時限、即時 log 與失敗也會上傳的紀錄，清理時不再結束 runner 等既有行程。
+
+沒有 schema 變更，資料庫維持 35。詳見 [1.6.66 更新說明](releases/1.6.66.md)。
+
 ## 1.6.65（升級後一鍵更新資料庫、語言選項、知識頁維護指引）
 
 - App 升級後若資料庫只需要更新結構，狀態改顯示「需要更新資料庫」，「狀態」與「資料」分頁提供「先備份再更新資料庫」，不必再用「選擇資料庫…」找檔案。資料庫在雲端同步資料夾、卸除式磁碟或硬連結上時，改提供「複製到本機資料夾後更新」，原檔不變。

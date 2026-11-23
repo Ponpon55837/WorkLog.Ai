@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.66] - 2026-11-23
+
+[繁體中文更新說明](docs/releases/1.6.66.md).
+
 ### Added
 
 - The Web dashboard has a "Usage" page next to System status, for the App's Dashboard and for `pnpm bootstrap` installs. It reads the local Claude Code and Codex logs of the tracked projects you choose (worktree folders included; Codex rollouts by their recorded working directory, which is compared and never shown) and shows turns, tool calls, the Work Intelligence share, tokens by kind, an estimated cost split, Work Intelligence calls per operation, the conversations with the highest estimated cost and the other top tools. "Copy for Agent" previews and copies a summary with totals, project names and conversation numbers only. Parsing runs in a background worker with a 60-second limit and cancellation, and an incremental cache reuses unchanged log files and reads only the appended part of a grown one. The same report is available as `pnpm usage:report` (`--project`, `--all`, `--since`, `--until`, `--json`, `--for-agent`).
@@ -12,6 +16,8 @@ All notable changes to Work Intelligence are documented here. The project follow
 ### Tests
 
 - The desktop smoke test now starts the App over the committed schema 34 (1.6.63) and schema 31 upgrade samples, as an App upgrade finds them. It checks that the App shows "Needs update" with a single main button, then that one press leaves the backend running at the latest schema, with exactly one pre-migration backup and the same row counts. The packaged smoke step in CI has a 20-minute limit and stops itself at 17 minutes. Its output and the App logs are written to files as it runs, uploaded even when the step fails, and the last lines go in the job summary. The packaged tests' process cleanup no longer ends the processes that started the test, such as the CI step's shell or the runner, or anything created before the run. On Windows a reused process id could make it do that.
+
+No schema change: the database stays at schema 35 and project exports keep the 1.6.64 format.
 
 ## [1.6.65] - 2026-11-23
 
