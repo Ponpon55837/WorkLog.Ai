@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.67] - 2026-11-23
+
+[繁體中文更新說明](docs/releases/1.6.67.md).
+
 ### Changed
 
 - The Usage page, `pnpm usage:report` and "Copy for Agent" no longer show an estimated cost. The 1.6.66 cost split applied assumed price multipliers that ignored the model, so cache reads decided most of the number. The headline is now input + output (uncached input plus output). Cache read and cache write are listed separately and never added to it, with a cache read share (cache read ÷ all input-side tokens; the logs record no per-request hit, so it is not a hit rate). Conversations are ranked by input + output.
@@ -15,6 +19,12 @@ All notable changes to Work Intelligence are documented here. The project follow
 - Model breakdown: tokens by Agent and model. Claude Code reads the model of each response, Codex the model announced at each turn. A model name is kept only when it looks like a model id; a path-like value or a placeholder such as `<synthetic>` is stored as empty and shown as "Unlabelled model".
 - Current 5-hour block per Agent, with the ccusage `blocks` rules: the block starts at its first usage floored to the local hour and lasts 5 hours, and a 5-hour gap starts a new one. It shows input + output, elapsed time, time left in the block and input + output per minute. It appears only when the range reaches the present.
 - Usage for monorepos: when a Claude Code folder (worktree folders included) or a Codex session working directory is a parent folder of tracked project roots, it is a shared source of those projects. The projects form a group on the Usage page with a "Select whole group" button, and each conversation of the shared source is counted once and allocated, for matching only, by (1) the most frequent `projectRoot` of its Work Intelligence calls, else (2) the directories of the files Claude's Read/Edit/Write/MultiEdit/NotebookEdit calls named, else (3) the working directory of its lines (Codex: session_meta and turn_context). Bases 2 and 3 need more than half of the hits under the group's projects and at least 3. The rest is a per-group "shared (unallocated)" bucket. Scanning some projects of a group counts only the conversations allocated to them; the unallocated bucket counts when the whole group is selected. The API adds `groups` to `GET /api/usage/projects` and `allocation` to the scan response (project ids, conversation counts, tokens and counts by basis `projectRoot` / `filePaths` / `cwd`, no paths), and `--json` and "Copy for Agent" carry the same. The usage cache format changed (version 3: shared-source files keep normalised `projectRoot` values, file directories and working directories, in the local owner-only cache file only), so the first scan after upgrading rereads the logs.
+
+### Tests
+
+- The packaged tests' check for processes left by an ended browser now confirms a parent by its process id and start time. On Windows a reused process id could make it count system processes, such as `winlogon.exe` and `dwm.exe`, as the browser's.
+
+No schema change: the database stays at schema 35 and project exports keep the 1.6.64 format.
 
 ## [1.6.66] - 2026-11-23
 
