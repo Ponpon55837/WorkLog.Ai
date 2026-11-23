@@ -994,7 +994,7 @@ describe("candidate overlap and Session lookup migration", () => {
 
       applyRuntimeMigrations(db);
 
-      expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({ version: 33 });
+      expect(db.prepare("SELECT version FROM schema_migrations WHERE version = 33").get()).toEqual({ version: 33 });
       expect(
         (db.prepare("PRAGMA table_info(knowledge_candidates)").all() as Array<Record<string, unknown>>).find(
           (column) => column.name === "overlaps_json",
@@ -1022,6 +1022,51 @@ describe("candidate overlap and Session lookup migration", () => {
       expect(plan("SELECT id FROM sessions WHERE commit_sha >= 'abc1234' AND commit_sha < 'abc1235'")).toContain(
         "idx_sessions_commit_sha",
       );
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("knowledge page Session coverage migration", () => {
+  it("upgrades schema 33 with two empty coverage columns, keeping every page and revision", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializeWorkIntelligenceDatabase(db, ":memory:");
+      undoMigrationsAfter(db, 33);
+      db.exec(`INSERT INTO projects (id, name, root_path, status, created_at, updated_at)
+        VALUES ('meadow', 'Meadow', '/fictional/meadow', 'tracked', '2026-11-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z');
+        INSERT INTO knowledge_pages (id, project_id, slug, title, question, sections_json, version, sourced_through,
+          created_at, updated_at)
+        VALUES ('page-1', 'meadow', 'architecture', 'Architecture', 'How is it built?', '[]', 2,
+          '2026-11-02T00:00:00.000Z', '2026-11-01T00:00:00.000Z', '2026-11-02T00:00:00.000Z');`);
+      const revisions = db.prepare("SELECT data_revision, audit_revision FROM change_revisions").get();
+
+      applyRuntimeMigrations(db);
+
+      expect(db.prepare("SELECT version FROM schema_migrations WHERE version = 34").get()).toEqual({ version: 34 });
+      const columns = db.prepare("PRAGMA table_info(knowledge_pages)").all() as Array<Record<string, unknown>>;
+      for (const name of ["covered_through_completed_at", "covered_through_session_id"]) {
+        expect(columns.find((column) => column.name === name)).toMatchObject({
+          type: "TEXT",
+          notnull: 0,
+          dflt_value: null,
+        });
+      }
+      // Existing pages keep NULL, so their coverage stays sourced_through.
+      expect(
+        db
+          .prepare(
+            "SELECT version, sourced_through, covered_through_completed_at, covered_through_session_id FROM knowledge_pages",
+          )
+          .get(),
+      ).toEqual({
+        version: 2,
+        sourced_through: "2026-11-02T00:00:00.000Z",
+        covered_through_completed_at: null,
+        covered_through_session_id: null,
+      });
+      expect(db.prepare("SELECT data_revision, audit_revision FROM change_revisions").get()).toEqual(revisions);
     } finally {
       db.close();
     }

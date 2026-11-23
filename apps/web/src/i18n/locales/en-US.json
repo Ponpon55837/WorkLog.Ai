@@ -424,6 +424,7 @@
     "couldNotLoadTheSourceSessionOfThis": "Could not load the source Session of this Knowledge page.",
     "couldNotRequestAnUpdate": "Could not request an update of this Knowledge page.",
     "couldNotSaveTheKnowledge": "Could not save the Knowledge page.",
+    "pageChangedWhileEditing": "This page was saved as version {version} after you started editing, so your edit was not saved. Your changes are still in the editor: copy them, close and reopen the editor, then apply them to the latest version.",
     "couldNotUpdateKnowledge": "Could not update Knowledge.",
     "couldNotUpdateTheDecision": "Could not update the decision review status. Please retry.",
     "createAndLinkKnowledge": "Create and link Knowledge",

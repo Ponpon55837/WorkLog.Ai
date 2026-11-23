@@ -4,6 +4,15 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Fixed
+
+- Knowledge pages no longer mark Sessions an Agent never saw as covered. A save used to set the page's coverage to the save time, so Sessions left out of a truncated context, or finished between the read and the save, were hidden from the next review. `work_get_knowledge_page_context` now returns a `reviewToken`; when `work_save_knowledge_page` receives it, coverage ends at the last Session that read showed, and those Sessions stay new.
+- Saving a Knowledge page no longer silently overwrites a newer version. An Agent save with `reviewToken`, or a Web edit with `baseVersion`, returns `version_conflict` and writes nothing when the page was saved after that read or edit started. The Web editor keeps the draft open and says which version it conflicts with.
+
+### Changed
+
+- SQLite schema 34 adds two nullable columns to `knowledge_pages` for the Session coverage position. Existing pages keep their current coverage, and exports from schema 31–33 still import. Agent saves without `reviewToken` keep the old behavior and return `warnings`.
+
 ## [1.6.62] - 2026-11-22
 
 [繁體中文更新說明](docs/releases/1.6.62.md).

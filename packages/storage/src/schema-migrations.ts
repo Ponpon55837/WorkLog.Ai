@@ -976,6 +976,15 @@ const MIGRATIONS: SchemaMigration[] = [
     CREATE INDEX idx_sessions_commit_sha ON sessions(commit_sha);
     CREATE INDEX idx_sessions_live_project ON sessions(project_id) WHERE voided_at IS NULL;`,
   },
+  {
+    version: 34,
+    name: "knowledge-page-session-coverage",
+    // Additive only. The last Session an Agent was shown when it saved a page, as a (completed_at, id) position, so
+    // Sessions it never saw stay new. Not a reference: a deleted Session still marks the same position. Existing
+    // pages keep NULL and their coverage stays sourced_through, exactly as before.
+    sql: `ALTER TABLE knowledge_pages ADD COLUMN covered_through_completed_at TEXT;
+    ALTER TABLE knowledge_pages ADD COLUMN covered_through_session_id TEXT;`,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

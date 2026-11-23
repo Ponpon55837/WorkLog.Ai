@@ -6,6 +6,13 @@
 
 - 最後更新：2026-11-22
 
+## 未發布（知識頁覆蓋範圍與版本衝突）
+
+- 知識頁儲存不再把 Agent 沒看到的 Session 算成已涵蓋：context 截斷時被略過的 Session，以及讀取後才完成的 Session，保存後仍是新資料。
+- Agent 帶 `reviewToken`、Web 帶 `baseVersion` 儲存時，頁面若已被別人存過就回 `version_conflict`，不覆蓋較新的版本；Web 編輯框保留草稿。
+- 資料庫 schema 升到 34：`knowledge_pages` 新增兩個可為空的欄位，既有頁面行為不變。
+- 決定維持原本行為：Web 手動編輯把儲存前完成的所有 Session 算成已涵蓋；Agent 讀取後使用者才提出的更新請求，Agent 儲存時一併清除。
+
 ## 1.6.62（相依套件更新）
 
 - 更新 Vue、Electron、Vite、ESLint 與開發用的 Node.js 型別。Vite 8 改用較新的 Dashboard 瀏覽器建置目標。

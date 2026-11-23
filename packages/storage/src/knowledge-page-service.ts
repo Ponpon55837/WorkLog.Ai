@@ -18,6 +18,7 @@ import {
   type KnowledgePageReviewSection,
   type KnowledgePageSection,
   type KnowledgePageSkippedResult,
+  type KnowledgePageVersionConflictResult,
   type KnowledgePageVersionRecord,
   type KnowledgePageVersionsResult,
   type PolicyDecision,
@@ -111,6 +112,8 @@ type PageRow = {
   created_at: string;
   updated_at: string;
   checked_through_session_id: string | null;
+  covered_through_completed_at: string | null;
+  covered_through_session_id: string | null;
 };
 
 type ContextSessionRow = {
@@ -157,6 +160,12 @@ const DIGEST_PAGE_CHARS = 1_500;
 const DIGEST_TOTAL_CHARS = 4_500;
 const DIGEST_REVIEW_SOURCE_LIMIT = 8;
 const DIGEST_SOURCE_SESSION_LIMIT = 8;
+/** Version prefix of reviewToken, so a later token format can be told apart. */
+const REVIEW_TOKEN_PREFIX = "kpr1.";
+/** Longest stored completion time or Session id a token may carry; real values are far shorter. */
+const REVIEW_TOKEN_FIELD_LIMIT = 200;
+const MISSING_REVIEW_TOKEN_WARNING =
+  "Saved without reviewToken: the save was not checked against a newer page version, and every Session finished before it counts as covered. Pass the reviewToken from work_get_knowledge_page_context next time.";
 /** Prompt for review after a small batch, while keeping single-session updates out of pending context. */
 export const KNOWLEDGE_PAGE_MAINTENANCE_SESSION_THRESHOLD = 3;
 /** Versions shown in the Web history; older versions stay in the database and in exports. */
@@ -240,6 +249,72 @@ function nearestSlug(slug: string, candidates: readonly string[]): string | unde
 interface CompletedSessionCursor {
   id: string;
   completedAt: string;
+}
+
+/**
+ * Where a page's Session coverage ends. With an id, Sessions after that (completed_at, id) position are new; without
+ * one, Sessions that finished strictly after completedAt are (the rule for pages saved before schema 34). An empty
+ * completedAt means the save covered no Session, so every Session is new.
+ */
+interface CoveragePoint {
+  completedAt: string;
+  id?: string;
+}
+
+interface ReviewTokenContent {
+  pageId: string;
+  version: number;
+  through: CoveragePoint;
+}
+
+/** The saved coverage of a written page: the Session position its last save recorded, else its save time. */
+function sessionCoverage(row: PageRow): CoveragePoint | undefined {
+  if (row.covered_through_completed_at !== null) {
+    return {
+      completedAt: row.covered_through_completed_at,
+      ...(row.covered_through_session_id !== null ? { id: row.covered_through_session_id } : {}),
+    };
+  }
+  return row.sourced_through ? { completedAt: row.sourced_through } : undefined;
+}
+
+/** The later of the saved coverage and the review cursor; a cursor before the saved coverage changes nothing. */
+function reviewedThrough(coverage: CoveragePoint, checked: CompletedSessionCursor | undefined): CoveragePoint {
+  if (!checked) return coverage;
+  const ahead =
+    coverage.id === undefined
+      ? checked.completedAt >= coverage.completedAt
+      : compareCursor(checked, { completedAt: coverage.completedAt, id: coverage.id }) >= 0;
+  return ahead ? { completedAt: checked.completedAt, id: checked.id } : coverage;
+}
+
+function encodeReviewToken(content: ReviewTokenContent): string {
+  const payload = {
+    p: content.pageId,
+    v: content.version,
+    at: content.through.completedAt,
+    ...(content.through.id !== undefined ? { id: content.through.id } : {}),
+  };
+  return REVIEW_TOKEN_PREFIX + Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+}
+
+/** The token's content, or undefined when it is not one this server wrote. */
+function decodeReviewToken(token: string): ReviewTokenContent | undefined {
+  if (!token.startsWith(REVIEW_TOKEN_PREFIX)) return undefined;
+  let payload: unknown;
+  try {
+    payload = JSON.parse(Buffer.from(token.slice(REVIEW_TOKEN_PREFIX.length), "base64url").toString("utf8"));
+  } catch {
+    return undefined;
+  }
+  if (typeof payload !== "object" || payload === null) return undefined;
+  const { p, v, at, id } = payload as Record<string, unknown>;
+  const boundedText = (value: unknown): value is string =>
+    typeof value === "string" && value.length <= REVIEW_TOKEN_FIELD_LIMIT;
+  if (!boundedText(p) || p.length === 0 || !boundedText(at)) return undefined;
+  if (typeof v !== "number" || !Number.isSafeInteger(v) || v < 0) return undefined;
+  if (id !== undefined && (!boundedText(id) || id.length === 0)) return undefined;
+  return { pageId: p, version: v, through: { completedAt: at, ...(id !== undefined ? { id } : {}) } };
 }
 
 function compareCursor(left: CompletedSessionCursor, right: CompletedSessionCursor): number {
@@ -463,7 +538,7 @@ export class KnowledgePageService {
     const page = this.recordFor(row);
     if (query.query !== undefined || query.headings !== undefined) return focusedContext(page, query);
     const mode = row.version === 0 || row.update_requested_at ? "full" : "review";
-    const { sessions, truncated } =
+    const { sessions, truncated, through } =
       mode === "full" ? this.contextSessions(decision.project.id) : this.reviewSessions(row, page);
     return {
       outcome: "knowledge_page_context",
@@ -473,6 +548,7 @@ export class KnowledgePageService {
       omittedSessionFields: ["summary", "workSummary.scope", "workSummary.verification"],
       sessionReadWith: "work_get_session",
       truncated,
+      reviewToken: encodeReviewToken({ pageId: row.id, version: row.version, through }),
     };
   }
 
@@ -495,6 +571,14 @@ export class KnowledgePageService {
     if (duplicate) {
       return { outcome: "knowledge_page_saved", duplicate: true, page: this.recordFor(this.findPageById(row.id)!) };
     }
+    const token = input.reviewToken === undefined ? undefined : decodeReviewToken(input.reviewToken);
+    if (input.reviewToken !== undefined && token?.pageId !== row.id) {
+      return {
+        outcome: "invalid_review_token",
+        reason:
+          "reviewToken must be passed unchanged from work_get_knowledge_page_context for this page. Read the page again and save with its reviewToken.",
+      };
+    }
     const invalid = this.invalidSources(decision.project.id, input.sections);
     if (invalid.length > 0) {
       return {
@@ -503,12 +587,17 @@ export class KnowledgePageService {
         sessionIds: invalid,
       };
     }
-    const { redactions } = this.writeVersion(row, row.title, input.sections, "agent", input.idempotencyKey);
+    const written = this.writeVersion(row, row.title, input.sections, "agent", {
+      idempotencyKey: input.idempotencyKey,
+      ...(token ? { baseVersion: token.version, coverage: token.through } : {}),
+    });
+    if ("conflict" in written) return written.conflict;
     return {
       outcome: "knowledge_page_saved",
       duplicate: false,
       page: this.recordFor(this.findPageById(row.id)!),
-      ...(redactions.total > 0 ? { redactions } : {}),
+      ...(written.redactions.total > 0 ? { redactions: written.redactions } : {}),
+      ...(token ? {} : { warnings: [MISSING_REVIEW_TOKEN_WARNING] }),
     };
   }
 
@@ -568,12 +657,7 @@ export class KnowledgePageService {
    */
   public acknowledgeMaintenance(projectId: string, sessionId: string, slugs: readonly string[]): string[] {
     const acknowledged: string[] = [];
-    const firstAfterSource = this.db.prepare(
-      `SELECT id, completed_at FROM sessions
-       WHERE project_id = ? AND voided_at IS NULL AND completed_at > ?
-       ORDER BY completed_at ASC, id ASC LIMIT 1`,
-    );
-    const firstAfterCursor = this.db.prepare(
+    const firstAfter = this.db.prepare(
       `SELECT id, completed_at FROM sessions
        WHERE project_id = ? AND voided_at IS NULL AND (completed_at > ? OR (completed_at = ? AND id > ?))
        ORDER BY completed_at ASC, id ASC LIMIT 1`,
@@ -582,16 +666,15 @@ export class KnowledgePageService {
     const moveCursor = this.db.prepare("UPDATE knowledge_pages SET checked_through_session_id = ? WHERE id = ?");
     for (const slug of new Set(slugs)) {
       const row = this.findPage(projectId, slug);
-      if (!row || row.version === 0 || !row.sourced_through) continue;
+      const coverage = row && row.version > 0 ? sessionCoverage(row) : undefined;
+      if (!row || !coverage) continue;
       const checked = row.checked_through_session_id
         ? (cursorOf.get(row.checked_through_session_id) as { id: string; completed_at: string } | undefined)
         : undefined;
-      const coveredThroughCursor = checked && checked.completed_at >= row.sourced_through;
-      const next = (
-        coveredThroughCursor
-          ? firstAfterCursor.get(projectId, checked.completed_at, checked.completed_at, checked.id)
-          : firstAfterSource.get(projectId, row.sourced_through)
-      ) as { id: string } | undefined;
+      const after = reviewedThrough(coverage, checked && { id: checked.id, completedAt: checked.completed_at });
+      // A null id compares as unknown, so a coverage without a Session position keeps the strict time rule.
+      const next = firstAfter.get(projectId, after.completedAt, after.completedAt, after.id ?? null) as
+        { id: string } | undefined;
       if (next?.id !== sessionId) continue;
       moveCursor.run(sessionId, row.id);
       acknowledged.push(slug);
@@ -617,11 +700,14 @@ export class KnowledgePageService {
         sessionIds: invalid,
       };
     }
-    const { redactions } = this.writeVersion(row, input.title ?? row.title, input.sections, "web");
+    const written = this.writeVersion(row, input.title ?? row.title, input.sections, "web", {
+      ...(input.baseVersion !== undefined ? { baseVersion: input.baseVersion } : {}),
+    });
+    if ("conflict" in written) return written.conflict;
     return {
       outcome: "knowledge_page_updated",
       page: this.recordFor(this.findPageById(row.id)!),
-      ...(redactions.total > 0 ? { redactions } : {}),
+      ...(written.redactions.total > 0 ? { redactions: written.redactions } : {}),
     };
   }
 
@@ -879,18 +965,21 @@ export class KnowledgePageService {
    * oldest page's cutoff (ascending); each page's count is then a binary search, not a query per page.
    */
   private toRecords(rows: readonly PageRow[]): KnowledgePageRecord[] {
+    const coverageByPage = new Map(rows.map((row) => [row.id, sessionCoverage(row)]));
     const cutoffsByProject = new Map<string, string>();
     for (const row of rows) {
-      if (!row.sourced_through) continue;
+      const coverage = coverageByPage.get(row.id);
+      if (!coverage) continue;
       const current = cutoffsByProject.get(row.project_id);
-      if (!current || row.sourced_through < current) {
-        cutoffsByProject.set(row.project_id, row.sourced_through);
+      if (current === undefined || coverage.completedAt < current) {
+        cutoffsByProject.set(row.project_id, coverage.completedAt);
       }
     }
     const completionsByProject = new Map<string, CompletedSessionCursor[]>();
+    // Inclusive: a Session position covers only the ids up to its own among Sessions finished at the same time.
     const statement = this.db.prepare(
       `SELECT id, completed_at FROM sessions
-       WHERE project_id = ? AND voided_at IS NULL AND completed_at > ?
+       WHERE project_id = ? AND voided_at IS NULL AND completed_at >= ?
        ORDER BY completed_at ASC, id ASC`,
     );
     for (const [projectId, cutoff] of cutoffsByProject) {
@@ -946,15 +1035,16 @@ export class KnowledgePageService {
     }
     return rows.map((row) => {
       const completions = completionsByProject.get(row.project_id) ?? [];
-      const sourceStart = row.sourced_through
-        ? firstCompletedAfter(completions, row.sourced_through)
-        : completions.length;
+      const coverage = coverageByPage.get(row.id);
+      const sourceStart = !coverage
+        ? completions.length
+        : coverage.id === undefined
+          ? firstCompletedAfter(completions, coverage.completedAt)
+          : upperBoundCursor(completions, { completedAt: coverage.completedAt, id: coverage.id });
       const checked = row.checked_through_session_id ? checkedSessions.get(row.checked_through_session_id) : undefined;
       const checkedThrough = checked?.projectId === row.project_id ? checked : undefined;
       const checkedStart = checkedThrough ? upperBoundCursor(completions, checkedThrough) : 0;
-      const newSessionCount = row.sourced_through
-        ? Math.max(0, completions.length - Math.max(sourceStart, checkedStart))
-        : 0;
+      const newSessionCount = coverage ? Math.max(0, completions.length - Math.max(sourceStart, checkedStart)) : 0;
       const sections = sectionsByPage.get(row.id) ?? [];
       const reviewSections: KnowledgePageReviewSection[] = [];
       for (const section of sections) {
@@ -1033,13 +1123,18 @@ export class KnowledgePageService {
     return cited.filter((id) => !valid.has(id));
   }
 
+  /**
+   * Saves a new version. With baseVersion, a page saved since that version is left as it is and the conflict is
+   * returned. coverage is the last Session the writer was shown; without it every Session finished before this
+   * save counts as covered (Web edits, and Agent saves without reviewToken).
+   */
   private writeVersion(
     row: PageRow,
     title: string,
     sections: readonly KnowledgePageSection[],
     author: KnowledgePageAuthor,
-    idempotencyKey?: string,
-  ): { redactions: ReturnType<typeof combineRedactionSummaries> } {
+    options: { idempotencyKey?: string; baseVersion?: number; coverage?: CoveragePoint },
+  ): { redactions: ReturnType<typeof combineRedactionSummaries> } | { conflict: KnowledgePageVersionConflictResult } {
     const redactedTitle = redactText(title);
     const redactedSections = redactValue(
       sections.map((section) => ({
@@ -1049,8 +1144,17 @@ export class KnowledgePageService {
       })),
     );
     const now = nowIso();
-    runImmediateTransaction(this.db, () => {
+    const conflict = runImmediateTransaction(this.db, (): KnowledgePageVersionConflictResult | undefined => {
       const current = this.findPageById(row.id)!;
+      if (options.baseVersion !== undefined && current.version !== options.baseVersion) {
+        return {
+          outcome: "version_conflict",
+          reason:
+            "The page was saved again after this edit started, so nothing was written. Read the current version and apply the change to it.",
+          baseVersion: options.baseVersion,
+          currentVersion: current.version,
+        };
+      }
       const version = current.version + 1;
       const sectionsJson = JSON.stringify(redactedSections.value);
       this.db
@@ -1068,23 +1172,41 @@ export class KnowledgePageService {
           current.question,
           sectionsJson,
           author,
-          idempotencyKey ?? null,
+          options.idempotencyKey ?? null,
           now,
         );
+      // sourced_through stays the save time: cited sources changed after it still need review.
       this.db
         .prepare(
           `UPDATE knowledge_pages
            SET title = ?, sections_json = ?, version = ?, sourced_through = ?, update_requested_at = NULL,
-               last_author = ?, updated_at = ?, checked_through_session_id = NULL
+               last_author = ?, updated_at = ?, checked_through_session_id = NULL,
+               covered_through_completed_at = ?, covered_through_session_id = ?
            WHERE id = ?`,
         )
-        .run(redactedTitle.value, sectionsJson, version, now, author, now, row.id);
+        .run(
+          redactedTitle.value,
+          sectionsJson,
+          version,
+          now,
+          author,
+          now,
+          options.coverage?.completedAt ?? null,
+          options.coverage?.id ?? null,
+          row.id,
+        );
+      return undefined;
     });
+    if (conflict) return { conflict };
     return { redactions: combineRedactionSummaries(redactedTitle.redactions, redactedSections.redactions) };
   }
 
   /** Recent Sessions, newest first, for a full rewrite of an empty page or an explicitly requested update. */
-  private contextSessions(projectId: string): { sessions: KnowledgePageContextSession[]; truncated: boolean } {
+  private contextSessions(projectId: string): {
+    sessions: KnowledgePageContextSession[];
+    truncated: boolean;
+    through: CoveragePoint;
+  } {
     const rows = this.db
       .prepare(
         `SELECT id, title, completed_at, work_summary_json FROM sessions
@@ -1093,10 +1215,13 @@ export class KnowledgePageService {
          LIMIT ?`,
       )
       .all(projectId, CONTEXT_SESSION_LIMIT + 1) as ContextSessionRow[];
-    return this.budgetSessions(
+    const budgeted = this.budgetSessions(
       rows.slice(0, CONTEXT_SESSION_LIMIT).map((row) => ({ row })),
       rows.length > CONTEXT_SESSION_LIMIT,
     );
+    // Newest first, so the first Session shown is the coverage; an empty list covers nothing.
+    const newest = budgeted.sessions[0];
+    return { ...budgeted, through: newest ? { completedAt: newest.completedAt, id: newest.id } : { completedAt: "" } };
   }
 
   /** Converts rows in order until CONTEXT_CHAR_BUDGET is spent; the rest are left out and flagged. */
@@ -1135,15 +1260,15 @@ export class KnowledgePageService {
   private reviewSessions(
     row: PageRow,
     page: KnowledgePageRecord,
-  ): { sessions: KnowledgePageContextSession[]; truncated: boolean } {
+  ): { sessions: KnowledgePageContextSession[]; truncated: boolean; through: CoveragePoint } {
     const checked = row.checked_through_session_id
       ? (this.db.prepare("SELECT id, completed_at FROM sessions WHERE id = ?").get(row.checked_through_session_id) as
           { id: string; completed_at: string } | undefined)
       : undefined;
-    const after =
-      checked && row.sourced_through && checked.completed_at >= row.sourced_through
-        ? { completedAt: checked.completed_at, id: checked.id }
-        : { completedAt: row.sourced_through ?? "", id: "" };
+    const after = reviewedThrough(
+      sessionCoverage(row) ?? { completedAt: "" },
+      checked && { id: checked.id, completedAt: checked.completed_at },
+    );
     const newRows = this.db
       .prepare(
         `SELECT id, title, completed_at, work_summary_json FROM sessions
@@ -1155,7 +1280,8 @@ export class KnowledgePageService {
         row.project_id,
         after.completedAt,
         after.completedAt,
-        after.id,
+        // A null id compares as unknown, so a coverage without a Session position keeps the strict time rule.
+        after.id ?? null,
         CONTEXT_SESSION_LIMIT + 1,
       ) as ContextSessionRow[];
     const changedIds = [
@@ -1172,12 +1298,17 @@ export class KnowledgePageService {
           )
           .all(JSON.stringify(changedIds)) as ContextSessionRow[])
       : [];
-    return this.budgetSessions(
+    const budgeted = this.budgetSessions(
       [
         ...changedRows.map((session) => ({ row: session, reason: "source_changed" as const })),
         ...newRows.slice(0, CONTEXT_SESSION_LIMIT).map((session) => ({ row: session, reason: "new" as const })),
       ],
       newRows.length > CONTEXT_SESSION_LIMIT,
     );
+    // New Sessions are oldest first and the budget keeps a prefix, so the last one shown is the coverage. When none
+    // fit, the coverage stays where it was.
+    let lastNew: KnowledgePageContextSession | undefined;
+    for (const session of budgeted.sessions) if (session.reason === "new") lastNew = session;
+    return { ...budgeted, through: lastNew ? { completedAt: lastNew.completedAt, id: lastNew.id } : after };
   }
 }

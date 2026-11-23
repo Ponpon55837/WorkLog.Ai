@@ -393,7 +393,7 @@ const CASES: ParityCase[] = [
     expected: {
       status: 400,
       code: "unsupported_schema",
-      message: "匯入檔使用較新的 schema 版本 34，此程式最高支援 33。請先更新 Work Intelligence 再匯入。",
+      message: `匯入檔使用較新的 schema 版本 ${LATEST_SCHEMA_VERSION + 1}，此程式最高支援 ${LATEST_SCHEMA_VERSION}。請先更新 Work Intelligence 再匯入。`,
     },
   },
   {
@@ -402,7 +402,7 @@ const CASES: ParityCase[] = [
     expected: {
       status: 400,
       code: "unsupported_schema",
-      message: "匯入檔使用 schema 版本 30，此程式可匯入 31 至 33 的匯出檔。",
+      message: `匯入檔使用 schema 版本 30，此程式可匯入 31 至 ${LATEST_SCHEMA_VERSION} 的匯出檔。`,
     },
   },
   {
