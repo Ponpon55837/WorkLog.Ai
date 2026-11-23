@@ -1,7 +1,7 @@
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   encodeClaudeProjectDir,
   formatForAgent,
@@ -218,20 +218,15 @@ describe("resolveUsageSources", () => {
     const rolloutFile = rollout("04", "aaaaaaaa-0000-4000-8000-000000000004", codexLines("C:\\Work\\Mono"));
     const lower = rollout("05", "aaaaaaaa-0000-4000-8000-000000000005", codexLines("c:/work/MONO/"));
 
-    const posix = await resolveUsageSources(roots, dirs);
+    const posix = await resolveUsageSources(roots, dirs, { platform: "linux" });
     expect(posix.groups[0]?.claudeFolders.map((folder) => folder.slice(dirs.claudeProjectsDir.length + 1))).toEqual([
       "C--Work-Mono",
     ]);
     expect(posix.groups[0]?.codexFiles).toEqual([rolloutFile]);
 
-    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
-    try {
-      const windows = await resolveUsageSources(roots, dirs);
-      expect(windows.groups[0]?.claudeFolders).toHaveLength(2);
-      expect(windows.groups[0]?.codexFiles).toEqual([rolloutFile, lower]);
-    } finally {
-      platform.mockRestore();
-    }
+    const windows = await resolveUsageSources(roots, dirs, { platform: "win32" });
+    expect(windows.groups[0]?.claudeFolders).toHaveLength(2);
+    expect(windows.groups[0]?.codexFiles).toEqual([rolloutFile, lower]);
   });
 });
 

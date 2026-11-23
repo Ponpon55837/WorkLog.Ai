@@ -3,9 +3,12 @@ import process from "node:process";
 const ABSOLUTE = /^(?:[\\/]|[A-Za-z]:[\\/])/;
 const DRIVE_ROOT = /^[A-Za-z]:$/;
 
-/** Windows compares paths case-insensitively; the same rule `sources.ts` applies to Claude folder names and cwd. */
-export function foldPath(value: string): string {
-  return process.platform === "win32" ? value.toLowerCase() : value;
+/**
+ * Windows compares paths case-insensitively; the same rule `sources.ts` applies to Claude folder names and cwd. The
+ * platform is a parameter so tests can check both rules on any runner.
+ */
+export function foldPath(value: string, platform: NodeJS.Platform = process.platform): string {
+  return platform === "win32" ? value.toLowerCase() : value;
 }
 
 /**

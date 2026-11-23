@@ -72,15 +72,15 @@ export function defaultUsageSourceDirs(): UsageSourceDirs {
  * does not use it: the shortened name of a long ancestor is also a prefix of its descendants' folders, so it could not
  * tell the ancestor's own conversations from a project's.
  */
-function folderMatches(name: string, encoded: string, truncated = true): boolean {
-  const folded = foldPath(name);
-  const base = foldPath(encoded);
+function folderMatches(name: string, encoded: string, platform: NodeJS.Platform, truncated = true): boolean {
+  const folded = foldPath(name, platform);
+  const base = foldPath(encoded, platform);
   if (folded === base || folded.startsWith(base + WORKTREE_MARKER)) return true;
   return truncated && encoded.length > CLAUDE_NAME_LIMIT && folded.startsWith(base.slice(0, CLAUDE_NAME_LIMIT));
 }
 
-function isInside(root: string, candidate: string): boolean {
-  const fold = process.platform === "win32" ? (value: string) => value.toLowerCase() : (value: string) => value;
+function isInside(root: string, candidate: string, platform: NodeJS.Platform): boolean {
+  const fold = (value: string): string => foldPath(value, platform);
   const path = relative(fold(resolve(root)), fold(resolve(candidate)));
   return path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path));
 }
@@ -198,9 +198,10 @@ export async function resolveProjectSources(
 export async function resolveUsageSources(
   projects: UsageProjectInput[],
   dirs: UsageSourceDirs = defaultUsageSourceDirs(),
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; platform?: NodeJS.Platform } = {},
 ): Promise<UsageSources> {
   const { signal } = options;
+  const platform = options.platform ?? process.platform;
   let claudeState: DirState = "ok";
   let claudeNames: string[] = [];
   try {
@@ -215,16 +216,16 @@ export async function resolveUsageSources(
   const own = projects.map((project) => {
     const encoded = encodeClaudeProjectDir(project.root);
     const claudeFolders = claudeNames
-      .filter((name) => folderMatches(name, encoded))
+      .filter((name) => folderMatches(name, encoded, platform))
       .sort()
       .map((name) => join(dirs.claudeProjectsDir, name));
     const codexFiles = codex.files.filter((file) => {
       const cwd = cwds.get(file);
-      return typeof cwd === "string" && isInside(project.root, cwd);
+      return typeof cwd === "string" && isInside(project.root, cwd, platform);
     });
     return { projectId: project.id, claudeFolders, codexFiles };
   });
-  const groups = sharedGroups(projects, own, claudeNames, codex.files, cwds, dirs);
+  const groups = sharedGroups(projects, own, claudeNames, codex.files, cwds, dirs, platform);
   const shared = new Set(groups.flatMap((group) => group.projectIds));
   return {
     groups,
@@ -244,12 +245,13 @@ function sharedGroups(
   codexFiles: string[],
   cwds: Map<string, string | null>,
   dirs: UsageSourceDirs,
+  platform: NodeJS.Platform,
 ): UsageSourceGroup[] {
-  const trackedRoots = new Set(projects.flatMap((project) => normalizedKey(project.root)));
+  const trackedRoots = new Set(projects.flatMap((project) => normalizedKey(project.root, platform)));
   const ancestors = new Map<string, { path: string; ids: string[] }>();
   for (const project of projects) {
     for (const path of ancestorsOf(project.root)) {
-      const key = foldPath(path);
+      const key = foldPath(path, platform);
       if (trackedRoots.has(key)) continue;
       const entry = ancestors.get(key) ?? { path, ids: [] };
       entry.ids.push(project.id);
@@ -261,14 +263,14 @@ function sharedGroups(
   const filesByCwd = new Map<string, string[]>();
   for (const file of codexFiles) {
     const cwd = cwds.get(file);
-    const key = typeof cwd === "string" ? normalizedKey(cwd)[0] : undefined;
+    const key = typeof cwd === "string" ? normalizedKey(cwd, platform)[0] : undefined;
     if (key !== undefined) filesByCwd.set(key, [...(filesByCwd.get(key) ?? []), file]);
   }
   const groups = new Map<string, UsageSourceGroup>();
   for (const [key, ancestor] of ancestors) {
     const encoded = encodeClaudeProjectDir(nativeSpelling(ancestor.path));
     const claudeFolders = claudeNames
-      .filter((name) => folderMatches(name, encoded, false))
+      .filter((name) => folderMatches(name, encoded, platform, false))
       .map((name) => join(dirs.claudeProjectsDir, name))
       .filter((folder) => !ownSources.has(folder));
     const rollouts = (filesByCwd.get(key) ?? []).filter((file) => !ownSources.has(file));
@@ -287,7 +289,7 @@ function sharedGroups(
 }
 
 /** The folded, normalised spelling of an absolute path as a one-item list (empty for a relative path). */
-function normalizedKey(path: string): string[] {
+function normalizedKey(path: string, platform: NodeJS.Platform): string[] {
   const normalized = normalizePath(path);
-  return normalized === null ? [] : [foldPath(normalized)];
+  return normalized === null ? [] : [foldPath(normalized, platform)];
 }
