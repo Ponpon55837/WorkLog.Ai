@@ -10,6 +10,8 @@
 - `knowledge-page-e2e.md`：5 個需要 Agent 判斷的頁面維護情境（K1 至 K5）、評分標準與用真實 Agent 執行的手冊。
 - `baseline.results.json`：目前版本的基準結果。
 - `baseline-report.md`：基準報告，含方法、限制、彙總數字與 A/B 的判斷原則。
+- `ab-results.json`：階段三 Agent 指引 A/B 的彙總數字（不含逐筆回答與 id）。
+- `ab-report.md`：階段三 A/B 報告，含方法、限制與結論；決策紀錄在 `docs/decisions/2026-11-agent-guidance-ab.md`。
 
 ## 執行
 
