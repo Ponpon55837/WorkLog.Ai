@@ -479,6 +479,8 @@ export interface AgentReadAuditItem {
   omittedKnowledgeCount: number;
   /** Wall time of the read in whole milliseconds; absent for rows recorded before timing existed. */
   durationMs?: number;
+  /** Characters (UTF-16 code units) of the MCP response sent for this read; absent when unknown (older rows). */
+  responseChars?: number;
   /**
    * Machine-readable code, never an error message: why the read failed (outcome `error`), or why a page lookup
    * found nothing (outcome `not_found`).
@@ -499,6 +501,17 @@ export interface AgentReadReference {
   agentClient?: string;
 }
 
+/** Size of the MCP responses of one tool, over the rows that recorded it (older rows are unknown and excluded). */
+export interface AgentReadResponseCharsStats {
+  /** Rows that carry a response size. */
+  count: number;
+  /** Nearest-rank percentiles in characters; null when count is 0. */
+  p50: number | null;
+  p95: number | null;
+  /** Sum of the recorded sizes. */
+  total: number;
+}
+
 /** Latency and failure counts for one MCP read tool over the retained audit window. */
 export interface AgentReadToolStats {
   tool: string;
@@ -510,6 +523,7 @@ export interface AgentReadToolStats {
   p50Ms: number | null;
   p95Ms: number | null;
   maxMs: number | null;
+  responseChars: AgentReadResponseCharsStats;
   /** Rows per code: failed reads (counted in errorCount) and the causes of not_found page lookups. */
   errorCodes: Record<string, number>;
 }

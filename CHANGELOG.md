@@ -4,6 +4,14 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Added
+
+- The Agent read audit records `responseChars`, the number of characters in the MCP response actually sent for each read (JavaScript string length, that is UTF-16 code units, not bytes or tokens): the text content plus `structuredContent` when present. Only the number is stored, never content. `GET /api/agent-reads` items carry it, `GET /api/agent-reads/stats` returns `responseChars: { count, p50, p95, total }` per tool (nearest-rank, rows with a recorded size only), and the System status page shows both.
+
+### Changed
+
+- SQLite schema 35 adds a nullable `response_chars` column to `agent_read_audit`. Existing rows stay NULL (unknown, not 0). The audit table is not part of project data export, so export and import formats are unchanged.
+
 ## [1.6.63] - 2026-11-23
 
 [繁體中文更新說明](docs/releases/1.6.63.md).

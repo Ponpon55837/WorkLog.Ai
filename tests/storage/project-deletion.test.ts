@@ -505,6 +505,7 @@ describe("project deletion", () => {
     for (const project of [target, other]) {
       store.recordAgentRead({
         tool: "work_recall",
+        responseChars: 321,
         result: {
           outcome: "recall",
           hits: [{ type: "session", id: `session-of-${project.id}`, projectId: project.id }],
@@ -516,7 +517,9 @@ describe("project deletion", () => {
 
     const check = new DatabaseSync(databasePath, { readOnly: true });
     try {
-      expect(check.prepare("SELECT project_id FROM agent_read_audit").all()).toEqual([{ project_id: other.id }]);
+      expect(check.prepare("SELECT project_id, response_chars FROM agent_read_audit").all()).toEqual([
+        { project_id: other.id, response_chars: 321 },
+      ]);
       expect(check.prepare("SELECT record_id FROM agent_read_audit_records").all()).toEqual([
         { record_id: `session-of-${other.id}` },
       ]);

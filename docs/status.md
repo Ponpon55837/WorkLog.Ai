@@ -6,6 +6,12 @@
 
 - 最後更新：2026-11-23
 
+## 未發布（Agent 讀取回應大小）
+
+- Agent 讀取稽核新增 `responseChars`：每次 MCP 讀取實際送出的回應字元數（JavaScript 字串長度，即 UTF-16 code unit；不是位元組也不是 token），只存數字，不存內容。用來判斷慢與貴是出在 SQLite、過大的回應，還是 Agent 的推理。
+- 系統狀態頁的各工具統計新增回應大小的 p50、p95 與總和；schema 35 之前的紀錄是未知，不列入。
+- 資料庫 schema 升到 35：`agent_read_audit` 新增可為空的 `response_chars`。稽核表不在專案資料匯出內，匯出與匯入格式不變。
+
 ## 1.6.63（知識頁覆蓋範圍與版本衝突）
 
 - 知識頁儲存不再把 Agent 沒看到的 Session 算成已涵蓋：context 截斷時被略過的 Session，以及讀取後才完成的 Session，保存後仍是新資料。

@@ -70,6 +70,46 @@ describe("MCP passive read audit", () => {
     expect(JSON.stringify(rows[0])).not.toContain("lantern");
   });
 
+  it("records the character count of the response actually sent, text plus structuredContent", async () => {
+    const { client, store, root } = await connect();
+    await call(client, "work_write_idempotent", "work_finalize_session", {
+      projectRoot: root,
+      idempotencyKey: "audit-mcp-chars",
+      title: "Synthetic chars lantern",
+      summary: "Synthetic chars lantern summary with a non-ASCII word: 燈籠.",
+      workSummary: { outcomes: ["Done."], scope: [], decisions: [], verification: [], nextSteps: [] },
+      changedFiles: ["src/a.ts"],
+      verification: { status: "passed" },
+    });
+    const sessionId = String(latestSessionId(store));
+    const sentChars = (response: Awaited<ReturnType<typeof call>>): number =>
+      (response.content as Array<{ type: string; text: string }>)
+        .filter((item) => item.type === "text")
+        .reduce((sum, item) => sum + item.text.length, 0) +
+      (response.structuredContent === undefined ? 0 : JSON.stringify(response.structuredContent).length);
+
+    const recall = await call(client, "work_read", "work_recall", { projectRoot: root, q: "lantern" });
+    const detail = await call(client, "work_read", "work_get_session", { sessionId });
+    // The two shapes differ: a Session detail also carries structuredContent, a recall carries text only.
+    expect(recall.structuredContent).toBeUndefined();
+    expect(detail.structuredContent).toBeDefined();
+
+    const rows = auditRows(store);
+    expect(rows.map((row) => row.response_chars)).toEqual([sentChars(recall), sentChars(detail)]);
+    expect(Number(rows[0]!.response_chars)).toBeGreaterThan(0);
+    expect(JSON.stringify(rows)).not.toContain("燈籠");
+  });
+
+  it("counts an invalid-input read's error response and never audits a write's size", async () => {
+    const { client, store } = await connect();
+    const invalid = await call(client, "work_read", "work_recall", { q: 5 });
+    expect(invalid.isError).toBe(true);
+    const rows = auditRows(store);
+    expect(rows.map((row) => [row.error_code, row.response_chars])).toEqual([
+      ["invalid_input", (invalid.content as Array<{ text: string }>)[0]!.text.length],
+    ]);
+  });
+
   it("audits an unchanged Session re-read as session_unchanged with its id", async () => {
     const { client, store, root } = await connect();
     await call(client, "work_write_idempotent", "work_finalize_session", {

@@ -97,3 +97,22 @@ export function sessionTextResult(value: unknown) {
     structuredContent: toSessionStructuredContent(value) ?? {},
   };
 }
+
+/**
+ * The character count of a tool response as the MCP layer sends it, for the read audit (a number only, never
+ * content). Algorithm, one pass and no extra serialization of the text: the sum of `text.length` over every
+ * `content` item of type "text" (textResult already holds the serialized JSON string), plus
+ * `JSON.stringify(structuredContent).length` when structuredContent is present, because the SDK sends it as a
+ * second JSON payload. Lengths are JavaScript string lengths, that is UTF-16 code units, not bytes or tokens.
+ */
+export function countResponseChars(response: {
+  content?: ReadonlyArray<{ type: string; text?: string }>;
+  structuredContent?: unknown;
+}): number {
+  let total = 0;
+  for (const item of response.content ?? []) {
+    if (item.type === "text" && typeof item.text === "string") total += item.text.length;
+  }
+  if (response.structuredContent !== undefined) total += JSON.stringify(response.structuredContent).length;
+  return total;
+}

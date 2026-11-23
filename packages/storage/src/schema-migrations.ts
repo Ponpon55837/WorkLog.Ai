@@ -985,6 +985,14 @@ const MIGRATIONS: SchemaMigration[] = [
     sql: `ALTER TABLE knowledge_pages ADD COLUMN covered_through_completed_at TEXT;
     ALTER TABLE knowledge_pages ADD COLUMN covered_through_session_id TEXT;`,
   },
+  {
+    version: 35,
+    name: "agent-read-audit-response-chars",
+    // Additive only. The character count of the MCP response an Agent read actually received, so slowness can be
+    // attributed to SQLite, an oversized response, or Agent reasoning. Only a number, never content. Existing rows
+    // keep NULL, which means unknown, not 0.
+    sql: `ALTER TABLE agent_read_audit ADD COLUMN response_chars INTEGER;`,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

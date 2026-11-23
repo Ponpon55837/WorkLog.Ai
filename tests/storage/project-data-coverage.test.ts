@@ -85,6 +85,26 @@ describe("project data coverage", () => {
     }
   });
 
+  it("keeps the read audit's response size a content-free number outside export and db:redact", () => {
+    // response_chars is an integer character count only: never content, so db:redact has nothing to scan, and the
+    // read audit stays out of the portable export (NOT_PROJECT_DATA). Retention pruning and permanent project
+    // deletion remove whole rows, so the column needs no handling of its own there.
+    const info = db.prepare("PRAGMA table_info(agent_read_audit)").all() as Array<{
+      name: string;
+      type: string;
+      notnull: number;
+      dflt_value: unknown;
+    }>;
+    expect(info.find((column) => column.name === "response_chars")).toMatchObject({
+      type: "INTEGER",
+      notnull: 0,
+      dflt_value: null,
+    });
+    expect(NOT_PROJECT_DATA.agent_read_audit).toContain("content-free");
+    expect(Object.keys(REDACTED_TEXT_FIELDS)).not.toContain("agent_read_audit");
+    expect(PROJECT_DATA_TABLES).not.toContain("agent_read_audit");
+  });
+
   it("keeps raw handoff hashes on the rebuildable search index", () => {
     expect(columns(db, "search_chunks")).toContain("content_hash");
     expect(NOT_PROJECT_DATA.search_chunks).toContain("derived raw-content hashes");

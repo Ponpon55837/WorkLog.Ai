@@ -51,6 +51,12 @@ const SOURCES = [
     commit: "28b56a85e1fe7fee5bae8e4d9306fa5904493891",
     privateBlocks: true,
   },
+  {
+    schemaVersion: 34,
+    sourceVersion: "1.6.63",
+    commit: "2e6b8ad4fd2567984b4ce98178ba3fb4873f59e2",
+    privateBlocks: true,
+  },
 ];
 
 function run(command, args, cwd, label = command) {

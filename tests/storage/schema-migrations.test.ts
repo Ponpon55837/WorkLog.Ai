@@ -1072,3 +1072,38 @@ describe("knowledge page Session coverage migration", () => {
     }
   });
 });
+
+describe("agent read audit response size migration", () => {
+  it("adds a nullable response_chars column and leaves existing reads unknown, not 0", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializeWorkIntelligenceDatabase(db, ":memory:");
+      undoMigrationsAfter(db, 34);
+      expect(
+        (db.prepare("PRAGMA table_info(agent_read_audit)").all() as Array<{ name: string }>).map((c) => c.name),
+      ).not.toContain("response_chars");
+      db.exec(`INSERT INTO agent_read_audit (id, created_at, tool, outcome, duration_ms)
+        VALUES ('old-read', '2026-11-01T00:00:00.000Z', 'work_recall', 'recall', 12)`);
+      const revisions = db.prepare("SELECT data_revision FROM change_revisions").get();
+
+      applyRuntimeMigrations(db);
+
+      expect(db.prepare("SELECT version FROM schema_migrations WHERE version = 35").get()).toEqual({ version: 35 });
+      const columns = db.prepare("PRAGMA table_info(agent_read_audit)").all() as Array<Record<string, unknown>>;
+      expect(columns.find((column) => column.name === "response_chars")).toMatchObject({
+        type: "INTEGER",
+        notnull: 0,
+        dflt_value: null,
+      });
+      expect(
+        db.prepare("SELECT duration_ms, response_chars FROM agent_read_audit WHERE id = 'old-read'").get(),
+      ).toEqual({
+        duration_ms: 12,
+        response_chars: null,
+      });
+      expect(db.prepare("SELECT data_revision FROM change_revisions").get()).toEqual(revisions);
+    } finally {
+      db.close();
+    }
+  });
+});
