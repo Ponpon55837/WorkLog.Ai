@@ -74,7 +74,9 @@ jobs:
   package:
     name: Package (${{ matrix.slug }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
+    # Above the packaged smoke step's own 20 minutes plus the steps before it, so the evidence uploads still run when
+    # that step hits its limit.
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
@@ -182,10 +184,56 @@ jobs:
       # DT-07 multi-process stress under that same Node binary (scripts/run-sqlite-stress-with-node.mjs, before the
       # lifecycle spec uninstalls the App). Both write package-*.json files next to the packaging results. The load is
       # 6 s so the stress adds no more than ~30 s to a job (about 12 s measured on Linux, startup and teardown included).
+      #
+      # A normal run takes about 8 minutes on Windows (less on macOS). The step stops at 20; the script stops itself at
+      # 17 (WI_PACKAGED_SMOKE_TIMEOUT_MINUTES), kills the App's process tree, logs the phase it was in and still
+      # uninstalls. It writes its output and each sandbox's App logs to apps/desktop/packaged-smoke-logs/ as it runs.
       - name: Packaged smoke test
+        timeout-minutes: 20
         env:
           WI_PACKAGED_STRESS_SECONDS: "6"
+          WI_PACKAGED_SMOKE_TIMEOUT_MINUTES: "17"
         run: pnpm test:desktop-packaged
+
+      - name: Summarize the packaged smoke log
+        if: always()
+        shell: bash
+        run: |
+          dir=apps/desktop/packaged-smoke-logs
+          {
+            echo "### Packaged smoke (${{ matrix.slug }})"
+            if [ -f "$dir/timeout.txt" ]; then echo "**$(cat "$dir/timeout.txt")**"; fi
+            if [ -f "$dir/phase.txt" ]; then echo "Last phase: \`$(head -n 1 "$dir/phase.txt")\`"; fi
+            echo
+            echo "<details><summary>Last 150 lines of smoke.log</summary>"
+            echo
+            echo '```'
+            if [ -f "$dir/smoke.log" ]; then tail -n 150 "$dir/smoke.log"; else echo "(no smoke.log)"; fi
+            echo '```'
+            echo "</details>"
+            for log in "$dir"/app-logs/*/desktop-main.log; do
+              [ -f "$log" ] || continue
+              echo
+              echo "<details><summary>Last 40 lines of $(basename "$(dirname "$log")")/desktop-main.log</summary>"
+              echo
+              echo '```'
+              tail -n 40 "$log"
+              echo '```'
+              echo "</details>"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the packaged smoke logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-packaged-logs-${{ matrix.slug }}
+          path: |
+            apps/desktop/packaged-smoke-logs
+            apps/desktop/perf-results/packaged-perf-*.json
+            apps/desktop/test-results-packaged
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload the packaged performance results
         if: always()

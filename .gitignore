@@ -21,6 +21,7 @@ playwright-report/
 playwright-report-packaged/
 # Desktop performance results (apps/desktop, written by the smoke run)
 perf-results/
+packaged-smoke-logs/
 # Desktop UI screenshots (apps/desktop, written by the smoke runs; CI uploads them as artifacts)
 apps/desktop/screenshots/
 # Desktop packaging results (apps/desktop, written by pnpm package:desktop)

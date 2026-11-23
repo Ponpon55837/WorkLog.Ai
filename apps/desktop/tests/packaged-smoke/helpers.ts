@@ -1,7 +1,17 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { BACKGROUND_FLAG, isSettledRepairFailure } from "@work-intelligence/desktop-core";
 import { windowsPowerShell, windowsSystemTool } from "@work-intelligence/shared/windows-system-tool";
 import { WorkIntelligenceStore } from "@work-intelligence/storage";
@@ -202,12 +212,28 @@ export async function createSandbox(options: {
 }
 
 /**
+ * run-packaged-smoke.mjs passes WORK_INTELLIGENCE_PACKAGED_LOG_DIR: the sandbox's logs folder (the shell's main log, which
+ * also carries the backend's output) is copied there before the sandbox goes, so CI can upload it after a failure.
+ */
+function keepSandboxLogs(sandbox: PackagedSandbox): void {
+  const target = process.env.WORK_INTELLIGENCE_PACKAGED_LOG_DIR;
+  const logs = dirname(sandbox.logFile);
+  if (!target || !existsSync(logs)) return;
+  try {
+    cpSync(logs, join(target, basename(sandbox.root)), { recursive: true, force: true });
+  } catch {
+    // Evidence only: a log that cannot be copied never fails the test.
+  }
+}
+
+/**
  * Removes the sandbox. Anything still holding it blocks the removal on Windows (EPERM), so first every process that names
  * the sandbox root in its command line or lives under it, or that descends from a launch of this sandbox (the App's own
  * helpers, or an external browser the OS started for the Dashboard, which inherits the sandbox profile), gets a few
  * seconds to exit by itself and is then terminated. If the removal still fails, the error lists who holds the sandbox.
  */
 export async function removeSandbox(sandbox: PackagedSandbox): Promise<void> {
+  keepSandboxLogs(sandbox);
   const { browsers, survivors } = await settleBrowsersStartedSince(
     browsersBeforeTests ?? { takenAt: 0, processes: [] },
     sandbox.root,
@@ -412,9 +438,47 @@ function describeProcess(candidate: ProcessInfo, processes: readonly ProcessInfo
   );
 }
 
-/** Windows: `taskkill /T /F` by absolute System32 path (the tree goes with the root); elsewhere SIGKILL. */
-function terminateProcesses(targets: readonly ProcessInfo[]): void {
+/**
+ * When this run began: run-packaged-smoke.mjs passes its start time, so everything that existed before it (the CI step's
+ * shell, Runner.Worker and Runner.Listener, the developer's own programs) is older and never ended by a test.
+ */
+const RUN_STARTED_AT = Number(process.env.WORK_INTELLIGENCE_PACKAGED_RUN_STARTED_AT) || Date.now();
+
+/**
+ * The processes a test must never end, whatever a scan says: this process and its ancestors (Playwright, the smoke
+ * script, pnpm, the CI step's shell and the runner), the system's own low pids, and anything created before the run.
+ * Windows reuses pids and keeps a dead parent's pid as `ppid`, so a tree walked from a launch that already ended can
+ * reach unrelated processes; `taskkill /T` on one of the runner's would end the job with no log.
+ */
+function protectedProcesses(processes: readonly ProcessInfo[]): Set<number> {
+  const kept = new Set<number>([0, 4, process.pid]);
+  const byPid = new Map(processes.map((candidate) => [candidate.pid, candidate]));
+  let current = byPid.get(process.pid);
+  while (current && !kept.has(current.ppid)) {
+    kept.add(current.ppid);
+    current = byPid.get(current.ppid);
+  }
+  for (const candidate of processes) {
+    if (candidate.startedAt !== undefined && candidate.startedAt < RUN_STARTED_AT) kept.add(candidate.pid);
+  }
+  return kept;
+}
+
+/**
+ * Windows: `taskkill /T /F` by absolute System32 path (the tree goes with the root); elsewhere SIGKILL. A protected target
+ * (see `protectedProcesses`) is skipped, and every decision is logged so a CI run shows what a test ended.
+ */
+function terminateProcesses(candidates: readonly ProcessInfo[]): void {
+  if (candidates.length === 0) return;
+  const kept = protectedProcesses(listProcesses());
+  const targets = candidates.filter((candidate) => !kept.has(candidate.pid));
+  for (const skipped of candidates.filter((candidate) => kept.has(candidate.pid))) {
+    console.warn(`[packaged-smoke] not ending protected pid ${skipped.pid}: ${skipped.commandLine.slice(0, 200)}`);
+  }
   for (const target of targets) {
+    console.warn(
+      `[packaged-smoke] ending pid ${target.pid} (ppid ${target.ppid}): ${target.commandLine.slice(0, 200)}`,
+    );
     try {
       if (process.platform === "win32") {
         execFileSync(windowsSystemTool("taskkill.exe"), ["/PID", String(target.pid), "/T", "/F"], {
@@ -485,7 +549,8 @@ export function startApp(
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
-  launchedPids.set(sandbox.root, [...(launchedPids.get(sandbox.root) ?? []), child.pid ?? 0]);
+  // No pid (the spawn failed) records nothing: pid 0's "tree" is every process on Windows.
+  if (child.pid !== undefined) launchedPids.set(sandbox.root, [...(launchedPids.get(sandbox.root) ?? []), child.pid]);
   // `--quit` is interactive only so that it is not `--background`; it opens nothing.
   if ((options.interactive && !extra.includes("--quit")) || options.opensDashboard) {
     browserOpeningLaunches.add(sandbox.root);
