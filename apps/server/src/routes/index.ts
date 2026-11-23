@@ -12,6 +12,7 @@ import { reportRoutes } from "./reports.js";
 import type { Route } from "./router.js";
 import { sessionRoutes } from "./sessions.js";
 import { systemRoutes } from "./system.js";
+import { usageRoutes } from "./usage.js";
 
 export {
   Router,
@@ -39,4 +40,5 @@ export const apiRoutes: readonly Route[] = [
   ...outstandingItemRoutes,
   ...outstandingCleanupRoutes,
   ...backfillRoutes,
+  ...usageRoutes,
 ];

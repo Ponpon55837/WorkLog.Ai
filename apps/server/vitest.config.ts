@@ -33,6 +33,9 @@ export const serverAliases = {
   "@work-intelligence/shared/port-failure": fileURLToPath(
     new URL("../../packages/shared/src/port-failure.ts", import.meta.url),
   ),
+  "@work-intelligence/shared/agent-usage": fileURLToPath(
+    new URL("../../packages/shared/src/agent-usage/index.ts", import.meta.url),
+  ),
   "@work-intelligence/shared/windows-system-tool": fileURLToPath(
     new URL("../../packages/shared/src/windows-system-tool.ts", import.meta.url),
   ),

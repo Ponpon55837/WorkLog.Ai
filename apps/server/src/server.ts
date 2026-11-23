@@ -34,6 +34,7 @@ import {
 } from "./http.js";
 import { StagedImports } from "./staged-imports.js";
 import { transferRoot as defaultTransferRoot } from "./transfer-workspace.js";
+import { defaultUsageScanContext, InlineUsageOperations, type UsageOperations } from "./usage-scan.js";
 import { getUserServiceStatusAsync } from "./user-service.js";
 import { mcpLeaseDiagnosis, withHostObservations } from "./agent-observations.js";
 import { createDesktopRouteServices, type DesktopHandlerOptions } from "./desktop-services.js";
@@ -155,6 +156,8 @@ export interface ApiHandlerOptions {
   userServiceStatus?: () => UserServiceStatus | Promise<UserServiceStatus>;
   /** Offloads disk snapshots and large project-data preparation from the API event loop. */
   backgroundStore?: BackgroundStoreOperations;
+  /** Scans local Agent logs for `/api/usage/*`; defaults to an in-process scan of the current user's logs. */
+  usage?: UsageOperations;
   /** What the background worker is doing, when there is one (desktop child only). */
   backgroundActivity?: () => readonly DesktopBackendActivity[];
   /** Where large uploads and exports are staged; defaults to `tmp` beside the store's database. */
@@ -342,6 +345,11 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
     userServiceStatus: inspectUserService,
     ...(options.desktop ? { desktop: createDesktopRouteServices(options.desktop, store.backupDirectory) } : {}),
     backgroundStore,
+    usage:
+      options.usage ??
+      new InlineUsageOperations(
+        defaultUsageScanContext(store.databasePath === ":memory:" ? undefined : dirname(store.databasePath)),
+      ),
     transferRoot,
     stagedImports,
     instanceProof: (request) => {

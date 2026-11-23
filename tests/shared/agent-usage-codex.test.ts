@@ -93,7 +93,7 @@ describe("Codex rollouts", () => {
     });
     const report = await summarizeFiles([dir]);
     expect(report.sessions).toHaveLength(1);
-    const [session] = report.sessions;
+    const session = report.sessions[0]!;
     expect(session.tokens).toEqual({ input: 150, output: 30, cacheRead: 100, cacheCreation: 0, reasoningOutput: 6 });
     expect(session.assistantMessages).toBe(2);
     expect(session.turns).toBe(2);
@@ -260,8 +260,8 @@ describe("Codex rollouts", () => {
     expect(report.total.turns).toBe(1);
     expect(report.total.toolCalls).toBe(1);
     expect(report.total.toolCallsByName).toEqual({});
-    expect(report.sessions[0].firstTimestamp).toBe(at(10));
-    expect(report.sessions[0].lastTimestamp).toBe(at(20));
+    expect(report.sessions[0]!.firstTimestamp).toBe(at(10));
+    expect(report.sessions[0]!.lastTimestamp).toBe(at(20));
   });
 
   it("never echoes an unsafe tool name", async () => {

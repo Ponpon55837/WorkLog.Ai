@@ -12,9 +12,14 @@ if (!existsSync(workerEntry)) {
   throw new Error("The built backup worker is missing from apps/server/dist after runtime finalization.");
 }
 
-const [{ WorkIntelligenceStore }, { BackupWorkerClient }] = await Promise.all([
+if (!existsSync(join(serverDist, "usage-worker.js"))) {
+  throw new Error("The built usage worker is missing from apps/server/dist after runtime finalization.");
+}
+
+const [{ WorkIntelligenceStore }, { BackupWorkerClient }, { UsageWorkerClient }] = await Promise.all([
   import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "index.js")).href),
   import(pathToFileURL(join(serverDist, "backup-worker-client.js")).href),
+  import(pathToFileURL(join(serverDist, "usage-worker-client.js")).href),
 ]);
 const root = mkdtempSync(join(tmpdir(), "work-intelligence-built-backup-worker-"));
 const databasePath = join(root, "synthetic.sqlite");
@@ -64,6 +69,13 @@ try {
   } finally {
     exportedDatabase.close();
   }
+  // The built usage worker scans an empty synthetic folder in its own process.
+  const usageFolder = join(root, "synthetic-usage");
+  mkdirSync(usageFolder);
+  const usage = await new UsageWorkerClient({
+    dirs: { claudeProjectsDir: join(root, "none"), codexSessionsDir: join(root, "none") },
+  }).scan({ projects: [], manualFolders: [usageFolder] });
+  if (usage.report.total.sessions !== 0) throw new Error("The built usage worker returned an unexpected report.");
   console.log("Built backup worker passed synthetic backup, export, import-preview and SQLite integrity checks.");
 } finally {
   try {

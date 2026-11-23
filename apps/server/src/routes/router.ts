@@ -19,6 +19,7 @@ import type { McpLeaseDiagnosis } from "@work-intelligence/shared/agent-observat
 import type { McpRuntimeStatus } from "@work-intelligence/shared/mcp-runtime";
 import { sendError, sendJson } from "../http.js";
 import type { StagedImports } from "../staged-imports.js";
+import type { UsageOperations } from "../usage-scan.js";
 
 export type RouteMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
@@ -85,6 +86,8 @@ export interface RouteServices {
   /** Present only in desktop-child mode; absent for a standalone server. */
   desktop?: DesktopRouteServices;
   backgroundStore: BackgroundStoreOperations;
+  /** Reads the local Agent logs for the Usage page; counts only, in a child process in production. */
+  usage: UsageOperations;
   /** Where large uploads and exports are staged: `tmp` beside the database (see transfer-workspace.ts). */
   transferRoot: string;
   /** Export files saved for an import from the Web UI, referred to by id (see staged-imports.ts). */

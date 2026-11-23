@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { dirname } from "node:path";
 import {
   backupOptionsFromEnvironment,
   DatabaseInitializationError,
@@ -11,6 +12,8 @@ import { readFileIdentity, sameFileIdentity } from "@work-intelligence/shared/fi
 import { STANDALONE } from "@work-intelligence/shared/database-location";
 import { databasePath as configuredDatabasePath, storeOptions as configuredStoreOptions } from "./config.js";
 import { BackupWorkerClient } from "./backup-worker-client.js";
+import { defaultUsageScanContext } from "./usage-scan.js";
+import { UsageWorkerClient } from "./usage-worker-client.js";
 import { sweepTransferDirectories, TRANSFER_SWEEP_INTERVAL_MS, transferRoot } from "./transfer-workspace.js";
 import {
   readOpenedIdentity,
@@ -220,7 +223,11 @@ export function startApi(options: StartApiOptions = {}): StartedApi {
     apiHandler = createApiHandler(store, {
       ...(webDirectory ? { webDirectory } : {}),
       ...(backupWorker
-        ? { backgroundStore: backupWorker, backgroundActivity: () => backupWorker?.activity() ?? [] }
+        ? {
+            backgroundStore: backupWorker,
+            backgroundActivity: () => backupWorker?.activity() ?? [],
+            usage: new UsageWorkerClient(defaultUsageScanContext(dirname(databasePath))),
+          }
         : {}),
       ...(options.instanceRunId ? { instanceRunId: options.instanceRunId } : {}),
       ...(options.desktop ? { desktop: options.desktop } : {}),
