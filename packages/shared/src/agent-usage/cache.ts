@@ -5,7 +5,7 @@ import { isRecord } from "./metrics.js";
 import type { ClaudeRecord } from "./types.js";
 
 /** Bump when the record or entry format changes; entries of another version are dropped on load. */
-export const CACHE_VERSION = 1;
+export const CACHE_VERSION = 2;
 
 /** What one Claude Code file contributed, valid while its size and mtime are unchanged. */
 export interface UsageCacheEntry {

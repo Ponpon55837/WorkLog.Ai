@@ -1,7 +1,7 @@
-import type { CodexContext } from "./codex.js";
+import type { CodexContext, FirstCredit } from "./codex.js";
 import { emptyMetrics, type MetricsAcc } from "./metrics.js";
 import type { ToolInfo } from "./tools.js";
-import type { UsageScanOptions } from "./types.js";
+import type { TokenCounts, UsageAgentId, UsageEvent, UsageScanOptions } from "./types.js";
 
 interface SessionAcc extends MetricsAcc {
   key: string;
@@ -9,6 +9,10 @@ interface SessionAcc extends MetricsAcc {
 
 /** Everything a scan accumulates; the Claude reducer and the Codex parser both write into it. */
 export interface ScanState {
+  /** The present (epoch ms) the 5-hour blocks are measured against. */
+  now: number;
+  /** Usage of the last 24 hours, for the blocks. */
+  events: UsageEvent[];
   since: number | null;
   until: number | null;
   sessions: Map<string, SessionAcc>;
@@ -23,21 +27,23 @@ export interface ScanState {
   codexCompactionCarryovers: number;
   codexContextOutputs: number;
   codexThreadCredited: Map<string, Record<string, number>>;
-  codexContinuations: { key: string; previous: string; first: Record<string, number> }[];
-  messageUsage: Map<string, { input: number; output: number; cacheRead: number; cacheCreation: number }>;
+  codexContinuations: { key: string; previous: string; first: FirstCredit }[];
+  messageUsage: Map<string, { model: string; input: number; output: number; cacheRead: number; cacheCreation: number }>;
   toolNames: Map<string, ToolInfo>;
   seenToolResults: Set<string>;
   codexTokenTuples: Set<string>;
   file: { path: string; codex: CodexContext | null };
 }
 
-export function createState(options: Pick<UsageScanOptions, "since" | "until">): ScanState {
+export function createState(options: Pick<UsageScanOptions, "since" | "until" | "now">): ScanState {
   const since = options.since === undefined ? null : Date.parse(options.since);
   const until = options.until === undefined ? null : Date.parse(options.until);
   if ((since !== null && Number.isNaN(since)) || (until !== null && Number.isNaN(until))) {
     throw new Error("Invalid --since/--until value: expected an ISO 8601 date.");
   }
   return {
+    now: options.now ?? Date.now(),
+    events: [],
     since,
     until,
     sessions: new Map(),
@@ -69,6 +75,21 @@ export function sessionFor(state: ScanState, sessionId: unknown): SessionAcc {
     state.sessions.set(key, session);
   }
   return session;
+}
+
+const EVENT_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** Keeps a usage event for the blocks when it is within 24 hours of now; the returned object may be corrected later. */
+export function recordUsageEvent(
+  state: ScanState,
+  agent: UsageAgentId,
+  time: number | null,
+  tokens: TokenCounts,
+): UsageEvent | null {
+  if (time === null || time < state.now - EVENT_WINDOW_MS) return null;
+  const event: UsageEvent = { agent, time, tokens: { ...tokens } };
+  state.events.push(event);
+  return event;
 }
 
 /** Returns false when the line falls outside the requested time range (epoch ms; null = no valid timestamp). */

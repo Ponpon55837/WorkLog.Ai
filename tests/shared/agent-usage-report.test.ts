@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  COST_MULTIPLIERS,
-  estimateCostShares,
-  estimateCostUnits,
+  cacheReadShareOf,
   formatForAgent,
   formatShapes,
   formatTable,
+  primaryOf,
   UsageScanAbortedError,
   UsageScanTimeoutError,
   type UsageReport,
@@ -27,6 +26,8 @@ function metrics(overrides: Record<string, unknown> = {}) {
     unknownToolResultChars: 0,
     sidechainLines: 0,
     tokens: { ...ZERO_TOKENS },
+    models: [],
+    daily: [],
     firstTimestamp: null,
     lastTimestamp: null,
     ...overrides,
@@ -46,6 +47,7 @@ function report(overrides: Record<string, unknown> = {}): UsageReport {
     codexCompactionLinked: 0,
     codexCompactionCarryovers: 0,
     codexContextOutputs: 0,
+    blocks: [],
     cache: { reused: 0, appended: 0, parsed: 0, bytesRead: 0 },
     ...overrides,
   } as unknown as UsageReport;
@@ -67,6 +69,10 @@ function populated(): UsageReport {
         "work_read/work_d": { calls: 1, resultChars: 1 },
       },
       tokens,
+      models: [
+        { agent: "claude-code", model: "claude-sonnet-4-5", tokens, responses: 3 },
+        { agent: "codex", model: "", tokens: { ...ZERO_TOKENS, input: 7 }, responses: 1 },
+      ],
       firstTimestamp: "2026-03-01T00:00:00.000Z",
       lastTimestamp: "2026-03-01T00:00:09.000Z",
     }),
@@ -85,21 +91,14 @@ function populated(): UsageReport {
   });
 }
 
-describe("cost estimates", () => {
-  it("weights tokens by the documented multipliers", () => {
-    const tokens = { input: 10, output: 2, cacheRead: 100, cacheCreation: 4 };
-    expect(estimateCostUnits(tokens)).toBe(
-      10 * COST_MULTIPLIERS.input +
-        4 * COST_MULTIPLIERS.cacheCreation +
-        100 * COST_MULTIPLIERS.cacheRead +
-        2 * COST_MULTIPLIERS.output,
-    );
+describe("primary and cache share", () => {
+  it("adds only input and output to the headline", () => {
+    expect(primaryOf({ input: 10, output: 2 })).toBe(12);
   });
 
-  it("returns fractions that sum to one, and zeros without tokens", () => {
-    const shares = estimateCostShares({ input: 10, output: 2, cacheRead: 100, cacheCreation: 4 });
-    expect(shares.input + shares.output + shares.cacheRead + shares.cacheCreation).toBeCloseTo(1);
-    expect(estimateCostShares(ZERO_TOKENS)).toEqual(ZERO_TOKENS);
+  it("reads the cache share of input-side tokens, or null without any", () => {
+    expect(cacheReadShareOf({ input: 10, output: 2, cacheRead: 100, cacheCreation: 4 })).toBeCloseTo(100 / 114);
+    expect(cacheReadShareOf({ ...ZERO_TOKENS, output: 5 })).toBeNull();
   });
 });
 
@@ -145,13 +144,36 @@ describe("formatForAgent", () => {
     expect(text).toContain("2026-03-01 - 2026-03-02");
     expect(text).toContain("work_read/work_a: 2, 11, 6");
     expect(text).toContain("work_write_additive/work_c: 0, 0, 0");
-    expect(text.indexOf("codex")).toBeLessThan(text.indexOf("claude"));
+    expect(text.indexOf("codex:")).toBeLessThan(text.indexOf("claude:"));
   });
 
   it("renders Traditional Chinese labels", () => {
     const text = formatForAgent(populated(), { locale: "zh-TW" });
-    expect(text).toContain("快取讀取");
-    expect(text).toContain("估算成本占比");
+    expect(text).toContain("輸入 + 輸出（不含快取）: 120");
+    expect(text).toContain("快取讀取 1000");
+    expect(text).toContain("快取寫入 10");
+    expect(text).toContain("快取讀取占比（占全部輸入端 token）");
+    expect(text).toContain("模型分布");
+    expect(text).toContain("未標示模型");
+    expect(text).not.toContain("估算成本");
+  });
+
+  it("puts the headline apart from the cache and lists models and conversations by input + output", () => {
+    const text = formatForAgent(populated());
+    expect(text).toContain("input + output (excl. cache): 120");
+    expect(text).toContain("cache read 1000, cache write 10, cache read share (of all input-side tokens) 90.1%");
+    expect(text).toContain("claude-code / claude-sonnet-4-5: input + output (excl. cache) 120, cache read 1000");
+    expect(text).toContain("codex / unlabelled model: input + output (excl. cache) 7, cache read 0");
+    expect(text).not.toMatch(/cost|multiplier/i);
+    expect(text.indexOf("codex:")).toBeLessThan(text.indexOf("claude:"));
+  });
+
+  it("formatTable adds a primary column and a models block", () => {
+    const text = formatTable(populated());
+    expect(text).toContain("primary");
+    expect(text).toContain("claude-code claude-sonnet-4-5: 120, 1000, 10, 3");
+    expect(text).toContain("codex (unlabelled): 7, 0, 0, 1");
+    expect(text).not.toMatch(/cost/i);
   });
 
   it("prints placeholders when there is nothing to list", () => {

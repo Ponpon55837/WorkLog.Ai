@@ -24,6 +24,8 @@ export interface UsageScanInput {
   manualFolders: string[];
   since?: string;
   until?: string;
+  /** The present (epoch ms) for the 5-hour blocks; tests set it, the default is the current time. */
+  now?: number;
 }
 
 export interface UsageScanOutcome {
@@ -95,6 +97,7 @@ export async function runUsageScan(
   const report = await summarizeFiles([...new Set(paths)], {
     ...(input.since ? { since: input.since } : {}),
     ...(input.until ? { until: input.until } : {}),
+    ...(input.now === undefined ? {} : { now: input.now }),
     ...(signal ? { signal } : {}),
     ...(deadlineMs === undefined ? {} : { deadlineMs }),
     cache,

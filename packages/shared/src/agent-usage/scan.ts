@@ -4,6 +4,7 @@ import { createReadStream } from "node:fs";
 import { open, readdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { buildActiveBlocks } from "./blocks.js";
 import { endCodexFile, handleCodexLine, linkCodexCompactions } from "./codex.js";
 import { reduceClaudeRecords } from "./claude.js";
 import { CACHE_VERSION, type UsageCacheEntry } from "./cache.js";
@@ -180,6 +181,7 @@ export async function summarizeFiles(paths: string[], options: UsageScanOptions 
     codexCompactionLinked: state.codexCompactionLinked,
     codexCompactionCarryovers: state.codexCompactionCarryovers,
     codexContextOutputs: state.codexContextOutputs,
+    blocks: buildActiveBlocks(state.events, state.now),
     cache: counts,
   };
 }

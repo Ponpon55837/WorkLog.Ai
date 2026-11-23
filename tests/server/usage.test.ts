@@ -184,20 +184,59 @@ describe("POST /api/usage/scan", () => {
       workIntelligenceCalls: 1,
       workIntelligenceShare: 0.5,
     });
-    expect(body.tokens).toEqual({ input: 10, output: 20, cacheRead: 100, cacheCreation: 5 });
+    expect(body.tokens).toEqual({
+      input: 10,
+      output: 20,
+      cacheRead: 100,
+      cacheCreation: 5,
+      primary: 30,
+      cacheReadShare: 100 / 115,
+    });
     expect(body.operations).toEqual([{ key: "work_read/work_search_memory", calls: 1, resultChars: 40, avgChars: 40 }]);
     expect(body.otherTools).toEqual([{ name: "Read", calls: 1 }]);
     expect(body.sessions).toHaveLength(1);
     expect(body.sessions[0].label).toBe("session-1");
-    expect(body.costMultipliers).toEqual({ input: 1, cacheCreation: 1.25, cacheRead: 0.1, output: 5 });
-    expect(Object.values(body.costShares as Record<string, number>).reduce((sum, value) => sum + value, 0)).toBeCloseTo(
-      1,
-    );
+    expect(body.sessions[0].primary).toBe(30);
+    expect(body.models).toEqual([
+      {
+        agent: "claude-code",
+        model: "",
+        tokens: { input: 10, output: 20, cacheRead: 100, cacheCreation: 5 },
+        primary: 30,
+        responses: 1,
+      },
+    ]);
+    expect(body.daily).toHaveLength(1);
+    expect(body.blocks).toEqual(expect.any(Array));
+    for (const removed of ["costShares", "costMultipliers", "estimatedCostUnits"]) {
+      expect(JSON.stringify(body)).not.toContain(removed);
+    }
     expect(body.cache).toEqual({ reused: 0, appended: 0, parsed: 1 });
     expect(body.forAgentText).toContain("work_read/work_search_memory");
     expect(body.forAgentText).toContain("Demo app");
     expect(body.range.since).toEqual(expect.any(String));
     expect(body.problems).toEqual([]);
+  });
+
+  it("returns the active block only while the range reaches the present", async () => {
+    const fixture = createFixture();
+    const base = await listen(fixture.store, new InlineUsageOperations(fixture.context));
+
+    const open = (await (await post(base, { all: true, range: "7d" })).json()) as Record<string, any>;
+    expect(open.blocks).toHaveLength(1);
+    expect(open.blocks[0]).toMatchObject({ agent: "claude-code", primary: 30, tokens: { cacheRead: 100 } });
+    expect(open.blocks[0].remainingMs).toBeGreaterThan(0);
+
+    const past = (await (
+      await post(base, {
+        all: true,
+        range: "custom",
+        since: new Date(Date.now() - 3_600_000).toISOString(),
+        until: new Date(Date.now() - 1000).toISOString(),
+      })
+    ).json()) as Record<string, any>;
+    expect(past.blocks).toEqual([]);
+    expect(past.tokens.primary).toBe(30);
   });
 
   it("reuses the cache on a second scan with the same file", async () => {

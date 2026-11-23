@@ -1,5 +1,6 @@
-import { bump, bumpOperation, isRecord, TOKEN_FIELDS, touchTimestamps } from "./metrics.js";
-import { inRange, parseTimestamp, sessionFor, type ScanState } from "./state.js";
+import { bump, bumpOperation, creditBreakdown, isRecord, TOKEN_FIELDS, touchTimestamps } from "./metrics.js";
+import { safeModelId } from "./model.js";
+import { inRange, parseTimestamp, recordUsageEvent, sessionFor, type ScanState } from "./state.js";
 import { classifyTool } from "./tools.js";
 import type { ClaudeRecord, ClaudeToolResultRecord, ClaudeToolUseRecord } from "./types.js";
 
@@ -50,6 +51,8 @@ export function extractClaudeLine(line: Record<string, any>, intern: (value: str
   if (line.type === "assistant") {
     if (typeof message.id === "string") {
       record.m = message.id;
+      const model = safeModelId(message.model);
+      if (model !== "") record.md = model;
       if (isRecord(message.usage)) {
         const usage = TOKEN_FIELDS.map(([, key]) => positiveNumber(message.usage[key])) as [
           number,
@@ -102,16 +105,31 @@ export function reduceClaudeRecords(state: ScanState, records: readonly ClaudeRe
     if (record.m !== undefined) {
       let seen = state.messageUsage.get(record.m);
       if (!seen) {
-        seen = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
+        seen = { model: "", input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
         state.messageUsage.set(record.m, seen);
         session.assistantMessages += 1;
-      }
+        if (seen.model === "" && record.md !== undefined) seen.model = record.md;
+        creditBreakdown(
+          session,
+          "claude-code",
+          seen.model,
+          record.t,
+          { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+          1,
+        );
+      } else if (seen.model === "" && record.md !== undefined) seen.model = record.md;
       if (record.u) {
+        const delta = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
         for (const [index, [field]] of TOKEN_FIELDS.entries()) {
           const value = record.u[index] ?? 0;
           if (value <= seen[field]) continue;
-          session.tokens[field] += value - seen[field];
+          delta[field] = value - seen[field];
+          session.tokens[field] += delta[field];
           seen[field] = value;
+        }
+        if (TOKEN_FIELDS.some(([field]) => delta[field] > 0)) {
+          creditBreakdown(session, "claude-code", seen.model, record.t, delta, 0);
+          recordUsageEvent(state, "claude-code", record.t, delta);
         }
       }
     }

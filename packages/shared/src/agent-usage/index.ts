@@ -24,6 +24,29 @@
  * a parser may define `endFile(state)`, called after each file, and reads per-file context from `state.file`.
  * Lines no parser recognizes (other Claude Code line types, non-objects aside) are ignored.
  *
+ * Token basis: the headline is `primary` = fresh input + output. Cache reads and cache writes are reported separately
+ * and never added to it; `cacheReadShareOf` = cacheRead / (input + cacheRead + cacheCreation). There are no prices,
+ * multipliers, dollar amounts or network calls.
+ *
+ * Breakdowns (kept in the metrics accumulator so `mergeMetrics` carries them; `publicMetrics` turns them into lists):
+ * - `models`: tokens and responses per (agent, model). Agent is `codex` for Codex rollouts and `claude-code` otherwise.
+ *   Model ids pass `safeModelId` (allowlist: at most 96 characters, one or two `/`-separated segments of
+ *   [A-Za-z0-9][A-Za-z0-9._:@+-]{0,63}; no `..`, no drive letter, first segment not a path root such as users, home,
+ *   tmp); anything else is "" ("unlabelled model"), so a path in a model field never reaches a report. Claude Code: the
+ *   `message.model` of the assistant message (compact record field `md`); each message's token delta is credited to that
+ *   message's model, a later line of the same message id names the model only when the first line had none. Codex: the
+ *   latest `payload.model` of `turn_context` (or `session_meta`) lines; each credited token_count delta and each
+ *   `token_usage_record` fallback entry goes to the model current at that line. Responses are Claude Code assistant
+ *   messages and Codex credited deltas.
+ * - `daily`: tokens per local calendar day of the server (`YYYY-MM-DD`) of the line timestamp; lines without a
+ *   timestamp count in no day.
+ * - `blocks` (ccusage rules, per Agent, `buildActiveBlocks`): the first usage opens a block starting at its local hour
+ *   (offset taken from the host time zone, so +05:30 works) and ending 5 hours later; usage 5 hours after the block
+ *   start or 5 hours after the previous usage opens a new block. Only the last block per Agent is returned, and only
+ *   while active (`now` before its end and under 5 hours since its last usage). Usage events are kept only for the last
+ *   24 hours before `options.now` (default `Date.now()`), which bounds memory.
+ * - Codex compaction subtraction removes the replayed first delta from the same model, day and block it was credited to.
+ *
  * Rules (Claude Code):
  * - A streamed assistant message repeats the same `message.id` over several lines, each carrying the usage. Usage is
  *   counted once per id, using the per-field maximum seen for that id (the last line holds the final output_tokens,
@@ -78,22 +101,23 @@
 export { UsageCache } from "./cache.js";
 export { UsageScanAbortedError, UsageScanTimeoutError } from "./errors.js";
 export { summarizeFiles, summarizeShapes } from "./scan.js";
-export {
-  COST_MULTIPLIERS,
-  estimateCostShares,
-  estimateCostUnits,
-  formatForAgent,
-  formatShapes,
-  formatTable,
-} from "./report.js";
-export type { CostShares, ForAgentOptions } from "./report.js";
+export { buildActiveBlocks } from "./blocks.js";
+export { safeModelId } from "./model.js";
+export { cacheReadShareOf, formatForAgent, formatShapes, formatTable, primaryOf } from "./report.js";
+export type { ForAgentOptions } from "./report.js";
 export { defaultUsageSourceDirs, encodeClaudeProjectDir, resolveProjectSources } from "./sources.js";
 export type { UsageProjectInput, UsageProjectSources, UsageSourceDirs, UsageSourceProblem } from "./sources.js";
 export type {
+  DayUsage,
+  ModelUsage,
   OperationUsage,
   SessionUsage,
   ShapeReport,
+  TokenCounts,
+  UsageAgentId,
+  UsageBlock,
   UsageCacheCounts,
+  UsageEvent,
   UsageMetrics,
   UsageReport,
   UsageScanOptions,

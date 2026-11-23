@@ -1,4 +1,4 @@
-import type { ShapeReport, UsageMetrics, UsageReport, UsageTokens } from "./types.js";
+import type { ShapeReport, TokenCounts, UsageMetrics, UsageReport } from "./types.js";
 
 export interface ForAgentOptions {
   /** User-chosen tracked project names; the only names that may appear. */
@@ -7,16 +7,6 @@ export interface ForAgentOptions {
   until?: string;
   locale?: "en" | "zh-TW";
 }
-
-export interface CostShares {
-  input: number;
-  cacheCreation: number;
-  cacheRead: number;
-  output: number;
-}
-
-/** Assumed price of each token kind relative to one uncached input token. An estimate, not a bill. */
-export const COST_MULTIPLIERS = { input: 1, cacheCreation: 1.25, cacheRead: 0.1, output: 5 } as const;
 
 const TOP_SESSIONS = 10;
 const TOP_TOOLS = 10;
@@ -37,12 +27,16 @@ const LABELS = {
     cacheCreation: "cache write",
     cacheRead: "cache read",
     output: "output",
-    costTitle: "Estimated cost shares (estimate)",
-    costNote: "assumed multipliers relative to uncached input: input 1, cache write 1.25, cache read 0.1, output 5",
+    primary: "input + output (excl. cache)",
+    cache: "Cache (reported separately, never added to the headline)",
+    cacheShare: "cache read share (of all input-side tokens)",
+    models: "Models",
+    unlabelled: "unlabelled model",
+    responses: "responses",
     operations: "Work Intelligence operations (calls, result chars, average chars)",
-    topSessions: "Conversations with the highest estimated cost",
+    topSessions: "Conversations with the most input + output",
     topTools: "Top other tools",
-    units: "est. cost units",
+    perSession: "input + output",
     none: "none",
   },
   "zh-TW": {
@@ -60,42 +54,29 @@ const LABELS = {
     cacheCreation: "快取寫入",
     cacheRead: "快取讀取",
     output: "輸出",
-    costTitle: "估算成本占比（估算）",
-    costNote: "假設倍率（相對未快取輸入）：輸入 1、快取寫入 1.25、快取讀取 0.1、輸出 5",
+    primary: "輸入 + 輸出（不含快取）",
+    cache: "快取（另列，不計入主要數字）",
+    cacheShare: "快取讀取占比（占全部輸入端 token）",
+    models: "模型分布",
+    unlabelled: "未標示模型",
+    responses: "次回應",
     operations: "Work Intelligence 操作（呼叫次數、結果字元、平均字元）",
-    topSessions: "估算成本最高的對話",
+    topSessions: "輸入 + 輸出最多的對話",
     topTools: "其他常用工具",
-    units: "估算成本單位",
+    perSession: "輸入 + 輸出",
     none: "無",
   },
 } as const;
 
-/** Weighted token total of one token record, in input-token units (see COST_MULTIPLIERS). */
-export function estimateCostUnits(tokens: UsageTokens): number {
-  return (
-    tokens.input * COST_MULTIPLIERS.input +
-    tokens.cacheCreation * COST_MULTIPLIERS.cacheCreation +
-    tokens.cacheRead * COST_MULTIPLIERS.cacheRead +
-    tokens.output * COST_MULTIPLIERS.output
-  );
+/** Fresh input + output: the headline number. Cache reads and writes are never part of it. */
+export function primaryOf(tokens: Pick<TokenCounts, "input" | "output">): number {
+  return tokens.input + tokens.output;
 }
 
-/** Fractions of the estimated cost per token kind; all zero when there are no tokens. */
-export function estimateCostShares(tokens: UsageTokens): CostShares {
-  const units = {
-    input: tokens.input * COST_MULTIPLIERS.input,
-    cacheCreation: tokens.cacheCreation * COST_MULTIPLIERS.cacheCreation,
-    cacheRead: tokens.cacheRead * COST_MULTIPLIERS.cacheRead,
-    output: tokens.output * COST_MULTIPLIERS.output,
-  };
-  const sum = units.input + units.cacheCreation + units.cacheRead + units.output;
-  if (sum === 0) return { input: 0, cacheCreation: 0, cacheRead: 0, output: 0 };
-  return {
-    input: units.input / sum,
-    cacheCreation: units.cacheCreation / sum,
-    cacheRead: units.cacheRead / sum,
-    output: units.output / sum,
-  };
+/** cacheRead / (input + cacheRead + cacheCreation), 0..1, or null when there are no input-side tokens. */
+export function cacheReadShareOf(tokens: TokenCounts): number | null {
+  const inputSide = tokens.input + tokens.cacheRead + tokens.cacheCreation;
+  return inputSide > 0 ? tokens.cacheRead / inputSide : null;
 }
 
 export function formatShapes(result: ShapeReport): string {
@@ -116,13 +97,28 @@ function sortedOperations(metrics: UsageMetrics): [string, { calls: number; resu
 
 export function formatTable(report: UsageReport): string {
   const rows = [
-    ["session", "turns", "msgs", "tools", "wi-tools", "in", "out", "cache-r", "cache-w", "mcp-chars", "first", "last"],
+    [
+      "session",
+      "turns",
+      "msgs",
+      "tools",
+      "wi-tools",
+      "primary",
+      "in",
+      "out",
+      "cache-r",
+      "cache-w",
+      "mcp-chars",
+      "first",
+      "last",
+    ],
     ...[...report.sessions, { ...report.total, label: "total", hash: "" }].map((s) => [
       s.hash ? `${s.label}/${s.hash}` : s.label,
       s.turns,
       s.assistantMessages,
       s.toolCalls,
       Object.values(s.workIntelligenceTools).reduce((sum, n) => sum + n, 0),
+      primaryOf(s.tokens),
       s.tokens.input,
       s.tokens.output,
       s.tokens.cacheRead,
@@ -147,6 +143,16 @@ export function formatTable(report: UsageReport): string {
   return [
     ...table,
     "",
+    ...(report.total.models.length === 0
+      ? []
+      : [
+          "models (agent, model: primary = in+out, cache-r, cache-w, responses):",
+          ...report.total.models.map(
+            (m) =>
+              `  ${m.agent} ${m.model === "" ? "(unlabelled)" : m.model}: ${primaryOf(m.tokens)}, ${m.tokens.cacheRead}, ${m.tokens.cacheCreation}, ${m.responses}`,
+          ),
+          "",
+        ]),
     ...names("tools", report.total.toolCallsByName),
     ...names("work intelligence tools", report.total.workIntelligenceTools),
     ...(operations.length === 0
@@ -170,15 +176,16 @@ function percent(fraction: number): string {
 }
 
 /**
- * Plain text for pasting into an Agent: totals, token split, estimated cost shares, Work Intelligence operations, top
- * sessions (labels only) and top other tools. Carries only counts, safe tool names, operation ids and the given
- * project names; never a path, folder name, cwd or message text.
+ * Plain text for pasting into an Agent: totals, the input + output headline, cache numbers on their own line, the model
+ * split, Work Intelligence operations, top conversations (labels only, ranked by input + output) and top other tools.
+ * Carries only counts, safe tool names, operation ids, allowlisted model ids and the given project names; never a path,
+ * folder name, cwd or message text.
  */
 export function formatForAgent(report: UsageReport, options: ForAgentOptions = {}): string {
   const text = LABELS[options.locale ?? "en"];
   const total = report.total;
-  const shares = estimateCostShares(total.tokens);
   const wiCalls = Object.values(total.workIntelligenceTools).reduce((sum, n) => sum + n, 0);
+  const share = cacheReadShareOf(total.tokens);
   const out: string[] = [text.title];
   if (options.projectNames && options.projectNames.length > 0)
     out.push(`${text.projects}: ${options.projectNames.join(", ")}`);
@@ -187,13 +194,19 @@ export function formatForAgent(report: UsageReport, options: ForAgentOptions = {
     "",
     `${text.totals}: ${total.sessions} ${text.sessions}, ${total.turns} ${text.turns}, ${total.toolCalls} ${text.toolCalls}`,
     `${text.wiShare}: ${total.toolCalls === 0 ? "0.0%" : percent(wiCalls / total.toolCalls)} (${wiCalls}/${total.toolCalls})`,
-    `${text.tokens}: ${text.input} ${total.tokens.input}, ${text.cacheCreation} ${total.tokens.cacheCreation}, ${text.cacheRead} ${total.tokens.cacheRead}, ${text.output} ${total.tokens.output}`,
+    `${text.tokens}: ${text.input} ${total.tokens.input}, ${text.output} ${total.tokens.output}`,
+    `${text.primary}: ${primaryOf(total.tokens)}`,
+    `${text.cache}: ${text.cacheRead} ${total.tokens.cacheRead}, ${text.cacheCreation} ${total.tokens.cacheCreation}, ${text.cacheShare} ${share === null ? "-" : percent(share)}`,
     "",
-    `${text.costTitle}: ${text.input} ${percent(shares.input)}, ${text.cacheCreation} ${percent(shares.cacheCreation)}, ${text.cacheRead} ${percent(shares.cacheRead)}, ${text.output} ${percent(shares.output)}`,
-    text.costNote,
-    "",
-    `${text.operations}:`,
+    `${text.models}:`,
   );
+  if (total.models.length === 0) out.push(`  ${text.none}`);
+  for (const model of total.models) {
+    out.push(
+      `  ${model.agent} / ${model.model === "" ? text.unlabelled : model.model}: ${text.primary} ${primaryOf(model.tokens)}, ${text.cacheRead} ${model.tokens.cacheRead}`,
+    );
+  }
+  out.push("", `${text.operations}:`);
   const operations = sortedOperations(total);
   if (operations.length === 0) out.push(`  ${text.none}`);
   for (const [key, usage] of operations) {
@@ -202,13 +215,13 @@ export function formatForAgent(report: UsageReport, options: ForAgentOptions = {
   }
   out.push("", `${text.topSessions}:`);
   const sessions = report.sessions
-    .map((session) => ({ session, units: estimateCostUnits(session.tokens) }))
-    .sort((a, b) => b.units - a.units)
+    .map((session) => ({ session, primary: primaryOf(session.tokens) }))
+    .sort((a, b) => b.primary - a.primary || (a.session.label < b.session.label ? -1 : 1))
     .slice(0, TOP_SESSIONS);
   if (sessions.length === 0) out.push(`  ${text.none}`);
-  for (const { session, units } of sessions) {
+  for (const { session, primary } of sessions) {
     out.push(
-      `  ${session.label}: ${session.turns} ${text.turns}, ${session.toolCalls} ${text.toolCalls}, ${text.units} ${Math.round(units)}`,
+      `  ${session.label}: ${session.turns} ${text.turns}, ${session.toolCalls} ${text.toolCalls}, ${text.perSession} ${primary}`,
     );
   }
   out.push("", `${text.topTools}:`);

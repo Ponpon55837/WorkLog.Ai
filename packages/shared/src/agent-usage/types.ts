@@ -12,6 +12,53 @@ export interface UsageTokens {
   reasoningOutput?: number;
 }
 
+/** The four counted token kinds (no `reasoningOutput`). */
+export interface TokenCounts {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheCreation: number;
+}
+
+export type UsageAgentId = "claude-code" | "codex";
+
+/** Tokens credited to one Agent and model; `model` is "" when the log names none or something unsafe. */
+export interface ModelUsage {
+  agent: UsageAgentId;
+  model: string;
+  tokens: TokenCounts;
+  /** Claude Code assistant messages or Codex credited deltas. */
+  responses: number;
+}
+
+/** Tokens credited on one local calendar day (`YYYY-MM-DD`). */
+export interface DayUsage {
+  date: string;
+  tokens: TokenCounts;
+}
+
+/** One credited usage at an instant; kept only for the last 24 hours, to build the 5-hour blocks. */
+export interface UsageEvent {
+  agent: UsageAgentId;
+  time: number;
+  tokens: TokenCounts;
+}
+
+/** An active 5-hour block (epoch milliseconds); see `buildActiveBlocks`. */
+export interface UsageBlock {
+  agent: UsageAgentId;
+  start: number;
+  end: number;
+  firstActivity: number;
+  lastActivity: number;
+  tokens: TokenCounts;
+  /** input + output. */
+  primary: number;
+  elapsedMs: number;
+  remainingMs: number;
+  primaryPerMinute: number;
+}
+
 export interface UsageMetrics {
   turns: number;
   assistantMessages: number;
@@ -21,6 +68,10 @@ export interface UsageMetrics {
   workIntelligenceTools: Record<string, number>;
   workIntelligenceOperations: Record<string, OperationUsage>;
   tokens: UsageTokens;
+  /** Tokens by Agent and model, highest input + output first. */
+  models: ModelUsage[];
+  /** Tokens per local day, oldest first; lines without a timestamp are in no day. */
+  daily: DayUsage[];
   mcpToolResultChars: number;
   workIntelligenceToolResultChars: number;
   unknownToolResultChars: number;
@@ -54,6 +105,8 @@ export interface UsageReport {
   codexCompactionLinked: number;
   codexCompactionCarryovers: number;
   codexContextOutputs: number;
+  /** Active 5-hour blocks at scan time (at most one per Agent). */
+  blocks: UsageBlock[];
   cache: UsageCacheCounts;
 }
 
@@ -71,6 +124,8 @@ export interface UsageScanOptions {
   signal?: AbortSignal;
   /** Absolute `Date.now()` deadline; a late scan throws `UsageScanTimeoutError`. */
   deadlineMs?: number;
+  /** The present as `Date.now()`, for the 5-hour blocks; defaults to the current time. */
+  now?: number;
   /** Reuse across scans (Claude Code files only). */
   cache?: import("./cache.js").UsageCache;
 }
@@ -99,6 +154,8 @@ export interface ClaudeRecord {
   sc?: 1;
   /** Assistant message id. */
   m?: string;
+  /** Model id of the assistant message, only when it passed the allowlist. */
+  md?: string;
   /** Usage: input, output, cacheRead, cacheCreation (0 when absent). */
   u?: [number, number, number, number];
   tu?: ClaudeToolUseRecord[];

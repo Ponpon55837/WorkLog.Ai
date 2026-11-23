@@ -156,6 +156,17 @@ describe("CLI output", () => {
     expect(parsed.skippedLines).toBe(1);
     expect(execFileSync("node", [SCRIPT, "--help"], { encoding: "utf8" })).toContain("Usage:");
   });
+
+  it("reports models and a primary column, and no cost fields", () => {
+    const table = execFileSync("node", [SCRIPT, mainFile], { encoding: "utf8" });
+    expect(table).toContain("primary");
+    expect(table).toContain("claude-code fictional-model:");
+    expect(table).not.toMatch(/cost/i);
+    const parsed = JSON.parse(execFileSync("node", [SCRIPT, "--json", mainFile], { encoding: "utf8" }));
+    expect(parsed.total.models[0]).toMatchObject({ agent: "claude-code", model: "fictional-model" });
+    expect(parsed.total.daily.length).toBeGreaterThan(0);
+    expect(JSON.stringify(parsed)).not.toMatch(/cost/i);
+  });
 });
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -250,7 +261,8 @@ describe("Codex rollouts", () => {
     expect(session.firstTimestamp).toBe(at(0));
     expect(report.formats).toEqual({ claudeCodeLines: 0, codexLines: 9 });
     expect(report.codexTokenMismatches).toBe(0);
-    expect(report.codexIgnoredLines).toBe(1);
+    // turn_context lines are read for the model now, so none of this profile's lines is ignored.
+    expect(report.codexIgnoredLines).toBe(0);
   });
 
   it("mid profile: {content, success} output, MCP work tool, task_started turns deduped by turn_id", async () => {
