@@ -6,7 +6,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Tests
 
-- The desktop smoke test now starts the App over the committed schema 34 (1.6.63) and schema 31 upgrade samples, as an App upgrade finds them. It checks that the App shows "Needs update" with a single main button, then that one press leaves the backend running at the latest schema, with exactly one pre-migration backup and the same row counts. The packaged smoke step in CI has a 20-minute limit and stops itself at 17 minutes. Its output and the App logs are written to files as it runs, uploaded even when the step fails, and the last lines go in the job summary.
+- The desktop smoke test now starts the App over the committed schema 34 (1.6.63) and schema 31 upgrade samples, as an App upgrade finds them. It checks that the App shows "Needs update" with a single main button, then that one press leaves the backend running at the latest schema, with exactly one pre-migration backup and the same row counts. The packaged smoke step in CI has a 20-minute limit and stops itself at 17 minutes. Its output and the App logs are written to files as it runs, uploaded even when the step fails, and the last lines go in the job summary. The packaged tests' process cleanup no longer ends the processes that started the test, such as the CI step's shell or the runner, or anything created before the run. On Windows a reused process id could make it do that.
 
 ## [1.6.65] - 2026-11-23
 

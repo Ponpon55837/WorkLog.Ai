@@ -315,6 +315,8 @@ async function main() {
       ...app.environment,
       WORK_INTELLIGENCE_PACKAGED_EXE: app.executable,
       WORK_INTELLIGENCE_PACKAGED_LOG_DIR: appLogDirectory,
+      // tests/packaged-smoke/helpers.ts never ends a process created before this (the CI step's shell, the runner).
+      WORK_INTELLIGENCE_PACKAGED_RUN_STARTED_AT: String(startedAt),
     };
     phase(`app-specs (${APP_SPECS.join(", ")})`);
     const appStatus = await playwright(environment, APP_SPECS);

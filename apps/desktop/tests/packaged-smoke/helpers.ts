@@ -438,9 +438,47 @@ function describeProcess(candidate: ProcessInfo, processes: readonly ProcessInfo
   );
 }
 
-/** Windows: `taskkill /T /F` by absolute System32 path (the tree goes with the root); elsewhere SIGKILL. */
-function terminateProcesses(targets: readonly ProcessInfo[]): void {
+/**
+ * When this run began: run-packaged-smoke.mjs passes its start time, so everything that existed before it (the CI step's
+ * shell, Runner.Worker and Runner.Listener, the developer's own programs) is older and never ended by a test.
+ */
+const RUN_STARTED_AT = Number(process.env.WORK_INTELLIGENCE_PACKAGED_RUN_STARTED_AT) || Date.now();
+
+/**
+ * The processes a test must never end, whatever a scan says: this process and its ancestors (Playwright, the smoke
+ * script, pnpm, the CI step's shell and the runner), the system's own low pids, and anything created before the run.
+ * Windows reuses pids and keeps a dead parent's pid as `ppid`, so a tree walked from a launch that already ended can
+ * reach unrelated processes; `taskkill /T` on one of the runner's would end the job with no log.
+ */
+function protectedProcesses(processes: readonly ProcessInfo[]): Set<number> {
+  const kept = new Set<number>([0, 4, process.pid]);
+  const byPid = new Map(processes.map((candidate) => [candidate.pid, candidate]));
+  let current = byPid.get(process.pid);
+  while (current && !kept.has(current.ppid)) {
+    kept.add(current.ppid);
+    current = byPid.get(current.ppid);
+  }
+  for (const candidate of processes) {
+    if (candidate.startedAt !== undefined && candidate.startedAt < RUN_STARTED_AT) kept.add(candidate.pid);
+  }
+  return kept;
+}
+
+/**
+ * Windows: `taskkill /T /F` by absolute System32 path (the tree goes with the root); elsewhere SIGKILL. A protected target
+ * (see `protectedProcesses`) is skipped, and every decision is logged so a CI run shows what a test ended.
+ */
+function terminateProcesses(candidates: readonly ProcessInfo[]): void {
+  if (candidates.length === 0) return;
+  const kept = protectedProcesses(listProcesses());
+  const targets = candidates.filter((candidate) => !kept.has(candidate.pid));
+  for (const skipped of candidates.filter((candidate) => kept.has(candidate.pid))) {
+    console.warn(`[packaged-smoke] not ending protected pid ${skipped.pid}: ${skipped.commandLine.slice(0, 200)}`);
+  }
   for (const target of targets) {
+    console.warn(
+      `[packaged-smoke] ending pid ${target.pid} (ppid ${target.ppid}): ${target.commandLine.slice(0, 200)}`,
+    );
     try {
       if (process.platform === "win32") {
         execFileSync(windowsSystemTool("taskkill.exe"), ["/PID", String(target.pid), "/T", "/F"], {
@@ -511,7 +549,8 @@ export function startApp(
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
-  launchedPids.set(sandbox.root, [...(launchedPids.get(sandbox.root) ?? []), child.pid ?? 0]);
+  // No pid (the spawn failed) records nothing: pid 0's "tree" is every process on Windows.
+  if (child.pid !== undefined) launchedPids.set(sandbox.root, [...(launchedPids.get(sandbox.root) ?? []), child.pid]);
   // `--quit` is interactive only so that it is not `--background`; it opens nothing.
   if ((options.interactive && !extra.includes("--quit")) || options.opensDashboard) {
     browserOpeningLaunches.add(sandbox.root);
