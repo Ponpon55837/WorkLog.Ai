@@ -20,6 +20,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 - When the database is on storage that must not be updated in place (a cloud sync folder, a removable disk, or a hard link), the in-place button is not offered. "Copy to a local folder and update" copies it to the default data folder after confirmation, updates the copy and switches to it; the original file is not changed.
 - New repair IPC channel `repair:approve-migration` previews the file again in the main process, then keeps the explicit consent and the pre-migration backup. If the update fails, nothing is changed and the error card asks to press "Back up and update database" again.
 
+### Tests
+
+- The desktop smoke test now starts the App over the committed schema 34 (1.6.63) and schema 31 upgrade samples, as an App upgrade finds them. It checks that the App shows "Needs update" with a single main button, then that one press leaves the backend running at the latest schema, with exactly one pre-migration backup and the same row counts. The packaged smoke step in CI has a 20-minute limit and stops itself at 17 minutes. Its output and the App logs are written to files as it runs, uploaded even when the step fails, and the last lines go in the job summary.
+
 ## [1.6.64] - 2026-11-23
 
 [繁體中文更新說明](docs/releases/1.6.64.md).

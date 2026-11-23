@@ -1,7 +1,17 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { BACKGROUND_FLAG, isSettledRepairFailure } from "@work-intelligence/desktop-core";
 import { windowsPowerShell, windowsSystemTool } from "@work-intelligence/shared/windows-system-tool";
 import { WorkIntelligenceStore } from "@work-intelligence/storage";
@@ -202,12 +212,28 @@ export async function createSandbox(options: {
 }
 
 /**
+ * run-packaged-smoke.mjs passes WORK_INTELLIGENCE_PACKAGED_LOG_DIR: the sandbox's logs folder (the shell's main log, which
+ * also carries the backend's output) is copied there before the sandbox goes, so CI can upload it after a failure.
+ */
+function keepSandboxLogs(sandbox: PackagedSandbox): void {
+  const target = process.env.WORK_INTELLIGENCE_PACKAGED_LOG_DIR;
+  const logs = dirname(sandbox.logFile);
+  if (!target || !existsSync(logs)) return;
+  try {
+    cpSync(logs, join(target, basename(sandbox.root)), { recursive: true, force: true });
+  } catch {
+    // Evidence only: a log that cannot be copied never fails the test.
+  }
+}
+
+/**
  * Removes the sandbox. Anything still holding it blocks the removal on Windows (EPERM), so first every process that names
  * the sandbox root in its command line or lives under it, or that descends from a launch of this sandbox (the App's own
  * helpers, or an external browser the OS started for the Dashboard, which inherits the sandbox profile), gets a few
  * seconds to exit by itself and is then terminated. If the removal still fails, the error lists who holds the sandbox.
  */
 export async function removeSandbox(sandbox: PackagedSandbox): Promise<void> {
+  keepSandboxLogs(sandbox);
   const { browsers, survivors } = await settleBrowsersStartedSince(
     browsersBeforeTests ?? { takenAt: 0, processes: [] },
     sandbox.root,

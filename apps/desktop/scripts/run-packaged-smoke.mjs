@@ -12,13 +12,34 @@
  * Needs `pnpm package:desktop` (or `--dir`) first. Playwright then runs apps/desktop/playwright.packaged.config.ts with the
  * executable in WORK_INTELLIGENCE_PACKAGED_EXE (read by the tests only, never by the App). Every test works in a temp
  * sandbox with its own userData, home and database: nothing of the developer's data is read or written.
+ *
+ * Evidence for a run that fails or hangs, under apps/desktop/packaged-smoke-logs/ (CI uploads it with `if: always()`):
+ *   smoke.log   everything the children print, written as it arrives, with a `[packaged-smoke] phase=` line per phase;
+ *   phase.txt   the phase running now, so a killed run still says where it was (timeout.txt: where the limit hit);
+ *   app-logs/   each sandbox's logs folder (the shell's main log, which carries the backend's output too), copied every
+ *               few seconds while the sandbox exists and once more when the spec removes it.
+ * WI_PACKAGED_SMOKE_TIMEOUT_MINUTES (default 17, below the CI step's 20) bounds the whole run: on expiry the running
+ * child's process tree (Playwright, the App, its backend, an installer) is killed, the phase is logged, and the run
+ * still cleans up and exits non-zero.
  */
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import {
+  appendFileSync,
+  cpSync,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import { dirname, join } from "node:path";
 import process from "node:process";
+import { clearInterval, clearTimeout, setInterval, setTimeout } from "node:timers";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { windowsCommandShell } from "@work-intelligence/shared/windows-system-tool";
@@ -29,6 +50,14 @@ const desktopRoot = join(here, "..");
 const repositoryRoot = join(desktopRoot, "..", "..");
 const require = createRequire(join(repositoryRoot, "package.json"));
 const PRODUCT_NAME = "Work Intelligence";
+const evidenceDirectory = join(desktopRoot, "packaged-smoke-logs");
+const smokeLog = join(evidenceDirectory, "smoke.log");
+const appLogDirectory = join(evidenceDirectory, "app-logs");
+/** The prefix and userData folder of tests/packaged-smoke/helpers.ts createSandbox. */
+const SANDBOX_PREFIX = "wi 打包 smoke ";
+const SANDBOX_USER_DATA = "user data 数据";
+const timeoutMinutes = Number(process.env.WI_PACKAGED_SMOKE_TIMEOUT_MINUTES ?? "17");
+const startedAt = Date.now();
 
 /** Specs that need the App and sandboxes only (phase one) and the ones that change or remove the installation (phase two). */
 const APP_SPECS = [
@@ -42,10 +71,98 @@ const APP_SPECS = [
 ];
 const LIFECYCLE_SPEC = "lifecycle.spec.ts";
 
+let currentPhase = "start";
+let currentChild;
+let timedOut = false;
+let hitTimeout = false;
+
+function elapsed() {
+  return `${Math.round((Date.now() - startedAt) / 1000)}s`;
+}
+
+function note(line) {
+  const text = `[packaged-smoke] ${line} (t=${elapsed()})\n`;
+  process.stdout.write(text);
+  appendFileSync(smokeLog, text);
+}
+
+function phase(name) {
+  currentPhase = name;
+  writeFileSync(join(evidenceDirectory, "phase.txt"), `${name}\n`);
+  note(`phase=${name}`);
+}
+
+/** Copies every live sandbox's logs folder into app-logs/ (the specs copy it once more when they remove a sandbox). */
+function collectAppLogs() {
+  let names;
+  try {
+    names = readdirSync(os.tmpdir()).filter((name) => name.startsWith(SANDBOX_PREFIX));
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    const logs = join(os.tmpdir(), name, SANDBOX_USER_DATA, "logs");
+    try {
+      if (existsSync(logs)) cpSync(logs, join(appLogDirectory, name), { recursive: true, force: true });
+    } catch {
+      // A sandbox removed mid-copy: its spec keeps the final copy.
+    }
+  }
+}
+
+/** Ends a child and everything it started (Playwright, the App, its backend and helpers, an installer). */
+function killTree(child) {
+  if (!child?.pid || child.exitCode !== null) return;
+  if (process.platform === "win32") {
+    spawnSync(join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe"), [
+      "/T",
+      "/F",
+      "/PID",
+      String(child.pid),
+    ]);
+  } else {
+    try {
+      process.kill(-child.pid, "SIGKILL");
+    } catch {
+      child.kill("SIGKILL");
+    }
+  }
+}
+
+/**
+ * Runs a child with its output passed through and written to smoke.log as it arrives. On POSIX the child leads its own
+ * process group, so the watchdog can end the whole tree.
+ */
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, { stdio: "inherit", ...options });
-  if (result.error) throw result.error;
-  return result.status ?? 1;
+  if (timedOut) return Promise.resolve(1);
+  const log = createWriteStream(smokeLog, { flags: "a" });
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      ...options,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
+    });
+    currentChild = child;
+    for (const [stream, target] of [
+      [child.stdout, process.stdout],
+      [child.stderr, process.stderr],
+    ]) {
+      stream.on("data", (chunk) => {
+        target.write(chunk);
+        log.write(chunk);
+      });
+    }
+    child.on("error", (error) => {
+      currentChild = undefined;
+      log.end();
+      reject(error);
+    });
+    child.on("close", (code) => {
+      currentChild = undefined;
+      log.end();
+      resolve(code ?? 1);
+    });
+  });
 }
 
 function filesOf(directory, suffix) {
@@ -72,7 +189,7 @@ async function waitUntilGone(path, timeoutMs) {
 }
 
 /** Windows: installs the newest installer into a temp folder and returns what the tests need and how to clean up. */
-function prepareWindows() {
+async function prepareWindows() {
   const out = join(packageDirectory(), "out");
   const [installer] = filesOf(out, "-setup.exe");
   if (!installer) throw new Error(`no NSIS installer in ${out}; run \`pnpm package:desktop\` first`);
@@ -85,7 +202,7 @@ function prepareWindows() {
   }
   const installRoot = mkdtempSync(join(os.tmpdir(), "wi-packaged-install-"));
   const installDirectory = join(installRoot, PRODUCT_NAME);
-  const status = runWindowsSetup(join(out, installer), ["/S", `/D=${installDirectory}`]);
+  const status = await runWindowsSetup(join(out, installer), ["/S", `/D=${installDirectory}`]);
   if (status !== 0) throw new Error(`the installer exited ${status}`);
   const executable = join(installDirectory, `${PRODUCT_NAME}.exe`);
   if (!existsSync(executable)) throw new Error(`${executable} was not installed`);
@@ -99,7 +216,7 @@ function prepareWindows() {
       // The lifecycle spec uninstalls; this only covers a run that stopped before it.
       const uninstaller = join(installDirectory, `Uninstall ${PRODUCT_NAME}.exe`);
       if (existsSync(uninstaller)) {
-        runWindowsSetup(uninstaller, ["/S"]);
+        await runWindowsSetup(uninstaller, ["/S"]);
         await waitUntilGone(installDirectory, 60_000);
       }
       rmSync(installRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
@@ -108,13 +225,13 @@ function prepareWindows() {
 }
 
 /** macOS: extracts the zip the way users do and finds the executable inside the .app. */
-function prepareMac() {
+async function prepareMac() {
   const out = join(packageDirectory(), "out");
   const [zip] = filesOf(out, ".zip");
   const [dmg] = filesOf(out, ".dmg");
   if (!zip || !dmg) throw new Error(`no .zip and .dmg in ${out}; run \`pnpm package:desktop\` first`);
   const extractRoot = mkdtempSync(join(os.tmpdir(), "wi-packaged-zip-"));
-  const status = run("ditto", ["-x", "-k", join(out, zip), extractRoot]);
+  const status = await run("ditto", ["-x", "-k", join(out, zip), extractRoot]);
   if (status !== 0) throw new Error(`ditto failed (exit ${status})`);
   const [bundle] = filesOf(extractRoot, ".app");
   if (!bundle) throw new Error("the zip holds no .app");
@@ -166,7 +283,7 @@ function playwright(environment, specs) {
  * load. Opt-in through WI_PACKAGED_STRESS_SECONDS (CI sets it; a local run skips it). Runs before the lifecycle spec,
  * which uninstalls the App. The report goes next to the other package results.
  */
-function runtimeStress(executable) {
+async function runtimeStress(executable) {
   const seconds = process.env.WI_PACKAGED_STRESS_SECONDS;
   if (!seconds) return 0;
   const { nodePath, runtimeId } = packagedRuntimeNode(executable);
@@ -187,29 +304,68 @@ function runtimeStress(executable) {
 async function main() {
   // The screenshot spec runs the page in a plain Electron (the packaged App is closed to Playwright); a cached binary
   // makes this a no-op, otherwise it is the one download.
-  const ensured = run(process.execPath, [join(here, "ensure-electron.mjs")]);
+  phase("ensure-electron");
+  const ensured = await run(process.execPath, [join(here, "ensure-electron.mjs")]);
   if (ensured !== 0) return ensured;
-  const app = prepare();
+  phase(process.platform === "win32" ? "install" : "prepare");
+  const app = await prepare();
   try {
     const environment = {
       ...process.env,
       ...app.environment,
       WORK_INTELLIGENCE_PACKAGED_EXE: app.executable,
+      WORK_INTELLIGENCE_PACKAGED_LOG_DIR: appLogDirectory,
     };
-    const appStatus = playwright(environment, APP_SPECS);
-    const stressStatus = runtimeStress(app.executable);
+    phase(`app-specs (${APP_SPECS.join(", ")})`);
+    const appStatus = await playwright(environment, APP_SPECS);
+    phase("runtime-stress");
+    const stressStatus = await runtimeStress(app.executable);
     // Linux has no installer; the lifecycle spec is skipped there rather than started to skip itself.
-    const lifecycleStatus = process.platform === "linux" ? 0 : playwright(environment, [LIFECYCLE_SPEC]);
+    if (process.platform !== "linux") phase(`lifecycle (${LIFECYCLE_SPEC})`);
+    const lifecycleStatus = process.platform === "linux" ? 0 : await playwright(environment, [LIFECYCLE_SPEC]);
     return appStatus !== 0 ? appStatus : stressStatus !== 0 ? stressStatus : lifecycleStatus;
   } finally {
+    // A timed-out run still uninstalls; the step's own limit stops a cleanup that hangs too.
+    timedOut = false;
+    phase("cleanup");
     await app.cleanup();
   }
+}
+
+rmSync(evidenceDirectory, { recursive: true, force: true });
+mkdirSync(appLogDirectory, { recursive: true });
+writeFileSync(smokeLog, "");
+note(`started on ${process.platform}-${process.arch}, overall limit ${timeoutMinutes} min`);
+const collector = setInterval(collectAppLogs, 5_000);
+const watchdog = setTimeout(() => {
+  timedOut = true;
+  hitTimeout = true;
+  note(`TIMEOUT after ${timeoutMinutes} min in phase=${currentPhase}; killing the process tree`);
+  writeFileSync(join(evidenceDirectory, "timeout.txt"), `timed out after ${timeoutMinutes} min in ${currentPhase}\n`);
+  collectAppLogs();
+  killTree(currentChild);
+}, timeoutMinutes * 60_000);
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    note(`${signal} in phase=${currentPhase}`);
+    collectAppLogs();
+    killTree(currentChild);
+    process.exit(1);
+  });
 }
 
 let status = 1;
 try {
   status = await main();
 } catch (error) {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+  const message = error instanceof Error ? error.message : String(error);
+  process.stderr.write(`${message}\n`);
+  appendFileSync(smokeLog, `${message}\n`);
+} finally {
+  clearTimeout(watchdog);
+  clearInterval(collector);
+  collectAppLogs();
 }
+if (hitTimeout && status === 0) status = 1;
+note(`finished with exit ${status}`);
 process.exitCode = status;

@@ -1,8 +1,9 @@
 import { expect, test, type ElectronApplication } from "@playwright/test";
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { LATEST_SCHEMA_VERSION } from "@work-intelligence/storage";
 import {
   attachLog,
@@ -24,6 +25,31 @@ import {
  * and starts, with no file to pick. On a sync folder the update is not offered in place; 「複製到本機資料夾後更新」 copies
  * it to the App's data folder and updates the copy, leaving the original as it was. Synthetic data only.
  */
+
+/** The committed upgrade samples (synthetic data, tests/fixtures/upgrade/manifest.json), never a real database. */
+const upgradeFixtures = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "..",
+  "..",
+  "tests",
+  "fixtures",
+  "upgrade",
+);
+/** User data an update must carry over as it is; derived tables (search index, dirty queues) may be rebuilt. */
+const KEPT_TABLES = [
+  "projects",
+  "sessions",
+  "work_events",
+  "session_decisions",
+  "raw_snapshots",
+  "evidence",
+  "knowledge",
+  "knowledge_pages",
+  "outstanding_items",
+  "outstanding_item_events",
+] as const;
 
 let sandbox: Sandbox | undefined;
 let app: ElectronApplication | undefined;
@@ -49,6 +75,20 @@ function schemaVersion(databasePath: string): number {
 function migrationBackups(box: Sandbox): string[] {
   const directory = join(box.home, ".work-intelligence", "backups");
   return existsSync(directory) ? readdirSync(directory).filter((name) => name.includes("pre-migration-")) : [];
+}
+
+function rowCounts(databasePath: string): Record<string, number> {
+  const database = new DatabaseSync(databasePath, { readOnly: true });
+  try {
+    return Object.fromEntries(
+      KEPT_TABLES.map((table) => [
+        table,
+        (database.prepare(`SELECT COUNT(*) AS rows FROM ${table}`).get() as { rows: number }).rows,
+      ]),
+    );
+  } finally {
+    database.close();
+  }
 }
 
 function digestOf(file: string): string {
@@ -134,3 +174,51 @@ test("on a sync folder the update is not offered in place: 複製到本機資料
   // The original on the sync folder is neither updated nor changed.
   expect(digestOf(box.databasePath)).toBe(before);
 });
+
+/**
+ * The user's path after installing a new version over an old one: the settings already name the database, the App just
+ * starts. The test above rewinds one migration of a fresh database; these start from the committed samples of real older
+ * releases, the newest (1.6.63, the reported upgrade) and the oldest.
+ */
+for (const fixture of ["schema-34.sqlite", "schema-31.sqlite"]) {
+  test(`an App upgrade over ${fixture} offers 需要更新資料庫 and one press updates it with one backup`, async () => {
+    test.setTimeout(180_000);
+    const box = await createSandbox({ withDatabase: false });
+    sandbox = box;
+    copyFileSync(join(upgradeFixtures, fixture), box.databasePath);
+    const oldVersion = schemaVersion(box.databasePath);
+    expect(oldVersion).toBeLessThan(LATEST_SCHEMA_VERSION);
+    const before = rowCounts(box.databasePath);
+    expect(before.sessions).toBeGreaterThan(0);
+    app = await launchApp(box);
+
+    const window = await app.firstWindow({ timeout: 45_000 });
+    await waitForSnapshot(
+      app,
+      (state) => state.owner === "NEEDS_REPAIR" && state.recentErrors.includes("SCHEMA_MIGRATION_BLOCKED"),
+      60_000,
+    );
+    await expectTabShown(window, "status");
+    const text = await shellText(window);
+    const status = window.locator("#panel-status");
+    await expect(status).toContainText(text.databaseStatuses["needs-migration"] as string);
+    await expect(status).not.toContainText(text.databaseStatuses["unsupported-schema"] as string);
+    // One primary action, and it is the update itself: nothing to pick first.
+    const approve = status.locator('[data-id="approve-migration"]');
+    await expect(approve).toHaveText(text.actionApproveMigration);
+    await expect(status.locator(".btn--primary")).toHaveCount(1);
+    await expect(approve).toHaveClass(/primary/);
+    expect(migrationBackups(box)).toHaveLength(0);
+
+    await approve.click();
+    const ready = await waitForSnapshot(app, (state) => state.owner === "MANAGED" && state.backend !== null, 90_000);
+    expect(ready.backend).not.toBeNull();
+    expect(schemaVersion(box.databasePath)).toBe(LATEST_SCHEMA_VERSION);
+    expect(migrationBackups(box)).toHaveLength(1);
+    expect(rowCounts(box.databasePath)).toEqual(before);
+    const settings = JSON.parse(readFileSync(join(box.dataDirectory, "desktop-settings.json"), "utf8")) as {
+      desired: { databasePath: string };
+    };
+    expect(settings.desired.databasePath).toBe(box.databasePath);
+  });
+}
