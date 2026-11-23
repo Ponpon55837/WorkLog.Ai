@@ -39,6 +39,8 @@ import type { RestoreListResult, RestorePickResult, RestoreRunResult } from "./r
 export const REPAIR_CHANNELS = {
   getState: "repair:get-state",
   retryStart: "repair:retry-start",
+  /** Back up and update the App's own database: the user's consent to a schema update main checks again. */
+  approveMigration: "repair:approve-migration",
   chooseDatabase: "repair:choose-database",
   confirmDatabase: "repair:confirm-database",
   openFolder: "repair:open-folder",
@@ -95,6 +97,8 @@ export type RepairFolderTarget = (typeof REPAIR_FOLDER_TARGETS)[number];
 export const repairInputSchemas = {
   getState: z.undefined(),
   retryStart: z.strictObject({ operationId: z.uuid() }),
+  /** The page sends only the retry id it was handed; main reads the path, previews it and checks the storage itself. */
+  approveMigration: z.strictObject({ operationId: z.uuid() }),
   chooseDatabase: z.strictObject({}),
   confirmDatabase: z.strictObject({
     candidateId: z.string().min(1).max(64),
@@ -313,6 +317,8 @@ export type DiagnosticsSaveResult =
 export interface RepairApi {
   getState(): Promise<RepairState>;
   retryStart(operationId: string): Promise<RepairActionResult>;
+  /** 「先備份再更新資料庫」: starts the App's own database with the schema update it needs (backed up first). */
+  approveMigration(operationId: string): Promise<RepairActionResult>;
   chooseDatabase(): Promise<RepairActionResult>;
   confirmDatabase(
     candidateId: string,

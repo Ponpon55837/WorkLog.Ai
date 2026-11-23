@@ -145,6 +145,7 @@ describe("repair IPC", () => {
       "login-item:set",
       "maintenance:run",
       "port:change",
+      "repair:approve-migration",
       "repair:choose-database",
       "repair:confirm-database",
       "repair:copy-to-local",

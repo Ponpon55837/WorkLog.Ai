@@ -7,6 +7,7 @@ import { contextBridge, ipcRenderer } from "electron";
 const channels: typeof REPAIR_CHANNELS = {
   getState: "repair:get-state",
   retryStart: "repair:retry-start",
+  approveMigration: "repair:approve-migration",
   chooseDatabase: "repair:choose-database",
   confirmDatabase: "repair:confirm-database",
   openFolder: "repair:open-folder",
@@ -53,6 +54,7 @@ const channels: typeof REPAIR_CHANNELS = {
 const api: RepairApi = {
   getState: () => ipcRenderer.invoke(channels.getState),
   retryStart: (operationId) => ipcRenderer.invoke(channels.retryStart, { operationId }),
+  approveMigration: (operationId) => ipcRenderer.invoke(channels.approveMigration, { operationId }),
   chooseDatabase: () => ipcRenderer.invoke(channels.chooseDatabase, {}),
   confirmDatabase: (candidateId, allowMigration, acknowledgeStorageRisk) =>
     ipcRenderer.invoke(channels.confirmDatabase, {

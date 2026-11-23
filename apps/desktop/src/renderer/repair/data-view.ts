@@ -8,6 +8,7 @@ import { actions, button, checkbox, element, facts, hint, path, section } from "
 import { maintenanceSection } from "./maintenance-view.js";
 import { restoreSection } from "./restore-view.js";
 import { storageRiskNote } from "./storage-risk-card.js";
+import { migrationOffer } from "./view-model.js";
 
 /** The Data tab: the database in use and what can be done with it, the backups, the logs and the databases found. */
 
@@ -37,13 +38,29 @@ function actionLabel(id: RepairActionId, messages: ShellMessages): string {
   return labels[id] ?? id;
 }
 
-/** 「複製到本機磁碟並改用」 for a candidate, or (no id) for the App's own database. */
-function copyButton(ctx: ViewContext, candidateId: string | undefined): HTMLButtonElement {
+/**
+ * 「複製到本機磁碟並改用」 for a candidate, or (no id) for the App's own database; while that database waits for an update
+ * its storage refuses, the same copy is the main button and says it updates the copy.
+ */
+function copyButton(ctx: ViewContext, candidateId: string | undefined, forMigration = false): HTMLButtonElement {
   return button(
-    setupMessages(ctx.state.locale).storageCopyToLocal,
+    forMigration ? ctx.messages.actionCopyAndMigrate : setupMessages(ctx.state.locale).storageCopyToLocal,
     candidateId === undefined ? "copy-to-local" : `copy-to-local:${candidateId}`,
     !ctx.busy,
     () => ctx.act.copyToLocal(candidateId),
+    forMigration,
+  );
+}
+
+/** 「先備份再更新資料庫」: pressing it is the user's consent; main previews the file again and checks its storage. */
+function approveMigrationButton(ctx: ViewContext): HTMLButtonElement {
+  const action = ctx.state.actions.find((entry) => entry.id === "approve-migration");
+  return button(
+    ctx.messages.actionApproveMigration,
+    "approve-migration",
+    action?.enabled === true && !ctx.busy,
+    () => ctx.act.perform("approve-migration"),
+    true,
   );
 }
 
@@ -62,9 +79,15 @@ export function databaseCard(ctx: ViewContext): HTMLElement {
       [messages.lastBackupLabel, formatBackup(state, messages)],
     ),
   ];
+  const offer = migrationOffer(state);
+  if (offer === "approve") {
+    content.push(hint(messages.repairOwnMigrationNote, "div"), actions(approveMigrationButton(ctx)));
+  } else if (offer === "copy") {
+    content.push(hint(messages.repairOwnMigrationCopyNote, "div"));
+  }
   if (state.database.storageRisk) {
     content.push(storageRiskNote(state.database.storageRisk));
-    if (state.database.storageRisk.canCopyToLocal) content.push(actions(copyButton(ctx, undefined)));
+    if (state.database.storageRisk.canCopyToLocal) content.push(actions(copyButton(ctx, undefined, offer === "copy")));
   }
   const buttons = state.actions
     .filter((action) => DATA_ACTIONS.includes(action.id))

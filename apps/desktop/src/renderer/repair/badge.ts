@@ -29,7 +29,7 @@ export function backendTone(backend: RepairState["backend"]): Tone {
 export function databaseTone(status: string): Tone {
   if (status === "ok") return "success";
   if (status === "unknown") return "neutral";
-  return status === "unsupported-schema" ? "attention" : "danger";
+  return status === "unsupported-schema" || status === "needs-migration" ? "attention" : "danger";
 }
 
 export function label(text: string, tone: Tone = "neutral"): HTMLElement {

@@ -24,6 +24,7 @@ import {
 } from "@work-intelligence/desktop-core";
 import type { AgentsPage } from "./agents.js";
 import { busyReasonOf, checkActivity } from "./activity-gate.js";
+import { createApproveMigration } from "./approve-migration.js";
 import { offerCandidate } from "./candidate-offer.js";
 import type { StorageRiskService } from "./storage-risk.js";
 import type { BackendController } from "./backend.js";
@@ -199,6 +200,26 @@ export function registerRepairIpc(options: IpcOptions): void {
       // A restart already running is not an error: the page shows "restarting" and polls.
       if (outcome.busy) return { ok: false, reason: "busy", busyReason: busyReason() };
       return { ok: false, reason: "failed", errorCode: outcome.code };
+    }),
+  );
+
+  // 「先備份再更新資料庫」: the App's own database, previewed again and checked against its storage in main (DT-08).
+  const approveMigration = createApproveMigration({
+    state,
+    supervisor,
+    storage,
+    backend,
+    success,
+    info,
+    operationRunning: () => currentOperation() !== null,
+    busyReason,
+    log,
+  });
+  handle(REPAIR_CHANNELS.approveMigration, parser(repairInputSchemas.approveMigration), ({ operationId }) =>
+    withBusy("change-db", async () => {
+      // The id the page was handed: a stale or replayed click does nothing.
+      if (!state.retryIds.consume(operationId)) return { ok: false, reason: "invalid" };
+      return approveMigration();
     }),
   );
 

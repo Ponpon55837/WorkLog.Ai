@@ -40,6 +40,22 @@ export function isBlockingDatabase(state: Pick<RepairState, "owner" | "database"
 }
 
 /**
+ * How the page offers the schema update the App's own database waits for: `approve` is 「先備份再更新資料庫」 (main
+ * listed the action), `copy` is 「複製到本機資料夾後更新」 (its storage refuses an in-place update, DT-08), null when the
+ * database does not need one.
+ */
+export function migrationOffer(state: Pick<RepairState, "database" | "actions">): "approve" | "copy" | null {
+  if (state.database.status !== "needs-migration") return null;
+  if (state.actions.some((action) => action.id === "approve-migration")) return "approve";
+  return state.database.storageRisk?.canCopyToLocal ? "copy" : null;
+}
+
+/** 「重試啟動」 is the main button unless the database waits for an update: retrying cannot do it, so it steps back. */
+export function retryIsPrimary(state: Pick<RepairState, "database">): boolean {
+  return state.database.status !== "needs-migration";
+}
+
+/**
  * What a tab's panel is drawn from, and nothing else: the page redraws the panel only when this changes. The retry id
  * is a fresh value in every snapshot and is read when a button is pressed, so it is left out; the sections with their
  * own tab (port, update, shell) are left out of the tabs that do not show them.
