@@ -32,9 +32,18 @@ const SCAN: UsageScanResponse = {
     workIntelligenceCalls: 10,
     workIntelligenceShare: 0.25,
   },
-  tokens: { input: 100, output: 50, cacheRead: 1000, cacheCreation: 200 },
-  costShares: { input: 0.2, cacheCreation: 0.3, cacheRead: 0.2, output: 0.3 },
-  costMultipliers: { input: 1, cacheCreation: 1.25, cacheRead: 0.1, output: 5 },
+  tokens: { input: 100, output: 50, cacheRead: 1000, cacheCreation: 200, primary: 150, cacheReadShare: 1000 / 1300 },
+  models: [
+    {
+      agent: "claude-code",
+      model: "model-a",
+      tokens: { input: 100, output: 50, cacheRead: 1000, cacheCreation: 200 },
+      primary: 150,
+      responses: 12,
+    },
+  ],
+  daily: [{ date: "2026-11-18", tokens: { input: 100, output: 50, cacheRead: 1000, cacheCreation: 200 } }],
+  blocks: [],
   operations: [{ key: "work_read/work_get_session", calls: 4, resultChars: 4000, avgChars: 1000 }],
   sessions: [
     {
@@ -42,7 +51,7 @@ const SCAN: UsageScanResponse = {
       turns: 6,
       toolCalls: 20,
       tokens: { input: 1, output: 1, cacheRead: 1, cacheCreation: 1 },
-      estimatedCostUnits: 12,
+      primary: 2,
     },
   ],
   otherTools: [{ name: "Bash", calls: 30 }],
@@ -74,6 +83,8 @@ describe("usage store", () => {
     await store.runScan({ projectIds: ["p1"], range: "7d" });
     expect(store.scanResult?.totals.workIntelligenceShare).toBe(0.25);
     expect(store.scanResult?.operations[0]?.key).toBe("work_read/work_get_session");
+    expect(store.scanResult?.tokens.primary).toBe(150);
+    expect(store.scanResult?.models[0]?.model).toBe("model-a");
     expect(harness.calls.find(({ url }) => url.pathname === "/api/usage/scan")).toMatchObject({
       method: "POST",
       body: { projectIds: ["p1"], range: "7d" },
@@ -104,7 +115,9 @@ describe("usage store", () => {
         workIntelligenceCalls: 0,
         workIntelligenceShare: 0,
       },
-      tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+      tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, primary: 0, cacheReadShare: null },
+      models: [],
+      daily: [],
       operations: [],
       sessions: [],
       otherTools: [],
@@ -114,6 +127,7 @@ describe("usage store", () => {
     await store.runScan({ all: true, range: "7d" });
     expect(store.scanResult?.totals.turns).toBe(0);
     expect(store.scanResult?.operations).toEqual([]);
+    expect(store.scanResult?.tokens.cacheReadShare).toBeNull();
   });
 
   it.each([

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { Copy, Gauge, Plus, ScanSearch, Trash2, Wrench } from "lucide-vue-next";
+import { Copy, Gauge, Layers, Plus, ScanSearch, Timer, Trash2, TrendingUp, Wrench } from "lucide-vue-next";
 import type { UsageRange } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import UiBox from "../components/ui/UiBox.vue";
@@ -19,22 +19,44 @@ import UiLabel from "../components/ui/UiLabel.vue";
 import UiMeter from "../components/ui/UiMeter.vue";
 import UiSegmentedControl from "../components/ui/UiSegmentedControl.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
+import UiStackedBarChart from "../components/ui/UiStackedBarChart.vue";
 import UiStatCard from "../components/ui/UiStatCard.vue";
 import UiStatGrid from "../components/ui/UiStatGrid.vue";
 import UiStack from "../components/ui/UiStack.vue";
 import UiTextInput from "../components/ui/UiTextInput.vue";
 import UiTextarea from "../components/ui/UiTextarea.vue";
+import { useMediaQuery } from "../composables/useMediaQuery";
 import { useUsageStore } from "../stores/usage";
-import { formatCount, formatMilliseconds, formatPercent } from "../utils/format";
+import {
+  formatCount,
+  formatDurationMs,
+  formatMilliseconds,
+  formatMultiple,
+  formatPercent,
+  formatTokens,
+} from "../utils/format";
 import {
   buildUsageScanRequest,
   canScanUsage,
+  fillDailyRange,
   MAX_MANUAL_FOLDERS,
-  USAGE_TOKEN_KINDS,
+  USAGE_TOKEN_TONES,
+  usageBlockRows,
+  usageComposition,
+  usageDayLabel,
+  usageModelRows,
   usageProblemMessage,
 } from "../utils/usage";
-import { t } from "../i18n";
+import { t, type MessageKey } from "../i18n";
 
+const TOKEN_KIND_KEYS = {
+  input: "usage.tokenInput",
+  output: "usage.tokenOutput",
+  cacheRead: "usage.tokenCacheRead",
+  cacheCreation: "usage.tokenCacheCreation",
+} as const satisfies Record<keyof typeof USAGE_TOKEN_TONES, MessageKey>;
+
+const compact = useMediaQuery("(max-width: 639px)");
 const usageStore = useUsageStore();
 const { projects, projectsLoaded, projectsLoading, projectsError, scanResult, scanning, scanError } =
   storeToRefs(usageStore);
@@ -70,41 +92,76 @@ const isEmpty = computed(() => {
   const { input, output, cacheRead, cacheCreation } = value.tokens;
   return value.totals.turns === 0 && value.totals.toolCalls === 0 && input + output + cacheRead + cacheCreation === 0;
 });
-const tokenTotal = computed(() => {
-  const value = result.value;
-  return value ? value.tokens.input + value.tokens.output + value.tokens.cacheRead + value.tokens.cacheCreation : 0;
-});
-const costSegments = computed(() => {
-  const value = result.value;
+const composition = computed(() => (result.value ? usageComposition(result.value.tokens) : undefined));
+const compositionRows = computed(() => {
+  const value = composition.value;
   if (!value) return [];
-  return USAGE_TOKEN_KINDS.map(({ kind, label, tone }) => ({
-    value: value.costShares[kind],
-    tone,
-    label: t(label),
+  const rows = [
+    {
+      id: "counted",
+      title: t("usage.compositionCounted"),
+      label: t("usage.compositionCountedLabel"),
+      row: value.counted,
+    },
+    { id: "cache", title: t("usage.compositionCache"), label: t("usage.compositionCacheLabel"), row: value.cache },
+  ];
+  return rows.map(({ id, title, label, row }) => ({
+    id,
+    title,
+    label,
+    total: formatTokens(row.total),
+    exactTotal: formatCount(row.total),
+    segments: row.parts.map((part) => ({
+      value: part.value,
+      tone: USAGE_TOKEN_TONES[part.kind],
+      label: tokenKindLabel(part.kind),
+    })),
+    parts: row.parts.map((part) => ({
+      kind: part.kind,
+      tone: USAGE_TOKEN_TONES[part.kind],
+      label: tokenKindLabel(part.kind),
+      tokens: formatTokens(part.value),
+      exact: formatCount(part.value),
+      share: formatPercent(part.share),
+    })),
   }));
 });
-const costLegend = computed(() => {
-  const value = result.value;
-  if (!value) return [];
-  return USAGE_TOKEN_KINDS.map(({ kind, label, tone }) => ({
-    kind,
-    tone,
-    label: t(label),
-    tokens: formatCount(value.tokens[kind]),
-    share: formatPercent(value.costShares[kind]),
-    multiplier: `×${value.costMultipliers[kind]}`,
-  }));
+const cacheMultiple = computed(() =>
+  composition.value?.cacheReadMultiple == null
+    ? ""
+    : t("usage.cacheReadMultiple", { multiple: formatMultiple(composition.value.cacheReadMultiple) }),
+);
+const cacheReadFoot = computed(() => {
+  const share = result.value?.tokens.cacheReadShare;
+  return t("usage.summaryCacheReadFoot", { share: share == null ? "—" : formatPercent(share) });
 });
-const costNote = computed(() => {
-  const value = result.value;
-  return value
-    ? t("usage.costNote", {
-        input: value.costMultipliers.input,
-        cacheCreation: value.costMultipliers.cacheCreation,
-        cacheRead: value.costMultipliers.cacheRead,
-        output: value.costMultipliers.output,
-      })
-    : "";
+const dailyPoints = computed(() => (result.value ? fillDailyRange(result.value.daily, result.value.range) : []));
+const dailyLabels = computed(() => dailyPoints.value.map((point) => usageDayLabel(point.date)));
+const dailySeries = computed(() => [
+  { name: t("usage.tokenInput"), tone: USAGE_TOKEN_TONES.input, values: dailyPoints.value.map((point) => point.input) },
+  {
+    name: t("usage.tokenOutput"),
+    tone: USAGE_TOKEN_TONES.output,
+    values: dailyPoints.value.map((point) => point.output),
+  },
+]);
+const hasDailyUsage = computed(() => (result.value?.daily.length ?? 0) > 0);
+const blockRows = computed(() => usageBlockRows(result.value?.blocks ?? []));
+const modelRows = computed(() => usageModelRows(result.value?.models ?? []));
+const operationRows = computed(() => {
+  const operations = result.value?.operations ?? [];
+  const highest = Math.max(0, ...operations.map((operation) => operation.calls));
+  return operations.map((operation) => ({ ...operation, ratio: highest > 0 ? operation.calls / highest : 0 }));
+});
+const sessionRows = computed(() => {
+  const sessions = result.value?.sessions ?? [];
+  const highest = Math.max(0, ...sessions.map((session) => session.primary));
+  return sessions.map((session) => ({ ...session, ratio: highest > 0 ? session.primary / highest : 0 }));
+});
+const otherToolRows = computed(() => {
+  const tools = result.value?.otherTools ?? [];
+  const highest = Math.max(0, ...tools.map((tool) => tool.calls));
+  return tools.map((tool) => ({ ...tool, ratio: highest > 0 ? tool.calls / highest : 0 }));
 });
 const cacheNote = computed(() => {
   const value = result.value;
@@ -132,6 +189,14 @@ const manualFolderItems = computed(() =>
     removeLabel: t("usage.removeFolder", { index: index + 1 }),
   })),
 );
+
+function tokenKindLabel(kind: keyof typeof USAGE_TOKEN_TONES): string {
+  return t(TOKEN_KIND_KEYS[kind]);
+}
+
+function ratioBar(ratio: number, label: string): { value: number; tone: "accent"; label: string }[] {
+  return [{ value: ratio, tone: "accent", label }];
+}
 
 function scan(): void {
   if (!canScan.value) return;
@@ -314,7 +379,12 @@ onBeforeUnmount(() => usageStore.setUsageActive(false));
       />
 
       <template v-else>
-        <UiStatGrid data-testid="usage-summary">
+        <UiStatGrid :columns="3" data-testid="usage-summary">
+          <UiStatCard
+            :label="t('usage.summaryHeadline')"
+            :value="formatTokens(result.tokens.primary)"
+            :title="formatCount(result.tokens.primary)"
+          />
           <UiStatCard
             :label="t('usage.summaryTurns')"
             :value="formatCount(result.totals.turns)"
@@ -331,88 +401,259 @@ onBeforeUnmount(() => usageStore.setUsageActive(false));
               })
             "
           />
-          <UiStatCard :label="t('usage.summaryTokens')" :value="formatCount(tokenTotal)" />
+          <UiStatCard
+            :label="t('usage.summaryCacheRead')"
+            :value="formatTokens(result.tokens.cacheRead)"
+            :title="formatCount(result.tokens.cacheRead)"
+            :foot="cacheReadFoot"
+          />
+          <UiStatCard
+            :label="t('usage.summaryCacheWrite')"
+            :value="formatTokens(result.tokens.cacheCreation)"
+            :title="formatCount(result.tokens.cacheCreation)"
+            :foot="t('usage.summaryCacheWriteFoot')"
+          />
         </UiStatGrid>
 
-        <UiBox padded data-testid="usage-cost">
-          <template #header
-            ><UiBoxTitle :title="t('usage.costTitle')"
-              ><UiLabel tone="attention">{{ t("usage.estimate") }}</UiLabel></UiBoxTitle
-            ></template
-          >
-          <UiMeter :segments="costSegments" :label="t('usage.costShareLabel')" />
-          <ul class="usage__legend">
-            <li v-for="item in costLegend" :key="item.kind">
-              <span :class="['usage__swatch', `usage__swatch--${item.tone}`]" aria-hidden="true"></span>
-              <span class="usage__legend-label">{{ item.label }}</span>
-              <span class="usage__num">{{ item.tokens }}</span>
-              <span class="usage__num">{{ item.share }}</span>
-              <span class="usage__muted usage__num">{{ item.multiplier }}</span>
-            </li>
-          </ul>
-          <p class="usage__hint">{{ costNote }}</p>
-        </UiBox>
+        <div class="usage__row">
+          <UiBox v-if="blockRows.length > 0" padded class="usage__area-block" data-testid="usage-blocks">
+            <template #header><UiBoxTitle :icon="Timer" :title="t('usage.blockTitle')" /></template>
+            <section v-for="block in blockRows" :key="block.agentLabel" class="usage__block">
+              <h3 class="usage__subtitle">{{ block.agentLabel }}</h3>
+              <dl class="usage__facts">
+                <div>
+                  <dt>{{ t("usage.blockHeadline") }}</dt>
+                  <dd :title="formatCount(block.primary)">{{ formatTokens(block.primary) }}</dd>
+                </div>
+                <div>
+                  <dt>{{ t("usage.blockElapsed") }}</dt>
+                  <dd>{{ formatDurationMs(block.elapsedMs) }}</dd>
+                </div>
+                <div>
+                  <dt>{{ t("usage.blockTimeLeft") }}</dt>
+                  <dd>{{ formatDurationMs(block.remainingMs) }}</dd>
+                </div>
+                <div>
+                  <dt>{{ t("usage.blockRate") }}</dt>
+                  <dd :title="formatCount(block.primaryPerMinute)">{{ formatTokens(block.primaryPerMinute) }}</dd>
+                </div>
+              </dl>
+              <UiMeter
+                :max="1"
+                :segments="ratioBar(block.progress, t('usage.blockElapsed'))"
+                :label="t('usage.blockProgress')"
+              />
+            </section>
+            <p class="usage__note">{{ t("usage.blockRateNote") }}</p>
+          </UiBox>
 
-        <UiBox data-testid="usage-operations">
-          <template #header
-            ><UiBoxTitle :icon="Wrench" :title="t('usage.operations')" :count="result.operations.length"
-          /></template>
-          <p v-if="result.operations.length === 0" class="usage__hint">{{ t("usage.operationsEmpty") }}</p>
-          <div v-else class="usage__scroll">
-            <table class="usage__table">
+          <UiBox padded class="usage__area-composition" data-testid="usage-composition">
+            <template #header><UiBoxTitle :icon="Layers" :title="t('usage.compositionTitle')" /></template>
+            <template v-for="(row, index) in compositionRows" :key="row.id">
+              <p v-if="index === 1 && cacheMultiple" class="usage__multiple">{{ cacheMultiple }}</p>
+              <section class="usage__composition">
+                <h3 class="usage__subtitle">
+                  {{ row.title }}<span class="usage__subtotal" :title="row.exactTotal">{{ row.total }}</span>
+                </h3>
+                <UiMeter gap :segments="row.segments" :label="row.label" />
+                <table class="usage__legend">
+                  <thead class="sr-only">
+                    <tr>
+                      <th scope="col">{{ t("usage.compositionKind") }}</th>
+                      <th scope="col">{{ t("usage.compositionTokens") }}</th>
+                      <th scope="col">{{ t("usage.compositionShare") }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="part in row.parts" :key="part.kind">
+                      <th scope="row">
+                        <span :class="['usage__swatch', `usage__swatch--${part.tone}`]" aria-hidden="true"></span
+                        >{{ part.label }}
+                      </th>
+                      <td :title="part.exact">{{ part.tokens }}</td>
+                      <td>{{ part.share }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </section>
+            </template>
+            <p class="usage__note">{{ t("usage.reasoningNote") }}</p>
+          </UiBox>
+
+          <UiBox class="usage__area-trend" data-testid="usage-trend">
+            <template #header><UiBoxTitle :icon="TrendingUp" :title="t('usage.trendTitle')" /></template>
+            <UiStackedBarChart
+              v-if="hasDailyUsage"
+              :labels="dailyLabels"
+              :series="dailySeries"
+              :label="t('usage.trendLabel')"
+              :format-value="formatTokens"
+              :format-exact="formatCount"
+              :compact="compact"
+            />
+            <p v-else class="usage__hint">{{ t("usage.trendEmpty") }}</p>
+          </UiBox>
+        </div>
+
+        <div class="usage__pair">
+          <UiBox data-testid="usage-models">
+            <template #header><UiBoxTitle :title="t('usage.modelsTitle')" :count="modelRows.length" /></template>
+            <p v-if="modelRows.length === 0" class="usage__hint">{{ t("usage.modelsEmpty") }}</p>
+            <table v-else class="usage__table">
+              <thead>
+                <tr>
+                  <th scope="col">{{ t("usage.modelColumn") }}</th>
+                  <th scope="col" class="is-numeric is-bar">{{ t("usage.modelHeadline") }}</th>
+                  <th scope="col" class="is-numeric">{{ t("usage.tokenInput") }}</th>
+                  <th scope="col" class="is-numeric">{{ t("usage.tokenOutput") }}</th>
+                  <th scope="col" class="is-numeric">{{ t("usage.tokenCacheRead") }}</th>
+                  <th scope="col" class="is-numeric">{{ t("usage.tokenCacheCreation") }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="model in modelRows" :key="model.key">
+                  <th scope="row">
+                    <span class="usage__name" :title="model.modelLabel">{{ model.modelLabel }}</span>
+                    <span class="usage__sub"
+                      >{{ model.agentLabel }} · {{ t("usage.modelResponses", { count: model.responses }) }}</span
+                    >
+                  </th>
+                  <td class="is-numeric is-bar" :data-label="t('usage.modelHeadline')">
+                    <span :title="formatCount(model.primary)">{{ formatTokens(model.primary) }}</span>
+                    <UiMeter
+                      size="sm"
+                      class="usage__bar"
+                      :max="1"
+                      :segments="ratioBar(model.ratio, model.modelLabel)"
+                    />
+                  </td>
+                  <td class="is-numeric" :data-label="t('usage.tokenInput')" :title="formatCount(model.tokens.input)">
+                    {{ formatTokens(model.tokens.input) }}
+                  </td>
+                  <td class="is-numeric" :data-label="t('usage.tokenOutput')" :title="formatCount(model.tokens.output)">
+                    {{ formatTokens(model.tokens.output) }}
+                  </td>
+                  <td
+                    class="is-numeric"
+                    :data-label="t('usage.tokenCacheRead')"
+                    :title="formatCount(model.tokens.cacheRead)"
+                  >
+                    {{ formatTokens(model.tokens.cacheRead) }}
+                  </td>
+                  <td
+                    class="is-numeric"
+                    :data-label="t('usage.tokenCacheCreation')"
+                    :title="formatCount(model.tokens.cacheCreation)"
+                  >
+                    {{ formatTokens(model.tokens.cacheCreation) }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </UiBox>
+
+          <UiBox data-testid="usage-operations">
+            <template #header
+              ><UiBoxTitle :icon="Wrench" :title="t('usage.operations')" :count="operationRows.length"
+            /></template>
+            <p v-if="operationRows.length === 0" class="usage__hint">{{ t("usage.operationsEmpty") }}</p>
+            <table v-else class="usage__table">
               <thead>
                 <tr>
                   <th scope="col">{{ t("usage.operationKey") }}</th>
-                  <th scope="col" class="is-numeric">{{ t("usage.operationCalls") }}</th>
+                  <th scope="col" class="is-numeric is-bar">{{ t("usage.operationCalls") }}</th>
                   <th scope="col" class="is-numeric">{{ t("usage.operationsTotalChars") }}</th>
                   <th scope="col" class="is-numeric">{{ t("usage.operationsAvgChars") }}</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="operation in result.operations" :key="operation.key">
+                <tr v-for="operation in operationRows" :key="operation.key">
                   <th scope="row">
-                    <code>{{ operation.key }}</code>
+                    <code class="usage__name" :title="operation.key">{{ operation.key }}</code>
                   </th>
-                  <td class="is-numeric">{{ formatCount(operation.calls) }}</td>
-                  <td class="is-numeric">{{ formatCount(operation.resultChars) }}</td>
-                  <td class="is-numeric">{{ formatCount(operation.avgChars) }}</td>
+                  <td class="is-numeric is-bar" :data-label="t('usage.operationCalls')">
+                    <span>{{ formatCount(operation.calls) }}</span>
+                    <UiMeter
+                      size="sm"
+                      class="usage__bar"
+                      :max="1"
+                      :segments="ratioBar(operation.ratio, operation.key)"
+                    />
+                  </td>
+                  <td class="is-numeric" :data-label="t('usage.operationsTotalChars')">
+                    {{ formatCount(operation.resultChars) }}
+                  </td>
+                  <td class="is-numeric" :data-label="t('usage.operationsAvgChars')">
+                    {{ formatCount(operation.avgChars) }}
+                  </td>
                 </tr>
               </tbody>
             </table>
-          </div>
-        </UiBox>
+          </UiBox>
+        </div>
 
         <UiBox data-testid="usage-sessions">
-          <template #header><UiBoxTitle :title="t('usage.sessionsTitle')" :count="result.sessions.length" /></template>
-          <p v-if="result.sessions.length === 0" class="usage__hint">{{ t("usage.sessionsEmpty") }}</p>
-          <UiBoxRow v-for="session in result.sessions" :key="session.label" :title="session.label">
-            <template #meta>{{
-              t("usage.sessionMeta", {
-                turns: formatCount(session.turns),
-                toolCalls: formatCount(session.toolCalls),
-                tokens: formatCount(
-                  session.tokens.input +
-                    session.tokens.output +
-                    session.tokens.cacheRead +
-                    session.tokens.cacheCreation,
-                ),
-              })
-            }}</template>
-            <template #trailing
-              ><span class="usage__muted">{{
-                t("usage.costUnits", { value: formatCount(session.estimatedCostUnits) })
-              }}</span></template
-            >
-          </UiBoxRow>
+          <template #header><UiBoxTitle :title="t('usage.sessionsTitle')" :count="sessionRows.length" /></template>
+          <p v-if="sessionRows.length === 0" class="usage__hint">{{ t("usage.sessionsEmpty") }}</p>
+          <table v-else class="usage__table">
+            <thead>
+              <tr>
+                <th scope="col">{{ t("usage.sessionColumn") }}</th>
+                <th scope="col" class="is-numeric is-bar">{{ t("usage.modelHeadline") }}</th>
+                <th scope="col" class="is-numeric">{{ t("usage.summaryTurns") }}</th>
+                <th scope="col" class="is-numeric">{{ t("usage.summaryToolCalls") }}</th>
+                <th scope="col" class="is-numeric">{{ t("usage.tokenInput") }}</th>
+                <th scope="col" class="is-numeric">{{ t("usage.tokenOutput") }}</th>
+                <th scope="col" class="is-numeric">{{ t("usage.tokenCacheRead") }}</th>
+                <th scope="col" class="is-numeric">{{ t("usage.tokenCacheCreation") }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="session in sessionRows" :key="session.label">
+                <th scope="row">
+                  <span class="usage__name">{{ session.label }}</span>
+                </th>
+                <td class="is-numeric is-bar" :data-label="t('usage.modelHeadline')">
+                  <span :title="formatCount(session.primary)">{{ formatTokens(session.primary) }}</span>
+                  <UiMeter size="sm" class="usage__bar" :max="1" :segments="ratioBar(session.ratio, session.label)" />
+                </td>
+                <td class="is-numeric" :data-label="t('usage.summaryTurns')">{{ formatCount(session.turns) }}</td>
+                <td class="is-numeric" :data-label="t('usage.summaryToolCalls')">
+                  {{ formatCount(session.toolCalls) }}
+                </td>
+                <td class="is-numeric" :data-label="t('usage.tokenInput')" :title="formatCount(session.tokens.input)">
+                  {{ formatTokens(session.tokens.input) }}
+                </td>
+                <td class="is-numeric" :data-label="t('usage.tokenOutput')" :title="formatCount(session.tokens.output)">
+                  {{ formatTokens(session.tokens.output) }}
+                </td>
+                <td
+                  class="is-numeric"
+                  :data-label="t('usage.tokenCacheRead')"
+                  :title="formatCount(session.tokens.cacheRead)"
+                >
+                  {{ formatTokens(session.tokens.cacheRead) }}
+                </td>
+                <td
+                  class="is-numeric"
+                  :data-label="t('usage.tokenCacheCreation')"
+                  :title="formatCount(session.tokens.cacheCreation)"
+                >
+                  {{ formatTokens(session.tokens.cacheCreation) }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </UiBox>
 
         <UiBox data-testid="usage-other-tools">
-          <template #header><UiBoxTitle :title="t('usage.otherTools')" :count="result.otherTools.length" /></template>
-          <p v-if="result.otherTools.length === 0" class="usage__hint">{{ t("usage.otherToolsEmpty") }}</p>
-          <UiBoxRow v-for="tool in result.otherTools" :key="tool.name">
+          <template #header><UiBoxTitle :title="t('usage.otherTools')" :count="otherToolRows.length" /></template>
+          <p v-if="otherToolRows.length === 0" class="usage__hint">{{ t("usage.otherToolsEmpty") }}</p>
+          <UiBoxRow v-for="tool in otherToolRows" :key="tool.name">
             <template #title
               ><code>{{ tool.name }}</code></template
             >
+            <UiMeter size="sm" :max="1" :segments="ratioBar(tool.ratio, tool.name)" />
             <template #trailing
               ><span class="usage__muted">{{ t("usage.calls", { count: tool.calls }) }}</span></template
             >
@@ -490,31 +731,106 @@ onBeforeUnmount(() => usageStore.setUsageActive(false));
   padding-left: var(--space-4);
 }
 
-.usage__legend {
+.usage__row,
+.usage__pair {
   display: grid;
-  gap: var(--space-2);
-  margin: var(--space-3) 0;
-  padding: 0;
-  list-style: none;
+  gap: var(--space-4);
+  align-items: start;
+  min-width: 0;
 }
 
-.usage__legend li {
-  display: grid;
-  grid-template-columns: 12px minmax(0, 1fr) auto auto auto;
-  gap: var(--space-3);
-  align-items: center;
+.usage__row {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  grid-template-areas:
+    "trend composition"
+    "trend block";
+}
+
+.usage__pair {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.usage__row > :deep(.ui-box + .ui-box),
+.usage__pair > :deep(.ui-box + .ui-box) {
+  margin-top: 0;
+}
+
+.usage__area-trend {
+  grid-area: trend;
+}
+
+.usage__area-composition {
+  grid-area: composition;
+}
+
+.usage__area-block {
+  grid-area: block;
+}
+
+.usage__subtitle {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.usage__subtotal {
+  color: var(--fg-muted);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage__composition + .usage__composition,
+.usage__block + .usage__block {
+  margin-top: var(--space-4);
+}
+
+.usage__multiple {
+  margin: var(--space-3) 0;
+  padding: var(--space-2) 0;
+  border-block: 1px solid var(--border-muted);
+  color: var(--fg-muted);
   font-size: var(--text-sm);
 }
 
-.usage__legend-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.usage__note {
+  margin: var(--space-4) 0 0;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.usage__legend {
+  width: 100%;
+  margin-top: var(--space-2);
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.usage__legend th,
+.usage__legend td {
+  padding: var(--space-1) 0;
+  font-weight: 400;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage__legend th[scope="row"] {
+  text-align: left;
+}
+
+.usage__legend td:last-child {
+  width: 56px;
+  color: var(--fg-muted);
 }
 
 .usage__swatch {
+  display: inline-block;
   width: 10px;
   height: 10px;
+  margin-right: var(--space-2);
   border-radius: var(--radius-xs);
 }
 
@@ -522,33 +838,39 @@ onBeforeUnmount(() => usageStore.setUsageActive(false));
   background: var(--accent);
 }
 
-.usage__swatch--attention {
-  background: var(--attention);
-}
-
-.usage__swatch--success {
-  background: var(--success);
-}
-
 .usage__swatch--done {
   background: var(--done);
 }
 
-.usage__num {
-  min-width: 44px;
-  text-align: right;
+.usage__swatch--diagram-5 {
+  background: var(--diagram-tone-5);
+}
+
+.usage__swatch--diagram-6 {
+  background: var(--diagram-tone-6);
+}
+
+.usage__facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2) var(--space-4);
+  margin: var(--space-2) 0 0;
+}
+
+.usage__facts dt {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.usage__facts dd {
+  margin: 0;
+  font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
 }
 
 .usage__muted {
   color: var(--fg-muted);
   font-size: var(--text-xs);
-}
-
-.usage__scroll {
-  max-height: 360px;
-  overflow: auto;
-  overscroll-behavior: contain;
 }
 
 .usage__table {
@@ -559,21 +881,39 @@ onBeforeUnmount(() => usageStore.setUsageActive(false));
 
 .usage__table th,
 .usage__table td {
-  padding: var(--space-2) var(--space-4);
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border-muted);
   text-align: left;
+  vertical-align: top;
+}
+
+.usage__table thead th,
+.usage__table td {
   white-space: nowrap;
 }
 
+.usage__table th:first-child,
+.usage__table td:first-child {
+  padding-left: var(--space-4);
+}
+
+.usage__table th:last-child,
+.usage__table td:last-child {
+  padding-right: var(--space-4);
+}
+
+.usage__table tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
 .usage__table thead th {
-  position: sticky;
-  top: 0;
-  background: var(--bg-surface);
   color: var(--fg-muted);
+  font-size: var(--text-xs);
   font-weight: 600;
 }
 
 .usage__table tbody th {
+  min-width: 0;
   font-weight: 400;
 }
 
@@ -582,13 +922,105 @@ onBeforeUnmount(() => usageStore.setUsageActive(false));
   font-variant-numeric: tabular-nums;
 }
 
-@media (max-width: 639px) {
-  .usage__legend li {
-    grid-template-columns: 12px minmax(0, 1fr) auto auto;
+.usage__table .is-bar {
+  min-width: 96px;
+}
+
+.usage__table .usage__bar {
+  margin-top: var(--space-1);
+}
+
+.usage__name {
+  display: block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage__sub {
+  display: block;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+@media (max-width: 959px) {
+  .usage__row {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "block"
+      "composition"
+      "trend";
   }
 
-  .usage__legend li > :last-child {
-    display: none;
+  .usage__pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 639px) {
+  .usage__table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .usage__table,
+  .usage__table tbody,
+  .usage__table tr,
+  .usage__table th {
+    display: block;
+  }
+
+  .usage__table tr {
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--border-muted);
+  }
+
+  .usage__table tbody tr:last-child {
+    border-bottom: 0;
+  }
+
+  .usage__table th,
+  .usage__table td,
+  .usage__table th:first-child,
+  .usage__table td:first-child,
+  .usage__table th:last-child,
+  .usage__table td:last-child {
+    padding: 0;
+    border: 0;
+  }
+
+  .usage__table tbody th {
+    margin-bottom: var(--space-1);
+    font-weight: 600;
+  }
+
+  .usage__name {
+    max-width: none;
+  }
+
+  .usage__table td {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0 var(--space-3);
+    padding: 2px 0;
+  }
+
+  .usage__table td::before {
+    content: attr(data-label);
+    text-align: left;
+    color: var(--fg-muted);
+  }
+
+  .usage__table .is-bar {
+    min-width: 0;
+  }
+
+  .usage__table .usage__bar {
+    grid-column: 1 / -1;
   }
 }
 </style>

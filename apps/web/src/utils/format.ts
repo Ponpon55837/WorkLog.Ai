@@ -256,3 +256,40 @@ export function weekdayLabel(date: Date, utc = false, width: "short" | "narrow" 
 export function formatCount(value: number): string {
   return new Intl.NumberFormat(intlLocale()).format(Math.round(value));
 }
+
+const TOKEN_UNITS = [
+  { suffix: "K", size: 1e3, digits: 1 },
+  { suffix: "M", size: 1e6, digits: 1 },
+  { suffix: "B", size: 1e9, digits: 2 },
+] as const;
+
+/**
+ * A token count in one compact style everywhere: 999, 1.2K, 34.5M, 1.02B (trailing zeros dropped). A value that
+ * rounds up to 1000 of its unit moves to the next unit, so 999,960 reads 1M, never 1000K. The exact value belongs in
+ * a `title` or a table through `formatCount`.
+ */
+export function formatTokens(value: number): string {
+  const abs = Math.abs(value);
+  if (abs < 1_000) return formatCount(value);
+  let index = TOKEN_UNITS.length - 1;
+  while (index > 0 && abs < (TOKEN_UNITS[index]?.size ?? 0)) index -= 1;
+  const scale = (position: number): number => {
+    const unit = TOKEN_UNITS[position];
+    return unit ? Number((abs / unit.size).toFixed(unit.digits)) : 0;
+  };
+  if (index < TOKEN_UNITS.length - 1 && scale(index) >= 1_000) index += 1;
+  const unit = TOKEN_UNITS[index];
+  if (!unit) return formatCount(value);
+  const number = new Intl.NumberFormat(intlLocale(), { maximumFractionDigits: unit.digits }).format(scale(index));
+  return `${value < 0 ? "-" : ""}${number}${unit.suffix}`;
+}
+
+/** A ratio as a multiple with one decimal under 100 (12.4) and none above, without the × sign. */
+export function formatMultiple(value: number): string {
+  return new Intl.NumberFormat(intlLocale(), { maximumFractionDigits: value >= 100 ? 0 : 1 }).format(value);
+}
+
+/** A millisecond span as 「2 小時 5 分」 / "2 hr 5 min", through the same wording as `formatDuration`. */
+export function formatDurationMs(value: number): string {
+  return formatDuration(new Date(0).toISOString(), new Date(Math.max(0, value)).toISOString());
+}

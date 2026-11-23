@@ -37,6 +37,7 @@ import UiSidePanel from "../components/ui/UiSidePanel.vue";
 import UiSidePanelHeader from "../components/ui/UiSidePanelHeader.vue";
 import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiSparkline from "../components/ui/UiSparkline.vue";
+import UiStackedBarChart from "../components/ui/UiStackedBarChart.vue";
 import UiSplitLayout from "../components/ui/UiSplitLayout.vue";
 import UiStatCard from "../components/ui/UiStatCard.vue";
 import UiStatGrid from "../components/ui/UiStatGrid.vue";
@@ -58,6 +59,11 @@ const range = ref({ from: "", to: "" });
 const pageSize = ref<ListPageSize>(10);
 const panelOpen = ref(false);
 const dialogOpen = ref(false);
+const stackedLabels = ["11/17", "11/18", "11/19", "11/20", "11/21", "11/22", "11/23"];
+const stackedSeries = [
+  { name: "Uncached input", tone: "accent", values: [120_000, 0, 340_000, 90_000, 210_000, 60_000, 150_000] },
+  { name: "Output", tone: "done", values: [40_000, 0, 120_000, 30_000, 80_000, 20_000, 55_000] },
+] as const;
 const pageInfo = {
   page: 2,
   pageSize: 10,
@@ -227,6 +233,17 @@ async function tryConfirm(): Promise<void> {
       <UiStatCard compact label="Compact" :value="5" foot="UiStatGrid columns=3" />
       <UiStatCard compact label="Compact" :value="0" />
     </UiStatGrid>
+
+    <UiBox>
+      <template #header><UiBoxTitle title="UiStackedBarChart" /></template>
+      <UiStackedBarChart
+        label="Daily input and output tokens, stacked on one scale"
+        :labels="stackedLabels"
+        :series="stackedSeries"
+        :format-value="(value: number) => `${Math.round(value / 1000)}K`"
+        :format-exact="(value: number) => value.toLocaleString('en-US')"
+      />
+    </UiBox>
 
     <UiSplitLayout>
       <template #main>
