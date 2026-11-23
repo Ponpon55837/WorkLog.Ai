@@ -13,6 +13,25 @@
 
 開啟前可先依[使用手冊的核對步驟](user-guide.md#桌面-app-檢查更新)，用發行頁面的 `SHA256SUMS.txt` 核對安裝檔；核對不符時請刪除檔案並重新下載。安裝後你的資料會保留。
 
+### 升級後狀態頁顯示「需要更新資料庫」
+
+升級桌面 App 之後（例如 1.6.63 升到 1.6.64，資料庫結構 34 升到 35），App 自己的資料庫需要先更新才能使用。「狀態」分頁和「資料」分頁的資料庫卡片會寫「資料庫需要更新才能在這個版本使用，更新前會自動備份。」
+
+按「先備份再更新資料庫」。App 會重新檢查檔案、在備份資料夾建立更新前備份、更新資料庫，然後啟動，不需要自己找檔案。這時「重試啟動」是次要按鈕，因為只重試不會更新資料庫。
+
+- **資料庫在雲端同步資料夾、卸除式磁碟，或是硬連結**：這些位置不能直接更新，卡片不會提供「先備份再更新資料庫」，改為提供「複製到本機資料夾後更新」。按下後會先確認，再把資料庫複製到 App 的預設資料夾，更新複本並改用它；原本的檔案不會被改動。已經開著的 Agent 會繼續寫入原本的檔案，重新開啟 Agent 後才會改用新位置。
+- **顯示「資料庫需要更新但沒有完成」**：沒有任何資料被改動。再按一次「先備份再更新資料庫」。
+- **想回到舊版 App**：到「資料」分頁按「從備份還原」，選更新前備份。
+- **顯示「版本不支援」**：資料庫是較新版本的 App 建立的，請先把 App 更新到最新版。
+- 若要改用其他資料庫檔案，仍可按「選擇資料庫…」，再選「同意更新資料庫結構，使用這個資料庫並重試」。
+
+**English summary.** After upgrading the desktop App (for example 1.6.63 to 1.6.64, schema 34 to 35), the Status tab and the Data tab show "Needs update": "The database needs an update before this version can use it. It is backed up automatically before the update." Press "Back up and update database". The App checks the file again, saves a pre-migration backup in the backups folder, updates the database and starts. "Retry start" is secondary because retrying alone cannot update.
+
+- If the database is in a cloud sync folder, on a removable disk, or is a hard link, it cannot be updated in place. The card offers "Copy to a local folder and update" instead. After you confirm, the App copies the database to its default data folder, updates the copy and switches to it. The original file is not changed. Agents that are already open keep writing to the original until they are reopened.
+- If the card says the update did not finish, nothing was changed. Press "Back up and update database" again.
+- To go back to an older App, use the Data tab, "Restore from backup", and pick the pre-migration backup.
+- "Unsupported version" means the database was made by a newer App. Update the App.
+
 ### 狀態頁出現「上次被中斷的操作」
 
 上次執行時若被強制結束（例如斷電或系統當機），下次啟動時「狀態」分頁會顯示「上次被中斷的操作」，說明 App 已經做了什麼復原。按「知道了」即可關閉，不影響之後的操作。

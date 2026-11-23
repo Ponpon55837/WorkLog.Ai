@@ -4,6 +4,12 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Fixed
+
+- After a desktop App upgrade, the App's own database no longer ends at a dead "Unsupported version" status. A database that only needs a schema update now shows "Needs update" (`SCHEMA_MIGRATION_BLOCKED`), and the Status and Data tabs offer one main button, "Back up and update database". "Retry start" becomes a secondary button meanwhile. A database made by a newer App still shows "Unsupported version" (`SCHEMA_TOO_NEW`).
+- When the database is on storage that must not be updated in place (a cloud sync folder, a removable disk, or a hard link), the in-place button is not offered. "Copy to a local folder and update" copies it to the default data folder after confirmation, updates the copy and switches to it; the original file is not changed.
+- New repair IPC channel `repair:approve-migration` previews the file again in the main process, then keeps the explicit consent and the pre-migration backup. If the update fails, nothing is changed and the error card asks to press "Back up and update database" again.
+
 ## [1.6.64] - 2026-11-23
 
 [繁體中文更新說明](docs/releases/1.6.64.md).

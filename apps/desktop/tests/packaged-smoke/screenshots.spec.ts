@@ -40,6 +40,7 @@ type Scheme = (typeof SCHEMES)[number];
 const BRIDGE_METHODS = [
   "getState",
   "retryStart",
+  "approveMigration",
   "chooseDatabase",
   "confirmDatabase",
   "copyToLocal",

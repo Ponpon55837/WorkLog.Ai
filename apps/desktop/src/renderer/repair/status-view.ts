@@ -19,7 +19,7 @@ import {
 } from "@work-intelligence/desktop-core/shell/startup-fallback-i18n";
 import { maintenanceSummary } from "./maintenance-view.js";
 import { legacyDisableControls, legacyDisableOutcome, type LegacyDisableHost } from "./legacy-disable-view.js";
-import { isBlockingDatabase, recoveryBannerText } from "./view-model.js";
+import { isBlockingDatabase, recoveryBannerText, retryIsPrimary } from "./view-model.js";
 
 /**
  * The Status tab: a compact summary of the service (who runs it, whether it runs, the database in one line), what
@@ -130,7 +130,8 @@ function serviceCard(ctx: ViewContext, blocking: boolean): HTMLElement {
         action.id,
         action.enabled && !ctx.busy,
         () => ctx.act.perform(action.id),
-        true,
+        // While the database waits for an update, the update button on the database card is the main one.
+        action.id !== "retry-start" || retryIsPrimary(state),
       ),
     );
   const card = section(messages.repairServiceHeading, facts(...rows));

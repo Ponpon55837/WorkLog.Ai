@@ -107,6 +107,16 @@ export interface ShellMessages {
   /** Confirm button for a database whose schema must be updated; pressing it is the user's consent. */
   readonly repairConfirmMigrate: string;
   readonly repairMigrationNote: string;
+  /** The App's own database needs a schema update this version can do (SCHEMA_MIGRATION_BLOCKED): what happens next. */
+  readonly repairOwnMigrationNote: string;
+  /** The same, when its storage refuses the update (DT-08): the copy to a local folder is the way. */
+  readonly repairOwnMigrationCopyNote: string;
+  /** The primary button that backs up and updates the App's own database; pressing it is the user's consent. */
+  readonly actionApproveMigration: string;
+  /** The primary button that copies the App's own database to a local folder and updates the copy. */
+  readonly actionCopyAndMigrate: string;
+  /** After the App's own database was updated. */
+  readonly migrationDone: string;
   readonly repairCandidateNotUsable: string;
   /** Shown when the App exits without proof that the backend stopped (never in background mode). */
   readonly quitStopIncompleteTitle: string;
@@ -254,6 +264,12 @@ const zhTW: ShellMessages = {
   repairBusyUnknown: "暫時無法確認 Dashboard 是否正在處理資料，請稍後再試。沒有變更任何資料。",
   repairConfirmMigrate: "同意更新資料庫結構，使用這個資料庫並重試",
   repairMigrationNote: "這個資料庫需要更新結構才能使用；更新前會先備份。",
+  repairOwnMigrationNote: "資料庫需要更新才能在這個版本使用，更新前會自動備份。",
+  repairOwnMigrationCopyNote:
+    "資料庫需要更新才能在這個版本使用，但它所在的位置不能直接更新。App 會先把它複製到本機資料夾，更新複本後改用它；原本的檔案不會被改動。",
+  actionApproveMigration: "先備份再更新資料庫",
+  actionCopyAndMigrate: "複製到本機資料夾後更新",
+  migrationDone: "資料庫已更新，更新前的備份放在備份資料夾。",
   repairCandidateNotUsable: "這個資料庫目前不能使用。",
   quitStopIncompleteTitle: "背景服務可能仍在執行",
   quitStopIncompleteMessage:
@@ -299,6 +315,7 @@ const zhTW: ShellMessages = {
     denied: "沒有讀取權限",
     unreadable: "無法讀取",
     "unsupported-schema": "版本不支援",
+    "needs-migration": "需要更新資料庫",
     unknown: "尚未檢查",
   },
   errors: {
@@ -326,7 +343,10 @@ const zhTW: ShellMessages = {
       hint: "最後的檢查仍發現可能的個人資訊或授權碼，為了安全沒有產生檔案。請回報這個代碼，不要附上原始記錄。",
     },
     SCHEMA_TOO_NEW: { title: "資料庫比這個版本新", hint: "請更新 Work Intelligence 後重試。" },
-    SCHEMA_MIGRATION_BLOCKED: { title: "資料庫需要更新但沒有完成", hint: "你的資料沒有被改動。請查看備份後重試。" },
+    SCHEMA_MIGRATION_BLOCKED: {
+      title: "資料庫需要更新但沒有完成",
+      hint: "你的資料沒有被改動。請在「狀態」分頁按「先備份再更新資料庫」；更新前會自動備份。",
+    },
     PORT_OCCUPIED_BY_OTHER: {
       title: "連接埠被其他程式占用",
       hint: "請關閉占用的程式，或在「設定」分頁的「連接埠」區塊換一個連接埠。",
@@ -530,6 +550,13 @@ const en: ShellMessages = {
     "The App could not confirm whether the Dashboard is working on data right now. Try again in a moment. Nothing was changed.",
   repairConfirmMigrate: "Allow a schema update, use this database and retry",
   repairMigrationNote: "This database needs a schema update before it can be used; a backup is made first.",
+  repairOwnMigrationNote:
+    "The database needs an update before this version can use it. It is backed up automatically before the update.",
+  repairOwnMigrationCopyNote:
+    "The database needs an update before this version can use it, but it cannot be updated where it is stored. The App copies it to a local folder, updates the copy and switches to it; the original file is not changed.",
+  actionApproveMigration: "Back up and update database",
+  actionCopyAndMigrate: "Copy to a local folder and update",
+  migrationDone: "The database was updated. The backup made before the update is in the backups folder.",
   repairCandidateNotUsable: "This database cannot be used right now.",
   quitStopIncompleteTitle: "The background service may still be running",
   quitStopIncompleteMessage:
@@ -576,6 +603,7 @@ const en: ShellMessages = {
     denied: "No read permission",
     unreadable: "Cannot be read",
     "unsupported-schema": "Unsupported version",
+    "needs-migration": "Needs update",
     unknown: "Not checked yet",
   },
   errors: {
@@ -611,7 +639,7 @@ const en: ShellMessages = {
     SCHEMA_TOO_NEW: { title: "The database is newer than this version", hint: "Update Work Intelligence and retry." },
     SCHEMA_MIGRATION_BLOCKED: {
       title: "The database needed an update that did not finish",
-      hint: "Your data was not changed. Check the backups and retry.",
+      hint: "Your data was not changed. Choose “Back up and update database” on the Status tab; a backup is made before the update.",
     },
     PORT_OCCUPIED_BY_OTHER: {
       title: "Another program is using the port",

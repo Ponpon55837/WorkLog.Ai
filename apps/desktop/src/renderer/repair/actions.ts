@@ -99,6 +99,10 @@ export function createActions(host: ActionHost): Actions {
         if (!window.confirm(setupMessages(state.locale).legacyStartAnywayConfirm)) return;
         const result = await host.api.startAnyway(retryId);
         host.say(result.ok ? messages.repairDone : failedAnswer(messages, result));
+      } else if (id === "approve-migration") {
+        // The button says what it does (back up, then update); pressing it is the consent main checks again.
+        const result = await host.api.approveMigration(retryId);
+        host.say(result.ok ? messages.migrationDone : (result.message ?? failedAnswer(messages, result)));
       } else if (id === "retry-start") {
         const result = await host.api.retryStart(retryId);
         host.say(result.ok ? messages.repairDone : failedAnswer(messages, result));

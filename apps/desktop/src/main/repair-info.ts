@@ -10,6 +10,7 @@ import {
   databaseStatusFor,
   legacyServiceRelevance,
   readMcpLeaseInput,
+  storagePolicy,
   type AppTabInputs,
   type BackendSupervisor,
   type BuiltDiagnostics,
@@ -95,11 +96,12 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
     });
     const running = supervisor.running !== undefined;
     const ownPath = state.databasePath();
+    const ownStorage = ownPath === null ? undefined : storage.last(ownPath)?.risk;
     const ownRisk =
       ownPath === null
         ? undefined
         : buildStorageRiskView({
-            risk: storage.last(ownPath)?.risk,
+            risk: ownStorage,
             locale: state.locale,
             chosenByUser: true,
             needsMigration: latestCode === "SCHEMA_MIGRATION_BLOCKED",
@@ -115,6 +117,8 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
       databasePath: state.databasePath(),
       databaseStatus: databaseStatus(),
       ...(ownRisk ? { databaseStorageRisk: ownRisk } : {}),
+      // An update the storage refuses is not offered in place; the storage note offers the copy instead (DT-08).
+      databaseMigrationBlocked: storagePolicy(ownStorage).migrationBlocked,
       candidates: state.candidates.list().map((entry) => {
         const needsMigration = entry.preview?.needsMigration ?? false;
         const storageRisk = buildStorageRiskView({

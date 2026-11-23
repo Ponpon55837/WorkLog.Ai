@@ -17,9 +17,17 @@ import type { LegacyServiceDetection } from "../legacy-service/types.js";
 
 export type BackendRunState = "running" | "starting" | "stopped" | "crashed";
 
+/**
+ * The App's own database as the page shows it: a probe verdict, `unknown`, or `needs-migration` (an older schema this
+ * version can update, which waits for the user's explicit consent: SCHEMA_MIGRATION_BLOCKED).
+ */
+export type RepairDatabaseStatus = DbProbeStatus | "unknown" | "needs-migration";
+
 /** What the repair window may ask main to do; the buttons the page shows come from this list. */
 export type RepairActionId =
   | "retry-start"
+  /** Back up and update the App's own database (offered only while it needs an update its storage allows). */
+  | "approve-migration"
   | "choose-database"
   | "open-database-folder"
   | "open-backups-folder"
@@ -72,7 +80,7 @@ export interface RepairState {
   readonly backend: BackendRunState;
   readonly database: {
     readonly display: string | null;
-    readonly status: DbProbeStatus | "unknown";
+    readonly status: RepairDatabaseStatus;
     /** The App's own database is on risky storage and its schema update was refused: the copy button is offered (DT-08). */
     readonly storageRisk?: StorageRiskView;
   };
@@ -143,9 +151,11 @@ export interface RepairStateInputs {
   readonly owner: ServiceOwnerState;
   readonly backend: BackendRunState;
   readonly databasePath: string | null;
-  readonly databaseStatus: DbProbeStatus | "unknown";
+  readonly databaseStatus: RepairDatabaseStatus;
   /** How the App's own database is shown when its storage is risky (DT-08). */
   readonly databaseStorageRisk?: StorageRiskView;
+  /** The storage of the App's own database refuses a schema update (DT-08): no in-place update is offered. */
+  readonly databaseMigrationBlocked?: boolean;
   readonly candidates: readonly {
     readonly id: string;
     readonly path: string;
@@ -183,12 +193,16 @@ export interface RepairStateInputs {
   readonly operation?: OperationKind | null;
 }
 
-/** The database status the page shows: a running backend proves `ok`; otherwise the latest error code says what was found. */
-export function databaseStatusFor(running: boolean, latestErrorCode: string | undefined): DbProbeStatus | "unknown" {
+/**
+ * The database status the page shows: a running backend proves `ok`; otherwise the latest error code says what was found.
+ * An update the user has not approved yet is `needs-migration`; a schema this version cannot open stays unsupported.
+ */
+export function databaseStatusFor(running: boolean, latestErrorCode: string | undefined): RepairDatabaseStatus {
   if (running) return "ok";
   if (latestErrorCode === "DB_MISSING") return "missing";
   if (latestErrorCode === "DB_OFFLINE") return "offline";
   if (latestErrorCode === "DB_PERMISSION") return "denied";
+  if (latestErrorCode === "SCHEMA_MIGRATION_BLOCKED") return "needs-migration";
   if (latestErrorCode?.startsWith("SCHEMA_")) return "unsupported-schema";
   return "unknown";
 }
@@ -213,6 +227,12 @@ export function buildRepairState(inputs: RepairStateInputs): RepairState {
   const show = (path: string): string => displayPath(path, inputs.homeDirectory, inputs.platform);
   const idle = !inputs.busy;
   const canRetry = idle && !(inputs.owner === "MANAGED" && inputs.backend === "running");
+  // The one-click update is for the App's own database only, and only where its storage allows an update (DT-08);
+  // otherwise the storage note offers the copy to a local folder.
+  const offersMigration =
+    inputs.databasePath !== null &&
+    inputs.databaseStatus === "needs-migration" &&
+    inputs.databaseMigrationBlocked !== true;
   return {
     locale: inputs.locale,
     owner: inputs.owner,
@@ -266,6 +286,7 @@ export function buildRepairState(inputs: RepairStateInputs): RepairState {
           }
         : null,
     actions: [
+      ...(offersMigration ? [{ id: "approve-migration" as const, enabled: idle }] : []),
       { id: "retry-start", enabled: canRetry },
       { id: "choose-database", enabled: idle },
       { id: "open-database-folder", enabled: inputs.databasePath !== null },
