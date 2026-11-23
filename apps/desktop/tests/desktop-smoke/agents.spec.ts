@@ -360,10 +360,12 @@ test("「移除 Agent 設定」 previews what it would remove, removes only what
   const toml = readFileSync(join(home, ".codex", "config.toml"), "utf8");
   expect(toml).toContain("[mcp_servers.other]");
   expect(toml).not.toContain("work-intelligence");
-  expect(Object.keys(tree(home, isAppData)).some((path) => path.endsWith("SKILL.md"))).toBe(false);
-  // The files go before the commit is logged, so the line can land a moment after the manifest is gone.
+  // The files go before the commit is logged, so the line can land a moment after the manifest is gone. Walk the
+  // home folder only after it: until then the removal may still be deleting its backups, and a file listed by
+  // readdir can be gone by the time it is read.
   const box = sandbox;
   await expect.poll(() => readMainLog(box), { timeout: 15_000 }).toMatch(/\[shell\] agent setup remove committed/);
+  expect(Object.keys(tree(home, isAppData)).some((path) => path.endsWith("SKILL.md"))).toBe(false);
 
   // The removal is one journaled operation like the install, so it can be undone: the setup is back.
   await expect.poll(async () => (await agentsState(window)).undoAvailable, { timeout: 15_000 }).toBe(true);
