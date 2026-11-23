@@ -4,6 +4,7 @@ export * from "./file-history.js";
 export * from "./project-data-columns.js";
 export * from "./related-work.js";
 export * from "./report-presentation.js";
+export * from "./usage.js";
 
 export const PROJECT_STATUSES = ["unregistered", "tracked", "paused", "ignored"] as const;
 
@@ -38,6 +39,9 @@ export const API_ERROR_CODES = [
   "session_cited_by_pending_cleanup",
   "session_backup_failed",
   "session_delete_failed",
+  "usage_timeout",
+  "usage_cancelled",
+  "usage_failed",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];

@@ -51,6 +51,7 @@ import { z } from "zod";
 import { parseArchitectureDiagram } from "./architecture-diagram.js";
 import { reportPresentationStateSchema } from "./report-presentation.js";
 export { attentionQuerySchema, updateAttentionPreferenceSchema } from "./attention.js";
+export { usageScanRequestSchema } from "./usage.js";
 export {
   findUnrecognizedKeys,
   safeParseStrict,

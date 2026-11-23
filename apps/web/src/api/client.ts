@@ -3,6 +3,7 @@ import { createAttentionApi, type AttentionApi } from "./attention";
 import type { PageInfo } from "./types";
 import { ApiTransport } from "./transport";
 import { createSystemApi, type SystemApi } from "./system";
+import { createUsageApi, type UsageApi } from "./usage";
 import { createBackupsApi, type BackupsApi } from "./backups";
 import { createProjectsApi, type ProjectsApi } from "./projects";
 import { createAgentReadsApi, type AgentReadsApi } from "./agent-reads";
@@ -25,6 +26,7 @@ export interface ApiClient
     AttentionApi,
     ReportPresentationApi,
     SystemApi,
+    UsageApi,
     BackupsApi,
     ProjectsApi,
     SessionsApi,
@@ -47,6 +49,7 @@ export class ApiClient extends ApiTransport {
     Object.assign(
       this,
       createSystemApi(this),
+      createUsageApi(this),
       createAttentionApi(this),
       createReportPresentationApi(this),
       createBackupsApi(this),
