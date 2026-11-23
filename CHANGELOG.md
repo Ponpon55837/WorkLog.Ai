@@ -12,6 +12,14 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 - SQLite schema 35 adds a nullable `response_chars` column to `agent_read_audit`. Existing rows stay NULL (unknown, not 0). The audit table is not part of project data export, so export and import formats are unchanged.
 
+### Tests
+
+- `scripts/agent-usage-report.mjs` reads local Claude Code session logs and prints only aggregates: turns, tool calls by name (Work Intelligence MCP tools listed separately), input, output and cache tokens deduplicated by message id, and MCP tool_result characters. It never prints message text, paths or project names. Its tests run with `pnpm test:scripts`, which CI runs on Ubuntu, Windows and macOS. Codex rollout logs are supported experimentally: checked against real Codex CLI 0.163 rollouts, including code-mode MCP calls and compaction chains, but not yet against Codex `/status`. `--debug-shape` prints only key names and types so the format can be checked locally.
+
+### Documentation
+
+- Retrieval and Knowledge page baseline in `docs/experiments/retrieval-baseline/`: a fictional fixture, 30 retrieval questions with hand-written gold, 5 policy cases, 5 Knowledge page end-to-end scenarios, a runner that calls the storage read functions directly, and a report with the A/B decision rules.
+
 ## [1.6.63] - 2026-11-23
 
 [繁體中文更新說明](docs/releases/1.6.63.md).

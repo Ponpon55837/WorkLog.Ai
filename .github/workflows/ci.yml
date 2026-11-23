@@ -137,6 +137,9 @@ jobs:
       - name: Recall evaluator synthetic smoke test
         run: pnpm run test:recall-eval:example
 
+      - name: Script unit tests
+        run: pnpm run test:scripts
+
   # The storage suite on the newest Node line: node:sqlite and its bundled SQLite change between
   # majors (Node 26 exposed FTS5 tombstone rowids above 2^53 to StatementSync.run()).
   storage-node-next:

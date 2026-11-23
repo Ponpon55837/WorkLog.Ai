@@ -55,6 +55,7 @@
     "test:e2e": "pnpm build && node scripts/run-e2e.mjs",
     "test:performance": "pnpm exec node packages/storage/bench/read-paths.bench.mjs 5000 --check && pnpm exec node apps/server/bench/project-transfer.bench.mjs --check",
     "test:sqlite-stress": "pnpm exec vitest run --root . --config tests/stress/vitest.config.ts --disableConsoleIntercept",
+    "test:scripts": "pnpm exec vitest run --root . --config tests/scripts/vitest.config.ts",
     "test:retrieval-quality": "pnpm exec vitest run --root . --config packages/storage/vitest.config.ts tests/storage/retrieval-quality.test.ts --disableConsoleIntercept",
     "test:response-size": "pnpm --filter @work-intelligence/mcp exec vitest run --root ../.. --config apps/mcp/vitest.config.ts tests/mcp/response-size.test.ts --disableConsoleIntercept",
     "typecheck": "pnpm -r typecheck && pnpm run typecheck:e2e",
