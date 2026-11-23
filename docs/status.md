@@ -6,6 +6,14 @@
 
 - 最後更新：2026-11-23
 
+## 1.6.65（升級後一鍵更新資料庫、語言選項、知識頁維護指引）
+
+- App 升級後若資料庫只需要更新結構，狀態改顯示「需要更新資料庫」，「狀態」與「資料」分頁提供「先備份再更新資料庫」，不必再用「選擇資料庫…」找檔案。資料庫在雲端同步資料夾、卸除式磁碟或硬連結上時，改提供「複製到本機資料夾後更新」，原檔不變。
+- 桌面 App「設定」分頁新增「顯示語言」：跟隨系統、繁體中文、English，切換立即生效，並與 App 管理的 Dashboard 同步。
+- Agent 知識頁指引新增三個維護步驟（review 與 full 的選擇、`truncated` 時分批讀完、沒變就標記已核對）。A/B 結果與決策見 `docs/experiments/retrieval-baseline/ab-report.md` 與 `docs/decisions/2026-11-agent-guidance-ab.md`；檢索指引不改，不做導航讀模型。
+
+沒有 schema 變更，資料庫維持 35。詳見 [1.6.65 更新說明](releases/1.6.65.md)。
+
 ## 1.6.64（Agent 讀取回應大小與檢索基準）
 
 - Agent 讀取稽核新增 `responseChars`：每次 MCP 讀取實際送出的回應字元數（JavaScript 字串長度，即 UTF-16 code unit；不是位元組也不是 token），只存數字，不存內容。用來判斷慢與貴是出在 SQLite、過大的回應，還是 Agent 的推理。
