@@ -1,5 +1,5 @@
 import process from "node:process";
-import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { isRecord } from "./metrics.js";
 import type { ClaudeRecord } from "./types.js";
@@ -75,7 +75,6 @@ export class UsageCache {
       await mkdir(dirname(this.file), { recursive: true, mode: 0o700 });
       const body = JSON.stringify({ version: CACHE_VERSION, entries: Object.fromEntries(this.entries) });
       await writeFile(temporary, body, { mode: 0o600 });
-      await chmod(temporary, 0o600).catch(() => undefined);
       await rename(temporary, this.file);
       this.dirty = false;
     } catch {

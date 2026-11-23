@@ -1,9 +1,10 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   COST_MULTIPLIERS,
+  defaultUsageSourceDirs,
   encodeClaudeProjectDir,
   estimateCostShares,
   formatForAgent,
@@ -217,5 +218,64 @@ describe("report text", () => {
     const report = await summarizeFiles([]);
     expect(formatForAgent(report)).toContain("none");
     expect(formatTable(report)).toContain("total");
+  });
+});
+
+describe("resolveProjectSources on Windows", () => {
+  it("compares folder names and Codex cwd case-insensitively", async () => {
+    const winBase = mkdtempSync(join(tmpdir(), "usage-sources-win-"));
+    const winRoot = join(winBase, "Project");
+    const projects = join(winBase, "claude");
+    const sessions = join(winBase, "codex");
+    mkdirSync(join(projects, encodeClaudeProjectDir(winRoot).toLowerCase()), { recursive: true });
+    mkdirSync(join(sessions, "2026"), { recursive: true });
+    const file = join(sessions, "2026", "rollout-2026-03-01T00-00-00-aaaaaaaa-0000-4000-8000-000000000009.jsonl");
+    writeFileSync(file, `${JSON.stringify(meta(winRoot.toUpperCase()))}\n`);
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    try {
+      const [result] = await resolveProjectSources([{ id: "w", name: "Win", root: winRoot }], {
+        claudeProjectsDir: projects,
+        codexSessionsDir: sessions,
+      });
+      expect(result?.claudeFolders).toHaveLength(1);
+      expect(result?.codexFiles).toEqual([file]);
+    } finally {
+      platform.mockRestore();
+      rmSync(winBase, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("defaultUsageSourceDirs", () => {
+  it("points at the Claude Code and Codex folders under the home directory", () => {
+    const dirs = defaultUsageSourceDirs();
+    expect(dirs.claudeProjectsDir).toBe(join(homedir(), ".claude", "projects"));
+    expect(dirs.codexSessionsDir).toBe(join(homedir(), ".codex", "sessions"));
+  });
+});
+
+describe("resolveProjectSources rollout reading", () => {
+  it("gives up on rollouts whose session_meta is late, huge, unreadable or missing", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "usage-sources-meta-"));
+    const sessions = join(dir, "codex");
+    const projectRoot = join(dir, "proj");
+    mkdirSync(sessions, { recursive: true });
+    const write = (n: string, body: string) =>
+      writeFileSync(join(sessions, `rollout-2026-03-01T00-00-00-aaaaaaaa-0000-4000-8000-00000000000${n}.jsonl`), body);
+    const filler = Array.from({ length: 25 }, () => JSON.stringify({ type: "noise" })).join("\n");
+    write("1", `${filler}\n${JSON.stringify(meta(projectRoot))}\n`);
+    write("2", "x".repeat(1024 * 1024 + 10));
+    write("3", `${JSON.stringify(meta(projectRoot))}`);
+    write("4", `{"type":"session_meta","payload":{}}\n`);
+    write("5", "");
+    try {
+      const [result] = await resolveProjectSources([{ id: "p", name: "P", root: projectRoot }], {
+        claudeProjectsDir: join(dir, "missing"),
+        codexSessionsDir: sessions,
+      });
+      expect(result?.codexFiles.map((file) => file.slice(-7))).toEqual(["3.jsonl"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
