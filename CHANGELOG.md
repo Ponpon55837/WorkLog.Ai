@@ -4,6 +4,12 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Added
+
+- The desktop App's Settings tab has a new "Language" card at the top, with a "Display language" choice: "Follow system (<language>)" (the default), "繁體中文" and "English". A system language starting with zh reads as 繁體中文, anything else as English. The App window, the tray menu, the macOS application menu and the App's dialogs switch at once, with no restart.
+- The Dashboard the App manages uses the same language. It switches to the App's language when it opens or refreshes its status, and changing the language in the Dashboard changes the App's setting too. If the App is on "Follow system" and you pick in the Dashboard the language the system already reads as, the App stays on "Follow system". A standalone server keeps the Dashboard's language in the browser, as before.
+- The choice is kept in its own small file next to the App's settings, not in the settings file, so an older App version ignores it. "Follow system" removes the file. A damaged file reads as "Follow system" and never stops the App from starting.
+
 ### Fixed
 
 - After a desktop App upgrade, the App's own database no longer ends at a dead "Unsupported version" status. A database that only needs a schema update now shows "Needs update" (`SCHEMA_MIGRATION_BLOCKED`), and the Status and Data tabs offer one main button, "Back up and update database". "Retry start" becomes a secondary button meanwhile. A database made by a newer App still shows "Unsupported version" (`SCHEMA_TOO_NEW`).

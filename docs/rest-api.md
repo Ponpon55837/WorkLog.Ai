@@ -102,6 +102,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | DELETE   | `/api/projects/:id`                              | 先備份，再永久刪除專案與相關 WorkLog 資料；需傳入專案名稱確認                           |
 | GET      | `/api/project-deletion-audits`                   | 列出不含內容的刪除時間、專案 id 與各類刪除筆數                                          |
 | POST     | `/api/desktop/open-agent-setup`                  | 僅桌面 App 管理的後端：請 App 開啟「Agent 設定」視窗（body `{}`），回 202 `{ "ok": true }`；獨立執行回 404 `not_found` |
+| POST     | `/api/desktop/language`                          | 僅桌面 App 管理的後端：告知 App 使用者在 Dashboard 選的語言（body `{ "locale": "zh-TW" \| "en" }`），回 202 `{ "ok": true }`；未知欄位或語系回 400 `invalid_input`；獨立執行回 404 `not_found` |
 | POST     | `/api/desktop/open-port-settings`                | 僅桌面 App 管理的後端：請 App 開啟「連接埠」設定（body `{ preferences?, route? }`），回 202 `{ "ok": true }`；獨立執行回 404 `not_found` |
 | POST     | `/api/system/pick-folder`                        | 在本機叫出作業系統的選擇資料夾視窗，回傳選到的路徑（body `{}`）                        |
 | GET/POST | `/api/backups`                                   | 列出資料庫備份／立即建立備份（POST body `{}`）                                         |

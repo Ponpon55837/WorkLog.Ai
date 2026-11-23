@@ -17,6 +17,7 @@ import {
   type OperationCoordinator,
   type OperationJournal,
   type RepairPortSection,
+  type RepairLanguageSection,
   type RepairLoginItemSection,
   type RepairBackupDirectorySection,
   type RepairMaintenanceSection,
@@ -60,6 +61,8 @@ export interface RepairInfoOptions {
   readonly update?: () => RepairUpdateSection;
   /** What the 「登入時自動啟動」 switch shows. */
   readonly loginItem?: () => RepairLoginItemSection;
+  /** What the 「語言」 card shows. */
+  readonly language?: () => RepairLanguageSection;
   /** What the 「備份位置」 card shows. */
   readonly backupDirectory?: () => RepairBackupDirectorySection | undefined;
   /** What the 「整理資料庫」 card shows. */
@@ -150,6 +153,7 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
       ...(options.port ? { port: options.port() } : {}),
       ...(options.update ? { update: options.update() } : {}),
       ...(options.loginItem ? { loginItem: options.loginItem() } : {}),
+      ...(options.language ? { language: options.language() } : {}),
       ...(options.maintenance ? { maintenance: options.maintenance() } : {}),
       ...(options.backupDirectory?.() ? { backupDirectory: options.backupDirectory() } : {}),
       fallback: state.startupFallback,
@@ -193,7 +197,8 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
       appVersion: app.getVersion(),
       ...(state.settings ? { installId: state.settings.installId } : {}),
       arch: process.arch,
-      locale: app.getLocale(),
+      // The language the App shows (its setting, else the system's), the same one every surface uses.
+      locale: state.locale,
       owner: state.owner,
       backend: running ? "running" : state.backend,
       databaseStatus: databaseStatus(),

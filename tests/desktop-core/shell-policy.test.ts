@@ -138,6 +138,7 @@ describe("repair IPC", () => {
       "app:select-tab",
       "app:show-view",
       "backup-directory:choose",
+      "language:set",
       "legacy:disable-confirm",
       "legacy:disable-preview",
       "legacy:recheck",

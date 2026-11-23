@@ -40,6 +40,7 @@ import type { RepairWindow } from "./repair-window.js";
 import type { RestoreController } from "./restore.js";
 import type { ShellState } from "./state.js";
 import type { LoginItemController } from "./login-item.js";
+import type { ShellLanguage } from "./language.js";
 import type { BackupDirectoryController } from "./backup-directory.js";
 import type { MaintenanceController } from "./maintenance.js";
 import type { UpdateController } from "./update-check.js";
@@ -63,6 +64,7 @@ export interface IpcOptions {
   readonly changePort: ChangePortController;
   readonly storage: StorageRiskService;
   readonly loginItem: LoginItemController;
+  readonly language: ShellLanguage;
   /** 「整理資料庫」: takes the page-action lock itself, after its checks and the native confirmation. */
   readonly maintenance: MaintenanceController;
   /** 「更換備份位置」: the page sends nothing; main opens the folder dialog. Runs under the page-action lock. */
@@ -99,6 +101,7 @@ export function registerRepairIpc(options: IpcOptions): void {
     legacyDisable,
     changePort,
     loginItem,
+    language,
     maintenance,
     backupDirectory,
     storage,
@@ -511,6 +514,10 @@ export function registerRepairIpc(options: IpcOptions): void {
       () => ({ ok: false, reason: "busy" }) as const,
       () => loginItem.set(enable),
     ),
+  );
+  // Only the choice comes in. Not behind the page-action lock: it restarts nothing, and settings writes queue anyway.
+  handle(REPAIR_CHANNELS.languageSet, parser(repairInputSchemas.languageSet), ({ preference }) =>
+    language.set(preference),
   );
   // The change restarts the service, so it shares the page-action lock with every other change of the settings.
   handle(REPAIR_CHANNELS.backupDirectoryChoose, parser(repairInputSchemas.backupDirectoryChoose), () =>

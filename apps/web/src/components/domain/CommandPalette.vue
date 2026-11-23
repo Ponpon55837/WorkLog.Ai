@@ -7,6 +7,7 @@ import type { IconComponent } from "../ui/types";
 import { useFocusTrap } from "../../composables/useFocusTrap";
 import { router } from "../../router";
 import { useCommandPaletteStore } from "../../stores/command-palette";
+import { useDesktopLanguageStore } from "../../stores/desktop-language";
 import { usePreferencesStore } from "../../stores/preferences";
 import { useSessionsStore } from "../../stores/sessions";
 import { formatRelative } from "../../utils/format";
@@ -20,6 +21,7 @@ const open = defineModel<boolean>("open", { required: true });
 const paletteStore = useCommandPaletteStore();
 const { sessions, knowledge } = storeToRefs(paletteStore);
 const { locale, resolvedTheme, theme } = storeToRefs(usePreferencesStore());
+const { changeLocale } = useDesktopLanguageStore();
 
 const query = ref("");
 const active = ref(0);
@@ -66,7 +68,7 @@ const items = computed<PaletteItem[]>(() => {
       label: t("palette.language", { language: option.label }),
       keywords: "language locale english chinese",
       icon: Languages,
-      run: () => (locale.value = option.value),
+      run: () => void changeLocale(option.value),
     })),
   ]
     .filter((item) => !term || `${item.label} ${item.keywords}`.toLowerCase().includes(term))

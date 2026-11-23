@@ -5,8 +5,9 @@ import { storeToRefs } from "pinia";
 import { Languages, Menu, Moon, RefreshCw, Search, Sun } from "lucide-vue-next";
 import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
+import { useDesktopLanguageStore } from "../../stores/desktop-language";
 import { usePreferencesStore } from "../../stores/preferences";
-import { LOCALE_OPTIONS, t } from "../../i18n";
+import { LOCALE_OPTIONS, t, type Locale } from "../../i18n";
 
 defineProps<{ refreshing?: boolean; menuOpen?: boolean }>();
 const emit = defineEmits<{ refresh: []; search: []; toggleMenu: [] }>();
@@ -14,6 +15,7 @@ const emit = defineEmits<{ refresh: []; search: []; toggleMenu: [] }>();
 const route = useRoute();
 const preferencesStore = usePreferencesStore();
 const { locale, resolvedTheme, theme } = storeToRefs(preferencesStore);
+const { changeLocale } = useDesktopLanguageStore();
 const crumb = computed(() => (route.meta.title ? t(route.meta.title) : ""));
 const localeLabel = computed(() => LOCALE_OPTIONS.find((option) => option.value === locale.value)?.label ?? "");
 const themeToggleLabel = computed(() =>
@@ -22,6 +24,10 @@ const themeToggleLabel = computed(() =>
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 // Announced through aria-keyshortcuts so the visible kbd hint can stay out of the accessible name.
 const searchShortcut = isMac ? "Meta+K" : "Control+K";
+
+function onLocaleChange(next: Locale | undefined): void {
+  if (next) void changeLocale(next);
+}
 </script>
 
 <template>
@@ -56,7 +62,7 @@ const searchShortcut = isMac ? "Meta+K" : "Control+K";
       <span class="app-header__status-text">{{ t("layout.localFirst") }}</span>
     </span>
     <UiActionMenu
-      v-model="locale"
+      :model-value="locale"
       class="app-header__locale"
       :label="localeLabel"
       :header="t('common.language')"
@@ -65,6 +71,7 @@ const searchShortcut = isMac ? "Meta+K" : "Control+K";
       align="end"
       variant="button"
       hide-label-on-mobile
+      @update:model-value="onLocaleChange"
     />
     <!-- An explicit choice overrides the system setting; System status → 個人偏好 can return to it. -->
     <UiIconButton

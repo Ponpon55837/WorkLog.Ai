@@ -67,6 +67,7 @@ export function panelInputs(tab: AppTab, state: RepairState): unknown {
       port: state.port,
       update: state.update,
       loginItem: state.loginItem,
+      language: state.language,
       backupDirectory: state.backupDirectory,
     };
   const {
@@ -74,6 +75,7 @@ export function panelInputs(tab: AppTab, state: RepairState): unknown {
     port: _port,
     update: _update,
     loginItem: _loginItem,
+    language: _language,
     backupDirectory: _backupDirectory,
     shell: _shell,
     ...rest

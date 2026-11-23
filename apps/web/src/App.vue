@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
+import { useRouter } from "vue-router";
 import AppShell from "./components/layout/AppShell.vue";
 import UiButton from "./components/ui/UiButton.vue";
 import UiFlash from "./components/ui/UiFlash.vue";
@@ -11,6 +12,7 @@ import { invalidateActiveQueries, startAppRefreshEvents } from "./composables/us
 import { useHotkeys } from "./composables/useHotkeys";
 import { useAppStore } from "./stores/app";
 import { useDashboardStore } from "./stores/dashboard";
+import { useDesktopLanguageStore } from "./stores/desktop-language";
 import { useProjectsStore } from "./stores/projects";
 import { errorMessage as toErrorMessage } from "./utils/format";
 import { locale, t } from "./i18n";
@@ -19,6 +21,7 @@ import { locale, t } from "./i18n";
 // after the first paint instead of weighing down the entry bundle.
 const AppOverlays = defineAsyncComponent(() => import("./components/layout/AppOverlays.vue"));
 
+const router = useRouter();
 const projectsStore = useProjectsStore();
 const { dashboard, trackedProjects } = storeToRefs(projectsStore);
 const { loadDashboard, loadProjects } = projectsStore;
@@ -30,6 +33,8 @@ const { appHealth, appHealthError } = storeToRefs(appStore);
 const { loadHealth } = appStore;
 const { isApiOffline } = useApiConnection();
 useAppearance();
+// Created here so the App's language is adopted on load, before any page asks for the system status.
+const desktopLanguageStore = useDesktopLanguageStore();
 
 const loading = ref(true);
 const refreshing = ref(false);
@@ -79,6 +84,10 @@ watch(appHealthError, (message) => {
 
 onMounted(() => {
   void loadRootData();
+  // The System status page loads the same status itself; starting there, the App's language arrives with it.
+  void router.isReady().then(() => {
+    if (router.currentRoute.value.name !== "system-status") desktopLanguageStore.loadStatus();
+  });
   // Chunks are fetched once the browser is idle; a panel opened sooner mounts as soon as its chunk arrives.
   if (typeof requestIdleCallback === "function") requestIdleCallback(() => (overlaysReady.value = true));
   else setTimeout(() => (overlaysReady.value = true), 0);

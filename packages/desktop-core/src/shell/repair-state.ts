@@ -8,6 +8,7 @@ import type { RecordedError } from "./recent-errors.js";
 import type { StorageRiskView } from "./storage-risk-view.js";
 import type { RepairUpdateSection } from "../update-check/result.js";
 import type { RepairLoginItemSection } from "./login-item-status.js";
+import type { RepairLanguageSection } from "./language-i18n.js";
 import type { RepairBackupDirectorySection } from "./backup-directory.js";
 import type { RepairMaintenanceSection } from "./maintenance-types.js";
 import type { StartupFallbackNote } from "./startup-fallback.js";
@@ -100,6 +101,8 @@ export interface RepairState {
   readonly update?: RepairUpdateSection;
   /** The 「登入時自動啟動」 switch: the user's choice and the system's state. Absent: no section. */
   readonly loginItem?: RepairLoginItemSection;
+  /** The 「語言」 card: the user's setting and what the system language reads as. Absent: no card. */
+  readonly language?: RepairLanguageSection;
   /** 「整理資料庫」: the free space, the last run and this session's check. Absent: no card. */
   readonly maintenance?: RepairMaintenanceSection;
   /** 「備份位置」: the folder new backups go to. Absent: no card. */
@@ -174,6 +177,7 @@ export interface RepairStateInputs {
   readonly port?: RepairPortSection | null;
   readonly update?: RepairUpdateSection;
   readonly loginItem?: RepairLoginItemSection;
+  readonly language?: RepairLanguageSection;
   readonly maintenance?: RepairMaintenanceSection;
   readonly backupDirectory?: RepairBackupDirectorySection;
   readonly fallback?: StartupFallbackNote | null;
@@ -266,6 +270,7 @@ export function buildRepairState(inputs: RepairStateInputs): RepairState {
     port: inputs.port ?? null,
     ...(inputs.update ? { update: inputs.update } : {}),
     ...(inputs.loginItem ? { loginItem: inputs.loginItem } : {}),
+    ...(inputs.language ? { language: inputs.language } : {}),
     ...(inputs.maintenance ? { maintenance: inputs.maintenance } : {}),
     ...(inputs.backupDirectory ? { backupDirectory: inputs.backupDirectory } : {}),
     ...(inputs.fallback ? { fallback: inputs.fallback } : {}),

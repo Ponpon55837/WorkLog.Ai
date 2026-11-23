@@ -544,6 +544,21 @@ ul.list {
   opacity: 0.5;
 }
 
+/* A group of radio buttons (the 「語言」 card): the legend reads like a field label, without the fieldset frame. */
+.choices {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.choices > legend {
+  margin-bottom: 2px;
+  padding: 0;
+}
+
 .check {
   display: flex;
   align-items: flex-start;

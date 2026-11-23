@@ -266,6 +266,7 @@ export class BackendSupervisor {
   /** Bumped by `stop()`: a preview queued before a stop never starts after it. */
   private previewGeneration = 0;
   private readonly openAgentSetupListeners = new Set<() => void>();
+  private readonly setLanguageListeners = new Set<(locale: "zh-TW" | "en") => void>();
   private readonly openPortSettingsListeners = new Set<(request: { preferences?: unknown; route?: string }) => void>();
   private readonly changedListeners = new Set<(database: DatabaseIdentity) => void>();
   private readonly workingDirectory: string | undefined;
@@ -314,6 +315,12 @@ export class BackendSupervisor {
   onOpenAgentSetup(listener: () => void): () => void {
     this.openAgentSetupListeners.add(listener);
     return () => this.openAgentSetupListeners.delete(listener);
+  }
+
+  /** Subscribes to the user picking a language in the web UI (from the running backend only). */
+  onSetLanguage(listener: (locale: "zh-TW" | "en") => void): () => void {
+    this.setLanguageListeners.add(listener);
+    return () => this.setLanguageListeners.delete(listener);
   }
 
   /** Subscribes to the web UI asking the App to open its port settings (from the running backend only). */
@@ -940,6 +947,7 @@ export class BackendSupervisor {
       channel.onOpenPortSettings((request) =>
         this.notify(this.openPortSettingsListeners, (listener) => listener(request)),
       );
+      channel.onSetLanguage((locale) => this.notify(this.setLanguageListeners, (listener) => listener(locale)));
     } else {
       this.previews.add(active);
     }

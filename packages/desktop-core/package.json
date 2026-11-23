@@ -39,6 +39,10 @@
       "types": "./dist/shell/login-item-i18n.d.ts",
       "import": "./dist/shell/login-item-i18n.js"
     },
+    "./shell/language-i18n": {
+      "types": "./dist/shell/language-i18n.d.ts",
+      "import": "./dist/shell/language-i18n.js"
+    },
     "./shell/login-item-status": {
       "types": "./dist/shell/login-item-status.d.ts",
       "import": "./dist/shell/login-item-status.js"

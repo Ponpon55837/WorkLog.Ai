@@ -117,6 +117,7 @@ describe("DesktopChild", () => {
         getFacts: expect.any(Function),
         onOpenAgentSetup: expect.any(Function),
         onOpenPortSettings: expect.any(Function),
+        onSetLanguage: expect.any(Function),
       },
     });
   });
@@ -152,6 +153,14 @@ describe("DesktopChild", () => {
     };
     options.desktop.onOpenPortSettings({ preferences: { theme: "dark", token: "secret" }, route: "//evil" });
     expect(sent.at(-1)).toEqual({ type: "open-port-settings", preferences: { theme: "dark" }, route: "/" });
+  });
+
+  it("relays a set-language request to the parent", async () => {
+    const { child, sent, startApi } = setup();
+    await child.handle(START);
+    const options = startApi.mock.calls[0]?.[0] as { desktop: { onSetLanguage: (locale: string) => void } };
+    options.desktop.onSetLanguage("en");
+    expect(sent.at(-1)).toEqual({ type: "set-language", locale: "en" });
   });
 
   it("tells the parent when the running API completes a backup", async () => {

@@ -5,7 +5,7 @@ import {
   type BrowserPreferences,
   type DesktopFacts,
 } from "@work-intelligence/schema";
-import type { DesktopRouteServices } from "./routes/router.js";
+import type { DesktopRouteServices, ShellLocale } from "./routes/router.js";
 
 /** Desktop-child mode as the API handler sees it; undefined options mean a standalone server. */
 export interface DesktopHandlerOptions {
@@ -17,6 +17,8 @@ export interface DesktopHandlerOptions {
   onOpenAgentSetup: () => void;
   /** Tells the App to open its port settings with the page's already sanitized preferences and route. */
   onOpenPortSettings?: (handoff: { preferences: BrowserPreferences; route: string }) => void;
+  /** Tells the App the Dashboard language the user picked; the App saves it and pushes updated facts back. */
+  onSetLanguage?: (locale: ShellLocale) => void;
   /** Clock for the throttle; injectable for tests. */
   now?: () => number;
 }
@@ -49,6 +51,7 @@ export function createDesktopRouteServices(
       ...(facts?.loginItem ? { loginItem: facts.loginItem } : {}),
       ...(backupDirectory ? { backupDirectory } : {}),
       ...(facts?.storageRisk ? { storageRisk: facts.storageRisk } : {}),
+      ...(facts?.language ? { language: facts.language } : {}),
     };
   };
   return {
@@ -78,6 +81,13 @@ export function createDesktopRouteServices(
         });
       } catch {
         // The App not being reachable must not turn the click into a server error.
+      }
+    },
+    requestSetLanguage(locale) {
+      try {
+        options.onSetLanguage?.(locale);
+      } catch {
+        // The App not being reachable must not turn the language change into a server error.
       }
     },
   };

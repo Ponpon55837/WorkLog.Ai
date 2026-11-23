@@ -17,6 +17,7 @@ import {
   writeDesktopSettingsAtomic,
   type StartupFallbackNote,
 } from "@work-intelligence/desktop-core";
+import type { ShellLanguagePreference } from "@work-intelligence/schema";
 
 const MAX_CANDIDATES = 5;
 
@@ -29,7 +30,10 @@ export class ShellState {
   backend: BackendRunState = "stopped";
   settings: DesktopSettingsV1 | null = null;
   launchMode: LaunchMode = "interactive";
+  /** The language every surface uses; only main/language.ts sets it (the setting, else the system language). */
   locale: ShellLocale = "en";
+  /** The language setting, from its own file (`preferences.json`), never from the settings file. */
+  languagePreference: ShellLanguagePreference = "system";
   /** No settings file yet: the first-run page has not finished. The tray offers "完成首次設定…". */
   needsSetup = false;
   /** The tab the App window shows; main decides, the page asks (`app:get-tab`) and follows `app:select-tab`. */
