@@ -10,7 +10,7 @@ import { t, type MessageKey } from "../i18n";
 
 export const MAX_MANUAL_FOLDERS = 20;
 
-export interface UsageScanControls {
+interface UsageScanControls {
   all: boolean;
   projectIds: readonly string[];
   range: UsageRange;

@@ -623,6 +623,139 @@ describe("Codex rollouts", () => {
   });
 });
 
+describe("Work Intelligence operations", () => {
+  const OP_SECRET = "OPERATION-CANARY-SECRET-999";
+  const dispatch = (id: string, name: string, input: unknown) => ({ type: "tool_use", id, name, input });
+  const result = (id: string, length: number) => ({
+    type: "tool_result",
+    tool_use_id: id,
+    content: "r".repeat(length),
+  });
+
+  it("groups Claude dispatcher tools by input.operation and hides unmatched operation strings", async () => {
+    const dir = join(root, "operations");
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, "ops.jsonl");
+    const lines = [
+      assistant(
+        "op_1",
+        "2026-03-01T00:00:00Z",
+        [
+          dispatch("o1", "mcp__wi__work_read", { operation: "work_search_memory", query: OP_SECRET }),
+          dispatch("o2", "mcp__wi__work_read", { operation: "work_search_memory" }),
+          dispatch("o3", "mcp__wi__work_write_additive", { operation: "work_add_note", text: OP_SECRET }),
+          dispatch("o4", "mcp__wi__work_read", { operation: `Bad Operation ${OP_SECRET}` }),
+          dispatch("o5", "mcp__wi__work_write_overwrite", { operation: 5 }),
+          dispatch("o6", "mcp__wi__work_write_idempotent", "not an object"),
+          dispatch("o7", "mcp__wi__work_get_knowledge_page_context", { operation: "work_ignored" }),
+          dispatch("o8", "Read", { operation: "work_read_file" }),
+        ],
+        { output_tokens: 1 },
+      ),
+      user("2026-03-01T00:00:01Z", [
+        result("o1", 10),
+        result("o2", 5),
+        result("o3", 7),
+        result("o4", 3),
+        result("o7", 100),
+        result("o8", 50),
+      ]),
+    ];
+    writeFileSync(file, lines.map((line) => JSON.stringify(line)).join("\n"));
+    const report = await summarizeFiles([file]);
+    expect(report.total.workIntelligenceOperations).toEqual({
+      "work_read/work_search_memory": { calls: 2, resultChars: 15 },
+      "work_write_additive/work_add_note": { calls: 1, resultChars: 7 },
+      "work_read/(unknown)": { calls: 1, resultChars: 3 },
+      "work_write_overwrite/(unknown)": { calls: 1, resultChars: 0 },
+      "work_write_idempotent/(unknown)": { calls: 1, resultChars: 0 },
+      work_get_knowledge_page_context: { calls: 1, resultChars: 100 },
+    });
+    expect(report.total.workIntelligenceTools).toEqual({
+      work_read: 3,
+      work_write_additive: 1,
+      work_write_overwrite: 1,
+      work_write_idempotent: 1,
+      work_get_knowledge_page_context: 1,
+    });
+    expect(report.sessions[0]?.workIntelligenceOperations).toEqual(report.total.workIntelligenceOperations);
+    for (const flags of [["--json"], []]) {
+      const out = execFileSync("node", [SCRIPT, ...flags, file], { encoding: "utf8" });
+      expect(out).not.toContain(OP_SECRET);
+      expect(out).not.toContain("Bad Operation");
+      expect(out).toContain("work_read/work_search_memory");
+      expect(out).toContain("work_read/(unknown)");
+    }
+    expect(execFileSync("node", [SCRIPT, file], { encoding: "utf8" })).toContain(
+      "work intelligence operations: work_read/work_search_memory=2/15,",
+    );
+  });
+
+  it("groups Codex function_call arguments, MCP begin arguments and code-mode items by operation", async () => {
+    const withArgs = (second: number, callId: string, name: string, args: unknown) =>
+      item(second, { type: "function_call", name, arguments: args, call_id: callId });
+    const dir = codexDir({
+      [rolloutName(PARENT)]: [
+        codexMeta(0, PARENT),
+        withArgs(1, "k1", "mcp__wi__work_read", JSON.stringify({ operation: "work_search_memory", q: OP_SECRET })),
+        withArgs(2, "k2", "mcp__wi__work_read", JSON.stringify({ operation: `no ${OP_SECRET}` })),
+        withArgs(3, "k3", "mcp__wi__work_write_additive", "{ not json"),
+        withArgs(4, "k4", "mcp__wi__work_read", undefined),
+        output(5, "k1", "x".repeat(12)),
+        output(6, "k2", "x".repeat(4)),
+        event(7, {
+          type: "mcp_tool_call_begin",
+          call_id: "k5",
+          invocation: { server: "wi", tool: "work_read", arguments: { operation: "work_get_context", n: OP_SECRET } },
+        }),
+        event(8, {
+          type: "mcp_tool_call_end",
+          call_id: "k5",
+          invocation: { server: "wi", tool: "work_read" },
+          result: { Ok: { content: [{ type: "text", text: "123456" }] } },
+        }),
+        // a function_call that only the begin event reveals as Work Intelligence, with an unmatched operation.
+        call(9, "k6", "do_it"),
+        event(10, {
+          type: "mcp_tool_call_begin",
+          call_id: "k6",
+          invocation: { server: "wi", tool: "work_write_overwrite", arguments: { operation: OP_SECRET } },
+        }),
+        event(11, {
+          type: "item_completed",
+          turn_id: "t1",
+          item: {
+            type: "McpToolCall",
+            id: "k7",
+            server: "wi",
+            tool: "work_write_idempotent",
+            arguments: { operation: "work_set_title" },
+            result: { content: [{ type: "text", text: "12" }] },
+          },
+        }),
+        event(12, {
+          type: "item_completed",
+          turn_id: "t1",
+          item: { type: "McpToolCall", id: "k8", server: "wi", tool: "work_read", result: { content: [] } },
+        }),
+      ],
+    });
+    const report = await summarizeFiles([dir]);
+    expect(report.total.workIntelligenceOperations).toEqual({
+      "work_read/work_search_memory": { calls: 1, resultChars: 12 },
+      "work_read/(unknown)": { calls: 3, resultChars: 4 },
+      "work_write_additive/(unknown)": { calls: 1, resultChars: 0 },
+      "work_read/work_get_context": { calls: 1, resultChars: 6 },
+      "work_write_overwrite/(unknown)": { calls: 1, resultChars: 0 },
+      "work_write_idempotent/work_set_title": { calls: 1, resultChars: 2 },
+    });
+    for (const flags of [["--json"], []]) {
+      const out = execFileSync("node", [SCRIPT, ...flags, dir], { encoding: "utf8" });
+      expect(out).not.toContain(OP_SECRET);
+    }
+  });
+});
+
 describe("Codex CLI output", () => {
   it.each([[["--json"]], [[]], [["--debug-shape"]]])("never prints canary content (%j)", async (flags) => {
     const dir = codexDir({
