@@ -4,6 +4,14 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Tests
+
+- `scripts/agent-usage-report.mjs` reads local Claude Code session logs and prints only aggregates: turns, tool calls by name (Work Intelligence MCP tools listed separately), input, output and cache tokens deduplicated by message id, and MCP tool_result characters. It never prints message text, paths or project names. Codex logs are counted as unsupported.
+
+### Documentation
+
+- Retrieval and Knowledge page baseline in `docs/experiments/retrieval-baseline/`: a fictional fixture, 30 retrieval questions with hand-written gold, 5 policy cases, 5 Knowledge page end-to-end scenarios, a runner that calls the storage read functions directly, and a report with the A/B decision rules.
+
 ## [1.6.63] - 2026-11-23
 
 [繁體中文更新說明](docs/releases/1.6.63.md).
