@@ -71,6 +71,10 @@ beforeAll(() => {
       { type: "tool_result", tool_use_id: "tu_1", content: "z".repeat(1000) },
       { type: "tool_result", tool_use_id: "tu_missing", content: "q".repeat(9) },
     ]),
+    // A subagent prompt and an injected meta line are not human turns; an array-of-text prompt is.
+    { ...user("2026-01-01T00:00:05Z", "subagent prompt"), isSidechain: true },
+    { ...user("2026-01-01T00:00:05Z", "injected meta"), isMeta: true },
+    user("2026-01-01T00:00:06Z", [{ type: "text", text: SECRET }]),
     user("2026-01-02T00:00:00Z", "second prompt"),
     { type: "attachment", sessionId: SESSION_ID, message: { content: SECRET } },
     "{ not json",
@@ -100,9 +104,9 @@ describe("summarizeFiles", () => {
     const [session] = report.sessions;
     expect(session.assistantMessages).toBe(3);
     expect(session.tokens).toEqual({ input: 11, output: 25, cacheRead: 100, cacheCreation: 5 });
-    expect(session.toolCalls).toBe(5);
-    expect(session.turns).toBe(2);
-    expect(session.sidechainLines).toBe(1);
+    expect(session.toolCalls).toBe(4);
+    expect(session.turns).toBe(3);
+    expect(session.sidechainLines).toBe(2);
     expect(report.skippedLines).toBe(1);
   });
 
@@ -130,7 +134,7 @@ describe("summarizeFiles", () => {
   it("recurses into directories and counts unsupported Codex lines", async () => {
     const report = await summarizeFiles([root]);
     expect(report.sessions).toHaveLength(2);
-    expect(report.total.turns).toBe(3);
+    expect(report.total.turns).toBe(4);
     expect(report.unsupportedLines).toBe(1);
   });
 });

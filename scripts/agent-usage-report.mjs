@@ -13,7 +13,8 @@
  *   counted once per id, using the per-field maximum seen for that id (the last line holds the final output_tokens,
  *   and input/cache fields are identical across lines, so the maximum equals the final value).
  * - tool_use blocks are deduplicated by their `id`; tool_result sizes are deduplicated by `tool_use_id`.
- * - Lines with `isSidechain: true` (subagents) stay in the session aggregate of their `sessionId`.
+ * - Lines with `isSidechain: true` (subagents) stay in the session aggregate of their `sessionId`; their tokens and
+ *   tool calls count, but their prompts are not turns. `turns` counts main-thread human prompts only (no `isMeta`).
  * - Time ranges filter by each line's `timestamp`; with a range, lines without a valid timestamp are excluded.
  */
 import { createHash } from "node:crypto";
@@ -171,11 +172,21 @@ function handleAssistant(state, session, message) {
   }
 }
 
-function handleUser(state, session, message) {
-  if (typeof message.content === "string") {
-    session.turns += 1;
-    return;
-  }
+/** A turn is a main-thread human prompt: not a subagent prompt, not an injected meta line, not a tool_result. */
+function isHumanTurn(line) {
+  if (line.isSidechain === true || line.isMeta === true) return false;
+  const content = line.message.content;
+  if (typeof content === "string") return true;
+  return (
+    Array.isArray(content) &&
+    content.some((block) => isRecord(block) && block.type === "text") &&
+    !content.some((block) => isRecord(block) && block.type === "tool_result")
+  );
+}
+
+function handleUser(state, session, line) {
+  const message = line.message;
+  if (isHumanTurn(line)) session.turns += 1;
   if (!Array.isArray(message.content)) return;
   for (const block of message.content) {
     if (!isRecord(block) || block.type !== "tool_result") continue;
@@ -203,7 +214,7 @@ const claudeCodeParser = {
     touchTimestamps(session, line.timestamp);
     if (line.isSidechain === true) session.sidechainLines += 1;
     if (line.type === "assistant") handleAssistant(state, session, line.message);
-    else handleUser(state, session, line.message);
+    else handleUser(state, session, line);
   },
 };
 
