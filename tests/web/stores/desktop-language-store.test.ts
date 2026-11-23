@@ -38,7 +38,10 @@ describe("desktop language store", () => {
     );
     const preferences = usePreferencesStore();
     preferences.locale = "zh-TW";
-    useDesktopLanguageStore();
+    const store = useDesktopLanguageStore();
+    await Promise.resolve();
+    expect(harness.count("/api/system/status")).toBe(0);
+    store.loadStatus();
     await vi.waitFor(() => expect(preferences.locale).toBe("en-US"));
     expect(languageCalls()).toBe(0);
   });
@@ -51,6 +54,7 @@ describe("desktop language store", () => {
     );
     const preferences = usePreferencesStore();
     const store = useDesktopLanguageStore();
+    store.loadStatus();
     await vi.waitFor(() => expect(harness.count("/api/system/status")).toBe(1));
     await vi.waitFor(() => expect(preferences.locale).toBe("zh-TW"));
     await store.changeLocale("en-US");
@@ -67,6 +71,7 @@ describe("desktop language store", () => {
     );
     const preferences = usePreferencesStore();
     const store = useDesktopLanguageStore();
+    store.loadStatus();
     await vi.waitFor(() => expect(harness.count("/api/system/status")).toBe(1));
     await store.changeLocale("en-US");
     expect(preferences.locale).toBe("en-US");

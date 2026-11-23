@@ -15,9 +15,6 @@ export const queryKeys = {
     // Under the Knowledge list prefix: its numbers are Knowledge events, so every Knowledge write refreshes them.
     cycleTimeline: [...knowledgeListKey, "cycle-timeline"] as const,
   },
-  desktop: {
-    status: ["desktop", "status"] as const,
-  },
   commandPalette: {
     search: ["command-palette", "search"] as const,
   },

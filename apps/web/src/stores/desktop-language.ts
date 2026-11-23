@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@pinia/colada";
 import { defineStore } from "pinia";
-import { computed, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import type { SystemStatus } from "@work-intelligence/core";
 import { useApi } from "../composables/useApi";
 import { queryKeys } from "./query-keys";
@@ -18,9 +18,12 @@ function toLocale(shellLocale: "zh-TW" | "en"): Locale {
  */
 export const useDesktopLanguageStore = defineStore("desktop-language", () => {
   const preferencesStore = usePreferencesStore();
-  // Loaded from app start (not only on the System status page) so the language is adopted on the first load.
+  const statusLoadEnabled = ref(false);
+  // The System status page's own query (same key): whichever loads it first, the other reads the same answer. It
+  // waits for loadStatus() so a first load that lands on that page asks once, not twice.
   const statusQuery = useQuery({
-    key: queryKeys.desktop.status,
+    key: queryKeys.views.systemStatus,
+    enabled: statusLoadEnabled,
     query: ({ signal }): Promise<SystemStatus> => useApi().client.getSystemStatus(signal),
   });
   const setLanguageMutation = useMutation({
@@ -39,6 +42,11 @@ export const useDesktopLanguageStore = defineStore("desktop-language", () => {
     { immediate: true },
   );
 
+  /** Loads the status from app start, so the App's language is adopted without opening the System status page. */
+  function loadStatus(): void {
+    statusLoadEnabled.value = true;
+  }
+
   /** The user picked a language here: apply it, and tell the App when it manages this backend. */
   async function changeLocale(next: Locale): Promise<void> {
     preferencesStore.locale = next;
@@ -50,5 +58,5 @@ export const useDesktopLanguageStore = defineStore("desktop-language", () => {
     }
   }
 
-  return { changeLocale };
+  return { loadStatus, changeLocale };
 });
