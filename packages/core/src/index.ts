@@ -2666,6 +2666,8 @@ export type SaveKnowledgePageResult =
   | { outcome: "not_found"; slug: string; reason: string }
   | { outcome: "invalid_sources"; reason: string; sessionIds: string[] }
   | { outcome: "invalid_review_token"; reason: string }
+  /** The idempotencyKey already saved different sections for this page; nothing was written. */
+  | { outcome: "idempotency_conflict"; reason: string }
   | KnowledgePageVersionConflictResult
   | KnowledgePageSkippedResult;
 

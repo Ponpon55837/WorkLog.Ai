@@ -287,12 +287,54 @@ describe("Knowledge page maintenance", () => {
       expect(versionsOf(store, page.id)).toEqual(versionsBefore);
     });
 
-    // Found issue: savePage matches duplicates on (page_id, idempotency_key) only, so a reused key with
-    // different sections currently returns duplicate: true and drops the new content without a warning.
-    it.todo(
-      "rejects a save that reuses an idempotencyKey with different sections (idempotency conflict, nothing written) instead of reporting duplicate: true and silently dropping the new content",
-    );
-    it.todo("still validates reviewToken and cited sources when a reused idempotencyKey carries a different payload");
+    it("rejects a reused idempotencyKey with different sections and writes nothing", () => {
+      const { store, projectRoot, slug, page, cited, tick, sections } = writtenPage();
+      const before = pageOf(store, projectRoot, slug);
+      const versionsBefore = versionsOf(store, page.id);
+      tick();
+      expect(
+        store.saveKnowledgePage({
+          projectRoot,
+          slug,
+          idempotencyKey: "maintenance-save",
+          sections: sections(cited, "Different content under the same key."),
+        }),
+      ).toEqual({ outcome: "idempotency_conflict", reason: expect.any(String) });
+      expect(pageOf(store, projectRoot, slug)).toEqual(before);
+      expect(versionsOf(store, page.id)).toEqual(versionsBefore);
+    });
+
+    it("never reports a reused key with other content as saved, even with an invalid token or source", () => {
+      const { store, projectRoot, slug, page, cited, tick, sections } = writtenPage();
+      tick();
+      for (const attempt of [
+        { sections: sections(cited, "Other content."), reviewToken: "not-a-token" },
+        { sections: sections("missing-session", "Other content.") },
+      ]) {
+        expect(
+          store.saveKnowledgePage({ projectRoot, slug, idempotencyKey: "maintenance-save", ...attempt }),
+        ).toMatchObject({ outcome: "idempotency_conflict" });
+      }
+      expect(versionsOf(store, page.id)).toHaveLength(1);
+    });
+
+    it("still treats a retry with masked secrets in its sections as a duplicate", () => {
+      const { store, projectRoot, finalize, tick, sections } = setup();
+      const cited = finalize("k09-secret-cited");
+      store.requestKnowledgePageUpdate({ projectRoot, slug: "pitfalls" });
+      const withSecret = sections(cited, `Deploy with ghp_${"C".repeat(36)} only from CI.`);
+      const first = store.saveKnowledgePage({
+        projectRoot,
+        slug: "pitfalls",
+        idempotencyKey: "k09-secret",
+        sections: withSecret,
+      });
+      expect(first).toMatchObject({ outcome: "knowledge_page_saved", duplicate: false });
+      tick();
+      expect(
+        store.saveKnowledgePage({ projectRoot, slug: "pitfalls", idempotencyKey: "k09-secret", sections: withSecret }),
+      ).toMatchObject({ outcome: "knowledge_page_saved", duplicate: true, page: { version: 1 } });
+    });
   });
 
   describe("K10: a cited Session changes between the read and the save", () => {

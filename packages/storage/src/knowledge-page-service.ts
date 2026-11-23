@@ -344,6 +344,17 @@ function firstCompletedAfter(sorted: readonly CompletedSessionCursor[], complete
   return low;
 }
 
+/** Sections as a version stores them: duplicate sources removed, sensitive values masked. */
+function storedSections(sections: readonly KnowledgePageSection[]) {
+  return redactValue(
+    sections.map((section) => ({
+      heading: section.heading,
+      content: section.content,
+      sourceSessionIds: [...new Set(section.sourceSessionIds)],
+    })),
+  );
+}
+
 function citedSessionIds(sections: readonly KnowledgePageSection[]): string[] {
   return [...new Set(sections.flatMap((section) => section.sourceSessionIds))];
 }
@@ -566,9 +577,17 @@ export class KnowledgePageService {
       };
     }
     const duplicate = this.db
-      .prepare("SELECT 1 AS found FROM knowledge_page_versions WHERE page_id = ? AND idempotency_key = ?")
-      .get(row.id, input.idempotencyKey);
+      .prepare("SELECT sections_json FROM knowledge_page_versions WHERE page_id = ? AND idempotency_key = ?")
+      .get(row.id, input.idempotencyKey) as { sections_json: string } | undefined;
     if (duplicate) {
+      // A retry carries the same sections; reusing the key for other content would silently drop that content.
+      if (duplicate.sections_json !== JSON.stringify(storedSections(input.sections).value)) {
+        return {
+          outcome: "idempotency_conflict",
+          reason:
+            "This idempotencyKey already saved different sections for this page, so nothing was written. Use a new idempotencyKey for new content.",
+        };
+      }
       return { outcome: "knowledge_page_saved", duplicate: true, page: this.recordFor(this.findPageById(row.id)!) };
     }
     const token = input.reviewToken === undefined ? undefined : decodeReviewToken(input.reviewToken);
@@ -1136,13 +1155,7 @@ export class KnowledgePageService {
     options: { idempotencyKey?: string; baseVersion?: number; coverage?: CoveragePoint },
   ): { redactions: ReturnType<typeof combineRedactionSummaries> } | { conflict: KnowledgePageVersionConflictResult } {
     const redactedTitle = redactText(title);
-    const redactedSections = redactValue(
-      sections.map((section) => ({
-        heading: section.heading,
-        content: section.content,
-        sourceSessionIds: [...new Set(section.sourceSessionIds)],
-      })),
-    );
+    const redactedSections = storedSections(sections);
     const now = nowIso();
     const conflict = runImmediateTransaction(this.db, (): KnowledgePageVersionConflictResult | undefined => {
       const current = this.findPageById(row.id)!;

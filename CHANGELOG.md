@@ -7,6 +7,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 ### Fixed
 
 - Knowledge pages no longer mark Sessions an Agent never saw as covered. A save used to set the page's coverage to the save time, so Sessions left out of a truncated context, or finished between the read and the save, were hidden from the next review. `work_get_knowledge_page_context` now returns a `reviewToken`; when `work_save_knowledge_page` receives it, coverage ends at the last Session that read showed, and those Sessions stay new.
+- Reusing an idempotencyKey with different sections in `work_save_knowledge_page` returns `idempotency_conflict` and writes nothing. It used to report `duplicate: true` and drop the new content, even when that content cited invalid sources or carried an invalid `reviewToken`.
 - Saving a Knowledge page no longer silently overwrites a newer version. An Agent save with `reviewToken`, or a Web edit with `baseVersion`, returns `version_conflict` and writes nothing when the page was saved after that read or edit started. The Web editor keeps the draft open and says which version it conflicts with.
 
 ### Changed
