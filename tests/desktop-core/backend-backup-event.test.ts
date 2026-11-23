@@ -99,6 +99,19 @@ describe("desktop facts and open-agent-setup", () => {
     harness.children[0]?.say({ type: "open-agent-setup", extra: 1 });
     expect(seen).toEqual([]);
   });
+
+  it("hands a language picked in the Dashboard to every listener until it unsubscribes", async () => {
+    const harness = makeHarness();
+    const seen: string[] = [];
+    const stop = harness.supervisor.onSetLanguage((locale) => seen.push(locale));
+    await harness.supervisor.start(startRequest());
+    harness.children[0]?.say({ type: "set-language", locale: "zh-TW" });
+    harness.children[0]?.say({ type: "set-language", locale: "en-US" });
+    expect(seen).toEqual(["zh-TW"]);
+    stop();
+    harness.children[0]?.say({ type: "set-language", locale: "en" });
+    expect(seen).toEqual(["zh-TW"]);
+  });
 });
 
 describe("preview of a candidate database", () => {
