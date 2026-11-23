@@ -51,6 +51,8 @@ function isFirefoxBackgroundTask(candidate: BrowserCandidate): boolean {
 
 /** Slack for creation times: `ps` reports whole seconds of elapsed time, so a start time is only that exact. */
 const START_TOLERANCE_MS = 2_000;
+/** How much earlier than its parent a child may look created: `ps` elapsed times are whole seconds. */
+const CHILD_CLOCK_TOLERANCE_MS = 1_000;
 
 /** The fields of a scanned process that the tree and the attribution logic read. */
 export interface TreeProcess {
@@ -68,25 +70,42 @@ export interface BrowserSnapshot {
 }
 
 /**
- * The processes of `snapshot` named in `rootPids` together with all their descendants (by parent pid). A root that is not in
- * the snapshot is not invented; its children still are found.
+ * Whether `child` can be a child of `parent`: it names `parent`'s pid and, where both creation times are known, was not
+ * created before it (Windows reuses pids and keeps a dead parent's pid as `ppid`, so an older process naming a pid that now
+ * belongs to a newer one is not its child). `ps` reports times to the second, hence the one-second allowance.
  */
-export function descendantsOf<T extends { readonly pid: number; readonly ppid: number }>(
-  snapshot: readonly T[],
-  rootPids: Iterable<number>,
-): T[] {
-  const wanted = new Set(rootPids);
+export function isChildOf(
+  child: { readonly ppid: number; readonly startedAt?: number | undefined },
+  parent: { readonly pid: number; readonly startedAt?: number | undefined },
+): boolean {
+  if (child.ppid !== parent.pid) return false;
+  if (child.startedAt === undefined || parent.startedAt === undefined) return true;
+  return child.startedAt + CHILD_CLOCK_TOLERANCE_MS >= parent.startedAt;
+}
+
+/**
+ * The processes of `snapshot` named in `rootPids` together with all their descendants. Every link is checked against the
+ * parent as it is in the snapshot (see `isChildOf`): a root that is not in the snapshot is gone, and a process naming a gone
+ * parent's pid is not taken in by that pid alone, so a reused pid never pulls unrelated processes into the tree.
+ */
+export function descendantsOf<
+  T extends { readonly pid: number; readonly ppid: number; readonly startedAt?: number | undefined },
+>(snapshot: readonly T[], rootPids: Iterable<number>): T[] {
+  const roots = new Set(rootPids);
+  const members = new Map<number, T>();
+  for (const candidate of snapshot) if (roots.has(candidate.pid)) members.set(candidate.pid, candidate);
   let grew = true;
   while (grew) {
     grew = false;
     for (const candidate of snapshot) {
-      if (!wanted.has(candidate.pid) && wanted.has(candidate.ppid)) {
-        wanted.add(candidate.pid);
-        grew = true;
-      }
+      if (members.has(candidate.pid)) continue;
+      const parent = members.get(candidate.ppid);
+      if (!parent || !isChildOf(candidate, parent)) continue;
+      members.set(candidate.pid, candidate);
+      grew = true;
     }
   }
-  return snapshot.filter((candidate) => wanted.has(candidate.pid));
+  return snapshot.filter((candidate) => members.get(candidate.pid) === candidate);
 }
 
 /**
@@ -130,14 +149,8 @@ export function survivingTree<T extends TreeProcess>(tracked: Map<number, T>, li
     for (const candidate of live) {
       if (tracked.has(candidate.pid)) continue;
       const parent = tracked.get(candidate.ppid);
-      if (!parent || !live.some((member) => sameProcess(parent, member))) continue;
-      if (
-        candidate.startedAt !== undefined &&
-        parent.startedAt !== undefined &&
-        candidate.startedAt < parent.startedAt
-      ) {
-        continue; // created before its supposed parent: the parent pid was reused
-      }
+      // Only a parent still alive as the same process vouches for a new child, and only one created after it.
+      if (!parent || !live.some((member) => sameProcess(parent, member)) || !isChildOf(candidate, parent)) continue;
       tracked.set(candidate.pid, candidate);
       grew = true;
     }

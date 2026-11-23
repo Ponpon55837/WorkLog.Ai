@@ -3,6 +3,7 @@ import {
   createdBefore,
   descendantsOf,
   describeProcessLine,
+  isChildOf,
   parseElapsedSeconds,
   startedSince,
   survivingTree,
@@ -36,6 +37,55 @@ describe("the process tree of an ended browser", () => {
     const tracked = new Map([[11, proc(11, 10, "firefox -contentproc", 1_000)]]);
     expect(survivingTree(tracked, [proc(11, 4, "notepad.exe", 900_000)])).toEqual([]);
     expect(survivingTree(tracked, [proc(11, 4, "other", undefined)])).toEqual([]);
+  });
+});
+
+describe("a reused pid in the process tree", () => {
+  // The browser root the test started (pid 6272, created at 500 s); the system processes were created long before it and
+  // name the pid 6272 because their real parent of that pid ended and Windows handed the pid on.
+  const browser = proc(6272, 900, "firefox.exe", 500_000);
+
+  it("does not take an older process that names the root's pid as a child of the root", () => {
+    const snapshot = [
+      browser,
+      proc(6300, 6272, "firefox.exe -contentproc", 501_000),
+      proc(6252, 6272, "winlogon.exe", 10_000),
+      proc(6400, 6252, "dwm.exe", 11_000),
+      proc(6401, 6252, "fontdrvhost.exe", 11_500),
+    ];
+    expect(descendantsOf(snapshot, [6272]).map((p) => p.pid)).toEqual([6272, 6300]);
+  });
+
+  it("does not take in the children of a root that is gone, by its pid alone", () => {
+    const snapshot = [proc(6252, 6272, "winlogon.exe", 10_000), proc(6400, 6252, "dwm.exe", 11_000)];
+    expect(descendantsOf(snapshot, [6272])).toEqual([]);
+  });
+
+  it("keeps a child whose ps time rounds to just before its parent", () => {
+    expect(isChildOf(proc(11, 10, "child", 99_500), proc(10, 1, "parent", 100_000))).toBe(true);
+    expect(isChildOf(proc(11, 10, "child", 90_000), proc(10, 1, "parent", 100_000))).toBe(false);
+    expect(isChildOf(proc(11, 10, "child"), proc(10, 1, "parent", 100_000))).toBe(true);
+    expect(isChildOf(proc(11, 12, "child", 100_000), proc(10, 1, "parent", 100_000))).toBe(false);
+  });
+
+  it("does not wait for processes whose parent pid was handed on after the tree was taken", () => {
+    const tracked = new Map(
+      descendantsOf([browser, proc(6300, 6272, "content", 501_000)], [6272]).map((p) => [p.pid, p]),
+    );
+    // The browser ended and its pid went to an unrelated new process; an older system process names that pid as parent.
+    const live = [
+      proc(6272, 4, "svchost.exe", 600_000),
+      proc(6252, 6272, "winlogon.exe", 10_000),
+      proc(6400, 6252, "dwm.exe", 11_000),
+    ];
+    expect(survivingTree(tracked, live)).toEqual([]);
+    expect(tracked.has(6252)).toBe(false);
+  });
+
+  it("does not wait for an older process naming a live member as its parent", () => {
+    const tracked = new Map([[6300, proc(6300, 6272, "content", 501_000)]]);
+    const live = [proc(6300, 1, "content", 501_000), proc(6252, 6300, "winlogon.exe", 10_000)];
+    expect(survivingTree(tracked, live).map((p) => p.pid)).toEqual([6300]);
   });
 });
 
