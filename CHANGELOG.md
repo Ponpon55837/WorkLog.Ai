@@ -8,7 +8,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 - The desktop App's Settings tab has a new "Language" card at the top, with a "Display language" choice: "Follow system (<language>)" (the default), "繁體中文" and "English". A system language starting with zh reads as 繁體中文, anything else as English. The App window, the tray menu, the macOS application menu and the App's dialogs switch at once, with no restart.
 - The Dashboard the App manages uses the same language. It switches to the App's language when it opens or refreshes its status, and changing the language in the Dashboard changes the App's setting too. If the App is on "Follow system" and you pick in the Dashboard the language the system already reads as, the App stays on "Follow system". A standalone server keeps the Dashboard's language in the browser, as before.
-- The choice is saved with the App's other settings; "Follow system" leaves it out of the settings file. If you choose 繁體中文 or English and then go back to an older App version, the older version does not read the settings file and asks for repair. Choose "Follow system" before downgrading.
+- The choice is kept in its own small file next to the App's settings, not in the settings file, so an older App version ignores it. "Follow system" removes the file. A damaged file reads as "Follow system" and never stops the App from starting.
 
 ### Fixed
 

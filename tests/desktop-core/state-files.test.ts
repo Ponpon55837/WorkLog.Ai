@@ -96,9 +96,11 @@ describe("state files have a writer and a different reader", () => {
       }
     }
     expect(declared.length).toBeGreaterThan(3);
-    // These are read and written by one module alone (runtime GC and manifest, the Agent setup manifest), not exchanged.
+    // These are read and written by one module alone (runtime GC and manifest, the Agent setup manifest, the App's
+    // language choice), not exchanged.
     const internal = new Set([
       "GC_STATE_FILE_NAME",
+      "LANGUAGE_PREFERENCES_FILE_NAME",
       "MANIFEST_FILE_NAME",
       "MANIFEST_FILENAME",
       "JOURNAL_FILENAME",

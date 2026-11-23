@@ -32,7 +32,7 @@ export class ShellState {
   launchMode: LaunchMode = "interactive";
   /** The language every surface uses; only main/language.ts sets it (the setting, else the system language). */
   locale: ShellLocale = "en";
-  /** The language setting: the settings file's, or (before the first-run page committed one) the page's choice. */
+  /** The language setting, from its own file (`preferences.json`), never from the settings file. */
   languagePreference: ShellLanguagePreference = "system";
   /** No settings file yet: the first-run page has not finished. The tray offers "完成首次設定…". */
   needsSetup = false;

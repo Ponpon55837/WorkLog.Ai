@@ -116,7 +116,7 @@ const environmentInputs = { isPackaged: app.isPackaged, environment: process.env
 /** The UI language before `ready`, when `app.getLocale()` is not available yet; English if the OS will not say. */
 function earlyLocale(): ShellLocale {
   try {
-    // The settings are not read yet: the box follows the system language.
+    // The language choice is not read yet: the box follows the system language.
     return resolveShellLanguage("system", app.getPreferredSystemLanguages()[0]);
   } catch {
     return "en";
@@ -299,7 +299,7 @@ function runShell(configInputs: DesktopConfigInputs): void {
     log,
     changed: () => pushFacts(),
   });
-  // The App's language: the setting, else the system language. Every surface reads `state.locale`, which only this sets.
+  // The App's language: the choice, else the system language. Every surface reads `state.locale`, which only this sets.
   const language = createShellLanguage({
     state,
     paths,
@@ -646,10 +646,8 @@ function runShell(configInputs: DesktopConfigInputs): void {
       log("[shell] Agent page requested by the Dashboard");
       void app.whenReady().then(openAgents);
     });
-    const settingsLoaded = loadSettings(state, paths, log).then((load) => {
-      language.apply();
-      return load;
-    });
+    // The language has its own file, read alongside the settings; a bad one never stops the start.
+    const settingsLoaded = Promise.all([loadSettings(state, paths, log), language.load()]).then(([load]) => load);
     // H-01: operations a crash left in progress are closed from the real state after the settings are read and before the
     // first-run page or any start. With nothing in progress this is the journal's one read.
     const recovered = settingsLoaded

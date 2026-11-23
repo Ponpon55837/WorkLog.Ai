@@ -7,7 +7,6 @@ import {
   loginItemSettingsFor,
   readDesktopSettings,
   shouldApplyLoginItemAtStart,
-  withLanguagePreference,
   writeDesktopSettingsAtomic,
   type DesktopSettingsV1,
 } from "@work-intelligence/desktop-core";
@@ -58,10 +57,7 @@ export async function loadSettings(state: ShellState, paths: DesktopPaths, log: 
 /** Commits the settings the first-run page started with; the file is what marks the App as set up. */
 export async function commitSettings(state: ShellState, paths: DesktopPaths): Promise<void> {
   if (!state.settings) return;
-  // A language picked on the Settings tab before the first start is saved with the rest.
-  const settings = withLanguagePreference(state.settings, state.languagePreference);
-  await writeDesktopSettingsAtomic(paths.settingsFile, settings);
-  state.settings = settings;
+  await writeDesktopSettingsAtomic(paths.settingsFile, state.settings);
   state.needsSetup = false;
   state.touch();
 }

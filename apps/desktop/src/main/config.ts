@@ -1,6 +1,6 @@
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chooseRuntimeRoot } from "@work-intelligence/desktop-core";
+import { chooseRuntimeRoot, LANGUAGE_PREFERENCES_FILE_NAME } from "@work-intelligence/desktop-core";
 
 /**
  * Environment variables that only a test build reads: they exist so tests can isolate and observe the App. The table is
@@ -84,6 +84,8 @@ export interface DesktopPaths {
   /** Settings, operation journal, logs and the child's working directory live here. */
   readonly dataDirectory: string;
   readonly settingsFile: string;
+  /** The App's language choice, kept apart from the settings so an older App never reads it (absent: follow the system). */
+  readonly preferencesFile: string;
   readonly journalFile: string;
   readonly logsDirectory: string;
   readonly logFile: string;
@@ -225,6 +227,7 @@ export function resolveDesktopPaths(inputs: DesktopConfigInputs): DesktopPaths {
   return {
     dataDirectory,
     settingsFile: join(dataDirectory, "desktop-settings.json"),
+    preferencesFile: join(dataDirectory, LANGUAGE_PREFERENCES_FILE_NAME),
     journalFile: join(dataDirectory, "operations-journal.json"),
     logsDirectory,
     logFile: join(logsDirectory, "desktop-main.log"),

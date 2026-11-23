@@ -1,5 +1,5 @@
 import { expect, test, type ElectronApplication, type Page } from "@playwright/test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { shellMessages, type ShellLocale } from "@work-intelligence/desktop-core";
 import {
@@ -31,11 +31,19 @@ test.afterEach(async ({ browserName: _browserName }, testInfo) => {
   sandbox = undefined;
 });
 
+/** The choice in its own file; undefined when there is none (跟隨系統). */
 function savedLanguage(box: Sandbox): string | undefined {
+  const file = join(box.dataDirectory, "preferences.json");
+  if (!existsSync(file)) return undefined;
+  return (JSON.parse(readFileSync(file, "utf8")) as { language?: string }).language;
+}
+
+/** The settings file never carries the language, so an older App keeps reading it. */
+function settingsCarryLanguage(box: Sandbox): boolean {
   const settings = JSON.parse(readFileSync(join(box.dataDirectory, "desktop-settings.json"), "utf8")) as {
-    desired: { language?: string };
+    desired: Record<string, unknown>;
   };
-  return settings.desired.language;
+  return "language" in settings.desired;
 }
 
 async function expectShellLanguage(app: ElectronApplication, window: Page, locale: ShellLocale): Promise<void> {
@@ -73,6 +81,7 @@ test("a language chosen on the Settings tab redraws the App at once and reaches 
   await expectShellLanguage(app, window, "zh-TW");
   await expect(window.locator("#language-section")).toContainText("語言");
   expect(savedLanguage(box)).toBe("zh-TW");
+  expect(settingsCarryLanguage(box)).toBe(false);
   await expect.poll(() => dashboardLanguage(box.port)).toEqual({ preference: "zh-TW", locale: "zh-TW" });
 
   // What the Dashboard sends when the user picks English there.
@@ -87,8 +96,23 @@ test("a language chosen on the Settings tab redraws the App at once and reaches 
   await expect(window.locator('[data-id="language-en"]')).toBeChecked();
   expect(savedLanguage(box)).toBe("en");
 
-  // Back to 跟隨系統: the file loses the field again.
+  // Back to 跟隨系統: the file is removed.
   await window.locator('[data-id="language-system"]').check();
   await expect.poll(() => savedLanguage(box)).toBeUndefined();
+  await expect.poll(() => dashboardLanguage(box.port)).toEqual({ preference: "system", locale: "en" });
+});
+
+test("a damaged language file follows the system language and the App starts as usual", async () => {
+  test.setTimeout(120_000);
+  const box = await createSandbox({ withDatabase: true });
+  sandbox = box;
+  writeFileSync(join(box.dataDirectory, "preferences.json"), "{ not json");
+  app = await launchApp(box, { LANG: "en_US.UTF-8", LANGUAGE: "en_US" });
+  await waitForManagedSnapshot(app);
+  await openWindow(app, "settings");
+  const window = await app.firstWindow({ timeout: 45_000 });
+  await expectTabShown(window, "settings");
+  await expectShellLanguage(app, window, "en");
+  await expect(window.locator('[data-id="language-system"]')).toBeChecked();
   await expect.poll(() => dashboardLanguage(box.port)).toEqual({ preference: "system", locale: "en" });
 });
