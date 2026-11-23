@@ -50,7 +50,7 @@ describe("UsageCache persistence", () => {
     expect(first.size).toBe(0);
     await summarizeFiles([log], { cache: first });
     await first.save();
-    expect(statSync(cacheFile).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") expect(statSync(cacheFile).mode & 0o777).toBe(0o600);
 
     const second = new UsageCache({ file: cacheFile });
     await second.load();
