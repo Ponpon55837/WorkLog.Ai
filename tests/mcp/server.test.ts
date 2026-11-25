@@ -1147,6 +1147,74 @@ describe("Work Intelligence MCP server", () => {
     }
   });
 
+  it("names registered projects an unregistered projectRoot may have meant, and nothing else", async () => {
+    const { client, store, root } = await connect();
+    const register = (name: string, path: string, status: "tracked" | "paused" | "ignored" | "unregistered") => {
+      const project = store.addProject(name, path);
+      store.updateProject(project.id, { status });
+      return project;
+    };
+    const moved = register("Atlas", join(root, "old", "atlas"), "tracked");
+    const paused = register("Ledger", join(root, "old", "ledger"), "paused");
+    register("Quiet", join(root, "old", "quiet"), "ignored");
+    register("Pending", join(root, "old", "pending"), "unregistered");
+    await callJson(client, "work_finalize_session", {
+      ...finalizePayload(moved.rootPath, "mcp-matching-projects-source", "Matching projects secret"),
+      changedFiles: [],
+    });
+    const hint = (project: { name: string; rootPath: string }, status: string) => ({
+      name: project.name,
+      rootPath: project.rootPath,
+      status,
+    });
+
+    const noMatch = await callJson(client, "work_get_context", { projectRoot: join(root, "new", "unrelated") });
+    expect(Object.keys(noMatch).sort()).toEqual([
+      "outcome",
+      "projectRoot",
+      "projectStatus",
+      "reason",
+      "server",
+      "tracked",
+    ]);
+
+    const byFolder = await callJson(client, "work_get_context", { projectRoot: join(root, "new", "ATLAS") });
+    expect(byFolder).toMatchObject({ outcome: "skipped", projectStatus: "unregistered", tracked: false });
+    expect(byFolder.matchingProjects).toEqual([hint(moved, "tracked")]);
+    expect(byFolder.reason).toContain("ask the user whether one is meant");
+    expect(JSON.stringify(byFolder)).not.toContain("Matching projects secret");
+    expect(JSON.stringify(byFolder)).not.toContain(moved.id);
+
+    const fromSubfolder = await callReadOperation(client, "work_get_project_status", {
+      projectRoot: join(moved.rootPath, "packages", "web"),
+    });
+    expect(fromSubfolder).toMatchObject({ projectStatus: "unregistered", tracked: false });
+    expect(fromSubfolder.matchingProjects).toEqual([hint(moved, "tracked")]);
+
+    const byName = await callJson(client, "work_search_knowledge", { projectRoot: join(root, "laptop", "ledger") });
+    expect(byName.matchingProjects).toEqual([hint(paused, "paused")]);
+    for (const ignoredOrPending of ["quiet", "pending"]) {
+      const skipped = await callJson(client, "work_get_context", { projectRoot: join(root, "new", ignoredOrPending) });
+      expect(skipped).not.toHaveProperty("matchingProjects");
+    }
+
+    const write = await callJson(client, "work_finalize_session", {
+      ...finalizePayload(join(root, "copy", "atlas"), "mcp-matching-projects-write", "Unregistered write"),
+      changedFiles: [],
+    });
+    expect(write).toMatchObject({ outcome: "skipped", projectStatus: "unregistered" });
+    expect(write.matchingProjects).toEqual([hint(moved, "tracked")]);
+    expect(store.listProjects().map((project) => project.rootPath)).not.toContain(join(root, "copy", "atlas"));
+    expect(store.getProjectByRootPath(join(root, "copy", "atlas"))).toBeUndefined();
+    expect(store.listSessions({ limit: 10 }).map((session) => session.title)).not.toContain("Unregistered write");
+
+    for (let index = 0; index < 6; index += 1) register(`Many ${index}`, join(root, "many", `p${index}`), "tracked");
+    const parent = await callJson<{ matchingProjects: unknown[] }>(client, "work_get_context", {
+      projectRoot: join(root, "many"),
+    });
+    expect(parent.matchingProjects).toHaveLength(5);
+  });
+
   it("uses pending outstanding item state for paged Session digest open items", async () => {
     const { client, store, root } = await connect();
     const project = store.addProject("Digest status project", root);
@@ -2735,5 +2803,73 @@ describe("list search warnings over MCP", () => {
     expect(sessions).toMatchObject({ warnings: [expect.stringContaining("200 characters")] });
     const ordinary = await callJson(client, "work_search_knowledge", { projectRoot: root, q: "synthetic warning" });
     expect(ordinary).not.toHaveProperty("warnings");
+  });
+});
+
+describe("compact Knowledge search over MCP", () => {
+  it("returns short items with a pointer to the full record, and leaves the default answer unchanged", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Compact fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    for (const topic of ["alpha", "beta", "gamma"]) {
+      store.recordKnowledge({
+        projectRoot: root,
+        idempotencyKey: `compact-${topic}`,
+        kind: "procedure",
+        title: `Synthetic ${topic} procedure`,
+        body: `Synthetic ${topic} body that the compact view leaves out.`,
+        tags: [topic],
+        appliesTo: [`src/${topic}.ts`],
+      });
+    }
+
+    const byDefault = await callJson(client, "work_search_knowledge", { projectRoot: root, pageSize: 2 });
+    expect(await callJson(client, "work_search_knowledge", { projectRoot: root, pageSize: 2, view: "full" })).toEqual(
+      byDefault,
+    );
+    expect(byDefault).not.toHaveProperty("view");
+    expect(JSON.stringify(byDefault)).toContain("body that the compact view leaves out");
+
+    const scoped = await callJson<{
+      view: string;
+      readFull: string;
+      items: Array<Record<string, unknown>>;
+      pageInfo: { total: number; hasNext: boolean };
+    }>(client, "work_search_knowledge", { projectRoot: root, pageSize: 2, view: "compact" });
+    expect(scoped).toMatchObject({ outcome: "knowledge", view: "compact", pageInfo: { total: 3, hasNext: true } });
+    expect(scoped.readFull).toContain("work_get_knowledge_history");
+    expect(scoped.items.map((item) => item.id)).toEqual(
+      (byDefault.items as Array<{ id: string }>).map((item) => item.id),
+    );
+    expect(scoped.items[0]).toEqual({
+      id: expect.any(String),
+      kind: "procedure",
+      status: "active",
+      title: "Synthetic gamma procedure",
+      updatedAt: expect.any(String),
+      appliesToCount: 1,
+    });
+    expect(JSON.stringify(scoped)).not.toContain("leaves out");
+
+    const nextPage = await callJson<{ items: unknown[] }>(client, "work_search_knowledge", {
+      projectRoot: root,
+      page: 2,
+      pageSize: 2,
+      view: "compact",
+    });
+    expect(nextPage.items).toHaveLength(1);
+
+    const unscoped = await callJson<{ view: string; items: Array<Record<string, unknown>> }>(
+      client,
+      "work_search_knowledge",
+      { view: "compact" },
+    );
+    expect(unscoped.view).toBe("compact");
+    expect(unscoped.items[0]).toMatchObject({ projectId: project.id, projectName: "Compact fixture" });
+
+    store.updateProject(project.id, { status: "paused" });
+    const skipped = await callJson(client, "work_search_knowledge", { projectRoot: root, view: "compact" });
+    expect(skipped).toMatchObject({ outcome: "skipped", projectStatus: "paused" });
+    expect(skipped).not.toHaveProperty("view");
   });
 });

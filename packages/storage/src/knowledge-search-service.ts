@@ -1,6 +1,7 @@
 import { KNOWLEDGE_STATUSES } from "@work-intelligence/core";
 import type {
   AgentKnowledgeQueryResult,
+  CompactKnowledgeItem,
   KnowledgeKind,
   KnowledgeQuery,
   KnowledgeQueryResult,
@@ -18,6 +19,8 @@ import { staleFlags } from "./stale-flags.js";
 export interface KnowledgeSearchServiceDependencies {
   /** The strict list search with trust signals, policy-gated like every Knowledge read. */
   searchKnowledge(options: KnowledgeQuery): KnowledgeQueryResult | KnowledgeSkippedResult;
+  /** The same strict list search answered with compact items, without reading the stored text or trust signals. */
+  searchKnowledgeCompact(options: KnowledgeQuery): KnowledgeQueryResult<CompactKnowledgeItem> | KnowledgeSkippedResult;
   /** Strict match count in an already-gated scope; `truncated` when rows above the per-row cap were skipped. */
   countKnowledge(options: KnowledgeQuery & { status: KnowledgeStatus }): KnowledgeCount;
   rankKnowledge(options: KnowledgeRankOptions): KnowledgeRanking;
@@ -63,7 +66,20 @@ export class KnowledgeSearchService {
   public constructor(private readonly dependencies: KnowledgeSearchServiceDependencies) {}
 
   public search(options: KnowledgeQuery = {}): AgentKnowledgeQueryResult | KnowledgeSkippedResult {
-    const strict = this.dependencies.searchKnowledge(options);
+    return this.answer(this.dependencies.searchKnowledge(options), options);
+  }
+
+  /** The compact view: strict items as CompactKnowledgeItem; a relaxed fallback still answers with its bounded digests. */
+  public searchCompact(
+    options: KnowledgeQuery = {},
+  ): AgentKnowledgeQueryResult<CompactKnowledgeItem> | KnowledgeSkippedResult {
+    return this.answer(this.dependencies.searchKnowledgeCompact(options), options);
+  }
+
+  private answer<Item>(
+    strict: KnowledgeQueryResult<Item> | KnowledgeSkippedResult,
+    options: KnowledgeQuery,
+  ): AgentKnowledgeQueryResult<Item> | KnowledgeSkippedResult {
     const query = options.query?.trim() || options.q?.trim() || "";
     if (strict.outcome !== "knowledge" || !query) {
       return strict;

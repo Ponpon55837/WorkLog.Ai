@@ -23,6 +23,8 @@ import {
   mcpCreateMetadataBackfillRequestInputSchema,
   mcpCreateReportSynthesisRequestInputSchema,
   mcpFinalizeSessionInputSchema,
+  mcpKnowledgeQuerySchema,
+  knowledgeQuerySchema,
   mcpListSessionsInputSchema,
   metadataBackfillApplyInputSchema,
   projectStatusQuerySchema,
@@ -437,6 +439,14 @@ describe("schema input boundaries", () => {
 });
 
 describe("MCP-only input schemas", () => {
+  it("offers the compact Knowledge view to Agents only, with the full view as the default", () => {
+    expect(mcpKnowledgeQuerySchema.parse({}).view).toBeUndefined();
+    expect(mcpKnowledgeQuerySchema.parse({ view: "compact" }).view).toBe("compact");
+    expect(mcpKnowledgeQuerySchema.parse({ view: "full" }).view).toBe("full");
+    expect(mcpKnowledgeQuerySchema.safeParse({ view: "summary" }).success).toBe(false);
+    expect(knowledgeQuerySchema.parse({ view: "compact" })).not.toHaveProperty("view");
+  });
+
   it("requires a projectRoot for project status and defaults raw snapshots off", () => {
     expect(projectStatusQuerySchema.safeParse({}).success).toBe(false);
     expect(projectStatusQuerySchema.safeParse({ projectRoot: "C:/tracked/project" }).success).toBe(true);

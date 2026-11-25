@@ -4,6 +4,8 @@ import { join, relative } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { NoopInsightProvider } from "@work-intelligence/core";
 import type {
+  CompactKnowledgeItem,
+  MatchingProject,
   ReportPresentation,
   ReportPresentationExport,
   ReportPresentationState,
@@ -622,6 +624,7 @@ export class WorkIntelligenceStore {
     this.searchIndex = new SearchRepository(this.db);
     this.knowledgeSearch = new KnowledgeSearchService({
       searchKnowledge: (query) => this.searchKnowledge(query),
+      searchKnowledgeCompact: (query) => this.knowledge.searchCompact(query),
       countKnowledge: (query) => this.knowledge.count(query),
       rankKnowledge: (options) => this.searchIndex.rankKnowledge(options),
       getKnowledgeWithTrustMany: (knowledgeIds) => this.trackedKnowledgeWithTrust(knowledgeIds),
@@ -868,6 +871,11 @@ export class WorkIntelligenceStore {
 
   public listProjects(): ProjectRecord[] {
     return this.projects.list();
+  }
+
+  /** Registered projects an unregistered root may have meant, as a hint to show the user; reads no project data. */
+  public matchingProjects(projectRoot: string): MatchingProject[] {
+    return this.projects.matching(projectRoot);
   }
 
   public countProjects(): number {
@@ -1550,6 +1558,13 @@ export class WorkIntelligenceStore {
   /** The Agent Knowledge search: the strict list result, or a labelled relaxed fallback when it is empty. */
   public searchKnowledgeForAgent(options: KnowledgeQuery = {}): AgentKnowledgeQueryResult | KnowledgeSkippedResult {
     return this.knowledgeSearch.search(options);
+  }
+
+  /** The Agent Knowledge search in its compact view: the same answer with CompactKnowledgeItem items. */
+  public searchKnowledgeCompactForAgent(
+    options: KnowledgeQuery = {},
+  ): AgentKnowledgeQueryResult<CompactKnowledgeItem> | KnowledgeSkippedResult {
+    return this.knowledgeSearch.searchCompact(options);
   }
 
   /** Full Knowledge records with trust signals, for ids of tracked projects only, read in one batch. */

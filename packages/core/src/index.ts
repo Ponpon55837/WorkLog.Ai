@@ -131,6 +131,16 @@ export interface ProjectRecord {
 }
 
 /**
+ * A registered project an Agent's unregistered project root may have meant, as a hint only: registry name, root and
+ * status, never project data. Tracked and paused projects qualify; ignored ones are left out.
+ */
+export interface MatchingProject {
+  name: string;
+  rootPath: string;
+  status: "tracked" | "paused";
+}
+
+/**
  * A repository link the Web UI may open: an https URL with a host and no embedded credentials (a token in
  * `https://token@host/...` would be stored and shown in plain text).
  */
@@ -976,6 +986,8 @@ export interface KnowledgeQuery {
   limit?: number;
   page?: number;
   pageSize?: number;
+  /** Agent search only: compact items are CompactKnowledgeItem rows read without body, tags, references or appliesTo. */
+  view?: "full" | "compact";
 }
 
 export interface PageInfo {
@@ -1000,11 +1012,28 @@ export interface SessionListResult {
   searchSkippedRecords?: number;
 }
 
-export interface KnowledgeQueryResult {
+/**
+ * A Knowledge list row for maintenance: identity, state and size hints only. The full record (body, tags, references,
+ * appliesTo, trust signals) is one work_get_knowledge_history read away.
+ */
+export interface CompactKnowledgeItem {
+  id: string;
+  projectId: string;
+  projectName?: string;
+  kind: KnowledgeKind;
+  status: KnowledgeStatus;
+  title: string;
+  updatedAt: string;
+  /** Absent when appliesTo is empty. */
+  appliesToCount?: number;
+  needsReview?: true;
+}
+
+export interface KnowledgeQueryResult<Item = KnowledgeRecord> {
   outcome: "knowledge";
   project?: ProjectRecord;
   projects: ProjectRecord[];
-  items: KnowledgeRecord[];
+  items: Item[];
   pageInfo: PageInfo;
   /** How a text query was shortened, or that records above the per-record search size were skipped. */
   warnings?: string[];
@@ -1050,7 +1079,7 @@ export interface RelaxedKnowledgeMatch {
 }
 
 /** work_search_knowledge result: the strict list result, plus the fallback and status pointers when it was empty. */
-export interface AgentKnowledgeQueryResult extends KnowledgeQueryResult {
+export interface AgentKnowledgeQueryResult<Item = KnowledgeRecord> extends KnowledgeQueryResult<Item> {
   /** Present when the search had a query. */
   match?: KnowledgeSearchMatch;
   relaxedMatches?: RelaxedKnowledgeMatch[];
