@@ -4,7 +4,17 @@
 
 > 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
-- 最後更新：2026-11-23
+- 最後更新：2026-11-25
+
+## 1.6.68（收尾回條的暫時狀態提示、知識頁預設問題、用量頁改版）
+
+- `work_finalize_session`、`work_update_session_work_summary`、`POST /api/work/finalize` 與 `PATCH /api/sessions/:id/work-summary` 的結果新增選填的 `nextStepsWarnings`，在已儲存的 `nextSteps` 項目看起來是本次工作內的暫時狀態（尚未 commit、尚未 push、PR 等待合併、CI 執行中、階段尚未開始）時提示。只靠關鍵字，可能誤判；伺服器不刪除、不改寫、不拒絕項目。
+- 工作記錄契約與 work-intelligence skill 列出同樣的範例；修復指引要求事後以 `work_update_session_metadata` 補上實際的 commit 與分支；知識頁與知識指引寫明 branch、commit、PR 與合併狀態以 Git 為準，頁面不記錄，且已在 Knowledge 的事實不複製進 Agent 自己的記憶檔。
+- 「進行中的工作與未結項」知識頁的預設問題改為「目前有哪些尚未完成或尚未驗證的事項與已知限制？」，不再問進行中的工作。已保存的頁面維持原本的問題。
+- 用量頁改版：控制項固定在左欄，只有結果捲動；摘要卡片附每日走勢，5 小時區段卡片顯示時間進度與起訖時間；表格在窄欄改為卡片，沒有內層捲動區。
+- 桌面 smoke 測試等到移除作業記錄提交後才走訪家目錄，修正 v1.6.67 Windows 發行驗證的 ENOENT。
+
+沒有 schema 變更，資料庫維持 35。詳見 [1.6.68 更新說明](releases/1.6.68.md)。
 
 ## 1.6.67（用量口徑改為輸入 + 輸出、依模型分列、monorepo 分配）
 

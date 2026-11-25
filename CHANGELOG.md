@@ -4,6 +4,29 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.68] - 2026-11-25
+
+[繁體中文更新說明](docs/releases/1.6.68.md).
+
+### Added
+
+- `nextStepsWarnings` on the results of `work_finalize_session`, `work_update_session_work_summary`, `POST /api/work/finalize` and `PATCH /api/sessions/:id/work-summary`: `{ items: [{ index, category }], message }`, present only when a stored `nextSteps` item reads like in-task transient state. The categories are `uncommitted`, `not_pushed`, `pending_merge` (a PR awaiting merge or not merged back to a branch, including the 未合回, 未合入 and 併入 main forms), `ci_running` and `phase_not_started`. The check is keyword matching that needs Git, PR or CI context, so it can misfire. It only warns: the server never drops, rewrites or rejects an item. It is absent on idempotent replays, and for work-summary updates it runs only when the request supplied `nextSteps`. The item text is not echoed. The patterns use only bounded windows: a strict pass, then, only when the item has Git context, a second pass for bare state words (at most three linear scans per item), so the cost is linear in the text length, and a test feeds adversarial input.
+
+### Changed
+
+- The work record contract and step 4 of the work-intelligence skill now list the same in-task examples (uncommitted, not pushed, PR awaiting merge or not merged back, CI running, phase not started) and mention `nextStepsWarnings`. The `nextSteps` row of the format doc states the exclusion.
+- The MCP contract text changed, so the MCP compatibility id changes: connected Agents receive `restartRequired` after upgrading and must reconnect the Work Intelligence MCP.
+- The repair-and-backfill guide says to backfill the observed commit and branch with `work_update_session_metadata` after a later commit, merge or push, and never to guess.
+- The Knowledge page contract and the Knowledge guide state that Git is the source of truth for branch, commit, PR and merge state: pages do not record it, and the Agent checks Git live. The Knowledge guide also says facts already in Knowledge are not copied into the Agent's own memory files, only a pointer.
+- The default question of the "進行中的工作與未結項" (`in-progress`) Knowledge page is now "目前有哪些尚未完成或尚未驗證的事項與已知限制？" and no longer asks about in-progress work, which is branch state. The slug and title are unchanged. Pages saved earlier keep their stored question, because a default applies only when a page is first requested; the question can be changed when requesting an update.
+- The Usage page was redesigned. The project, range and Scan controls sit in a sticky left column once the page is wide enough, and only the results scroll. A headline card with a daily sparkline and four compact cards sit next to the 5-hour block card, which shows time progress and start and end times, never a quota. There are no inner scroll areas: tables turn into cards in a narrow results column, and the model table shows an input/output bar and the share of the total. A fix stops the document from scrolling past the page body through visually hidden table headers.
+
+### Tests
+
+- The desktop smoke test waits for the removal's commit log line before it walks the home folder. The removal deletes the install's backups before it logs the commit, so walking early could list a backup and fail to stat it (ENOENT on the v1.6.67 Windows release run).
+
+No schema change: the database stays at schema 35 and project exports keep the 1.6.64 format.
+
 ## [1.6.67] - 2026-11-23
 
 [繁體中文更新說明](docs/releases/1.6.67.md).

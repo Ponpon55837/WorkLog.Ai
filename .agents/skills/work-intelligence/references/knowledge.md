@@ -2,6 +2,10 @@
 
 Read this guide with the core [Work Intelligence skill](../SKILL.md) when the user asks to extract Knowledge candidates, update the project's Knowledge pages, or record Knowledge, or when `pendingRequests.knowledgePages` in the context lists a page. The Knowledge candidate and Knowledge page contracts in the matching operation contracts apply as well.
 
+## Git state and memory
+
+Git is the source of truth for branch, commit, PR, and merge state. Knowledge pages do not record them; when asked, check Git live. Project facts already recorded in Knowledge or Knowledge pages are not copied into your own memory files; keep only a pointer (one fact, one place).
+
 ## Record Knowledge
 
 Record or update Knowledge only when the user asks or when the MCP workflow explicitly calls for it, and only with reusable, source-supported facts; do not turn guesses or an entire Session transcript into Knowledge. When recording, set the paths it applies to when they are clear, and name the older Knowledge it replaces instead of leaving both active.

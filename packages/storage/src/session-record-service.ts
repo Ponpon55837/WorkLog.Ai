@@ -74,6 +74,7 @@ import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-
 import type { SessionRow } from "./session-repository.js";
 import { combineRedactionSummaries, redactText, redactValue } from "./secret-redaction.js";
 import { replaceSessionDecisions, type SessionDecisionDraft } from "./session-decision-service.js";
+import { findTransientNextSteps } from "./transient-next-steps.js";
 
 export type SessionDecisionDbRow = {
   id: string;
@@ -760,7 +761,7 @@ export class SessionRecordService {
     const requestJson = JSON.stringify(normalizedRequest);
     const project = decision.project;
 
-    return runImmediateSqlTransaction(this.db, () => {
+    const result = runImmediateSqlTransaction(this.db, (): UpdateSessionWorkSummaryResult => {
       const currentSession = this.db.prepare("SELECT voided_at FROM sessions WHERE id = ?").get(input.sessionId) as
         { voided_at: string | null } | undefined;
       if (!currentSession) {
@@ -898,6 +899,11 @@ export class SessionRecordService {
           : {}),
       };
     });
+    if (result.outcome === "work_summary_updated" && !result.duplicate && normalizedPatch.nextSteps) {
+      const nextStepsWarnings = findTransientNextSteps(result.appliedWorkSummary.nextSteps);
+      if (nextStepsWarnings) result.nextStepsWarnings = nextStepsWarnings;
+    }
+    return result;
   }
 
   /** Empties the replay payload of work-summary updates older than the retention window; keeps rows and requests. */

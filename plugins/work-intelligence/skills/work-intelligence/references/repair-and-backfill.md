@@ -21,6 +21,8 @@ If the user explicitly asks for a record at task start, save the same task as ve
 
 For metadata-backfill requests, inspect the tracked project's actual diff/worktree or available handoff evidence before applying changes. Update only confirmed changed files, verification, provenance, or Git metadata. If no files were intentionally changed, explicitly use an empty replacement list; do not infer file changes from a commit or summary. Keep missing verification distinct from `not_run`. When the user asks to fill metadata gaps and no request is pending, create one yourself (same scope rules as the Projects page); if nothing needs backfilling, say so.
 
+When a commit, merge, or push finishes after finalize, call `work_update_session_metadata` with the commit and branch actually observed (for example from `git rev-parse HEAD` and `git branch --show-current`) so the record follows reality. Never guess a commit.
+
 ## Normalize existing work summaries
 
 When normalizing existing records, update the same finalized Session with `work_update_session_work_summary` (the Web UI Session editor uses the same in-place update); read the current Session first, because the user may already have edited it; do not create replacement Sessions or alter their primary summary, events, evidence, changed files, verification status, Git metadata, or snapshots. Read all available structured and raw source under the tracked-project policy gate. Preserve confirmed facts, remove unsupported or duplicated claims, and replace future-looking `nextSteps` with objective current-state facts or `[]`. If source data is unavailable or a project is not tracked, do not read it or fabricate a replacement.

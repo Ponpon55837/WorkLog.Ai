@@ -311,6 +311,7 @@ import {
   type ChangedFileObservationPlan,
 } from "./changed-file-observation.js";
 import { replaceSessionDecisions, type SessionDecisionDraft } from "./session-decision-service.js";
+import { findTransientNextSteps } from "./transient-next-steps.js";
 
 export type { ContextFocus } from "./context-recall-service.js";
 
@@ -2045,6 +2046,10 @@ export class WorkIntelligenceStore {
     });
     if (result.outcome === "finalized") {
       const { session } = result;
+      if (!result.duplicate) {
+        const nextStepsWarnings = findTransientNextSteps(session.workSummary?.nextSteps ?? []);
+        if (nextStepsWarnings) result.nextStepsWarnings = nextStepsWarnings;
+      }
       // The Session is already committed, so these read-only reminders do not hold the write lock; a failed lookup
       // only omits its reminder.
       runAfterImmediateTransaction(this.db, () => {

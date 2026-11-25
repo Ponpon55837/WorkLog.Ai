@@ -191,6 +191,26 @@ describe("Session update receipts", () => {
     });
   });
 
+  it("passes the transient nextSteps warning through a workSummary receipt", () => {
+    const nextStepsWarnings = {
+      items: [{ index: 0, category: "ci_running" as const }],
+      message: "Fictional warning.",
+    };
+    const receipt = toSessionWorkSummaryReceipt(
+      { workSummary: { nextSteps: ["CI 執行中"] } },
+      {
+        outcome: "work_summary_updated",
+        duplicate: false,
+        session: SESSION,
+        idempotencyKey: "work-summary-warning-key",
+        mode: "patch",
+        appliedWorkSummary: { ...WORK_SUMMARY, nextSteps: ["CI 執行中"] },
+        nextStepsWarnings,
+      },
+    );
+    expect(receipt).toMatchObject({ nextStepsWarnings });
+  });
+
   it("passes every other outcome through unchanged", () => {
     const skipped = {
       outcome: "skipped" as const,

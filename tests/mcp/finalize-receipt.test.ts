@@ -187,4 +187,14 @@ describe("finalize receipt", () => {
       arguments: { sessionId: SESSION.id, changedFilesMode: "merge" },
     });
   });
+
+  it("passes the transient nextSteps warning through", () => {
+    const nextStepsWarnings = {
+      items: [{ index: 1, category: "not_pushed" as const }],
+      message: "Fictional warning.",
+    };
+    expect(toFinalizeReceipt({ changedFiles: [] }, finalized({ nextStepsWarnings }))).toMatchObject({
+      nextStepsWarnings,
+    });
+  });
 });
