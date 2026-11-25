@@ -1,0 +1,71 @@
+name: Project status
+
+# An Issue labelled in-progress moves its card to the in-progress column of every Project it is on.
+# Project columns are not reachable with GITHUB_TOKEN on a user-owned Project, so this needs the
+# PROJECTS_TOKEN secret (a classic personal access token with the project scope). Without the secret
+# the job skips. The column name defaults to "In progress"; set the PROJECT_IN_PROGRESS_STATUS
+# repository variable to use another one.
+on:
+  issues:
+    types: [labeled]
+
+permissions: {}
+
+jobs:
+  move-card:
+    if: github.event.label.name == 'in-progress'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
+      ISSUE_NODE_ID: ${{ github.event.issue.node_id }}
+      TARGET_STATUS: ${{ vars.PROJECT_IN_PROGRESS_STATUS || 'In progress' }}
+    steps:
+      - name: Move the card
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "PROJECTS_TOKEN is not set; skipping."
+            exit 0
+          fi
+          items=$(gh api graphql -f issue="$ISSUE_NODE_ID" -f query='
+            query($issue: ID!) {
+              node(id: $issue) {
+                ... on Issue {
+                  projectItems(first: 20) {
+                    nodes {
+                      id
+                      project {
+                        id
+                        field(name: "Status") {
+                          ... on ProjectV2SingleSelectField { id options { id name } }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }' | jq -c --arg status "$TARGET_STATUS" '
+              .data.node.projectItems.nodes[]
+              | select(.project.field.id != null)
+              | { item: .id, project: .project.id, field: .project.field.id,
+                  option: ([.project.field.options[] | select((.name | ascii_downcase) == ($status | ascii_downcase)) | .id] | first) }
+              | select(.option != null)')
+          if [ -z "$items" ]; then
+            echo "No Project card with a \"$TARGET_STATUS\" status option; nothing to move."
+            exit 0
+          fi
+          while IFS= read -r entry; do
+            gh api graphql \
+              -f project="$(jq -r .project <<<"$entry")" \
+              -f item="$(jq -r .item <<<"$entry")" \
+              -f field="$(jq -r .field <<<"$entry")" \
+              -f option="$(jq -r .option <<<"$entry")" \
+              -f query='
+                mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
+                  updateProjectV2ItemFieldValue(input: {
+                    projectId: $project, itemId: $item, fieldId: $field,
+                    value: { singleSelectOptionId: $option }
+                  }) { projectV2Item { id } }
+                }' > /dev/null
+            echo "Moved a card to \"$TARGET_STATUS\"."
+          done <<<"$items"
