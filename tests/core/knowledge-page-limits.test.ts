@@ -55,8 +55,11 @@ describe("knowledgePageLimits", () => {
     expect(over.splitSuggestion?.near).toEqual(["sections", "content"]);
   });
 
-  it("never suggests moving every section, and nothing for an empty page", () => {
+  it("never suggests moving every section, and nothing for a single-section or empty page", () => {
     expect(knowledgePageLimits(sections([4_000, 3_500])).splitSuggestion?.headings).toEqual(["Topic 0"]);
+    expect(knowledgePageLimits(sections([7_900]))).toEqual({
+      size: { sectionCount: 1, maxSections: 12, contentChars: 7_900, maxContentChars: 8_000 },
+    });
     expect(knowledgePageLimits([])).toEqual({
       size: { sectionCount: 0, maxSections: 12, contentChars: 0, maxContentChars: 8_000 },
     });

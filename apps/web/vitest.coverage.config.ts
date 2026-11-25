@@ -1,8 +1,10 @@
+import vue from "@vitejs/plugin-vue";
 import { defineConfig } from "vitest/config";
 import { webAliases } from "./vitest.config";
 import { isolatedEnvironmentSetup } from "../../tests/helpers/isolated-environment-setup";
 
 export default defineConfig({
+  plugins: [vue()],
   resolve: { alias: webAliases },
   test: {
     setupFiles: [isolatedEnvironmentSetup],
