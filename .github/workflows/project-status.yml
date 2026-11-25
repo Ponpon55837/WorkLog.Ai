@@ -3,7 +3,7 @@ name: Project status
 # An Issue labelled in-progress moves its card to the in-progress column of every Project it is on.
 # Project columns are not reachable with GITHUB_TOKEN on a user-owned Project, so this needs the
 # PROJECTS_TOKEN secret (a classic personal access token with the project scope). Without the secret
-# the job skips. The column name defaults to "processing"; set the PROJECT_IN_PROGRESS_STATUS
+# the job skips. The column name defaults to "In progress"; set the PROJECT_IN_PROGRESS_STATUS
 # repository variable to use another one.
 on:
   issues:
@@ -19,7 +19,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
       ISSUE_NODE_ID: ${{ github.event.issue.node_id }}
-      TARGET_STATUS: ${{ vars.PROJECT_IN_PROGRESS_STATUS || 'processing' }}
+      TARGET_STATUS: ${{ vars.PROJECT_IN_PROGRESS_STATUS || 'In progress' }}
     steps:
       - name: Move the card
         run: |
