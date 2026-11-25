@@ -1,11 +1,12 @@
 import { defineConfig } from "vitest/config";
 import { mcpAliases, mcpTestTimeout } from "./vitest.config";
 import { isolatedEnvironmentSetup } from "../../tests/helpers/isolated-environment-setup";
+import { sqliteNoFlushSetup } from "../../tests/helpers/sqlite-no-flush-setup";
 
 export default defineConfig({
   resolve: { alias: mcpAliases },
   test: {
-    setupFiles: [isolatedEnvironmentSetup],
+    setupFiles: [sqliteNoFlushSetup, isolatedEnvironmentSetup],
     include: ["tests/mcp/**/*.test.ts"],
     testTimeout: mcpTestTimeout,
     coverage: {

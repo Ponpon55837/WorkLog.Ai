@@ -170,7 +170,10 @@ describe("desktop child over IPC (real process)", () => {
     const child = spawnChild(sandbox);
     await child.waitFor("hello");
     const verified = await preflight(child, sandbox.databasePath);
-    const holder = createServer();
+    // The holder only occupies the port. It drops whatever connects: `close` waits for every accepted socket, and a
+    // socket nobody reads never ends, so one stray client (a neighbouring test file still polling a port it had used
+    // before the system handed the number to this holder) kept the afterEach hook waiting until it timed out.
+    const holder = createServer((socket) => socket.destroy());
     servers.push(holder);
     await new Promise<void>((resolve) => holder.listen(0, "127.0.0.1", resolve));
     const address = holder.address();
