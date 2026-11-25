@@ -1726,6 +1726,16 @@ export interface PolicyDecision {
   reason?: string;
 }
 
+export type TransientNextStepCategory =
+  "uncommitted" | "not_pushed" | "pending_merge" | "ci_running" | "phase_not_started";
+
+/** nextSteps items that look like in-task transient state; advisory only, nothing is dropped or changed. */
+export interface NextStepsWarnings {
+  /** 0-based position in the stored nextSteps; item text is never repeated here. */
+  items: { index: number; category: TransientNextStepCategory }[];
+  message: string;
+}
+
 export interface FinalizedSessionResult {
   outcome: "finalized";
   duplicate: boolean;
@@ -1765,6 +1775,7 @@ export interface FinalizedSessionResult {
     unsupersededIds?: string[];
     message: string;
   };
+  nextStepsWarnings?: NextStepsWarnings;
 }
 
 /** One Knowledge item a finishing Agent should check against its change: confirm, update, or leave it. */
@@ -2194,6 +2205,8 @@ export interface UpdatedSessionWorkSummaryResult {
   redactions?: RedactionSummary;
   /** Present only when this update changed the Session's outstanding items (not on a replay). */
   outstandingItems?: OutstandingItemSyncSummary;
+  /** Present only when this update supplied nextSteps and some look transient (not on a replay). */
+  nextStepsWarnings?: NextStepsWarnings;
 }
 
 export interface SessionWorkSummaryUpdateIdempotencyConflictResult {
@@ -2434,7 +2447,7 @@ export const KNOWLEDGE_PAGE_DEFAULTS = [
   {
     slug: "in-progress",
     title: "進行中的工作與未結項",
-    question: "目前進行中的工作、尚未完成的事項與已知限制有哪些？",
+    question: "目前有哪些尚未完成或尚未驗證的事項與已知限制？",
   },
   {
     slug: "pitfalls",

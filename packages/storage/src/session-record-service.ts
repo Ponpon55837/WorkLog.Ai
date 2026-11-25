@@ -74,6 +74,7 @@ import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-
 import type { SessionRow } from "./session-repository.js";
 import { combineRedactionSummaries, redactText, redactValue } from "./secret-redaction.js";
 import { replaceSessionDecisions, type SessionDecisionDraft } from "./session-decision-service.js";
+import { findTransientNextSteps } from "./transient-next-steps.js";
 
 export type SessionDecisionDbRow = {
   id: string;
@@ -884,6 +885,9 @@ export class SessionRecordService {
       if (!session) {
         throw new Error("Session workSummary was updated but could not be loaded.");
       }
+      const nextStepsWarnings = normalizedPatch.nextSteps
+        ? findTransientNextSteps(appliedWorkSummary.nextSteps)
+        : undefined;
       return {
         outcome: "work_summary_updated",
         duplicate: false,
@@ -896,6 +900,7 @@ export class SessionRecordService {
         ...(outstandingSummary.reworded + outstandingSummary.created + outstandingSummary.closed > 0
           ? { outstandingItems: outstandingSummary }
           : {}),
+        ...(nextStepsWarnings ? { nextStepsWarnings } : {}),
       };
     });
   }

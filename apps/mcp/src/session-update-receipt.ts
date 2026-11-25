@@ -137,6 +137,7 @@ export function toSessionWorkSummaryReceipt(input: WorkSummaryReceiptRequest, re
       : {}),
     // Only when the nextSteps change touched items: reworded in place, newly created, or closed as not_needed.
     ...(result.outstandingItems ? { outstandingItems: result.outstandingItems } : {}),
+    ...(result.nextStepsWarnings ? { nextStepsWarnings: result.nextStepsWarnings } : {}),
     ...redactionsIfAny(result),
   };
 }

@@ -1756,6 +1756,34 @@ describe("Work Intelligence REST API", () => {
     expect(tooLong.status).toBe(400);
   });
 
+  it("warns about transient nextSteps at REST finalize without changing them", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-next-steps-"));
+    const store = new WorkIntelligenceStore(":memory:");
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+    const project = store.addProject("Next steps fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const nextSteps = ["變更尚未 commit", "補上離線備份的還原演練"];
+    const response = await requestJson<{
+      session: { id: string };
+      nextStepsWarnings?: { items: unknown[]; message: string };
+    }>(baseUrl, "/api/work/finalize", {
+      method: "POST",
+      body: {
+        projectRoot: root,
+        idempotencyKey: "api-next-steps-warning",
+        title: "Next steps warning",
+        summary: "Saved with a transient next step.",
+        changedFiles: [],
+        verification: { status: "passed" },
+        workSummary: { outcomes: ["完成"], scope: [], decisions: [], verification: [], nextSteps },
+      },
+    });
+    expect(response.status).toBe(200);
+    expect(response.body.nextStepsWarnings?.items).toEqual([{ index: 0, category: "uncommitted" }]);
+    expect(store.getSessionDetail(response.body.session.id)?.session.workSummary?.nextSteps).toEqual(nextSteps);
+  });
+
   it("validates architecture snapshots at REST finalize and keeps project policy", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-architecture-"));
     const store = new WorkIntelligenceStore(":memory:");

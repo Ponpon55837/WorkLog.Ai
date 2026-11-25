@@ -311,6 +311,7 @@ import {
   type ChangedFileObservationPlan,
 } from "./changed-file-observation.js";
 import { replaceSessionDecisions, type SessionDecisionDraft } from "./session-decision-service.js";
+import { findTransientNextSteps } from "./transient-next-steps.js";
 
 export type { ContextFocus } from "./context-recall-service.js";
 
@@ -2012,6 +2013,7 @@ export class WorkIntelligenceStore {
         throw new Error("Session was inserted but could not be loaded.");
       }
 
+      const nextStepsWarnings = findTransientNextSteps(sanitizedNextSteps);
       return {
         outcome: "finalized",
         duplicate: false,
@@ -2041,6 +2043,7 @@ export class WorkIntelligenceStore {
               },
             }
           : {}),
+        ...(nextStepsWarnings ? { nextStepsWarnings } : {}),
       };
     });
     if (result.outcome === "finalized") {
