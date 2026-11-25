@@ -2376,6 +2376,8 @@ describe("Work Intelligence MCP server", () => {
     });
     expect(receipt.page).not.toHaveProperty("sections");
     expect(receipt.page).toHaveProperty("updateRequestedAt");
+    expect(receipt).not.toHaveProperty("size");
+    expect(receipt).not.toHaveProperty("splitSuggestion");
     expect(JSON.stringify(receipt)).not.toContain("sourcedThrough");
 
     expect(await callJson(client, "work_save_knowledge_page", update)).toMatchObject({
@@ -2424,6 +2426,59 @@ describe("Work Intelligence MCP server", () => {
       const sections = [...(body.page.sections ?? []), ...(body.sections ?? [])];
       expect(sections.length).toBeGreaterThan(0);
       for (const section of sections) expect(section).not.toHaveProperty("sourcedThrough");
+    }
+  });
+
+  it("suggests moving sections to a custom page once a section update brings the page near its limits", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Split project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const source = await callJson<{ session: { id: string } }>(
+      client,
+      "work_finalize_session",
+      finalizePayload(root, "mcp-split-001", "Split source"),
+    );
+    const target = { projectRoot: root, slug: "architecture" };
+    const section = (heading: string, chars: number) => ({
+      heading,
+      content: `${heading}.`.padEnd(chars, "."),
+      sourceSessionIds: [source.session.id],
+    });
+    await callJson(client, "work_request_knowledge_page_update", target);
+    const read = await callJson<{ reviewToken: string }>(client, "work_get_knowledge_page_context", target);
+    await callJson(client, "work_save_knowledge_page", {
+      ...target,
+      idempotencyKey: "split-full",
+      reviewToken: read.reviewToken,
+      sections: [section("Lamp", 3_500), section("Tides", 3_000)],
+    });
+    const focused = await callJson<{ reviewToken: string }>(client, "work_get_knowledge_page_context", {
+      ...target,
+      headings: ["Lamp"],
+    });
+    expect(focused).not.toHaveProperty("splitSuggestion");
+
+    const receipt = await callJson<Record<string, unknown>>(client, "work_save_knowledge_page", {
+      ...target,
+      idempotencyKey: "split-update",
+      reviewToken: focused.reviewToken,
+      upsertSections: [section("Fog signals", 900)],
+    });
+    const suggestion = {
+      size: { sectionCount: 3, maxSections: 12, contentChars: 7_400, maxContentChars: 8_000 },
+      splitSuggestion: {
+        near: ["content"],
+        headings: ["Lamp", "Tides"],
+        splitWith: expect.stringContaining("work_request_knowledge_page_update"),
+      },
+    };
+    expect(receipt).toMatchObject({ outcome: "knowledge_page_saved", sectionChanges: { added: ["Fog signals"] } });
+    expect(receipt).toMatchObject(suggestion);
+    expect(receipt.page).not.toHaveProperty("sections");
+    for (const query of [{}, { query: "fog" }, { reviewOnly: true }]) {
+      expect(await callJson(client, "work_get_knowledge_page_context", { ...target, ...query })).toMatchObject(
+        suggestion,
+      );
     }
   });
 

@@ -28,6 +28,8 @@ import {
   KNOWLEDGE_PAGE_AUTHORS,
   KNOWLEDGE_PAGE_DEFAULTS,
   KNOWLEDGE_PAGE_INSUFFICIENT,
+  KNOWLEDGE_PAGE_MAX_CONTENT_CHARS,
+  KNOWLEDGE_PAGE_MAX_SECTIONS,
   SESSION_DECISION_ORIGINS,
   SESSION_DECISION_REVIEW_STATUSES,
   OUTSTANDING_ITEM_STATUSES,
@@ -1106,10 +1108,16 @@ const knowledgePageSectionSchema = z
 const knowledgePageSectionsSchema = z
   .array(knowledgePageSectionSchema)
   .min(1)
-  .max(12)
-  .refine((sections) => sections.reduce((total, section) => total + section.content.length, 0) <= 8_000, {
-    message: "A page holds at most 8,000 characters of section content.",
-  });
+  .max(KNOWLEDGE_PAGE_MAX_SECTIONS, {
+    message: `A page holds at most ${KNOWLEDGE_PAGE_MAX_SECTIONS} sections; move sections to a custom page instead of merging them.`,
+  })
+  .refine(
+    (sections) =>
+      sections.reduce((total, section) => total + section.content.length, 0) <= KNOWLEDGE_PAGE_MAX_CONTENT_CHARS,
+    {
+      message: `A page holds at most ${KNOWLEDGE_PAGE_MAX_CONTENT_CHARS.toLocaleString("en-US")} characters of section content; move sections to a custom page instead of shortening them.`,
+    },
+  );
 
 export const knowledgePageListQuerySchema = z
   .object({

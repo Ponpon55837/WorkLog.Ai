@@ -6,6 +6,14 @@
 
 - 最後更新：2026-11-25
 
+## 1.6.72（知識頁接近上限時建議拆頁）
+
+- 知識頁有 11 段以上，或段落內容合計 7,200 字以上（8,000 字的 90%）時，`work_get_knowledge_page_context` 的完整讀取、聚焦讀取與只讀待核對段落，以及 `work_save_knowledge_page` 的完整儲存與單段更新回條，都另帶 `size` 與 `splitSuggestion`：接近哪個上限、建議移到自訂頁面的最大幾段（最多 3 段），以及建立自訂頁面的一句指引。沒接近上限時不多回任何欄位。
+- 超過上限被拒絕時，`page_limit_exceeded` 與整頁參數錯誤的訊息都改為指向拆頁；上限維持 12 段與 8,000 字，伺服器不會自動拆頁。
+- Web 的知識頁與編輯視窗在接近上限時顯示目前用量與建議移出的段落。
+- 上限與「接近」的判定集中在 `@work-intelligence/core` 的 `knowledgePageLimits`，儲存、讀取、MCP 與 Web 共用。
+- MCP contract 文字改變，Agent 需重新連線 MCP。資料庫維持 schema 36，不需遷移。詳見 [1.6.72 更新說明](releases/1.6.72.md)。
+
 ## 1.6.71（知識頁只讀待核對段落）
 
 - `work_get_knowledge_page_context` 新增 `reviewOnly: true`：只回需要核對的段落全文，附原因、背後的 Session 預覽、其餘段落的標題與字數，以及頁面相對 12 段與 8,000 字上限的大小，並回傳沿用頁面涵蓋範圍的 `reviewToken`，給單段更新用。沒有要核對的內容時回應很小並標示 `review: "none"`；空白頁或使用者要求更新時標示 `full_rewrite`；要核對的段落超過一半、全文超過 4,000 字或回應不會比全頁小時標示 `use_full_read`，不回段落，請讀全頁。不能和 `query`／`headings` 一起帶。

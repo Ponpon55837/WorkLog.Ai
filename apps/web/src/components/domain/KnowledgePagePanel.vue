@@ -16,6 +16,7 @@ import UiSidePanelHeader from "../ui/UiSidePanelHeader.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 import KnowledgePageDiff from "./KnowledgePageDiff.vue";
 import KnowledgePageEditorDialog from "./KnowledgePageEditorDialog.vue";
+import KnowledgePageLimitNotice from "./KnowledgePageLimitNotice.vue";
 import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
 
@@ -145,6 +146,8 @@ watch([() => openPage.value?.id, shownVersion], () => {
         ><UiButton size="sm" @click="shownVersion = null">{{ t("knowledge.backToCurrentVersion") }}</UiButton></template
       >
     </UiFlash>
+
+    <KnowledgePageLimitNotice v-if="shownVersion === null && openPage" :sections="openPage.sections" />
 
     <KnowledgePageDiff
       v-if="comparing && previousVersion && shown"

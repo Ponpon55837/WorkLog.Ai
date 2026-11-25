@@ -615,7 +615,15 @@
     "overturnedKnowledgeMissing": "Overturned. The item is back in your pending list. The Knowledge the Agent created no longer exists.",
     "overturnNotFound": "This item was not found.",
     "overturnNotAgentReviewed": "The Agent did not process this item, so it cannot be overturned.",
-    "couldNotOverturn": "Could not overturn this decision."
+    "couldNotOverturn": "Could not overturn this decision.",
+    "pageLimitNearTitle": "This page is close to its limit",
+    "pageLimitOverTitle": "This page is over its limit",
+    "pageLimitUsage": "{chars} / {maxChars} chars used · {count} / {max} sections",
+    "pageLimitMoveSections": "Move {headings} to a custom Knowledge page instead of deleting existing text.",
+    "pageLimitHeading": "“{heading}”",
+    "pageLimitMoveLargest": "Move the largest sections to a custom Knowledge page instead of deleting existing text.",
+    "pageLimitCustomPageHint": "Create one with “Custom Knowledge page” in the Knowledge pages list.",
+    "pageLimitOverSave": "Saving is refused while the page is over its limit; move these sections out first."
   },
   "labels": {
     "agent": "Agent",

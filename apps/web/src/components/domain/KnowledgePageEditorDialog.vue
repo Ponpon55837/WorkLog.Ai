@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { Plus, Trash2 } from "lucide-vue-next";
 import { KNOWLEDGE_PAGE_INSUFFICIENT, type KnowledgePageRecord } from "@work-intelligence/core";
 import { useToast } from "../../composables/useToast";
@@ -12,6 +12,7 @@ import UiFlash from "../ui/UiFlash.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiTextInput from "../ui/UiTextInput.vue";
 import UiTextarea from "../ui/UiTextarea.vue";
+import KnowledgePageLimitNotice from "./KnowledgePageLimitNotice.vue";
 import { t } from "../../i18n";
 
 interface SectionDraft {
@@ -36,6 +37,11 @@ const saving = ref(false);
 const error = ref("");
 /** The version the draft started from; a background refresh of the page must not move it. */
 const baseVersion = ref(0);
+
+/** Measured as `save` sends them, trimmed, so the notice and the refusal agree on the size. */
+const trimmedSections = computed(() =>
+  sections.value.map((section) => ({ heading: section.heading.trim(), content: section.content.trim() })),
+);
 
 function splitIds(value: string): string[] {
   return [
@@ -128,6 +134,7 @@ watch(
     if (sections.value.length === 0) addSection();
     error.value = "";
   },
+  { immediate: true },
 );
 </script>
 
@@ -142,6 +149,7 @@ watch(
   >
     <form id="knowledge-page-editor-form" class="page-editor" @submit.prevent="save">
       <UiFlash v-if="error" tone="danger">{{ error }}</UiFlash>
+      <KnowledgePageLimitNotice :sections="trimmedSections" />
       <UiField :label="t('knowledge.title')"><UiTextInput v-model="title" :maxlength="80" required /></UiField>
       <fieldset v-for="(section, index) in sections" :key="index" class="page-editor__section">
         <legend>{{ t("knowledge.section", { value: index + 1 }) }}</legend>

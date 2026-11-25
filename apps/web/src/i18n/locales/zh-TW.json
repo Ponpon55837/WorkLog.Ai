@@ -615,7 +615,15 @@
     "overturnedKnowledgeMissing": "已推翻，項目回到待確認清單。Agent 建立的 Knowledge 已不存在。",
     "overturnNotFound": "找不到這個項目。",
     "overturnNotAgentReviewed": "這個項目不是由 Agent 處理的，無法推翻。",
-    "couldNotOverturn": "無法推翻這項處理。"
+    "couldNotOverturn": "無法推翻這項處理。",
+    "pageLimitNearTitle": "這一頁快到上限了",
+    "pageLimitOverTitle": "這一頁已超過上限",
+    "pageLimitUsage": "已用 {chars} / {maxChars} 字 · {count} / {max} 段",
+    "pageLimitMoveSections": "建議把{headings}移到自訂知識頁，不要刪減現有內容。",
+    "pageLimitHeading": "「{heading}」",
+    "pageLimitMoveLargest": "建議把較大的段落移到自訂知識頁，不要刪減現有內容。",
+    "pageLimitCustomPageHint": "在知識頁清單按「自訂知識頁」即可建立。",
+    "pageLimitOverSave": "超過上限時儲存會被拒絕，請先把這些段落移出。"
   },
   "labels": {
     "agent": "Agent",

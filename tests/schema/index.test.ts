@@ -604,6 +604,20 @@ describe("Knowledge page schemas", () => {
     ).toBe(false);
   });
 
+  it("points a page over its limits to a custom page", () => {
+    const section = (content: string) => ({ heading: "H", content, sourceSessionIds: ["session-1"] });
+    const messages = (sections: unknown[]) => {
+      const parsed = saveKnowledgePageInputSchema.safeParse({ ...base, sections });
+      return parsed.success ? [] : parsed.error.issues.map((issue) => issue.message);
+    };
+    expect(messages(Array.from({ length: 13 }, () => section("x")))).toEqual([
+      "A page holds at most 12 sections; move sections to a custom page instead of merging them.",
+    ]);
+    expect(messages([section("x".repeat(4_000)), section("y".repeat(4_000)), section("z")])).toEqual([
+      "A page holds at most 8,000 characters of section content; move sections to a custom page instead of shortening them.",
+    ]);
+  });
+
   describe("section updates", () => {
     const section = (heading: string) => ({ heading, content: "Build shared first.", sourceSessionIds: ["session-1"] });
     const update = { ...base, reviewToken: "kpr1.token" };
