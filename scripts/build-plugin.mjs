@@ -34,6 +34,7 @@ export const AGENT_RESOURCES = [
   ".agents/skills/work-intelligence/references/diagrams.md",
   ".agents/skills/work-intelligence/references/repair-and-backfill.md",
   ".agents/skills/work-intelligence/references/outstanding-cleanup.md",
+  ".agents/skills/work-intelligence/references/agent-review.md",
   ".agents/skills/work-intelligence/references/synthesis.md",
   ".agents/skills/work-intelligence/references/knowledge.md",
   "docs/work-record-and-report-format.md",

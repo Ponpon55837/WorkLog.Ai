@@ -58,7 +58,7 @@ const CORE_RULES = [
   "do not absorb unrelated pre-existing dirty changes",
   "never invent a recommendation, roadmap, or future plan",
   "Never guess a decision's origin.",
-  "Agent-autonomous decisions enter the Web review queue; confirming, rejecting, and promoting them to Knowledge are Web-only.",
+  "Agent-autonomous decisions enter the Web review queue; confirming, rejecting, and promoting them to Knowledge are Web-only unless the user opens an Agent review request (agent-review guide).",
   "never close them with `resolvedOutstandingItemIds` or `supersededOutstandingItemIds` to bypass it",
   "**Times — never estimate them.**",
   "`completedAt`: **omit it** for work that just finished",

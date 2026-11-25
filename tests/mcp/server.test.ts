@@ -41,7 +41,7 @@ const DISPATCHER_EXPECTATIONS = {
       idempotentHint: true,
       openWorldHint: false,
     },
-    operationCount: 17,
+    operationCount: 19,
   },
   work_write_additive: {
     title: "Add Work Intelligence records or proposals",
@@ -63,7 +63,7 @@ const DISPATCHER_EXPECTATIONS = {
       idempotentHint: true,
       openWorldHint: false,
     },
-    operationCount: 10,
+    operationCount: 11,
   },
 } as const;
 
@@ -771,6 +771,7 @@ describe("Work Intelligence MCP server", () => {
       "work-intelligence://agent/architecture-diagram-v1",
       TOOL_CONTRACT_RESOURCE_URI,
       "work-intelligence://agent/work-intelligence/SKILL.md",
+      "work-intelligence://agent/work-intelligence/references/agent-review.md",
       "work-intelligence://agent/work-intelligence/references/diagrams.md",
       "work-intelligence://agent/work-intelligence/references/knowledge.md",
       "work-intelligence://agent/work-intelligence/references/outstanding-cleanup.md",
@@ -2129,6 +2130,110 @@ describe("Work Intelligence MCP server", () => {
 
     const catalog = await getToolContractCatalog(client);
     expect([...catalog.sections.keys()].some((operation) => /accept|decide/.test(operation))).toBe(false);
+  });
+
+  it("runs an Agent review from request to verdicts and lists the Knowledge pages to update", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Review project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalized = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-review-001", "Source"),
+      workSummary: {
+        outcomes: ["Source done."],
+        scope: [],
+        decisions: [
+          { text: "Keep the retry budget at three attempts", origin: "agent_autonomous" },
+          { text: "Cache parsed manifests per run", origin: "agent_autonomous" },
+        ],
+        verification: [],
+        nextSteps: [],
+      },
+    });
+    await callJson(client, "work_request_knowledge_page_update", { projectRoot: root, slug: "pitfalls" });
+    const catalog = await getToolContractCatalog(client);
+    expect(catalog.dispatchers.get("work_request_agent_review")).toBe("work_write_idempotent");
+    expect(catalog.dispatchers.get("work_get_agent_review_context")).toBe("work_write_idempotent");
+    expect(catalog.dispatchers.get("work_submit_agent_review_verdicts")).toBe("work_write_overwrite");
+
+    const request = await callJson<{ outcome: string; request: { id: string; status: string; itemCount: number } }>(
+      client,
+      "work_request_agent_review",
+      { projectRoot: root, idempotencyKey: "mcp-review-request" },
+    );
+    expect(request).toMatchObject({ outcome: "agent_review_request", request: { status: "pending", itemCount: 2 } });
+    expect(
+      await callJson(client, "work_request_agent_review", { projectRoot: root, idempotencyKey: "mcp-review-again" }),
+    ).toMatchObject({ outcome: "agent_review_request", duplicate: true, request: { id: request.request.id } });
+
+    const context = await callJson<{
+      outcome: string;
+      request: { status: string };
+      items: Array<{ itemKind: string; id: string; text?: string; state: string }>;
+    }>(client, "work_get_agent_review_context", { projectRoot: root });
+    expect(context).toMatchObject({ outcome: "agent_review_context", request: { status: "processing" } });
+    expect(context.items.map((item) => [item.itemKind, item.state])).toEqual([
+      ["decision", "open"],
+      ["decision", "open"],
+    ]);
+    const [kept, cached] = context.items;
+
+    const verdicts = {
+      requestId: request.request.id,
+      idempotencyKey: "mcp-review-verdicts",
+      verdicts: [
+        {
+          itemKind: "decision",
+          itemId: kept!.id,
+          verdict: "confirm",
+          reason: `The Session ${finalized.session.id} outcomes state the budget was verified.`,
+        },
+      ],
+    };
+    expect(await callJson(client, "work_submit_agent_review_verdicts", verdicts)).toMatchObject({
+      outcome: "agent_review_verdicts_submitted",
+      duplicate: false,
+      results: [{ itemKind: "decision", itemId: kept!.id, outcome: "applied" }],
+      request: { status: "processing", appliedCount: 1, openCount: 1 },
+    });
+    expect(await callJson(client, "work_submit_agent_review_verdicts", verdicts)).toMatchObject({
+      outcome: "agent_review_verdicts_submitted",
+      duplicate: true,
+    });
+
+    const completed = await callJson<{ completion?: { knowledgePages: Array<{ slug: string }> } }>(
+      client,
+      "work_submit_agent_review_verdicts",
+      {
+        requestId: request.request.id,
+        idempotencyKey: "mcp-review-complete",
+        verdicts: [
+          { itemKind: "decision", itemId: cached!.id, verdict: "reject", reason: "Contradicted by later work." },
+        ],
+        complete: true,
+      },
+    );
+    expect(completed).toMatchObject({ request: { status: "completed", openCount: 0 } });
+    expect(completed.completion?.knowledgePages.map((page) => page.slug)).toContain("pitfalls");
+  });
+
+  it("refuses an Agent review for an untracked project and when no request is open", async () => {
+    const { client, store, root } = await connect();
+    expect(
+      await callJson(client, "work_request_agent_review", {
+        projectRoot: root,
+        idempotencyKey: "mcp-review-untracked",
+      }),
+    ).toMatchObject({ outcome: "skipped" });
+
+    const project = store.addProject("Quiet project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    expect(await callJson(client, "work_get_agent_review_context", { projectRoot: root })).toMatchObject({
+      outcome: expect.stringMatching(/^(not_found|rejected)$/),
+    });
+    expect(
+      await callJson(client, "work_request_agent_review", { projectRoot: root, idempotencyKey: "mcp-review-empty" }),
+    ).toMatchObject({ outcome: "agent_review_not_needed" });
+    expect(await callMcpOperation(client, "work_get_agent_review_context", {})).toMatchObject({ isError: true });
   });
 
   it("lets an Agent rewrite a standing Knowledge page with cited Sessions, without a delete tool", async () => {
