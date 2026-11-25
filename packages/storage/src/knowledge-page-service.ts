@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import {
   KNOWLEDGE_PAGE_DEFAULTS,
+  KNOWLEDGE_PAGE_MAX_CONTENT_CHARS,
+  KNOWLEDGE_PAGE_MAX_SECTIONS,
+  knowledgePageLimits,
   type KnowledgePageAuthor,
   type KnowledgePageContext,
   type KnowledgePageContextQuery,
@@ -15,6 +18,7 @@ import {
   type KnowledgePageNotFoundResult,
   type MarkKnowledgePageCheckedInput,
   type MarkKnowledgePageCheckedResult,
+  type KnowledgePageLimits,
   type KnowledgePageRecord,
   type KnowledgePageReviewContext,
   type KnowledgePageReviewReason,
@@ -22,6 +26,7 @@ import {
   type KnowledgePageSection,
   type KnowledgePageSectionChanges,
   type KnowledgePageSectionReviewReason,
+  type KnowledgePageSize,
   type KnowledgePageSkippedResult,
   type KnowledgePageVersionConflictResult,
   type KnowledgePageVersionRecord,
@@ -237,9 +242,6 @@ const NEAR_SLUG_DISTANCE = 2;
 /** The shape of a page, Session, or Knowledge id; a slug never looks like this. */
 const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-/** The page limits the schema checks for a whole page; a section update is checked against them once merged. */
-const MAX_PAGE_SECTIONS = 12;
-const MAX_PAGE_CONTENT_CHARS = 8_000;
 const IDEMPOTENCY_CONFLICT_RESULT = {
   outcome: "idempotency_conflict" as const,
   reason:
@@ -532,24 +534,38 @@ function mergeSections(
   return { sections, changes };
 }
 
+/** The size and split suggestion a page read or save adds only when the page is near its limits. */
+function nearLimitFields({ size, splitSuggestion }: KnowledgePageLimits) {
+  return splitSuggestion ? { size, splitSuggestion } : {};
+}
+
+/** A section update is checked against the whole-page limits the schema checks for sections, once merged. */
 function pageLimitExceeded(sections: readonly KnowledgePageSection[]): SaveKnowledgePageResult | undefined {
-  const contentChars = sections.reduce((total, section) => total + section.content.length, 0);
-  if (sections.length >= 1 && sections.length <= MAX_PAGE_SECTIONS && contentChars <= MAX_PAGE_CONTENT_CHARS) {
+  const { size, splitSuggestion } = knowledgePageLimits(sections);
+  const { sectionCount, contentChars } = size;
+  if (
+    sectionCount >= 1 &&
+    sectionCount <= KNOWLEDGE_PAGE_MAX_SECTIONS &&
+    contentChars <= KNOWLEDGE_PAGE_MAX_CONTENT_CHARS
+  ) {
     return undefined;
   }
+  if (sectionCount === 0) {
+    return {
+      outcome: "page_limit_exceeded",
+      reason: "The page after this update would have no sections, so nothing was written. Keep at least one section.",
+      ...size,
+    };
+  }
   const problem =
-    sections.length === 0
-      ? "no sections"
-      : sections.length > MAX_PAGE_SECTIONS
-        ? `${sections.length} sections (at most ${MAX_PAGE_SECTIONS})`
-        : `${contentChars} characters of section content (at most ${MAX_PAGE_CONTENT_CHARS})`;
+    sectionCount > KNOWLEDGE_PAGE_MAX_SECTIONS
+      ? `${sectionCount} sections (at most ${KNOWLEDGE_PAGE_MAX_SECTIONS})`
+      : `${contentChars} characters of section content (at most ${KNOWLEDGE_PAGE_MAX_CONTENT_CHARS})`;
   return {
     outcome: "page_limit_exceeded",
-    reason: `The page after this update would have ${problem}, so nothing was written. Send fewer or shorter sections, or save the whole page with sections.`,
-    sectionCount: sections.length,
-    maxSections: MAX_PAGE_SECTIONS,
-    contentChars,
-    maxContentChars: MAX_PAGE_CONTENT_CHARS,
+    reason: `The page after this update would have ${problem}, so nothing was written. Move sections to a custom page (splitSuggestion) instead of shortening them.`,
+    ...size,
+    ...(splitSuggestion ? { splitSuggestion } : {}),
   };
 }
 
@@ -755,15 +771,23 @@ export class KnowledgePageService {
     const row = this.findPage(decision.project.id, query.slug);
     if (!row) return this.pageNotFound(decision.project.id, query.slug);
     const page = this.recordFor(row);
-    if (query.reviewOnly) return this.reviewOnlyContext(row, page);
+    const limits = knowledgePageLimits(page.sections);
+    if (query.reviewOnly) {
+      const context = this.reviewOnlyContext(row, page, limits.size);
+      return limits.splitSuggestion ? { ...context, splitSuggestion: limits.splitSuggestion } : context;
+    }
     if (query.query !== undefined || query.headings !== undefined) {
       const through = this.reviewedPoint(row);
-      return focusedContext(page, query, encodeReviewToken({ pageId: row.id, version: row.version, through }));
+      return {
+        ...focusedContext(page, query, encodeReviewToken({ pageId: row.id, version: row.version, through })),
+        ...nearLimitFields(limits),
+      };
     }
-    if (row.version === 0 || row.update_requested_at) {
-      return pageContext(row, page, "full", this.contextSessions(decision.project.id));
-    }
-    return pageContext(row, page, "review", this.reviewSessions(this.reviewSources(row, page)));
+    const sessions =
+      row.version === 0 || row.update_requested_at
+        ? pageContext(row, page, "full", this.contextSessions(decision.project.id))
+        : pageContext(row, page, "review", this.reviewSessions(this.reviewSources(row, page)));
+    return { ...sessions, ...nearLimitFields(limits) };
   }
 
   public savePage(input: SaveKnowledgePageInput): SaveKnowledgePageResult {
@@ -805,12 +829,14 @@ export class KnowledgePageService {
       ...(token ? { baseVersion: token.version, coverage: token.through } : {}),
     });
     if ("conflict" in written) return written.conflict;
+    const page = this.recordFor(this.findPageById(row.id)!);
     return {
       outcome: "knowledge_page_saved",
       duplicate: false,
-      page: this.recordFor(this.findPageById(row.id)!),
+      page,
       ...(written.redactions.total > 0 ? { redactions: written.redactions } : {}),
       ...(token ? {} : { warnings: [MISSING_REVIEW_TOKEN_WARNING] }),
+      ...nearLimitFields(knowledgePageLimits(page.sections)),
     };
   }
 
@@ -1357,12 +1383,16 @@ export class KnowledgePageService {
     saved: { version: number; sections_json: string },
     input: SaveKnowledgePageInput,
   ): SaveKnowledgePageResult {
-    const replay = (sectionChanges?: KnowledgePageSectionChanges): SaveKnowledgePageResult => ({
-      outcome: "knowledge_page_saved",
-      duplicate: true,
-      page: this.recordFor(this.findPageById(row.id)!),
-      ...(sectionChanges ? { sectionChanges } : {}),
-    });
+    const replay = (sectionChanges?: KnowledgePageSectionChanges): SaveKnowledgePageResult => {
+      const page = this.recordFor(this.findPageById(row.id)!);
+      return {
+        outcome: "knowledge_page_saved",
+        duplicate: true,
+        page,
+        ...(sectionChanges ? { sectionChanges } : {}),
+        ...nearLimitFields(knowledgePageLimits(page.sections)),
+      };
+    };
     if (input.sections) {
       // A retry carries the same sections; reusing the key for other content would silently drop that content.
       return saved.sections_json === JSON.stringify(storedSections(input.sections).value)
@@ -1440,12 +1470,14 @@ export class KnowledgePageService {
       return { changes: merged.changes, redactions: redacted.redactions };
     });
     if ("outcome" in written) return written;
+    const page = this.recordFor(this.findPageById(row.id)!);
     return {
       outcome: "knowledge_page_saved" as const,
       duplicate: false,
-      page: this.recordFor(this.findPageById(row.id)!),
+      page,
       sectionChanges: written.changes,
       ...(written.redactions.total > 0 ? { redactions: written.redactions } : {}),
+      ...nearLimitFields(knowledgePageLimits(page.sections)),
     };
   }
 
@@ -1623,7 +1655,11 @@ export class KnowledgePageService {
    * exceed REVIEW_SECTION_CONTENT_BUDGET or half the page, or the answer is no smaller than the review read built from
    * the same rows, it returns use_full_read without sections or Sessions.
    */
-  private reviewOnlyContext(row: PageRow, page: KnowledgePageRecord): KnowledgePageReviewContext {
+  private reviewOnlyContext(
+    row: PageRow,
+    page: KnowledgePageRecord,
+    size: KnowledgePageSize,
+  ): KnowledgePageReviewContext {
     const sources = this.reviewSources(row, page);
     const { after, newRows, changedRows } = sources;
     const base: Pick<
@@ -1640,12 +1676,7 @@ export class KnowledgePageService {
       outcome: "knowledge_page_context",
       reviewOnly: true,
       page: pageSummary(page),
-      size: {
-        sectionCount: page.sections.length,
-        maxSections: MAX_PAGE_SECTIONS,
-        contentChars: page.sections.reduce((total, section) => total + section.content.length, 0),
-        maxContentChars: MAX_PAGE_CONTENT_CHARS,
-      },
+      size,
       omittedSessionFields: ["summary", "workSummary.scope", "workSummary.verification"],
       sessionReadWith: "work_get_session",
       reviewToken: encodeReviewToken({ pageId: row.id, version: row.version, through: after }),

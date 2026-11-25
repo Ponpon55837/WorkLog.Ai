@@ -1,6 +1,9 @@
+import type { KnowledgePageSize, KnowledgePageSplitSuggestion } from "./knowledge-page-limits.js";
+
 export * from "./applies-to.js";
 export * from "./attention.js";
 export * from "./file-history.js";
+export * from "./knowledge-page-limits.js";
 export * from "./project-data-columns.js";
 export * from "./related-work.js";
 export * from "./report-presentation.js";
@@ -2651,6 +2654,9 @@ export interface KnowledgePageContext {
    * showed, so a save cannot overwrite a newer version or mark Sessions left out of this read as covered.
    */
   reviewToken: string;
+  /** Present only when the page is near its limits, with splitSuggestion. */
+  size?: KnowledgePageSize;
+  splitSuggestion?: KnowledgePageSplitSuggestion;
 }
 
 /** A focused read: the matching sections in full and the size of the rest; no Session list. */
@@ -2670,6 +2676,9 @@ export interface KnowledgePageFocusedContext {
   sessionsOmitted: true;
   /** How to get the Session list and the complete page. */
   readFullWith: string;
+  /** Present only when the page is near its limits, with splitSuggestion. */
+  size?: KnowledgePageSize;
+  splitSuggestion?: KnowledgePageSplitSuggestion;
 }
 
 /**
@@ -2698,7 +2707,9 @@ export interface KnowledgePageReviewContext {
   >;
   otherSections: Array<{ heading: string; chars: number }>;
   /** The whole page against the save limits, for the room left to a section update. */
-  size: { sectionCount: number; maxSections: number; contentChars: number; maxContentChars: number };
+  size: KnowledgePageSize;
+  /** Present only when the page is near its limits. */
+  splitSuggestion?: KnowledgePageSplitSuggestion;
   /** Previews of the Sessions behind the sections, each once, changed sources first, then new Sessions oldest first. */
   sessions: KnowledgePageContextSession[];
   /** New Sessions that map to no section, oldest first: id, title and completion time only. */
@@ -2788,6 +2799,9 @@ export type SaveKnowledgePageResult =
       sectionChanges?: KnowledgePageSectionChanges;
       /** Present when the save had no reviewToken and so used the older, unchecked coverage rule. */
       warnings?: string[];
+      /** Present only when the saved page is near its limits, with splitSuggestion. */
+      size?: KnowledgePageSize;
+      splitSuggestion?: KnowledgePageSplitSuggestion;
     }
   | { outcome: "not_found"; slug: string; reason: string }
   | { outcome: "invalid_sources"; reason: string; sessionIds: string[] }
@@ -2804,6 +2818,8 @@ export type SaveKnowledgePageResult =
       maxSections: number;
       contentChars: number;
       maxContentChars: number;
+      /** The sections to move to a custom page instead; absent when the merged page has no sections. */
+      splitSuggestion?: KnowledgePageSplitSuggestion;
     }
   | KnowledgePageVersionConflictResult
   | KnowledgePageSkippedResult;
