@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import vue from "@vitejs/plugin-vue";
 import { defineConfig } from "vitest/config";
 import { isolatedEnvironmentSetup } from "../../tests/helpers/isolated-environment-setup";
 
@@ -10,6 +11,7 @@ export const webAliases = {
 };
 
 export default defineConfig({
+  plugins: [vue()],
   resolve: { alias: webAliases },
   test: {
     setupFiles: [isolatedEnvironmentSetup],
