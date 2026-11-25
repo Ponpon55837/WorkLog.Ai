@@ -1,6 +1,7 @@
 import { defineConfig } from "vitest/config";
 import { fileURLToPath } from "node:url";
 import { isolatedEnvironmentSetup } from "../../tests/helpers/isolated-environment-setup";
+import { sqliteNoFlushSetup } from "../../tests/helpers/sqlite-no-flush-setup";
 
 // Test-only SQLite timing (no-op unless WI_SQLITE_TIMING=1), see tests/helpers/sqlite-timing.ts.
 export const sqliteTimingSetup = fileURLToPath(new URL("../../tests/helpers/sqlite-timing-setup.ts", import.meta.url));
@@ -34,7 +35,7 @@ export const storageTestTimeout = 20_000;
 export default defineConfig({
   resolve: { alias: storageAliases },
   test: {
-    setupFiles: [sqliteTimingSetup, isolatedEnvironmentSetup],
+    setupFiles: [sqliteTimingSetup, sqliteNoFlushSetup, isolatedEnvironmentSetup],
     include: ["tests/storage/**/*.test.ts"],
     testTimeout: storageTestTimeout,
     // Calendar dates follow the host time zone; pin it so date fixtures behave the same on every machine.

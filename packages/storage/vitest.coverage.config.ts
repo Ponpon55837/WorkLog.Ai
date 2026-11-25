@@ -1,6 +1,7 @@
 import { defineConfig } from "vitest/config";
 import { storageAliases, storageTestTimeout } from "./vitest.config";
 import { isolatedEnvironmentSetup } from "../../tests/helpers/isolated-environment-setup";
+import { sqliteNoFlushSetup } from "../../tests/helpers/sqlite-no-flush-setup";
 
 type Threshold = { statements: number; branches: number; functions: number; lines: number };
 
@@ -49,7 +50,7 @@ const fileThresholds = Object.fromEntries(
 export default defineConfig({
   resolve: { alias: storageAliases },
   test: {
-    setupFiles: [isolatedEnvironmentSetup],
+    setupFiles: [sqliteNoFlushSetup, isolatedEnvironmentSetup],
     include: ["tests/storage/**/*.test.ts"],
     testTimeout: storageTestTimeout,
     env: { TZ: "UTC" },

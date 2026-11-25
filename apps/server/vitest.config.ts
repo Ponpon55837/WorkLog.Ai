@@ -1,6 +1,10 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import { isolatedEnvironmentSetup } from "../../tests/helpers/isolated-environment-setup";
+import { sqliteNoFlushSetup } from "../../tests/helpers/sqlite-no-flush-setup";
+
+// Test-only SQLite timing (no-op unless WI_SQLITE_TIMING=1), see tests/helpers/sqlite-timing.ts.
+const sqliteTimingSetup = fileURLToPath(new URL("../../tests/helpers/sqlite-timing-setup.ts", import.meta.url));
 
 export const serverAliases = {
   "@work-intelligence/shared/database-path": fileURLToPath(
@@ -54,7 +58,7 @@ export const serverTestTimeout = 20_000;
 export default defineConfig({
   resolve: { alias: serverAliases },
   test: {
-    setupFiles: [isolatedEnvironmentSetup],
+    setupFiles: [sqliteTimingSetup, sqliteNoFlushSetup, isolatedEnvironmentSetup],
     include: ["tests/server/**/*.test.ts"],
     testTimeout: serverTestTimeout,
   },

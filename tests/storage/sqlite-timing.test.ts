@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   flushSqliteTiming,
   installSqliteTiming,
@@ -15,6 +15,10 @@ import {
   uninstallSqliteTiming,
 } from "../helpers/sqlite-timing.js";
 import { sqliteTimingReport } from "../helpers/sqlite-timing-report.mjs";
+
+// This file inspects the class the timing hook installs, so it takes node:sqlite as Node provides it, without the
+// wrapper the suite's setup file puts around it (tests/helpers/sqlite-no-flush.ts).
+vi.unmock("node:sqlite");
 
 const require = createRequire(import.meta.url);
 const CHILD_SCRIPT = join(import.meta.dirname, "..", "helpers", "sqlite-timing-child.ts");

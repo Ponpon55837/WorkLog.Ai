@@ -1,6 +1,10 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import { isolatedEnvironmentSetup } from "../../tests/helpers/isolated-environment-setup";
+import { sqliteNoFlushSetup } from "../../tests/helpers/sqlite-no-flush-setup";
+
+// Test-only SQLite timing (no-op unless WI_SQLITE_TIMING=1), see tests/helpers/sqlite-timing.ts.
+const sqliteTimingSetup = fileURLToPath(new URL("../../tests/helpers/sqlite-timing-setup.ts", import.meta.url));
 
 export const mcpAliases = [
   {
@@ -69,7 +73,7 @@ export const mcpTestTimeout = 20_000;
 export default defineConfig({
   resolve: { alias: mcpAliases },
   test: {
-    setupFiles: [isolatedEnvironmentSetup],
+    setupFiles: [sqliteTimingSetup, sqliteNoFlushSetup, isolatedEnvironmentSetup],
     include: ["tests/mcp/**/*.test.ts"],
     testTimeout: mcpTestTimeout,
   },
