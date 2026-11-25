@@ -20,7 +20,7 @@ describe("matchingProjects", () => {
     const store = new WorkIntelligenceStore(":memory:");
     try {
       const tracked = register(store, "Atlas", join("old", "atlas"), "tracked");
-      const paused = register(store, "Atlas docs", join("old", "Atlas"), "paused");
+      const paused = register(store, "Atlas docs", join("archive", "Atlas"), "paused");
       register(store, "Atlas", join("old", "atlas-ignored"), "ignored");
       store.addProject("Atlas", join(BASE, "old", "atlas-pending"));
 
