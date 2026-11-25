@@ -4,6 +4,20 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.73] - 2026-11-25
+
+[繁體中文更新說明](docs/releases/1.6.73.md).
+
+### Added
+
+- Matching-project hints for an unregistered project root. When any MCP operation is refused because its `projectRoot` is not a registered project (a moved folder, another computer, a mistyped path, or a call from a subfolder), the answer adds `matchingProjects`: at most 5 tracked or paused projects, each with only `name`, `rootPath` and `status`, and its `reason` asks the Agent to check with the user. A project matches only when the path is inside its root (nearest root first), when the path's folder name equals the root's folder name or the project name, or when its root is inside the path (shallowest first); case and a trailing separator are ignored, and ties are ordered by name and root. Ignored projects and `unregistered` rows are never listed. No project data is read, nothing is recorded for the unregistered path, and the Agent is never switched to a match. Without a match the answer is unchanged.
+- A compact view for `work_search_knowledge`: `view: "compact"` keeps the filters, order, `pageInfo` and the fallback fields, but each item has only `id`, `kind`, `status`, `title`, `updatedAt`, `appliesToCount` (when `appliesTo` is not empty) and `needsReview`, plus `projectId`/`projectName` in an unscoped search. The answer adds `view` and `readFull`, which points to `work_get_knowledge_history` for a full record. The query reads only those columns and counts `appliesTo` in SQL, so bodies are never loaded. A page of 50 synthetic records with about 1,400-character bodies is 10,872 characters instead of 87,220. Without `view` (or with `view: "full"`) the answer is unchanged; REST does not take the parameter.
+- Performance cases for both read paths: `searchKnowledgeCompactForAgent` over 200 records with 30 appliesTo entries of 1,000 characters (p90 limit 250 ms) and `matchingProjects` for an unregistered subfolder (50 ms).
+
+### Changed
+
+- The core skill, the reading-records guide, the `work_get_project_status`, `work_get_context` and `work_search_knowledge` descriptions and `docs/mcp-tools.md` describe the hint and the compact view. Two sentences of the `work_get_context` description that the core skill already states were removed to keep the fixed Agent reading within its budget. The MCP contract text changed, so the MCP compatibility id changes: connected Agents receive `restartRequired` after upgrading and must reconnect the Work Intelligence MCP.
+
 ## [1.6.72] - 2026-11-25
 
 [繁體中文更新說明](docs/releases/1.6.72.md).
