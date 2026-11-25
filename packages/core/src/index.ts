@@ -3415,8 +3415,11 @@ export type AgentReviewContextResult =
 export interface AgentReviewVerdictResult {
   itemKind: AgentReviewItemKind;
   itemId: string;
-  outcome: AgentReviewItemOutcome | "not_in_request";
+  /** knowledge_rejected: the Knowledge write failed, nothing was applied and the item stays open for a corrected draft. */
+  outcome: AgentReviewItemOutcome | "not_in_request" | "knowledge_rejected";
   knowledgeId?: string;
+  knowledgeOutcome?: string;
+  knowledgeReason?: string;
 }
 
 export interface AgentReviewKnowledgePage {

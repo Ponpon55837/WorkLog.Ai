@@ -21,7 +21,8 @@ const { createApproveMigration } = await import("../../apps/desktop/src/main/app
  * is stood in for by the real store (the same migration and backup the child runs). Synthetic fixture only.
  */
 
-const FIXTURE = resolve(import.meta.dirname, "../fixtures/upgrade/schema-34.sqlite");
+const FIXTURE_SCHEMA_VERSION = 34;
+const FIXTURE = resolve(import.meta.dirname, `../fixtures/upgrade/schema-${FIXTURE_SCHEMA_VERSION}.sqlite`);
 const IDENTITY = { realPath: "/synthetic/identity.sqlite", fileId: null, lineageId: null };
 const temporary: string[] = [];
 
@@ -110,11 +111,11 @@ afterEach(() => {
   for (const directory of temporary.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
-describe("one press updates a schema-34 database to the App's schema", () => {
+describe(`one press updates a schema-${FIXTURE_SCHEMA_VERSION} database to the App's schema`, () => {
   it("previews, starts with the update allowed and the identity pinned, and leaves a pre-migration backup", async () => {
-    expect(LATEST_SCHEMA_VERSION).toBeGreaterThan(34);
+    expect(LATEST_SCHEMA_VERSION).toBeGreaterThan(FIXTURE_SCHEMA_VERSION);
     const { box, events, starts, approve } = harness();
-    expect(schemaVersion(box.databasePath)).toBe(34);
+    expect(schemaVersion(box.databasePath)).toBe(FIXTURE_SCHEMA_VERSION);
 
     const result = await approve();
 
@@ -128,7 +129,7 @@ describe("one press updates a schema-34 database to the App's schema", () => {
     expect(events).toEqual(["preview", "cancel-retry", "finish:true"]);
     expect(schemaVersion(box.databasePath)).toBe(LATEST_SCHEMA_VERSION);
     expect(backupFiles(box.backups)).toHaveLength(1);
-    expect(backupFiles(box.backups)[0]).toContain("pre-migration-v35-");
+    expect(backupFiles(box.backups)[0]).toContain(`pre-migration-v${FIXTURE_SCHEMA_VERSION + 1}-`);
   });
 
   it("classifies the storage first when the start-up verdict is not known yet", async () => {
@@ -161,7 +162,7 @@ describe("what refuses the update", () => {
       expect((result as { message?: string }).message).toContain("copies it to a local folder");
       expect(events).not.toContain("preview");
       expect(starts).toEqual([]);
-      expect(schemaVersion(box.databasePath)).toBe(34);
+      expect(schemaVersion(box.databasePath)).toBe(FIXTURE_SCHEMA_VERSION);
       expect(backupFiles(box.backups)).toEqual([]);
     },
   );
@@ -171,6 +172,6 @@ describe("what refuses the update", () => {
     expect(await approve()).toMatchObject({ ok: false, reason: "busy" });
     expect(starts).toEqual([]);
     expect(events).not.toContain("cancel-retry");
-    expect(schemaVersion(box.databasePath)).toBe(34);
+    expect(schemaVersion(box.databasePath)).toBe(FIXTURE_SCHEMA_VERSION);
   });
 });

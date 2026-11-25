@@ -14,7 +14,7 @@ The context pages through a fixed snapshot of at most 500 items, up to 10 per pa
 - `stale`: changed after the snapshot. `reviewed`: decided elsewhere. Give neither a verdict.
 - `applied` and `skipped`: this request already decided them.
 
-Page 1 also carries `existingKnowledge` (active Knowledge, archived Knowledge, rejected candidates), so a promotion or acceptance does not repeat or revive them. Truncated fields (`truncated`, `*Truncated` markers) are previews: read the full source Session with `work_get_session` (`view: "handoff"`) before judging an item whose excerpt lacks the detail. Read every page the snapshot needs.
+Page 1 also carries `existingKnowledge` (active Knowledge, archived Knowledge, rejected candidates), so a promotion or acceptance does not repeat or revive them. Truncated fields (`truncated`, `*Truncated` markers) are previews: read the full source Session with `work_get_session` (`view: "handoff"`) before judging an item whose excerpt lacks the detail. Titles counted in `existingKnowledgeOmitted` did not fit; check them with `work_search_knowledge` before promoting. Read every page the snapshot needs.
 
 ## Decide with evidence
 
@@ -34,6 +34,7 @@ Verdicts apply directly. The user can overturn them in Web, but do not rely on t
 
 - `applied`: the verdict took effect (`knowledgeId` appears when Knowledge was created).
 - `skipped_stale`, `skipped_reviewed`: the item was changed or reviewed by someone else after the snapshot. It is never overwritten; do not resubmit it.
+- `knowledge_rejected`: the Knowledge write failed (`knowledgeOutcome`, sometimes `knowledgeReason`). Nothing was applied and the item stays open; fix the draft and resubmit it under a new `idempotencyKey`.
 - `not_in_request`: the item is not in this request's snapshot.
 
 The request completes when every item is resolved, or when the last submission sets `complete: true`. Use `complete: true` after you have read the whole snapshot and decided everything you can support; items without a verdict then stay pending for the user. A submission with only `complete: true` and no verdicts closes the request.

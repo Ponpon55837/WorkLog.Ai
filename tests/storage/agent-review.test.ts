@@ -301,6 +301,47 @@ describe("Agent review context", () => {
     expect(JSON.stringify(context).length).toBeLessThanOrEqual(24_000);
   });
 
+  it("keeps item text whole and trims existing Knowledge to the remaining budget, active first", () => {
+    const fixture = setup();
+    const long = "y".repeat(1_400);
+    const decisionIds = Array.from(
+      { length: 10 },
+      (_, index) =>
+        finalize(fixture, `s${index}`, [`${index}-${long}`], `2026-10-01T09:${String(index).padStart(2, "0")}:00.000Z`)
+          .decisionIds[0]!,
+    );
+    const knowledgeIds: string[] = [];
+    for (let index = 0; index < 250; index += 1) {
+      const recorded = fixture.store.recordKnowledge({
+        projectRoot: fixture.root,
+        idempotencyKey: `seed-${index}`,
+        kind: "decision",
+        title: `Existing orchard rule ${String(index).padStart(3, "0")} ${"title ".repeat(18)}`,
+        body: `Body ${index}.`,
+      });
+      if (recorded.outcome !== "knowledge_recorded") throw new Error("Expected recorded Knowledge.");
+      knowledgeIds.push(recorded.knowledge.id);
+    }
+    for (const id of knowledgeIds.slice(0, 20)) {
+      fixture.store.updateKnowledge({ projectRoot: fixture.root, knowledgeId: id, status: "archived" });
+    }
+    const request = openReview(fixture);
+    const context = fixture.store.getAgentReviewContext({ requestId: request.id });
+    if (context.outcome !== "agent_review_context") throw new Error("Expected context.");
+    expect(context.items.map((item) => item.id)).toEqual(decisionIds);
+    expect(context.items.map((item) => item.text)).toEqual(
+      Array.from({ length: 10 }, (_, index) => `${index}-${long}`),
+    );
+    expect(context.items.some((item) => item.textTruncated)).toBe(false);
+    const kept = context.existingKnowledge ?? [];
+    expect(kept.length).toBeGreaterThan(0);
+    expect(context.existingKnowledgeOmitted).toBeGreaterThan(0);
+    expect(kept.length + (context.existingKnowledgeOmitted ?? 0)).toBe(250);
+    expect(kept.some((entry) => entry.status === "archived")).toBe(false);
+    expect(kept.every((entry) => entry.title.length <= 120)).toBe(true);
+    expect(JSON.stringify(context).length).toBeLessThanOrEqual(24_000);
+  });
+
   it("marks items a person reviewed or that changed since the snapshot", () => {
     const fixture = setup();
     const { sessionId, decisionIds } = finalize(fixture, "a", ["Alpha decision", "Beta decision", "Gamma decision"]);
@@ -403,6 +444,55 @@ describe("Agent review verdicts", () => {
     ]);
     const knowledge = fixture.store.searchKnowledge({ projectId: fixture.projectId, pageSize: 20 });
     expect(JSON.stringify(knowledge)).toContain("Cache keys include the lockfile hash");
+  });
+
+  it("reports knowledge_rejected without closing the item, then applies a resubmitted draft", () => {
+    const fixture = setup();
+    const { decisionIds } = finalize(fixture, "a", ["Alpha decision"]);
+    const request = openReview(fixture);
+    const itemId = decisionIds[0]!;
+    const failing = vi.spyOn(fixture.store, "recordKnowledge").mockReturnValueOnce({
+      outcome: "skipped",
+      projectRoot: fixture.root,
+      projectStatus: "tracked",
+      reason: "Recording is off.",
+    });
+
+    const rejected = submitted(fixture, request.id, [
+      decisionVerdict(itemId, "promote", { knowledge: promoteDraft("Alpha becomes a rule") }),
+    ]);
+    expect(failing).toHaveBeenCalledTimes(1);
+    expect(rejected.results).toEqual([
+      {
+        itemKind: "decision",
+        itemId,
+        outcome: "knowledge_rejected",
+        knowledgeOutcome: "skipped",
+        knowledgeReason: "Recording is off.",
+      },
+    ]);
+    expect(rejected.request).toMatchObject({ appliedCount: 0, skippedCount: 0, openCount: 1 });
+    expect(
+      fixture.db
+        .prepare("SELECT outcome, verdict, reason FROM agent_review_request_items WHERE item_id = ?")
+        .get(itemId),
+    ).toMatchObject({ outcome: null, verdict: null, reason: null });
+    expect(
+      fixture.db.prepare("SELECT review_status, knowledge_id FROM session_decisions WHERE id = ?").get(itemId),
+    ).toMatchObject({ review_status: "pending", knowledge_id: null });
+    const context = fixture.store.getAgentReviewContext({ requestId: request.id });
+    if (context.outcome !== "agent_review_context") throw new Error("Expected context.");
+    expect(context.items[0]).toMatchObject({ id: itemId, state: "open" });
+
+    const applied = submitted(
+      fixture,
+      request.id,
+      [decisionVerdict(itemId, "promote", { knowledge: promoteDraft("Alpha becomes a fixed rule") })],
+      "submit-2",
+    );
+    expect(applied.results[0]).toMatchObject({ outcome: "applied" });
+    expect(applied.results[0]!.knowledgeId).toBeDefined();
+    expect(applied.request).toMatchObject({ status: "completed", appliedCount: 1, openCount: 0 });
   });
 
   it("reports requests with items left open and completes only when asked or when nothing is left", () => {

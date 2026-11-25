@@ -576,12 +576,12 @@ Knowledge 會出現在 「工作知識」頁、Session 面板的 Knowledge 區�
 | Operation | Dispatcher | 參數與回應 |
 | --- | --- | --- |
 | `work_request_agent_review` | `work_write_idempotent` | `projectRoot`、`idempotencyKey`；建立與 Web 相同的快照請求，已有進行中請求時直接回傳它（`duplicate: true`）。回傳 `agent_review_request`、`agent_review_not_needed`（沒有待審項目）或 `skipped`（未追蹤專案安靜略過）；只建立請求，不套用任何 verdict |
-| `work_get_agent_review_context` | `work_write_idempotent` | `requestId` 或 `projectRoot`（至少一個；後者取該專案最新的進行中請求）、`page`、`pageSize`（1–10，預設 10）；把請求推進為 `processing`，回傳 `agent_review_context`：每筆項目的 `itemKind`（`decision`／`candidate`）、`state`（`open`、`applied`、`skipped`、`stale`、`reviewed`）、來源 Session 摘錄與 `overlaps`，第一頁另帶 `existingKnowledge`。整頁序列化上限 24,000 字元，過大時回傳 `rejected`／`context_too_large`；沒有進行中請求回傳 `not_found`，已完成或取消回傳 `request_not_open` |
+| `work_get_agent_review_context` | `work_write_idempotent` | `requestId` 或 `projectRoot`（至少一個；後者取該專案最新的進行中請求）、`page`、`pageSize`（1–10，預設 10）；把請求推進為 `processing`，回傳 `agent_review_context`：每筆項目的 `itemKind`（`decision`／`candidate`）、`state`（`open`、`applied`、`skipped`、`stale`、`reviewed`）、來源 Session 摘錄與 `overlaps`，第一頁另帶 `existingKnowledge`（項目欄位維持正常上限，標題只用剩餘預算，依 active、archived、rejected、新到舊保留；放不下的數量為 `existingKnowledgeOmitted`，可用 `work_search_knowledge` 查）。整頁序列化上限 24,000 字元，過大時回傳 `rejected`／`context_too_large`；沒有進行中請求回傳 `not_found`，已完成或取消回傳 `request_not_open` |
 | `work_submit_agent_review_verdicts` | `work_write_overwrite` | `requestId`、`idempotencyKey`、最多 50 筆 `verdicts`、可選 `complete`；回傳 `agent_review_verdicts_submitted` |
 
 每筆 verdict 都需要 1–2,000 字、以證據為依據的 `reason`。決策可 `confirm`、`reject` 或 `promote`（建立 Knowledge，必須附 `knowledge` 草稿，其他 verdict 不得附）；候選可 `accept`（可附 `edits`）或 `reject`。沒有證據支持的項目不提交 verdict，留給使用者處理，不可猜測；`state` 為 `stale` 或 `reviewed` 的項目不給 verdict。每個項目在同一次提交只能出現一次，沒有 verdict 時必須設 `complete: true`。
 
-結果逐項回報 `applied`（`promote`／`accept` 另帶 `knowledgeId`）、`skipped_stale`、`skipped_reviewed` 或 `not_in_request`；skipped 的項目在快照之後被他人更動或審查過，不會被覆寫。同 key 與相同內容重送回傳原結果（`duplicate: true`），不同內容重用同一個 key 回傳 `idempotency_conflict`。`work_submit_agent_review_verdicts` 歸類為 `work_write_overwrite`，因為它會改變既有決策與候選的審查狀態（前一個狀態保留在稽核紀錄）。
+結果逐項回報 `applied`（`promote`／`accept` 另帶 `knowledgeId`）、`skipped_stale`、`skipped_reviewed`、`not_in_request` 或 `knowledge_rejected`；skipped 的項目在快照之後被他人更動或審查過，不會被覆寫。`knowledge_rejected`（帶 `knowledgeOutcome`，有原因時帶 `knowledgeReason`）表示 Knowledge 寫入失敗：沒有套用任何變更，項目維持 open，修正草稿後以新的 key 重送。同 key 與相同內容重送回傳原結果（`duplicate: true`），不同內容重用同一個 key 回傳 `idempotency_conflict`。`work_submit_agent_review_verdicts` 歸類為 `work_write_overwrite`，因為它會改變既有決策與候選的審查狀態（前一個狀態保留在稽核紀錄）。
 
 請求在所有項目都有結果，或最後一次提交帶 `complete: true` 時完成，結果帶 `completion.knowledgePages`：有新資料的 Knowledge 頁面（`slug`、`title`、`reasons`）。伺服器不會改寫頁面；Agent 須自行用 `work_get_knowledge_page_context` 與 `work_save_knowledge_page` 更新，優先使用段落更新（`upsertSections`）。完成後 Agent 向使用者回報套用、略過與仍待處理的數量，並說明可在知識頁以「由 Agent 處理」篩選檢查或推翻。
 

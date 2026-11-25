@@ -117,6 +117,10 @@ type PendingRows = {
   candidates: Map<string, CandidateRow>;
 };
 
+type Decided =
+  | { outcome: AgentReviewItemOutcome; knowledgeId?: string; redactions?: RedactionSummary }
+  | { outcome: "knowledge_rejected"; knowledgeOutcome: string; knowledgeReason?: string };
+
 type ContextResult = Extract<AgentReviewContextResult, { outcome: "agent_review_context" }>;
 
 const MAX_SNAPSHOT_ITEMS = 500;
@@ -133,6 +137,7 @@ const SIBLING_DECISION_LIMIT = 240;
 const BODY_LIMIT = 2_000;
 const RATIONALE_LIMIT = 600;
 const EXISTING_TITLE_LIMIT = 120;
+const KNOWLEDGE_REASON_LIMIT = 200;
 const CONTEXT_HINT =
   "逐項核對 open 項目的來源 Session 後，用 work_submit_agent_review 提交 verdict；理由要具體，" +
   "證據不足的項目不提交，留給使用者。已有結果、stale 或已被審查的項目不需處理。verdict 直接生效，使用者之後可以推翻。";
@@ -239,6 +244,17 @@ function itemState(
     : "stale";
 }
 
+/** A failed Knowledge write keeps its item open; only the outcome code and a short reason are reported. */
+function knowledgeRejected(recorded: Exclude<RecordKnowledgeResult, { outcome: "knowledge_recorded" }>): Decided {
+  return {
+    outcome: "knowledge_rejected",
+    knowledgeOutcome: recorded.outcome,
+    ...("reason" in recorded && recorded.reason
+      ? { knowledgeReason: recorded.reason.slice(0, KNOWLEDGE_REASON_LIMIT) }
+      : {}),
+  };
+}
+
 /** Shortens every free-text field of a page to `limit` characters; ids, kinds and states are never touched. */
 function shortenContext(result: ContextResult, limit: number): void {
   const cut = (value: string): string => (value.length > limit ? value.slice(0, limit) : value);
@@ -277,7 +293,6 @@ function shortenContext(result: ContextResult, limit: number): void {
       session.otherDecisionsTruncated = true;
     }
   }
-  for (const entry of result.existingKnowledge ?? []) entry.title = cut(entry.title);
   result.truncated = true;
 }
 
@@ -379,10 +394,7 @@ export class AgentReviewService {
     };
     if (pageInfo.page === 1) {
       const { existingKnowledge, omitted } = loadExistingKnowledge(this.db, request.projectId);
-      result.existingKnowledge = existingKnowledge.map((entry) => ({
-        ...entry,
-        title: entry.title.slice(0, EXISTING_TITLE_LIMIT),
-      }));
+      result.existingKnowledge = existingKnowledge;
       if (omitted > 0) result.existingKnowledgeOmitted = omitted;
     }
     this.fitContext(result);
@@ -701,8 +713,15 @@ export class AgentReviewService {
     };
   }
 
-  /** Shortens fields rather than dropping items, then trims the Knowledge titles, so a page never loses an id. */
+  /**
+   * Items keep their normal field limits and are shortened only when they alone exceed the budget; the Knowledge
+   * titles get what is left, dropped from the end of the list (active first, then archived, then rejected).
+   */
   private fitContext(result: ContextResult): void {
+    const existing = result.existingKnowledge;
+    const omitted = result.existingKnowledgeOmitted ?? 0;
+    delete result.existingKnowledge;
+    delete result.existingKnowledgeOmitted;
     for (
       let limit = 500;
       JSON.stringify(result).length > CONTEXT_BUDGET && limit >= 25;
@@ -710,17 +729,23 @@ export class AgentReviewService {
     ) {
       shortenContext(result, limit);
     }
-    const existing = result.existingKnowledge;
     if (!existing) return;
-    let dropped = 0;
-    while (existing.length > 0 && JSON.stringify(result).length > CONTEXT_BUDGET) {
-      existing.pop();
-      dropped += 1;
+    const titles = existing.map((entry) => ({ ...entry, title: entry.title.slice(0, EXISTING_TITLE_LIMIT) }));
+    // Measured with the largest omitted count the result can carry, so the final count always fits.
+    result.existingKnowledge = [];
+    result.existingKnowledgeOmitted = omitted + titles.length;
+    let remaining = CONTEXT_BUDGET - JSON.stringify(result).length;
+    let kept = 0;
+    for (const entry of titles) {
+      remaining -= JSON.stringify(entry).length + 1;
+      if (remaining < 0) break;
+      kept += 1;
     }
-    if (dropped > 0) {
-      result.existingKnowledgeOmitted = (result.existingKnowledgeOmitted ?? 0) + dropped;
-      result.truncated = true;
-    }
+    result.existingKnowledge = titles.slice(0, kept);
+    const dropped = titles.length - kept;
+    if (omitted + dropped > 0) result.existingKnowledgeOmitted = omitted + dropped;
+    else delete result.existingKnowledgeOmitted;
+    if (dropped > 0) result.truncated = true;
   }
 
   private apply(
@@ -746,6 +771,16 @@ export class AgentReviewService {
       const reason = redactText(verdict.reason);
       redactions.push(reason.redactions);
       const decided = this.decide(request, rootPath, item, verdict, reason.value, pending, at);
+      if (decided.outcome === "knowledge_rejected") {
+        resultByKey.set(key, {
+          itemKind: verdict.itemKind,
+          itemId: verdict.itemId,
+          outcome: decided.outcome,
+          knowledgeOutcome: decided.knowledgeOutcome,
+          ...(decided.knowledgeReason ? { knowledgeReason: decided.knowledgeReason } : {}),
+        });
+        continue;
+      }
       this.db
         .prepare(
           `UPDATE agent_review_request_items
@@ -792,7 +827,7 @@ export class AgentReviewService {
     reason: string,
     pending: PendingRows,
     at: string,
-  ): { outcome: AgentReviewItemOutcome; knowledgeId?: string; redactions?: RedactionSummary } {
+  ): Decided {
     if (item.outcome) return { outcome: "skipped_reviewed" };
     if (verdict.itemKind === "decision") {
       const row = pending.decisions.get(item.item_id);
@@ -816,7 +851,7 @@ export class AgentReviewService {
           ...(draft.references ? { references: draft.references } : {}),
           ...(draft.appliesTo ? { appliesTo: draft.appliesTo } : {}),
         });
-        if (recorded.outcome !== "knowledge_recorded") return { outcome: "skipped_stale" };
+        if (recorded.outcome !== "knowledge_recorded") return knowledgeRejected(recorded);
         status = "promoted";
         knowledgeId = recorded.knowledge.id;
         redactions = recorded.redactions;
@@ -850,7 +885,7 @@ export class AgentReviewService {
         references: edits.references ?? parseList(row.references_json),
         appliesTo: edits.appliesTo ?? parseList(row.applies_to_json),
       });
-      if (recorded.outcome !== "knowledge_recorded") return { outcome: "skipped_stale" };
+      if (recorded.outcome !== "knowledge_recorded") return knowledgeRejected(recorded);
       knowledgeId = recorded.knowledge.id;
       redactions = recorded.redactions;
     }
