@@ -36,7 +36,10 @@ import {
   type VerificationUpdateRow,
   type VoidAuditRow,
 } from "./session-record-codecs.js";
-import { toSessionDecision, type SessionDecisionDbRow } from "./session-record-service.js";
+import {
+  toDecision as toSessionDecision,
+  type SessionDecisionRow as SessionDecisionDbRow,
+} from "./session-decision-service.js";
 import { runReadTransaction } from "./sqlite-transaction.js";
 
 export interface SessionAgentReadDependencies {

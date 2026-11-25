@@ -37,6 +37,9 @@ const NO_FREE_TEXT: Record<string, string> = {
   outstanding_cleanup_requests: "ids, idempotency key, status, and times only",
   outstanding_cleanup_submissions: "ids, idempotency key, payload hash, and time only",
   outstanding_cleanup_proposal_evidence: "ids, version fingerprints, and times only",
+  agent_review_requests:
+    "ids, idempotency key, status, counts, and times only; the failure reason is a fixed system message",
+  agent_review_submissions: "ids, idempotency key, payload hash, per-item outcome codes, and time only",
 };
 
 function userTables(db: DatabaseSync): string[] {

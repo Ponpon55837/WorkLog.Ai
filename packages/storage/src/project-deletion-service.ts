@@ -45,6 +45,9 @@ const COUNTS_ADDED_LATER = new Set<keyof ProjectDeletionCounts>([
   "outstandingCleanupSubmissions",
   "outstandingCleanupProposals",
   "outstandingCleanupProposalEvidence",
+  "agentReviewRequests",
+  "agentReviewSubmissions",
+  "agentReviewRequestItems",
 ]);
 
 const projectDeletionCountKeys = [
@@ -79,6 +82,9 @@ const projectDeletionCountKeys = [
   "outstandingCleanupSubmissions",
   "outstandingCleanupProposals",
   "outstandingCleanupProposalEvidence",
+  "agentReviewRequests",
+  "agentReviewSubmissions",
+  "agentReviewRequestItems",
   "searchChunks",
   "searchFts",
   "searchPaths",
@@ -336,6 +342,21 @@ function makeDeletionCounts(
       "SELECT COUNT(*) AS count FROM outstanding_cleanup_proposal_evidence WHERE project_id = ?",
       projectId,
     ),
+    agentReviewRequests: countRows(
+      db,
+      "SELECT COUNT(*) AS count FROM agent_review_requests WHERE project_id = ?",
+      projectId,
+    ),
+    agentReviewSubmissions: countRows(
+      db,
+      "SELECT COUNT(*) AS count FROM agent_review_submissions WHERE project_id = ?",
+      projectId,
+    ),
+    agentReviewRequestItems: countRows(
+      db,
+      "SELECT COUNT(*) AS count FROM agent_review_request_items WHERE project_id = ?",
+      projectId,
+    ),
     knowledgePages: countRows(db, "SELECT COUNT(*) AS count FROM knowledge_pages WHERE project_id = ?", projectId),
     knowledgePageVersions: countRows(
       db,
@@ -501,6 +522,9 @@ export class ProjectDeletionService {
              WHERE project_id = ? OR session_id IN (SELECT value FROM json_each(?))`,
           )
           .run(projectId, JSON.stringify(sessionIds));
+        this.db.prepare("DELETE FROM agent_review_request_items WHERE project_id = ?").run(projectId);
+        this.db.prepare("DELETE FROM agent_review_submissions WHERE project_id = ?").run(projectId);
+        this.db.prepare("DELETE FROM agent_review_requests WHERE project_id = ?").run(projectId);
         this.db.prepare("DELETE FROM knowledge_page_versions WHERE project_id = ?").run(projectId);
         this.db.prepare("DELETE FROM knowledge_pages WHERE project_id = ?").run(projectId);
 

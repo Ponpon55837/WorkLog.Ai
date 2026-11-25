@@ -16,7 +16,20 @@ import type {
   KnowledgeCandidateContextResult,
   KnowledgeCandidateInput,
   KnowledgeCandidateListResult,
-  KnowledgeCandidateStatus,
+  KnowledgeCandidateListInput,
+  AgentReviewContextQuery,
+  AgentReviewContextResult,
+  AgentReviewRequestListResult,
+  AgentReviewRequestQuery,
+  CancelAgentReviewRequestResult,
+  CreateAgentReviewRequestInput,
+  CreateAgentReviewRequestResult,
+  OverturnAgentReviewInput,
+  OverturnAgentReviewResult,
+  RequestAgentReviewInput,
+  RequestAgentReviewResult,
+  SubmitAgentReviewVerdictsInput,
+  SubmitAgentReviewVerdictsResult,
   RequestKnowledgeCandidatesResult,
   RequestOutstandingCleanupResult,
   SubmitKnowledgeCandidatesResult,
@@ -257,6 +270,7 @@ import {
 import { SessionRecordService } from "./session-record-service.js";
 import { SessionDecisionService } from "./session-decision-service.js";
 import { OutstandingItemService } from "./outstanding-item-service.js";
+import { AgentReviewService } from "./agent-review-service.js";
 import { OutstandingCleanupService } from "./outstanding-cleanup-service.js";
 import { ReportPresentationService } from "./report-presentation-service.js";
 import { RelatedWorkService } from "./related-work-service.js";
@@ -467,6 +481,7 @@ export class WorkIntelligenceStore {
   private readonly agentReadAudit: AgentReadAuditService;
   private readonly projectLocationService: ProjectLocationService;
   private readonly knowledgeCandidates: KnowledgeCandidateService;
+  private readonly agentReviews: AgentReviewService;
   private readonly policyGate: ProjectPolicyGate;
   public readonly insightProvider: InsightProvider;
 
@@ -635,6 +650,14 @@ export class WorkIntelligenceStore {
       checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
       checkProjectById: (projectId) => this.checkProjectById(projectId),
       recordKnowledge: (input) => this.recordKnowledge(input),
+    });
+    this.agentReviews = new AgentReviewService(this.db, {
+      checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
+      checkProjectById: (projectId) => this.checkProjectById(projectId),
+      recordKnowledge: (input) => this.recordKnowledge(input),
+      updateKnowledge: (input) => this.updateKnowledge(input),
+      pagesCitingSessions: (projectId, sessionIds) => this.knowledgePages.pagesCitingSessions(projectId, sessionIds),
+      pendingPages: (projectId) => this.knowledgePages.pendingForProject(projectId),
     });
     this.policyGate = new ProjectPolicyGate(this);
     this.attention = new AttentionService(this.db, {
@@ -1305,10 +1328,36 @@ export class WorkIntelligenceStore {
     return this.knowledgeCandidates.submit(input);
   }
 
-  public listKnowledgeCandidates(
-    input: { projectRoot?: string; status?: KnowledgeCandidateStatus } = {},
-  ): KnowledgeCandidateListResult {
+  public listKnowledgeCandidates(input: KnowledgeCandidateListInput = {}): KnowledgeCandidateListResult {
     return this.knowledgeCandidates.list(input);
+  }
+
+  public listAgentReviewRequests(input: AgentReviewRequestQuery = {}): AgentReviewRequestListResult {
+    return this.agentReviews.listRequests(input);
+  }
+
+  public createAgentReviewRequest(input: CreateAgentReviewRequestInput): CreateAgentReviewRequestResult {
+    return this.agentReviews.create(input);
+  }
+
+  public requestAgentReview(input: RequestAgentReviewInput): RequestAgentReviewResult {
+    return this.agentReviews.requestForRoot(input);
+  }
+
+  public getAgentReviewContext(input: AgentReviewContextQuery): AgentReviewContextResult {
+    return this.agentReviews.context(input);
+  }
+
+  public submitAgentReviewVerdicts(input: SubmitAgentReviewVerdictsInput): SubmitAgentReviewVerdictsResult {
+    return this.agentReviews.submit(input);
+  }
+
+  public cancelAgentReviewRequest(requestId: string): CancelAgentReviewRequestResult {
+    return this.agentReviews.cancel(requestId);
+  }
+
+  public overturnAgentReview(input: OverturnAgentReviewInput): OverturnAgentReviewResult {
+    return this.agentReviews.overturn(input);
   }
 
   public decideKnowledgeCandidate(input: DecideKnowledgeCandidateInput): DecideKnowledgeCandidateResult {

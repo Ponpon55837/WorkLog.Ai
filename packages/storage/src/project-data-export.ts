@@ -41,7 +41,7 @@ export class ProjectDataTransferError extends Error {
 
 export const REDACTABLE_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> = {
   sessions: ["title", "summary", "work_summary_json", "verification_json", "void_reason"],
-  session_decisions: ["text"],
+  session_decisions: ["text", "review_reason"],
   knowledge_pages: ["title", "question", "sections_json"],
   knowledge_page_versions: ["title", "question", "sections_json"],
   session_diagrams: ["title", "source", "void_reason"],
@@ -55,10 +55,19 @@ export const REDACTABLE_FIELDS: Partial<Record<ProjectDataTable, readonly string
   outstanding_items: ["text"],
   outstanding_cleanup_request_items: ["text"],
   outstanding_cleanup_proposals: ["reason"],
+  agent_review_request_items: ["reason"],
   knowledge: ["title", "body", "tags_json", "references_json", "applies_to_json", "review_json"],
   knowledge_audit: ["before_json", "after_json", "changed_fields_json"],
   knowledge_candidate_requests: ["failure_reason"],
-  knowledge_candidates: ["title", "body", "tags_json", "references_json", "applies_to_json", "rationale"],
+  knowledge_candidates: [
+    "title",
+    "body",
+    "tags_json",
+    "references_json",
+    "applies_to_json",
+    "rationale",
+    "review_reason",
+  ],
   report_synthesis_requests: ["failure_reason"],
   report_presentations: ["state_json"],
   report_summaries: [
@@ -343,6 +352,9 @@ export function exportRowSources(
     outstanding_cleanup_request_items: byProject("outstanding_cleanup_request_items"),
     outstanding_cleanup_proposals: byProject("outstanding_cleanup_proposals"),
     outstanding_cleanup_proposal_evidence: byProject("outstanding_cleanup_proposal_evidence"),
+    agent_review_requests: byProject("agent_review_requests"),
+    agent_review_submissions: byProject("agent_review_submissions"),
+    agent_review_request_items: byProject("agent_review_request_items"),
   };
 }
 

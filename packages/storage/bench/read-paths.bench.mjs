@@ -1177,6 +1177,36 @@ try {
     title: `Synthetic module ${index * 3} cache is stale after reload`,
     body: `Synthetic module ${index * 3} returns stale cache entries after a reload until the handler clears it.`,
   }));
+  // One Session with 500 pending Agent decisions: the largest snapshot a request takes, and the widest sibling window.
+  const reviewRoot = join(root, "review");
+  mkdirSync(reviewRoot, { recursive: true });
+  const reviewStore = new WorkIntelligenceStore(join(root, "review.sqlite"));
+  const reviewProject = reviewStore.addProject("review", reviewRoot);
+  reviewStore.updateProject(reviewProject.id, { status: "tracked" });
+  const reviewSession = reviewStore.finalizeSession({
+    projectRoot: reviewRoot,
+    idempotencyKey: "bench-review-session",
+    title: "Synthetic review session",
+    summary: "Synthetic summary.",
+    workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+    changedFiles: [],
+    verification: { status: "passed" },
+  });
+  const reviewSeed = new DatabaseSync(join(root, "review.sqlite"));
+  try {
+    reviewSeed
+      .prepare(
+        `WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < 499)
+         INSERT INTO session_decisions (id, session_id, project_id, position, text, origin, review_status)
+         SELECT 'bench-review-decision-' || i, ?, ?, i, 'Synthetic decision ' || i || ' about module ' || (i % 17),
+                'agent_autonomous', 'pending'
+         FROM n`,
+      )
+      .run(reviewSession.session.id, reviewProject.id);
+  } finally {
+    reviewSeed.close();
+  }
+  let reviewRound = 0;
   const worstText = seedStoredTextWorstCases(root);
   const worstTextDatabase = new DatabaseSync(worstText.path);
   // Shared by the cached and the "(after a write)" case: the latter reads the floor query and the newest 200 focused
@@ -1618,6 +1648,23 @@ try {
         throw new Error("Every synthetic candidate must overlap its module's Knowledge.");
       return result;
     },
+    // A new request snapshots all 500 decisions in one batched insert, and its first context page reads 10 of them with
+    // the Session, sibling decisions and overlap hints in one query each; the request is cancelled so the next run
+    // takes a fresh snapshot.
+    "agentReview (500 pending decisions: snapshot, first context page)": () => {
+      reviewRound += 1;
+      const created = reviewStore.requestAgentReview({
+        projectRoot: reviewRoot,
+        idempotencyKey: `bench-review-${reviewRound}`,
+      });
+      if (created.outcome !== "agent_review_request" || created.duplicate || created.request.itemCount !== 500)
+        throw new Error("The review benchmark must snapshot all 500 pending decisions.");
+      const context = reviewStore.getAgentReviewContext({ requestId: created.request.id });
+      if (context.outcome !== "agent_review_context" || context.items.length !== 10)
+        throw new Error("The review benchmark must read one full context page.");
+      reviewStore.cancelAgentReviewRequest(created.request.id);
+      return context;
+    },
     // The 1.6.27 review's list-search shape: eight 200-character near-miss words over 200 rows of the largest
     // appliesTo (15.7 s with LIKE). With instr each row costs at most its bytes x words; every row is read, no warning.
     "searchKnowledge (200 x 30 x 1,000-char appliesTo, 8 near-miss words)": () => {
@@ -1925,6 +1972,7 @@ try {
     "appliesTo scan (near-miss literal runs, 2,000 rows x 30 x 20 paths)": 250,
     "appliesTo stored entries (2 MB entry, distinct 1,000-char entries)": 250,
     "knowledgeCandidateOverlaps (30 candidates, 500 Knowledge)": 150,
+    "agentReview (500 pending decisions: snapshot, first context page)": 250,
     "summarizeAgentReads (5,000 rows)": 100,
     "searchKnowledge (staleness)": 500,
     "searchKnowledge (200 x 30 x 1,000-char appliesTo, 8 near-miss words)": 1000,
@@ -2146,6 +2194,7 @@ try {
   heavyStore.close();
   worstText.store.close();
   worstTextDatabase.close();
+  reviewStore.close();
   distinctPaths.store.close();
   reindexStore.close();
   weightedStore.close();

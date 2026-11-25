@@ -200,4 +200,59 @@ describe("database redaction", () => {
       verify.close();
     }
   });
+
+  it("masks Agent review reasons stored on decisions and snapshot items", () => {
+    const directory = mkdtempSync(join(tmpdir(), "work-intelligence-review-redaction-"));
+    tempDirs.push(directory);
+    const databasePath = join(directory, "test.sqlite");
+    const projectRoot = join(directory, "project");
+    mkdirSync(projectRoot);
+    const token = `ghp_${"C".repeat(36)}`;
+    const store = new WorkIntelligenceStore(databasePath);
+    stores.push(store);
+    const project = store.addProject("Review redaction fixture", projectRoot);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalized = store.finalizeSession({
+      projectRoot,
+      idempotencyKey: "review-redaction-session",
+      title: "審查理由遮蔽測試",
+      summary: "不含敏感文字的摘要。",
+      workSummary: {
+        outcomes: [],
+        scope: [],
+        decisions: [{ text: "Fictional autonomous choice", origin: "agent_autonomous" }],
+        verification: [],
+        nextSteps: [],
+      },
+      completedAt: "2026-09-20T10:00:00.000Z",
+    });
+    if (finalized.outcome !== "finalized") throw new Error("The test Session must be finalized.");
+    const request = store.requestAgentReview({ projectRoot, idempotencyKey: "review-redaction-request" });
+    if (request.outcome !== "agent_review_request") throw new Error("Expected a review request.");
+    const decisionId = store.getSessionDetail(finalized.session.id)!.decisions![0]!.id;
+    store.submitAgentReviewVerdicts({
+      requestId: request.request.id,
+      idempotencyKey: "review-redaction-submit",
+      verdicts: [{ itemKind: "decision", itemId: decisionId, verdict: "confirm", reason: "Safe reason." }],
+    });
+    store.close();
+    stores.splice(stores.indexOf(store), 1);
+
+    const seed = new DatabaseSync(databasePath);
+    try {
+      seed.prepare("UPDATE session_decisions SET review_reason = ? WHERE id = ?").run(token, decisionId);
+      seed.prepare("UPDATE agent_review_request_items SET reason = ? WHERE item_id = ?").run(token, decisionId);
+    } finally {
+      seed.close();
+    }
+
+    expect(redactDatabase({ databasePath, apply: true })).toMatchObject({ mode: "applied", redactions: { total: 2 } });
+    const check = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      expect(JSON.stringify(check.prepare("SELECT review_reason FROM session_decisions").all())).not.toContain(token);
+      expect(JSON.stringify(check.prepare("SELECT reason FROM agent_review_request_items").all())).not.toContain(token);
+    } finally {
+      check.close();
+    }
+  });
 });

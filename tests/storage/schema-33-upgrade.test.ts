@@ -192,7 +192,13 @@ describe("schema 31 to 33 upgrade", () => {
       store.close();
     }
     // Opening only migrates: every table, the search index included, holds the same rows and values.
-    expect(fingerprint(location.databasePath, before.columns).tables).toEqual(before.tables);
+    const afterTables = fingerprint(location.databasePath, before.columns).tables;
+    const created = Object.keys(afterTables).filter((name) => !(name in before.tables));
+    expect(created.sort()).toEqual(["agent_review_request_items", "agent_review_requests", "agent_review_submissions"]);
+    expect(created.map((name) => afterTables[name]!.rows)).toEqual([0, 0, 0]);
+    expect(Object.fromEntries(Object.entries(afterTables).filter(([name]) => name in before.tables))).toEqual(
+      before.tables,
+    );
 
     const reader = new WorkIntelligenceStore(location.databasePath, {
       backup: { directory: location.backupDirectory },

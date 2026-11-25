@@ -122,6 +122,10 @@ export class SessionDeletionService {
         this.db
           .prepare("UPDATE knowledge_pages SET checked_through_session_id = NULL WHERE checked_through_session_id = ?")
           .run(sessionId);
+        // Their reason may quote the deleted decision, so the snapshot rows go with it.
+        this.db
+          .prepare("DELETE FROM agent_review_request_items WHERE source_session_id = ? AND item_kind = 'decision'")
+          .run(sessionId);
         // Items go first so their append-only events cascade only after the item itself is gone.
         this.db.prepare("DELETE FROM outstanding_items WHERE source_session_id = ?").run(sessionId);
         // Everything else is owned by the Session row and cascades with it.

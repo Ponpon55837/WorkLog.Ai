@@ -8,6 +8,7 @@ import type {
   KnowledgeCandidateBacklog,
   KnowledgeCandidateContext,
   KnowledgeCandidateInput,
+  KnowledgeCandidateListInput,
   KnowledgeCandidateListResult,
   KnowledgeCandidateRequest,
   KnowledgeCandidateRequestStatus,
@@ -16,6 +17,7 @@ import type {
   KnowledgeKind,
   PolicyDecision,
   RecordKnowledgeInput,
+  ReviewActor,
   RecordKnowledgeResult,
   RequestKnowledgeCandidatesResult,
   SubmitKnowledgeCandidatesResult,
@@ -76,7 +78,7 @@ type RequestRow = {
 
 type TitleRow = { id: string; kind: KnowledgeKind; title: string; total: number };
 
-type CandidateRow = {
+export type CandidateRow = {
   id: string;
   request_id: string;
   project_id: string;
@@ -95,6 +97,9 @@ type CandidateRow = {
   created_at: string;
   decided_at: string | null;
   overlaps_json: string | null;
+  reviewed_by: ReviewActor | null;
+  review_reason: string | null;
+  review_request_id: string | null;
 };
 
 function parseList(value: string | null): string[] {
@@ -125,7 +130,7 @@ function toRequest(row: RequestRow): KnowledgeCandidateRequest {
   };
 }
 
-function toCandidate(row: CandidateRow): KnowledgeCandidate {
+export function toCandidate(row: CandidateRow): KnowledgeCandidate {
   return {
     id: row.id,
     requestId: row.request_id,
@@ -144,6 +149,9 @@ function toCandidate(row: CandidateRow): KnowledgeCandidate {
     ...(row.knowledge_id ? { knowledgeId: row.knowledge_id } : {}),
     createdAt: row.created_at,
     ...(row.decided_at ? { decidedAt: row.decided_at } : {}),
+    ...(row.status !== "proposed" ? { reviewedBy: row.reviewed_by ?? "user" } : {}),
+    ...(row.review_reason ? { reviewReason: row.review_reason } : {}),
+    ...(row.review_request_id ? { reviewRequestId: row.review_request_id } : {}),
   };
 }
 
@@ -199,9 +207,54 @@ function skipped(decision: PolicyDecision): KnowledgeCandidateSkippedResult {
   };
 }
 
+/** Active Knowledge, archived Knowledge, and rejected candidates of one project, titles only. */
+export function loadExistingKnowledge(
+  db: DatabaseSync,
+  projectId: string,
+): {
+  existingKnowledge: KnowledgeCandidateContext["existingKnowledge"];
+  omitted: number;
+} {
+  const select = (sql: string, limit: number): TitleRow[] => db.prepare(sql).all(projectId, limit) as TitleRow[];
+  const groups: Array<{ status?: "archived" | "rejected"; rows: TitleRow[]; limit: number }> = [
+    {
+      rows: select(
+        `SELECT id, kind, title, COUNT(*) OVER () AS total FROM knowledge
+         WHERE project_id = ? AND status = 'active' ORDER BY updated_at DESC, id ASC LIMIT ?`,
+        EXISTING_KNOWLEDGE_LIMITS.active,
+      ),
+      limit: EXISTING_KNOWLEDGE_LIMITS.active,
+    },
+    {
+      status: "archived",
+      rows: select(
+        `SELECT id, kind, title, COUNT(*) OVER () AS total FROM knowledge
+         WHERE project_id = ? AND status = 'archived' ORDER BY updated_at DESC, id ASC LIMIT ?`,
+        EXISTING_KNOWLEDGE_LIMITS.archived,
+      ),
+      limit: EXISTING_KNOWLEDGE_LIMITS.archived,
+    },
+    {
+      status: "rejected",
+      rows: select(
+        `SELECT id, kind, title, COUNT(*) OVER () AS total FROM knowledge_candidates
+         WHERE project_id = ? AND status = 'rejected' ORDER BY decided_at DESC, id ASC LIMIT ?`,
+        EXISTING_KNOWLEDGE_LIMITS.rejected,
+      ),
+      limit: EXISTING_KNOWLEDGE_LIMITS.rejected,
+    },
+  ];
+  return {
+    existingKnowledge: groups.flatMap(({ status, rows }) =>
+      rows.map((row) => ({ id: row.id, kind: row.kind, title: row.title, ...(status ? { status } : {}) })),
+    ),
+    omitted: groups.reduce((sum, { rows }) => sum + Math.max(0, (rows[0]?.total ?? 0) - rows.length), 0),
+  };
+}
+
 const REQUEST_SELECT = `SELECT r.*, p.name AS project_name
   FROM knowledge_candidate_requests r JOIN projects p ON p.id = r.project_id`;
-const CANDIDATE_SELECT = `SELECT c.*, p.name AS project_name, s.title AS session_title
+export const CANDIDATE_SELECT = `SELECT c.*, p.name AS project_name, s.title AS session_title
   FROM knowledge_candidates c
   JOIN projects p ON p.id = c.project_id
   LEFT JOIN sessions s ON s.id = c.session_id`;
@@ -330,7 +383,7 @@ export class KnowledgeCandidateService {
         },
       ];
     });
-    const { existingKnowledge, omitted } = this.existingKnowledge(request.projectId);
+    const { existingKnowledge, omitted } = loadExistingKnowledge(this.db, request.projectId);
     return {
       outcome: "knowledge_candidate_context",
       request: this.getRequest(request.id)!,
@@ -425,7 +478,7 @@ export class KnowledgeCandidateService {
     };
   }
 
-  public list(input: { projectRoot?: string; status?: KnowledgeCandidateStatus }): KnowledgeCandidateListResult {
+  public list(input: KnowledgeCandidateListInput): KnowledgeCandidateListResult {
     let projectId: string | undefined;
     if (input.projectRoot) {
       const decision = this.dependencies.checkProjectRoot(input.projectRoot);
@@ -440,10 +493,13 @@ export class KnowledgeCandidateService {
     const items = this.withStoredOverlaps(
       this.db
         .prepare(
-          `${CANDIDATE_SELECT} WHERE p.status = 'tracked' AND c.status = ? ${scope}
-           ORDER BY c.created_at DESC, c.id ASC LIMIT 200`,
+          input.reviewedBy === "agent"
+            ? `${CANDIDATE_SELECT} WHERE p.status = 'tracked' AND c.reviewed_by = 'agent' AND c.status <> 'proposed' ${scope}
+               ORDER BY c.decided_at DESC, c.id ASC LIMIT 200`
+            : `${CANDIDATE_SELECT} WHERE p.status = 'tracked' AND c.status = ? ${scope}
+               ORDER BY c.created_at DESC, c.id ASC LIMIT 200`,
         )
-        .all(input.status ?? "proposed", ...parameters) as CandidateRow[],
+        .all(...(input.reviewedBy === "agent" ? [] : [input.status ?? "proposed"]), ...parameters) as CandidateRow[],
     );
     const openRequests = (
       this.db
@@ -478,7 +534,9 @@ export class KnowledgeCandidateService {
     if (input.decision === "reject") {
       runImmediateTransaction(this.db, () =>
         this.db
-          .prepare("UPDATE knowledge_candidates SET status = 'rejected', decided_at = ? WHERE id = ?")
+          .prepare(
+            "UPDATE knowledge_candidates SET status = 'rejected', decided_at = ?, reviewed_by = 'user' WHERE id = ?",
+          )
           .run(decidedAt, candidate.id),
       );
       return { outcome: "knowledge_candidate_decided", candidate: this.getCandidate(candidate.id)! };
@@ -507,7 +565,9 @@ export class KnowledgeCandidateService {
     }
     runImmediateTransaction(this.db, () =>
       this.db
-        .prepare("UPDATE knowledge_candidates SET status = 'accepted', decided_at = ?, knowledge_id = ? WHERE id = ?")
+        .prepare(
+          "UPDATE knowledge_candidates SET status = 'accepted', decided_at = ?, knowledge_id = ?, reviewed_by = 'user' WHERE id = ?",
+        )
         .run(decidedAt, recorded.knowledge.id, candidate.id),
     );
     return {
@@ -557,48 +617,6 @@ export class KnowledgeCandidateService {
       return undefined;
     }
     return counts.highValueSessions < CONTEXT_BACKLOG_MIN_HIGH_VALUE ? undefined : { projectId, ...counts };
-  }
-
-  /** Active Knowledge, archived Knowledge, and rejected candidates of one project, titles only. */
-  private existingKnowledge(projectId: string): {
-    existingKnowledge: KnowledgeCandidateContext["existingKnowledge"];
-    omitted: number;
-  } {
-    const select = (sql: string, limit: number): TitleRow[] => this.db.prepare(sql).all(projectId, limit) as TitleRow[];
-    const groups: Array<{ status?: "archived" | "rejected"; rows: TitleRow[]; limit: number }> = [
-      {
-        rows: select(
-          `SELECT id, kind, title, COUNT(*) OVER () AS total FROM knowledge
-           WHERE project_id = ? AND status = 'active' ORDER BY updated_at DESC, id ASC LIMIT ?`,
-          EXISTING_KNOWLEDGE_LIMITS.active,
-        ),
-        limit: EXISTING_KNOWLEDGE_LIMITS.active,
-      },
-      {
-        status: "archived",
-        rows: select(
-          `SELECT id, kind, title, COUNT(*) OVER () AS total FROM knowledge
-           WHERE project_id = ? AND status = 'archived' ORDER BY updated_at DESC, id ASC LIMIT ?`,
-          EXISTING_KNOWLEDGE_LIMITS.archived,
-        ),
-        limit: EXISTING_KNOWLEDGE_LIMITS.archived,
-      },
-      {
-        status: "rejected",
-        rows: select(
-          `SELECT id, kind, title, COUNT(*) OVER () AS total FROM knowledge_candidates
-           WHERE project_id = ? AND status = 'rejected' ORDER BY decided_at DESC, id ASC LIMIT ?`,
-          EXISTING_KNOWLEDGE_LIMITS.rejected,
-        ),
-        limit: EXISTING_KNOWLEDGE_LIMITS.rejected,
-      },
-    ];
-    return {
-      existingKnowledge: groups.flatMap(({ status, rows }) =>
-        rows.map((row) => ({ id: row.id, kind: row.kind, title: row.title, ...(status ? { status } : {}) })),
-      ),
-      omitted: groups.reduce((sum, { rows }) => sum + Math.max(0, (rows[0]?.total ?? 0) - rows.length), 0),
-    };
   }
 
   /**

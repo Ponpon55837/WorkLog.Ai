@@ -37,8 +37,9 @@ function columnsOf(db: DatabaseSync): Map<string, Set<string>> {
   return columns;
 }
 
-function counts(tables: ProjectDataExport["tables"]): Record<string, number> {
-  return Object.fromEntries(Object.entries(tables).map(([table, rows]) => [table, rows.length]));
+/** Tables an older export lacks count as empty, as they import. */
+function counts(tables: Partial<ProjectDataExport["tables"]>): Record<string, number> {
+  return Object.fromEntries(PROJECT_DATA_TABLES.map((table) => [table, tables[table]?.length ?? 0]));
 }
 
 function total(values: Record<string, number | undefined>): number {

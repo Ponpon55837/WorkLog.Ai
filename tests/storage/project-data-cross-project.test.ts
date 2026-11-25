@@ -493,6 +493,52 @@ function seedWorld(): Seeded {
         cleanup_proposal_id: "cleanup-proposal",
       }),
     );
+    insertRow(
+      db,
+      "agent_review_requests",
+      row("agent_review_requests", {
+        id: "agent-review-request",
+        project_id: projectIds[0],
+        idempotency_key: "agent-review-request-key",
+        status: "completed",
+        requested_at: createdAt,
+        completed_at: createdAt,
+        item_count: 1,
+        omitted_count: 0,
+      }),
+    );
+    insertRow(
+      db,
+      "agent_review_submissions",
+      row("agent_review_submissions", {
+        id: "agent-review-submission",
+        request_id: "agent-review-request",
+        project_id: projectIds[0],
+        idempotency_key: "agent-review-submission-key",
+        payload_hash: "b".repeat(64),
+        results_json: "[]",
+        created_at: createdAt,
+      }),
+    );
+    insertRow(
+      db,
+      "agent_review_request_items",
+      row("agent_review_request_items", {
+        id: "agent-review-item",
+        request_id: "agent-review-request",
+        project_id: projectIds[0],
+        item_kind: "decision",
+        item_id: "agent-review-decision",
+        source_session_id: alpha1,
+        position: 0,
+        fingerprint: "c".repeat(64),
+        submission_id: "agent-review-submission",
+        verdict: "confirm",
+        outcome: "applied",
+        reason: "Fictional reason.",
+        decided_at: createdAt,
+      }),
+    );
   } finally {
     db.close();
   }

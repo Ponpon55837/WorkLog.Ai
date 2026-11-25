@@ -284,3 +284,45 @@ describe("Session title update", () => {
     });
   });
 });
+
+describe("Session deletion and Agent review snapshots", () => {
+  it("removes the snapshot items of a deleted Session's decisions and keeps the others", () => {
+    const { store, root, databasePath } = createTrackedDiskStore();
+    const finalizeWithDecision = (key: string): string => {
+      const result = store.finalizeSession({
+        projectRoot: root,
+        idempotencyKey: key,
+        title: `Synthetic ${key}`,
+        summary: `Synthetic summary for ${key}.`,
+        workSummary: {
+          outcomes: [],
+          scope: [],
+          decisions: [{ text: `Decision of ${key}`, origin: "agent_autonomous" }],
+          verification: [],
+          nextSteps: [],
+        },
+        changedFiles: [],
+        verification: { status: "passed" },
+      });
+      if (result.outcome !== "finalized") throw new Error("Expected the synthetic Session to be finalized");
+      return result.session.id;
+    };
+    const deletedId = finalizeWithDecision("review-deleted");
+    finalizeWithDecision("review-kept");
+    expect(store.requestAgentReview({ projectRoot: root, idempotencyKey: "review-request" })).toMatchObject({
+      outcome: "agent_review_request",
+      request: { itemCount: 2 },
+    });
+    voidSession(store, deletedId);
+    store.deleteSession(deletedId);
+
+    expect(
+      count(
+        databasePath,
+        "SELECT COUNT(*) AS count FROM agent_review_request_items WHERE source_session_id = ?",
+        deletedId,
+      ),
+    ).toBe(0);
+    expect(count(databasePath, "SELECT COUNT(*) AS count FROM agent_review_request_items")).toBe(1);
+  });
+});

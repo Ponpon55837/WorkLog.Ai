@@ -993,6 +993,77 @@ const MIGRATIONS: SchemaMigration[] = [
     // keep NULL, which means unknown, not 0.
     sql: `ALTER TABLE agent_read_audit ADD COLUMN response_chars INTEGER;`,
   },
+  {
+    version: 36,
+    name: "agent-review-requests",
+    // No backfill: a reviewed decision or decided candidate whose reviewed_by is NULL (every row reviewed before this
+    // migration, and rows imported from schema 31-35 exports) reads as reviewed by the user, with no reason.
+    // The snapshot items deliberately have no foreign key to session_decisions (replaceSessionDecisions deletes and
+    // reinserts rows under the same id, which would cascade-delete the snapshot) or to knowledge_candidates; a missing
+    // row reads as stale.
+    sql: `
+      CREATE TABLE agent_review_requests (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'cancelled')),
+        requested_at TEXT NOT NULL,
+        started_at TEXT,
+        completed_at TEXT,
+        failure_reason TEXT,
+        item_count INTEGER NOT NULL CHECK (item_count >= 0),
+        omitted_count INTEGER NOT NULL DEFAULT 0 CHECK (omitted_count >= 0),
+        UNIQUE (id, project_id)
+      );
+      CREATE UNIQUE INDEX idx_agent_review_requests_open_project ON agent_review_requests(project_id)
+        WHERE status IN ('pending', 'processing', 'failed');
+      CREATE INDEX idx_agent_review_requests_date ON agent_review_requests(project_id, requested_at, id);
+      CREATE TABLE agent_review_submissions (
+        id TEXT PRIMARY KEY,
+        request_id TEXT NOT NULL,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        idempotency_key TEXT NOT NULL,
+        payload_hash TEXT NOT NULL,
+        results_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (request_id, idempotency_key),
+        FOREIGN KEY (request_id, project_id) REFERENCES agent_review_requests(id, project_id) ON DELETE CASCADE
+      );
+      CREATE TABLE agent_review_request_items (
+        id TEXT PRIMARY KEY,
+        request_id TEXT NOT NULL,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        item_kind TEXT NOT NULL CHECK (item_kind IN ('decision', 'candidate')),
+        item_id TEXT NOT NULL,
+        source_session_id TEXT,
+        position INTEGER NOT NULL CHECK (position >= 0),
+        fingerprint TEXT NOT NULL,
+        submission_id TEXT,
+        verdict TEXT CHECK (verdict IN ('confirm', 'reject', 'promote', 'accept')),
+        outcome TEXT CHECK (outcome IN ('applied', 'skipped_stale', 'skipped_reviewed')),
+        reason TEXT,
+        knowledge_id TEXT REFERENCES knowledge(id) ON DELETE SET NULL,
+        decided_at TEXT,
+        overturned_at TEXT,
+        UNIQUE (request_id, item_kind, item_id),
+        UNIQUE (request_id, position),
+        FOREIGN KEY (request_id, project_id) REFERENCES agent_review_requests(id, project_id) ON DELETE CASCADE
+      );
+      CREATE INDEX idx_agent_review_items_item ON agent_review_request_items(project_id, item_kind, item_id);
+      CREATE INDEX idx_agent_review_items_source_session ON agent_review_request_items(source_session_id)
+        WHERE source_session_id IS NOT NULL;
+      ALTER TABLE session_decisions ADD COLUMN reviewed_by TEXT CHECK (reviewed_by IN ('user', 'agent'));
+      ALTER TABLE session_decisions ADD COLUMN review_reason TEXT;
+      ALTER TABLE session_decisions ADD COLUMN review_request_id TEXT REFERENCES agent_review_requests(id) ON DELETE SET NULL;
+      ALTER TABLE knowledge_candidates ADD COLUMN reviewed_by TEXT CHECK (reviewed_by IN ('user', 'agent'));
+      ALTER TABLE knowledge_candidates ADD COLUMN review_reason TEXT;
+      ALTER TABLE knowledge_candidates ADD COLUMN review_request_id TEXT REFERENCES agent_review_requests(id) ON DELETE SET NULL;
+      CREATE INDEX idx_session_decisions_agent_reviewed ON session_decisions(project_id, reviewed_by, reviewed_at)
+        WHERE origin = 'agent_autonomous';
+      CREATE INDEX idx_knowledge_candidates_reviewed_by ON knowledge_candidates(project_id, reviewed_by, decided_at);
+      ${projectDataRevisionTriggersSql(["agent_review_requests", "agent_review_submissions", "agent_review_request_items"])}
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;
