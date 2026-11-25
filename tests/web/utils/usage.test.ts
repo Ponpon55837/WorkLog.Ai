@@ -16,6 +16,8 @@ import {
   usageModelRows,
   usageProjectLayout,
   usageSharedRows,
+  withRatio,
+  withShare,
 } from "../../../apps/web/src/utils/usage.js";
 import { t } from "../../../apps/web/src/i18n/index.js";
 
@@ -128,7 +130,7 @@ describe("usageComposition", () => {
 });
 
 describe("usage rows", () => {
-  it("labels agents and unlabelled models and scales bars to the highest headline", () => {
+  it("labels agents and unlabelled models and gives each its share of all models", () => {
     const models: UsageModelItem[] = [
       { agent: "claude-code", model: "model-a", tokens: ZERO, primary: 200, responses: 3 },
       { agent: "codex", model: "", tokens: ZERO, primary: 50, responses: 1 },
@@ -136,7 +138,23 @@ describe("usage rows", () => {
     const rows = usageModelRows(models);
     expect(rows.map((row) => row.agentLabel)).toEqual(["Claude Code", "Codex"]);
     expect(rows[1]?.modelLabel).toBe(t("usage.modelUnlabelled"));
-    expect(rows.map((row) => row.ratio)).toEqual([1, 0.25]);
+    expect(rows.map((row) => row.share)).toEqual([0.8, 0.2]);
+  });
+
+  it("scales a ratio to the highest value and a share to the sum", () => {
+    const items = [{ n: 50 }, { n: 200 }, { n: 150 }];
+    expect(withRatio(items, (item) => item.n).map((item) => item.ratio)).toEqual([0.25, 1, 0.75]);
+    expect(withShare(items, (item) => item.n).map((item) => item.share)).toEqual([0.125, 0.5, 0.375]);
+    expect(withRatio(items, (item) => item.n)[1]).toMatchObject({ n: 200, ratio: 1 });
+  });
+
+  it("gives zero ratios and shares for empty and all-zero input", () => {
+    expect(withRatio([], (item: { n: number }) => item.n)).toEqual([]);
+    expect(withShare([], (item: { n: number }) => item.n)).toEqual([]);
+    const zeros = [{ n: 0 }, { n: 0 }];
+    expect(withRatio(zeros, (item) => item.n).map((item) => item.ratio)).toEqual([0, 0]);
+    expect(withShare(zeros, (item) => item.n).map((item) => item.share)).toEqual([0, 0]);
+    expect(usageModelRows([]).length).toBe(0);
   });
 
   it("derives the 5-hour block progress from elapsed and remaining time", () => {
@@ -152,7 +170,13 @@ describe("usage rows", () => {
       remainingMs: 14_400_000,
       primaryPerMinute: 15,
     };
-    expect(usageBlockRows([block])[0]).toMatchObject({ agentLabel: "Codex", progress: 0.2, primary: 900 });
+    expect(usageBlockRows([block])[0]).toMatchObject({
+      agentLabel: "Codex",
+      progress: 0.2,
+      primary: 900,
+      startAt: block.startAt,
+      endAt: block.endAt,
+    });
   });
 });
 
@@ -185,6 +209,31 @@ describe("shared-folder groups", () => {
   it("selects and clears a whole group without touching other selections", () => {
     expect(toggleUsageGroup(["o", "d"], ["a", "d", "w"], true)).toEqual(["o", "a", "d", "w"]);
     expect(toggleUsageGroup(["o", "a", "d", "w"], ["a", "d", "w"], false)).toEqual(["o"]);
+  });
+
+  it("keeps the whole-group selection order when ids repeat or overlap the selection", () => {
+    expect(toggleUsageGroup([], ["a", "d"], true)).toEqual(["a", "d"]);
+    expect(toggleUsageGroup(["a"], ["a"], true)).toEqual(["a"]);
+    expect(toggleUsageGroup(["a", "o"], ["a", "d"], false)).toEqual(["o"]);
+  });
+
+  it("names projects missing from the list as unknown in shared rows", () => {
+    const tokens = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
+    const byBasis = { projectRoot: 0, filePaths: 0, cwd: 0 };
+    const [row] = usageSharedRows(
+      {
+        groups: [
+          {
+            projects: ["a", "gone"],
+            allocated: [{ projectId: "gone", included: true, conversations: 1, tokens, primary: 0, byBasis }],
+            unallocated: { included: true, conversations: 0, tokens, primary: 0 },
+          },
+        ],
+      },
+      projects,
+    );
+    expect(row?.names).toBe("assistant");
+    expect(row?.projects[0]?.name).toBe(t("usage.unknownProject"));
   });
 
   it("names the unallocated bucket from project names only", () => {

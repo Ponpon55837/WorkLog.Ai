@@ -39,9 +39,18 @@ for (const width of [1440, 375]) {
     await expect(page.getByTestId("usage-models").getByRole("row")).toHaveCount(4);
     await expect(page.getByTestId("usage-sessions").getByRole("row")).toHaveCount(3);
 
-    // The page never scrolls sideways, even with the wide tables.
-    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-    expect(overflow).toBeLessThanOrEqual(0);
+    // The page never scrolls sideways, even with the wide tables, and only <main> scrolls vertically.
+    const overflow = await page.evaluate(() => ({
+      x: document.documentElement.scrollWidth - window.innerWidth,
+      y: document.documentElement.scrollHeight - window.innerHeight,
+    }));
+    expect(overflow.x).toBeLessThanOrEqual(0);
+    expect(overflow.y).toBeLessThanOrEqual(0);
+
+    if (width >= 1440) {
+      await page.locator("main").evaluate((main) => main.scrollTo(0, main.scrollHeight));
+      await expect(page.getByTestId("usage-controls")).toBeInViewport();
+    }
   });
 }
 
