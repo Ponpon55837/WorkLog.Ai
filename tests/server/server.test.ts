@@ -1586,6 +1586,69 @@ describe("Work Intelligence REST API", () => {
     expect(missing.body).toMatchObject({ outcome: "not_found" });
   });
 
+  it("does not expose the internal section baseline in Knowledge page responses after a section update", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-knowledge-sections-test-"));
+    const store = new WorkIntelligenceStore(":memory:");
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+    const project = store.addProject("Knowledge section API fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const finalized = store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "api-knowledge-sections",
+      title: "Knowledge section API fixture",
+      summary: "Source for the page.",
+      workSummary: { outcomes: ["Page source."], scope: [], decisions: [], verification: [], nextSteps: [] },
+      completedAt: "2026-09-26T12:00:00.000Z",
+    });
+    if (finalized.outcome !== "finalized") throw new Error("Expected the API fixture Session to finalize.");
+    const cite = [finalized.session.id];
+    const target = { projectRoot: root, slug: "architecture" };
+    store.requestKnowledgePageUpdate(target);
+    const context = store.getKnowledgePageContext(target);
+    if (context.outcome !== "knowledge_page_context") throw new Error("Expected a full page context.");
+    store.saveKnowledgePage({
+      ...target,
+      idempotencyKey: "api-sections-full",
+      reviewToken: context.reviewToken,
+      sections: [
+        { heading: "Layout", content: "Packages and apps.", sourceSessionIds: cite },
+        { heading: "Rules", content: "Declare before use.", sourceSessionIds: cite },
+      ],
+    });
+    const focused = store.getKnowledgePageContext({ ...target, headings: ["Layout"] });
+    if (focused.outcome !== "knowledge_page_context" || !("reviewToken" in focused)) {
+      throw new Error("Expected a focused context with a reviewToken.");
+    }
+    const updated = store.saveKnowledgePage({
+      ...target,
+      idempotencyKey: "api-sections-update",
+      reviewToken: focused.reviewToken,
+      upsertSections: [{ heading: "Layout", content: "Packages, apps and tests.", sourceSessionIds: cite }],
+    });
+    expect(updated).toMatchObject({ outcome: "knowledge_page_saved", sectionChanges: { replaced: ["Layout"] } });
+
+    // The page keeps its own sourcedThrough time; the per-section baseline must not reach the Web API.
+    const listed = await requestJson<{ items: Array<{ id: string; sections: Array<Record<string, unknown>> }> }>(
+      baseUrl,
+      `/api/knowledge-pages?projectRoot=${encodeURIComponent(root)}`,
+    );
+    const page = listed.body.items[0];
+    expect(page?.sections.map((section) => section.content)).toEqual([
+      "Packages, apps and tests.",
+      "Declare before use.",
+    ]);
+    for (const section of page?.sections ?? []) expect(section).not.toHaveProperty("sourcedThrough");
+    const versions = await requestJson<{ versions: Array<{ sections: Array<Record<string, unknown>> }> }>(
+      baseUrl,
+      `/api/knowledge-pages/${page?.id}/versions`,
+    );
+    expect(versions.body.versions.length).toBeGreaterThan(0);
+    for (const version of versions.body.versions) {
+      for (const section of version.sections) expect(section).not.toHaveProperty("sourcedThrough");
+    }
+  });
+
   it("lists the uncovered Session backlog with Knowledge candidates and returns what remains after a request", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-candidate-backlog-test-"));
     const store = new WorkIntelligenceStore(":memory:");

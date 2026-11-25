@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import type { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { KnowledgePageSection } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
@@ -1078,6 +1079,476 @@ describe("Knowledge pages", () => {
       const next = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "architecture" }));
       expect(next.sessions[0]?.id).toBe(unseen);
       expect(pageOf(store, projectRoot).newSessionCount).toBe(2);
+    });
+  });
+
+  describe("section updates", () => {
+    type RawPage = {
+      version: number;
+      sections_json: string;
+      sourced_through: string | null;
+      checked_through_session_id: string | null;
+      update_requested_at: string | null;
+      covered_through_completed_at: string | null;
+      covered_through_session_id: string | null;
+    };
+    /** True when any section-shaped object in the value carries a stored baseline (a page's own sourcedThrough is public). */
+    const hasSectionBaseline = (value: unknown): boolean => {
+      if (typeof value !== "object" || value === null) return false;
+      if ("heading" in value && "sourcedThrough" in value) return true;
+      return Object.values(value).some(hasSectionBaseline);
+    };
+    type SectionChange = { upsertSections?: KnowledgePageSection[]; removeHeadings?: string[] };
+
+    /** An architecture page at version 1: Hive layout and Feeding cite `a`, Winter care cites `b`. */
+    function sectionPage() {
+      const context = setup();
+      const { store, projectRoot, finalize, tick } = context;
+      const db = (store as unknown as { db: DatabaseSync }).db;
+      const a = finalize("section-a");
+      const b = finalize("section-b");
+      store.requestKnowledgePageUpdate({ projectRoot, slug: "architecture" });
+      const read = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "architecture" }));
+      const saved = store.saveKnowledgePage({
+        projectRoot,
+        slug: "architecture",
+        idempotencyKey: "section-initial",
+        sections: [
+          { heading: "Hive layout", content: "Queen excluders go on first.", sourceSessionIds: [a] },
+          { heading: "Winter care", content: "Insulate the lid before frost.", sourceSessionIds: [b] },
+          { heading: "Feeding", content: "Feed syrup in autumn.", sourceSessionIds: [a] },
+        ],
+        reviewToken: read.reviewToken,
+      });
+      if (saved.outcome !== "knowledge_page_saved") throw new Error(`Expected a save, got ${saved.outcome}`);
+      tick();
+      const rawPage = () => db.prepare("SELECT * FROM knowledge_pages").get() as RawPage;
+      const versionCount = () =>
+        (db.prepare("SELECT COUNT(*) AS count FROM knowledge_page_versions").get() as { count: number }).count;
+      const currentToken = () => {
+        const focused = store.getKnowledgePageContext({ projectRoot, slug: "architecture", headings: ["Feeding"] });
+        if (focused.outcome !== "knowledge_page_context" || !("focused" in focused)) {
+          throw new Error("Expected a focused read");
+        }
+        return focused.reviewToken;
+      };
+      const sectionUpdate = (key: string, change: SectionChange, reviewToken = currentToken()) =>
+        store.saveKnowledgePage({ projectRoot, slug: "architecture", idempotencyKey: key, ...change, reviewToken });
+      const page = () => {
+        const listed = store.listKnowledgePages({ projectRoot });
+        if (listed.outcome !== "knowledge_pages") throw new Error("Expected pages");
+        return listed.items[0]!;
+      };
+      const headings = () => page().sections.map((section) => section.heading);
+      const reviewHeadings = () => (page().reviewSections ?? []).map((section) => section.heading).sort();
+      const touch = (sessionId: string, key: string) => {
+        tick();
+        store.updateSessionSummary({ sessionId, idempotencyKey: key, summary: `${key} changed the summary.` });
+        tick();
+      };
+      return {
+        ...context,
+        a,
+        b,
+        db,
+        rawPage,
+        versionCount,
+        currentToken,
+        sectionUpdate,
+        page,
+        headings,
+        reviewHeadings,
+        touch,
+      };
+    }
+
+    it("replaces a section in place, appends a new one, removes another, and reports each change", () => {
+      const { a, b, sectionUpdate, headings, versionCount, page } = sectionPage();
+      const result = sectionUpdate("merge-1", {
+        upsertSections: [
+          { heading: "FEEDING", content: "Feed syrup until the first frost.", sourceSessionIds: [a] },
+          { heading: "Swarm control", content: "Split strong hives in spring.", sourceSessionIds: [b] },
+        ],
+        removeHeadings: ["  winter CARE "],
+      });
+      expect(result).toMatchObject({
+        outcome: "knowledge_page_saved",
+        duplicate: false,
+        sectionChanges: { replaced: ["FEEDING"], added: ["Swarm control"], removed: ["Winter care"] },
+        page: { version: 2, lastAuthor: "agent", title: "架構與慣例" },
+      });
+      expect(result).not.toHaveProperty("warnings");
+      expect(headings()).toEqual(["Hive layout", "FEEDING", "Swarm control"]);
+      expect(page().sections[1]!.content).toBe("Feed syrup until the first frost.");
+      expect(versionCount()).toBe(2);
+    });
+
+    it("creates a version for a removal alone", () => {
+      const { sectionUpdate, headings, versionCount } = sectionPage();
+      expect(sectionUpdate("remove-only", { removeHeadings: ["Feeding"] })).toMatchObject({
+        outcome: "knowledge_page_saved",
+        sectionChanges: { replaced: [], added: [], removed: ["Feeding"] },
+        page: { version: 2 },
+      });
+      expect(headings()).toEqual(["Hive layout", "Winter care"]);
+      expect(versionCount()).toBe(2);
+    });
+
+    it("matches only the first section when a heading is duplicated", () => {
+      const { store, projectRoot, a, sectionUpdate, headings, page } = sectionPage();
+      store.saveKnowledgePage({
+        projectRoot,
+        slug: "architecture",
+        idempotencyKey: "duplicated-headings",
+        sections: [
+          { heading: "Notes", content: "First note.", sourceSessionIds: [a] },
+          { heading: "notes", content: "Second note.", sourceSessionIds: [a] },
+        ],
+      });
+      sectionUpdate("duplicate-replace", {
+        upsertSections: [{ heading: "NOTES", content: "Replaced note.", sourceSessionIds: [a] }],
+      });
+      expect(page().sections.map((section) => section.content)).toEqual(["Replaced note.", "Second note."]);
+      sectionUpdate("duplicate-remove", { removeHeadings: ["notes"] });
+      expect(headings()).toEqual(["notes"]);
+    });
+
+    it("refuses removeHeadings the page lacks and writes nothing", () => {
+      const { a, sectionUpdate, rawPage, versionCount } = sectionPage();
+      const before = rawPage();
+      expect(
+        sectionUpdate("missing-1", {
+          upsertSections: [{ heading: "Swarm control", content: "Split in spring.", sourceSessionIds: [a] }],
+          removeHeadings: ["Feeding", " Pests ", "Roof"],
+        }),
+      ).toMatchObject({ outcome: "section_not_found", headings: [" Pests ", "Roof"] });
+      expect(rawPage()).toEqual(before);
+      expect(versionCount()).toBe(1);
+    });
+
+    it("refuses a merged page that is too large or empty, writing nothing", () => {
+      const { a, sectionUpdate, rawPage, versionCount } = sectionPage();
+      const before = rawPage();
+      const extra = (count: number, content = "A short note.") =>
+        Array.from({ length: count }, (_, index) => ({
+          heading: `Extra ${index}`,
+          content,
+          sourceSessionIds: [a],
+        }));
+      expect(sectionUpdate("limit-count", { upsertSections: extra(10) })).toMatchObject({
+        outcome: "page_limit_exceeded",
+        sectionCount: 13,
+        maxSections: 12,
+        maxContentChars: 8_000,
+        reason: expect.stringContaining("nothing was written"),
+      });
+      expect(sectionUpdate("limit-chars", { upsertSections: extra(2, "x".repeat(4_000)) })).toMatchObject({
+        outcome: "page_limit_exceeded",
+        sectionCount: 5,
+        contentChars: expect.any(Number),
+      });
+      expect(sectionUpdate("limit-empty", { removeHeadings: ["Hive layout", "Winter care", "Feeding"] })).toMatchObject(
+        { outcome: "page_limit_exceeded", sectionCount: 0, contentChars: 0 },
+      );
+      expect(rawPage()).toEqual(before);
+      expect(versionCount()).toBe(1);
+    });
+
+    it("refuses a stale token and writes nothing", () => {
+      const { a, sectionUpdate, currentToken, rawPage, versionCount } = sectionPage();
+      const stale = currentToken();
+      sectionUpdate("fresh", { removeHeadings: ["Feeding"] });
+      const before = rawPage();
+      expect(
+        sectionUpdate(
+          "stale",
+          { upsertSections: [{ heading: "Pests", content: "Check for mites.", sourceSessionIds: [a] }] },
+          stale,
+        ),
+      ).toMatchObject({ outcome: "version_conflict", baseVersion: 1, currentVersion: 2 });
+      expect(rawPage()).toEqual(before);
+      expect(versionCount()).toBe(2);
+    });
+
+    it("refuses a section update without a usable reviewToken", () => {
+      const { store, projectRoot, versionCount } = sectionPage();
+      expect(
+        store.saveKnowledgePage({
+          projectRoot,
+          slug: "architecture",
+          idempotencyKey: "no-token",
+          removeHeadings: ["Feeding"],
+        }),
+      ).toMatchObject({ outcome: "invalid_review_token" });
+      expect(versionCount()).toBe(1);
+    });
+
+    it("refuses an uncitable section before merging, like a full save", () => {
+      const { sectionUpdate, versionCount } = sectionPage();
+      expect(
+        sectionUpdate("bad-source", {
+          upsertSections: [{ heading: "Pests", content: "Check for mites.", sourceSessionIds: ["missing-session"] }],
+        }),
+      ).toMatchObject({ outcome: "invalid_sources", sessionIds: ["missing-session"] });
+      expect(versionCount()).toBe(1);
+    });
+
+    describe("idempotent replays", () => {
+      it("answers the same request with the same changes and no new version, also after later saves", () => {
+        const { a, sectionUpdate, versionCount, headings } = sectionPage();
+        const change = {
+          upsertSections: [{ heading: "Pests", content: "Check for mites.", sourceSessionIds: [a] }],
+          removeHeadings: ["Feeding"],
+        };
+        sectionUpdate("replay-1", change);
+        sectionUpdate("replay-2", { removeHeadings: ["Pests"] });
+        expect(versionCount()).toBe(3);
+        expect(sectionUpdate("replay-1", change)).toMatchObject({
+          outcome: "knowledge_page_saved",
+          duplicate: true,
+          sectionChanges: { replaced: [], added: ["Pests"], removed: ["Feeding"] },
+        });
+        expect(versionCount()).toBe(3);
+        expect(headings()).toEqual(["Hive layout", "Winter care"]);
+      });
+
+      it("replays the first version of an empty page", () => {
+        const { store, projectRoot, finalize } = setup();
+        const source = finalize("first-version");
+        const requested = store.requestKnowledgePageUpdate({ projectRoot, slug: "architecture" });
+        if (requested.outcome !== "knowledge_page_update_requested") throw new Error("Expected a page");
+        const focused = store.getKnowledgePageContext({ projectRoot, slug: "architecture", query: "hive" });
+        if (focused.outcome !== "knowledge_page_context" || !("focused" in focused)) throw new Error("Expected a read");
+        const request = {
+          projectRoot,
+          slug: "architecture",
+          idempotencyKey: "first-section-update",
+          upsertSections: [
+            { heading: "Hive layout", content: "Queen excluders go on first.", sourceSessionIds: [source] },
+          ],
+          reviewToken: focused.reviewToken,
+        };
+        expect(store.saveKnowledgePage(request)).toMatchObject({
+          outcome: "knowledge_page_saved",
+          duplicate: false,
+          sectionChanges: { replaced: [], added: ["Hive layout"], removed: [] },
+          page: { version: 1 },
+        });
+        expect(store.saveKnowledgePage(request)).toMatchObject({
+          outcome: "knowledge_page_saved",
+          duplicate: true,
+          sectionChanges: { replaced: [], added: ["Hive layout"], removed: [] },
+          page: { version: 1 },
+        });
+        const versions = store.listKnowledgePageVersions(requested.page.id);
+        expect(versions.outcome === "knowledge_page_versions" && versions.versions).toHaveLength(1);
+      });
+
+      it("treats a key reused with different content, or across a full save and a section update, as a conflict", () => {
+        const { store, projectRoot, a, sectionUpdate, sections, versionCount } = sectionPage();
+        sectionUpdate("reused", { removeHeadings: ["Feeding"] });
+        expect(sectionUpdate("reused", { removeHeadings: ["Winter care"] })).toMatchObject({
+          outcome: "idempotency_conflict",
+        });
+        expect(
+          sectionUpdate("reused", {
+            upsertSections: [{ heading: "Pests", content: "Check for mites.", sourceSessionIds: [a] }],
+          }),
+        ).toMatchObject({ outcome: "idempotency_conflict" });
+        expect(
+          store.saveKnowledgePage({
+            projectRoot,
+            slug: "architecture",
+            idempotencyKey: "reused",
+            sections: sections(a),
+          }),
+        ).toMatchObject({ outcome: "idempotency_conflict" });
+        expect(sectionUpdate("section-initial", { removeHeadings: ["Feeding"] })).toMatchObject({
+          outcome: "idempotency_conflict",
+        });
+        expect(versionCount()).toBe(2);
+      });
+    });
+
+    describe("coverage", () => {
+      it("returns a reviewToken from focused reads that a section update and a full save keep new Sessions with", () => {
+        const { store, projectRoot, a, finalize, sectionUpdate, currentToken, page, sections } = sectionPage();
+        finalize("section-new-1");
+        finalize("section-new-2");
+        expect(page().newSessionCount).toBe(2);
+
+        expect(sectionUpdate("coverage-section", { removeHeadings: ["Feeding"] })).toMatchObject({
+          outcome: "knowledge_page_saved",
+        });
+        expect(page().newSessionCount).toBe(2);
+
+        store.saveKnowledgePage({
+          projectRoot,
+          slug: "architecture",
+          idempotencyKey: "coverage-full",
+          sections: sections(a),
+          reviewToken: currentToken(),
+        });
+        expect(page()).toMatchObject({ version: 3, newSessionCount: 2 });
+      });
+
+      it("keeps the checked cursor and an open update request through a section update", () => {
+        const { store, projectRoot, finalize, sectionUpdate, rawPage, page } = sectionPage();
+        const checked = finalize("section-checked");
+        finalize("section-after-checked");
+        store.markKnowledgePageChecked({ projectRoot, slug: "architecture", throughSessionId: checked });
+        store.requestKnowledgePageUpdate({ projectRoot, slug: "architecture" });
+        const before = rawPage();
+        expect(before.update_requested_at).not.toBeNull();
+        expect(page().newSessionCount).toBe(1);
+
+        sectionUpdate("keeps-cursor", { removeHeadings: ["Feeding"] });
+        expect(rawPage()).toMatchObject({
+          checked_through_session_id: checked,
+          update_requested_at: before.update_requested_at,
+          covered_through_completed_at: before.covered_through_completed_at,
+          covered_through_session_id: before.covered_through_session_id,
+        });
+        expect(page().newSessionCount).toBe(1);
+      });
+
+      it("keeps the new Session count of a page saved before coverage was recorded, without inventing a Session", () => {
+        const { db, finalize, sectionUpdate, rawPage, page } = sectionPage();
+        db.prepare(
+          "UPDATE knowledge_pages SET covered_through_completed_at = NULL, covered_through_session_id = NULL",
+        ).run();
+        finalize("legacy-new-1");
+        finalize("legacy-new-2");
+        const sourcedThrough = rawPage().sourced_through;
+        expect(page().newSessionCount).toBe(2);
+
+        sectionUpdate("legacy-coverage", { removeHeadings: ["Feeding"] });
+        expect(page().newSessionCount).toBe(2);
+        expect(rawPage()).toMatchObject({
+          covered_through_completed_at: sourcedThrough,
+          covered_through_session_id: null,
+        });
+      });
+    });
+
+    describe("source review", () => {
+      it("keeps an untouched section's review reasons while a replaced section's clear", () => {
+        const { a, b, sectionUpdate, touch, reviewHeadings } = sectionPage();
+        touch(a, "touch-a");
+        touch(b, "touch-b");
+        expect(reviewHeadings()).toEqual(["Feeding", "Hive layout", "Winter care"]);
+
+        sectionUpdate("review-replace", {
+          upsertSections: [{ heading: "Winter care", content: "Wrap the hive in frost.", sourceSessionIds: [b] }],
+        });
+        expect(reviewHeadings()).toEqual(["Feeding", "Hive layout"]);
+      });
+
+      it("clears the reasons of a section added by a section update", () => {
+        const { a, sectionUpdate, touch, reviewHeadings } = sectionPage();
+        touch(a, "touch-a");
+        sectionUpdate("review-add", {
+          upsertSections: [{ heading: "Pests", content: "Check for mites.", sourceSessionIds: [a] }],
+          removeHeadings: ["Winter care"],
+        });
+        expect(reviewHeadings()).toEqual(["Feeding", "Hive layout"]);
+      });
+
+      it("keeps the earliest baseline of a section untouched by two successive updates", () => {
+        const { a, b, sectionUpdate, touch, reviewHeadings } = sectionPage();
+        touch(a, "touch-a");
+        sectionUpdate("successive-1", {
+          upsertSections: [{ heading: "Winter care", content: "Wrap the hive in frost.", sourceSessionIds: [b] }],
+        });
+        expect(reviewHeadings()).toEqual(["Feeding", "Hive layout"]);
+
+        touch(b, "touch-b");
+        sectionUpdate("successive-2", {
+          upsertSections: [{ heading: "Feeding", content: "Feed fondant in winter.", sourceSessionIds: [a] }],
+        });
+        expect(reviewHeadings()).toEqual(["Hive layout", "Winter care"]);
+      });
+
+      it("keeps a page of unknown source state unknown for untouched sections only", () => {
+        const { db, b, sectionUpdate, rawPage, page } = sectionPage();
+        db.prepare("UPDATE knowledge_pages SET sourced_through = NULL, covered_through_completed_at = NULL").run();
+        expect(page().reviewSections?.map((section) => section.sources[0]!.reasons)).toEqual([
+          ["source_state_unknown"],
+          ["source_state_unknown"],
+          ["source_state_unknown"],
+        ]);
+
+        sectionUpdate("unknown-baseline", {
+          upsertSections: [{ heading: "Winter care", content: "Wrap the hive in frost.", sourceSessionIds: [b] }],
+        });
+        expect(page().reviewSections?.map((section) => section.heading)).toEqual(["Hive layout", "Feeding"]);
+        const stored = JSON.parse(rawPage().sections_json) as Array<Record<string, unknown>>;
+        expect(stored.map((section) => section.sourcedThrough)).toEqual([null, undefined, null]);
+        expect(stored.map((section) => "sourcedThrough" in section)).toEqual([true, false, true]);
+      });
+
+      it("clears every stored baseline with a later full save", () => {
+        const { store, projectRoot, a, sectionUpdate, touch, currentToken, rawPage, reviewHeadings } = sectionPage();
+        touch(a, "touch-a");
+        sectionUpdate("stamp", { removeHeadings: ["Winter care"] });
+        expect(rawPage().sections_json).toContain("sourcedThrough");
+
+        store.saveKnowledgePage({
+          projectRoot,
+          slug: "architecture",
+          idempotencyKey: "clean-save",
+          sections: [{ heading: "Hive layout", content: "Rewritten.", sourceSessionIds: [a] }],
+          reviewToken: currentToken(),
+        });
+        expect(rawPage().sections_json).not.toContain("sourcedThrough");
+        expect(reviewHeadings()).toEqual([]);
+      });
+
+      it("keeps the same sections needing review after an export and import", () => {
+        const { store, project, a, b, sectionUpdate, touch, reviewHeadings, root } = sectionPage();
+        touch(a, "touch-a");
+        sectionUpdate("export-update", {
+          upsertSections: [{ heading: "Winter care", content: "Wrap the hive in frost.", sourceSessionIds: [b] }],
+        });
+        expect(reviewHeadings()).toEqual(["Feeding", "Hive layout"]);
+
+        const bundle = store.exportProjectData({ type: "project", projectId: project.id });
+        const destination = new WorkIntelligenceStore(join(root, "section-destination.sqlite"));
+        stores.push(destination);
+        destination.importProjectData({ bundle, remap: [] });
+        destination.updateProject(project.id, { status: "tracked" });
+        const imported = destination.listKnowledgePages({ projectId: project.id });
+        expect(imported.outcome).toBe("knowledge_pages");
+        expect(
+          imported.outcome === "knowledge_pages" &&
+            (imported.items[0]!.reviewSections ?? []).map((section) => section.heading).sort(),
+        ).toEqual(["Feeding", "Hive layout"]);
+      });
+    });
+
+    it("never exposes a stored baseline in reads, versions or digests", () => {
+      const { store, projectRoot, db, a, sectionUpdate, touch, page } = sectionPage();
+      touch(a, "touch-a");
+      sectionUpdate("leak-check", { removeHeadings: ["Winter care"] });
+      expect(db.prepare("SELECT sections_json FROM knowledge_pages").get()).toMatchObject({
+        sections_json: expect.stringContaining("sourcedThrough"),
+      });
+
+      const versions = db.prepare("SELECT sections_json FROM knowledge_page_versions").all() as Array<{
+        sections_json: string;
+      }>;
+      expect(versions).toHaveLength(2);
+      for (const version of versions) expect(version.sections_json).not.toContain("sourcedThrough");
+
+      const exposed = [
+        store.getKnowledgePageContext({ projectRoot, slug: "architecture" }),
+        store.getKnowledgePageContext({ projectRoot, slug: "architecture", headings: ["Hive layout"] }),
+        store.getKnowledgePageContext({ projectRoot, slug: "architecture", query: "syrup" }),
+        store.listKnowledgePages({ projectRoot }),
+        store.listKnowledgePageVersions(page().id),
+        store.getContext(projectRoot),
+      ];
+      for (const result of exposed) expect(hasSectionBaseline(result)).toBe(false);
     });
   });
 });

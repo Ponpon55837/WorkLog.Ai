@@ -17,6 +17,7 @@ import {
   type KnowledgePageReviewReason,
   type KnowledgePageReviewSection,
   type KnowledgePageSection,
+  type KnowledgePageSectionChanges,
   type KnowledgePageSkippedResult,
   type KnowledgePageVersionConflictResult,
   type KnowledgePageVersionRecord,
@@ -37,7 +38,11 @@ import { parseQueryWords, tokenize } from "./search-text.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 
 /** Focused read: matching sections in full (heading, content, source ids), the rest as sizes; no Sessions. */
-function focusedContext(page: KnowledgePageRecord, query: KnowledgePageContextQuery): KnowledgePageFocusedContext {
+function focusedContext(
+  page: KnowledgePageRecord,
+  query: KnowledgePageContextQuery,
+  reviewToken: string,
+): KnowledgePageFocusedContext {
   const wanted = new Set((query.headings ?? []).map((heading) => heading.trim().toLowerCase()));
   const terms = [...new Set(parseQueryWords(query.query ?? "").flatMap((word) => word.terms))];
   const reviewHeadings = new Set((page.reviewSections ?? []).map((section) => section.heading));
@@ -88,6 +93,7 @@ function focusedContext(page: KnowledgePageRecord, query: KnowledgePageContextQu
     },
     sections,
     otherSections,
+    reviewToken,
     sessionsOmitted: true,
     readFullWith: "work_get_knowledge_page_context without query and headings (also returns the Sessions)",
   };
@@ -115,6 +121,21 @@ type PageRow = {
   covered_through_completed_at: string | null;
   covered_through_session_id: string | null;
 };
+
+/**
+ * A section as knowledge_pages.sections_json keeps it. sourcedThrough is the time its cited sources were last checked
+ * when that differs from the page's sourced_through: a string is that time, null means unknown, and an absent key means
+ * the page's own sourced_through. Versions and every returned record only ever hold KnowledgePageSection.
+ */
+type StoredKnowledgePageSection = KnowledgePageSection & { sourcedThrough?: string | null };
+
+interface SectionUpdate {
+  upsertSections?: readonly KnowledgePageSection[];
+  removeHeadings?: readonly string[];
+}
+
+type SectionMerge =
+  { sections: StoredKnowledgePageSection[]; changes: KnowledgePageSectionChanges } | { missingHeadings: string[] };
 
 type ContextSessionRow = {
   id: string;
@@ -176,6 +197,15 @@ const NOT_FOUND_SLUG_LIMIT = 20;
 const NEAR_SLUG_DISTANCE = 2;
 /** The shape of a page, Session, or Knowledge id; a slug never looks like this. */
 const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** The page limits the schema checks for a whole page; a section update is checked against them once merged. */
+const MAX_PAGE_SECTIONS = 12;
+const MAX_PAGE_CONTENT_CHARS = 8_000;
+const IDEMPOTENCY_CONFLICT_RESULT = {
+  outcome: "idempotency_conflict" as const,
+  reason:
+    "This idempotencyKey already saved different sections for this page, so nothing was written. Use a new idempotencyKey for new content.",
+};
 
 const DEFAULT_PAGES = new Map<string, { title: string; question: string }>(
   KNOWLEDGE_PAGE_DEFAULTS.map((page) => [page.slug, { title: page.title, question: page.question }]),
@@ -353,6 +383,108 @@ function storedSections(sections: readonly KnowledgePageSection[]) {
       sourceSessionIds: [...new Set(section.sourceSessionIds)],
     })),
   );
+}
+
+function parseStoredSections(json: string): StoredKnowledgePageSection[] {
+  return parseJson<StoredKnowledgePageSection[]>(json, []);
+}
+
+function publicSection(section: StoredKnowledgePageSection): KnowledgePageSection {
+  return { heading: section.heading, content: section.content, sourceSessionIds: section.sourceSessionIds };
+}
+
+/** The time a section's cited sources are compared with: its own baseline, else the page's. */
+function baselineOf(section: StoredKnowledgePageSection, pageSourcedThrough: string | null): string | null {
+  return "sourcedThrough" in section ? (section.sourcedThrough ?? null) : pageSourcedThrough;
+}
+
+/** knowledge_pages.sections_json: the redacted sections, each with the baseline of the stored section at its index. */
+function serializeStoredSections(
+  sections: readonly KnowledgePageSection[],
+  baselines: readonly StoredKnowledgePageSection[],
+): string {
+  return JSON.stringify(
+    sections.map((section, index) =>
+      "sourcedThrough" in baselines[index]!
+        ? { ...section, sourcedThrough: baselines[index]!.sourcedThrough }
+        : section,
+    ),
+  );
+}
+
+function headingKey(heading: string): string {
+  return heading.trim().toLowerCase();
+}
+
+/**
+ * Replaces the sections named in upsertSections in place, drops those in removeHeadings, and appends the rest of
+ * upsertSections. Only the first section with a heading is matched. keep maps each untouched section to what the
+ * merged page stores for it.
+ */
+function mergeSections(
+  current: readonly StoredKnowledgePageSection[],
+  update: SectionUpdate,
+  keep: (section: StoredKnowledgePageSection) => StoredKnowledgePageSection,
+): SectionMerge {
+  const upserts = new Map((update.upsertSections ?? []).map((section) => [headingKey(section.heading), section]));
+  const removals = new Set((update.removeHeadings ?? []).map(headingKey));
+  const matched = new Set<string>();
+  const changes: KnowledgePageSectionChanges = { replaced: [], added: [], removed: [] };
+  const sections: StoredKnowledgePageSection[] = [];
+  for (const section of current) {
+    const key = headingKey(section.heading);
+    const firstMatch = !matched.has(key);
+    const upsert = firstMatch ? upserts.get(key) : undefined;
+    if (firstMatch && removals.has(key)) {
+      matched.add(key);
+      changes.removed.push(section.heading);
+    } else if (upsert) {
+      matched.add(key);
+      sections.push(upsert);
+      changes.replaced.push(upsert.heading);
+    } else {
+      sections.push(keep(section));
+    }
+  }
+  const missingHeadings = (update.removeHeadings ?? []).filter((heading) => !matched.has(headingKey(heading)));
+  if (missingHeadings.length > 0) return { missingHeadings };
+  for (const [key, section] of upserts) {
+    if (matched.has(key)) continue;
+    sections.push(section);
+    changes.added.push(section.heading);
+  }
+  return { sections, changes };
+}
+
+function pageLimitExceeded(sections: readonly KnowledgePageSection[]): SaveKnowledgePageResult | undefined {
+  const contentChars = sections.reduce((total, section) => total + section.content.length, 0);
+  if (sections.length >= 1 && sections.length <= MAX_PAGE_SECTIONS && contentChars <= MAX_PAGE_CONTENT_CHARS) {
+    return undefined;
+  }
+  const problem =
+    sections.length === 0
+      ? "no sections"
+      : sections.length > MAX_PAGE_SECTIONS
+        ? `${sections.length} sections (at most ${MAX_PAGE_SECTIONS})`
+        : `${contentChars} characters of section content (at most ${MAX_PAGE_CONTENT_CHARS})`;
+  return {
+    outcome: "page_limit_exceeded",
+    reason: `The page after this update would have ${problem}, so nothing was written. Send fewer or shorter sections, or save the whole page with sections.`,
+    sectionCount: sections.length,
+    maxSections: MAX_PAGE_SECTIONS,
+    contentChars,
+    maxContentChars: MAX_PAGE_CONTENT_CHARS,
+  };
+}
+
+function versionConflict(baseVersion: number, currentVersion: number): KnowledgePageVersionConflictResult {
+  return {
+    outcome: "version_conflict",
+    reason:
+      "The page was saved again after this edit started, so nothing was written. Read the current version and apply the change to it.",
+    baseVersion,
+    currentVersion,
+  };
 }
 
 function citedSessionIds(sections: readonly KnowledgePageSection[]): string[] {
@@ -547,7 +679,10 @@ export class KnowledgePageService {
     const row = this.findPage(decision.project.id, query.slug);
     if (!row) return this.pageNotFound(decision.project.id, query.slug);
     const page = this.recordFor(row);
-    if (query.query !== undefined || query.headings !== undefined) return focusedContext(page, query);
+    if (query.query !== undefined || query.headings !== undefined) {
+      const through = this.reviewedPoint(row);
+      return focusedContext(page, query, encodeReviewToken({ pageId: row.id, version: row.version, through }));
+    }
     const mode = row.version === 0 || row.update_requested_at ? "full" : "review";
     const { sessions, truncated, through } =
       mode === "full" ? this.contextSessions(decision.project.id) : this.reviewSessions(row, page);
@@ -577,28 +712,18 @@ export class KnowledgePageService {
       };
     }
     const duplicate = this.db
-      .prepare("SELECT sections_json FROM knowledge_page_versions WHERE page_id = ? AND idempotency_key = ?")
-      .get(row.id, input.idempotencyKey) as { sections_json: string } | undefined;
-    if (duplicate) {
-      // A retry carries the same sections; reusing the key for other content would silently drop that content.
-      if (duplicate.sections_json !== JSON.stringify(storedSections(input.sections).value)) {
-        return {
-          outcome: "idempotency_conflict",
-          reason:
-            "This idempotencyKey already saved different sections for this page, so nothing was written. Use a new idempotencyKey for new content.",
-        };
-      }
-      return { outcome: "knowledge_page_saved", duplicate: true, page: this.recordFor(this.findPageById(row.id)!) };
-    }
+      .prepare("SELECT version, sections_json FROM knowledge_page_versions WHERE page_id = ? AND idempotency_key = ?")
+      .get(row.id, input.idempotencyKey) as { version: number; sections_json: string } | undefined;
+    if (duplicate) return this.replayedSave(row, duplicate, input);
     const token = input.reviewToken === undefined ? undefined : decodeReviewToken(input.reviewToken);
-    if (input.reviewToken !== undefined && token?.pageId !== row.id) {
+    if ((input.reviewToken !== undefined || input.sections === undefined) && token?.pageId !== row.id) {
       return {
         outcome: "invalid_review_token",
         reason:
           "reviewToken must be passed unchanged from work_get_knowledge_page_context for this page. Read the page again and save with its reviewToken.",
       };
     }
-    const invalid = this.invalidSources(decision.project.id, input.sections);
+    const invalid = this.invalidSources(decision.project.id, input.sections ?? input.upsertSections ?? []);
     if (invalid.length > 0) {
       return {
         outcome: "invalid_sources",
@@ -606,6 +731,7 @@ export class KnowledgePageService {
         sessionIds: invalid,
       };
     }
+    if (input.sections === undefined) return this.saveSectionUpdate(row, input, token!);
     const written = this.writeVersion(row, row.title, input.sections, "agent", {
       idempotencyKey: input.idempotencyKey,
       ...(token ? { baseVersion: token.version, coverage: token.through } : {}),
@@ -1025,9 +1151,7 @@ export class KnowledgePageService {
         });
       }
     }
-    const sectionsByPage = new Map(
-      rows.map((row) => [row.id, parseJson<KnowledgePageSection[]>(row.sections_json, [])]),
-    );
+    const sectionsByPage = new Map(rows.map((row) => [row.id, parseStoredSections(row.sections_json)]));
     const citedIds = [...new Set([...sectionsByPage.values()].flatMap(citedSessionIds))];
     const citedSessions = new Map<string, CitedSessionRow>();
     const voidEvents = new Map<string, CitedSessionVoidEventRow[]>();
@@ -1067,23 +1191,24 @@ export class KnowledgePageService {
       const sections = sectionsByPage.get(row.id) ?? [];
       const reviewSections: KnowledgePageReviewSection[] = [];
       for (const section of sections) {
+        const baseline = baselineOf(section, row.sourced_through);
         const sources = [...new Set(section.sourceSessionIds)].flatMap((sourceSessionId) => {
           const source = citedSessions.get(sourceSessionId);
           const reasons = new Set<KnowledgePageReviewReason>();
           if (!source || source.project_id !== row.project_id) {
             reasons.add("source_missing");
           } else {
-            if (!row.sourced_through) {
+            if (!baseline) {
               reasons.add("source_state_unknown");
-            } else if (source.updated_at > row.sourced_through) {
+            } else if (source.updated_at > baseline) {
               reasons.add("source_updated_after_save");
             }
             for (const event of voidEvents.get(sourceSessionId) ?? []) {
-              if (!row.sourced_through || event.occurred_at > row.sourced_through) {
+              if (!baseline || event.occurred_at > baseline) {
                 reasons.add(event.action === "voided" ? "source_voided_after_save" : "source_restored_after_save");
               }
             }
-            if (source.voided_at && (!row.sourced_through || source.voided_at > row.sourced_through)) {
+            if (source.voided_at && (!baseline || source.voided_at > baseline)) {
               reasons.add("source_voided_after_save");
             }
           }
@@ -1106,7 +1231,7 @@ export class KnowledgePageService {
         slug: row.slug,
         title: row.title,
         question: row.question,
-        sections,
+        sections: sections.map(publicSection),
         version: row.version,
         status: row.version === 0 ? "empty" : newSessionCount > 0 ? "has_new_data" : "fresh",
         newSessionCount,
@@ -1142,6 +1267,145 @@ export class KnowledgePageService {
     return cited.filter((id) => !valid.has(id));
   }
 
+  /** The answer to a save whose idempotencyKey a version already holds: a replay of the same content, or a conflict. */
+  private replayedSave(
+    row: PageRow,
+    saved: { version: number; sections_json: string },
+    input: SaveKnowledgePageInput,
+  ): SaveKnowledgePageResult {
+    const replay = (sectionChanges?: KnowledgePageSectionChanges): SaveKnowledgePageResult => ({
+      outcome: "knowledge_page_saved",
+      duplicate: true,
+      page: this.recordFor(this.findPageById(row.id)!),
+      ...(sectionChanges ? { sectionChanges } : {}),
+    });
+    if (input.sections) {
+      // A retry carries the same sections; reusing the key for other content would silently drop that content.
+      return saved.sections_json === JSON.stringify(storedSections(input.sections).value)
+        ? replay()
+        : IDEMPOTENCY_CONFLICT_RESULT;
+    }
+    const previous = this.db
+      .prepare("SELECT sections_json FROM knowledge_page_versions WHERE page_id = ? AND version = ?")
+      .get(row.id, saved.version - 1) as { sections_json: string } | undefined;
+    const merged = mergeSections(
+      parseJson<KnowledgePageSection[]>(previous?.sections_json ?? "[]", []),
+      input,
+      publicSection,
+    );
+    if ("missingHeadings" in merged || saved.sections_json !== JSON.stringify(storedSections(merged.sections).value)) {
+      return IDEMPOTENCY_CONFLICT_RESULT;
+    }
+    return replay(merged.changes);
+  }
+
+  /** Applies a section update to the page as it is inside the write transaction; nothing is written on a refusal. */
+  private saveSectionUpdate(
+    row: PageRow,
+    update: SectionUpdate & { idempotencyKey: string },
+    token: ReviewTokenContent,
+  ) {
+    const now = nowIso();
+    const written = runImmediateTransaction(this.db, () => {
+      const current = this.findPageById(row.id)!;
+      if (current.version !== token.version) return versionConflict(token.version, current.version);
+      // A section left as it is keeps the time its sources were last checked, which moves on for the rest of the page.
+      const merged = mergeSections(parseStoredSections(current.sections_json), update, (section) => {
+        const baseline = baselineOf(section, current.sourced_through);
+        return baseline === now ? publicSection(section) : { ...publicSection(section), sourcedThrough: baseline };
+      });
+      if ("missingHeadings" in merged) {
+        return {
+          outcome: "section_not_found" as const,
+          reason:
+            "The page has no section with these headings, so nothing was written. Read the page and use its headings.",
+          headings: merged.missingHeadings,
+        };
+      }
+      const exceeded = pageLimitExceeded(merged.sections);
+      if (exceeded) return exceeded;
+      const redacted = storedSections(merged.sections);
+      const version = current.version + 1;
+      this.insertVersion(
+        current,
+        version,
+        current.title,
+        JSON.stringify(redacted.value),
+        "agent",
+        update.idempotencyKey,
+        now,
+      );
+      // Coverage stays where it was; a page saved before schema 34 gets its sourced_through as an explicit time.
+      const coverage = sessionCoverage(current) ?? { completedAt: "" };
+      this.db
+        .prepare(
+          `UPDATE knowledge_pages
+           SET sections_json = ?, version = ?, sourced_through = ?, last_author = 'agent', updated_at = ?,
+               covered_through_completed_at = ?, covered_through_session_id = ?
+           WHERE id = ?`,
+        )
+        .run(
+          serializeStoredSections(redacted.value, merged.sections),
+          version,
+          now,
+          now,
+          coverage.completedAt,
+          coverage.id ?? null,
+          current.id,
+        );
+      return { changes: merged.changes, redactions: redacted.redactions };
+    });
+    if ("outcome" in written) return written;
+    return {
+      outcome: "knowledge_page_saved" as const,
+      duplicate: false,
+      page: this.recordFor(this.findPageById(row.id)!),
+      sectionChanges: written.changes,
+      ...(written.redactions.total > 0 ? { redactions: written.redactions } : {}),
+    };
+  }
+
+  private insertVersion(
+    page: PageRow,
+    version: number,
+    title: string,
+    sectionsJson: string,
+    author: KnowledgePageAuthor,
+    idempotencyKey: string | undefined,
+    createdAt: string,
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO knowledge_page_versions
+           (id, page_id, project_id, version, title, question, sections_json, author, idempotency_key, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        randomUUID(),
+        page.id,
+        page.project_id,
+        version,
+        title,
+        page.question,
+        sectionsJson,
+        author,
+        idempotencyKey ?? null,
+        createdAt,
+      );
+  }
+
+  /** The point a read of this page has already reviewed: its saved coverage, or the checked cursor when that is later. */
+  private reviewedPoint(row: PageRow): CoveragePoint {
+    const checked = row.checked_through_session_id
+      ? (this.db.prepare("SELECT id, completed_at FROM sessions WHERE id = ?").get(row.checked_through_session_id) as
+          { id: string; completed_at: string } | undefined)
+      : undefined;
+    return reviewedThrough(
+      sessionCoverage(row) ?? { completedAt: "" },
+      checked && { id: checked.id, completedAt: checked.completed_at },
+    );
+  }
+
   /**
    * Saves a new version. With baseVersion, a page saved since that version is left as it is and the conflict is
    * returned. coverage is the last Session the writer was shown; without it every Session finished before this
@@ -1160,34 +1424,11 @@ export class KnowledgePageService {
     const conflict = runImmediateTransaction(this.db, (): KnowledgePageVersionConflictResult | undefined => {
       const current = this.findPageById(row.id)!;
       if (options.baseVersion !== undefined && current.version !== options.baseVersion) {
-        return {
-          outcome: "version_conflict",
-          reason:
-            "The page was saved again after this edit started, so nothing was written. Read the current version and apply the change to it.",
-          baseVersion: options.baseVersion,
-          currentVersion: current.version,
-        };
+        return versionConflict(options.baseVersion, current.version);
       }
       const version = current.version + 1;
       const sectionsJson = JSON.stringify(redactedSections.value);
-      this.db
-        .prepare(
-          `INSERT INTO knowledge_page_versions
-             (id, page_id, project_id, version, title, question, sections_json, author, idempotency_key, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          randomUUID(),
-          row.id,
-          row.project_id,
-          version,
-          redactedTitle.value,
-          current.question,
-          sectionsJson,
-          author,
-          options.idempotencyKey ?? null,
-          now,
-        );
+      this.insertVersion(current, version, redactedTitle.value, sectionsJson, author, options.idempotencyKey, now);
       // sourced_through stays the save time: cited sources changed after it still need review.
       this.db
         .prepare(
@@ -1274,14 +1515,7 @@ export class KnowledgePageService {
     row: PageRow,
     page: KnowledgePageRecord,
   ): { sessions: KnowledgePageContextSession[]; truncated: boolean; through: CoveragePoint } {
-    const checked = row.checked_through_session_id
-      ? (this.db.prepare("SELECT id, completed_at FROM sessions WHERE id = ?").get(row.checked_through_session_id) as
-          { id: string; completed_at: string } | undefined)
-      : undefined;
-    const after = reviewedThrough(
-      sessionCoverage(row) ?? { completedAt: "" },
-      checked && { id: checked.id, completedAt: checked.completed_at },
-    );
+    const after = this.reviewedPoint(row);
     const newRows = this.db
       .prepare(
         `SELECT id, title, completed_at, work_summary_json FROM sessions

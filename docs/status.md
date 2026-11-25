@@ -6,6 +6,15 @@
 
 - 最後更新：2026-11-25
 
+## 1.6.69（知識頁單段更新）
+
+- `work_save_knowledge_page` 可改帶 `upsertSections` 和／或 `removeHeadings`（皆 1–12 項，必須帶 `reviewToken`，與 `sections` 互斥）只更新幾個段落：同標題（去空白、不分大小寫）原地取代，否則附加在頁尾，其餘段落不變，合併後才檢查 12 段與 8,000 字上限。新結果 `section_not_found` 與 `page_limit_exceeded` 都不寫入。MCP 回傳精簡回條（`page` 狀態與 `sectionChanges`）。
+- 單段更新不推進 Session 涵蓋範圍、不移動檢查游標、不清除使用者的更新要求；取代與新增的段落清除 `needsReview`，沒動到的段落保留。
+- 聚焦讀取（`query`／`headings`）也回傳 `reviewToken`。
+- 已知限制：匯入 1.6.69 的匯出檔到舊版 App 時，單段基準會被忽略，逐段更新過的頁面可能少了一些「來源需核對」標記。
+
+沒有 schema 變更，資料庫維持 35。詳見 [1.6.69 更新說明](releases/1.6.69.md)。
+
 ## 1.6.68（收尾回條的暫時狀態提示、知識頁預設問題、用量頁改版）
 
 - `work_finalize_session`、`work_update_session_work_summary`、`POST /api/work/finalize` 與 `PATCH /api/sessions/:id/work-summary` 的結果新增選填的 `nextStepsWarnings`，在已儲存的 `nextSteps` 項目看起來是本次工作內的暫時狀態（尚未 commit、尚未 push、PR 等待合併、CI 執行中、階段尚未開始）時提示。只靠關鍵字，可能誤判；伺服器不刪除、不改寫、不拒絕項目。

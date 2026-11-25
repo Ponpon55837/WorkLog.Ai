@@ -8,6 +8,7 @@ import {
   reportQuerySchema,
   searchQuerySchema,
   saveKnowledgePageInputSchema,
+  saveKnowledgePageInputSchemaBase,
   staticFileRequestPathSchema,
   reportExportQuerySchema,
   createReportSynthesisRequestInputSchema,
@@ -587,6 +588,74 @@ describe("Knowledge page schemas", () => {
         sections: [section("x".repeat(4_000)), section("y".repeat(4_000)), section("z")],
       }).success,
     ).toBe(false);
+  });
+
+  describe("section updates", () => {
+    const section = (heading: string) => ({ heading, content: "Build shared first.", sourceSessionIds: ["session-1"] });
+    const update = { ...base, reviewToken: "kpr1.token" };
+    const issuePaths = (input: unknown) => {
+      const result = saveKnowledgePageInputSchema.safeParse(input);
+      return result.success ? [] : result.error.issues.map((issue) => issue.path.join("."));
+    };
+
+    it("accepts upsertSections, removeHeadings, or both with a reviewToken", () => {
+      expect(saveKnowledgePageInputSchema.safeParse({ ...update, upsertSections: [section("Build")] }).success).toBe(
+        true,
+      );
+      expect(saveKnowledgePageInputSchema.safeParse({ ...update, removeHeadings: ["Deploy"] }).success).toBe(true);
+      expect(
+        saveKnowledgePageInputSchema.safeParse({
+          ...update,
+          upsertSections: [section("Build")],
+          removeHeadings: ["Deploy"],
+        }).success,
+      ).toBe(true);
+    });
+
+    it("needs exactly one of sections or a section update, and a reviewToken for the update", () => {
+      expect(issuePaths({ ...update, sections: [section("Build")], removeHeadings: ["Deploy"] })).toEqual(["sections"]);
+      expect(issuePaths(update)).toEqual(["upsertSections"]);
+      expect(issuePaths({ ...base, removeHeadings: ["Deploy"] })).toEqual(["reviewToken"]);
+      expect(saveKnowledgePageInputSchema.safeParse({ ...base, sections: [section("Build")] }).success).toBe(true);
+    });
+
+    it("rejects headings repeated within a list or present in both, ignoring case", () => {
+      expect(issuePaths({ ...update, upsertSections: [section("Build"), section("build")] })).toEqual([
+        "upsertSections.1.heading",
+      ]);
+      expect(issuePaths({ ...update, removeHeadings: ["Deploy", "deploy"] })).toEqual(["removeHeadings.1"]);
+      expect(issuePaths({ ...update, upsertSections: [section("Build")], removeHeadings: ["BUILD"] })).toEqual([
+        "removeHeadings.0",
+      ]);
+    });
+
+    it("bounds each list to 1 to 12 entries and checks the merged page's size at runtime", () => {
+      const headings = (count: number) => Array.from({ length: count }, (_, index) => `Heading ${index}`);
+      expect(issuePaths({ ...update, removeHeadings: [] })).toContain("removeHeadings");
+      expect(issuePaths({ ...update, removeHeadings: headings(13) })).toContain("removeHeadings");
+      expect(issuePaths({ ...update, upsertSections: headings(13).map(section) })).toContain("upsertSections");
+      expect(
+        saveKnowledgePageInputSchema.safeParse({
+          ...update,
+          upsertSections: [4_000, 4_000, 1].map((length, index) => ({
+            ...section(`Heading ${index}`),
+            content: "x".repeat(length),
+          })),
+        }).success,
+      ).toBe(true);
+    });
+
+    it("exposes the unrefined object schema for the advertised shape", () => {
+      expect(Object.keys(saveKnowledgePageInputSchemaBase.shape)).toEqual([
+        "projectRoot",
+        "slug",
+        "idempotencyKey",
+        "sections",
+        "upsertSections",
+        "removeHeadings",
+        "reviewToken",
+      ]);
+    });
   });
 });
 

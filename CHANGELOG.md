@@ -4,6 +4,27 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.69] - 2026-11-25
+
+[繁體中文更新說明](docs/releases/1.6.69.md).
+
+### Added
+
+- Section updates for `work_save_knowledge_page`: pass `upsertSections` (1–12 sections) and/or `removeHeadings` (1–12 headings) instead of `sections`, always with `reviewToken`; the two forms are mutually exclusive. A section with the same heading (trimmed, case-insensitive) is replaced in place, otherwise appended; the other sections stay as stored. The 12-section and 8,000-character limits are checked on the merged page. New outcomes `section_not_found` (`reason`, `headings`) and `page_limit_exceeded` (`reason`, `sectionCount`, `maxSections`, `contentChars`, `maxContentChars`) write nothing; a stale token still returns `version_conflict`, and idempotency works as for a full save.
+- The MCP answer to a section update is a compact receipt: `outcome`, `duplicate`, `page` (`slug`, `version`, `status`, `newSessionCount`, plus `needsReview` and `updateRequestedAt` when set), `sectionChanges` (`replaced`, `added`, `removed`) and `redactions` when masked. Full saves and every other result are unchanged.
+- Focused reads of `work_get_knowledge_page_context` (`query` or `headings`) now return `reviewToken`. It keeps the page's existing coverage, so saving with it never marks unshown Sessions as covered.
+
+### Changed
+
+- A section update does not advance Session coverage, does not move the review cursor and does not clear the user's update request; a full save or `work_mark_knowledge_page_checked` advances them. Replaced and added sections lose `needsReview`; untouched sections keep it.
+- The Knowledge page contract, the `work_save_knowledge_page` and `work_get_knowledge_page_context` descriptions and the Knowledge guide describe section updates and keep the whole-page rewrite for full and review maintenance. The MCP contract text changed, so the MCP compatibility id changes: connected Agents receive `restartRequired` after upgrading and must reconnect the Work Intelligence MCP.
+
+### Known limitations
+
+- Importing a 1.6.69 export into an older App ignores the per-section baseline stored in `knowledge_pages.sections_json`, so pages updated section by section may lose some needs-review flags there.
+
+No schema change: the database stays at schema 35 and project exports keep the 1.6.64 format; `knowledge_pages.sections_json` may carry an internal per-section baseline (version rows never do).
+
 ## [1.6.68] - 2026-11-25
 
 [繁體中文更新說明](docs/releases/1.6.68.md).
