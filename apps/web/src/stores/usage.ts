@@ -5,7 +5,7 @@ import type { UsageProjectsResponse, UsageScanRequest, UsageScanResponse } from 
 import { ApiError } from "../api/client";
 import { useApi } from "../composables/useApi";
 import { useToast } from "../composables/useToast";
-import { usageErrorMessage } from "../utils/usage";
+import { fillDailyRange, usageErrorMessage, usageSharedRows } from "../utils/usage";
 import { queryKeys } from "./query-keys";
 import { t } from "../i18n";
 
@@ -32,11 +32,18 @@ export const useUsageStore = defineStore("usage", () => {
 
   const projects = computed(() => projectsQuery.data.value?.items ?? []);
   const projectGroups = computed(() => projectsQuery.data.value?.groups ?? []);
+  const projectById = computed(() => new Map(projects.value.map((project) => [project.id, project])));
   const projectsLoaded = computed(() => projectsQuery.data.value !== undefined);
   const projectsLoading = computed(() => projectsQuery.isLoading.value);
   const projectsError = computed(() => (projectsQuery.error.value ? usageErrorMessage(undefined) : ""));
   const scanning = computed(() => scanMutation.isLoading.value);
   const scanError = computed(() => (scanFailed.value ? usageErrorMessage(scanErrorCode.value) : ""));
+  const sharedRows = computed(() =>
+    scanResult.value ? usageSharedRows(scanResult.value.allocation, projects.value) : [],
+  );
+  const dailyPoints = computed(() =>
+    scanResult.value ? fillDailyRange(scanResult.value.daily, scanResult.value.range) : [],
+  );
 
   /** Runs one scan; a newer scan aborts the previous one, and an aborted scan never overwrites the newer result. */
   async function runScan(request: UsageScanRequest): Promise<void> {
@@ -89,6 +96,7 @@ export const useUsageStore = defineStore("usage", () => {
 
   return {
     projects,
+    projectById,
     projectGroups,
     projectsLoaded,
     projectsLoading,
@@ -96,6 +104,8 @@ export const useUsageStore = defineStore("usage", () => {
     scanResult,
     scanning,
     scanError,
+    sharedRows,
+    dailyPoints,
     refreshProjects,
     runScan,
     copyForAgent,

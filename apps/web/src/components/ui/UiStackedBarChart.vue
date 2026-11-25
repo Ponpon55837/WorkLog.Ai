@@ -7,7 +7,7 @@ import { t } from "../../i18n";
  * Stacked column chart on one shared y-scale (unlike UiBarChart, whose series scale independently). Series stack in
  * the given order with the first at the bottom, separated by a 2px surface gap; the axis shows the maximum, the legend
  * is always visible, and every column carries a `title`. Exact values are in the table below the plot, which is
- * folded into a `<details>` when `compact`. Columns are not tab stops: the table is the keyboard path.
+ * folded into a `<details>` when `compact` or `foldTable`. Columns are not tab stops: the table is the keyboard path.
  */
 const props = defineProps<{
   labels: readonly string[];
@@ -22,8 +22,11 @@ const props = defineProps<{
   labelEvery?: number;
   /** Shorter plot; the value table folds away until opened. */
   compact?: boolean;
+  /** Fold the value table away until opened without shortening the plot. */
+  foldTable?: boolean;
 }>();
 
+const folded = computed(() => props.compact || props.foldTable);
 const totals = computed(() =>
   props.labels.map((_, index) => props.series.reduce((sum, item) => sum + (item.values[index] ?? 0), 0)),
 );
@@ -101,8 +104,8 @@ function exact(value: number): string {
         </div>
       </div>
     </div>
-    <component :is="compact ? 'details' : 'div'" class="ui-stacked-bar__table">
-      <summary v-if="compact" class="ui-stacked-bar__toggle">{{ t("ui.trendChartValues") }}</summary>
+    <component :is="folded ? 'details' : 'div'" class="ui-stacked-bar__table">
+      <summary v-if="folded" class="ui-stacked-bar__toggle">{{ t("ui.trendChartValues") }}</summary>
       <div class="ui-stacked-bar__data" role="region" :aria-label="t('ui.trendChartValues')" tabindex="0">
         <table>
           <caption>

@@ -19,7 +19,7 @@ import { t, type MessageKey } from "../i18n";
 
 export const MAX_MANUAL_FOLDERS = 20;
 
-interface UsageScanControls {
+export interface UsageScanControls {
   all: boolean;
   projectIds: readonly string[];
   range: UsageRange;
@@ -87,12 +87,15 @@ interface UsageModelRow {
   responses: number;
   tokens: UsageTokens;
   primary: number;
-  /** Headline relative to the highest row, 0..1. */
-  ratio: number;
+  /** Headline as a share of all model rows, 0..1. */
+  share: number;
 }
 
 interface UsageBlockRow {
   agentLabel: string;
+  /** ISO instants bounding the block. */
+  startAt: string;
+  endAt: string;
   primary: number;
   primaryPerMinute: number;
   elapsedMs: number;
@@ -177,18 +180,37 @@ export function usageDayLabel(date: string): string {
   return date.slice(5).replace("-", "/");
 }
 
-/** Rows of the model table; the server sorts by headline, ratio is relative to the highest row. */
+/** Each item with `ratio`, its value relative to the highest value (0..1; 0 when every value is 0). */
+export function withRatio<T extends object>(
+  items: readonly T[],
+  valueOf: (item: T) => number,
+): (T & { ratio: number })[] {
+  const highest = items.reduce((top, item) => Math.max(top, valueOf(item)), 0);
+  return items.map((item) => ({ ...item, ratio: highest > 0 ? valueOf(item) / highest : 0 }));
+}
+
+/** Each item with `share`, its value as a part of the sum of all values (0..1; 0 when the sum is 0). @internal test-only */
+export function withShare<T extends object>(
+  items: readonly T[],
+  valueOf: (item: T) => number,
+): (T & { share: number })[] {
+  const total = items.reduce((sum, item) => sum + valueOf(item), 0);
+  return items.map((item) => ({ ...item, share: total > 0 ? valueOf(item) / total : 0 }));
+}
+
+/** Rows of the model table; the server sorts by headline, share is each row's part of all models. */
 export function usageModelRows(models: readonly UsageModelItem[]): UsageModelRow[] {
-  const highest = Math.max(0, ...models.map((model) => model.primary));
-  return models.map((model) => ({
-    key: `${model.agent}:${model.model}`,
-    agentLabel: usageAgentLabel(model.agent),
-    modelLabel: model.model || t("usage.modelUnlabelled"),
-    responses: model.responses,
-    tokens: model.tokens,
-    primary: model.primary,
-    ratio: highest > 0 ? model.primary / highest : 0,
-  }));
+  return withShare(
+    models.map((model) => ({
+      key: `${model.agent}:${model.model}`,
+      agentLabel: usageAgentLabel(model.agent),
+      modelLabel: model.model || t("usage.modelUnlabelled"),
+      responses: model.responses,
+      tokens: model.tokens,
+      primary: model.primary,
+    })),
+    (row) => row.primary,
+  );
 }
 
 /** Display values of the active 5-hour blocks. */
@@ -197,6 +219,8 @@ export function usageBlockRows(blocks: readonly UsageBlockItem[]): UsageBlockRow
     const span = block.elapsedMs + block.remainingMs;
     return {
       agentLabel: usageAgentLabel(block.agent),
+      startAt: block.startAt,
+      endAt: block.endAt,
       primary: block.primary,
       primaryPerMinute: block.primaryPerMinute,
       elapsedMs: block.elapsedMs,
@@ -243,8 +267,9 @@ interface UsageSharedGroupRow {
 
 /** Names of the given tracked projects in list order, e.g. `assistant, devtools, devdocs`; never a path. */
 function usageGroupNames(ids: readonly string[], projects: readonly UsageProjectItem[]): string {
+  const wanted = new Set(ids);
   return projects
-    .filter((project) => ids.includes(project.id))
+    .filter((project) => wanted.has(project.id))
     .map((project) => project.name)
     .join(", ");
 }
@@ -261,12 +286,14 @@ export function usageProjectLayout(
   const sections: UsageProjectSection[] = [];
   const ordered = [...groups].sort((a, b) => b.projects.length - a.projects.length);
   for (const [index, group] of ordered.entries()) {
-    const members = projects.filter((project) => group.projects.includes(project.id) && !shown.has(project.id));
+    const inGroup = new Set(group.projects);
+    const groupProjects = projects.filter((project) => inGroup.has(project.id));
+    const members = groupProjects.filter((project) => !shown.has(project.id));
     for (const member of members) shown.add(member.id);
     if (members.length === 0) continue;
     sections.push({
       key: `group-${index}`,
-      projectIds: projects.filter((project) => group.projects.includes(project.id)).map((project) => project.id),
+      projectIds: groupProjects.map((project) => project.id),
       names: usageGroupNames(group.projects, projects),
       members,
     });
@@ -276,7 +303,9 @@ export function usageProjectLayout(
 
 /** Selection after the whole-group control: every project of the group added, or all of them removed. */
 export function toggleUsageGroup(selected: readonly string[], ids: readonly string[], checked: boolean): string[] {
-  return checked ? [...selected.filter((id) => !ids.includes(id)), ...ids] : selected.filter((id) => !ids.includes(id));
+  const group = new Set(ids);
+  const others = selected.filter((id) => !group.has(id));
+  return checked ? [...others, ...ids] : others;
 }
 
 /** Conversations of shared sources by group and project, with names from the tracked project list. */
@@ -284,6 +313,7 @@ export function usageSharedRows(
   allocation: UsageAllocation,
   projects: readonly UsageProjectItem[],
 ): UsageSharedGroupRow[] {
+  const byId = new Map(projects.map((project) => [project.id, project]));
   return allocation.groups.map((group, index) => ({
     key: `shared-${index}`,
     names: usageGroupNames(group.projects, projects),
@@ -292,7 +322,7 @@ export function usageSharedRows(
     primary: group.unallocated.primary,
     projects: group.allocated.map((entry) => ({
       projectId: entry.projectId,
-      name: projects.find((project) => project.id === entry.projectId)?.name ?? t("usage.unknownProject"),
+      name: byId.get(entry.projectId)?.name ?? t("usage.unknownProject"),
       included: entry.included,
       conversations: entry.conversations,
       primary: entry.primary,
