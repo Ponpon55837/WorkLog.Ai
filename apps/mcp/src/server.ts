@@ -49,6 +49,7 @@ import {
   reportSynthesisRequestQueryObjectSchema,
   retryReportSynthesisRequestInputSchema,
   saveKnowledgePageInputSchema,
+  saveKnowledgePageInputSchemaBase,
   saveReportSummaryInputSchema,
   searchQuerySchema,
   searchQuerySchemaBase,
@@ -104,6 +105,7 @@ import {
   workRecordContract,
 } from "./contracts.js";
 import { toFinalizeReceipt } from "./finalize-receipt.js";
+import { toKnowledgePageSaveReceipt } from "./knowledge-page-receipt.js";
 import { observeFinalizeChangedFiles, type FinalizeInput } from "./finalize-observation.js";
 import { parseMcpInput } from "./input.js";
 import { SegmentObserver, type ObservedSegmentStart } from "./segment-observer.js";
@@ -1209,7 +1211,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_get_knowledge_page_context", {
     title: "Get Knowledge page context",
     description:
-      "To answer one topic, pass query (up to 200 characters) and/or headings (up to 12, from relevant.knowledgePages or a previous otherSections): the response is a focused read with only the matching sections in full (heading, content, sourceSessionIds) and page slug, title, version, status, newSessionCount, updatedAt and needsReview flags, plus otherSections (heading and chars of the rest, in page order) and no Sessions or reviewSections (sessionsOmitted: true). match is \"none\" when nothing matched; choose a heading from otherSections and call again. Read the whole page, without query and headings, only to rewrite or review it. Without them, return one Knowledge page (question, current sections and their sources) plus the Sessions to write it from within a 12,000-character Session budget. Each Session is a preview: id, title, completedAt and the first two workSummary outcomes, decisions and nextSteps, each at most 100 characters (shortened text ends with …, and truncated: true marks a shortened Session); omittedSessionFields names what is left out, which work_get_session with view handoff returns. mode 'full' (an empty page or an explicit update request) gives up to 60 newest non-voided Sessions for a complete rewrite; mode 'review' (a written page) gives only Sessions finished after the page's coverage (reason 'new', oldest first) and cited sources that changed since it was saved (reason 'source_changed'). Pass the returned reviewToken unchanged to work_save_knowledge_page. The page can include needsReview and reviewSections with affected headings, cited Session ids/titles, and reason codes (source_updated_after_save, source_voided_after_save, source_restored_after_save, source_missing, or source_state_unknown). A restored Session still needs review; saving a new page version clears the warning only after the page has been rechecked. Read-only. A missed lookup returns not_found with reasonCode (page_id_as_slug, slug_looks_like_id, slug_near_match, page_not_requested, or page_unknown), the project's existingSlugs (at most 20), and suggestedSlug when the value is a page id or within two edits of a slug; retry with that slug, and request a new page only for page_not_requested or when the user asks for one.",
+      "To answer one topic, pass query (up to 200 characters) and/or headings (up to 12, from relevant.knowledgePages or a previous otherSections): the response is a focused read with only the matching sections in full (heading, content, sourceSessionIds) and page slug, title, version, status, newSessionCount, updatedAt and needsReview flags, plus otherSections (heading and chars of the rest, in page order) and no Sessions or reviewSections (sessionsOmitted: true). match is \"none\" when nothing matched; choose a heading from otherSections and call again. A focused read also returns reviewToken, which keeps the page's coverage, for a section update. Read the whole page, without query and headings, only to rewrite or review it. Without them, return one Knowledge page (question, current sections and their sources) plus the Sessions to write it from within a 12,000-character Session budget. Each Session is a preview: id, title, completedAt and the first two workSummary outcomes, decisions and nextSteps, each at most 100 characters (shortened text ends with …, and truncated: true marks a shortened Session); omittedSessionFields names what is left out, which work_get_session with view handoff returns. mode 'full' (an empty page or an explicit update request) gives up to 60 newest non-voided Sessions for a complete rewrite; mode 'review' (a written page) gives only Sessions finished after the page's coverage (reason 'new', oldest first) and cited sources that changed since it was saved (reason 'source_changed'). Pass the returned reviewToken unchanged to work_save_knowledge_page. The page can include needsReview and reviewSections with affected headings, cited Session ids/titles, and reason codes (source_updated_after_save, source_voided_after_save, source_restored_after_save, source_missing, or source_state_unknown). A restored Session still needs review; saving a new page version clears the warning only after the page has been rechecked. Read-only. A missed lookup returns not_found with reasonCode (page_id_as_slug, slug_looks_like_id, slug_near_match, page_not_requested, or page_unknown), the project's existingSlugs (at most 20), and suggestedSlug when the value is a page id or within two edits of a slug; retry with that slug, and request a new page only for page_not_requested or when the user asks for one.",
     inputShape: knowledgePageContextQuerySchema.shape,
     schema: knowledgePageContextQuerySchema,
     annotations: READ_ONLY,
@@ -1220,17 +1222,19 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_save_knowledge_page", {
     title: "Save a Knowledge page",
     description:
-      "Save a new version of a Knowledge page; earlier versions are kept for the Web UI history. Pass reviewToken from the work_get_knowledge_page_context read the page was written from: the save returns version_conflict (nothing written) when the page was saved since that read, so read it again and reapply the change; and Sessions that read did not show (left out by truncation, or finished after it) stay new. A token that is not from a read of this page returns invalid_review_token. Without reviewToken the save is unchecked and warnings says so. Returns invalid_sources when a cited Session is missing, voided, or from another project. Sensitive values are masked; the result reports counts by type only and never returns a token fragment. idempotencyKey retries return the saved version; the same key with different sections returns idempotency_conflict and writes nothing. " +
+      "Save a new version of a Knowledge page; earlier versions are kept for the Web UI history. Pass reviewToken from the work_get_knowledge_page_context read the page was written from: the save returns version_conflict (nothing written) when the page was saved since that read, so read it again and reapply the change; and Sessions that read did not show (left out by truncation, or finished after it) stay new. A token that is not from a read of this page returns invalid_review_token. Without reviewToken the save is unchecked and warnings says so. Returns invalid_sources when a cited Session is missing, voided, or from another project. Sensitive values are masked; the result reports counts by type only and never returns a token fragment. idempotencyKey retries return the saved version; the same key with different content returns idempotency_conflict and writes nothing. To change a few sections, pass upsertSections and/or removeHeadings instead of sections (see the contract). " +
       knowledgePageContract,
-    inputShape: saveKnowledgePageInputSchema.shape,
+    inputShape: saveKnowledgePageInputSchemaBase.shape,
     schema: saveKnowledgePageInputSchema,
     validationNotes: [
       "Each section must cite at least one source Session, unless its content is exactly 資料不足 and sourceSessionIds is empty.",
-      "The sum of all section content is limited to 8,000 characters.",
+      "The merged page is limited to 12 sections and 8,000 content characters.",
+      "Pass sections, or upsertSections and/or removeHeadings (with reviewToken), never both.",
     ],
     annotations: ADDITIVE_IDEMPOTENT,
     invalidMessage: "Invalid knowledge page payload.",
     run: (input) => store.saveKnowledgePage(input),
+    present: (result) => toKnowledgePageSaveReceipt(result as ReturnType<WorkIntelligenceStore["saveKnowledgePage"]>),
   });
 
   registerStoreTool("work_mark_knowledge_page_checked", {

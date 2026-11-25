@@ -2214,6 +2214,135 @@ describe("Work Intelligence MCP server", () => {
     ).toBe(false);
   });
 
+  it("updates Knowledge page sections in place and answers with a compact receipt", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Section project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const first = await callJson<{ session: { id: string } }>(
+      client,
+      "work_finalize_session",
+      finalizePayload(root, "mcp-section-001", "First source"),
+    );
+    const target = { projectRoot: root, slug: "pitfalls" };
+    await callJson(client, "work_request_knowledge_page_update", target);
+    const fullContext = await callJson<{ reviewToken: string }>(client, "work_get_knowledge_page_context", target);
+    const cite = [first.session.id];
+    await callJson(client, "work_save_knowledge_page", {
+      ...target,
+      idempotencyKey: "section-full",
+      reviewToken: fullContext.reviewToken,
+      sections: [
+        { heading: "Build", content: "Run the build first.", sourceSessionIds: cite },
+        { heading: "Tests", content: "Run the tests second.", sourceSessionIds: cite },
+      ],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    await callJson(client, "work_finalize_session", finalizePayload(root, "mcp-section-002", "Second source"));
+    await callJson(client, "work_request_knowledge_page_update", target);
+
+    const focused = await callJson<{ reviewToken?: string; sections: Array<{ heading: string }> }>(
+      client,
+      "work_get_knowledge_page_context",
+      { ...target, headings: ["build"] },
+    );
+    expect(focused.reviewToken).toEqual(expect.any(String));
+    expect(focused.sections.map((section) => section.heading)).toEqual(["Build"]);
+
+    const update = {
+      ...target,
+      idempotencyKey: "section-update",
+      reviewToken: focused.reviewToken,
+      upsertSections: [
+        { heading: " build ", content: "Run the build, then the lint.", sourceSessionIds: cite },
+        { heading: "Release", content: "Tag after the tests pass.", sourceSessionIds: cite },
+      ],
+      removeHeadings: ["Tests"],
+    };
+    const raw = await callMcpOperation(client, "work_save_knowledge_page", update);
+    const [content] = raw.content as Array<{ type: string; text: string }>;
+    const receipt = JSON.parse(content?.text ?? "null") as Record<string, unknown>;
+    // The save response carries text only today; if a structuredContent is ever added it must say the same thing.
+    if (raw.structuredContent !== undefined) expect(raw.structuredContent).toEqual(receipt);
+    expect(receipt).toMatchObject({
+      outcome: "knowledge_page_saved",
+      duplicate: false,
+      page: { slug: "pitfalls", version: 2, status: "has_new_data", newSessionCount: 1 },
+      sectionChanges: { replaced: ["build"], added: ["Release"], removed: ["Tests"] },
+    });
+    expect(receipt.page).not.toHaveProperty("sections");
+    expect(receipt.page).toHaveProperty("updateRequestedAt");
+    expect(JSON.stringify(receipt)).not.toContain("sourcedThrough");
+
+    expect(await callJson(client, "work_save_knowledge_page", update)).toMatchObject({
+      duplicate: true,
+      sectionChanges: { replaced: ["build"], added: ["Release"], removed: ["Tests"] },
+    });
+    expect(
+      await callJson(client, "work_save_knowledge_page", {
+        ...update,
+        upsertSections: [{ heading: "Release", content: "Different.", sourceSessionIds: cite }],
+      }),
+    ).toMatchObject({ outcome: "idempotency_conflict" });
+    expect(
+      await callJson(client, "work_save_knowledge_page", {
+        ...target,
+        idempotencyKey: "section-missing",
+        reviewToken: focused.reviewToken,
+        removeHeadings: ["Nope"],
+      }),
+    ).toMatchObject({ outcome: "version_conflict" });
+
+    const fresh = await callJson<{ reviewToken: string }>(client, "work_get_knowledge_page_context", {
+      ...target,
+      headings: ["Build"],
+    });
+    expect(
+      await callJson(client, "work_save_knowledge_page", {
+        ...target,
+        idempotencyKey: "section-missing-2",
+        reviewToken: fresh.reviewToken,
+        removeHeadings: ["Nope"],
+      }),
+    ).toMatchObject({ outcome: "section_not_found", headings: ["Nope"] });
+
+    type ContextBody = {
+      page: { sections?: Array<Record<string, unknown>> };
+      sections?: Array<Record<string, unknown>>;
+    };
+    const fullAfter = await callJson<ContextBody>(client, "work_get_knowledge_page_context", target);
+    const focusedAfter = await callJson<ContextBody>(client, "work_get_knowledge_page_context", {
+      ...target,
+      query: "build",
+    });
+    // The page keeps its own sourcedThrough time; the per-section baseline stays internal to storage.
+    for (const body of [fullAfter, focusedAfter]) {
+      const sections = [...(body.page.sections ?? []), ...(body.sections ?? [])];
+      expect(sections.length).toBeGreaterThan(0);
+      for (const section of sections) expect(section).not.toHaveProperty("sourcedThrough");
+    }
+  });
+
+  it("rejects a section update that mixes sections or lacks a reviewToken", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Section input project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const section = { heading: "Build", content: "Run it.", sourceSessionIds: [] as string[] };
+    const base = { projectRoot: root, slug: "pitfalls", idempotencyKey: "section-invalid" };
+
+    const mixed = await callMcpOperation(client, "work_save_knowledge_page", {
+      ...base,
+      reviewToken: "token",
+      sections: [section],
+      upsertSections: [section],
+    });
+    expect(mixed.isError).toBe(true);
+    const noToken = await callMcpOperation(client, "work_save_knowledge_page", {
+      ...base,
+      upsertSections: [{ ...section, content: "資料不足" }],
+    });
+    expect(noToken.isError).toBe(true);
+  });
+
   it("explains how two graph nodes are related with a read-only path tool", async () => {
     const { client, store, root } = await connect();
     const project = store.addProject("Path project", root);
