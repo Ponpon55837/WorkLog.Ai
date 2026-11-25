@@ -1492,6 +1492,8 @@ try {
     "registerMcpProcess (286 expired leases)": () => registerMcpProcess(mcpRuntimeRoot, runtimeBuild)(),
     "getKnowledgePageContext (review)": () =>
       benchStore.getKnowledgePageContext({ projectRoot: alphaRoot, slug: "pitfalls" }),
+    "getKnowledgePageContext (review-only)": () =>
+      benchStore.getKnowledgePageContext({ projectRoot: alphaRoot, slug: "pitfalls", reviewOnly: true }),
     "getKnowledgePageContext (not_found diagnostics)": () =>
       benchStore.getKnowledgePageContext({ projectRoot: alphaRoot, slug: "pitfall-notes" }),
     "listSessionDecisions (pending)": () => benchStore.listSessionDecisions({ status: "pending", limit: 50 }),
@@ -1945,6 +1947,7 @@ try {
     "getMcpRuntimeStatus (286 expired leases)": 100,
     "registerMcpProcess (286 expired leases)": 100,
     "getKnowledgePageContext (review)": 250,
+    "getKnowledgePageContext (review-only)": 250,
     "getKnowledgePageContext (not_found diagnostics)": 50,
     "listSessionDecisions (pending)": 250,
     "listOutstandingItems (pending)": 250,

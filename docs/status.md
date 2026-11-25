@@ -6,6 +6,13 @@
 
 - 最後更新：2026-11-25
 
+## 1.6.71（知識頁只讀待核對段落）
+
+- `work_get_knowledge_page_context` 新增 `reviewOnly: true`：只回需要核對的段落全文，附原因、背後的 Session 預覽、其餘段落的標題與字數，以及頁面相對 12 段與 8,000 字上限的大小，並回傳沿用頁面涵蓋範圍的 `reviewToken`，給單段更新用。沒有要核對的內容時回應很小並標示 `review: "none"`；空白頁或使用者要求更新時標示 `full_rewrite`；要核對的段落超過一半、全文超過 4,000 字或回應不會比全頁小時標示 `use_full_read`，不回段落，請讀全頁。不能和 `query`／`headings` 一起帶。
+- 段落要核對的條件：引用的 Session 在儲存後有變動，或有新 Session 對應到它。新 Session 對應段落的規則是與段落引用的 Session 有關聯（任一方向，權重 2），或改過同一個檔案（權重 1），權重平均分給證據指向的段落；指向超過 3 段的證據不算，每筆新 Session 最多對應得分最高的 3 段。對不到段落的新 Session 只列標題；`checkedThroughCandidate` 指出已全部列出的最後一筆新 Session。
+- `review` 模式下同時是新 Session 又是有變動來源的 Session 只列一次（`reasons: ["new", "source_changed"]`），只占一次 Session 預算；Session 的欄位由 `reason` 改為 `reasons`。
+- MCP contract 文字改變，Agent 需重新連線 MCP。資料庫維持 schema 36，不需遷移。詳見 [1.6.71 更新說明](releases/1.6.71.md)。
+
 ## 1.6.70（Agent 審查請求）
 
 - 使用者在「知識」頁對「記錄中」的專案開啟 Agent 審查請求（或請 Agent 代為開啟），把待確認的 Agent 自主決策與已提出的 Knowledge 候選做成快照；Agent 直接套用結論並附理由。決策確認、駁回或升為 Knowledge，候選接受（可附修改）或駁回；沒有證據的維持待確認，快照後被改過或已審查的略過不覆寫。

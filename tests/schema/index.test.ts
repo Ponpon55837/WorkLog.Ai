@@ -9,6 +9,7 @@ import {
   searchQuerySchema,
   saveKnowledgePageInputSchema,
   saveKnowledgePageInputSchemaBase,
+  knowledgePageContextQuerySchema,
   staticFileRequestPathSchema,
   reportExportQuerySchema,
   createReportSynthesisRequestInputSchema,
@@ -557,6 +558,19 @@ describe("custom report ranges", () => {
 
 describe("Knowledge page schemas", () => {
   const base = { projectRoot: "/tmp/apiary", slug: "pitfalls", idempotencyKey: "page-1" };
+
+  it("accepts a review-only read alone and rejects it with query or headings", () => {
+    const read = { projectRoot: "/tmp/apiary", slug: "pitfalls" };
+    expect(knowledgePageContextQuerySchema.safeParse({ ...read, reviewOnly: true }).success).toBe(true);
+    expect(knowledgePageContextQuerySchema.safeParse({ ...read, reviewOnly: false, query: "frost" }).success).toBe(
+      true,
+    );
+    for (const focus of [{ query: "frost" }, { headings: ["Winter care"] }]) {
+      const parsed = knowledgePageContextQuerySchema.safeParse({ ...read, reviewOnly: true, ...focus });
+      expect(parsed.success).toBe(false);
+      expect(parsed.error?.issues[0]).toMatchObject({ path: ["reviewOnly"] });
+    }
+  });
 
   it("requires cited Sessions unless a section says 資料不足", () => {
     const cited = { heading: "Build", content: "Build shared first.", sourceSessionIds: ["session-1"] };

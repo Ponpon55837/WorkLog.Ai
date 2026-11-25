@@ -2561,6 +2561,8 @@ export interface KnowledgePageContextQuery {
   query?: string;
   /** Focused read: only the sections with these headings (case-insensitive, trimmed). */
   headings?: string[];
+  /** Review-only read: only the sections that need another look and the Sessions behind them. */
+  reviewOnly?: boolean;
 }
 
 export interface SaveKnowledgePageInput {
@@ -2614,9 +2616,21 @@ export interface KnowledgePageContextSession {
   workSummary: Pick<WorkSummarySections, "outcomes" | "decisions" | "nextSteps">;
   /** True when items were left out or shortened (shortened text ends with an ellipsis). */
   truncated?: boolean;
-  /** In review mode: why this Session is included (finished after the page's coverage, or a changed cited source). */
-  reason?: "new" | "source_changed";
+  /**
+   * In review mode: why this Session is included, each reason once (finished after the page's coverage, a changed
+   * cited source, or both).
+   */
+  reasons?: KnowledgePageContextSessionReason[];
 }
+
+export type KnowledgePageContextSessionReason = "new" | "source_changed";
+
+/**
+ * Why a section needs another look in a review-only read: a cited source reason, or a new Session that continues or
+ * relates to a cited Session (new_session_linked) or changed a file one did (new_session_shared_files).
+ */
+export type KnowledgePageSectionReviewReason =
+  KnowledgePageReviewReason | "new_session_linked" | "new_session_shared_files";
 
 export interface KnowledgePageContext {
   outcome: "knowledge_page_context";
@@ -2658,6 +2672,50 @@ export interface KnowledgePageFocusedContext {
   readFullWith: string;
 }
 
+/**
+ * A review-only read: the sections that need another look in full, with their reasons and the Sessions behind them,
+ * and the size of the rest. Its reviewToken keeps the page's coverage, like a focused read.
+ */
+export interface KnowledgePageReviewContext {
+  outcome: "knowledge_page_context";
+  reviewOnly: true;
+  /**
+   * sections: at least one section needs review; new_sessions: none does, but new Sessions map to no section;
+   * none: nothing to review; full_rewrite: the page is empty or an update was requested, so read it in full;
+   * use_full_read: so much needs review (over half the sections, or more section content than a review-only read
+   * returns) that the full read is the smaller answer, so no sections or Sessions are returned.
+   */
+  review: "sections" | "new_sessions" | "none" | "full_rewrite" | "use_full_read";
+  page: KnowledgePageFocusedContext["page"];
+  sections: Array<
+    KnowledgePageSection & {
+      reasons: KnowledgePageSectionReviewReason[];
+      /** Cited sources that changed since the save, with their reason codes. */
+      changedSources?: Array<Pick<KnowledgePageReviewSource, "sourceSessionId" | "reasons">>;
+      /** New Sessions mapped to this section, oldest first. */
+      newSessionIds?: string[];
+    }
+  >;
+  otherSections: Array<{ heading: string; chars: number }>;
+  /** The whole page against the save limits, for the room left to a section update. */
+  size: { sectionCount: number; maxSections: number; contentChars: number; maxContentChars: number };
+  /** Previews of the Sessions behind the sections, each once, changed sources first, then new Sessions oldest first. */
+  sessions: KnowledgePageContextSession[];
+  /** New Sessions that map to no section, oldest first: id, title and completion time only. */
+  unmappedSessions: Array<Pick<KnowledgePageContextSession, "id" | "title" | "completedAt">>;
+  /**
+   * The newest new Session this read accounted for (previewed or listed as unmapped), with every earlier one also
+   * accounted for; pass it to work_mark_knowledge_page_checked once they are handled.
+   */
+  checkedThroughCandidate?: string;
+  omittedSessionFields: KnowledgePageContext["omittedSessionFields"];
+  sessionReadWith: "work_get_session";
+  /** True when new Sessions or previews were left out to stay within the size limit; read again after handling. */
+  truncated: boolean;
+  reviewToken: string;
+  readFullWith: string;
+}
+
 export type KnowledgePageSkippedResult = {
   outcome: "skipped";
   projectRoot?: string;
@@ -2695,7 +2753,11 @@ export interface KnowledgePageNotFoundResult {
 }
 
 export type KnowledgePageContextResult =
-  KnowledgePageContext | KnowledgePageFocusedContext | KnowledgePageNotFoundResult | KnowledgePageSkippedResult;
+  | KnowledgePageContext
+  | KnowledgePageFocusedContext
+  | KnowledgePageReviewContext
+  | KnowledgePageNotFoundResult
+  | KnowledgePageSkippedResult;
 
 /** The page was saved by someone else after the edit started; nothing was written. */
 export interface KnowledgePageVersionConflictResult {
