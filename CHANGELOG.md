@@ -15,6 +15,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 ### Changed
 
 - The work record contract and step 4 of the work-intelligence skill now list the same in-task examples (uncommitted, not pushed, PR awaiting merge or not merged back, CI running, phase not started) and mention `nextStepsWarnings`. The `nextSteps` row of the format doc states the exclusion.
+- The MCP contract text changed, so the MCP compatibility id changes: connected Agents receive `restartRequired` after upgrading and must reconnect the Work Intelligence MCP.
 - The repair-and-backfill guide says to backfill the observed commit and branch with `work_update_session_metadata` after a later commit, merge or push, and never to guess.
 - The Knowledge page contract and the Knowledge guide state that Git is the source of truth for branch, commit, PR and merge state: pages do not record it, and the Agent checks Git live. The Knowledge guide also says facts already in Knowledge are not copied into the Agent's own memory files, only a pointer.
 - The default question of the "進行中的工作與未結項" (`in-progress`) Knowledge page is now "目前有哪些尚未完成或尚未驗證的事項與已知限制？" and no longer asks about in-progress work, which is branch state. The slug and title are unchanged. Pages saved earlier keep their stored question, because a default applies only when a page is first requested; the question can be changed when requesting an update.

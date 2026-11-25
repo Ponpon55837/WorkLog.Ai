@@ -761,7 +761,7 @@ export class SessionRecordService {
     const requestJson = JSON.stringify(normalizedRequest);
     const project = decision.project;
 
-    return runImmediateSqlTransaction(this.db, () => {
+    const result = runImmediateSqlTransaction(this.db, (): UpdateSessionWorkSummaryResult => {
       const currentSession = this.db.prepare("SELECT voided_at FROM sessions WHERE id = ?").get(input.sessionId) as
         { voided_at: string | null } | undefined;
       if (!currentSession) {
@@ -885,9 +885,6 @@ export class SessionRecordService {
       if (!session) {
         throw new Error("Session workSummary was updated but could not be loaded.");
       }
-      const nextStepsWarnings = normalizedPatch.nextSteps
-        ? findTransientNextSteps(appliedWorkSummary.nextSteps)
-        : undefined;
       return {
         outcome: "work_summary_updated",
         duplicate: false,
@@ -900,9 +897,13 @@ export class SessionRecordService {
         ...(outstandingSummary.reworded + outstandingSummary.created + outstandingSummary.closed > 0
           ? { outstandingItems: outstandingSummary }
           : {}),
-        ...(nextStepsWarnings ? { nextStepsWarnings } : {}),
       };
     });
+    if (result.outcome === "work_summary_updated" && !result.duplicate && normalizedPatch.nextSteps) {
+      const nextStepsWarnings = findTransientNextSteps(result.appliedWorkSummary.nextSteps);
+      if (nextStepsWarnings) result.nextStepsWarnings = nextStepsWarnings;
+    }
+    return result;
   }
 
   /** Empties the replay payload of work-summary updates older than the retention window; keeps rows and requests. */

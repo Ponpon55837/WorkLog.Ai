@@ -2013,7 +2013,6 @@ export class WorkIntelligenceStore {
         throw new Error("Session was inserted but could not be loaded.");
       }
 
-      const nextStepsWarnings = findTransientNextSteps(sanitizedNextSteps);
       return {
         outcome: "finalized",
         duplicate: false,
@@ -2043,11 +2042,14 @@ export class WorkIntelligenceStore {
               },
             }
           : {}),
-        ...(nextStepsWarnings ? { nextStepsWarnings } : {}),
       };
     });
     if (result.outcome === "finalized") {
       const { session } = result;
+      if (!result.duplicate) {
+        const nextStepsWarnings = findTransientNextSteps(session.workSummary?.nextSteps ?? []);
+        if (nextStepsWarnings) result.nextStepsWarnings = nextStepsWarnings;
+      }
       // The Session is already committed, so these read-only reminders do not hold the write lock; a failed lookup
       // only omits its reminder.
       runAfterImmediateTransaction(this.db, () => {

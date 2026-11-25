@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TransientNextStepCategory } from "../../packages/core/src/index.js";
 import { findTransientNextSteps } from "../../packages/storage/src/transient-next-steps.js";
-import { bestOfMs, scaledLimit } from "../helpers/timing.js";
+import { bestOfMs, doublingGrowth, scaledLimit } from "../helpers/timing.js";
 
 const POSITIVE_CASES: Array<[TransientNextStepCategory, string]> = [
   ["uncommitted", "本次修改尚未 commit"],
@@ -94,6 +94,9 @@ describe("findTransientNextSteps on adversarial input", () => {
   const ITEM_LENGTH = 4_000;
   const MAX_MILLISECONDS = 100;
   const REFERENCE_BUDGET_MS = 10;
+  // Doubling the item length should about double the time; a quadratic pattern quadruples it.
+  const MAX_DOUBLING_RATIO = 3.2;
+  const RATIO_BASELINE_FLOOR_MS = 10;
   const UNITS = [
     "PR ",
     "分支",
@@ -113,8 +116,12 @@ describe("findTransientNextSteps on adversarial input", () => {
     "分支尚未 ",
   ];
 
-  function fill(unit: string): string {
-    return unit.repeat(Math.ceil(ITEM_LENGTH / unit.length)).slice(0, ITEM_LENGTH);
+  function fill(unit: string, length = ITEM_LENGTH): string {
+    return unit.repeat(Math.ceil(length / unit.length)).slice(0, length);
+  }
+
+  function adversarialItems(length: number): string[] {
+    return Array.from({ length: ITEM_COUNT }, (_, index) => fill(UNITS[index % UNITS.length]!, length));
   }
 
   const adversarial = UNITS.map((unit) => fill(unit));
@@ -133,5 +140,17 @@ describe("findTransientNextSteps on adversarial input", () => {
     for (const item of adversarial) {
       expect(bestOfMs(() => findTransientNextSteps([item]), 2)).toBeLessThan(limitMs);
     }
+  });
+
+  it("takes about twice as long when the item length doubles", () => {
+    const half = adversarialItems(ITEM_LENGTH / 2);
+    const full = adversarialItems(ITEM_LENGTH);
+    const { smallMs, largeMs } = doublingGrowth({
+      small: () => findTransientNextSteps(half),
+      large: () => findTransientNextSteps(full),
+      floorMs: RATIO_BASELINE_FLOOR_MS,
+      withinLimit: (small, large) => large < small * MAX_DOUBLING_RATIO,
+    });
+    expect(largeMs).toBeLessThan(smallMs * MAX_DOUBLING_RATIO);
   });
 });
