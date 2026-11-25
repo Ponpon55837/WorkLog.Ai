@@ -6,11 +6,13 @@ const NEXT_STEPS_WARNING_MESSAGE =
 const NOT_YET = String.raw`(?:尚未|還沒|未)`;
 const TARGET_BRANCH = String.raw`(?:main|master|develop|trunk)`;
 
-// Every alternative starts with a literal token and uses only bounded windows, so one scan stays linear in the text.
+// Bounded windows only, so each scan is linear; an item gets at most three: strict, Git context, then bare state words.
 const CATEGORY_SOURCES: Record<TransientNextStepCategory, readonly string[]> = {
   uncommitted: [
     String.raw`(?:尚未|還沒|未|待)\s{0,2}commit`,
     String.raw`(?:變更|修改|改動|程式碼|檔案)[^\n]{0,4}?${NOT_YET}\s{0,2}提交`,
+    String.raw`${NOT_YET}\s{0,2}提交\s{0,2}(?:的\s{0,2})?(?:變更|檔案?|修改|修補)`,
+    String.raw`${NOT_YET}\s{0,2}提交\s{0,2}(?:$|[\n。；;!！])`,
     String.raw`${NOT_YET}\s{0,2}提交\s{0,2}(?:到|至)?\s{0,2}git`,
     String.raw`uncommitted\s{1,3}(?:changes?|work|files?|edits?|diff)`,
     String.raw`(?:changes?|work|files?|edits?)\s{1,3}(?:(?:are|is)\s{1,3})?not\s{1,3}(?:yet\s{1,3})?committed`,
@@ -33,7 +35,7 @@ const CATEGORY_SOURCES: Record<TransientNextStepCategory, readonly string[]> = {
     String.raw`not\s{1,3}(?:yet\s{1,3})?merged\s{1,3}(?:back\s{1,3})?(?:in)?to\s{1,3}${TARGET_BRANCH}`,
   ],
   ci_running: [
-    String.raw`\bCI\b[^\n]{0,12}?(?:執行中|進行中|尚未(?:完成|跑完)|還沒跑完|未跑完|running|in\s{1,3}progress|pending)`,
+    String.raw`\bCI\b[^\n]{0,12}?(?:執行中|進行中|尚未(?:完成|跑完)|還沒跑完|未跑完|尚在執行|仍在執行|還在跑|未確認|running|in\s{1,3}progress|pending)`,
     String.raw`(?:等待|等候|waiting\s{1,3}(?:for|on))\s{0,3}(?:the\s{1,3})?\bCI\b`,
     String.raw`pipeline\s{1,3}(?:(?:is|are)\s{1,3})?(?:still\s{1,3})?(?:running|in\s{1,3}progress|pending)`,
   ],
@@ -43,16 +45,46 @@ const CATEGORY_SOURCES: Record<TransientNextStepCategory, readonly string[]> = {
   ],
 };
 
-const CATEGORIES = Object.keys(CATEGORY_SOURCES) as TransientNextStepCategory[];
+const BARE_SOURCES: Partial<Record<TransientNextStepCategory, readonly string[]>> = {
+  uncommitted: [String.raw`${NOT_YET}\s{0,2}提交`],
+  not_pushed: [String.raw`${NOT_YET}\s{0,2}(?:推送|推上)`],
+  pending_merge: [String.raw`${NOT_YET}\s{0,2}(?:合併|merge)`, String.raw`not\s{1,3}(?:yet\s{1,3})?merged`],
+};
 
-const TRANSIENT_PATTERN = new RegExp(
-  CATEGORIES.map((category) => `(?<${category}>${CATEGORY_SOURCES[category].join("|")})`).join("|"),
-  "i",
+const GIT_CONTEXT = new RegExp(
+  [
+    String.raw`\bPR\b`,
+    String.raw`[Pp]ull\s{1,3}[Rr]equest`,
+    String.raw`\b[Cc]ommit(?:s|ted)?\b`,
+    String.raw`\b[Pp]ush(?:ed)?\b`,
+    String.raw`\b[Oo]rigin\b`,
+    "分支",
+    String.raw`\b[Bb]ranch(?:es)?\b`,
+    String.raw`\b[Tt]ag\b`,
+    String.raw`\b[Ss]taged\b`,
+    String.raw`\bHEAD\b`,
+    String.raw`[Gg]it\s{1,3}index`,
+    String.raw`\b[Gg]it\b`,
+    String.raw`\b(?:feature|fix|hotfix|bugfix|release|chore|claude|codex)/[\w.-]`,
+  ].join("|"),
 );
 
-function categoryOf(item: string): TransientNextStepCategory | undefined {
-  const groups = TRANSIENT_PATTERN.exec(item)?.groups;
+function namedPattern(sources: Partial<Record<TransientNextStepCategory, readonly string[]>>): RegExp {
+  const groups = Object.entries(sources).map(([category, alternatives]) => `(?<${category}>${alternatives.join("|")})`);
+  return new RegExp(groups.join("|"), "i");
+}
+
+const STRICT_PATTERN = namedPattern(CATEGORY_SOURCES);
+const BARE_PATTERN = namedPattern(BARE_SOURCES);
+const CATEGORIES = Object.keys(CATEGORY_SOURCES) as TransientNextStepCategory[];
+
+function categoryIn(pattern: RegExp, item: string): TransientNextStepCategory | undefined {
+  const groups = pattern.exec(item)?.groups;
   return groups ? CATEGORIES.find((category) => groups[category] !== undefined) : undefined;
+}
+
+function categoryOf(item: string): TransientNextStepCategory | undefined {
+  return categoryIn(STRICT_PATTERN, item) ?? (GIT_CONTEXT.test(item) ? categoryIn(BARE_PATTERN, item) : undefined);
 }
 
 /** Flags nextSteps that read like in-task Git/PR/CI state. Keyword matching only: callers must keep every item. */

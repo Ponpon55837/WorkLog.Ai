@@ -34,6 +34,19 @@ const POSITIVE_CASES: Array<[TransientNextStepCategory, string]> = [
   ["ci_running", "CI is still running"],
   ["ci_running", "Waiting for the CI"],
   ["ci_running", "The pipeline is still running"],
+  ["ci_running", "PR #42 新 commit 的 CI 尚未確認、尚未合併"],
+  ["ci_running", "CI 尚在執行"],
+  ["ci_running", "CI 尚未確認"],
+  ["ci_running", "CI 結果尚未確認"],
+  ["pending_merge", "已 commit a1b2c3d 並 push 至 origin/feature/orchard，尚未合併"],
+  ["pending_merge", "PR #42 head a1b2c3d 保持 open，未合併、未設 auto-merge"],
+  ["pending_merge", "已 push 但未合併"],
+  ["uncommitted", "匯出修補在硬化階段進行中，尚未提交"],
+  ["uncommitted", "本次修正尚未提交"],
+  ["uncommitted", "工作樹有三個未提交變更"],
+  ["uncommitted", "留有兩個未提交檔"],
+  ["not_pushed", "annotated tag 尚未推送"],
+  ["not_pushed", "feature/orchard 未推送"],
   ["phase_not_started", "階段 2 尚未開始"],
   ["phase_not_started", "Phase 3 未進行"],
   ["phase_not_started", "Stage 2 is not yet started"],
@@ -41,6 +54,7 @@ const POSITIVE_CASES: Array<[TransientNextStepCategory, string]> = [
 
 const PRODUCT_BEHAVIOUR_CASES = [
   "表單未提交時按鈕應停用",
+  "若表單未提交，顯示提醒",
   "通知尚未推送給離線使用者",
   "待合併的重複聯絡人仍需人工確認",
   "資料未併入月報統計",
@@ -49,6 +63,11 @@ const PRODUCT_BEHAVIOUR_CASES = [
   "the transaction is not committed until save",
   "push notifications are not pushed to muted users",
   "Improve 頁面待 review 的欄位提示",
+  "尚未開始",
+  "實作尚未開始，需由使用者另開 session",
+  "修正表單未提交時按鈕應停用的問題",
+  "審核未確認前不顯示結果",
+  "檔案未合併時顯示衝突提示",
 ];
 
 const REALISTIC_NEXT_STEPS = [
@@ -114,6 +133,13 @@ describe("findTransientNextSteps on adversarial input", () => {
     "uncommitted ",
     "PR 尚未",
     "分支尚未 ",
+    "git 尚未",
+    "PR 未",
+    "origin/",
+    "tag ",
+    "未提交",
+    "push 未",
+    "branch not yet ",
   ];
 
   function fill(unit: string, length = ITEM_LENGTH): string {
