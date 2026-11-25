@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { KnowledgePageContextResult, KnowledgePageSection } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
+import { RELEASE_FILES, sectionFile, seedSectionedPage } from "../helpers/knowledge-page-fixture.js";
 
 // Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
@@ -60,12 +61,18 @@ function fullContext(result: KnowledgePageContextResult) {
   return result;
 }
 
-/** A written page: Hive layout cites `hive` (hive.ts), Winter care cites `winter` (winter.ts), Feeding cites nothing. */
+const QUIET_SECTIONS = ["Swarming", "Honey harvest", "Pests"];
+
+/**
+ * A written six-section page: Hive layout cites `hive` (hive.ts), Winter care cites `winter` (winter.ts), Feeding
+ * cites nothing, and each quiet section cites one Session. Every cited Session also changed CHANGELOG.md.
+ */
 function writtenPage() {
   const context = setup();
   const { store, projectRoot, finalize, read, save } = context;
   const hive = finalize("hive", { changedFiles: ["src/hive.ts", "CHANGELOG.md"] });
   const winter = finalize("winter", { changedFiles: ["src/winter.ts", "CHANGELOG.md"] });
+  const quiet = QUIET_SECTIONS.map((heading) => finalize(heading, { changedFiles: ["CHANGELOG.md"] }));
   store.requestKnowledgePageUpdate({ projectRoot, slug });
   save(
     "initial",
@@ -73,11 +80,29 @@ function writtenPage() {
       { heading: "Hive layout", content: "Queen excluders go on first.", sourceSessionIds: [hive] },
       { heading: "Winter care", content: "Insulate the lid before frost.", sourceSessionIds: [winter] },
       { heading: "Feeding", content: "資料不足", sourceSessionIds: [] },
+      ...QUIET_SECTIONS.map((heading, index) => ({
+        heading,
+        content: `${heading} notes.`,
+        sourceSessionIds: [quiet[index]!],
+      })),
     ],
     fullContext(read()).reviewToken,
   );
   return { ...context, hive, winter };
 }
+
+/** The 12-section page with `count` new Sessions, each changing every release file and the file of one section. */
+function sectionedPage(count: number, sectionOf: (index: number) => number) {
+  const context = setup();
+  const finalize = (key: string, changedFiles: string[]) => context.finalize(key, { changedFiles });
+  seedSectionedPage(context.store, context.projectRoot, finalize, slug);
+  const newIds = Array.from({ length: count }, (_, index) =>
+    finalize(`new-${index}`, [...RELEASE_FILES, sectionFile(sectionOf(index))]),
+  );
+  return { ...context, newIds };
+}
+
+const size = (value: unknown) => JSON.stringify(value).length;
 
 afterEach(() => {
   vi.useRealTimers();
@@ -97,12 +122,15 @@ describe("review-only Knowledge page reads", () => {
     expect(result).toMatchObject({
       review: "sections",
       page: { slug, version: 1, status: "has_new_data", newSessionCount: 3 },
-      size: { sectionCount: 3, maxSections: 12, maxContentChars: 8_000 },
+      size: { sectionCount: 6, maxSections: 12, maxContentChars: 8_000 },
       truncated: false,
       checkedThroughCandidate: sharedFile,
     });
     expect(result.size.contentChars).toBe(
-      "Queen excluders go on first.".length + "Insulate the lid before frost.".length + "資料不足".length,
+      "Queen excluders go on first.".length +
+        "Insulate the lid before frost.".length +
+        "資料不足".length +
+        QUIET_SECTIONS.reduce((total, heading) => total + `${heading} notes.`.length, 0),
     );
     expect(result.sections).toEqual([
       {
@@ -122,7 +150,11 @@ describe("review-only Knowledge page reads", () => {
         newSessionIds: [linked],
       },
     ]);
-    expect(result.otherSections).toEqual([{ heading: "Feeding", chars: "資料不足".length }]);
+    expect(result.otherSections).toEqual([
+      { heading: "Feeding", chars: "資料不足".length },
+      ...QUIET_SECTIONS.map((heading) => ({ heading, chars: `${heading} notes.`.length })),
+    ]);
+    expect(size(result)).toBeLessThan(size(fullContext(read())));
     expect(result.sessions.map((session) => [session.id, session.reasons])).toEqual([
       [winter, ["source_changed"]],
       [linked, ["new"]],
@@ -150,7 +182,7 @@ describe("review-only Knowledge page reads", () => {
     });
   });
 
-  it("ignores files most cited Sessions changed and does not map a new cited Session to its own section", () => {
+  it("ignores a file cited Sessions of more than three sections changed and does not map a new cited Session to its own section", () => {
     const { store, projectRoot, finalize, read, hive } = writtenPage();
     const releaseOnly = finalize("release-only", { changedFiles: ["CHANGELOG.md"] });
 
@@ -226,7 +258,12 @@ describe("review-only Knowledge page reads", () => {
     const idle = reviewOnly(read({ reviewOnly: true }));
     expect(idle).toMatchObject({ review: "none", sections: [], sessions: [], unmappedSessions: [], truncated: false });
     expect(idle).not.toHaveProperty("checkedThroughCandidate");
-    expect(idle.otherSections.map((section) => section.heading)).toEqual(["Hive layout", "Winter care", "Feeding"]);
+    expect(idle.otherSections.map((section) => section.heading)).toEqual([
+      "Hive layout",
+      "Winter care",
+      "Feeding",
+      ...QUIET_SECTIONS,
+    ]);
     expect(JSON.stringify(idle).length).toBeLessThan(1_200);
 
     store.requestKnowledgePageUpdate({ projectRoot, slug });
@@ -248,5 +285,39 @@ describe("review-only Knowledge page reads", () => {
     expect(listed.length).toBeLessThan(61);
     expect(result.checkedThroughCandidate).toBe(listed.at(-1));
     expect(JSON.stringify(result.unmappedSessions).length).toBeLessThanOrEqual(3_000);
+  });
+
+  it("maps each new Session to the section owning its own file, not to every section a release file touches", () => {
+    for (const count of [3, 8]) {
+      const { read, newIds } = sectionedPage(count, (index) => index % 3);
+      const result = reviewOnly(read({ reviewOnly: true }));
+      const full = fullContext(read());
+      expect(result.review).toBe("sections");
+      expect(result.sections.map((section) => section.heading)).toEqual(["Topic 0", "Topic 1", "Topic 2"]);
+      for (const [index, id] of newIds.entries()) {
+        const mappedTo = result.sections.filter((section) => section.newSessionIds?.includes(id));
+        expect(mappedTo.length).toBeLessThanOrEqual(3);
+        expect(mappedTo.map((section) => section.heading)).toContain(`Topic ${index % 3}`);
+      }
+      expect(result.unmappedSessions).toEqual([]);
+      expect(result.checkedThroughCandidate).toBe(newIds.at(-1));
+      expect(size(result)).toBeLessThan(size(full) / 2);
+    }
+  });
+
+  it("sends the Agent to the full read when most sections need review", () => {
+    const { read, newIds } = sectionedPage(8, (index) => index);
+    const result = reviewOnly(read({ reviewOnly: true }));
+    expect(result).toMatchObject({
+      review: "use_full_read",
+      sections: [],
+      sessions: [],
+      unmappedSessions: [],
+      truncated: false,
+    });
+    expect(result).not.toHaveProperty("checkedThroughCandidate");
+    expect(result.otherSections).toHaveLength(12);
+    expect(newIds).toHaveLength(8);
+    expect(size(result)).toBeLessThan(size(fullContext(read())));
   });
 });

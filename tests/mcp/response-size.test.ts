@@ -8,6 +8,7 @@ import { projectDataExportSchema } from "../../packages/schema/src/index.js";
 import { WorkIntelligenceStore, LATEST_SCHEMA_VERSION } from "../../packages/storage/src/index.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
+import { RELEASE_FILES, sectionFile, seedSectionedPage } from "../helpers/knowledge-page-fixture.js";
 
 interface ConnectedFixture {
   client: Client;
@@ -55,6 +56,8 @@ const RESPONSE_BUDGETS = {
   knowledgePageFocused: 1_500,
   knowledgePageReviewOnly: 3_500,
   knowledgePageReviewOnlyIdle: 1_200,
+  knowledgePageReviewOnlyReleaseShaped: 7_500,
+  knowledgePageReviewOnlyFallback: 1_500,
   sessionHandoffThirtyFiles: 6_500,
 } as const;
 const CONTEXT_ITEM_KEYS = new Set(["id", "sourceSessionId", "text", "textTruncated"]);
@@ -1718,6 +1721,65 @@ describe("synthetic MCP response-size baseline", () => {
     expect(reviewOnly.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgePageReviewOnly);
     expect(reviewOnly.length).toBeLessThan(full.length / 2);
     expect(idle.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgePageReviewOnlyIdle);
+  });
+
+  it("keeps review-only under half the full read on a 12-section page whose release files touch every section", async () => {
+    const { client, store, projectRoot } = await connectWithSyntheticHistory();
+    const target = { projectRoot, slug: "pitfalls" };
+    const finalizeLater = (key: string, changedFiles: string[]) => {
+      vi.setSystemTime(Date.now() + 60_000);
+      const result = store.finalizeSession({
+        projectRoot,
+        idempotencyKey: key,
+        title: `Synthetic release-shaped ${key}`,
+        summary: "A synthetic Session that also touched release files.",
+        workSummary: {
+          outcomes: ["The Session changed one topic and the release notes."],
+          scope: [],
+          decisions: [],
+          verification: [],
+          nextSteps: [],
+        },
+        changedFiles,
+        verification: { status: "passed" },
+      });
+      if (result.outcome !== "finalized") throw new Error(`Expected ${key} to finalize; received ${result.outcome}.`);
+      return result.session.id;
+    };
+    seedSectionedPage(store, projectRoot, finalizeLater, target.slug);
+    const read = async (reviewOnly?: true) =>
+      serializedMcpPayload(client, "work_get_knowledge_page_context", {
+        ...target,
+        ...(reviewOnly ? { reviewOnly } : {}),
+      });
+
+    const sizes: string[] = [];
+    let added = 0;
+    for (const [count, sectionOf] of [
+      [3, (index: number) => index % 3],
+      [5, (index: number) => index % 3],
+      [8, (index: number) => index],
+    ] as const) {
+      for (let index = 0; index < count; index += 1) {
+        finalizeLater(`release-shaped-${added}`, [...RELEASE_FILES, sectionFile(sectionOf(index))]);
+        added += 1;
+      }
+      const full = await read();
+      const reviewOnly = await read(true);
+      const value = reviewOnly.value as { review: string; sections: Array<{ newSessionIds?: string[] }> };
+      sizes.push(`${added} new: ${reviewOnly.length} of ${full.length} (${value.review})`);
+      expect(reviewOnly.length).toBeLessThan(full.length);
+      if (value.review === "use_full_read") {
+        expect(reviewOnly.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgePageReviewOnlyFallback);
+        continue;
+      }
+      expect(value.review).toBe("sections");
+      expect(value.sections.length).toBeLessThanOrEqual(3);
+      expect(reviewOnly.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgePageReviewOnlyReleaseShaped);
+      expect(reviewOnly.length).toBeLessThan(full.length / 2);
+    }
+    console.info(`[response-size] knowledge page review-only, release-shaped: ${sizes.join("; ")}`);
+    expect(sizes.at(-1)).toContain("use_full_read");
   });
 
   it("bounds Knowledge page context Sessions while keeping every id a page section may cite", async () => {

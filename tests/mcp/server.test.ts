@@ -2456,6 +2456,15 @@ describe("Work Intelligence MCP server", () => {
       ...finalizePayload(root, "mcp-review-only-001", "Build source"),
       changedFiles: ["src/build.ts"],
     });
+    const others: Array<{ session: { id: string } }> = [];
+    for (const [index, topic] of ["Release", "Testing"].entries()) {
+      others.push(
+        await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+          ...finalizePayload(root, `mcp-review-only-other-${index}`, `${topic} source`),
+          changedFiles: [`docs/${topic.toLowerCase()}.md`],
+        }),
+      );
+    }
     const target = { projectRoot: root, slug: "pitfalls" };
     await callJson(client, "work_request_knowledge_page_update", target);
     const fullContext = await callJson<{ reviewToken: string }>(client, "work_get_knowledge_page_context", target);
@@ -2466,6 +2475,11 @@ describe("Work Intelligence MCP server", () => {
       sections: [
         { heading: "Build", content: "Run the build first.", sourceSessionIds: [build.session.id] },
         { heading: "Deploy", content: "資料不足", sourceSessionIds: [] },
+        ...["Release", "Testing"].map((heading, index) => ({
+          heading,
+          content: `${heading}: ${"Follow the recorded checklist and keep the fictional notes short. ".repeat(6)}`,
+          sourceSessionIds: [others[index]!.session.id],
+        })),
       ],
     });
     await new Promise((resolve) => setTimeout(resolve, 2));
@@ -2485,7 +2499,7 @@ describe("Work Intelligence MCP server", () => {
     expect(review).toMatchObject({
       review: "sections",
       sections: [{ heading: "Build", reasons: ["new_session_shared_files"], newSessionIds: [later.session.id] }],
-      otherSections: [{ heading: "Deploy", chars: 4 }],
+      otherSections: [{ heading: "Deploy", chars: 4 }, { heading: "Release" }, { heading: "Testing" }],
       sessions: [{ id: later.session.id, reasons: ["new"] }],
       checkedThroughCandidate: later.session.id,
     });

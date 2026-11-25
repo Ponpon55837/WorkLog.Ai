@@ -3,6 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 import {
   KNOWLEDGE_PAGE_DEFAULTS,
   type KnowledgePageAuthor,
+  type KnowledgePageContext,
   type KnowledgePageContextQuery,
   type KnowledgePageContextResult,
   type KnowledgePageContextSession,
@@ -152,6 +153,13 @@ type ContextSessionRow = {
   work_summary_json: string | null;
 };
 
+/** What a review of a written page reads: its coverage point, the Sessions after it and the changed cited sources. */
+interface ReviewSources {
+  after: CoveragePoint;
+  newRows: ContextSessionRow[];
+  changedRows: ContextSessionRow[];
+}
+
 type ContextSessionEntry = { row: ContextSessionRow; reasons?: KnowledgePageContextSessionReason[] };
 
 /** For each new Session that maps to a section: the section indexes and why. */
@@ -189,11 +197,21 @@ const CONTEXT_CHAR_BUDGET = 12_000;
 /** Character budget for the new Sessions a review-only read lists by title because they map to no section. */
 const UNMAPPED_SESSION_CHAR_BUDGET = 3_000;
 /**
- * A file that at least this share of the page's other cited Sessions (and at least two of them) also changed is too
- * common, such as a changelog or lockfile, to tie a new Session to a section.
+ * Section content a review-only read returns. When the sections that need review hold more, or are more than half the
+ * page's sections (and more than one), the read sends the Agent to the full read instead.
  */
-const COMMON_FILE_SHARE = 0.5;
-const COMMON_FILE_MIN_SESSIONS = 2;
+const REVIEW_SECTION_CONTENT_BUDGET = 4_000;
+/**
+ * Evidence that a new Session changes a section: a cited Session it is linked to, or a file a cited Session also
+ * changed, its weight split across the sections it points at. Evidence pointing at more than MAX_EVIDENCE_SECTIONS
+ * sections (a release file, a Session every section cites) is ignored. A section needs MIN_SECTION_SCORE, and a new
+ * Session keeps only its MAX_SECTIONS_PER_NEW_SESSION best sections.
+ */
+const LINK_EVIDENCE_WEIGHT = 2;
+const FILE_EVIDENCE_WEIGHT = 1;
+const MAX_EVIDENCE_SECTIONS = 3;
+const MIN_SECTION_SCORE = 0.5;
+const MAX_SECTIONS_PER_NEW_SESSION = 3;
 /** Each context Session keeps its first outcomes, decisions and open items, shortened; the rest is in work_get_session. */
 const CONTEXT_SESSION_ITEMS = 2;
 const CONTEXT_SESSION_ITEM_CHARS = 100;
@@ -365,6 +383,28 @@ function encodeReviewToken(content: ReviewTokenContent): string {
 }
 
 /** The token's content, or undefined when it is not one this server wrote. */
+function pageContext(
+  row: PageRow,
+  page: KnowledgePageRecord,
+  mode: KnowledgePageContext["mode"],
+  {
+    sessions,
+    truncated,
+    through,
+  }: { sessions: KnowledgePageContextSession[]; truncated: boolean; through: CoveragePoint },
+): KnowledgePageContext {
+  return {
+    outcome: "knowledge_page_context",
+    page,
+    mode,
+    sessions,
+    omittedSessionFields: ["summary", "workSummary.scope", "workSummary.verification"],
+    sessionReadWith: "work_get_session",
+    truncated,
+    reviewToken: encodeReviewToken({ pageId: row.id, version: row.version, through }),
+  };
+}
+
 function decodeReviewToken(token: string): ReviewTokenContent | undefined {
   if (!token.startsWith(REVIEW_TOKEN_PREFIX)) return undefined;
   let payload: unknown;
@@ -720,19 +760,10 @@ export class KnowledgePageService {
       const through = this.reviewedPoint(row);
       return focusedContext(page, query, encodeReviewToken({ pageId: row.id, version: row.version, through }));
     }
-    const mode = row.version === 0 || row.update_requested_at ? "full" : "review";
-    const { sessions, truncated, through } =
-      mode === "full" ? this.contextSessions(decision.project.id) : this.reviewSessions(row, page);
-    return {
-      outcome: "knowledge_page_context",
-      page,
-      mode,
-      sessions,
-      omittedSessionFields: ["summary", "workSummary.scope", "workSummary.verification"],
-      sessionReadWith: "work_get_session",
-      truncated,
-      reviewToken: encodeReviewToken({ pageId: row.id, version: row.version, through }),
-    };
+    if (row.version === 0 || row.update_requested_at) {
+      return pageContext(row, page, "full", this.contextSessions(decision.project.id));
+    }
+    return pageContext(row, page, "review", this.reviewSessions(this.reviewSources(row, page)));
   }
 
   public savePage(input: SaveKnowledgePageInput): SaveKnowledgePageResult {
@@ -1557,15 +1588,13 @@ export class KnowledgePageService {
    * time or checked cursor), oldest first, and the cited sources that changed since it was saved. A Session that is
    * both is listed once, among the new ones, with both reasons.
    */
-  private reviewSessions(
-    row: PageRow,
-    page: KnowledgePageRecord,
-  ): { sessions: KnowledgePageContextSession[]; truncated: boolean; through: CoveragePoint } {
-    const after = this.reviewedPoint(row);
-    const newRows = this.newSessionRows(row.project_id, after);
+  private reviewSessions({ after, newRows, changedRows }: ReviewSources): {
+    sessions: KnowledgePageContextSession[];
+    truncated: boolean;
+    through: CoveragePoint;
+  } {
     const shownNew = newRows.slice(0, CONTEXT_SESSION_LIMIT);
     const shownNewIds = new Set(shownNew.map((session) => session.id));
-    const changedRows = this.changedSourceRows(row.project_id, page);
     const changedIds = new Set(changedRows.map((session) => session.id));
     const budgeted = this.budgetSessions(
       [
@@ -1590,10 +1619,13 @@ export class KnowledgePageService {
    * Review-only read: the sections whose cited sources changed or to which a new Session maps (see
    * newSessionSections), in full with their reasons, previews of the Sessions behind them, and the new Sessions that
    * map to no section by title. New Sessions are handled oldest first, each previewed or listed until a budget runs
-   * out, so checkedThroughCandidate never skips one. The reviewToken keeps the page's coverage.
+   * out, so checkedThroughCandidate never skips one. The reviewToken keeps the page's coverage. When the sections
+   * exceed REVIEW_SECTION_CONTENT_BUDGET or half the page, or the answer is no smaller than the review read built from
+   * the same rows, it returns use_full_read without sections or Sessions.
    */
   private reviewOnlyContext(row: PageRow, page: KnowledgePageRecord): KnowledgePageReviewContext {
-    const after = this.reviewedPoint(row);
+    const sources = this.reviewSources(row, page);
+    const { after, newRows, changedRows } = sources;
     const base: Pick<
       KnowledgePageReviewContext,
       | "outcome"
@@ -1632,10 +1664,8 @@ export class KnowledgePageService {
       };
     }
     const changedByHeading = new Map((page.reviewSections ?? []).map((section) => [section.heading, section]));
-    const newRows = this.newSessionRows(row.project_id, after);
     const consideredNew = newRows.slice(0, CONTEXT_SESSION_LIMIT);
     const consideredNewIds = new Set(consideredNew.map((session) => session.id));
-    const changedRows = this.changedSourceRows(row.project_id, page);
     const changedIds = new Set(changedRows.map((session) => session.id));
     const mapped = this.newSessionSections(row.project_id, page.sections, consideredNew);
 
@@ -1713,7 +1743,7 @@ export class KnowledgePageService {
       });
     });
     const lastAccounted = accountedNew.at(-1);
-    return {
+    const result: KnowledgePageReviewContext = {
       ...base,
       review: sections.length > 0 ? "sections" : unmappedSessions.length > 0 ? "new_sessions" : "none",
       sections,
@@ -1722,6 +1752,31 @@ export class KnowledgePageService {
       unmappedSessions,
       ...(lastAccounted ? { checkedThroughCandidate: lastAccounted.id } : {}),
       truncated,
+    };
+    const sectionChars = sections.reduce((total, section) => total + section.content.length, 0);
+    const useFullRead =
+      sections.length > Math.max(1, page.sections.length / 2) ||
+      sectionChars > REVIEW_SECTION_CONTENT_BUDGET ||
+      JSON.stringify(result).length >=
+        JSON.stringify(pageContext(row, page, "review", this.reviewSessions(sources))).length;
+    if (!useFullRead) return result;
+    return {
+      ...base,
+      review: "use_full_read",
+      sections: [],
+      otherSections: layout,
+      sessions: [],
+      unmappedSessions: [],
+      truncated: false,
+    };
+  }
+
+  private reviewSources(row: PageRow, page: KnowledgePageRecord): ReviewSources {
+    const after = this.reviewedPoint(row);
+    return {
+      after,
+      newRows: this.newSessionRows(row.project_id, after),
+      changedRows: this.changedSourceRows(row.project_id, page),
     };
   }
 
@@ -1762,10 +1817,11 @@ export class KnowledgePageService {
   }
 
   /**
-   * Maps each new Session to the sections it may change: a section whose cited Session it continues or relates to
-   * (a Session link in either direction), or one of whose cited Sessions changed a file it also changed. Files changed
-   * by many of the page's other cited Sessions are ignored (COMMON_FILE_SHARE). Two queries for the whole page; a Session
-   * with no match is absent.
+   * Maps each new Session to the sections it most likely changes. Evidence is a Session link (either direction) to a
+   * Session a section cites, or a file such a Session also changed; each piece is split across the sections it points
+   * at and ignored when it points at more than MAX_EVIDENCE_SECTIONS. A section needs MIN_SECTION_SCORE, the best
+   * MAX_SECTIONS_PER_NEW_SESSION are kept, and a section that already cites the new Session is never one of them. Two
+   * queries for the whole page; a Session with no section that scores is absent.
    */
   private newSessionSections(
     projectId: string,
@@ -1784,16 +1840,8 @@ export class KnowledgePageService {
     if (sectionsByCited.size === 0 || newRows.length === 0) return result;
     const newIds = JSON.stringify(newRows.map((session) => session.id));
     const citedIds = JSON.stringify([...sectionsByCited.keys()]);
-    const add = (newId: string, citedId: string, reason: KnowledgePageSectionReviewReason) => {
-      const bySection = result.get(newId) ?? new Map<number, Set<KnowledgePageSectionReviewReason>>();
-      for (const index of sectionsByCited.get(citedId) ?? []) {
-        const reasons = bySection.get(index) ?? new Set();
-        reasons.add(reason);
-        bySection.set(index, reasons);
-      }
-      result.set(newId, bySection);
-    };
-    const links = this.db
+    const linksByNew = new Map<string, string[]>();
+    for (const link of this.db
       .prepare(
         `SELECT session_id AS new_id, related_session_id AS cited_id FROM session_links
          WHERE session_id IN (SELECT value FROM json_each(?)) AND related_session_id IN (SELECT value FROM json_each(?))
@@ -1801,9 +1849,11 @@ export class KnowledgePageService {
          SELECT related_session_id, session_id FROM session_links
          WHERE related_session_id IN (SELECT value FROM json_each(?)) AND session_id IN (SELECT value FROM json_each(?))`,
       )
-      .all(newIds, citedIds, newIds, citedIds) as Array<{ new_id: string; cited_id: string }>;
-    for (const link of links) add(link.new_id, link.cited_id, "new_session_linked");
-
+      .all(newIds, citedIds, newIds, citedIds) as Array<{ new_id: string; cited_id: string }>) {
+      const linked = linksByNew.get(link.new_id) ?? [];
+      linked.push(link.cited_id);
+      linksByNew.set(link.new_id, linked);
+    }
     const files = this.db
       .prepare(
         `SELECT id, changed_files_json FROM sessions
@@ -1813,27 +1863,46 @@ export class KnowledgePageService {
     const filesById = new Map(
       files.map((session) => [session.id, new Set(parseChangedFiles(session.changed_files_json))]),
     );
-    const citedByFile = new Map<string, string[]>();
-    let citedWithFiles = 0;
-    for (const citedId of sectionsByCited.keys()) {
-      const citedFiles = filesById.get(citedId);
-      if (!citedFiles?.size) continue;
-      citedWithFiles += 1;
-      for (const file of citedFiles) {
-        const ids = citedByFile.get(file) ?? [];
-        ids.push(citedId);
-        citedByFile.set(file, ids);
+    // For each file a cited Session changed: the sections citing such a Session, with those Sessions.
+    const sectionsByFile = new Map<string, Map<number, string[]>>();
+    for (const [citedId, indexes] of sectionsByCited) {
+      for (const file of filesById.get(citedId) ?? []) {
+        const bySection = sectionsByFile.get(file) ?? new Map<number, string[]>();
+        for (const index of indexes) {
+          const citing = bySection.get(index);
+          if (citing) citing.push(citedId);
+          else bySection.set(index, [citedId]);
+        }
+        sectionsByFile.set(file, bySection);
       }
     }
     for (const session of newRows) {
-      // A new Session the page already cites is not one of the others it is compared with.
-      const others =
-        sectionsByCited.has(session.id) && filesById.get(session.id)?.size ? citedWithFiles - 1 : citedWithFiles;
-      for (const file of filesById.get(session.id) ?? []) {
-        const citing = citedByFile.get(file)?.filter((citedId) => citedId !== session.id) ?? [];
-        if (citing.length >= COMMON_FILE_MIN_SESSIONS && citing.length >= others * COMMON_FILE_SHARE) continue;
-        for (const citedId of citing) add(session.id, citedId, "new_session_shared_files");
+      const own = new Set(sectionsByCited.get(session.id));
+      const scores = new Map<number, { score: number; reasons: Set<KnowledgePageSectionReviewReason> }>();
+      const credit = (indexes: readonly number[], weight: number, reason: KnowledgePageSectionReviewReason) => {
+        if (indexes.length === 0 || indexes.length > MAX_EVIDENCE_SECTIONS) return;
+        for (const index of indexes) {
+          const entry = scores.get(index) ?? { score: 0, reasons: new Set() };
+          entry.score += weight / indexes.length;
+          entry.reasons.add(reason);
+          scores.set(index, entry);
+        }
+      };
+      for (const citedId of linksByNew.get(session.id) ?? []) {
+        credit(sectionsByCited.get(citedId) ?? [], LINK_EVIDENCE_WEIGHT, "new_session_linked");
       }
+      for (const file of filesById.get(session.id) ?? []) {
+        const bySection = sectionsByFile.get(file);
+        if (!bySection) continue;
+        const indexes: number[] = [];
+        for (const [index, citing] of bySection) if (citing.some((id) => id !== session.id)) indexes.push(index);
+        credit(indexes, FILE_EVIDENCE_WEIGHT, "new_session_shared_files");
+      }
+      const best = [...scores]
+        .filter(([index, entry]) => entry.score >= MIN_SECTION_SCORE && !own.has(index))
+        .sort(([leftIndex, left], [rightIndex, right]) => right.score - left.score || leftIndex - rightIndex)
+        .slice(0, MAX_SECTIONS_PER_NEW_SESSION);
+      if (best.length > 0) result.set(session.id, new Map(best.map(([index, entry]) => [index, entry.reasons])));
     }
     return result;
   }

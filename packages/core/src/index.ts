@@ -2681,9 +2681,11 @@ export interface KnowledgePageReviewContext {
   reviewOnly: true;
   /**
    * sections: at least one section needs review; new_sessions: none does, but new Sessions map to no section;
-   * none: nothing to review; full_rewrite: the page is empty or an update was requested, so read it in full.
+   * none: nothing to review; full_rewrite: the page is empty or an update was requested, so read it in full;
+   * use_full_read: so much needs review (over half the sections, or more section content than a review-only read
+   * returns) that the full read is the smaller answer, so no sections or Sessions are returned.
    */
-  review: "sections" | "new_sessions" | "none" | "full_rewrite";
+  review: "sections" | "new_sessions" | "none" | "full_rewrite" | "use_full_read";
   page: KnowledgePageFocusedContext["page"];
   sections: Array<
     KnowledgePageSection & {
