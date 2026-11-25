@@ -56,7 +56,7 @@ function setup(databasePath = ":memory:") {
 
 /** Narrows a default (non-focused) read for assertions. */
 function fullContext(result: ReturnType<WorkIntelligenceStore["getKnowledgePageContext"]>) {
-  if (result.outcome !== "knowledge_page_context" || "focused" in result) {
+  if (result.outcome !== "knowledge_page_context" || "focused" in result || "reviewOnly" in result) {
     throw new Error(`Expected a default knowledge page context, received ${JSON.stringify(result).slice(0, 120)}`);
   }
   return result;
@@ -600,10 +600,10 @@ describe("Knowledge pages", () => {
     const review = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "pitfalls" }));
     expect(review.outcome).toBe("knowledge_page_context");
     expect(review.mode).toBe("review");
-    expect(review.sessions.map((session) => [session.id, session.reason])).toEqual([
-      [cited, "source_changed"],
-      [firstNew, "new"],
-      [secondNew, "new"],
+    expect(review.sessions.map((session) => [session.id, session.reasons])).toEqual([
+      [cited, ["source_changed"]],
+      [firstNew, ["new"]],
+      [secondNew, ["new"]],
     ]);
     expect(review.sessions.some((session) => session.id === older)).toBe(false);
 
@@ -836,7 +836,8 @@ describe("Knowledge pages", () => {
     it("flags matched sections that need a source review and keeps not_found and skipped results", () => {
       const { store, projectRoot, tick } = writtenPage();
       const page = store.getKnowledgePageContext({ projectRoot, slug: "architecture" });
-      if (page.outcome !== "knowledge_page_context" || "focused" in page) throw new Error("Expected a page");
+      if (page.outcome !== "knowledge_page_context" || "focused" in page || "reviewOnly" in page)
+        throw new Error("Expected a page");
       const sourceId = page.page.sections[1]!.sourceSessionIds[0]!;
       tick();
       store.setSessionVoid({ sessionId: sourceId, voided: true, reason: "Fixture source review." });
@@ -893,7 +894,7 @@ describe("Knowledge pages", () => {
         }),
       ).toMatchObject({ outcome: "knowledge_page_saved", page: { status: "has_new_data", newSessionCount: 1 } });
       const next = fullContext(store.getKnowledgePageContext({ projectRoot, slug: "architecture" }));
-      expect(next.sessions.map((session) => [session.id, session.reason])).toEqual([[late, "new"]]);
+      expect(next.sessions.map((session) => [session.id, session.reasons])).toEqual([[late, ["new"]]]);
     });
 
     it("leaves Sessions a truncated read did not show for the next review, in order", () => {

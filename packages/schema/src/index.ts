@@ -1125,14 +1125,27 @@ export const requestKnowledgePageUpdateInputSchema = z
     question: z.string().trim().min(1).max(300).optional(),
   })
   .strict();
-export const knowledgePageContextQuerySchema = z
+export const knowledgePageContextQuerySchemaBase = z
   .object({
     projectRoot: z.string().trim().min(1).max(1_000),
     slug: knowledgePageSlugSchema,
     query: z.string().trim().min(1).max(200).optional(),
     headings: z.array(z.string().trim().min(1).max(200)).min(1).max(12).optional(),
+    reviewOnly: z
+      .boolean()
+      .optional()
+      .describe("Only the sections that need review, their reasons and Sessions; not with query or headings."),
   })
   .strict();
+export const knowledgePageContextQuerySchema = knowledgePageContextQuerySchemaBase.superRefine((value, context) => {
+  if (value.reviewOnly && (value.query !== undefined || value.headings !== undefined)) {
+    context.addIssue({
+      code: "custom",
+      message: "reviewOnly reads the sections that need review; send it without query and headings.",
+      path: ["reviewOnly"],
+    });
+  }
+});
 export const markKnowledgePageCheckedInputSchema = z
   .object({
     projectRoot: z.string().trim().min(1).max(1_000),

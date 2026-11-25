@@ -55,7 +55,7 @@ function setup(databasePath = ":memory:") {
 
 /** Narrows a default (non-focused) read for assertions. */
 function fullContext(result: ReturnType<WorkIntelligenceStore["getKnowledgePageContext"]>) {
-  if (result.outcome !== "knowledge_page_context" || "focused" in result) {
+  if (result.outcome !== "knowledge_page_context" || "focused" in result || "reviewOnly" in result) {
     throw new Error(`Expected a default knowledge page context, received ${JSON.stringify(result).slice(0, 120)}`);
   }
   return result;
@@ -108,7 +108,7 @@ describe("Knowledge page maintenance", () => {
     expect(checked.page.sections).toEqual(before.sections);
     expect(versionsOf(store, page.id)).toHaveLength(1);
     const review = fullContext(store.getKnowledgePageContext({ projectRoot, slug }));
-    expect(review.sessions.map((session) => [session.id, session.reason])).toEqual([[three, "new"]]);
+    expect(review.sessions.map((session) => [session.id, session.reasons])).toEqual([[three, ["new"]]]);
 
     const four = finalize("k01-four");
     expect(pageOf(store, projectRoot, slug).newSessionCount).toBe(2);
@@ -182,7 +182,7 @@ describe("Knowledge page maintenance", () => {
       ]);
       expect(fullContext(store.getKnowledgePageContext({ projectRoot, slug })).sessions[0]).toMatchObject({
         id: cited,
-        reason: "source_changed",
+        reasons: ["source_changed"],
       });
 
       const checked = store.markKnowledgePageChecked({ projectRoot, slug, throughSessionId: newest });

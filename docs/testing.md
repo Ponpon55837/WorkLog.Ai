@@ -180,6 +180,7 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | task context 相關未結項（5,000 Sessions／1,000 項，含文字與路徑排名） | 500 ms |
 | finalize 相關未結項提示（5,000 Sessions／1,000 項；目標專案 500 項，唯一匹配加 23 個干擾詞） | 操作 p90 250 ms；交易 p90 50 ms |
 | 知識頁 review context（涵蓋範圍後的一年 Session，最多 60 筆） | 250 ms |
+| 知識頁只讀待核對段落（同一份資料，最多 60 筆新 Session 以關聯與改過的檔案對應段落） | 250 ms |
 | 知識頁 not_found 診斷（列出專案 slug、比對 id 與編輯距離） | 50 ms |
 | 知識搜尋寬鬆備援（嚴格零命中後的 FTS 排序、`appliesTo` 路徑比對與其他狀態計數） | 250 ms |
 | 檔案歷史（3 個路徑、每個 28–125 筆 Session：整段歷史統計、摘要、驗證失敗／未執行提醒與 `appliesTo` Knowledge；本機 p90 2.98 ms） | 50 ms |

@@ -2448,6 +2448,68 @@ describe("Work Intelligence MCP server", () => {
     expect(noToken.isError).toBe(true);
   });
 
+  it("reads only the Knowledge page sections that need review and rejects it with a focused read", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Review-only project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const build = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-review-only-001", "Build source"),
+      changedFiles: ["src/build.ts"],
+    });
+    const target = { projectRoot: root, slug: "pitfalls" };
+    await callJson(client, "work_request_knowledge_page_update", target);
+    const fullContext = await callJson<{ reviewToken: string }>(client, "work_get_knowledge_page_context", target);
+    await callJson(client, "work_save_knowledge_page", {
+      ...target,
+      idempotencyKey: "review-only-full",
+      reviewToken: fullContext.reviewToken,
+      sections: [
+        { heading: "Build", content: "Run the build first.", sourceSessionIds: [build.session.id] },
+        { heading: "Deploy", content: "資料不足", sourceSessionIds: [] },
+      ],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    const later = await callJson<{ session: { id: string } }>(client, "work_finalize_session", {
+      ...finalizePayload(root, "mcp-review-only-002", "Build follow-up"),
+      changedFiles: ["src/build.ts"],
+    });
+
+    const review = await callJson<{
+      review: string;
+      sections: Array<{ heading: string; reasons: string[]; newSessionIds?: string[] }>;
+      otherSections: Array<{ heading: string; chars: number }>;
+      sessions: Array<{ id: string; reasons: string[] }>;
+      checkedThroughCandidate?: string;
+      reviewToken: string;
+    }>(client, "work_get_knowledge_page_context", { ...target, reviewOnly: true });
+    expect(review).toMatchObject({
+      review: "sections",
+      sections: [{ heading: "Build", reasons: ["new_session_shared_files"], newSessionIds: [later.session.id] }],
+      otherSections: [{ heading: "Deploy", chars: 4 }],
+      sessions: [{ id: later.session.id, reasons: ["new"] }],
+      checkedThroughCandidate: later.session.id,
+    });
+    expect(
+      await callJson(client, "work_save_knowledge_page", {
+        ...target,
+        idempotencyKey: "review-only-update",
+        reviewToken: review.reviewToken,
+        upsertSections: [
+          { heading: "Build", content: "Run the build, then the lint.", sourceSessionIds: [later.session.id] },
+        ],
+      }),
+    ).toMatchObject({ outcome: "knowledge_page_saved", sectionChanges: { replaced: ["Build"] } });
+
+    const combined = await callMcpOperation(client, "work_get_knowledge_page_context", {
+      ...target,
+      reviewOnly: true,
+      headings: ["Build"],
+    });
+    expect(combined.isError).toBe(true);
+    const [content] = combined.content as Array<{ type: string; text: string }>;
+    expect(content?.text).toContain("send it without query and headings");
+  });
+
   it("explains how two graph nodes are related with a read-only path tool", async () => {
     const { client, store, root } = await connect();
     const project = store.addProject("Path project", root);

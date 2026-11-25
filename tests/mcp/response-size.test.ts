@@ -13,6 +13,7 @@ interface ConnectedFixture {
   client: Client;
   projectId: string;
   projectRoot: string;
+  sessionIds: string[];
   store: WorkIntelligenceStore;
 }
 
@@ -52,6 +53,8 @@ const RESPONSE_BUDGETS = {
   fileHistoryThreePaths: 10_000,
   knowledgePageContext: 10_000,
   knowledgePageFocused: 1_500,
+  knowledgePageReviewOnly: 3_500,
+  knowledgePageReviewOnlyIdle: 1_200,
   sessionHandoffThirtyFiles: 6_500,
 } as const;
 const CONTEXT_ITEM_KEYS = new Set(["id", "sourceSessionId", "text", "textTruncated"]);
@@ -174,7 +177,7 @@ async function connectWithSyntheticHistory(
     () => store.close(),
     () => client.close(),
   );
-  return { client, projectId: project.id, projectRoot, store };
+  return { client, projectId: project.id, projectRoot, sessionIds, store };
 }
 
 async function serializedMcpPayload(
@@ -1642,6 +1645,79 @@ describe("synthetic MCP response-size baseline", () => {
     expect(value.sessions).toBeUndefined();
     expect(focused.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgePageFocused);
     expect(focused.length).toBeLessThan(full.length);
+  });
+
+  it("reads only the Knowledge page section that needs review, far smaller than the review read", async () => {
+    const { client, store, projectRoot, sessionIds } = await connectWithSyntheticHistory();
+    const target = { projectRoot, slug: "architecture" };
+    const listed = store.listKnowledgePages({ projectRoot });
+    if (listed.outcome !== "knowledge_pages") throw new Error("Expected synthetic Knowledge pages.");
+    const page = listed.items.find((item) => item.slug === "architecture")!;
+    const sectionContent = (index: number) =>
+      `Synthetic section ${index}: ${"The verified retrieval rule keeps context small and cites its source. ".repeat(8)}`;
+    const updated = store.updateKnowledgePage({
+      pageId: page.id,
+      baseVersion: page.version,
+      sections: Array.from({ length: 8 }, (_, index) => ({
+        heading: `Topic ${index}`,
+        content: sectionContent(index),
+        sourceSessionIds: [sessionIds[index]!],
+      })),
+    });
+    expect(updated.outcome).toBe("knowledge_page_updated");
+    const finalizeLater = (key: string, changedFiles: string[]) => {
+      vi.setSystemTime(Date.now() + 60_000);
+      const result = store.finalizeSession({
+        projectRoot,
+        idempotencyKey: key,
+        title: `Synthetic follow-up ${key}`,
+        summary: "A later synthetic Session.",
+        workSummary: {
+          outcomes: ["The follow-up changed the verified retrieval rule.", "It kept the source citation."],
+          scope: [],
+          decisions: ["Keep the rule small."],
+          verification: [],
+          nextSteps: [],
+        },
+        changedFiles,
+        verification: { status: "passed" },
+      });
+      if (result.outcome !== "finalized") throw new Error(`Expected ${key} to finalize; received ${result.outcome}.`);
+    };
+
+    const idle = await serializedMcpPayload(client, "work_get_knowledge_page_context", { ...target, reviewOnly: true });
+    expect(idle.value).toMatchObject({ review: "none", sections: [], sessions: [] });
+
+    // Fixture Session 3 changed example-3, so a later Session changing it maps to Topic 3 only.
+    finalizeLater("review-only-mapped", [`packages/example-3/src/context.ts`]);
+    for (let index = 0; index < 5; index += 1) finalizeLater(`review-only-other-${index}`, [`docs/other-${index}.md`]);
+
+    const full = await serializedMcpPayload(client, "work_get_knowledge_page_context", target);
+    const reviewOnly = await serializedMcpPayload(client, "work_get_knowledge_page_context", {
+      ...target,
+      reviewOnly: true,
+    });
+    const value = reviewOnly.value as {
+      review: string;
+      sections: Array<{ heading: string; reasons: string[] }>;
+      otherSections: unknown[];
+      sessions: unknown[];
+      unmappedSessions: unknown[];
+    };
+    console.info(
+      `[response-size] knowledge page review-only: ${reviewOnly.length} of ${full.length} characters (idle ${idle.length})`,
+    );
+    expect((full.value as { mode: string }).mode).toBe("review");
+    expect(value.review).toBe("sections");
+    expect(value.sections.map((section) => [section.heading, section.reasons])).toEqual([
+      ["Topic 3", ["new_session_shared_files"]],
+    ]);
+    expect(value.otherSections).toHaveLength(7);
+    expect(value.sessions).toHaveLength(1);
+    expect(value.unmappedSessions).toHaveLength(5);
+    expect(reviewOnly.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgePageReviewOnly);
+    expect(reviewOnly.length).toBeLessThan(full.length / 2);
+    expect(idle.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgePageReviewOnlyIdle);
   });
 
   it("bounds Knowledge page context Sessions while keeping every id a page section may cite", async () => {
