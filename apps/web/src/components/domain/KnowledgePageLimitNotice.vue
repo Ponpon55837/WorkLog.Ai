@@ -33,7 +33,7 @@ const advice = computed(() => {
 
 <template>
   <UiFlash
-    v-if="suggestion"
+    v-if="suggestion || isOver"
     :tone="isOver ? 'danger' : 'attention'"
     :title="isOver ? t('knowledge.pageLimitOverTitle') : t('knowledge.pageLimitNearTitle')"
     data-testid="knowledge-page-limit"

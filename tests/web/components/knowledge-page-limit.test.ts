@@ -76,6 +76,12 @@ describe("KnowledgePageLimitNotice", () => {
     const html = await renderNotice(sectionsOf(11, 10).map((section) => ({ ...section, heading: " " })));
     expect(html).toContain(t("knowledge.pageLimitMoveLargest"));
   });
+
+  it("says a single section over the limit will be refused", async () => {
+    const html = await renderNotice(sectionsOf(1, 8_001));
+    expect(html).toContain(t("knowledge.pageLimitOverTitle"));
+    expect(html).toContain(t("knowledge.pageLimitOverSave"));
+  });
 });
 
 describe("KnowledgePageEditorDialog limit notice", () => {
