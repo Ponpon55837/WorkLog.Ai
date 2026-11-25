@@ -711,6 +711,7 @@ export const STANDALONE_LIBEXEC_FILES: readonly string[] = [
   ".agents/skills/work-intelligence/references/outstanding-cleanup.md",
   ".agents/skills/work-intelligence/references/synthesis.md",
   ".agents/skills/work-intelligence/references/knowledge.md",
+  ".agents/skills/work-intelligence/references/agent-review.md",
   ".agents/skills/worklog-report-writing/SKILL.md",
   ".agents/skills/worklog-report-writing/references/en.md",
   ".agents/skills/worklog-report-writing/references/zh-TW.md",

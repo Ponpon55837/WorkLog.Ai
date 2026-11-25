@@ -78,6 +78,7 @@ export const knowledgeRoutes: Route[] = [
       ({ url }) => ({
         projectRoot: textParam(url, "projectRoot"),
         status: url.searchParams.get("status") || undefined,
+        reviewedBy: url.searchParams.get("reviewedBy") || undefined,
       }),
       ({ store }, data) => store.listKnowledgeCandidates(data),
     ),

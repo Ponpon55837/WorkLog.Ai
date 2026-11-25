@@ -6,6 +6,7 @@ import { BookMarked, BookOpen, ListChecks, Search, Sparkles, X } from "lucide-vu
 import type { KnowledgeKind, KnowledgeRecord, KnowledgeStatus } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import PageToolbar from "../components/layout/PageToolbar.vue";
+import AgentReviewRequestBox from "../components/domain/AgentReviewRequestBox.vue";
 import KnowledgeCandidateEditorDialog from "../components/domain/KnowledgeCandidateEditorDialog.vue";
 import KnowledgeCandidatesBox from "../components/domain/KnowledgeCandidatesBox.vue";
 import AgentDecisionReviewBox from "../components/domain/AgentDecisionReviewBox.vue";
@@ -29,6 +30,7 @@ import { useKnowledgeActions } from "../composables/useKnowledge";
 import { useListReload } from "../composables/useListReload";
 import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
 import { router } from "../router";
+import { useAgentReviewStore } from "../stores/agent-review";
 import { useKnowledgeEditorStore } from "../stores/knowledge-editor";
 import { useProjectsStore } from "../stores/projects";
 import { useToast } from "../composables/useToast";
@@ -93,6 +95,9 @@ const { reloadNow } = useListReload({
 const route = useRoute();
 
 // The page owns the candidate and decision queries so every tab can show its count, not only the open one.
+const agentReviewStore = useAgentReviewStore();
+const { filter: reviewFilter } = storeToRefs(agentReviewStore);
+useRouteQuery("review", reviewFilter, enumQuery(["pending", "agent"] as const, "pending"));
 const decisionStore = useSessionDecisionsStore();
 const { pendingCount, decisionsLoaded } = storeToRefs(decisionStore);
 const { candidates, candidatesLoaded, knowledgeLoaded } = storeToRefs(knowledgeStore);
@@ -243,6 +248,8 @@ watch(
   () => selectedProjectRoot.value,
   (root) => {
     decisionStore.setListActive(true, root);
+    agentReviewStore.setScope(root ? knowledgeProjectId.value : "", root);
+    agentReviewStore.setActive(true);
     pagesStore.setListActive(true, root);
     void knowledgeStore.loadCandidates(root);
   },
@@ -256,7 +263,10 @@ onBeforeUnmount(() => {
   editorStore.knowledgeHistoryItem = null;
   knowledgeStore.closeKnowledgeHistory();
 });
-onBeforeUnmount(() => decisionStore.setListActive(false));
+onBeforeUnmount(() => {
+  decisionStore.setListActive(false);
+  agentReviewStore.setActive(false);
+});
 onBeforeUnmount(() => {
   pagesStore.setListActive(false);
   pagesStore.closePage();
@@ -304,6 +314,7 @@ onBeforeUnmount(() => {
     role="tabpanel"
     aria-labelledby="knowledge-tab-decisions"
   >
+    <AgentReviewRequestBox v-model:project-id="knowledgeProjectId" :projects="knowledgeProjects" />
     <AgentDecisionReviewBox :project-root="selectedProjectRoot" />
   </section>
   <section v-else-if="tab === 'pages'" id="knowledge-panel-pages" role="tabpanel" aria-labelledby="knowledge-tab-pages">
@@ -315,6 +326,7 @@ onBeforeUnmount(() => {
     role="tabpanel"
     aria-labelledby="knowledge-tab-candidates"
   >
+    <AgentReviewRequestBox v-model:project-id="knowledgeProjectId" :projects="knowledgeProjects" />
     <KnowledgeCandidatesBox :projects="knowledgeProjects" :project-root="selectedProjectRoot" />
   </section>
   <UiSplitLayout v-else>

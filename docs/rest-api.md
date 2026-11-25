@@ -214,6 +214,22 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 
 接受以單一 immediate transaction 重新核對 snapshot／來源／證據；任一無效則 proposal、item、audit 整批維持原狀。拒絕只修改 reviewStatus，不改未結項；同決策重試不增加稽核。取消不刪除記錄，也不改未結項。所有寫入沿用 JSON、Host／Origin 驗證與無資料 SSE changed 通知。提案欄位及時間範圍見 [MCP 整理契約](mcp-tools.md#未結項整理兩個讀取與一個提交-operation)。
 
+## Agent 審查請求與推翻
+
+| 方法 | 路徑 | 參數 |
+| --- | --- | --- |
+| POST | `/api/agent-review-requests` | JSON `{projectId,idempotencyKey}`，為專案待處理的決策與 Knowledge 候選建立固定快照 |
+| GET | `/api/agent-review-requests` | `projectId?`、`status?`（pending／processing／completed／failed／cancelled）、`page?`、`pageSize?`（1–20，預設 5） |
+| POST | `/api/agent-review-requests/:requestId/cancel` | JSON `{}`；已處理的結果保留，未處理的項目回到使用者的待確認清單 |
+| POST | `/api/session-decisions/:decisionId/overturn` | JSON `{projectRoot}`；只接受 Agent 處理過的決策 |
+| POST | `/api/knowledge/candidates/:candidateId/overturn` | JSON `{projectRoot}`；只接受 Agent 處理過的候選 |
+
+- 每個專案同時只有一個開放（pending、processing 或 failed）的請求。建立成功為 201；專案已有開放請求或相同 key 重試時回傳原請求並帶 `duplicate: true`。專案沒有待處理項目回 200 `agent_review_not_needed`，專案不是 tracked 回 200 `skipped`。
+- 回應的請求含 `itemCount`、`omittedCount`（超過 500 筆上限、未納入快照者）、`decisionCount`、`candidateCount`、`appliedCount`、`skippedCount`、`openCount`，以及 failed 時的 `failureReason`。
+- `GET /api/session-decisions` 的 `status` 另接受 `agent_reviewed`；`GET /api/knowledge/candidates` 另接受 `reviewedBy=agent`（搭配 `status=accepted` 或 `rejected`）。處理過的項目帶 `reviewedBy`、`reviewReason`、`reviewRequestId`，理由是 Agent 提供的未信任文字。
+- 推翻把項目送回待確認，並在 Agent 建立的 Knowledge 仍為 active 時封存它。回應 `outcome: "agent_review_overturned"`，`knowledge.action` 為 `archived`、`unchanged` 或 `missing`。項目不是 Agent 處理的回 409 `conflict`（details.reason 為 `not_agent_reviewed`）。
+- 狀態碼：request_not_open、request_closed、idempotency_conflict、not_agent_reviewed 為 409 `conflict`；格式不合格為 400 `invalid_input`；policy skipped、not_needed、not_found 為 200。未知例外固定 500 `internal_error`。
+
 pending／awaiting_review 整理快照中的項目受 Agent 寫入防護：finalize 完成／取代與來源 nextSteps 編輯不能直接結案。Web 逐筆／批次人工操作仍可使用；若改動來源或項目，原建議會由版本核對判為過期。取消或完成整理請求後恢復正常 Agent 收尾結案。
 
 新增五個 project-data 表與 audit 關聯參與匯出、匯入、敏感資訊遮蔽與永久刪除；舊 schema bundle 預設空表與 null 關聯。整理理由是審核資料，不加入搜尋索引；原項目與來源仍由 Session 搜尋。遮蔽或重新匯入可能改變指紋，待審建議會保守視為過期，需要重新核對。

@@ -8,15 +8,19 @@ import type {
 } from "@work-intelligence/core";
 import { useApi } from "../composables/useApi";
 import { errorMessage } from "../utils/format";
+import { useAgentReviewStore } from "./agent-review";
 import { queryKeys } from "./query-keys";
 import { t } from "../i18n";
 
 /** Owns the tracked-project inbox for Agent-autonomous decisions and its Web-only review action. */
 export const useSessionDecisionsStore = defineStore("session-decisions", () => {
   const queryCache = useQueryCache();
+  const agentReviewStore = useAgentReviewStore();
   const listEnabled = ref(false);
   const projectRoot = ref<string | undefined>();
-  const status = ref<ListSessionDecisionsInput["status"]>("pending");
+  const status = computed<ListSessionDecisionsInput["status"]>(() =>
+    agentReviewStore.filter === "agent" ? "agent_reviewed" : "pending",
+  );
   const limit = ref(50);
 
   function listScope(): ListSessionDecisionsInput {

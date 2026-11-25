@@ -763,6 +763,91 @@ test.describe("Work Intelligence browser regression", () => {
     expect(promotedKnowledge).toMatchObject({ outcome: "knowledge", items: [{ sessionId }] });
   });
 
+  test("asks an Agent to review a project, lists what it processed, and overturns a verdict", async ({ page }) => {
+    const reviewSession = withAgentStore((store) => {
+      const finalized = store.finalizeSession({
+        projectRoot,
+        idempotencyKey: `e2e-agent-review-${process.pid}`,
+        title: "E2E Agent review source",
+        summary: "Two Agent choices wait for review.",
+        workSummary: {
+          outcomes: [],
+          scope: [],
+          decisions: [
+            { text: "E2E review: keep the retry budget small.", origin: "agent_autonomous" },
+            { text: "E2E review: skip the flaky benchmark.", origin: "agent_autonomous" },
+          ],
+          verification: [],
+          nextSteps: [],
+        },
+        changedFiles: [],
+        verification: { status: "passed" },
+      });
+      if (finalized.outcome !== "finalized") throw new Error(`Expected a finalized Session, got ${finalized.outcome}.`);
+      return finalized.session.id;
+    });
+
+    await page.goto("/knowledge/decisions");
+    const box = page.getByTestId("agent-review-request");
+    await expect(box.getByRole("button", { name: tt("knowledge.askAgentToReview") })).toBeDisabled();
+    await expect(box).toContainText(tt("knowledge.agentReviewChooseProject"));
+
+    await box.getByRole("button", { name: tt("common.project") }).click();
+    await page.getByRole("menuitemradio", { name: "Browser Regression Fixture" }).click();
+    const ask = box.getByRole("button", { name: tt("knowledge.askAgentToReview") });
+    await expect(ask).toBeEnabled();
+    await ask.click();
+    const status = page.getByTestId("agent-review-request-status");
+    await expect(status).toContainText(tt("status.agentReviewPending"));
+    await expect(box).toContainText(tt("knowledge.agentReviewAskYourAgent"));
+    await expect(ask).toBeDisabled();
+
+    const decisionId = withAgentStore((store) => {
+      const context = store.getAgentReviewContext({ projectRoot });
+      if (context.outcome !== "agent_review_context") throw new Error(`Expected context, got ${context.outcome}.`);
+      const item = context.items.find((entry) => entry.text?.startsWith("E2E review: keep"));
+      if (!item) throw new Error("Expected the review fixture decision in the snapshot.");
+      const submitted = store.submitAgentReviewVerdicts({
+        requestId: context.request.id,
+        idempotencyKey: `e2e-agent-review-submit-${process.pid}`,
+        verdicts: [
+          { itemKind: "decision", itemId: item.id, verdict: "confirm", reason: "The Session shows the budget held." },
+        ],
+        complete: true,
+      });
+      expect(submitted.outcome).toBe("agent_review_verdicts_submitted");
+      return item.id;
+    });
+    expect(reviewSession).toBeTruthy();
+
+    await expect(status).toContainText(tt("status.agentReviewCompleted"), { timeout: 15_000 });
+    await expect(status).toContainText(ttPattern("knowledge.agentReviewTotals", { applied: 1, skipped: 0 }));
+
+    const panel = page.getByTestId("agent-decision-review");
+    await expect(panel.getByTestId("agent-decision-item").filter({ hasText: "E2E review: keep" })).toHaveCount(0);
+    await panel.getByRole("radio", { name: tt("knowledge.reviewFilterAgent") }).click();
+    const processed = panel.getByTestId("agent-decision-item").filter({ hasText: "E2E review: keep" });
+    await expect(processed).toContainText("The Session shows the budget held.");
+    await expect(processed.getByRole("button", { name: tt("knowledge.turnIntoKnowledge") })).toHaveCount(0);
+
+    await processed.getByRole("button", { name: tt("knowledge.overturn") }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: tt("knowledge.overturn") })
+      .click();
+    await expect(processed).toHaveCount(0);
+
+    await panel.getByRole("radio", { name: tt("knowledge.reviewFilterPending") }).click();
+    const back = panel.getByTestId("agent-decision-item").filter({ hasText: "E2E review: keep" });
+    await expect(back).toBeVisible();
+    await back.getByRole("button", { name: tt("knowledge.reject") }).click();
+    await expect(back).toHaveCount(0);
+    const rest = panel.getByTestId("agent-decision-item").filter({ hasText: "E2E review: skip" });
+    await rest.getByRole("button", { name: tt("knowledge.reject") }).click();
+    await expect(rest).toHaveCount(0);
+    expect(decisionId).toBeTruthy();
+  });
+
   test("shows a standing Knowledge page with its sources and keeps a manual edit as a new version", async ({
     page,
   }) => {
