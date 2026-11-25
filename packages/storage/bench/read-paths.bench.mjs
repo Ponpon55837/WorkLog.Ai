@@ -1562,6 +1562,12 @@ try {
         projectRoot: alphaRoot,
         q: "synthetic staleness src/feature-a/index.ts zzyzx",
       }),
+    // An unregistered subfolder of a tracked project: the registry is read once and scanned once.
+    "matchingProjects (unregistered subfolder)": () => {
+      const result = benchStore.matchingProjects(join(alphaRoot, "packages", "unregistered"));
+      if (result.length !== 1) throw new Error("The subfolder must match its tracked project.");
+      return result;
+    },
     previewMetadataBackfill: () => benchStore.previewMetadataBackfill({}),
     getGraph: () => benchStore.getGraph({}),
     "getGraph (default 180 nodes)": () => {
@@ -1673,6 +1679,13 @@ try {
       const result = worstText.store.searchKnowledge({ projectRoot: worstText.listRoot, q: worstText.nearMiss });
       if (result.outcome !== "knowledge" || result.pageInfo.total !== 200 || result.warnings)
         throw new Error("The worst-case list search must read every row within its cap, without a warning.");
+      return result;
+    },
+    // The compact view over the same 200 rows of the largest appliesTo: counted in SQL, the stored text is never loaded.
+    "searchKnowledgeCompactForAgent (200 x 30 x 1,000-char appliesTo, page of 100)": () => {
+      const result = worstText.store.searchKnowledgeCompactForAgent({ projectRoot: worstText.listRoot, pageSize: 100 });
+      if (result.outcome !== "knowledge" || result.items.length !== 100 || result.items[0].appliesToCount !== 30)
+        throw new Error("The compact list must return a full page with appliesTo counts.");
       return result;
     },
     // 200 candidates, 5,000 later Sessions, the oldest touching all of them (3.0 s when each candidate scanned alone).
@@ -1987,6 +2000,8 @@ try {
     "searchKnowledge (staleness, 2,000 Sessions of 50 distinct files, page 20)": 1000,
     "searchKnowledge (15-star glob over long paths, decided or stopped at the match ceiling)": 1000,
     "searchKnowledgeForAgent (relaxed fallback)": 250,
+    "searchKnowledgeCompactForAgent (200 x 30 x 1,000-char appliesTo, page of 100)": 250,
+    "matchingProjects (unregistered subfolder)": 50,
     createBackup: 300,
     "exportTo (whole database)": 300,
     // Measured to the response's last byte (1.6.45). Three local runs of 10 gave p90 312-327 ms on a quiet machine and

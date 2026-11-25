@@ -6,6 +6,12 @@
 
 - 最後更新：2026-11-25
 
+## 1.6.73（未登錄路徑的相符專案提示與知識精簡清單）
+
+- MCP 操作因 `projectRoot` 未登錄而略過時，回應另帶 `matchingProjects`：最多 5 筆 tracked 或 paused 專案的名稱、root 與狀態。相符條件只有路徑位於已登錄 root 之下、資料夾名或專案名稱相同（忽略大小寫）、已登錄 root 位於路徑之下三種；不列 ignored 專案，不讀專案資料、不建立資料列，也不會自動改用相符的專案。沒有相符時回應不變。
+- `work_search_knowledge` 新增 `view: "compact"`：每筆只回 `id`、`kind`、`status`、`title`、`updatedAt`、`appliesToCount`、`needsReview`，SQL 不載入內文；50 筆虛構資料的一頁由 87,220 字元降為 10,872 字元。不帶 `view` 時回應不變。
+- MCP contract 文字改變，Agent 需重新連線 MCP。資料庫維持 schema 36，不需遷移。詳見 [1.6.73 更新說明](releases/1.6.73.md)。
+
 ## 1.6.72（知識頁接近上限時建議拆頁）
 
 - 知識頁有 11 段以上，或段落內容合計 7,200 字以上（8,000 字的 90%）時，`work_get_knowledge_page_context` 的完整讀取、聚焦讀取與只讀待核對段落，以及 `work_save_knowledge_page` 的完整儲存與單段更新回條，都另帶 `size` 與 `splitSuggestion`：接近哪個上限、建議移到自訂頁面的最大幾段（最多 3 段），以及建立自訂頁面的一句指引。沒接近上限時不多回任何欄位。

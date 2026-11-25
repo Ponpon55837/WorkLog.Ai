@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import type {
+  CompactKnowledgeItem,
   KnowledgeKind,
   KnowledgeQuery,
   KnowledgeQueryResult,
@@ -46,7 +47,20 @@ type KnowledgeRepositoryRow = {
   review_json?: string | null;
 };
 
+type CompactKnowledgeRow = {
+  id: string;
+  project_id: string;
+  project_name: string | null;
+  kind: KnowledgeKind;
+  status: KnowledgeStatus;
+  title: string;
+  updated_at: string;
+  applies_to_count: number;
+  needs_review: number;
+};
+
 type KnowledgeMapper = (row: KnowledgeRepositoryRow) => KnowledgeRecord;
+type KnowledgePage<Row> = { rows: Row[]; pageInfo: PageInfo; warnings: string[]; skippedRecords?: number };
 type PageInfoBuilder = (
   pageValue: number | undefined,
   pageSizeValue: number | undefined,
@@ -64,6 +78,26 @@ const SEARCHED_COLUMNS = ["title", "body", "tags_json", "references_json", "appl
 /** Stored bytes the term clauses may read, from the record header (octet_length does not load the text). */
 const SEARCHED_BYTES = SEARCHED_COLUMNS.map((column) => `COALESCE(octet_length(k.${column}), 0)`).join(" + ");
 
+const RECORD_COLUMNS = "k.*, p.name AS project_name";
+/** The compact columns: the stored text is never loaded, only measured (appliesTo) or tested (review). */
+const COMPACT_COLUMNS = `k.id, k.project_id, p.name AS project_name, k.kind, k.status, k.title, k.updated_at,
+  CASE WHEN json_valid(k.applies_to_json) THEN json_array_length(k.applies_to_json) ELSE 0 END AS applies_to_count,
+  COALESCE(k.review_json, '') <> '' AS needs_review`;
+
+function toCompactKnowledgeItem(row: CompactKnowledgeRow): CompactKnowledgeItem {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    ...(row.project_name ? { projectName: row.project_name } : {}),
+    kind: row.kind,
+    status: row.status,
+    title: row.title,
+    updatedAt: row.updated_at,
+    ...(row.applies_to_count > 0 ? { appliesToCount: row.applies_to_count } : {}),
+    ...(row.needs_review ? { needsReview: true as const } : {}),
+  };
+}
+
 /** Knowledge query persistence. Mutation and audit flows remain behind the facade for now. */
 export class KnowledgeRepository {
   public constructor(
@@ -74,6 +108,21 @@ export class KnowledgeRepository {
   ) {}
 
   public search(options: KnowledgeQuery = {}): KnowledgeQueryResult | KnowledgeSkippedResult {
+    return this.searchRows(options, RECORD_COLUMNS, this.mapKnowledge);
+  }
+
+  /** The same search and page as search(), answered with compact items read from their own few columns. */
+  public searchCompact(
+    options: KnowledgeQuery = {},
+  ): KnowledgeQueryResult<CompactKnowledgeItem> | KnowledgeSkippedResult {
+    return this.searchRows(options, COMPACT_COLUMNS, toCompactKnowledgeItem);
+  }
+
+  private searchRows<Row, Item>(
+    options: KnowledgeQuery,
+    columns: string,
+    map: (row: Row) => Item,
+  ): KnowledgeQueryResult<Item> | KnowledgeSkippedResult {
     let scopedProject: ProjectRecord | undefined;
     let projectId = options.projectId;
 
@@ -110,15 +159,15 @@ export class KnowledgeRepository {
     const trackedProjects = this.dependencies.listTrackedProjects();
     const page =
       terms.length > 0
-        ? this.searchTextPage(where, parameters, options.page, pageSize)
-        : this.searchPage(where, parameters, options.page, pageSize);
+        ? this.searchTextPage<Row>(columns, where, parameters, options.page, pageSize)
+        : this.searchPage<Row>(columns, where, parameters, options.page, pageSize);
     const allWarnings = [...warnings, ...page.warnings];
     const skipped = page.skippedRecords ?? 0;
     return {
       outcome: "knowledge",
       project: scopedProject,
       projects: scopedProject ? [scopedProject] : trackedProjects,
-      items: page.rows.map(this.mapKnowledge),
+      items: page.rows.map(map),
       pageInfo: page.pageInfo,
       ...(allWarnings.length > 0 ? { warnings: allWarnings } : {}),
       ...(skipped > 0 ? { searchSkippedRecords: skipped } : {}),
@@ -148,12 +197,13 @@ export class KnowledgeRepository {
     return { count: value, truncated: scan.overBound > 0 };
   }
 
-  private searchPage(
+  private searchPage<Row>(
+    columns: string,
     where: string,
     parameters: Array<string | number>,
     page: number | undefined,
     pageSize: number,
-  ): { rows: KnowledgeRepositoryRow[]; pageInfo: PageInfo; warnings: string[]; skippedRecords?: number } {
+  ): KnowledgePage<Row> {
     const total = (
       this.db
         .prepare(
@@ -167,14 +217,14 @@ export class KnowledgeRepository {
     const pageInfo = this.buildPageInfo(page, pageSize, total, 200);
     const rows = this.db
       .prepare(
-        `SELECT k.*, p.name AS project_name
+        `SELECT ${columns}
          FROM knowledge k
          JOIN projects p ON p.id = k.project_id
          WHERE ${where}
          ORDER BY k.updated_at DESC, k.id DESC
          LIMIT ? OFFSET ?`,
       )
-      .all(...parameters, pageInfo.pageSize, (pageInfo.page - 1) * pageInfo.pageSize) as KnowledgeRepositoryRow[];
+      .all(...parameters, pageInfo.pageSize, (pageInfo.page - 1) * pageInfo.pageSize) as Row[];
     return { rows, pageInfo, warnings: [] };
   }
 
@@ -183,12 +233,13 @@ export class KnowledgeRepository {
    * them before the full rows are read by primary key in the same order (as the Sessions list does). The page clamps
    * to the total exactly as COUNT plus LIMIT/OFFSET did, and a row above the per-row cap is left out of both.
    */
-  private searchTextPage(
+  private searchTextPage<Row>(
+    columns: string,
     where: string,
     parameters: Array<string | number>,
     page: number | undefined,
     pageSize: number,
-  ): { rows: KnowledgeRepositoryRow[]; pageInfo: PageInfo; warnings: string[]; skippedRecords?: number } {
+  ): KnowledgePage<Row> {
     const { value: ids, scan } = runListSearchScan(
       this.db,
       1,
@@ -213,13 +264,13 @@ export class KnowledgeRepository {
         ? []
         : (this.db
             .prepare(
-              `SELECT k.*, p.name AS project_name
+              `SELECT ${columns}
                FROM json_each(?) page
                CROSS JOIN knowledge k ON k.id = page.value
                JOIN projects p ON p.id = k.project_id
                ORDER BY page.key`,
             )
-            .all(JSON.stringify(pageIds)) as KnowledgeRepositoryRow[]);
+            .all(JSON.stringify(pageIds)) as Row[]);
     const truncated = listSearchOverBoundWarning(scan);
     return { rows, pageInfo, warnings: truncated ? [truncated] : [], skippedRecords: scan.overBound };
   }

@@ -48,6 +48,7 @@ const RESPONSE_BUDGETS = {
   contextOmitted: 1_300,
   knowledgeSearchEmpty: 450,
   knowledgeSearchRelaxed: 3_000,
+  knowledgeSearchCompactPage: 12_000,
   sessionListScoped: 9_000,
   knowledgePageNotFound: 700,
   fileHistoryOnePath: 4_000,
@@ -1867,6 +1868,48 @@ describe("synthetic MCP response-size baseline", () => {
     ]);
     // The relaxed records were returned to the Agent, so the audit lists them although the scoped items omit projectId.
     expect(reads[1]!.knowledgeIds.sort()).toEqual(value.relaxedMatches.map((match) => match.id).sort());
+  });
+
+  it("keeps a full page of compact Knowledge search items within budget, far below the full view", async () => {
+    const { client, projectRoot, store } = await connectWithSyntheticHistory();
+    for (let index = 0; index < 46; index += 1) {
+      vi.setSystemTime(Date.now() + 60_000);
+      const result = store.recordKnowledge({
+        projectRoot,
+        idempotencyKey: `response-size-compact-knowledge-${index}`,
+        kind: "procedure",
+        title: `Synthetic maintenance procedure ${index.toString().padStart(2, "0")} for the release checklist`,
+        body: `${longDecision} ${"Synthetic procedure step kept to measure the compact view. ".repeat(20)}`,
+        tags: ["release", "maintenance", "synthetic"],
+        references: [`docs/synthetic/procedure-${index}.md`],
+        appliesTo: [`packages/example-${index % 20}/src/**`, "docs/synthetic/**"],
+      });
+      expect(result.outcome).toBe("knowledge_recorded");
+    }
+
+    const full = await serializedMcpPayload(client, "work_search_knowledge", { projectRoot, pageSize: 50 });
+    const compact = await serializedMcpPayload(client, "work_search_knowledge", {
+      projectRoot,
+      pageSize: 50,
+      view: "compact",
+    });
+    const value = compact.value as { items: Array<Record<string, unknown>>; pageInfo: { total: number } };
+    console.info(
+      `Knowledge search page of 50 (characters): ${JSON.stringify({ full: full.length, compact: compact.length })}`,
+    );
+
+    expect(value.pageInfo.total).toBe(50);
+    expect(value.items).toHaveLength(50);
+    expect(compact.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.knowledgeSearchCompactPage);
+    expect(compact.length * 5).toBeLessThan(full.length);
+    expect(Object.keys(value.items[0]!).sort()).toEqual([
+      "appliesToCount",
+      "id",
+      "kind",
+      "status",
+      "title",
+      "updatedAt",
+    ]);
   });
 
   it("bounds a long file history at the default size and keeps its totals complete", async () => {

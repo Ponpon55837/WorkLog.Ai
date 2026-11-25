@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import type { ProjectRecord, ProjectStatus } from "@work-intelligence/core";
+import type { MatchingProject, ProjectRecord, ProjectStatus } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
-import { canonicalizeProjectRoot } from "@work-intelligence/project-policy";
+import { canonicalizeProjectRoot, matchRegisteredRoots } from "@work-intelligence/project-policy";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 
 export type ProjectRow = {
@@ -15,6 +15,8 @@ export type ProjectRow = {
   last_ingested_at: string | null;
   repository_url?: string | null;
 };
+
+const MATCHING_PROJECT_LIMIT = 5;
 
 export function toProject(row: ProjectRow): ProjectRecord {
   return {
@@ -56,6 +58,17 @@ export class ProjectRepository {
   public list(): ProjectRecord[] {
     const rows = this.db.prepare("SELECT * FROM projects ORDER BY updated_at DESC, name ASC").all() as ProjectRow[];
     return rows.map(toProject);
+  }
+
+  /**
+   * Up to five tracked or paused projects an unregistered root may have meant (see matchRegisteredRoots): one query
+   * over the registry's name, root and status columns and one pass over its rows.
+   */
+  public matching(projectRoot: string): MatchingProject[] {
+    const rows = this.db
+      .prepare("SELECT name, root_path AS rootPath, status FROM projects WHERE status IN ('tracked', 'paused')")
+      .all() as unknown as MatchingProject[];
+    return matchRegisteredRoots(canonicalizeProjectRoot(projectRoot), rows, MATCHING_PROJECT_LIMIT);
   }
 
   /** A cheap count of registered projects, for status displays that must not load every row. */

@@ -1375,6 +1375,13 @@ export const knowledgeQuerySchema = z.object({
   pageSize: listPageSizeSchema.default(10),
 });
 
+export const mcpKnowledgeQuerySchema = knowledgeQuerySchema.extend({
+  view: z
+    .enum(["full", "compact"])
+    .optional()
+    .describe("compact: items carry id, kind, status, title, updatedAt, appliesToCount, needsReview only."),
+});
+
 export const knowledgeHistoryQuerySchema = z.object({
   projectRoot: z.string().trim().min(1).max(1_000),
   knowledgeId: z.string().trim().min(1).max(200),

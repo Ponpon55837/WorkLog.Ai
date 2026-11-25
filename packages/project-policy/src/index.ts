@@ -2,6 +2,45 @@ import { existsSync, promises as fsPromises, realpathSync } from "node:fs";
 import { dirname, posix, relative, resolve, sep, win32 } from "node:path";
 import type { PolicyDecision, ProjectReader } from "@work-intelligence/core";
 
+export interface RegisteredRootCandidate {
+  name: string;
+  rootPath: string;
+}
+
+const PATH_SEPARATOR = /[\\/]/;
+
+/** Lower-cased, without a trailing separator, so spellings that differ only in case or a final slash compare equal. */
+function comparablePath(path: string): string {
+  return path.toLowerCase().replace(/[\\/]+$/, "");
+}
+
+function pathIsInside(path: string, ancestor: string): boolean {
+  return path.length > ancestor.length && path.startsWith(ancestor) && PATH_SEPARATOR.test(path[ancestor.length]!);
+}
+
+function segments(path: string): string[] {
+  return path.split(PATH_SEPARATOR);
+}
+
+/**
+ * How a registered root ties to an unmatched path, or undefined when nothing does: rank 0 the path is inside the root
+ * (called from a subfolder), 1 the folder name or project name equals the path's folder name, 2 the root is inside
+ * the path (called from a parent folder). Case is ignored; a filesystem root path matches by containment only.
+ */
+function rootMatch(path: string, candidate: RegisteredRootCandidate): { rank: number; distance: number } | undefined {
+  const root = comparablePath(candidate.rootPath);
+  const pathSegments = segments(path);
+  const rootSegments = segments(root);
+  const distance = Math.abs(pathSegments.length - rootSegments.length);
+  if (root.length > 0 && pathIsInside(path, root)) return { rank: 0, distance };
+  if (pathSegments.length < 2) return undefined;
+  const folderName = pathSegments.at(-1);
+  if (rootSegments.at(-1) === folderName || candidate.name.trim().toLowerCase() === folderName) {
+    return { rank: 1, distance: 0 };
+  }
+  return pathIsInside(root, path) ? { rank: 2, distance } : undefined;
+}
+
 /**
  * The canonical form of a project root: the stored comparison key. On Windows the file system ignores case, so
  * the key is case-folded and is NOT the spelling the user typed; anything shown to a person must keep the original
@@ -27,6 +66,35 @@ export function isPathWithinProject(projectRoot: string, candidatePath: string):
       !relativePath.startsWith("../") &&
       !relativePath.includes(":\\"))
   );
+}
+
+/**
+ * Registered roots an unmatched project root may have meant (a moved folder, another computer, a typo in the parent
+ * path, or a call from a subfolder), most likely first and at most `limit`. One pass over the candidates; a root is
+ * matched only by an equal folder or project name, or by containing or being inside the path, never by similarity.
+ * Within a rank the nearest root comes first, then name and root order.
+ */
+export function matchRegisteredRoots<T extends RegisteredRootCandidate>(
+  projectRoot: string,
+  candidates: readonly T[],
+  limit: number,
+): T[] {
+  const path = comparablePath(projectRoot);
+  const matches: Array<{ candidate: T; rank: number; distance: number }> = [];
+  for (const candidate of candidates) {
+    const match = rootMatch(path, candidate);
+    if (match) matches.push({ candidate, ...match });
+  }
+  return matches
+    .sort(
+      (left, right) =>
+        left.rank - right.rank ||
+        left.distance - right.distance ||
+        left.candidate.name.localeCompare(right.candidate.name) ||
+        left.candidate.rootPath.localeCompare(right.candidate.rootPath),
+    )
+    .slice(0, limit)
+    .map((match) => match.candidate);
 }
 
 export class ProjectPolicyGate {

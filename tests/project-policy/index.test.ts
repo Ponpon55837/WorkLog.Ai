@@ -8,6 +8,7 @@ import {
   createAsyncProjectPathResolver,
   createProjectPathResolver,
   isPathWithinProject,
+  matchRegisteredRoots,
   ProjectPolicyGate,
   projectParentPath,
   safeExistingProjectPaths,
@@ -214,5 +215,63 @@ describe("ProjectPolicyGate", () => {
     } finally {
       rmSync(parent, { recursive: true, force: true });
     }
+  });
+});
+
+describe("matchRegisteredRoots", () => {
+  const candidate = (name: string, rootPath: string) => ({ name, rootPath });
+
+  it("matches a moved folder by its folder name or project name, ignoring case", () => {
+    const moved = candidate("Atlas", "/old/disk/atlas-app");
+    const named = candidate("Atlas-App", "/elsewhere/web");
+    const unrelated = candidate("Other", "/old/disk/other");
+
+    expect(matchRegisteredRoots("/new/disk/ATLAS-APP", [unrelated, named, moved], 5)).toEqual([moved, named]);
+  });
+
+  it("ranks a root containing the path first, nearest root before a farther one", () => {
+    const outer = candidate("Mono", "/work/mono");
+    const inner = candidate("Mono web", "/work/mono/apps/web");
+    const sameName = candidate("Src", "/other/src");
+
+    expect(matchRegisteredRoots("/work/mono/apps/web/src", [sameName, outer, inner], 5)).toEqual([
+      inner,
+      outer,
+      sameName,
+    ]);
+  });
+
+  it("matches roots inside a parent folder last, shallowest first", () => {
+    const deep = candidate("Deep", "/work/clients/a/deep");
+    const shallow = candidate("Shallow", "/work/clients/shallow");
+
+    expect(matchRegisteredRoots("/work/clients", [deep, shallow], 5)).toEqual([shallow, deep]);
+  });
+
+  it("treats a trailing separator, backslashes and case alike", () => {
+    const windows = candidate("Billing", "c:\\users\\me\\billing");
+
+    expect(matchRegisteredRoots("C:\\Users\\Me\\Billing\\api\\", [windows], 5)).toEqual([windows]);
+    expect(matchRegisteredRoots("/home/me/Billing/", [windows], 5)).toEqual([windows]);
+  });
+
+  it("does not match a shared prefix, a similar name, or anything from a filesystem root", () => {
+    const candidates = [candidate("Atlas", "/work/atlas"), candidate("Root", "/")];
+
+    expect(matchRegisteredRoots("/work/atlas-v2", candidates, 5)).toEqual([]);
+    expect(matchRegisteredRoots("/work/atla", candidates, 5)).toEqual([]);
+    expect(matchRegisteredRoots("/", candidates, 5)).toEqual([]);
+    expect(matchRegisteredRoots("c:\\", [candidate("Drive", "c:\\work\\drive")], 5)).toEqual([]);
+  });
+
+  it("orders ties by name and root, and returns at most the limit", () => {
+    const candidates = [
+      candidate("Beta", "/b/app"),
+      candidate("Alpha", "/c/app"),
+      candidate("Alpha", "/a/app"),
+      candidate("Gamma", "/d/app"),
+    ];
+
+    expect(matchRegisteredRoots("/new/app", candidates, 3)).toEqual([candidates[2], candidates[1], candidates[0]]);
   });
 });
