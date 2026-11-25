@@ -6,6 +6,16 @@
 
 - 最後更新：2026-11-25
 
+## 1.6.70（Agent 審查請求）
+
+- 使用者在「知識」頁對「記錄中」的專案開啟 Agent 審查請求（或請 Agent 代為開啟），把待確認的 Agent 自主決策與已提出的 Knowledge 候選做成快照；Agent 直接套用結論並附理由。決策確認、駁回或升為 Knowledge，候選接受（可附修改）或駁回；沒有證據的維持待確認，快照後被改過或已審查的略過不覆寫。
+- 同專案只有一個進行中的請求；快照上限 500 筆並顯示超出筆數；處理超過 30 分鐘變成失敗，可繼續處理；Web 可取消。完成後結果列出有新材料的知識頁，由 Agent 走單段更新，伺服器不改寫頁面。
+- 決策與候選記錄審查者（使用者／Agent）、理由、請求與時間，舊資料視為使用者審查。Web 清單可篩選「由 Agent 處理」並顯示理由；使用者可推翻 Agent 的結論，項目回到使用者佇列，由該結論建立且仍使用中的 Knowledge 會封存（已封存或刪除的不變），被推翻的項目不再被之後的請求撿走。
+- MCP 新增 `work_request_agent_review`、`work_get_agent_review_context`、`work_submit_agent_review_verdicts` 與按需指引 `references/agent-review.md`；Agent 需重新連線 MCP。REST 新增 `/api/agent-review-requests`（建立、列出、取消）與兩個 overturn 端點，並支援 `status=agent_reviewed`、`reviewedBy=agent` 篩選。
+- 未結項清理仍須人工核准，候選的提出方式不變。
+
+資料庫升到 36（升級時自動備份後遷移）；專案匯出入包含新資料，仍可匯入 schema 31–35 的匯出檔；新增 schema 35 升級樣本。詳見 [1.6.70 更新說明](releases/1.6.70.md)。
+
 ## 1.6.69（知識頁單段更新）
 
 - `work_save_knowledge_page` 可改帶 `upsertSections` 和／或 `removeHeadings`（皆 1–12 項，必須帶 `reviewToken`，與 `sections` 互斥）只更新幾個段落：同標題（去空白、不分大小寫）原地取代，否則附加在頁尾，其餘段落不變，合併後才檢查 12 段與 8,000 字上限。新結果 `section_not_found` 與 `page_limit_exceeded` 都不寫入。MCP 回傳精簡回條（`page` 狀態與 `sectionChanges`）。
