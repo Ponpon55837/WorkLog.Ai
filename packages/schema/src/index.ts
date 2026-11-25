@@ -1139,12 +1139,24 @@ export const markKnowledgePageCheckedInputSchema = z
     throughSessionId: z.string().trim().min(1).max(200),
   })
   .strict();
-export const saveKnowledgePageInputSchema = z
+export const saveKnowledgePageInputSchemaBase = z
   .object({
     projectRoot: z.string().trim().min(1).max(1_000),
     slug: knowledgePageSlugSchema,
     idempotencyKey: z.string().trim().min(1).max(300),
-    sections: knowledgePageSectionsSchema,
+    sections: knowledgePageSectionsSchema.optional(),
+    upsertSections: z
+      .array(knowledgePageSectionSchema)
+      .min(1)
+      .max(12)
+      .optional()
+      .describe("Section update: sections to add, or to replace when the heading exists. Needs reviewToken."),
+    removeHeadings: z
+      .array(z.string().trim().min(1).max(120))
+      .min(1)
+      .max(12)
+      .optional()
+      .describe("Section update: headings of sections to remove. Needs reviewToken."),
     reviewToken: z
       .string()
       .trim()
@@ -1154,6 +1166,55 @@ export const saveKnowledgePageInputSchema = z
       .describe("The reviewToken from the work_get_knowledge_page_context read this page was written from, unchanged."),
   })
   .strict();
+const normalizedHeading = (heading: string): string => heading.toLowerCase();
+export const saveKnowledgePageInputSchema = saveKnowledgePageInputSchemaBase.superRefine((value, context) => {
+  const isSectionUpdate = value.upsertSections !== undefined || value.removeHeadings !== undefined;
+  if ((value.sections !== undefined) === isSectionUpdate) {
+    context.addIssue({
+      code: "custom",
+      message: "Send either sections (the whole page) or upsertSections and/or removeHeadings (a section update).",
+      path: [isSectionUpdate ? "sections" : "upsertSections"],
+    });
+    return;
+  }
+  if (!isSectionUpdate) return;
+  if (value.reviewToken === undefined) {
+    context.addIssue({
+      code: "custom",
+      message: "A section update needs the reviewToken from work_get_knowledge_page_context.",
+      path: ["reviewToken"],
+    });
+  }
+  const upserted = new Set<string>();
+  value.upsertSections?.forEach((section, index) => {
+    if (upserted.has(normalizedHeading(section.heading))) {
+      context.addIssue({
+        code: "custom",
+        message: "Each heading may appear once in upsertSections (case-insensitive).",
+        path: ["upsertSections", index, "heading"],
+      });
+    }
+    upserted.add(normalizedHeading(section.heading));
+  });
+  const removed = new Set<string>();
+  value.removeHeadings?.forEach((heading, index) => {
+    const key = normalizedHeading(heading);
+    if (removed.has(key)) {
+      context.addIssue({
+        code: "custom",
+        message: "Each heading may appear once in removeHeadings (case-insensitive).",
+        path: ["removeHeadings", index],
+      });
+    } else if (upserted.has(key)) {
+      context.addIssue({
+        code: "custom",
+        message: "A heading cannot be in both upsertSections and removeHeadings.",
+        path: ["removeHeadings", index],
+      });
+    }
+    removed.add(key);
+  });
+});
 export const updateKnowledgePageInputSchema = z
   .object({
     pageId: z.string().trim().min(1).max(200),

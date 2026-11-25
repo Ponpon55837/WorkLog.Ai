@@ -2553,7 +2553,12 @@ export interface SaveKnowledgePageInput {
   projectRoot: string;
   slug: string;
   idempotencyKey: string;
-  sections: KnowledgePageSection[];
+  /** The whole page. Exactly one of sections or a section update (upsertSections and/or removeHeadings). */
+  sections?: KnowledgePageSection[];
+  /** Section update: sections to add, or to replace in place when a section with that heading exists. */
+  upsertSections?: KnowledgePageSection[];
+  /** Section update: headings of sections to remove (case-insensitive, trimmed). Needs reviewToken. */
+  removeHeadings?: string[];
   /**
    * The reviewToken of the work_get_knowledge_page_context read this page was written from, passed back unchanged.
    * The save is refused with version_conflict when the page changed since that read, and Sessions the read did not
@@ -2631,6 +2636,8 @@ export interface KnowledgePageFocusedContext {
     updateRequestedAt?: string;
   };
   sections: Array<KnowledgePageSection & { needsReview?: true }>;
+  /** For a section update or full save of this page, passed back unchanged. */
+  reviewToken: string;
   otherSections: Array<{ heading: string; chars: number }>;
   sessionsOmitted: true;
   /** How to get the Session list and the complete page. */
@@ -2685,12 +2692,24 @@ export interface KnowledgePageVersionConflictResult {
   currentVersion: number;
 }
 
+/** Headings as stored after a section update. */
+export interface KnowledgePageSectionChanges {
+  /** Sections replaced in place, in page order. */
+  replaced: string[];
+  /** Sections appended, in request order. */
+  added: string[];
+  /** Sections removed, in the order they had on the page. */
+  removed: string[];
+}
+
 export type SaveKnowledgePageResult =
   | {
       outcome: "knowledge_page_saved";
       duplicate: boolean;
       page: KnowledgePageRecord;
       redactions?: RedactionSummary;
+      /** Present only when the save was a section update. */
+      sectionChanges?: KnowledgePageSectionChanges;
       /** Present when the save had no reviewToken and so used the older, unchecked coverage rule. */
       warnings?: string[];
     }
@@ -2699,6 +2718,17 @@ export type SaveKnowledgePageResult =
   | { outcome: "invalid_review_token"; reason: string }
   /** The idempotencyKey already saved different sections for this page; nothing was written. */
   | { outcome: "idempotency_conflict"; reason: string }
+  /** removeHeadings the page has no section for, as sent; nothing was written. */
+  | { outcome: "section_not_found"; reason: string; headings: string[] }
+  /** The merged page would have no sections, more than maxSections, or more than maxContentChars; nothing was written. */
+  | {
+      outcome: "page_limit_exceeded";
+      reason: string;
+      sectionCount: number;
+      maxSections: number;
+      contentChars: number;
+      maxContentChars: number;
+    }
   | KnowledgePageVersionConflictResult
   | KnowledgePageSkippedResult;
 
