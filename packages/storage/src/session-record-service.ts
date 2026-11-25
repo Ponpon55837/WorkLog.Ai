@@ -12,7 +12,6 @@ import type {
   ProjectRecord,
   SessionDetail,
   SessionDiagramRecord,
-  SessionDecisionRecord,
   SessionLinkRecord,
   SessionLinkRelation,
   SetEvidenceVoidInput,
@@ -73,39 +72,18 @@ import { segmentLengthWarnings, startedAfterCompletedWarning } from "./work-time
 import { runImmediateTransaction as runImmediateSqlTransaction } from "./sqlite-transaction.js";
 import type { SessionRow } from "./session-repository.js";
 import { combineRedactionSummaries, redactText, redactValue } from "./secret-redaction.js";
-import { replaceSessionDecisions, type SessionDecisionDraft } from "./session-decision-service.js";
+import {
+  replaceSessionDecisions,
+  toDecision as toSessionDecision,
+  type SessionDecisionDraft,
+  type SessionDecisionRow as SessionDecisionDbRow,
+} from "./session-decision-service.js";
 import { findTransientNextSteps } from "./transient-next-steps.js";
-
-export type SessionDecisionDbRow = {
-  id: string;
-  session_id: string;
-  project_id: string;
-  position: number;
-  text: string;
-  origin: SessionDecisionRecord["origin"];
-  review_status: SessionDecisionRecord["reviewStatus"];
-  reviewed_at: string | null;
-  knowledge_id: string | null;
-};
 
 /** Replacing the file list without new changes keeps only the stored changes whose path is still listed. */
 function keepChangesForFiles(changes: ChangedFileChange[], files: string[]): ChangedFileChange[] {
   const listed = new Set(files.map(changedFileIdentity));
   return changes.filter((change) => listed.has(changedFileIdentity(change.path)));
-}
-
-export function toSessionDecision(row: SessionDecisionDbRow): SessionDecisionRecord {
-  return {
-    id: row.id,
-    sessionId: row.session_id,
-    projectId: row.project_id,
-    position: row.position,
-    text: row.text,
-    origin: row.origin,
-    reviewStatus: row.review_status,
-    ...(row.reviewed_at ? { reviewedAt: row.reviewed_at } : {}),
-    ...(row.knowledge_id ? { knowledgeId: row.knowledge_id } : {}),
-  };
 }
 
 export interface SessionRecordDependencies {

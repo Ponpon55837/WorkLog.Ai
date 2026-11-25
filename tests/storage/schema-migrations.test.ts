@@ -40,6 +40,9 @@ const migration31ProjectDataTables = [
   "outstanding_cleanup_request_items",
   "outstanding_cleanup_proposals",
   "outstanding_cleanup_proposal_evidence",
+  "agent_review_requests",
+  "agent_review_submissions",
+  "agent_review_request_items",
 ] as const;
 
 const migration31Operations = ["INSERT", "UPDATE", "DELETE"] as const;
@@ -105,6 +108,15 @@ function applySchemaMigrations(db: DatabaseSync): void {
       !db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table)
     )
       db.exec(`CREATE TABLE ${table} (id TEXT PRIMARY KEY)`);
+  }
+  // Migration 36 indexes these two tables on columns the id-only stubs above do not have.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS knowledge_candidates (id TEXT PRIMARY KEY, project_id TEXT, decided_at TEXT);
+  `);
+  for (const column of ["project_id", "origin", "reviewed_at"]) {
+    const columns = db.prepare("PRAGMA table_info(session_decisions)").all() as Array<{ name: string }>;
+    if (columns.length > 0 && !columns.some((entry) => entry.name === column))
+      db.exec(`ALTER TABLE session_decisions ADD COLUMN ${column} TEXT`);
   }
   db.prepare(
     "INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (31, 'database-change-revisions', 'fixture')",
@@ -301,6 +313,9 @@ describe("custom report synthesis migration", () => {
         "review_status",
         "reviewed_at",
         "knowledge_id",
+        "reviewed_by",
+        "review_reason",
+        "review_request_id",
       ]);
       expect(
         db
@@ -1102,6 +1117,88 @@ describe("agent read audit response size migration", () => {
         response_chars: null,
       });
       expect(db.prepare("SELECT data_revision FROM change_revisions").get()).toEqual(revisions);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("agent review requests migration", () => {
+  it("adds the request tables and attribution columns, and leaves earlier reviews without an attribution", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializeWorkIntelligenceDatabase(db, ":memory:");
+      undoMigrationsAfter(db, 35);
+      const tables = (): string[] =>
+        (
+          db
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'agent_review_%'")
+            .all() as Array<{
+            name: string;
+          }>
+        ).map((row) => row.name);
+      expect(tables()).toEqual([]);
+      db.exec("PRAGMA foreign_keys=OFF");
+      db.exec(`INSERT INTO session_decisions (id, session_id, project_id, position, text, origin, review_status, reviewed_at)
+        VALUES ('old-decision', 's', 'p', 0, 'Reviewed before agent review', 'agent_autonomous', 'confirmed', '2026-11-01T00:00:00.000Z')`);
+      db.exec("PRAGMA foreign_keys=ON");
+
+      applyRuntimeMigrations(db);
+
+      expect(db.prepare("SELECT name FROM schema_migrations WHERE version = 36").get()).toEqual({
+        name: "agent-review-requests",
+      });
+      expect(tables().sort()).toEqual([
+        "agent_review_request_items",
+        "agent_review_requests",
+        "agent_review_submissions",
+      ]);
+      expect(db.prepare("SELECT reviewed_by, review_reason, review_request_id FROM session_decisions").get()).toEqual({
+        reviewed_by: null,
+        review_reason: null,
+        review_request_id: null,
+      });
+      for (const table of ["session_decisions", "knowledge_candidates"]) {
+        const names = (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name);
+        expect(names).toEqual(expect.arrayContaining(["reviewed_by", "review_reason", "review_request_id"]));
+      }
+      expect(
+        db
+          .prepare("SELECT dflt_value FROM pragma_table_info('agent_review_requests') WHERE name = 'omitted_count'")
+          .get(),
+      ).toEqual({ dflt_value: "0" });
+      const revisionTriggers = db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'trg_data_revision_agent_review_%'",
+        )
+        .get();
+      expect(revisionTriggers).toEqual({ count: 9 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("allows one open request per project but any number of closed ones", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializeWorkIntelligenceDatabase(db, ":memory:");
+      db.exec("PRAGMA foreign_keys=OFF");
+      const insert = db.prepare(
+        `INSERT INTO agent_review_requests (id, project_id, idempotency_key, status, requested_at, item_count)
+         VALUES (?, 'project-1', ?, ?, '2026-11-01T00:00:00.000Z', 1)`,
+      );
+      insert.run("closed-1", "key-1", "completed");
+      insert.run("closed-2", "key-2", "cancelled");
+      insert.run("open-1", "key-3", "failed");
+      expect(() => insert.run("open-2", "key-4", "pending")).toThrow(/UNIQUE/);
+      expect(() =>
+        db
+          .prepare(
+            `INSERT INTO agent_review_requests (id, project_id, idempotency_key, status, requested_at, item_count, omitted_count)
+             VALUES ('negative', 'project-2', 'key-5', 'pending', '2026-11-01T00:00:00.000Z', 1, -1)`,
+          )
+          .run(),
+      ).toThrow(/CHECK/);
     } finally {
       db.close();
     }

@@ -37,6 +37,7 @@ const RESPONSE_BUDGETS = {
   contextWithOutstandingCleanup: 10_000,
   outstandingCleanupRequestPage: 8_000,
   outstandingCleanupProposalPage: 30_000,
+  agentReviewContext: 24_000,
   relatedOutstandingItems: 3_000,
   contextRelatedOutstandingItems: 2_200,
   recallDefault: 3_500,
@@ -180,8 +181,9 @@ async function serializedMcpPayload(
   client: Client,
   name: string,
   args: Record<string, unknown>,
+  dispatcher = "work_read",
 ): Promise<SerializedMcpPayload> {
-  const result = await client.callTool({ name: "work_read", arguments: { operation: name, arguments: args } });
+  const result = await client.callTool({ name: dispatcher, arguments: { operation: name, arguments: args } });
   expect(result.isError, name).not.toBe(true);
   const content = result.content as Array<{ type: string; text?: string }>;
   const text = content.find((item) => item.type === "text")?.text;
@@ -1089,6 +1091,82 @@ describe("synthetic MCP response-size baseline", () => {
     expect(JSON.stringify(proposals).length).toBeLessThanOrEqual(RESPONSE_BUDGETS.outstandingCleanupProposalPage);
     expect(proposals.proposals).toHaveLength(5);
     expect(proposals.proposals.every((proposal) => proposal.evidenceSessionIds.length === 1)).toBe(true);
+  });
+
+  it("bounds the Agent review context page with long decisions, candidates and Session excerpts", async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "work-intelligence-agent-review-response-size-"));
+    cleanups.push(() => rmSync(projectRoot, { recursive: true, force: true }));
+    const store = new WorkIntelligenceStore(":memory:");
+    cleanups.push(() => store.close());
+    const project = store.addProject("Synthetic Agent Review Project", projectRoot);
+    store.updateProject(project.id, { status: "tracked" });
+    const long = (label: string) => `${label} `.repeat(400).trim();
+    const sessionIds: string[] = [];
+    for (let index = 0; index < 12; index += 1) {
+      const finalized = store.finalizeSession({
+        projectRoot,
+        idempotencyKey: `agent-review-size-${index}`,
+        title: `Synthetic review source ${index} ${long("title")}`.slice(0, 300),
+        summary: "Fictional source for Agent review response-budget coverage.",
+        workSummary: {
+          outcomes: [long(`outcome-${index}`), long(`second-outcome-${index}`)],
+          scope: [],
+          decisions: [{ text: long(`decision-${index}`), origin: "agent_autonomous" }],
+          verification: [],
+          nextSteps: [],
+        },
+        changedFiles: [],
+        verification: { status: "passed" },
+      });
+      if (finalized.outcome !== "finalized")
+        throw new Error(`Expected a source Session; received ${finalized.outcome}.`);
+      sessionIds.push(finalized.session.id);
+    }
+    const candidateRequest = store.requestKnowledgeCandidates(projectRoot);
+    if (candidateRequest.outcome !== "knowledge_candidate_request") throw new Error("Expected a candidate request.");
+    const candidates = store.submitKnowledgeCandidates({
+      requestId: candidateRequest.request.id,
+      candidates: sessionIds.slice(-6).map((sourceSessionId, index) => ({
+        sourceSessionId,
+        kind: "gotcha" as const,
+        title: `Synthetic candidate ${index} ${long("candidate-title")}`.slice(0, 300),
+        body: long(`candidate-body-${index}`),
+        rationale: long(`candidate-rationale-${index}`),
+      })),
+    });
+    if (candidates.outcome !== "knowledge_candidates_submitted") throw new Error("Expected submitted candidates.");
+
+    const server = createWorkIntelligenceMcpServer(store, "0.1.0-test", LATEST_SCHEMA_VERSION);
+    const client = new Client({ name: "agent-review-size-test", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    cleanups.push(() => client.close());
+
+    const request = await serializedMcpPayload(
+      client,
+      "work_request_agent_review",
+      { projectRoot, idempotencyKey: "agent-review-size-request" },
+      "work_write_idempotent",
+    );
+    expect(request.value).toMatchObject({ outcome: "agent_review_request", request: { itemCount: 18 } });
+
+    const context = await serializedMcpPayload(
+      client,
+      "work_get_agent_review_context",
+      { projectRoot },
+      "work_write_idempotent",
+    );
+    const value = context.value as {
+      outcome: string;
+      items: unknown[];
+      truncated: boolean;
+      pageInfo: { total: number };
+    };
+    expect(value).toMatchObject({ outcome: "agent_review_context", truncated: true, pageInfo: { total: 18 } });
+    expect(value.items.length).toBeGreaterThan(0);
+    expect(context.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.agentReviewContext);
+    expect(context.length).toBeGreaterThan(12_000);
+    console.info(`Max MCP Agent review context size: ${context.length} UTF-16 code units`);
   });
 
   it("rejects imported cleanup context when preserving a long source identity exceeds the response budget", async () => {

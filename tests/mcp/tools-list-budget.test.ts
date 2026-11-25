@@ -44,6 +44,8 @@ const EXPECTED_OPERATIONS = {
     "work_record_knowledge",
     "work_request_knowledge_candidates",
     "work_get_knowledge_candidate_context",
+    "work_request_agent_review",
+    "work_get_agent_review_context",
     "work_request_knowledge_page_update",
     "work_save_knowledge_page",
     "work_mark_knowledge_page_checked",
@@ -70,6 +72,7 @@ const EXPECTED_OPERATIONS = {
     "work_resolve_outstanding_items",
     "work_void_evidence",
     "work_update_knowledge",
+    "work_submit_agent_review_verdicts",
     "work_apply_metadata_backfill",
   ],
 } as const;
@@ -219,7 +222,7 @@ describe("Work Intelligence MCP dispatcher tools/list budget", () => {
         (count, name) => count + EXPECTED_OPERATIONS[name as keyof typeof EXPECTED_OPERATIONS].length,
         0,
       ),
-    ).toBe(52);
+    ).toBe(55);
 
     for (const tool of listing.tools) {
       const expected = EXPECTED_DISPATCHER_ANNOTATIONS[tool.name as keyof typeof EXPECTED_DISPATCHER_ANNOTATIONS];
@@ -236,16 +239,16 @@ describe("Work Intelligence MCP dispatcher tools/list budget", () => {
     }
   });
 
-  it("publishes each of the 52 operation contracts exactly once with its dispatcher, description, schema, and validation notes", async () => {
+  it("publishes each of the 55 operation contracts exactly once with its dispatcher, description, schema, and validation notes", async () => {
     const { client } = await connect();
     const document = await readAllOperationContracts(client);
     const sections = resourceOperationSections(document);
     const expectedOperationIds = Object.values(EXPECTED_OPERATIONS).flat();
     const operationHeadingCount = [...document.matchAll(/^## work_/gm)].length;
 
-    expect(operationHeadingCount).toBe(52);
+    expect(operationHeadingCount).toBe(55);
     expect([...sections.keys()].sort()).toEqual([...expectedOperationIds].sort());
-    expect(sections.size).toBe(52);
+    expect(sections.size).toBe(55);
 
     for (const [dispatcher, operationIds] of Object.entries(EXPECTED_OPERATIONS)) {
       for (const operationId of operationIds) {
@@ -459,7 +462,7 @@ describe("Work Intelligence MCP dispatcher tools/list budget", () => {
       }
     }
 
-    expect(callCount).toBe(52);
+    expect(callCount).toBe(55);
   });
 
   it("routes representative handlers and reports invalid operation arguments as tool errors", async () => {

@@ -175,6 +175,9 @@ export interface ProjectDeletionCounts {
   outstandingCleanupSubmissions: number;
   outstandingCleanupProposals: number;
   outstandingCleanupProposalEvidence: number;
+  agentReviewRequests: number;
+  agentReviewSubmissions: number;
+  agentReviewRequestItems: number;
   knowledgePages: number;
   knowledgePageVersions: number;
   knowledgeFeedback: number;
@@ -266,6 +269,9 @@ export interface WorkSummaryInputSections extends Omit<WorkSummarySections, "dec
   decisions: WorkSummaryDecisionEntry[];
 }
 
+/** Who made a review decision on a Session decision or Knowledge candidate. */
+export type ReviewActor = "user" | "agent";
+
 export interface SessionDecisionRecord {
   id: string;
   sessionId: string;
@@ -276,6 +282,10 @@ export interface SessionDecisionRecord {
   reviewStatus: SessionDecisionReviewStatus;
   reviewedAt?: string;
   knowledgeId?: string;
+  /** Present only on a reviewed row; rows reviewed before Agent review existed read as "user". */
+  reviewedBy?: ReviewActor;
+  reviewReason?: string;
+  reviewRequestId?: string;
   sessionTitle?: string;
   sessionCompletedAt?: string;
 }
@@ -386,7 +396,7 @@ export type ResolveOutstandingItemsResult =
 
 export interface ListSessionDecisionsInput {
   projectRoot?: string;
-  status?: "pending" | "all";
+  status?: "pending" | "all" | "agent_reviewed";
   limit?: number;
 }
 
@@ -2351,6 +2361,10 @@ export interface KnowledgeCandidate {
   knowledgeId?: string;
   createdAt: string;
   decidedAt?: string;
+  /** Present only on a decided candidate; candidates decided before Agent review existed read as "user". */
+  reviewedBy?: ReviewActor;
+  reviewReason?: string;
+  reviewRequestId?: string;
   /** Advisory overlaps found when the candidate was submitted; absent when none were found or none were stored. */
   overlaps?: KnowledgeCandidateOverlap[];
 }
@@ -2765,6 +2779,12 @@ export interface KnowledgePageDigest {
   truncated: boolean;
   needsReview?: boolean;
   reviewSections?: KnowledgePageReviewSection[];
+}
+
+export interface KnowledgeCandidateListInput {
+  projectRoot?: string;
+  status?: KnowledgeCandidateStatus;
+  reviewedBy?: "agent";
 }
 
 export type KnowledgeCandidateListResult =
@@ -3227,6 +3247,223 @@ export type DecideOutstandingCleanupProposalsResult =
 export type CancelOutstandingCleanupRequestResult =
   | { outcome: "outstanding_cleanup_request_cancelled"; request: OutstandingCleanupRequest; duplicate: boolean }
   | OutstandingCleanupFailure;
+
+export const AGENT_REVIEW_REQUEST_STATUSES = ["pending", "processing", "completed", "failed", "cancelled"] as const;
+export type AgentReviewRequestStatus = (typeof AGENT_REVIEW_REQUEST_STATUSES)[number];
+export type AgentReviewItemKind = "decision" | "candidate";
+export type AgentReviewVerdictKind = "confirm" | "reject" | "promote" | "accept";
+export type AgentReviewItemOutcome = "applied" | "skipped_stale" | "skipped_reviewed";
+/** open: no verdict yet; applied/skipped: this request decided it; stale: changed since the snapshot; reviewed: decided elsewhere. */
+export type AgentReviewItemState = "open" | "applied" | "skipped" | "stale" | "reviewed";
+
+/** A bounded Agent review of a project's pending Agent decisions and proposed Knowledge candidates. */
+export interface AgentReviewRequest {
+  id: string;
+  projectId: string;
+  projectName?: string;
+  status: AgentReviewRequestStatus;
+  requestedAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  failureReason?: string;
+  itemCount: number;
+  /** Eligible items the snapshot cap left out; a later request picks them up. */
+  omittedCount: number;
+  decisionCount: number;
+  candidateCount: number;
+  appliedCount: number;
+  skippedCount: number;
+  /** Snapshot items without an outcome yet. */
+  openCount: number;
+}
+
+export interface AgentReviewRequestQuery {
+  projectId?: string;
+  status?: AgentReviewRequestStatus;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface CreateAgentReviewRequestInput {
+  projectId: string;
+  idempotencyKey: string;
+}
+
+export interface RequestAgentReviewInput {
+  projectRoot: string;
+  idempotencyKey: string;
+}
+
+export interface AgentReviewContextQuery {
+  requestId?: string;
+  projectRoot?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface AgentReviewKnowledgeDraft {
+  kind?: KnowledgeKind;
+  title: string;
+  body: string;
+  tags?: string[];
+  references?: string[];
+  appliesTo?: string[];
+}
+
+export type AgentReviewVerdict =
+  | {
+      itemKind: "decision";
+      itemId: string;
+      verdict: "confirm" | "reject" | "promote";
+      reason: string;
+      knowledge?: AgentReviewKnowledgeDraft;
+    }
+  | {
+      itemKind: "candidate";
+      itemId: string;
+      verdict: "accept" | "reject";
+      reason: string;
+      edits?: Partial<Pick<KnowledgeCandidate, "kind" | "title" | "body" | "tags" | "references" | "appliesTo">>;
+    };
+
+export interface SubmitAgentReviewVerdictsInput {
+  requestId: string;
+  idempotencyKey: string;
+  verdicts: AgentReviewVerdict[];
+  /** Completes the request even when snapshot items remain open. */
+  complete?: boolean;
+}
+
+export interface AgentReviewSessionContext {
+  id: string;
+  title: string;
+  titleTruncated?: boolean;
+  completedAt: string;
+  outcomes: string[];
+  outcomesTruncated?: boolean;
+  otherDecisions: string[];
+  otherDecisionsTruncated?: boolean;
+}
+
+export interface AgentReviewContextItem {
+  itemKind: AgentReviewItemKind;
+  id: string;
+  state: AgentReviewItemState;
+  sourceSession?: AgentReviewSessionContext;
+  /** Decisions only. */
+  text?: string;
+  textTruncated?: boolean;
+  /** Candidates only. */
+  kind?: KnowledgeKind;
+  title?: string;
+  body?: string;
+  rationale?: string;
+  tags?: string[];
+  references?: string[];
+  appliesTo?: string[];
+  bodyTruncated?: boolean;
+  rationaleTruncated?: boolean;
+  titleTruncated?: boolean;
+  /** Advisory only: stored for candidates, computed for decisions. */
+  overlaps: KnowledgeCandidateOverlap[];
+}
+
+export interface AgentReviewContext {
+  outcome: "agent_review_context";
+  request: AgentReviewRequest;
+  items: AgentReviewContextItem[];
+  pageInfo: PageInfo;
+  /** First page only: what the project already holds, so promotions do not repeat it. */
+  existingKnowledge?: Array<{ id: string; kind: KnowledgeKind; title: string; status?: "archived" | "rejected" }>;
+  existingKnowledgeOmitted?: number;
+  truncated: boolean;
+  hint: string;
+}
+
+export type AgentReviewRejectedReason =
+  "idempotency_conflict" | "request_not_open" | "request_closed" | "not_agent_reviewed" | "context_too_large";
+
+export type AgentReviewSkippedResult = KnowledgeCandidateSkippedResult | ProjectIdSkippedResult;
+
+export type AgentReviewFailure =
+  | AgentReviewSkippedResult
+  | { outcome: "rejected"; reason: AgentReviewRejectedReason; requestId?: string }
+  | { outcome: "not_found"; requestId?: string; itemId?: string };
+
+export type CreateAgentReviewRequestResult =
+  | {
+      outcome: "agent_review_request";
+      request: AgentReviewRequest;
+      /** True when this idempotency key or an already open request of the project answered. */
+      duplicate: boolean;
+      /** Eligible items the snapshot cap left out of a new request (same as request.omittedCount). */
+      remaining?: number;
+    }
+  | { outcome: "agent_review_not_needed"; projectId: string; reason: string }
+  | AgentReviewFailure;
+
+export type RequestAgentReviewResult = CreateAgentReviewRequestResult;
+
+export type AgentReviewRequestListResult =
+  { outcome: "agent_review_requests"; requests: AgentReviewRequest[]; pageInfo: PageInfo } | AgentReviewSkippedResult;
+
+export type AgentReviewContextResult =
+  | AgentReviewContext
+  | { outcome: "request_not_open"; request: AgentReviewRequest; reason: string }
+  | AgentReviewFailure;
+
+export interface AgentReviewVerdictResult {
+  itemKind: AgentReviewItemKind;
+  itemId: string;
+  /** knowledge_rejected: the Knowledge write failed, nothing was applied and the item stays open for a corrected draft. */
+  outcome: AgentReviewItemOutcome | "not_in_request" | "knowledge_rejected";
+  knowledgeId?: string;
+  knowledgeOutcome?: string;
+  knowledgeReason?: string;
+}
+
+export interface AgentReviewKnowledgePage {
+  slug: string;
+  title: string;
+  reasons: Array<"cites_reviewed_session" | "queued_for_update">;
+}
+
+export type SubmitAgentReviewVerdictsResult =
+  | {
+      outcome: "agent_review_verdicts_submitted";
+      request: AgentReviewRequest;
+      results: AgentReviewVerdictResult[];
+      duplicate: boolean;
+      redactions?: RedactionSummary;
+      /** Present when the request completed with this submission. The server never writes pages; the Agent does. */
+      completion?: { knowledgePages: AgentReviewKnowledgePage[] };
+    }
+  | AgentReviewFailure;
+
+export type CancelAgentReviewRequestResult =
+  { outcome: "agent_review_request_cancelled"; request: AgentReviewRequest; duplicate: boolean } | AgentReviewFailure;
+
+export interface OverturnAgentReviewInput {
+  projectRoot: string;
+  itemKind: AgentReviewItemKind;
+  itemId: string;
+}
+
+export type OverturnAgentReviewResult =
+  | {
+      outcome: "agent_review_overturned";
+      itemKind: AgentReviewItemKind;
+      decision?: SessionDecisionRecord;
+      candidate?: KnowledgeCandidate;
+      /** What happened to the Knowledge the Agent verdict created: archived only while still active. */
+      knowledge?: {
+        /** Absent when the Knowledge row no longer exists and its id was cleared with it. */
+        id?: string;
+        action: "archived" | "unchanged" | "missing";
+        status?: KnowledgeStatus;
+      };
+    }
+  | AgentReviewFailure;
 
 /** Bounded pointers to pending work; read the source Session before deciding its status. */
 export interface RelatedOutstandingItems {
@@ -3837,6 +4074,9 @@ export const PROJECT_DATA_TABLES = [
   "outstanding_cleanup_request_items",
   "outstanding_cleanup_proposals",
   "outstanding_cleanup_proposal_evidence",
+  "agent_review_requests",
+  "agent_review_submissions",
+  "agent_review_request_items",
 ] as const;
 
 export type ProjectDataTable = (typeof PROJECT_DATA_TABLES)[number];

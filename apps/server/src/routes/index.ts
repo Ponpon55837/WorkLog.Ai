@@ -1,4 +1,5 @@
 import { reportPresentationRoutes } from "./report-presentation.js";
+import { agentReviewRoutes } from "./agent-review.js";
 import { attentionRoutes } from "./attention.js";
 import { agentReadRoutes } from "./agent-reads.js";
 import { backfillRoutes } from "./backfill.js";
@@ -39,6 +40,7 @@ export const apiRoutes: readonly Route[] = [
   ...agentReadRoutes,
   ...outstandingItemRoutes,
   ...outstandingCleanupRoutes,
+  ...agentReviewRoutes,
   ...backfillRoutes,
   ...usageRoutes,
 ];

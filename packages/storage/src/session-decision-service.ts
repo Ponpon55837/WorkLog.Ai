@@ -4,6 +4,7 @@ import type {
   ListSessionDecisionsInput,
   PolicyDecision,
   ReviewSessionDecisionInput,
+  ReviewActor,
   ReviewSessionDecisionResult,
   SessionDecisionListQueryResult,
   SessionDecisionRecord,
@@ -18,7 +19,7 @@ export interface SessionDecisionDraft {
   origin: WorkSummaryDecisionOrigin | "unspecified";
 }
 
-type SessionDecisionRow = {
+export type SessionDecisionRow = {
   id: string;
   session_id: string;
   project_id: string;
@@ -28,6 +29,9 @@ type SessionDecisionRow = {
   review_status: SessionDecisionReviewStatus;
   reviewed_at: string | null;
   knowledge_id: string | null;
+  reviewed_by: ReviewActor | null;
+  review_reason: string | null;
+  review_request_id: string | null;
   session_title?: string;
   session_completed_at?: string;
 };
@@ -36,7 +40,7 @@ interface SessionDecisionDependencies {
   checkProjectRoot(projectRoot: string): PolicyDecision;
 }
 
-function toDecision(row: SessionDecisionRow): SessionDecisionRecord {
+export function toDecision(row: SessionDecisionRow): SessionDecisionRecord {
   return {
     id: row.id,
     sessionId: row.session_id,
@@ -47,6 +51,9 @@ function toDecision(row: SessionDecisionRow): SessionDecisionRecord {
     reviewStatus: row.review_status,
     ...(row.reviewed_at ? { reviewedAt: row.reviewed_at } : {}),
     ...(row.knowledge_id ? { knowledgeId: row.knowledge_id } : {}),
+    ...(row.review_status !== "pending" && row.reviewed_at ? { reviewedBy: row.reviewed_by ?? "user" } : {}),
+    ...(row.review_reason ? { reviewReason: row.review_reason } : {}),
+    ...(row.review_request_id ? { reviewRequestId: row.review_request_id } : {}),
     ...(row.session_title ? { sessionTitle: row.session_title } : {}),
     ...(row.session_completed_at ? { sessionCompletedAt: row.session_completed_at } : {}),
   };
@@ -61,7 +68,7 @@ export function replaceSessionDecisions(
 ): void {
   const existing = db
     .prepare(
-      `SELECT id, text, origin, review_status, reviewed_at, knowledge_id
+      `SELECT id, text, origin, review_status, reviewed_at, knowledge_id, reviewed_by, review_reason, review_request_id
        FROM session_decisions WHERE session_id = ? ORDER BY position ASC, id ASC`,
     )
     .all(sessionId) as Array<{
@@ -71,6 +78,9 @@ export function replaceSessionDecisions(
     review_status: SessionDecisionReviewStatus;
     reviewed_at: string | null;
     knowledge_id: string | null;
+    reviewed_by: ReviewActor | null;
+    review_reason: string | null;
+    review_request_id: string | null;
   }>;
   const existingByText = new Map<string, typeof existing>();
   for (const row of existing) {
@@ -82,8 +92,9 @@ export function replaceSessionDecisions(
   db.prepare("DELETE FROM session_decisions WHERE session_id = ?").run(sessionId);
   const insert = db.prepare(
     `INSERT INTO session_decisions (
-       id, session_id, project_id, position, text, origin, review_status, reviewed_at, knowledge_id
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       id, session_id, project_id, position, text, origin, review_status, reviewed_at, knowledge_id,
+       reviewed_by, review_reason, review_request_id
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   decisions.forEach((decision, position) => {
     const previous = existingByText.get(decision.text)?.shift();
@@ -97,6 +108,9 @@ export function replaceSessionDecisions(
       previous?.review_status ?? (decision.origin === "agent_autonomous" ? "pending" : "confirmed"),
       previous?.reviewed_at ?? null,
       previous?.knowledge_id ?? null,
+      previous?.reviewed_by ?? null,
+      previous?.review_reason ?? null,
+      previous?.review_request_id ?? null,
     );
   });
 }
@@ -136,7 +150,13 @@ export class SessionDecisionService {
         )
         .get(...scopeParams) as { count: number }
     ).count;
-    const pendingOnly = input.status !== "all";
+    const status = input.status ?? "pending";
+    const statusFilter =
+      status === "pending"
+        ? "AND d.origin = 'agent_autonomous' AND d.review_status = 'pending'"
+        : status === "agent_reviewed"
+          ? "AND d.origin = 'agent_autonomous' AND d.reviewed_by = 'agent'"
+          : "";
     const rows = this.db
       .prepare(
         `SELECT d.*, s.title AS session_title, s.completed_at AS session_completed_at
@@ -144,9 +164,13 @@ export class SessionDecisionService {
          JOIN projects p ON p.id = d.project_id
          JOIN sessions s ON s.id = d.session_id
          WHERE p.status = 'tracked' AND s.voided_at IS NULL
-           ${pendingOnly ? "AND d.origin = 'agent_autonomous' AND d.review_status = 'pending'" : ""}
+           ${statusFilter}
            ${projectFilter}
-         ORDER BY s.completed_at DESC, d.session_id DESC, d.position ASC
+         ORDER BY ${
+           status === "agent_reviewed"
+             ? "d.reviewed_at DESC, d.id ASC"
+             : "s.completed_at DESC, d.session_id DESC, d.position ASC"
+         }
          LIMIT ?`,
       )
       .all(...scopeParams, Math.min(Math.max(input.limit ?? 50, 1), 200)) as SessionDecisionRow[];
@@ -196,12 +220,21 @@ export class SessionDecisionService {
         }
       }
       const nextKnowledgeId = input.reviewStatus === "promoted" ? input.knowledgeId : null;
-      if (row.review_status === input.reviewStatus && row.knowledge_id === nextKnowledgeId) {
+      if (
+        row.review_status === input.reviewStatus &&
+        row.knowledge_id === nextKnowledgeId &&
+        row.reviewed_by !== "agent"
+      ) {
         return { outcome: "session_decision_reviewed", decision: toDecision(row), duplicate: true };
       }
       const reviewedAt = nowIso();
       this.db
-        .prepare("UPDATE session_decisions SET review_status = ?, reviewed_at = ?, knowledge_id = ? WHERE id = ?")
+        .prepare(
+          `UPDATE session_decisions
+           SET review_status = ?, reviewed_at = ?, knowledge_id = ?, reviewed_by = 'user',
+               review_reason = NULL, review_request_id = NULL
+           WHERE id = ?`,
+        )
         .run(input.reviewStatus, reviewedAt, nextKnowledgeId ?? null, input.decisionId);
       const updated = this.db.prepare("SELECT * FROM session_decisions WHERE id = ?").get(input.decisionId) as
         SessionDecisionRow | undefined;

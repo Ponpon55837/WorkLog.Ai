@@ -34,6 +34,28 @@ describe("domain API factories", () => {
     expect(calls[1]?.url.pathname).toBe("/api/sessions/agents");
   });
 
+  it("routes Agent review requests and overturns by item kind", async () => {
+    const calls = recordRequests();
+    const api = createApiClient("http://api.test");
+
+    await api.createAgentReviewRequest({ projectId: "p1", idempotencyKey: "k1" });
+    await api.listAgentReviewRequests({ projectId: "p1", page: 1, pageSize: 1 });
+    await api.cancelAgentReviewRequest("r 1");
+    await api.overturnAgentReview({ projectRoot: "/work/orchard", itemKind: "decision", itemId: "d1" });
+    await api.overturnAgentReview({ projectRoot: "/work/orchard", itemKind: "candidate", itemId: "c1" });
+    await api.listKnowledgeCandidates("/work/orchard", undefined, "agent");
+
+    expect(calls.map((call) => `${call.method} ${call.url.pathname}${call.url.search}`)).toEqual([
+      "POST /api/agent-review-requests",
+      "GET /api/agent-review-requests?projectId=p1&page=1&pageSize=1",
+      "POST /api/agent-review-requests/r%201/cancel",
+      "POST /api/session-decisions/d1/overturn",
+      "POST /api/knowledge/candidates/c1/overturn",
+      "GET /api/knowledge/candidates?projectRoot=%2Fwork%2Forchard&reviewedBy=agent",
+    ]);
+    expect(calls[3]?.body).toEqual({ projectRoot: "/work/orchard" });
+  });
+
   it("reads the Agent read audit with filters and per-record paths", async () => {
     const calls = recordRequests();
     const api = createApiClient("http://api.test");

@@ -32,6 +32,7 @@ import {
   SESSION_DECISION_REVIEW_STATUSES,
   OUTSTANDING_ITEM_STATUSES,
   OUTSTANDING_ITEM_CLOSED_BY,
+  AGENT_REVIEW_REQUEST_STATUSES,
   OUTSTANDING_CLEANUP_REQUEST_STATUSES,
   OUTSTANDING_CLEANUP_PROPOSAL_STATUSES,
   MAX_OUTSTANDING_ITEM_BATCH_SIZE,
@@ -459,7 +460,7 @@ export const contextQuerySchema = z.object({
 
 export const sessionDecisionListQuerySchema = z.object({
   projectRoot: z.string().trim().min(1).max(1_000).optional(),
-  status: z.enum(["pending", "all"]).default("pending"),
+  status: z.enum(["pending", "all", "agent_reviewed"]).default("pending"),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 
@@ -1292,21 +1293,22 @@ export const storedKnowledgeCandidateOverlapsSchema = z
 export const knowledgeCandidateListQuerySchema = z.object({
   projectRoot: z.string().trim().min(1).max(1_000).optional(),
   status: z.enum(["proposed", "accepted", "rejected"]).default("proposed"),
+  reviewedBy: z.literal("agent").optional(),
+});
+
+const knowledgeCandidateEditsSchema = z.object({
+  kind: knowledgeKindSchema.optional(),
+  title: z.string().trim().min(1).max(300).optional(),
+  body: z.string().trim().min(1).max(20_000).optional(),
+  tags: z.array(z.string().trim().min(1).max(80)).max(30).optional(),
+  references: z.array(z.string().trim().min(1).max(1_000)).max(30).optional(),
+  appliesTo: knowledgeAppliesToSchema.optional(),
 });
 
 export const decideKnowledgeCandidateInputSchema = z.object({
   candidateId: z.string().trim().min(1).max(200),
   decision: z.enum(["accept", "reject"]),
-  edits: z
-    .object({
-      kind: knowledgeKindSchema.optional(),
-      title: z.string().trim().min(1).max(300).optional(),
-      body: z.string().trim().min(1).max(20_000).optional(),
-      tags: z.array(z.string().trim().min(1).max(80)).max(30).optional(),
-      references: z.array(z.string().trim().min(1).max(1_000)).max(30).optional(),
-      appliesTo: knowledgeAppliesToSchema.optional(),
-    })
-    .optional(),
+  edits: knowledgeCandidateEditsSchema.optional(),
 });
 
 export const updateKnowledgeInputSchemaBase = z.object({
@@ -1560,6 +1562,115 @@ export const outstandingCleanupRequestQuerySchema = z.object({
 export const mcpOutstandingCleanupRequestQuerySchema = outstandingCleanupRequestQuerySchema.extend({
   pageSize: z.number().int().min(1).max(5).optional(),
 });
+const agentReviewIdSchema = z.string().trim().min(1).max(200);
+const agentReviewReasonSchema = z.string().trim().min(1).max(2_000);
+
+export const requestAgentReviewInputSchema = z.object({
+  projectRoot: z.string().trim().min(1).max(1_000),
+  idempotencyKey: agentReviewIdSchema,
+});
+export const createAgentReviewRequestInputSchema = z.object({
+  projectId: agentReviewIdSchema,
+  idempotencyKey: agentReviewIdSchema,
+});
+export const agentReviewRequestQuerySchema = z.object({
+  projectId: agentReviewIdSchema.optional(),
+  status: z.enum(AGENT_REVIEW_REQUEST_STATUSES).optional(),
+  page: cleanupPageSchema,
+  pageSize: z.number().int().min(1).max(20).default(5),
+});
+export const agentReviewContextQuerySchemaBase = z.object({
+  requestId: agentReviewIdSchema.optional(),
+  projectRoot: z.string().trim().min(1).max(1_000).optional(),
+  page: z.number().int().min(1).max(1_000_000).default(1),
+  pageSize: z.number().int().min(1).max(10).default(10),
+});
+export const agentReviewContextQuerySchema = agentReviewContextQuerySchemaBase.refine(
+  (value) => Boolean(value.requestId || value.projectRoot),
+  { message: "Provide requestId or projectRoot." },
+);
+
+const agentReviewKnowledgeSchema = z
+  .object({
+    kind: knowledgeKindSchema.default("decision"),
+    title: z.string().trim().min(1).max(300),
+    body: z.string().trim().min(1).max(20_000),
+    tags: z.array(z.string().trim().min(1).max(80)).max(30).optional(),
+    references: z.array(z.string().trim().min(1).max(1_000)).max(30).optional(),
+    appliesTo: knowledgeAppliesToSchema.optional(),
+  })
+  .strict();
+
+const agentReviewDecisionVerdictSchema = z
+  .object({
+    itemKind: z.literal("decision"),
+    itemId: agentReviewIdSchema,
+    verdict: z.enum(["confirm", "reject", "promote"]),
+    reason: agentReviewReasonSchema,
+    knowledge: agentReviewKnowledgeSchema.optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.verdict === "promote" && !value.knowledge) {
+      context.addIssue({
+        code: "custom",
+        path: ["knowledge"],
+        message: "knowledge is required to promote a decision.",
+      });
+    }
+    if (value.verdict !== "promote" && value.knowledge) {
+      context.addIssue({ code: "custom", path: ["knowledge"], message: "knowledge is only allowed when promoting." });
+    }
+  });
+
+const agentReviewCandidateVerdictSchema = z
+  .object({
+    itemKind: z.literal("candidate"),
+    itemId: agentReviewIdSchema,
+    verdict: z.enum(["accept", "reject"]),
+    reason: agentReviewReasonSchema,
+    edits: knowledgeCandidateEditsSchema.optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.verdict !== "accept" && value.edits) {
+      context.addIssue({ code: "custom", path: ["edits"], message: "edits are only allowed when accepting." });
+    }
+  });
+
+/** Advertised object shape of submitAgentReviewVerdictsInputSchema; the refinements run in the full schema. */
+export const submitAgentReviewVerdictsInputSchemaBase = z
+  .object({
+    requestId: agentReviewIdSchema,
+    idempotencyKey: agentReviewIdSchema,
+    verdicts: z
+      .array(z.discriminatedUnion("itemKind", [agentReviewDecisionVerdictSchema, agentReviewCandidateVerdictSchema]))
+      .max(50),
+    complete: z.boolean().optional(),
+  })
+  .strict();
+
+export const submitAgentReviewVerdictsInputSchema = submitAgentReviewVerdictsInputSchemaBase.superRefine(
+  (value, context) => {
+    const keys = value.verdicts.map((verdict) => `${verdict.itemKind}:${verdict.itemId}`);
+    if (new Set(keys).size !== keys.length) {
+      context.addIssue({ code: "custom", path: ["verdicts"], message: "Each item may appear once." });
+    }
+    if (value.verdicts.length === 0 && !value.complete) {
+      context.addIssue({ code: "custom", path: ["verdicts"], message: "Provide verdicts, or set complete to true." });
+    }
+  },
+);
+
+export const overturnAgentReviewInputSchema = z
+  .object({
+    projectRoot: z.string().trim().min(1).max(1_000),
+    itemKind: z.enum(["decision", "candidate"]),
+    itemId: agentReviewIdSchema,
+  })
+  .strict();
+
+export const agentReviewRequestIdSchema = z.object({ requestId: agentReviewIdSchema });
 export const outstandingCleanupRequestIdSchema = z.object({ requestId: cleanupIdSchema });
 export const outstandingCleanupContextQuerySchema = z.object({
   requestId: cleanupIdSchema,
@@ -1671,6 +1782,9 @@ const projectDataTablesShape = {
   outstanding_cleanup_request_items: projectDataRows,
   outstanding_cleanup_proposals: projectDataRows,
   outstanding_cleanup_proposal_evidence: projectDataRows,
+  agent_review_requests: projectDataRows.default([]),
+  agent_review_submissions: projectDataRows.default([]),
+  agent_review_request_items: projectDataRows.default([]),
 };
 
 /** The order zod checks the tables in (and reports their issues in); the streaming import ranks issues by it. */
@@ -1700,13 +1814,18 @@ const projectDataImportStatusValues: Partial<
   session_decisions: {
     origin: SESSION_DECISION_ORIGINS,
     review_status: SESSION_DECISION_REVIEW_STATUSES,
+    reviewed_by: ["user", "agent"],
   },
   knowledge_page_versions: { author: KNOWLEDGE_PAGE_AUTHORS },
   knowledge_audit: { action: ["created", "updated", "archived", "restored"] },
   knowledge_feedback: { kind: KNOWLEDGE_FEEDBACK_KINDS },
   session_diagrams: { kind: SESSION_DIAGRAM_KINDS },
   knowledge_candidate_requests: { status: METADATA_BACKFILL_REQUEST_STATUSES },
-  knowledge_candidates: { kind: KNOWLEDGE_KINDS, status: ["proposed", "accepted", "rejected"] },
+  knowledge_candidates: {
+    kind: KNOWLEDGE_KINDS,
+    status: ["proposed", "accepted", "rejected"],
+    reviewed_by: ["user", "agent"],
+  },
   report_synthesis_requests: {
     scope_type: REPORT_SYNTHESIS_SCOPE_TYPES,
     period: WORK_REPORT_PERIODS,
@@ -1724,7 +1843,16 @@ const projectDataImportStatusValues: Partial<
     to_status: OUTSTANDING_ITEM_STATUSES,
     source: ["agent", "web", "migration"],
   },
+  agent_review_requests: { status: AGENT_REVIEW_REQUEST_STATUSES },
+  agent_review_request_items: {
+    item_kind: ["decision", "candidate"],
+    verdict: ["confirm", "reject", "promote", "accept"],
+    outcome: ["applied", "skipped_stale", "skipped_reviewed"],
+  },
 };
+
+/** Status columns that are NULL until the row is reviewed or decided. */
+const NULLABLE_STATUS_COLUMNS = new Set(["from_status", "reviewed_by", "verdict", "outcome"]);
 
 const projectDataRequiredColumns: Record<(typeof PROJECT_DATA_TABLES)[number], readonly string[]> = {
   projects: ["id", "name", "root_path", "status", "created_at", "updated_at"],
@@ -1927,6 +2055,25 @@ const projectDataRequiredColumns: Record<(typeof PROJECT_DATA_TABLES)[number], r
     "session_fingerprint",
     "session_completed_at",
   ],
+  agent_review_requests: [
+    "id",
+    "project_id",
+    "idempotency_key",
+    "status",
+    "requested_at",
+    "item_count",
+    "omitted_count",
+  ],
+  agent_review_submissions: [
+    "id",
+    "request_id",
+    "project_id",
+    "idempotency_key",
+    "payload_hash",
+    "results_json",
+    "created_at",
+  ],
+  agent_review_request_items: ["id", "request_id", "project_id", "item_kind", "item_id", "position", "fingerprint"],
 };
 const projectDataNumericColumns: Partial<Record<(typeof PROJECT_DATA_TABLES)[number], readonly string[]>> = {
   knowledge_candidate_requests: ["candidate_count"],
@@ -1938,10 +2085,17 @@ const projectDataNumericColumns: Partial<Record<(typeof PROJECT_DATA_TABLES)[num
   outstanding_items: ["position"],
   outstanding_cleanup_requests: ["item_count"],
   outstanding_cleanup_request_items: ["position"],
+  agent_review_requests: ["item_count", "omitted_count"],
+  agent_review_request_items: ["position"],
   knowledge_pages: ["version"],
   knowledge_page_versions: ["version"],
   session_diagrams: ["format_version"],
 };
+
+/** Every column of a table added after the import floor: a bundle that carries none of its rows omits all of them. */
+function omittedColumns(table: (typeof PROJECT_DATA_TABLES)[number]): Record<string, null> {
+  return Object.fromEntries(projectDataExportTableColumns[table].map((column) => [column, null]));
+}
 
 /**
  * Columns added after the portable format shipped, with the value to assume when an older export omits them.
@@ -1951,9 +2105,15 @@ export const projectDataColumnDefaults: Partial<
   Record<(typeof PROJECT_DATA_TABLES)[number], Readonly<Record<string, string | number | null>>>
 > = {
   sessions: { changed_files_confirmed: 0, redaction_count: 0, agent_client: null, agent_model: null },
+  // Schema 36: rows reviewed before Agent review existed carry no attribution and read as reviewed by the user.
+  session_decisions: { reviewed_by: null, review_reason: null, review_request_id: null },
   projects: { repository_url: null },
   session_diagrams: { format_version: 1 },
   outstanding_item_events: { cleanup_request_id: null, cleanup_proposal_id: null },
+  // Schema 36 tables: required and numeric columns still fail the row check when null, so only absent rows pass.
+  agent_review_requests: omittedColumns("agent_review_requests"),
+  agent_review_submissions: omittedColumns("agent_review_submissions"),
+  agent_review_request_items: omittedColumns("agent_review_request_items"),
   // Schema 34: pages saved earlier have no Session coverage position; their coverage stays sourced_through.
   knowledge_pages: {
     checked_through_session_id: null,
@@ -1961,7 +2121,7 @@ export const projectDataColumnDefaults: Partial<
     covered_through_session_id: null,
   },
   // Schema 33: candidates submitted earlier, and every schema-32 export, carry no stored overlap advisory.
-  knowledge_candidates: { overlaps_json: null },
+  knowledge_candidates: { overlaps_json: null, reviewed_by: null, review_reason: null, review_request_id: null },
 };
 
 /** A row's value for a column, falling back to the column default for bundles that predate it. */
@@ -2160,8 +2320,9 @@ export function createProjectDataRowChecker(table: (typeof PROJECT_DATA_TABLES)[
       });
     }
     for (const [column, allowed] of Object.entries(projectDataImportStatusValues[table] ?? {})) {
-      if (column === "from_status" && row[column] === null) continue;
-      if (typeof row[column] !== "string" || !allowed.includes(row[column])) {
+      const value = projectDataColumnValue(table, row, column);
+      if (value === null && NULLABLE_STATUS_COLUMNS.has(column)) continue;
+      if (typeof value !== "string" || !allowed.includes(value)) {
         addIssue({
           path: ["tables", table, index, column],
           message: `The ${column} value is not supported for ${table}.`,

@@ -351,6 +351,29 @@ describe("project deletion", () => {
           cleanupRequestId,
           cleanupProposalId,
         );
+      seed
+        .prepare(
+          `INSERT INTO agent_review_requests
+         (id, project_id, idempotency_key, status, requested_at, completed_at, item_count)
+         VALUES ('delete-fixture-review-request', ?, 'delete-fixture-review-request-key', 'completed', ?, ?, 1)`,
+        )
+        .run(targetProject.id, cleanupAt, cleanupAt);
+      seed
+        .prepare(
+          `INSERT INTO agent_review_submissions
+         (id, request_id, project_id, idempotency_key, payload_hash, results_json, created_at)
+         VALUES ('delete-fixture-review-submission', 'delete-fixture-review-request', ?, 'delete-fixture-review-submission-key', ?, '[]', ?)`,
+        )
+        .run(targetProject.id, "b".repeat(64), cleanupAt);
+      seed
+        .prepare(
+          `INSERT INTO agent_review_request_items
+         (id, request_id, project_id, item_kind, item_id, source_session_id, position, fingerprint, submission_id,
+          verdict, outcome, reason, decided_at)
+         VALUES ('delete-fixture-review-item', 'delete-fixture-review-request', ?, 'decision', 'delete-fixture-decision', ?, 0, ?,
+                 'delete-fixture-review-submission', 'confirm', 'applied', 'Synthetic review reason.', ?)`,
+        )
+        .run(targetProject.id, targetSessionId, "c".repeat(64), cleanupAt);
     } finally {
       seed.close();
     }
@@ -391,6 +414,9 @@ describe("project deletion", () => {
         outstandingCleanupSubmissions: 1,
         outstandingCleanupProposals: 1,
         outstandingCleanupProposalEvidence: 1,
+        agentReviewRequests: 1,
+        agentReviewSubmissions: 1,
+        agentReviewRequestItems: 1,
       },
     });
     expect(result.deletedCounts.searchChunks).toBeGreaterThan(0);
@@ -453,6 +479,9 @@ describe("project deletion", () => {
         "outstanding_cleanup_request_items",
         "outstanding_cleanup_proposals",
         "outstanding_cleanup_proposal_evidence",
+        "agent_review_requests",
+        "agent_review_submissions",
+        "agent_review_request_items",
       ]) {
         expect(
           postDelete.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE project_id = ?`).get(targetProject.id),

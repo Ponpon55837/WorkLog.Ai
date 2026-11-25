@@ -2,8 +2,12 @@
 import { storeToRefs } from "pinia";
 import { BookOpen, Check, ExternalLink, X } from "lucide-vue-next";
 import type { SessionDecisionRecord } from "@work-intelligence/core";
+import AgentReviewFilter from "./AgentReviewFilter.vue";
+import AgentReviewVerdict from "./AgentReviewVerdict.vue";
+import { useAgentReviewActions } from "../../composables/useAgentReviewActions";
 import { useKnowledgeActions } from "../../composables/useKnowledge";
 import { useToast } from "../../composables/useToast";
+import { useAgentReviewStore } from "../../stores/agent-review";
 import { useProjectsStore } from "../../stores/projects";
 import { useSessionDecisionsStore } from "../../stores/session-decisions";
 import { useSessionsStore } from "../../stores/sessions";
@@ -21,6 +25,8 @@ import { t } from "../../i18n";
 const props = defineProps<{ projectRoot?: string }>();
 const decisionStore = useSessionDecisionsStore();
 const { decisions, pendingCount, decisionsLoading, decisionsLoaded, decisionsError } = storeToRefs(decisionStore);
+const { filter } = storeToRefs(useAgentReviewStore());
+const { overturn } = useAgentReviewActions();
 const projectsStore = useProjectsStore();
 const { showToast } = useToast();
 const { openAgentDecisionEditor } = useKnowledgeActions();
@@ -57,6 +63,10 @@ async function review(item: SessionDecisionRecord, reviewStatus: "confirmed" | "
   }
 }
 
+function verdictFor(item: SessionDecisionRecord): "confirmed" | "rejected" | "promoted" {
+  return item.reviewStatus === "pending" ? "confirmed" : item.reviewStatus;
+}
+
 function promote(item: SessionDecisionRecord): void {
   const project = projectsStore.projects.find((entry) => entry.id === item.projectId);
   if (!project) {
@@ -75,16 +85,23 @@ function openSource(item: SessionDecisionRecord): void {
   <UiBox class="agent-decisions" sticky-header data-testid="agent-decision-review">
     <template #header>
       <UiBoxTitle
-        :title="t('knowledge.agentAutonomousDecisionsToConfirm')"
-        :count="decisionsLoaded ? pendingCount : undefined"
+        :title="
+          filter === 'agent' ? t('knowledge.agentProcessedDecisions') : t('knowledge.agentAutonomousDecisionsToConfirm')
+        "
+        :count="decisionsLoaded ? (filter === 'agent' ? decisions.length : pendingCount) : undefined"
       />
+      <AgentReviewFilter v-model="filter" />
     </template>
     <UiFlash v-if="decisionsError" tone="danger">{{ decisionsError }}</UiFlash>
     <UiSkeleton v-else-if="!decisionsLoaded" :count="3" :label="t('knowledge.loadingAgentAutonomousDecisions')" />
     <UiEmptyState
       v-else-if="!decisionsLoading && decisions.length === 0"
-      :title="t('knowledge.noDecisionsToConfirm')"
-      :description="t('knowledge.decisionsTheAgentExplicitlyMarks')"
+      :title="filter === 'agent' ? t('knowledge.noAgentProcessedDecisions') : t('knowledge.noDecisionsToConfirm')"
+      :description="
+        filter === 'agent'
+          ? t('knowledge.agentProcessedDecisionsHint')
+          : t('knowledge.decisionsTheAgentExplicitlyMarks')
+      "
     />
     <VirtualList
       v-else
@@ -94,7 +111,11 @@ function openSource(item: SessionDecisionRecord): void {
       fit-viewport-to-panel
       fill-available-space
       :estimate-item-height="176"
-      :label="t('knowledge.agentAutonomousDecisionsToConfirmList')"
+      :label="
+        filter === 'agent'
+          ? t('knowledge.agentProcessedDecisionsList')
+          : t('knowledge.agentAutonomousDecisionsToConfirmList')
+      "
     >
       <template #default="{ item }">
         <article class="agent-decisions__item" data-testid="agent-decision-item">
@@ -110,6 +131,13 @@ function openSource(item: SessionDecisionRecord): void {
             </template>
           </div>
           <p class="agent-decisions__text">{{ item.text }}</p>
+          <AgentReviewVerdict
+            v-if="filter === 'agent'"
+            :verdict="verdictFor(item)"
+            :reason="item.reviewReason"
+            :reviewed-at="item.reviewedAt"
+            @overturn="overturn('decision', item.id, projectRootFor(item))"
+          />
           <div class="agent-decisions__footer">
             <UiButton
               class="agent-decisions__source"
@@ -120,7 +148,7 @@ function openSource(item: SessionDecisionRecord): void {
             >
               {{ item.sessionTitle ?? t("knowledge.openSourceSession") }}
             </UiButton>
-            <div class="agent-decisions__actions">
+            <div v-if="filter === 'pending'" class="agent-decisions__actions">
               <UiButton size="sm" :icon="Check" @click="review(item, 'confirmed')">{{ t("common.confirm") }}</UiButton>
               <UiButton size="sm" :icon="X" @click="review(item, 'rejected')">{{ t("knowledge.reject") }}</UiButton>
               <UiButton size="sm" variant="primary" :icon="BookOpen" @click="promote(item)">{{

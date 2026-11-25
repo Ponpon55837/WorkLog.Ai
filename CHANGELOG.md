@@ -4,6 +4,26 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.70] - 2026-11-25
+
+[繁體中文更新說明](docs/releases/1.6.70.md).
+
+### Added
+
+- Agent review requests. The user opens one for a tracked project on the Knowledge page or asks their Agent (`work_request_agent_review`). The request snapshots the pending Agent-autonomous decisions and the proposed Knowledge candidates. An Agent reads them with `work_get_agent_review_context` and applies verdicts directly with `work_submit_agent_review_verdicts`, each with a required reason: decisions are confirmed, rejected or promoted to Knowledge; candidates are accepted (with optional edits) or rejected. Items without evidence stay pending. Items changed or reviewed since the snapshot are skipped and never overwritten. A project has one open request at a time, the snapshot holds at most 500 items and the Web app shows how many were left out, a request that stays in processing for over 30 minutes becomes failed and can be resumed, and the user can cancel it on the Web app.
+- Attribution: decisions and candidates record who reviewed them (user or Agent), the reason, the request and the time. Rows reviewed before this version read as reviewed by the user.
+- Web app: the decision and candidate lists can filter to items handled by an Agent and show the reason. The user can overturn an Agent verdict: the item returns to the user's queue, and Knowledge created by that verdict is archived if it is still active (left unchanged if already archived or deleted). Overturned items are never picked up by a later request.
+- After a request completes, its result lists the Knowledge pages that received new material. The Agent updates them through the existing page flow (section update); the server never rewrites pages.
+- REST: `POST /api/agent-review-requests`, `GET /api/agent-review-requests`, `POST /api/agent-review-requests/:requestId/cancel`, `POST /api/session-decisions/:decisionId/overturn`, `POST /api/knowledge/candidates/:candidateId/overturn`, `GET /api/session-decisions?status=agent_reviewed` and `GET /api/knowledge/candidates?reviewedBy=agent`.
+- MCP: the operations `work_request_agent_review`, `work_get_agent_review_context` and `work_submit_agent_review_verdicts`, and the on-demand guide `references/agent-review.md` in the work-intelligence skill.
+- A schema 35 upgrade sample (from 1.6.64) for the upgrade tests.
+
+### Changed
+
+- Database schema 36: new tables for review requests, their items and submissions, and review attribution columns on decisions and candidates. The migration runs automatically with a backup on upgrade. Project export and import carry the new data and still import exports from schema 31–35.
+- Cleanup of outstanding items stays human-approved, and how candidates are proposed is unchanged.
+- The MCP contract text and tool list changed, so the MCP compatibility id changes: connected Agents receive `restartRequired` after upgrading and must reconnect the Work Intelligence MCP to see the new operations.
+
 ## [1.6.69] - 2026-11-25
 
 [繁體中文更新說明](docs/releases/1.6.69.md).

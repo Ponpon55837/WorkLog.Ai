@@ -15,7 +15,11 @@ import { appendQuery, type ApiTransport } from "./transport";
 
 export interface KnowledgeApi {
   recordKnowledge(input: RecordKnowledgeInput, signal?: AbortSignal): Promise<RecordKnowledgeResult>;
-  listKnowledgeCandidates(projectRoot?: string, signal?: AbortSignal): Promise<KnowledgeCandidateListResult>;
+  listKnowledgeCandidates(
+    projectRoot?: string,
+    signal?: AbortSignal,
+    reviewedBy?: "agent",
+  ): Promise<KnowledgeCandidateListResult>;
   requestKnowledgeCandidates(projectRoot: string, signal?: AbortSignal): Promise<RequestKnowledgeCandidatesResult>;
   decideKnowledgeCandidate(
     input: DecideKnowledgeCandidateInput,
@@ -40,10 +44,15 @@ export function createKnowledgeApi(client: ApiTransport): KnowledgeApi {
       return client.write<RecordKnowledgeResult>("/api/knowledge", "POST", input, signal);
     },
 
-    listKnowledgeCandidates(projectRoot?: string, signal?: AbortSignal): Promise<KnowledgeCandidateListResult> {
-      return client.request<KnowledgeCandidateListResult>(appendQuery("/api/knowledge/candidates", { projectRoot }), {
-        signal,
-      });
+    listKnowledgeCandidates(
+      projectRoot?: string,
+      signal?: AbortSignal,
+      reviewedBy?: "agent",
+    ): Promise<KnowledgeCandidateListResult> {
+      return client.request<KnowledgeCandidateListResult>(
+        appendQuery("/api/knowledge/candidates", { projectRoot, reviewedBy }),
+        { signal },
+      );
     },
 
     requestKnowledgeCandidates(projectRoot: string, signal?: AbortSignal): Promise<RequestKnowledgeCandidatesResult> {

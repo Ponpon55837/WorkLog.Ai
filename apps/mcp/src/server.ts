@@ -31,6 +31,11 @@ import {
   requestOutstandingCleanupInputSchema,
   outstandingCleanupContextQuerySchema,
   submitOutstandingCleanupProposalsInputSchema,
+  requestAgentReviewInputSchema,
+  agentReviewContextQuerySchema,
+  agentReviewContextQuerySchemaBase,
+  submitAgentReviewVerdictsInputSchema,
+  submitAgentReviewVerdictsInputSchemaBase,
   metadataBackfillApplyInputSchema,
   metadataBackfillPreviewQuerySchema,
   metadataBackfillRequestContextQuerySchema,
@@ -94,6 +99,7 @@ import {
   type AgentToolContractOperation,
 } from "./agent-resources.js";
 import {
+  agentReviewContract,
   finalizeClosingContract,
   implementationDetail,
   knowledgeCandidateContract,
@@ -791,6 +797,46 @@ export function createWorkIntelligenceMcpServer(
     ],
     invalidMessage: "Invalid outstanding cleanup proposals.",
     run: (input) => store.submitOutstandingCleanupProposals(input),
+  });
+
+  registerStoreTool("work_request_agent_review", {
+    title: "Request Agent review",
+    description:
+      "Only when the user explicitly asks you to review this tracked project's pending Agent decisions and Knowledge candidates; never on your own initiative. Creates the Web UI's snapshot request, or returns the open one (duplicate: true); agent_review_not_needed when nothing is pending. Request only: it applies no verdict. " +
+      agentReviewContract,
+    inputShape: requestAgentReviewInputSchema.shape,
+    schema: requestAgentReviewInputSchema,
+    annotations: ADDITIVE_IDEMPOTENT,
+    invalidMessage: "Invalid Agent review request.",
+    run: (input) => store.requestAgentReview(input),
+  });
+
+  registerStoreTool("work_get_agent_review_context", {
+    title: "Get Agent review context",
+    description:
+      "Start processing an Agent review request (the newest open one of projectRoot, or requestId) and return one page of up to 10 snapshot items, bounded to 24,000 serialized characters: decisions and Knowledge candidates with their source Session excerpts, state, overlaps and, on page 1, existingKnowledge. Read more pages with page; truncated fields need work_get_session. " +
+      agentReviewContract,
+    inputShape: agentReviewContextQuerySchemaBase.shape,
+    schema: agentReviewContextQuerySchema,
+    validationNotes: ["At least one of requestId or projectRoot is required; both may be supplied."],
+    annotations: ADDITIVE_IDEMPOTENT,
+    invalidMessage: "Invalid Agent review context query.",
+    run: (input) => store.getAgentReviewContext(input),
+  });
+
+  registerStoreTool("work_submit_agent_review_verdicts", {
+    title: "Submit Agent review verdicts",
+    description:
+      "Submit up to 50 evidence-based verdicts for a request's snapshot items; they apply directly, changing the review state of existing decisions and candidates (promote and accept create Knowledge), and the previous state stays in audit history. A replay of the same key and payload returns the first result (duplicate: true). " +
+      agentReviewContract,
+    inputShape: submitAgentReviewVerdictsInputSchemaBase.shape,
+    schema: submitAgentReviewVerdictsInputSchema,
+    validationNotes: [
+      "Each item appears once. Provide verdicts, or set complete to true. A decision verdict promote requires knowledge and knowledge is only allowed with promote; candidate edits are only allowed with accept.",
+    ],
+    annotations: OVERWRITE_IDEMPOTENT,
+    invalidMessage: "Invalid Agent review verdicts.",
+    run: (input) => store.submitAgentReviewVerdicts(input),
   });
 
   registerStoreTool("work_list_sessions", {

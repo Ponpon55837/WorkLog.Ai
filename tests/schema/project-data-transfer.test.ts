@@ -153,6 +153,16 @@ const requiredColumns: Record<ProjectDataTable, readonly string[]> = {
   session_diagrams: ["session_id", "project_id", "idempotency_key", "title", "kind", "source", "created_at"],
   knowledge_pages: ["project_id", "slug", "title", "question", "sections_json", "created_at", "updated_at"],
   knowledge_page_versions: ["page_id", "project_id", "title", "question", "sections_json", "author", "created_at"],
+  agent_review_requests: ["project_id", "idempotency_key", "status", "requested_at", "item_count", "omitted_count"],
+  agent_review_submissions: [
+    "request_id",
+    "project_id",
+    "idempotency_key",
+    "payload_hash",
+    "results_json",
+    "created_at",
+  ],
+  agent_review_request_items: ["request_id", "project_id", "item_kind", "item_id", "position", "fingerprint"],
 };
 
 const enumDefaults: Partial<Record<ProjectDataTable, Record<string, string>>> = {
@@ -182,6 +192,8 @@ const enumDefaults: Partial<Record<ProjectDataTable, Record<string, string>>> = 
   knowledge_page_versions: { author: "agent" },
   knowledge_feedback: { kind: "manual_confirm" },
   session_diagrams: { kind: "mermaid" },
+  agent_review_requests: { status: "completed" },
+  agent_review_request_items: { item_kind: "decision" },
 };
 
 const emptyTables = (): ProjectDataTables =>
@@ -224,6 +236,11 @@ function validRow(table: ProjectDataTable, id: string): Record<string, string | 
   }
   if (table === "outstanding_cleanup_requests") row.item_count = 1;
   if (table === "outstanding_cleanup_request_items") row.position = 0;
+  if (table === "agent_review_requests") {
+    row.item_count = 1;
+    row.omitted_count = 0;
+  }
+  if (table === "agent_review_request_items") row.position = 0;
   if (table === "knowledge_pages" || table === "knowledge_page_versions") {
     row.version = 1;
   }

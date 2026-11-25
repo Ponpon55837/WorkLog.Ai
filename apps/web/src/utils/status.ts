@@ -1,4 +1,5 @@
 import {
+  BookOpen,
   Check,
   CircleAlert,
   CircleCheck,
@@ -20,6 +21,7 @@ import {
 } from "lucide-vue-next";
 import type {
   AgentObservationState,
+  AgentReviewRequestStatus,
   DatabaseInspectionState,
   DatabaseMaintenanceStatus,
   AgentHookInstallState,
@@ -345,6 +347,24 @@ export const outstandingCleanupRequestVisual: Record<OutstandingCleanupRequestSt
   awaiting_review: visual("done", CircleAlert, "status.awaitingReview"),
   completed: visual("done", Check, "status.cleanupFinished"),
   cancelled: visual("neutral", CircleSlash, "common.cancelled"),
+};
+
+export const agentReviewRequestVisual: Record<AgentReviewRequestStatus, StatusVisual> = {
+  pending: visual("attention", CircleDashed, "status.agentReviewPending"),
+  processing: visual("accent", LoaderCircle, "status.processing"),
+  completed: visual("success", Check, "status.agentReviewCompleted"),
+  failed: visual("danger", CircleX, "common.failed"),
+  cancelled: visual("neutral", CircleSlash, "common.cancelled"),
+};
+
+/** What an Agent decided on a Session decision or a Knowledge candidate. */
+export type AgentVerdictKind = "confirmed" | "rejected" | "promoted" | "accepted";
+
+export const agentVerdictVisual: Record<AgentVerdictKind, StatusVisual> = {
+  confirmed: visual("success", Check, "common.confirmed"),
+  rejected: visual("neutral", CircleSlash, "common.rejected"),
+  promoted: visual("success", BookOpen, "status.promotedToKnowledge"),
+  accepted: visual("success", Check, "status.accepted"),
 };
 
 export const outstandingCleanupProposalVisual: Record<OutstandingCleanupProposalStatus, StatusVisual> = {

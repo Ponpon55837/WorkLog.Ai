@@ -969,6 +969,22 @@ export class KnowledgePageService {
       }));
   }
 
+  /** Written pages of a project whose cited sections include any of the Sessions. */
+  public pagesCitingSessions(
+    projectId: string,
+    sessionIds: ReadonlySet<string>,
+  ): Array<{ slug: string; title: string }> {
+    if (sessionIds.size === 0) return [];
+    const rows = this.db
+      .prepare(
+        "SELECT slug, title, sections_json FROM knowledge_pages WHERE project_id = ? AND version > 0 ORDER BY slug ASC",
+      )
+      .all(projectId) as Array<{ slug: string; title: string; sections_json: string }>;
+    return rows
+      .filter((row) => citedSessionIds(parseStoredSections(row.sections_json)).some((id) => sessionIds.has(id)))
+      .map(({ slug, title }) => ({ slug, title }));
+  }
+
   /** A single-line finalize reminder derived from the same ordered queue as work_get_context. */
   public maintenanceHintForProject(projectId: string): string | undefined {
     const pages = this.pendingForProject(projectId);

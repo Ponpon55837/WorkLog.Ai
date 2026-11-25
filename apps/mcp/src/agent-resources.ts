@@ -64,6 +64,13 @@ const AGENT_RESOURCES = [
     path: ".agents/skills/work-intelligence/references/outstanding-cleanup.md",
   },
   {
+    name: "work-intelligence-agent-review",
+    uri: "work-intelligence://agent/work-intelligence/references/agent-review.md",
+    title: "Agent review",
+    description: "Reviewing a user-opened Agent review request through evidence-based verdicts.",
+    path: ".agents/skills/work-intelligence/references/agent-review.md",
+  },
+  {
     name: "work-intelligence-synthesis",
     uri: "work-intelligence://agent/work-intelligence/references/synthesis.md",
     title: "Report synthesis and writing",
@@ -113,7 +120,7 @@ function buildToolContractIndex(operations: readonly AgentToolContractOperation[
     "# Work Intelligence MCP operation index",
     "",
     "The four tools/list dispatchers accept an operation id and an arguments object. Each line below is `operation → dispatcher: title`.",
-    `Before calling an operation for the first time in a conversation, read its complete contract at ${TOOL_CONTRACT_RESOURCE_URI}/<operation> (for example ${TOOL_CONTRACT_RESOURCE_URI}/work_finalize_session): behavior, safety annotations, JSON input schema, and runtime validation rules. Unknown argument keys are rejected, not ignored. These resources expose no path-based file access.`,
+    `Before calling an operation for the first time in a conversation, read its complete contract at ${TOOL_CONTRACT_RESOURCE_URI}/<operation>: behavior, safety annotations, JSON input schema, and runtime validation rules. Unknown argument keys are rejected, not ignored.`,
     "",
     ...operations.map((operation) => `- ${operation.name} → ${operation.dispatcherName}: ${operation.title}`),
   ].join("\n");

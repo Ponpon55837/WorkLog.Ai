@@ -6,7 +6,7 @@
 
 ## tools/list 與 dispatcher
 
-`tools/list` 公告 4 個 MCP tools。每個 tool 接受 `operation` 與 `arguments`；51 個 operation id 可呼叫，MCP resource `work-intelligence://agent/tool-contracts` 是精簡的操作索引（operation → dispatcher: 標題）；單一操作的完整契約——由完整 Zod schema 產生的 JSON Schema、行為說明、額外驗證規則與原始 annotations——在 resource template `work-intelligence://agent/tool-contracts/{operation}`。Agent 第一次呼叫某個 operation 前讀取它的契約，只讀用得到的操作。dispatcher 會再以原 Zod full schema 驗證參數；任何層級的未知參數鍵都會回傳 `unrecognized_keys` 錯誤並列出鍵名，不會被靜默丟棄。下方範例是操作本身的參數，實際 MCP 呼叫時須將 operation id 與其參數包在上面的 dispatcher envelope。
+`tools/list` 公告 4 個 MCP tools。每個 tool 接受 `operation` 與 `arguments`；55 個 operation id 可呼叫，MCP resource `work-intelligence://agent/tool-contracts` 是精簡的操作索引（operation → dispatcher: 標題）；單一操作的完整契約——由完整 Zod schema 產生的 JSON Schema、行為說明、額外驗證規則與原始 annotations——在 resource template `work-intelligence://agent/tool-contracts/{operation}`。Agent 第一次呼叫某個 operation 前讀取它的契約，只讀用得到的操作。dispatcher 會再以原 Zod full schema 驗證參數；任何層級的未知參數鍵都會回傳 `unrecognized_keys` 錯誤並列出鍵名，不會被靜默丟棄。下方範例是操作本身的參數，實際 MCP 呼叫時須將 operation id 與其參數包在上面的 dispatcher envelope。
 
 | MCP tool | Annotation | 用途 |
 |---|---|---|
@@ -326,7 +326,7 @@ Schema 升為 23 並新增 operation 契約，更新主安裝並建置後，現�
 
 另外提供兩個 MCP prompts：`finalize-work`（把這次工作記錄下來）與 `synthesize-report`（可選 `period`，整理報告）。
 
-Server instructions 只放路由規則；48 項 operation 的長說明與 schema 按需由固定 contract resource 提供，避免初始工具清單被重複描述撐大。
+Server instructions 只放路由規則；55 項 operation 的長說明與 schema 按需由固定 contract resource 提供，避免初始工具清單被重複描述撐大。
 
 ## `work_get_report`
 
@@ -561,13 +561,29 @@ Knowledge 會出現在 「工作知識」頁、Session 面板的 Knowledge 區�
 
 ## Knowledge 候選：`work_request_knowledge_candidates` / `work_get_knowledge_candidate_context` / `work_submit_knowledge_candidates`
 
-讓 Agent 從已記錄的 Session（含 raw handoff）整理出值得重用的 Knowledge，但**候選不是 Knowledge**：只有使用者在「工作知識」頁接受（可先修改）後才會以 `work_record_knowledge` 相同的流程寫入，維持 Knowledge 必須明確提交的原則。MCP 沒有接受候選的工具。
+讓 Agent 從已記錄的 Session（含 raw handoff）整理出值得重用的 Knowledge，但**候選不是 Knowledge**：只有使用者在「工作知識」頁接受（可先修改）後才會以 `work_record_knowledge` 相同的流程寫入，維持 Knowledge 必須明確提交的原則。這三個操作沒有接受候選的能力；唯一例外是使用者開啟的 Agent 審查請求（見下一節），其 verdict 可接受或拒絕候選。
 
 1. `work_request_knowledge_candidates`（`projectRoot`）：以這個專案還沒被任何非取消請求涵蓋、未作廢的 Session 建立請求，最多 10 筆，依價值分數由高到低、同分時新到舊、再同則 id 大者在前；已有未完成（pending、processing 或 failed）的請求時直接回傳它（`duplicate: true`）；都整理過時回傳 `knowledge_candidates_not_needed`。工作知識頁的「整理候選」建立的是同一種請求。新建立時回應帶 `remaining: { uncoveredSessions, highValueSessions }`（這次請求之後仍未被涵蓋的 Session 數，及其中高價值者），Agent 可據此告訴使用者還有多少未整理，但不應在使用者沒要求時再建立請求。價值分數只用既有的結構化紀錄：已確認的決策（每筆 2 分，最多 3 筆）、驗證由 failed 修復為 passed，或通過驗證並以 `continues` 延續一個驗證失敗的 Session（3 分）、之後的 Session 連結到它（每筆 1.5 分，最多 3 筆）、Agent 讀取稽核中回傳過它的次數（每次 0.5 分，最多 5 次）、已有 Knowledge 引用它（扣 1 分）；沒有 `session_decisions` 列的舊 Session 改以 workSummary 的決策數計。分數至少 1 即為「高價值」。計算在 SQLite 以索引查詢完成，一次掃描專案的未涵蓋 Session 加上 O(S log k) 的前 k 名選取，沒有任何 Session 對請求逐一比對的步驟。
 2. `work_get_knowledge_candidate_context`（`projectRoot` 或 `requestId`）：把請求標為 processing，回傳來源 Session 的摘要、workSummary 的 outcomes／decisions／nextSteps 與 raw handoff（全部共 40,000 字內，逐筆截斷並標示 `handoffTruncated`）；scope 與 verification 列在 `omittedWorkSummarySections`，需要時以 `sessionReadWith`（`work_get_session`，`view: "handoff"`）讀取。`existingKnowledge` 依新到舊列出同專案的 active Knowledge（無 `status`，最多 150 筆）、archived Knowledge（`status: "archived"`，最多 30 筆）與已拒絕的候選（`status: "rejected"`，最多 20 筆），只有 id、kind 與標題，超出上限的數量為 `existingKnowledgeOmitted`；Agent 不應重複提出，也不應在沒有新證據時重提已封存或已拒絕的主題。超過 30 分鐘沒回寫的請求會標為 failed，可以再取一次 context 重新處理。
 3. `work_submit_knowledge_candidates`（`requestId`、`candidates`）：每筆候選包含 `sourceSessionId`（必須是這個請求的來源）、`kind`、`title`、`body`、`rationale`（引用或指出來源 Session 中支持它的部分），選填 `tags`、`references`、`appliesTo`。沒有值得提出的內容時送空陣列也是正確結果。送出後請求完成，候選出現在工作知識頁等待審核。回傳的每筆候選可能帶參考用的 `overlaps`（最多 3 筆，分數高到低）：與同專案 active Knowledge 或仍待審的候選相似為 `possible_duplicate`，與 archived Knowledge 相似為 `overlaps_archived`，與已拒絕的候選相似為 `overlaps_rejected`，附對象的 `type`、`id`、標題、`status` 與 0–1 的 `score`。分數是標題與「標題＋內文前 4,000 字」兩組詞元的 overlap coefficient 各占一半（與檢索相同的斷詞），0.3 以上才列出；只比對同專案、在這次送出前已存在的記錄，不含本次請求自己的候選。這只是提示：不會拒絕、合併、封存或修改任何資料，由使用者在 Web 決定。Schema 33 起這項提示與候選一起保存（只存 relation、對象 `type`、`id`、送出時的 `status` 與 `score`，不存文字），Web 候選審核卡片會顯示；標題在讀取時從同專案的對象記錄取得，對象已不存在時省略 `title`。對已完成的請求再次送出完全相同（正規化後）的內容時，回傳原本保存的候選、保存的 overlaps 與 `duplicate: true`，不重新計算，所以之後對象狀態改變也不會改變標示；schema 33 之前送出、沒有保存提示的候選仍照舊重新計算。不會新增候選；內容不同則回傳 `request_not_open`。
 
 `work_get_context` 的 `pendingRequests.knowledgeCandidates` 會列出 pending、processing 與 failed 的候選請求（附 `status`；failed 的請求會擋住新的請求，應以 `work_get_knowledge_candidate_context` 接續處理，不要另建）。專案範圍的呼叫另可帶 `pendingRequests.knowledgeBacklog: { uncoveredSessions, highValueSessions, requestWith: "work_request_knowledge_candidates" }`，只在同時滿足下列條件時出現，否則整個欄位省略：該專案沒有未完成的候選請求、高價值未涵蓋 Session 至少 5 筆、該專案最近一次候選請求（任何狀態）已超過 7 天或從未建立。Agent 最多在對話中向使用者提一次、當作建議；使用者沒有要求就不建立請求。這項計算依資料變更序號記憶，資料沒變時重複呼叫只讀序號，不再查詢。Agent 讀取稽核不更動資料序號，所以重讀次數的變化可能延到下一次資料寫入才反映。
+
+## Agent 審查：`work_request_agent_review` / `work_get_agent_review_context` / `work_submit_agent_review_verdicts`
+
+使用者可在 Web 為 tracked 專案開啟「Agent 審查」請求，或在明確要求時由 Agent 以 `work_request_agent_review` 建立（Agent 不會自行發起）。請求固定當時待處理的 Agent 自主決策（`agent_autonomous`）與已提出的 Knowledge 候選快照（最多 500 筆，超過的部分記為 `omittedCount`，需要另開請求）。Agent 讀取分頁 context 後提交 verdict，verdict 直接生效，使用者可在 Web 推翻。
+
+| Operation | Dispatcher | 參數與回應 |
+| --- | --- | --- |
+| `work_request_agent_review` | `work_write_idempotent` | `projectRoot`、`idempotencyKey`；建立與 Web 相同的快照請求，已有進行中請求時直接回傳它（`duplicate: true`）。回傳 `agent_review_request`、`agent_review_not_needed`（沒有待審項目）或 `skipped`（未追蹤專案安靜略過）；只建立請求，不套用任何 verdict |
+| `work_get_agent_review_context` | `work_write_idempotent` | `requestId` 或 `projectRoot`（至少一個；後者取該專案最新的進行中請求）、`page`、`pageSize`（1–10，預設 10）；把請求推進為 `processing`，回傳 `agent_review_context`：每筆項目的 `itemKind`（`decision`／`candidate`）、`state`（`open`、`applied`、`skipped`、`stale`、`reviewed`）、來源 Session 摘錄與 `overlaps`，第一頁另帶 `existingKnowledge`（項目欄位維持正常上限，標題只用剩餘預算，依 active、archived、rejected、新到舊保留；放不下的數量為 `existingKnowledgeOmitted`，可用 `work_search_knowledge` 查）。整頁序列化上限 24,000 字元，過大時回傳 `rejected`／`context_too_large`；沒有進行中請求回傳 `not_found`，已完成或取消回傳 `request_not_open` |
+| `work_submit_agent_review_verdicts` | `work_write_overwrite` | `requestId`、`idempotencyKey`、最多 50 筆 `verdicts`、可選 `complete`；回傳 `agent_review_verdicts_submitted` |
+
+每筆 verdict 都需要 1–2,000 字、以證據為依據的 `reason`。決策可 `confirm`、`reject` 或 `promote`（建立 Knowledge，必須附 `knowledge` 草稿，其他 verdict 不得附）；候選可 `accept`（可附 `edits`）或 `reject`。沒有證據支持的項目不提交 verdict，留給使用者處理，不可猜測；`state` 為 `stale` 或 `reviewed` 的項目不給 verdict。每個項目在同一次提交只能出現一次，沒有 verdict 時必須設 `complete: true`。
+
+結果逐項回報 `applied`（`promote`／`accept` 另帶 `knowledgeId`）、`skipped_stale`、`skipped_reviewed`、`not_in_request` 或 `knowledge_rejected`；skipped 的項目在快照之後被他人更動或審查過，不會被覆寫。`knowledge_rejected`（帶 `knowledgeOutcome`，有原因時帶 `knowledgeReason`）表示 Knowledge 寫入失敗：沒有套用任何變更，項目維持 open，修正草稿後以新的 key 重送。同 key 與相同內容重送回傳原結果（`duplicate: true`），不同內容重用同一個 key 回傳 `idempotency_conflict`。`work_submit_agent_review_verdicts` 歸類為 `work_write_overwrite`，因為它會改變既有決策與候選的審查狀態（前一個狀態保留在稽核紀錄）。
+
+請求在所有項目都有結果，或最後一次提交帶 `complete: true` 時完成，結果帶 `completion.knowledgePages`：有新資料的 Knowledge 頁面（`slug`、`title`、`reasons`）。伺服器不會改寫頁面；Agent 須自行用 `work_get_knowledge_page_context` 與 `work_save_knowledge_page` 更新，優先使用段落更新（`upsertSections`）。完成後 Agent 向使用者回報套用、略過與仍待處理的數量，並說明可在知識頁以「由 Agent 處理」篩選檢查或推翻。
 
 ## 常駐知識頁：`work_request_knowledge_page_update` / `work_get_knowledge_page_context` / `work_save_knowledge_page` / `work_mark_knowledge_page_checked`
 

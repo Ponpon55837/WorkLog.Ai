@@ -52,6 +52,9 @@ export { ProjectDataTransferError, type ProjectDataTransferErrorCode };
 
 const TABLE_ORDER: readonly ProjectDataTable[] = [
   "projects",
+  // Before the decisions and candidates that cite a request in review_request_id.
+  "agent_review_requests",
+  "agent_review_submissions",
   "sessions",
   "work_events",
   "raw_snapshots",
@@ -79,6 +82,7 @@ const TABLE_ORDER: readonly ProjectDataTable[] = [
   "outstanding_cleanup_proposals",
   "outstanding_cleanup_proposal_evidence",
   "outstanding_item_events",
+  "agent_review_request_items",
   "knowledge_pages",
   "knowledge_page_versions",
   "session_diagrams",
@@ -103,6 +107,12 @@ const UNIQUE_FIELDS: Partial<Record<ProjectDataTable, readonly (readonly string[
   ],
   outstanding_cleanup_proposals: [["request_item_id"]],
   outstanding_cleanup_proposal_evidence: [["proposal_id", "session_id"]],
+  agent_review_requests: [["idempotency_key"]],
+  agent_review_submissions: [["request_id", "idempotency_key"]],
+  agent_review_request_items: [
+    ["request_id", "item_kind", "item_id"],
+    ["request_id", "position"],
+  ],
   outstanding_item_events: [["id"]],
   session_links: [["session_id", "related_session_id"]],
   session_decisions: [["session_id", "position"]],
@@ -168,6 +178,8 @@ const VERSION_TIME_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> 
   outstanding_items: ["created_at", "updated_at"],
   outstanding_cleanup_requests: ["requested_at", "completed_at"],
   outstanding_cleanup_proposals: ["created_at", "decided_at"],
+  agent_review_requests: ["requested_at", "started_at", "completed_at"],
+  agent_review_request_items: ["decided_at", "overturned_at"],
 };
 
 /**
@@ -185,6 +197,8 @@ const IMMUTABLE_PARENT_COLUMNS: Partial<Record<ProjectDataTable, readonly string
   outstanding_items: ["source_session_id"],
   outstanding_cleanup_request_items: ["request_id", "item_id", "source_session_id"],
   outstanding_cleanup_proposals: ["request_id", "request_item_id"],
+  agent_review_submissions: ["request_id"],
+  agent_review_request_items: ["request_id", "item_kind", "item_id"],
 };
 /** Content conflicts leave the local row in place, so rows that depend on it can still be imported. */
 const NON_BLOCKING_CONFLICTS: ReadonlySet<ProjectDataImportConflictCategory> = new Set(["content", "newer_content"]);
@@ -226,6 +240,7 @@ const MISSING_PROJECT_REASON = "所屬專案不在匯入檔中。";
 const MISSING_SESSION_REASON = "所屬 Session 不在匯入檔中。";
 const MISSING_REQUEST_REASON = "報告所屬的請求不在匯入檔中。";
 const MISSING_SUMMARY_REASON = "報告呈現的原始版本不在匯入檔中。";
+const AGENT_REVIEW_OPEN_STATUSES: readonly string[] = ["pending", "processing", "failed"];
 
 /** Masks one row with the portable redaction rules, architecture diagrams included. */
 function redactRow(table: ProjectDataTable, row: ProjectDataRow): ReturnType<typeof redactRowWith> {
@@ -572,6 +587,9 @@ function bundleForScope(
     outstanding_cleanup_proposals: byProject("outstanding_cleanup_proposals"),
     outstanding_cleanup_proposal_evidence: byProject("outstanding_cleanup_proposal_evidence"),
     outstanding_item_events: byProject("outstanding_item_events"),
+    agent_review_requests: byProject("agent_review_requests"),
+    agent_review_submissions: byProject("agent_review_submissions"),
+    agent_review_request_items: byProject("agent_review_request_items"),
   };
 
   for (const table of PROJECT_DATA_TABLES) {
@@ -639,6 +657,10 @@ function plannedUniqueKeysForRow(table: ProjectDataTable, row: ProjectDataRow): 
   if (table === "outstanding_cleanup_requests" && (row.status === "pending" || row.status === "awaiting_review")) {
     const activeProjectKey = uniqueIndexKey(["project_id"], row);
     if (activeProjectKey) keys.push(activeProjectKey);
+  }
+  if (table === "agent_review_requests" && AGENT_REVIEW_OPEN_STATUSES.includes(String(row.status))) {
+    const openProjectKey = uniqueIndexKey(["project_id"], row);
+    if (openProjectKey) keys.push(openProjectKey);
   }
   return keys;
 }
@@ -811,6 +833,19 @@ function existingUniqueRow(
     ).get(row.project_id) as ProjectDataRow | undefined;
     if (found && String(found.id) !== exceptId) return found;
   }
+  if (
+    table === "agent_review_requests" &&
+    AGENT_REVIEW_OPEN_STATUSES.includes(String(row.status)) &&
+    typeof row.project_id === "string"
+  ) {
+    const columns = projectDataExportTableColumns[table].join(", ");
+    const found = cachedStatement(
+      db,
+      `SELECT ${columns} FROM agent_review_requests
+         WHERE project_id = ? AND status IN ('pending', 'processing', 'failed')`,
+    ).get(row.project_id) as ProjectDataRow | undefined;
+    if (found && String(found.id) !== exceptId) return found;
+  }
   return undefined;
 }
 
@@ -868,6 +903,7 @@ type OwnedParentTable =
   | "knowledge"
   | "knowledge_pages"
   | "knowledge_candidate_requests"
+  | "agent_review_requests"
   | "report_synthesis_requests"
   | "report_summaries";
 
@@ -927,6 +963,11 @@ const PARENT_REFERENCES: ReadonlyArray<{
   { table: "knowledge_candidates", column: "knowledge_id", parent: "knowledge" },
   { table: "knowledge_page_versions", column: "page_id", parent: "knowledge_pages" },
   { table: "knowledge_candidates", column: "request_id", parent: "knowledge_candidate_requests" },
+  { table: "session_decisions", column: "review_request_id", parent: "agent_review_requests" },
+  { table: "knowledge_candidates", column: "review_request_id", parent: "agent_review_requests" },
+  { table: "agent_review_submissions", column: "request_id", parent: "agent_review_requests" },
+  { table: "agent_review_request_items", column: "request_id", parent: "agent_review_requests" },
+  { table: "agent_review_request_items", column: "knowledge_id", parent: "knowledge" },
   { table: "report_summaries", column: "request_id", parent: "report_synthesis_requests" },
   { table: "report_presentations", column: "summary_id", parent: "report_summaries" },
 ];
@@ -956,6 +997,7 @@ function collectParentOwners(
     knowledge: new Map(),
     knowledge_pages: new Map(),
     knowledge_candidate_requests: new Map(),
+    agent_review_requests: new Map(),
     report_synthesis_requests: new Map(),
     report_summaries: new Map(),
   });
@@ -1099,6 +1141,38 @@ function dependencyIssue(
     const knowledgeId = typeof row.knowledge_id === "string" ? row.knowledge_id : undefined;
     if (knowledgeId && !isAvailable("knowledge", knowledgeId, selectedIds.knowledge, availableIds, conflictIds)) {
       return "決策引用的 Knowledge 發生衝突或不存在。";
+    }
+  }
+
+  if (table === "session_decisions" || table === "knowledge_candidates") {
+    const reviewRequestId = typeof row.review_request_id === "string" ? row.review_request_id : undefined;
+    if (
+      reviewRequestId &&
+      !isAvailable(
+        "agent_review_requests",
+        reviewRequestId,
+        selectedIds.agent_review_requests,
+        availableIds,
+        conflictIds,
+      )
+    ) {
+      return "審查所屬的 Agent 審查請求發生衝突或不存在。";
+    }
+  }
+
+  if (table === "agent_review_submissions" || table === "agent_review_request_items") {
+    const requestId = String(row.request_id);
+    if (
+      !isAvailable("agent_review_requests", requestId, selectedIds.agent_review_requests, availableIds, conflictIds)
+    ) {
+      return "Agent 審查資料對應的請求發生衝突或不存在。";
+    }
+  }
+
+  if (table === "agent_review_request_items") {
+    const knowledgeId = typeof row.knowledge_id === "string" ? row.knowledge_id : undefined;
+    if (knowledgeId && !isAvailable("knowledge", knowledgeId, selectedIds.knowledge, availableIds, conflictIds)) {
+      return "Agent 審查項目引用的 Knowledge 發生衝突或不存在。";
     }
   }
 

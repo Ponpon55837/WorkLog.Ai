@@ -5,8 +5,10 @@ import { storeToRefs } from "pinia";
 import { Check, ExternalLink, Info, Pencil, Sparkles, X } from "lucide-vue-next";
 import type { KnowledgeCandidate, KnowledgeCandidateOverlap, ProjectRecord } from "@work-intelligence/core";
 import { useActiveRequestWatch } from "../../composables/useActiveRequestWatch";
+import { useAgentReviewActions } from "../../composables/useAgentReviewActions";
 import { useKnowledgeCandidates } from "../../composables/useKnowledgeCandidates";
 import { useToast } from "../../composables/useToast";
+import { useAgentReviewStore } from "../../stores/agent-review";
 import { useKnowledgeStore } from "../../stores/knowledge";
 import { useSessionsStore } from "../../stores/sessions";
 import { formatPercent, formatRelative } from "../../utils/format";
@@ -21,6 +23,8 @@ import UiFlash from "../ui/UiFlash.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 import VirtualList from "../VirtualList.vue";
+import AgentReviewFilter from "./AgentReviewFilter.vue";
+import AgentReviewVerdict from "./AgentReviewVerdict.vue";
 import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
 
@@ -41,6 +45,9 @@ const {
   openCandidateEditor,
 } = useKnowledgeCandidates();
 const { candidatesLoaded, candidateBacklog } = storeToRefs(useKnowledgeStore());
+const { filter, reviewedCandidates, reviewedCandidatesLoaded, reviewedCandidatesError } =
+  storeToRefs(useAgentReviewStore());
+const { overturn } = useAgentReviewActions();
 const sessionsStore = useSessionsStore();
 const { openSessionDetail } = sessionsStore;
 const { showToast } = useToast();
@@ -78,6 +85,14 @@ const backlogText = computed(() => {
     : t("knowledge.candidateBacklogPlain", { uncovered: uncoveredSessions });
 });
 const requestItems = computed(() => props.projects.map((project) => ({ value: project.id, label: project.name })));
+const isAgentView = computed(() => filter.value === "agent");
+const shownCandidates = computed(() => (isAgentView.value ? reviewedCandidates.value : candidates.value));
+const shownLoaded = computed(() => (isAgentView.value ? reviewedCandidatesLoaded.value : candidatesLoaded.value));
+const shownError = computed(() => (isAgentView.value ? reviewedCandidatesError.value : candidatesError.value));
+
+function projectRootFor(candidate: KnowledgeCandidate): string | undefined {
+  return props.projectRoot ?? props.projects.find((project) => project.id === candidate.projectId)?.rootPath;
+}
 
 function overlapLabel(overlap: KnowledgeCandidateOverlap): string {
   return (
@@ -104,24 +119,30 @@ function onRequest(projectId: string): void {
       <UiBoxTitle
         :icon="Sparkles"
         :title="
-          candidatesLoaded
-            ? t('knowledge.knowledgeCandidates', { length: candidates.length })
+          shownLoaded
+            ? t(isAgentView ? 'knowledge.agentProcessedCandidates' : 'knowledge.knowledgeCandidates', {
+                length: shownCandidates.length,
+              })
             : t('common.knowledgeCandidates')
         "
       />
-      <UiActionMenu
-        :label="t('knowledge.synthesizeCandidates')"
-        :header="t('knowledge.chooseAProjectToSynthesize')"
-        variant="button"
-        size="sm"
-        align="end"
-        :items="requestItems"
-        @select="onRequest"
-      />
+      <div class="knowledge-candidates__tools">
+        <AgentReviewFilter v-model="filter" />
+        <UiActionMenu
+          v-if="!isAgentView"
+          :label="t('knowledge.synthesizeCandidates')"
+          :header="t('knowledge.chooseAProjectToSynthesize')"
+          variant="button"
+          size="sm"
+          align="end"
+          :items="requestItems"
+          @select="onRequest"
+        />
+      </div>
     </template>
-    <UiFlash v-if="candidatesError" tone="danger">{{ candidatesError }}</UiFlash>
+    <UiFlash v-if="shownError" tone="danger">{{ shownError }}</UiFlash>
     <UiFlash
-      v-for="request in openCandidateRequests"
+      v-for="request in isAgentView ? [] : openCandidateRequests"
       :key="request.id"
       :tone="request.status === 'failed' ? 'attention' : 'accent'"
     >
@@ -133,23 +154,29 @@ function onRequest(projectId: string): void {
         })
       }}
     </UiFlash>
-    <p v-if="backlogText" class="knowledge-candidates__backlog" data-testid="knowledge-candidates-backlog">
+    <p
+      v-if="backlogText && !isAgentView"
+      class="knowledge-candidates__backlog"
+      data-testid="knowledge-candidates-backlog"
+    >
       {{ backlogText }}
     </p>
-    <UiSkeleton
-      v-if="!candidatesLoaded && !candidatesError"
-      :count="2"
-      :label="t('knowledge.loadingKnowledgeCandidates')"
-    />
-    <p v-else-if="candidates.length === 0 && openCandidateRequests.length === 0" class="knowledge-candidates__empty">
+    <UiSkeleton v-if="!shownLoaded && !shownError" :count="2" :label="t('knowledge.loadingKnowledgeCandidates')" />
+    <p v-else-if="isAgentView && shownCandidates.length === 0" class="knowledge-candidates__empty">
+      {{ t("knowledge.noAgentProcessedCandidates") }}
+    </p>
+    <p
+      v-else-if="!isAgentView && candidates.length === 0 && openCandidateRequests.length === 0"
+      class="knowledge-candidates__empty"
+    >
       {{ t("knowledge.noCandidatesToReviewPress") }}
     </p>
     <VirtualList
-      :items="candidates"
-      :enabled="candidates.length > 2"
+      :items="shownCandidates"
+      :enabled="shownCandidates.length > 2"
       :estimate-item-height="220"
       max-height="min(56vh, 560px)"
-      :label="t('knowledge.knowledgeCandidateList')"
+      :label="isAgentView ? t('knowledge.agentProcessedCandidatesList') : t('knowledge.knowledgeCandidateList')"
     >
       <template #default="{ item: candidate }">
         <UiBoxRow tag="article" data-testid="knowledge-candidate">
@@ -173,8 +200,15 @@ function onRequest(projectId: string): void {
           <p class="knowledge-candidates__rationale">
             {{ t("knowledge.rationale", { rationale: candidate.rationale }) }}
           </p>
+          <AgentReviewVerdict
+            v-if="isAgentView"
+            :verdict="candidate.status === 'accepted' ? 'accepted' : 'rejected'"
+            :reason="candidate.reviewReason"
+            :reviewed-at="candidate.decidedAt"
+            @overturn="overturn('candidate', candidate.id, projectRootFor(candidate))"
+          />
           <div
-            v-if="candidate.overlaps?.length"
+            v-if="!isAgentView && candidate.overlaps?.length"
             class="knowledge-candidates__overlaps"
             role="note"
             data-testid="knowledge-candidate-overlaps"
@@ -214,7 +248,7 @@ function onRequest(projectId: string): void {
               t("knowledge.appliesTo", { pattern })
             }}</code>
           </div>
-          <template #trailing>
+          <template v-if="!isAgentView" #trailing>
             <div class="knowledge-candidates__actions">
               <UiButton size="sm" variant="primary" :icon="Check" @click="acceptCandidate(candidate, projectRoot)">{{
                 t("knowledge.accept")
@@ -236,6 +270,13 @@ function onRequest(projectId: string): void {
 <style scoped>
 .knowledge-candidates {
   margin-bottom: var(--space-4);
+}
+
+.knowledge-candidates__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .knowledge-candidates__empty {
