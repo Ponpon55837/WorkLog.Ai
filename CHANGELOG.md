@@ -4,6 +4,21 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.72] - 2026-11-25
+
+[繁體中文更新說明](docs/releases/1.6.72.md).
+
+### Added
+
+- Split suggestions for Knowledge pages near their limits. When a page has 11 or more of its 12 sections, or 7,200 or more of its 8,000 characters of section content (90%, about one average section left), every `work_get_knowledge_page_context` read (full, focused with `query` or `headings`, and `reviewOnly`) and every `work_save_knowledge_page` result (whole-page saves, section-update receipts and replays) adds `size` (`sectionCount`, `maxSections`, `contentChars`, `maxContentChars`) and `splitSuggestion`: `near` (`sections` and/or `content`), `headings` (the largest sections to move to a custom page, largest first, at most 3 and never every section) and `splitWith` (a one-line pointer to `work_request_knowledge_page_update`). A review-only read already had `size` and only gains `splitSuggestion`. Below the thresholds none of these fields is added, so responses keep their size.
+- The Knowledge page view and the page editor show the current usage and the suggested sections when a page is near its limits, in Traditional Chinese and English.
+
+### Changed
+
+- `page_limit_exceeded` says to move sections to a custom page instead of sending shorter sections, and carries `splitSuggestion` for the merged page. The input errors for a whole page over 12 sections or 8,000 characters say the same. The limits are unchanged, and the server never splits a page itself.
+- The limits and the near-limit rule are defined once in `@work-intelligence/core` (`knowledgePageLimits`) and shared by storage, the input schema, MCP and the Web.
+- The Knowledge page contract, the `work_get_knowledge_page_context` and `work_save_knowledge_page` descriptions and the Knowledge guide describe the suggestion: ask the user, create the custom page, save the sections there and remove them from the original page, never trim existing text to make room. The MCP contract text changed, so the MCP compatibility id changes: connected Agents receive `restartRequired` after upgrading and must reconnect the Work Intelligence MCP.
+
 ## [1.6.71] - 2026-11-25
 
 [繁體中文更新說明](docs/releases/1.6.71.md).
