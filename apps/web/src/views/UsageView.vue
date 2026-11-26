@@ -197,7 +197,6 @@ onBeforeUnmount(() => usageStore.setUsageActive(false));
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4);
-  align-items: start;
   min-width: 0;
 }
 
@@ -227,11 +226,12 @@ onBeforeUnmount(() => usageStore.setUsageActive(false));
     grid-template-columns: 300px minmax(0, 1fr);
   }
 
-  /* Only the results scroll; the controls stay in view so switching projects or the range needs no scrolling back. */
+  /* Only the results scroll; the controls stay in view so switching projects or the range needs no scrolling back.
+     The height leaves room for the one-row page header above it, so the scan button is whole before any scrolling. */
   .usage__controls {
     position: sticky;
     top: var(--space-4);
-    max-height: calc(100vh - var(--header-height) - var(--space-8));
+    height: calc(100vh - var(--header-height) - var(--space-16) - var(--space-6));
     overflow-y: auto;
   }
 }

@@ -100,6 +100,27 @@ test("the range and the scan button stay on screen however many projects are tra
   await expect(controls.getByRole("button", { name: textIn("zh-TW", "usage.scan") })).toBeInViewport({ ratio: 1 });
 });
 
+test("the controls fill the side column and cards in one row end on the same line", async ({ page }) => {
+  await mockUsage(page, "ok");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/usage");
+  await expect(page.getByTestId("usage-summary")).toBeVisible();
+
+  const edges = async (testId: string) => {
+    const box = await page.getByTestId(testId).boundingBox();
+    if (!box) throw new Error(`${testId} is not rendered`);
+    return { top: Math.round(box.y), bottom: Math.round(box.y + box.height) };
+  };
+  // Polled, because the cards settle a few pixels after their entrance.
+  await expect(async () => {
+    const controls = await edges("usage-controls");
+    expect(controls.bottom).toBeGreaterThan(900 - 48);
+    expect(controls.bottom).toBeLessThanOrEqual(900);
+    expect(await edges("usage-blocks")).toEqual(await edges("usage-summary-main"));
+    expect(await edges("usage-composition")).toEqual(await edges("usage-trend"));
+  }).toPass();
+});
+
 test("a failed scan shows an error with a retry that loads the result", async ({ page }) => {
   await mockUsage(page, "error");
   await page.goto("/usage");

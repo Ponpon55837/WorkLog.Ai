@@ -26,7 +26,7 @@ const cacheReadFoot = computed(() => {
 
 <template>
   <div v-if="result" :class="['usage-summary', { 'usage-summary--with-block': hasBlocks }]" data-testid="usage-summary">
-    <div class="usage-summary__main">
+    <div class="usage-summary__main" data-testid="usage-summary-main">
       <UiStatCard
         featured
         :label="t('usage.summaryHeadline')"
@@ -81,13 +81,17 @@ const cacheReadFoot = computed(() => {
 </template>
 
 <style scoped>
+/* Cards in one row share its height, so the stat cards and the block card end on the same line. */
 .usage-summary,
 .usage-summary__main {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4);
-  align-items: start;
   min-width: 0;
+}
+
+.usage-summary__main {
+  grid-template-rows: auto 1fr;
 }
 
 .usage-summary__secondary {
