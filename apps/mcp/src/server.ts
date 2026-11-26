@@ -115,7 +115,7 @@ import { toFinalizeReceipt } from "./finalize-receipt.js";
 import { toKnowledgePageSaveReceipt } from "./knowledge-page-receipt.js";
 import { withMatchingProjects } from "./matching-projects.js";
 import { observeFinalizeChangedFiles, type FinalizeInput } from "./finalize-observation.js";
-import { parseMcpInput } from "./input.js";
+import { inputErrorDetails, parseMcpInput } from "./input.js";
 import { SegmentObserver, type ObservedSegmentStart } from "./segment-observer.js";
 import { hoistItemProject, scopeProject, withoutProjectFields } from "./project-scope.js";
 import { countResponseChars, sessionTextResult, textResult } from "./result.js";
@@ -429,7 +429,7 @@ function registerToolDispatchers(server: McpServer, operations: Map<string, Regi
             ...textResult({
               code: "INVALID_OPERATION_CALL",
               error: "Invalid Work Intelligence operation call.",
-              details: parsed.error.flatten(),
+              details: inputErrorDetails(parsed.error),
             }),
           };
         }
@@ -606,7 +606,7 @@ export function createWorkIntelligenceMcpServer(
         if (!parsed.success) {
           const invalidResponse = {
             isError: true,
-            ...textResult({ error: definition.invalidMessage, details: parsed.error.flatten() }),
+            ...textResult({ error: definition.invalidMessage, details: inputErrorDetails(parsed.error) }),
           };
           if (readOnly) {
             auditRead(store, {

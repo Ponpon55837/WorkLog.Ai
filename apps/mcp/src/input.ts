@@ -11,6 +11,18 @@ function inputError(message: string): z.ZodError {
   return new z.ZodError([{ code: CUSTOM_ISSUE_CODE, path: [], message }]);
 }
 
+/** Field errors keep the nested path (`scope: …` under `workSummary`), so an Agent can fix the exact key. */
+export function inputErrorDetails(error: z.ZodError): {
+  formErrors: string[];
+  fieldErrors: Record<string, string[] | undefined>;
+} {
+  return error.flatten((issue) =>
+    issue.path.length > 1 && issue.code !== UNRECOGNIZED_KEYS_ISSUE_CODE
+      ? issue.path.slice(1).join(".") + ": " + issue.message
+      : issue.message,
+  );
+}
+
 export function parseMcpInput<T extends z.ZodType>(schema: T, input: unknown) {
   let serialized: string;
   try {

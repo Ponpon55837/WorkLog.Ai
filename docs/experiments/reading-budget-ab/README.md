@@ -17,3 +17,8 @@ node docs/experiments/reading-budget-ab/harness.mjs prompt <run dir>
 node docs/experiments/reading-budget-ab/harness.mjs check <run dir>
 node docs/experiments/reading-budget-ab/harness.mjs stop <run dir>
 ```
+
+## 結果檔
+
+- `runs-1.6.78.json`：第一輪，A1 與 A2。A2 在兩臂都沒通過「先確認追蹤再看資料夾」，因此停下。
+- `runs-1.6.78-review.json`：複檢輪。A2 以同一個模型比較 instructions 的前後措辭（0/3 → 3/3），並補跑 A3–A6 兩臂各三次；A6 的記錄情境在驗證錯誤改為指出子欄位後再跑三次。

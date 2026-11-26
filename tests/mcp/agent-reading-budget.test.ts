@@ -31,6 +31,10 @@ import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
  * operation index 3,665 → 3,414; work_get_context contract 3,052 → 2,782; work_finalize_session contract
  * 10,349 → 8,875; fixed total 33,607 → 29,966 (instructions and tools/list unchanged); core + format + largest guide
  * 27,587 → 25,941. The limits above were lowered again to measured plus about 10%.
+ *
+ * The A/B then showed Agents inspecting an untracked folder before the tracking check in both arms, so the
+ * context-first sentence of the instructions names what must wait (git, listing, search, file reads): instructions
+ * 1,668 → 1,801, fixed total 29,966 → 30,099. The limits already cover it.
  */
 const CORE_SKILL_CHARACTER_BUDGET = 9_700;
 const FIXED_READING_CHARACTER_BUDGET = 32_900;

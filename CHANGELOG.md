@@ -4,6 +4,28 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.78] - 2026-11-26
+
+[繁體中文更新說明](docs/releases/1.6.78.md).
+
+### Changed
+
+- What an Agent must read before it can finalize a Session went from 42,244 to 30,099 characters (−29%): server instructions 1,934 → 1,801, `tools/list` 4,476 → 4,356, core skill 13,918 → 8,871, operation index 4,774 → 3,414, `work_get_context` contract 4,803 → 2,782, `work_finalize_session` contract 12,339 → 8,875. Rules the server enforces or the receipt reports are no longer restated in the reading; the budget tests now hold each part to its measured size plus about 10%.
+- The finalize receipt says what to do next instead of leaving it to the skill: `outstandingItemWarnings.reasons` names the failed rule for each id (`not_found`, `other_project`, `not_pending`, `source_voided`, `held_by_cleanup`, `not_earlier`, `both_lists`, `no_next_steps`), `privateTagWarnings` lists fields with an unclosed `<private>` tag, `knowledgeToReviewHint` says how to handle each listed Knowledge, and timestamp warnings name `work_update_session_metadata` as the fix.
+- A call sent to the wrong dispatcher is told which dispatcher serves the operation. A validation error names the nested key (`scope: …` under `workSummary`) instead of repeating the same message once per missing key.
+- The server instructions name what must wait for `work_get_context` in a project (git commands, directory listings, searches, file reads) and say to stop when the project is not tracked.
+
+### Fixed
+
+- `work_finalize_session` rejects four self-contradicting requests with `outcome: "rejected"` and writes nothing: an outstanding item both resolved and superseded, superseded items without `nextSteps`, a Knowledge item both applied and contradicted, and a supplied `startedAt` after a supplied `completedAt`. Unknown or other-project ids stay warnings. REST returns the same result.
+- A Knowledge page save checks the `reviewToken` coverage point: it must be empty, the page's saved coverage, or a non-voided Session of the project at that completion time; anything else returns `invalid_review_token` and writes nothing. A save with a token never moves the reviewed point back, and a full save without a token no longer marks unread Sessions as covered. Web edits keep covering everything up to the edit. Clients that return the token unchanged are not affected.
+
+### Verification
+
+- A/B on a fictional project with the same Agent prompt on 1.6.77 and 1.6.78, three runs per cell (`docs/experiments/reading-budget-ab/`). Recording quality and safety criteria: A1 finalize 3/3 on both; A3 secrets 3/3 on both; A4 outstanding items and Knowledge feedback 10 of 11 criteria on both (neither attaches a diagram); A5 Knowledge page conflict 3/3 on both, reading 65,277 → 49,065 characters on average; A6 without resource reads 3/3 on 1.6.78. Untracked-project runs (A2 and two A6 variants) failed the "inspect nothing first" criteria on 1.6.77 and with the earlier wording (0 of 11), and pass with the new instruction sentence (5 of 5).
+
+Schema stays 38. Reconnect the MCP after upgrading so Agents read the new instructions and contracts.
+
 ## [1.6.77] - 2026-11-26
 
 [繁體中文更新說明](docs/releases/1.6.77.md).

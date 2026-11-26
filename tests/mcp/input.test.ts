@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { MAX_INPUT_PAYLOAD_BYTES, parseMcpInput } from "../../apps/mcp/src/input.js";
+import { inputErrorDetails, MAX_INPUT_PAYLOAD_BYTES, parseMcpInput } from "../../apps/mcp/src/input.js";
 
 describe("MCP input boundary", () => {
   const schema = z.object({ payload: z.string() });
@@ -139,5 +139,23 @@ describe("MCP input boundary", () => {
         expect(rejected.error.issues[0]?.message, wrapper).toContain("typo");
       }
     }
+  });
+
+  it("names the nested key of a field error and leaves top-level and unknown-key messages as they are", () => {
+    const nested = z.object({
+      title: z.string(),
+      workSummary: z.object({ outcomes: z.array(z.string()), scope: z.array(z.string()) }),
+    });
+    const missing = parseMcpInput(nested, { workSummary: { outcomes: [] } });
+    const unknown = parseMcpInput(nested, { title: "t", workSummary: { outcomes: [], scope: [], extra: 1 } });
+    expect(missing.success || unknown.success).toBe(false);
+    if (missing.success || unknown.success) return;
+
+    const details = inputErrorDetails(missing.error);
+    expect(details.fieldErrors.workSummary).toEqual([expect.stringMatching(/^scope: /)]);
+    expect(details.fieldErrors.title?.[0]).not.toMatch(/^title: /);
+    expect(inputErrorDetails(unknown.error).fieldErrors.workSummary?.[0]).toMatch(
+      /^Unknown argument\(s\) in workSummary: extra/,
+    );
   });
 });
