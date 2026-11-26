@@ -5,6 +5,7 @@ type FinalizeResult = ReturnType<WorkIntelligenceStore["finalizeSession"]>;
 type FinalizedResult = Extract<FinalizeResult, { outcome: "finalized" }>;
 type WorkSessionRecord = FinalizedResult["session"];
 type RelatedOutstandingItems = NonNullable<FinalizedResult["relatedOutstandingItems"]>;
+type UnreportedKnowledge = NonNullable<FinalizedResult["unreportedKnowledge"]>;
 
 /** The request fields a receipt compares with what was stored. */
 interface FinalizeReceiptRequest {
@@ -41,6 +42,19 @@ export interface FinalizeReceiptSession {
 const STARTED_AT_FOLLOW_UP =
   'startedAt is missing. If you have evidence of when this segment began (the hook message "這段工作的開始時間…", transcript timestamps, a handoff), call work_update_session_metadata with { sessionId, startedAt } now. Never estimate; otherwise leave it empty.';
 
+/** Says how to report after the save, so the reminder can be acted on without another read. */
+const UNREPORTED_KNOWLEDGE_HINT =
+  "這段工作讀過、本筆尚未回報的知識點。確實用上且仍正確的，以 work_update_session_metadata { sessionId, appliedKnowledgeIds } 補報；發現已不正確的放 contradictedKnowledgeIds；沒用上就不必回報。";
+
+/** The newest few ids and titles; total only when more were read than listed. */
+function compactUnreportedKnowledge(unreported: UnreportedKnowledge): unknown {
+  return {
+    items: unreported.items,
+    ...(unreported.total > unreported.items.length ? { total: unreported.total } : {}),
+    hint: UNREPORTED_KNOWLEDGE_HINT,
+  };
+}
+
 /** Pointers in the same shape as work_get_context: the source title and date are one read away. */
 function compactRelatedItems(related: RelatedOutstandingItems): unknown {
   return {
@@ -61,7 +75,8 @@ function sameList(left: readonly string[] | undefined, right: readonly string[])
 /**
  * The Agent-facing finalize result is a receipt: the Session id and times, what the server changed or derived
  * (redaction counts, a stored changed-file list that differs from the request, Git metadata it filled in), the
- * follow-ups, warnings, reminders, and hints. It does not echo the title, summary, workSummary, or changedFiles the
+ * follow-ups, warnings, reminders, and hints (with how many reported Knowledge ids it recorded, and the recalled
+ * Knowledge this work read but has not reported). It does not echo the title, summary, workSummary, or changedFiles the
  * Agent just sent. Other outcomes (skipped, idempotency conflict) pass through unchanged, and so does the storage
  * result for every other caller.
  */
@@ -78,6 +93,7 @@ export function toFinalizeReceipt(input: FinalizeReceiptRequest, result: Finaliz
     outcome,
     duplicate,
     changedFileChangesFollowUp,
+    unreportedKnowledge,
     ...reminders
   } = result;
   const receipt: FinalizeReceiptSession = {
@@ -132,6 +148,7 @@ export function toFinalizeReceipt(input: FinalizeReceiptRequest, result: Finaliz
         }
       : {}),
     ...reminders,
+    ...(unreportedKnowledge ? { unreportedKnowledge: compactUnreportedKnowledge(unreportedKnowledge) } : {}),
     ...(continuedOutstandingItems ? { continuedOutstandingItems: compactRelatedItems(continuedOutstandingItems) } : {}),
     ...(relatedOutstandingItems ? { relatedOutstandingItems: compactRelatedItems(relatedOutstandingItems) } : {}),
   };

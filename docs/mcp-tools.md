@@ -80,6 +80,15 @@ MCP 回應是一張回條，不回顯 Agent 剛送出的內容：`session` 只�
 結果可帶選填的 `nextStepsWarnings`：`{ items: [{ index, category }], message }`。當儲存的某個 `nextSteps` 項目看起來是本次工作內的暫時狀態時才出現，`index` 是該項目在 `nextSteps` 中的位置，`category` 為 `uncommitted`（尚未 commit）、`not_pushed`（尚未 push）、`pending_merge`（PR 等待合併，或尚未合回分支）、`ci_running`（CI 執行中）、`phase_not_started`（階段尚未開始）。判斷只靠關鍵字，可能誤判；伺服器不會刪除、改寫或拒絕任何項目。冪等重播（`duplicate`）不會帶這個欄位。Agent 自行判斷：本次工作會自己完成的進度，移到 `outcomes` 或 `verification`；真正留待之後處理的項目就保留。
 
 `knowledgeToReview` 最多列 3 筆同專案、狀態為 active 的 Knowledge，條件有二：其 `appliesTo` 直接點名本次的某個變更檔案（與路徑完全相同，或是比對得到的 glob；只涵蓋上層目錄或只是路徑後綴的不算），而且這次 Session 是它被記錄或最後確認以來第一個改到它涵蓋檔案的 Session，也就是 `possiblyStale` 因本次才開始。已經是 `possiblyStale` 的 Knowledge 在每次讀取時都會標示，不在這裡重複。每筆有 `id`、`title`（最多 120 字元）、命中的 `path`，以及與 `path` 不同時命中的 `appliesTo`；完全相同的排在 glob 前，同類再依 Knowledge 更新時間由新到舊。與其他 appliesTo 掃描一樣最多讀最新的 2,000 筆，並共用一次呼叫的比對預算（見下方 `appliesTo`）；預算用完或略過超限的 `appliesTo` 項目時停止掃描或略過該項，已找到的提示照常回傳並帶 `knowledgeToReviewTruncated: true`。本次 Session 自己記錄的、或已在本次 `appliedKnowledgeIds`／`contradictedKnowledgeIds` 回報過的 Knowledge 不列入；完成時間早於 Knowledge 確認時間的補登 Session 也不會觸發。這只是提示，不改任何 Knowledge；Agent 依契約檢查：仍成立就用 `work_update_knowledge` 帶 `confirm: true`，被本次變更推翻就告知使用者並在確認後更新，不確定就保留。它與相關未結項、知識頁提示都在交易提交後才計算，查詢失敗只會省略該欄位。`commitSha` 是可選 metadata；工作完成不要求 Git commit。
+
+請求帶了 `appliedKnowledgeIds` 或 `contradictedKnowledgeIds` 時，回條另有 `knowledgeFeedback: { applied, contradicted }`：這次請求中找到、且這筆 Session 現在記錄為該類回饋的 Knowledge 數（之前已回報過的也算，所以重試得到相同數字）；找不到的 id 只列在 `knowledgeWarnings`。
+
+`unreportedKnowledge` 列出這段工作讀過、這筆 Session 還沒回報的 Knowledge：`items` 最多 3 筆，每筆只有 `id` 與 `title`（最多 80 字元），依最後一次讀取由新到舊；超過 3 筆時另帶 `total`，以及一句 `hint`。來源是 Agent 讀取 audit，只算同時符合下列條件的讀取：
+- 同一個專案、同一個 MCP 用戶端（initialize 握手記錄的名稱，完全相同才算）。
+- 回傳 Knowledge 內容的召回工具：`work_get_context`、`work_recall`、`work_search`、`work_search_knowledge`。`view: "compact"` 的清單沒有內文，audit 不把它記為 Knowledge 讀取；`work_get_knowledge_history`、知識頁與候選審核屬於維護讀取，也不算。
+- 讀取時間在這段工作之內：從 Session 的 `startedAt`（回報、由事件推得或伺服器觀察）到完成時間；同一用戶端在這段時間內於同專案保存過別的 Session 時，改從那次保存開始。
+
+只列 active 的 Knowledge，並排除本次回報過的、這筆 Session 之前回報過的，以及已列在 `knowledgeToReview` 的。補登（請求帶 `completedAt`）、沒有 `startedAt`，或不知道用戶端時都不計算；全部回報過或沒讀過就沒有這個欄位。歸屬只看專案、用戶端與時間：同一個用戶端在同一專案同時進行兩段工作時，可能列到另一段讀過的 Knowledge，所以這只是提醒，不是用過的證據。伺服器不判斷 Knowledge 是否真的用上，也不會因此拒絕或延後保存。Agent 只把真的用上且仍正確的，以 `work_update_session_metadata` 帶 `sessionId` 與 `appliedKnowledgeIds` 補報；發現已不正確的放 `contradictedKnowledgeIds`；沒用上的不必回報。查詢在交易提交後執行，一次查詢走 `agent_read_audit` 的專案時間索引，失敗只會省略該欄位；同一 `idempotencyKey` 重試時依目前的回報重新計算。
 選填 `agentModel`（最多 100 字）：Agent 知道自己確切的模型 id（例如 system prompt 中的 id）時可帶入；不確定就省略，不要猜，省略不會有警告或追問。Agent 用戶端名稱（例如 Claude Code、Codex）不需要傳入，由 MCP server 在連線 initialize 握手時自動記錄（`getClientVersion().name`）；REST finalize 不記錄用戶端。兩者都顯示在 Session 面板，既有 Session 維持未回報；同一 `idempotencyKey` 重試保留第一次的值。
 
 
@@ -373,6 +382,8 @@ Server instructions 只放路由規則；55 項 operation 的長說明與 schema
 
 也可以用 `startedAt`、`completedAt` 修正時間（必須有依據，不可估計）：修正 `completedAt` 或 `startedAt` 時，Session 會新增一筆 `note` 事件，記錄原值與新值（原本沒有開始時間則記為補上）；值沒有變就不寫入也不新增事件。會讓開始時間晚於完成時間的值不會套用，並在回傳的 `timestampWarnings` 中說明，而不是默默忽略。若是在已 finalize 的同一個 Session 上繼續工作、現在已完成，改傳 `completedAtNow: true`（不要自行帶 `completedAt`；兩者互斥，同時傳入會被拒絕）：伺服器以目前時間作為 `completedAt`，驗證與 `completedAt` 相同（不得早於 `startedAt`，否則不套用並回報 `timestampWarnings`），`note` 事件的 `details` 會帶 `source: "server_clock"`，摘要為「完成時間由 X 更新為 Y（伺服器時間，工作延續）。」時間規則見[Session 時間](#session-時間startedatcompletedatupdatedat)。
 
+保存後才回報 Knowledge（例如 finalize 回條的 `unreportedKnowledge`，或保存時漏帶）時，傳 `appliedKnowledgeIds`、`contradictedKnowledgeIds`，規則與 finalize 相同，套用時以 Session 更新後的完成時間為準。這筆 Session 已用同一種方式回報過的 id 不再寫入，Knowledge audit 與回饋紀錄都不變，所以重送沒有副作用。回應另帶 `knowledgeFeedback`（這次請求中這筆 Session 現在記錄的數量）與 `knowledgeWarnings`（找不到的 id）；沒帶這兩個欄位時回應不變。只回報這段工作真的用上的 Knowledge，不要為了清空提醒而回報。`work_apply_metadata_backfill` 不接受這兩個欄位。
+
 ```json
 {
   "sessionId": "session-id-from-work_finalize_session",
@@ -559,7 +570,7 @@ Knowledge 會出現在 「工作知識」頁、Session 面板的 Knowledge 區�
 - `appliesTo` 寬度：`possiblyStale.appliesToBreadth` 是 `{ share, sessions }`，與寫入時的寬度同一個定義，以整個專案計算：`sessions` 為專案最新 200 個（不足則全部）未作廢、列出 1–20 個檔案的 Session 數（不只基準時間之後的，也不排除它自己的 Session），`share` 是其中碰到 `appliesTo` 的比例（四捨五入到 3 位）。`sessions` 至少 10 且 `share` 高於 0.15 時 `reason` 為 `broad_applies_to`，表示這個範圍太寬、被碰到說明不了什麼；否則為 `applies_to_changed`。專案沒有這類 Session 時不附 `appliesToBreadth`。是否 `possiblyStale` 仍只看基準時間之後的 Session，`sessionCount` 也只數那些。`broad_applies_to` 仍列入注意事項佇列，`broadChangesSince` 單獨不列入。
 - 寫入時的寬度提示：`work_record_knowledge` 與 `work_update_knowledge`（只在這次更新改了 `appliesTo` 且狀態為 active 時）在提交之後讀專案最新 200 個未作廢、列出 1–20 個檔案的 Session，回傳 `appliesToBreadth: { share, sessions, truncated, broad }`（`truncated` 表示還有更多符合的 Session 沒掃到）；`broad` 為 `true`（`sessions` 至少 10 且 `share` 高於 0.15）時，`warnings` 加一句請改指到具體檔案或子目錄的英文提示。比對預算用完時不附 `appliesToBreadth`，`warnings` 說明沒有檢查。重送同一個 `idempotencyKey` 的重複回應不附。
 - `supersedesId`：記錄新 Knowledge 時指定它取代的舊 Knowledge（同專案），舊的會自動封存並留下 audit；找不到時只在 `warnings` 提示，不影響保存。
-- finalize 的 `appliedKnowledgeIds`：這次工作用到且仍然有效的 Knowledge，最後確認時間移到這筆 Session，並清除「需要檢視」。`contradictedKnowledgeIds`：這次工作發現已不成立的 Knowledge，會帶 `review`（`contradicted`、Session、時間）。找不到的 id 列在 `knowledgeWarnings`。所有變更都寫入 Knowledge audit。
+- finalize 的 `appliedKnowledgeIds`：這次工作用到且仍然有效的 Knowledge，最後確認時間移到這筆 Session，並清除「需要檢視」。`contradictedKnowledgeIds`：這次工作發現已不成立的 Knowledge，會帶 `review`（`contradicted`、Session、時間）。找不到的 id 列在 `knowledgeWarnings`。所有變更都寫入 Knowledge audit。保存後可用 `work_update_session_metadata` 帶同樣兩個欄位補報，同一 Session 重複回報不會再寫入。
 - `work_get_context` 的 `recentKnowledge` 與 `work_recall` 的 Knowledge hit 會帶 `possiblyStale`／`needsReview` 旗標；使用前應先打開原文確認。精簡形狀（`recentKnowledge`、`relevant.knowledge`、`relevant.supplements`、`omitted.entries`、`work_search_knowledge` 的 relaxed 項目）只帶 `possiblyStale: true`；`staleReason: "broad_applies_to"`（只在 `appliesTo` 太寬時）與 `broadChangesSince`（只在大於 0 時）另附，不展開 `appliesToBreadth`。`staleReason` 為 broad 時仍要打開原文核對，只是較弱的訊號。
 - **證據強度**：每次 `appliedKnowledgeIds`、`contradictedKnowledgeIds` 與手動確認（`work_update_knowledge` 的 `confirm: true`）都另存一筆回饋。Knowledge 讀取結果帶 `evidence`（`confirmed`、`contradicted` 與各自最近的時間），`work_recall` 的 Knowledge hit 帶 `evidence: { confirmed, contradicted }`。排序時每次確認加 4%（最多 5 次），最近一次推翻比最近一次確認還新時分數乘 0.7。升級到 schema 17 時，只從 Knowledge audit 回填能確定的紀錄（Session 確認、Session 推翻與手動確認），其他變更不回填。
 
@@ -724,7 +735,7 @@ Agent 不得把「有 changed files」當成 Git commit，也不得從不足的 
 | `work_cancel_report_synthesis` | `work_write_idempotent` | `requestId`；pending／processing 請求回傳 `report_synthesis_request_cancelled`（重複取消為 `duplicate: true`），其他狀態回傳 `report_synthesis_cancel_rejected` 與原因；既有報告與摘要不變 |
 | `work_list_metadata_backfill_requests` | `work_read` | 可選 `scopeType`、`projectId`、`status`、`requestId`、`limit`（1–100，預設 20）；回傳 `outcome: "metadata_backfill_requests"` 與 `requests` |
 | `work_get_metadata_backfill_context` | `work_write_idempotent` | `requestId`、`limit`（1–500，預設 100）；把 pending 請求推進為 processing，回傳 `metadata_backfill_context`：`request`、仍有缺口的 Session `items`、`resolvedSessionIds`、`sourceSessionIds` 與 `truncated`；已取消的請求回傳 `metadata_backfill_request_not_ready`。只是缺口清單，不可從筆數或文字推測 changed files |
-| `work_apply_metadata_backfill` | `work_write_overwrite` | 可選 `requestId`，以及 1–100 筆 `updates`（每筆欄位同 `work_update_session_metadata`）；每筆各自通過 policy gate，回傳 `backfill_applied`：`requestedCount`、`updated`、`skipped`、`failures`（同一個 `sessionId` 第二次以後列為失敗），帶 `requestId` 時另附 `request` 與 `remainingItems`；所有缺口補齊時請求才完成 |
+| `work_apply_metadata_backfill` | `work_write_overwrite` | 可選 `requestId`，以及 1–100 筆 `updates`（每筆欄位同 `work_update_session_metadata`，但不含 `appliedKnowledgeIds`／`contradictedKnowledgeIds`）；每筆各自通過 policy gate，回傳 `backfill_applied`：`requestedCount`、`updated`、`skipped`、`failures`（同一個 `sessionId` 第二次以後列為失敗），帶 `requestId` 時另附 `request` 與 `remainingItems`；所有缺口補齊時請求才完成 |
 | `work_cancel_metadata_backfill` | `work_write_idempotent` | `requestId`；pending／processing 請求回傳 `metadata_backfill_request_cancelled`（重複取消為 `duplicate: true`），其他狀態回傳 `metadata_backfill_cancel_rejected`；既有 Session metadata 不變 |
 
 ## `work_preview_handoff_import` / `work_import_handoffs`

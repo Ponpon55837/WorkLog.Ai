@@ -310,6 +310,72 @@ describe("Work Intelligence MCP server", () => {
     ]);
   });
 
+  it("lists recalled Knowledge the save did not report and takes the report afterwards, once", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Unreported Knowledge", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const ids = ["alpha", "beta", "gamma", "delta"].map((name) => {
+      const result = store.recordKnowledge({
+        projectRoot: root,
+        idempotencyKey: `unreported-${name}`,
+        kind: "gotcha",
+        title: `Synthetic ${name} rule`,
+        body: `The synthetic ${name} rule holds for ledger rounding.`,
+      });
+      if (result.outcome !== "knowledge_recorded") throw new Error("Expected Knowledge.");
+      return result.knowledge.id;
+    });
+    const [alpha, beta, gamma, delta] = ids as [string, string, string, string];
+    const startedAt = new Date(Date.now() - 60_000).toISOString();
+    // Only the full search hands the bodies over; the compact one lists titles and is not a read of the Knowledge.
+    await callJson(client, "work_search_knowledge", { projectRoot: root, q: "synthetic rule", view: "compact" });
+    expect(store.listAgentReads().items[0]).toMatchObject({ tool: "work_search_knowledge", knowledgeIds: [] });
+    await callJson(client, "work_search_knowledge", { projectRoot: root, q: "synthetic rule" });
+    type Receipt = {
+      session: { id: string };
+      knowledgeFeedback?: { applied: number; contradicted: number };
+      unreportedKnowledge?: { items: Array<{ id: string; title: string }>; total?: number; hint: string };
+    };
+
+    const payload = { ...finalizePayload(root, "unreported-save", "Unreported save"), startedAt };
+    const saved = await callJson<Receipt>(client, "work_finalize_session", {
+      ...payload,
+      appliedKnowledgeIds: [alpha],
+    });
+    expect(saved.knowledgeFeedback).toEqual({ applied: 1, contradicted: 0 });
+    expect(saved.unreportedKnowledge?.items.map((item) => item.id).sort()).toEqual([beta, gamma, delta].sort());
+    expect(saved.unreportedKnowledge).not.toHaveProperty("total");
+    expect(saved.unreportedKnowledge?.hint).toContain("work_update_session_metadata");
+
+    const report = { sessionId: saved.session.id, appliedKnowledgeIds: [beta], contradictedKnowledgeIds: [gamma] };
+    const reported = await callJson<Receipt & { outcome: string }>(client, "work_update_session_metadata", report);
+    expect(reported).toMatchObject({ outcome: "updated", knowledgeFeedback: { applied: 1, contradicted: 1 } });
+    const feedbackCount = () =>
+      (
+        (store as unknown as { db: DatabaseSync }).db
+          .prepare("SELECT COUNT(*) AS count FROM knowledge_feedback WHERE session_id = ?")
+          .get(saved.session.id) as {
+          count: number;
+        }
+      ).count;
+    expect(feedbackCount()).toBe(3);
+    expect(await callJson(client, "work_update_session_metadata", report)).toMatchObject({
+      knowledgeFeedback: { applied: 1, contradicted: 1 },
+    });
+    expect(feedbackCount()).toBe(3);
+
+    const retry = await callJson<Receipt & { duplicate: boolean }>(client, "work_finalize_session", payload);
+    expect(retry.duplicate).toBe(true);
+    expect(retry.unreportedKnowledge?.items).toEqual([{ id: delta, title: "Synthetic delta rule" }]);
+    expect(retry).not.toHaveProperty("knowledgeFeedback");
+
+    await callJson(client, "work_update_session_metadata", {
+      sessionId: saved.session.id,
+      appliedKnowledgeIds: [delta],
+    });
+    expect(await callJson(client, "work_finalize_session", payload)).not.toHaveProperty("unreportedKnowledge");
+  });
+
   it("fills a missing startedAt from the first call this server saw, once per segment", async () => {
     const { client, store, root } = await connect();
     const project = store.addProject("Observed start", root);

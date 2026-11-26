@@ -280,9 +280,10 @@ import type { FileHistoryQuery, FileHistoryResult, RelatedWorkResult } from "@wo
 import { AttentionService } from "./attention-service.js";
 import { KnowledgePageService } from "./knowledge-page-service.js";
 import { findKnowledgeToReview } from "./knowledge-review-hint.js";
+import { findUnreportedKnowledge } from "./unreported-knowledge.js";
 import { KnowledgeSearchService } from "./knowledge-search-service.js";
 import { FileHistoryService } from "./file-history-service.js";
-import { KnowledgeService } from "./knowledge-service.js";
+import { KnowledgeService, type KnowledgeFeedbackResult } from "./knowledge-service.js";
 import { AgentReadAuditService } from "./agent-read-audit-service.js";
 import type {
   AgentReadAuditPage,
@@ -553,6 +554,8 @@ export class WorkIntelligenceStore {
       getSessionById: (sessionId) => this.getSessionById(sessionId),
       getProjectById: (projectId) => this.getProjectById(projectId),
       withKnowledgeTrustMany: (knowledge) => this.knowledgeService.withKnowledgeTrustMany(knowledge),
+      applyKnowledgeFeedback: (projectId, sessionId, completedAt, input) =>
+        this.applyKnowledgeFeedback(projectId, sessionId, completedAt, input),
       listDiagrams: (sessionId) => this.diagrams.listForSession(sessionId),
       syncOutstandingItems: (sessionId, projectId, nextSteps, source, actorSessionId, updatedAt) =>
         this.outstandingItems.syncForSessionInTransaction(
@@ -1304,15 +1307,15 @@ export class WorkIntelligenceStore {
   }
 
   /**
-   * Records what a finalized Session reported about Knowledge it used: applied items are confirmed as
-   * of this Session (and leave review), contradicted items are flagged for review. Runs inside finalize.
+   * Records what a Session reported about Knowledge it used: applied items are confirmed as of this Session (and
+   * leave review), contradicted items are flagged for review. Runs inside finalize and metadata updates.
    */
   private applyKnowledgeFeedback(
     projectId: string,
     sessionId: string,
     completedAt: string,
     input: Pick<FinalizeSessionInput, "appliedKnowledgeIds" | "contradictedKnowledgeIds">,
-  ): string[] {
+  ): KnowledgeFeedbackResult {
     return this.knowledgeService.applyKnowledgeFeedback(projectId, sessionId, completedAt, input);
   }
 
@@ -2064,7 +2067,7 @@ export class WorkIntelligenceStore {
       }
 
       linkedIds = [...linkedSessionIds];
-      const knowledgeWarnings = this.applyKnowledgeFeedback(project.id, sessionId, completedAt, input);
+      const knowledgeFeedback = this.applyKnowledgeFeedback(project.id, sessionId, completedAt, input);
       const diagramRedactions = input.diagrams?.length
         ? this.diagrams.attachWithFinalize(sessionId, project.id, input.idempotencyKey, input.diagrams, createdAt)
         : undefined;
@@ -2091,7 +2094,8 @@ export class WorkIntelligenceStore {
           : {}),
         workSummaryFollowUp: getWorkSummaryFollowUp(session),
         ...(linkWarnings.length > 0 ? { linkWarnings } : {}),
-        ...(knowledgeWarnings.length > 0 ? { knowledgeWarnings } : {}),
+        ...(knowledgeFeedback.warnings.length > 0 ? { knowledgeWarnings: knowledgeFeedback.warnings } : {}),
+        ...(knowledgeFeedback.counts ? { knowledgeFeedback: knowledgeFeedback.counts } : {}),
         ...(timestampWarnings.length > 0 ? { timestampWarnings } : {}),
         ...(knowledgePagesAcknowledged.length > 0 ? { knowledgePagesAcknowledged } : {}),
         resolvedOutstandingItemIds: resolution.resolvedIds,
@@ -2163,6 +2167,23 @@ export class WorkIntelligenceStore {
         } catch {
           delete result.knowledgeToReview;
           delete result.knowledgeToReviewTruncated;
+        }
+        try {
+          // A backfill saves work from an earlier conversation, so this Agent's recent reads did not serve it.
+          const unreportedKnowledge =
+            !input.completedAt && session.startedAt && session.agentClient
+              ? findUnreportedKnowledge(this.db, {
+                  projectId: session.projectId,
+                  sessionId: session.id,
+                  agentClient: session.agentClient,
+                  startedAt: session.startedAt,
+                  completedAt: session.completedAt,
+                  excludedIds: (result.knowledgeToReview ?? []).map((hint) => hint.id),
+                })
+              : undefined;
+          if (unreportedKnowledge) result.unreportedKnowledge = unreportedKnowledge;
+        } catch {
+          delete result.unreportedKnowledge;
         }
       });
     }

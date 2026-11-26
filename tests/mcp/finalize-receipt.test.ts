@@ -188,6 +188,34 @@ describe("finalize receipt", () => {
     });
   });
 
+  it("names unreported Knowledge with how to report it, and the total only when more were read", () => {
+    const items = [
+      { id: "knowledge-b", title: "Fictional rule b" },
+      { id: "knowledge-c", title: "Fictional rule c" },
+    ];
+    const listed = toFinalizeReceipt(
+      { changedFiles: [], startedAt: SESSION.startedAt },
+      finalized({ knowledgeFeedback: { applied: 1, contradicted: 0 }, unreportedKnowledge: { items, total: 2 } }),
+    ) as Record<string, unknown>;
+    expect(listed.knowledgeFeedback).toEqual({ applied: 1, contradicted: 0 });
+    expect(listed.unreportedKnowledge).toEqual({
+      items,
+      hint: expect.stringContaining("work_update_session_metadata"),
+    });
+    expect(String((listed.unreportedKnowledge as { hint: string }).hint)).toContain("appliedKnowledgeIds");
+    expect(String((listed.unreportedKnowledge as { hint: string }).hint)).toContain("contradictedKnowledgeIds");
+
+    const capped = toFinalizeReceipt(
+      { changedFiles: [], startedAt: SESSION.startedAt },
+      finalized({ unreportedKnowledge: { items, total: 7 } }),
+    );
+    expect(capped).toMatchObject({ unreportedKnowledge: { items, total: 7 } });
+
+    const none = toFinalizeReceipt({ changedFiles: [], startedAt: SESSION.startedAt }, finalized());
+    expect(none).not.toHaveProperty("unreportedKnowledge");
+    expect(none).not.toHaveProperty("knowledgeFeedback");
+  });
+
   it("passes the transient nextSteps warning through", () => {
     const nextStepsWarnings = {
       items: [{ index: 1, category: "not_pushed" as const }],

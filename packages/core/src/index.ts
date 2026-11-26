@@ -781,7 +781,7 @@ export interface KnowledgeRecord {
   updatedAt: string;
   /** Paths or globs (relative to the project) this Knowledge is about; drives possiblyStale. */
   appliesTo: string[];
-  /** When a Session last confirmed it still holds (finalize appliedKnowledgeIds or a manual confirm). */
+  /** When a Session last confirmed it still holds (appliedKnowledgeIds on a Session or a manual confirm). */
   lastConfirmedAt?: string;
   lastConfirmedSessionId?: string;
   /** The older Knowledge this one replaced; the older one is archived when this is recorded. */
@@ -1796,6 +1796,10 @@ export interface FinalizedSessionResult {
   linkWarnings?: string[];
   /** applied/contradicted Knowledge ids that were not found in this project. */
   knowledgeWarnings?: string[];
+  /** How many of the requested applied/contradicted ids this Session now records; present when any were sent. */
+  knowledgeFeedback?: KnowledgeFeedbackCounts;
+  /** Active Knowledge returned to this Agent during this work that the Session has not reported; advisory only. */
+  unreportedKnowledge?: UnreportedKnowledge;
   /** Supplied timestamps that were stored but look estimated, or that could not apply. */
   timestampWarnings?: string[];
   /** maintainedKnowledgePages whose review cursor moved to this Session (it no longer counts as their new data). */
@@ -1818,6 +1822,17 @@ export interface FinalizedSessionResult {
     message: string;
   };
   nextStepsWarnings?: NextStepsWarnings;
+}
+
+export interface KnowledgeFeedbackCounts {
+  applied: number;
+  contradicted: number;
+}
+
+/** The newest few unreported reads (id and title only) and how many there are in all. */
+export interface UnreportedKnowledge {
+  items: { id: string; title: string }[];
+  total: number;
 }
 
 /** One Knowledge item a finishing Agent should check against its change: confirm, update, or leave it. */
@@ -1911,6 +1926,10 @@ export interface UpdateSessionMetadataInput {
   completedAt?: string;
   /** The work continued and just finished: the server clock is recorded as completedAt. Exclusive with completedAt. */
   completedAtNow?: true;
+  /** Recalled Knowledge this Session relied on and found still valid, reported after the save. */
+  appliedKnowledgeIds?: string[];
+  /** Recalled Knowledge this Session found no longer true, reported after the save. */
+  contradictedKnowledgeIds?: string[];
 }
 
 export type MetadataBackfillGap = "changed_files" | "verification";
@@ -2164,6 +2183,10 @@ export interface UpdatedSessionMetadataResult {
   timestampWarnings?: string[];
   /** Present when this update touched changed files and some still have no change status. */
   changedFileChangesFollowUp?: ChangedFileChangesFollowUp;
+  /** applied/contradicted Knowledge ids that were not found in this project. */
+  knowledgeWarnings?: string[];
+  /** How many of the requested applied/contradicted ids this Session now records; present when any were sent. */
+  knowledgeFeedback?: KnowledgeFeedbackCounts;
 }
 
 export const SESSION_SUMMARY_UPDATE_MODES = ["replace", "append"] as const;

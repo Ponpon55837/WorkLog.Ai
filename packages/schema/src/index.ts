@@ -320,6 +320,14 @@ const knowledgePageSlugSchema = z
     `Page id within the project. Defaults: ${KNOWLEDGE_PAGE_DEFAULTS.map((page) => `${page.slug} (${page.title})`).join(", ")}.`,
   );
 
+const knowledgeIdListSchema = z.array(z.string().trim().min(1).max(200)).max(30);
+const appliedKnowledgeIdsSchema = knowledgeIdListSchema
+  .optional()
+  .describe("Knowledge this work relied on and found still valid.");
+const contradictedKnowledgeIdsSchema = knowledgeIdListSchema
+  .optional()
+  .describe("Knowledge this work found no longer true; it is flagged for review.");
+
 export const finalizeSessionInputSchema = z.object({
   projectRoot: z.string().trim().min(1).max(1_000),
   idempotencyKey: z.string().trim().min(1).max(300),
@@ -372,16 +380,8 @@ export const finalizeSessionInputSchema = z.object({
     .optional()
     .describe("An earlier Session this one continues, e.g. the planning Session it implements."),
   relatedSessionIds: z.array(z.string().trim().min(1).max(200)).max(20).optional(),
-  appliedKnowledgeIds: z
-    .array(z.string().trim().min(1).max(200))
-    .max(30)
-    .optional()
-    .describe("Knowledge this work relied on and found still valid."),
-  contradictedKnowledgeIds: z
-    .array(z.string().trim().min(1).max(200))
-    .max(30)
-    .optional()
-    .describe("Knowledge this work found no longer true; it is flagged for review."),
+  appliedKnowledgeIds: appliedKnowledgeIdsSchema,
+  contradictedKnowledgeIds: contradictedKnowledgeIdsSchema,
   diagrams: z
     .array(diagramContentInputSchema)
     .max(5)
@@ -957,7 +957,8 @@ export const updateSessionVerificationInputSchema = z.object({
   verification: verificationSchema,
 });
 
-export const updateSessionMetadataInputSchemaBase = z.object({
+/** The metadata a backfill may correct; Knowledge feedback belongs to the Agent that did the work. */
+const sessionMetadataFieldsSchema = z.object({
   sessionId: z.string().trim().min(1).max(200),
   changedFiles: z
     .array(z.string().max(1_000))
@@ -987,7 +988,7 @@ export const updateSessionMetadataInputSchemaBase = z.object({
     ),
 });
 
-export const updateSessionMetadataInputSchema = updateSessionMetadataInputSchemaBase.superRefine((value, context) => {
+function refineCompletedAtNow(value: { completedAtNow?: true; completedAt?: string }, context: z.RefinementCtx): void {
   if (value.completedAtNow && value.completedAt !== undefined) {
     context.addIssue({
       code: "custom",
@@ -995,7 +996,14 @@ export const updateSessionMetadataInputSchema = updateSessionMetadataInputSchema
       message: "completedAtNow and completedAt are mutually exclusive; provide only one.",
     });
   }
+}
+
+export const updateSessionMetadataInputSchemaBase = sessionMetadataFieldsSchema.extend({
+  appliedKnowledgeIds: appliedKnowledgeIdsSchema,
+  contradictedKnowledgeIds: contradictedKnowledgeIdsSchema,
 });
+
+export const updateSessionMetadataInputSchema = updateSessionMetadataInputSchemaBase.superRefine(refineCompletedAtNow);
 
 const voidReasonSchema = z.string().trim().min(1).max(1_000);
 
@@ -1424,7 +1432,7 @@ export const metadataBackfillPreviewQuerySchema = z.object({
 
 export const metadataBackfillApplyInputSchema = z.object({
   requestId: z.string().trim().min(1).max(200).optional(),
-  updates: z.array(updateSessionMetadataInputSchema).min(1).max(100),
+  updates: z.array(sessionMetadataFieldsSchema.superRefine(refineCompletedAtNow)).min(1).max(100),
 });
 
 export const metadataBackfillRequestStatusSchema = z.enum(METADATA_BACKFILL_REQUEST_STATUSES);

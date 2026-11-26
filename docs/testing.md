@@ -183,6 +183,7 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | 知識頁只讀待核對段落（同一份資料，最多 60 筆新 Session 以關聯與改過的檔案對應段落） | 250 ms |
 | 知識頁 not_found 診斷（列出專案 slug、比對 id 與編輯距離） | 50 ms |
 | 知識搜尋寬鬆備援（嚴格零命中後的 FTS 排序、`appliesTo` 路徑比對與其他狀態計數） | 250 ms |
+| finalize 的 `unreportedKnowledge`（同一用戶端 5,000 筆讀取 audit、每筆 50 筆 Knowledge，整段都在工作時間內；一次查詢；本機 p90 約 120 ms） | 250 ms |
 | 知識搜尋精簡模式（`view: "compact"`；200 筆各帶 30 個 1,000 字元 `appliesTo` 的 Knowledge，一頁 100 筆，只讀短欄位與 SQL 計算的 `appliesTo` 數量；本機 p90 5.2 ms） | 250 ms |
 | 未登錄路徑的相符專案提示（tracked 專案的子資料夾；一次查詢登錄表、一次掃描；本機 p90 0.07 ms） | 50 ms |
 | 檔案歷史（3 個路徑、每個 28–125 筆 Session：整段歷史統計、摘要、驗證失敗／未執行提醒與 `appliesTo` Knowledge；本機 p90 2.98 ms） | 50 ms |
