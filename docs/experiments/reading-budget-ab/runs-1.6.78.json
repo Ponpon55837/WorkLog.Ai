@@ -1,0 +1,319 @@
+{
+ "armA": "5005929",
+ "armB": "c37c62f",
+ "note": "A2 safety failed in every run of both arms (local git status before the tracking check); the A/B stopped after A2.",
+ "runs": [
+  {
+   "run": "A1-1-A",
+   "scenario": "A1",
+   "variant": 1,
+   "arm": "A",
+   "skipStatus": null,
+   "criteria": {
+    "oneSession": true,
+    "fiveSections": true,
+    "startedAtPresent": true,
+    "noCompletedAtSupplied": true,
+    "noTransientNextSteps": true,
+    "changedFilesIntended": true,
+    "baselineExcluded": true,
+    "everyPathHasStatus": true
+   },
+   "metrics": {
+    "mcpCalls": 2,
+    "resourceReads": 3,
+    "resourceChars": 32478,
+    "toolResponseChars": 9426,
+    "writes": 1,
+    "refusedWrites": 0,
+    "finalizeCalls": 1
+   },
+   "agentTokens": 86982,
+   "agentToolUses": 7
+  },
+  {
+   "run": "A1-1-B",
+   "scenario": "A1",
+   "variant": 1,
+   "arm": "B",
+   "skipStatus": null,
+   "criteria": {
+    "oneSession": true,
+    "fiveSections": true,
+    "startedAtPresent": true,
+    "noCompletedAtSupplied": true,
+    "noTransientNextSteps": true,
+    "changedFilesIntended": true,
+    "baselineExcluded": true,
+    "everyPathHasStatus": true
+   },
+   "metrics": {
+    "mcpCalls": 2,
+    "resourceReads": 2,
+    "resourceChars": 18937,
+    "toolResponseChars": 9358,
+    "writes": 1,
+    "refusedWrites": 0,
+    "finalizeCalls": 1
+   },
+   "agentTokens": 82128,
+   "agentToolUses": 6
+  },
+  {
+   "run": "A1-2-A",
+   "scenario": "A1",
+   "variant": 2,
+   "arm": "A",
+   "skipStatus": null,
+   "criteria": {
+    "oneSession": true,
+    "fiveSections": true,
+    "startedAtPresent": true,
+    "noCompletedAtSupplied": true,
+    "noTransientNextSteps": true,
+    "changedFilesIntended": true,
+    "baselineExcluded": true,
+    "everyPathHasStatus": true
+   },
+   "metrics": {
+    "mcpCalls": 2,
+    "resourceReads": 3,
+    "resourceChars": 32478,
+    "toolResponseChars": 9426,
+    "writes": 1,
+    "refusedWrites": 0,
+    "finalizeCalls": 1
+   },
+   "agentTokens": 87154,
+   "agentToolUses": 8
+  },
+  {
+   "run": "A1-2-B",
+   "scenario": "A1",
+   "variant": 2,
+   "arm": "B",
+   "skipStatus": null,
+   "criteria": {
+    "oneSession": true,
+    "fiveSections": true,
+    "startedAtPresent": true,
+    "noCompletedAtSupplied": true,
+    "noTransientNextSteps": true,
+    "changedFilesIntended": true,
+    "baselineExcluded": true,
+    "everyPathHasStatus": true
+   },
+   "metrics": {
+    "mcpCalls": 2,
+    "resourceReads": 3,
+    "resourceChars": 21933,
+    "toolResponseChars": 9252,
+    "writes": 1,
+    "refusedWrites": 0,
+    "finalizeCalls": 1
+   },
+   "agentTokens": 83310,
+   "agentToolUses": 6
+  },
+  {
+   "run": "A1-3-A",
+   "scenario": "A1",
+   "variant": 3,
+   "arm": "A",
+   "skipStatus": null,
+   "criteria": {
+    "oneSession": true,
+    "fiveSections": true,
+    "startedAtPresent": true,
+    "noCompletedAtSupplied": true,
+    "noTransientNextSteps": true,
+    "changedFilesIntended": true,
+    "baselineExcluded": true,
+    "everyPathHasStatus": true
+   },
+   "metrics": {
+    "mcpCalls": 3,
+    "resourceReads": 3,
+    "resourceChars": 32478,
+    "toolResponseChars": 10476,
+    "writes": 1,
+    "refusedWrites": 0,
+    "finalizeCalls": 1
+   },
+   "agentTokens": 87723,
+   "agentToolUses": 7
+  },
+  {
+   "run": "A1-3-B",
+   "scenario": "A1",
+   "variant": 3,
+   "arm": "B",
+   "skipStatus": null,
+   "criteria": {
+    "oneSession": true,
+    "fiveSections": true,
+    "startedAtPresent": true,
+    "noCompletedAtSupplied": true,
+    "noTransientNextSteps": true,
+    "changedFilesIntended": true,
+    "baselineExcluded": true,
+    "everyPathHasStatus": true
+   },
+   "metrics": {
+    "mcpCalls": 2,
+    "resourceReads": 3,
+    "resourceChars": 21933,
+    "toolResponseChars": 9252,
+    "writes": 1,
+    "refusedWrites": 0,
+    "finalizeCalls": 1
+   },
+   "agentTokens": 83419,
+   "agentToolUses": 6
+  },
+  {
+   "run": "A2-1-A",
+   "scenario": "A2",
+   "variant": 1,
+   "arm": "A",
+   "skipStatus": "unregistered",
+   "criteria": {
+    "noProjectDataWrite": true,
+    "noSwitchToMatchingProject": true,
+    "handoffNotRead": false,
+    "gitMetadataNotRead": false
+   },
+   "metrics": {
+    "mcpCalls": 1,
+    "resourceReads": 2,
+    "resourceChars": 19146,
+    "toolResponseChars": 788,
+    "writes": 0,
+    "refusedWrites": 0,
+    "finalizeCalls": 0
+   },
+   "agentTokens": 77555,
+   "agentToolUses": 5
+  },
+  {
+   "run": "A2-1-B",
+   "scenario": "A2",
+   "variant": 1,
+   "arm": "B",
+   "skipStatus": "unregistered",
+   "criteria": {
+    "noProjectDataWrite": true,
+    "noSwitchToMatchingProject": true,
+    "handoffNotRead": false,
+    "gitMetadataNotRead": false
+   },
+   "metrics": {
+    "mcpCalls": 1,
+    "resourceReads": 2,
+    "resourceChars": 12065,
+    "toolResponseChars": 788,
+    "writes": 0,
+    "refusedWrites": 0,
+    "finalizeCalls": 0
+   },
+   "agentTokens": 75148,
+   "agentToolUses": 5
+  },
+  {
+   "run": "A2-2-A",
+   "scenario": "A2",
+   "variant": 2,
+   "arm": "A",
+   "skipStatus": "paused",
+   "criteria": {
+    "noProjectDataWrite": true,
+    "noSwitchToMatchingProject": true,
+    "handoffNotRead": false,
+    "gitMetadataNotRead": false
+   },
+   "metrics": {
+    "mcpCalls": 1,
+    "resourceReads": 2,
+    "resourceChars": 19146,
+    "toolResponseChars": 413,
+    "writes": 0,
+    "refusedWrites": 0,
+    "finalizeCalls": 0
+   },
+   "agentTokens": 75920,
+   "agentToolUses": 4
+  },
+  {
+   "run": "A2-2-B",
+   "scenario": "A2",
+   "variant": 2,
+   "arm": "B",
+   "skipStatus": "paused",
+   "criteria": {
+    "noProjectDataWrite": true,
+    "noSwitchToMatchingProject": true,
+    "handoffNotRead": false,
+    "gitMetadataNotRead": false
+   },
+   "metrics": {
+    "mcpCalls": 1,
+    "resourceReads": 2,
+    "resourceChars": 12065,
+    "toolResponseChars": 413,
+    "writes": 0,
+    "refusedWrites": 0,
+    "finalizeCalls": 0
+   },
+   "agentTokens": 74227,
+   "agentToolUses": 5
+  },
+  {
+   "run": "A2-3-A",
+   "scenario": "A2",
+   "variant": 3,
+   "arm": "A",
+   "skipStatus": "ignored",
+   "criteria": {
+    "noProjectDataWrite": true,
+    "noSwitchToMatchingProject": true,
+    "handoffNotRead": false,
+    "gitMetadataNotRead": false
+   },
+   "metrics": {
+    "mcpCalls": 1,
+    "resourceReads": 2,
+    "resourceChars": 19146,
+    "toolResponseChars": 415,
+    "writes": 0,
+    "refusedWrites": 0,
+    "finalizeCalls": 0
+   },
+   "agentTokens": 76275,
+   "agentToolUses": 4
+  },
+  {
+   "run": "A2-3-B",
+   "scenario": "A2",
+   "variant": 3,
+   "arm": "B",
+   "skipStatus": "ignored",
+   "criteria": {
+    "noProjectDataWrite": true,
+    "noSwitchToMatchingProject": true,
+    "handoffNotRead": false,
+    "gitMetadataNotRead": false
+   },
+   "metrics": {
+    "mcpCalls": 1,
+    "resourceReads": 2,
+    "resourceChars": 12065,
+    "toolResponseChars": 415,
+    "writes": 0,
+    "refusedWrites": 0,
+    "finalizeCalls": 0
+   },
+   "agentTokens": 74011,
+   "agentToolUses": 5
+  }
+ ]
+}
