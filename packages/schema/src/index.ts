@@ -264,16 +264,14 @@ const eventSchema = z.object({
 
 const workSummarySectionSchema = z.array(z.string().trim().min(1).max(4_000)).max(20);
 export const workSummarySectionsSchema = z.object({
-  outcomes: workSummarySectionSchema.describe("成果：確認完成的交付或已解決問題，使用符合證據的完成程度用語。"),
-  scope: workSummarySectionSchema.describe(
-    "範圍：重要 module、component、API、UI、locale、test 與可確認的變更數量；避免重複其他區段。",
-  ),
+  outcomes: workSummarySectionSchema.describe("成果：確認完成的交付或已解決問題，用語符合證據。"),
+  scope: workSummarySectionSchema.describe("範圍：重要 module、API、UI、locale、test 與可確認的變更數量。"),
   decisions: workSummarySectionSchema.describe("決策：只記錄來源明確提及的技術、API、相容性或安全決策；理由不得推測。"),
   verification: workSummarySectionSchema.describe(
-    "驗證：實際命令、結果、數量、瀏覽器／平台覆蓋、人工確認與未驗證範圍；不可把局部驗證寫成全面通過。",
+    "驗證：實際命令、結果、數量、平台覆蓋、人工確認與未驗證範圍；局部驗證不寫成全面通過。",
   ),
   nextSteps: workSummarySectionSchema.describe(
-    "狀態／未結項：只記錄 finalize 時已知的未完成項、限制、證據缺口或未驗證情境；不得寫建議、計畫或展望；沒有時用空陣列。",
+    "狀態／未結項：只記錄未完成項、限制、證據缺口或未驗證情境；不寫建議、計畫或展望；沒有時用空陣列。",
   ),
 });
 
@@ -294,12 +292,7 @@ export const workSummaryInputSectionsSchema = workSummarySectionsSchema.extend({
 const diagramTitleSchema = z.string().trim().min(1).max(200);
 export const diagramContentInputSchemaBase = z.object({
   title: diagramTitleSchema,
-  source: z
-    .string()
-    .trim()
-    .min(1)
-    .max(100_000)
-    .describe("Validated architecture JSON v1; see architecture-diagram-v1 resource."),
+  source: z.string().trim().min(1).max(100_000).describe("Architecture JSON v1; see architecture-diagram-v1."),
   kind: z.literal("architecture"),
   formatVersion: z.literal(1),
 });
@@ -320,37 +313,24 @@ const knowledgePageSlugSchema = z
   .string()
   .trim()
   .regex(/^[a-z0-9][a-z0-9-]{1,39}$/, "Use 2–40 lowercase letters, digits, or hyphens.")
-  .describe(
-    `Page id within the project. Defaults: ${KNOWLEDGE_PAGE_DEFAULTS.map((page) => `${page.slug} (${page.title})`).join(", ")}.`,
-  );
+  .describe(`Page slug; defaults: ${KNOWLEDGE_PAGE_DEFAULTS.map((page) => page.slug).join(", ")}.`);
 
 const knowledgeIdListSchema = z.array(z.string().trim().min(1).max(200)).max(30);
 const appliedKnowledgeIdsSchema = knowledgeIdListSchema
   .optional()
-  .describe("Knowledge this work relied on and found still valid.");
+  .describe("Knowledge this work used and found still valid.");
 const contradictedKnowledgeIdsSchema = knowledgeIdListSchema
   .optional()
-  .describe("Knowledge this work found no longer true; it is flagged for review.");
+  .describe("Knowledge found no longer true; flagged for review.");
 
 export const finalizeSessionInputSchema = z.object({
   projectRoot: z.string().trim().min(1).max(1_000),
   idempotencyKey: z.string().trim().min(1).max(300),
   title: z.string().trim().min(1).max(300),
-  summary: z
-    .string()
-    .trim()
-    .min(1)
-    .max(20_000)
-    .describe("One concise, outcome-first executive sentence; detailed facts belong in workSummary."),
+  summary: z.string().trim().min(1).max(20_000).describe("One outcome-first sentence; details go in workSummary."),
   workSummary: workSummaryInputSectionsSchema.optional(),
   externalSessionId: z.string().trim().max(300).optional(),
-  agentModel: z
-    .string()
-    .trim()
-    .min(1)
-    .max(100)
-    .optional()
-    .describe("Your exact model id if your system prompt states it; omit it when unsure."),
+  agentModel: z.string().trim().min(1).max(100).optional().describe("Your exact model id if stated; else omit."),
   handoffPath: z.string().max(1_000).optional(),
   handoffContent: z.string().max(200_000).optional(),
   events: z.array(eventSchema).max(100).optional(),
@@ -359,55 +339,39 @@ export const finalizeSessionInputSchema = z.object({
     .array(z.string().max(1_000))
     .max(200)
     .optional()
-    .describe("Paths already changed before this work started; excluded from changedFiles."),
+    .describe("Paths changed before this work started; excluded."),
   changedFilesProvenance: z.array(changedFileProvenanceSchema).max(200).optional(),
   changedFileChanges: z.array(changedFileChangeSchema).max(200).optional(),
   verification: verificationSchema,
   git: gitSchema.optional(),
   startedAt: workTimestampSchema("startedAt")
     .optional()
-    .describe(
-      "When this segment began: its first user message (the hooks report it). From evidence, with its UTC offset; never estimate; omit when unknown.",
-    ),
+    .describe("First user message of this segment, from evidence with UTC offset; never estimate; omit when unknown."),
   completedAt: workTimestampSchema("completedAt")
     .optional()
     .describe(
-      "Omit for work that just finished; the server records the time. To backfill earlier work, give a time from evidence (for example the commit time) with its UTC offset; a local time written with Z shifts it. Future times are rejected.",
+      "Omit for work that just finished. To backfill, give an evidence time (e.g. commit time) with its UTC offset; a local time written with Z shifts it.",
     ),
-  parentSessionId: z
-    .string()
-    .trim()
-    .min(1)
-    .max(200)
-    .optional()
-    .describe("An earlier Session this one continues, e.g. the planning Session it implements."),
+  parentSessionId: z.string().trim().min(1).max(200).optional().describe("An earlier Session this one continues."),
   relatedSessionIds: z.array(z.string().trim().min(1).max(200)).max(20).optional(),
   appliedKnowledgeIds: appliedKnowledgeIdsSchema,
   contradictedKnowledgeIds: contradictedKnowledgeIdsSchema,
-  diagrams: z
-    .array(diagramContentInputSchema)
-    .max(5)
-    .optional()
-    .describe("Up to five diagrams; the diagrams guide says when to add them."),
+  diagrams: z.array(diagramContentInputSchema).max(5).optional().describe("Up to five; see the diagrams guide."),
   maintainedKnowledgePages: z
     .array(knowledgePageSlugSchema)
     .max(10)
     .optional()
-    .describe(
-      "Slugs of Knowledge pages this work saved or checked, so this Session does not count as new data for them.",
-    ),
+    .describe("Knowledge page slugs this work saved or checked (not counted as new data for them)."),
   resolvedOutstandingItemIds: z
     .array(z.string().trim().min(1).max(200))
     .max(200)
     .optional()
-    .describe(
-      "Only same-project pending items this work directly verified as completed; uncertainty must remain pending.",
-    ),
+    .describe("Same-project pending items this work directly verified as completed."),
   supersededOutstandingItemIds: z
     .array(z.string().trim().min(1).max(200))
     .max(200)
     .optional()
-    .describe("Older same-project pending items this Session's nextSteps explicitly replace; they become not_needed."),
+    .describe("Pending items this Session's nextSteps explicitly replace; become not_needed."),
 });
 
 export const sessionSummaryUpdateModeSchema = z.enum(SESSION_SUMMARY_UPDATE_MODES);

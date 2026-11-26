@@ -119,8 +119,7 @@ function buildToolContractIndex(operations: readonly AgentToolContractOperation[
   return [
     "# Work Intelligence MCP operation index",
     "",
-    "Each line is `operation: title`. Pass the operation id and an arguments object to the tools/list dispatcher whose operation list names it; a wrong dispatcher's error names the right one.",
-    `Before an operation's first call in a conversation, read its contract at ${TOOL_CONTRACT_RESOURCE_URI}/<operation>. Unknown argument keys are rejected.`,
+    `Operation: title. Read ${TOOL_CONTRACT_RESOURCE_URI}/<operation> before its first call.`,
     "",
     ...operations.map((operation) => `- ${operation.name}: ${operation.title}`),
   ].join("\n");

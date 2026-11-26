@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
 
 const TOOLS_LIST_CHARACTER_BUDGET = 4_800;
-const CONTRACT_INDEX_CHARACTER_BUDGET = 4_100;
-const LARGEST_OPERATION_CONTRACT_CHARACTER_BUDGET = 11_400;
+const CONTRACT_INDEX_CHARACTER_BUDGET = 3_750;
+const LARGEST_OPERATION_CONTRACT_CHARACTER_BUDGET = 9_800;
 const CONTRACT_INDEX_URI = "work-intelligence://agent/tool-contracts";
 const PROJECT_ROOT = "/fictional/work-intelligence-mcp-tools-budget";
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -299,10 +299,9 @@ describe("Work Intelligence MCP dispatcher tools/list budget", () => {
     expect(outstandingProperties).not.toHaveProperty("projectId");
 
     const context = sections.get("work_get_context") ?? "";
-    expect(context).toContain("Outstanding nextSteps items exposed by context are pending only");
-    expect(context).toContain("top-level pendingOutstandingItems list includes each source Session id");
+    expect(context).toContain("pendingOutstandingItems lists at most 5 pending nextSteps items (source Session id");
     expect(context).toContain("text capped at 500 characters");
-    expect(context).toContain("read-only work_list_outstanding_items to read the complete paged list");
+    expect(context).toContain("work_list_outstanding_items reads the complete paged list");
 
     const sessionMetadata = sections.get("work_update_session_metadata") ?? "";
     expect(sessionMetadata).toContain("A changedFileChanges entry with status=renamed must include previousPath.");

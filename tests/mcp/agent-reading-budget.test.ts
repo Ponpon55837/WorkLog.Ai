@@ -24,13 +24,20 @@ import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
  * contract 12,339 → 10,349; fixed total 42,244 → 33,607. The format document (8,083) and the knowledge guide
  * (8,987, the largest) are unchanged, so their limits stay; core + format + largest guide went 30,988 → 27,587.
  * Each lowered limit is the new measured value plus about 10%.
+ *
+ * 1.6.78 second pass (Issue #440 step 4) cut the finalize contract and schema descriptions (rules the server rejects
+ * or the receipt reports are not restated), the core skill (the dispatcher paragraph and the finalize steps that the
+ * contracts carry), the context contract and the index header. Measured before → after: core skill 10,517 → 8,871;
+ * operation index 3,665 → 3,414; work_get_context contract 3,052 → 2,782; work_finalize_session contract
+ * 10,349 → 8,875; fixed total 33,607 → 29,966 (instructions and tools/list unchanged); core + format + largest guide
+ * 27,587 → 25,941. The limits above were lowered again to measured plus about 10%.
  */
-const CORE_SKILL_CHARACTER_BUDGET = 11_600;
-const FIXED_READING_CHARACTER_BUDGET = 37_000;
+const CORE_SKILL_CHARACTER_BUDGET = 9_700;
+const FIXED_READING_CHARACTER_BUDGET = 32_900;
 const FORMAT_RESOURCE_CHARACTER_BUDGET = 8_500;
 const GUIDE_CHARACTER_BUDGET = 9_000;
 /** A rare flow (core, format and its guide) costs less than the old complete skill and format did (47,343). */
-const RARE_FLOW_CHARACTER_BUDGET = 30_500;
+const RARE_FLOW_CHARACTER_BUDGET = 28_500;
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const SKILL_DIRECTORY = join(repositoryRoot, ".agents/skills/work-intelligence");
