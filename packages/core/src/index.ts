@@ -1908,7 +1908,21 @@ export interface ProjectIdSkippedResult {
   reason: string;
 }
 
-export type FinalizeSessionResult = FinalizedSessionResult | FinalizeIdempotencyConflictResult | SkippedResult;
+export type FinalizeRejectionCode =
+  "both_lists" | "superseded_without_next_steps" | "knowledge_applied_and_contradicted" | "started_after_completed";
+
+/** A request that contradicts itself: nothing was written. */
+export interface FinalizeRejectedResult {
+  outcome: "rejected";
+  code: FinalizeRejectionCode;
+  field: string;
+  ids?: string[];
+  reason: string;
+  fix: string;
+}
+
+export type FinalizeSessionResult =
+  FinalizedSessionResult | FinalizeIdempotencyConflictResult | FinalizeRejectedResult | SkippedResult;
 
 export interface VerificationFollowUp {
   required: true;
@@ -2901,7 +2915,7 @@ export type SaveKnowledgePageResult =
     }
   | { outcome: "not_found"; slug: string; reason: string }
   | { outcome: "invalid_sources"; reason: string; sessionIds: string[] }
-  | { outcome: "invalid_review_token"; reason: string }
+  | { outcome: "invalid_review_token"; reason: string; fix?: string }
   /** The idempotencyKey already saved different sections for this page; nothing was written. */
   | { outcome: "idempotency_conflict"; reason: string }
   /** removeHeadings the page has no section for, as sent; nothing was written. */

@@ -287,6 +287,7 @@ import { findKnowledgeToReview } from "./knowledge-review-hint.js";
 import { findUnreportedKnowledge } from "./unreported-knowledge.js";
 import { KnowledgeSearchService } from "./knowledge-search-service.js";
 import { FileHistoryService } from "./file-history-service.js";
+import { findFinalizeRequestContradiction } from "./finalize-request-checks.js";
 import { KnowledgeService, type KnowledgeFeedbackResult } from "./knowledge-service.js";
 import { AgentReadAuditService } from "./agent-read-audit-service.js";
 import type {
@@ -1937,6 +1938,9 @@ export class WorkIntelligenceStore {
         };
       }
 
+      const contradiction = findFinalizeRequestContradiction(input, (normalizedWorkSummary?.nextSteps.length ?? 0) > 0);
+      if (contradiction) return contradiction;
+
       this.db
         .prepare(
           `INSERT INTO sessions (
@@ -1993,13 +1997,7 @@ export class WorkIntelligenceStore {
         sessionId,
         completedAt,
       );
-      const outstanding = this.outstandingItems.transitionForFinalize(
-        input,
-        project.id,
-        sessionId,
-        completedAt,
-        sanitizedNextSteps.length > 0,
-      );
+      const outstanding = this.outstandingItems.transitionForFinalize(input, project.id, sessionId, completedAt);
 
       const observedTool = context.observedStartedAt?.tool;
       const startedAtEvents =

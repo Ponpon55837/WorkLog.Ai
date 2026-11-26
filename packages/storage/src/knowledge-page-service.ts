@@ -231,7 +231,12 @@ const REVIEW_TOKEN_PREFIX = "kpr1.";
 /** Longest stored completion time or Session id a token may carry; real values are far shorter. */
 const REVIEW_TOKEN_FIELD_LIMIT = 200;
 const MISSING_REVIEW_TOKEN_WARNING =
-  "Saved without reviewToken: the save was not checked against a newer page version, and every Session finished before it counts as covered. Pass the reviewToken from work_get_knowledge_page_context next time.";
+  "Saved without reviewToken: no check for a newer page version was made, and Sessions finished after your read still count as new. Next time pass the reviewToken from work_get_knowledge_page_context.";
+const UNREAD_REVIEW_POINT_RESULT = {
+  outcome: "invalid_review_token" as const,
+  reason: "reviewToken does not point at a Session position this page can have been read at, so nothing was written.",
+  fix: "Read the page again with work_get_knowledge_page_context and save with the reviewToken it returns, unchanged.",
+};
 /** Prompt for review after a small batch, while keeping single-session updates out of pending context. */
 export const KNOWLEDGE_PAGE_MAINTENANCE_SESSION_THRESHOLD = 3;
 /** Versions shown in the Web history; older versions stay in the database and in exports. */
@@ -351,6 +356,8 @@ interface CoveragePoint {
   id?: string;
 }
 
+type WrittenVersion<Refusal> = { redactions: ReturnType<typeof combineRedactionSummaries> } | { refusal: Refusal };
+
 interface ReviewTokenContent {
   pageId: string;
   version: number;
@@ -376,6 +383,18 @@ function reviewedThrough(coverage: CoveragePoint, checked: CompletedSessionCurso
       ? checked.completedAt >= coverage.completedAt
       : compareCursor(checked, { completedAt: coverage.completedAt, id: coverage.id }) >= 0;
   return ahead ? { completedAt: checked.completedAt, id: checked.id } : coverage;
+}
+
+/** The later of two coverage points; without a Session position on either side, only the completion time decides. */
+function laterCoverage(first: CoveragePoint, second: CoveragePoint): CoveragePoint {
+  if (first.id === undefined || second.id === undefined) {
+    return second.completedAt > first.completedAt ? second : first;
+  }
+  return compareCursor(second as CompletedSessionCursor, first as CompletedSessionCursor) > 0 ? second : first;
+}
+
+function sameCoverage(first: CoveragePoint, second: CoveragePoint): boolean {
+  return first.completedAt === second.completedAt && first.id === second.id;
 }
 
 function encodeReviewToken(content: ReviewTokenContent): string {
@@ -842,9 +861,9 @@ export class KnowledgePageService {
     if (input.sections === undefined) return this.saveSectionUpdate(row, input, token!);
     const written = this.writeVersion(row, row.title, input.sections, "agent", {
       idempotencyKey: input.idempotencyKey,
-      ...(token ? { baseVersion: token.version, coverage: token.through } : {}),
+      ...(token ? { baseVersion: token.version, coverage: token.through } : { keepReviewedPoint: true }),
     });
-    if ("conflict" in written) return written.conflict;
+    if ("refusal" in written) return written.refusal;
     const page = this.recordFor(this.findPageById(row.id)!);
     return {
       outcome: "knowledge_page_saved",
@@ -958,7 +977,7 @@ export class KnowledgePageService {
     const written = this.writeVersion(row, input.title ?? row.title, input.sections, "web", {
       ...(input.baseVersion !== undefined ? { baseVersion: input.baseVersion } : {}),
     });
-    if ("conflict" in written) return written.conflict;
+    if ("refusal" in written) return written.refusal;
     return {
       outcome: "knowledge_page_updated",
       page: this.recordFor(this.findPageById(row.id)!),
@@ -1444,6 +1463,7 @@ export class KnowledgePageService {
     const written = runImmediateTransaction(this.db, () => {
       const current = this.findPageById(row.id)!;
       if (current.version !== token.version) return versionConflict(token.version, current.version);
+      if (!this.isReadPoint(current, token.through)) return UNREAD_REVIEW_POINT_RESULT;
       // A section left as it is keeps the time its sources were last checked, which moves on for the rest of the page.
       const merged = mergeSections(parseStoredSections(current.sections_json), update, (section) => {
         const baseline = baselineOf(section, current.sourced_through);
@@ -1531,6 +1551,23 @@ export class KnowledgePageService {
       );
   }
 
+  /**
+   * Whether a reviewToken's coverage point is one a read of this page could have produced: nothing covered, the page's
+   * saved coverage, or a non-voided Session of its project at exactly that completion time. Call it in the write
+   * transaction, after the version check.
+   */
+  private isReadPoint(row: PageRow, through: CoveragePoint): boolean {
+    if (through.completedAt === "" && through.id === undefined) return true;
+    const saved = sessionCoverage(row);
+    if (saved && sameCoverage(saved, through)) return true;
+    if (through.id === undefined) return false;
+    return (
+      this.db
+        .prepare("SELECT 1 FROM sessions WHERE id = ? AND project_id = ? AND completed_at = ? AND voided_at IS NULL")
+        .get(through.id, row.project_id, through.completedAt) !== undefined
+    );
+  }
+
   /** The point a read of this page has already reviewed: its saved coverage, or the checked cursor when that is later. */
   private reviewedPoint(row: PageRow): CoveragePoint {
     const checked = row.checked_through_session_id
@@ -1545,50 +1582,72 @@ export class KnowledgePageService {
 
   /**
    * Saves a new version. With baseVersion, a page saved since that version is left as it is and the conflict is
-   * returned. coverage is the last Session the writer was shown; without it every Session finished before this
-   * save counts as covered (Web edits, and Agent saves without reviewToken).
+   * returned. coverage is the last Session the writer was shown: it must pass isReadPoint and never moves the page's
+   * reviewed point back. keepReviewedPoint saves without a reviewToken and leaves the reviewed point where it was, so
+   * Sessions the Agent never read stay new. With neither, every Session finished before this save counts as covered
+   * (Web edits, where a person has seen the whole page).
    */
   private writeVersion(
     row: PageRow,
     title: string,
     sections: readonly KnowledgePageSection[],
     author: KnowledgePageAuthor,
-    options: { idempotencyKey?: string; baseVersion?: number; coverage?: CoveragePoint },
-  ): { redactions: ReturnType<typeof combineRedactionSummaries> } | { conflict: KnowledgePageVersionConflictResult } {
+    options: { idempotencyKey?: string; baseVersion?: number; coverage?: undefined; keepReviewedPoint?: undefined },
+  ): WrittenVersion<KnowledgePageVersionConflictResult>;
+  private writeVersion(
+    row: PageRow,
+    title: string,
+    sections: readonly KnowledgePageSection[],
+    author: KnowledgePageAuthor,
+    options: { idempotencyKey?: string; baseVersion?: number; coverage?: CoveragePoint; keepReviewedPoint?: boolean },
+  ): WrittenVersion<KnowledgePageVersionConflictResult | typeof UNREAD_REVIEW_POINT_RESULT>;
+  private writeVersion(
+    row: PageRow,
+    title: string,
+    sections: readonly KnowledgePageSection[],
+    author: KnowledgePageAuthor,
+    options: { idempotencyKey?: string; baseVersion?: number; coverage?: CoveragePoint; keepReviewedPoint?: boolean },
+  ): WrittenVersion<KnowledgePageVersionConflictResult | typeof UNREAD_REVIEW_POINT_RESULT> {
     const redactedTitle = redactText(title);
     const redactedSections = storedSections(sections);
     const now = nowIso();
-    const conflict = runImmediateTransaction(this.db, (): KnowledgePageVersionConflictResult | undefined => {
-      const current = this.findPageById(row.id)!;
-      if (options.baseVersion !== undefined && current.version !== options.baseVersion) {
-        return versionConflict(options.baseVersion, current.version);
-      }
-      const version = current.version + 1;
-      const sectionsJson = JSON.stringify(redactedSections.value);
-      this.insertVersion(current, version, redactedTitle.value, sectionsJson, author, options.idempotencyKey, now);
-      // sourced_through stays the save time: cited sources changed after it still need review.
-      this.db
-        .prepare(
-          `UPDATE knowledge_pages
+    const refusal = runImmediateTransaction(
+      this.db,
+      (): KnowledgePageVersionConflictResult | typeof UNREAD_REVIEW_POINT_RESULT | undefined => {
+        const current = this.findPageById(row.id)!;
+        if (options.baseVersion !== undefined && current.version !== options.baseVersion) {
+          return versionConflict(options.baseVersion, current.version);
+        }
+        if (options.coverage && !this.isReadPoint(current, options.coverage)) return UNREAD_REVIEW_POINT_RESULT;
+        const reviewed = options.coverage || options.keepReviewedPoint ? this.reviewedPoint(current) : undefined;
+        const coverage = options.coverage && reviewed ? laterCoverage(options.coverage, reviewed) : reviewed;
+        const version = current.version + 1;
+        const sectionsJson = JSON.stringify(redactedSections.value);
+        this.insertVersion(current, version, redactedTitle.value, sectionsJson, author, options.idempotencyKey, now);
+        // sourced_through stays the save time: cited sources changed after it still need review.
+        this.db
+          .prepare(
+            `UPDATE knowledge_pages
            SET title = ?, sections_json = ?, version = ?, sourced_through = ?, update_requested_at = NULL,
                last_author = ?, updated_at = ?, checked_through_session_id = NULL,
                covered_through_completed_at = ?, covered_through_session_id = ?
            WHERE id = ?`,
-        )
-        .run(
-          redactedTitle.value,
-          sectionsJson,
-          version,
-          now,
-          author,
-          now,
-          options.coverage?.completedAt ?? null,
-          options.coverage?.id ?? null,
-          row.id,
-        );
-      return undefined;
-    });
-    if (conflict) return { conflict };
+          )
+          .run(
+            redactedTitle.value,
+            sectionsJson,
+            version,
+            now,
+            author,
+            now,
+            coverage?.completedAt ?? null,
+            coverage?.id ?? null,
+            row.id,
+          );
+        return undefined;
+      },
+    );
+    if (refusal) return { refusal };
     return { redactions: combineRedactionSummaries(redactedTitle.redactions, redactedSections.redactions) };
   }
 

@@ -60,8 +60,7 @@ type OutstandingWarnings = NonNullable<
   Extract<ResolveOutstandingItemsResult, { outcome: "outstanding_items_resolved" }>["outstandingItemWarnings"]
 >;
 
-const FINALIZE_WARNING_MESSAGE =
-  "部分指定項目無效、已處理、跨專案、正在整理待審、未提供取代項目或同時指定完成與取代，因此未標記完成或不再需要，維持原狀。";
+const FINALIZE_WARNING_MESSAGE = "部分指定項目無效、已處理、跨專案或正在整理待審，因此未標記完成或不再需要，維持原狀。";
 
 interface RejectedRequest {
   unresolvedIds: readonly string[];
@@ -558,28 +557,21 @@ export class OutstandingItemService {
     projectId: string,
     actorSessionId: string,
     updatedAt: string,
-    hasNextSteps: boolean,
   ): { resolvedIds: string[]; supersededIds: string[]; warnings?: OutstandingWarnings } {
-    const resolvedRequested = request.resolvedOutstandingItemIds ?? [];
-    const supersededRequested = request.supersededOutstandingItemIds ?? [];
-    const supersededSet = new Set(supersededRequested);
-    const ambiguous = new Set(resolvedRequested.filter((id) => supersededSet.has(id)));
     const resolution = this.resolvePendingInTransaction(
-      resolvedRequested.filter((id) => !ambiguous.has(id)),
+      request.resolvedOutstandingItemIds ?? [],
       projectId,
       actorSessionId,
       updatedAt,
     );
     const supersession = this.supersedePendingInTransaction(
-      hasNextSteps ? supersededRequested.filter((id) => !ambiguous.has(id)) : [],
+      request.supersededOutstandingItemIds ?? [],
       projectId,
       actorSessionId,
       updatedAt,
     );
-    const unresolvedIds = [...new Set([...resolution.unresolvedIds, ...ambiguous])];
-    const unsupersededIds = [
-      ...new Set([...supersession.unresolvedIds, ...ambiguous, ...(hasNextSteps ? [] : supersededRequested)]),
-    ];
+    const { unresolvedIds } = resolution;
+    const unsupersededIds = supersession.unresolvedIds;
     const rejected = unresolvedIds.length > 0 || unsupersededIds.length > 0;
     return {
       resolvedIds: resolution.resolvedIds,
@@ -590,7 +582,12 @@ export class OutstandingItemService {
               unresolvedIds,
               unsupersededIds,
               message: FINALIZE_WARNING_MESSAGE,
-              reasons: this.explainRejections(projectId, { unresolvedIds, unsupersededIds, ambiguous, hasNextSteps }),
+              reasons: this.explainRejections(projectId, {
+                unresolvedIds,
+                unsupersededIds,
+                ambiguous: new Set(),
+                hasNextSteps: true,
+              }),
             },
           }
         : {}),

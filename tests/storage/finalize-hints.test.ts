@@ -61,7 +61,7 @@ describe("timestamp warnings", () => {
     const fixture = createFixture("Timestamp hint fixture");
     const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
     const backfilled = finalize(fixture, "ts-backfill", [], { completedAt: hoursAgo(48) });
-    const inverted = finalize(fixture, "ts-inverted", [], { startedAt: hoursAgo(1), completedAt: hoursAgo(2) });
+    const inverted = finalize(fixture, "ts-inverted", [], { startedAt: hoursAgo(-1), completedAt: undefined });
     const longSpan = finalize(fixture, "ts-long", [], { startedAt: hoursAgo(24 * 10), completedAt: undefined });
     for (const result of [backfilled, inverted, longSpan]) {
       expect(result.timestampWarnings).toHaveLength(1);
@@ -132,40 +132,49 @@ describe("outstandingItemWarnings reasons", () => {
     const done = pendingId(fixture, "Already done");
     fixture.store.updateOutstandingItemStatus(done, "completed", "web");
     const foreign = pendingId(other, "Foreign pending");
-    const open = pendingId(fixture, "Open pending");
     const result = finalize(fixture, "reason-actor", [], {
       completedAt: LATE,
-      resolvedOutstandingItemIds: ["missing-id", foreign, done, open],
-      supersededOutstandingItemIds: [open],
+      resolvedOutstandingItemIds: ["missing-id", foreign, done],
     });
-    expect(result.outstandingItemWarnings?.reasons).toEqual(
-      expect.arrayContaining([
-        { id: "missing-id", list: "resolved", code: "not_found" },
-        { id: foreign, list: "resolved", code: "other_project" },
-        { id: done, list: "resolved", code: "not_pending" },
-        { id: open, list: "resolved", code: "both_lists" },
-        { id: open, list: "superseded", code: "both_lists" },
-      ]),
-    );
-    expect(result.outstandingItemWarnings?.reasons).toHaveLength(5);
+    expect(result.outstandingItemWarnings?.reasons).toEqual([
+      { id: "missing-id", list: "resolved", code: "not_found" },
+      { id: foreign, list: "resolved", code: "other_project" },
+      { id: done, list: "resolved", code: "not_pending" },
+    ]);
     expect(result.outstandingItemWarnings?.message).toContain("維持原狀");
   });
 
-  it("reports no_next_steps for superseding without nextSteps and source_voided for a voided source", () => {
+  it("reports source_voided for a voided source", () => {
     const { fixture } = seed();
     const voided = finalize(fixture, "reason-voided-source", ["Orphaned item"], { completedAt: EARLY });
     const orphan = pendingId(fixture, "Orphaned item");
     fixture.store.setSessionVoid({ sessionId: voided.session.id, voided: true, reason: "Synthetic correction." });
+    const result = finalize(fixture, "reason-voided", [], { completedAt: LATE, resolvedOutstandingItemIds: [orphan] });
+    expect(result.outstandingItemWarnings?.reasons).toEqual([{ id: orphan, list: "resolved", code: "source_voided" }]);
+  });
+
+  it("reports no_next_steps and both_lists to work_resolve_outstanding_items", () => {
+    const { fixture } = seed();
+    const actor = finalize(fixture, "reason-resolver", [], { completedAt: LATE });
     const open = pendingId(fixture, "Open pending");
-    const result = finalize(fixture, "reason-no-steps", [], {
-      completedAt: LATE,
-      resolvedOutstandingItemIds: [orphan],
+    const result = fixture.store.resolveOutstandingItems({
+      sessionId: actor.session.id,
+      resolvedOutstandingItemIds: [open],
       supersededOutstandingItemIds: [open],
     });
-    expect(result.outstandingItemWarnings?.reasons).toEqual([
-      { id: orphan, list: "resolved", code: "source_voided" },
-      { id: open, list: "superseded", code: "no_next_steps" },
-    ]);
+    if (result.outcome !== "outstanding_items_resolved") throw new Error("Expected a resolve result.");
+    expect(result.outstandingItemWarnings?.reasons).toEqual(
+      expect.arrayContaining([
+        { id: open, list: "resolved", code: "both_lists" },
+        { id: open, list: "superseded", code: "both_lists" },
+      ]),
+    );
+    const noSteps = fixture.store.resolveOutstandingItems({
+      sessionId: actor.session.id,
+      supersededOutstandingItemIds: [open],
+    });
+    if (noSteps.outcome !== "outstanding_items_resolved") throw new Error("Expected a resolve result.");
+    expect(noSteps.outstandingItemWarnings?.reasons).toEqual([{ id: open, list: "superseded", code: "no_next_steps" }]);
   });
 
   it("reports held_by_cleanup while a cleanup request holds the item", () => {

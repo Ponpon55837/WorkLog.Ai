@@ -1121,6 +1121,11 @@ describe("synthetic retrieval quality regression", () => {
         sections: [
           { heading: "Checkpoint", content: "The checkpoint source is recorded.", sourceSessionIds: [sourceSessionId] },
         ],
+        reviewToken: (() => {
+          const read = store.getKnowledgePageContext({ projectRoot: root, slug: "review-checkpoint" });
+          if (read.outcome !== "knowledge_page_context") throw new Error("Expected the checkpoint context.");
+          return read.reviewToken;
+        })(),
       });
       if (saved.outcome !== "knowledge_page_saved") throw new Error("Expected the checkpoint page to save.");
       expect(saved.page).toMatchObject({ version: 1, status: "fresh", newSessionCount: 0 });

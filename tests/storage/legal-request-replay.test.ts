@@ -265,26 +265,36 @@ describe("legal write requests replayed against the current server", () => {
     });
     if (knowledge.outcome !== "knowledge_recorded") throw new Error("Expected Knowledge");
     const knowledgeId = knowledge.knowledge.id;
-    const outcomeOf = (key: string, fields: Record<string, unknown>) => {
+    const rejectionOf = (key: string, fields: Record<string, unknown>) => {
       tick();
-      return store.finalizeSession(finalizeRequest(projectRoot, key, fields)).outcome;
+      const sessionsBefore = store.listSessions().length;
+      const tokenBefore = store.getChangeToken();
+      const result = store.finalizeSession(finalizeRequest(projectRoot, key, fields));
+      expect(store.listSessions()).toHaveLength(sessionsBefore);
+      expect(store.getChangeToken()).toEqual(tokenBefore);
+      return result;
     };
 
-    expect(outcomeOf("both-lists", { resolvedOutstandingItemIds: [bulb], supersededOutstandingItemIds: [bulb] })).toBe(
-      "finalized",
-    );
-    expect(outcomeOf("superseded-without-next-steps", { supersededOutstandingItemIds: [rail] })).toBe("finalized");
     expect(
-      outcomeOf("applied-and-contradicted", {
+      rejectionOf("both-lists", { resolvedOutstandingItemIds: [bulb], supersededOutstandingItemIds: [bulb] }),
+    ).toMatchObject({ outcome: "rejected", code: "both_lists", ids: [bulb] });
+    expect(rejectionOf("superseded-without-next-steps", { supersededOutstandingItemIds: [rail] })).toMatchObject({
+      outcome: "rejected",
+      code: "superseded_without_next_steps",
+      ids: [rail],
+    });
+    expect(
+      rejectionOf("applied-and-contradicted", {
         appliedKnowledgeIds: [knowledgeId],
         contradictedKnowledgeIds: [knowledgeId],
       }),
-    ).toBe("finalized");
+    ).toMatchObject({ outcome: "rejected", code: "knowledge_applied_and_contradicted", ids: [knowledgeId] });
     expect(
-      outcomeOf("start-after-completion", {
+      rejectionOf("start-after-completion", {
         startedAt: new Date(Date.now() - 60 * 60_000).toISOString(),
         completedAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
       }),
-    ).toBe("finalized");
+    ).toMatchObject({ outcome: "rejected", code: "started_after_completed", field: "startedAt" });
+    expect(store.pendingOutstandingItemsForSessions([source.session.id])).toHaveLength(2);
   });
 });

@@ -1767,9 +1767,9 @@ describe("Work Intelligence MCP server", () => {
     expect(finalized.relatedOutstandingItems.items.map((item) => item.text)).not.toContain(replacementText);
 
     const noReplacement = await callJson<{
-      session: { id: string };
-      supersededOutstandingItemIds: string[];
-      outstandingItemWarnings?: { unsupersededIds?: string[] };
+      outcome: string;
+      code?: string;
+      ids?: string[];
     }>(client, "work_finalize_session", {
       ...finalizePayload(root, "mcp-supersede-empty-nextsteps", "No replacement evidence"),
       changedFiles: [],
@@ -1782,8 +1782,11 @@ describe("Work Intelligence MCP server", () => {
       },
       supersededOutstandingItemIds: [guard.id],
     });
-    expect(noReplacement.supersededOutstandingItemIds).toEqual([]);
-    expect(noReplacement.outstandingItemWarnings?.unsupersededIds).toContain(guard.id);
+    expect(noReplacement).toMatchObject({
+      outcome: "rejected",
+      code: "superseded_without_next_steps",
+      ids: [guard.id],
+    });
     expect(store.listOutstandingItems({ projectRoot: root, pageSize: 100 })).toMatchObject({
       items: expect.arrayContaining([expect.objectContaining({ id: guard.id, status: "pending" })]),
     });
@@ -1805,8 +1808,8 @@ describe("Work Intelligence MCP server", () => {
         },
       ]);
       const guardEvents = database
-        .prepare("SELECT COUNT(*) AS count FROM outstanding_item_events WHERE item_id = ? AND actor_session_id = ?")
-        .get(guard.id, noReplacement.session.id) as { count: number };
+        .prepare("SELECT COUNT(*) AS count FROM outstanding_item_events WHERE item_id = ? AND to_status = 'not_needed'")
+        .get(guard.id) as { count: number };
       expect(guardEvents.count).toBe(0);
 
       const duplicate = await callJson<{
@@ -1841,7 +1844,7 @@ describe("Work Intelligence MCP server", () => {
         scope: [],
         decisions: [],
         verification: [],
-        nextSteps: [],
+        nextSteps: ["Replace the synthetic boundary check."],
       },
       supersededOutstandingItemIds: maximumIds,
     });
@@ -2568,9 +2571,11 @@ describe("Work Intelligence MCP server", () => {
     expect(await callJson(client, "work_get_context", { projectRoot: root })).toMatchObject({
       pendingRequests: { knowledgePages: [{ slug: "pitfalls", updateRequested: true }] },
     });
-    expect(
-      await callJson(client, "work_get_knowledge_page_context", { projectRoot: root, slug: "pitfalls" }),
-    ).toMatchObject({
+    const pageContext = await callJson<{ reviewToken: string }>(client, "work_get_knowledge_page_context", {
+      projectRoot: root,
+      slug: "pitfalls",
+    });
+    expect(pageContext).toMatchObject({
       outcome: "knowledge_page_context",
       sessions: [{ id: finalized.session.id }],
     });
@@ -2588,6 +2593,7 @@ describe("Work Intelligence MCP server", () => {
         slug: "pitfalls",
         idempotencyKey: "page-1",
         sections: [{ ...section, sourceSessionIds: [finalized.session.id] }],
+        reviewToken: pageContext.reviewToken,
       }),
     ).toMatchObject({ outcome: "knowledge_page_saved", page: { version: 1, status: "fresh" } });
     expect(

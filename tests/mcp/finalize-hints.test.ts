@@ -146,14 +146,12 @@ describe("finalize warnings through MCP", () => {
         completedAt: LATE,
         summary: "Opened <private> without closing it.",
         resolvedOutstandingItemIds: ids,
-        supersededOutstandingItemIds: ids.slice(0, 1),
       }),
     });
     expect(receipt.outstandingItemWarnings.reasons).toEqual(
       expect.arrayContaining([
-        { id: "missing-a", list: "resolved", code: "both_lists" },
+        { id: "missing-a", list: "resolved", code: "not_found" },
         { id: "missing-b", list: "resolved", code: "not_found" },
-        { id: "missing-a", list: "superseded", code: "both_lists" },
       ]),
     );
     expect(receipt.outstandingItemWarnings.reasons.length).toBeLessThanOrEqual(

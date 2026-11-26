@@ -86,8 +86,9 @@ function sameList(left: readonly string[] | undefined, right: readonly string[])
  * (redaction counts, a stored changed-file list that differs from the request, Git metadata it filled in), the
  * follow-ups, warnings, reminders, and hints (with how many reported Knowledge ids it recorded, and the recalled
  * Knowledge this work read but has not reported). It does not echo the title, summary, workSummary, or changedFiles the
- * Agent just sent. Other outcomes (skipped, idempotency conflict) pass through unchanged, and so does the storage
- * result for every other caller.
+ * Agent just sent. Other outcomes (skipped, idempotency conflict, rejected) pass through unchanged, and so does the
+ * storage result for every other caller. A rejected request is a domain outcome like an idempotency conflict, not a
+ * transport error: the call worked, nothing was written, and the body names the field, ids, and fix.
  */
 export function toFinalizeReceipt(input: FinalizeReceiptRequest, result: FinalizeResult): unknown {
   if (result.outcome !== "finalized") return result;
