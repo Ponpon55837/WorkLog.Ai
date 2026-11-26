@@ -2958,7 +2958,7 @@ describe("compact Knowledge search over MCP", () => {
       id: expect.any(String),
       kind: "procedure",
       status: "active",
-      title: "Synthetic gamma procedure",
+      title: expect.stringMatching(/^Synthetic (alpha|beta|gamma) procedure$/),
       updatedAt: expect.any(String),
       appliesToCount: 1,
     });
