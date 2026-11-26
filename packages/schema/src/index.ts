@@ -173,6 +173,10 @@ export const deleteSessionInputSchema = z.object({
   confirm: z.literal(true),
 });
 
+export const deleteKnowledgePageInputSchema = z.object({
+  confirm: z.literal(true),
+});
+
 export const databaseBackupFileNameSchema = z
   .string()
   .min(1)

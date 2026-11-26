@@ -134,6 +134,7 @@ import type {
   CreateReportSynthesisRequestInput,
   CreateReportSynthesisRequestResult,
   DeleteProjectResult,
+  DeleteKnowledgePageResult,
   DeleteSessionResult,
   ProjectDeletionAuditRecord,
   ReportSynthesisRequestLookupResult,
@@ -279,6 +280,7 @@ import { RelatedWorkService } from "./related-work-service.js";
 import type { FileHistoryQuery, FileHistoryResult, RelatedWorkResult } from "@work-intelligence/core";
 import { AttentionService } from "./attention-service.js";
 import { KnowledgePageService } from "./knowledge-page-service.js";
+import { KnowledgePageDeletionService } from "./knowledge-page-deletion-service.js";
 import { findKnowledgeToReview } from "./knowledge-review-hint.js";
 import { findUnreportedKnowledge } from "./unreported-knowledge.js";
 import { KnowledgeSearchService } from "./knowledge-search-service.js";
@@ -463,6 +465,7 @@ export class WorkIntelligenceStore {
   private readonly outstandingItems: OutstandingItemService;
   private readonly outstandingCleanup: OutstandingCleanupService;
   private readonly knowledgePages: KnowledgePageService;
+  private readonly knowledgePageDeletion: KnowledgePageDeletionService;
   private readonly attention: AttentionService;
   private readonly knowledge: KnowledgeRepository;
   private readonly knowledgeService: KnowledgeService;
@@ -651,6 +654,9 @@ export class WorkIntelligenceStore {
       this.databasePath,
       this.backupOptions,
       this.searchIndex,
+    );
+    this.knowledgePageDeletion = new KnowledgePageDeletionService(this.db, (projectId) =>
+      this.checkProjectById(projectId),
     );
     this.knowledgeCandidates = new KnowledgeCandidateService(this.db, {
       checkProjectRoot: (projectRoot) => this.checkProjectRoot(projectRoot),
@@ -1530,6 +1536,11 @@ export class WorkIntelligenceStore {
 
   public listKnowledgePageVersions(pageId: string): KnowledgePageVersionsResult {
     return this.knowledgePages.listVersions(pageId);
+  }
+
+  /** Web/REST only: deletes a custom Knowledge page and its versions. MCP never calls this. */
+  public deleteKnowledgePage(pageId: string): DeleteKnowledgePageResult {
+    return this.knowledgePageDeletion.deletePage(pageId);
   }
 
   /** Voids or restores a Session. Voided Sessions leave lists, reports, the graph, context, and recall. */

@@ -81,6 +81,7 @@ export type { DatabaseUnavailableReason } from "./sqlite-errors.js";
 export { canonicalizeProjectRoot, isPathWithinProject } from "@work-intelligence/project-policy";
 export { ProjectDeletionError, type ProjectDeletionErrorCode } from "./project-deletion-service.js";
 export { SessionDeletionError, type SessionDeletionErrorCode } from "./session-deletion-service.js";
+export { KnowledgePageDeletionError, type KnowledgePageDeletionErrorCode } from "./knowledge-page-deletion-service.js";
 export { ProjectLocationError, type ProjectLocationErrorCode } from "./project-location-service.js";
 export {
   DatabaseMaintenanceError,

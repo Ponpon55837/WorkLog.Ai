@@ -42,6 +42,8 @@ export const API_ERROR_CODES = [
   "session_cited_by_pending_cleanup",
   "session_backup_failed",
   "session_delete_failed",
+  "knowledge_page_not_found",
+  "knowledge_page_default",
   "usage_timeout",
   "usage_cancelled",
   "usage_failed",
@@ -2524,6 +2526,11 @@ export const KNOWLEDGE_PAGE_DEFAULTS = [
     question: "在這個專案工作時，最常遇到的陷阱、錯誤與注意事項是什麼？",
   },
 ] as const;
+
+/** The default pages answer the fixed questions every project has, so they cannot be deleted. */
+export function isDefaultKnowledgePageSlug(slug: string): boolean {
+  return KNOWLEDGE_PAGE_DEFAULTS.some((page) => page.slug === slug);
+}
 export const KNOWLEDGE_PAGE_AUTHORS = ["agent", "web"] as const;
 export type KnowledgePageAuthor = (typeof KNOWLEDGE_PAGE_AUTHORS)[number];
 /** `empty` until first written; `has_new_data` when unreviewed Sessions postdate the saved page. */
@@ -2709,6 +2716,8 @@ export interface KnowledgePageContext {
   /** Present only when the page is near its limits, with splitSuggestion. */
   size?: KnowledgePageSize;
   splitSuggestion?: KnowledgePageSplitSuggestion;
+  /** Present only for a custom page with no confirmed content: the user can delete it in the Web UI. */
+  emptyPageHint?: string;
 }
 
 /** A focused read: the matching sections in full and the size of the rest; no Session list. */
@@ -2731,6 +2740,7 @@ export interface KnowledgePageFocusedContext {
   /** Present only when the page is near its limits, with splitSuggestion. */
   size?: KnowledgePageSize;
   splitSuggestion?: KnowledgePageSplitSuggestion;
+  emptyPageHint?: string;
 }
 
 /**
@@ -2777,6 +2787,7 @@ export interface KnowledgePageReviewContext {
   truncated: boolean;
   reviewToken: string;
   readFullWith: string;
+  emptyPageHint?: string;
 }
 
 export type KnowledgePageSkippedResult = {
@@ -2888,10 +2899,29 @@ export type KnowledgePageVersionsResult =
       outcome: "knowledge_page_versions";
       page: KnowledgePageRecord;
       versions: KnowledgePageVersionRecord[];
+      /** Every stored version of the page; versions lists at most the newest 50. */
+      versionCount: number;
       /** Titles of the Sessions cited by the page and the listed versions; a voided or missing Session is absent. */
       sources: Array<{ id: string; title: string }>;
     }
   | { outcome: "not_found"; pageId: string; reason: string }
+  | KnowledgePageSkippedResult;
+
+/** Rows removed with a custom Knowledge page. */
+export interface KnowledgePageDeletionCounts {
+  knowledgePageVersions: number;
+  attentionPreferences: number;
+}
+
+export type DeleteKnowledgePageResult =
+  | {
+      outcome: "knowledge_page_deleted";
+      pageId: string;
+      projectId: string;
+      slug: string;
+      deletedAt: string;
+      deletedCounts: KnowledgePageDeletionCounts;
+    }
   | KnowledgePageSkippedResult;
 
 /** A bounded page for work_get_context: the rendered answer, cut to a fixed length. */
@@ -4251,8 +4281,9 @@ export type ProjectDataCounts = Partial<Record<ProjectDataTable, number>>;
 
 /** Why a row could not be imported: the project root, newer or differing content, a unique key, or a dependency. */
 /** `missing_parent`: the file itself lacks the project, Session or other row this row belongs to, so it is not imported. */
+/** `deleted`: the user deleted this Knowledge page here, so an older export does not bring it back. */
 export type ProjectDataImportConflictCategory =
-  "path" | "newer_content" | "content" | "unique" | "dependency" | "missing_parent";
+  "path" | "newer_content" | "content" | "unique" | "dependency" | "missing_parent" | "deleted";
 
 export interface ProjectDataImportConflict {
   table: ProjectDataTable;

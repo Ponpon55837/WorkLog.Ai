@@ -1,5 +1,6 @@
 import {
   decideKnowledgeCandidateInputSchema,
+  deleteKnowledgePageInputSchema,
   knowledgeCandidateListQuerySchema,
   knowledgeHistoryQuerySchema,
   knowledgePageListQuerySchema,
@@ -12,8 +13,30 @@ import {
   updateKnowledgeInputSchema,
   updateKnowledgePageInputSchema,
 } from "@work-intelligence/schema";
-import { numberParam, readJsonBody, readJsonObject, sendJson, textParam } from "../http.js";
-import { validatedRoute, type Route } from "./router.js";
+import { KnowledgePageDeletionError } from "@work-intelligence/storage";
+import { numberParam, readJsonBody, readJsonObject, sendError, sendJson, textParam } from "../http.js";
+import { parseRequestInput, validatedRoute, type Route, type RouteContext } from "./router.js";
+
+/** Deletes a custom Knowledge page and its versions; the JSON confirmation keeps it out of reach of links and forms. */
+async function deleteKnowledgePage({ store, request, response, params }: RouteContext): Promise<void> {
+  const parsed = parseRequestInput(deleteKnowledgePageInputSchema, await readJsonBody(request));
+  if (!parsed.success) {
+    sendError(response, 400, "Invalid knowledge page deletion confirmation.", parsed.error.flatten());
+    return;
+  }
+  try {
+    sendJson(response, 200, store.deleteKnowledgePage(params.pageId!));
+  } catch (error) {
+    if (!(error instanceof KnowledgePageDeletionError)) {
+      throw error;
+    }
+    if (error.code === "knowledge_page_not_found") {
+      sendError(response, 404, "Knowledge page not found.", undefined, error.code);
+      return;
+    }
+    sendError(response, 409, "A default Knowledge page cannot be deleted.", undefined, error.code);
+  }
+}
 
 export const knowledgeRoutes: Route[] = [
   {
@@ -162,4 +185,5 @@ export const knowledgeRoutes: Route[] = [
       ({ store }, data) => store.updateKnowledgePage(data),
     ),
   },
+  { method: "DELETE", pattern: "/api/knowledge-pages/:pageId", handler: deleteKnowledgePage },
 ];

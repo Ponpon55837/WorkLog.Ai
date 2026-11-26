@@ -240,6 +240,7 @@ const MISSING_PROJECT_REASON = "所屬專案不在匯入檔中。";
 const MISSING_SESSION_REASON = "所屬 Session 不在匯入檔中。";
 const MISSING_REQUEST_REASON = "報告所屬的請求不在匯入檔中。";
 const MISSING_SUMMARY_REASON = "報告呈現的原始版本不在匯入檔中。";
+const DELETED_PAGE_REASON = "知識頁已在本機刪除，匯入不會把它加回。";
 const AGENT_REVIEW_OPEN_STATUSES: readonly string[] = ["pending", "processing", "failed"];
 
 /** Masks one row with the portable redaction rules, architecture diagrams included. */
@@ -428,6 +429,26 @@ function emptyRows(): Record<ProjectDataTable, PlannedRow[]> {
 function getRows(db: DatabaseSync, table: ProjectDataTable): Set<string> {
   const ids = db.prepare(`SELECT id FROM ${table}`).all() as Array<{ id: string }>;
   return new Set(ids.map((row) => row.id));
+}
+
+/** The Knowledge page an imported row stands for: the page itself, or the page an attention preference points at. */
+function knowledgePageIdOf(table: ProjectDataTable, row: ProjectDataRow): string | undefined {
+  if (table === "knowledge_pages") return String(row.id);
+  if (table === "attention_preferences" && row.kind === "knowledge_page") return String(row.source_id);
+  return undefined;
+}
+
+/** The imported pages the user deleted on this machine, looked up by id in the content-free deletion audit. */
+function deletedKnowledgePageIds(db: DatabaseSync, tables: Record<ProjectDataTable, ProjectDataRow[]>): Set<string> {
+  const pageIds = [
+    ...tables.knowledge_pages.map((row) => String(row.id)),
+    ...tables.attention_preferences.flatMap((row) => knowledgePageIdOf("attention_preferences", row) ?? []),
+  ];
+  if (pageIds.length === 0) return new Set();
+  const rows = db
+    .prepare("SELECT page_id FROM knowledge_page_deletion_audit WHERE page_id IN (SELECT value FROM json_each(?))")
+    .all(JSON.stringify([...new Set(pageIds)])) as Array<{ page_id: string }>;
+  return new Set(rows.map((row) => row.page_id));
 }
 
 function citesAnySession(value: ProjectDataValue | undefined, sessionIds: ReadonlySet<string>): boolean {
@@ -2074,6 +2095,7 @@ function makePlan(db: DatabaseSync, validated: ValidatedProjectDataImport): Tran
     selectedBundle.tables.sessions.map((session) => [String(session.id), String(session.completed_at)] as const),
   );
   const parentOwners = collectParentOwners(db, selectedBundle.tables, projectIds);
+  const deletedPageIds = deletedKnowledgePageIds(db, selectedBundle.tables);
   for (const table of TABLE_ORDER) {
     if (table === "projects") {
       continue;
@@ -2100,6 +2122,11 @@ function makePlan(db: DatabaseSync, validated: ValidatedProjectDataImport): Tran
       );
       const id = String(row.id);
       const current = existingRowsById[table].get(id);
+      const pageId = current ? undefined : knowledgePageIdOf(table, row);
+      if (pageId !== undefined && deletedPageIds.has(pageId)) {
+        addPlan(table, row, "conflict", DELETED_PAGE_REASON, "deleted");
+        continue;
+      }
       if (dependencyError) {
         // A row already stored here unchanged needs nothing, whatever happened to its parent.
         if (current && equalRows(table, current, row)) {

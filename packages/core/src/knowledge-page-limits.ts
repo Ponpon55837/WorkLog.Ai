@@ -33,8 +33,12 @@ export const KNOWLEDGE_PAGE_MAX_CONTENT_CHARS = 8_000;
  */
 export const KNOWLEDGE_PAGE_NEAR_SECTIONS = KNOWLEDGE_PAGE_MAX_SECTIONS - 1;
 export const KNOWLEDGE_PAGE_NEAR_CONTENT_CHARS = 7_200;
+/**
+ * Removing what no longer answers the page question is maintenance; shortening what is still true is not. Only when
+ * the page is still near its limits after that does the user decide on a custom page.
+ */
 export const KNOWLEDGE_PAGE_SPLIT_GUIDANCE =
-  "Ask the user before moving these to a custom page (work_request_knowledge_page_update); never trim text to fit.";
+  "First remove what no longer answers the page question (finished items, facts later work overturned); if it still does not fit, ask the user before moving these to a custom page (work_request_knowledge_page_update). Never shorten or merge still-true text to fit.";
 const SPLIT_CANDIDATE_LIMIT = 3;
 
 /**

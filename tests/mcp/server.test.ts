@@ -2616,6 +2616,53 @@ describe("Work Intelligence MCP server", () => {
     }
   });
 
+  it("tells the Agent that an emptied custom page can be deleted in the Web UI, never on a default page", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Empty page project", root);
+    store.updateProject(project.id, { status: "tracked" });
+    const emptySave = async (target: Record<string, string>, idempotencyKey: string) => {
+      await callJson(client, "work_request_knowledge_page_update", target);
+      const read = await callJson<{ reviewToken: string }>(client, "work_get_knowledge_page_context", target);
+      await callJson(client, "work_save_knowledge_page", {
+        projectRoot: root,
+        slug: target.slug,
+        idempotencyKey,
+        reviewToken: read.reviewToken,
+        sections: [{ heading: "Moorings", content: "資料不足", sourceSessionIds: [] }],
+      });
+      return callJson<Record<string, unknown>>(client, "work_get_knowledge_page_context", {
+        projectRoot: root,
+        slug: target.slug,
+      });
+    };
+
+    const custom = await emptySave(
+      { projectRoot: root, slug: "harbour-moorings", title: "Harbour moorings", question: "Where do boats moor?" },
+      "empty-custom",
+    );
+    const builtIn = await emptySave({ projectRoot: root, slug: "pitfalls" }, "empty-default");
+
+    expect(custom.emptyPageHint).toEqual(expect.stringContaining("delete it in the Web UI"));
+    expect(builtIn).not.toHaveProperty("emptyPageHint");
+  });
+
+  it("orders page-limit guidance as cleanup first, then a custom page, and offers Agents no page deletion", async () => {
+    const { client } = await connect();
+    const catalog = await getToolContractCatalog(client);
+    const save = catalog.sections.get("work_save_knowledge_page") ?? "";
+    const read = catalog.sections.get("work_get_knowledge_page_context") ?? "";
+
+    for (const contract of [save, read].map((text) => text.toLowerCase())) {
+      const cleanup = contract.indexOf("remove what no longer answers the page question");
+      expect(cleanup).toBeGreaterThan(-1);
+      expect(cleanup).toBeLessThan(contract.indexOf("custom page", cleanup));
+    }
+    expect(save).toContain("first remove what no longer answers the page question");
+    expect(save).toContain("never shorten or merge still-true text");
+    expect(save).toContain("emptyPageHint");
+    expect([...catalog.dispatchers.keys()].filter((operation) => /delete/.test(operation))).toEqual([]);
+  });
+
   it("rejects a section update that mixes sections or lacks a reviewToken", async () => {
     const { client, store, root } = await connect();
     const project = store.addProject("Section input project", root);

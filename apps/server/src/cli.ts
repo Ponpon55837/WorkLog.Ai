@@ -241,6 +241,7 @@ const IMPORT_CONFLICT_CATEGORY_LABELS: Record<ProjectDataImportConflictCategory,
   unique: "唯一識別值",
   dependency: "依賴連帶",
   missing_parent: "匯入檔缺少上層資料",
+  deleted: "已在本機刪除",
 };
 
 function printImportPreview(

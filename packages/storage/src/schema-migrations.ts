@@ -1064,6 +1064,22 @@ const MIGRATIONS: SchemaMigration[] = [
       ${projectDataRevisionTriggersSql(["agent_review_requests", "agent_review_submissions", "agent_review_request_items"])}
     `,
   },
+  {
+    version: 37,
+    name: "knowledge-page-deletion-audit",
+    // Content-free like session_deletion_audit (ids, time, counts; no slug or title) and never exported. A merge
+    // import looks pages up here by id, so an older export cannot add a deleted page back without saying so.
+    sql: `
+      CREATE TABLE knowledge_page_deletion_audit (
+        id TEXT PRIMARY KEY,
+        deleted_at TEXT NOT NULL,
+        page_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        deleted_counts_json TEXT NOT NULL
+      );
+      CREATE INDEX idx_knowledge_page_deletion_audit_page ON knowledge_page_deletion_audit(page_id);
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

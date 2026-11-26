@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { ExternalLink, FolderGit2, GitCompare, History, Pencil, Sparkles } from "lucide-vue-next";
-import { KNOWLEDGE_PAGE_INSUFFICIENT, type ProjectRecord } from "@work-intelligence/core";
+import { ExternalLink, FolderGit2, GitCompare, History, Pencil, Sparkles, Trash2 } from "lucide-vue-next";
+import { isDefaultKnowledgePageSlug, KNOWLEDGE_PAGE_INSUFFICIENT, type ProjectRecord } from "@work-intelligence/core";
 import { useToast } from "../../composables/useToast";
 import { useKnowledgePagesStore } from "../../stores/knowledge-pages";
 import { useSessionsStore } from "../../stores/sessions";
@@ -20,7 +20,7 @@ import KnowledgePageLimitNotice from "./KnowledgePageLimitNotice.vue";
 import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
 
-/** One standing Knowledge page: its cited sections, its version history, and the edit and update actions. */
+/** One standing Knowledge page: its cited sections, its version history, and the edit, update and delete actions. */
 const props = defineProps<{ projects: readonly ProjectRecord[] }>();
 
 const authorLabels = { agent: "Agent", web: t("knowledge.editedByHand") } as const;
@@ -35,8 +35,11 @@ const shownVersion = ref<number | null>(null);
 const editorOpen = ref(false);
 const comparing = ref(false);
 const requesting = ref(false);
+const deleting = ref(false);
 
 const project = computed(() => props.projects.find((item) => item.id === openPage.value?.projectId));
+/** Only custom pages can be deleted; the three default pages always exist. */
+const deletable = computed(() => Boolean(openPage.value && !isDefaultKnowledgePageSlug(openPage.value.slug)));
 const shown = computed(() => {
   const version = versions.value.find((item) => item.version === shownVersion.value);
   return version ?? openPage.value;
@@ -89,6 +92,15 @@ async function requestUpdate(): Promise<void> {
   }
 }
 
+async function deletePage(): Promise<void> {
+  deleting.value = true;
+  try {
+    await pagesStore.deleteOpenPage();
+  } finally {
+    deleting.value = false;
+  }
+}
+
 watch(
   () => openPage.value?.id,
   () => {
@@ -135,6 +147,16 @@ watch([() => openPage.value?.id, shownVersion], () => {
             :aria-pressed="comparing"
             @click="comparing = !comparing"
             >{{ comparing ? t("knowledge.closeComparison") : t("knowledge.compareWithPrevious") }}</UiButton
+          >
+          <UiButton
+            v-if="deletable"
+            size="sm"
+            variant="danger"
+            :icon="Trash2"
+            :loading="deleting"
+            :disabled="versionsLoading"
+            @click="deletePage"
+            >{{ t("knowledge.deleteKnowledgePage") }}</UiButton
           >
         </div>
       </UiSidePanelHeader>

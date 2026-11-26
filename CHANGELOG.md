@@ -4,6 +4,22 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.75] - 2026-11-26
+
+[繁體中文更新說明](docs/releases/1.6.75.md).
+
+### Added
+
+- Deleting a custom Knowledge page from the Web UI. The Knowledge page panel shows "Delete page" on custom pages only. Its danger confirmation names how many history versions go with the page. `DELETE /api/knowledge-pages/:id` with `{ "confirm": true }` removes the page and every version in one transaction. The update request, which is stored on the page row, goes with it, and the `attention_page_deleted` trigger removes the page's attention preferences. The answer reports `deletedCounts` (`knowledgePageVersions`, `attentionPreferences`). The three default pages (`architecture`, `in-progress`, `pitfalls`) are refused with 409 `knowledge_page_default`; a missing page gets 404 `knowledge_page_not_found`; a project that is not tracked gets 200 `skipped`. The request is JSON-only and passes the usual Origin and Host checks. There is no MCP tool, so Agents can only suggest a deletion. The same slug can be requested again later as a new, empty page.
+- Database schema 37 (migration `knowledge-page-deletion-audit`): the content-free `knowledge_page_deletion_audit` table keeps only the time, page id, project id and counts. It is not exported and outlives project deletion. A merge or newer-wins import uses it so an older export does not add a deleted page back: the page and its attention preferences are reported as `deleted` conflicts (its versions as `dependency`), in the preview, in the Web backup section and in `pnpm db:import --dry-run`, and none of them is written. A page created later under the same slug has a new id and imports as usual. The migration runs automatically with a backup on upgrade; exports from schema 31–36 still import.
+- `emptyPageHint` in `work_get_knowledge_page_context`. Reading a custom page whose sections are all 資料不足 (or that has none) adds one sentence asking the Agent to tell the user the page can be deleted in the Web UI. Default pages, pages with a pending update request and pages with content get no hint.
+- `versionCount` in `GET /api/knowledge-pages/:id/versions`: the number of all versions, not only the 50 listed.
+- An upgrade fixture for schema 36 (`tests/fixtures/upgrade/schema-36.sqlite`, generated from the 1.6.70 build).
+
+### Changed
+
+- Cleanup before splitting a page. `splitWith`, the `page_limit_exceeded` reason, the Knowledge page contract, the `work_get_knowledge_page_context` and `work_save_knowledge_page` descriptions, the knowledge guide in both skill copies and the Web limit notice (zh-TW and en) now give the same order: first remove what no longer answers the page question (finished items, facts later work overturned); only if the page still does not fit, ask the user to move sections to a custom page. Text that is still true is still never shortened or merged to make room. Limits are unchanged. To stay within the guide budget, the knowledge guide drops a repeated `version_conflict` clause and shortens one example. The fixed Agent reading is unchanged at 42,249 of 42,250. The MCP contract text changed, so the MCP compatibility id changes: connected Agents receive `restartRequired` after upgrading and must reconnect the Work Intelligence MCP.
+
 ## [1.6.74] - 2026-11-26
 
 [繁體中文更新說明](docs/releases/1.6.74.md).

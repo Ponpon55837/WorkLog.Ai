@@ -930,6 +930,53 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(restoredPanel).toContainText("Build the shared packages first.");
   });
 
+  test("deletes a custom Knowledge page after confirming its versions and never offers it for a default page", async ({
+    page,
+  }) => {
+    const slug = `e2e-retired-${process.pid}`;
+    withAgentStore((store) => {
+      store.requestKnowledgePageUpdate({
+        projectRoot,
+        slug,
+        title: "E2E retired page",
+        question: "Which retired topic did this page answer?",
+      });
+      const saved = store.saveKnowledgePage({
+        projectRoot,
+        slug,
+        idempotencyKey: `e2e-retired-page-${process.pid}`,
+        sections: [{ heading: "Retired topic", content: "資料不足", sourceSessionIds: [] }],
+      });
+      if (saved.outcome !== "knowledge_page_saved") throw new Error("Expected the custom page to save.");
+    });
+
+    await page.goto("/knowledge/pages");
+    // The previous test wrote the default pitfalls page.
+    const builtIn = page.getByTestId("knowledge-page-row").filter({ hasText: "常見陷阱" });
+    await builtIn.getByRole("button", { name: tt("knowledge.view") }).click();
+    const panel = page.getByRole("dialog", { name: tt("common.knowledgePages") });
+    await expect(panel.getByRole("button", { name: tt("knowledge.askAgentToUpdate") })).toBeVisible();
+    await expect(panel.getByRole("button", { name: tt("knowledge.deleteKnowledgePage") })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(panel).toBeHidden();
+
+    const row = page.getByTestId("knowledge-page-row").filter({ hasText: "E2E retired page" });
+    await row.getByRole("button", { name: tt("knowledge.view") }).click();
+    await expect(panel.getByRole("button", { name: ttPattern("knowledge.version", { version: 1 }) })).toBeVisible();
+    await panel.getByRole("button", { name: tt("knowledge.deleteKnowledgePage") }).click();
+    const confirmation = page.getByRole("dialog", { name: tt("knowledge.deleteThisKnowledgePage") });
+    await expect(confirmation).toContainText(
+      tt("knowledge.knowledgePageWillBeDeleted", { title: "E2E retired page", versionCount: 1 }),
+    );
+    await confirmation.getByRole("button", { name: tt("knowledge.deleteKnowledgePage") }).click();
+
+    await expect(confirmation).toBeHidden();
+    await expect(panel).toBeHidden();
+    await expect(row).toHaveCount(0);
+    const listed = withAgentStore((store) => store.listKnowledgePages({ projectRoot }));
+    expect(listed.outcome === "knowledge_pages" && listed.items.map((item) => item.slug)).not.toContain(slug);
+  });
+
   test("shows and filters new Knowledge page data separately from a required rewrite", async ({ page }) => {
     const { sourceSessionId, sourcedThrough } = withAgentStore((store) => {
       const finalize = (idempotencyKey: string, title: string, summary: string) => {
