@@ -6,7 +6,7 @@
 
 ## tools/list 與 dispatcher
 
-`tools/list` 公告 4 個 MCP tools。每個 tool 接受 `operation` 與 `arguments`；55 個 operation id 可呼叫，MCP resource `work-intelligence://agent/tool-contracts` 是精簡的操作索引（operation → dispatcher: 標題）；單一操作的完整契約——由完整 Zod schema 產生的 JSON Schema、行為說明、額外驗證規則與原始 annotations——在 resource template `work-intelligence://agent/tool-contracts/{operation}`。Agent 第一次呼叫某個 operation 前讀取它的契約，只讀用得到的操作。dispatcher 會再以原 Zod full schema 驗證參數；任何層級的未知參數鍵都會回傳 `unrecognized_keys` 錯誤並列出鍵名，不會被靜默丟棄。下方範例是操作本身的參數，實際 MCP 呼叫時須將 operation id 與其參數包在上面的 dispatcher envelope。
+`tools/list` 公告 4 個 MCP tools。每個 tool 接受 `operation` 與 `arguments`；55 個 operation id 可呼叫，MCP resource `work-intelligence://agent/tool-contracts` 是精簡的操作索引（operation → dispatcher: 標題）；單一操作的完整契約——由完整 Zod schema 產生的 JSON Schema、行為說明、額外驗證規則與原始 annotations——在 resource template `work-intelligence://agent/tool-contracts/{operation}`。Agent 第一次呼叫某個 operation 前讀取它的契約，只讀用得到的操作。dispatcher 會再以原 Zod full schema 驗證參數；任何層級的未知參數鍵都會回傳 `unrecognized_keys` 錯誤並列出鍵名，不會被靜默丟棄。operation 呼叫到不負責它的 dispatcher 時，錯誤碼 `UNKNOWN_OPERATION` 的訊息會指出正確的 dispatcher，並附 `dispatcher` 欄位。下方範例是操作本身的參數，實際 MCP 呼叫時須將 operation id 與其參數包在上面的 dispatcher envelope。
 
 | MCP tool | Annotation | 用途 |
 |---|---|---|
@@ -79,7 +79,11 @@ MCP 回應是一張回條，不回顯 Agent 剛送出的內容：`session` 只�
 
 結果可帶選填的 `nextStepsWarnings`：`{ items: [{ index, category }], message }`。當儲存的某個 `nextSteps` 項目看起來是本次工作內的暫時狀態時才出現，`index` 是該項目在 `nextSteps` 中的位置，`category` 為 `uncommitted`（尚未 commit）、`not_pushed`（尚未 push）、`pending_merge`（PR 等待合併，或尚未合回分支）、`ci_running`（CI 執行中）、`phase_not_started`（階段尚未開始）。判斷只靠關鍵字，可能誤判；伺服器不會刪除、改寫或拒絕任何項目。冪等重播（`duplicate`）不會帶這個欄位。Agent 自行判斷：本次工作會自己完成的進度，移到 `outcomes` 或 `verification`；真正留待之後處理的項目就保留。
 
-`knowledgeToReview` 最多列 3 筆同專案、狀態為 active 的 Knowledge，條件有二：其 `appliesTo` 直接點名本次的某個變更檔案（與路徑完全相同，或是比對得到的 glob；只涵蓋上層目錄或只是路徑後綴的不算），而且這次 Session 是它被記錄或最後確認以來第一個改到它涵蓋檔案的 Session，也就是 `possiblyStale` 因本次才開始。已經是 `possiblyStale` 的 Knowledge 在每次讀取時都會標示，不在這裡重複。每筆有 `id`、`title`（最多 120 字元）、命中的 `path`，以及與 `path` 不同時命中的 `appliesTo`；完全相同的排在 glob 前，同類再依 Knowledge 更新時間由新到舊。與其他 appliesTo 掃描一樣最多讀最新的 2,000 筆，並共用一次呼叫的比對預算（見下方 `appliesTo`）；預算用完或略過超限的 `appliesTo` 項目時停止掃描或略過該項，已找到的提示照常回傳並帶 `knowledgeToReviewTruncated: true`。本次 Session 自己記錄的、或已在本次 `appliedKnowledgeIds`／`contradictedKnowledgeIds` 回報過的 Knowledge 不列入；完成時間早於 Knowledge 確認時間的補登 Session 也不會觸發。這只是提示，不改任何 Knowledge；Agent 依契約檢查：仍成立就用 `work_update_knowledge` 帶 `confirm: true`，被本次變更推翻就告知使用者並在確認後更新，不確定就保留。它與相關未結項、知識頁提示都在交易提交後才計算，查詢失敗只會省略該欄位。`commitSha` 是可選 metadata；工作完成不要求 Git commit。
+`knowledgeToReview` 最多列 3 筆同專案、狀態為 active 的 Knowledge，條件有二：其 `appliesTo` 直接點名本次的某個變更檔案（與路徑完全相同，或是比對得到的 glob；只涵蓋上層目錄或只是路徑後綴的不算），而且這次 Session 是它被記錄或最後確認以來第一個改到它涵蓋檔案的 Session，也就是 `possiblyStale` 因本次才開始。已經是 `possiblyStale` 的 Knowledge 在每次讀取時都會標示，不在這裡重複。每筆有 `id`、`title`（最多 120 字元）、命中的 `path`，以及與 `path` 不同時命中的 `appliesTo`；完全相同的排在 glob 前，同類再依 Knowledge 更新時間由新到舊。與其他 appliesTo 掃描一樣最多讀最新的 2,000 筆，並共用一次呼叫的比對預算（見下方 `appliesTo`）；預算用完或略過超限的 `appliesTo` 項目時停止掃描或略過該項，已找到的提示照常回傳並帶 `knowledgeToReviewTruncated: true`。本次 Session 自己記錄的、或已在本次 `appliedKnowledgeIds`／`contradictedKnowledgeIds` 回報過的 Knowledge 不列入；完成時間早於 Knowledge 確認時間的補登 Session 也不會觸發。這只是提示，不改任何 Knowledge；Agent 依契約檢查：仍成立就用 `work_update_knowledge` 帶 `confirm: true`，被本次變更推翻就告知使用者並在確認後更新，不確定就保留。`knowledgeToReview` 不為空時，回條另帶 `knowledgeToReviewHint`，用一句英文說明這三種處理。它與相關未結項、知識頁提示都在交易提交後才計算，查詢失敗只會省略該欄位。`commitSha` 是可選 metadata；工作完成不要求 Git commit。
+
+`outstandingItemWarnings` 除 `unresolvedIds`、`unsupersededIds` 與 `message` 外，另有逐 id 的 `reasons`：`[{ id, list, code }]`，`list` 為 `resolved` 或 `superseded`，`code` 為 `not_found`、`other_project`、`not_pending`、`source_voided`、`held_by_cleanup`、`no_next_steps`、`both_lists`；`work_resolve_outstanding_items` 另有 `not_earlier`（來源 Session 是本 Session 自己，或不早於本 Session）。伺服器在同一個交易內用一次查詢判斷，筆數不超過請求的 id 數，既有欄位與結果不變。
+
+輸入文字有開頭的 `<private>` 標籤卻沒有結尾標籤時（這種標籤維持原文，不會被遮蔽），結果帶 `privateTagWarnings: { fields, unclosed, message }`：`fields` 是欄位路徑（例如 `summary`、`workSummary.nextSteps[0]`，最多 10 個），`unclosed` 是沒有配對的開頭標籤總數。只回報位置與次數，不回傳內容；資料照常保存。重播（`duplicate`）不帶這個欄位。
 
 請求帶了 `appliedKnowledgeIds` 或 `contradictedKnowledgeIds` 時，回條另有 `knowledgeFeedback: { applied, contradicted }`：這次請求中找到、且這筆 Session 現在記錄為該類回饋的 Knowledge 數（之前已回報過的也算，所以重試得到相同數字）；找不到的 id 只列在 `knowledgeWarnings`。
 
@@ -464,7 +468,7 @@ Agent 不知道現在幾點，所以時間欄位一律不可以估計，系統�
 - **伺服器狀態與時鐘**：`work_get_project_status` 與 `work_get_context` 回傳 `server`。若 `server.restartRequired` 為 `true`，請停止 MCP 操作並要求使用者重新連線；`monitoringAvailable: false` 時狀態未知且需要重連。`updateAvailable: true` 只代表實作更新，讀寫照常進行，收尾提醒一次即可。`clock`（`serverTime`、`timeZone`、`utcOffset`）供 Agent 取得現在時間。
 - `startedAt`：這一段工作實際開始的時間，也就是上一次保存之後的第一則使用者訊息。保存提醒 hook 觸發時會把這個時間寫在提醒裡：Claude Code 版從對話紀錄讀出，Codex 版在 `UserPromptSubmit` 時記錄（需要設定該 hook）。上下文壓縮時，選用的壓縮 hook 會請摘要保留這個時間，並在壓縮後把它放回上下文（見[連接 Agent](agent-setup.md#保存提醒選用)）。只有成功的保存才會開始新的一段。沒有回報時，取兩種「觀察到的事實」中較早的一個：`events` 中早於完成時間的最早 `occurredAt`，或 MCP 伺服器自己觀察到的時間——此 MCP 連線在上一次成功保存之後（或啟動之後）第一次收到帶 `projectRoot` 的 tool 呼叫的時間，只存在記憶體、依專案分開記錄、最多保留 64 個專案。伺服器觀察值只在請求沒有 `startedAt` 與 `completedAt`（補登較早工作不使用）、不晚於完成時間、且距完成不超過 7 天時採用；採用時 Session 會新增一筆 `note` 事件（`details: { field: "startedAt", source: "server_observed", tool }`），回條以 `startedAtSource` 標示來源，絕不當成 Agent 回報。失敗、略過或 idempotency conflict 的保存不會結束這一段。已知限制：Claude Desktop 等用戶端可能讓多個對話共用同一個 MCP 行程，觀察到的仍是真實的呼叫時間，但可能早於目前這段對話的開始；有 hook 或對話紀錄證據時應回報較準確的 `startedAt`。兩者都沒有就留空，UI 顯示「未回報」，不會推測；此時回條的 `startedAtFollowUp` 會請 Agent 在有依據（hook 訊息、對話時間戳、handoff）時用 `work_update_session_metadata` 補上。晚於 `completedAt` 的值不會套用，並在 `timestampWarnings` 中說明。
 - `completedAt`：完成時間。**剛完成的工作請省略**，伺服器會記錄 finalize 的時間；只有補登較早的工作、而且有依據（例如 commit 時間）時才填。報告與日期篩選以它為準。
-- **警告**（`timestampWarnings`，值仍會存入）：手填的 `completedAt` 比伺服器時間早超過 24 小時；`startedAt` 晚於 `completedAt`；開始到完成超過 7 天（通常是誤用了整段對話的開頭）。
+- **警告**（`timestampWarnings`，值仍會存入，每則都附一句：用 `work_update_session_metadata` 修正，不要作廢重建）：手填的 `completedAt` 比伺服器時間早超過 24 小時；`startedAt` 晚於 `completedAt`；開始到完成超過 7 天（通常是誤用了整段對話的開頭）。
 - **修正**：用 `work_update_session_metadata` 的 `startedAt`、`completedAt` 修正（不必帶 `changedFiles`），不必作廢再重建；若是同一 Session 延續工作後完成，傳 `completedAtNow: true` 讓伺服器記錄目前時間（與 `completedAt` 互斥，Agent 不必也不應估計時間）。修正 `completedAt` 或 `startedAt` 時，Session 會新增一筆 `note` 事件記錄原值與新值；會讓開始時間晚於完成時間的修正不會套用，並在 `timestampWarnings` 中說明。
 - `updatedAt`：完成後最後一次修改的時間。摘要、workSummary、verification、metadata、作廢／還原、附加或標示 Evidence、建立或移除關聯都會更新它；finalize 當下等於 `createdAt`。既有資料在 migration 6 以修改紀錄回填。
 
@@ -488,7 +492,7 @@ finalize 之後，讓 Agent 把「這次工作直接驗證過」的未結項結�
 { "sessionId": "this-session-id", "resolvedOutstandingItemIds": ["item-id"], "supersededOutstandingItemIds": [] }
 ```
 
-回應：`{ "outcome": "outstanding_items_resolved", "sessionId", "resolvedOutstandingItemIds", "supersededOutstandingItemIds", "alreadyAppliedIds"?, "duplicate"?, "outstandingItemWarnings"? }`；另有 `not_found` 與 `skipped`。新增 operation 後，現有 Agent 需重新連線。
+回應：`{ "outcome": "outstanding_items_resolved", "sessionId", "resolvedOutstandingItemIds", "supersededOutstandingItemIds", "alreadyAppliedIds"?, "duplicate"?, "outstandingItemWarnings"?（含逐 id 的 `reasons`）}`；另有 `not_found` 與 `skipped`。新增 operation 後，現有 Agent 需重新連線。
 
 ## `work_void_session` / `work_void_evidence`
 

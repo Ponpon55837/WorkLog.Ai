@@ -393,12 +393,17 @@ function dispatcherForAnnotations(annotations: ToolAnnotations): ToolDispatcherD
   return dispatcher;
 }
 
-function createDispatcherSchema(operations: readonly RegisteredStoreTool[]) {
+/**
+ * Advertises only this dispatcher's operations but parses every registered name, so a call to the wrong
+ * dispatcher reaches the handler and is told which dispatcher serves it.
+ */
+function createDispatcherSchema(operations: readonly RegisteredStoreTool[], allNames: readonly string[]) {
   const [first, ...rest] = operations.map((operation) => operation.name);
-  if (!first) throw new Error("MCP tool dispatcher cannot be empty.");
+  const [firstAny, ...restAny] = allNames;
+  if (!first || !firstAny) throw new Error("MCP tool dispatcher cannot be empty.");
   return z
     .object({
-      operation: z.enum([first, ...rest] as [string, ...string[]]),
+      operation: z.enum([firstAny, ...restAny] as [string, ...string[]]).meta({ enum: [first, ...rest] }),
       arguments: z.record(z.string(), z.unknown()).optional(),
     })
     .strict();
@@ -407,7 +412,7 @@ function createDispatcherSchema(operations: readonly RegisteredStoreTool[]) {
 function registerToolDispatchers(server: McpServer, operations: Map<string, RegisteredStoreTool>): void {
   for (const dispatcher of TOOL_DISPATCHERS) {
     const members = [...operations.values()].filter((operation) => operation.dispatcherName === dispatcher.name);
-    const inputSchema = createDispatcherSchema(members);
+    const inputSchema = createDispatcherSchema(members, [...operations.keys()]);
     server.registerTool(
       dispatcher.name,
       {
@@ -432,7 +437,15 @@ function registerToolDispatchers(server: McpServer, operations: Map<string, Regi
         if (!operation || operation.dispatcherName !== dispatcher.name) {
           return {
             isError: true,
-            ...textResult({ code: "UNKNOWN_OPERATION", error: "Operation is not available through this dispatcher." }),
+            ...textResult(
+              operation
+                ? {
+                    code: "UNKNOWN_OPERATION",
+                    error: `${operation.name} is served by ${operation.dispatcherName}; call that dispatcher.`,
+                    dispatcher: operation.dispatcherName,
+                  }
+                : { code: "UNKNOWN_OPERATION", error: "Operation is not available through this dispatcher." },
+            ),
           };
         }
         return operation.invoke(parsed.data.arguments ?? {});

@@ -675,6 +675,22 @@ function redactPrivateBlocks(input: string, redactions: RedactionSummary): strin
   return output + input.slice(cursor);
 }
 
+/** Counts opening `<private>` tags that no closing tag pairs with, using the same pairing as redactPrivateBlocks. */
+export function countUnclosedPrivateTags(input: string): number {
+  if (!input.includes("<")) {
+    return 0;
+  }
+  let open = 0;
+  for (const match of input.matchAll(PRIVATE_TAG)) {
+    if (match[1] !== "/") {
+      open += 1;
+    } else if (open > 0) {
+      open -= 1;
+    }
+  }
+  return open;
+}
+
 function combineRedactions(target: RedactionSummary, source: RedactionSummary): void {
   target.total += source.total;
   for (const [kind, count] of Object.entries(source.byKind) as Array<[SensitiveDataKind, number]>) {

@@ -10,7 +10,7 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 
 ## 收尾與未結項
 
-`POST /api/work/finalize` 與 MCP finalize 共用驗證：`resolvedOutstandingItemIds` 只接受本次已確認完成的同專案 pending 項目；`supersededOutstandingItemIds` 只用於本次非空 `workSummary.nextSteps` 明確取代的舊項目。每個陣列最多 200 個非空 id。狀態、逐筆 actor Session 稽核及 Session 在同一交易寫入；衝突、無效、已處理、作廢或跨專案 id 維持原狀並回傳警告。結果含兩種實際變更 id 與最多五筆 `relatedOutstandingItems` 提示（total／omitted、文字最多 400 字、來源標題 160 字）；提示排除本次新項目，排名不能作為完成證據。REST 回傳完整的 storage 結果（含完整 `session`），另可帶最多三筆 `knowledgeToReview`（appliesTo 直接點名本次變更檔案、由本次才第一次可能過時的 active Knowledge，只是提示）；MCP 則回傳不回顯請求內容的回條。完整規則見 [MCP 收尾說明](mcp-tools.md#work_finalize_session)。
+`POST /api/work/finalize` 與 MCP finalize 共用驗證：`resolvedOutstandingItemIds` 只接受本次已確認完成的同專案 pending 項目；`supersededOutstandingItemIds` 只用於本次非空 `workSummary.nextSteps` 明確取代的舊項目。每個陣列最多 200 個非空 id。狀態、逐筆 actor Session 稽核及 Session 在同一交易寫入；衝突、無效、已處理、作廢或跨專案 id 維持原狀並回傳警告，`outstandingItemWarnings.reasons` 逐 id 列出原因代碼。輸入文字有未閉合的 `<private>` 標籤時，結果帶 `privateTagWarnings`（欄位路徑與次數，不含內容）。結果含兩種實際變更 id 與最多五筆 `relatedOutstandingItems` 提示（total／omitted、文字最多 400 字、來源標題 160 字）；提示排除本次新項目，排名不能作為完成證據。REST 回傳完整的 storage 結果（含完整 `session`），另可帶最多三筆 `knowledgeToReview`（appliesTo 直接點名本次變更檔案、由本次才第一次可能過時的 active Knowledge，只是提示）；MCP 則回傳不回顯請求內容的回條。完整規則見 [MCP 收尾說明](mcp-tools.md#work_finalize_session)。
 
 `POST /api/work/finalize` 與 `PATCH /api/sessions/:id/work-summary` 的結果可帶選填的 `nextStepsWarnings`（`{ items: [{ index, category }], message }`，格式同 MCP）。只有儲存的 `nextSteps` 項目看起來是本次工作內的暫時狀態時才出現；`category` 為 `uncommitted`、`not_pushed`、`pending_merge`、`ci_running`、`phase_not_started`。判斷只靠關鍵字，可能誤判；伺服器不會刪除、改寫或拒絕項目。冪等重播（`duplicate`）不會帶這個欄位；work-summary 更新只在請求帶了 `nextSteps` 時才會檢查。
 
