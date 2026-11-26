@@ -22,6 +22,11 @@ All notable changes to Work Intelligence are documented here. The project follow
 - The Agent review contract, the three Agent review tool descriptions and the agent-review guide in both skill copies state the Knowledge rules: read the current code or the later work records before judging, leave the item pending when the evidence is not enough, and never archive only because related files changed. The Agent still acts only on a request the user created. The fixed Agent reading goes from 42,249 to 42,244 of 42,250. The MCP contract text changed, so the MCP compatibility id changes: connected Agents receive `restartRequired` after upgrading and must reconnect the Work Intelligence MCP.
 - The "Ask Agent to review" button no longer turns off when no decision or candidate is pending, because the Web cannot tell whether Knowledge needs review; a request with nothing to review shows the server's "nothing to review" message.
 
+### Fixed
+
+- A Session that finished before a contradiction no longer clears it when it reports the Knowledge as applied afterwards. The applied feedback is still recorded, but the needs-review mark stays unless the applying Session finished at or after the contradiction, so the Knowledge is not dropped from the attention queue or from Agent review.
+- The Agent review context hint names the real submit operation, `work_submit_agent_review_verdicts`.
+
 ## [1.6.75] - 2026-11-26
 
 [繁體中文更新說明](docs/releases/1.6.75.md).

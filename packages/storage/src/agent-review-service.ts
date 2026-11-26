@@ -175,7 +175,7 @@ const KNOWLEDGE_REASON_LIMIT = 200;
 const LATER_SESSIONS_SHOWN = 5;
 const REVIEWED_KNOWLEDGE_LIMIT = 200;
 const CONTEXT_HINT =
-  "逐項核對 open 項目後用 work_submit_agent_review 提交 verdict：決策與候選看來源 Session，Knowledge 要讀現在的程式碼或" +
+  "逐項核對 open 項目後用 work_submit_agent_review_verdicts 提交 verdict：決策與候選看來源 Session，Knowledge 要讀現在的程式碼或" +
   " laterSessions 的工作記錄，不可只因檔案改過就封存。理由要具體，證據不足的項目不提交，留給使用者。" +
   "已有結果、stale 或已被審查的項目不需處理。verdict 直接生效，使用者之後可以推翻。";
 const REQUEST_SELECT = `SELECT r.*, p.name AS project_name
@@ -361,8 +361,8 @@ function shortenContext(result: ContextResult, limit: number): void {
 
 /**
  * Agent review: an Agent judges the pending Agent decisions, proposed Knowledge candidates, and possibly stale or
- * contradicted active Knowledge a user snapshotted into a request. Verdicts apply directly and are attributed to the Agent, so a person can overturn them later; without an
- * open request Agent writes are refused.
+ * contradicted active Knowledge a user snapshotted into a request. Verdicts apply directly and are attributed to the
+ * Agent, so a person can overturn them later; without an open request Agent writes are refused.
  */
 export class AgentReviewService {
   public constructor(

@@ -324,16 +324,17 @@ export class KnowledgeService {
       counts[applied ? "applied" : "contradicted"] += 1;
       if (applied ? row.reported_applied : row.reported_contradicted) continue;
       const before = toKnowledge(row);
-      // A backfilled Session can have finished before the last confirmation: the feedback is still a fact and is
-      // recorded below, but the confirmation baseline (time and Session) only moves forward.
+      // A backfilled Session can have finished before the last confirmation or contradiction: the feedback is still a
+      // fact and is recorded below, but the confirmation baseline only moves forward and a newer contradiction stays.
       const confirmationMoves = applied && (!before.lastConfirmedAt || completedAt > before.lastConfirmedAt);
+      const reviewClears = applied && before.review !== undefined && completedAt >= before.review.at;
       const after: KnowledgeRecord = applied
         ? {
             ...before,
             ...(confirmationMoves ? { lastConfirmedAt: completedAt, lastConfirmedSessionId: sessionId } : {}),
           }
         : { ...before, review: { reason: "contradicted", sessionId, at: completedAt } };
-      if (applied) {
+      if (reviewClears) {
         delete after.review;
       }
       this.db
@@ -351,7 +352,7 @@ export class KnowledgeService {
         before,
         action: "updated",
         changedFields: applied
-          ? [...(confirmationMoves ? ["lastConfirmedAt"] : []), ...(before.review ? ["review"] : [])]
+          ? [...(confirmationMoves ? ["lastConfirmedAt"] : []), ...(reviewClears ? ["review"] : [])]
           : ["review"],
         occurredAt: completedAt,
       });
