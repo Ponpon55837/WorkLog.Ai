@@ -11,7 +11,7 @@
 - Agent 結案前固定要讀的文字從 42,244 降到 30,099 字元；結案回覆直接寫明每個警告的原因與下一步。
 - 四種自相矛盾的結案請求改為拒絕；知識頁儲存會檢查 reviewToken 的涵蓋點。
 - 伺服器 instructions 寫明先呼叫 `work_get_context` 再看專案資料夾；A/B 實測未追蹤專案由 0/5 變為 5/5 通過。
-- schema 維持 38；升級後請重新連線 MCP。詳見 [1.6.78 更新說明](releases/1.6.78.md)。
+- schema 維持 38；升級後請重新連線 MCP。詳見 [1.6.78 更新說明](releases/1.6.78.md)。A/B 結果與決定見 `docs/decisions/2026-11-agent-reading-budget-ab.md`。
 
 ## 1.6.77（Agent 審查請求的下一步提示與用量頁版面）
 
