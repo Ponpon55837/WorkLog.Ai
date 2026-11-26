@@ -38,7 +38,7 @@ export const KNOWLEDGE_PAGE_NEAR_CONTENT_CHARS = 7_200;
  * the page is still near its limits after that does the user decide on a custom page.
  */
 export const KNOWLEDGE_PAGE_SPLIT_GUIDANCE =
-  "First remove what no longer answers the page question (finished items, facts later work overturned); if it still does not fit, ask the user before moving these to a custom page (work_request_knowledge_page_update). Never shorten or merge still-true text to fit.";
+  "First drop outdated text (done, overturned); then ask the user before moving these to a custom page (work_request_knowledge_page_update). Never trim true text.";
 const SPLIT_CANDIDATE_LIMIT = 3;
 
 /**

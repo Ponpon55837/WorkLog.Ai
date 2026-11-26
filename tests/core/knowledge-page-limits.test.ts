@@ -69,11 +69,11 @@ describe("knowledgePageLimits", () => {
 
 describe("KNOWLEDGE_PAGE_SPLIT_GUIDANCE", () => {
   it("removes what no longer belongs before proposing a custom page, and never shortens still-true text", () => {
-    const remove = KNOWLEDGE_PAGE_SPLIT_GUIDANCE.indexOf("First remove what no longer answers the page question");
-    const split = KNOWLEDGE_PAGE_SPLIT_GUIDANCE.indexOf("ask the user before moving these to a custom page");
+    const remove = KNOWLEDGE_PAGE_SPLIT_GUIDANCE.indexOf("First drop outdated text");
+    const split = KNOWLEDGE_PAGE_SPLIT_GUIDANCE.indexOf("then ask the user before moving these to a custom page");
     expect(remove).toBe(0);
     expect(split).toBeGreaterThan(remove);
-    expect(KNOWLEDGE_PAGE_SPLIT_GUIDANCE).toContain("Never shorten or merge still-true text to fit.");
+    expect(KNOWLEDGE_PAGE_SPLIT_GUIDANCE).toContain("Never trim true text.");
   });
 });
 

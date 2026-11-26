@@ -146,7 +146,7 @@ describe("Knowledge page split suggestions", () => {
       outcome: "page_limit_exceeded",
       sectionCount: 13,
       maxSections: 12,
-      reason: expect.stringContaining("Move sections to a custom page"),
+      reason: expect.stringMatching(/First remove what no longer answers the page question.*move sections to a custom page/),
       splitSuggestion: { near: ["sections"], headings: ["Topic 0", "Topic 1", "Topic 2"] },
     });
     const tooLong = upsert("too-long", [4_000, 4_000], 0);

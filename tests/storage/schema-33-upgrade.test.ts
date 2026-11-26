@@ -194,8 +194,13 @@ describe("schema 31 to 33 upgrade", () => {
     // Opening only migrates: every table, the search index included, holds the same rows and values.
     const afterTables = fingerprint(location.databasePath, before.columns).tables;
     const created = Object.keys(afterTables).filter((name) => !(name in before.tables));
-    expect(created.sort()).toEqual(["agent_review_request_items", "agent_review_requests", "agent_review_submissions"]);
-    expect(created.map((name) => afterTables[name]!.rows)).toEqual([0, 0, 0]);
+    expect(created.sort()).toEqual([
+      "agent_review_request_items",
+      "agent_review_requests",
+      "agent_review_submissions",
+      "knowledge_page_deletion_audit",
+    ]);
+    expect(created.map((name) => afterTables[name]!.rows)).toEqual([0, 0, 0, 0]);
     expect(Object.fromEntries(Object.entries(afterTables).filter(([name]) => name in before.tables))).toEqual(
       before.tables,
     );
