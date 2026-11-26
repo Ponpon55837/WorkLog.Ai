@@ -325,15 +325,20 @@ export class KnowledgeService {
       if (applied ? row.reported_applied : row.reported_contradicted) continue;
       const before = toKnowledge(row);
       // A backfilled Session can have finished before the last confirmation or contradiction: the feedback is still a
-      // fact and is recorded below, but the confirmation baseline only moves forward and a newer contradiction stays.
+      // fact and is recorded below, but the record follows the newest evidence by completion time, as search ranking
+      // does. The baseline only moves forward, a newer contradiction stays, and a contradiction older than the last
+      // confirmation or review does not put the Knowledge in doubt; on a tie the confirmation stands.
       const confirmationMoves = applied && (!before.lastConfirmedAt || completedAt > before.lastConfirmedAt);
       const reviewClears = applied && before.review !== undefined && completedAt >= before.review.at;
-      const after: KnowledgeRecord = applied
-        ? {
-            ...before,
-            ...(confirmationMoves ? { lastConfirmedAt: completedAt, lastConfirmedSessionId: sessionId } : {}),
-          }
-        : { ...before, review: { reason: "contradicted", sessionId, at: completedAt } };
+      const reviewMoves =
+        !applied &&
+        (!before.lastConfirmedAt || completedAt > before.lastConfirmedAt) &&
+        (!before.review || completedAt >= before.review.at);
+      const after: KnowledgeRecord = {
+        ...before,
+        ...(confirmationMoves ? { lastConfirmedAt: completedAt, lastConfirmedSessionId: sessionId } : {}),
+        ...(reviewMoves ? { review: { reason: "contradicted" as const, sessionId, at: completedAt } } : {}),
+      };
       if (reviewClears) {
         delete after.review;
       }
@@ -351,9 +356,10 @@ export class KnowledgeService {
         knowledge: after,
         before,
         action: "updated",
-        changedFields: applied
-          ? [...(confirmationMoves ? ["lastConfirmedAt"] : []), ...(reviewClears ? ["review"] : [])]
-          : ["review"],
+        changedFields: [
+          ...(confirmationMoves ? ["lastConfirmedAt"] : []),
+          ...(reviewClears || reviewMoves ? ["review"] : []),
+        ],
         occurredAt: completedAt,
       });
       this.insertFeedback(auditId, after, applied ? "applied" : "contradicted", completedAt, sessionId);
@@ -934,9 +940,11 @@ export class KnowledgeService {
   }
 
   /**
-   * Undoes a manual confirmation made at or after `confirmedSince`, but only while it is still the record's latest
-   * confirmation: the baseline and review go back to their values before it (a baseline Session deleted since is
-   * dropped), its feedback row is removed, and an audit row records the change. The caller checked the policy.
+   * Undoes the first manual confirmation made at or after `confirmedSince`, but only while it is still the record's
+   * latest confirmation: a later confirmation by a person or a Session stands, and so does the withdrawn one's
+   * feedback. The baseline goes back to its value before it (a baseline Session deleted since is dropped), its
+   * feedback row is removed, and an audit row records the change. A contradiction reported after it stays; otherwise
+   * the review it cleared comes back. The caller checked the policy.
    */
   public withdrawConfirmation(
     projectId: string,
@@ -952,17 +960,26 @@ export class KnowledgeService {
         .get(knowledgeId, projectId) as KnowledgeRow | undefined;
       if (!row) return undefined;
       const current = toKnowledge(row);
-      const confirmation =
-        current.lastConfirmedAt && !current.lastConfirmedSessionId && current.lastConfirmedAt >= confirmedSince
-          ? (this.db
-              .prepare(
-                `SELECT f.id, a.before_json FROM knowledge_feedback f JOIN knowledge_audit a ON a.id = f.id
-                 WHERE f.knowledge_id = ? AND f.kind = 'manual_confirm' AND f.occurred_at = ?
-                 ORDER BY f.rowid DESC LIMIT 1`,
-              )
-              .get(knowledgeId, current.lastConfirmedAt) as { id: string; before_json: string | null } | undefined)
-          : undefined;
-      if (!confirmation?.before_json) return { knowledge: this.withKnowledgeTrust(current), withdrawn: false };
+      const confirmation = this.db
+        .prepare(
+          `SELECT f.id, f.occurred_at, a.before_json,
+                  EXISTS (SELECT 1 FROM knowledge_feedback later
+                          WHERE later.knowledge_id = f.knowledge_id AND later.kind = 'manual_confirm'
+                            AND later.rowid > f.rowid) AS confirmed_again
+           FROM knowledge_feedback f JOIN knowledge_audit a ON a.id = f.id
+           WHERE f.knowledge_id = ? AND f.kind = 'manual_confirm' AND f.occurred_at >= ?
+           ORDER BY f.occurred_at ASC, f.rowid ASC LIMIT 1`,
+        )
+        .get(knowledgeId, confirmedSince) as
+        { id: string; occurred_at: string; before_json: string | null; confirmed_again: number } | undefined;
+      const stillLatest =
+        confirmation?.before_json &&
+        !confirmation.confirmed_again &&
+        !current.lastConfirmedSessionId &&
+        current.lastConfirmedAt === confirmation.occurred_at;
+      if (!confirmation?.before_json || !stillLatest) {
+        return { knowledge: this.withKnowledgeTrust(current), withdrawn: false };
+      }
       const before = JSON.parse(confirmation.before_json) as KnowledgeRecord;
       const baselineSession = before.lastConfirmedSessionId
         ? this.db
@@ -973,10 +990,9 @@ export class KnowledgeService {
       const next: KnowledgeRecord = { ...current, updatedAt };
       delete next.lastConfirmedAt;
       delete next.lastConfirmedSessionId;
-      delete next.review;
       if (before.lastConfirmedAt) next.lastConfirmedAt = before.lastConfirmedAt;
       if (baselineSession) next.lastConfirmedSessionId = before.lastConfirmedSessionId;
-      if (before.review) next.review = before.review;
+      if (!current.review && before.review) next.review = before.review;
       this.db
         .prepare(
           `UPDATE knowledge SET updated_at = ?, last_confirmed_at = ?, last_confirmed_session_id = ?, review_json = ?
@@ -996,7 +1012,7 @@ export class KnowledgeService {
         knowledge: next,
         before: current,
         action: "updated",
-        changedFields: ["lastConfirmedAt", ...(next.review ? ["review"] : [])],
+        changedFields: ["lastConfirmedAt", ...(!current.review && next.review ? ["review"] : [])],
         occurredAt: updatedAt,
       });
       return { knowledge: this.withKnowledgeTrust(next), withdrawn: true };

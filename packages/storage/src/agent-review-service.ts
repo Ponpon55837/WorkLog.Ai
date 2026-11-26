@@ -131,8 +131,11 @@ type PendingRows = {
   items: Map<string, ItemRow>;
   decisions: Map<string, DecisionRow>;
   candidates: Map<string, CandidateRow>;
-  knowledge: Map<string, KnowledgeRow>;
+  knowledge: Map<string, TrustedKnowledge>;
 };
+
+/** A Knowledge row with its record as read now, staleness included. */
+type TrustedKnowledge = { row: KnowledgeRow; record: KnowledgeRecord };
 
 type CurrentRows = Omit<PendingRows, "items">;
 
@@ -214,7 +217,11 @@ function candidateFingerprint(row: CandidateRow): string {
   ]);
 }
 
-function knowledgeFingerprint(row: KnowledgeRow): string {
+/**
+ * Covers the count of later focused Sessions too: one that touches the Knowledge's appliesTo while a request is open is
+ * evidence the Agent has not read, so its verdict is skipped as stale. Unrelated Sessions leave the count unchanged.
+ */
+function knowledgeFingerprint({ row, record }: TrustedKnowledge): string {
   return hashJson([
     row.kind,
     row.title,
@@ -226,6 +233,7 @@ function knowledgeFingerprint(row: KnowledgeRow): string {
     row.last_confirmed_at ?? null,
     row.last_confirmed_session_id ?? null,
     row.review_json ?? null,
+    record.possiblyStale?.sessionCount ?? 0,
   ]);
 }
 
@@ -239,8 +247,8 @@ function currentOf(item: ItemRow, rows: CurrentRows): { pending: boolean; finger
     const row = rows.candidates.get(item.item_id);
     return row && { pending: row.status === "proposed", fingerprint: candidateFingerprint(row) };
   }
-  const row = rows.knowledge.get(item.item_id);
-  return row && { pending: row.status === "active", fingerprint: knowledgeFingerprint(row) };
+  const knowledge = rows.knowledge.get(item.item_id);
+  return knowledge && { pending: knowledge.row.status === "active", fingerprint: knowledgeFingerprint(knowledge) };
 }
 
 function itemKey(kind: AgentReviewItemKind, id: string): string {
@@ -713,11 +721,11 @@ export class AgentReviewService {
         sessionId: row.session_id,
         fingerprint: candidateFingerprint(row),
       })),
-      ...knowledge.slice(0, Math.max(MAX_SNAPSHOT_ITEMS - decisions.length - candidates.length, 0)).map((row) => ({
+      ...knowledge.slice(0, Math.max(MAX_SNAPSHOT_ITEMS - decisions.length - candidates.length, 0)).map((trusted) => ({
         kind: "knowledge" as const,
-        id: row.id,
+        id: trusted.row.id,
         sessionId: null,
-        fingerprint: knowledgeFingerprint(row),
+        fingerprint: knowledgeFingerprint(trusted),
       })),
     ];
     return { items, omitted: decisionTotal + candidateTotal + knowledge.length - items.length };
@@ -728,7 +736,7 @@ export class AgentReviewService {
    * appliesTo or a review can qualify, so the rest are never read; staleness comes from one batched trust pass, the same
    * one every Knowledge read and the attention queue use.
    */
-  private knowledgeInDoubt(projectId: string, notOverturned: string): KnowledgeRow[] {
+  private knowledgeInDoubt(projectId: string, notOverturned: string): TrustedKnowledge[] {
     const rows = this.db
       .prepare(
         `SELECT k.*, p.name AS project_name FROM knowledge k JOIN projects p ON p.id = k.project_id
@@ -737,19 +745,21 @@ export class AgentReviewService {
          ORDER BY k.created_at ASC, k.id ASC`,
       )
       .all(projectId) as KnowledgeRow[];
-    const trusted = this.dependencies.withKnowledgeTrustMany(rows.map(toKnowledge));
-    return rows.filter((_, index) => isKnowledgeInDoubt(trusted[index]!));
+    return this.trusted(rows).filter(({ record }) => isKnowledgeInDoubt(record));
+  }
+
+  private trusted(rows: readonly KnowledgeRow[]): TrustedKnowledge[] {
+    const records = this.dependencies.withKnowledgeTrustMany(rows.map(toKnowledge));
+    return rows.map((row, index) => ({ row, record: records[index]! }));
   }
 
   private contextItems(request: AgentReviewRequest, itemRows: ItemRow[]): AgentReviewContextItem[] {
     const rows = this.currentRows(request.projectId, itemRows);
     const states = itemRows.map((item) => itemState(item, rows));
     const openIndexes = itemRows.flatMap((_, index) => (states[index] === "open" ? [index] : []));
-    const openKnowledge = this.dependencies.withKnowledgeTrustMany(
-      openIndexes
-        .filter((index) => itemRows[index]!.item_kind === "knowledge")
-        .map((index) => toKnowledge(rows.knowledge.get(itemRows[index]!.item_id)!)),
-    );
+    const openKnowledge = openIndexes
+      .filter((index) => itemRows[index]!.item_kind === "knowledge")
+      .map((index) => rows.knowledge.get(itemRows[index]!.item_id)!.record);
     const knowledgeById = new Map(openKnowledge.map((record) => [record.id, record]));
     const laterSessions = this.dependencies.laterSessionsOf(openKnowledge, LATER_SESSIONS_SHOWN);
     const sessionIds = [...new Set(openIndexes.flatMap((index) => itemRows[index]!.source_session_id ?? []))];
@@ -1157,7 +1167,7 @@ export class AgentReviewService {
     pending: PendingRows,
     verdict: Extract<NormalizedVerdict, { itemKind: "knowledge" }>,
   ): Decided {
-    const old = toKnowledge(pending.knowledge.get(verdict.itemId)!);
+    const old = pending.knowledge.get(verdict.itemId)!.record;
     if (verdict.verdict !== "supersede") {
       const updated = this.dependencies.updateKnowledge({
         projectRoot: rootPath,
@@ -1369,7 +1379,9 @@ export class AgentReviewService {
     return {
       decisions: new Map(decisions.map((row) => [row.id, row])),
       candidates: new Map(candidates.map((row) => [row.id, row])),
-      knowledge: new Map(this.knowledgeRows(projectId, idsOf("knowledge")).map((row) => [row.id, row])),
+      knowledge: new Map(
+        this.trusted(this.knowledgeRows(projectId, idsOf("knowledge"))).map((trusted) => [trusted.row.id, trusted]),
+      ),
     };
   }
 

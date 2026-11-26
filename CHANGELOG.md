@@ -25,6 +25,9 @@ All notable changes to Work Intelligence are documented here. The project follow
 ### Fixed
 
 - A Session that finished before a contradiction no longer clears it when it reports the Knowledge as applied afterwards. The applied feedback is still recorded, but the needs-review mark stays unless the applying Session finished at or after the contradiction, so the Knowledge is not dropped from the attention queue or from Agent review.
+- The reverse order holds too: a Session that finished before the last confirmation (or before a newer contradiction) no longer puts the Knowledge back in doubt by reporting it as contradicted afterwards. The record follows the newest evidence by completion time, the same rule search ranking uses; on a tie the confirmation stands.
+- Overturning an Agent confirmation withdraws only that confirmation. A later confirmation by a person or a Session stands (the result is `unchanged`), also when it happened in the same millisecond, and a contradiction reported after the Agent's confirmation is kept.
+- A Knowledge verdict is skipped as `skipped_stale` when another focused Session touched the Knowledge's `appliesTo` after the request was created, because the Agent has not read that evidence. Sessions that touch nothing it applies to do not affect the verdict.
 - The Agent review context hint names the real submit operation, `work_submit_agent_review_verdicts`.
 
 ## [1.6.75] - 2026-11-26

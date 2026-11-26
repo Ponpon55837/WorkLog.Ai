@@ -418,6 +418,35 @@ describe("Agent review verdicts on Knowledge", () => {
   });
 });
 
+describe("Evidence that arrives while a Knowledge item is under review", () => {
+  it("skips a verdict when another focused Session touched the Knowledge after the snapshot", () => {
+    const fixture = setup();
+    const id = staleKnowledge(fixture, "hives");
+    const other = staleKnowledge(fixture, "sheds");
+    const request = fixture.open();
+    fixture.context(request.id);
+    fixture.finalize("meanwhile", ["src/hives/two.ts"]);
+
+    const result = fixture.submit(request.id, [verdict(id, "confirm"), verdict(other, "confirm")]);
+    expect(result.results).toEqual([
+      expect.objectContaining({ itemId: id, outcome: "skipped_stale" }),
+      expect.objectContaining({ itemId: other, outcome: "applied" }),
+    ]);
+    expect(fixture.read(id).possiblyStale).toMatchObject({ sessionCount: 2 });
+  });
+
+  it("still applies a verdict when the Session in between touched nothing the Knowledge applies to", () => {
+    const fixture = setup();
+    const id = staleKnowledge(fixture, "hives");
+    const request = fixture.open();
+    fixture.finalize("elsewhere", ["docs/unrelated.md"]);
+
+    expect(fixture.submit(request.id, [verdict(id, "archive")]).results).toEqual([
+      expect.objectContaining({ itemId: id, outcome: "applied" }),
+    ]);
+  });
+});
+
 describe("Overturning Agent verdicts on Knowledge", () => {
   it("withdraws a confirmation and restores the previous confirmation date", () => {
     const fixture = setup();
@@ -461,6 +490,72 @@ describe("Overturning Agent verdicts on Knowledge", () => {
     expect(after.review).toEqual(before.review);
     expect(after.possiblyStale).toBeDefined();
     expect(after.evidence).toEqual(before.evidence);
+  });
+
+  it("keeps a person's later confirmation when the Agent's earlier one is overturned", () => {
+    const fixture = setup();
+    const id = staleKnowledge(fixture, "hives");
+    fixture.submit(fixture.open().id, [verdict(id, "confirm")]);
+    fixture.tick();
+    fixture.store.updateKnowledge({ projectRoot: fixture.root, knowledgeId: id, confirm: true });
+    const confirmedByPerson = fixture.read(id);
+
+    expect(fixture.overturn(id)).toMatchObject({ reviewedKnowledge: { action: "unchanged", knowledge: { id } } });
+    const after = fixture.read(id);
+    expect(after.lastConfirmedAt).toBe(confirmedByPerson.lastConfirmedAt);
+    expect(after.possiblyStale).toBeUndefined();
+    expect(after.evidence).toEqual(confirmedByPerson.evidence);
+    expect(fixture.itemRow(id)).toMatchObject({ overturned_at: expect.any(String) });
+  });
+
+  it("keeps a person's confirmation made in the same millisecond as the Agent's", () => {
+    const fixture = setup();
+    const id = staleKnowledge(fixture, "hives");
+    fixture.submit(fixture.open().id, [verdict(id, "confirm")]);
+    fixture.store.updateKnowledge({ projectRoot: fixture.root, knowledgeId: id, confirm: true });
+    const confirmedByPerson = fixture.read(id);
+
+    expect(fixture.overturn(id)).toMatchObject({ reviewedKnowledge: { action: "unchanged" } });
+    expect(fixture.read(id).lastConfirmedAt).toBe(confirmedByPerson.lastConfirmedAt);
+    expect(fixture.read(id).evidence).toEqual(confirmedByPerson.evidence);
+  });
+
+  it("keeps a contradiction reported after the Agent's confirmation when it is overturned", () => {
+    const fixture = setup();
+    const id = staleKnowledge(fixture, "hives");
+    fixture.submit(fixture.open().id, [verdict(id, "confirm")]);
+    const contradicting = fixture.finalize("contradicting", [], { contradictedKnowledgeIds: [id] });
+
+    expect(fixture.overturn(id)).toMatchObject({ reviewedKnowledge: { action: "confirmation_withdrawn" } });
+    const after = fixture.read(id);
+    expect(after.lastConfirmedAt).toBeUndefined();
+    expect(after.review).toMatchObject({ reason: "contradicted", sessionId: contradicting });
+    expect(after.possiblyStale).toBeDefined();
+  });
+
+  it("keeps a Session's later applied confirmation when the Agent's earlier one is overturned", () => {
+    const fixture = setup();
+    const id = staleKnowledge(fixture, "hives");
+    fixture.submit(fixture.open().id, [verdict(id, "confirm")]);
+    const applying = fixture.finalize("applying", [], { appliedKnowledgeIds: [id] });
+    const confirmedBySession = fixture.read(id);
+
+    expect(fixture.overturn(id)).toMatchObject({ reviewedKnowledge: { action: "unchanged" } });
+    expect(fixture.read(id)).toMatchObject({
+      lastConfirmedAt: confirmedBySession.lastConfirmedAt,
+      lastConfirmedSessionId: applying,
+    });
+  });
+
+  it("answers a repeated overturn without changing the Knowledge again", () => {
+    const fixture = setup();
+    const id = staleKnowledge(fixture, "hives");
+    fixture.submit(fixture.open().id, [verdict(id, "confirm")]);
+    fixture.overturn(id);
+    const overturned = fixture.read(id);
+
+    expect(fixture.overturn(id)).toEqual({ outcome: "rejected", reason: "not_agent_reviewed" });
+    expect(fixture.read(id)).toEqual(overturned);
   });
 
   it("restores archived Knowledge to active", () => {
