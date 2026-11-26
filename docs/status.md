@@ -4,7 +4,13 @@
 
 > 回到 [README](../README.zh-TW.md)（[English](../README.md)）
 
-- 最後更新：2026-11-25
+- 最後更新：2026-11-26
+
+## 1.6.74（保存回條提醒讀過但未回報的 Knowledge）
+
+- `work_finalize_session` 的回條另帶 `unreportedKnowledge`：這段工作中同一 MCP 用戶端在同專案以召回工具讀過完整內容、這筆 Session 還沒回報的 active Knowledge，最多 3 筆（`id`、80 字元內的標題），超過時附總數。精簡清單、維護讀取、補登、沒有開始時間或不知道用戶端時都不計算；全部回報過或沒讀過就不帶。請求有回報時另帶 `knowledgeFeedback` 計數。
+- `work_update_session_metadata` 可帶 `appliedKnowledgeIds`、`contradictedKnowledgeIds` 補報；同一 Session 已回報過的不再寫入，重送沒有副作用。metadata backfill 不接受這兩個欄位。
+- MCP contract 文字改變，Agent 需重新連線 MCP。資料庫維持 schema 36，不需遷移。詳見 [1.6.74 更新說明](releases/1.6.74.md)。
 
 ## 1.6.73（未登錄路徑的相符專案提示與知識精簡清單）
 

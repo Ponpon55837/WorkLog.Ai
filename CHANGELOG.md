@@ -4,6 +4,21 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.74] - 2026-11-26
+
+[繁體中文更新說明](docs/releases/1.6.74.md).
+
+### Added
+
+- `unreportedKnowledge` in the finalize receipt: up to 3 active Knowledge records (each with only `id` and a title of at most 80 characters, newest read first, plus `total` when more were found) that recall reads returned during this work and that the Session has not reported as applied or contradicted, with a one-sentence `hint`. A read counts only when it came from `work_get_context`, `work_recall`, `work_search` or `work_search_knowledge` with Knowledge content (a `view: "compact"` list is never audited as a Knowledge read), in the same project, from the same MCP client, between the Session's `startedAt` and its completion, and after that client's previous save in the project. Knowledge reported in this request or earlier by this Session, and Knowledge already in `knowledgeToReview`, is left out. Backfills (`completedAt` in the request), Sessions without `startedAt` and saves without a known client get no list. It is one query over the existing read-audit indexes, run after the transaction commits; a failure only omits the field, and nothing is ever blocked.
+- `knowledgeFeedback: { applied, contradicted }` in the finalize receipt when the request reported Knowledge: how many of the requested ids this Session now records for each kind.
+- `work_update_session_metadata` (and `PATCH /api/sessions/:id/metadata`) accepts `appliedKnowledgeIds` and `contradictedKnowledgeIds`, so Knowledge can be reported after the save. An id this Session already reported the same way is not written again, so repeating the request changes no Knowledge, audit or feedback row; the answer adds `knowledgeFeedback` and `knowledgeWarnings`. `work_apply_metadata_backfill` does not take these fields.
+- A performance case for the lookup: 5,000 read audits of 50 Knowledge records each by one client inside the work window (p90 limit 250 ms).
+
+### Changed
+
+- The core skill, the repair-and-backfill guide, the finalize closing contract, the `work_update_session_metadata` description and `docs/mcp-tools.md` describe the list and the late report. Two clauses of the core skill that the contracts already state were shortened to keep the fixed Agent reading within its budget. The MCP contract text changed, so the MCP compatibility id changes: connected Agents receive `restartRequired` after upgrading and must reconnect the Work Intelligence MCP.
+
 ## [1.6.73] - 2026-11-25
 
 [繁體中文更新說明](docs/releases/1.6.73.md).
