@@ -32,6 +32,7 @@ const RESPONSE_BUDGETS = {
   finalizeWithRelatedOutstandingItems: 4_000,
   finalizeReceipt: 2_000,
   startedAtFollowUp: 500,
+  unreportedKnowledge: 650,
   changedFileChangesFollowUp: 400,
   sessionUpdateReceipt: 1_200,
   outstandingItemsPage: 30_000,
@@ -839,6 +840,57 @@ describe("synthetic MCP response-size baseline", () => {
     expect(unstatedText.length).toBeLessThanOrEqual(
       RESPONSE_BUDGETS.finalizeReceipt + RESPONSE_BUDGETS.changedFileChangesFollowUp,
     );
+  });
+
+  it("bounds the unreported Knowledge reminder of a finalize receipt by count and title length", async () => {
+    const { client, projectRoot, store } = await connectWithSyntheticHistory();
+    const startedAt = new Date(Date.now()).toISOString();
+    for (let index = 0; index < 6; index += 1) {
+      vi.setSystemTime(Date.now() + 60_000);
+      store.recordKnowledge({
+        projectRoot,
+        idempotencyKey: `response-size-unreported-${index}`,
+        kind: "gotcha",
+        title: `Fictional orchard settlement reminder ${index} `.padEnd(300, "x"),
+        body: "Synthetic Knowledge returned to the Agent before the save.",
+      });
+    }
+    vi.setSystemTime(Date.now() + 60_000);
+    await client.callTool({
+      name: "work_read",
+      arguments: {
+        operation: "work_search_knowledge",
+        arguments: { projectRoot, q: "fictional orchard settlement reminder", pageSize: 10 },
+      },
+    });
+    vi.setSystemTime(Date.now() + 60_000);
+    const result = await client.callTool({
+      name: "work_write_idempotent",
+      arguments: {
+        operation: "work_finalize_session",
+        arguments: {
+          projectRoot,
+          idempotencyKey: "response-size-unreported-knowledge",
+          title: "Settle the fictional orchard reminder",
+          startedAt,
+          summary: "Settled the fictional orchard reminder against the synthetic ledger.",
+          workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+          changedFiles: [],
+          verification: { status: "passed" },
+        },
+      },
+    });
+    const text = (result.content as Array<{ type: string; text?: string }>).find((item) => item.type === "text")!.text!;
+    const value = JSON.parse(text) as {
+      unreportedKnowledge?: { items: Array<{ id: string; title: string }>; total?: number; hint: string };
+    };
+    const reminder = JSON.stringify({ unreportedKnowledge: value.unreportedKnowledge });
+    console.info(`Unreported Knowledge reminder: ${reminder.length} of ${text.length} UTF-16 code units`);
+    expect(value.unreportedKnowledge?.items).toHaveLength(3);
+    expect(value.unreportedKnowledge?.total).toBe(6);
+    expect(value.unreportedKnowledge?.items.every((item) => item.title.length <= 80)).toBe(true);
+    expect(reminder.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.unreportedKnowledge);
+    expect(text.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.finalizeReceipt + RESPONSE_BUDGETS.unreportedKnowledge);
   });
 
   it("answers the in-place Session updates with receipts, not an echo of the Session", async () => {

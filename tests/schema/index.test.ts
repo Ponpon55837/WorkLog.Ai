@@ -259,6 +259,29 @@ describe("schema input boundaries", () => {
     ).toBe(false);
   });
 
+  it("takes Knowledge feedback on a metadata update but not in a metadata backfill", () => {
+    const update = updateSessionMetadataInputSchema.safeParse({
+      sessionId: "session-1",
+      appliedKnowledgeIds: [" knowledge-1 "],
+      contradictedKnowledgeIds: ["knowledge-2"],
+    });
+    expect(update.success && update.data).toMatchObject({
+      appliedKnowledgeIds: ["knowledge-1"],
+      contradictedKnowledgeIds: ["knowledge-2"],
+    });
+    const tooMany = Array.from({ length: 31 }, (_, index) => `knowledge-${index}`);
+    expect(updateSessionMetadataInputSchema.safeParse({ sessionId: "s", appliedKnowledgeIds: tooMany }).success).toBe(
+      false,
+    );
+    expect(updateSessionMetadataInputSchema.safeParse({ sessionId: "s", contradictedKnowledgeIds: [""] }).success).toBe(
+      false,
+    );
+    const backfill = metadataBackfillApplyInputSchema.safeParse({
+      updates: [{ sessionId: "session-1", appliedKnowledgeIds: ["knowledge-1"] }],
+    });
+    expect(backfill.success && backfill.data.updates[0]).not.toHaveProperty("appliedKnowledgeIds");
+  });
+
   it("accepts an optional changed-file baseline when finalizing", () => {
     expect(
       finalizeSessionInputSchema.safeParse({

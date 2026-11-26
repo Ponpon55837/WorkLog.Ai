@@ -23,6 +23,8 @@ For metadata-backfill requests, inspect the tracked project's actual diff/worktr
 
 When a commit, merge, or push finishes after finalize, call `work_update_session_metadata` with the commit and branch actually observed (for example from `git rev-parse HEAD` and `git branch --show-current`) so the record follows reality. Never guess a commit.
 
+To report Knowledge after the save (a finalize receipt's `unreportedKnowledge`, or one you left out), call `work_update_session_metadata` with the `sessionId` and `appliedKnowledgeIds` or `contradictedKnowledgeIds`, only for Knowledge this work actually used. Repeating a report changes nothing; a metadata backfill never reports Knowledge.
+
 ## Normalize existing work summaries
 
 When normalizing existing records, update the same finalized Session with `work_update_session_work_summary` (the Web UI Session editor uses the same in-place update); read the current Session first, because the user may already have edited it; do not create replacement Sessions or alter their primary summary, events, evidence, changed files, verification status, Git metadata, or snapshots. Read all available structured and raw source under the tracked-project policy gate. Preserve confirmed facts, remove unsupported or duplicated claims, and replace future-looking `nextSteps` with objective current-state facts or `[]`. If source data is unavailable or a project is not tracked, do not read it or fabricate a replacement.

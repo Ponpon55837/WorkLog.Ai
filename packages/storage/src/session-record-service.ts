@@ -79,6 +79,7 @@ import {
   type SessionDecisionRow as SessionDecisionDbRow,
 } from "./session-decision-service.js";
 import { findTransientNextSteps } from "./transient-next-steps.js";
+import type { KnowledgeFeedbackResult } from "./knowledge-service.js";
 
 /** Replacing the file list without new changes keeps only the stored changes whose path is still listed. */
 function keepChangesForFiles(changes: ChangedFileChange[], files: string[]): ChangedFileChange[] {
@@ -91,6 +92,12 @@ export interface SessionRecordDependencies {
   getSessionById(sessionId: string): WorkSessionRecord | undefined;
   getProjectById(projectId: string): ProjectRecord | undefined;
   withKnowledgeTrustMany(knowledge: KnowledgeRecord[]): KnowledgeRecord[];
+  applyKnowledgeFeedback(
+    projectId: string,
+    sessionId: string,
+    completedAt: string,
+    input: Pick<UpdateSessionMetadataInput, "appliedKnowledgeIds" | "contradictedKnowledgeIds">,
+  ): KnowledgeFeedbackResult;
   listDiagrams(sessionId: string): SessionDiagramRecord[];
   syncOutstandingItems(
     sessionId: string,
@@ -393,7 +400,7 @@ export class SessionRecordService {
       previousVerificationResult?.redactions ?? { total: 0, byKind: {} },
       nextVerificationResult?.redactions ?? { total: 0, byKind: {} },
     );
-    runImmediateSqlTransaction(this.db, () => {
+    const knowledgeFeedback = runImmediateSqlTransaction(this.db, () => {
       if (nextVerification && !sameVerification(current.verification, nextVerification)) {
         this.insertVerificationUpdate(
           input.sessionId,
@@ -467,8 +474,10 @@ export class SessionRecordService {
             updatedAt,
           );
       }
+      const feedback = this.dependencies.applyKnowledgeFeedback(project.id, input.sessionId, nextCompletedAt, input);
       this.touchSession(input.sessionId, updatedAt);
       this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, project.id);
+      return feedback;
     });
 
     const session = this.dependencies.getSessionById(input.sessionId);
@@ -482,6 +491,8 @@ export class SessionRecordService {
       redactions,
       ...(timestampWarnings.length > 0 ? { timestampWarnings } : {}),
       ...(changedFileChangesFollowUp ? { changedFileChangesFollowUp } : {}),
+      ...(knowledgeFeedback.warnings.length > 0 ? { knowledgeWarnings: knowledgeFeedback.warnings } : {}),
+      ...(knowledgeFeedback.counts ? { knowledgeFeedback: knowledgeFeedback.counts } : {}),
     };
   }
 

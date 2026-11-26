@@ -66,6 +66,7 @@ const [
   { findKnowledgeCandidateOverlaps },
   { findKnowledgeToReview },
   { scanAppliesToBreadth },
+  { findUnreportedKnowledge },
 ] = await Promise.all([
   import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "index.js")).href),
   import(pathToFileURL(join(repositoryRoot, "apps", "mcp", "dist", "recall-evaluation.js")).href),
@@ -74,6 +75,7 @@ const [
   import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "knowledge-candidate-overlap.js")).href),
   import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "knowledge-review-hint.js")).href),
   import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "knowledge-breadth.js")).href),
+  import(pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "unreported-knowledge.js")).href),
 ]);
 const { evaluateRecallQuestions, parseRecallEvaluationQuestions } = recallEvaluation;
 const { getMcpRuntimeDirectory, getMcpRuntimeStatus, readMcpBuildIdentity, registerMcpProcess } = mcpRuntime;
@@ -637,6 +639,50 @@ function seedStoredTextWorstCases(baseRoot) {
     " ",
   );
   return { store: reopened, path, root: worstRoot, listRoot, focus, nearMiss };
+}
+
+/**
+ * A full read audit for one project and Agent client: 5,000 recall reads (the retention cap), each naming 50 of the
+ * project's Knowledge (the per-read cap), all inside one work segment. Rows are inserted in SQL in one transaction.
+ */
+function seedUnreportedKnowledgeReads(databasePath, projectId) {
+  const database = new DatabaseSync(databasePath);
+  try {
+    const knowledgeIds = database
+      .prepare("SELECT id FROM knowledge WHERE project_id = ? ORDER BY id")
+      .all(projectId)
+      .map((row) => row.id);
+    const tools = ["work_get_context", "work_recall", "work_search", "work_search_knowledge"];
+    const startedAt = "2026-07-01T00:00:00.000Z";
+    database.exec("BEGIN");
+    const insertRead = database.prepare(
+      `INSERT INTO agent_read_audit (id, created_at, tool, agent_client, project_id, outcome, returned_count,
+         session_ids_json, knowledge_ids_json, omitted_session_count, omitted_knowledge_count)
+       VALUES (?, ?, ?, 'bench-agent', ?, 'ok', 50, '[]', '[]', 0, 0)`,
+    );
+    const insertRecord = database.prepare(
+      "INSERT INTO agent_read_audit_records (audit_id, record_type, record_id) VALUES (?, 'knowledge', ?)",
+    );
+    for (let read = 0; read < 5_000; read += 1) {
+      const auditId = `bench-unreported-read-${read}`;
+      insertRead.run(auditId, new Date(Date.parse(startedAt) + read * 1_000).toISOString(), tools[read % 4], projectId);
+      for (let offset = 0; offset < 50; offset += 1) {
+        insertRecord.run(auditId, knowledgeIds[(read + offset * 4) % knowledgeIds.length]);
+      }
+    }
+    database.exec("COMMIT");
+    return {
+      projectId,
+      sessionId: "bench-unreported-session",
+      agentClient: "bench-agent",
+      startedAt,
+      completedAt: "2026-07-02T00:00:00.000Z",
+      excludedIds: [],
+      knowledgeCount: knowledgeIds.length,
+    };
+  } finally {
+    database.close();
+  }
 }
 
 /**
@@ -1208,6 +1254,7 @@ try {
   }
   let reviewRound = 0;
   const worstText = seedStoredTextWorstCases(root);
+  const unreportedFocus = seedUnreportedKnowledgeReads(worstText.path, worstText.focus.projectId);
   const worstTextDatabase = new DatabaseSync(worstText.path);
   // Shared by the cached and the "(after a write)" case: the latter reads the floor query and the newest 200 focused
   // Sessions again on every run.
@@ -1695,6 +1742,13 @@ try {
         throw new Error("The one-pass review check must decide every candidate within its budget.");
       return result;
     },
+    // The finalize reminder over a full audit window: 250,000 audited Knowledge reads grouped in one query.
+    "unreportedKnowledge (5,000 reads x 50 Knowledge, one client)": () => {
+      const result = findUnreportedKnowledge(worstTextDatabase, unreportedFocus);
+      if (result?.items.length !== 3 || result.total !== unreportedFocus.knowledgeCount)
+        throw new Error("Every read active Knowledge must be counted and the newest three listed.");
+      return result;
+    },
     // The write-time appliesTo breadth check (recordKnowledge / updateKnowledge, after the commit) over a project of
     // 5,000 Sessions: it reads only the newest 200 with 1-20 files, so its cost does not grow with the history.
     "scanAppliesToBreadth (write-time, newest 200 of 5,000 Sessions)": () => {
@@ -1993,6 +2047,7 @@ try {
     "searchKnowledge (staleness)": 500,
     "searchKnowledge (200 x 30 x 1,000-char appliesTo, 8 near-miss words)": 1000,
     "knowledgeToReview (200 candidates, 5,000 later Sessions)": 250,
+    "unreportedKnowledge (5,000 reads x 50 Knowledge, one client)": 250,
     "scanAppliesToBreadth (write-time, newest 200 of 5,000 Sessions)": 250,
     "searchKnowledge (staleness over 5,000 Sessions of 20 x 100-char files)": 500,
     "searchKnowledge (staleness, Knowledge newer than 5,000 Sessions, project-wide breadth)": 500,

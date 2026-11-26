@@ -7,6 +7,7 @@ import type {
   KnowledgeAuditAction,
   KnowledgeAuditRecord,
   KnowledgeEvidence,
+  KnowledgeFeedbackCounts,
   KnowledgeFeedbackKind,
   KnowledgeFeedbackRecord,
   KnowledgeHistoryQuery,
@@ -54,6 +55,12 @@ import { cleanList, toKnowledge, toKnowledgeAudit } from "./session-record-codec
 import type { KnowledgeAuditRow, KnowledgeRow } from "./session-record-codecs.js";
 import { combineRedactionSummaries, redactValue } from "./secret-redaction.js";
 
+export interface KnowledgeFeedbackResult {
+  warnings: string[];
+  /** Present when the request named any Knowledge. */
+  counts?: KnowledgeFeedbackCounts;
+}
+
 export interface KnowledgeServiceDependencies {
   checkProjectRoot(projectRoot: string): PolicyDecision;
   getProjectById(projectId: string): ProjectRecord | undefined;
@@ -82,6 +89,11 @@ interface EvidenceRow {
 interface AppliedKnowledgeRow {
   session_id: string;
   knowledge_id: string;
+}
+
+interface FeedbackTargetRow extends KnowledgeRow {
+  reported_applied: number;
+  reported_contradicted: number;
 }
 
 const FEEDBACK_HISTORY_LIMIT = 100;
@@ -227,12 +239,17 @@ export class KnowledgeService {
     this.stalenessResults = new DataRevisionCache(db, STALENESS_CACHE_KEYS);
   }
 
+  /**
+   * Records which Knowledge a Session applied or contradicted. The requested records and this Session's earlier
+   * feedback come from one read; an id the Session already reported the same way is counted but not written again,
+   * so a repeated report changes nothing.
+   */
   public applyKnowledgeFeedback(
     projectId: string,
     sessionId: string,
     completedAt: string,
     input: Pick<FinalizeSessionInput, "appliedKnowledgeIds" | "contradictedKnowledgeIds">,
-  ): string[] {
+  ): KnowledgeFeedbackResult {
     const warnings: string[] = [];
     const contradicted = new Set(input.contradictedKnowledgeIds ?? []);
     const feedback = [
@@ -247,17 +264,34 @@ export class KnowledgeService {
         .map((id) => ({ id, applied: true })),
       ...[...contradicted].map((id) => ({ id, applied: false })),
     ];
+    if (feedback.length === 0) return { warnings };
+
+    const rows = this.db
+      .prepare(
+        `SELECT k.*, p.name AS project_name,
+           EXISTS (SELECT 1 FROM knowledge_feedback f
+                   WHERE f.knowledge_id = k.id AND f.session_id = @sessionId AND f.kind = 'applied') AS reported_applied,
+           EXISTS (SELECT 1 FROM knowledge_feedback f
+                   WHERE f.knowledge_id = k.id AND f.session_id = @sessionId AND f.kind = 'contradicted')
+             AS reported_contradicted
+         FROM knowledge k JOIN projects p ON p.id = k.project_id
+         WHERE k.project_id = @projectId AND k.id IN (SELECT value FROM json_each(@ids))`,
+      )
+      .all({
+        sessionId,
+        projectId,
+        ids: JSON.stringify(feedback.map(({ id }) => id)),
+      }) as unknown as FeedbackTargetRow[];
+    const rowsById = new Map(rows.map((row) => [row.id, row]));
+    const counts: KnowledgeFeedbackCounts = { applied: 0, contradicted: 0 };
     for (const { id, applied } of feedback) {
-      const row = this.db
-        .prepare(
-          `SELECT k.*, p.name AS project_name FROM knowledge k JOIN projects p ON p.id = k.project_id
-           WHERE k.id = ? AND k.project_id = ?`,
-        )
-        .get(id, projectId) as KnowledgeRow | undefined;
+      const row = rowsById.get(id);
       if (!row) {
         warnings.push(`${id}: Knowledge was not found in this project.`);
         continue;
       }
+      counts[applied ? "applied" : "contradicted"] += 1;
+      if (applied ? row.reported_applied : row.reported_contradicted) continue;
       const before = toKnowledge(row);
       // A backfilled Session can have finished before the last confirmation: the feedback is still a fact and is
       // recorded below, but the confirmation baseline (time and Session) only moves forward.
@@ -292,7 +326,7 @@ export class KnowledgeService {
       });
       this.insertFeedback(auditId, after, applied ? "applied" : "contradicted", completedAt, sessionId);
     }
-    return warnings;
+    return { warnings, counts };
   }
 
   /** Active Knowledge applied by the requested non-voided Sessions, grouped in one bounded read. */
