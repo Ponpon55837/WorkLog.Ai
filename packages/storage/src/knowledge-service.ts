@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { APPLIES_TO_GLOB_STARS_FIX, isOverComplexAppliesToGlob } from "@work-intelligence/core";
 import { nowIso } from "@work-intelligence/shared";
 import type {
+  AgentReviewLaterSession,
   FinalizeSessionInput,
   KnowledgeAuditAction,
   KnowledgeAuditRecord,
@@ -59,6 +60,12 @@ export interface KnowledgeFeedbackResult {
   warnings: string[];
   /** Present when the request named any Knowledge. */
   counts?: KnowledgeFeedbackCounts;
+}
+
+/** The record after withdrawConfirmation; `withdrawn` is false when the confirmation was no longer the latest. */
+export interface WithdrawnConfirmation {
+  knowledge: KnowledgeRecord;
+  withdrawn: boolean;
 }
 
 export interface KnowledgeServiceDependencies {
@@ -134,6 +141,54 @@ function lowerBound(values: Int32Array, target: number): number {
 }
 
 /**
+ * The later Sessions (index positions) that touched any of the record's patterns after its `since`, without its own
+ * Sessions, and the coverage of each pattern; undefined when the match budget ran out.
+ */
+function laterChanges(
+  knowledge: KnowledgeRecord,
+  patterns: readonly string[],
+  later: LaterChangeIndex,
+  budget: AppliesToBudget,
+): { coverage: PatternCoverage[]; touched: Set<number> } | undefined {
+  const start = later.firstAfter(stalenessSince(knowledge));
+  const coverage: PatternCoverage[] = [];
+  for (const pattern of patterns) {
+    const covered = later.coverage(pattern, budget);
+    if (!covered) return undefined;
+    coverage.push(covered);
+  }
+  const touched = new Set<number>();
+  for (const { sessions } of coverage) {
+    const from = lowerBound(sessions, start);
+    if (!chargeAppliesTo(budget, sessions.length - from + 1)) return undefined;
+    for (let at = from; at < sessions.length; at += 1) {
+      touched.add(sessions[at]!);
+    }
+  }
+  // The Knowledge's own Sessions are not a reason to doubt it.
+  for (const id of [knowledge.sessionId, knowledge.lastConfirmedSessionId]) {
+    const excludedIndex = id ? later.indexOfSession(id) : undefined;
+    if (excludedIndex !== undefined) touched.delete(excludedIndex);
+  }
+  return { coverage, touched };
+}
+
+/** The changed files of one later Session that the coverage names, in the Session's order. */
+function coveredPaths(
+  later: LaterChangeIndex,
+  sessionIndex: number,
+  coverage: readonly PatternCoverage[],
+  budget: AppliesToBudget,
+): string[] | undefined {
+  const session = later.sessions[sessionIndex]!;
+  if (!chargeAppliesTo(budget, session.files.length * coverage.length + 1)) return undefined;
+  return session.files.filter((_, index) => {
+    const pathId = session.pathIds[index]!;
+    return pathId >= 0 && coverage.some(({ paths: covered }) => covered.has(pathId));
+  });
+}
+
+/**
  * The staleness signals of one Knowledge record, or "unchecked" when the match budget ran out before its patterns
  * were resolved against every later file: a partial comparison can neither prove nor rule out staleness. Each pattern
  * is resolved once per call by the index (later-change-index.ts); the item unions the Sessions of its patterns that
@@ -158,30 +213,9 @@ function knowledgeStaleness(
   if (patterns.length === 0) {
     return undefined;
   }
-  const start = later.firstAfter(stalenessSince(knowledge));
-  const coverage: PatternCoverage[] = [];
-  for (const pattern of patterns) {
-    const covered = later.coverage(pattern, budget);
-    if (!covered) return "unchecked";
-    coverage.push(covered);
-  }
-  const touched = new Set<number>();
-  for (const { sessions } of coverage) {
-    const from = lowerBound(sessions, start);
-    if (!chargeAppliesTo(budget, sessions.length - from + 1)) return "unchecked";
-    for (let at = from; at < sessions.length; at += 1) {
-      touched.add(sessions[at]!);
-    }
-  }
-  // The Knowledge's own Sessions are not a reason to doubt it.
-  const excluded = new Set<number>();
-  for (const id of [knowledge.sessionId, knowledge.lastConfirmedSessionId]) {
-    const excludedIndex = id ? later.indexOfSession(id) : undefined;
-    if (excludedIndex !== undefined) excluded.add(excludedIndex);
-  }
-  for (const excludedIndex of excluded) {
-    touched.delete(excludedIndex);
-  }
+  const changes = laterChanges(knowledge, patterns, later, budget);
+  if (!changes) return "unchecked";
+  const { coverage, touched } = changes;
   let broadSessions = 0;
   let focusedTouched = 0;
   let firstIndex = Number.POSITIVE_INFINITY;
@@ -200,11 +234,8 @@ function knowledgeStaleness(
     return broadSessions > 0 ? broadChangesSince : undefined;
   }
   const session = later.sessions[firstIndex]!;
-  if (!chargeAppliesTo(budget, session.files.length * coverage.length + 1)) return "unchecked";
-  const paths = session.files.filter((_, index) => {
-    const pathId = session.pathIds[index]!;
-    return pathId >= 0 && coverage.some(({ paths: covered }) => covered.has(pathId));
-  });
+  const paths = coveredPaths(later, firstIndex, coverage, budget);
+  if (!paths) return "unchecked";
   const windowTouched = touchedInWindow(later, coverage, window, budget);
   if (windowTouched === undefined) return "unchecked";
   const appliesToBreadth = appliesToBreadthOf(windowTouched, window.sessions);
@@ -293,16 +324,22 @@ export class KnowledgeService {
       counts[applied ? "applied" : "contradicted"] += 1;
       if (applied ? row.reported_applied : row.reported_contradicted) continue;
       const before = toKnowledge(row);
-      // A backfilled Session can have finished before the last confirmation: the feedback is still a fact and is
-      // recorded below, but the confirmation baseline (time and Session) only moves forward.
+      // A backfilled Session can have finished before the last confirmation or contradiction: the feedback is still a
+      // fact and is recorded below, but the record follows the newest evidence by completion time, as search ranking
+      // does. The baseline only moves forward, a newer contradiction stays, and a contradiction older than the last
+      // confirmation or review does not put the Knowledge in doubt; on a tie the confirmation stands.
       const confirmationMoves = applied && (!before.lastConfirmedAt || completedAt > before.lastConfirmedAt);
-      const after: KnowledgeRecord = applied
-        ? {
-            ...before,
-            ...(confirmationMoves ? { lastConfirmedAt: completedAt, lastConfirmedSessionId: sessionId } : {}),
-          }
-        : { ...before, review: { reason: "contradicted", sessionId, at: completedAt } };
-      if (applied) {
+      const reviewClears = applied && before.review !== undefined && completedAt >= before.review.at;
+      const reviewMoves =
+        !applied &&
+        (!before.lastConfirmedAt || completedAt > before.lastConfirmedAt) &&
+        (!before.review || completedAt >= before.review.at);
+      const after: KnowledgeRecord = {
+        ...before,
+        ...(confirmationMoves ? { lastConfirmedAt: completedAt, lastConfirmedSessionId: sessionId } : {}),
+        ...(reviewMoves ? { review: { reason: "contradicted" as const, sessionId, at: completedAt } } : {}),
+      };
+      if (reviewClears) {
         delete after.review;
       }
       this.db
@@ -319,9 +356,10 @@ export class KnowledgeService {
         knowledge: after,
         before,
         action: "updated",
-        changedFields: applied
-          ? [...(confirmationMoves ? ["lastConfirmedAt"] : []), ...(before.review ? ["review"] : [])]
-          : ["review"],
+        changedFields: [
+          ...(confirmationMoves ? ["lastConfirmedAt"] : []),
+          ...(reviewClears || reviewMoves ? ["review"] : []),
+        ],
         occurredAt: completedAt,
       });
       this.insertFeedback(auditId, after, applied ? "applied" : "contradicted", completedAt, sessionId);
@@ -393,6 +431,58 @@ export class KnowledgeService {
         ...(counts ? { evidence: counts } : {}),
       };
     });
+  }
+
+  /**
+   * The newest `limit` focused later Sessions that touched each record's appliesTo, by the rule and index of
+   * possiblyStale; broad Sessions only raise broadChangesSince and are left out. A record whose patterns could not
+   * all be compared within the budget gets no entry.
+   */
+  public laterSessionsOf(items: readonly KnowledgeRecord[], limit: number): Map<string, AgentReviewLaterSession[]> {
+    const result = new Map<string, AgentReviewLaterSession[]>();
+    const byProject = new Map<string, KnowledgeRecord[]>();
+    for (const item of items) {
+      if (item.appliesTo.length === 0) continue;
+      const group = byProject.get(item.projectId);
+      if (group) group.push(item);
+      else byProject.set(item.projectId, [item]);
+    }
+    const limits = stalenessUnitLimits();
+    const history = createAppliesToBudget(limits.history);
+    const budget = createAppliesToBudget(limits.match);
+    for (const [projectId, group] of byProject) {
+      const project = this.dependencies.getProjectById(projectId);
+      const contexts = project ? [{ name: project.name, rootPath: project.rootPath }] : [];
+      const earliest = group.map(stalenessSince).reduce((min, since) => (since < min ? since : min));
+      const later = this.loadLaterSessions(projectId, earliest, contexts, history);
+      if (!later) continue;
+      const prepared = group.map((item) => itemPatterns(item, contexts, budget));
+      later.expect(new Set(prepared.flatMap(({ patterns }) => patterns)).size);
+      group.forEach((item, index) => {
+        const { patterns, skipped } = prepared[index]!;
+        if (skipped || budget.exhausted || patterns.length === 0) return;
+        const changes = laterChanges(item, patterns, later, budget);
+        if (!changes) return;
+        const newest = [...changes.touched]
+          .filter((at) => !later.isBroad(at))
+          .sort((left, right) => right - left)
+          .slice(0, limit);
+        const sessions: AgentReviewLaterSession[] = [];
+        for (const at of newest) {
+          const paths = coveredPaths(later, at, changes.coverage, budget);
+          if (!paths) return;
+          const session = later.sessions[at]!;
+          sessions.push({
+            id: session.id,
+            title: session.title,
+            completedAt: session.completedAt,
+            paths: paths.slice(0, 5),
+          });
+        }
+        result.set(item.id, sessions);
+      });
+    }
+    return result;
   }
 
   /**
@@ -846,6 +936,86 @@ export class KnowledgeService {
         this.addBreadthAfterCommit(updated, project, next.appliesTo);
       }
       return updated;
+    });
+  }
+
+  /**
+   * Undoes the first manual confirmation made at or after `confirmedSince`, but only while it is still the record's
+   * latest confirmation: a later confirmation by a person or a Session stands, and so does the withdrawn one's
+   * feedback. The baseline goes back to its value before it (a baseline Session deleted since is dropped), its
+   * feedback row is removed, and an audit row records the change. A contradiction reported after it stays; otherwise
+   * the review it cleared comes back. The caller checked the policy.
+   */
+  public withdrawConfirmation(
+    projectId: string,
+    knowledgeId: string,
+    confirmedSince: string,
+  ): WithdrawnConfirmation | undefined {
+    return runImmediateSqlTransaction(this.db, (): WithdrawnConfirmation | undefined => {
+      const row = this.db
+        .prepare(
+          `SELECT k.*, p.name AS project_name FROM knowledge k JOIN projects p ON p.id = k.project_id
+           WHERE k.id = ? AND k.project_id = ?`,
+        )
+        .get(knowledgeId, projectId) as KnowledgeRow | undefined;
+      if (!row) return undefined;
+      const current = toKnowledge(row);
+      const confirmation = this.db
+        .prepare(
+          `SELECT f.id, f.occurred_at, a.before_json,
+                  EXISTS (SELECT 1 FROM knowledge_feedback later
+                          WHERE later.knowledge_id = f.knowledge_id AND later.kind = 'manual_confirm'
+                            AND later.rowid > f.rowid) AS confirmed_again
+           FROM knowledge_feedback f JOIN knowledge_audit a ON a.id = f.id
+           WHERE f.knowledge_id = ? AND f.kind = 'manual_confirm' AND f.occurred_at >= ?
+           ORDER BY f.occurred_at ASC, f.rowid ASC LIMIT 1`,
+        )
+        .get(knowledgeId, confirmedSince) as
+        { id: string; occurred_at: string; before_json: string | null; confirmed_again: number } | undefined;
+      const stillLatest =
+        confirmation?.before_json &&
+        !confirmation.confirmed_again &&
+        !current.lastConfirmedSessionId &&
+        current.lastConfirmedAt === confirmation.occurred_at;
+      if (!confirmation?.before_json || !stillLatest) {
+        return { knowledge: this.withKnowledgeTrust(current), withdrawn: false };
+      }
+      const before = JSON.parse(confirmation.before_json) as KnowledgeRecord;
+      const baselineSession = before.lastConfirmedSessionId
+        ? this.db
+            .prepare("SELECT 1 AS found FROM sessions WHERE id = ? AND project_id = ?")
+            .get(before.lastConfirmedSessionId, projectId)
+        : undefined;
+      const updatedAt = nowIso();
+      const next: KnowledgeRecord = { ...current, updatedAt };
+      delete next.lastConfirmedAt;
+      delete next.lastConfirmedSessionId;
+      if (before.lastConfirmedAt) next.lastConfirmedAt = before.lastConfirmedAt;
+      if (baselineSession) next.lastConfirmedSessionId = before.lastConfirmedSessionId;
+      if (!current.review && before.review) next.review = before.review;
+      this.db
+        .prepare(
+          `UPDATE knowledge SET updated_at = ?, last_confirmed_at = ?, last_confirmed_session_id = ?, review_json = ?
+           WHERE id = ? AND project_id = ?`,
+        )
+        .run(
+          updatedAt,
+          next.lastConfirmedAt ?? null,
+          next.lastConfirmedSessionId ?? null,
+          next.review ? JSON.stringify(next.review) : null,
+          knowledgeId,
+          projectId,
+        );
+      this.db.prepare("DELETE FROM knowledge_feedback WHERE id = ?").run(confirmation.id);
+      this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, projectId);
+      this.insertKnowledgeAudit({
+        knowledge: next,
+        before: current,
+        action: "updated",
+        changedFields: ["lastConfirmedAt", ...(!current.review && next.review ? ["review"] : [])],
+        occurredAt: updatedAt,
+      });
+      return { knowledge: this.withKnowledgeTrust(next), withdrawn: true };
     });
   }
 

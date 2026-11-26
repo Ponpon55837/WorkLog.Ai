@@ -8,6 +8,7 @@ import type {
   AgentReviewItemOutcome,
   AgentReviewItemState,
   AgentReviewKnowledgePage,
+  AgentReviewLaterSession,
   AgentReviewRequest,
   AgentReviewRequestListResult,
   AgentReviewRequestQuery,
@@ -16,9 +17,13 @@ import type {
   AgentReviewSkippedResult,
   AgentReviewVerdict,
   AgentReviewVerdictResult,
+  AgentReviewedKnowledge,
+  AgentReviewedKnowledgeListResult,
+  AgentReviewedKnowledgeQuery,
   CancelAgentReviewRequestResult,
   CreateAgentReviewRequestInput,
   CreateAgentReviewRequestResult,
+  KnowledgeRecord,
   KnowledgeStatus,
   OverturnAgentReviewInput,
   OverturnAgentReviewResult,
@@ -42,9 +47,12 @@ import {
 } from "./knowledge-candidate-overlap.js";
 import { createPageInfo } from "./pagination.js";
 import { combineRedactionSummaries, redactText } from "./secret-redaction.js";
+import type { WithdrawnConfirmation } from "./knowledge-service.js";
 import { isDatabaseSchemaChangedError } from "./schema-write-gate.js";
 import { toDecision, type SessionDecisionRow } from "./session-decision-service.js";
+import { toKnowledge, type KnowledgeRow } from "./session-record-codecs.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
+import { isKnowledgeInDoubt } from "./stale-flags.js";
 
 interface Dependencies {
   checkProjectRoot(projectRoot: string): PolicyDecision;
@@ -53,6 +61,13 @@ interface Dependencies {
   updateKnowledge(input: UpdateKnowledgeInput): UpdateKnowledgeResult;
   pagesCitingSessions(projectId: string, sessionIds: ReadonlySet<string>): Array<{ slug: string; title: string }>;
   pendingPages(projectId: string): Array<{ slug: string; title: string }>;
+  withKnowledgeTrustMany(items: KnowledgeRecord[]): KnowledgeRecord[];
+  laterSessionsOf(items: readonly KnowledgeRecord[], limit: number): Map<string, AgentReviewLaterSession[]>;
+  withdrawConfirmation(
+    projectId: string,
+    knowledgeId: string,
+    confirmedSince: string,
+  ): WithdrawnConfirmation | undefined;
 }
 
 type RequestRow = {
@@ -72,6 +87,7 @@ type RequestCountRow = {
   request_id: string;
   decision_count: number;
   candidate_count: number;
+  knowledge_count: number;
   applied_count: number;
   skipped_count: number;
   open_count: number;
@@ -115,16 +131,37 @@ type PendingRows = {
   items: Map<string, ItemRow>;
   decisions: Map<string, DecisionRow>;
   candidates: Map<string, CandidateRow>;
+  knowledge: Map<string, TrustedKnowledge>;
+};
+
+/** A Knowledge row with its record as read now, staleness included. */
+type TrustedKnowledge = { row: KnowledgeRow; record: KnowledgeRecord };
+
+type CurrentRows = Omit<PendingRows, "items">;
+
+type ReviewedKnowledgeRow = {
+  item_id: string;
+  verdict: AgentReviewedKnowledge["verdict"];
+  reason: string;
+  decided_at: string;
+  request_id: string;
+  knowledge_id: string | null;
 };
 
 type Decided =
   | { outcome: AgentReviewItemOutcome; knowledgeId?: string; redactions?: RedactionSummary }
   | { outcome: "knowledge_rejected"; knowledgeOutcome: string; knowledgeReason?: string };
 
+type KnowledgeWriteFailure =
+  | Exclude<RecordKnowledgeResult, { outcome: "knowledge_recorded" }>
+  | Exclude<UpdateKnowledgeResult, { outcome: "knowledge_updated" }>;
+
 type ContextResult = Extract<AgentReviewContextResult, { outcome: "agent_review_context" }>;
 
 const MAX_SNAPSHOT_ITEMS = 500;
 const CONTEXT_BUDGET = 24_000;
+/** Room the attached lists leave for the server status the MCP adds to every write-tool response. */
+const SERVER_STATUS_RESERVE = 200;
 const PROCESSING_TIMEOUT_MS = 30 * 60 * 1000;
 const MAX_COMPLETION_PAGES = 12;
 const OPEN_STATUSES = "('pending', 'processing', 'failed')";
@@ -138,9 +175,12 @@ const BODY_LIMIT = 2_000;
 const RATIONALE_LIMIT = 600;
 const EXISTING_TITLE_LIMIT = 120;
 const KNOWLEDGE_REASON_LIMIT = 200;
+const LATER_SESSIONS_SHOWN = 5;
+const REVIEWED_KNOWLEDGE_LIMIT = 200;
 const CONTEXT_HINT =
-  "逐項核對 open 項目的來源 Session 後，用 work_submit_agent_review 提交 verdict；理由要具體，" +
-  "證據不足的項目不提交，留給使用者。已有結果、stale 或已被審查的項目不需處理。verdict 直接生效，使用者之後可以推翻。";
+  "逐項核對 open 項目後用 work_submit_agent_review_verdicts 提交 verdict：決策與候選看來源 Session，Knowledge 要讀現在的程式碼或" +
+  " laterSessions 的工作記錄，不可只因檔案改過就封存。理由要具體，證據不足的項目不提交，留給使用者。" +
+  "已有結果、stale 或已被審查的項目不需處理。verdict 直接生效，使用者之後可以推翻。";
 const REQUEST_SELECT = `SELECT r.*, p.name AS project_name
   FROM agent_review_requests r JOIN projects p ON p.id = r.project_id`;
 
@@ -175,6 +215,40 @@ function candidateFingerprint(row: CandidateRow): string {
     row.status,
     row.knowledge_id,
   ]);
+}
+
+/**
+ * Covers the count of later focused Sessions too: one that touches the Knowledge's appliesTo while a request is open is
+ * evidence the Agent has not read, so its verdict is skipped as stale. Unrelated Sessions leave the count unchanged.
+ */
+function knowledgeFingerprint({ row, record }: TrustedKnowledge): string {
+  return hashJson([
+    row.kind,
+    row.title,
+    row.body,
+    row.tags_json,
+    row.references_json,
+    row.applies_to_json ?? "[]",
+    row.status,
+    row.last_confirmed_at ?? null,
+    row.last_confirmed_session_id ?? null,
+    row.review_json ?? null,
+    record.possiblyStale?.sessionCount ?? 0,
+  ]);
+}
+
+/** The item's row as it is now: still waiting for a verdict, and its fingerprint; undefined when it is gone. */
+function currentOf(item: ItemRow, rows: CurrentRows): { pending: boolean; fingerprint: string } | undefined {
+  if (item.item_kind === "decision") {
+    const row = rows.decisions.get(item.item_id);
+    return row && { pending: row.review_status === "pending", fingerprint: decisionFingerprint(row) };
+  }
+  if (item.item_kind === "candidate") {
+    const row = rows.candidates.get(item.item_id);
+    return row && { pending: row.status === "proposed", fingerprint: candidateFingerprint(row) };
+  }
+  const knowledge = rows.knowledge.get(item.item_id);
+  return knowledge && { pending: knowledge.row.status === "active", fingerprint: knowledgeFingerprint(knowledge) };
 }
 
 function itemKey(kind: AgentReviewItemKind, id: string): string {
@@ -228,29 +302,22 @@ function isOpen(status: AgentReviewRequestStatus): boolean {
   return OPEN_STATUS_LIST.includes(status);
 }
 
-function itemState(
-  item: ItemRow,
-  decision: DecisionRow | undefined,
-  candidate: CandidateRow | undefined,
-): AgentReviewItemState {
+function itemState(item: ItemRow, rows: CurrentRows): AgentReviewItemState {
   if (item.outcome === "applied") return "applied";
   if (item.outcome) return "skipped";
-  const current = item.item_kind === "decision" ? decision : candidate;
+  const current = currentOf(item, rows);
   if (!current) return "stale";
-  const pending = decision ? decision.review_status === "pending" : candidate?.status === "proposed";
-  if (!pending) return "reviewed";
-  return (decision ? decisionFingerprint(decision) : candidateFingerprint(candidate!)) === item.fingerprint
-    ? "open"
-    : "stale";
+  if (!current.pending) return "reviewed";
+  return current.fingerprint === item.fingerprint ? "open" : "stale";
 }
 
 /** A failed Knowledge write keeps its item open; only the outcome code and a short reason are reported. */
-function knowledgeRejected(recorded: Exclude<RecordKnowledgeResult, { outcome: "knowledge_recorded" }>): Decided {
+function knowledgeRejected(failure: KnowledgeWriteFailure): Decided {
   return {
     outcome: "knowledge_rejected",
-    knowledgeOutcome: recorded.outcome,
-    ...("reason" in recorded && recorded.reason
-      ? { knowledgeReason: recorded.reason.slice(0, KNOWLEDGE_REASON_LIMIT) }
+    knowledgeOutcome: failure.outcome,
+    ...("reason" in failure && failure.reason
+      ? { knowledgeReason: failure.reason.slice(0, KNOWLEDGE_REASON_LIMIT) }
       : {}),
   };
 }
@@ -278,6 +345,10 @@ function shortenContext(result: ContextResult, limit: number): void {
     for (const overlap of item.overlaps) {
       if (overlap.title && overlap.title.length > limit) overlap.title = cut(overlap.title);
     }
+    const contradicted = item.doubt?.contradicted;
+    if (contradicted?.sessionTitle && contradicted.sessionTitle.length > limit) {
+      contradicted.sessionTitle = cut(contradicted.sessionTitle);
+    }
     const session = item.sourceSession;
     if (!session) continue;
     if (session.title.length > limit) {
@@ -297,9 +368,9 @@ function shortenContext(result: ContextResult, limit: number): void {
 }
 
 /**
- * Agent review: an Agent judges the pending Agent decisions and proposed Knowledge candidates a user snapshotted into
- * a request. Verdicts apply directly and are attributed to the Agent, so a person can overturn them later; without an
- * open request Agent writes are refused.
+ * Agent review: an Agent judges the pending Agent decisions, proposed Knowledge candidates, and possibly stale or
+ * contradicted active Knowledge a user snapshotted into a request. Verdicts apply directly and are attributed to the
+ * Agent, so a person can overturn them later; without an open request Agent writes are refused.
  */
 export class AgentReviewService {
   public constructor(
@@ -327,6 +398,50 @@ export class AgentReviewService {
       .prepare(`${REQUEST_SELECT} ${where} ORDER BY r.requested_at DESC, r.id DESC LIMIT ? OFFSET ?`)
       .all(...parameters, pageInfo.pageSize, (pageInfo.page - 1) * pageInfo.pageSize) as RequestRow[];
     return { outcome: "agent_review_requests", requests: this.toRequests(rows), pageInfo };
+  }
+
+  /** Knowledge whose latest Agent verdict still stands, newest first, at most 200, as each record is now. */
+  public listReviewedKnowledge(input: AgentReviewedKnowledgeQuery = {}): AgentReviewedKnowledgeListResult {
+    let projectId: string | undefined;
+    if (input.projectRoot) {
+      const policy = this.dependencies.checkProjectRoot(input.projectRoot);
+      if (!policy.allowed || !policy.project) return skippedByRoot(policy);
+      projectId = policy.project.id;
+    }
+    const rows = this.db
+      .prepare(
+        `SELECT i.item_id, i.verdict, i.reason, i.decided_at, i.request_id, i.knowledge_id
+         FROM agent_review_request_items i JOIN projects p ON p.id = i.project_id
+         WHERE p.status = 'tracked' AND i.item_kind = 'knowledge' AND i.outcome = 'applied' AND i.overturned_at IS NULL
+           ${projectId ? "AND i.project_id = ?" : ""}
+           AND NOT EXISTS (
+             SELECT 1 FROM agent_review_request_items later
+             WHERE later.project_id = i.project_id AND later.item_kind = 'knowledge' AND later.item_id = i.item_id
+               AND later.outcome = 'applied' AND later.overturned_at IS NULL
+               AND (later.decided_at > i.decided_at OR (later.decided_at = i.decided_at AND later.rowid > i.rowid)))
+         ORDER BY i.decided_at DESC, i.rowid DESC LIMIT ?`,
+      )
+      .all(...(projectId ? [projectId] : []), REVIEWED_KNOWLEDGE_LIMIT) as ReviewedKnowledgeRow[];
+    const ids = [...new Set(rows.flatMap((row) => [row.item_id, ...(row.knowledge_id ? [row.knowledge_id] : [])]))];
+    const knowledge = new Map(this.knowledgeRows(projectId, ids).map((row) => [row.id, row]));
+    const reviewed = rows.filter((row) => knowledge.has(row.item_id));
+    const records = this.dependencies.withKnowledgeTrustMany(
+      reviewed.map((row) => toKnowledge(knowledge.get(row.item_id)!)),
+    );
+    return {
+      outcome: "agent_reviewed_knowledge",
+      items: reviewed.map((row, index): AgentReviewedKnowledge => {
+        const successor = row.knowledge_id ? knowledge.get(row.knowledge_id) : undefined;
+        return {
+          knowledge: records[index]!,
+          verdict: row.verdict,
+          reason: row.reason,
+          reviewedAt: row.decided_at,
+          requestId: row.request_id,
+          ...(successor ? { successor: { id: successor.id, title: successor.title, status: successor.status } } : {}),
+        };
+      }),
+    };
   }
 
   /** Web entry: the project is named by id. */
@@ -463,6 +578,7 @@ export class AgentReviewService {
     if (!policy.allowed || !policy.project) return skippedByRoot(policy);
     const projectId = policy.project.id;
     const projectRoot = policy.project.rootPath;
+    if (input.itemKind === "knowledge") return this.overturnKnowledge(projectId, projectRoot, input.itemId);
     return runImmediateTransaction(this.db, (): OverturnAgentReviewResult => {
       const reviewed = this.reviewedByAgent(projectId, input.itemKind, input.itemId);
       if ("outcome" in reviewed) return reviewed;
@@ -528,7 +644,7 @@ export class AgentReviewService {
         return {
           outcome: "agent_review_not_needed",
           projectId,
-          reason: "這個專案目前沒有待 Agent 審查的決策或 Knowledge 候選。",
+          reason: "這個專案目前沒有待 Agent 審查的決策、Knowledge 候選或需要複查的 Knowledge。",
         };
       }
       const id = randomUUID();
@@ -556,8 +672,9 @@ export class AgentReviewService {
   }
 
   /**
-   * Pending Agent decisions of live Sessions first, then proposed candidates, oldest first. An item a person once
-   * overturned stays in their own queue, so a later request never hands it to an Agent again.
+   * Pending Agent decisions of live Sessions first, then proposed candidates, then active Knowledge in doubt, each
+   * oldest first. An item a person once overturned stays in their own queue, so a later request never hands it to an
+   * Agent again.
    */
   private snapshot(projectId: string): {
     items: Array<{ kind: AgentReviewItemKind; id: string; sessionId: string | null; fingerprint: string }>;
@@ -590,6 +707,7 @@ export class AgentReviewService {
          WHERE ${candidateWhere} ORDER BY c.created_at ASC, c.id ASC LIMIT ?`,
       )
       .all(projectId, Math.max(MAX_SNAPSHOT_ITEMS - decisions.length, 0)) as CandidateRow[];
+    const knowledge = this.knowledgeInDoubt(projectId, notOverturned("knowledge", "k"));
     const items = [
       ...decisions.map((row) => ({
         kind: "decision" as const,
@@ -603,22 +721,50 @@ export class AgentReviewService {
         sessionId: row.session_id,
         fingerprint: candidateFingerprint(row),
       })),
+      ...knowledge.slice(0, Math.max(MAX_SNAPSHOT_ITEMS - decisions.length - candidates.length, 0)).map((trusted) => ({
+        kind: "knowledge" as const,
+        id: trusted.row.id,
+        sessionId: null,
+        fingerprint: knowledgeFingerprint(trusted),
+      })),
     ];
-    return { items, omitted: decisionTotal + candidateTotal - items.length };
+    return { items, omitted: decisionTotal + candidateTotal + knowledge.length - items.length };
+  }
+
+  /**
+   * Every active Knowledge of the project that is possiblyStale or contradicted, oldest first. Only rows with an
+   * appliesTo or a review can qualify, so the rest are never read; staleness comes from one batched trust pass, the same
+   * one every Knowledge read and the attention queue use.
+   */
+  private knowledgeInDoubt(projectId: string, notOverturned: string): TrustedKnowledge[] {
+    const rows = this.db
+      .prepare(
+        `SELECT k.*, p.name AS project_name FROM knowledge k JOIN projects p ON p.id = k.project_id
+         WHERE k.project_id = ? AND k.status = 'active' AND (k.applies_to_json <> '[]' OR k.review_json IS NOT NULL)
+           ${notOverturned}
+         ORDER BY k.created_at ASC, k.id ASC`,
+      )
+      .all(projectId) as KnowledgeRow[];
+    return this.trusted(rows).filter(({ record }) => isKnowledgeInDoubt(record));
+  }
+
+  private trusted(rows: readonly KnowledgeRow[]): TrustedKnowledge[] {
+    const records = this.dependencies.withKnowledgeTrustMany(rows.map(toKnowledge));
+    return rows.map((row, index) => ({ row, record: records[index]! }));
   }
 
   private contextItems(request: AgentReviewRequest, itemRows: ItemRow[]): AgentReviewContextItem[] {
-    const rows = this.currentRows(
-      request.projectId,
-      itemRows.filter((item) => item.item_kind === "decision").map((item) => item.item_id),
-      itemRows.filter((item) => item.item_kind === "candidate").map((item) => item.item_id),
-    );
-    const states = itemRows.map((item) =>
-      itemState(item, rows.decisions.get(item.item_id), rows.candidates.get(item.item_id)),
-    );
+    const rows = this.currentRows(request.projectId, itemRows);
+    const states = itemRows.map((item) => itemState(item, rows));
     const openIndexes = itemRows.flatMap((_, index) => (states[index] === "open" ? [index] : []));
+    const openKnowledge = openIndexes
+      .filter((index) => itemRows[index]!.item_kind === "knowledge")
+      .map((index) => rows.knowledge.get(itemRows[index]!.item_id)!.record);
+    const knowledgeById = new Map(openKnowledge.map((record) => [record.id, record]));
+    const laterSessions = this.dependencies.laterSessionsOf(openKnowledge, LATER_SESSIONS_SHOWN);
     const sessionIds = [...new Set(openIndexes.flatMap((index) => itemRows[index]!.source_session_id ?? []))];
-    const sessions = this.sessions(request.projectId, sessionIds);
+    const reviewSessionIds = openKnowledge.flatMap((record) => record.review?.sessionId ?? []);
+    const sessions = this.sessions(request.projectId, [...new Set([...sessionIds, ...reviewSessionIds])]);
     const siblings = this.siblingDecisions(sessionIds);
 
     const openDecisions = openIndexes.filter((index) => itemRows[index]!.item_kind === "decision");
@@ -645,6 +791,10 @@ export class AgentReviewService {
       const state = states[index]!;
       const base = { itemKind: item.item_kind, id: item.item_id, state, overlaps: [] };
       if (state !== "open") return base;
+      if (item.item_kind === "knowledge") {
+        const record = knowledgeById.get(item.item_id)!;
+        return this.knowledgeContext(base, record, laterSessions.get(record.id), sessions);
+      }
       const sourceSession = this.sessionContext(
         item.source_session_id ? sessions.get(item.source_session_id) : undefined,
         item.source_session_id ? (siblings.get(item.source_session_id) ?? []) : [],
@@ -682,6 +832,55 @@ export class AgentReviewService {
     });
   }
 
+  /** A Knowledge item as it is now, why it is in doubt, and the later Sessions that touched its appliesTo. */
+  private knowledgeContext(
+    base: Pick<AgentReviewContextItem, "itemKind" | "id" | "state" | "overlaps">,
+    record: KnowledgeRecord,
+    later: AgentReviewLaterSession[] | undefined,
+    sessions: Map<string, SessionRow>,
+  ): AgentReviewContextItem {
+    const title = bounded(record.title, SESSION_TITLE_LIMIT * 2);
+    const body = bounded(record.body, BODY_LIMIT);
+    const review = record.review;
+    const reviewSession = review?.sessionId ? sessions.get(review.sessionId) : undefined;
+    const shown = (later ?? []).map((session) => ({ ...session, title: session.title.slice(0, SESSION_TITLE_LIMIT) }));
+    const omitted = Math.max((record.possiblyStale?.sessionCount ?? shown.length) - shown.length, 0);
+    return {
+      ...base,
+      kind: record.kind,
+      title: title.text,
+      ...(title.truncated ? { titleTruncated: true } : {}),
+      body: body.text,
+      ...(body.truncated ? { bodyTruncated: true } : {}),
+      tags: record.tags,
+      references: record.references,
+      appliesTo: record.appliesTo,
+      createdAt: record.createdAt,
+      ...(record.lastConfirmedAt ? { lastConfirmedAt: record.lastConfirmedAt } : {}),
+      doubt: {
+        ...(record.possiblyStale
+          ? {
+              possiblyStale: {
+                reason: record.possiblyStale.reason,
+                sessionCount: record.possiblyStale.sessionCount,
+              },
+            }
+          : {}),
+        ...(review
+          ? {
+              contradicted: {
+                ...(review.sessionId ? { sessionId: review.sessionId } : {}),
+                ...(reviewSession ? { sessionTitle: reviewSession.title.slice(0, SESSION_TITLE_LIMIT) } : {}),
+                at: review.at,
+              },
+            }
+          : {}),
+      },
+      ...(shown.length > 0 ? { laterSessions: shown } : {}),
+      ...(omitted > 0 ? { laterSessionsOmitted: omitted } : {}),
+    };
+  }
+
   private sessionContext(
     session: SessionRow | undefined,
     siblings: SiblingDecisionRow[],
@@ -714,14 +913,26 @@ export class AgentReviewService {
   }
 
   /**
-   * Items keep their normal field limits and are shortened only when they alone exceed the budget; the Knowledge
-   * titles get what is left, dropped from the end of the list (active first, then archived, then rejected).
+   * Items keep their normal field limits and are shortened only when they alone exceed the budget. The attached lists
+   * get what is left, each dropped from its end: first every Knowledge item's later Sessions in item order, then the
+   * Knowledge titles (active first, then archived, then rejected). Every list is reserved at its largest omitted count
+   * before any is filled, so filling one never pushes the page over through a count added later.
    */
   private fitContext(result: ContextResult): void {
-    const existing = result.existingKnowledge;
-    const omitted = result.existingKnowledgeOmitted ?? 0;
+    const existing = result.existingKnowledge?.map((entry) => ({
+      ...entry,
+      title: entry.title.slice(0, EXISTING_TITLE_LIMIT),
+    }));
+    const existingOmitted = result.existingKnowledgeOmitted ?? 0;
     delete result.existingKnowledge;
     delete result.existingKnowledgeOmitted;
+    const later = result.items.map((item) => {
+      const sessions = item.laterSessions;
+      const omitted = item.laterSessionsOmitted ?? 0;
+      delete item.laterSessions;
+      delete item.laterSessionsOmitted;
+      return sessions ? { sessions, omitted } : undefined;
+    });
     for (
       let limit = 500;
       JSON.stringify(result).length > CONTEXT_BUDGET && limit >= 25;
@@ -729,23 +940,70 @@ export class AgentReviewService {
     ) {
       shortenContext(result, limit);
     }
-    if (!existing) return;
-    const titles = existing.map((entry) => ({ ...entry, title: entry.title.slice(0, EXISTING_TITLE_LIMIT) }));
-    // Measured with the largest omitted count the result can carry, so the final count always fits.
-    result.existingKnowledge = [];
-    result.existingKnowledgeOmitted = omitted + titles.length;
-    let remaining = CONTEXT_BUDGET - JSON.stringify(result).length;
+    const lists: Array<{
+      target: object;
+      key: string;
+      omittedKey: string;
+      entries: readonly unknown[];
+      omitted: number;
+    }> = [];
+    result.items.forEach((item, index) => {
+      const list = later[index];
+      if (list)
+        lists.push({
+          target: item,
+          key: "laterSessions",
+          omittedKey: "laterSessionsOmitted",
+          ...list,
+          entries: list.sessions,
+        });
+    });
+    if (existing) {
+      lists.push({
+        target: result,
+        key: "existingKnowledge",
+        omittedKey: "existingKnowledgeOmitted",
+        entries: existing,
+        omitted: existingOmitted,
+      });
+    }
+    for (const list of lists) {
+      const fields = list.target as Record<string, unknown>;
+      fields[list.key] = [];
+      fields[list.omittedKey] = list.omitted + list.entries.length;
+    }
+    for (const list of lists) {
+      const kept = this.fitList(result, list.target, list.key, list.omittedKey, list.entries, list.omitted);
+      if (kept < list.entries.length) result.truncated = true;
+    }
+  }
+
+  /**
+   * Keeps the longest prefix of `entries` under `key` that fits the page and records `omitted` plus the dropped ones
+   * under `omittedKey` (left out when zero). The target must already carry its largest count, so the final count
+   * always fits. Returns how many entries were kept.
+   */
+  private fitList(
+    result: ContextResult,
+    target: object,
+    key: string,
+    omittedKey: string,
+    entries: readonly unknown[],
+    omitted: number,
+  ): number {
+    const fields = target as Record<string, unknown>;
+    let remaining = CONTEXT_BUDGET - SERVER_STATUS_RESERVE - JSON.stringify(result).length;
     let kept = 0;
-    for (const entry of titles) {
+    for (const entry of entries) {
       remaining -= JSON.stringify(entry).length + 1;
       if (remaining < 0) break;
       kept += 1;
     }
-    result.existingKnowledge = titles.slice(0, kept);
-    const dropped = titles.length - kept;
-    if (omitted + dropped > 0) result.existingKnowledgeOmitted = omitted + dropped;
-    else delete result.existingKnowledgeOmitted;
-    if (dropped > 0) result.truncated = true;
+    fields[key] = entries.slice(0, kept);
+    const dropped = entries.length - kept;
+    if (omitted + dropped > 0) fields[omittedKey] = omitted + dropped;
+    else delete fields[omittedKey];
+    return kept;
   }
 
   private apply(
@@ -829,11 +1087,13 @@ export class AgentReviewService {
     at: string,
   ): Decided {
     if (item.outcome) return { outcome: "skipped_reviewed" };
+    const current = currentOf(item, pending);
+    if (!current) return { outcome: "skipped_stale" };
+    if (!current.pending) return { outcome: "skipped_reviewed" };
+    if (current.fingerprint !== item.fingerprint) return { outcome: "skipped_stale" };
+    if (verdict.itemKind === "knowledge") return this.decideKnowledge(request, rootPath, pending, verdict);
     if (verdict.itemKind === "decision") {
-      const row = pending.decisions.get(item.item_id);
-      if (!row) return { outcome: "skipped_stale" };
-      if (row.review_status !== "pending") return { outcome: "skipped_reviewed" };
-      if (decisionFingerprint(row) !== item.fingerprint) return { outcome: "skipped_stale" };
+      const row = pending.decisions.get(item.item_id)!;
       let status: "confirmed" | "rejected" | "promoted" = verdict.verdict === "confirm" ? "confirmed" : "rejected";
       let knowledgeId: string | null = null;
       let redactions: RedactionSummary | undefined;
@@ -866,10 +1126,7 @@ export class AgentReviewService {
         .run(status, at, knowledgeId, reason, request.id, row.id);
       return { outcome: "applied", ...(knowledgeId ? { knowledgeId } : {}), ...(redactions ? { redactions } : {}) };
     }
-    const row = pending.candidates.get(item.item_id);
-    if (!row) return { outcome: "skipped_stale" };
-    if (row.status !== "proposed") return { outcome: "skipped_reviewed" };
-    if (candidateFingerprint(row) !== item.fingerprint) return { outcome: "skipped_stale" };
+    const row = pending.candidates.get(item.item_id)!;
     let knowledgeId: string | null = null;
     let redactions: RedactionSummary | undefined;
     if (verdict.verdict === "accept") {
@@ -897,6 +1154,43 @@ export class AgentReviewService {
       )
       .run(verdict.verdict === "accept" ? "accepted" : "rejected", at, knowledgeId, reason, request.id, row.id);
     return { outcome: "applied", ...(knowledgeId ? { knowledgeId } : {}), ...(redactions ? { redactions } : {}) };
+  }
+
+  /**
+   * Active Knowledge in doubt, through the ordinary Knowledge writes: confirm records a manual confirmation (the
+   * possiblyStale baseline moves to now and review clears), archive archives it, and supersede records the draft with
+   * supersedesId, which archives the old one. The verdict itself (Agent, reason, request) lives on the snapshot item.
+   */
+  private decideKnowledge(
+    request: RequestRow,
+    rootPath: string,
+    pending: PendingRows,
+    verdict: Extract<NormalizedVerdict, { itemKind: "knowledge" }>,
+  ): Decided {
+    const old = pending.knowledge.get(verdict.itemId)!.record;
+    if (verdict.verdict !== "supersede") {
+      const updated = this.dependencies.updateKnowledge({
+        projectRoot: rootPath,
+        knowledgeId: old.id,
+        ...(verdict.verdict === "confirm" ? { confirm: true } : { status: "archived" as const }),
+      });
+      return updated.outcome === "knowledge_updated" ? { outcome: "applied" } : knowledgeRejected(updated);
+    }
+    const draft = verdict.knowledge;
+    if (!draft) return { outcome: "skipped_stale" };
+    const recorded = this.dependencies.recordKnowledge({
+      projectRoot: rootPath,
+      idempotencyKey: `agent-review-${request.id}-${old.id}`,
+      kind: draft.kind ?? old.kind,
+      title: draft.title,
+      body: draft.body,
+      tags: draft.tags ?? old.tags,
+      references: draft.references ?? old.references,
+      appliesTo: draft.appliesTo ?? old.appliesTo,
+      supersedesId: old.id,
+    });
+    if (recorded.outcome !== "knowledge_recorded") return knowledgeRejected(recorded);
+    return { outcome: "applied", knowledgeId: recorded.knowledge.id, redactions: recorded.redactions };
   }
 
   /** The stored results of an earlier submission with this key, when the payload is the same. */
@@ -996,25 +1290,78 @@ export class AgentReviewService {
       : { id: current.id, action: "unchanged", status: current.status };
   }
 
+  /**
+   * Undoes the latest standing Agent verdict on a Knowledge item through the ordinary Knowledge writes: a confirmation
+   * is withdrawn, an archive restored, a replacement archived and the replaced Knowledge restored. Each step happens
+   * only while nothing else changed that Knowledge since; every standing verdict on it is marked overturned.
+   */
+  private overturnKnowledge(projectId: string, projectRoot: string, knowledgeId: string): OverturnAgentReviewResult {
+    return runImmediateTransaction(this.db, (): OverturnAgentReviewResult => {
+      if (this.knowledgeRows(projectId, [knowledgeId]).length === 0)
+        return { outcome: "not_found", itemId: knowledgeId };
+      const standing = this.db
+        .prepare(
+          `SELECT * FROM agent_review_request_items
+           WHERE project_id = ? AND item_kind = 'knowledge' AND item_id = ? AND outcome = 'applied' AND overturned_at IS NULL
+           ORDER BY decided_at DESC, rowid DESC LIMIT 1`,
+        )
+        .get(projectId, knowledgeId) as ItemRow | undefined;
+      if (!standing) return { outcome: "rejected", reason: "not_agent_reviewed" };
+      let action: "confirmation_withdrawn" | "restored" | "unchanged" = "unchanged";
+      let created: ReturnType<AgentReviewService["archiveCreated"]> | undefined;
+      if (standing.verdict === "confirm") {
+        const withdrawn = this.dependencies.withdrawConfirmation(projectId, knowledgeId, standing.decided_at ?? "");
+        if (withdrawn?.withdrawn) action = "confirmation_withdrawn";
+      } else {
+        if (standing.verdict === "supersede") {
+          created = this.archiveCreated(projectId, projectRoot, standing.knowledge_id ?? undefined);
+        }
+        action = this.restoreArchived(projectId, projectRoot, knowledgeId);
+      }
+      this.db
+        .prepare(
+          `UPDATE agent_review_request_items SET overturned_at = ?
+           WHERE project_id = ? AND item_kind = 'knowledge' AND item_id = ? AND outcome = 'applied' AND overturned_at IS NULL`,
+        )
+        .run(nowIso(), projectId, knowledgeId);
+      const [knowledge] = this.dependencies.withKnowledgeTrustMany([
+        toKnowledge(this.knowledgeRows(projectId, [knowledgeId])[0]!),
+      ]);
+      return {
+        outcome: "agent_review_overturned",
+        itemKind: "knowledge",
+        reviewedKnowledge: { knowledge: knowledge!, action },
+        ...(created ? { knowledge: created } : {}),
+      };
+    });
+  }
+
+  /** Restores archived Knowledge; refused (unchanged) while another active Knowledge supersedes it. */
+  private restoreArchived(projectId: string, projectRoot: string, knowledgeId: string): "restored" | "unchanged" {
+    const [row] = this.knowledgeRows(projectId, [knowledgeId]);
+    if (row?.status !== "archived") return "unchanged";
+    const restored = this.dependencies.updateKnowledge({ projectRoot, knowledgeId, status: "active" });
+    return restored.outcome === "knowledge_updated" ? "restored" : "unchanged";
+  }
+
   private pendingRows(request: RequestRow, itemIds: readonly string[]): PendingRows {
     const itemRows = this.db
       .prepare(
         "SELECT * FROM agent_review_request_items WHERE request_id = ? AND item_id IN (SELECT value FROM json_each(?))",
       )
       .all(request.id, JSON.stringify(itemIds)) as ItemRow[];
-    const rows = this.currentRows(
-      request.project_id,
-      itemRows.filter((item) => item.item_kind === "decision").map((item) => item.item_id),
-      itemRows.filter((item) => item.item_kind === "candidate").map((item) => item.item_id),
-    );
-    return { items: new Map(itemRows.map((item) => [itemKey(item.item_kind, item.item_id), item])), ...rows };
+    return {
+      items: new Map(itemRows.map((item) => [itemKey(item.item_kind, item.item_id), item])),
+      ...this.currentRows(request.project_id, itemRows),
+    };
   }
 
-  private currentRows(
-    projectId: string,
-    decisionIds: readonly string[],
-    candidateIds: readonly string[],
-  ): Pick<PendingRows, "decisions" | "candidates"> {
+  /** The current rows behind the items, one batched query per kind. */
+  private currentRows(projectId: string, itemRows: readonly ItemRow[]): CurrentRows {
+    const idsOf = (kind: AgentReviewItemKind): string[] =>
+      itemRows.filter((item) => item.item_kind === kind).map((item) => item.item_id);
+    const decisionIds = idsOf("decision");
+    const candidateIds = idsOf("candidate");
     const decisions = decisionIds.length
       ? (this.db
           .prepare(
@@ -1032,7 +1379,21 @@ export class AgentReviewService {
     return {
       decisions: new Map(decisions.map((row) => [row.id, row])),
       candidates: new Map(candidates.map((row) => [row.id, row])),
+      knowledge: new Map(
+        this.trusted(this.knowledgeRows(projectId, idsOf("knowledge"))).map((trusted) => [trusted.row.id, trusted]),
+      ),
     };
+  }
+
+  /** Knowledge rows by id, of one project or (without one) of any project. */
+  private knowledgeRows(projectId: string | undefined, ids: readonly string[]): KnowledgeRow[] {
+    if (ids.length === 0) return [];
+    return this.db
+      .prepare(
+        `SELECT k.*, p.name AS project_name FROM knowledge k JOIN projects p ON p.id = k.project_id
+         WHERE k.id IN (SELECT value FROM json_each(?)) ${projectId ? "AND k.project_id = ?" : ""}`,
+      )
+      .all(JSON.stringify(ids), ...(projectId ? [projectId] : [])) as KnowledgeRow[];
   }
 
   private sessions(projectId: string, ids: readonly string[]): Map<string, SessionRow> {
@@ -1116,6 +1477,7 @@ export class AgentReviewService {
             `SELECT request_id,
                     SUM(item_kind = 'decision') AS decision_count,
                     SUM(item_kind = 'candidate') AS candidate_count,
+                    SUM(item_kind = 'knowledge') AS knowledge_count,
                     SUM(outcome = 'applied') AS applied_count,
                     SUM(outcome IN ('skipped_stale', 'skipped_reviewed')) AS skipped_count,
                     SUM(outcome IS NULL) AS open_count
@@ -1140,6 +1502,7 @@ export class AgentReviewService {
         omittedCount: row.omitted_count,
         decisionCount: count?.decision_count ?? 0,
         candidateCount: count?.candidate_count ?? 0,
+        knowledgeCount: count?.knowledge_count ?? 0,
         appliedCount: count?.applied_count ?? 0,
         skippedCount: count?.skipped_count ?? 0,
         openCount: count?.open_count ?? 0,

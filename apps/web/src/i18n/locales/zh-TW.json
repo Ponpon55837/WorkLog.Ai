@@ -578,11 +578,10 @@
     "workKnowledgeTabs": "工作知識分頁",
     "agentReviewTitle": "Agent 審查請求",
     "askAgentToReview": "請 Agent 處理",
-    "agentReviewIntro": "Agent 會逐項核對來源 Session，直接確認、拒絕或接受待處理的項目，並附上理由。處理結果立即生效，你之後可以推翻。",
-    "agentReviewChooseProject": "請先選擇單一專案，才能請 Agent 處理這個專案的待確認決策與 Knowledge 候選。",
-    "agentReviewNothingPending": "這個專案目前沒有待確認的決策或 Knowledge 候選。",
+    "agentReviewIntro": "Agent 會逐項核對來源 Session 與後續變更，直接確認、拒絕、接受、封存或取代待處理的項目與可能過時的 Knowledge，並附上理由。處理結果立即生效，你之後可以推翻。",
+    "agentReviewChooseProject": "請先選擇單一專案，才能請 Agent 處理這個專案的待確認決策、Knowledge 候選與需要審查的 Knowledge。",
     "agentReviewAskYourAgent": "請你的 Agent 處理 Agent 審查請求。完成前，這個專案不能再開新的請求。",
-    "agentReviewSnapshot": "快照 {itemCount} 筆（決策 {decisionCount}、候選 {candidateCount}）",
+    "agentReviewSnapshot": "快照 {itemCount} 筆（決策 {decisionCount}、候選 {candidateCount}、Knowledge {knowledgeCount}）",
     "agentReviewTotals": "已處理 {applied}、略過 {skipped}、仍待處理 {open}",
     "agentReviewOmitted": "{count} 筆超過上限未納入，完成後可再開一次請求。",
     "agentReviewFailed": "處理中斷：{reason}",
@@ -630,7 +629,18 @@
     "deleteThisKnowledgePage": "刪除這個知識頁？",
     "knowledgePageWillBeDeleted": "「{title}」和它的 {versionCount} 個歷史版本會一併刪除，此操作無法復原。之後匯入較早的 JSON 匯出檔也不會把它加回。",
     "knowledgePageDeleted": "已刪除知識頁「{title}」。",
-    "couldNotDeleteTheKnowledgePage": "無法刪除這個知識頁。"
+    "couldNotDeleteTheKnowledgePage": "無法刪除這個知識頁。",
+    "agentProcessedKnowledge": "由 Agent 處理的 Knowledge",
+    "agentProcessedKnowledgeList": "由 Agent 處理的 Knowledge 清單",
+    "replacedBy": "已由「{title}」取代",
+    "couldNotLoadAgentReviewedKnowledge": "無法載入由 Agent 處理的 Knowledge。",
+    "overturnKnowledgeConfirmMessage": "Agent 的確認會被撤回，這筆 Knowledge 回到原本的審查狀態。",
+    "overturnKnowledgeArchiveMessage": "這筆 Knowledge 會恢復為使用中。",
+    "overturnKnowledgeSupersedeMessage": "Agent 建立的新 Knowledge 若仍是使用中，會被封存，原本的 Knowledge 恢復為使用中。",
+    "overturnedKnowledgeConfirmationWithdrawn": "已推翻，Agent 的確認已撤回。",
+    "overturnedKnowledgeRestored": "已推翻，Knowledge 已恢復為使用中。",
+    "overturnedKnowledgeRestoredReplacementArchived": "已推翻，Agent 建立的新 Knowledge 已封存，原本的 Knowledge 已恢復為使用中。",
+    "overturnedKnowledgeReviewedUnchanged": "已推翻，但這筆 Knowledge 在處理後已有變動，維持原狀。"
   },
   "labels": {
     "agent": "Agent",
@@ -1575,7 +1585,8 @@
     "agentObservationLocation": "MCP 記錄",
     "agentReviewPending": "待 Agent 處理",
     "agentReviewCompleted": "Agent 已處理",
-    "promotedToKnowledge": "已轉為 Knowledge"
+    "promotedToKnowledge": "已轉為 Knowledge",
+    "supersededByAgent": "已取代"
   },
   "systemStatus": {
     "agentConnections": "Agent 連線",

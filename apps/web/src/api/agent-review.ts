@@ -1,5 +1,6 @@
 import type {
   AgentReviewItemKind,
+  AgentReviewedKnowledgeListResult,
   AgentReviewRequestListResult,
   AgentReviewRequestQuery,
   CancelAgentReviewRequestResult,
@@ -17,12 +18,14 @@ export interface AgentReviewApi {
     signal?: AbortSignal,
   ): Promise<CreateAgentReviewRequestResult>;
   cancelAgentReviewRequest(requestId: string, signal?: AbortSignal): Promise<CancelAgentReviewRequestResult>;
+  listAgentReviewedKnowledge(projectRoot?: string, signal?: AbortSignal): Promise<AgentReviewedKnowledgeListResult>;
   overturnAgentReview(input: OverturnAgentReviewInput, signal?: AbortSignal): Promise<OverturnAgentReviewResult>;
 }
 
 const OVERTURN_PATHS: Record<AgentReviewItemKind, (itemId: string) => string> = {
   decision: (itemId) => `/api/session-decisions/${encodeURIComponent(itemId)}/overturn`,
   candidate: (itemId) => `/api/knowledge/candidates/${encodeURIComponent(itemId)}/overturn`,
+  knowledge: (itemId) => `/api/knowledge/${encodeURIComponent(itemId)}/overturn`,
 };
 
 /** Requests an Agent to review a project's pending items and lets a person overturn what it decided. */
@@ -36,6 +39,9 @@ export function createAgentReviewApi(client: ApiTransport): AgentReviewApi {
     },
     cancelAgentReviewRequest(requestId, signal) {
       return client.write(`/api/agent-review-requests/${encodeURIComponent(requestId)}/cancel`, "POST", {}, signal);
+    },
+    listAgentReviewedKnowledge(projectRoot, signal) {
+      return client.request(appendQuery("/api/agent-review-knowledge", { projectRoot }), { signal });
     },
     overturnAgentReview(input, signal) {
       return client.write(

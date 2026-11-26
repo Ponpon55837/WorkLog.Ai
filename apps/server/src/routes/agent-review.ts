@@ -1,6 +1,7 @@
 import type { ServerResponse } from "node:http";
 import type { z } from "zod";
 import {
+  agentReviewedKnowledgeQuerySchema,
   agentReviewRequestIdSchema,
   agentReviewRequestQuerySchema,
   createAgentReviewRequestInputSchema,
@@ -50,7 +51,7 @@ function reviewRoute<S extends z.ZodType>(
   };
 }
 
-function overturnRoute(itemKind: "decision" | "candidate", param: string): Route["handler"] {
+function overturnRoute(itemKind: "decision" | "candidate" | "knowledge", param: string): Route["handler"] {
   return reviewRoute(
     overturnAgentReviewInputSchema,
     async ({ request, params }) => ({ ...(await readJsonObject(request)), itemKind, itemId: params[param] }),
@@ -102,5 +103,19 @@ export const agentReviewRoutes: Route[] = [
     method: "POST",
     pattern: "/api/knowledge/candidates/:candidateId/overturn",
     handler: overturnRoute("candidate", "candidateId"),
+  },
+  {
+    method: "GET",
+    pattern: "/api/agent-review-knowledge",
+    handler: reviewRoute(
+      agentReviewedKnowledgeQuerySchema,
+      ({ url }) => ({ projectRoot: textParam(url, "projectRoot") }),
+      ({ store }, input) => store.listAgentReviewedKnowledge(input),
+    ),
+  },
+  {
+    method: "POST",
+    pattern: "/api/knowledge/:knowledgeId/overturn",
+    handler: overturnRoute("knowledge", "knowledgeId"),
   },
 ];

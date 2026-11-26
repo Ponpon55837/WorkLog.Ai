@@ -2,6 +2,8 @@ import { computed, ref } from "vue";
 import { useMutation, useQuery, useQueryCache } from "@pinia/colada";
 import { defineStore } from "pinia";
 import type {
+  AgentReviewedKnowledge,
+  AgentReviewedKnowledgeListResult,
   AgentReviewRequest,
   AgentReviewRequestListResult,
   CreateAgentReviewRequestInput,
@@ -24,6 +26,7 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
   const active = ref(false);
   const filter = ref<AgentReviewListFilter>("pending");
   const projectId = ref("");
+  const knowledgeActive = ref(false);
   const projectRoot = ref<string | undefined>();
   const createKey = ref("");
 
@@ -37,6 +40,11 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
     key: () => [...queryKeys.agentReview.candidates, projectRoot.value ?? "all"],
     enabled: () => active.value && filter.value === "agent",
     query: ({ signal }) => useApi().client.listKnowledgeCandidates(projectRoot.value, signal, "agent"),
+  });
+  const reviewedKnowledgeQuery = useQuery<AgentReviewedKnowledgeListResult>({
+    key: () => [...queryKeys.agentReview.knowledge, projectRoot.value ?? "all"],
+    enabled: () => active.value && knowledgeActive.value,
+    query: ({ signal }) => useApi().client.listAgentReviewedKnowledge(projectRoot.value, signal),
   });
 
   const createMutation = useMutation({
@@ -66,6 +74,7 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
         queryCache.invalidateQueries({ key: queryKeys.sessionDecisions.list }),
         queryCache.invalidateQueries({ key: queryKeys.knowledge.candidates }),
         queryCache.invalidateQueries({ key: queryKeys.knowledge.list }),
+        queryCache.invalidateQueries({ key: queryKeys.agentReview.knowledge }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.detail }),
         queryCache.invalidateQueries({ key: queryKeys.reports.report }),
         queryCache.invalidateQueries({ key: queryKeys.commandPalette.search }),
@@ -100,6 +109,17 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
       ? errorMessage(reviewedCandidatesQuery.error.value, t("knowledge.couldNotLoadKnowledgeCandidates"))
       : "",
   );
+  const reviewedKnowledge = computed<AgentReviewedKnowledge[]>(() =>
+    reviewedKnowledgeQuery.data.value?.outcome === "agent_reviewed_knowledge"
+      ? reviewedKnowledgeQuery.data.value.items
+      : [],
+  );
+  const reviewedKnowledgeLoaded = computed(() => reviewedKnowledgeQuery.data.value !== undefined);
+  const reviewedKnowledgeError = computed(() =>
+    reviewedKnowledgeQuery.error.value
+      ? errorMessage(reviewedKnowledgeQuery.error.value, t("knowledge.couldNotLoadAgentReviewedKnowledge"))
+      : "",
+  );
 
   function setScope(nextProjectId: string, nextProjectRoot: string | undefined): void {
     if (projectId.value !== nextProjectId) createKey.value = "";
@@ -109,6 +129,10 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
 
   function setActive(value: boolean): void {
     active.value = value;
+  }
+
+  function setKnowledgeActive(value: boolean): void {
+    knowledgeActive.value = value;
   }
 
   /** A retry after a failed attempt reuses the key, so the server never opens two requests for one click. */
@@ -141,8 +165,12 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
     reviewedCandidatesLoaded,
     reviewedCandidatesLoading,
     reviewedCandidatesError,
+    reviewedKnowledge,
+    reviewedKnowledgeLoaded,
+    reviewedKnowledgeError,
     setScope,
     setActive,
+    setKnowledgeActive,
     createRequest,
     cancelRequest,
     overturn,

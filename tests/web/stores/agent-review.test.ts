@@ -12,6 +12,7 @@ const request = {
   omittedCount: 0,
   decisionCount: 2,
   candidateCount: 1,
+  knowledgeCount: 2,
   appliedCount: 0,
   skippedCount: 0,
   openCount: 3,
@@ -32,6 +33,7 @@ function responder({ url, method }: StoreRequest): unknown {
   if (url.pathname === "/api/knowledge/candidates")
     return { outcome: "knowledge_candidates", items: [], openRequests: [], backlog: [] };
   if (url.pathname === "/api/session-decisions") return { outcome: "session_decisions", items: [], pendingCount: 0 };
+  if (url.pathname === "/api/agent-review-knowledge") return { outcome: "agent_reviewed_knowledge", items: [] };
   return { outcome: "agent_review_overturned", itemKind: "decision" };
 }
 
@@ -113,5 +115,45 @@ describe("agent review store", () => {
     expect(result.outcome).toBe("agent_review_overturned");
     expect(harness.count("/api/session-decisions/d1/overturn", "POST")).toBe(1);
     await vi.waitFor(() => expect(harness.count("/api/session-decisions")).toBeGreaterThan(1));
+  });
+
+  it("loads Agent-processed Knowledge only while the list is active, keyed by project root", async () => {
+    const store = useAgentReviewStore();
+    store.setActive(true);
+    await Promise.resolve();
+    expect(harness.count("/api/agent-review-knowledge")).toBe(0);
+
+    store.setScope("project-1", "/work/orchard");
+    store.setKnowledgeActive(true);
+    await vi.waitFor(() => expect(store.reviewedKnowledgeLoaded).toBe(true));
+    expect(harness.calls.find((call) => call.url.pathname === "/api/agent-review-knowledge")?.url.search).toBe(
+      "?projectRoot=%2Fwork%2Forchard",
+    );
+
+    store.setScope("project-2", "/work/harbour");
+    await vi.waitFor(() =>
+      expect(
+        harness.calls.some(
+          (call) =>
+            call.url.pathname === "/api/agent-review-knowledge" &&
+            call.url.searchParams.get("projectRoot") === "/work/harbour",
+        ),
+      ).toBe(true),
+    );
+    expect(harness.count("/api/agent-review-knowledge")).toBe(2);
+  });
+
+  it("refreshes the Agent-processed Knowledge list after overturning Knowledge", async () => {
+    const store = useAgentReviewStore();
+    store.setScope("project-1", "/work/orchard");
+    store.setActive(true);
+    store.setKnowledgeActive(true);
+    await vi.waitFor(() => expect(harness.count("/api/agent-review-knowledge")).toBe(1));
+    harness.setResponder((input) =>
+      input.method === "POST" ? { outcome: "agent_review_overturned", itemKind: "knowledge" } : responder(input),
+    );
+    await store.overturn({ projectRoot: "/work/orchard", itemKind: "knowledge", itemId: "k1" });
+    expect(harness.count("/api/knowledge/k1/overturn", "POST")).toBe(1);
+    await vi.waitFor(() => expect(harness.count("/api/agent-review-knowledge")).toBeGreaterThan(1));
   });
 });

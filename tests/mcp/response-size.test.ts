@@ -1228,6 +1228,93 @@ describe("synthetic MCP response-size baseline", () => {
     console.info(`Max MCP Agent review context size: ${context.length} UTF-16 code units`);
   });
 
+  it("bounds the Agent review context page with long Knowledge in doubt, many later Sessions and existing Knowledge", async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "work-intelligence-agent-review-knowledge-size-"));
+    cleanups.push(() => rmSync(projectRoot, { recursive: true, force: true }));
+    const store = new WorkIntelligenceStore(":memory:");
+    cleanups.push(() => store.close());
+    const project = store.addProject("Synthetic Knowledge Review Project", projectRoot);
+    store.updateProject(project.id, { status: "tracked" });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.UTC(2030, 0, 1));
+    const tick = () => vi.setSystemTime(Date.now() + 60_000);
+    const long = (label: string) => `${label} `.repeat(1_500).trim();
+    const record = (key: string, title: string, body: string, appliesTo: string[]) => {
+      tick();
+      const result = store.recordKnowledge({
+        projectRoot,
+        idempotencyKey: key,
+        kind: "gotcha",
+        title: title.slice(0, 300),
+        body,
+        tags: ["synthetic", "review"],
+        references: ["docs/synthetic-reference.md"],
+        appliesTo,
+      });
+      if (result.outcome !== "knowledge_recorded")
+        throw new Error(`Expected recorded Knowledge; got ${result.outcome}.`);
+    };
+    for (let index = 0; index < 12; index += 1) {
+      record(`knowledge-size-doubt-${index}`, `Doubtful ${index} ${long("title")}`, long(`body-${index}`), [
+        "src/synthetic/**",
+      ]);
+    }
+    for (let index = 0; index < 40; index += 1) {
+      record(
+        `knowledge-size-existing-${index}`,
+        `Existing ${index} ${long("existing")}`,
+        `Existing body ${index}.`,
+        [],
+      );
+    }
+    for (let index = 0; index < 14; index += 1) {
+      tick();
+      const finalized = store.finalizeSession({
+        projectRoot,
+        idempotencyKey: `knowledge-size-later-${index}`,
+        title: `Later synthetic work ${index} ${long("title")}`.slice(0, 300),
+        summary: "Fictional later Session for Knowledge review response-budget coverage.",
+        workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+        changedFiles: Array.from({ length: 6 }, (_, file) => `src/synthetic/module-${index}-${file}.ts`),
+        verification: { status: "passed" },
+      });
+      if (finalized.outcome !== "finalized") throw new Error(`Expected a later Session; got ${finalized.outcome}.`);
+    }
+
+    const server = createWorkIntelligenceMcpServer(store, "0.1.0-test", LATEST_SCHEMA_VERSION);
+    const client = new Client({ name: "agent-review-knowledge-size-test", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    cleanups.push(() => client.close());
+
+    const request = await serializedMcpPayload(
+      client,
+      "work_request_agent_review",
+      { projectRoot, idempotencyKey: "agent-review-knowledge-size-request" },
+      "work_write_idempotent",
+    );
+    expect(request.value).toMatchObject({ outcome: "agent_review_request", request: { knowledgeCount: 12 } });
+
+    const context = await serializedMcpPayload(
+      client,
+      "work_get_agent_review_context",
+      { projectRoot },
+      "work_write_idempotent",
+    );
+    const value = context.value as {
+      outcome: string;
+      items: Array<{ itemKind: string; laterSessions?: unknown[]; laterSessionsOmitted?: number }>;
+      truncated: boolean;
+      pageInfo: { total: number };
+    };
+    expect(value).toMatchObject({ outcome: "agent_review_context", truncated: true, pageInfo: { total: 12 } });
+    expect(value.items.length).toBeGreaterThan(0);
+    expect(value.items.every((item) => item.itemKind === "knowledge")).toBe(true);
+    expect(context.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.agentReviewContext);
+    expect(context.length).toBeGreaterThan(12_000);
+    console.info(`Max MCP Agent review Knowledge context size: ${context.length} UTF-16 code units`);
+  });
+
   it("rejects imported cleanup context when preserving a long source identity exceeds the response budget", async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), "work-intelligence-long-cleanup-identity-"));
     cleanups.push(() => rmSync(projectRoot, { recursive: true, force: true }));

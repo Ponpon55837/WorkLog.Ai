@@ -111,6 +111,81 @@ describe("backfilled confirmation", () => {
   });
 });
 
+describe("backfilled applied feedback and a newer contradiction", () => {
+  it("keeps the contradiction when the applying Session finished before it", () => {
+    const { finalize, record, historyOf } = setup();
+    const knowledge = record("k");
+    const contradicting = finalize("contradicting", { contradictedKnowledgeIds: [knowledge.id] });
+
+    finalize("backfill", { appliedKnowledgeIds: [knowledge.id], completedAt: "2029-12-31T00:00:00.000Z" });
+    const after = historyOf(knowledge.id);
+    expect(after.knowledge.review).toMatchObject({
+      reason: "contradicted",
+      sessionId: contradicting.session.id,
+      at: contradicting.session.completedAt,
+    });
+    expect(after.feedback.filter((entry) => entry.kind === "applied")).toHaveLength(1);
+    expect(after.history.find((entry) => entry.occurredAt === "2029-12-31T00:00:00.000Z")).toMatchObject({
+      action: "updated",
+      changedFields: ["lastConfirmedAt"],
+    });
+  });
+
+  it("clears the contradiction when the applying Session finished after it", () => {
+    const { finalize, record, historyOf } = setup();
+    const knowledge = record("k");
+    finalize("contradicting", { contradictedKnowledgeIds: [knowledge.id] });
+
+    finalize("later", { appliedKnowledgeIds: [knowledge.id] });
+    const after = historyOf(knowledge.id);
+    expect(after.knowledge.review).toBeUndefined();
+    expect(after.history[0]).toMatchObject({ action: "updated", changedFields: ["lastConfirmedAt", "review"] });
+  });
+});
+
+describe("backfilled contradicted feedback and a newer confirmation", () => {
+  it("does not put confirmed Knowledge back in doubt when the contradicting Session finished before it", () => {
+    const { finalize, record, historyOf } = setup();
+    const knowledge = record("k");
+    const confirming = finalize("confirming", { appliedKnowledgeIds: [knowledge.id] });
+
+    finalize("backfill", { contradictedKnowledgeIds: [knowledge.id], completedAt: "2029-12-31T00:00:00.000Z" });
+    const after = historyOf(knowledge.id);
+    expect(after.knowledge.review).toBeUndefined();
+    expect(after.knowledge.lastConfirmedAt).toBe(confirming.session.completedAt);
+    expect(after.feedback.filter((entry) => entry.kind === "contradicted")).toHaveLength(1);
+    expect(after.knowledge.evidence).toMatchObject({ confirmed: 1, contradicted: 1 });
+  });
+
+  it("keeps the newer of two contradictions", () => {
+    const { finalize, record, historyOf } = setup();
+    const knowledge = record("k");
+    const recent = finalize("recent", { contradictedKnowledgeIds: [knowledge.id] });
+
+    finalize("backfill", { contradictedKnowledgeIds: [knowledge.id], completedAt: "2029-12-31T00:00:00.000Z" });
+    expect(historyOf(knowledge.id).knowledge.review).toMatchObject({
+      sessionId: recent.session.id,
+      at: recent.session.completedAt,
+    });
+  });
+
+  it("puts Knowledge in doubt when the contradicting Session finished after the confirmation", () => {
+    const { finalize, record, historyOf } = setup();
+    const knowledge = record("k");
+    finalize("confirming", { appliedKnowledgeIds: [knowledge.id] });
+    const contradicting = finalize("contradicting", { contradictedKnowledgeIds: [knowledge.id] });
+    expect(historyOf(knowledge.id).knowledge.review).toMatchObject({ sessionId: contradicting.session.id });
+  });
+
+  it("does not double-count feedback a Session reports again", () => {
+    const { finalize, record, historyOf } = setup();
+    const knowledge = record("k");
+    finalize("same", { contradictedKnowledgeIds: [knowledge.id] });
+    finalize("same", { contradictedKnowledgeIds: [knowledge.id] });
+    expect(historyOf(knowledge.id).knowledge.evidence).toMatchObject({ contradicted: 1 });
+  });
+});
+
 describe("restoring replaced Knowledge", () => {
   it("rejects restoring an archived item that an active item supersedes", () => {
     const { store, root, record, historyOf, tick } = setup();

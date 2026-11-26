@@ -44,6 +44,9 @@ describe("domain API factories", () => {
     await api.overturnAgentReview({ projectRoot: "/work/orchard", itemKind: "decision", itemId: "d1" });
     await api.overturnAgentReview({ projectRoot: "/work/orchard", itemKind: "candidate", itemId: "c1" });
     await api.listKnowledgeCandidates("/work/orchard", undefined, "agent");
+    await api.overturnAgentReview({ projectRoot: "/work/orchard", itemKind: "knowledge", itemId: "k 1" });
+    await api.listAgentReviewedKnowledge("/work/orchard");
+    await api.listAgentReviewedKnowledge();
 
     expect(calls.map((call) => `${call.method} ${call.url.pathname}${call.url.search}`)).toEqual([
       "POST /api/agent-review-requests",
@@ -52,8 +55,12 @@ describe("domain API factories", () => {
       "POST /api/session-decisions/d1/overturn",
       "POST /api/knowledge/candidates/c1/overturn",
       "GET /api/knowledge/candidates?projectRoot=%2Fwork%2Forchard&reviewedBy=agent",
+      "POST /api/knowledge/k%201/overturn",
+      "GET /api/agent-review-knowledge?projectRoot=%2Fwork%2Forchard",
+      "GET /api/agent-review-knowledge",
     ]);
     expect(calls[3]?.body).toEqual({ projectRoot: "/work/orchard" });
+    expect(calls[6]?.body).toEqual({ projectRoot: "/work/orchard" });
   });
 
   it("reads the Agent read audit with filters and per-record paths", async () => {

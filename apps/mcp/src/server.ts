@@ -809,7 +809,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_request_agent_review", {
     title: "Request Agent review",
     description:
-      "Only when the user explicitly asks you to review this tracked project's pending Agent decisions and Knowledge candidates; never on your own initiative. Creates the Web UI's snapshot request, or returns the open one (duplicate: true); agent_review_not_needed when nothing is pending. Request only: it applies no verdict. " +
+      "Only when the user explicitly asks you to review this tracked project's pending Agent decisions, Knowledge candidates and active Knowledge in doubt; never on your own initiative. Creates the Web UI's snapshot request, or returns the open one (duplicate: true); agent_review_not_needed when nothing is pending. Request only: it applies no verdict. " +
       agentReviewContract,
     inputShape: requestAgentReviewInputSchema.shape,
     schema: requestAgentReviewInputSchema,
@@ -821,7 +821,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_get_agent_review_context", {
     title: "Get Agent review context",
     description:
-      "Start processing an Agent review request (the newest open one of projectRoot, or requestId) and return one page of up to 10 snapshot items, bounded to 24,000 serialized characters: decisions and Knowledge candidates with their source Session excerpts, state, overlaps and, on page 1, existingKnowledge. Read more pages with page; truncated fields need work_get_session. " +
+      "Start processing an Agent review request (the newest open one of projectRoot, or requestId) and return one page of up to 10 snapshot items, bounded to 24,000 serialized characters: decisions, Knowledge candidates and Knowledge in doubt with their source Session excerpts (Knowledge: doubt and laterSessions), state, overlaps and, on page 1, existingKnowledge. Read more pages with page; truncated fields need work_get_session. " +
       agentReviewContract,
     inputShape: agentReviewContextQuerySchemaBase.shape,
     schema: agentReviewContextQuerySchema,
@@ -834,12 +834,12 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_submit_agent_review_verdicts", {
     title: "Submit Agent review verdicts",
     description:
-      "Submit up to 50 evidence-based verdicts for a request's snapshot items; they apply directly, changing the review state of existing decisions and candidates (promote and accept create Knowledge), and the previous state stays in audit history. A replay of the same key and payload returns the first result (duplicate: true). " +
+      "Submit up to 50 evidence-based verdicts for a request's snapshot items; they apply directly, changing the review state of existing decisions, candidates and Knowledge (promote, accept and supersede create Knowledge; archive and supersede archive it), and the previous state stays in audit history. A replay of the same key and payload returns the first result (duplicate: true). " +
       agentReviewContract,
     inputShape: submitAgentReviewVerdictsInputSchemaBase.shape,
     schema: submitAgentReviewVerdictsInputSchema,
     validationNotes: [
-      "Each item appears once. Provide verdicts, or set complete to true. A decision verdict promote requires knowledge and knowledge is only allowed with promote; candidate edits are only allowed with accept.",
+      "Each item appears once. Provide verdicts, or set complete to true. A decision verdict promote requires knowledge and knowledge is only allowed with promote; candidate edits are only allowed with accept. A Knowledge verdict supersede requires knowledge (title and body) and knowledge is only allowed with supersede.",
     ],
     annotations: OVERWRITE_IDEMPOTENT,
     invalidMessage: "Invalid Agent review verdicts.",

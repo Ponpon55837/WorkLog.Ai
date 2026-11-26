@@ -2350,6 +2350,185 @@ describe("Work Intelligence MCP server", () => {
     expect(completed.completion?.knowledgePages.map((page) => page.slug)).toContain("pitfalls");
   });
 
+  describe("Agent review of Knowledge in doubt", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+
+    async function knowledgeInDoubt(names: string[]) {
+      const { client, store, root } = await connect();
+      const project = store.addProject("Orchard project", root);
+      store.updateProject(project.id, { status: "tracked" });
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(Date.UTC(2030, 0, 1));
+      const tick = () => vi.setSystemTime(Date.now() + 60_000);
+      const ids = new Map<string, string>();
+      for (const name of names) {
+        tick();
+        const recorded = store.recordKnowledge({
+          projectRoot: root,
+          idempotencyKey: `mcp-knowledge-${name}`,
+          kind: "gotcha",
+          title: `Orchard ${name}`,
+          body: `Orchard ${name} body.`,
+          appliesTo: [`src/${name}/**`],
+        });
+        if (recorded.outcome !== "knowledge_recorded") throw new Error("Expected recorded Knowledge.");
+        ids.set(name, recorded.knowledge.id);
+      }
+      tick();
+      await callJson(client, "work_finalize_session", {
+        ...finalizePayload(root, "mcp-knowledge-later", "Later orchard work"),
+        changedFiles: names.map((name) => `src/${name}/file.ts`),
+      });
+      tick();
+      const request = await callJson<{ outcome: string; request: { id: string; knowledgeCount: number } }>(
+        client,
+        "work_request_agent_review",
+        { projectRoot: root, idempotencyKey: "mcp-knowledge-request" },
+      );
+      const status = (id: string) => {
+        for (const state of ["active", "archived"] as const) {
+          const result = store.searchKnowledge({ projectRoot: root, status: state, limit: 100 });
+          const found = result.outcome === "knowledge" ? result.items.find((item) => item.id === id) : undefined;
+          if (found) return found;
+        }
+        throw new Error("Expected the Knowledge.");
+      };
+      return { client, store, root, ids, request, status, tick };
+    }
+
+    it("runs confirm, archive and supersede verdicts through context and submission", async () => {
+      const { client, root, ids, request, status } = await knowledgeInDoubt(["hives", "bees", "wax"]);
+      expect(request).toMatchObject({ outcome: "agent_review_request", request: { knowledgeCount: 3 } });
+
+      const context = await callJson<{
+        items: Array<{
+          itemKind: string;
+          id: string;
+          state: string;
+          title: string;
+          doubt: { possiblyStale?: { sessionCount: number } };
+          laterSessions?: Array<{ title: string; paths: string[] }>;
+          createdAt: string;
+        }>;
+      }>(client, "work_get_agent_review_context", { projectRoot: root });
+      expect(context.items.map((item) => [item.itemKind, item.id, item.state])).toEqual(
+        ["hives", "bees", "wax"].map((name) => ["knowledge", ids.get(name), "open"]),
+      );
+      expect(context.items[0]).toMatchObject({
+        title: "Orchard hives",
+        doubt: { possiblyStale: { sessionCount: 1 } },
+        laterSessions: [{ title: "Later orchard work", paths: ["src/hives/file.ts"] }],
+      });
+      expect(context.items[0]!.createdAt).toBeTruthy();
+
+      const submitted = await callJson<{
+        results: Array<{ itemId: string; outcome: string; knowledgeId?: string }>;
+        request: { status: string; appliedCount: number; openCount: number };
+      }>(client, "work_submit_agent_review_verdicts", {
+        requestId: request.request.id,
+        idempotencyKey: "mcp-knowledge-verdicts",
+        verdicts: [
+          {
+            itemKind: "knowledge",
+            itemId: ids.get("hives"),
+            verdict: "confirm",
+            reason: "The current hive code still matches the Knowledge.",
+          },
+          {
+            itemKind: "knowledge",
+            itemId: ids.get("bees"),
+            verdict: "archive",
+            reason: "The later Session removed the bee handling this described.",
+          },
+          {
+            itemKind: "knowledge",
+            itemId: ids.get("wax"),
+            verdict: "supersede",
+            reason: "The later Session changed how wax is handled.",
+            knowledge: { title: "Orchard wax now", body: "Wax is handled in the new module." },
+          },
+        ],
+      });
+      expect(submitted.results.map((entry) => entry.outcome)).toEqual(["applied", "applied", "applied"]);
+      expect(submitted.results[2]!.knowledgeId).toBeDefined();
+      expect(submitted.request).toMatchObject({ status: "completed", appliedCount: 3, openCount: 0 });
+
+      expect(status(ids.get("hives")!)).toMatchObject({ status: "active", lastConfirmedAt: expect.any(String) });
+      expect(status(ids.get("bees")!).status).toBe("archived");
+      expect(status(ids.get("wax")!).status).toBe("archived");
+      expect(status(submitted.results[2]!.knowledgeId!)).toMatchObject({
+        status: "active",
+        kind: "gotcha",
+        title: "Orchard wax now",
+        appliesTo: ["src/wax/**"],
+      });
+    });
+
+    it("keeps a Knowledge item open when its write is refused and applies it when resubmitted", async () => {
+      const { client, store, root, ids, request, status } = await knowledgeInDoubt(["hives"]);
+      const supersede = {
+        itemKind: "knowledge",
+        itemId: ids.get("hives"),
+        verdict: "supersede",
+        reason: "The later Session changed how hives are handled.",
+        knowledge: { title: "Orchard hives now", body: "Hives are handled in the new module." },
+      };
+      vi.spyOn(store, "recordKnowledge").mockReturnValueOnce({
+        outcome: "skipped",
+        projectRoot: root,
+        projectStatus: "tracked",
+        reason: "Recording is off.",
+      });
+
+      const refused = await callJson<{
+        results: Array<{ itemId: string; outcome: string; knowledgeOutcome?: string; knowledgeReason?: string }>;
+        request: { status: string; openCount: number };
+      }>(client, "work_submit_agent_review_verdicts", {
+        requestId: request.request.id,
+        idempotencyKey: "mcp-knowledge-refused",
+        verdicts: [supersede],
+      });
+      expect(refused.results).toEqual([
+        {
+          itemKind: "knowledge",
+          itemId: ids.get("hives"),
+          outcome: "knowledge_rejected",
+          knowledgeOutcome: "skipped",
+          knowledgeReason: "Recording is off.",
+        },
+      ]);
+      expect(refused.request).toMatchObject({ openCount: 1 });
+      expect(status(ids.get("hives")!).status).toBe("active");
+
+      const applied = await callJson<{ results: Array<{ outcome: string }>; request: { status: string } }>(
+        client,
+        "work_submit_agent_review_verdicts",
+        { requestId: request.request.id, idempotencyKey: "mcp-knowledge-resubmitted", verdicts: [supersede] },
+      );
+      expect(applied.results[0]).toMatchObject({ outcome: "applied" });
+      expect(applied.request.status).toBe("completed");
+      expect(status(ids.get("hives")!).status).toBe("archived");
+    });
+
+    it("advertises the Knowledge verdicts in the submit contract", async () => {
+      const { client } = await connect();
+      const contract = await getToolContractCatalog(client);
+      const section = contract.sections.get("work_submit_agent_review_verdicts") ?? "";
+      expect(section).toContain('"knowledge"');
+      for (const verdict of ["confirm", "archive", "supersede"]) expect(section).toContain(`"${verdict}"`);
+      expect(section).toContain("knowledge is only allowed with supersede");
+      const guide = (
+        await client.readResource({
+          uri: "work-intelligence://agent/work-intelligence/references/agent-review.md",
+        })
+      ).contents as Array<{ text?: string }>;
+      expect(guide[0]?.text).toContain("Never archive only because related files changed");
+    });
+  });
+
   it("refuses an Agent review for an untracked project and when no request is open", async () => {
     const { client, store, root } = await connect();
     expect(
