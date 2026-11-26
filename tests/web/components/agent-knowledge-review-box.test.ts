@@ -7,12 +7,30 @@ import { loadCatalog, locale, t } from "../../../apps/web/src/i18n/index.js";
 
 // Fictional fixtures only.
 const reviewedKnowledge = ref<AgentReviewedKnowledge[]>([]);
+const reviewedKnowledgeLoaded = ref(true);
 const reviewedKnowledgeError = ref("");
+const filter = ref("agent");
 const overturn = vi.fn();
 
 vi.mock("../../../apps/web/src/stores/agent-review", () => ({
-  useAgentReviewStore: () => reactive({ reviewedKnowledge, reviewedKnowledgeError }),
+  useAgentReviewStore: () => reactive({ filter, reviewedKnowledge, reviewedKnowledgeLoaded, reviewedKnowledgeError }),
 }));
+// SSR has no layout to measure, so the virtual list renders every row.
+vi.mock("../../../apps/web/src/components/VirtualList.vue", async () => {
+  const { defineComponent, h: render } = await import("vue");
+  return {
+    default: defineComponent({
+      props: { items: { type: Array, default: () => [] } },
+      setup(props, { slots }) {
+        return () =>
+          render(
+            "div",
+            props.items.map((item) => slots.default?.({ item })),
+          );
+      },
+    }),
+  };
+});
 // SSR cannot click, so the verdict stub hands its overturn emitters to the test.
 const overturnEmitters = vi.hoisted(() => [] as Array<() => void>);
 
@@ -60,14 +78,22 @@ beforeAll(async () => {
 
 beforeEach(() => {
   reviewedKnowledge.value = [];
+  reviewedKnowledgeLoaded.value = true;
   reviewedKnowledgeError.value = "";
   overturn.mockReset();
   overturnEmitters.length = 0;
 });
 
 describe("AgentKnowledgeReviewBox", () => {
-  it("stays hidden while the Agent has processed no Knowledge", async () => {
-    expect(await render()).not.toContain("agent-knowledge-review");
+  it("explains the empty list and keeps the way back to all Knowledge", async () => {
+    const html = await render();
+    expect(html).toContain(t("knowledge.noAgentProcessedKnowledge"));
+    expect(html).toContain(t("knowledge.reviewFilterAllKnowledge"));
+  });
+
+  it("shows a Skeleton, not an empty state, before the first answer", async () => {
+    reviewedKnowledgeLoaded.value = false;
+    expect(await render()).not.toContain(t("knowledge.noAgentProcessedKnowledge"));
   });
 
   it("shows the verdict, the reason as plain text, and the successor of a replaced Knowledge", async () => {

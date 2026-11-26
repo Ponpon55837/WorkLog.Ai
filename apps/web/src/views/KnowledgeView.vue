@@ -247,11 +247,9 @@ watch(
   },
 );
 
-watch(
-  [tab, isAgentView],
-  ([value, agentView]) => agentReviewStore.setKnowledgeActive(value === "list" && agentView),
-  { immediate: true },
-);
+watch([tab, isAgentView], ([value, agentView]) => agentReviewStore.setKnowledgeActive(value === "list" && agentView), {
+  immediate: true,
+});
 
 watch(
   () => selectedProjectRoot.value,
@@ -452,12 +450,14 @@ onBeforeUnmount(() => {
 .knowledge-search {
   display: flex;
   flex: 1 1 100%;
+  flex-wrap: wrap;
   gap: var(--space-2);
   padding: var(--space-2) 0;
 }
 
 .knowledge-search__input {
-  flex: 1;
+  flex: 1 1 200px;
+  min-width: 0;
 }
 
 .knowledge__filters {

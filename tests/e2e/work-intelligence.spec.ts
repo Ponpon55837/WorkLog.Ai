@@ -2962,6 +2962,15 @@ test.describe("Work Intelligence browser regression", () => {
     await page.goto("/knowledge");
     const row = page.getByTestId("knowledge-row").filter({ hasText: title });
     await expect(row).toContainText(tt("status.possiblyStale"));
+
+    // The list keeps the first screen; the review request sits beside it and Agent verdicts replace it on demand.
+    await expect(page.getByRole("heading", { name: ttPattern("knowledge.activeKnowledge") })).toBeInViewport();
+    await expect(page.getByTestId("agent-review-request")).toBeInViewport();
+    await expect(page.getByTestId("agent-knowledge-review")).toHaveCount(0);
+    await page.getByRole("radio", { name: tt("knowledge.reviewFilterAgent") }).click();
+    await expect(page.getByTestId("agent-knowledge-review")).toBeInViewport();
+    await expect(page.getByTestId("knowledge-row")).toHaveCount(0);
+    await page.getByRole("radio", { name: tt("knowledge.reviewFilterAllKnowledge") }).click();
     await row.getByRole("button", { name: tt("knowledge.more") }).click();
     await page.getByRole("menuitem", { name: tt("knowledge.stillValid") }).click();
     await expect(row).not.toContainText(tt("status.possiblyStale"));
