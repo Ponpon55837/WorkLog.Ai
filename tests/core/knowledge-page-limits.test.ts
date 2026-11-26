@@ -5,6 +5,7 @@ import {
   KNOWLEDGE_PAGE_NEAR_CONTENT_CHARS,
   KNOWLEDGE_PAGE_NEAR_SECTIONS,
   KNOWLEDGE_PAGE_SPLIT_GUIDANCE,
+  isDefaultKnowledgePageSlug,
   knowledgePageLimits,
 } from "../../packages/core/src/index.js";
 
@@ -63,5 +64,23 @@ describe("knowledgePageLimits", () => {
     expect(knowledgePageLimits([])).toEqual({
       size: { sectionCount: 0, maxSections: 12, contentChars: 0, maxContentChars: 8_000 },
     });
+  });
+});
+
+describe("KNOWLEDGE_PAGE_SPLIT_GUIDANCE", () => {
+  it("removes what no longer belongs before proposing a custom page, and never shortens still-true text", () => {
+    const remove = KNOWLEDGE_PAGE_SPLIT_GUIDANCE.indexOf("First drop outdated text");
+    const split = KNOWLEDGE_PAGE_SPLIT_GUIDANCE.indexOf("then ask the user before moving these to a custom page");
+    expect(remove).toBe(0);
+    expect(split).toBeGreaterThan(remove);
+    expect(KNOWLEDGE_PAGE_SPLIT_GUIDANCE).toContain("Never trim true text.");
+  });
+});
+
+describe("isDefaultKnowledgePageSlug", () => {
+  it("accepts only the three default pages", () => {
+    expect(["architecture", "in-progress", "pitfalls"].map(isDefaultKnowledgePageSlug)).toEqual([true, true, true]);
+    expect(isDefaultKnowledgePageSlug("release-process")).toBe(false);
+    expect(isDefaultKnowledgePageSlug("Architecture")).toBe(false);
   });
 });

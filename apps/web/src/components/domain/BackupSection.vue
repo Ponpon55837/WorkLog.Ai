@@ -122,6 +122,7 @@ const importConflictCategoryLabels: Record<ProjectDataImportConflictCategory, st
   unique: t("projects.conflictCategoryUnique"),
   dependency: t("projects.conflictCategoryDependency"),
   missing_parent: t("projects.conflictCategoryMissingParent"),
+  deleted: t("projects.conflictCategoryDeleted"),
 };
 const importFolderStatusLabels = {
   found: t("projects.folderFound"),

@@ -6,6 +6,13 @@
 
 - 最後更新：2026-11-26
 
+## 1.6.75（刪除自訂知識頁與拆頁前先整理）
+
+- Web 的知識頁面板可以刪除自訂知識頁，確認視窗列出一併刪除的歷史版本數；頁面、版本、更新請求與注意事項設定在同一個交易刪除。三個預設頁不能刪除，REST 回 409 `knowledge_page_default`。MCP 沒有刪除工具；Agent 讀到全是「資料不足」的自訂頁時，回應帶 `emptyPageHint`。
+- schema 37 新增不含內容的 `knowledge_page_deletion_audit`，合併匯入較早的匯出檔時把刪掉的頁面列為 `deleted` 衝突，不會加回。刪除只記在本機，不會同步到其他電腦。
+- 接近上限時的建議改成先刪掉不再適用的內容，仍放不下才提議移到自訂頁；仍然成立的文字不刪減。上限不變，Agent 固定讀取量維持 42,249。
+- MCP contract 文字改變，Agent 需重新連線 MCP。資料庫升級到 schema 37，升級時自動備份。詳見 [1.6.75 更新說明](releases/1.6.75.md)。
+
 ## 1.6.74（保存回條提醒讀過但未回報的 Knowledge）
 
 - `work_finalize_session` 的回條另帶 `unreportedKnowledge`：這段工作中同一 MCP 用戶端在同專案以召回工具讀過完整內容、這筆 Session 還沒回報的 active Knowledge，最多 3 筆（`id`、80 字元內的標題），超過時附總數。精簡清單、維護讀取、補登、沒有開始時間或不知道用戶端時都不計算；全部回報過或沒讀過就不帶。請求有回報時另帶 `knowledgeFeedback` 計數。

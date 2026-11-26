@@ -146,6 +146,7 @@ describe("domain API factories", () => {
       sections: [{ heading: "H", content: "資料不足", sourceSessionIds: [] }],
     });
     await api.listKnowledgePageVersions("page/1");
+    await api.deleteKnowledgePage("page/1");
 
     await api.listMetadataBackfillRequests();
     await api.createMetadataBackfillRequest("project/1");
@@ -162,9 +163,12 @@ describe("domain API factories", () => {
     await api.getSystemStatus();
     await api.pickFolder();
 
-    expect(calls).toHaveLength(59);
+    expect(calls).toHaveLength(60);
     expect(
       calls.find((call) => call.url.pathname === "/api/sessions/session%2F1" && call.method === "DELETE"),
+    ).toMatchObject({ body: { confirm: true } });
+    expect(
+      calls.find((call) => call.url.pathname === "/api/knowledge-pages/page%2F1" && call.method === "DELETE"),
     ).toMatchObject({ body: { confirm: true } });
     expect(calls.find((call) => call.url.pathname === "/api/sessions/session%2F1/title")).toMatchObject({
       method: "PATCH",

@@ -132,6 +132,8 @@ const apiErrorMessages: Record<string, string> = translatedRecord({
   session_cited_by_pending_cleanup: "format.sessionCitedByPendingCleanup",
   session_backup_failed: "format.couldNotBackUpBeforeSessionDeletion",
   session_delete_failed: "format.sessionDeletionDidNotFinish",
+  knowledge_page_not_found: "format.knowledgePageNotFoundRefresh",
+  knowledge_page_default: "format.defaultKnowledgePagesCannotBeDeleted",
   network_error: "common.cannotReachTheLocalApi",
   malformed_response: "common.theApiResponseWasMalformed",
 } satisfies Partial<Record<ApiErrorCode | "network_error" | "malformed_response", MessageKey>>);

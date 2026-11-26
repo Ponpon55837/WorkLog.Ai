@@ -1204,3 +1204,43 @@ describe("agent review requests migration", () => {
     }
   });
 });
+
+describe("knowledge page deletion audit migration", () => {
+  it("upgrades schema 36 with an empty content-free audit indexed by page id, keeping every page", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializeWorkIntelligenceDatabase(db, ":memory:");
+      undoMigrationsAfter(db, 36);
+      const auditTable = () =>
+        db
+          .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_page_deletion_audit'")
+          .get();
+      expect(auditTable()).toBeUndefined();
+      db.exec("PRAGMA foreign_keys=OFF");
+      db.exec(`INSERT INTO knowledge_pages (id, project_id, slug, title, question, created_at, updated_at)
+        VALUES ('page-1', 'project-1', 'release-process', 'Release', 'How do we release?', '2026-11-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z')`);
+      db.exec("PRAGMA foreign_keys=ON");
+
+      applyRuntimeMigrations(db);
+
+      expect(db.prepare("SELECT name FROM schema_migrations WHERE version = 37").get()).toEqual({
+        name: "knowledge-page-deletion-audit",
+      });
+      expect(auditTable()).toEqual({ name: "knowledge_page_deletion_audit" });
+      expect(
+        (db.prepare("PRAGMA table_info(knowledge_page_deletion_audit)").all() as Array<{ name: string }>).map(
+          (column) => column.name,
+        ),
+      ).toEqual(["id", "deleted_at", "page_id", "project_id", "deleted_counts_json"]);
+      expect(db.prepare("SELECT COUNT(*) AS count FROM knowledge_page_deletion_audit").get()).toEqual({ count: 0 });
+      expect(db.prepare("SELECT id FROM knowledge_pages").all()).toEqual([{ id: "page-1" }]);
+      const plan = db
+        .prepare("EXPLAIN QUERY PLAN SELECT page_id FROM knowledge_page_deletion_audit WHERE page_id = ?")
+        .all("page-1") as Array<{ detail: string }>;
+      expect(plan.map((step) => step.detail).join(" ")).toContain("idx_knowledge_page_deletion_audit_page");
+      expect(LATEST_SCHEMA_VERSION).toBeGreaterThanOrEqual(37);
+    } finally {
+      db.close();
+    }
+  });
+});

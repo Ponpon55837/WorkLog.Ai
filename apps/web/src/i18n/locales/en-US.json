@@ -216,7 +216,9 @@
     "onlyVoidedSessionsCanBeDeleted": "Only a voided Session can be permanently deleted.",
     "sessionCitedByPendingCleanup": "A pending outstanding-item cleanup proposal cites this Session; accept or reject that proposal first.",
     "couldNotBackUpBeforeSessionDeletion": "Could not create and verify the pre-deletion backup, so the Session was not deleted. Make sure the database is writable and try again.",
-    "sessionDeletionDidNotFinish": "The deletion did not finish; the Session is kept and the pre-deletion backup still exists."
+    "sessionDeletionDidNotFinish": "The deletion did not finish; the Session is kept and the pre-deletion backup still exists.",
+    "knowledgePageNotFoundRefresh": "This Knowledge page was not found. Refresh and try again.",
+    "defaultKnowledgePagesCannotBeDeleted": "Default Knowledge pages cannot be deleted."
   },
   "graph": {
     "allDataInTheCurrent": "All data in the current range is loaded.",
@@ -619,11 +621,16 @@
     "pageLimitNearTitle": "This page is close to its limit",
     "pageLimitOverTitle": "This page is over its limit",
     "pageLimitUsage": "{chars} / {maxChars} chars used · {count} / {max} sections",
-    "pageLimitMoveSections": "Move {headings} to a custom Knowledge page instead of deleting existing text.",
+    "pageLimitMoveSections": "First remove what no longer applies (finished items, facts that later work overturned); if it still does not fit, move {headings} to a custom Knowledge page. Do not cut text that is still true.",
     "pageLimitHeading": "“{heading}”",
-    "pageLimitMoveLargest": "Move the largest sections to a custom Knowledge page instead of deleting existing text.",
+    "pageLimitMoveLargest": "First remove what no longer applies (finished items, facts that later work overturned); if it still does not fit, move the largest sections to a custom Knowledge page. Do not cut text that is still true.",
     "pageLimitCustomPageHint": "Create one with “Custom Knowledge page” in the Knowledge pages list.",
-    "pageLimitOverSave": "Saving is refused while the page is over its limit; move these sections out first."
+    "pageLimitOverSave": "Saving is refused while the page is over its limit; remove what no longer applies or move these sections out first.",
+    "deleteKnowledgePage": "Delete page",
+    "deleteThisKnowledgePage": "Delete this Knowledge page?",
+    "knowledgePageWillBeDeleted": "“{title}” and its history versions ({versionCount}) will be deleted. This cannot be undone. Importing an older JSON export later will not add it back.",
+    "knowledgePageDeleted": "Knowledge page “{title}” deleted.",
+    "couldNotDeleteTheKnowledgePage": "Could not delete this Knowledge page."
   },
   "labels": {
     "agent": "Agent",
@@ -1100,6 +1107,7 @@
     "conflictCategoryUnique": "Unique key",
     "conflictCategoryDependency": "Dependency",
     "conflictCategoryMissingParent": "Missing from the file",
+    "conflictCategoryDeleted": "Deleted on this computer",
     "restoreInDesktopApp": "Restore a backup from the Data tab of the desktop app; you can also choose a backup file from another location. On a new computer the App finds the project folders that do not exist there, lets you point to where they are now and maps the paths for you, so there is nothing to type. Before restoring, the App backs up the current data automatically."
   },
   "reports": {

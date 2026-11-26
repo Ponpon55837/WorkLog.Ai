@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import {
   KNOWLEDGE_PAGE_DEFAULTS,
+  KNOWLEDGE_PAGE_INSUFFICIENT,
   KNOWLEDGE_PAGE_MAX_CONTENT_CHARS,
   KNOWLEDGE_PAGE_MAX_SECTIONS,
   knowledgePageLimits,
@@ -247,6 +248,9 @@ const IDEMPOTENCY_CONFLICT_RESULT = {
   reason:
     "This idempotencyKey already saved different sections for this page, so nothing was written. Use a new idempotencyKey for new content.",
 };
+
+const EMPTY_CUSTOM_PAGE_HINT =
+  "This custom page holds no confirmed content. If it is no longer needed, tell the user they can delete it in the Web UI (Knowledge pages); Agents cannot delete pages.";
 
 const DEFAULT_PAGES = new Map<string, { title: string; question: string }>(
   KNOWLEDGE_PAGE_DEFAULTS.map((page) => [page.slug, { title: page.title, question: page.question }]),
@@ -534,6 +538,16 @@ function mergeSections(
   return { sections, changes };
 }
 
+/**
+ * A custom page whose every section is 資料不足 (or that has none) answers nothing, so its read says the user can
+ * delete it. A page waiting on an update request is about to be written, and a default page cannot be deleted.
+ */
+function emptyPageHint(row: PageRow, sections: readonly KnowledgePageSection[]): { emptyPageHint?: string } {
+  if (DEFAULT_PAGES.has(row.slug) || row.update_requested_at) return {};
+  if (sections.some((section) => section.content !== KNOWLEDGE_PAGE_INSUFFICIENT)) return {};
+  return { emptyPageHint: EMPTY_CUSTOM_PAGE_HINT };
+}
+
 /** The size and split suggestion a page read or save adds only when the page is near its limits. */
 function nearLimitFields({ size, splitSuggestion }: KnowledgePageLimits) {
   return splitSuggestion ? { size, splitSuggestion } : {};
@@ -563,7 +577,7 @@ function pageLimitExceeded(sections: readonly KnowledgePageSection[]): SaveKnowl
       : `${contentChars} characters of section content (at most ${KNOWLEDGE_PAGE_MAX_CONTENT_CHARS})`;
   return {
     outcome: "page_limit_exceeded",
-    reason: `The page after this update would have ${problem}, so nothing was written. Move sections to a custom page (splitSuggestion) instead of shortening them.`,
+    reason: `The page after this update would have ${problem}, so nothing was written. First remove what no longer answers the page question (finished items, facts later work overturned); if it still does not fit, ask the user to move sections to a custom page (splitSuggestion). Never shorten still-true text.`,
     ...size,
     ...(splitSuggestion ? { splitSuggestion } : {}),
   };
@@ -772,22 +786,24 @@ export class KnowledgePageService {
     if (!row) return this.pageNotFound(decision.project.id, query.slug);
     const page = this.recordFor(row);
     const limits = knowledgePageLimits(page.sections);
+    const hint = emptyPageHint(row, page.sections);
     if (query.reviewOnly) {
       const context = this.reviewOnlyContext(row, page, limits.size);
-      return limits.splitSuggestion ? { ...context, splitSuggestion: limits.splitSuggestion } : context;
+      return { ...context, ...(limits.splitSuggestion ? { splitSuggestion: limits.splitSuggestion } : {}), ...hint };
     }
     if (query.query !== undefined || query.headings !== undefined) {
       const through = this.reviewedPoint(row);
       return {
         ...focusedContext(page, query, encodeReviewToken({ pageId: row.id, version: row.version, through })),
         ...nearLimitFields(limits),
+        ...hint,
       };
     }
     const sessions =
       row.version === 0 || row.update_requested_at
         ? pageContext(row, page, "full", this.contextSessions(decision.project.id))
         : pageContext(row, page, "review", this.reviewSessions(this.reviewSources(row, page)));
-    return { ...sessions, ...nearLimitFields(limits) };
+    return { ...sessions, ...nearLimitFields(limits), ...hint };
   }
 
   public savePage(input: SaveKnowledgePageInput): SaveKnowledgePageResult {
@@ -967,6 +983,11 @@ export class KnowledgePageService {
         )
         .all(pageId, VERSION_HISTORY_LIMIT) as VersionRow[]
     ).map(toVersion);
+    const versionCount = (
+      this.db.prepare("SELECT COUNT(*) AS count FROM knowledge_page_versions WHERE page_id = ?").get(pageId) as {
+        count: number;
+      }
+    ).count;
     const page = this.recordFor(row);
     const cited = citedSessionIds([...page.sections, ...versions.flatMap((version) => version.sections)]);
     const sources =
@@ -978,7 +999,7 @@ export class KnowledgePageService {
                WHERE id IN (SELECT value FROM json_each(?)) AND voided_at IS NULL ORDER BY completed_at DESC`,
             )
             .all(JSON.stringify(cited)) as Array<{ id: string; title: string }>);
-    return { outcome: "knowledge_page_versions", page, versions, sources };
+    return { outcome: "knowledge_page_versions", page, versions, versionCount, sources };
   }
 
   /** Pages for work_get_context: written pages first, each cut to a fixed length within a total budget. */

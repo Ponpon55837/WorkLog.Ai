@@ -129,6 +129,8 @@ Schema 33 只新增可為空的欄位與索引，不改寫既有資料列。`kno
 
 單筆 Session 的永久刪除（`session-deletion-service.ts`）只接受已作廢的 Session，且同樣只開放 Web UI 與 REST。刪除前寫入 `pre-session-delete-...` 快照，這類快照獨立保留 3 份，不佔用手動備份的額度。交易內重新確認仍為作廢、且沒有其他 Session 的待審清理建議引用它作為證據，接著先以一般 `UPDATE` 解除 Knowledge、Knowledge 候選與知識頁檢查游標對它的指向（FK 的 `SET NULL` 動作會讓搜尋 trigger 的 `OR IGNORE` 失效），刪除未結項，再刪除 Session 讓事件、Evidence、圖表、修改紀錄、關聯與清理快照依 FK 連帶刪除。migration v26 讓 `outstanding_item_events` 只在所屬未結項仍存在時維持 append-only，所以歷史會隨未結項一起刪除。報告、請求來源清單、Agent 讀取摘要與它解決過的未結項事件只保留 id；知識頁引用它時會標為來源缺失、需要核對。`session_deletion_audit` 只保存時間、Session id、project id 與筆數。
 
+自訂知識頁的刪除（`knowledge-page-deletion-service.ts`，1.6.75 起）同樣只開放 Web UI 與 REST，預設的三頁不能刪除。單一交易內重新確認頁面存在且不是預設頁，計算版本與注意事項偏好的筆數，刪除全部版本，再刪除頁面；更新請求存在頁面列上，跟著消失，`attention_page_deleted` trigger 刪除這一頁的注意事項偏好。`knowledge_page_deletion_audit`（migration v37）只保存時間、頁面 id、project id 與筆數，不匯出，專案刪除後也保留。可攜式匯入用它辨識本機刪除過的頁面：匯入檔裡同一個 id 的頁面、版本與注意事項偏好列為 `deleted` 衝突，不寫入，所以較早的匯出檔不會把頁面加回。刪除前不建立備份，與移除報告歷史版本相同。
+
 `pnpm db:maintain` 是明確的離線維護操作。執行前以 `BEGIN EXCLUSIVE` 檢查 SQLite 寫入鎖，完整性檢查與資料庫升級成功後先建立 `pre-maintenance-...` 驗證快照，再執行 `VACUUM`、`ANALYZE` 與完整搜尋索引重建。migration v12 的 `database_maintenance_runs` 只保留開始／完成時間、狀態、備份檔名、索引筆數與安全錯誤分類；`pnpm check` 以唯讀方式讀取最近結果，並以 `PRAGMA page_size × freelist_count` 計算可回收空間；達門檻（至少 1 MiB，且 5 MiB 或檔案 20%）時只提示執行 `pnpm db:maintain`。維護失敗時會保留備份，並將執行標為失敗或未完成。
 
 既有 SQLite 檔案若仍有歷史 `commit_required` 欄位，Work Intelligence 啟動時會以 idempotent migration 移除；公開 Session contract 與新寫入流程不使用此欄位。Git commit 仍是可選的獨立流程。

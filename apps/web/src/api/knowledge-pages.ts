@@ -1,4 +1,5 @@
 import type {
+  DeleteKnowledgePageResult,
   KnowledgePageListResult,
   KnowledgePageVersionsResult,
   RequestKnowledgePageUpdateInput,
@@ -16,6 +17,7 @@ export interface KnowledgePagesApi {
   ): Promise<RequestKnowledgePageUpdateResult>;
   updateKnowledgePage(input: UpdateKnowledgePageInput, signal?: AbortSignal): Promise<UpdateKnowledgePageResult>;
   listKnowledgePageVersions(pageId: string, signal?: AbortSignal): Promise<KnowledgePageVersionsResult>;
+  deleteKnowledgePage(pageId: string, signal?: AbortSignal): Promise<DeleteKnowledgePageResult>;
 }
 
 export function createKnowledgePagesApi(client: ApiTransport): KnowledgePagesApi {
@@ -47,6 +49,15 @@ export function createKnowledgePagesApi(client: ApiTransport): KnowledgePagesApi
       return client.request<KnowledgePageVersionsResult>(
         `/api/knowledge-pages/${encodeURIComponent(pageId)}/versions`,
         { signal },
+      );
+    },
+
+    deleteKnowledgePage(pageId: string, signal?: AbortSignal) {
+      return client.write<DeleteKnowledgePageResult>(
+        `/api/knowledge-pages/${encodeURIComponent(pageId)}`,
+        "DELETE",
+        { confirm: true },
+        signal,
       );
     },
   };

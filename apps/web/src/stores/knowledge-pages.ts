@@ -8,11 +8,13 @@ import type {
   UpdateKnowledgePageInput,
 } from "@work-intelligence/core";
 import { useApi } from "../composables/useApi";
+import { confirmAction } from "../composables/useConfirm";
+import { useToast } from "../composables/useToast";
 import { errorMessage } from "../utils/format";
 import { queryKeys } from "./query-keys";
 import { t } from "../i18n";
 
-/** Owns the standing Knowledge pages of the Knowledge page: the list, the open page, and its version history. */
+/** Owns the standing Knowledge pages of the Knowledge page: the list, the open page, its version history, and deletion. */
 export const useKnowledgePagesStore = defineStore("knowledge-pages", () => {
   const queryCache = useQueryCache();
 
@@ -51,6 +53,9 @@ export const useKnowledgePagesStore = defineStore("knowledge-pages", () => {
   const sources = computed(() =>
     versionsQuery.data.value?.outcome === "knowledge_page_versions" ? versionsQuery.data.value.sources : [],
   );
+  const versionCount = computed(() =>
+    versionsQuery.data.value?.outcome === "knowledge_page_versions" ? versionsQuery.data.value.versionCount : 0,
+  );
   const versionsLoading = computed(() => versionsQuery.isLoading.value);
   const versionsError = computed(() =>
     versionsQuery.error.value ? errorMessage(versionsQuery.error.value, t("knowledge.couldNotLoadKnowledgePage")) : "",
@@ -71,6 +76,10 @@ export const useKnowledgePagesStore = defineStore("knowledge-pages", () => {
   });
   const updateMutation = useMutation({
     mutation: (input: UpdateKnowledgePageInput) => useApi().client.updateKnowledgePage(input),
+    onSuccess: invalidatePages,
+  });
+  const deleteMutation = useMutation({
+    mutation: (pageId: string) => useApi().client.deleteKnowledgePage(pageId),
     onSuccess: invalidatePages,
   });
 
@@ -99,6 +108,31 @@ export const useKnowledgePagesStore = defineStore("knowledge-pages", () => {
     return updateMutation.mutateAsync(input);
   }
 
+  /** Deletes the open custom page after the user confirms; the dialog names how many versions go with it. */
+  async function deleteOpenPage(): Promise<void> {
+    const page = openPage.value;
+    if (!page) return;
+    const confirmed = await confirmAction({
+      title: t("knowledge.deleteThisKnowledgePage"),
+      message: t("knowledge.knowledgePageWillBeDeleted", { title: page.title, versionCount: versionCount.value }),
+      confirmLabel: t("knowledge.deleteKnowledgePage"),
+      danger: true,
+    });
+    if (!confirmed) return;
+    const { showToast } = useToast();
+    try {
+      const result = await deleteMutation.mutateAsync(page.id);
+      if (result.outcome !== "knowledge_page_deleted") {
+        showToast(result.reason, "danger");
+        return;
+      }
+      closePage();
+      showToast(t("knowledge.knowledgePageDeleted", { title: page.title }), "success");
+    } catch (error) {
+      showToast(errorMessage(error, t("knowledge.couldNotDeleteTheKnowledgePage")), "danger");
+    }
+  }
+
   return {
     listEnabled,
     openPageId,
@@ -110,6 +144,7 @@ export const useKnowledgePagesStore = defineStore("knowledge-pages", () => {
     openPage,
     versions,
     sources,
+    versionCount,
     versionsLoading,
     versionsError,
     setListActive,
@@ -118,5 +153,6 @@ export const useKnowledgePagesStore = defineStore("knowledge-pages", () => {
     closePage,
     requestUpdate,
     updatePage,
+    deleteOpenPage,
   };
 });

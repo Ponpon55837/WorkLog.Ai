@@ -216,7 +216,9 @@
     "onlyVoidedSessionsCanBeDeleted": "只有已作廢的 Session 可以永久刪除。",
     "sessionCitedByPendingCleanup": "有待審核的未結項清理建議引用了這個 Session；請先接受或拒絕該建議。",
     "couldNotBackUpBeforeSessionDeletion": "無法建立並檢查刪除前備份，Session 尚未刪除。請確認資料庫可寫入後再試。",
-    "sessionDeletionDidNotFinish": "刪除作業未完成，Session 已保留；刪除前備份仍在。"
+    "sessionDeletionDidNotFinish": "刪除作業未完成，Session 已保留；刪除前備份仍在。",
+    "knowledgePageNotFoundRefresh": "找不到這個知識頁，請重新整理後再試。",
+    "defaultKnowledgePagesCannotBeDeleted": "預設知識頁無法刪除。"
   },
   "graph": {
     "allDataInTheCurrent": "目前範圍的資料已完整載入。",
@@ -619,11 +621,16 @@
     "pageLimitNearTitle": "這一頁快到上限了",
     "pageLimitOverTitle": "這一頁已超過上限",
     "pageLimitUsage": "已用 {chars} / {maxChars} 字 · {count} / {max} 段",
-    "pageLimitMoveSections": "建議把{headings}移到自訂知識頁，不要刪減現有內容。",
+    "pageLimitMoveSections": "先刪掉已不再適用的內容（已完成的項目、被後來推翻的事實）；仍放不下時，再把{headings}移到自訂知識頁。仍然成立的內容不要刪減。",
     "pageLimitHeading": "「{heading}」",
-    "pageLimitMoveLargest": "建議把較大的段落移到自訂知識頁，不要刪減現有內容。",
+    "pageLimitMoveLargest": "先刪掉已不再適用的內容（已完成的項目、被後來推翻的事實）；仍放不下時，再把較大的段落移到自訂知識頁。仍然成立的內容不要刪減。",
     "pageLimitCustomPageHint": "在知識頁清單按「自訂知識頁」即可建立。",
-    "pageLimitOverSave": "超過上限時儲存會被拒絕，請先把這些段落移出。"
+    "pageLimitOverSave": "超過上限時儲存會被拒絕，請先刪掉不再適用的內容，或把這些段落移出。",
+    "deleteKnowledgePage": "刪除知識頁",
+    "deleteThisKnowledgePage": "刪除這個知識頁？",
+    "knowledgePageWillBeDeleted": "「{title}」和它的 {versionCount} 個歷史版本會一併刪除，此操作無法復原。之後匯入較早的 JSON 匯出檔也不會把它加回。",
+    "knowledgePageDeleted": "已刪除知識頁「{title}」。",
+    "couldNotDeleteTheKnowledgePage": "無法刪除這個知識頁。"
   },
   "labels": {
     "agent": "Agent",
@@ -1100,6 +1107,7 @@
     "conflictCategoryUnique": "唯一識別值",
     "conflictCategoryDependency": "依賴連帶",
     "conflictCategoryMissingParent": "匯入檔缺少上層資料",
+    "conflictCategoryDeleted": "已在本機刪除",
     "restoreInDesktopApp": "請在桌面 App 的「資料」分頁還原備份，也可以選擇其他位置的備份檔。換新電腦時，App 會找出新電腦上不存在的專案資料夾，讓你指定它們現在的位置並自動對應路徑，不必自己輸入任何東西。還原前 App 會先自動備份目前的資料。"
   },
   "reports": {

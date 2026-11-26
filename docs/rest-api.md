@@ -56,6 +56,8 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | `session_cited_by_pending_cleanup` | 409 | 有待審核的未結項清理建議引用這個 Session 作為證據；先接受或拒絕該建議。 |
 | `session_backup_failed` | 503 | Session 刪除前無法建立必要備份。 |
 | `session_delete_failed` | 500 | Session 刪除交易失敗，既有備份仍保留。 |
+| `knowledge_page_not_found` | 404 | 知識頁刪除找不到該頁。 |
+| `knowledge_page_default` | 409 | 預設知識頁（`architecture`、`in-progress`、`pitfalls`）不能刪除。 |
 | `usage_timeout` | 504 | Agent 用量掃描超過 60 秒；縮小時間範圍或專案後再試。 |
 | `usage_cancelled` | 499 | Agent 用量掃描已取消（客戶端中斷，或被較新的掃描取代）。 |
 | `usage_failed` | 500 | Agent 用量掃描失敗；回應不含路徑或內部訊息。 |
@@ -146,7 +148,8 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | GET      | `/api/knowledge-pages`                           | 列出 tracked projects 的常駐知識頁（狀態、版本、新 Session 數與引用來源核對提示）；可用 `projectRoot` 篩選 |
 | POST     | `/api/knowledge-pages/update-requests`           | 要求 Agent 更新知識頁（`projectRoot`、`slug`；自訂頁另帶 `title`、`question`），不存在時建立 |
 | PATCH    | `/api/knowledge-pages/:id`                       | Web 手動編輯（`sections`，可帶 `title`）；每段須列來源 Session 或內容為「資料不足」，儲存為新版本。可帶 `baseVersion`（開始編輯時的版本），頁面之後已被儲存時回 200 與 `outcome: "version_conflict"`（`baseVersion`、`currentVersion`），不寫入 |
-| GET      | `/api/knowledge-pages/:id/versions`              | 最近 50 個版本（新到舊）與引用 Session 的標題                                          |
+| GET      | `/api/knowledge-pages/:id/versions`              | 最近 50 個版本（新到舊）、全部版本數 `versionCount` 與引用 Session 的標題              |
+| DELETE   | `/api/knowledge-pages/:id`                       | 刪除自訂知識頁（body `{ "confirm": true }`）：在單一交易刪除頁面、全部歷史版本、待處理的更新請求與注意事項偏好，回傳 `deletedCounts`（`knowledgePageVersions`、`attentionPreferences`），只留不含內容的刪除紀錄。預設頁回 409 `knowledge_page_default`，找不到回 404 `knowledge_page_not_found`，專案未追蹤時回 200 `skipped`。MCP 沒有對應工具 |
 | GET      | `/api/graph`                                     | 讀取 tracked-only deterministic work graph                                             |
 | GET      | `/api/graph/path?from=&to=`                      | 兩個節點間的最短關聯（500 節點內 BFS），逐段附理由；可帶 `projectId`、`includeDerived=true` |
 | PATCH    | `/api/diagrams/:id/void`                         | 作廢（`voided: true` 需 `reason`）或還原 Session 圖表；圖表不能刪除                     |
@@ -273,8 +276,9 @@ pending／awaiting_review 整理快照中的項目受 Agent 寫入防護：final
 - 相同專案 ID 已存在但根路徑不同時，自動以本機根路徑轉換該專案的根路徑與 handoff 來源路徑，結果列在 `autoRemaps`（`projectId`、`from`、`to`、`snapshots`）。
 - `strategy` 預設 `merge`：只新增本機沒有的列。`newer-wins`：同 ID 內容不同的可變更列，依該表的時間欄位（如 `updated_at`、`reviewed_at`、`decided_at`、`completed_at`）取較新者覆寫；兩種策略都保留本機較新的列，只追加的歷史表與本機專案列永不覆寫。比較前排除各機自行衍生的欄位（Session `redaction_count`、attention 的隱藏／延後狀態、報告 `is_current`），並以相同規則遮蔽本機文字、忽略 changed-file provenance 的合併順序。`knowledge_page_versions` 撞號時依建立時間將該頁所有版本重新編號後並存，並把頁面版本計數器移到最新版本。
 - 匯入檔除了結構與 JSON 欄位格式，也檢查 `knowledge` 與 `knowledge_candidates` 的 `applies_to_json`：必須是最多 100 筆、每筆最多 4,096 字元的文字陣列（1.6.26 起）。這個上限刻意比寫入限制（30 筆、1,000 字元）寬：遮蔽憑證時標記可能比原文長，舊版也可能存過較長的值，所以 Work Intelligence 產生的匯出檔都能匯入；超過寫入限制的項目照原樣保存，但永遠不比對，掃描時以 `appliesToScanTruncated` 等標示不完整。只有超過這個結構上限的清單（任何版本都不會寫出）會讓 preview 與匯入回 400 `invalid_input`，`error` 為「匯入檔格式錯誤：knowledge.applies_to_json 必須是最多 100 筆、每筆最多 4,096 字元的文字清單。」（候選為 `knowledge_candidates.applies_to_json`），不寫入任何資料；訊息不含檔案內容。
-- Preview 只讀取並回傳 `strategy`、各資料表 `additions`／`updates`／`keptLocal`／`skipped`／`conflicts`／`renumbered` 筆數、`conflictGroups`（依資料表、`category`：`path`／`newer_content`／`content`／`unique`／`dependency`／`missing_parent` 與原因彙總的筆數及最多 5 個範例 id）與最多 100 筆 `conflictDetails`；preview 不寫入任何東西，連備份也不寫。不刪除既有資料，且重複匯入可冪等略過。
+- Preview 只讀取並回傳 `strategy`、各資料表 `additions`／`updates`／`keptLocal`／`skipped`／`conflicts`／`renumbered` 筆數、`conflictGroups`（依資料表、`category`：`path`／`newer_content`／`content`／`unique`／`dependency`／`missing_parent`／`deleted` 與原因彙總的筆數及最多 5 個範例 id）與最多 100 筆 `conflictDetails`；preview 不寫入任何東西，連備份也不寫。不刪除既有資料，且重複匯入可冪等略過。
 - `missing_parent`（1.6.29 起）：列所屬的專案、Session、報告請求或報告原始版本不在匯入檔中，這些列永遠不會匯入，現在計入 `conflicts` 並在 `conflictGroups` 說明原因，不再從筆數中消失；本機已有完全相同的列時算 `skipped`。從全專案匯出檔只挑一個專案時，其他專案的列屬於範圍外，不列入。匯入哪些列與先前相同。
+- `deleted`（1.6.75 起）：本機刪除過的自訂知識頁不會被較早的匯出檔加回。這一頁、它的版本與注意事項偏好在 merge 與 newer-wins 都計入 `conflicts`（版本列因為所屬頁面衝突而歸在 `dependency`），不會寫入。判斷依據是本機不含內容的刪除紀錄，所以另一台電腦之後用同一個 slug 新建的頁面（不同 id）照常匯入；刪除紀錄不會匯出，也不會讓另一台電腦刪除這一頁。
 - 正式匯入（1.6.29 起）先在讀取快照上計算匯入計畫；計畫會新增或更新資料時（1.6.30 起），才在寫入前建立並檢查整份 SQLite 快照（`pre-import-` 開頭，備份種類 `import`），回應帶 `backupFileName`。所有資料都已存在的匯入不建立快照、不帶 `backupFileName`，回應 `changed: false`（有寫入時為 `true`）；計畫階段就失敗的匯入（例如所選專案不在檔案中）也不建立快照，所以這些嘗試不會擠掉先前真正改過資料的匯入快照。寫不出快照時不匯入，回 503 `project_backup_failed`（資料庫忙碌、唯讀或磁碟已滿仍回原本的代碼）。這類快照獨立保留，份數與自動備份相同（預設 3 份），不佔用手動、刪除前或 migration 備份的額度。in-memory 資料庫沒有檔案可備份，直接匯入、不帶 `backupFileName`。只有寫入時才持有寫入鎖：寫入交易一開始確認資料版本（`data_revision`）沒變，有變就在交易內重新計算；重新計算後才發現要寫入、但先前沒有建立快照時，匯入什麼都不寫就釋放寫入鎖，建立快照後再試一次（第二次一定先建立快照，所以最多兩次）。交易失敗時資料庫不變，已建立的快照保留。
 - 匯入檔的解析、驗證、備份、計畫與寫入都在背景 worker 執行，主執行緒只負責接收 request body、回應與 SSE，所以匯入期間 `/api/health` 與其他請求不會被卡住；寫入完成後同一個 worker 補齊搜尋索引，資料版本改變照常觸發 `changed` 事件。每條路徑（REST、worker、CLI、直接呼叫 store）都只驗證一次完整檔案。單一專案匯出會一併帶入引用該專案 Session 的跨專案報告請求、摘要與 metadata 回補請求。新專案以 `paused` 狀態加入，既有專案狀態不變；匯入會留下摘要稽核紀錄並由 SQLite trigger 標記搜尋索引待更新。服務不必停止。
 - 可攜式 JSON 未加密，請妥善保管。整份 SQLite 快照與可攜式匯出都要求 `Content-Type: application/json`，跨站表單無法觸發；下載回應只含檔名，不會出現暫存檔路徑。
