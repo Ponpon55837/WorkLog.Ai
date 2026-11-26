@@ -18,6 +18,8 @@ pnpm start
 
 預設在 <http://127.0.0.1:3210> 開啟 Web UI；REST API 也在同一個連接埠，例如 <http://127.0.0.1:3210/api/health>。終端機保持執行，按 `Ctrl+C` 停止。開發時才使用 `pnpm dev`；開發模式的 Web 使用 5966，API 使用 3210。
 
+第一次從 checkout 設定時，也可以執行 `pnpm bootstrap`，由它安裝相依套件、建置，並預覽 Agent 與登入自動啟動的設定。確認後才會寫入全域設定，完成後用 `pnpm start` 啟動。
+
 第一次檢查環境可執行：
 
 ```sh
@@ -95,7 +97,7 @@ pnpm track <資料夾> [--name <名稱>] [--yes]
 
 「工作報告」支援日、週、月、季、年與自訂日期區間；統計依已保存的 Session 計算，AI 整理會保留來源 Session。可以匯出 Markdown 或 JSON。若請 Agent 整理報告，Web 會在請求完成後更新結果。
 
-「工作知識」只顯示明確提交並保存的 Knowledge。Agent 可以提出候選，但須由你接受（可先修改）後才會成為 Knowledge。Knowledge 可以編輯、封存、恢復及查看變更紀錄；封存不會刪除資料。
+在「工作知識」可以審查 Agent 提出的候選。你可以先修改再接受，也可以明確[請 Agent 處理待確認項目](#請-agent-處理待確認項目)。候選經審查接受後才會成為 Knowledge。Knowledge 可以編輯、封存、恢復及查看變更紀錄；封存不會刪除資料。
 
 更完整的資料格式與搜尋行為見[架構與資料契約](architecture.md)及[MCP 工具參考](mcp-tools.md)。
 

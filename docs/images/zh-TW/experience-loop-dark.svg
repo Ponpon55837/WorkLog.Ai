@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="266" viewBox="0 0 640 266" role="img" aria-labelledby="title desc" xml:lang="zh-TW">
+  <title id="title">從這次工作到下次任務</title>
+  <desc id="desc">沿箭頭從工作記錄、審查與取回，到使用後回報。</desc>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1l8 4-8 4" fill="none" stroke="#9198a1" stroke-width="1.5"/></marker></defs>
+  <g font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang TC, Microsoft JhengHei, Arial, sans-serif">
+    <rect x="1" y="1" width="638" height="264" rx="16" fill="#0d1117" stroke="#30363d" />
+    <rect x="20" y="18" width="273" height="94" rx="10" fill="#151b23" stroke="#30363d" />
+    <path transform="translate(34 32)" d="M5 2h10l4 4v16H5z M14 2v6h5 M8 12h8 M8 16h6" fill="none" stroke="#4493f8" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+    <text x="68" y="52" fill="#e6edf3" font-size="23" font-weight="650" text-anchor="start">保存 Session</text>
+    <text x="35" y="83" fill="#9198a1" font-size="20" font-weight="400" text-anchor="start">記下決策與驗證結果</text>
+    <rect x="347" y="18" width="273" height="94" rx="10" fill="#151b23" stroke="#30363d" />
+    <path transform="translate(361 32)" d="M2 4q5-2 10 1 5-3 10-1v15q-5-2-10 1-5-3-10-1z M12 5v15" fill="none" stroke="#39c5cf" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+    <text x="395" y="52" fill="#e6edf3" font-size="23" font-weight="650" text-anchor="start">審查可重用的做法</text>
+    <text x="362" y="83" fill="#9198a1" font-size="20" font-weight="400" text-anchor="start">接受後成為 Knowledge</text>
+    <rect x="347" y="154" width="273" height="94" rx="10" fill="#151b23" stroke="#30363d" />
+    <path transform="translate(361 168)" d="M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0 M15 15l7 7" fill="none" stroke="#4493f8" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+    <text x="395" y="188" fill="#e6edf3" font-size="23" font-weight="650" text-anchor="start">下次任務按需取回</text>
+    <text x="362" y="219" fill="#9198a1" font-size="20" font-weight="400" text-anchor="start">回到來源 Session 核對</text>
+    <rect x="20" y="154" width="273" height="94" rx="10" fill="#151b23" stroke="#30363d" />
+    <path transform="translate(34 168)" d="M3 12l5 5L21 4 M4 21h16" fill="none" stroke="#39c5cf" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+    <text x="68" y="188" fill="#e6edf3" font-size="23" font-weight="650" text-anchor="start">回報實際使用結果</text>
+    <text x="35" y="219" fill="#9198a1" font-size="20" font-weight="400" text-anchor="start">記錄哪些仍成立、哪些有誤</text>
+    <path d="M296 65H339" fill="none" stroke="#9198a1" stroke-width="2" stroke-linejoin="round" marker-end="url(#arrow)"/>
+    <path d="M483 116v30" fill="none" stroke="#9198a1" stroke-width="2" stroke-linejoin="round" marker-end="url(#arrow)"/>
+    <path d="M344 201h-43" fill="none" stroke="#9198a1" stroke-width="2" stroke-linejoin="round" marker-end="url(#arrow)"/>
+    <path d="M157 150v-30" fill="none" stroke="#9198a1" stroke-width="2" stroke-linejoin="round" marker-end="url(#arrow)"/>
+  </g>
+</svg>

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="336" viewBox="0 0 640 336" role="img" aria-labelledby="title desc" xml:lang="zh-TW">
+  <title id="title">審查與維護專案 Knowledge</title>
+  <desc id="desc">接受候選後，相關檔案改動或後續工作指出矛盾時，使用者可發起複查，確認、取代或封存這筆 Knowledge。</desc>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1l8 4-8 4" fill="none" stroke="#9198a1" stroke-width="1.5"/></marker></defs>
+  <g font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang TC, Microsoft JhengHei, Arial, sans-serif">
+    <rect x="1" y="1" width="638" height="334" rx="16" fill="#0d1117" stroke="#30363d" />
+    <rect x="20" y="17" width="250" height="83" rx="10" fill="#151b23" stroke="#30363d" />
+    <path transform="translate(34 31)" d="M5 2h10l4 4v16H5z M14 2v6h5 M8 12h8 M8 16h6" fill="none" stroke="#4493f8" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+    <text x="68" y="51" fill="#e6edf3" font-size="23" font-weight="650" text-anchor="start">候選</text>
+    <text x="35" y="82" fill="#9198a1" font-size="20" font-weight="400" text-anchor="start">附上來源 Session</text>
+    <rect x="370" y="17" width="250" height="83" rx="10" fill="#151b23" stroke="#30363d" />
+    <path transform="translate(384 31)" d="M2 4q5-2 10 1 5-3 10-1v15q-5-2-10 1-5-3-10-1z M12 5v15" fill="none" stroke="#39c5cf" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+    <text x="418" y="51" fill="#e6edf3" font-size="23" font-weight="650" text-anchor="start">已接受的知識</text>
+    <text x="385" y="82" fill="#9198a1" font-size="20" font-weight="400" text-anchor="start">可在下次任務取回</text>
+    <text x="320" y="44" fill="#39c5cf" font-size="19" font-weight="600" text-anchor="middle">接受</text>
+    <path d="M275 65h86" fill="none" stroke="#9198a1" stroke-width="2" stroke-linejoin="round" marker-end="url(#arrow)"/>
+    <path d="M494 105v31" fill="none" stroke="#9198a1" stroke-width="2" stroke-linejoin="round" marker-end="url(#arrow)"/>
+    <rect x="20" y="144" width="600" height="99" rx="10" fill="#151b23" stroke="#30363d" />
+    <path transform="translate(36 159)" d="M5 22V3q4-3 8 0t8 0v11q-4 3-8 0t-8 0" fill="none" stroke="#d29922" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+    <text x="73" y="178" fill="#e6edf3" font-size="24" font-weight="650" text-anchor="start">依使用者請求複查</text>
+    <text x="36" y="214" fill="#9198a1" font-size="20" font-weight="400" text-anchor="start">相關檔案已修改，或後續 Session 回報內容有矛盾。</text>
+    <path d="M320 247v25" fill="none" stroke="#9198a1" stroke-width="2" stroke-linejoin="round" marker-end="url(#arrow)"/>
+    <path d="M320 258H112v14" fill="none" stroke="#9198a1" stroke-width="2" stroke-linejoin="round" marker-end="url(#arrow)"/>
+    <path d="M320 258h208v14" fill="none" stroke="#9198a1" stroke-width="2" stroke-linejoin="round" marker-end="url(#arrow)"/>
+    <rect x="20" y="280" width="184" height="39" rx="10" fill="#151b23" stroke="#30363d" />
+    <text x="112" y="307" fill="#e6edf3" font-size="22" font-weight="650" text-anchor="middle">確認仍成立</text>
+    <rect x="228" y="280" width="184" height="39" rx="10" fill="#151b23" stroke="#30363d" />
+    <text x="320" y="307" fill="#e6edf3" font-size="22" font-weight="650" text-anchor="middle">改寫後取代</text>
+    <rect x="436" y="280" width="184" height="39" rx="10" fill="#151b23" stroke="#30363d" />
+    <text x="528" y="307" fill="#e6edf3" font-size="22" font-weight="650" text-anchor="middle">封存</text>
+  </g>
+</svg>
