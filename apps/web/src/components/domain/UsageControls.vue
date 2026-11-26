@@ -110,7 +110,7 @@ function removeFolder(index: number): void {
 </script>
 
 <template>
-  <UiBox data-testid="usage-controls">
+  <UiBox class="usage-controls" data-testid="usage-controls">
     <template #header><UiBoxTitle :icon="Gauge" :title="t('usage.projects')" /></template>
     <UiFlash v-if="projectsError" tone="danger" :title="t('usage.errorTitle')">
       {{ projectsError }}
@@ -262,6 +262,26 @@ function removeFolder(index: number): void {
   max-height: max(168px, calc(100vh - 34rem));
   overflow-y: auto;
   border-top: 1px solid var(--border-muted);
+}
+
+/* Beside the results the box is as tall as the screen allows, and the project rows take whatever the other controls leave. */
+@container usage-page (min-width: 1080px) {
+  .usage-controls,
+  .usage-controls :deep(.ui-box__body) {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .usage-controls :deep(.ui-box__body) {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .usage-controls__list {
+    flex: 1 1 0;
+    min-height: 168px;
+    max-height: none;
+  }
 }
 
 .usage-controls__list > :deep(.ui-box-row:first-child) {

@@ -4,6 +4,18 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.77] - 2026-11-26
+
+[繁體中文更新說明](docs/releases/1.6.77.md).
+
+### Changed
+
+- After an Agent review request is created, the Web says what to tell the Agent next: both the confirmation message and the request box now read "Say “handle the Agent review request” in Claude Code or Codex", like the Knowledge page and candidate requests.
+- On the Usage page, the controls box fills the side column down to the bottom of the screen when it sits beside the results; the project list takes the height the range, the advanced folders and the scan button leave. In the stacked layout it keeps its bounded list.
+- Usage cards in one row have the same height: the stat cards and the 5-hour block end on the same line, and so do the daily trend and the token composition.
+
+No database, REST or MCP change: the schema stays 38 and connected Agents do not need to reconnect.
+
 ## [1.6.76] - 2026-11-26
 
 [繁體中文更新說明](docs/releases/1.6.76.md).
