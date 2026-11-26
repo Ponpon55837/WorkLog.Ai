@@ -33,6 +33,48 @@ const GUIDES = readdirSync(join(SKILL_DIRECTORY, "references"))
   .filter((name) => name.endsWith(".md"))
   .map((name) => name.slice(0, -".md".length))
   .sort();
+/** What each stage reads beyond the fixed reading, reported only: contracts by operation, other resources by URI. */
+const STAGE_READING = {
+  startCommon: ["work_get_file_history", "work_recall"],
+  finalizeFollowUps: [
+    "work_update_session_metadata",
+    "work_resolve_outstanding_items",
+    `${GUIDE_URI_PREFIX}diagrams.md`,
+    "work-intelligence://agent/architecture-diagram-v1",
+  ],
+  knowledgePage: [
+    `${GUIDE_URI_PREFIX}knowledge.md`,
+    "work_get_knowledge_page_context",
+    "work_save_knowledge_page",
+    "work_mark_knowledge_page_checked",
+  ],
+  agentReview: [
+    `${GUIDE_URI_PREFIX}agent-review.md`,
+    "work_request_agent_review",
+    "work_get_agent_review_context",
+    "work_submit_agent_review_verdicts",
+  ],
+  synthesis: [
+    `${GUIDE_URI_PREFIX}synthesis.md`,
+    "work_list_report_synthesis_requests",
+    "work_get_report_context",
+    "work_save_report_summary",
+    "work-intelligence://agent/worklog-report-writing/SKILL.md",
+    "work-intelligence://agent/worklog-report-writing/references/zh-TW.md",
+  ],
+  outstandingCleanup: [
+    `${GUIDE_URI_PREFIX}outstanding-cleanup.md`,
+    "work_get_outstanding_cleanup_context",
+    "work_submit_outstanding_cleanup_proposals",
+    "work_list_outstanding_cleanup_requests",
+  ],
+  repair: [
+    `${GUIDE_URI_PREFIX}repair-and-backfill.md`,
+    "work_update_session_metadata",
+    "work_update_session_work_summary",
+  ],
+  readingRecords: [`${GUIDE_URI_PREFIX}reading-records.md`, "work_get_session", "work_recall"],
+} as const;
 
 /**
  * Rules every session needs, so the core must state them itself rather than point elsewhere. Each phrase is checked
@@ -131,6 +173,25 @@ describe("Agent reading before the first useful call", () => {
         fixed,
         format: format.length,
         guides: Object.fromEntries([...guides].map(([guide, text]) => [guide, text.length])),
+      })}`,
+    );
+    const stageLength = async (items: readonly string[]) =>
+      (
+        await Promise.all(
+          items.map((item) => readText(client, item.includes("://") ? item : `${CONTRACT_INDEX_URI}/${item}`)),
+        )
+      ).reduce((sum, text) => sum + text.length, 0);
+    const stages = Object.fromEntries(
+      await Promise.all(
+        Object.entries(STAGE_READING).map(async ([stage, items]) => [stage, await stageLength(items)] as const),
+      ),
+    );
+    const startRequired = fixed - finalize.length;
+    console.info(
+      `Agent reading by stage (UTF-16 code units): ${JSON.stringify({
+        start: { required: startRequired, common: startRequired + stages.startCommon! },
+        finalize: { required: finalize.length, withAllFollowUps: finalize.length + stages.finalizeFollowUps! },
+        ...stages,
       })}`,
     );
     expect(core.length).toBeLessThanOrEqual(CORE_SKILL_CHARACTER_BUDGET);
