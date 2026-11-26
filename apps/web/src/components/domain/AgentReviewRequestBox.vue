@@ -16,7 +16,8 @@ import { t } from "../../i18n";
 
 /**
  * One open request per project serves the decision inbox, the Knowledge candidates, and active Knowledge in doubt. The Agent applies its
- * verdicts directly; this box only opens, shows, and cancels the request.
+ * verdicts directly; this box only opens, shows, and cancels the request. It sits in the side column, so the list it
+ * serves keeps the first screen.
  */
 const props = defineProps<{ projects: readonly ProjectRecord[] }>();
 const projectId = defineModel<string>("projectId", { required: true });
@@ -40,23 +41,24 @@ const hint = computed(() => {
 </script>
 
 <template>
-  <UiBox class="agent-review-request" data-testid="agent-review-request">
+  <UiBox data-testid="agent-review-request">
     <template #header>
       <UiBoxTitle :icon="Bot" :title="t('knowledge.agentReviewTitle')" />
+    </template>
+    <UiFlash v-if="requestError" tone="danger">{{ requestError }}</UiFlash>
+    <p class="agent-review-request__hint">{{ hint }}</p>
+    <div class="agent-review-request__actions">
       <UiActionMenu
         v-model="projectId"
         :label="t('common.project')"
         :header="t('common.filterProject')"
         default-value=""
-        align="end"
         :items="projectItems"
       />
       <UiButton size="sm" variant="primary" :disabled="!canRequest" @click="requestReview">{{
         t("knowledge.askAgentToReview")
       }}</UiButton>
-    </template>
-    <UiFlash v-if="requestError" tone="danger">{{ requestError }}</UiFlash>
-    <p class="agent-review-request__hint">{{ hint }}</p>
+    </div>
     <div v-if="latestRequest" class="agent-review-request__status" data-testid="agent-review-request-status">
       <div class="agent-review-request__line">
         <StatusLabel :status="agentReviewRequestVisual[latestRequest.status]" />
@@ -94,10 +96,6 @@ const hint = computed(() => {
 </template>
 
 <style scoped>
-.agent-review-request {
-  margin-bottom: var(--space-4);
-}
-
 .agent-review-request__hint,
 .agent-review-request__failure,
 .agent-review-request__omitted {
@@ -106,6 +104,15 @@ const hint = computed(() => {
   color: var(--fg-muted);
   font-size: var(--text-sm);
   line-height: 1.6;
+}
+
+.agent-review-request__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 0 var(--space-4) var(--space-3);
 }
 
 .agent-review-request__status {

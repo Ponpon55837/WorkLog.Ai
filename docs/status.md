@@ -10,7 +10,7 @@
 
 - Agent 審查請求另外納入可能過時或被指出矛盾的 active Knowledge，判斷規則和注意事項佇列相同；只有 `broadChangesSince` 或只是久未確認的不納入。每筆附內容、`appliesTo`、疑慮原因與最多 5 筆後續 Session 的標題和路徑，和決策、候選共用 500 筆上限與 24,000 字的頁面預算。
 - Agent 可以選「仍成立」（確認）、「封存」或「改寫後取代」（新的 Knowledge 帶 `supersedesId`），都要附理由，各自走原本的確認、封存與寫入流程。寫入被拒絕時回 `knowledge_rejected`，項目保持待處理，可以換新的 `idempotencyKey` 重送。
-- Web 的知識分頁可以建立請求、查看由 Agent 處理的 Knowledge 並推翻：撤回確認、還原封存，或封存新的這筆並還原舊的。REST 新增 `GET /api/agent-review-knowledge` 與 `POST /api/knowledge/:knowledgeId/overturn`。
+- Web 的知識分頁可以在右側欄建立請求，並在 Knowledge 清單切換到「由 Agent 處理」查看與推翻：撤回確認、還原封存，或封存新的這筆並還原舊的。REST 新增 `GET /api/agent-review-knowledge` 與 `POST /api/knowledge/:knowledgeId/overturn`。
 - schema 38 只放寬 `agent_review_request_items` 的 CHECK，重建該表，沒有新增資料表或欄位。Agent 固定讀取量由 42,249 降為 42,244。
 - MCP contract 文字改變，Agent 需重新連線 MCP。資料庫升級到 schema 38，升級時自動備份。詳見 [1.6.76 更新說明](releases/1.6.76.md)。
 

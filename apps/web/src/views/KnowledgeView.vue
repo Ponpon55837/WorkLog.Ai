@@ -7,6 +7,7 @@ import type { KnowledgeKind, KnowledgeRecord, KnowledgeStatus } from "@work-inte
 import PageHeader from "../components/layout/PageHeader.vue";
 import PageToolbar from "../components/layout/PageToolbar.vue";
 import AgentKnowledgeReviewBox from "../components/domain/AgentKnowledgeReviewBox.vue";
+import AgentReviewFilter from "../components/domain/AgentReviewFilter.vue";
 import AgentReviewRequestBox from "../components/domain/AgentReviewRequestBox.vue";
 import KnowledgeCandidateEditorDialog from "../components/domain/KnowledgeCandidateEditorDialog.vue";
 import KnowledgeCandidatesBox from "../components/domain/KnowledgeCandidatesBox.vue";
@@ -122,6 +123,7 @@ const hasFilters = computed(() =>
     knowledgeQuery.value || knowledgeKind.value || knowledgeProjectId.value || knowledgeStatus.value !== "active",
   ),
 );
+const isAgentView = computed(() => reviewFilter.value === "agent");
 const selectedProjectRoot = computed(
   () => knowledgeProjects.value.find((project) => project.id === knowledgeProjectId.value)?.rootPath,
 );
@@ -245,7 +247,9 @@ watch(
   },
 );
 
-watch(tab, (value) => agentReviewStore.setKnowledgeActive(value === "list"), { immediate: true });
+watch([tab, isAgentView], ([value, agentView]) => agentReviewStore.setKnowledgeActive(value === "list" && agentView), {
+  immediate: true,
+});
 
 watch(
   () => selectedProjectRoot.value,
@@ -282,7 +286,7 @@ onBeforeUnmount(() => {
 
   <PageToolbar>
     <UiUnderlineNav v-model="tab" :items="tabs" :label="t('knowledge.workKnowledgeTabs')" id-prefix="knowledge" />
-    <form v-if="tab === 'list'" class="knowledge-search" role="search" @submit.prevent="reloadNow">
+    <form v-if="tab === 'list' && !isAgentView" class="knowledge-search" role="search" @submit.prevent="reloadNow">
       <UiTextInput
         v-model="knowledgeQuery"
         class="knowledge-search__input"
@@ -312,32 +316,44 @@ onBeforeUnmount(() => {
   <KnowledgeCandidateEditorDialog :project-root="selectedProjectRoot" />
   <KnowledgePagePanel :projects="knowledgeProjects" />
 
-  <section
+  <UiSplitLayout
     v-if="tab === 'decisions'"
     id="knowledge-panel-decisions"
     role="tabpanel"
     aria-labelledby="knowledge-tab-decisions"
   >
-    <AgentReviewRequestBox v-model:project-id="knowledgeProjectId" :projects="knowledgeProjects" />
-    <AgentDecisionReviewBox :project-root="selectedProjectRoot" />
-  </section>
+    <template #main><AgentDecisionReviewBox :project-root="selectedProjectRoot" /></template>
+    <template #aside>
+      <AgentReviewRequestBox v-model:project-id="knowledgeProjectId" :projects="knowledgeProjects" />
+    </template>
+  </UiSplitLayout>
   <section v-else-if="tab === 'pages'" id="knowledge-panel-pages" role="tabpanel" aria-labelledby="knowledge-tab-pages">
     <KnowledgePagesBox v-model:project-id="knowledgeProjectId" :projects="knowledgeProjects" />
   </section>
-  <section
+  <UiSplitLayout
     v-else-if="tab === 'candidates'"
     id="knowledge-panel-candidates"
     role="tabpanel"
     aria-labelledby="knowledge-tab-candidates"
   >
-    <AgentReviewRequestBox v-model:project-id="knowledgeProjectId" :projects="knowledgeProjects" />
-    <KnowledgeCandidatesBox :projects="knowledgeProjects" :project-root="selectedProjectRoot" />
-  </section>
+    <template #main>
+      <KnowledgeCandidatesBox :projects="knowledgeProjects" :project-root="selectedProjectRoot" />
+    </template>
+    <template #aside>
+      <AgentReviewRequestBox v-model:project-id="knowledgeProjectId" :projects="knowledgeProjects" />
+    </template>
+  </UiSplitLayout>
   <UiSplitLayout v-else>
     <template #main>
-      <AgentReviewRequestBox v-model:project-id="knowledgeProjectId" :projects="knowledgeProjects" />
-      <AgentKnowledgeReviewBox :projects="knowledgeProjects" :project-root="selectedProjectRoot" />
-      <UiBox id="knowledge-panel-list" role="tabpanel" aria-labelledby="knowledge-tab-list" sticky-header>
+      <AgentKnowledgeReviewBox
+        v-if="isAgentView"
+        id="knowledge-panel-list"
+        role="tabpanel"
+        aria-labelledby="knowledge-tab-list"
+        :projects="knowledgeProjects"
+        :project-root="selectedProjectRoot"
+      />
+      <UiBox v-else id="knowledge-panel-list" role="tabpanel" aria-labelledby="knowledge-tab-list" sticky-header>
         <template #header>
           <UiBoxTitle
             :icon="BookOpen"
@@ -348,6 +364,7 @@ onBeforeUnmount(() => {
             "
           />
           <div class="knowledge__filters">
+            <AgentReviewFilter v-model="reviewFilter" :pending-label="t('knowledge.reviewFilterAllKnowledge')" />
             <UiActionMenu
               v-model="knowledgeProjectId"
               :label="t('common.project')"
@@ -415,9 +432,11 @@ onBeforeUnmount(() => {
         </template>
       </UiBox>
     </template>
-    <!-- The side column is held by a Skeleton while the counts load; a failed or skipped request leaves one column. -->
-    <template v-if="kindCounts || kindCountsLoading" #aside>
+    <template #aside>
+      <AgentReviewRequestBox v-model:project-id="knowledgeProjectId" :projects="knowledgeProjects" />
+      <!-- The card is held by a Skeleton while the counts load; a failed or skipped request leaves it out. -->
       <KnowledgeKindOverview
+        v-if="kindCounts || kindCountsLoading"
         :counts="kindCounts ?? undefined"
         :status="knowledgeStatus"
         :search-active="Boolean(knowledgeQuery)"
@@ -431,12 +450,14 @@ onBeforeUnmount(() => {
 .knowledge-search {
   display: flex;
   flex: 1 1 100%;
+  flex-wrap: wrap;
   gap: var(--space-2);
   padding: var(--space-2) 0;
 }
 
 .knowledge-search__input {
-  flex: 1;
+  flex: 1 1 200px;
+  min-width: 0;
 }
 
 .knowledge__filters {

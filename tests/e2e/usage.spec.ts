@@ -77,6 +77,29 @@ test("projects that share a folder are grouped, selectable as a whole, and show 
   expect(overflow).toBeLessThanOrEqual(0);
 });
 
+test("the range and the scan button stay on screen however many projects are tracked", async ({ page }) => {
+  const items = Array.from({ length: 30 }, (_, index) => ({
+    id: `usage-many-${index}`,
+    name: `Fictional Field ${index + 1}`,
+    current: false,
+    sources: { claudeFolders: 1, codexFiles: 0 },
+  }));
+  await page.route("**/api/usage/projects", (route) => route.fulfill({ json: { items, groups: [] } }));
+  await page.route("**/api/usage/scan", (route) => route.fulfill({ json: usageScanFixture() }));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/usage");
+
+  const controls = page.getByTestId("usage-controls");
+  await expect(controls.getByTestId("usage-project")).toHaveCount(30);
+  await expect(controls.getByRole("button", { name: textIn("zh-TW", "usage.scan") })).toBeInViewport({ ratio: 1 });
+  await expect(controls.getByRole("radiogroup", { name: textIn("zh-TW", "usage.range") })).toBeInViewport({ ratio: 1 });
+
+  // The last project is reached by scrolling the list, not the page.
+  await controls.getByTestId("usage-project").last().scrollIntoViewIfNeeded();
+  await expect(controls.getByRole("checkbox", { name: "Fictional Field 30" })).toBeInViewport();
+  await expect(controls.getByRole("button", { name: textIn("zh-TW", "usage.scan") })).toBeInViewport({ ratio: 1 });
+});
+
 test("a failed scan shows an error with a retry that loads the result", async ({ page }) => {
   await mockUsage(page, "error");
   await page.goto("/usage");

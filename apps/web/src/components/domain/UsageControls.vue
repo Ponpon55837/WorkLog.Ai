@@ -257,7 +257,10 @@ function removeFolder(index: number): void {
 </template>
 
 <style scoped>
+/* Only the project rows scroll, so the range and the scan button stay on screen however many projects are tracked. */
 .usage-controls__list {
+  max-height: max(168px, calc(100vh - 34rem));
+  overflow-y: auto;
   border-top: 1px solid var(--border-muted);
 }
 
