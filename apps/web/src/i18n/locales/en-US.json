@@ -578,11 +578,10 @@
     "workKnowledgeTabs": "Work knowledge tabs",
     "agentReviewTitle": "Agent review request",
     "askAgentToReview": "Ask an Agent to review",
-    "agentReviewIntro": "The Agent checks each item against its source Session, then confirms, rejects, or accepts it and gives a reason. Its decisions take effect right away, and you can overturn them later.",
-    "agentReviewChooseProject": "Choose a single project to ask an Agent to review its pending decisions and Knowledge candidates.",
-    "agentReviewNothingPending": "This project has no pending decisions or Knowledge candidates.",
+    "agentReviewIntro": "The Agent checks each item against its source Session and later changes, then confirms, rejects, accepts, archives, or replaces pending items and Knowledge that may be out of date, and gives a reason. Its decisions take effect right away, and you can overturn them later.",
+    "agentReviewChooseProject": "Choose a single project to ask an Agent to review its pending decisions, Knowledge candidates, and Knowledge that needs review.",
     "agentReviewAskYourAgent": "Ask your Agent to handle the Agent review request. This project cannot open another request until it finishes.",
-    "agentReviewSnapshot": "Snapshot of {itemCount} (decisions {decisionCount}, candidates {candidateCount})",
+    "agentReviewSnapshot": "Snapshot of {itemCount} (decisions {decisionCount}, candidates {candidateCount}, Knowledge {knowledgeCount})",
     "agentReviewTotals": "{applied} processed, {skipped} skipped, {open} still pending",
     "agentReviewOmitted": "{count} over the limit were left out. Open another request once this one finishes.",
     "agentReviewFailed": "Interrupted: {reason}",
@@ -630,7 +629,18 @@
     "deleteThisKnowledgePage": "Delete this Knowledge page?",
     "knowledgePageWillBeDeleted": "“{title}” and its history versions ({versionCount}) will be deleted. This cannot be undone. Importing an older JSON export later will not add it back.",
     "knowledgePageDeleted": "Knowledge page “{title}” deleted.",
-    "couldNotDeleteTheKnowledgePage": "Could not delete this Knowledge page."
+    "couldNotDeleteTheKnowledgePage": "Could not delete this Knowledge page.",
+    "agentProcessedKnowledge": "Knowledge processed by Agent",
+    "agentProcessedKnowledgeList": "Knowledge processed by Agent",
+    "replacedBy": "Replaced by {title}",
+    "couldNotLoadAgentReviewedKnowledge": "Could not load Knowledge processed by the Agent.",
+    "overturnKnowledgeConfirmMessage": "The Agent's confirmation is withdrawn and this Knowledge returns to its earlier review state.",
+    "overturnKnowledgeArchiveMessage": "This Knowledge becomes active again.",
+    "overturnKnowledgeSupersedeMessage": "The Knowledge the Agent created is archived if it is still active, and the original Knowledge becomes active again.",
+    "overturnedKnowledgeConfirmationWithdrawn": "Overturned. The Agent's confirmation is withdrawn.",
+    "overturnedKnowledgeRestored": "Overturned. The Knowledge is active again.",
+    "overturnedKnowledgeRestoredReplacementArchived": "Overturned. The Knowledge the Agent created is archived and the original is active again.",
+    "overturnedKnowledgeReviewedUnchanged": "Overturned, but this Knowledge changed after the Agent processed it, so it was left as it is."
   },
   "labels": {
     "agent": "Agent",
@@ -1575,7 +1585,8 @@
     "agentObservationLocation": "MCP record",
     "agentReviewPending": "Waiting for Agent",
     "agentReviewCompleted": "Processed by Agent",
-    "promotedToKnowledge": "Promoted to Knowledge"
+    "promotedToKnowledge": "Promoted to Knowledge",
+    "supersededByAgent": "Replaced"
   },
   "systemStatus": {
     "agentConnections": "Agent connections",

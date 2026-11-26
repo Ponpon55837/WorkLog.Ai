@@ -33,7 +33,7 @@ Each guide is MCP resource `work-intelligence://agent/work-intelligence/referenc
 - `diagrams` — before you attach a diagram to a Session.
 - `repair-and-backfill` — before you correct a saved Session, backfill its metadata, or update its commit after finalize.
 - `outstanding-cleanup` — before you review outstanding items for a 整理未結項 request.
-- `agent-review` — before you review Agent decisions and Knowledge candidates for an Agent review request.
+- `agent-review` — before you review decisions, candidates and Knowledge for an Agent review request.
 - `synthesis` — before you synthesize a report, or write or revise Session summaries and reports.
 - `knowledge` — before you propose Knowledge candidates, update Knowledge pages, or record Knowledge.
 

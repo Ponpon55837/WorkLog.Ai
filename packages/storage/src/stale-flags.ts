@@ -27,3 +27,11 @@ export function staleFlags(source: StaleSource): StaleFlags {
       : {}),
   };
 }
+
+/**
+ * Whether active Knowledge needs a person's (or a requested Agent's) look: possiblyStale or contradicted (review).
+ * broadChangesSince alone is the weaker signal and does not count. Shared by the attention queue and Agent review.
+ */
+export function isKnowledgeInDoubt(item: { possiblyStale?: unknown; review?: unknown }): boolean {
+  return Boolean(item.review || item.possiblyStale);
+}

@@ -18,6 +18,7 @@ import {
 import { nowIso } from "@work-intelligence/shared";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 import { createPageInfo } from "./pagination.js";
+import { isKnowledgeInDoubt } from "./stale-flags.js";
 
 export interface AttentionDependencies {
   checkProjectById(projectId: string): PolicyDecision;
@@ -236,24 +237,22 @@ export class AttentionService {
       // Only possiblyStale queues: Knowledge touched solely by broad Sessions carries broadChangesSince, a weaker signal
       // that stays on the record. A broad_applies_to item queues like any other (its reason is part of the
       // fingerprint, so a change of reason or breadth is a new revision).
-      const items = result.items
-        .filter((item) => item.review || item.possiblyStale)
-        .map((item) =>
-          pointer(
-            kind,
-            {
-              source_id: item.id,
-              project_id: item.projectId,
-              project_name: item.projectName ?? null,
-              title: item.title,
-              reason: item.review ? "review" : "stale",
-              count: item.possiblyStale?.sessionCount ?? 0,
-              updated_at: item.review?.at ?? item.possiblyStale?.completedAt ?? item.updatedAt,
-            },
-            {},
-            [item.updatedAt, item.review, item.possiblyStale],
-          ),
-        );
+      const items = result.items.filter(isKnowledgeInDoubt).map((item) =>
+        pointer(
+          kind,
+          {
+            source_id: item.id,
+            project_id: item.projectId,
+            project_name: item.projectName ?? null,
+            title: item.title,
+            reason: item.review ? "review" : "stale",
+            count: item.possiblyStale?.sessionCount ?? 0,
+            updated_at: item.review?.at ?? item.possiblyStale?.completedAt ?? item.updatedAt,
+          },
+          {},
+          [item.updatedAt, item.review, item.possiblyStale],
+        ),
+      );
       const complete = result.pageInfo.total <= result.items.length;
       return {
         items,

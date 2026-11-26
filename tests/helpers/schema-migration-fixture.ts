@@ -17,6 +17,39 @@ export function undoSchemaMigration(db: DatabaseSync, version: number): void {
     db.prepare("DELETE FROM schema_migrations WHERE version = ?").run(version);
     return;
   }
+  if (version === 38) {
+    // Back to the schema-36 CHECKs; the rows schema 37 cannot hold go with them.
+    const triggers = ["insert", "update", "delete"]
+      .map(
+        (operation) => `CREATE TRIGGER trg_data_revision_agent_review_request_items_${operation}
+        AFTER ${operation.toUpperCase()} ON agent_review_request_items BEGIN
+          UPDATE change_revisions SET data_revision = data_revision + 1 WHERE singleton = 1;
+        END;`,
+      )
+      .join("\n");
+    db.exec(`CREATE TEMP TABLE agent_review_request_items_v38 AS SELECT * FROM agent_review_request_items
+      WHERE item_kind <> 'knowledge' AND (verdict IS NULL OR verdict NOT IN ('archive', 'supersede')) ORDER BY rowid;
+    DROP TABLE agent_review_request_items;
+    CREATE TABLE agent_review_request_items (
+      id TEXT PRIMARY KEY, request_id TEXT NOT NULL,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      item_kind TEXT NOT NULL CHECK (item_kind IN ('decision', 'candidate')), item_id TEXT NOT NULL,
+      source_session_id TEXT, position INTEGER NOT NULL CHECK (position >= 0), fingerprint TEXT NOT NULL,
+      submission_id TEXT, verdict TEXT CHECK (verdict IN ('confirm', 'reject', 'promote', 'accept')),
+      outcome TEXT CHECK (outcome IN ('applied', 'skipped_stale', 'skipped_reviewed')), reason TEXT,
+      knowledge_id TEXT REFERENCES knowledge(id) ON DELETE SET NULL, decided_at TEXT, overturned_at TEXT,
+      UNIQUE (request_id, item_kind, item_id), UNIQUE (request_id, position),
+      FOREIGN KEY (request_id, project_id) REFERENCES agent_review_requests(id, project_id) ON DELETE CASCADE
+    );
+    INSERT INTO agent_review_request_items SELECT * FROM temp.agent_review_request_items_v38 ORDER BY rowid;
+    DROP TABLE temp.agent_review_request_items_v38;
+    CREATE INDEX idx_agent_review_items_item ON agent_review_request_items(project_id, item_kind, item_id);
+    CREATE INDEX idx_agent_review_items_source_session ON agent_review_request_items(source_session_id)
+      WHERE source_session_id IS NOT NULL;
+    ${triggers}`);
+    db.prepare("DELETE FROM schema_migrations WHERE version = ?").run(version);
+    return;
+  }
   const sql = schemaMigrationSql(version);
   if (!sql) throw new RangeError(`Unknown schema migration: ${version}`);
 

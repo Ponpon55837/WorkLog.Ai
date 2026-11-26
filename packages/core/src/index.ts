@@ -3410,13 +3410,16 @@ export type CancelOutstandingCleanupRequestResult =
 
 export const AGENT_REVIEW_REQUEST_STATUSES = ["pending", "processing", "completed", "failed", "cancelled"] as const;
 export type AgentReviewRequestStatus = (typeof AGENT_REVIEW_REQUEST_STATUSES)[number];
-export type AgentReviewItemKind = "decision" | "candidate";
-export type AgentReviewVerdictKind = "confirm" | "reject" | "promote" | "accept";
+export type AgentReviewItemKind = "decision" | "candidate" | "knowledge";
+export type AgentReviewVerdictKind = "confirm" | "reject" | "promote" | "accept" | "archive" | "supersede";
 export type AgentReviewItemOutcome = "applied" | "skipped_stale" | "skipped_reviewed";
 /** open: no verdict yet; applied/skipped: this request decided it; stale: changed since the snapshot; reviewed: decided elsewhere. */
 export type AgentReviewItemState = "open" | "applied" | "skipped" | "stale" | "reviewed";
 
-/** A bounded Agent review of a project's pending Agent decisions and proposed Knowledge candidates. */
+/**
+ * A bounded Agent review of a project's pending Agent decisions, proposed Knowledge candidates, and active Knowledge
+ * that is possiblyStale or needs review.
+ */
 export interface AgentReviewRequest {
   id: string;
   projectId: string;
@@ -3431,6 +3434,7 @@ export interface AgentReviewRequest {
   omittedCount: number;
   decisionCount: number;
   candidateCount: number;
+  knowledgeCount: number;
   appliedCount: number;
   skippedCount: number;
   /** Snapshot items without an outcome yet. */
@@ -3484,6 +3488,16 @@ export type AgentReviewVerdict =
       verdict: "accept" | "reject";
       reason: string;
       edits?: Partial<Pick<KnowledgeCandidate, "kind" | "title" | "body" | "tags" | "references" | "appliesTo">>;
+    }
+  | {
+      itemKind: "knowledge";
+      itemId: string;
+      /** confirm: still holds; archive: no longer holds; supersede: replaced by `knowledge`. */
+      verdict: "confirm" | "archive" | "supersede";
+      reason: string;
+      /** Supersede only. Omitted kind, tags, references and appliesTo keep the replaced Knowledge's values. */
+      knowledge?: Partial<Pick<AgentReviewKnowledgeDraft, "kind" | "tags" | "references" | "appliesTo">> &
+        Pick<AgentReviewKnowledgeDraft, "title" | "body">;
     };
 
 export interface SubmitAgentReviewVerdictsInput {
@@ -3505,6 +3519,20 @@ export interface AgentReviewSessionContext {
   otherDecisionsTruncated?: boolean;
 }
 
+/** A later Session that changed files a Knowledge item's appliesTo covers. */
+export interface AgentReviewLaterSession {
+  id: string;
+  title: string;
+  completedAt: string;
+  paths: string[];
+}
+
+/** Why an active Knowledge item is in the request: possiblyStale, contradicted (review), or both. */
+export interface AgentReviewKnowledgeDoubt {
+  possiblyStale?: Pick<KnowledgeStaleness, "reason" | "sessionCount">;
+  contradicted?: { sessionId?: string; sessionTitle?: string; at: string };
+}
+
 export interface AgentReviewContextItem {
   itemKind: AgentReviewItemKind;
   id: string;
@@ -3513,7 +3541,7 @@ export interface AgentReviewContextItem {
   /** Decisions only. */
   text?: string;
   textTruncated?: boolean;
-  /** Candidates only. */
+  /** Candidates and Knowledge. */
   kind?: KnowledgeKind;
   title?: string;
   body?: string;
@@ -3524,6 +3552,13 @@ export interface AgentReviewContextItem {
   bodyTruncated?: boolean;
   rationaleTruncated?: boolean;
   titleTruncated?: boolean;
+  /** Knowledge only. */
+  doubt?: AgentReviewKnowledgeDoubt;
+  createdAt?: string;
+  lastConfirmedAt?: string;
+  /** Knowledge only: newest first, fitted into what the page budget leaves after the items. */
+  laterSessions?: AgentReviewLaterSession[];
+  laterSessionsOmitted?: number;
   /** Advisory only: stored for candidates, computed for decisions. */
   overlaps: KnowledgeCandidateOverlap[];
 }
@@ -3615,6 +3650,14 @@ export type OverturnAgentReviewResult =
       itemKind: AgentReviewItemKind;
       decision?: SessionDecisionRecord;
       candidate?: KnowledgeCandidate;
+      /**
+       * Knowledge items: the reviewed Knowledge as it is now. confirmation_withdrawn: the verdict's confirmation was
+       * undone; restored: archived again by nobody else, so it is active again; unchanged: changed since the verdict.
+       */
+      reviewedKnowledge?: {
+        knowledge: KnowledgeRecord;
+        action: "confirmation_withdrawn" | "restored" | "unchanged";
+      };
       /** What happened to the Knowledge the Agent verdict created: archived only while still active. */
       knowledge?: {
         /** Absent when the Knowledge row no longer exists and its id was cleared with it. */
@@ -3624,6 +3667,24 @@ export type OverturnAgentReviewResult =
       };
     }
   | AgentReviewFailure;
+
+export interface AgentReviewedKnowledgeQuery {
+  projectRoot?: string;
+}
+
+/** Knowledge whose latest Agent verdict still stands (not overturned), newest verdict first. */
+export interface AgentReviewedKnowledge {
+  knowledge: KnowledgeRecord;
+  verdict: "confirm" | "archive" | "supersede";
+  reason: string;
+  reviewedAt: string;
+  requestId: string;
+  /** Supersede only: the Knowledge the verdict recorded in its place. */
+  successor?: { id: string; title: string; status: KnowledgeStatus };
+}
+
+export type AgentReviewedKnowledgeListResult =
+  { outcome: "agent_reviewed_knowledge"; items: AgentReviewedKnowledge[] } | AgentReviewSkippedResult;
 
 /** Bounded pointers to pending work; read the source Session before deciding its status. */
 export interface RelatedOutstandingItems {

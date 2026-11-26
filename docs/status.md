@@ -6,6 +6,14 @@
 
 - 最後更新：2026-11-26
 
+## 1.6.76（Agent 審查涵蓋有疑慮的 Knowledge）
+
+- Agent 審查請求另外納入可能過時或被指出矛盾的 active Knowledge，判斷規則和注意事項佇列相同；只有 `broadChangesSince` 或只是久未確認的不納入。每筆附內容、`appliesTo`、疑慮原因與最多 5 筆後續 Session 的標題和路徑，和決策、候選共用 500 筆上限與 24,000 字的頁面預算。
+- Agent 可以選「仍成立」（確認）、「封存」或「改寫後取代」（新的 Knowledge 帶 `supersedesId`），都要附理由，各自走原本的確認、封存與寫入流程。寫入被拒絕時回 `knowledge_rejected`，項目保持待處理，可以換新的 `idempotencyKey` 重送。
+- Web 的知識分頁可以建立請求、查看由 Agent 處理的 Knowledge 並推翻：撤回確認、還原封存，或封存新的這筆並還原舊的。REST 新增 `GET /api/agent-review-knowledge` 與 `POST /api/knowledge/:knowledgeId/overturn`。
+- schema 38 只放寬 `agent_review_request_items` 的 CHECK，重建該表，沒有新增資料表或欄位。Agent 固定讀取量由 42,249 降為 42,244。
+- MCP contract 文字改變，Agent 需重新連線 MCP。資料庫升級到 schema 38，升級時自動備份。詳見 [1.6.76 更新說明](releases/1.6.76.md)。
+
 ## 1.6.75（刪除自訂知識頁與拆頁前先整理）
 
 - Web 的知識頁面板可以刪除自訂知識頁，確認視窗列出一併刪除的歷史版本數；頁面、版本、更新請求與注意事項設定在同一個交易刪除。三個預設頁不能刪除，REST 回 409 `knowledge_page_default`。MCP 沒有刪除工具；Agent 讀到全是「資料不足」的自訂頁時，回應帶 `emptyPageHint`。

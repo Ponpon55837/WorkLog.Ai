@@ -10,6 +10,7 @@ import { createApiHandler, type ApiHandler } from "../../apps/server/src/server.
 const resources: Array<{ handler: ApiHandler; store: WorkIntelligenceStore; root: string }> = [];
 
 afterEach(() => {
+  vi.useRealTimers();
   for (const resource of resources.splice(0)) {
     resource.handler.closeEventStreams();
     resource.store.close();
@@ -84,6 +85,52 @@ function finalizeDecisions(store: WorkIntelligenceStore, root: string, key: stri
   });
   if (result.outcome !== "finalized") throw new Error("Expected a finalized Session.");
   return (store.getSessionDetail(result.session.id)?.decisions ?? []).map((decision) => decision.id);
+}
+
+/** Records Knowledge naming a file, then a later Session that changed it, so the Knowledge is possibly stale. */
+function createStaleKnowledge(store: WorkIntelligenceStore, root: string, key: string): string {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-01T08:00:00.000Z"));
+  const recorded = store.recordKnowledge({
+    projectRoot: root,
+    idempotencyKey: `${key}-knowledge`,
+    kind: "gotcha",
+    title: `Fictional rule for ${key}`,
+    body: "Keep the fictional lease file in step with its docs.",
+    appliesTo: ["packages/fictional/lease.ts"],
+  });
+  if (recorded.outcome !== "knowledge_recorded") throw new Error("Expected recorded Knowledge.");
+  vi.setSystemTime(new Date("2026-10-03T08:00:00.000Z"));
+  const finalized = store.finalizeSession({
+    projectRoot: root,
+    idempotencyKey: `${key}-session`,
+    title: `Session ${key}`,
+    summary: `Fictional summary for ${key}.`,
+    completedAt: "2026-10-02T09:00:00.000Z",
+    workSummary: { outcomes: [`Outcome of ${key}`], scope: [], decisions: [], verification: [], nextSteps: [] },
+    changedFiles: ["packages/fictional/lease.ts"],
+    verification: { status: "passed" },
+  });
+  if (finalized.outcome !== "finalized") throw new Error("Expected a finalized Session.");
+  return recorded.knowledge.id;
+}
+
+function confirmKnowledgeVerdict(store: WorkIntelligenceStore, projectId: string, root: string, key: string) {
+  const knowledgeId = createStaleKnowledge(store, root, key);
+  const request = store.createAgentReviewRequest({ projectId, idempotencyKey: `${key}-request` });
+  if (request.outcome !== "agent_review_request") throw new Error("Expected a request.");
+  const context = store.getAgentReviewContext({ requestId: request.request.id });
+  if (context.outcome !== "agent_review_context") throw new Error("Expected context.");
+  const submitted = store.submitAgentReviewVerdicts({
+    requestId: request.request.id,
+    idempotencyKey: `${key}-submit`,
+    verdicts: [
+      { itemKind: "knowledge", itemId: knowledgeId, verdict: "confirm", reason: "Still true after the change." },
+    ],
+    complete: true,
+  });
+  if (submitted.outcome !== "agent_review_verdicts_submitted") throw new Error("Expected submitted verdicts.");
+  return { knowledgeId, request: request.request };
 }
 
 describe("Agent review REST routes", () => {
@@ -174,6 +221,65 @@ describe("Agent review REST routes", () => {
     expect(candidates).toMatchObject({ status: 200, body: { outcome: "knowledge_candidates" } });
   });
 
+  it("lists Knowledge the Agent confirmed and overturns the confirmation", async () => {
+    const { root, store, project } = createFixture("Agent review REST knowledge fixture");
+    const handler = startApi(store);
+    resources.push({ handler, store, root });
+    const { knowledgeId, request } = confirmKnowledgeVerdict(store, project.id, root, "agent-review-rest-knowledge");
+    vi.useRealTimers();
+    expect(request.knowledgeCount).toBe(1);
+
+    const listed = await requestJson<{
+      outcome: string;
+      items: Array<{ knowledge: { id: string }; verdict: string; reason: string }>;
+    }>(handler, `/api/agent-review-knowledge?projectRoot=${encodeURIComponent(root)}`);
+    expect(listed).toMatchObject({
+      status: 200,
+      body: {
+        outcome: "agent_reviewed_knowledge",
+        items: [{ knowledge: { id: knowledgeId }, verdict: "confirm", reason: "Still true after the change." }],
+      },
+    });
+
+    const overturned = await requestJson<{
+      outcome: string;
+      reviewedKnowledge: { knowledge: { id: string }; action: string };
+    }>(handler, `/api/knowledge/${knowledgeId}/overturn`, { method: "POST", body: { projectRoot: root } });
+    expect(overturned).toMatchObject({
+      status: 200,
+      body: {
+        outcome: "agent_review_overturned",
+        reviewedKnowledge: { knowledge: { id: knowledgeId }, action: "confirmation_withdrawn" },
+      },
+    });
+
+    const after = await requestJson<{ items: unknown[] }>(handler, "/api/agent-review-knowledge");
+    expect(after).toMatchObject({ status: 200, body: { items: [] } });
+    const again = await requestJson<{ code: string; details: { reason: string } }>(
+      handler,
+      `/api/knowledge/${knowledgeId}/overturn`,
+      { method: "POST", body: { projectRoot: root } },
+    );
+    expect(again).toMatchObject({ status: 409, body: { code: "conflict", details: { reason: "not_agent_reviewed" } } });
+  });
+
+  it("keeps candidate overturn routed to candidates beside the Knowledge overturn", async () => {
+    const { root, store } = createFixture("Agent review REST routing fixture");
+    const handler = startApi(store);
+    resources.push({ handler, store, root });
+    const candidate = await requestJson<{ outcome: string }>(
+      handler,
+      "/api/knowledge/candidates/missing-candidate/overturn",
+      { method: "POST", body: { projectRoot: root } },
+    );
+    expect(candidate).toMatchObject({ status: 200, body: { outcome: "not_found" } });
+    const knowledge = await requestJson<{ outcome: string }>(handler, "/api/knowledge/missing-knowledge/overturn", {
+      method: "POST",
+      body: { projectRoot: root },
+    });
+    expect(knowledge).toMatchObject({ status: 200, body: { outcome: "not_found" } });
+  });
+
   it("cancels an open request and reports nothing to review quietly", async () => {
     const { root, store, project } = createFixture("Agent review REST cancel fixture");
     const handler = startApi(store);
@@ -215,6 +321,21 @@ describe("Agent review REST routes", () => {
       body: { projectRoot: root, itemKind: "candidate", extra: true },
     });
     expect(unknownField.status).toBe(400);
+    const invalidKnowledge = await requestJson<{ code: string }>(handler, "/api/knowledge/x/overturn", {
+      method: "POST",
+      body: { projectRoot: root, extra: true },
+    });
+    expect(invalidKnowledge).toMatchObject({ status: 400, body: { code: "invalid_input" } });
+    const missingRoot = await requestJson<{ code: string }>(handler, "/api/knowledge/x/overturn", {
+      method: "POST",
+      body: {},
+    });
+    expect(missingRoot.status).toBe(400);
+    const invalidQuery = await requestJson<{ code: string }>(
+      handler,
+      `/api/agent-review-knowledge?projectRoot=${"a".repeat(1_001)}`,
+    );
+    expect(invalidQuery).toMatchObject({ status: 400, body: { code: "invalid_input" } });
 
     const paused = store.addProject("Agent review REST paused fixture", join(root, "paused"));
     store.updateProject(paused.id, { status: "paused" });
@@ -223,6 +344,17 @@ describe("Agent review REST routes", () => {
       body: { projectId: paused.id, idempotencyKey: "agent-review-rest-paused" },
     });
     expect(skipped).toMatchObject({ status: 200, body: { outcome: "skipped" } });
+    const pausedRoot = join(root, "paused");
+    const listSkipped = await requestJson<{ outcome: string }>(
+      handler,
+      `/api/agent-review-knowledge?projectRoot=${encodeURIComponent(pausedRoot)}`,
+    );
+    expect(listSkipped).toMatchObject({ status: 200, body: { outcome: "skipped" } });
+    const overturnSkipped = await requestJson<{ outcome: string }>(handler, "/api/knowledge/x/overturn", {
+      method: "POST",
+      body: { projectRoot: pausedRoot },
+    });
+    expect(overturnSkipped).toMatchObject({ status: 200, body: { outcome: "skipped" } });
   });
 
   it("masks internal errors", async () => {
@@ -235,5 +367,10 @@ describe("Agent review REST routes", () => {
     const masked = await requestJson<{ error: string; code: string }>(handler, "/api/agent-review-requests");
     expect(masked).toMatchObject({ status: 500, body: { error: "Internal server error.", code: "internal_error" } });
     expect(JSON.stringify(masked.body)).not.toContain("private database path");
+    vi.spyOn(store, "listAgentReviewedKnowledge").mockImplementation(() => {
+      throw new Error("private database path and SQL details");
+    });
+    const maskedKnowledge = await requestJson<{ code: string }>(handler, "/api/agent-review-knowledge");
+    expect(maskedKnowledge).toMatchObject({ status: 500, body: { code: "internal_error" } });
   });
 });

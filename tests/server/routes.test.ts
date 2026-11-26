@@ -54,6 +54,8 @@ const EXPECTED_ROUTES = [
   "POST /api/agent-review-requests/:requestId/cancel",
   "POST /api/session-decisions/:decisionId/overturn",
   "POST /api/knowledge/candidates/:candidateId/overturn",
+  "GET /api/agent-review-knowledge",
+  "POST /api/knowledge/:knowledgeId/overturn",
   "POST /api/knowledge",
   "GET /api/knowledge-pages",
   "PATCH /api/knowledge-pages/:pageId",

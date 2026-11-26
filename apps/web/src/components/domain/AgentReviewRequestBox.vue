@@ -11,13 +11,11 @@ import UiButton from "../ui/UiButton.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import { useAgentReviewActions } from "../../composables/useAgentReviewActions";
 import { useAgentReviewStore } from "../../stores/agent-review";
-import { useKnowledgeStore } from "../../stores/knowledge";
-import { useSessionDecisionsStore } from "../../stores/session-decisions";
 import { agentReviewRequestVisual } from "../../utils/status";
 import { t } from "../../i18n";
 
 /**
- * One open request per project serves both the decision inbox and the Knowledge candidates. The Agent applies its
+ * One open request per project serves the decision inbox, the Knowledge candidates, and active Knowledge in doubt. The Agent applies its
  * verdicts directly; this box only opens, shows, and cancels the request.
  */
 const props = defineProps<{ projects: readonly ProjectRecord[] }>();
@@ -25,8 +23,6 @@ const projectId = defineModel<string>("projectId", { required: true });
 
 const reviewStore = useAgentReviewStore();
 const { latestRequest, hasOpenRequest, requestLoaded, requestError, skipped } = storeToRefs(reviewStore);
-const { pendingCount, decisionsLoaded } = storeToRefs(useSessionDecisionsStore());
-const { candidates, candidatesLoaded } = storeToRefs(useKnowledgeStore());
 const { requestReview, cancelRequest } = useAgentReviewActions();
 
 const hasProject = computed(() => props.projects.some((project) => project.id === projectId.value));
@@ -34,17 +30,11 @@ const projectItems = computed(() => [
   { value: "", label: t("common.allTrackedProjects") },
   ...props.projects.map((project) => ({ value: project.id, label: project.name })),
 ]);
-const nothingPending = computed(
-  () => decisionsLoaded.value && candidatesLoaded.value && pendingCount.value + candidates.value.length === 0,
-);
-const canRequest = computed(
-  () => hasProject.value && requestLoaded.value && !skipped.value && !hasOpenRequest.value && !nothingPending.value,
-);
+const canRequest = computed(() => hasProject.value && requestLoaded.value && !skipped.value && !hasOpenRequest.value);
 const hint = computed(() => {
   if (!hasProject.value) return t("knowledge.agentReviewChooseProject");
   if (skipped.value) return t("outstanding.trackingIsNotEnabledFor");
   if (hasOpenRequest.value) return t("knowledge.agentReviewAskYourAgent");
-  if (nothingPending.value) return t("knowledge.agentReviewNothingPending");
   return t("knowledge.agentReviewIntro");
 });
 </script>
@@ -75,6 +65,7 @@ const hint = computed(() => {
             itemCount: latestRequest.itemCount,
             decisionCount: latestRequest.decisionCount,
             candidateCount: latestRequest.candidateCount,
+            knowledgeCount: latestRequest.knowledgeCount,
           })
         }}</span>
         <span>{{

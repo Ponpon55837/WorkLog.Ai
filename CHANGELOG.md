@@ -4,6 +4,24 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.76] - 2026-11-26
+
+[繁體中文更新說明](docs/releases/1.6.76.md).
+
+### Added
+
+- Agent review of active Knowledge in doubt. An Agent review request now also snapshots active Knowledge that is `possiblyStale` or contradicted (needs review), using the same rule as the attention queue; `broadChangesSince` alone does not count, and Knowledge that was only never confirmed for a long time is not included. Knowledge shares the 500-item cap with decisions and candidates, and the request reports `knowledgeCount`. Each context item carries the content, `appliesTo`, why it is in doubt (`doubt`), `createdAt`, `lastConfirmedAt`, and up to 5 later focused Sessions that touched its paths (title, completion time, up to 5 matching paths), with `laterSessionsOmitted`. Items keep their normal field limits; the later Sessions and the existing Knowledge titles use only what is left of the 24,000-character page.
+- Three Knowledge verdicts in `work_submit_agent_review_verdicts`, each with a reason: `confirm` (the existing confirmation), `archive` (the existing archive path) and `supersede` (a new Knowledge record with `supersedesId` through the existing write path, which archives the old one; `knowledge` carries the rewritten title and body, other fields default to the old record's). A refused Knowledge write (for example a redaction or validation refusal) returns `knowledge_rejected` with its reason and leaves the item pending, so it can be resubmitted under a new `idempotencyKey`. An item changed since the snapshot is skipped as before.
+- `GET /api/agent-review-knowledge` lists the Knowledge whose latest Agent verdict still stands (newest first, at most 200), and `POST /api/knowledge/:knowledgeId/overturn` overturns it: a confirmation is withdrawn (the earlier confirmation time, confirming Session and review mark come back), an archive is restored, and a supersede is reverted (the Agent's new Knowledge is archived and the old one is active again). Knowledge edited after the verdict is left as it is (`unchanged`).
+- On the Web Knowledge tab, the Agent review request box (create the request, progress and results) and a "Knowledge processed by the Agent" list with each verdict, its reason and an overturn button, in zh-TW and English.
+- Database schema 38 (migration `agent-review-knowledge-items`) widens the item and verdict checks of `agent_review_request_items` to accept `knowledge`, `archive` and `supersede`. No table or column is added, so export, import, permanent deletion and search are unchanged. The migration runs automatically with a backup on upgrade; exports from schema 31–37 still import.
+- An upgrade fixture for schema 37 (`tests/fixtures/upgrade/schema-37.sqlite`, generated from the 1.6.75 build).
+
+### Changed
+
+- The Agent review contract, the three Agent review tool descriptions and the agent-review guide in both skill copies state the Knowledge rules: read the current code or the later work records before judging, leave the item pending when the evidence is not enough, and never archive only because related files changed. The Agent still acts only on a request the user created. The fixed Agent reading goes from 42,249 to 42,244 of 42,250. The MCP contract text changed, so the MCP compatibility id changes: connected Agents receive `restartRequired` after upgrading and must reconnect the Work Intelligence MCP.
+- The "Ask Agent to review" button no longer turns off when no decision or candidate is pending, because the Web cannot tell whether Knowledge needs review; a request with nothing to review shows the server's "nothing to review" message.
+
 ## [1.6.75] - 2026-11-26
 
 [繁體中文更新說明](docs/releases/1.6.75.md).

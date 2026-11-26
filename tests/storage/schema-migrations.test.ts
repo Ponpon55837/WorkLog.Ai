@@ -1244,3 +1244,117 @@ describe("knowledge page deletion audit migration", () => {
     }
   });
 });
+
+describe("agent review knowledge items migration", () => {
+  const requestedAt = "2026-11-01T00:00:00.000Z";
+
+  it("rebuilds the snapshot table for knowledge items, keeping rows, order, indexes and triggers", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializeWorkIntelligenceDatabase(db, ":memory:");
+      undoMigrationsAfter(db, 37);
+      db.exec("PRAGMA foreign_keys=OFF");
+      db.exec(`INSERT INTO agent_review_requests (id, project_id, idempotency_key, status, requested_at, item_count)
+        VALUES ('request-1', 'project-1', 'key-1', 'completed', '${requestedAt}', 3)`);
+      const insert = db.prepare(
+        `INSERT INTO agent_review_request_items
+           (id, request_id, project_id, item_kind, item_id, source_session_id, position, fingerprint, submission_id,
+            verdict, outcome, reason, knowledge_id, decided_at, overturned_at)
+         VALUES (?, 'request-1', 'project-1', ?, ?, ?, ?, 'fingerprint', NULL, ?, ?, ?, NULL, ?, ?)`,
+      );
+      insert.run(
+        "item-c",
+        "candidate",
+        "candidate-1",
+        "session-1",
+        2,
+        "accept",
+        "applied",
+        "Quotes the fix.",
+        requestedAt,
+        null,
+      );
+      insert.run(
+        "item-a",
+        "decision",
+        "decision-1",
+        "session-1",
+        0,
+        "promote",
+        "applied",
+        "Matches the diff.",
+        requestedAt,
+        requestedAt,
+      );
+      insert.run("item-b", "decision", "decision-2", "session-2", 1, null, null, null, null, null);
+      const readItems = () =>
+        db
+          .prepare(
+            "SELECT rowid AS position_in_file, id, item_kind, verdict, outcome, reason, overturned_at FROM agent_review_request_items ORDER BY rowid",
+          )
+          .all();
+      const before = readItems();
+      expect(() =>
+        db
+          .prepare(
+            `INSERT INTO agent_review_request_items (id, request_id, project_id, item_kind, item_id, position, fingerprint)
+             VALUES ('late', 'request-1', 'project-1', 'knowledge', 'knowledge-1', 3, 'fingerprint')`,
+          )
+          .run(),
+      ).toThrow(/CHECK/);
+
+      applyRuntimeMigrations(db);
+
+      expect(db.prepare("SELECT name FROM schema_migrations WHERE version = 38").get()).toEqual({
+        name: "agent-review-knowledge-items",
+      });
+      expect(readItems()).toEqual(before);
+      expect(before.map((row) => (row as { id: string }).id)).toEqual(["item-c", "item-a", "item-b"]);
+
+      const add = db.prepare(
+        `INSERT INTO agent_review_request_items
+           (id, request_id, project_id, item_kind, item_id, position, fingerprint, verdict, outcome)
+         VALUES (?, 'request-1', 'project-1', ?, ?, ?, 'fingerprint', ?, ?)`,
+      );
+      add.run("knowledge-confirm", "knowledge", "knowledge-1", 3, "confirm", "applied");
+      add.run("knowledge-archive", "knowledge", "knowledge-2", 4, "archive", "applied");
+      add.run("knowledge-supersede", "knowledge", "knowledge-3", 5, "supersede", "applied");
+      add.run("decision-archive", "decision", "decision-3", 6, "archive", "applied");
+      expect(() => add.run("report", "report", "report-1", 7, null, null)).toThrow(/CHECK/);
+      expect(() => add.run("odd-verdict", "knowledge", "knowledge-4", 7, "delete", null)).toThrow(/CHECK/);
+      expect(() => add.run("repeat", "knowledge", "knowledge-1", 7, null, null)).toThrow(/UNIQUE/);
+
+      const indexes = (
+        db
+          .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'agent_review_request_items'")
+          .all() as Array<{
+          name: string;
+        }>
+      ).map((row) => row.name);
+      expect(indexes).toEqual(
+        expect.arrayContaining(["idx_agent_review_items_item", "idx_agent_review_items_source_session"]),
+      );
+      const revision = (): number =>
+        (
+          db.prepare("SELECT data_revision FROM change_revisions WHERE singleton = 1").get() as {
+            data_revision: number;
+          }
+        ).data_revision;
+      for (const operation of ["insert", "update", "delete"]) {
+        expect(
+          db
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = ?")
+            .get(`trg_data_revision_agent_review_request_items_${operation}`),
+        ).toBeDefined();
+      }
+      const start = revision();
+      add.run("knowledge-extra", "knowledge", "knowledge-5", 8, null, null);
+      db.prepare("UPDATE agent_review_request_items SET reason = 'Changed.' WHERE id = 'knowledge-extra'").run();
+      db.prepare("DELETE FROM agent_review_request_items WHERE id = 'knowledge-extra'").run();
+      expect(revision()).toBe(start + 3);
+      expect(LATEST_SCHEMA_VERSION).toBeGreaterThanOrEqual(38);
+    } finally {
+      db.close();
+    }
+  });
+});

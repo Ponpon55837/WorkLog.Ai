@@ -21,6 +21,8 @@ import type {
   KnowledgeCandidateListInput,
   AgentReviewContextQuery,
   AgentReviewContextResult,
+  AgentReviewedKnowledgeListResult,
+  AgentReviewedKnowledgeQuery,
   AgentReviewRequestListResult,
   AgentReviewRequestQuery,
   CancelAgentReviewRequestResult,
@@ -670,6 +672,10 @@ export class WorkIntelligenceStore {
       updateKnowledge: (input) => this.updateKnowledge(input),
       pagesCitingSessions: (projectId, sessionIds) => this.knowledgePages.pagesCitingSessions(projectId, sessionIds),
       pendingPages: (projectId) => this.knowledgePages.pendingForProject(projectId),
+      withKnowledgeTrustMany: (items) => this.knowledgeService.withKnowledgeTrustMany(items),
+      laterSessionsOf: (items, limit) => this.knowledgeService.laterSessionsOf(items, limit),
+      withdrawConfirmation: (projectId, knowledgeId, confirmedSince) =>
+        this.knowledgeService.withdrawConfirmation(projectId, knowledgeId, confirmedSince),
     });
     this.policyGate = new ProjectPolicyGate(this);
     this.attention = new AttentionService(this.db, {
@@ -1371,6 +1377,10 @@ export class WorkIntelligenceStore {
 
   public cancelAgentReviewRequest(requestId: string): CancelAgentReviewRequestResult {
     return this.agentReviews.cancel(requestId);
+  }
+
+  public listAgentReviewedKnowledge(input: AgentReviewedKnowledgeQuery = {}): AgentReviewedKnowledgeListResult {
+    return this.agentReviews.listReviewedKnowledge(input);
   }
 
   public overturnAgentReview(input: OverturnAgentReviewInput): OverturnAgentReviewResult {

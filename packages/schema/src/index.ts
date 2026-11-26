@@ -1678,13 +1678,41 @@ const agentReviewCandidateVerdictSchema = z
     }
   });
 
+const agentReviewKnowledgeVerdictSchema = z
+  .object({
+    itemKind: z.literal("knowledge"),
+    itemId: agentReviewIdSchema,
+    verdict: z.enum(["confirm", "archive", "supersede"]),
+    reason: agentReviewReasonSchema,
+    knowledge: agentReviewKnowledgeSchema.extend({ kind: knowledgeKindSchema.optional() }).strict().optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.verdict === "supersede" && !value.knowledge) {
+      context.addIssue({
+        code: "custom",
+        path: ["knowledge"],
+        message: "knowledge is required to supersede a Knowledge item.",
+      });
+    }
+    if (value.verdict !== "supersede" && value.knowledge) {
+      context.addIssue({ code: "custom", path: ["knowledge"], message: "knowledge is only allowed when superseding." });
+    }
+  });
+
 /** Advertised object shape of submitAgentReviewVerdictsInputSchema; the refinements run in the full schema. */
 export const submitAgentReviewVerdictsInputSchemaBase = z
   .object({
     requestId: agentReviewIdSchema,
     idempotencyKey: agentReviewIdSchema,
     verdicts: z
-      .array(z.discriminatedUnion("itemKind", [agentReviewDecisionVerdictSchema, agentReviewCandidateVerdictSchema]))
+      .array(
+        z.discriminatedUnion("itemKind", [
+          agentReviewDecisionVerdictSchema,
+          agentReviewCandidateVerdictSchema,
+          agentReviewKnowledgeVerdictSchema,
+        ]),
+      )
       .max(50),
     complete: z.boolean().optional(),
   })
@@ -1705,9 +1733,13 @@ export const submitAgentReviewVerdictsInputSchema = submitAgentReviewVerdictsInp
 export const overturnAgentReviewInputSchema = z
   .object({
     projectRoot: z.string().trim().min(1).max(1_000),
-    itemKind: z.enum(["decision", "candidate"]),
+    itemKind: z.enum(["decision", "candidate", "knowledge"]),
     itemId: agentReviewIdSchema,
   })
+  .strict();
+
+export const agentReviewedKnowledgeQuerySchema = z
+  .object({ projectRoot: z.string().trim().min(1).max(1_000).optional() })
   .strict();
 
 export const agentReviewRequestIdSchema = z.object({ requestId: agentReviewIdSchema });
@@ -1885,8 +1917,8 @@ const projectDataImportStatusValues: Partial<
   },
   agent_review_requests: { status: AGENT_REVIEW_REQUEST_STATUSES },
   agent_review_request_items: {
-    item_kind: ["decision", "candidate"],
-    verdict: ["confirm", "reject", "promote", "accept"],
+    item_kind: ["decision", "candidate", "knowledge"],
+    verdict: ["confirm", "reject", "promote", "accept", "archive", "supersede"],
     outcome: ["applied", "skipped_stale", "skipped_reviewed"],
   },
 };

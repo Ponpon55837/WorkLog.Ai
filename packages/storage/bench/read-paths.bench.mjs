@@ -1252,6 +1252,53 @@ try {
   } finally {
     reviewSeed.close();
   }
+  // 200 possibly stale Knowledge items (each touched by a later focused Session) that an Agent already confirmed once:
+  // the snapshot scans and trust-checks them all, and the reviewed list joins the 200 standing verdicts.
+  const knowledgeReviewRoot = join(root, "review-knowledge");
+  mkdirSync(knowledgeReviewRoot, { recursive: true });
+  const knowledgeReviewStore = new WorkIntelligenceStore(join(root, "review-knowledge.sqlite"));
+  const knowledgeReviewProject = knowledgeReviewStore.addProject("review-knowledge", knowledgeReviewRoot);
+  knowledgeReviewStore.updateProject(knowledgeReviewProject.id, { status: "tracked" });
+  for (let index = 0; index < 200; index += 1)
+    knowledgeReviewStore.recordKnowledge({
+      projectRoot: knowledgeReviewRoot,
+      idempotencyKey: `bench-review-knowledge-${index}`,
+      kind: "gotcha",
+      title: `Synthetic area ${index} rule`,
+      body: `Synthetic area ${index} keeps its cache in a module-level map.`,
+      appliesTo: [`src/area-${index}/**`],
+    });
+  for (let index = 0; index < 200; index += 1)
+    knowledgeReviewStore.finalizeSession({
+      projectRoot: knowledgeReviewRoot,
+      idempotencyKey: `bench-review-knowledge-session-${index}`,
+      title: `Synthetic area ${index} change`,
+      summary: "Synthetic summary.",
+      workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+      changedFiles: [`src/area-${index}/index.ts`],
+      verification: { status: "passed" },
+    });
+  const seededReview = knowledgeReviewStore.requestAgentReview({
+    projectRoot: knowledgeReviewRoot,
+    idempotencyKey: "bench-review-knowledge-seed",
+  });
+  if (seededReview.outcome !== "agent_review_request" || seededReview.request.knowledgeCount !== 200)
+    throw new Error("The Knowledge review seed must snapshot all 200 possibly stale items.");
+  const knowledgeReviewSeed = new DatabaseSync(join(root, "review-knowledge.sqlite"));
+  try {
+    knowledgeReviewSeed
+      .prepare(
+        `UPDATE agent_review_request_items SET verdict = 'confirm', outcome = 'applied', reason = 'Synthetic reason.',
+           decided_at = '2030-01-01T00:00:00.000Z' WHERE request_id = ?`,
+      )
+      .run(seededReview.request.id);
+    knowledgeReviewSeed
+      .prepare("UPDATE agent_review_requests SET status = 'completed', completed_at = ? WHERE id = ?")
+      .run("2030-01-01T00:00:00.000Z", seededReview.request.id);
+  } finally {
+    knowledgeReviewSeed.close();
+  }
+  let knowledgeReviewRound = 0;
   let reviewRound = 0;
   const worstText = seedStoredTextWorstCases(root);
   const unreportedFocus = seedUnreportedKnowledgeReads(worstText.path, worstText.focus.projectId);
@@ -1720,6 +1767,31 @@ try {
       reviewStore.cancelAgentReviewRequest(created.request.id);
       return context;
     },
+    // The snapshot reads every active Knowledge with an appliesTo in one query and trust-checks them in one batch (the
+    // same pass every Knowledge read uses); the first context page adds the later Sessions of its 10 items from one
+    // batched index read. The request is cancelled so the next run takes a fresh snapshot.
+    "agentReview (200 possibly stale Knowledge: snapshot, first context page)": () => {
+      knowledgeReviewRound += 1;
+      const created = knowledgeReviewStore.requestAgentReview({
+        projectRoot: knowledgeReviewRoot,
+        idempotencyKey: `bench-review-knowledge-${knowledgeReviewRound}`,
+      });
+      if (created.outcome !== "agent_review_request" || created.duplicate || created.request.knowledgeCount !== 200)
+        throw new Error("The Knowledge review benchmark must snapshot all 200 possibly stale items.");
+      const context = knowledgeReviewStore.getAgentReviewContext({ requestId: created.request.id });
+      if (context.outcome !== "agent_review_context" || context.items.length !== 10 || !context.items[0].laterSessions)
+        throw new Error("The Knowledge review benchmark must read one full context page with later Sessions.");
+      knowledgeReviewStore.cancelAgentReviewRequest(created.request.id);
+      return context;
+    },
+    // 200 standing Agent verdicts: one query for the latest verdict of each Knowledge, one for the records and their
+    // successors, and one trust pass.
+    "listAgentReviewedKnowledge (200 standing verdicts)": () => {
+      const result = knowledgeReviewStore.listAgentReviewedKnowledge({ projectRoot: knowledgeReviewRoot });
+      if (result.outcome !== "agent_reviewed_knowledge" || result.items.length !== 200)
+        throw new Error("The reviewed Knowledge list must return all 200 standing verdicts.");
+      return result;
+    },
     // The 1.6.27 review's list-search shape: eight 200-character near-miss words over 200 rows of the largest
     // appliesTo (15.7 s with LIKE). With instr each row costs at most its bytes x words; every row is read, no warning.
     "searchKnowledge (200 x 30 x 1,000-char appliesTo, 8 near-miss words)": () => {
@@ -2043,6 +2115,8 @@ try {
     "appliesTo stored entries (2 MB entry, distinct 1,000-char entries)": 250,
     "knowledgeCandidateOverlaps (30 candidates, 500 Knowledge)": 150,
     "agentReview (500 pending decisions: snapshot, first context page)": 250,
+    "agentReview (200 possibly stale Knowledge: snapshot, first context page)": 250,
+    "listAgentReviewedKnowledge (200 standing verdicts)": 100,
     "summarizeAgentReads (5,000 rows)": 100,
     "searchKnowledge (staleness)": 500,
     "searchKnowledge (200 x 30 x 1,000-char appliesTo, 8 near-miss words)": 1000,
@@ -2268,6 +2342,7 @@ try {
   worstText.store.close();
   worstTextDatabase.close();
   reviewStore.close();
+  knowledgeReviewStore.close();
   distinctPaths.store.close();
   reindexStore.close();
   weightedStore.close();

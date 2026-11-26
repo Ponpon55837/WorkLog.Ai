@@ -1080,6 +1080,51 @@ const MIGRATIONS: SchemaMigration[] = [
       CREATE INDEX idx_knowledge_page_deletion_audit_page ON knowledge_page_deletion_audit(page_id);
     `,
   },
+  {
+    version: 38,
+    name: "agent-review-knowledge-items",
+    // SQLite cannot widen a CHECK in place, so the snapshot table is rebuilt with 'knowledge' items and the
+    // 'archive' and 'supersede' verdicts: rows are copied out to a temporary table in rowid order, the table is
+    // recreated and they are copied back unchanged, then the indexes and data-revision triggers are created again.
+    // Nothing references the table. A copy instead of RENAME, because RENAME re-checks every trigger in the schema.
+    // A knowledge item's item_id is a Knowledge id; like the other kinds it has no foreign key, so a deleted Knowledge
+    // reads as stale.
+    sql: `
+      CREATE TEMP TABLE agent_review_request_items_v37 AS SELECT * FROM agent_review_request_items ORDER BY rowid;
+      DROP TABLE agent_review_request_items;
+      CREATE TABLE agent_review_request_items (
+        id TEXT PRIMARY KEY,
+        request_id TEXT NOT NULL,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        item_kind TEXT NOT NULL CHECK (item_kind IN ('decision', 'candidate', 'knowledge')),
+        item_id TEXT NOT NULL,
+        source_session_id TEXT,
+        position INTEGER NOT NULL CHECK (position >= 0),
+        fingerprint TEXT NOT NULL,
+        submission_id TEXT,
+        verdict TEXT CHECK (verdict IN ('confirm', 'reject', 'promote', 'accept', 'archive', 'supersede')),
+        outcome TEXT CHECK (outcome IN ('applied', 'skipped_stale', 'skipped_reviewed')),
+        reason TEXT,
+        knowledge_id TEXT REFERENCES knowledge(id) ON DELETE SET NULL,
+        decided_at TEXT,
+        overturned_at TEXT,
+        UNIQUE (request_id, item_kind, item_id),
+        UNIQUE (request_id, position),
+        FOREIGN KEY (request_id, project_id) REFERENCES agent_review_requests(id, project_id) ON DELETE CASCADE
+      );
+      INSERT INTO agent_review_request_items
+        (id, request_id, project_id, item_kind, item_id, source_session_id, position, fingerprint, submission_id,
+         verdict, outcome, reason, knowledge_id, decided_at, overturned_at)
+        SELECT id, request_id, project_id, item_kind, item_id, source_session_id, position, fingerprint, submission_id,
+               verdict, outcome, reason, knowledge_id, decided_at, overturned_at
+        FROM temp.agent_review_request_items_v37 ORDER BY rowid;
+      DROP TABLE temp.agent_review_request_items_v37;
+      CREATE INDEX idx_agent_review_items_item ON agent_review_request_items(project_id, item_kind, item_id);
+      CREATE INDEX idx_agent_review_items_source_session ON agent_review_request_items(source_session_id)
+        WHERE source_session_id IS NOT NULL;
+      ${projectDataRevisionTriggersSql(["agent_review_request_items"])}
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

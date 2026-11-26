@@ -1,4 +1,5 @@
 import {
+  Archive,
   BookOpen,
   Check,
   CircleAlert,
@@ -15,6 +16,7 @@ import {
   GraduationCap,
   ListOrdered,
   LoaderCircle,
+  Replace,
   Scale,
   Shapes,
   TriangleAlert,
@@ -358,13 +360,16 @@ export const agentReviewRequestVisual: Record<AgentReviewRequestStatus, StatusVi
 };
 
 /** What an Agent decided on a Session decision or a Knowledge candidate. */
-export type AgentVerdictKind = "confirmed" | "rejected" | "promoted" | "accepted";
+export type AgentVerdictKind = "confirmed" | "rejected" | "promoted" | "accepted" | "confirm" | "archive" | "supersede";
 
 export const agentVerdictVisual: Record<AgentVerdictKind, StatusVisual> = {
   confirmed: visual("success", Check, "common.confirmed"),
   rejected: visual("neutral", CircleSlash, "common.rejected"),
   promoted: visual("success", BookOpen, "status.promotedToKnowledge"),
   accepted: visual("success", Check, "status.accepted"),
+  confirm: visual("success", Check, "common.confirmed"),
+  archive: visual("neutral", Archive, "status.archived"),
+  supersede: visual("accent", Replace, "status.supersededByAgent"),
 };
 
 export const outstandingCleanupProposalVisual: Record<OutstandingCleanupProposalStatus, StatusVisual> = {

@@ -6,6 +6,7 @@ import { BookMarked, BookOpen, ListChecks, Search, Sparkles, X } from "lucide-vu
 import type { KnowledgeKind, KnowledgeRecord, KnowledgeStatus } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import PageToolbar from "../components/layout/PageToolbar.vue";
+import AgentKnowledgeReviewBox from "../components/domain/AgentKnowledgeReviewBox.vue";
 import AgentReviewRequestBox from "../components/domain/AgentReviewRequestBox.vue";
 import KnowledgeCandidateEditorDialog from "../components/domain/KnowledgeCandidateEditorDialog.vue";
 import KnowledgeCandidatesBox from "../components/domain/KnowledgeCandidatesBox.vue";
@@ -244,6 +245,8 @@ watch(
   },
 );
 
+watch(tab, (value) => agentReviewStore.setKnowledgeActive(value === "list"), { immediate: true });
+
 watch(
   () => selectedProjectRoot.value,
   (root) => {
@@ -266,6 +269,7 @@ onBeforeUnmount(() => {
 onBeforeUnmount(() => {
   decisionStore.setListActive(false);
   agentReviewStore.setActive(false);
+  agentReviewStore.setKnowledgeActive(false);
 });
 onBeforeUnmount(() => {
   pagesStore.setListActive(false);
@@ -331,6 +335,8 @@ onBeforeUnmount(() => {
   </section>
   <UiSplitLayout v-else>
     <template #main>
+      <AgentReviewRequestBox v-model:project-id="knowledgeProjectId" :projects="knowledgeProjects" />
+      <AgentKnowledgeReviewBox :projects="knowledgeProjects" :project-root="selectedProjectRoot" />
       <UiBox id="knowledge-panel-list" role="tabpanel" aria-labelledby="knowledge-tab-list" sticky-header>
         <template #header>
           <UiBoxTitle
