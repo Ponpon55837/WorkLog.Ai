@@ -110,7 +110,7 @@ Claude Desktop 的 local MCP 與 Claude.ai/Cowork 的 remote connector 是不同
 
 ## 第一次使用
 
-1. 開啟 App，完成首次設定，並把專案設為「記錄中」（見 [README](../README.zh-TW.md#第一次設定)）。
+1. 開啟 App，完成首次設定，並把專案設為「記錄中」（見 [README](../README.zh-TW.md#三步驟保存第一筆-session)）。
 2. 到「Agent」分頁，對 Codex 與 Claude Code 分別按「預覽變更」，確認後按「套用變更」。
 3. 開新的 Agent 對話，問一句「這個專案有在 Work Intelligence 記錄嗎？」，確認卡片變成「已連線」。
 4. 工作完成時，請 Agent 保存這次工作，例如「完成了，請把這次工作記錄到 Work Intelligence。」

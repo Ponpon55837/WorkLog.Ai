@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="266" viewBox="0 0 640 266" role="img" aria-labelledby="title desc" xml:lang="en-US">
+  <title id="title">From one task to the next</title>
+  <desc id="desc">Follow the arrows from Session to Knowledge, retrieval, and feedback.</desc>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1l8 4-8 4" fill="none" stroke="#4f5862" stroke-width="1.5"/></marker></defs>
+  <g font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang TC, Microsoft JhengHei, Arial, sans-serif">
+    <rect x="1" y="1" width="638" height="264" rx="16" fill="#eef0f3" stroke="#c9d0d8" />
+    <rect x="20" y="18" width="273" height="94" rx="10" fill="#fbfcfd" stroke="#c9d0d8" />
+    <path transform="translate(34 32)" d="M5 2h10l4 4v16H5z M14 2v6h5 M8 12h8 M8 16h6" fill="none" stroke="#0754ae" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+    <text x="68" y="52" fill="#24292f" font-size="23" font-weight="650" text-anchor="start">Save a Session</text>
+    <text x="35" y="83" fill="#4f5862" font-size="20" font-weight="400" text-anchor="start">Decisions and test results</text>
+    <rect x="347" y="18" width="273" height="94" rx="10" fill="#fbfcfd" stroke="#c9d0d8" />
+    <path transform="translate(361 32)" d="M2 4q5-2 10 1 5-3 10-1v15q-5-2-10 1-5-3-10-1z M12 5v15" fill="none" stroke="#0a5f6b" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+    <text x="395" y="52" fill="#24292f" font-size="23" font-weight="650" text-anchor="start">Review a lesson</text>
+    <text x="362" y="83" fill="#4f5862" font-size="20" font-weight="400" text-anchor="start">Accept it as Knowledge</text>
+    <rect x="347" y="154" width="273" height="94" rx="10" fill="#fbfcfd" stroke="#c9d0d8" />
+    <path transform="translate(361 168)" d="M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0 M15 15l7 7" fill="none" stroke="#0754ae" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+    <text x="395" y="188" fill="#24292f" font-size="23" font-weight="650" text-anchor="start">Recall for a task</text>
+    <text x="362" y="219" fill="#4f5862" font-size="20" font-weight="400" text-anchor="start">Read the source record</text>
+    <rect x="20" y="154" width="273" height="94" rx="10" fill="#fbfcfd" stroke="#c9d0d8" />
+    <path transform="translate(34 168)" d="M3 12l5 5L21 4 M4 21h16" fill="none" stroke="#0a5f6b" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+    <text x="68" y="188" fill="#24292f" font-size="23" font-weight="650" text-anchor="start">Report the result</text>
+    <text x="35" y="219" fill="#4f5862" font-size="20" font-weight="400" text-anchor="start">Note what held or failed</text>
+    <path d="M296 65H339" fill="none" stroke="#4f5862" stroke-width="2" stroke-linejoin="round" marker-end="url(#arrow)"/>
+    <path d="M483 116v30" fill="none" stroke="#4f5862" stroke-width="2" stroke-linejoin="round" marker-end="url(#arrow)"/>
+    <path d="M344 201h-43" fill="none" stroke="#4f5862" stroke-width="2" stroke-linejoin="round" marker-end="url(#arrow)"/>
+    <path d="M157 150v-30" fill="none" stroke="#4f5862" stroke-width="2" stroke-linejoin="round" marker-end="url(#arrow)"/>
+  </g>
+</svg>
