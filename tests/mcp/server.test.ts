@@ -103,7 +103,7 @@ async function getToolContractCatalog(client: Client): Promise<ToolContractCatal
         return content.text;
       };
       const index = await readText(TOOL_CONTRACT_RESOURCE_URI);
-      const operations = [...index.matchAll(/^- (work_\w+) → (work_\w+): /gm)].map((match) => match[1] ?? "");
+      const operations = [...index.matchAll(/^- (work_\w+): /gm)].map((match) => match[1] ?? "");
       const sections = await Promise.all(
         operations.map((operation) => readText(`${TOOL_CONTRACT_RESOURCE_URI}/${operation}`)),
       );
@@ -973,7 +973,7 @@ describe("Work Intelligence MCP server", () => {
       readFileSync(new URL("../../docs/work-record-and-report-format.md", import.meta.url), "utf8"),
     );
     expect(catalogText).toContain("# Work Intelligence MCP operation index");
-    expect(catalogText).toContain("- work_recall → work_read: Recall related work");
+    expect(catalogText).toContain("- work_recall: Recall related work");
     expect(catalogText).not.toContain("Input schema");
     const recall = await client.readResource({ uri: `${TOOL_CONTRACT_RESOURCE_URI}/work_recall` });
     const recallText = (recall.contents[0] as { text?: string }).text ?? "";
@@ -3075,10 +3075,14 @@ describe("Work Intelligence MCP server", () => {
     expect(
       [...catalog.sections.keys()].some((operation) => /diagram/.test(operation) && /void|delete/.test(operation)),
     ).toBe(false);
-    // Agents attach diagrams on their own only for flow, architecture, or multi-step changes.
-    const finalizeContract = catalog.sections.get("work_finalize_session");
-    expect(finalizeContract).toContain("without being asked");
-    expect(finalizeContract).toContain("skip single-file fixes");
+    // Agents attach diagrams on their own only for flow, architecture, or multi-step changes; the diagrams guide says when.
+    expect(catalog.sections.get("work_finalize_session")).toContain("diagrams guide");
+    const guide = (
+      (await client.readResource({ uri: "work-intelligence://agent/work-intelligence/references/diagrams.md" }))
+        .contents[0] as { text?: string }
+    ).text;
+    expect(guide).toContain("without being asked");
+    expect(guide).toContain("Skip single-file fixes");
   });
 });
 

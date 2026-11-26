@@ -273,7 +273,7 @@ export const workSummarySectionsSchema = z.object({
     "驗證：實際命令、結果、數量、瀏覽器／平台覆蓋、人工確認與未驗證範圍；不可把局部驗證寫成全面通過。",
   ),
   nextSteps: workSummarySectionSchema.describe(
-    "狀態／未結項：此 API 相容欄位只記錄 finalize 時已知的未完成項、限制、證據缺口或未驗證情境；不得新增建議、計畫或未來展望。沒有已確認內容時使用空陣列。",
+    "狀態／未結項：只記錄 finalize 時已知的未完成項、限制、證據缺口或未驗證情境；不得寫建議、計畫或展望；沒有時用空陣列。",
   ),
 });
 
@@ -350,9 +350,7 @@ export const finalizeSessionInputSchema = z.object({
     .min(1)
     .max(100)
     .optional()
-    .describe(
-      "Your exact model id if you know it (for example the id in your system prompt); omit it when unsure, never guess.",
-    ),
+    .describe("Your exact model id if your system prompt states it; omit it when unsure."),
   handoffPath: z.string().max(1_000).optional(),
   handoffContent: z.string().max(200_000).optional(),
   events: z.array(eventSchema).max(100).optional(),
@@ -361,7 +359,7 @@ export const finalizeSessionInputSchema = z.object({
     .array(z.string().max(1_000))
     .max(200)
     .optional()
-    .describe("Paths already changed before this work started; they are excluded from this Session's changed files."),
+    .describe("Paths already changed before this work started; excluded from changedFiles."),
   changedFilesProvenance: z.array(changedFileProvenanceSchema).max(200).optional(),
   changedFileChanges: z.array(changedFileChangeSchema).max(200).optional(),
   verification: verificationSchema,
@@ -369,12 +367,12 @@ export const finalizeSessionInputSchema = z.object({
   startedAt: workTimestampSchema("startedAt")
     .optional()
     .describe(
-      "When the work began: the first message of this segment in the conversation (the save reminder hook reports it). Take it from evidence, include the UTC offset, and never estimate it; omit it when unknown.",
+      "When this segment began: its first user message (the hooks report it). From evidence, with its UTC offset; never estimate; omit when unknown.",
     ),
   completedAt: workTimestampSchema("completedAt")
     .optional()
     .describe(
-      "Omit for work that just finished; the server records the current time. Only for backfilling earlier work, use a timestamp from evidence (for example the commit time) with its UTC offset. Future times are rejected.",
+      "Omit for work that just finished; the server records the time. To backfill earlier work, give a time from evidence (for example the commit time) with its UTC offset; a local time written with Z shifts it. Future times are rejected.",
     ),
   parentSessionId: z
     .string()
@@ -390,13 +388,13 @@ export const finalizeSessionInputSchema = z.object({
     .array(diagramContentInputSchema)
     .max(5)
     .optional()
-    .describe("Up to five diagrams; follow the work record contract for when to add them."),
+    .describe("Up to five diagrams; the diagrams guide says when to add them."),
   maintainedKnowledgePages: z
     .array(knowledgePageSlugSchema)
     .max(10)
     .optional()
     .describe(
-      "Slugs of Knowledge pages this work saved (work_save_knowledge_page) or checked (work_mark_knowledge_page_checked), so this Session does not count as new data for them.",
+      "Slugs of Knowledge pages this work saved or checked, so this Session does not count as new data for them.",
     ),
   resolvedOutstandingItemIds: z
     .array(z.string().trim().min(1).max(200))
@@ -409,9 +407,7 @@ export const finalizeSessionInputSchema = z.object({
     .array(z.string().trim().min(1).max(200))
     .max(200)
     .optional()
-    .describe(
-      "Older same-project pending items explicitly replaced by this Session's nextSteps; audited as not_needed with actorSessionId. Conflicting completed/superseded requests leave the item pending.",
-    ),
+    .describe("Older same-project pending items this Session's nextSteps explicitly replace; they become not_needed."),
 });
 
 export const sessionSummaryUpdateModeSchema = z.enum(SESSION_SUMMARY_UPDATE_MODES);

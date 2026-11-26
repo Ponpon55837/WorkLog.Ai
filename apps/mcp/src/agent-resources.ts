@@ -119,10 +119,10 @@ function buildToolContractIndex(operations: readonly AgentToolContractOperation[
   return [
     "# Work Intelligence MCP operation index",
     "",
-    "The four tools/list dispatchers accept an operation id and an arguments object. Each line below is `operation → dispatcher: title`.",
-    `Before calling an operation for the first time in a conversation, read its complete contract at ${TOOL_CONTRACT_RESOURCE_URI}/<operation>: behavior, safety annotations, JSON input schema, and runtime validation rules. Unknown argument keys are rejected, not ignored.`,
+    "Each line is `operation: title`. Pass the operation id and an arguments object to the tools/list dispatcher whose operation list names it; a wrong dispatcher's error names the right one.",
+    `Before an operation's first call in a conversation, read its contract at ${TOOL_CONTRACT_RESOURCE_URI}/<operation>. Unknown argument keys are rejected.`,
     "",
-    ...operations.map((operation) => `- ${operation.name} → ${operation.dispatcherName}: ${operation.title}`),
+    ...operations.map((operation) => `- ${operation.name}: ${operation.title}`),
   ].join("\n");
 }
 
@@ -239,7 +239,7 @@ export function registerToolContractsResource(
     {
       title: "Work Intelligence operation index",
       description:
-        "Operation ids with their dispatchers; read an operation's full contract at tool-contracts/<operation> before first use.",
+        "Operation ids with titles; read an operation's full contract at tool-contracts/<operation> before first use.",
       mimeType: "text/markdown",
     },
     async (uri) => ({ contents: [{ uri: uri.href, mimeType: "text/markdown", text: index }] }),

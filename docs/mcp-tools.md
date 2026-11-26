@@ -6,7 +6,7 @@
 
 ## tools/list 與 dispatcher
 
-`tools/list` 公告 4 個 MCP tools。每個 tool 接受 `operation` 與 `arguments`；55 個 operation id 可呼叫，MCP resource `work-intelligence://agent/tool-contracts` 是精簡的操作索引（operation → dispatcher: 標題）；單一操作的完整契約——由完整 Zod schema 產生的 JSON Schema、行為說明、額外驗證規則與原始 annotations——在 resource template `work-intelligence://agent/tool-contracts/{operation}`。Agent 第一次呼叫某個 operation 前讀取它的契約，只讀用得到的操作。dispatcher 會再以原 Zod full schema 驗證參數；任何層級的未知參數鍵都會回傳 `unrecognized_keys` 錯誤並列出鍵名，不會被靜默丟棄。operation 呼叫到不負責它的 dispatcher 時，錯誤碼 `UNKNOWN_OPERATION` 的訊息會指出正確的 dispatcher，並附 `dispatcher` 欄位。下方範例是操作本身的參數，實際 MCP 呼叫時須將 operation id 與其參數包在上面的 dispatcher envelope。
+`tools/list` 公告 4 個 MCP tools。每個 tool 接受 `operation` 與 `arguments`；55 個 operation id 可呼叫，MCP resource `work-intelligence://agent/tool-contracts` 是精簡的操作索引（每行 operation: 標題；所屬 dispatcher 在 tools/list 的 operation 清單與各操作契約的 Dispatcher 行）；單一操作的完整契約——由完整 Zod schema 產生的 JSON Schema、行為說明、額外驗證規則與原始 annotations——在 resource template `work-intelligence://agent/tool-contracts/{operation}`。Agent 第一次呼叫某個 operation 前讀取它的契約，只讀用得到的操作。dispatcher 會再以原 Zod full schema 驗證參數；任何層級的未知參數鍵都會回傳 `unrecognized_keys` 錯誤並列出鍵名，不會被靜默丟棄。operation 呼叫到不負責它的 dispatcher 時，錯誤碼 `UNKNOWN_OPERATION` 的訊息會指出正確的 dispatcher，並附 `dispatcher` 欄位。下方範例是操作本身的參數，實際 MCP 呼叫時須將 operation id 與其參數包在上面的 dispatcher envelope。
 
 | MCP tool | Annotation | 用途 |
 |---|---|---|

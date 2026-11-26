@@ -4,9 +4,9 @@ import { LATEST_SCHEMA_VERSION, WorkIntelligenceStore } from "../../packages/sto
 import { afterEach, describe, expect, it } from "vitest";
 import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
 
-const TOOLS_LIST_CHARACTER_BUDGET = 30_000;
-const CONTRACT_INDEX_CHARACTER_BUDGET = 6_000;
-const LARGEST_OPERATION_CONTRACT_CHARACTER_BUDGET = 12_500;
+const TOOLS_LIST_CHARACTER_BUDGET = 4_800;
+const CONTRACT_INDEX_CHARACTER_BUDGET = 4_100;
+const LARGEST_OPERATION_CONTRACT_CHARACTER_BUDGET = 11_400;
 const CONTRACT_INDEX_URI = "work-intelligence://agent/tool-contracts";
 const PROJECT_ROOT = "/fictional/work-intelligence-mcp-tools-budget";
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -188,7 +188,7 @@ async function readText(client: Client, uri: string): Promise<string> {
 /** Reads the operation index, then each operation's own contract, and joins them in index order. */
 async function readAllOperationContracts(client: Client): Promise<string> {
   const index = await readText(client, CONTRACT_INDEX_URI);
-  const operations = [...index.matchAll(/^- (work_\w+) → work_\w+: /gm)].map((match) => match[1] ?? "");
+  const operations = [...index.matchAll(/^- (work_\w+): /gm)].map((match) => match[1] ?? "");
   const contracts = await Promise.all(
     operations.map((operation) => readText(client, `${CONTRACT_INDEX_URI}/${operation}`)),
   );
@@ -209,7 +209,7 @@ afterEach(async () => {
 });
 
 describe("Work Intelligence MCP dispatcher tools/list budget", () => {
-  it("keeps the complete tools/list payload within 30,000 UTF-16 code units and advertises the four dispatcher semantics", async () => {
+  it("keeps the complete tools/list payload within 4,800 UTF-16 code units and advertises the four dispatcher semantics", async () => {
     const { client } = await connect();
     const listing = await client.listTools();
     const serializedCharacterCount = JSON.stringify(listing).length;
@@ -356,9 +356,7 @@ describe("Work Intelligence MCP dispatcher tools/list budget", () => {
     expect(resourceTemplates.map((template) => template.uriTemplate)).toContain(`${CONTRACT_INDEX_URI}/{operation}`);
     expect(index.length).toBeLessThanOrEqual(CONTRACT_INDEX_CHARACTER_BUDGET);
     expect(largest.length).toBeLessThanOrEqual(LARGEST_OPERATION_CONTRACT_CHARACTER_BUDGET);
-    for (const [dispatcher, operationIds] of Object.entries(EXPECTED_OPERATIONS)) {
-      for (const operationId of operationIds) expect(index).toContain(`- ${operationId} → ${dispatcher}: `);
-    }
+    for (const operationId of Object.values(EXPECTED_OPERATIONS).flat()) expect(index).toContain(`- ${operationId}: `);
     await expect(readText(client, `${CONTRACT_INDEX_URI}/work_unknown_operation`)).rejects.toThrow();
   });
 

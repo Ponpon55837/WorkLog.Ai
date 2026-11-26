@@ -62,8 +62,9 @@ pnpm test:e2e
 
 1. 從最新 `main` 開始，每個交接項目使用獨立分支與獨立 PR。
 2. PR 說明要交代設計取捨、刻意未做的項目及逐步驗證方式；列出哪些命令成功與任何限制。
-3. 確認 CI 對應 PR 最新 commit，所有必要檢查均為 success 後才合併。
-4. 使用 merge commit；不要 squash。合併後刪除工作分支。
+3. 新增固定閱讀文字的 PR（核心 skill、`work_get_context` 與 `work_finalize_session` 兩份必讀契約、操作索引、伺服器 instructions、tools/list），說明中要寫明為什麼這段文字不能由強制阻擋、自動處理、事實注入、按需 guide 或回條提示承擔，並附 `agent-reading-budget` 測試印出的前後字元數。
+4. 確認 CI 對應 PR 最新 commit，所有必要檢查均為 success 後才合併。
+5. 使用 merge commit；不要 squash。合併後刪除工作分支。
 
 ## 工作記錄
 

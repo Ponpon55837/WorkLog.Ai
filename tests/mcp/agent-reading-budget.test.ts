@@ -15,13 +15,22 @@ import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
  * (work_resolve_outstanding_items, work_request_outstanding_cleanup), linkedSessionIds and appliesTo path matching
  * in work_get_context, and the start-time rules of work_finalize_session add about 2,250 units after the wording
  * they duplicated was removed; the core skill budget is unchanged.
+ *
+ * 1.6.78 moved wording that the server now enforces or that the finalize receipt now carries (per-id outstanding
+ * reasons, timestamp and Knowledge-review hints, unclosed <private> warnings, rejected self-contradicting requests,
+ * wrong-dispatcher errors that name the right one) out of the fixed reading, and removed the "→ dispatcher" half of
+ * the operation index. Measured before → after: instructions 1,934 → 1,668; tools/list 4,476 → 4,356; core skill
+ * 13,918 → 10,517; operation index 4,774 → 3,665; work_get_context contract 4,803 → 3,052; work_finalize_session
+ * contract 12,339 → 10,349; fixed total 42,244 → 33,607. The format document (8,083) and the knowledge guide
+ * (8,987, the largest) are unchanged, so their limits stay; core + format + largest guide went 30,988 → 27,587.
+ * Each lowered limit is the new measured value plus about 10%.
  */
-const CORE_SKILL_CHARACTER_BUDGET = 14_000;
-const FIXED_READING_CHARACTER_BUDGET = 42_250;
+const CORE_SKILL_CHARACTER_BUDGET = 11_600;
+const FIXED_READING_CHARACTER_BUDGET = 37_000;
 const FORMAT_RESOURCE_CHARACTER_BUDGET = 8_500;
 const GUIDE_CHARACTER_BUDGET = 9_000;
 /** A rare flow (core, format and its guide) costs less than the old complete skill and format did (47,343). */
-const RARE_FLOW_CHARACTER_BUDGET = 31_000;
+const RARE_FLOW_CHARACTER_BUDGET = 30_500;
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const SKILL_DIRECTORY = join(repositoryRoot, ".agents/skills/work-intelligence");
@@ -100,12 +109,10 @@ const CORE_RULES = [
   "do not absorb unrelated pre-existing dirty changes",
   "never invent a recommendation, roadmap, or future plan",
   "Never guess a decision's origin.",
-  "Agent-autonomous decisions enter the Web review queue; confirming, rejecting, and promoting them to Knowledge are Web-only unless the user opens an Agent review request (agent-review guide).",
-  "never close them with `resolvedOutstandingItemIds` or `supersededOutstandingItemIds` to bypass it",
+  "Agent-autonomous decisions are reviewed only in the Web unless the user opens an Agent review request (agent-review guide).",
   "**Times — never estimate them.**",
   "`completedAt`: **omit it** for work that just finished",
   "A commit is optional and must never be required or inferred.",
-  "A retry with the same key and same payload must not create another Session.",
   "do not report Knowledge you did not actually use",
   "Never create a replacement Session just to fix its text or metadata",
   "Record or update Knowledge only when the user asks or when the MCP workflow explicitly calls for it",
@@ -247,7 +254,7 @@ describe("Agent reading before the first useful call", () => {
     const { resources } = await client.listResources();
     const listed = new Set(resources.map((resource) => resource.uri));
     const index = await readText(client, CONTRACT_INDEX_URI);
-    const operations = new Set([...index.matchAll(/^- (work_\w+) → /gm)].map((match) => match[1]));
+    const operations = new Set([...index.matchAll(/^- (work_\w+): /gm)].map((match) => match[1]));
     const texts = new Map<string, string>([
       ["instructions", client.getInstructions() ?? ""],
       [CORE_URI, await readText(client, CORE_URI)],

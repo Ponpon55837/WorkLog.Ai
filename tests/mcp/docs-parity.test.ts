@@ -22,7 +22,7 @@ beforeAll(async () => {
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   const content = (await client.readResource({ uri: TOOL_CONTRACT_RESOURCE_URI })).contents[0];
   const index = content && "text" in content ? content.text : "";
-  operations = [...index.matchAll(/^- (work_\w+) → (work_\w+): /gm)].map((match) => match[1]!);
+  operations = [...index.matchAll(/^- (work_\w+): /gm)].map((match) => match[1]!);
   dispatchers = (await client.listTools()).tools.map((tool) => tool.name);
 });
 
