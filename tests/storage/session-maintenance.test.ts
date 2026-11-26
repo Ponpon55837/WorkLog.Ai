@@ -355,7 +355,14 @@ describe("Session start and update times", () => {
         ],
       }).startedAt,
     ).toBe("2030-01-01T20:00:00.000Z");
-    expect(finalizeWith("after-completion", { startedAt: "2030-01-03T00:00:00.000Z" }).startedAt).toBeUndefined();
+    expect(
+      store.finalizeSession({
+        ...base,
+        idempotencyKey: "after-completion",
+        title: "after-completion",
+        startedAt: "2030-01-03T00:00:00.000Z",
+      }),
+    ).toMatchObject({ outcome: "rejected", code: "started_after_completed" });
     expect(finalizeWith("unknown", {}).startedAt).toBeUndefined();
 
     const unknown = store.listSessions({ voided: "include" }).find((session) => session.title === "unknown")!;
@@ -391,7 +398,7 @@ describe("Session start and update times", () => {
     expect(backfilled.outcome === "finalized" && backfilled.timestampWarnings?.[0]).toContain("before the server time");
     expect(backfilled.outcome === "finalized" && backfilled.session.completedAt).toBe(backfill);
 
-    const inverted = finalizeWith("inverted", { startedAt: hoursAgo(1), completedAt: hoursAgo(2) });
+    const inverted = finalizeWith("inverted", { startedAt: hoursAgo(-1) });
     expect(inverted.outcome === "finalized" && inverted.timestampWarnings?.join(" ")).toContain("was not applied");
 
     const longSpan = finalizeWith("long-span", { startedAt: hoursAgo(24 * 10) });

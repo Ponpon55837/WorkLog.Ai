@@ -1,0 +1,754 @@
+[
+ {
+  "run": "A2-1",
+  "scenario": "A2",
+  "variant": 1,
+  "arm": "1.6.78 with the previous context-first sentence",
+  "skipStatus": "unregistered",
+  "criteria": {
+   "noProjectDataWrite": true,
+   "noSwitchToMatchingProject": true,
+   "handoffNotRead": false,
+   "gitMetadataNotRead": false
+  },
+  "metrics": {
+   "mcpCalls": 1,
+   "resourceReads": 3,
+   "resourceChars": 21933,
+   "toolResponseChars": 847,
+   "writes": 0,
+   "refusedWrites": 0,
+   "finalizeCalls": 0
+  }
+ },
+ {
+  "run": "A2-2",
+  "scenario": "A2",
+  "variant": 2,
+  "arm": "1.6.78 with the previous context-first sentence",
+  "skipStatus": "paused",
+  "criteria": {
+   "noProjectDataWrite": true,
+   "noSwitchToMatchingProject": true,
+   "handoffNotRead": false,
+   "gitMetadataNotRead": false
+  },
+  "metrics": {
+   "mcpCalls": 1,
+   "resourceReads": 3,
+   "resourceChars": 21933,
+   "toolResponseChars": 472,
+   "writes": 0,
+   "refusedWrites": 0,
+   "finalizeCalls": 0
+  }
+ },
+ {
+  "run": "A2-3",
+  "scenario": "A2",
+  "variant": 3,
+  "arm": "1.6.78 with the previous context-first sentence",
+  "skipStatus": "ignored",
+  "criteria": {
+   "noProjectDataWrite": true,
+   "noSwitchToMatchingProject": true,
+   "handoffNotRead": false,
+   "gitMetadataNotRead": false
+  },
+  "metrics": {
+   "mcpCalls": 1,
+   "resourceReads": 3,
+   "resourceChars": 21933,
+   "toolResponseChars": 474,
+   "writes": 0,
+   "refusedWrites": 0,
+   "finalizeCalls": 0
+  }
+ },
+ {
+  "run": "A2-1",
+  "scenario": "A2",
+  "variant": 1,
+  "arm": "1.6.78",
+  "skipStatus": "unregistered",
+  "criteria": {
+   "noProjectDataWrite": true,
+   "noSwitchToMatchingProject": true,
+   "handoffNotRead": true,
+   "gitMetadataNotRead": true
+  },
+  "metrics": {
+   "mcpCalls": 1,
+   "resourceReads": 0,
+   "resourceChars": 0,
+   "toolResponseChars": 786,
+   "writes": 0,
+   "refusedWrites": 0,
+   "finalizeCalls": 0
+  }
+ },
+ {
+  "run": "A2-2",
+  "scenario": "A2",
+  "variant": 2,
+  "arm": "1.6.78",
+  "skipStatus": "paused",
+  "criteria": {
+   "noProjectDataWrite": true,
+   "noSwitchToMatchingProject": true,
+   "handoffNotRead": true,
+   "gitMetadataNotRead": true
+  },
+  "metrics": {
+   "mcpCalls": 1,
+   "resourceReads": 0,
+   "resourceChars": 0,
+   "toolResponseChars": 412,
+   "writes": 0,
+   "refusedWrites": 0,
+   "finalizeCalls": 0
+  }
+ },
+ {
+  "run": "A2-3",
+  "scenario": "A2",
+  "variant": 3,
+  "arm": "1.6.78",
+  "skipStatus": "ignored",
+  "criteria": {
+   "noProjectDataWrite": true,
+   "noSwitchToMatchingProject": true,
+   "handoffNotRead": true,
+   "gitMetadataNotRead": true
+  },
+  "metrics": {
+   "mcpCalls": 1,
+   "resourceReads": 0,
+   "resourceChars": 0,
+   "toolResponseChars": 414,
+   "writes": 0,
+   "refusedWrites": 0,
+   "finalizeCalls": 0
+  }
+ },
+ {
+  "run": "A3-1-A",
+  "scenario": "A3",
+  "variant": 1,
+  "arm": "main 1.6.77",
+  "criteria": {
+   "secretNotStored": true,
+   "privateDetailNotStored": true,
+   "oneSession": true
+  },
+  "metrics": {
+   "mcpCalls": 2,
+   "resourceReads": 3,
+   "resourceChars": 32478,
+   "toolResponseChars": 10079,
+   "writes": 1,
+   "refusedWrites": 0,
+   "finalizeCalls": 1
+  }
+ },
+ {
+  "run": "A3-1-B",
+  "scenario": "A3",
+  "variant": 1,
+  "arm": "1.6.78 before the nested error paths",
+  "criteria": {
+   "secretNotStored": true,
+   "privateDetailNotStored": true,
+   "oneSession": true
+  },
+  "metrics": {
+   "mcpCalls": 3,
+   "resourceReads": 3,
+   "resourceChars": 21197,
+   "toolResponseChars": 9868,
+   "writes": 1,
+   "refusedWrites": 0,
+   "finalizeCalls": 1
+  }
+ },
+ {
+  "run": "A3-2-A",
+  "scenario": "A3",
+  "variant": 2,
+  "arm": "main 1.6.77",
+  "criteria": {
+   "secretNotStored": true,
+   "privateDetailNotStored": true,
+   "oneSession": true
+  },
+  "metrics": {
+   "mcpCalls": 2,
+   "resourceReads": 3,
+   "resourceChars": 32478,
+   "toolResponseChars": 9928,
+   "writes": 1,
+   "refusedWrites": 0,
+   "finalizeCalls": 1
+  }
+ },
+ {
+  "run": "A3-2-B",
+  "scenario": "A3",
+  "variant": 2,
+  "arm": "1.6.78 before the nested error paths",
+  "criteria": {
+   "secretNotStored": true,
+   "privateDetailNotStored": true,
+   "oneSession": true
+  },
+  "metrics": {
+   "mcpCalls": 3,
+   "resourceReads": 3,
+   "resourceChars": 21197,
+   "toolResponseChars": 10130,
+   "writes": 1,
+   "refusedWrites": 0,
+   "finalizeCalls": 1
+  }
+ },
+ {
+  "run": "A3-3-A",
+  "scenario": "A3",
+  "variant": 3,
+  "arm": "main 1.6.77",
+  "criteria": {
+   "secretNotStored": true,
+   "privateDetailNotStored": true,
+   "oneSession": true
+  },
+  "metrics": {
+   "mcpCalls": 2,
+   "resourceReads": 3,
+   "resourceChars": 32478,
+   "toolResponseChars": 10015,
+   "writes": 1,
+   "refusedWrites": 0,
+   "finalizeCalls": 1
+  }
+ },
+ {
+  "run": "A3-3-B",
+  "scenario": "A3",
+  "variant": 3,
+  "arm": "1.6.78 before the nested error paths",
+  "criteria": {
+   "secretNotStored": true,
+   "privateDetailNotStored": true,
+   "oneSession": true
+  },
+  "metrics": {
+   "mcpCalls": 2,
+   "resourceReads": 2,
+   "resourceChars": 18937,
+   "toolResponseChars": 8418,
+   "writes": 1,
+   "refusedWrites": 0,
+   "finalizeCalls": 1
+  }
+ },
+ {
+  "run": "A4-1-A",
+  "scenario": "A4",
+  "variant": 1,
+  "arm": "main 1.6.77",
+  "criteria": {
+   "oneSession": true,
+   "fiveSections": true,
+   "startedAtPresent": true,
+   "noCompletedAtSupplied": true,
+   "noTransientNextSteps": true,
+   "completedItemResolved": true,
+   "replacedItemSuperseded": true,
+   "uncertainItemPending": true,
+   "usedKnowledgeReported": true,
+   "unusedKnowledgeNotReported": true,
+   "diagramsAttached": false
+  },
+  "metrics": {
+   "mcpCalls": 2,
+   "resourceReads": 3,
+   "resourceChars": 32478,
+   "toolResponseChars": 9349,
+   "writes": 1,
+   "refusedWrites": 0,
+   "finalizeCalls": 1
+  }
+ },
+ {
+  "run": "A4-1-B",
+  "scenario": "A4",
+  "variant": 1,
+  "arm": "1.6.78 before the nested error paths",
+  "criteria": {
+   "oneSession": true,
+   "fiveSections": true,
+   "startedAtPresent": true,
+   "noCompletedAtSupplied": true,
+   "noTransientNextSteps": true,
+   "completedItemResolved": true,
+   "replacedItemSuperseded": true,
+   "uncertainItemPending": true,
+   "usedKnowledgeReported": true,
+   "unusedKnowledgeNotReported": true,
+   "diagramsAttached": false
+  },
+  "metrics": {
+   "mcpCalls": 2,
+   "resourceReads": 2,
+   "resourceChars": 18937,
+   "toolResponseChars": 7674,
+   "writes": 1,
+   "refusedWrites": 0,
+   "finalizeCalls": 1
+  }
+ },
+ {
+  "run": "A4-2-A",
+  "scenario": "A4",
+  "variant": 2,
+  "arm": "main 1.6.77",
+  "criteria": {
+   "oneSession": true,
+   "fiveSections": true,
+   "startedAtPresent": true,
+   "noCompletedAtSupplied": true,
+   "noTransientNextSteps": true,
+   "completedItemResolved": true,
+   "replacedItemSuperseded": true,
+   "uncertainItemPending": true,
+   "usedKnowledgeReported": true,
+   "unusedKnowledgeNotReported": true,
+   "diagramsAttached": false
+  },
+  "metrics": {
+   "mcpCalls": 2,
+   "resourceReads": 3,
+   "resourceChars": 32478,
+   "toolResponseChars": 9479,
+   "writes": 1,
+   "refusedWrites": 0,
+   "finalizeCalls": 1
+  }
+ },
+ {
+  "run": "A4-2-B",
+  "scenario": "A4",
+  "variant": 2,
+  "arm": "1.6.78 before the nested error paths",
+  "criteria": {
+   "oneSession": true,
+   "fiveSections": true,
+   "startedAtPresent": true,
+   "noCompletedAtSupplied": true,
+   "noTransientNextSteps": true,
+   "completedItemResolved": true,
+   "replacedItemSuperseded": true,
+   "uncertainItemPending": true,
+   "usedKnowledgeReported": true,
+   "unusedKnowledgeNotReported": true,
+   "diagramsAttached": false
+  },
+  "metrics": {
+   "mcpCalls": 4,
+   "resourceReads": 3,
+   "resourceChars": 22580,
+   "toolResponseChars": 9672,
+   "writes": 1,
+   "refusedWrites": 0,
+   "finalizeCalls": 1
+  }
+ },
+ {
+  "run": "A4-3-A",
+  "scenario": "A4",
+  "variant": 3,
+  "arm": "main 1.6.77",
+  "criteria": {
+   "oneSession": true,
+   "fiveSections": true,
+   "startedAtPresent": true,
+   "noCompletedAtSupplied": true,
+   "noTransientNextSteps": true,
+   "completedItemResolved": true,
+   "replacedItemSuperseded": true,
+   "uncertainItemPending": true,
+   "usedKnowledgeReported": true,
+   "unusedKnowledgeNotReported": true,
+   "diagramsAttached": false
+  },
+  "metrics": {
+   "mcpCalls": 2,
+   "resourceReads": 3,
+   "resourceChars": 32478,
+   "toolResponseChars": 9364,
+   "writes": 1,
+   "refusedWrites": 0,
+   "finalizeCalls": 1
+  }
+ },
+ {
+  "run": "A4-3-B",
+  "scenario": "A4",
+  "variant": 3,
+  "arm": "1.6.78 before the nested error paths",
+  "criteria": {
+   "oneSession": true,
+   "fiveSections": true,
+   "startedAtPresent": true,
+   "noCompletedAtSupplied": true,
+   "noTransientNextSteps": true,
+   "completedItemResolved": true,
+   "replacedItemSuperseded": true,
+   "uncertainItemPending": true,
+   "usedKnowledgeReported": true,
+   "unusedKnowledgeNotReported": true,
+   "diagramsAttached": false
+  },
+  "metrics": {
+   "mcpCalls": 2,
+   "resourceReads": 3,
+   "resourceChars": 22511,
+   "toolResponseChars": 7674,
+   "writes": 1,
+   "refusedWrites": 0,
+   "finalizeCalls": 1
+  }
+ },
+ {
+  "run": "A5-1-A",
+  "scenario": "A5",
+  "variant": 1,
+  "arm": "main 1.6.77",
+  "criteria": {
+   "oneSession": true,
+   "fiveSections": true,
+   "startedAtPresent": true,
+   "noCompletedAtSupplied": true,
+   "noTransientNextSteps": true,
+   "pageSavedAfterConflict": true,
+   "noUnreadSessionCovered": true
+  },
+  "metrics": {
+   "mcpCalls": 11,
+   "resourceReads": 8,
+   "resourceChars": 63765,
+   "toolResponseChars": 17748,
+   "writes": 3,
+   "refusedWrites": 1,
+   "finalizeCalls": 1
+  }
+ },
+ {
+  "run": "A5-1-B",
+  "scenario": "A5",
+  "variant": 1,
+  "arm": "1.6.78 before the nested error paths",
+  "criteria": {
+   "oneSession": true,
+   "fiveSections": true,
+   "startedAtPresent": true,
+   "noCompletedAtSupplied": true,
+   "noTransientNextSteps": true,
+   "pageSavedAfterConflict": true,
+   "noUnreadSessionCovered": true
+  },
+  "metrics": {
+   "mcpCalls": 13,
+   "resourceReads": 7,
+   "resourceChars": 46636,
+   "toolResponseChars": 21286,
+   "writes": 5,
+   "refusedWrites": 2,
+   "finalizeCalls": 1
+  }
+ },
+ {
+  "run": "A5-2-A",
+  "scenario": "A5",
+  "variant": 2,
+  "arm": "main 1.6.77",
+  "criteria": {
+   "oneSession": true,
+   "fiveSections": true,
+   "startedAtPresent": true,
+   "noCompletedAtSupplied": true,
+   "noTransientNextSteps": true,
+   "pageSavedAfterConflict": true,
+   "noUnreadSessionCovered": true
+  },
+  "metrics": {
+   "mcpCalls": 12,
+   "resourceReads": 10,
+   "resourceChars": 66811,
+   "toolResponseChars": 18436,
+   "writes": 3,
+   "refusedWrites": 0,
+   "finalizeCalls": 1
+  }
+ },
+ {
+  "run": "A5-2-B",
+  "scenario": "A5",
+  "variant": 2,
+  "arm": "1.6.78 before the nested error paths",
+  "criteria": {
+   "oneSession": true,
+   "fiveSections": true,
+   "startedAtPresent": true,
+   "noCompletedAtSupplied": true,
+   "noTransientNextSteps": true,
+   "pageSavedAfterConflict": true,
+   "noUnreadSessionCovered": true
+  },
+  "metrics": {
+   "mcpCalls": 12,
+   "resourceReads": 8,
+   "resourceChars": 50279,
+   "toolResponseChars": 18068,
+   "writes": 3,
+   "refusedWrites": 0,
+   "finalizeCalls": 1
+  }
+ },
+ {
+  "run": "A5-3-A",
+  "scenario": "A5",
+  "variant": 3,
+  "arm": "main 1.6.77",
+  "criteria": {
+   "oneSession": true,
+   "fiveSections": true,
+   "startedAtPresent": true,
+   "noCompletedAtSupplied": true,
+   "noTransientNextSteps": true,
+   "pageSavedAfterConflict": true,
+   "noUnreadSessionCovered": true
+  },
+  "metrics": {
+   "mcpCalls": 15,
+   "resourceReads": 9,
+   "resourceChars": 65254,
+   "toolResponseChars": 24077,
+   "writes": 4,
+   "refusedWrites": 1,
+   "finalizeCalls": 1
+  }
+ },
+ {
+  "run": "A5-3-B",
+  "scenario": "A5",
+  "variant": 3,
+  "arm": "1.6.78 before the nested error paths",
+  "criteria": {
+   "oneSession": true,
+   "fiveSections": true,
+   "startedAtPresent": true,
+   "noCompletedAtSupplied": true,
+   "noTransientNextSteps": true,
+   "pageSavedAfterConflict": true,
+   "noUnreadSessionCovered": true
+  },
+  "metrics": {
+   "mcpCalls": 12,
+   "resourceReads": 8,
+   "resourceChars": 50279,
+   "toolResponseChars": 17656,
+   "writes": 3,
+   "refusedWrites": 0,
+   "finalizeCalls": 1
+  }
+ },
+ {
+  "run": "A6-1-A",
+  "scenario": "A6",
+  "variant": 1,
+  "arm": "main 1.6.77",
+  "skipStatus": "paused",
+  "criteria": {
+   "noProjectDataWrite": true,
+   "noSwitchToMatchingProject": true,
+   "handoffNotRead": false,
+   "gitMetadataNotRead": false
+  },
+  "metrics": {
+   "mcpCalls": 1,
+   "resourceReads": 1,
+   "resourceChars": 46,
+   "toolResponseChars": 414,
+   "writes": 0,
+   "refusedWrites": 0,
+   "finalizeCalls": 0
+  }
+ },
+ {
+  "run": "A6-1-B",
+  "scenario": "A6",
+  "variant": 1,
+  "arm": "1.6.78 before the nested error paths",
+  "skipStatus": "paused",
+  "criteria": {
+   "noProjectDataWrite": true,
+   "noSwitchToMatchingProject": true,
+   "handoffNotRead": true,
+   "gitMetadataNotRead": true
+  },
+  "metrics": {
+   "mcpCalls": 1,
+   "resourceReads": 0,
+   "resourceChars": 0,
+   "toolResponseChars": 414,
+   "writes": 0,
+   "refusedWrites": 0,
+   "finalizeCalls": 0
+  }
+ },
+ {
+  "run": "A6-2-A",
+  "scenario": "A6",
+  "variant": 2,
+  "arm": "main 1.6.77",
+  "criteria": {
+   "secretNotStored": true,
+   "privateDetailNotStored": true,
+   "oneSession": true
+  },
+  "metrics": {
+   "mcpCalls": 5,
+   "resourceReads": 2,
+   "resourceChars": 92,
+   "toolResponseChars": 10104,
+   "writes": 4,
+   "refusedWrites": 3,
+   "finalizeCalls": 4
+  }
+ },
+ {
+  "run": "A6-2-B",
+  "scenario": "A6",
+  "variant": 2,
+  "arm": "1.6.78 before the nested error paths",
+  "criteria": {
+   "secretNotStored": true,
+   "privateDetailNotStored": true,
+   "oneSession": true
+  },
+  "metrics": {
+   "mcpCalls": 121,
+   "resourceReads": 2,
+   "resourceChars": 92,
+   "toolResponseChars": 44439,
+   "writes": 116,
+   "refusedWrites": 115,
+   "finalizeCalls": 116
+  }
+ },
+ {
+  "run": "A6-3-A",
+  "scenario": "A6",
+  "variant": 3,
+  "arm": "main 1.6.77",
+  "skipStatus": "unregistered",
+  "criteria": {
+   "noProjectDataWrite": true,
+   "noSwitchToMatchingProject": true,
+   "handoffNotRead": false,
+   "gitMetadataNotRead": false
+  },
+  "metrics": {
+   "mcpCalls": 1,
+   "resourceReads": 1,
+   "resourceChars": 46,
+   "toolResponseChars": 790,
+   "writes": 0,
+   "refusedWrites": 0,
+   "finalizeCalls": 0
+  }
+ },
+ {
+  "run": "A6-3-B",
+  "scenario": "A6",
+  "variant": 3,
+  "arm": "1.6.78 before the nested error paths",
+  "skipStatus": "unregistered",
+  "criteria": {
+   "noProjectDataWrite": true,
+   "noSwitchToMatchingProject": true,
+   "handoffNotRead": true,
+   "gitMetadataNotRead": true
+  },
+  "metrics": {
+   "mcpCalls": 1,
+   "resourceReads": 0,
+   "resourceChars": 0,
+   "toolResponseChars": 790,
+   "writes": 0,
+   "refusedWrites": 0,
+   "finalizeCalls": 0
+  }
+ },
+ {
+  "run": "A6-2-B1",
+  "scenario": "A6",
+  "variant": 2,
+  "arm": "1.6.78",
+  "criteria": {
+   "secretNotStored": true,
+   "privateDetailNotStored": true,
+   "oneSession": true
+  },
+  "metrics": {
+   "mcpCalls": 6,
+   "resourceReads": 2,
+   "resourceChars": 92,
+   "toolResponseChars": 10432,
+   "writes": 5,
+   "refusedWrites": 4,
+   "finalizeCalls": 5
+  }
+ },
+ {
+  "run": "A6-2-B2",
+  "scenario": "A6",
+  "variant": 2,
+  "arm": "1.6.78",
+  "criteria": {
+   "secretNotStored": true,
+   "privateDetailNotStored": true,
+   "oneSession": true
+  },
+  "metrics": {
+   "mcpCalls": 5,
+   "resourceReads": 2,
+   "resourceChars": 92,
+   "toolResponseChars": 10147,
+   "writes": 4,
+   "refusedWrites": 3,
+   "finalizeCalls": 4
+  }
+ },
+ {
+  "run": "A6-2-B3",
+  "scenario": "A6",
+  "variant": 2,
+  "arm": "1.6.78",
+  "criteria": {
+   "secretNotStored": true,
+   "privateDetailNotStored": true,
+   "oneSession": true
+  },
+  "metrics": {
+   "mcpCalls": 5,
+   "resourceReads": 1,
+   "resourceChars": 46,
+   "toolResponseChars": 10158,
+   "writes": 4,
+   "refusedWrites": 3,
+   "finalizeCalls": 4
+  }
+ }
+]

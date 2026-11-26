@@ -62,6 +62,12 @@ function fullContext(result: ReturnType<WorkIntelligenceStore["getKnowledgePageC
   return result;
 }
 
+function reviewTokenOf(store: WorkIntelligenceStore, projectRoot: string, slug: string): string {
+  const result = store.getKnowledgePageContext({ projectRoot, slug });
+  if (result.outcome !== "knowledge_page_context") throw new Error("Expected a knowledge page context");
+  return result.reviewToken;
+}
+
 describe("Knowledge pages", () => {
   it("creates a default page on request and asks for a title and question for a custom page", () => {
     const { store, projectRoot } = setup();
@@ -207,6 +213,7 @@ describe("Knowledge pages", () => {
       slug: "pitfalls",
       idempotencyKey: "save-1",
       sections: sections(first),
+      reviewToken: reviewTokenOf(store, projectRoot, "pitfalls"),
     });
     expect(saved).toMatchObject({
       outcome: "knowledge_page_saved",
@@ -274,9 +281,21 @@ describe("Knowledge pages", () => {
     const { store, projectRoot, finalize, sections } = setup();
     const source = finalize("source");
     for (const slug of ["architecture", "pitfalls"]) store.requestKnowledgePageUpdate({ projectRoot, slug });
-    store.saveKnowledgePage({ projectRoot, slug: "architecture", idempotencyKey: "a-1", sections: sections(source) });
+    store.saveKnowledgePage({
+      projectRoot,
+      slug: "architecture",
+      idempotencyKey: "a-1",
+      sections: sections(source),
+      reviewToken: reviewTokenOf(store, projectRoot, "architecture"),
+    });
     finalize("between");
-    store.saveKnowledgePage({ projectRoot, slug: "pitfalls", idempotencyKey: "p-1", sections: sections(source) });
+    store.saveKnowledgePage({
+      projectRoot,
+      slug: "pitfalls",
+      idempotencyKey: "p-1",
+      sections: sections(source),
+      reviewToken: reviewTokenOf(store, projectRoot, "pitfalls"),
+    });
     finalize("after");
     const voided = finalize("after-voided");
     store.setSessionVoid({ sessionId: voided, voided: true, reason: "Recorded by mistake." });
@@ -303,6 +322,7 @@ describe("Knowledge pages", () => {
       slug: "pitfalls",
       idempotencyKey: "maintenance-pitfalls",
       sections: sections(source),
+      reviewToken: reviewTokenOf(store, projectRoot, "pitfalls"),
     });
 
     const finalizeWithResult = (key: string) => {
@@ -337,6 +357,7 @@ describe("Knowledge pages", () => {
       slug: "architecture",
       idempotencyKey: "maintenance-architecture",
       sections: sections(third.outcome === "finalized" ? third.session.id : ""),
+      reviewToken: reviewTokenOf(store, projectRoot, "architecture"),
     });
     expect(saved).toMatchObject({ outcome: "knowledge_page_saved", page: { newSessionCount: 0 } });
     if (third.outcome !== "finalized") throw new Error("Expected the third Session to finalize.");
@@ -423,6 +444,7 @@ describe("Knowledge pages", () => {
         { heading: "Cited rule", content: "Keep the cited rule current.", sourceSessionIds: [cited] },
         { heading: "Unrelated", content: "資料不足", sourceSessionIds: [] },
       ],
+      reviewToken: reviewTokenOf(store, projectRoot, "pitfalls"),
     });
     if (saved.outcome !== "knowledge_page_saved") throw new Error("Expected the page to save.");
 
@@ -511,6 +533,7 @@ describe("Knowledge pages", () => {
       slug: "pitfalls",
       idempotencyKey: "checked-page-save",
       sections: sections(cited),
+      reviewToken: reviewTokenOf(store, projectRoot, "pitfalls"),
     });
     if (saved.outcome !== "knowledge_page_saved") throw new Error("Expected the page to save.");
 
@@ -586,6 +609,7 @@ describe("Knowledge pages", () => {
       slug: "pitfalls",
       idempotencyKey: "review-save",
       sections: sections(cited),
+      reviewToken: reviewTokenOf(store, projectRoot, "pitfalls"),
     });
 
     const firstNew = finalize("review-first-new");
@@ -624,6 +648,7 @@ describe("Knowledge pages", () => {
         slug,
         idempotencyKey: `maintained-save-${slug}`,
         sections: sections(cited),
+        reviewToken: reviewTokenOf(store, projectRoot, slug),
       });
     }
     const finalizeMaintaining = (key: string, maintainedKnowledgePages: string[]) => {
@@ -715,6 +740,7 @@ describe("Knowledge pages", () => {
           { heading: "winter care", content: "Second winter note about wrapping.", sourceSessionIds: [a] },
           { heading: "蜂箱管理", content: "每週檢查一次蜂王狀態。", sourceSessionIds: [b] },
         ],
+        reviewToken: reviewTokenOf(ctx.store, ctx.projectRoot, "architecture"),
       });
       ctx.finalize("c");
       return ctx;
@@ -1028,9 +1054,9 @@ describe("Knowledge pages", () => {
       expect(pageOf(store, projectRoot).version).toBe(1);
     });
 
-    it("keeps the older rule and warns when the save has no token", () => {
+    it("keeps the reviewed point and warns when the save has no token", () => {
       const { store, projectRoot, finalize, tick, sections, first } = tokenPage();
-      finalize("legacy-unseen");
+      const unseen = finalize("legacy-unseen");
       tick();
       expect(
         store.saveKnowledgePage({
@@ -1041,9 +1067,14 @@ describe("Knowledge pages", () => {
         }),
       ).toMatchObject({
         outcome: "knowledge_page_saved",
-        warnings: [expect.stringContaining("reviewToken")],
-        page: { version: 2, newSessionCount: 0, status: "fresh" },
+        warnings: [expect.stringContaining("no check for a newer page version")],
+        page: { version: 2, newSessionCount: 1, status: "has_new_data" },
       });
+      expect(
+        fullContext(store.getKnowledgePageContext({ projectRoot, slug: "architecture" })).sessions.map(
+          (session) => session.id,
+        ),
+      ).toEqual([unseen]);
     });
 
     it("acknowledges the maintaining Session only when no unseen Session comes before it", () => {

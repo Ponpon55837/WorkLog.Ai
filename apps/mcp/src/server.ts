@@ -115,7 +115,7 @@ import { toFinalizeReceipt } from "./finalize-receipt.js";
 import { toKnowledgePageSaveReceipt } from "./knowledge-page-receipt.js";
 import { withMatchingProjects } from "./matching-projects.js";
 import { observeFinalizeChangedFiles, type FinalizeInput } from "./finalize-observation.js";
-import { parseMcpInput } from "./input.js";
+import { inputErrorDetails, parseMcpInput } from "./input.js";
 import { SegmentObserver, type ObservedSegmentStart } from "./segment-observer.js";
 import { hoistItemProject, scopeProject, withoutProjectFields } from "./project-scope.js";
 import { countResponseChars, sessionTextResult, textResult } from "./result.js";
@@ -258,7 +258,7 @@ const TOOL_DISPATCHERS: readonly ToolDispatcherDefinition[] = [
     name: "work_read",
     title: "Read Work Intelligence",
     description:
-      "Run one read-only Work Intelligence operation. Read the operation catalog for its complete schema and result rules. Only server.restartRequired stops operations and requires reconnecting. server.updateAvailable means compatible implementation changes: continue reads and writes, then remind the user once at closing.",
+      "Run one read-only Work Intelligence operation. Read its contract (operation index) for the complete schema and result rules. Only server.restartRequired stops operations and requires reconnecting.",
     annotations: READ_ONLY,
   },
   {
@@ -393,12 +393,17 @@ function dispatcherForAnnotations(annotations: ToolAnnotations): ToolDispatcherD
   return dispatcher;
 }
 
-function createDispatcherSchema(operations: readonly RegisteredStoreTool[]) {
+/**
+ * Advertises only this dispatcher's operations but parses every registered name, so a call to the wrong
+ * dispatcher reaches the handler and is told which dispatcher serves it.
+ */
+function createDispatcherSchema(operations: readonly RegisteredStoreTool[], allNames: readonly string[]) {
   const [first, ...rest] = operations.map((operation) => operation.name);
-  if (!first) throw new Error("MCP tool dispatcher cannot be empty.");
+  const [firstAny, ...restAny] = allNames;
+  if (!first || !firstAny) throw new Error("MCP tool dispatcher cannot be empty.");
   return z
     .object({
-      operation: z.enum([first, ...rest] as [string, ...string[]]),
+      operation: z.enum([firstAny, ...restAny] as [string, ...string[]]).meta({ enum: [first, ...rest] }),
       arguments: z.record(z.string(), z.unknown()).optional(),
     })
     .strict();
@@ -407,7 +412,7 @@ function createDispatcherSchema(operations: readonly RegisteredStoreTool[]) {
 function registerToolDispatchers(server: McpServer, operations: Map<string, RegisteredStoreTool>): void {
   for (const dispatcher of TOOL_DISPATCHERS) {
     const members = [...operations.values()].filter((operation) => operation.dispatcherName === dispatcher.name);
-    const inputSchema = createDispatcherSchema(members);
+    const inputSchema = createDispatcherSchema(members, [...operations.keys()]);
     server.registerTool(
       dispatcher.name,
       {
@@ -424,7 +429,7 @@ function registerToolDispatchers(server: McpServer, operations: Map<string, Regi
             ...textResult({
               code: "INVALID_OPERATION_CALL",
               error: "Invalid Work Intelligence operation call.",
-              details: parsed.error.flatten(),
+              details: inputErrorDetails(parsed.error),
             }),
           };
         }
@@ -432,7 +437,15 @@ function registerToolDispatchers(server: McpServer, operations: Map<string, Regi
         if (!operation || operation.dispatcherName !== dispatcher.name) {
           return {
             isError: true,
-            ...textResult({ code: "UNKNOWN_OPERATION", error: "Operation is not available through this dispatcher." }),
+            ...textResult(
+              operation
+                ? {
+                    code: "UNKNOWN_OPERATION",
+                    error: `${operation.name} is served by ${operation.dispatcherName}; call that dispatcher.`,
+                    dispatcher: operation.dispatcherName,
+                  }
+                : { code: "UNKNOWN_OPERATION", error: "Operation is not available through this dispatcher." },
+            ),
           };
         }
         return operation.invoke(parsed.data.arguments ?? {});
@@ -593,7 +606,7 @@ export function createWorkIntelligenceMcpServer(
         if (!parsed.success) {
           const invalidResponse = {
             isError: true,
-            ...textResult({ error: definition.invalidMessage, details: parsed.error.flatten() }),
+            ...textResult({ error: definition.invalidMessage, details: inputErrorDetails(parsed.error) }),
           };
           if (readOnly) {
             auditRead(store, {
@@ -718,10 +731,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_finalize_session", {
     title: "Finalize a work session",
     description:
-      "Finalize only after planning, execution, verification, and closing are complete. Required: outcome-first summary, five-section workSummary, intentional changedFiles ([] for no changes), and verification passed/failed/in_progress/not_run. in_progress means started with no confirmed result; update the same Session after verification. Pass baselineChangedFiles captured at start: exclude those paths even if edited again; a rename from baseline records the new path as added. changedFilesProvenance cites Agent/handoff/Git/worktree evidence; changedFileChanges gives each path's status (renamed requires previousPath), else Git-observed when certain. Report only recalled Knowledge actually used with appliedKnowledgeIds or contradictedKnowledgeIds; parentSessionId links continued work. startedAt and completedAt follow their field rules below and are never estimated; future times are rejected; correct timestampWarnings with work_update_session_metadata. updatedAt tracks edits. Only tracked projects permit source/handoff/Git reads and recording; others quietly skip. Same-key retries return the original Session; a different summary conflicts. Missing verification/files/statuses/workSummary yields follow-ups. " +
-      "resolvedOutstandingItemIds and supersededOutstandingItemIds (rules in the contract below) change only same-project pending items; both transitions are atomic with the Session and audited with actorSessionId; conflicting ids stay unchanged and warn. relatedOutstandingItems lists bounded still-pending matches (not this Session's new items) with an evidence caution. " +
-      "The result is a receipt, not an echo of the request; it may include knowledgePageMaintenanceHint (pages with a source-review warning, an update request, or 3+ new Sessions). " +
-      "Sensitive values are masked before storage; the result reports redaction counts by type only, never token fragments. " +
+      "Finalize only after planning, execution, verification, and closing are complete; in_progress means started with no confirmed result (update the same Session after verification). Pass baselineChangedFiles captured at start: those paths are excluded even if edited again. Report only Knowledge actually used (appliedKnowledgeIds, contradictedKnowledgeIds). Never estimate startedAt or completedAt. Untracked projects quietly skip. Same-key retries return the original Session; a different summary conflicts. Sensitive values are masked before storage. A self-contradicting request is rejected with the field and fix; nothing is written. The result is a receipt: follow its follow-ups, warnings, and hints. " +
       workRecordContract +
       " " +
       finalizeClosingContract,
@@ -729,7 +739,7 @@ export function createWorkIntelligenceMcpServer(
     schema: mcpFinalizeSessionInputSchema,
     validationNotes: [
       "A changedFileChanges entry with status=renamed must include previousPath.",
-      "Timestamps with offsets are normalized to UTC; future values are rejected. If startedAt is after completedAt, it is not applied and the result includes a timestamp warning.",
+      "Timestamps with offsets are normalized to UTC; future values are rejected. startedAt after completedAt is rejected when both are supplied.",
     ],
     annotations: ADDITIVE_IDEMPOTENT,
     invalidMessage: "Invalid finalize payload.",
@@ -992,7 +1002,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_get_context", {
     title: "Get work context",
     description:
-      'Return recent tracked-project digests, metadataFollowUps counts, pending Agent requests, the server clock, and MCP build status. Outstanding nextSteps items exposed by context are pending only. The top-level pendingOutstandingItems list includes each source Session id, title, and completion time, at most 5 items, and text capped at 500 characters; it reports the total, omitted count, and text-truncation count, and marks truncated text. Use read-only work_list_outstanding_items to read the complete paged list, including completed and not_needed items. Pass task and/or paths for task-first relevant Knowledge, decisions, Sessions with open items, hotspots, and matching Knowledge-page sections. Pass the files you plan to change as paths at the start, and call again with paths (or work_get_file_history) when more files become known: Knowledge scoped to files (appliesTo) is matched through paths; without paths, only Knowledge covering files that similar Sessions changed is offered as inferred supplements (not evidence). relevant.outstandingItems ranks pending items by direct item keywords, source changed-file paths, and recalled source Session order, so older items are not excluded by recency or the top recalled sources. It contains at most 5 pointers (id, sourceSessionId, and text capped at 240 characters; read the source Session for its title), total/omitted counts and a caution hint; context budgeting may shorten text or omit lower-ranked items with a readWith pointer. linkedSessionIds (Sessions you will link) adds relevant.continuedOutstandingItems, their pending items, kept out of outstandingItems. relevant.confidence is "none" when no result has meaningful query coverage or a path match, "low" for weak partial matches or raw-handoff-only matches, and "high" for strong structured or path matches; when it is "none", relevant.knowledge and relevant.sessions are empty and must not be used as evidence. relevant.knowledgeConfidence rates Knowledge alone; "none" does not mean none applies. With a focus, the complete compact JSON response is capped at 10,000 characters; without a focus it is capped at 16,000. Check omitted, a small pointer per section: count, duplicates (shown elsewhere in this response), up to 3 ids with reasons for budget omissions plus moreIds, entries with only the id and flags of anything flagged possiblyStale or needsReview (relevant.knowledge entries for Knowledge matched by a focus path may also carry a short title and path), and readWith, the tool that reads the full item (work_get_file_history/work_search_knowledge when such path entries exist); page review detail and citation ids are not repeated there. Without a focus, the 3 newest Sessions are kept until older Knowledge, decisions, and page content are trimmed. With projectRoot, the project appears once in project, projects is empty, and items omit projectId and projectName. Pending requests and possiblyStale/needsReview flags are retained. Knowledge pages include needsReview and bounded reviewSections when a cited Session changed, was voided, or was restored after the page was saved; shown source ids, titles, and reason codes are supplemented with omittedSourceCount and reason summaries when necessary. Use work_get_session, work_search_knowledge, work_preview_metadata_backfill, and work_get_knowledge_page_context (query or headings reads one topic) to read full records. Pending Agent-autonomous decisions expose only their count; review actions remain in the Web UI. With projectRoot, the project policy gate is checked first and this call is the tracking check: a tracked project returns projectStatus "tracked" and tracked: true with the context; a non-tracked or missing root returns only outcome "skipped", projectRoot, projectStatus, tracked: false, reason, and server, with no project data (an unregistered root may add matchingProjects hints), so no separate work_get_project_status call is needed.',
+      'Return recent tracked-project digests, metadataFollowUps counts, pending Agent requests, the server clock, and MCP build status. pendingOutstandingItems lists at most 5 pending nextSteps items (source Session id, title, completion time, text capped at 500 characters) with total, omitted, and truncation counts; work_list_outstanding_items reads the complete paged list, including completed and not_needed. Pass task and/or paths for task-first relevant Knowledge, decisions, Sessions with open items, hotspots, and matching Knowledge-page sections. Pass the files you plan to change as paths at the start, and again (or use work_get_file_history) when more files become known: Knowledge scoped to files (appliesTo) is matched through paths; without paths, only Knowledge covering files that similar Sessions changed is offered as inferred supplements (not evidence). relevant.outstandingItems holds at most 5 ranked pointers (id, sourceSessionId, text capped at 240 characters) with total/omitted counts. linkedSessionIds (Sessions you will link) adds relevant.continuedOutstandingItems, their pending items. relevant.confidence is "none", "low", or "high" by how well results match the query or paths; when "none", relevant.knowledge and relevant.sessions are empty and must not be used as evidence. relevant.knowledgeConfidence rates Knowledge alone; "none" does not mean none applies. The response is size-capped: check omitted, whose readWith names the tool that reads the full record (work_get_session, work_search_knowledge, or work_get_knowledge_page_context; reading-records guide). With projectRoot, the project policy gate is checked first and this call is the tracking check: a tracked project returns tracked: true with the context; a non-tracked or missing root returns only outcome "skipped", tracked: false, reason, and server, with no project data (an unregistered root may add matchingProjects hints).',
     inputShape: contextQuerySchema.shape,
     schema: contextQuerySchema,
     annotations: READ_ONLY,

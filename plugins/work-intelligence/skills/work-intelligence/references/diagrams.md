@@ -1,6 +1,6 @@
 # Session diagrams
 
-Read this guide with the core [Work Intelligence skill](../SKILL.md) before you attach a diagram. The core says when to attach one: on your own, without being asked, when a picture explains the work better than text.
+Read this guide with the core [Work Intelligence skill](../SKILL.md) before you attach a diagram. Attach one on your own, without being asked, when the work changed a cross-module flow or data path, a state machine, an architecture or component relationship, or a multi-step process. Skip single-file fixes, copy/styling, configuration, dependency bumps, and test-only work.
 
 - Up to two validated architecture v1 diagrams per Session, in `diagrams` when finalizing. After finalizing, `work_attach_diagram` adds one to an existing Session; use a new idempotency key per diagram.
 - New writes require explicit `kind: "architecture"` and `formatVersion: 1`; first read `work-intelligence://agent/architecture-diagram-v1` and serialize validated JSON as `source`. A write that omits these fields or sends Mermaid is rejected. Do not invent native sequence/state semantics: explain unsupported semantics in prose.

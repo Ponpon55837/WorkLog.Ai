@@ -46,6 +46,14 @@ const STARTED_AT_FOLLOW_UP =
 const UNREPORTED_KNOWLEDGE_HINT =
   "這段工作讀過、本筆尚未回報的知識點。確實用上且仍正確的，以 work_update_session_metadata { sessionId, appliedKnowledgeIds } 補報；發現已不正確的放 contradictedKnowledgeIds；沒用上就不必回報。";
 
+/** Says what to do with each knowledgeToReview entry, so the review needs no extra reading. */
+const KNOWLEDGE_TO_REVIEW_HINT =
+  "Holds: work_update_knowledge confirm: true. Now wrong: tell the user. Unsure: leave it.";
+
+/** After the save the finalize lists are closed, so pending items are closed by one resolve call. */
+const PENDING_ITEMS_AFTER_SAVE_HINT =
+  "逐項讀來源核對；本次已直接驗證完成或被 nextSteps 取代的，用 work_resolve_outstanding_items 結案；無法確認就保留。";
+
 /** The newest few ids and titles; total only when more were read than listed. */
 function compactUnreportedKnowledge(unreported: UnreportedKnowledge): unknown {
   return {
@@ -59,6 +67,7 @@ function compactUnreportedKnowledge(unreported: UnreportedKnowledge): unknown {
 function compactRelatedItems(related: RelatedOutstandingItems): unknown {
   return {
     ...related,
+    ...(related.hint ? { hint: PENDING_ITEMS_AFTER_SAVE_HINT } : {}),
     items: related.items.map((item) => ({
       id: item.id,
       sourceSessionId: item.sourceSessionId,
@@ -77,8 +86,9 @@ function sameList(left: readonly string[] | undefined, right: readonly string[])
  * (redaction counts, a stored changed-file list that differs from the request, Git metadata it filled in), the
  * follow-ups, warnings, reminders, and hints (with how many reported Knowledge ids it recorded, and the recalled
  * Knowledge this work read but has not reported). It does not echo the title, summary, workSummary, or changedFiles the
- * Agent just sent. Other outcomes (skipped, idempotency conflict) pass through unchanged, and so does the storage
- * result for every other caller.
+ * Agent just sent. Other outcomes (skipped, idempotency conflict, rejected) pass through unchanged, and so does the
+ * storage result for every other caller. A rejected request is a domain outcome like an idempotency conflict, not a
+ * transport error: the call worked, nothing was written, and the body names the field, ids, and fix.
  */
 export function toFinalizeReceipt(input: FinalizeReceiptRequest, result: FinalizeResult): unknown {
   if (result.outcome !== "finalized") return result;
@@ -148,6 +158,7 @@ export function toFinalizeReceipt(input: FinalizeReceiptRequest, result: Finaliz
         }
       : {}),
     ...reminders,
+    ...(reminders.knowledgeToReview?.length ? { knowledgeToReviewHint: KNOWLEDGE_TO_REVIEW_HINT } : {}),
     ...(unreportedKnowledge ? { unreportedKnowledge: compactUnreportedKnowledge(unreportedKnowledge) } : {}),
     ...(continuedOutstandingItems ? { continuedOutstandingItems: compactRelatedItems(continuedOutstandingItems) } : {}),
     ...(relatedOutstandingItems ? { relatedOutstandingItems: compactRelatedItems(relatedOutstandingItems) } : {}),

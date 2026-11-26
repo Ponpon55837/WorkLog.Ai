@@ -60,6 +60,11 @@ function fullContext(result: ReturnType<WorkIntelligenceStore["getKnowledgePageC
   }
   return result;
 }
+function reviewTokenOf(store: WorkIntelligenceStore, projectRoot: string, slug: string): string {
+  const result = store.getKnowledgePageContext({ projectRoot, slug });
+  if (result.outcome !== "knowledge_page_context") throw new Error("Expected a knowledge page context");
+  return result.reviewToken;
+}
 const workSummary = (outcome: string) => ({
   outcomes: [outcome],
   scope: [],
@@ -80,6 +85,7 @@ describe("Knowledge page maintenance", () => {
       slug,
       idempotencyKey: "maintenance-save",
       sections: sections(cited),
+      reviewToken: reviewTokenOf(store, projectRoot, slug),
     });
     if (saved.outcome !== "knowledge_page_saved") throw new Error("Expected the page to save.");
     return { ...context, cited, page: saved.page, slug };

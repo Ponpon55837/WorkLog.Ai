@@ -303,14 +303,13 @@ describe("outstanding items", () => {
       first.root,
       "outstanding-mixed-finalize",
       ["Replacement task"],
-      [resolve.id, ambiguous.id, completed.id, voidedResolve.id, crossResolve.id, "missing-resolve-item"],
+      [resolve.id, completed.id, voidedResolve.id, crossResolve.id, "missing-resolve-item"],
       undefined,
       {
         title: "Orbit cache follow-up",
         summary: "Review the Orbit cache state before closing this work.",
         supersededOutstandingItemIds: [
           supersede.id,
-          ambiguous.id,
           notNeeded.id,
           voidedSupersede.id,
           crossSupersede.id,
@@ -325,14 +324,12 @@ describe("outstanding items", () => {
       supersededOutstandingItemIds: [supersede.id],
       outstandingItemWarnings: {
         unresolvedIds: expect.arrayContaining([
-          ambiguous.id,
           completed.id,
           voidedResolve.id,
           crossResolve.id,
           "missing-resolve-item",
         ]),
         unsupersededIds: expect.arrayContaining([
-          ambiguous.id,
           notNeeded.id,
           voidedSupersede.id,
           crossSupersede.id,
@@ -391,7 +388,7 @@ describe("outstanding items", () => {
     );
   });
 
-  it("does not supersede requested items when finalize has no nextSteps", () => {
+  it("rejects superseding items when finalize has no nextSteps and leaves them pending", () => {
     const { store, root, projectId } = createTrackedProject("Outstanding no-nextSteps fixture");
     const source = finalize(store, root, "outstanding-no-nextSteps-source", [
       "Remain pending without a replacement",
@@ -410,14 +407,14 @@ describe("outstanding items", () => {
       supersededOutstandingItemIds: [empty.id],
     });
     expect(withoutWorkSummary).toMatchObject({
-      outcome: "finalized",
-      supersededOutstandingItemIds: [],
-      outstandingItemWarnings: { unsupersededIds: [absent.id] },
+      outcome: "rejected",
+      code: "superseded_without_next_steps",
+      ids: [absent.id],
     });
     expect(withEmptyNextSteps).toMatchObject({
-      outcome: "finalized",
-      supersededOutstandingItemIds: [],
-      outstandingItemWarnings: { unsupersededIds: [empty.id] },
+      outcome: "rejected",
+      code: "superseded_without_next_steps",
+      ids: [empty.id],
     });
 
     const after = store.exportProjectData({ type: "project", projectId });

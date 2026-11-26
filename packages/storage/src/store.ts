@@ -287,6 +287,7 @@ import { findKnowledgeToReview } from "./knowledge-review-hint.js";
 import { findUnreportedKnowledge } from "./unreported-knowledge.js";
 import { KnowledgeSearchService } from "./knowledge-search-service.js";
 import { FileHistoryService } from "./file-history-service.js";
+import { findFinalizeRequestContradiction } from "./finalize-request-checks.js";
 import { KnowledgeService, type KnowledgeFeedbackResult } from "./knowledge-service.js";
 import { AgentReadAuditService } from "./agent-read-audit-service.js";
 import type {
@@ -333,6 +334,7 @@ import {
 } from "./changed-file-observation.js";
 import { replaceSessionDecisions, type SessionDecisionDraft } from "./session-decision-service.js";
 import { findTransientNextSteps } from "./transient-next-steps.js";
+import { findUnclosedPrivateTags } from "./private-tag-warnings.js";
 
 export type { ContextFocus } from "./context-recall-service.js";
 
@@ -1895,6 +1897,7 @@ export class WorkIntelligenceStore {
         : []),
       ...segmentLengthWarnings(startedAt, completedAt),
     ];
+    const privateTagWarnings = findUnclosedPrivateTags(input);
     const events = [
       ...sanitizedEvents.value,
       {
@@ -1934,6 +1937,9 @@ export class WorkIntelligenceStore {
           supersededOutstandingItemIds: this.outstandingItems.transitionedByActorSession(existing.id, "not_needed"),
         };
       }
+
+      const contradiction = findFinalizeRequestContradiction(input, (normalizedWorkSummary?.nextSteps.length ?? 0) > 0);
+      if (contradiction) return contradiction;
 
       this.db
         .prepare(
@@ -1991,31 +1997,7 @@ export class WorkIntelligenceStore {
         sessionId,
         completedAt,
       );
-      const resolvedRequested = input.resolvedOutstandingItemIds ?? [];
-      const supersededRequested = input.supersededOutstandingItemIds ?? [];
-      const supersededSet = new Set(supersededRequested);
-      const ambiguous = new Set(resolvedRequested.filter((id) => supersededSet.has(id)));
-      const resolution = this.outstandingItems.resolvePendingInTransaction(
-        resolvedRequested.filter((id) => !ambiguous.has(id)),
-        project.id,
-        sessionId,
-        completedAt,
-      );
-
-      const supersession = this.outstandingItems.supersedePendingInTransaction(
-        sanitizedNextSteps.length ? supersededRequested.filter((id) => !ambiguous.has(id)) : [],
-        project.id,
-        sessionId,
-        completedAt,
-      );
-      const unresolvedIds = [...new Set([...resolution.unresolvedIds, ...ambiguous])];
-      const unsupersededIds = [
-        ...new Set([
-          ...supersession.unresolvedIds,
-          ...ambiguous,
-          ...(sanitizedNextSteps.length ? [] : supersededRequested),
-        ]),
-      ];
+      const outstanding = this.outstandingItems.transitionForFinalize(input, project.id, sessionId, completedAt);
 
       const observedTool = context.observedStartedAt?.tool;
       const startedAtEvents =
@@ -2118,19 +2100,11 @@ export class WorkIntelligenceStore {
         ...(knowledgeFeedback.warnings.length > 0 ? { knowledgeWarnings: knowledgeFeedback.warnings } : {}),
         ...(knowledgeFeedback.counts ? { knowledgeFeedback: knowledgeFeedback.counts } : {}),
         ...(timestampWarnings.length > 0 ? { timestampWarnings } : {}),
+        ...(privateTagWarnings ? { privateTagWarnings } : {}),
         ...(knowledgePagesAcknowledged.length > 0 ? { knowledgePagesAcknowledged } : {}),
-        resolvedOutstandingItemIds: resolution.resolvedIds,
-        supersededOutstandingItemIds: supersession.resolvedIds,
-        ...(unresolvedIds.length > 0 || unsupersededIds.length > 0
-          ? {
-              outstandingItemWarnings: {
-                unresolvedIds,
-                unsupersededIds,
-                message:
-                  "部分指定項目無效、已處理、跨專案、正在整理待審、未提供取代項目或同時指定完成與取代，因此未標記完成或不再需要，維持原狀。",
-              },
-            }
-          : {}),
+        resolvedOutstandingItemIds: outstanding.resolvedIds,
+        supersededOutstandingItemIds: outstanding.supersededIds,
+        ...(outstanding.warnings ? { outstandingItemWarnings: outstanding.warnings } : {}),
       };
     });
     if (result.outcome === "finalized") {

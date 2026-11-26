@@ -15,13 +15,33 @@ import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
  * (work_resolve_outstanding_items, work_request_outstanding_cleanup), linkedSessionIds and appliesTo path matching
  * in work_get_context, and the start-time rules of work_finalize_session add about 2,250 units after the wording
  * they duplicated was removed; the core skill budget is unchanged.
+ *
+ * 1.6.78 moved wording that the server now enforces or that the finalize receipt now carries (per-id outstanding
+ * reasons, timestamp and Knowledge-review hints, unclosed <private> warnings, rejected self-contradicting requests,
+ * wrong-dispatcher errors that name the right one) out of the fixed reading, and removed the "→ dispatcher" half of
+ * the operation index. Measured before → after: instructions 1,934 → 1,668; tools/list 4,476 → 4,356; core skill
+ * 13,918 → 10,517; operation index 4,774 → 3,665; work_get_context contract 4,803 → 3,052; work_finalize_session
+ * contract 12,339 → 10,349; fixed total 42,244 → 33,607. The format document (8,083) and the knowledge guide
+ * (8,987, the largest) are unchanged, so their limits stay; core + format + largest guide went 30,988 → 27,587.
+ * Each lowered limit is the new measured value plus about 10%.
+ *
+ * 1.6.78 second pass (Issue #440 step 4) cut the finalize contract and schema descriptions (rules the server rejects
+ * or the receipt reports are not restated), the core skill (the dispatcher paragraph and the finalize steps that the
+ * contracts carry), the context contract and the index header. Measured before → after: core skill 10,517 → 8,871;
+ * operation index 3,665 → 3,414; work_get_context contract 3,052 → 2,782; work_finalize_session contract
+ * 10,349 → 8,875; fixed total 33,607 → 29,966 (instructions and tools/list unchanged); core + format + largest guide
+ * 27,587 → 25,941. The limits above were lowered again to measured plus about 10%.
+ *
+ * The A/B then showed Agents inspecting an untracked folder before the tracking check in both arms, so the
+ * context-first sentence of the instructions names what must wait (git, listing, search, file reads): instructions
+ * 1,668 → 1,801, fixed total 29,966 → 30,099. The limits already cover it.
  */
-const CORE_SKILL_CHARACTER_BUDGET = 14_000;
-const FIXED_READING_CHARACTER_BUDGET = 42_250;
+const CORE_SKILL_CHARACTER_BUDGET = 9_700;
+const FIXED_READING_CHARACTER_BUDGET = 32_900;
 const FORMAT_RESOURCE_CHARACTER_BUDGET = 8_500;
 const GUIDE_CHARACTER_BUDGET = 9_000;
 /** A rare flow (core, format and its guide) costs less than the old complete skill and format did (47,343). */
-const RARE_FLOW_CHARACTER_BUDGET = 31_000;
+const RARE_FLOW_CHARACTER_BUDGET = 28_500;
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const SKILL_DIRECTORY = join(repositoryRoot, ".agents/skills/work-intelligence");
@@ -33,6 +53,48 @@ const GUIDES = readdirSync(join(SKILL_DIRECTORY, "references"))
   .filter((name) => name.endsWith(".md"))
   .map((name) => name.slice(0, -".md".length))
   .sort();
+/** What each stage reads beyond the fixed reading, reported only: contracts by operation, other resources by URI. */
+const STAGE_READING = {
+  startCommon: ["work_get_file_history", "work_recall"],
+  finalizeFollowUps: [
+    "work_update_session_metadata",
+    "work_resolve_outstanding_items",
+    `${GUIDE_URI_PREFIX}diagrams.md`,
+    "work-intelligence://agent/architecture-diagram-v1",
+  ],
+  knowledgePage: [
+    `${GUIDE_URI_PREFIX}knowledge.md`,
+    "work_get_knowledge_page_context",
+    "work_save_knowledge_page",
+    "work_mark_knowledge_page_checked",
+  ],
+  agentReview: [
+    `${GUIDE_URI_PREFIX}agent-review.md`,
+    "work_request_agent_review",
+    "work_get_agent_review_context",
+    "work_submit_agent_review_verdicts",
+  ],
+  synthesis: [
+    `${GUIDE_URI_PREFIX}synthesis.md`,
+    "work_list_report_synthesis_requests",
+    "work_get_report_context",
+    "work_save_report_summary",
+    "work-intelligence://agent/worklog-report-writing/SKILL.md",
+    "work-intelligence://agent/worklog-report-writing/references/zh-TW.md",
+  ],
+  outstandingCleanup: [
+    `${GUIDE_URI_PREFIX}outstanding-cleanup.md`,
+    "work_get_outstanding_cleanup_context",
+    "work_submit_outstanding_cleanup_proposals",
+    "work_list_outstanding_cleanup_requests",
+  ],
+  repair: [
+    `${GUIDE_URI_PREFIX}repair-and-backfill.md`,
+    "work_update_session_metadata",
+    "work_update_session_work_summary",
+  ],
+  readingRecords: [`${GUIDE_URI_PREFIX}reading-records.md`, "work_get_session", "work_recall"],
+} as const;
 
 /**
  * Rules every session needs, so the core must state them itself rather than point elsewhere. Each phrase is checked
@@ -58,12 +120,10 @@ const CORE_RULES = [
   "do not absorb unrelated pre-existing dirty changes",
   "never invent a recommendation, roadmap, or future plan",
   "Never guess a decision's origin.",
-  "Agent-autonomous decisions enter the Web review queue; confirming, rejecting, and promoting them to Knowledge are Web-only unless the user opens an Agent review request (agent-review guide).",
-  "never close them with `resolvedOutstandingItemIds` or `supersededOutstandingItemIds` to bypass it",
+  "Agent-autonomous decisions are reviewed only in the Web unless the user opens an Agent review request (agent-review guide).",
   "**Times — never estimate them.**",
   "`completedAt`: **omit it** for work that just finished",
   "A commit is optional and must never be required or inferred.",
-  "A retry with the same key and same payload must not create another Session.",
   "do not report Knowledge you did not actually use",
   "Never create a replacement Session just to fix its text or metadata",
   "Record or update Knowledge only when the user asks or when the MCP workflow explicitly calls for it",
@@ -133,6 +193,25 @@ describe("Agent reading before the first useful call", () => {
         guides: Object.fromEntries([...guides].map(([guide, text]) => [guide, text.length])),
       })}`,
     );
+    const stageLength = async (items: readonly string[]) =>
+      (
+        await Promise.all(
+          items.map((item) => readText(client, item.includes("://") ? item : `${CONTRACT_INDEX_URI}/${item}`)),
+        )
+      ).reduce((sum, text) => sum + text.length, 0);
+    const stages = Object.fromEntries(
+      await Promise.all(
+        Object.entries(STAGE_READING).map(async ([stage, items]) => [stage, await stageLength(items)] as const),
+      ),
+    );
+    const startRequired = fixed - finalize.length;
+    console.info(
+      `Agent reading by stage (UTF-16 code units): ${JSON.stringify({
+        start: { required: startRequired, common: startRequired + stages.startCommon! },
+        finalize: { required: finalize.length, withAllFollowUps: finalize.length + stages.finalizeFollowUps! },
+        ...stages,
+      })}`,
+    );
     expect(core.length).toBeLessThanOrEqual(CORE_SKILL_CHARACTER_BUDGET);
     expect(fixed).toBeLessThanOrEqual(FIXED_READING_CHARACTER_BUDGET);
     expect(format.length).toBeLessThanOrEqual(FORMAT_RESOURCE_CHARACTER_BUDGET);
@@ -186,7 +265,7 @@ describe("Agent reading before the first useful call", () => {
     const { resources } = await client.listResources();
     const listed = new Set(resources.map((resource) => resource.uri));
     const index = await readText(client, CONTRACT_INDEX_URI);
-    const operations = new Set([...index.matchAll(/^- (work_\w+) → /gm)].map((match) => match[1]));
+    const operations = new Set([...index.matchAll(/^- (work_\w+): /gm)].map((match) => match[1]));
     const texts = new Map<string, string>([
       ["instructions", client.getInstructions() ?? ""],
       [CORE_URI, await readText(client, CORE_URI)],

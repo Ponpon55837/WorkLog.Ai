@@ -3,11 +3,14 @@ import type { DatabaseSync } from "node:sqlite";
 import type {
   BatchUpdateOutstandingItemStatusInput,
   BatchUpdateOutstandingItemStatusResult,
+  FinalizeSessionInput,
   ListOutstandingItemsInput,
   OutstandingItem,
   OutstandingItemClosedBy,
   OutstandingItemEventSource,
   OutstandingItemListQueryResult,
+  OutstandingItemRejectionCode,
+  OutstandingItemRejectionReason,
   OutstandingItemSyncSummary,
   ResolveOutstandingItemsInput,
   ResolveOutstandingItemsResult,
@@ -51,6 +54,31 @@ type OutstandingItemRow = {
   closed_by?: OutstandingItemClosedBy | null;
   created_at: string;
   updated_at: string;
+};
+
+type OutstandingWarnings = NonNullable<
+  Extract<ResolveOutstandingItemsResult, { outcome: "outstanding_items_resolved" }>["outstandingItemWarnings"]
+>;
+
+const FINALIZE_WARNING_MESSAGE = "部分指定項目無效、已處理、跨專案或正在整理待審，因此未標記完成或不再需要，維持原狀。";
+
+interface RejectedRequest {
+  unresolvedIds: readonly string[];
+  unsupersededIds: readonly string[];
+  ambiguous: ReadonlySet<string>;
+  hasNextSteps: boolean;
+  /** Present where the evidence must come from an earlier Session by someone other than the actor. */
+  later?: { actorSessionId: string; actorCompletedAt: string };
+}
+
+type RejectionRow = {
+  id: string;
+  project_id: string;
+  status: OutstandingItemStatus;
+  source_session_id: string;
+  source_voided_at: string | null;
+  source_completed_at: string | null;
+  held: number;
 };
 
 type RelatedPendingRow = OutstandingItemRow & RelatedPendingCandidate;
@@ -523,6 +551,97 @@ export class OutstandingItemService {
     return this.transitionPendingInTransaction(itemIds, projectId, actorSessionId, updatedAt, "not_needed");
   }
 
+  /** Completes and supersedes the ids a finalize requested; ids that fail a rule stay pending and come back as warnings. */
+  public transitionForFinalize(
+    request: Pick<FinalizeSessionInput, "resolvedOutstandingItemIds" | "supersededOutstandingItemIds">,
+    projectId: string,
+    actorSessionId: string,
+    updatedAt: string,
+  ): { resolvedIds: string[]; supersededIds: string[]; warnings?: OutstandingWarnings } {
+    const resolution = this.resolvePendingInTransaction(
+      request.resolvedOutstandingItemIds ?? [],
+      projectId,
+      actorSessionId,
+      updatedAt,
+    );
+    const supersession = this.supersedePendingInTransaction(
+      request.supersededOutstandingItemIds ?? [],
+      projectId,
+      actorSessionId,
+      updatedAt,
+    );
+    const { unresolvedIds } = resolution;
+    const unsupersededIds = supersession.unresolvedIds;
+    const rejected = unresolvedIds.length > 0 || unsupersededIds.length > 0;
+    return {
+      resolvedIds: resolution.resolvedIds,
+      supersededIds: supersession.resolvedIds,
+      ...(rejected
+        ? {
+            warnings: {
+              unresolvedIds,
+              unsupersededIds,
+              message: FINALIZE_WARNING_MESSAGE,
+              reasons: this.explainRejections(projectId, {
+                unresolvedIds,
+                unsupersededIds,
+                ambiguous: new Set(),
+                hasNextSteps: true,
+              }),
+            },
+          }
+        : {}),
+    };
+  }
+
+  /** Names the failed rule for each rejected id with one lookup; call it in the transaction that rejected them. */
+  public explainRejections(projectId: string, rejected: RejectedRequest): OutstandingItemRejectionReason[] {
+    const ids = [...new Set([...rejected.unresolvedIds, ...rejected.unsupersededIds])];
+    if (ids.length === 0) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT i.id, i.project_id, i.status, i.source_session_id,
+                s.voided_at AS source_voided_at, s.completed_at AS source_completed_at,
+                EXISTS (
+                  SELECT 1 FROM outstanding_cleanup_requests r
+                  JOIN outstanding_cleanup_request_items ci ON ci.request_id = r.id AND ci.project_id = r.project_id
+                  WHERE r.project_id = i.project_id AND r.status IN ('pending', 'awaiting_review')
+                    AND ci.item_id = i.id
+                ) AS held
+         FROM outstanding_items i
+         LEFT JOIN sessions s ON s.id = i.source_session_id
+         WHERE i.id IN (${ids.map(() => "?").join(", ")})`,
+      )
+      .all(...ids) as RejectionRow[];
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    const codeFor = (id: string, list: "resolved" | "superseded"): OutstandingItemRejectionCode | undefined => {
+      if (rejected.ambiguous.has(id)) return "both_lists";
+      if (list === "superseded" && !rejected.hasNextSteps) return "no_next_steps";
+      const row = byId.get(id);
+      if (!row) return "not_found";
+      if (row.project_id !== projectId) return "other_project";
+      if (row.status !== "pending") return "not_pending";
+      if (row.source_voided_at) return "source_voided";
+      if (row.held) return "held_by_cleanup";
+      const { later } = rejected;
+      const notEarlier =
+        later &&
+        (row.source_session_id === later.actorSessionId || (row.source_completed_at ?? "") >= later.actorCompletedAt);
+      return notEarlier ? "not_earlier" : undefined;
+    };
+    const reasons: OutstandingItemRejectionReason[] = [];
+    for (const [list, listIds] of [
+      ["resolved", rejected.unresolvedIds],
+      ["superseded", rejected.unsupersededIds],
+    ] as const) {
+      for (const id of listIds) {
+        const code = codeFor(id, list);
+        if (code) reasons.push({ id, list, code });
+      }
+    }
+    return reasons;
+  }
+
   /**
    * Closes pending items that a finalized Session's later work directly verified. Everything is re-checked inside one
    * transaction; items that fail a rule stay pending and are reported as warnings.
@@ -623,6 +742,13 @@ export class OutstandingItemService {
             : supersededRequested.filter((id) => !notNeededBefore.has(id) && !ambiguous.has(id))),
         ]),
       ];
+      const reasons = this.explainRejections(actor.project_id, {
+        unresolvedIds,
+        unsupersededIds,
+        ambiguous,
+        hasNextSteps: nextStepCount > 0,
+        later: { actorSessionId: sessionId, actorCompletedAt: actor.completed_at },
+      });
       const alreadyAppliedIds = [...new Set([...appliedResolved, ...appliedSuperseded])];
       const changed = resolution.resolvedIds.length + supersession.resolvedIds.length > 0;
       const warned = unresolvedIds.length > 0 || unsupersededIds.length > 0;
@@ -638,6 +764,7 @@ export class OutstandingItemService {
               outstandingItemWarnings: {
                 unresolvedIds,
                 unsupersededIds,
+                reasons,
                 message:
                   "部分指定項目無效、已處理、跨專案、來源 Session 已作廢、正在整理待審、來源不早於本 Session、來自本 Session 自己、本 Session 未提供 nextSteps 或同時指定完成與取代，因此維持原狀。",
               },

@@ -387,6 +387,23 @@ export type BatchUpdateOutstandingItemStatusResult =
   | { outcome: "rejected"; reason: "invalid_batch" | "invalid_items" | "status_conflict"; invalidItemIds: string[] }
   | { outcome: "skipped"; projectStatus: PolicyStatus; reason?: string };
 
+export type OutstandingItemRejectionCode =
+  | "not_found"
+  | "other_project"
+  | "not_pending"
+  | "source_voided"
+  | "held_by_cleanup"
+  | "not_earlier"
+  | "no_next_steps"
+  | "both_lists";
+
+/** Why one requested id was left unchanged in the resolved or superseded list. */
+export interface OutstandingItemRejectionReason {
+  id: string;
+  list: "resolved" | "superseded";
+  code: OutstandingItemRejectionCode;
+}
+
 /** Closes pending items a finalized Session's own later work directly verified (see work_resolve_outstanding_items). */
 export interface ResolveOutstandingItemsInput {
   sessionId: string;
@@ -404,7 +421,12 @@ export type ResolveOutstandingItemsResult =
       alreadyAppliedIds?: string[];
       /** True when every requested id had already been applied and nothing changed now. */
       duplicate?: true;
-      outstandingItemWarnings?: { unresolvedIds: string[]; unsupersededIds: string[]; message: string };
+      outstandingItemWarnings?: {
+        unresolvedIds: string[];
+        unsupersededIds: string[];
+        message: string;
+        reasons: OutstandingItemRejectionReason[];
+      };
     }
   | { outcome: "not_found"; sessionId: string }
   | { outcome: "skipped"; sessionId: string; projectStatus: PolicyStatus; reason: string };
@@ -1780,6 +1802,14 @@ export interface NextStepsWarnings {
   message: string;
 }
 
+export interface PrivateTagWarnings {
+  /** Field paths such as "summary" or "workSummary.nextSteps[0]"; the text itself is never repeated. */
+  fields: string[];
+  /** Unclosed opening tags across all fields, including any beyond the listed fields. */
+  unclosed: number;
+  message: string;
+}
+
 export interface FinalizedSessionResult {
   outcome: "finalized";
   duplicate: boolean;
@@ -1822,7 +1852,10 @@ export interface FinalizedSessionResult {
     unresolvedIds: string[];
     unsupersededIds?: string[];
     message: string;
+    reasons: OutstandingItemRejectionReason[];
   };
+  /** Text fields holding an opening <private> tag with no closing tag; the text is stored as written. */
+  privateTagWarnings?: PrivateTagWarnings;
   nextStepsWarnings?: NextStepsWarnings;
 }
 
@@ -1875,7 +1908,21 @@ export interface ProjectIdSkippedResult {
   reason: string;
 }
 
-export type FinalizeSessionResult = FinalizedSessionResult | FinalizeIdempotencyConflictResult | SkippedResult;
+export type FinalizeRejectionCode =
+  "both_lists" | "superseded_without_next_steps" | "knowledge_applied_and_contradicted" | "started_after_completed";
+
+/** A request that contradicts itself: nothing was written. */
+export interface FinalizeRejectedResult {
+  outcome: "rejected";
+  code: FinalizeRejectionCode;
+  field: string;
+  ids?: string[];
+  reason: string;
+  fix: string;
+}
+
+export type FinalizeSessionResult =
+  FinalizedSessionResult | FinalizeIdempotencyConflictResult | FinalizeRejectedResult | SkippedResult;
 
 export interface VerificationFollowUp {
   required: true;
@@ -2868,7 +2915,7 @@ export type SaveKnowledgePageResult =
     }
   | { outcome: "not_found"; slug: string; reason: string }
   | { outcome: "invalid_sources"; reason: string; sessionIds: string[] }
-  | { outcome: "invalid_review_token"; reason: string }
+  | { outcome: "invalid_review_token"; reason: string; fix?: string }
   /** The idempotencyKey already saved different sections for this page; nothing was written. */
   | { outcome: "idempotency_conflict"; reason: string }
   /** removeHeadings the page has no section for, as sent; nothing was written. */

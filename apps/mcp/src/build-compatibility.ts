@@ -20,7 +20,7 @@ export async function computeMcpCompatibility(
     const tools = await client.listTools();
     const index = await client.readResource({ uri: "work-intelligence://agent/tool-contracts" });
     const text = index.contents.map((content) => ("text" in content ? content.text : "")).join("\n");
-    const operations = [...text.matchAll(/^- (work_\w+) → /gm)].map((match) => match[1]).sort();
+    const operations = [...text.matchAll(/^- (work_\w+): /gm)].map((match) => match[1]).sort();
     if (tools.nextCursor || operations.length === 0) throw new Error("Incomplete MCP compatibility contract snapshot.");
     const contracts = await Promise.all(
       operations.map((operation) =>
