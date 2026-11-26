@@ -31,6 +31,15 @@ function withAgentStore<T>(task: (store: WorkIntelligenceStore) => T): T {
   }
 }
 
+type KnowledgePageSave = Parameters<WorkIntelligenceStore["saveKnowledgePage"]>[0];
+
+/** Saves the way an Agent does: read the page context, then save with its reviewToken, so the Sessions shown count as covered. */
+function saveKnowledgePageAfterReading(store: WorkIntelligenceStore, input: KnowledgePageSave) {
+  const context = store.getKnowledgePageContext({ projectRoot: input.projectRoot, slug: input.slug });
+  if (context.outcome !== "knowledge_page_context") throw new Error("Expected the Knowledge page context.");
+  return store.saveKnowledgePage({ ...input, reviewToken: context.reviewToken });
+}
+
 const pageRoutes: ReadonlyArray<readonly [string, string]> = [
   ["/dashboard", tt("nav.workOverview")],
   ["/sessions", tt("common.workHistory")],
@@ -866,7 +875,7 @@ test.describe("Work Intelligence browser regression", () => {
     });
     const saved = withAgentStore((store) => {
       store.requestKnowledgePageUpdate({ projectRoot, slug: "pitfalls" });
-      return store.saveKnowledgePage({
+      return saveKnowledgePageAfterReading(store, {
         projectRoot,
         slug: "pitfalls",
         idempotencyKey: `e2e-knowledge-page-${process.pid}`,
@@ -941,7 +950,7 @@ test.describe("Work Intelligence browser regression", () => {
         title: "E2E retired page",
         question: "Which retired topic did this page answer?",
       });
-      const saved = store.saveKnowledgePage({
+      const saved = saveKnowledgePageAfterReading(store, {
         projectRoot,
         slug,
         idempotencyKey: `e2e-retired-page-${process.pid}`,
@@ -1003,7 +1012,7 @@ test.describe("Work Intelligence browser regression", () => {
         title: "E2E review checkpoint",
         question: "What has changed since the answer was saved?",
       });
-      const saved = store.saveKnowledgePage({
+      const saved = saveKnowledgePageAfterReading(store, {
         projectRoot,
         slug: "c2-checkpoint",
         idempotencyKey: `e2e-c2-page-${process.pid}`,
