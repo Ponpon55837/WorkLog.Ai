@@ -2,7 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { UnreportedKnowledge } from "@work-intelligence/core";
 import { truncateText } from "@work-intelligence/shared";
 
-export interface UnreportedKnowledgeFocus {
+interface UnreportedKnowledgeFocus {
   projectId: string;
   sessionId: string;
   /** The MCP client that saved the Session; reads by any other client are never counted. */
@@ -15,7 +15,7 @@ export interface UnreportedKnowledgeFocus {
 
 type UnreportedKnowledgeRow = { id: string; title: string; total: number };
 
-export const UNREPORTED_KNOWLEDGE_ITEMS = 3;
+const UNREPORTED_KNOWLEDGE_ITEMS = 3;
 const UNREPORTED_KNOWLEDGE_TITLE_CHARS = 80;
 /**
  * Reads that hand the Agent Knowledge text to work with. Compact Knowledge search items carry no body, so the
