@@ -121,6 +121,20 @@ describe("agent review store", () => {
     ).toEqual(["failed", "pending", "processing"]);
   });
 
+  it("refreshes the pending counts after a request is created or cancelled", async () => {
+    const store = useAgentReviewStore();
+    store.setActive(true);
+    await vi.waitFor(() => expect(store.pendingLoaded).toBe(true));
+    const loads = harness.count("/api/agent-review-pending");
+
+    await store.createRequest("project-1");
+    await vi.waitFor(() => expect(harness.count("/api/agent-review-pending")).toBeGreaterThan(loads));
+    const afterCreate = harness.count("/api/agent-review-pending");
+
+    await store.cancelRequest("review-1");
+    await vi.waitFor(() => expect(harness.count("/api/agent-review-pending")).toBeGreaterThan(afterCreate));
+  });
+
   it("keeps one idempotency key per project while a create is retried", async () => {
     const store = useAgentReviewStore();
     harness.setResponder((input) => {

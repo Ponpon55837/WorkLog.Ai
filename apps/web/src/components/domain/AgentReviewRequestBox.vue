@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { RouterLink, type RouteLocationRaw } from "vue-router";
 import { storeToRefs } from "pinia";
 import { Bot } from "lucide-vue-next";
@@ -28,7 +28,10 @@ const {
   hasOpenRequest,
   openRequests,
   pendingProjects,
+  openRequestsLoaded,
+  openRequestsError,
   pendingLoaded,
+  pendingError,
   requestLoaded,
   requestError,
   skipped,
@@ -36,17 +39,21 @@ const {
 const { pages } = storeToRefs(useKnowledgePagesStore());
 const { requestReview, cancelRequest } = useAgentReviewActions();
 
+const creatingProjectId = ref("");
+
+const overviewError = computed(() => pendingError.value || openRequestsError.value);
+const overviewLoaded = computed(() => pendingLoaded.value && openRequestsLoaded.value);
 const selectedProject = computed(() => props.projects.find((project) => project.id === projectId.value));
 const openProjectIds = computed(() => new Set(openRequests.value.map((request) => request.projectId)));
 const startableProjects = computed(() =>
-  pendingProjects.value.filter((project) => !openProjectIds.value.has(project.projectId)),
+  overviewLoaded.value ? pendingProjects.value.filter((project) => !openProjectIds.value.has(project.projectId)) : [],
 );
 const onlyProject = computed(() => (startableProjects.value.length === 1 ? startableProjects.value[0] : undefined));
 const selectedPending = computed(() => pendingProjects.value.find((project) => project.projectId === projectId.value));
 const selectedCount = computed(() => (selectedPending.value ? itemTotal(selectedPending.value) : 0));
 const disabledReason = computed(() => {
   if (!selectedProject.value) return undefined;
-  if (!pendingLoaded.value || !requestLoaded.value) return t("common.loading");
+  if (!overviewLoaded.value || !requestLoaded.value) return t("common.loading");
   if (skipped.value) return t("outstanding.trackingIsNotEnabledFor");
   if (hasOpenRequest.value) return t("knowledge.agentReviewReasonOpen");
   if (selectedCount.value === 0)
@@ -75,6 +82,15 @@ const pageRows = computed(() => {
 const doneCount = computed(
   () => pageRows.value?.filter((page) => page.state === "updated" || page.state === "checked").length ?? 0,
 );
+
+async function ask(targetProjectId: string): Promise<void> {
+  creatingProjectId.value = targetProjectId;
+  try {
+    await requestReview(targetProjectId);
+  } finally {
+    creatingProjectId.value = "";
+  }
+}
 
 function itemTotal(project: AgentReviewPendingProject): number {
   return project.decisionCount + project.candidateCount + project.knowledgeCount;
@@ -112,6 +128,12 @@ function totalsText(request: AgentReviewRequest): string {
       <UiBoxTitle :icon="Bot" :title="t('knowledge.agentReviewTitle')" />
     </template>
     <UiFlash v-if="requestError" tone="danger">{{ requestError }}</UiFlash>
+    <UiFlash v-if="overviewError" tone="danger">
+      {{ overviewError }}
+      <template #actions
+        ><UiButton size="sm" @click="reviewStore.reloadOverview">{{ t("common.retry") }}</UiButton></template
+      >
+    </UiFlash>
     <p class="agent-review-request__hint">{{ t("knowledge.agentReviewIntro") }}</p>
     <div class="agent-review-request__filter">
       <ProjectFilterMenu v-model="projectId" :header="t('common.filterProject')" />
@@ -121,25 +143,36 @@ function totalsText(request: AgentReviewRequest): string {
         <UiButton
           size="sm"
           variant="primary"
+          :loading="creatingProjectId === selectedProject.id"
           :disabled="Boolean(disabledReason)"
           :disabled-reason="disabledReason"
-          @click="requestReview(selectedProject.id)"
+          @click="ask(selectedProject.id)"
           >{{ t("knowledge.agentReviewAskProject", { project: selectedProject.name, count: selectedCount }) }}</UiButton
         >
         <p v-if="selectedPending" class="agent-review-request__meta">{{ pendingCounts(selectedPending) }}</p>
         <p v-if="disabledReason" class="agent-review-request__meta">{{ disabledReason }}</p>
       </template>
-      <UiSkeleton v-else-if="!pendingLoaded" :count="1" :label="t('common.loading')" />
-      <p v-else-if="startableProjects.length === 0" class="agent-review-request__meta">
-        {{ t("knowledge.agentReviewNothingPending") }}
+      <UiSkeleton v-else-if="!overviewLoaded && !overviewError" :count="1" :label="t('common.loading')" />
+      <p v-else-if="overviewLoaded && startableProjects.length === 0" class="agent-review-request__meta">
+        {{ openRequests.length > 0 ? t("knowledge.agentReviewNothingElse") : t("knowledge.agentReviewNothingPending") }}
       </p>
       <template v-else-if="onlyProject">
-        <UiButton size="sm" variant="primary" @click="requestReview(onlyProject.projectId)">{{
-          t("knowledge.agentReviewAskProject", { project: onlyProject.projectName, count: itemTotal(onlyProject) })
-        }}</UiButton>
+        <UiButton
+          size="sm"
+          variant="primary"
+          :loading="creatingProjectId === onlyProject.projectId"
+          @click="ask(onlyProject.projectId)"
+          >{{
+            t("knowledge.agentReviewAskProject", { project: onlyProject.projectName, count: itemTotal(onlyProject) })
+          }}</UiButton
+        >
         <p class="agent-review-request__meta">{{ pendingCounts(onlyProject) }}</p>
       </template>
-      <ul v-else class="agent-review-request__projects" :aria-label="t('knowledge.agentReviewPendingTitle')">
+      <ul
+        v-else-if="startableProjects.length > 1"
+        class="agent-review-request__projects"
+        :aria-label="t('knowledge.agentReviewPendingTitle')"
+      >
         <li
           v-for="project in startableProjects"
           :key="project.projectId"
@@ -151,8 +184,9 @@ function totalsText(request: AgentReviewRequest): string {
           <UiButton
             size="sm"
             variant="primary"
+            :loading="creatingProjectId === project.projectId"
             :aria-label="t('knowledge.agentReviewAskProjectLabel', { project: project.projectName })"
-            @click="requestReview(project.projectId)"
+            @click="ask(project.projectId)"
             >{{ t("knowledge.askAgentToReview") }}</UiButton
           >
         </li>

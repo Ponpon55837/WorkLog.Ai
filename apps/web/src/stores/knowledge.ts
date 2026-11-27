@@ -130,6 +130,7 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
       // A read refresh must not turn a committed write into an editor failure.
       await Promise.allSettled([
         queryCache.invalidateQueries({ key: queryKeys.attention.list }),
+        queryCache.invalidateQueries({ key: queryKeys.agentReview.root }),
         queryCache.invalidateQueries({ key: queryKeys.knowledge.list }),
         queryCache.invalidateQueries({ key: queryKeys.knowledge.conventions }),
         queryCache.invalidateQueries({ key: [...queryKeys.knowledge.history, input.knowledgeId] }),
@@ -180,7 +181,10 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     mutation: ({ input }: KnowledgeCandidateDecision) => useApi().client.decideKnowledgeCandidate(input),
     onSuccess: async (result, variables) => {
       if (result.outcome !== "knowledge_candidate_decided" && result.outcome !== "already_decided") return;
-      const invalidations = [queryCache.invalidateQueries({ key: queryKeys.knowledge.candidates })];
+      const invalidations = [
+        queryCache.invalidateQueries({ key: queryKeys.knowledge.candidates }),
+        queryCache.invalidateQueries({ key: queryKeys.agentReview.root }),
+      ];
       if (variables.input.decision === "accept") {
         invalidations.push(queryCache.invalidateQueries({ key: queryKeys.knowledge.list }));
       }

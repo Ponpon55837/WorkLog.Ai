@@ -113,7 +113,6 @@
     "yesterday": "昨天",
     "searchSkippedRecords": "有 {count} 筆記錄超過單筆搜尋上限而未搜尋，結果可能不完整；請縮小搜尋範圍。",
     "filteredCount": "{shown} / {total}",
-    "handoffTitle": "Agent 交接",
     "handoffSayToAgent": "在 Claude Code 或 Codex 對你的 Agent 說"
   },
   "dashboard": {
@@ -691,6 +690,7 @@
     "agentReviewAskProject": "請 Agent 處理「{project}」（{count} 項）",
     "agentReviewAskProjectLabel": "請 Agent 處理「{project}」",
     "agentReviewNothingPending": "目前沒有專案有等待 Agent 處理的項目。",
+    "agentReviewNothingElse": "其他專案沒有需要再交給 Agent 的項目。",
     "agentReviewNothingInProject": "「{project}」沒有等待 Agent 處理的項目。",
     "agentReviewReasonOpen": "這個專案已有進行中的請求，請先完成或取消。",
     "pagesCommand": "用 Work Intelligence 更新知識頁",

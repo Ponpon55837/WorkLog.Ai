@@ -37,6 +37,7 @@ export const useSessionDecisionsStore = defineStore("session-decisions", () => {
       if (result.outcome !== "session_decision_reviewed") return;
       const invalidations = [
         queryCache.invalidateQueries({ key: queryKeys.attention.list }),
+        queryCache.invalidateQueries({ key: queryKeys.agentReview.root }),
         queryCache.invalidateQueries({ key: queryKeys.sessionDecisions.list }),
         queryCache.invalidateQueries({ key: queryKeys.sessions.detail }),
         queryCache.invalidateQueries({ key: queryKeys.reports.report }),

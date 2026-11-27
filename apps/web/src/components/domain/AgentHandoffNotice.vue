@@ -21,7 +21,7 @@ const emit = defineEmits<{ cancel: [] }>();
 </script>
 
 <template>
-  <section class="agent-handoff" :aria-label="title ?? t('common.handoffTitle')">
+  <section class="agent-handoff" :aria-label="title ?? message">
     <header v-if="title || status" class="agent-handoff__head">
       <strong v-if="title">{{ title }}</strong>
       <StatusLabel v-if="status" :status="status" />

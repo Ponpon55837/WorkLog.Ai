@@ -38,6 +38,7 @@ export const queryKeys = {
     list: ["session-decisions", "list"] as const,
   },
   agentReview: {
+    root: ["agent-review"] as const,
     requests: ["agent-review", "requests"] as const,
     pending: ["agent-review", "pending"] as const,
     candidates: ["knowledge", "candidates", "agent-reviewed"] as const,

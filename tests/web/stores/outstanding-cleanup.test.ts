@@ -56,7 +56,7 @@ describe("outstanding cleanup store", () => {
     await vi.waitFor(() => expect(store.requestsLoaded).toBe(true));
     let releaseRead: (value: unknown) => void = () => undefined;
     harness.setResponder((input) =>
-      input.url.pathname === "/api/outstanding-cleanup/requests"
+      input.url.pathname === "/api/outstanding-cleanup/requests" && !input.url.searchParams.has("status")
         ? new Promise((resolve) => {
             releaseRead = resolve;
           })
@@ -92,6 +92,7 @@ describe("outstanding cleanup store", () => {
     const store = useOutstandingCleanupStore();
     store.setActive(true);
     await vi.waitFor(() => expect(store.activeRequest?.id).toBe("cleanup-2"));
+    expect(harness.calls.some((call) => call.url.searchParams.get("status") === "pending")).toBe(true);
 
     await store.cancelRequest("cleanup-2");
 

@@ -1188,6 +1188,30 @@ try {
          FROM n`,
       )
       .run(reviewSession.session.id, reviewProject.id);
+    for (let index = 0; index < 9; index += 1) {
+      const extraRoot = join(root, `review-extra-${index}`);
+      mkdirSync(extraRoot, { recursive: true });
+      const extraProject = reviewStore.addProject(`review-extra-${index}`, extraRoot);
+      reviewStore.updateProject(extraProject.id, { status: "tracked" });
+      const extraSession = reviewStore.finalizeSession({
+        projectRoot: extraRoot,
+        idempotencyKey: `bench-review-extra-session-${index}`,
+        title: "Synthetic review session",
+        summary: "Synthetic summary.",
+        workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+        changedFiles: [],
+        verification: { status: "passed" },
+      });
+      reviewSeed
+        .prepare(
+          `WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < 99)
+           INSERT INTO session_decisions (id, session_id, project_id, position, text, origin, review_status)
+           SELECT 'bench-review-extra-' || ? || '-' || i, ?, ?, i, 'Synthetic decision ' || i,
+                  'agent_autonomous', 'pending'
+           FROM n`,
+        )
+        .run(index, extraSession.session.id, extraProject.id);
+    }
   } finally {
     reviewSeed.close();
   }
@@ -1684,10 +1708,16 @@ try {
       knowledgeReviewStore.cancelAgentReviewRequest(created.request.id);
       return context;
     },
-    "listAgentReviewPending (500 pending decisions: one snapshot count)": () => {
+    "listAgentReviewPending (10 projects, 1,400 pending decisions: counts only)": () => {
       const result = reviewStore.listAgentReviewPending();
-      if (result.outcome !== "agent_review_pending" || result.projects.length === 0)
-        throw new Error("The pending review list must count the synthetic project's items.");
+      if (result.outcome !== "agent_review_pending" || result.projects.length !== 10)
+        throw new Error("The pending review list must count every synthetic project's items.");
+      return result;
+    },
+    "listAgentReviewPending (200 possibly stale Knowledge: one trust batch)": () => {
+      const result = knowledgeReviewStore.listAgentReviewPending();
+      if (result.outcome !== "agent_review_pending" || result.projects[0]?.knowledgeCount !== 200)
+        throw new Error("The pending review list must count the possibly stale Knowledge.");
       return result;
     },
     "listAgentReviewedKnowledge (200 standing verdicts)": () => {
@@ -1995,7 +2025,8 @@ try {
     "knowledgeCandidateOverlaps (30 candidates, 500 Knowledge)": 150,
     "agentReview (500 pending decisions: snapshot, first context page)": 250,
     "agentReview (200 possibly stale Knowledge: snapshot, first context page)": 250,
-    "listAgentReviewPending (500 pending decisions: one snapshot count)": 100,
+    "listAgentReviewPending (10 projects, 1,400 pending decisions: counts only)": 100,
+    "listAgentReviewPending (200 possibly stale Knowledge: one trust batch)": 250,
     "listAgentReviewedKnowledge (200 standing verdicts)": 100,
     "summarizeAgentReads (5,000 rows)": 100,
     "searchKnowledge (staleness)": 500,

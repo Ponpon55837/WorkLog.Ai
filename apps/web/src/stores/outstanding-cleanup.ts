@@ -55,6 +55,15 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
         signal,
       ),
   });
+  const activeRequestQuery = useQuery<OutstandingCleanupRequestListResult>({
+    key: () => [...queryKeys.outstandingCleanup.requests, "active", { projectId: projectId.value }],
+    enabled: () => active.value && Boolean(projectId.value),
+    query: ({ signal }) =>
+      useApi().client.listOutstandingCleanupRequests(
+        { projectId: projectId.value, status: "pending", page: 1, pageSize: 1 },
+        signal,
+      ),
+  });
   const proposalsQuery = useQuery<OutstandingCleanupProposalListResult>({
     key: () => [
       ...queryKeys.outstandingCleanup.proposals,
@@ -108,7 +117,13 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
   const selectedRequest = computed(
     () => proposalResult.value?.request ?? requests.value.find((request) => request.id === requestId.value),
   );
-  const activeRequest = computed(() => requests.value.find((request) => request.status === "pending"));
+  const activeRequest = computed(() =>
+    activeRequestQuery.data.value?.outcome === "outstanding_cleanup_requests"
+      ? activeRequestQuery.data.value.requests.find(
+          (request) => request.projectId === projectId.value && request.status === "pending",
+        )
+      : undefined,
+  );
   const loading = computed(() => requestsQuery.isLoading.value);
   const proposalsLoading = computed(() => proposalsQuery.isLoading.value);
   const skipped = computed(

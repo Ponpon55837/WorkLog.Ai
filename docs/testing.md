@@ -195,7 +195,8 @@ Storage 的匯入效能測試以虛構資料組成 5,000 個 Session 與 50,000 
 | Knowledge 候選重疊檢查（30 筆候選對同專案 500 筆 Knowledge，每筆既有記錄只斷詞一次；本機 p90 32.9 ms） | 150 ms |
 | Agent 審查請求（單一 Session 的 500 筆待審 Agent 決策：一次批次建立快照、讀取第一頁 10 筆 context 並取消請求，讓下一輪重新建立快照；本機 p90 32.6 ms） | 250 ms |
 | Agent 審查請求（200 筆過時的 Knowledge，各被之後一個聚焦的 Session 碰到：一次查詢讀取帶 `appliesTo` 的 active Knowledge 並批次檢查信任狀態、讀取第一頁 10 筆 context 與其之後的 Session 並取消請求；本機 p90 21.2 ms） | 250 ms |
-| `listAgentReviewPending`（待處理審查項目的專案計數：每個 tracked 專案各做一次快照；500 筆待確認決策的專案，本機 p90 7.4 ms） | 100 ms |
+| `listAgentReviewPending`（待處理審查項目的專案計數：決策與候選以一次 SQL 計數，Knowledge 以一批信任計算；10 個專案共 1,400 筆待確認決策，本機 p90 24 ms） | 100 ms |
+| `listAgentReviewPending`（200 筆可能過時的 Knowledge，一批信任計算；本機 p90 3.2 ms） | 250 ms |
 | `listAgentReviewedKnowledge`（200 筆仍有效的 Agent 審查結果：每筆 Knowledge 的最新結論、記錄與取代者各一次查詢，加一次信任批次；本機 p90 5.4 ms） | 100 ms |
 | Session 列表依 commit 前綴（`work_list_sessions` 的 `commitSha`：歧義檢查、計數與一頁；合成 Session 沒有 commit，量的是索引 seek，本機 p90 0.2 ms） | 50 ms |
 | 未結項清單（5,000 個 Session 中的 1,000 筆合成項目） | 250 ms |

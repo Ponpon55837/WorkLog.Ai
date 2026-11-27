@@ -113,7 +113,6 @@
     "yesterday": "Yesterday",
     "searchSkippedRecords": "{count} record is too large to search and was skipped, so results may be incomplete; narrow the search.|{count} records are too large to search and were skipped, so results may be incomplete; narrow the search.",
     "filteredCount": "{shown} / {total}",
-    "handoffTitle": "Agent handoff",
     "handoffSayToAgent": "Say this to your Agent in Claude Code or Codex"
   },
   "dashboard": {
@@ -691,6 +690,7 @@
     "agentReviewAskProject": "Ask an Agent to review {project} ({count})",
     "agentReviewAskProjectLabel": "Ask an Agent to review {project}",
     "agentReviewNothingPending": "No project has items waiting for an Agent review.",
+    "agentReviewNothingElse": "No other project has items left to hand to the Agent.",
     "agentReviewNothingInProject": "{project} has nothing waiting for an Agent review.",
     "agentReviewReasonOpen": "This project already has an open request. Finish or cancel it first.",
     "pagesCommand": "Use Work Intelligence to update the Knowledge pages",

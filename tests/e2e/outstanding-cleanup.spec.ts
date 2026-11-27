@@ -224,7 +224,7 @@ test("shows the Agent command while a request waits and cancels it from the hand
   const fixture = await seed(request, 1);
   await createViaWeb(page, fixture.projectId);
   const panel = page.getByRole("dialog", { name: tt("outstanding.tidyOpenItems"), exact: true });
-  const handoff = panel.getByRole("region", { name: tt("common.handoffTitle") });
+  const handoff = panel.getByRole("region", { name: tt("outstanding.cleanupHandoffMessage") });
   const createButton = panel.getByRole("button", { name: tt("outstanding.createRequest"), exact: true });
 
   await expect(handoff).toContainText(tt("outstanding.cleanupCommand"));

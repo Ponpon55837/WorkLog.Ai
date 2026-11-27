@@ -42,10 +42,12 @@ function page(slug: string, updateRequestedAt?: string): KnowledgePageRecord {
   } as KnowledgePageRecord;
 }
 
-function render(): Promise<string> {
-  return renderToString(
-    createSSRApp({ render: () => h(KnowledgePagesBox, { projects: [project], projectId: "project-1" }) }),
-  );
+function render(projects = [project], projectId = "project-1"): Promise<string> {
+  return renderToString(createSSRApp({ render: () => h(KnowledgePagesBox, { projects, projectId }) }));
+}
+
+function customButton(html: string): string {
+  return html.match(new RegExp(`<button[^>]*>(?:(?!</button>).)*${t("knowledge.customKnowledgePage")}`))?.[0] ?? "";
 }
 
 beforeAll(async () => {
@@ -84,5 +86,23 @@ describe("KnowledgePagesBox handoff", () => {
 
     expect(requested?.[0]).toContain(`title="${t("knowledge.pageRequestedReason")}"`);
     expect(html.match(new RegExp(`>${t("knowledge.requestUpdate")}<`, "g"))).toHaveLength(1);
+  });
+
+  it("shows the requested reason as text beside the disabled button", async () => {
+    pages.value = [page("architecture", "2030-01-01T00:00:00.000Z")];
+
+    expect(await render()).toContain(`>${t("knowledge.pageRequestedReason")}</span>`);
+  });
+
+  it("uses the only tracked project for a custom page without a filter", async () => {
+    expect(customButton(await render([project], ""))).not.toContain("disabled");
+  });
+
+  it("explains why a custom page needs a project when several are tracked", async () => {
+    const other = { ...project, id: "project-2", name: "Harbor" } as ProjectRecord;
+    const button = customButton(await render([project, other], ""));
+
+    expect(button).toContain("disabled");
+    expect(button).toContain(`title="${t("outstanding.chooseAProjectFirst")}"`);
   });
 });

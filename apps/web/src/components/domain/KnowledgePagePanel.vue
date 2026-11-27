@@ -129,6 +129,7 @@ watch([() => openPage.value?.id, shownVersion], () => {
           }}</UiLabel>
           <UiLabel v-if="openPage.updateRequestedAt" tone="accent">{{ t("knowledge.updateRequested") }}</UiLabel>
         </div>
+        <p v-if="openPage?.updateRequestedAt" class="page-panel__question">{{ t("knowledge.pageRequestedReason") }}</p>
         <div class="page-panel__actions">
           <UiButton
             size="sm"

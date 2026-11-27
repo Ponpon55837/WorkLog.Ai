@@ -38,7 +38,7 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
       useApi().client.listAgentReviewRequests({ projectId: projectId.value, page: 1, pageSize: 1 }, signal),
   });
   const openRequestsQuery = useQuery<AgentReviewRequest[]>({
-    key: () => [...queryKeys.agentReview.requests, "open"],
+    key: () => [...queryKeys.agentReview.requests, "open", "with-failed"],
     enabled: active,
     query: async ({ signal }) => {
       const { client } = useApi();
@@ -80,7 +80,7 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
     onSuccess: () =>
       Promise.allSettled([
         queryCache.invalidateQueries({ key: queryKeys.attention.list }),
-        queryCache.invalidateQueries({ key: queryKeys.agentReview.requests }),
+        queryCache.invalidateQueries({ key: queryKeys.agentReview.root }),
       ]),
   });
   const cancelMutation = useMutation({
@@ -88,7 +88,7 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
     onSuccess: () =>
       Promise.allSettled([
         queryCache.invalidateQueries({ key: queryKeys.attention.list }),
-        queryCache.invalidateQueries({ key: queryKeys.agentReview.requests }),
+        queryCache.invalidateQueries({ key: queryKeys.agentReview.root }),
       ]),
   });
   const overturnMutation = useMutation({
@@ -98,7 +98,7 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
       // Refreshes can be superseded by SSE; their errors do not undo the committed overturn.
       await Promise.allSettled([
         queryCache.invalidateQueries({ key: queryKeys.attention.list }),
-        queryCache.invalidateQueries({ key: queryKeys.agentReview.requests }),
+        queryCache.invalidateQueries({ key: queryKeys.agentReview.root }),
         queryCache.invalidateQueries({ key: queryKeys.sessionDecisions.list }),
         queryCache.invalidateQueries({ key: queryKeys.knowledge.candidates }),
         queryCache.invalidateQueries({ key: queryKeys.knowledge.list }),
@@ -128,6 +128,14 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
   const openRequestsLoaded = computed(() => openRequestsQuery.data.value !== undefined);
   const pendingProjects = computed<AgentReviewPendingProject[]>(() => pendingQuery.data.value?.projects ?? []);
   const pendingLoaded = computed(() => pendingQuery.data.value !== undefined);
+  const openRequestsError = computed(() =>
+    openRequestsQuery.error.value
+      ? errorMessage(openRequestsQuery.error.value, t("knowledge.couldNotLoadAgentReview"))
+      : "",
+  );
+  const pendingError = computed(() =>
+    pendingQuery.error.value ? errorMessage(pendingQuery.error.value, t("knowledge.couldNotLoadAgentReview")) : "",
+  );
   const requestLoaded = computed(() => requestsQuery.data.value !== undefined);
   const requestError = computed(() =>
     requestsQuery.error.value ? errorMessage(requestsQuery.error.value, t("knowledge.couldNotLoadAgentReview")) : "",
@@ -156,6 +164,10 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
       ? errorMessage(reviewedKnowledgeQuery.error.value, t("knowledge.couldNotLoadAgentReviewedKnowledge"))
       : "",
   );
+
+  async function reloadOverview(): Promise<void> {
+    await Promise.allSettled([openRequestsQuery.refetch(true), pendingQuery.refetch(true)]);
+  }
 
   function setScope(nextProjectId: string, nextProjectRoot: string | undefined): void {
     projectId.value = nextProjectId;
@@ -199,6 +211,9 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
     openRequestsLoaded,
     pendingProjects,
     pendingLoaded,
+    openRequestsError,
+    pendingError,
+    reloadOverview,
     requestLoaded,
     requestError,
     skipped,

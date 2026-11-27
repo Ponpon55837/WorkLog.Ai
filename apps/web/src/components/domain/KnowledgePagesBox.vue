@@ -51,6 +51,9 @@ const statusFilter = ref("all");
 
 const projectsById = computed(() => new Map(props.projects.map((project) => [project.id, project])));
 const selectedProject = computed(() => projectsById.value.get(projectId.value));
+const customPageProject = computed(
+  () => selectedProject.value ?? (props.projects.length === 1 ? props.projects[0] : undefined),
+);
 const statusItems = [
   { value: "all", label: t("knowledge.allStatuses") },
   { value: "has_new_data", label: t("common.newDataAvailable") },
@@ -149,9 +152,14 @@ async function requestUpdate(row: PageRow): Promise<void> {
           align="end"
           :items="statusItems"
         />
-        <UiButton size="sm" :icon="FilePlus2" :disabled="!selectedProject" @click="requestDialogOpen = true">{{
-          t("knowledge.customKnowledgePage")
-        }}</UiButton>
+        <UiButton
+          size="sm"
+          :icon="FilePlus2"
+          :disabled="!customPageProject"
+          :disabled-reason="t('outstanding.chooseAProjectFirst')"
+          @click="requestDialogOpen = true"
+          >{{ t("knowledge.customKnowledgePage") }}</UiButton
+        >
       </div>
     </template>
 
@@ -227,6 +235,7 @@ async function requestUpdate(row: PageRow): Promise<void> {
             <span v-if="row.page && row.page.newSessionCount > 0">
               {{ t("knowledge.newSessionsToAssess", { newSessionCount: row.page.newSessionCount }) }}</span
             >
+            <span v-if="row.page?.updateRequestedAt">{{ t("knowledge.pageRequestedReason") }}</span>
             <span v-if="row.page?.needsReview">
               {{
                 t("knowledge.sectionsToCheck", {
@@ -262,7 +271,7 @@ async function requestUpdate(row: PageRow): Promise<void> {
 
     <KnowledgePageRequestDialog
       :open="requestDialogOpen"
-      :project="selectedProject"
+      :project="customPageProject"
       @close="requestDialogOpen = false"
     />
   </UiBox>

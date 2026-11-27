@@ -45,7 +45,7 @@ describe("AgentHandoffNotice", () => {
     expect(html).not.toContain(t("common.handoffSayToAgent"));
     expect(html).not.toContain(t("common.copyAgentInstruction"));
     expect(html).not.toContain("<button");
-    expect(html).toContain(`aria-label="${t("common.handoffTitle")}"`);
+    expect(html).toContain('aria-label="One sentence of explanation."');
   });
 
   it("renders extra content and actions from its slots", async () => {

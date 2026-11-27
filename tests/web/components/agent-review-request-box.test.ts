@@ -18,6 +18,9 @@ const pages = ref<Array<{ id: string; projectId: string; slug: string }>>([]);
 const openRequests = ref<AgentReviewRequest[]>([]);
 const pendingProjects = ref<AgentReviewPendingProject[]>([]);
 const pendingLoaded = ref(true);
+const openRequestsLoaded = ref(true);
+const openRequestsError = ref("");
+const pendingError = ref("");
 const requestLoaded = ref(true);
 const skipped = ref(false);
 const requestReview = vi.fn();
@@ -32,6 +35,10 @@ vi.mock("../../../apps/web/src/stores/agent-review", () => ({
       openRequests,
       pendingProjects,
       pendingLoaded,
+      openRequestsLoaded,
+      openRequestsError,
+      pendingError,
+      reloadOverview: vi.fn(),
       requestLoaded,
       requestError: ref(""),
       skipped,
@@ -101,6 +108,9 @@ beforeEach(() => {
   openRequests.value = [];
   pendingProjects.value = [];
   pendingLoaded.value = true;
+  openRequestsLoaded.value = true;
+  openRequestsError.value = "";
+  pendingError.value = "";
   requestLoaded.value = true;
   skipped.value = false;
 });
@@ -192,6 +202,37 @@ describe("AgentReviewRequestBox handoff", () => {
 
     skipped.value = true;
     expect(await render("project-1")).toContain(t("outstanding.trackingIsNotEnabledFor"));
+  });
+
+  it("lists no project before the open requests are known, so none flashes that already has one", async () => {
+    pendingProjects.value = [pending("project-1", "Orchard", 3), pending("project-2", "Harbor", 1)];
+    openRequestsLoaded.value = false;
+
+    const html = await render("");
+
+    expect(html).not.toContain("agent-review-project");
+    expect(html).not.toContain(t("knowledge.agentReviewAskProjectLabel", { project: "Orchard" }));
+  });
+
+  it("shows the failure with a retry instead of loading forever", async () => {
+    pendingLoaded.value = false;
+    pendingError.value = "The list is unavailable.";
+
+    const html = await render("");
+
+    expect(html).toContain("The list is unavailable.");
+    expect(html).toContain(t("common.retry"));
+    expect(html).not.toContain('aria-label="Loading"');
+  });
+
+  it("says no other project needs the Agent while a request is open, not that nothing is pending", async () => {
+    openRequests.value = [{ ...completed(), id: "request-a", status: "pending", projectName: "Orchard" }];
+    pendingProjects.value = [pending("project-1", "Orchard", 3)];
+
+    const html = await render("");
+
+    expect(html).toContain(t("knowledge.agentReviewNothingElse"));
+    expect(html).not.toContain(t("knowledge.agentReviewNothingPending"));
   });
 
   it("lists every open request with the command and a cancel button while no project is chosen", async () => {
