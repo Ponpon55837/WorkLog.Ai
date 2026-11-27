@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { nextTick, ref } from "vue";
 import { X } from "lucide-vue-next";
 import type { FilterChip } from "./types";
 import UiButton from "./UiButton.vue";
@@ -8,17 +9,29 @@ import { t } from "../../i18n";
 defineProps<{ chips: readonly FilterChip[]; clearable?: boolean }>();
 
 const emit = defineEmits<{ remove: [key: string]; clear: [] }>();
+
+const root = ref<HTMLElement | null>(null);
+
+// Removing a chip must not drop focus: it moves to the next chip, the clear link, or the list header's filter.
+async function remove(key: string, index: number): Promise<void> {
+  const box = root.value?.closest<HTMLElement>(".ui-box");
+  emit("remove", key);
+  await nextTick();
+  const buttons = root.value?.querySelectorAll<HTMLElement>(".ui-filter-chips__remove, .ui-button") ?? [];
+  const target = buttons[Math.min(index, buttons.length - 1)];
+  (target ?? box?.querySelector<HTMLElement>(".ui-action-menu__trigger, button"))?.focus();
+}
 </script>
 
 <template>
-  <div v-if="chips.length" class="ui-filter-chips" role="group" :aria-label="t('ui.appliedFilters')">
-    <span v-for="chip in chips" :key="chip.key" class="ui-filter-chips__chip">
+  <div v-if="chips.length" ref="root" class="ui-filter-chips" role="group" :aria-label="t('ui.appliedFilters')">
+    <span v-for="(chip, index) in chips" :key="chip.key" class="ui-filter-chips__chip">
       <span class="ui-filter-chips__text" :title="chip.label">{{ chip.label }}</span>
       <button
         type="button"
         class="ui-filter-chips__remove"
         :aria-label="t('ui.removeFilter', { filter: chip.label })"
-        @click="emit('remove', chip.key)"
+        @click="remove(chip.key, index)"
       >
         <X :size="12" :stroke-width="2" aria-hidden="true" />
       </button>

@@ -59,6 +59,10 @@ const { systemStatus, systemStatusLoading, systemStatusError } = storeToRefs(sys
 const attentionBox = ref<InstanceType<typeof AttentionBox> | null>(null);
 
 const today = new Intl.DateTimeFormat(intlLocale(), { dateStyle: "full" }).format(new Date());
+// Where the box sits is decided once, when the first count arrives, so it is never remounted afterwards.
+const attentionPlaced = ref(false);
+const attentionFirst = ref(false);
+
 const pausedCount = computed(() => projects.value.filter((project) => project.status === "paused").length);
 const visibleProjects = computed(() =>
   [...projects.value].sort((a, b) => Number(b.status === "tracked") - Number(a.status === "tracked")).slice(0, 6),
@@ -79,7 +83,7 @@ const weekDelta = computed(() => {
       : t("dashboard.vsLastWeek", { value: Math.abs(comparison.delta) });
   return { direction: comparison.direction, text };
 });
-const attentionFirst = computed(() => attentionLoaded.value && (attentionCount.value ?? 0) > 0);
+
 const attentionFoot = computed(() =>
   attentionComplete.value
     ? t("attention.waitingForYou", { count: attentionCount.value ?? 0 })
@@ -97,6 +101,15 @@ async function openDayReport(date: string): Promise<void> {
   await router.push({ name: "reports", query: { period: "day", date } });
 }
 
+watch(
+  [attentionLoaded, attentionFailed],
+  ([loaded, failed]) => {
+    if (attentionPlaced.value || !(loaded || failed)) return;
+    attentionPlaced.value = true;
+    attentionFirst.value = (attentionCount.value ?? 0) > 0;
+  },
+  { immediate: true },
+);
 watch(recentSessions, (items) => setSessionSequence(items.map((item) => item.id)), { immediate: true });
 watch(showFirstRunChecklist, (visible) => systemStatusStore.setSystemStatusActive(visible), { immediate: true });
 
@@ -141,7 +154,7 @@ onBeforeUnmount(() => {
     <ActivityHeatmap v-else :days="activityDays" @select="openDayReport" />
   </UiBox>
 
-  <AttentionBox v-if="attentionFirst" ref="attentionBox" class="dashboard__attention" />
+  <AttentionBox v-if="attentionPlaced && attentionFirst" ref="attentionBox" class="dashboard__attention" />
 
   <DashboardCycle class="dashboard__cycle" />
 
@@ -203,7 +216,7 @@ onBeforeUnmount(() => {
 
   <UiSplitLayout>
     <template #main>
-      <AttentionBox v-if="!attentionFirst" ref="attentionBox" />
+      <AttentionBox v-if="attentionPlaced && !attentionFirst" ref="attentionBox" />
 
       <UiBox>
         <template #header>

@@ -25,11 +25,13 @@ import { useAttentionStore } from "../../stores/attention";
 import { useProjectsStore } from "../../stores/projects";
 import {
   ATTENTION_GROUP_PREVIEW,
-  ATTENTION_INITIAL_ROWS,
   attentionGroupRoute,
+  attentionReasonKeys,
+  attentionSourceRoute,
   attentionKindKeys,
   groupAttentionItems,
   isWaitingForAgent,
+  sharedAttentionReason,
   type AttentionGroup,
   type GroupedAttentionKind,
 } from "../../utils/attention";
@@ -37,6 +39,11 @@ import type { ListPageSize } from "../../utils/labels";
 import { errorMessage, formatRelative } from "../../utils/format";
 import { t, type MessageKey } from "../../i18n";
 
+const groupTitlePartialKeys: Record<GroupedAttentionKind, MessageKey> = {
+  decision: "attention.groupTitlesPartial.decision",
+  knowledge: "attention.groupTitlesPartial.knowledge",
+  knowledge_page: "attention.groupTitlesPartial.knowledgePage",
+};
 const groupTitleKeys: Record<GroupedAttentionKind, MessageKey> = {
   decision: "attention.groupTitles.decision",
   knowledge: "attention.groupTitles.knowledge",
@@ -64,17 +71,16 @@ const {
 } = storeToRefs(store);
 const { projects } = storeToRefs(useProjectsStore());
 const { showToast } = useToast();
-const { reviewingId, review } = useDecisionReview();
+const { isReviewing, review } = useDecisionReview();
 const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
 useRouteQuery("attentionView", view, enumQuery(["visible", "suppressed"], "visible"));
 useRouteQuery("attentionProject", projectId, stringQuery());
 useRouteQuery("attentionKind", kind, enumQuery(["", ...ATTENTION_KINDS], ""));
 useRouteQuery("attentionPage", page, pageQuery());
-useRouteQuery("attentionSize", pageSize, enumQuery<ListPageSize>([10, 20, 50], 20));
+useRouteQuery("attentionSize", pageSize, enumQuery<ListPageSize>([10, 20, 50], 10));
 
 const box = ref<InstanceType<typeof UiBox> | null>(null);
 const actionError = ref("");
-const showAll = ref(false);
 const openGroupIds = ref<string[]>([]);
 
 const kindItems = computed(() => [
@@ -98,15 +104,24 @@ const failedSources = computed(() =>
 );
 const partialCoverage = computed(() => {
   const partial = groups.value.filter((group) => group.state === "partial");
-  return partial.length
-    ? {
-        examined: partial.reduce((sum, group) => sum + group.examined, 0),
-        available: partial.reduce((sum, group) => sum + group.available, 0),
-      }
-    : undefined;
+  if (!partial.length) return undefined;
+  const kinds = [...new Set(partial.map((group) => group.kind))];
+  const source = kinds.length === 1 ? kinds[0] : undefined;
+  return {
+    examined: partial.reduce((sum, group) => sum + group.examined, 0),
+    available: partial.reduce((sum, group) => sum + group.available, 0),
+    source,
+    inKnowledge: source === "decision" || source === "knowledge" || source === "knowledge_page",
+  };
 });
-const entries = computed(() => groupAttentionItems(items.value));
-const visibleEntries = computed(() => (showAll.value ? entries.value : entries.value.slice(0, ATTENTION_INITIAL_ROWS)));
+// An exact project and kind filter asks for that list as it is, so it is never folded.
+const folded = computed(() => !(projectId.value && kind.value));
+const entries = computed(() =>
+  folded.value ? groupAttentionItems(items.value) : items.value.map((item) => ({ type: "item" as const, item })),
+);
+// A count only reads true when the whole filtered result sits on this page.
+const groupsComplete = computed(() => result.value?.total != null && (result.value.pageInfo.totalPages ?? 1) <= 1);
+const mergedRows = computed(() => (entries.value.length < items.value.length ? entries.value.length : 0));
 const sizeOptions: readonly { value: ListPageSize; label: string }[] = [
   { value: 10, label: "10" },
   { value: 20, label: "20" },
@@ -122,19 +137,27 @@ function groupTitle(group: AttentionGroup): string {
     group.items[0]?.projectName ||
     projects.value.find((entry) => entry.id === group.projectId)?.name ||
     group.projectId;
-  return t(groupTitleKeys[group.kind], { project, count: group.items.length });
+  return groupsComplete.value
+    ? t(groupTitleKeys[group.kind], { project, count: group.items.length })
+    : t(groupTitlePartialKeys[group.kind], { project });
 }
 
 function groupMeta(group: AttentionGroup): string {
   const waiting = group.items.filter(isWaiting).length;
   const updated = formatRelative(group.items[0]?.updatedAt ?? "");
-  return waiting > 0 && waiting < group.items.length
+  return groupsComplete.value && waiting > 0 && waiting < group.items.length
     ? t("attention.groupMetaWaiting", { updated, waiting })
     : t("attention.groupMeta", { source: t(attentionKindKeys[group.kind]), updated });
 }
 
 function groupWaiting(group: AttentionGroup): boolean {
   return group.items.every(isWaiting);
+}
+
+function groupLabel(group: AttentionGroup): string {
+  if (groupWaiting(group)) return t("attention.waitingForAgent");
+  const reason = sharedAttentionReason(group);
+  return reason ? t(attentionReasonKeys[reason], { count: group.items.length }) : t("attention.groupMixed");
 }
 
 function groupPreview(group: AttentionGroup): AttentionItem[] {
@@ -181,12 +204,11 @@ watch([projectId, kind, view, pageSize], () => {
     (route.query.attentionProject ?? "") !== projectId.value ||
     (route.query.attentionKind ?? "") !== kind.value ||
     (route.query.attentionView ?? "visible") !== view.value ||
-    Number(route.query.attentionSize ?? 20) !== Number(pageSize.value)
+    Number(route.query.attentionSize ?? 10) !== Number(pageSize.value)
   )
     page.value = 1;
 });
 watch([projectId, kind, view, page, pageSize], () => {
-  showAll.value = false;
   openGroupIds.value = [];
 });
 
@@ -250,11 +272,19 @@ defineExpose({ reveal });
       ></UiFlash
     >
     <UiFlash v-if="partialCoverage" tone="attention" data-testid="attention-partial"
-      >{{ t("attention.partialNotice", partialCoverage)
+      >{{ t("attention.partialNotice", { examined: partialCoverage.examined, available: partialCoverage.available })
       }}<template #actions
-        ><UiButton size="sm" :to="{ name: 'knowledge' }" :trailing-icon="ArrowRight">{{
-          t("attention.viewAllInKnowledge")
-        }}</UiButton></template
+        ><UiButton
+          v-if="partialCoverage.source"
+          size="sm"
+          :to="attentionSourceRoute(partialCoverage.source, projectId || undefined)"
+          :trailing-icon="ArrowRight"
+          >{{
+            partialCoverage.inKnowledge
+              ? t("attention.viewAllInKnowledge")
+              : t("attention.viewAllOf", { source: t(attentionKindKeys[partialCoverage.source]) })
+          }}</UiButton
+        ></template
       ></UiFlash
     >
     <UiSkeleton v-if="!loaded && !error" variant="text" :count="3" :label="t('attention.loading')" />
@@ -280,14 +310,14 @@ defineExpose({ reveal });
       :description="suppressedCount ? t('attention.suppressedDescription') : t('attention.emptyDescription')"
     />
     <ul v-else-if="entries.length" class="attention__list" :aria-label="t('attention.list')">
-      <template v-for="entry in visibleEntries" :key="entry.type === 'item' ? entry.item.id : entry.group.id">
+      <template v-for="entry in entries" :key="entry.type === 'item' ? entry.item.id : entry.group.id">
         <AttentionItemRow
           v-if="entry.type === 'item'"
           :item="entry.item"
           :view="view"
           :waiting="isWaiting(entry.item)"
           :saving="saving"
-          :reviewing="reviewingId === entry.item.sourceId"
+          :reviewing="isReviewing(entry.item.sourceId)"
           @review="review({ id: entry.item.sourceId, projectId: entry.item.projectId }, $event)"
           @preference="changePreference(entry.item, $event)"
         />
@@ -300,7 +330,7 @@ defineExpose({ reveal });
           >
             <template #trailing>
               <UiLabel :tone="groupWaiting(entry.group) ? 'accent' : 'attention'">{{
-                groupWaiting(entry.group) ? t("attention.waitingForAgent") : t("attention.reasons.pending")
+                groupLabel(entry.group)
               }}</UiLabel>
               <UiButton
                 size="sm"
@@ -327,30 +357,24 @@ defineExpose({ reveal });
               :view="view"
               :waiting="isWaiting(child)"
               :saving="saving"
-              :reviewing="reviewingId === child.sourceId"
+              :reviewing="isReviewing(child.sourceId)"
               @review="review({ id: child.sourceId, projectId: child.projectId }, $event)"
               @preference="changePreference(child, $event)"
             />
             <li v-if="entry.group.items.length > ATTENTION_GROUP_PREVIEW" class="attention__more">
-              {{ t("attention.groupMore", { count: entry.group.items.length - ATTENTION_GROUP_PREVIEW }) }}
+              {{
+                groupsComplete
+                  ? t("attention.groupMore", { count: entry.group.items.length - ATTENTION_GROUP_PREVIEW })
+                  : t("attention.groupMoreUnknown")
+              }}
             </li>
           </ul>
         </li>
       </template>
     </ul>
-    <div v-if="entries.length > ATTENTION_INITIAL_ROWS" class="attention__toggle">
-      <UiButton
-        size="sm"
-        :icon="showAll ? ChevronDown : ChevronRight"
-        :aria-expanded="showAll"
-        @click="showAll = !showAll"
-        >{{
-          showAll
-            ? t("attention.showFewer", { count: ATTENTION_INITIAL_ROWS })
-            : t("attention.showAll", { count: entries.length })
-        }}</UiButton
-      >
-    </div>
+    <p v-if="mergedRows" class="attention__note" data-testid="attention-merged">
+      {{ t("attention.mergedRows", { rows: mergedRows }) }}
+    </p>
     <template v-if="loaded && result && result.pageInfo.totalPages > 1" #footer>
       <UiPagination
         v-model:page-size="pageSize"
@@ -414,13 +438,6 @@ defineExpose({ reveal });
   background: var(--bg-subtle);
   color: var(--fg-muted);
   font-size: var(--text-xs);
-}
-
-.attention__toggle {
-  display: flex;
-  justify-content: center;
-  padding: var(--space-2) var(--space-4);
-  border-top: 1px solid var(--border-muted);
 }
 
 @media (max-width: 639px) {

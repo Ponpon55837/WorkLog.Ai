@@ -36,7 +36,7 @@ import UiSplitLayout from "../components/ui/UiSplitLayout.vue";
 import UiTextInput from "../components/ui/UiTextInput.vue";
 import UiUnderlineNav from "../components/ui/UiUnderlineNav.vue";
 import VirtualList from "../components/VirtualList.vue";
-import { filterChip, useProjectChip } from "../composables/useFilterChips";
+import { useProjectChip } from "../composables/useProjectChip";
 import { useKnowledgeActions } from "../composables/useKnowledge";
 import { useListReload } from "../composables/useListReload";
 import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
@@ -51,6 +51,7 @@ import { useKnowledgePagesStore } from "../stores/knowledge-pages";
 import { useSessionDecisionsStore } from "../stores/session-decisions";
 import { knowledgeKindLabels, knowledgeStatusLabels, listPageSizeOptions } from "../utils/labels";
 import { knowledgeKindVisual } from "../utils/status";
+import { filterChip } from "../utils/filter-chips";
 import { t } from "../i18n";
 
 type KnowledgeTab = "list" | "pages" | "candidates" | "decisions";

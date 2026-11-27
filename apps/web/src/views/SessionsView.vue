@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, watch } from "vue";
 import { useRoute } from "vue-router";
-import { ListChecks, Search, X } from "lucide-vue-next";
+import { ListChecks, Search } from "lucide-vue-next";
 import { storeToRefs } from "pinia";
 import type { OutstandingItemStatus, WorkSessionRecord } from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
@@ -24,7 +24,7 @@ import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiTextInput from "../components/ui/UiTextInput.vue";
 import UiUnderlineNav from "../components/ui/UiUnderlineNav.vue";
 import VirtualList from "../components/VirtualList.vue";
-import { filterChip, useProjectChip } from "../composables/useFilterChips";
+import { useProjectChip } from "../composables/useProjectChip";
 import { useListReload } from "../composables/useListReload";
 import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
 import { router } from "../router";
@@ -40,6 +40,7 @@ import {
   type ListPageSize,
 } from "../utils/labels";
 import { localDayOf, sessionDayRange, type SessionDaySummary } from "../utils/session-day-insights";
+import { filterChip } from "../utils/filter-chips";
 import { t } from "../i18n";
 
 type SessionsTab = "sessions" | "outstanding";
@@ -180,6 +181,8 @@ const dateRange = computed({
 });
 const sessionFilterChips = computed(() => {
   const chips: FilterChip[] = [];
+  const applied = sessionsAppliedScope.value?.q;
+  if (applied) chips.push(filterChip("q", t("ui.searchFilter"), applied));
   if (projectChip.value) chips.push(projectChip.value);
   if (selectedAgent.value) chips.push(filterChip("agent", t("common.agent"), selectedAgent.value));
   if (dateFrom.value || dateTo.value) {
@@ -195,10 +198,10 @@ const sessionTabCount = computed(() => {
   if (!sessionsLoaded.value) return undefined;
   const total = sessionPageInfo.value.total;
   const narrowed = Boolean(
-    searchTerm.value || selectedProjectId.value || selectedAgent.value || dateFrom.value || dateTo.value,
+    sessionsAppliedScope.value?.q || selectedProjectId.value || selectedAgent.value || dateFrom.value || dateTo.value,
   );
   const all = dashboard.value.finalizedSessions;
-  return narrowed && voidedFilter.value === "exclude" && all > 0
+  return narrowed && voidedFilter.value === "exclude" && all > total
     ? t("common.filteredCount", { shown: total, total: all })
     : total;
 });
@@ -219,7 +222,8 @@ const tabs = computed(() => [
 ]);
 
 function removeSessionFilter(key: string): void {
-  if (key === "project") selectedProjectId.value = "";
+  if (key === "q") searchTerm.value = "";
+  else if (key === "project") selectedProjectId.value = "";
   else if (key === "agent") selectedAgent.value = "";
   else if (key === "date") dateRange.value = { from: "", to: "" };
   else voidedFilter.value = "exclude";
@@ -299,9 +303,6 @@ onBeforeUnmount(() => {
         :label="t('sessions.searchWorkHistory')"
         :placeholder="t('common.searchTitleSummaryOrEvent')"
       />
-      <UiButton v-if="hasSessionFilters" :icon="X" @click="clearSessionFilters">{{
-        t("common.clearFilters")
-      }}</UiButton>
     </form>
   </PageToolbar>
 
@@ -356,7 +357,7 @@ onBeforeUnmount(() => {
         </div>
       </template>
 
-      <UiFilterChips :chips="sessionFilterChips" @remove="removeSessionFilter" />
+      <UiFilterChips :chips="sessionFilterChips" clearable @remove="removeSessionFilter" @clear="clearSessionFilters" />
       <UiSkeleton v-if="sessionsLoading && !sessionsLoaded" :count="5" :label="t('sessions.loadingWorkHistory')" />
       <UiEmptyState
         v-else-if="sessionsLoaded && sessions.length === 0"

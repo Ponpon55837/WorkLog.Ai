@@ -99,7 +99,6 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
   const baselineQuery = useQuery<KnowledgeSearchResult>({
     key: () => [...queryKeys.knowledge.list, "baseline", knowledgeStatus.value],
     enabled: () => listEnabled.value && knowledgeNarrowed.value,
-    placeholderData: (previousData) => previousData,
     query: ({ signal }): Promise<KnowledgeSearchResult> =>
       useApi().client.searchKnowledge({ status: knowledgeStatus.value, page: 1, pageSize: 1 }, signal),
   });

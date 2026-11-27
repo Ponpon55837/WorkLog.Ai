@@ -11,6 +11,8 @@ const props = withDefaults(
     label: string;
     items: readonly SelectOption<T>[];
     header?: string;
+    /** Replaces the visible label as the trigger's accessible name when several menus share one label. */
+    ariaLabel?: string;
     icon?: IconComponent;
     align?: "start" | "end";
     defaultValue?: T;
@@ -31,6 +33,12 @@ const applied = computed(
 const appliedText = computed(() => {
   const selected = applied.value ? props.items.find((item) => item.value === model.value) : undefined;
   return selected ? t("ui.filterValue", { label: props.label, value: selected.label }) : undefined;
+});
+
+const accessibleName = computed(() => {
+  if (!props.ariaLabel) return undefined;
+  const selected = applied.value ? props.items.find((item) => item.value === model.value) : undefined;
+  return selected ? t("ui.filterValue", { label: props.ariaLabel, value: selected.label }) : props.ariaLabel;
 });
 
 function choose(value: T): void {
@@ -86,6 +94,7 @@ watch(open, async (value) => {
     :aria-busy="loading || undefined"
     :disabled="loading"
     :title="appliedText"
+    :aria-label="accessibleName"
     @click="toggle"
   >
     <UiSpinner v-if="loading" :size="14" />

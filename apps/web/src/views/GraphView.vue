@@ -183,6 +183,7 @@ onBeforeUnmount(() => {
             variant="button"
             size="sm"
             :header="t('graph.chooseGraphProjectScope')"
+            :aria-label="t('graph.chooseGraphProjectScope')"
           />
           <UiSelect
             v-model="graphNodeFilter"

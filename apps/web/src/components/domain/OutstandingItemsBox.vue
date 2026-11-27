@@ -21,12 +21,13 @@ import UiSkeleton from "../ui/UiSkeleton.vue";
 import VirtualList from "../VirtualList.vue";
 import type { FilterChip } from "../ui/types";
 import { confirmAction } from "../../composables/useConfirm";
-import { filterChip, useProjectChip } from "../../composables/useFilterChips";
+import { useProjectChip } from "../../composables/useProjectChip";
 import { useToast } from "../../composables/useToast";
 import { useOutstandingItemsStore, type OutstandingClosedFilter } from "../../stores/outstanding-items";
 import { errorMessage, formatDate, formatDateRangeText, formatRelative } from "../../utils/format";
 import { outstandingItemStatusLabels, type ListPageSize } from "../../utils/labels";
 import { outstandingItemStatusVisual } from "../../utils/status";
+import { filterChip } from "../../utils/filter-chips";
 import { t } from "../../i18n";
 
 const props = defineProps<{

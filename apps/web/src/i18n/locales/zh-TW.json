@@ -1800,7 +1800,8 @@
     "trendChartValues": "趨勢圖數值表",
     "filterValue": "{label}：{value}",
     "appliedFilters": "已套用的篩選",
-    "removeFilter": "移除篩選：{filter}"
+    "removeFilter": "移除篩選：{filter}",
+    "searchFilter": "搜尋"
   },
   "usage": {
     "addFolder": "加入資料夾",
@@ -1982,10 +1983,17 @@
     "expandGroup": "看前 {count} 筆",
     "collapseGroup": "收合",
     "groupMore": "還有 {count} 筆，請按「前往處理」查看",
-    "showAll": "顯示全部（{count}）",
-    "showFewer": "只顯示前 {count} 列",
     "partialNotice": "只檢查了 {examined}／{available} 筆來源，其餘項目不會列在這裡。",
-    "viewAllInKnowledge": "前往工作知識查看全部"
+    "viewAllInKnowledge": "前往工作知識查看全部",
+    "groupTitlesPartial": {
+      "decision": "{project} · 待確認決策",
+      "knowledge": "{project} · Knowledge 待核對",
+      "knowledgePage": "{project} · 知識頁待維護"
+    },
+    "groupMoreUnknown": "還有更多，請按「前往處理」查看",
+    "groupMixed": "需要處理",
+    "mergedRows": "本頁已合併為 {rows} 列",
+    "viewAllOf": "前往查看全部{source}"
   },
   "related": {
     "title": "可能相關",

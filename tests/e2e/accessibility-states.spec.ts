@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import { filterMenu } from "./helpers/filter-menu.js";
 import { LANGUAGE_NAMES, textIn, type Locale, type MessageKey } from "./helpers/i18n.js";
 
 // Unique per module load: a failed test restarts the worker and re-runs beforeAll against the same server, so fixed names would be seeded twice.
@@ -224,7 +225,7 @@ for (const locale of locales) {
 
       await page.goto("/sessions");
       const filters = page.getByRole("main");
-      await filters.getByRole("button", { name: textIn(locale, "common.project") }).click();
+      await filterMenu(filters, textIn(locale, "common.project")).click();
       await expect(page.getByRole("menuitemradio").first()).toBeVisible();
       await expectNoSeriousViolations(page, `${locale} Sessions project filter menu`);
       await page.keyboard.press("Escape");

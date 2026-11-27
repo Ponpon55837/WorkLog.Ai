@@ -481,6 +481,7 @@ onBeforeUnmount(() => {
           variant="button"
           size="sm"
           :header="t('graph.chooseTimelineProjectScope')"
+          :aria-label="t('graph.chooseTimelineProjectScope')"
         />
         <UiSelect v-model="range" :options="rangeOptions" size="sm" :label="t('graph.chooseTimelinePeriod')" />
         <UiSegmentedControl

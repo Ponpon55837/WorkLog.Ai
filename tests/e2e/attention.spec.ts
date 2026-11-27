@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test, type APIRequestContext, type Locator } from "@playwright/test";
 import type { AttentionList } from "../../packages/core/src/index.js";
-import { textIn, tt, ttPattern, type Locale } from "./helpers/i18n.js";
+import { textIn, tt, type Locale } from "./helpers/i18n.js";
 
 let fixture: { projectId: string; knowledgeId: string; root: string };
 
@@ -75,7 +75,7 @@ test.afterAll(() => {
 for (const locale of ["zh-TW", "en-US"] as const) {
   for (const theme of ["dark", "light"] as const) {
     for (const width of [1440, 960, 375]) {
-      test(`attention groups, wraps and preserves scope ${locale} ${theme} ${width} @cross-browser`, async ({
+      test(`attention wraps and preserves scope ${locale} ${theme} ${width} @cross-browser`, async ({
         page,
       }, testInfo) => {
         await page.addInitScript(
@@ -91,10 +91,9 @@ for (const locale of ["zh-TW", "en-US"] as const) {
         const list = box.getByRole("list", { name: textIn(locale, "attention.list") });
         await expect(list).toBeVisible();
         await expect(box).toContainText("40");
-        await expect(box.getByTestId("attention-group")).toHaveCount(1);
+        await expect(box.getByTestId("attention-group")).toHaveCount(0);
+        await expect(list.locator(":scope > li")).toHaveCount(40);
         await expect(list).not.toHaveCSS("overflow-y", "auto");
-        await expandDecisionGroup(box, locale);
-        await expect(box.getByTestId("attention-group").getByRole("listitem")).toHaveCount(4);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         const bounds = await box.boundingBox();
         expect(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width + 1).toBeTruthy();
@@ -117,17 +116,32 @@ test("jumps from the pending stat card to the needs-attention box @cross-browser
   await expect(box).toBeFocused();
 });
 
-test("limits the first rows and reveals the rest on demand @cross-browser", async ({ page }) => {
+test("folds one project's decisions per page and states no count the page cannot prove @cross-browser", async ({
+  page,
+}) => {
   await page.goto(`/dashboard?attentionProject=${fixture.projectId}`);
   const box = page.getByTestId("attention-box");
-  const list = box.getByRole("list", { name: tt("attention.list") });
-  await expect(list).toBeVisible();
-  const toggle = box.getByRole("button", { name: ttPattern("attention.showAll") });
-  if (await toggle.count()) {
-    expect(await list.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
-    await toggle.click();
-    await expect(box.getByRole("button", { name: ttPattern("attention.showFewer") })).toBeVisible();
-  }
+  const group = box.getByTestId("attention-group");
+  await expect(group).toHaveCount(1);
+  await expect(group).toContainText(tt("attention.groupTitlesPartial.decision", { project: "Attention Orchard" }));
+  await expect(group).not.toContainText("40");
+  await expect(box.getByTestId("attention-merged")).toBeVisible();
+  await expect(box.getByRole("button", { name: tt("ui.nextPage"), exact: true })).toBeVisible();
+  await expandDecisionGroup(box);
+  await expect(group.getByRole("listitem")).toHaveCount(4);
+  await expect(group).toContainText(tt("attention.groupMoreUnknown"));
+  await expect(group.getByRole("link", { name: tt("attention.openSource") }).first()).toHaveAttribute(
+    "href",
+    new RegExp(`/knowledge/decisions\\?project=${fixture.projectId}`),
+  );
+});
+
+test("states the group count once the whole result fits on the page @cross-browser", async ({ page }) => {
+  await page.goto(`/dashboard?attentionProject=${fixture.projectId}&attentionSize=50`);
+  const title = tt("attention.groupTitles.decision", { project: "Attention Orchard", count: 40 });
+  await expect(page.getByTestId("attention-box").getByTestId("attention-group").filter({ hasText: title })).toHaveCount(
+    1,
+  );
 });
 
 test("opens the exact Knowledge source despite duplicate titles, then restores navigation @cross-browser", async ({
@@ -176,6 +190,29 @@ test("failed or partial coverage never renders a healthy empty queue @cross-brow
   await expect(box.getByRole("link", { name: tt("attention.viewAllInKnowledge") })).toBeVisible();
 });
 
+test("a partial source outside Knowledge links to its own page @cross-browser", async ({ page, request }) => {
+  const response = await request.get(`/api/attention?projectId=${fixture.projectId}`);
+  const body = (await response.json()) as AttentionList;
+  await page.route("**/api/attention?*", (route) =>
+    route.fulfill({
+      json: {
+        ...body,
+        items: [],
+        total: null,
+        minimumTotal: 0,
+        pageInfo: { ...body.pageInfo, total: 0 },
+        groups: [{ kind: "outstanding", state: "partial", total: null, examined: 200, available: 201 }],
+      },
+    }),
+  );
+  await page.goto(`/dashboard?attentionProject=${fixture.projectId}`);
+  const notice = page.getByTestId("attention-partial");
+  await expect(notice).toBeVisible();
+  const own = tt("attention.viewAllOf", { source: tt("attention.kinds.outstanding") });
+  await expect(notice.getByRole("link", { name: own })).toBeVisible();
+  await expect(notice.getByRole("link", { name: tt("attention.viewAllInKnowledge") })).toHaveCount(0);
+});
+
 for (const locale of ["zh-TW", "en-US"] as const) {
   for (const theme of ["dark", "light"] as const) {
     for (const width of [1440, 960, 375]) {
@@ -196,7 +233,6 @@ for (const locale of ["zh-TW", "en-US"] as const) {
         const list = box.getByRole("list", { name: textIn(locale, "attention.list") });
         await expect(box).toContainText("40");
         await list.scrollIntoViewIfNeeded();
-        await expandDecisionGroup(box, locale);
         await box
           .getByRole("button", { name: textIn(locale, "attention.preferenceActions") })
           .first()
@@ -228,7 +264,6 @@ for (const locale of ["zh-TW", "en-US"] as const) {
         await expect(box).toContainText(textIn(locale, "attention.noSuppressed"));
         await box.getByRole("button", { name: new RegExp(textIn(locale, "attention.view")) }).click();
         await page.getByRole("menuitemradio", { name: textIn(locale, "attention.visibleView"), exact: true }).click();
-        await expandDecisionGroup(box, locale);
         await box
           .getByRole("button", { name: textIn(locale, "attention.preferenceActions") })
           .first()
@@ -257,7 +292,6 @@ test("stale reminder save keeps the row and exposes refresh @cross-browser", asy
   );
   await page.goto(`/dashboard?attentionProject=${fixture.projectId}&attentionKind=decision`);
   const box = page.getByTestId("attention-box");
-  await expandDecisionGroup(box);
   await box
     .getByRole("button", { name: tt("attention.preferenceActions") })
     .first()

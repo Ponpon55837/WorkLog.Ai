@@ -6,12 +6,12 @@ import { t } from "../i18n";
 
 type DecisionTarget = { id: string; projectId?: string };
 
-/** Confirms or rejects one Agent-autonomous decision and reports the outcome with a toast. */
+/** Confirms or rejects Agent-autonomous decisions, several at once, and reports each outcome with a toast. */
 export function useDecisionReview() {
   const decisionStore = useSessionDecisionsStore();
   const projectsStore = useProjectsStore();
   const { showToast } = useToast();
-  const reviewingId = ref("");
+  const reviewingIds = ref<string[]>([]);
 
   async function review(
     decision: DecisionTarget,
@@ -23,7 +23,8 @@ export function useDecisionReview() {
       showToast(t("knowledge.couldNotFindTheTracked"), "danger");
       return;
     }
-    reviewingId.value = decision.id;
+    if (reviewingIds.value.includes(decision.id)) return;
+    reviewingIds.value = [...reviewingIds.value, decision.id];
     try {
       const result = await decisionStore.reviewDecision({ decisionId: decision.id, projectRoot: root, reviewStatus });
       if (result.outcome === "session_decision_reviewed") {
@@ -43,9 +44,13 @@ export function useDecisionReview() {
     } catch {
       showToast(t("knowledge.couldNotUpdateTheDecision"), "danger");
     } finally {
-      reviewingId.value = "";
+      reviewingIds.value = reviewingIds.value.filter((id) => id !== decision.id);
     }
   }
 
-  return { reviewingId, review };
+  function isReviewing(id: string): boolean {
+    return reviewingIds.value.includes(id);
+  }
+
+  return { isReviewing, review };
 }

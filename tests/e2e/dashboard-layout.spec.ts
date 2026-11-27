@@ -22,6 +22,13 @@ test.beforeAll(async ({ request }) => {
           summary: "Saved fictional work",
           changedFiles: [],
           verification: { status: "passed" },
+          workSummary: {
+            outcomes: [],
+            scope: [],
+            decisions: [{ text: "Fictional decision awaiting review", origin: "agent_autonomous" }],
+            verification: [],
+            nextSteps: [],
+          },
         },
       })
     ).ok(),
@@ -57,7 +64,8 @@ for (const locale of ["zh-TW", "en-US"] as const) {
             attention &&
             bounds.y + bounds.height <= stats.y &&
             stats.y < insights.y &&
-            (attention.y < stats.y ? bounds.y + bounds.height <= attention.y : insights.y < attention.y),
+            bounds.y + bounds.height <= attention.y &&
+            attention.y + attention.height <= stats.y,
         ).toBe(true);
         expect(
           bounds &&

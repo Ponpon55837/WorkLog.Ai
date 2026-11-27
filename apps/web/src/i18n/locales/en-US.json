@@ -1800,7 +1800,8 @@
     "trendChartValues": "Trend chart values",
     "filterValue": "{label}: {value}",
     "appliedFilters": "Applied filters",
-    "removeFilter": "Remove filter: {filter}"
+    "removeFilter": "Remove filter: {filter}",
+    "searchFilter": "Search"
   },
   "usage": {
     "addFolder": "Add folder",
@@ -1982,10 +1983,17 @@
     "expandGroup": "Show first {count}",
     "collapseGroup": "Collapse",
     "groupMore": "{count} more; use Open source to see them",
-    "showAll": "Show all ({count})",
-    "showFewer": "Show only the first {count}",
     "partialNotice": "Only {examined} of {available} sources were checked; the rest are not listed here.",
-    "viewAllInKnowledge": "View all in Work knowledge"
+    "viewAllInKnowledge": "View all in Work knowledge",
+    "groupTitlesPartial": {
+      "decision": "{project} · Decisions to confirm",
+      "knowledge": "{project} · Knowledge to check",
+      "knowledgePage": "{project} · Knowledge pages to maintain"
+    },
+    "groupMoreUnknown": "More; use Open source to see them",
+    "groupMixed": "Needs attention",
+    "mergedRows": "This page is merged into {rows} row|This page is merged into {rows} rows",
+    "viewAllOf": "View all {source}"
   },
   "related": {
     "title": "Possibly related",

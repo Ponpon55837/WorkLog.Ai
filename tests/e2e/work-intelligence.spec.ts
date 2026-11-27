@@ -7,6 +7,7 @@ import { expect, test, type APIRequestContext, type Locator, type Page } from "@
 import type { ProjectDataExport, SystemAgentConnections } from "../../packages/core/src/index.js";
 import { canonicalizeProjectRoot, WorkIntelligenceStore } from "../../packages/storage/dist/index.js";
 import { nameStartingWith } from "./helpers/accessible-name.js";
+import { filterMenu } from "./helpers/filter-menu.js";
 import { dayNameIn, dayNamePattern, LANGUAGE_NAMES, textIn, tt, ttPattern } from "./helpers/i18n.js";
 
 const projectRoot = process.cwd();
@@ -451,7 +452,7 @@ test.describe("Work Intelligence browser regression", () => {
     const otherText = "Check the other project filter.";
     const primaryItem = () => page.getByTestId("outstanding-item").filter({ hasText: primaryText });
     const selectStatus = async (label: string): Promise<void> => {
-      await page.getByRole("button", { name: tt("common.status") }).click();
+      await filterMenu(page, tt("common.status")).click();
       await page.getByRole("menuitemradio", { name: label, exact: true }).click();
     };
 
@@ -462,7 +463,7 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(page.getByTestId("outstanding-item").filter({ hasText: primaryText })).toBeVisible();
     await expect(page.getByTestId("outstanding-item").filter({ hasText: otherText })).toBeVisible();
 
-    await page.getByRole("button", { name: tt("common.project") }).click();
+    await filterMenu(page, tt("common.project")).click();
     await page.getByRole("menuitemradio", { name: "Browser Regression Fixture", exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`itemProject=${projectId}`));
     await expect(primaryItem()).toBeVisible();
@@ -545,12 +546,12 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(selectCurrentPage).not.toBeChecked();
     await expect(completeBatch).toBeDisabled();
 
-    await page.getByRole("button", { name: tt("common.status") }).click();
+    await filterMenu(page, tt("common.status")).click();
     await page.getByRole("menuitemradio", { name: tt("common.completedStatus"), exact: true }).click();
     await expect(selectCurrentPage).toBeDisabled();
     await expect(completeBatch).toBeDisabled();
     await expect(notNeededBatch).toBeDisabled();
-    await page.getByRole("button", { name: tt("common.status") }).click();
+    await filterMenu(page, tt("common.status")).click();
     await page.getByRole("menuitemradio", { name: tt("common.pending"), exact: true }).click();
 
     await page.getByLabel(tt("outstanding.openItemsPerPage")).selectOption("10");
@@ -615,7 +616,7 @@ test.describe("Work Intelligence browser regression", () => {
 
     await itemCheckboxes.first().check();
     await expect(completeBatch).toBeEnabled();
-    await page.getByRole("button", { name: tt("common.project"), exact: true }).click();
+    await filterMenu(page, tt("common.project")).click();
     await page.getByRole("menuitemradio", { name: "Browser Regression Fixture", exact: true }).click();
     await expect.poll(() => new URL(page.url()).searchParams.get("itemProject")).toBe(projectId);
     await expect(selectCurrentPage).not.toBeChecked();
@@ -797,7 +798,7 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(box.getByRole("button", { name: tt("knowledge.askAgentToReview") })).toBeDisabled();
     await expect(box).toContainText(tt("knowledge.agentReviewChooseProject"));
 
-    await box.getByRole("button", { name: tt("common.project") }).click();
+    await filterMenu(box, tt("common.project")).click();
     await page.getByRole("menuitemradio", { name: "Browser Regression Fixture" }).click();
     const ask = box.getByRole("button", { name: tt("knowledge.askAgentToReview") });
     await expect(ask).toBeEnabled();
@@ -1042,7 +1043,7 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(row).toContainText(ttPattern("knowledge.checkedThroughValue"));
     await expect(row.locator("time")).toHaveAttribute("datetime", sourcedThrough);
 
-    await page.getByRole("button", { name: tt("common.status") }).click();
+    await filterMenu(page, tt("common.status")).click();
     await page.getByRole("menuitemradio", { name: tt("common.newDataAvailable") }).click();
     await expect(row).toBeVisible();
 
@@ -1055,10 +1056,10 @@ test.describe("Work Intelligence browser regression", () => {
     );
     expect(checked).toMatchObject({ outcome: "knowledge_page_checked", page: { version: 1, status: "fresh" } });
     await page.reload();
-    await page.getByRole("button", { name: tt("common.status") }).click();
+    await filterMenu(page, tt("common.status")).click();
     await page.getByRole("menuitemradio", { name: tt("common.newDataAvailable") }).click();
     await expect(page.getByTestId("knowledge-page-row").filter({ hasText: "E2E review checkpoint" })).toHaveCount(0);
-    await page.getByRole("button", { name: tt("common.status") }).click();
+    await filterMenu(page, tt("common.status")).click();
     await page.getByRole("menuitemradio", { name: tt("knowledge.allStatuses") }).click();
     const checkedRow = page.getByTestId("knowledge-page-row").filter({ hasText: "E2E review checkpoint" });
     await expect(checkedRow).toContainText(tt("common.upToDate"));
@@ -2025,6 +2026,7 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(steps.getByRole("listitem")).toHaveCount(1);
     await expect(steps).toContainText("修改了 README.md");
 
+    await page.getByRole("button", { name: tt("graph.closeGraphNodeDetails") }).click();
     await page.getByTestId("graph-show-derived").check();
     await expect(page).toHaveURL(/\/graph/);
   });

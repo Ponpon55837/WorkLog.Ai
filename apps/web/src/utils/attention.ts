@@ -6,8 +6,7 @@ export type GroupedAttentionKind = "decision" | "knowledge" | "knowledge_page";
 export type AttentionGroup = { id: string; kind: GroupedAttentionKind; projectId: string; items: AttentionItem[] };
 type AttentionEntry = { type: "item"; item: AttentionItem } | { type: "group"; group: AttentionGroup };
 
-/** Rows shown before "show all", and Sources previewed when a group opens. */
-export const ATTENTION_INITIAL_ROWS = 8;
+/** Records previewed when a group opens. */
 export const ATTENTION_GROUP_PREVIEW = 3;
 
 /** Kinds whose pointers are single records; the others already stand for a whole project or request. */
@@ -68,12 +67,35 @@ export function attentionRoute(item: AttentionItem): RouteLocationRaw {
   }
 }
 
+/** The list page that holds every pointer of one kind, optionally narrowed to a project. */
+export function attentionSourceRoute(kind: AttentionKind, projectId?: string): RouteLocationRaw {
+  const project = projectId ? { project: projectId } : {};
+  switch (kind) {
+    case "synthesis":
+      return { name: "reports", query: project };
+    case "backfill":
+    case "metadata":
+      return { name: "projects", params: { tab: "backfill" }, query: project };
+    case "decision":
+      return { name: "knowledge", params: { tab: "decisions" }, query: project };
+    case "knowledge_page":
+      return { name: "knowledge", params: { tab: "pages" }, query: project };
+    case "knowledge":
+      return { name: "knowledge", params: { tab: "list" }, query: project };
+    case "outstanding":
+      return { name: "sessions", params: { tab: "outstanding" }, query: projectId ? { itemProject: projectId } : {} };
+  }
+}
+
 /** The list page that holds a whole group, without pointing at one record. */
 export function attentionGroupRoute(group: AttentionGroup): RouteLocationRaw {
-  const query = { project: group.projectId };
-  if (group.kind === "decision") return { name: "knowledge", params: { tab: "decisions" }, query };
-  if (group.kind === "knowledge_page") return { name: "knowledge", params: { tab: "pages" }, query };
-  return { name: "knowledge", params: { tab: "list" }, query };
+  return attentionSourceRoute(group.kind, group.projectId);
+}
+
+/** The reason every member of a group shares, or `undefined` when they differ. */
+export function sharedAttentionReason(group: AttentionGroup): AttentionItem["reason"] | undefined {
+  const [first, ...rest] = group.items;
+  return first && rest.every((item) => item.reason === first.reason) ? first.reason : undefined;
 }
 
 /** Folds two or more pointers of one kind and project into one entry, placed where the first of them sat. */

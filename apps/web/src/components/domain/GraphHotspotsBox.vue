@@ -60,6 +60,7 @@ onBeforeUnmount(() => hotspotsStore.setActive(false));
           variant="button"
           size="sm"
           :header="t('graph.chooseHotspotProjectScope')"
+          :aria-label="t('graph.chooseHotspotProjectScope')"
         />
         <UiSelect v-model="period" :options="periodOptions" size="sm" :label="t('graph.chooseHotspotPeriod')" />
         <UiSegmentedControl v-model="groupBy" size="sm" :options="groupOptions" :label="t('graph.hotspotGrouping')" />

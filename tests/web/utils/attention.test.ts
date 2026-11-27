@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { AttentionItem } from "../../../packages/core/src/index.js";
 import {
   attentionGroupRoute,
+  attentionSourceRoute,
   attentionRoute,
   groupAttentionItems,
   isWaitingForAgent,
+  sharedAttentionReason,
 } from "../../../apps/web/src/utils/attention.js";
 
 function item(
@@ -95,5 +97,32 @@ describe("attention routes", () => {
       params: { tab: "decisions" },
       query: { project: "p1" },
     });
+  });
+});
+
+describe("attentionSourceRoute", () => {
+  it("points each kind at its own list and keeps the project", () => {
+    expect(attentionSourceRoute("decision", "p1")).toEqual({
+      name: "knowledge",
+      params: { tab: "decisions" },
+      query: { project: "p1" },
+    });
+    expect(attentionSourceRoute("outstanding", "p1")).toMatchObject({ query: { itemProject: "p1" } });
+    expect(attentionSourceRoute("synthesis")).toEqual({ name: "reports", query: {} });
+  });
+});
+
+describe("sharedAttentionReason", () => {
+  it("returns the reason every member shares and nothing when they differ", () => {
+    const stale = { ...item("k1", "knowledge", "p1"), reason: "stale" as const };
+    const review = { ...item("k2", "knowledge", "p1"), reason: "review" as const };
+    const group = (items: AttentionItem[]) => ({
+      id: "knowledge:p1",
+      kind: "knowledge" as const,
+      projectId: "p1",
+      items,
+    });
+    expect(sharedAttentionReason(group([stale, { ...stale, id: "knowledge:k3" }]))).toBe("stale");
+    expect(sharedAttentionReason(group([stale, review]))).toBeUndefined();
   });
 });

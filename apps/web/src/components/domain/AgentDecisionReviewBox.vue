@@ -25,6 +25,10 @@ import VirtualList from "../VirtualList.vue";
 import { t } from "../../i18n";
 
 const props = defineProps<{ projectRoot?: string; highlightId?: string }>();
+
+const REVEAL_ATTEMPTS = 10;
+const REVEAL_DELAY_MS = 100;
+
 const decisionStore = useSessionDecisionsStore();
 const { decisions, pendingCount, decisionsLoading, decisionsLoaded, decisionsError } = storeToRefs(decisionStore);
 const { filter } = storeToRefs(useAgentReviewStore());
@@ -50,11 +54,18 @@ function revealHighlighted(): void {
   const id = props.highlightId;
   if (!id || revealedId.value === id || !decisions.value.some((decision) => decision.id === id)) return;
   revealedId.value = id;
-  void nextTick(() => {
-    const element = document.querySelector<HTMLElement>(`[data-decision-id="${CSS.escape(id)}"]`);
-    element?.scrollIntoView({ block: "center" });
-    element?.focus({ preventScroll: true });
-  });
+  const selector = `[data-decision-id="${CSS.escape(id)}"]`;
+  let attempts = 0;
+  const locate = (): void => {
+    const element = document.querySelector<HTMLElement>(selector);
+    if (element) {
+      element.scrollIntoView({ block: "center" });
+      element.focus({ preventScroll: true });
+    } else if (++attempts < REVEAL_ATTEMPTS) {
+      setTimeout(locate, REVEAL_DELAY_MS);
+    }
+  };
+  void nextTick(locate);
 }
 
 function verdictFor(item: SessionDecisionRecord): "confirmed" | "rejected" | "promoted" {

@@ -20,7 +20,7 @@ export const useAttentionStore = defineStore("attention", () => {
   const kind = ref<AttentionKind | "">("");
   const view = ref<"visible" | "suppressed">("visible");
   const page = ref(1);
-  const pageSize = ref<ListPageSize>(20);
+  const pageSize = ref<ListPageSize>(10);
   const query = useQuery<AttentionResult>({
     key: () => [
       ...queryKeys.attention.list,
