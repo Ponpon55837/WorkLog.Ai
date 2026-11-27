@@ -137,7 +137,8 @@ const CONFLICT_DETAIL_LIMIT = 100;
 const MAX_CONFLICT_ID_LENGTH = 200;
 
 const LOCAL_DERIVED_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> = {
-  sessions: ["redaction_count"],
+  // content_updated_at only differs by the backfill; an update still takes the imported value (see keptLocalFields).
+  sessions: ["redaction_count", "content_updated_at"],
   // Import always resets hide/snooze, so the local choice is kept.
   attention_preferences: ["state", "snoozed_until"],
   // Recomputed after import from the newest summary of each report scope.
@@ -147,6 +148,12 @@ const LOCAL_DERIVED_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>>
   // The convention is the user's choice on this machine; a copy from another machine never changes what Agents are shown.
   knowledge: ["convention_confirmed_at", "convention_withdrawal_json"],
 };
+
+function keptLocalFields(table: ProjectDataTable): readonly string[] {
+  return (LOCAL_DERIVED_FIELDS[table] ?? []).filter(
+    (field) => !(table === "sessions" && field === "content_updated_at"),
+  );
+}
 
 const UNORDERED_JSON_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> = {
   sessions: ["changed_files_provenance_json"],
@@ -1593,7 +1600,7 @@ function planExistingRow(
       addPlan(table, row, "conflict", "唯一識別值已被另一筆資料使用。", "unique");
       return;
     }
-    for (const field of LOCAL_DERIVED_FIELDS[table] ?? []) {
+    for (const field of keptLocalFields(table)) {
       row[field] = projectDataColumnValue(table, current, field) ?? null;
     }
     if (table === "knowledge" && withdrawConventionOnUpdate(current, full, row)) {
@@ -2280,7 +2287,7 @@ function insertRow(table: ProjectDataTable, row: ProjectDataRow, statement: Inse
 
 function updatableColumns(table: ProjectDataTable): string[] {
   // The planner puts this machine's convention (or its withdrawal) into the row, so an update writes it back unchanged.
-  const derived = table === "knowledge" ? [] : (LOCAL_DERIVED_FIELDS[table] ?? []);
+  const derived = table === "knowledge" ? [] : keptLocalFields(table);
   // project_id is never rewritten: an update must not be able to move a row to another project.
   return projectDataExportTableColumns[table].filter(
     (column) => column !== "id" && column !== "project_id" && !derived.includes(column),

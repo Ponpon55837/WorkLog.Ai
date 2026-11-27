@@ -1118,6 +1118,49 @@ const MIGRATIONS: SchemaMigration[] = [
       ALTER TABLE knowledge ADD COLUMN convention_withdrawal_json TEXT;
     `,
   },
+  {
+    version: 42,
+    name: "session-content-updated-at",
+    // NULL means "use updated_at". Only rows whose last touch matches a link, a linked Session's own update, evidence or a diagram event get a value,
+    // their newest content record. The backfill is not a data change, so the revision and index queues are restored.
+    sql: `
+      ALTER TABLE sessions ADD COLUMN content_updated_at TEXT;
+      CREATE TEMP TABLE migration_42_revision AS SELECT data_revision FROM change_revisions WHERE singleton = 1;
+      CREATE TEMP TABLE migration_42_search AS SELECT doc_type, doc_id FROM search_dirty;
+      CREATE TEMP TABLE migration_42_related AS SELECT session_id, project_id FROM related_work_dirty;
+      UPDATE sessions SET content_updated_at = MAX(
+        created_at,
+        COALESCE(completed_at, ''),
+        COALESCE((SELECT MAX(created_at) FROM session_summary_updates u WHERE u.session_id = sessions.id), ''),
+        COALESCE((SELECT MAX(created_at) FROM session_work_summary_updates u WHERE u.session_id = sessions.id), ''),
+        COALESCE((SELECT MAX(created_at) FROM session_verification_updates u WHERE u.session_id = sessions.id), ''),
+        COALESCE((SELECT MAX(occurred_at) FROM void_audit a
+                  WHERE a.session_id = sessions.id AND a.target_type = 'session'), ''),
+        COALESCE((SELECT MAX(occurred_at) FROM work_events e
+                  WHERE e.session_id = sessions.id AND json_valid(e.details_json)
+                    AND json_extract(e.details_json, '$.field') IN ('title', 'completedAt', 'startedAt')), '')
+      )
+      WHERE EXISTS (SELECT 1 FROM session_links l
+                    WHERE (l.session_id = sessions.id OR l.related_session_id = sessions.id)
+                      AND l.created_at = sessions.updated_at)
+        OR EXISTS (SELECT 1 FROM session_links l
+                   JOIN sessions o ON o.id = CASE WHEN l.session_id = sessions.id THEN l.related_session_id ELSE l.session_id END
+                   WHERE (l.session_id = sessions.id OR l.related_session_id = sessions.id)
+                     AND (o.updated_at = sessions.updated_at OR o.completed_at = sessions.updated_at))
+        OR EXISTS (SELECT 1 FROM evidence v WHERE v.session_id = sessions.id AND v.captured_at = sessions.updated_at)
+        OR EXISTS (SELECT 1 FROM void_audit a
+                   WHERE a.session_id = sessions.id AND a.target_type = 'evidence' AND a.occurred_at = sessions.updated_at)
+        OR EXISTS (SELECT 1 FROM session_diagrams d WHERE d.session_id = sessions.id AND d.voided_at = sessions.updated_at);
+      UPDATE change_revisions SET data_revision = (SELECT data_revision FROM temp.migration_42_revision) WHERE singleton = 1;
+      DELETE FROM search_dirty;
+      INSERT INTO search_dirty SELECT doc_type, doc_id FROM temp.migration_42_search;
+      DELETE FROM related_work_dirty;
+      INSERT INTO related_work_dirty SELECT session_id, project_id FROM temp.migration_42_related;
+      DROP TABLE temp.migration_42_revision;
+      DROP TABLE temp.migration_42_search;
+      DROP TABLE temp.migration_42_related;
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

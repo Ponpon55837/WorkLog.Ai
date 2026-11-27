@@ -138,8 +138,7 @@ describe("review-only Knowledge page reads", () => {
         heading: "Winter care",
         content: "Insulate the lid before frost.",
         sourceSessionIds: [winter],
-        reasons: ["source_updated_after_save", "new_session_linked"],
-        changedSources: [{ sourceSessionId: winter, reasons: ["source_updated_after_save"] }],
+        reasons: ["new_session_linked"],
         newSessionIds: [linked],
       },
     ]);
@@ -149,7 +148,6 @@ describe("review-only Knowledge page reads", () => {
     ]);
     expect(size(result)).toBeLessThan(size(fullContext(read())));
     expect(result.sessions.map((session) => [session.id, session.reasons])).toEqual([
-      [winter, ["source_changed"]],
       [linked, ["new"]],
       [sharedFile, ["new"]],
     ]);

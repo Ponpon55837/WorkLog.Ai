@@ -30,6 +30,7 @@ export const PROJECT_DATA_EXPORT_COLUMNS = {
     "void_reason",
     "started_at",
     "updated_at",
+    "content_updated_at",
     "agent_client",
     "agent_model",
   ],

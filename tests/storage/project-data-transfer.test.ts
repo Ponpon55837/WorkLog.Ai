@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -2758,5 +2759,110 @@ describe("session link import planning", () => {
       reason: "唯一識別值已被另一筆資料使用。",
       category: "unique",
     });
+  });
+});
+
+describe("session content_updated_at transfer", () => {
+  const imports = [
+    ["a parsed bundle", (bundle: ProjectDataExport, strategy: "newer-wins", _root: string) => ({ bundle, strategy })],
+    [
+      "a streamed file",
+      (bundle: ProjectDataExport, strategy: "newer-wins", root: string) =>
+        readProjectDataImportBytes(Buffer.from(JSON.stringify({ bundle, strategy })), {
+          envelope: "request",
+          spillPath: join(root, `import-${randomUUID()}.spill`),
+        }),
+    ],
+  ] as const;
+
+  function setTimes(store: WorkIntelligenceStore, id: string, updatedAt: string, contentUpdatedAt: string | null) {
+    const db = new DatabaseSync(store.databasePath);
+    try {
+      db.prepare("UPDATE sessions SET updated_at = ?, content_updated_at = ? WHERE id = ?").run(
+        updatedAt,
+        contentUpdatedAt,
+        id,
+      );
+    } finally {
+      db.close();
+    }
+  }
+
+  function contentTime(store: WorkIntelligenceStore, id: string): string | null {
+    const db = new DatabaseSync(store.databasePath);
+    try {
+      return (
+        db.prepare("SELECT content_updated_at FROM sessions WHERE id = ?").get(id) as {
+          content_updated_at: string | null;
+        }
+      ).content_updated_at;
+    } finally {
+      db.close();
+    }
+  }
+
+  function pair() {
+    const source = createSource();
+    const id = source.sessionIds[0];
+    const first = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+    const target = new WorkIntelligenceStore(join(source.root, "target.sqlite"));
+    stores.push(target);
+    target.importProjectData({ bundle: first, remap: [] });
+    return { source, id, target, first };
+  }
+
+  it("round trips the column and imports exports made before it existed without a difference", () => {
+    const { source, id, target, first } = pair();
+    const original = contentTime(source.store, id);
+    expect(original).not.toBeNull();
+    expect(first.tables.sessions.find((session) => session.id === id)?.content_updated_at).toBe(original);
+    expect(contentTime(target, id)).toBe(original);
+
+    const legacy = structuredClone(first);
+    for (const session of legacy.tables.sessions) delete session.content_updated_at;
+    expect(projectDataExportSchema.safeParse(legacy).success).toBe(true);
+    const preview = source.store.previewProjectDataImport({ bundle: legacy, strategy: "newer-wins" });
+    expect(total(preview.conflicts)).toBe(0);
+    expect(preview.updates.sessions ?? 0).toBe(0);
+
+    const fresh = new WorkIntelligenceStore(join(source.root, "legacy-target.sqlite"));
+    stores.push(fresh);
+    fresh.importProjectData({ bundle: legacy, remap: [] });
+    expect(contentTime(fresh, id)).toBeNull();
+  });
+
+  it.each(imports)("flags a newer remote content edit but not a newer remote link-only touch from %s", (_, read) => {
+    const { source, id, target } = pair();
+    const localContent = contentTime(target, id);
+    target.updateProject(source.projectId, { status: "tracked" });
+    target.requestKnowledgePageUpdate({ projectRoot: source.projectRoot, slug: "pitfalls" });
+    const token = target.getKnowledgePageContext({ projectRoot: source.projectRoot, slug: "pitfalls" });
+    if (token.outcome !== "knowledge_page_context") throw new Error("Expected a page context");
+    const saved = target.saveKnowledgePage({
+      projectRoot: source.projectRoot,
+      slug: "pitfalls",
+      idempotencyKey: "transfer-page",
+      sections: [{ heading: "Cited rule", content: "Keep it current.", sourceSessionIds: [id] }],
+      reviewToken: token.reviewToken,
+    });
+    if (saved.outcome !== "knowledge_page_saved") throw new Error("Expected the page to save");
+    const needsReview = () => {
+      const listed = target.listKnowledgePages({ projectRoot: source.projectRoot });
+      return listed.outcome === "knowledge_pages" && listed.items[0]?.needsReview === true;
+    };
+
+    setTimes(source.store, id, "2031-01-01T00:00:00.000Z", localContent);
+    const linkOnly = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+    const linkPreview = target.previewProjectDataImport(read(linkOnly, "newer-wins", source.root));
+    expect(linkPreview.updates.sessions).toBe(1);
+    target.importProjectData(read(linkOnly, "newer-wins", source.root));
+    expect(contentTime(target, id)).toBe(localContent);
+    expect(needsReview()).toBe(false);
+
+    setTimes(source.store, id, "2032-01-01T00:00:00.000Z", "2032-01-01T00:00:00.000Z");
+    const edited = source.store.exportProjectData({ type: "project", projectId: source.projectId });
+    target.importProjectData(read(edited, "newer-wins", source.root));
+    expect(contentTime(target, id)).toBe("2032-01-01T00:00:00.000Z");
+    expect(needsReview()).toBe(true);
   });
 });
