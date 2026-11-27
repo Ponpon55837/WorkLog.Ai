@@ -7,19 +7,24 @@ import AgentReviewFilter from "./AgentReviewFilter.vue";
 import AgentReviewVerdict from "./AgentReviewVerdict.vue";
 import { useAgentReviewActions } from "../../composables/useAgentReviewActions";
 import { useDecisionReview } from "../../composables/useDecisionReview";
+import { useFocusRestore } from "../../composables/useFocusRestore";
 import { useKnowledgeActions } from "../../composables/useKnowledge";
+import { useRowSelection } from "../../composables/useRowSelection";
 import { useToast } from "../../composables/useToast";
 import { useAgentReviewStore } from "../../stores/agent-review";
 import { useProjectsStore } from "../../stores/projects";
 import { useSessionDecisionsStore } from "../../stores/session-decisions";
 import { useSessionsStore } from "../../stores/sessions";
-import { formatDate, formatRelative } from "../../utils/format";
+import { formatDate, formatRelative, graphNodeLabel } from "../../utils/format";
+import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiBox from "../ui/UiBox.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
 import UiButton from "../ui/UiButton.vue";
+import UiCheckbox from "../ui/UiCheckbox.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiLabel from "../ui/UiLabel.vue";
+import UiSelectionBar from "../ui/UiSelectionBar.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 import VirtualList from "../VirtualList.vue";
 import { t } from "../../i18n";
@@ -35,16 +40,29 @@ const { filter } = storeToRefs(useAgentReviewStore());
 const { overturn } = useAgentReviewActions();
 const projectsStore = useProjectsStore();
 const { showToast } = useToast();
-const { review } = useDecisionReview();
+const { isReviewing, review, reviewMany } = useDecisionReview();
 const { openAgentDecisionEditor } = useKnowledgeActions();
 const { openSessionDetail } = useSessionsStore();
+const { selectedIds, allSelected, clearSelection, selectItem, dropFromSelection } = useRowSelection(() =>
+  filter.value === "pending" ? decisions.value.map((decision) => decision.id) : [],
+);
+const { boxRef, listRef, restoreFocus, settleFocus } = useFocusRestore({
+  rowIdAttribute: "data-decision-id",
+  actionSelector: ".agent-decisions__actions button",
+});
 
 const revealedId = ref("");
+const batchBusy = ref(false);
 const orderedDecisions = computed(() => {
   const id = props.highlightId;
   const targeted = id ? decisions.value.filter((decision) => decision.id === id) : [];
   return targeted.length ? [...targeted, ...decisions.value.filter((decision) => decision.id !== id)] : decisions.value;
 });
+
+const selectionBusy = computed(() => batchBusy.value || selectedIds.value.some(isReviewing));
+const moreItems = computed(() => [
+  { value: "promote" as const, label: t("knowledge.turnIntoKnowledge"), icon: BookOpen },
+]);
 
 function projectRootFor(item: SessionDecisionRecord): string | undefined {
   return props.projectRoot ?? projectsStore.projects.find((project) => project.id === item.projectId)?.rootPath;
@@ -72,6 +90,39 @@ function verdictFor(item: SessionDecisionRecord): "confirmed" | "rejected" | "pr
   return item.reviewStatus === "pending" ? "confirmed" : item.reviewStatus;
 }
 
+function isListedPending(id: string): boolean {
+  return filter.value === "pending" && decisions.value.some((decision) => decision.id === id);
+}
+
+function selectLabel(item: SessionDecisionRecord): string {
+  return t("knowledge.selectDecision", { text: graphNodeLabel(item.text, 48) });
+}
+
+async function reviewOne(item: SessionDecisionRecord, verdict: "confirmed" | "rejected"): Promise<void> {
+  const nextId = orderedDecisions.value[orderedDecisions.value.findIndex((entry) => entry.id === item.id) + 1]?.id;
+  if (await review(item, verdict, projectRootFor(item), isListedPending)) {
+    dropFromSelection([item.id]);
+    await restoreFocus(nextId);
+  }
+}
+
+async function reviewSelected(verdict: "confirmed" | "rejected"): Promise<void> {
+  if (selectionBusy.value || selectedIds.value.length === 0) return;
+  const ordered = orderedDecisions.value;
+  const targets = ordered.filter((decision) => selectedIds.value.includes(decision.id));
+  const anchor = ordered.findIndex((decision) => decision.id === targets[0]?.id);
+  batchBusy.value = true;
+  try {
+    const done = new Set(
+      await reviewMany(targets, verdict, (id) => isListedPending(id) && selectedIds.value.includes(id)),
+    );
+    dropFromSelection([...done]);
+    await restoreFocus(ordered.slice(anchor).find((decision) => !done.has(decision.id))?.id);
+  } finally {
+    batchBusy.value = false;
+  }
+}
+
 function promote(item: SessionDecisionRecord): void {
   const project = projectsStore.projects.find((entry) => entry.id === item.projectId);
   if (!project) {
@@ -86,10 +137,20 @@ function openSource(item: SessionDecisionRecord): void {
 }
 
 watch([() => props.highlightId, decisions], revealHighlighted, { immediate: true });
+watch([filter, () => props.projectRoot], clearSelection);
+watch(
+  decisions,
+  (items) => {
+    const listed = new Set(items.map((decision) => decision.id));
+    selectedIds.value = selectedIds.value.filter((id) => listed.has(id));
+  },
+  { flush: "pre" },
+);
+watch(decisions, settleFocus, { flush: "post" });
 </script>
 
 <template>
-  <UiBox class="agent-decisions" sticky-header data-testid="agent-decision-review">
+  <UiBox ref="boxRef" class="agent-decisions" sticky-header data-testid="agent-decision-review">
     <template #header>
       <UiBoxTitle
         :title="
@@ -99,6 +160,29 @@ watch([() => props.highlightId, decisions], revealHighlighted, { immediate: true
       />
       <AgentReviewFilter v-model="filter" />
     </template>
+    <UiSelectionBar
+      v-if="filter === 'pending' && decisionsLoaded && decisions.length > 0"
+      v-model="allSelected"
+      :label="t('knowledge.selectAllDecisionsInList')"
+      :select-text="t('knowledge.selectList')"
+      :group-label="t('knowledge.decisionBulkActions')"
+      :summary="t('knowledge.decisionsSelected', { count: selectedIds.length })"
+      :count="selectedIds.length"
+      :indeterminate="selectedIds.length > 0 && !allSelected"
+      :disabled="selectionBusy"
+      toolbar-testid="decision-batch-toolbar"
+      summary-testid="decision-selection-summary"
+    >
+      <UiButton variant="link" size="sm" :disabled="selectionBusy" @click="clearSelection">{{
+        t("knowledge.clearSelection")
+      }}</UiButton>
+      <UiButton size="sm" variant="primary" :disabled="selectionBusy" @click="reviewSelected('confirmed')">{{
+        t("knowledge.confirmSelected")
+      }}</UiButton>
+      <UiButton size="sm" :disabled="selectionBusy" @click="reviewSelected('rejected')">{{
+        t("knowledge.rejectSelected")
+      }}</UiButton>
+    </UiSelectionBar>
     <UiFlash v-if="decisionsError" tone="danger">{{ decisionsError }}</UiFlash>
     <UiSkeleton v-else-if="!decisionsLoaded" :count="3" :label="t('knowledge.loadingAgentAutonomousDecisions')" />
     <UiEmptyState
@@ -112,6 +196,7 @@ watch([() => props.highlightId, decisions], revealHighlighted, { immediate: true
     />
     <VirtualList
       v-else
+      ref="listRef"
       :items="orderedDecisions"
       :enabled="true"
       fit-viewport
@@ -132,6 +217,13 @@ watch([() => props.highlightId, decisions], revealHighlighted, { immediate: true
           data-testid="agent-decision-item"
         >
           <div class="agent-decisions__meta">
+            <UiCheckbox
+              v-if="filter === 'pending'"
+              :model-value="selectedIds.includes(item.id)"
+              :label="selectLabel(item)"
+              :disabled="selectionBusy || isReviewing(item.id)"
+              @update:model-value="selectItem(item.id, $event)"
+            />
             <UiLabel tone="attention">{{ t("knowledge.agentAutonomousDecisions") }}</UiLabel>
             <span>{{
               projectsStore.projects.find((project) => project.id === item.projectId)?.name ??
@@ -161,15 +253,30 @@ watch([() => props.highlightId, decisions], revealHighlighted, { immediate: true
               {{ item.sessionTitle ?? t("knowledge.openSourceSession") }}
             </UiButton>
             <div v-if="filter === 'pending'" class="agent-decisions__actions">
-              <UiButton size="sm" :icon="Check" @click="review(item, 'confirmed', projectRootFor(item))">{{
-                t("common.confirm")
-              }}</UiButton>
-              <UiButton size="sm" :icon="X" @click="review(item, 'rejected', projectRootFor(item))">{{
-                t("knowledge.reject")
-              }}</UiButton>
-              <UiButton size="sm" variant="primary" :icon="BookOpen" @click="promote(item)">{{
-                t("knowledge.turnIntoKnowledge")
-              }}</UiButton>
+              <UiButton
+                size="sm"
+                variant="primary"
+                :icon="Check"
+                :loading="isReviewing(item.id)"
+                :disabled="selectionBusy || isReviewing(item.id)"
+                @click="reviewOne(item, 'confirmed')"
+                >{{ t("common.confirm") }}</UiButton
+              >
+              <UiButton
+                size="sm"
+                :icon="X"
+                :disabled="selectionBusy || isReviewing(item.id)"
+                @click="reviewOne(item, 'rejected')"
+                >{{ t("knowledge.reject") }}</UiButton
+              >
+              <UiActionMenu
+                :label="t('knowledge.more')"
+                :items="moreItems"
+                variant="button"
+                size="sm"
+                align="end"
+                @select="promote(item)"
+              />
             </div>
           </div>
         </article>

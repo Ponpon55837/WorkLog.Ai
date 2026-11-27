@@ -4,11 +4,15 @@
 
 ```
 WORK       總覽 /dashboard · 工作歷程 /sessions (/worklog → redirect) · 工作報告 /reports/:tab?
-KNOWLEDGE  工作知識 /knowledge · 工作圖譜 /graph
+KNOWLEDGE  工作知識 /knowledge/:tab? (decisions | candidates | list | pages) · 工作圖譜 /graph
 MANAGE     專案 /projects/:tab?   (registry | backfill | import)
 ```
 
 Route meta: `{ title, navLabel, group, icon }`. The sidebar, breadcrumb and `PageHeader` read from it — never hard-code page titles in App.vue.
+
+工作知識 tabs are the route param (`/knowledge/:tab?`), never a query. A bare `/knowledge` opens 待確認決策 while pending decisions exist and Knowledge otherwise, without rewriting the URL; choosing a tab writes it explicitly, so Knowledge is `/knowledge/list`. Links into the Knowledge list name that tab.
+
+待確認決策 rows: 「確認」 is the only primary button, 「拒絕」 is default, and 「整理成 Knowledge」 sits in the row's 「更多」 menu. A human review cannot be reset to pending, so 「確認」 applies at once with no 「復原」, and every 「拒絕」 (single or 「拒絕所選」) asks first. The turn-into-Knowledge dialog starts with the content filled, the title and tags empty, and the cursor in the content.
 
 ## Page anatomy
 

@@ -89,9 +89,9 @@ function openAgentDecisionEditor(item: SessionDecisionRecord, project: ProjectRe
   useKnowledgeEditorStore().agentDecisionDraft = { decision: item, project, idempotencyKey: crypto.randomUUID() };
   useKnowledgeEditorStore().knowledgeEditorForm = {
     kind: "decision",
-    title: t("knowledge.decision", { value: item.text.slice(0, 72) }),
+    title: "",
     body: item.text,
-    tags: "agent-decision",
+    tags: "",
     references: "",
     appliesTo: "",
     status: "active",

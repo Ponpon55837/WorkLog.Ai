@@ -10,7 +10,7 @@ Location: `apps/web/src/components/ui/` (generic, `Ui*`), `components/layout/` (
 |---|---|
 | `AppShell` | Props `refreshing`, `counts` (sidebar counters by route name), `fullWidth`. Emits `refresh`, `search`. Slots: default (page), `overlays`. Mounts `UiConfirmHost` and `UiToastHost`, a "跳至主要內容" skip link, and a 2px top progress bar while a page chunk loads or `refreshing` is set (`useNavigationProgress`). |
 | `AppHeader` | Menu button (< 640px), `WI` logo (filled), crumb (`Work Intelligence /` muted, page name 500), search trigger with `Ctrl`/`⌘` and `K` as two keycaps, Local-first 6px dot (hidden < 640px), language `UiActionMenu` (label hidden < 640px), sun/moon theme `UiIconButton`, refresh `UiIconButton`. |
-| `AppSidebar` | Built from `layout/navigation.ts` (`navItems`, `navGroups`). Full ≥ 960, icon rail 640–959, drawer < 640. Nav links carry `data-testid="nav-<name>"`. `navTarget` / `isNavItemActive` handle the 未結項 entry, which is the `sessions` route with `tab=outstanding` (`g o`). |
+| `AppSidebar` | Built from `layout/navigation.ts` (`navItems`, `navGroups`). Counters come from `AppShell` `counts`: 未結項 is the pending total, 工作知識 is pending decisions plus candidates (`useWorkKnowledgePendingStore`). Full ≥ 960, icon rail 640–959, drawer < 640. Nav links carry `data-testid="nav-<name>"`. `navTarget` / `isNavItemActive` handle the 未結項 entry, which is the `sessions` route with `tab=outstanding` (`g o`). |
 | `PageHeader` | Props `title?` (defaults to route meta; 20px/600), `description?` (13px muted, single line, truncated, full text in `title`). Slot `actions`. One compact row; scrolls away with the page. |
 | `PageToolbar` | Sticky container for page search and/or `UiUnderlineNav`; publishes `--page-toolbar-height` for sticky Box headers. One per page. |
 
@@ -22,7 +22,8 @@ Location: `apps/web/src/components/ui/` (generic, `Ui*`), `components/layout/` (
 | `UiIconButton` | Required `icon`, `label`; `variant` (default `invisible`), `size`, `loading`, `disabled`. |
 | `UiCopyButton` | `text`, `label`, `successMessage`, `variant`, `size`, `iconOnly`. Toast + check-mark feedback. |
 | `UiTextInput` | `v-model`, `icon`, `type: text \| search \| date`, `placeholder`, `label`, `size`, `mono`, `maxlength`, `required`, `autofocus`. Slots `prefix`, `suffix`. |
-| `UiTextarea` | `v-model`, `rows`, `placeholder`, `maxlength`, `required`, `mono`. |
+| `UiTextarea` | `v-model`, `rows`, `placeholder`, `maxlength`, `required`, `mono`, `autofocus` (the dialog focus trap focuses the first `[autofocus]` element, so a dialog picks which field takes the cursor). |
+| `UiSelectionBar` | Select-all row of a list with bulk actions: `v-model` (all selected), `label`, `selectText` (shown while nothing is selected), `groupLabel`, `summary`, `count`, `indeterminate`, `disabled`, optional `toolbarTestid` / `summaryTestid`. The actions and the visible summary render only while `count > 0`; a visually hidden `role="status"` region stays mounted so the first selection is announced. Pair it with `useRowSelection` (selection state) and `useFocusRestore` (focus after rows leave the list); used by Open items and 待確認決策. |
 | `UiCheckbox` | Native checkbox. Required boolean `v-model` and accessible `label`; optional `disabled`, `indeterminate` for mixed group selection. |
 | `UiSelect` | Native select. `v-model`, `options: SelectOption[]`, `label`, `icon`, `size`, `disabled`. Use for forms/toolbars and anything e2e selects by label. |
 | `UiField` | `label`, `hint`, `error`, `group`; wraps one control. Pass `group` around a SegmentedControl or other button set: it renders a labelled `role="group"` instead of a `<label>`, which would name only the first button. |

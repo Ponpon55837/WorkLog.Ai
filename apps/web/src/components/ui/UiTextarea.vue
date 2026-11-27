@@ -2,7 +2,14 @@
 import { useFieldDescription } from "./field";
 
 withDefaults(
-  defineProps<{ rows?: number; placeholder?: string; maxlength?: number; required?: boolean; mono?: boolean }>(),
+  defineProps<{
+    rows?: number;
+    placeholder?: string;
+    maxlength?: number;
+    required?: boolean;
+    mono?: boolean;
+    autofocus?: boolean;
+  }>(),
   { rows: 4 },
 );
 
@@ -19,6 +26,7 @@ const describedBy = useFieldDescription();
     :maxlength="maxlength"
     :aria-describedby="describedBy"
     :required="required"
+    :autofocus="autofocus"
   ></textarea>
 </template>
 

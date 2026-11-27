@@ -57,8 +57,13 @@ const description = computed(() => {
   >
     <form id="knowledge-editor-form" class="knowledge-editor" @submit.prevent="saveKnowledge">
       <UiFlash v-if="knowledgeEditorError" tone="danger">{{ knowledgeEditorError }}</UiFlash>
-      <UiField :label="t('knowledge.title')"
-        ><UiTextInput v-model="knowledgeEditorForm.title" :maxlength="300" required autofocus
+      <UiField :label="t('knowledge.title')" :hint="knowledgeEditorCreating ? t('knowledge.titleHint') : undefined"
+        ><UiTextInput
+          v-model="knowledgeEditorForm.title"
+          :maxlength="300"
+          :placeholder="knowledgeEditorCreating ? t('knowledge.titlePlaceholder') : undefined"
+          required
+          :autofocus="!knowledgeEditorCreating"
       /></UiField>
       <div class="knowledge-editor__row">
         <UiField :label="t('common.kind')"
@@ -69,7 +74,12 @@ const description = computed(() => {
         /></UiField>
       </div>
       <UiField :label="t('common.body')"
-        ><UiTextarea v-model="knowledgeEditorForm.body" :rows="8" :maxlength="20000" required
+        ><UiTextarea
+          v-model="knowledgeEditorForm.body"
+          :rows="8"
+          :maxlength="20000"
+          required
+          :autofocus="knowledgeEditorCreating"
       /></UiField>
       <div class="knowledge-editor__row">
         <UiField :label="t('knowledge.tags')" :hint="t('knowledge.commaSeparated')"

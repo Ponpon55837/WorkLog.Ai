@@ -187,7 +187,7 @@ for (const locale of locales) {
     test(`has no critical or serious axe violations in the Knowledge editor dialog ${locale} @accessibility`, async ({
       page,
     }) => {
-      await page.goto("/knowledge");
+      await page.goto("/knowledge/list");
       const row = page.getByTestId("knowledge-row").filter({ hasText: knowledgeTitle }).first();
       await expect(row).toBeVisible();
       await row.getByRole("button", { name: textIn(locale, "knowledge.more") }).click();
