@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { inputErrorDetails, MAX_INPUT_PAYLOAD_BYTES, parseMcpInput } from "../../apps/mcp/src/input.js";
+import { finalizeSessionInputSchema, flattenInputError } from "@work-intelligence/schema";
+import { MAX_INPUT_PAYLOAD_BYTES, parseMcpInput } from "../../apps/mcp/src/input.js";
 
 describe("MCP input boundary", () => {
   const schema = z.object({ payload: z.string() });
@@ -151,11 +152,59 @@ describe("MCP input boundary", () => {
     expect(missing.success || unknown.success).toBe(false);
     if (missing.success || unknown.success) return;
 
-    const details = inputErrorDetails(missing.error);
+    const details = flattenInputError(missing.error);
     expect(details.fieldErrors.workSummary).toEqual([expect.stringMatching(/^scope: /)]);
     expect(details.fieldErrors.title?.[0]).not.toMatch(/^title: /);
-    expect(inputErrorDetails(unknown.error).fieldErrors.workSummary?.[0]).toMatch(
+    expect(flattenInputError(unknown.error).fieldErrors.workSummary?.[0]).toMatch(
       /^Unknown argument\(s\) in workSummary: extra/,
     );
+  });
+
+  it("reports the nested cause of a failed union instead of 'Invalid input'", () => {
+    const decisionsSchema = z.object({
+      workSummary: z.object({
+        decisions: z.array(
+          z.union([
+            z.string(),
+            z.strictObject({ text: z.string(), origin: z.enum(["user_requested", "agent_autonomous"]) }),
+          ]),
+        ),
+      }),
+    });
+    const wrong = parseMcpInput(decisionsSchema, {
+      workSummary: { decisions: [{ text: "x", origin: "user_directed" }] },
+    });
+    const plain = parseMcpInput(decisionsSchema, { workSummary: { decisions: ["plain"] } });
+    expect(plain.success).toBe(true);
+    expect(wrong.success).toBe(false);
+    if (wrong.success) return;
+
+    const message = flattenInputError(wrong.error).fieldErrors.workSummary?.[0] ?? "";
+    expect(message).toMatch(/^decisions\.0\.origin: /);
+    expect(message).toContain("user_requested");
+    expect(message).toContain("agent_autonomous");
+    expect(message).not.toBe("decisions.0: Invalid input");
+  });
+
+  it("explains a wrong decision origin in a finalize payload", () => {
+    const payload = {
+      projectRoot: "/p",
+      idempotencyKey: "k",
+      title: "t",
+      summary: "s",
+      changedFiles: [],
+      verification: { status: "passed" },
+      workSummary: {
+        outcomes: [],
+        scope: [],
+        verification: [],
+        nextSteps: [],
+        decisions: [{ text: "x", origin: "user_directed" }],
+      },
+    };
+    const parsed = parseMcpInput(finalizeSessionInputSchema, payload);
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    expect(flattenInputError(parsed.error).fieldErrors.workSummary?.join(" ")).toContain("decisions.0.origin");
   });
 });

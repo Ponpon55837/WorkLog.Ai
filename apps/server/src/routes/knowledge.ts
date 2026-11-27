@@ -12,6 +12,7 @@ import {
   sessionDecisionListQuerySchema,
   updateKnowledgeInputSchema,
   updateKnowledgePageInputSchema,
+  flattenInputError,
 } from "@work-intelligence/schema";
 import { KnowledgePageDeletionError } from "@work-intelligence/storage";
 import { numberParam, readJsonBody, readJsonObject, sendError, sendJson, textParam } from "../http.js";
@@ -21,7 +22,7 @@ import { parseRequestInput, validatedRoute, type Route, type RouteContext } from
 async function deleteKnowledgePage({ store, request, response, params }: RouteContext): Promise<void> {
   const parsed = parseRequestInput(deleteKnowledgePageInputSchema, await readJsonBody(request));
   if (!parsed.success) {
-    sendError(response, 400, "Invalid knowledge page deletion confirmation.", parsed.error.flatten());
+    sendError(response, 400, "Invalid knowledge page deletion confirmation.", flattenInputError(parsed.error));
     return;
   }
   try {

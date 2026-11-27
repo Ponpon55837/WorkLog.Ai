@@ -13,6 +13,7 @@ import {
   updateSessionTitleInputSchema,
   updateSessionVerificationInputSchema,
   updateSessionWorkSummaryInputSchema,
+  flattenInputError,
 } from "@work-intelligence/schema";
 import { SessionDeletionError } from "@work-intelligence/storage";
 import { numberParam, readJsonBody, readJsonObject, sendError, sendJson, textParam } from "../http.js";
@@ -22,7 +23,7 @@ import { parseRequestInput, validatedRoute, type Route, type RouteContext } from
 async function deleteSession({ store, request, response, params }: RouteContext): Promise<void> {
   const parsed = parseRequestInput(deleteSessionInputSchema, await readJsonBody(request));
   if (!parsed.success) {
-    sendError(response, 400, "Invalid session deletion confirmation.", parsed.error.flatten());
+    sendError(response, 400, "Invalid session deletion confirmation.", flattenInputError(parsed.error));
     return;
   }
   try {

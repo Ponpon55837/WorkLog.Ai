@@ -8,6 +8,7 @@ import {
   outstandingCleanupRequestIdSchema,
   outstandingCleanupRequestQuerySchema,
   submitOutstandingCleanupProposalsInputSchema,
+  flattenInputError,
 } from "@work-intelligence/schema";
 import { numberParam, readJsonObject, sendError, sendJson, textParam } from "../http.js";
 import { parseRequestInput, type Route, type RouteContext } from "./router.js";
@@ -51,7 +52,7 @@ function cleanupRoute<S extends z.ZodType>(
   return async (context) => {
     const parsed = parseRequestInput(schema, await input(context));
     if (!parsed.success) {
-      sendError(context.response, 400, "Invalid outstanding cleanup input.", parsed.error.flatten());
+      sendError(context.response, 400, "Invalid outstanding cleanup input.", flattenInputError(parsed.error));
       return;
     }
     sendResult(context.response, run(context, parsed.data), status);

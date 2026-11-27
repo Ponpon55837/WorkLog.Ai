@@ -1,4 +1,4 @@
-import { openPortSettingsInputSchema, SHELL_LOCALES } from "@work-intelligence/schema";
+import { openPortSettingsInputSchema, SHELL_LOCALES, flattenInputError } from "@work-intelligence/schema";
 import { z } from "zod";
 import { readJsonBody, sendError, sendJson } from "../http.js";
 import { parseRequestInput, type Route } from "./router.js";
@@ -15,7 +15,7 @@ export const desktopRoutes: Route[] = [
       // JSON-only like every POST, so a cross-site form cannot make the App open a window.
       const parsed = parseRequestInput(openAgentSetupInputSchema, (await readJsonBody(request)) ?? {});
       if (!parsed.success) {
-        sendError(response, 400, "Invalid request body.", parsed.error.flatten(), "invalid_input");
+        sendError(response, 400, "Invalid request body.", flattenInputError(parsed.error), "invalid_input");
         return;
       }
       if (!services.desktop) {
@@ -32,7 +32,7 @@ export const desktopRoutes: Route[] = [
     handler: async ({ request, response, services }) => {
       const parsed = parseRequestInput(openPortSettingsInputSchema, (await readJsonBody(request)) ?? {});
       if (!parsed.success) {
-        sendError(response, 400, "Invalid request body.", parsed.error.flatten(), "invalid_input");
+        sendError(response, 400, "Invalid request body.", flattenInputError(parsed.error), "invalid_input");
         return;
       }
       if (!services.desktop) {
@@ -52,7 +52,7 @@ export const desktopRoutes: Route[] = [
     handler: async ({ request, response, services }) => {
       const parsed = parseRequestInput(setLanguageInputSchema, (await readJsonBody(request)) ?? {});
       if (!parsed.success) {
-        sendError(response, 400, "Invalid request body.", parsed.error.flatten(), "invalid_input");
+        sendError(response, 400, "Invalid request body.", flattenInputError(parsed.error), "invalid_input");
         return;
       }
       if (!services.desktop) {
