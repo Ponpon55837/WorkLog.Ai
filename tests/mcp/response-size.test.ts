@@ -294,7 +294,6 @@ describe("synthetic MCP response-size baseline", () => {
     if (taskContext.outcome !== "context") throw new Error("Expected scoped task context.");
     expect(taskContext.knowledgePages).toHaveLength(0);
     expect(taskContext.relevant?.knowledgePages).toHaveLength(1);
-    // A decision shown in relevant.decisions is never repeated in recentDecisions.
     const relevantDecisionKeys = new Set(
       taskContext.relevant?.decisions.map((decision) => `${decision.sessionId}\u0000${decision.text}`),
     );
@@ -362,7 +361,6 @@ describe("synthetic MCP response-size baseline", () => {
     expect(recallFivePayload.hits.some((hit) => hit.title.includes("gotcha"))).toBe(true);
     expect(recallFivePayload.hits.some((hit) => hit.related?.length === 3)).toBe(true);
     expect(relatedLinks.every((link) => link.id && link.relation && !link.title)).toBe(true);
-    // A projectRoot recall names its project once; hits do not repeat it.
     expect(recallFive.value).toMatchObject({ project: { id: expect.any(String), name: expect.any(String) } });
     expect(Object.keys((recallFive.value as { project: object }).project)).toEqual(["id", "name"]);
     expect(recallFivePayload.hits.every((hit) => !("projectId" in hit) && !("projectName" in hit))).toBe(true);
@@ -564,7 +562,6 @@ describe("synthetic MCP response-size baseline", () => {
     expect(contextItems?.omitted).toBe((contextItems?.total ?? 0) - 5);
     expect(contextItems?.hint).toContain("仍未處理");
     expect(contextItems?.items.every((item) => item.text.length <= 240 && item.textTruncated === true)).toBe(true);
-    // A context item is an id, its source Session id and an excerpt; the source title is one read away.
     expect(contextItems?.items.every((item) => Object.keys(item).every((key) => CONTEXT_ITEM_KEYS.has(key)))).toBe(
       true,
     );
@@ -608,7 +605,6 @@ describe("synthetic MCP response-size baseline", () => {
     expect(related.total).toBeGreaterThan(0);
     expect(related.items.length).toBeLessThanOrEqual(5);
     expect(related.items.every((item) => item.text.length <= 400 && item.textTruncated === true)).toBe(true);
-    // Finalize pointers have the work_get_context shape: the source title and date are one read away.
     expect(related.items.every((item) => Object.keys(item).every((key) => CONTEXT_ITEM_KEYS.has(key)))).toBe(true);
     expect(related.items.map((item) => item.id)).not.toContain(supersededItem.id);
     expect(related.items.every((item) => item.sourceSessionId !== finalizeValue.session.id)).toBe(true);
@@ -666,7 +662,6 @@ describe("synthetic MCP response-size baseline", () => {
       if (recorded.outcome !== "knowledge_recorded") throw new Error("Expected synthetic path Knowledge.");
       ids.push(recorded.knowledge.id);
     }
-    // A later Session changed the covered files, so every rule is possiblyStale.
     vi.setSystemTime(Date.now() + 60_000);
     const later = store.finalizeSession({
       projectRoot,
@@ -799,14 +794,12 @@ describe("synthetic MCP response-size baseline", () => {
       "packages/ledger/src/settlement-0.ts",
       expect.stringMatching(/^apps\/console\/src\/views\//),
     ]);
-    // Nothing in the receipt depends on the OS or the temp directory: paths are project-relative.
     expect(text).not.toContain(projectRoot);
     expect(text).not.toContain(tmpdir());
     for (const echoed of [args.title, summary, ...workSummary.outcomes, changedFiles[5]!]) {
       expect(text).not.toContain(echoed);
     }
 
-    // Without a startedAt the receipt adds the evidence-only follow-up, which stays within its own small allowance.
     const { startedAt: _startedAt, ...withoutStart } = args;
     const missing = await client.callTool({
       name: "work_write_idempotent",
@@ -823,7 +816,6 @@ describe("synthetic MCP response-size baseline", () => {
       RESPONSE_BUDGETS.finalizeReceipt + RESPONSE_BUDGETS.startedAtFollowUp,
     );
 
-    // Without statuses the receipt asks for them with a count (no echo of the paths) and a suggested call.
     const { changedFileChanges: _changes, ...withoutStatuses } = args;
     const unstated = await client.callTool({
       name: "work_write_idempotent",
@@ -975,12 +967,10 @@ describe("synthetic MCP response-size baseline", () => {
         ["changedFilesCount", "completedAt", "executionStatus", "id", "updatedAt", "verificationStatus"].sort(),
       );
       expect(result.structuredContent).toMatchObject({ sessionId, verification: { status: "passed" } });
-      // Nothing the Agent sent or read before is echoed back, and paths stay project-relative.
       for (const echoed of call.echoed) expect(text, call.operation).not.toContain(echoed);
       expect(text).not.toContain(projectRoot);
     }
     console.info(`Session update receipt sizes (characters): ${JSON.stringify(sizes)}`);
-    // Storage and REST keep the complete result.
     expect(store.getSessionDetail(sessionId)?.session).toMatchObject({
       title: "Settle fictional ledger rounding after the correction",
       summary: sentence("corrected summary"),
@@ -1636,13 +1626,11 @@ describe("synthetic MCP response-size baseline", () => {
         reviewReasons: ["source_updated_after_save"],
       }),
     );
-    // Omission pointers name a page and its flag only; review detail stays with work_get_knowledge_page_context.
     const taskOmitted = (taskContext.value as { omitted?: Array<{ section: string; entries?: unknown[] }> }).omitted;
     const serializedOmitted = JSON.stringify(taskOmitted ?? []);
     expect(serializedOmitted).not.toContain("reviewSections");
     expect(serializedOmitted).not.toContain("sourceSessionIds");
     expect(serializedOmitted.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.contextOmitted);
-    // The matched page is counted as shown; the other pages keep only their id and review flag.
     const pageOmission = taskOmitted?.find((section) => section.section === "knowledgePages");
     expect(pageOmission).toMatchObject({ duplicates: 1 });
     expect(pageOmission?.entries).toHaveLength(2);
@@ -1741,7 +1729,6 @@ describe("synthetic MCP response-size baseline", () => {
       existingSlugs: ["architecture", "pitfalls", "response-budget"],
     });
     expect(typo.value).toMatchObject({ reasonCode: "slug_near_match", suggestedSlug: "pitfalls" });
-    // The cause lands in the read audit as a code; the outcome stays not_found.
     expect(
       store
         .listAgentReads({})
@@ -1831,7 +1818,6 @@ describe("synthetic MCP response-size baseline", () => {
     const idle = await serializedMcpPayload(client, "work_get_knowledge_page_context", { ...target, reviewOnly: true });
     expect(idle.value).toMatchObject({ review: "none", sections: [], sessions: [] });
 
-    // Fixture Session 3 changed example-3, so a later Session changing it maps to Topic 3 only.
     finalizeLater("review-only-mapped", [`packages/example-3/src/context.ts`]);
     for (let index = 0; index < 5; index += 1) finalizeLater(`review-only-other-${index}`, [`docs/other-${index}.md`]);
 
@@ -1944,7 +1930,6 @@ describe("synthetic MCP response-size baseline", () => {
     expect(context.instructions).toBeUndefined();
     expect(context.sessionReadWith).toBe("work_get_session");
     expect(context.omittedSessionFields).toEqual(["summary", "workSummary.scope", "workSummary.verification"]);
-    // All 20 fixture Sessions fit, and the current page keeps the ids its sections cite.
     expect(context.truncated).toBe(false);
     expect(context.sessions).toHaveLength(20);
     expect(context.page.sections[0]!.sourceSessionIds).toHaveLength(1);
@@ -2005,7 +1990,6 @@ describe("synthetic MCP response-size baseline", () => {
       { outcome: "knowledge_strict", errorCode: undefined },
       { outcome: "knowledge_relaxed", errorCode: undefined },
     ]);
-    // The relaxed records were returned to the Agent, so the audit lists them although the scoped items omit projectId.
     expect(reads[1]!.knowledgeIds.sort()).toEqual(value.relaxedMatches.map((match) => match.id).sort());
   });
 
@@ -2134,7 +2118,6 @@ describe("synthetic MCP response-size baseline", () => {
 
     const value = handoff.value as { session: { files?: Array<Record<string, unknown>>; changedFiles?: unknown } };
     expect(value.session).not.toHaveProperty("changedFiles");
-    // Storage records a rename's old path as a changed file too, so it gets an entry of its own.
     expect(value.session.files?.map((file) => file.path)).toEqual([...paths, "packages/cedar/src/legacy/service.ts"]);
     expect(value.session.files?.[0]).toEqual({
       path: paths[0],
@@ -2371,14 +2354,12 @@ describe("Agent report response budgets", () => {
       expect(later.raw.length).toBeLessThanOrEqual(24_000);
       expect(later.value.reportBlockOnSessionPage).toBe(1);
       expect(Object.keys(later.value.report).sort()).toEqual(["evidence", "evidencePageInfo"]);
-      // Apart from the evidence of its own Sessions, a later page carries only page info of the report.
       expect(
         JSON.stringify(later.value.report).length - JSON.stringify(later.value.report.evidence).length,
       ).toBeLessThan(250);
       for (const session of later.value.sessions) seen.add(session.id);
     }
     expect(seen.size).toBe(20);
-    // A direct read of page 1 (a resumed Agent) returns the same block again.
     expect((await page(1)).value.report).toEqual(first.value.report);
   });
 });
@@ -2389,7 +2370,6 @@ describe("Pending report source pointers", () => {
     const request = store.createReportSynthesisRequest({ period: "week", date: "2026-09-01", projectId });
     if (request.outcome !== "report_synthesis_request") throw new Error("Missing request");
     const ids = Array.from({ length: 5_000 }, (_, i) => `fictional-import-source-${i.toString().padStart(5, "0")}`);
-    // Imported snapshots can contain unavailable IDs. Only pointers are exposed here; source policy is checked in context/full reads.
     (store as unknown as { db: DatabaseSync }).db
       .prepare("UPDATE report_synthesis_requests SET source_session_ids_json=? WHERE id=?")
       .run(JSON.stringify(ids), request.request.id);

@@ -14,7 +14,6 @@ import { downloadText } from "../../utils/download";
 import { errorMessage } from "../../utils/format";
 import { locale, t } from "../../i18n";
 
-/** Prepares a gated snapshot, then copies during a separate user gesture with a manual fallback. */
 const props = withDefaults(
   defineProps<{ summaryId?: string; revision?: number; disabled?: boolean; size?: "md" | "sm" }>(),
   { size: "md" },

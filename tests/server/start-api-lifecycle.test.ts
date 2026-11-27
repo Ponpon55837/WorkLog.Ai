@@ -7,7 +7,6 @@ import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 import { preflightDatabase, type DatabaseIdentity } from "../../apps/server/src/database-preflight.js";
 import { readProjectCount, startApi, StartApiError, type StartedApi } from "../../apps/server/src/start-api.js";
 
-// In-process startApi on free ports and temp files only. Fictional values only.
 const roots: string[] = [];
 const servers: Server[] = [];
 const apis: StartedApi[] = [];
@@ -144,7 +143,6 @@ describe("startApi when setting up the service throws", () => {
 
     expect(process.exitCode).toBe(1);
     expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain("/synthetic/secret");
-    // The store was closed: the file can be opened exclusively again.
     new WorkIntelligenceStore(database.path).close();
     vi.doUnmock("../../apps/server/src/backup-worker-client.js");
     vi.resetModules();

@@ -8,7 +8,6 @@ export type Toast = { id: number; message: string; tone: ToastTone };
 const TIMEOUT_MS = 4_000;
 const MAX_TOASTS = 4;
 
-/** Short notices shown by UiToastHost; each disappears after a few seconds, and only the newest few stay. */
 export const useToastsStore = defineStore("toasts", () => {
   const toasts = ref<Toast[]>([]);
   let nextId = 1;

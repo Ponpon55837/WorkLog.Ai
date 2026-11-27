@@ -11,13 +11,6 @@ import {
 } from "../../packages/schema/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-/*
- * Replays legal write requests in every shape older Agents sent, so a stricter server never turns one of them into a
- * refusal. The corpus is generated from a fixed seed over fictional data; the same seed always yields the same
- * requests. Requests that contradict themselves are listed apart with the outcome each one gets.
- */
-
-// Fictional fixtures only.
 const SEED = 440;
 const GENERATED_OPERATIONS = 160;
 const SUCCESS_OUTCOMES: Record<string, ReadonlySet<string>> = {
@@ -31,7 +24,6 @@ const SUCCESS_OUTCOMES: Record<string, ReadonlySet<string>> = {
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
-/** mulberry32: a small deterministic generator, so the corpus never depends on Math.random. */
 function seededRandom(seed: number): () => number {
   let state = seed >>> 0;
   return () => {

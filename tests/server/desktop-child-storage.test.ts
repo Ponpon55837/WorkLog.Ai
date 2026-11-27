@@ -6,7 +6,6 @@ import {
 } from "../../apps/server/src/desktop-child.js";
 import type { StartedApi } from "../../apps/server/src/start-api.js";
 
-// DT-08 messages of the desktop child with a fake host: `update-facts` and `copy-database`. Fictional values only.
 const RUN_ID = "synthetic-run-id-0123456789abcdef-storage";
 const IDENTITY = { realPath: "/synthetic/work.sqlite", fileId: { device: "1", inode: "2" }, lineageId: "b".repeat(64) };
 const START = {

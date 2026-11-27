@@ -33,9 +33,7 @@ const projects = () => [
 
 interface Conversation {
   cwd?: string;
-  /** Tool calls: Work Intelligence calls name `projectRoot`, file tools name a file. */
   tools?: { name: string; input: unknown }[];
-  /** Extra lines that only carry a cwd (user lines). */
   cwdLines?: string[];
   input?: number;
   output?: number;
@@ -192,7 +190,6 @@ describe("resolveUsageSources", () => {
     expect(group?.projectIds).toEqual(["a", "d", "w"]);
     expect(group?.claudeFolders).toEqual([sharedFolder, `${sharedFolder}--claude-worktrees-feature`]);
     expect(group?.codexFiles).toEqual([atRoot]);
-    // The project's own folder and rollout stay its own; nothing is reported as a problem for a grouped project.
     expect(result.projects[0]?.claudeFolders).toHaveLength(1);
     expect(result.projects[0]?.codexFiles).toHaveLength(1);
     expect(result.projects[1]?.problem).toBeUndefined();
@@ -280,7 +277,6 @@ describe("allocation of shared conversations", () => {
       conversations: 1,
       byBasis: { projectRoot: 0, filePaths: 1, cwd: 0 },
     });
-    // Two hits are too few, and an even split has no project above half: both stay unallocated.
     expect(group.unallocated.conversations).toBe(2);
   });
 
@@ -408,7 +404,6 @@ describe("selection and conservation", () => {
     expect(group.unallocated.included).toBe(false);
     expect(allocatedOf(group, "a")).toMatchObject({ included: false, conversations: 1 });
     expect(allocatedOf(group, "d")).toMatchObject({ included: true, conversations: 1 });
-    // The statistics still describe the whole source.
     expect(group.unallocated.conversations).toBe(2);
     const two = await scan(["a", "d"]);
     expect(two.report.total.tokens.input).toBe(300);

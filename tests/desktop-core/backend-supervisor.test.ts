@@ -231,7 +231,6 @@ describe("failures before the child exists", () => {
     const harness = makeHarness({ scripts: [{ hello: false }] });
     const started = harness.supervisor.start(startRequest());
     await settle();
-    // A child that failed to spawn never got a pid.
     if (harness.children[0]) harness.children[0].pid = undefined;
     harness.children[0]?.emit("error", Object.assign(new Error("spawn failed"), { code: "ENOENT" }));
     const result = await started;
@@ -1109,7 +1108,6 @@ describe("masking of captured output", () => {
 describe("health checks of a running backend (L-09)", () => {
   const EVERY = 1000;
 
-  /** A harness whose health endpoint answers like a genuine child until `stuck.on`, then not at all. */
   function stuckHarness(monitorMs = EVERY) {
     const stuck = { on: false };
     const harness = makeHarness({

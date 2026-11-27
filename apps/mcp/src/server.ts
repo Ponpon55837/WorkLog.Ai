@@ -138,15 +138,11 @@ interface StoreToolDefinition<S extends z.ZodType> {
   description: string;
   /** Advertised input shape; may be the unrefined base object of `schema`. */
   inputShape: z.ZodObject["shape"];
-  /** Full validation schema, including cross-field refinements. */
   schema: S;
   annotations: ToolAnnotations;
-  /** Rules that are enforced by runtime refinements or handler logic rather than JSON Schema alone. */
   validationNotes?: readonly string[];
   invalidMessage: string;
-  /** Session-shaped results also expose sessionId/verification as structuredContent. */
   sessionResult?: boolean;
-  /** Attach the process build status to this operation's result. */
   includeServerStatus?: boolean;
   run: (
     input: z.infer<S>,
@@ -159,10 +155,7 @@ interface StoreToolDefinition<S extends z.ZodType> {
       observedChangedFileChanges?: GitObservedChanges;
     },
   ) => unknown;
-  /**
-   * Shapes the result for the Agent once the write has committed, so reminders that storage attaches after the
-   * commit are included.
-   */
+  /** Runs after the write commits, so reminders that storage attaches after the commit are included. */
   present?: (result: unknown, input: z.infer<S>) => unknown;
 }
 
@@ -208,7 +201,6 @@ type OutstandingItemsResponse = Omit<OutstandingItemListPage, "items"> & {
   };
 };
 
-/** Reads only the central SQLite; nothing outside the tracked-project registry is touched. */
 const READ_ONLY: ToolAnnotations = { readOnlyHint: true, openWorldHint: false };
 const COMPACT_KNOWLEDGE_VIEW = {
   view: "compact",
@@ -234,21 +226,18 @@ const OUTSTANDING_ITEM_DISPLAY_FIELDS: readonly OutstandingItemDisplayField[] = 
   { key: "createdAt", marker: "createdAtTruncated" },
   { key: "updatedAt", marker: "updatedAtTruncated" },
 ];
-/** Adds records or advances request state; retrying the same payload has no further effect. */
 const ADDITIVE_IDEMPOTENT: ToolAnnotations = {
   readOnlyHint: false,
   destructiveHint: false,
   idempotentHint: true,
   openWorldHint: false,
 };
-/** Creates a new record or attempt on every call. */
 const ADDITIVE: ToolAnnotations = {
   readOnlyHint: false,
   destructiveHint: false,
   idempotentHint: false,
   openWorldHint: false,
 };
-/** Can replace existing values (the previous state stays in audit history where the tool says so). */
 const OVERWRITE_IDEMPOTENT: ToolAnnotations = {
   readOnlyHint: false,
   destructiveHint: true,
@@ -396,10 +385,7 @@ function dispatcherForAnnotations(annotations: ToolAnnotations): ToolDispatcherD
   return dispatcher;
 }
 
-/**
- * Advertises only this dispatcher's operations but parses every registered name, so a call to the wrong
- * dispatcher reaches the handler and is told which dispatcher serves it.
- */
+/** Parses every registered name, so a call to the wrong dispatcher reaches the handler and is told which one serves it. */
 function createDispatcherSchema(operations: readonly RegisteredStoreTool[], allNames: readonly string[]) {
   const [first, ...rest] = operations.map((operation) => operation.name);
   const [firstAny, ...restAny] = allNames;
@@ -496,14 +482,13 @@ function isRestartRequiredError(error: unknown): boolean {
   );
 }
 
-/** A fixed audit code for a failed read; the error's message is never stored. */
+/** A fixed audit code; the error's message is never stored. */
 function readErrorCode(error: unknown): string {
   if (isRestartRequiredError(error)) return "restart_required";
   if (isDatabaseBusyError(error)) return "database_busy";
   return "internal_error";
 }
 
-/** The curated response for a failure the Agent is told about; undefined for an unknown error, which is rethrown. */
 function failureResponse(error: unknown) {
   if (isRestartRequiredError(error)) {
     return {
@@ -515,7 +500,6 @@ function failureResponse(error: unknown) {
       }),
     };
   }
-  // Busy, read-only and disk-full writes changed nothing; each has a stable code and curated text.
   const unavailable = databaseUnavailableReason(error);
   if (!unavailable) return undefined;
   return {
@@ -536,7 +520,6 @@ function auditRead(store: WorkIntelligenceStore, input: Parameters<WorkIntellige
   }
 }
 
-/** How the Agent learns about a database that did not open: retried on each call, or kept until restart. */
 function startupFailureInstructions(failure: McpStartupFailure | undefined, retried: boolean): string {
   if (!failure) return "";
   const recovery =
@@ -546,17 +529,12 @@ function startupFailureInstructions(failure: McpStartupFailure | undefined, retr
   return ` Database startup failed (${failure.code}): ${failure.message} ${recovery}`;
 }
 
-/**
- * The store is passed directly (tests and embedders), as an McpStoreAccess that reopens it after a transient
- * startup failure, or as null with the startup failure every tool answers.
- */
 export function createWorkIntelligenceMcpServer(
   storeOrAccess: WorkIntelligenceStore | McpStoreAccess | null,
   version: string,
   schemaVersion: number,
   startupFailure?: McpStartupFailure,
   getRestartStatus: () => McpRestartStatus = () => ({ restartRequired: false, monitoringAvailable: false }),
-  /** Injection point so tests never depend on the machine's git. */
   runGit?: GitRunner,
 ): McpServer {
   if (!storeOrAccess && !startupFailure) {
@@ -564,7 +542,6 @@ export function createWorkIntelligenceMcpServer(
   }
 
   const access = storeOrAccess instanceof McpStoreAccess ? storeOrAccess : undefined;
-  // Assigned from the access on each call once the database opens; the tool definitions read it when they run.
   let store = (access ? undefined : storeOrAccess) as WorkIntelligenceStore;
   const failureInstructions = startupFailureInstructions(access ? access.startupFailure : startupFailure, !!access);
   const instructions = `${serverInstructions} Application version: ${version}; schema version: ${schemaVersion}.${failureInstructions}`;
@@ -572,7 +549,6 @@ export function createWorkIntelligenceMcpServer(
   registerAgentResources(server);
   const registeredStoreTools = new Map<string, RegisteredStoreTool>();
   const segmentObserver = new SegmentObserver();
-  // One per server process (the launcher's child), so reads of concurrent works by one client name stay apart.
   const connectionId = randomUUID();
 
   function resolveStore(): StoreResolution {
@@ -685,7 +661,6 @@ export function createWorkIntelligenceMcpServer(
           ) {
             segmentObserver.reset(observedRoot);
           }
-          // The update carries no projectRoot, so the project comes from the Session it completed.
           if (name === "work_update_session_metadata" && (parsed.data as { completedAtNow?: unknown }).completedAtNow) {
             const updated = stored as { outcome?: unknown; session?: { projectId?: string } } | null;
             const completedRoot =
@@ -696,7 +671,6 @@ export function createWorkIntelligenceMcpServer(
           }
           const presented = definition.present ? definition.present(stored, parsed.data) : stored;
           const result = withMatchingProjects(presented, observedRoot, (root) => store.matchingProjects(root));
-          // The read's duration ends here: formatting the response below is not part of the read.
           const durationMs = performance.now() - startedAt;
           const output =
             definition.includeServerStatus || !definition.annotations.readOnlyHint
@@ -704,8 +678,6 @@ export function createWorkIntelligenceMcpServer(
               : result;
           const response = definition.sessionResult ? sessionTextResult(output) : textResult(output);
           if (readOnly) {
-            // Passive audit of what this read returned (ids only), how long it took, and how many characters the
-            // final response carries; never affects the response.
             auditRead(store, {
               tool: name,
               agentClient,
@@ -740,8 +712,6 @@ export function createWorkIntelligenceMcpServer(
       },
     });
   }
-
-  // ── Project and Session ────────────────────────────────────────────────
 
   registerStoreTool("work_get_project_status", {
     title: "Get project recording status",
@@ -923,7 +893,6 @@ export function createWorkIntelligenceMcpServer(
       const result = store.listOutstandingItems(input);
       if (result.outcome !== "outstanding_items") return result;
       const response = budgetOutstandingItemsResponse(result);
-      // A shortened project name differs per row only in its marker; such a page keeps per-row names.
       if (!input.projectRoot || response.items.some((item) => item.projectNameTruncated)) return response;
       const { project, items } = hoistItemProject(response.items);
       const { outcome, ...page } = response;
@@ -1181,8 +1150,6 @@ export function createWorkIntelligenceMcpServer(
     run: (input) => store.attachDiagram(input),
   });
 
-  // ── Knowledge ──────────────────────────────────────────────────────────
-
   registerStoreTool("work_record_knowledge", {
     title: "Record explicit work knowledge",
     description:
@@ -1208,7 +1175,6 @@ export function createWorkIntelligenceMcpServer(
       if (result.outcome !== "knowledge") return result;
       const view = compact ? COMPACT_KNOWLEDGE_VIEW : {};
       if (!result.project) return { ...result, ...view };
-      // A scoped search names its project once; projects would only repeat it.
       return {
         outcome: result.outcome,
         project: scopeProject(result.project),
@@ -1342,8 +1308,6 @@ export function createWorkIntelligenceMcpServer(
     run: (input) => store.markKnowledgePageChecked(input),
   });
 
-  // ── Graph and reports ──────────────────────────────────────────────────
-
   registerStoreTool("work_get_graph", {
     title: "Get deterministic work graph",
     description:
@@ -1392,8 +1356,6 @@ export function createWorkIntelligenceMcpServer(
     invalidMessage: "Invalid report export query.",
     run: (input) => store.exportReport(input),
   });
-
-  // ── Report synthesis requests ──────────────────────────────────────────
 
   registerStoreTool("work_request_report_synthesis", {
     title: "Create a report synthesis request",
@@ -1483,8 +1445,6 @@ export function createWorkIntelligenceMcpServer(
     run: (input) => store.cancelReportSynthesisRequest(input.requestId),
   });
 
-  // ── Metadata backfill ──────────────────────────────────────────────────
-
   registerStoreTool("work_preview_metadata_backfill", {
     title: "Preview session metadata backfill",
     description:
@@ -1562,8 +1522,6 @@ export function createWorkIntelligenceMcpServer(
     run: (input) => store.cancelMetadataBackfillRequest(input.requestId),
   });
 
-  // ── Historical handoff import ──────────────────────────────────────────
-
   registerStoreTool("work_preview_handoff_import", {
     title: "Preview historical handoff import",
     description:
@@ -1588,8 +1546,6 @@ export function createWorkIntelligenceMcpServer(
 
   registerToolDispatchers(server, registeredStoreTools);
   registerToolContractsResource(server, [...registeredStoreTools.values()]);
-
-  // ── Prompts: one-step entry points for common natural-language flows ───
 
   server.registerPrompt(
     "finalize-work",

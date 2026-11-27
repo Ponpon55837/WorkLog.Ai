@@ -30,7 +30,6 @@ interface EvaluationCase {
   nearMiss: Omit<SessionFixture, "type">;
 }
 
-// Fictional examples only. The private 36-question evaluation and its source data are not included.
 const evaluationCases: EvaluationCase[] = [
   {
     key: "k-orchard-frost",
@@ -438,7 +437,6 @@ describe("synthetic retrieval quality regression", () => {
     const metric = summarize(measured)[category];
     expect(metric.count).toBe(4);
     expect(metric.hitAt5).toBeGreaterThanOrEqual(0.75);
-    // Raw-only answers use the deliberately lower-weight raw field and rank behind a close title match.
     expect(metric.mrr).toBeGreaterThanOrEqual(category === "R" ? 0.5 : 0.7);
   });
 
@@ -1281,8 +1279,7 @@ describe("synthetic related outstanding-item retrieval quality", () => {
   });
 });
 
-// Knowledge linked to files only through appliesTo (no references, no shared words with the query) must be found by
-// paths alone. Fictional targets; the established K/S/R/N/P baseline above is not mixed with these cases.
+// Knowledge linked only through appliesTo must be found by paths alone; keep it out of the K/S/R/N/P baseline too.
 describe("synthetic appliesTo path retrieval quality", () => {
   const appliesToCases = [
     {

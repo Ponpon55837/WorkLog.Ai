@@ -5,10 +5,6 @@ import { projectDataExportTableColumns } from "../../packages/schema/src/index.j
 import { initializeWorkIntelligenceDatabase } from "../../packages/storage/src/database-initialization.js";
 import { REDACTED_TEXT_FIELDS } from "../../packages/storage/src/database-redaction.js";
 
-/**
- * Tables that deliberately stay out of the portable project export. Everything else holds project data and
- * must be exported, imported, and removed by permanent project deletion. Adding a table here needs a reason.
- */
 const NOT_PROJECT_DATA: Record<string, string> = {
   schema_migrations: "schema version bookkeeping",
   search_chunks: "search index and derived raw-content hashes, rebuilt from the source rows",
@@ -29,7 +25,6 @@ const NOT_PROJECT_DATA: Record<string, string> = {
   change_revisions: "single-row internal database and notification revision bookkeeping, not project data",
 };
 
-/** Project data tables with no free text for db:redact to scan. Adding one here needs a reason. */
 const NO_FREE_TEXT: Record<string, string> = {
   projects: "name, root path, and https repository URL (credentials rejected) are chosen by the user in the Web UI",
   session_links: "ids, relation, and source only",
@@ -91,9 +86,6 @@ describe("project data coverage", () => {
   });
 
   it("keeps the read audit's response size a content-free number outside export and db:redact", () => {
-    // response_chars is an integer character count only: never content, so db:redact has nothing to scan, and the
-    // read audit stays out of the portable export (NOT_PROJECT_DATA). Retention pruning and permanent project
-    // deletion remove whole rows, so the column needs no handling of its own there.
     const info = db.prepare("PRAGMA table_info(agent_read_audit)").all() as Array<{
       name: string;
       type: string;

@@ -66,7 +66,6 @@ describe("in-progress verification", () => {
     finalize("passed", "passed");
     finalize("failed", "failed");
     finalize("not-run", "not_run");
-    // Historical imports may omit verification; never rewrite their missing value.
     const missing = store.finalizeSession({
       projectRoot: project.rootPath,
       idempotencyKey: "legacy",

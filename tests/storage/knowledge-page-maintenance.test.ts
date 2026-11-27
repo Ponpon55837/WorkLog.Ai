@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { KnowledgePageSection } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -30,7 +29,6 @@ function setup(databasePath = ":memory:") {
   store.updateProject(other.id, { status: "tracked" });
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(Date.UTC(2030, 0, 1));
-  // Each write happens one minute after the previous one so "newer than" comparisons are strict.
   const tick = () => vi.setSystemTime(Date.now() + 60_000);
   const finalize = (key: string, rootPath = projectRoot) => {
     tick();
@@ -53,7 +51,6 @@ function setup(databasePath = ":memory:") {
   return { store, root, projectRoot, otherRoot, project, finalize, tick, sections };
 }
 
-/** Narrows a default (non-focused) read for assertions. */
 function fullContext(result: ReturnType<WorkIntelligenceStore["getKnowledgePageContext"]>) {
   if (result.outcome !== "knowledge_page_context" || "focused" in result || "reviewOnly" in result) {
     throw new Error(`Expected a default knowledge page context, received ${JSON.stringify(result).slice(0, 120)}`);
@@ -74,7 +71,6 @@ const workSummary = (outcome: string) => ({
 });
 
 describe("Knowledge page maintenance", () => {
-  /** A page written once, citing one Session. */
   function writtenPage(slug = "pitfalls") {
     const context = setup();
     const { store, projectRoot, finalize, sections } = context;
@@ -122,7 +118,6 @@ describe("Knowledge page maintenance", () => {
       fullContext(store.getKnowledgePageContext({ projectRoot, slug })).sessions.map((session) => session.id),
     ).toEqual([three, four]);
 
-    // The cursor never moves back, and a refused move changes nothing.
     expect(store.markKnowledgePageChecked({ projectRoot, slug, throughSessionId: one! })).toMatchObject({
       outcome: "invalid_cursor",
     });

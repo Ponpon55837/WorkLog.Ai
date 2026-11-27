@@ -37,7 +37,6 @@ describe("the port probe before a start", () => {
   });
 });
 
-/** Makes the fake child answer `activity-query` with `reply(requestId)` messages, in order. */
 function answerActivity(harness: Harness, reply: (requestId: unknown) => Record<string, unknown>[]): void {
   const child = harness.children[0];
   if (!child) throw new Error("no child");

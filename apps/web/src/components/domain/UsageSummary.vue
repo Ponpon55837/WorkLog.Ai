@@ -9,7 +9,6 @@ import { useUsageStore } from "../../stores/usage";
 import { formatCount, formatPercent, formatTokens } from "../../utils/format";
 import { t } from "../../i18n";
 
-/** Headline card with its daily sparkline and the 5-hour block, then the compact secondary figures. */
 const usageStore = useUsageStore();
 const { scanResult: result, dailyPoints } = storeToRefs(usageStore);
 

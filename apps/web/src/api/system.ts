@@ -9,7 +9,6 @@ export interface SystemApi {
   pickFolder(): Promise<FolderPickResult>;
   /** Desktop App only: asks the App to open its Agent setup window; never writes Agent settings. */
   openDesktopAgentSetup(): Promise<{ ok: true }>;
-  /** Desktop App only: asks the App to open its port settings with this page's whitelisted preferences and route. */
   openDesktopPortSettings(handoff: { preferences: BrowserPreferences; route: string }): Promise<{ ok: true }>;
   /** Desktop App only: tells the App which language the user picked here ("en" is this page's "en-US"). */
   setDesktopLanguage(locale: "zh-TW" | "en"): Promise<{ ok: true }>;

@@ -11,7 +11,6 @@ function inputError(message: string): z.ZodError {
   return new z.ZodError([{ code: CUSTOM_ISSUE_CODE, path: [], message }]);
 }
 
-/** Field errors keep the nested path (`scope: …` under `workSummary`), so an Agent can fix the exact key. */
 export function inputErrorDetails(error: z.ZodError): {
   formErrors: string[];
   fieldErrors: Record<string, string[] | undefined>;

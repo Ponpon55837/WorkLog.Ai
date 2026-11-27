@@ -1,4 +1,3 @@
-// The main-process modules this test loads use the desktop build flags; declare them as the desktop build does.
 /// <reference path="../../apps/desktop/src/main/build-flags.d.ts" />
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,11 +11,6 @@ import {
   type BackendInfo,
   type DesktopSettingsV1,
 } from "../../packages/desktop-core/src/index.js";
-
-/**
- * The migration hold the desktop smoke test gives the backend child (R06): it is passed to the child only by a test
- * build that is not packaged, and nothing in the user's own environment can reach the child. Synthetic data only.
- */
 
 const HOLD_VARIABLE = "WORK_INTELLIGENCE_DESKTOP_TEST_HOLD_MIGRATION_FILE";
 const CHILD_VARIABLE = "WORK_INTELLIGENCE_TEST_HOLD_MIGRATION_FILE";

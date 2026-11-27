@@ -14,7 +14,6 @@ import {
 import { normalizePath, projectRelativePath } from "../../packages/storage/src/search-text.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional patterns and paths only. The limits the product enforces on what reaches matching:
 const MAX_PATTERN = 1_000;
 const MAX_STARS = 16;
 const MAX_ENTRIES = 30;
@@ -33,7 +32,6 @@ interface HostileCase {
 
 const cleanups: Array<() => void> = [];
 
-/** Small deterministic generator so every run and platform sees the same cases. */
 function seeded(seed: number): () => number {
   let state = seed;
   return () => {
@@ -42,12 +40,10 @@ function seeded(seed: number): () => number {
   };
 }
 
-/** Stars as the bound counts them, worked out independently: `**` (with its slash) runs fold, a lone `*` is one. */
 function starCount(pattern: string): number {
   return (pattern.replace(/\*\*\/?/g, "§").match(/§+|\*/g) ?? []).length;
 }
 
-/** Hostile combinations within the limits: the shapes earlier reviews found plus random ones. */
 function hostileCase(random: () => number, index: number): HostileCase {
   const int = (max: number) => Math.floor(random() * (max + 1));
   const a = (count: number) => "a".repeat(Math.max(0, count));
@@ -59,7 +55,6 @@ function hostileCase(random: () => number, index: number): HostileCase {
   const many = <T>(count: number, make: (item: number) => T) => Array.from({ length: count }, (_, item) => make(item));
   const shapes = [
     () => {
-      // The first finding: two stars around long near-miss literal runs, so every rejection but the search passes.
       const run = 1 + int(495);
       return {
         shape: "near-miss literal runs",
@@ -76,7 +71,6 @@ function hostileCase(random: () => number, index: number): HostileCase {
       };
     },
     () => {
-      // Maximal stars between long literals a long path contains in order: the simulation reads the whole path.
       const run = 1 + int(Math.floor((MAX_PATTERN - MAX_STARS) / (MAX_STARS - 1)) - 1);
       const pattern = `${`*${a(run)}`.repeat(MAX_STARS - 1)}*`;
       return {
@@ -93,7 +87,6 @@ function hostileCase(random: () => number, index: number): HostileCase {
       paths: many(1 + int(MAX_PATHS - 1), (item) => `${a(MAX_PATH - 1 - (item % 3))}${item % 2 ? "b" : "a"}`),
     }),
     () => ({
-      // Distinct entries of exactly the length limit, so the compile cache cannot help.
       shape: "distinct long patterns",
       patterns: many(MAX_ENTRIES, (item) => {
         const head = `${index}-${item}-*`;
@@ -102,7 +95,6 @@ function hostileCase(random: () => number, index: number): HostileCase {
       paths: many(1 + int(2), () => `${index}-${int(MAX_ENTRIES)}-${a(MAX_PATH - 8)}z`.slice(0, MAX_PATH)),
     }),
     () => ({
-      // Long plain entries with many segments against paths that share them: the suffix, prefix and segment checks.
       shape: "plain entries with many segments",
       patterns: many(1 + int(MAX_ENTRIES - 1), (item) => `${"a/".repeat(int(MAX_PATTERN / 2 - 2))}a${item}`),
       paths: many(1 + int(MAX_PATHS - 1), () => `${"a/".repeat(int(MAX_PATH / 2 - 1))}a`),
@@ -123,7 +115,6 @@ function hostileCase(random: () => number, index: number): HostileCase {
   return shapes[index % shapes.length]!();
 }
 
-/** One record's scan the way the read paths run it: the stored list through the entry gate, then every pair. */
 function scan(record: HostileCase, budget: AppliesToBudget): { examined: number; gateUnits: number } {
   const counter = { examined: 0 };
   setAppliesToWorkCounter(counter);
@@ -144,7 +135,6 @@ function scan(record: HostileCase, budget: AppliesToBudget): { examined: number;
   }
 }
 
-/** The RegExp normalization the linear one replaced, kept as the reference for its results. */
 function legacyNormalizePath(raw: string, projects: Array<{ name: string; rootPath: string }>): string {
   let value = raw.trim().replace(/\\/g, "/").replace(/^\.\//, "");
   value = value.replace(/#L\d+.*$/i, "").replace(/:\d+(?::\d+)?$/, "");
@@ -268,7 +258,6 @@ describe("appliesTo accounting invariant", () => {
       expect(budget.exhausted).toBe(true);
       expect(budget.units).toBeLessThanOrEqual(limit);
       expect(examined).toBeLessThanOrEqual(limit);
-      // Once spent, a whole further scan of the same record examines nothing.
       expect(scan(record, budget).examined).toBe(0);
     }
   }, 60_000);
@@ -306,7 +295,6 @@ describe("appliesTo accounting invariant", () => {
     for (const pattern of patterns) compileAppliesTo(pattern, third);
     setAppliesToWorkCounter(undefined);
     expect(counter.examined).toBeLessThanOrEqual(third.units);
-    // A small working set stays cached and costs one unit per lookup.
     const hot = createAppliesToBudget(Number.MAX_SAFE_INTEGER);
     for (let round = 0; round < 50; round += 1) compileAppliesTo("src/**/*.ts", hot);
     // The first lookup also pays for telling the glob apart (its length); later ones find it compiled in the cache.
@@ -368,7 +356,6 @@ describe("stored appliesTo above the write-time limits", () => {
     expect(listed).toMatchObject({
       items: [{ id: recorded.knowledge.id, appliesTo: stored, stalenessUnchecked: true }],
     });
-    // "src/a.ts" sits past the 30th entry, so it is not considered either; both skips are reported.
     expect(store.getFileHistory({ projectRoot: root, paths: ["src/a.ts"] })).toMatchObject({
       knowledge: [],
       appliesToScanTruncated: true,
@@ -414,7 +401,6 @@ describe("stored appliesTo above the write-time limits", () => {
     expect(destination.searchKnowledge({ projectRoot: imported.rootPath, limit: 10 })).toMatchObject({
       items: [{ id: recorded.knowledge.id, appliesTo: stored }],
     });
-    // The long entry never matches and the scan says it skipped one; the entry within the limit still matches.
     expect(destination.getFileHistory({ projectRoot: imported.rootPath, paths: ["src/a.ts"] })).toMatchObject({
       knowledge: [{ id: recorded.knowledge.id }],
       appliesToScanTruncated: true,
@@ -448,7 +434,6 @@ describe("stored appliesTo above the write-time limits", () => {
       cleanups.push(() => destination.close());
       expect(() => destination.previewProjectDataImport({ bundle, remap: [] })).toThrow(reason);
     }
-    // At the bound (beyond the write limits) the list imports byte for byte; matching skips what is over them.
     const atBound = [
       `src/${"a".repeat(4_092)}`,
       ...Array.from({ length: 99 }, (_, item) => `src/${item}/${"b".repeat(MAX_PATTERN)}`),
@@ -464,7 +449,6 @@ describe("stored appliesTo above the write-time limits", () => {
     expect(destination.searchKnowledge({ projectRoot: imported.rootPath, limit: 10 })).toMatchObject({
       items: [{ appliesTo: atBound, stalenessUnchecked: true }],
     });
-    // Every read of the largest importable list is charged: one scan reads it within its budget and reports the skip.
     expect(destination.getFileHistory({ projectRoot: imported.rootPath, paths: ["src/a.ts"] })).toMatchObject({
       knowledge: [],
       appliesToScanTruncated: true,

@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { computeMcpCompatibility } from "../../apps/mcp/src/build-compatibility.js";
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/index.js";
 
-/** Build-only snapshots connect without opening a store, database, or lease registry. */
 describe("MCP build compatibility", () => {
   it("uses a stable digest of the actual tools, full contracts, and instructions", async () => {
     const first = await computeMcpCompatibility();

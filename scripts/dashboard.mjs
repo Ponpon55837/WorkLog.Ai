@@ -1,15 +1,6 @@
 #!/usr/bin/env node
-/**
- * `pnpm dashboard` makes the Web UI reachable and prints its address. When the local API already answers on
- * WORK_INTELLIGENCE_PORT (default 3210) it only prints the URL; otherwise it starts the production server from this
- * checkout in the background (the same `node scripts/start.mjs` that `pnpm start` runs), waits until it is healthy,
- * and prints the URL. `--open` also opens it in the default browser. The plugin's dashboard skill runs this script.
- *
- * A server that already answers is always reported first, whoever started it. Only when nothing answers and the desktop
- * App is installed (it wrote `desktop-integration.json`) does the request go to the App, and no checkout server is
- * started, even if the App is not running or its port changed: the App starts, manages its own backend and opens the
- * Dashboard itself, so `--open` is implied. WORK_INTELLIGENCE_HOME keeps this checkout's server.
- */
+// A server that already answers is reported first; otherwise, with the desktop App installed, the request goes to the App
+// and no checkout server is started, even if the App is not running.
 import { spawn } from "node:child_process";
 import console from "node:console";
 import { existsSync, realpathSync } from "node:fs";
@@ -27,7 +18,6 @@ export function dashboardPort(environment = process.env) {
   return Number.isInteger(port) && port > 0 && port < 65536 ? port : DEFAULT_PORT;
 }
 
-/** True when the Work Intelligence API answers /api/health with a usable database. */
 export async function isHealthy(port) {
   try {
     const response = await globalThis.fetch(`http://127.0.0.1:${port}/api/health`, {
@@ -69,7 +59,6 @@ async function openInBrowser(url) {
   }
 }
 
-/** Returns { url, started } or { error } without exiting, so tests can call it. */
 export async function ensureDashboard({ root = repositoryRoot, environment = process.env, timeoutMs = 20_000 } = {}) {
   const port = dashboardPort(environment);
   const url = `http://127.0.0.1:${port}`;
@@ -107,10 +96,6 @@ function isEntryPoint() {
   }
 }
 
-/**
- * Hands the request to the desktop App; false when none is recorded or it could not be started. The reader is loaded on
- * demand and a checkout without the plugin folder simply has no App to ask (some tests run a lone copy of this script).
- */
 export async function handOffToDesktopApp(options) {
   let integration;
   try {

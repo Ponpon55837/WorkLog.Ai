@@ -274,7 +274,6 @@ describe("recover a port change", () => {
       await recordAt("STARTING", change),
       probe({ desktopChild: VERIFIED, oldServiceRunning: false, settingsPort: 3210 }),
     );
-    // the generic rule only resumes verification; start-up recovery turns a resume into repair-only (see startup-recovery)
     expect(decision.action).toBe("resume");
   });
 
@@ -292,13 +291,11 @@ describe("recover a port change", () => {
 
   it("needs repair when the change recorded no ports, whatever the owner before was", async () => {
     const decision = await recover(await recordAt("STARTING", { kind: "change-port" }), probe({ settingsPort: 3210 }));
-    // previousOwner EXTERNAL and no recorded ports: the settings cannot say which port won, so nothing is assumed
     expect(decision.action).toBe("repair");
   });
 });
 
 describe("recover with a different or unverifiable database", () => {
-  // The ordinary kinds record the database in use: a mismatch or a database that could not be read is never closed silently.
   it.each([
     [
       "takeover",

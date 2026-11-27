@@ -11,7 +11,6 @@ import UiTextInput from "../ui/UiTextInput.vue";
 import UiTextarea from "../ui/UiTextarea.vue";
 import { t } from "../../i18n";
 
-/** Edits an Agent's Knowledge candidate before accepting it; the accepted version is what gets recorded. */
 const props = defineProps<{ projectRoot?: string }>();
 
 const { candidateEditor, candidateForm, candidateSaving, candidateError, closeCandidateEditor, saveCandidateEditor } =

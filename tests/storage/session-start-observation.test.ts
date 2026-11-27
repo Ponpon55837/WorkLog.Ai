@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { FinalizeSessionInput } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 

@@ -58,7 +58,6 @@ const toolResult = (id: string, length: number) => ({
 });
 const jsonl = (lines: unknown[], eol = "\n") => lines.map((line) => JSON.stringify(line)).join(eol) + eol;
 
-/** The numbers of a report that must not depend on how the files were read. */
 function comparable<T extends { cache: unknown }>(report: T): Omit<T, "cache"> {
   const { cache: _cache, ...rest } = report;
   return rest;
@@ -198,7 +197,6 @@ describe("incremental cache", () => {
     expect(second.cache.appended).toBe(1);
     expect(second.skippedLines).toBe(0);
     expect(comparable(second)).toEqual(comparable(await summarizeFiles([path])));
-    // An unterminated line that is complete JSON counts at once and is not double counted after its newline.
     const noNewline = fileOf("tail.jsonl", jsonl(FIRST).trimEnd());
     const tailCache = new UsageCache();
     const before = await summarizeFiles([noNewline], { cache: tailCache });
@@ -222,7 +220,6 @@ describe("incremental cache", () => {
     const path = fileOf("a.jsonl", jsonl(FIRST));
     const cache = new UsageCache();
     await summarizeFiles([path], { cache });
-    // Longer than before, but the bytes before the cached offset differ.
     const rewritten = jsonl([user(0, "different"), ...FIRST.slice(1), ...MORE]);
     writeFileSync(path, rewritten);
     const next = await summarizeFiles([path], { cache });
@@ -274,7 +271,6 @@ describe("incremental cache", () => {
       await ignored.load();
       expect(ignored.size).toBe(0);
     }
-    // A failed save (a file where the directory should be) is swallowed.
     const blocked = new UsageCache({ file: join(path, "cannot", "cache.json") });
     blocked.set("x", {
       version: 1,

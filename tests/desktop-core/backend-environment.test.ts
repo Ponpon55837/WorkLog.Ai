@@ -8,7 +8,6 @@ import {
   SecretMasker,
 } from "../../packages/desktop-core/src/index.js";
 
-// Fictional values only.
 const POSIX_PARENT = {
   HOME: "/synthetic/home",
   TMPDIR: "/synthetic/tmp",

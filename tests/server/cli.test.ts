@@ -240,7 +240,6 @@ describe("database maintenance CLI", () => {
       await runDatabaseCli(["import", "portable.json", "--remap-root", `${project.rootPath}=${localRoot}`], deps),
     ).toBe(0);
 
-    // The other computer edits the Session later and exports again under its own root.
     const session = bundle.tables.sessions.find((item) => item.id === finalized.session.id);
     if (!session) throw new Error("Expected the finalized Session in the export.");
     session.summary = "另一台電腦較新的摘要。";
@@ -444,7 +443,6 @@ describe("database CLI option safety", () => {
 
     expect(calls).toEqual([]);
     expect(readdirSync(root)).toEqual([]);
-    // `--help` as a value is still a help request; anything else is an error.
     expect(exitCode).toBe(argv.includes("--help") ? 0 : 1);
     expect(messages.error.length > 0).toBe(exitCode === 1);
   });
@@ -502,7 +500,6 @@ describe("database CLI option safety", () => {
     expect(messages.error.join("\n")).toContain("--out 的值不可以像選項：-x.json");
     expect(messages.error.join("\n")).toContain("--out=-x.json");
 
-    // The help names both workarounds.
     expect(databaseUsage(false)).toContain("./-name");
     expect(databaseUsage(false, "export")).toContain("--選項=-值");
   });

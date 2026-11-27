@@ -14,12 +14,6 @@ import {
 import { projectDataExportTableColumns } from "../../packages/schema/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-/**
- * The product lets a Session link point at a Session of another project (work_link_sessions and finalize
- * relatedSessionIds only require the related Session to exist and be tracked). A file the product exported must
- * re-import completely, so ownership checks must not treat that column as a claim on the other project.
- */
-
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -65,7 +59,6 @@ interface Seeded {
   store: WorkIntelligenceStore;
   root: string;
   projectIds: [string, string];
-  /** Sessions per project: [project][index]. */
   sessionIds: [[string, string, string], [string, string]];
 }
 
@@ -99,11 +92,6 @@ function finalize(
   return result.session.id;
 }
 
-/**
- * A database with rows in every project-data table and every reference the product allows across projects.
- * The write paths are the product's own (finalize, link, knowledge, diagrams); rows its public API cannot
- * produce in a test (candidates, reports, cleanup review, ...) are inserted with the exported column list.
- */
 function seedWorld(): Seeded {
   const root = mkdtempSync(join(tmpdir(), "work-intelligence-cross-project-"));
   tempDirs.push(root);
@@ -118,7 +106,6 @@ function seedWorld(): Seeded {
 
   const alpha1 = finalize(store, roots[0], "alpha-1", "2026-09-20T10:00:00.000Z");
   const alpha2 = finalize(store, roots[0], "alpha-2", "2026-09-21T10:00:00.000Z", { parentSessionId: alpha1 });
-  // Product-allowed cross-project links: finalize parent and related ids, then work_link_sessions.
   const beta1 = finalize(store, roots[1], "beta-1", "2026-09-22T10:00:00.000Z", {
     parentSessionId: alpha1,
     relatedSessionIds: [alpha2],
@@ -128,7 +115,6 @@ function seedWorld(): Seeded {
     store.linkSessions({ sessionId: alpha2, relatedSessionId: beta2, relation: "related", linked: true }).outcome,
   ).toBe("session_link_updated");
 
-  // Knowledge: supersedes and last confirmation stay inside their project.
   const oldKnowledge = store.recordKnowledge({
     projectRoot: roots[0],
     sessionId: alpha1,
@@ -173,7 +159,6 @@ function seedWorld(): Seeded {
   const db = new DatabaseSync(store.databasePath);
   try {
     db.exec("PRAGMA foreign_keys = ON");
-    // Promote one decision to Knowledge, the way the web review does.
     db.prepare(
       "UPDATE session_decisions SET review_status = 'promoted', reviewed_at = ?, knowledge_id = ? WHERE session_id = ?",
     ).run("2026-09-24T11:00:00.000Z", newKnowledge.knowledge.id, alpha1);
@@ -325,7 +310,6 @@ function seedWorld(): Seeded {
       );
     reportRequest("report-request-alpha", "project", projectIds[0], [alpha1, alpha2]);
     reportSummary("report-summary-alpha", "report-request-alpha", projectIds[0]);
-    // A report over all projects cites Sessions of both, and has no project of its own.
     reportRequest("report-request-all", "all", null, [alpha1, beta1]);
     reportSummary("report-summary-all", "report-request-all", null);
     insertRow(
@@ -602,7 +586,6 @@ describe("importing project data with cross-project references", () => {
       const { store, projectIds } = seedWorld();
       const bundle = store.exportProjectData({ type: "all" });
       const destination = openStore(":memory:");
-      // The destination already has project Alpha, without its links to project Beta.
       destination.importProjectData({ bundle: store.exportProjectData({ type: "project", projectId: projectIds[0] }) });
       const before = destination.exportProjectData({ type: "all" });
       expect(crossProjectLinkCount(before)).toBe(0);
@@ -616,7 +599,6 @@ describe("importing project data with cross-project references", () => {
       expect(rowCounts(imported)).toEqual(rowCounts(bundle));
       expect(crossProjectLinkCount(imported)).toBe(crossProjectLinkCount(bundle));
 
-      // A second import of the same file changes nothing.
       const again = destination.importProjectData({ bundle, strategy });
       expect(total(again.conflicts)).toBe(0);
       expect(again.changed).toBe(false);
@@ -673,7 +655,6 @@ describe("importing project data with cross-project references", () => {
     const moved = structuredClone(bundle);
     const link = moved.tables.session_links.find((item) => item.session_id === sessionIds[0][1]);
     if (!link) throw new Error("The fixture links Alpha to Beta.");
-    // Re-owning an existing link to a Session of the other project is a different row, not an update.
     link.session_id = sessionIds[1][1];
     link.related_session_id = sessionIds[0][0];
     link.created_at = "2030-01-01T00:00:00.000Z";

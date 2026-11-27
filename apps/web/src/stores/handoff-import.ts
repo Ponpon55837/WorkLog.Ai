@@ -18,7 +18,6 @@ function previewKey(project: ProjectRecord): readonly string[] {
   return [...queryKeys.projects.handoffImportPreview, project.id, project.rootPath];
 }
 
-/** Owns the handoff preview workflow and imports selected completed handoffs as Sessions. */
 export const useHandoffImportStore = defineStore("handoff-import", () => {
   const queryCache = useQueryCache();
   const previewProject = ref<ProjectRecord | null>(null);

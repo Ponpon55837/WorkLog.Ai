@@ -80,7 +80,6 @@ const answering =
 const json = (value: unknown, headers: Record<string, string> = {}): UpdateResponse =>
   respond(200, JSON.stringify(value), headers);
 
-/** A fetch that never answers until its signal aborts, like a server that does not reply. */
 const hanging: UpdateFetch = (_url, init) =>
   new Promise((_resolve, reject) => {
     init.signal.addEventListener("abort", () => reject(init.signal.reason));
@@ -240,7 +239,6 @@ describe("errors", () => {
       kind: "error",
       reason: "too-large",
     });
-    // The read stopped soon after the cap: it did not drain the stream.
     expect(pulled).toBeLessThan(10);
     const small = respond(200, JSON.stringify([{ ...goodRelease, tag_name: "v1.6.52" }]), { "content-length": "2" });
     expect((await run(answering(small))).result.kind).toBe("up-to-date");
@@ -314,7 +312,6 @@ describe("being offline", () => {
     const started = Date.now();
     expect((await run(deaf, { timeoutMs: 50 })).result).toEqual({ kind: "offline", timedOut: true });
     expect(Date.now() - started).toBeLessThan(2_000);
-    // The reader is released rather than left open.
     expect(cancelled).toBe(1);
   });
 

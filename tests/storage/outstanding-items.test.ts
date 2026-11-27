@@ -804,7 +804,6 @@ describe("outstanding items", () => {
     expect(sourceDropped.closedBy).toBeUndefined();
 
     vi.setSystemTime(new Date("2031-01-01T00:01:00.000Z"));
-    // Agent edit of the source Session's own nextSteps drops one item.
     store.updateSessionWorkSummary(
       {
         sessionId: first.session.id,
@@ -826,7 +825,6 @@ describe("outstanding items", () => {
       "agent",
     );
     vi.setSystemTime(new Date("2031-01-01T00:02:00.000Z"));
-    // A person editing the same list in the web UI also records the Session as actor, but counts as the user.
     store.updateSessionWorkSummary(
       {
         sessionId: first.session.id,
@@ -1158,7 +1156,6 @@ describe("outstanding items", () => {
     expect(related.omitted).toBe(related.total - related.items.length);
     expect(related.items.length).toBeLessThan(5);
     expect(related.items.every((item) => item.text.length <= 240 && item.textTruncated)).toBe(true);
-    // Context items carry the source Session id only; its title is one read away.
     expect(related.items.every((item) => item.sourceSessionId.length > 0 && !("sourceSessionTitle" in item))).toBe(
       true,
     );

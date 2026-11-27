@@ -7,7 +7,6 @@ export type StoreRequest = {
   url: URL;
   method: string;
   body: unknown;
-  /** The body exactly as passed to fetch (a File for streamed uploads, a string for JSON). */
   rawBody?: BodyInit | null;
   signal: AbortSignal | undefined;
   keepalive?: boolean;
@@ -19,7 +18,6 @@ export function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 
-/** Each caller gets a fresh Pinia/query cache and a replaceable fake HTTP server. */
 export function createStoreHarness(responder: StoreResponder = () => ({})) {
   const calls: StoreRequest[] = [];
   let respond = responder;

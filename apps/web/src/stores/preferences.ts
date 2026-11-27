@@ -25,7 +25,7 @@ function writeStored(key: string, value: string): void {
   try {
     window.localStorage.setItem(key, value);
   } catch {
-    // Keep the in-memory choice when storage is unavailable.
+    // Blocked storage only means the preference lasts one visit.
   }
 }
 
@@ -42,19 +42,17 @@ function readTheme(): ThemePreference {
 function readLocale(): Locale {
   const stored = readStored(LOCALE_KEY);
   if (isLocale(stored)) return stored;
-  // Before the catalogs moved to JSON the English locale was stored as "en".
+  // Legacy stored value: English used to be saved as "en".
   if (stored === "en") return "en-US";
   return detectLocale(typeof navigator === "undefined" ? undefined : navigator.languages);
 }
 
-/** Personal preferences kept in this browser only, never sent to the local API. */
 export const usePreferencesStore = defineStore("preferences", () => {
   const editor = ref<EditorProtocol>(readEditor());
   const theme = ref<ThemePreference>(readTheme());
   // The i18n module owns the locale ref so pure utils can translate; the store only persists it.
   const locale = activeLocale;
   locale.value = readLocale();
-  /** Kept current by useAppearance's media-query listener. */
   const systemPrefersDark = ref(true);
   const resolvedTheme = computed<ResolvedTheme>(() => {
     if (theme.value === "system") return systemPrefersDark.value ? "dark" : "light";

@@ -394,21 +394,18 @@ describe("resolveOutstandingItems", () => {
       store.resolveOutstandingItems({ sessionId: actor.id, resolvedOutstandingItemIds: [ownItem.id] }),
     ).toMatchObject({ resolvedOutstandingItemIds: [], outstandingItemWarnings: { unresolvedIds: [ownItem.id] } });
 
-    // The older Session cannot close the newer Session's item (source not earlier).
     const reverse = store.resolveOutstandingItems({ sessionId: source.id, resolvedOutstandingItemIds: [ownItem.id] });
     expect(reverse).toMatchObject({
       resolvedOutstandingItemIds: [],
       outstandingItemWarnings: { unresolvedIds: [ownItem.id] },
     });
 
-    // Equal completion time is not earlier.
     const tie = finalize({ store, root: setupRoot(store, projectId) }, "tie-actor", [], EARLY);
     const sourceItem = byText("Check backup job");
     expect(
       store.resolveOutstandingItems({ sessionId: tie.session.id, resolvedOutstandingItemIds: [sourceItem.id] }),
     ).toMatchObject({ resolvedOutstandingItemIds: [] });
 
-    // Other project.
     const other = addProject(store, "Other project");
     const foreign = finalize(other, "other-source", ["Foreign pending item"], EARLY);
     const foreignItem = items(store, other.projectId)[0]!;
@@ -417,7 +414,6 @@ describe("resolveOutstandingItems", () => {
       store.resolveOutstandingItems({ sessionId: actor.id, resolvedOutstandingItemIds: [foreignItem.id] }),
     ).toMatchObject({ resolvedOutstandingItemIds: [], outstandingItemWarnings: { unresolvedIds: [foreignItem.id] } });
 
-    // Voided source.
     const target = byText("Rotate signing certificate");
     store.setSessionVoid({ sessionId: source.id, voided: true, reason: "Synthetic source correction." });
     expect(

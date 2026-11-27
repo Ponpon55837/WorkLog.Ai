@@ -14,8 +14,6 @@ import {
 } from "../../packages/desktop-core/src/runtime/index.js";
 import { HOOK_BUDGET_MS, IS_WINDOWS, flipFirstByte, installFixture, makeRoot } from "./runtime-helpers.js";
 
-// Synthetic ids and actions only.
-
 let root = "";
 let runtimeDirectory = "";
 
@@ -37,7 +35,6 @@ interface Recorded {
   readonly heartbeats: { tick: () => void; intervalMs: number }[];
 }
 
-/** A host whose lease comes from `acquire` (the real file lease by default) and whose process-level hooks are recorded. */
 function recordingHost(acquire: LauncherHost["acquireLease"] = createLease): Recorded {
   const stdout: string[] = [];
   const stderr: string[] = [];
@@ -282,7 +279,6 @@ describe("runLauncher: lease", () => {
       await fs.rm(path.join(root, "leases"), { recursive: true, force: true });
       await fs.symlink(outside, path.join(root, "leases"));
       const hook = recordingHost();
-      // verifyRuntime rejects the link itself; the point is that no lease went through it first.
       await runLauncher({ runtimeDirectory, argv: ["claude-finalize-reminder"] }, hook.host);
       expect(hook.stderr.some((line) => line.includes("LEASE_DIRECTORY_UNSAFE"))).toBe(false);
       const mcp = recordingHost();

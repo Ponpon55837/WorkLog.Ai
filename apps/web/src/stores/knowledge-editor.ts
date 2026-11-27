@@ -29,7 +29,6 @@ function emptyForm(): KnowledgeEditorForm {
   return { kind: "pattern", title: "", body: "", tags: "", references: "", appliesTo: "", status: "active" };
 }
 
-/** The Knowledge editor and history dialogs: which record is open and the form being edited. */
 export const useKnowledgeEditorStore = defineStore("knowledge-editor", () => {
   const knowledgeEditor = ref<KnowledgeRecord | null>(null);
   const knowledgeEditorForm = ref<KnowledgeEditorForm>(emptyForm());

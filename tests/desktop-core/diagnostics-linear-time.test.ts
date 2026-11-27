@@ -19,7 +19,6 @@ const RATIO_BASELINE_FLOOR_MS = 10;
 const redact = createRedactor({ platform: "linux", homeDirectory: "/synthetic/home/me", userName: "me" });
 const redactWindows = createRedactor({ platform: "win32", homeDirectory: "C:\\Users\\Me", userName: "Me" });
 
-// The whole path the preview takes (collect, redact, scan, fit), with the shape as one of the App's own output lines.
 function build(text: string): void {
   buildDiagnostics({
     platform: "linux",

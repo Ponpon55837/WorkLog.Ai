@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 const TRANSIENT_STEP = "變更尚未 commit";

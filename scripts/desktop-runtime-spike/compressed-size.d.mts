@@ -1,4 +1,3 @@
-/** Types for scripts/desktop-runtime-spike/compressed-size.mjs, so tests can import it. */
 export interface TarFile {
   readonly path: string;
   readonly size: number;

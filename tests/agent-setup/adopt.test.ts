@@ -27,14 +27,12 @@ const HOST_SHIM = PLATFORM === "win32" ? WINDOWS_SHIM : SHIM;
 const TOML_START = "# >>> Work Intelligence setup:agents >>>";
 const TOML_END = "# <<< Work Intelligence setup:agents <<<";
 
-/** A fixture whose platform matches the host, because its checkout and home are real host paths. */
 function hostFixture(): SetupFixture {
   const fixture = createFixture();
   fixture.options = { ...fixture.options, platform: PLATFORM };
   return fixture;
 }
 
-/** The hook command setup writes for a launcher action on the host platform. */
 function shimHook(action: string): string {
   return PLATFORM === "win32" ? `"${HOST_SHIM}" ${action}` : `'${HOST_SHIM}' ${action}`;
 }
@@ -392,7 +390,6 @@ describe("adopt option", () => {
       effectiveDatabase: join(root, "data", "mine.sqlite"),
     });
     expectSettled(options);
-    // Uninstall takes the env sub-table with the block: no work-intelligence key is left, and the file still parses.
     const removal = createAgentSetupPlan(fixture.options, "uninstall");
     expect(removal.conflicts).toEqual([]);
     expect(applyAgentSetupPlan(removal).applied).toBe(true);
@@ -682,7 +679,6 @@ describe("adopt option", () => {
   });
 
   describe("an entry without WORK_INTELLIGENCE_DB keeps using its checkout database", () => {
-    /** What the launcher would use: an explicit variable always wins over the App's own database. */
     const resolvedDatabase = (env: unknown): string => {
       const value = env && typeof env === "object" ? (env as Record<string, unknown>).WORK_INTELLIGENCE_DB : undefined;
       return typeof value === "string" ? value : "APP-DATABASE";
@@ -742,7 +738,6 @@ describe("adopt option", () => {
   });
 
   describe("with the App's database", () => {
-    /** A Claude MCP entry on `mcpDatabase` (relative to the checkout) and both finalize hooks of that checkout. */
     function seedCheckout(fixture: SetupFixture, mcpDatabase: string | undefined): void {
       const root = fixture.options.repositoryRoot;
       seedClaudeMcp(fixture, {
@@ -759,7 +754,6 @@ describe("adopt option", () => {
       });
     }
 
-    /** Creates a synthetic SQLite-named file so the same-file check has something to identify. */
     function touch(path: string): string {
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, "synthetic");
@@ -835,7 +829,6 @@ describe("adopt option", () => {
       const plan = createAgentSetupPlan(withApp(fixture, appDatabase));
 
       expect(plan.adopted).toEqual([]);
-      // The hook is refused for its own database, the MCP server because its Agent's hook is.
       expect(plan.conflicts.filter((line) => line.includes("使用的資料庫（"))).toHaveLength(1);
       expect(plan.conflicts.filter((line) => line.includes("整個 Agent 都不改由 App 管理"))).toHaveLength(1);
       expect(applyAgentSetupPlan(plan).applied).toBe(false);

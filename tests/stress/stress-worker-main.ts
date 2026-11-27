@@ -11,9 +11,6 @@ import {
   paddingFor,
 } from "./stress-support.js";
 
-// Child-process body for tests/stress/sqlite-wal-stress.test.ts, started by stress-worker.ts. One role per process; every role reports to the
-// orchestrator over IPC. Writers go through the real WorkIntelligenceStore (the path API, MCP and CLI use), readers
-// and the snapshotter open their own connections the way hooks and the backup worker do. Synthetic data only.
 type Role = "writer" | "reader-long" | "reader-short" | "checkpointer" | "snapshotter";
 type Message = { type: string; [key: string]: unknown };
 
@@ -53,7 +50,6 @@ function fail(error: unknown, context: string): void {
   send({ type: "fatal", context, error: describeError(error) });
 }
 
-/** Counts an operation that failed: lock contention is recorded (report-only), anything else is a real failure. */
 function recordFailure(error: unknown, context: string): void {
   if (isDatabaseBusyError(error)) {
     counters.busy += 1;
@@ -72,7 +68,6 @@ process.on("message", (message: Message) => {
   else inbox.push(message);
 });
 
-/** Resolves with the next message of any of these types (earlier ones are kept, so none is missed). */
 function receive(...types: string[]): Promise<Message> {
   const index = inbox.findIndex((message) => types.includes(message.type));
   if (index >= 0) return Promise.resolve(inbox.splice(index, 1)[0] as Message);
@@ -83,7 +78,6 @@ function reportStats(): void {
   send({ type: "stats", ...counters });
 }
 
-/** One synthetic Session with a seq-dependent number of events; sequence and writer are embedded in key, title and events. */
 function writeOne(store: WorkIntelligenceStore, config: WorkerConfig, writer: number, seq: number): string {
   const count = expectedEventCount(writer, seq);
   const result = store.finalizeSession({
@@ -111,11 +105,7 @@ function writeOne(store: WorkIntelligenceStore, config: WorkerConfig, writer: nu
   return result.outcome;
 }
 
-/**
- * Lock-step writer: the orchestrator sends "go" for each write and gets the ack only after finalizeSession returned
- * (committed). Because "go" for write N+1 follows the ack of N, at most one committed write is ever unacknowledged,
- * which is what lets the orchestrator bound a SIGKILLed writer's in-flight write exactly.
- */
+/** "go" for write N+1 follows the ack of N, so at most one committed write is ever unacknowledged. */
 async function runWriter(config: WorkerConfig): Promise<void> {
   const writer = config.writer ?? 0;
   let seq = config.startSeq ?? 1;
@@ -137,7 +127,6 @@ async function runWriter(config: WorkerConfig): Promise<void> {
         try {
           const outcome = writeOne(store, config, writer, seq);
           counters.ops += 1;
-          // Every tenth write also refreshes the search index, as the first read after a write does in production.
           if (seq % 10 === 0) store.syncSearchIndex();
           send({ type: "ack", writer, seq, outcome });
           break;
@@ -243,7 +232,6 @@ async function runCheckpointer(config: WorkerConfig): Promise<void> {
   }
 }
 
-/** Periodic VACUUM INTO, bracketed by two orchestrator round trips that capture the per-writer ack high-water marks. */
 async function runSnapshotter(config: WorkerConfig): Promise<void> {
   const random = createRandom(config.seed ^ 0x4004);
   const db = new DatabaseSync(config.databasePath, { readOnly: true });

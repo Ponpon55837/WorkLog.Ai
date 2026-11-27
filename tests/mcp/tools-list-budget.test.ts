@@ -185,7 +185,6 @@ async function readText(client: Client, uri: string): Promise<string> {
   return ((await client.readResource({ uri })).contents as Array<{ text?: string }>)[0]?.text ?? "";
 }
 
-/** Reads the operation index, then each operation's own contract, and joins them in index order. */
 async function readAllOperationContracts(client: Client): Promise<string> {
   const index = await readText(client, CONTRACT_INDEX_URI);
   const operations = [...index.matchAll(/^- (work_\w+): /gm)].map((match) => match[1] ?? "");

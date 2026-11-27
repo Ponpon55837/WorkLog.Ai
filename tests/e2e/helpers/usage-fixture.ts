@@ -1,12 +1,10 @@
 import type { UsageProjectsResponse, UsageScanResponse } from "../../../packages/core/src/index.js";
 
-/** Local `YYYY-MM-DD` of the day `offset` days before `now`. */
 function localDay(now: Date, offset: number): string {
   const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset);
   return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
 }
 
-/** One project of its own and two projects that share a folder where sessions were opened. */
 export const USAGE_PROJECTS: UsageProjectsResponse = {
   items: [
     { id: "usage-p1", name: "Fictional Orchard", current: true, sources: { claudeFolders: 2, codexFiles: 3 } },
@@ -16,7 +14,6 @@ export const USAGE_PROJECTS: UsageProjectsResponse = {
   groups: [{ projects: ["usage-p2", "usage-p3"], claudeFolders: 1, codexFiles: 1 }],
 };
 
-/** A synthetic scan result: two Agents, a model without a label, a day without usage and one active 5-hour block. */
 export function usageScanFixture(now = new Date()): UsageScanResponse {
   const day = (offset: number, input: number, output: number, cacheRead: number, cacheCreation: number) => ({
     date: localDay(now, offset),

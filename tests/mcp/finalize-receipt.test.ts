@@ -167,7 +167,6 @@ describe("finalize receipt", () => {
       { changedFiles: ["src/ledger.ts"], startedAt: SESSION.startedAt },
       finalized({ changedFileChangesFollowUp: followUp }),
     ) as Record<string, unknown>;
-    // The Agent sent every path and no statuses, so only the count comes back.
     expect(unstated.changedFileChangesFollowUp).toEqual({
       required: true,
       missingCount: 1,

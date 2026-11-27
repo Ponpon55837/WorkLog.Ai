@@ -45,7 +45,6 @@ function matchesGraphSearch(node: GraphNode, term: string): boolean {
   return node.label.toLowerCase().includes(term) || node.id.toLowerCase().includes(term);
 }
 
-/** Picks which loaded nodes to draw while keeping search matches and related Sessions visible. */
 function selectVisibleNodes(
   filteredNodes: GraphNode[],
   term: string,
@@ -86,7 +85,6 @@ function selectVisibleNodes(
   return graphNodeKindOrder.flatMap((kind) => (kind === "session" ? sessions : attachedFirst(kind)));
 }
 
-/** Places Session nodes first and anchors related nodes near their connected Sessions. */
 function layoutGraphNodes(
   visibleNodes: GraphNode[],
   adjacency: Map<string, Set<string>>,
@@ -138,7 +136,6 @@ function splitFilePath(path: string): { name: string; folder: string } {
     : { name: normalized.slice(index + 1), folder: normalized.slice(0, index) };
 }
 
-/** Returns derived Graph presentation data and navigation actions for its views. */
 export function useGraph() {
   const store = useGraphStore();
   const { openKnowledgeEditor } = useKnowledgeActions();

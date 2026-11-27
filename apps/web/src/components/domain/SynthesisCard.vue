@@ -23,10 +23,7 @@ import StatusLabel from "./StatusLabel.vue";
 import SynthesisPresentation from "./SynthesisPresentation.vue";
 import { t } from "../../i18n";
 
-/**
- * Agent-written report synthesis. Section order and headings follow the ReportSummary contract in
- * docs/work-record-and-report-format.md; numbers shown elsewhere on the page never come from here.
- */
+/** Numbers shown elsewhere on the page never come from the Agent-written synthesis. */
 const reportsStore = useReportsStore();
 const {
   report,

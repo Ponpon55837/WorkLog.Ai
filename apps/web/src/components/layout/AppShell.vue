@@ -22,8 +22,8 @@ const navigating = useNavigationProgress();
 const menuOpen = ref(false);
 const main = ref<HTMLElement | null>(null);
 
-// <main> is the scroll container, so router scrollBehavior (window) cannot reset it. A path change
-// (new page or tab) starts at the top; query-only changes (filters, pagination, ?session) keep position.
+// <main> is the scroll container, so router scrollBehavior (window) cannot reset it. A path change starts at the top;
+// query-only changes keep position.
 watch(
   () => route.path,
   () => main.value?.scrollTo({ top: 0 }),

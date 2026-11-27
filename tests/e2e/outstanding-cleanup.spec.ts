@@ -338,7 +338,6 @@ test("preserves outstanding reading position when SSE refreshes the same item ID
     (response) => response.url().includes("/api/outstanding-items?") && response.request().method() === "GET",
   );
   const response = await request.patch(`/api/sessions/${fixture.sourceId}/title`, {
-    // The title route takes only the title; strict REST input rejects any other field.
     data: { title: "Updated source" },
   });
   expect(response.ok()).toBe(true);

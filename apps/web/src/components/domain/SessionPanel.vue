@@ -16,10 +16,6 @@ import SessionPanelHeader from "./SessionPanelHeader.vue";
 import SessionPanelSummary from "./SessionPanelSummary.vue";
 import { t } from "../../i18n";
 
-/**
- * Session detail, mounted once in App. Opened from any list or via `?session=<id>`; J/K move
- * through the list it was opened from. The summary texts are edited through a separate Dialog.
- */
 const route = useRoute();
 const sessionsStore = useSessionsStore();
 const { selectedDetail, position } = storeToRefs(sessionsStore);

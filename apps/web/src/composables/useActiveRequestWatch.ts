@@ -4,13 +4,7 @@ type WatchedRequest = { id: string; status: string };
 
 const activeStatuses = new Set(["pending", "processing"]);
 
-/**
- * Re-checks Agent requests while any is pending or processing, so the page picks up what the Agent
- * wrote without a manual refresh. Checks pause while the tab is hidden and stop once nothing is active.
- * `onSettled` fires once per request that was seen active and then left that state within the same
- * `scope` (a new status, or gone from the list); changing the scope, e.g. another report period,
- * resets tracking so a request that merely scrolled out of view is not reported as finished.
- */
+/** `onSettled` fires once per request seen active that then leaves that state within the same `scope`; changing scope resets tracking so a request that scrolled out of view is not reported finished. */
 export function useActiveRequestWatch<T extends WatchedRequest>(options: {
   requests: () => readonly T[];
   check: () => Promise<void>;
@@ -63,7 +57,6 @@ export function useActiveRequestWatch<T extends WatchedRequest>(options: {
 
   function onVisibilityChange(): void {
     if (document.visibilityState === "visible" && active.size > 0) {
-      // Catch up right away instead of waiting a full interval after the tab comes back.
       void checkNow();
     } else {
       schedule();

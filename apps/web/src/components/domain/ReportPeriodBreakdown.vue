@@ -16,15 +16,10 @@ import SessionRow from "./SessionRow.vue";
 import { buildReportBuckets, buildReportProjectShares, reportBucketMode, reportBucketUnits } from "../../utils/report";
 import { t } from "../../i18n";
 
-/**
- * The period-specific part of the report overview, built only from deterministic report data: a daily
- * report lists its Sessions, longer periods break down into their sub-periods; both show project shares.
- */
 const props = defineProps<{ report: WorkReport }>();
 const emit = defineEmits<{ open: [session: WorkSessionRecord, list: readonly WorkSessionRecord[]]; showAll: [] }>();
 
 const dayLimit = 8;
-/** The stacked share bar colors its largest projects; the unfilled rest of the track is everyone else. */
 const shareTones: readonly Tone[] = ["accent", "done", "neutral"];
 /** Above this many columns the numbers above the bars would collide; the value table still lists them. */
 const valueLabelLimit = 8;

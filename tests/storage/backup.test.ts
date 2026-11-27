@@ -60,7 +60,6 @@ vi.mock("node:fs", async (importOriginal) => {
   };
 });
 
-// Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -506,7 +505,6 @@ describe("exporting a staging copy without fsync", () => {
       expect(exportDatabase(db, staging, { durable: false }).bytes).toBe(statSync(durable).size);
       expect(readFileSync(staging).equals(readFileSync(durable))).toBe(true);
       expect(db.prepare("PRAGMA synchronous").get()).toEqual({ synchronous: 3 });
-      // A refused export (the target exists) still puts the level back.
       expect(() => exportDatabase(db, staging, { durable: false })).toThrow(/already exists/);
       expect(db.prepare("PRAGMA synchronous").get()).toEqual({ synchronous: 3 });
     } finally {
@@ -642,7 +640,6 @@ describe("moving the database to another computer", () => {
   it("refuses a database in use, a newer schema, and files that are not Work Intelligence databases", () => {
     const { root, store, databasePath } = setup();
     const exported = exportFrom(store, root);
-    // The open store holds the database, so it cannot be replaced underneath it.
     expect(() =>
       restoreDatabase({ source: exported, databasePath, initializeStaging: initializeRestoredDatabase }),
     ).toThrow(/in use/);

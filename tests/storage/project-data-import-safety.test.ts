@@ -11,9 +11,6 @@ import {
 } from "../../packages/storage/src/project-data-transfer.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional data only. An online import writes a checked pre-import snapshot and refuses to run without one, reports
-// every row it cannot place instead of dropping it, and holds the write lock only while it writes.
-
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -28,7 +25,6 @@ function track(store: WorkIntelligenceStore): WorkIntelligenceStore {
   return store;
 }
 
-/** A tracked project with `sessions` finalized Sessions, exported as one portable bundle. */
 function exportedBundle(sessions = 3): ProjectDataExport {
   const source = track(new WorkIntelligenceStore(":memory:"));
   const root = createDirectory();
@@ -48,7 +44,6 @@ function exportedBundle(sessions = 3): ProjectDataExport {
   return source.exportProjectData({ type: "all" });
 }
 
-/** A file database (backups need a file) with its backups in their own directory. */
 function fileStore(backupDirectory?: string): {
   store: WorkIntelligenceStore;
   databasePath: string;
@@ -97,7 +92,6 @@ describe("pre-import backup", () => {
       expect(result.additions.sessions).toBe(3);
       const [backup] = listDatabaseBackups(databasePath, backups);
       expect(backup).toMatchObject({ kind: "import", fileName: result.backupFileName });
-      // The snapshot holds none of the imported Sessions: it was taken before the import wrote anything.
       expect(sessionCount(join(backups, result.backupFileName!))).toBe(0);
       expect(sessionCount(databasePath)).toBe(3);
     }
@@ -178,7 +172,6 @@ describe("pre-import backup", () => {
     const { store, databasePath, backups } = fileStore();
     const bundle = exportedBundle();
     const lastEvent = bundle.tables.work_events.at(-1)!;
-    // Abort on the last work event: the projects and Sessions before it were already written in the transaction.
     const writer = new DatabaseSync(databasePath);
     writer.exec(`CREATE TRIGGER synthetic_abort BEFORE INSERT ON work_events WHEN NEW.id = '${String(lastEvent.id)}'
       BEGIN SELECT RAISE(ABORT, 'synthetic interruption'); END`);
@@ -239,11 +232,9 @@ describe("write lock", () => {
       return exec.call(this, sql);
     });
     const result = store.importProjectData({ bundle });
-    // The first lock was released without writing; the second attempt backed up first.
     expect(result).toMatchObject({ changed: true, additions: { work_events: 1 } });
     const created = listDatabaseBackups(databasePath, backups).filter((backup) => !before.includes(backup.fileName));
     expect(created.map((backup) => backup.fileName)).toEqual([result.backupFileName]);
-    // The snapshot is the state the import started from: restoring it removes the event the import added.
     const snapshot = new DatabaseSync(join(backups, result.backupFileName!), { readOnly: true });
     try {
       expect(snapshot.prepare("SELECT COUNT(*) AS count FROM work_events WHERE id = ?").get(String(event.id))).toEqual({
@@ -315,7 +306,6 @@ describe("rows whose parent is not in the file", () => {
     const bundle = exportedBundle();
     const { store } = fileStore();
     store.importProjectData({ bundle });
-    // The same Sessions without their project: nothing is lost, so nothing is reported.
     const sessionsOnly = {
       ...bundle,
       tables: { ...bundle.tables, projects: [{ ...bundle.tables.projects[0]!, id: "other-project" }] },
@@ -350,7 +340,6 @@ describe("validated import", () => {
     const validated = ValidatedProjectDataImport.validate({ bundle });
     expect(validated.redactions.total).toBe(1);
     expect(String(validated.input.bundle.tables.sessions[0]!.summary)).toContain("[REDACTED:environment_secret]");
-    // The file's own objects are never changed.
     expect(bundle.tables.sessions[0]!.summary).toContain("abcdefghijklmnop12345");
   });
 });

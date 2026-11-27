@@ -7,7 +7,6 @@ import { queryKeys } from "./query-keys";
 
 type PaletteSearchResults = { sessions: WorkSessionRecord[]; knowledge: KnowledgeRecord[] };
 
-/** Owns the command palette's server-backed Session and Knowledge search results. */
 export const useCommandPaletteStore = defineStore("command-palette", () => {
   const isOpen = ref(false);
   const searchTerm = ref("");

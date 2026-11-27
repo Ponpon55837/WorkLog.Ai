@@ -17,7 +17,6 @@ vi.mock("../../packages/desktop-core/src/runtime/launch-plan.js", () => ({
   planLaunch: vi.fn(async () => ({ command: "synthetic-node", args: ["serve"], env: {} })),
 }));
 
-// The real operating-system adapters on a free loopback port. Fictional values only.
 const servers: Server[] = [];
 
 async function listen(handler: Parameters<typeof createServer>[1]): Promise<number> {

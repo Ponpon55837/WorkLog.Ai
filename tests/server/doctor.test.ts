@@ -386,8 +386,7 @@ describe("pnpm doctor read-only checks", () => {
     const directory = temporaryDirectory();
     const databasePath = join(directory, "reclaimable.sqlite");
     const database = new DatabaseSync(databasePath);
-    // Building the fixture is not what the test is about. One transaction per step and no fsync keep it to a few disk
-    // syncs instead of the ~180 that 40 autocommit inserts cost, each of which can take seconds on a CI runner's disk.
+    // One transaction per step and no fsync: 40 autocommit inserts cost about 180 disk syncs, each of which can take seconds on a CI runner.
     database.exec("PRAGMA synchronous = OFF");
     database.exec(
       "CREATE TABLE schema_migrations (version INTEGER NOT NULL, name TEXT NOT NULL, applied_at TEXT NOT NULL);" +
@@ -486,7 +485,6 @@ describe("pnpm doctor read-only checks", () => {
       codexSegmentStartConfigured: true,
     });
 
-    // The compaction hooks count only with a matcher that selects `compact` (or none).
     const withCompactionHooks = JSON.parse(JSON.stringify(withPromptHook)) as { hooks: Record<string, unknown> };
     withCompactionHooks.hooks.SessionStart = [
       { matcher: "startup", hooks: [{ type: "command", command: "node " + JSON.stringify(codexHook) }] },
@@ -513,7 +511,6 @@ describe("pnpm doctor read-only checks", () => {
     claudeWithPreCompact.hooks.SessionStart = [{ matcher: "compact", hooks: claudeHandler }];
     writeFileSync(claudeSettingsPath, JSON.stringify(claudeWithPreCompact));
     expect(inspectGlobalHooks(homeDirectory, repositoryRoot).claudeCompactionConfigured).toBe(true);
-    // The start guard counts only with a PreToolUse matcher that selects the finalize dispatcher.
     claudeWithPreCompact.hooks.PreToolUse = [{ matcher: "^Bash$", hooks: claudeHandler }];
     writeFileSync(claudeSettingsPath, JSON.stringify(claudeWithPreCompact));
     expect(inspectGlobalHooks(homeDirectory, repositoryRoot).claudeStartGuardConfigured).toBe(false);
@@ -768,7 +765,6 @@ describe("pnpm doctor read-only checks", () => {
     });
     expect([...configPaths, ...skillPaths].map((path) => readFileSync(path))).toEqual(before);
 
-    // A hook installed before the MCP dispatchers is stale, not missing: re-running setup upgrades it.
     const legacyHooks = JSON.parse(readFileSync(join(codexHomeDirectory, "hooks.json"), "utf8")) as {
       hooks: { PostToolUse: Array<Record<string, unknown>> };
     };
@@ -890,7 +886,6 @@ describe("pnpm doctor read-only checks", () => {
     codexHooks.SessionStart = [{ matcher: "compact", hooks: codexHandler }];
     write();
 
-    // Only the PreToolUse guard is missing: the recommendation points at setup:agents instead of a generic check.
     findings = await collectDoctorFindings(doctorOptions);
     expect(findings.find((finding) => finding.title === "Claude 全域 hook")).toMatchObject({
       severity: "ok",
@@ -924,7 +919,6 @@ describe("pnpm doctor read-only checks", () => {
   });
 
   describe("hook statuses of the Web view", () => {
-    /** A synthetic home with the three Agent config directories and an environment that points at it. */
     function agentHome() {
       const directory = temporaryDirectory();
       const homeDirectory = join(directory, "home");
@@ -967,7 +961,6 @@ describe("pnpm doctor read-only checks", () => {
           JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command }] }] } }),
         );
         const stop = onWindows(() => inspectAgentConnections(home).claudeCode.hookEvents?.[0]);
-        // The files are not on this machine, so the entry is ours but stale; a mis-split command would read missing.
         expect(stop, command).toMatchObject({ event: "Stop", state: "stale" });
         expect(stop?.reason === "script-missing" || stop?.reason === "shim-differs").toBe(true);
       }
@@ -1011,7 +1004,6 @@ describe("pnpm doctor read-only checks", () => {
           },
         }),
       );
-      // The script is not built: every entry is stale and none is configured.
       expect(inspectGlobalHooks(home.homeDirectory, home.repositoryRoot)).toMatchObject({
         claudeConfigured: false,
         claudeCompactionConfigured: false,

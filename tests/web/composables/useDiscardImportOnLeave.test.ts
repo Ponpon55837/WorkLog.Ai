@@ -5,7 +5,6 @@ import { useDiscardImportOnLeave } from "../../../apps/web/src/composables/useDi
 import { useProjectDataTransferStore } from "../../../apps/web/src/stores/project-data-transfer.js";
 import { createStoreHarness, jsonResponse } from "../helpers/store-harness.js";
 
-// The router is replaced by its one hook this composable uses; the guard it registers is called by the tests.
 const router = vi.hoisted(() => ({ leaveGuards: new Set<() => unknown>() }));
 vi.mock("vue-router", () => ({
   onBeforeRouteLeave: (guard: () => unknown) => router.leaveGuards.add(guard),
@@ -47,7 +46,6 @@ function deletes(): Array<{ path: string; keepalive: boolean | undefined }> {
     .map((call) => ({ path: call.url.pathname, keepalive: call.keepalive }));
 }
 
-/** Mounts a component that uses the composable and stages a file through the store. */
 async function mountWithStagedFile(): Promise<{ unmount: () => void }> {
   const app = renderer.createApp({
     setup() {
@@ -85,7 +83,6 @@ describe("useDiscardImportOnLeave", () => {
     app.unmount();
     expect(pageListeners.get("pagehide")?.size).toBe(0);
 
-    // The page is mounted again (the app keys it by locale): the same staged file is still there and still imports.
     const remounted = renderer.createApp({
       setup() {
         useDiscardImportOnLeave();
@@ -102,7 +99,6 @@ describe("useDiscardImportOnLeave", () => {
     );
     await store.applyProjectDataImport();
     remounted.unmount();
-    // The staged id was accepted as it was, and nothing was cancelled on the way.
     expect(
       harness.calls.filter((call) => call.method === "POST" && call.url.pathname === "/api/import/staged/stage-1"),
     ).toHaveLength(1);
@@ -116,7 +112,6 @@ describe("useDiscardImportOnLeave", () => {
     expect(guard?.()).toBeUndefined();
     await vi.waitFor(() => expect(deletes()).toEqual([{ path: "/api/import/staged/stage-1", keepalive: undefined }]));
     app.unmount();
-    // Already discarded: the unmount sends nothing more.
     expect(deletes()).toHaveLength(1);
   });
 

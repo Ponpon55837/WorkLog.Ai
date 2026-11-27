@@ -1,12 +1,3 @@
-// Checks (and with --fix, applies) the fixed top-level order of `<script setup>` blocks described in the
-// worklog-code-layout skill, so every component reads the same way:
-//   imports → types → macros → constants → stores/composables → state → computed → functions → watchers
-//   → lifecycle → defineExpose
-// A composable that takes this component's own state (a template ref, a local ref) as an argument belongs to
-// the state section, after the state it uses. Statements that fit no section (plain constants, one-off calls)
-// stay attached to the statement before them.
-//
-// Usage: node scripts/sfc-layout.mjs [--fix] [files...]   (defaults to apps/web/src/**/*.vue)
 import { error as logError } from "node:console";
 import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -39,7 +30,6 @@ function calleeName(expression) {
   return ts.isIdentifier(callee) ? callee.text : undefined;
 }
 
-/** The section of one top-level statement, or undefined for plain constants and other statements. */
 export function sectionOf(statement) {
   if (ts.isImportDeclaration(statement)) return "imports";
   if (ts.isTypeAliasDeclaration(statement) || ts.isInterfaceDeclaration(statement)) return "types";
@@ -83,7 +73,6 @@ function referencesAny(node, names) {
   return ts.forEachChild(node, (child) => referencesAny(child, names)) ?? false;
 }
 
-/** Top-level statements with the section each one belongs to (plain statements inherit the previous section). */
 function classify(code) {
   const file = ts.createSourceFile("setup.ts", code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const stateNames = new Set(
@@ -99,7 +88,6 @@ function classify(code) {
   });
 }
 
-/** Out-of-order statements: each one ranks below a statement before it. */
 export function layoutProblems(source) {
   const setup = scriptSetup(source);
   if (!setup) return [];
@@ -118,7 +106,6 @@ export function layoutProblems(source) {
   return problems;
 }
 
-/** Stable-sorts the statements by section, carrying each statement's leading comments with it. */
 export function fixLayout(source) {
   const setup = scriptSetup(source);
   if (!setup || layoutProblems(source).length === 0) return source;
@@ -130,7 +117,6 @@ export function fixLayout(source) {
   const body = sorted
     .map((chunk, position) => {
       const text = chunk.text.replace(/^\n+/, "");
-      // Keep one blank line between sections, and the original spacing inside a section.
       const previous = sorted[position - 1];
       if (!previous) return text;
       const separator = previous.rank !== chunk.rank ? "\n\n" : /^\n\s*\n/.test(chunk.text) ? "\n\n" : "\n";

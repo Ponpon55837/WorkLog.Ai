@@ -181,7 +181,6 @@ describe("database redaction", () => {
           }
         ).count,
       ).toBe(0);
-      // The redacted Session is re-indexed before the command returns, so no later read inherits the backlog.
       expect(
         (
           verify.prepare("SELECT COUNT(*) AS count FROM search_dirty WHERE doc_id = ?").get(finalized.session.id) as {

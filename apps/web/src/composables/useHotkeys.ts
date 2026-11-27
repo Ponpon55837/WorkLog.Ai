@@ -9,10 +9,6 @@ function isTyping(target: EventTarget | null): boolean {
   return Boolean(element?.closest("input, textarea, select, [contenteditable='true']"));
 }
 
-/**
- * Global shortcuts: Ctrl/⌘ K opens the palette, "/" focuses the page search,
- * "g" + letter jumps to a page (see navigation.ts). Ignored while typing.
- */
 export function useHotkeys(options: { openPalette: () => void }): void {
   let pendingG = false;
   let timer: number | undefined;

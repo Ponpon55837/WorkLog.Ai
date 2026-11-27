@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only. Storage tests run with TZ=UTC, so calendar days match the ISO dates.
+// Storage tests run with TZ=UTC, so calendar days match the ISO dates.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -114,7 +114,6 @@ describe("custom-range reports", () => {
     }
     expect(currentReport.sessions).toHaveLength(200);
     expect(currentReport.sessionTruncation).toEqual({ currentPeriod: true, previousPeriod: false });
-    // Counts still cover every Session of both periods, so the comparison is not flattened by the limit.
     expect(currentReport.totals).toMatchObject({ sessions: 201, verification: { passed: 201 } });
     expect(currentReport.comparison.sessions).toMatchObject({ current: 201, previous: 200, delta: 1 });
     expect(currentReport.projects).toMatchObject([{ projectName: "Apiary", sessionCount: 201 }]);
@@ -207,11 +206,9 @@ describe("work that crosses the report period", () => {
       }
       return result.session.id;
     };
-    // The period is 2030-01-05 .. 2030-01-11.
     finalize("started-earlier", "2030-01-06T12:00:00Z", "2030-01-03T09:00:00Z", "2030-01-06T12:00:00Z");
     finalize("continued-later", "2030-01-13T12:00:00Z", "2030-01-10T09:00:00Z", "2030-01-13T12:00:00Z");
     const corrected = finalize("corrected", "2030-01-02T12:00:00Z", undefined, "2030-01-02T12:00:00Z");
-    // Imported during the period for older work: created, not corrected, in the period.
     finalize("imported", "2030-01-08T12:00:00Z", undefined, "2029-12-20T12:00:00Z");
     vi.setSystemTime(new Date("2030-01-09T12:00:00Z"));
     store.updateSessionSummary({

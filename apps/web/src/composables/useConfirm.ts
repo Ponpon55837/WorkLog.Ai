@@ -3,7 +3,6 @@ import { useConfirmStore, type ConfirmOptions } from "../stores/confirm";
 
 export type { ConfirmOptions } from "../stores/confirm";
 
-/** Promise-based confirmation rendered by the single ConfirmHost in AppShell. */
 export function confirmAction(options: ConfirmOptions): Promise<boolean> {
   return useConfirmStore().ask(options);
 }

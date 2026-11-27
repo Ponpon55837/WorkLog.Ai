@@ -21,7 +21,6 @@ function readWorkflows(): { file: string; text: string }[] {
     .map((file) => ({ file, text: readFileSync(join(workflowDirectory, file), "utf8") }));
 }
 
-// Text scan: job ids are the two-space-indented keys under the top-level `jobs:` key.
 function splitJobs(text: string): Job[] {
   const lines = text.split("\n");
   const start = lines.findIndex((line) => line === "jobs:");
@@ -45,7 +44,6 @@ function splitJobs(text: string): Job[] {
   return jobs;
 }
 
-// Each checkout step's text: from its `uses:` line to the next step (`- ` at the same indent) or the end of the job.
 function checkoutSteps(job: Job): string[] {
   const steps: string[] = [];
   job.lines.forEach((line, index) => {

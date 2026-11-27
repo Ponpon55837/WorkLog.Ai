@@ -3,16 +3,13 @@ import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { SelectOption } from "./types";
 import UiCounter from "./UiCounter.vue";
 
-/** Tab strip. Tabs expose role="tab"; pair each panel with id `${idPrefix}-panel-${value}`. */
 const props = defineProps<{ items: readonly SelectOption<T>[]; label: string; idPrefix: string }>();
 const model = defineModel<T>({ required: true });
 
 const nav = ref<HTMLElement | null>(null);
-/** The underline slides to the selected tab; it only animates after its first placement. */
 const indicator = ref({ left: 0, width: 0, visible: false, animated: false });
 let resizeObserver: ResizeObserver | undefined;
 
-/** Places the underline under the selected tab (its width changes with counts, so tabs are observed too). */
 function placeIndicator(): void {
   const selected = nav.value?.querySelector<HTMLElement>('[aria-selected="true"]');
   if (!selected) {

@@ -13,10 +13,6 @@ import { workSummarySectionLabels } from "../../utils/labels";
 import { verificationStatus } from "../../utils/status";
 import { t } from "../../i18n";
 
-/**
- * Edits a Session's title, summary, five-section workSummary, and verification in place (same Session
- * id). Only changed fields are sent; every update keeps an audit row, as when an Agent corrects it.
- */
 const {
   sessionEditor,
   sessionEditorForm,

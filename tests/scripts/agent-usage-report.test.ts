@@ -48,7 +48,6 @@ beforeAll(() => {
       ...usage,
       output_tokens: 20,
     }),
-    // tool_use repeated on a later line is not counted twice.
     assistant(
       "msg_2",
       "2026-01-01T00:00:02Z",
@@ -71,7 +70,6 @@ beforeAll(() => {
       { type: "tool_result", tool_use_id: "tu_1", content: "z".repeat(1000) },
       { type: "tool_result", tool_use_id: "tu_missing", content: "q".repeat(9) },
     ]),
-    // A subagent prompt and an injected meta line are not human turns; an array-of-text prompt is.
     { ...user("2026-01-01T00:00:05Z", "subagent prompt"), isSidechain: true },
     { ...user("2026-01-01T00:00:05Z", "injected meta"), isMeta: true },
     user("2026-01-01T00:00:06Z", [{ type: "text", text: SECRET }]),
@@ -169,9 +167,7 @@ describe("CLI output", () => {
   });
 });
 
-// ---------------------------------------------------------------------------------------------------------------
-// Codex (experimental). Every text/path/argument/cwd field carries CANARY, which must never reach any output.
-// ---------------------------------------------------------------------------------------------------------------
+// Every Codex text/path/argument/cwd field below carries CANARY, which must never reach any output.
 const CANARY = "CANARY-CODEX-SECRET-777";
 const PARENT = "aaaaaaaa-0000-4000-8000-000000000001";
 const CHILD = "bbbbbbbb-0000-4000-8000-000000000002";
@@ -210,7 +206,6 @@ const call = (second: number, callId: string | undefined, name: string, extra: R
 const output = (second: number, callId: string, out: unknown, type = "function_call_output") =>
   item(second, { type, call_id: callId, output: out });
 
-/** Writes a rollout named like a real Codex file into its own directory and returns that directory. */
 function codexDir(files: Record<string, unknown[]>): string {
   codexCase += 1;
   const dir = join(codexRoot, `case-${codexCase}`);
@@ -261,7 +256,6 @@ describe("Codex rollouts", () => {
     expect(session.firstTimestamp).toBe(at(0));
     expect(report.formats).toEqual({ claudeCodeLines: 0, codexLines: 9 });
     expect(report.codexTokenMismatches).toBe(0);
-    // turn_context lines are read for the model now, so none of this profile's lines is ignored.
     expect(report.codexIgnoredLines).toBe(0);
   });
 
@@ -444,21 +438,16 @@ describe("Codex rollouts", () => {
     const dir = codexDir({
       [rolloutName(PARENT)]: [
         codexMeta(0, PARENT),
-        // begin first, then the function_call with the same id: one call, classified from the begin event.
         begin(1, "b1", "wi", "work_get"),
         call(2, "b1", "mcp_call"),
         end(3, "b1", ok("123")),
         output(4, "b1", "12345678"),
-        // begin without any function_call.
         begin(5, "b2", "srv", "ping"),
         end(6, "b2", ok("hello")),
-        // function_call first, begin afterwards moves the count into the work map.
         call(7, "b3", "do_it"),
         begin(8, "b3", "wi", "work_list"),
         end(9, "b3", { Err: "boom boom" }),
-        // a call that is MCP only because of its begin event, with an unsafe server name.
         begin(10, "b4", `evil ${CANARY}`, "t"),
-        // no call_id: counted, not deduplicated.
         call(11, undefined, "shell"),
         call(12, undefined, "shell"),
       ],
@@ -497,11 +486,9 @@ describe("Codex rollouts", () => {
         mcpItem(3, "m1", "work-intelligence", "work_read", "1234567890"),
         mcpItem(4, "m2", "codex", "list_mcp_resources", "abc"),
         output(5, "x1", `${CANARY} exec output`, "custom_tool_call_output"),
-        // a direct MCP function_call with the same id as an item: counted once, the output item wins.
         call(6, "m3", "mcp__wi__work_search"),
         mcpItem(7, "m3", "wi", "work_search", "12"),
         output(8, "m3", "1234"),
-        // unsafe server name.
         mcpItem(9, "m4", `evil ${CANARY}`, "t", "zz"),
       ],
     });
@@ -585,7 +572,6 @@ describe("Codex rollouts", () => {
       expect(report.codexTokenMismatches).toBe(0);
       expect(report.codexTokenSourceDisagreements).toBe(0);
     }
-    // Without the previous rollouts the carried usage stays and is flagged.
     const alone = await summarizeFiles([join(dir, rolloutName(C, "2026-02-01T00-00-03"))]);
     expect(alone.total.tokens).toMatchObject({ input: 200, output: 20 });
     expect(alone.codexCompactionCarryovers).toBe(1);
@@ -726,7 +712,6 @@ describe("Work Intelligence operations", () => {
           invocation: { server: "wi", tool: "work_read" },
           result: { Ok: { content: [{ type: "text", text: "123456" }] } },
         }),
-        // a function_call that only the begin event reveals as Work Intelligence, with an unmatched operation.
         call(9, "k6", "do_it"),
         event(10, {
           type: "mcp_tool_call_begin",

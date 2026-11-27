@@ -52,7 +52,6 @@ interface Recorded {
   readonly unset: string[];
 }
 
-/** `execPath` defaults to the executable of `rt-1`, which is what a shim would have started. */
 function recordingHost(options: { importFails?: Error; execPath?: string } = {}): Recorded {
   const stdout: string[] = [];
   const stderr: string[] = [];
@@ -440,7 +439,6 @@ describe("probeSqlite", () => {
   });
 });
 
-/** The shim, run for real: only on POSIX, because it is a /bin/sh script. It validates nothing; the launcher does. */
 describe.skipIf(IS_WINDOWS)("POSIX shim", () => {
   const shim = (): string => path.join(runtimeLayout(root).binDirectory, POSIX_SHIM_NAME);
   const launchFile = (): string => path.join(runtimeDirectory, "runtime-launch.txt");
@@ -457,7 +455,6 @@ describe.skipIf(IS_WINDOWS)("POSIX shim", () => {
     expect(root).toMatch(/ 測試-/);
     const result = run(["mcp", "a b", "$HOME", ""]);
     expect(result.status).toBe(0);
-    // The fake executable prints the two Electron flags, then each argument on a line.
     expect(result.stdout.split("\n")).toEqual([
       "11",
       path.join(runtimeDirectory, "launcher.mjs"),

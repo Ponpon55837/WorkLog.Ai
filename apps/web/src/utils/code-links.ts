@@ -55,7 +55,6 @@ export function editorFileUrl(editor: EditorProtocol, rootPath: string, filePath
   return `${editor}://file${encoded.startsWith("/") ? "" : "/"}${encoded}`;
 }
 
-/** A link to the commit on the repository host, or undefined without a safe https URL and a commit SHA. */
 export function commitUrl(repositoryUrl: string | undefined, commitSha: string | undefined): string | undefined {
   if (!repositoryUrl || !commitSha || !COMMIT_SHA.test(commitSha) || !isSafeRepositoryUrl(repositoryUrl)) {
     return undefined;

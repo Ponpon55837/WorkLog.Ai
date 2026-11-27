@@ -8,7 +8,6 @@ import {
   trackedProject,
 } from "../../packages/storage/src/policy-helper.js";
 
-// Fictional fixtures only: the gate and reader are stubs, no filesystem is touched.
 const project = { id: "project-1", name: "Apiary", rootPath: "/fictional/apiary" } as ProjectRecord;
 const denied: PolicyDecision = {
   allowed: false,

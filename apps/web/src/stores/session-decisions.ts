@@ -12,7 +12,6 @@ import { useAgentReviewStore } from "./agent-review";
 import { queryKeys } from "./query-keys";
 import { t } from "../i18n";
 
-/** Owns the tracked-project inbox for Agent-autonomous decisions and its Web-only review action. */
 export const useSessionDecisionsStore = defineStore("session-decisions", () => {
   const queryCache = useQueryCache();
   const agentReviewStore = useAgentReviewStore();

@@ -4,23 +4,19 @@ import { toDateInputValue } from "./format";
 export type ActivityLevel = 0 | 1 | 2 | 3 | 4;
 
 export interface ActivityCell {
-  /** Local calendar day, YYYY-MM-DD. */
   date: string;
   sessions: number;
   level: ActivityLevel;
 }
 
 export interface ActivityMonthLabel {
-  /** Zero-based week column the label starts above. */
   week: number;
-  /** First day of that month, for the locale-aware label. */
   date: Date;
 }
 
 export interface ActivityCalendar {
   from: string;
   to: string;
-  /** Weeks start on Monday; each week holds seven rows, with null after today. */
   weeks: Array<Array<ActivityCell | null>>;
   months: ActivityMonthLabel[];
   total: number;
@@ -34,12 +30,10 @@ function addDays(value: Date, days: number): Date {
   return new Date(value.getFullYear(), value.getMonth(), value.getDate() + days);
 }
 
-/** Monday on or before the date (local time). */
 function mondayOf(value: Date): Date {
   return addDays(value, -((value.getDay() + 6) % 7));
 }
 
-/** The inclusive calendar-date range the heatmap draws: the last 53 Monday-based weeks ending today. */
 export function activityRange(today: Date): { from: string; to: string } {
   return { from: toDateInputValue(addDays(mondayOf(today), -(WEEKS - 1) * 7)), to: toDateInputValue(today) };
 }

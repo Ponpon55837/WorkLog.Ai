@@ -13,11 +13,7 @@ import {
 import { createApiHandler } from "../../apps/server/src/server.js";
 import { RequestBodyError, validateProjectDataImportUpload } from "../../apps/server/src/http.js";
 
-// Fictional data only. Before streaming, an import request body went through JSON.parse and then
-// ValidatedProjectDataImport.validate (git e9ab744, parseProjectDataImportBytes). Each case is a broken request body;
-// the expected status, API code and message are what that old path answered, derived by running it on the same text,
-// and the streaming path must still answer them. Differences that are decisions, not accidents, are noted at their
-// case or test.
+// Expected status, code and message are what the old JSON.parse + ValidatedProjectDataImport path answered (git e9ab744), derived by running it on the same text. Intended differences are noted at their case.
 
 interface Answer {
   status: number;
@@ -28,7 +24,6 @@ interface Answer {
 interface ParityCase {
   name: string;
   body: (bundle: ProjectDataExport) => string;
-  /** What the old path answered. */
   expected: Answer | "accepted";
 }
 
@@ -69,7 +64,6 @@ function requestWith(bundle: ProjectDataExport, change: (copy: ProjectDataExport
   return JSON.stringify({ bundle: copy, ...extra });
 }
 
-/** One table of the bundle replaced by raw JSON text for its value. */
 function requestWithTable(bundle: ProjectDataExport, table: string, valueText: string): string {
   const tables = JSON.stringify({ ...bundle.tables, [table]: "@@" }).replace('"@@"', valueText);
   return requestWithTablesText(bundle, tables);

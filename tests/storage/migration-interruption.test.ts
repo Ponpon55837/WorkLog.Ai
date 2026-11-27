@@ -21,12 +21,8 @@ import {
 // plan shapes, not the exact wall-clock moments at which a kill lands.
 const WORKER = join(import.meta.dirname, "../helpers/migration-interruption-worker.ts");
 const OLD_VERSION = DEFAULT_OLD_SCHEMA_VERSION;
-/** The one value an upgrade writes with the wall clock; everything else is content a second upgrade reproduces. */
 const UPGRADE_COMPARISON: FingerprintOptions = { excludeTables: ["schema_migrations"] };
-/**
- * Columns a restore legitimately replaces: it assigns a fresh database id and sets both revision counters above the
- * larger of the replaced and the restored value, so an observer's `changed` event fires.
- */
+/** Columns a restore replaces on purpose: a fresh database id and both revision counters bumped. */
 const RESTORE_COMPARISON: FingerprintOptions = {
   excludeTables: ["schema_migrations"],
   ignoreColumns: { change_revisions: ["database_id", "data_revision", "audit_revision"] },
@@ -35,14 +31,12 @@ const KILL_ITERATIONS = parseKillIterations(process.env.WI_MIGRATION_KILL_ITERAT
 const KILL_BATCH_SIZE = 5;
 const KILL_SEED = Number(process.env.WI_MIGRATION_KILL_SEED ?? Math.floor(Math.random() * 2 ** 31));
 const KILL_TOTAL_BUDGET_MS = 60_000;
-/** Per batch: spawning five workers, a calibration run and five kill/reopen cycles; the shared budget above still bounds the series. */
 const KILL_BATCH_TIMEOUT_MS = 90_000;
 const SOURCE_DATABASE = process.env.WI_MIGRATION_SOURCE_DB;
 
 let sandbox: BarrierSandbox;
 let sourcePath: string;
 let counter = 0;
-/** Shared by the random-kill batches so the whole series stays inside its budget; started once a batch's workers are ready. */
 let killSeriesStartedAt: number | undefined;
 
 function parseKillIterations(raw: string | undefined): number {
@@ -54,7 +48,6 @@ function parseKillIterations(raw: string | undefined): number {
   return value;
 }
 
-/** A small deterministic generator, so a failing run can be repeated from its printed seed. */
 function seededRandom(seed: number): () => number {
   let state = seed >>> 0;
   return () => {
@@ -113,7 +106,6 @@ function quickCheck(path: string): string {
   }
 }
 
-/** One upgrade without interruption, made in this process: what every interrupted upgrade must end up equal to. */
 function uninterruptedUpgrade(): ReturnType<typeof fingerprintDatabase> {
   const location = copyOfSource("reference");
   openAndClose(location);
@@ -208,14 +200,12 @@ describe.each(Array.from({ length: Math.ceil(KILL_ITERATIONS / KILL_BATCH_SIZE) 
         const sourceContent = fingerprintDatabase(sourcePath);
         const first = batch * KILL_BATCH_SIZE;
         const count = Math.min(KILL_BATCH_SIZE, KILL_ITERATIONS - first);
-        // All workers of the batch are started together; each waits at `ready` with its imports loaded.
         const runs = Array.from({ length: count }, (_unused, index) => {
           const location = copyOfSource(`kill-${first + index}`);
           return { iteration: first + index, location, child: worker("open-store", location) };
         });
         await Promise.all(runs.map((run) => run.child.waitFor("ready")));
         killSeriesStartedAt ??= Date.now();
-        // The span of an uninterrupted open, measured once here, bounds the random delays.
         const calibration = copyOfSource("calibration");
         const timer = worker("open-store", calibration);
         await timer.waitFor("ready");
@@ -248,7 +238,6 @@ describe.each(Array.from({ length: Math.ceil(KILL_ITERATIONS / KILL_BATCH_SIZE) 
           } else {
             expect(fingerprintDatabase(run.location.databasePath, UPGRADE_COMPARISON), context).toEqual(reference);
           }
-          // Any backup that was published is whole and holds the pre-upgrade content.
           for (const backup of publishedBackups(run.location)) {
             const backupPath = join(run.location.backupDirectory, backup.fileName);
             expect(quickCheck(backupPath), context).toBe("ok");
@@ -273,7 +262,6 @@ describe.each(Array.from({ length: Math.ceil(KILL_ITERATIONS / KILL_BATCH_SIZE) 
 );
 
 describe("restoring the pre-migration backup after an upgrade", () => {
-  /** Upgrades a copy of the source, writes rows after the upgrade, and returns the pre-migration backup. */
   function upgradedWithLaterRows() {
     const location = copyOfSource("restore");
     const store = new WorkIntelligenceStore(location.databasePath, { backup: { directory: location.backupDirectory } });
@@ -330,11 +318,9 @@ describe("restoring the pre-migration backup after an upgrade", () => {
       integrity: "ok",
       highestMigration: LATEST_SCHEMA_VERSION,
     });
-    // The safety snapshot of the live database was written before the staging copy was started.
     const safety = publishedBackups(location).filter((entry) => entry.kind === "manual");
     expect(safety).toHaveLength(1);
     expect(fingerprintDatabase(join(location.backupDirectory, safety[0]!.fileName))).toEqual(live);
-    // A normal open works and ignores the staging file.
     openAndClose(location);
     expect(fingerprintDatabase(location.databasePath)).toEqual(live);
 

@@ -34,7 +34,6 @@ describe("backup-completed from the child", () => {
     expect(started.status).toBe("started");
 
     harness.children[0]?.say({ type: "backup-completed", at: "2026-03-01T12:00:00.000Z" });
-    // The report is bound to the identity the preflight verified, so the shell can tell which database it belongs to.
     expect(seen).toEqual([`2026-03-01T12:00:00.000Z|${IDENTITY.realPath}`]);
 
     stop();
@@ -151,7 +150,6 @@ describe("preview of a candidate database", () => {
     expect(harness.children[0]?.exitCode).toBeNull();
     expect(harness.children[0]?.sent.map((message) => message.type)).not.toContain("shutdown");
     expect(harness.supervisor.running).toBeDefined();
-    // A backup report from the preview child is never attributed to the running database.
     const seen: string[] = [];
     harness.supervisor.onBackupCompleted((at) => seen.push(at));
     harness.children[1]?.say({ type: "backup-completed", at: "2026-03-01T12:00:00.000Z" });
@@ -392,7 +390,6 @@ describe("the working directory before every spawn", () => {
     }) as never);
     await harness.supervisor.start(startRequest());
     await harness.supervisor.preview("/synthetic/other/candidate.sqlite");
-    // Each spawn is preceded by its own creation of the directory.
     expect(order).toEqual([
       "ensure:/synthetic/app-data/backend-cwd",
       "spawn",

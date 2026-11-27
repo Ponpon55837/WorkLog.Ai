@@ -27,7 +27,6 @@ describe("the Agent removal channel", () => {
     );
     for (const [key, channel] of Object.entries(REPAIR_CHANNELS)) {
       expect(preload.get(key), `${key} in the preload`).toBe(channel);
-      // Main registers an agents channel exactly once; the other channels are checked for presence in the same file.
       if (key.startsWith("agents")) {
         expect(IPC_SOURCE.split(`REPAIR_CHANNELS.${key},`).length - 1, `${key} handler`).toBe(1);
       }
@@ -56,10 +55,8 @@ describe("what the page says about a failed apply or removal (L-20)", () => {
       const message = agentsResultMessage(failed, locale) ?? "";
       expect(message).toContain("~/a.json, ~/b.toml");
       expect(message).toBe(setupMessages(locale).agentsManualRepair.replace("{path}", "~/a.json, ~/b.toml"));
-      // The generic failure copy says what was written "has been restored"; it must not appear here.
       expect(message).not.toBe(setupMessages(locale).agentsFailed.replace("{code}", "externally-modified"));
     }
-    // A failure that was fully rolled back still says so.
     expect(agentsResultMessage({ kind: "failed", code: "write-failed" }, "en")).toBe(
       setupMessages("en").agentsFailed.replace("{code}", "write-failed"),
     );

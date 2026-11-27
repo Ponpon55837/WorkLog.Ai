@@ -18,11 +18,9 @@ import { t } from "../../i18n";
 interface SectionDraft {
   heading: string;
   content: string;
-  /** Session ids, one per line or comma separated. */
   sources: string;
 }
 
-/** A manual edit of a standing page; saving keeps it as a new version, like an Agent update. */
 const props = defineProps<{ open: boolean; page: KnowledgePageRecord | null }>();
 const emit = defineEmits<{ close: [] }>();
 

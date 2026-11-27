@@ -1,9 +1,7 @@
 /**
- * Downloads the official Node.js and Electron distributions for this platform and checks them against a SHA-256.
- * Node.js is checked against the hashes pinned in node-checksums.mjs, so the shipped runtime does not depend on the
- * origin's own SHASUMS256.txt. Electron (only the rejected comparison runtime) is checked against the SHASUMS256.txt
- * published next to it, which catches corruption but is not an independent trust root. Downloads are untrusted until
- * the hash matches, and they are extracted into a directory of their own that nothing is executed from.
+ * Node.js is verified against the hashes pinned in node-checksums.mjs, not the origin's SHASUMS256.txt. Electron (only
+ * the rejected comparison runtime) uses the SHASUMS256.txt beside it. Downloads are untrusted until the hash matches
+ * and are extracted into a directory of their own that nothing is executed from.
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -25,7 +23,7 @@ async function fetchOk(url) {
   return response;
 }
 
-/** Parses `<sha256>  <file>` lines (`*` marks binary mode in some tools). */
+/** `<sha256>  <file>` lines; `*` marks binary mode in some tools. */
 export function parseShasums(text) {
   const sums = new Map();
   for (const line of text.split(/\r?\n/)) {
@@ -41,7 +39,6 @@ async function sha256Of(path) {
   return hash.digest("hex");
 }
 
-/** Downloads `url` to `destination` unless a file with the expected hash is already there. */
 async function downloadVerified(url, expectedSha256, destination) {
   if (existsSync(destination) && (await sha256Of(destination)) === expectedSha256) return false;
   const partial = `${destination}.partial`;
@@ -63,10 +60,7 @@ function run(command, args) {
   }
 }
 
-/**
- * Extracts `archive` into the new, empty `destination`. Windows uses the system bsdtar (it reads zip); macOS uses
- * `ditto` for zip, which keeps symlinks and extended attributes of an app bundle; Linux uses `unzip` or `tar`.
- */
+/** Windows extracts zip with the system bsdtar; macOS uses `ditto`, which keeps symlinks and extended attributes of an app bundle. */
 export function extractArchive(archive, destination) {
   if (existsSync(destination) && readdirSync(destination).length > 0) {
     throw new Error(`${destination} must be empty before extracting into it`);
@@ -85,7 +79,6 @@ export function extractArchive(archive, destination) {
   }
 }
 
-/** The newest LTS release of Node.js major `request` ("24"), or the exact version ("v24.22.3"). */
 async function resolveNodeVersion(request) {
   if (/^v\d+\.\d+\.\d+$/.test(request)) return request;
   if (!/^\d+$/.test(request)) throw new Error(`--node-version must be a major ("24") or a version ("v24.22.3")`);
@@ -95,7 +88,6 @@ async function resolveNodeVersion(request) {
   return release.version;
 }
 
-/** The Node.js binary of this platform, downloaded, verified and unpacked under `workDirectory`. */
 export async function prepareNode({ version = DEFAULT_NODE_VERSION, cacheDirectory, workDirectory }) {
   const resolved = await resolveNodeVersion(version);
   const windows = process.platform === "win32";
@@ -116,7 +108,6 @@ export async function prepareNode({ version = DEFAULT_NODE_VERSION, cacheDirecto
     version: resolved.slice(1),
     downloaded,
     archiveSha256: expected,
-    // Only the binary and the licence are kept; npm, headers and docs are not needed to run the bundles.
     keep: [
       { from: join(base, windows ? "node.exe" : join("bin", "node")), to: windows ? "node/node.exe" : "node/bin/node" },
       { from: join(base, "LICENSE"), to: "node/LICENSE" },
@@ -125,7 +116,6 @@ export async function prepareNode({ version = DEFAULT_NODE_VERSION, cacheDirecto
   };
 }
 
-/** The official Electron build of this platform, downloaded, verified and unpacked under `workDirectory`. */
 export async function prepareElectron({ version, cacheDirectory, workDirectory }) {
   const archiveName = `electron-v${version}-${process.platform}-${process.arch}.zip`;
   const base = `${ELECTRON_RELEASES}/v${version}`;

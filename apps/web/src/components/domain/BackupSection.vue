@@ -27,10 +27,6 @@ import VirtualList from "../VirtualList.vue";
 import { useDiscardImportOnLeave } from "../../composables/useDiscardImportOnLeave";
 import { t } from "../../i18n";
 
-/**
- * Database backups and the whole-database export for moving to another computer. Restoring replaces
- * the database while nothing may hold it open, so it is a terminal command, not a button here.
- */
 const backupsStore = useBackupsStore();
 const {
   backups,
@@ -81,7 +77,7 @@ const exportScopeOptions = [
 ];
 
 const totalBackupBytes = computed(() => backups.value.reduce((total, backup) => total + backup.bytes, 0));
-// The desktop window never shows a command (M-15): it points to the App's Data tab instead.
+// The desktop window never shows a command: it points to the App's Data tab instead.
 const desktopManaged = computed(() => systemStatus.value?.desktop?.managed === true);
 const restoreCommand = t("projects.pnpmDbRestoreExportFile");
 const exportProjectOptions = computed(() =>

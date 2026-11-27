@@ -6,7 +6,6 @@ import type { AgentReviewRequest, AgentReviewRequestPage, ProjectRecord } from "
 import AgentReviewRequestBox from "../../../apps/web/src/components/domain/AgentReviewRequestBox.vue";
 import { loadCatalog, locale, t } from "../../../apps/web/src/i18n/index.js";
 
-// Fictional fixtures only.
 const latestRequest = ref<AgentReviewRequest | undefined>();
 const latestCompletedRequest = ref<AgentReviewRequest | undefined>();
 const hasOpenRequest = ref(false);

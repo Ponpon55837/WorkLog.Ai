@@ -32,7 +32,6 @@ const emptyPageInfo: PageInfo = {
 
 export type OutstandingClosedFilter = "all" | "hide_source_session";
 
-/** closedBy values that remain when source-Session removals are hidden. */
 const NON_SOURCE_CLOSERS: OutstandingItemClosedBy[] = ["later_session", "user", "cleanup_review", "migration"];
 
 type OutstandingListScope = {
@@ -66,7 +65,6 @@ function buildListScope(
   };
 }
 
-/** Owns the URL-scoped, project-filtered nextSteps work queue and its audited status transitions. */
 export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
   const queryCache = useQueryCache();
   const listEnabled = ref(false);

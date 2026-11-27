@@ -14,7 +14,6 @@ import UiSkeleton from "../ui/UiSkeleton.vue";
 import UiTextInput from "../ui/UiTextInput.vue";
 import { t } from "../../i18n";
 
-/** Links the open Session to another one (planning ↔ implementation, follow-ups) so recall finds both. */
 const {
   linkSource,
   linkQuery,

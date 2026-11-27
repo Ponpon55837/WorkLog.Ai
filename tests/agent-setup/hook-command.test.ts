@@ -33,7 +33,6 @@ function touch(path: string): string {
   return path;
 }
 
-/** A hooks config with one entry per event, each running `command`. */
 function hooksWith(events: Record<string, string | { matcher: string; command: string }>): unknown {
   const hooks: Record<string, unknown> = {};
   for (const [event, value] of Object.entries(events)) {
@@ -143,7 +142,6 @@ describe("classifyHookCommand", () => {
 });
 
 describe("classifyHookCommand without a platform", () => {
-  /** Runs `body` as if the process ran on `platform`, which is what the doctor and inspect rely on. */
   function onPlatform(platform: NodeJS.Platform, body: () => void): void {
     const original = Object.getOwnPropertyDescriptor(process, "platform");
     Object.defineProperty(process, "platform", { value: platform });
@@ -523,7 +521,6 @@ describe("classifyMcpRegistration", () => {
     expect(classifyMcpRegistration({ command: "pnpm", args: ["start:mcp"], cwd: repository }).kind).toBe("checkout");
     expect(classifyMcpRegistration({ command: "pnpm", args: ["--dir", missing, "start:mcp"] }).kind).toBe("other");
 
-    // A directory with a package.json but no built launcher is not a working checkout.
     const packageOnly = join(temporaryRoot(), "package-only");
     touch(join(packageOnly, "package.json"));
     expect(classifyMcpRegistration({ command: "pnpm", args: ["-C", packageOnly, "start:mcp"] }).kind).toBe("other");
@@ -643,7 +640,6 @@ describe("inspectAgentHooks", () => {
     writeFileSync(fixture.paths.codexHooks, "{}");
     expect(inspectAgentHooks(options).codex).toMatchObject({ state: "installed", source: "plugin" });
     writeFileSync(fixture.paths.codexConfig, "= not toml");
-    // A hooks switch that cannot be read leaves every event unconfirmed, as the doctor reports it.
     const unreadableSwitch = inspectAgentHooks(options).codex;
     expect(unreadableSwitch.state).toBe("unknown");
     expect(unreadableSwitch.events.every((event) => event.state === "unknown")).toBe(true);

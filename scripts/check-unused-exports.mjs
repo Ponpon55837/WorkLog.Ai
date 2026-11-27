@@ -6,14 +6,7 @@ import { dirname, join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-/**
- * Unused-export guard. knip (see knip.json) lists the exports and types that nothing reachable from an entry point imports:
- * the apps' entry points, the scripts and each package's `index.ts` are the entries, and tests are not (a test that is the only
- * user of a helper does not make it used). The list at the time the guard was added is `knip-baseline.json`; from then on a
- * new unused export fails the check. Fix it by removing the export, or, for a helper that only tests use, by tagging it
- * `@internal test-only` in its comment (knip skips tagged exports). Never add a new entry to the baseline by hand: the
- * baseline only shrinks. `--update` rewrites it, and is for deleting entries after their exports were cleaned up.
- */
+/** Fails on a new unused export. Tag a test-only helper `@internal test-only`; never edit knip-baseline.json by hand, it only shrinks (`--update`). */
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const baselinePath = join(root, "knip-baseline.json");

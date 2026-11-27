@@ -73,7 +73,6 @@ function overlaps(a: Box, b: Box): boolean {
   return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 }
 
-/** Whether an axis-aligned segment enters a card's interior. */
 function crossesCard(a: { x: number; y: number }, b: { x: number; y: number }, card: Box): boolean {
   return (
     Math.max(a.x, b.x) > card.x &&
@@ -134,7 +133,6 @@ describe("architecture layered placement", () => {
     expect(left("gateway")).toBeLessThan(left("orders"));
     expect(left("orders")).toBeLessThan(left("billing"));
     expect(left("billing")).toBeLessThan(left("sql"));
-    // notify → browser closes a cycle; the declared entry (browser) still starts the flow.
     expect(left("browser")).toBe(Math.min(...layout.nodes.map((item) => item.x)));
   });
   it("keeps the drawing compact: blocks in one column stack instead of stepping down one band per group", () => {
@@ -152,7 +150,6 @@ describe("architecture layered placement", () => {
     expect(layout.groups.map((group) => group.tone)).toEqual([0, 1, 2, 3]);
     expect(layout.nodes.find((item) => item.node.id === "gateway")?.tone).toBe(1);
     expect(layout.nodes.find((item) => item.node.id === "queue")?.tone).toBeUndefined();
-    // Filtering keeps a group's tone so colors do not shift between views.
     expect(layoutArchitecture(flow, "data").groups[0]?.tone).toBe(3);
   });
   it("never moves authored positions and places automatic cards clear of them", () => {
@@ -233,7 +230,6 @@ describe("architecture connection routing", () => {
         for (let index = 1; index < edge.points.length; index++)
           expect(crossesCard(edge.points[index - 1]!, edge.points[index]!, cardOf(layout, item.node.id))).toBe(false);
       }
-    // Interior runs only: port stubs next to a shared card may meet.
     const runs = layout.edges.flatMap((edge) =>
       edge.points.slice(2, -1).map((point, index) => ({ id: edge.id, a: edge.points[index + 1]!, b: point })),
     );

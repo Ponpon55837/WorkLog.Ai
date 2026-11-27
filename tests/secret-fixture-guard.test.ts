@@ -2,10 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-/**
- * Test fixtures that imitate secrets are assembled at run time ("gh" + "p_" + body), so no source file carries a
- * full-format credential for a secret scanner to report. This guard fails when one is written out in full again.
- */
+// Secret-looking fixtures are assembled at run time ("gh" + "p_" + body) so no source file carries a full-format credential for a secret scanner to report.
 const FULL_FORMAT_SECRETS: readonly RegExp[] = [
   /ghp_[A-Za-z0-9]{20,}/,
   /github_pat_[A-Za-z0-9_]{20,}/,

@@ -7,20 +7,15 @@ import { queryKeys } from "./query-keys";
 import { usePreferencesStore } from "./preferences";
 import type { Locale } from "../i18n";
 
-/** The desktop App's locale names; the Dashboard's English is "en-US". */
 function toLocale(shellLocale: "zh-TW" | "en"): Locale {
   return shellLocale === "en" ? "en-US" : "zh-TW";
 }
 
-/**
- * Keeps the Dashboard language and the desktop App's language in step. The App's language is adopted when the
- * status reports it (never written back); a language the user picks here is handed to the App when it manages this backend.
- */
+/** The App's language is adopted when the status reports it, never written back; a language picked here is handed to the App. */
 export const useDesktopLanguageStore = defineStore("desktop-language", () => {
   const preferencesStore = usePreferencesStore();
   const statusLoadEnabled = ref(false);
-  // The System status page's own query (same key): whichever loads it first, the other reads the same answer. It
-  // waits for loadStatus() so a first load that lands on that page asks once, not twice.
+  // The System status page's own query (same key); waits for loadStatus() so a first load on that page asks once, not twice.
   const statusQuery = useQuery({
     key: queryKeys.views.systemStatus,
     enabled: statusLoadEnabled,
@@ -42,12 +37,10 @@ export const useDesktopLanguageStore = defineStore("desktop-language", () => {
     { immediate: true },
   );
 
-  /** Loads the status from app start, so the App's language is adopted without opening the System status page. */
   function loadStatus(): void {
     statusLoadEnabled.value = true;
   }
 
-  /** The user picked a language here: apply it, and tell the App when it manages this backend. */
   async function changeLocale(next: Locale): Promise<void> {
     preferencesStore.locale = next;
     if (!desktop.value?.managed) return;

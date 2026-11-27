@@ -210,7 +210,6 @@ function validRow(table: ProjectDataTable, id: string): Record<string, string | 
   }
   for (const column of projectDataExportTableColumns[table]) {
     if (column.endsWith("_json")) {
-      // A stored appliesTo list is checked for its shape; every other JSON column only for valid JSON.
       row[column] = column === "applies_to_json" ? "[]" : "{}";
     }
   }
@@ -226,7 +225,6 @@ function validRow(table: ProjectDataTable, id: string): Record<string, string | 
   if (table === "knowledge_candidate_requests") {
     row.candidate_count = 1;
   }
-  // A candidate without a stored overlap advisory; a present one must be the stored form, never "{}".
   if (table === "knowledge_candidates") row.overlaps_json = null;
   if (table === "session_decisions") {
     row.position = 0;
@@ -466,7 +464,6 @@ describe("jsonTextExceedsDepth", () => {
   it("scans 5,000,000 characters in one pass", () => {
     const started = performance.now();
     expect(jsonTextExceedsDepth(`${"[".repeat(2_500_000)}${"]".repeat(2_500_000)}`)).toBe(true);
-    // Brackets inside a long string never count, however many there are.
     expect(jsonTextExceedsDepth(`["${"[".repeat(2_000_000)}"]`)).toBe(false);
     expect(performance.now() - started).toBeLessThan(2_000);
   });

@@ -15,7 +15,6 @@ function buildSessionStructuredContent(value: StructuredContent): StructuredCont
         : Array.isArray(changedFiles)
           ? changedFiles.length
           : 0;
-  // A finalize receipt carries the verification status only, not the submitted verification body.
   const verification =
     session?.verification ??
     value.verification ??
@@ -34,19 +33,12 @@ function buildSessionStructuredContent(value: StructuredContent): StructuredCont
   };
 }
 
-/**
- * A projected read (view/select) answers in text only. Some clients hand the model structuredContent
- * instead of the text when both are present, so a metadata-only structuredContent hid the selected
- * body from the Agent; repeating the body there would send it twice to clients that pass both.
- */
+/** A projected read answers in text only: some clients show the model structuredContent instead of the text, which would hide the selected body or send it twice. */
 function isProjectedSessionRead(value: unknown): boolean {
   return isRecord(value) && isRecord(value.projection) && isRecord(value.session);
 }
 
-/**
- * session_unchanged carries identity only; Session-shaped defaults (0 changed files, no verification) would mislead.
- * Everything the text says stays, because some clients hand the model structuredContent instead of the text.
- */
+/** session_unchanged carries identity only: Session-shaped defaults would mislead, and the text stays because some clients read only structuredContent. */
 function toUnchangedStructuredContent(value: unknown): StructuredContent | undefined {
   if (!isRecord(value) || value.outcome !== "session_unchanged" || !isRecord(value.session)) return undefined;
   const session = value.session;
@@ -59,9 +51,7 @@ function toUnchangedStructuredContent(value: unknown): StructuredContent | undef
 }
 
 /**
- * The structured form of a Session tool's result. A result that carries a Session gets the stable Session fields;
- * any other result (skipped, idempotency_conflict, not_found) is passed through unchanged, because defaults such as
- * executionStatus "completed" would tell a client that reads only structuredContent that something was saved.
+ * Non-Session results pass through: defaults such as executionStatus "completed" would tell a structuredContent-only client something was saved.
  * @internal test-only
  */
 export function toSessionStructuredContent(value: unknown): StructuredContent | undefined {
@@ -81,7 +71,6 @@ export function toStructuredContent(value: unknown): StructuredContent | undefin
   return buildSessionStructuredContent(value);
 }
 
-/** Tool results are compact JSON: indentation only costs the Agent tokens. */
 export function textResult(value: unknown) {
   const structuredContent = isProjectedSessionRead(value)
     ? undefined
@@ -100,13 +89,7 @@ export function sessionTextResult(value: unknown) {
   };
 }
 
-/**
- * The character count of a tool response as the MCP layer sends it, for the read audit (a number only, never
- * content). Algorithm, one pass and no extra serialization of the text: the sum of `text.length` over every
- * `content` item of type "text" (textResult already holds the serialized JSON string), plus
- * `JSON.stringify(structuredContent).length` when structuredContent is present, because the SDK sends it as a
- * second JSON payload. Lengths are JavaScript string lengths, that is UTF-16 code units, not bytes or tokens.
- */
+/** Sum of text content lengths plus JSON.stringify(structuredContent).length, in UTF-16 code units (not bytes or tokens). */
 export function countResponseChars(response: {
   content?: ReadonlyArray<{ type: string; text?: string }>;
   structuredContent?: unknown;

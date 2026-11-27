@@ -7,7 +7,6 @@ import { classifyAgentStatus } from "../../packages/desktop-core/src/agents/stat
 import { classifyHostObservation } from "../../packages/shared/src/agent-observations.js";
 import { withHostObservations } from "../../apps/server/src/agent-observations.js";
 
-// Synthetic files only. The Web status must judge a host by the same rule as the App's Agent tab.
 const CURRENT = "a".repeat(64);
 const OLD = "b".repeat(64);
 let root = "";

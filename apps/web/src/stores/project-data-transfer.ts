@@ -30,16 +30,13 @@ function isStagedImportGone(error: unknown): boolean {
   return error instanceof ApiError && error.status === 404 && error.code === "not_found";
 }
 
-/** The API words its import errors precisely (what is wrong with the file, that it expired), so its message is shown. */
 function stagedImportErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof ApiError && error.status > 0 && error.code !== "malformed_response") return error.message;
   return errorMessage(error, fallback);
 }
 
-/** Owns portable project file state, import preview/apply operations, and exports. */
 export const useProjectDataTransferStore = defineStore("project-data-transfer", () => {
   const queryCache = useQueryCache();
-  // The export file lives on the API server after upload; the renderer only keeps its id and header.
   const importStagingId = ref("");
   const importHeader = ref<ProjectDataImportStagedHeader | null>(null);
   const importFileName = ref("");
@@ -58,7 +55,6 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
   const transferError = ref("");
   let uploadRequestId = 0;
   let uploadAbort: AbortController | null = null;
-  // The choices the visible preview was computed with, so a change of choices (not a re-seed) triggers a re-preview.
   let previewedChoices = "";
 
   const importPreviewQuery = useQuery({
@@ -113,7 +109,6 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
       .catch(() => undefined);
   }
 
-  /** Forgets the staged file locally; `discard` also tells the API to remove it. */
   function resetImportFile(discard: boolean, keepalive = false): void {
     uploadRequestId += 1;
     uploadAbort?.abort();
@@ -129,17 +124,15 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     previewedChoices = "";
   }
 
-  /** Shows the server's message for an expired staged file and asks the user to choose the file again. */
   function handleStagedImportError(error: unknown, fallback: string): void {
     if (isStagedImportGone(error)) resetImportFile(false);
     importError.value = stagedImportErrorMessage(error, fallback);
   }
 
   /**
-   * The user leaves the page (route leave, pagehide) with a file staged or uploading: the staged file is removed on
-   * the API so an unfinished preview does not linger, and the local state forgets it. `keepalive` is for pagehide,
-   * where an ordinary request would be cancelled with the page. A running import is left alone: if it fails, the file
-   * must stay so the import can be retried (it expires on its own otherwise).
+   * Route leave or pagehide with a file staged: remove it on the API and forget it locally. `keepalive` is for
+   * pagehide, where an ordinary request would be cancelled with the page. A running import is left alone so a failed
+   * one can retry with the same file.
    */
   function discardImportFile(keepalive = false): void {
     if (importApplying.value) return;
@@ -147,7 +140,6 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     resetImportFile(true, keepalive);
   }
 
-  /** Uploads the chosen export to the API as a raw body; the server validates it and returns the first preview. */
   async function loadImportFile(file: File | undefined): Promise<void> {
     resetImportFile(true);
     importError.value = "";
@@ -190,7 +182,6 @@ export const useProjectDataTransferStore = defineStore("project-data-transfer", 
     }
   }
 
-  /** Previews the selected scope and path changes without writing to SQLite. */
   async function previewProjectDataImport(): Promise<void> {
     importError.value = "";
     importPreviewVisible.value = false;

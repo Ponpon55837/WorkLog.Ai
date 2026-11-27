@@ -181,7 +181,6 @@ describe("OperationCoordinator", () => {
         { phase: "QUIESCING" },
       ),
     ]);
-    // Simulate a crash instead of a clean failure: reopen the record as in-progress with step "a" done.
     const raw = await store.load();
     if (!raw) throw new Error("missing journal");
     await store.save({
@@ -255,12 +254,10 @@ describe("OperationCoordinator", () => {
     await flush();
     expect(coordinator.cancel("op-1")).toEqual({ accepted: true });
     hold.open();
-    // Phase PREPARING was already entered, so the cancel must not finalize: recovery decides.
     expect(await running).toEqual({ status: "cancelled", recoveryRequired: true });
     expect(sawAbort).toBe(true);
     expect(secondRan).toBe(false);
     expect(await journal.get("op-1")).toMatchObject({ status: "in-progress", cancelRequested: true });
-    // A resubmitted id must not silently resume steps.
     expect(await coordinator.run(newInput(), [step("b", async () => (secondRan = true) as never)])).toEqual({
       status: "cancelled",
       recoveryRequired: true,
@@ -365,7 +362,6 @@ describe("OperationCoordinator", () => {
     await flush();
     coordinator.cancel("op-1");
     hold.open();
-    // Every step finished: a late cancel has nothing left to stop and is ignored.
     expect(await running).toEqual({ status: "completed", result: null });
   });
 

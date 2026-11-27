@@ -54,7 +54,6 @@ function host(answer: { ok: boolean } = { ok: true }) {
   return { api, text: languageMessages("en"), rerender: vi.fn(), refresh: vi.fn() };
 }
 
-/** The Settings tab's 「語言」 card: three radio buttons, the saved choice ticked, a click handed to main. */
 describe("the 語言 card", () => {
   it("lists 跟隨系統 (naming the system's language), 繁體中文 and English, with the setting ticked", () => {
     const card = languageSection(host(), { preference: "zh-TW", systemLocale: "en" }) as unknown as FakeNode;

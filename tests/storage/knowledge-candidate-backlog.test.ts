@@ -15,7 +15,6 @@ import {
 } from "../../packages/storage/src/knowledge-candidate-backlog.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -43,7 +42,6 @@ function setup() {
   const project = store.addProject("Orchard", root);
   store.updateProject(project.id, { status: "tracked" });
   let clock = Date.parse("2026-01-01T00:00:00.000Z");
-  // Each Session completes one hour after the previous one, so recency is the creation order.
   const finalize = (
     key: string,
     options: { decisions?: Decisions; verification?: "passed" | "failed" | "not_run" } = {},
@@ -87,7 +85,6 @@ function setup() {
   return { store, root, projectId: project.id, finalize, plain, confirmed, backlog, request, context, setRequests };
 }
 
-/** The oldest Session carries the signal; ten newer plain Sessions would fill a request by recency alone. */
 function oldestWithSignalFirst(prepare: (fixture: ReturnType<typeof setup>) => string, check?: () => void) {
   const fixture = setup();
   const signalId = prepare(fixture);
@@ -147,8 +144,6 @@ describe("value ranking of uncovered Sessions", () => {
       const failed = finalize("broken", { verification: "failed" });
       const fix = finalize("follow-up", { verification: "passed" });
       store.linkSessions({ sessionId: fix, relatedSessionId: failed, relation: "continues", linked: true });
-      // The failed Session is also built upon (one inbound link), so both outrank plain Sessions; the fix is first
-      // because recovery weighs more than one inbound link.
       return fix;
     });
   });
@@ -169,7 +164,6 @@ describe("value ranking of uncovered Sessions", () => {
     const onlySeen = fixture.finalize("only-seen");
     fixture.plain(8);
     const db = databaseOf(fixture.store);
-    // Context and recall log every Session they return; those are not deliberate reads.
     ["work_get_context", "work_recall"].forEach((tool, index) => {
       db.prepare("INSERT INTO agent_read_audit (id, created_at, tool, outcome) VALUES (?, ?, ?, 'ok')").run(
         `seen-${index}`,
@@ -194,7 +188,6 @@ describe("value ranking of uncovered Sessions", () => {
     const result = fixture.request();
     expect(result.request.sourceSessionIds.slice(0, 2)).toEqual([reread, once]);
     // 3 reads = 1.5 (high value); 1 read = 0.5 (ranked, but below the line); context/recall sightings score 0.
-    // The oldest plain Session is left out; with a score it would have been ranked in.
     expect(result.request.sourceSessionIds).not.toContain(onlySeen);
     expect(result.remaining).toEqual({ uncoveredSessions: 1, highValueSessions: 0 });
   });
@@ -442,7 +435,6 @@ describe("backlog in getContext", () => {
     fixture.setRequests("status = 'completed', requested_at = ?", new Date(Date.now() - 3 * DAY_MS).toISOString());
     const watch = watchScoring(fixture);
     try {
-      // Every write moves the revision, so each context call below is a cold one.
       for (const key of ["w1", "w2"]) {
         fixture.finalize(key, { decisions: fixture.confirmed(key) });
         expect(fixture.context().pendingRequests).not.toHaveProperty("knowledgeBacklog");

@@ -6,7 +6,6 @@ import UiFlash from "../ui/UiFlash.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import { t } from "../../i18n";
 
-/** Read-only comparison of one page version against the version before it, section by section. */
 const props = defineProps<{
   previousVersion: number;
   previous: readonly KnowledgePageSection[];

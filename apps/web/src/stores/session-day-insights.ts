@@ -6,10 +6,6 @@ import { useApi } from "../composables/useApi";
 import { buildSessionDayInsights, type SessionDayRange } from "../utils/session-day-insights";
 import { queryKeys } from "./query-keys";
 
-/**
- * Whole-day Session counts and per-Session created Knowledge for the days on the Work history page,
- * from one timeline request. The page decides when the numbers match its list and sets `scope` only then.
- */
 export const useSessionDayInsightsStore = defineStore("session-day-insights", () => {
   const scope = ref<(SessionDayRange & { projectId: string }) | null>(null);
 

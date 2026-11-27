@@ -1,4 +1,3 @@
-// Fictional fixtures only: finalize requests that contradict themselves, with the rejection each must get.
 export interface FinalizeContradiction {
   code: string;
   fields: Record<string, unknown>;

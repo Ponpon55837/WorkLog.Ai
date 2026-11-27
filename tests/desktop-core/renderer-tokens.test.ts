@@ -17,7 +17,6 @@ function filesUnder(directory: string): string[] {
 
 const rendererFiles = filesUnder(rendererDirectory).filter((file) => [".css", ".ts", ".html"].includes(extname(file)));
 
-/** A raw colour: a hex value, or a colour function. `transparent`, `currentColor`, `inherit` and var() are fine. */
 const RAW_COLOUR =
   /#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})\b|\b(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch)\s*\(/;
 const NAMED_COLOURS = new Set([
@@ -38,7 +37,6 @@ function tokenNames(css: string): Set<string> {
   return new Set([...css.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((match) => match[1] as string));
 }
 
-/** The names declared in the first `:root { … }` block: the default (dark) set every other set only overrides. */
 function rootTokenNames(css: string): Set<string> {
   const block = /:root\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
   return tokenNames(block);

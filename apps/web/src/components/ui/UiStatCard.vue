@@ -5,14 +5,11 @@ defineProps<{
   label: string;
   value: string | number;
   icon?: IconComponent;
-  /** Secondary value after the main number, e.g. "showcase.passedOf24". */
   suffix?: string;
   foot?: string;
   valueTone?: Tone;
   delta?: { direction: "up" | "down" | "flat"; text: string };
-  /** Tighter padding and a smaller value, for cards inside a dialog or a preview. */
   compact?: boolean;
-  /** Chart card: label, value and foot on the left, the default slot (a `UiSparkline size="lg"`) on the right. */
   featured?: boolean;
 }>();
 </script>

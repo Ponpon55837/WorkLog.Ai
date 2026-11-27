@@ -66,7 +66,6 @@ interface Harness {
   readonly files: Map<string, string>;
 }
 
-/** Fake OS: records every command, serves the definition from memory, frees the port after `busyPolls` checks. */
 function harness(options: {
   detections: LegacyServiceDetection[];
   files?: Record<string, string>;
@@ -75,7 +74,6 @@ function harness(options: {
   listCode?: number;
   alive?: Set<number>;
   failing?: Record<string, number>;
-  /** `launchctl print` / `systemctl is-enabled` still succeed after the stop: the service is still loaded or enabled. */
   stillLoaded?: boolean;
 }): Harness {
   const calls: string[] = [];
@@ -96,7 +94,6 @@ function harness(options: {
           const payload = Buffer.from(JSON.stringify(options.processes ?? []), "utf8").toString("base64");
           return { stdout: payload, code: options.listCode ?? 0 };
         }
-        // taskkill /T: the process and every descendant of it.
         if (command === TASKKILL) {
           const tree = legacyRunnerTrees(
             (options.processes ?? []).map((entry) =>
@@ -142,7 +139,6 @@ function plan(detection: LegacyServiceFound): LegacyDisablePlan {
   return result;
 }
 
-/** Each step's sentence is a marker here, so the test pins which step maps to which sentence, not the wording. */
 const STEP_TEXT: LegacyDisableStepText = {
   stopTask: "stop-task:{name}",
   removeTask: "remove-task:{name}",
@@ -258,7 +254,6 @@ describe("legacyRunnerTrees (DT-13)", () => {
       node(52, 51, "node.exe worker.js"),
       node(60, 900, `node.exe "C:\\other\\scripts\\service-runner.mjs"`),
       node(61, 60, "node.exe apps/server/dist/start-api.js"),
-      // A runner path in a process that is not node.exe is not a runner.
       { pid: 70, parentPid: 900, name: "notepad.exe", commandLine: `notepad "${runner}"` },
     ];
     const trees = legacyRunnerTrees(processes, runner);
@@ -441,7 +436,6 @@ describe("executeLegacyDisable", () => {
         processes,
         alive: new Set([41, 45, 46]),
       });
-      // The old server outlives its runner: the port may already be free, the tree is not gone.
       const lingering: LegacyDisableDependencies = {
         ...dependencies,
         isProcessAlive: (pid) => pid === 46 || dependencies.isProcessAlive(pid),

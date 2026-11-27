@@ -20,7 +20,6 @@ export interface SetupFixture {
 
 const temporaryRoots: string[] = [];
 
-/** A synthetic home, a checkout with the build outputs setup requires, and a seeded user config. */
 export function createFixture(): SetupFixture {
   const temporaryRoot = mkdtempSync(join(tmpdir(), "work-intelligence-agent-setup-package-"));
   temporaryRoots.push(temporaryRoot);

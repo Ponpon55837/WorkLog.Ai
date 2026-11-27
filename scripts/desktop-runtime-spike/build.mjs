@@ -1,24 +1,5 @@
 #!/usr/bin/env node
-/**
- * `pnpm spike:runtime:build [--runtime node|electron] [--out <launcher root>]` lays out a desktop launcher root
- * (design R4 §3.3 and §10.2) from the standalone package and a bundled runtime, installs it with the real
- * desktop-core code and commits `current`:
- *
- *   <root>/bin/work-intelligence-launcher[.cmd]      fixed shims an Agent's `command` points at
- *   <root>/current                                   the runtime id, the single atomic switch point
- *   <root>/runtimes/<id>/runtime-manifest.json      sizes and SHA-256 of every file below
- *   <root>/runtimes/<id>/{node|electron}/…          the official runtime, verified against SHASUMS256.txt
- *   <root>/runtimes/<id>/launcher.mjs               verifies the runtime, then runs the fixed action in-process
- *   <root>/runtimes/<id>/app/…                      the standalone package (server, MCP, hooks, Web UI)
- *
- * Needs `pnpm build` first (apps/web/dist and packages/desktop-core/dist). The default root is under
- * dist/desktop-runtime-spike/ and contains a space and Chinese characters. Downloads are cached in
- * dist/desktop-runtime-spike/downloads. `--node-version` takes an exact version ("v24.22.3") whose archives are pinned in node-checksums.mjs;
- * `--electron-version` an exact Electron version.
- *
- * Symlinks (an Electron.app bundle on macOS has them) are kept as links and listed in the manifest with their
- * targets, which must stay inside the runtime; the launcher refuses any link the manifest does not list.
- */
+// Symlinks are kept as links and listed in the manifest; the launcher refuses any link the manifest does not list.
 import { cpSync, existsSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { copyFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -47,11 +28,9 @@ const ACTIONS = {
   "claude-finalize-reminder": { entry: "app/libexec/apps/mcp/dist/finalize-reminder.js" },
 };
 
-/**
- * Refuses to wipe a directory that is neither empty nor an earlier launcher root, so `--out ~` cannot do damage. The new
- * root is locked to the current user, SYSTEM and Administrators on Windows before anything is put in it, like the App's
- * own root: a runner's temp folder grants BUILTIN\Users write access, which the launcher's ACL check refuses.
- */
+/** Refuses to wipe a directory that is neither empty nor an earlier launcher root, so `--out ~` cannot do damage. */
+// On Windows the new root is locked to the user, SYSTEM and Administrators before anything is put in it: a runner's temp
+// folder grants BUILTIN\Users write access, which the launcher's ACL check refuses.
 function prepareOutputRoot(root) {
   if (existsSync(root)) {
     const looksLikeRoot = readdirSync(root).every((name) => ["bin", "runtimes", "current"].includes(name));
@@ -63,7 +42,6 @@ function prepareOutputRoot(root) {
   securePrivateDirectory(ensureDirectory(root));
 }
 
-/** The launcher script of every runtime: desktop-core's launcher-entry, bundled with its few dependencies. */
 async function bundleLauncher(destination) {
   await build({
     entryPoints: [join(repositoryRoot, "packages/desktop-core/src/runtime/launcher-entry.ts")],

@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { captureFocus, forgetFocus, restoreSnapshot } from "../../apps/desktop/src/renderer/repair/focus.js";
 
-/** A just-enough DOM: the node tree, `data-id` lookup and focus, which is all the focus module touches. */
 class FakeElement {
   readonly dataset: Record<string, string> = {};
   readonly children: FakeElement[] = [];
@@ -84,14 +83,12 @@ describe("keeping the keyboard where it was across a redraw", () => {
     root.append(button);
     button.focus();
 
-    // The guarded action redraws with the pressed button disabled: the focus can only fall to the panel.
     let snapshot = captureFocus(root as unknown as HTMLElement);
     root.replaceChildren(control("retry-start", true));
     restoreSnapshot(root as unknown as HTMLElement, snapshot);
     root.focus();
     expect(doc.active).toBe(root);
 
-    // The action ends: the next redraw has the control enabled, and the capture answers with the remembered control.
     snapshot = captureFocus(root as unknown as HTMLElement);
     expect(snapshot).not.toBeNull();
     const enabled = control("retry-start");

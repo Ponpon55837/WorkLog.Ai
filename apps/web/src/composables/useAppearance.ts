@@ -3,10 +3,6 @@ import { storeToRefs } from "pinia";
 import { usePreferencesStore } from "../stores/preferences";
 import { intlLocale } from "../i18n";
 
-/**
- * Applies the theme and language preferences to the document: `data-theme` selects the token set in
- * packages/ui-tokens/tokens.css and `lang` keeps screen readers and font fallback right. Call once from App.vue.
- */
 export function useAppearance(): void {
   const { resolvedTheme, systemPrefersDark, locale } = storeToRefs(usePreferencesStore());
   const media = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: dark)") : null;

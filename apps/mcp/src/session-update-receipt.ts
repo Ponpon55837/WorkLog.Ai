@@ -10,10 +10,8 @@ type WorkSessionRecord = Extract<MetadataResult, { outcome: "updated" }>["sessio
 type WorkSummarySections = NonNullable<WorkSessionRecord["workSummary"]>;
 type WorkSummarySectionName = keyof WorkSummarySections;
 
-/** A submitted workSummary section: strings, or decision objects whose text is what storage keeps. */
 type SubmittedSection = ReadonlyArray<string | { text: string }>;
 
-/** The request fields a receipt compares with what was stored. */
 interface MetadataReceiptRequest {
   changedFiles?: readonly string[];
   changedFileChanges?: readonly unknown[];
@@ -31,7 +29,6 @@ interface WorkSummaryReceiptRequest {
   workSummary: Partial<Record<WorkSummarySectionName, SubmittedSection>>;
 }
 
-/** What the Agent learns about the Session it just updated: identity, times, status, and counts. */
 export interface SessionUpdateReceiptSession {
   id: string;
   executionStatus?: WorkSessionRecord["executionStatus"];
@@ -72,13 +69,6 @@ function redactionsIfAny<T extends { redactions?: { total: number } }>(result: T
   return result.redactions && result.redactions.total > 0 ? { redactions: result.redactions } : {};
 }
 
-/**
- * Receipts for the in-place Session updates follow the finalize receipt: the Session id, times, verification status
- * and changed-file count, plus only what the server changed or derived (a stored value that differs from the request,
- * redaction counts, warnings). They do not echo the Session body, the submitted text, or the previous text the Agent
- * read before correcting it. Other outcomes (skipped, not found, idempotency conflict) pass through unchanged, and so
- * does the storage result for every other caller.
- */
 export function toSessionMetadataReceipt(input: MetadataReceiptRequest, result: MetadataResult): unknown {
   if (result.outcome !== "updated") return result;
   const { session, redactions: _redactions, outcome, changedFileChangesFollowUp, ...warnings } = result;
@@ -86,7 +76,6 @@ export function toSessionMetadataReceipt(input: MetadataReceiptRequest, result: 
     outcome,
     session: receiptSession(session),
     ...inProgressHint(session),
-    // A merge, normalization, or excluded path makes the stored list differ from the one sent.
     ...(input.changedFiles === undefined || sameList(input.changedFiles, session.changedFiles)
       ? {}
       : { changedFiles: session.changedFiles }),
@@ -108,7 +97,6 @@ export function toSessionSummaryReceipt(input: SummaryReceiptRequest, result: Su
     mode: result.mode,
     session: receiptSession(result.session),
     ...inProgressHint(result.session),
-    // The stored summary only when it is not what the Agent sent (masked, or a replayed earlier payload).
     ...(storedAsSent ? {} : { summary: result.appliedSummary }),
     ...redactionsIfAny(result),
   };
@@ -140,7 +128,6 @@ export function toSessionWorkSummaryReceipt(input: WorkSummaryReceiptRequest, re
     mode: result.mode,
     session: receiptSession(result.session),
     ...inProgressHint(result.session),
-    // Stored sections that differ from the submitted ones (masked text, or a replayed earlier payload).
     ...(differing.length > 0
       ? {
           workSummary: Object.fromEntries(
@@ -148,7 +135,6 @@ export function toSessionWorkSummaryReceipt(input: WorkSummaryReceiptRequest, re
           ),
         }
       : {}),
-    // Only when the nextSteps change touched items: reworded in place, newly created, or closed as not_needed.
     ...(result.outstandingItems ? { outstandingItems: result.outstandingItems } : {}),
     ...(result.nextStepsWarnings ? { nextStepsWarnings: result.nextStepsWarnings } : {}),
     ...redactionsIfAny(result),

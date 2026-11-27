@@ -14,12 +14,10 @@ export type SessionEditorForm = {
   verificationSummary: string;
 };
 
-/** One textarea line per workSummary item; the same text round-trips unchanged. */
 function sectionText(items: readonly string[] | undefined): string {
   return (items ?? []).join("\n");
 }
 
-/** The editor form for a Session, or an empty form. */
 export function toForm(session?: WorkSessionRecord): SessionEditorForm {
   const sections = Object.fromEntries(
     workSummarySectionLabels.map(({ key }) => [key, sectionText(session?.workSummary?.[key])]),
@@ -33,7 +31,6 @@ export function toForm(session?: WorkSessionRecord): SessionEditorForm {
   };
 }
 
-/** The in-place Session summary editor: the Session being edited and its form. */
 export const useSessionEditorStore = defineStore("session-editor", () => {
   const sessionEditor = ref<WorkSessionRecord | null>(null);
   const sessionEditorForm = ref<SessionEditorForm>(toForm());

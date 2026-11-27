@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { windowExcerpt } from "../../packages/storage/src/excerpt-window.js";
 
-// Fictional fixtures only.
 const filler = "The fictional heron gate keeps its calibration window steady. ";
 
 describe("windowExcerpt", () => {

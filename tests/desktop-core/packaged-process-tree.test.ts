@@ -25,11 +25,9 @@ describe("the process tree of an ended browser", () => {
 
   it("waits for a child that appears after the kill, and for the orphan kept by its pid", () => {
     const tracked = new Map(descendantsOf([proc(10, 1), proc(11, 10)], [10]).map((p) => [p.pid, p]));
-    // The main process is gone; its content process (11) is orphaned, and a new child (12) of it appeared.
     const live = [proc(11, 4), proc(12, 11), proc(30, 4)];
     expect(survivingTree(tracked, live).map((p) => p.pid)).toEqual([11, 12]);
     expect(tracked.has(12)).toBe(true);
-    // Later only the unrelated process is left: the tree is gone.
     expect(survivingTree(tracked, [proc(30, 4)])).toEqual([]);
   });
 

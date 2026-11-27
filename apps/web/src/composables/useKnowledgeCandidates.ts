@@ -100,7 +100,6 @@ function closeCandidateEditor(): void {
   if (!useKnowledgeCandidateEditorStore().candidateSaving) useKnowledgeCandidateEditorStore().candidateEditor = null;
 }
 
-/** Accepts the candidate with the reviewer's edits. */
 async function saveCandidateEditor(refreshProjectRoot?: string): Promise<void> {
   const candidate = useKnowledgeCandidateEditorStore().candidateEditor;
   const form = useKnowledgeCandidateEditorStore().candidateForm;
@@ -125,7 +124,6 @@ function loadCandidates(projectRoot?: string): Promise<void> {
   return useKnowledgeStore().loadCandidates(projectRoot);
 }
 
-/** Re-checks without the loading indicator, while an Agent is working on a request. */
 function refreshCandidates(projectRoot?: string): Promise<void> {
   return useKnowledgeStore().loadCandidates(projectRoot, true);
 }

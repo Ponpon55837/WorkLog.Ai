@@ -1,4 +1,3 @@
-// The main-process modules this test loads use the desktop build flags; declare them as the desktop build does.
 /// <reference path="../../apps/desktop/src/main/build-flags.d.ts" />
 import { describe, expect, it } from "vitest";
 import { createMaintenance, maintenanceFailureOf } from "../../apps/desktop/src/main/maintenance.js";
@@ -8,12 +7,6 @@ import {
   maintenanceSuccessText,
   reclaimableText,
 } from "../../packages/desktop-core/src/shell/maintenance-i18n.js";
-
-/**
- * The controller behind 「整理資料庫」 with a fake supervisor and backend: what is refused (and that nothing is stopped
- * before the user confirmed), that a failed run brings the backend back, and that the check never stops the service.
- * All values are synthetic.
- */
 
 const DATABASE = "/synthetic/data/work-intelligence.sqlite";
 
@@ -27,7 +20,6 @@ interface Setup {
   readonly child?: ChildStatus;
   readonly noVerdict?: boolean;
   readonly startFails?: boolean;
-  /** The operation fails before its step runs (runtime not prepared, service would not stop). */
   readonly stepNeverRuns?: boolean;
   readonly fingerprints?: readonly [string | null, string | null];
 }

@@ -5,7 +5,6 @@ import UiCounter from "../ui/UiCounter.vue";
 import { navGroups, navItems } from "./navigation";
 import { t } from "../../i18n";
 
-/** Grouped primary navigation. Full width ≥ 960px, icon rail 640–959px, drawer below 640px. */
 withDefaults(
   defineProps<{
     open?: boolean;

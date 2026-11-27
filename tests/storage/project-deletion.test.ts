@@ -43,7 +43,6 @@ function backupFileNames(directory: string): string[] {
   return readdirSync(directory).filter((name) => name.endsWith(".sqlite"));
 }
 
-/** A tracked project with one Session in a file database whose backups go to a directory of its own. */
 function createDeletableProject(backupDirectory?: string) {
   const directory = mkdtempSync(join(tmpdir(), "work-intelligence-project-delete-errors-"));
   tempDirs.push(directory);
@@ -611,7 +610,6 @@ describe("project deletion", () => {
       holder.exec("ROLLBACK");
       holder.close();
     }
-    // Busy keeps its own code (database_busy over REST) instead of becoming project_delete_failed.
     expect(failure).not.toBeInstanceOf(ProjectDeletionError);
     expect(databaseUnavailableReason(failure)).toBe("busy");
     expect(store.getProjectById(project.id)).toBeDefined();

@@ -21,7 +21,6 @@ import {
 import { preflightDatabase } from "../../apps/server/src/database-preflight.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 
-// Real temp directories and the real store; fictional content only.
 const directories: string[] = [];
 
 function tempDir(): string {
@@ -52,7 +51,6 @@ describe("createDatabaseIfMissing", () => {
   it("never touches an existing non-database file", async () => {
     const path = join(tempDir(), "notes.sqlite");
     writeFileSync(path, "not a database");
-    // Not created by this call, so never reported as created: the App must not adopt (or later remove) it.
     expect(createDatabaseIfMissing(path)).toEqual({ status: "unreadable", detail: "EEXIST" });
     expect(readFileSync(path, "utf8")).toBe("not a database");
     expect((await preflightDatabase(path)).status).toBe("unreadable");

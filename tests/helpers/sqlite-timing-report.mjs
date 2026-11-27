@@ -1,13 +1,6 @@
 /**
- * Prints the SQLite timing evidence of one CI job to stdout, so it can be read from the job log without downloading the
- * artifact: the ten slowest calls, and every BEGIN IMMEDIATE wait of 1 s or more with what overlapped it in another process on the same
- * database file and held the write lock (the likely holders): a transaction that took the write lock, or a FULL, RESTART
- * or TRUNCATE checkpoint, which blocks writers while it runs. A read transaction is never named: in WAL mode it cannot
- * block BEGIN IMMEDIATE. A holder shorter than 100 ms, or in a process without the hook, is not recorded, so such a
- * wait prints "not inferred". Reads the JSONL files tests/helpers/sqlite-timing.ts wrote.
- *
- * Usage: node tests/helpers/sqlite-timing-report.mjs [directory] (default: perf-results). Test-only; changes no result,
- * and a missing or unreadable file prints a note and exits 0.
+ * Prints the slowest SQLite calls and each BEGIN IMMEDIATE wait of 1 s or more with its likely holders. A read
+ * transaction is never named: in WAL mode it cannot block BEGIN IMMEDIATE. Usage: node tests/helpers/sqlite-timing-report.mjs [directory].
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -55,11 +48,6 @@ function sql(record) {
   return JSON.stringify(String(record.sql ?? "").slice(0, SQL_LENGTH));
 }
 
-/**
- * A record that held, or was taking, the write lock: a transaction that took it, or a FULL, RESTART or TRUNCATE
- * checkpoint that did not fail. A checkpoint's time includes its own wait for the lock, so its line prints `busy`
- * (1 means it gave up before checkpointing everything, and may not have held the lock throughout).
- */
 function heldWriteLock(record) {
   if (typeof record.at !== "number") return false;
   if (record.kind === "transaction") return record.write === true;

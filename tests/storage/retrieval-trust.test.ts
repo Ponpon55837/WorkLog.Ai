@@ -12,7 +12,6 @@ import type {
 import { staleFlags } from "../../packages/storage/src/stale-flags.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// All projects, Sessions, Knowledge, and handoff text below are fictional fixtures.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -231,7 +230,6 @@ describe("termHits", () => {
 
     const relaxed = searchKnowledge(store, { projectRoot: root, q: "graft pear zzyzx" });
     expect(relaxed.match).toBe("relaxed");
-    // The archived record holding "pear" is not in the active scope.
     expect(relaxed.termHits).toEqual([
       { term: "graft", count: 1 },
       { term: "pear", count: 0 },

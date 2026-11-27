@@ -9,7 +9,6 @@ import UiFlash from "../ui/UiFlash.vue";
 import UiTextInput from "../ui/UiTextInput.vue";
 import { t } from "../../i18n";
 
-/** Sets the https repository URL a project's commit SHAs link to; an empty value removes it. */
 const props = defineProps<{ project: ProjectRecord | null }>();
 const emit = defineEmits<{ close: [] }>();
 

@@ -1,14 +1,6 @@
 import { onBeforeUnmount, watch, type Ref, type WatchSource } from "vue";
 
-/**
- * Standard list reload wiring used by every filtered list:
- * - a filter change resets to page 1 (or reloads if already on page 1),
- * - a page change reloads,
- * - a search-only change is debounced,
- * - changes that arrive together with a page change (back/forward navigation restoring the URL)
- *   keep that page and reload once.
- * Returns `reloadNow` for explicit submits (Enter in the search box).
- */
+/** A filter change resets to page 1; a page change reloads; a search-only change is debounced. Changes arriving with a page change (back/forward) keep that page and reload once. */
 export function useListReload(options: {
   load: () => unknown;
   page: Ref<number>;

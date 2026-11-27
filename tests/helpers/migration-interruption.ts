@@ -5,16 +5,10 @@ import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
 import { undoMigrationsAfter } from "./schema-migration-fixture.js";
 
-// Fixtures for the migration interruption tests: a small synthetic database rewound to an older schema, and copies of
-// it. The source database is a parameter everywhere, so a stored upgrade fixture can stand in for the generated one.
-
-/** What a worker holds the process at: it announces `mid` over IPC and then blocks until it is killed. */
 export type HoldPoint = "migration" | "backup" | "restore";
 
-/** The schema the generated source database is rewound to: the release before the current one (an N to N+1 upgrade). */
 export const DEFAULT_OLD_SCHEMA_VERSION = LATEST_SCHEMA_VERSION - 1;
 
-/** Writes a small database through the store, then rewinds it to `schemaVersion`. Fictional data only. */
 export function createOldSchemaDatabase(
   databasePath: string,
   projectRoot: string,
@@ -54,7 +48,6 @@ export function createOldSchemaDatabase(
   }
 }
 
-/** Copies a closed database file (no WAL beside it) to a new place, creating the directory. */
 export function copyDatabaseFile(source: string, target: string): void {
   mkdirSync(dirname(target), { recursive: true });
   copyFileSync(source, target);

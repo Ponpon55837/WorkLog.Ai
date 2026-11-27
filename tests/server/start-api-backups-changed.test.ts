@@ -45,7 +45,6 @@ describe("startApi onBackupsChanged", () => {
     expect((await fetch(url)).status).toBe(200);
     expect(changed).not.toHaveBeenCalled();
 
-    // Without a JSON body the request is refused before anything is written.
     expect((await fetch(url, { method: "POST" })).status).toBeGreaterThanOrEqual(400);
     expect(changed).not.toHaveBeenCalled();
 

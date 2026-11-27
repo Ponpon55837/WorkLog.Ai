@@ -16,7 +16,6 @@ import {
   type DiagnosticsReport,
 } from "../../packages/desktop-core/src/index.js";
 
-// Every value is synthetic: no real user, path, address or credential.
 const JWT = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJzeW50aGV0aWMtdXNlciJ9.c3ludGhldGljLXNpZ25hdHVyZS12YWx1ZQ";
 const PEM_BLOCK = [
   "-----BEGIN RSA PRIVATE" + " KEY-----",
@@ -436,7 +435,6 @@ describe("diagnostics build", () => {
   it("clips text on a code point boundary", () => {
     expect(clipText("abc", 3)).toBe("abc");
     expect(clipText("abcdef", 4)).toBe("abc…");
-    // The cut would fall between the two halves of the emoji: it moves back before it.
     expect(clipText("ab😀cd", 4)).toBe("ab…");
     expect(clipText("😀😀😀", 4)).not.toMatch(LONE_SURROGATE);
     for (let max = 1; max < 12; max += 1) expect(clipText("a😀b😀c😀d", max)).not.toMatch(LONE_SURROGATE);

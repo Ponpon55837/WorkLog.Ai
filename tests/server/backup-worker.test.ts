@@ -49,7 +49,6 @@ function syntheticProject(store: WorkIntelligenceStore, projectRoot: string): vo
   if (result.outcome !== "finalized") throw new Error("Could not create the synthetic worker Session.");
 }
 
-/** An import request body in its own transfer directory, as the REST route hands it to the worker. */
 function upload(root: string, content: string): ProjectDataImportUpload {
   const directory = mkdtempSync(join(root, "import-"));
   const path = join(directory, "import.json");
@@ -57,7 +56,6 @@ function upload(root: string, content: string): ProjectDataImportUpload {
   return { path, directory };
 }
 
-/** The portable export of every project, written by the worker to a fresh file and read back. */
 async function exportedText(worker: BackupWorkerClient, root: string): Promise<{ text: string; bytes: number }> {
   const directory = mkdtempSync(join(root, "export-"));
   const target = join(directory, "export.json");
@@ -131,7 +129,6 @@ describe("backup worker", () => {
       };
       expect(withoutStamp(again.text)).toEqual(withoutStamp(exportedData.text));
       expect((await worker.createBackup()).outcome).toBe("database_backups");
-      // A size limit is enforced while writing, and the refusal keeps its type across the worker boundary (L-23).
       const limited = join(mkdtempSync(join(root, "export-")), "limited.json");
       await expect(worker.exportProjectData({ type: "all" }, limited, 10)).rejects.toMatchObject({
         name: "ProjectDataTransferError",
@@ -287,8 +284,7 @@ describe("backup worker", () => {
       await exportedText(worker, root);
       const firstPid = workerState.lifetime?.child.pid;
       expect(firstPid).toBeDefined();
-      // The idle timer fires after 25 ms, but the worker then closes its database and exits; wait for that exit (it is
-      // what clears the lifetime) instead of a fixed time, which a slow runner can exceed. No operation runs meanwhile.
+      // Wait for the worker to exit (that clears the lifetime) instead of a fixed time, which a slow runner can exceed.
       await vi.waitFor(() => expect(workerState.lifetime).toBeUndefined(), { timeout: 10_000, interval: 25 });
 
       await exportedText(worker, root);
@@ -332,7 +328,6 @@ function createIdleFixture(options?: { idleTimeoutMs?: number }) {
   return { root, store, worker, state };
 }
 
-/** Waits on real I/O (not the faked timers) until the worker process has exited. */
 async function waitForWorkerExit(state: IdleWorkerState): Promise<void> {
   const deadline = Date.now() + 10_000;
   while (state.lifetime && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
@@ -391,7 +386,6 @@ describe("backup worker idle policy", () => {
       const pid = state.lifetime?.child.pid;
       await vi.advanceTimersByTimeAsync(HEAVY_IDLE_TIMEOUT_MS - 100);
 
-      // A request that lands just before the timer would fire cancels it and keeps the same worker.
       await worker.exportTo(join(root, "second.sqlite"));
       expect(state.lifetime?.child.pid).toBe(pid);
       await vi.advanceTimersByTimeAsync(HEAVY_IDLE_TIMEOUT_MS - 1);
@@ -449,7 +443,6 @@ describe("backup worker idle policy", () => {
       await exportedText(worker, root);
       const firstThreadId = state.lifetime?.child.pid;
 
-      // The idle timer fires and the old worker starts retiring; the next request arrives before it has exited.
       await vi.advanceTimersByTimeAsync(HEAVY_IDLE_TIMEOUT_MS);
       expect(state.lifetime?.retiring).toBe(true);
       const next = exportedText(worker, root);
@@ -508,11 +501,7 @@ describe("backup worker watchdog", () => {
   });
 });
 
-/**
- * A heap large enough to start the worker (through tsx, as in these tests) and answer a small request, and too small
- * for the planner's rows of {@link OUT_OF_MEMORY_SESSIONS} Sessions; measured on Linux with Node 22: a 17.5 MiB request
- * needs 48 MiB and fails at 32, an empty one passes at 20.
- */
+// Heap sizes measured on Linux with Node 22: a 17.5 MiB request needs 48 MiB and fails at 32, an empty one passes at 20.
 const OUT_OF_MEMORY_HEAP_MB = 32;
 const OUT_OF_MEMORY_SESSIONS = 4_000;
 
@@ -552,8 +541,6 @@ describe("backup worker memory limits", () => {
       });
       pids.add(state.lifetime?.child.pid ?? -1);
 
-      // The import exhausts the heap for real; the preview queued behind it is rejected with the same error, not left
-      // waiting. The test process is a different process, so it is not affected.
       const settled = await Promise.allSettled([
         worker.importProjectData(large()),
         worker.previewProjectDataImport(upload(root, small)),
@@ -568,7 +555,6 @@ describe("backup worker memory limits", () => {
       expect(store.listProjects()).toHaveLength(1);
       assertHealthy(databasePath);
 
-      // The next request gets a fresh process that works.
       expect((await worker.previewProjectDataImport(upload(root, small))).outcome).toBe("project_data_import_preview");
       pids.add(state.lifetime?.child.pid ?? -1);
       expect(pids.size).toBe(2);

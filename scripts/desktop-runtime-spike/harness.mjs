@@ -1,4 +1,3 @@
-/** Process helpers of the runtime smoke test: a clean environment, the fixed shim, MCP over stdio, resource samples. */
 import { Buffer } from "node:buffer";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -42,7 +41,6 @@ export function excerpt(text, lines = 6) {
   return text.trim().split(/\r?\n/).slice(0, lines).join(" | ");
 }
 
-/** The directories of `pathValue` that hold no Node.js executable. */
 export function directoriesWithoutNode(pathValue) {
   return pathValue
     .split(delimiter)
@@ -50,7 +48,6 @@ export function directoriesWithoutNode(pathValue) {
     .filter((directory) => !["node", "node.exe", "nodejs"].some((name) => existsSync(join(directory, name))));
 }
 
-/** Where a `node` on `pathValue` would be found, or undefined. */
 export function findNodeOnPath(pathValue) {
   for (const directory of pathValue.split(delimiter).filter(Boolean)) {
     for (const name of ["node", "node.exe"]) if (existsSync(join(directory, name))) return join(directory, name);
@@ -58,11 +55,7 @@ export function findNodeOnPath(pathValue) {
   return undefined;
 }
 
-/**
- * The environment of a user with no Node.js: PATH without any directory holding `node`, no NODE_* variables, an
- * unreachable proxy (so a hidden network need shows up as a failure), and HOME, config, data and temp folders inside
- * `root`. The shell, cmd.exe and system folders stay on PATH; they hold no Node.js.
- */
+/** The proxy is unreachable on purpose, so a hidden network need shows up as a failure. */
 export function noNodeEnvironment(root, port) {
   const environment = { ...process.env };
   for (const name of Object.keys(environment)) {
@@ -112,7 +105,6 @@ function shimCommand(shim, args) {
   };
 }
 
-/** A started process with its output collected. */
 export class Launched {
   stdout = "";
   stderr = "";
@@ -154,13 +146,11 @@ export class Launched {
   }
 }
 
-/** Starts the fixed launcher shim with `args`. */
 export function startShim(shim, args, { env, cwd, stdin }) {
   const { command, args: commandArgs, options } = shimCommand(shim, args);
   return new Launched(command, commandArgs, { env, cwd, stdin, verbatim: options.windowsVerbatimArguments });
 }
 
-/** Runs the shim to completion (stdin closed unless `input` is given) and returns exit code, output and wall time. */
 export async function runShim(shim, args, { env, cwd, input = "", timeoutMs = 60_000 }) {
   const launched = startShim(shim, args, { env, cwd });
   launched.child.stdin.on("error", () => {});
@@ -176,7 +166,6 @@ export async function runShim(shim, args, { env, cwd, input = "", timeoutMs = 60
   };
 }
 
-/** Polls /api/health until it answers; returns the parsed body. */
 export async function waitForHealth(port, launched, timeoutMs = 60_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -192,7 +181,6 @@ export async function waitForHealth(port, launched, timeoutMs = 60_000) {
   throw new Error(`no healthy /api/health within ${timeoutMs / 1000} s: ${excerpt(launched.output)}`);
 }
 
-/** One MCP stdio session over newline-delimited JSON-RPC; keeps every stdout line that is not JSON-RPC. */
 export class McpSession {
   nonProtocolLines = [];
   #pending = new Map();
@@ -242,7 +230,6 @@ export class McpSession {
     this.launched.child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method })}\n`);
   }
 
-  /** `initialize` and the `initialized` notification; resolves with the initialize response. */
   async initialize() {
     const response = await this.request("initialize", {
       protocolVersion: "2025-06-18",
@@ -281,7 +268,6 @@ function powershellNumber(expression) {
   return Number(result.stdout.trim());
 }
 
-/** Resident memory of `pid` in bytes. */
 export function residentBytes(pid) {
   if (process.platform === "linux") {
     const kilobytes = /VmRSS:\s+(\d+) kB/.exec(readFileSync(`/proc/${pid}/status`, "utf8"))?.[1];
@@ -293,7 +279,6 @@ export function residentBytes(pid) {
   return powershellNumber(`(Get-Process -Id ${pid}).WorkingSet64`);
 }
 
-/** CPU time (user + system) used by `pid` so far, in seconds. */
 export function cpuSeconds(pid) {
   if (process.platform === "linux") {
     // Fields 14 and 15 of /proc/<pid>/stat, after the parenthesised name, in clock ticks (100 per second on Linux).

@@ -1,4 +1,3 @@
-/** Shared by the runtime spike's build and smoke scripts: options, default paths and small helpers. */
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import process from "node:process";
@@ -8,24 +7,17 @@ import { parseArgs } from "node:util";
 export const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 export const spikeDirectory = join(repositoryRoot, "dist", "desktop-runtime-spike");
 export const RUNTIME_CHOICES = ["node", "electron"];
-/**
- * Node 24 is the LTS line the desktop App would bundle (the repository supports 22.16+ and 24+). Pinned to an exact
- * release so every run measures the same binary, and its archives' SHA-256 are pinned in node-checksums.mjs.
- */
+/** Pinned to an exact release so every run measures the same binary; its archives' SHA-256 are pinned in node-checksums.mjs. */
 export const DEFAULT_NODE_VERSION = "v24.22.3";
 export const DEFAULT_ELECTRON_VERSION = "45.3.3";
 
 export const platformTag = `${process.platform}-${process.arch}`;
 
-/**
- * The default launcher root of one runtime choice. The name has a space and Chinese characters on purpose: every local
- * run then covers the paths real users have, as the CI runs do.
- */
+/** The name has a space and Chinese characters on purpose, so every local run covers the paths real users have. */
 export function defaultLauncherRoot(runtime) {
   return join(spikeDirectory, `${platformTag}-${runtime}`, "啟動器 root");
 }
 
-/** Parses the options both scripts share; `extra` adds script-specific ones. */
 export function parseSpikeArguments(argv, extra = {}) {
   const { values } = parseArgs({
     args: argv,

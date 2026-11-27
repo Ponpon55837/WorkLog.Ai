@@ -8,8 +8,6 @@ import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
 import type { KnowledgeRecord } from "../../packages/core/src/index.js";
 import { LATEST_SCHEMA_VERSION, WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 
-// Fictional fixtures only. The Knowledge tools return the storage shapes, so the staleness signals (reason,
-// appliesToBreadth, broadChangesSince) and the write-time breadth hint must reach the Agent unchanged.
 const cleanups: Array<() => Promise<void> | void> = [];
 
 afterEach(async () => {

@@ -1,10 +1,6 @@
 import type { ActivityDay } from "@work-intelligence/core";
 import { toDateInputValue } from "./format";
 
-/**
- * Sessions per Monday-based local week for the latest `weeks` weeks, oldest first; the last entry is the week that
- * contains `today`. Days missing from `days` count as zero.
- */
 export function weeklySessionTotals(days: readonly ActivityDay[], today: Date, weeks: number): number[] {
   const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7));
   const starts = Array.from({ length: weeks }, (_, index) =>

@@ -7,7 +7,6 @@ type WorkSessionRecord = FinalizedResult["session"];
 type RelatedOutstandingItems = NonNullable<FinalizedResult["relatedOutstandingItems"]>;
 type UnreportedKnowledge = NonNullable<FinalizedResult["unreportedKnowledge"]>;
 
-/** The request fields a receipt compares with what was stored. */
 interface FinalizeReceiptRequest {
   changedFiles?: readonly string[];
   changedFileChanges?: readonly unknown[];
@@ -18,47 +17,36 @@ interface FinalizeReceiptRequest {
   supersededOutstandingItemIds?: readonly string[];
 }
 
-/** What the Agent learns about its own saved Session: identity, times, and only the facts the server derived. */
 export interface FinalizeReceiptSession {
   id: string;
   /** Omitted while verification is in_progress: the stored value is always "completed" and would read as finished. */
   executionStatus?: WorkSessionRecord["executionStatus"];
   completedAt: string;
   updatedAt: string;
-  /** Present when the server derived it (from events) or changed the submitted value. */
   startedAt?: string;
-  /** Present with a startedAt the server filled in: the earliest recorded event, or the first call it observed. */
   startedAtSource?: "events" | "server_observed";
   verificationStatus?: NonNullable<WorkSessionRecord["verification"]>["status"];
   changedFilesCount: number;
-  /** The stored list, only when it differs from the submitted changedFiles (normalized, excluded, or added). */
   changedFiles?: string[];
-  /** Git metadata the server read itself because the request carried none. */
   commitSha?: string;
   gitBranch?: string;
   voided?: WorkSessionRecord["voided"];
 }
 
-/** Tells the Agent how a start record becomes the finished one. */
 export const IN_PROGRESS_HINT = "Start record: finalize again with the same idempotencyKey to complete it.";
 
-/** Asked when a just-finished save has no start: only evidence may fill it, never an estimate. */
 const STARTED_AT_FOLLOW_UP =
   'startedAt is missing. If you have evidence of when this segment began (the hook message "這段工作的開始時間…", transcript timestamps, a handoff), call work_update_session_metadata with { sessionId, startedAt } now. Never estimate; otherwise leave it empty.';
 
-/** Says how to report after the save, so the reminder can be acted on without another read. */
 const UNREPORTED_KNOWLEDGE_HINT =
   "這段工作讀過、本筆尚未回報的知識點。確實用上且仍正確的，以 work_update_session_metadata { sessionId, appliedKnowledgeIds } 補報；發現已不正確的放 contradictedKnowledgeIds；沒用上就不必回報。";
 
-/** Says what to do with each knowledgeToReview entry, so the review needs no extra reading. */
 const KNOWLEDGE_TO_REVIEW_HINT =
   "Holds: work_update_knowledge confirm: true. Now wrong: tell the user. Unsure: leave it.";
 
-/** After the save the finalize lists are closed, so pending items are closed by one resolve call. */
 const PENDING_ITEMS_AFTER_SAVE_HINT =
   "逐項讀來源核對；本次已直接驗證完成或被 nextSteps 取代的，用 work_resolve_outstanding_items 結案；無法確認就保留。";
 
-/** The newest few ids and titles; total only when more were read than listed. */
 function compactUnreportedKnowledge(unreported: UnreportedKnowledge): unknown {
   return {
     items: unreported.items,
@@ -67,7 +55,6 @@ function compactUnreportedKnowledge(unreported: UnreportedKnowledge): unknown {
   };
 }
 
-/** Pointers in the same shape as work_get_context: the source title and date are one read away. */
 function compactRelatedItems(related: RelatedOutstandingItems): unknown {
   return {
     ...related,
@@ -85,15 +72,7 @@ function sameList(left: readonly string[] | undefined, right: readonly string[])
   return left !== undefined && left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-/**
- * The Agent-facing finalize result is a receipt: the Session id and times, what the server changed or derived
- * (redaction counts, a stored changed-file list that differs from the request, Git metadata it filled in), the
- * follow-ups, warnings, reminders, and hints (with how many reported Knowledge ids it recorded, and the recalled
- * Knowledge this work read but has not reported). It does not echo the title, summary, workSummary, or changedFiles the
- * Agent just sent. Other outcomes (skipped, idempotency conflict, rejected) pass through unchanged, and so does the
- * storage result for every other caller. A rejected request is a domain outcome like an idempotency conflict, not a
- * transport error: the call worked, nothing was written, and the body names the field, ids, and fix.
- */
+/** A rejected request is a domain outcome, not a transport error: nothing was written and the body names the fix. */
 export function toFinalizeReceipt(input: FinalizeReceiptRequest, result: FinalizeResult): unknown {
   if (result.outcome !== "finalized") return result;
   const {
@@ -134,7 +113,6 @@ export function toFinalizeReceipt(input: FinalizeReceiptRequest, result: Finaliz
     session: receipt,
     ...(inProgress ? { hint: IN_PROGRESS_HINT } : {}),
     ...(redactions && redactions.total > 0 ? { redactions } : {}),
-    // Transition results answer a request (empty when nothing applied) or a retry's recovered audit.
     ...(resolvedOutstandingItemIds?.length || input.resolvedOutstandingItemIds?.length
       ? { resolvedOutstandingItemIds: resolvedOutstandingItemIds ?? [] }
       : {}),
@@ -142,7 +120,6 @@ export function toFinalizeReceipt(input: FinalizeReceiptRequest, result: Finaliz
       ? { supersededOutstandingItemIds: supersededOutstandingItemIds ?? [] }
       : {}),
     ...(startedAtMissing ? { startedAtFollowUp: STARTED_AT_FOLLOW_UP } : {}),
-    // One call serves both follow-ups: changedFilesMode only matters once changedFileChanges are sent.
     ...(startedAtMissing || changedFileChangesFollowUp
       ? {
           suggestedCall: {

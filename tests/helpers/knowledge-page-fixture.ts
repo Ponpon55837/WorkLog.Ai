@@ -1,19 +1,12 @@
 import type { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-/** Release-style files: each is changed by every tenth cited Session, so it is spread across every section. */
 export const RELEASE_FILES = ["CHANGELOG.md", "package.json", "docs/status.md", "docs/releases/notes.md"];
 export const SECTIONED_PAGE_SECTIONS = 12;
 const CITED_PER_SECTION = 10;
 
-/** The file only the Sessions of one section change. */
 export const sectionFile = (section: number) => `src/topic-${section}.ts`;
 
-/**
- * A written page shaped like a long-lived project page: 12 sections near the page limit, each citing 10 Sessions that
- * change its own file, with RELEASE_FILES changed by about 10% of all cited Sessions across every section. `finalize`
- * finalizes one fictional Session (advancing the clock when the caller fakes it) and returns its id. The page is
- * left checked through the last cited Session.
- */
+/** 12 sections near the page limit, each citing 10 Sessions of its own file; RELEASE_FILES change in about 10% of them. */
 export function seedSectionedPage(
   store: WorkIntelligenceStore,
   projectRoot: string,

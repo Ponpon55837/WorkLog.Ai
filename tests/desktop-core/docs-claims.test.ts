@@ -2,11 +2,6 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-/**
- * The docs a user reads must not keep claims the App has outgrown. Each entry is a phrase that was true once and is not any
- * more, with what replaced it. Historical records (release notes, the desktop design documents, status.md) keep the words of
- * their time and are not scanned; only the documents that describe how the App works today are.
- */
 const ROOT = path.resolve(import.meta.dirname, "../..");
 
 const USER_DOCUMENTS = [

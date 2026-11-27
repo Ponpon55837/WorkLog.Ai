@@ -1,4 +1,3 @@
-/** Types for scripts/bootstrap.mjs, so tests can import it. */
 export interface BootstrapDependencies {
   nodeVersion: string;
   pnpmVersion: () => string | undefined;

@@ -9,7 +9,6 @@ import {
   knowledgePageLimits,
 } from "../../packages/core/src/index.js";
 
-// Fictional sections only.
 const sections = (lengths: readonly number[]) =>
   lengths.map((length, index) => ({ heading: `Topic ${index}`, content: "x".repeat(length) }));
 

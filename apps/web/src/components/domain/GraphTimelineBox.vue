@@ -38,19 +38,11 @@ import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
 
 type TimelineView = "chart" | "list";
-/**
- * start/end are the drawn extent used for row packing: at least MIN_MARK_PX wide at the current zoom, so points
- * and very short Sessions never overlap. `startTime`/`completedTime` are the recorded times.
- */
+/** start/end are the drawn extent used for row packing (at least MIN_MARK_PX wide); startTime/completedTime are the recorded times. */
 type SessionBar = TimelineSession & { start: number; end: number; startTime: number; completedTime: number };
-/**
- * A project lane. Zoomed in it holds single Sessions packed into rows; zoomed out it holds one column per day
- * (`buckets`), so a busy project never turns into dozens of rows.
- */
 interface Lane {
   id: string;
   name: string;
-  /** Sessions the project completed in the period, shown next to its name. */
   count: number;
   top: number;
   height: number;
@@ -67,16 +59,13 @@ interface ListEntry {
   event?: TimelineKnowledgeEvent;
 }
 
-/** The graph page's timeline: one lane per project, Sessions as bars, links as arcs, Knowledge events as marks. */
 const props = defineProps<{ projects: readonly ProjectRecord[] }>();
 const projectId = defineModel<string>("projectId", { required: true });
 
 const DAY = DAY_MS;
-/** Pixels per day: from a whole year on screen to a few hours. */
 const MIN_DAY_WIDTH = 0.5;
 const MAX_DAY_WIDTH = 960;
 const laneHeader = 26;
-/** Height of the day columns in the zoomed-out view. */
 const columnHeight = 64;
 const markerRow = 18;
 const rowHeight = 22;
@@ -90,7 +79,6 @@ const MIN_WEEKEND_DAY_WIDTH = 4;
 const MAX_COLUMN_PX = 28;
 /** Single Sessions are drawn only while every lane fits in this many rows; denser zooms stay as day columns. */
 const MAX_DETAIL_ROWS = 10;
-/** Zoom levels tried when looking for the first one where single Sessions fit. */
 const DETAIL_WIDTHS = [DETAIL_MIN_DAY_WIDTH, 96, 192, 384, 768, MAX_DAY_WIDTH];
 const rangeOptions: { value: TimelineRange; label: string }[] = [
   { value: "7", label: t("graph.last7Days") },
@@ -122,7 +110,6 @@ const viewportWidth = ref(900);
 const autoFit = ref(true);
 const chart = ref<SVGSVGElement | null>(null);
 let resizeObserver: ResizeObserver | undefined;
-/** A time to center once the chart has been laid out at a new zoom. */
 let pendingAnchor: number | undefined;
 
 const view = computed<TimelineView>(() => (narrow.value ? "list" : chosenView.value));

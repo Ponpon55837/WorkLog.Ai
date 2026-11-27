@@ -10,7 +10,6 @@ import UiCopyButton from "../ui/UiCopyButton.vue";
 import { agentConnectionStepState, onboardingStepStatusVisual } from "../../utils/status";
 import { t } from "../../i18n";
 
-/** Inputs summarize project setup and read-only Agent diagnostics for the first-run steps. */
 const props = defineProps<{
   hasProject: boolean;
   hasTrackedProject: boolean;
@@ -18,7 +17,6 @@ const props = defineProps<{
   agentConnections: SystemAgentConnections | null;
   agentStatusLoading: boolean;
   agentStatusError: string;
-  /** The Dashboard runs inside the desktop App: no command is offered there. */
   desktopManaged?: boolean;
 }>();
 

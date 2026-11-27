@@ -1,13 +1,4 @@
 #!/usr/bin/env node
-/**
- * `pnpm test:start-smoke`: launches the real `pnpm start` entry (scripts/start.mjs) against a throwaway database on a
- * free port, waits for /api/health, checks that / serves the Web UI, then sends SIGTERM and checks the process exited
- * and the port was released. E2E uses an injected-state server and no longer covers this entry.
- *
- * Needs `pnpm build` first. HOME, USERPROFILE, the config directory, the database and the backup directory all point
- * into one fresh temp directory that is removed at the end; the repository's data/ and the default port are untouched.
- * Exit code 1 when any step fails.
- */
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
@@ -52,7 +43,6 @@ function portIsFree(port) {
   });
 }
 
-/** An environment whose every writable default (home, config, database, backups, temp) lives under `root`. */
 function isolatedEnvironment(root, port) {
   const environment = { ...process.env };
   for (const name of Object.keys(environment)) {

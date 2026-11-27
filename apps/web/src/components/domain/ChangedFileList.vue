@@ -9,7 +9,6 @@ import { changedFileChangeStatusLabels, changedFileSourceLabels } from "../../ut
 import VirtualList from "../VirtualList.vue";
 import { t } from "../../i18n";
 
-/** Changed files with lifecycle badge and provenance. Changed files never imply a Git commit. */
 const props = defineProps<{ session: WorkSessionRecord; project?: ProjectRecord }>();
 
 const statusLetter: Record<ChangedFileChangeStatus, string> = { added: "A", modified: "M", deleted: "D", renamed: "R" };
@@ -33,7 +32,6 @@ const rows = computed(() => {
         sources:
           provenance?.sources.map((source) => changedFileSourceLabels[source]).join(" · ") ||
           t("common.noSourceProvided"),
-        // Only files of a tracked project, inside its folder, and not deleted get an editor link.
         editorUrl:
           props.project?.status === "tracked" && change?.status !== "deleted"
             ? editorFileUrl(editor.value, props.project.rootPath, path)

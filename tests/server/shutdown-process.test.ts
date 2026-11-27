@@ -5,9 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 import { BarrierSandbox, freePort } from "../helpers/old-writer-barrier.js";
 
-// The real `apps/server/src/index.ts` entry (what `work-intelligence start` runs) as a child process, stopped the way a
-// service manager stops it. Synthetic data, a temp database, a free port. Windows has no SIGTERM to deliver; there the
-// desktop child's IPC shutdown is covered in desktop-child-process.test.ts.
+// Runs the real entry as a child stopped the way a service manager stops it; Windows has no SIGTERM, so the IPC shutdown is covered in desktop-child-process.test.ts.
 const ENTRY = "apps/server/src/index.ts";
 const SIGNALS = ["SIGTERM", "SIGINT"] as const;
 const EXIT_WITHIN_MS = 5_000;
@@ -82,7 +80,6 @@ describe.skipIf(process.platform === "win32")("standalone server shutdown signal
       const stalled = createConnection({ host: "127.0.0.1", port });
       stalled.on("error", () => undefined);
       await new Promise<void>((resolve) => stalled.once("connect", resolve));
-      // The request line and one header arrive, the blank line that ends the headers never does.
       stalled.write("GET /api/health HTTP/1.1\r\nHost: localhost\r\n");
 
       entry.child.kill("SIGTERM");

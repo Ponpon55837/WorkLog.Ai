@@ -194,7 +194,6 @@ describe("Work Intelligence REST API", () => {
     const healthy = isolatedUserServiceStatus(root);
     let calls = 0;
     let settleHungQuery: (() => void) | undefined;
-    // The real status function with an injected runner that, like a killed execFile, rejects with a SIGTERM error.
     const query = () => {
       calls++;
       if (calls > 2) return Promise.resolve(healthy);
@@ -1628,7 +1627,6 @@ describe("Work Intelligence REST API", () => {
     });
     expect(updated).toMatchObject({ outcome: "knowledge_page_saved", sectionChanges: { replaced: ["Layout"] } });
 
-    // The page keeps its own sourcedThrough time; the per-section baseline must not reach the Web API.
     const listed = await requestJson<{ items: Array<{ id: string; sections: Array<Record<string, unknown>> }> }>(
       baseUrl,
       `/api/knowledge-pages?projectRoot=${encodeURIComponent(root)}`,
@@ -2230,7 +2228,6 @@ describe("Work Intelligence REST API", () => {
     const largeRequest = join(root, "large-request.json");
     writeImportRequest(bundleFile, largeRequest);
     const store = new WorkIntelligenceStore(":memory:");
-    // A heap that answers a small request and cannot hold the planner's rows of the large one (see backup-worker.test.ts).
     const backgroundStore = new BackupWorkerClient(databasePath, {}, LATEST_SCHEMA_VERSION, { heapMb: 32 });
     const { server, baseUrl } = await startApi(store, { backgroundStore, transferRoot: join(root, "tmp") });
     resources.push({ server, store, root });
@@ -2243,7 +2240,6 @@ describe("Work Intelligence REST API", () => {
       });
       expect(warmup.status).toBe(200);
       const lostPid = state.lifetime?.child.pid;
-      // The worker runs out of heap for real, in its own process, while the API keeps answering.
       for (const path of ["/api/import/preview", "/api/import"]) {
         const response = await fetch(`${baseUrl}${path}`, {
           method: "POST",
@@ -2258,7 +2254,6 @@ describe("Work Intelligence REST API", () => {
         expect((await fetch(`${baseUrl}/api/health`)).status).toBe(200);
       }
 
-      // The next request is served by a new worker, and no upload is left behind.
       const preview = await requestJson<{ outcome: string }>(baseUrl, "/api/import/preview", {
         method: "POST",
         body: { bundle },
@@ -2394,8 +2389,6 @@ describe("Work Intelligence REST API", () => {
       });
       expect(largerThanDefault.status).toBe(400);
 
-      // A body over the limit is refused from its declared length, before any of it is read (the streamed case is
-      // covered with a small limit in transfer-workspace.test.ts).
       const tooLarge = await new Promise<number>((resolve, reject) => {
         const outgoing = httpRequest(
           `${baseUrl}/api/import`,

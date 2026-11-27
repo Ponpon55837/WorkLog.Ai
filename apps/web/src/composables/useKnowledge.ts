@@ -243,7 +243,6 @@ function openKnowledgeStaleSession(item: KnowledgeRecord): Promise<void> {
   return useSessionsStore().openSessionDetail(item.possiblyStale?.sessionId, t("knowledge.couldNotLoadTheSession"));
 }
 
-/** Owns Knowledge UI workflows that span stores, dialogs, and Session navigation. */
 export function useKnowledgeActions() {
   const {
     knowledgeEditor,

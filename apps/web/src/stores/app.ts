@@ -7,7 +7,6 @@ import { errorMessage } from "../utils/format";
 import { queryKeys } from "./query-keys";
 import { t } from "../i18n";
 
-/** Owns app-wide health data that is shown in the shell on every route. */
 export const useAppStore = defineStore("app", () => {
   const queryCache = useQueryCache();
   const healthEnabled = ref(false);
@@ -34,7 +33,6 @@ export const useAppStore = defineStore("app", () => {
     healthEnabled.value = true;
   }
 
-  /** Cancels every in-flight query when the app shell unmounts; each query's fetch sees its signal abort. */
   function abortPendingRequests(): void {
     queryCache.cancelQueries();
   }

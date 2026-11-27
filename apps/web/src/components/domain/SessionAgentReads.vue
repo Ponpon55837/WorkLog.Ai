@@ -6,7 +6,6 @@ import { useAgentReadsStore } from "../../stores/agent-reads";
 import { formatDate } from "../../utils/format";
 import { t } from "../../i18n";
 
-/** When Agents were given the open Session through an MCP read (collapsed; hidden when it never happened). */
 const { sessionReads } = storeToRefs(useAgentReadsStore());
 </script>
 

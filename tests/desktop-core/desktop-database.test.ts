@@ -15,8 +15,6 @@ import {
 } from "../../packages/desktop-core/src/runtime/index.js";
 import { HOOK_BUDGET_MS, INERT_LEASE_HOST, IS_WINDOWS, installFixture, makeRoot } from "./runtime-helpers.js";
 
-// Fictional paths only. The launcher hands the App's committed database to every Agent action it starts (ADR-39).
-
 let root = "";
 let runtimeDirectory = "";
 let settingsFile = "";
@@ -43,7 +41,6 @@ afterEach(async () => {
 interface LaunchRecord {
   readonly host: LauncherHost;
   readonly stderr: string[];
-  /** WORK_INTELLIGENCE_DB as the action's entry saw it when it was imported. */
   readonly seen: (string | undefined)[];
 }
 
@@ -192,12 +189,10 @@ describe("runLauncher hands the App's database to Agent actions", () => {
     for (const action of ACTIONS) await launch(action, before);
     expect(before.seen).toEqual([first, first, first]);
 
-    // What the App's change-db does: it rewrites its settings. Nothing else is told; the next start reads them again.
     await writeDesktopSettingsAtomic(settingsFile, settings(second));
     const after = launchHost();
     for (const action of ACTIONS) await launch(action, after);
     expect(after.seen).toEqual([second, second, second]);
-    // The MCP server and the hooks resolve the variable with the same standalone rule.
     expect(standaloneDatabasePath({ environment: { WORK_INTELLIGENCE_DB: second } })).toBe(second);
     expect(after.stderr).toEqual([]);
   });
@@ -217,7 +212,6 @@ describe("runLauncher hands the App's database to Agent actions", () => {
     const app = path.join(root, "app 資料", "work-intelligence.sqlite");
     await writeDesktopSettingsPointer(root, settingsFile);
     await writeDesktopSettingsAtomic(settingsFile, settings(app));
-    // Adopt removes WORK_INTELLIGENCE_DB (see tests/agent-setup/adopt-pnpm.test.ts): the entry's environment is empty.
     const mcp = launchHost();
     await launch("mcp", mcp);
     const hooks = launchHost();
@@ -233,7 +227,6 @@ describe("runLauncher hands the App's database to Agent actions", () => {
     await launch("codex-finalize-reminder", hooksAfter);
     expect([...mcpAfter.seen, ...hooksAfter.seen]).toEqual([moved, moved]);
 
-    // The explicit variable an entry keeps (a registration that was not adopted) still wins over the App's database.
     const pinned = launchHost({ WORK_INTELLIGENCE_DB: app });
     await launch("mcp", pinned);
     expect(pinned.seen).toEqual([app]);
@@ -244,7 +237,6 @@ describe("runLauncher hands the App's database to Agent actions", () => {
     for (const action of ACTIONS) await launch(action, none);
     expect(none.seen).toEqual([undefined, undefined, undefined]);
     expect(none.stderr).toEqual([]);
-    // A pointer whose settings are not written yet (first run not finished) is also "no App settings".
     await writeDesktopSettingsPointer(root, settingsFile);
     const pending = launchHost();
     for (const action of ACTIONS) await launch(action, pending);
@@ -263,13 +255,11 @@ describe("runLauncher hands the App's database to Agent actions", () => {
       fs.writeFileSync(settingsFile, text);
       const mcp = launchHost();
       const outcome = await runLauncher({ runtimeDirectory, argv: ["mcp"] }, mcp.host);
-      // MCP: one zh-TW line, non-zero exit, the server never starts.
       expect(outcome).toEqual({ kind: "exit", code: 78 });
       expect(mcp.seen).toEqual([]);
       expect(mcp.stderr).toHaveLength(1);
       expect(mcp.stderr[0]).toContain("Agent 未啟動");
       expect(mcp.stderr[0]).not.toMatch(/[A-Za-z]{4,} [A-Za-z]{3,}/);
-      // Hooks: silent, exit 0, and no work started.
       for (const action of ["claude-finalize-reminder", "codex-finalize-reminder"]) {
         const hook = launchHost();
         expect(await runLauncher({ runtimeDirectory, argv: [action] }, hook.host)).toEqual({ kind: "exit", code: 0 });
@@ -287,7 +277,6 @@ describe("runLauncher hands the App's database to Agent actions", () => {
       const explicit = launchHost({ [variable]: path.join(root, "mine") });
       for (const action of ACTIONS) await launch(action, explicit);
       expect(explicit.seen).toEqual([undefined, undefined, undefined]);
-      // Not even unusable App settings get in the way of an explicit location.
       fs.writeFileSync(settingsFile, "{ damaged");
       const damaged = launchHost({ [variable]: path.join(root, "mine") });
       for (const action of ACTIONS) await launch(action, damaged);

@@ -159,7 +159,6 @@ describe("buildRepairState legacyService", () => {
       running: "running",
       blocked: true,
       portInUse: true,
-      // No definition digest in the fixture: not one the App may disable.
       canDisable: false,
     });
     const other = buildRepairState({ ...repairBase, legacyService: legacyFound, legacyPortInUse: true });
@@ -263,7 +262,6 @@ describe("LEGACY_SERVICE_ACTIVE hint selection", () => {
     const without = errorHintFor(messages, "LEGACY_SERVICE_ACTIVE", false);
     expect(withButton).toBe(messages.errors.LEGACY_SERVICE_ACTIVE.hint);
     expect(without).toBe(messages.legacyActiveNoOverrideHint);
-    // Both hints say where to turn the service off, in the one wording, and neither asks for a command.
     expect(withButton).toContain(locale === "zh-TW" ? "「狀態」分頁" : "Status tab");
     expect(without).toContain(locale === "zh-TW" ? "「狀態」分頁" : "Status tab");
     expect(without).not.toMatch(/仍要啟動|Start anyway/);

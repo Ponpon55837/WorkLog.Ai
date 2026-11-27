@@ -25,7 +25,6 @@ const WINDOWS_HOME = "C:\\Users\\Ünï Üser";
 const POWERSHELL = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
 const WINDOWS_ENVIRONMENT = { SystemRoot: "C:\\Windows" };
 
-/** What the structured Windows query prints: numeric state, enabled flags, and the task XML as base64 of UTF-8. */
 function taskReply(
   task: { state: number; enabled?: boolean; logon?: boolean; xml?: string } | "absent",
 ): LegacyServiceCommandResult {
@@ -72,7 +71,6 @@ function planFor(platform: Platform, home: string, root: string, environment: No
   });
 }
 
-/** Writes the exact bytes the installer would write for a POSIX platform; returns the plan's definition path. */
 function installPosix(platform: "darwin" | "linux", home: string, environment: NodeJS.ProcessEnv = {}): string {
   const plan = planFor(platform, home, POSIX_ROOT, environment);
   const file = plan.files[0]!;
@@ -91,7 +89,6 @@ function fakeRunner(replies: Record<string, Reply> = {}) {
   return { calls, runCommand };
 }
 
-/** A virtual file system for a definition path that cannot exist on the test host (Windows paths on POSIX, and back). */
 function virtualFiles(files: Record<string, string | LegacyServiceFileStat>) {
   return {
     lstatFile: (path: string) => {
@@ -581,7 +578,6 @@ describe("detectLegacyService: starts at login", () => {
 
   it("macOS: launchctl that does not know the label means a stale plist, so nothing is found", async () => {
     expect(await onPosix("darwin", { stdout: "", code: 113 })).toEqual({ kind: "none" });
-    // Any other failure is not proof that the service is gone.
     expect(found(await onPosix("darwin", { stdout: "", code: 1 }))).toMatchObject({ running: "unknown" });
     expect(found(await onPosix("darwin", { stdout: "", code: 1 })).enabled).toBeUndefined();
   });
@@ -602,7 +598,6 @@ describe("detectLegacyService: starts at login", () => {
     expect(await onPosix("linux", systemdReply({ LoadState: "not-found", ActiveState: "inactive" }))).toEqual({
       kind: "none",
     });
-    // No LoadState at all (no user bus, systemctl missing) proves nothing.
     expect(found(await onPosix("linux", { stdout: "", code: 1 }))).toMatchObject({ running: "unknown" });
   });
 
@@ -619,7 +614,6 @@ describe("detectLegacyService: starts at login", () => {
 
   it("Windows: a task the scheduler does not know is a stale XML copy, so nothing is found", async () => {
     expect(await onWindows(taskReply("absent"))).toEqual({ kind: "none" });
-    // A failed query proves nothing.
     expect(found(await onWindows({ stdout: "", code: 1 }))).toMatchObject({ running: "unknown" });
   });
 

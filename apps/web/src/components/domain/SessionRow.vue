@@ -15,11 +15,6 @@ import UiLabel from "../ui/UiLabel.vue";
 import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
 
-/**
- * One Session in any list (Sessions, Dashboard, Reports). Selecting it opens the SessionPanel.
- * `timeline` is the Work history layout: the time of day on the left, a rail whose dot shows the verification
- * result, the summary on its own single line, and `createdKnowledge` (Knowledge created from this Session).
- */
 const props = withDefaults(
   defineProps<{ session: WorkSessionRecord; showSummary?: boolean; timeline?: boolean; createdKnowledge?: number }>(),
   { showSummary: true, timeline: false, createdKnowledge: 0 },

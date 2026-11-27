@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Internal
+
+- `apps/web`, `apps/mcp`, `scripts` and `tests` follow the comment rule (worklog-code-layout §8), which finishes the cleanup for the whole repository; only comments changed, and every touched file prints the same with comments stripped.
+
 ## [1.6.83] - 2026-11-27
 
 [繁體中文更新說明](docs/releases/1.6.83.md).

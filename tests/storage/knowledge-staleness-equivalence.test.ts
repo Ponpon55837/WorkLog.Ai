@@ -8,8 +8,6 @@ import { compileAppliesTo } from "../../packages/storage/src/applies-to-match.js
 import { normalizePath } from "../../packages/storage/src/search-text.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only. The oracle below is the original per-Knowledge × per-Session × per-file implementation
-// of the staleness check; the indexed implementation must return exactly the same result for every Knowledge.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -56,7 +54,6 @@ function oracleStaleness(
   let broadSessions = 0;
   const matches = (session: OracleSession): boolean =>
     session.files.some((file) => matchers.some((matcher) => matcher(file.normalized)));
-  // `sessions` is oldest first: the window is its last 200 focused Sessions.
   const window = sessions.filter((session) => session.files.length >= 1 && session.files.length <= 20).slice(-200);
   const compared = window.length;
   const windowTouched = window.filter(matches).length;
@@ -146,7 +143,6 @@ describe("Knowledge staleness index equivalence", () => {
       return result.knowledge;
     };
 
-    // Knowledge created before any Session (whole history), then Sessions that touch a variety of paths.
     const early = [
       record(rootA, ["src/hive/**"]),
       record(rootA, ["src/hive/*.ts", "docs/readme.md"]),
@@ -185,7 +181,6 @@ describe("Knowledge staleness index equivalence", () => {
     finalize(rootA, ["src/drone/a.ts", "src/drone/deep/b.ts", "src/hive.ts", "queen.ts", "src/queen.ts"]);
     finalize(rootA, ["src/hive/queen.ts"]);
     finalize(rootB, ["src/hive/queen.ts", "src/hive/other.ts"]);
-    // A bulk change (more than 20 files) that also covers appliesTo: counted in broadChangesSince only.
     finalize(rootA, [
       "src/hive/bulk-rename.ts",
       "src/hive/queen.ts",
@@ -194,7 +189,6 @@ describe("Knowledge staleness index equivalence", () => {
     const voided = finalize(rootA, ["src/hive/voided-only.ts", "src/hive/queen.ts"]);
     finalize(rootA, ["src/hive/queen.ts"]);
 
-    // Knowledge that excludes its own Session and a confirming Session, plus one created after some Sessions.
     const late = record(rootA, ["src/hive/**", "src/**/queen.ts"]);
     const own = finalize(rootA, ["src/hive/own.ts"], {});
     const owning = store.recordKnowledge({
@@ -252,7 +246,6 @@ describe("Knowledge staleness index equivalence", () => {
         }
         if (project.id === alpha.id) expect(broad).toBeGreaterThan(0);
         expect(stale).toBeGreaterThan(0);
-        // Spot checks that the synthetic data really exercises the interesting branches.
         const byId = new Map(result.items.map((item) => [item.id, item]));
         if (project.id === alpha.id) {
           expect(byId.get(sameInstant.id)?.possiblyStale?.sessionId).not.toBe(undefined);

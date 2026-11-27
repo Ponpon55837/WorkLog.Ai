@@ -45,7 +45,6 @@ const emptyPageInfo: PageInfo = {
 type KnowledgeCandidateDecision = { input: DecideKnowledgeCandidateInput; projectRoot?: string };
 type KnowledgeCandidateRequestInput = { projectRoot: string; refreshProjectRoot?: string };
 
-/** Owns Knowledge records, audit history, Agent candidate queries, and their mutations. */
 export const useKnowledgeStore = defineStore("knowledge", () => {
   const queryCache = useQueryCache();
   const listEnabled = ref(false);
@@ -164,9 +163,7 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
       : { ...emptyPageInfo, pageSize: pageSizeToQuery(knowledgePageSize.value) },
   );
   const knowledgeLoading = computed(() => listQuery.isLoading.value);
-  // "Loaded" means the first answer arrived; until then counts are unknown, not zero.
   const knowledgeLoaded = computed(() => listQuery.data.value !== undefined);
-  // Records the text search skipped as too large to read; the list notes that its results may be incomplete.
   const knowledgeSkippedRecords = computed(() => {
     const data = listQuery.data.value;
     return data?.outcome === "knowledge" ? (data.searchSkippedRecords ?? 0) : 0;
@@ -196,7 +193,6 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
   const openCandidateRequests = computed(() =>
     candidatesQuery.data.value?.outcome === "knowledge_candidates" ? candidatesQuery.data.value.openRequests : [],
   );
-  // Counts of the project in scope (or all tracked projects when unscoped); the server leaves out projects with none.
   const candidateBacklog = computed(() => {
     const result = candidatesQuery.data.value;
     const entries = result?.outcome === "knowledge_candidates" ? result.backlog : [];

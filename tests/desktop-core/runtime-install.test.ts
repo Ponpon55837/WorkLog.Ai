@@ -71,7 +71,6 @@ describe("installRuntime", () => {
     const bin = runtimeLayout(root).binDirectory;
     expect(await fs.readFile(path.join(bin, POSIX_SHIM_NAME), "utf8")).toBe(renderPosixShim());
     expect(await fs.readFile(path.join(bin, WINDOWS_SHIM_NAME), "utf8")).toBe(renderWindowsShim());
-    // Every file was hashed once, while the manifest was built; the verification accepted those hashes.
     expect(installed.verification.hashedCount).toBe(0);
     expect(installed.verification.cachedCount).toBe(8);
     expect(
@@ -350,7 +349,6 @@ describe("ACL reads while one runtime is provisioned (Windows policy)", () => {
     };
   }
 
-  /** Stages and installs `rt-1` with the Windows policy and the fixture reader; resolves with what the commit needs. */
   async function installed() {
     const aclReader = fixtureReader();
     await stageFixture(root, "rt-1");
@@ -371,7 +369,6 @@ describe("ACL reads while one runtime is provisioned (Windows policy)", () => {
 
   it("reads again for the commit when it is given no stamp from this process", async () => {
     const { aclReader, commit } = await installed();
-    // The stamp on disk is not enough for a commit: it may come from an earlier process.
     expect((await commitCurrent(root, "rt-1", commit)).aclRead).toBe(true);
     expect(aclReader.read).toHaveBeenCalledTimes(2);
   });
@@ -415,7 +412,6 @@ describe("ACL reads while one runtime is provisioned (Windows policy)", () => {
     const { aclReader, commit } = await installed();
     await commitCurrent(root, "rt-1", commit);
     const reads = aclReader.read.mock.calls.length;
-    // What the launcher does on every start: the cache and the stamp decide, nothing else changed.
     const started = await verifyRuntime(root, "rt-1", { ...commit, useCache: true });
     expect(started.aclRead).toBe(false);
     expect(aclReader.read).toHaveBeenCalledTimes(reads);

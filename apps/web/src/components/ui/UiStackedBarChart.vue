@@ -3,26 +3,15 @@ import { computed } from "vue";
 import type { ChartTone } from "./types";
 import { t } from "../../i18n";
 
-/**
- * Stacked column chart on one shared y-scale (unlike UiBarChart, whose series scale independently). Series stack in
- * the given order with the first at the bottom, separated by a 2px surface gap; the axis shows the maximum, the legend
- * is always visible, and every column carries a `title`. Exact values are in the table below the plot, which is
- * folded into a `<details>` when `compact` or `foldTable`. Columns are not tab stops: the table is the keyboard path.
- */
+/** Columns are not tab stops: the value table below the plot is the keyboard path. */
 const props = defineProps<{
   labels: readonly string[];
   series: readonly { name: string; tone: ChartTone; values: readonly number[] }[];
-  /** Accessible name of the plot, also naming what the stack adds up to. */
   label: string;
-  /** Compact number style for the axis and the column titles (e.g. 1.2K). */
   formatValue: (value: number) => string;
-  /** Exact numbers for the value table; defaults to the plain number. */
   formatExact?: (value: number) => string;
-  /** Show every n-th x label to avoid crowding. */
   labelEvery?: number;
-  /** Shorter plot; the value table folds away until opened. */
   compact?: boolean;
-  /** Fold the value table away until opened without shortening the plot. */
   foldTable?: boolean;
 }>();
 

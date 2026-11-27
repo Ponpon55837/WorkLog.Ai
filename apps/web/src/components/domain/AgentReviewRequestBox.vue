@@ -16,11 +16,6 @@ import { useKnowledgePagesStore } from "../../stores/knowledge-pages";
 import { agentReviewPageStateVisual, agentReviewRequestVisual } from "../../utils/status";
 import { t } from "../../i18n";
 
-/**
- * One open request per project serves the decision inbox, the Knowledge candidates, and active Knowledge in doubt. The Agent applies its
- * verdicts directly; this box only opens, shows, and cancels the request. It sits in the side column, so the list it
- * serves keeps the first screen.
- */
 const props = defineProps<{ projects: readonly ProjectRecord[] }>();
 const projectId = defineModel<string>("projectId", { required: true });
 

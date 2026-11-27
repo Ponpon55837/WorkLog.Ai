@@ -1,14 +1,7 @@
 import path from "node:path";
-// The main-process modules this test loads use the desktop build flags; declare them as the desktop build does.
 /// <reference path="../../apps/desktop/src/main/build-flags.d.ts" />
 import { describe, expect, it } from "vitest";
 import { createRestore, type RestoreOptions } from "../../apps/desktop/src/main/restore.js";
-
-/**
- * The main-process controller behind 「從備份還原」, with a fake supervisor and backend: what is refused and why, what is
- * stopped (nothing, until the user confirmed), that a failed restore brings the original backend back and that the page only
- * ever holds one-time ids. All values are synthetic.
- */
 
 const DATABASE = "/synthetic/data/work-intelligence.sqlite";
 const WINDOW = 3;
@@ -25,21 +18,14 @@ interface Setup {
   readonly agents?: boolean;
   readonly confirm?: boolean;
   readonly restore?: RestoreStatus;
-  /** The operation's start after a replacement fails (the new database does not start). */
   readonly startFails?: boolean;
-  /** The restore child was sent the request and gave no verdict (it crashed or ended). */
   readonly noVerdict?: boolean;
-  /** The database file as the restore found it, and after: what the controller compares when there was no verdict. */
   readonly fingerprints?: readonly [string | null, string | null];
-  /** Another page action takes the lock while the second busy check waits for the backend's activity report. */
   readonly lockDuringLateCheck?: boolean;
   readonly restart?: { ok: true } | { ok: false; code: string };
-  /** The project folders the backup records (old computer); present: the controller asks about the ones not found here. */
   readonly roots?: readonly string[];
-  /** The user's answers to the native question, in order, and the folders the chooser returns, in order. */
   readonly relocateChoices?: readonly ("choose" | "skip" | "cancel")[];
   readonly folders?: readonly (string | null)[];
-  /** Folders that exist on this computer. */
   readonly existing?: readonly string[];
 }
 
@@ -141,7 +127,6 @@ function setup(options: Setup = {}) {
         try {
           await replace({ markMigrationStarted: async () => events.push("point-of-no-return") });
         } catch {
-          // A refused replacement: the original database is untouched and the backend stays stopped for the caller.
           return { ok: false as const, code: "RESTORE_FAILED" };
         }
         if (options.startFails) return { ok: false as const, code: "DB_INTEGRITY_CHECK_FAILED" };
@@ -334,7 +319,6 @@ describe("running a restore", () => {
       expect(events).toContain("start-restart");
       expect(isRunning()).toBe(true);
       expect(state.busy).toBe(false);
-      // A lock or a running Agent may pass: the same id can be tried again.
       expect(await controller.run(WINDOW, id)).toMatchObject({ ok: false });
     },
   );
@@ -366,7 +350,6 @@ describe("running a restore", () => {
       expect(result).toMatchObject({ ok: false, reason: "outcome-unknown", dataIntact: false });
       expect(isRunning()).toBe(true);
       expect(state.busy).toBe(false);
-      // The token is spent: the list is read again for a new one.
       expect(await controller.run(WINDOW, id)).toMatchObject({ reason: "expired" });
     }
   });

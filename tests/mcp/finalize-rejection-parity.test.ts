@@ -9,7 +9,6 @@ import { mcpFinalizeSessionInputSchema } from "../../packages/schema/src/index.j
 import { LATEST_SCHEMA_VERSION, WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 import { FINALIZE_CONTRADICTIONS, finalizeRequest } from "../helpers/finalize-contradictions.js";
 
-// Fictional fixtures only.
 const cleanups: Array<() => Promise<void> | void> = [];
 
 afterEach(async () => {

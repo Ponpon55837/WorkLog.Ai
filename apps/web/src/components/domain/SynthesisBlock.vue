@@ -2,7 +2,6 @@
 import type { ReportSummaryBlock } from "@work-intelligence/core";
 import { t } from "../../i18n";
 
-/** One synthesis section. Every item cites its source Sessions; `資料不足` is shown as-is. */
 defineProps<{
   title: string;
   hint?: string;

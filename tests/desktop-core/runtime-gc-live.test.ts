@@ -36,7 +36,6 @@ afterEach(async () => {
   await fs.rm(scratch, { recursive: true, force: true });
 });
 
-/** Resolves with the first line the child writes on stdout. */
 function firstLine(child: ChildProcessWithoutNullStreams): Promise<string> {
   return new Promise((resolve, reject) => {
     let text = "";
@@ -54,7 +53,6 @@ function exited(child: ChildProcessWithoutNullStreams): Promise<void> {
   return child.exitCode !== null ? Promise.resolve() : new Promise((resolve) => child.once("exit", () => resolve()));
 }
 
-/** Seeds the record so every old runtime counts as retired for longer than the grace period at the real clock. */
 async function seedRetired(names: readonly string[]): Promise<void> {
   const retiredAt = Object.fromEntries(
     names.map((name) => [name, new Date(Date.now() - RETIRED_GRACE_MS - 60_000).toISOString()]),
@@ -65,7 +63,6 @@ async function seedRetired(names: readonly string[]): Promise<void> {
   );
 }
 
-/** Starts a node process that holds, and keeps refreshing, a real lease made by the launcher's own code. */
 async function startLeaseHolder(runtimeId: string): Promise<ChildProcessWithoutNullStreams> {
   const script = path.join(scratch, "lease-holder.mjs");
   buildSync({

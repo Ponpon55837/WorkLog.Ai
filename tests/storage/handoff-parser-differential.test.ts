@@ -18,7 +18,6 @@ type StrippedExpectation = string | { length: number; sha256: string };
 interface DifferentialCase {
   name: string;
   content?: string;
-  // Large documents are stored as [unit, repeat count] pairs instead of their full text.
   parts?: Array<[string, number]>;
   projectRoot: string;
   sourcePath: string;
@@ -69,7 +68,6 @@ describe("handoff parser differential corpus", () => {
     for (const testCase of fixture.cases) {
       const content = documentOf(testCase);
       const { expected, projectRoot, sourcePath } = testCase;
-      // JSON round trip mirrors how the expectations were stored (undefined fields disappear).
       const parsed: unknown = JSON.parse(JSON.stringify(parseHandoffContent(content, projectRoot, sourcePath)));
       expect(parsed, `${testCase.name}: parseHandoffContent`).toEqual(expected.parsed);
       strippedMatches(stripFencedCodeBlocks(content), expected.stripped);

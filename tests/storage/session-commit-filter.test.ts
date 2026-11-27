@@ -5,7 +5,6 @@ import type { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only.
 const SHARED_SHA = "feed5eed".padEnd(40, "1");
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
@@ -63,7 +62,6 @@ describe("Session list commitSha filter", () => {
       "first",
       "second",
     ]);
-    // Without the filter the list is unchanged.
     expect(titles(store.listSessionsForAgent({ projectRoot: meadow.root }))).toHaveLength(4);
   });
 
@@ -77,7 +75,6 @@ describe("Session list commitSha filter", () => {
     finalize(attic.root, "attic-work", SHARED_SHA);
     store.updateProject(attic.id, { status: "paused" });
 
-    // The other project's commit with the same prefix neither appears nor makes the scoped prefix ambiguous.
     expect(titles(store.listSessionsForAgent({ projectRoot: meadow.root, commitSha: "feed5eed" }))).toEqual([
       "meadow-work",
     ]);
@@ -85,7 +82,6 @@ describe("Session list commitSha filter", () => {
       outcome: "ambiguous_commit_sha",
       commitSha: "feed5eed",
     });
-    // A paused project's Session is never listed, even for its exact commit.
     expect(titles(store.listSessionsForAgent({ commitSha: SHARED_SHA }))).toEqual(["meadow-work"]);
     expect(store.listSessionsForAgent({ projectId: attic.id, commitSha: SHARED_SHA })).toMatchObject({
       outcome: "skipped",
@@ -109,7 +105,6 @@ describe("Session list commitSha filter", () => {
       "older-build",
       "written-upper",
     ]);
-    // Both spellings are one commit, not an ambiguous prefix; a sha that is not hex is kept as given.
     expect(store.listSessionsForAgent({ projectId: meadow.id, commitSha: "FEED5EE" })).toMatchObject({
       outcome: "sessions",
     });

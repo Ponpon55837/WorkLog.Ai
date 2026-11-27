@@ -1,5 +1,4 @@
-// Content fingerprint of a SQLite database: row count and a sha256 over every row per user table.
-// Plain ESM, no dependencies besides node built-ins, so both the fixture generator and tests can import it.
+// Plain ESM with node built-ins only, so both the fixture generator and tests can import it.
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { Buffer } from "node:buffer";
@@ -7,14 +6,12 @@ import { Buffer } from "node:buffer";
 /** Tables never fingerprinted: SQLite internals and the migration ledger (it legitimately grows on upgrade). */
 export const EXCLUDED_TABLES = ["schema_migrations"];
 
-/** Suffixes of the shadow tables SQLite creates for an FTS5 virtual table named `<fts>`. */
 export const FTS_SHADOW_SUFFIXES = ["_data", "_idx", "_docsize", "_content", "_config"];
 
 function quote(name) {
   return `"${name.replaceAll('"', '""')}"`;
 }
 
-/** A deterministic, type-preserving JSON form of one SQLite value (integers are read as bigint). */
 function tag(value) {
   if (value === null || value === undefined) return null;
   if (typeof value === "bigint") return `i:${value}`;
@@ -24,10 +21,6 @@ function tag(value) {
   throw new TypeError(`Unsupported SQLite value: ${typeof value}`);
 }
 
-/**
- * Names of the fingerprinted tables, sorted: every table (virtual FTS tables included) except sqlite_* tables,
- * FTS5 shadow tables (<fts>_data, _idx, _docsize, _content, _config) and EXCLUDED_TABLES.
- */
 export function fingerprintTableNames(db, excluded = EXCLUDED_TABLES) {
   const rows = db
     .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
@@ -37,12 +30,6 @@ export function fingerprintTableNames(db, excluded = EXCLUDED_TABLES) {
   return rows.map((row) => row.name).filter((name) => !shadow.has(name) && !excluded.includes(name));
 }
 
-/**
- * Opens `databasePath` read-only and returns `{ [table]: { columns, rows, hash } }`.
- * Rows are read in rowid order (primary-key order for WITHOUT ROWID tables).
- * `options.columnsByTable` (Map or object) restricts a table to the given columns, e.g. the ones that existed
- * before an upgrade; tables or columns that are absent are skipped / selected as listed.
- */
 export function fingerprintDatabase(databasePath, options = {}) {
   const { columnsByTable, excludedTables = EXCLUDED_TABLES } = options;
   const wanted = columnsByTable instanceof Map ? columnsByTable : new Map(Object.entries(columnsByTable ?? {}));

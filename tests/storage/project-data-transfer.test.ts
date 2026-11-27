@@ -679,7 +679,6 @@ describe("portable project data transfer", () => {
     const db = new DatabaseSync(destination.databasePath);
     try {
       expect(db.prepare("SELECT COUNT(*) AS total FROM project_data_import_audits").get()).toEqual({ total: 1 });
-      // Imported documents are re-indexed right after the import commits, not by the first read.
       expect(db.prepare("SELECT COUNT(*) AS total FROM search_dirty").get()).toEqual({ total: 0 });
       const indexedSessions = db
         .prepare(
@@ -1127,7 +1126,6 @@ describe("portable project data transfer", () => {
     current.importProjectData({ bundle, remap: [] });
     expect(confirmedFlag(current)).toEqual({ changed_files_confirmed: 1 });
 
-    // An export written before the column existed has no such key; it must import with the default.
     const legacy = structuredClone(bundle);
     for (const session of legacy.tables.sessions) {
       delete session.changed_files_confirmed;
@@ -1160,7 +1158,6 @@ describe("portable project data transfer", () => {
       stores.push(current);
       current.importProjectData({ bundle, remap: [], strategy });
       expect(advisoryOf(current)).toEqual([{ overlaps_json: advisory }]);
-      // A local copy without the advisory (submitted before schema 33) is the same candidate: skipped, kept local.
       runSql(current, "UPDATE knowledge_candidates SET overlaps_json = NULL WHERE id = 'candidate-1'");
       const again = current.previewProjectDataImport({ bundle, remap: [], strategy });
       expect(total(again.conflicts)).toBe(0);
@@ -1169,7 +1166,6 @@ describe("portable project data transfer", () => {
       expect(advisoryOf(current)).toEqual([{ overlaps_json: null }]);
     }
 
-    // A schema-32 export has no such key; it imports with the advisory empty.
     const legacy = structuredClone(bundle);
     legacy.schemaVersion = 32;
     for (const candidate of legacy.tables.knowledge_candidates) delete candidate.overlaps_json;
@@ -1178,14 +1174,12 @@ describe("portable project data transfer", () => {
     stores.push(older);
     expect(older.importProjectData({ bundle: legacy, remap: [] }).additions.knowledge_candidates).toBe(1);
     expect(advisoryOf(older)).toEqual([{ overlaps_json: null }]);
-    // Older and newer export schemas stay refused, as before.
     for (const schemaVersion of [30, LATEST_SCHEMA_VERSION + 1]) {
       expect(() => older.previewProjectDataImport({ bundle: { ...legacy, schemaVersion }, remap: [] })).toThrow(
         /schema 版本/,
       );
     }
 
-    // Only the stored form is accepted: ids, statuses and scores, no text and no unknown keys.
     for (const invalid of [
       "{}",
       JSON.stringify([{ relation: "possible_duplicate", type: "knowledge", id: "k", status: "active", score: 2 }]),
@@ -1464,7 +1458,6 @@ describe("portable project data transfer", () => {
     } finally {
       check.close();
     }
-    // Importing the same file again is a no-op instead of a project-wide conflict.
     const again = destination.previewProjectDataImport({ bundle });
     expect(total(again.conflicts)).toBe(0);
     expect(total(again.additions)).toBe(0);
@@ -1582,7 +1575,6 @@ describe("portable project data transfer", () => {
     const destination = new WorkIntelligenceStore(":memory:");
     stores.push(destination);
 
-    // Exports from schema 31 up to this program's import; a newer one asks for an update, an older one is refused.
     expect(() =>
       destination.previewProjectDataImport({ bundle: { ...bundle, schemaVersion: bundle.schemaVersion + 1 } }),
     ).toThrow(/請先更新 Work Intelligence/);
@@ -1666,10 +1658,6 @@ function readRows(store: WorkIntelligenceStore, sql: string, ...values: ProjectD
   }
 }
 
-/**
- * Machine A records work, machine B imports it under another root, and then both keep working on their own:
- * each changes rows the other also has, and each saves "version 2" of the same Knowledge page.
- */
 let twoMachineClock = Date.now();
 
 function later(minutes: number): string {
@@ -1678,7 +1666,6 @@ function later(minutes: number): string {
 
 function createTwoMachines() {
   const machineA = createSource();
-  // Every edit happens after the fixture rows were written, so the edited copy is the newer one.
   twoMachineClock = Date.now() + 60_000;
   const pageId = "sync-page";
   const page = (version: number, updatedAt: string): ProjectDataRow =>
@@ -1731,8 +1718,6 @@ function createTwoMachines() {
   machineB.updateProject(machineA.projectId, { status: "tracked" });
   const [firstSessionId, secondSessionId] = machineA.sessionIds;
 
-  // Machine A: newer summary on the first Session, a confirmed decision, a completed outstanding item,
-  // its own version 2 of the page, and a new Session.
   runSql(
     machineA.store,
     "UPDATE sessions SET summary = ?, updated_at = ? WHERE id = ?",
@@ -1772,7 +1757,6 @@ function createTwoMachines() {
     summary: "只在 A 機器記錄的工作。",
   });
 
-  // Machine B: newer summary on the second Session, its own version 2 (saved later than A's), and a new Session.
   runSql(
     machineB,
     "UPDATE sessions SET summary = ?, updated_at = ? WHERE id = ?",
@@ -1847,7 +1831,6 @@ describe("two-machine portable sync", () => {
       expect(store.getSessionById(setup.secondSessionId)?.summary).toBe("B 機器更新第二筆。");
       expect(store.getSessionById(setup.onlyOnA)).toBeDefined();
       expect(store.getSessionById(setup.onlyOnB)).toBeDefined();
-      // Both machines' version 2 survive, renumbered by time; the page counter points past the newest one.
       expect(
         readRows(store, "SELECT id, version FROM knowledge_page_versions WHERE page_id = ? ORDER BY version", pageId),
       ).toEqual([
@@ -1863,7 +1846,6 @@ describe("two-machine portable sync", () => {
     expect(readRows(machineA.store, "SELECT root_path FROM projects")).toEqual([{ root_path: setup.machineARoot }]);
     expect(readRows(machineB, "SELECT root_path FROM projects")).toEqual([{ root_path: setup.machineBRoot }]);
 
-    // Once both directions ran, a further round trip finds nothing to change.
     const settled = machineB.previewProjectDataImport({
       bundle: machineA.store.exportProjectData({ type: "project", projectId: machineA.projectId }),
       strategy: "newer-wins",
@@ -1916,8 +1898,6 @@ describe("two-machine portable sync", () => {
     const machineB = new WorkIntelligenceStore(join(machineA.root, "derived.sqlite"));
     stores.push(machineB);
     machineB.importProjectData({ bundle });
-    // B keeps the unmasked text from before a masking rule existed, its own redaction count,
-    // and the same changed-file provenance merged in a different order.
     runSql(
       machineB,
       "UPDATE sessions SET summary = ?, redaction_count = 9, changed_files_provenance_json = ? WHERE id = ?",
@@ -1995,7 +1975,6 @@ describe("two-machine portable sync", () => {
   it("never overwrites append-only history or the local project row, even with newer-wins", () => {
     const { machineA, machineB, firstSessionId } = createTwoMachines();
     const exportB = machineB.exportProjectData({ type: "project", projectId: machineA.projectId });
-    // An event both machines already have (the export also holds B's own new events, which are simply added).
     const event = exportB.tables.work_events.find((item) => item.session_id === firstSessionId);
     const project = exportB.tables.projects[0];
     if (!event || !project) throw new Error("Expected a work event and the project.");
@@ -2175,7 +2154,6 @@ describe("imported project root storage", () => {
     try {
       const project = source.addProject("Stored root fixture", "/synthetic/stored-root-fixture");
       const bundle = source.exportProjectData({ type: "project", projectId: project.id });
-      // A root that is absolute on the platform running the test, so it is canonicalized there.
       const windows = process.platform === "win32";
       const picked = windows
         ? "E:\\New Machine\\scratch\\..\\Round6-Alpha\\"
@@ -2217,7 +2195,6 @@ describe("newer-wins never moves a row to another project", () => {
     return readRows(store, `SELECT project_id FROM ${table} WHERE id = ?`, id);
   }
 
-  /** The local project's own export, with every row re-pointed at a different project (new ID, new root). */
   function foreignCopy(store: WorkIntelligenceStore, projectId: string, root: string): ProjectDataExport {
     const bundle = structuredClone(store.exportProjectData({ type: "project", projectId }));
     for (const rows of Object.values(bundle.tables)) {
@@ -2351,7 +2328,6 @@ describe("newer-wins never moves a row to another project", () => {
     const page = bundle.tables.knowledge_pages.find((item) => item.id === pageId);
     const version = bundle.tables.knowledge_page_versions[0];
     if (!page || !version) throw new Error("Expected the page and a version.");
-    // The page copy is older than the local one, so it is kept local; the new version row must not follow it.
     page.updated_at = "2020-01-01T00:00:00.000Z";
     page.created_at = "2020-01-01T00:00:00.000Z";
     bundle.tables.knowledge_page_versions.push({
@@ -2387,7 +2363,6 @@ describe("newer-wins never moves a row to another project", () => {
   it("compares owners after the imported project is mapped to the local one by root path", () => {
     const source = createSource();
     const [sessionId] = source.sessionIds;
-    // The file calls the same checkout by another project ID; import maps it onto the local project.
     const bundle = foreignCopy(source.store, source.projectId, source.projectRoot);
     const session = bundle.tables.sessions.find((item) => item.id === sessionId);
     if (!session) throw new Error("Expected the Session.");
@@ -2542,7 +2517,6 @@ describe("deeply nested JSON columns in an import", () => {
 describe("knowledge page checked cursor across machines", () => {
   const pageId = "cursor-page";
 
-  /** Two machines holding the same page; the page has never been checked on either. */
   function createCursorMachines() {
     const machineA = createSource();
     twoMachineClock = Date.now() + 60_000;
@@ -2649,7 +2623,6 @@ describe("knowledge page checked cursor across machines", () => {
     expect(cursorOf(machineA.store)).toBe(second);
     expect(stampOf(machineA.store)).toBe(stamp);
 
-    // From an earlier cursor to a later one as well.
     setCursor(machineA.store, first);
     expect(total(machineA.store.previewProjectDataImport(into).conflicts)).toBe(0);
     machineA.store.importProjectData(into);
@@ -2697,7 +2670,6 @@ describe("knowledge page checked cursor across machines", () => {
 
   it("lets a content edit win with its own cursor, and a check on the older content never overrides it", () => {
     const { machineA, machineB, first, second, exportOf } = createCursorMachines();
-    // B edited the page, then checked it; A only checked the older content further.
     editContent(machineB, "B 的新內容", later(2));
     setCursor(machineB, first);
     setCursor(machineA.store, second);
@@ -2710,7 +2682,6 @@ describe("knowledge page checked cursor across machines", () => {
     ]);
     expect(cursorOf(machineA.store)).toBe(first);
 
-    // The older copy never takes the edit back, whatever its cursor says.
     setCursor(machineA.store, second);
     editContent(machineA.store, "A 之前的內容", later(1));
     setCursor(machineA.store, second);

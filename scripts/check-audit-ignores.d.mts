@@ -1,4 +1,3 @@
-/** Types for scripts/check-audit-ignores.mjs, so tests can import it. */
 export interface AllowedAuditIgnore {
   readonly package: string;
   readonly vulnerableUpTo: string;

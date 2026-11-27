@@ -5,8 +5,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { commandForLauncherHook } from "../../packages/agent-setup/src/commands.js";
 
-// The hook strings are only ever compared as text elsewhere. This hands the Windows string to the real shells an Agent
-// may use, with a launcher whose path has a space and non-ASCII characters, so a quoting change cannot silently break it.
+// Hands the Windows hook string to the real shells an Agent may use, with a launcher path holding a space and non-ASCII characters.
 describe.runIf(process.platform === "win32")("the Windows hook command in real shells", () => {
   let root: string;
   let shim: string;

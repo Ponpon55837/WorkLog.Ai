@@ -21,16 +21,8 @@ import {
   type CheckpointMode,
 } from "./stress-support.js";
 
-// DT-07: multi-process WAL write + checkpoint stress. Evidence ALONGSIDE the SQLite WAL-reset patch check (DT-06,
-// scripts/check-sqlite-version.mjs), never a replacement for it. Four writer processes write through the real
-// WorkIntelligenceStore while two readers (one holding long read transactions), a checkpointer cycling all four
-// wal_checkpoint modes and a VACUUM INTO snapshotter share the file; writers are SIGKILLed at seeded moments and
-// respawned. Every correctness assertion is absolute. SQLITE_BUSY that reaches a caller
-// (a thrown error after the 5 s busy_timeout) is gated: writers may throw at most max(5, ceil(2% of their ops)), readers, the
-// checkpointer and the snapshotter none (see BUSY_GATE). The `busy` flag PRAGMA wal_checkpoint returns stays report-only.
-//
-// Environment: WI_SQLITE_STRESS_SECONDS (load duration, default 45), WI_SQLITE_STRESS_SEED (default: random, printed).
-// The seed reproduces the plan and write shapes (kill victims, think times, event counts), not the exact wall-clock kill moments.
+// Gate: writers may throw at most max(5, ceil(2% of their ops)) SQLITE_BUSY after the 5 s busy_timeout, everyone else none; the checkpoint `busy` flag is report-only.
+// WI_SQLITE_STRESS_SECONDS sets the load duration (default 45); WI_SQLITE_STRESS_SEED (default random, printed) reproduces the plan, not the exact kill moments.
 
 const WORKER_SCRIPT = join(REPOSITORY_ROOT, "tests/stress/stress-worker.ts");
 const MIN_DURATION_SECONDS = 3;
@@ -43,7 +35,6 @@ const WATCHDOG_MS = (DURATION_SECONDS + 150) * 1000;
 const TEST_TIMEOUT_MS = (DURATION_SECONDS + 240) * 1000;
 const RESULT_FILE = join(REPOSITORY_ROOT, "perf-results", `sqlite-stress-${process.platform}.json`);
 const LOG_LINES = 25;
-/** Thrown SQLITE_BUSY gate: writers get 2% of their ops with a floor (a short run has few ops), everyone else gets none. */
 const BUSY_GATE = { writerFraction: 0.02, writerFloor: 5 };
 
 type Role = "writer" | "reader-long" | "reader-short" | "checkpointer" | "snapshotter";
@@ -91,7 +82,6 @@ interface BusyGate {
   writerOps: number;
   writerFraction: number;
   writerFloor: number;
-  /** Thrown BUSY of the roles that must have none. */
   otherRolesBusy: { readerLong: number; readerShort: number; checkpointer: number; snapshotter: number };
   passed: boolean;
 }
@@ -113,7 +103,6 @@ function parseDurationSeconds(raw: string | undefined): number {
   return value;
 }
 
-/** Removes absolute POSIX/Windows/UNC paths and file:// URLs so a report never carries local paths or stack frames. */
 function redactPaths(text: string): string {
   return text
     .replace(/file:\/\/[^\s)'"]*/gi, "<path>")
@@ -122,7 +111,6 @@ function redactPaths(text: string): string {
     .replace(/(^|[\s(='"])\/(?:[^\s/)'"]+\/)*[^\s/)'"]*/g, "$1<path>");
 }
 
-/** First line of an error only, paths redacted: assertion labels survive, stack traces and stderr dumps do not. */
 function redactedFailure(failure: unknown): string {
   const text = String((failure as Error)?.message ?? failure);
   return redactPaths(text.split("\n")[0] ?? "").slice(0, 500);
@@ -159,7 +147,6 @@ function integrityResult(db: DatabaseSync): string {
   return rows.map((row) => row.integrity_check).join("; ");
 }
 
-/** Absolute database checks shared by the live database, the snapshots and the restored database. */
 function assertConsistent(db: DatabaseSync, label: string, options: { fts: boolean }): void {
   expect(integrityResult(db), `${label}: PRAGMA integrity_check`).toBe("ok");
   expect(db.prepare("PRAGMA foreign_key_check").all(), `${label}: PRAGMA foreign_key_check`).toEqual([]);
@@ -176,7 +163,6 @@ function assertConsistent(db: DatabaseSync, label: string, options: { fts: boole
   }
 }
 
-/** Per writer the stored seqs must be exactly 1..k (gap-free) with every session's events complete. */
 function assertPrefixes(db: DatabaseSync, label: string, low: number[], high: number[]): number[] {
   const rows = readStressRows(db);
   expect(rows.foreign, `${label}: sessions that are not stress writes`).toBe(0);
@@ -218,7 +204,6 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
       const kills: KillRecord[] = [];
       const fatals: string[] = [];
       const killPending = new Set<number>();
-      /** Writers whose current "go" has not been acknowledged yet: their write is running, or waiting for a lock. */
       const writing = new Set<number>();
       const writerHandle = new Map<number, Handle>();
       const killTasks: Array<Promise<void>> = [];
@@ -375,7 +360,6 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
         }
       }
 
-      /** Sends the next "go" to a writer after a seeded think time, or arranges its SIGKILL when one is due. */
       function dispatch(writer: number): void {
         if (stopping) return;
         const random = writerRandom[writer] ?? sharedRandom;
@@ -397,9 +381,8 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
       }
 
       /**
-       * A planned kill. A writer between writes is killed as its next write starts (see dispatch). A writer whose write is
-       * already running, or waiting for a lock (a RESTART or TRUNCATE checkpoint can hold one for seconds), would never
-       * reach its next write in time, so it is killed now: that is also a kill inside a write.
+       * A writer whose write is running or waiting for a lock (a RESTART or TRUNCATE checkpoint can hold one for seconds)
+       * would never reach its next write in time, so it is killed now: that is also a kill inside a write.
        */
       function planKill(writer: number): void {
         if (stopping) return;
@@ -414,12 +397,10 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
         if (handle.waiter.killed) return;
         // Marked first so IPC to this child that races the kill is ignored instead of emitting an unhandled 'error'.
         handle.waiter.markKilled();
-        // Its write ends with it; the replacement is between writes until dispatch sends it the next one.
         writing.delete(writer);
         handle.waiter.child.kill("SIGKILL");
         await handle.closed;
         const lastAcked = highWater[writer] ?? 0;
-        // Before the retry can mask anything: the single in-flight write must be complete or absent, nothing beyond it.
         const db = new DatabaseSync(sandbox.databasePath, { readOnly: true });
         let inFlight: KillRecord["inFlight"];
         try {
@@ -443,10 +424,7 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
           db.close();
         }
         kills.push({ writer, lastAckedSeq: lastAcked, inFlight });
-        // After the load ends, a committed-but-unacked write is still respawned and retried to its ack (below), so the final
-        // state has acked == committed; an absent in-flight write needs no retry.
         if (stopping && inFlight === "absent") return;
-        // Continue the sequence from the last acked seq + 1; an in-flight write that did commit is a harmless idempotent retry.
         const next = spawn(
           "writer",
           `writer-${writer}-incarnation-${kills.length}`,
@@ -459,7 +437,6 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
           dispatch(writer);
           return;
         }
-        // Draining: retry exactly the committed in-flight seq and wait for its ack before the processes are stopped.
         next.waiter.send({ type: "go" });
         const deadline = Date.now() + 30_000;
         while ((highWater[writer] ?? 0) < lastAcked + 1) {
@@ -495,7 +472,6 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
             spawn("snapshotter", "snapshotter", { snapshotDirectory });
             await Promise.all(handles.map((handle) => handle.waiter.waitFor("ready")));
 
-            // Seeded chaos plan: kill times spread over the middle of the run, victims and jitter from the seed.
             const killCount = Math.max(3, Math.round(DURATION_SECONDS / 4));
             // The first kill is always in the first half so even the minimum run schedules (and consumes) at least one.
             const killPlan = Array.from({ length: killCount }, (_unused, index) => ({
@@ -536,14 +512,12 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
           })(),
         ]);
 
-        // ---- Verification, every process is gone and every connection closed. ----
         const acked = [...highWater];
         const live = new DatabaseSync(sandbox.databasePath);
         let walBytes = -1;
         try {
           live.exec("PRAGMA busy_timeout = 5000");
           assertConsistent(live, "final database", { fts: true });
-          // Writers are gone and every committed in-flight write was retried to its ack: rows are exactly the acked seqs.
           assertPrefixes(live, "final database", acked, acked);
           const checkpoint = live.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get() as { busy: number };
           expect(checkpoint.busy, "final TRUNCATE checkpoint was not blocked").toBe(0);
@@ -554,7 +528,6 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
         walBytes = existsSync(walPath) ? statSync(walPath).size : 0;
         expect(walBytes, "-wal file after the final TRUNCATE checkpoint with every connection closed").toBe(0);
 
-        // ---- Snapshots: each is a consistent, gap-free prefix between its before and after marks. ----
         const complete = snapshots.filter((entry) => entry.path && entry.after).sort((a, b) => a.index - b.index);
         expect(complete.length, "at least one snapshot completed").toBeGreaterThan(0);
         for (const snapshot of complete) {
@@ -567,7 +540,6 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
           }
         }
 
-        // ---- Restore comparison: production restoreDatabase, then a row fingerprint against the snapshot's own. ----
         const toRestore = [
           ...new Set([complete[0], complete[Math.floor(complete.length / 2)], complete[complete.length - 1]]),
         ];
@@ -597,7 +569,6 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
                 database_id: string;
                 data_revision: number;
               };
-            // The excluded table must change exactly as restoreDatabase documents: new identity, revision bumped.
             expect(revisions(copy).database_id).not.toBe(revisions(source).database_id);
             expect(revisions(copy).data_revision).toBeGreaterThan(revisions(source).data_revision);
             assertConsistent(copy, `restored snapshot ${snapshot.index}`, { fts: true });
@@ -615,7 +586,6 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
           }
         }
 
-        // ---- Report (measured numbers) and the thrown-BUSY gate. ----
         const sum = (role: Role, pick: (stats: Stats) => number): number =>
           handles.filter((handle) => handle.role === role).reduce((total, handle) => total + pick(handle.stats), 0);
         const writes = acked.reduce((total, seq) => total + seq, 0);
@@ -711,7 +681,6 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
         stopping = true;
         await sandbox.stopAll();
         if (failure && finalReport) {
-          // The measured numbers (and the busy gate) are kept; only the verdict changes.
           writeResult({ ...finalReport, passed: false, failure: redactedFailure(failure) });
           dumpDiagnostics(`test failed: ${String((failure as Error)?.message ?? failure).slice(0, 300)}`);
         } else if (failure) {
@@ -723,7 +692,6 @@ describe("SQLite WAL multi-process stress (DT-07)", () => {
             seed: SEED,
             configuredDurationSeconds: DURATION_SECONDS,
             passed: false,
-            // Labels only: no raw worker stderr, stack traces or absolute paths (the console diagnostics keep full detail).
             failure: redactedFailure(failure),
             kills: kills.length,
             highWater,

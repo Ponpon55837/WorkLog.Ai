@@ -4,7 +4,6 @@ import type { MessageKey } from "./i18n";
 export type NavGroup = "work" | "knowledge" | "manage";
 
 declare module "vue-router" {
-  /** title and navLabel are message keys (src/i18n/locales); display sites translate them with t(). */
   interface RouteMeta {
     title?: MessageKey;
     group?: NavGroup;

@@ -2,9 +2,6 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
-// A content fingerprint of a SQLite database: row count and sha256 per user table, rows ordered by every column.
-// Same semantics as tests/fixtures/upgrade/fingerprint.mjs (sqlite_% tables and the shadow tables of virtual tables,
-// such as the FTS5 index storage, are skipped) so the two can be unified later.
 export interface TableFingerprint {
   rows: number;
   hash: string;
@@ -13,13 +10,10 @@ export interface TableFingerprint {
 export type DatabaseFingerprint = Record<string, TableFingerprint>;
 
 export interface FingerprintOptions {
-  /** Whole tables to leave out, e.g. `schema_migrations` (its `applied_at` differs between two upgrades). */
   excludeTables?: readonly string[];
-  /** Columns to leave out of a table's hash, e.g. values a restore legitimately replaces. */
   ignoreColumns?: Readonly<Record<string, readonly string[]>>;
 }
 
-/** Fingerprint of an open connection. */
 export function fingerprintConnection(db: DatabaseSync, options: FingerprintOptions = {}): DatabaseFingerprint {
   const tables = db
     .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")

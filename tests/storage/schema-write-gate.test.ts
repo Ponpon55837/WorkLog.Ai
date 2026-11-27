@@ -7,7 +7,6 @@ import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrati
 import { isDatabaseSchemaChangedError } from "../../packages/storage/src/schema-write-gate.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only. A raw connection on the same file stands in for a newer process that migrated the database.
 const stores: WorkIntelligenceStore[] = [];
 const connections: DatabaseSync[] = [];
 const tempDirs: string[] = [];
@@ -29,7 +28,6 @@ function setup(): { store: WorkIntelligenceStore; other: DatabaseSync; root: (na
   return { store, other, root: (name) => join(directory, name) };
 }
 
-/** What a newer release does: a DDL change plus its migration record, in one transaction. */
 function migrateFromAnotherProcess(other: DatabaseSync): void {
   other.exec("BEGIN IMMEDIATE");
   other.exec("CREATE TABLE future_feature (id TEXT PRIMARY KEY)");
@@ -39,7 +37,6 @@ function migrateFromAnotherProcess(other: DatabaseSync): void {
   other.exec("COMMIT");
 }
 
-/** Counts the schema_migrations lookups the gate runs on the store's own connection. */
 function countVersionLookups(store: WorkIntelligenceStore): () => number {
   const db = (store as unknown as { db: DatabaseSync }).db;
   const prepare = db.prepare.bind(db);

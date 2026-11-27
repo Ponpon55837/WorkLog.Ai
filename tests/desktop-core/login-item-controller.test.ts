@@ -1,4 +1,3 @@
-// The main-process modules this test loads use the desktop build flags; declare them as the desktop build does.
 /// <reference path="../../apps/desktop/src/main/build-flags.d.ts" />
 import { readFileSync } from "node:fs";
 import fsp from "node:fs/promises";
@@ -11,7 +10,6 @@ import { readDesktopSettings, type DesktopSettingsV1 } from "../../packages/desk
 
 vi.mock("electron", () => ({ app: { setLoginItemSettings: vi.fn(), getLoginItemSettings: vi.fn() } }));
 
-// Synthetic settings only: the controller writes a temporary file and asks a fake system.
 let directory = "";
 
 function settings(launchAtLogin: boolean): DesktopSettingsV1 {
@@ -81,7 +79,6 @@ describe.each([
   it("turns on: writes the settings file first, then applies, then tells the backend", async () => {
     const order: string[] = [];
     const { controller, settingsFile, changed, state } = setup(platform, enabled, false, (s) => {
-      // At the moment the system is touched, the file on disk already holds the new choice.
       order.push(
         `apply:${JSON.parse(readFileSync(path.join(directory, "desktop-settings.json"), "utf8")).desired.launchAtLogin}`,
       );

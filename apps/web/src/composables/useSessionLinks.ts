@@ -25,7 +25,6 @@ function closeLinkDialog(): void {
   useSessionsStore().closeLinkCandidates();
 }
 
-/** Candidate Sessions for a new link: same keyword search as the Sessions page, minus the open Session. */
 function searchLinkCandidates(): void {
   if (!useSessionLinkDialogStore().linkSource) return;
   useSessionLinkDialogStore().linkActionError = "";
@@ -36,10 +35,7 @@ function afterLinkChange(message: string): void {
   useToast().showToast(message);
 }
 
-/**
- * Saves the chosen link. The API stores `continues` on the Session that continues the other, so
- * "the selected Session continues this one" is written from the selected Session's side.
- */
+/** The API stores `continues` on the Session that continues the other, so write it from the selected Session's side. */
 async function saveLink(): Promise<void> {
   const source = useSessionLinkDialogStore().linkSource;
   const targetId = useSessionLinkDialogStore().linkTargetId;

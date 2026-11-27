@@ -41,7 +41,6 @@ function options(
   return { expectedManifestSha256: bundleSha, verify: { policy: WIN, aclReader }, ...extra };
 }
 
-/** A reader that records every call in order, with a prewarm whose release is observable. */
 function recordingReader(trusted = true, observe: () => string = () => "prewarm") {
   const events: string[] = [];
   const release = vi.fn(() => {
@@ -168,7 +167,6 @@ describe("ensureBundledRuntime: ACL reader prewarm", () => {
 });
 
 describe("ensureBundledRuntime: one tier-1 spawn per install with the real reader", () => {
-  /** A fake spawn: ready after `startupMs`, answers every path it is sent with a trusted descriptor. */
   function spawner(startupMs: number) {
     const sent: string[][] = [];
     const killed: boolean[] = [];

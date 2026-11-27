@@ -128,7 +128,6 @@ function onSelect(node: GraphNode): void {
   graphStore.selectGraphNode(node);
 }
 
-/** Enter in the search box jumps to the first hit instead of submitting the toolbar form. */
 function selectFirstMatch(): void {
   const first = graphVisual.value.nodes.find((item) => graphSearchMatchIds.value.has(item.node.id));
   if (first) {
@@ -136,7 +135,6 @@ function selectFirstMatch(): void {
   }
 }
 
-// Only the open tab loads its data.
 watch(tab, (value) => graphStore.setGraphActive(value === "graph"), { immediate: true });
 
 onBeforeUnmount(() => {

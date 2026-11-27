@@ -6,8 +6,6 @@ import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { classifyRestoreFailure, inspectBackups, restoreFromBackup } from "../../apps/server/src/backup-restore.js";
 
-/** What the preview child answers for 「從備份還原」, on synthetic files: the classification and the never-throws contract. */
-
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -70,7 +68,6 @@ describe("inspectBackups and restoreFromBackup on synthetic files", () => {
     const databasePath = join(directory, "current.sqlite");
     const store = new WorkIntelligenceStore(databasePath);
     const good = snapshotOf(directory, "good");
-    // The store still holds the database open: the same refusal an Agent holding it would cause.
     expect(restoreFromBackup({ source: good, databasePath }).status).toBe("in-use");
     expect(restoreFromBackup({ source: databasePath, databasePath }).status).toMatch(/same-file|in-use/);
     store.close();

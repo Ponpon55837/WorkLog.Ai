@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/** `Dashboard.openLink`: what it answers when the system opens the link, refuses it or rejects. Synthetic URL only. */
-
 // Only `shell` of Electron is read by this module, and the test gives its own system call.
 vi.mock("electron", () => ({ shell: {} }));
 
@@ -29,7 +27,6 @@ describe("opening a link", () => {
     const pending = setup().dashboard.openLink(URL_TEXT).then(answer);
     await Promise.resolve();
     expect(openExternal).toHaveBeenCalledWith(URL_TEXT);
-    // The OS call has not resolved yet, so nothing was reported.
     expect(answer).not.toHaveBeenCalled();
     accept();
     await pending;

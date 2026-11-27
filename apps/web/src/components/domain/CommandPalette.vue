@@ -15,7 +15,6 @@ import { LOCALE_OPTIONS, t } from "../../i18n";
 
 type PaletteItem = { id: string; group: string; label: string; hint?: string; icon: IconComponent; run: () => void };
 
-/** Ctrl/⌘ K palette: jump to pages and search Sessions and Knowledge through existing APIs. */
 const open = defineModel<boolean>("open", { required: true });
 
 const paletteStore = useCommandPaletteStore();

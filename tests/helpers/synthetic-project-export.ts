@@ -4,12 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 
-/**
- * A synthetic portable export of one project with `sessionCount` Sessions, each with a long summary and 13 work
- * events: about 8.3 KiB per Session, so 2,120 Sessions make about 17.5 MiB. Every value is generated; nothing comes
- * from real data. The rows are inserted directly from one finalized template Session, which is much faster than
- * finalizing each one.
- */
+/** About 8.3 KiB per Session (a long summary and 13 work events), so 2,120 Sessions make about 17.5 MiB. */
 export function writeSyntheticProjectExport(target: string, sessionCount: number): { bytes: number } {
   const directory = mkdtempSync(join(tmpdir(), "work-intelligence-synthetic-export-"));
   try {
@@ -93,7 +88,6 @@ function insertSyntheticSessions(databasePath: string, sessionCount: number): vo
   }
 }
 
-/** Wraps an export file as a REST import request body, `{"bundle":<file>}`, without parsing it. */
 export function writeImportRequest(bundleFile: string, target: string): { bytes: number } {
   const fd = openSync(target, "wx", 0o600);
   try {

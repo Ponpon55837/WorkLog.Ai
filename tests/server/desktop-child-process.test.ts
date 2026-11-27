@@ -12,8 +12,6 @@ import {
 import { probeLoopbackPort } from "../../packages/shared/src/loopback-port.js";
 import { BarrierSandbox, freePort, REPOSITORY_ROOT, type Waiter } from "../helpers/old-writer-barrier.js";
 
-// Real child processes running apps/server/src/desktop-child.ts over a real IPC channel, the way the desktop App's
-// supervisor drives them. Synthetic databases, free ports, the isolated environment of BarrierSandbox.
 const ENTRY = "tests/helpers/desktop-child-entry.ts";
 const RUN_ID = "synthetic-run-id-0123456789abcdef-process";
 const sandboxes: BarrierSandbox[] = [];
@@ -158,7 +156,6 @@ describe("desktop child over IPC (real process)", () => {
     expect(failed.code).toBe("DB_MISSING");
     expect(await child.exited).toBe(1);
     expect(existsSync(missing)).toBe(false);
-    // WORK_INTELLIGENCE_DB in the child's environment points at the sandbox database; it must not be created either.
     expect(existsSync(sandbox.databasePath)).toBe(false);
     expect(readdirSync(sandbox.root).filter((name) => name.endsWith(".sqlite"))).toEqual([]);
     expect(await probeLoopbackPort(port)).toEqual({ free: true });
@@ -170,9 +167,7 @@ describe("desktop child over IPC (real process)", () => {
     const child = spawnChild(sandbox);
     await child.waitFor("hello");
     const verified = await preflight(child, sandbox.databasePath);
-    // The holder only occupies the port. It drops whatever connects: `close` waits for every accepted socket, and a
-    // socket nobody reads never ends, so one stray client (a neighbouring test file still polling a port it had used
-    // before the system handed the number to this holder) kept the afterEach hook waiting until it timed out.
+    // The holder only occupies the port and drops what connects: a stray client from a neighbouring test file kept `close` waiting for an accepted socket that never ends.
     const holder = createServer((socket) => socket.destroy());
     servers.push(holder);
     await new Promise<void>((resolve) => holder.listen(0, "127.0.0.1", resolve));
@@ -189,7 +184,6 @@ describe("desktop child over IPC (real process)", () => {
 
     expect(failed).toMatchObject({ code: "PORT_OCCUPIED_BY_OTHER", detail: "listen failed (EADDRINUSE)" });
     expect(await child.exited).toBe(1);
-    // startApi (which opens the store, and may migrate) was never reached: its own listen-error message is absent.
     expect(child.stderr()).not.toContain("已被占用");
     expect(child.stderr()).not.toContain("SQLite database:");
   });
@@ -234,7 +228,6 @@ describe("desktop child over IPC (real process)", () => {
     const secondPort = await freePort();
     child.send({ ...message, port: secondPort });
     child.send({ type: "preflight", path: sandbox.databasePath });
-    // The second start and the late preflight are dropped; the child is still serving and nothing listens on the second port.
     const health = await fetch(`http://127.0.0.1:${port}/api/health`);
     expect(health.status).toBe(200);
     expect(await probeLoopbackPort(secondPort)).toEqual({ free: true });

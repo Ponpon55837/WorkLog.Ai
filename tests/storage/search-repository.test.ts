@@ -14,7 +14,6 @@ import {
 } from "../../packages/storage/src/search-text.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// All projects, Sessions, Knowledge, and handoff text below are fictional fixtures.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -306,7 +305,6 @@ describe("recall", () => {
       },
       completedAt: "2026-01-19T08:00:00.000Z",
     });
-    // The sessions have no parentSessionId or relatedSessionIds.
     const ids = recall(store, { q: "orchard cache fixed timeout guideline" }).hits.map((hit) => hit.id);
     return { ids, oldGuideline, revisedGuideline };
   }
@@ -417,7 +415,6 @@ describe("recall", () => {
 
   it("puts a Session that continues an earlier hit directly above it when it scores close enough", () => {
     const { store, root } = trackedStore();
-    // Unrelated history gives the query words a meaningful document frequency.
     for (let index = 0; index < 10; index += 1) {
       finalize(store, root, `vent-filler-${index}`, {
         title: `Compost turning ${index}`,
@@ -449,7 +446,6 @@ describe("recall", () => {
 
     const ids = recall(store, { q: "greenhouse vent motor calibration" }).hits.map((hit) => hit.id);
     expect(ids.indexOf(done)).toBe(ids.indexOf(plan) - 1);
-    // A continuation that barely matches keeps its own place below the earlier Session.
     expect(ids.indexOf(weak)).toBeGreaterThan(ids.indexOf(plan));
     expect(ids).toContain(unlinked);
   });
@@ -497,14 +493,11 @@ describe("recall", () => {
     const result = recall(store, { ...query, limit: 10 });
     const ids = result.hits.map((hit) => hit.id);
     const score = (id: string) => result.hits.find((hit) => hit.id === id)!.score;
-    // The source Session scores higher; only the order changed.
     expect(score(source)).toBeGreaterThan(score(fromSource.knowledge.id));
     expect(ids.indexOf(fromSource.knowledge.id)).toBe(ids.indexOf(source) - 1);
-    // Each item moves only to its own source: the other one passes its own Session but not the higher one.
     expect(ids).toEqual([fromSource.knowledge.id, source, fromOther.knowledge.id, other]);
     expect(score(other)).toBeGreaterThan(score(fromOther.knowledge.id));
 
-    // Only hits already returned move: with room for the source Session alone, the Knowledge item stays out.
     const top = recall(store, { ...query, limit: 1 }).hits.map((hit) => hit.id);
     expect(top).toEqual([source]);
   });
@@ -538,7 +531,6 @@ describe("recall", () => {
       sessionId: own,
     });
     if (knowledge.outcome !== "knowledge_recorded") throw new Error("Expected synthetic Knowledge");
-    // A damaged link to a Session of the other project must not carry the item across projects.
     const writer = new DatabaseSync(databasePath);
     writer.prepare("UPDATE knowledge SET session_id = ? WHERE id = ?").run(source, knowledge.knowledge.id);
     writer.close();
@@ -549,7 +541,6 @@ describe("recall", () => {
 
   it("ranks a record that answers in structured fields above a long handoff that only mentions the words in raw text", () => {
     const { store, root } = trackedStore();
-    // Unrelated history gives the query words a meaningful document frequency.
     for (let index = 0; index < 10; index += 1) {
       finalize(store, root, `raw-filler-${index}`, {
         title: `Compost turning ${index}`,
@@ -561,7 +552,6 @@ describe("recall", () => {
       summary: "The sprinkler valve schedule now opens before sunrise.",
       completedAt: "2026-02-01T08:00:00.000Z",
     });
-    // Two query words in the title, the other two only in raw text: full coverage before raw-only words counted half.
     const handoff = finalize(store, root, "raw-handoff", {
       title: "Orchard sprinkler notes",
       summary: "Imported historical handoff notes.",
@@ -571,7 +561,6 @@ describe("recall", () => {
 
     const ids = recall(store, { q: "orchard sprinkler valve schedule" }).hits.map((hit) => hit.id);
     expect(ids.indexOf(answer)).toBeLessThan(ids.indexOf(handoff));
-    // The raw-only record is ranked lower but still returned.
     expect(ids).toContain(handoff);
   });
 

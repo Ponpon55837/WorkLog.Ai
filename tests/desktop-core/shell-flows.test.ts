@@ -160,7 +160,6 @@ describe("CandidateRegistry", () => {
         willMigrate: false,
       }),
     ).toEqual({ status: "missing", needsMigration: false });
-    // The real code survives, so the page can say why (the runtime is missing, the check timed out, ...).
     for (const code of ["RUNTIME_MISSING", "CHILD_START_TIMEOUT"] as const) {
       expect(previewToCandidate({ outcome: "failed", code, detail: "x" })).toEqual({
         status: "unreadable",
@@ -466,7 +465,6 @@ describe("BackendRecovery under load", () => {
     expect(calls.filter((call) => call === "owner:MANAGED")).toHaveLength(0);
     finish?.({ ok: true });
     await vi.advanceTimersByTimeAsync(0);
-    // The automatic retry ran without the user's id; the user's id was never handed to anything.
     expect(seen).toEqual([undefined]);
   });
 

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-/** Native keyboard-accessible checkbox, including mixed selection for a group. */
 withDefaults(defineProps<{ label: string; disabled?: boolean; indeterminate?: boolean }>(), {
   disabled: false,
   indeterminate: false,

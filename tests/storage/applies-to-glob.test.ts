@@ -12,7 +12,6 @@ import {
 } from "../../packages/storage/src/applies-to-match.js";
 import { setStalenessUnitLimits } from "../../packages/storage/src/later-change-index.js";
 
-// Fictional paths and patterns only.
 const ORDINARY_PATTERNS = [
   "src/*.ts",
   "src/**",
@@ -91,7 +90,6 @@ const HEAVY_RECORDS = Array.from({ length: 5 }, (_, record) =>
   HEAVY_PATTERNS.map((pattern) => `${"**".repeat(record)}${pattern}`),
 );
 
-/** The anchored RegExp the matcher replaced, kept here as the reference for its semantics. */
 function legacyGlobMatches(pattern: string, path: string): boolean {
   let source = "";
   for (let index = 0; index < pattern.length; index += 1) {
@@ -112,7 +110,6 @@ function legacyGlobMatches(pattern: string, path: string): boolean {
 
 const cleanups: Array<() => void> = [];
 
-/** Small deterministic generator so the random table is the same on every run and platform. */
 function seeded(seed: number): () => number {
   let state = seed;
   return () => {
@@ -135,7 +132,6 @@ function randomGlobTable(seed: number, rounds: number, maxPattern: number, maxPa
       { length: Math.floor(random() * maxPath) },
       () => pathAlphabet[Math.floor(random() * pathAlphabet.length)],
     ).join("");
-    // Plain entries use path-segment rules, not the glob.
     if (/[*?]/.test(pattern)) table.push([pattern, path]);
   }
   return table;
@@ -214,7 +210,6 @@ describe("appliesTo glob matching", () => {
         { length: 1 + Math.floor(random() * 10) },
         () => pathAlphabet[Math.floor(random() * 4)],
       ).join("");
-      // Plain entries use path-segment rules, not the glob.
       if (!/[*?]/.test(pattern)) continue;
       expect([pattern, path, compileAppliesTo(pattern)(path)]).toEqual([
         pattern,
@@ -334,9 +329,7 @@ describe("appliesTo match budget", () => {
     expect(budget.exhausted).toBe(true);
     expect(budget.units).toBeLessThanOrEqual(budget.limit);
     expect(matched).toBe(Math.floor(budget.limit / pairUnits));
-    // The cut pair stopped at the first charge it could not afford, so less than one pair's units were left.
     expect(budget.limit - budget.units).toBeLessThan(pairUnits);
-    // A spent budget answers every later pair "no match" without work.
     const counter = { examined: 0 };
     setAppliesToWorkCounter(counter);
     expect(compileAppliesTo("src/**", budget)("src/a.ts", budget)).toBe(false);
@@ -352,7 +345,6 @@ describe("appliesTo match budget", () => {
     const { store, root } = syntheticStore();
     for (const [index, patterns] of HEAVY_RECORDS.entries()) recordScoped(store, root, `heavy-${index}`, patterns);
     vi.setSystemTime(new Date("2026-06-01T09:00:00.000Z"));
-    // The rows matched before the budget ran out are kept; the row it cut and every later one are left out.
     const history = store.getFileHistory({ projectRoot: root, paths: [HEAVY_PATH] });
     expect(history).toMatchObject({ outcome: "file_history", appliesToScanTruncated: true });
     expect(history.outcome === "file_history" ? history.knowledge.length : -1).toBeLessThan(HEAVY_RECORDS.length);
@@ -375,8 +367,7 @@ describe("appliesTo match budget", () => {
     if (listed.outcome !== "knowledge") throw new Error("Expected a Knowledge list.");
     expect(listed.items[0]).toMatchObject({ stalenessUnchecked: true });
     expect(listed.items[0]).not.toHaveProperty("possiblyStale");
-    // Four scans each run until their whole budget is spent, which is seconds of work by design and several times
-    // slower under coverage instrumentation, so this test gets its own timeout.
+    // Four scans each run until their whole budget is spent (seconds by design, more under coverage), hence the timeout.
   }, 120_000);
 
   it("keeps ordinary scans of another project whole and unflagged", () => {
@@ -407,7 +398,6 @@ describe("stored appliesTo above the star bound", () => {
     const destination = new WorkIntelligenceStore(":memory:");
     cleanups.push(() => destination.close());
     expect(destination.importProjectData({ bundle, remap: [] }).additions.knowledge).toBe(1);
-    // Import applies no write-time rule: the row arrives byte for byte.
     const imported = destination.listProjects().find((candidate) => candidate.id === project.id);
     if (!imported) throw new Error("Expected the imported project.");
     destination.updateProject(imported.id, { status: "tracked" });
@@ -426,7 +416,6 @@ describe("stored appliesTo above the star bound", () => {
       knowledge: { appliesTo: ["src/a.ts", overComplex] },
     });
     expect(renamed).not.toHaveProperty("warnings");
-    // The Web form re-sends every field; keeping the stored entry succeeds and says how to fix it.
     const resent = store.updateKnowledge({
       projectRoot: root,
       knowledgeId: id,

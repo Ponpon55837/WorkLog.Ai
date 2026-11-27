@@ -21,7 +21,6 @@ describe("what an unfinished Agent apply leaves behind (L-20)", () => {
         written.add(mutation.path);
         // An Agent rewrites the Claude config right after we wrote it, then the next write fails.
         if (mutation.path === fixture.paths.claudeJson) {
-          // Our own entry is changed, so it cannot be taken out without guessing.
           const root = JSON.parse(readFileSync(mutation.path, "utf8")) as {
             mcpServers: Record<string, { args: string[] }>;
           };

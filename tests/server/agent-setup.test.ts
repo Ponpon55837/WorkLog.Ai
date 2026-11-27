@@ -344,7 +344,6 @@ describe("Agent setup", () => {
     expect(secondPlan.conflicts).toEqual([]);
     expect(secondPlan.mutations).toEqual([]);
 
-    // Uninstall removes exactly what setup added, compaction hooks included, and keeps the user's own entries.
     expect(applyAgentSetupPlan(createAgentSetupPlan(fixture.options, "uninstall")).applied).toBe(true);
     const restoredClaude = object(readJson(fixture.paths.claudeSettings).hooks);
     expect(restoredClaude.PreCompact).toEqual([]);
@@ -435,14 +434,12 @@ describe("Agent setup", () => {
     expect(plan.actions).toContain("更新既有 Codex PostToolUse hook 的 matcher，其餘自訂設定保留。");
     expect(applyAgentSetupPlan(plan).applied).toBe(true);
 
-    // The pnpm registration already runs the launcher; the direct Claude one keeps its node path and moves to it.
     expect(readFileSync(fixture.paths.codexConfig)).toEqual(codexConfig);
     expect(claudeJson.toString("utf8")).toContain("index.js");
     expect(object(readJson(fixture.paths.claudeJson).mcpServers)["work-intelligence"]).toEqual({
       command: "/usr/local/bin/node",
       args: [join(repositoryRoot, "apps", "mcp", "dist", "launcher.js")],
     });
-    // The hand-written Stop hook is kept as is; only the missing compaction hooks are added beside it.
     const claudeHooks = object(readJson(fixture.paths.claudeSettings).hooks);
     expect(claudeHooks.Stop).toEqual(object(JSON.parse(claudeSettings.toString("utf8")).hooks).Stop);
     expect(claudeHooks.PreCompact as unknown[]).toHaveLength(1);
@@ -457,7 +454,6 @@ describe("Agent setup", () => {
     ]);
     expect(codexHooks.Stop as unknown[]).toHaveLength(1);
     expect(codexHooks.UserPromptSubmit as unknown[]).toHaveLength(1);
-    // Kept entries are not recorded as setup-owned, so uninstall never removes them.
     const componentIds = (readJson(fixture.paths.manifest).components as Array<{ id: string }>).map(({ id }) => id);
     expect(componentIds.sort()).toEqual([
       "claudePreCompactHook",
@@ -496,7 +492,6 @@ describe("Agent setup", () => {
     const serverPath = join(repositoryRoot, "apps", "mcp", "dist", "index.js");
     const launcherPath = join(repositoryRoot, "apps", "mcp", "dist", "launcher.js");
     expect(applyAgentSetupPlan(createAgentSetupPlan(fixture.options)).applied).toBe(true);
-    // Rewrite what an earlier setup (before the launcher) wrote and recorded as owned.
     const swapPath = (value: unknown): unknown =>
       typeof value === "string"
         ? value
@@ -550,7 +545,6 @@ describe("Agent setup", () => {
     expect(readFileSync(fixture.paths.codexConfig, "utf8")).toBe(
       lines.join("\n").replace(JSON.stringify(serverPath), JSON.stringify(launcherPath)),
     );
-    // Not recorded as owned: uninstall leaves the hand-written registration alone.
     const componentIds = (readJson(fixture.paths.manifest).components as Array<{ id: string }>).map(({ id }) => id);
     expect(componentIds).not.toContain("codexMcp");
   });
@@ -559,7 +553,6 @@ describe("Agent setup", () => {
     const fixture = createFixture();
     const serverPath = join(fixture.options.repositoryRoot, "apps", "mcp", "dist", "index.js");
     mkdirSync(fixture.paths.codexHome, { recursive: true });
-    // The same path twice (once in a comment) makes the rewrite ambiguous.
     const config = [
       `# was ${JSON.stringify(serverPath)}`,
       "[mcp_servers.work-intelligence]",

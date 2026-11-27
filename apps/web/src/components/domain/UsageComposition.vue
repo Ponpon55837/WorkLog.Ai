@@ -17,7 +17,6 @@ const TOKEN_KIND_KEYS = {
   cacheCreation: "usage.tokenCacheCreation",
 } as const satisfies Record<keyof typeof USAGE_TOKEN_TONES, MessageKey>;
 
-/** What the headline is made of (input and output) next to the cache kinds it never includes. */
 const usageStore = useUsageStore();
 const { scanResult: result } = storeToRefs(usageStore);
 

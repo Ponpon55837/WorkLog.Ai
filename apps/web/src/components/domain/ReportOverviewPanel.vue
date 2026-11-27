@@ -32,7 +32,6 @@ const verificationCounts = computed(() => ({
   notSupplied: report.totals.verification.not_supplied,
 }));
 
-/** The most recently completed Sessions in time order; the report's own period summary line stays above them. */
 const happenings = computed(() =>
   [...report.sessions]
     .sort((left, right) => right.completedAt.localeCompare(left.completedAt))

@@ -1,4 +1,3 @@
-// The main-process modules this test loads use the desktop build flags; declare them as the desktop build does.
 /// <reference path="../../apps/desktop/src/main/build-flags.d.ts" />
 import { describe, expect, it } from "vitest";
 import { createBackupDirectory } from "../../apps/desktop/src/main/backup-directory.js";
@@ -7,12 +6,6 @@ import {
   backupDirectoryResultText,
   backupDirectoryVerdict,
 } from "../../packages/desktop-core/src/index.js";
-
-/**
- * The controller behind 「更換備份位置」 with fake dialogs and a fake backend: the folder is proved writable and classified
- * before anything is written, a network drive is refused, a risky one needs a yes, the service restarts to use the folder and
- * the old folder comes back when that fails. Old backups are never touched. All values are synthetic.
- */
 
 const OLD = "/synthetic/backups";
 const NEW = "/synthetic/elsewhere/backups";
@@ -25,9 +18,7 @@ interface Setup {
   readonly operation?: boolean;
   readonly busyActivity?: boolean;
   readonly stopped?: boolean;
-  /** Writing the old folder back throws (the settings file cannot be written). */
   readonly restoreFails?: boolean;
-  /** Restart results in order; the default is one success. */
   readonly restarts?: readonly ({ ok: true } | { ok: false; code: string } | { ok: false; busy: true })[];
 }
 
@@ -184,7 +175,6 @@ describe("backup directory controller", () => {
     const run = setup({ restoreFails: true, restarts: [{ ok: false, code: "DB_OFFLINE" }] });
     expect(await run.controller.choose()).toEqual({ ok: false, reason: "not-restored", backendRunning: false });
     expect(run.folder()).toBe(NEW);
-    // No second start: it would run on the new folder that just failed.
     expect(run.events.filter((event) => event === "restart")).toHaveLength(1);
     expect(run.events).toContain("repair");
     const busy = setup({ restoreFails: true, restarts: [{ ok: false, busy: true }] });

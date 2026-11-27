@@ -20,7 +20,6 @@ import KnowledgePageLimitNotice from "./KnowledgePageLimitNotice.vue";
 import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
 
-/** One standing Knowledge page: its cited sections, its version history, and the edit, update and delete actions. */
 const props = defineProps<{ projects: readonly ProjectRecord[] }>();
 
 const authorLabels = { agent: "Agent", web: t("knowledge.editedByHand") } as const;
@@ -30,7 +29,6 @@ const { openPage, versions, versionsLoading, versionsError, sources } = storeToR
 const sessionsStore = useSessionsStore();
 const { showToast } = useToast();
 
-/** The version shown; null shows the current page. */
 const shownVersion = ref<number | null>(null);
 const editorOpen = ref(false);
 const comparing = ref(false);
@@ -38,13 +36,11 @@ const requesting = ref(false);
 const deleting = ref(false);
 
 const project = computed(() => props.projects.find((item) => item.id === openPage.value?.projectId));
-/** Only custom pages can be deleted; the three default pages always exist. */
 const deletable = computed(() => Boolean(openPage.value && !isDefaultKnowledgePageSlug(openPage.value.slug)));
 const shown = computed(() => {
   const version = versions.value.find((item) => item.version === shownVersion.value);
   return version ?? openPage.value;
 });
-/** The latest version before the one shown, when the page has one. */
 const previousVersion = computed(() => {
   const current = shownVersion.value ?? openPage.value?.version ?? 0;
   const earlier = versions.value.filter((item) => item.version < current);

@@ -25,7 +25,6 @@ import { outstandingItemStatusLabels, type ListPageSize } from "../../utils/labe
 import { outstandingItemStatusVisual } from "../../utils/status";
 import { t } from "../../i18n";
 
-/** Filters, paginates, and updates the tracked Session nextSteps queue. */
 const props = defineProps<{
   items: OutstandingItem[];
   projects: ProjectRecord[];
@@ -185,7 +184,6 @@ function selectItem(itemId: string, selected: boolean): void {
     : selectedIds.value.filter((id) => id !== itemId);
 }
 
-/** Only these closers are called out; user, cleanup and migration closures are the expected default. */
 function closedByLabel(item: OutstandingItem): string | undefined {
   if (item.status === "pending") return undefined;
   if (item.closedBy === "later_session") return t("outstanding.closedByLaterSession");

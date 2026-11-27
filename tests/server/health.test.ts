@@ -71,7 +71,6 @@ describe("GET /api/health", () => {
 });
 
 describe("GET /api/health instance proof", () => {
-  // Fictional values only.
   const runId = "synthetic-run-id-0123456789abcdef-health";
   const challenge = "synthetic-challenge-0123456789";
 

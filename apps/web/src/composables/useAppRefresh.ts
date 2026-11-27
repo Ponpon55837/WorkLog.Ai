@@ -11,7 +11,6 @@ export function invalidateActiveQueries(): Promise<unknown> {
   return pinia ? useQueryCache(pinia).invalidateQueries() : Promise.resolve();
 }
 
-/** Invalidates only Agent read audit queries after their dedicated SSE event. */
 export function invalidateAgentReadQueries(): void {
   const pinia = getActivePinia();
   if (pinia) {
@@ -21,7 +20,6 @@ export function invalidateAgentReadQueries(): void {
   }
 }
 
-/** Connects data changes, Agent read audits, and API recovery to the relevant active queries. */
 export function startAppRefreshEvents(): () => void {
   let source: EventSource | undefined;
   let stopped = false;

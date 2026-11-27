@@ -4,9 +4,7 @@ import { writeAgentSetupJournal } from "../../packages/agent-setup/src/journal.j
 import { writeAtomically, writeExclusiveAtomically } from "../../packages/agent-setup/src/files.js";
 import { createFixture, removeFixtures } from "./fixture.js";
 
-// The package setup stubs `fsyncSync` for every other agent-setup test (see tests/helpers/skip-fsync.ts). This file
-// re-registers `node:fs` with the real functions wrapped in recorders, so the crash-safety flushes stay guarded: if a
-// future change drops the flush of the temporary file, or publishes it before the flush, these tests fail.
+// Setup stubs fsyncSync for the other agent-setup tests (tests/helpers/skip-fsync.ts); this file keeps the real calls wrapped in recorders so dropping or reordering the crash-safety flush fails.
 const events = vi.hoisted(() => [] as { call: "open" | "fsync" | "rename" | "link"; path: string }[]);
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -41,7 +39,6 @@ afterEach(() => {
 
 const isTemporary = (path: string): boolean => path.includes(".tmp-");
 
-/** The temporary file must be flushed before the call that publishes it; returns the flushed path. */
 function expectTemporaryFlushedBeforePublish(publish: "rename" | "link"): string {
   const publishIndex = events.findIndex((event) => event.call === publish);
   expect(publishIndex).toBeGreaterThan(-1);

@@ -80,12 +80,10 @@ describe("the repository constant", () => {
     expect(releaseTagUrl("v1.2.3", other)).toBe(`https://github.com/${other}/releases/tag/v1.2.3`);
     const asset = releaseAssetUrl("v1.2.3", "Work-Intelligence-1.2.3-mac-x64.dmg", other);
     expect(asset).toBe(`https://github.com/${other}/releases/download/v1.2.3/Work-Intelligence-1.2.3-mac-x64.dmg`);
-    // The validation follows the slug it is given, and refuses the other repository's links.
     expect(isOurReleaseUrl(asset, other)).toBe(true);
     expect(isOurReleaseUrl(asset)).toBe(false);
     expect(isOurReleaseUrl(releasesPageUrl(other), other)).toBe(true);
     expect(isOurReleaseUrl(releaseTagUrl("v1.2.3", other))).toBe(false);
-    // The default validation is the default slug.
     expect(isOurReleaseUrl(releasesPageUrl())).toBe(true);
     expect(isOurReleaseUrl(releaseTagUrl("v1.2.3"))).toBe(true);
   });
@@ -118,7 +116,6 @@ describe("release tags and versions", () => {
     expect(parseRunningVersion("1.6.53")).toEqual({ major: 1, minor: 6, patch: 53, preRelease: false });
     expect(parseRunningVersion("1.6.53-dev")).toMatchObject({ preRelease: true });
     expect(parseRunningVersion("1.6.53-dev+local.1")).toMatchObject({ preRelease: true });
-    // Build metadata does not make a build older: the core alone decides.
     expect(parseRunningVersion("1.6.53+local.1")).toEqual({ major: 1, minor: 6, patch: 53, preRelease: false });
     expect(parseRunningVersion("1.6.0")).toMatchObject({ patch: 0 });
     for (const bad of ["1.6.053", "01.6.53", "1.06.53", "not-a-version", "1.6", "1.6.53.1"]) {
@@ -286,7 +283,6 @@ describe("the installer and the links", () => {
       const outcome = evaluate([{ tag: "v1.6.53", html_url }]);
       expect(outcome.result.kind).toBe("newer");
       expect(outcome.links.page).toBe(BASE);
-      // The installer link does not depend on html_url.
       expect(outcome.links.asset).toBe(winAsset);
     }
   });
@@ -501,7 +497,6 @@ describe("the tray item and the page state", () => {
     expect(zh.tlsFailed).toContain("資安軟體");
     expect(en.tlsFailed).toContain("secure connection");
     expect(en.tlsFailed).toContain("security software");
-    // A TLS failure and a missing release are told apart from an outage and from an up-to-date answer.
     for (const text of [zh, en]) {
       expect(new Set([text.offline, text.tlsFailed, text.noRelease, text.upToDate]).size).toBe(4);
     }

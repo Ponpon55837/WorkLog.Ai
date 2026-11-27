@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { FileHistoryResult, FinalizeSessionInput, VerificationStatus } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -239,7 +238,6 @@ describe("file history", () => {
     expect(result.budgetTrimmed).toBe(true);
     const entry = result.files[0]!;
     expect(entry.totals).toMatchObject({ sessions: 10, pendingItems: 20, withDecisions: 10 });
-    // Whatever was dropped is still counted and reachable.
     const shown = entry.recent.length;
     expect(entry.omitted.older).toBe(10 - shown);
     if (entry.omitted.older > 0) expect(entry.nextCursor).toEqual(expect.any(String));

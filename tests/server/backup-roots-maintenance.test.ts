@@ -7,8 +7,6 @@ import { listBackupProjectRoots, restoreFromBackup } from "../../apps/server/src
 import { maintainForApp, readMaintenanceHint } from "../../apps/server/src/database-maintenance-app.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 
-/** The preview child's work for the App's restore on a new computer and its database maintenance, on synthetic files. */
-
 const directories: string[] = [];
 afterEach(() => {
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });

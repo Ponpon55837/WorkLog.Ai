@@ -7,20 +7,14 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 
-// Process plumbing for the old-writer barrier experiment (design R4 section 10.4). Real child processes run the
-// repository TypeScript through tsx; every wait is an explicit message or output line, never a fixed delay.
 export interface Waiter {
   readonly child: ChildProcess;
-  /** Resolves with the next IPC message of this type (earlier ones are kept, so none is missed). */
   waitFor<T extends { type: string }>(type: string): Promise<T>;
-  /** Sends over IPC. Errors (EPIPE, closed channel) are swallowed for a child marked killed, else recorded in ipcErrors. */
   send(message: Record<string, unknown>): void;
   /** Call BEFORE intentionally killing the child: later IPC errors to it are expected and ignored. */
   markKilled(): void;
   readonly killed: boolean;
-  /** IPC/child errors that were NOT caused by an intentional kill; a test must treat a non-empty list as a failure. */
   ipcErrors(): string[];
-  /** Resolves when the process has exited. */
   exited: Promise<number | null>;
   stderr(): string;
 }
@@ -70,7 +64,6 @@ function timeoutAfter<T>(promise: Promise<T>, label: string, ms = DEFAULT_WAIT_M
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-/** A tsconfig whose paths send the workspace packages to their sources, so no build output is needed. */
 function writeTsconfig(directory: string): string {
   const paths: Record<string, string[]> = Object.fromEntries(
     Object.entries(WORKSPACE_PATHS).map(([name, file]) => [name, [join(REPOSITORY_ROOT, file)]]),
@@ -85,12 +78,7 @@ function writeTsconfig(directory: string): string {
 
 let sharedChildTemporary: string | undefined;
 
-/**
- * One temporary directory for every child this test process spawns, removed when it exits. tsx keeps its transform
- * cache in `<tmpdir>/tsx-<uid>` (about 110 files per run of the storage sources); a TMPDIR of its own per sandbox made
- * every child start with an empty cache, transforming and writing all of them again (about 1 s per start here,
- * against 0.45 s with a warm cache), which on a loaded Windows runner is what stretched the barrier tests past 20 s.
- */
+// One shared TMPDIR: tsx keeps its transform cache in <tmpdir>/tsx-<uid>, and a per-sandbox TMPDIR made every child start cold (about 1 s vs 0.45 s), which stretched the barrier tests past 20 s on a loaded Windows runner.
 function childTemporaryDirectory(): string {
   if (sharedChildTemporary === undefined) {
     const directory = mkdtempSync(join(tmpdir(), "work-intelligence-old-writer-tmp-"));
@@ -120,7 +108,6 @@ export class BarrierSandbox {
     this.tsconfigPath = writeTsconfig(this.root);
   }
 
-  /** Isolated environment: temp HOME/TMPDIR/config, the temp database, no backups, never the real user data. */
   public environment(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
     const home = join(this.root, "home");
     const inherited = { ...process.env };
@@ -145,12 +132,10 @@ export class BarrierSandbox {
     };
   }
 
-  /** A worker with an IPC channel (store-writer, lock-holder, migrator roles). */
   public spawnWorker(args: string[]): Waiter {
     return this.spawnIpc(WORKER_SCRIPT, args);
   }
 
-  /** A repository TypeScript entry with an IPC channel to the test, like a desktop parent would open. */
   public spawnIpc(script: string, args: string[] = [], extraEnvironment: Record<string, string> = {}): Waiter {
     const child = spawn(process.execPath, ["--import", this.loader, script, ...args], {
       env: this.environment(extraEnvironment),
@@ -208,7 +193,6 @@ export class BarrierSandbox {
     };
   }
 
-  /** A real repository entry point (API server, MCP server over stdio, CLI) with pipes and a line matcher. */
   public spawnEntry(script: string, args: string[] = [], extraEnvironment: Record<string, string> = {}): LineProcess {
     const child = spawn(process.execPath, ["--import", this.loader, join(REPOSITORY_ROOT, script), ...args], {
       env: this.environment(extraEnvironment),
@@ -260,7 +244,6 @@ export class BarrierSandbox {
   }
 }
 
-/** Minimal newline-delimited JSON-RPC client for a stdio MCP server (no SDK needed). */
 export class StdioJsonRpcClient {
   private nextId = 1;
   private buffer = "";
@@ -314,7 +297,6 @@ export function freePort(): Promise<number> {
   });
 }
 
-/** Reads a database from a fresh connection, the way the next process to open the file would see it. */
 export function inspectDatabase(databasePath: string): DatabaseSnapshot {
   const db = new DatabaseSync(databasePath, { readOnly: true });
   try {

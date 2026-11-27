@@ -48,10 +48,6 @@ import type {
 import type { IconComponent, Tone } from "../components/ui/types";
 import { t, translatedRecord, type MessageKey } from "../i18n";
 
-/**
- * Single source of truth for status → tone/icon/label.
- * Rules come from .agents/skills/worklog-ui/references/tokens.md#status-mapping and domain-semantics.md.
- */
 export type StatusVisual = { tone: Tone; icon?: IconComponent; label: string };
 
 /** The label is a message key translated on every read, so module-level maps follow the locale. */
@@ -93,7 +89,6 @@ const LEASE_CAUSE_NOTE_KEYS = {
   agent_disconnected: "systemStatus.agentSeenLeaseAgentDisconnected",
 } as const;
 
-/** The note that says why an observed Agent has no visible connection record; the general note when the cause is unknown. */
 export function agentSeenLeaseNoteKey(
   status: SystemStatus["mcp"],
 ): (typeof LEASE_CAUSE_NOTE_KEYS)[keyof typeof LEASE_CAUSE_NOTE_KEYS] | "systemStatus.agentSeenWithoutLeaseNote" {
@@ -119,20 +114,18 @@ export function userServiceStatusVisual(status: SystemStatus["userService"]): St
 
 type DesktopLoginItem = NonNullable<NonNullable<SystemStatus["desktop"]>["loginItem"]>;
 
-/** Whether the App's own login item disagrees with what the user chose; an unsupported or unreadable state is never a mismatch. */
+/** An unsupported or unreadable login item state is never a mismatch. */
 export function desktopLoginItemMismatch(item: DesktopLoginItem): boolean {
   if (!item.supported || item.system === "unknown") return false;
   return item.desired !== (item.system === "enabled");
 }
 
-/** Whether the free space inside the database file is worth compacting. */
 export function reclaimVisual(suggested: boolean | undefined): StatusVisual {
   return suggested
     ? visual("attention", CircleAlert, "systemStatus.reclaimWorthIt")
     : visual("neutral", CircleMinus, "systemStatus.reclaimNotNeeded");
 }
 
-/** The status label of the App's login item card. */
 export function desktopLoginItemStatusVisual(item: DesktopLoginItem | undefined): StatusVisual {
   if (!item) return visual("attention", CircleAlert, "status.cannotConfirm");
   if (!item.supported) return visual("neutral", CircleMinus, "status.notSupported");
@@ -169,12 +162,9 @@ export const agentHookInstallStatus: Record<AgentHookInstallState, StatusVisual>
 
 export interface AgentConnectionRow {
   title: string;
-  /** Where the component lives, so the user knows what the state refers to. */
   location: string;
   status: StatusVisual;
-  /** Registered, current, installed, or deliberately disabled; anything else needs setup. */
   ok: boolean;
-  /** A short extra line under the row, when the state needs one. */
   note?: string;
 }
 
@@ -202,7 +192,6 @@ const hookInstalledBySource: Record<AgentRegistrationSource, StatusVisual> = {
   plugin: visual("success", CircleCheck, "status.installedByPlugin"),
 };
 
-/** A working hook says who manages it; a checkout's also says it keeps working and that moving to the App is optional. */
 function hookRow(
   location: string,
   state: AgentHookInstallState,
@@ -236,7 +225,6 @@ function observationRow(state: AgentObservationState | undefined): AgentConnecti
   ];
 }
 
-/** Groups the per-Agent setup components in the order a user fixes them: MCP, then skill, then hook. */
 export function agentConnectionGroups(agents: SystemAgentConnections): AgentConnectionGroup[] {
   return [
     {
@@ -263,11 +251,7 @@ export function agentConnectionGroups(agents: SystemAgentConnections): AgentConn
 
 export type OnboardingStepState = "complete" | "pending" | "checking" | "unknown" | "other";
 
-/**
- * The first-run "connect an Agent" step. An MCP entry that is registered or runs the server directly completes it;
- * nothing registered anywhere is a to-do; an entry that exists but runs another command is `other`, which is not
- * "cannot confirm" because the state is known.
- */
+/** An entry that runs another command is `other`, not "cannot confirm", because the state is known. */
 export function agentConnectionStepState(
   agents: SystemAgentConnections | null,
   loading: boolean,
@@ -367,7 +351,6 @@ export const agentReviewRequestVisual: Record<AgentReviewRequestStatus, StatusVi
   cancelled: visual("neutral", CircleSlash, "common.cancelled"),
 };
 
-/** What an Agent decided on a Session decision or a Knowledge candidate. */
 export type AgentVerdictKind = "confirmed" | "rejected" | "promoted" | "accepted" | "confirm" | "archive" | "supersede";
 
 export const agentVerdictVisual: Record<AgentVerdictKind, StatusVisual> = {
@@ -392,7 +375,6 @@ export const outstandingItemStatusVisual: Record<OutstandingItemStatus, StatusVi
   not_needed: visual("neutral", CircleMinus, "common.noLongerNeeded"),
 };
 
-/** A standing Knowledge page: "missing" is a default page the project has not requested yet. */
 export const knowledgePageStatusVisual: Record<KnowledgePageStatus | "missing", StatusVisual> = {
   missing: visual("neutral", CircleDashed, "common.notCreatedYet"),
   empty: visual("accent", LoaderCircle, "common.waitingForTheAgentTo"),
@@ -410,7 +392,6 @@ export const knowledgePageReviewReasonLabels: Record<KnowledgePageReviewReason, 
 
 export const HOTSPOT_HIGH_FAILURE_RATE = 0.3;
 
-/** Hotspot risk from the share of Sessions whose verification failed; the label carries the meaning, not the color. */
 export function hotspotRiskVisual(hotspot: { sessionCount: number; failedCount: number }): StatusVisual {
   const rate = hotspot.sessionCount > 0 ? hotspot.failedCount / hotspot.sessionCount : 0;
   if (rate >= HOTSPOT_HIGH_FAILURE_RATE) return visual("danger", CircleX, "status.highFailureRate");
@@ -418,7 +399,6 @@ export function hotspotRiskVisual(hotspot: { sessionCount: number; failedCount: 
   return visual("success", CircleCheck, "status.neverFailed");
 }
 
-/** Trust markers: stale is rule-based (later Sessions changed appliesTo paths); review follows a reported contradiction. */
 export const knowledgeTrustVisual = {
   possiblyStale: visual("attention", Clock3, "status.possiblyStale"),
   needsReview: visual("danger", CircleAlert, "status.needsReview"),
@@ -433,7 +413,6 @@ export function verificationOf(session: {
   return session.verification?.status ?? "not_supplied";
 }
 
-/** Splits the API's `verification` gap into 未回報 vs 明確未執行 (README requirement 8). */
 export function metadataGapsOf(item: {
   gaps: readonly ("changed_files" | "verification")[];
   verificationStatus: ReportVerificationStatus;

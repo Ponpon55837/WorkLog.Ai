@@ -1,9 +1,4 @@
 #!/usr/bin/env node
-/**
- * `pnpm plugin:link` records this checkout in ~/.work-intelligence/plugin-link.json so the Claude Code or Codex
- * plugin can find it after the agent copies the plugin into its own cache. `--remove` deletes the link; nothing
- * else is written, and the repository's data/ and agent settings are left alone.
- */
 import console from "node:console";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";

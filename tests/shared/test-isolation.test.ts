@@ -130,7 +130,6 @@ describe("test isolation guard (static)", () => {
     const missing = configs.filter((file) => !readFileSync(file, "utf8").includes("isolatedEnvironmentSetup]"));
     expect(missing.map(relativePath)).toEqual([]);
 
-    // A package whose `test` script has no --config relies on the root vitest.config.ts above.
     for (const group of ["packages", "apps"]) {
       for (const name of readdirSync(join(repositoryRoot, group))) {
         const manifest = join(repositoryRoot, group, name, "package.json");

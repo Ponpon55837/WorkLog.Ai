@@ -3,10 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { applyAgentSetupPlan, applyAgentSetupTransaction, createAgentSetupPlan } from "@work-intelligence/agent-setup";
 import { createFixture, removeFixtures } from "./fixture.js";
 
-/**
- * Runs inside every `lstatSync`, which `readCurrent` calls first. The re-check right before a rename is the lstat that
- * follows the temporary file being written, so a test counts the lstats of one path to edit it inside that window.
- */
+// Runs inside every lstatSync; the re-check before a rename is the lstat after the temp file is written, so tests count lstats of one path to edit it in that window.
 const hook = vi.hoisted(() => ({ onLstat: undefined as undefined | ((path: string) => void) }));
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -20,7 +17,6 @@ vi.mock("node:fs", async (importOriginal) => {
   };
 });
 
-/** Calls `edit` instead of the real lstat on the `occurrence`th (1-based) lstat of `path`. */
 function editOnLstat(path: string, occurrence: number, edit: () => void): void {
   let seen = 0;
   hook.onLstat = (current) => {

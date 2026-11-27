@@ -14,11 +14,7 @@ export interface McpStoreAccessOptions {
   onFailure?: (failure: McpStartupFailure) => void;
 }
 
-/*
- * The owner can clear these without restarting the Agent: the other process finishes its write, the file is made
- * writable, or space is freed. Every other startup failure (schema too new, invalid version information, a failed
- * migration or pre-migration backup, a file SQLite cannot open) needs the user's attention and stays until restart.
- */
+// Failures the owner can clear without restarting the Agent; every other startup failure stays until restart.
 const TRANSIENT_STARTUP_CODES: ReadonlySet<string> = new Set([
   "DATABASE_BUSY",
   "DATABASE_READ_ONLY",
@@ -40,10 +36,7 @@ export function isTransientStartupFailure(failure: McpStartupFailure): boolean {
   return TRANSIENT_STARTUP_CODES.has(failure.code);
 }
 
-/**
- * Opens the store once at startup. A transient failure is retried by the next tool call, at most one open attempt
- * per call and per retry interval, so a burst of calls against a locked database does not queue a burst of opens.
- */
+/** At most one open attempt per call and per retry interval, so a burst of calls against a locked database does not queue a burst of opens. */
 export class McpStoreAccess {
   private store: WorkIntelligenceStore | undefined;
   private failure: McpStartupFailure | undefined;
@@ -60,7 +53,6 @@ export class McpStoreAccess {
     this.attempt();
   }
 
-  /** The failure from startup, if any; the server instructions describe it to the Agent. */
   public get startupFailure(): McpStartupFailure | undefined {
     return this.failure;
   }

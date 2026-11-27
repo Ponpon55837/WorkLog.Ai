@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createWorkIntelligenceMcpServer } from "../../apps/mcp/src/server.js";
 import { LATEST_SCHEMA_VERSION, WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 
-// Fictional fixtures only.
 const cleanups: Array<() => Promise<void> | void> = [];
 const TRANSIENT_STEP = "變更尚未 commit";
 const LASTING_STEP = "為離線備份補上還原演練";

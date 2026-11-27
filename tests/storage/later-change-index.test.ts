@@ -13,10 +13,6 @@ import {
 import { normalizePath, pathMatchStrength, type PathContext } from "../../packages/storage/src/search-text.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional data only. The staleness check resolves each appliesTo entry against an index of the paths later Sessions
-// changed; these tests compare it with a plain reference that checks every entry against every changed file, and
-// check its two fixed ceilings by their deterministic unit counters, never by time.
-
 interface StoredSession {
   id: string;
   title: string;
@@ -51,7 +47,6 @@ function trackedStore(): { store: WorkIntelligenceStore; root: string; db: Datab
   return { store, root, db: (store as unknown as { db: DatabaseSync }).db, projectId: project.id };
 }
 
-/** Inserts Sessions by copying one finalized row, so a test can hold thousands without finalizing each. */
 function insertSessions(store: WorkIntelligenceStore, db: DatabaseSync, root: string, sessions: StoredSession[]): void {
   const template = store.finalizeSession({
     projectRoot: root,
@@ -85,7 +80,6 @@ function insertSessions(store: WorkIntelligenceStore, db: DatabaseSync, root: st
   db.exec("COMMIT");
 }
 
-/** An independent glob rule: `*` one segment, `**` (with a following `/`) anything, `?` one non-separator. */
 function globReference(pattern: string): RegExp {
   let source = "";
   for (let index = 0; index < pattern.length; index += 1) {
@@ -104,17 +98,12 @@ function globReference(pattern: string): RegExp {
   return new RegExp(`^${source}$`);
 }
 
-/** What a read reports besides the evidence counts: the strong marker and the count of broad-only touches. */
 interface ReferenceSignals {
   possiblyStale?: KnowledgeStaleness;
   broadChangesSince?: number;
 }
 
-/**
- * The rule as written in docs/mcp-tools.md, every entry against every changed file of every later Session. Later
- * Sessions that listed more than 20 files are only counted; the breadth is project-wide, as at write time: the share of
- * the newest 200 non-voided Sessions with 1 to 20 files (the Knowledge's own included) that touch it.
- */
+/** The rule as written in docs/mcp-tools.md, every entry against every changed file of every later Session. */
 function referenceStaleness(
   knowledge: KnowledgeRecord,
   sessions: StoredSession[],
@@ -180,7 +169,6 @@ function referenceStaleness(
   };
 }
 
-/** A changed file as Agents write them: separators, case, `./`, the project root or name, and line anchors vary. */
 function randomFile(next: () => number, root: string): string {
   const pick = <T>(values: readonly T[]): T => values[Math.floor(next() * values.length)]!;
   const segments = Array.from({ length: 1 + Math.floor(next() * 4) }, () => pick(SEGMENTS));
@@ -198,7 +186,6 @@ function randomFile(next: () => number, root: string): string {
   return file;
 }
 
-/** An appliesTo entry: a file, a directory, a suffix, a path longer than the files, or a one- or two-star glob. */
 function randomEntry(next: () => number, root: string): string {
   const pick = <T>(values: readonly T[]): T => values[Math.floor(next() * values.length)]!;
   const file = randomFile(next, root);
@@ -239,17 +226,14 @@ describe("staleness index", () => {
       const sessions: StoredSession[] = [];
       const previous: string[] = [];
       for (let index = 0; index < 40; index += 1) {
-        // One Session in eight lists more than 20 files (a bulk change), so broad touches are exercised too.
         const files = Array.from({ length: (next() < 0.125 ? 21 : 1) + Math.floor(next() * 6) }, () =>
           randomFile(next, root),
         );
-        // A rename: an earlier file listed again under a new last segment, both names in the same Session.
         if (previous.length > 0 && next() < 0.2) {
           const old = previous[Math.floor(next() * previous.length)]!;
           files.push(old, `${old.replace(/[^/\\]*$/, "")}renamed-${index}.ts`);
         }
         previous.push(...files);
-        // Some Sessions share a completion time, so the order falls back to the id.
         const minute = String(Math.floor(index / 2)).padStart(2, "0");
         sessions.push({
           id: `session-${seed}-${String(index).padStart(2, "0")}`,
@@ -288,7 +272,6 @@ describe("staleness index", () => {
           recorded.knowledge.id,
         );
       }
-      // insertSessions also leaves its focused template Session in the project; the project-wide breadth counts it.
       sessions.push({
         id: "template",
         title: "Synthetic template",
@@ -307,7 +290,6 @@ describe("staleness index", () => {
         expect(item.broadChangesSince, label).toEqual(expected.broadChangesSince);
         if (expected.possiblyStale) reasons.add(expected.possiblyStale.reason);
         if (expected.broadChangesSince) broadSeen += 1;
-        // A single read resolves one or two patterns by testing every distinct path instead (no segment index).
         const single = store.getKnowledgeHistory({ projectRoot: root, knowledgeId: item.id });
         if (single.outcome !== "knowledge_history") throw new Error("Expected the history.");
         expect(single.knowledge.possiblyStale, `seed ${seed} single ${item.title}`).toEqual(expected.possiblyStale);
@@ -316,7 +298,6 @@ describe("staleness index", () => {
         );
       }
     }
-    // The seeds reach every kind of answer: broad-only counts, and both reasons of the strong marker.
     expect(broadSeen).toBeGreaterThan(0);
     expect([...reasons].sort()).toEqual(["applies_to_changed", "broad_applies_to"]);
   });
@@ -383,7 +364,6 @@ describe("staleness ceilings", () => {
     const result = store.searchKnowledge({ projectRoot: root, pageSize: 50 });
     if (result.outcome !== "knowledge") throw new Error("Expected Knowledge.");
     expect(result.items.filter((item) => item.stalenessUnchecked)).toHaveLength(0);
-    // The Sessions list 50 files, so they are broad: counted in broadChangesSince, never possiblyStale.
     expect(result.items.filter((item) => item.broadChangesSince && !item.possiblyStale)).toHaveLength(50);
     const [history, match] = budgets;
     // History is linear in the Sessions read: 5,000 such Sessions (25 times these) still leave three times headroom.
@@ -427,7 +407,6 @@ describe("staleness ceilings", () => {
     if (result.outcome !== "knowledge") throw new Error("Expected Knowledge.");
     expect(result.items).toHaveLength(50);
     expect(result.items.filter((item) => item.stalenessUnchecked)).toHaveLength(0);
-    // Each Session lists 50 files, so it is broad: all 4,000 are counted in broadChangesSince.
     expect(result.items.every((item) => item.broadChangesSince === 4_000 && !item.possiblyStale)).toBe(true);
     const [history, match] = budgets;
     expect(history!.exhausted).toBe(false);
@@ -458,12 +437,10 @@ describe("staleness ceilings", () => {
         kind: "gotcha",
         title: `Synthetic rule ${item}`,
         body: "Synthetic.",
-        // No literal prefix or suffix segment: every distinct path is a candidate and costs the full simulation.
         appliesTo: ["*a".repeat(15)],
       });
     }
     db.prepare("UPDATE knowledge SET created_at = '2026-01-01T00:00:00.000Z'").run();
-    // A ceiling this small data can reach: the shipped one sits far above it so that ordinary pages always finish.
     setStalenessUnitLimits({ match: 50_000_000 });
     const budgets: AppliesToBudget[] = [];
     setAppliesToBudgetProbe(budgets);
@@ -475,7 +452,6 @@ describe("staleness ceilings", () => {
     expect(match!.units).toBeLessThanOrEqual(STALENESS_MATCH_UNIT_LIMIT);
     const unchecked = result.items.filter((item) => item.stalenessUnchecked);
     expect(unchecked.length).toBeGreaterThan(0);
-    // An unchecked item is never reported current or stale, and every item after the cut is unchecked too.
     expect(unchecked.every((item) => !item.possiblyStale)).toBe(true);
     expect(result.items.slice(result.items.indexOf(unchecked[0]!))).toEqual(unchecked);
     // It runs to the real 50M-unit ceiling on purpose (about 0.2 s, 4.4 s under coverage), so it has its own timeout.
@@ -509,7 +485,6 @@ describe("staleness ceilings", () => {
     expect(store.searchKnowledge({ projectRoot: root })).toMatchObject({
       items: [{ possiblyStale: { sessionId: "s0", sessionCount: 1 } }],
     });
-    // A ceiling below what reading these 30 Sessions costs (an injected limit, so the test stays small).
     setStalenessUnitLimits({ history: Math.floor(budgets[0]!.units / 2) });
     budgets.length = 0;
     const cut = store.searchKnowledge({ projectRoot: root });

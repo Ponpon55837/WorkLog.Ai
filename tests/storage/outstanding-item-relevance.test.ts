@@ -13,7 +13,6 @@ interface SessionFixture {
   nextSteps: string[];
   title?: string;
   summary?: string;
-  /** Stored verbatim, bypassing finalize normalization, so case and separator variants reach the matcher. */
   rawChangedFiles?: string[];
   changedFileChanges?: Array<{ path: string; status: "renamed"; previousPath: string }>;
 }
@@ -173,7 +172,6 @@ function setup() {
     });
     return { total: result.total, texts: result.items.map((item) => item.text) };
   };
-  /** Equal relevance and completion time fall back to the source Session id, descending. */
   const byDescendingSessionId = (...entries: Array<[key: string, texts: string[]]>) =>
     entries
       .sort(([left], [right]) => (sessionIds.get(right)! < sessionIds.get(left)! ? -1 : 1))

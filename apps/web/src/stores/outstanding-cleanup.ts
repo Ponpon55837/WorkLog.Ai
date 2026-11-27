@@ -29,7 +29,6 @@ const emptyPageInfo: PageInfo = {
   truncated: false,
 };
 
-/** Owns request/proposal queries and invalidates item/source views after a human decision. */
 export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () => {
   const outstandingItemsStore = useOutstandingItemsStore();
   const queryCache = useQueryCache();

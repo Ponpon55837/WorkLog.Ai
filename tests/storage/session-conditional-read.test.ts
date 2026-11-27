@@ -59,7 +59,6 @@ function revision(store: WorkIntelligenceStore, sessionId: string): string {
   return revisionOf(store.getSessionDetailForAgent({ sessionId }));
 }
 
-/** Reads with the held revision, expects the full body with a new revision, and returns it. */
 function expectChanged(store: WorkIntelligenceStore, sessionId: string, known: string): string {
   const result = store.getSessionDetailForAgent({ sessionId, knownRevision: known });
   expect(result.outcome).toBe("session_detail");
@@ -210,7 +209,6 @@ describe("work_get_session knownRevision", () => {
       if (recorded.outcome === "knowledge_recorded") knowledgeId = recorded.knowledge.id;
     });
     if (!knowledgeId) throw new Error("Expected fictional Knowledge");
-    // Feedback from another Session changes only the derived Knowledge trust shown in this detail.
     step(() => finalize(store, root, "confirming", { appliedKnowledgeIds: [knowledgeId] }));
   });
 

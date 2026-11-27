@@ -545,7 +545,6 @@ describe("resource stores", () => {
       expect(store.importPreview?.outcome).toBe("project_data_import_preview");
       expect(store.importPreview?.additions).toEqual({ projects: 1 });
       await nextTick();
-      // The seeded preview needs no second request, and the default scope change does not trigger one.
       expect(harness.count("/api/import/staged/stage-1/preview", "POST")).toBe(0);
       expect(store.importUploading).toBe(false);
       expect(store.importLoading).toBe(false);
@@ -645,7 +644,6 @@ describe("resource stores", () => {
       expect(store.importProjects).toEqual([]);
       expect(store.importPreview).toBeNull();
       expect(store.importLoading).toBe(false);
-      // The server removed the staged file itself, so no cancel request is sent.
       expect(pathsOf("DELETE")).toEqual([]);
 
       importChanged = false;
@@ -725,7 +723,6 @@ describe("resource stores", () => {
       await vi.waitFor(() => expect(pathsOf("DELETE")).toEqual(["/api/import/staged/stage-1"]));
       answer(true);
       await applying;
-      // Neither the discarded file nor an empty id is posted, and the user sees no error.
       expect(
         harness.calls.filter((call) => call.method === "POST" && call.url.pathname.startsWith("/api/import/staged/")),
       ).toEqual([]);
@@ -754,7 +751,6 @@ describe("resource stores", () => {
       fail();
       await applying;
       expect(pathsOf("DELETE")).toEqual([]);
-      // The failed import left the file in place: the same id can be tried again.
       expect(store.importFileName).not.toBe("");
       await store.applyProjectDataImport();
       expect(
@@ -772,7 +768,6 @@ describe("resource stores", () => {
       expect(store.importFileName).toBe("");
       expect(store.importProjects).toEqual([]);
       expect(store.importPreview).toBeNull();
-      // Nothing is left to cancel on the server.
       expect(pathsOf("DELETE")).toEqual([]);
     });
 

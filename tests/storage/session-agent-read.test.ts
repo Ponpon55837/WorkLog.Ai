@@ -131,7 +131,6 @@ describe("Agent Session projection", () => {
     for (const family of ["events", "evidence", "diagrams", "decisions", "links", "knowledge", "rawSnapshots"])
       expect(result).not.toHaveProperty(family);
     expect(result.session).not.toHaveProperty("workSummary");
-    // The revision hashes the full detail (one revision per Session state); each heavy family is read once for it.
     const sql = prepared.mock.calls.map(([text]) => text);
     for (const table of ["work_events", "raw_snapshots", "FROM session_diagrams", "FROM void_audit"])
       expect(sql.filter((text) => text.includes(table))).toHaveLength(1);

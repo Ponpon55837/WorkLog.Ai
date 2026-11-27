@@ -1,4 +1,3 @@
-// The main-process modules this test loads use the desktop build flags; declare them as the desktop build does.
 /// <reference path="../../apps/desktop/src/main/build-flags.d.ts" />
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -17,16 +16,10 @@ vi.mock("electron", () => ({ app: {}, dialog: { showMessageBox: vi.fn() } }));
 const { createCopyRunner, createLocalCopy, uniqueCopyTarget } =
   await import("../../apps/desktop/src/main/local-copy.js");
 
-/**
- * 「複製到本機磁碟並改用」 in main: the unused-name rule, the target folder's own storage check, when a pending
- * automatic retry is cancelled, and what a failed switch records and shows. Synthetic paths and ids only.
- */
-
 const IDENTITY = { realPath: "/synthetic/local/copy.sqlite", fileId: { device: "1", inode: "2" }, lineageId: "l" };
 
 describe("the name of the copy", () => {
   it("is the first name nothing uses, counting the database and its WAL and shared-memory files", () => {
-    // The names are joined with the platform's separator, as the App joins them.
     const folder = join("/synthetic", "data");
     const name = (file: string) => join(folder, file);
     const taken = new Set<string>();
@@ -53,7 +46,6 @@ function runnerHarness(options: { targetRisk?: StorageRisk; classifierThrows?: b
     supervisor: {
       copyDatabase: async (source: string, target: string) => {
         copyRequests.push([source, target]);
-        // L-10: the record naming the copy exists before the first byte is copied.
         const open = await journal.findInProgress();
         if (open) {
           openRecords.push(open);
@@ -188,7 +180,6 @@ describe("a switch to the copy that fails", () => {
     });
     const result = await copy(undefined);
     expect(result).toEqual({ ok: false, reason: "failed", errorCode: "SCHEMA_TOO_NEW", message: expect.any(String) });
-    // The real error comes with the reassurance that the settings and the original are unchanged.
     expect(result.ok ? "" : result.message).toContain("The original file was not changed.");
     expect(recorded).toEqual(["SCHEMA_TOO_NEW"]);
     expect(events).toEqual(["start-change-db", "start-restart", "clear"]);

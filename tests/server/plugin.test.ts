@@ -53,7 +53,6 @@ function readJson(path: string): Record<string, unknown> {
   return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
 }
 
-/** A checkout shaped like this repository whose built entry points only echo what they received. */
 function fakeRepository(root: string, built = true): string {
   for (const file of ["pnpm-workspace.yaml", "apps/mcp/package.json", "packages/shared/package.json"]) {
     mkdirSync(dirname(join(root, file)), { recursive: true });
@@ -111,7 +110,6 @@ function run(script: string, args: string[], environment: NodeJS.ProcessEnv, inp
   });
 }
 
-/** Like {@link run}, without blocking this process, so servers started by the test keep answering. */
 function spawnAsync(script: string, environment: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }> {
   const home = environment.HOME ?? tmpdir();
   return new Promise((resolveRun) => {
@@ -183,7 +181,6 @@ describe("plugin manifests", () => {
     const handler = [{ type: "command", command }];
     expect(claude.hooks).toEqual({
       Stop: [{ hooks: handler }],
-      // No matcher: both manual and automatic compactions get the summary instructions.
       PreCompact: [{ hooks: handler }],
       PreToolUse: [{ matcher: CLAUDE_PRE_TOOL_USE_MATCHER, hooks: handler }],
       SessionStart: [{ matcher: "compact", hooks: handler }],
@@ -305,7 +302,6 @@ describe("plugin launcher", () => {
     writeFileSync(join(home, ".work-intelligence/plugin-link.json"), JSON.stringify({ repositoryRoot: repository }));
     const result = run(join(cached, "scripts/launch.mjs"), ["finalize-reminder"], { HOME: home }, "{}");
     expect(JSON.parse(result.stdout)).toMatchObject({ name: "finalize-reminder", input: "{}" });
-    // A hook never blocks the Agent, whatever the reminder script exits with.
     expect(result.status).toBe(0);
   });
 
@@ -358,7 +354,6 @@ describe("plugin launcher", () => {
   });
 });
 
-/** What the fake desktop installation answers: the shim echoes its action and stdin, the App records its arguments. */
 const LAUNCHER_SHIM = (exitCode: number, delay = "") =>
   `#!/bin/sh\n${delay}printf 'launcher:%s:' "$1"\ncat\necho shim-diagnostic >&2\nexit ${exitCode}\n`;
 const APP_STUB = '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$(dirname "$0")/app-arguments.txt"\n';
@@ -371,7 +366,6 @@ interface FakeDesktop {
   readonly appArguments: string;
 }
 
-/** A desktop installation as the App leaves it (runtime root with the shim, an executable) plus its record. */
 async function fakeDesktop(home: string, options: { exitCode?: number; shim?: string; record?: boolean } = {}) {
   const runtimeRoot = join(home, "Work Intelligence", "runtime");
   const launcherPath = join(runtimeRoot, "bin", "work-intelligence-launcher");
@@ -383,7 +377,6 @@ async function fakeDesktop(home: string, options: { exitCode?: number; shim?: st
   writeFileSync(launcherPath, options.shim ?? LAUNCHER_SHIM(options.exitCode ?? 4), { mode: 0o755 });
   writeFileSync(appExecutable, APP_STUB, { mode: 0o755 });
   chmodSync(launcherPath, 0o755);
-  // What the shim reads: the pointer, the runtime's launch file, its executable and launcher script.
   writeFileSync(join(runtimeRoot, "current"), "r1\n");
   writeFileSync(join(runtime, "runtime-launch.txt"), "node\n");
   writeFileSync(join(runtime, "node"), "");
@@ -409,10 +402,7 @@ function rewriteRecord(desktop: FakeDesktop, change: (record: Record<string, unk
   writeFileSync(desktop.recordFile, JSON.stringify(change(record)));
 }
 
-/**
- * The plugin copied out of this repository, as an Agent's plugin cache holds it: run in place, it would find this
- * checkout as its own location, and whether that checkout is built depends on what ran before the tests.
- */
+// Copied out of the repository: run in place, the plugin would find this checkout as its own location, and whether that is built depends on what ran before.
 function cachedPluginLauncher(home: string): string {
   const cached = join(home, "cache/work-intelligence");
   cpSync(pluginRoot, cached, { recursive: true });
@@ -494,7 +484,6 @@ describe.skipIf(process.platform === "win32")("plugin launcher with the desktop 
     for (const script of [launcher, join(inPlace, "plugins/work-intelligence/scripts/launch.mjs")]) {
       expect(run(script, ["mcp"], { HOME: home }, "x").stdout).toBe("launcher:mcp:x");
     }
-    // An explicit checkout that is not built does not block the launcher.
     const unbuilt = fakeRepository(join(home, "unbuilt"), false);
     expect(run(launcher, ["mcp"], { HOME: home, WORK_INTELLIGENCE_HOME: unbuilt }, "x").stdout).toBe("launcher:mcp:x");
   });
@@ -600,7 +589,6 @@ describe.skipIf(process.platform === "win32")("plugin launcher with the desktop 
   it("hands the dashboard to the App with --open-dashboard and starts no server", async () => {
     const home = temporaryDirectory();
     const desktop = await fakeDesktop(home);
-    // A built checkout would start a server (and need a free port); the App must be asked instead.
     const repository = fakeRepository(join(home, "checkout"));
     writeFileSync(join(home, ".work-intelligence/plugin-link.json"), JSON.stringify({ repositoryRoot: repository }));
     for (const script of [launcher, join(repositoryRoot, "scripts/dashboard.mjs")]) {
@@ -659,7 +647,6 @@ describe.skipIf(process.platform === "win32")("plugin launcher with the desktop 
     expect(JSON.parse(result.stdout)).toMatchObject({ name: "mcp", input: "x" });
     expect(result.stderr).toContain("launcher is not used");
     expect(result.stderr).toContain("current");
-    // A hook stays silent.
     expect(run(join(cached, "scripts/launch.mjs"), ["finalize-reminder"], { HOME: home }, "{}").stderr).toBe("");
   });
 
@@ -694,7 +681,6 @@ describe.skipIf(process.platform === "win32")("plugin launcher with the desktop 
   });
 
   describe("runDesktopLauncher with an injected spawn", () => {
-    /** The process object and the child a launcher run touches, with what they recorded. */
     function fakes() {
       const host = Object.assign(new EventEmitter(), { exitCode: undefined as number | undefined });
       const child = Object.assign(new EventEmitter(), {
@@ -727,7 +713,6 @@ describe.skipIf(process.platform === "win32")("plugin launcher with the desktop 
       stderr.mockRestore();
     });
 
-    /** Runs a hook that times out on "Windows"; `taskkill` decides how the injected killer ends. */
     async function timeOutOnWindows(options: { exited?: boolean; taskkill?: "ok" | "fails" | "missing" }) {
       const { host, child } = fakes();
       if (options.exited) child.exitCode = 0;
@@ -860,7 +845,6 @@ describe("doctor with the Claude Code plugin", () => {
       JSON.stringify({ enabledPlugins: { "work-intelligence@worklog-ai": true } }),
     );
     if (registered) {
-      // A checkout registration: the launcher the entry names exists.
       const launcher = join(home, "apps/mcp/dist/launcher.js");
       mkdirSync(dirname(launcher), { recursive: true });
       writeFileSync(launcher, "");
@@ -912,12 +896,10 @@ describe("doctor with the Codex plugin", () => {
   async function codexFindings(registered: boolean, manualHooks = false) {
     const home = temporaryDirectory();
     mkdirSync(join(home, ".codex"), { recursive: true });
-    // The repository publishes the skill; only the user-scope copies are missing, as after setup:agents --uninstall.
     const repositoryRoot = join(home, "repository");
     mkdirSync(join(repositoryRoot, ".agents/skills/work-intelligence"), { recursive: true });
     writeFileSync(join(repositoryRoot, ".agents/skills/work-intelligence/SKILL.md"), "skill\n");
     if (manualHooks) {
-      // What setup:agents writes to ~/.codex/hooks.json, pointing at the checkout's built reminder.
       const script = join(repositoryRoot, "apps/mcp/dist/codex-finalize-reminder.js");
       mkdirSync(dirname(script), { recursive: true });
       writeFileSync(script, "");
@@ -968,7 +950,6 @@ describe("doctor with the Codex plugin", () => {
     expect(findings.find((finding) => finding.title === "Codex plugin")).toMatchObject({ severity: "ok" });
     expect(findings.map((finding) => finding.title)).not.toContain("Codex MCP");
     expect(findings.some((finding) => finding.title.includes("skill"))).toBe(false);
-    // The plugin brings the save-reminder hooks, so a missing hooks.json entry is not a problem either.
     expect(findings.map((finding) => finding.title)).not.toContain("Codex 全域 hook");
   });
 

@@ -15,8 +15,6 @@ import {
 } from "../../apps/server/src/desktop-child-test-hold.js";
 import { StartApiError, type ApiListening, type StartedApi } from "../../apps/server/src/start-api.js";
 
-// The child's decisions with a fake host and fake dependencies: no process, no socket, no SQLite.
-// Fictional values only.
 const RUN_ID = "synthetic-run-id-0123456789abcdef-child";
 const IDENTITY = { realPath: "/synthetic/work.sqlite", fileId: { device: "1", inode: "2" }, lineageId: "b".repeat(64) };
 const START = {

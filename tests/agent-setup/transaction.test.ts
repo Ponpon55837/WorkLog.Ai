@@ -37,7 +37,6 @@ function recoverAt(fixture: SetupFixture): AgentSetupRecoveryResult {
   return recoverAgentSetupJournal(fixture.paths.journal, { homeDirectory: fixture.options.homeDirectory });
 }
 
-/** A journal as a crashed apply leaves it, built by hand so a test can change its contents. */
 function pendingJournal(plan: AgentSetupPlan): AgentSetupJournal {
   return {
     version: 1,
@@ -208,7 +207,6 @@ describe("applyAgentSetupTransaction", () => {
     expect(result.items[0]?.compensation).toBe("manual-repair");
     expect(readFileSync(first.path)).toEqual(edited);
     expect(existsSync(second.path)).toBe(second.before !== null);
-    // The backup stays so the person can repair by hand.
     if (first.backupPath) expect(existsSync(first.backupPath)).toBe(true);
     const journal = readAgentSetupJournal(fixture.paths.journal);
     expect(journal.status === "found" && journal.journal.state).toBe("needs-manual-repair");
@@ -355,7 +353,6 @@ describe("recoverAgentSetupJournal", () => {
     const plan = createAgentSetupPlan(fixture.options);
     const before = snapshotUserFiles(fixture);
     const crashed = `${fixture.temporaryRoot}-crashed`;
-    // Freeze the disk exactly as a crash right after item 1 would leave it, then let the apply finish normally.
     applyAgentSetupTransaction(plan, {
       journalPath: fixture.paths.journal,
       afterWrite: (_mutation, index) => {
@@ -376,7 +373,6 @@ describe("recoverAgentSetupJournal", () => {
     expectSnapshot(before);
     for (const mutation of plan.mutations) if (mutation.backupPath) expect(existsSync(mutation.backupPath)).toBe(false);
     expect(recoverAt(fixture).status).toBe("already-final");
-    // Home still exists; only files of the interrupted operation were touched.
     expect(readdirSync(fixture.options.homeDirectory).length).toBeGreaterThan(0);
   });
 

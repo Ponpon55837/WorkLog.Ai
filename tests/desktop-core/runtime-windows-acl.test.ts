@@ -29,10 +29,8 @@ const USER = "S-1-5-21-1111111111-2222222222-3333333333-1001";
 const OTHER = "S-1-5-21-1111111111-2222222222-3333333333-1002";
 const TRUST = { currentUserSid: USER };
 
-/** What `Get-Acl` returns for a profile folder: the user, SYSTEM and Administrators with full control. */
 const PROFILE_SDDL = `O:${USER}G:DUD:PAI(A;OICI;FA;;;${USER})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)`;
 
-/** What a failed child process rejects with (see `nodeExec`): a fake `ExecFileLike` throws the same shape. */
 function failure(overrides: Partial<ExecFileFailure> = {}): ExecFileFailure {
   return Object.assign(new Error("failed"), {
     killed: false,
@@ -560,7 +558,6 @@ describe("the Windows reader", () => {
         }),
     );
     const reading = createWindowsAclReader(exec, env).read(["a"], "get-acl");
-    // Neither process has finished, and both were started.
     expect(exec).toHaveBeenCalledTimes(2);
     for (const finish of pending) finish();
     await expect(reading).resolves.toEqual({ currentUserSid: USER, sddls: [PROFILE_SDDL] });
@@ -723,7 +720,6 @@ describe("the Windows reader", () => {
         () => undefined,
         (caught: ExecFileFailure) => caught,
       );
-    // Reads stdin to its end: this only returns when stdin was closed.
     expect(
       await nodeExec(process.execPath, ["-e", "process.stdin.on('data',()=>{}).on('end',()=>console.log('closed'))"], {
         env: {},
@@ -758,10 +754,7 @@ describe.runIf(process.platform === "win32")("the real Windows reader (Windows o
     return dir;
   }
 
-  /**
-   * CI measured tier one (.NET) at about 0.4 s and tier two (Get-Acl) at about 6 s typical with a heavy tail (28.7 s and a
-   * 30 s timeout were seen); the real-reader tests get a generous limit and print where the time goes.
-   */
+  // CI measured tier one at about 0.4 s and tier two at about 6 s, with a tail up to 28.7 s against a 30 s timeout.
   const REAL_READER_TIMEOUT_MS = 60_000;
   const DIAGNOSTIC_TIMEOUT_MS = 120_000;
   const SECURITY_MODULE = "$PSHOME + '\\Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1'";
@@ -772,7 +765,6 @@ describe.runIf(process.platform === "win32")("the real Windows reader (Windows o
     PSModulePath: path.win32.join(path.win32.dirname(windowsPowerShell(ps7Env)), "Modules"),
   });
 
-  /** The reader on the real process runner (`nodeExec`), recording which program each call started. */
   function spied() {
     const calls: string[] = [];
     const exec: ExecFileLike = (file, args, options) => {
@@ -782,7 +774,6 @@ describe.runIf(process.platform === "win32")("the real Windows reader (Windows o
     return { calls, reader: createWindowsAclReader(exec, ps7Env) };
   }
 
-  /** Runs `step` and appends `label=ms` to `steps` even when it throws, so a failure still shows what ran before it. */
   async function timed<T>(steps: string[], label: string, step: () => Promise<T>): Promise<T> {
     const started = performance.now();
     try {
@@ -806,7 +797,6 @@ describe.runIf(process.platform === "win32")("the real Windows reader (Windows o
       const dir = await directory((created) => securePrivateDirectory(created));
       const steps: string[] = [];
       try {
-        // CI evidence for the first-launch cost, one entry per step, printed even when a step fails.
         const timing = spied().reader;
         await timed(steps, "powershell-start", () => powerShell("$null"));
         await timed(steps, "import-module", () => powerShell(`Import-Module -Name (${SECURITY_MODULE})`));
@@ -884,7 +874,6 @@ describe.runIf(process.platform === "win32")("the real Windows reader (Windows o
     async () => {
       const dir = await directory((created) => securePrivateDirectory(created));
       try {
-        // The exact script and environment the reader uses, captured from its call, plus a test-only module listing.
         let captured: Parameters<ExecFileLike> | undefined;
         const capture: ExecFileLike = async (file, args, options) => {
           captured = [file, args, options];
@@ -910,7 +899,6 @@ describe.runIf(process.platform === "win32")("the real Windows reader (Windows o
     },
   );
 
-  // Informative, not a gate: prints where the time of one tier-two run goes, and what the PowerShell start costs.
   it(
     "prints a timing breakdown of PowerShell and Get-Acl (diagnostic)",
     { timeout: DIAGNOSTIC_TIMEOUT_MS },

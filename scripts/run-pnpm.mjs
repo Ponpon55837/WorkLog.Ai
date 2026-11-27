@@ -4,11 +4,7 @@ import process from "node:process";
 const CMD_UNSAFE_CHARACTERS = /["%^&|<>\r\n\0]/;
 const CMD_PLAIN_ARGUMENT = /^[A-Za-z0-9_\-.=:/\\@+,]+$/;
 
-/**
- * Quotes one argument for cmd.exe. Callers only pass constants from this repository, so any character that cmd.exe
- * would interpret (quotes, %, ^, &, |, <, >, line breaks) is rejected instead of escaped: that also rules out shell
- * injection from a future caller that forwards untrusted text.
- */
+/** Quotes one argument for cmd.exe; characters cmd.exe would interpret are rejected, not escaped, so a future caller cannot inject shell text. */
 export function quoteCmdArgument(argument) {
   if (typeof argument !== "string" || CMD_UNSAFE_CHARACTERS.test(argument)) {
     throw new Error("pnpm 參數含有 cmd.exe 無法安全傳遞的字元。");
@@ -23,7 +19,6 @@ export function buildWindowsPnpmCommandLine(args) {
   return ["pnpm", ...args.map(quoteCmdArgument)].join(" ");
 }
 
-/** Runs the package manager selected by the current pnpm lifecycle, with a Windows shell fallback for direct Node runs. */
 export function runPnpm(args, options) {
   const pnpmScript = process.env.npm_execpath;
   if (pnpmScript && /\.[cm]?js$/i.test(pnpmScript)) {

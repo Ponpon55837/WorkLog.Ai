@@ -72,7 +72,6 @@ function seed() {
 
   const raw = new DatabaseSync(databasePath);
   const idOf = (title: string) => sessions.find((session) => session.title === title)!.id;
-  // A voided Session, legacy malformed changed-files JSON, and links inside and outside the tracked scope.
   raw
     .prepare("UPDATE sessions SET voided_at = '2026-10-01T00:00:00.000Z', void_reason = 'fixture' WHERE id = ?")
     .run(idOf("Session 04"));
@@ -98,7 +97,6 @@ function seed() {
   return { store: reopened, root, projects, sessions };
 }
 
-/** Replaces random ids with stable names so results can be compared across runs. */
 function normalize(value: unknown, idNames: Map<string, string>): unknown {
   let text = JSON.stringify(value);
   for (const [id, name] of idNames) text = text.split(id).join(name);
@@ -146,7 +144,6 @@ describe("graph candidate window", () => {
     for (const [name, query] of queries) {
       results[name] = store.getGraph(query);
     }
-    // Walk the whole cursor chain, as the Web client does.
     let cursor: string | undefined;
     for (let page = 0; page < 20; page += 1) {
       const result = store.getGraph({ pageSize: 14, limit: 4, maxEdges: 60, ...(cursor ? { cursor } : {}) });

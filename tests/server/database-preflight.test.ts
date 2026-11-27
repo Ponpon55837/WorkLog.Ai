@@ -36,10 +36,7 @@ function tempDir(): string {
   return directory;
 }
 
-/**
- * Zeroes the first bytes of the root page of an index on a table the preflight never reads, so the header, the schema and
- * the project queries still work while `PRAGMA quick_check` finds an invalid b-tree page.
- */
+/** Zeroes an index root page on a table the preflight never reads, so only `PRAGMA quick_check` finds the damage. */
 function corruptUnrelatedIndexPage(path: string): void {
   const database = new DatabaseSync(path);
   const pageSize = Number((database.prepare("PRAGMA page_size").get() as { page_size: number | bigint }).page_size);
@@ -56,7 +53,6 @@ function corruptUnrelatedIndexPage(path: string): void {
   writeFileSync(path, bytes);
 }
 
-/** Hand-built database: only the tables the preflight reads, so schema versions can be chosen freely. */
 function createDatabase(
   path: string,
   options: { versions?: number[]; appliedAt?: string; projects?: number; wal?: boolean } = {},
@@ -96,7 +92,7 @@ afterEach(() => {
     try {
       chmodSync(directory, 0o755);
     } catch {
-      // already removed
+      // Already removed.
     }
     rmSync(directory, { recursive: true, force: true });
   }
@@ -476,10 +472,7 @@ describe("sidecar side effects of the read-only probe", () => {
     }
   });
 
-  // Observed on this Node 22 / bundled SQLite: a read-only open of a cleanly closed WAL database (no sidecars) CREATES
-  // -shm and -wal beside it and leaves them behind after close (a read-only connection cannot checkpoint or delete
-  // them), so "read-only" is not "0 writes". The contract asserted here is what matters to the user: main file bytes +
-  // mtime and business rows unchanged, nothing that existed is removed, and only SQLite's own sidecars may appear.
+  // A read-only open of a cleanly closed WAL database creates -shm and -wal beside it (Node 22 bundled SQLite), so "read-only" is not "0 writes": assert main file bytes, mtime and business rows unchanged, and only SQLite sidecars may appear.
   it("keeps main-file bytes and business data unchanged when probing a cleanly closed WAL database", async () => {
     const directory = tempDir();
     const path = join(directory, "closed.sqlite");

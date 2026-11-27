@@ -76,8 +76,6 @@ function createArchivedKnowledge(store: WorkIntelligenceStore, projectRoot: stri
   return result.knowledge.id;
 }
 
-// Answerability is a human-authored label. These tests lock the current retrieval confidence and candidate ranks;
-// they do not score model answers or change retrieval behavior.
 const answerabilityCases: AnswerabilityCase[] = [
   {
     name: "high lexical similarity without an answer",

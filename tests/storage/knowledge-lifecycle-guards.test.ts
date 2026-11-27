@@ -5,8 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FinalizeSessionInput } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only. A backfilled finalize must not move a confirmation back in time, and a replaced
-// Knowledge must not be restored while its replacement is active.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -70,7 +68,6 @@ describe("backfilled confirmation", () => {
     const confirmedAt = historyOf(knowledge.id).knowledge.lastConfirmedAt;
     expect(confirmedAt).toBe(recent.session.completedAt);
 
-    // Reported afterwards for work that finished a day earlier: the feedback is a fact and stays, the baseline does not.
     finalize("backfill", {
       appliedKnowledgeIds: [knowledge.id],
       completedAt: "2029-12-31T00:00:00.000Z",
@@ -94,7 +91,6 @@ describe("backfilled confirmation", () => {
     });
     expect(first.session.id).not.toBe(second.session.id);
 
-    // With no earlier confirmation, a backfilled one is still recorded.
     const other = record("other");
     finalize("early", { appliedKnowledgeIds: [other.id], completedAt: "2029-12-30T00:00:00.000Z" });
     expect(historyOf(other.id).knowledge.lastConfirmedAt).toBe("2029-12-30T00:00:00.000Z");
@@ -201,12 +197,10 @@ describe("restoring replaced Knowledge", () => {
       knowledgeId: older.id,
       successorId: newer.id,
     });
-    // Nothing changed: still archived, no audit row for a restore.
     const after = historyOf(older.id);
     expect(after.knowledge.status).toBe("archived");
     expect(after.history.map((entry) => entry.action)).toEqual(["archived", "created"]);
 
-    // Other edits of the archived item are still allowed.
     tick();
     expect(
       store.updateKnowledge({ projectRoot: root, knowledgeId: older.id, title: "Pear older (kept)" }),
@@ -226,7 +220,6 @@ describe("restoring replaced Knowledge", () => {
     });
     expect(historyOf(older.id).history[0]).toMatchObject({ action: "restored" });
 
-    // Setting the status an item already has is a plain update.
     tick();
     expect(store.updateKnowledge({ projectRoot: root, knowledgeId: older.id, status: "active" })).toMatchObject({
       outcome: "knowledge_updated",

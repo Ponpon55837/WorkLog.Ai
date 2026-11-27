@@ -32,7 +32,6 @@ function tempDir(): string {
   return directory;
 }
 
-/** Creates a tiny SQLite file; `name` varies the schema_migrations row and so the lineage. */
 function createDb(path: string, name: string | null = "initial"): string {
   const db = new DatabaseSync(path);
   if (name !== null) {
@@ -57,7 +56,6 @@ function lineageOf(path: string): string | null {
   }
 }
 
-/** A faithful fake: real identity reads, real lineage, with per-path overrides for states hard to produce. */
 function fakeProbe(overrides: Record<string, DbProbeResult> = {}, calls: string[] = []): DbProbe {
   return async (path) => {
     calls.push(path);
@@ -324,7 +322,6 @@ describe("resolveDbSource", () => {
     const root = tempDir();
     const a = createDb(join(root, "a.sqlite"));
     copyFileSync(a, join(root, "copy.sqlite"));
-    // The copy is committed (authoritative) and fine; the legacy original is flagged conflict but not chosen.
     const committed = await resolveDbSource({
       candidates: [candidate("desktop-committed", join(root, "copy.sqlite")), candidate("plugin-link", a)],
       probe: fakeProbe(),

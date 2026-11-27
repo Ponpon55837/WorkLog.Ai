@@ -36,8 +36,6 @@ import {
   transferRoot,
 } from "../../apps/server/src/transfer-workspace.js";
 
-// The HTTP layer asks `hasTransferSpace` whether the disk can take an upload; the mock answers from `space.override`
-// and otherwise runs the real function, so the unit tests below and the real disk checks are unchanged.
 const space = vi.hoisted(() => ({ override: undefined as boolean | undefined }));
 vi.mock("../../apps/server/src/transfer-workspace.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../apps/server/src/transfer-workspace.js")>();
@@ -49,7 +47,6 @@ vi.mock("../../apps/server/src/transfer-workspace.js", async (importOriginal) =>
   };
 });
 
-// Fictional data only.
 const HOUR_MS = 60 * 60 * 1000;
 const roots: string[] = [];
 const servers: Server[] = [];
@@ -62,7 +59,6 @@ function createRoot(): string {
   return root;
 }
 
-/** A directory as createTransferDirectory leaves it (with its marker, unless `marker` says otherwise), `ageMs` old. */
 function makeDirectory(
   root: string,
   name: string,
@@ -120,7 +116,6 @@ async function waitFor(condition: () => boolean, what: string, timeoutMs = 10_00
   }
 }
 
-/** A request that declares `contentLength` bytes and sends none of them; resolves with the response and drops it. */
 function declaredOnly(
   baseUrl: string,
   path: string,
@@ -356,7 +351,6 @@ describe("import uploads and the transfer root, over HTTP", () => {
       expect(response.body.code).toBe("payload_too_large");
       expect(transferDirectories(root)).toEqual([]);
     }
-    // The cap is decided from the header alone; the disk is not even asked.
     expect(hasTransferSpace).not.toHaveBeenCalled();
   });
 
@@ -372,12 +366,10 @@ describe("import uploads and the transfer root, over HTTP", () => {
       expect(await response.json()).toMatchObject({ code: "database_disk_full", error: TRANSFER_DISK_FULL_MESSAGE });
       expect(transferDirectories(root)).toEqual([]);
     }
-    // The check was made for the declared length, in the transfer directory of the request.
     const [directory, bytes] = vi.mocked(hasTransferSpace).mock.calls[0] as [string, number];
     expect(bytes).toBe(Buffer.byteLength(text));
     expect(dirname(directory)).toBe(root);
 
-    // The same request goes through once the disk has room, so the refusal left the server usable.
     space.override = undefined;
     expect((await post(baseUrl, "/api/import/preview", text)).status).toBe(200);
     expect(transferDirectories(root)).toEqual([]);
@@ -453,7 +445,6 @@ describe("import uploads and the transfer root, over HTTP", () => {
     const staging = transferRoot(databasePath);
     expect(existsSync(staging)).toBe(true);
     expect(readdirSync(staging)).toEqual([]);
-    // The folder is dedicated to transfers, never the database's own folder or a generic name like tmp.
     expect(staging).toBe(join(dirname(databasePath), TRANSFER_ROOT_NAME));
   });
 });

@@ -9,7 +9,6 @@ import type { Tone } from "../ui/types";
 import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
 
-/** Most changed files or directories: a bar for the Session count and a labelled failure share. */
 const props = withDefaults(defineProps<{ items: readonly Hotspot[]; showProject?: boolean; label: string }>(), {
   showProject: false,
 });

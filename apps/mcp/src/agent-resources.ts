@@ -14,7 +14,6 @@ export interface AgentToolContractOperation {
   inputShape: z.ZodObject["shape"];
   /** Original full runtime schema, including refinements and transforms not expressible in JSON Schema. */
   schema: z.ZodType;
-  /** Human-readable rules which JSON Schema cannot express, or runtime rules beyond field shape. */
   validationNotes?: readonly string[];
   annotations: ToolAnnotations;
 }
@@ -22,7 +21,6 @@ export interface AgentToolContractOperation {
 const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 /** @internal test-only */
 export const TOOL_CONTRACT_RESOURCE_URI = "work-intelligence://agent/tool-contracts";
-/** One operation's complete contract; the index above lists every operation id. */
 export const TOOL_CONTRACT_OPERATION_URI_TEMPLATE = `${TOOL_CONTRACT_RESOURCE_URI}/{operation}`;
 
 const AGENT_RESOURCES = [
@@ -171,7 +169,6 @@ function toJsonSchema(schema: z.ZodType): unknown {
   return jsonSchema;
 }
 
-/** Exposes the complete agent contract through standard MCP resources for any connected client. */
 export function registerAgentResources(server: McpServer): void {
   server.registerResource(
     "architecture-diagram-v1",
@@ -220,10 +217,6 @@ export function registerAgentResources(server: McpServer): void {
   }
 }
 
-/**
- * Publishes a compact operation index plus one resource per operation, so an Agent reads only the
- * contracts it is about to use instead of every schema at once. Documents are built once per server.
- */
 export function registerToolContractsResource(
   server: McpServer,
   operations: readonly AgentToolContractOperation[],

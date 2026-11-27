@@ -17,10 +17,6 @@ import { useAgentReviewStore } from "../../stores/agent-review";
 import { knowledgeKindVisual } from "../../utils/status";
 import { t } from "../../i18n";
 
-/**
- * Active Knowledge an Agent confirmed, archived, or replaced. The verdict and its reason are shown next to the
- * Knowledge so a person can overturn it. It takes the place of the Knowledge list while the Agent filter is on.
- */
 const props = defineProps<{ projects: readonly ProjectRecord[]; projectRoot?: string }>();
 
 const { filter, reviewedKnowledge, reviewedKnowledgeLoaded, reviewedKnowledgeError } =

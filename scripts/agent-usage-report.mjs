@@ -1,14 +1,5 @@
 #!/usr/bin/env node
-/**
- * Prints aggregate usage numbers from local Agent session logs. It never prints message text, tool inputs, file paths,
- * working directories, branch or project names, or error messages: only counts, token sums and timestamps.
- *
- * Usage: node scripts/agent-usage-report.mjs [--since <ISO>] [--until <ISO>] [--json] [--debug-shape] <file-or-directory>...
- *
- * This is a thin wrapper: the parsers, the deduplication rules (Claude Code and, EXPERIMENTALLY, Codex CLI rollouts),
- * the incremental cache and the formatting live in packages/shared/src/agent-usage (read its header comments for the
- * rules). It runs the built package, so run `pnpm --filter @work-intelligence/shared build` first.
- */
+// Prints only counts, token sums and timestamps: never message text, tool inputs, paths, project names or error messages.
 import console from "node:console";
 import process from "node:process";
 import { pathToFileURL } from "node:url";

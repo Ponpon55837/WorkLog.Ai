@@ -6,7 +6,6 @@ import { useDiscardImportOnLeave } from "../../../apps/web/src/composables/useDi
 import { useProjectDataTransferStore } from "../../../apps/web/src/stores/project-data-transfer.js";
 import { createStoreHarness, jsonResponse } from "../helpers/store-harness.js";
 
-// The real router: the leave guard is registered through RouterView and fired by a real navigation.
 type HostNode = { type: string; children: HostNode[]; parent?: HostNode };
 
 const renderer = createRenderer<HostNode, HostNode>({

@@ -9,7 +9,6 @@ import { useUsageStore } from "../../stores/usage";
 import { formatTokens } from "../../utils/format";
 import { t } from "../../i18n";
 
-/** Conversations opened above several projects: what stays unallocated and what each project received. */
 const usageStore = useUsageStore();
 const { sharedRows } = storeToRefs(usageStore);
 </script>

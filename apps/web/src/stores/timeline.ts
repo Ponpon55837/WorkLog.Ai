@@ -15,7 +15,6 @@ function rangeStart(days: TimelineRange, today = new Date()): string {
   return toDateInputValue(start);
 }
 
-/** Owns the graph page's timeline view: the date range and the Sessions, Knowledge events, and links in it. */
 export const useTimelineStore = defineStore("timeline", () => {
   const enabled = ref(false);
   const projectId = ref("");

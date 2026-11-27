@@ -74,7 +74,6 @@ describe.each([
 
   it("sets up again after a removal that left only the approvals, keeps them and reports no conflict", () => {
     const fixture = createFixture();
-    // What 1.6.56 left behind: the block gone, Codex's approval tables still in the file.
     writeFileSync(fixture.paths.codexConfig, lines([...PREFERENCES, ...APPROVAL]));
     expect(inspectAgentRegistrations(fixture.options).registrations.filter((item) => item.agent === "codex")).toEqual(
       [],
@@ -96,7 +95,6 @@ describe.each([
       text.indexOf("[mcp_servers.work-intelligence.tools.record_work]"),
     );
     expect(text.startsWith(lines(PREFERENCES))).toBe(true);
-    // Every line break of the file is the file's own.
     expect(text.replaceAll(newline, "").includes(newline === "\r\n" ? "\r" : "\n")).toBe(false);
     expect(
       inspectAgentRegistrations(fixture.options)
@@ -104,7 +102,6 @@ describe.each([
         .map((item) => item.source),
     ).toEqual(["manual"]);
 
-    // Setting up once more changes nothing.
     const again = createAgentSetupPlan(fixture.options);
     expect(again.conflicts).toEqual([]);
     expect(again.mutations.some((mutation) => mutation.path === fixture.paths.codexConfig)).toBe(false);

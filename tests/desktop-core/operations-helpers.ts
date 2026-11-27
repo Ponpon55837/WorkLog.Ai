@@ -14,7 +14,6 @@ export const DB_B: DatabaseIdentityRecord = {
   lineageId: "b".repeat(64),
 };
 
-/** Deterministic clock advancing one second per call. */
 export function makeClock(): () => Date {
   let tick = 0;
   return () => new Date(Date.UTC(2026, 0, 1, 0, 0, tick++));

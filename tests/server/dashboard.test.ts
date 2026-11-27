@@ -19,7 +19,6 @@ function temporaryDirectory(): string {
   return directory;
 }
 
-/** Runs a script without blocking this process, so servers started by the test keep answering. */
 function run(script: string, args: string[], environment: NodeJS.ProcessEnv) {
   const inherited = { ...process.env };
   const isolatedNames = new Set([
@@ -70,10 +69,7 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-/**
- * A checkout whose scripts/start.mjs serves /api/health on WORK_INTELLIGENCE_PORT until /shutdown (or 5 seconds).
- * The server runs in the checkout, which Windows cannot delete while it is alive, so tests stop it first.
- */
+// The checkout server runs in the checkout, which Windows cannot delete while it is alive, so tests stop it first.
 function stopServerOn(port: number): void {
   cleanups.push(async () => {
     await fetch(`http://127.0.0.1:${port}/shutdown`).catch(() => undefined);

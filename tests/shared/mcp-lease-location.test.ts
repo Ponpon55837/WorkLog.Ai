@@ -22,7 +22,6 @@ vi.mock("node:fs", async (importOriginal) => {
   return { ...original, writeFileSync: vi.fn(original.writeFileSync) };
 });
 
-// Synthetic installs only; the lease is kept in the isolated config directory of the test setup, TEMP/TMP vary per case.
 const roots: string[] = [];
 const releases: Array<() => void> = [];
 const savedEnvironment = { ...process.env };
@@ -40,7 +39,6 @@ function build(root: string) {
   return identity;
 }
 
-/** What an Agent that passes its own TEMP/TMP (or none) hands to the MCP it starts: `os.tmpdir()` follows it. */
 function agentTemporaryDirectory(directory: string | undefined): void {
   for (const name of ["TMPDIR", "TEMP", "TMP"]) {
     if (directory === undefined) delete process.env[name];
@@ -85,7 +83,6 @@ describe("the lease sits where the backend looks, whatever TEMP the Agent passes
 
   it("resolves the directory inside the config directory from a restricted Agent environment", () => {
     const root = fixture();
-    // What a host that passes only a few variables hands over: no TEMP, no TMP, no config override.
     const restricted = { SystemRoot: "C:\\Windows", USERPROFILE: homedir() };
     const directory = getMcpRuntimeDirectory(root, restricted);
     expect(directory).toBe(getMcpRuntimeDirectory(root, {}));
@@ -95,7 +92,6 @@ describe("the lease sits where the backend looks, whatever TEMP the Agent passes
   it("still counts a process of 1.6.59 that keeps its lease in the system temp directory", () => {
     const root = fixture();
     // The old location: <tmpdir>/work-intelligence/mcp-runtime/<hash of the JavaScript realpath of the root>.
-    // 1.6.59 folded case and separators on Windows before hashing.
     const legacyPath =
       process.platform === "win32" ? realpathSync(root).replace(/\\/g, "/").toLowerCase() : realpathSync(root);
     const legacyScope = createHash("sha256").update(legacyPath).digest("hex").slice(0, 24);
@@ -118,7 +114,6 @@ describe("the lease sits where the backend looks, whatever TEMP the Agent passes
 
     expect(getMcpRuntimeStatus(root, identity, { now }).activeProcesses).toBe(1);
 
-    // A process that registered in the new location and still has its old file is one process, not two.
     const registered = registerMcpLease(root, identity, { now: () => now });
     releases.push(registered.release);
     expect(getMcpRuntimeStatus(root, identity, { now }).activeProcesses).toBe(2);
@@ -179,7 +174,6 @@ describe("a lease that cannot be kept is reported, not swallowed", () => {
       failure: "directory_unavailable",
     });
     expect(registration.registration().errorCode).toMatch(/^[A-Z][A-Z0-9_]+$/);
-    // The report holds no path.
     expect(JSON.stringify(registration.registration())).not.toContain(blocker);
   });
 
@@ -235,7 +229,6 @@ describe("a lease that cannot be kept is reported, not swallowed", () => {
     expect(mcpKeepsLease(true, root, {})).toBe(false);
     expect(mcpKeepsLease(true, root, { WORK_INTELLIGENCE_APP_LEASE_SCOPE: "  " })).toBe(false);
     expect(mcpKeepsLease(true, root, { WORK_INTELLIGENCE_APP_LEASE_SCOPE: join(root, "app") })).toBe(true);
-    // Started without the variable from inside <App root>/runtimes/<id>/app/libexec.
     const appRoot = join(roots[0] as string, "app-root");
     const libexec = join(appRoot, "runtimes", "r1", "app", "libexec");
     mkdirSync(libexec, { recursive: true });

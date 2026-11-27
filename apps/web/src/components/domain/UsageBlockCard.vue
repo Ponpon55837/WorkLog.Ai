@@ -10,7 +10,6 @@ import { formatClock, formatCount, formatDurationMs, formatTokens } from "../../
 import { usageBlockRows } from "../../utils/usage";
 import { t } from "../../i18n";
 
-/** The active 5-hour block of each Agent as time progress (time left, elapsed share); never a quota or limit. */
 const usageStore = useUsageStore();
 const { scanResult } = storeToRefs(usageStore);
 

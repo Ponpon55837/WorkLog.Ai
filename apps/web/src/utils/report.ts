@@ -16,7 +16,6 @@ export interface ReportShare {
   percent: number;
 }
 
-/** How a report's trend points are grouped for the overview. */
 export type ReportBucketMode = "day" | "week" | "month" | "quarter";
 
 function bucketUnit(unit: MessageKey, title: MessageKey): { unit: string; title: string } {
@@ -37,11 +36,7 @@ export const reportBucketUnits: Record<ReportBucketMode, { unit: string; title: 
   quarter: bucketUnit("reports.unit.quarters", "reports.byQuarter"),
 };
 
-/**
- * The sub-period one level below the report period, or null for a daily report (it lists its Sessions
- * instead). A custom range uses days up to two weeks, weeks up to the 92 days the server trends daily,
- * and months beyond that.
- */
+/** A custom range uses days up to two weeks, weeks up to the 92 days the server trends daily, and months beyond. */
 export function reportBucketMode(
   report: Pick<WorkReport, "period" | "trends" | "trendGranularity">,
 ): ReportBucketMode | null {

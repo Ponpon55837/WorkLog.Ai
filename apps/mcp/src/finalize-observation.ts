@@ -7,10 +7,6 @@ import {
 
 export type FinalizeInput = Parameters<WorkIntelligenceStore["finalizeSession"]>[0];
 
-/**
- * What Git reports for the changed files a finalize call gave no status for. Policy, backfill and duplicate checks
- * happen in the store's plan (untracked projects never reach Git); any failure here only omits the observation.
- */
 export async function observeFinalizeChangedFiles(
   store: WorkIntelligenceStore,
   input: FinalizeInput,

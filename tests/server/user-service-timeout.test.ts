@@ -6,7 +6,6 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getUserServiceStatusAsync } from "../../apps/server/src/user-service.js";
 
-// execFile is wrapped so a test can read the options the production code passes and shorten only the timeout value.
 const execFileCalls = vi.hoisted(() => ({ options: [] as Array<Record<string, unknown>>, timeoutOverrideMs: 0 }));
 
 vi.mock("node:child_process", async (importOriginal) => {

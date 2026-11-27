@@ -6,8 +6,7 @@ import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { LANGUAGE_NAMES, textIn, type Locale, type MessageKey } from "./helpers/i18n.js";
 
-// Unique per module load: a failed test restarts the worker and re-runs beforeAll against the same server, so fixed
-// names would be seeded twice and role locators would match several elements.
+// Unique per module load: a failed test restarts the worker and re-runs beforeAll against the same server, so fixed names would be seeded twice.
 const runId = randomUUID().slice(0, 8);
 const projectName = `Accessibility States Orchard ${runId}`;
 const sessionTitle = `Accessibility states fictional pruning work ${runId}`;
@@ -26,7 +25,6 @@ const pages: ReadonlyArray<readonly [string, MessageKey]> = [
 let root = "";
 let sessionId = "";
 
-/** Every critical or serious axe violation on the current page, formatted like the page-level scans. */
 async function seriousViolations(page: Page, label: string): Promise<string[]> {
   const { violations } = await new AxeBuilder({ page }).analyze();
   const failures: string[] = [];
@@ -212,7 +210,6 @@ for (const locale of locales) {
       const dialog = page.getByRole("dialog", { name: textIn(locale, "projects.permanentlyDeleteProjectData") });
       await expect(dialog).toBeVisible();
       await expectNoSeriousViolations(page, `${locale} delete-project dialog`);
-      // Never confirm the destructive action; cancel closes it.
       await dialog.getByRole("button", { name: textIn(locale, "common.cancel") }).click();
       await expect(dialog).toBeHidden();
     });

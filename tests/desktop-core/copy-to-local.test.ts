@@ -97,7 +97,6 @@ describe("copy to the local disk", () => {
 
   it("takes the copy back when the switch fails or throws, and reports a busy switch", async () => {
     const failed = harness({ switchTo: async () => ({ ok: false, code: "X" }) });
-    // The backend's own code survives, so the page can show the real reason.
     expect(await runCopyToLocal(failed.deps)).toMatchObject({
       failure: "start-failed",
       errorCode: "COPY_START_FAILED",

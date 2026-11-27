@@ -57,7 +57,6 @@ describe("resolving the data folder at start-up", () => {
     refusing.write = () => {
       throw new Error("Path must be absolute");
     };
-    // A refused redirect is named as such, and the platform default is still never read.
     expect(resolveUserDataDirectory("/synthetic/data", refusing)).toMatchObject({
       ok: false,
       code: "USER_DATA_UNAVAILABLE",

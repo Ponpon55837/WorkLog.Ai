@@ -1,7 +1,5 @@
 #!/usr/bin/env node
-// Regenerates the upgrade fixtures in tests/fixtures/upgrade: one SQLite database per source release, written by that
-// release's own build through its public store API. Run BY HAND (`node scripts/generate-upgrade-fixtures.mjs`); CI never runs it.
-// Needs network access to fetch the release commits, and runs `pnpm install` + a storage build per release.
+// Run by hand (`node scripts/generate-upgrade-fixtures.mjs`); CI never runs it. Needs network access for the release commits.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -161,7 +159,6 @@ function generate(source, workRoot) {
   }
 }
 
-/** Checkpoint, compact and leave a single self-contained main file (no -wal/-shm). */
 function finishDatabase(path) {
   const db = new DatabaseSync(path);
   try {

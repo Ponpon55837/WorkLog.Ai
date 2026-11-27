@@ -55,7 +55,6 @@ describe("installing for selected Agents only", () => {
 
   it("a conflict in an Agent that was not selected does not block the selected one", () => {
     const fixture = createFixture();
-    // A directory where Codex's config belongs: Codex's side cannot be read, so it is refused as a whole.
     rmSync(fixture.paths.codexConfig);
     mkdirSync(fixture.paths.codexConfig);
     expect(createAgentSetupPlan(launcherOptions(fixture, {})).conflicts.length).toBeGreaterThan(0);

@@ -1,21 +1,4 @@
 #!/usr/bin/env node
-/**
- * `pnpm build:standalone` packs the whole product (API server, Web UI, MCP server, CLI) for people without a checkout:
- *
- *   dist/standalone/work-intelligence-<version>/       the package
- *     bin/work-intelligence.mjs                        the `work-intelligence` command
- *     libexec/apps/{server,mcp}/dist/*.js              bundles with no node_modules (all dependencies are pure JS)
- *     libexec/{.agents,docs}/…, libexec/package.json   what the bundles read relative to themselves
- *     web/                                             a copy of apps/web/dist
- *     package.json, README.md, LICENSE
- *   dist/standalone/work-intelligence-<version>.tgz    the same folder as a tarball (the release asset)
- *
- * The bundles run with __WORK_INTELLIGENCE_STANDALONE__ = true: the database lives under ~/.work-intelligence and the
- * Web UI is served from the package's web/ folder. Needs `pnpm build` first (for apps/web/dist). The package.json is
- * private, so an accidental `npm publish` is refused.
- *
- * Usage: node scripts/build-standalone.mjs [outputDirectory]
- */
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import process from "node:process";
@@ -28,11 +11,8 @@ import { finalizeRuntimeBuild } from "./runtime-build-finalizer.mjs";
 import { AGENT_RESOURCES, DESKTOP_INTEGRATION_SCRIPT, bundleOptions, filesUnder } from "./build-plugin.mjs";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-/**
- * The server bundle's entry points. backup-worker and usage-worker are started by file name next to the bundle (see BackupWorkerClient, UsageWorkerClient).
- * The desktop child is not an entry: standalone-cli reaches it through a dynamic import, which esbuild (no splitting)
- * inlines into standalone-cli.js, so a separate entry would only duplicate the whole bundle.
- */
+/** The desktop child is not an entry: standalone-cli imports it dynamically and esbuild inlines it. */
+// backup-worker and usage-worker are started by file name next to the bundle (BackupWorkerClient, UsageWorkerClient).
 const SERVER_ENTRIES = ["standalone-cli", "backup-worker", "usage-worker"];
 const MCP_ENTRIES = ["index", "finalize-reminder", "codex-finalize-reminder"];
 /** 2000-01-01T00:00:00Z: every tar entry gets this date so the same input gives the same bytes. */
@@ -51,13 +31,7 @@ function bundle(app, entries, outdir, define = {}) {
   });
 }
 
-/**
- * Gives the bundled MCP server the build identity the repository build gives its dist (see runtime-build-finalizer), so
- * System Status can tell this runtime's MCP build from the one an Agent is running instead of reporting it as unknown.
- * The compatibility id comes from the same contract snapshot as the repository build, taken from this build's own
- * sources; the dist hash is computed by the same function that later verifies it, over the bundles as shipped. Both are
- * written into the entry bundle, so changing a bundle afterwards makes the identity unreadable again.
- */
+/** Gives the bundled MCP server the build identity of a repository build. Written into the entry bundle, so changing a bundle afterwards makes it unreadable. */
 async function embedMcpBuildIdentity(libexec, scratchDirectory) {
   await build({
     ...bundleOptions,
@@ -125,7 +99,6 @@ node bin/work-intelligence.mjs check
 `;
 }
 
-/** Writes one ustar header block; throws instead of truncating a name that cannot be represented. */
 function tarHeader(name, size, mode) {
   let prefix = "";
   let base = name;
@@ -158,10 +131,7 @@ function tarHeader(name, size, mode) {
   return header;
 }
 
-/**
- * A gzip-compressed tar of `sourceDirectory` under one top-level folder (npm and `tar -xzf` both accept it).
- * Entries are sorted and dated alike, so the same input gives the same bytes.
- */
+/** Entries are sorted and dated alike, so the same input gives the same bytes. */
 export function writeTarGz(sourceDirectory, topLevelName, outputPath) {
   const blocks = [];
   for (const file of filesUnder(sourceDirectory)) {
@@ -180,11 +150,7 @@ function directoryBytes(directory) {
   return filesUnder(directory).reduce((total, file) => total + statSync(file).size, 0);
 }
 
-/**
- * `desktopTestBuild` (default false) sets `__WI_DESKTOP_TEST_BUILD__` in the server bundle, which turns on the desktop
- * child's test-only migration hold. Only the desktop smoke runtime passes true; the release package and the runtime a
- * packaged App ships never do.
- */
+/** `desktopTestBuild` turns on the desktop child's test-only migration hold; only the desktop smoke runtime passes true. */
 export async function buildStandalone(
   outputDirectory = join(repositoryRoot, "dist/standalone"),
   { desktopTestBuild = false } = {},

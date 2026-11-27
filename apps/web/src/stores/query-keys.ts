@@ -1,4 +1,3 @@
-/** Stable query keys shared by Pinia Colada stores and mutation invalidation. */
 const reportsViewKey = ["view", "reports"] as const;
 const knowledgeListKey = ["knowledge", "list"] as const;
 

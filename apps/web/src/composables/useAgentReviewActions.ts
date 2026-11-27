@@ -37,7 +37,6 @@ function overturnedMessage(result: OverturnedResult): string {
   return t("knowledge.overturned");
 }
 
-/** Creates or cancels the project's Agent review request and overturns Agent verdicts, with confirmation and feedback. */
 export function useAgentReviewActions() {
   const store = useAgentReviewStore();
   const { showToast } = useToast();

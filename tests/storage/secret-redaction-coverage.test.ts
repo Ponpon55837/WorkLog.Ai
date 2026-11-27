@@ -13,7 +13,6 @@ function marker(kind: string): string {
   return `[REDACTED:${kind}]`;
 }
 
-/** Repeats `unit` to exactly `length` characters, the last of which come from `tail`. */
 function repeatTo(unit: string, length: number, tail = ""): string {
   return unit.repeat(Math.ceil(length / unit.length)).slice(0, length - tail.length) + tail;
 }
@@ -32,7 +31,6 @@ function expectRedacted(entry: CorpusSample): void {
   }
 }
 
-/** Shapes that made a scanner re-read the rest of the text from many start positions. */
 function adversarialInputs(length: number): Record<string, string> {
   return {
     "repeated DB_PASSWORD=": repeatTo("DB_PASSWORD=", length, "<"),

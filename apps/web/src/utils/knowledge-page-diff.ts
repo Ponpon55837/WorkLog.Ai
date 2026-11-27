@@ -12,7 +12,6 @@ export type SectionDiffStatus = "added" | "removed" | "changed" | "unchanged";
 export interface SectionDiff {
   status: SectionDiffStatus;
   heading: string;
-  /** Line-level diff of the content; empty for unchanged sections. */
   lines: LineDiffEntry[];
   addedSourceIds: string[];
   removedSourceIds: string[];
@@ -66,7 +65,6 @@ function sourceChanges(before: readonly string[], after: readonly string[]) {
   };
 }
 
-/** Compares two versions of a page section by section; sections pair up by heading, in order of occurrence. */
 export function diffKnowledgePages(
   previous: readonly KnowledgePageSection[],
   current: readonly KnowledgePageSection[],

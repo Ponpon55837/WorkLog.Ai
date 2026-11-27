@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { FinalizeSessionInput, VerificationStatus } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -69,7 +68,6 @@ describe("hotspots", () => {
     if (result.outcome !== "hotspots") throw new Error("Expected hotspots");
     expect(result.items.map((item) => [item.path, item.sessionCount])).toEqual([
       ["src/hive/frames.ts", 6],
-      // Ties go to more failures, then the most recently changed path; paths keep their original casing.
       ["src/hive/queen.ts", 1],
       ["README.md", 1],
     ]);

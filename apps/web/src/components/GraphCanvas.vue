@@ -4,12 +4,6 @@ import type { GraphEdge, GraphNode } from "@work-intelligence/core";
 import type { GraphVisualEdge, GraphVisualNode } from "../composables/useGraph";
 import { t } from "../i18n";
 
-/**
- * Lane-based SVG graph (one column per node kind). Lanes stretch to the available width, only
- * nodes near the viewport are rendered, and the lane header stays sticky while scrolling. A
- * selected node keeps its direct neighbours bright and dims everything else. A docked panel may
- * overlay the right edge (`overlayWidth`); the canvas then adds scroll room and reveals nodes left of it.
- */
 const props = defineProps<{
   nodes: readonly GraphVisualNode[];
   edges: readonly GraphVisualEdge[];
@@ -20,11 +14,8 @@ const props = defineProps<{
   nodeLabel: (node: GraphNode, maxDisplayUnits: number) => string;
   nodeDescription: (node: GraphNode, maxDisplayUnits: number) => string;
   selectedId?: string;
-  /** Search hits; when non-empty, nodes outside it are shown as context only. */
   matchIds?: ReadonlySet<string>;
-  /** Width of a fixed panel covering the right side of the window (0 when none). */
   overlayWidth?: number;
-  /** Edges of an explained path; they stay highlighted while the path is shown. */
   pathEdgeIds?: ReadonlySet<string>;
 }>();
 
@@ -45,7 +36,6 @@ let resizeObserver: ResizeObserver | undefined;
 const laneWidth = computed(() =>
   Math.max(minLaneWidth, Math.floor(viewportWidth.value / Math.max(props.nodeKindOrder.length, 1))),
 );
-// Extra room on the right lets nodes in the last lanes scroll out from under the overlaying panel.
 const canvasWidth = computed(() => laneWidth.value * props.nodeKindOrder.length + obscuredRight.value);
 const nodeWidth = computed(() => laneWidth.value - 36);
 const laneHeaderStyle = computed(() => ({

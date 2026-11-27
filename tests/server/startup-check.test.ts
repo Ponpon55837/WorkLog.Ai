@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SystemAgentConnections } from "../../packages/core/src/index.js";
 import { collectStartupHints } from "../../apps/server/src/startup-check.js";
 
-// Every child_process function is spied on so a test can prove the check never queries services.
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
   return Object.fromEntries(

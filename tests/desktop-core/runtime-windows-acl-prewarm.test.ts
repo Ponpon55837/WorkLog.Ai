@@ -26,12 +26,10 @@ function failure(overrides: Partial<ExecFileFailure> = {}): ExecFileFailure {
   });
 }
 
-/** One fake prewarmed process: what it was started with, what it was sent, and whether it was killed. */
 interface FakeProcess {
   readonly file: string;
   readonly args: readonly string[];
   readonly env: NodeJS.ProcessEnv;
-  /** The decoded paths, once they were sent. */
   received: string[] | undefined;
   killed: boolean;
 }
@@ -46,10 +44,6 @@ type Behavior =
   | "constrained-after-paths"
   | "exit-1-after-paths";
 
-/**
- * A fake `spawn`: the process becomes ready after `startupMs`, then answers the paths it is sent (one SDDL each) the way
- * the stdin script does, or fails the way `behavior` says.
- */
 function fakeSpawner(behavior: Behavior = "answer", startupMs = 0) {
   const processes: FakeProcess[] = [];
   const spawn: SpawnAclLike = (file, args, options) => {
@@ -96,7 +90,6 @@ function fakeSpawner(behavior: Behavior = "answer", startupMs = 0) {
   return { spawn, processes };
 }
 
-/** A fake one-shot `execFile`, the path taken without a prewarm. */
 function fakeExec() {
   return vi.fn<ExecFileLike>(async (file, args) => {
     if (file.endsWith("whoami.exe")) return { stdout: `"HOST\\me","${USER}"\r\n` };
@@ -281,7 +274,6 @@ describe("the prewarmed tier-1 PowerShell", () => {
         ["dotnet", false, "constrained-language"],
         ["get-acl", true, undefined],
       ]);
-      // Tier two is the one-shot Get-Acl run: the prewarm is not involved, and tier one was not run again.
       expect(exec.mock.calls.map((call) => call[0])).toEqual([`${SYSTEM32}\\whoami.exe`, POWERSHELL]);
     });
 
@@ -320,7 +312,6 @@ describe("the prewarmed tier-1 PowerShell", () => {
       const exec = fakeExec();
       const reader = createWindowsAclReader(exec, env, spawn);
       reader.prewarm?.();
-      // A long copy before the paths arrive does not count against the read's timeout.
       await vi.advanceTimersByTimeAsync(60_000);
       expect(processes[0]?.killed).toBe(false);
       const reporting = assertWindowsAcl(["a"], reader);

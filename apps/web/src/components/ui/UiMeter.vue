@@ -2,12 +2,6 @@
 import { computed } from "vue";
 import type { ChartTone } from "./types";
 
-/**
- * Horizontal meter. Segment widths are proportional to their sum, or to `max` when given (a single
- * segment then reads as progress toward `max`). `size="sm"` is the thin row-level bar. Without `label`
- * the meter is decorative and hidden from assistive technology. `gap` separates touching segments with a 2px
- * surface-colored gap (for part-to-whole bars) instead of letting their colors meet.
- */
 const props = withDefaults(
   defineProps<{
     segments: readonly { value: number; tone: ChartTone; label: string }[];

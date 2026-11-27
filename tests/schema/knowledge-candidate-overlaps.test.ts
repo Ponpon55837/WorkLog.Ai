@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mcpListSessionsInputSchema, storedKnowledgeCandidateOverlapsSchema } from "../../packages/schema/src/index.js";
 
-// Fictional ids only.
 const overlap = { relation: "possible_duplicate", type: "knowledge", id: "knowledge-1", status: "active", score: 0.42 };
 
 describe("stored Knowledge candidate overlaps", () => {

@@ -6,7 +6,6 @@ import {
   parseDesktopParentMessage,
 } from "../../packages/schema/src/index.js";
 
-// Fictional values only.
 const RUN_ID = "r".repeat(43);
 const IDENTITY = {
   realPath: "/synthetic/work.sqlite",
@@ -157,7 +156,6 @@ describe("desktop facts and open-agent-setup", () => {
       ok: true,
       message: { desktop: { legacyService: LEGACY } },
     });
-    // An older shell still sends the removal commands; they are accepted and dropped, never carried on.
     const olderShell = { running: "unknown", removeCommand: "synthetic", fallbackRemoveCommand: "synthetic fallback" };
     expect(parseDesktopParentMessage({ ...START, desktop: { legacyService: olderShell } })).toMatchObject({
       ok: true,

@@ -11,7 +11,6 @@ import { formatCount, formatPercent, formatTokens } from "../../utils/format";
 import { USAGE_TOKEN_TONES, usageModelRows, withRatio } from "../../utils/usage";
 import { t } from "../../i18n";
 
-/** Models, conversations, Work Intelligence operations and other tools, all visible without interaction. */
 const usageStore = useUsageStore();
 const { scanResult: result } = storeToRefs(usageStore);
 

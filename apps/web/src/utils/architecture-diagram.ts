@@ -14,7 +14,6 @@ export interface ArchitectureLayoutNode {
   node: DiagramNode;
   x: number;
   y: number;
-  /** Index into the diagram tone tokens; absent for ungrouped nodes. */
   tone?: number;
 }
 
@@ -115,10 +114,7 @@ function rectOf(item: ArchitectureLayoutNode): Rect {
   return { x: item.x, y: item.y, width: ARCHITECTURE_NODE_WIDTH, height: ARCHITECTURE_NODE_HEIGHT };
 }
 
-/**
- * Longest-path layering with cycles broken by DFS back edges, so every kept link points to a later layer.
- * Sources are pulled next to their first successor to keep entry points close to what they call.
- */
+/** Longest-path layering with cycles broken by DFS back edges, so every kept link points to a later layer. */
 function assignLayers(ids: string[], links: Link[]): Map<string, number> {
   const outgoing = new Map(ids.map((id) => [id, [] as string[]]));
   for (const link of links) {
@@ -157,7 +153,6 @@ function mean(values: number[]): number | undefined {
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : undefined;
 }
 
-/** Split a group's members into sub-columns by their internal layers, wrapping tall stacks. */
 function blockColumns(members: string[], links: Link[], stackLimit: number): string[][] {
   const inside = new Set(members);
   const layers = assignLayers(
@@ -172,11 +167,6 @@ function blockColumns(members: string[], links: Link[], stackLimit: number): str
   return columns;
 }
 
-/**
- * Groups become blocks laid out left to right along the links between them, with blocks in the same column
- * stacked and centered; inside a block, members sit in sub-columns by their own links. This keeps related
- * cards together and the drawing compact instead of a staircase of one card per row.
- */
 function placeAutomatic(auto: DiagramNode[], links: Link[], top: number): Map<string, ArchitecturePoint> {
   const placed = new Map<string, ArchitecturePoint>();
   if (!auto.length) return placed;

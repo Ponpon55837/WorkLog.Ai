@@ -51,7 +51,6 @@ describe("shared runtime helpers", () => {
   it("truncates at a code-unit limit without splitting a surrogate pair", () => {
     expect(truncateAtCodeUnitLimit("short", 8)).toEqual({ text: "short", truncated: false });
     expect(truncateAtCodeUnitLimit("abcdefgh", 5)).toEqual({ text: "abcd…", truncated: true });
-    // The cut after "abc" would fall between the two code units of the emoji, so the whole emoji is dropped.
     expect(truncateAtCodeUnitLimit("abc🐝defg", 5)).toEqual({ text: "abc…", truncated: true });
     expect(truncateAtCodeUnitLimit("abcdefgh", 0)).toEqual({ text: "", truncated: true });
   });

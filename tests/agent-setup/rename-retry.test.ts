@@ -4,8 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { writeAtomically } from "../../packages/agent-setup/src/files.js";
 import { createFixture, removeFixtures } from "./fixture.js";
 
-// A Windows file lock (an antivirus scanner, the search indexer) refuses a rename for a moment. Only the rename of the
-// temporary file over the target is refused here, as many times as `refusals` says.
+// A Windows file lock (antivirus, search indexer) briefly refuses a rename; only the temp-file rename is refused here, `refusals` times.
 const lock = vi.hoisted(() => ({ code: "EBUSY", refusals: 0, attempts: 0 }));
 
 vi.mock("node:fs", async (importOriginal) => {

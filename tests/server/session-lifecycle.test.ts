@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { WorkIntelligenceStore } from "../../packages/storage/src/index.js";
 import { createApiHandler } from "../../apps/server/src/server.js";
 
-// Fictional fixtures only.
 const resources: Array<{ server: Server; store: WorkIntelligenceStore; root: string }> = [];
 
 afterEach(async () => {

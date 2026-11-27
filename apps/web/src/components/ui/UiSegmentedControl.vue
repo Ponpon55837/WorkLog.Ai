@@ -1,7 +1,6 @@
 <script setup lang="ts" generic="T extends string | number">
 import type { SelectOption } from "./types";
 
-/** `size` follows the control heights: `md` is 32px like a button, `sm` is 28px for UiBox headers. */
 withDefaults(defineProps<{ options: readonly SelectOption<T>[]; label: string; size?: "md" | "sm" }>(), { size: "md" });
 const model = defineModel<T>({ required: true });
 

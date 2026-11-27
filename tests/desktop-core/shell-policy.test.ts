@@ -441,7 +441,6 @@ describe("last backup", () => {
     tracker.bindDatabase("B");
     expect(await tracker.current()).toEqual({ status: "none" });
 
-    // A late report from A's child must not count for B; a report from B does.
     tracker.recordFromBackend("2026-03-03T00:00:00.000Z", "A");
     expect(await tracker.current()).toEqual({ status: "none" });
     tracker.recordFromBackend("2026-03-04T00:00:00.000Z", "B");

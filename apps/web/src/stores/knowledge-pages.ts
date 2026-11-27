@@ -14,7 +14,6 @@ import { errorMessage } from "../utils/format";
 import { queryKeys } from "./query-keys";
 import { t } from "../i18n";
 
-/** Owns the standing Knowledge pages of the Knowledge page: the list, the open page, its version history, and deletion. */
 export const useKnowledgePagesStore = defineStore("knowledge-pages", () => {
   const queryCache = useQueryCache();
 
@@ -108,7 +107,6 @@ export const useKnowledgePagesStore = defineStore("knowledge-pages", () => {
     return updateMutation.mutateAsync(input);
   }
 
-  /** Deletes the open custom page after the user confirms; the dialog names how many versions go with it. */
   async function deleteOpenPage(): Promise<void> {
     const page = openPage.value;
     if (!page) return;

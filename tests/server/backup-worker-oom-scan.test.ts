@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createOutOfMemoryScanner } from "../../apps/server/src/backup-worker-client.js";
 
-/** A synthetic native stack frame like the ones V8 prints after its out-of-memory report. */
 function frame(index: number): string {
   return ` ${index}: 0x1006d2b24 v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags) [/fictional/node]\n`;
 }
 
-/** A stack trace of more than `bytes` characters. */
 function stackTrace(bytes: number): string {
   let text = "----- Native stack trace -----\n\n";
   for (let index = 1; text.length <= bytes; index += 1) text += frame(index);

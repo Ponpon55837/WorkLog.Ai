@@ -7,7 +7,7 @@ import { formatDate, formatRelative } from "../../utils/format";
 import { agentVerdictVisual } from "../../utils/status";
 import { t } from "../../i18n";
 
-/** What an Agent decided on an item, why, and when. The reason is untrusted Agent text and renders as plain text. */
+/** The reason is untrusted Agent text; render it as plain text. */
 defineProps<{ verdict: AgentVerdictKind; reason?: string; reviewedAt?: string }>();
 const emit = defineEmits<{ overturn: [] }>();
 </script>

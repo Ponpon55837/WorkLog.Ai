@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FinalizeSessionInput } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -103,7 +102,6 @@ describe("Knowledge evidence strength", () => {
     finalize("contradicted", { contradictedKnowledgeIds: [knowledgeId] });
     confirm(knowledgeId);
     tick();
-    // A plain edit leaves an audit row that is not feedback.
     store.updateKnowledge({ projectRoot: root, knowledgeId, title: "Smoke the hive before opening it" });
     stores.splice(stores.indexOf(store), 1);
     store.close();

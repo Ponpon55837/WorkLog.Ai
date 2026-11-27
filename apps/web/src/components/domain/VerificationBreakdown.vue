@@ -4,10 +4,7 @@ import UiMeter from "../ui/UiMeter.vue";
 import { verificationStatus } from "../../utils/status";
 import { t } from "../../i18n";
 
-/**
- * Five-state verification distribution. Deliberately no single pass-rate percentage: missing
- * verification (未回報) must never be folded into pass or fail.
- */
+/** Deliberately no single pass-rate: missing verification (未回報) must never be folded into pass or fail. */
 const props = defineProps<{
   counts: { passed: number; failed: number; inProgress: number; notRun: number; notSupplied: number };
 }>();

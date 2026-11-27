@@ -3,7 +3,6 @@ import { type ApiTransport } from "./transport";
 
 export interface UsageApi {
   getUsageProjects(signal?: AbortSignal): Promise<UsageProjectsResponse>;
-  /** Scans local Agent logs on demand; the server aborts the scan when this request is aborted. */
   scanUsage(request: UsageScanRequest, signal?: AbortSignal): Promise<UsageScanResponse>;
 }
 

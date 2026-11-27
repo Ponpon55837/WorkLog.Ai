@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest";
 import { createStorageRiskService } from "../../apps/desktop/src/main/storage-risk.js";
 import type { StorageRiskResult } from "../../packages/desktop-core/src/index.js";
 
-/** The App's storage verdict service: one overall time limit around the whole detection, and the verdict it remembers. */
-
 const NETWORK: StorageRiskResult = { risk: "network", evidence: ["synthetic"], symlinked: false };
 
 describe("the storage verdict service", () => {

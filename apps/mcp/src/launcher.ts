@@ -1,14 +1,7 @@
 /**
- * Stable stdio launcher for the Work Intelligence MCP server.
- *
- * Agents register this file instead of `index.js`. It runs `index.js` as a child process and relays newline-delimited
- * JSON-RPC between the Agent and the child. When `pnpm build` writes a new server build, the launcher waits for the
- * requests in flight, starts the new build, replays the Agent's `initialize` and `notifications/initialized`, and
- * keeps relaying on the same connection, so the Agent never has to reconnect. Only a change to this file itself
- * needs a reconnect; the child reports that through `server.launcher` (see supervision.ts).
- *
- * Keep this file small and dependent on Node built-ins only: its content hash is the launcher identity, so anything
- * it imports from the workspace would make every rebuild look like a launcher update.
+ * Stable stdio launcher: relays JSON-RPC to a child server and swaps in a rebuilt server without an Agent reconnect.
+ * Keep it dependent on Node built-ins only: its content hash is the launcher identity, so a workspace import would
+ * make every rebuild look like a launcher update.
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
@@ -19,14 +12,11 @@ import type { Readable, Writable } from "node:stream";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 export interface McpSupervisorOptions {
-  /** The server entry point (`apps/mcp/dist/index.js`). */
   entryPath: string;
-  /** Returns the build id on disk, or undefined while a build is incomplete or unreadable. */
   readBuildId: () => string | undefined;
   input: Readable;
   output: Writable;
   errorOutput: Writable;
-  /** Environment for the server child; the launcher identity variables are added to it. */
   environment?: NodeJS.ProcessEnv;
   launcherIdentity?: McpLauncherIdentity;
   platform?: NodeJS.Platform;
@@ -34,7 +24,6 @@ export interface McpSupervisorOptions {
   startupTimeoutMs?: number;
   drainTimeoutMs?: number;
   stopTimeoutMs?: number;
-  /** Called once after the Agent closed stdin and the child stopped. */
   onClosed?: (exitCode: number) => void;
 }
 
@@ -66,15 +55,11 @@ export const MCP_LAUNCHER_ENVIRONMENT = {
 
 const BUILD_PROGRESS_FILE = ".work-intelligence-build-in-progress";
 const EMBEDDED_BUILD_HASH = /const MCP_BUILD_DIST_HASH = "([a-f0-9]{64})";/;
-/**
- * Ids of the launcher's own requests to a server child. The per-launcher nonce keeps them from colliding with an
- * Agent's ids, and any response carrying the prefix is the launcher's, even after its wait timed out.
- */
+/** Prefix of the launcher's own request ids; the nonce keeps them apart from an Agent's, even after a wait timed out. */
 const PRIVATE_ID_PREFIX = `work-intelligence-launcher:${randomUUID()}:`;
 const INTERNAL_ERROR = -32603;
 const CRASH_WINDOW_MS = 60_000;
 const CRASH_LIMIT = 3;
-/** How long a crash restart waits for a running `pnpm build` to finish before starting the dist on disk. */
 const STABLE_BUILD_WAIT_MS = 120_000;
 const RACY_WINDOW_MS = 2_000;
 const SWAP_FAILED_MESSAGE =
@@ -109,7 +94,6 @@ function isResponse(message: JsonRpcMessage): message is JsonRpcMessage & { id: 
   return message.method === undefined && (typeof message.id === "string" || typeof message.id === "number");
 }
 
-/** Splits a stream into lines without rescanning earlier chunks, so a large message stays linear. */
 function onLines(stream: Readable, onLine: (line: string) => void): void {
   let pending: string[] = [];
   stream.setEncoding("utf8");
@@ -126,7 +110,6 @@ function onLines(stream: Readable, onLine: (line: string) => void): void {
   });
 }
 
-/** The request id a `notifications/cancelled` names, when it is a valid JSON-RPC id. */
 function cancelledRequestId(message: JsonRpcMessage): JsonRpcId | undefined {
   const params = message.params;
   if (!params || typeof params !== "object") return undefined;
@@ -139,7 +122,6 @@ function fingerprint(message: JsonRpcMessage | undefined): string | undefined {
   return result === undefined ? undefined : createHash("sha256").update(JSON.stringify(result)).digest("hex");
 }
 
-/** Hash of a file's bytes, used as the launcher identity. */
 export function launcherFileHash(path: string): string | undefined {
   try {
     return createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -148,12 +130,7 @@ export function launcherFileHash(path: string): string | undefined {
   }
 }
 
-/**
- * The server build on disk as `<package version>:<dist hash>`, the same build id as `readMcpBuildIdentity`. It reads
- * the hash that `pnpm build` embeds in `index.js` last, and only while no build is in progress; the started server
- * verifies the whole dist itself. A stat signature keeps the per-request check to three `stat` calls.
- * @internal test-only
- */
+/** Reads the hash `pnpm build` embeds in `index.js` last, and only while no build is in progress. @internal test-only */
 export function createBuildIdReader(repositoryRoot: string, entryPath: string): () => string | undefined {
   const markerPath = resolve(repositoryRoot, BUILD_PROGRESS_FILE);
   const packagePath = resolve(repositoryRoot, "package.json");
@@ -188,11 +165,7 @@ export function createBuildIdReader(repositoryRoot: string, entryPath: string): 
   };
 }
 
-/**
- * Stops a server child: close its stdin so it can finish, then force it. On Windows `kill()` is TerminateProcess,
- * which cannot be caught; elsewhere SIGTERM comes first and SIGKILL only if the child ignores it.
- * @internal test-only
- */
+/** @internal test-only */
 export async function stopServerProcess(
   child: ChildProcess,
   exited: Promise<void>,
@@ -229,7 +202,6 @@ export class McpSupervisor {
   private swapping = false;
   private pendingFailure: string | undefined;
   private failedBuildId: string | undefined;
-  /** A build whose swap gave up waiting for a request; requests go to the old server until the in-flight ones finish. */
   private deferredBuildId: string | undefined;
   private crashTimes: number[] = [];
   private privateSequence = 0;
@@ -246,7 +218,6 @@ export class McpSupervisor {
     };
   }
 
-  /** Starts the first server child and begins relaying. */
   async start(): Promise<void> {
     onLines(this.options.input, (line) => this.handleClientLine(line));
     this.options.input.on("end", () => void this.close());
@@ -264,12 +235,10 @@ export class McpSupervisor {
     this.pollTimer.unref();
   }
 
-  /** The build id of the running child, for tests and diagnostics. */
   runningBuildId(): string | undefined {
     return this.current?.buildId;
   }
 
-  /** Stops relaying and the child; resolves after the child exited. */
   async close(): Promise<void> {
     if (this.closing) return;
     this.closing = true;
@@ -304,7 +273,6 @@ export class McpSupervisor {
     if (message.method === "notifications/initialized") this.initializedNotification = message;
     // A cancelled request never gets a response, so it must leave the in-flight set or a swap would wait forever.
     if (message.method === "notifications/cancelled") this.settle(cancelledRequestId(message));
-    // Notifications (cancellation, progress) and responses to server requests go to the server that is running now.
     this.writeTo(this.current, line);
   }
 
@@ -328,7 +296,6 @@ export class McpSupervisor {
   private handleServerLine(connection: ServerConnection, line: string): void {
     const message = parseMessage(line);
     if (message && isResponse(message) && typeof message.id === "string" && message.id.startsWith(PRIVATE_ID_PREFIX)) {
-      // The launcher's own request: hand it to its waiter, or drop it if that wait already timed out.
       const resolvePrivate = connection.privateRequests.get(message.id);
       connection.privateRequests.delete(message.id);
       resolvePrivate?.(message);
@@ -339,7 +306,6 @@ export class McpSupervisor {
     if (message && isResponse(message)) this.settle(message.id);
   }
 
-  /** Removes a finished or cancelled request; when none remain, wakes a waiting swap or resumes a deferred one. */
   private settle(id: JsonRpcId | null | undefined): void {
     if (id === undefined || id === null || !this.inFlight.delete(idKey(id)) || this.inFlight.size > 0) return;
     this.notifyDrained();
@@ -364,18 +330,14 @@ export class McpSupervisor {
     void this.replaceServer();
   }
 
-  /**
-   * Waits for the requests in flight, starts the new build beside the old one, and switches only once the new child
-   * answered the replayed initialize. On failure the old child stays and the next request receives the error.
-   */
+  /** Switches only once the new child answered the replayed initialize; on failure the old child stays. */
   private async replaceServer(): Promise<void> {
     if (this.swapping || this.closing) return;
     this.swapping = true;
     try {
       const old = this.current;
       if (old && !(await this.waitForDrain())) {
-        // A request is still running: keep the old server, and stop making every new request wait for this build
-        // again; the swap resumes once the requests in flight have finished.
+        // A request is still running: keep the old server and let the swap resume once in-flight requests finish.
         this.deferredBuildId = this.options.readBuildId();
         return;
       }
@@ -496,7 +458,6 @@ export class McpSupervisor {
     return existsSync(resolve(dirname(this.options.entryPath), "../../..", BUILD_PROGRESS_FILE));
   }
 
-  /** Spawns a child and, when the Agent already initialized, replays initialize and initialized to it. */
   private async startServer(replay: boolean, maxBuildWaitMs = STABLE_BUILD_WAIT_MS): Promise<ServerConnection> {
     const buildId = await this.waitForStableBuild(maxBuildWaitMs);
     const identity = this.options.launcherIdentity;

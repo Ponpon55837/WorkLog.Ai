@@ -7,7 +7,6 @@ import { useToast } from "../../composables/useToast";
 import { downloadText } from "../../utils/download";
 import { t } from "../../i18n";
 
-/** Reads historical or unsupported snapshots as escaped, selectable text without executing them. */
 const props = withDefaults(defineProps<{ diagram: SessionDiagramRecord; interactive?: boolean }>(), {
   interactive: false,
 });

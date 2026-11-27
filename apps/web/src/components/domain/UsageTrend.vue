@@ -11,7 +11,6 @@ import { formatCount, formatTokens } from "../../utils/format";
 import { USAGE_TOKEN_TONES, usageDayLabel } from "../../utils/usage";
 import { t } from "../../i18n";
 
-/** Daily input and output tokens on one scale; the exact values stay in a folded table for keyboard and screen readers. */
 const compact = useMediaQuery("(max-width: 639px)");
 const usageStore = useUsageStore();
 const { scanResult: result, dailyPoints } = storeToRefs(usageStore);

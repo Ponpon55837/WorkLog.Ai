@@ -20,11 +20,6 @@ import { formatCharacters, formatDate, formatMilliseconds } from "../../utils/fo
 import { listPageSizeOptions } from "../../utils/labels";
 import { t, type MessageKey } from "../../i18n";
 
-/**
- * Passive audit of what Agents were given through MCP reads: when, which tool and client, which project, and the
- * returned Session ids (ids only; no query or content is stored), plus each read's duration, response size
- * (characters) and failure code and a per-tool latency and response-size summary. Session ids open the Session panel.
- */
 const agentReadsStore = useAgentReadsStore();
 const {
   projectId,

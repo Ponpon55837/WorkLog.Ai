@@ -3,7 +3,6 @@ import { ChevronRight } from "lucide-vue-next";
 import type { IconComponent } from "./types";
 import UiCounter from "./UiCounter.vue";
 
-/** Collapsible bordered section (native <details>) used for secondary detail blocks. */
 withDefaults(defineProps<{ title: string; icon?: IconComponent; count?: number; hint?: string; open?: boolean }>(), {
   open: false,
 });

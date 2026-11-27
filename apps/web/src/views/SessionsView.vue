@@ -172,7 +172,6 @@ const agentItems = computed(() => [
   ...agentOptions.value.map((agent) => ({ value: agent, label: agent })),
 ]);
 const tabs = computed(() => [
-  // Counts appear once loaded; "0" before then would read as "nothing here".
   {
     value: "sessions" as const,
     label: t("common.workHistory"),
@@ -233,9 +232,8 @@ watch(
   { immediate: true },
 );
 watch(sessions, (items) => setSessionSequence(items.map((item) => item.id)), { immediate: true });
-// Whole-day numbers come from the timeline, which cannot filter by Agent or text or include voided Sessions;
-// under those filters they would disagree with the list, so the summaries and counts are left out. The decision
-// uses the filters the list was actually requested with, and waits while the list still shows the previous answer.
+// Whole-day numbers come from the timeline, which cannot filter by Agent or text or include voided Sessions, so under those filters they are left out.
+// The decision uses the filters the list was actually requested with, and waits while the list still shows the previous answer.
 watch(
   [sessions, tab, sessionsAppliedScope],
   () => {

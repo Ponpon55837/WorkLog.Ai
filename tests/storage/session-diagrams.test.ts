@@ -135,7 +135,6 @@ describe("Session diagrams", () => {
     for (const row of bundle.tables.session_diagrams) {
       delete row.format_version;
       row.kind = "mermaid";
-      // Legacy masking/imports can have produced sources beyond the new-write input limit.
       row.source = `${legacyFlow}\n%% ${"legacy ".repeat(3_000)}`;
     }
     const destination = new WorkIntelligenceStore(":memory:");
@@ -204,7 +203,6 @@ describe("Session diagrams", () => {
     ]);
     const detail = store.getSessionDetail(result.session.id);
     expect(detail?.diagrams.map((diagram) => diagram.title)).toEqual(["First", "Second"]);
-    // Retrying the finalize does not add them again.
     finalize("with-diagrams", [{ title: "First", ...native, source: flow }]);
     expect(store.getSessionDetail(result.session.id)?.diagrams).toHaveLength(2);
   });
@@ -240,7 +238,7 @@ describe("Session diagrams", () => {
     const wait = () => {
       const until = Date.now() + 5;
       while (Date.now() < until) {
-        // Timestamps have millisecond precision; make each write observable.
+        // Timestamps have millisecond precision; wait until the change is observable.
       }
     };
     const finalizedAt = sessionUpdatedAt();

@@ -16,7 +16,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { WorkIntelligenceStore } from "@work-intelligence/storage";
 import { copyDatabaseConsistently } from "../../apps/server/src/database-copy.js";
 
-// A consistent copy of a real (synthetic) SQLite database through the storage backup path. Fictional data only.
 const directories: string[] = [];
 
 function tempDir(): string {

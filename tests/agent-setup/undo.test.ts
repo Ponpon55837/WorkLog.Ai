@@ -40,7 +40,6 @@ function undoAt(fixture: SetupFixture, options?: Parameters<typeof undoAgentSetu
   return undoAgentSetupOperation(fixture.paths.journal, { homeDirectory: fixture.options.homeDirectory }, options);
 }
 
-/** Changes our own Claude MCP entry (not just the file around it), so no safe entry-level removal exists. */
 function editOurClaudeEntry(fixture: SetupFixture): void {
   const root = JSON.parse(readFileSync(fixture.paths.claudeJson, "utf8")) as {
     mcpServers: Record<string, { args: string[] }>;
@@ -155,8 +154,6 @@ describe("undoAgentSetupOperation", () => {
   it("stops at the first item changed after the operation, reports its path and leaves it and the earlier items alone", () => {
     const fixture = createFixture();
     const plan = commit(fixture);
-    // Our own entry was changed, so it cannot be taken out without guessing; a harmless rewrite would be handled by
-    // the entry-level fallback instead (see "after an Agent rewrote its config" below).
     editOurClaudeEntry(fixture);
     const edited = readFileSync(fixture.paths.claudeJson);
     const claudeIndex = plan.mutations.findIndex((mutation) => mutation.path === fixture.paths.claudeJson);
@@ -262,7 +259,6 @@ describe("undoAgentSetupOperation", () => {
     const preExisting = first.mutations.find((mutation) => mutation.path === fixture.paths.codexConfig)?.backupPath;
     const created = first.mutations.find((mutation) => mutation.path === fixture.paths.claudeJson)?.backupPath;
     if (!preExisting || !created) throw new Error("fixture plan has no backups");
-    // Pretend this backup was already there before the operation: it is not ours to delete.
     const read = readAgentSetupJournal(fixture.paths.journal);
     if (read.status !== "found") throw new Error("missing journal");
     for (const item of read.journal.items) if (item.backupPath === preExisting) delete item.backupCreated;
@@ -273,7 +269,6 @@ describe("undoAgentSetupOperation", () => {
     expect(existsSync(created)).toBe(false);
     expect(existsSync(preExisting)).toBe(true);
     expect(backupsOf(second).every((path) => existsSync(path))).toBe(true);
-    // The undo that is possible now is the second operation's.
     expect(undoAt(fixture).status).toBe("undone");
     expect(readFileSync(fixture.paths.manifest, "utf8")).toContain("claudeMcp");
   });
@@ -415,7 +410,6 @@ describe("undoAgentSetupOperation after an Agent rewrote its config", () => {
     (rewritten.mcpServers as Record<string, unknown>).added = { command: "synthetic-added" };
     rewritten.numStartups = 7;
     rewritten.projects = { "/synthetic/project": { allowedTools: [] } };
-    // Compact, differently indented: whole-file equality can never hold again.
     writeFileSync(fixture.paths.claudeJson, JSON.stringify(rewritten));
 
     const result = undoAt(fixture);
@@ -426,7 +420,6 @@ describe("undoAgentSetupOperation after an Agent rewrote its config", () => {
       numStartups: 7,
       projects: { "/synthetic/project": { allowedTools: [] } },
     });
-    // The files the Agent did not touch are back exactly, and the manifest follows.
     expect(existsSync(fixture.paths.manifest)).toBe(false);
     expect(readFileSync(fixture.paths.codexConfig)).toEqual(before.get(fixture.paths.codexConfig));
     expect(journalState(fixture)).toBe("compensated");

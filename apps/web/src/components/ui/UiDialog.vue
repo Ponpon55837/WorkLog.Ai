@@ -4,14 +4,12 @@ import { X } from "lucide-vue-next";
 import { useFocusTrap } from "../../composables/useFocusTrap";
 import { t } from "../../i18n";
 
-/** Centered dialog for forms and decisions. Footer actions are right-aligned, primary last. */
 const props = withDefaults(
   defineProps<{
     open: boolean;
     title: string;
     description?: string;
     size?: "sm" | "md" | "lg";
-    /** Prevents closing (Escape, backdrop, close button) while a save is in flight. */
     busy?: boolean;
   }>(),
   { size: "md", busy: false },

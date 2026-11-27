@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error the bundler options live in a plain .mjs script with no declaration file
 import { bundleOptions } from "../../scripts/build-plugin.mjs";
 
-// The desktop child's test-only migration hold must exist in a bundle only when `__WI_DESKTOP_TEST_BUILD__` is true.
 const ENTRY = fileURLToPath(new URL("../../apps/server/src/desktop-child.ts", import.meta.url));
 const HOLD_VARIABLE = "WORK_INTELLIGENCE_TEST_HOLD_MIGRATION_FILE";
 

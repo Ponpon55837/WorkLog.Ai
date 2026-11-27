@@ -11,7 +11,6 @@ import {
   submitAgentReviewVerdictsInputSchema,
 } from "../../packages/schema/src/index.js";
 
-// Fictional ids only.
 const decisionVerdict = { itemKind: "decision", itemId: "decision-1", verdict: "confirm", reason: "Matches the diff." };
 const candidateVerdict = { itemKind: "candidate", itemId: "candidate-1", verdict: "accept", reason: "Quotes the fix." };
 const knowledgeVerdict = { itemKind: "knowledge", itemId: "knowledge-1", verdict: "confirm", reason: "Still true." };

@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { FinalizeSessionInput } from "../../packages/core/src/index.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-// Fictional fixtures only.
 const stores: WorkIntelligenceStore[] = [];
 const tempDirs: string[] = [];
 
@@ -477,7 +476,6 @@ describe("Session start and update times", () => {
       changedFilesMode: "merge",
       startedAt: afterCompletion,
     });
-    // Previously this was dropped silently; now the Agent is told.
     expect(ignored.outcome === "updated" && ignored.timestampWarnings?.[0]).toContain("was not applied");
     expect(store.getSessionById(sessionId)?.startedAt).toBe(started);
   });
@@ -499,7 +497,7 @@ describe("Session start and update times", () => {
     const wait = () => {
       const until = Date.now() + 5;
       while (Date.now() < until) {
-        // Timestamps have millisecond precision; make each change observable.
+        // Timestamps have millisecond precision; wait until the change is observable.
       }
     };
 
@@ -527,7 +525,7 @@ describe("Session start and update times", () => {
     const untouchedAt = updatedAt(untouched);
     const until = Date.now() + 5;
     while (Date.now() < until) {
-      // Timestamps have millisecond precision; make the change observable.
+      // Timestamps have millisecond precision; wait until the change is observable.
     }
 
     const childInput = {
@@ -543,9 +541,8 @@ describe("Session start and update times", () => {
 
     const later = Date.now() + 5;
     while (Date.now() < later) {
-      // A retry must not move the linked Sessions again.
+      // Timestamps have millisecond precision; wait until the change is observable.
     }
-    // A retried finalize returns the original Session without writing the links again.
     expect(finalize("child", childInput)).toBe(child);
     expect(updatedAt(plan)).toBe(childSession.createdAt);
     expect(updatedAt(related)).toBe(childSession.createdAt);

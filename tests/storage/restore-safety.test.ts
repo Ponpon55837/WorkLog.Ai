@@ -13,19 +13,10 @@ import { initializeWorkIntelligenceDatabase } from "../../packages/storage/src/d
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
-/**
- * The safety of 「從備份還原」 at the storage level: a backup is looked at read-only and refused before anything is touched
- * when it is not ours, damaged or newer than this version; and a restore that fails (a database in use, a Windows file lock)
- * never loses data: the original database is exactly as it was and the automatic safety backup exists. Synthetic data only.
- */
-
 const failures = vi.hoisted(() => ({
   rename: undefined as { code: string; message: string; times: number } | undefined,
-  /** Paths whose emptying (a write of zero bytes) is refused, as when a scanner holds the file. */
   locked: [] as string[],
-  /** Every path the restore asked to remove (so the order of removals against the replacement can be checked). */
   removed: [] as string[],
-  /** Paths whose removal fails, like a file a Windows scanner holds open. */
   unremovable: [] as string[],
   /** Paths that hold stale content right before they are emptied (SQLite deletes a WAL when its last connection closes). */
   stale: [] as string[],
@@ -86,7 +77,6 @@ function directory(): string {
   return root;
 }
 
-/** A database with one project, and a snapshot of a different state to restore from. */
 function fixture() {
   const root = directory();
   const databasePath = join(root, "work-intelligence.sqlite");
@@ -169,7 +159,6 @@ describe("looking at a backup read-only", () => {
   it("refuses a damaged database file and a file that is missing", () => {
     const { snapshot } = fixture();
     const bytes = readFileSync(snapshot);
-    // Overwrite the middle pages: the header and the schema stay readable, the content does not.
     const damaged = join(directory(), "damaged.sqlite");
     const copy = Buffer.from(bytes);
     copy.fill(0xab, Math.floor(copy.length / 2), copy.length);
@@ -182,7 +171,6 @@ describe("looking at a backup read-only", () => {
 describe("a restore that cannot finish never loses data", () => {
   it("classifies a database in use, touches nothing and makes no replacement", () => {
     const { databasePath, snapshot } = fixture();
-    // The open store holds the database (an Agent or the API would): the restore is refused first.
     const code = codeOf(() => restoreDatabase({ source: snapshot, databasePath, initializeStaging }));
     expect(code).toBe("RESTORE_DATABASE_IN_USE");
     expect(projectNames(databasePath)).toEqual(["Apiary", "Beehive"]);
@@ -199,7 +187,6 @@ describe("a restore that cannot finish never loses data", () => {
         restoreDatabase({
           source: snapshot,
           databasePath,
-          // Runs while the staging copy is built: an Agent opens the current database and starts writing.
           initializeStaging: (database) => {
             initializeStaging(database);
             holder = new DatabaseSync(databasePath);
@@ -241,7 +228,6 @@ describe("a restore that cannot finish never loses data", () => {
       "RESTORE_NOT_DATABASE",
     );
     expect(projectNames(databasePath)).toEqual(before);
-    // Nothing was backed up or staged: the refusal came before any write.
     expect(listDatabaseBackups(databasePath)).toEqual([]);
     expect(existsSync(`${databasePath}.restoring`)).toBe(false);
   });
@@ -251,7 +237,6 @@ describe("a restore that cannot finish never loses data", () => {
     (code) => {
       const { root, store, databasePath, snapshot } = fixture();
       closeStore(store);
-      // A different state is restored over this one; the failure must leave this one exactly as it is.
       const original = new DatabaseSync(databasePath);
       original.prepare("DELETE FROM projects WHERE name = 'Beehive'").run();
       original.close();
@@ -260,10 +245,8 @@ describe("a restore that cannot finish never loses data", () => {
       failures.rename = { code, message: `${code}: resource busy or locked`, times: Infinity };
       expect(codeOf(() => restoreDatabase({ source: snapshot, databasePath, initializeStaging }))).toBe(code);
 
-      // The original database is intact and opens.
       expect(projectNames(databasePath)).toEqual(["Apiary"]);
       expect(inspectDatabaseBackup(databasePath).status).toBe("ok");
-      // The automatic safety backup of it exists, holds the same data, and no staging copy is left behind.
       const backups = listDatabaseBackups(databasePath);
       expect(backups).toHaveLength(1);
       expect(projectNames(join(root, "backups", backups[0]?.fileName ?? ""))).toEqual(["Apiary"]);

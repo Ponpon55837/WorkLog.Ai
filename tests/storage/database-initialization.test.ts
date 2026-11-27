@@ -43,7 +43,6 @@ function hasSessionColumn(db: DatabaseSync, name: string): boolean {
   );
 }
 
-/** Leaves a current database with one pending migration, the fixture the backup tests use. */
 function removeChangedFilesConfirmedMigration(databasePath: string): void {
   const oldDatabase = new DatabaseSync(databasePath);
   try {
@@ -69,7 +68,6 @@ function openFailure(open: () => void): unknown {
   return undefined;
 }
 
-/** Holds the write lock from a second connection, as another MCP or API process would, until released. */
 function holdWriteLock(databasePath: string): { release: () => void } {
   const holder = new DatabaseSync(databasePath);
   holder.exec("BEGIN IMMEDIATE");

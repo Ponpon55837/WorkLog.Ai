@@ -38,7 +38,6 @@ describe("restore backup token store", () => {
     const { store } = setup();
     const id = store.putPicked(WINDOW, "picked");
     expect(store.claim(OTHER_WINDOW, id)).toBeUndefined();
-    // The wrong window did not spend it.
     expect(store.claim(WINDOW, id)).toBeDefined();
   });
 

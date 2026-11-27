@@ -3,7 +3,6 @@ import { defineConfig } from "vitest/config";
 import { isolatedEnvironmentSetup } from "../../tests/helpers/isolated-environment-setup";
 import { sqliteNoFlushSetup } from "../../tests/helpers/sqlite-no-flush-setup";
 
-// Test-only SQLite timing (no-op unless WI_SQLITE_TIMING=1), see tests/helpers/sqlite-timing.ts.
 const sqliteTimingSetup = fileURLToPath(new URL("../../tests/helpers/sqlite-timing-setup.ts", import.meta.url));
 
 export const mcpAliases = [
@@ -65,9 +64,8 @@ export const mcpAliases = [
   },
 ];
 
-// MCP tests open file-backed SQLite databases and spawn the compiled server. On Windows CI runners, and slower still
-// under coverage instrumentation, a fresh file can be briefly locked and SQLite waits up to its 5 s busy_timeout, so
-// the default 5 s test timeout fails at exactly that point. Give them the same headroom as the storage and server tests.
+// Windows CI and coverage runs can find a fresh SQLite file briefly locked (5 s busy_timeout), which hits the default 5 s test timeout;
+// give these tests the same headroom as the storage and server tests.
 export const mcpTestTimeout = 20_000;
 
 export default defineConfig({

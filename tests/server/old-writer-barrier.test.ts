@@ -14,10 +14,7 @@ import {
   type DatabaseSnapshot,
 } from "../helpers/old-writer-barrier.js";
 
-// DT-04 (desktop design R4 section 10.4): two real Node processes share one WAL database. Process A is an "old
-// writer" that opened it at the current schema and idles; process B snapshots the file and then runs a synthetic
-// "new version" migration (real DDL plus a schema_migrations row). Then A writes. Synthetic data only, temp
-// directories only, random ports. Set OLD_WRITER_BARRIER_TABLE=1 to print the results table.
+// Set OLD_WRITER_BARRIER_TABLE=1 to print the results table.
 interface MigrationResult {
   type: string;
   ok: boolean;
@@ -72,7 +69,6 @@ function createSandbox(): BarrierSandbox {
   return sandbox;
 }
 
-/** Process B: snapshot, then migrate. Resolves with what B saw and did. */
 async function migrateInAnotherProcess(
   sandbox: BarrierSandbox,
   options: { snapshot?: boolean; busyTimeoutMs?: number } = {},
@@ -220,7 +216,6 @@ describe("old writer barrier (DT-04, design R4 section 10.4)", () => {
       database,
     );
 
-    // The pre-migration snapshot is a complete, readable copy of the old schema, and the app can open it.
     const snapshot = inspectDatabase(sandbox.snapshotPath);
     expect(snapshot).toMatchObject({ integrity: "ok", highestMigration: LATEST_SCHEMA_VERSION, hasFutureTable: false });
     expect(snapshot.sessionTitles).toEqual(["Barrier probe baseline-ok"]);

@@ -10,11 +10,7 @@ import SessionPanel from "../domain/SessionPanel.vue";
 import SessionSummaryEditorDialog from "../domain/SessionSummaryEditorDialog.vue";
 import { locale } from "../../i18n";
 
-/**
- * Every global panel and dialog, loaded as one chunk after the first paint. They teleport to <body> in mount order,
- * which decides how they stack (the diagram reader above the Session panel), so they stay in one component and mount
- * together in this order instead of each arriving with its own chunk.
- */
+/** Mount order decides how the teleported overlays stack (the diagram reader above the Session panel), so they stay in one component in this order. */
 const paletteOpen = defineModel<boolean>("paletteOpen", { required: true });
 </script>
 

@@ -8,11 +8,6 @@ import { BackupWorkerClient } from "../../apps/server/src/backup-worker-client.j
 import type { ProjectDataImportUpload } from "../../apps/server/src/routes/router.js";
 import { writeImportRequest, writeSyntheticProjectExport } from "../helpers/synthetic-project-export.js";
 
-// Fictional data only. A large import runs in a child process; killing that process in the middle of the write must
-// leave the database whole and unchanged (the import is one transaction), and the next worker must import the same
-// file. The write is detected from another connection: while the import's transaction holds the write lock, a probe
-// that does not wait sees SQLITE_BUSY.
-
 // The export holds the 2,000 generated Sessions and the one template Session they are made from.
 const IMPORTED_SESSIONS = 2_001;
 const roots: string[] = [];
@@ -45,7 +40,6 @@ function integrity(databasePath: string): unknown {
   }
 }
 
-/** True while another connection holds the database's write lock; never waits for it and never keeps it. */
 function writeLockProbe(databasePath: string): { held(): boolean; close(): void } {
   const probe = new DatabaseSync(databasePath);
   probe.exec("PRAGMA busy_timeout = 0");
@@ -145,13 +139,11 @@ describe("a background worker killed in the middle of an import", () => {
       expect(failure).toBeInstanceOf(Error);
       expect((failure as Error).message).toMatch(/background worker exited unexpectedly/);
 
-      // The database opens, is intact, and nothing of the import is in it.
       expect(integrity(databasePath)).toEqual({ integrity_check: "ok" });
       expect(sessionCount(databasePath)).toBe(before);
       expect(store.listProjects()).toHaveLength(1);
       expect(probe.held()).toBe(false);
 
-      // A new process serves the same import, and it lands completely.
       const imported = await worker.importProjectData(largeUpload());
       expect(imported).toMatchObject({ outcome: "project_data_imported", changed: true });
       expect(state.lifetime?.child.pid).not.toBe(child?.pid);

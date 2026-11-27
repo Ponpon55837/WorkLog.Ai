@@ -9,7 +9,6 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/** Settles `pending` under fake timers (a stopping child is waited for with timers). */
 async function finish<T>(pending: Promise<T>): Promise<T> {
   await vi.advanceTimersByTimeAsync(60_000);
   return pending;
