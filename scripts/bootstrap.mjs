@@ -6,11 +6,7 @@ import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { runPnpm } from "./run-pnpm.mjs";
 
-/*
- * `pnpm bootstrap`: the single install path (install, build, connect Agents, optional login service, doctor).
- * Node built-ins only, because it can run before `pnpm install`. Steps, prompts and output are injectable so the
- * flow is testable without running pnpm.
- */
+// `pnpm bootstrap`. Node built-ins only: it can run before `pnpm install`.
 
 export const MINIMUM_NODE = "22.16.0";
 
@@ -47,7 +43,6 @@ const NEXT_STEPS = [
   "     之後更新不必重新連線：已連線的 MCP 會自動切換到新版；只有 Agent 回報 restartRequired 時才重新連線一次",
 ].join("\n");
 
-/** Splits a "v22.13.0" or "22.13.0" style version into numbers; undefined when it is not one. */
 function versionParts(value) {
   const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(value ?? "").trim());
   return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : undefined;
@@ -63,7 +58,6 @@ function atLeast(installed, minimum) {
   return true;
 }
 
-/** The pnpm minimum from the root package.json `engines.pnpm` (">=x.y.z"), or undefined when it cannot be read. */
 function readRequiredPnpm() {
   try {
     const manifest = JSON.parse(readFileSync(resolve(repositoryRoot, "package.json"), "utf8"));
@@ -89,10 +83,7 @@ export function parseBootstrapArguments(argv) {
   };
 }
 
-/**
- * Whether the login service is already installed, read from the freshly built user-service module (a read-only OS
- * query). Any failure counts as "not installed", which falls back to asking.
- */
+/** Any failure counts as "not installed", which falls back to asking. */
 async function readServiceInstalled() {
   try {
     const module = await import(pathToFileURL(resolve(repositoryRoot, "apps/server/dist/user-service.js")).href);
@@ -121,7 +112,6 @@ export function defaultBootstrapDependencies() {
         terminal.close();
       }
     },
-    /** Runs one pnpm command with the terminal attached and returns its exit status (1 when it could not start). */
     runStep(args) {
       const result = runPnpm(args, { cwd: repositoryRoot, stdio: "inherit" });
       return typeof result.status === "number" ? result.status : 1;
@@ -129,7 +119,6 @@ export function defaultBootstrapDependencies() {
   };
 }
 
-/** Runs the flow and returns the process exit code: 0 done or plan only, 1 a step or precheck failed, 2 bad usage. */
 export async function runBootstrap(argv, dependencies = defaultBootstrapDependencies()) {
   const options = parseBootstrapArguments(argv);
   const { log, error } = dependencies;

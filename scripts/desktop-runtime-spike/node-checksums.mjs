@@ -1,8 +1,7 @@
 /**
- * SHA-256 of every official Node.js archive the runtime build may download, pinned in the repository: the build trusts
- * these values, not whatever nodejs.org serves next to the archive (a swapped archive would come with a matching
- * SHASUMS256.txt). To add a version, copy its lines from the SHASUMS256.txt that nodejs.org publishes for it and check
- * them against the signed SHASUMS256.txt.asc, then add them here in the same commit that changes DEFAULT_NODE_VERSION.
+ * Pinned SHA-256 of every Node.js archive the build may download; the build trusts these, not the SHASUMS256.txt served
+ * beside the archive. Check new lines against the signed SHASUMS256.txt.asc and add them in the same commit that
+ * changes DEFAULT_NODE_VERSION.
  */
 export const PINNED_NODE_SHA256 = {
   "v24.22.3": {
@@ -15,7 +14,6 @@ export const PINNED_NODE_SHA256 = {
   },
 };
 
-/** The pinned hash of `archiveName` in Node.js `version`, or undefined when that archive is not pinned. */
 export function pinnedNodeSha256(version, archiveName) {
   return PINNED_NODE_SHA256[version]?.[archiveName];
 }

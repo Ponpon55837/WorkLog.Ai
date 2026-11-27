@@ -1,4 +1,3 @@
-/** Types for scripts/agent-usage-report.mjs, so tests can import it. */
 export type {
   OperationUsage,
   SessionUsage,

@@ -1,15 +1,6 @@
 #!/usr/bin/env node
-/**
- * `pnpm test:standalone`: builds the standalone package into a temp directory, unpacks the tarball there, and runs the
- * installed command the way a user without a checkout would: `--version`, `start` (health, Web UI, a backup through
- * the worker thread), `track`, `db backups`, `check` and an MCP stdio session. With `--tarball <path>` it skips the
- * build and checks that tarball instead, so a release can test the exact file it uploads.
- *
- * Needs `pnpm build` first (for apps/web/dist). Everything it can write to (HOME, USERPROFILE, CODEX_HOME,
- * CLAUDE_CONFIG_DIR, WORK_INTELLIGENCE_CONFIG_DIR, TMP) is redirected into one fresh temp directory, which is removed
- * at the end. It never touches data/, a root SQLite file, ~/.work-intelligence, ~/.claude, the login service, or the
- * default port 3210 (it picks a free one). Exit code 1 when any step fails.
- */
+// Everything it can write to is redirected into one fresh temp directory; it never touches data/, ~/.work-intelligence,
+// ~/.claude, the login service or the default port 3210.
 import { spawn, spawnSync } from "node:child_process";
 import {
   existsSync,
@@ -68,7 +59,6 @@ async function portIsFree(port) {
   });
 }
 
-/** Extracts a tar.gz written by scripts/build-standalone.mjs (ustar, regular files only) with no external tool. */
 function extractTarGz(tarball, destination) {
   const data = gunzipSync(readFileSync(tarball));
   const text = (start, length) => data.toString("utf8", start, start + length).replace(/\0.*$/s, "");
@@ -186,7 +176,6 @@ async function checkServer(bin, environment, root, port, version) {
       assetPath ?? "no script referenced",
     );
 
-    // A backup is made by the worker thread, which is a separate bundle file next to the server bundle.
     const backup = await globalThis.fetch(`http://127.0.0.1:${port}/api/backups`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -200,7 +189,6 @@ async function checkServer(bin, environment, root, port, version) {
       backup.status === 201 && backups.length === 1,
       `status ${backup.status}, files ${backups.length}`,
     );
-    // The packaged runtime has no packages/*/dist; its MCP build must still be readable, not reported as unknown.
     const systemStatus = await globalThis.fetch(`http://127.0.0.1:${port}/api/system/status`);
     const mcp = (await systemStatus.json()).mcp;
     check(
@@ -216,7 +204,6 @@ async function checkServer(bin, environment, root, port, version) {
   }
 }
 
-/** One MCP stdio session over newline-delimited JSON-RPC. */
 async function mcpSession(bin, environment, root, projectFolder) {
   const child = spawn(process.execPath, [bin, "mcp"], {
     env: environment,
@@ -284,7 +271,6 @@ async function mcpSession(bin, environment, root, projectFolder) {
   }
 }
 
-/** The tarball after `--tarball <path>`, or undefined; any other argument is a usage error. */
 function givenTarball(argv = process.argv.slice(2)) {
   if (argv.length === 0) return undefined;
   if (argv.length === 2 && argv[0] === "--tarball" && argv[1]) return resolve(argv[1]);
@@ -292,13 +278,11 @@ function givenTarball(argv = process.argv.slice(2)) {
   process.exit(2);
 }
 
-/** Builds a fresh package, or uses the given tarball (its version and file count are read after unpacking). */
 async function builtOrGivenTarball(buildDirectory) {
   const tarball = givenTarball();
   return tarball ? { tarball, version: undefined, fileCount: undefined } : buildStandalone(buildDirectory);
 }
 
-/** The version in the single unpacked package folder's package.json. */
 function unpackedVersion(installRoot) {
   const [folder] = readdirSync(installRoot);
   try {
@@ -426,8 +410,6 @@ async function main() {
         mcp.toolNames.join(","),
       );
       check("mcp: sees the project tracked from the CLI", mcp.projectStatus === "tracked", String(mcp.projectStatus));
-      // What a real host saw is recorded in the config directory the desktop reads, and equals the fingerprint the
-      // build shipped, which is what lets the desktop Agent card read "connected" without starting the server.
       const readJson = (...parts) => {
         try {
           return JSON.parse(readFileSync(join(...parts), "utf8"));

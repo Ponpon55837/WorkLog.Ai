@@ -1,16 +1,5 @@
 #!/usr/bin/env node
-/**
- * `pnpm build:plugin` packs Work Intelligence for people without a checkout:
- *
- * - dist/plugin/work-intelligence/                   the Claude Code / Codex plugin with a bundled MCP server
- * - dist/plugin/work-intelligence-plugin-<v>.zip     the same directory, zipped (claude --plugin-url, release asset)
- * - dist/plugin/work-intelligence-<v>.mcpb           a Claude Desktop extension
- *
- * The bundle runs with __WORK_INTELLIGENCE_STANDALONE__ = true: it opens WORK_INTELLIGENCE_DB, else the checkout
- * linked by `pnpm plugin:link`, else ~/.work-intelligence/data. The repository build and plugins/ are not touched.
- * The bundle keeps the repository layout (server/apps/mcp/dist, server/package.json, server/.agents, server/docs)
- * because the MCP reads its version and agent resources relative to its own file.
- */
+// The bundle keeps the repository layout because the MCP reads its version and agent resources relative to its own file.
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import process from "node:process";
@@ -21,7 +10,6 @@ import console from "node:console";
 import { build } from "esbuild";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-/** Dependency-free reader of the desktop App's integration record; the plugin, the MCPB and the standalone package carry it. */
 export const DESKTOP_INTEGRATION_SCRIPT = join(
   repositoryRoot,
   "plugins/work-intelligence/scripts/desktop-integration.mjs",
@@ -50,10 +38,7 @@ function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-/**
- * Resolves `@work-intelligence/<package>[/<subpath>]` to the package's TypeScript source, so the bundle never depends
- * on whether the workspace packages were built (the release job packs the plugin straight from a fresh checkout).
- */
+/** Resolves `@work-intelligence/*` to TypeScript source, so the bundle does not depend on built workspace packages. */
 export const workspaceSources = {
   name: "work-intelligence-workspace-sources",
   setup(builder) {
@@ -65,7 +50,6 @@ export const workspaceSources = {
   },
 };
 
-/** esbuild options shared by every standalone bundle (the plugin's MCP server and the standalone package). */
 export const bundleOptions = {
   bundle: true,
   platform: "node",
@@ -81,7 +65,6 @@ export const bundleOptions = {
   },
 };
 
-/** Writes the bundled MCP server and the files it reads into `<target>/server`. */
 async function buildServer(target, version) {
   const server = join(target, "server");
   await build({
@@ -143,7 +126,7 @@ export function filesUnder(directory) {
     });
 }
 
-/** A plain deflate zip; entries are sorted and dated 1980-01-01 so the same input gives the same bytes. */
+/** Entries are sorted and dated 1980-01-01 so the same input gives the same bytes. */
 export function writeZip(sourceDirectory, outputPath) {
   const locals = [];
   const centrals = [];
@@ -205,7 +188,6 @@ export async function buildPlugin(outputDirectory = join(repositoryRoot, "dist/p
 
   const extensionDirectory = join(outputDirectory, "mcpb");
   await buildServer(extensionDirectory, version);
-  // The start script prefers the desktop App's launcher and otherwise runs the bundled server (see mcpb-launch.mjs).
   mkdirSync(join(extensionDirectory, "scripts"), { recursive: true });
   cpSync(join(repositoryRoot, "scripts/mcpb-launch.mjs"), join(extensionDirectory, "scripts/launch.mjs"));
   cpSync(DESKTOP_INTEGRATION_SCRIPT, join(extensionDirectory, "scripts/desktop-integration.mjs"));

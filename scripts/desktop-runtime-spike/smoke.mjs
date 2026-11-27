@@ -1,22 +1,5 @@
 #!/usr/bin/env node
-/**
- * `pnpm spike:runtime:smoke [--runtime node|electron] [--out <launcher root>] [--runs 5] [--idle-seconds 10]` proves the
- * launcher root made by `pnpm spike:runtime:build` runs on a machine with no Node.js: PATH holds no directory with a
- * `node` executable, NODE_* is empty, the proxy points at an unreachable port, and only the fixed shim is started.
- *
- *   1. serve: Web UI, a synthetic project and knowledge note, FTS5 search, a backup through the worker thread, and the
- *      bundled runtime's own path, versions and `sqlite_version()` (the launcher's --print-runtime-info).
- *   2. mcp, after the server is stopped: `initialize` and `tools/list` over stdio with nothing but JSON-RPC on stdout,
- *      and a read of the synthetic database; hook actions.
- *   3. tampering: a changed byte (mtime restored), a damaged manifest, a planted file, a missing `current`, and an
- *      action that is not allowed; each is refused with its error code (hooks are let through) and repaired runs again.
- *   4. numbers: sizes, verification and cold start times, idle memory and CPU. Written to
- *      dist/desktop-runtime-spike/<platform>-<arch>-<runtime>.json and, in GitHub Actions, to the step summary.
- *
- * Everything the runtime can write to lives in one fresh temp directory (with a space and Chinese characters in its
- * name) that is removed at the end; the real home, ~/.work-intelligence and port 3210 are never touched.
- * Exit code 1 when any check fails.
- */
+// Everything the runtime can write lives in one fresh temp directory; the real home, ~/.work-intelligence and port 3210 are never touched.
 import { Buffer } from "node:buffer";
 import {
   existsSync,
@@ -79,7 +62,6 @@ function runtimeFacts(root) {
   return { runtimeId, runtimeDirectory, manifest };
 }
 
-/** The scratch area of one test: environment, working directory and a synthetic project folder. */
 function scratch(workRoot, label, port) {
   const root = join(workRoot, label);
   mkdirSync(root, { recursive: true });
@@ -102,7 +84,6 @@ async function jsonRequest(port, method, path, body) {
   return { status: response.status, body: await response.json().catch(() => undefined) };
 }
 
-/** Starts the server through the shim on a fresh config directory; resolves when /api/health answers. */
 async function startServer(ctx, { direct = false } = {}) {
   const port = await freePort();
   const area = scratch(ctx.workRoot, `serve-${port}`, port);
@@ -156,7 +137,6 @@ function removeVerificationCache(ctx) {
   rmSync(join(ctx.runtimeDirectory, ".verified.json"), { force: true });
 }
 
-/** Verification cost in this process: every file hashed, versus every file accepted from its stat fingerprint. */
 async function measureVerification(ctx) {
   const { verifyRuntime } = await import(
     pathToFileURL(join(repositoryRoot, "packages/desktop-core/dist/index.js")).href
@@ -215,7 +195,6 @@ async function timedStop(server) {
   return server.milliseconds;
 }
 
-/** Idle memory and CPU of `pid` over `seconds`. */
 async function sampleIdle(pid, seconds) {
   await sleep(1000);
   const startCpu = cpuSeconds(pid);
@@ -352,7 +331,6 @@ async function checkHooks(ctx, area) {
   }
 }
 
-/** Each case damages the installed runtime, expects the launcher to refuse with `code`, then repairs it. */
 async function checkTampering(ctx, area) {
   const refused = async (label, code) => {
     const mcp = await runShim(ctx.shim, ["mcp"], { env: area.env, cwd: area.root });
@@ -376,7 +354,7 @@ async function checkTampering(ctx, area) {
     return info;
   };
 
-  // 1. One byte changed, same size, mtime put back: only the content hash and ctime can notice.
+  // One byte changed, same size, mtime put back: only the content hash and ctime can notice.
   const target = join(ctx.runtimeDirectory, TAMPER_TARGET);
   const original = readFileSync(target);
   const before = statSync(target);
@@ -398,7 +376,6 @@ async function checkTampering(ctx, area) {
     excerpt(info.stdout),
   );
 
-  // 2. Damaged manifest.
   const manifestPath = join(ctx.runtimeDirectory, "runtime-manifest.json");
   const manifestText = readFileSync(manifestPath, "utf8");
   writeFileSync(manifestPath, "{ not json");
@@ -406,21 +383,18 @@ async function checkTampering(ctx, area) {
   writeFileSync(manifestPath, manifestText);
   await recovered("damaged manifest");
 
-  // 3. A file the manifest does not list.
   const planted = join(ctx.runtimeDirectory, "app/web/planted.js");
   writeFileSync(planted, "// planted");
   await refused("planted file", "RUNTIME_FILE_UNEXPECTED");
   unlinkSync(planted);
   await recovered("planted file");
 
-  // 4. Missing pointer.
   const pointer = join(ctx.root, RUNTIME_ID_POINTER);
   renameSync(pointer, `${pointer}.off`);
   await refused("missing current", "RUNTIME_POINTER_MISSING");
   renameSync(`${pointer}.off`, pointer);
   await recovered("missing current");
 
-  // 5. An action that is not on the list.
   const bogus = await runShim(ctx.shim, ["bash"], { env: area.env, cwd: area.root });
   check(
     "action not on the list is refused",
@@ -429,10 +403,7 @@ async function checkTampering(ctx, area) {
   );
 }
 
-/**
- * Negative case of the Windows ACL check: a copy of the launcher root whose directory lets BUILTIN\Users write, as a
- * runner's temp folder does, must be refused with exit 78 and RUNTIME_UNSAFE_PERMISSIONS before anything starts.
- */
+/** A root that lets BUILTIN\Users write, as a runner's temp folder does, must be refused with exit 78 and RUNTIME_UNSAFE_PERMISSIONS. */
 async function checkUnsafeAcl(ctx) {
   if (!WINDOWS) {
     check("unsafe ACL: BUILTIN\\Users-writable root is refused (Windows only, skipped)", true);
@@ -585,7 +556,6 @@ async function main() {
   }
 }
 
-/** On a failure the checks run so far still go to the report file, so the CI artifact shows how far it got. */
 function writePartialReport() {
   const runtimeFlag = process.argv.indexOf("--runtime");
   const failed = results.filter((result) => !result.ok).length;

@@ -1,12 +1,6 @@
 #!/usr/bin/env node
-/**
- * The `work-intelligence` command of the standalone package (copied to `bin/` by scripts/build-standalone.mjs).
- * It only checks the Node.js version and hands over to the bundled CLI in this process: no child process, so signals
- * and stdio behave as they do for `node apps/.../index.js`, including on Windows.
- *
- * The one exception is `mcp` on a computer with the desktop App: it runs through the App's fixed launcher (see
- * desktop-integration.mjs), which has its own Node, keeps working after the App quits and follows App updates.
- */
+// Runs the bundled CLI in this process, not a child, so signals and stdio behave as for `node apps/.../index.js`, including
+// on Windows. The exception is `mcp` with the desktop App installed, which goes through the App's fixed launcher.
 import { readFileSync } from "node:fs";
 import console from "node:console";
 import process from "node:process";
@@ -14,7 +8,6 @@ import { fileURLToPath, URL } from "node:url";
 import { resolveDesktopLauncher, runDesktopLauncher } from "./desktop-integration.mjs";
 import { satisfiesNodeRange } from "./node-range.mjs";
 
-/** The package's engines.node, or undefined when it cannot be read. */
 function requiredNodeRange() {
   try {
     const packagePath = fileURLToPath(new URL("../package.json", import.meta.url));
@@ -25,7 +18,6 @@ function requiredNodeRange() {
   }
 }
 
-/** Checks the Node.js version, then runs the bundled CLI in this process. */
 async function runBundledCli() {
   const requiredRange = requiredNodeRange();
   if (requiredRange && !satisfiesNodeRange(requiredRange, process.versions.node)) {

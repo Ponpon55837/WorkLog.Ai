@@ -1,19 +1,4 @@
 #!/usr/bin/env node
-/**
- * Keeps the pnpm audit exceptions (`auditConfig.ignoreGhsas` in pnpm-workspace.yaml) from growing or going stale.
- *
- * It fails when:
- * - the ignore list differs from ALLOWED_AUDIT_IGNORES below (an entry was added or removed without updating this file);
- * - an ignored advisory is no longer reported by `pnpm audit --prod` (run on a temporary copy without the ignore list);
- * - the lockfile no longer resolves any vulnerable version of the advisory's package (a patched release is installed).
- *
- * With --registry (the daily .github/workflows/audit-exceptions-watch.yml), it also fails when the npm registry already
- * publishes a stable version of the advisory's package above its vulnerable range, i.e. a patched release exists.
- *
- * Usage: node scripts/check-audit-ignores.mjs [--offline | --registry]
- *   --offline   skips the `pnpm audit` call (list and lockfile checks only); the unit test covers the pure functions.
- *   --registry  adds the registry check (`npm view <package> versions --json`) to the full check.
- */
 import { spawnSync } from "node:child_process";
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -23,16 +8,13 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 /**
- * Every allowed exception. `vulnerableUpTo` is the highest affected version (the advisory's range is `<= vulnerableUpTo`).
- * See docs/security/audit-exceptions.md for the reasoning and the removal condition of each entry.
+ * Every allowed exception; `vulnerableUpTo` is the highest affected version. See docs/security/audit-exceptions.md.
+ * Add an entry here only together with auditConfig.ignoreGhsas and the docs.
  */
-// Empty since 1.6.53: GHSA-fc5q-39xc-vjpf (picomatch) was resolved by moving vue-router back to 4.6.5, which drops
-// picomatch from the production tree. Add an entry here only together with auditConfig.ignoreGhsas and the docs.
 export const ALLOWED_AUDIT_IGNORES = Object.freeze({});
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-/** The GHSA ids under `auditConfig.ignoreGhsas` in a pnpm-workspace.yaml text (block list form). */
 export function parseIgnoreGhsas(workspaceYaml) {
   const lines = workspaceYaml.split(/\r?\n/);
   const ids = [];
@@ -57,7 +39,6 @@ export function parseIgnoreGhsas(workspaceYaml) {
   return ids;
 }
 
-/** The text of pnpm-workspace.yaml with the whole `auditConfig` block removed. */
 export function withoutAuditConfig(workspaceYaml) {
   const out = [];
   let skipping = false;
@@ -68,14 +49,12 @@ export function withoutAuditConfig(workspaceYaml) {
   return out.join("\n");
 }
 
-/** Every version of `name` that the pnpm lockfile resolves (keys like `  name@1.2.3:` or `  name@1.2.3(peer):`). */
 export function lockfileVersions(lockfileText, name) {
   const escaped = name.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
   const pattern = new RegExp(`^ {2}'?${escaped}@(\\d+\\.\\d+\\.\\d+[^:('\\s]*)`, "gm");
   return [...new Set([...lockfileText.matchAll(pattern)].map((match) => match[1]))].sort();
 }
 
-/** -1, 0 or 1 comparing two x.y.z versions (pre-release suffixes count as lower than the release). */
 export function compareVersions(a, b) {
   const parse = (value) => {
     const [core, pre] = value.split("-", 2);
@@ -92,10 +71,6 @@ export function compareVersions(a, b) {
   return 0;
 }
 
-/**
- * The problems for an ignore list, the lockfile text and (unless null) the GHSA ids `pnpm audit` reports without the
- * ignore list. An empty array means the exceptions are exactly the allowed ones and each is still needed.
- */
 export function auditIgnoreProblems({ ignored, lockfileText, reportedGhsas, allowed = ALLOWED_AUDIT_IGNORES }) {
   const problems = [];
   const allowedIds = Object.keys(allowed).sort();
@@ -127,20 +102,14 @@ export function auditIgnoreProblems({ ignored, lockfileText, reportedGhsas, allo
   return problems;
 }
 
-/** The steps that retire an exception, printed with every failure that means it can go. */
 export const REMOVAL_STEPS =
   "upgrade the package (pnpm update --recursive <package>, or bump the parent that pins it), regenerate the lockfile with pnpm install, delete the entry from auditConfig.ignoreGhsas in pnpm-workspace.yaml and from ALLOWED_AUDIT_IGNORES in scripts/check-audit-ignores.mjs, and delete its section in docs/security/audit-exceptions.md";
 
-/** True for a plain x.y.z release (no pre-release suffix). */
 function isStableVersion(version) {
   return /^\d+\.\d+\.\d+$/.test(version);
 }
 
-/**
- * Problems for the registry check: for each allowed and ignored advisory, the stable versions the registry publishes
- * above its vulnerable range (`registryVersions` maps a package name to every published version, or is missing it when
- * the lookup failed, which is itself a problem so the watch never passes silently).
- */
+/** A failed registry lookup is itself a problem, so the watch never passes silently. */
 export function registryProblems({ ignored, registryVersions, allowed = ALLOWED_AUDIT_IGNORES }) {
   const problems = [];
   for (const id of [...ignored].sort().filter((entry) => allowed[entry])) {
@@ -162,7 +131,6 @@ export function registryProblems({ ignored, registryVersions, allowed = ALLOWED_
   return problems;
 }
 
-/** Every published version of `name`, from `npm view <name> versions --json`; undefined when the lookup fails. */
 function publishedVersions(name) {
   const result = spawnSync("npm", ["view", name, "versions", "--json"], {
     encoding: "utf8",
@@ -178,7 +146,6 @@ function publishedVersions(name) {
   }
 }
 
-/** This repository's pnpm-workspace.yaml and pnpm-lock.yaml texts. */
 export function readWorkspaceFiles() {
   return {
     workspaceYaml: readFileSync(join(ROOT, "pnpm-workspace.yaml"), "utf8"),
@@ -186,7 +153,6 @@ export function readWorkspaceFiles() {
   };
 }
 
-/** The GHSA ids `pnpm audit --prod` reports for this workspace with the ignore list removed (a temporary copy). */
 function reportedWithoutIgnores(workspaceYaml) {
   const directory = mkdtempSync(join(tmpdir(), "wi-audit-ignores-"));
   try {

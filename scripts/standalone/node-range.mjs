@@ -1,7 +1,4 @@
-/**
- * Node.js built-ins only: the `work-intelligence` command checks the version before it loads the bundled CLI, which
- * needs node:sqlite with FTS5. Copied next to bin/work-intelligence.mjs by scripts/build-standalone.mjs.
- */
+/** Node.js built-ins only: the version check runs before the bundled CLI loads, which needs node:sqlite with FTS5. */
 
 function compareVersions(left, right) {
   for (let index = 0; index < 3; index += 1) {
@@ -10,11 +7,7 @@ function compareVersions(left, right) {
   return 0;
 }
 
-/**
- * True when `version` satisfies a range made of `||`-separated sets of `>=x.y.z` / `<x[.y[.z]]` comparators, the form
- * packages/shared's SUPPORTED_NODE_RANGE uses. A range in any other form is treated as satisfied rather than blocking,
- * and so is an unparsable version.
- */
+/** A range in a form other than `||`-separated comparators, or an unparsable version, counts as satisfied rather than blocking. */
 export function satisfiesNodeRange(range, version) {
   const actual = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(version).trim());
   if (!actual) return true;

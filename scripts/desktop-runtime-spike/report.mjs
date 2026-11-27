@@ -1,4 +1,3 @@
-/** Output of the runtime smoke test: the JSON file and, in GitHub Actions, a markdown summary. */
 import { appendFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
@@ -6,7 +5,6 @@ import { ensureDirectory, formatBytes, platformTag, spikeDirectory } from "./com
 
 const ms = (value) => (value === undefined ? "n/a" : `${value.toFixed(0)} ms`);
 
-/** Writes `<dist>/desktop-runtime-spike/<platform>-<arch>-<runtime>.json` and returns its path. */
 export function writeReport(report) {
   const directory = ensureDirectory(spikeDirectory);
   const path = join(directory, `${platformTag}-${report.runtime.choice}.json`);
@@ -14,7 +12,6 @@ export function writeReport(report) {
   return path;
 }
 
-/** One markdown table for $GITHUB_STEP_SUMMARY; does nothing outside GitHub Actions. */
 export function appendStepSummary(report) {
   const target = process.env.GITHUB_STEP_SUMMARY;
   if (!target) return;

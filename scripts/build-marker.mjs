@@ -1,10 +1,7 @@
 import { closeSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import process from "node:process";
 
-/**
- * Creates the runtime build marker exclusively (throws EEXIST when another build holds it) and returns its exact
- * content, which is this build's proof of ownership for `removeOwnBuildMarker`.
- */
+/** Created exclusively (EEXIST when another build holds it); the returned content is this build's proof of ownership. */
 export function createBuildMarker(markerPath, owner) {
   const content = JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString(), package: owner });
   const markerFd = openSync(markerPath, "wx", 0o600);
@@ -20,11 +17,7 @@ export function createBuildMarker(markerPath, owner) {
   return content;
 }
 
-/**
- * Removes the marker after a failed build, only while it still holds this build's content: a marker another build
- * created after a manual removal is left alone. A failed build never leaves a dist the MCP treats as valid, because
- * the identity it checks is embedded only when the build finishes.
- */
+/** Removes the marker only while it still holds this build's content; a marker another build created is left alone. */
 export function removeOwnBuildMarker(markerPath, content) {
   let current;
   try {

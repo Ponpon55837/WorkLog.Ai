@@ -44,7 +44,6 @@ try {
 
   const backup = await worker.createBackup();
   if (backup.outcome !== "database_backups") throw new Error("The synthetic database was not backed up.");
-  // The built worker runs as its own process and streams files both ways, as the REST routes use it.
   const exportFile = join(mkdtempSync(join(root, "export-")), "export.json");
   const exported = await worker.exportProjectData({ type: "all" }, exportFile);
   const bundle = JSON.parse(readFileSync(exportFile, "utf8"));
@@ -69,7 +68,6 @@ try {
   } finally {
     exportedDatabase.close();
   }
-  // The built usage worker scans an empty synthetic folder in its own process.
   const usageFolder = join(root, "synthetic-usage");
   mkdirSync(usageFolder);
   const usage = await new UsageWorkerClient({

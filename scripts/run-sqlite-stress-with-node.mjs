@@ -1,14 +1,5 @@
 #!/usr/bin/env node
-/**
- * Runs the DT-07 SQLite stress suite (tests/stress/) with a given Node binary: `--node <path>` or WI_SQLITE_STRESS_NODE.
- * The whole suite runs under that binary (vitest, the orchestrator and, through `process.execPath`, every worker), so the
- * SQLite under test is the one that binary bundles, and the suite's own report records its Node and SQLite versions. Used
- * by the packaged smoke (apps/desktop/scripts/run-packaged-smoke.mjs) with the Node binary the packaged App ships.
- *
- *   --node <path>     the Node binary (default: WI_SQLITE_STRESS_NODE; required one way or the other)
- *   --copy-to <path>  copy the suite's JSON report there afterwards (the CI artifact); it holds no paths or user data
- * Duration and seed come from WI_SQLITE_STRESS_SECONDS and WI_SQLITE_STRESS_SEED, as for `pnpm test:sqlite-stress`.
- */
+// The whole suite runs under the given Node binary (every worker through process.execPath), so the SQLite under test is the one it bundles.
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";

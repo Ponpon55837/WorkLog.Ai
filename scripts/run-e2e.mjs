@@ -17,7 +17,6 @@ const projects = requestedProjects.length > 0 ? requestedProjects : allProjects;
 // The browser regression suite builds its fixtures once in beforeAll, so Playwright cannot retry a test in place.
 // On CI a failed project is run once more from the start; each run gets a fresh server and SQLite database.
 const attempts = process.env.CI ? 2 : 1;
-// Extra arguments (for example `-g <title>`) are passed to every Playwright run.
 const extraArgs = process.argv.slice(2);
 
 function runProject(project, attempt) {
@@ -39,7 +38,6 @@ for (const project of projects) {
     }
     passed = runProject(project, attempt);
     if (passed && attempt > 1) {
-      // Keep flaky runs visible on the workflow summary even though the job passes.
       console.log(`::warning title=Flaky E2E::${project} passed only after a full rerun; see test-results/${project}.`);
     }
   }
