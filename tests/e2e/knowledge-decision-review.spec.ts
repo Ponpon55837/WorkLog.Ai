@@ -25,6 +25,8 @@ async function seed(request: APIRequestContext, count: number): Promise<Fixture>
       idempotencyKey: `decision-review-${project.id}`,
       title: "Decision review source",
       summary: "Fictional Agent choices wait for review.",
+      // Older than every other spec's Sessions, so these never reach the top of shared lists.
+      completedAt: "2024-01-15T00:00:00.000Z",
       workSummary: {
         outcomes: [],
         scope: [],
