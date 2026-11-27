@@ -43,22 +43,18 @@ import { resolveWebDirectory } from "./web-directory.js";
 import { applyProductionSecurityHeaders, createStaticFilesHandler } from "./static-files.js";
 
 const DEFAULT_EVENT_POLL_INTERVAL_MS = 2_000;
-/** A write that changed nothing because the database is locked, read-only or out of space; the user can retry. */
 const DATABASE_UNAVAILABLE_RESPONSES: Record<DatabaseUnavailableReason, { status: number; code: ApiErrorCode }> = {
   busy: { status: 503, code: "database_busy" },
   read_only: { status: 503, code: "database_read_only" },
   disk_full: { status: 507, code: "database_disk_full" },
 };
-/** Another process migrated the database past this server's build; every write is refused until it restarts. */
 const SERVER_RESTART_REQUIRED_MESSAGE = "資料庫 schema 已更新，請重新啟動 Work Intelligence server。";
-/** Nothing was saved; the fixed text carries no content, and the web app shows its own translated guidance. */
 const BACKUP_WORKER_OUT_OF_MEMORY_MESSAGE = "匯入檔太大，背景處理記憶體不足；後端仍正常運作。";
 const BACKUP_WORKER_TIMEOUT_MESSAGE = "背景處理逾時而被停止；後端仍正常運作，請稍後再試。";
 const DEFAULT_MAX_EVENT_CLIENTS = 32;
 const EVENT_HEARTBEAT_INTERVAL_MS = 15_000;
 const DEFAULT_REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
-/** Built once: the route table is static, and building it rejects duplicate routes at startup. */
 const router = new Router(apiRoutes);
 
 const defaultAllowedOrigins = resolveWebDirectory() ? "" : "http://127.0.0.1:5966,http://localhost:5966";
@@ -75,9 +71,8 @@ if ((process.env.WORK_INTELLIGENCE_ALLOWED_ORIGINS ?? "").split(",").some((origi
   );
 }
 
-// DNS rebinding guard: a rebound page is same-origin, so its GETs carry no Origin header, but the Host header still
-// names the attacker's domain (or a port the attacker controls). Only loopback names on the port this server is
-// listening on, and the exact host:port of an allowlisted origin, pass.
+// DNS rebinding guard: a rebound page's GETs carry no Origin header, but Host still names the attacker's domain or port.
+// Only loopback names on the listening port, and the exact host:port of an allowlisted origin, pass.
 const LOOPBACK_HOSTNAMES = ["127.0.0.1", "localhost", "[::1]"];
 const allowedOriginHosts = new Set<string>();
 // An origin on its scheme's default port is also reached without a port in Host (for example behind a TLS proxy).
@@ -105,7 +100,7 @@ function isAllowedHost(hostHeader: string | undefined, listenPort: number | unde
     if (!/:\d+$/.test(hostHeader) && allowedPortlessHostnames.has(hostname)) {
       return true;
     }
-    // Without a real socket (in-process test requests) there is no listening port to compare.
+    // In-process test requests have no real socket, so there is no listening port to compare.
     const portMatches = listenPort === undefined || hostPort === `${hostname}:${listenPort}`;
     return portMatches && LOOPBACK_HOSTNAMES.includes(hostname);
   } catch {
@@ -138,47 +133,31 @@ function isSameOrigin(request: IncomingMessage, origin: string): boolean {
 
 /** @internal test-only */
 export interface ApiHandlerOptions {
-  /** Shows the native folder dialog; injectable so tests never open a real window. */
   pickFolder?: () => Promise<FolderPickResult>;
-  /** Polling interval for the SQLite change stream; configurable to keep integration tests fast. */
   eventPollIntervalMs?: number;
-  /** Maximum number of simultaneous SSE clients. */
   maxEventClients?: number;
-  /** Serves a built Web distribution on the same origin as this API server. */
   webDirectory?: string;
-  /** Install root used for the shared MCP runtime registry; injectable for isolated tests. */
   repositoryRoot?: string;
-  /** Shared MCP connection status; injectable so API tests need no lease files. */
   mcpRuntimeStatus?: () => ReturnType<typeof getMcpRuntimeStatus>;
-  /** Read-only Agent diagnostics; injectable so API tests never inspect real user settings. */
   agentConnections?: () => SystemAgentConnections;
-  /** Read-only login-service status; injectable so API tests never query the host service manager. */
   userServiceStatus?: () => UserServiceStatus | Promise<UserServiceStatus>;
-  /** Offloads disk snapshots and large project-data preparation from the API event loop. */
   backgroundStore?: BackgroundStoreOperations;
-  /** Scans local Agent logs for `/api/usage/*`; defaults to an in-process scan of the current user's logs. */
   usage?: UsageOperations;
-  /** What the background worker is doing, when there is one (desktop child only). */
   backgroundActivity?: () => readonly DesktopBackendActivity[];
-  /** Where large uploads and exports are staged; defaults to `tmp` beside the store's database. */
   transferRoot?: string;
   /**
-   * The desktop shell's per-spawn secret. When set, `/api/health` answers a valid challenge header with an HMAC proof
-   * so the parent can tell this process from a squatter on the port; the id itself is never sent. Unset: no change.
+   * When set, `/api/health` answers a valid challenge header with an HMAC proof so the parent can tell this process
+   * from a squatter on the port; the id itself is never sent.
    */
   instanceRunId?: string;
-  /** Set only by the desktop child: enables `desktop` in the system status and `POST /api/desktop/open-agent-setup`. */
   desktop?: DesktopHandlerOptions;
 }
 
 /** @internal test-only */
 export type ApiHandler = ((request: IncomingMessage, response: ServerResponse) => Promise<void>) & {
   closeEventStreams: () => void;
-  /** Removes the export files staged for an import (shutdown); a crash leaves them to the start-up sweep. */
   discardStagedImports: () => void;
-  /** The long jobs running now (an import upload, a backup, an export); read by the desktop child's `activity` reply. */
   activity: () => DesktopBackendActivity[];
-  /** An uploaded import file waits unread for the user's confirm; a restart discards it (not a long job). */
   hasPendingImport: () => boolean;
 };
 
@@ -290,7 +269,6 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
         return;
       }
     } catch {
-      // Keep the stream open and retry on the next interval if SQLite is temporarily unavailable.
       return;
     }
 
@@ -425,8 +403,7 @@ export function createApiHandler(store: WorkIntelligenceStore, options: ApiHandl
       }
 
       if (error instanceof BackupWorkerOutOfMemoryError) {
-        // 413: the document is too large for this server to process in one request, so retrying it cannot succeed.
-        // A distinct code keeps it apart from `payload_too_large` (the body limit); the next request starts a new worker.
+        // 413, not 500: retrying the same document cannot succeed; the code keeps it apart from `payload_too_large`.
         sendError(response, 413, BACKUP_WORKER_OUT_OF_MEMORY_MESSAGE, undefined, error.code);
         return;
       }

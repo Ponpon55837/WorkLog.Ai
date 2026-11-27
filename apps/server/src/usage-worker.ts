@@ -2,10 +2,8 @@ import type { UsageProjectInput } from "@work-intelligence/shared/agent-usage";
 import { runUsageScan, runUsageSources, type UsageScanContext, type UsageScanInput } from "./usage-scan.js";
 import type { UsageWorkerReply, UsageWorkerRequest } from "./usage-worker-client.js";
 
-/** The child process of one usage request: reads the Agent logs away from the API's event loop, then exits. */
-
 function serializeError(error: unknown): { name: string; message: string } {
-  // Only the kind of failure travels back: messages of file-system errors embed paths.
+  // Only the kind of failure travels back: file-system error messages embed paths.
   const name = error instanceof Error && error.name.startsWith("UsageScan") ? error.name : "Error";
   return { name, message: name === "Error" ? "The usage scan failed." : name };
 }
@@ -23,7 +21,6 @@ async function execute(context: UsageScanContext, request: UsageWorkerRequest): 
 }
 
 function send(reply: UsageWorkerReply): void {
-  // Exit once the reply is written; the client also stops the process after it has the reply.
   process.send?.(reply, undefined, undefined, () => process.exit(0));
 }
 
@@ -32,7 +29,6 @@ if (!process.send) {
 }
 const context = JSON.parse(process.argv[2] ?? "{}") as UsageScanContext;
 
-// The API process is gone: nothing can receive a reply, so stop.
 process.on("disconnect", () => process.exit(0));
 
 process.once("message", (message: UsageWorkerRequest) => {

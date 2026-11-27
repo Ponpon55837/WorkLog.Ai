@@ -7,32 +7,19 @@ import {
 } from "@work-intelligence/schema";
 import type { DesktopRouteServices, ShellLocale } from "./routes/router.js";
 
-/** Desktop-child mode as the API handler sees it; undefined options mean a standalone server. */
 export interface DesktopHandlerOptions {
-  /** Facts the App passed in its `start` message. */
   facts?: DesktopFacts;
-  /** Reads the current facts on every request; takes precedence over `facts` because the App can update them after start. */
   getFacts?: () => DesktopFacts | undefined;
-  /** Tells the App to open its Agent setup window. It never writes any Agent config. */
   onOpenAgentSetup: () => void;
-  /** Tells the App to open its port settings with the page's already sanitized preferences and route. */
   onOpenPortSettings?: (handoff: { preferences: BrowserPreferences; route: string }) => void;
-  /** Tells the App the Dashboard language the user picked; the App saves it and pushes updated facts back. */
   onSetLanguage?: (locale: ShellLocale) => void;
-  /** Clock for the throttle; injectable for tests. */
   now?: () => number;
 }
 
-/**
- * At most one message to the App per interval, however often the endpoint is called.
- * @internal test-only
- */
+/** @internal test-only */
 export const OPEN_AGENT_SETUP_MIN_INTERVAL_MS = 1000;
 
-/**
- * The same limit for the port settings request.
- * @internal test-only
- */
+/** @internal test-only */
 export const OPEN_PORT_SETTINGS_MIN_INTERVAL_MS = 1000;
 
 export function createDesktopRouteServices(
@@ -73,7 +60,7 @@ export function createDesktopRouteServices(
       if (lastPortSettingsSentAt !== undefined && at - lastPortSettingsSentAt < OPEN_PORT_SETTINGS_MIN_INTERVAL_MS)
         return;
       lastPortSettingsSentAt = at;
-      // Sanitized again here so nothing outside the whitelist ever reaches the App, whatever the caller passed.
+      // Sanitized again so nothing outside the whitelist reaches the App, whatever the caller passed.
       try {
         options.onOpenPortSettings?.({
           preferences: sanitizeBrowserPreferences(handoff.preferences),

@@ -5,22 +5,17 @@ import { resolveServerPort } from "./server-port.js";
 import { getUserServiceStatus, WINDOWS_TASK_NAME } from "./user-service.js";
 
 export interface DatabaseBusyDiagnosisDependencies {
-  /** Resolves true when a Work Intelligence server answers /api/health on this port. */
   probeServer?: (port: number) => Promise<boolean>;
-  /** Fresh Agent MCP process leases; `monitoringAvailable: false` means the count is unknown. */
   getMcpStatus?: () => { activeProcesses: number; monitoringAvailable: boolean };
-  /** Read-only login-service state; `running` means the server was started by the login service. */
   getServiceStatus?: () => { state: string };
   platform?: NodeJS.Platform;
   port?: number;
-  /** Which command names to show; defaults to the running mode. */
   standalone?: boolean;
 }
 
 const HEALTH_PROBE_TIMEOUT_MS = 1500;
 const HEALTH_SCHEMA = z.object({ ok: z.boolean(), app: z.literal("Work Intelligence") });
 
-/** True for the typed storage errors that mean another process holds the database file. */
 export function isDatabaseInUseError(error: unknown): boolean {
   return error instanceof Error && (error as { code?: unknown }).code === "DATABASE_IN_USE";
 }
@@ -37,10 +32,6 @@ async function probeServerHealth(port: number): Promise<boolean> {
   }
 }
 
-/**
- * Read-only hints appended to a DATABASE_IN_USE error: whether the server is running and how many Agent MCP
- * connections are alive. Never throws; a failed probe is simply omitted so the original error stays visible.
- */
 export async function diagnoseDatabaseInUse(
   repositoryRoot: string,
   dependencies: DatabaseBusyDiagnosisDependencies = {},

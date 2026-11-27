@@ -17,7 +17,7 @@ import { KnowledgePageDeletionError } from "@work-intelligence/storage";
 import { numberParam, readJsonBody, readJsonObject, sendError, sendJson, textParam } from "../http.js";
 import { parseRequestInput, validatedRoute, type Route, type RouteContext } from "./router.js";
 
-/** Deletes a custom Knowledge page and its versions; the JSON confirmation keeps it out of reach of links and forms. */
+// The required JSON confirmation keeps deletion out of reach of plain links and forms.
 async function deleteKnowledgePage({ store, request, response, params }: RouteContext): Promise<void> {
   const parsed = parseRequestInput(deleteKnowledgePageInputSchema, await readJsonBody(request));
   if (!parsed.success) {

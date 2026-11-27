@@ -33,10 +33,9 @@ import {
   type RouteServices,
 } from "./router.js";
 
-/** Read size for streaming a database export: large reads cut the per-chunk overhead of a file of tens of MB. */
+// Large reads cut the per-chunk overhead: a 25 MB snapshot in about 25 chunks instead of 400.
 const EXPORT_READ_CHUNK_BYTES = 1024 * 1024;
 
-/** Streams a fresh snapshot of the whole database as a download and removes the temporary copy. */
 async function sendDatabaseExport(services: RouteContext["services"], response: ServerResponse): Promise<void> {
   const { backgroundStore } = services;
   const directory = createTransferDirectory(services.transferRoot, "export");
@@ -53,14 +52,12 @@ async function sendDatabaseExport(services: RouteContext["services"], response: 
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
     });
-    // 1 MiB reads: a 25 MB snapshot in ~25 chunks instead of ~400, which shortens and steadies the transfer.
     await pipeline(createReadStream(target, { highWaterMark: EXPORT_READ_CHUNK_BYTES }), response);
   } finally {
     removeTransferDirectory(directory);
   }
 }
 
-/** Writes the portable export to a transfer file in the background process and streams it as a download. */
 async function sendProjectDataExport(
   services: RouteContext["services"],
   scope: ProjectDataExportScope,
@@ -69,8 +66,8 @@ async function sendProjectDataExport(
   const directory = createTransferDirectory(services.transferRoot, "export");
   try {
     const target = join(directory, "export.json");
-    // Counted while it is written: a file over the import limit could not be imported again (a whole-database
-    // snapshot is the way to move it), and writing gigabytes first only to answer 413 wastes the disk and the time.
+    // Counted while written: a file over the import limit could not be imported again, and writing gigabytes first
+    // only to answer 413 wastes disk and time.
     const { bytes } = await services.backgroundStore.exportProjectData(scope, target, MAX_PROJECT_IMPORT_BYTES);
     const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
     const fileName = `work-intelligence-projects-${stamp}.json`;
@@ -87,10 +84,6 @@ async function sendProjectDataExport(
   }
 }
 
-/**
- * Saves the import request body to a transfer directory and hands it to `operation`, which streams it in the
- * background process; the directory (body and spill file) is removed afterwards, whatever happens.
- */
 async function withImportUpload<T>(
   context: RouteContext,
   operation: (upload: ProjectDataImportUpload) => Promise<T>,
@@ -111,11 +104,6 @@ function sendStagedImportError(response: ServerResponse, error: unknown): boolea
   return true;
 }
 
-/**
- * Saves an export file the Web UI sends as the raw body, validates it once in the background process, and answers
- * with its id, what the page shows about it and the first preview (with the `strategy` query parameter, if any). A file
- * that fails validation is not kept.
- */
 async function stageImport(context: RouteContext): Promise<void> {
   const { response, services, url } = context;
   try {
@@ -149,7 +137,6 @@ async function stageImport(context: RouteContext): Promise<void> {
   }
 }
 
-/** Previews (or imports) a staged file with the choices in the small JSON body. */
 async function useStagedImport(context: RouteContext, apply: boolean): Promise<void> {
   const { response, services, params } = context;
   try {
@@ -166,7 +153,7 @@ async function useStagedImport(context: RouteContext, apply: boolean): Promise<v
         ? services.backgroundStore.importProjectData(upload)
         : services.backgroundStore.previewProjectDataImport(upload),
     );
-    // Imported: the file has served its purpose. A failed import keeps it, so the user can change a choice and retry.
+    // A failed import keeps the file, so the user can change a choice and retry.
     if (apply) services.stagedImports.remove(id);
     sendJson(response, 200, result);
   } catch (error) {
@@ -174,7 +161,7 @@ async function useStagedImport(context: RouteContext, apply: boolean): Promise<v
   }
 }
 
-/** Cancels a staged import; a JSON body is required, as for every other DELETE, so a cross-site form cannot send it. */
+// A JSON body is required, as for every other DELETE, so a cross-site form cannot send it.
 async function discardStagedImport({ request, response, services, params }: RouteContext): Promise<void> {
   const parsed = parseRequestInput(discardStagedImportBodySchema, await readJsonBody(request));
   if (!parsed.success) {
@@ -186,7 +173,6 @@ async function discardStagedImport({ request, response, services, params }: Rout
   response.end();
 }
 
-/** The MCP status plus the reason no lease is visible although an Agent was seen: the observation's scope id against this backend's. */
 function mcpWithoutLease(
   mcp: ReturnType<RouteServices["mcpRuntimeStatus"]>,
   services: RouteServices,
@@ -257,7 +243,7 @@ async function systemStatus({ store, response, services }: RouteContext): Promis
 }
 
 async function deleteBackup({ store, request, response, params }: RouteContext): Promise<void> {
-  // JSON-only requests keep cross-site forms from triggering destructive actions.
+  // JSON-only, so a cross-site form cannot trigger a destructive action.
   const body = await readJsonBody(request);
   const parsedBody = parseRequestInput(deleteDatabaseBackupBodySchema, body);
   if (!parsedBody.success) {
@@ -320,7 +306,6 @@ async function previewImport(context: RouteContext): Promise<void> {
   }
 }
 
-/** The body goes to disk and then to the background process, which validates, backs up and imports it. */
 async function importData(context: RouteContext): Promise<void> {
   try {
     const result = await withImportUpload(context, (upload) =>
@@ -383,7 +368,7 @@ export const systemRoutes: Route[] = [
     method: "POST",
     pattern: "/api/backups",
     handler: async ({ request, response, services }) => {
-      // Requiring a JSON body keeps cross-site form posts from triggering backups.
+      // JSON-only, so a cross-site form post cannot trigger a backup.
       await readJsonBody(request);
       const result = await services.backgroundStore.createBackup();
       if (result.outcome === "backup_unavailable") {

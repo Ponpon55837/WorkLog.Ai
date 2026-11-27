@@ -17,11 +17,6 @@ import {
   type DesktopRestoreResultMessage,
 } from "@work-intelligence/schema";
 
-/**
- * What a preview child does for the App's 「從備份還原」: look at backup files read-only, and (only while the backend is
- * stopped) replace the database with one of them. The parent hands over every path; nothing here reads a path from a page.
- */
-
 export interface InspectBackupsResult {
   readonly items: readonly DesktopInspectedBackup[];
   readonly directoryReadable: boolean;
@@ -58,10 +53,6 @@ function inspectFile(path: string, integrity: boolean): DesktopInspectedBackup {
   return { path, fileName, bytes, status: found.status };
 }
 
-/**
- * The backups of `databasePath` (newest first, at most `DESKTOP_MAX_INSPECTED_BACKUPS`), or exactly `files`, each looked at
- * read-only. A folder that is missing is an empty list, not an error.
- */
 export function inspectBackups(request: {
   readonly databasePath: string;
   readonly backupDirectory?: string;
@@ -103,10 +94,7 @@ function outOfSpace(error: unknown): boolean {
 
 export type RestoreFailureStatus = Exclude<DesktopRestoreResultMessage["status"], "ok">;
 
-/**
- * The status a failed restore is reported as. Every one of them means the current database was not replaced.
- * @internal test-only
- */
+/** @internal test-only */
 export function classifyRestoreFailure(error: unknown): RestoreFailureStatus {
   if (error instanceof RestoreDatabaseError) {
     switch (error.code) {
@@ -134,11 +122,6 @@ export function classifyRestoreFailure(error: unknown): RestoreFailureStatus {
   return "failed";
 }
 
-/**
- * Replaces `databasePath` with the snapshot `source`. The storage package keeps every safeguard (the snapshot is checked, the
- * schema may not be newer, the database may not be held by another process, an automatic safety backup is made first). Never
- * throws: a failure is a status, with a fixed text and never a path or an SQLite message.
- */
 export function restoreFromBackup(request: {
   readonly source: string;
   readonly databasePath: string;
@@ -167,10 +150,6 @@ export function restoreFromBackup(request: {
   }
 }
 
-/**
- * The project folders a backup records, read-only (the App's restore on a new computer asks which of them exist here). A file
- * that cannot be read is a failure with no roots; the list is cut at `DESKTOP_MAX_BACKUP_ROOTS` and says so.
- */
 export function listBackupProjectRoots(source: string): Omit<DesktopBackupRootsResultMessage, "type"> {
   let database: DatabaseSync | undefined;
   try {

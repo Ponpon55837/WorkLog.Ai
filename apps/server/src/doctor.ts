@@ -100,17 +100,11 @@ export type { ReadOnlyDatabaseInspection } from "./database-inspection.js";
 export interface GlobalHookInspection {
   claudeConfigured: boolean;
   codexConfigured: boolean;
-  /** Installed with the pre-dispatcher PostToolUse matcher; reported as stale rather than missing. */
   codexLegacyMatcher: boolean;
-  /** Optional UserPromptSubmit hook that lets the Codex reminder state when the segment began. */
   codexSegmentStartConfigured: boolean;
-  /** Optional PreCompact and SessionStart (compact) hooks that keep unsaved-work facts across a compaction. */
   claudeCompactionConfigured: boolean;
-  /** Optional SessionStart (compact) hook that restores the unsaved-work reminder after a Codex compaction. */
   codexCompactionConfigured: boolean;
-  /** Optional PreToolUse hook that pauses a Claude Code save without startedAt once, with the observed start. */
   claudeStartGuardConfigured: boolean;
-  /** Optional PreToolUse hook that does the same for Codex. */
   codexStartGuardConfigured: boolean;
   codexHooksFeature: CodexHooksFeature;
 }
@@ -136,19 +130,15 @@ interface AgentConnectionInspection {
   connections: SystemAgentConnections;
   claudeMcp: AgentMcpRegistrationState;
   codexMcp: AgentMcpRegistrationState;
-  /** Per-event hook state including the plugin; the booleans in `globalHooks` describe our own entries only. */
   claudeHooks: HookInstallation;
   codexHooks: HookInstallation;
-  /** Our own entries only (no plugin, no hooks switch); the plugin duplicate findings say what to delete from these. */
   claudeOwnHooks: HookInstallation;
   codexOwnHooks: HookInstallation;
   skillFindings: AgentSetupFinding[];
   globalHooks: GlobalHookInspection;
   claudeHookExists: boolean;
   codexHookExists: boolean;
-  /** The Work Intelligence Claude Code plugin is enabled in the user's settings.json. */
   claudePluginEnabled: boolean;
-  /** The Work Intelligence Codex plugin is enabled in config.toml. */
   codexPluginEnabled: boolean;
 }
 
@@ -156,7 +146,6 @@ interface AgentConnectionInspectionOptions {
   homeDirectory?: string;
   repositoryRoot?: string;
   environment?: NodeJS.ProcessEnv;
-  /** The App's launcher shim (desktop child only): a hook that runs another shim reads stale, as on the Agent page. */
   shimPath?: string;
 }
 
@@ -213,7 +202,6 @@ function codexHooksFeatureFromConfig(inspection: CodexTomlConfigInspection): Cod
   return configuredValues.includes(false) ? "disabled" : "enabled";
 }
 
-/** The state of a `work-intelligence` MCP entry: ours (and who manages it), the legacy direct form, or another command. */
 function mcpRegistrationOf(server: unknown): McpRegistrationInspection {
   const classified = classifyMcpRegistration(server);
   if (classified.kind === "direct") return { state: "direct", source: null };
@@ -239,7 +227,6 @@ function hookEvent(installation: HookInstallation, event: string): HookEventInsp
   return installation.events.find((entry) => entry.event === event);
 }
 
-/** An entry of ours is there for this event and works: a stale one (script or shim gone) does not count. */
 function hookConfigured(event: HookEventInspection | undefined): boolean {
   return event?.state === "installed";
 }
@@ -255,7 +242,6 @@ function hookStatusEvents(installation: HookInstallation): AgentHookEventStatus[
   }));
 }
 
-/** Inspects only the global Claude and Codex hook configuration files. */
 function inspectGlobalHookConfigs(
   codexHomeDirectory: string,
   claudeConfigDirectory: string,
@@ -266,7 +252,6 @@ function inspectGlobalHookConfigs(
   inspection: GlobalHookInspection;
   claudeHooks: HookInstallation;
   codexHooks: HookInstallation;
-  /** Our own entries only, before the plugin or a hooks switch is taken into account. */
   claudeOwn: HookInstallation;
   codexOwn: HookInstallation;
   claudePlugin: boolean;
@@ -277,7 +262,6 @@ function inspectGlobalHookConfigs(
   const configOf = (file: AgentJsonConfigInspection): Record<string, unknown> | null | undefined =>
     file.state === "unreadable" ? null : file.config;
   const claudePlugin = claudePluginEnabled(claudeSettingsFile.config);
-  // Our own entries only: neither the plugin nor a switch that turns hooks off changes what the files configure.
   const shim = shimPath === undefined ? {} : { shimPath };
   const own = { pluginEnabled: false, hooksDisabled: false, ...shim };
   const claudeOwn = inspectHookInstallation(configOf(claudeSettingsFile), "claude-code", own);
@@ -302,7 +286,6 @@ function inspectGlobalHookConfigs(
       pluginEnabled: claudePlugin,
       ...shim,
     }),
-    // A hooks switch Doctor cannot read leaves every hook, and so every event, unconfirmed.
     codexHooks:
       codexHooksFeature === "unknown"
         ? unknownHookInstallation("codex")
@@ -317,10 +300,9 @@ function inspectGlobalHookConfigs(
   };
 }
 
-/** Inspects only the global Claude and Codex hook configuration files. */
 export function inspectGlobalHooks(
   homeDirectory: string,
-  /** Kept for callers: hook commands now carry their own script or shim path, so the checkout is not consulted. */
+  /** Kept for callers: hook commands carry their own script or shim path, so the checkout is not consulted. */
   repositoryRoot: string,
   codexHomeDirectory = join(homeDirectory, ".codex"),
   claudeConfigDirectory = join(homeDirectory, ".claude"),
@@ -344,7 +326,6 @@ function inspectClaudeMcpState(homeDirectory: string): McpRegistrationInspection
   return mcpRegistrationOf(server);
 }
 
-/** What a leftover entry of ours points at, from the sources of its installed events; for the plugin duplicate advice. */
 function hookEntryTarget(installation: HookInstallation, script: string): string {
   const sources = new Set(installation.events.map((event) => (event.state === "installed" ? event.source : null)));
   const launcher = sources.has("app");
@@ -359,7 +340,6 @@ function hookTargetLabel(source: AgentRegistrationSource | null): string {
   return source === "app" ? "桌面 App 的啟動器" : "checkout 的 dist 腳本";
 }
 
-/** Why a hook entry that exists no longer works, from the first required event that went stale. */
 function staleHookDetail(installation: HookInstallation): string {
   const reason = installation.events.find((event) => event.required && event.state === "stale")?.reason;
   if (reason === "shim-differs") return "hook 指向的 App 啟動器已不存在，或不是目前這份 App 的啟動器。";
@@ -369,7 +349,6 @@ function staleHookDetail(installation: HookInstallation): string {
   return "hook 的設定已過期，沒有符合目前的事件與 matcher。";
 }
 
-/** Doctor finding for one Agent's MCP registration. */
 function addMcpRegistrationFinding(
   findings: DoctorFinding[],
   label: string,
@@ -403,7 +382,6 @@ function addMcpRegistrationFinding(
   }
 }
 
-/** Reuses Doctor's read-only checks for the System Status API and onboarding checklist. */
 function inspectAgentConnectionDetails(options: AgentConnectionInspectionOptions = {}): AgentConnectionInspection {
   const environment = options.environment ?? process.env;
   const homeDirectory = options.homeDirectory ?? environment.HOME ?? environment.USERPROFILE ?? "";
@@ -471,12 +449,10 @@ function inspectAgentConnectionDetails(options: AgentConnectionInspectionOptions
   };
 }
 
-/** Read-only snapshot of Agent MCP registration, skill copies, and configured hooks. */
 export function inspectAgentConnections(options: AgentConnectionInspectionOptions = {}): SystemAgentConnections {
   return inspectAgentConnectionDetails(options).connections;
 }
 
-/** Opens an existing database strictly read-only and queries metadata only. */
 export async function inspectDatabaseReadOnly(databasePath: string): Promise<ReadOnlyDatabaseInspection> {
   return inspectDatabaseReadOnlyMetadata(databasePath, { checkIntegrity: true });
 }
@@ -561,7 +537,6 @@ function readPackageManagerVersion(): { required: string; installed?: string } {
     const rootPackage: unknown = JSON.parse(readFileSync(join(ROOT_DIRECTORY, "package.json"), "utf8"));
     const parsed = ROOT_PACKAGE_SCHEMA.safeParse(rootPackage);
     if (parsed.success) {
-      // packageManager pins one version; engines.pnpm (what this repository declares) gives a range such as ">=11.16.0".
       required = parsed.data.packageManager?.slice("pnpm@".length).split("+")[0] ?? parsed.data.engines?.pnpm ?? "未知";
     }
   } catch {
@@ -595,7 +570,6 @@ function versionParts(version: string): number[] | undefined {
   return match ? match.slice(1, 4).map(Number) : undefined;
 }
 
-/** True when the installed pnpm meets the requirement: an exact version, or a ">=x.y.z" minimum. */
 export function pnpmRequirementSatisfied(installed: string | undefined, required: string): boolean {
   if (!installed) return false;
   const minimum = /^>=\s*(\S+)$/.exec(required.trim())?.[1];
@@ -609,10 +583,7 @@ export function pnpmRequirementSatisfied(installed: string | undefined, required
   return true;
 }
 
-/**
- * Whether node:sqlite loads and its bundled SQLite can create the FTS5 table the search index needs, plus the
- * SQLite version. node:sqlite is only imported dynamically here so a Node without it is reported, not a crash.
- */
+/** node:sqlite is imported dynamically so a Node without it is reported, not a crash. */
 async function probeSqlite(): Promise<{ sqlite: boolean; fts5: boolean; version?: string }> {
   try {
     const { DatabaseSync } = await import("node:sqlite");
@@ -633,13 +604,12 @@ async function probeSqlite(): Promise<{ sqlite: boolean; fts5: boolean; version?
   }
 }
 
-/** The SQLite WAL-reset finding for a probed version. */
 export function sqliteFinding(version: string, cmd: (script: string) => string): DoctorFinding {
   const runtime = sqliteRuntimeStatusFromVersion(version);
   const fixedIn = runtime.fixedIn;
   return {
-    // Warning, not error: the bug needs a specific WAL checkpoint/reset race, and users cannot always change their
-    // Node.js at once. CI hard-fails on an affected SQLite separately, so releases are never built on one.
+    // Warning, not error: the bug needs a specific WAL checkpoint/reset race. CI hard-fails on an affected SQLite
+    // separately.
     severity: runtime.walResetFixed ? "ok" : "warning",
     title: "SQLite",
     detail: runtime.walResetFixed
@@ -652,7 +622,6 @@ export function sqliteFinding(version: string, cmd: (script: string) => string):
   };
 }
 
-/** Lists the database file and its directory when group or other users can access them; empty on Windows or when unreadable. */
 export function wideDatabasePermissions(databasePath: string): { path: string; mode: string }[] {
   if (process.platform === "win32" || databasePath === ":memory:") return [];
   const wide: { path: string; mode: string }[] = [];
@@ -676,7 +645,6 @@ function envFailure(): DoctorFinding {
   };
 }
 
-/** Read-only: lists top-level *.sqlite files in the repository root, which usually come from a mistyped database path. */
 function addRootSqliteFinding(findings: DoctorFinding[], repositoryRoot: string): void {
   let names: string[];
   try {
@@ -697,7 +665,6 @@ function addRootSqliteFinding(findings: DoctorFinding[], repositoryRoot: string)
   );
 }
 
-/** Files a standalone package needs, relative to its `libexec/` folder (the bundles and what they read at run time). */
 export const STANDALONE_LIBEXEC_FILES: readonly string[] = [
   "package.json",
   "apps/server/dist/standalone-cli.js",
@@ -718,7 +685,6 @@ export const STANDALONE_LIBEXEC_FILES: readonly string[] = [
   "docs/work-record-and-report-format.md",
 ];
 
-/** Files a standalone package needs, relative to the package root (the folder holding `bin/` and `libexec/`). */
 export const STANDALONE_PACKAGE_FILES: readonly string[] = [
   "package.json",
   "bin/work-intelligence.mjs",
@@ -735,10 +701,6 @@ function readJsonVersion(path: string): string | undefined {
   }
 }
 
-/**
- * What a standalone package check can say without a checkout: every file the package ships is present and the
- * package, its libexec and the running bundle agree on one version. Read-only; reports names, never file contents.
- */
 export function inspectStandalonePackage(options: { packageRoot: string; libexecRoot: string; appVersion: string }): {
   missingFiles: string[];
   versions: { running: string; package: string | undefined; libexec: string | undefined };
@@ -804,11 +766,8 @@ export async function collectDoctorFindings(
     repositoryRoot?: string;
     environment?: NodeJS.ProcessEnv;
     userServiceStatus?: UserServiceStatus;
-    /** Check a standalone package instead of a checkout; defaults to the running mode. */
     standalone?: boolean;
-    /** The standalone package folder (holds `bin/` and `libexec/`); defaults to the parent of the repository root. */
     packageRoot?: string;
-    /** Version the running code reports; injectable for tests. */
     appVersion?: string;
   } = {},
 ): Promise<DoctorFinding[]> {
@@ -882,8 +841,6 @@ export async function collectDoctorFindings(
   const databaseDriveRelative = databaseSetting !== undefined && isDriveRelativePath(databaseSetting);
 
   if (standalone) {
-    // A standalone package has no MCP heartbeat or login service of its own yet, and the check never queries the
-    // system service manager from a package.
     addFinding(
       findings,
       "ok",
@@ -920,8 +877,6 @@ export async function collectDoctorFindings(
               ? "尚無可監測的 MCP heartbeat；重新連線後可確認 Agent 使用的建置。"
               : "請確認建置完成後重新執行 doctor。",
     );
-
-    // A drive-relative database path is reported as its own error below; keep the service probe from throwing on it.
 
     // A drive-relative database path is reported as its own error below; keep the service probe from throwing on it.
     const userService =
@@ -980,7 +935,6 @@ export async function collectDoctorFindings(
   }
   if (!standalone) addRootSqliteFinding(findings, repositoryRoot);
   const database = await inspectDatabaseReadOnly(dbPath);
-  // Keep the database, doctor, and server on the same relative backup-directory rule.
   const backupDirectory = resolveBackupDirectory(dbPath, parsedEnvironment.data.WORK_INTELLIGENCE_BACKUP_DIR);
   const latestBackup = findLatestAutomaticBackup(dbPath, backupDirectory);
   const backupDetail = latestBackup ? latestBackup.toISOString() : "尚無自動備份";
@@ -1202,7 +1156,6 @@ export async function collectDoctorFindings(
   const claudeHooks = agentInspection.claudeHooks;
   const claudeHookState = agentInspection.connections.claudeCode.hook;
   const staleFix = `重新執行 ${cmd("setup:agents")} 預覽後確認，或在桌面 App 的 Agent 頁選擇「改由桌面 App 管理…」。`;
-  // The plugin finding above reports hooks the plugin brings.
   if (!(claudePlugin && claudeHooks.source === "plugin"))
     addFinding(
       findings,
@@ -1241,7 +1194,6 @@ export async function collectDoctorFindings(
     );
   const codexHooks = agentInspection.codexHooks;
   const codexHookState = agentInspection.connections.codex.hook;
-  // The Codex plugin carries its own hooks; the Codex plugin finding above reports them.
   if (!(codexPlugin && (codexHookState === "missing" || codexHookState === "installed" || codexHookState === "stale")))
     addFinding(
       findings,
@@ -1302,7 +1254,6 @@ export function formatDoctorFindings(findings: DoctorFinding[]): string {
   return lines.join("\n");
 }
 
-/** Prints the read-only diagnosis and returns the exit code (1 when it found an error). */
 export async function runDoctorCli(): Promise<number> {
   const findings = await collectDoctorFindings();
   console.log(formatDoctorFindings(findings));

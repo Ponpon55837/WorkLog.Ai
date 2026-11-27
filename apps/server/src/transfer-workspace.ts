@@ -4,63 +4,42 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 /**
- * Scratch space of large imports and exports: the uploaded file, the import's spill file and an export being written.
- * It lives beside the database (`<data>/.work-intelligence-transfer/import-*` and `export-*`), on the disk the data is
- * on, instead of the system temporary directory, which on Windows is often a small system drive and is cleaned by
- * other software. Each operation removes its directory; a crash leaves one behind, which the next backend start
- * and then an hourly sweep ({@link TRANSFER_SWEEP_INTERVAL_MS}) remove once it is older than
- * {@link ORPHAN_TRANSFER_AGE_MS}; a transfer still running in this process is never swept.
- *
- * The database may sit in any folder of the user's (for example their Documents), so the sweep removes only what this
- * module made: a directory under the dedicated root, named exactly as `mkdtemp` names it, that holds the marker file
- * with {@link TRANSFER_MARKER_CONTENT}. A symbolic link is never followed: not as the root, and not as an entry.
+ * Lives beside the database, not in the system temp directory (often a small system drive on Windows). The sweep
+ * removes only what this module made and never follows a symbolic link.
  */
 
 export type TransferKind = "import" | "export";
 
-/**
- * A directory left by a crashed operation is removed at start once it is this old; a live one is minutes old.
- * @internal test-only
- */
+/** @internal test-only */
 export const ORPHAN_TRANSFER_AGE_MS = 60 * 60 * 1000;
 /**
- * Free space an upload needs, as a multiple of its size: the upload itself, the spill file (at most the upload's
- * size) and the database growth and pre-import snapshot that follow, with a margin.
+ * The upload, its spill file (at most the upload's size), then database growth and the pre-import snapshot, with a margin.
  * @internal test-only
  */
 export const TRANSFER_FREE_SPACE_FACTOR = 2.5;
 export const TRANSFER_DISK_FULL_MESSAGE = "磁碟空間不足，無法暫存匯入檔；請先釋出空間再試。";
 
-/**
- * The folder beside the database that holds every transfer directory, and nothing else.
- * @internal test-only
- */
+/** @internal test-only */
 export const TRANSFER_ROOT_NAME = ".work-intelligence-transfer";
-/**
- * The file each transfer directory gets when it is created; the sweep removes only a directory that has it.
- * @internal test-only
- */
+/** @internal test-only */
 export const TRANSFER_MARKER_FILE = ".wi-transfer";
 /** @internal test-only */
 export const TRANSFER_MARKER_CONTENT = "work-intelligence transfer directory v1\n";
 
-/** How often a running server sweeps what a crashed operation left (the App can stay open for weeks). */
 export const TRANSFER_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 
 /** Directories of the transfers running in this process; the sweep never removes one, however old it looks. */
 const activeDirectories = new Set<string>();
 
-/** `mkdtemp` appends exactly six characters from this set. */
+// `mkdtemp` appends exactly six characters from this set.
 const TRANSFER_DIRECTORY = /^(import|export)-[A-Za-z0-9]{6}$/;
 
-/** `<directory of the database>/.work-intelligence-transfer`; an in-memory database (tests) uses the system temp. */
 export function transferRoot(databasePath: string): string {
   return databasePath === ":memory:" || databasePath === ""
     ? join(tmpdir(), "work-intelligence-transfers")
     : join(dirname(resolve(databasePath)), TRANSFER_ROOT_NAME);
 }
 
-/** A new private directory for one transfer; the caller removes it with {@link removeTransferDirectory}. */
 export function createTransferDirectory(root: string, kind: TransferKind): string {
   mkdirSync(root, { recursive: true, mode: 0o700 });
   const directory = mkdtempSync(join(root, `${kind}-`));
@@ -79,11 +58,6 @@ export function removeTransferDirectory(directory: string): void {
   rmSync(directory, { recursive: true, force: true });
 }
 
-/**
- * Removes transfer directories older than `maxAgeMs`; returns how many. Only a real directory (not a link) named as
- * {@link createTransferDirectory} names it and holding its marker is removed, and nothing at all when the root is a
- * link. Never throws: it only frees space.
- */
 export function sweepTransferDirectories(root: string, now = Date.now(), maxAgeMs = ORPHAN_TRANSFER_AGE_MS): number {
   let removed = 0;
   let entries: string[];
@@ -118,10 +92,6 @@ function hasTransferMarker(directory: string): boolean {
   }
 }
 
-/**
- * Whether the disk under `directory` can take an upload of `uploadBytes` and what follows it. A file system that cannot
- * report its free space does not block the upload: writing then fails on its own if the disk fills up.
- */
 export async function hasTransferSpace(directory: string, uploadBytes: number): Promise<boolean> {
   try {
     const stats = await statfs(directory);

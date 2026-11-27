@@ -4,10 +4,7 @@ import { assessSqliteWalResetFix } from "@work-intelligence/shared/sqlite-versio
 
 let cached: SqliteRuntimeStatus | undefined;
 
-/**
- * Builds the status from a `sqlite_version()` string. Pure and free of any `node:sqlite` import, so doctor can load
- * this module on a Node without node:sqlite and still report that finding from the version it probed itself.
- */
+/** Free of any `node:sqlite` import, so doctor can load it on a Node without node:sqlite. */
 export function sqliteRuntimeStatusFromVersion(version: string): SqliteRuntimeStatus {
   const assessment = assessSqliteWalResetFix(version);
   return {
@@ -17,11 +14,7 @@ export function sqliteRuntimeStatusFromVersion(version: string): SqliteRuntimeSt
   };
 }
 
-/**
- * Reports the SQLite library node:sqlite loads via `SELECT sqlite_version()` on a throwaway in-memory connection (every
- * connection in the process uses the same library). The version is constant per process, so it is read once.
- * node:sqlite is required lazily here (not imported at the top) so importing this module never throws.
- */
+/** node:sqlite is required lazily so importing this module never throws. */
 export function getSqliteRuntimeStatus(): SqliteRuntimeStatus {
   if (cached) return cached;
   const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");

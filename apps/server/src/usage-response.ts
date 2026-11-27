@@ -44,7 +44,6 @@ function dailyOf(total: UsageReport["total"]): UsageDayItem[] {
   return total.daily.map((day) => ({ date: day.date, tokens: pickTokens(day.tokens) }));
 }
 
-/** Blocks describe the present, so they are returned only when the range reaches it. */
 function blocksOf(report: UsageReport, until: string | null, now: number): UsageBlockItem[] {
   if (until !== null && Date.parse(until) < now) return [];
   return report.blocks.map((block) => ({
@@ -115,18 +114,15 @@ function allocationOf(report: UsageReport): UsageAllocation {
   };
 }
 
-/** Builds the page's numbers and the Agent text from a report; nothing in it carries a path or a message. */
 export function buildUsageResponse(
   report: UsageReport,
   extra: {
     problems: UsageScanResponse["problems"];
     projectNames: string[];
-    /** Names of every tracked project by id, to label shared-source groups in the Agent text. */
     projectNamesById?: Record<string, string>;
     range: UsageScanResponse["range"];
     durationMs: number;
     locale: "en" | "zh-TW";
-    /** The present for the blocks check; defaults to the current time. */
     now?: number;
   },
 ): UsageScanResponse {

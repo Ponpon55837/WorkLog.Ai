@@ -31,66 +31,39 @@ import { resolveWebDirectory } from "./web-directory.js";
 
 export interface StartApiOptions {
   /**
-   * A database the desktop shell already verified. It is re-checked right before the store opens (the file may have been
-   * swapped since the preflight) and, unlike the env-derived default, a missing file is never created.
+   * Re-checked right before the store opens (the file may have been swapped since the preflight); a missing file is
+   * never created.
    */
   database?: VerifiedDatabaseConfig;
-  /** Port to listen on; without it the validated `WORK_INTELLIGENCE_PORT` (default 3210) as the CLI always used. */
   port?: number;
-  /** The desktop shell's per-spawn secret; enables the `/api/health` instance proof (see `createApiHandler`). */
   instanceRunId?: string;
-  /** Called with the UTC instant (ISO 8601) of every automatic backup that was written successfully. */
   onBackupCompleted?: (at: string) => void;
-  /**
-   * Called after any API request that can write or delete a backup file has succeeded (every successful non-read request).
-   * It carries no data: a listener rereads the backup folder, which is the one place all backup kinds end up.
-   */
   onBackupsChanged?: () => void;
-  /** Desktop-child mode: facts from the App's `start` message and the way to ask it to open its Agent setup. */
   desktop?: DesktopHandlerOptions;
 }
 
-/**
- * What `startApi` reports once the server accepts connections.
- * @internal test-only
- */
+/** @internal test-only */
 export interface ApiListening {
-  /** The port actually bound (the requested one; the OS-chosen one if 0 was requested). */
   port: number;
-  /**
-   * The database identity re-read after the store opened (and migrated) it, so an empty file now has its lineage;
-   * undefined for the environment-derived database.
-   */
   databaseIdentity?: DatabaseIdentity;
-  /** How many projects the database holds; omitted when the count could not be read (it never fails a start). */
   projectCount?: number;
 }
 
-/** The handle `startApi` returns. The CLI ignores it; the desktop child waits on it. */
 export interface StartedApi {
-  /** Resolves when listening; rejects with a {@link StartApiError} when the API could not start. */
   listening: Promise<ApiListening>;
-  /** Graceful stop (timers, SSE, HTTP drain, worker, SQLite); resolves when SQLite is closed. Safe to call twice. */
   shutdown(): Promise<void>;
-  /** The long jobs running now; empty for an API that never started. */
   activity(): DesktopBackendActivity[];
-  /** An uploaded import file waits unread for the user's confirm; false for an API that never started. */
   hasPendingImport(): boolean;
 }
 
-/** Requests that never write a backup file. */
 const READ_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);
 
 export type StartApiFailureKind = "revalidation" | "store-open" | "file-replaced" | "listen" | "setup";
 
-/** Why the API did not start, as data the desktop child maps to a user-facing error code. */
 export class StartApiError extends Error {
   readonly kind: StartApiFailureKind;
-  /** Set for `revalidation`. */
   readonly revalidation?: RevalidationFailureReason;
-  /** Set for `listen`: the errno code such as EADDRINUSE or EACCES. */
   readonly listenCode?: string;
-  /** Set for `store-open`: the database's own diagnosis, when the storage layer gave one. */
   readonly storeError?: DatabaseInitializationError;
 
   constructor(
@@ -111,7 +84,6 @@ export class StartApiError extends Error {
   }
 }
 
-/** True when the file now at `identity.realPath` is still the revalidated one (a file id mismatch means it was swapped). */
 function stillSameFile(identity: DatabaseIdentity): boolean {
   const current = readFileIdentity(identity.realPath);
   if (!current.ok) return false;
@@ -120,10 +92,7 @@ function stillSameFile(identity: DatabaseIdentity): boolean {
   );
 }
 
-/**
- * The project count as an optional field: a failing read is fail-open and leaves the field out.
- * @internal test-only
- */
+/** @internal test-only */
 export function readProjectCount(store: Pick<WorkIntelligenceStore, "countProjects">): { projectCount?: number } {
   try {
     return { projectCount: store.countProjects() };
@@ -132,7 +101,6 @@ export function readProjectCount(store: Pick<WorkIntelligenceStore, "countProjec
   }
 }
 
-/** A handle for an API that never started: `listening` rejects, there is nothing to shut down. */
 function failedStart(error: StartApiError): StartedApi {
   const listening = Promise.reject<ApiListening>(error);
   // The CLI never reads `listening`; mark it handled so a refusal is not also an unhandled rejection.
@@ -140,11 +108,6 @@ function failedStart(error: StartApiError): StartedApi {
   return { listening, shutdown: () => Promise.resolve(), activity: () => [], hasPendingImport: () => false };
 }
 
-/**
- * Opens the database, serves the API (and the Web UI when a build is available), and shuts down on SIGINT/SIGTERM.
- * Without options it uses the environment-derived database exactly as the CLI always has. The returned handle lets
- * the desktop child wait for the listener and for a complete shutdown; the CLI ignores it.
- */
 export function startApi(options: StartApiOptions = {}): StartedApi {
   let databasePath = configuredDatabasePath;
   let storeOptions: WorkIntelligenceStoreOptions = configuredStoreOptions;
@@ -193,7 +156,7 @@ export function startApi(options: StartApiOptions = {}): StartedApi {
     ? (readOpenedIdentity(committedIdentity.realPath) ?? committedIdentity)
     : undefined;
 
-  // Each resource closes at most once, so a shutdown after a failed listen (which already closed them) is a no-op.
+  // Each resource closes at most once, so a shutdown after a failed listen is a no-op.
   let storeClosed = false;
   const closeStore = (): void => {
     if (storeClosed) return;
@@ -211,7 +174,6 @@ export function startApi(options: StartApiOptions = {}): StartedApi {
       "找不到 Web 介面檔案（套件內的 web/ 不完整）；只提供 API。請重新安裝，或執行 work-intelligence check。",
     );
   }
-  // Uploads and exports a crash left behind in `<data>/.work-intelligence-transfer`; this never blocks or fails the start.
   sweepTransferDirectories(transferRoot(databasePath));
   let apiHandler: ReturnType<typeof createApiHandler>;
   let server: ReturnType<typeof createServer>;
@@ -247,7 +209,6 @@ export function startApi(options: StartApiOptions = {}): StartedApi {
       return handler(request, response);
     });
   } catch {
-    // Whatever was opened so far is closed before the failure is reported; nothing is left holding SQLite.
     void closeWorker().catch(() => undefined);
     closeStore();
     console.error("Work Intelligence API 無法啟動：初始化服務時發生錯誤。");
@@ -255,7 +216,6 @@ export function startApi(options: StartApiOptions = {}): StartedApi {
     return failedStart(new StartApiError("setup", "the API could not be set up"));
   }
 
-  // Daily automatic backup: checked once listening and hourly; a backup is written once the newest is a day old.
   const backupCheckMs = 60 * 60 * 1000;
   const initialBackupDelayMs = 60 * 1000;
   let backupTimer: NodeJS.Timeout | undefined;

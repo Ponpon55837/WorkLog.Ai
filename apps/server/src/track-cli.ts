@@ -13,11 +13,9 @@ export interface TrackCliDependencies {
   invocationDirectory: string;
   log: (message: string) => void;
   error: (message: string) => void;
-  /** Whether a person can answer a prompt; without it and without --yes the command only previews. */
   isInteractive?: () => boolean;
   confirm?: (question: string) => Promise<boolean>;
   port?: number;
-  /** Which command names to show; defaults to the running mode. */
   standalone?: boolean;
 }
 
@@ -112,7 +110,6 @@ async function askToConfirm(question: string): Promise<boolean> {
   }
 }
 
-/** `track` (`pnpm track` in a checkout): the user, in a terminal, explicitly adds a folder and switches it to tracked. Never callable by Agents. */
 export async function runTrackCommand(args: readonly string[], dependencies: TrackCliDependencies): Promise<number> {
   const check = checkCliArgs(args, { flags: ["--yes"], valued: ["--name"] });
   if (check.kind === "help") {

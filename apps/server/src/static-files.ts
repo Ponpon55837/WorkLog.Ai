@@ -21,7 +21,6 @@ const contentTypes = new Map<string, string>([
 type StaticFile = { path: string; size: number };
 type PathResolution = { kind: "file"; file: StaticFile } | { kind: "missing" } | { kind: "unsafe" };
 
-/** Applies the browser security policy used when the built Web UI and API share an origin. */
 export function applyProductionSecurityHeaders(response: ServerResponse): void {
   response.setHeader(
     "Content-Security-Policy",
@@ -45,7 +44,6 @@ export function applyProductionSecurityHeaders(response: ServerResponse): void {
   response.setHeader("X-Frame-Options", "DENY");
 }
 
-/** Serves built assets safely and falls back to index.html for client-side routes. */
 export function createStaticFilesHandler(directory: string) {
   const rootPromise = realpath(directory);
 

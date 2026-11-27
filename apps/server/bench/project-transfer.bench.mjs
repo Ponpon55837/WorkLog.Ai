@@ -1,17 +1,3 @@
-// Memory and time of the streamed portable import, preview and export, by file size.
-//
-// Usage (reads the built packages, so build first):
-//   pnpm build
-//   node apps/server/bench/project-transfer.bench.mjs [--check] [--sizes=10,40,100]
-//
-// Each operation runs in a fresh process with the desktop backend's heap flags, through the same functions the
-// background worker calls (apps/server/dist/http.js and the storage package), and reports its peak RSS
-// (process.resourceUsage().maxRSS, which Linux, macOS and Windows all report). The data is synthetic: one project
-// whose Sessions each carry a long summary and 13 work events, about 8.3 KiB per Session.
-//
-// --check fails the run when peak RSS grows with the file instead of staying bounded: the largest size may use at most
-// RSS_GROWTH_LIMIT_MIB more than the smallest, and no run may pass RSS_LIMIT_MIB. Before 1.6.48 the whole file was
-// parsed, so peak RSS grew about 2.2 times the file size (75 to 245 MiB for 17.5 MiB).
 import console from "node:console";
 import { spawnSync } from "node:child_process";
 import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, statSync, writeSync } from "node:fs";
@@ -25,16 +11,14 @@ import { DatabaseSync } from "node:sqlite";
 const repositoryRoot = resolve(fileURLToPath(new URL("../../..", import.meta.url)));
 const scriptPath = fileURLToPath(import.meta.url);
 const BACKEND_FLAGS = ["--max-old-space-size=1024", "--max-semi-space-size=2"];
-/** Synthetic Sessions per MiB of export file (2,120 Sessions make 17.5 MiB). */
+// Measured: 2,120 synthetic Sessions make 17.5 MiB.
 const SESSIONS_PER_MIB = 2120 / 17.5;
-/** Peak RSS may grow at most this much from the smallest to the largest file; the rows the planner keeps grow too. */
 const RSS_GROWTH_LIMIT_MIB = Number(process.env.WI_TRANSFER_RSS_GROWTH_MIB ?? 160);
-/** No single run may pass this peak RSS (the backend's heap is 1 GiB). */
+// The backend's heap is 1 GiB.
 const RSS_LIMIT_MIB = Number(process.env.WI_TRANSFER_RSS_LIMIT_MIB ?? 400);
 
 const dist = (...parts) => pathToFileURL(join(repositoryRoot, ...parts)).href;
 
-/** Runs one operation in this (child) process and prints its time and peak RSS. */
 async function runOperation(operation, databasePath, file, directory) {
   const { LATEST_SCHEMA_VERSION, WorkIntelligenceStore } = await import(
     dist("packages", "storage", "dist", "index.js")
@@ -43,7 +27,6 @@ async function runOperation(operation, databasePath, file, directory) {
     dist("apps", "server", "dist", "http.js")
   );
   const rss0 = process.memoryUsage().rss;
-  // Opened as the background worker opens them: read-only for preview and export, existing (no migration) to import.
   const store = new WorkIntelligenceStore(databasePath, {
     mode: operation === "import" ? "existing" : "read-only",
     expectedSchemaVersion: LATEST_SCHEMA_VERSION,
@@ -75,7 +58,6 @@ function runChild(operation, databasePath, file, directory) {
   return JSON.parse(result.stdout);
 }
 
-/** A synthetic export of `sessionCount` Sessions, from rows inserted directly after one finalized template. */
 async function writeSyntheticExport(root, sessionCount, target) {
   const { WorkIntelligenceStore } = await import(dist("packages", "storage", "dist", "index.js"));
   const databasePath = join(root, "source.sqlite");

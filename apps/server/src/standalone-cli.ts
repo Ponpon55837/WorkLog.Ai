@@ -2,7 +2,6 @@ import { commandName, STANDALONE_COMMAND_NAME } from "@work-intelligence/shared"
 import { APP_VERSION } from "@work-intelligence/shared/app-version";
 import { DEFAULT_SERVER_PORT } from "./server-port.js";
 
-/** What the command line asked for. */
 export type StandaloneCommand =
   | { kind: "help" }
   | { kind: "version" }
@@ -15,33 +14,22 @@ export type StandaloneCommand =
   | { kind: "db"; args: readonly string[] }
   | { kind: "invalid"; message: string };
 
-/**
- * The work each command does. Every entry loads its code on demand, so `--version` and `--help` never open the
- * database layer, and a test can replace all of them.
- */
 export interface StandaloneRuntime {
   log: (message: string) => void;
   error: (message: string) => void;
-  /** Starts the API and Web UI; resolves once started, the server keeps the process alive. */
   start: () => Promise<void>;
-  /** Runs the desktop App's backend child (`start --desktop-ipc`); resolves with its exit code (0 once it is listening for the parent). */
   startDesktop: () => Promise<number>;
-  /** Starts the MCP server on stdio; resolves once started, stdin keeps the process alive. */
   mcp: () => Promise<void>;
-  /** Runs the read-only diagnosis and returns the exit code. */
   check: () => Promise<number>;
-  /** `db …` and `track …`: the database CLI, which owns its own usage text and exit codes. */
   database: (args: readonly string[]) => Promise<number>;
-  /** Usage text for `track --help`. */
   trackUsage: () => Promise<string>;
 }
 
 const USAGE_EXIT_CODE = 2;
 const HELP_FLAGS = new Set(["-h", "--help"]);
 const VERSION_FLAGS = new Set(["-v", "--version", "version"]);
-/** Commands that take no arguments. */
 const SIMPLE_COMMANDS = ["start", "mcp", "check"] as const;
-/** Internal switch for the desktop App's runtime launcher; not a user feature, so `--help` does not list it. */
+// Internal switch for the desktop App's runtime launcher, so `--help` does not list it.
 const DESKTOP_IPC_FLAG = "--desktop-ipc";
 
 const defaultRuntime: StandaloneRuntime = {
@@ -58,7 +46,7 @@ const defaultRuntime: StandaloneRuntime = {
     startApi();
   },
   startDesktop: async () => (await import("./desktop-child.js")).runDesktopChild(),
-  // The MCP bundle is a sibling of this one (<libexec>/apps/mcp/dist/index.js); importing it starts the server.
+  // The MCP bundle is a sibling of this one; importing it starts the server.
   mcp: async () => {
     await import(new URL("../../mcp/dist/index.js", import.meta.url).href);
   },
@@ -67,7 +55,6 @@ const defaultRuntime: StandaloneRuntime = {
   trackUsage: async () => (await import("./track-cli.js")).trackUsage(true),
 };
 
-/** The `--help` text. */
 export function standaloneUsage(): string {
   const name = STANDALONE_COMMAND_NAME;
   return `用法：${name} <指令> [選項]
@@ -84,7 +71,6 @@ export function standaloneUsage(): string {
 資料預設存在 ~/.work-intelligence/data；WORK_INTELLIGENCE_CONFIG_DIR 可改目錄，WORK_INTELLIGENCE_DB 可指定資料庫檔。`;
 }
 
-/** Turns the command line into a command; pure, so every spelling can be tested without running anything. */
 export function parseStandaloneArgs(argv: readonly string[]): StandaloneCommand {
   const [first, ...rest] = argv;
   if (first === undefined || first === "help" || HELP_FLAGS.has(first)) return { kind: "help" };
@@ -95,7 +81,6 @@ export function parseStandaloneArgs(argv: readonly string[]): StandaloneCommand 
     return rest[0] !== undefined && HELP_FLAGS.has(rest[0]) ? { kind: "track-help" } : { kind: "track", args: rest };
   }
   if (first === "db") {
-    // `db` with no subcommand prints the database usage; so does `db --help`.
     return { kind: "db", args: rest[0] !== undefined && HELP_FLAGS.has(rest[0]) ? [] : rest };
   }
   if (first === "start" && rest.length === 1 && rest[0] === DESKTOP_IPC_FLAG) return { kind: "start-desktop" };
@@ -107,10 +92,6 @@ export function parseStandaloneArgs(argv: readonly string[]): StandaloneCommand 
   return { kind: "invalid", message: `未知的指令：${first}` };
 }
 
-/**
- * Runs the standalone command line in this process (no child process, so signals and stdio behave as they do for
- * the checkout's entry points) and returns the exit code. `start` and `mcp` return once started.
- */
 export async function runStandaloneCli(
   argv: readonly string[],
   runtime: StandaloneRuntime = defaultRuntime,
@@ -146,7 +127,7 @@ export async function runStandaloneCli(
         return 0;
     }
   } catch {
-    // Never show a stack or the message of an internal error; the commands print their own actionable errors.
+    // Never show a stack or an internal error message; the commands print their own actionable errors.
     runtime.error(`Work Intelligence 無法完成「${argv[0] ?? ""}」。請執行 ${commandName("check", true)} 檢查。`);
     return 1;
   }

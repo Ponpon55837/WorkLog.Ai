@@ -13,14 +13,8 @@ const PICK_TIMEOUT_MS = 5 * 60 * 1000;
 const PROMPT = "選擇 Work Intelligence 專案資料夾";
 
 /**
- * C# compiled by `Add-Type`: the Windows Vista+ common item dialog (`IFileOpenDialog`) in folder mode,
- * the same dialog File Explorer and modern apps use. The title is a parameter, never part of the source.
- * The interface lists every method in vtable order (IModalWindow, IFileDialog, IFileOpenDialog); a wrong
- * order calls the wrong method, so unused methods stay declared. The interface is IFileOpenDialog (IID
- * D57C7288-...), which flattens the inherited IFileDialog methods and appends GetResults/GetSelectedItems.
- *
- * `Add-Type` compiles this source on every pick (about 1 second). That is accepted on purpose: caching a compiled
- * DLL on disk would add a file that could be planted or replaced (DLL planting) and would need maintenance.
+ * The interface lists every method in vtable order; a wrong order calls the wrong method, so unused methods stay
+ * declared. Not cached as a DLL on disk: it could be planted or replaced.
  */
 const FOLDER_DIALOG_CSHARP = [
   "using System;",
@@ -108,15 +102,11 @@ const FOLDER_DIALOG_CSHARP = [
   "}",
 ].join("\n");
 
-/** PowerShell single-quoted string literal: only the quote itself needs escaping. */
 function powerShellQuote(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
-/**
- * Fixed PowerShell script for the Windows dialog. Exit 0 prints the path, exit 2 means cancel and any
- * other status (3 for a failure after the dialog was shown) is a failure. Nothing in it comes from a request.
- */
+// Exit 0 prints the path, 2 is a cancel, 3 a failure after the dialog was shown.
 function windowsPickerScript(): string {
   return [
     "$ErrorActionPreference = 'Stop'",
@@ -138,14 +128,12 @@ function windowsPickerScript(): string {
     "  $owner.Activate()",
     "  $owner",
     "}",
-    // Modern dialog: returns the path, or $null when cancelled. Throws on any other failure.
     "function Show-ModernDialog {",
     "  Add-Type -TypeDefinition $source",
     "  [WorkLog.FolderPicker]::EnableDpiAwareness()",
     "  $owner = New-Owner",
     "  try { [WorkLog.FolderPicker]::Pick($title, $owner.Handle) } finally { $owner.Dispose() }",
     "}",
-    // Fallback for machines where the COM dialog cannot be used: the classic tree dialog.
     "function Show-LegacyDialog {",
     "  [System.Windows.Forms.Application]::EnableVisualStyles()",
     "  $owner = New-Owner",
@@ -157,8 +145,8 @@ function windowsPickerScript(): string {
     "}",
     "$path = $null",
     "$shown = $false",
-    // Fall back only when the modern dialog could not be shown. Once it was shown, a failure is reported (exit 3)
-    // instead of opening a second picker and losing the user's choice. Diagnostics go to stderr, never stdout.
+    // Fall back only when the modern dialog could not be shown; once shown, a failure is reported instead of
+    // opening a second picker.
     "try { $path = Show-ModernDialog; $shown = $true } catch {",
     "  $modernError = $_",
     "  if (('WorkLog.FolderPicker' -as [type]) -and [WorkLog.FolderPicker]::Shown) {",
@@ -176,15 +164,11 @@ function windowsPickerScript(): string {
 /** -EncodedCommand takes base64 UTF-16LE, which avoids Windows argv quoting of a multi-line script. */
 const WINDOWS_PICKER_ENCODED_SCRIPT = Buffer.from(windowsPickerScript(), "utf16le").toString("base64");
 
-/**
- * execFile without a shell: the dialog commands are fixed strings and never include request input.
- * @internal test-only
- */
+/** @internal test-only */
 export const runCommand: CommandRunner = (file, args, timeoutMs) =>
   new Promise((resolve, reject) => {
     execFile(file, [...args], { timeout: timeoutMs, windowsHide: true, encoding: "utf8" }, (error, stdout, stderr) => {
       if (error && typeof error.code !== "number") {
-        // Not an exit status: the program is missing (ENOENT) or was killed by the timeout.
         reject(error);
         return;
       }
@@ -194,17 +178,13 @@ export const runCommand: CommandRunner = (file, args, timeoutMs) =>
 
 type DialogCommand = { file: string; args: string[]; isCancel: (result: CommandResult) => boolean };
 
-/**
- * Native folder dialogs per platform, in the order to try them.
- * @internal test-only
- */
+/** @internal test-only */
 export function folderDialogCommands(platform: NodeJS.Platform, env: NodeJS.ProcessEnv = process.env): DialogCommand[] {
   if (platform === "darwin") {
     return [
       {
         file: "osascript",
-        // `activate` brings the dialog in front of the browser. Cancel and a missing GUI both exit
-        // with 1; only a cancel reports error -128 ("User canceled").
+        // Cancel and a missing GUI both exit 1; only a cancel reports error -128.
         args: ["-e", "activate", "-e", `POSIX path of (choose folder with prompt "${PROMPT}")`],
         isCancel: (result) => result.code === 1 && result.stderr.includes("-128"),
       },
@@ -220,8 +200,8 @@ export function folderDialogCommands(platform: NodeJS.Platform, env: NodeJS.Proc
       },
     ];
   }
+  // Both exit 1 on cancel and use other codes for errors (such as no display).
   return [
-    // Both exit with 1 on cancel and use other codes for errors (e.g. no display).
     {
       file: "zenity",
       args: ["--file-selection", "--directory", `--title=${PROMPT}`],
@@ -241,10 +221,6 @@ function trimFolderPath(value: string): string {
   return path.length > 1 && !/^[A-Za-z]:\\$/.test(path) ? path.replace(/[\\/]+$/, "") : path;
 }
 
-/**
- * Shows the operating system's folder dialog on the machine running the API server (which is the
- * user's own computer: the API only accepts loopback requests) and returns the chosen absolute path.
- */
 export function createFolderPicker(
   platform: NodeJS.Platform = process.platform,
   run: CommandRunner = runCommand,

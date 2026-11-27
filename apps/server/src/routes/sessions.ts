@@ -18,7 +18,7 @@ import { SessionDeletionError } from "@work-intelligence/storage";
 import { numberParam, readJsonBody, readJsonObject, sendError, sendJson, textParam } from "../http.js";
 import { parseRequestInput, validatedRoute, type Route, type RouteContext } from "./router.js";
 
-/** Permanent deletion of a voided Session; the JSON confirmation keeps it out of reach of plain links and forms. */
+// The required JSON confirmation keeps deletion out of reach of plain links and forms.
 async function deleteSession({ store, request, response, params }: RouteContext): Promise<void> {
   const parsed = parseRequestInput(deleteSessionInputSchema, await readJsonBody(request));
   if (!parsed.success) {
@@ -69,7 +69,6 @@ async function deleteSession({ store, request, response, params }: RouteContext)
   }
 }
 
-/** Adding and removing a link share one handler; a DELETE names the other Session in the path. */
 const linkSessions = validatedRoute(
   linkSessionsInputSchema,
   "Invalid session link payload.",
@@ -118,7 +117,7 @@ export const sessionRoutes: Route[] = [
           to: data.to,
           page: data.page,
           pageSize: data.pageSize,
-          // Worklog shows tracked projects only, matching Session detail, search and reports.
+          // Tracked projects only, matching Session detail, search and reports.
           trackedOnly: true,
         }),
     ),
@@ -192,7 +191,6 @@ export const sessionRoutes: Route[] = [
     ),
   },
   { method: "POST", pattern: "/api/sessions/:sessionId/links", handler: linkSessions },
-  // Without the other Session the request fails validation (400), as it always has.
   { method: "DELETE", pattern: "/api/sessions/:sessionId/links", handler: linkSessions },
   { method: "DELETE", pattern: "/api/sessions/:sessionId/links/:relatedSessionId", handler: linkSessions },
   {

@@ -10,7 +10,6 @@ import {
   type UsageSourceProblem,
 } from "@work-intelligence/shared/agent-usage";
 
-/** The scan itself, shared by the REST worker, the in-process fallback and the `usage` command. Paths never leave it. */
 interface UsageSourcesFound {
   projectId: string;
   claudeFolders: number;
@@ -18,7 +17,6 @@ interface UsageSourcesFound {
   problem?: UsageSourceProblem;
 }
 
-/** Projects that share a source opened above them; counts only. */
 interface UsageGroupFound {
   projectIds: string[];
   claudeFolders: number;
@@ -31,15 +29,11 @@ export interface UsageSourcesResult {
 }
 
 export interface UsageScanInput {
-  /** The selected projects. */
   projects: UsageProjectInput[];
-  /** Every tracked project, so shared sources know all their projects when only some are selected; default: `projects`. */
   allProjects?: UsageProjectInput[];
-  /** Absolute folders the user added by hand; scanned read-only and never echoed. */
   manualFolders: string[];
   since?: string;
   until?: string;
-  /** The present (epoch ms) for the 5-hour blocks; tests set it, the default is the current time. */
   now?: number;
 }
 
@@ -48,24 +42,18 @@ export interface UsageScanOutcome {
   problems: Array<{ projectId: string; problem: UsageSourceProblem }>;
 }
 
-/** Where the logs are read and where the incremental cache lives. */
 export interface UsageScanContext {
   dirs: UsageSourceDirs;
   cacheFile?: string;
 }
 
-/** What the REST routes need from a scanner; the production one runs in a child process. */
 export interface UsageOperations {
-  /** How many Claude folders and Codex files each project has, and which projects share a source. */
   sources(projects: UsageProjectInput[], signal?: AbortSignal): Promise<UsageSourcesResult>;
-  /** Scans the projects' logs and the manual folders. A newer scan cancels the running one. */
   scan(input: UsageScanInput, signal?: AbortSignal): Promise<UsageScanOutcome>;
 }
 
-/** Longest a scan may run before it is stopped. */
 export const USAGE_SCAN_TIMEOUT_MS = 60_000;
 
-/** The cache file for a database: `cache/agent-usage-cache.json` in the data directory. */
 function usageCacheFileFor(dataDirectory: string): string {
   return join(dataDirectory, "cache", "agent-usage-cache.json");
 }
@@ -77,7 +65,6 @@ export function defaultUsageScanContext(dataDirectory: string | undefined): Usag
   };
 }
 
-/** Whether a manual folder is something the scan may read: an absolute path without a NUL byte. */
 export function isScannableFolder(folder: string): boolean {
   return isAbsolute(folder) && !folder.includes("\0");
 }
@@ -118,7 +105,6 @@ export async function runUsageScan(
     ...own.flatMap((entry) => [...entry.claudeFolders, ...entry.codexFiles]),
     ...input.manualFolders.filter(isScannableFolder),
   ];
-  // Only groups with a selected project are read; their conversations are kept per project, see agent-usage/index.ts.
   const groups = sources.groups
     .filter((group) => group.projectIds.some((id) => selected.has(id)))
     .map((group) => ({
@@ -147,7 +133,6 @@ export async function runUsageScan(
   };
 }
 
-/** Runs scans in this process (the `usage` command and tests); the server uses `UsageWorkerClient` instead. */
 export class InlineUsageOperations implements UsageOperations {
   public constructor(
     private readonly context: UsageScanContext,

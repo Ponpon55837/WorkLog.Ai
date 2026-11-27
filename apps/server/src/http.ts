@@ -30,10 +30,7 @@ import { hasTransferSpace, TRANSFER_DISK_FULL_MESSAGE } from "./transfer-workspa
 
 /** @internal test-only */
 export const MAX_INPUT_PAYLOAD_BYTES = 1_500_000;
-/**
- * The largest portable import (and export) file. Import, preview and export stream the file in the background process
- * in bounded memory, so the limit is about disk and time, not heap.
- */
+// Import, preview and export stream the file in bounded memory, so this limit is about disk and time, not heap.
 export const MAX_PROJECT_IMPORT_BYTES = 256 * 1024 * 1024;
 const MAX_PROJECT_IMPORT_MIB = MAX_PROJECT_IMPORT_BYTES / 1024 / 1024;
 export const PROJECT_IMPORT_TOO_LARGE_MESSAGE = `匯入檔不可超過 ${MAX_PROJECT_IMPORT_MIB} MiB。`;
@@ -111,11 +108,6 @@ export async function readJsonBody(request: IncomingMessage, maxBytes = MAX_INPU
   }
 }
 
-/**
- * Streams a JSON request body to `target` (which must not exist yet) without holding it in memory, after checking
- * that the disk can take it: the declared length, or `maxBytes` when the client sends none. A body over `maxBytes` is
- * refused with 413, before reading when its declared length already says so. Returns the bytes written.
- */
 export async function receiveJsonBodyFile(request: IncomingMessage, target: string, maxBytes: number): Promise<number> {
   assertJsonContentType(request);
   const declared = Number(request.headers["content-length"]);
@@ -136,12 +128,7 @@ export async function receiveJsonBodyFile(request: IncomingMessage, target: stri
   return total;
 }
 
-/**
- * Validates an uploaded import, streamed in bounded memory; long values go to a spill file of its own in `directory`,
- * so a preview and an import of the same staged file never share one. A request body (`{bundle, ...choices}`) carries
- * its choices; a staged export file takes them from `upload.options`. The caller disposes the result.
- * @internal test-only
- */
+/** @internal test-only */
 export function validateProjectDataImportUpload(upload: ProjectDataImportUpload): ValidatedProjectDataImport {
   const envelope = upload.envelope ?? "request";
   let validated: ValidatedProjectDataImport;
@@ -175,7 +162,6 @@ function withFolderStatus(preview: ProjectDataImportPreview): ProjectDataImportP
   };
 }
 
-/** Previews an uploaded import, with each selected project's folder status; the same path in both processes. */
 export function previewProjectDataImportUpload(
   store: WorkIntelligenceStore,
   upload: ProjectDataImportUpload,
@@ -188,10 +174,6 @@ export function previewProjectDataImportUpload(
   }
 }
 
-/**
- * Validates a staged export file once and returns what the import page needs to show it (the scope, when it was
- * exported and its projects) together with the first preview, so choosing a file costs one pass over it.
- */
 export function inspectStagedProjectDataImport(
   store: WorkIntelligenceStore,
   upload: ProjectDataImportUpload,
@@ -216,7 +198,6 @@ export function inspectStagedProjectDataImport(
   }
 }
 
-/** Imports an uploaded request; the same path in the background process and the inline fallback. */
 export function importProjectDataUpload(
   store: WorkIntelligenceStore,
   upload: ProjectDataImportUpload,
@@ -229,7 +210,6 @@ export function importProjectDataUpload(
   }
 }
 
-/** The JSON body as an object, so a route can merge path parameters into it before validation. */
 export async function readJsonObject(request: IncomingMessage): Promise<Record<string, unknown>> {
   return (await readJsonBody(request)) as Record<string, unknown>;
 }
@@ -249,7 +229,6 @@ export function sendError(
   sendJson(response, statusCode, { error: message, code, details });
 }
 
-/** Sends the API error for a project import or export failure; false when `error` is something else. */
 export function sendProjectDataTransferError(response: ServerResponse, error: unknown): boolean {
   if (!(error instanceof ProjectDataTransferError)) {
     return false;
@@ -296,13 +275,11 @@ export function withProjectFolderStatus(
   return { ...project, folderStatus: inspectProjectFolder(project.rootPath) };
 }
 
-/** A query parameter as a number, or undefined when absent (validation happens in the schema). */
 export function numberParam(url: URL, name: string): number | undefined {
   const value = url.searchParams.get(name);
   return value ? Number(value) : undefined;
 }
 
-/** A trimmed query parameter, or undefined when absent or blank. */
 export function textParam(url: URL, name: string): string | undefined {
   return url.searchParams.get(name)?.trim() || undefined;
 }

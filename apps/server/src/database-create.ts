@@ -7,7 +7,6 @@ import type { DatabasePreflightResult } from "./database-preflight.js";
 const PRIVATE_DIRECTORY_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
 const SQLITE_SIDECAR_SUFFIXES = ["-wal", "-shm", "-journal"] as const;
-/** Something is already at the path: never created by this call, so never a success of it. */
 const ALREADY_THERE: DatabasePreflightResult = Object.freeze({ status: "unreadable", detail: "EEXIST" });
 
 function errorCode(error: unknown): string | undefined {
@@ -31,15 +30,8 @@ function removeCreated(path: string): void {
   }
 }
 
-/**
- * Creates a brand-new, empty Work Intelligence database at exactly `path`, only when nothing exists there (ENOENT on
- * `lstat`, so an existing file of any size, a directory or a symlink, even a dangling one, is never touched). The file is
- * created exclusively (`wx`) and then initialised by the real store, so a concurrent creator can never be overwritten.
- * Returns `undefined` only when THIS call created the database (the caller then runs the normal preflight), so the
- * App may treat that file as its own and remove it again after a failed start. Anything already at the path, also one
- * that appears between the check and the exclusive create, is someone else's: it is left alone and reported as
- * `unreadable` with detail `EEXIST`, never as a success. A file this call created and could not initialise is removed.
- */
+// Returns undefined only when THIS call created the database (the App may then remove it after a failed start);
+// anything already at the path, even one that appears before the exclusive create, is reported as EEXIST.
 export function createDatabaseIfMissing(path: string): DatabasePreflightResult | undefined {
   try {
     lstatSync(path);

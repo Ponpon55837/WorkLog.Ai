@@ -40,7 +40,6 @@ async function install(): Promise<void> {
   console.log(formatUserServiceStatus(getUserServiceStatus()));
 }
 
-/** The version the local server reports, or undefined while it is not answering. */
 async function readServerVersion(port: number): Promise<string | undefined> {
   try {
     const response = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(2000) });

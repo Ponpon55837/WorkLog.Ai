@@ -8,10 +8,6 @@ import {
 } from "@work-intelligence/shared/agent-observations";
 import { configDirectory } from "@work-intelligence/shared/database-location";
 
-/**
- * Adds what each Agent host last saw of the MCP tool contract. The reader and the comparison are the ones the desktop
- * App's Agent tab uses (shared), so the Web status and the App never judge a host differently.
- */
 export function withHostObservations(
   connections: SystemAgentConnections,
   runtimeRoot: string,
@@ -28,10 +24,6 @@ export function withHostObservations(
   };
 }
 
-/**
- * Compares the lease state the MCP recorded in its observation with this backend's scope (see `diagnoseMcpLease`); one
- * small file read, made only when an Agent was seen and no lease is visible.
- */
 export function mcpLeaseDiagnosis(
   backendScopeId: string,
   activeLeases: number,

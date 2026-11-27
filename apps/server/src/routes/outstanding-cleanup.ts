@@ -42,7 +42,6 @@ function sendResult(response: ServerResponse, result: CleanupResult, successStat
   sendJson(response, ["skipped", "not_needed", "not_found"].includes(result.outcome) ? 200 : successStatus, result);
 }
 
-/** Maps domain conflicts without exposing database details; policy skips remain quiet successful results. */
 function cleanupRoute<S extends z.ZodType>(
   schema: S,
   input: (context: RouteContext) => unknown,
@@ -59,7 +58,6 @@ function cleanupRoute<S extends z.ZodType>(
   };
 }
 
-/** Web-created cleanup requests, evidence proposals, and human-only review decisions. */
 export const outstandingCleanupRoutes: Route[] = [
   {
     method: "POST",
