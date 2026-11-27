@@ -3,6 +3,7 @@ import { ApiError } from "../../../apps/web/src/api/client.js";
 import {
   errorMessage,
   formatBytes,
+  formatDateRangeText,
   formatDate,
   formatDayGroup,
   formatDuration,
@@ -28,6 +29,18 @@ describe("formatBytes", () => {
     expect(formatBytes(1024)).toBe("1.0 KB");
     expect(formatBytes(1536)).toBe("1.5 KB");
     expect(formatBytes(1024 ** 3)).toBe("1.0 GB");
+  });
+});
+
+describe("formatDateRangeText", () => {
+  it("writes one day once and a range with both ends", () => {
+    expect(formatDateRangeText({ from: "2026-11-05", to: "2026-11-05" })).toBe("2026/11/05");
+    expect(formatDateRangeText({ from: "2026-11-01", to: "2026-11-05" })).toBe("2026/11/01 – 2026/11/05");
+  });
+
+  it("shows an open end as an ellipsis", () => {
+    expect(formatDateRangeText({ from: "2026-11-01", to: "" })).toBe("2026/11/01 – …");
+    expect(formatDateRangeText({ from: "", to: "2026-11-05" })).toBe("… – 2026/11/05");
   });
 });
 

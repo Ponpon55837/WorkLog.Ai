@@ -4,7 +4,6 @@ import { storeToRefs } from "pinia";
 import { CalendarRange, FolderGit2, Maximize2, ZoomIn, ZoomOut } from "lucide-vue-next";
 import type { TimelineKnowledgeEvent, TimelineKnowledgeEventKind, TimelineSession } from "@work-intelligence/core";
 import { useMediaQuery } from "../../composables/useMediaQuery";
-import { useProjectOptions } from "../../composables/useProjectOptions";
 import { useSessionsStore } from "../../stores/sessions";
 import { useTimelineStore, type TimelineRange } from "../../stores/timeline";
 import { formatDate, formatDayGroup, formatTimeOfDay } from "../../utils/format";
@@ -30,6 +29,7 @@ import UiIconButton from "../ui/UiIconButton.vue";
 import UiSegmentedControl from "../ui/UiSegmentedControl.vue";
 import UiSelect from "../ui/UiSelect.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
+import ProjectFilterMenu from "./ProjectFilterMenu.vue";
 import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
 
@@ -96,7 +96,6 @@ const timelineStore = useTimelineStore();
 const { range, timeline, timelineLoading, timelineError } = storeToRefs(timelineStore);
 const sessionsStore = useSessionsStore();
 const narrow = useMediaQuery("(max-width: 639px)");
-const projectOptions = useProjectOptions();
 
 const viewport = ref<HTMLElement | null>(null);
 const chosenView = ref<TimelineView>("chart");
@@ -476,12 +475,12 @@ onBeforeUnmount(() => {
     <template #header>
       <UiBoxTitle :icon="CalendarRange" :title="t('graph.timeline')" :count="timeline?.sessions.length ?? 0" />
       <div class="timeline__tools">
-        <UiSelect
+        <ProjectFilterMenu
           v-model="projectId"
-          :options="projectOptions"
           :icon="FolderGit2"
+          variant="button"
           size="sm"
-          :label="t('graph.chooseTimelineProjectScope')"
+          :header="t('graph.chooseTimelineProjectScope')"
         />
         <UiSelect v-model="range" :options="rangeOptions" size="sm" :label="t('graph.chooseTimelinePeriod')" />
         <UiSegmentedControl

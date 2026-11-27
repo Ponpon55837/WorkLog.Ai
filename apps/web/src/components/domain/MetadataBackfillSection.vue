@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { storeToRefs } from "pinia";
-import { CircleCheckBig, ScanSearch, X } from "lucide-vue-next";
-import UiSelect from "../ui/UiSelect.vue";
+import { CircleCheckBig, FolderGit2, ScanSearch, X } from "lucide-vue-next";
 import { useActiveRequestWatch } from "../../composables/useActiveRequestWatch";
-import { useProjectOptions } from "../../composables/useProjectOptions";
 import { useToast } from "../../composables/useToast";
 import { metadataBackfillInstruction, useMetadataBackfillStore } from "../../stores/metadata-backfill";
 import { formatDate, formatRelative } from "../../utils/format";
@@ -20,6 +18,7 @@ import UiStack from "../ui/UiStack.vue";
 import UiStatCard from "../ui/UiStatCard.vue";
 import UiStatGrid from "../ui/UiStatGrid.vue";
 import VirtualList from "../VirtualList.vue";
+import ProjectFilterMenu from "./ProjectFilterMenu.vue";
 import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
 
@@ -58,8 +57,6 @@ useActiveRequestWatch({
   },
 });
 
-const projectOptions = useProjectOptions();
-
 const requestMessage = computed(() => {
   if (!request.value) {
     return "";
@@ -78,10 +75,11 @@ const requestMessage = computed(() => {
 
 <template>
   <UiStack class="backfill">
-    <UiSelect
+    <ProjectFilterMenu
       v-model="projectId"
-      :options="projectOptions"
-      :label="t('common.project')"
+      :icon="FolderGit2"
+      variant="button"
+      :header="t('common.project')"
       @update:model-value="requestId = ''"
     />
     <UiFlash v-if="metadataBackfillError" tone="danger">{{ metadataBackfillError }}</UiFlash>

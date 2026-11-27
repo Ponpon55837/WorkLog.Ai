@@ -10,11 +10,13 @@ import OutstandingItemsBox from "../components/domain/OutstandingItemsBox.vue";
 import ProjectFilterMenu from "../components/domain/ProjectFilterMenu.vue";
 import SessionRow from "../components/domain/SessionRow.vue";
 import UiActionMenu from "../components/ui/UiActionMenu.vue";
+import type { FilterChip } from "../components/ui/types";
 import UiBox from "../components/ui/UiBox.vue";
 import UiBoxTitle from "../components/ui/UiBoxTitle.vue";
 import UiButton from "../components/ui/UiButton.vue";
 import UiDateRangeMenu from "../components/ui/UiDateRangeMenu.vue";
 import UiEmptyState from "../components/ui/UiEmptyState.vue";
+import UiFilterChips from "../components/ui/UiFilterChips.vue";
 import UiFlash from "../components/ui/UiFlash.vue";
 import UiGroupLabel from "../components/ui/UiGroupLabel.vue";
 import UiPagination from "../components/ui/UiPagination.vue";
@@ -22,13 +24,15 @@ import UiSkeleton from "../components/ui/UiSkeleton.vue";
 import UiTextInput from "../components/ui/UiTextInput.vue";
 import UiUnderlineNav from "../components/ui/UiUnderlineNav.vue";
 import VirtualList from "../components/VirtualList.vue";
+import { filterChip, useProjectChip } from "../composables/useFilterChips";
 import { useListReload } from "../composables/useListReload";
 import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
 import { router } from "../router";
 import { useOutstandingItemsStore, type OutstandingClosedFilter } from "../stores/outstanding-items";
+import { useProjectsStore } from "../stores/projects";
 import { useSessionDayInsightsStore } from "../stores/session-day-insights";
 import { useSessionsStore } from "../stores/sessions";
-import { formatDayGroup } from "../utils/format";
+import { formatDateRangeText, formatDayGroup } from "../utils/format";
 import {
   listPageSizeOptions,
   outstandingItemStatusLabels,
@@ -65,6 +69,7 @@ const {
 } = storeToRefs(sessionsStore);
 const { loadSessions, retrySessions, clearSessionFilters, setSessionsListActive } = sessionsStore;
 const { openSessionDetail, setSessionSequence } = sessionsStore;
+const { dashboard } = storeToRefs(useProjectsStore());
 const dayInsightsStore = useSessionDayInsightsStore();
 const { insights: dayInsights } = storeToRefs(dayInsightsStore);
 const outstandingItemsStore = useOutstandingItemsStore();
@@ -148,6 +153,7 @@ useListReload({
     outstandingClosedFilter,
   ],
 });
+const projectChip = useProjectChip(selectedProjectId);
 
 const tab = computed<SessionsTab>({
   get: () => {
@@ -165,12 +171,44 @@ const agentItems = computed(() => [
   { value: "", label: t("common.allAgents") },
   ...agentOptions.value.map((agent) => ({ value: agent, label: agent })),
 ]);
+const dateRange = computed({
+  get: () => ({ from: dateFrom.value, to: dateTo.value }),
+  set: (range) => {
+    dateFrom.value = range.from;
+    dateTo.value = range.to;
+  },
+});
+const sessionFilterChips = computed(() => {
+  const chips: FilterChip[] = [];
+  if (projectChip.value) chips.push(projectChip.value);
+  if (selectedAgent.value) chips.push(filterChip("agent", t("common.agent"), selectedAgent.value));
+  if (dateFrom.value || dateTo.value) {
+    chips.push(filterChip("date", t("ui.date"), formatDateRangeText(dateRange.value)));
+  }
+  if (voidedFilter.value !== "exclude") {
+    const voided = voidedFilterOptions.find((option) => option.value === voidedFilter.value);
+    chips.push(filterChip("voided", t("common.void"), voided?.label ?? voidedFilter.value));
+  }
+  return chips;
+});
+const sessionTabCount = computed(() => {
+  if (!sessionsLoaded.value) return undefined;
+  const total = sessionPageInfo.value.total;
+  const narrowed = Boolean(
+    searchTerm.value || selectedProjectId.value || selectedAgent.value || dateFrom.value || dateTo.value,
+  );
+  const all = dashboard.value.finalizedSessions;
+  return narrowed && voidedFilter.value === "exclude" && all > 0
+    ? t("common.filteredCount", { shown: total, total: all })
+    : total;
+});
+
 const tabs = computed(() => [
   {
     value: "sessions" as const,
     label: t("common.workHistory"),
     icon: ListChecks,
-    count: sessionsLoaded.value ? sessionPageInfo.value.total : undefined,
+    count: sessionTabCount.value,
   },
   {
     value: "outstanding" as const,
@@ -179,13 +217,13 @@ const tabs = computed(() => [
     count: outstandingLoaded.value ? outstandingPageInfo.value.total : undefined,
   },
 ]);
-const dateRange = computed({
-  get: () => ({ from: dateFrom.value, to: dateTo.value }),
-  set: (range) => {
-    dateFrom.value = range.from;
-    dateTo.value = range.to;
-  },
-});
+
+function removeSessionFilter(key: string): void {
+  if (key === "project") selectedProjectId.value = "";
+  else if (key === "agent") selectedAgent.value = "";
+  else if (key === "date") dateRange.value = { from: "", to: "" };
+  else voidedFilter.value = "exclude";
+}
 
 function dayGroupAt(index: number): string | undefined {
   const current = sessions.value[index];
@@ -318,6 +356,7 @@ onBeforeUnmount(() => {
         </div>
       </template>
 
+      <UiFilterChips :chips="sessionFilterChips" @remove="removeSessionFilter" />
       <UiSkeleton v-if="sessionsLoading && !sessionsLoaded" :count="5" :label="t('sessions.loadingWorkHistory')" />
       <UiEmptyState
         v-else-if="sessionsLoaded && sessions.length === 0"

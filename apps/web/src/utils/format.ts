@@ -58,6 +58,12 @@ export function formatFullDate(value: Date): string {
   return new Intl.DateTimeFormat(intlLocale(), { dateStyle: "long" }).format(value);
 }
 
+/** "2026/11/05" for one day, "2026/11/01 – 2026/11/05" for a range; an open end reads as an ellipsis. */
+export function formatDateRangeText(range: { from: string; to: string }): string {
+  const format = (value: string) => value.replaceAll("-", "/");
+  return range.from === range.to ? format(range.from) : `${format(range.from || "…")} – ${format(range.to || "…")}`;
+}
+
 export function startOfMonth(value: Date): Date {
   return new Date(value.getFullYear(), value.getMonth(), 1);
 }

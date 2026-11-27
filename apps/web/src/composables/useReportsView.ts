@@ -231,7 +231,6 @@ function createReportsViewModel() {
     reportRange,
     reportDatePickerRange,
     reportProjectId,
-    projectLabel,
     exportItems,
     reportLoading,
     reportExportLoading,

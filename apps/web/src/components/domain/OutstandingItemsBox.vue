@@ -13,15 +13,18 @@ import UiButton from "../ui/UiButton.vue";
 import UiCheckbox from "../ui/UiCheckbox.vue";
 import UiDateRangeMenu from "../ui/UiDateRangeMenu.vue";
 import UiEmptyState from "../ui/UiEmptyState.vue";
+import UiFilterChips from "../ui/UiFilterChips.vue";
 import UiFlash from "../ui/UiFlash.vue";
 import UiLabel from "../ui/UiLabel.vue";
 import UiPagination from "../ui/UiPagination.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 import VirtualList from "../VirtualList.vue";
+import type { FilterChip } from "../ui/types";
 import { confirmAction } from "../../composables/useConfirm";
+import { filterChip, useProjectChip } from "../../composables/useFilterChips";
 import { useToast } from "../../composables/useToast";
 import { useOutstandingItemsStore, type OutstandingClosedFilter } from "../../stores/outstanding-items";
-import { errorMessage, formatDate, formatRelative } from "../../utils/format";
+import { errorMessage, formatDate, formatDateRangeText, formatRelative } from "../../utils/format";
 import { outstandingItemStatusLabels, type ListPageSize } from "../../utils/labels";
 import { outstandingItemStatusVisual } from "../../utils/status";
 import { t } from "../../i18n";
@@ -44,6 +47,8 @@ const closedFilter = defineModel<OutstandingClosedFilter>("closedFilter", { requ
 
 const outstandingItemsStore = useOutstandingItemsStore();
 const { showToast } = useToast();
+
+const projectChip = useProjectChip(projectId);
 
 const changingItemIds = ref<string[]>([]);
 const selectedIds = ref<string[]>([]);
@@ -86,6 +91,28 @@ const hasFilters = computed(
     closedFilter.value !== "all" ||
     Boolean(from.value || to.value),
 );
+const filterChips = computed(() => {
+  const chips: FilterChip[] = [];
+  if (projectChip.value) chips.push(projectChip.value);
+  if (status.value !== "pending") {
+    chips.push(filterChip("status", t("common.status"), outstandingItemStatusLabels[status.value]));
+  }
+  if (status.value !== "pending" && closedFilter.value !== "all") {
+    const closed = closedFilterOptions.value.find((option) => option.value === closedFilter.value);
+    chips.push(filterChip("closed", t("outstanding.closedFilterLabel"), closed?.label ?? closedFilter.value));
+  }
+  if (from.value || to.value) {
+    chips.push(filterChip("date", t("outstanding.sourceSessionDate"), formatDateRangeText(dateRange.value)));
+  }
+  return chips;
+});
+
+function removeFilter(key: string): void {
+  if (key === "project") projectId.value = "";
+  else if (key === "status") status.value = "pending";
+  else if (key === "closed") closedFilter.value = "all";
+  else dateRange.value = { from: "", to: "" };
+}
 
 function clearFilters(): void {
   projectId.value = "";
@@ -232,6 +259,8 @@ watch(
         <OutstandingCleanupPanel @open-session="emit('openSession', $event)" />
       </div>
     </template>
+
+    <UiFilterChips :chips="filterChips" clearable @remove="removeFilter" @clear="clearFilters" />
 
     <div class="outstanding-items__batch" role="group" :aria-label="t('outstanding.bulkActions')">
       <UiCheckbox

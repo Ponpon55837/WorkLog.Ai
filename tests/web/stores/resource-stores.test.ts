@@ -273,8 +273,10 @@ afterEach(async () => {
 describe("resource stores", () => {
   it("keys Knowledge list requests by every search, filter, and pagination value", async () => {
     const store = useKnowledgeStore();
+    const listCalls = () =>
+      harness.calls.filter(({ url }) => url.pathname === "/api/knowledge" && url.searchParams.get("pageSize") !== "1");
     store.setKnowledgeListActive(true);
-    await vi.waitFor(() => expect(harness.count("/api/knowledge")).toBe(1));
+    await vi.waitFor(() => expect(listCalls()).toHaveLength(1));
 
     store.knowledgeQuery = "  retry policy  ";
     store.knowledgeKind = "gotcha";
@@ -284,8 +286,8 @@ describe("resource stores", () => {
     store.knowledgePageSize = 20;
     store.loadKnowledge();
 
-    await vi.waitFor(() => expect(harness.count("/api/knowledge")).toBe(2));
-    const filteredRequest = harness.calls.filter(({ url }) => url.pathname === "/api/knowledge")[1];
+    await vi.waitFor(() => expect(listCalls()).toHaveLength(2));
+    const filteredRequest = listCalls()[1];
     expect(filteredRequest?.url.searchParams.get("q")).toBe("retry policy");
     expect(filteredRequest?.url.searchParams.get("kind")).toBe("gotcha");
     expect(filteredRequest?.url.searchParams.get("projectId")).toBe("project-1");
@@ -294,10 +296,26 @@ describe("resource stores", () => {
     expect(filteredRequest?.url.searchParams.get("pageSize")).toBe("20");
 
     store.knowledgePage = 3;
-    await vi.waitFor(() => expect(harness.count("/api/knowledge")).toBe(3));
-    expect(harness.calls.filter(({ url }) => url.pathname === "/api/knowledge")[2]?.url.searchParams.get("page")).toBe(
-      "3",
-    );
+    await vi.waitFor(() => expect(listCalls()).toHaveLength(3));
+    expect(listCalls()[2]?.url.searchParams.get("page")).toBe("3");
+  });
+
+  it("reads the unfiltered Knowledge total only while a filter narrows the list", async () => {
+    const store = useKnowledgeStore();
+    const baselineCalls = () =>
+      harness.calls.filter(({ url }) => url.pathname === "/api/knowledge" && url.searchParams.get("pageSize") === "1");
+    store.setKnowledgeListActive(true);
+    await vi.waitFor(() => expect(harness.count("/api/knowledge")).toBe(1));
+    expect(baselineCalls()).toHaveLength(0);
+    expect(store.knowledgeBaselineTotal).toBeUndefined();
+
+    store.knowledgeKind = "gotcha";
+    store.knowledgeStatus = "archived";
+    await vi.waitFor(() => expect(baselineCalls()).toHaveLength(1));
+    const baseline = baselineCalls()[0]?.url.searchParams;
+    expect(baseline?.get("status")).toBe("archived");
+    expect(baseline?.get("kind")).toBeNull();
+    await vi.waitFor(() => expect(store.knowledgeBaselineTotal).toBeDefined());
   });
 
   it("loads backup records, creates a snapshot, and reports a localized load error", async () => {

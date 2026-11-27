@@ -57,7 +57,7 @@ for (const locale of ["zh-TW", "en-US"] as const) {
             attention &&
             bounds.y + bounds.height <= stats.y &&
             stats.y < insights.y &&
-            insights.y < attention.y,
+            (attention.y < stats.y ? bounds.y + bounds.height <= attention.y : insights.y < attention.y),
         ).toBe(true);
         expect(
           bounds &&

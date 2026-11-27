@@ -11,14 +11,23 @@ defineProps<{
   delta?: { direction: "up" | "down" | "flat"; text: string };
   compact?: boolean;
   featured?: boolean;
+  /** Turns the whole card into one button (its label names it) and shows this text as its tooltip; the card then emits `select`. */
+  actionTitle?: string;
 }>();
+
+const emit = defineEmits<{ select: [] }>();
 </script>
 
 <template>
-  <article :class="['ui-stat', { 'ui-stat--compact': compact, 'ui-stat--featured': featured }]">
+  <article
+    :class="['ui-stat', { 'ui-stat--compact': compact, 'ui-stat--featured': featured, 'ui-stat--action': actionTitle }]"
+  >
     <div class="ui-stat__label">
       <component :is="icon" v-if="icon" :size="16" :stroke-width="1.75" aria-hidden="true" />
-      {{ label }}
+      <button v-if="actionTitle" type="button" class="ui-stat__action" :title="actionTitle" @click="emit('select')">
+        {{ label }}
+      </button>
+      <template v-else>{{ label }}</template>
     </div>
     <div :class="['ui-stat__value', valueTone && `tone-${valueTone}`]">
       {{ value }}
@@ -66,6 +75,45 @@ defineProps<{
 
 .ui-stat--compact {
   padding: var(--space-3);
+}
+
+.ui-stat {
+  position: relative;
+}
+
+.ui-stat--action {
+  transition: border-color var(--duration-instant) ease-out;
+}
+
+.ui-stat--action:hover {
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--bg-hover) 55%, var(--bg-surface));
+}
+
+/* The button's hit area covers the whole card, so the value and foot are clickable too. */
+.ui-stat__action {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+
+.ui-stat__action::after {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-outer);
+  content: "";
+}
+
+.ui-stat__action:focus-visible {
+  outline: none;
+}
+
+.ui-stat__action:focus-visible::after {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .ui-stat--compact .ui-stat__value {

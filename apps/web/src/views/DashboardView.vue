@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { ArrowRight, ChartColumn, CircleCheckBig, FolderGit2, Inbox, ListChecks, ShieldCheck } from "lucide-vue-next";
 import type { WorkSessionRecord } from "@work-intelligence/core";
@@ -56,6 +56,8 @@ const { openSessionDetail, setSessionSequence } = sessionsStore;
 const systemStatusStore = useSystemStatusStore();
 const { systemStatus, systemStatusLoading, systemStatusError } = storeToRefs(systemStatusStore);
 
+const attentionBox = ref<InstanceType<typeof AttentionBox> | null>(null);
+
 const today = new Intl.DateTimeFormat(intlLocale(), { dateStyle: "full" }).format(new Date());
 const pausedCount = computed(() => projects.value.filter((project) => project.status === "paused").length);
 const visibleProjects = computed(() =>
@@ -77,6 +79,12 @@ const weekDelta = computed(() => {
       : t("dashboard.vsLastWeek", { value: Math.abs(comparison.delta) });
   return { direction: comparison.direction, text };
 });
+const attentionFirst = computed(() => attentionLoaded.value && (attentionCount.value ?? 0) > 0);
+const attentionFoot = computed(() =>
+  attentionComplete.value
+    ? t("attention.waitingForYou", { count: attentionCount.value ?? 0 })
+    : t("attention.waitingForYouAtLeast", { count: attentionCount.value ?? 0 }),
+);
 const showFirstRunChecklist = computed(
   () => initialDataReady.value && (dashboard.value.trackedProjects === 0 || dashboard.value.finalizedSessions === 0),
 );
@@ -133,6 +141,8 @@ onBeforeUnmount(() => {
     <ActivityHeatmap v-else :days="activityDays" @select="openDayReport" />
   </UiBox>
 
+  <AttentionBox v-if="attentionFirst" ref="attentionBox" class="dashboard__attention" />
+
   <DashboardCycle class="dashboard__cycle" />
 
   <UiStatGrid class="dashboard__stats">
@@ -183,7 +193,9 @@ onBeforeUnmount(() => {
             : t('attention.loadingShort')
       "
       :value-tone="attentionCount ? 'attention' : undefined"
-      :foot="attentionComplete ? t('attention.countDescription') : t('attention.incompleteCount')"
+      :foot="attentionFoot"
+      :action-title="t('attention.jumpToNeedsAttention')"
+      @select="attentionBox?.reveal()"
     />
   </UiStatGrid>
 
@@ -191,7 +203,7 @@ onBeforeUnmount(() => {
 
   <UiSplitLayout>
     <template #main>
-      <AttentionBox />
+      <AttentionBox v-if="!attentionFirst" ref="attentionBox" />
 
       <UiBox>
         <template #header>
@@ -278,6 +290,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .dashboard__activity,
+.dashboard__attention,
 .dashboard__cycle,
 .dashboard__insights {
   margin-bottom: var(--space-4);

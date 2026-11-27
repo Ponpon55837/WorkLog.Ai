@@ -1,10 +1,12 @@
 <script setup lang="ts">
+import { computed, nextTick, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { BookOpen, Check, ExternalLink, X } from "lucide-vue-next";
 import type { SessionDecisionRecord } from "@work-intelligence/core";
 import AgentReviewFilter from "./AgentReviewFilter.vue";
 import AgentReviewVerdict from "./AgentReviewVerdict.vue";
 import { useAgentReviewActions } from "../../composables/useAgentReviewActions";
+import { useDecisionReview } from "../../composables/useDecisionReview";
 import { useKnowledgeActions } from "../../composables/useKnowledge";
 import { useToast } from "../../composables/useToast";
 import { useAgentReviewStore } from "../../stores/agent-review";
@@ -22,45 +24,37 @@ import UiSkeleton from "../ui/UiSkeleton.vue";
 import VirtualList from "../VirtualList.vue";
 import { t } from "../../i18n";
 
-const props = defineProps<{ projectRoot?: string }>();
+const props = defineProps<{ projectRoot?: string; highlightId?: string }>();
 const decisionStore = useSessionDecisionsStore();
 const { decisions, pendingCount, decisionsLoading, decisionsLoaded, decisionsError } = storeToRefs(decisionStore);
 const { filter } = storeToRefs(useAgentReviewStore());
 const { overturn } = useAgentReviewActions();
 const projectsStore = useProjectsStore();
 const { showToast } = useToast();
+const { review } = useDecisionReview();
 const { openAgentDecisionEditor } = useKnowledgeActions();
 const { openSessionDetail } = useSessionsStore();
+
+const revealedId = ref("");
+const orderedDecisions = computed(() => {
+  const id = props.highlightId;
+  const targeted = id ? decisions.value.filter((decision) => decision.id === id) : [];
+  return targeted.length ? [...targeted, ...decisions.value.filter((decision) => decision.id !== id)] : decisions.value;
+});
 
 function projectRootFor(item: SessionDecisionRecord): string | undefined {
   return props.projectRoot ?? projectsStore.projects.find((project) => project.id === item.projectId)?.rootPath;
 }
 
-async function review(item: SessionDecisionRecord, reviewStatus: "confirmed" | "rejected"): Promise<void> {
-  const projectRoot = projectRootFor(item);
-  if (!projectRoot) {
-    showToast(t("knowledge.couldNotFindTheTracked"), "danger");
-    return;
-  }
-  try {
-    const result = await decisionStore.reviewDecision({ decisionId: item.id, projectRoot, reviewStatus });
-    if (result.outcome === "session_decision_reviewed") {
-      showToast(
-        reviewStatus === "confirmed"
-          ? t("knowledge.agentAutonomousDecisionConfirmed")
-          : t("knowledge.agentAutonomousDecisionRejected"),
-      );
-    } else {
-      showToast(
-        result.outcome === "skipped"
-          ? (result.reason ?? t("common.trackingIsNotEnabledFor"))
-          : t("knowledge.decisionNotFound"),
-        "danger",
-      );
-    }
-  } catch {
-    showToast(t("knowledge.couldNotUpdateTheDecision"), "danger");
-  }
+function revealHighlighted(): void {
+  const id = props.highlightId;
+  if (!id || revealedId.value === id || !decisions.value.some((decision) => decision.id === id)) return;
+  revealedId.value = id;
+  void nextTick(() => {
+    const element = document.querySelector<HTMLElement>(`[data-decision-id="${CSS.escape(id)}"]`);
+    element?.scrollIntoView({ block: "center" });
+    element?.focus({ preventScroll: true });
+  });
 }
 
 function verdictFor(item: SessionDecisionRecord): "confirmed" | "rejected" | "promoted" {
@@ -79,6 +73,8 @@ function promote(item: SessionDecisionRecord): void {
 function openSource(item: SessionDecisionRecord): void {
   void openSessionDetail(item.sessionId, t("knowledge.decisionSourceLoadFailed"));
 }
+
+watch([() => props.highlightId, decisions], revealHighlighted, { immediate: true });
 </script>
 
 <template>
@@ -105,7 +101,7 @@ function openSource(item: SessionDecisionRecord): void {
     />
     <VirtualList
       v-else
-      :items="decisions"
+      :items="orderedDecisions"
       :enabled="true"
       fit-viewport
       fit-viewport-to-panel
@@ -118,7 +114,12 @@ function openSource(item: SessionDecisionRecord): void {
       "
     >
       <template #default="{ item }">
-        <article class="agent-decisions__item" data-testid="agent-decision-item">
+        <article
+          :class="['agent-decisions__item', { 'is-targeted': item.id === highlightId }]"
+          :data-decision-id="item.id"
+          :tabindex="item.id === highlightId ? -1 : undefined"
+          data-testid="agent-decision-item"
+        >
           <div class="agent-decisions__meta">
             <UiLabel tone="attention">{{ t("knowledge.agentAutonomousDecisions") }}</UiLabel>
             <span>{{
@@ -149,8 +150,12 @@ function openSource(item: SessionDecisionRecord): void {
               {{ item.sessionTitle ?? t("knowledge.openSourceSession") }}
             </UiButton>
             <div v-if="filter === 'pending'" class="agent-decisions__actions">
-              <UiButton size="sm" :icon="Check" @click="review(item, 'confirmed')">{{ t("common.confirm") }}</UiButton>
-              <UiButton size="sm" :icon="X" @click="review(item, 'rejected')">{{ t("knowledge.reject") }}</UiButton>
+              <UiButton size="sm" :icon="Check" @click="review(item, 'confirmed', projectRootFor(item))">{{
+                t("common.confirm")
+              }}</UiButton>
+              <UiButton size="sm" :icon="X" @click="review(item, 'rejected', projectRootFor(item))">{{
+                t("knowledge.reject")
+              }}</UiButton>
               <UiButton size="sm" variant="primary" :icon="BookOpen" @click="promote(item)">{{
                 t("knowledge.turnIntoKnowledge")
               }}</UiButton>
@@ -174,6 +179,11 @@ function openSource(item: SessionDecisionRecord): void {
 :deep(.virtual-list-item:first-child) .agent-decisions__item,
 .agent-decisions__item:first-child {
   border-top: 0;
+}
+
+.agent-decisions__item.is-targeted {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .agent-decisions__meta,

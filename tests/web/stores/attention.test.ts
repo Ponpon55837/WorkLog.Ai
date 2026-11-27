@@ -103,4 +103,32 @@ describe("attention view state", () => {
     expect(store.saving).toBe(false);
     expect(store.result?.total).toBe(1);
   });
+  it("remembers when each project's newest open Agent request with decisions was made", async () => {
+    const request = (projectId: string, requestedAt: string, decisionCount: number) => ({
+      id: `${projectId}-${requestedAt}`,
+      projectId,
+      status: "pending",
+      requestedAt,
+      decisionCount,
+    });
+    harness.setResponder(({ url }) =>
+      url.pathname === "/api/agent-review-requests"
+        ? {
+            outcome: "agent_review_requests",
+            requests:
+              url.searchParams.get("status") === "pending"
+                ? [request("p1", "2026-11-01T00:00:00Z", 2), request("p2", "2026-11-01T00:00:00Z", 0)]
+                : [request("p1", "2026-11-02T00:00:00Z", 1)],
+          }
+        : { outcome: "attention", items: [], groups: [], total: 0, minimumTotal: 0, pageInfo: {} },
+    );
+    const store = useAttentionStore();
+    store.setActive(true);
+    await vi.waitFor(() => expect(store.openDecisionRequestAt.get("p1")).toBe("2026-11-02T00:00:00Z"));
+    expect(store.openDecisionRequestAt.has("p2")).toBe(false);
+    const statuses = harness.calls
+      .filter((call) => call.url.pathname === "/api/agent-review-requests")
+      .map((call) => call.url.searchParams.get("status"));
+    expect(statuses.sort()).toEqual(["pending", "processing"]);
+  });
 });

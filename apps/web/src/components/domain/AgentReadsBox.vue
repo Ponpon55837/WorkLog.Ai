@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted } from "vue";
 import { storeToRefs } from "pinia";
 import { Eye } from "lucide-vue-next";
+import ProjectFilterMenu from "./ProjectFilterMenu.vue";
 import UiBox from "../ui/UiBox.vue";
 import UiBoxRow from "../ui/UiBoxRow.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
@@ -12,7 +13,6 @@ import UiLabel from "../ui/UiLabel.vue";
 import UiPagination from "../ui/UiPagination.vue";
 import UiSelect from "../ui/UiSelect.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
-import { useProjectOptions } from "../../composables/useProjectOptions";
 import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../../composables/useRouteQuery";
 import { useAgentReadsStore } from "../../stores/agent-reads";
 import { useSessionsStore } from "../../stores/sessions";
@@ -51,7 +51,6 @@ useRouteQuery("readsAgent", agent, stringQuery());
 useRouteQuery("readsPage", page, pageQuery());
 useRouteQuery("readsSize", pageSize, enumQuery(pageSizes, 10));
 
-const projectOptions = useProjectOptions({ allLabel: () => t("systemStatus.agentReadsAllProjects") });
 const agentFilterOptions = computed(() => [
   { value: "", label: t("systemStatus.agentReadsAllAgents") },
   ...agentOptions.value.map((name) => ({ value: name, label: name })),
@@ -86,11 +85,12 @@ onBeforeUnmount(() => agentReadsStore.setListActive(false));
         :title="t('systemStatus.agentReadsTitle')"
         :count="loaded ? pageInfo?.total : undefined"
       />
-      <UiSelect
+      <ProjectFilterMenu
         v-model="projectId"
-        :options="projectOptions"
-        :label="t('systemStatus.agentReadsProjectFilter')"
+        variant="button"
         size="sm"
+        :all-label="t('systemStatus.agentReadsAllProjects')"
+        :header="t('systemStatus.agentReadsProjectFilter')"
       />
       <UiSelect
         v-model="agent"

@@ -111,7 +111,8 @@
     "workKnowledge": "Work knowledge",
     "yes": "Yes",
     "yesterday": "Yesterday",
-    "searchSkippedRecords": "{count} record is too large to search and was skipped, so results may be incomplete; narrow the search.|{count} records are too large to search and were skipped, so results may be incomplete; narrow the search."
+    "searchSkippedRecords": "{count} record is too large to search and was skipped, so results may be incomplete; narrow the search.|{count} records are too large to search and were skipped, so results may be incomplete; narrow the search.",
+    "filteredCount": "{shown} / {total}"
   },
   "dashboard": {
     "activityBusiest": "{count} Session on the busiest day, {date}|{count} Sessions on the busiest day, {date}",
@@ -1796,7 +1797,10 @@
     "showingOf": "Showing {from}–{to} of {total}",
     "startsChooseAnEndDate": "Starts {draftFrom}; choose an end date",
     "thisBrowserDoesNotAllow": "This browser does not allow the clipboard API. Copy the text by hand.",
-    "trendChartValues": "Trend chart values"
+    "trendChartValues": "Trend chart values",
+    "filterValue": "{label}: {value}",
+    "appliedFilters": "Applied filters",
+    "removeFilter": "Remove filter: {filter}"
   },
   "usage": {
     "addFolder": "Add folder",
@@ -1922,7 +1926,6 @@
     "unavailable": "Unavailable",
     "atLeast": "At least {count}",
     "sourceFailed": "{source} could not be loaded; completion is unknown.",
-    "sourcePartial": "Only the latest {examined} of {available} {source} sources were checked or shown. Open the source page for the full list.",
     "rowMeta": "{project} · {source} · {count} records · {updated}",
     "openSource": "Open source",
     "list": "Attention sources",
@@ -1931,8 +1934,6 @@
     "unknownEmpty": "No visible reminders; some sources remain unchecked",
     "empty": "No attention items in this scope",
     "emptyDescription": "Change the project or type filter. Source status is maintained on its domain page.",
-    "countDescription": "Reminder and project entry count, not total issue count",
-    "incompleteCount": "Some sources are unchecked; showing the known count",
     "kinds": {
       "synthesis": "Report synthesis",
       "backfill": "metadata backfill requests",
@@ -1950,7 +1951,7 @@
       "stale": "Possibly stale",
       "requested": "Update requested",
       "newData": "New data",
-      "open": "Open-item entry",
+      "open": "{count} open item|{count} open items",
       "missing": "metadata missing"
     },
     "view": "Reminder view",
@@ -1966,7 +1967,25 @@
     "allSuppressed": "Reminders in this scope are snoozed or hidden",
     "noSuppressed": "No snoozed or hidden reminders",
     "suppressedDescription": "Switch to Snoozed / hidden to restore reminders. New source issues will appear again.",
-    "until": "Snoozed until {date}"
+    "until": "Snoozed until {date}",
+    "waitingForYou": "{count} item waiting for you|{count} items waiting for you",
+    "waitingForYouAtLeast": "At least {count} item waiting for you|At least {count} items waiting for you",
+    "jumpToNeedsAttention": "Go to Needs attention",
+    "waitingForAgent": "Waiting for Agent",
+    "groupTitles": {
+      "decision": "{project} · {count} decision to confirm|{project} · {count} decisions to confirm",
+      "knowledge": "{project} · {count} Knowledge record to check|{project} · {count} Knowledge records to check",
+      "knowledgePage": "{project} · {count} Knowledge page to maintain|{project} · {count} Knowledge pages to maintain"
+    },
+    "groupMeta": "{source} · {updated}",
+    "groupMetaWaiting": "{waiting} waiting for Agent · {updated}",
+    "expandGroup": "Show first {count}",
+    "collapseGroup": "Collapse",
+    "groupMore": "{count} more; use Open source to see them",
+    "showAll": "Show all ({count})",
+    "showFewer": "Show only the first {count}",
+    "partialNotice": "Only {examined} of {available} sources were checked; the rest are not listed here.",
+    "viewAllInKnowledge": "View all in Work knowledge"
   },
   "related": {
     "title": "Possibly related",

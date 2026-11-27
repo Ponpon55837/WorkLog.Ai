@@ -4,6 +4,7 @@ import { Check, ChevronDown } from "lucide-vue-next";
 import { usePopover } from "../../composables/usePopover";
 import type { IconComponent, SelectOption } from "./types";
 import UiSpinner from "./UiSpinner.vue";
+import { t } from "../../i18n";
 
 const props = withDefaults(
   defineProps<{
@@ -27,6 +28,10 @@ const { open, trigger, panel, style, toggle, close } = usePopover({ align: compu
 const applied = computed(
   () => model.value !== undefined && props.defaultValue !== undefined && model.value !== props.defaultValue,
 );
+const appliedText = computed(() => {
+  const selected = applied.value ? props.items.find((item) => item.value === model.value) : undefined;
+  return selected ? t("ui.filterValue", { label: props.label, value: selected.label }) : undefined;
+});
 
 function choose(value: T): void {
   if (model.value !== undefined || props.defaultValue !== undefined) {
@@ -80,11 +85,19 @@ watch(open, async (value) => {
     :aria-expanded="open"
     :aria-busy="loading || undefined"
     :disabled="loading"
+    :title="appliedText"
     @click="toggle"
   >
     <UiSpinner v-if="loading" :size="14" />
     <component :is="icon" v-else-if="icon" :size="16" :stroke-width="1.75" aria-hidden="true" />
-    <span :class="{ 'ui-action-menu__label--hide-sm': hideLabelOnMobile }">{{ label }}</span>
+    <span
+      :class="[
+        'ui-action-menu__text',
+        { 'ui-action-menu__label--hide-sm': hideLabelOnMobile, 'ui-action-menu__text--value': appliedText },
+      ]"
+      >{{ appliedText ?? label }}</span
+    >
+    <span v-if="applied && hideLabelOnMobile" class="ui-action-menu__dot" aria-hidden="true"></span>
     <ChevronDown :size="14" :stroke-width="1.75" aria-hidden="true" />
   </button>
   <Teleport to="body">
@@ -151,8 +164,22 @@ watch(open, async (value) => {
 }
 
 .ui-action-menu__trigger.is-applied {
-  color: var(--fg);
+  color: var(--accent);
   font-weight: 600;
+}
+
+.ui-action-menu__text--value {
+  max-width: 24ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ui-action-menu__dot {
+  display: none;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
 }
 
 .ui-action-menu__trigger--button {
@@ -163,6 +190,12 @@ watch(open, async (value) => {
   color: var(--fg);
   font-size: var(--text-md);
   font-weight: 500;
+}
+
+.ui-action-menu__trigger--button.is-applied {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .ui-action-menu__trigger--button.ui-action-menu__trigger--sm {
@@ -179,6 +212,10 @@ watch(open, async (value) => {
 
 .ui-action-menu__trigger :deep(.lucide) {
   color: var(--fg-muted);
+}
+
+.ui-action-menu__trigger.is-applied :deep(.lucide) {
+  color: var(--accent);
 }
 
 .ui-action-menu__panel {
@@ -279,12 +316,20 @@ watch(open, async (value) => {
 }
 
 @media (max-width: 639px) {
+  .ui-action-menu__text--value {
+    max-width: 16ch;
+  }
+
   .ui-action-menu__label--hide-sm {
     position: absolute;
     width: 1px;
     height: 1px;
     overflow: hidden;
     clip: rect(0, 0, 0, 0);
+  }
+
+  .ui-action-menu__dot {
+    display: inline-block;
   }
 }
 </style>
