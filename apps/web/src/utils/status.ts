@@ -23,6 +23,7 @@ import {
 } from "lucide-vue-next";
 import type {
   AgentObservationState,
+  AgentReviewPageState,
   AgentReviewRequestStatus,
   DatabaseInspectionState,
   DatabaseMaintenanceStatus,
@@ -342,6 +343,13 @@ export const knowledgeKindVisual: Record<KnowledgeKind, StatusVisual> = {
   gotcha: visual("attention", TriangleAlert, "status.gotcha"),
   procedure: visual("success", ListOrdered, "status.procedure"),
   skill: visual("neutral", GraduationCap, "status.skill"),
+};
+
+export const agentReviewPageStateVisual: Record<AgentReviewPageState, StatusVisual> = {
+  updated: visual("success", CircleCheck, "status.agentReviewPageUpdated"),
+  checked: visual("done", Check, "status.agentReviewPageChecked"),
+  pending: visual("attention", Clock3, "status.agentReviewPagePending"),
+  unchanged: visual("neutral", CircleMinus, "status.agentReviewPageUnchanged"),
 };
 
 export const outstandingCleanupRequestVisual: Record<OutstandingCleanupRequestStatus, StatusVisual> = {

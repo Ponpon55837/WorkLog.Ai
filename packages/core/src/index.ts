@@ -3051,6 +3051,8 @@ export interface AgentReviewRequest {
   appliedCount: number;
   skippedCount: number;
   openCount: number;
+  /** Only the Web list of completed requests carries this; MCP results never do. */
+  knowledgePages?: AgentReviewRequestPage[];
 }
 
 export interface AgentReviewRequestQuery {
@@ -3219,6 +3221,12 @@ export interface AgentReviewKnowledgePage {
   slug: string;
   title: string;
   reasons: Array<"cites_reviewed_session" | "queued_for_update">;
+}
+
+export type AgentReviewPageState = "pending" | "updated" | "checked" | "unchanged";
+
+export interface AgentReviewRequestPage extends AgentReviewKnowledgePage {
+  state: AgentReviewPageState;
 }
 
 export type SubmitAgentReviewVerdictsResult =

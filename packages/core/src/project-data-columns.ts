@@ -327,6 +327,7 @@ export const PROJECT_DATA_EXPORT_COLUMNS = {
     "failure_reason",
     "item_count",
     "omitted_count",
+    "completion_pages_json",
   ],
   agent_review_submissions: [
     "id",

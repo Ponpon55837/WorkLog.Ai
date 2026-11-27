@@ -4,6 +4,20 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.82] - 2026-11-27
+
+[繁體中文更新說明](docs/releases/1.6.82.md).
+
+### Added
+
+- The Agent review request box on Web shows a Knowledge pages step for the latest completed request: each affected page with its current state (Updated, Checked, Still pending, Unchanged), a count of pages updated or checked, and a link that opens the page in the Knowledge pages tab. The step is hidden while a newer request is open.
+- `GET /api/agent-review-requests` returns `knowledgePages` (`slug`, `title`, `reasons`, `state`) on completed requests. The states are computed on read in a constant number of queries.
+- The create-request copy says that after the review the Agent goes on to update the affected Knowledge pages.
+
+### Changed
+
+- A request's Knowledge page list is stored when it completes (schema 40, `agent_review_requests.completion_pages_json`), so updating a queued page no longer drops it from the list. Completed requests from before schema 40 fall back to the computed list. The column is exported and imported. MCP results and contracts are unchanged.
+
 ### Internal
 
 - One comment rule for every file type (worklog-code-layout §8): no comment by default, a short why only where removing it would likely get the code broken. `packages/core`, `packages/shared` and `packages/desktop-core` were cleaned to it; only comments changed, and every touched file prints the same with comments stripped.

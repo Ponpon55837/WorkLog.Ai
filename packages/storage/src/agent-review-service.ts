@@ -9,7 +9,9 @@ import type {
   AgentReviewItemState,
   AgentReviewKnowledgePage,
   AgentReviewLaterSession,
+  AgentReviewPageState,
   AgentReviewRequest,
+  AgentReviewRequestPage,
   AgentReviewRequestListResult,
   AgentReviewRequestQuery,
   AgentReviewRequestStatus,
@@ -81,6 +83,7 @@ type RequestRow = {
   failure_reason: string | null;
   item_count: number;
   omitted_count: number;
+  completion_pages_json: string | null;
 };
 
 type RequestCountRow = {
@@ -183,6 +186,36 @@ const CONTEXT_HINT =
   "已有結果、stale 或已被審查的項目不需處理。verdict 直接生效，使用者之後可以推翻。";
 const REQUEST_SELECT = `SELECT r.*, p.name AS project_name
   FROM agent_review_requests r JOIN projects p ON p.id = r.project_id`;
+
+function parseStoredPages(json: string | null): AgentReviewKnowledgePage[] | undefined {
+  if (json === null) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(json);
+    if (!Array.isArray(parsed)) return undefined;
+    const pages = parsed.filter(
+      (page): page is AgentReviewKnowledgePage =>
+        typeof page === "object" &&
+        page !== null &&
+        typeof page.slug === "string" &&
+        typeof page.title === "string" &&
+        Array.isArray(page.reasons),
+    );
+    return pages.length === parsed.length ? pages.slice(0, MAX_COMPLETION_PAGES) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function pageState(
+  page: AgentReviewKnowledgePage,
+  queued: boolean,
+  savedAt: string | undefined,
+  completedAt: string | undefined,
+): AgentReviewPageState {
+  if (queued) return "pending";
+  if (savedAt !== undefined && completedAt !== undefined && savedAt >= completedAt) return "updated";
+  return page.reasons.includes("queued_for_update") ? "checked" : "unchanged";
+}
 
 function bounded(value: string, limit: number): { text: string; truncated: boolean } {
   return { text: value.slice(0, limit), truncated: value.length > limit };
@@ -397,7 +430,11 @@ export class AgentReviewService {
     const rows = this.db
       .prepare(`${REQUEST_SELECT} ${where} ORDER BY r.requested_at DESC, r.id DESC LIMIT ? OFFSET ?`)
       .all(...parameters, pageInfo.pageSize, (pageInfo.page - 1) * pageInfo.pageSize) as RequestRow[];
-    return { outcome: "agent_review_requests", requests: this.toRequests(rows), pageInfo };
+    return {
+      outcome: "agent_review_requests",
+      requests: this.withKnowledgePages(this.toRequests(rows), rows),
+      pageInfo,
+    };
   }
 
   /** Knowledge whose latest Agent verdict still stands, newest first, at most 200, as each record is now. */
@@ -549,7 +586,7 @@ export class AgentReviewService {
       results: outcome.applied.results,
       duplicate: false,
       ...(outcome.applied.redactions.total > 0 ? { redactions: outcome.applied.redactions } : {}),
-      ...(request.status === "completed" ? { completion: { knowledgePages: this.completionPages(request) } } : {}),
+      ...(request.status === "completed" ? { completion: { knowledgePages: this.completionOf(request.id) } } : {}),
     };
   }
 
@@ -1069,9 +1106,11 @@ export class AgentReviewService {
     if (input.complete === true || openLeft === 0) {
       this.db
         .prepare(
-          "UPDATE agent_review_requests SET status = 'completed', completed_at = ?, failure_reason = NULL WHERE id = ?",
+          `UPDATE agent_review_requests
+           SET status = 'completed', completed_at = ?, failure_reason = NULL, completion_pages_json = ?
+           WHERE id = ?`,
         )
-        .run(at, request.id);
+        .run(at, JSON.stringify(this.completionPages(request.id, request.project_id)), request.id);
     }
     return { results, redactions: combineRedactionSummaries(...redactions) };
   }
@@ -1208,12 +1247,18 @@ export class AgentReviewService {
       request,
       results: JSON.parse(previous.results_json) as AgentReviewVerdictResult[],
       duplicate: true,
-      ...(request.status === "completed" ? { completion: { knowledgePages: this.completionPages(request) } } : {}),
+      ...(request.status === "completed" ? { completion: { knowledgePages: this.completionOf(request.id) } } : {}),
     };
   }
 
+  /** The list stored when the request completed; a request completed before schema 40 has none and is computed. */
+  private completionOf(requestId: string): AgentReviewKnowledgePage[] {
+    const row = this.requestRow(requestId)!;
+    return parseStoredPages(row.completion_pages_json) ?? this.completionPages(row.id, row.project_id);
+  }
+
   /** Pages of the project that cite a reviewed Session, then the project's own update queue, at most 12 in all. */
-  private completionPages(request: AgentReviewRequest): AgentReviewKnowledgePage[] {
+  private completionPages(requestId: string, projectId: string): AgentReviewKnowledgePage[] {
     const applied = new Set(
       (
         this.db
@@ -1221,7 +1266,7 @@ export class AgentReviewService {
             `SELECT DISTINCT source_session_id FROM agent_review_request_items
              WHERE request_id = ? AND outcome = 'applied' AND source_session_id IS NOT NULL`,
           )
-          .all(request.id) as Array<{ source_session_id: string }>
+          .all(requestId) as Array<{ source_session_id: string }>
       ).map((row) => row.source_session_id),
     );
     const pages = new Map<string, AgentReviewKnowledgePage>();
@@ -1230,10 +1275,10 @@ export class AgentReviewService {
       if (known) known.reasons.push(reason);
       else pages.set(page.slug, { slug: page.slug, title: page.title, reasons: [reason] });
     };
-    for (const page of this.dependencies.pagesCitingSessions(request.projectId, applied)) {
+    for (const page of this.dependencies.pagesCitingSessions(projectId, applied)) {
       add(page, "cites_reviewed_session");
     }
-    for (const page of this.dependencies.pendingPages(request.projectId)) add(page, "queued_for_update");
+    for (const page of this.dependencies.pendingPages(projectId)) add(page, "queued_for_update");
     return [...pages.values()].slice(0, MAX_COMPLETION_PAGES);
   }
 
@@ -1507,6 +1552,58 @@ export class AgentReviewService {
         skippedCount: count?.skipped_count ?? 0,
         openCount: count?.open_count ?? 0,
       };
+    });
+  }
+
+  private withKnowledgePages(requests: AgentReviewRequest[], rows: readonly RequestRow[]): AgentReviewRequest[] {
+    const pagesById = new Map<string, AgentReviewKnowledgePage[]>();
+    for (const row of rows) {
+      if (row.status !== "completed") continue;
+      pagesById.set(
+        row.id,
+        parseStoredPages(row.completion_pages_json) ?? this.completionPages(row.id, row.project_id),
+      );
+    }
+    if (pagesById.size === 0) return requests;
+    const projectIds = [...new Set(rows.filter((row) => pagesById.has(row.id)).map((row) => row.project_id))];
+    const slugs = [...new Set([...pagesById.values()].flatMap((pages) => pages.map((page) => page.slug)))];
+    const pending = new Map(
+      projectIds.map((projectId) => [
+        projectId,
+        new Set(this.dependencies.pendingPages(projectId).map((page) => page.slug)),
+      ]),
+    );
+    const savedAt = new Map(
+      (slugs.length === 0
+        ? []
+        : (this.db
+            .prepare(
+              `SELECT kp.project_id AS project_id, kp.slug AS slug, MAX(v.created_at) AS saved_at
+                 FROM knowledge_page_versions v JOIN knowledge_pages kp ON kp.id = v.page_id
+                 WHERE kp.project_id IN (SELECT value FROM json_each(?)) AND kp.slug IN (SELECT value FROM json_each(?))
+                 GROUP BY kp.project_id, kp.slug`,
+            )
+            .all(JSON.stringify(projectIds), JSON.stringify(slugs)) as Array<{
+            project_id: string;
+            slug: string;
+            saved_at: string;
+          }>)
+      ).map((row) => [`${row.project_id}\u0000${row.slug}`, row.saved_at]),
+    );
+    return requests.map((request) => {
+      const pages = pagesById.get(request.id);
+      if (!pages) return request;
+      const queued = pending.get(request.projectId)!;
+      const knowledgePages = pages.map((page): AgentReviewRequestPage => ({
+        ...page,
+        state: pageState(
+          page,
+          queued.has(page.slug),
+          savedAt.get(`${request.projectId}\u0000${page.slug}`),
+          request.completedAt,
+        ),
+      }));
+      return { ...request, knowledgePages };
     });
   }
 
