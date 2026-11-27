@@ -1132,6 +1132,13 @@ const MIGRATIONS: SchemaMigration[] = [
     // reads from its own connection. Existing rows keep NULL, which never matches a connection. Never exported.
     sql: `ALTER TABLE agent_read_audit ADD COLUMN connection_id TEXT;`,
   },
+  {
+    version: 40,
+    name: "agent-review-completion-pages",
+    // The Knowledge pages an Agent review request listed when it completed. NULL on requests completed earlier, which
+    // read as the computed list. Exported with the request.
+    sql: `ALTER TABLE agent_review_requests ADD COLUMN completion_pages_json TEXT;`,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

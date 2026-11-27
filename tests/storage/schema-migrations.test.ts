@@ -1382,4 +1382,35 @@ describe("agent review knowledge items migration", () => {
       db.close();
     }
   });
+
+  it("adds the nullable completion pages column to Agent review requests and leaves completed rows without one", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializeWorkIntelligenceDatabase(db, ":memory:");
+      undoMigrationsAfter(db, 39);
+      const columns = () =>
+        (db.prepare("PRAGMA table_info(agent_review_requests)").all() as Array<{ name: string }>).map(
+          (column) => column.name,
+        );
+      expect(columns()).not.toContain("completion_pages_json");
+      db.exec(`INSERT INTO projects (id, name, root_path, status, created_at, updated_at)
+        VALUES ('project-1', 'Orchard', '/fictional/orchard', 'tracked', '2030-01-01T00:00:00.000Z', '2030-01-01T00:00:00.000Z')`);
+      db.exec(`INSERT INTO agent_review_requests
+        (id, project_id, idempotency_key, status, requested_at, completed_at, item_count, omitted_count)
+        VALUES ('request-1', 'project-1', 'key-1', 'completed', '2030-01-01T00:00:00.000Z', '2030-01-01T01:00:00.000Z', 1, 0)`);
+
+      applyRuntimeMigrations(db);
+
+      expect(db.prepare("SELECT name FROM schema_migrations WHERE version = 40").get()).toEqual({
+        name: "agent-review-completion-pages",
+      });
+      expect(columns()).toContain("completion_pages_json");
+      expect(
+        db.prepare("SELECT status, completion_pages_json FROM agent_review_requests WHERE id = 'request-1'").get(),
+      ).toEqual({ status: "completed", completion_pages_json: null });
+      expect(LATEST_SCHEMA_VERSION).toBeGreaterThanOrEqual(40);
+    } finally {
+      db.close();
+    }
+  });
 });

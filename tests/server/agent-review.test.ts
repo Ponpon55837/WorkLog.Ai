@@ -221,6 +221,40 @@ describe("Agent review REST routes", () => {
     expect(candidates).toMatchObject({ status: 200, body: { outcome: "knowledge_candidates" } });
   });
 
+  it("lists the Knowledge pages of completed requests only, with their current state", async () => {
+    const { root, store, project } = createFixture("Agent review REST pages fixture");
+    const handler = startApi(store);
+    resources.push({ handler, store, root });
+    const [decisionId] = finalizeDecisions(store, root, "agent-review-rest-pages", ["Keep the retry budget small."]);
+    const queued = store.requestKnowledgePageUpdate({
+      projectRoot: root,
+      slug: "operations",
+      title: "Operations",
+      question: "How is the service run?",
+    });
+    expect(queued.outcome).toBe("knowledge_page_update_requested");
+    const created = await requestJson<{ request: { id: string } }>(handler, "/api/agent-review-requests", {
+      method: "POST",
+      body: { projectId: project.id, idempotencyKey: "agent-review-rest-pages-request" },
+    });
+    const listPath = `/api/agent-review-requests?projectId=${encodeURIComponent(project.id)}`;
+
+    const open = await requestJson<{ requests: Array<Record<string, unknown>> }>(handler, listPath);
+    expect(open.body.requests[0]).not.toHaveProperty("knowledgePages");
+
+    store.submitAgentReviewVerdicts({
+      requestId: created.body.request.id,
+      idempotencyKey: "agent-review-rest-pages-submit",
+      verdicts: [{ itemKind: "decision", itemId: decisionId!, verdict: "confirm", reason: "The Session confirms it." }],
+      complete: true,
+    });
+    const completed = await requestJson<{ requests: Array<Record<string, unknown>> }>(handler, listPath);
+    expect(completed.body.requests[0]).toMatchObject({
+      status: "completed",
+      knowledgePages: [{ slug: "operations", title: "Operations", reasons: ["queued_for_update"], state: "pending" }],
+    });
+  });
+
   it("lists Knowledge the Agent confirmed and overturns the confirmation", async () => {
     const { root, store, project } = createFixture("Agent review REST knowledge fixture");
     const handler = startApi(store);

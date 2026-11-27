@@ -59,6 +59,21 @@ describe("agent review store", () => {
     await vi.waitFor(() => expect(store.latestRequest).toBeUndefined());
   });
 
+  it("keeps the latest completed request apart from a newer open one", async () => {
+    const completed = { ...request, id: "review-0", status: "completed", knowledgePages: [] };
+    harness.setResponder((input) =>
+      input.url.pathname === "/api/agent-review-requests" && input.url.searchParams.get("status") === "completed"
+        ? { outcome: "agent_review_requests", requests: [completed], pageInfo }
+        : responder(input),
+    );
+    const store = useAgentReviewStore();
+    store.setScope("project-1", "/work/orchard");
+    store.setActive(true);
+    await vi.waitFor(() => expect(store.latestCompletedRequest?.id).toBe("review-0"));
+    expect(store.latestRequest?.id).toBe("review-1");
+    expect(store.latestCompletedRequest?.knowledgePages).toEqual([]);
+  });
+
   it("does not query without a single project", () => {
     const store = useAgentReviewStore();
     store.setActive(true);

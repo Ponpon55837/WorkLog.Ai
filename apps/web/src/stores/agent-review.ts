@@ -36,6 +36,15 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
     query: ({ signal }) =>
       useApi().client.listAgentReviewRequests({ projectId: projectId.value, page: 1, pageSize: 1 }, signal),
   });
+  const completedRequestQuery = useQuery<AgentReviewRequestListResult>({
+    key: () => [...queryKeys.agentReview.requests, { projectId: projectId.value, status: "completed" }],
+    enabled: () => active.value && Boolean(projectId.value),
+    query: ({ signal }) =>
+      useApi().client.listAgentReviewRequests(
+        { projectId: projectId.value, status: "completed", page: 1, pageSize: 1 },
+        signal,
+      ),
+  });
   const reviewedCandidatesQuery = useQuery<KnowledgeCandidateListResult>({
     key: () => [...queryKeys.agentReview.candidates, projectRoot.value ?? "all"],
     enabled: () => active.value && filter.value === "agent",
@@ -88,6 +97,11 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
     const result = requestsQuery.data.value;
     const request = result?.outcome === "agent_review_requests" ? result.requests[0] : undefined;
     return request && request.projectId === projectId.value && request.status !== "cancelled" ? request : undefined;
+  });
+  const latestCompletedRequest = computed<AgentReviewRequest | undefined>(() => {
+    const result = completedRequestQuery.data.value;
+    const request = result?.outcome === "agent_review_requests" ? result.requests[0] : undefined;
+    return request && request.projectId === projectId.value && request.status === "completed" ? request : undefined;
   });
   const hasOpenRequest = computed(() =>
     Boolean(latestRequest.value && OPEN_STATUSES.includes(latestRequest.value.status)),
@@ -157,6 +171,7 @@ export const useAgentReviewStore = defineStore("agent-review", () => {
     projectId,
     projectRoot,
     latestRequest,
+    latestCompletedRequest,
     hasOpenRequest,
     requestLoaded,
     requestError,
