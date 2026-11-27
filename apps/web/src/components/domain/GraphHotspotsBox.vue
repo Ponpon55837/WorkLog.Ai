@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, watch } from "vue";
+import { onBeforeUnmount, onMounted, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { Flame, FolderGit2 } from "lucide-vue-next";
-import type { HotspotGroup, ProjectRecord } from "@work-intelligence/core";
+import type { HotspotGroup } from "@work-intelligence/core";
+import { useProjectOptions } from "../../composables/useProjectOptions";
 import { useHotspotsStore, type HotspotPeriod } from "../../stores/hotspots";
 import { useSessionsStore } from "../../stores/sessions";
 import UiBox from "../ui/UiBox.vue";
@@ -15,7 +16,6 @@ import UiSkeleton from "../ui/UiSkeleton.vue";
 import HotspotList from "./HotspotList.vue";
 import { t } from "../../i18n";
 
-const props = defineProps<{ projects: readonly ProjectRecord[] }>();
 const projectId = defineModel<string>("projectId", { required: true });
 
 const groupOptions: { value: HotspotGroup; label: string }[] = [
@@ -33,10 +33,7 @@ const hotspotsStore = useHotspotsStore();
 const { groupBy, period, hotspots, hotspotsLoading, hotspotsError } = storeToRefs(hotspotsStore);
 const sessionsStore = useSessionsStore();
 
-const projectOptions = computed(() => [
-  { value: "", label: t("common.allTrackedProjects") },
-  ...props.projects.map((project) => ({ value: project.id, label: project.name })),
-]);
+const projectOptions = useProjectOptions();
 
 function openSession(sessionId: string): void {
   void sessionsStore.openSessionDetail(sessionId, t("graph.couldNotLoadTheSessionThatChangedThis"));

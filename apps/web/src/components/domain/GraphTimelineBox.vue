@@ -2,13 +2,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { CalendarRange, FolderGit2, Maximize2, ZoomIn, ZoomOut } from "lucide-vue-next";
-import type {
-  ProjectRecord,
-  TimelineKnowledgeEvent,
-  TimelineKnowledgeEventKind,
-  TimelineSession,
-} from "@work-intelligence/core";
+import type { TimelineKnowledgeEvent, TimelineKnowledgeEventKind, TimelineSession } from "@work-intelligence/core";
 import { useMediaQuery } from "../../composables/useMediaQuery";
+import { useProjectOptions } from "../../composables/useProjectOptions";
 import { useSessionsStore } from "../../stores/sessions";
 import { useTimelineStore, type TimelineRange } from "../../stores/timeline";
 import { formatDate, formatDayGroup, formatTimeOfDay } from "../../utils/format";
@@ -59,7 +55,6 @@ interface ListEntry {
   event?: TimelineKnowledgeEvent;
 }
 
-const props = defineProps<{ projects: readonly ProjectRecord[] }>();
 const projectId = defineModel<string>("projectId", { required: true });
 
 const DAY = DAY_MS;
@@ -101,6 +96,7 @@ const timelineStore = useTimelineStore();
 const { range, timeline, timelineLoading, timelineError } = storeToRefs(timelineStore);
 const sessionsStore = useSessionsStore();
 const narrow = useMediaQuery("(max-width: 639px)");
+const projectOptions = useProjectOptions();
 
 const viewport = ref<HTMLElement | null>(null);
 const chosenView = ref<TimelineView>("chart");
@@ -113,10 +109,6 @@ let resizeObserver: ResizeObserver | undefined;
 let pendingAnchor: number | undefined;
 
 const view = computed<TimelineView>(() => (narrow.value ? "list" : chosenView.value));
-const projectOptions = computed(() => [
-  { value: "", label: t("common.allTrackedProjects") },
-  ...props.projects.map((project) => ({ value: project.id, label: project.name })),
-]);
 const rangeStart = computed(() => (timeline.value ? Date.parse(`${timeline.value.from}T00:00:00`) : 0));
 const rangeEnd = computed(() => (timeline.value ? Date.parse(`${timeline.value.to}T00:00:00`) + DAY : 0));
 const rangeDays = computed(() => Math.max(1, Math.round((rangeEnd.value - rangeStart.value) / DAY)));

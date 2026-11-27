@@ -4,6 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { ArrowRight, CircleCheckBig, Filter, FolderGit2, MoreHorizontal } from "lucide-vue-next";
 import { ATTENTION_KINDS, type AttentionItem, type UpdateAttentionPreference } from "@work-intelligence/core";
+import ProjectFilterMenu from "./ProjectFilterMenu.vue";
 import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiBox from "../ui/UiBox.vue";
 import UiBoxRow from "../ui/UiBoxRow.vue";
@@ -54,12 +55,6 @@ useRouteQuery("attentionSize", pageSize, enumQuery<ListPageSize>([10, 20, 50], 2
 const actionError = ref("");
 
 const projectNames = computed(() => new Map(projects.value.map((project) => [project.id, project.name])));
-const projectItems = computed(() => [
-  { value: "", label: t("common.allTrackedProjects") },
-  ...projects.value
-    .filter((project) => project.status === "tracked")
-    .map((project) => ({ value: project.id, label: project.name })),
-]);
 const kindItems = computed(() => [
   { value: "" as const, label: t("common.allKinds") },
   ...ATTENTION_KINDS.map((value) => ({ value, label: t(attentionKindKeys[value]) })),
@@ -158,14 +153,7 @@ onBeforeUnmount(() => store.setActive(false));
           default-value="visible"
           size="sm"
         />
-        <UiActionMenu
-          v-model="projectId"
-          :label="t('common.project')"
-          :items="projectItems"
-          :icon="FolderGit2"
-          default-value=""
-          size="sm"
-        />
+        <ProjectFilterMenu v-model="projectId" :icon="FolderGit2" size="sm" />
         <UiActionMenu
           v-model="kind"
           :label="t('common.kind')"

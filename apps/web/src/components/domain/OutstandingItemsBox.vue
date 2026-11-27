@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { ListChecks } from "lucide-vue-next";
-import type { OutstandingItem, OutstandingItemStatus, PageInfo, ProjectRecord } from "@work-intelligence/core";
+import type { OutstandingItem, OutstandingItemStatus, PageInfo } from "@work-intelligence/core";
 import OutstandingCleanupPanel from "./OutstandingCleanupPanel.vue";
+import ProjectFilterMenu from "./ProjectFilterMenu.vue";
 import StatusLabel from "./StatusLabel.vue";
 import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiBox from "../ui/UiBox.vue";
@@ -27,7 +28,6 @@ import { t } from "../../i18n";
 
 const props = defineProps<{
   items: OutstandingItem[];
-  projects: ProjectRecord[];
   pageInfo: PageInfo;
   loading: boolean;
   loaded: boolean;
@@ -64,10 +64,6 @@ const dateRange = computed({
   },
 });
 
-const projectOptions = computed(() => [
-  { value: "", label: t("common.allTrackedProjects") },
-  ...props.projects.map((project) => ({ value: project.id, label: project.name })),
-]);
 const statusOptions = (Object.keys(outstandingItemStatusLabels) as OutstandingItemStatus[]).map((value) => ({
   value,
   label: outstandingItemStatusLabels[value],
@@ -214,14 +210,7 @@ watch(
     <template #header>
       <UiBoxTitle :icon="ListChecks" :title="t('common.openItems')" :count="pageInfo.total" />
       <div class="outstanding-items__filters">
-        <UiActionMenu
-          v-model="projectId"
-          :label="t('common.project')"
-          :header="t('common.filterProject')"
-          default-value=""
-          align="end"
-          :items="projectOptions"
-        />
+        <ProjectFilterMenu v-model="projectId" :header="t('common.filterProject')" align="end" scope="all" />
         <UiActionMenu
           v-model="status"
           :label="t('common.status')"

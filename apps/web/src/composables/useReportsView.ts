@@ -3,9 +3,9 @@ import { computed, onBeforeUnmount, watch } from "vue";
 import { useRoute } from "vue-router";
 import { CircleCheckBig, Download, FileText, LayoutDashboard, Link, TrendingUp, TriangleAlert } from "lucide-vue-next";
 import type { ReportEvidence, ReportExportFormat, WorkSessionRecord } from "@work-intelligence/core";
+import { useProjectOptions } from "../composables/useProjectOptions";
 import { enumQuery, stringQuery, useRouteQuery } from "../composables/useRouteQuery";
 import { router } from "../router";
-import { useProjectsStore } from "../stores/projects";
 import { useReportsStore, type ReportViewPeriod } from "../stores/reports";
 import { useSessionsStore } from "../stores/sessions";
 import { toDateInputValue } from "../utils/format";
@@ -14,9 +14,6 @@ import { t } from "../i18n";
 
 function createReportsViewModel() {
   const route = useRoute();
-
-  const projectsStore = useProjectsStore();
-  const { trackedProjects } = storeToRefs(projectsStore);
 
   const reportsStore = useReportsStore();
 
@@ -156,10 +153,7 @@ function createReportsViewModel() {
 
   const periodOptions = periods.map((period) => ({ value: period, label: periodShortLabels[period] }));
 
-  const projectItems = computed(() => [
-    { value: "", label: t("common.allTrackedProjects") },
-    ...trackedProjects.value.map((project) => ({ value: project.id, label: project.name })),
-  ]);
+  const projectItems = useProjectOptions();
 
   const projectLabel = computed(
     () =>
@@ -238,7 +232,6 @@ function createReportsViewModel() {
     reportDatePickerRange,
     reportProjectId,
     projectLabel,
-    projectItems,
     exportItems,
     reportLoading,
     reportExportLoading,

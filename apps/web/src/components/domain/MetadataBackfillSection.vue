@@ -3,8 +3,8 @@ import { computed } from "vue";
 import { storeToRefs } from "pinia";
 import { CircleCheckBig, ScanSearch, X } from "lucide-vue-next";
 import UiSelect from "../ui/UiSelect.vue";
-import { useProjectsStore } from "../../stores/projects";
 import { useActiveRequestWatch } from "../../composables/useActiveRequestWatch";
+import { useProjectOptions } from "../../composables/useProjectOptions";
 import { useToast } from "../../composables/useToast";
 import { metadataBackfillInstruction, useMetadataBackfillStore } from "../../stores/metadata-backfill";
 import { formatDate, formatRelative } from "../../utils/format";
@@ -58,10 +58,7 @@ useActiveRequestWatch({
   },
 });
 
-const projectOptions = computed(() => [
-  { value: "", label: t("common.allTrackedProjects") },
-  ...useProjectsStore().trackedProjects.map((project) => ({ value: project.id, label: project.name })),
-]);
+const projectOptions = useProjectOptions();
 
 const requestMessage = computed(() => {
   if (!request.value) {

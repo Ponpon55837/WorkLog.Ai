@@ -4,9 +4,9 @@ import { RouterLink, type RouteLocationRaw } from "vue-router";
 import { storeToRefs } from "pinia";
 import { Bot } from "lucide-vue-next";
 import type { ProjectRecord } from "@work-intelligence/core";
+import ProjectFilterMenu from "./ProjectFilterMenu.vue";
 import StatusLabel from "./StatusLabel.vue";
 import UiBox from "../ui/UiBox.vue";
-import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiFlash from "../ui/UiFlash.vue";
@@ -26,10 +26,6 @@ const { pages } = storeToRefs(useKnowledgePagesStore());
 const { requestReview, cancelRequest } = useAgentReviewActions();
 
 const hasProject = computed(() => props.projects.some((project) => project.id === projectId.value));
-const projectItems = computed(() => [
-  { value: "", label: t("common.allTrackedProjects") },
-  ...props.projects.map((project) => ({ value: project.id, label: project.name })),
-]);
 const canRequest = computed(() => hasProject.value && requestLoaded.value && !skipped.value && !hasOpenRequest.value);
 const hint = computed(() => {
   if (!hasProject.value) return t("knowledge.agentReviewChooseProject");
@@ -64,13 +60,7 @@ const doneCount = computed(
     <UiFlash v-if="requestError" tone="danger">{{ requestError }}</UiFlash>
     <p class="agent-review-request__hint">{{ hint }}</p>
     <div class="agent-review-request__actions">
-      <UiActionMenu
-        v-model="projectId"
-        :label="t('common.project')"
-        :header="t('common.filterProject')"
-        default-value=""
-        :items="projectItems"
-      />
+      <ProjectFilterMenu v-model="projectId" :header="t('common.filterProject')" />
       <UiButton size="sm" variant="primary" :disabled="!canRequest" @click="requestReview">{{
         t("knowledge.askAgentToReview")
       }}</UiButton>
