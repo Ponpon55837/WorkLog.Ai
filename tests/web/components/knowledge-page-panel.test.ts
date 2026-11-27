@@ -33,14 +33,14 @@ vi.mock("../../../apps/web/src/stores/knowledge-pages", () => ({
 vi.mock("../../../apps/web/src/stores/sessions", () => ({ useSessionsStore: () => ({}) }));
 vi.mock("../../../apps/web/src/composables/useToast", () => ({ useToast: () => ({ showToast: () => undefined }) }));
 
-function pageWithSlug(slug: string): KnowledgePageRecord {
+function pageWithSlug(slug: string, sections?: KnowledgePageRecord["sections"]): KnowledgePageRecord {
   return {
     id: `page-${slug}`,
     projectId: "project-1",
     slug,
     title: slug,
     question: "What is moored where?",
-    sections: [{ heading: "Moorings", content: "資料不足", sourceSessionIds: [] }],
+    sections: sections ?? [{ heading: "Moorings", content: "資料不足", sourceSessionIds: [] }],
     version: 1,
     status: "fresh",
     newSessionCount: 0,
@@ -50,8 +50,8 @@ function pageWithSlug(slug: string): KnowledgePageRecord {
   } as unknown as KnowledgePageRecord;
 }
 
-async function renderPanel(slug: string): Promise<string> {
-  openPage.value = pageWithSlug(slug);
+async function renderPanel(slug: string, sections?: KnowledgePageRecord["sections"]): Promise<string> {
+  openPage.value = pageWithSlug(slug, sections);
   return renderToString(createSSRApp({ render: () => h(KnowledgePagePanel, { projects: [] }) }));
 }
 
@@ -69,5 +69,38 @@ describe("KnowledgePagePanel deletion", () => {
     const html = await renderPanel(slug);
     expect(html).toContain(t("knowledge.askAgentToUpdate"));
     expect(html).not.toContain(t("knowledge.deleteKnowledgePage"));
+  });
+});
+
+describe("KnowledgePagePanel reading", () => {
+  it("splits line breaks into paragraphs and lists as plain text", async () => {
+    const html = await renderPanel("harbour-moorings", [
+      {
+        heading: "Moorings",
+        content: "First line\n\nSecond <b>line</b>\n- one\n- two\n1. alpha",
+        sourceSessionIds: [],
+      },
+    ]);
+
+    const text = html.slice(html.indexOf("page-panel__text"), html.indexOf("page-panel__history"));
+    expect(text.match(/<p[ >]/g)).toHaveLength(2);
+    expect(text.match(/<ul[ >]/g)).toHaveLength(1);
+    expect(text.match(/<ol[ >]/g)).toHaveLength(1);
+    expect(html).toContain("Second &lt;b&gt;line&lt;/b&gt;");
+  });
+
+  it("lists sources under a count heading and previews only the first three", async () => {
+    const ids = ["s1", "s2", "s3", "s4", "s5"];
+    const html = await renderPanel("harbour-moorings", [
+      { heading: "Moorings", content: "Text", sourceSessionIds: ids },
+    ]);
+
+    expect(html).toContain(t("knowledge.sourcesCount", { count: 5 }));
+    expect(html).toContain(t("knowledge.showAllSources", { count: 5 }));
+    expect(html.match(/Session s\d/g)).toHaveLength(3);
+  });
+
+  it("offers no sources block for a section without sources", async () => {
+    expect(await renderPanel("harbour-moorings")).not.toContain(t("knowledge.sourcesCount", { count: 0 }));
   });
 });

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, useId } from "vue";
 import {
   Archive,
   ArchiveRestore,
@@ -47,12 +47,24 @@ const conventionActorKeys = {
   system: "knowledge.conventionBySystem",
 } as const satisfies Record<NonNullable<KnowledgeRecord["conventionWithdrawal"]>["by"], MessageKey>;
 
+const summaryLimit = 80;
+
+const detailsId = useId();
+
 const expanded = ref(false);
+
+const staleNotes = computed(() => knowledgeStaleNotes(props.item));
+const hasChips = computed(
+  () => props.item.tags.length > 0 || props.item.references.length > 0 || props.item.appliesTo.length > 0,
+);
+const hasNotes = computed(() => Boolean(staleNotes.value.broadAppliesTo || staleNotes.value.broadChanges));
+const hasDetails = computed(
+  () => hasChips.value || hasNotes.value || props.item.body.length > summaryLimit || props.item.body.includes("\n"),
+);
 const kind = computed(() => knowledgeKindVisual[props.item.kind]);
 const trustBar = computed(() =>
   props.item.evidence ? trustCells(props.item.evidence.confirmed, props.item.evidence.contradicted) : [],
 );
-const staleNotes = computed(() => knowledgeStaleNotes(props.item));
 const conventionEligible = computed(() => props.item.status === "active" && !props.item.review);
 const conventionWithdrawalNote = computed(() => {
   const withdrawal = props.item.conventionWithdrawal;
@@ -144,18 +156,7 @@ const actions = computed(() => [
         >{{ t("knowledge.conventionReconfirm") }}</UiButton
       >
     </p>
-    <p v-if="staleNotes.broadAppliesTo" class="knowledge-row__note">{{ staleNotes.broadAppliesTo }}</p>
-    <p v-if="staleNotes.broadChanges" class="knowledge-row__note">{{ staleNotes.broadChanges }}</p>
-    <p :class="['knowledge-row__body', { 'is-expanded': expanded }]">{{ item.body }}</p>
-    <UiButton
-      v-if="item.body.length > 180"
-      variant="link"
-      size="sm"
-      class="knowledge-row__more"
-      @click="expanded = !expanded"
-    >
-      {{ expanded ? t("knowledge.collapse") : t("knowledge.showFullText") }}
-    </UiButton>
+    <p :id="detailsId" :class="['knowledge-row__body', { 'is-expanded': expanded }]">{{ item.body }}</p>
     <div class="knowledge-row__meta">
       <span v-if="item.projectName">{{ item.projectName }} · </span>
       <time :datetime="item.updatedAt" :title="formatDate(item.updatedAt)">{{
@@ -190,8 +191,23 @@ const actions = computed(() => [
           t("knowledge.confirmedValidAt", { value: formatRelative(item.lastConfirmedAt) })
         }}</time>
       </template>
+      <UiButton
+        v-if="hasDetails"
+        variant="link"
+        size="sm"
+        class="knowledge-row__more"
+        :aria-expanded="expanded"
+        :aria-controls="detailsId"
+        @click="expanded = !expanded"
+      >
+        {{ expanded ? t("knowledge.collapse") : t("knowledge.showDetails") }}
+      </UiButton>
     </div>
-    <div v-if="item.tags.length || item.references.length || item.appliesTo.length" class="knowledge-row__chips">
+    <div v-if="expanded && hasNotes" class="knowledge-row__notes">
+      <p v-if="staleNotes.broadAppliesTo" class="knowledge-row__note">{{ staleNotes.broadAppliesTo }}</p>
+      <p v-if="staleNotes.broadChanges" class="knowledge-row__note">{{ staleNotes.broadChanges }}</p>
+    </div>
+    <div v-if="expanded && hasChips" class="knowledge-row__chips">
       <span v-for="tag in item.tags" :key="`tag-${tag}`" class="knowledge-row__tag">#{{ tag }}</span>
       <code v-for="reference in item.references" :key="`ref-${reference}`" class="knowledge-row__ref">{{
         reference
@@ -256,14 +272,14 @@ const actions = computed(() => [
 
 .knowledge-row__body {
   display: -webkit-box;
-  margin-top: var(--space-2);
+  margin-top: var(--space-1);
   overflow: hidden;
   color: var(--fg);
   font-size: var(--text-sm);
   line-height: 1.6;
   white-space: pre-line;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 1;
 }
 
 .knowledge-row__body.is-expanded {
@@ -271,8 +287,7 @@ const actions = computed(() => [
 }
 
 .knowledge-row__more {
-  align-self: flex-start;
-  margin-top: var(--space-1);
+  margin-inline-start: var(--space-2);
 }
 
 .knowledge-row__trust-bar {

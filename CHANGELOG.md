@@ -4,6 +4,13 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Changed
+
+- The Knowledge page side panel splits a section at line breaks into paragraphs and `-`, `*`, `•` or `1.` lists (plain text nodes, no HTML rendering) with a line length of about 72 characters. Each section's sources move into a collapsible 「來源（N）」 list that shows the first 3 Sessions one per line, with a toggle for the rest.
+- The 知識頁 tab groups pages by project when no project filter is applied, so same-named pages from different projects are told apart; the project name leaves the meta line and the separators between meta items are drawn with consistent spacing. A written page's title now opens it, like 「查看」.
+- 「自訂知識頁」 is enabled whenever a project is tracked. When no project is selected and several are tracked, the dialog asks which project to create the page in.
+- Knowledge rows show only the title, kind, a one-line summary and one meta line by default, so more rows fit on a screen. 「展開詳情」 (keyboard accessible, `aria-expanded`) reveals the full text, tags, references and applies-to paths.
+
 ## [1.6.94] - 2026-11-27
 
 [繁體中文更新說明](docs/releases/1.6.94.md).
