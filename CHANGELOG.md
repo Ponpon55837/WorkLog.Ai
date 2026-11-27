@@ -4,6 +4,20 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.84] - 2026-11-27
+
+[繁體中文更新說明](docs/releases/1.6.84.md).
+
+### Fixed
+
+- Choosing a project on the Work knowledge page no longer narrows its project menus to that project. The menus took their options from the Knowledge list response, which returns only the scoped project; they now use the projects store.
+- MCP and REST input errors for a union field (for example a `workSummary.decisions` item) name the failing nested field and its allowed values instead of only "Invalid input". Nested REST field errors carry the same path prefix MCP already used.
+- Importing a file (CLI `import` or an App upload) now skips a `session_links` row whose Session pair and relation already exist under another ID. The 1.6.83 fix only covered an already-parsed bundle; reading a file moves `relation` out of the planner row, so the comparison never matched.
+
+### Changed
+
+- Every project menu on Web uses one shared component (`ProjectFilterMenu`, or `useProjectOptions` for native selects) that lists every project from the projects store whatever is selected. Menus that list every project say "All projects"; menus that list tracked projects say "All tracked projects".
+
 ### Internal
 
 - `apps/web`, `apps/mcp`, `scripts` and `tests` follow the comment rule (worklog-code-layout §8), which finishes the cleanup for the whole repository; only comments changed, and every touched file prints the same with comments stripped.
