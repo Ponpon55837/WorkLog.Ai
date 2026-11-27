@@ -2026,7 +2026,6 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(steps.getByRole("listitem")).toHaveCount(1);
     await expect(steps).toContainText("修改了 README.md");
 
-    await page.getByRole("button", { name: tt("graph.closeGraphNodeDetails") }).click();
     await page.getByTestId("graph-show-derived").check();
     await expect(page).toHaveURL(/\/graph/);
   });

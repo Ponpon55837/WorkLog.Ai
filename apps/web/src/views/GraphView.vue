@@ -59,6 +59,11 @@ const load = (): Promise<void> => graphStore.loadGraph();
 useRouteQuery("project", graphProjectId, stringQuery());
 useRouteQuery("q", graphSearch, stringQuery());
 
+// The docked node panel covers the right edge; keep the controls in the room left of it.
+const toolbarStyle = computed(() =>
+  selectedGraphNode.value ? { maxWidth: `max(240px, calc(100% - ${graphPanelWidth.value}px))` } : undefined,
+);
+
 const tab = computed<GraphTab>({
   get: () => {
     const value = String(route.params.tab ?? "");
@@ -166,7 +171,7 @@ onBeforeUnmount(() => {
 
     <UiBox class="graph">
       <template #header>
-        <form class="graph__toolbar" @submit.prevent="load">
+        <form class="graph__toolbar" :style="toolbarStyle" @submit.prevent="load">
           <UiTextInput
             v-model="graphSearch"
             type="search"

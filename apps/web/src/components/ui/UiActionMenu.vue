@@ -178,9 +178,13 @@ watch(open, async (value) => {
 }
 
 .ui-action-menu__text--value {
-  max-width: 24ch;
+  max-width: 20ch;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.ui-action-menu__trigger--sm .ui-action-menu__text--value {
+  max-width: 14ch;
 }
 
 .ui-action-menu__dot {
