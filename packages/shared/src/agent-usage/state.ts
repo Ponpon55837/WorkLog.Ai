@@ -8,11 +8,8 @@ interface SessionAcc extends MetricsAcc {
   key: string;
 }
 
-/** Everything a scan accumulates; the Claude reducer and the Codex parser both write into it. */
 export interface ScanState {
-  /** The present (epoch ms) the 5-hour blocks are measured against. */
   now: number;
-  /** Usage of the last 24 hours, for the blocks. */
   events: UsageEvent[];
   since: number | null;
   until: number | null;
@@ -33,14 +30,9 @@ export interface ScanState {
   toolNames: Map<string, ToolInfo>;
   seenToolResults: Set<string>;
   codexTokenTuples: Set<string>;
-  /** The file being read: its Codex context, the shared-source group it belongs to (null: a project's own source) and,
-   * for Claude files, the working directory of the line being reduced. */
   file: { path: string; codex: CodexContext | null; group: number | null; cwd: string };
-  /** Shared-source groups of this scan, indexed by `file.group`. */
   groups: PreparedGroup[];
-  /** Evidence per conversation (session key) read from a shared source. */
   evidence: Map<string, SessionEvidence>;
-  /** Tool_use ids whose evidence was counted, so a conversation copied into a resumed file counts once. */
   evidenceToolIds: Set<string>;
 }
 
@@ -91,7 +83,6 @@ export function sessionFor(state: ScanState, sessionId: unknown): SessionAcc {
 
 const EVENT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-/** Keeps a usage event for the blocks when it is within 24 hours of now; the returned object may be corrected later. */
 export function recordUsageEvent(
   state: ScanState,
   agent: UsageAgentId,
@@ -105,14 +96,12 @@ export function recordUsageEvent(
   return event;
 }
 
-/** Returns false when the line falls outside the requested time range (epoch ms; null = no valid timestamp). */
 export function inRange(state: ScanState, time: number | null): boolean {
   if (state.since === null && state.until === null) return true;
   if (time === null) return false;
   return (state.since === null || time >= state.since) && (state.until === null || time <= state.until);
 }
 
-/** Epoch ms of an ISO timestamp field, null when it is not a valid date string. */
 export function parseTimestamp(timestamp: unknown): number | null {
   if (typeof timestamp !== "string") return null;
   const time = Date.parse(timestamp);

@@ -31,7 +31,6 @@ export interface McpRestartStatus {
   monitoringAvailable: boolean;
   updateAvailable?: boolean;
   message?: string;
-  /** Present when the server runs under the stable launcher: only a launcher update requires reconnecting. */
   launcher?: { version: number; restartRequired: boolean };
 }
 
@@ -54,7 +53,6 @@ interface McpRuntimeStatusOptions {
   now?: Date;
   heartbeatTtlMs?: number;
   probeRegistryWritable?: (directory: string) => boolean;
-  /** The environment that names the App's lease scope; defaults to this process's. */
   environment?: Readonly<Record<string, string | undefined>>;
 }
 
@@ -67,9 +65,8 @@ const MCP_RUNTIME_DIST_DIRECTORIES = [
   "packages/storage/dist",
 ] as const;
 /**
- * The standalone package (and the desktop runtime built from it) ships the MCP server as bundles with every workspace
- * package inlined, so its code is the bundles of apps/mcp/dist alone. `scripts/build-standalone.mjs` marks that layout
- * with the name of the package.json it writes next to them.
+ * Standalone bundles inline every workspace package; `scripts/build-standalone.mjs` marks that layout by the
+ * package.json name it writes.
  */
 const MCP_STANDALONE_DIST_DIRECTORIES = ["apps/mcp/dist"] as const;
 const MCP_STANDALONE_PACKAGE_NAME = "work-intelligence-libexec";
@@ -89,10 +86,6 @@ const MCP_UPDATE_MESSAGE =
   "Work Intelligence MCP 有新版可用；目前契約相容，讀寫可照常進行，收尾時提醒重新連線一次即可。";
 const MCP_UNKNOWN_MESSAGE = "無法確認磁碟上的 MCP 建置；請重新連線 MCP 後再繼續。";
 const ROOT_PACKAGE_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?$/;
-/**
- * Build identity per repository root, keyed by a cheap stat signature of every runtime file. Hashing the whole
- * dist twice cost most of each System Status request; a rebuild changes a size, mtime or inode and misses here.
- */
 const buildIdentityCache = new Map<string, { signature: string; identity: McpBuildIdentity | undefined }>();
 
 function packageVersion(repositoryRoot: string): string | undefined {
@@ -108,7 +101,6 @@ function packageVersion(repositoryRoot: string): string | undefined {
   }
 }
 
-/** The dist directories whose code is the MCP process: the repository's packages, or the standalone bundles. */
 function runtimeDistDirectories(repositoryRoot: string): readonly string[] {
   try {
     const packageJson: unknown = JSON.parse(readFileSync(resolve(repositoryRoot, "package.json"), "utf8"));
@@ -132,7 +124,6 @@ function javascriptFiles(directory: string, repositoryRoot: string): string[] {
   });
 }
 
-/** Paths, sizes, mtimes and inodes of package.json and every runtime dist file; undefined when unreadable. */
 function runtimeDistSignature(repositoryRoot: string): string | undefined {
   try {
     const parts: string[] = [];
@@ -275,7 +266,6 @@ function cleanupRegistrationLeases(directory: string, now: number): void {
   }
 }
 
-/** Build-only fingerprint calculation. Runtime status reads must use readMcpBuildIdentity instead. */
 export function computeMcpBuildIdentity(repositoryRoot: string): McpBuildIdentity | undefined {
   const root = resolve(repositoryRoot);
   const version = packageVersion(root);
@@ -291,7 +281,6 @@ export function computeMcpBuildIdentity(repositoryRoot: string): McpBuildIdentit
   }
 }
 
-/** Captures the application version and the code-bearing dist files used by the stdio MCP process. */
 export function readMcpBuildIdentity(repositoryRoot: string): McpBuildIdentity | undefined {
   const root = resolve(repositoryRoot);
   if (existsSync(resolve(root, MCP_BUILD_PROGRESS_FILE))) return undefined;
@@ -308,7 +297,6 @@ export function readMcpBuildIdentity(repositoryRoot: string): McpBuildIdentity |
   return identity;
 }
 
-/** Compares a process's embedded startup build with the current runtime dist on disk. */
 export function getMcpRestartStatus(
   repositoryRoot: string,
   runningBuild: McpBuildIdentity | undefined,
@@ -329,17 +317,11 @@ export function getMcpRestartStatus(
   return { restartRequired: true, updateAvailable: false, monitoringAvailable: true, message: MCP_RECONNECT_MESSAGE };
 }
 
-/**
- * Names the one stable place an installation of the desktop App keeps behind every runtime it ships. The App's launcher
- * sets it (to the App's runtime root) before it hands over to the backend or to an Agent's MCP, so both agree on the
- * lease directory even though each runs from a different `runtimes/<id>` checkout. A runtime that predates the variable
- * ignores it and keeps the older, root-based scope; a launcher that predates it never sets it, so the root decides.
- */
 export const MCP_LEASE_SCOPE_ENVIRONMENT = "WORK_INTELLIGENCE_APP_LEASE_SCOPE";
 
 /**
- * Windows paths are case-insensitive, accept both separators and may carry the `\\?\` long-path prefix or a trailing
- * separator: one install must hash to one scope however it is spelled.
+ * Windows paths are case-insensitive, take both separators and may carry `\\?\` or a trailing separator; one install
+ * must hash to one scope.
  */
 export function normalizeScopePath(path: string, platform: NodeJS.Platform = process.platform): string {
   if (platform !== "win32") return path;
@@ -350,24 +332,16 @@ export function normalizeScopePath(path: string, platform: NodeJS.Platform = pro
 
 type RealPath = (path: string) => string;
 
-/**
- * The scope path of an install. `realpathSync.native` asks the OS, so a Windows 8.3 short name (`PROGRA~1`) and the
- * long name it stands for, or a junction, give one path; the JavaScript implementation `legacy` keeps does not.
- */
+/** `realpathSync.native` maps 8.3 short names and junctions to one path; the JS `realpathSync` does not. */
 function canonicalPath(path: string, platform: NodeJS.Platform, realpath: RealPath): string {
   const resolved = resolve(path);
   try {
     return normalizeScopePath(realpath(resolved), platform);
   } catch {
-    // Keep the resolved path for a not-yet-created synthetic installation in tests.
     return normalizeScopePath(resolved, platform);
   }
 }
 
-/**
- * The App's runtime root when `path` lies inside one of its runtimes (`<root>/runtimes/<id>/...`, the root holding the
- * `current` pointer); undefined for a repository checkout or a standalone install.
- */
 export function appRootOf(path: string): string | undefined {
   let current = resolve(path);
   for (let depth = 0; depth < 12; depth += 1) {
@@ -382,12 +356,6 @@ export function appRootOf(path: string): string | undefined {
   return undefined;
 }
 
-/**
- * Whether an MCP process keeps a lease. A repository checkout always does. A standalone bundle is replaced as a whole on
- * update and has no on-disk build to watch, so a plain standalone install does not; but the desktop App's runtime is a
- * standalone bundle too, and its connection count is exactly what the lease feeds, so a bundle that runs inside the App
- * (its scope variable is set, or it sits in `<App root>/runtimes/<id>/`) registers like any other.
- */
 export function mcpKeepsLease(
   standalone: boolean,
   repositoryRoot: string,
@@ -413,10 +381,6 @@ function scopeIdFor(
   return createHash("sha256").update(scopeKey).digest("hex").slice(0, 24);
 }
 
-/**
- * The opaque id (24 hex characters of a hash, no path) of the lease scope of one install. The MCP records it in its
- * observation and the backend compares it with its own, so a mismatch is stated instead of guessed.
- */
 export function getMcpLeaseScopeId(
   repositoryRoot: string,
   environment: Readonly<Record<string, string | undefined>> = process.env,
@@ -427,10 +391,8 @@ export function getMcpLeaseScopeId(
 }
 
 /**
- * Returns the process-lease directory shared by the MCP, local API server, and doctor for one install. Under the
- * desktop App the scope is the App's stable runtime root (see {@link MCP_LEASE_SCOPE_ENVIRONMENT}); otherwise it is the
- * installation root, as before. The directory sits in the config directory, the place the Agent observations already
- * rely on: an Agent that starts the MCP with another `TEMP`/`TMP` (or none) still writes where the backend reads.
+ * In the config directory, not TEMP: an Agent that starts the MCP with another `TEMP`/`TMP` still writes where the
+ * backend reads.
  */
 export function getMcpRuntimeDirectory(
   repositoryRoot: string,
@@ -445,11 +407,6 @@ export function getMcpRuntimeDirectory(
   );
 }
 
-/**
- * Where 1.6.59 and earlier kept the leases: the system temp directory, scoped by a hash of the JavaScript `realpathSync`
- * path. Read only, so an MCP process that was already running before the upgrade is still counted.
- * TODO: remove in 1.8.0 together with its use in getMcpRuntimeStatus.
- */
 function legacyMcpRuntimeDirectory(
   repositoryRoot: string,
   environment: Readonly<Record<string, string | undefined>>,
@@ -463,24 +420,17 @@ function legacyMcpRuntimeDirectory(
   );
 }
 
-/** Why a lease could not be kept: a code, never a path or a system message. */
 export type McpLeaseFailure = "directory_unavailable" | "write_failed";
 
-/** What one MCP process knows about its own lease; ids, booleans and a code, no path. */
 export interface McpLeaseRegistration {
-  /** {@link getMcpLeaseScopeId} of this process. */
   scopeId: string;
-  /** The lease directory could be created and the lease file written. */
   directoryWritable: boolean;
   failure?: McpLeaseFailure;
-  /** The system error code (`EACCES`, `ENOENT`…) of the failure, when it is one. */
   errorCode?: string;
 }
 
 export interface McpProcessRegistration {
-  /** Stops the heartbeat and removes the lease. */
   release: () => void;
-  /** The state right now: a failed heartbeat shows here, and a later one that succeeds clears it. */
   registration: () => McpLeaseRegistration;
 }
 
@@ -491,11 +441,6 @@ function errorCodeOf(error: unknown): string | undefined {
   return typeof code === "string" && ERROR_CODE_PATTERN.test(code) ? code : undefined;
 }
 
-/**
- * Registers one MCP process with an atomic lease file; each client process has its own independent lease. A failure is
- * not thrown (a stdio process must keep serving) and not hidden either: {@link McpProcessRegistration.registration}
- * says whether the directory is writable and why not, for the observation file and the status page.
- */
 export function registerMcpLease(
   repositoryRoot: string,
   build: McpBuildIdentity | undefined,
@@ -549,7 +494,6 @@ export function registerMcpLease(
       delete state.failure;
       delete state.errorCode;
     } catch (error) {
-      // An unavailable registry must not crash the stdio process; the MCP response still reports local status.
       fail("write_failed", error);
       try {
         rmSync(temporaryPath, { force: true });
@@ -579,10 +523,7 @@ export function registerMcpLease(
   return { release: cleanup, registration };
 }
 
-/**
- * {@link registerMcpLease} for a caller that only needs the release function.
- * @internal test-only
- */
+/** @internal test-only */
 export function registerMcpProcess(
   repositoryRoot: string,
   build: McpBuildIdentity | undefined,
@@ -608,7 +549,6 @@ function probeRuntimeDirectoryWritable(directory: string): boolean {
   }
 }
 
-/** The leases of `entries` (the files of `directory`) whose heartbeat is fresh; expired files are cleaned up on the way. */
 function freshLeases(
   directory: string,
   entries: readonly Dirent[],
@@ -635,18 +575,12 @@ function freshLeases(
   });
 }
 
-/** What the lease registry of one install holds right now; ids, a count and a boolean, no path. */
 export interface McpLeaseCensus {
   scopeId: string;
   directoryWritable: boolean;
   activeLeases: number;
 }
 
-/**
- * The scope id of `repositoryRoot`'s lease registry, whether it can be written and how many fresh leases it holds (the
- * old temp-directory registry included, see {@link getMcpRuntimeStatus}). For the diagnostics summary, which has no build
- * to compare with.
- */
 export function readMcpLeaseCensus(
   repositoryRoot: string,
   environment: Readonly<Record<string, string | undefined>> = process.env,
@@ -678,7 +612,6 @@ export function readMcpLeaseCensus(
   };
 }
 
-/** Reads only fresh process leases and reports whether any currently observable MCP process is outdated. */
 export function getMcpRuntimeStatus(
   repositoryRoot: string,
   currentBuild: McpBuildIdentity | undefined = readMcpBuildIdentity(repositoryRoot),
@@ -725,8 +658,6 @@ export function getMcpRuntimeStatus(
   const readActiveLeases = (leaseDirectory: string, entries: readonly Dirent[]): McpProcessLease[] =>
     freshLeases(leaseDirectory, entries, now, heartbeatTtlMs, cleanupBudget);
   const activeLeases = readActiveLeases(directory, files);
-  // TODO: remove in 1.8.0. An MCP process started by 1.6.59 or earlier keeps writing to the system temp directory until
-  // its Agent reconnects; it is counted from there when this process sees the same temp directory.
   try {
     const legacyDirectory = legacyMcpRuntimeDirectory(
       repositoryRoot,

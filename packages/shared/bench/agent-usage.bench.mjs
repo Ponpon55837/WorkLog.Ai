@@ -1,12 +1,3 @@
-// Synthetic benchmark for the Agent usage scanner (packages/shared/src/agent-usage).
-//
-// Usage:
-//   pnpm --filter @work-intelligence/shared build
-//   node packages/shared/bench/agent-usage.bench.mjs [files=10000] [linesPerFile=100]
-//
-// Generates synthetic Claude Code session files (a few lines per file carry a large tool_result) into a temp
-// directory, then measures a cold scan, a warm scan (every file cached) and a scan after appending to 1% of the files.
-// The temp directory is deleted at the end; nothing real is read.
 import console from "node:console";
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -65,7 +56,6 @@ function claudeLines(fileIndex, from, count) {
         },
       });
     } else if (kind === 2) {
-      // A few results are very large (the long tail of real logs).
       const big = line % 50 === 2 && fileIndex % 5 === 0;
       out.push({
         type: "user",

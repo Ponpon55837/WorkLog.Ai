@@ -9,36 +9,25 @@ import type {
   UsageAllocationOptions,
 } from "./types.js";
 
-/**
- * What a conversation of a shared source (a Claude Code folder or Codex session opened at a folder above several
- * tracked projects) has shown about its project. Only normalised directories and counts are kept, never a file name,
- * and nothing here reaches a report: it is matched against the group's project roots at the end of the scan.
- */
 export interface SessionEvidence {
   group: number;
-  /** `projectRoot` of Work Intelligence tool calls, per normalised value. */
   roots: Record<string, number>;
-  /** Directories of the files Claude's file tools touched. */
   files: Record<string, number>;
-  /** Lines (Claude) or session_meta/turn_context lines (Codex) per working directory. */
   cwds: Record<string, number>;
 }
 
 export interface PreparedGroup {
   projects: { id: string; selected: boolean }[];
-  /** Roots (folded, normalised), deepest first, so a nested project wins over the one that contains it. */
   roots: { id: string; root: string }[];
   allSelected: boolean;
 }
 
-/** A basis needs this many hits and more than half of all hits that fall under a group project. */
 const MIN_HITS = 3;
 
 export function createEvidence(group: number): SessionEvidence {
   return { group, roots: {}, files: {}, cwds: {} };
 }
 
-/** Counts one raw path under its normalised spelling; relative or empty values are ignored. */
 export function countPath(counts: Record<string, number>, value: unknown): void {
   const path = typeof value === "string" ? normalizePath(value) : null;
   if (path !== null) bump(counts, path);
@@ -69,7 +58,6 @@ function tally(group: PreparedGroup, counts: Record<string, number>): Map<string
   return result;
 }
 
-/** The project with the highest count when no other project has the same count. */
 function uniqueTop(counts: Map<string, number>): { id: string; count: number } | null {
   let best: { id: string; count: number } | null = null;
   let tie = false;
@@ -82,12 +70,6 @@ function uniqueTop(counts: Map<string, number>): { id: string; count: number } |
   return tie ? null : best;
 }
 
-/**
- * Picks the project of one conversation, in this order: the most frequent `projectRoot` of its Work Intelligence calls
- * (a tie moves on), then the file-tool directories, then the working directories; the last two need at least three hits
- * and more than half of all hits that lie under any project of the group. A nested project wins over the project that
- * contains it. No match leaves the conversation unallocated.
- */
 function decideProject(
   evidence: SessionEvidence,
   group: PreparedGroup,
@@ -115,11 +97,6 @@ function emptyTokens(): TokenCounts {
   return { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
 }
 
-/**
- * Gives every conversation read from a shared source to exactly one bucket (a project of its group, or the group's
- * unallocated bucket) and lists the conversations the selection leaves out: those of unselected projects, and the
- * unallocated ones unless every project of the group is selected.
- */
 export function allocateSessions(state: ScanState): { allocation: UsageAllocation; excluded: Set<string> } {
   const excluded = new Set<string>();
   const groups = state.groups.map((group) => ({

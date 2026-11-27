@@ -16,5 +16,4 @@ if (
   throw new Error("根目錄 package.json 必須提供有效的 semver 版本。");
 }
 
-/** The root package.json is the single source of truth for the application version. */
 export const APP_VERSION = packageMetadata.version;

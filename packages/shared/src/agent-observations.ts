@@ -2,27 +2,16 @@ import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 import { join } from "node:path";
 import { AGENT_OBSERVATIONS_FILE, MCP_CONTRACT_FINGERPRINT_FILE } from "./mcp-contract-fingerprint.js";
 
-/**
- * What an Agent host last saw of the MCP tool contract, and how that compares with the contract installed now. The
- * desktop App's Agent tab and the Web system status both read it from here, so the two never judge a host differently.
- */
-
-/** Name of the single-line file in the runtime root that holds the current runtime id. */
 export const RUNTIME_CURRENT_FILE_NAME = "current";
-/** Folder of the runtime root that holds one immutable directory per installed runtime. */
 export const RUNTIME_DIRECTORIES_NAME = "runtimes";
-/** The shape of a legal runtime id (also the only characters allowed in a runtime directory name). */
 export const RUNTIME_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
-/** The Agent hosts the desktop App can show a connection state for. */
 export const AGENT_HOST_IDS = ["claude-code", "codex", "claude-desktop"] as const;
 export type AgentHostId = (typeof AGENT_HOST_IDS)[number];
 
 /**
- * `clientInfo.name` each host sends in MCP `initialize`. Claude Code (`claude-code`, measured with 2.1.323) and Codex
- * (`codex-mcp-client`, from its source) are known; Claude Desktop is not documented by its vendor, so `claude-ai` is
- * the name its connector traffic is known to carry and may need a new row when a release changes it. A name missing
- * here is still recorded by the server, it just does not light up a host until someone adds it.
+ * `clientInfo.name` each host sends in MCP `initialize`. `claude-ai` for Claude Desktop is observed, not
+ * vendor-documented. An unknown name is recorded but lights up no host.
  */
 const CLIENT_NAME_TO_HOST: ReadonlyMap<string, AgentHostId> = new Map([
   ["claude-code", "claude-code"],
@@ -31,23 +20,19 @@ const CLIENT_NAME_TO_HOST: ReadonlyMap<string, AgentHostId> = new Map([
   ["claude-ai", "claude-desktop"],
 ]);
 
-/** The host a `clientInfo.name` belongs to, or undefined for a name this table does not know. */
 export function hostForClientName(clientName: string): AgentHostId | undefined {
   return CLIENT_NAME_TO_HOST.get(clientName.trim().toLowerCase());
 }
 
-/** What the Agent page needs of one observation: the contract the host saw, and when. */
 export interface HostObservation {
   readonly contractFingerprint: string;
   readonly observedAt: string;
-  /** What the MCP process said about its own lease; absent in a file written by 1.6.59 or earlier. */
   readonly lease?: ObservedLease;
 }
 
 /**
- * The lease state the MCP records next to its observation: an opaque scope id, whether its lease directory was writable
- * and, when not, a code. No path. The file keeps `version: 1`: the field is additive, and a reader that does not know it
- * (an older App) only looks at the fingerprint and the time.
+ * Lease state recorded beside an observation: opaque scope id, writable flag, error code, no path. The file stays
+ * `version: 1`; the field is additive.
  */
 export interface ObservedLease {
   readonly scopeId: string;
@@ -73,13 +58,10 @@ function leaseOf(value: unknown): ObservedLease | undefined {
   };
 }
 
-/** The files are a few hundred bytes; anything past this is not ours and is read as absent. */
 const MAX_FILE_BYTES = 256 * 1024;
 const FINGERPRINT = /^[a-f0-9]{64}$/;
-/** Where the packaged runtime keeps its fingerprint, relative to the runtime's own directory. */
 const RUNTIME_FINGERPRINT_PATH = ["app", "libexec", "apps", "mcp", "dist", MCP_CONTRACT_FINGERPRINT_FILE] as const;
 
-/** A small regular file as text, or undefined when it is missing, too big or unreadable. */
 function readSmallFile(path: string): string | undefined {
   let descriptor: number | undefined;
   try {
@@ -113,13 +95,6 @@ function jsonObject(text: string | undefined): Record<string, unknown> | undefin
   }
 }
 
-/**
- * The newest observation per Agent host in `agent-observations.json` of the config directory (the file the MCP server
- * writes when a real host completes `initialize` and `tools/list`). Client names are mapped to hosts by
- * {@link hostForClientName}; a name it does not know is ignored, and the desktop self-test is never recorded at all.
- * A missing, oversized or malformed file, or an entry without a fingerprint, counts as no observation. One small read,
- * no watching: the Agent page calls it once per refresh.
- */
 export function readHostObservations(configDirectory: string): Partial<Record<AgentHostId, HostObservation>> {
   const entries = jsonObject(readSmallFile(join(configDirectory, AGENT_OBSERVATIONS_FILE)))?.observations;
   const result: Partial<Record<AgentHostId, HostObservation>> = {};
@@ -131,7 +106,6 @@ export function readHostObservations(configDirectory: string): Partial<Record<Ag
     if (typeof contractFingerprint !== "string" || !FINGERPRINT.test(contractFingerprint)) continue;
     const at = typeof observedAt === "string" ? observedAt : "";
     const known = result[host];
-    // ISO timestamps compare as text; a missing time sorts first.
     const observedLease = leaseOf(lease);
     if (known === undefined || at >= known.observedAt) {
       result[host] = { contractFingerprint, observedAt: at, ...(observedLease ? { lease: observedLease } : {}) };
@@ -140,11 +114,6 @@ export function readHostObservations(configDirectory: string): Partial<Record<Ag
   return result;
 }
 
-/**
- * The tool-contract fingerprint of the runtime the launcher would start now: the `current` pointer, then the file the
- * build wrote beside that runtime's MCP bundles. Undefined when any step is missing or malformed (a runtime from a build
- * without the file, a pointer being switched), which keeps every observation from counting as current.
- */
 export function readCurrentContractFingerprint(runtimeRoot: string): string | undefined {
   const pointer = readSmallFile(join(runtimeRoot, RUNTIME_CURRENT_FILE_NAME));
   const id = pointer === undefined ? undefined : /^([^\r\n]*)\r?\n?$/.exec(pointer)?.[1];
@@ -154,13 +123,8 @@ export function readCurrentContractFingerprint(runtimeRoot: string): string | un
   return typeof fingerprint === "string" && FINGERPRINT.test(fingerprint) ? fingerprint : undefined;
 }
 
-/** How one host's last observation compares with the contract installed now. */
 export type HostObservationState = "current" | "stale" | "none";
 
-/**
- * `current`: the host saw today's tool contract; `stale`: it saw an older one; `none`: never observed. Without a current
- * fingerprint nothing can be proven equal, so an observation is never `current` then.
- */
 export function classifyHostObservation(
   observation: { readonly contractFingerprint: string } | undefined,
   currentContractFingerprint: string | undefined,
@@ -171,9 +135,7 @@ export function classifyHostObservation(
     : "stale";
 }
 
-/** Why the backend sees no MCP lease although an Agent was seen connecting. */
 export type McpLeaseCause =
-  /** The MCP recorded no lease state (an MCP from 1.6.59 or earlier): reconnect the Agent to learn more. */
   | "lease_unreported"
   /** The MCP could not create or write its lease directory. */
   | "directory_unwritable"
@@ -182,21 +144,14 @@ export type McpLeaseCause =
   /** Same scope, writable directory, no live lease: the Agent has disconnected since. */
   | "agent_disconnected";
 
-/** The comparison of the observation and the backend's own lease scope; ids, a count and booleans only. */
 export interface McpLeaseDiagnosis {
   readonly backendScopeId: string;
-  /** The scope id the newest observation reports, when it reports one. */
   readonly observedScopeId?: string;
   readonly directoryWritable?: boolean;
   readonly activeLeases: number;
-  /** Set only when an Agent was observed and no lease is visible. */
   readonly cause?: McpLeaseCause;
 }
 
-/**
- * Compares what the MCP recorded about its lease with the backend's scope. The newest observation that carries lease
- * state decides; observed hosts without any lease state read as `lease_unreported`.
- */
 export function diagnoseMcpLease(
   observations: Partial<Record<AgentHostId, HostObservation>>,
   backendScopeId: string,

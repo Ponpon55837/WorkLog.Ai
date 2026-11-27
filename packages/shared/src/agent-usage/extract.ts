@@ -7,7 +7,6 @@ import { isRecord } from "./metrics.js";
 import { normalizePath } from "./paths.js";
 import type { ClaudeRecord } from "./types.js";
 
-/** Records and counters of lines that were read in this pass. */
 interface ExtractedLines {
   records: ClaudeRecord[];
   skippedLines: number;
@@ -15,22 +14,16 @@ interface ExtractedLines {
 }
 
 export interface ExtractResult extends ExtractedLines {
-  /** Byte offset just after the last newline; the next incremental read starts here. */
   offset: number;
-  /** The unterminated last line, parsed for the report but not covered by `offset`. */
   tail: ExtractedLines;
-  /** Bytes read from disk. */
   bytesRead: number;
 }
 
 interface ExtractOptions {
-  /** Byte offset to start reading at (a line start). */
   start?: number;
-  /** Keep the shared-source evidence (tool paths and per-line cwd) in the records. */
   evidence?: boolean;
   signal?: AbortSignal;
   deadlineMs?: number;
-  /** Receives every parsed line the Claude Code parser does not own but the Codex parser does. */
   onCodexLine?: (line: Record<string, any>) => void;
 }
 
@@ -43,10 +36,6 @@ function emptyLines(): ExtractedLines {
   return { records: [], skippedLines: 0, codexLines: 0 };
 }
 
-/**
- * Phase one for one file: streams it as Buffers, splits on newlines while tracking exact byte offsets, and turns every
- * Claude Code line into a compact record. Handles CRLF; an unterminated last line goes to `tail`, never into `offset`.
- */
 export async function extractFile(path: string, options: ExtractOptions = {}): Promise<ExtractResult> {
   const { signal, deadlineMs, onCodexLine, evidence = false } = options;
   const start = options.start ?? 0;
@@ -58,8 +47,6 @@ export async function extractFile(path: string, options: ExtractOptions = {}): P
     strings.set(value, value);
     return value;
   };
-  // The cwd is stored on a record only when it differs from the previous line's, so a long conversation in one folder
-  // costs one string; the first line of every pass states it, because a pass continues no earlier one.
   let lastCwd: string | undefined;
   const consume = (target: ExtractedLines, bytes: Buffer): void => {
     let end = bytes.length;

@@ -2,15 +2,10 @@ export * from "./backup-name.js";
 export { portFailureCode, type PortFailureCode } from "./port-failure.js";
 export { commandName, STANDALONE_COMMAND_NAME } from "./command-name.js";
 
-/**
- * The oldest Node.js whose built-in SQLite includes FTS5 (the search index). node:sqlite itself needs no flag from
- * 22.13, but 22.13–22.15 and every 23.x release ship SQLite without FTS5, so the migrations cannot create the index.
- */
+/** 22.13-22.15 and every 23.x ship SQLite without FTS5, so migrations cannot create the search index. */
 export const MINIMUM_NODE_VERSION = "22.16.0";
-/** The same requirement as an engines range: 22.16+ on the 22 line, then 24 and later; 23.x has no FTS5. */
 export const SUPPORTED_NODE_RANGE = ">=22.16.0 <23 || >=24.0.0";
 
-/** True for a Node.js version inside SUPPORTED_NODE_RANGE; false for anything unparsable. */
 export function isSupportedNodeVersion(version: string): boolean {
   const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(version.trim());
   if (!match) return false;
@@ -26,10 +21,6 @@ export function truncateText(value: string, maxLength = 240): string {
   return value.length <= maxLength ? value : `${value.slice(0, maxLength - 1)}…`;
 }
 
-/**
- * Shortens to at most `limit` UTF-16 code units including the trailing ellipsis, without splitting a surrogate pair
- * (an emoji or a rare CJK character would otherwise end in half a character).
- */
 export function truncateAtCodeUnitLimit(value: string, limit: number): { text: string; truncated: boolean } {
   if (value.length <= limit) return { text: value, truncated: false };
   if (limit <= 0) return { text: "", truncated: true };
@@ -48,17 +39,12 @@ export function truncateAtCodeUnitLimit(value: string, limit: number): { text: s
   return { text: `${value.slice(0, prefixLength)}…`, truncated: true };
 }
 
-/*
- * Calendar dates follow the host's local time zone: the server runs on the user's machine, so a
- * "day" in reports and filters is the day the user sees on their clock. Timestamps stay UTC ISO.
- */
+/** Calendar dates use the host local time zone (the server runs on the user's machine); timestamps stay UTC ISO. */
 
-/** IANA name of the host time zone, e.g. `Asia/Taipei`. */
 export function localTimeZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }
 
-/** The host clock for Agents, which do not know the current time: UTC now, the IANA zone, and its UTC offset. */
 export function serverClock(now: Date = new Date()): { serverTime: string; timeZone: string; utcOffset: string } {
   const offsetMinutes = -now.getTimezoneOffset();
   const sign = offsetMinutes >= 0 ? "+" : "-";
@@ -67,7 +53,6 @@ export function serverClock(now: Date = new Date()): { serverTime: string; timeZ
   return { serverTime: now.toISOString(), timeZone: localTimeZone(), utcOffset };
 }
 
-/** Local calendar date (YYYY-MM-DD) of a timestamp. */
 export function toLocalCalendarDate(value: string | Date = new Date()): string {
   const date = typeof value === "string" ? new Date(value) : value;
   const year = date.getFullYear();
@@ -76,7 +61,6 @@ export function toLocalCalendarDate(value: string | Date = new Date()): string {
   return `${year}-${month}-${day}`;
 }
 
-/** UTC ISO timestamp of local midnight at the start of a YYYY-MM-DD calendar date. */
 export function localDayStartIso(date: string): string | undefined {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
   if (!match) {

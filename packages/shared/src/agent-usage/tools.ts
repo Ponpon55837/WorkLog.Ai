@@ -1,22 +1,17 @@
 import { isRecord } from "./metrics.js";
 
-/** A classified tool: where it is counted and, for Work Intelligence tools, its operation key. */
 export interface ToolInfo {
   name: string;
   work: boolean;
   mcp: boolean;
-  /** Work Intelligence operation key; set when `work`. */
   key?: string;
-  /** Codex only: the call was credited in range, and by which metrics. */
   counted?: boolean;
   owner?: object;
 }
 
 export const SAFE_TOOL_NAME = /^[A-Za-z0-9_.:-]{1,128}$/;
 const WORK_TOOL_NAME = /^mcp__.*__(work_[a-z_]+)$/;
-/** Operation ids are echoed in reports, so only this shape is ever kept. */
 const OPERATION_ID = /^work_[a-z0-9_]+$/;
-/** Entry tools that dispatch on `input.operation`. */
 const OPERATION_ENTRY_TOOLS = new Set([
   "work_read",
   "work_write_idempotent",
@@ -24,18 +19,12 @@ const OPERATION_ENTRY_TOOLS = new Set([
   "work_write_overwrite",
 ]);
 
-/**
- * Key a Work Intelligence tool call is grouped under: `entry/operation` for dispatcher tools (`entry/(unknown)` when the
- * operation is absent or not shaped like an operation id), the tool name for direct tools. `readOperation` runs only
- * for dispatcher tools and may return anything; only the id shape is used.
- */
 export function workOperationKey(entry: string, readOperation: () => unknown): string {
   if (!OPERATION_ENTRY_TOOLS.has(entry)) return entry;
   const operation = readOperation();
   return `${entry}/${typeof operation === "string" && OPERATION_ID.test(operation) ? operation : "(unknown)"}`;
 }
 
-/** Reads `.operation` from tool arguments given as an object or as a JSON string; never reads another field. */
 export function operationOf(args: unknown): unknown {
   let value = args;
   if (typeof value === "string") {
@@ -48,7 +37,6 @@ export function operationOf(args: unknown): unknown {
   return isRecord(value) ? value.operation : undefined;
 }
 
-/** Classifies a raw Claude tool name into the map it is counted under, never echoing an unsafe name. */
 export function classifyTool(rawName: unknown, input: unknown): ToolInfo {
   if (typeof rawName !== "string" || !SAFE_TOOL_NAME.test(rawName)) return { name: "(other)", work: false, mcp: false };
   const work = WORK_TOOL_NAME.exec(rawName);
@@ -64,7 +52,6 @@ export function classifyTool(rawName: unknown, input: unknown): ToolInfo {
   return { name: rawName, work: false, mcp: rawName.startsWith("mcp__") };
 }
 
-/** Claude tools that name a file, and the input field that holds it. */
 const FILE_PATH_FIELDS: Record<string, string> = {
   Read: "file_path",
   Edit: "file_path",
@@ -73,7 +60,6 @@ const FILE_PATH_FIELDS: Record<string, string> = {
   NotebookEdit: "notebook_path",
 };
 
-/** The path a Claude file tool names (`file_path` / `notebook_path` only), or undefined. */
 export function filePathOf(rawName: unknown, input: unknown): string | undefined {
   const field = typeof rawName === "string" ? FILE_PATH_FIELDS[rawName] : undefined;
   if (field === undefined || !isRecord(input)) return undefined;
@@ -81,11 +67,6 @@ export function filePathOf(rawName: unknown, input: unknown): string | undefined
   return typeof value === "string" ? value : undefined;
 }
 
-/**
- * The `projectRoot` of a Work Intelligence call, for matching a shared-source conversation to a project: dispatcher
- * tools carry it in `arguments.projectRoot`, direct tools at the top level. Arguments may be an object or a JSON string;
- * no other field is read.
- */
 export function projectRootOf(args: unknown): string | undefined {
   let value = args;
   if (typeof value === "string") {

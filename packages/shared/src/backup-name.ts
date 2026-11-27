@@ -1,14 +1,11 @@
 import { posix, win32 } from "node:path";
 
-/** What a backup file name says about the snapshot; mirrors `DatabaseBackupKind` of the core package. */
 export type BackupNameKind =
   "automatic" | "manual" | "migration" | "deletion" | "session_deletion" | "maintenance" | "import";
 
 export interface ParsedBackupName {
   readonly kind: BackupNameKind;
-  /** UTC instant from the name, as `YYYY-MM-DDTHH:MM:SSZ`. */
   readonly createdAt: string;
-  /** 1 for the first backup of a second, 2 and up for later ones in the same second. */
   readonly sequence: number;
 }
 
@@ -16,16 +13,11 @@ function pathApi(platform: NodeJS.Platform): typeof posix {
   return platform === "win32" ? win32 : posix;
 }
 
-/**
- * Backups are named after the database file: `<database name without extension>-`. The platform decides which
- * separators split the path (Windows accepts both); it defaults to this process's and is injected by tests.
- */
 export function backupPrefix(databasePath: string, platform: NodeJS.Platform = process.platform): string {
   const { basename, extname } = pathApi(platform);
   return `${basename(databasePath, extname(databasePath))}-`;
 }
 
-/** Parses the part of a backup name between the prefix and `.sqlite`; null when it is not one this app writes. */
 export function parseBackupName(value: string): ParsedBackupName | null {
   const standardName = /^(automatic|manual)-(.+)$/.exec(value);
   const migrationName = /^pre-migration-v(\d+)-(.+)$/.exec(value);
@@ -80,12 +72,10 @@ export function parseBackupName(value: string): ParsedBackupName | null {
   return { kind, createdAt, sequence };
 }
 
-/** Accepts only a single, recognized filename for the current database. */
 export function isSafeDatabaseBackupFileName(databasePath: string, fileName: string): boolean {
   return parseDatabaseBackupFileName(databasePath, fileName) !== null;
 }
 
-/** The parsed name when `fileName` is a safe, recognized backup of `databasePath`; null otherwise. */
 export function parseDatabaseBackupFileName(
   databasePath: string,
   fileName: string,

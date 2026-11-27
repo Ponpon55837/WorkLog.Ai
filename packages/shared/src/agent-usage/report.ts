@@ -1,9 +1,7 @@
 import type { ShapeReport, TokenCounts, UsageMetrics, UsageReport } from "./types.js";
 
 export interface ForAgentOptions {
-  /** User-chosen tracked project names; the only names that may appear. */
   projectNames?: string[];
-  /** Names of the tracked projects by id; shared-source groups are labelled with them (never with a path). */
   projectNamesById?: Record<string, string>;
   since?: string;
   until?: string;
@@ -86,12 +84,10 @@ const LABELS = {
   },
 } as const;
 
-/** Fresh input + output: the headline number. Cache reads and writes are never part of it. */
 export function primaryOf(tokens: Pick<TokenCounts, "input" | "output">): number {
   return tokens.input + tokens.output;
 }
 
-/** cacheRead / (input + cacheRead + cacheCreation), 0..1, or null when there are no input-side tokens. */
 export function cacheReadShareOf(tokens: TokenCounts): number | null {
   const inputSide = tokens.input + tokens.cacheRead + tokens.cacheCreation;
   return inputSide > 0 ? tokens.cacheRead / inputSide : null;
@@ -217,12 +213,6 @@ function sharedSourceLines(
   return out;
 }
 
-/**
- * Plain text for pasting into an Agent: totals, the input + output headline, cache numbers on their own line, the model
- * split, Work Intelligence operations, top conversations (labels only, ranked by input + output) and top other tools.
- * Carries only counts, safe tool names, operation ids, allowlisted model ids and the given project names; never a path,
- * folder name, cwd or message text.
- */
 export function formatForAgent(report: UsageReport, options: ForAgentOptions = {}): string {
   const text = LABELS[options.locale ?? "en"];
   const total = report.total;

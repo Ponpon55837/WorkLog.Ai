@@ -6,7 +6,6 @@ import { inRange, parseTimestamp, recordUsageEvent, sessionFor, type ScanState }
 import { classifyTool, filePathOf, projectRootOf } from "./tools.js";
 import type { ClaudeRecord, ClaudeToolResultRecord, ClaudeToolUseRecord } from "./types.js";
 
-/** Length of tool_result content: a string counts fully, an array counts its text blocks only. */
 function toolResultLength(content: unknown): number {
   if (typeof content === "string") return content.length;
   if (!Array.isArray(content)) return 0;
@@ -17,7 +16,6 @@ function toolResultLength(content: unknown): number {
   return total;
 }
 
-/** A turn is a main-thread human prompt: not a subagent prompt, not an injected meta line, not a tool_result. */
 function isHumanTurn(line: Record<string, any>): boolean {
   if (line.isSidechain === true || line.isMeta === true) return false;
   const content = line.message.content;
@@ -33,21 +31,10 @@ function positiveNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
-/** True for a line the Claude Code parser owns. */
 export function isClaudeLine(line: Record<string, any>): boolean {
   return (line.type === "assistant" || line.type === "user") && isRecord(line.message);
 }
 
-/**
- * Phase one: turns one Claude Code line into a compact record. No deduplication and no range filter happen here, so
- * the record stays valid for any later range. Only counts, ids, timestamps and safe tool names are kept; `intern`
- * shares session id strings across the lines of a file.
- *
- * With `evidence` (the file is a shared source, see `allocation.ts`) a tool_use also keeps the normalised `projectRoot`
- * of a Work Intelligence call (`r`) or the normalised directory of a file-tool path (`f`). Paths are stored, not
- * hashed, because projects can change between scans and are only matched at reduce time; the cache file is local and
- * owner-only (0600), and these values never reach an API, CLI or copy output. Only the directory is kept for files.
- */
 export function extractClaudeLine(
   line: Record<string, any>,
   intern: (value: string) => string,
@@ -110,7 +97,6 @@ export function extractClaudeLine(
   return record;
 }
 
-/** Counts what one record of a shared source shows about its conversation's project; independent of the time range. */
 function collectEvidence(state: ScanState, evidence: SessionEvidence, record: ClaudeRecord): void {
   if (record.c !== undefined) state.file.cwd = record.c;
   if (state.file.cwd !== "") bump(evidence.cwds, state.file.cwd);
@@ -122,11 +108,6 @@ function collectEvidence(state: ScanState, evidence: SessionEvidence, record: Cl
   }
 }
 
-/**
- * Phase two: applies the global deduplication (message id per-field maximum, tool_use id, tool_result id), the range
- * filter and the session grouping to records in file order. Calling it per file in path order gives the same result as
- * parsing every file line by line.
- */
 export function reduceClaudeRecords(state: ScanState, records: readonly ClaudeRecord[]): void {
   for (const record of records) {
     if (state.file.group !== null) {
