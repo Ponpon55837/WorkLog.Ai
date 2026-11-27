@@ -183,7 +183,7 @@ type CitedSessionRow = {
   id: string;
   project_id: string;
   title: string;
-  updated_at: string;
+  content_updated_at: string;
   voided_at: string | null;
 };
 
@@ -1243,7 +1243,7 @@ export class KnowledgePageService {
     if (citedIds.length > 0) {
       for (const source of this.db
         .prepare(
-          `SELECT id, project_id, title, updated_at, voided_at FROM sessions
+          `SELECT id, project_id, title, COALESCE(content_updated_at, updated_at) AS content_updated_at, voided_at FROM sessions
            WHERE id IN (SELECT value FROM json_each(?))`,
         )
         .all(JSON.stringify(citedIds)) as CitedSessionRow[]) {
@@ -1285,7 +1285,7 @@ export class KnowledgePageService {
           } else {
             if (!baseline) {
               reasons.add("source_state_unknown");
-            } else if (source.updated_at > baseline) {
+            } else if (source.content_updated_at > baseline) {
               reasons.add("source_updated_after_save");
             }
             for (const event of voidEvents.get(sourceSessionId) ?? []) {

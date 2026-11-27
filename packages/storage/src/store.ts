@@ -541,6 +541,7 @@ export class WorkIntelligenceStore {
     this.sessions = new SessionRepository(this.db, toSession, createPageInfo);
     this.diagrams = new DiagramService(this.db, {
       checkProjectById: (projectId) => this.checkProjectById(projectId),
+      touchSession: (sessionId, at) => this.sessionRecords.touchSession(sessionId, at, { content: false }),
     });
     this.outstandingItems = new OutstandingItemService(this.db, {
       checkProjectById: (projectId) => this.checkProjectById(projectId),
@@ -1374,10 +1375,6 @@ export class WorkIntelligenceStore {
     return this.sessionRecords.getSessionLinks(sessionId);
   }
 
-  private touchSession(sessionId: string, at: string): void {
-    this.sessionRecords.touchSession(sessionId, at);
-  }
-
   private hasConfirmedChangedFilesForSession(sessionId: string): boolean {
     return this.sessionRecords.hasConfirmedChangedFilesForSession(sessionId);
   }
@@ -1739,7 +1736,7 @@ export class WorkIntelligenceStore {
           summary: evidence.summary ?? null,
           capturedAt: evidence.capturedAt,
         });
-      this.touchSession(evidence.sessionId, evidence.capturedAt);
+      this.sessionRecords.touchSession(evidence.sessionId, evidence.capturedAt, { content: false });
       this.db
         .prepare("UPDATE sessions SET redaction_count = redaction_count + ? WHERE id = ?")
         .run(redactions.total, evidence.sessionId);
@@ -1934,7 +1931,7 @@ export class WorkIntelligenceStore {
                commit_sha = @commitSha, git_branch = @gitBranch, changed_files_json = @changedFiles,
                changed_files_confirmed = @changedFilesConfirmed, changed_files_provenance_json = @changedFilesProvenance,
                changed_file_changes_json = @changedFileChanges, verification_json = @verification,
-               started_at = @startedAt, updated_at = @updatedAt, redaction_count = @redactionCount,
+               started_at = @startedAt, updated_at = @updatedAt, content_updated_at = @updatedAt, redaction_count = @redactionCount,
                agent_client = @agentClient, agent_model = @agentModel, external_session_id = @externalSessionId
              WHERE id = @id`,
           )
@@ -1963,12 +1960,12 @@ export class WorkIntelligenceStore {
                id, project_id, external_session_id, idempotency_key, title, summary,
                work_summary_json, status, execution_status, completed_at, created_at, commit_sha, git_branch,
                changed_files_json, changed_files_confirmed, changed_files_provenance_json, changed_file_changes_json, verification_json,
-               started_at, updated_at, redaction_count, agent_client, agent_model
+               started_at, updated_at, content_updated_at, redaction_count, agent_client, agent_model
              ) VALUES (
                @id, @projectId, @externalSessionId, @idempotencyKey, @title, @summary,
                @workSummary, 'finalized', 'completed', @completedAt, @createdAt, @commitSha, @gitBranch,
                @changedFiles, @changedFilesConfirmed, @changedFilesProvenance, @changedFileChanges, @verification,
-               @startedAt, @createdAt, @redactionCount, @agentClient, @agentModel
+               @startedAt, @createdAt, @createdAt, @redactionCount, @agentClient, @agentModel
              )`,
           )
           .run({
@@ -2070,7 +2067,7 @@ export class WorkIntelligenceStore {
         return [];
       });
       for (const linkedSessionId of linkedSessionIds) {
-        this.touchSession(linkedSessionId, createdAt);
+        this.sessionRecords.touchSession(linkedSessionId, createdAt, { content: false });
       }
 
       linkedIds = [...linkedSessionIds];

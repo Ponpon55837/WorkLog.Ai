@@ -1574,3 +1574,179 @@ describe("Knowledge pages", () => {
     });
   });
 });
+
+describe("cited-source content changes", () => {
+  function savedPage(env: ReturnType<typeof setup>, cited: string) {
+    const { store, projectRoot } = env;
+    store.requestKnowledgePageUpdate({ projectRoot, slug: "pitfalls" });
+    const saved = store.saveKnowledgePage({
+      projectRoot,
+      slug: "pitfalls",
+      idempotencyKey: "content-save",
+      sections: [
+        { heading: "Cited rule", content: "Keep the cited rule current.", sourceSessionIds: [cited] },
+        { heading: "Unrelated", content: "資料不足", sourceSessionIds: [] },
+      ],
+      reviewToken: reviewTokenOf(store, projectRoot, "pitfalls"),
+    });
+    if (saved.outcome !== "knowledge_page_saved") throw new Error("Expected the page to save.");
+    env.tick();
+  }
+  function reasons(env: ReturnType<typeof setup>): string[] | undefined {
+    const listed = env.store.listKnowledgePages({ projectRoot: env.projectRoot });
+    if (listed.outcome !== "knowledge_pages") throw new Error("Expected pages");
+    return listed.items[0]?.reviewSections?.flatMap((section) => section.sources.flatMap((source) => source.reasons));
+  }
+  function sessionTimes(store: WorkIntelligenceStore, id: string) {
+    return (
+      store as unknown as {
+        db: DatabaseSync;
+      }
+    ).db
+      .prepare("SELECT updated_at, content_updated_at FROM sessions WHERE id = ?")
+      .get(id) as { updated_at: string; content_updated_at: string };
+  }
+
+  it("does not flag a cited parent when a later Session links to it", () => {
+    const env = setup();
+    const parent = env.finalize("parent");
+    const related = env.finalize("related-peer");
+    savedPage(env, parent);
+    const before = sessionTimes(env.store, parent);
+
+    env.tick();
+    const child = env.store.finalizeSession({
+      projectRoot: env.projectRoot,
+      idempotencyKey: "child",
+      title: "Follow-up",
+      summary: "Follow-up summary.",
+      workSummary: { outcomes: ["Follow-up outcome"], scope: [], decisions: [], verification: [], nextSteps: [] },
+      changedFiles: [],
+      verification: { status: "passed" },
+      parentSessionId: parent,
+      relatedSessionIds: [related],
+    });
+    expect(child).toMatchObject({ outcome: "finalized" });
+
+    const after = sessionTimes(env.store, parent);
+    expect(after.updated_at > before.updated_at).toBe(true);
+    expect(after.content_updated_at).toBe(before.content_updated_at);
+    expect(reasons(env)).toBeUndefined();
+  });
+
+  it("does not flag a cited Session for link edits, evidence or diagram void and restore", () => {
+    const env = setup();
+    const cited = env.finalize("cited");
+    const other = env.finalize("other");
+    const diagram = env.store.attachDiagram({
+      sessionId: cited,
+      idempotencyKey: "diagram",
+      title: "Flow",
+      kind: "architecture",
+      formatVersion: 1,
+      source: JSON.stringify({ version: 1, nodes: [{ id: "entry", label: "Entry" }] }),
+    });
+    if (diagram.outcome !== "diagram_attached") throw new Error("Expected a diagram");
+    savedPage(env, cited);
+
+    const link = (linked: boolean) =>
+      env.store.linkSessions({ sessionId: cited, relatedSessionId: other, relation: "related", linked });
+    expect(link(true)).toMatchObject({ outcome: "session_link_updated" });
+    env.tick();
+    expect(link(false)).toMatchObject({ outcome: "session_link_updated" });
+    env.tick();
+    const evidence = env.store.attachEvidence({
+      sessionId: cited,
+      kind: "test",
+      reference: "pnpm test",
+      summary: "ok",
+    });
+    if (evidence.outcome !== "evidence_attached") throw new Error("Expected evidence");
+    env.tick();
+    env.store.setEvidenceVoid({ evidenceId: evidence.evidence.id, voided: true, reason: "Fixture." });
+    env.tick();
+    env.store.setEvidenceVoid({ evidenceId: evidence.evidence.id, voided: false });
+    env.tick();
+    env.store.setDiagramVoid({ diagramId: diagram.diagram.id, voided: true, reason: "Fixture." });
+    env.tick();
+    env.store.setDiagramVoid({ diagramId: diagram.diagram.id, voided: false });
+
+    const times = sessionTimes(env.store, cited);
+    expect(times.updated_at > times.content_updated_at).toBe(true);
+    expect(reasons(env)).toBeUndefined();
+  });
+
+  it.each([
+    [
+      "summary",
+      (env: ReturnType<typeof setup>, id: string) =>
+        env.store.updateSessionSummary({ sessionId: id, idempotencyKey: "s", summary: "Corrected summary." }),
+    ],
+    [
+      "work summary",
+      (env: ReturnType<typeof setup>, id: string) =>
+        env.store.updateSessionWorkSummary({
+          sessionId: id,
+          idempotencyKey: "w",
+          mode: "patch",
+          workSummary: { outcomes: ["Corrected outcome."] },
+        }),
+    ],
+    [
+      "title",
+      (env: ReturnType<typeof setup>, id: string) =>
+        env.store.updateSessionTitle({ sessionId: id, title: "Corrected title" }),
+    ],
+    [
+      "verification",
+      (env: ReturnType<typeof setup>, id: string) =>
+        env.store.updateSessionVerification(id, { status: "failed" }, "agent"),
+    ],
+    [
+      "changed files",
+      (env: ReturnType<typeof setup>, id: string) =>
+        env.store.updateSessionMetadata({ sessionId: id, changedFiles: ["src/new.ts"], changedFilesMode: "merge" }),
+    ],
+  ])("still flags a cited Session after a %s change", (_name, change) => {
+    const env = setup();
+    const cited = env.finalize("cited");
+    savedPage(env, cited);
+    change(env, cited);
+    expect(reasons(env)).toEqual(["source_updated_after_save"]);
+  });
+
+  it("does not flag a cited Session with no content_updated_at after a diagram void and restore", () => {
+    const env = setup();
+    const cited = env.finalize("cited");
+    const diagram = env.store.attachDiagram({
+      sessionId: cited,
+      idempotencyKey: "diagram",
+      title: "Flow",
+      kind: "architecture",
+      formatVersion: 1,
+      source: JSON.stringify({ version: 1, nodes: [{ id: "entry", label: "Entry" }] }),
+    });
+    if (diagram.outcome !== "diagram_attached") throw new Error("Expected a diagram");
+    savedPage(env, cited);
+    (env.store as unknown as { db: DatabaseSync }).db
+      .prepare("UPDATE sessions SET content_updated_at = NULL WHERE id = ?")
+      .run(cited);
+
+    env.store.setDiagramVoid({ diagramId: diagram.diagram.id, voided: true, reason: "Fixture." });
+    env.tick();
+    env.store.setDiagramVoid({ diagramId: diagram.diagram.id, voided: false });
+
+    expect(reasons(env)).toBeUndefined();
+  });
+
+  it("does not flag a cited Session for a metadata backfill that changes nothing", () => {
+    const env = setup();
+    const cited = env.finalize("cited");
+    savedPage(env, cited);
+    const result = env.store.updateSessionMetadata({ sessionId: cited, changedFiles: [], changedFilesMode: "merge" });
+    expect(result.outcome).toBe("updated");
+    const times = sessionTimes(env.store, cited);
+    expect(times.updated_at > times.content_updated_at).toBe(true);
+    expect(reasons(env)).toBeUndefined();
+  });
+});

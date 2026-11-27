@@ -153,7 +153,7 @@ export class SessionRecordService {
         this.db
           .prepare("UPDATE sessions SET verification_json = ?, redaction_count = redaction_count + ? WHERE id = ?")
           .run(JSON.stringify(next), redactions.total, sessionId);
-        this.touchSession(sessionId, updatedAt);
+        this.touchSession(sessionId, updatedAt, { content: true });
         this.insertVerificationUpdate(sessionId, source, previous, next, updatedAt);
         this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, project.id);
       });
@@ -209,8 +209,8 @@ export class SessionRecordService {
         if (input.linked) {
           this.writeSessionLink(input.sessionId, input.relatedSessionId, input.relation, source, changedAt);
         }
-        this.touchSession(input.sessionId, changedAt);
-        this.touchSession(input.relatedSessionId, changedAt);
+        this.touchSession(input.sessionId, changedAt, { content: false });
+        this.touchSession(input.relatedSessionId, changedAt, { content: false });
       }
       return {
         outcome: "session_link_updated",
@@ -281,8 +281,14 @@ export class SessionRecordService {
     }));
   }
 
-  public touchSession(sessionId: string, at: string): void {
-    this.db.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").run(at, sessionId);
+  public touchSession(sessionId: string, at: string, options: { content: boolean }): void {
+    this.db
+      .prepare(
+        options.content
+          ? "UPDATE sessions SET updated_at = ?, content_updated_at = ? WHERE id = ?"
+          : "UPDATE sessions SET content_updated_at = COALESCE(content_updated_at, updated_at), updated_at = ? WHERE id = ?",
+      )
+      .run(...(options.content ? [at, at, sessionId] : [at, sessionId]));
   }
 
   public hasConfirmedChangedFilesForSession(sessionId: string): boolean {
@@ -472,7 +478,15 @@ export class SessionRecordService {
           );
       }
       const feedback = this.dependencies.applyKnowledgeFeedback(project.id, input.sessionId, nextCompletedAt, input);
-      this.touchSession(input.sessionId, updatedAt);
+      const contentChanged =
+        JSON.stringify(normalizedChangedFiles.files) !== JSON.stringify(current.changedFiles) ||
+        JSON.stringify(changedFileChanges) !== JSON.stringify(current.changedFileChanges) ||
+        (nextVerification !== undefined && !sameVerification(current.verification, nextVerification)) ||
+        nextCompletedAt !== current.completedAt ||
+        (nextStartedAt !== undefined && nextStartedAt !== current.startedAt) ||
+        (normalizeCommitSha(input.git?.commitSha) ?? current.commitSha ?? null) !== (current.commitSha ?? null) ||
+        (input.git?.branch ?? current.gitBranch ?? null) !== (current.gitBranch ?? null);
+      this.touchSession(input.sessionId, updatedAt, { content: contentChanged });
       this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, project.id);
       return feedback;
     });
@@ -582,7 +596,7 @@ export class SessionRecordService {
       this.db
         .prepare("UPDATE sessions SET summary = ?, redaction_count = redaction_count + ? WHERE id = ?")
         .run(appliedSummary, redactions.total, input.sessionId);
-      this.touchSession(input.sessionId, createdAt);
+      this.touchSession(input.sessionId, createdAt, { content: true });
       this.db
         .prepare(
           `INSERT INTO session_summary_updates (
@@ -675,7 +689,7 @@ export class SessionRecordService {
             JSON.stringify({ field: "title", previous: current.title, next: title }),
             updatedAt,
           );
-        this.touchSession(input.sessionId, updatedAt);
+        this.touchSession(input.sessionId, updatedAt, { content: true });
         this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(updatedAt, project.id);
       }
 
@@ -847,7 +861,7 @@ export class SessionRecordService {
         input.sessionId,
         createdAt,
       );
-      this.touchSession(input.sessionId, createdAt);
+      this.touchSession(input.sessionId, createdAt, { content: true });
       this.db
         .prepare(
           `INSERT INTO session_work_summary_updates (
@@ -1009,7 +1023,7 @@ export class SessionRecordService {
             input.sessionId,
           );
         this.insertVoidAudit("session", input.sessionId, input.sessionId, projectId, input.voided, reason, occurredAt);
-        this.touchSession(input.sessionId, occurredAt);
+        this.touchSession(input.sessionId, occurredAt, { content: true });
         this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(occurredAt, projectId);
       }
       const session = this.dependencies.getSessionById(input.sessionId);
@@ -1048,7 +1062,7 @@ export class SessionRecordService {
           .prepare("UPDATE sessions SET redaction_count = redaction_count + ? WHERE id = ?")
           .run(reasonResult.redactions.total, row.session_id);
         this.insertVoidAudit("evidence", input.evidenceId, row.session_id, projectId, input.voided, reason, occurredAt);
-        this.touchSession(row.session_id, occurredAt);
+        this.touchSession(row.session_id, occurredAt, { content: false });
         this.db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(occurredAt, projectId);
       }
       const updated = this.db.prepare("SELECT * FROM evidence WHERE id = ?").get(input.evidenceId) as EvidenceRow;

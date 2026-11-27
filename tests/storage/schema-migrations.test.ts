@@ -123,6 +123,9 @@ function applySchemaMigrations(db: DatabaseSync): void {
   db.prepare(
     "INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (33, 'candidate-overlaps-and-session-lookups', 'fixture')",
   ).run();
+  db.prepare(
+    "INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (42, 'session-content-updated-at', 'fixture')",
+  ).run();
   applyRuntimeMigrations(db);
 }
 
@@ -1431,6 +1434,76 @@ describe("agent review knowledge items migration", () => {
           .get(),
       ).toEqual({ convention_confirmed_at: null, convention_withdrawal_json: null });
       expect(LATEST_SCHEMA_VERSION).toBeGreaterThanOrEqual(41);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("backfills content_updated_at so a link-only last touch no longer counts as a content change", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializeWorkIntelligenceDatabase(db, ":memory:");
+      undoMigrationsAfter(db, 41);
+      expect(
+        (db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>).map((column) => column.name),
+      ).not.toContain("content_updated_at");
+      db.exec(`INSERT INTO projects (id, name, root_path, status, created_at, updated_at)
+        VALUES ('project-1', 'Orchard', '/fictional/orchard', 'tracked', '2030-01-01T00:00:00.000Z', '2030-01-01T00:00:00.000Z')`);
+      const session = (id: string, createdAt: string, updatedAt: string, completedAt = createdAt) =>
+        db
+          .prepare(
+            `INSERT INTO sessions (id, project_id, idempotency_key, title, summary, status, execution_status, completed_at, created_at, updated_at)
+             VALUES (?, 'project-1', ?, 'Title', 'Summary', 'finalized', 'completed', ?, ?, ?)`,
+          )
+          .run(id, `key-${id}`, completedAt, createdAt, updatedAt);
+      session("linked", "2030-01-01T01:00:00.000Z", "2030-01-01T05:00:00.000Z");
+      session("edited", "2030-01-01T01:00:00.000Z", "2030-01-01T06:00:00.000Z");
+      session("child", "2030-01-01T05:00:00.000Z", "2030-01-01T05:00:00.000Z");
+      session("evidenced", "2030-01-01T01:00:00.000Z", "2030-01-01T07:00:00.000Z");
+      session("rewritten", "2030-01-01T01:00:00.000Z", "2030-01-01T10:00:00.000Z", "2030-01-01T09:00:00.000Z");
+      session("evidence-voided", "2030-01-01T01:00:00.000Z", "2030-01-01T11:00:00.000Z");
+      session("diagram-voided", "2030-01-01T01:00:00.000Z", "2030-01-01T12:00:00.000Z");
+      db.exec(`INSERT INTO session_links (id, session_id, related_session_id, relation, source, created_at)
+        VALUES ('link-2', 'child', 'rewritten', 'related', 'agent', '2030-01-01T10:00:00.000Z')`);
+      db.exec(`INSERT INTO void_audit (id, target_type, target_id, session_id, project_id, action, reason, occurred_at)
+        VALUES ('audit-1', 'evidence', 'evidence-x', 'evidence-voided', 'project-1', 'voided', 'Fixture.', '2030-01-01T11:00:00.000Z')`);
+      db.exec(`INSERT INTO session_diagrams
+        (id, session_id, project_id, idempotency_key, title, kind, source, created_at, voided_at)
+        VALUES ('diagram-1', 'diagram-voided', 'project-1', 'diagram-key', 'Flow', 'architecture', '{}',
+          '2030-01-01T02:00:00.000Z', '2030-01-01T12:00:00.000Z')`);
+      db.exec(`INSERT INTO session_links (id, session_id, related_session_id, relation, source, created_at)
+        VALUES ('link-1', 'child', 'linked', 'continues', 'agent', '2030-01-01T05:00:00.000Z')`);
+      db.exec(`INSERT INTO session_summary_updates
+        (id, session_id, idempotency_key, mode, summary, previous_summary, resulting_summary, created_at)
+        VALUES ('summary-1', 'linked', 'summary-key-1', 'replace', 'After', 'Before', 'After', '2030-01-01T03:00:00.000Z')`);
+      db.exec(`INSERT INTO session_summary_updates
+        (id, session_id, idempotency_key, mode, summary, previous_summary, resulting_summary, created_at)
+        VALUES ('summary-2', 'edited', 'summary-key-2', 'replace', 'After', 'Before', 'After', '2030-01-01T06:00:00.000Z')`);
+      db.exec(`INSERT INTO evidence (id, session_id, project_id, kind, reference, captured_at)
+        VALUES ('evidence-1', 'evidenced', 'project-1', 'test', 'ref', '2030-01-01T07:00:00.000Z')`);
+
+      applyRuntimeMigrations(db);
+
+      const contentTimes = Object.fromEntries(
+        (
+          db.prepare("SELECT id, content_updated_at, updated_at FROM sessions").all() as Array<{
+            id: string;
+            content_updated_at: string;
+          }>
+        ).map((row) => [row.id, row.content_updated_at]),
+      );
+      expect(contentTimes).toEqual({
+        linked: "2030-01-01T03:00:00.000Z",
+        edited: null,
+        child: "2030-01-01T05:00:00.000Z",
+        evidenced: "2030-01-01T01:00:00.000Z",
+        rewritten: "2030-01-01T09:00:00.000Z",
+        "evidence-voided": "2030-01-01T01:00:00.000Z",
+        "diagram-voided": "2030-01-01T01:00:00.000Z",
+      });
+      expect(db.prepare("SELECT updated_at FROM sessions WHERE id = 'linked'").get()).toEqual({
+        updated_at: "2030-01-01T05:00:00.000Z",
+      });
     } finally {
       db.close();
     }

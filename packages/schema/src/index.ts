@@ -2137,7 +2137,13 @@ function omittedColumns(table: (typeof PROJECT_DATA_TABLES)[number]): Record<str
 export const projectDataColumnDefaults: Partial<
   Record<(typeof PROJECT_DATA_TABLES)[number], Readonly<Record<string, string | number | null>>>
 > = {
-  sessions: { changed_files_confirmed: 0, redaction_count: 0, agent_client: null, agent_model: null },
+  sessions: {
+    changed_files_confirmed: 0,
+    redaction_count: 0,
+    agent_client: null,
+    agent_model: null,
+    content_updated_at: null,
+  },
   // Rows reviewed before Agent review existed carry no attribution and read as reviewed by the user.
   session_decisions: { reviewed_by: null, review_reason: null, review_request_id: null },
   projects: { repository_url: null },

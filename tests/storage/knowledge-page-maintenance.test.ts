@@ -62,13 +62,6 @@ function reviewTokenOf(store: WorkIntelligenceStore, projectRoot: string, slug: 
   if (result.outcome !== "knowledge_page_context") throw new Error("Expected a knowledge page context");
   return result.reviewToken;
 }
-const workSummary = (outcome: string) => ({
-  outcomes: [outcome],
-  scope: [],
-  decisions: [],
-  verification: [],
-  nextSteps: [],
-});
 
 describe("Knowledge page maintenance", () => {
   function writtenPage(slug = "pitfalls") {
@@ -126,33 +119,6 @@ describe("Knowledge page maintenance", () => {
 
   describe("K03: a cited Session changed by a path other than a summary edit", () => {
     const changes = {
-      "a later Session continuing it": ({ store, projectRoot, cited, tick }: ReturnType<typeof writtenPage>) => {
-        tick();
-        const result = store.finalizeSession({
-          projectRoot,
-          idempotencyKey: "k03-child",
-          title: "Session k03-child",
-          summary: "A later Session that continues the cited one.",
-          workSummary: workSummary("k03-child outcome"),
-          changedFiles: [],
-          verification: { status: "passed" },
-          parentSessionId: cited,
-        });
-        if (result.outcome !== "finalized") throw new Error("Expected finalize");
-        return result.session.id;
-      },
-      "a new related-Session link": ({ store, finalize, cited, tick }: ReturnType<typeof writtenPage>) => {
-        const other = finalize("k03-other");
-        tick();
-        const linked = store.linkSessions({
-          sessionId: cited,
-          relatedSessionId: other,
-          relation: "related",
-          linked: true,
-        });
-        expect(linked.outcome).toBe("session_link_updated");
-        return other;
-      },
       "a work summary patch": ({ store, finalize, cited, tick }: ReturnType<typeof writtenPage>) => {
         const latest = finalize("k03-latest");
         tick();

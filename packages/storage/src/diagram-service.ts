@@ -19,6 +19,7 @@ import { runImmediateTransaction } from "./sqlite-transaction.js";
 
 export interface DiagramDependencies {
   checkProjectById(projectId: string): PolicyDecision;
+  touchSession(sessionId: string, at: string): void;
 }
 
 interface DiagramRow {
@@ -152,7 +153,7 @@ export class DiagramService {
       this.db
         .prepare("UPDATE session_diagrams SET voided_at = ?, void_reason = ? WHERE id = ?")
         .run(voidedAt, reason, current.id);
-      this.db.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").run(changedAt, current.session_id);
+      this.dependencies.touchSession(current.session_id, changedAt);
       return {
         outcome: "diagram_void_updated",
         duplicate,
