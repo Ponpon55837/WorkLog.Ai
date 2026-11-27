@@ -6,7 +6,7 @@ export default defineConfig({
   resolve: { alias: agentSetupAliases },
   test: {
     setupFiles: [skipFsyncSetup, isolatedEnvironmentSetup],
-    // The CLI regression suites exercise the plan and apply logic end to end; their coverage counts for this package.
+    // The CLI regression suites exercise plan and apply end to end; their coverage counts for this package.
     include: [
       "tests/agent-setup/**/*.test.ts",
       "tests/server/agent-setup.test.ts",

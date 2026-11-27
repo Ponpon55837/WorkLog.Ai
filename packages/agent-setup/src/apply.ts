@@ -1,9 +1,6 @@
 /**
- * Plan, apply, verify, compensate (DT-21). Every item is fingerprint-checked when the plan is made, again right before
- * its turn, and a third time right before the rename (temporary file written, target re-read, rename). The last window
- * is microseconds wide but cannot be closed entirely: neither POSIX nor Windows offers a compare-and-swap rename, so an
- * Agent that rewrites its own config in that instant still wins the race and loses nothing but our write being based
- * on stale bytes. ADR-14: this is not an OS-level transaction and needs host cooperation (a lock) to be one.
+ * Items are fingerprint-checked at plan time, before their turn and right before the rename. That last window cannot
+ * be closed: neither POSIX nor Windows offers a compare-and-swap rename (ADR-14).
  */
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, rmSync, rmdirSync } from "node:fs";
@@ -31,21 +28,13 @@ import { parseManifest } from "./manifest.js";
 import { knownTargetPaths, targetPath, type AgentSetupLocation } from "./paths.js";
 import type { AgentSetupFileMutation, AgentSetupPlan } from "./types.js";
 
-/** What happened to one planned item. `skipped` items were never attempted because an earlier item stopped the apply. */
 export type AgentSetupItemStatus = "written" | "skipped" | "externally-modified" | "failed";
 
-/** The re-read after the apply: does the file hold exactly what this operation wrote. */
 export type AgentSetupVerifyStatus = "verified" | "mismatch" | "unreadable" | "not-run";
 
-/**
- * What compensation did to one item: `restored` the original, `unchanged` (nothing of ours to undo), left it for
- * `manual-repair` because someone else changed it, `not-attempted` because compensation stopped at an earlier external
- * change, or `failed` while restoring. `none` when no compensation ran or the item was never touched.
- */
 export type AgentSetupCompensationStatus =
   "none" | "restored" | "unchanged" | "manual-repair" | "not-attempted" | "failed";
 
-/** Machine-readable reasons; results never carry file contents or raw error text. */
 export type AgentSetupErrorCode =
   | "plan-has-conflicts"
   | "backup-exists"
@@ -69,38 +58,23 @@ export interface AgentSetupItemResult {
   compensation: AgentSetupCompensationStatus;
 }
 
-/**
- * `committed`: everything written and verified. `rolled-back`: the apply stopped and everything this operation had
- * written was undone (possibly nothing). `needs-manual-repair`: compensation had to leave an externally changed item.
- * `refused`: rejected before anything was written.
- */
 export interface AgentSetupTransactionResult {
   operationId: string;
   outcome: "committed" | "rolled-back" | "needs-manual-repair" | "refused";
   code?: AgentSetupErrorCode;
   items: AgentSetupItemResult[];
   journalPath?: string;
-  /** Set when an unreadable journal from an earlier run was moved aside (not deleted) so this apply could proceed. */
   corruptJournalPath?: string;
 }
 
 export interface AgentSetupTransactionOptions {
-  /** Where the operation journal is written before the first write; see {@link agentSetupJournalPath}. */
   journalPath: string;
-  /** Test seam for simulating a filesystem failure, or an external edit, right before an item is written. */
   beforeWrite?: (mutation: AgentSetupFileMutation, index: number) => void;
-  /** Test seam that runs right after an item was written. */
   afterWrite?: (mutation: AgentSetupFileMutation, index: number) => void;
-  /** Test seam for the journal writer; defaults to {@link writeAgentSetupJournal}. */
   writeJournal?: typeof writeAgentSetupJournal;
 }
 
 export interface AgentSetupRecoveryResult {
-  /**
-   * `none`: no journal; `moved-aside`: not a journal of this version, kept as `corruptJournalPath`; `unreadable`: the
-   * same, but it could not be moved; `already-final`: committed or compensated. A pending journal whose paths are not
-   * ours (`journal-paths-invalid`) is marked `needs-manual-repair` and no file is touched.
-   */
   status: "none" | "moved-aside" | "unreadable" | "already-final" | "recovered" | "needs-manual-repair";
   code?: AgentSetupErrorCode;
   operationId?: string;
@@ -108,26 +82,17 @@ export interface AgentSetupRecoveryResult {
   corruptJournalPath?: string;
 }
 
-/** Where recovery expects setup's files to be; the journal is user-writable, so its paths are checked against this. */
 export type AgentSetupRecoveryLocation = AgentSetupLocation;
 
-/**
- * `undone`: every item of the last committed operation is back to what it was before. `needs-manual-repair`: an item no
- * longer holds what the operation wrote, so it (`manualRepairPath`) and the items planned before it were left alone;
- * the items planned after it (undone first) were restored. `nothing-to-undo`: no journal, or the last operation is not committed (already undone,
- * rolled back, or recovered). `refused`: the journal is unfinished, unreadable, or names files setup does not own.
- */
 export interface AgentSetupUndoResult {
   status: "nothing-to-undo" | "undone" | "needs-manual-repair" | "refused";
   code?: AgentSetupErrorCode;
   operationId?: string;
   items: AgentSetupItemResult[];
-  /** The first item (newest first) that was changed after the operation; compensation stopped there. */
   manualRepairPath?: string;
 }
 
 export interface AgentSetupUndoOptions {
-  /** Test seam that runs right after an item was restored; throwing simulates a crash mid-undo. */
   afterRestore?: (item: AgentSetupJournalItem, index: number) => void;
 }
 
@@ -139,20 +104,17 @@ export interface AgentSetupApplyResult {
 }
 
 export interface AgentSetupApplyOptions {
-  /** Test seam for simulating a filesystem failure before a staged write. */
   beforeWrite?: (mutation: AgentSetupFileMutation, index: number) => void;
 }
 
 interface TransactionRunOptions {
   journalPath?: string;
-  /** Re-read every written file after the last item; the CLI path skips it, as it always has. */
   verify: boolean;
   beforeWrite?: AgentSetupApplyOptions["beforeWrite"];
   afterWrite?: AgentSetupTransactionOptions["afterWrite"];
   writeJournal?: AgentSetupTransactionOptions["writeJournal"];
 }
 
-/** A finished run plus the raw messages only the legacy wrapper prints; the public result never carries them. */
 interface TransactionRun {
   result: AgentSetupTransactionResult;
   failure?: string;
@@ -161,7 +123,6 @@ interface TransactionRun {
 
 interface CompensationEntry {
   item: AgentSetupJournalItem;
-  /** The original bytes: from memory while applying, from the backup copy when recovering after a crash. */
   loadBefore: () => Buffer | null;
 }
 
@@ -187,13 +148,7 @@ function loadFromBackup(item: AgentSetupJournalItem): Buffer | null {
   return bytes;
 }
 
-/**
- * Undoes what this operation wrote, newest first. An item is restored only if it is ours (`writing` or `written`) and
- * still holds exactly what we wrote. A file changed since (an Agent rewrote it) first gets the entry-level fallback of
- * {@link undoOwnedEntries}, which removes only our own entries; when that cannot be done safely it is left alone and
- * compensation stops there:
- * restoring older items around someone else's edit could leave the configs inconsistent.
- */
+// Stops at the first item someone else changed: restoring older items around their edit could leave the configs inconsistent.
 function compensate(
   entries: CompensationEntry[],
   afterRestore?: AgentSetupUndoOptions["afterRestore"],
@@ -236,7 +191,6 @@ function compensate(
       if (current === item.beforeFingerprint) {
         statuses[index] = "unchanged";
       } else if (current !== item.afterFingerprint) {
-        // The Agent rewrote the file after us (M-12): take out only our own entries, or leave it for manual repair.
         const manifestEntry = entries.find((other) => isManifest(other));
         const outcome = undoOwnedEntries(
           item,
@@ -259,7 +213,7 @@ function compensate(
       }
     } catch (error) {
       if (error instanceof FingerprintMismatchError) {
-        // Changed between the check above and the restore: not ours any more, same as an earlier external change.
+        // Changed between the check above and the restore: not ours any more.
         statuses[index] = "manual-repair";
         stopped = true;
       } else {
@@ -278,12 +232,6 @@ function compensate(
   };
 }
 
-/**
- * Restores the setup manifest after the configs. With every config back, the manifest returns to what it was (it may
- * be a partial rewrite of an earlier attempt, so any readable manifest counts as ours). Otherwise it is rewritten to
- * match the disk: entries of configs already restored go back to their earlier state, the rest keep the new one, and
- * the item stays `not-attempted` so a retry finishes the job.
- */
 function restoreManifest(
   entry: CompensationEntry,
   entries: readonly CompensationEntry[],
@@ -336,10 +284,6 @@ function restoreManifest(
   return "not-attempted";
 }
 
-/**
- * After a complete compensation the backups this operation created and the directories it created have no purpose
- * left. A backup that was already there when ours failed to be created belongs to someone else and stays.
- */
 function cleanUp(
   items: readonly AgentSetupJournalItem[],
   createdDirectories: Iterable<string>,
@@ -363,9 +307,8 @@ function cleanUp(
 }
 
 /**
- * Deletes the backups a committed operation created once a later operation takes over the journal. A backup that was
- * already there before that operation (`backupCreated` unset) is not ours, and a path that is not a setup backup name
- * for its item is never followed, since the journal is user-writable.
+ * A backup that existed before the operation is not ours, and a path that is not a setup backup name is never
+ * followed: the journal is user-writable.
  */
 function discardCommittedBackups(journal: AgentSetupJournal): void {
   for (const item of journal.items) {
@@ -490,7 +433,6 @@ function runTransaction(plan: AgentSetupPlan, options: TransactionRunOptions): T
       entry.state = "writing";
       persist();
       code = "read-failed";
-      // R16: the fingerprint is checked right before this item's write, not only when the plan was made.
       if (fingerprintAt(mutation.path) !== mutation.beforeFingerprint) {
         entry.state = "planned";
         result.status = "externally-modified";
@@ -500,7 +442,6 @@ function runTransaction(plan: AgentSetupPlan, options: TransactionRunOptions): T
       }
       code = "write-failed";
       ensureDirectory(dirname(mutation.path), createdDirectories);
-      // The fingerprint is checked once more after the temporary file is ready, right before the rename.
       if (mutation.after === null) {
         removeAtomically(mutation.path, mutation.beforeFingerprint);
       } else {
@@ -542,14 +483,14 @@ function runTransaction(plan: AgentSetupPlan, options: TransactionRunOptions): T
     for (const entry of journal.items) entry.state = "written";
     try {
       persist();
-      // The committed operation replaced the journal, so the previous one can no longer be undone; its backups are spent.
+      // The committed operation replaced the journal, so the previous one can no longer be undone.
       if (previousCommitted) discardCommittedBackups(previousCommitted);
       return {
         result: finish({ operationId, outcome: "committed", items, journalPath: options.journalPath }),
         rollbackErrors: [],
       };
     } catch (error) {
-      // Without the commit mark a later recovery would undo a finished operation, so undo it now instead.
+      // Without the commit mark a later recovery would undo a finished operation, so undo it now.
       stopCode = "journal-write-failed";
       failure = messageOf(error);
       journal.state = "pending";
@@ -584,13 +525,6 @@ function runTransaction(plan: AgentSetupPlan, options: TransactionRunOptions): T
   };
 }
 
-/**
- * Applies a plan as one recoverable transaction for the desktop App. Before each item is written its file is
- * re-fingerprinted against the plan (R16); a changed file is never overwritten, the apply stops, and what this
- * operation already wrote is compensated. A journal (R17) is written before the first write, so
- * {@link recoverAgentSetupJournal} can finish the compensation after a crash. After the last item every file is
- * re-read and checked against what was written.
- */
 export function applyAgentSetupTransaction(
   plan: AgentSetupPlan,
   options: AgentSetupTransactionOptions,
@@ -608,7 +542,6 @@ function isInside(path: string, root: string, inclusive: boolean): boolean {
   return (inclusive && path === root) || path.startsWith(root.endsWith(sep) ? root : root + sep);
 }
 
-/** `<path>.work-intelligence.backup-<yyyymmddThhmmssmmmZ>-<8 hex>[-<n>]`, as {@link backupPathFor} names them. */
 function isBackupSibling(backupPath: string, path: string): boolean {
   const prefix = `${basename(path)}.work-intelligence.backup-`;
   const name = basename(backupPath);
@@ -619,11 +552,7 @@ function isBackupSibling(backupPath: string, path: string): boolean {
   );
 }
 
-/**
- * The journal is a user-writable file, and recovery rewrites and deletes whatever it names. It is only followed when
- * every item is one of setup's own target files, every backup is a sibling named the way setup names backups, and every
- * created directory is a parent of a target below the home or an Agent config directory.
- */
+// The journal is user-writable and recovery rewrites and deletes what it names, so only setup's own paths are followed.
 function journalPathsAreOurs(journal: AgentSetupJournal, location: AgentSetupRecoveryLocation): boolean {
   const homeDirectory = resolve(location.homeDirectory);
   const home = comparablePath(homeDirectory);
@@ -651,12 +580,6 @@ function journalPathsAreOurs(journal: AgentSetupJournal, location: AgentSetupRec
   );
 }
 
-/**
- * Compensates an operation whose journal was left `pending` (the process died mid-apply). Only items this operation
- * wrote and that still hold exactly what it wrote are restored, from their backup copies; everything else is reported.
- * A journal that cannot be read is moved aside; one that names files setup does not own is marked for manual repair
- * without touching any of them.
- */
 export function recoverAgentSetupJournal(
   journalPath: string,
   location: AgentSetupRecoveryLocation,
@@ -702,15 +625,7 @@ export function recoverAgentSetupJournal(
   };
 }
 
-/**
- * Undoes the last committed operation: every item is restored from its backup copy, newest first, but only while it
- * still holds exactly what that operation wrote. The first item someone changed since stops the undo (reported as
- * `needs-manual-repair` with its path) and is left alone together with the items before it. The journal goes back to
- * `pending` before anything is touched and is finalised afterwards, so a crash mid-undo is finished by
- * {@link recoverAgentSetupJournal}; once it is `compensated`, a second undo has nothing to undo. The setup manifest is
- * one of the items, so ownership returns to what it was. Retrying after a `needs-manual-repair` repeats the same
- * guarded compensation.
- */
+// The journal goes back to `pending` before anything is touched, so a crash mid-undo is finished by recovery.
 export function undoAgentSetupOperation(
   journalPath: string,
   location: AgentSetupRecoveryLocation,
@@ -759,10 +674,6 @@ export function undoAgentSetupOperation(
   };
 }
 
-/**
- * The `pnpm setup:agents` apply: refuses before writing anything if a target changed since the preview or a backup
- * name is taken, then runs the same engine without a journal. Messages are the CLI's long-standing wording.
- */
 export function applyAgentSetupPlan(plan: AgentSetupPlan, options: AgentSetupApplyOptions = {}): AgentSetupApplyResult {
   if (plan.conflicts.length) return { applied: false, actions: [], conflicts: plan.conflicts };
   try {

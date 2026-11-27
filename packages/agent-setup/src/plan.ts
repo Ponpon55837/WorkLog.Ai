@@ -48,9 +48,8 @@ import type {
 } from "./types.js";
 
 /**
- * Hashes of every committed version of the canonical skill. A user-scope copy byte-identical to one of them was
- * copied from this repository and never customised, so setup may upgrade it even without an ownership record.
- * Returns an empty set when Git or the history is unavailable, which keeps the conservative refuse-to-overwrite path.
+ * A copy byte-identical to a committed version was never customised, so setup may upgrade it without an ownership
+ * record. Empty when Git or the history is unavailable, which keeps the conservative refuse-to-overwrite path.
  */
 export function publishedSkillHashes(repositoryRoot: string): Set<string> {
   const hashes = new Set<string>();
@@ -124,10 +123,8 @@ export function stageMutation(
 }
 
 /**
- * Why a launcher shim path cannot be written into hook command lines, or `undefined` when it can. The path is quoted
- * for the platform's shell, but these characters still break or inject under cmd.exe (`%`, `^`, `&`, `!`, `"`) and
- * under Git Bash or sh (`$`, a backtick), and a newline or control character ends the command line. The file name must
- * be the fixed shim name for the platform, and on Windows only `X:\` drive paths are accepted (no UNC or device paths).
+ * These characters still break or inject under cmd.exe (`%`, `^`, `&`, `!`, `"`) and Git Bash or sh (`$`, a backtick);
+ * a newline ends the command line.
  */
 function launcherShimConflict(shimPath: string, platform: NodeJS.Platform): string | undefined {
   const windows = platform === "win32";
@@ -154,7 +151,6 @@ export function addConflict(plan: AgentSetupPlan, message: string): void {
 
 const ADOPT_REQUIRES_LAUNCHER = "adopt-requires-launcher：改由桌面 App 管理只能搭配 launcher 目標；保留且拒絕修改。";
 
-/** How an MCP server entry relates to the planned target; "launcher" means it already points at the target. */
 function registrationKind(value: unknown, options: AgentSetupPlanOptions): "launcher" | "direct" | "other" {
   if (options.target?.kind === "launcher") {
     return isLauncherMcpRegistration(value, options.target.shimPath) ? "launcher" : "other";
@@ -228,8 +224,7 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
   // An enabled plugin already provides MCP, skill and hooks for that Agent; registering them again would duplicate them.
   const claudePlugin = readClaudePluginEnabled(options.claudeConfigDirectory!);
   const codexPlugin = readCodexPluginEnabled(options.codexHomeDirectory!);
-  // An Agent the caller did not select is left alone like one a plugin serves: its files are not even read, so a conflict
-  // there never blocks the other Agent (M-17).
+  // An unselected Agent's files are not even read, so a conflict there never blocks the other Agent.
   const selected = new Set(options.agents ?? ["codex", "claude-code"]);
   const skipClaude = claudePlugin || !selected.has("claude-code");
   const skipCodex = codexPlugin || !selected.has("codex");
@@ -249,7 +244,7 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
   const skillBytes = sourceFile.bytes ?? Buffer.alloc(0);
   const skillHash = sha256(skillBytes);
   let publishedHashes: Set<string> | undefined;
-  // Git history only knows the checkout's skill; an App-shipped copy has no published predecessors to recognise.
+  // Git history only knows the checkout's skill; an App-shipped copy has no published predecessors.
   const isPublishedSkillCopy = (bytes: Buffer): boolean =>
     !launcherTarget && (publishedHashes ??= publishedSkillHashes(repositoryRoot)).has(lineEndingNeutralSha256(bytes));
 
@@ -284,7 +279,6 @@ export function installPlan(options: AgentSetupPlanOptions): AgentSetupPlan {
   const tomlOwned = tomlEntryIndex >= 0 ? components[tomlEntryIndex] : undefined;
   const tomlOwnedExpected = tomlOwned?.kind === "toml-block" ? tomlOwned.expected : undefined;
   const codexRegistration = registrationKind(codexWorkIntelligenceServer(tomlText), options);
-  /** A removal used to leave Codex's tool approvals alone in the file: the block goes in front of them and they stay. */
   const stageToolApprovalBlock = (): void => {
     const next = insertCodexBlockBeforeToolApprovals(tomlText, desiredBlock) ?? tomlText;
     stageMutation(plan, options, tomlPath, "Codex MCP 註冊", tomlFile.bytes, Buffer.from(next, "utf8"), tomlFile.mode);

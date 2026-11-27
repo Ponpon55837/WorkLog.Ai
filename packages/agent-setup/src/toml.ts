@@ -11,10 +11,6 @@ import {
 } from "./constants.js";
 import type { AgentSetupPlanOptions, CodexHooksFeature } from "./types.js";
 
-/**
- * Reads `[mcp_servers.work-intelligence]` from config.toml when it parses; undefined otherwise. What Codex's own tool
- * approvals leave behind after a removal (see {@link codexToolApprovalLeftover}) is not a registration.
- */
 export function codexWorkIntelligenceServer(tomlText: string): unknown {
   try {
     const config = parseToml(tomlText, { maxDepth: 128, unsafeKeyBehaviour: "throw" }) as Record<string, unknown>;
@@ -26,7 +22,7 @@ export function codexWorkIntelligenceServer(tomlText: string): unknown {
   }
 }
 
-/** A real TOML parse; Codex writes array tables and quoted headers (`hooks[0]`) a line scanner misreads. */
+// A real TOML parse: Codex writes array tables and quoted headers (`hooks[0]`) a line scanner misreads.
 export function codexHooksFeatureFromToml(text: string | undefined): CodexHooksFeature {
   if (text === undefined) return "enabled";
   let config: Record<string, unknown>;
@@ -58,10 +54,6 @@ export function codexTomlBlock(options: AgentSetupPlanOptions, newline: string):
   ].join(newline);
 }
 
-/**
- * Rewrites the one quoted server path in a hand-written `node <repo>/apps/mcp/dist/index.js` Codex registration to the
- * launcher, in the same TOML string style. Undefined when the path is not found exactly once.
- */
 export function upgradeDirectCodexRegistration(text: string, repositoryRoot: string): string | undefined {
   const serverPath = resolve(repositoryRoot, MCP_SERVER_RELATIVE_PATH);
   const launcherPath = resolve(repositoryRoot, MCP_LAUNCHER_RELATIVE_PATH);
@@ -78,11 +70,7 @@ export function upgradeDirectCodexRegistration(text: string, repositoryRoot: str
     : undefined;
 }
 
-/**
- * Codex appends per-tool approvals (`[mcp_servers.work-intelligence.tools.<tool>]`) after the last table,
- * which lands inside our block when it ends the file. Returns the text with the block rewritten to
- * `desiredBlock` and those tables moved after it, or undefined when anything else differs from `ownedBlock`.
- */
+/** Codex appends per-tool approvals after the last table, which lands inside our block when it ends the file. */
 export function moveCodexToolTablesOutOfBlock(
   text: string,
   ownedBlock: string,
@@ -118,7 +106,6 @@ interface TomlSection {
   readonly path: string[] | undefined;
 }
 
-/** Every `[table]` and `[[array table]]` of the text, each running from its header line to the next header line. */
 function tomlSections(text: string): TomlSection[] {
   const headers: Array<{ start: number; path: string[] | undefined }> = [];
   let offset = 0;
@@ -130,18 +117,13 @@ function tomlSections(text: string): TomlSection[] {
   return headers.map((header, index) => ({ ...header, end: headers[index + 1]?.start ?? text.length }));
 }
 
-/** The tables Codex appends to approve each tool of the server: `[mcp_servers.work-intelligence.tools.<tool>]`. */
 function codexToolApprovalSections(text: string): TomlSection[] {
   return tomlSections(text).filter(
     ({ path }) => path?.[0] === "mcp_servers" && path[1] === "work-intelligence" && path[2] === "tools",
   );
 }
 
-/**
- * What a removal of the Codex registration used to leave behind: Codex's own tool-approval tables and nothing else of
- * the server (no command, args, url or any other key). Returns where the first of them starts, or undefined when the
- * server has anything else, so a registration of another shape is never taken for leftovers.
- */
+// Undefined when the server has any other key, so a registration of another shape is never taken for leftovers.
 export function codexToolApprovalLeftover(text: string): { readonly start: number } | undefined {
   const sections = codexToolApprovalSections(text);
   const first = sections[0];
@@ -166,17 +148,11 @@ export function codexToolApprovalLeftover(text: string): { readonly start: numbe
   }
 }
 
-/** `text` with `block` written in front of the approval tables a removal left, which keeps every approval. */
 export function insertCodexBlockBeforeToolApprovals(text: string, block: string): string | undefined {
   const leftover = codexToolApprovalLeftover(text);
   return leftover ? text.slice(0, leftover.start) + block + text.slice(leftover.start) : undefined;
 }
 
-/**
- * `text` without our block and without the tool-approval tables that follow it (Codex approves each tool in a table of
- * its own after the block, and they only make sense next to the registration they approve). Undefined when the block
- * is not there exactly as `ownedBlock`, even after moving approvals out of it.
- */
 export function removeCodexBlockWithToolApprovals(
   text: string,
   ownedBlock: string,

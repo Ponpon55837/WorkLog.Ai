@@ -23,12 +23,9 @@ import {
 } from "./constants.js";
 import type { AgentSetupPlanOptions, JsonMutationSpec } from "./types.js";
 
-/** How one Agent's hook entries invoke Work Intelligence: the command to write and how to recognise existing ones. */
 interface HookInvocation {
   command: string;
-  /** Any mention of the target; a custom entry that mentions it must not get a duplicate beside it. */
   references: (value: unknown) => boolean;
-  /** An entry that really runs the target, so it is kept as is. */
   invokes: (value: unknown) => boolean;
 }
 
@@ -42,7 +39,7 @@ function hookInvocation(
   if (options.target?.kind !== "launcher") {
     return {
       command: commandForAgentHook(scriptPath, platform),
-      // A desktop-managed shim hook is the same job under another name; a second hook beside it would run twice.
+      // A desktop-managed shim hook is the same job: a second hook beside it would run twice.
       references: (value) => referencesScriptPath(value, scriptPath) || invokesLauncherAction(value, launcherAction),
       invokes: (value) => invokesNodeScript(value, scriptPath),
     };
@@ -50,7 +47,7 @@ function hookInvocation(
   const shimPath = options.target.shimPath;
   return {
     command: commandForLauncherHook(shimPath, launcherAction, platform),
-    // A hand-written checkout hook counts as a reference too: adding the shim beside it would run the hook twice.
+    // A hand-written checkout hook counts too: adding the shim beside it would run the hook twice.
     references: (value) => referencesScriptPath(value, shimPath) || referencesScriptPath(value, scriptPath),
     invokes: (value) => invokesLauncherAction(value, launcherAction, shimPath),
   };
@@ -81,7 +78,6 @@ export function getClaudeMcpSpec(options: AgentSetupPlanOptions): JsonMutationSp
   };
 }
 
-/** A SessionStart hook that runs only after a compaction (`source: "compact"`). */
 export function compactSessionStartSpec(
   id: "claudeSessionStartHook" | "codexSessionStartHook",
   label: string,
@@ -99,7 +95,6 @@ export function compactSessionStartSpec(
   };
 }
 
-/** A PreToolUse hook that pauses a finalize call without startedAt once. */
 export function preToolUseSpec(
   id: "claudePreToolUseHook" | "codexPreToolUseHook",
   label: string,

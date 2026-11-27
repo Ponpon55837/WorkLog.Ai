@@ -1,9 +1,3 @@
-/**
- * Adoption of hand-written checkout registrations ("改由桌面 App 管理"). The desktop App has no checkout, so a person
- * who registered `node <repo>/apps/mcp/dist/launcher.js` (or the finalize hooks) by hand can opt in to have those
- * entries rewritten in place to the launcher shim. Only forms setup itself writes are recognised; everything else is
- * reported and never touched. {@link findCheckoutRegistrations} is the read-only half and needs no checkout.
- */
 import { existsSync } from "node:fs";
 import { posix, win32 } from "node:path";
 import { pathsReferToSameFile } from "@work-intelligence/shared/file-identity";
@@ -43,43 +37,23 @@ import type {
 
 type CheckoutAgent = "codex" | "claude-code";
 
-/** One registration that points at a checkout (or at least is not the launcher shim), found without any checkout. */
 export interface CheckoutRegistration {
   agent: CheckoutAgent;
   kind: RegistrationKind;
-  /** Which setup component the entry corresponds to; absent for a hook under an event setup does not manage. */
   componentId?: AgentSetupComponentId;
-  /** The Agent config file the registration lives in. */
   location: string;
-  /** The checkout root inferred from the script path, with the separators the entry uses. */
   repositoryRoot?: string;
-  /** Whether {@link repositoryRoot} is still a directory on disk. */
   rootExists: boolean;
-  /** Recorded in the setup manifest and still as setup wrote it; otherwise hand-written. */
   owned: boolean;
-  /** A form setup can safely rewrite in place. */
   recognised: boolean;
-  /** Why the entry is not recognised (zh-TW). */
   reason?: string;
-  /**
-   * The database the entry uses. MCP: `env.WORK_INTELLIGENCE_DB` (relative to the root), else
-   * `<root>/data/work-intelligence.sqlite`. Hooks never get the MCP entry's env, so a checkout hook uses
-   * `<root>/data/work-intelligence.sqlite` unless the Agent's own environment sets `WORK_INTELLIGENCE_DB`, which the App
-   * cannot see ({@link databaseFromCheckoutDefault}).
-   */
+  /** Hooks never get the MCP entry's env, so a checkout hook uses the checkout default unless the Agent's own environment overrides it. */
   effectiveDatabase?: string;
-  /** Hooks: {@link effectiveDatabase} is the checkout default, true only if the Agent's environment does not override it. */
   databaseFromCheckoutDefault?: true;
-  /**
-   * Hooks: the same event already has the App's launcher hook, so this checkout hook only makes the reminder fire
-   * twice. Adoption removes it (it is not rewritten), and it has no database of its own to compare.
-   */
   duplicateOfLauncher?: true;
-  /** With `adopt.databasePath` set: whether {@link effectiveDatabase} is the App's database (the same file). */
   sameAsAppDatabase?: boolean;
 }
 
-/** What planning needs to adopt entries; built by {@link createAdoptContext}. */
 export interface AdoptContext {
   plan: AgentSetupPlan;
   components: ManagedEntry[];
@@ -88,11 +62,10 @@ export interface AdoptContext {
   platform: NodeJS.Platform;
   roots: ReadonlySet<string>;
   labelOf: (id: AgentSetupComponentId) => string;
-  /** The App's database; when set, only entries on this same file are adopted. */
   appDatabase?: string;
   /**
-   * With `appDatabase`: Agents with an entry (to adopt) on another database. None of their entries is adopted, so one
-   * Agent never ends up with its MCP server on the App's database and its hook on another, or the other way round.
+   * None of their entries is adopted, so one Agent never ends with its MCP server on the App's database and its hook
+   * on another.
    */
   refusedAgents?: ReadonlySet<CheckoutAgent>;
 }
@@ -102,12 +75,11 @@ interface ScanContext {
   platform: NodeJS.Platform;
 }
 
-/** The database a checkout hook uses when the Agent's environment does not set `WORK_INTELLIGENCE_DB`. */
 function checkoutDefaultDatabase(root: string, platform: NodeJS.Platform): string {
   return flavorOf(platform).join(root, "data", "work-intelligence.sqlite");
 }
 
-/** Fills {@link CheckoutRegistration.sameAsAppDatabase}: exact file identity, never a string compare. */
+// Exact file identity, never a string compare.
 function compareWithApp(info: CheckoutRegistration, appDatabase: string | undefined): CheckoutRegistration {
   if (appDatabase === undefined) return info;
   info.sameAsAppDatabase =
@@ -120,13 +92,9 @@ interface McpAnalysis {
   reason?: string;
   root?: string;
   effectiveDatabase?: string;
-  /** The relative `WORK_INTELLIGENCE_DB` as written, when it is relative. */
   relativeDatabase?: string;
-  /** Set when the entry has no `WORK_INTELLIGENCE_DB`, so it used `<root>/data/work-intelligence.sqlite`. */
   missingDatabase?: true;
-  /** The entry starts the checkout with `pnpm start:mcp`; adoption then also drops a `cwd` that only named the checkout. */
   pnpm?: true;
-  /** pnpm form: the `cwd` resolves to the checkout root itself, so it means nothing once the launcher shim runs. */
   cwdIsRoot?: true;
 }
 
@@ -145,9 +113,7 @@ interface HookHit {
 
 interface TomlStatement {
   kind: "header" | "pair";
-  /** Offset of the first character of the statement's line. */
   start: number;
-  /** Offset just after the statement's line terminator (or the end of the text). */
   eolEnd: number;
   path?: string[];
   array?: boolean;
@@ -167,11 +133,8 @@ interface TomlServerLayout {
   body: TomlStatement[];
   envPairs: TomlStatement[];
   envHeader?: TomlStatement;
-  /** Headers of tables that are neither the server's main table nor one of its sub-tables, as offsets. */
   otherHeaderStarts: number[];
-  /** Headers of the server's sub-tables (`.env` included), as offsets. */
   subHeaderStarts: number[];
-  /** End of the main table and of the sub-tables that directly follow it: where the managed block ends. */
   blockEnd: number;
 }
 
@@ -225,7 +188,6 @@ function comparableRoot(root: string, platform: NodeJS.Platform): string {
   return platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 
-/** The checkout root of a script path that ends with one of `relativePaths`, or why it cannot be told. */
 function rootOfScript(
   scriptPath: string,
   relativePaths: readonly string[],
@@ -245,11 +207,7 @@ function rootOfScript(
   return { reason: `script 路徑不是 ${relativePaths.map((path) => `<checkout>/${path}`).join(" 或 ")}` };
 }
 
-/**
- * The checkout root of `pnpm [--dir <dir>|-C <dir>|--dir=<dir>] [run] start:mcp` (a relative directory is taken from
- * `cwd`; without a directory `cwd` is the checkout), or why it cannot be told. Any other argument is refused: a flag
- * such as `--filter` changes what runs, so the entry is not the form the checkout documents.
- */
+// Any argument beyond the documented form is refused: a flag such as `--filter` changes what runs.
 function rootOfPnpm(
   args: readonly unknown[],
   cwd: unknown,
@@ -371,16 +329,11 @@ function analyseMcpServer(server: unknown, platform: NodeJS.Platform): McpAnalys
       };
 }
 
-/** Flags of `node` that take no separate value; a flag that loads or evals code could change what runs. */
+// Only flags that take no separate value; one that loads or evals code could change what runs.
 function isPlainNodeFlag(word: string): boolean {
   return /^--?[A-Za-z][\w-]*(=\S*)?$/.test(word) && !/^--?(?:r|require|import|loader|eval|e|p|print)(?:=|$)/.test(word);
 }
 
-/**
- * How a hook command starts its script: `node [flags] <script>` (node by name or by absolute path, any quoting) or
- * `pnpm [--dir <dir>|-C <dir>] [exec] node [flags] <script>`. The script is the last word; a relative one is taken
- * from the pnpm directory.
- */
 function hookRunner(words: readonly string[], platform: NodeJS.Platform): { script: string } | { reason: string } {
   const flavor = flavorOf(platform);
   let rest = [...words];
@@ -507,14 +460,13 @@ function scanHooks(
       }
     }
   }
-  // The App's hook is already there for this event: a checkout hook beside it is a duplicate to remove, not to rewrite.
   for (const { info, event } of hits) {
     if (!launcherEvents.has(event) || !info.recognised || !info.componentId) continue;
     info.duplicateOfLauncher = true;
     delete info.effectiveDatabase;
     delete info.databaseFromCheckoutDefault;
   }
-  // Two hooks for one component: rewriting either would leave the other, so none is safe to pick.
+  // Two hooks for one component: rewriting either would leave the other, so neither is safe to pick.
   const counts = new Map<string, number>();
   for (const { info } of hits)
     if (info.componentId && !info.duplicateOfLauncher) {
@@ -540,7 +492,6 @@ function afterLine(text: string, position: number): number {
   return newline < 0 ? text.length : newline + 1;
 }
 
-/** The end offset of the TOML value that starts at `start`, or -1 when it is malformed. */
 function scanTomlValue(text: string, start: number): number {
   const first = text[start];
   if (first === '"' || first === "'") {
@@ -614,7 +565,6 @@ function findHeaderClose(text: string, open: number, array: boolean): number {
   return -1;
 }
 
-/** Splits a config.toml into table headers and key/value statements with exact offsets; undefined when malformed. */
 function scanTomlStatements(text: string): TomlStatement[] | undefined {
   const statements: TomlStatement[] = [];
   let position = 0;
@@ -673,7 +623,6 @@ function samePath(path: readonly string[], other: readonly string[]): boolean {
   return path.length === other.length && startsWithPath(path, other);
 }
 
-/** Where the `[mcp_servers.work-intelligence]` table and its `env` live; undefined for any other TOML shape. */
 function layoutTomlServer(statements: readonly TomlStatement[]): TomlServerLayout | undefined {
   let header: TomlStatement | undefined;
   let envHeader: TomlStatement | undefined;
@@ -729,7 +678,6 @@ function findBodyPair(layout: TomlServerLayout, key: string): TomlStatement | un
   return matches.length === 1 ? matches[0] : undefined;
 }
 
-/** The string literal of `WORK_INTELLIGENCE_DB` wherever the table keeps it (own table, dotted key, inline env). */
 function findDatabaseToken(text: string, layout: TomlServerLayout): { start: number; end: number } | undefined {
   const quoted = (statement: TomlStatement) =>
     statement.valueStart !== undefined &&
@@ -754,10 +702,6 @@ function findDatabaseToken(text: string, layout: TomlServerLayout): { start: num
   return { start, end: start + match[1].length };
 }
 
-/**
- * The edit that removes `WORK_INTELLIGENCE_DB` wherever the table keeps it. The key's own line goes; when it was the
- * only entry of the `env` table (or of a dotted / inline `env`), the `env` goes with it. Undefined for any other shape.
- */
 function databaseRemoval(text: string, layout: TomlServerLayout): TomlEdit | undefined {
   const own = layout.envPairs.find((statement) => samePath(statement.keyPath ?? [], [DATABASE_ENV]));
   if (own) {
@@ -784,12 +728,10 @@ function databaseRemoval(text: string, layout: TomlServerLayout): TomlEdit | und
   return { start, end: start + match[0].length, text: "" };
 }
 
-/** Where the end marker goes: after the main table and the sub-tables that directly follow it. */
 function sectionEnd(layout: TomlServerLayout): number {
   return layout.blockEnd;
 }
 
-/** Where and what to insert so a table without `WORK_INTELLIGENCE_DB` gets one; undefined for a shape not handled. */
 function databaseInsertion(text: string, layout: TomlServerLayout, database: string): TomlEdit | undefined {
   const newline = text.includes("\r\n") ? "\r\n" : "\n";
   const line = (key: string) => `${key} = ${JSON.stringify(database)}`;
@@ -890,7 +832,6 @@ function ownedTomlBlock(components: readonly ManagedEntry[]): string | undefined
   return entry?.kind === "toml-block" ? entry.expected : undefined;
 }
 
-/** The setup block markers: their offsets, `undefined` when absent, `"invalid"` when not exactly one pair. */
 function markerRange(text: string): { start: number; end: number } | undefined | "invalid" {
   const starts = text.split(TOML_BLOCK_START).length - 1;
   const ends = text.split(TOML_BLOCK_END).length - 1;
@@ -923,7 +864,6 @@ function conflictOnce(plan: AgentSetupPlan, message: string): void {
   if (!plan.conflicts.includes(message)) plan.conflicts.push(message);
 }
 
-/** Whether this entry is to be rewritten; reports why not (as a conflict) for unrecognised or unlisted entries. */
 function shouldAdopt(info: CheckoutRegistration, context: AdoptContext): boolean {
   // Setup's own checkout entries are migrated by the ordinary launcher plan.
   if (info.owned) return false;
@@ -942,7 +882,6 @@ function shouldAdopt(info: CheckoutRegistration, context: AdoptContext): boolean
     );
     return false;
   }
-  // A duplicate is removed, not kept: it moves no data and leaves the App's own hook in place.
   if (info.duplicateOfLauncher) return true;
   if (context.appDatabase !== undefined && !compareWithApp(info, context.appDatabase).sameAsAppDatabase) {
     // MCP keeps its own database after adoption while hooks follow the App's: one Agent would write to two databases.
@@ -974,7 +913,6 @@ function recordAdoption(context: AdoptContext, info: CheckoutRegistration, root:
   };
   (context.plan.adopted ??= []).push(adopted);
   const database = info.effectiveDatabase ? displayPath(info.effectiveDatabase, context.homeDirectory) : undefined;
-  // With the App's database known, the entry is the same file as the App's and follows it afterwards (see followsApp).
   const databaseNote =
     database === undefined
       ? ""
@@ -989,11 +927,8 @@ function recordAdoption(context: AdoptContext, info: CheckoutRegistration, root:
   );
 }
 
-/**
- * An adopted entry follows the App's database: it is only adopted when its database is the App's file, so the
- * `WORK_INTELLIGENCE_DB` it carries is dropped (an explicit one would win over the App's and split MCP from the hooks
- * once the App changes its database). Without an App database to compare with, the variable stays (written absolute).
- */
+// An adopted entry drops its WORK_INTELLIGENCE_DB: an explicit one would win over the App's and split MCP from the hooks
+// once the App changes its database. Without an App database to compare with, the variable stays.
 function followsApp(context: AdoptContext): boolean {
   return context.appDatabase !== undefined;
 }
@@ -1051,7 +986,6 @@ export function createAdoptContext(input: {
   };
 }
 
-/** The Agents with an entry that would be adopted (hand-written, recognised, in the list) but is on another database. */
 function refusedAgentsOf(
   registrations: readonly CheckoutRegistration[],
   roots: ReadonlySet<string>,
@@ -1072,13 +1006,6 @@ function refusedAgentsOf(
   );
 }
 
-/**
- * Read-only and checkout-free: every registration of the Work Intelligence MCP server or finalize hook that is not
- * the launcher shim, per Agent config, with the checkout root it points at, whether that root still exists, whether
- * setup owns it, whether it is a form setup can rewrite safely (and why not), and the database the entry uses. With
- * `compare.appDatabase`, each entry also says whether that database is the App's (the same file).
- * Claude Desktop is out of scope; a plugin-enabled Agent is listed like any other.
- */
 export function findCheckoutRegistrations(
   options: AgentInspectOptions,
   compare: { appDatabase?: string } = {},
@@ -1111,17 +1038,15 @@ export function findCheckoutRegistrations(
   return found.map((info) => compareWithApp(info, compare.appDatabase));
 }
 
-/** Rewrites a recognised hand-written Claude `mcpServers.work-intelligence` entry in place; true when changed. */
 export function adoptClaudeMcp(root: Record<string, unknown>, context: AdoptContext, location: string): boolean {
   const hit = scanClaudeMcp(root, context, location);
   if (!hit || !shouldAdopt(hit.info, context)) return false;
   const { entry, analysis, info } = hit;
   entry.command = context.shimPath;
   entry.args = [LAUNCHER_MCP_ARGUMENT];
-  // A `cwd` that only named the checkout would make the launcher fail to start once that folder is gone.
+  // A `cwd` that only named the checkout would make the launcher fail once that folder is gone.
   if (analysis.cwdIsRoot) delete entry.cwd;
   if (followsApp(context)) {
-    // The launcher gives an entry without this variable the App's database; an explicit one always wins.
     if (JSON_OBJECT(entry.env)) {
       delete entry.env[DATABASE_ENV];
       if (Object.keys(entry.env).length === 0) delete entry.env;
@@ -1142,7 +1067,6 @@ export function adoptClaudeMcp(root: Record<string, unknown>, context: AdoptCont
   return true;
 }
 
-/** Removes one hook; its group goes too when it was the group's only hook, and a sibling hook always stays. */
 function removeHook(
   root: Record<string, unknown>,
   event: string,
@@ -1159,7 +1083,6 @@ function removeHook(
   items.splice(items.indexOf(item), 1);
 }
 
-/** Rewrites the recognised hand-written finalize hooks of one Agent in place; true when anything changed. */
 export function adoptHooks(
   root: Record<string, unknown>,
   agent: CheckoutAgent,
@@ -1194,12 +1117,7 @@ export function adoptHooks(
   return changed;
 }
 
-/**
- * Rewrites a recognised hand-written `[mcp_servers.work-intelligence]` table in place: only the `command` and `args`
- * values (and a relative `WORK_INTELLIGENCE_DB`) change; every other byte stays, line endings included. A table
- * without the setup block markers gets them around it so uninstall can find what setup owns. The result is parsed
- * again and compared with the expectation; anything that does not match is left alone and reported.
- */
+// Only `command`, `args` and a relative WORK_INTELLIGENCE_DB change; every other byte stays, line endings included.
 export function adoptCodexToml(text: string, context: AdoptContext, location: string): string | undefined {
   const hit = scanCodexToml(text, context, location);
   if (!hit || !shouldAdopt(hit.info, context) || !hit.layout) return undefined;

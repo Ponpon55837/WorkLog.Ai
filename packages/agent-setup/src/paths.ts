@@ -2,7 +2,6 @@ import { join, resolve } from "node:path";
 import { manifestPath } from "./manifest.js";
 import type { AgentSetupComponentId, AgentSetupPlanOptions } from "./types.js";
 
-/** The directories that decide where targets live; everything else in the plan options does not affect paths. */
 export type AgentSetupLocation = Pick<
   AgentSetupPlanOptions,
   "homeDirectory" | "codexHomeDirectory" | "claudeConfigDirectory"
@@ -64,7 +63,6 @@ export function normalizePlanOptions(options: AgentSetupPlanOptions): AgentSetup
   };
 }
 
-/** Every file setup may ever write for this location, resolved: the component targets and the manifest. */
 export function knownTargetPaths(location: AgentSetupLocation): Set<string> {
   const homeDirectory = resolve(location.homeDirectory);
   const normalized = {

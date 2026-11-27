@@ -1,19 +1,14 @@
-/**
- * Preview of what a plan would change, as unified-diff style hunks the desktop App can render. The diff is computed on
- * text with line endings ignored, and values that look like secrets are masked on every line shown, before and after.
- */
+/** Values that look like secrets are masked on every line shown, before and after. */
 import type { AgentSetupPlan } from "./types.js";
 
 export type AgentSetupDiffLineType = "context" | "add" | "remove" | "note";
 
 export interface AgentSetupDiffLine {
   type: AgentSetupDiffLineType;
-  /** The line without its terminator, secrets masked. */
   text: string;
 }
 
 export interface AgentSetupDiffHunk {
-  /** 1-based first line in the old text (0 when the old text is empty); `0` for a note. */
   oldStart: number;
   oldLines: number;
   newStart: number;
@@ -26,7 +21,6 @@ export interface AgentSetupMutationDescription {
   label: string;
   change: "create" | "update" | "delete";
   hunks: AgentSetupDiffHunk[];
-  /** True when the file was too large to diff and `hunks` holds only a note. */
   tooLarge: boolean;
 }
 
@@ -41,26 +35,19 @@ interface Edit {
 const CONTEXT_LINES = 2;
 const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_LINES = 20_000;
-/** Above this many cells the LCS table is skipped; the changed middle is shown as one removal and one addition. */
+// Above this the LCS table is skipped and the changed middle shows as one removal and one addition.
 const MAX_LCS_CELLS = 16_000_000;
 const TOO_LARGE_NOTE = "檔案過大，無法顯示差異";
 const MASK = "***";
-/**
- * The one source of masking rules. A key is secret when its name contains one of the words below anywhere, or ends in
- * `_KEY`, `-KEY`, `_PAT` or `_DSN` (a whole trailing word, so `API_KEY` and `SIGNING_KEY` match but `MONKEY_MODE`,
- * `KEYBOARD` and `KEY_PATH` do not), or is a database URL (`DATABASE_URL`).
- */
+// The suffixes match a whole trailing word: `API_KEY` and `SIGNING_KEY` match, `MONKEY_MODE` and `KEY_PATH` do not.
 const SECRET_KEY =
   /token|secret|password|passwd|api[_-]?key|authorization|bearer|cookie|credential|private[_-]?key|database[_-]?url|(?:^|[_-])(?:key|pat|dsn)$/i;
 const BEARER_VALUE = /\bBearer\s+[^\s"'\\,;]+/gi;
 const KEY_VALUE = /("(?:[^"\\]|\\.)*"|'[^']*'|[A-Za-z0-9_.-]+)(\s*[:=]\s*)("(?:[^"\\]|\\.)*"|'[^']*'|[^\s,}\]#"']+)/g;
-/** `?apiKey=abc&x=1` inside a value: the parameter value stops at `&`, a quote, whitespace or a fragment. */
 const QUERY_PARAM = /([?&])([A-Za-z0-9_.-]+)=([^&\s"'\\#]+)/g;
-/** `--token=abc` and `--token abc` inside one string, and `"--token", "abc"` as two array elements. */
 const FLAG_EQUALS = /(--[A-Za-z0-9][A-Za-z0-9_-]*)=([^\s"'\\,;]+)/g;
 const FLAG_SPACE = /(--[A-Za-z0-9][A-Za-z0-9_-]*)(\s+)([^\s"'\\,;-][^\s"'\\,;]*)/g;
 const FLAG_ELEMENT = /(["']--[A-Za-z0-9][A-Za-z0-9_-]*["']\s*,\s*)("(?:[^"\\]|\\.)*"|'[^']*')/g;
-/** A line that ends with a quoted secret flag whose value is on the next line. */
 const TRAILING_FLAG = /["'](--[A-Za-z0-9][A-Za-z0-9_-]*)["']\s*,?\s*$/;
 
 function isSecretFlag(flag: string): boolean {
@@ -78,7 +65,6 @@ function keyName(token: string): string {
   return token.startsWith('"') || token.startsWith("'") ? token.slice(1, -1) : token;
 }
 
-/** How many more `{`/`[` than `}`/`]` a line opens, ignoring brackets inside strings. */
 function bracketBalance(line: string): number {
   let balance = 0;
   let quote: string | undefined;
@@ -95,10 +81,6 @@ function bracketBalance(line: string): number {
   return balance;
 }
 
-/**
- * Masks secrets line by line. A secret key whose value opens a multi-line object or array hides the lines up to its
- * closing bracket as well; the lines are masked as a whole, so the structure still lines up with the unmasked text.
- */
 function maskLines(lines: readonly string[]): string[] {
   const masked: string[] = [];
   let hidingDepth = 0;
@@ -217,7 +199,6 @@ function buildHunks(
   let groupStart = 0;
   while (groupStart < changed.length) {
     let groupEnd = groupStart;
-    // Changes separated by no more than two contexts' worth of unchanged lines share one hunk.
     while (
       groupEnd + 1 < changed.length &&
       (changed[groupEnd + 1] ?? 0) - (changed[groupEnd] ?? 0) - 1 <= CONTEXT_LINES * 2
@@ -274,10 +255,6 @@ function tooLarge(): Pick<AgentSetupMutationDescription, "hunks" | "tooLarge"> {
   };
 }
 
-/**
- * What each mutation of a plan would do to its file: create, update or delete, with the changed lines and two lines of
- * context around them. Line endings are ignored (a CRLF-only change has no hunks) and secrets are shown as `***`.
- */
 export function describeAgentSetupMutations(plan: Pick<AgentSetupPlan, "mutations">): AgentSetupMutationDescription[] {
   return plan.mutations.map((mutation) => ({
     path: mutation.path,

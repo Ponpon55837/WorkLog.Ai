@@ -74,14 +74,12 @@ export function sameManagedHookShape(actual: unknown, expected: unknown, key?: s
   return equalValue(actual, expected);
 }
 
-/** An owned hook entry is one hook inside its group: the group's own keys (matcher) plus that single hook. */
 function singleHookParts(expected: unknown): { rest: Record<string, unknown>; hook: unknown } | undefined {
   if (!JSON_OBJECT(expected) || !Array.isArray(expected.hooks) || expected.hooks.length !== 1) return undefined;
   const { hooks, ...rest } = expected;
   return { rest, hook: hooks[0] };
 }
 
-/** Where the one hook an adopted entry owns sits now, so removal never touches its sibling hooks. */
 export function findOwnedHook(
   array: readonly unknown[],
   expected: unknown,
@@ -98,7 +96,6 @@ export function findOwnedHook(
   return undefined;
 }
 
-/** Removes only the owned hook; the group goes too when it is left with nothing but its matcher. */
 function removeOwnedHook(array: unknown[], location: { groupIndex: number; hookIndex: number }): void {
   const group = array[location.groupIndex];
   if (!JSON_OBJECT(group) || !Array.isArray(group.hooks)) return;
@@ -126,14 +123,13 @@ export function parseJsonFile(
   }
 }
 
-/** The indentation the file already uses (a tab stays a tab), two spaces for a new file. */
 function jsonIndent(source: Buffer | null): string {
   if (!source) return "  ";
   const match = /\n([ \t]+)"/.exec(source.toString("utf8"));
   return match?.[1] ?? "  ";
 }
 
-/** Keeps the file's indentation, line endings and whether it ends with a newline (L-22); a new file ends with one. */
+// Keeps the file's indentation, line endings and trailing newline; a new file ends with one.
 export function serializeJson(root: Record<string, unknown>, source: Buffer | null): Buffer {
   const text = source?.toString("utf8");
   const newline = text?.includes("\r\n") ? "\r\n" : "\n";
