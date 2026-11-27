@@ -14,6 +14,7 @@ import type {
   KnowledgeSearchResult,
   KnowledgeStatus,
   PageInfo,
+  CancelKnowledgeCandidateRequestResult,
   RequestKnowledgeCandidatesResult,
   RecordKnowledgeInput,
   RecordKnowledgeResult,
@@ -158,6 +159,12 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
       await Promise.allSettled([queryCache.invalidateQueries({ key: queryKeys.knowledge.candidates })]);
     },
   });
+  const cancelCandidateRequestMutation = useMutation({
+    mutation: (requestId: string) => useApi().client.cancelKnowledgeCandidateRequest(requestId),
+    onSuccess: async () => {
+      await Promise.allSettled([queryCache.invalidateQueries({ key: queryKeys.knowledge.candidates })]);
+    },
+  });
   const decideKnowledgeCandidateMutation = useMutation({
     mutation: ({ input }: KnowledgeCandidateDecision) => useApi().client.decideKnowledgeCandidate(input),
     onSuccess: async (result, variables) => {
@@ -223,14 +230,12 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
   const openCandidateRequests = computed(() =>
     candidatesQuery.data.value?.outcome === "knowledge_candidates" ? candidatesQuery.data.value.openRequests : [],
   );
-  const candidateBacklog = computed(() => {
-    const result = candidatesQuery.data.value;
-    const entries = result?.outcome === "knowledge_candidates" ? result.backlog : [];
-    return {
-      uncoveredSessions: entries.reduce((sum, entry) => sum + entry.uncoveredSessions, 0),
-      highValueSessions: entries.reduce((sum, entry) => sum + entry.highValueSessions, 0),
-    };
-  });
+  const candidateBacklog = computed(() =>
+    candidatesQuery.data.value?.outcome === "knowledge_candidates" ? candidatesQuery.data.value.backlog : [],
+  );
+  const candidateRequesting = computed(
+    () => requestKnowledgeCandidatesMutation.isLoading.value || cancelCandidateRequestMutation.isLoading.value,
+  );
   const candidatesError = computed(() =>
     candidatesQuery.error.value
       ? errorMessage(candidatesQuery.error.value, t("knowledge.couldNotLoadKnowledgeCandidates"))
@@ -328,6 +333,10 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     return await requestKnowledgeCandidatesMutation.mutateAsync({ projectRoot, refreshProjectRoot });
   }
 
+  async function cancelKnowledgeCandidateRequest(requestId: string): Promise<CancelKnowledgeCandidateRequestResult> {
+    return await cancelCandidateRequestMutation.mutateAsync(requestId);
+  }
+
   async function decideKnowledgeCandidate(
     input: DecideKnowledgeCandidateInput,
     projectRoot?: string,
@@ -366,11 +375,13 @@ export const useKnowledgeStore = defineStore("knowledge", () => {
     candidates,
     openCandidateRequests,
     candidateBacklog,
+    candidateRequesting,
     candidatesLoading,
     candidatesLoaded,
     candidatesError,
     loadCandidates,
     requestKnowledgeCandidates,
+    cancelKnowledgeCandidateRequest,
     decideKnowledgeCandidate,
   };
 });

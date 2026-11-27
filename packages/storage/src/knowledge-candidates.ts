@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type {
+  CancelKnowledgeCandidateRequestResult,
   DecideKnowledgeCandidateInput,
   DecideKnowledgeCandidateResult,
   KnowledgeCandidate,
   KnowledgeCandidateContextResult,
   KnowledgeCandidateBacklog,
+  KnowledgeCandidateBacklogCounts,
   KnowledgeCandidateContext,
   KnowledgeCandidateInput,
   KnowledgeCandidateListInput,
@@ -30,7 +32,7 @@ import {
   CONTEXT_BACKLOG_MIN_DAYS_SINCE_REQUEST,
   CONTEXT_BACKLOG_MIN_HIGH_VALUE,
   loadUncoveredBacklogSessions,
-  selectTopBacklogSessions,
+  selectRequestSessions,
   summarizeBacklog,
   summarizeBacklogByProject,
 } from "./knowledge-candidate-backlog.js";
@@ -45,7 +47,7 @@ import { runImmediateTransaction } from "./sqlite-transaction.js";
 import { combineRedactionSummaries, redactValue } from "./secret-redaction.js";
 
 const MAX_SOURCE_SESSIONS = 10;
-const EXISTING_KNOWLEDGE_LIMITS = { active: 150, archived: 30, rejected: 20 } as const;
+const EXISTING_KNOWLEDGE_LIMITS = { active: 150, archived: 30, rejected: 20, proposed: 30 } as const;
 const HANDOFF_BUDGET = 40_000;
 const PROCESSING_TIMEOUT_MS = 30 * 60 * 1000;
 const OPEN_STATUSES: readonly KnowledgeCandidateRequestStatus[] = ["pending", "processing", "failed"];
@@ -61,6 +63,8 @@ interface Dependencies {
   checkProjectById(projectId: string): PolicyDecision;
   recordKnowledge(input: RecordKnowledgeInput): RecordKnowledgeResult;
 }
+
+type NextRequest = NonNullable<Extract<SubmitKnowledgeCandidatesResult, { candidates: unknown }>["next"]>;
 
 type RequestRow = {
   id: string;
@@ -127,6 +131,14 @@ function toRequest(row: RequestRow): KnowledgeCandidateRequest {
     sourceSessionIds: parseList(row.source_session_ids_json),
     candidateCount: row.candidate_count,
   };
+}
+
+function toNextRequest(request: KnowledgeCandidateRequest, remaining: KnowledgeCandidateBacklogCounts): NextRequest {
+  return { requestId: request.id, sourceSessions: request.sourceSessionIds.length, remaining };
+}
+
+function nextField(next: NextRequest | undefined): { next: NextRequest } | Record<string, never> {
+  return next ? { next } : {};
 }
 
 export function toCandidate(row: CandidateRow): KnowledgeCandidate {
@@ -208,7 +220,7 @@ export function loadExistingKnowledge(
   db: DatabaseSync,
   projectId: string,
 ): {
-  existingKnowledge: KnowledgeCandidateContext["existingKnowledge"];
+  existingKnowledge: Array<{ id: string; kind: KnowledgeKind; title: string; status?: "archived" | "rejected" }>;
   omitted: number;
 } {
   const select = (sql: string, limit: number): TitleRow[] => db.prepare(sql).all(projectId, limit) as TitleRow[];
@@ -248,6 +260,22 @@ export function loadExistingKnowledge(
   };
 }
 
+function loadProposedKnowledge(
+  db: DatabaseSync,
+  projectId: string,
+): { entries: KnowledgeCandidateContext["existingKnowledge"]; omitted: number } {
+  const rows = db
+    .prepare(
+      `SELECT id, kind, title, COUNT(*) OVER () AS total FROM knowledge_candidates
+       WHERE project_id = ? AND status = 'proposed' ORDER BY created_at DESC, id ASC LIMIT ?`,
+    )
+    .all(projectId, EXISTING_KNOWLEDGE_LIMITS.proposed) as TitleRow[];
+  return {
+    entries: rows.map((row) => ({ id: row.id, kind: row.kind, title: row.title, status: "proposed" as const })),
+    omitted: Math.max(0, (rows[0]?.total ?? 0) - rows.length),
+  };
+}
+
 const REQUEST_SELECT = `SELECT r.*, p.name AS project_name
   FROM knowledge_candidate_requests r JOIN projects p ON p.id = r.project_id`;
 export const CANDIDATE_SELECT = `SELECT c.*, p.name AS project_name, s.title AS session_title
@@ -277,36 +305,22 @@ export class KnowledgeCandidateService {
     const project = decision.project;
     this.recoverStale();
     return runImmediateTransaction(this.db, () => {
-      const open = this.db
-        .prepare(
-          `${REQUEST_SELECT} WHERE r.project_id = ? AND r.status IN ('pending', 'processing', 'failed')
-           ORDER BY r.requested_at DESC LIMIT 1`,
-        )
-        .get(project.id) as RequestRow | undefined;
+      const open = this.openRequestOf(project.id);
       if (open) {
         return { outcome: "knowledge_candidate_request", duplicate: true, request: toRequest(open) };
       }
-      const uncovered = loadUncoveredBacklogSessions(this.db, project.id);
-      const sourceSessionIds = selectTopBacklogSessions(uncovered, MAX_SOURCE_SESSIONS).map((session) => session.id);
-      if (sourceSessionIds.length === 0) {
+      const created = this.createRequest(project.id, false);
+      if (!created) {
         return {
           outcome: "knowledge_candidates_not_needed",
-          reason: "這個專案的 Session 都已整理過 Knowledge 候選。",
+          reason: "這個專案沒有尚未整理的 Session。",
         };
       }
-      const id = randomUUID();
-      this.db
-        .prepare(
-          `INSERT INTO knowledge_candidate_requests (id, project_id, status, requested_at, source_session_ids_json)
-           VALUES (?, ?, 'pending', ?, ?)`,
-        )
-        .run(id, project.id, nowIso(), JSON.stringify(sourceSessionIds));
-      const { uncoveredSessions, highValueSessions } = summarizeBacklog(uncovered, new Set(sourceSessionIds));
       return {
         outcome: "knowledge_candidate_request",
         duplicate: false,
-        request: this.getRequest(id)!,
-        remaining: { uncoveredSessions, highValueSessions },
+        request: created.request,
+        remaining: created.remaining,
       };
     });
   }
@@ -368,7 +382,10 @@ export class KnowledgeCandidateService {
         },
       ];
     });
-    const { existingKnowledge, omitted } = loadExistingKnowledge(this.db, request.projectId);
+    const known = loadExistingKnowledge(this.db, request.projectId);
+    const proposed = loadProposedKnowledge(this.db, request.projectId);
+    const existingKnowledge = [...known.existingKnowledge, ...proposed.entries];
+    const omitted = known.omitted + proposed.omitted;
     return {
       outcome: "knowledge_candidate_context",
       request: this.getRequest(request.id)!,
@@ -419,7 +436,7 @@ export class KnowledgeCandidateService {
       { projectId: request.projectId, requestId: request.id, createdAtOrBefore: createdAt },
       sanitizedCandidates.map((candidate) => candidate.value),
     );
-    const ids = runImmediateTransaction(this.db, () => {
+    const stored = runImmediateTransaction(this.db, () => {
       const insert = this.db.prepare(
         `INSERT INTO knowledge_candidates (
            id, request_id, project_id, session_id, kind, title, body, tags_json, references_json,
@@ -451,14 +468,43 @@ export class KnowledgeCandidateService {
            SET status = 'completed', completed_at = ?, candidate_count = ?, failure_reason = NULL WHERE id = ?`,
         )
         .run(createdAt, storedIds.length, request.id);
-      return storedIds;
+      return { ids: storedIds, next: this.openNextRequest(request.projectId) };
     });
     return {
       outcome: "knowledge_candidates_submitted",
       request: this.getRequest(request.id)!,
-      candidates: ids.map((id, index) => withOverlapList(this.getCandidate(id)!, overlaps[index])),
+      candidates: stored.ids.map((id, index) => withOverlapList(this.getCandidate(id)!, overlaps[index])),
       redactions,
+      ...nextField(stored.next),
     };
+  }
+
+  public cancel(requestId: string): CancelKnowledgeCandidateRequestResult {
+    const request = this.getRequest(requestId);
+    if (!request) {
+      return { outcome: "not_found", requestId, reason: "Knowledge candidate request does not exist." };
+    }
+    const decision = this.dependencies.checkProjectById(request.projectId);
+    if (!decision.allowed) {
+      return skipped(decision);
+    }
+    return runImmediateTransaction(this.db, (): CancelKnowledgeCandidateRequestResult => {
+      const current = this.getRequest(requestId)!;
+      if (current.status === "completed") {
+        return { outcome: "request_not_open", request: current, reason: "This request is already completed." };
+      }
+      const duplicate = current.status === "cancelled";
+      if (!duplicate) {
+        this.db
+          .prepare("UPDATE knowledge_candidate_requests SET status = 'cancelled', completed_at = ? WHERE id = ?")
+          .run(nowIso(), requestId);
+      }
+      return {
+        outcome: "knowledge_candidate_request_cancelled",
+        request: this.getRequest(requestId)!,
+        duplicate,
+      };
+    });
   }
 
   public list(input: KnowledgeCandidateListInput): KnowledgeCandidateListResult {
@@ -494,7 +540,7 @@ export class KnowledgeCandidateService {
     ).map(toRequest);
     const backlog = this.listedBacklogs.get(projectId ?? "", () =>
       summarizeBacklogByProject(loadUncoveredBacklogSessions(this.db, projectId)).filter(
-        (counts) => counts.uncoveredSessions > 0,
+        (counts) => counts.highValueSessions > 0,
       ),
     );
     return { outcome: "knowledge_candidates", items, openRequests, backlog };
@@ -632,7 +678,47 @@ export class KnowledgeCandidateService {
           : storedOverlaps.get(candidate.id)!,
       ),
       redactions: combineRedactionSummaries(...sanitized.map((candidate) => candidate.redactions)),
+      ...nextField(this.existingNextRequest(request.projectId)),
     };
+  }
+
+  private createRequest(
+    projectId: string,
+    highValueOnly: boolean,
+  ): { request: KnowledgeCandidateRequest; remaining: KnowledgeCandidateBacklogCounts } | undefined {
+    const uncovered = loadUncoveredBacklogSessions(this.db, projectId);
+    const sourceSessionIds = selectRequestSessions(uncovered, MAX_SOURCE_SESSIONS, highValueOnly).map(
+      (session) => session.id,
+    );
+    if (sourceSessionIds.length === 0) return undefined;
+    const id = randomUUID();
+    this.db
+      .prepare(
+        `INSERT INTO knowledge_candidate_requests (id, project_id, status, requested_at, source_session_ids_json)
+         VALUES (?, ?, 'pending', ?, ?)`,
+      )
+      .run(id, projectId, nowIso(), JSON.stringify(sourceSessionIds));
+    return { request: this.getRequest(id)!, remaining: summarizeBacklog(uncovered, new Set(sourceSessionIds)) };
+  }
+
+  private openNextRequest(projectId: string): NextRequest | undefined {
+    if (this.openRequestOf(projectId)) return undefined;
+    const created = this.createRequest(projectId, true);
+    return created && toNextRequest(created.request, created.remaining);
+  }
+
+  private existingNextRequest(projectId: string): NextRequest | undefined {
+    const open = this.openRequestOf(projectId);
+    return open && toNextRequest(toRequest(open), summarizeBacklog(loadUncoveredBacklogSessions(this.db, projectId)));
+  }
+
+  private openRequestOf(projectId: string): RequestRow | undefined {
+    return this.db
+      .prepare(
+        `${REQUEST_SELECT} WHERE r.project_id = ? AND r.status IN ('pending', 'processing', 'failed')
+         ORDER BY r.requested_at DESC LIMIT 1`,
+      )
+      .get(projectId) as RequestRow | undefined;
   }
 
   private withStoredOverlaps(rows: readonly CandidateRow[]): KnowledgeCandidate[] {
@@ -677,12 +763,7 @@ export class KnowledgeCandidateService {
       if (!decision.allowed || !decision.project) {
         return skipped(decision);
       }
-      const row = this.db
-        .prepare(
-          `${REQUEST_SELECT} WHERE r.project_id = ? AND r.status IN ('pending', 'processing', 'failed')
-           ORDER BY r.requested_at DESC LIMIT 1`,
-        )
-        .get(decision.project.id) as RequestRow | undefined;
+      const row = this.openRequestOf(decision.project.id);
       request = row ? toRequest(row) : undefined;
     }
     if (!request) {

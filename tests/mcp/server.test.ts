@@ -2292,6 +2292,10 @@ describe("Work Intelligence MCP server", () => {
 
     const catalog = await getToolContractCatalog(client);
     expect([...catalog.sections.keys()].some((operation) => /accept|decide/.test(operation))).toBe(false);
+    expect(catalog.sections.get("work_submit_knowledge_candidates")).toContain(
+      "work_get_knowledge_candidate_context(next.requestId)",
+    );
+    expect(catalog.sections.get("work_request_knowledge_candidates")).not.toContain("newest first");
   });
 
   it("runs an Agent review from request to verdicts and lists the Knowledge pages to update", async () => {

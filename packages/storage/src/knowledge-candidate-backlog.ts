@@ -139,6 +139,7 @@ export function loadUncoveredBacklogSessions(db: DatabaseSync, projectId?: strin
   }));
 }
 
+/** @internal test-only */
 export function selectTopBacklogSessions(sessions: readonly BacklogSession[], limit: number): BacklogSession[] {
   const top: BacklogSession[] = [];
   for (const session of sessions) {
@@ -161,6 +162,16 @@ export function selectTopBacklogSessions(sessions: readonly BacklogSession[], li
     }
   }
   return top;
+}
+
+export function selectRequestSessions(
+  sessions: readonly BacklogSession[],
+  limit: number,
+  highValueOnly: boolean,
+): BacklogSession[] {
+  const highValue = sessions.filter((session) => session.score >= HIGH_VALUE_MIN_SCORE);
+  if (highValue.length > 0) return selectTopBacklogSessions(highValue, limit);
+  return highValueOnly ? [] : selectTopBacklogSessions(sessions, limit);
 }
 
 export function summarizeBacklog(

@@ -1,4 +1,5 @@
 import {
+  cancelKnowledgeCandidateRequestInputSchema,
   decideKnowledgeCandidateInputSchema,
   deleteKnowledgePageInputSchema,
   knowledgeCandidateListQuerySchema,
@@ -144,6 +145,16 @@ export const knowledgeRoutes: Route[] = [
       "Invalid knowledge candidate request.",
       ({ request }) => readJsonBody(request),
       ({ store }, data) => store.requestKnowledgeCandidates(data.projectRoot),
+    ),
+  },
+  {
+    method: "POST",
+    pattern: "/api/knowledge/candidate-requests/:requestId/cancel",
+    handler: validatedRoute(
+      cancelKnowledgeCandidateRequestInputSchema,
+      "Invalid knowledge candidate request cancellation.",
+      async ({ request, params }) => ({ ...(await readJsonObject(request)), requestId: params.requestId }),
+      ({ store }, data) => store.cancelKnowledgeCandidateRequest(data.requestId),
     ),
   },
   {

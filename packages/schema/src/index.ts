@@ -1236,6 +1236,10 @@ export const requestKnowledgeCandidatesInputSchema = z.object({
   projectRoot: z.string().trim().min(1).max(1_000),
 });
 
+export const cancelKnowledgeCandidateRequestInputSchema = z.object({
+  requestId: z.string().trim().min(1).max(200),
+});
+
 export const knowledgeCandidateContextQuerySchemaBase = z.object({
   requestId: z.string().trim().min(1).max(200).optional(),
   projectRoot: z.string().trim().min(1).max(1_000).optional(),

@@ -1,11 +1,18 @@
 import { storeToRefs } from "pinia";
-import type { DecideKnowledgeCandidateInput, KnowledgeCandidate, ProjectRecord } from "@work-intelligence/core";
+import type {
+  DecideKnowledgeCandidateInput,
+  KnowledgeCandidate,
+  KnowledgeCandidateRequest,
+  ProjectRecord,
+} from "@work-intelligence/core";
 import { useKnowledgeStore } from "../stores/knowledge";
 import { useKnowledgeCandidateEditorStore } from "../stores/knowledge-candidate-editor";
 import { errorMessage } from "../utils/format";
 import { confirmAction } from "./useConfirm";
 import { useToast } from "./useToast";
 import { t } from "../i18n";
+
+const stoppedRequestIds = new Set<string>();
 
 function splitValues(value: string): string[] {
   return [
@@ -20,6 +27,7 @@ function splitValues(value: string): string[] {
 
 async function requestCandidates(project: ProjectRecord, refreshProjectRoot?: string): Promise<void> {
   const { showToast } = useToast();
+  if (useKnowledgeStore().candidateRequesting) return;
   try {
     const result = await useKnowledgeStore().requestKnowledgeCandidates(project.rootPath, refreshProjectRoot);
     if (result.outcome === "knowledge_candidates_not_needed") {
@@ -39,6 +47,28 @@ async function requestCandidates(project: ProjectRecord, refreshProjectRoot?: st
   } catch (error) {
     showToast(errorMessage(error, t("common.couldNotCreateTheRequest")), "danger");
   }
+}
+
+async function cancelCandidateRequest(request: KnowledgeCandidateRequest): Promise<void> {
+  const { showToast } = useToast();
+  if (useKnowledgeStore().candidateRequesting) return;
+  stoppedRequestIds.add(request.id);
+  try {
+    const result = await useKnowledgeStore().cancelKnowledgeCandidateRequest(request.id);
+    if (result.outcome === "knowledge_candidate_request_cancelled") {
+      showToast(t("knowledge.candidateRequestStopped", { name: request.projectName ?? "" }));
+    } else {
+      stoppedRequestIds.delete(request.id);
+      showToast(result.outcome === "skipped" ? result.reason : t("knowledge.candidateRequestNotStopped"), "danger");
+    }
+  } catch (error) {
+    stoppedRequestIds.delete(request.id);
+    showToast(errorMessage(error, t("knowledge.candidateRequestNotStopped")), "danger");
+  }
+}
+
+function wasStoppedByUser(requestId: string): boolean {
+  return stoppedRequestIds.has(requestId);
 }
 
 async function decide(
@@ -132,13 +162,15 @@ export function useKnowledgeCandidates() {
   const { candidateEditor, candidateForm, candidateSaving, candidateError } = storeToRefs(
     useKnowledgeCandidateEditorStore(),
   );
-  const { candidates, openCandidateRequests, candidatesLoading, candidatesError } = storeToRefs(useKnowledgeStore());
+  const { candidates, openCandidateRequests, candidatesLoading, candidatesError, candidateRequesting } =
+    storeToRefs(useKnowledgeStore());
 
   return {
     candidates,
     openCandidateRequests,
     candidatesLoading,
     candidatesError,
+    candidateRequesting,
     candidateEditor,
     candidateForm,
     candidateSaving,
@@ -146,6 +178,8 @@ export function useKnowledgeCandidates() {
     loadCandidates,
     refreshCandidates,
     requestCandidates,
+    cancelCandidateRequest,
+    wasStoppedByUser,
     acceptCandidate,
     rejectCandidate,
     openCandidateEditor,
