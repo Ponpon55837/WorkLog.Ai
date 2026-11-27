@@ -10,7 +10,7 @@ Location: `apps/web/src/components/ui/` (generic, `Ui*`), `components/layout/` (
 |---|---|
 | `AppShell` | Props `refreshing`, `counts` (sidebar counters by route name), `fullWidth`. Emits `refresh`, `search`. Slots: default (page), `overlays`. Mounts `UiConfirmHost` and `UiToastHost`, a "跳至主要內容" skip link, and a 2px top progress bar while a page chunk loads or `refreshing` is set (`useNavigationProgress`). |
 | `AppHeader` | Menu button (< 640px), `WI` logo (filled), crumb (`Work Intelligence /` muted, page name 500), search trigger with `Ctrl`/`⌘` and `K` as two keycaps, Local-first 6px dot (hidden < 640px), language `UiActionMenu` (label hidden < 640px), sun/moon theme `UiIconButton`, refresh `UiIconButton`. |
-| `AppSidebar` | Built from `layout/navigation.ts` (`navItems`, `navGroups`). Full ≥ 960, icon rail 640–959, drawer < 640. Nav links carry `data-testid="nav-<route>"`. |
+| `AppSidebar` | Built from `layout/navigation.ts` (`navItems`, `navGroups`). Full ≥ 960, icon rail 640–959, drawer < 640. Nav links carry `data-testid="nav-<name>"`. `navTarget` / `isNavItemActive` handle the 未結項 entry, which is the `sessions` route with `tab=outstanding` (`g o`). |
 | `PageHeader` | Props `title?` (defaults to route meta; 20px/600), `description?` (13px muted, single line, truncated, full text in `title`). Slot `actions`. One compact row; scrolls away with the page. |
 | `PageToolbar` | Sticky container for page search and/or `UiUnderlineNav`; publishes `--page-toolbar-height` for sticky Box headers. One per page. |
 
@@ -57,7 +57,7 @@ Location: `apps/web/src/components/ui/` (generic, `Ui*`), `components/layout/` (
 | `UiEmptyState` | `icon`, `title`, `description` (or default slot), `compact`; slot `action`. |
 | `UiSkeleton` | `variant: row \| card \| text`, `count`. |
 | `UiSpinner` | `size`, `label`. |
-| `UiToastHost` / `useToast()` | `showToast(message, tone?)`, `copyWithToast(text, message)`. Stack of 4, auto-dismiss 4 s. |
+| `UiToastHost` / `useToast()` | `showToast(message, tone?, action?)`, `copyWithToast(text, message)`. Up to 4 plain and 4 action toasts (each kind is capped on its own), auto-dismiss 4 s; hover or focus pauses the countdown. An `action` (`{ label, run }`) adds a button and keeps the toast 8 s; use it for 復原 after an immediate change instead of a confirmation dialog, and offer it only when the undo restores the exact previous state. |
 | Tooltips | Native `title` attribute (icon buttons set it from `label`; timestamps carry the absolute time). No custom tooltip component. |
 
 ## Overlays

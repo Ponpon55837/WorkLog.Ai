@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute } from "vue-router";
-import { ListChecks } from "lucide-vue-next";
+import { ExternalLink, Link2, ListChecks, RotateCcw } from "lucide-vue-next";
 import { storeToRefs } from "pinia";
 import type { OutstandingCleanupProposal } from "@work-intelligence/core";
 import AgentHandoffNotice from "./AgentHandoffNotice.vue";
@@ -21,7 +21,8 @@ import VirtualList from "../VirtualList.vue";
 import { confirmAction } from "../../composables/useConfirm";
 import { enumQuery, pageQuery, stringQuery, useRouteQuery } from "../../composables/useRouteQuery";
 import { useToast } from "../../composables/useToast";
-import { useOutstandingCleanupStore } from "../../stores/outstanding-cleanup";
+import { useOutstandingCleanupStore, type OutstandingPendingProject } from "../../stores/outstanding-cleanup";
+import { useProjectsStore } from "../../stores/projects";
 import { errorMessage, formatDate } from "../../utils/format";
 import { listPageSizeOptions } from "../../utils/labels";
 import {
@@ -38,11 +39,15 @@ const route = useRoute();
 const cleanupStore = useOutstandingCleanupStore();
 const {
   projectId,
+  canChangeProject,
   requestId,
   requestPage,
   requestPageSize,
   proposalPage,
   proposalPageSize,
+  pendingProjects,
+  pendingProjectsLoaded,
+  pendingProjectsError,
   requestsLoaded,
   requests,
   requestPageInfo,
@@ -56,6 +61,7 @@ const {
   proposalError,
   skipped,
 } = storeToRefs(cleanupStore);
+const { projects } = storeToRefs(useProjectsStore());
 const { showToast } = useToast();
 useRouteQuery("cleanupRequest", requestId, stringQuery());
 useRouteQuery("cleanupRequestPage", requestPage, pageQuery());
@@ -69,7 +75,9 @@ const busy = ref(false);
 const createKey = ref("");
 useRouteQuery("cleanup", panelMode, enumQuery(["", "review"], ""));
 
-const isOpen = computed(() => panelMode.value === "review" && Boolean(projectId.value));
+const isOpen = computed(() => panelMode.value === "review");
+const projectName = computed(() => projects.value.find((project) => project.id === projectId.value)?.name ?? "");
+const onlyProject = computed(() => (pendingProjects.value.length === 1 ? pendingProjects.value[0] : undefined));
 const closedProposals = computed(() => proposals.value.filter((proposal) => proposal.itemStatus !== "pending"));
 const allSelected = computed({
   get: () => closedProposals.value.length > 0 && selectedIds.value.length === closedProposals.value.length,
@@ -82,6 +90,16 @@ const createDisabledReason = computed(() => {
   return skipped.value ? t("outstanding.trackingIsNotEnabledFor") : undefined;
 });
 
+function pendingCountText(project: OutstandingPendingProject): string {
+  return project.pendingCount === undefined
+    ? ""
+    : t("outstanding.cleanupPendingCount", { count: project.pendingCount });
+}
+function onlyProjectLabel(project: OutstandingPendingProject): string {
+  return project.pendingCount === undefined
+    ? project.projectName
+    : t("outstanding.cleanupOnlyProject", { project: project.projectName, count: project.pendingCount });
+}
 function close(): void {
   panelMode.value = "";
 }
@@ -125,16 +143,25 @@ async function reopen(itemIds: string[]): Promise<void> {
   busy.value = true;
   try {
     const closed = new Map(closedProposals.value.map((proposal) => [proposal.itemId, proposal.itemStatus]));
-    const reopened = await cleanupStore.reopen(
+    const { reopened, skipped, failure } = await cleanupStore.reopen(
       itemIds.flatMap((itemId) => {
         const status = closed.get(itemId);
         return status ? [{ itemId, status }] : [];
       }),
     );
+    if (failure) {
+      const reason = errorMessage(failure, t("outstanding.couldNotUpdateTheOpenItemPleaseTry"));
+      showToast(t("outstanding.partiallyUpdated", { updated: reopened, total: itemIds.length, reason }), "danger");
+      return;
+    }
     selectedIds.value = [];
-    showToast(t("outstanding.restoredItemsToPending", { length: reopened }), "success");
-  } catch (error) {
-    showToast(errorMessage(error, t("outstanding.couldNotUpdateTheOpenItemPleaseTry")), "danger");
+    // Items the Agent closed record `cleanup_review`, and an undo would rewrite that to the user, so there is none.
+    showToast(
+      skipped > 0
+        ? t("outstanding.updatedAndSkipped", { updated: reopened, skipped })
+        : t("outstanding.restoredItemsToPending", { length: reopened }),
+      "success",
+    );
   } finally {
     busy.value = false;
   }
@@ -200,17 +227,7 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
 </script>
 
 <template>
-  <div class="outstanding-cleanup__entry">
-    <UiButton
-      size="sm"
-      :icon="ListChecks"
-      :disabled="!projectId"
-      :disabled-reason="t('outstanding.chooseAProjectFirst')"
-      @click="panelMode = 'review'"
-      >{{ t("outstanding.tidyOpenItems") }}</UiButton
-    >
-    <span v-if="!projectId" class="outstanding-cleanup__hint">{{ t("outstanding.chooseAProjectFirst") }}</span>
-  </div>
+  <UiButton size="sm" :icon="ListChecks" @click="panelMode = 'review'">{{ t("outstanding.tidyOpenItems") }}</UiButton>
   <UiSidePanel :open="isOpen" :label="t('outstanding.tidyOpenItems')" :width="720" @close="close">
     <template #header>
       <UiSidePanelHeader
@@ -220,172 +237,250 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
       />
     </template>
     <div class="outstanding-cleanup__body">
-      <AgentHandoffNotice
-        v-if="activeRequest"
-        class="outstanding-cleanup__handoff"
-        :status="outstandingCleanupRequestVisual[activeRequest.status]"
-        :message="t('outstanding.cleanupHandoffMessage')"
-        :command="t('outstanding.cleanupCommand')"
-        :cancel-label="t('outstanding.cancelRequest')"
-        :cancel-disabled="busy"
-        @cancel="cancelRequest(activeRequest.id)"
-      />
-      <template v-else>
-        <p class="outstanding-cleanup__hint">
-          {{ t("outstanding.askTheAgentToTidy") }}
-        </p>
-        <div class="outstanding-cleanup__actions">
-          <UiButton
-            variant="primary"
-            :disabled="busy || Boolean(createDisabledReason)"
-            :disabled-reason="createDisabledReason"
-            @click="createRequest"
-            >{{ t("outstanding.createRequest") }}</UiButton
+      <div v-if="!projectId" class="outstanding-cleanup__choose" data-testid="outstanding-cleanup-projects">
+        <UiFlash v-if="pendingProjectsError" tone="danger">
+          {{ pendingProjectsError }}
+          <template #actions
+            ><UiButton size="sm" @click="cleanupStore.reloadPendingProjects">{{
+              t("common.retry")
+            }}</UiButton></template
           >
-        </div>
-      </template>
-      <UiFlash v-if="skipped" tone="accent">{{ t("outstanding.trackingIsNotEnabledFor") }}</UiFlash>
-      <UiFlash v-if="error" tone="danger">{{ error }}</UiFlash>
-      <UiBox>
-        <template #header
-          ><UiBoxTitle :title="t('common.cleanupRequests')" :count="requestsLoaded ? requestPageInfo.total : undefined"
-        /></template>
-        <UiSkeleton v-if="loading && !requestsLoaded" :count="2" />
-        <UiEmptyState
-          v-else-if="!error && !requests.length"
-          :title="t('outstanding.noRequestsYet')"
-          :description="t('outstanding.afterCreatingARequestYou')"
-        />
-        <VirtualList
-          v-else-if="!error"
-          :items="requests"
-          :item-key="(item) => item.id"
-          :enabled="requests.length > 3"
-          max-height="240px"
-          :label="t('outstanding.requestList')"
-        >
-          <template #default="{ item }">
-            <UiBoxRow
-              :title="formatDate(item.requestedAt)"
-              clickable
-              :class="{ 'is-selected': item.id === requestId }"
-              :aria-current="item.id === requestId ? 'true' : undefined"
-              @select="requestId = item.id"
+        </UiFlash>
+        <UiSkeleton v-else-if="!pendingProjectsLoaded" :count="2" :label="t('common.loading')" />
+        <p v-else-if="pendingProjects.length === 0" class="outstanding-cleanup__hint">
+          {{ t("outstanding.cleanupNothingPending") }}
+        </p>
+        <template v-else>
+          <p class="outstanding-cleanup__hint">{{ t("outstanding.cleanupChooseProject") }}</p>
+          <div v-if="onlyProject" class="outstanding-cleanup__project">
+            <UiButton variant="primary" @click="cleanupStore.chooseProject(onlyProject.projectId)">{{
+              onlyProjectLabel(onlyProject)
+            }}</UiButton>
+          </div>
+          <ul v-else class="outstanding-cleanup__projects" :aria-label="t('outstanding.cleanupProjectList')">
+            <li
+              v-for="project in pendingProjects"
+              :key="project.projectId"
+              class="outstanding-cleanup__project"
+              data-testid="outstanding-cleanup-project"
             >
-              <template #labels><StatusLabel :status="outstandingCleanupRequestVisual[item.status]" /></template>
-              <template #meta>{{
-                t("outstanding.checkedItemsToReview", {
-                  examinedCount: item.examinedCount,
-                  itemCount: item.itemCount,
-                  proposalCount: item.proposalCount,
-                })
-              }}</template>
-            </UiBoxRow>
-          </template>
-        </VirtualList>
-        <template v-if="requestsLoaded" #footer
-          ><UiPagination
-            v-model:page-size="requestPageSize"
-            :page-info="requestPageInfo"
-            :size-label="t('outstanding.requestsPerPage')"
-            @page="requestPage = $event"
-        /></template>
-      </UiBox>
-      <UiBox v-if="requestId">
-        <template #header>
-          <UiBoxTitle :title="t('outstanding.closedByAgent')" :count="proposalPageInfo.total" />
+              <span class="outstanding-cleanup__project-name">{{ project.projectName }}</span>
+              <span v-if="pendingCountText(project)" class="outstanding-cleanup__hint">{{
+                pendingCountText(project)
+              }}</span>
+              <UiButton
+                size="sm"
+                variant="primary"
+                :aria-label="t('outstanding.cleanupChooseLabel', { project: project.projectName })"
+                @click="cleanupStore.chooseProject(project.projectId)"
+                >{{ t("outstanding.cleanupChoose") }}</UiButton
+              >
+            </li>
+          </ul>
         </template>
-        <div v-if="selectedRequest" class="outstanding-cleanup__summary">
-          <StatusLabel :status="outstandingCleanupRequestVisual[selectedRequest.status]" />
-          <span>{{
-            t("outstanding.checkedItems", {
-              examinedCount: selectedRequest.examinedCount,
-              itemCount: selectedRequest.itemCount,
-            })
-          }}</span>
-          <span>{{ t("outstanding.itemsWithoutASuggestionStay") }}</span>
-        </div>
-        <div
-          v-if="closedProposals.length"
-          class="outstanding-cleanup__actions outstanding-cleanup__batch"
-          role="group"
-          :aria-label="t('outstanding.reopenClosedItemsInBulk')"
-        >
-          <UiCheckbox
-            v-model="allSelected"
-            :label="t('outstanding.selectAllClosedOnThisPage')"
-            :indeterminate="selectedIds.length > 0 && !allSelected"
-            :disabled="busy"
-          />
-          <span aria-live="polite">{{ t("outstanding.selected", { length: selectedIds.length }) }}</span>
-          <UiButton size="sm" :disabled="busy || !selectedIds.length" @click="reopen([...selectedIds])">{{
-            t("outstanding.reopenSelected")
+      </div>
+      <template v-else>
+        <div class="outstanding-cleanup__project">
+          <strong class="outstanding-cleanup__project-name">{{ projectName }}</strong>
+          <UiButton v-if="canChangeProject" size="sm" variant="invisible" @click="cleanupStore.changeProject">{{
+            t("outstanding.cleanupChangeProject")
           }}</UiButton>
         </div>
-        <UiFlash v-if="proposalError" tone="danger">{{ proposalError }}</UiFlash>
-        <UiSkeleton v-if="proposalsLoading && !proposals.length" :count="3" />
-        <UiEmptyState
-          v-else-if="!proposalError && !proposals.length"
-          :title="t('outstanding.noClosedItemsYet')"
-          :description="t('outstanding.whileARequestAwaitsCleanup')"
+        <AgentHandoffNotice
+          v-if="activeRequest"
+          class="outstanding-cleanup__handoff"
+          :status="outstandingCleanupRequestVisual[activeRequest.status]"
+          :message="t('outstanding.cleanupHandoffMessage')"
+          :command="t('outstanding.cleanupCommand')"
+          :cancel-label="t('outstanding.cancelRequest')"
+          :cancel-disabled="busy"
+          @cancel="cancelRequest(activeRequest.id)"
         />
-        <VirtualList
-          v-else-if="!proposalError"
-          :items="proposals"
-          :item-key="(item) => item.id"
-          :enabled="proposals.length > 3"
-          max-height="440px"
-          :estimate-item-height="240"
-          :label="t('outstanding.closedItemList')"
-        >
-          <template #default="{ item }">
-            <UiBoxRow :title="item.itemText" class="outstanding-cleanup__proposal">
-              <template #leading
-                ><UiCheckbox
-                  v-if="item.itemStatus !== 'pending'"
-                  :model-value="selectedIds.includes(item.itemId)"
-                  :label="t('outstanding.selectClosedItem', { itemText: item.itemText })"
-                  :disabled="busy"
-                  @update:model-value="selectProposal(item.itemId, $event)"
-              /></template>
-              <template #labels
-                ><StatusLabel :status="verdictVisual(item)" /><StatusLabel
-                  v-if="item.itemStatus === 'pending'"
-                  :status="outstandingItemStatusVisual.pending"
-              /></template>
-              <p class="outstanding-cleanup__reason">{{ item.reason }}</p>
-              <div class="outstanding-cleanup__actions">
-                <UiButton size="sm" @click="openSession(item.sourceSessionId)">{{
-                  t("common.sourceSession")
-                }}</UiButton>
-                <UiButton v-for="(id, index) in item.evidenceSessionIds" :key="id" size="sm" @click="openSession(id)">{{
-                  t("outstanding.evidence", { value: index + 1 })
-                }}</UiButton>
-                <UiButton
-                  v-if="item.itemStatus !== 'pending'"
-                  size="sm"
-                  :disabled="busy"
-                  @click="reopen([item.itemId])"
-                  >{{ t("outstanding.reopen") }}</UiButton
-                >
-              </div>
-            </UiBoxRow>
+        <template v-else>
+          <p class="outstanding-cleanup__hint">
+            {{ t("outstanding.askTheAgentToTidy") }}
+          </p>
+          <div class="outstanding-cleanup__actions">
+            <UiButton
+              variant="primary"
+              :disabled="busy || Boolean(createDisabledReason)"
+              :disabled-reason="createDisabledReason"
+              @click="createRequest"
+              >{{ t("outstanding.createRequest") }}</UiButton
+            >
+          </div>
+        </template>
+        <UiFlash v-if="skipped" tone="accent">{{ t("outstanding.trackingIsNotEnabledFor") }}</UiFlash>
+        <UiFlash v-if="error" tone="danger">{{ error }}</UiFlash>
+        <UiBox>
+          <template #header
+            ><UiBoxTitle
+              :title="t('common.cleanupRequests')"
+              :count="requestsLoaded ? requestPageInfo.total : undefined"
+          /></template>
+          <UiSkeleton v-if="loading && !requestsLoaded" :count="2" />
+          <UiEmptyState
+            v-else-if="!error && !requests.length"
+            :title="t('outstanding.noRequestsYet')"
+            :description="t('outstanding.afterCreatingARequestYou')"
+          />
+          <VirtualList
+            v-else-if="!error"
+            :items="requests"
+            :item-key="(item) => item.id"
+            :enabled="requests.length > 3"
+            max-height="240px"
+            :label="t('outstanding.requestList')"
+          >
+            <template #default="{ item }">
+              <UiBoxRow
+                :title="formatDate(item.requestedAt)"
+                clickable
+                :class="{ 'is-selected': item.id === requestId }"
+                :aria-current="item.id === requestId ? 'true' : undefined"
+                @select="requestId = item.id"
+              >
+                <template #labels><StatusLabel :status="outstandingCleanupRequestVisual[item.status]" /></template>
+                <template #meta>{{
+                  t("outstanding.checkedItemsToReview", {
+                    examinedCount: item.examinedCount,
+                    itemCount: item.itemCount,
+                    proposalCount: item.proposalCount,
+                  })
+                }}</template>
+              </UiBoxRow>
+            </template>
+          </VirtualList>
+          <template v-if="requestsLoaded" #footer
+            ><UiPagination
+              v-model:page-size="requestPageSize"
+              :page-info="requestPageInfo"
+              :size-label="t('outstanding.requestsPerPage')"
+              @page="requestPage = $event"
+          /></template>
+        </UiBox>
+        <UiBox v-if="requestId">
+          <template #header>
+            <UiBoxTitle :title="t('outstanding.closedByAgent')" :count="proposalPageInfo.total" />
           </template>
-        </VirtualList>
-        <template #footer
-          ><UiPagination
-            v-model:page-size="proposalPageSize"
-            :page-info="proposalPageInfo"
-            :size-label="t('outstanding.closedItemsPerPage')"
-            @page="proposalPage = $event"
-        /></template>
-      </UiBox>
+          <div v-if="selectedRequest" class="outstanding-cleanup__summary">
+            <StatusLabel :status="outstandingCleanupRequestVisual[selectedRequest.status]" />
+            <span>{{
+              t("outstanding.checkedItems", {
+                examinedCount: selectedRequest.examinedCount,
+                itemCount: selectedRequest.itemCount,
+              })
+            }}</span>
+            <span>{{ t("outstanding.itemsWithoutASuggestionStay") }}</span>
+          </div>
+          <div v-if="closedProposals.length" class="outstanding-cleanup__selection">
+            <label class="outstanding-cleanup__select-page">
+              <UiCheckbox
+                v-model="allSelected"
+                :label="t('outstanding.selectAllClosedOnThisPage')"
+                :indeterminate="selectedIds.length > 0 && !allSelected"
+                :disabled="busy"
+              />
+              <span v-if="selectedIds.length === 0">{{ t("outstanding.selectPage") }}</span>
+            </label>
+            <div
+              v-if="selectedIds.length > 0"
+              class="outstanding-cleanup__batch"
+              role="group"
+              :aria-label="t('outstanding.reopenClosedItemsInBulk')"
+              data-testid="outstanding-cleanup-batch-toolbar"
+            >
+              <span aria-live="polite">{{ t("outstanding.selected", { length: selectedIds.length }) }}</span>
+              <UiButton size="sm" :disabled="busy" @click="reopen([...selectedIds])">{{
+                t("outstanding.reopenSelected")
+              }}</UiButton>
+            </div>
+          </div>
+          <UiFlash v-if="proposalError" tone="danger">{{ proposalError }}</UiFlash>
+          <UiSkeleton v-if="proposalsLoading && !proposals.length" :count="3" />
+          <UiEmptyState
+            v-else-if="!proposalError && !proposals.length"
+            :title="t('outstanding.noClosedItemsYet')"
+            :description="t('outstanding.whileARequestAwaitsCleanup')"
+          />
+          <VirtualList
+            v-else-if="!proposalError"
+            :items="proposals"
+            :item-key="(item) => item.id"
+            :enabled="proposals.length > 3"
+            max-height="440px"
+            :estimate-item-height="64"
+            :label="t('outstanding.closedItemList')"
+          >
+            <template #default="{ item }">
+              <UiBoxRow class="outstanding-cleanup__proposal" data-testid="outstanding-cleanup-proposal">
+                <template #leading
+                  ><UiCheckbox
+                    v-if="item.itemStatus !== 'pending'"
+                    :model-value="selectedIds.includes(item.itemId)"
+                    :label="t('outstanding.selectClosedItem', { itemText: item.itemText })"
+                    :disabled="busy"
+                    @update:model-value="selectProposal(item.itemId, $event)"
+                /></template>
+                <template #title
+                  ><span :title="item.itemText">{{ item.itemText }}</span></template
+                >
+                <template #labels
+                  ><StatusLabel v-if="item.itemStatus === 'pending'" :status="outstandingItemStatusVisual.pending"
+                /></template>
+                <template #meta>
+                  <StatusLabel :status="verdictVisual(item)" />
+                  <span class="outstanding-cleanup__reason" :title="item.reason">{{ item.reason }}</span>
+                </template>
+                <template #trailing>
+                  <div class="outstanding-cleanup__row-actions">
+                    <UiButton
+                      size="sm"
+                      :icon="ExternalLink"
+                      icon-only
+                      :label="t('common.sourceSession')"
+                      :aria-label="t('outstanding.openSourceSessionOf', { text: item.itemText })"
+                      @click="openSession(item.sourceSessionId)"
+                    />
+                    <UiButton
+                      v-for="(id, index) in item.evidenceSessionIds"
+                      :key="id"
+                      size="sm"
+                      :icon="Link2"
+                      icon-only
+                      :label="t('outstanding.evidence', { value: index + 1 })"
+                      :aria-label="t('outstanding.openEvidenceOf', { value: index + 1, text: item.itemText })"
+                      @click="openSession(id)"
+                    />
+                    <UiButton
+                      v-if="item.itemStatus !== 'pending'"
+                      size="sm"
+                      :icon="RotateCcw"
+                      icon-only
+                      :label="t('outstanding.reopen')"
+                      :aria-label="t('outstanding.reopenItem', { text: item.itemText })"
+                      :disabled="busy"
+                      @click="reopen([item.itemId])"
+                    />
+                  </div>
+                </template>
+              </UiBoxRow>
+            </template>
+          </VirtualList>
+          <template #footer
+            ><UiPagination
+              v-model:page-size="proposalPageSize"
+              :page-info="proposalPageInfo"
+              :size-label="t('outstanding.closedItemsPerPage')"
+              @page="proposalPage = $event"
+          /></template>
+        </UiBox>
+      </template>
     </div>
   </UiSidePanel>
 </template>
 
 <style scoped>
-.outstanding-cleanup__entry,
 .outstanding-cleanup__actions,
 .outstanding-cleanup__summary {
   display: flex;
@@ -397,6 +492,31 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
 .outstanding-cleanup__body {
   padding: var(--space-4);
 }
+.outstanding-cleanup__projects {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.outstanding-cleanup__project {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-sm);
+}
+.outstanding-cleanup__projects .outstanding-cleanup__project {
+  margin-bottom: 0;
+}
+.outstanding-cleanup__project-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.outstanding-cleanup__project .ui-button:last-child:not(:only-child) {
+  margin-inline-start: auto;
+}
 .outstanding-cleanup__body > .outstanding-cleanup__actions {
   margin-bottom: var(--space-4);
 }
@@ -407,27 +527,75 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
   color: var(--fg-muted);
   font-size: var(--text-xs);
 }
-.outstanding-cleanup__summary,
-.outstanding-cleanup__batch {
+.outstanding-cleanup__summary {
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border);
   font-size: var(--text-xs);
 }
+p.outstanding-cleanup__hint {
+  margin: 0 0 var(--space-3);
+}
+.outstanding-cleanup__selection {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--space-8);
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--border-muted);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+.outstanding-cleanup__select-page {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  cursor: pointer;
+}
+.outstanding-cleanup__batch {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
 .outstanding-cleanup__body .is-selected {
   background: var(--bg-subtle);
 }
-.outstanding-cleanup__reason {
-  margin: var(--space-2) 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+.outstanding-cleanup__proposal {
+  align-items: center;
+  padding-block: var(--space-2);
 }
-.outstanding-cleanup__proposal :deep(.ui-box-row__title) {
-  white-space: normal;
-  overflow-wrap: anywhere;
+.outstanding-cleanup__proposal :deep(.ui-box-row__leading) {
+  padding-top: 0;
+}
+.outstanding-cleanup__proposal :deep(.ui-box-row__text) {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.outstanding-cleanup__reason {
+  margin-inline-start: var(--space-1);
+}
+.outstanding-cleanup__row-actions {
+  display: flex;
+  gap: var(--space-1);
 }
 @media (max-width: 639px) {
   .outstanding-cleanup__body {
     padding: var(--space-2);
+  }
+  .outstanding-cleanup__proposal {
+    flex-wrap: wrap;
+  }
+  .outstanding-cleanup__proposal :deep(.ui-box-row__meta) {
+    white-space: normal;
+  }
+  .outstanding-cleanup__proposal :deep(.ui-box-row__trailing) {
+    flex-basis: 100%;
+    justify-content: flex-end;
   }
 }
 </style>

@@ -12,7 +12,7 @@ let harness: ReturnType<typeof createStoreHarness>;
 
 beforeEach(() => {
   vi.useFakeTimers();
-  vi.stubGlobal("window", { setTimeout });
+  vi.stubGlobal("window", { setTimeout, clearTimeout });
   harness = createStoreHarness();
 });
 
@@ -77,6 +77,69 @@ describe("dialog and form stores", () => {
     expect(toasts.toasts).toEqual([]);
     toasts.showToast("Again", "success");
     toasts.$reset();
+    expect(toasts.toasts).toEqual([]);
+  });
+
+  it("keeps a toast with an action for 8 seconds and runs the action once before dismissing it", async () => {
+    const toasts = useToastsStore();
+    const undo = vi.fn();
+    toasts.showToast("Marked as done", "success", { label: "Undo", run: undo });
+    toasts.showToast("Plain");
+    vi.advanceTimersByTime(4_000);
+    expect(toasts.toasts.map((toast) => toast.message)).toEqual(["Marked as done"]);
+
+    const [toast] = toasts.toasts;
+    await toasts.runToastAction(toast!.id);
+    expect(undo).toHaveBeenCalledTimes(1);
+    expect(toasts.toasts).toEqual([]);
+    await toasts.runToastAction(toast!.id);
+    expect(undo).toHaveBeenCalledTimes(1);
+
+    toasts.showToast("Again", "success", { label: "Undo", run: undo });
+    vi.advanceTimersByTime(8_000);
+    expect(toasts.toasts).toEqual([]);
+  });
+
+  it("never evicts a toast with an action because of plain toasts, and caps each kind on its own", () => {
+    const toasts = useToastsStore();
+    const action = { label: "Undo", run: vi.fn() };
+    toasts.showToast("Undoable", "success", action);
+    for (const index of [1, 2, 3, 4, 5, 6]) toasts.showToast(`Plain ${index}`);
+    expect(toasts.toasts.map((toast) => toast.message)).toEqual([
+      "Undoable",
+      "Plain 3",
+      "Plain 4",
+      "Plain 5",
+      "Plain 6",
+    ]);
+    for (const index of [1, 2, 3, 4]) toasts.showToast(`Undoable ${index}`, "success", action);
+    expect(toasts.toasts.filter((toast) => toast.action).map((toast) => toast.message)).toEqual([
+      "Undoable 1",
+      "Undoable 2",
+      "Undoable 3",
+      "Undoable 4",
+    ]);
+  });
+
+  it("pauses a toast while it is hovered or focused and resumes it once both end", () => {
+    const toasts = useToastsStore();
+    toasts.showToast("Marked as done", "success", { label: "Undo", run: vi.fn() });
+    const [toast] = toasts.toasts;
+
+    vi.advanceTimersByTime(6_000);
+    toasts.holdToast(toast!.id, "hover");
+    toasts.holdToast(toast!.id, "focus");
+    vi.advanceTimersByTime(60_000);
+    expect(toasts.toasts).toHaveLength(1);
+
+    toasts.releaseToast(toast!.id, "hover");
+    vi.advanceTimersByTime(60_000);
+    expect(toasts.toasts).toHaveLength(1);
+
+    toasts.releaseToast(toast!.id, "focus");
+    vi.advanceTimersByTime(1_999);
+    expect(toasts.toasts).toHaveLength(1);
+    vi.advanceTimersByTime(1);
     expect(toasts.toasts).toEqual([]);
   });
 });

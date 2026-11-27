@@ -82,6 +82,18 @@ async function getOutstandingItemTotal(
   return result.pageInfo.total;
 }
 
+/** Matches the count as a whole number, so a total of 5 is not satisfied by 15 or 50. */
+function wholeNumber(value: number): RegExp {
+  return new RegExp(`(?<!\\d)${value}(?!\\d)`);
+}
+
+async function getPendingOutstandingTotal(request: APIRequestContext): Promise<number> {
+  const response = await request.get("/api/outstanding-items", { params: { status: "pending", page: 1, pageSize: 1 } });
+  expect(response.ok(), `/api/outstanding-items returned ${response.status()}`).toBeTruthy();
+  const result = (await response.json()) as { pageInfo: { total: number } };
+  return result.pageInfo.total;
+}
+
 async function submitKnowledgeCandidateForReview(
   page: Page,
   input: { title: string; body: string; rationale: string },
@@ -482,12 +494,14 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(sessionPanel).toBeHidden();
 
     await primaryItem()
-      .getByRole("button", { name: tt("common.noLongerNeeded") })
+      .getByRole("button", { name: tt("outstanding.markNotNeededAction") })
       .click();
-    const confirmation = page.getByRole("dialog", { name: tt("outstanding.markThisOpenItemAs") });
-    await expect(confirmation).toBeVisible();
-    await confirmation.getByRole("button", { name: tt("outstanding.keepAsPending") }).click();
-    await expect(confirmation).toBeHidden();
+    await expect(page.getByText(tt("outstanding.markedAsNoLongerNeeded"), { exact: true })).toBeVisible();
+    await expect(primaryItem()).toHaveCount(0);
+    // The button that was clicked is gone with its row, so focus must not fall back to the page.
+    await expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).not.toBe("BODY");
+    await page.getByRole("button", { name: tt("common.undo"), exact: true }).click();
+    await expect(page.getByText(tt("outstanding.undone", { count: 1 }), { exact: true })).toBeVisible();
     await expect(primaryItem()).toBeVisible();
 
     await primaryItem()
@@ -497,6 +511,7 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(primaryItem()).toHaveCount(0);
     await selectStatus(tt("common.completedStatus"));
     await expect(primaryItem()).toBeVisible();
+    await expect(primaryItem().getByText(tt("common.completedStatus"), { exact: true })).toBeVisible();
     await primaryItem()
       .getByRole("button", { name: tt("outstanding.reopen") })
       .click();
@@ -506,10 +521,6 @@ test.describe("Work Intelligence browser regression", () => {
     await selectStatus(tt("common.pending"));
     await expect(primaryItem()).toBeVisible();
     await primaryItem()
-      .getByRole("button", { name: tt("common.noLongerNeeded") })
-      .click();
-    await page
-      .getByRole("dialog", { name: tt("outstanding.markThisOpenItemAs") })
       .getByRole("button", { name: tt("outstanding.markNotNeededAction") })
       .click();
     await expect(page.getByText(tt("outstanding.markedAsNoLongerNeeded"), { exact: true })).toBeVisible();
@@ -532,35 +543,32 @@ test.describe("Work Intelligence browser regression", () => {
     await page.goto(`/sessions/outstanding?itemProject=${otherProjectId}&itemStatus=pending&itemPage=1&itemSize=100`);
     await expect(page.getByText(ttPattern("ui.showingOf", { total: 120 }))).toBeVisible();
 
+    const toolbar = page.getByTestId("outstanding-batch-toolbar");
+    const undo = page.getByRole("button", { name: tt("common.undo"), exact: true }).last();
     const selectCurrentPage = page.getByRole("checkbox", { name: tt("outstanding.selectAllOpenItemsOn") });
-    const completeBatch = page.getByRole("button", { name: tt("outstanding.markDone"), exact: true });
-    const notNeededBatch = page.getByRole("button", { name: tt("outstanding.markNotNeeded"), exact: true });
+    await expect(toolbar).toBeHidden();
     await selectCurrentPage.check();
-    await expect(completeBatch).toBeEnabled();
-    await expect(notNeededBatch).toBeEnabled();
-    await completeBatch.click();
+    await expect(toolbar).toBeVisible();
+    await expect(toolbar).toContainText(tt("outstanding.selectedPage", { count: 100 }));
+    await toolbar.getByRole("button", { name: tt("outstanding.markDone"), exact: true }).click();
 
-    const undoBatch = page.getByRole("button", { name: tt("outstanding.undoThisBatch"), exact: true });
-    await expect(undoBatch).toBeVisible();
+    await expect(page.getByText(tt("outstanding.updatedOpenItems", { length: 100 }), { exact: true })).toBeVisible();
     await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "completed")).toBe(100);
     await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "pending")).toBe(20);
+    await expect(toolbar).toBeHidden();
     await expect(selectCurrentPage).not.toBeChecked();
-    await expect(completeBatch).toBeDisabled();
 
     await filterMenu(page, tt("common.status")).click();
     await page.getByRole("menuitemradio", { name: tt("common.completedStatus"), exact: true }).click();
-    await expect(selectCurrentPage).toBeDisabled();
-    await expect(completeBatch).toBeDisabled();
-    await expect(notNeededBatch).toBeDisabled();
+    await expect(selectCurrentPage).toBeHidden();
     await filterMenu(page, tt("common.status")).click();
     await page.getByRole("menuitemradio", { name: tt("common.pending"), exact: true }).click();
 
     await page.getByLabel(tt("outstanding.openItemsPerPage")).selectOption("10");
     await page.getByRole("button", { name: tt("ui.nextPage"), exact: true }).click();
     await expect.poll(() => new URL(page.url()).searchParams.get("itemPage")).toBe("2");
-    await expect(undoBatch).toBeVisible();
-    await undoBatch.click();
-    await expect(undoBatch).toBeHidden();
+    await undo.click();
+    await expect(page.getByText(tt("outstanding.undone", { count: 100 }), { exact: true })).toBeVisible();
     await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "pending")).toBe(120);
     await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "completed")).toBe(0);
     // A fresh read after undo avoids selecting from a cached pre-undo page during SSE reconciliation.
@@ -587,42 +595,132 @@ test.describe("Work Intelligence browser regression", () => {
     await expect(selectCurrentPage).toBeChecked();
     // Drain in-flight fixture fetches before removing their handlers.
     await page.unrouteAll({ behavior: "wait" });
-    await notNeededBatch.click();
-    const confirmation = page.getByRole("dialog", { name: tt("outstanding.markNotNeeded"), exact: true });
-    await expect(confirmation).toBeVisible();
-    await confirmation.getByRole("button", { name: tt("outstanding.markNotNeededAction"), exact: true }).click();
-    await expect(undoBatch).toBeVisible();
+    await toolbar.getByRole("button", { name: tt("outstanding.markNotNeeded"), exact: true }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByText(tt("outstanding.updatedOpenItems", { length: 10 }), { exact: true })).toBeVisible();
     await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "not_needed")).toBe(10);
     await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "pending")).toBe(110);
 
-    await undoBatch.click();
-    await expect(undoBatch).toBeHidden();
+    await undo.click();
     await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "pending")).toBe(120);
     await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "not_needed")).toBe(0);
+  });
+
+  test("selects every matching open item across pages, applies it in chunks and undoes it from the toast", async ({
+    page,
+    request,
+  }) => {
+    await page.goto(`/sessions/outstanding?itemProject=${otherProjectId}&itemStatus=pending&itemPage=1&itemSize=10`);
+    await expect(page.getByText(ttPattern("ui.showingOf", { total: 120 }))).toBeVisible();
+
+    const toolbar = page.getByTestId("outstanding-batch-toolbar");
+    await page.getByRole("checkbox", { name: tt("outstanding.selectAllOpenItemsOn") }).check();
+    await expect(toolbar).toContainText(tt("outstanding.selectedPage", { count: 10 }));
+    await toolbar.getByRole("button", { name: tt("outstanding.selectAllMatching", { count: 120 }) }).click();
+    await expect(toolbar).toContainText(tt("outstanding.selectedAll", { count: 120 }));
+    await expect(toolbar.getByRole("button", { name: ttPattern("outstanding.selectAllMatching") })).toHaveCount(0);
+
+    await page.getByRole("button", { name: tt("ui.nextPage"), exact: true }).click();
+    await expect.poll(() => new URL(page.url()).searchParams.get("itemPage")).toBe("2");
+    await expect(toolbar).toContainText(tt("outstanding.selectedAll", { count: 120 }));
+    await expect(page.getByRole("checkbox", { name: ttPattern("outstanding.selectOpenItem") }).first()).toBeChecked();
+
+    await toolbar.getByRole("button", { name: tt("outstanding.markDone"), exact: true }).click();
+    await expect(page.getByText(tt("outstanding.updatedOpenItems", { length: 120 }), { exact: true })).toBeVisible();
+    await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "completed")).toBe(120);
+    await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "pending")).toBe(0);
+    await expect(toolbar).toBeHidden();
+
+    await page
+      .getByRole("button", { name: tt("common.undo"), exact: true })
+      .last()
+      .click();
+    await expect(page.getByText(tt("outstanding.undone", { count: 120 }), { exact: true })).toBeVisible();
+    await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "pending")).toBe(120);
+    await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "completed")).toBe(0);
+  });
+
+  test("skips items that changed elsewhere, still updates the rest, and undoes only what it changed", async ({
+    page,
+    request,
+  }) => {
+    await page.goto(`/sessions/outstanding?itemProject=${otherProjectId}&itemStatus=pending&itemPage=1&itemSize=10`);
+    const checkboxes = page.getByRole("checkbox", { name: ttPattern("outstanding.selectOpenItem") });
+    for (const index of [0, 1, 2]) await checkboxes.nth(index).check();
+    const toolbar = page.getByTestId("outstanding-batch-toolbar");
+    await expect(toolbar).toContainText(tt("outstanding.selectedCount", { count: 3 }));
+
+    let rejected = false;
+    await page.route("**/api/outstanding-items/batch", async (route) => {
+      const { itemIds } = route.request().postDataJSON() as { itemIds: string[] };
+      if (rejected) return route.continue();
+      rejected = true;
+      return route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: "Outstanding item status changed.",
+          code: "conflict",
+          details: { reason: "status_conflict", invalidItemIds: [itemIds[0]] },
+        }),
+      });
+    });
+    await toolbar.getByRole("button", { name: tt("outstanding.markDone"), exact: true }).click();
+
+    await expect(
+      page.getByText(tt("outstanding.updatedAndSkipped", { updated: 2, skipped: 1 }), { exact: true }),
+    ).toBeVisible();
+    await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "completed")).toBe(2);
+    await expect(toolbar).toHaveCount(0);
+
+    await page.getByRole("button", { name: tt("common.undo"), exact: true }).click();
+    await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "completed")).toBe(0);
+    await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "pending")).toBe(120);
   });
 
   test("clears outstanding batch selection when the page or project filter changes", async ({ page }) => {
     await page.goto(`/sessions/outstanding?itemProject=${otherProjectId}&itemStatus=pending&itemPage=1&itemSize=10`);
     const selectCurrentPage = page.getByRole("checkbox", { name: tt("outstanding.selectAllOpenItemsOn") });
     const itemCheckboxes = page.getByRole("checkbox", { name: ttPattern("outstanding.selectOpenItem") });
-    const completeBatch = page.getByRole("button", { name: tt("outstanding.markDone"), exact: true });
+    const toolbar = page.getByTestId("outstanding-batch-toolbar");
 
+    await expect(toolbar).toBeHidden();
     await itemCheckboxes.first().check();
-    await expect(completeBatch).toBeEnabled();
+    await expect(toolbar).toBeVisible();
+    await expect(toolbar).toContainText(tt("outstanding.selectedCount", { count: 1 }));
     await page.getByRole("button", { name: tt("ui.nextPage"), exact: true }).click();
     await expect.poll(() => new URL(page.url()).searchParams.get("itemPage")).toBe("2");
     await expect(selectCurrentPage).not.toBeChecked();
     await expect(itemCheckboxes.first()).not.toBeChecked();
-    await expect(completeBatch).toBeDisabled();
+    await expect(toolbar).toBeHidden();
 
     await itemCheckboxes.first().check();
-    await expect(completeBatch).toBeEnabled();
+    await expect(toolbar).toBeVisible();
     await filterMenu(page, tt("common.project")).click();
     await page.getByRole("menuitemradio", { name: "Browser Regression Fixture", exact: true }).click();
     await expect.poll(() => new URL(page.url()).searchParams.get("itemProject")).toBe(projectId);
     await expect(selectCurrentPage).not.toBeChecked();
     await expect(itemCheckboxes.first()).not.toBeChecked();
-    await expect(completeBatch).toBeDisabled();
+    await expect(toolbar).toBeHidden();
+  });
+
+  test("shows the pending open items count in the tab and the sidebar before the list is opened", async ({
+    page,
+    request,
+  }) => {
+    const total = await getPendingOutstandingTotal(request);
+    await page.goto("/sessions");
+
+    await expect(page.getByRole("tab", { name: ttPattern("common.openItems") })).toContainText(wholeNumber(total));
+    const entry = page.getByTestId("nav-outstanding");
+    await expect(entry).toContainText(tt("common.openItems"));
+    await expect(entry).toContainText(wholeNumber(total));
+    await expect(page.getByTestId("nav-sessions")).toHaveClass(/is-active/);
+    await expect(entry).not.toHaveClass(/is-active/);
+    await entry.click();
+    await expect(page).toHaveURL(/\/sessions\/outstanding$/);
+    await expect(entry).toHaveClass(/is-active/);
+    await expect(page.getByTestId("nav-sessions")).not.toHaveClass(/is-active/);
   });
 
   test("syncs outstanding source Session date filters to the URL and API across reloads", async ({ page }) => {
@@ -667,10 +765,27 @@ test.describe("Work Intelligence browser regression", () => {
     for (const width of [1440, 960, 375]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/sessions/outstanding?itemProject=${otherProjectId}&itemStatus=pending&itemPage=1&itemSize=100`);
+      await expect(page.getByRole("checkbox", { name: tt("outstanding.selectAllOpenItemsOn") })).toBeVisible();
+      await expect(page.getByTestId("outstanding-batch-toolbar")).toBeHidden();
+      if (width < 640) {
+        const rows = page.getByTestId("outstanding-item");
+        await expect(rows).toHaveCount(100);
+        await expect(page.getByRole("list", { name: tt("outstanding.openItemsList") })).toHaveCount(0);
+        const row = (await rows.first().boundingBox())!;
+        const source = (await rows
+          .first()
+          .getByRole("button", { name: ttPattern("outstanding.openSourceSession") })
+          .boundingBox())!;
+        expect(source.width).toBeGreaterThan(120);
+        expect(row.height).toBeLessThan(130);
+        await page.screenshot({ path: testInfo.outputPath(`outstanding-items-${width}.png`) });
+        await expectNoHorizontalOverflow(page);
+        continue;
+      }
       const list = await expectBoundedVirtualList(page, tt("outstanding.openItemsList"));
       await expect(list.getByRole("listitem").first()).toBeVisible();
-      await expect(page.getByRole("checkbox", { name: tt("outstanding.selectAllOpenItemsOn") })).toBeVisible();
-      await expect(page.getByRole("button", { name: tt("outstanding.markDone"), exact: true })).toBeVisible();
+      const rowHeight = (await list.getByTestId("outstanding-item").first().boundingBox())!.height;
+      expect(rowHeight).toBeLessThan(70);
       await page.screenshot({ path: testInfo.outputPath(`outstanding-items-${width}.png`) });
       await expectUserScrollsListInternally(page, tt("outstanding.openItemsList"));
       await expectNoHorizontalOverflow(page);

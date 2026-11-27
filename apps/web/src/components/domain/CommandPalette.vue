@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { BookOpen, CornerDownLeft, Languages, ListChecks, Monitor, Moon, Search, Sun } from "lucide-vue-next";
 import { storeToRefs } from "pinia";
-import { navItems } from "../layout/navigation";
+import { navItems, navTarget } from "../layout/navigation";
 import type { IconComponent } from "../ui/types";
 import { useFocusTrap } from "../../composables/useFocusTrap";
 import { router } from "../../router";
@@ -40,7 +40,7 @@ const items = computed<PaletteItem[]>(() => {
       label: item.label,
       hint: item.shortcut,
       icon: item.icon,
-      run: () => void router.push({ name: item.name }),
+      run: () => void router.push(navTarget(item)),
     }));
   // Matched by their label in either language plus a few keywords, so "theme" or "語言" finds them.
   const preferences = [

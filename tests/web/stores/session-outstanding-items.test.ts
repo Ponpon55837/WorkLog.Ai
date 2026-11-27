@@ -67,11 +67,12 @@ function workResponder({ url, method, body }: StoreRequest): unknown {
     sessionVoided = (body as { voided: boolean }).voided;
     return { outcome: "session_void_updated", sessionId: "session-1", voided: sessionVoided };
   }
-  if (url.pathname === "/api/outstanding-items/item-1" && method === "PATCH") {
+  if (url.pathname === "/api/outstanding-items/batch" && method === "PATCH") {
     itemStatus = (body as { status: OutstandingItemStatus }).status;
     return {
-      outcome: "outstanding_item_updated",
-      item: createOutstandingItem(nextSteps[0] ?? "Draft release notes", 0, itemStatus),
+      outcome: "outstanding_items_updated",
+      updatedItemIds: ["item-1"],
+      items: [createOutstandingItem(nextSteps[0] ?? "Draft release notes", 0, itemStatus)],
       duplicate: false,
     };
   }
@@ -115,7 +116,7 @@ describe("Session mutations and outstanding items cache", () => {
     expect(outstandingStore.items[0]?.status).toBe("pending");
 
     const listRequestCount = harness.count("/api/outstanding-items");
-    await outstandingStore.updateStatus({ itemId: "item-1", status: "completed" });
+    await outstandingStore.batchUpdateStatusInChunks({ itemIds: ["item-1"], status: "completed" });
 
     await vi.waitFor(() => expect(harness.count("/api/outstanding-items")).toBeGreaterThan(listRequestCount));
     await vi.waitFor(() => expect(outstandingStore.pageInfo.total).toBe(0));

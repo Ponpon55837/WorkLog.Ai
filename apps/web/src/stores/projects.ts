@@ -79,6 +79,8 @@ export const useProjectsStore = defineStore("projects", () => {
         queryCache.invalidateQueries({ key: queryKeys.dashboard.overview, exact: true }),
         queryCache.invalidateQueries({ key: queryKeys.dashboard.activity }),
         queryCache.invalidateQueries({ key: queryKeys.views.reports }),
+        queryCache.invalidateQueries({ key: queryKeys.outstandingItems.pendingTotal, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.outstandingItems.pendingByProject }),
       ]);
     },
   });
@@ -128,6 +130,8 @@ export const useProjectsStore = defineStore("projects", () => {
         queryCache.invalidateQueries({ key: queryKeys.dashboard.activity }),
         queryCache.invalidateQueries({ key: queryKeys.views.reports }),
         queryCache.invalidateQueries({ key: queryKeys.views.systemStatus, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.outstandingItems.pendingTotal, exact: true }),
+        queryCache.invalidateQueries({ key: queryKeys.outstandingItems.pendingByProject }),
       ]);
     },
   });

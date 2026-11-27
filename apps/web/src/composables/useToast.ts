@@ -1,10 +1,10 @@
 import { storeToRefs } from "pinia";
-import { useToastsStore, type ToastTone } from "../stores/toasts";
+import { useToastsStore, type ToastAction, type ToastTone } from "../stores/toasts";
 import { useClipboard } from "./useClipboard";
 import { t } from "../i18n";
 
 /** @internal test-only */
-export type { Toast, ToastTone } from "../stores/toasts";
+export type { Toast, ToastAction, ToastTone } from "../stores/toasts";
 
 async function copyWithToast(text: string, successMessage: string): Promise<boolean> {
   const { showToast } = useToastsStore();
@@ -23,8 +23,12 @@ export function useToast() {
   const { toasts } = storeToRefs(store);
   return {
     toasts,
-    showToast: (message: string, tone: ToastTone = "default") => store.showToast(message, tone),
+    showToast: (message: string, tone: ToastTone = "default", action?: ToastAction) =>
+      store.showToast(message, tone, action),
     dismissToast: store.dismissToast,
+    holdToast: store.holdToast,
+    releaseToast: store.releaseToast,
+    runToastAction: store.runToastAction,
     copyWithToast,
   };
 }

@@ -1,7 +1,7 @@
 import type { ApiErrorCode } from "@work-intelligence/core";
 import { t } from "../i18n";
 
-type ApiErrorPayload = { error?: string; code?: string };
+type ApiErrorPayload = { error?: string; code?: string; details?: unknown };
 
 function errorCodeForStatus(status: number): ApiErrorCode {
   switch (status) {
@@ -35,6 +35,7 @@ function parseApiErrorPayload(text: string): ApiErrorPayload | undefined {
     return {
       ...(typeof record.error === "string" ? { error: record.error } : {}),
       ...(typeof record.code === "string" ? { code: record.code } : {}),
+      ...(record.details !== undefined && record.details !== null ? { details: record.details } : {}),
     };
   } catch {
     return undefined;
@@ -46,6 +47,8 @@ export class ApiError extends Error {
     public readonly code: string,
     public readonly status: number,
     message: string,
+    /** Structured context from the API, such as the item ids that made a batch fail. */
+    public readonly details?: unknown,
   ) {
     super(message);
     this.name = "ApiError";
@@ -103,6 +106,7 @@ export class ApiTransport {
       payload?.code ?? errorCodeForStatus(response.status),
       response.status,
       payload?.error ?? fallback,
+      payload?.details,
     );
   }
 
@@ -130,6 +134,7 @@ export class ApiTransport {
         payload?.code ?? errorCodeForStatus(response.status),
         response.status,
         payload?.error ?? t("api.theRequestFailedCheckThat"),
+        payload?.details,
       );
     }
     if (payload === undefined) {

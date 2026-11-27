@@ -1,17 +1,16 @@
 import { computed, ref, watch } from "vue";
-import { useMutation, useQuery, useQueryCache } from "@pinia/colada";
+import { useQuery, useQueryCache } from "@pinia/colada";
 import { defineStore } from "pinia";
-import type {
-  BatchUpdateOutstandingItemStatusInput,
-  BatchUpdateOutstandingItemStatusResult,
-  OutstandingItem,
-  OutstandingItemClosedBy,
-  OutstandingItemListQueryResult,
-  OutstandingItemStatus,
-  PageInfo,
-  UpdateOutstandingItemStatusInput,
-  UpdateOutstandingItemStatusResult,
+import {
+  MAX_OUTSTANDING_ITEM_BATCH_SIZE,
+  type BatchUpdateOutstandingItemStatusInput,
+  type OutstandingItem,
+  type OutstandingItemClosedBy,
+  type OutstandingItemListQueryResult,
+  type OutstandingItemStatus,
+  type PageInfo,
 } from "@work-intelligence/core";
+import { ApiError } from "../api/client";
 import { useApi } from "../composables/useApi";
 import { errorMessage } from "../utils/format";
 import { pageSizeToQuery, type ListPageSize } from "../utils/labels";
@@ -32,6 +31,13 @@ const emptyPageInfo: PageInfo = {
 
 export type OutstandingClosedFilter = "all" | "hide_source_session";
 
+type OutstandingChunkedResult = {
+  updatedItemIds: string[];
+  /** Ids the API refused because they were gone or no longer in the expected status. */
+  skippedItemIds: string[];
+  failure?: Error;
+};
+
 const NON_SOURCE_CLOSERS: OutstandingItemClosedBy[] = ["later_session", "user", "cleanup_review", "migration"];
 
 type OutstandingListScope = {
@@ -43,6 +49,15 @@ type OutstandingListScope = {
   from?: string;
   to?: string;
 };
+
+/** The API names the offending ids when it rejects a whole batch for invalid or conflicting items. */
+function rejectedItemIds(error: unknown): string[] {
+  if (!(error instanceof ApiError) || (error.code !== "conflict" && error.code !== "invalid_input")) return [];
+  const details = error.details;
+  if (typeof details !== "object" || details === null || !("invalidItemIds" in details)) return [];
+  const ids = details.invalidItemIds;
+  return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+}
 
 function buildListScope(
   projectId: string,
@@ -104,6 +119,11 @@ export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
     },
   });
 
+  const pendingTotalQuery = useQuery<OutstandingItemListQueryResult>({
+    key: () => [...queryKeys.outstandingItems.pendingTotal],
+    query: ({ signal }) => useApi().client.listOutstandingItems({ status: "pending", page: 1, pageSize: 1 }, signal),
+  });
+
   const items = computed<OutstandingItem[]>(() =>
     listQuery.data.value?.outcome === "outstanding_items" ? listQuery.data.value.items : [],
   );
@@ -113,39 +133,17 @@ export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
       : { ...emptyPageInfo, pageSize: pageSizeToQuery(pageSize.value) || 10 },
   );
 
+  const pendingTotal = computed(() =>
+    pendingTotalQuery.data.value?.outcome === "outstanding_items"
+      ? pendingTotalQuery.data.value.pageInfo.total
+      : undefined,
+  );
   const loading = computed(() => listQuery.isLoading.value);
   const loaded = computed(() => listQuery.data.value !== undefined);
   const error = computed(() => {
     if (listQuery.error.value) return errorMessage(listQuery.error.value, t("outstanding.couldNotLoadOpenItems"));
     const result = listQuery.data.value;
     return result?.outcome === "skipped" ? (result.reason ?? t("common.trackingIsNotEnabledFor")) : "";
-  });
-
-  const updateStatusMutation = useMutation({
-    mutation: (input: UpdateOutstandingItemStatusInput) => useApi().client.updateOutstandingItemStatus(input),
-    onSuccess: async (result: UpdateOutstandingItemStatusResult) => {
-      if (result.outcome !== "outstanding_item_updated") return;
-      // A later SSE refresh may cancel this read after the write already succeeded.
-      await Promise.allSettled([
-        queryCache.invalidateQueries({ key: queryKeys.attention.list }),
-        queryCache.invalidateQueries({ key: queryKeys.outstandingItems.list }),
-      ]);
-    },
-  });
-
-  const batchStatusMutation = useMutation({
-    mutation: (input: BatchUpdateOutstandingItemStatusInput) => useApi().client.batchUpdateOutstandingItemStatus(input),
-    onSuccess: async (result: BatchUpdateOutstandingItemStatusResult) => {
-      if (result.outcome !== "outstanding_items_updated") return;
-      // Refresh errors belong to the queries and must not turn a committed write into a failure.
-      await Promise.allSettled([
-        queryCache.invalidateQueries({ key: queryKeys.outstandingItems.list }),
-        queryCache.invalidateQueries({ key: queryKeys.sessions.list }),
-        queryCache.invalidateQueries({ key: queryKeys.sessions.detail }),
-        queryCache.invalidateQueries({ key: queryKeys.attention.list }),
-        queryCache.invalidateQueries({ key: queryKeys.dashboard.summary }),
-      ]);
-    },
   });
 
   function setListActive(active: boolean): void {
@@ -157,25 +155,73 @@ export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
     await listQuery.refetch(true);
   }
 
-  async function updateStatus(input: UpdateOutstandingItemStatusInput): Promise<OutstandingItem> {
-    const result: UpdateOutstandingItemStatusResult = await updateStatusMutation.mutateAsync(input);
-    if (result.outcome === "outstanding_item_updated") return result.item;
-    if (result.outcome === "not_found") throw new Error(t("outstanding.thisOpenItemNoLonger"));
-    throw new Error(result.reason ?? t("outstanding.thisOpenItemCannotBe"));
+  /**
+   * The API rejects a whole chunk when one id is stale, so a rejected chunk is retried once without the ids it names.
+   * Each chunk commits on its own, so a failure keeps what earlier chunks already changed.
+   */
+  async function batchUpdateStatusInChunks(
+    input: BatchUpdateOutstandingItemStatusInput,
+  ): Promise<OutstandingChunkedResult> {
+    const { client } = useApi();
+    const updatedItemIds: string[] = [];
+    const skippedItemIds: string[] = [];
+    try {
+      for (let start = 0; start < input.itemIds.length; start += MAX_OUTSTANDING_ITEM_BATCH_SIZE) {
+        let itemIds = input.itemIds.slice(start, start + MAX_OUTSTANDING_ITEM_BATCH_SIZE);
+        for (let attempt = 0; itemIds.length > 0; attempt += 1) {
+          try {
+            const result = await client.batchUpdateOutstandingItemStatus({ ...input, itemIds });
+            if (result.outcome !== "outstanding_items_updated")
+              throw new Error(t("outstanding.thisBatchIncludesProjectsWithout"));
+            updatedItemIds.push(...result.updatedItemIds);
+            break;
+          } catch (error) {
+            const rejected = new Set(rejectedItemIds(error));
+            if (attempt > 0 || rejected.size === 0) throw error;
+            skippedItemIds.push(...itemIds.filter((id) => rejected.has(id)));
+            itemIds = itemIds.filter((id) => !rejected.has(id));
+          }
+        }
+      }
+      return { updatedItemIds, skippedItemIds };
+    } catch (error) {
+      return { updatedItemIds, skippedItemIds, failure: error instanceof Error ? error : new Error(String(error)) };
+    } finally {
+      // One refresh for the whole run; refresh errors belong to the queries and must not fail a committed write.
+      if (updatedItemIds.length > 0 || skippedItemIds.length > 0) {
+        await Promise.allSettled([
+          queryCache.invalidateQueries({ key: queryKeys.outstandingItems.list }),
+          queryCache.invalidateQueries({ key: queryKeys.outstandingItems.pendingByProject }),
+          queryCache.invalidateQueries({ key: queryKeys.sessions.list }),
+          queryCache.invalidateQueries({ key: queryKeys.sessions.detail }),
+          queryCache.invalidateQueries({ key: queryKeys.attention.list }),
+          queryCache.invalidateQueries({ key: queryKeys.dashboard.summary }),
+        ]);
+      }
+    }
   }
 
-  async function batchUpdateStatus(
-    input: BatchUpdateOutstandingItemStatusInput,
-  ): Promise<Extract<BatchUpdateOutstandingItemStatusResult, { outcome: "outstanding_items_updated" }>> {
-    const result = await batchStatusMutation.mutateAsync(input);
-    if (result.outcome === "outstanding_items_updated") return result;
-    if (result.outcome === "rejected")
-      throw new Error(
-        result.reason === "status_conflict"
-          ? t("outstanding.theOpenItemStatusChanged")
-          : t("outstanding.someOpenItemsNoLonger"),
+  /** Ids of every pending item matching the current filters, across all pages. */
+  async function listAllPendingIds(signal?: AbortSignal): Promise<string[]> {
+    const scope = buildListScope(
+      projectId.value,
+      "pending",
+      1,
+      pageSize.value,
+      from.value,
+      to.value,
+      closedFilter.value,
+    );
+    const ids = new Set<string>();
+    for (let current = 1; ; current += 1) {
+      const result = await useApi().client.listOutstandingItems(
+        { ...scope, page: current, pageSize: MAX_OUTSTANDING_ITEM_BATCH_SIZE },
+        signal,
       );
-    throw new Error(t("outstanding.thisBatchIncludesProjectsWithout"));
+      if (result.outcome !== "outstanding_items") throw new Error(t("outstanding.couldNotLoadOpenItems"));
+      for (const item of result.items) if (item.status === "pending") ids.add(item.id);
+      if (!result.pageInfo.hasNext) return [...ids];
+    }
   }
 
   watch(
@@ -201,12 +247,13 @@ export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
     closedFilter,
     items,
     pageInfo,
+    pendingTotal,
     loading,
     loaded,
     error,
     setListActive,
     reload,
-    updateStatus,
-    batchUpdateStatus,
+    batchUpdateStatusInChunks,
+    listAllPendingIds,
   };
 });
