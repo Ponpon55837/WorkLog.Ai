@@ -95,6 +95,7 @@ interface OutstandingItemDependencies {
 }
 
 const RELATED_PENDING_LIMIT = 5;
+const MAX_LEADING_DUPLICATES = 3;
 /** About 45 times the largest real project's pending items. */
 const RELATED_PENDING_CANDIDATE_LIMIT = 2_000;
 
@@ -334,11 +335,10 @@ export class OutstandingItemService {
           ...ranked.filter((row) => !possiblyDone.has(row.id)),
         ]
       : ranked;
-    const ordered = possibleDuplicateOf.size
-      ? [
-          ...read.filter((row) => possibleDuplicateOf.has(row.id)),
-          ...prioritized.filter((row) => !possibleDuplicateOf.has(row.id)),
-        ]
+    const leading = read.filter((row) => possibleDuplicateOf.has(row.id)).slice(0, MAX_LEADING_DUPLICATES);
+    const leadingIds = new Set(leading.map((row) => row.id));
+    const ordered = leading.length
+      ? [...leading, ...prioritized.filter((row) => !leadingIds.has(row.id))]
       : prioritized;
     return {
       items: ordered.slice(0, RELATED_PENDING_LIMIT).map((row) => ({

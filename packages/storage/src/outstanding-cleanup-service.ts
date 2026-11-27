@@ -88,6 +88,8 @@ type EvidenceRow = {
   session_completed_at: string;
 };
 
+const REQUEST_CLOSED_HINT =
+  "請求已完成或已取消，不再接受提交。仍 pending 的項目請用 work_request_outstanding_cleanup 開新請求（會再次納入）。";
 const MAX_SNAPSHOT_ITEMS = 10_000;
 const CONTEXT_BUDGET = 24_000;
 const REQUEST_SELECT = `SELECT r.*, p.name AS project_name,
@@ -319,7 +321,7 @@ export class OutstandingCleanupService {
       itemPageInfo,
       sessions,
       sessionPageInfo,
-      hint: "逐頁檢查固定項目與之後的來源；截短摘要只是指標，請讀完整 Session 核對成果與 PR。明確完成或已被取代才提交附證據 ID 的 verdict；範圍排除或已知限制、沒有後續動作的項目用 acknowledged（只需理由）。證據不足只回報已檢查、不提交 verdict（之後讀到證據，可在同一請求再提交該項目的 verdict）。stale 項目不提交；verdict 會立即變更項目狀態，使用者可在 Web 重新開啟。",
+      hint: "逐頁檢查固定項目與之後的來源；截短摘要只是指標，請讀完整 Session 核對成果與 PR。明確完成或已被取代才提交附證據 ID 的 verdict；範圍排除或已知限制、沒有後續動作的項目用 acknowledged（只需理由）。證據不足只回報已檢查、不提交 verdict（請求未完成前，之後讀到證據可再提交該項目的 verdict；全部項目都檢視過後請求即完成，需用 work_request_outstanding_cleanup 開新請求）。stale 項目不提交；verdict 會立即變更項目狀態，使用者可在 Web 重新開啟。",
       truncated:
         request.project_name.length > 160 ||
         items.some((item) => item.textTruncated || item.sourceSessionTitleTruncated) ||
@@ -510,7 +512,9 @@ export class OutstandingCleanupService {
         return this.submissionResult(request.id, previous.id, true);
       }
       const current = this.request(request.id);
-      if (!current || current.status !== "pending") return { outcome: "rejected", reason: "request_closed" };
+      if (!current || current.status !== "pending") {
+        return { outcome: "rejected", reason: "request_closed", hint: REQUEST_CLOSED_HINT };
+      }
       const snapshots = this.snapshotsByItem(request.id, input.examinedItemIds);
       const byItem = new Map(snapshots.map((row) => [row.item_id, row]));
       const invalid = input.examinedItemIds.filter((id) => !byItem.has(id));

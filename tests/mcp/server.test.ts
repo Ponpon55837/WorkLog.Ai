@@ -1533,6 +1533,12 @@ describe("Work Intelligence MCP server", () => {
       outcome: "no_open_request",
       projectId: project.id,
     });
+    store.updateProject(project.id, { status: "paused" });
+    expect(await callJson(client, "work_get_outstanding_cleanup_context", { projectRoot: root })).toMatchObject({
+      outcome: "skipped",
+      projectStatus: "paused",
+    });
+    store.updateProject(project.id, { status: "tracked" });
 
     expect(store.listOutstandingItems({ projectId: project.id, status: "completed", pageSize: 10 })).toMatchObject({
       items: [expect.objectContaining({ id: itemId, status: "completed" })],

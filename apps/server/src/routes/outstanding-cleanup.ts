@@ -17,6 +17,7 @@ interface CleanupResult {
   reason?: string;
   itemIds?: string[];
   requestId?: string;
+  hint?: string;
 }
 
 function sendResult(response: ServerResponse, result: CleanupResult, successStatus: number): void {
@@ -32,7 +33,7 @@ function sendResult(response: ServerResponse, result: CleanupResult, successStat
       response,
       conflict ? 409 : 400,
       "Outstanding cleanup request could not be applied.",
-      { reason: result.reason, itemIds: result.itemIds, requestId: result.requestId },
+      { reason: result.reason, itemIds: result.itemIds, requestId: result.requestId, hint: result.hint },
       conflict ? "conflict" : "invalid_input",
     );
     return;

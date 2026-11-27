@@ -57,8 +57,9 @@ function countTerms(value: string, terms: readonly string[]): number {
   return count;
 }
 
-const ISSUE_REFERENCE = /(?<![\w&])#(\d{1,7})\b|\/(?:issues|pull)\/(\d{1,7})\b/g;
-const ISSUE_RANGE = /(?<![\w&])#(\d{1,7})\s*[-–—~～]\s*#?(\d{1,7})\b/g;
+const ISSUE_REFERENCE = /(?<![\w&])#(\d{1,7})\b(?!\.\d)|\/(?:issues|pull)\/(\d{1,7})\b/g;
+const ISSUE_RANGE = /(?<![\w&])#(\d{1,7})\s*[-–—~～]\s*#(\d{1,7})\b(?!\.\d)/g;
+const MAX_ISSUE_RANGE_WIDTH = 50;
 const VERSION_REFERENCE = /(?<![\w.])v?(\d{1,3}\.\d{1,3}\.\d{1,3})(?!\w|\.\d)/g;
 
 export function identifiersIn(text: string): Set<string> {
@@ -85,7 +86,7 @@ export function issueSpansIn(text: string): IssueSpan[] {
   for (const match of text.matchAll(ISSUE_RANGE)) {
     const first = Number(match[1]);
     const last = Number(match[2]);
-    if (first < last) spans.push([first, last]);
+    if (first < last && last - first <= MAX_ISSUE_RANGE_WIDTH) spans.push([first, last]);
   }
   return spans;
 }

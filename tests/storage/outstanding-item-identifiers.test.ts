@@ -72,12 +72,35 @@ describe("issue spans", () => {
       [490, 490],
       [486, 490],
     ]);
-    expect(issueSpansIn("issue #483-490 and #9~#3")).toContainEqual([483, 490]);
-    expect(issueSpansIn("issue #483-490 and #9~#3")).not.toContainEqual([9, 3]);
+    expect(issueSpansIn("#483-#490 and #483~#490")).toEqual([
+      [483, 483],
+      [490, 490],
+      [483, 483],
+      [490, 490],
+      [483, 490],
+      [483, 490],
+    ]);
+    expect(issueSpansIn("#9~#3")).not.toContainEqual([9, 3]);
     expect(spansOverlap(issueSpansIn("UX #485"), issueSpansIn("issue #483–#490"))).toBe(true);
     expect(spansOverlap(issueSpansIn("UX #491"), issueSpansIn("issue #483–#490"))).toBe(false);
     expect(spansOverlap(issueSpansIn("#48"), issueSpansIn("#481"))).toBe(false);
     expect(spansOverlap([], issueSpansIn("#48"))).toBe(false);
+  });
+});
+
+describe("issue span false positives", () => {
+  it("does not read prose, dates, counts, wide ranges or version suffixes as issue ranges", () => {
+    expect(issueSpansIn("PR #3 - 10 tests failing")).toEqual([[3, 3]]);
+    expect(issueSpansIn("#12 - 2026-11-27")).toEqual([[12, 12]]);
+    expect(issueSpansIn("#7 — 15 個項目")).toEqual([[7, 7]]);
+    expect(issueSpansIn("#483-490")).toEqual([[483, 483]]);
+    expect(issueSpansIn("#100–#100000")).toEqual([
+      [100, 100],
+      [100000, 100000],
+    ]);
+    expect(issueSpansIn("#100–#150")).toContainEqual([100, 150]);
+    expect(identifiersIn("Released #1.6.89 today")).toEqual(new Set(["1.6.89"]));
+    expect(identifiersIn("Fixed #12. Then #13.")).toEqual(new Set(["#12", "#13"]));
   });
 });
 
@@ -158,5 +181,38 @@ describe("possiblyDone ranking in the finalize receipt", () => {
     ).toEqual(["Check the release notes for v2.3.4", "Verify #48 follow-up"]);
     expect(items.find((item) => item.text === "Verify #481 follow-up")?.possiblyDone).toBeUndefined();
     expect(items.find((item) => item.text === "Unrelated reminder")?.possiblyDone).toBeUndefined();
+  });
+
+  it("keeps at most three duplicate-marked items first so possiblyDone items still show, counting each item once", () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-duplicate-limit-"));
+    roots.push(root);
+    const store = new WorkIntelligenceStore(":memory:");
+    stores.push(store);
+    const project = store.addProject("Duplicate limit fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    finalize(store, root, "older-source", "2026-05-01T09:00:00.000Z", {
+      nextSteps: [
+        "Duplicate A for #474",
+        "Duplicate B for #474",
+        "Duplicate C for #474",
+        "Duplicate D for #474",
+        "Check v2.3.4 notes",
+        "Verify #48 follow-up",
+      ],
+    });
+
+    const result = finalize(store, root, "closing", "2026-05-02T09:00:00.000Z", {
+      title: "Ship #48",
+      summary: "Closed issue #48 and v2.3.4.",
+      nextSteps: ["Continue #474."],
+    });
+
+    const related = result.relatedOutstandingItems;
+    const items = related?.items ?? [];
+    expect(items).toHaveLength(5);
+    expect(items.slice(0, 3).every((item) => item.possibleDuplicateOf === 0)).toBe(true);
+    expect(items.slice(3).every((item) => item.possiblyDone)).toBe(true);
+    expect(items.slice(3).every((item) => item.possibleDuplicateOf === undefined)).toBe(true);
+    expect(related?.total).toBe(5);
   });
 });

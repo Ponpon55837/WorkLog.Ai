@@ -3033,6 +3033,7 @@ export interface OutstandingCleanupRejectedResult {
     | "context_too_large";
   itemIds?: string[];
   requestId?: string;
+  hint?: string;
 }
 
 export type OutstandingCleanupFailure =

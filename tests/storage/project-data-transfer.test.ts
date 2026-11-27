@@ -810,6 +810,74 @@ describe("portable project data transfer", () => {
     );
   });
 
+  it("round-trips a verdict submitted after the item was examined without one", () => {
+    const root = createRoot("later-verdict-transfer");
+    const source = new WorkIntelligenceStore(":memory:");
+    stores.push(source);
+    const project = source.addProject("Later verdict transfer", root);
+    source.updateProject(project.id, { status: "tracked" });
+    const finalize = (key: string, nextSteps: string[], completedAt: string) => {
+      const result = source.finalizeSession({
+        projectRoot: root,
+        idempotencyKey: key,
+        title: key,
+        summary: `Synthetic ${key}.`,
+        workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps },
+        verification: { status: "passed", summary: "Synthetic." },
+        changedFiles: [],
+        completedAt,
+      });
+      if (result.outcome !== "finalized") throw new Error("Expected finalized Session.");
+      return result.session;
+    };
+    finalize("later-source", ["First obligation", "Second obligation"], "2026-09-01T10:00:00.000Z");
+    const evidence = finalize("later-evidence", [], "2026-09-02T10:00:00.000Z");
+    const items = source.listOutstandingItems({ projectId: project.id, status: "pending", pageSize: 0 });
+    if (items.outcome !== "outstanding_items") throw new Error("Expected items.");
+    const [first, second] = items.items;
+    const request = source.createOutstandingCleanupRequest({ projectId: project.id, idempotencyKey: "later-request" });
+    if (request.outcome !== "outstanding_cleanup_request_created") throw new Error("Expected request.");
+    const verdict = (itemId: string) => ({
+      itemId,
+      status: "completed" as const,
+      reason: "The cited synthetic Session finished it.",
+      evidenceSessionIds: [evidence.id],
+    });
+    expect(
+      source.submitOutstandingCleanupProposals({
+        requestId: request.request.id,
+        idempotencyKey: "later-first",
+        examinedItemIds: [first!.id],
+        proposals: [],
+      }).outcome,
+    ).toBe("outstanding_cleanup_proposals_submitted");
+    expect(
+      source.submitOutstandingCleanupProposals({
+        requestId: request.request.id,
+        idempotencyKey: "later-second",
+        examinedItemIds: [first!.id, second!.id],
+        proposals: [verdict(first!.id)],
+      }).outcome,
+    ).toBe("outstanding_cleanup_proposals_submitted");
+
+    const bundle = source.exportProjectData({ type: "all" });
+    const destination = new WorkIntelligenceStore(":memory:");
+    stores.push(destination);
+    const preview = destination.previewProjectDataImport({ bundle });
+    expect(total(preview.conflicts)).toBe(0);
+    expect(preview.additions).toMatchObject({
+      outstanding_cleanup_submissions: 2,
+      outstanding_cleanup_proposals: 1,
+      outstanding_cleanup_proposal_evidence: 1,
+    });
+    destination.importProjectData({ bundle });
+    const imported = destination.exportProjectData({ type: "all" });
+    expect(imported.tables.outstanding_cleanup_proposals).toHaveLength(1);
+    expect(imported.tables.outstanding_cleanup_proposal_evidence).toHaveLength(1);
+    expect(imported.tables.outstanding_item_events.filter((event) => event.cleanup_proposal_id)).toHaveLength(1);
+    expect(imported.tables.outstanding_items.find((item) => item.id === first!.id)?.status).toBe("completed");
+  });
+
   it("closes an old file's unapplied cleanup review on import, as schema 43 does", () => {
     const source = createSource();
     seedCleanupReview(source.store, source.projectId, source.sessionIds[0], source.sessionIds[1], "cleanup-legacy");
@@ -1114,25 +1182,21 @@ describe("portable project data transfer", () => {
       category: "dependency",
     });
 
-    const mismatchedExaminedSubmissionBundle = structuredClone(bundle);
-    const extraSameRequestSubmission = {
-      ...mainSubmission,
-      id: "cleanup-main-alternate-submission",
-      idempotency_key: "cleanup-main-alternate-submission-key",
-    };
-    mismatchedExaminedSubmissionBundle.tables.outstanding_cleanup_submissions.push(extraSameRequestSubmission);
-    const mismatchedExaminedProposal = mismatchedExaminedSubmissionBundle.tables.outstanding_cleanup_proposals.find(
+    const unexaminedItemBundle = structuredClone(bundle);
+    const unexaminedProposal = unexaminedItemBundle.tables.outstanding_cleanup_proposals.find(
       (proposal) => proposal.request_id === mainRequest.id,
     );
-    if (!mismatchedExaminedProposal) throw new Error("Expected a proposal for the primary cleanup request.");
-    mismatchedExaminedProposal.submission_id = extraSameRequestSubmission.id;
-    const mismatchedExaminedPreview = destination.previewProjectDataImport({
-      bundle: mismatchedExaminedSubmissionBundle,
-    });
-    expect(mismatchedExaminedPreview.conflictDetails).toContainEqual({
+    if (!unexaminedProposal) throw new Error("Expected a proposal for the primary cleanup request.");
+    const unexaminedItem = unexaminedItemBundle.tables.outstanding_cleanup_request_items.find(
+      (item) => item.id === unexaminedProposal.request_item_id,
+    );
+    if (!unexaminedItem) throw new Error("Expected the proposal's snapshot item.");
+    unexaminedItem.examined_submission_id = null;
+    const unexaminedPreview = destination.previewProjectDataImport({ bundle: unexaminedItemBundle });
+    expect(unexaminedPreview.conflictDetails).toContainEqual({
       table: "outstanding_cleanup_proposals",
-      id: mismatchedExaminedProposal.id,
-      reason: "清理提案提交紀錄必須與快照項目檢視的提交一致。",
+      id: unexaminedProposal.id,
+      reason: "清理提案對應的快照項目必須已被檢視。",
       category: "dependency",
     });
 

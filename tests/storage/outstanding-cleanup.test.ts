@@ -1101,6 +1101,31 @@ describe("outstanding cleanup requests", () => {
     expect(pendingItems(store, projectId).map((item) => item.id)).toEqual([third!.id]);
   });
 
+  it("rejects a later verdict once the request completed, with a hint to open a new request", () => {
+    const { store, root, projectId } = createTrackedProject("Cleanup closed request fixture");
+    finalize(store, root, "cleanup-closed-source", ["Withheld item"]);
+    const item = pendingItems(store, projectId)[0]!;
+    const evidence = finalize(store, root, "cleanup-closed-evidence", [], EVIDENCE_TIME);
+    const request = createRequest(store, projectId, "cleanup-closed-request");
+    expect(
+      store.submitOutstandingCleanupProposals({
+        requestId: request.id,
+        idempotencyKey: "cleanup-closed-withhold",
+        examinedItemIds: [item.id],
+        proposals: [],
+      }),
+    ).toMatchObject({ outcome: "outstanding_cleanup_proposals_submitted", request: { status: "completed" } });
+
+    const late = submitOneProposal(store, request.id, "cleanup-closed-late", item.id, evidence.id);
+    expect(late).toMatchObject({ outcome: "rejected", reason: "request_closed" });
+    expect(JSON.stringify(late)).toContain("work_request_outstanding_cleanup");
+
+    const reopened = createRequest(store, projectId, "cleanup-closed-new-request");
+    expect(submitOneProposal(store, reopened.id, "cleanup-closed-new-verdict", item.id, evidence.id)).toMatchObject({
+      outcome: "outstanding_cleanup_proposals_submitted",
+    });
+  });
+
   it("resolves the context by project root to the latest open request", () => {
     const { store, root, projectId } = createTrackedProject("Cleanup context root fixture");
     expect(store.getOutstandingCleanupContext({ projectRoot: root })).toEqual({

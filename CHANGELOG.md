@@ -6,7 +6,7 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ### Changed
 
-- `work_submit_outstanding_cleanup_proposals` accepts a verdict for an item that was examined without one earlier in the same request. It is rechecked for eligibility, staleness and evidence like a first verdict. An item that already has a verdict, or an examined item resubmitted without a verdict, is still rejected as `already_examined`; replays of either submission return their own examined items.
+- `work_submit_outstanding_cleanup_proposals` accepts a verdict for an item that was examined without one earlier in the same request. It is rechecked for eligibility, staleness and evidence like a first verdict. An item that already has a verdict, or an examined item resubmitted without a verdict, is still rejected as `already_examined`; replays of either submission return their own examined items. Once every item is examined the request completes and a verdict is rejected as `request_closed` with a hint to open a new request. Export/import keeps such later verdicts.
 - `work_get_outstanding_cleanup_context` accepts `projectRoot` instead of `requestId` (exactly one) and reads the project's latest open cleanup request; `no_open_request` reports that none is open.
 
 ### Added

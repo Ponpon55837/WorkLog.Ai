@@ -47,7 +47,7 @@ const KNOWLEDGE_TO_REVIEW_HINT =
 const PENDING_ITEMS_AFTER_SAVE_HINT =
   "逐項讀來源核對（possiblyDone 優先）；已驗證完成的用 work_resolve_outstanding_items 結案；不確定就保留。";
 
-const POSSIBLE_DUPLICATE_HINT = "possibleDuplicateOf=nextSteps 索引；被取代者用 supersededOutstandingItemIds。";
+const POSSIBLE_DUPLICATE_HINT = "possibleDuplicateOf 是 nextSteps 索引；被取代者用 supersededOutstandingItemIds。";
 
 function compactUnreportedKnowledge(unreported: UnreportedKnowledge): unknown {
   return {

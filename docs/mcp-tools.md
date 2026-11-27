@@ -296,7 +296,7 @@ Web 使用的 REST `GET /api/sessions` 維持完整分頁資料，不會套用 M
 | `work_request_outstanding_cleanup` | `work_write_idempotent` | `projectRoot`、`idempotencyKey`；建立與 Web 相同的固定快照請求（每專案一個進行中請求）。回傳 `outstanding_cleanup_request_created`（`duplicate` 表示同 key 重送）、`outstanding_cleanup_request_active`（已有 pending／awaiting_review 請求，直接沿用）、`not_needed`（沒有待處理項目）、`rejected`（`idempotency_conflict`、`too_many_items`）；未追蹤專案安靜回傳 `skipped`。 |
 | `work_list_outstanding_cleanup_requests` | `work_read` | 可選 `projectId`、`status`、`page`；`pageSize` 預設／上限 5，列出 tracked 專案請求 |
 | `work_get_outstanding_cleanup_context` | `work_read` | `requestId` 或 `projectRoot` 擇一（`projectRoot` 解析為該專案最新開放中的請求；沒有開放請求回 `no_open_request`，未追蹤專案安靜略過）；獨立 `itemPage`／`sessionPage`，`itemPageSize` 上限 5、`sessionPageSize` 上限 10；整體 24,000 字元 |
-| `work_submit_outstanding_cleanup_proposals` | `work_write_idempotent` | `requestId`、`idempotencyKey`、1–100 個 `examinedItemIds`，及 0–100 個判定（`proposals`）；判定即時生效。同一請求中先前只標記已檢查、沒有判定的項目，之後仍可補上判定（會重新檢查資格、過期與證據）；已有判定的項目或重複只標記已檢查會以 `already_examined` 拒絕 |
+| `work_submit_outstanding_cleanup_proposals` | `work_write_idempotent` | `requestId`、`idempotencyKey`、1–100 個 `examinedItemIds`，及 0–100 個判定（`proposals`）；判定即時生效。同一請求中先前只標記已檢查、沒有判定的項目，之後仍可補上判定（會重新檢查資格、過期與證據）；已有判定的項目或重複只標記已檢查會以 `already_examined` 拒絕；所有項目都檢視過後請求即完成，之後的提交以 `request_closed` 拒絕並提示用 `work_request_outstanding_cleanup` 開新請求（仍 pending 的項目會再次納入） |
 
 若合法匯入資料的識別或時間欄位過長，文字截短後仍超過預算，context 整頁回傳 `rejected`／`context_too_large`；不截短 ID 或靜默漏掉項目。
 
