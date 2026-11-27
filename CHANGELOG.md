@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.94] - 2026-11-27
+
+[繁體中文更新說明](docs/releases/1.6.94.md).
+
 ### Added
 
 - 待確認決策 can be selected (a select-all row with the same rules as Open items, toolbar only while something is selected) and handled with 「確認所選」 or 「拒絕所選」. The API has no batch decision endpoint, so the web app calls the single review endpoint with at most four requests in flight and refreshes once. The review endpoint overwrites whatever status a decision has, so the web app checks the loaded list instead: once a reject question is answered, decisions that are no longer listed as pending (or, for a batch, no longer selected) and decisions whose project is not tracked are skipped and counted in the toast; a failure keeps the unapplied decisions selected. The list now shows up to 200 decisions instead of 50.
