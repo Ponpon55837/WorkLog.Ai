@@ -3,7 +3,12 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useRoute } from "vue-router";
 import { BookMarked, BookOpen, ListChecks, Search, Sparkles, X } from "lucide-vue-next";
-import type { KnowledgeKind, KnowledgeRecord, KnowledgeStatus } from "@work-intelligence/core";
+import {
+  KNOWLEDGE_CONVENTION_LIMIT,
+  type KnowledgeKind,
+  type KnowledgeRecord,
+  type KnowledgeStatus,
+} from "@work-intelligence/core";
 import PageHeader from "../components/layout/PageHeader.vue";
 import PageToolbar from "../components/layout/PageToolbar.vue";
 import AgentKnowledgeReviewBox from "../components/domain/AgentKnowledgeReviewBox.vue";
@@ -58,11 +63,13 @@ const {
   knowledgeKind,
   knowledgeProjectId,
   knowledgeStatus,
+  knowledgeConvention,
+  conventionCounts,
   knowledgeLoading,
   knowledgeError,
   knowledgeSkippedRecords,
 } = storeToRefs(knowledgeStore);
-const { loadKnowledge, retryKnowledge, setKnowledgeListActive } = knowledgeStore;
+const { loadKnowledge, retryKnowledge, setKnowledgeListActive, setConventionsActive } = knowledgeStore;
 const kindCountsStore = useKnowledgeKindCountsStore();
 const { counts: kindCounts, loading: kindCountsLoading } = storeToRefs(kindCountsStore);
 const {
@@ -70,6 +77,7 @@ const {
   openKnowledgeSession,
   openKnowledgeStaleSession,
   confirmKnowledge,
+  setKnowledgeConvention,
   openKnowledgeEditor,
   openKnowledgeHistory,
 } = useKnowledgeActions();
@@ -79,6 +87,7 @@ useRouteQuery("q", knowledgeQuery, stringQuery());
 useRouteQuery("kind", knowledgeKind, enumQuery<KnowledgeKind | "">(["", ...kinds], ""));
 useRouteQuery("project", knowledgeProjectId, stringQuery());
 useRouteQuery("status", knowledgeStatus, enumQuery<KnowledgeStatus>(["active", "archived"], "active"));
+useRouteQuery("convention", knowledgeConvention, enumQuery<"" | "only">(["", "only"], ""));
 useRouteQuery("page", knowledgePage, pageQuery());
 useRouteQuery(
   "size",
@@ -91,7 +100,7 @@ useRouteQuery(
 const { reloadNow } = useListReload({
   load: loadKnowledge,
   page: knowledgePage,
-  filters: [knowledgeKind, knowledgeProjectId, knowledgeStatus, knowledgePageSize],
+  filters: [knowledgeKind, knowledgeProjectId, knowledgeStatus, knowledgeConvention, knowledgePageSize],
   search: knowledgeQuery,
 });
 const route = useRoute();
@@ -121,9 +130,26 @@ useRouteQuery("knowledge", selectedKnowledgeId, stringQuery());
 
 const hasFilters = computed(() =>
   Boolean(
-    knowledgeQuery.value || knowledgeKind.value || knowledgeProjectId.value || knowledgeStatus.value !== "active",
+    knowledgeQuery.value ||
+    knowledgeKind.value ||
+    knowledgeProjectId.value ||
+    knowledgeConvention.value ||
+    knowledgeStatus.value !== "active",
   ),
 );
+const conventionItems = computed(() => {
+  const count = knowledgeProjectId.value ? (conventionCounts.value[knowledgeProjectId.value] ?? 0) : undefined;
+  return [
+    { value: "" as const, label: t("knowledge.conventionFilterAll") },
+    {
+      value: "only" as const,
+      label:
+        count === undefined
+          ? t("knowledge.convention")
+          : t("knowledge.conventionWithCounter", { count, limit: KNOWLEDGE_CONVENTION_LIMIT }),
+    },
+  ];
+});
 const isAgentView = computed(() => reviewFilter.value === "agent");
 const selectedProjectRoot = computed(
   () => trackedProjects.value.find((project) => project.id === knowledgeProjectId.value)?.rootPath,
@@ -202,6 +228,7 @@ function clearFilters(): void {
   knowledgeQuery.value = "";
   knowledgeKind.value = "";
   knowledgeProjectId.value = "";
+  knowledgeConvention.value = "";
   knowledgeStatus.value = "active";
 }
 
@@ -212,6 +239,8 @@ function onAction(action: KnowledgeAction, item: KnowledgeRecord): void {
     void openKnowledgeStaleSession(item);
   } else if (action === "edit") {
     openKnowledgeEditor(item);
+  } else if (action === "convention") {
+    void setKnowledgeConvention(item, !item.conventionConfirmedAt);
   } else if (action === "history") {
     void openKnowledgeHistory(item);
   } else if (action === "source") {
@@ -258,10 +287,14 @@ watch(
   { immediate: true },
 );
 
-onMounted(() => setKnowledgeListActive(true));
+onMounted(() => {
+  setKnowledgeListActive(true);
+  setConventionsActive(true);
+});
 onBeforeUnmount(() => {
   kindCountsStore.scope = null;
   setKnowledgeListActive(false);
+  setConventionsActive(false);
   editorStore.knowledgeHistoryItem = null;
   knowledgeStore.closeKnowledgeHistory();
 });
@@ -370,6 +403,14 @@ onBeforeUnmount(() => {
               :items="kindItems"
             />
             <UiActionMenu
+              v-model="knowledgeConvention"
+              :label="t('knowledge.convention')"
+              :header="t('knowledge.convention')"
+              default-value=""
+              align="end"
+              :items="conventionItems"
+            />
+            <UiActionMenu
               v-model="knowledgeStatus"
               :label="t('common.status')"
               :header="t('knowledge.filterStatus')"
@@ -406,7 +447,12 @@ onBeforeUnmount(() => {
           :label="t('knowledge.workKnowledgeList')"
         >
           <template #default="{ item }">
-            <KnowledgeRow :item="item" @action="onAction" />
+            <KnowledgeRow
+              :item="item"
+              :convention-count="conventionCounts[item.projectId] ?? 0"
+              :convention-full="(conventionCounts[item.projectId] ?? 0) >= KNOWLEDGE_CONVENTION_LIMIT"
+              @action="onAction"
+            />
           </template>
         </VirtualList>
 

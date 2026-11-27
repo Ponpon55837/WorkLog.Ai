@@ -104,8 +104,9 @@ watch(open, async (value) => {
         type="button"
         :role="model !== undefined ? 'menuitemradio' : 'menuitem'"
         :aria-checked="model !== undefined ? model === item.value : undefined"
-        class="ui-action-menu__item"
-        @click="choose(item.value)"
+        :class="['ui-action-menu__item', { 'is-disabled': item.disabled }]"
+        :aria-disabled="item.disabled || undefined"
+        @click="item.disabled || choose(item.value)"
       >
         <span v-if="model !== undefined" class="ui-action-menu__check">
           <Check v-if="model === item.value" :size="16" :stroke-width="2" aria-hidden="true" />
@@ -222,6 +223,11 @@ watch(open, async (value) => {
 
 .ui-action-menu__item {
   transition: background-color var(--duration-instant) ease-out;
+}
+
+.ui-action-menu__item.is-disabled {
+  color: var(--fg-muted);
+  cursor: not-allowed;
 }
 
 .ui-action-menu__item:hover,

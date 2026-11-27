@@ -9,6 +9,7 @@ import type {
   UpdateKnowledgeResult,
   RecordKnowledgeInput,
   RecordKnowledgeResult,
+  SetKnowledgeConventionResult,
 } from "@work-intelligence/core";
 import type { KnowledgeRequest } from "./types";
 import { appendQuery, type ApiTransport } from "./transport";
@@ -36,6 +37,11 @@ export interface KnowledgeApi {
     input: Omit<UpdateKnowledgeInput, "knowledgeId">,
     signal?: AbortSignal,
   ): Promise<UpdateKnowledgeResult>;
+  setKnowledgeConvention(
+    knowledgeId: string,
+    input: { projectRoot: string; confirmed: boolean },
+    signal?: AbortSignal,
+  ): Promise<SetKnowledgeConventionResult>;
 }
 
 export function createKnowledgeApi(client: ApiTransport): KnowledgeApi {
@@ -84,6 +90,7 @@ export function createKnowledgeApi(client: ApiTransport): KnowledgeApi {
           q: options.q ?? options.query,
           kind: options.kind,
           status: options.status,
+          convention: options.convention ? "true" : undefined,
           page: options.page,
           pageSize: options.pageSize === "all" ? 0 : options.pageSize,
           limit: options.limit,
@@ -112,6 +119,19 @@ export function createKnowledgeApi(client: ApiTransport): KnowledgeApi {
         `/api/knowledge/${encodeURIComponent(knowledgeId)}`,
         "PATCH",
         { ...input, knowledgeId },
+        signal,
+      );
+    },
+
+    setKnowledgeConvention(
+      knowledgeId: string,
+      input: { projectRoot: string; confirmed: boolean },
+      signal?: AbortSignal,
+    ): Promise<SetKnowledgeConventionResult> {
+      return client.write<SetKnowledgeConventionResult>(
+        `/api/knowledge/${encodeURIComponent(knowledgeId)}/convention`,
+        "PUT",
+        input,
         signal,
       );
     },

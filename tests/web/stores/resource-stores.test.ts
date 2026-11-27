@@ -177,6 +177,9 @@ function resourceResponder({ url, method }: StoreRequest): unknown {
       ],
     };
   }
+  if (url.pathname === "/api/knowledge/knowledge-1/convention" && method === "PUT") {
+    return jsonResponse({ code: "convention_limit_reached", error: "limit" }, 409);
+  }
   if (url.pathname === "/api/knowledge/knowledge-1" && method === "PATCH") {
     return { outcome: "knowledge_updated", knowledge: { id: "knowledge-1", title: "Updated" } };
   }
@@ -416,6 +419,17 @@ describe("resource stores", () => {
     await store.updateKnowledge({ knowledgeId: "knowledge-1", title: "Updated" } as never);
     await vi.waitFor(() => expect(harness.count("/api/knowledge")).toBeGreaterThan(1));
     expect(harness.count("/api/knowledge/knowledge-1", "PATCH")).toBe(1);
+  });
+
+  it("refreshes Knowledge lists after a convention request the server rejected with 409", async () => {
+    const store = useKnowledgeStore();
+    await store.loadKnowledge();
+    await vi.waitFor(() => expect(store.knowledgeItems[0]?.title).toBe("Pattern"));
+    const before = harness.count("/api/knowledge");
+    await expect(
+      store.setKnowledgeConvention({ knowledgeId: "knowledge-1", projectRoot: "/projects/alpha", confirmed: true }),
+    ).rejects.toBeTruthy();
+    await vi.waitFor(() => expect(harness.count("/api/knowledge")).toBeGreaterThan(before));
   });
 
   it("reports Knowledge query outcomes and refreshes matching candidate queries after decisions", async () => {

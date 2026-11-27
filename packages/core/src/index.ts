@@ -44,6 +44,7 @@ export const API_ERROR_CODES = [
   "session_delete_failed",
   "knowledge_page_not_found",
   "knowledge_page_default",
+  "convention_limit_reached",
   "usage_timeout",
   "usage_cancelled",
   "usage_failed",
@@ -753,6 +754,9 @@ export interface KnowledgeRecord {
   lastConfirmedSessionId?: string;
   supersedesId?: string;
   review?: KnowledgeReview;
+  /** Set only by the user; cleared (and `conventionWithdrawal` written) when the item changes under the Agent's hands. */
+  conventionConfirmedAt?: string;
+  conventionWithdrawal?: KnowledgeConventionWithdrawal;
   /** Computed on read, never stored. */
   possiblyStale?: KnowledgeStaleness;
   broadChangesSince?: number;
@@ -782,6 +786,25 @@ export interface KnowledgeReview {
   reason: "contradicted";
   sessionId?: string;
   at: string;
+}
+
+export const KNOWLEDGE_CONVENTION_LIMIT = 5;
+export const KNOWLEDGE_CONVENTION_WITHDRAWAL_REASONS = [
+  "unmarked",
+  "archived",
+  "superseded",
+  "needs_review",
+  "agent_edit",
+  "import_cap",
+  "import_changed",
+] as const;
+export type KnowledgeConventionWithdrawalReason = (typeof KNOWLEDGE_CONVENTION_WITHDRAWAL_REASONS)[number];
+export type KnowledgeConventionActor = "user" | "agent" | "system";
+
+export interface KnowledgeConventionWithdrawal {
+  at: string;
+  by: KnowledgeConventionActor;
+  reason: KnowledgeConventionWithdrawalReason;
 }
 
 export const KNOWLEDGE_STALENESS_REASONS = ["applies_to_changed", "broad_applies_to"] as const;
@@ -868,6 +891,12 @@ export interface UpdatedKnowledgeResult {
   appliesToBreadth?: KnowledgeWriteBreadth;
 }
 
+export type SetKnowledgeConventionResult =
+  | { outcome: "knowledge_updated"; knowledge: KnowledgeRecord; conventionCount: number }
+  | { outcome: "not_found"; knowledgeId: string }
+  | { outcome: "rejected"; reason: "not_active" | "needs_review" | "convention_limit_reached"; knowledgeId: string }
+  | KnowledgeSkippedResult;
+
 export interface KnowledgeRestoreRejectedResult {
   outcome: "rejected";
   reason: "superseded_by_active";
@@ -908,6 +937,7 @@ export interface KnowledgeQuery {
   page?: number;
   pageSize?: number;
   view?: "full" | "compact";
+  convention?: boolean;
 }
 
 export interface PageInfo {
@@ -2716,6 +2746,11 @@ export interface ContextResult {
       needsReview?: boolean;
     }>;
   };
+  /** User-confirmed project conventions (at most 5, titles at most 60 characters); never trimmed by the budget. */
+  conventions?: {
+    readWith: "work_get_knowledge_history";
+    items: Array<{ id: string; title: string }>;
+  };
   relevant?: RelevantContext;
   knowledgePages: KnowledgePageDigest[];
   omitted?: ContextOmission[];
@@ -3229,6 +3264,7 @@ export interface AgentReviewVerdictResult {
   knowledgeId?: string;
   knowledgeOutcome?: string;
   knowledgeReason?: string;
+  conventionWithdrawn?: true;
 }
 
 export interface AgentReviewKnowledgePage {
@@ -3250,6 +3286,7 @@ export type SubmitAgentReviewVerdictsResult =
       results: AgentReviewVerdictResult[];
       duplicate: boolean;
       redactions?: RedactionSummary;
+      warnings?: string[];
       completion?: { knowledgePages: AgentReviewKnowledgePage[] };
     }
   | AgentReviewFailure;
@@ -3903,6 +3940,8 @@ export interface ProjectDataImportPreview {
   conflictDetails: ProjectDataImportConflict[];
   conflictDetailsTruncated: boolean;
   conflictGroups: ProjectDataImportConflictGroup[];
+  /** Knowledge copies that arrive as project conventions beyond this machine's limit of 5 per project; they import as plain Knowledge. */
+  conventionsWithdrawn?: number;
 }
 
 export interface ProjectDataImportStagedHeader {

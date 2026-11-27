@@ -200,6 +200,29 @@ async function confirmKnowledge(item: KnowledgeRecord): Promise<void> {
   useToast().showToast(t("knowledge.confirmedThatThisKnowledgeStill"));
 }
 
+async function setKnowledgeConvention(item: KnowledgeRecord, confirmed: boolean): Promise<void> {
+  const { showToast } = useToast();
+  const project = knowledgeProject(item);
+  if (!project) {
+    showToast(t("knowledge.knowledgeProjectNotFound"));
+    return;
+  }
+  try {
+    const result = await useKnowledgeStore().setKnowledgeConvention({
+      knowledgeId: item.id,
+      projectRoot: project.rootPath,
+      confirmed,
+    });
+    if (result.outcome === "knowledge_updated") {
+      showToast(confirmed ? t("knowledge.conventionSetDone") : t("knowledge.conventionUnsetDone"));
+    } else {
+      showToast(result.outcome === "skipped" ? result.reason : t("knowledge.couldNotUpdateConvention"));
+    }
+  } catch (error) {
+    showToast(errorMessage(error, t("knowledge.couldNotUpdateConvention")));
+  }
+}
+
 async function openKnowledgeHistory(item: KnowledgeRecord): Promise<void> {
   const project = knowledgeProject(item);
   if (!project) {
@@ -227,6 +250,7 @@ function knowledgeAuditFields(entry: KnowledgeAuditRecord): string {
     lastConfirmedAt: t("knowledge.confirmedValid"),
     review: t("knowledge.reviewMarker"),
     supersedesId: t("knowledge.supersededKnowledge"),
+    convention: t("knowledge.convention"),
   };
   const fields = entry.changedFields.map((field) => labels[field] ?? field);
   return fields.length ? fields.join(t("common.listSeparator")) : t("knowledge.statusSnapshot");
@@ -270,6 +294,7 @@ export function useKnowledgeActions() {
     knowledgeHistoryItem,
     openKnowledgeHistory,
     confirmKnowledge,
+    setKnowledgeConvention,
     openKnowledgeStaleSession,
     closeKnowledgeHistory,
     knowledgeAuditFields,

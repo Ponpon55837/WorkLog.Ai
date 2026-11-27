@@ -58,6 +58,7 @@ API 預設綁定 `127.0.0.1:3210`，只給本機 Web UI 與本機 client 使用�
 | `session_delete_failed` | 500 | Session 刪除交易失敗，既有備份仍保留。 |
 | `knowledge_page_not_found` | 404 | 知識頁刪除找不到該頁。 |
 | `knowledge_page_default` | 409 | 預設知識頁（`architecture`、`in-progress`、`pitfalls`）不能刪除。 |
+| `convention_limit_reached` | 409 | 這個專案已有 5 筆專案慣例；先取消一筆再設定。 |
 | `usage_timeout` | 504 | Agent 用量掃描超過 60 秒；縮小時間範圍或專案後再試。 |
 | `usage_cancelled` | 499 | Agent 用量掃描已取消（客戶端中斷，或被較新的掃描取代）。 |
 | `usage_failed` | 500 | Agent 用量掃描失敗；回應不含路徑或內部訊息。 |
@@ -142,6 +143,7 @@ Web `ApiClient` 會把 HTTP 代碼與狀態放在 `ApiError` 上，並依 `code`
 | GET      | `/api/knowledge`                                 | 搜尋 tracked projects 的 explicit Knowledge；`q` 的每個詞須出現在標題、內文、tags、references 或 `appliesTo` 路徑（1.6.16 起含 `appliesTo`）。MCP 專用的寬鬆備援與其他狀態計數不在 REST 回應中；`q` 的上限與 `warnings` 同 `/api/sessions` |
 | POST     | `/api/knowledge`                                 | 保存 Agent 明確提交的 Knowledge                                                        |
 | PATCH    | `/api/knowledge/:id`                             | 在 project policy 通過後更新或封存 Knowledge；恢復已被 active 後繼版本取代的 Knowledge 時回 200 `{ outcome: "rejected", reason: "superseded_by_active", knowledgeId, successorId }` 且不寫入；改了 `appliesTo` 時回應帶 `appliesToBreadth` 與 `warnings` |
+| PUT      | `/api/knowledge/:id/convention`                  | body `{ projectRoot, confirmed }`：把 Knowledge 設為或取消專案慣例（只有 Web／REST 能做，MCP 沒有對應工具）。只有 active 且沒有 needsReview 的項目可設；每個專案最多 5 筆，超過回 409 `convention_limit_reached`，其他不符資格回 409 `conflict`（`details.reason`：`not_active`、`needs_review`）。不改 `updatedAt`；稽核為 `updated`，`changedFields` 含 `convention`。回傳 `{ outcome: "knowledge_updated", knowledge, conventionCount }`；找不到回 200 `not_found`，專案未追蹤回 200 `skipped`。封存、被取代、被指出矛盾或 Agent 改標題／內文時自動撤回（`conventionWithdrawal`：`at`、`by`、`reason`） |
 | GET      | `/api/knowledge/:id/history?projectRoot=...`     | 讀取 Knowledge audit history；先通過 project policy                                    |
 | GET      | `/api/session-decisions`                         | 列出 Agent 自主決策（Session `workSummary.decisions` 標記的項目）；可帶 `projectRoot`（先通過 project policy）、`status`（`pending` 預設或 `all`）、`limit`（1–200，預設 50）；回傳 `outcome: "session_decisions"`、`items` 與 `pendingCount`，非 tracked 專案回傳 `skipped` |
 | PATCH    | `/api/session-decisions/:id/review`              | 人工審核一筆決策：body `{ projectRoot, reviewStatus }`，`reviewStatus` 為 `confirmed`、`rejected` 或 `promoted`（`promoted` 另帶已存在的 `knowledgeId`）；回傳 `session_decision_reviewed`（重送相同結果為 `duplicate: true`），找不到回 `not_found` |

@@ -649,7 +649,29 @@
     "overturnedKnowledgeConfirmationWithdrawn": "已推翻，Agent 的確認已撤回。",
     "overturnedKnowledgeRestored": "已推翻，Knowledge 已恢復為使用中。",
     "overturnedKnowledgeRestoredReplacementArchived": "已推翻，Agent 建立的新 Knowledge 已封存，原本的 Knowledge 已恢復為使用中。",
-    "overturnedKnowledgeReviewedUnchanged": "已推翻，但這筆 Knowledge 在處理後已有變動，維持原狀。"
+    "overturnedKnowledgeReviewedUnchanged": "已推翻，但這筆 Knowledge 在處理後已有變動，維持原狀。",
+    "convention": "專案慣例",
+    "conventionSet": "設為專案慣例",
+    "conventionUnset": "取消專案慣例",
+    "conventionSetDone": "已設為專案慣例；之後 Agent 開工時會看到這筆的標題。",
+    "conventionUnsetDone": "已取消專案慣例。",
+    "conventionWithCounter": "專案慣例 {count}/{limit}",
+    "conventionFilterAll": "全部 Knowledge",
+    "conventionLimitReached": "這個專案已有 5 筆專案慣例，請先取消其中一筆。",
+    "conventionLimitHint": "已達上限 {count}/{limit}，請先取消其他專案慣例。",
+    "conventionWithdrawn": "專案慣例已撤回：{reason}（{by}，{when}）。",
+    "conventionReconfirm": "重新確認為專案慣例",
+    "conventionReasonUnmarked": "已取消",
+    "conventionReasonArchived": "已封存",
+    "conventionReasonSuperseded": "被新版取代",
+    "conventionReasonNeedsReview": "有 Session 回報內容已不成立",
+    "conventionReasonAgentEdit": "Agent 改了標題或內文",
+    "conventionReasonImportCap": "匯入時超過 5 筆上限",
+    "conventionReasonImportChanged": "匯入改了標題或內文",
+    "conventionByUser": "你",
+    "conventionByAgent": "Agent",
+    "conventionBySystem": "系統",
+    "couldNotUpdateConvention": "無法更新專案慣例。"
   },
   "labels": {
     "agent": "Agent",
@@ -1127,7 +1149,8 @@
     "conflictCategoryDependency": "依賴連帶",
     "conflictCategoryMissingParent": "匯入檔缺少上層資料",
     "conflictCategoryDeleted": "已在本機刪除",
-    "restoreInDesktopApp": "請在桌面 App 的「資料」分頁還原備份，也可以選擇其他位置的備份檔。換新電腦時，App 會找出新電腦上不存在的專案資料夾，讓你指定它們現在的位置並自動對應路徑，不必自己輸入任何東西。還原前 App 會先自動備份目前的資料。"
+    "restoreInDesktopApp": "請在桌面 App 的「資料」分頁還原備份，也可以選擇其他位置的備份檔。換新電腦時，App 會找出新電腦上不存在的專案資料夾，讓你指定它們現在的位置並自動對應路徑，不必自己輸入任何東西。還原前 App 會先自動備份目前的資料。",
+    "conventionsWithdrawnOnImport": "{count} 筆專案慣例不會保留（超過每個專案 5 筆上限、已封存、需要複查，或匯入的版本改了標題或內文），會以一般 Knowledge 匯入。"
   },
   "reports": {
     "aCustomRangeCanSpan": "自訂期間最長 {days} 天。",

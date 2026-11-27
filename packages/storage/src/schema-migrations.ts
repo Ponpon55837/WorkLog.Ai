@@ -1110,6 +1110,14 @@ const MIGRATIONS: SchemaMigration[] = [
     name: "agent-review-completion-pages",
     sql: `ALTER TABLE agent_review_requests ADD COLUMN completion_pages_json TEXT;`,
   },
+  {
+    version: 41,
+    name: "knowledge-conventions",
+    sql: `
+      ALTER TABLE knowledge ADD COLUMN convention_confirmed_at TEXT;
+      ALTER TABLE knowledge ADD COLUMN convention_withdrawal_json TEXT;
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

@@ -255,6 +255,11 @@ function printImportPreview(
   log(
     `將以匯入資料更新 ${totalCounts(preview.updates)} 筆、保留本機較新 ${totalCounts(preview.keptLocal)} 筆、知識頁版本重新編號 ${totalCounts(preview.renumbered)} 筆。`,
   );
+  if (preview.conventionsWithdrawn) {
+    log(
+      `專案慣例：${preview.conventionsWithdrawn} 筆不會保留（超過每個專案 5 筆上限、已封存、需要複查，或匯入的版本改了標題或內文），會以一般 Knowledge 匯入。`,
+    );
+  }
   for (const remap of preview.autoRemaps) {
     log(`自動沿用本機路徑：${remap.from} → ${remap.to}（handoff 路徑 ${remap.snapshots} 筆）`);
   }

@@ -1,20 +1,51 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { Archive, ArchiveRestore, CheckCheck, ExternalLink, FileSearch, History, Pencil } from "lucide-vue-next";
-import type { KnowledgeRecord } from "@work-intelligence/core";
+import {
+  Archive,
+  ArchiveRestore,
+  BookmarkCheck,
+  BookmarkMinus,
+  CheckCheck,
+  ExternalLink,
+  FileSearch,
+  History,
+  Pencil,
+} from "lucide-vue-next";
+import { KNOWLEDGE_CONVENTION_LIMIT, type KnowledgeRecord } from "@work-intelligence/core";
 import { formatDate, formatRelative } from "../../utils/format";
 import { knowledgeStaleNotes, trustCells } from "../../utils/knowledge-trust";
-import { knowledgeKindVisual, knowledgeStatusVisual, knowledgeTrustVisual } from "../../utils/status";
+import {
+  knowledgeConventionVisual,
+  knowledgeKindVisual,
+  knowledgeStatusVisual,
+  knowledgeTrustVisual,
+} from "../../utils/status";
 import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiBoxRow from "../ui/UiBoxRow.vue";
 import UiButton from "../ui/UiButton.vue";
 import StatusLabel from "./StatusLabel.vue";
-import { t } from "../../i18n";
+import { t, type MessageKey } from "../../i18n";
 
-export type KnowledgeAction = "edit" | "history" | "toggle-status" | "source" | "confirm" | "stale-source";
+export type KnowledgeAction =
+  "edit" | "history" | "toggle-status" | "source" | "confirm" | "stale-source" | "convention";
 
-const props = defineProps<{ item: KnowledgeRecord }>();
+const props = defineProps<{ item: KnowledgeRecord; conventionFull?: boolean; conventionCount?: number }>();
 const emit = defineEmits<{ action: [action: KnowledgeAction, item: KnowledgeRecord] }>();
+
+const conventionReasonKeys = {
+  unmarked: "knowledge.conventionReasonUnmarked",
+  archived: "knowledge.conventionReasonArchived",
+  superseded: "knowledge.conventionReasonSuperseded",
+  needs_review: "knowledge.conventionReasonNeedsReview",
+  agent_edit: "knowledge.conventionReasonAgentEdit",
+  import_cap: "knowledge.conventionReasonImportCap",
+  import_changed: "knowledge.conventionReasonImportChanged",
+} as const satisfies Record<NonNullable<KnowledgeRecord["conventionWithdrawal"]>["reason"], MessageKey>;
+const conventionActorKeys = {
+  user: "knowledge.conventionByUser",
+  agent: "knowledge.conventionByAgent",
+  system: "knowledge.conventionBySystem",
+} as const satisfies Record<NonNullable<KnowledgeRecord["conventionWithdrawal"]>["by"], MessageKey>;
 
 const expanded = ref(false);
 const kind = computed(() => knowledgeKindVisual[props.item.kind]);
@@ -22,9 +53,40 @@ const trustBar = computed(() =>
   props.item.evidence ? trustCells(props.item.evidence.confirmed, props.item.evidence.contradicted) : [],
 );
 const staleNotes = computed(() => knowledgeStaleNotes(props.item));
+const conventionEligible = computed(() => props.item.status === "active" && !props.item.review);
+const conventionWithdrawalNote = computed(() => {
+  const withdrawal = props.item.conventionWithdrawal;
+  if (!withdrawal || props.item.conventionConfirmedAt || withdrawal.reason === "unmarked") return "";
+  return t("knowledge.conventionWithdrawn", {
+    reason: t(conventionReasonKeys[withdrawal.reason]),
+    by: t(conventionActorKeys[withdrawal.by]),
+    when: formatRelative(withdrawal.at),
+  });
+});
+const conventionAction = computed(() => {
+  if (props.item.conventionConfirmedAt) {
+    return { value: "convention" as const, label: t("knowledge.conventionUnset"), icon: BookmarkMinus };
+  }
+  if (!conventionEligible.value) return undefined;
+  return {
+    value: "convention" as const,
+    label: t("knowledge.conventionSet"),
+    icon: BookmarkCheck,
+    ...(props.conventionFull
+      ? {
+          disabled: true,
+          description: t("knowledge.conventionLimitHint", {
+            count: props.conventionCount ?? KNOWLEDGE_CONVENTION_LIMIT,
+            limit: KNOWLEDGE_CONVENTION_LIMIT,
+          }),
+        }
+      : {}),
+  };
+});
 const actions = computed(() => [
   { value: "edit" as const, label: t("knowledge.edit"), icon: Pencil },
   { value: "confirm" as const, label: t("knowledge.stillValid"), icon: CheckCheck },
+  ...(conventionAction.value ? [conventionAction.value] : []),
   ...(props.item.possiblyStale
     ? [{ value: "stale-source" as const, label: t("knowledge.viewTheSessionThatChanged"), icon: FileSearch }]
     : []),
@@ -46,6 +108,7 @@ const actions = computed(() => [
     <template #title>{{ item.title }}</template>
     <template #labels>
       <StatusLabel :status="kind" :show-icon="false" />
+      <StatusLabel v-if="item.conventionConfirmedAt" :status="knowledgeConventionVisual" />
       <StatusLabel v-if="item.status !== 'active'" :status="knowledgeStatusVisual[item.status]" />
       <StatusLabel v-if="item.review" :status="knowledgeTrustVisual.needsReview" />
       <StatusLabel v-if="item.possiblyStale" :status="knowledgeTrustVisual.possiblyStale" />
@@ -70,6 +133,16 @@ const actions = computed(() => [
           t("knowledge.sessionsChangedThesePathsSince", { sessionCount: item.possiblyStale.sessionCount })
         }}</template
       >{{ t("common.sentenceEnd") }}
+    </p>
+    <p v-if="conventionWithdrawalNote" class="knowledge-row__reason" data-testid="convention-withdrawn">
+      {{ conventionWithdrawalNote }}
+      <UiButton
+        v-if="conventionEligible && !conventionFull"
+        variant="link"
+        size="sm"
+        @click="emit('action', 'convention', item)"
+        >{{ t("knowledge.conventionReconfirm") }}</UiButton
+      >
     </p>
     <p v-if="staleNotes.broadAppliesTo" class="knowledge-row__note">{{ staleNotes.broadAppliesTo }}</p>
     <p v-if="staleNotes.broadChanges" class="knowledge-row__note">{{ staleNotes.broadChanges }}</p>

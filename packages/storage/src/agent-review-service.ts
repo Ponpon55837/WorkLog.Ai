@@ -49,7 +49,7 @@ import {
 } from "./knowledge-candidate-overlap.js";
 import { createPageInfo } from "./pagination.js";
 import { combineRedactionSummaries, redactText } from "./secret-redaction.js";
-import type { WithdrawnConfirmation } from "./knowledge-service.js";
+import { CONVENTION_WITHDRAWN_WARNING, type WithdrawnConfirmation } from "./knowledge-service.js";
 import { isDatabaseSchemaChangedError } from "./schema-write-gate.js";
 import { toDecision, type SessionDecisionRow } from "./session-decision-service.js";
 import { toKnowledge, type KnowledgeRow } from "./session-record-codecs.js";
@@ -60,7 +60,7 @@ interface Dependencies {
   checkProjectRoot(projectRoot: string): PolicyDecision;
   checkProjectById(projectId: string): PolicyDecision;
   recordKnowledge(input: RecordKnowledgeInput): RecordKnowledgeResult;
-  updateKnowledge(input: UpdateKnowledgeInput): UpdateKnowledgeResult;
+  updateKnowledge(input: UpdateKnowledgeInput, actor?: "user" | "agent"): UpdateKnowledgeResult;
   pagesCitingSessions(projectId: string, sessionIds: ReadonlySet<string>): Array<{ slug: string; title: string }>;
   pendingPages(projectId: string): Array<{ slug: string; title: string }>;
   withKnowledgeTrustMany(items: KnowledgeRecord[]): KnowledgeRecord[];
@@ -151,7 +151,7 @@ type ReviewedKnowledgeRow = {
 };
 
 type Decided =
-  | { outcome: AgentReviewItemOutcome; knowledgeId?: string; redactions?: RedactionSummary }
+  | { outcome: AgentReviewItemOutcome; knowledgeId?: string; redactions?: RedactionSummary; conventionWithdrawn?: true }
   | { outcome: "knowledge_rejected"; knowledgeOutcome: string; knowledgeReason?: string };
 
 type KnowledgeWriteFailure =
@@ -306,6 +306,10 @@ function normalizeVerdicts(verdicts: readonly AgentReviewVerdict[]): NormalizedV
   return verdicts
     .map((verdict): NormalizedVerdict => ({ ...verdict, reason: verdict.reason.trim() }))
     .sort((left, right) => itemKey(left.itemKind, left.itemId).localeCompare(itemKey(right.itemKind, right.itemId)));
+}
+
+function conventionWarnings(results: readonly AgentReviewVerdictResult[]): { warnings?: string[] } {
+  return results.some((result) => result.conventionWithdrawn) ? { warnings: [CONVENTION_WITHDRAWN_WARNING] } : {};
 }
 
 function skippedByRoot(decision: PolicyDecision): AgentReviewSkippedResult {
@@ -570,6 +574,7 @@ export class AgentReviewService {
       results: outcome.applied.results,
       duplicate: false,
       ...(outcome.applied.redactions.total > 0 ? { redactions: outcome.applied.redactions } : {}),
+      ...conventionWarnings(outcome.applied.results),
       ...(request.status === "completed" ? { completion: { knowledgePages: this.completionOf(request.id) } } : {}),
     };
   }
@@ -1053,6 +1058,7 @@ export class AgentReviewService {
         itemId: verdict.itemId,
         outcome: decided.outcome,
         ...(decided.knowledgeId ? { knowledgeId: decided.knowledgeId } : {}),
+        ...(decided.conventionWithdrawn ? { conventionWithdrawn: true as const } : {}),
       });
     }
     const results = input.verdicts.map((verdict) => resultByKey.get(itemKey(verdict.itemKind, verdict.itemId))!);
@@ -1172,7 +1178,12 @@ export class AgentReviewService {
         knowledgeId: old.id,
         ...(verdict.verdict === "confirm" ? { confirm: true } : { status: "archived" as const }),
       });
-      return updated.outcome === "knowledge_updated" ? { outcome: "applied" } : knowledgeRejected(updated);
+      return updated.outcome === "knowledge_updated"
+        ? {
+            outcome: "applied",
+            ...(updated.warnings?.includes(CONVENTION_WITHDRAWN_WARNING) ? { conventionWithdrawn: true as const } : {}),
+          }
+        : knowledgeRejected(updated);
     }
     const draft = verdict.knowledge;
     if (!draft) return { outcome: "skipped_stale" };
@@ -1188,7 +1199,12 @@ export class AgentReviewService {
       supersedesId: old.id,
     });
     if (recorded.outcome !== "knowledge_recorded") return knowledgeRejected(recorded);
-    return { outcome: "applied", knowledgeId: recorded.knowledge.id, redactions: recorded.redactions };
+    return {
+      outcome: "applied",
+      knowledgeId: recorded.knowledge.id,
+      redactions: recorded.redactions,
+      ...(recorded.warnings?.includes(CONVENTION_WITHDRAWN_WARNING) ? { conventionWithdrawn: true as const } : {}),
+    };
   }
 
   private replay(requestId: string, idempotencyKey: string, hash: string): SubmitAgentReviewVerdictsResult | undefined {
@@ -1200,11 +1216,13 @@ export class AgentReviewService {
     if (!previous) return undefined;
     if (previous.payload_hash !== hash) return { outcome: "rejected", reason: "idempotency_conflict", requestId };
     const request = this.request(requestId)!;
+    const results = JSON.parse(previous.results_json) as AgentReviewVerdictResult[];
     return {
       outcome: "agent_review_verdicts_submitted",
       request,
-      results: JSON.parse(previous.results_json) as AgentReviewVerdictResult[],
+      results,
       duplicate: true,
+      ...conventionWarnings(results),
       ...(request.status === "completed" ? { completion: { knowledgePages: this.completionOf(request.id) } } : {}),
     };
   }
@@ -1285,7 +1303,10 @@ export class AgentReviewService {
       : undefined;
     if (!current) return { ...(knowledgeId ? { id: knowledgeId } : {}), action: "missing" };
     if (current.status !== "active") return { id: current.id, action: "unchanged", status: current.status };
-    const updated = this.dependencies.updateKnowledge({ projectRoot, knowledgeId: current.id, status: "archived" });
+    const updated = this.dependencies.updateKnowledge(
+      { projectRoot, knowledgeId: current.id, status: "archived" },
+      "user",
+    );
     return updated.outcome === "knowledge_updated"
       ? { id: current.id, action: "archived", status: "archived" }
       : { id: current.id, action: "unchanged", status: current.status };

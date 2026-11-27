@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import {
   isSafeRepositoryUrl,
+  KNOWLEDGE_CONVENTION_LIMIT,
   PROJECT_DATA_TABLES,
   type ProjectDataCounts,
   type ProjectDataExport,
@@ -135,6 +136,8 @@ const LOCAL_DERIVED_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>>
   report_summaries: ["is_current"],
   // A copy without one (submitted before schema 33) is the same candidate.
   knowledge_candidates: ["overlaps_json"],
+  // The convention is the user's choice on this machine; a copy from another machine never changes what Agents are shown.
+  knowledge: ["convention_confirmed_at", "convention_withdrawal_json"],
 };
 
 const UNORDERED_JSON_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> = {
@@ -356,6 +359,7 @@ interface TransferPlan {
   conflictGroups: ProjectDataImportConflictGroup[];
   pageVersionRenumbers: Array<{ id: string; version: number }>;
   renumbered: ProjectDataCounts;
+  conventionsWithdrawn: number;
 }
 
 interface PlannedImport {
@@ -1528,6 +1532,7 @@ function planExistingRow(
   strategy: ProjectDataImportStrategy,
   addPlan: AddPlan,
   importedSessionCompletedAt: ReadonlyMap<string, string>,
+  onConventionWithdrawn: (projectId: string) => void,
 ): void {
   if (equalRows(table, current, row)) {
     addPlan(table, row, "skip");
@@ -1577,10 +1582,35 @@ function planExistingRow(
     for (const field of LOCAL_DERIVED_FIELDS[table] ?? []) {
       row[field] = projectDataColumnValue(table, current, field) ?? null;
     }
+    if (table === "knowledge" && withdrawConventionOnUpdate(current, full, row)) {
+      onConventionWithdrawn(String(current.project_id));
+    }
     addPlan(table, row, "update");
     return;
   }
   addPlan(table, row, "conflict", "相同 ID 的既有資料內容不同。", "content");
+}
+
+/** `full` carries the columns a streamed file keeps out of the planner row; the result is written to `row`. */
+function withdrawImportedConvention(row: ProjectDataRow, reason: "archived" | "needs_review" | "import_cap"): void {
+  row.convention_confirmed_at = null;
+  row.convention_withdrawal_json = JSON.stringify({ at: nowIso(), by: "system", reason });
+}
+
+function withdrawConventionOnUpdate(current: ProjectDataRow, full: ProjectDataRow, row: ProjectDataRow): boolean {
+  if (typeof current.convention_confirmed_at !== "string" || current.convention_confirmed_at === "") return false;
+  const reason =
+    full.status !== "active"
+      ? "archived"
+      : full.review_json !== null && full.review_json !== undefined
+        ? "needs_review"
+        : full.title !== current.title || full.body !== current.body
+          ? "import_changed"
+          : undefined;
+  if (!reason) return false;
+  row.convention_confirmed_at = null;
+  row.convention_withdrawal_json = JSON.stringify({ at: nowIso(), by: "system", reason });
+  return true;
 }
 
 function versionTime(value: ProjectDataValue | undefined): number {
@@ -1981,6 +2011,17 @@ function makePlan(db: DatabaseSync, validated: ValidatedProjectDataImport): Tran
   const importedSessionCompletedAt = new Map(
     selectedBundle.tables.sessions.map((session) => [String(session.id), String(session.completed_at)] as const),
   );
+  const conventionCounts = new Map(
+    (
+      db
+        .prepare(
+          "SELECT project_id, COUNT(*) AS total FROM knowledge WHERE convention_confirmed_at IS NOT NULL AND convention_confirmed_at <> '' AND status = 'active' AND review_json IS NULL GROUP BY project_id",
+        )
+        .all() as Array<{ project_id: string; total: number }>
+    ).map((entry) => [entry.project_id, entry.total]),
+  );
+  let conventionsWithdrawn = 0;
+  const pendingConventionAdds: Array<{ row: ProjectDataRow; projectId: string }> = [];
   const parentOwners = collectParentOwners(db, selectedBundle.tables, projectIds);
   const deletedPageIds = deletedKnowledgePageIds(db, selectedBundle.tables);
   for (const table of TABLE_ORDER) {
@@ -2023,7 +2064,11 @@ function makePlan(db: DatabaseSync, validated: ValidatedProjectDataImport): Tran
         continue;
       }
       if (current) {
-        planExistingRow(db, table, current, row, strategy, addPlan, importedSessionCompletedAt);
+        planExistingRow(db, table, current, row, strategy, addPlan, importedSessionCompletedAt, (projectId) => {
+          conventionsWithdrawn += 1;
+          const taken = conventionCounts.get(projectId) ?? 0;
+          if (taken > 0) conventionCounts.set(projectId, taken - 1);
+        });
         continue;
       }
 
@@ -2042,7 +2087,44 @@ function makePlan(db: DatabaseSync, validated: ValidatedProjectDataImport): Tran
         continue;
       }
       existingIds[table].add(id);
+      if (table === "knowledge" && row.convention_confirmed_at !== null && row.convention_confirmed_at !== undefined) {
+        if (typeof row.convention_confirmed_at !== "string" || row.convention_confirmed_at === "") {
+          row.convention_confirmed_at = null;
+        } else {
+          const full = hydrateRow(row);
+          const withdrawnReason =
+            full.status !== "active"
+              ? "archived"
+              : full.review_json !== null && full.review_json !== undefined
+                ? "needs_review"
+                : undefined;
+          if (withdrawnReason) {
+            withdrawImportedConvention(row, withdrawnReason);
+            conventionsWithdrawn += 1;
+          } else {
+            pendingConventionAdds.push({
+              row,
+              projectId: projectIds.get(String(row.project_id)) ?? String(row.project_id),
+            });
+          }
+        }
+      }
       addPlan(table, row, "add");
+    }
+  }
+
+  pendingConventionAdds.sort(
+    (left, right) =>
+      String(left.row.convention_confirmed_at).localeCompare(String(right.row.convention_confirmed_at)) ||
+      String(left.row.id).localeCompare(String(right.row.id)),
+  );
+  for (const { row, projectId } of pendingConventionAdds) {
+    const taken = conventionCounts.get(projectId) ?? 0;
+    if (taken >= KNOWLEDGE_CONVENTION_LIMIT) {
+      withdrawImportedConvention(row, "import_cap");
+      conventionsWithdrawn += 1;
+    } else {
+      conventionCounts.set(projectId, taken + 1);
     }
   }
 
@@ -2083,6 +2165,7 @@ function makePlan(db: DatabaseSync, validated: ValidatedProjectDataImport): Tran
     ),
     pageVersionRenumbers: renumbering.localRenumbers,
     renumbered: renumbering.count > 0 ? { knowledge_page_versions: renumbering.count } : {},
+    conventionsWithdrawn,
   };
 }
 
@@ -2103,6 +2186,7 @@ function previewFromPlan(plan: TransferPlan): ProjectDataImportPreview {
     conflictDetails: plan.conflicts,
     conflictDetailsTruncated: plan.conflictDetailsTruncated,
     conflictGroups: plan.conflictGroups,
+    ...(plan.conventionsWithdrawn > 0 ? { conventionsWithdrawn: plan.conventionsWithdrawn } : {}),
   };
 }
 
@@ -2121,7 +2205,8 @@ function insertRow(table: ProjectDataTable, row: ProjectDataRow, statement: Inse
 }
 
 function updatableColumns(table: ProjectDataTable): string[] {
-  const derived = LOCAL_DERIVED_FIELDS[table] ?? [];
+  // The planner puts this machine's convention (or its withdrawal) into the row, so an update writes it back unchanged.
+  const derived = table === "knowledge" ? [] : (LOCAL_DERIVED_FIELDS[table] ?? []);
   // project_id is never rewritten: an update must not be able to move a row to another project.
   return projectDataExportTableColumns[table].filter(
     (column) => column !== "id" && column !== "project_id" && !derived.includes(column),

@@ -4,12 +4,13 @@ import {
   knowledgeCandidateListQuerySchema,
   knowledgeHistoryQuerySchema,
   knowledgePageListQuerySchema,
-  knowledgeQuerySchema,
   recordKnowledgeInputSchema,
+  restKnowledgeQuerySchema,
   requestKnowledgeCandidatesInputSchema,
   requestKnowledgePageUpdateInputSchema,
   reviewSessionDecisionInputSchema,
   sessionDecisionListQuerySchema,
+  setKnowledgeConventionInputSchema,
   updateKnowledgeInputSchema,
   updateKnowledgePageInputSchema,
   flattenInputError,
@@ -44,7 +45,7 @@ export const knowledgeRoutes: Route[] = [
     method: "GET",
     pattern: "/api/knowledge",
     handler: validatedRoute(
-      knowledgeQuerySchema,
+      restKnowledgeQuerySchema,
       "Invalid knowledge query.",
       ({ url }) => ({
         projectRoot: textParam(url, "projectRoot"),
@@ -52,6 +53,7 @@ export const knowledgeRoutes: Route[] = [
         q: textParam(url, "q"),
         kind: url.searchParams.get("kind") || undefined,
         status: url.searchParams.get("status") || undefined,
+        convention: url.searchParams.get("convention") === "true" ? true : undefined,
         limit: numberParam(url, "limit"),
         page: numberParam(url, "page"),
         pageSize: numberParam(url, "pageSize"),
@@ -76,8 +78,35 @@ export const knowledgeRoutes: Route[] = [
       updateKnowledgeInputSchema,
       "Invalid knowledge update payload.",
       async ({ request, params }) => ({ ...(await readJsonObject(request)), knowledgeId: params.knowledgeId }),
-      ({ store }, data) => store.updateKnowledge(data),
+      ({ store }, data) => store.updateKnowledge(data, "user"),
     ),
+  },
+  {
+    method: "PUT",
+    pattern: "/api/knowledge/:knowledgeId/convention",
+    handler: async (context) => {
+      const parsed = parseRequestInput(setKnowledgeConventionInputSchema, {
+        ...(await readJsonObject(context.request)),
+        knowledgeId: context.params.knowledgeId,
+      });
+      if (!parsed.success) {
+        sendError(context.response, 400, "Invalid knowledge convention payload.", flattenInputError(parsed.error));
+        return;
+      }
+      const result = context.store.setKnowledgeConvention(parsed.data);
+      if (result.outcome === "rejected") {
+        const limit = result.reason === "convention_limit_reached";
+        sendError(
+          context.response,
+          409,
+          "This Knowledge cannot be marked as a project convention.",
+          { reason: result.reason },
+          limit ? "convention_limit_reached" : "conflict",
+        );
+        return;
+      }
+      sendJson(context.response, 200, result);
+    },
   },
   {
     method: "GET",

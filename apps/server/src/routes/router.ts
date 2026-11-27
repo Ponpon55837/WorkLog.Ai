@@ -26,7 +26,7 @@ import { sendError, sendJson } from "../http.js";
 import type { StagedImports } from "../staged-imports.js";
 import type { UsageOperations } from "../usage-scan.js";
 
-export type RouteMethod = "GET" | "POST" | "PATCH" | "DELETE";
+export type RouteMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 export interface ProjectDataImportUpload {
   path: string;

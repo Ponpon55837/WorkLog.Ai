@@ -1403,4 +1403,36 @@ describe("agent review knowledge items migration", () => {
       db.close();
     }
   });
+
+  it("adds the nullable convention columns to Knowledge and leaves existing items unmarked", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializeWorkIntelligenceDatabase(db, ":memory:");
+      undoMigrationsAfter(db, 40);
+      const columns = () =>
+        (db.prepare("PRAGMA table_info(knowledge)").all() as Array<{ name: string }>).map((column) => column.name);
+      expect(columns()).not.toContain("convention_confirmed_at");
+      db.exec(`INSERT INTO projects (id, name, root_path, status, created_at, updated_at)
+        VALUES ('project-1', 'Orchard', '/fictional/orchard', 'tracked', '2030-01-01T00:00:00.000Z', '2030-01-01T00:00:00.000Z')`);
+      db.exec(`INSERT INTO knowledge
+        (id, project_id, idempotency_key, kind, title, body, tags_json, references_json, status, created_at, updated_at)
+        VALUES ('knowledge-1', 'project-1', 'key-1', 'pattern', 'Rule', 'Body.', '[]', '[]', 'active',
+          '2030-01-01T00:00:00.000Z', '2030-01-01T00:00:00.000Z')`);
+
+      applyRuntimeMigrations(db);
+
+      expect(db.prepare("SELECT name FROM schema_migrations WHERE version = 41").get()).toEqual({
+        name: "knowledge-conventions",
+      });
+      expect(columns()).toEqual(expect.arrayContaining(["convention_confirmed_at", "convention_withdrawal_json"]));
+      expect(
+        db
+          .prepare("SELECT convention_confirmed_at, convention_withdrawal_json FROM knowledge WHERE id = 'knowledge-1'")
+          .get(),
+      ).toEqual({ convention_confirmed_at: null, convention_withdrawal_json: null });
+      expect(LATEST_SCHEMA_VERSION).toBeGreaterThanOrEqual(41);
+    } finally {
+      db.close();
+    }
+  });
 });

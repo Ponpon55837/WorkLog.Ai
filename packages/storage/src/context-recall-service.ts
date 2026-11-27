@@ -84,6 +84,9 @@ const CONTEXT_OMITTED_ID_LIMIT = 3;
 const CONTEXT_OMITTED_PATH_ENTRY_LIMIT = 5;
 const CONTEXT_PATH_ENTRY_TITLE_CHARS = 60;
 const CONTEXT_PATH_ENTRY_SHORT_TITLE_CHARS = 24;
+const CONTEXT_CONVENTIONS_READ_WITH = "work_get_knowledge_history";
+const CONTEXT_CONVENTIONS_BLOCK_CHARS = 700;
+const CONTEXT_CONVENTION_ID_CHARS = 64;
 const CONTEXT_PATH_ENTRY_PATH_CHARS = 100;
 const PATH_KNOWLEDGE_READ_WITH = "work_get_file_history/work_search_knowledge";
 const DEFAULT_KNOWLEDGE_READ_WITH = "work_search_knowledge";
@@ -144,6 +147,7 @@ interface ContextRecallStoreReader {
   openKnowledgeCandidateRequests(projectId?: string): KnowledgeCandidateRequest[];
   knowledgeCandidateBacklog(projectId: string): { uncoveredSessions: number; highValueSessions: number } | undefined;
   countPendingAgentDecisions(projectId?: string): number;
+  projectConventions(projectId: string): Array<{ id: string; title: string }>;
   knowledgePageDigests(projectId: string): KnowledgePageDigest[];
   knowledgePagesForContext(projectId?: string): KnowledgePageRecord[];
   pendingKnowledgePages(projectId?: string): ContextResult["pendingRequests"]["knowledgePages"];
@@ -189,6 +193,16 @@ function truncateAtSentenceBoundary(text: string, limit: number): { text: string
   return { text: `${prefix.slice(0, safeEnd).trimEnd()}…`, truncated: true };
 }
 
+function shortenTitle(title: string, limit: number): string {
+  const points = Array.from(title);
+  return points.length <= limit
+    ? title
+    : `${points
+        .slice(0, limit - 1)
+        .join("")
+        .trimEnd()}…`;
+}
+
 function contextTerms(focus: ContextFocus): string[] {
   const text = [focus.task, ...(focus.paths ?? [])].filter(Boolean).join(" ").toLocaleLowerCase();
   const ignored = new Set(["apps", "packages", "tests", "src", "dist", "test", "spec", "the", "and", "for"]);
@@ -221,6 +235,12 @@ function withoutProjectFields<T extends { projectId: string; projectName?: strin
   const { projectId: _projectId, projectName: _projectName, ...rest } = item;
   return rest;
 }
+
+const CONVENTION_POINTER_SECTIONS: ReadonlySet<string> = new Set([
+  "recentKnowledge",
+  "relevant.knowledge",
+  "relevant.supplements",
+]);
 
 const omittedIdsByContext = new WeakMap<ContextResult, Set<string>>();
 
@@ -363,6 +383,41 @@ function addOmission(context: ContextResult, section: string, item: OmittedItem,
   if (ids.includes(item.id)) return;
   if (ids.length < CONTEXT_OMITTED_ID_LIMIT) ids.push(item.id);
   else omission.moreIds = (omission.moreIds ?? 0) + 1;
+}
+
+/**
+ * The conventions block is added after the context was fitted as if there were none, so what Agents get for everything
+ * else never depends on it. Its Knowledge is then taken out of the recent list, the supplements and the pointers that
+ * name it, which only shrinks the response. A pointer is changed only where the final omission really lists the id; an
+ * id that is merely counted (duplicates, moreIds) stays counted.
+ */
+function attachConventions(context: ContextResult, conventions: NonNullable<ContextResult["conventions"]>): void {
+  context.conventions = conventions;
+  const conventionIds = new Set(conventions.items.map((item) => item.id));
+  context.recentKnowledge = context.recentKnowledge.filter((knowledge) => !conventionIds.has(knowledge.id));
+  const supplements = context.relevant?.supplements;
+  if (context.relevant && supplements) {
+    const kept = supplements.filter((supplement) => !conventionIds.has(supplement.id));
+    if (kept.length === 0) delete context.relevant.supplements;
+    else context.relevant.supplements = kept;
+  }
+  if (!context.omitted) return;
+  for (const omission of context.omitted) {
+    if (!CONVENTION_POINTER_SECTIONS.has(omission.section)) continue;
+    for (const id of conventionIds) {
+      if (omission.ids?.includes(id)) {
+        omission.ids = omission.ids.filter((candidate) => candidate !== id);
+        if (omission.ids.length === 0) delete omission.ids;
+        omission.count -= 1;
+      } else if (omission.entries?.some((entry) => entry.id === id)) {
+        omission.entries = omission.entries.filter((entry) => entry.id !== id);
+        if (omission.entries.length === 0) delete omission.entries;
+        omission.count -= 1;
+      }
+    }
+  }
+  context.omitted = context.omitted.filter((omission) => omission.count > 0);
+  if (context.omitted.length === 0) delete context.omitted;
 }
 
 function contextSupplementOmission(supplements: ContextSupplementIndicator[], includeIds = true): ContextOmission {
@@ -600,6 +655,7 @@ export class ContextRecallService {
 
   private buildContext(project: ProjectRecord, focus: ContextFocus): ContextResult {
     const relevant = this.getRelevantContext(focus, project.id);
+    const conventions = this.getConventions(project.id);
     const recentSessions = this.store.listSessions({ projectId: project.id, limit: 12, trackedOnly: true });
     const pendingBySession = this.groupOutstandingItems(
       this.store.pendingOutstandingItemsForSessions(recentSessions.map((session) => session.id)),
@@ -643,7 +699,9 @@ export class ContextRecallService {
           : this.store.knowledgePageDigests(project.id),
     };
     this.annotateOutstandingItemOmission(context);
-    return this.fitContextBudget(this.deduplicateContext(context, focus), focus);
+    const fitted = this.fitContextBudget(this.deduplicateContext(context, focus), focus);
+    if (conventions) attachConventions(fitted, conventions);
+    return fitted;
   }
 
   private deduplicateContext(context: ContextResult, focus: ContextFocus): ContextResult {
@@ -1645,6 +1703,35 @@ export class ContextRecallService {
         verificationNotRun: 0,
       }
     );
+  }
+
+  private getConventions(projectId: string): ContextResult["conventions"] {
+    const items = this.store
+      .projectConventions(projectId)
+      .filter(({ id }) => JSON.stringify(id).length - 2 <= CONTEXT_CONVENTION_ID_CHARS)
+      .map(({ id, title }) => ({
+        id,
+        title: shortenTitle(title.replace(/\s+/gu, " ").trim(), CONTEXT_PATH_ENTRY_TITLE_CHARS),
+      }));
+    if (items.length === 0) return undefined;
+    const conventions = { readWith: CONTEXT_CONVENTIONS_READ_WITH, items } as const;
+    while (JSON.stringify(conventions).length > CONTEXT_CONVENTIONS_BLOCK_CHARS) {
+      const longest = items.reduce((widest, item) =>
+        Array.from(item.title).length > Array.from(widest.title).length ? item : widest,
+      );
+      const points = Array.from(longest.title);
+      if (points.length > 2) {
+        longest.title = `${points
+          .slice(0, Math.max(1, points.length - 5))
+          .join("")
+          .trimEnd()}…`;
+      } else if (items.length > 1) {
+        items.pop();
+      } else {
+        return undefined;
+      }
+    }
+    return conventions;
   }
 
   private getRecentKnowledge(projectId?: string): ProjectScopedItem<KnowledgeDigest>[] {

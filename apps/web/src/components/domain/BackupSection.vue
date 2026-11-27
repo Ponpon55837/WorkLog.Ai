@@ -436,6 +436,9 @@ onBeforeUnmount(() => {
         <p v-if="importSummary(importPreview).renumbered > 0" class="backup-section__hint">
           {{ t("projects.pageVersionsRenumbered", { count: importSummary(importPreview).renumbered }) }}
         </p>
+        <p v-if="importPreview.conventionsWithdrawn" class="backup-section__hint">
+          {{ t("projects.conventionsWithdrawnOnImport", { count: importPreview.conventionsWithdrawn }) }}
+        </p>
         <VirtualList
           v-if="importPreview.conflictGroups.length > 0"
           :items="importPreview.conflictGroups"

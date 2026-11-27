@@ -67,6 +67,8 @@ export const PROJECT_DATA_EXPORT_COLUMNS = {
     "last_confirmed_session_id",
     "supersedes_id",
     "review_json",
+    "convention_confirmed_at",
+    "convention_withdrawal_json",
   ],
   session_decisions: [
     "id",
