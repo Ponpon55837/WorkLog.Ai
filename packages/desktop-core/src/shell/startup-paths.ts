@@ -1,19 +1,12 @@
-/** Why the App could not find where its data lives; it closes with a native error box instead of loading half-way. */
 export type UserDataResolution =
   | { readonly ok: true; readonly userDataDirectory: string }
   | { readonly ok: false; readonly code: "USER_DATA_UNAVAILABLE"; readonly detail: string };
 
-/** Electron's `app.getPath("userData")` and `app.setPath("userData", …)`, injected so the decision runs anywhere. */
 export interface UserDataAccess {
-  /** Throws when the platform cannot name the folder (on Windows, a missing Roaming AppData). */
   read(): string;
   write(path: string): void;
 }
 
-/**
- * Where the App keeps its data, or why it cannot know. A redirect (dev and test only) is applied first, so the platform
- * default is never resolved when it is not used. Never throws: the caller decides how to tell the user and exits.
- */
 export function resolveUserDataDirectory(override: string | undefined, access: UserDataAccess): UserDataResolution {
   if (override) {
     try {

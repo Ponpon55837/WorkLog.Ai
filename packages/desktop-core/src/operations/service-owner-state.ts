@@ -1,4 +1,3 @@
-/** ServiceOwner states (R4 §4.1). `as const` array so the zod schema and the table share one source. */
 export const SERVICE_OWNER_STATES = [
   "UNCONFIGURED",
   "EXTERNAL",
@@ -9,20 +8,15 @@ export const SERVICE_OWNER_STATES = [
   "NEEDS_REPAIR",
 ] as const;
 
-/** Who controls the HTTP/API child process right now. */
 export type ServiceOwnerState = (typeof SERVICE_OWNER_STATES)[number];
 
-/** One legal edge of the state machine with the reason it exists. */
 export interface TransitionEdge {
   readonly from: ServiceOwnerState;
   readonly to: ServiceOwnerState;
   readonly rationale: string;
 }
 
-/**
- * The legal transitions as data. Edges into EXTERNAL from a non-initial state are "restore" edges: they hand the
- * old service back, so they are additionally blocked once a migration started (ADR-22, see {@link assertTransition}).
- */
+/** Edges into EXTERNAL from a non-initial state hand the old service back, so they are blocked once a migration started (ADR-22). */
 export const TRANSITION_EDGES: readonly TransitionEdge[] = [
   { from: "UNCONFIGURED", to: "PREPARING", rationale: "first-time takeover or setup was requested" },
   {
@@ -72,10 +66,8 @@ export const TRANSITION_EDGES: readonly TransitionEdge[] = [
   { from: "NEEDS_REPAIR", to: "UNCONFIGURED", rationale: "user discards the configuration and starts over" },
 ];
 
-/** Adjacency view of {@link TRANSITION_EDGES}. */
 export const TRANSITION_TABLE: ReadonlyMap<ServiceOwnerState, ReadonlySet<ServiceOwnerState>> = buildTable();
 
-/** Raised for an edge that is not in the table. */
 export class InvalidTransitionError extends Error {
   readonly from: ServiceOwnerState;
   readonly to: ServiceOwnerState;
@@ -88,7 +80,6 @@ export class InvalidTransitionError extends Error {
   }
 }
 
-/** Raised when a transition would restore the old service after migration started (ADR-22). */
 export class RestoreForbiddenError extends Error {
   readonly from: ServiceOwnerState;
 
@@ -99,12 +90,10 @@ export class RestoreForbiddenError extends Error {
   }
 }
 
-/** True when the table allows `from -> to` (ignores the migration guard). */
 export function isLegalTransition(from: ServiceOwnerState, to: ServiceOwnerState): boolean {
   return TRANSITION_TABLE.get(from)?.has(to) ?? false;
 }
 
-/** Throws a typed error unless `from -> to` is legal given whether migration already started. */
 export function assertTransition(from: ServiceOwnerState, to: ServiceOwnerState, migrationStarted: boolean): void {
   if (!isLegalTransition(from, to)) throw new InvalidTransitionError(from, to);
   if (migrationStarted && to === "EXTERNAL") throw new RestoreForbiddenError(from);

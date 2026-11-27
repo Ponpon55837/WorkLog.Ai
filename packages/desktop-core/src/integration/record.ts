@@ -6,67 +6,43 @@ import { z } from "zod";
 import { writeFileAtomic } from "../internal/atomic-file.js";
 import { BIN_DIRECTORY_NAME, POSIX_SHIM_NAME, WINDOWS_SHIM_NAME } from "../runtime/layout.js";
 
-/** The only schema version; a reader that finds another one ignores the record instead of guessing. */
 export const INTEGRATION_RECORD_VERSION = 1;
-/** The record's file name inside the Work Intelligence config directory, next to `plugin-link.json`. */
 export const INTEGRATION_RECORD_FILE_NAME = "desktop-integration.json";
 
 const MAX_PATH_LENGTH = 4096;
 const MAX_TEXT_LENGTH = 128;
-/**
- * A drive-letter path only. A rooted path without a drive depends on the current drive, and `\\server\share`, `\\?\` and
- * `\\.\` paths can reach a network share (Windows sends NTLM credentials to it), so none of them is accepted.
- */
+/** A drive-letter path only: rooted or UNC/device paths can reach a network share (Windows sends NTLM credentials). */
 const WINDOWS_DRIVE_PATH = /^[A-Za-z]:\\/;
-/** The Win32 extended-length prefix `realpathSync.native` may put in front of a drive path. */
 const WINDOWS_VERBATIM_PREFIX = "\\\\?\\";
 
 /**
- * Threat model. A process running as the same OS user can already rewrite the Agents' own configs (~/.claude.json,
- * ~/.codex/config.toml) and `plugin-link.json`, so a same-user writer of this record is not a new privilege boundary.
- * The record must not widen it: readers refuse anything another user or a network share could control (strict
- * schema, drive-letter paths on Windows, and on POSIX owner/mode/symlink checks of the record, the runtime root, its
- * `bin` and the shim; see plugins/work-intelligence/scripts/desktop-integration.mjs, the dependency-free reader the
- * plugin, the MCPB and the standalone package ship). This module owns the writing side and the shared schema rules.
+ * A same-user writer of this record is no new privilege boundary, but it must not widen one: readers refuse anything
+ * another user or a network share could control. The dependency-free reader is plugins/work-intelligence/scripts/desktop-integration.mjs.
  */
 
-/**
- * What the packaged App tells Agents about itself: where the fixed launcher shim is and which executable is the App.
- * It holds paths and a version only, never the database path or any user data, so any process of this user may read it.
- */
+/** Paths and a version only, never the database path or user data: any process of this user may read it. */
 export interface IntegrationRecord {
   readonly version: typeof INTEGRATION_RECORD_VERSION;
-  /** The shim at `<runtimeRoot>/bin/work-intelligence-launcher[.cmd]`; always exactly that path. */
   readonly launcherPath: string;
-  /** The canonical (real) runtime root: no symlink, and on Windows the real letter case and long names. */
   readonly runtimeRoot: string;
-  /**
-   * The App's own executable in canonical (real) form, started with `--open-dashboard` (OPEN_DASHBOARD_FLAG) to open
-   * the Dashboard.
-   */
   readonly appExecutable: string;
   readonly appVersion: string;
-  /** ISO time of the last write; informational only, never compared. */
   readonly writtenAt: string;
 }
 
-/** What identifies an installation: the record is rewritten only when one of these changes. */
 export type IntegrationRecordInputs = Pick<IntegrationRecord, "runtimeRoot" | "appExecutable" | "appVersion">;
 
-/** Inputs of {@link integrationConfigDirectory}; everything comes from the caller so the function is pure. */
 export interface IntegrationDirectoryInputs {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly homedir: string;
 }
 
-/** `written`: the record changed, `unchanged` the file already said this. */
 export type IntegrationPublishResult = "written" | "unchanged";
 
 function pathModule(platform: NodeJS.Platform) {
   return platform === "win32" ? path.win32 : path.posix;
 }
 
-/** The shim path for a runtime root; the one value `launcherPath` may have. */
 export function launcherShimPath(runtimeRoot: string, platform: NodeJS.Platform): string {
   return pathModule(platform).join(
     runtimeRoot,
@@ -75,13 +51,6 @@ export function launcherShimPath(runtimeRoot: string, platform: NodeJS.Platform)
   );
 }
 
-/**
- * The real path of an installation path, so the record never names a symlink (the reader refuses symlinks with lstat,
- * and a symlinked sandbox or `/var` -> `/private/var` would otherwise make the same installation look different).
- * The value is kept as given when it cannot be resolved (missing or unreadable), is not absolute, or, on Windows,
- * resolves to anything but a drive-letter path (UNC, `\\?\UNC\`, a mapped drive that is really `\\server\share`),
- * because the schema and the readers refuse those. A `\\?\` prefix in front of a drive path is stripped.
- */
 export function canonicalInstallationPath(
   value: string,
   platform: NodeJS.Platform,
@@ -99,22 +68,15 @@ export function canonicalInstallationPath(
   return WINDOWS_DRIVE_PATH.test(resolved) ? resolved : value;
 }
 
-/** `WORK_INTELLIGENCE_CONFIG_DIR`, else `~/.work-intelligence`: the directory the plugin reads `plugin-link.json` from. */
 export function integrationConfigDirectory({ env, homedir }: IntegrationDirectoryInputs): string {
   return configDirectory({ environment: env, home: homedir });
 }
 
-/** The record's path inside {@link integrationConfigDirectory}. */
 export function integrationRecordPath(inputs: IntegrationDirectoryInputs): string {
   return path.join(integrationConfigDirectory(inputs), INTEGRATION_RECORD_FILE_NAME);
 }
 
-/**
- * Strict on purpose: another version, a missing or extra field, a relative or non-normalized path (`..` segments) and a
- * launcher path other than `<runtimeRoot>/bin/<shim>` all invalidate the record. plugins/work-intelligence/scripts/
- * desktop-integration.mjs applies the same rules without dependencies; tests/desktop-core/integration-record.test.ts feeds
- * one table of cases to both parsers.
- */
+/** Strict on purpose; plugins/work-intelligence/scripts/desktop-integration.mjs applies the same rules and tests feed both. */
 function recordSchema(platform: NodeJS.Platform) {
   const paths = pathModule(platform);
   const absolute = z
@@ -143,7 +105,6 @@ function recordSchema(platform: NodeJS.Platform) {
     });
 }
 
-/** The record in `text`, or undefined when it is not JSON or breaks any rule of the schema. */
 export function parseIntegrationRecord(text: string, platform: NodeJS.Platform): IntegrationRecord | undefined {
   try {
     const parsed = recordSchema(platform).safeParse(JSON.parse(text));
@@ -153,7 +114,6 @@ export function parseIntegrationRecord(text: string, platform: NodeJS.Platform):
   }
 }
 
-/** The record stored in `file`, or undefined when it is missing, unreadable or invalid. */
 export async function readIntegrationRecord(
   file: string,
   platform: NodeJS.Platform,
@@ -169,20 +129,12 @@ function sameInstallation(a: IntegrationRecordInputs, b: IntegrationRecordInputs
   return a.runtimeRoot === b.runtimeRoot && a.appExecutable === b.appExecutable && a.appVersion === b.appVersion;
 }
 
-/**
- * Writes the record for this installation, atomically, unless the file already says the same: a warm start reads
- * a few hundred bytes and writes nothing. Throws when the inputs would make an invalid record (a relative path) or the
- * file cannot be written; the caller treats that as "no integration", never as a start failure. The runtime root and
- * the executable are stored in canonical form (see {@link canonicalInstallationPath}) and compared that way, so the
- * path a reader checks with lstat is the real one and a start through a symlink changes nothing.
- */
 export async function publishIntegrationRecord(
   file: string,
   inputs: IntegrationRecordInputs,
   options: {
     readonly platform?: NodeJS.Platform;
     readonly now?: () => Date;
-    /** Resolves a path to its real form; defaults to `realpathSync.native`. */
     readonly realpath?: (value: string) => string;
   } = {},
 ): Promise<IntegrationPublishResult> {

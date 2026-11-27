@@ -2,20 +2,14 @@ import { formatMessage, type ShellLocale } from "./i18n.js";
 import type { MaintenanceFailureReason, MaintenanceMode, MaintenanceRunResult } from "./maintenance-types.js";
 import { busyText, formatBackupSize, restoreMessages } from "./restore-i18n.js";
 
-/**
- * The strings of 「整理資料庫」: the card, its answers and the native confirmation. No command, terminal or path wording; every
- * failure says whether the data was touched.
- */
 export interface MaintenanceMessages {
   readonly heading: string;
   readonly intro: string;
-  /** `{size}` is how much the free pages hold. */
   readonly reclaimable: string;
   readonly reclaimableUnknown: string;
   readonly reclaimWorth: string;
   readonly reclaimNotNeeded: string;
   readonly lastRunLabel: string;
-  /** `{time}` is when it ended. */
   readonly lastCompleted: string;
   readonly lastFailed: string;
   readonly lastRunning: string;
@@ -39,7 +33,6 @@ export interface MaintenanceMessages {
   readonly startFailed: string;
   readonly notRunning: string;
   readonly dataIntact: string;
-  /** `{backup}` is the file name of the backup made first; `{saved}` how much space was given back. */
   readonly doneMaintain: string;
   readonly doneMaintainNothing: string;
   readonly doneCheck: string;
@@ -142,7 +135,6 @@ const en: MaintenanceMessages = {
   cancelButton: "Cancel",
 };
 
-/** The string table of `locale`. */
 export function maintenanceMessages(locale: ShellLocale): MaintenanceMessages {
   return locale === "zh-TW" ? zhTW : en;
 }
@@ -154,7 +146,6 @@ function timeText(locale: ShellLocale, iso: string): string {
     : new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
-/** The sentence for the last run the database records. */
 export function lastRunText(
   messages: MaintenanceMessages,
   locale: ShellLocale,
@@ -171,7 +162,6 @@ export function lastRunText(
   return formatMessage(template, { time });
 }
 
-/** The sentence for the read-only check of this session. */
 export function checkText(
   messages: MaintenanceMessages,
   locale: ShellLocale,
@@ -182,12 +172,10 @@ export function checkText(
   });
 }
 
-/** The reclaimable-space sentence (size in KB, MB or GB). */
 export function reclaimableText(messages: MaintenanceMessages, bytes: number, suggest: boolean): string {
   return `${formatMessage(messages.reclaimable, { size: formatBackupSize(bytes) })} ${suggest ? messages.reclaimWorth : messages.reclaimNotNeeded}`;
 }
 
-/** The sentence of a refusal or failure that has its own text. */
 function reasonText(messages: MaintenanceMessages, reason: MaintenanceFailureReason): string {
   switch (reason) {
     case "agents-running":
@@ -215,7 +203,6 @@ function reasonText(messages: MaintenanceMessages, reason: MaintenanceFailureRea
   }
 }
 
-/** The sentence for a run that did not finish: what happened, and what is true of the data now. */
 export function maintenanceFailureText(
   messages: MaintenanceMessages,
   locale: ShellLocale,
@@ -223,12 +210,10 @@ export function maintenanceFailureText(
 ): string {
   if (result.reason === "busy") return busyText(restoreMessages(locale), result.busy);
   const tail = result.backendRunning || result.reason === "start-failed" ? "" : ` ${messages.notRunning}`;
-  // A refusal before anything was stopped says the data is as it was; a failure after the backup does not claim it.
   const untouched = result.dataIntact && (result.reason === "agents-running" || result.reason === "cancelled");
   return `${reasonText(messages, result.reason)}${untouched && result.reason === "agents-running" ? ` ${messages.dataIntact}` : ""}${tail}`;
 }
 
-/** The sentence for a run that worked. */
 export function maintenanceSuccessText(
   messages: MaintenanceMessages,
   result: Extract<MaintenanceRunResult, { ok: true }>,
@@ -240,7 +225,6 @@ export function maintenanceSuccessText(
     : formatMessage(messages.doneMaintainNothing, { backup });
 }
 
-/** The button label of each mode while it works and when idle. */
 export function modeLabels(messages: MaintenanceMessages, mode: MaintenanceMode, working: boolean): string {
   if (mode === "maintain") return working ? messages.maintaining : messages.maintain;
   return working ? messages.checking : messages.check;

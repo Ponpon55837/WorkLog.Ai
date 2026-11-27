@@ -8,11 +8,6 @@ import type {
   RestoreRunResult,
 } from "./restore-types.js";
 
-/**
- * The strings of 「從備份還原」: the Data tab's section, its answers and the native dialogs. No command, terminal or path
- * wording anywhere; where something must be closed or retried, the text says what to do in the App or in the user's own
- * programs.
- */
 export interface RestoreMessages {
   readonly heading: string;
   readonly intro: string;
@@ -29,16 +24,11 @@ export interface RestoreMessages {
   readonly labels: Readonly<Record<RestoreBackupLabel, string>>;
   readonly factTime: string;
   readonly factSize: string;
-  /** `{version}` is the schema version of the backup. */
   readonly factVersion: string;
-  /** `{projects}` and `{sessions}` are counts. */
   readonly factContent: string;
   readonly unknownTime: string;
-  /** Shown beside a backup that cannot be restored from. */
   readonly problems: Readonly<Record<BackupProblem, string>>;
-  /** `{version}`: the schema version of a file from a newer App. */
   readonly newerSchemaWithVersion: string;
-  /** Agents may hold the database: asked to close them first. */
   readonly agentsRunning: string;
   readonly pickCancelled: string;
   readonly pickFailed: string;
@@ -48,7 +38,6 @@ export interface RestoreMessages {
   readonly busyActivity: string;
   readonly busyPageAction: string;
   readonly busyUnknown: string;
-  /** `{what}` is one of `operations`. */
   readonly busyOperationNamed: string;
   readonly operations: Readonly<Record<OperationKind, string>>;
   readonly locked: string;
@@ -57,32 +46,20 @@ export interface RestoreMessages {
   readonly sameFile: string;
   readonly noDatabaseToRestore: string;
   readonly failed: string;
-  /** Appended when a failure left the service stopped. */
   readonly notRunning: string;
-  /** Appended after a failure that touched nothing. */
   readonly dataIntact: string;
-  /** The restore gave no answer and the database could not be shown unchanged; no claim about the data is made. */
   readonly outcomeUnknown: string;
-  /** `{safety}` is the file name of the safety backup. */
   readonly startFailed: string;
-  /** `{safety}` is the file name; `{projects}` and `{sessions}` are counts. */
   readonly done: string;
   readonly doneNoSafety: string;
-  /** The native chooser. */
   readonly pickTitle: string;
   readonly pickFilter: string;
-  /** The native confirmation. */
   readonly confirmTitle: string;
   readonly confirmMessage: string;
-  /** `{database}` is the current database file, `{time}` and `{size}` describe the backup. */
   readonly confirmDetail: string;
   readonly confirmDetailNoDatabase: string;
   readonly confirmButton: string;
   readonly cancelButton: string;
-  /**
-   * A backup from another computer records project folders that are not here. The native question before the confirmation:
-   * `{missing}` of `{total}` folders are not found, `{mapped}` were matched already.
-   */
   readonly relocateTitle: string;
   readonly relocateMessage: string;
   readonly relocateDetail: string;
@@ -91,11 +68,8 @@ export interface RestoreMessages {
   readonly relocateChooseAnother: string;
   readonly relocateSkip: string;
   readonly relocateFolderTitle: string;
-  /** Shown after a chosen folder matched nothing. */
   readonly relocateNoMatch: string;
-  /** Added to the confirmation: `{mapped}` projects will point at the new place. */
   readonly confirmRemapLine: string;
-  /** Added to a success answer: `{mapped}` projects now point at the new place. */
   readonly doneRemapped: string;
 }
 
@@ -299,12 +273,10 @@ const en: RestoreMessages = {
   doneRemapped: "{mapped} projects now point at the new place.",
 };
 
-/** The string table of `locale`. */
 export function restoreMessages(locale: ShellLocale): RestoreMessages {
   return locale === "zh-TW" ? zhTW : en;
 }
 
-/** A size in the unit a person reads (KB, MB, GB), the same in every language. */
 export function formatBackupSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   const units = ["KB", "MB", "GB"];
@@ -317,7 +289,6 @@ export function formatBackupSize(bytes: number): string {
   return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
 }
 
-/** The sentence for what held a restore back; it names the real reason, not a generic one. */
 export function busyText(messages: RestoreMessages, busy: RestoreBusyDetail | undefined): string {
   switch (busy?.source) {
     case "operation":
@@ -333,7 +304,6 @@ export function busyText(messages: RestoreMessages, busy: RestoreBusyDetail | un
   }
 }
 
-/** The sentence for a refused pick (a file that is not a restorable backup, or a cancelled chooser). */
 export function pickFailureText(messages: RestoreMessages, result: Extract<RestorePickResult, { ok: false }>): string {
   if (result.reason === "newer-schema" && result.schemaVersion !== undefined) {
     return formatMessage(messages.newerSchemaWithVersion, { version: String(result.schemaVersion) });
@@ -349,7 +319,6 @@ export function pickFailureText(messages: RestoreMessages, result: Extract<Resto
   }
 }
 
-/** The sentence for a restore that did not finish: what happened, and what is true of the data now. */
 export function runFailureText(messages: RestoreMessages, result: Extract<RestoreRunResult, { ok: false }>): string {
   const tail = result.backendRunning ? "" : ` ${messages.notRunning}`;
   switch (result.reason) {
@@ -385,7 +354,6 @@ export function runFailureText(messages: RestoreMessages, result: Extract<Restor
   }
 }
 
-/** The sentence for a restore that worked. */
 export function runSuccessText(messages: RestoreMessages, result: Extract<RestoreRunResult, { ok: true }>): string {
   const values = {
     projects: String(result.projects),

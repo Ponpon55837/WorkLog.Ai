@@ -1,40 +1,29 @@
 import type { UpdatePlatform } from "../update-check/result.js";
 import type { ShellLocale } from "./i18n.js";
 
-/** The strings of the manual update check: the tray item and the repair window's 「更新」 card. */
 export interface UpdateMessages {
   readonly trayCheckUpdates: string;
   readonly heading: string;
-  /** The App never checks by itself: pressing the button is the consent to ask GitHub. */
   readonly intro: string;
-  /** `{version}` is the running version. */
   readonly current: string;
   readonly check: string;
   readonly checking: string;
   readonly upToDate: string;
-  /** `{version}` is the newer version. */
   readonly newerVersion: string;
-  /** `{date}` is the publish date. */
   readonly published: string;
   readonly notesHeading: string;
   readonly notesTruncated: string;
   readonly downloadAsset: Readonly<Record<UpdatePlatform, string>>;
   readonly openPage: string;
   readonly verifyHint: string;
-  /** ADR-38: the installers are not signed. */
   readonly unsignedNote: string;
-  /** Windows on ARM, Linux and other platforms: only the release page is offered. */
   readonly noInstaller: string;
   readonly offline: string;
   readonly timedOut: string;
-  /** The secure connection failed (certificate or TLS): a proxy or security software may be intercepting it. */
   readonly tlsFailed: string;
-  /** GitHub listed no stable release, so "up to date" cannot be said; the release page is offered. */
   readonly noRelease: string;
-  /** `{time}` is when GitHub lifts the limit. */
   readonly rateLimitedUntil: string;
   readonly rateLimited: string;
-  /** `{code}` is a short reason code. */
   readonly failed: string;
   readonly linkFailed: string;
 }

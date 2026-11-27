@@ -9,7 +9,6 @@ import {
 import { evaluateReleases, releaseListSchema, type UpdateOutcome } from "./releases.js";
 import type { UpdateCheckResult, UpdateErrorReason } from "./result.js";
 
-/** The request options the check always sends; the injected fetch must pass them on to the network stack. */
 export interface UpdateRequestInit {
   readonly method: "GET";
   readonly headers: Readonly<Record<string, string>>;
@@ -19,7 +18,6 @@ export interface UpdateRequestInit {
   readonly signal: AbortSignal;
 }
 
-/** The part of a fetch response the check reads; a `Response` fits. */
 export interface UpdateResponse {
   readonly status: number;
   readonly headers: { get(name: string): string | null };
@@ -33,7 +31,6 @@ export interface CheckForUpdatesInputs {
   readonly currentVersion: string;
   readonly platform: string;
   readonly arch: string;
-  /** Test builds only: a local fake server instead of the GitHub API. */
   readonly apiOrigin?: string;
   readonly slug?: string;
   readonly timeoutMs?: number;
@@ -51,13 +48,11 @@ function failed(reason: UpdateErrorReason): UpdateOutcome {
   return failure({ kind: "error", reason });
 }
 
-/** A whole number from a header (seconds or a byte count), or undefined. */
 function seconds(value: string | null): number | undefined {
   if (value === null || !/^\d{1,10}$/.test(value.trim())) return undefined;
   return Number(value.trim());
 }
 
-/** The time a rate limit lifts: `retry-after` (seconds from now), else `x-ratelimit-reset` (epoch seconds). */
 function resetTime(headers: UpdateResponse["headers"], now: number): string | null {
   const wait = seconds(headers.get("retry-after"));
   const epoch = seconds(headers.get("x-ratelimit-reset"));
@@ -70,14 +65,10 @@ function isRateLimited(response: UpdateResponse): boolean {
   return response.status === 403 && response.headers.get("x-ratelimit-remaining")?.trim() === "0";
 }
 
-/** Electron's net error code in a message (`net::ERR_CERT_DATE_INVALID`), when the transport gives one. */
 const NET_ERROR_CODE = /net::(ERR_[A-Z0-9_]+)/;
-/** Net error codes of a failed secure connection: certificate problems and TLS handshake or protocol failures. */
 const TLS_NET_ERROR = /^ERR_(?:CERT_|SSL_|BAD_SSL_|INSECURE_RESPONSE|TLS_)/;
-/** Free text of a TLS failure from a transport that gives no net error code (Node and OpenSSL spell them out). */
 const TLS_TEXT = /certificate|(?<![a-z0-9])(?:ssl|tls)(?![a-z0-9])|self[- ]signed|unable to verify|handshake/i;
 
-/** Everything an error says about itself, including nested causes (a few levels: a cause can point back), as one string. */
 function describe(error: unknown, depth = 0): string {
   if (!(error instanceof Error)) return "";
   const { code, cause } = error as Error & { code?: unknown; cause?: unknown };
@@ -85,11 +76,6 @@ function describe(error: unknown, depth = 0): string {
   return [error.name, error.message, typeof code === "string" ? code : "", nested].join(" ");
 }
 
-/**
- * What a thrown error means: a timeout and every connection failure are "offline"; a refused redirect and a failed
- * secure connection (a certificate the system does not trust, often a proxy or security software in the way) are not.
- * Electron's net error code decides when there is one; the free text is only the fallback.
- */
 function thrownOutcome(error: unknown, signal: AbortSignal): UpdateOutcome {
   if (signal.aborted) return failure({ kind: "offline", timedOut: true });
   const text = describe(error);
@@ -101,7 +87,6 @@ function thrownOutcome(error: unknown, signal: AbortSignal): UpdateOutcome {
 
 class ResponseTooLarge extends Error {}
 
-/** Stops reading a body that will not be used. It never waits: a stream that cannot be cancelled must not hold the check. */
 function discard(stream: { cancel(): Promise<void> } | null): void {
   try {
     stream?.cancel().catch(() => undefined);
@@ -110,10 +95,6 @@ function discard(stream: { cancel(): Promise<void> } | null): void {
   }
 }
 
-/**
- * The promise's answer, or a rejection the moment `signal` aborts, whether or not the transport reacts to the abort: a
- * server that sends the headers and then stalls must still end the check at the timeout.
- */
 function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const onAbort = (): void => reject(signal.reason);
@@ -123,7 +104,6 @@ function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 
-/** Reads the body up to `maxBytes`; a longer one is cancelled and refused rather than cut. */
 async function readLimited(response: UpdateResponse, maxBytes: number, signal: AbortSignal): Promise<string> {
   const declared = seconds(response.headers.get("content-length"));
   if (declared !== undefined && declared > maxBytes) {
@@ -144,17 +124,12 @@ async function readLimited(response: UpdateResponse, maxBytes: number, signal: A
       text += decoder.decode(value, { stream: true });
     }
   } catch (error) {
-    // Too large, aborted or failed: the rest of the body is not wanted.
     discard(reader);
     throw error;
   }
   return text + decoder.decode();
 }
 
-/**
- * One check: a single GET of the release list through the injected fetch, then the pure decision. Nothing here retries,
- * logs, stores or throws: every outcome is a result.
- */
 export async function checkForUpdates(inputs: CheckForUpdatesInputs): Promise<UpdateOutcome> {
   const now = inputs.now ?? Date.now;
   const maxBytes = inputs.maxBytes ?? UPDATE_MAX_RESPONSE_BYTES;

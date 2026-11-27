@@ -4,9 +4,7 @@ import type { OperationJournal } from "./operation-journal.js";
 import { describeRecovery } from "./recovery-notice.js";
 import { recover, repairDecision, type ProbeReport, type RecoveryDecision } from "./recovery.js";
 
-/** What became of the copy an interrupted "copy to the local disk" left behind. */
 export type CopySettlement =
-  /** The file was the App's own unused copy: it is gone. */
   | "removed"
   /** The settings name the copy: it is the database now and stays. */
   | "in-use"
@@ -17,40 +15,22 @@ export type CopySettlement =
 
 export interface StartupRecoveryDeps {
   readonly journal: OperationJournal;
-  /**
-   * Reads the real state (OS service, child, settings, database) for one record. Called only for a record that is still
-   * in progress; a throw is "state unknown" and ends in repair.
-   */
   readonly probe: (record: OperationRecord) => Promise<ProbeReport> | ProbeReport;
-  /**
-   * Deletes the orphan copy named by `copyPath` unless the settings use it; it checks the path itself. `record` is the
-   * interrupted operation (when it began and was last written), for the copy's own age check.
-   */
   readonly settleCopy: (copyPath: string, record: OperationRecord) => Promise<CopySettlement>;
-  /**
-   * The settings file exists but could not be read. "No settings" is a fact only for a new install: here the state is
-   * unknown, so no record is closed (and no orphan copy deleted); the start is held until the settings are repaired.
-   */
+  /** The settings exist but could not be read: state is unknown, so no record is closed and no orphan copy deleted. */
   readonly settingsUnreadable?: boolean;
   readonly log: (line: string) => void;
 }
 
 export interface StartupRecoveryResult {
-  /** Operations closed by this run. */
   readonly closed: number;
-  /** At least one was closed as repair: the backend must not start by itself (it would touch data we could not verify). */
+  /** A record was closed as repair: the backend must not start by itself on data that could not be verified. */
   readonly holdStart: boolean;
-  /** The journal could not be read at all (a newer App wrote it, or the file is unreadable): nothing is claimed or started. */
   readonly journalProblem?: "newer-version" | "unreadable";
 }
 
-/** The journal key that marks the record of a copy to the local disk (its value is the copy's path). */
 export const COPY_PATH_DETAIL = "copyPath";
 
-/**
- * Nothing runs at start-up, so a decision that waits for a child (`resume`) cannot be carried out, and the App never
- * hands the old login service back by itself: both are repair. Everything else is applied as decided.
- */
 function closable(record: OperationRecord, decision: RecoveryDecision): RecoveryDecision {
   const restore = decision.restore;
   const hasRestoreWork = restore !== null && (restore.register || restore.enable || restore.start);
@@ -68,7 +48,6 @@ function copyPathOf(record: OperationRecord): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-/** The record of an interrupted copy: its only effect on disk is the copy file, so settling that closes it. */
 async function recoverCopy(
   deps: StartupRecoveryDeps,
   record: OperationRecord,
@@ -112,12 +91,6 @@ async function recoverOne(
   return { decision, closed: true };
 }
 
-/**
- * Closes every operation a crash left in progress, from the REAL state (never from the journal's phase text).
- *
- * Cost when nothing is in progress: one `findInProgress()`, which is the single read of the journal file the first start
- * would make anyway. The probe, the copy check and every write are skipped.
- */
 export async function runStartupRecovery(deps: StartupRecoveryDeps): Promise<StartupRecoveryResult> {
   let closed = 0;
   let holdStart = false;
@@ -127,7 +100,6 @@ export async function runStartupRecovery(deps: StartupRecoveryDeps): Promise<Sta
     try {
       record = await deps.journal.findInProgress();
     } catch (error) {
-      // An unreadable journal (not a corrupt one, which the store sets aside) stays unknown; nothing is claimed here.
       deps.log(
         `[shell] recovery: the operations journal could not be read (${error instanceof Error ? error.name : "unknown error"})`,
       );
@@ -141,8 +113,6 @@ export async function runStartupRecovery(deps: StartupRecoveryDeps): Promise<Sta
     }
     if (record === null || seen.has(record.operationId)) break;
     if (deps.settingsUnreadable) {
-      // The record's decision depends on the settings, and an unreadable file is not an empty one: leave it for the next
-      // start (after the repair) and start nothing meanwhile.
       holdStart = true;
       deps.log(`[shell] recovery: ${record.kind} left open, the settings could not be read`);
       break;
@@ -156,7 +126,6 @@ export async function runStartupRecovery(deps: StartupRecoveryDeps): Promise<Sta
         `[shell] recovery: ${record.kind} ${record.phase} -> ${outcome.decision.action} (${outcome.decision.reason})`,
       );
     } catch (error) {
-      // The record could not be closed: it stays in progress for the next start, and nothing starts on unverified state.
       holdStart = true;
       deps.log(
         `[shell] recovery: could not close ${record.kind} (${error instanceof Error ? error.name : "unknown error"})`,

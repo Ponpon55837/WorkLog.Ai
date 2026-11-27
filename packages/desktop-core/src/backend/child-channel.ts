@@ -2,7 +2,6 @@ import { parseDesktopChildMessage, type DesktopChildMessage } from "@work-intell
 import { BackendFailure } from "./errors.js";
 import type { BackendSupervisorDependencies, SupervisedChild } from "./types.js";
 
-/** How a child process ended. A spawn that never started has neither. */
 export interface ChildExit {
   readonly exitCode: number | null;
   readonly signal: NodeJS.Signals | null;
@@ -17,7 +16,6 @@ interface Waiter {
   readonly timer: unknown | undefined;
 }
 
-/** Messages kept for a later `expect` (a child may answer before the parent waits); older ones are dropped. */
 const MAX_PENDING_MESSAGES = 32;
 
 type ChannelTimers = Pick<BackendSupervisorDependencies, "setTimer" | "clearTimer">;
@@ -26,15 +24,8 @@ function describeExit(exitCode: number | null, signal: NodeJS.Signals | null): s
   return signal ? `the backend was ended by ${signal}` : `the backend exited with code ${exitCode ?? "unknown"}`;
 }
 
-/**
- * The parent's end of one child's private IPC channel. Every message is parsed with the shared zod schema (an unknown or
- * malformed one is logged and dropped), and the parent waits for a message type with `expect`, which fails with a
- * {@link BackendFailure} when the child reports `failed`, exits, or stays silent past the deadline.
- */
 export class ChildChannel {
-  /** Resolves when the child process exits (or fails to spawn); never rejects. */
   readonly exited: Promise<ChildExit>;
-  /** The code of the last `failed` message the child sent, if any. */
   lastReportedFailure: BackendFailure | undefined;
   private readonly child: SupervisedChild;
   private readonly timers: ChannelTimers;
@@ -46,7 +37,6 @@ export class ChildChannel {
   private openAgentSetupListener: (() => void) | undefined;
   private setLanguageListener: ((locale: "zh-TW" | "en") => void) | undefined;
   private openPortSettingsListener: ((request: { preferences?: unknown; route?: string }) => void) | undefined;
-  /** Sticky: once the child failed or ended, every later `expect` fails the same way. */
   private ended: BackendFailure | undefined;
   private exit: ChildExit | undefined;
 
@@ -63,9 +53,8 @@ export class ChildChannel {
       child.on("exit", (exitCode: number | null, signal: NodeJS.Signals | null) =>
         finish({ exitCode, signal }, new BackendFailure("CHILD_EXITED", describeExit(exitCode, signal))),
       );
-      // 'error' alone does not mean the process ended: a failed kill() or send() emits it too. Only a child that never
-      // got a pid failed to spawn (ENOENT, EACCES...); for any other 'error' the process may still run, so `exited`
-      // stays unresolved until the 'exit' event.
+      // 'error' alone does not mean the process ended (a failed kill() or send() emits it too); only a child without a pid
+      // failed to spawn. `exited` stays unresolved until 'exit'.
       child.on("error", (error: NodeJS.ErrnoException) => {
         if (child.pid !== undefined) {
           this.log(`[backend] the child process reported an error (${error.code ?? "error"}); it has not exited`);
@@ -80,20 +69,14 @@ export class ChildChannel {
     child.on("message", (raw: unknown) => this.receive(raw));
   }
 
-  /** Why the channel ended (the child's own `failed`, its exit, or a spawn failure), or undefined while it is open. */
   get endedFailure(): BackendFailure | undefined {
     return this.ended;
   }
 
-  /** What the child's exit looked like, once it has exited. */
   get exitInfo(): ChildExit | undefined {
     return this.exit;
   }
 
-  /**
-   * The next message of `type`, or a {@link BackendFailure} (the child's own, `CHILD_EXITED`, or a timeout). `null` waits
-   * with no deadline (only the child's answer or its exit ends it): for a step that must never be cut short by a timer.
-   */
   expect<T extends DesktopChildMessage["type"]>(type: T, timeoutMs: number | null): Promise<MessageOfType<T>> {
     const index = this.pending.findIndex((message) => message.type === type);
     if (index >= 0) return Promise.resolve(this.pending.splice(index, 1)[0] as MessageOfType<T>);
@@ -115,7 +98,6 @@ export class ChildChannel {
     });
   }
 
-  /** Sends one parent message; rejects when the channel is already closed. */
   send(message: Record<string, unknown>): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const closed = (): BackendFailure => new BackendFailure("CHILD_PROTOCOL_ERROR", "the channel is closed");
@@ -127,27 +109,22 @@ export class ChildChannel {
     });
   }
 
-  /** Receives each `backup-completed` event of the child (an event, not an answer: nothing waits for it). */
   onBackupCompleted(listener: (at: string) => void): void {
     this.backupListener = listener;
   }
 
-  /** Receives each `backups-changed` event: some API call may have written or removed a backup file. */
   onBackupsChanged(listener: () => void): void {
     this.changedListener = listener;
   }
 
-  /** Receives each `open-agent-setup` event: the web UI asked the App to show its Agent setup. */
   onOpenAgentSetup(listener: () => void): void {
     this.openAgentSetupListener = listener;
   }
 
-  /** Receives each `open-port-settings` event: the web UI asked the App to open its port settings. */
   onOpenPortSettings(listener: (request: { preferences?: unknown; route?: string }) => void): void {
     this.openPortSettingsListener = listener;
   }
 
-  /** Receives each `set-language` event: the user picked a language in the web UI. */
   onSetLanguage(listener: (locale: "zh-TW" | "en") => void): void {
     this.setLanguageListener = listener;
   }

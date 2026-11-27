@@ -18,28 +18,19 @@ export type {
 export { SCAN_MASK, SCAN_RULES, scanText } from "./diagnostics-scan.js";
 export type { ScanResult, ScanRule } from "./diagnostics-scan.js";
 
-/** The diagnostics file never grows past this many UTF-8 bytes. */
 export const DIAGNOSTICS_MAX_BYTES = 1024 * 1024;
 
-/** One text longer than this (UTF-16 units) is cut, so a single line cannot fill the file. */
 const MAX_TEXT_UNITS = 4096;
 
-/** What the preview shows next to the text: counts only, never a matched value. */
 export interface DiagnosticsReport {
-  /** What was masked, per category: by the redaction and by the second scan together. */
   readonly categories: DiagnosticsCounts;
-  /** How many spans the second scan still found and masked (0 when the redaction was complete). */
   readonly maskedInScan: number;
-  /** Output lines dropped because they were not this App's own log lines. */
   readonly omittedOutputLines: number;
-  /** Own lines whose error detail was dropped (only the fixed text stays). Present only when something was dropped. */
   readonly droppedDetails?: number;
-  /** UTF-8 bytes removed to fit {@link DIAGNOSTICS_MAX_BYTES}; 0 when nothing was cut. */
   readonly truncatedBytes: number;
 }
 
 export interface BuiltDiagnostics {
-  /** The exact text the user may save. */
   readonly text: string;
   readonly report: DiagnosticsReport;
 }
@@ -47,13 +38,10 @@ export interface BuiltDiagnostics {
 export interface DiagnosticsBuildInputs extends DiagnosticsInputs, RedactionContext {}
 
 export interface DiagnosticsOptions {
-  /** The size limit in UTF-8 bytes; {@link DIAGNOSTICS_MAX_BYTES} unless a test needs a smaller one. */
   readonly maxBytes?: number;
-  /** The scan's patterns; {@link SCAN_RULES} unless a test needs to plant a leak the scan cannot clear. */
   readonly scanRules?: readonly ScanRule[];
 }
 
-/** The final check still found something: no file is made. */
 export class DiagnosticsError extends Error {
   readonly code = "DIAGNOSTICS_SCAN_FAILED";
 
@@ -73,7 +61,6 @@ function mapStrings<T>(value: T, transform: (text: string) => string): T {
   return value;
 }
 
-/** The text parses back to exactly the document it was made from: nothing was added, changed or lost in writing it. */
 function isSameDocument(text: string, document: DiagnosticsDocument): boolean {
   try {
     return JSON.stringify(JSON.parse(text)) === JSON.stringify(document);
@@ -86,7 +73,6 @@ function isHighSurrogate(code: number): boolean {
   return code >= 0xd800 && code <= 0xdbff;
 }
 
-/** At most `maxUnits` UTF-16 units, ending in "…" when cut; never between the two halves of a surrogate pair. */
 export function clipText(text: string, maxUnits: number): string {
   if (text.length <= maxUnits) return text;
   let cut = Math.max(0, maxUnits - 1);
@@ -107,7 +93,6 @@ interface Clipped {
   readonly clippedBytes: number;
 }
 
-/** Cuts every long text, so a single line cannot fill the file. Done before the scan: the scan sees what will be written. */
 function clipDocument(document: DiagnosticsDocument): Clipped {
   let clippedBytes = 0;
   const clipped = mapStrings(document, (text) => {
@@ -123,10 +108,6 @@ interface Fitted {
   readonly droppedBytes: number;
 }
 
-/**
- * Keeps the text within `maxBytes` and valid JSON: the OLDEST output lines go first, then the oldest errors (the tail
- * is what a reader needs). Only whole entries are dropped, so nothing is cut inside a string.
- */
 function dropToFit(document: DiagnosticsDocument, maxBytes: number): Fitted {
   const fitsLimit = (candidate: DiagnosticsDocument): boolean => byteLength(serialize(candidate)) <= maxBytes;
   if (fitsLimit(document)) return { document, droppedBytes: 0 };
@@ -138,7 +119,6 @@ function dropToFit(document: DiagnosticsDocument, maxBytes: number): Fitted {
     recentErrors: recentErrors.slice(recentErrors.length - errorsKept),
     truncated: { outputLines: recentOutput.length - outputKept, errors: recentErrors.length - errorsKept },
   });
-  // The largest count that still fits; the size only shrinks as entries go, so a binary search finds it.
   const largestFit = (total: number, fits: (count: number) => boolean): number => {
     let low = 0;
     let high = total;
@@ -160,13 +140,6 @@ function dropToFit(document: DiagnosticsDocument, maxBytes: number): Fitted {
   return { document: kept(outputKept, errorsKept), droppedBytes };
 }
 
-/**
- * The diagnostics file in three pure steps: collect the allow-listed facts, redact them (the redactor's patterns), then
- * scan the redacted text with a second, independent pattern set. What the scan still finds is masked and counted; if a
- * last pass over the final strings still finds anything, no text is made ({@link DiagnosticsError}). The text is JSON
- * whatever was masked (masks work on each string, not on the serialized text) and at most `maxBytes` long: a long
- * text is cut, then the oldest lines and errors are dropped.
- */
 export function buildDiagnostics(inputs: DiagnosticsBuildInputs, options: DiagnosticsOptions = {}): BuiltDiagnostics {
   const { maxBytes = DIAGNOSTICS_MAX_BYTES, scanRules = SCAN_RULES } = options;
   const { document: collected, droppedDetails } = collectDiagnosticsWithStats(inputs);
@@ -187,9 +160,7 @@ export function buildDiagnostics(inputs: DiagnosticsBuildInputs, options: Diagno
   });
 
   const { document, droppedBytes } = dropToFit(scanned, maxBytes);
-  // The final pass reads the strings the document holds (the same mapping as the first pass), not the serialized text,
-  // where JSON doubles a backslash and a harmless `\dist\x` would look like a share. The serialized text is checked
-  // to be that same document.
+  // Check the strings, not the serialized text: JSON doubles a backslash, so a harmless `\dist\x` would look like a share.
   let leftover = 0;
   mapStrings(document, (value) => {
     leftover += scanText(value, scanRules).total;

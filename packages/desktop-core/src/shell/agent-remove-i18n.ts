@@ -2,21 +2,12 @@ import type { AgentsResult } from "./agents-state.js";
 import { formatMessage, type ShellLocale } from "./i18n.js";
 import { setupMessages } from "./setup-i18n.js";
 
-/**
- * The strings of "移除 Agent 設定": the button, the preview that lists what would be removed, and the results. Kept in
- * their own file so the Agent page's main string table stays as it is; both languages define all of it. Plain words
- * only: the page never asks the user to run anything.
- */
 export interface AgentRemoveMessages {
   readonly agentsRemove: string;
-  /** Shown above the preview: what is and is not removed. */
   readonly agentsRemoveHint: string;
   readonly agentsRemovePreviewHeading: string;
-  /** The button that applies the removal; nothing is written before it is pressed. */
   readonly agentsRemoveApply: string;
-  /** The preview has no file: setup never wrote anything, or it is already gone. */
   readonly agentsRemoveNothing: string;
-  /** `{count}`. */
   readonly agentsRemoved: string;
 }
 
@@ -43,10 +34,6 @@ export function agentRemoveMessages(locale: ShellLocale): AgentRemoveMessages {
   return locale === "zh-TW" ? zhTW : en;
 }
 
-/**
- * What the Agent page says about the last result. A failure that left files it could not put back
- * (`manualRepairDisplay`) names exactly those files and does not claim that what was written was restored.
- */
 export function agentsResultMessage(result: AgentsResult | null, locale: ShellLocale): string | undefined {
   if (!result) return undefined;
   const text = setupMessages(locale);

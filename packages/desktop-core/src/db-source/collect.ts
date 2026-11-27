@@ -4,30 +4,22 @@ import { configDirectory } from "@work-intelligence/shared/database-location";
 import { resolveDatabasePath } from "@work-intelligence/shared/database-path";
 import type { DbCandidate, DbSourceKind } from "./types.js";
 
-/** A parsed OS service definition or Agent MCP config entry: only its environment and base directory matter. */
 export interface EnvironmentSource {
-  /** Free-form label (unit name, config file) for diagnostics; not used in decisions. */
   label: string;
   environment: Record<string, string | undefined>;
-  /** Base for a relative WORK_INTELLIGENCE_DB: the service working directory or the config's directory. */
   resolutionBase: string;
   managedByCurrentUser?: boolean | "unknown";
 }
 
 export interface CollectOptions {
   platform?: NodeJS.Platform;
-  /** Environment and home used only to locate the config directory. */
   environment?: NodeJS.ProcessEnv;
   home?: string;
-  /** Repository checkout whose `data/` is the legacy default; omit when running outside a checkout. */
   checkoutRoot?: string;
-  /** Raw path of the committed desktop choice (settings), if any. */
   desktopCommitted?: string | null;
-  /** Raw path the user picked this session, if any. */
   explicitSelection?: string | null;
   serviceDefinitions?: readonly EnvironmentSource[];
   agentMcpConfigs?: readonly EnvironmentSource[];
-  /** Injected file reader so tests never touch a real config directory; defaults to UTF-8 `readFileSync`. */
   readTextFile?: (path: string) => string;
 }
 
@@ -81,12 +73,6 @@ function environmentCandidates(
   return candidates;
 }
 
-/**
- * Gathers every place a database path might be configured. Read-only: the only I/O is the injected `readTextFile` for
- * `plugin-link.json`. Raw strings go through the shared `resolveDatabasePath` so relative bases behave exactly like
- * the server and MCP processes. Defaults are always emitted (they are what a new install would use), and the
- * resolver, not the collector, decides which of them matter.
- */
 export function collectDbCandidates(options: CollectOptions = {}): DbCandidate[] {
   const platform = options.platform ?? process.platform;
   const path = pathApi(platform);

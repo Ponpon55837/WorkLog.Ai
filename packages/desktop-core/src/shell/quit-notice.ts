@@ -3,9 +3,7 @@ import type { LastBackupInfo } from "./last-backup.js";
 
 export interface QuitNotice {
   readonly title: string;
-  /** The consequence of quitting. */
   readonly message: string;
-  /** When the last successful backup was, or that there is none or it cannot be told. */
   readonly detail: string;
   readonly confirmLabel: string;
   readonly cancelLabel: string;
@@ -14,11 +12,9 @@ export interface QuitNotice {
 export interface QuitNoticeInputs {
   readonly locale: ShellLocale;
   readonly lastBackup: LastBackupInfo;
-  /** IANA zone for the displayed time; defaults to the machine's own. Injected so tests do not depend on it. */
   readonly timeZone?: string;
 }
 
-/** Formats `iso` in the user's local time and language; undefined for a value that is not a date. */
 function formatLocalTime(iso: string, locale: ShellLocale, timeZone: string | undefined): string | undefined {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return undefined;
@@ -29,10 +25,6 @@ function formatLocalTime(iso: string, locale: ShellLocale, timeZone: string | un
   }).format(date);
 }
 
-/**
- * The quit confirmation (ADR-26): quitting stops the daily backup, so the dialog says that and when the last
- * successful backup was. No backup is "no successful backup yet"; a time that cannot be read is "cannot confirm", never a guess.
- */
 export function buildQuitNotice(inputs: QuitNoticeInputs): QuitNotice {
   const messages = shellMessages(inputs.locale);
   const { lastBackup } = inputs;

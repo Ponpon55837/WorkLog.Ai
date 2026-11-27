@@ -7,10 +7,6 @@ import type { CopyToLocalFailure } from "./copy-to-local.js";
 import type { ShellLocale } from "./i18n.js";
 import type { SystemSettingsTarget } from "../legacy-service/system-settings.js";
 
-/**
- * Strings of the first-run page, the Agent page and the old-login-service warning. Kept apart from ShellMessages so the
- * tray and repair strings stay as they are; both languages must define all of it. zh-TW copy is short and plain.
- */
 export interface SetupMessages {
   readonly setupHeading: string;
   readonly setupDetecting: string;
@@ -22,7 +18,6 @@ export interface SetupMessages {
   readonly setupChooseIntro: string;
   readonly setupChooseConflict: string;
   readonly setupChooseBlocked: string;
-  /** A found database is on storage that is never taken on one click (DT-08). */
   readonly setupUseThis: string;
   readonly setupLater: string;
   readonly setupStarting: string;
@@ -31,7 +26,6 @@ export interface SetupMessages {
   readonly setupBackups: string;
   readonly setupLaunchAtLogin: string;
   readonly setupAdvanced: string;
-  /** `{count}` projects. */
   readonly setupProjectCount: string;
   readonly setupFoundBy: string;
   readonly setupMigrationConsent: string;
@@ -44,14 +38,11 @@ export interface SetupMessages {
   readonly legacyRunning: string;
   readonly legacyStopped: string;
   readonly legacyUnknown: string;
-  /** Heading of the hand-off for a service the App cannot turn off itself, and the steps for each OS place. */
   readonly legacyManualHeading: string;
   readonly legacyManualSteps: Readonly<Record<SystemSettingsTarget, readonly string[]>>;
   readonly legacyOpenSettings: Readonly<Record<SystemSettingsTarget, string>>;
-  /** The OS place could not be opened; says where to find it by hand. */
   readonly legacyOpenFailed: Readonly<Record<SystemSettingsTarget, string>>;
   readonly legacyRecheck: string;
-  /** The check after 「重新檢查」 still finds the service. */
   readonly legacyStillThere: string;
   readonly legacyStartAnyway: string;
   readonly legacyStartAnywayConfirm: string;
@@ -66,7 +57,6 @@ export interface SetupMessages {
   readonly legacyDisableSameDatabase: string;
   readonly legacyDisableBusy: string;
   readonly legacyDisableSteps: string;
-  /** One plain sentence per step under 「詳細步驟」; never a command. */
   readonly legacyDisableStepText: LegacyDisableStepText;
   readonly legacyDisableConfirm: string;
   readonly legacyDisableConfirmBusy: string;
@@ -85,7 +75,6 @@ export interface SetupMessages {
   readonly legacyDisableBusyOther: string;
   readonly setupDetectingHint: string;
   readonly trayLegacyStatus: string;
-  /** The backend could not bind its port and the old service is installed: say which one holds it. */
   readonly legacyPortInUse: string;
   readonly trayCompleteSetup: string;
   readonly setupDone: string;
@@ -95,36 +84,25 @@ export interface SetupMessages {
   readonly agentNames: Readonly<Record<SetupAgentId, string>>;
   readonly agentStates: Readonly<Record<AgentDisplayState, string>>;
   readonly agentOwners: Readonly<Record<AgentRegistrationOwner, string>>;
-  /** Hooks that work, by who manages them. */
   readonly agentHookInstalled: Readonly<Record<AgentHookSource, string>>;
-  /** Hooks that are not working, by state. */
   readonly agentHookNotInstalled: Readonly<Record<Exclude<AgentHookState, "installed">, string>>;
-  /** Hooks run from a source checkout keep working; moving them to the App is optional. */
   readonly agentsHookCheckoutNote: string;
   readonly agentsMcp: string;
   readonly agentsHooks: string;
   readonly agentsCheckout: string;
   readonly agentsCheckoutMissing: string;
   readonly agentsAdoptHint: string;
-  /** Followed by the reason (zh-TW, from agent-setup): why the App cannot rewrite it and what the person can do. */
   readonly agentsNotAdoptable: string;
-  /** Shown with a refused preview when the Agent has a hand-written registration the App can take over. */
   readonly agentsAdoptInstead: string;
-  /** An old checkout hook sits beside the App's hook, so the reminder fires twice. */
   readonly agentsDuplicateOldHook: string;
-  /** A checkout's own project hooks file also runs the reminder; the App leaves it alone. */
   readonly agentsProjectHooksNote: string;
-  /** The Agent's plugin brings its own finalize hooks, and the App's global hook runs the same reminder. */
   readonly agentsPluginHooksDuplicate: string;
-  /** `{path}`: the database the checkout's MCP entry uses. */
   readonly agentsOtherDatabase: string;
-  /** `{path}`: the checkout default a hook uses when the Agent's environment does not name a database. */
   readonly agentsOtherDatabaseDefault: string;
   readonly agentsUseOtherDatabase: string;
   readonly agentsKeepCheckout: string;
   readonly agentsPreview: string;
   readonly agentsPreviewAdopt: string;
-  /** The checkbox on an Agent's card: whether the next preview sets this Agent up. */
   readonly agentsSelect: string;
   readonly agentsNotDetected: string;
   readonly agentsPreviewHeading: string;
@@ -132,31 +110,23 @@ export interface SetupMessages {
   readonly agentsDiscard: string;
   readonly agentsUndo: string;
   readonly agentsSelfTest: string;
-  /** `{ms}`. */
   readonly agentsSelfTestOk: string;
-  /** `{code}`. */
   readonly agentsSelfTestFailed: string;
   readonly agentsSelfTestNotRun: string;
   readonly agentsNoChanges: string;
   readonly agentsConflicts: string;
-  /** `{count}`. */
   readonly agentsApplied: string;
   readonly agentsUndone: string;
   readonly agentsNothingToUndo: string;
-  /** `{code}`. */
   readonly agentsFailed: string;
-  /** `{path}`. */
   readonly agentsManualRepair: string;
   readonly agentsLauncherNotReady: string;
   readonly agentsChange: Readonly<Record<"create" | "update" | "delete", string>>;
   readonly agentsBusy: string;
-  /** DT-08: what each kind of risky storage means, in plain words. `why` says what can go wrong, `todo` what to do. */
   readonly storageRisk: Readonly<Record<StoragePolicyRisk, StorageRiskText>>;
-  /** `{label}`: a schema update on this database was refused because of where it is stored. */
   readonly storageMigrationBlocked: string;
   readonly storageRefused: string;
   readonly storageCopyToLocal: string;
-  /** The native confirmation before the copy starts. */
   readonly copyConfirmMessage: string;
   readonly copyConfirmDetail: string;
   readonly copyConfirmYes: string;
@@ -167,11 +137,9 @@ export interface SetupMessages {
 }
 
 export interface StorageRiskText {
-  /** Short name: 網路磁碟, 外接磁碟, 雲端同步資料夾, 硬連結, 無法確認磁碟類型. */
   readonly label: string;
   readonly why: string;
   readonly todo: string;
-  /** The checkbox that must be ticked before this database may be used; `unknown` needs it only for a one-click choice. */
   readonly consent: string;
 }
 

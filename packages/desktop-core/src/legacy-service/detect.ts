@@ -23,24 +23,15 @@ import type {
 } from "./types.js";
 
 const DEFAULT_TIMEOUT_MS = 2000;
-/** A real definition is under 2 KB; anything bigger is not what the installer wrote. */
 const MAX_DEFINITION_BYTES = 64 * 1024;
 const MISSING_CODES = new Set(["ENOENT", "ENOTDIR"]);
-/** `launchctl print` exits with this code when the label is not loaded ("Could not find service"). */
 const LAUNCHD_NOT_FOUND_CODE = 113;
 
-/** The fixed system path of launchctl, never resolved through PATH (like the Windows tools from System32). */
 export const LAUNCHCTL = "/bin/launchctl";
-/** The `Get-ScheduledTask` State values (ScheduledTaskState): numbers, so no system language is parsed. */
 const TASK_STATE_DISABLED = 1;
 const TASK_STATE_QUEUED = 2;
 const TASK_STATE_READY = 3;
 const TASK_STATE_RUNNING = 4;
-/**
- * One structured query for the task: absent gives `{}`, otherwise numeric state, whether the task and a logon trigger
- * are enabled, and the exported XML as base64 of its UTF-8 bytes (so a non-ASCII user name survives any console code
- * page). Single quotes only: `execFile` passes the text on the command line.
- */
 const WINDOWS_TASK_SCRIPT =
   "$t = Get-ScheduledTask -TaskPath '\\' -TaskName 'Work Intelligence' -ErrorAction SilentlyContinue; " +
   "if ($null -eq $t) { '{}' } else { " +
@@ -50,15 +41,11 @@ const WINDOWS_TASK_SCRIPT =
 
 type LegacyServiceRegistration = "registered" | "absent" | "unknown";
 
-/** What the OS says about the service, apart from the definition file. */
 interface ServiceQuery {
   registration: LegacyServiceRegistration;
   running: LegacyServiceRunning;
-  /** Windows and Linux know it from the query; macOS needs the plist (see `launchdEnabled`). */
   enabled?: LegacyServiceEnabled;
-  /** macOS: `launchctl print` mentions run-at-load. */
   launchdRunAtLoad?: boolean;
-  /** Windows: the exported task XML. */
   taskXml?: string;
 }
 
@@ -66,7 +53,6 @@ function isSupportedPlatform(platform: NodeJS.Platform): platform is LegacyServi
   return platform === "darwin" || platform === "linux" || platform === "win32";
 }
 
-/** The outcome of `promise` within `milliseconds`, or undefined when it timed out or rejected. */
 async function withinDeadline<T>(promise: Promise<T>, milliseconds: number): Promise<T | undefined> {
   if (milliseconds <= 0) {
     promise.catch(() => undefined);
@@ -83,7 +69,6 @@ async function withinDeadline<T>(promise: Promise<T>, milliseconds: number): Pro
   }
 }
 
-/** The default read-only runner: `execFile` without a shell or window, killed after `timeoutMs` (code -1, no output). */
 export function createLegacyCommandRunner(timeoutMs: number): LegacyServiceCommandRunner {
   return (command, args) =>
     new Promise<LegacyServiceCommandResult>((resolve) => {
@@ -134,7 +119,6 @@ function windowsTaskState(state: unknown): LegacyServiceRunning {
     : "unknown";
 }
 
-/** `{}` (the task is not there) or the task facts; undefined for anything else (PowerShell failed, other output). */
 function parseWindowsTask(stdout: string): ServiceQuery | undefined {
   let task: { state?: unknown; enabled?: unknown; logon?: unknown; xml?: unknown };
   try {
@@ -182,7 +166,7 @@ async function queryService(
     };
   }
   if (platform === "linux") {
-    // `show` prints KEY=VALUE pairs that no locale changes, and one call answers all three questions.
+    // `show` prints KEY=VALUE pairs that no locale changes.
     const result = await run("systemctl", [
       "--user",
       "show",
@@ -210,7 +194,6 @@ async function queryService(
   return (result?.code === 0 ? parseWindowsTask(result.stdout) : undefined) ?? unknown;
 }
 
-/** macOS: the agent is loaded, so it also loads at every login when its plist says RunAtLoad. */
 function launchdEnabled(query: ServiceQuery, text: string | undefined): LegacyServiceEnabled {
   if (text !== undefined) return /<key>RunAtLoad<\/key>\s*<true\s*\/>/.test(text) ? "enabled" : "disabled";
   return query.launchdRunAtLoad ? "enabled" : "unknown";
@@ -226,16 +209,10 @@ async function readDefinition(
   return withinDeadline(read(path), remaining());
 }
 
-/** SHA-256 (hex) of the decoded definition text: the disable flow acts only while the definition still has this digest. */
 export function legacyDefinitionDigest(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
-/**
- * Read-only check for the login service `pnpm service:install` (and `pnpm bootstrap`) leaves behind: two backends on one
- * database must not run silently. Nothing is written, stopped or deleted; every failure maps to `none`, an
- * unrecognised definition, or `running: "unknown"`. The whole call stays within `timeoutMs` (default 2 s).
- */
 export async function detectLegacyService(options: DetectLegacyServiceOptions): Promise<LegacyServiceDetection> {
   const { platform } = options;
   if (!isSupportedPlatform(platform)) return { kind: "none" };
@@ -260,13 +237,10 @@ export async function detectLegacyService(options: DetectLegacyServiceOptions): 
   } catch {
     stat = undefined;
   }
-  // undefined: the path could not be inspected (permission, timeout), so something is there that is not provably ours.
   const present = stat !== null;
-  // Without a definition file and a registered task there is nothing to find; the other platforms never run a command.
   if (!present && platform !== "win32") return { kind: "none" };
 
   const query = await queryService(platform, options, run);
-  // The OS does not know the service (a stale definition left behind): it cannot start, so there is nothing to warn about.
   if (query.registration === "absent") return { kind: "none" };
 
   let definitionPath = definitionFile;
@@ -275,7 +249,6 @@ export async function detectLegacyService(options: DetectLegacyServiceOptions): 
   if (stat) {
     text = await readDefinition(stat, definitionFile, options.readTextFile ?? defaultReadText, remaining);
   } else if (!present) {
-    // Without a file the task query is the only evidence: a query that did not answer is not an answer of "nothing".
     if (query.registration === "unknown") return { kind: "unknown" };
     if (!query.taskXml?.includes("<Task")) return { kind: "none" };
     definitionPath = legacyWindowsTaskTarget();

@@ -1,31 +1,22 @@
 import { classifyHostObservation } from "@work-intelligence/shared/agent-observations";
-/** Who put the MCP registration in the Agent's configuration. */
 export type AgentRegistrationSource = "desktop-managed" | "manual" | "plugin" | "mcpb" | "unknown";
 
 export type AgentHookTrust = "not-applicable" | "trusted" | "needs-trust";
 export type AgentRuntimeCompatibility = "compatible" | "incompatible" | "unknown";
 export type AgentSelfTestOutcome = "ok" | "failed" | "not-run";
 
-/** Everything the classifier looks at for one Agent; the caller gathers it, nothing here touches the disk. */
 export interface AgentStatusFacts {
   readonly source: AgentRegistrationSource;
-  /** The registration exists in the Agent's configuration. */
   readonly configWritten: boolean;
-  /** The written registration is byte-for-byte what the desktop App would write (hash match). */
   readonly configMatches: boolean;
-  /** Another registration or a differing value fights the desktop's (e.g. two servers under one name). */
   readonly conflict: boolean;
   readonly hookTrust: AgentHookTrust;
   readonly runtime: AgentRuntimeCompatibility;
-  /** Latest desktop self-test of the launcher the registration points to. */
   readonly selfTest: AgentSelfTestOutcome;
-  /** Latest observation of this host's client name by the MCP server, if any. */
   readonly observation?: { readonly contractFingerprint: string };
-  /** The contract fingerprint of the MCP server the desktop would launch now (from a successful self-test). */
   readonly currentContractFingerprint?: string;
 }
 
-/** ADR-34 display states. */
 export const AGENT_DISPLAY_STATES = [
   "observed-connected",
   "configured-unverified",
@@ -38,7 +29,6 @@ export const AGENT_DISPLAY_STATES = [
 ] as const;
 export type AgentDisplayState = (typeof AGENT_DISPLAY_STATES)[number];
 
-/** What the user should do next; the UI maps each code to a sentence and a button. */
 export const AGENT_NEXT_STEPS = [
   "none",
   "resolve-conflict",
@@ -53,7 +43,6 @@ export const AGENT_NEXT_STEPS = [
 ] as const;
 export type AgentNextStep = (typeof AGENT_NEXT_STEPS)[number];
 
-/** Traditional Chinese labels of the display states (ADR-34). */
 export const AGENT_DISPLAY_STATE_LABELS: Readonly<Record<AgentDisplayState, string>> = {
   "observed-connected": "已觀察到連線",
   "configured-unverified": "已配置、待確認",
@@ -65,11 +54,9 @@ export const AGENT_DISPLAY_STATE_LABELS: Readonly<Record<AgentDisplayState, stri
   "not-configured": "尚未配置",
 };
 
-/** The four result levels, reported separately so a written file is never read as a working connection. */
 export interface AgentResultLevels {
   readonly configWritten: boolean;
   readonly selfTest: AgentSelfTestOutcome;
-  /** `current`: the host saw today's tool contract; `stale`: it saw an older one; `none`: never observed. */
   readonly hostObservation: "current" | "stale" | "none";
   readonly trustReminderPending: boolean;
 }
@@ -92,13 +79,6 @@ function unobservedNextStep(facts: AgentStatusFacts): AgentNextStep {
   return facts.selfTest === "ok" ? "open-agent" : "run-self-test";
 }
 
-/**
- * The display state of one Agent. A conflict, a configuration that no longer matches what the desktop wrote, or an
- * incompatible runtime comes first; a plugin, MCPB or manual registration is never claimed as ours
- * (`externally-managed`) though its observations are still reported. For the rest only an observation whose
- * fingerprint equals the current one is `observed-connected`; an older one is `needs-reconnect`; a passing
- * self-test alone is `configured-unverified`.
- */
 export function classifyAgentStatus(facts: AgentStatusFacts): AgentStatus {
   const observation = hostObservation(facts);
   const levels: AgentResultLevels = {

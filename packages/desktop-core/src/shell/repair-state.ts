@@ -18,16 +18,10 @@ import type { LegacyServiceDetection } from "../legacy-service/types.js";
 
 export type BackendRunState = "running" | "starting" | "stopped" | "crashed";
 
-/**
- * The App's own database as the page shows it: a probe verdict, `unknown`, or `needs-migration` (an older schema this
- * version can update, which waits for the user's explicit consent: SCHEMA_MIGRATION_BLOCKED).
- */
 export type RepairDatabaseStatus = DbProbeStatus | "unknown" | "needs-migration";
 
-/** What the repair window may ask main to do; the buttons the page shows come from this list. */
 export type RepairActionId =
   | "retry-start"
-  /** Back up and update the App's own database (offered only while it needs an update its storage allows). */
   | "approve-migration"
   | "choose-database"
   | "open-database-folder"
@@ -42,39 +36,24 @@ export interface RepairAction {
 }
 
 export interface RepairCandidateView {
-  /** Opaque id main handed out; the only thing the page may send back to confirm. */
   readonly id: string;
-  /** Path with the home directory shown as `~`. */
   readonly display: string;
   readonly status: DbProbeStatus | "unknown";
-  /** The preview could not run; the page shows the message of this backend error code. */
   readonly errorCode?: string;
-  /** Confirming opens it (its preview said `ok`). */
   readonly canConfirm: boolean;
-  /** Confirming also updates its schema; the page asks the user for explicit consent first. */
   readonly needsMigration: boolean;
-  /** The file is on risky storage (DT-08): the reason, the consent checkbox and the copy button follow from it. */
   readonly storageRisk?: StorageRiskView;
 }
 
-/**
- * What start-up recovery found an interrupted operation left in, as the Status tab's banner shows it: the page words it
- * from `kind` and the ports, and offers `tab` as the place to act. Dismissing it (`recoveryAcknowledge`) is persisted.
- */
 export interface RepairRecoveryNotice {
-  /** The interrupted operation's id: what the page sends back to dismiss it. */
   readonly id: string;
   readonly kind: RecoveryNotice["kind"];
   readonly operation: OperationKind;
-  /** The port in use (port notices). */
   readonly port: number | null;
-  /** The port the interrupted change was moving to (port notices). */
   readonly attemptedPort: number | null;
-  /** The tab where the user can act on it. */
   readonly tab: AppTab;
 }
 
-/** The snapshot the repair page renders. It holds no real path: those stay in main. */
 export interface RepairState {
   readonly locale: ShellLocale;
   readonly owner: ServiceOwnerState;
@@ -82,68 +61,40 @@ export interface RepairState {
   readonly database: {
     readonly display: string | null;
     readonly status: RepairDatabaseStatus;
-    /** The App's own database is on risky storage and its schema update was refused: the copy button is offered (DT-08). */
     readonly storageRisk?: StorageRiskView;
   };
   readonly candidates: readonly RepairCandidateView[];
   readonly recentErrors: readonly RecordedError[];
   readonly lastBackup: LastBackupInfo;
   readonly actions: readonly RepairAction[];
-  /** Id of the retry operation main will accept next (a fresh uuid per snapshot). */
   readonly retryOperationId: string;
-  /** Set only while the success card shows, right after a repair the user started worked. */
   readonly recovered: RepairRecovered | null;
-  /** Notices about operations a crash interrupted, newest first, until the user dismisses each. */
   readonly recoveryNotices: readonly RepairRecoveryNotice[];
-  /** The 「連接埠」 section (null before the App has settings). */
   readonly port: RepairPortSection | null;
-  /** The 「更新」 card: the running version, and the check's progress and last answer (kept in main). Absent: no card. */
   readonly update?: RepairUpdateSection;
-  /** The 「登入時自動啟動」 switch: the user's choice and the system's state. Absent: no section. */
   readonly loginItem?: RepairLoginItemSection;
-  /** The 「語言」 card: the user's setting and what the system language reads as. Absent: no card. */
   readonly language?: RepairLanguageSection;
-  /** 「整理資料庫」: the free space, the last run and this session's check. Absent: no card. */
   readonly maintenance?: RepairMaintenanceSection;
-  /** 「備份位置」: the folder new backups go to. Absent: no card. */
   readonly backupDirectory?: RepairBackupDirectorySection;
-  /** What a fallback to the last working port did in this App run; absent: none happened. */
   readonly fallback?: StartupFallbackNote;
-  /** What the tab strip needs: the tab list, the blocking tab and one badge per tab (see repair-ipc.ts). */
   readonly shell: AppShellState;
-  /**
-   * The old login service is installed and may serve this database. `blocked`: the App did not start
-   * its backend because of it; only "仍要啟動" (the `start-anyway` action) starts it.
-   */
   readonly legacyService: {
     readonly running: "running" | "stopped" | "unknown";
     readonly blocked: boolean;
-    /** The backend could not bind its port, and the old service listens on that port: the page names it. */
     readonly portInUse: boolean;
-    /** 「停用舊的登入服務」 is offered: the definition is the one `service:install` writes, for a known checkout. */
     readonly canDisable: boolean;
-    /** Where the App opens for the user to turn the service off by hand; absent where it has no such place. */
     readonly systemSettings?: SystemSettingsTarget;
   } | null;
 }
 
-/** The 「連接埠」 section: always shown, so a port that cannot start can still be changed from here. */
 export interface RepairPortSection {
-  /** The port the settings name (what the next start uses). */
   readonly port: number | null;
-  /** The port the running backend serves, when one runs. */
   readonly activePort: number | null;
-  /**
-   * Main asked for the section to be shown (the tray item, the Dashboard's link) and no page has been told yet: true in
-   * exactly one state, so a later load of the page does not scroll to it again.
-   */
   readonly focus: boolean;
-  /** The Dashboard's preferences wait in memory to be carried over. */
   readonly handoffHeld: boolean;
 }
 
 export interface RepairRecovered {
-  /** Projects in the database, when the backend reported it; the page hides the count without it. */
   readonly projectCount?: number;
 }
 
@@ -155,9 +106,7 @@ export interface RepairStateInputs {
   readonly backend: BackendRunState;
   readonly databasePath: string | null;
   readonly databaseStatus: RepairDatabaseStatus;
-  /** How the App's own database is shown when its storage is risky (DT-08). */
   readonly databaseStorageRisk?: StorageRiskView;
-  /** The storage of the App's own database refuses a schema update (DT-08): no in-place update is offered. */
   readonly databaseMigrationBlocked?: boolean;
   readonly candidates: readonly {
     readonly id: string;
@@ -165,7 +114,6 @@ export interface RepairStateInputs {
     readonly status: DbProbeStatus | "unknown";
     readonly needsMigration?: boolean;
     readonly errorCode?: string;
-    /** Confirming is allowed (an `ok` preview that carries an identity). Defaults to `status === "ok"`. */
     readonly canConfirm?: boolean;
     readonly storageRisk?: StorageRiskView;
   }[];
@@ -181,26 +129,15 @@ export interface RepairStateInputs {
   readonly maintenance?: RepairMaintenanceSection;
   readonly backupDirectory?: RepairBackupDirectorySection;
   readonly fallback?: StartupFallbackNote | null;
-  /** What the start-up check found, when it found the old login service on this database. */
   readonly legacyService?: LegacyServiceDetection | null;
-  /** The App held its backend back because of that service. */
   readonly legacyBlocked?: boolean;
-  /** The last start found the port taken, and the old service is on that port. */
   readonly legacyPortInUse?: boolean;
-  /** A retry or another operation is running: actions are disabled until it ends. */
   readonly busy: boolean;
-  /** No settings file yet: the Setup tab exists. Defaults to false. */
   readonly needsSetup?: boolean;
-  /** A login start was held back by the old login service (besides `legacyBlocked`). Defaults to false. */
   readonly legacyHeld?: boolean;
-  /** The kind of the operation the coordinator runs right now (its busy badge goes on the tab it belongs to). */
   readonly operation?: OperationKind | null;
 }
 
-/**
- * The database status the page shows: a running backend proves `ok`; otherwise the latest error code says what was found.
- * An update the user has not approved yet is `needs-migration`; a schema this version cannot open stays unsupported.
- */
 export function databaseStatusFor(running: boolean, latestErrorCode: string | undefined): RepairDatabaseStatus {
   if (running) return "ok";
   if (latestErrorCode === "DB_MISSING") return "missing";
@@ -215,7 +152,6 @@ function normalize(value: string, platform: NodeJS.Platform): string {
   return platform === "win32" ? value.toLowerCase().replaceAll("\\", "/") : value;
 }
 
-/** Shows `path` with the home directory replaced by `~` (case-insensitive and either slash on Windows). */
 export function displayPath(path: string, homeDirectory: string, platform: NodeJS.Platform): string {
   const home = homeDirectory.replace(/[\\/]+$/, "");
   if (home.length < 2) return path;
@@ -226,13 +162,10 @@ export function displayPath(path: string, homeDirectory: string, platform: NodeJ
   return path;
 }
 
-/** Builds the page's snapshot; paths are masked here so the renderer never receives a real one. */
 export function buildRepairState(inputs: RepairStateInputs): RepairState {
   const show = (path: string): string => displayPath(path, inputs.homeDirectory, inputs.platform);
   const idle = !inputs.busy;
   const canRetry = idle && !(inputs.owner === "MANAGED" && inputs.backend === "running");
-  // The one-click update is for the App's own database only, and only where its storage allows an update (DT-08);
-  // otherwise the storage note offers the copy to a local folder.
   const offersMigration =
     inputs.databasePath !== null &&
     inputs.databaseStatus === "needs-migration" &&

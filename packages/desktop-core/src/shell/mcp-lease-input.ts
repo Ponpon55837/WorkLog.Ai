@@ -2,13 +2,6 @@ import { diagnoseMcpLease, readHostObservations } from "@work-intelligence/share
 import { MCP_LEASE_SCOPE_ENVIRONMENT, readMcpLeaseCensus } from "@work-intelligence/shared/mcp-runtime";
 import type { McpLeaseDiagnosticsInput } from "./diagnostics-collect.js";
 
-/**
- * The MCP lease facts for the diagnostics summary: the backend's own scope (the App's runtime root, which the backend is
- * started with), how many fresh leases it holds, and what the newest Agent observation in `configDirectory` says about
- * its own. The same comparison the Web status makes; ids, counts and booleans only. Never throws: a registry that cannot
- * be read is reported as not writable with no lease. The environment is the backend's own (the scope variable and nothing
- * else: the backend's allowlist passes no config-directory override).
- */
 export function readMcpLeaseInput(runtimeRoot: string, configDirectory: string): McpLeaseDiagnosticsInput {
   const census = readMcpLeaseCensus(runtimeRoot, { [MCP_LEASE_SCOPE_ENVIRONMENT]: runtimeRoot });
   const observations = readHostObservations(configDirectory);

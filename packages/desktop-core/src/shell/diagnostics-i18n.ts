@@ -1,31 +1,21 @@
 import type { DiagnosticsReport } from "./diagnostics.js";
 import { formatMessage, type ShellLocale } from "./i18n.js";
 
-/** The strings of the diagnostics preview on the repair page (DT-19). */
 export interface DiagnosticsMessages {
   readonly heading: string;
-  /** The Diagnostics tab: what the export is for and that nothing leaves the computer. */
   readonly tabIntro: string;
-  /** Says what the text is and that nothing is sent anywhere. */
   readonly intro: string;
-  /** The accessible name of the read-only text box. */
   readonly textLabel: string;
-  /** `{paths}`, `{authCodes}`, `{tokens}`, `{emails}` and `{omitted}` are counts. */
   readonly summary: string;
-  /** `{count}`: spans the second scan still masked. */
   readonly scanMasked: string;
-  /** `{count}`: own lines whose error detail was left out. */
   readonly detailsDropped: string;
-  /** `{bytes}`: how much of the oldest content was left out. */
   readonly truncated: string;
   readonly save: string;
   readonly cancel: string;
   readonly saved: string;
-  /** The preview was too old (or replaced) and a new one is shown instead. */
   readonly refreshed: string;
   readonly saveFailed: string;
   readonly previewFailed: string;
-  /** The final check refused to make the file. */
   readonly scanFailed: string;
 }
 
@@ -76,7 +66,6 @@ export function diagnosticsMessages(locale: ShellLocale): DiagnosticsMessages {
   return locale === "zh-TW" ? zhTW : en;
 }
 
-/** The lines under the preview text: what was masked, what was skipped, and a truncation note when something was cut. */
 export function diagnosticsSummaryLines(messages: DiagnosticsMessages, report: DiagnosticsReport): string[] {
   const lines = [
     formatMessage(messages.summary, {

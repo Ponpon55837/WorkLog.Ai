@@ -18,7 +18,6 @@ import type { OperationJournalStore } from "./journal-store.js";
 import type { RecoveryDecision } from "./recovery.js";
 import type { ServiceOwnerState } from "./service-owner-state.js";
 
-/** Raised when a journal method names an operation that was never begun. */
 export class UnknownOperationError extends Error {
   readonly operationId: string;
 
@@ -31,11 +30,6 @@ export class UnknownOperationError extends Error {
 
 const DEFAULT_MAX_TERMINAL_RECORDS = 64;
 
-/**
- * Write-ahead journal over an injected store. Every mutation is copy-on-write, validated by the pure helpers in
- * `journal-record.ts`, and persisted before the method resolves, so a crash leaves either the old or the new record.
- * Mutations are serialized through one promise chain so concurrent callers cannot interleave load/save.
- */
 export class OperationJournal {
   private readonly store: OperationJournalStore;
   private readonly clock: () => Date;
@@ -54,14 +48,12 @@ export class OperationJournal {
     this.maxTerminalRecords = maxTerminalRecords;
   }
 
-  /** Closed operations whose notice the user has not dismissed yet, newest first (the Status tab's banner). */
   async pendingNotices(): Promise<OperationRecord[]> {
     return [...(await this.load()).values()]
       .filter((record) => record.recoveryNotice !== null && !record.recoveryNotice.acknowledged)
       .reverse();
   }
 
-  /** The user dismissed this operation's notice; false when there is nothing to dismiss. */
   async acknowledgeNotice(operationId: string): Promise<boolean> {
     const before = await this.get(operationId);
     if (!before?.recoveryNotice || before.recoveryNotice.acknowledged) return false;
@@ -69,18 +61,15 @@ export class OperationJournal {
     return true;
   }
 
-  /** Read one operation (loads the store on first use; a corrupt store throws, never reads as empty). */
   async get(operationId: string): Promise<OperationRecord | null> {
     return (await this.load()).get(operationId) ?? null;
   }
 
-  /** The operation still marked in-progress, if any (what recovery looks at after a restart). */
   async findInProgress(): Promise<OperationRecord | null> {
     for (const record of (await this.load()).values()) if (record.status === "in-progress") return record;
     return null;
   }
 
-  /** Start an operation; beginning an existing id returns the stored record unchanged (idempotent). */
   begin(input: NewOperationInput): Promise<OperationRecord> {
     return this.enqueue(async (records) => {
       const existing = records.get(input.operationId);
@@ -97,27 +86,22 @@ export class OperationJournal {
     });
   }
 
-  /** Enter `to`; staying in the current phase is a no-op so replays do not fail on the table. */
   enterPhase(operationId: string, to: ServiceOwnerState): Promise<OperationRecord> {
     return this.update(operationId, (record) => (record.phase === to ? record : withPhase(record, to, this.now())));
   }
 
-  /** Persist the result of a finished step; a repeated step keeps its first result. */
   completeStep(operationId: string, step: string, result: JournalJson = null): Promise<OperationRecord> {
     return this.update(operationId, (record) => withCompletedStep(record, step, result, this.now()));
   }
 
-  /** Monotonic: call before the first SQLite write that may migrate or restore. */
   markMigrationStarted(operationId: string): Promise<OperationRecord> {
     return this.update(operationId, (record) => withMigrationStarted(record, this.now()));
   }
 
-  /** Persist that a cancel arrived after side effects; the record stays in-progress for startup recovery. */
   requestCancel(operationId: string): Promise<OperationRecord> {
     return this.update(operationId, (record) => withCancelRequested(record, this.now()));
   }
 
-  /** Close the operation; terminal records are immutable. */
   finish(
     operationId: string,
     status: "completed" | "cancelled" | "failed" | "interrupted",
@@ -126,15 +110,6 @@ export class OperationJournal {
     return this.update(operationId, (record) => withTerminalStatus(record, status, this.now(), detail));
   }
 
-  /**
-   * Persist a recovery decision: migration flag first (so restore edges close), then policy, then the phase.
-   * Every decision except `resume` also closes the operation so a stale in-progress record cannot linger:
-   * restore -> `cancelled`, repair -> `failed`, and `none` (real state already consistent, nothing to undo or fix)
-   * -> `interrupted` with `result = { recoveredState, reason }`. `interrupted` rather than `completed` because the
-   * journal cannot prove every step finished; replaying the id returns that stored result and pruning may drop it.
-   * `notice` (what the user is told) is stored in the same write that closes the record, so a crash cannot leave a
-   * closed operation whose banner was lost.
-   */
   applyRecovery(
     operationId: string,
     decision: RecoveryDecision,
@@ -157,11 +132,6 @@ export class OperationJournal {
     });
   }
 
-  /**
-   * Records that the journal file itself could not be read and was set aside, so what an earlier operation did is unknown.
-   * It is one closed record carrying a `journal-unreadable` notice (the Status tab's banner); the start-up recovery holds the
-   * automatic start for the launch that found it. Not called from inside the store's own `load` (it waits for the load).
-   */
   recordUnreadableJournal(): Promise<OperationRecord> {
     return this.enqueue(async (records) => {
       const now = this.now();
@@ -237,7 +207,6 @@ export class OperationJournal {
     await this.store.save({ journalVersion: OPERATION_JOURNAL_VERSION, records: [...records.values()] });
   }
 
-  /** Keep every in-progress record and only the newest terminal ones, so the file stays small. */
   private prune(records: Map<string, OperationRecord>): void {
     const terminal = [...records.values()].filter((record) => record.status !== "in-progress");
     for (const old of terminal.slice(0, Math.max(0, terminal.length - this.maxTerminalRecords)))

@@ -15,10 +15,6 @@ function lstatMissing(path: string): boolean {
   }
 }
 
-/**
- * The directories above `path` that do not exist yet, deepest first: exactly the ones creating the file there would
- * make. Read before anything is created, so a rollback never touches a directory that was already there.
- */
 export function missingParentDirectories(path: string): string[] {
   const missing: string[] = [];
   let directory = dirname(path);
@@ -31,12 +27,6 @@ export function missingParentDirectories(path: string): string[] {
   return missing;
 }
 
-/**
- * Undoes a database this process created for a start that then failed: the file and its WAL/SHM/journal siblings, and
- * the directories that did not exist before when they are empty again. The file is removed only when it is still the one
- * `created` names (same path and file id); anything else at the path is someone else's and is left alone. Returns whether
- * the database file was removed. Never throws.
- */
 export function removeCreatedDatabase(
   path: string,
   created: DatabaseIdentity,
@@ -62,7 +52,6 @@ export function removeCreatedDatabase(
   return true;
 }
 
-/** Removes `directories` (deepest first) while each one is empty; stops at the first that is not or cannot be removed. */
 export function removeEmptyDirectories(directories: readonly string[]): void {
   for (const directory of directories) {
     try {

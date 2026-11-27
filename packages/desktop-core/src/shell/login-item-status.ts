@@ -1,22 +1,15 @@
 import { loginItemSettingsFor } from "./login-item.js";
 
-/** What the operating system says about this App's login item. */
 export type LoginItemSystemState = "enabled" | "disabled" | "needs-approval" | "unknown";
 
-/** The 「登入時自動啟動」 section of the Settings tab: what the user asked for and what the system really does. */
 export interface RepairLoginItemSection {
-  /** Windows and macOS only; elsewhere there is no login item to switch. */
   readonly supported: boolean;
-  /** The user's choice, as kept in the App's settings. */
   readonly desired: boolean;
-  /** What the system reports now (read from Electron, never from the settings file). */
   readonly system: LoginItemSystemState;
 }
 
-/** Why the two differ, or `none` when they agree. */
 export type LoginItemNote = "none" | "disabled-by-system" | "needs-approval" | "enabled-outside-app" | "unknown";
 
-/** Arguments for `app.getLoginItemSettings` that make it look at the same entry `setLoginItemSettings` wrote. */
 export function loginItemQueryFor(
   platform: NodeJS.Platform,
 ): { readonly args?: readonly string[]; readonly type?: "mainAppService" } | undefined {
@@ -29,11 +22,6 @@ function object(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : undefined;
 }
 
-/**
- * Reads Electron's `getLoginItemSettings` answer. Windows: `executableWillLaunchAtLogin` is false when the user turned
- * the entry off in the system's startup settings. macOS: `status` says whether the entry is registered, enabled or
- * waiting for the user's approval. Anything else is `unknown`, which the page words neutrally.
- */
 export function readSystemLoginItem(platform: NodeJS.Platform, raw: unknown): LoginItemSystemState {
   const item = object(raw);
   if (!item) return "unknown";
@@ -57,7 +45,6 @@ export function readSystemLoginItem(platform: NodeJS.Platform, raw: unknown): Lo
   return "unknown";
 }
 
-/** The sentence the page adds under the switch, chosen from the user's choice and the system's answer. */
 export function loginItemNote(section: RepairLoginItemSection): LoginItemNote {
   if (!section.supported) return "none";
   if (section.system === "unknown") return "unknown";
@@ -68,12 +55,7 @@ export function loginItemNote(section: RepairLoginItemSection): LoginItemNote {
   return section.system === "enabled" || section.system === "needs-approval" ? "enabled-outside-app" : "none";
 }
 
-/**
- * Whether the start of the App must write the login item at all. The entry is written when it is missing and the user
- * wants it, or present and the user does not. An entry that is already registered is left alone even when the system
- * marks it disabled: on Windows, writing `openAtLogin: true` again may clear the user's "off" mark in the system's
- * startup settings, which would turn the entry back on without the user asking. An answer that cannot be read is applied.
- */
+// An entry already registered is left alone even if disabled: rewriting `openAtLogin: true` on Windows may clear the user's "off" mark.
 export function shouldApplyLoginItemAtStart(platform: NodeJS.Platform, raw: unknown, desired: boolean): boolean {
   const item = object(raw);
   let registered: boolean | undefined;

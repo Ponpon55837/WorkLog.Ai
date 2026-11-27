@@ -2,12 +2,10 @@ import { formatMessage, type ShellLocale } from "./i18n.js";
 import type { BackupDirectoryChooseResult } from "./backup-directory.js";
 import { busyText, restoreMessages } from "./restore-i18n.js";
 
-/** The strings of 「備份位置」: the card, its answers and the native confirmation for a risky folder. */
 export interface BackupDirectoryMessages {
   readonly heading: string;
   readonly intro: string;
   readonly current: string;
-  /** Said next to the button, before and after a change: the old backups are not moved. */
   readonly notMoved: string;
   readonly change: string;
   readonly changing: string;
@@ -15,17 +13,14 @@ export interface BackupDirectoryMessages {
   readonly cancelled: string;
   readonly noSettings: string;
   readonly notWritable: string;
-  /** `{label}` is the kind of storage (network drive, external drive...). */
   readonly refused: string;
   readonly declined: string;
   readonly startFailed: string;
   readonly notRestored: string;
   readonly failed: string;
-  /** `{folder}` is the new folder. */
   readonly done: string;
   readonly riskTitle: string;
   readonly riskMessage: string;
-  /** `{label}` is the kind of storage. */
   readonly riskDetail: string;
   readonly riskButton: string;
   readonly cancelButton: string;
@@ -94,7 +89,6 @@ export function backupDirectoryMessages(locale: ShellLocale): BackupDirectoryMes
   return locale === "zh-TW" ? zhTW : en;
 }
 
-/** The sentence for an answer; `label` names the storage kind when the answer has one. */
 export function backupDirectoryResultText(
   messages: BackupDirectoryMessages,
   locale: ShellLocale,

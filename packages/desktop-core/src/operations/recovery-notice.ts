@@ -2,7 +2,6 @@ import { compareDatabaseIdentity } from "../db-source/identity-compare.js";
 import type { OperationRecord, RecoveryNotice } from "./journal-record.js";
 import type { ProbeReport, RecoveryDecision } from "./recovery.js";
 
-/** What a notice stores before the user has seen it. */
 export type RecoveryNoticeInput = Omit<RecoveryNotice, "acknowledged">;
 
 function portOf(record: OperationRecord, key: "from" | "to"): number | null {
@@ -18,11 +17,6 @@ function notice(
   return { kind, operation: record.kind, port: ports.port ?? null, attemptedPort: ports.attempted ?? null };
 }
 
-/**
- * What the user is told about an operation recovery just closed, or null when it needs no words (an ordinary start that
- * was interrupted and left nothing behind). The answer comes from the decision and the REAL state the probe read, so the
- * text never claims more than was verified: a port change is "kept" only when the settings really name the old port.
- */
 export function describeRecovery(
   record: OperationRecord,
   decision: RecoveryDecision,

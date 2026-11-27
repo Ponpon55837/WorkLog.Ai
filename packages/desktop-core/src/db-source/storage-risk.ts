@@ -1,22 +1,10 @@
 import path from "node:path";
 
-/**
- * DT-08: what kind of storage a database file lives on. The result is advice for the policy in `storage-policy.ts`:
- * SQLite WAL is not supported on a network share, and a removable disk, a cloud-sync folder or a hard link can lose or
- * duplicate the file behind the App's back. Every OS access goes through {@link StorageRiskDeps}, so the unit tests run
- * the whole decision with fakes. Evidence strings are fixed tags and never carry a path (they reach the log).
- *
- * Not detected on purpose: macOS iCloud "Desktop & Documents" sync (it leaves no mount or path marker; reading its
- * extended attributes or `brctl` would be fragile), and Google Drive's virtual drive on Windows (best effort only).
- */
-
 export type StorageRisk = "none" | "network" | "removable" | "cloud-sync" | "hard-link" | "unknown";
 
 export interface StorageRiskResult {
   readonly risk: StorageRisk;
-  /** Fixed tags that explain the verdict (`mount-type:smbfs`, `cloud-root:onedrive`, ...); never a path. */
   readonly evidence: readonly string[];
-  /** A segment of the path is a symbolic link (or junction). Evidence only; it is not a risk on its own. */
   readonly symlinked: boolean;
 }
 
@@ -31,16 +19,12 @@ export interface StorageRiskDeps {
   readonly platform: NodeJS.Platform;
   readonly environment: Readonly<Record<string, string | undefined>>;
   readonly homeDirectory: string;
-  /** Rejects with `ENOENT` for a path that does not exist. */
   readonly realpath: (target: string) => Promise<string>;
   readonly lstat: (target: string) => Promise<StorageRiskFileInfo>;
   readonly readFile: (target: string) => Promise<string>;
-  /** Runs a fixed command and resolves with its stdout; rejects on a non-zero exit, a spawn failure or the timeout. */
   readonly run: (command: string, args: readonly string[], timeoutMs: number) => Promise<string>;
-  /** Hard limits for the slow adapters; the classifier also gives up by itself when `run` hangs. */
   readonly windowsTimeoutMs?: number;
   readonly macTimeoutMs?: number;
-  /** One per App run: results are kept per (real path, device). */
   readonly cache?: Map<string, Promise<StorageRiskResult>>;
 }
 
@@ -56,7 +40,6 @@ interface CloudRoot {
   readonly root: string;
 }
 
-/** What one platform adapter found; `unknown` carries why. */
 interface Finding {
   readonly risks: StorageRisk[];
   readonly evidence: string[];
@@ -109,7 +92,6 @@ function comparable(value: string, platform: NodeJS.Platform): string {
   return platform === "win32" ? trimmed.toLowerCase() : trimmed;
 }
 
-/** True when `target` is `root` or lies below it (a whole path segment, never a name prefix). */
 function isUnder(target: string, root: string, platform: NodeJS.Platform): boolean {
   const separator = pathApi(platform).sep;
   const child = comparable(target, platform);
@@ -126,7 +108,6 @@ async function safeRealpath(deps: StorageRiskDeps, target: string): Promise<stri
   }
 }
 
-/** Each root as written and as it resolves, so a symlinked home still matches the database's real path. */
 async function withRealRoots(deps: StorageRiskDeps, roots: readonly CloudRoot[]): Promise<CloudRoot[]> {
   const resolved = await Promise.all(
     roots.map(async (entry) => ({ name: entry.name, root: await safeRealpath(deps, entry.root) })),
@@ -138,7 +119,6 @@ function matchCloud(real: string, roots: readonly CloudRoot[], platform: NodeJS.
   return roots.find((entry) => entry.root.length > 0 && isUnder(real, entry.root, platform))?.name;
 }
 
-/** Finds the file, or for a database that does not exist yet its nearest existing folder. */
 async function locate(target: string, deps: StorageRiskDeps): Promise<Located> {
   const api = pathApi(deps.platform);
   let candidate = api.resolve(target);
@@ -157,7 +137,6 @@ async function locate(target: string, deps: StorageRiskDeps): Promise<Located> {
   throw new Error("path has no existing ancestor");
 }
 
-/** True when a segment of the path (below its root) is a symbolic link or a junction. */
 async function hasSymlinkSegment(target: string, deps: StorageRiskDeps): Promise<boolean> {
   const api = pathApi(deps.platform);
   const absolute = api.resolve(target);
@@ -195,10 +174,6 @@ function parseLinuxMounts(text: string): MountEntry[] {
     .map((fields) => ({ mountPoint: parseOctalEscapes(fields[1] as string), type: fields[2] as string }));
 }
 
-/**
- * `mount` lines: `<device> on <mount point> (<type>, <option>, ...)`. The option group is the last parenthesis group on
- * the line, so a volume name that itself contains " (" (`/Volumes/Backup (old)`) stays whole in the mount point.
- */
 function parseMacMounts(text: string): MountEntry[] {
   const entries: MountEntry[] = [];
   for (const line of text.split("\n")) {
@@ -208,7 +183,6 @@ function parseMacMounts(text: string): MountEntry[] {
   return entries;
 }
 
-/** The mount holding `real`: the longest mount point that is a path prefix of it. */
 function mountOf(real: string, entries: readonly MountEntry[]): MountEntry | undefined {
   let best: MountEntry | undefined;
   for (const entry of entries) {
@@ -258,7 +232,6 @@ async function classifyMac(located: Located, deps: StorageRiskDeps): Promise<Fin
   }
   const mount = mountOf(located.real, entries);
   if (!mount) return failure("mount-not-found");
-  // The startup disk's data volume: nothing else to ask, so no second subprocess.
   if (mount.mountPoint === "/" || mount.mountPoint === "/System/Volumes/Data") {
     return { risks: [], evidence: ["fast-path:startup-volume"], failed: false };
   }
@@ -301,7 +274,6 @@ async function windowsCloudRoots(deps: StorageRiskDeps): Promise<CloudRoot[]> {
   return withRealRoots(deps, roots);
 }
 
-/** `info.json` of the Dropbox client: `{ "personal": { "path": ... }, "business": { "path": ... } }`. */
 async function readDropboxRoots(deps: StorageRiskDeps, file: string): Promise<string[]> {
   try {
     const parsed = JSON.parse(await deps.readFile(file)) as Record<string, unknown>;
@@ -330,8 +302,7 @@ async function classifyWindows(located: Located, deps: StorageRiskDeps): Promise
   const systemDrive = /^([A-Za-z]):/.exec(deps.environment.SystemDrive ?? "")?.[1]?.toUpperCase() ?? "C";
   if (location.drive === systemDrive) return { risks: [], evidence: ["fast-path:system-drive"], failed: false };
   const timeoutMs = deps.windowsTimeoutMs ?? WINDOWS_DRIVE_TIMEOUT_MS;
-  // An external USB disk reports DriveType Fixed, so a fixed drive is also asked for its bus (L-11). The bus lookup is
-  // best effort: where Get-Partition or Get-Disk is unavailable the answer stays the drive type alone.
+  // An external USB disk reports DriveType Fixed, so a fixed drive is also asked for its bus (L-11); best effort.
   const script = [
     `$t = [System.IO.DriveInfo]::new('${location.drive}:\\').DriveType`,
     `$b = ''`,
@@ -379,10 +350,8 @@ async function compute(target: string, deps: StorageRiskDeps, located: Located):
 }
 
 /**
- * Classifies the storage of `databasePath` (which need not exist yet: its nearest existing folder is classified).
- * Never throws: any adapter error or timeout is `unknown` with evidence. Results are cached per (real path, device) in
- * `deps.cache`, so a second look at the same file costs no subprocess. An `unknown` verdict (a failed or timed-out probe)
- * is not kept, so the next look asks again instead of blocking one-click selection until the App restarts.
+ * Never throws. An `unknown` verdict is not cached, so the next look asks again instead of blocking one-click selection
+ * until restart.
  */
 export async function classifyStorageRisk(databasePath: string, deps: StorageRiskDeps): Promise<StorageRiskResult> {
   let located: Located;

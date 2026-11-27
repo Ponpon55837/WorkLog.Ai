@@ -4,14 +4,8 @@ import { homedir } from "node:os";
 import { windowsPowerShell } from "@work-intelligence/shared/windows-system-tool";
 import { classifyStorageRisk, type StorageRiskDeps, type StorageRiskResult } from "./storage-risk.js";
 
-/** The real operating-system access behind {@link classifyStorageRisk}; the unit tests inject fakes instead. */
-
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 
-/**
- * Runs a fixed command with a hard timeout (the child is killed when it passes) and resolves with its stdout. Rejects on
- * a spawn error, a non-zero exit or the timeout. `powershell.exe` always means the one under System32, never a PATH hit.
- */
 export function runCommand(
   command: string,
   args: readonly string[],
@@ -49,7 +43,6 @@ export function createNodeStorageRiskDeps(options: NodeStorageRiskOptions = {}):
   };
 }
 
-/** One classifier per App run: its cache keeps a second look at the same file free of any subprocess. */
 export function createStorageRiskClassifier(
   options: NodeStorageRiskOptions = {},
 ): (databasePath: string) => Promise<StorageRiskResult> {

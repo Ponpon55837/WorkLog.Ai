@@ -2,7 +2,6 @@ import { z } from "zod";
 import { NOTES_MAX_CHARACTERS } from "./sanitize.js";
 import { UPDATE_ERROR_REASONS, UPDATE_PLATFORMS, type UpdateCheckResult } from "./result.js";
 
-/** The shape main checks an answer against before the page sees it (the types are in `result.ts`, which has no zod). */
 export const updateCheckResultSchema: z.ZodType<UpdateCheckResult> = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("up-to-date"), current: z.string().max(64) }),
   z.strictObject({

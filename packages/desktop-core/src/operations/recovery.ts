@@ -3,7 +3,6 @@ import type { DatabaseIdentityRecord } from "../db-source/identity-schema.js";
 import type { OperationRecord, RecoveryPolicy } from "./journal-record.js";
 import { isLegalTransition, type ServiceOwnerState } from "./service-owner-state.js";
 
-/** What the OS, the child process and the DB really look like right now (never inferred from the journal). */
 export interface ProbeReport {
   readonly oldServiceRegistered: boolean;
   readonly oldServiceEnabled: boolean;
@@ -11,21 +10,14 @@ export interface ProbeReport {
   readonly desktopChild: { readonly running: boolean; readonly identityVerified: boolean };
   readonly dbSchemaVersion: number | null;
   readonly dbIdentity: DatabaseIdentityRecord | null;
-  /** Probe-side proof that a migration ran (e.g. schema_migrations has newer rows than at operation start). */
   readonly migrationEvidence: boolean;
-  /** The port the settings file names right now (what the next start uses); null when there are no settings. */
   readonly settingsPort: number | null;
-  /**
-   * What the settings file says about the service: `absent` (a new install), `active` (a verified start was recorded)
-   * or `no-active` (settings without a recorded start, as an upgrade from an old version leaves them).
-   */
   readonly settingsState: "absent" | "active" | "no-active";
 }
 
-/** Injected probe; it may throw when state cannot be determined, which recovery treats as unknown. */
+/** May throw when state cannot be determined; recovery treats that as unknown and fails closed to repair. */
 export type StateProbe = () => ProbeReport | Promise<ProbeReport>;
 
-/** Steps needed to bring the old service back to its recorded state. */
 export interface RestorePlan {
   readonly register: boolean;
   readonly enable: boolean;
@@ -34,18 +26,15 @@ export interface RestorePlan {
 
 export type RecoveryAction = "none" | "resume" | "restore-previous" | "repair";
 
-/** The next state chosen from the probe; applying it is a separate, journaled step. */
 export interface RecoveryDecision {
   readonly nextState: ServiceOwnerState;
   readonly action: RecoveryAction;
   readonly recoveryPolicy: RecoveryPolicy;
-  /** True when the journal says so OR the probe shows migration evidence. */
   readonly migrationStarted: boolean;
   readonly restore: RestorePlan | null;
   readonly reason: string;
 }
 
-/** Both identities must exist and satisfy the shared {@link compareDatabaseIdentity} rule. */
 function isSameDatabase(expected: DatabaseIdentityRecord | null, actual: DatabaseIdentityRecord | null): boolean {
   return expected !== null && actual !== null && compareDatabaseIdentity(expected, actual).same;
 }
@@ -71,7 +60,6 @@ function planRestore(record: OperationRecord, report: ProbeReport): RestorePlan 
   };
 }
 
-/** Roll an interrupted operation back to the previous owner, only when that is provably safe. */
 function rollback(record: OperationRecord, report: ProbeReport): RecoveryDecision {
   if (record.recoveryPolicy === "repair-only") return repair(record, false, "policy is repair-only");
   if (record.previousOwner === "EXTERNAL") {
@@ -128,7 +116,6 @@ function decideWithMigration(record: OperationRecord, report: ProbeReport): Reco
 }
 
 function untouched(record: OperationRecord, reason: string): RecoveryDecision {
-  // MANAGED where the table allows it (the service stays the one it was); otherwise the phase the record stopped in.
   const nextState = isLegalTransition(record.phase, "MANAGED") ? "MANAGED" : record.phase;
   return {
     nextState,
@@ -145,11 +132,6 @@ function detailNumber(record: OperationRecord, key: string): number | null {
   return typeof value === "number" ? value : null;
 }
 
-/**
- * A port change never edits `desired.port` before the new backend is verified, and the child ends with the App, so the
- * settings file is the one place that says which port won: the old one (nothing to undo), the new one (the commit
- * landed before the journal was closed), or neither (unknown: repair).
- */
 function decidePortChange(record: OperationRecord, report: ProbeReport): RecoveryDecision {
   const from = detailNumber(record, "from");
   const to = detailNumber(record, "to");
@@ -163,11 +145,6 @@ function decidePortChange(record: OperationRecord, report: ProbeReport): Recover
   return repair(record, false, "the settings name neither the old nor the new port");
 }
 
-/**
- * A database switch commits the new path and identity in the one atomic settings write that follows the verified start,
- * so the identity of the database the settings name (read by the probe) says what happened: the target (applied) or
- * another database that opens fine (the switch never committed; that database was never touched). Unknown: repair.
- */
 function decideDatabaseChange(record: OperationRecord, report: ProbeReport): RecoveryDecision {
   if (record.selectedDb === null || report.dbIdentity === null) {
     return repair(record, false, "a database switch was interrupted and the database now named could not be verified");
@@ -180,12 +157,6 @@ function decideDatabaseChange(record: OperationRecord, report: ProbeReport): Rec
   );
 }
 
-/**
- * Disabling the old login service is OS commands plus a file removal and never restarts it. The detection says what is
- * left: still installed (nothing more to undo; the start stays held back while it is there), or gone. A service that was
- * running when it was ended may have been stopped mid-write, so "gone" counts only when the App's database then passes
- * its read-only check (`dbIdentity` is set only by a passed check); otherwise it is repair.
- */
 function decideLegacyDisable(record: OperationRecord, report: ProbeReport): RecoveryDecision {
   if (report.oldServiceRegistered || report.oldServiceRunning) {
     return untouched(record, "the old login service is still installed; the App never restarts it");
@@ -196,11 +167,6 @@ function decideLegacyDisable(record: OperationRecord, report: ProbeReport): Reco
   return untouched(record, "the old login service is gone");
 }
 
-/**
- * The decisions the product's own operations need, for the case without migration. An ordinary start (takeover or
- * restart) touched nothing durable when the settings already hold its result (or do not exist yet), so it closes
- * without a notice. An Agent apply is its own file-level transaction that start-up has already finished or undone.
- */
 function decideByKind(record: OperationRecord, report: ProbeReport): RecoveryDecision | undefined {
   if (report.desktopChild.running) return undefined;
   switch (record.kind) {
@@ -272,11 +238,6 @@ function decideWithoutMigration(record: OperationRecord, report: ProbeReport): R
   }
 }
 
-/**
- * Decide the next state from REAL probe data, not from the journal phase text (ADR-21).
- * Fail closed: a throwing probe, a DB identity mismatch or any migration evidence ends in NEEDS_REPAIR/repair-only
- * unless the migrated service is demonstrably managed.
- */
 export async function recover(record: OperationRecord, probe: StateProbe): Promise<RecoveryDecision> {
   let report: ProbeReport;
   try {
@@ -294,9 +255,8 @@ export async function recover(record: OperationRecord, probe: StateProbe): Promi
     report.dbSchemaVersion > record.schemaVersionAtStart;
   const migration = record.migrationStarted || report.migrationEvidence || advanced;
   const touchesDb = record.phase !== "UNCONFIGURED" && record.phase !== "EXTERNAL" && record.phase !== "NEEDS_REPAIR";
-  // A database switch records the TARGET database, so "the settings name another one" is its normal "never committed"
-  // answer (decided by kind below). For every other operation the recorded database is the one in use: a different or
-  // unverifiable one is repair, whatever the kind's own rule would say.
+  // A database switch records the TARGET database, so a settings file naming another one is its normal "never committed"
+  // case; for any other operation a different or unverifiable database is repair.
   const identityDiffers =
     touchesDb && record.selectedDb !== null && !isSameDatabase(record.selectedDb, report.dbIdentity);
   if (identityDiffers && (record.kind !== "change-db" || migration)) {

@@ -1,7 +1,6 @@
 import type { ShellLocale } from "./i18n.js";
 import type { LoginItemNote } from "./login-item-status.js";
 
-/** The strings of the Settings tab's login-item switch. None of them is, or contains, a command. */
 export interface LoginItemMessages {
   readonly heading: string;
   readonly label: string;

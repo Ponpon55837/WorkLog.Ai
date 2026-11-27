@@ -1,8 +1,3 @@
-/**
- * Runs `worker` over `items` with at most `limit` in flight. After the first failure no new item starts, the running
- * ones finish, and that first failure is thrown. A `limit` that is not a positive integer throws a RangeError before
- * anything runs: with no worker lane the items would silently be skipped, and a caller that verifies files would pass.
- */
 export async function forEachLimited<T>(
   items: readonly T[],
   limit: number,

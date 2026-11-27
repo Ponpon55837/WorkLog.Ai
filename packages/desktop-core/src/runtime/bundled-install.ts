@@ -21,50 +21,33 @@ import { assertSymlinksStayInside } from "./symlinks.js";
 import { verifyRuntime, type VerifyRuntimeOptions } from "./verify.js";
 import { createWindowsAclReader, type AclPrewarm, type AclReadReport, type WindowsAclReader } from "./windows-acl.js";
 
-/** How `ensureBundledRuntime` found the installed runtime and what it did about it. */
 export type BundledRuntimeStatus = "already-current" | "switched" | "installed" | "reinstalled";
 
-/** The result of {@link ensureBundledRuntime}. */
 export interface EnsuredRuntime {
   readonly status: BundledRuntimeStatus;
   readonly runtimeId: string;
   readonly elapsedMs: number;
-  /** Bytes written into the launcher root (zero unless installed or reinstalled). */
   readonly bytesCopied: number;
-  /** Files whose content was read and hashed (zero on the fast path). */
   readonly hashedCount: number;
-  /** The runtime `current` named before this call, when it was another one (a candidate fallback to keep). */
   readonly previousRuntimeId: string | undefined;
-  /** Windows: which tier read the ACLs and how long each tier took, when this call read them (absent on the fast path). */
   readonly aclReport?: AclReadReport;
-  /** Windows: how many times this call spawned PowerShell to read the ACLs (0 on the fast path or from the stamp cache). */
   readonly aclReads: number;
 }
 
-/** The file system calls that can be made to fail in tests. */
 export interface BundledInstallDeps {
   readonly rename: (from: string, to: string) => Promise<void>;
   readonly sleep: (milliseconds: number) => Promise<void>;
   readonly now: () => number;
 }
 
-/** Options of {@link ensureBundledRuntime}. */
 export interface EnsureBundledRuntimeOptions {
-  /** Hex SHA-256 of the bundle's `runtime-manifest.json` bytes, fixed when the App was built. */
   readonly expectedManifestSha256: string;
-  /** Refuse a bundle of another kind; the packaged App only runs `node`. */
   readonly requiredRuntimeKind?: RuntimeKind;
-  /**
-   * Skip the fast path: verify the installed runtime (through the fingerprint cache) even when it looks current, and
-   * reinstall it when that fails. For a retry after the backend refused the runtime.
-   */
   readonly verifyInstalled?: boolean;
-  /** Passed to every verification (platform policy and the Windows ACL reader). */
   readonly verify?: Pick<VerifyRuntimeOptions, "policy" | "aclReader" | "concurrency">;
   readonly deps?: Partial<BundledInstallDeps>;
 }
 
-/** The bundle as read and checked: its id, directory and the manifest bytes the App was built with. */
 interface Bundle {
   readonly runtimeId: string;
   readonly directory: string;
@@ -73,7 +56,7 @@ interface Bundle {
 }
 
 const COPY_CONCURRENCY = 4;
-/** Waits before each retry of a rename that Windows refused while Defender or the indexer holds the new files. */
+/** Windows refuses a rename briefly while Defender or the search indexer holds the freshly copied files. */
 const RENAME_RETRY_DELAYS_MS: readonly number[] = [50, 100, 200, 400, 800, 1_000, 1_000, 1_000];
 const RENAME_RETRYABLE: ReadonlySet<string> = new Set(["EPERM", "EBUSY", "EACCES"]);
 const MAX_BUNDLE_MANIFEST_BYTES = 4 * 1024 * 1024;
@@ -99,7 +82,6 @@ function installFailed(summary: string, file: string, cause: unknown): RuntimeEr
   );
 }
 
-/** Reads `<bundleRoot>/current` and the bundle manifest, and refuses a manifest that is not the one baked into the App. */
 async function readBundle(bundleRoot: string, options: EnsureBundledRuntimeOptions): Promise<Bundle> {
   const expected = options.expectedManifestSha256.toLowerCase();
   if (!SHA256_PATTERN.test(expected)) {
@@ -155,11 +137,6 @@ function uniqueName(prefix: string, runtimeId: string): string {
   return `${prefix}${runtimeId}-${randomBytes(4).toString("hex")}`;
 }
 
-/**
- * `rename` with a bounded backoff for the errors Windows gives while another process (Defender scanning a fresh
- * `node.exe`, the search indexer) briefly holds a file inside the directory. Any other error, and the last of these,
- * is thrown.
- */
 async function renameWithRetry(deps: BundledInstallDeps, from: string, to: string): Promise<void> {
   for (let attempt = 0; ; attempt += 1) {
     try {
@@ -181,7 +158,6 @@ async function removeQuietly(target: string): Promise<void> {
   }
 }
 
-/** Removes staging directories a crashed attempt left. Quarantined directories are collected later, and only with the lease proof (see runtime-gc.ts). */
 async function cleanLeftovers(root: string): Promise<void> {
   const runtimes = path.join(root, RUNTIMES_DIRECTORY_NAME);
   let names: string[];
@@ -197,7 +173,7 @@ async function cleanLeftovers(root: string): Promise<void> {
   );
 }
 
-/** Moves a runtime directory out of the way without deleting it: a process that still runs from it keeps working. */
+/** Moved aside, never deleted: a process that still runs from it keeps working. */
 async function quarantine(root: string, runtimeId: string, deps: BundledInstallDeps): Promise<string> {
   const target = runtimeDirectoryFor(root, runtimeId);
   const aside = path.join(root, RUNTIMES_DIRECTORY_NAME, uniqueName(QUARANTINE_DIRECTORY_PREFIX, runtimeId));
@@ -205,7 +181,6 @@ async function quarantine(root: string, runtimeId: string, deps: BundledInstallD
     await renameWithRetry(deps, target, aside);
     return aside;
   } catch (error) {
-    // Still locked after the retries: a process runs from this directory (an Agent on Windows), which is for the user to close.
     if (RENAME_RETRYABLE.has(errorCode(error) ?? "")) {
       throw new RuntimeError(
         "RUNTIME_IN_USE",
@@ -218,7 +193,6 @@ async function quarantine(root: string, runtimeId: string, deps: BundledInstallD
   }
 }
 
-/** Moves a set-aside directory back to `target` when the failed install left nothing there; best effort. */
 async function restoreQuarantined(deps: BundledInstallDeps, aside: string, target: string): Promise<void> {
   const taken = await fs.lstat(target).then(
     () => true,
@@ -228,7 +202,6 @@ async function restoreQuarantined(deps: BundledInstallDeps, aside: string, targe
   await renameWithRetry(deps, aside, target).catch(() => undefined);
 }
 
-/** Refuses a bundle whose files are not exactly the manifest's, before anything is copied. */
 async function checkBundleContent(bundle: Bundle): Promise<Awaited<ReturnType<typeof scanRuntimeDirectory>>> {
   const scan = await scanRuntimeDirectory(bundle.directory);
   if (scan.special.length > 0) throw bundleError("隨 App 附的 runtime 內有特殊檔案", scan.special[0] as string);
@@ -243,11 +216,6 @@ async function checkBundleContent(bundle: Bundle): Promise<Awaited<ReturnType<ty
   return scan;
 }
 
-/**
- * Copies the bundle into `staging`: directories, then files (with the owner's permission bits, minus group and other
- * write, so an executable stays executable and a bundle built with a loose umask cannot make the copy unsafe), then the
- * symlinks exactly as listed, then the manifest bytes that were already checked. Returns the bytes written.
- */
 async function copyBundle(
   bundle: Bundle,
   scan: Awaited<ReturnType<typeof scanRuntimeDirectory>>,
@@ -272,12 +240,6 @@ async function copyBundle(
   return bytes + bundle.manifestBytes.length;
 }
 
-/**
- * Writes a copied file through to the disk before the install is committed, so a power loss cannot leave content that
- * is wrong at the right size for the next start's size-and-time fingerprint to wave through (L-15). Best effort: a file
- * system that cannot flush (or a file that cannot be reopened for it) must not fail an install whose content is checked
- * against the bundle manifest right afterwards.
- */
 async function flushFile(file: string): Promise<void> {
   let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
   try {
@@ -293,19 +255,12 @@ async function flushFile(file: string): Promise<void> {
   }
 }
 
-/** The ACL reader of one install, and the prewarm that must be released when the install ends. */
 interface AclWarmup {
   readonly reader: WindowsAclReader;
   readonly prewarm: AclPrewarm;
 }
 
-/**
- * Windows only: starts the tier-1 PowerShell now, while the bundle is copied, so its cold start (about 2 s) is over by the
- * time the verification has the paths. Called only on the install path, where the verification always reads the ACLs, and
- * never on the fast path. The verification must use the returned reader (that is how it takes the process over), and the
- * caller must `release` the prewarm on every exit path so no `powershell.exe` outlives a failed install. A reader with no
- * prewarm (a test fixture) and every other platform start nothing.
- */
+/** The caller must `release` the prewarm on every exit path, so no `powershell.exe` outlives a failed install. */
 function startAclWarmup(verify: EnsureBundledRuntimeOptions["verify"]): AclWarmup | undefined {
   if ((verify?.policy ?? currentPermissionPolicy()).platform !== "win32") return undefined;
   const reader = verify?.aclReader ?? createWindowsAclReader();
@@ -313,7 +268,6 @@ function startAclWarmup(verify: EnsureBundledRuntimeOptions["verify"]): AclWarmu
   return prewarm === undefined ? undefined : { reader, prewarm };
 }
 
-/** Copies, renames into place, writes the shims, verifies every file against the bundle manifest and points `current` at it. */
 async function installFromBundle(
   root: string,
   bundle: Bundle,
@@ -338,7 +292,6 @@ async function installFromBundle(
   }
   try {
     await writeShims(root);
-    // No cache exists yet, so this reads and hashes every file once, against the bundle's own manifest, and writes the cache.
     const verification = await commitCurrent(root, bundle.runtimeId, {
       ...options.verify,
       ...(warmup ? { aclReader: warmup.reader } : {}),
@@ -346,8 +299,8 @@ async function installFromBundle(
     });
     return { bytesCopied, hashedCount: verification.hashedCount, aclReport: verification.aclReport };
   } catch (error) {
-    // Wrong content must not stay where `current` or a retry could pick it up. A permission problem is not the files'
-    // fault and copying again would not fix it: the directory stays, `current` is not switched, and the repair flow explains.
+    // Wrong content must not stay where `current` or a retry could pick it up; a permission problem is not the files' fault,
+    // so the directory stays and `current` is not switched.
     if (error instanceof RuntimeError && REINSTALLABLE_CODES.has(error.code)) {
       await quarantine(root, bundle.runtimeId, deps).catch(() => undefined);
     }
@@ -358,22 +311,8 @@ async function installFromBundle(
 }
 
 /**
- * Makes sure the launcher root `root` holds, and points `current` at, the runtime that ships inside the App
- * (`<bundleRoot>/current` plus `<bundleRoot>/runtimes/<id>/`, complete except for `.verified.json`).
- *
- * The bundle manifest is trusted only if its bytes hash to `expectedManifestSha256`, a value fixed in the main bundle at
- * build time; the manifest in turn lists every file's SHA-256, so the copy is verified against the bundle's own manifest,
- * not a re-measured one.
- *
- * - Fast path (the usual start): the installed manifest has the same bytes and `current` names the runtime. Nothing is
- *   hashed or copied; the backend launch verifies through the fingerprint cache anyway. `verifyInstalled` runs that
- *   verification here instead and reinstalls when it fails.
- * - Installed but not current: verified (cache) and switched.
- * - Otherwise: copied into `runtimes/.staging-<id>-<random>` (same volume, a name no runtime id can have), renamed into
- *   place with a bounded retry, shims written, every file hashed once, `current` switched. A directory that exists with a
- *   different manifest or fails verification is renamed to `runtimes/.quarantine-<id>-<random>` first (never deleted at
- *   that moment: a process may still run from it) and later starts remove such leftovers.
- * Two Apps never run this at once: the single-instance lock is held first.
+ * The bundle manifest is trusted only when its bytes hash to `expectedManifestSha256`. Call it only while holding the
+ * single-instance lock.
  */
 export async function ensureBundledRuntime(
   root: string,
