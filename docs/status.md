@@ -6,6 +6,13 @@
 
 - 最後更新：2026-11-27
 
+## 1.6.80（開工記錄用同一個 key 再結案一次即完成）
+
+- Agent 開工時以 `verification.status: "in_progress"` 結案一次，留下開工記錄；收尾時用同一個 `idempotencyKey` 再結案一次，就原地完成同一筆 Session，不需要再呼叫三個更新操作。開工記錄可以不填 `nextSteps`，不會產生未結項。
+- 進行中記錄的回條不再顯示 `executionStatus: "completed"`，改附一行提示說明怎麼完成。
+- 開工記錄不再重置伺服器觀察到的開工時間與 HEAD；用 `completedAtNow` 完成的 Session 也會結束觀察，下一段工作的開工時間不會早於上一段的完成時間。
+- schema 維持 39；升級後請重新連線 MCP，讓 Agent 讀到新的結案說明。詳見 [1.6.80 更新說明](releases/1.6.80.md)。
+
 ## 1.6.79（同一用戶端同時進行多段工作時，結案回條不再混列 Knowledge）
 
 - 同一個 Agent 用戶端開兩個 MCP 連線同時做兩段工作時，結案回條的 `unreportedKnowledge` 只列該連線自己讀過的 Knowledge。

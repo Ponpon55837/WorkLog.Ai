@@ -26,7 +26,9 @@ function buildSessionStructuredContent(value: StructuredContent): StructuredCont
     outcome: typeof value.outcome === "string" ? value.outcome : "session",
     sessionId:
       typeof value.sessionId === "string" ? value.sessionId : typeof session?.id === "string" ? session.id : null,
-    executionStatus: typeof session?.executionStatus === "string" ? session.executionStatus : "completed",
+    ...(isRecord(verification) && verification.status === "in_progress"
+      ? {}
+      : { executionStatus: typeof session?.executionStatus === "string" ? session.executionStatus : "completed" }),
     changedFilesCount,
     verification,
   };

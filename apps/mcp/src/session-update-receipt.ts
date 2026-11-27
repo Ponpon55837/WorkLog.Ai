@@ -1,5 +1,6 @@
 import type { WorkIntelligenceStore } from "@work-intelligence/storage";
 import { compactChangeStatusFollowUp } from "./change-status-follow-up.js";
+import { IN_PROGRESS_HINT } from "./finalize-receipt.js";
 
 type MetadataResult = ReturnType<WorkIntelligenceStore["updateSessionMetadata"]>;
 type SummaryResult = ReturnType<WorkIntelligenceStore["updateSessionSummary"]>;
@@ -33,7 +34,7 @@ interface WorkSummaryReceiptRequest {
 /** What the Agent learns about the Session it just updated: identity, times, status, and counts. */
 export interface SessionUpdateReceiptSession {
   id: string;
-  executionStatus: WorkSessionRecord["executionStatus"];
+  executionStatus?: WorkSessionRecord["executionStatus"];
   startedAt?: string;
   completedAt: string;
   updatedAt: string;
@@ -42,10 +43,18 @@ export interface SessionUpdateReceiptSession {
   voided?: WorkSessionRecord["voided"];
 }
 
+function inProgressVerification(session: WorkSessionRecord): boolean {
+  return session.verification?.status === "in_progress";
+}
+
+function inProgressHint(session: WorkSessionRecord): { hint: string } | object {
+  return inProgressVerification(session) ? { hint: IN_PROGRESS_HINT } : {};
+}
+
 function receiptSession(session: WorkSessionRecord): SessionUpdateReceiptSession {
   return {
     id: session.id,
-    executionStatus: session.executionStatus,
+    ...(inProgressVerification(session) ? {} : { executionStatus: session.executionStatus }),
     ...(session.startedAt ? { startedAt: session.startedAt } : {}),
     completedAt: session.completedAt,
     updatedAt: session.updatedAt,
@@ -76,6 +85,7 @@ export function toSessionMetadataReceipt(input: MetadataReceiptRequest, result: 
   return {
     outcome,
     session: receiptSession(session),
+    ...inProgressHint(session),
     // A merge, normalization, or excluded path makes the stored list differ from the one sent.
     ...(input.changedFiles === undefined || sameList(input.changedFiles, session.changedFiles)
       ? {}
@@ -97,6 +107,7 @@ export function toSessionSummaryReceipt(input: SummaryReceiptRequest, result: Su
     duplicate: result.duplicate,
     mode: result.mode,
     session: receiptSession(result.session),
+    ...inProgressHint(result.session),
     // The stored summary only when it is not what the Agent sent (masked, or a replayed earlier payload).
     ...(storedAsSent ? {} : { summary: result.appliedSummary }),
     ...redactionsIfAny(result),
@@ -110,6 +121,7 @@ export function toSessionTitleReceipt(input: TitleReceiptRequest, result: TitleR
     duplicate: result.duplicate,
     previousTitle: result.previousTitle,
     session: receiptSession(result.session),
+    ...inProgressHint(result.session),
     ...(result.session.title === input.title ? {} : { title: result.session.title }),
     ...redactionsIfAny(result),
   };
@@ -127,6 +139,7 @@ export function toSessionWorkSummaryReceipt(input: WorkSummaryReceiptRequest, re
     duplicate: result.duplicate,
     mode: result.mode,
     session: receiptSession(result.session),
+    ...inProgressHint(result.session),
     // Stored sections that differ from the submitted ones (masked text, or a replayed earlier payload).
     ...(differing.length > 0
       ? {

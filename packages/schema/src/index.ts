@@ -378,7 +378,9 @@ export const sessionSummaryUpdateModeSchema = z.enum(SESSION_SUMMARY_UPDATE_MODE
 export const workSummaryUpdateModeSchema = z.enum(WORK_SUMMARY_UPDATE_MODES);
 
 export const mcpFinalizeSessionInputSchema = finalizeSessionInputSchema.extend({
-  workSummary: workSummaryInputSectionsSchema,
+  workSummary: workSummaryInputSectionsSchema.extend({
+    nextSteps: workSummarySectionsSchema.shape.nextSteps.default([]),
+  }),
 });
 
 export const updateSessionSummaryInputSchema = z.object({

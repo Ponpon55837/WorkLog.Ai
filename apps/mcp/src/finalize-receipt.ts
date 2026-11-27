@@ -21,7 +21,8 @@ interface FinalizeReceiptRequest {
 /** What the Agent learns about its own saved Session: identity, times, and only the facts the server derived. */
 export interface FinalizeReceiptSession {
   id: string;
-  executionStatus: WorkSessionRecord["executionStatus"];
+  /** Omitted while verification is in_progress: the stored value is always "completed" and would read as finished. */
+  executionStatus?: WorkSessionRecord["executionStatus"];
   completedAt: string;
   updatedAt: string;
   /** Present when the server derived it (from events) or changed the submitted value. */
@@ -37,6 +38,9 @@ export interface FinalizeReceiptSession {
   gitBranch?: string;
   voided?: WorkSessionRecord["voided"];
 }
+
+/** Tells the Agent how a start record becomes the finished one. */
+export const IN_PROGRESS_HINT = "Start record: finalize again with the same idempotencyKey to complete it.";
 
 /** Asked when a just-finished save has no start: only evidence may fill it, never an estimate. */
 const STARTED_AT_FOLLOW_UP =
@@ -106,9 +110,10 @@ export function toFinalizeReceipt(input: FinalizeReceiptRequest, result: Finaliz
     unreportedKnowledge,
     ...reminders
   } = result;
+  const inProgress = session.verification?.status === "in_progress";
   const receipt: FinalizeReceiptSession = {
     id: session.id,
-    executionStatus: session.executionStatus,
+    ...(inProgress ? {} : { executionStatus: session.executionStatus }),
     completedAt: session.completedAt,
     updatedAt: session.updatedAt,
     ...(session.startedAt && session.startedAt !== input.startedAt ? { startedAt: session.startedAt } : {}),
@@ -127,6 +132,7 @@ export function toFinalizeReceipt(input: FinalizeReceiptRequest, result: Finaliz
     outcome,
     duplicate,
     session: receipt,
+    ...(inProgress ? { hint: IN_PROGRESS_HINT } : {}),
     ...(redactions && redactions.total > 0 ? { redactions } : {}),
     // Transition results answer a request (empty when nothing applied) or a retry's recovered audit.
     ...(resolvedOutstandingItemIds?.length || input.resolvedOutstandingItemIds?.length

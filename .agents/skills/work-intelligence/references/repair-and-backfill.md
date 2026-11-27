@@ -15,7 +15,7 @@ Never create a replacement Session just to fix its text or metadata.
 
 ## Records saved at task start
 
-If the user explicitly asks for a record at task start, save the same task as verification.in_progress with a verifiable startedAt from the conversation or hook. Update that record at closing with the actual verification, completion time, outcomes, and observed Git metadata. Do not guess timestamps or create a replacement record merely to change its status. When a Session continued after it was finalized has now finished, call `work_update_session_metadata` with `completedAtNow: true` (server time), not a `completedAt`.
+If the user explicitly asks for a record at task start, save the same task as verification.in_progress with a verifiable startedAt from the conversation or hook. Complete that record at closing by calling work_finalize_session again with the same idempotencyKey and the actual verification, outcomes, and observed Git metadata (omit completedAt). Do not guess timestamps or create a replacement record merely to change its status. When a Session continued after it was finalized has now finished, call `work_update_session_metadata` with `completedAtNow: true` (server time), not a `completedAt`.
 
 ## Backfill metadata
 

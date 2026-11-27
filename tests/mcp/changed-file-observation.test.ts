@@ -66,7 +66,7 @@ function payload(root: string, key: string, changedFiles: string[], extra: Recor
 
 type Receipt = {
   outcome: string;
-  session: { id: string };
+  session: { id: string; startedAtSource?: string };
   changedFileChangesSource?: { serverObservedGit: number };
   changedFileChangesFollowUp?: { missingCount: number; missingPaths?: string[] };
   suggestedCall?: { tool: string; arguments: Record<string, unknown> };
@@ -187,5 +187,32 @@ describe("finalize with server-observed Git changes", () => {
 
     expect(calls[0]).toContain("--is-ancestor");
     expect(calls[0]).toContain(head);
+  });
+
+  it("keeps the observed start and HEAD through an in_progress finalize and ends the segment on completion", async () => {
+    const { client, store, root } = await connect();
+    await client.callTool({
+      name: "work_read",
+      arguments: { operation: "work_get_project_status", arguments: { projectRoot: root } },
+    });
+    const startRecord = await finalize(client, {
+      ...payload(root, "observe-8", [], { verification: { status: "in_progress" as const } }),
+    });
+    expect(startRecord.outcome).toBe("finalized");
+    writeFileSync(join(root, "later.ts"), "export const later = 1;\n");
+    git(root, "add", ".");
+    git(root, "commit", "-q", "-m", "work in the segment");
+
+    const completed = await finalize(client, payload(root, "observe-8", ["later.ts"]));
+
+    expect(completed.session.id).toBe(startRecord.session.id);
+    expect(completed.session).toMatchObject({ startedAtSource: "server_observed" });
+    expect(completed.changedFileChangesSource).toEqual({ serverObservedGit: 1 });
+    expect(store.getSessionById(completed.session.id)?.changedFileChanges).toEqual([
+      { path: "later.ts", status: "added" },
+    ]);
+
+    const next = await finalize(client, payload(root, "observe-9", ["later.ts"]));
+    expect(next.session).not.toHaveProperty("startedAtSource");
   });
 });

@@ -293,7 +293,7 @@ export class SessionRecordService {
     return row ? isChangedFilesMetadataConfirmed(row.changed_files_json, row.changed_files_confirmed) : false;
   }
 
-  private insertVerificationUpdate(
+  public insertVerificationUpdate(
     sessionId: string,
     source: VerificationUpdateSource,
     previous: VerificationSummary | undefined,

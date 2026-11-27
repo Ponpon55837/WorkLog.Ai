@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -102,5 +102,149 @@ describe("in-progress verification", () => {
     expect(JSON.parse(String(imported.tables.session_verification_updates[0]?.previous_json))).toEqual({
       status: "not_run",
     });
+  });
+});
+
+describe("completing an in-progress start record with the same idempotencyKey", () => {
+  function request(root: string, overrides: Record<string, unknown> = {}) {
+    return {
+      projectRoot: root,
+      idempotencyKey: "start-then-finish",
+      title: "Fictional ledger rounding",
+      summary: "Started fictional ledger rounding.",
+      changedFiles: [],
+      workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+      verification: { status: "in_progress" as const },
+      ...overrides,
+    };
+  }
+
+  const completion = {
+    title: "Fictional ledger rounding settled",
+    summary: "Settled fictional ledger rounding.",
+    changedFiles: ["src/ledger.ts"],
+    workSummary: {
+      outcomes: ["Rounding settled."],
+      scope: ["ledger"],
+      decisions: [],
+      verification: ["Synthetic suite passed."],
+      nextSteps: ["Check the fictional export format."],
+    },
+    verification: { status: "passed" as const, summary: "Synthetic suite passed." },
+    git: { commitSha: "a".repeat(40), branch: "fiction" },
+  };
+
+  it("rewrites the same Session in place and creates outstanding items only from the completing nextSteps", () => {
+    const { store, root, project } = setup();
+    const started = store.finalizeSession(request(root, { startedAt: "2020-01-01T00:00:00.000Z" }));
+    if (started.outcome !== "finalized") throw new Error("Expected tracked fixture");
+    expect(store.listOutstandingItems({ projectId: project.id })).toMatchObject({ items: [] });
+
+    const completed = store.finalizeSession(request(root, completion));
+    if (completed.outcome !== "finalized") throw new Error("Expected completed finalize");
+
+    expect(completed.duplicate).toBe(false);
+    expect(completed.session.id).toBe(started.session.id);
+    expect(completed.session.createdAt).toBe(started.session.createdAt);
+    expect(completed.session).toMatchObject({
+      title: completion.title,
+      summary: completion.summary,
+      changedFiles: ["src/ledger.ts"],
+      commitSha: "a".repeat(40),
+      gitBranch: "fiction",
+      startedAt: "2020-01-01T00:00:00.000Z",
+      verification: { status: "passed" },
+      workSummary: { outcomes: ["Rounding settled."], nextSteps: ["Check the fictional export format."] },
+    });
+    expect(store.listSessions({ projectId: project.id })).toHaveLength(1);
+    const detail = store.getSessionDetail(started.session.id);
+    expect(detail?.events.filter((event) => event.type === "finalized")).toHaveLength(1);
+    expect(detail?.verificationHistory).toMatchObject([
+      { previous: { status: "in_progress" }, resulting: { status: "passed" } },
+    ]);
+    const items = store.listOutstandingItems({ projectId: project.id });
+    expect(items).toMatchObject({
+      items: [{ text: "Check the fictional export format.", sourceSessionId: started.session.id }],
+    });
+  });
+
+  it("completes the start record even when the summary is unchanged", () => {
+    const { store, root } = setup();
+    const started = store.finalizeSession(request(root));
+    const completed = store.finalizeSession(request(root, { verification: { status: "passed" } }));
+    if (started.outcome !== "finalized" || completed.outcome !== "finalized") throw new Error("Expected finalized");
+    expect(completed.duplicate).toBe(false);
+    expect(completed.session).toMatchObject({ id: started.session.id, verification: { status: "passed" } });
+  });
+
+  it("does not downgrade a completed Session when the start payload is retried late", () => {
+    const { store, root, project } = setup();
+    store.finalizeSession(request(root));
+    const completed = store.finalizeSession(request(root, completion));
+    if (completed.outcome !== "finalized") throw new Error("Expected completed finalize");
+
+    const lateRetry = store.finalizeSession(request(root));
+
+    expect(lateRetry).toMatchObject({ outcome: "idempotency_conflict", sessionId: completed.session.id });
+    expect(store.getSessionById(completed.session.id)).toMatchObject({
+      summary: completion.summary,
+      verification: { status: "passed" },
+    });
+    expect(store.listSessions({ projectId: project.id })).toHaveLength(1);
+  });
+
+  it("returns the stored Session as a duplicate for an identical completed payload and conflicts on a different one", () => {
+    const { store, root } = setup();
+    store.finalizeSession(request(root));
+    store.finalizeSession(request(root, completion));
+
+    expect(store.finalizeSession(request(root, completion))).toMatchObject({ outcome: "finalized", duplicate: true });
+    expect(
+      store.finalizeSession(request(root, { ...completion, summary: "Another fictional summary." })),
+    ).toMatchObject({
+      outcome: "idempotency_conflict",
+    });
+  });
+
+  it("updates the start record in place when an in_progress finalize repeats with different content", () => {
+    const { store, root, project } = setup();
+    const started = store.finalizeSession(request(root));
+    const repeated = store.finalizeSession(request(root, { summary: "Still on fictional ledger rounding." }));
+    if (started.outcome !== "finalized" || repeated.outcome !== "finalized") throw new Error("Expected finalized");
+
+    expect(repeated.duplicate).toBe(false);
+    expect(repeated.session).toMatchObject({
+      id: started.session.id,
+      summary: "Still on fictional ledger rounding.",
+      verification: { status: "in_progress" },
+    });
+    expect(store.listSessions({ projectId: project.id })).toHaveLength(1);
+    expect(store.finalizeSession(request(root, { summary: "Still on fictional ledger rounding." }))).toMatchObject({
+      duplicate: true,
+    });
+  });
+
+  it("keeps one handoff snapshot when the completing finalize captures the handoff again", () => {
+    const { store, root } = setup();
+    writeFileSync(join(root, "handoff.md"), "# Fictional handoff\n\nStarted.\n", "utf8");
+    const started = store.finalizeSession(request(root, { handoffPath: "handoff.md" }));
+    if (started.outcome !== "finalized") throw new Error("Expected tracked fixture");
+    writeFileSync(join(root, "handoff.md"), "# Fictional handoff\n\nSettled.\n", "utf8");
+    store.finalizeSession(request(root, { ...completion, handoffPath: "handoff.md" }));
+
+    const detail = store.getSessionDetailForAgent({ sessionId: started.session.id, includeRawSnapshots: true });
+    const snapshots = JSON.stringify(detail);
+    expect(snapshots).toContain("Settled.");
+    expect(snapshots).not.toContain("Started.\\n");
+  });
+
+  it("creates no outstanding items or nextSteps warnings for a start record without nextSteps", () => {
+    const { store, root, project } = setup();
+    const started = store.finalizeSession(request(root));
+    if (started.outcome !== "finalized") throw new Error("Expected tracked fixture");
+
+    expect(started.outstandingItemWarnings).toBeUndefined();
+    expect(started.nextStepsWarnings).toBeUndefined();
+    expect(store.listOutstandingItems({ projectId: project.id })).toMatchObject({ items: [] });
   });
 });

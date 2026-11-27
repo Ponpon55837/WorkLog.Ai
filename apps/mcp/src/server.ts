@@ -644,7 +644,11 @@ export function createWorkIntelligenceMcpServer(
           const projectRoot = (parsed.data as { projectRoot?: unknown } | null)?.projectRoot;
           const observedRoot = typeof projectRoot === "string" ? projectRoot : undefined;
           const isFinalize = name === "work_finalize_session";
-          const finalizeInput = parsed.data as { startedAt?: unknown; completedAt?: unknown };
+          const finalizeInput = parsed.data as {
+            startedAt?: unknown;
+            completedAt?: unknown;
+            verification?: { status?: unknown };
+          };
           const segmentStart = isFinalize && observedRoot ? segmentObserver.peek(observedRoot) : undefined;
           const observedStartedAt =
             segmentStart && !finalizeInput.startedAt && !finalizeInput.completedAt ? segmentStart : undefined;
@@ -669,14 +673,26 @@ export function createWorkIntelligenceMcpServer(
           const stored = readOnly
             ? await definition.run(parsed.data, context)
             : store.withCompatibleSchema(schemaVersion, () => definition.run(parsed.data, context));
-          // A backfill (completedAt) saves earlier work, so the current segment stays open.
+          // A backfill (completedAt) saves earlier work, and an in_progress start record is not an end, so the segment
+          // stays open for the finalize that completes it.
+          const startRecord = finalizeInput.verification?.status === "in_progress";
           if (
             isFinalize &&
             observedRoot &&
             !finalizeInput.completedAt &&
+            !startRecord &&
             (stored as { outcome?: unknown } | null)?.outcome === "finalized"
           ) {
             segmentObserver.reset(observedRoot);
+          }
+          // The update carries no projectRoot, so the project comes from the Session it completed.
+          if (name === "work_update_session_metadata" && (parsed.data as { completedAtNow?: unknown }).completedAtNow) {
+            const updated = stored as { outcome?: unknown; session?: { projectId?: string } } | null;
+            const completedRoot =
+              updated?.outcome === "updated" && updated.session?.projectId
+                ? store.getProjectById(updated.session.projectId)?.rootPath
+                : undefined;
+            if (completedRoot) segmentObserver.reset(completedRoot);
           }
           const presented = definition.present ? definition.present(stored, parsed.data) : stored;
           const result = withMatchingProjects(presented, observedRoot, (root) => store.matchingProjects(root));
@@ -742,7 +758,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_finalize_session", {
     title: "Finalize a work session",
     description:
-      "Finalize only after planning, execution, verification, and closing are complete; in_progress means started with no confirmed result (update the same Session after verification). Pass baselineChangedFiles captured at start: those paths are excluded even if edited again. Report only Knowledge actually used (appliedKnowledgeIds, contradictedKnowledgeIds). Never estimate startedAt or completedAt. Untracked projects quietly skip. Same-key retries return the original Session; a different summary conflicts. Sensitive values are masked before storage. A self-contradicting request is rejected with the field and fix; nothing is written. The result is a receipt: follow its follow-ups, warnings, and hints. " +
+      "Finalize after planning, execution, verification, and closing are complete. An in_progress finalize is a start record; finalizing again with the same idempotencyKey completes it. Pass baselineChangedFiles captured at start: those paths are excluded even if edited again. Report only Knowledge actually used (appliedKnowledgeIds, contradictedKnowledgeIds). Never estimate startedAt or completedAt. Untracked projects quietly skip. Same-key retries of a completed Session return it; a different summary conflicts. Sensitive values are masked before storage. A self-contradicting request is rejected with the field and fix; nothing is written. The result is a receipt: follow its follow-ups, warnings, and hints. " +
       workRecordContract +
       " " +
       finalizeClosingContract,
