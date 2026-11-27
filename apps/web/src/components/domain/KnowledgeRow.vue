@@ -47,8 +47,6 @@ const conventionActorKeys = {
   system: "knowledge.conventionBySystem",
 } as const satisfies Record<NonNullable<KnowledgeRecord["conventionWithdrawal"]>["by"], MessageKey>;
 
-const summaryLimit = 80;
-
 const detailsId = useId();
 
 const expanded = ref(false);
@@ -56,10 +54,6 @@ const expanded = ref(false);
 const staleNotes = computed(() => knowledgeStaleNotes(props.item));
 const hasChips = computed(
   () => props.item.tags.length > 0 || props.item.references.length > 0 || props.item.appliesTo.length > 0,
-);
-const hasNotes = computed(() => Boolean(staleNotes.value.broadAppliesTo || staleNotes.value.broadChanges));
-const hasDetails = computed(
-  () => hasChips.value || hasNotes.value || props.item.body.length > summaryLimit || props.item.body.includes("\n"),
 );
 const kind = computed(() => knowledgeKindVisual[props.item.kind]);
 const trustBar = computed(() =>
@@ -156,7 +150,24 @@ const actions = computed(() => [
         >{{ t("knowledge.conventionReconfirm") }}</UiButton
       >
     </p>
-    <p :id="detailsId" :class="['knowledge-row__body', { 'is-expanded': expanded }]">{{ item.body }}</p>
+    <p v-if="staleNotes.broadAppliesTo" class="knowledge-row__note">{{ staleNotes.broadAppliesTo }}</p>
+    <p v-if="staleNotes.broadChanges" class="knowledge-row__note">{{ staleNotes.broadChanges }}</p>
+    <div :id="detailsId" class="knowledge-row__details">
+      <p :class="['knowledge-row__body', { 'is-expanded': expanded }]">{{ item.body }}</p>
+      <div v-if="expanded && hasChips" class="knowledge-row__chips">
+        <span v-for="tag in item.tags" :key="`tag-${tag}`" class="knowledge-row__tag">#{{ tag }}</span>
+        <code v-for="reference in item.references" :key="`ref-${reference}`" class="knowledge-row__ref">{{
+          reference
+        }}</code>
+        <code
+          v-for="pattern in item.appliesTo"
+          :key="`applies-${pattern}`"
+          class="knowledge-row__ref"
+          :title="t('knowledge.appliesToPattern', { pattern })"
+          >{{ t("knowledge.appliesTo", { pattern }) }}</code
+        >
+      </div>
+    </div>
     <div class="knowledge-row__meta">
       <span v-if="item.projectName">{{ item.projectName }} · </span>
       <time :datetime="item.updatedAt" :title="formatDate(item.updatedAt)">{{
@@ -192,7 +203,6 @@ const actions = computed(() => [
         }}</time>
       </template>
       <UiButton
-        v-if="hasDetails"
         variant="link"
         size="sm"
         class="knowledge-row__more"
@@ -202,23 +212,6 @@ const actions = computed(() => [
       >
         {{ expanded ? t("knowledge.collapse") : t("knowledge.showDetails") }}
       </UiButton>
-    </div>
-    <div v-if="expanded && hasNotes" class="knowledge-row__notes">
-      <p v-if="staleNotes.broadAppliesTo" class="knowledge-row__note">{{ staleNotes.broadAppliesTo }}</p>
-      <p v-if="staleNotes.broadChanges" class="knowledge-row__note">{{ staleNotes.broadChanges }}</p>
-    </div>
-    <div v-if="expanded && hasChips" class="knowledge-row__chips">
-      <span v-for="tag in item.tags" :key="`tag-${tag}`" class="knowledge-row__tag">#{{ tag }}</span>
-      <code v-for="reference in item.references" :key="`ref-${reference}`" class="knowledge-row__ref">{{
-        reference
-      }}</code>
-      <code
-        v-for="pattern in item.appliesTo"
-        :key="`applies-${pattern}`"
-        class="knowledge-row__ref"
-        :title="t('knowledge.appliesToPattern', { pattern })"
-        >{{ t("knowledge.appliesTo", { pattern }) }}</code
-      >
     </div>
     <template #trailing>
       <UiActionMenu

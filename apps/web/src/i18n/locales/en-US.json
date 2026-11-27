@@ -724,7 +724,8 @@
     "showFewerSources": "Show only the first {count} sources",
     "pageCount": "{count} page|{count} pages",
     "showDetails": "Show details",
-    "createInProject": "Project to create it in"
+    "createInProject": "Project to create it in",
+    "chooseProject": "Choose a project first"
   },
   "labels": {
     "agent": "Agent",
@@ -953,8 +954,7 @@
     "cleanupPendingCount": "{count} pending",
     "cleanupChoose": "Choose",
     "cleanupChooseLabel": "Tidy open items of {project}",
-    "cleanupChangeProject": "Choose another project",
-    "chooseAProjectFirst": "Choose a project first"
+    "cleanupChangeProject": "Choose another project"
   },
   "palette": {
     "followSystemTheme": "Follow system theme",

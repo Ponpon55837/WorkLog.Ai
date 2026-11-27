@@ -15,7 +15,10 @@ export function withAgentStore<T>(task: (store: WorkIntelligenceStore) => T): T 
   }
 }
 
-export function saveKnowledgePageAfterReading(store: WorkIntelligenceStore, input: KnowledgePageSave) {
+export function saveKnowledgePageAfterReading(
+  store: WorkIntelligenceStore,
+  input: KnowledgePageSave,
+): ReturnType<WorkIntelligenceStore["saveKnowledgePage"]> {
   const context = store.getKnowledgePageContext({ projectRoot: input.projectRoot, slug: input.slug });
   if (context.outcome !== "knowledge_page_context") throw new Error("Expected the Knowledge page context.");
   return store.saveKnowledgePage({ ...input, reviewToken: context.reviewToken });

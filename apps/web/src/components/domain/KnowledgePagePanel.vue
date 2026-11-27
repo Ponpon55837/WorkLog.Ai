@@ -48,6 +48,11 @@ const previousVersion = computed(() => {
   const earlier = versions.value.filter((item) => item.version < current);
   return earlier.sort((a, b) => b.version - a.version)[0];
 });
+const visibleSections = computed(() =>
+  comparing.value && previousVersion.value
+    ? []
+    : (shown.value?.sections ?? []).map((section) => ({ section, blocks: pageTextBlocks(section.content) })),
+);
 const sourceTitles = computed(() => {
   const titles = new Map(sources.value.map((source) => [source.id, source.title]));
   for (const section of openPage.value?.reviewSections ?? []) {
@@ -186,14 +191,14 @@ watch([() => openPage.value?.id, shownVersion], () => {
     />
 
     <section
-      v-for="(section, index) in comparing && previousVersion ? [] : (shown?.sections ?? [])"
+      v-for="({ section, blocks }, index) in visibleSections"
       :key="`${index}-${section.heading}`"
       class="page-panel__section"
     >
       <h3>{{ section.heading }}</h3>
-      <div class="page-panel__text">
-        <template v-for="(block, blockIndex) in pageTextBlocks(section.content)" :key="blockIndex">
-          <component :is="block.ordered ? 'ol' : 'ul'" v-if="block.kind === 'list'">
+      <div v-if="blocks.length > 0" class="page-panel__text">
+        <template v-for="(block, blockIndex) in blocks" :key="blockIndex">
+          <component :is="block.ordered ? 'ol' : 'ul'" v-if="block.kind === 'list'" :start="block.start">
             <li v-for="(entry, entryIndex) in block.items" :key="entryIndex">{{ entry }}</li>
           </component>
           <p v-else :class="{ 'page-panel__insufficient': block.text === KNOWLEDGE_PAGE_INSUFFICIENT }">

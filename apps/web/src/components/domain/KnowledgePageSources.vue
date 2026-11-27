@@ -5,6 +5,7 @@ import UiButton from "../ui/UiButton.vue";
 import UiDisclosure from "../ui/UiDisclosure.vue";
 import { t } from "../../i18n";
 
+/** A section's cited Sessions: the first three are listed, the rest sit behind a show-all toggle. */
 const props = defineProps<{ sessionIds: readonly string[]; titles: ReadonlyMap<string, string> }>();
 const emit = defineEmits<{ open: [sessionId: string] }>();
 
@@ -60,13 +61,9 @@ const shownIds = computed(() => (showAll.value ? props.sessionIds : props.sessio
 }
 
 .page-sources__list li {
-  display: flex;
-  min-width: 0;
-}
-
-.page-sources__list li :deep(.ui-button) {
-  min-width: 0;
-  max-width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, max-content);
+  justify-content: start;
 }
 
 .page-sources__toggle {

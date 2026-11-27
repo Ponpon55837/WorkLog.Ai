@@ -71,14 +71,24 @@ describe("KnowledgeRow collapsed layout", () => {
     expect(html).toContain(t("knowledge.showDetails"));
   });
 
-  it("offers a details toggle for a body longer than one summary line", async () => {
-    const html = await render({ item: item({ body: "Always pack saffron in glass jars. ".repeat(6) }) });
+  it("always offers the toggle for a short body, since the clamp depends on the width", async () => {
+    const html = await render({ item: item({ body: "短摘要" }) });
 
     expect(html).toContain('aria-expanded="false"');
   });
 
-  it("offers no toggle when there is nothing more to show", async () => {
-    expect(await render({ item: item() })).not.toContain("aria-expanded");
+  it("points the toggle at one element that wraps the body and everything it reveals", async () => {
+    const html = await render({ item: item() });
+    const id = html.match(/aria-controls="([^"]+)"/)?.[1];
+
+    expect(id).toBeTruthy();
+    expect(html).toContain(`id="${id}"`);
+  });
+
+  it("keeps the broad-change note visible while collapsed", async () => {
+    const html = await render({ item: item({ broadChangesSince: 3 }) });
+
+    expect(html).toContain(t("knowledge.broadChangesSince", { count: 3 }));
   });
 
   it("keeps the title, kind and summary in the collapsed row", async () => {

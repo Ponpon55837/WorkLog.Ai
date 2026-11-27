@@ -28,7 +28,7 @@ const error = ref("");
 
 const project = computed(() => props.projects.find((item) => item.id === projectId.value));
 const projectOptions = computed(() => [
-  { value: "", label: t("outstanding.chooseAProjectFirst") },
+  { value: "", label: t("knowledge.chooseProject") },
   ...props.projects.map((item) => ({ value: item.id, label: item.name })),
 ]);
 
@@ -43,7 +43,7 @@ function close(): void {
 
 async function submit(): Promise<void> {
   if (!project.value) {
-    error.value = t("outstanding.chooseAProjectFirst");
+    error.value = t("knowledge.chooseProject");
     return;
   }
   const slug = form.value.slug.trim();
@@ -73,6 +73,13 @@ async function submit(): Promise<void> {
     saving.value = false;
   }
 }
+
+watch(
+  () => props.projects,
+  () => {
+    if (projectId.value && !project.value) projectId.value = initialProjectId();
+  },
+);
 
 watch(
   () => props.open,

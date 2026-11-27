@@ -77,7 +77,7 @@ describe("KnowledgePagePanel reading", () => {
     const html = await renderPanel("harbour-moorings", [
       {
         heading: "Moorings",
-        content: "First line\n\nSecond <b>line</b>\n- one\n- two\n1. alpha",
+        content: "First line\n\nSecond <b>line</b>\n- one\n- two\n1. alpha\n2. beta",
         sourceSessionIds: [],
       },
     ]);

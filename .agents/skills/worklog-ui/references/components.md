@@ -85,8 +85,8 @@ All overlays use `useFocusTrap` (focus in, Tab trapped, Esc closes, scroll lock,
 | `ChangedFileList` | A/M/D/R badges, `new ← old` for renames, provenance or 未提供來源, "changed files 不代表 Git commit". |
 | `VerificationBreakdown` | `counts: { passed, failed, notRun, notSupplied }`. Four-state meter; no single percentage. |
 | `SynthesisCard` / `SynthesisBlock` | ReportSummary order 主題 / 重點成果 / 驗證 / 比較 / 風險與限制 / 決策 / 狀態／未結項, per-block source chips, grain hint, generator meta, version history with delete (confirm). |
-| `KnowledgeRow` | `item`; emits `action: edit \| history \| toggle-status \| source`. Collapsed by default (title, kind Label, one-line body, one meta line); one `aria-expanded` toggle shows the full body, tags, references and applies-to paths. |
-| `KnowledgePagesBox` | `v-model:projectId`, `projects`. With no project filter, rows are grouped under a `UiGroupLabel` per project (summary: page count); a written page's title is the clickable `UiBoxRow` link that opens the side panel. |
+| `KnowledgeRow` | `item`; emits `action: edit \| history \| toggle-status \| source`. Collapsed by default (title, kind Label, one-line body, one meta line with the toggle); the `aria-expanded` toggle shows the full body, tags, references and applies-to paths. |
+| `KnowledgePagesBox` | `v-model:projectId`, `projects`. With no project filter, rows are grouped under a `UiGroupLabel` (rendered inside each group's first row item, only with two or more groups) (summary: page count); a written page's title is the clickable `UiBoxRow` link that opens the side panel. |
 | `KnowledgePageRequestDialog` | `open`, `projects`, `defaultProjectId`; shows a project select (placeholder 先選擇一個專案) when more than one project is tracked. |
 | `KnowledgePageSources` | `sessionIds`, `titles`; emits `open`. A `UiDisclosure` 「來源（N）」 listing the first 3 Sessions vertically with an `aria-expanded` show-all toggle. |
 | `KnowledgeEditorDialog`, `KnowledgeHistoryPanel` | Global; driven by `useKnowledge`. |

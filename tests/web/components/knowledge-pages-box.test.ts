@@ -115,6 +115,22 @@ describe("KnowledgePagesBox handoff", () => {
     expect(html.match(/data-testid="knowledge-page-row"/g)).toHaveLength(2);
   });
 
+  it("shows no group label for a single project's pages", async () => {
+    pages.value = [page("testing")];
+
+    expect(await render([project], "")).not.toContain('class="ui-group-label"');
+  });
+
+  it("tells projects with the same name apart by their folder", async () => {
+    const other = { ...project, id: "project-2", rootPath: "/other/orchard" } as ProjectRecord;
+    pages.value = [page("testing", undefined, "project-1"), page("testing", undefined, "project-2")];
+
+    const html = await render([project, other], "");
+
+    expect(html).toContain("Orchard · work/orchard");
+    expect(html).toContain("Orchard · other/orchard");
+  });
+
   it("shows no project groups once a project is filtered", async () => {
     pages.value = [page("testing")];
 

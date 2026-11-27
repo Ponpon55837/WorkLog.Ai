@@ -724,7 +724,8 @@
     "showFewerSources": "只顯示前 {count} 個來源",
     "pageCount": "{count} 頁",
     "showDetails": "展開詳情",
-    "createInProject": "建立在哪個專案"
+    "createInProject": "建立在哪個專案",
+    "chooseProject": "先選擇一個專案"
   },
   "labels": {
     "agent": "Agent",
@@ -953,8 +954,7 @@
     "cleanupPendingCount": "{count} 項待處理",
     "cleanupChoose": "選擇",
     "cleanupChooseLabel": "整理 {project} 的未結項",
-    "cleanupChangeProject": "選擇其他專案",
-    "chooseAProjectFirst": "先選擇一個專案"
+    "cleanupChangeProject": "選擇其他專案"
   },
   "palette": {
     "followSystemTheme": "主題跟隨系統",

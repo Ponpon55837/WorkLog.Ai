@@ -12,6 +12,7 @@ const NAME_PREFIX = "!Reading fixture";
 const PAGE_TITLE = "Mooring notes";
 const SECTION_TEXT = ["Tie the bow line first.", "Check the fenders."];
 const SOURCE_COUNT = 5;
+const OLD_FORMAT_SECOND = "再檢查護舷。";
 
 async function seedProject(request: APIRequestContext, label: string): Promise<Fixture> {
   const name = `${NAME_PREFIX} ${label}`;
@@ -59,6 +60,11 @@ async function seedProject(request: APIRequestContext, label: string): Promise<F
           heading: "Routine",
           content: `${SECTION_TEXT[0]}\n${SECTION_TEXT[1]}\n- Coil the spare rope\n- Lock the hatch`,
           sourceSessionIds: sourceIds,
+        },
+        {
+          heading: "Old format",
+          content: `先綁船頭。 ${OLD_FORMAT_SECOND} 最後鎖好艙門。`,
+          sourceSessionIds: sourceIds.slice(0, 1),
         },
       ],
     });
@@ -137,6 +143,7 @@ test.describe("Knowledge reading", () => {
     await expect(panel.getByRole("listitem").filter({ hasText: "Coil the spare rope" })).toBeVisible();
     const paragraph = await panel.getByText(SECTION_TEXT[0]!, { exact: true }).boundingBox();
     expect(paragraph!.width).toBeLessThanOrEqual(72 * 16);
+    await expect(panel.getByText(OLD_FORMAT_SECOND, { exact: true })).toBeVisible();
   });
 
   test("collapses a long source list to three and expands or hides it on demand", async ({ page }) => {
@@ -144,7 +151,8 @@ test.describe("Knowledge reading", () => {
     await pageRow(page, "").getByRole("button", { name: PAGE_TITLE, exact: true }).click();
     const panel = page.getByRole("dialog", { name: tt("common.knowledgePages") });
     const summary = panel.getByText(tt("knowledge.sourcesCount", { count: SOURCE_COUNT }), { exact: true });
-    const source = (index: number) => panel.getByRole("button", { name: harbor.sourceTitles[index]! });
+    const sources = panel.locator("details").filter({ hasText: tt("knowledge.sourcesCount", { count: SOURCE_COUNT }) });
+    const source = (index: number) => sources.getByRole("button", { name: harbor.sourceTitles[index]! });
     const toggle = panel.getByRole("button", { name: tt("knowledge.showAllSources", { count: SOURCE_COUNT }) });
 
     await expect(summary).toBeVisible();
@@ -214,7 +222,7 @@ test.describe("Knowledge reading", () => {
     await dialog.getByLabel(tt("knowledge.slug")).fill("night-watch");
     await dialog.getByLabel(tt("knowledge.theQuestionThisPageAnswers")).fill("Who keeps watch at night?");
     await dialog.getByRole("button", { name: tt("knowledge.createAndRequestWriting") }).click();
-    await expect(dialog.getByRole("alert")).toHaveText(tt("outstanding.chooseAProjectFirst"));
+    await expect(dialog.getByRole("alert")).toHaveText(tt("knowledge.chooseProject"));
 
     await projectSelect.selectOption(orchard.id);
     await dialog.getByRole("button", { name: tt("knowledge.createAndRequestWriting") }).click();

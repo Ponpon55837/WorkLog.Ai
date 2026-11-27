@@ -29,20 +29,13 @@ import StatusLabel from "./StatusLabel.vue";
 import { t } from "../../i18n";
 
 interface PageRow {
-  kind: "page";
   key: string;
   projectId: string;
   slug: string;
   title: string;
   question: string;
   page?: KnowledgePageRecord;
-}
-
-interface GroupRow {
-  kind: "group";
-  key: string;
-  title: string;
-  count: number;
+  group?: { title: string; count: number };
 }
 
 const props = defineProps<{ projects: readonly ProjectRecord[] }>();
@@ -71,7 +64,6 @@ const statusItems = [
 ];
 const rows = computed<PageRow[]>(() => {
   const saved: PageRow[] = pages.value.map((page) => ({
-    kind: "page",
     key: page.id,
     projectId: page.projectId,
     slug: page.slug,
@@ -83,7 +75,6 @@ const rows = computed<PageRow[]>(() => {
   if (!project) return saved;
   const existing = new Set(saved.map((row) => row.slug));
   const missing = KNOWLEDGE_PAGE_DEFAULTS.filter((item) => !existing.has(item.slug)).map((item) => ({
-    kind: "page" as const,
     key: `missing-${item.slug}`,
     projectId: project.id,
     slug: item.slug,
@@ -101,17 +92,30 @@ const filteredRows = computed(() =>
     return (row.page?.status ?? "missing") === statusFilter.value;
   }),
 );
-const listItems = computed<Array<PageRow | GroupRow>>(() => {
-  if (selectedProject.value) return filteredRows.value;
-  const items: Array<PageRow | GroupRow> = [];
-  const groupedIds = [...new Set(filteredRows.value.map((row) => row.projectId))].sort(
-    (a, b) => projectName(a).localeCompare(projectName(b)) || a.localeCompare(b),
+const groupLabels = computed(() => {
+  const ids = [...new Set(filteredRows.value.map((row) => row.projectId))];
+  const names = new Map(ids.map((id) => [id, projectName(id)]));
+  const counts = new Map<string, number>();
+  for (const name of names.values()) counts.set(name, (counts.get(name) ?? 0) + 1);
+  return new Map(
+    ids.map((id) => {
+      const name = names.get(id) ?? "";
+      return [id, (counts.get(name) ?? 0) > 1 ? `${name} · ${projectHint(id)}` : name];
+    }),
   );
-  for (const id of groupedIds) {
+});
+const listItems = computed<PageRow[]>(() => {
+  if (selectedProject.value || groupLabels.value.size < 2) return filteredRows.value;
+  const ids = [...groupLabels.value.keys()].sort(
+    (a, b) => (groupLabels.value.get(a) ?? "").localeCompare(groupLabels.value.get(b) ?? "") || a.localeCompare(b),
+  );
+  return ids.flatMap((id) => {
     const members = filteredRows.value.filter((row) => row.projectId === id);
-    items.push({ kind: "group", key: `group-${id}`, title: projectName(id), count: members.length }, ...members);
-  }
-  return items;
+    const [first, ...rest] = members;
+    return first
+      ? [{ ...first, group: { title: groupLabels.value.get(id) ?? "", count: members.length } }, ...rest]
+      : [];
+  });
 });
 const filterChips = computed(() => {
   const chips: FilterChip[] = [];
@@ -123,6 +127,11 @@ const filterChips = computed(() => {
 
 function projectName(id: string): string {
   return projectsById.value.get(id)?.name ?? t("knowledge.unknownProject");
+}
+
+function projectHint(id: string): string {
+  const root = projectsById.value.get(id)?.rootPath;
+  return root ? root.split(/[\\/]/).filter(Boolean).slice(-2).join("/") : id.slice(0, 8);
 }
 
 function requestLabel(row: PageRow): string {
@@ -229,16 +238,10 @@ async function requestUpdate(row: PageRow): Promise<void> {
       :label="t('knowledge.knowledgePageList')"
     >
       <template #default="{ item: row }">
-        <UiGroupLabel v-if="row.kind === 'group'" :summary="t('knowledge.pageCount', { count: row.count })">{{
-          row.title
+        <UiGroupLabel v-if="row.group" :summary="t('knowledge.pageCount', { count: row.group.count })">{{
+          row.group.title
         }}</UiGroupLabel>
-        <UiBoxRow
-          v-else
-          tag="article"
-          :clickable="isOpenable(row)"
-          data-testid="knowledge-page-row"
-          @select="openPage(row)"
-        >
+        <UiBoxRow tag="article" :clickable="isOpenable(row)" data-testid="knowledge-page-row" @select="openPage(row)">
           <template #leading><BookMarked :size="16" :stroke-width="1.75" aria-hidden="true" /></template>
           <template #title>{{ row.title }}</template>
           <template #labels>
