@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -20,6 +21,7 @@ import {
 import { canonicalizeProjectRoot } from "../../packages/project-policy/src/index.js";
 import { remapPathPrefix, storedProjectRoot } from "../../packages/storage/src/project-path-remap.js";
 import { LATEST_SCHEMA_VERSION } from "../../packages/storage/src/schema-migrations.js";
+import { readProjectDataImportBytes } from "../../packages/storage/src/project-data-import-stream.js";
 import { ValidatedProjectDataImport } from "../../packages/storage/src/project-data-transfer.js";
 import { WorkIntelligenceStore } from "../../packages/storage/src/store.js";
 
@@ -2720,23 +2722,35 @@ describe("session link import planning", () => {
     return { source, bundle, link };
   }
 
-  it("skips a link with a different id but the same pair and relation", () => {
+  const reads = [
+    ["a parsed bundle", (bundle: ProjectDataExport, _root: string) => ({ bundle })],
+    [
+      "a streamed file",
+      (bundle: ProjectDataExport, root: string) =>
+        readProjectDataImportBytes(Buffer.from(JSON.stringify({ bundle })), {
+          envelope: "request",
+          spillPath: join(root, "import.spill"),
+        }),
+    ],
+  ] as const;
+
+  it.each(reads)("skips a link with a different id but the same pair and relation from %s", (_, read) => {
     const { source, bundle, link } = linkedSource();
     link.id = "link-renamed";
 
-    const preview = source.store.previewProjectDataImport({ bundle });
+    const preview = source.store.previewProjectDataImport(read(bundle, source.root));
 
     expect(preview.skipped.session_links).toBe(1);
     expect(preview.conflictDetails).not.toContainEqual(expect.objectContaining({ table: "session_links" }));
     expect(preview.conflicts.session_links ?? 0).toBe(0);
   });
 
-  it("keeps a unique conflict when the same pair has a different relation", () => {
+  it.each(reads)("keeps a unique conflict when the same pair has a different relation from %s", (_, read) => {
     const { source, bundle, link } = linkedSource();
     link.id = "link-renamed";
     link.relation = "related";
 
-    const preview = source.store.previewProjectDataImport({ bundle });
+    const preview = source.store.previewProjectDataImport(read(bundle, source.root));
 
     expect(preview.conflictDetails).toContainEqual({
       table: "session_links",
