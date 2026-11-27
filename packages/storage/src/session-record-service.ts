@@ -81,7 +81,6 @@ import {
 import { findTransientNextSteps } from "./transient-next-steps.js";
 import type { KnowledgeFeedbackResult } from "./knowledge-service.js";
 
-/** Replacing the file list without new changes keeps only the stored changes whose path is still listed. */
 function keepChangesForFiles(changes: ChangedFileChange[], files: string[]): ChangedFileChange[] {
   const listed = new Set(files.map(changedFileIdentity));
   return changes.filter((change) => listed.has(changedFileIdentity(change.path)));
@@ -109,7 +108,6 @@ export interface SessionRecordDependencies {
   ): OutstandingItemSyncSummary;
 }
 
-/** Replay payloads (previous/resulting summary) are kept this long; afterwards replay uses the current summary. */
 export const WORK_SUMMARY_UPDATE_REPLAY_RETENTION_DAYS = 7;
 
 export class SessionRecordService {
@@ -339,7 +337,6 @@ export class SessionRecordService {
       input.changedFileChanges,
       pathResolver,
     );
-    // Without changedFiles, provenance, or changes the stored list is left exactly as it is (a time-only correction).
     const leavesChangedFiles =
       input.changedFiles === undefined &&
       input.changedFilesProvenance === undefined &&
@@ -436,7 +433,6 @@ export class SessionRecordService {
         });
       if (nextCompletedAt !== current.completedAt) {
         this.db.prepare("UPDATE sessions SET completed_at = ? WHERE id = ?").run(nextCompletedAt, input.sessionId);
-        // A visible note on the Session keeps the correction auditable without a separate history table.
         this.db
           .prepare(
             `INSERT INTO work_events (id, session_id, type, summary, details_json, occurred_at)
@@ -666,7 +662,6 @@ export class SessionRecordService {
         this.db
           .prepare("UPDATE sessions SET title = ?, redaction_count = redaction_count + ? WHERE id = ?")
           .run(title, sanitized.redactions.total, input.sessionId);
-        // Like completedAt corrections, the previous title stays visible as a note instead of a history table.
         this.db
           .prepare(
             `INSERT INTO work_events (id, session_id, type, summary, details_json, occurred_at)
@@ -895,7 +890,6 @@ export class SessionRecordService {
     return result;
   }
 
-  /** Empties the replay payload of work-summary updates older than the retention window; keeps rows and requests. */
   public pruneWorkSummaryUpdateHistory(
     now = new Date(),
     retentionDays = WORK_SUMMARY_UPDATE_REPLAY_RETENTION_DAYS,

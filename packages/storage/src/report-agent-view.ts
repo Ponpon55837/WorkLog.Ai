@@ -40,13 +40,10 @@ export type AgentReport = Omit<WorkReport, "sessions" | "completedWork"> & {
   projection: ReportAgentProjection;
 };
 
-/** An item's Session-id list in the report block: the first ids, and how many more the full report lists. */
 export type BoundedSourceIds<T extends { sourceSessionIds: string[] }> = T & { sourceSessionIdsOmittedCount?: number };
 
-/** Context evidence belongs to a Session of the same page, whose preview already carries its title. */
 export type AgentReportEvidence = Omit<ReportEvidence, "sessionTitle" | "projectName">;
 
-/** The period-level report block. It is the same on every Session page, so the Agent context sends it once. */
 export type AgentReportBlock = Omit<
   WorkReport,
   "sessions" | "completedWork" | "sourceSessionIds" | "projects" | "risks" | "evidence"
@@ -56,7 +53,6 @@ export type AgentReportBlock = Omit<
   evidence: AgentReportEvidence[];
 };
 
-/** What a later Session page carries of the report: only the evidence of its own Sessions. */
 export type AgentReportPageEvidence = Pick<AgentReportBlock, "evidence" | "evidencePageInfo">;
 
 export type AgentReportContext = Omit<
@@ -65,7 +61,6 @@ export type AgentReportContext = Omit<
 > & {
   request: Omit<ReportSynthesisRequest, "sourceSessionIds">;
   report: AgentReportBlock | AgentReportPageEvidence;
-  /** On a later Session page: the page that carries the report block (read it again there after a restart). */
   reportBlockOnSessionPage?: 1;
   sessions: ReportSourcePreview[];
   projection: ReportAgentProjection;
@@ -77,7 +72,6 @@ export type AgentReportNotReady = Omit<ReportSynthesisRequestNotReadyResult, "re
   projection: ReportAgentProjection;
 };
 
-/** Session ids an item of the context report block keeps; the full lists repeat the period's Session pages. */
 const BLOCK_SOURCE_ID_LIMIT = 8;
 
 function preview(session: WorkSessionRecord): ReportSourcePreview {
@@ -127,7 +121,6 @@ function reportFields(
   ];
 }
 
-/** Remove complete items, never silently cut evidence or recalculate whole-period totals from a page. */
 function bound(
   result: AgentReport | AgentReportContext,
   fields: Array<[string, unknown[]]>,
@@ -157,7 +150,6 @@ function bound(
     throw new Error("Report projection envelope exceeded its budget.");
 }
 
-/** Keep the first Session ids of a long list and count the rest; the Session pages list every source. */
 function boundSourceIds<T extends { sourceSessionIds: string[] }>(item: T): BoundedSourceIds<T> {
   if (item.sourceSessionIds.length <= BLOCK_SOURCE_ID_LIMIT) return item;
   return {
@@ -225,11 +217,6 @@ export function toAgentReport(
   return result;
 }
 
-/**
- * The report block (period totals, comparison, projects, risks, decisions, trends, spanning) does not depend on the
- * Session page, so only sessionPage 1 carries it; a later page keeps the evidence of its own Sessions and points
- * back to page 1. Asking for page 1 again always returns the block, so no server-side paging state is needed.
- */
 export function toAgentReportContext(
   input: ReportSynthesisContextQueryResult,
   maxCharacters = 24_000,

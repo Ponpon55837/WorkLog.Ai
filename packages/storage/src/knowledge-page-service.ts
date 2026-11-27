@@ -47,7 +47,6 @@ import { parseChangedFiles, parseJson, parseWorkSummarySections } from "./sessio
 import { parseQueryWords, tokenize } from "./search-text.js";
 import { runImmediateTransaction } from "./sqlite-transaction.js";
 
-/** Focused read: matching sections in full (heading, content, source ids), the rest as sizes; no Sessions. */
 function focusedContext(
   page: KnowledgePageRecord,
   query: KnowledgePageContextQuery,
@@ -56,7 +55,6 @@ function focusedContext(
   const wanted = new Set((query.headings ?? []).map((heading) => heading.trim().toLowerCase()));
   const terms = [...new Set(parseQueryWords(query.query ?? "").flatMap((word) => word.terms))];
   const reviewHeadings = new Set((page.reviewSections ?? []).map((section) => section.heading));
-  // One tokenization per section; a term matches as a whole token, or (Latin, 4+ characters) as a token prefix.
   const scores = page.sections.map((section) => {
     if (terms.length === 0) return 0;
     const tokens = new Set(tokenize(`${section.heading}\n${section.content}`));
@@ -100,7 +98,6 @@ function focusedContext(
   };
 }
 
-/** The page identity and state a focused or review-only read returns instead of the whole record. */
 function pageSummary(page: KnowledgePageRecord): KnowledgePageFocusedContext["page"] {
   return {
     slug: page.slug,
@@ -137,11 +134,7 @@ type PageRow = {
   covered_through_session_id: string | null;
 };
 
-/**
- * A section as knowledge_pages.sections_json keeps it. sourcedThrough is the time its cited sources were last checked
- * when that differs from the page's sourced_through: a string is that time, null means unknown, and an absent key means
- * the page's own sourced_through. Versions and every returned record only ever hold KnowledgePageSection.
- */
+/** sourcedThrough: a string is that time, null is unknown, an absent key means the page's own sourced_through. */
 type StoredKnowledgePageSection = KnowledgePageSection & { sourcedThrough?: string | null };
 
 interface SectionUpdate {
@@ -159,7 +152,6 @@ type ContextSessionRow = {
   work_summary_json: string | null;
 };
 
-/** What a review of a written page reads: its coverage point, the Sessions after it and the changed cited sources. */
 interface ReviewSources {
   after: CoveragePoint;
   newRows: ContextSessionRow[];
@@ -168,7 +160,6 @@ interface ReviewSources {
 
 type ContextSessionEntry = { row: ContextSessionRow; reasons?: KnowledgePageContextSessionReason[] };
 
-/** For each new Session that maps to a section: the section indexes and why. */
 type NewSessionSections = Map<string, Map<number, Set<KnowledgePageSectionReviewReason>>>;
 
 type VersionRow = {
@@ -196,39 +187,22 @@ type CitedSessionVoidEventRow = {
   occurred_at: string;
 };
 
-/** Most Sessions an Agent gets for one page (newest first for a rewrite, oldest first for a review). */
 const CONTEXT_SESSION_LIMIT = 60;
-/** Character budget for those Sessions, so the context and a full current page fit in one tool result. */
 const CONTEXT_CHAR_BUDGET = 12_000;
-/** Character budget for the new Sessions a review-only read lists by title because they map to no section. */
 const UNMAPPED_SESSION_CHAR_BUDGET = 3_000;
-/**
- * Section content a review-only read returns. When the sections that need review hold more, or are more than half the
- * page's sections (and more than one), the read sends the Agent to the full read instead.
- */
 const REVIEW_SECTION_CONTENT_BUDGET = 4_000;
-/**
- * Evidence that a new Session changes a section: a cited Session it is linked to, or a file a cited Session also
- * changed, its weight split across the sections it points at. Evidence pointing at more than MAX_EVIDENCE_SECTIONS
- * sections (a release file, a Session every section cites) is ignored. A section needs MIN_SECTION_SCORE, and a new
- * Session keeps only its MAX_SECTIONS_PER_NEW_SESSION best sections.
- */
 const LINK_EVIDENCE_WEIGHT = 2;
 const FILE_EVIDENCE_WEIGHT = 1;
 const MAX_EVIDENCE_SECTIONS = 3;
 const MIN_SECTION_SCORE = 0.5;
 const MAX_SECTIONS_PER_NEW_SESSION = 3;
-/** Each context Session keeps its first outcomes, decisions and open items, shortened; the rest is in work_get_session. */
 const CONTEXT_SESSION_ITEMS = 2;
 const CONTEXT_SESSION_ITEM_CHARS = 100;
-/** How much of each page work_get_context includes, and of all pages together. */
 const DIGEST_PAGE_CHARS = 1_500;
 const DIGEST_TOTAL_CHARS = 4_500;
 const DIGEST_REVIEW_SOURCE_LIMIT = 8;
 const DIGEST_SOURCE_SESSION_LIMIT = 8;
-/** Version prefix of reviewToken, so a later token format can be told apart. */
 const REVIEW_TOKEN_PREFIX = "kpr1.";
-/** Longest stored completion time or Session id a token may carry; real values are far shorter. */
 const REVIEW_TOKEN_FIELD_LIMIT = 200;
 const MISSING_REVIEW_TOKEN_WARNING =
   "Saved without reviewToken: no check for a newer page version was made, and Sessions finished after your read still count as new. Next time pass the reviewToken from work_get_knowledge_page_context.";
@@ -237,15 +211,10 @@ const UNREAD_REVIEW_POINT_RESULT = {
   reason: "reviewToken does not point at a Session position this page can have been read at, so nothing was written.",
   fix: "Read the page again with work_get_knowledge_page_context and save with the reviewToken it returns, unchanged.",
 };
-/** Prompt for review after a small batch, while keeping single-session updates out of pending context. */
 export const KNOWLEDGE_PAGE_MAINTENANCE_SESSION_THRESHOLD = 3;
-/** Versions shown in the Web history; older versions stay in the database and in exports. */
 const VERSION_HISTORY_LIMIT = 50;
-/** Slugs a not_found page lookup lists, so a project with many custom pages still gets a bounded answer. */
 const NOT_FOUND_SLUG_LIMIT = 20;
-/** Largest edit distance at which a slug is offered as the one the Agent probably meant. */
 const NEAR_SLUG_DISTANCE = 2;
-/** The shape of a page, Session, or Knowledge id; a slug never looks like this. */
 const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 const IDEMPOTENCY_CONFLICT_RESULT = {
@@ -261,7 +230,6 @@ const DEFAULT_PAGES = new Map<string, { title: string; question: string }>(
   KNOWLEDGE_PAGE_DEFAULTS.map((page) => [page.slug, { title: page.title, question: page.question }]),
 );
 
-/** The first items of the sections a page answer is built from, each shortened and marked with an ellipsis. */
 function previewWorkSummary(sections: WorkSummarySections | undefined): {
   workSummary: KnowledgePageContextSession["workSummary"];
   truncated: boolean;
@@ -307,10 +275,6 @@ function skipped(decision: PolicyDecision): KnowledgePageSkippedResult {
   };
 }
 
-/**
- * Levenshtein distance, or `limit + 1` as soon as it must exceed `limit`. Slugs are at most 40 characters, so one
- * two-row pass per candidate is cheap.
- */
 function boundedEditDistance(left: string, right: string, limit: number): number {
   if (Math.abs(left.length - right.length) > limit) return limit + 1;
   let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
@@ -329,12 +293,10 @@ function boundedEditDistance(left: string, right: string, limit: number): number
   return previous[right.length]!;
 }
 
-/** The closest candidate within NEAR_SLUG_DISTANCE edits (the first in order on a tie), if any. */
 function nearestSlug(slug: string, candidates: readonly string[]): string | undefined {
   let best: { slug: string; distance: number } | undefined;
   for (const candidate of candidates) {
     const distance = boundedEditDistance(slug, candidate, NEAR_SLUG_DISTANCE);
-    // A distance as large as the candidate itself means the strings share almost nothing.
     if (distance > NEAR_SLUG_DISTANCE || distance >= candidate.length) continue;
     if (!best || distance < best.distance) best = { slug: candidate, distance };
   }
@@ -346,11 +308,7 @@ interface CompletedSessionCursor {
   completedAt: string;
 }
 
-/**
- * Where a page's Session coverage ends. With an id, Sessions after that (completed_at, id) position are new; without
- * one, Sessions that finished strictly after completedAt are (the rule for pages saved before schema 34). An empty
- * completedAt means the save covered no Session, so every Session is new.
- */
+/** Without an id, Sessions finished strictly after completedAt are new (pages saved before schema 34). */
 interface CoveragePoint {
   completedAt: string;
   id?: string;
@@ -364,7 +322,6 @@ interface ReviewTokenContent {
   through: CoveragePoint;
 }
 
-/** The saved coverage of a written page: the Session position its last save recorded, else its save time. */
 function sessionCoverage(row: PageRow): CoveragePoint | undefined {
   if (row.covered_through_completed_at !== null) {
     return {
@@ -375,7 +332,6 @@ function sessionCoverage(row: PageRow): CoveragePoint | undefined {
   return row.sourced_through ? { completedAt: row.sourced_through } : undefined;
 }
 
-/** The later of the saved coverage and the review cursor; a cursor before the saved coverage changes nothing. */
 function reviewedThrough(coverage: CoveragePoint, checked: CompletedSessionCursor | undefined): CoveragePoint {
   if (!checked) return coverage;
   const ahead =
@@ -385,7 +341,6 @@ function reviewedThrough(coverage: CoveragePoint, checked: CompletedSessionCurso
   return ahead ? { completedAt: checked.completedAt, id: checked.id } : coverage;
 }
 
-/** The later of two coverage points; without a Session position on either side, only the completion time decides. */
 function laterCoverage(first: CoveragePoint, second: CoveragePoint): CoveragePoint {
   if (first.id === undefined || second.id === undefined) {
     return second.completedAt > first.completedAt ? second : first;
@@ -407,7 +362,6 @@ function encodeReviewToken(content: ReviewTokenContent): string {
   return REVIEW_TOKEN_PREFIX + Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
 }
 
-/** The token's content, or undefined when it is not one this server wrote. */
 function pageContext(
   row: PageRow,
   page: KnowledgePageRecord,
@@ -452,7 +406,6 @@ function compareCursor(left: CompletedSessionCursor, right: CompletedSessionCurs
   return left.completedAt.localeCompare(right.completedAt) || left.id.localeCompare(right.id);
 }
 
-/** First completion tuple strictly after the supplied cursor. */
 function upperBoundCursor(sorted: readonly CompletedSessionCursor[], cursor: CompletedSessionCursor): number {
   let low = 0;
   let high = sorted.length;
@@ -475,7 +428,6 @@ function firstCompletedAfter(sorted: readonly CompletedSessionCursor[], complete
   return low;
 }
 
-/** Sections as a version stores them: duplicate sources removed, sensitive values masked. */
 function storedSections(sections: readonly KnowledgePageSection[]) {
   return redactValue(
     sections.map((section) => ({
@@ -494,12 +446,10 @@ function publicSection(section: StoredKnowledgePageSection): KnowledgePageSectio
   return { heading: section.heading, content: section.content, sourceSessionIds: section.sourceSessionIds };
 }
 
-/** The time a section's cited sources are compared with: its own baseline, else the page's. */
 function baselineOf(section: StoredKnowledgePageSection, pageSourcedThrough: string | null): string | null {
   return "sourcedThrough" in section ? (section.sourcedThrough ?? null) : pageSourcedThrough;
 }
 
-/** knowledge_pages.sections_json: the redacted sections, each with the baseline of the stored section at its index. */
 function serializeStoredSections(
   sections: readonly KnowledgePageSection[],
   baselines: readonly StoredKnowledgePageSection[],
@@ -517,11 +467,7 @@ function headingKey(heading: string): string {
   return heading.trim().toLowerCase();
 }
 
-/**
- * Replaces the sections named in upsertSections in place, drops those in removeHeadings, and appends the rest of
- * upsertSections. Only the first section with a heading is matched. keep maps each untouched section to what the
- * merged page stores for it.
- */
+/** Only the first section with a heading is matched. */
 function mergeSections(
   current: readonly StoredKnowledgePageSection[],
   update: SectionUpdate,
@@ -557,22 +503,16 @@ function mergeSections(
   return { sections, changes };
 }
 
-/**
- * A custom page whose every section is 資料不足 (or that has none) answers nothing, so its read says the user can
- * delete it. A page waiting on an update request is about to be written, and a default page cannot be deleted.
- */
 function emptyPageHint(row: PageRow, sections: readonly KnowledgePageSection[]): { emptyPageHint?: string } {
   if (DEFAULT_PAGES.has(row.slug) || row.update_requested_at) return {};
   if (sections.some((section) => section.content !== KNOWLEDGE_PAGE_INSUFFICIENT)) return {};
   return { emptyPageHint: EMPTY_CUSTOM_PAGE_HINT };
 }
 
-/** The size and split suggestion a page read or save adds only when the page is near its limits. */
 function nearLimitFields({ size, splitSuggestion }: KnowledgePageLimits) {
   return splitSuggestion ? { size, splitSuggestion } : {};
 }
 
-/** A section update is checked against the whole-page limits the schema checks for sections, once merged. */
 function pageLimitExceeded(sections: readonly KnowledgePageSection[]): SaveKnowledgePageResult | undefined {
   const { size, splitSuggestion } = knowledgePageLimits(sections);
   const { sectionCount, contentChars } = size;
@@ -616,7 +556,6 @@ function citedSessionIds(sections: readonly KnowledgePageSection[]): string[] {
   return [...new Set(sections.flatMap((section) => section.sourceSessionIds))];
 }
 
-/** Keep review pointers compact in aggregate context; the page-context tool still returns every affected source. */
 export function limitKnowledgePageReviewSections(
   sections: readonly KnowledgePageReviewSection[],
   sourceLimit: number,
@@ -679,7 +618,6 @@ function toVersion(row: VersionRow): KnowledgePageVersionRecord {
   };
 }
 
-/** Renders a page's sections as Markdown with the cited Session ids after each section. */
 export function renderKnowledgePage(sections: readonly KnowledgePageSection[], includeSourceIds = true): string {
   return sections
     .map((section) => {
@@ -692,9 +630,7 @@ export function renderKnowledgePage(sections: readonly KnowledgePageSection[], i
     .join("\n\n");
 }
 
-/** Owns standing Knowledge pages: Agent update requests, their context, saving versions, and staleness. */
 export class KnowledgePageService {
-  // Page records shared by the reads of one withSharedReads call; undefined outside such a call.
   private sharedRecords: Map<string, KnowledgePageRecord[]> | undefined;
 
   public constructor(
@@ -702,11 +638,7 @@ export class KnowledgePageService {
     private readonly dependencies: KnowledgePageDependencies,
   ) {}
 
-  /**
-   * Runs one read-only composite read (work_get_context) whose parts each need the same projects' page records:
-   * they are built once and shared until `read` returns. Nothing is kept afterwards, so a later call always sees
-   * the current pages. `read` must not write pages; callers only filter or copy the shared records.
-   */
+  /** `read` must not write pages: the records are shared until it returns. */
   public withSharedReads<T>(read: () => T): T {
     if (this.sharedRecords) {
       return read();
@@ -719,7 +651,6 @@ export class KnowledgePageService {
     }
   }
 
-  /** Bounded page window for attention; trust is still derived by this authoritative service. */
   public attentionPages(projectId?: string): { items: KnowledgePageRecord[]; total: number } {
     const scope = projectId ? "AND p.id = ?" : "";
     const args = projectId ? [projectId] : [];
@@ -875,7 +806,6 @@ export class KnowledgePageService {
     };
   }
 
-  /** Record an Agent's review cursor without changing page content, version, or C1 source-review state. */
   public markChecked(input: MarkKnowledgePageCheckedInput): MarkKnowledgePageCheckedResult {
     const decision = this.dependencies.checkProjectRoot(input.projectRoot);
     if (!decision.allowed || !decision.project) return skipped(decision);
@@ -923,12 +853,7 @@ export class KnowledgePageService {
     return { outcome: "knowledge_page_checked", page: this.recordFor(this.findPageById(result.pageId)!) };
   }
 
-  /**
-   * The Session that saved or checked a page should not make that page show new data. Runs inside the finalize
-   * transaction: for each named page, when the new Session is the first unreviewed one after the page's coverage
-   * point (its sourced-through time or checked cursor), the checked cursor moves to it. When other Sessions
-   * finished in between, nothing moves, so they are never hidden. Returns the slugs that moved.
-   */
+  /** Runs inside the finalize transaction. When other Sessions finished in between, nothing moves, so none is hidden. */
   public acknowledgeMaintenance(projectId: string, sessionId: string, slugs: readonly string[]): string[] {
     const acknowledged: string[] = [];
     const firstAfter = this.db.prepare(
@@ -956,7 +881,6 @@ export class KnowledgePageService {
     return acknowledged;
   }
 
-  /** A manual edit from the Web UI; it is kept as a version like an Agent update. */
   public updatePage(input: UpdateKnowledgePageInput): UpdateKnowledgePageResult {
     const row = this.findPageById(input.pageId);
     if (!row) {
@@ -1021,7 +945,6 @@ export class KnowledgePageService {
     return { outcome: "knowledge_page_versions", page, versions, versionCount, sources };
   }
 
-  /** Pages for work_get_context: written pages first, each cut to a fixed length within a total budget. */
   public digestsForProject(projectId: string): KnowledgePageDigest[] {
     let remaining = DIGEST_TOTAL_CHARS;
     let remainingReviewSources = DIGEST_REVIEW_SOURCE_LIMIT;
@@ -1069,7 +992,6 @@ export class KnowledgePageService {
     return digests;
   }
 
-  /** Pages an Agent should inspect: explicit requests, cited sources needing review, or a batch of new Sessions. */
   public pendingForProject(projectId?: string): Array<{
     slug: string;
     title: string;
@@ -1103,7 +1025,6 @@ export class KnowledgePageService {
       }));
   }
 
-  /** Written pages of a project whose cited sections include any of the Sessions. */
   public pagesCitingSessions(
     projectId: string,
     sessionIds: ReadonlySet<string>,
@@ -1119,7 +1040,6 @@ export class KnowledgePageService {
       .map(({ slug, title }) => ({ slug, title }));
   }
 
-  /** A single-line finalize reminder derived from the same ordered queue as work_get_context. */
   public maintenanceHintForProject(projectId: string): string | undefined {
     const pages = this.pendingForProject(projectId);
     if (pages.length === 0) return undefined;
@@ -1145,10 +1065,6 @@ export class KnowledgePageService {
     ).map((row) => row.id);
   }
 
-  /**
-   * Explains a missed page lookup with what the Agent can retry: the project's slugs, the page whose id was passed
-   * as a slug, or the nearest slug. Only pages of the already policy-checked project are read.
-   */
   private pageNotFound(projectId: string, slug: string): KnowledgePageNotFoundResult {
     const pages = this.db
       .prepare("SELECT id, slug FROM knowledge_pages WHERE project_id = ? ORDER BY slug")
@@ -1229,7 +1145,6 @@ export class KnowledgePageService {
     return this.toRecords([row])[0]!;
   }
 
-  /** Pages of several projects, ordered defaults first, with staleness computed in one pass per project. */
   private pagesForProjects(projectIds: readonly string[]): KnowledgePageRecord[] {
     if (projectIds.length === 0) {
       return [];
@@ -1255,10 +1170,6 @@ export class KnowledgePageService {
     return records;
   }
 
-  /**
-   * Counts the Sessions newer than each page. One query per project reads the completion times after the
-   * oldest page's cutoff (ascending); each page's count is then a binary search, not a query per page.
-   */
   private toRecords(rows: readonly PageRow[]): KnowledgePageRecord[] {
     const coverageByPage = new Map(rows.map((row) => [row.id, sessionCoverage(row)]));
     const cutoffsByProject = new Map<string, string>();
@@ -1398,7 +1309,6 @@ export class KnowledgePageService {
     });
   }
 
-  /** Cited Session ids that are missing, voided, or from another project (one query for all sections). */
   private invalidSources(projectId: string, sections: readonly KnowledgePageSection[]): string[] {
     const cited = citedSessionIds(sections);
     if (cited.length === 0) {
@@ -1417,7 +1327,6 @@ export class KnowledgePageService {
     return cited.filter((id) => !valid.has(id));
   }
 
-  /** The answer to a save whose idempotencyKey a version already holds: a replay of the same content, or a conflict. */
   private replayedSave(
     row: PageRow,
     saved: { version: number; sections_json: string },
@@ -1434,7 +1343,7 @@ export class KnowledgePageService {
       };
     };
     if (input.sections) {
-      // A retry carries the same sections; reusing the key for other content would silently drop that content.
+      // Reusing the key for other content would silently drop that content.
       return saved.sections_json === JSON.stringify(storedSections(input.sections).value)
         ? replay()
         : IDEMPOTENCY_CONFLICT_RESULT;
@@ -1453,7 +1362,6 @@ export class KnowledgePageService {
     return replay(merged.changes);
   }
 
-  /** Applies a section update to the page as it is inside the write transaction; nothing is written on a refusal. */
   private saveSectionUpdate(
     row: PageRow,
     update: SectionUpdate & { idempotencyKey: string },
@@ -1464,7 +1372,6 @@ export class KnowledgePageService {
       const current = this.findPageById(row.id)!;
       if (current.version !== token.version) return versionConflict(token.version, current.version);
       if (!this.isReadPoint(current, token.through)) return UNREAD_REVIEW_POINT_RESULT;
-      // A section left as it is keeps the time its sources were last checked, which moves on for the rest of the page.
       const merged = mergeSections(parseStoredSections(current.sections_json), update, (section) => {
         const baseline = baselineOf(section, current.sourced_through);
         return baseline === now ? publicSection(section) : { ...publicSection(section), sourcedThrough: baseline };
@@ -1490,7 +1397,6 @@ export class KnowledgePageService {
         update.idempotencyKey,
         now,
       );
-      // Coverage stays where it was; a page saved before schema 34 gets its sourced_through as an explicit time.
       const coverage = sessionCoverage(current) ?? { completedAt: "" };
       this.db
         .prepare(
@@ -1551,11 +1457,7 @@ export class KnowledgePageService {
       );
   }
 
-  /**
-   * Whether a reviewToken's coverage point is one a read of this page could have produced: nothing covered, the page's
-   * saved coverage, or a non-voided Session of its project at exactly that completion time. Call it in the write
-   * transaction, after the version check.
-   */
+  /** Call it in the write transaction, after the version check. */
   private isReadPoint(row: PageRow, through: CoveragePoint): boolean {
     if (through.completedAt === "" && through.id === undefined) return true;
     const saved = sessionCoverage(row);
@@ -1568,7 +1470,6 @@ export class KnowledgePageService {
     );
   }
 
-  /** The point a read of this page has already reviewed: its saved coverage, or the checked cursor when that is later. */
   private reviewedPoint(row: PageRow): CoveragePoint {
     const checked = row.checked_through_session_id
       ? (this.db.prepare("SELECT id, completed_at FROM sessions WHERE id = ?").get(row.checked_through_session_id) as
@@ -1580,13 +1481,6 @@ export class KnowledgePageService {
     );
   }
 
-  /**
-   * Saves a new version. With baseVersion, a page saved since that version is left as it is and the conflict is
-   * returned. coverage is the last Session the writer was shown: it must pass isReadPoint and never moves the page's
-   * reviewed point back. keepReviewedPoint saves without a reviewToken and leaves the reviewed point where it was, so
-   * Sessions the Agent never read stay new. With neither, every Session finished before this save counts as covered
-   * (Web edits, where a person has seen the whole page).
-   */
   private writeVersion(
     row: PageRow,
     title: string,
@@ -1651,7 +1545,6 @@ export class KnowledgePageService {
     return { redactions: combineRedactionSummaries(redactedTitle.redactions, redactedSections.redactions) };
   }
 
-  /** Recent Sessions, newest first, for a full rewrite of an empty page or an explicitly requested update. */
   private contextSessions(projectId: string): {
     sessions: KnowledgePageContextSession[];
     truncated: boolean;
@@ -1669,12 +1562,10 @@ export class KnowledgePageService {
       rows.slice(0, CONTEXT_SESSION_LIMIT).map((row) => ({ row })),
       rows.length > CONTEXT_SESSION_LIMIT,
     );
-    // Newest first, so the first Session shown is the coverage; an empty list covers nothing.
     const newest = budgeted.sessions[0];
     return { ...budgeted, through: newest ? { completedAt: newest.completedAt, id: newest.id } : { completedAt: "" } };
   }
 
-  /** Converts rows in order until CONTEXT_CHAR_BUDGET is spent; the rest are left out and flagged. */
   private budgetSessions(
     entries: readonly ContextSessionEntry[],
     alreadyTruncated: boolean,
@@ -1695,11 +1586,6 @@ export class KnowledgePageService {
     return { sessions, truncated };
   }
 
-  /**
-   * Sessions an Agent must read to review a written page: those finished after its coverage point (sourced-through
-   * time or checked cursor), oldest first, and the cited sources that changed since it was saved. A Session that is
-   * both is listed once, among the new ones, with both reasons.
-   */
   private reviewSessions({ after, newRows, changedRows }: ReviewSources): {
     sessions: KnowledgePageContextSession[];
     truncated: boolean;
@@ -1721,20 +1607,11 @@ export class KnowledgePageService {
       newRows.length > CONTEXT_SESSION_LIMIT,
     );
     // New Sessions come last, oldest first, and the budget keeps a prefix, so the last one shown is the coverage.
-    // When none fit, the coverage stays where it was.
     let lastNew: KnowledgePageContextSession | undefined;
     for (const session of budgeted.sessions) if (session.reasons?.includes("new")) lastNew = session;
     return { ...budgeted, through: lastNew ? { completedAt: lastNew.completedAt, id: lastNew.id } : after };
   }
 
-  /**
-   * Review-only read: the sections whose cited sources changed or to which a new Session maps (see
-   * newSessionSections), in full with their reasons, previews of the Sessions behind them, and the new Sessions that
-   * map to no section by title. New Sessions are handled oldest first, each previewed or listed until a budget runs
-   * out, so checkedThroughCandidate never skips one. The reviewToken keeps the page's coverage. When the sections
-   * exceed REVIEW_SECTION_CONTENT_BUDGET or half the page, or the answer is no smaller than the review read built from
-   * the same rows, it returns use_full_read without sections or Sessions.
-   */
   private reviewOnlyContext(
     row: PageRow,
     page: KnowledgePageRecord,
@@ -1891,7 +1768,6 @@ export class KnowledgePageService {
     };
   }
 
-  /** Non-voided Sessions finished after a coverage point, oldest first, one past CONTEXT_SESSION_LIMIT. */
   private newSessionRows(projectId: string, after: CoveragePoint): ContextSessionRow[] {
     return this.db
       .prepare(
@@ -1910,7 +1786,6 @@ export class KnowledgePageService {
       ) as ContextSessionRow[];
   }
 
-  /** The cited Sessions behind the page's review warnings that still exist in its project, oldest first. */
   private changedSourceRows(projectId: string, page: KnowledgePageRecord): ContextSessionRow[] {
     const changedIds = [
       ...new Set(
@@ -1927,13 +1802,6 @@ export class KnowledgePageService {
       .all(projectId, JSON.stringify(changedIds)) as ContextSessionRow[];
   }
 
-  /**
-   * Maps each new Session to the sections it most likely changes. Evidence is a Session link (either direction) to a
-   * Session a section cites, or a file such a Session also changed; each piece is split across the sections it points
-   * at and ignored when it points at more than MAX_EVIDENCE_SECTIONS. A section needs MIN_SECTION_SCORE, the best
-   * MAX_SECTIONS_PER_NEW_SESSION are kept, and a section that already cites the new Session is never one of them. Two
-   * queries for the whole page; a Session with no section that scores is absent.
-   */
   private newSessionSections(
     projectId: string,
     sections: readonly KnowledgePageSection[],
@@ -1974,7 +1842,6 @@ export class KnowledgePageService {
     const filesById = new Map(
       files.map((session) => [session.id, new Set(parseChangedFiles(session.changed_files_json))]),
     );
-    // For each file a cited Session changed: the sections citing such a Session, with those Sessions.
     const sectionsByFile = new Map<string, Map<number, string[]>>();
     for (const [citedId, indexes] of sectionsByCited) {
       for (const file of filesById.get(citedId) ?? []) {

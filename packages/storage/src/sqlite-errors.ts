@@ -1,4 +1,3 @@
-/** Why a database cannot take a write right now; each reason has its own stable code for MCP and REST. */
 export type DatabaseUnavailableReason = "busy" | "read_only" | "disk_full";
 
 type SqliteError = {
@@ -66,7 +65,6 @@ function matches(candidate: SqliteError, classifier: ErrorClassifier): boolean {
   );
 }
 
-/** Tests an error and each of its causes once, so a cyclic cause chain cannot loop. */
 function someInErrorChain(error: unknown, classifier: ErrorClassifier): boolean {
   const pending = [error];
   const seen = new Set<unknown>();
@@ -85,21 +83,15 @@ function someInErrorChain(error: unknown, classifier: ErrorClassifier): boolean 
   return false;
 }
 
-/**
- * Classifies a failure that left the stored data unchanged and that the user can resolve (wait, make the file
- * writable, free space). SQLite result codes are checked first; version-sensitive messages are only a fallback.
- * Busy wins over the others because waiting alone recovers from it.
- */
+/** SQLite result codes first, messages only as a fallback; busy wins because waiting alone recovers from it. */
 export function databaseUnavailableReason(error: unknown): DatabaseUnavailableReason | undefined {
   return CLASSIFIERS.find(([, classifier]) => someInErrorChain(error, classifier))?.[0];
 }
 
-/** Identifies SQLite lock contention without relying only on version-sensitive error messages. */
 export function isDatabaseBusyError(error: unknown): boolean {
   return databaseUnavailableReason(error) === "busy";
 }
 
-/** The curated user-facing text for each reason; never the SQLite message itself. */
 export function databaseUnavailableMessage(reason: DatabaseUnavailableReason): string {
   switch (reason) {
     case "busy":

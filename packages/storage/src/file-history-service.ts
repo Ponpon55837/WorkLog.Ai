@@ -25,11 +25,9 @@ import { normalizePath, pathBasename, type PathContext } from "./search-text.js"
 
 export interface FileHistoryServiceDependencies {
   checkProjectRoot(projectRoot: string): PolicyDecision;
-  /** Brings search_paths up to date with the latest Session writes before it is read. */
   syncIndex(): void;
 }
 
-/** Light per-Session facts for every Session of one path; text is read only for the digests shown. */
 interface TouchRow {
   id: string;
   completed_at: string;
@@ -66,13 +64,11 @@ interface TextLevel {
   items: number;
 }
 
-/** One requested path before its digests are rendered at a text level. */
 interface PathHistory {
   path: string;
   totals: FileHistoryTotals;
   recent: TouchRow[];
   attention: TouchRow[];
-  /** Sessions older than the window, and failed or not-run ones among them. */
   olderThanWindow: number;
   attentionCandidates: number;
 }
@@ -83,21 +79,14 @@ const ATTENTION_STATUSES = new Set<ReportVerificationStatus>(["failed", "not_run
 const KNOWLEDGE_LIMIT = 5;
 const KNOWLEDGE_TITLE_CHARS = 80;
 const PENDING_TEXT_READ_CHARS = 200;
-/** The serialized answer for one path; each further path may add this much more. */
 const FIRST_PATH_BUDGET = 4_000;
 const EXTRA_PATH_BUDGET = 3_000;
-/** Text shortening steps tried before whole digests are dropped; the last keeps identifiers and counts only. */
 const TEXT_LEVELS: readonly TextLevel[] = [
   { title: 100, decision: 120, decisions: 2, item: 80, items: 2 },
   { title: 80, decision: 72, decisions: 1, item: 56, items: 1 },
   { title: 56, decision: 0, decisions: 0, item: 0, items: 0 },
 ];
 
-/*
- * search_paths holds each Session's changed files normalized to lower-case project-relative paths (the same rule as
- * hotspots and work_recall), indexed by basename; the path, Session type and project filters run on those few index
- * hits. Every Session that recorded the path is a confirmed relation, including broad ones (weight < 1).
- */
 const TOUCH_SQL = `SELECT s.id, s.completed_at,
     COALESCE(json_extract(s.verification_json, '$.status'), 'not_supplied') AS status,
     CASE WHEN json_valid(s.work_summary_json)
@@ -125,7 +114,6 @@ function totalsOf(rows: readonly TouchRow[], pendingItems: number): FileHistoryT
   }
   return {
     sessions: rows.length,
-    // Rows arrive newest first.
     ...(rows.length > 0 ? { firstAt: rows[rows.length - 1]!.completed_at, lastAt: rows[0]!.completed_at } : {}),
     verification,
     withDecisions,
@@ -138,11 +126,6 @@ function budgetFor(pathCount: number): number {
   return FIRST_PATH_BUDGET + EXTRA_PATH_BUDGET * Math.max(pathCount - 1, 0);
 }
 
-/**
- * What happened to a file before: every non-voided Session whose recorded changed files contain it, as whole-history
- * totals, the newest few as digests, older failed or not-run ones, and the active Knowledge that applies to it. Reads
- * stored records only, never the worktree, and stays within a fixed character budget.
- */
 export class FileHistoryService {
   public constructor(
     private readonly db: DatabaseSync,
@@ -190,7 +173,6 @@ export class FileHistoryService {
       const result = render(level);
       if (fits(result)) return index === 0 ? result : { ...result, budgetTrimmed: true };
     }
-    // Still too large with identifiers only: drop the oldest digests, attention first, keeping one recent per path.
     const level = TEXT_LEVELS[TEXT_LEVELS.length - 1]!;
     for (;;) {
       const largest = [...histories].sort(
@@ -206,7 +188,6 @@ export class FileHistoryService {
     }
   }
 
-  /** Every Session of one path from the index, newest first; then the window after the cursor and older failures. */
   private pathHistory(
     projectId: string,
     key: string,
@@ -309,7 +290,6 @@ export class FileHistoryService {
     return row.count;
   }
 
-  /** Pending items of the shown Sessions only, in their recorded order, with text cut before it leaves SQLite. */
   private pendingItems(projectId: string, sessionIds: string[]): Map<string, PendingRow[]> {
     const bySession = new Map<string, PendingRow[]>();
     if (sessionIds.length === 0) return bySession;
@@ -336,7 +316,6 @@ export class FileHistoryService {
     return new Map(texts.map((row) => [row.id, row]));
   }
 
-  /** Active Knowledge of the project whose appliesTo covers a requested path, by the same appliesTo matching rule work_recall and work_get_context rank by. */
   private applicableKnowledge(
     projectId: string,
     contexts: PathContext[],
@@ -350,7 +329,6 @@ export class FileHistoryService {
          ORDER BY updated_at DESC, id ASC LIMIT ?`,
       )
       .iterate(projectId, APPLIES_TO_SCAN_LIMIT) as Iterable<KnowledgeAppliesToRow>;
-    // Newest first within one match budget; a row the budget cut short is left out and the result says so.
     const budget = createAppliesToBudget();
     const matched: Array<{ row: KnowledgeAppliesToRow; strength: number }> = [];
     for (const row of rows) {

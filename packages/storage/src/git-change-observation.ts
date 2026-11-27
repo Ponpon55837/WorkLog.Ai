@@ -8,19 +8,16 @@ export type GitRunnerOptions = {
   env: NodeJS.ProcessEnv;
 };
 
-/** Runs git with the full argument list and resolves with stdout; rejects on a non-zero exit, timeout, or spawn error. */
 export type GitRunner = (args: string[], options: GitRunnerOptions) => Promise<string>;
 
 export type GitObservationRequest = {
   rootPath: string;
-  /** Project-relative, "/"-separated paths whose status is wanted. */
   paths: string[];
-  /** The HEAD commit at the start of the segment; used only when it is still an ancestor of HEAD. */
+  /** Used only while it is still an ancestor of HEAD. */
   baseCommit?: string;
 };
 
 export type GitObservedChanges = {
-  /** The commit the working tree was compared with: a full sha, or "HEAD". */
   base: string;
   changes: ChangedFileChange[];
 };
@@ -35,7 +32,7 @@ const MAX_BUFFER_BYTES = 4 * 1024 * 1024;
 /** Matches the changedFileChanges schema maximum. */
 const MAX_OBSERVED_PATHS = 200;
 
-/** The inherited environment without any GIT_* variable, so a hook's GIT_DIR or GIT_INDEX_FILE cannot redirect git. */
+/** Drops every GIT_* variable, so a hook's GIT_DIR or GIT_INDEX_FILE cannot redirect git. */
 function gitEnvironment(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(process.env)) {
@@ -45,7 +42,7 @@ function gitEnvironment(): NodeJS.ProcessEnv {
   return { ...env, GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0" };
 }
 
-/** Global arguments: literal pathspecs, no fsmonitor daemon, raw (unquoted) paths, rooted at the project. */
+/** Literal pathspecs, no fsmonitor daemon, raw (unquoted) paths, rooted at the project. */
 function baseArguments(rootPath: string): string[] {
   return ["--literal-pathspecs", "-c", "core.fsmonitor=false", "-c", "core.quotepath=false", "-C", rootPath];
 }
@@ -68,7 +65,6 @@ const runGitProcess: GitRunner = (args, options) =>
 
 export type GitHead = { branch?: string; commitSha?: string };
 
-/** Runs one git query synchronously; undefined on a non-zero exit, timeout, missing git, or empty output. */
 function runGitSync(rootPath: string, args: string[], timeoutMs: number): string | undefined {
   try {
     const output = execFileSync("git", [...baseArguments(rootPath), ...args], {
@@ -85,11 +81,6 @@ function runGitSync(rootPath: string, args: string[], timeoutMs: number): string
   }
 }
 
-/**
- * Asks Git itself for the checked-out branch and HEAD commit. Used when the loose files under `.git` cannot answer:
- * a linked worktree (`.git` is a file), a packed ref, or another ref storage format. A detached HEAD has no branch
- * and an unborn branch has no commit; undefined when Git reports neither.
- */
 export function readGitHeadWithGit(rootPath: string, timeoutMs = DEFAULT_TIMEOUT_MS): GitHead | undefined {
   const branch = runGitSync(rootPath, ["symbolic-ref", "--short", "-q", "HEAD"], timeoutMs);
   const commit = runGitSync(rootPath, ["rev-parse", "--verify", "-q", "HEAD^{commit}"], timeoutMs);
@@ -97,7 +88,7 @@ export function readGitHeadWithGit(rootPath: string, timeoutMs = DEFAULT_TIMEOUT
   return branch || commitSha ? { branch, commitSha } : undefined;
 }
 
-/** Parses `git diff --name-status -z`; throws on a truncated record so the caller drops the whole observation. */
+/** Throws on a truncated record so the caller drops the whole observation. */
 function parseNameStatus(output: string, allowed: Set<string>): ChangedFileChange[] {
   const tokens = output.split("\0");
   if (tokens[tokens.length - 1] === "") tokens.pop();
@@ -129,12 +120,7 @@ function parseNulList(output: string): string[] {
   return output.split("\0").filter(Boolean);
 }
 
-/**
- * Observes what Git itself reports for the given paths: the working tree compared with the segment's base commit
- * (tracked files, staged or not) plus untracked files. It never guesses: a path Git does not report gets no status.
- * At most three git processes run, never one per file, and every failure (no git, not a repository, timeout, bad
- * output) resolves to undefined. Callers must only pass paths of a project that policy already allows.
- */
+/** Callers must only pass paths of a project that policy already allows. */
 export async function observeGitChangedFileChanges(
   request: GitObservationRequest,
   dependencies: GitObservationDependencies = {},
@@ -160,7 +146,7 @@ export async function observeGitChangedFileChanges(
         base = "HEAD";
       }
     }
-    // Both processes are awaited even when one fails, so none is left running in the project after this returns.
+    // Both are awaited even when one fails, so no git process is left running in the project.
     const [trackedResult, untrackedResult] = await Promise.allSettled([
       runGit(
         [

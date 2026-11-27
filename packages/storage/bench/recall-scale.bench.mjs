@@ -1,14 +1,3 @@
-// Synthetic recall ranking under growing distractor data (knowledge-quality roadmap Phase 0, step 3).
-//
-// Usage:
-//   pnpm build
-//   node --experimental-sqlite packages/storage/bench/recall-scale.bench.mjs [scales] [--json <new file>]
-//
-// scales is a comma-separated list of Session counts (default 1000,5000,10000). One database grows through each
-// scale, so every stage keeps the earlier distractors. The fictional targets are seeded first with the oldest
-// dates; distractors are newer, reuse the target query words, and include near misses, outstanding items,
-// Knowledge, and Evidence. Recall and context ranks come from the same evaluator as `pnpm eval:recall`, so the
-// numbers compare with the private real-data baseline. Only synthetic data is written, inside an OS temp folder.
 import console from "node:console";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -36,9 +25,6 @@ for (let index = 1; index < scales.length; index += 1) {
   if (scales[index] <= scales[index - 1]) throw new Error("Scales must increase.");
 }
 
-// Fictional targets. Categories follow the roadmap E1 question types that synthetic data can express:
-// K Knowledge, S structured Session fields, R raw handoff only, N natural-language question, P path, O outstanding
-// item (context only), X no answer (every query word exists somewhere in the distractors).
 const cases = [
   {
     key: "k-kiln-glaze",
@@ -257,10 +243,8 @@ const fillerWords = [
 const pathDirectories = ["src/ledger", "src/orbit", "src/report", "src/sync", "tests/ledger", "src/ui"];
 const pathNames = ["rounding", "policy", "window", "planner", "export", "index", "helpers", "settlement"];
 
-// Content words of each answerable target; distractors reuse them so every query term has many competitors.
 const caseWords = cases.filter((entry) => entry.terms).map((entry) => ({ key: entry.key, words: entry.terms }));
 
-// Deterministic PRNG (mulberry32) so every run seeds the same data.
 function createRandom(seed) {
   let state = seed >>> 0;
   return () => {
@@ -312,8 +296,8 @@ function finalize(key, fields, completedAt) {
   return result.session.id;
 }
 
-// Knowledge has no caller-supplied date, so move it to the same timeline as the Sessions before the search index
-// reads it; otherwise every Knowledge record would get the full recency bonus that old target Sessions lack.
+// Knowledge has no caller-supplied date; without moving it onto the Sessions' timeline every Knowledge record would
+// get the full recency bonus that old target Sessions lack.
 const dating = new DatabaseSync(databasePath);
 const setKnowledgeDate = dating.prepare("UPDATE knowledge SET created_at = ?, updated_at = ? WHERE id = ?");
 function recordKnowledge(key, fields, date) {
@@ -345,16 +329,12 @@ function seedTargets() {
   }
 }
 
-// One distractor Session. Each distractor leaves out one content word of the target it imitates in every field,
-// so no distractor answers that query. Every tenth one is a hard near miss: its title carries all the remaining
-// words, which is the closest a non-answer gets to a structured match.
 const HARD_NEAR_MISS_EVERY = 10;
 const hardNearMisses = new Map();
 function seedDistractor(index, total) {
   const completedAt = new Date(distractorStart + Math.floor((distractorSpan * index) / total)).toISOString();
   const target = pick(caseWords);
   const others = caseWords.filter((entry) => entry !== target);
-  // One fixed word from another target, so the extra words never add up to a second answer.
   const otherWord = pick(pick(others).words);
   const dropped = Math.floor(random() * target.words.length);
   const words = target.words.filter((_, position) => position !== dropped);
@@ -515,8 +495,6 @@ function rawCandidateIds(terms, excludedSessionIds) {
   return rows.map((row) => row.doc_id);
 }
 
-// For each recall question whose target is not first, the record that took first place, so a failure can be
-// classified as candidate recall (target missing) or ranking (target present but outranked).
 function recallLosses(report) {
   return report.questions
     .filter(

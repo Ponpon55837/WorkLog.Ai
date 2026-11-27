@@ -29,31 +29,17 @@ import {
   plannerColumns,
 } from "./project-data-transfer.js";
 
-/**
- * Reads a portable import file in chunks and validates it one row at a time, so memory follows the largest row and
- * the row count, never the file size. A byte scanner walks the envelope (`{bundle:{…,tables:{table:[rows]}}, …}` or a
- * bare bundle) and hands each row's bytes to the native JSON.parse; small values outside the rows are parsed whole
- * and checked with the same zod schemas as the whole-bundle path. The first error reported is the one that path
- * reports: structural issues in schema order first, then the content rules in table order, then the remap check.
- */
-
+// The first error reported must be the one the whole-bundle path reports.
 export type ProjectDataImportEnvelope = "request" | "bundle";
 
 export interface ProjectDataImportStreamOptions {
-  /** "request": `{ bundle, projectId?, remap?, strategy? }` (REST); "bundle": the export file itself (CLI). */
   envelope: ProjectDataImportEnvelope;
-  /** Where row values are kept while the import is planned; created with mode 0600 and removed on dispose. */
   spillPath: string;
-  /**
-   * Non-planner strings up to this many characters stay in memory. The default, 0, moves every one of them to the spill
-   * file, so memory follows the row count only (about 0.6 KiB per row), not the size of the text.
-   */
   inlineCharacters?: number;
 }
 
 export type ProjectDataImportSyntaxErrorKind = "invalid_json" | "row_too_large";
 
-/** The bytes are not one JSON document, or a single row is beyond what the importer accepts. */
 export class ProjectDataImportSyntaxError extends Error {
   public constructor(public readonly kind: ProjectDataImportSyntaxErrorKind) {
     super(kind === "invalid_json" ? "Invalid JSON request body." : "匯入檔中有單筆資料過大，無法匯入。");
@@ -80,25 +66,19 @@ interface RowsFrame {
 
 type Frame = ObjectFrame | RowsFrame;
 
-/** A value being cut out of the input: where it started and how far the scan got, so a chunk boundary resumes it. */
 interface Capture {
   start: number;
   scan: number;
   depth: number;
-  /** The open bracket at each depth (`stack[depth - 1]` is the innermost), so `[` must close with `]`. */
   stack: Uint8Array;
   inString: boolean;
-  /** Byte ranges of the row values that are themselves containers (a row's values must be scalars). */
   nested: Array<[number, number]>;
   nestedStart: number;
   limit: number;
-  /** Rows are cut with their nested values recorded; envelope values only need their end. */
   row: boolean;
 }
 
-/** A row's text above this is refused: a row holds at most a few 2,000,000-character values. */
 export const MAX_IMPORT_ROW_BYTES = 32 * 1024 * 1024;
-/** Values outside the rows (format, scope, remap, options, keys) are tiny; one above this is refused outright. */
 const MAX_ENVELOPE_VALUE_BYTES = 1024 * 1024;
 const READ_CHUNK_BYTES = 1024 * 1024;
 const DEFAULT_INLINE_CHARACTERS = 0;
@@ -114,7 +94,7 @@ const OPEN_OBJECT = 0x7b;
 const CLOSE_OBJECT = 0x7d;
 const OPEN_ARRAY = 0x5b;
 const CLOSE_ARRAY = 0x5d;
-/** The UTF-8 byte order mark some editors put at the start of a file; JSON.parse of a decoded string never sees it. */
+/** Some editors write it; JSON.parse of a decoded string never sees it. */
 const UTF8_BOM = [0xef, 0xbb, 0xbf];
 const KNOWN_TABLES: ReadonlySet<string> = new Set(PROJECT_DATA_TABLES);
 const REQUEST_KEY_ORDER = ["bundle", "projectId", "remap", "strategy"];
@@ -124,7 +104,6 @@ function isSpace(byte: number): boolean {
   return byte === SPACE || byte === LF || byte === CR || byte === TAB;
 }
 
-/** Where an issue sits in the order zod reports issues: shape order per object, unknown keys last, then indices. */
 function issueOrder(issue: { path: PropertyKey[]; code?: string }): number[] {
   const order: number[] = [];
   const [first, second] = issue.path;
@@ -133,8 +112,6 @@ function issueOrder(issue: { path: PropertyKey[]; code?: string }): number[] {
       order.push(segment);
       return;
     }
-    // Only the request, the bundle and its tables need ranking here; deeper issues come from one zod call, whose
-    // order the stable sort keeps.
     const keys =
       depth === 0
         ? REQUEST_KEY_ORDER
@@ -159,7 +136,6 @@ function compareIssueOrder(left: number[], right: number[]): number {
 
 type ZodIssueLike = { code: string; message: string; path: PropertyKey[]; keys?: string[] };
 
-/** A table over the row limit, named, so the user knows which part of the export is too large. */
 function tooManyRowsIssue(table: ProjectDataTable): ZodIssueLike {
   return {
     code: "too_big",
@@ -175,7 +151,6 @@ function invalidFormat(issue: ZodIssueLike | ProjectDataBundleIssue): ProjectDat
   );
 }
 
-/** What the reader keeps per table: the rows so far, the first issue of each kind, and the ids it must check. */
 class TableState {
   public rows: ProjectDataRow[] = [];
   public count = 0;
@@ -183,10 +158,8 @@ class TableState {
   public structuralIssue?: ZodIssueLike;
   public contentIssue?: ProjectDataBundleIssue;
   public readonly checkRow: ProjectDataRowChecker;
-  /** Project ids, for the single-project scope check (projects table only). */
   public readonly ids = new Set<string>();
   public readonly redactedRows: Array<[ProjectDataRow, number]> = [];
-  /** What was masked in this table's rows; a repeated key replaces the table's state, and these totals with it. */
   public readonly redactions = combineRedactionSummaries();
 
   public constructor(table: ProjectDataTable) {
@@ -194,10 +167,6 @@ class TableState {
   }
 }
 
-/**
- * The incremental parser. `push` takes bytes as they arrive and `finish` validates what it saw; nothing in it
- * depends on chunk sizes. The buffer keeps only the bytes of the value being cut out (at most one row).
- */
 class ProjectDataImportStreamReader {
   private buffer = new Uint8Array(READ_CHUNK_BYTES);
   private start = 0;
@@ -207,7 +176,6 @@ class ProjectDataImportStreamReader {
   private capture?: Capture;
   private rootDone = false;
   private rootStarted = false;
-  /** Bytes pushed so far: only a body with none at all counts as `{}`. */
   private received = 0;
   private root: unknown;
   private bundle?: Record<string, unknown>;
@@ -217,7 +185,6 @@ class ProjectDataImportStreamReader {
   private readonly inlineCharacters: number;
   private structuralFailure = false;
   private contentFailure = false;
-  /** How many bytes of a leading byte order mark were seen and dropped; `bomDone` once the start was decided. */
   private bomSeen = 0;
   private bomDone = false;
 
@@ -231,7 +198,6 @@ class ProjectDataImportStreamReader {
     this.scan();
   }
 
-  /** Removes a byte order mark at the very start, even when it is cut across chunks; any other start passes unchanged. */
   private dropByteOrderMark(chunk: Uint8Array): Uint8Array {
     if (this.bomDone) return chunk;
     let offset = 0;
@@ -243,7 +209,6 @@ class ProjectDataImportStreamReader {
     if (offset === chunk.byteLength && this.bomSeen < UTF8_BOM.length) return new Uint8Array(0);
     this.bomDone = true;
     if (this.bomSeen === UTF8_BOM.length) return chunk.subarray(offset);
-    // Only part of a mark matched, so it was never one: its bytes belong to the content (and make it invalid).
     this.received -= this.bomSeen;
     const kept = new Uint8Array(this.bomSeen + chunk.byteLength - offset);
     kept.set(UTF8_BOM.slice(0, this.bomSeen));
@@ -284,7 +249,6 @@ class ProjectDataImportStreamReader {
     this.received += chunk.byteLength;
   }
 
-  /** Moves every offset after the buffer dropped `by` consumed bytes from its front. */
   private shift(by: number): void {
     this.start -= by;
     this.end -= by;
@@ -314,19 +278,16 @@ class ProjectDataImportStreamReader {
       if (this.rootDone) throw new ProjectDataImportSyntaxError("invalid_json");
       const byte = this.buffer[this.position] as number;
       this.step(byte);
-      // A token just started a capture (TypeScript narrowed `capture` to undefined above).
       this.start = (this.capture as Capture | undefined)?.start ?? this.position;
     }
   }
 
-  /** Advances past whitespace; false when the buffer ran out. */
   private skipSpace(): boolean {
     while (this.position < this.end && isSpace(this.buffer[this.position] as number)) this.position += 1;
     this.start = this.position;
     return this.position < this.end;
   }
 
-  /** One structural token, or the start of a value to cut out. */
   private step(byte: number): void {
     const frame = this.frames.at(-1);
     if (!frame) {
@@ -457,18 +418,12 @@ class ProjectDataImportStreamReader {
     };
   }
 
-  /**
-   * Scans the captured value to its end. Strings are skipped with indexOf (a closing quote counts when an even number
-   * of backslashes precedes it); multibyte UTF-8 bytes are all 0x80 or above, so they never look like structure.
-   * Returns the end offset (exclusive), or undefined when more bytes are needed.
-   */
+  /** Multibyte UTF-8 bytes are all 0x80 or above, so they never look like structure. */
   private continueCapture(capture: Capture): number | undefined {
     const buffer = this.buffer;
     let index = capture.scan;
     const first = buffer[capture.start] as number;
     if (first !== OPEN_OBJECT && first !== OPEN_ARRAY && first !== QUOTE) {
-      // A number or literal: up to the next delimiter, which the end of the input also is. This holds whichever chunk
-      // the scan resumes in, so a literal cut by a chunk boundary reads the same as a whole one.
       while (index < this.end) {
         const byte = buffer[index] as number;
         if (isSpace(byte) || byte === COMMA || byte === CLOSE_OBJECT || byte === CLOSE_ARRAY || byte === COLON) {
@@ -577,10 +532,7 @@ class ProjectDataImportStreamReader {
     }
   }
 
-  /**
-   * A row's values must be scalars, so a value that is itself an object or array is replaced by `{}` before parsing:
-   * the schema reports it the same way, and a hostile body of nested brackets is never built in memory.
-   */
+  /** Nested values become `{}` before parsing, so a hostile body of nested brackets is never built in memory. */
   private parseRow(capture: Capture, end: number): unknown {
     let text: string;
     if (capture.nested.length === 0) {
@@ -657,7 +609,6 @@ class ProjectDataImportStreamReader {
     if (this.capture) {
       const end = this.capture.row ? undefined : this.end;
       const first = this.buffer[this.capture.start] as number;
-      // A number or literal can end at the end of the input; anything else is cut off.
       if (end === undefined || first === OPEN_OBJECT || first === OPEN_ARRAY || first === QUOTE) {
         throw new ProjectDataImportSyntaxError("invalid_json");
       }
@@ -666,8 +617,7 @@ class ProjectDataImportStreamReader {
       this.completeCapture(capture, end);
     }
     if (!this.rootStarted) {
-      // An empty request body is an empty object, as the REST route has always read it; whitespace alone, or an empty
-      // export file, is not JSON (JSON.parse refused both before the reader streamed them).
+      // An empty request body is `{}`, as the REST route has always read it; an empty export file is not JSON.
       if (this.received > 0 || this.options.envelope !== "request")
         throw new ProjectDataImportSyntaxError("invalid_json");
       this.root = {};
@@ -715,15 +665,11 @@ class ProjectDataImportStreamReader {
     this.addRedactionCounts(tables);
     this.spill.flush();
     const input: ProjectDataImportInput = { ...data, bundle: { ...bundle, tables } };
-    // Only the tables the import keeps: rows of a table read under an earlier, replaced key are not counted.
     const redactions = combineRedactionSummaries(...[...this.tableStates.values()].map((state) => state.redactions));
     return ValidatedProjectDataImport.fromStream(input, redactions, this.spill);
   }
 
-  /**
-   * A Session's redaction count grows by what was masked in it and in every row that belongs to it, which can come
-   * later in the file than the Session itself, so the counts are added once every row is in (redactProjectDataRows).
-   */
+  /** A Session's rows can come later in the file than the Session, so counts are added once every row is in. */
   private addRedactionCounts(tables: Record<ProjectDataTable, ProjectDataRow[]>): void {
     const itemSessions = new Map(
       (tables.outstanding_cleanup_request_items ?? []).map((item) => [String(item.id), String(item.source_session_id)]),
@@ -758,10 +704,6 @@ class ProjectDataImportStreamReader {
   }
 }
 
-/**
- * Validates an import from bytes already in memory (tests, small inputs); the same reader as the file path, which
- * reads 1 MiB chunks. `chunkBytes` lets a test cut the input at every offset; the result never depends on it.
- */
 export function readProjectDataImportBytes(
   bytes: Uint8Array,
   options: ProjectDataImportStreamOptions,
@@ -781,7 +723,6 @@ export function readProjectDataImportBytes(
   return reader.finish();
 }
 
-/** Validates an import file read in 1 MiB chunks; the caller disposes the result, which removes the spill file. */
 export function readProjectDataImportFile(
   path: string,
   options: ProjectDataImportStreamOptions,

@@ -1,16 +1,3 @@
-// Memory benchmark for a large project-data export and import through the real built API server.
-//
-// Usage:
-//   pnpm --filter @work-intelligence/server... build
-//   node packages/storage/bench/export-import-memory.bench.mjs [runs=3] [--sessions=N] [--idle=10] [--json]
-//
-// Each run starts the server twice with the desktop backend's Node flags, on synthetic data only:
-//   export server: a database of generated Sessions and events; it reports the RSS (the whole process, the backup
-//                  worker thread included) at baseline, the peak while exporting, and idle after the export.
-//   import server: an empty database; it imports the file the export produced and reports the same, plus the import.
-// RSS comes from /proc/<pid>/status (VmRSS, RssAnon) on Linux and `ps -o rss=` elsewhere; the peak is sampled every
-// 25 ms, so it is a lower bound. Prints the median of the runs. The default size gives a project-data file of about
-// 45 MiB, close to the 50 MiB the API accepts.
 import { Buffer } from "node:buffer";
 import console from "node:console";
 import { execFileSync, spawn } from "node:child_process";
@@ -34,20 +21,17 @@ const option = (name, fallback) => {
 const runs = Number(args.find((argument) => /^\d+$/.test(argument)) ?? 3);
 const sessionCount = option("sessions", 4_000);
 const idleSeconds = option("idle", 10);
-// --heap: the main thread's own heapUsed/external/arrayBuffers, asked of the server with SIGUSR2 (POSIX only).
-// --server-env=NAME=VALUE,...: extra environment for the server (to compare allocator settings, for example).
 const serverEnvironment = Object.fromEntries(
   (args.find((argument) => argument.startsWith("--server-env="))?.slice("--server-env=".length) ?? "")
     .split(",")
     .filter(Boolean)
     .map((pair) => pair.split("=")),
 );
-// --save-db=PATH: keeps a copy of the seeded database for other tools (a heap profile, smaps).
 const savedDatabase = args.find((argument) => argument.startsWith("--save-db="))?.slice("--save-db=".length);
 const heapMode = args.includes("--heap") && process.platform !== "win32";
 const MIB = 1024 * 1024;
 const SAMPLE_MS = 25;
-// What the desktop App gives its backend (packages/desktop-core/src/backend/node-dependencies.ts).
+// Must match what the desktop App gives its backend (packages/desktop-core/src/backend/node-dependencies.ts).
 const NODE_FLAGS = ["--max-old-space-size=1024", "--max-semi-space-size=2"];
 
 function median(values) {
@@ -92,7 +76,6 @@ async function freePort() {
   });
 }
 
-/** Sessions copied in SQL from one finalized template, each with its events, so the file reaches its size quickly. */
 async function seedDatabase(directory) {
   const { WorkIntelligenceStore } = await import(
     pathToFileURL(join(repositoryRoot, "packages", "storage", "dist", "index.js")).href
@@ -201,7 +184,7 @@ process.on("SIGUSR2", () => writeFileSync(${JSON.stringify(join(directory, "heap
     try {
       if ((await fetch(`${base}/api/health`)).ok) return { child, base };
     } catch {
-      // not listening yet
+      // Server not up yet.
     }
     if (child.exitCode !== null) throw new Error(`Server exited: ${stderr}`);
     await delay(100);
@@ -216,7 +199,6 @@ async function stopServer(server) {
   );
 }
 
-/** Runs `operation` while sampling the process RSS; returns its result, the duration and the peak. */
 async function measuring(pid, operation) {
   let peak = readRss(pid);
   const timer = setInterval(() => {

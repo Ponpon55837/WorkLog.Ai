@@ -37,7 +37,6 @@ export interface OutstandingItemFocus {
   paths?: readonly string[];
   sourceSessionIds?: readonly string[];
   excludeSourceSessionId?: string;
-  /** Pending items to leave out, so a caller that reports them elsewhere does not spend ranked slots on them. */
   excludeItemIds?: readonly string[];
 }
 
@@ -67,7 +66,6 @@ interface RejectedRequest {
   unsupersededIds: readonly string[];
   ambiguous: ReadonlySet<string>;
   hasNextSteps: boolean;
-  /** Present where the evidence must come from an earlier Session by someone other than the actor. */
   later?: { actorSessionId: string; actorCompletedAt: string };
 }
 
@@ -89,17 +87,10 @@ interface OutstandingItemDependencies {
 }
 
 const RELATED_PENDING_LIMIT = 5;
-/**
- * Pending items one relatedPending call scores at most, after the SQL prefilter. The real database holds 43 pending
- * items in its largest project; this is about 45 times that and bounds what a scope with runaway pending work loads.
- */
+/** About 45 times the largest real project's pending items. */
 const RELATED_PENDING_CANDIDATE_LIMIT = 2_000;
 
-/**
- * Derives who closed an item from the latest event into its current status (idx_outstanding_item_events_item serves
- * the item_id lookup and ordering). Web edits of a Session's work summary record the Session as actor but are a
- * person's decision, so only source = 'agent' counts as the Session itself.
- */
+/** Web edits record the Session as actor but are a person's decision, so only source = 'agent' counts as the Session. */
 const CLOSED_BY_SQL = `CASE WHEN i.status = 'pending' THEN NULL ELSE (
   SELECT CASE
     WHEN e.cleanup_proposal_id IS NOT NULL THEN 'cleanup_review'
@@ -140,7 +131,6 @@ function baseSelect(
           WHERE p.status = 'tracked' AND s.voided_at IS NULL ${where}`;
 }
 
-/** Parses local ISO dates without Date's numeric-year 0–99 remapping to 1900–1999. */
 function calendarDayBound(value: string, nextDay = false): string {
   const date = new Date(`${value}T00:00:00`);
   if (Number.isNaN(date.getTime())) return nextDay ? `${value}￿` : value;
@@ -166,7 +156,6 @@ function appendEvent(
   ).run(randomUUID(), itemId, projectId, fromStatus, toStatus, source, actorSessionId ?? null, createdAt);
 }
 
-/** Durable, source-linked unfinished work with append-only status history. */
 export class OutstandingItemService {
   public constructor(
     private readonly db: DatabaseSync,
@@ -240,16 +229,6 @@ export class OutstandingItemService {
     );
   }
 
-  /**
-   * Reads the eligible pending items once and scores them in memory, returning at most five pointers. SQL folds the
-   * text fields with lower() so term matching keeps SQLite's case rules; paths are normalized once per Session.
-   *
-   * At most RELATED_PENDING_CANDIDATE_LIMIT items are read, newest source Sessions first; the scorer sorts what it
-   * keeps, so below the limit the read order changes nothing. When more items qualify, or scoring them would pass
-   * RELATED_PENDING_UNIT_LIMIT (charged before each candidate is scored), `truncated` says so and `total` counts the
-   * scored ones only. (A SQL relevance prefilter was measured and left out: on real data it removed few rows
-   * and doubled the call's time.)
-   */
   public relatedPending(input: OutstandingItemFocus): { items: OutstandingItem[]; total: number; truncated?: true } {
     if (input.projectId) {
       const policy = this.dependencies.checkProjectById(input.projectId);
@@ -295,8 +274,7 @@ export class OutstandingItemService {
       ) as Array<Omit<RelatedPendingRow, "changed_files_json">>;
     const overLimit = candidates.length > RELATED_PENDING_CANDIDATE_LIMIT;
     const read = overLimit ? candidates.slice(0, -1) : candidates;
-    // Changed files are read once per source Session (they were copied into every item row: 2,000 rows of a
-    // 200 KB list were 400 MB), only when paths are queried, and only within the stored-list load bound.
+    // Read once per source Session: copied into every item row, 2,000 rows of a 200 KB list were 400 MB.
     const filesBySession = new Map<string, string | null>();
     if (paths.length > 0 && read.length > 0) {
       const rows = this.db
@@ -439,12 +417,7 @@ export class OutstandingItemService {
     });
   }
 
-  /**
-   * Synchronizes the compatibility nextSteps array; call inside its caller's transaction. Entries keep an item's
-   * identity by exact text first, then by a close rewording of a still-pending item (see pairRewordedItems): the item
-   * text mirrors its source Session's nextSteps, whose earlier versions stay in session_work_summary_updates, so a
-   * reworded item is updated in place without a status event.
-   */
+  /** Call inside the caller's transaction. */
   public syncForSessionInTransaction(
     sessionId: string,
     projectId: string,
@@ -532,7 +505,6 @@ export class OutstandingItemService {
     return summary;
   }
 
-  /** Completes only pending items in the same project; call in finalize's transaction. */
   public resolvePendingInTransaction(
     itemIds: readonly string[],
     projectId: string,
@@ -551,7 +523,6 @@ export class OutstandingItemService {
     return this.transitionPendingInTransaction(itemIds, projectId, actorSessionId, updatedAt, "not_needed");
   }
 
-  /** Completes and supersedes the ids a finalize requested; ids that fail a rule stay pending and come back as warnings. */
   public transitionForFinalize(
     request: Pick<FinalizeSessionInput, "resolvedOutstandingItemIds" | "supersededOutstandingItemIds">,
     projectId: string,
@@ -594,7 +565,6 @@ export class OutstandingItemService {
     };
   }
 
-  /** Names the failed rule for each rejected id with one lookup; call it in the transaction that rejected them. */
   public explainRejections(projectId: string, rejected: RejectedRequest): OutstandingItemRejectionReason[] {
     const ids = [...new Set([...rejected.unresolvedIds, ...rejected.unsupersededIds])];
     if (ids.length === 0) return [];
@@ -642,10 +612,6 @@ export class OutstandingItemService {
     return reasons;
   }
 
-  /**
-   * Closes pending items that a finalized Session's later work directly verified. Everything is re-checked inside one
-   * transaction; items that fail a rule stay pending and are reported as warnings.
-   */
   public resolveForSession(input: ResolveOutstandingItemsInput): ResolveOutstandingItemsResult {
     const { sessionId } = input;
     const projectRow = this.db.prepare("SELECT project_id FROM sessions WHERE id = ?").get(sessionId) as
@@ -702,7 +668,7 @@ export class OutstandingItemService {
       const supersededRequested = input.supersededOutstandingItemIds ?? [];
       const supersededSet = new Set(supersededRequested);
       const ambiguous = new Set(resolvedRequested.filter((id) => supersededSet.has(id)));
-      // Replays: what this Session already moved is reported as applied, not as a warning (one query per status).
+      // Replays: what this Session already moved is reported as applied, not as a warning.
       const completedBefore = new Set(this.transitionedByActorSession(sessionId, "completed"));
       const notNeededBefore = new Set(this.transitionedByActorSession(sessionId, "not_needed"));
       const appliedResolved = resolvedRequested.filter((id) => !ambiguous.has(id) && completedBefore.has(id));
@@ -813,7 +779,7 @@ export class OutstandingItemService {
     const requestedIds = [...new Set(itemIds)];
     if (requestedIds.length === 0) return { resolvedIds: [], unresolvedIds: [] };
     const placeholders = requestedIds.map(() => "?").join(", ");
-    // Evidence must be later work by another Session: the source is neither the actor nor completed at/after it.
+    // Evidence must be later work by another Session.
     const laterSql = later ? "AND s.id <> ? AND s.completed_at < ?" : "";
     const laterParams = later ? [actorSessionId, later.actorCompletedAt] : [];
     const pending = this.db
@@ -841,7 +807,6 @@ export class OutstandingItemService {
              AND s.voided_at IS NULL
          )`,
     );
-    // The selection above already applied the ordering rule inside this same transaction.
     for (const { id } of pending) {
       update.run(status, updatedAt, id, projectId);
       appendEvent(this.db, id, projectId, "pending", status, "agent", actorSessionId, updatedAt);

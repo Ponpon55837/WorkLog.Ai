@@ -48,7 +48,6 @@ type GraphEvidenceRow = {
   project_name: string | null;
 };
 
-/** The columns of a Session row the graph reads; everything else stays in SQLite. */
 type GraphSessionRow = {
   id: string;
   project_id: string;
@@ -58,7 +57,6 @@ type GraphSessionRow = {
   verification_json: string | null;
 };
 
-/** The few Session fields a node and its file relations need. */
 interface GraphSession {
   id: string;
   projectId: string;
@@ -80,7 +78,7 @@ function toGraphSession(row: GraphSessionRow): GraphSession {
   };
 }
 
-/** The changed-files array of a row, or `[]` for legacy rows whose JSON is malformed or not an array. */
+/** `[]` for legacy rows whose JSON is malformed or not an array. */
 const CHANGED_FILES_ARRAY_SQL = `CASE WHEN json_valid(s.changed_files_json)
     THEN CASE WHEN json_type(s.changed_files_json) = 'array' THEN s.changed_files_json ELSE '[]' END
     ELSE '[]' END`;
@@ -93,13 +91,11 @@ interface GraphBuilderDependencies {
   toKnowledge(row: GraphKnowledgeRow): KnowledgeRecord;
 }
 
-/** Edges as the builder collects them; every one of them comes from a record. */
 type RecordedEdge = Omit<GraphEdge, "provenance" | "reason">;
 type RecordedGraphResult = (Omit<GraphResult, "edges"> & { edges: RecordedEdge[] }) | GraphSkippedResult;
 
 const GRAPH_CURSOR_VERSION = 2;
 const DEFAULT_CO_CHANGE_SESSIONS = 3;
-/** The graph a path search walks: the largest bounded graph a single request can build. */
 const PATH_SEARCH_LIMITS = { maxNodes: 500, maxEdges: 1_000 };
 
 type GraphCursorPhase = "projects" | "sessions" | "project_knowledge";
@@ -150,7 +146,6 @@ function decodeGraphCursor(value: string | undefined, scope: string): DecodedGra
   }
 }
 
-/** Turns Session links (already limited to Sessions in scope) into `session_link` edges. */
 function addSessionLinkEdges(
   links: ReadonlyArray<{ session_id: string; related_session_id: string }>,
   addEdge: (edge: RecordedEdge) => void,
@@ -165,17 +160,12 @@ function addSessionLinkEdges(
   }
 }
 
-/** Deterministic graph query and bounded node/edge materialization. */
 export class GraphBuilder {
   public constructor(
     private readonly db: DatabaseSync,
     private readonly dependencies: GraphBuilderDependencies,
   ) {}
 
-  /**
-   * The bounded graph. Every edge is marked recorded; with includeDerived, co_changed edges are added between
-   * the loaded files (they do not count toward the edge limit).
-   */
   public build(options: GraphQuery = {}): GraphQueryResult {
     const result = this.buildRecorded(options);
     if (result.outcome !== "graph") {
@@ -188,7 +178,6 @@ export class GraphBuilder {
     return { ...result, edges };
   }
 
-  /** The shortest path between two nodes of the bounded graph, each step with a plain-language reason. */
   public findPath(query: GraphPathQuery): GraphPathResult {
     const graph = this.build({
       projectRoot: query.projectRoot,
@@ -292,7 +281,6 @@ export class GraphBuilder {
              WHERE p.status = 'tracked'
                AND s.voided_at IS NULL
                ${projectScopeClause}`;
-    // Totals and the link scope come from SQL; only the Sessions the response can show are decoded below.
     const sessionIdsInScope = new Set(
       projects.length
         ? (
@@ -354,7 +342,6 @@ export class GraphBuilder {
       : [];
 
     const sessionLimit = Math.min(Math.max(options.limit ?? 50, 1), 200);
-    // The Sessions a response can include: a page of the global order for a cursor, else the newest per project.
     const windowStart = cursorRequested ? Math.min(decodedCursor?.sessionOffset ?? 0, totalSessions) : 0;
     const sessionWindow: GraphSession[] = projects.length
       ? (
@@ -673,8 +660,7 @@ export class GraphBuilder {
         }
       }
 
-      // A link whose Sessions land on different pages is sent with either page: the other endpoint is a
-      // Session in scope that another page delivers, and the client joins the pages by node id.
+      // A link whose Sessions land on different pages is sent with either page; the client joins pages by node id.
       addSessionLinkEdges(sessionLinks, (edge) => {
         if (edgeIds.has(edge.id) || (!nodeIds.has(edge.from) && !nodeIds.has(edge.to))) {
           return;
@@ -918,7 +904,6 @@ export class GraphBuilder {
     };
   }
 
-  /** co_changed edges among the loaded file nodes, from every non-voided Session of their projects. */
   private derivedEdges(nodes: readonly GraphNode[], minSessions: number): GraphEdge[] {
     const fileNodeIds = new Set(nodes.filter((node) => node.kind === "file").map((node) => node.id));
     const projectIds = [

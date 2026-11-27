@@ -4,9 +4,7 @@ import { localDayStartIso, toLocalCalendarDate } from "@work-intelligence/shared
 import { nextCalendarDate } from "./session-repository.js";
 
 export interface ActivityOptions {
-  /** Tracked projects in scope. */
   projectIds: readonly string[];
-  /** Inclusive calendar dates in the server's time zone. */
   from: string;
   to: string;
 }
@@ -14,11 +12,7 @@ export interface ActivityOptions {
 export class ActivityRepository {
   public constructor(private readonly db: DatabaseSync) {}
 
-  /**
-   * Non-voided Sessions completed in the range, counted per local calendar day (the server time zone, the same
-   * day boundaries the reports use). SQLite cannot convert to the host zone, so the timestamps of the one query
-   * are bucketed in memory. Only days with work are returned, oldest first.
-   */
+  /** SQLite cannot convert to the host time zone, so the timestamps are bucketed into local days in memory. */
   public dailySessions(options: ActivityOptions): ActivityDay[] {
     const rows = this.db
       .prepare(

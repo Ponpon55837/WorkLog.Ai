@@ -11,7 +11,6 @@ export interface ProjectByIdReader extends ProjectReader {
   getProjectById(projectId: string): ProjectRecord | undefined;
 }
 
-/** Keep all storage policy lookups on one path so repositories cannot drift. */
 export function checkTrackedProjectByRoot(gate: ProjectPolicyGate, projectRoot: string): PolicyDecision {
   return gate.check(projectRoot);
 }

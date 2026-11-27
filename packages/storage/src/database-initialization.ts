@@ -24,7 +24,6 @@ export type DatabaseInitializationErrorCode =
   | "DATABASE_DISK_FULL"
   | "DATABASE_FILE_MISSING";
 
-/** A safe, classified startup error that can be shown to a user without exposing SQLite details. */
 export class DatabaseInitializationError extends Error {
   public constructor(
     public readonly code: DatabaseInitializationErrorCode,
@@ -41,7 +40,6 @@ const UNAVAILABLE_CODES: Record<DatabaseUnavailableReason, DatabaseInitializatio
   read_only: "DATABASE_READ_ONLY",
   disk_full: "DATABASE_DISK_FULL",
 };
-/** Objects the base schema creates or drops; a current database has all of the first and none of the second. */
 const SCHEMA_CREATED_OBJECTS = [...DATABASE_SCHEMA.matchAll(/CREATE (?:TABLE|INDEX) IF NOT EXISTS (\w+)/g)].map(
   (match) => match[1]!,
 );
@@ -49,14 +47,9 @@ const SCHEMA_DROPPED_OBJECTS = [...DATABASE_SCHEMA.matchAll(/DROP (?:TABLE|INDEX
   (match) => match[1]!,
 );
 
-/** Page cache of a connection, in KiB: what the API and the Agent processes use for their repeated reads. */
 const DEFAULT_CACHE_SIZE_KIB = 16_000;
 
-/**
- * Applies connection-local settings shared by writable stores and read-only workers. A connection that reads
- * each page once (the export worker) passes a smaller `cacheSizeKib`: the page cache is malloc memory, and what it
- * leaves in the allocator's free lists stays resident after the connection closes.
- */
+/** The page cache is malloc memory that stays resident after close, so a read-once connection passes a smaller one. */
 export function configureWorkIntelligenceDatabaseConnection(
   db: DatabaseSync,
   cacheSizeKib = DEFAULT_CACHE_SIZE_KIB,
@@ -64,7 +57,6 @@ export function configureWorkIntelligenceDatabaseConnection(
   db.exec(`PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA cache_size = -${Math.trunc(cacheSizeKib)};`);
 }
 
-/** Verifies an existing schema without changing it; background readers use this instead of initialization. */
 export function assertDatabaseSchemaVersion(db: DatabaseSync, expectedSchemaVersion: number): void {
   const appliedVersions = getAppliedSchemaVersions(db);
   const actualSchemaVersion = Math.max(0, ...appliedVersions);
@@ -185,11 +177,8 @@ function migrateLegacySchema(db: DatabaseSync): void {
 }
 
 /*
- * Projects saved before root paths were canonicalized keep their original spelling (on Windows, mixed case), so
- * lookups by the canonical root miss them and a tracked project reads as unregistered. Only case and a trailing
- * separator are repaired: a root from another platform (a restored backup) would resolve to a different path, and
- * moving it is the location service's job. A row whose canonical root already belongs to another project is left as
- * it is: merging two projects is not a safe automatic repair.
+ * Only case and a trailing separator are repaired: a root from another platform (a restored backup) belongs to the
+ * location service, and merging two projects is not a safe automatic repair.
  */
 function nonCanonicalProjectRoots(db: DatabaseSync): Array<{ id: string; rootPath: string }> {
   if (!tableExists(db, "projects")) {
@@ -237,7 +226,6 @@ function usesWriteAheadLog(db: DatabaseSync): boolean {
   return row?.journal_mode?.toLowerCase() === "wal";
 }
 
-/** A lock held elsewhere, a read-only file or a full disk is reported as such: none of them is a failed upgrade. */
 function unavailableError(error: unknown): DatabaseInitializationError | undefined {
   const reason = databaseUnavailableReason(error);
   return reason
@@ -280,10 +268,7 @@ function assertSchemaVersionSupported(db: DatabaseSync): void {
   }
 }
 
-/**
- * Checks compatibility, snapshots pending upgrades, then initializes and migrates atomically. A database that is
- * already current is only read: opening it needs no write lock, so another process's write cannot block it.
- */
+/** A current database is only read: opening it needs no write lock, so another process's write cannot block it. */
 export function initializeWorkIntelligenceDatabase(
   db: DatabaseSync,
   databasePath: string,

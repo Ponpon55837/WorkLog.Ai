@@ -1,28 +1,7 @@
 /*
- * Matching normalized paths against normalized appliesTo entries. A glob must match the whole path; a plain entry
- * matches by path segments. Stored patterns come from Agents and imports, so every scan is metered.
- *
- * The accounting invariant. A unit stands for one character operation. Every operation here whose cost grows with the
- * length of a stored entry or a caller path is charged to the scan's budget BEFORE it runs, with at least one unit per
- * code unit comparison it may make (times a weight, measured so one unit costs about the same time on every path):
- *   - reading a stored list (storedAppliesTo): the JSON text it parses (x4: JSON.parse measured about four times a
- *     plain character read), then each entry it normalizes (x4); a stored list longer than
- *     MAX_STORED_APPLIES_TO_JSON_BYTES is cut off in SQL (appliesToColumnSql) before it is loaded and never matches;
- *   - telling a glob from a plain entry: the pattern length, unless the compiled glob is cached (1 unit);
- *   - compiling a glob or a plain entry's segment search: x16 per pattern character on a cache miss (tokenizing, the
- *     literal prefix and suffix, the literal runs and their failure tables: at most 5 comparisons per character, and
- *     allocation), 1 unit on a hit;
- *   - each pattern and path pair: 12 units for its constant-time work;
- *   - the prefix, suffix, equality and segment-suffix checks: the length they compare, only when they run;
- *   - the ordered literal search and a plain entry's `/path/` search: twice the window searched (Knuth-Morris-Pratt
- *     compares at most twice per window character; indexOf on a near-miss run had no such bound);
- *   - the NFA simulation: (tokens + 1) to set up and per path character it reads.
- * Why that bounds the work: each loop that compares characters runs only after a charge covering its worst case, a
- * charge that would pass the limit marks the budget exhausted and the loop does not run, and an exhausted budget
- * makes every later charge fail. So `units` never passes `limit`, the comparisons made are at most `units` (the debug
- * counter, setAppliesToWorkCounter, lets tests check examined <= charged on hostile inputs), and the time spent is at
- * most `limit` times the slowest path's cost per unit. Entries above the write-time limits (length, count, or stars)
- * are never tokenized and never match; a scan that skipped one reports itself incomplete, like one the budget cut.
+ * Every operation whose cost grows with a stored entry or a caller path is charged to the scan budget BEFORE it
+ * runs, so an exhausted budget stops the loop and `units` never passes `limit`; stored patterns come from Agents and
+ * imports, so the weights per operation are measured costs and must not be lowered without re-measuring.
  */
 import {
   APPLIES_TO_TOKEN_ANY,
@@ -39,52 +18,34 @@ import {
 } from "@work-intelligence/core";
 import { normalizePath, type PathContext } from "./search-text.js";
 
-/**
- * Work one scan may spend on appliesTo matching, in character-operation units (see the invariant above). When the
- * next charge would pass `limit`, `exhausted` is set and that operation and every later one report no match, so the
- * scan stops and says it was cut short. `skippedEntries` counts stored entries above the write-time limits.
- */
 export interface AppliesToBudget {
-  /** Grows with grantAppliesTo on the scans whose ordinary work is linear in stored history. */
   limit: number;
   units: number;
   exhausted: boolean;
   skippedEntries: number;
 }
 
-/** Tests a normalized path; with a budget, the match is charged to it and is false once the budget is spent. */
 export type AppliesToMatcher = (path: string, budget?: AppliesToBudget) => boolean;
 
-/** A compiled entry plus what an index needs to find the paths it can match without testing every one. */
 export interface CompiledAppliesTo {
   matches: AppliesToMatcher;
-  /** Matches no path at all (empty, above the length limit, over the star bound, or not affordable). */
   never: boolean;
-  /** For a glob: the literal code units every match starts and ends with (see globMatches). */
   glob?: { prefix: string; suffix: string };
 }
 
-/** Test instrumentation: code units the matcher's loops compared, independent of what was charged. */
 export interface AppliesToWorkCounter {
   examined: number;
 }
 
-/** A glob split around its wildcards, so the exact rejections run before the simulation. */
 interface CompiledGlob {
-  /** Over MAX_APPLIES_TO_GLOB_STARS: never matches. */
   overComplex: boolean;
-  /** Literal code units before the first wildcard and after the last one. */
   prefix: string;
   suffix: string;
-  /** The tokens from the first wildcard to the last, inclusive: kind and literal code unit per token. */
   kinds: Uint8Array;
   codes: Uint16Array;
-  /** Maximal literal runs inside the middle, in pattern order, with their KMP failure tables. */
   literals: string[];
   failures: Uint16Array[];
-  /** Code units every match has: one per literal and per `?`. */
   minLength: number;
-  /** Pattern length, for the cache's size bound. */
   size: number;
 }
 
@@ -99,65 +60,36 @@ interface BoundedCache<T> {
   set(key: string, value: T, size: number): void;
 }
 
-/**
- * Knowledge rows one appliesTo scan reads at most, newest first: the scans run in memory on caller-supplied paths,
- * so their cost stays bounded however many Knowledge items the tracked projects hold.
- */
 export const APPLIES_TO_SCAN_LIMIT = 2_000;
 
-/**
- * Units one scan may spend: recall, the relaxed Knowledge search, file history, and finalize's knowledgeToReview each
- * get one per call (shared by every row, never reset per row). Chosen from a time target of 100 ms of blocking: on the
- * development machine the slowest path (the 16-star simulation) cost 3.7 ns per unit, the near-miss literal search
- * 3.1, compiling 3.6, plain entries 3.5, and the ordinary-pattern mix 3.3, so 20M units is 75-90 ms there. On a copy
- * of real data the heaviest caller-path scan spent 0.3M units, 1.5% of it.
- * @internal test-only
- */
+/** @internal test-only */
 export const APPLIES_TO_MATCH_UNIT_LIMIT = 20_000_000;
 
 /**
- * finalize's knowledgeToReview reads later Sessions newest first and cannot have a fixed total: a fixed 50M units cut
- * legitimate 20,000-Session data short. It grants, before each stored row or each pattern x file set it processes,
- * GRANT_FACTOR times what ordinary data costs there (APPLIES_TO_PAIR_ESTIMATE per pair), so ordinary work never uses
- * more than a third of what it was granted, while a crafted entry that makes one pair cost many times an ordinary one
- * still runs out. (The Knowledge staleness check has fixed ceilings instead; see later-change-index.ts.)
+ * A fixed total cut legitimate 20,000-Session history short, so knowledgeToReview grants this times the ordinary cost
+ * before each row: ordinary work uses at most a third, while a crafted entry still runs out.
  */
 export const APPLIES_TO_GRANT_FACTOR = 3;
 
-/**
- * Longest stored appliesTo JSON text (UTF-8 bytes) any read loads: the structural import bound (100 entries of 4,096
- * characters) with every character written as a six-byte JSON escape, plus quotes, commas and brackets. Real lists are
- * a few hundred bytes; only a list written into SQLite by hand can be longer, and it is skipped like an entry above the
- * write-time limits.
- * @internal test-only
- */
+/** @internal test-only */
 export const MAX_STORED_APPLIES_TO_JSON_BYTES =
   MAX_STORED_APPLIES_TO_ENTRIES * (6 * MAX_STORED_APPLIES_TO_ENTRY_LENGTH + 3) + 2;
 
-/**
- * Longest stored changed-files text (UTF-8 bytes) the staleness check and knowledgeToReview load: the write limit of
- * 200 paths of 1,000 characters, every character a six-byte JSON escape (about 1.2 MB). Real lists are a few KB, and
- * an import without the count limit still fits unless its text is this long; a longer value (a hand-written database)
- * is not loaded, and the read that skipped it reports itself incomplete.
- */
+/** The write limit (200 paths of 1,000 characters) with every character a six-byte JSON escape. */
 export const MAX_STORED_CHANGED_FILES_JSON_BYTES = 200 * (6 * 1_000 + 3) + 2;
 
-/** Per-path weights, so one unit costs about the same time on each path (measured; see APPLIES_TO_MATCH_UNIT_LIMIT). */
 const JSON_UNITS_PER_CHAR = 4;
 const NORMALIZE_UNITS_PER_CHAR = 4;
 const COMPILE_UNITS_PER_CHAR = 16;
 const PAIR_UNITS = 12;
 
-// Compiled globs, and failure tables of plain entries and paths, shared across scans. Bounded by count and by total
-// characters; eviction is second chance (an entry used since it was last considered moves to the back once), so a
-// scan of many distinct long patterns evicts one entry per miss (each miss is charged) instead of clearing the cache
-// and recompiling everything, and a hit costs no reordering.
+// Second-chance eviction: a scan of many distinct long patterns evicts one entry per (charged) miss instead of
+// clearing the cache, and a hit costs no reordering.
 const CACHE_LIMIT = 512;
 const CACHE_CHARACTERS = 256_000;
 const globCache = createBoundedCache<CompiledGlob>();
 const segmentCache = createBoundedCache<{ word: string; failure: Uint16Array }>();
 
-// Scratch state arrays for the simulation, grown to the longest middle seen (at most the entry length limit).
 let activeStates = new Uint8Array(64);
 let nextStates = new Uint8Array(64);
 
@@ -168,7 +100,7 @@ function isStarKind(kind: number): boolean {
   return kind === APPLIES_TO_TOKEN_SEGMENT || kind === APPLIES_TO_TOKEN_ANY;
 }
 
-/** Characters `.` in a JavaScript RegExp without the `s` flag does not match; `**` has always excluded them. */
+/** Characters `.` in a RegExp without the `s` flag does not match; `**` has always excluded them. */
 function isLineTerminatorCode(code: number): boolean {
   return code === 10 || code === 13 || code === 0x2028 || code === 0x2029;
 }
@@ -186,10 +118,7 @@ function createBoundedCache<T>(): BoundedCache<T> {
     set(key, value, size) {
       entries.set(key, { value, size, recent: false });
       characters += size;
-      // Each pass either evicts the oldest entry or clears its mark and moves it back, so this ends within two passes.
-      // Not charged: it runs only after a cache miss, which was charged 16 units per pattern character, and over any
-      // sequence of misses the moves are at most the marks set by hits (each charged 1 unit) plus the evictions, at
-      // most one per entry ever inserted, so the loop's work is amortized within what the hits and misses paid.
+      // Not charged: it runs only after a charged miss, and its moves are amortized within what hits and misses paid.
       while (entries.size > CACHE_LIMIT || characters > CACHE_CHARACTERS) {
         const [oldestKey, oldest] = entries.entries().next().value as [string, CacheEntry<T>];
         entries.delete(oldestKey);
@@ -204,7 +133,6 @@ function createBoundedCache<T>(): BoundedCache<T> {
   };
 }
 
-/** Charges `cost` units; false (and the budget marked spent) when that would pass its limit. */
 function charge(budget: AppliesToBudget | undefined, cost: number): boolean {
   if (!budget) return true;
   if (budget.exhausted || budget.units + cost > budget.limit) {
@@ -219,7 +147,6 @@ function count(examined: number): void {
   if (workCounter) workCounter.examined += examined;
 }
 
-/** The KMP failure table of `word`: at most 2 x length comparisons. */
 function failureTable(word: string): Uint16Array {
   const table = new Uint16Array(word.length);
   let examined = 0;
@@ -238,7 +165,6 @@ function failureTable(word: string): Uint16Array {
   return table;
 }
 
-/** First start of `word` inside `text[from, end)`, or -1; at most 2 x (end - from) comparisons. */
 function findWord(text: string, from: number, end: number, word: string, failure: Uint16Array): number {
   let examined = 0;
   let matched = 0;
@@ -259,7 +185,6 @@ function findWord(text: string, from: number, end: number, word: string, failure
   return -1;
 }
 
-/** Whether `text` has `word` at `at`; at most word.length comparisons. */
 function hasAt(text: string, at: number, word: string): boolean {
   if (at < 0 || at + word.length > text.length) return false;
   let index = 0;
@@ -268,12 +193,10 @@ function hasAt(text: string, at: number, word: string): boolean {
   return index === word.length;
 }
 
-/** `hasAt`, charged `word.length` first; false when unaffordable. */
 function chargedHasAt(text: string, at: number, word: string, budget: AppliesToBudget | undefined): boolean {
   return charge(budget, word.length) && hasAt(text, at, word);
 }
 
-/** Compiles a glob of at most MAX_APPLIES_TO_ENTRY_LENGTH characters: at most 5 x length + 2 comparisons. */
 function compileGlob(pattern: string): CompiledGlob {
   const tokens = tokenizeAppliesToGlobCompact(pattern);
   count(pattern.length);
@@ -311,7 +234,6 @@ function compileGlob(pattern: string): CompiledGlob {
   };
 }
 
-/** The cached compiled glob, charging 1 unit on a hit and the compile on a miss; undefined when unaffordable. */
 function cachedGlob(pattern: string, budget: AppliesToBudget | undefined): CompiledGlob | undefined {
   const cached = globCache.get(pattern);
   if (cached) return charge(budget, 1) ? cached : undefined;
@@ -321,17 +243,12 @@ function cachedGlob(pattern: string, budget: AppliesToBudget | undefined): Compi
   return compiled;
 }
 
-/**
- * Whether a pattern is a glob, charged: a cached compiled glob answers for 1 unit (cachedGlob charges it), otherwise
- * the scan of the pattern for `*` or `?` costs its length. undefined when unaffordable.
- */
 function chargedIsGlob(pattern: string, budget: AppliesToBudget | undefined): boolean | undefined {
   if (globCache.get(pattern)) return true;
   if (!charge(budget, pattern.length)) return undefined;
   return isAppliesToGlob(pattern);
 }
 
-/** `/word/` and its failure table, cached like compiled globs and charged the same way; undefined when unaffordable. */
 function segmentWord(
   word: string,
   budget: AppliesToBudget | undefined,
@@ -345,13 +262,7 @@ function segmentWord(
   return compiled;
 }
 
-/**
- * Whether `path[start, end)` matches the middle tokens whole, by simulating every pattern position at once (a
- * Thompson-style NFA walk), so a pattern full of stars costs O(tokens x characters) instead of exponential regex
- * backtracking. One pass per character reads each state once, applies its transition, closes stars over the empty
- * run as it goes (state i is final once positions i - 1 and i are done) and clears the old state for reuse.
- * Works on UTF-16 code units, like the anchored RegExp it replaced.
- */
+/** An NFA walk over every pattern position at once, so a star-heavy pattern costs O(tokens x characters), never exponential. */
 function simulate(glob: CompiledGlob, path: string, start: number, end: number, budget?: AppliesToBudget): boolean {
   const { kinds, codes } = glob;
   const accept = kinds.length;
@@ -406,15 +317,7 @@ function simulate(glob: CompiledGlob, path: string, start: number, end: number, 
   return result;
 }
 
-/**
- * Whole-path glob match. The rejections before the simulation are exact, never heuristics: every literal and `?`
- * consumes one code unit and stars consume zero or more, so a shorter path cannot match; the tokens before the first
- * wildcard and after the last are literals that must be the path's first and last code units (minLength keeps the
- * two apart); and the middle tokens must match the code units between them, which contain each literal run of the
- * middle in pattern order without overlap. A leftmost search for each run, starting where the previous one ended,
- * finds such a placement whenever one exists, so a failed search proves there is no match. Each check is charged
- * before it runs (see the invariant at the top).
- */
+/** The rejections before the simulation are exact, never heuristics: a failed check proves there is no match. */
 function globMatches(glob: CompiledGlob, path: string, budget: AppliesToBudget | undefined): boolean {
   if (glob.overComplex || path.length < glob.minLength) return false;
   if (!chargedHasAt(path, 0, glob.prefix, budget)) return false;
@@ -432,11 +335,6 @@ function globMatches(glob: CompiledGlob, path: string, budget: AppliesToBudget |
   return simulate(glob, path, start, end, budget);
 }
 
-/**
- * pathMatchStrength (search-text.ts) with linear checks, each charged before it runs: equal 1; either one a
- * path-segment suffix of the other 0.8; `stored` inside the directory `queried`, or `/queried/` inside `stored`, 0.6.
- * A check whose separator is absent costs nothing beyond the pair's own units.
- */
 function plainStrength(stored: string, queried: string, budget: AppliesToBudget | undefined): number {
   if (!stored || !queried) return 0;
   const storedLength = stored.length;
@@ -461,72 +359,49 @@ function plainStrength(stored: string, queried: string, budget: AppliesToBudget 
   return findWord(stored, 0, storedLength, segment.word, segment.failure) >= 0 ? 0.6 : 0;
 }
 
-/** A budget for one scan; see AppliesToBudget. */
 export function createAppliesToBudget(limit = APPLIES_TO_MATCH_UNIT_LIMIT): AppliesToBudget {
   const budget = { limit, units: 0, exhausted: false, skippedEntries: 0 };
   budgetProbe?.push(budget);
   return budget;
 }
 
-/**
- * Test and measurement instrumentation only: records every budget created until called again.
- * @internal test-only
- */
+/** @internal test-only */
 export function setAppliesToBudgetProbe(probe: AppliesToBudget[] | undefined): void {
   budgetProbe = probe;
 }
 
-/** Whether a scan's answer may be missing matches: the budget ran out, or a stored entry above the limits was skipped. */
 export function appliesToScanIncomplete(budget: AppliesToBudget): boolean {
   return budget.exhausted || budget.skippedEntries > 0;
 }
 
-/** Adds `units` to a budget's limit (no effect once it is exhausted). */
 export function grantAppliesTo(budget: AppliesToBudget, units: number): void {
   if (!budget.exhausted) budget.limit += units;
 }
 
-/**
- * What one ordinary pattern x path pair costs: its constant work plus about one unit per character of both. On the
- * legitimate synthetic data (20,000 Sessions, 2,000 Knowledge with 1-3 paths or one-star globs) the scans that grant it
- * used at most 4% of their limit; a 16-star entry of 1,000 characters against 1,000-character paths costs about 17,000
- * units per pair against a grant of about 6,000, so crafted entries still run out.
- */
 export function appliesToPairEstimate(pathLength: number, patternLength: number): number {
   return PAIR_UNITS + pathLength + patternLength;
 }
 
-/** Charges `units` after granting GRANT_FACTOR times them: for reading stored history, which is always affordable. */
 export function chargeGrantedAppliesTo(budget: AppliesToBudget, units: number): boolean {
   grantAppliesTo(budget, APPLIES_TO_GRANT_FACTOR * units);
   return charge(budget, units);
 }
 
-/** Charges work a caller does on stored data next to matching (for example parsing changed files), before it runs. */
 export function chargeAppliesTo(budget: AppliesToBudget, units: number): boolean {
   return charge(budget, units);
 }
 
-/**
- * Test instrumentation only: counts the comparisons of the matcher's loops into `counter` until called again.
- * @internal test-only
- */
+/** @internal test-only */
 export function setAppliesToWorkCounter(counter: AppliesToWorkCounter | undefined): void {
   workCounter = counter;
 }
 
-/**
- * The entries of one stored appliesTo list with their normalized forms, the only way stored entries enter matching.
- * The JSON text and each entry's normalization are charged first. At most MAX_APPLIES_TO_ENTRIES entries are
- * considered and an entry longer than MAX_APPLIES_TO_ENTRY_LENGTH is not normalized; both count as skipped. Entries
- * that normalize to nothing are left out; the list stops early when the budget is spent.
- */
 export function storedAppliesTo(
   stored: string | null,
   contexts: PathContext[],
   budget: AppliesToBudget,
 ): Array<{ raw: string; pattern: string }> {
-  // null: appliesToColumnSql found the text above MAX_STORED_APPLIES_TO_JSON_BYTES and did not load it.
+  // appliesToColumnSql found the text above MAX_STORED_APPLIES_TO_JSON_BYTES and did not load it.
   if (stored === null) {
     budget.skippedEntries += 1;
     return [];
@@ -541,7 +416,6 @@ export function storedAppliesTo(
   return Array.isArray(list) ? normalizedAppliesTo(list, contexts, budget) : [];
 }
 
-/** storedAppliesTo for a list already parsed (a KnowledgeRecord's appliesTo). */
 export function normalizedAppliesTo(
   list: readonly unknown[],
   contexts: PathContext[],
@@ -563,22 +437,16 @@ export function normalizedAppliesTo(
   return entries;
 }
 
-/**
- * SQL for a stored appliesTo column that loads the text only within MAX_STORED_APPLIES_TO_JSON_BYTES: octet_length
- * reads the record header, so a longer value is never read into memory and comes back as NULL (a missing value as
- * '[]'). storedAppliesTo counts the NULL as a skipped entry.
- */
+/** octet_length reads only the record header, so a value above the bound is never loaded into memory. */
 export function appliesToColumnSql(column: string): string {
   return `CASE WHEN octet_length(${column}) > ${MAX_STORED_APPLIES_TO_JSON_BYTES} THEN NULL ELSE COALESCE(${column}, '[]') END`;
 }
 
-/** Charges parsing a stored JSON text other than appliesTo (changed files) at the same rate, before it runs. */
 export function chargeStoredJson(budget: AppliesToBudget, text: string, granted = false): boolean {
   const units = JSON_UNITS_PER_CHAR * text.length + 1;
   return granted ? chargeGrantedAppliesTo(budget, units) : charge(budget, units);
 }
 
-/** Charges normalizing a stored path at the rate storedAppliesTo uses for an entry, before it runs. */
 export function chargeNormalizePath(
   budget: AppliesToBudget,
   path: string,
@@ -590,21 +458,14 @@ export function chargeNormalizePath(
   return granted ? chargeGrantedAppliesTo(budget, units) : charge(budget, units);
 }
 
-/** Whether a normalized entry is a glob, charged like the matcher's own check; undefined when unaffordable. */
 export function classifyAppliesTo(pattern: string, budget: AppliesToBudget): boolean | undefined {
   return chargedIsGlob(pattern, budget);
 }
 
-/** The normalized patterns of storedAppliesTo. */
 export function appliesToEntries(stored: string | null, contexts: PathContext[], budget: AppliesToBudget): string[] {
   return storedAppliesTo(stored, contexts, budget).map((entry) => entry.pattern);
 }
 
-/**
- * Precompiles a normalized appliesTo entry into a matcher, for checking one pattern against many paths. With a
- * budget, compiling is charged to it (a cached glob costs 1 unit). An entry longer than MAX_APPLIES_TO_ENTRY_LENGTH
- * never matches and is never tokenized.
- */
 export function compileAppliesToEntry(pattern: string, budget?: AppliesToBudget): CompiledAppliesTo {
   const never = { matches: () => false, never: true };
   if (!pattern) {
@@ -620,7 +481,7 @@ export function compileAppliesToEntry(pattern: string, budget?: AppliesToBudget)
     const glob = cachedGlob(pattern, budget);
     if (!glob) return never;
     return {
-      // An over-complex glob still charges each pair, as it always has; globMatches rejects it first.
+      // An over-complex glob still charges each pair; globMatches rejects it first.
       matches: (path, pathBudget) =>
         Boolean(path) && charge(pathBudget, PAIR_UNITS) && globMatches(glob, path, pathBudget),
       never: glob.overComplex,
@@ -634,32 +495,20 @@ export function compileAppliesToEntry(pattern: string, budget?: AppliesToBudget)
   };
 }
 
-/** compileAppliesToEntry's matcher alone. */
 export function compileAppliesTo(pattern: string, budget?: AppliesToBudget): AppliesToMatcher {
   return compileAppliesToEntry(pattern, budget).matches;
 }
 
-/**
- * Whether a normalized changed-file path falls under a normalized appliesTo entry: a glob
- * (`*`, `**`, `?`) must match the whole path; a plain path matches itself, files under it as a
- * directory, or a path-segment suffix.
- * @internal test-only
- */
+/** @internal test-only */
 export function matchesAppliesTo(path: string, pattern: string): boolean {
   return compileAppliesTo(pattern)(path);
 }
 
-/**
- * How strongly a normalized appliesTo entry covers a normalized path, the rule work_recall and work_get_context rank Knowledge by when paths are queried: a glob matching
- * the whole path 0.8; a plain entry equal to it 1, either one a path-segment suffix of the other 0.8, either one a
- * directory containing the other 0.6; otherwise 0.
- */
 export function appliesToStrength(pattern: string, path: string, budget?: AppliesToBudget): number {
   if (pattern.length > MAX_APPLIES_TO_ENTRY_LENGTH) {
     if (budget) budget.skippedEntries += 1;
     return 0;
   }
-  // Every classification is charged; once a glob is compiled, both this one and compileAppliesTo's are cache hits.
   const isGlob = chargedIsGlob(pattern, budget);
   if (isGlob === undefined) return 0;
   if (isGlob) return compileAppliesTo(pattern, budget)(path, budget) ? 0.8 : 0;
@@ -667,29 +516,18 @@ export function appliesToStrength(pattern: string, path: string, budget?: Applie
   return Math.max(plainStrength(pattern, path, budget), plainStrength(path, pattern, budget));
 }
 
-/** Strength of one precompiled entry against a path, charged to the budget it is given. */
 export type AppliesToStrengthMatcher = (path: string, budget?: AppliesToBudget) => number;
 
-/**
- * appliesToStrength for one entry against many paths: the entry is classified and (for a glob) compiled once, then each
- * path costs its own match only. The strengths are appliesToStrength's (glob 0.8; plain 1, 0.8 or 0.6), and each pair is
- * charged the same units; only the per-path re-classification of the entry is gone. An entry that cannot be afforded or
- * is above the length limit matches nothing (the latter counts as skipped, like appliesToStrength).
- */
 export function compileAppliesToStrength(pattern: string, budget?: AppliesToBudget): AppliesToStrengthMatcher {
   return compileAppliesToStrengthEntry(pattern, budget).strength;
 }
 
-/** compileAppliesToStrength plus what a file index needs to find the paths the entry can match (see AppliesToFileIndex). */
 export interface CompiledAppliesToStrength {
   strength: AppliesToStrengthMatcher;
-  /** Strength is 0 for every path (above the length limit, over the star bound, or not affordable). */
   never: boolean;
-  /** For a glob: the literal code units every match starts and ends with. */
   glob?: { prefix: string; suffix: string };
 }
 
-/** compileAppliesToStrength with the entry's glob prefix and suffix exposed; charged exactly the same. */
 export function compileAppliesToStrengthEntry(pattern: string, budget?: AppliesToBudget): CompiledAppliesToStrength {
   const never: CompiledAppliesToStrength = { strength: () => 0, never: true };
   if (pattern.length > MAX_APPLIES_TO_ENTRY_LENGTH) {

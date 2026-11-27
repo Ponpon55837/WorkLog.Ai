@@ -26,17 +26,14 @@ import { normalizePath, type PathContext } from "./search-text.js";
 
 export interface KnowledgeReviewFocus {
   projectId: string;
-  /** The finalized Session: Knowledge it recorded or already gave feedback on is not suggested again. */
   sessionId: string;
   completedAt: string;
-  /** The Session's stored changed files. */
   changedFiles: readonly string[];
   project: PathContext;
 }
 
 export interface KnowledgeToReview {
   hints: KnowledgeReviewHint[];
-  /** The appliesTo match budget ran out before every candidate was checked. */
   truncated: boolean;
 }
 
@@ -52,7 +49,6 @@ type KnowledgeAppliesToRow = {
   last_confirmed_session_id: string | null;
 };
 type Candidate = { row: KnowledgeAppliesToRow; strength: number; path: string; appliesTo: string; patterns: string[] };
-/** Phase-two state of one candidate: still open, put in doubt by an earlier Session, or newly in doubt. */
 type Decision = "open" | "touched" | "newly";
 type OpenCandidate = {
   candidate: Candidate;
@@ -63,50 +59,21 @@ type OpenCandidate = {
 
 const KNOWLEDGE_TO_REVIEW_LIMIT = 3;
 const KNOWLEDGE_TO_REVIEW_TITLE_CHARS = 120;
-/** An appliesTo entry equal to a changed path outranks a glob that matches it. */
 const EXACT_STRENGTH = 1;
 const GLOB_STRENGTH = 0.8;
 const MIN_FRAGMENT_LENGTH = 3;
-/**
- * Longest fragment the Session scan searches for: any part of a required run is required too, so a shorter one
- * narrows correctly, and SQLite's instr() then costs at most this many comparisons per stored character whatever
- * length the stored entry has.
- */
+/** Any part of a required run is required too, so a shorter fragment still narrows correctly and bounds instr(). */
 const MAX_FRAGMENT_LENGTH = 64;
-/**
- * Most distinct fragments the one Session pass narrows by in SQL. Each costs one instr() per stored byte; with more (only many Knowledge items with different appliesTo can name the same changed
- * files) narrowing would cost more than it saves, so every later Session is parsed instead, also charged.
- */
+/** Above this, narrowing in SQL costs more than it saves, so every later Session is parsed (and charged) instead. */
 const MAX_SCAN_FRAGMENTS = 16;
-/** Distinct patterns per later Session whose ordinary comparisons are granted (see selectNewlyInDoubt). */
 const MAX_GRANTED_PATTERNS = 32;
 
-/**
- * The longest run of plain path characters in a normalized pattern. Every path the pattern covers contains it (a
- * plain entry's last segment survives every equal, suffix, and directory match; a glob matches its literals
- * verbatim), so it can narrow the Session scan in SQL. Plain characters keep the JSON text and ASCII-only lower()
- * identical to the normalized path. Short runs narrow too little and are not used.
- */
 function requiredFragment(pattern: string): string | undefined {
   const runs = pattern.match(/[a-z0-9._-]+/g) ?? [];
   const longest = runs.reduce((best, run) => (run.length > best.length ? run : best), "");
   return longest.length >= MIN_FRAGMENT_LENGTH ? longest.slice(0, MAX_FRAGMENT_LENGTH) : undefined;
 }
 
-/**
- * Phase two: which candidates this Session newly puts in doubt, by the staleness rule of KnowledgeService (a later
- * Session since the last confirmation or creation, other than the Knowledge's own Sessions, that listed at most
- * CHANGED_FILES_NORMAL files and whose changed files an appliesTo entry covers), asked for "anyone but this Session".
- * A Session that listed more files does not count: it only raises broadChangesSince, never possiblyStale. One pass
- * reads the later Sessions newest first, shared
- * by every candidate (it used to run one SQL scan per candidate, uncharged for the rows it skipped): SQL keeps only
- * Sessions whose changed-files text contains a fragment some candidate requires (a row above the load bound is not
- * read), and each kept Session's list, its paths and its comparisons are charged before they run, after granting three
- * times their ordinary cost, so the pass is linear in the later Sessions and a crafted entry still runs out. A candidate
- * is decided when a Session touches it, or when the pass reaches Sessions not after its `since`; the pass stops once
- * the first KNOWLEDGE_TO_REVIEW_LIMIT undecided-or-newly candidates in order are all decided. Returns the hints'
- * candidates in order and whether either budget ran out (then only the candidates decided before it count).
- */
 function selectNewlyInDoubt(
   db: DatabaseSync,
   focus: KnowledgeReviewFocus,
@@ -118,7 +85,6 @@ function selectNewlyInDoubt(
   const matchers = new Map<string, AppliesToMatcher>();
   for (const candidate of candidates) {
     const { row, patterns } = candidate;
-    // The later of creation and last confirmation, as KnowledgeService does.
     const since =
       row.last_confirmed_at && row.last_confirmed_at > row.created_at ? row.last_confirmed_at : row.created_at;
     // A backfilled Session that finished before the Knowledge was confirmed does not put it in doubt.
@@ -130,7 +96,6 @@ function selectNewlyInDoubt(
     open.push({ candidate, since, own: new Set([row.session_id, row.last_confirmed_session_id]), decision: "open" });
   }
   if (open.length === 0) return { selected: [], truncated: false };
-  // requiredFragment reads each pattern once.
   const patternCharacters = open.reduce(
     (total, { candidate }) => total + candidate.patterns.reduce((sum, pattern) => sum + pattern.length, 0),
     0,
@@ -159,7 +124,6 @@ function selectNewlyInDoubt(
   const parameters = [focus.projectId, earliest, focus.sessionId, ...(narrowed ? (distinct as string[]) : [])];
   let incomplete = false;
   const settle = (completedAt: string): boolean => {
-    // Candidates whose window ends before this Session can no longer be touched; then check the first few in order.
     let newly = 0;
     for (const entry of open) {
       if (entry.decision === "open" && completedAt <= entry.since) entry.decision = "newly";
@@ -180,19 +144,17 @@ function selectNewlyInDoubt(
         changed_files_json: string | null;
       }>) {
         if (budget.exhausted) return;
-        // Deciding the candidates in order is charged per open candidate and Session, after granting three times it:
-        // the pass is linear in the later Sessions it reads (APPLIES_TO_GRANT_FACTOR).
         grantAppliesTo(budget, APPLIES_TO_GRANT_FACTOR * open.length);
         if (!chargeAppliesTo(budget, open.length) || settle(session.completed_at)) return;
         if (session.changed_files_json === null) {
-          // Above the load (and per-row narrowing) bound: its files cannot be compared, so open candidates stay open.
+          // Above the load bound: its files cannot be compared, so open candidates stay open.
           incomplete = true;
           return;
         }
         if (!chargeStoredJson(budget, session.changed_files_json, true)) return;
         const files: string[] = [];
         const listed = parseChangedFiles(session.changed_files_json);
-        // A broad Session never starts possiblyStale (KnowledgeService), so it cannot be the one that already did.
+        // A broad Session never starts possiblyStale, so it cannot be the one that already did.
         if (listed.length > CHANGED_FILES_NORMAL) continue;
         for (const file of listed) {
           if (!chargeNormalizePath(budget, file, contexts, true)) return;
@@ -203,9 +165,6 @@ function selectNewlyInDoubt(
           (entry) => entry.decision === "open" && session.completed_at > entry.since && !entry.own.has(session.id),
         );
         if (eligible.length === 0) continue;
-        // Each distinct pattern is compared with this Session's files once, however many candidates share it. The
-        // grant covers ordinary pairs of at most MAX_GRANTED_PATTERNS distinct patterns per Session, so the pass stays
-        // linear in the later Sessions; more distinct patterns spend the fixed part of the budget and then stop.
         const patterns = [...new Set(eligible.flatMap((entry) => entry.candidate.patterns))];
         const fileCharacters = files.reduce((total, file) => total + file.length, 0);
         grantAppliesTo(
@@ -228,7 +187,6 @@ function selectNewlyInDoubt(
           if (entry.candidate.patterns.some((pattern) => touches.has(pattern))) entry.decision = "touched";
         }
       }
-      // Every later Session was read: the candidates still open were touched by none of them.
       for (const entry of open) if (entry.decision === "open") entry.decision = "newly";
     },
     MAX_STORED_CHANGED_FILES_JSON_BYTES,
@@ -242,14 +200,6 @@ function selectNewlyInDoubt(
   return { selected, truncated };
 }
 
-/**
- * Up to three active Knowledge items of the Session's own project that this Session newly puts in doubt: an appliesTo
- * entry names a changed file (the exact path, or a glob that matches it), and no other Session changed a file the
- * Knowledge covers since it was recorded or last confirmed, so the possiblyStale marker starts with this Session.
- * Knowledge that is already possiblyStale is shown on every read and is not repeated here. Exact matches come first,
- * then the newest. Reads the same newest-first bounded rows as the other appliesTo scans and changes nothing. Both
- * phases share one match budget; when it runs out the hints found so far are returned and `truncated` is set.
- */
 export function findKnowledgeToReview(db: DatabaseSync, focus: KnowledgeReviewFocus): KnowledgeToReview {
   const contexts = [focus.project];
   const files = new Map<string, string>();
@@ -258,7 +208,7 @@ export function findKnowledgeToReview(db: DatabaseSync, focus: KnowledgeReviewFo
     if (key && !files.has(key)) files.set(key, file);
   }
   if (files.size === 0) return { hints: [], truncated: false };
-  // A Session that listed more than CHANGED_FILES_NORMAL files does not set possiblyStale, so it puts nothing in doubt.
+  // A broad Session does not set possiblyStale, so it puts nothing in doubt.
   if (focus.changedFiles.length > CHANGED_FILES_NORMAL) return { hints: [], truncated: false };
   const rows = db
     .prepare(
@@ -284,8 +234,6 @@ export function findKnowledgeToReview(db: DatabaseSync, focus: KnowledgeReviewFo
     const patterns: string[] = [];
     for (const { raw, pattern } of storedAppliesTo(row.applies_to_json, contexts, budget)) {
       patterns.push(pattern);
-      // How the entry names a path: equal to it, or a glob that matches it. Directories and suffixes do not count.
-      // The entry is classified and compiled once, not once per changed file.
       const isGlob = classifyAppliesTo(pattern, budget);
       if (isGlob === undefined) break;
       const matches = isGlob ? compileAppliesTo(pattern, budget) : undefined;

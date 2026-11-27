@@ -36,7 +36,6 @@ function paths(json: string, context: PathContext[]): Set<string> {
   );
 }
 
-/** Same-project file overlap is an exploration hint, never an automatically created relation. */
 export class RelatedWorkService {
   public constructor(private readonly db: DatabaseSync) {}
 
@@ -61,7 +60,6 @@ export class RelatedWorkService {
     const context = [{ name: source.name, rootPath: source.root_path }];
     const focus = paths(source.changed_files_json, context);
     if (!focus.size) return { ...result, reason: "no_files" };
-    // Limit indexing to this opted-in project. Index synchronization cost is part of the read path.
     this.syncPaths(source.project_id, context);
     const clauses = [...focus].map(
       () => `SELECT * FROM (SELECT sp.doc_id, ? AS hit_path FROM related_work_paths sp
@@ -129,7 +127,6 @@ export class RelatedWorkService {
       })),
     };
   }
-  /** Rebuild only normalized file postings, without raw handoff or FTS tokenization. */
   private syncPaths(projectId: string, context: PathContext[]): void {
     if (!this.db.prepare(`SELECT 1 FROM related_work_dirty WHERE project_id=? LIMIT 1`).get(projectId)) return;
     try {

@@ -4,7 +4,6 @@ import { runImmediateTransaction } from "./sqlite-transaction.js";
 
 const REPORT_SYNTHESIS_PROCESSING_TIMEOUT_MS = 30 * 60 * 1000;
 
-/** Owns recovery of report-synthesis request state before facade operations read it. */
 export class ReportSynthesisRequestRepository {
   public constructor(private readonly db: DatabaseSync) {}
 

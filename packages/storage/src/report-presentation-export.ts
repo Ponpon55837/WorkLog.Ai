@@ -37,7 +37,6 @@ const labels = {
   },
 };
 
-/** Escapes untrusted Markdown syntax and HTML, preserving readable text and line breaks. */
 export function reportMarkdownText(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -47,7 +46,6 @@ export function reportMarkdownText(value: string): string {
     .replace(/(^|\n)([-=~])/g, "$1\\$2");
 }
 
-/** Serializes the same immutable projection as the UI, without restoring hidden content. */
 export function reportPresentationMarkdown(
   summary: ReportSummary,
   presentation: ReportPresentation,

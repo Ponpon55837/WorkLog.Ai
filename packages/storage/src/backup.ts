@@ -35,14 +35,10 @@ import { remapPathPrefix } from "./project-path-remap.js";
 import { renameSyncWithRetry } from "./rename-retry.js";
 import { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
 
-/** Re-exported: the name rules live in the shared package, where the desktop App reads them too. */
 export { isSafeDatabaseBackupFileName };
 export const DEFAULT_BACKUP_KEEP = 3;
 export const DEFAULT_AUTOMATIC_BACKUP_KEEP = 3;
-/**
- * Session deletions keep their own few snapshots so a cleanup spree cannot push out manual backups.
- * @internal test-only
- */
+/** @internal test-only */
 export const SESSION_DELETION_BACKUP_KEEP = 3;
 
 type RetentionBucket = "automatic" | "session_deletion" | "import" | "manual";
@@ -58,7 +54,6 @@ export interface BackupWriteOptions extends BackupRetentionOptions {
   now?: Date;
 }
 
-/** Backups live beside the database in `backups/`, named after it with a UTC timestamp. */
 export function defaultBackupDirectory(databasePath: string): string {
   return join(dirname(databasePath), "backups");
 }
@@ -73,10 +68,7 @@ function timestamp(date: Date): string {
 type Equal<Left, Right> = (<T>() => T extends Left ? 1 : 2) extends <T>() => T extends Right ? 1 : 2 ? true : false;
 type Assert<T extends true> = T;
 
-/**
- * Compile-time link: the kinds the file names can carry (shared) and the kinds the API reports (core) are one set. If they
- * drift apart, `Assert` rejects the annotation and the build fails; nothing of this is exported or left at run time.
- */
+/** Compile-time only: the build fails if the shared file-name kinds and the core API kinds drift apart. */
 const kindsAgree: Assert<Equal<BackupNameKind, DatabaseBackupKind>> = true;
 void kindsAgree;
 
@@ -84,7 +76,6 @@ function retentionBucket(kind: DatabaseBackupKind): RetentionBucket {
   return kind === "automatic" || kind === "session_deletion" || kind === "import" ? kind : "manual";
 }
 
-/** Backups of this database, newest first; files that do not follow the naming scheme are ignored. */
 export function listDatabaseBackups(
   databasePath: string,
   directory = defaultBackupDirectory(databasePath),
@@ -100,7 +91,6 @@ export function listDatabaseBackups(
   }
   return readdirSync(directory)
     .flatMap((fileName) => {
-      // One call validates the name (safety and naming scheme) and parses it.
       const parsed = parseDatabaseBackupFileName(databasePath, fileName);
       if (!parsed) {
         return [];
@@ -191,22 +181,19 @@ function publishSnapshotNoClobber(staging: string, target: string): void {
       try {
         closeSync(reservation);
       } catch {
-        // Preserve the publication error if closing the reservation also fails.
+        // Keep the publication error.
       }
     }
     try {
       unlinkSync(target);
     } catch {
-      // Preserve the publication error if the reservation disappeared or could not be removed.
+      // Keep the publication error.
     }
     throw error;
   }
 }
 
-/**
- * Removes only private staging directories whose recorded owner process is no longer running.
- * @internal test-only
- */
+/** @internal test-only */
 export function cleanupOrphanedBackupStagingDirectories(
   directory: string,
   isProcessAlive: (processId: number) => boolean = processIsAlive,
@@ -260,21 +247,16 @@ export function writeSnapshot(
     try {
       rmSync(stagingDirectory, { recursive: true, force: true });
     } catch {
-      // An orphaned private staging directory is not a valid backup name.
+      // An orphaned staging directory is not a valid backup name, so it is harmless.
     }
   }
 }
 
 export interface ExportOptions {
-  /**
-   * False when the file is only a staging copy that is read once and removed (the API download): SQLite then skips its
-   * fsyncs of the copy, which is most of the `VACUUM INTO` time. The bytes are the same either way, and the snapshot is
-   * still checked before it is published. Default true: a file the user keeps (CLI export) is flushed to disk.
-   */
+  /** False for a staging copy read once and removed: SQLite then skips the fsyncs that are most of `VACUUM INTO`. */
   readonly durable?: boolean;
 }
 
-/** Runs `run` with the connection's `synchronous` setting at OFF, then puts the previous level back. */
 function withoutSync<T>(db: DatabaseSync, run: () => T): T {
   const level = (db.prepare("PRAGMA synchronous").get() as { synchronous?: unknown } | undefined)?.synchronous;
   // 0-3 (OFF, NORMAL, FULL, EXTRA) are the only levels SQLite reports; anything else is restored as its default, FULL.
@@ -287,14 +269,12 @@ function withoutSync<T>(db: DatabaseSync, run: () => T): T {
   }
 }
 
-/** Writes the whole database to `target` (which must not exist yet), e.g. to move it to another computer. */
 export function exportDatabase(db: DatabaseSync, target: string, options: ExportOptions = {}): { bytes: number } {
   if (options.durable === false) withoutSync(db, () => writeSnapshot(db, target));
   else writeSnapshot(db, target);
   return { bytes: statSync(target).size };
 }
 
-/** Writes a checked, owner-only snapshot and prunes only older copies of the same kind. */
 function writeDatabaseBackup(
   db: DatabaseSync,
   databasePath: string,
@@ -306,7 +286,6 @@ function writeDatabaseBackup(
   const kind = options.kind ?? "manual";
   const keep = Math.max(1, Math.trunc(options.keep ?? DEFAULT_BACKUP_KEEP));
   const automaticKeep = Math.max(1, Math.trunc(options.automaticKeep ?? DEFAULT_AUTOMATIC_BACKUP_KEEP));
-  // Import snapshots are written without the user asking, so they keep as many copies as automatic backups do.
   const kindKeep =
     bucket === "automatic" || bucket === "import"
       ? automaticKeep
@@ -317,8 +296,7 @@ function writeDatabaseBackup(
 
   const stamp = timestamp(options.now ?? new Date());
   const base = `${backupPrefix(databasePath)}${filePrefix}${stamp}`;
-  // Number past the highest copy of this second, not the first free name: after pruning, a freed lower
-  // number would sort as the oldest copy and be pruned again right away.
+  // Past the highest copy of this second, not the first free name: a freed lower number would sort oldest and be pruned.
   let sequence = 1;
   for (const name of readdirSync(directory)) {
     const match = name.startsWith(base) ? /^(?:-(\d+))?\.sqlite$/.exec(name.slice(base.length)) : null;
@@ -344,7 +322,6 @@ function writeDatabaseBackup(
   return { outcome: "database_backups", keep, automaticKeep, backups: kept, created };
 }
 
-/** Removes one recognized backup after checking its name, directory, and file type. */
 export function deleteDatabaseBackup(
   databasePath: string,
   fileName: string,
@@ -391,7 +368,6 @@ export function deleteDatabaseBackup(
   };
 }
 
-/** Writes a manual-retention safety snapshot tagged with the schema version about to be applied. */
 export function backupDatabaseBeforeMigration(
   db: DatabaseSync,
   databasePath: string,
@@ -404,7 +380,6 @@ export function backupDatabaseBeforeMigration(
   return writeDatabaseBackup(db, databasePath, { ...options, kind: "manual" }, `pre-migration-v${schemaVersion}-`);
 }
 
-/** Writes a checked full-database snapshot before a project is permanently deleted. */
 export function backupDatabaseBeforeProjectDeletion(
   db: DatabaseSync,
   databasePath: string,
@@ -413,7 +388,6 @@ export function backupDatabaseBeforeProjectDeletion(
   return writeDatabaseBackup(db, databasePath, { ...options, kind: "manual" }, "pre-delete-");
 }
 
-/** Writes a checked snapshot before one voided Session is permanently deleted; it has its own small retention. */
 export function backupDatabaseBeforeSessionDeletion(
   db: DatabaseSync,
   databasePath: string,
@@ -428,10 +402,6 @@ export function backupDatabaseBeforeSessionDeletion(
   );
 }
 
-/**
- * Writes a checked snapshot before project data is imported into this database. Imports keep their own group, as many
- * copies as automatic backups, so repeated imports never push out manual, deletion or migration backups.
- */
 export function backupDatabaseBeforeImport(
   db: DatabaseSync,
   databasePath: string,
@@ -440,7 +410,6 @@ export function backupDatabaseBeforeImport(
   return writeDatabaseBackup(db, databasePath, { ...options, kind: "manual" }, "pre-import-", "import");
 }
 
-/** Writes a checked, manually retained safety snapshot before database maintenance. */
 export function backupDatabaseBeforeMaintenance(
   db: DatabaseSync,
   databasePath: string,
@@ -458,7 +427,6 @@ export function backupDatabase(
   return writeDatabaseBackup(db, databasePath, options, `${kind}-`);
 }
 
-/** True until an automatic backup has been made during the current local calendar day. */
 export function isBackupDue(databasePath: string, directory?: string, now = new Date()): boolean {
   const latest = listDatabaseBackups(databasePath, directory).find((backup) => backup.kind === "automatic");
   return !latest || toLocalCalendarDate(latest.createdAt) !== toLocalCalendarDate(now);
@@ -476,10 +444,7 @@ export type RestoreDatabaseErrorCode =
   | "RESTORE_DATABASE_IN_USE"
   | "RESTORE_FILES_LOCKED";
 
-/**
- * A safe, classified restore failure. Every one of them is raised before the current database is replaced (the staging
- * copy failed a check, the file is not ours, the database is in use), so nothing was lost when it is thrown.
- */
+/** Always raised before the current database is replaced, so nothing was lost when it is thrown. */
 export class RestoreDatabaseError extends Error {
   public constructor(
     public readonly code: RestoreDatabaseErrorCode,
@@ -501,20 +466,14 @@ export interface RestoreDatabaseResult {
   projects: number;
   sessions: number;
   remapped: { projects: number; handoffSnapshots: number };
-  /** File name of the backup taken of the replaced database, when there was one. */
   safetyBackup?: string;
 }
 
-/** What a read-only look at a file that might be a backup found; nothing is written, migrated or repaired. */
 export type BackupInspection =
   | { status: "ok"; schemaVersion: number; projects: number; sessions: number }
-  /** A Work Intelligence database written by a newer App than this one. */
   | { status: "newer-schema"; schemaVersion: number }
-  /** Not an SQLite file, or an SQLite file without our tables. */
   | { status: "not-database" }
-  /** An SQLite file that failed its integrity check or could not be read through. */
   | { status: "corrupt"; detail?: string }
-  /** The file could not be opened at all (permissions, a lock). */
   | { status: "unreadable" };
 
 const SQLITE_CORRUPT = 11;
@@ -545,12 +504,7 @@ function classifyOpenFailure(error: unknown): BackupInspection {
   return { status: "not-database" };
 }
 
-/**
- * Reads `source` read-only and says whether it can be restored from: a Work Intelligence database (our tables), not newer
- * than this version supports, and (unless `integrity` is false, which a listing of many files uses) passing
- * `PRAGMA quick_check`, or `PRAGMA integrity_check` when `full` is set (a restore is offline, so it can afford it). The schema version is decided before the integrity check, so
- * a file from a newer App is reported as such. Never throws.
- */
+/** The schema version is decided before the integrity check, so a newer App's file is reported as such. Never throws. */
 export function inspectDatabaseBackup(
   source: string,
   options: { integrity?: boolean; full?: boolean } = {},
@@ -585,7 +539,7 @@ export function inspectDatabaseBackup(
     try {
       db?.close();
     } catch {
-      // A connection that never opened has nothing to close.
+      // Best effort.
     }
   }
 }
@@ -607,8 +561,6 @@ function inspectSnapshot(source: string): { schemaVersion: number; projects: num
     `The file to restore failed its integrity check: ${found.status === "corrupt" ? (found.detail ?? "damaged") : "unreadable"}`,
   );
 }
-
-/** Another open connection (the API server or an Agent's MCP server) keeps an exclusive lock from being taken. */
 
 function isInUse(databasePath: string): boolean {
   const probe = new DatabaseSync(databasePath);
@@ -635,7 +587,7 @@ function readChangeRevisions(database: DatabaseSync): { dataRevision: number; au
   return { dataRevision: Number(row?.dataRevision ?? 0), auditRevision: Number(row?.auditRevision ?? 0) };
 }
 
-/** The staging copy is checked after its migration and remap, because the snapshot check ran before them. */
+/** Checked after migration and remap, because the snapshot check ran before them. */
 function assertRestoredCopyHealthy(db: DatabaseSync): void {
   let healthy: boolean;
   try {
@@ -652,14 +604,10 @@ function assertRestoredCopyHealthy(db: DatabaseSync): void {
   }
 }
 
-/**
- * Empties a side file of the database about to be replaced (an empty WAL is no WAL, an empty shared-memory file is
- * rebuilt) and says whether it could. Nothing is removed yet: if the replacement is then refused, the current database
- * is still complete, because its WAL was checkpointed into it.
- */
+/** Nothing is removed yet: if the replacement is refused, the WAL was already checkpointed into the database. */
 function emptySideFile(path: string): boolean {
   try {
-    // Truncating never creates the file: there is nothing to empty when the database was closed cleanly.
+    // Truncating never creates the file.
     truncateSync(path, 0);
     return true;
   } catch (error) {
@@ -667,20 +615,14 @@ function emptySideFile(path: string): boolean {
   }
 }
 
-/** Removes the emptied side file once the new database is in place; one that stays is empty, so it is harmless. */
 function removeEmptiedSideFile(path: string): void {
   try {
     rmSync(path, { force: true });
   } catch {
-    // Already empty: SQLite starts from nothing beside the new file.
+    // Already empty, so SQLite starts from nothing beside the new file.
   }
 }
 
-/**
- * Replaces the database with a snapshot, e.g. one exported on another computer. The snapshot is checked
- * first, the current database is backed up, and project roots / handoff paths can be moved to the new
- * machine's locations. Nothing else may have the database open; restore always requires an exclusive lock.
- */
 export function restoreDatabase(options: {
   source: string;
   databasePath: string;
@@ -727,7 +669,7 @@ export function restoreDatabase(options: {
   rmSync(staging, { force: true });
   rmSync(`${staging}-wal`, { force: true });
   rmSync(`${staging}-shm`, { force: true });
-  // Copying through SQLite (not the file system) includes writes still in a WAL file beside the source.
+  // Copying through SQLite, not the file system, includes writes still in the source's WAL.
   const reader = new DatabaseSync(source, { readOnly: true });
   try {
     writeSnapshot(reader, staging);

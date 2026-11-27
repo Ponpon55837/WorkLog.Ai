@@ -47,7 +47,6 @@ export interface SessionAgentReadDependencies {
   withKnowledgeTrustMany(knowledge: KnowledgeRecord[]): KnowledgeRecord[];
   listDiagrams(sessionId: string): SessionDiagramRecord[];
   getSessionLinks(sessionId: string): SessionLinkRecord[];
-  /** The tracked Session's full Agent detail (with revision), built in the caller's current read snapshot. */
   agentSessionDetail(sessionId: string): SessionDetailResult | undefined;
 }
 
@@ -111,7 +110,7 @@ function fieldsFor(query: SessionAgentReadQuery): SessionReadField[] {
 
 function changedFileList(row: SelectedRow): string[] | undefined {
   const files = parseJson<unknown>(row.changed_files_json ?? null, undefined);
-  // An empty list counts as known only once confirmed; older Sessions stored [] for "not reported".
+  // Older Sessions stored [] for "not reported", so an empty list counts as known only once confirmed.
   return Array.isArray(files) &&
     files.every((file) => typeof file === "string") &&
     (files.length > 0 || row.changed_files_confirmed === 1)
@@ -119,10 +118,6 @@ function changedFileList(row: SelectedRow): string[] | undefined {
     : undefined;
 }
 
-/**
- * One entry per path, in changedFiles order and then any path only the change or provenance lists name, so an
- * Agent reads each path once with its status, sources and references.
- */
 function mergeSessionFiles(
   files: string[],
   provenance: ChangedFileProvenance[],
@@ -153,17 +148,12 @@ function mergeSessionFiles(
   return [...entries.values()];
 }
 
-/**
- * The revision of a full Agent Session detail with raw snapshot content omitted: the first 16 base64url characters
- * of the SHA-256 of its JSON, serialized once. Our builders emit keys in a fixed order, so equal content gives an
- * equal revision. The project record is left out; it changes with every write anywhere in the project.
- */
+/** Our builders emit keys in a fixed order; the project record is left out because it changes with every write. */
 export function sessionDetailRevision(detail: object): string {
   const { project: _project, outcome: _outcome, ...content } = detail as Record<string, unknown>;
   return createHash("sha256").update(JSON.stringify(content)).digest("base64url").slice(0, SESSION_REVISION_LENGTH);
 }
 
-/** Constant-time comparison of a held revision with the current one. */
 export function sameSessionRevision(known: string | undefined, current: string): boolean {
   if (known === undefined) return false;
   const left = Buffer.from(known);
@@ -171,7 +161,6 @@ export function sameSessionRevision(known: string | undefined, current: string):
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
-/** Full Agent detail with raw snapshot content replaced by its length, plus the content revision. */
 export function toAgentSessionDetail(detail: SessionDetail): SessionDetailResult {
   const body = {
     outcome: "session_detail" as const,
@@ -184,7 +173,6 @@ export function toAgentSessionDetail(detail: SessionDetail): SessionDetailResult
   return { ...body, session: { ...body.session, revision: sessionDetailRevision(body) } };
 }
 
-/** Identity-only answer for a body the Agent already holds. */
 export function sessionUnchanged(
   session: Pick<WorkSessionRecord, "id" | "projectId" | "title" | "voided">,
   revision: string,
@@ -201,7 +189,6 @@ export function sessionUnchanged(
   };
 }
 
-/** Projected reads return no unselected family and retain one consistent deferred SQLite snapshot. */
 export class SessionAgentReadService {
   public constructor(
     private readonly db: DatabaseSync,
@@ -228,7 +215,7 @@ export class SessionAgentReadService {
         projectStatus: decision.projectStatus,
         reason: decision.reason ?? "Project recording is not enabled.",
       };
-    // One revision per Session state: always derived from the full detail, whatever this read projects.
+    // Always derived from the full detail, whatever this read projects.
     const full = this.dependencies.agentSessionDetail(query.sessionId);
     if (!full) return { outcome: "not_found", sessionId: query.sessionId, reason: "Session does not exist." };
     const { revision } = full.session;

@@ -14,7 +14,6 @@ function isHighSurrogate(code: number): boolean {
   return code >= 0xd800 && code <= 0xdbff;
 }
 
-/** Start of the text after the first sentence end or, failing that, the first whitespace run in [from, to]. */
 function snapStart(text: string, from: number, to: number): number {
   const slack = text.slice(from, to);
   SENTENCE_END.lastIndex = 0;
@@ -24,7 +23,6 @@ function snapStart(text: string, from: number, to: number): number {
   return space ? from + space.index + space[0].length : from;
 }
 
-/** End of the text at the last sentence end or, failing that, before the last whitespace run in [from, to]. */
 function snapEnd(text: string, from: number, to: number): number {
   const slack = text.slice(from, to);
   let sentenceEnd = -1;
@@ -50,13 +48,6 @@ function headOf(text: string, limit: number): WindowedExcerpt {
   return { text: `${prefix.slice(0, safeEnd).trimEnd()}${ELLIPSIS}`, truncated: true };
 }
 
-/**
- * Cuts `text` to at most `limit` characters (ellipses included), centered on the densest cluster of the lowercase
- * `terms`. Without a match (or when lowercasing changes offsets) it keeps the start of the text.
- *
- * Complexity: one `indexOf` scan per term, O(n·T), plus a sort of the m occurrence offsets and a two-pointer sweep
- * over them: O(n·T + m log m). Cutting then looks only at the slack around the chosen window, O(limit).
- */
 export function windowExcerpt(text: string, terms: readonly string[], limit: number): WindowedExcerpt {
   if (text.length <= limit) return { text, truncated: false };
   const lower = text.toLowerCase();
@@ -72,10 +63,7 @@ export function windowExcerpt(text: string, terms: readonly string[], limit: num
   if (occurrences.length === 0) return headOf(text, limit);
   occurrences.sort((left, right) => left.start - right.start || left.end - right.end);
 
-  // Room for the text itself once both ellipses are reserved.
   const budget = Math.max(1, limit - 2 * ELLIPSIS.length);
-  // Two pointers: the window [from, to] holds the occurrences whose span (first start to the end of the newest
-  // occurrence) fits the budget; keep the earliest window with the most occurrences.
   let bestFrom = 0;
   let bestTo = 0;
   let from = 0;

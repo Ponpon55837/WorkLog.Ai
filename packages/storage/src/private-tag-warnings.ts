@@ -21,7 +21,6 @@ function collectUnclosed(value: unknown, path: string, found: Array<{ path: stri
   }
 }
 
-/** Names the finalize text fields with an unclosed `<private>` tag; never repeats their content. */
 export function findUnclosedPrivateTags(input: TextFields): PrivateTagWarnings | undefined {
   const found: Array<{ path: string; count: number }> = [];
   const { title, summary, workSummary, verification, events, handoffContent, diagrams } = input;

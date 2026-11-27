@@ -20,11 +20,7 @@ export class KnowledgePageDeletionError extends Error {
 
 type PageStateRow = { id: string; project_id: string; slug: string };
 
-/**
- * Deletes one custom Knowledge page with its version history, in one transaction. Only the Web UI and REST reach
- * this; Agents can only suggest it. The attention_page_deleted trigger removes the page's attention preferences, and
- * the content-free audit row lets a merge import report the page as deleted instead of adding it back.
- */
+/** The content-free audit row lets a merge import report the page as deleted instead of adding it back. */
 export class KnowledgePageDeletionService {
   public constructor(
     private readonly db: DatabaseSync,

@@ -1,36 +1,22 @@
 import type { DatabaseSync } from "node:sqlite";
 
-/**
- * Weights of the value score; every signal is capped so one noisy Session cannot outrank real decisions.
- * @internal test-only
- */
+/** @internal test-only */
 export const BACKLOG_SCORE_WEIGHTS = {
-  /** Per confirmed decision, up to `decisionCap`. */
   decision: 2,
   decisionCap: 3,
-  /** Verification went from failed to passed, or the Session passed while continuing a Session that failed. */
   verificationRecovered: 3,
-  /** Per later Session linked to this one (work built on it), up to `inboundLinkCap`. */
   inboundLink: 1.5,
   inboundLinkCap: 3,
-  /** Per `work_get_session` read audit that returned this Session, up to `rereadCap`. */
   reread: 0.5,
   rereadCap: 5,
-  /** Knowledge already cites the Session, so a candidate from it is less likely to be new. */
   citedByKnowledge: -1,
 } as const;
 
-/**
- * Only a deliberate read of one Session counts as a re-read: context and recall also log every Session they
- * return, which would make recent Sessions look re-read.
- */
+/** Context and recall also log every Session they return, which would make recent Sessions look re-read. */
 const DELIBERATE_READ_TOOL = "work_get_session";
 
-/** A Session is "high value" when its score reaches this; one confirmed decision (2) or one inbound link (1.5) does. */
 export const HIGH_VALUE_MIN_SCORE = 1;
-/** getContext mentions the backlog only when at least this many high-value Sessions are uncovered... */
 export const CONTEXT_BACKLOG_MIN_HIGH_VALUE = 5;
-/** ...and the project's last Knowledge candidate request is older than this (or there never was one). */
 export const CONTEXT_BACKLOG_MIN_DAYS_SINCE_REQUEST = 7;
 
 export interface BacklogSignals {
@@ -66,12 +52,10 @@ type BacklogRow = {
 
 const WEIGHTS = BACKLOG_SCORE_WEIGHTS;
 
-// A Session whose decisions predate the session_decisions table has no rows there; its work summary is the
-// only record, and its decisions were never subject to review, so they count as confirmed.
+// Decisions that predate session_decisions were never subject to review, so they count as confirmed.
 const LEGACY_DECISION_COUNT = `CASE WHEN json_valid(s.work_summary_json) AND json_type(s.work_summary_json, '$.decisions') = 'array'
   THEN json_array_length(s.work_summary_json, '$.decisions') ELSE 0 END`;
 
-/** Orders by value, then newest completion, then id: the order a request lists its source Sessions in. */
 function compareBacklogSessions(left: BacklogSession, right: BacklogSession): number {
   return (
     right.score - left.score ||
@@ -80,10 +64,7 @@ function compareBacklogSessions(left: BacklogSession, right: BacklogSession): nu
   );
 }
 
-/**
- * Weighted, capped sum of the structured signals; see BACKLOG_SCORE_WEIGHTS.
- * @internal test-only
- */
+/** @internal test-only */
 export function scoreBacklogSession(signals: BacklogSignals): number {
   return (
     Math.min(signals.confirmedDecisions, WEIGHTS.decisionCap) * WEIGHTS.decision +
@@ -94,18 +75,6 @@ export function scoreBacklogSession(signals: BacklogSignals): number {
   );
 }
 
-/**
- * Live Sessions that no non-cancelled Knowledge candidate request lists as a source, each with its value score.
- * One project, or every tracked project when `projectId` is omitted.
- *
- * Complexity (S = live Sessions of the scope, C = source ids in the scope's requests, p = signal rows per Session):
- * - the covered ids are materialized once (`NOT IN (uncorrelated subquery)`): O(C), then O(S log C) membership checks;
- * - each uncovered Session probes four indexes (session_decisions by session, session_verification_updates by
- *   session, session_links by related session, agent_read_audit_records by record): O(S log N) with at most
- *   `rereadCap` rows read per Session for re-reads;
- * - no step compares every Session with every request or every signal row.
- * Callers then rank with `selectTopBacklogSessions` (O(S log k)) and count with `summarizeBacklog` (O(S)).
- */
 export function loadUncoveredBacklogSessions(db: DatabaseSync, projectId?: string): BacklogSession[] {
   const sessionScope = projectId
     ? "s.project_id = ?"
@@ -170,7 +139,6 @@ export function loadUncoveredBacklogSessions(db: DatabaseSync, projectId?: strin
   }));
 }
 
-/** The `limit` best Sessions in request order, kept in a sorted buffer of `limit` entries: O(S log k) comparisons. */
 export function selectTopBacklogSessions(sessions: readonly BacklogSession[], limit: number): BacklogSession[] {
   const top: BacklogSession[] = [];
   for (const session of sessions) {
@@ -195,7 +163,6 @@ export function selectTopBacklogSessions(sessions: readonly BacklogSession[], li
   return top;
 }
 
-/** Uncovered and high-value counts of already loaded Sessions, leaving out any ids in `excluded`. */
 export function summarizeBacklog(
   sessions: readonly BacklogSession[],
   excluded: ReadonlySet<string> = new Set(),
@@ -210,7 +177,6 @@ export function summarizeBacklog(
   return { uncoveredSessions, highValueSessions };
 }
 
-/** Counts per project, for a list that spans projects; projects without uncovered Sessions are left out. */
 export function summarizeBacklogByProject(
   sessions: readonly BacklogSession[],
 ): Array<BacklogCounts & { projectId: string }> {

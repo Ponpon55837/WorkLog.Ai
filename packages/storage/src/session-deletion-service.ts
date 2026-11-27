@@ -25,7 +25,6 @@ export class SessionDeletionError extends Error {
 type SessionStateRow = { id: string; project_id: string; voided_at: string | null };
 type CountRow = { count: number };
 
-/** Tables whose rows go with the Session, each counted by its `session_id` column. */
 const SESSION_CHILD_TABLES = [
   ["workEvents", "work_events"],
   ["rawSnapshots", "raw_snapshots"],
@@ -70,12 +69,6 @@ function makeDeletionCounts(db: DatabaseSync, sessionId: string): SessionDeletio
   return counts;
 }
 
-/**
- * Permanently deletes one voided Session after a checked snapshot. Only the Web UI and REST reach this;
- * Agents can void and restore but never delete. Rows that only cite the Session by id (report and request
- * source lists, Agent read summaries, item events it resolved) keep the id; readers already treat a missing
- * Session like a voided one.
- */
 export class SessionDeletionService {
   public constructor(
     private readonly db: DatabaseSync,
@@ -95,7 +88,6 @@ export class SessionDeletionService {
       backupFileName = backupDatabaseBeforeSessionDeletion(this.db, this.databasePath, this.backupOptions).created
         .fileName;
     } catch (error) {
-      // A busy, read-only or full database keeps its own code; other backup failures stop the deletion as before.
       if (databaseUnavailableReason(error)) {
         throw error;
       }
@@ -122,13 +114,12 @@ export class SessionDeletionService {
         this.db
           .prepare("UPDATE knowledge_pages SET checked_through_session_id = NULL WHERE checked_through_session_id = ?")
           .run(sessionId);
-        // Their reason may quote the deleted decision, so the snapshot rows go with it.
         this.db
           .prepare("DELETE FROM agent_review_request_items WHERE source_session_id = ? AND item_kind = 'decision'")
           .run(sessionId);
         // Items go first so their append-only events cascade only after the item itself is gone.
         this.db.prepare("DELETE FROM outstanding_items WHERE source_session_id = ?").run(sessionId);
-        // Everything else is owned by the Session row and cascades with it.
+        // Everything else cascades with the Session row.
         this.db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
 
         const deletedAt = nowIso();
@@ -150,7 +141,6 @@ export class SessionDeletionService {
         };
       });
     } catch (error) {
-      // Busy, read-only, disk-full and schema-changed failures keep their own codes: the user can resolve them and retry.
       if (
         error instanceof SessionDeletionError ||
         isDatabaseSchemaChangedError(error) ||

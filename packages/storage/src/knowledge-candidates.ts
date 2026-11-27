@@ -45,7 +45,6 @@ import { runImmediateTransaction } from "./sqlite-transaction.js";
 import { combineRedactionSummaries, redactValue } from "./secret-redaction.js";
 
 const MAX_SOURCE_SESSIONS = 10;
-/** existingKnowledge caps per status, newest first: titles only, so the whole list stays a few thousand characters. */
 const EXISTING_KNOWLEDGE_LIMITS = { active: 150, archived: 30, rejected: 20 } as const;
 const HANDOFF_BUDGET = 40_000;
 const PROCESSING_TIMEOUT_MS = 30 * 60 * 1000;
@@ -155,7 +154,6 @@ export function toCandidate(row: CandidateRow): KnowledgeCandidate {
   };
 }
 
-/** Advisories are listed only when there is one, so a candidate without matches looks as it always did. */
 function withOverlapList(
   candidate: KnowledgeCandidate,
   overlaps: KnowledgeCandidate["overlaps"] | undefined,
@@ -163,7 +161,6 @@ function withOverlapList(
   return overlaps?.length ? { ...candidate, overlaps } : candidate;
 }
 
-/** The stored form of a submitted candidate, for recognising a resubmission of the same payload. */
 function candidateFingerprint(candidate: {
   sourceSessionId?: string;
   kind: KnowledgeKind;
@@ -207,7 +204,6 @@ function skipped(decision: PolicyDecision): KnowledgeCandidateSkippedResult {
   };
 }
 
-/** Active Knowledge, archived Knowledge, and rejected candidates of one project, titles only. */
 export function loadExistingKnowledge(
   db: DatabaseSync,
   projectId: string,
@@ -259,15 +255,9 @@ export const CANDIDATE_SELECT = `SELECT c.*, p.name AS project_name, s.title AS 
   JOIN projects p ON p.id = c.project_id
   LEFT JOIN sessions s ON s.id = c.session_id`;
 
-/**
- * Agent-proposed Knowledge. An Agent reads a request's source Sessions and submits candidates;
- * candidates become Knowledge only when a person accepts them, so Knowledge stays explicitly committed.
- */
 export class KnowledgeCandidateService {
-  // Scoring scans every uncovered Session of the project, and getContext asks on every call.
   private readonly backlogSnapshots: DataRevisionCache<BacklogCounts>;
   private readonly requestInfos: DataRevisionCache<RequestInfo>;
-  // The Web list asks on every refresh; keyed by project id, or "" for every tracked project.
   private readonly listedBacklogs: DataRevisionCache<KnowledgeCandidateBacklog[]>;
 
   public constructor(
@@ -279,7 +269,6 @@ export class KnowledgeCandidateService {
     this.listedBacklogs = new DataRevisionCache(db);
   }
 
-  /** Opens (or returns the open) request for Sessions of the project that no earlier request covered. */
   public request(projectRoot: string): RequestKnowledgeCandidatesResult {
     const decision = this.dependencies.checkProjectRoot(projectRoot);
     if (!decision.allowed || !decision.project) {
@@ -322,10 +311,6 @@ export class KnowledgeCandidateService {
     });
   }
 
-  /**
-   * Starts (or resumes) processing: returns the request's source Sessions with bounded handoff text
-   * and the project's active Knowledge titles. Uses the newest open request when none is named.
-   */
   public context(input: { requestId?: string; projectRoot?: string }): KnowledgeCandidateContextResult {
     this.recoverStale();
     const request = this.resolveRequest(input);
@@ -395,7 +380,6 @@ export class KnowledgeCandidateService {
     };
   }
 
-  /** Stores the Agent's proposals (possibly none) and completes the request. */
   public submit(input: { requestId: string; candidates: KnowledgeCandidateInput[] }): SubmitKnowledgeCandidatesResult {
     const request = this.getRequest(input.requestId);
     if (!request) {
@@ -429,8 +413,7 @@ export class KnowledgeCandidateService {
     const sanitizedCandidates = input.candidates.map(sanitizeCandidate);
     const redactions = combineRedactionSummaries(...sanitizedCandidates.map((candidate) => candidate.redactions));
     const createdAt = nowIso();
-    // Advisories only read, so they are computed before the write lock. Records created after createdAt never
-    // compare, so the stored advisory is what a later replay returns.
+    // Read-only, so computed before the write lock; records created after createdAt never compare, so a replay matches.
     const overlaps = findKnowledgeCandidateOverlaps(
       this.db,
       { projectId: request.projectId, requestId: request.id, createdAtOrBefore: createdAt },
@@ -517,7 +500,6 @@ export class KnowledgeCandidateService {
     return { outcome: "knowledge_candidates", items, openRequests, backlog };
   }
 
-  /** Accepting records the (optionally edited) candidate as Knowledge linked to its source Session. */
   public decide(input: DecideKnowledgeCandidateInput): DecideKnowledgeCandidateResult {
     const candidate = this.getCandidate(input.candidateId);
     if (!candidate) {
@@ -577,7 +559,6 @@ export class KnowledgeCandidateService {
     };
   }
 
-  /** Open requests for context: pending, processing, or failed (retryable), newest first. */
   public openRequests(projectId?: string, limit = 5): KnowledgeCandidateRequest[] {
     this.recoverStale();
     return (
@@ -590,14 +571,7 @@ export class KnowledgeCandidateService {
     ).map(toRequest);
   }
 
-  /**
-   * The unreviewed-Session backlog worth telling an Agent about, for a project the caller has already admitted
-   * through the policy gate. Undefined while a request is open, below the high-value threshold, or when the
-   * project's last request is recent. Reuses a snapshot until the data revision moves, so a repeated getContext
-   * costs only the revision read.
-   */
   public contextBacklog(projectId: string, now = Date.now()): KnowledgeCandidateBacklog | undefined {
-    // The cheap request row alone decides visibility, so a recent or open request never pays for scoring.
     const requests = this.requestInfo(projectId);
     if (requests.hasOpenRequest) {
       return undefined;
@@ -608,8 +582,7 @@ export class KnowledgeCandidateService {
     ) {
       return undefined;
     }
-    // The hint is advisory and part of a read-only context: a failure of its signals (for example the passive
-    // read audit table) must never fail the context.
+    // The hint is advisory: a failure of its signals must never fail the read-only context.
     let counts: BacklogCounts;
     try {
       counts = this.backlogCounts(projectId);
@@ -619,11 +592,6 @@ export class KnowledgeCandidateService {
     return counts.highValueSessions < CONTEXT_BACKLOG_MIN_HIGH_VALUE ? undefined : { projectId, ...counts };
   }
 
-  /**
-   * A completed request resubmitted with the same normalized payload returns what the first submission stored,
-   * including its stored advisories, instead of request_not_open. Candidates submitted before schema 33 have none
-   * stored; theirs are computed again against the records that existed at the submission, as before.
-   */
   private replaySubmission(
     request: KnowledgeCandidateRequest,
     candidates: KnowledgeCandidateInput[],
@@ -667,7 +635,6 @@ export class KnowledgeCandidateService {
     };
   }
 
-  /** Candidates with their stored advisories, the matched titles read in one query per record type. */
   private withStoredOverlaps(rows: readonly CandidateRow[]): KnowledgeCandidate[] {
     const parsed = rows.map((row) => parseStoredOverlaps(row.overlaps_json) ?? []);
     const resolved = resolveStoredOverlaps(
@@ -677,7 +644,6 @@ export class KnowledgeCandidateService {
     return rows.map((row, index) => withOverlapList(toCandidate(row), resolved[index]));
   }
 
-  /** The last request time and whether one is open; one indexed aggregate, reused until the data revision moves. */
   private requestInfo(projectId: string): RequestInfo {
     return this.requestInfos.get(projectId, () => {
       const row = this.db
@@ -691,7 +657,6 @@ export class KnowledgeCandidateService {
     });
   }
 
-  /** Scores the project's uncovered Sessions; reused until the data revision moves, so a passed window scores once. */
   private backlogCounts(projectId: string): BacklogCounts {
     return this.backlogSnapshots.get(projectId, () =>
       summarizeBacklog(loadUncoveredBacklogSessions(this.db, projectId)),
@@ -737,7 +702,6 @@ export class KnowledgeCandidateService {
     return row ? toCandidate(row) : undefined;
   }
 
-  /** Processing requests abandoned for 30 minutes become failed, which an Agent can pick up again. */
   private recoverStale(now = Date.now()): void {
     const cutoff = new Date(now - PROCESSING_TIMEOUT_MS).toISOString();
     const stale = this.db
@@ -757,7 +721,7 @@ export class KnowledgeCandidateService {
           .run(cutoff),
       );
     } catch (error) {
-      // This lazy cleanup runs on read paths; once another process migrated the database the reads keep working.
+      // Lazy cleanup on read paths: once another process migrated the database, reads go on without it.
       if (!isDatabaseSchemaChangedError(error)) throw error;
     }
   }

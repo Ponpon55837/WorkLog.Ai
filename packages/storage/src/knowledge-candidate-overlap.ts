@@ -14,7 +14,6 @@ export interface OverlapCandidate {
 
 export interface OverlapScope {
   projectId: string;
-  /** Candidates of this request and the Knowledge accepted from them are the submission itself, never a match. */
   requestId: string;
   /** Only records that existed at the submission compare, so a replayed submission gets the same advisories. */
   createdAtOrBefore: string;
@@ -30,22 +29,16 @@ type ExistingRow = {
 
 type Tokens = { title: Set<string>; text: Set<string> };
 
-/** One candidate's stored advisory and the project it belongs to; matches are only ever looked up in that project. */
 export interface StoredOverlapEntry {
   projectId: string;
   overlaps: readonly StoredKnowledgeCandidateOverlap[];
 }
 
-/**
- * Scores at or above this flag an overlap. On a real project's 72 Knowledge items and candidates (2,556 pairs), the
- * one confirmed near-duplicate pair scored 0.33 and the highest unrelated pair 0.23.
- */
+/** On real data the one confirmed near-duplicate pair scored 0.33 and the highest unrelated pair 0.23. */
 export const KNOWLEDGE_OVERLAP_THRESHOLD = 0.3;
 const OVERLAPS_PER_CANDIDATE = 3;
 const OVERLAP_TITLE_CHARS = 120;
-/** Body text beyond this adds tokens but rarely changes the score; bounding it bounds the work. */
 const OVERLAP_BODY_CHARS = 4_000;
-/** Newest rows compared per kind; real projects hold tens, the bound keeps a submit proportional to it. */
 const OVERLAP_SCAN_LIMIT = 1_000;
 const TITLE_TABLES = { knowledge: "knowledge", candidate: "knowledge_candidates" } as const;
 
@@ -56,7 +49,6 @@ function tokensOf(title: string, body: string): Tokens {
   return { title: titleTokens, text };
 }
 
-/** Shared tokens over the smaller set: a short title fully contained in a longer one still counts. */
 function overlapCoefficient(left: Set<string>, right: Set<string>): number {
   if (left.size === 0 || right.size === 0) return 0;
   const [small, large] = left.size <= right.size ? [left, right] : [right, left];
@@ -71,11 +63,6 @@ function relationFor(status: ExistingRow["status"]): KnowledgeCandidateOverlap["
   return "possible_duplicate";
 }
 
-/**
- * Advisory overlaps of submitted candidates with the same project's Knowledge (active and archived) and with
- * candidates of its earlier requests that are still proposed or were rejected. Accepted candidates are represented
- * by their Knowledge. Each existing record is tokenized once; the result never changes stored data.
- */
 export function findKnowledgeCandidateOverlaps(
   db: DatabaseSync,
   scope: OverlapScope,
@@ -124,7 +111,7 @@ export function findKnowledgeCandidateOverlaps(
   });
 }
 
-/** The stored form of one candidate's advisories: ids, statuses and scores, never a title or other text. */
+/** Ids, statuses and scores only, never a title or other text. */
 export function storedOverlapsJson(overlaps: readonly KnowledgeCandidateOverlap[]): string {
   return JSON.stringify(
     storedKnowledgeCandidateOverlapsSchema.parse(
@@ -133,10 +120,7 @@ export function storedOverlapsJson(overlaps: readonly KnowledgeCandidateOverlap[
   );
 }
 
-/**
- * Reads a stored advisory without trusting it: undefined when none was stored (candidates submitted before schema
- * 33) or the value is not the stored form, so a damaged value is never shown and never throws.
- */
+/** A damaged value is never shown and never throws. */
 export function parseStoredOverlaps(value: string | null): StoredKnowledgeCandidateOverlap[] | undefined {
   if (value === null) return undefined;
   try {
@@ -147,10 +131,6 @@ export function parseStoredOverlaps(value: string | null): StoredKnowledgeCandid
   }
 }
 
-/**
- * Adds the current title of each matched record, looked up by id within the candidate's own project, in one query
- * per record type. A record that no longer exists there keeps its stored relation and status without a title.
- */
 export function resolveStoredOverlaps(
   db: DatabaseSync,
   entries: readonly StoredOverlapEntry[],

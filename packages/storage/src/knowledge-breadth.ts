@@ -12,70 +12,45 @@ import { CHANGED_FILES_NORMAL } from "./search-repository.js";
 import type { PathContext } from "./search-text.js";
 
 export interface AppliesToBreadthScan {
-  /** Absent when appliesTo has no usable entry, the project has no Session to compare, or the scan was unchecked. */
   breadth?: KnowledgeWriteBreadth;
-  /** The share is above BROAD_APPLIES_TO_SHARE over at least MIN_BREADTH_SESSIONS Sessions. */
   broad: boolean;
-  /** The history or match budget ran out (or an entry was too large to compare), so nothing is reported. */
   unchecked: boolean;
 }
 
-/**
- * An appliesTo that touches more than this share of a project's ordinary Sessions (1 to CHANGED_FILES_NORMAL changed
- * files) is broad: it will be flagged possibly stale by almost any work and offered for tasks it does not describe.
- * Measured on one real project, 19% of appliesTo entries and 29% of Knowledge with appliesTo were this wide; the
- * threshold is the first value chosen from that, not a tuned one.
- * @internal test-only
- */
+/** @internal test-only */
 export const BROAD_APPLIES_TO_SHARE = 0.15;
 
-/**
- * Fewest compared Sessions before a share counts as broad. A share over a handful of Sessions is noise: one touch in
- * the three Sessions after a Knowledge was recorded is 33%, which says nothing about the Knowledge's scope.
- * @internal test-only
- */
+/** @internal test-only */
 export const MIN_BREADTH_SESSIONS = 10;
 
-/** Newest focused Sessions of the project that a write-time breadth check compares; it keeps that read bounded. */
 export const BREADTH_SCAN_LIMIT = 200;
 
-/**
- * Sessions with 1 to CHANGED_FILES_NORMAL stored changed files. A stored value that is not valid JSON, not an array,
- * or above the load bound counts as no files, so the filter never throws on damaged rows.
- */
+/** A stored value that is not valid JSON, not an array, or above the load bound counts as no files, so it never throws. */
 export const FOCUSED_SESSION_SQL = `(CASE WHEN octet_length(changed_files_json) <= ${MAX_STORED_CHANGED_FILES_JSON_BYTES}
                                    AND json_valid(changed_files_json)
                               THEN (CASE WHEN json_type(changed_files_json) = 'array'
                                          THEN json_array_length(changed_files_json) ELSE 0 END)
                               ELSE 0 END) BETWEEN 1 AND ${CHANGED_FILES_NORMAL}`;
 
-/** `touching` of `sessions` as a share rounded to 3 decimals; undefined when there is no Session to compare. */
 export function appliesToBreadthOf(touching: number, sessions: number): KnowledgeAppliesToBreadth | undefined {
   if (sessions <= 0) return undefined;
   return { share: Math.round((touching / sessions) * 1000) / 1000, sessions };
 }
 
-/** Whether `touching` of `sessions` is above the broad threshold with enough Sessions to mean anything. */
 export function isBroadAppliesTo(touching: number, sessions: number): boolean {
   return sessions >= MIN_BREADTH_SESSIONS && touching / sessions > BROAD_APPLIES_TO_SHARE;
 }
 
-/** The newest focused Sessions of an index that a breadth is measured over: from index `start`, `sessions` of them. */
 export interface BreadthWindow {
   start: number;
   sessions: number;
 }
 
-/** The window of the newest BREADTH_SCAN_LIMIT focused Sessions of `index` (all of them when there are fewer). */
 export function breadthWindowOf(index: LaterChangeIndex): BreadthWindow {
   return index.newestFocusedWindow(BREADTH_SCAN_LIMIT);
 }
 
-/**
- * How many Sessions of `window` the resolved patterns touch (the union over the patterns, focused Sessions only),
- * charged to `budget` like every other union; undefined when the budget ran out. The one definition both the
- * write-time scan and the staleness check use, so they cannot drift apart.
- */
+/** The one definition the write-time scan and the staleness check share, so they cannot drift apart. */
 export function touchedInWindow(
   index: LaterChangeIndex,
   coverage: readonly PatternCoverage[],
@@ -97,7 +72,6 @@ export function touchedInWindow(
   return touched.size;
 }
 
-/** The English hint an Agent gets when the appliesTo it just wrote is broad. */
 export function broadAppliesToWarning(breadth: KnowledgeWriteBreadth): string {
   const percent = Math.round(breadth.share * 100);
   const scope = breadth.truncated ? `the newest ${breadth.sessions}` : `${breadth.sessions}`;
@@ -108,12 +82,7 @@ export function broadAppliesToWarning(breadth: KnowledgeWriteBreadth): string {
   );
 }
 
-/**
- * How much of the project's recent ordinary work `appliesTo` touches: one bounded, read-only scan of the newest
- * BREADTH_SCAN_LIMIT focused Sessions, resolved through the same index and budgets as the staleness check (so the
- * entries are matched by the same rule and a crafted entry stops at the same ceilings). `truncated` is set when the
- * project has more focused Sessions than were scanned. Run after the write commits, never inside its transaction.
- */
+/** Run after the write commits, never inside its transaction. */
 export function scanAppliesToBreadth(
   db: DatabaseSync,
   projectId: string,

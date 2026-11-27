@@ -1,9 +1,3 @@
-/*
- * Text handling for the retrieval index. Latin text is split into words (identifiers also into their
- * camelCase/snake_case parts); CJK runs become overlapping bigrams, so a two-character Chinese word is
- * one exact token and longer runs match without a word segmenter. Index and query share this tokenizer.
- */
-
 const CJK_CLASS = "\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\p{Script=Hangul}";
 const TOKEN_RUN = new RegExp(`([${CJK_CLASS}]+)|((?:(?![${CJK_CLASS}])[\\p{L}\\p{N}])+)`, "gu");
 
@@ -100,7 +94,6 @@ export interface QueryWord {
   terms: string[];
 }
 
-/** Splits a free-text query into whitespace words, each with its de-duplicated, stopword-free terms. */
 export function parseQueryWords(query: string): QueryWord[] {
   const words: QueryWord[] = [];
   for (const word of query.split(/[\s,;，；、。]+/u)) {
@@ -112,7 +105,6 @@ export function parseQueryWords(query: string): QueryWord[] {
   return words;
 }
 
-/** FTS5 match expression for one term; longer Latin words also match as a prefix (plurals, suffixes). */
 export function ftsTermExpression(term: string): string {
   return /^[a-z0-9]{4,}$/.test(term) ? `"${term}"*` : `"${term}"`;
 }
@@ -122,7 +114,6 @@ export interface MarkdownSection {
   content: string;
 }
 
-/** Splits Markdown by `#`–`###` headings outside code fences; text before the first heading has an empty heading. */
 export function splitMarkdownSections(markdown: string): MarkdownSection[] {
   const sections: MarkdownSection[] = [];
   let heading = "";
@@ -189,14 +180,13 @@ const URL_PATTERN = /^[a-z][a-z0-9+.-]*:\/\//i;
 const LOWERED_ROOT_LIMIT = 64;
 const loweredRoots = new Map<string, string>();
 
-/** `value.replace(/\/+$/, "")` in one backward pass: the RegExp retries from every slash of a run (quadratic). */
+/** Not a RegExp: `/\/+$/` retries from every slash of a run (quadratic). */
 function trimTrailingSlashes(value: string): string {
   let end = value.length;
   while (end > 0 && value.charCodeAt(end - 1) === 47) end -= 1;
   return end === value.length ? value : value.slice(0, end);
 }
 
-/** A project root as normalizePath compares it, remembered for the few roots a process sees (bounded). */
 function loweredRoot(rootPath: string): string {
   let root = loweredRoots.get(rootPath);
   if (root === undefined) {
@@ -211,12 +201,7 @@ function isLineTerminatorCode(code: number): boolean {
   return code === 10 || code === 13 || code === 0x2028 || code === 0x2029;
 }
 
-/**
- * `value.replace(/#L\d+.*$/i, "")` in linear time; the RegExp backtracks through `\d+` and `.*` from every `#L`
- * (quadratic on a long digit run). It matches at the first `#`, `L` or `l`, digit whose tail holds no line terminator:
- * `\d+.*` is then any non-empty run of non-terminators to the end, and none can start earlier, because an earlier
- * start would need the terminator after it to be inside that run.
- */
+/** `value.replace(/#L\d+.*$/i, "")` in linear time; the RegExp backtracks from every `#L` (quadratic). */
 function stripLineAnchor(value: string): string {
   let from = 0;
   for (let index = value.length - 1; index >= 0; index -= 1) {
@@ -234,13 +219,7 @@ function stripLineAnchor(value: string): string {
   return value;
 }
 
-/**
- * Normalizes a stored or queried path for suffix matching: forward slashes, lower case, no line
- * suffix, and relative to the project when it carries the project root or a `<projectName>/` prefix.
- */
 export function normalizePath(raw: string, projects: PathContext[] = []): string {
-  // Each replace runs only when its pattern can match (same result, measured 2x faster on 100,000 paths): a
-  // backslash, a leading `./`, and a trailing `:line` or `:line:column` that must end in a digit.
   let value = raw.trim();
   if (value.includes("\\")) value = value.replace(/\\/g, "/");
   if (value.startsWith("./")) value = value.slice(2);
@@ -263,10 +242,6 @@ export function normalizePath(raw: string, projects: PathContext[] = []): string
   return trimTrailingSlashes(lower);
 }
 
-/**
- * The same project-relative path as normalizePath, keeping the original letter case, for display. Returns
- * undefined when lower-casing changes the length, so callers fall back to the normalized path.
- */
 export function projectRelativePath(raw: string, projects: PathContext[] = []): string | undefined {
   let value = raw.trim().replace(/\\/g, "/").replace(/^\.\//, "");
   value = trimTrailingSlashes(stripLineAnchor(value).replace(/:\d+(?::\d+)?$/, ""));
@@ -289,7 +264,6 @@ export function projectRelativePath(raw: string, projects: PathContext[] = []): 
   return value;
 }
 
-/** Splits a Knowledge reference into its commit SHAs, URLs, and normalized paths. */
 export function normalizeReference(reference: string, projects: PathContext[] = []): NormalizedReference[] {
   const results: NormalizedReference[] = [];
   for (const part of reference.split(/\s+|[(),]|@(?=[0-9a-f]{7,40}\b)/i)) {
@@ -311,10 +285,6 @@ export function normalizeReference(reference: string, projects: PathContext[] = 
   return results;
 }
 
-/**
- * Match strength between a stored path and a queried path (both normalized): 1 exact, 0.8 when one
- * is a path-segment suffix of the other, 0.6 when the stored path is inside a queried directory.
- */
 export function pathMatchStrength(stored: string, queried: string): number {
   if (!stored || !queried) {
     return 0;

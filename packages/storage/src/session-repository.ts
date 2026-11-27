@@ -42,7 +42,6 @@ export type SessionRow = {
 
 export type SessionListOptions = {
   projectId?: string;
-  /** Exact match on the Agent client that wrote the Session. */
   agentClient?: string;
   query?: string;
   from?: string;
@@ -51,25 +50,16 @@ export type SessionListOptions = {
   page?: number;
   pageSize?: number;
   trackedOnly?: boolean;
-  /** Voided Sessions are excluded unless asked for; "only" lists just the voided ones. */
   voided?: SessionVoidedFilter;
-  /** Recorded commit sha equal to or starting with this lowercase hex prefix (validated by the caller's schema). */
   commitSha?: string;
-  /** Calendar-date bounds (host time zone) on when the work started; Sessions without a start never match. */
   startedFrom?: string;
   startedTo?: string;
-  /** Only Sessions completed after this calendar day, or before this one. */
   completedAfter?: string;
   completedBefore?: string;
-  /** Only Sessions changed after finalize (more than a minute later) within these calendar days. */
   updatedFrom?: string;
   updatedTo?: string;
 };
 
-/**
- * Returns the UTC instant where the local calendar day after `date` (YYYY-MM-DD) starts, used as an
- * exclusive upper bound on `completed_at`.
- */
 export function nextCalendarDate(date: string): string {
   const parsed = Date.parse(`${date}T00:00:00.000Z`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(parsed)) {
@@ -88,19 +78,12 @@ type PageInfoBuilder = (
   maxPageSize?: number,
 ) => PageInfo;
 
-/**
- * Stored bytes the term clauses of a text query may read, in two parts. The Session's own columns are checked before a
- * word reads them (octet_length reads the record header without loading the text); the event summaries, which a SUM
- * over the session_id index adds up, are added and checked only when a word was not found in those columns and is
- * about to read the events, at most once per row (listSearchMoreGuard). A word found in a column never reads the
- * events, so it needs no event sum: the sum per word over every row made a three-word query twice as slow.
- */
+/** The event bytes are summed only when a word was not found in the columns, at most once per row. */
 const SEARCHED_COLUMN_BYTES = `COALESCE(octet_length(s.title), 0) + COALESCE(octet_length(s.summary), 0)
   + COALESCE(octet_length(s.work_summary_json), 0) + COALESCE(octet_length(s.changed_files_json), 0)`;
 const SEARCHED_EVENT_BYTES = `(SELECT COALESCE(SUM(octet_length(charged_events.summary)), 0) FROM work_events charged_events
      WHERE charged_events.session_id = s.id)`;
 
-/** Read-side Session persistence kept separate from finalize/update workflows. */
 export class SessionRepository {
   public constructor(
     private readonly db: DatabaseSync,
@@ -112,10 +95,8 @@ export class SessionRepository {
     const { clauses, parameters } = this.buildFilter(options);
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
     const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
-    // CROSS JOIN keeps sessions as the outer loop, so a newest-first list walks idx_sessions_completed and stops at
-    // the limit. With a plain JOIN SQLite started from the tracked projects and sorted all of their Sessions (full
-    // rows) to return a few: 9 ms instead of 0.02 ms for the dashboard's six at 20,000 Sessions. ORDER BY ends with
-    // the unique id, so the order is the same under any plan.
+    // CROSS JOIN keeps sessions as the outer loop so a newest-first list stops at the limit (a plain JOIN sorted all
+    // Sessions). ORDER BY ends with the unique id, so the order is the same under any plan.
     const { value: rows } = runListSearchScan(
       this.db,
       1,
@@ -179,7 +160,6 @@ export class SessionRepository {
     };
   }
 
-  /** Captures every eligible id in a period, without the UI's latest-200 window. */
   public listReportIds(options: Pick<SessionListOptions, "from" | "to" | "projectId">): string[] {
     const { clauses, parameters } = this.buildFilter({ ...options, trackedOnly: true });
     const rows = this.db
@@ -191,7 +171,6 @@ export class SessionRepository {
     return rows.map((row) => row.id);
   }
 
-  /** Pages a fixed request's ids; later work cannot displace them. Policy is rechecked in SQL. */
   public listReportSources(
     ids: readonly string[],
     options: { page?: number; pageSize?: number; projectId?: string },
@@ -212,7 +191,6 @@ export class SessionRepository {
     return { outcome: "sessions", items: rows.map(this.mapSession), pageInfo };
   }
 
-  /** Up to `limit` distinct recorded commits among the Sessions the filter selects; tells a prefix's ambiguity. */
   public distinctCommitShas(options: SessionListOptions, limit: number): string[] {
     const { clauses, parameters } = this.buildFilter(options);
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
@@ -234,7 +212,6 @@ export class SessionRepository {
     return rows.map((row) => row.commit_sha);
   }
 
-  /** Distinct Agent clients that wrote non-voided Sessions of tracked projects. */
   public listAgentClients(): string[] {
     const rows = this.db
       .prepare(
@@ -272,12 +249,6 @@ export class SessionRepository {
     return row ? this.mapSession(row) : undefined;
   }
 
-  /**
-   * A text query cannot use an index, so COUNT plus LIMIT/OFFSET scanned every Session twice with the LIKE
-   * predicates. One scan returns the ordered ids of every match instead: their count is the total, and the page is
-   * cut from them before the full rows are read by primary key in the same order. The page number still clamps to
-   * the total exactly as before, which is why the ids are read first rather than using COUNT(*) OVER ().
-   */
   private listTextQueryPage(
     where: string,
     parameters: Array<string | number | null>,
@@ -334,11 +305,8 @@ export class SessionRepository {
       clauses.push("p.status = 'tracked'");
     }
 
-    // A prefix range rather than LIKE, so idx_sessions_commit_sha seeks it: every text starting with the prefix sorts
-    // at or after it and before the prefix with its last character advanced. As a rowid subquery the range is read
-    // once; as a plain term the planner preferred the project_id equality and scanned each tracked project's Sessions.
-    // The filter arrives lower-cased and new writes store hex lower-cased; a sha an older build or an import stored in
-    // upper case gets a second seek of its own range (Git never prints mixed case).
+    // A prefix range rather than LIKE, so idx_sessions_commit_sha seeks it; upper-case shas stored by an older build or
+    // an import get a second seek of their own range.
     if (options.commitSha) {
       const ranges = [...new Set([options.commitSha, options.commitSha.toUpperCase()])];
       const range = "SELECT rowid FROM sessions WHERE commit_sha >= ? AND commit_sha < ?";
@@ -355,16 +323,10 @@ export class SessionRepository {
       clauses.push("s.voided_at IS NOT NULL");
     }
 
-    // Every term must appear in at least one of the Session's text fields. instr(LOWER(x), term) > 0 is
-    // LOWER(x) LIKE '%term%' with the wildcards escaped (terms are lower-case, LIKE folds ASCII only), without LIKE's
-    // re-match from every stored position. Each word's tests run only after the bytes they may read were checked
-    // against the per-row cap: the columns first, and the events (added to the columns) before they are read.
     const { terms, warnings } = parseListSearchTerms(options.query ?? "");
     if (terms.length > 0) {
-      // Each word is checked when SQLite reaches it, so a row the first word rules out costs one pass, not eight. The
-      // test sits in a CASE WHEN condition, which SQLite evaluates left to right and stops at the answer: the check
-      // runs first and a word found in the title is not searched for in the other fields. (In a THEN branch, as in
-      // 1.6.27, AND and OR are computed as values and every field was searched for every word.)
+      // The check sits in a CASE WHEN condition, which SQLite evaluates left to right and short-circuits; in a THEN branch
+      // every field was searched for every word.
       const cap = listSearchRowCap(SESSION_SEARCH_ROW_BYTES);
       const termClauses = terms.map(
         (_, index) =>
@@ -390,8 +352,6 @@ export class SessionRepository {
       for (const term of terms) parameters.push(term, term, term, term, term);
     }
 
-    // Compare the raw ISO timestamp so the completed_at indexes stay usable. Calendar dates become
-    // the UTC instants of local midnight, so `from`/`to` follow the host time zone.
     if (options.from) {
       clauses.push("s.completed_at >= ?");
       parameters.push(localDayStartIso(options.from) ?? options.from);

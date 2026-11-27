@@ -138,7 +138,6 @@ function reportRangeDays(range: ReportRange): number {
   return (parseUtcCalendarDate(range.to).getTime() - parseUtcCalendarDate(range.from).getTime()) / 86_400_000 + 1;
 }
 
-/** Days for up to a quarter's worth of dates (a custom range longer than 92 days trends by month). */
 export function getReportTrendGranularity(period: WorkReportPeriod, range: ReportRange): ReportTrendGranularity {
   if (period === "custom") {
     return reportRangeDays(range) > 92 ? "month" : "day";
@@ -146,7 +145,6 @@ export function getReportTrendGranularity(period: WorkReportPeriod, range: Repor
   return period === "quarter" || period === "year" ? "month" : "day";
 }
 
-/** The same number of days immediately before a custom range. */
 export function getPreviousCustomRange(range: ReportRange): ReportRange {
   const days = reportRangeDays(range);
   const to = parseUtcCalendarDate(range.from);
@@ -164,7 +162,6 @@ export function buildReportTrends(
 ): ReportTrendPoint[] {
   const dates = granularity === "month" ? listCalendarMonths(range) : listCalendarDates(range);
   const keyLength = granularity === "month" ? 7 : 10;
-  // One pass over the Sessions into date buckets, instead of re-scanning (and re-formatting) every Session per date.
   const buckets = new Map<string, { sessions: number; events: number }>();
   for (const session of sessions) {
     const bucketKey = toLocalCalendarDate(session.completedAt).slice(0, keyLength);

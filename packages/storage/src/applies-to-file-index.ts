@@ -1,26 +1,8 @@
 import type { CompiledAppliesToStrength } from "./applies-to-match.js";
 
-/**
- * A per-call index over normalized file paths that answers "which files can this appliesTo entry cover at all", so a
- * scan tests each entry only against those instead of every file. It only narrows the candidates: the caller still
- * runs the entry's own strength function on each (so strengths and budget charges stay appliesToStrength's), and a
- * file left out here is one whose strength is provably 0. Every path is normalized (lower-cased, `/` separators), so
- * all comparisons are exact code-unit comparisons, as in the matcher.
- *
- * Why the candidates are complete:
- *   - a glob matches only paths that start with its literal prefix and end with its literal suffix (globMatches
- *     rejects the rest first), so the files in the sorted prefix range that also end with the suffix are all it can
- *     match; an empty prefix means every file;
- *   - a plain entry `p` has strength > 0 against file `f` only if `f` equals `p`, one is a path-segment suffix of the
- *     other, or one lies in a directory the other names (`f` starts with or contains `/p/`, or `p` starts with or
- *     contains `/f/`). Equality and both suffix cases make the last segments equal, and `f` being a run of segments
- *     of `p` makes `f`'s last segment one of `p`'s segments, so files indexed by last segment, looked up with each
- *     segment of `p`, cover them. `p` being a directory of `f` makes every non-empty segment of `p` a segment of
- *     `f`, so the files indexed by segment, looked up with the rarest segment of `p`, cover that case. A plain entry
- *     without a non-empty segment falls back to every file.
- *
- * Cost: building is O(F x d) for F files of depth d (plus one sort, O(F log F)); an entry then costs O(d + log F +
- * candidates), and the candidates are the files that can match, not F.
+/*
+ * Only narrows candidates: the caller still runs the entry's strength function on each, and a file left out is one
+ * whose strength is provably 0 (a glob needs its literal prefix and suffix; a plain entry shares a whole segment).
  */
 function push(map: Map<string, number[]>, key: string, position: number): void {
   const list = map.get(key);
@@ -34,7 +16,6 @@ function ascending(left: number, right: number): number {
 
 export class AppliesToFileIndex {
   private readonly files: readonly string[];
-  /** File positions ordered by path, for prefix range lookup. */
   private readonly sorted: number[];
   private readonly byLastSegment = new Map<string, number[]>();
   private readonly bySegment = new Map<string, number[]>();
@@ -51,7 +32,6 @@ export class AppliesToFileIndex {
     }
   }
 
-  /** Positions (ascending, no duplicates) of the files `entry` can cover; `plain` is the entry's normalized text. */
   public candidates(entry: CompiledAppliesToStrength, plain: string): number[] {
     if (entry.never) return [];
     if (entry.glob) return this.globCandidates(entry.glob.prefix, entry.glob.suffix);

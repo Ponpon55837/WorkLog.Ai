@@ -11,7 +11,6 @@ import {
   normalizeChangedFiles,
 } from "./session-record-codecs.js";
 
-/** What the MCP layer may ask Git about, after policy and duplicate checks. */
 export type ChangedFileObservationPlan = {
   rootPath: string;
   paths: string[];
@@ -27,10 +26,6 @@ export type ObservedChangedFileChangesApplication = {
   base: string;
 };
 
-/**
- * The stored changed files of a finalize request that no supplied change covers, as the paths worth asking Git
- * about. Returns undefined when nothing needs observing or the request does not normalize (finalize reports that).
- */
 export function planChangedFileObservation(
   rootPath: string,
   input: FinalizeSessionInput,
@@ -69,12 +64,7 @@ export function planChangedFileObservation(
   }
 }
 
-/**
- * Fills statuses for stored changed files that no entry covers, from what the server observed in Git. An Agent's
- * own entries always win; an observed entry outside the final file set (or touching a covered path) is dropped, and
- * the observed data is re-normalized because it crossed a process boundary. A rename's previousPath joins the file
- * list the same way an Agent-supplied rename's does.
- */
+/** An Agent's own entries always win; observed data is re-normalized because it crossed a process boundary. */
 export function applyObservedChangedFileChanges(
   projectRoot: string,
   files: ChangedFileList,
@@ -121,7 +111,6 @@ export function applyObservedChangedFileChanges(
   return { files: nextFiles, changes: [...changes, ...applied], applied, base: observed.base };
 }
 
-/** The Traditional Chinese note kept on the Session so a server-observed status stays auditable. */
 export function observedChangedFileChangesNote(application: ObservedChangedFileChangesApplication): {
   summary: string;
   details: Record<string, unknown>;

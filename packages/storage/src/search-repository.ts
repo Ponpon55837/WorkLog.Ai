@@ -40,15 +40,6 @@ import { runImmediateTransaction } from "./sqlite-transaction.js";
 
 type DocType = "session" | "knowledge";
 
-/*
- * Ranking: original-term FTS5 BM25 per chunk × field weight, summed for structured fields, with only the best raw
- * handoff section counted. Fixed synonym expansions use a separate 0.2-weight score; only the best synonym chunk
- * or raw section counts, and its contribution is capped at 25% of an existing original-term score. Synonym-only
- * candidates use that single best piece as a low-confidence lead. Original-term IDF coverage controls ranking
- * coverage (words matched only in raw text count half there) and confidence. Structured fields outweigh raw planning
- * text, duplicate raw sections are downweighted, path matches add a fixed score, recency is mild, and Knowledge
- * evidence adjusts its score.
- */
 const FIELD_WEIGHTS: Record<Exclude<RecallField, "path">, number> = {
   title: 3,
   tags: 2,
@@ -65,52 +56,35 @@ const DUPLICATE_RAW_WEIGHT_FACTOR = 0.1;
 // Sessions listing more changed files than this are likely polluted by unrelated dirty worktrees.
 export const CHANGED_FILES_NORMAL = 20;
 const PATH_WEIGHT = 4;
-/** Most weighted files knowledgeForWeightedPaths tests: the changed files of five Sessions, at most 20 each. */
 const WEIGHTED_PATH_LIMIT = 100;
-/** Most search_paths rows its reference query reads (newest first); a basename such as index.ts can be common. */
 const WEIGHTED_REFERENCE_ROW_LIMIT = 2_000;
 const RECENCY_DAYS = 180;
 const MAX_QUERY_TERMS = 32;
-/** Path-like words of a Knowledge query matched against paths and appliesTo; more add cost, not recall. */
 const MAX_QUERY_PATH_WORDS = 5;
 const PATH_SCAN_TRUNCATED_WARNING =
   "Some stored paths are longer than the 4 KB a path comparison reads and were not compared, so path matches may be incomplete.";
 const APPLIES_TO_TRUNCATED_WARNING =
   "Some Knowledge appliesTo entries were not compared within the match budget, so file-scope matches may be incomplete.";
-/** Share of a path score a recall gives an appliesTo-only match; the relaxed Knowledge search keeps the full score. */
 const RECALL_APPLIES_TO_SHARE = 0.85;
 const EXCERPT_LENGTH = 220;
 const MAX_SYNONYM_TERMS = 32;
 const SYNONYM_SCORE_WEIGHT = 0.2;
 const MAX_SYNONYM_SCORE_SHARE = 0.25;
-// Keep weak matches as low-confidence leads, but suppress records with under 10% of the query's IDF weight.
 const MIN_QUERY_COVERAGE = 0.1;
-// "high" needs half the query's IDF weight in structured fields (title, summary, workSummary, Knowledge) or a
-// path match; matches only inside raw handoff text, such as a quoted query in old planning notes, stay "low".
+// Matches only inside raw handoff text, such as a quoted query in old planning notes, stay "low".
 const HIGH_CONFIDENCE_QUERY_COVERAGE = 0.5;
-// For ranking only, query words matched solely in raw handoff text count half. Long imported handoffs mention many
-// words in passing, so full credit let them outrank shorter records that answer the query in structured fields.
-// The coverage floor and confidence still use full coverage, so raw-only answers stay findable.
+// Ranking only: long imported handoffs mention many words in passing and outranked records that answer the query.
 const RAW_ONLY_COVERAGE_SHARE = 0.5;
-// Evidence strength for Knowledge: each confirmation (up to 5) adds 4%, and a contradiction newer than the
-// latest confirmation lowers the score, so a disputed item ranks below an equally matching trusted one.
 const CONFIRMATION_BONUS = 0.04;
 const CONFIRMATION_CAP = 5;
 const CONTRADICTED_FACTOR = 0.7;
-// A later Session that continues an earlier hit records the more current state of the same work. When it scores at
-// least this share of the earlier hit, it moves directly above it, so a chain shows its latest state first and the
-// earlier record stays right after it.
 const CONTINUATION_SCORE_SHARE = 0.3;
-// Only the leading ranked entries are reordered; continuations further down cannot reach the returned hits anyway.
 const CONTINUATION_WINDOW = 100;
-// With queried paths, path-matched Knowledge may fill this share of a recall page (at most this many slots).
 const KNOWLEDGE_PATH_RESERVE_SHARE = 0.15;
 const KNOWLEDGE_PATH_RESERVE_MAX = 3;
-// A relaxed Knowledge match names at most this many shared query terms and appliesTo/reference paths.
 const MAX_MATCHED_TERMS = 8;
 const MAX_MATCHED_PATHS = 3;
-// Single CJK characters that carry no topic of their own (particles, conjunctions, copulas). A query word made only
-// of one of them is left out of termHits: reporting that "的" matched nothing only invites a pointless rephrase.
+// Reporting that "的" matched nothing only invites a pointless rephrase.
 const ZERO_INFORMATION_CJK_WORDS = new Set([
   "的",
   "之",
@@ -167,7 +141,6 @@ interface IndexedDocument {
   paths: Array<{ path: string; weight: number }>;
 }
 
-/** The statements one index sync reuses for every dirty document. */
 interface IndexWriteStatements {
   chunkIds: StatementSync;
   deleteFts: StatementSync;
@@ -178,7 +151,6 @@ interface IndexWriteStatements {
   insertPath: StatementSync;
 }
 
-/** The statements one index sync reuses to read every dirty document, and each project's path context once. */
 interface IndexReadStatements {
   session: StatementSync;
   events: StatementSync;
@@ -223,7 +195,6 @@ interface DocAccumulator {
   bestChunk?: { id: number; score: number; field: RecallField };
   bestRaw?: { id: number; score: number; heading: string };
   terms: Set<number>;
-  /** Query terms matched outside raw handoff text; a quote in old planning notes alone is not a confident answer. */
   structuredTerms: Set<number>;
   pathScore: number;
   matchedPaths: Set<string>;
@@ -241,38 +212,23 @@ export interface RecallOptions {
   paths?: string[];
   projectId?: string;
   types?: DocType[];
-  /** Knowledge statuses to rank; recall reads active Knowledge only when this is not set. */
   knowledgeStatuses?: KnowledgeStatus[];
   kind?: KnowledgeKind;
-  /** Also match queried paths against Knowledge appliesTo (the relaxed Knowledge search). */
   matchAppliesTo?: boolean;
-  /** Inclusive calendar dates in the server's time zone, compared against each document's date. */
   from?: string;
   to?: string;
   limit: number;
-  /**
-   * Internal, for work_get_context: also return the best-ranked path-matched Knowledge that did not make the page,
-   * taken from the same ranking pass. They are never part of `hits`.
-   */
   extraPathKnowledge?: number;
-  /**
-   * Internal, for work_get_context: judge knowledgeConfidence on the first N Knowledge hits of the page only (the ones
-   * that can become relevant.knowledge). All returned Knowledge counts when this is not set.
-   */
   knowledgeConfidenceLimit?: number;
 }
 
-/** A path-matched Knowledge ranked beyond the recall page, in ranked order; only its title and first matched path. */
 export interface ExtraPathKnowledge {
   id: string;
   title: string;
   matchedPath: string;
 }
 
-/**
- * A Knowledge ranked by knowledgeForWeightedPaths: its score and every weighted file (as passed) that contributed.
- * @internal test-only
- */
+/** @internal test-only */
 export interface WeightedPathKnowledge extends ExtraPathKnowledge {
   score: number;
   files: string[];
@@ -280,22 +236,17 @@ export interface WeightedPathKnowledge extends ExtraPathKnowledge {
 
 export interface RecallComputation {
   hits: RecallHit[];
-  /** Only when `extraPathKnowledge` was requested; internal to the context builder, never returned by work_recall. */
   extraPathKnowledge?: ExtraPathKnowledge[];
   confidence: RecallConfidence;
-  /** The confidence rule applied to the returned Knowledge hits only. */
   knowledgeConfidence: RecallConfidence;
   termHits?: RecallTermHits[];
-  /** The query had more distinct terms than the ranking reads; words past the cap are left out of termHits. */
   termHitsTruncated?: true;
-  /** Present when stored paths above the per-path cap were skipped. */
   warnings?: string[];
 }
 
 export interface KnowledgeRankOptions {
   q: string;
   projectId?: string;
-  /** The status whose best matches are returned as hits; every status is counted in totals. */
   status: KnowledgeStatus;
   kind?: KnowledgeKind;
   limit: number;
@@ -304,23 +255,16 @@ export interface KnowledgeRankOptions {
 export interface KnowledgeRankHit {
   id: string;
   score: number;
-  /** Tokenized query terms (words, identifier parts, CJK bigrams) the Knowledge contains. */
   matchedTerms: string[];
-  /** Normalized appliesTo or reference paths that matched a path-like query word. */
   matchedPaths?: string[];
 }
 
 export interface KnowledgeRanking {
-  /** Matches per status, including the ones not returned as hits. */
   totals: Partial<Record<KnowledgeStatus, number>>;
   hits: KnowledgeRankHit[];
-  /** Per query word, how many Knowledge of the requested status contain it (ranking rule, see countTermHits). */
   termHits: RecallTermHits[];
-  /** The query had more distinct terms than the ranking reads; words past the cap are left out of termHits. */
   termHitsTruncated?: true;
-  /** The appliesTo match budget ran out or an over-long stored path was skipped, so some Knowledge was not checked. */
   appliesToScanTruncated?: true;
-  /** The query had more terms or path-like words than the ranking uses, so the rest were ignored. */
   queryTruncated?: true;
 }
 
@@ -374,19 +318,10 @@ function isZeroInformationWord(word: QueryWord): boolean {
   return ZERO_INFORMATION_CJK_WORDS.has(word.word);
 }
 
-/** A query word that is one unsegmented CJK run of three or more characters, so it became several bigrams. */
 function isCjkRun(word: QueryWord): boolean {
   return CJK_RUN.test(word.word.normalize("NFKC"));
 }
 
-/**
- * Per query word, how many documents contain it, judged the way the ranking matches: ranking is OR over terms, so a
- * word that tokenizes into several terms (`retrieval-trust`, `camelCase`: the whole word plus its parts) counts a
- * document holding any of them. Requiring every part reported such words as matching nothing while documents ranked
- * on them. An unsegmented CJK run becomes overlapping bigrams and counts a document holding at least half of them,
- * so a phrase whose parts all matched is not reported as matching nothing. Words whose terms all fall past the
- * MAX_QUERY_TERMS cap were never searched and are left out instead of being reported as 0.
- */
 function countTermHits(words: QueryWord[], terms: string[], docs: Iterable<DocAccumulator>): RecallTermHits[] {
   const documents = [...docs];
   return words
@@ -405,16 +340,11 @@ function countTermHits(words: QueryWord[], terms: string[], docs: Iterable<DocAc
     });
 }
 
-/**
- * A document found only through a built-in synonym: no original query term scored in it (the ranking then uses the
- * synonym score alone) and no queried path matched. Its matchedIn fields then come from the synonym's own chunks.
- */
 function isSynonymOnly(doc: DocAccumulator): boolean {
   const synonymScore = Math.max(doc.bestSynonymChunk?.score ?? 0, doc.bestSynonymRaw?.score ?? 0);
   return synonymScore > 0 && doc.fieldScore + (doc.bestRaw?.score ?? 0) <= 0 && doc.matchedPaths.size === 0;
 }
 
-/** Whether a Knowledge hit counts toward confidence: any path match, or enough structured query coverage. */
 function isConfidentEntry(entry: RankedDoc): boolean {
   return entry.doc.matchedPaths.size > 0 || entry.structuredCoverage >= HIGH_CONFIDENCE_QUERY_COVERAGE;
 }
@@ -426,11 +356,9 @@ function expandSoftwareTermSynonyms(terms: string[]): string[] {
     .slice(0, MAX_SYNONYM_TERMS);
 }
 
-/** Retrieval index over Sessions (with raw handoff sections) and Knowledge, kept in sync lazily. */
 export class SearchRepository {
   public constructor(private readonly db: DatabaseSync) {}
 
-  /** Rebuilds every cached search row from the current Session and Knowledge records. */
   public rebuildIndex(): SearchIndexRebuildResult {
     const documents = this.db.prepare("SELECT COUNT(*) AS count FROM sessions").get() as { count: number };
     const knowledge = this.db.prepare("SELECT COUNT(*) AS count FROM knowledge").get() as { count: number };
@@ -454,16 +382,9 @@ export class SearchRepository {
     };
   }
 
-  /**
-   * Re-indexes documents marked dirty by the write triggers. Every old FTS row is deleted before any new one is
-   * inserted: interleaving per document makes FTS5 flush a small segment for each lower rowid it receives and merge
-   * them, which grew far faster than linear once a migration or redaction marked thousands of documents dirty.
-   *
-   * One dirty document (the usual case after a finalize) stays cheap, and a large backlog costs per document only
-   * the SQL that must run for it: the old chunk and path rows of all dirty documents are removed with one statement
-   * each, the read and write statements are prepared once per sync, and each project's path context is read once.
-   * The same rows are deleted and written in the same order, so even the new chunk rowids match re-indexing one
-   * document at a time.
+  /*
+   * Every old FTS row is deleted before any new one is inserted: interleaving per document makes FTS5 flush and merge a
+   * small segment per lower rowid, which grew far faster than linear for thousands of dirty documents.
    */
   public syncIndex(): void {
     const pending = this.db.prepare("SELECT 1 FROM search_dirty LIMIT 1").get();
@@ -490,10 +411,7 @@ export class SearchRepository {
     resetLastInsertRowid(this.db);
   }
 
-  /**
-   * The lazy sync a read path runs before it ranks. When another process migrated the database past this build the
-   * sync is skipped and the existing (possibly stale) index is served: a read must not fail because a write is refused.
-   */
+  /** Skipped after another process migrated past this build: a read must not fail because a write is refused. */
   public syncIndexForRead(): void {
     try {
       this.syncIndex();
@@ -513,7 +431,6 @@ export class SearchRepository {
     const selected = this.preferKnowledgeOverSource(
       this.reserveKnowledgeSlots(this.preferContinuations(ranked), options.limit),
     );
-    // Confidence is judged only on the entries that became hits, so a record the response leaves out cannot raise it.
     const returned = selected.flatMap((entry) => {
       const hit = this.toHit(entry.doc, entry.score, excerptTerms);
       return hit ? [{ entry, hit }] : [];
@@ -525,7 +442,6 @@ export class SearchRepository {
     const confidenceOf = (entries: Array<{ entry: RankedDoc }>): RecallConfidence =>
       entries.length === 0 ? "none" : entries.some(({ entry }) => isConfidentEntry(entry)) ? "high" : "low";
     const confidence = confidenceOf(returned);
-    // Same rule over the Knowledge hits alone, so Sessions that matched cannot make "no Knowledge matched" look found.
     const returnedKnowledge = returned.filter(({ entry }) => entry.doc.type === "knowledge");
     const knowledgeConfidence = confidenceOf(
       options.knowledgeConfidenceLimit === undefined
@@ -551,13 +467,6 @@ export class SearchRepository {
     };
   }
 
-  /**
-   * Ranked OR matching over Knowledge only: the relaxed fallback of the strict Knowledge list search. It reuses the
-   * recall ranking (shared tokenizer, BM25 field weights, IDF coverage, path matches) and also matches path-like query
-   * words against appliesTo. Records found only through a fixed synonym are left out, because every match must name
-   * the query terms it shares. One ranking covers every status, since a record's score does not depend on which other
-   * records are ranked: `hits` keeps the best `limit` of the requested status and `totals` counts each status.
-   */
   public rankKnowledge(options: KnowledgeRankOptions): KnowledgeRanking {
     this.syncIndexForRead();
     const paths = options.q
@@ -578,7 +487,6 @@ export class SearchRepository {
     });
     const queryTruncated = uniquePaths.length > MAX_QUERY_PATH_WORDS || termsTruncated;
     const matches = ranked.filter((entry) => entry.doc.terms.size > 0 || entry.doc.matchedPaths.size > 0);
-    // Word counts need every document that holds a term, not only the ones that passed the ranking filter.
     const statuses = this.knowledgeStatuses([...docs.values()].map((doc) => doc.id));
     const totals: Partial<Record<KnowledgeStatus, number>> = {};
     for (const entry of matches) {
@@ -608,7 +516,6 @@ export class SearchRepository {
     };
   }
 
-  /** Removes every cached retrieval row for a project and its source documents. Call inside the delete transaction. */
   public deleteProjectDocuments(
     projectId: string,
     sessionIds: string[],
@@ -679,25 +586,6 @@ export class SearchRepository {
     return { chunks, fts, paths, dirty };
   }
 
-  /**
-   * The best `count` active Knowledge of one project for a weighted set of files (task-only context infers them from
-   * similar Sessions). A Knowledge scores the sum over the weighted files of weight x match strength: appliesTo entries
-   * through appliesToStrength (best entry per file), and references through search_paths rows with the file's basename
-   * (an exact, suffix, or contained-path match as pathMatchStrength; unlike recall's path scan this does not find a
-   * stored reference that merely contains the file's name inside a longer basename, which keeps it on the basename
-   * index). `matchedPath` is the weighted file (not the stored pattern or reference) that contributed most to the
-   * Knowledge, `files` every weighted file that contributed, and `score` the sum. Ties rank by id. When `matched` is
-   * given, the id of every scored Knowledge (not only the best `count`) is added to it.
-   *
-   * Cost: one appliesTo scan like scoreAppliesTo (at most APPLIES_TO_SCAN_LIMIT rows, one shared match budget, stopping
-   * at the first row the budget cuts short). Each stored entry is classified and compiled once per row, then tested
-   * only against the files it can cover (AppliesToFileIndex: a glob's literal prefix range and suffix, a plain entry's
-   * segment lookups), all charged to the budget. The index is built once per call, O(F x d) for F <= WEIGHTED_PATH_LIMIT
-   * files of depth d; an entry costs O(d + log F + candidates) instead of O(F), with strengths and scores identical to
-   * testing every pair. One
-   * indexed query for references (at most WEIGHTED_REFERENCE_ROW_LIMIT rows, newest first); and one title query for the
-   * winners. It does not sync the index.
-   */
   public knowledgeForWeightedPaths(
     weights: ReadonlyMap<string, number>,
     projectId: string,
@@ -757,8 +645,6 @@ export class SearchRepository {
       const entries = appliesToEntries(row.applies_to_json, rowContexts, budget).map(
         (pattern) => [compileAppliesToStrengthEntry(pattern, budget), pattern] as const,
       );
-      // Only the files an entry can cover are tested; the best strength per file is kept by file position so the
-      // contributions keep the weight order of `files` (it decides matchedPath ties and the order of `files`).
       const touched = new Set<number>();
       strengths.fill(0);
       for (const [entry, pattern] of entries) {
@@ -769,7 +655,7 @@ export class SearchRepository {
           if (strength > 0) touched.add(position);
         }
       }
-      // A row whose matching the budget cut short is left out whole, so a partial score never ranks it.
+      // A row the budget cut short is left out whole, so a partial score never ranks it.
       if (budget.exhausted) break;
       for (const position of [...touched].sort((left, right) => left - right)) {
         const [file, weight] = files[position]!;
@@ -798,7 +684,6 @@ export class SearchRepository {
         ...referenceScope.parameters,
         WEIGHTED_REFERENCE_ROW_LIMIT,
       ) as unknown as Array<{ doc_id: string; path: string; weight: number }>;
-    // Each document counts once per file, by its best reference.
     const bestPerFile = new Map<string, { id: string; contribution: number; file: string }>();
     for (const row of references) {
       for (const [file, weight] of filesByBasename.get(pathBasename(row.path)) ?? []) {
@@ -817,7 +702,6 @@ export class SearchRepository {
       .slice(0, count);
     if (winners.length === 0) return [];
     const titles = this.knowledgeTitles(winners.map(([id]) => id));
-    // Back to the caller's spelling of each file (the first of the weights that normalized to it).
     const original = (file: string): string => merged.get(file)?.sources[0] ?? file;
     return winners.flatMap(([id, entry]) => {
       const title = titles.get(id);
@@ -845,7 +729,6 @@ export class SearchRepository {
     );
   }
 
-  /** The first `count` path-matched Knowledge of the ranking that the page did not select, with one title query. */
   private extraPathKnowledgeBeyond(ranked: RankedDoc[], selected: RankedDoc[], count: number): ExtraPathKnowledge[] {
     const selectedIds = new Set(selected.map((entry) => entry.doc.id));
     const beyond = ranked
@@ -864,11 +747,9 @@ export class SearchRepository {
     });
   }
 
-  /** Scores every matching document and returns them best first, with the parsed query the scores refer to. */
   private rank(options: RecallOptions): {
     words: QueryWord[];
     terms: string[];
-    /** The query had more distinct terms than MAX_QUERY_TERMS; the rest were not searched. */
     termsTruncated: boolean;
     idf: number[];
     docs: Map<string, DocAccumulator>;
@@ -916,7 +797,6 @@ export class SearchRepository {
     let pathScanTruncated = false;
     if (queriedPaths.length > 0) {
       pathScanTruncated = this.scorePaths(queriedPaths, accumulator, options);
-      // Recall with paths also matches Knowledge appliesTo, unless it was limited to Sessions only.
       if (options.matchAppliesTo || !options.types || options.types.includes("knowledge")) {
         appliesToScanTruncated = this.scoreAppliesTo(
           queriedPaths,
@@ -970,7 +850,6 @@ export class SearchRepository {
     return { words, terms, termsTruncated, idf, docs, ranked, appliesToScanTruncated, pathScanTruncated };
   }
 
-  /** Moves each qualifying continuation directly above the earlier Session it continues; see CONTINUATION_SCORE_SHARE. */
   private preferContinuations<T extends { doc: { type: DocType; id: string }; score: number }>(ranked: T[]): T[] {
     const window = ranked.slice(0, CONTINUATION_WINDOW);
     const sessionIds = JSON.stringify(
@@ -1017,13 +896,7 @@ export class SearchRepository {
     return [...order, ...ranked.slice(CONTINUATION_WINDOW)];
   }
 
-  /**
-   * Returns the first `limit` entries, except that a path-matched Knowledge item (references or appliesTo) ranked
-   * below them takes the place of the lowest-ranked Sessions until KNOWLEDGE_PATH_RESERVE_SHARE of the slots (at most
-   * KNOWLEDGE_PATH_RESERVE_MAX) hold Knowledge. A frequently changed file has far more Sessions than Knowledge, each
-   * scoring a full path match, so without a reserve its Knowledge never reaches the first page. Queries without a
-   * path match, and pages that already hold enough Knowledge, are returned unchanged.
-   */
+  /** A busy file has far more Sessions than Knowledge, each a full path match, so without a reserve its Knowledge never shows. */
   private reserveKnowledgeSlots<T extends { doc: { type: DocType; matchedPaths: Set<string> } }>(
     ranked: T[],
     limit: number,
@@ -1051,11 +924,6 @@ export class SearchRepository {
     return [...kept, ...promoted];
   }
 
-  /**
-   * Moves each returned Knowledge item directly above its own source Session when that Session ranks higher: the item
-   * is the reviewed statement of what the longer record says, and the Session stays one step away. Only the order of
-   * the entries already selected changes, never a score or which entries are returned, and only within one project.
-   */
   private preferKnowledgeOverSource<T extends { doc: { type: DocType; id: string; projectId: string } }>(
     selected: T[],
   ): T[] {
@@ -1078,7 +946,6 @@ export class SearchRepository {
           .all(JSON.stringify(knowledgeIds)) as Array<{ id: string; session_id: string }>
       ).map((row) => [row.id, row.session_id]),
     );
-    // Knowledge to place above each source Session, in ranked order so several items from one Session keep theirs.
     const above = new Map<string, T[]>();
     const moved = new Set<T>();
     selected.forEach((entry, index) => {
@@ -1110,7 +977,6 @@ export class SearchRepository {
     return new Map(rows.map((row) => [row.id, row.status]));
   }
 
-  /** Ranking multipliers for Knowledge with recorded feedback (one grouped query); others keep 1. */
   private evidenceFactors(knowledgeIds: string[]): Map<string, number> {
     const factors = new Map<string, number>();
     if (knowledgeIds.length === 0) {
@@ -1149,7 +1015,6 @@ export class SearchRepository {
   ): { idf: number[]; totalIdf: number } {
     const totalChunks = (this.db.prepare("SELECT COUNT(*) AS count FROM search_chunks").get() as { count: number })
       .count;
-    // IDF needs only how many chunks contain each term, so SQLite counts them instead of returning every rowid.
     const countStatement = this.db.prepare("SELECT COUNT(*) AS count FROM search_fts WHERE search_fts MATCH ?");
     const termCounts = terms.map((term) => (countStatement.get(ftsTermExpression(term)) as { count: number }).count);
     const idf = termCounts.map((count) => Math.log(1 + (totalChunks - count + 0.5) / (count + 0.5)));
@@ -1206,11 +1071,6 @@ export class SearchRepository {
     return { idf, totalIdf };
   }
 
-  /**
-   * Which returned chunks contain each query term, for coverage. Reading every rowid of a term is the costly part,
-   * so it is skipped where the answer is already known: no returned chunk (nothing to attribute), a term no chunk
-   * contains (no member), or a single term with any match (every chunk the OR query returned must contain it).
-   */
   private termMembership(
     terms: string[],
     termCounts: number[],
@@ -1238,7 +1098,6 @@ export class SearchRepository {
     options: RecallOptions,
   ): void {
     const { clause, parameters } = this.scopeClause("c", options);
-    // Keep expansion evidence separate so it can surface a weak lead without changing original-term coverage.
     const rows = this.db
       .prepare(
         `SELECT c.id, c.doc_type, c.doc_id, c.project_id, c.field, c.heading, c.weight, c.doc_date,
@@ -1275,13 +1134,7 @@ export class SearchRepository {
     }
   }
 
-  /**
-   * Scores stored paths against each queried path: the same basename, or a stored path that contains `queried/`.
-   * instr(lower(path), lower(needle)) > 0 is `path LIKE '%needle%'` with the wildcards escaped (LIKE folds ASCII
-   * only, as lower() does) without LIKE's re-match from every stored position, which cost about 400 ns per stored
-   * byte for a 1,000-character near-miss path. A stored path above PATH_SEARCH_ROW_BYTES (only a hand-written row)
-   * is not compared; returns whether any was skipped.
-   */
+  /** instr(lower(path), lower(needle)) instead of LIKE, which re-matched from every stored position. */
   private scorePaths(
     queriedPaths: string[],
     accumulator: (type: DocType, id: string, projectId: string, date: string) => DocAccumulator,
@@ -1309,7 +1162,6 @@ export class SearchRepository {
     return scan.overBound > 0;
   }
 
-  /** Adds each document's best path score for one queried path (its own call, inside the shared scan). */
   private scorePath(
     statement: StatementSync,
     queried: string,
@@ -1332,13 +1184,6 @@ export class SearchRepository {
     }
   }
 
-  /**
-   * Adds a fixed path score for Knowledge whose appliesTo covers a queried path: a glob that matches it, a plain entry
-   * equal to it or a path-segment suffix of it, or a directory entry that contains it (or lies inside a queried
-   * directory). appliesTo is not in the retrieval index, so the scoped rows are read once and matched in memory,
-   * newest first, within one match budget; returns whether the budget ran out before every row was checked or a
-   * stored entry above the write-time limits was skipped.
-   */
   private scoreAppliesTo(
     queriedPaths: string[],
     accumulator: (type: DocType, id: string, projectId: string, date: string) => DocAccumulator,
@@ -1351,8 +1196,7 @@ export class SearchRepository {
       from: undefined,
       to: undefined,
     });
-    // The knowledge table has no doc_date: a Knowledge is dated by updated_at, as in the text and path matches, so
-    // a recall limited to a date range does not rank Knowledge outside it through appliesTo alone.
+    // The knowledge table has no doc_date: a Knowledge is dated by updated_at, as in the text and path matches.
     const dateClauses = [...(options.from ? ["k.updated_at >= ?"] : []), ...(options.to ? ["k.updated_at < ?"] : [])];
     const dateParameters = [
       ...(options.from ? [localDayStartIso(options.from) ?? options.from] : []),
@@ -1375,7 +1219,6 @@ export class SearchRepository {
       name: string;
       root_path: string;
     }>;
-    // Rows are read one at a time, so a spent budget also stops reading them.
     const budget = createAppliesToBudget();
     for (const row of rows) {
       const contexts = [{ name: row.name, rootPath: row.root_path }];
@@ -1390,7 +1233,7 @@ export class SearchRepository {
           }
         }
       }
-      // A row whose matching the budget cut short is left out whole, so a partial best never ranks it.
+      // A row the budget cut short is left out whole, so a partial best never ranks it.
       if (budget.exhausted) return true;
       if (best > 0) {
         const doc = accumulator("knowledge", row.id, row.project_id, row.updated_at);
@@ -1402,13 +1245,11 @@ export class SearchRepository {
   }
 
   private scopeClause(alias: string, options: RecallOptions): { clause: string; parameters: string[] } {
-    // Recall reads active Knowledge only; the relaxed Knowledge search names the statuses it searches.
     const statuses = options.knowledgeStatuses;
     const knowledgeFilters = [
       statuses ? `k.status IN (${statuses.map(() => "?").join(", ")})` : "k.status = 'active'",
       ...(options.kind ? ["k.kind = ?"] : []),
     ].join(" AND ");
-    // The knowledge table itself (alias k) has no doc_type: every row it scopes is Knowledge.
     const clauses = [
       "p.status = 'tracked'",
       alias === "k" ? knowledgeFilters : `(${alias}.doc_type = 'session' OR (${knowledgeFilters}))`,
@@ -1422,8 +1263,6 @@ export class SearchRepository {
       clauses.push(`${alias}.doc_type IN (${options.types.map(() => "?").join(", ")})`);
       parameters.push(...options.types);
     }
-    // doc_date is the Session's completedAt or the Knowledge's updatedAt (UTC ISO); calendar dates become the UTC
-    // instants of local midnight, like the Session list.
     if (options.from) {
       clauses.push(`${alias}.doc_date >= ?`);
       parameters.push(localDayStartIso(options.from) ?? options.from);
@@ -1504,7 +1343,6 @@ export class SearchRepository {
     return rows.map((row) => ({ name: row.name, rootPath: row.root_path }));
   }
 
-  /** A project's path context, read once per sync: the sync's write transaction keeps projects unchanged. */
   private projectContext(reads: IndexReadStatements, projectId: string): PathContext[] {
     let contexts = reads.contexts.get(projectId);
     if (!contexts) {
@@ -1662,10 +1500,7 @@ export class SearchRepository {
     statements.deletePaths.run(type, id);
   }
 
-  /**
-   * Removes the cached rows of every document in search_dirty: all FTS rows first, then the chunk and path rows with
-   * one statement each. Call inside the sync transaction, before any document is inserted again.
-   */
+  /** Call inside the sync transaction, before any document is inserted again. */
   private removeDirtyDocuments(statements: IndexWriteStatements): void {
     const dirtyChunks = `SELECT c.id FROM search_dirty d
       CROSS JOIN search_chunks c ON c.doc_type = d.doc_type AND c.doc_id = d.doc_id`;
@@ -1701,7 +1536,7 @@ export class SearchRepository {
       );
       runFtsWrite(statements.insertFts, result.lastInsertRowid, tokens.join(" "));
     }
-    // No rowid reset is needed here: each INSERT below reports its own new rowid, never an FTS shadow rowid.
+    // No rowid reset is needed: each INSERT below reports its own new rowid, never an FTS shadow rowid.
     for (const { path, weight } of document.paths) {
       statements.insertPath.run(type, id, document.projectId, path, pathBasename(path), weight, document.date);
     }

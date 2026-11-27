@@ -33,7 +33,6 @@ import { createProjectPathResolver } from "@work-intelligence/project-policy";
 import type { SessionRow } from "./session-repository.js";
 import { LONG_SEGMENT_WARNING_DAYS } from "./work-timestamps.js";
 
-/** A server-observed start older than this is ignored: it spans more than one plausible segment. */
 const MAX_OBSERVED_SEGMENT_MS = LONG_SEGMENT_WARNING_DAYS * 24 * 3_600_000;
 
 export type EventRow = {
@@ -111,11 +110,7 @@ export function parseJson<T>(value: string | null, fallback: T): T {
   }
 }
 
-/**
- * The changed-files list of a stored row. The column has no CHECK constraint, so a legacy row may hold malformed
- * JSON, `null`, an object or a list with non-string entries: those read as `[]` or lose the non-string entries.
- * The parsed array is returned as is when every entry is a string (the usual case), instead of copied.
- */
+/** The column has no CHECK constraint, so a legacy row may hold malformed JSON or non-string entries. */
 export function parseChangedFiles(json: string | null | undefined): string[] {
   const parsed = parseJson<unknown>(json ?? null, []);
   if (!Array.isArray(parsed)) return [];
@@ -297,7 +292,6 @@ export function changedFilePathsFromChanges(changes: ChangedFileChange[]): strin
   return changes.flatMap((change) => [change.path, ...(change.previousPath ? [change.previousPath] : [])]);
 }
 
-/** An incoming entry replaces the stored one for the same path, so a corrected status never leaves two entries. */
 export function mergeChangedFileChanges(
   projectRoot: string,
   current: WorkSessionRecord,
@@ -601,17 +595,11 @@ export function sameVerification(left: VerificationSummary | undefined, right: V
 
 export type StartedAtSource = "reported" | "events" | "server_observed";
 
-/** A first MCP call the server saw for the project since its last save; an observed fact, never an estimate. */
 export interface ObservedStart {
   at: string;
   tool: string;
 }
 
-/**
- * The reported start wins when it is not after completion. Otherwise the earliest observed fact wins: an event
- * recorded before completion, or the server-observed first call (only when it is not after completion and within
- * the long-segment limit). No start is invented when none exists.
- */
 export function resolveStartedAtWithSource(
   reported: string | undefined,
   events: ReadonlyArray<{ occurredAt?: string }> | undefined,
@@ -640,7 +628,6 @@ export function resolveStartedAtWithSource(
   return earliest === undefined ? undefined : { value: earliest, source: "events" };
 }
 
-/** Voiding needs a reason so the audit explains it; a restore reason is optional. */
 export function requireVoidReason(voided: boolean, reason: string | undefined): string | undefined {
   const trimmed = reason?.trim();
   if (voided && !trimmed) {
@@ -674,18 +661,12 @@ export function toKnowledge(row: KnowledgeRow): KnowledgeRecord {
   };
 }
 
-/** Audit snapshots written before appliesTo existed lack it; default it so readers can rely on it. */
 export function withKnowledgeDefaults(record: KnowledgeRecord): KnowledgeRecord {
   return { ...record, appliesTo: record.appliesTo ?? [] };
 }
 
-/**
- * A recorded commit id as stored: hex in lower case, the form Git prints and the commitSha filter seeks in the index.
- * Anything that is not plain hex is kept as given.
- */
 const COMMIT_SHA_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 
-/** A full SHA-1 or SHA-256 commit id (abbreviations and refs are not accepted). */
 export function isCommitSha(value: string): boolean {
   return COMMIT_SHA_PATTERN.test(value);
 }
@@ -750,7 +731,6 @@ export function getChangedFilesFollowUp(session: WorkSessionRecord): ChangedFile
 
 const MAX_FOLLOW_UP_PATHS = 20;
 
-/** Asked when stored changed files still lack a status; only the Agent's evidence from the diff may fill it. */
 export function getChangedFileChangesFollowUp(session: WorkSessionRecord): ChangedFileChangesFollowUp | undefined {
   if (session.changedFiles.length === 0) {
     return undefined;

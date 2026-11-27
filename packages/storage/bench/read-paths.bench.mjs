@@ -1,19 +1,3 @@
-// Synthetic read-path benchmark for WorkIntelligenceStore.
-//
-// Usage:
-//   pnpm --filter @work-intelligence/storage build
-//   node packages/storage/bench/read-paths.bench.mjs [sessionCount]
-//   node packages/storage/bench/read-paths.bench.mjs 5000 --check --case=finalize-related-reminder
-//   node packages/storage/bench/read-paths.bench.mjs 5000 --check --backup-worker-only --backup-worker-mode=sync|worker
-//
-// Heavy cases (backup, export, import preview, import): the gated operationMs is the time from sending the request to
-// the response's last byte, what a user's client waits for. Before 1.6.45 the gate also included the benchmark
-// client's own Buffer.concat, toString and JSON.parse of the body (50-85 ms for the 10 MB export), which is checking
-// work, not product latency. That older, wider number is still printed as verifiedOperationMedianMs/P90Ms; the checks
-// still run and still fail the run on a bad body.
-//
-// Seeding thousands of Sessions is slow, so set WI_BENCH_CACHE=<path prefix> to keep the
-// seeded SQLite file and reuse it on the next run (for before/after comparisons).
 import console from "node:console";
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
@@ -341,7 +325,6 @@ function seed() {
   console.log(`seeded ${sessionCount} sessions in ${(performance.now() - started).toFixed(0)} ms`);
 }
 
-// Knowledge older than every synthetic Session, so the staleness check scans the whole project history.
 function seedStaleKnowledge(targetStore, project) {
   for (let index = 0; index < 20; index += 1) {
     targetStore.recordKnowledge({
@@ -363,7 +346,6 @@ function seedStaleKnowledge(targetStore, project) {
   }
 }
 
-// Three written pages sourced before every synthetic Session, so the staleness count scans the whole history.
 function seedKnowledgePages(targetStore, project) {
   const [source] = targetStore.listSessionsPage({ projectId: project.id, page: 1, pageSize: 1 }).items;
   for (const slug of ["architecture", "in-progress", "pitfalls"]) {
@@ -496,12 +478,6 @@ function seedOutstandingCleanupReview(targetStore, project) {
   return created.request.id;
 }
 
-/**
- * Separate databases at the stored-text limits of the 1.6.27 review, so the worst cases never touch benchStore: 200
- * Knowledge rows with 30 appliesTo entries of 1,000 characters (the list search, linear in rows: x10 for 2,000), 200 Knowledge items with the same
- * appliesTo and 5,000 later Sessions of 20 x 100-character files (finalize knowledgeToReview), and a Knowledge read
- * whose staleness check meets the same 5,000 Sessions. Rows are copied in SQL; only the first goes through the store.
- */
 function seedStoredTextWorstCases(baseRoot) {
   const worstRoot = join(baseRoot, "worst-text");
   const listRoot = join(baseRoot, "worst-list");
@@ -509,7 +485,6 @@ function seedStoredTextWorstCases(baseRoot) {
   mkdirSync(listRoot, { recursive: true });
   const path = join(baseRoot, "worst-text.sqlite");
   const worstStore = new WorkIntelligenceStore(path);
-  // The list rows live in a project of their own, so the review and staleness cases never read them.
   const project = worstStore.addProject("worst-text", worstRoot);
   worstStore.updateProject(project.id, { status: "tracked" });
   worstStore.updateProject(worstStore.addProject("worst-list", listRoot).id, { status: "tracked" });
@@ -573,8 +548,6 @@ function seedStoredTextWorstCases(baseRoot) {
       id: `list-${index + 1}`,
       idempotency_key: `list-${index + 1}`,
     }));
-    // 5,000 later Sessions of 20 files of about 100 characters: no file contains the review fragment (the oldest
-    // Session touches every candidate), and the staleness check cannot afford to parse them all.
     copyRows("sessions", "template", 5_000, (index) => ({
       id: `later-${index}`,
       idempotency_key: `later-${index}`,
@@ -607,8 +580,6 @@ function seedStoredTextWorstCases(baseRoot) {
       project: { name: "worst-text", rootPath: worstRoot },
     };
   })();
-  // A Knowledge recorded after the 5,000 Sessions and one Session after it touching its wide appliesTo: it is
-  // possibly stale, and its project-wide breadth reads the newest 200 focused Sessions that are all older than it.
   reopened.recordKnowledge({
     projectRoot: worstRoot,
     idempotencyKey: "recent-wide",
@@ -641,10 +612,6 @@ function seedStoredTextWorstCases(baseRoot) {
   return { store: reopened, path, root: worstRoot, listRoot, focus, nearMiss };
 }
 
-/**
- * A full read audit for one project and Agent client: 5,000 recall reads (the retention cap), each naming 50 of the
- * project's Knowledge (the per-read cap), all inside one work segment. Rows are inserted in SQL in one transaction.
- */
 function seedUnreportedKnowledgeReads(databasePath, projectId) {
   const database = new DatabaseSync(databasePath);
   try {
@@ -685,13 +652,6 @@ function seedUnreportedKnowledgeReads(databasePath, projectId) {
   }
 }
 
-/**
- * The staleness shapes of the 1.6.27 gate review, in a database of their own: 2,000 later Sessions of 50 distinct
- * paths of about 100 characters with 200 Knowledge items of five appliesTo entries (two one-star globs), where 1.6.27
- * compared every entry with every path (2.9 s for a page of 20 here, 1.0 s in 1.6.14); and, in a second project, 20
- * Knowledge items whose 15-star glob every path of 10 Sessions x 200 x 1,000 characters is a candidate for, which must
- * stop at the match ceiling and mark them unchecked. Sessions are copied in SQL from one finalized template.
- */
 function seedDistinctPathStaleness(baseRoot) {
   const distinctRoot = join(baseRoot, "distinct-paths");
   const starRoot = join(baseRoot, "star-glob");
@@ -827,7 +787,6 @@ try {
   };
   const benchStore = cachePath && !cached ? new WorkIntelligenceStore(databasePath) : store;
   if (cached) {
-    // Only the copied synthetic database is changed; cache roots belonged to a removed previous run.
     const projects = benchStore.listProjects();
     for (const [name, projectRoot] of [
       ["alpha", alphaRoot],
@@ -859,7 +818,6 @@ try {
   };
   const freshReviewKnowledge = { id: "", path: "" };
   let freshReviewIndex = 0;
-  // Untimed: Knowledge recorded before every synthetic Session and never touched since.
   const seedFreshReviewKnowledge = () => {
     freshReviewIndex += 1;
     freshReviewKnowledge.path = `src/fresh-review-${freshReviewIndex}.ts`;
@@ -885,12 +843,11 @@ try {
   const outstandingCandidates = seedOutstandingItems(benchStore, [alpha.id, beta.id]);
   const finalizeReminderCandidate = outstandingCandidates.get(alpha.id);
   if (!finalizeReminderCandidate) throw new Error("Expected a synthetic finalize reminder candidate.");
-  // Capture the original graph/recall fixture before cleanup adds an evidence Session with no changed files.
+  // Captured before cleanup adds an evidence Session with no changed files.
   const [newestAlpha] = benchStore.listSessionsPage({ projectId: alpha.id, page: 1, pageSize: 1 }).items;
   const cleanupRequestId = seedOutstandingCleanupReview(benchStore, alpha);
   seedStaleKnowledge(benchStore, alpha);
   seedKnowledgePages(benchStore, alpha);
-  // A file of the newest original alpha Session, so the path search walks project → Session → file.
   const pathTarget = `file:${alpha.id}:${newestAlpha.changedFiles.at(-1)}`;
   const benchPath = benchStore.getGraphPath({ projectId: alpha.id, from: `project:${alpha.id}`, to: pathTarget });
   if (benchPath.outcome !== "graph_path" || !benchPath.found) {
@@ -1003,8 +960,8 @@ try {
   if (metadataFollowUpPreview.outcome !== "backfill_preview")
     throw new Error("Missing metadata follow-up benchmark source");
   const expectedMetadataFollowUpTotals = metadataFollowUpPreview.totals;
-  // db:maintain runs ANALYZE; measure the year report on a snapshot with planner statistics, because the
-  // statistics once flipped the decision queries to a full Session scan (4.6-8 ms became 43-130 ms).
+  // db:maintain runs ANALYZE, and planner statistics once flipped the decision queries to a full Session scan, so the
+  // year report is also measured on an analyzed snapshot.
   const analyzedPath = join(root, "bench-analyzed.sqlite");
   const snapshot = new DatabaseSync(databasePath);
   try {
@@ -1019,7 +976,6 @@ try {
     analyzedDatabase.close();
   }
   const analyzedStore = new WorkIntelligenceStore(analyzedPath);
-  // A second connection writes like another process (the REST server and MCP servers share the file).
   const withBenchConnection = (path, operation) => {
     const connection = new DatabaseSync(path);
     try {
@@ -1029,13 +985,10 @@ try {
       connection.close();
     }
   };
-  // One project-data write moves the data revision, so the next follow-up count is a cache miss.
   const touchProjectData = () =>
     withBenchConnection(databasePath, (connection) =>
       connection.prepare("UPDATE projects SET updated_at = updated_at WHERE id = ?").run(alpha.id),
     );
-  // Queried paths also match Knowledge appliesTo: the 20 seeded Knowledge records are linked to files only that way
-  // (an exact module path and a glob), so the bounded appliesTo scan and the trust batch both do real work.
   const recallPathsAppliesTo = () => {
     const result = benchStore.recall({
       paths: ["src/module-3.ts", "src/feature-7/index.ts"],
@@ -1055,13 +1008,8 @@ try {
       throw new Error("Path-focused context must offer appliesTo-matched Knowledge.");
     return result;
   };
-  // A task without paths: the similar Sessions' changed files lead to appliesTo-scoped Knowledge the task words miss.
-  // The baseline turns the feature off on this store's service (the private `inferTaskPaths` field, reached only by this benchmark). The
-  // seeded context is budget-tight and its recent Knowledge already covers the matches, so the work done is checked
-  // by counting the inference ranking passes instead of requiring a visible pointer.
+  // The baseline flips the private `inferTaskPaths` field, which only this benchmark reaches.
   const taskContextService = benchStore.contextRecallService;
-  // `inference` false turns the feature off; true runs the weighted inference (every file of the similar Sessions in one
-  // appliesTo scan, knowledgeForWeightedPaths) as shipped.
   const getContextTaskOnly = (inference) => () => {
     const original = taskContextService.inferTaskPaths;
     const searchIndex = taskContextService.searchIndex;
@@ -1082,14 +1030,11 @@ try {
       taskContextService.inferTaskPaths = original;
     }
   };
-  // Re-indexing churns the FTS index, so the dirty-backlog case runs on its own copy and leaves later cases alone.
   const reindexPath = join(root, "bench-reindex.sqlite");
   withBenchConnection(databasePath, (connection) =>
     connection.exec(`VACUUM INTO '${reindexPath.replaceAll("'", "''")}'`),
   );
   const reindexStore = new WorkIntelligenceStore(reindexPath);
-  // The weighted appliesTo scan on a heavy project: 2,000 Knowledge of 10 globs each against the 100 weighted files
-  // the inference passes at most. Testing every pair exhausted the 20M-unit match budget here (180 ms, results cut).
   const weightedStore = new WorkIntelligenceStore(":memory:");
   const weightedProjectId = "weighted-bench";
   const weightedNow = new Date().toISOString();
@@ -1130,8 +1075,6 @@ try {
          SELECT 'session', id FROM sessions ORDER BY id LIMIT ${dirtyDocumentCount}`,
       ),
     );
-  // Knowledge backlog cases run on their own copy: the request case writes rows, and the seeded signals
-  // (confirmed decisions, links, recovered verification, re-reads) must not change the other cases' data.
   const backlogPath = join(root, "bench-backlog.sqlite");
   withBenchConnection(databasePath, (connection) =>
     connection.exec(`VACUUM INTO '${backlogPath.replaceAll("'", "''")}'`),
@@ -1173,14 +1116,12 @@ try {
   const backlogStore = new WorkIntelligenceStore(backlogPath);
   const resetBacklogRequests = () =>
     withBenchConnection(backlogPath, (connection) => connection.exec("DELETE FROM knowledge_candidate_requests"));
-  // No open request (the request case leaves one), and a project-data write so the next read misses the memo.
   const prepareColdBacklogRead = () =>
     withBenchConnection(backlogPath, (connection) => {
       connection.exec("DELETE FROM knowledge_candidate_requests");
       connection.prepare("UPDATE projects SET updated_at = updated_at WHERE id = ?").run(alpha.id);
     });
   const expectedAnalyzedYear = JSON.stringify(benchStore.getReport({ period: "year", date: "2026-03-11" }));
-  // A full audit window (5,000 rows) over 12 tools, with durations, failures, and untimed legacy rows.
   const auditSeed = new DatabaseSync(databasePath);
   try {
     auditSeed
@@ -1200,7 +1141,6 @@ try {
   } finally {
     auditSeed.close();
   }
-  // A separate project database with 500 Knowledge items, so the candidate overlap check scans a large project.
   const overlapPath = join(root, "overlap.sqlite");
   const overlapRoot = join(root, "overlap");
   mkdirSync(overlapRoot, { recursive: true });
@@ -1223,7 +1163,6 @@ try {
     title: `Synthetic module ${index * 3} cache is stale after reload`,
     body: `Synthetic module ${index * 3} returns stale cache entries after a reload until the handler clears it.`,
   }));
-  // One Session with 500 pending Agent decisions: the largest snapshot a request takes, and the widest sibling window.
   const reviewRoot = join(root, "review");
   mkdirSync(reviewRoot, { recursive: true });
   const reviewStore = new WorkIntelligenceStore(join(root, "review.sqlite"));
@@ -1252,8 +1191,6 @@ try {
   } finally {
     reviewSeed.close();
   }
-  // 200 possibly stale Knowledge items (each touched by a later focused Session) that an Agent already confirmed once:
-  // the snapshot scans and trust-checks them all, and the reviewed list joins the 200 standing verdicts.
   const knowledgeReviewRoot = join(root, "review-knowledge");
   mkdirSync(knowledgeReviewRoot, { recursive: true });
   const knowledgeReviewStore = new WorkIntelligenceStore(join(root, "review-knowledge.sqlite"));
@@ -1303,8 +1240,6 @@ try {
   const worstText = seedStoredTextWorstCases(root);
   const unreportedFocus = seedUnreportedKnowledgeReads(worstText.path, worstText.focus.projectId);
   const worstTextDatabase = new DatabaseSync(worstText.path);
-  // Shared by the cached and the "(after a write)" case: the latter reads the floor query and the newest 200 focused
-  // Sessions again on every run.
   const recentWideStaleness = () => {
     const result = worstText.store.searchKnowledge({
       projectRoot: worstText.root,
@@ -1417,7 +1352,6 @@ try {
     "listSessionsPage (query, no match)": () =>
       benchStore.listSessionsPage({ query: "zzqxnomatchterm", page: 1, pageSize: 20 }),
     "listSessionDigests (page 100 + pending items)": () => listSessionDigestPage(benchStore, alpha.id),
-    // Synthetic Sessions record no commit, so this times the ambiguity check, count and page on the index seek.
     "listSessionsForAgent (commitSha prefix)": () =>
       benchStore.listSessionsForAgent({ commitSha: "abc1234", page: 1, pageSize: 20 }),
     getDashboardSummary: () => benchStore.getDashboardSummary(),
@@ -1448,7 +1382,6 @@ try {
       }
       return result;
     },
-    // Every run follows a write by another connection, so the count is scanned again instead of reused.
     "metadata follow-up counts (after a write)": () => {
       const result = benchStore.countMetadataBackfillFollowUps();
       if (!result || JSON.stringify(result) !== JSON.stringify(expectedMetadataFollowUpTotals)) {
@@ -1456,7 +1389,6 @@ try {
       }
       return result;
     },
-    // A bulk change left 5,000 Session documents dirty; the first read re-indexes them all before searching.
     "first read after 5,000 dirty documents": () => {
       const result = reindexStore.search("zzqxnomatchterm");
       withBenchConnection(reindexPath, (connection) => {
@@ -1465,7 +1397,6 @@ try {
       });
       return result;
     },
-    // Scores every uncovered Session of the project, ranks the top ten, and writes the request row.
     "requestKnowledgeCandidates selection": () => {
       const result = backlogStore.requestKnowledgeCandidates(alphaRoot);
       if (
@@ -1477,7 +1408,6 @@ try {
         throw new Error("The request benchmark must select ten source Sessions and report what remains.");
       return result;
     },
-    // A write by another connection precedes every run, so the backlog is scored again.
     "getContext with knowledge backlog (cold token)": () => {
       const result = backlogStore.getContext(alphaRoot);
       if (result.outcome !== "context" || !result.pendingRequests.knowledgeBacklog)
@@ -1500,9 +1430,6 @@ try {
         throw new Error("Related context benchmark must return pending pointers.");
       return result;
     },
-    // Repeated reads of unchanged data reuse the remembered staleness results (the revision cache); the "(after a
-    // write)" case below reads the later Sessions again on every run, which is what a first read at the start of
-    // work costs.
     "getContext (paths, appliesTo-matched Knowledge)": getContextPathsAppliesTo,
     "getContext (paths, appliesTo-matched Knowledge, after a write)": getContextPathsAppliesTo,
     "getContext (task only, no inference)": getContextTaskOnly(false),
@@ -1545,10 +1472,6 @@ try {
         );
       return result;
     },
-    // A realistic closing write: 20 changed paths shared with pending items' Sessions and with Knowledge appliesTo,
-    // so the related-item path scoring and the knowledgeToReview check both do real work. The seeded module
-    // Knowledge is already possiblyStale (an early exit); the fresh Knowledge seeded before each run is not, so its
-    // check walks every later Session of the project before it is reported.
     "finalizeSession (changed files, Knowledge review)": () => {
       const index = ++maintenanceFinalizeIndex;
       const changedFiles = [
@@ -1641,8 +1564,6 @@ try {
     "recall (month range)": () =>
       benchStore.recall({ q: "report pipeline", from: "2026-03-01", to: "2026-03-31", limit: 8 }),
     "recall (synonym expansion)": () => benchStore.recall({ q: "endpoint performance", limit: 8 }),
-    // Twenty stale-checked Knowledge hits; trust must be read in one batch, not once per hit.
-    // Every run follows a write by another connection, so the staleness is read again instead of reused.
     "recall (20 Knowledge hits with staleness)": () =>
       benchStore.recall({ q: "synthetic knowledge staleness", projectRoot: alphaRoot, limit: 30 }),
     "recall (paths, appliesTo)": recallPathsAppliesTo,
@@ -1650,13 +1571,11 @@ try {
     "recall evaluator (snapshot + MCP recall/context)": () =>
       evaluateRecallQuestions(databasePath, evaluationQuestions),
     "searchKnowledge (staleness)": () => benchStore.searchKnowledge({ projectRoot: alphaRoot, limit: 20 }),
-    // A strict miss: relaxed ranking over the FTS index, appliesTo path matching, and the archived count.
     "searchKnowledgeForAgent (relaxed fallback)": () =>
       benchStore.searchKnowledgeForAgent({
         projectRoot: alphaRoot,
         q: "synthetic staleness src/feature-a/index.ts zzyzx",
       }),
-    // An unregistered subfolder of a tracked project: the registry is read once and scanned once.
     "matchingProjects (unregistered subfolder)": () => {
       const result = benchStore.matchingProjects(join(alphaRoot, "packages", "unregistered"));
       if (result.length !== 1) throw new Error("The subfolder must match its tracked project.");
@@ -1680,7 +1599,6 @@ try {
     "getHotspots (files)": () => benchStore.getHotspots({ limit: 20 }),
     "getHotspots (directories, month)": () =>
       benchStore.getHotspots({ groupBy: "directory", from: "2026-03-01", to: "2026-03-31", limit: 20 }),
-    // Three paths with 28–125 Sessions each: whole-history totals, digests, attention, and appliesTo Knowledge.
     "getFileHistory (3 paths)": () => {
       const result = benchStore.getFileHistory({
         projectRoot: alphaRoot,
@@ -1690,14 +1608,11 @@ try {
         throw new Error("File history benchmark must read the synthetic histories of all three paths.");
       return result;
     },
-    // A stored star-heavy appliesTo against caller paths at the 500-character limit; a backtracking matcher hangs here.
     "appliesTo glob (star-heavy pattern, 500-char paths)": () => {
       const pattern = "**a**a**a**a**a**a**a**b";
       for (const path of ["a".repeat(500), `${"a/".repeat(249)}a`, "ba".repeat(250)])
         if (appliesToStrength(pattern, path) !== 0) throw new Error("The star-heavy pattern must not match.");
     },
-    // The second security review's input: 30 entries of 500 stars against 20 paths at the 1,000-character limit.
-    // The star bound rejects each pair in one step; unbounded, this took about 3.5 s.
     "appliesTo glob (30 x 500-star patterns, 20 x 1,000-char paths)": () => {
       const budget = createAppliesToBudget();
       const pattern = "a*".repeat(500);
@@ -1707,17 +1622,12 @@ try {
             throw new Error("A glob above the star bound must not match.");
       if (budget.exhausted) throw new Error("Over-complex pairs must be rejected without simulating them.");
     },
-    // The costliest globs the star bound allows (16 stars between literal runs a long path contains) until one scan's
-    // match budget runs out: the wall-clock side of the deterministic step limit.
     "appliesTo scan (16-star patterns until the match budget runs out)": () => {
       const budget = createAppliesToBudget();
       const matches = compileAppliesTo(`${`**${"a".repeat(62)}`.repeat(15)}**`);
       for (let pair = 0; pair < 600 && !budget.exhausted; pair += 1) matches("a".repeat(1_000), budget);
       if (!budget.exhausted) throw new Error("The scan must stop at its match budget.");
     },
-    // The third review's first finding: 2-star globs around ~600 characters of near-miss literal runs against paths
-    // at the length limit, as one call's 2,000 rows x 30 entries x 20 paths. The literal search is linear and charged
-    // per character, so the scan stops at the budget (charged 1 step per pair and quadratic, this took about 50 s).
     "appliesTo scan (near-miss literal runs, 2,000 rows x 30 x 20 paths)": () => {
       const budget = createAppliesToBudget();
       const paths = Array.from({ length: 20 }, (_, index) => `x${"a".repeat(996 - index)}y`);
@@ -1728,9 +1638,6 @@ try {
         }
       if (!budget.exhausted) throw new Error("The scan must stop at its match budget.");
     },
-    // The second finding: a crafted 2 MB entry (skipped before it is tokenized; from 1.6.27 parsing costs 4 units per
-    // character, so a 5 MB list alone would spend the budget, and SQL no longer loads lists above about 2.5 MB) and distinct 1,000-character entries
-    // that defeat the compile cache (each miss charged) until the budget runs out.
     "appliesTo stored entries (2 MB entry, distinct 1,000-char entries)": () => {
       const budget = createAppliesToBudget();
       const crafted = JSON.stringify([`src/*${"a".repeat(2_000_000)}*.ts`, "src/*.ts"]);
@@ -1739,7 +1646,6 @@ try {
       for (let entry = 0; !budget.exhausted; entry += 1)
         compileAppliesTo(`${entry}-*${"a".repeat(985)}*`, budget)("src/a.ts", budget);
     },
-    // 30 submitted candidates against 500 Knowledge items of one project: each existing item is tokenized once.
     "knowledgeCandidateOverlaps (30 candidates, 500 Knowledge)": () => {
       const result = findKnowledgeCandidateOverlaps(
         overlapDatabase,
@@ -1750,9 +1656,6 @@ try {
         throw new Error("Every synthetic candidate must overlap its module's Knowledge.");
       return result;
     },
-    // A new request snapshots all 500 decisions in one batched insert, and its first context page reads 10 of them with
-    // the Session, sibling decisions and overlap hints in one query each; the request is cancelled so the next run
-    // takes a fresh snapshot.
     "agentReview (500 pending decisions: snapshot, first context page)": () => {
       reviewRound += 1;
       const created = reviewStore.requestAgentReview({
@@ -1767,9 +1670,6 @@ try {
       reviewStore.cancelAgentReviewRequest(created.request.id);
       return context;
     },
-    // The snapshot reads every active Knowledge with an appliesTo in one query and trust-checks them in one batch (the
-    // same pass every Knowledge read uses); the first context page adds the later Sessions of its 10 items from one
-    // batched index read. The request is cancelled so the next run takes a fresh snapshot.
     "agentReview (200 possibly stale Knowledge: snapshot, first context page)": () => {
       knowledgeReviewRound += 1;
       const created = knowledgeReviewStore.requestAgentReview({
@@ -1784,45 +1684,36 @@ try {
       knowledgeReviewStore.cancelAgentReviewRequest(created.request.id);
       return context;
     },
-    // 200 standing Agent verdicts: one query for the latest verdict of each Knowledge, one for the records and their
-    // successors, and one trust pass.
     "listAgentReviewedKnowledge (200 standing verdicts)": () => {
       const result = knowledgeReviewStore.listAgentReviewedKnowledge({ projectRoot: knowledgeReviewRoot });
       if (result.outcome !== "agent_reviewed_knowledge" || result.items.length !== 200)
         throw new Error("The reviewed Knowledge list must return all 200 standing verdicts.");
       return result;
     },
-    // The 1.6.27 review's list-search shape: eight 200-character near-miss words over 200 rows of the largest
-    // appliesTo (15.7 s with LIKE). With instr each row costs at most its bytes x words; every row is read, no warning.
     "searchKnowledge (200 x 30 x 1,000-char appliesTo, 8 near-miss words)": () => {
       const result = worstText.store.searchKnowledge({ projectRoot: worstText.listRoot, q: worstText.nearMiss });
       if (result.outcome !== "knowledge" || result.pageInfo.total !== 200 || result.warnings)
         throw new Error("The worst-case list search must read every row within its cap, without a warning.");
       return result;
     },
-    // The compact view over the same 200 rows of the largest appliesTo: counted in SQL, the stored text is never loaded.
     "searchKnowledgeCompactForAgent (200 x 30 x 1,000-char appliesTo, page of 100)": () => {
       const result = worstText.store.searchKnowledgeCompactForAgent({ projectRoot: worstText.listRoot, pageSize: 100 });
       if (result.outcome !== "knowledge" || result.items.length !== 100 || result.items[0].appliesToCount !== 30)
         throw new Error("The compact list must return a full page with appliesTo counts.");
       return result;
     },
-    // 200 candidates, 5,000 later Sessions, the oldest touching all of them (3.0 s when each candidate scanned alone).
     "knowledgeToReview (200 candidates, 5,000 later Sessions)": () => {
       const result = findKnowledgeToReview(worstTextDatabase, worstText.focus);
       if (result.hints.length !== 0 || result.truncated)
         throw new Error("The one-pass review check must decide every candidate within its budget.");
       return result;
     },
-    // The finalize reminder over a full audit window: 250,000 audited Knowledge reads grouped in one query.
     "unreportedKnowledge (5,000 reads x 50 Knowledge, one client)": () => {
       const result = findUnreportedKnowledge(worstTextDatabase, unreportedFocus);
       if (result?.items.length !== 3 || result.total !== unreportedFocus.knowledgeCount)
         throw new Error("Every read active Knowledge must be counted and the newest three listed.");
       return result;
     },
-    // The write-time appliesTo breadth check (recordKnowledge / updateKnowledge, after the commit) over a project of
-    // 5,000 Sessions: it reads only the newest 200 with 1-20 files, so its cost does not grow with the history.
     "scanAppliesToBreadth (write-time, newest 200 of 5,000 Sessions)": () => {
       const { projectId, project } = worstText.focus;
       const result = scanAppliesToBreadth(
@@ -1835,36 +1726,26 @@ try {
         throw new Error("The breadth scan must read exactly the newest 200 focused Sessions and say it was cut.");
       return result;
     },
-    // A Knowledge read after 5,000 later Sessions of 20 x 100-character files (50 x 100 took 433 ms and 235 MB with
-    // one .all()); the read is charged row by row and its budget grows with the rows, so it finishes.
     "searchKnowledge (staleness over 5,000 Sessions of 20 x 100-char files)": () => {
       const result = worstText.store.searchKnowledge({ projectRoot: worstText.root, kind: "decision" });
       if (result.outcome !== "knowledge" || result.items.length !== 1 || result.items[0].stalenessUnchecked)
         throw new Error("The staleness check must finish on legitimate history.");
       return result;
     },
-    // A Knowledge recorded after 5,000 Sessions and touched by one later Session: its possiblyStale breadth is the
-    // project-wide one, so the read also loads the newest 200 focused Sessions that are older than the Knowledge.
     "searchKnowledge (staleness, Knowledge newer than 5,000 Sessions, project-wide breadth)": recentWideStaleness,
     "searchKnowledge (staleness, Knowledge newer than 5,000 Sessions, project-wide breadth, after a write)":
       recentWideStaleness,
-    // Each appliesTo entry is resolved against an index of the distinct later paths (later-change-index.ts).
     "searchKnowledge (staleness, 2,000 Sessions of 50 distinct files, page 20)": () => {
       const result = distinctPaths.store.searchKnowledge({ projectRoot: distinctPaths.distinctRoot, pageSize: 20 });
       if (
         result.outcome !== "knowledge" ||
         result.items.length !== 20 ||
         result.items.some((item) => item.stalenessUnchecked) ||
-        // These Sessions list 50 files, so they are broad: counted in broadChangesSince, never possiblyStale.
         !result.items.some((item) => item.possiblyStale || item.broadChangesSince)
       )
         throw new Error("The indexed staleness check must finish on distinct-path history.");
       return result;
     },
-    // Every path is a candidate for this glob and costs the full simulation. The read either decides every item or
-    // stops at the match ceiling and marks them unchecked; what this case bounds is the time either way. (With the
-    // 50M ceiling first chosen this data stopped; at 300M it is decided. tests/storage/later-change-index.test.ts
-    // covers the stop itself with an injected ceiling.)
     "searchKnowledge (15-star glob over long paths, decided or stopped at the match ceiling)": () => {
       const result = distinctPaths.store.searchKnowledge({ projectRoot: distinctPaths.starRoot, pageSize: 20 });
       if (result.outcome !== "knowledge" || result.items.length === 0)
@@ -1880,10 +1761,8 @@ try {
   };
 
   const projectDataBundle = benchStore.exportProjectData({ type: "all" });
-  // The heavy API cases (backup, export, import preview) copy or read the whole database, so their time grows with
-  // the file. The other cases write into benchStore (finalize, per-run Knowledge, outstanding cleanup…), which made
-  // the heavy cases copy a larger file in a full run than with --backup-worker-only. They therefore run against a
-  // byte copy of the database taken here, after all seeding and before any case runs: the same file in both modes.
+  // Heavy cases copy or read the whole file, and the other cases write into benchStore, so the heavy cases run on a
+  // byte copy taken here, after seeding and before any case: the same file with or without --backup-worker-only.
   withBenchConnection(databasePath, (connection) => connection.exec("PRAGMA wal_checkpoint(TRUNCATE)"));
   const heavyDatabasePath = join(root, "bench-heavy.sqlite");
   copyFileSync(databasePath, heavyDatabasePath);
@@ -1903,11 +1782,7 @@ try {
       ? await import(pathToFileURL(join(repositoryRoot, "apps", "server", "dist", "backup-worker-client.js")).href)
       : undefined;
   const BackupWorkerClient = workerClientModule?.BackupWorkerClient;
-  // The steady-state client is built exactly as start-api builds it (no explicit idle timeout), so the bench measures
-  // production's idle policy: a heavy operation leaves the worker warm for HEAVY_IDLE_TIMEOUT_MS, a light one for
-  // DEFAULT_IDLE_TIMEOUT_MS. Consecutive heavy runs are back to back (cleanup between them is milliseconds), well
-  // inside that window, and each case starts with a warm-up call.
-  // The idle RSS check below follows a light operation (backupIfDue) on a fresh worker, so it waits the light timeout.
+  // The client is built as start-api builds it (no explicit idle timeout), so the bench measures production's idle policy.
   const backupWorkerIdleTimeoutMs = workerClientModule?.DEFAULT_IDLE_TIMEOUT_MS;
   const backgroundStore = BackupWorkerClient
     ? new BackupWorkerClient(heavyDatabasePath, {}, LATEST_SCHEMA_VERSION)
@@ -2002,8 +1877,6 @@ try {
         sessionCount,
         probeHealth,
       ),
-    // The whole online import (pre-import backup, validation, plan, write transaction, index sync) of data already
-    // present: every row is skipped, so each run leaves the snapshot as it was apart from one audit row.
     "importProjectData (all projects, already present)": () =>
       runHeavyApiClient(
         baseUrl,
@@ -2133,9 +2006,7 @@ try {
     "matchingProjects (unregistered subfolder)": 50,
     createBackup: 300,
     "exportTo (whole database)": 300,
-    // Measured to the response's last byte (1.6.45). Three local runs of 10 gave p90 312-327 ms on a quiet machine and
-    // 394 ms on a loaded one; the old metric ran 362-399.5 ms on CI, of which about 50-85 ms was the client's own
-    // concat/parse. 360 ms is 1.1x the highest quiet p90; a loaded first pass is measured once more before it fails.
+    // 1.1x the highest quiet local p90 (312-327 ms, measured to the response's last byte since 1.6.45).
     "exportProjectData (all projects)": 360,
     "previewProjectDataImport (all projects)": 1500,
     "importProjectData (all projects, already present)": 1500,
@@ -2144,14 +2015,11 @@ try {
     "finalizeSession (related pending reminder)": 50,
     "finalizeSession (changed files, Knowledge review)": 50,
   };
-  // Ubuntu CI observed 11.26–44.83 ms event-loop block p90; twice the 44.83 ms maximum rounds up to 100 ms.
+  // Twice the 44.83 ms maximum event-loop block p90 Ubuntu CI observed, rounded up.
   const eventLoopBlockLimitMs = 100;
 
   const results = [];
-  // The heavy cases run first. They read their own snapshot through their own store, so nothing they do reaches the
-  // other cases; run last, they were measured while the operating system was still writing out what the earlier
-  // cases produced (the dirty-document copy, the worst-case stores), and Ubuntu CI saw createBackup at 193–213 ms and
-  // exportTo at 262–305 ms against 133 and 225 ms before those cases existed, with every CPU-bound case unchanged.
+  // Heavy cases run first: run last, they were measured while the OS still wrote out the earlier cases' files.
   const benchmarkCases = backupWorkerOnly ? heavyCases : { ...heavyCases, ...cases };
   const selectedCases = Object.entries(benchmarkCases).filter(
     ([name]) =>
@@ -2160,7 +2028,7 @@ try {
   if (benchmarkCaseFilter && selectedCases.length === 0) {
     throw new Error(`No benchmark case matched --case=${caseFilter}.`);
   }
-  // Shared CI runners occasionally stall a whole case; a failing case is measured once more before the gate fails.
+  // Shared CI runners occasionally stall a whole case, so a failing case is measured once more before the gate fails.
   const measureCase = async (name, run) => {
     const isHeavyCase = name in heavyCases;
     const caseRuns = isHeavyCase ? heavyRuns : runs;
@@ -2359,7 +2227,7 @@ try {
   try {
     store.close();
   } catch {
-    // Already closed after seeding.
+    // Already closed.
   }
   rmSync(getMcpRuntimeDirectory(join(root, "synthetic-runtime")), { recursive: true, force: true });
   rmSync(root, { recursive: true, force: true });

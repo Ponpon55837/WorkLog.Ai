@@ -120,7 +120,6 @@ function validIds(ids: readonly string[], max = 100): boolean {
   );
 }
 
-/** Fingerprints structured evidence as well as time, so corrections in the same millisecond still invalidate it. */
 function sessionFingerprint(row: SessionRow): string {
   return createHash("sha256")
     .update(
@@ -198,7 +197,6 @@ function safePullRequest(reference: string): boolean {
   }
 }
 
-/** Holds evidence-linked proposals without transitioning items until a human accepts them in the Web UI. */
 export class OutstandingCleanupService {
   public constructor(
     private readonly db: DatabaseSync,
@@ -337,7 +335,6 @@ export class OutstandingCleanupService {
         ),
     };
     this.fitContext(result);
-    // Imported identities and timestamps remain intact; never return an over-budget or incomplete page.
     if (JSON.stringify(result).length > CONTEXT_BUDGET) {
       return { outcome: "rejected", reason: "context_too_large", requestId: input.requestId };
     }
@@ -443,7 +440,6 @@ export class OutstandingCleanupService {
     });
   }
 
-  /** Agent-side entry: resolves the tracked project, then reuses create; an open request is returned instead of rejected. */
   public requestForRoot(input: { projectRoot: string; idempotencyKey: string }): RequestOutstandingCleanupResult {
     const decision = this.dependencies.checkProjectRoot(input.projectRoot);
     if (!decision.allowed || !decision.project) {
@@ -490,7 +486,7 @@ export class OutstandingCleanupService {
     ) {
       return { outcome: "rejected", reason: "invalid_proposals" };
     }
-    // Sort identifiers and proposals before hashing so set ordering is not a new submission.
+    // Sorted before hashing, so set ordering is not a new submission.
     const normalized = {
       examinedItemIds: [...input.examinedItemIds].sort(),
       proposals: input.proposals
@@ -833,7 +829,7 @@ export class OutstandingCleanupService {
       result.request.projectNameTruncated = true;
       result.truncated = true;
     }
-    // Shorten each field rather than skipping rows: a page must not silently lose examined item IDs.
+    // Shorten each field rather than skip rows: a page must not silently lose examined item IDs.
     let limit = 200;
     while (JSON.stringify(result).length > CONTEXT_BUDGET && limit >= 25) {
       for (const item of result.items) {

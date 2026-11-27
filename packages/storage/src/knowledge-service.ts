@@ -58,11 +58,9 @@ import { combineRedactionSummaries, redactValue } from "./secret-redaction.js";
 
 export interface KnowledgeFeedbackResult {
   warnings: string[];
-  /** Present when the request named any Knowledge. */
   counts?: KnowledgeFeedbackCounts;
 }
 
-/** The record after withdrawConfirmation; `withdrawn` is false when the confirmation was no longer the latest. */
 export interface WithdrawnConfirmation {
   knowledge: KnowledgeRecord;
   withdrawn: boolean;
@@ -79,7 +77,6 @@ interface ItemPatterns {
   skipped: boolean;
 }
 
-/** What the staleness check found for one Knowledge: absent fields mean nothing was found of that kind. */
 interface StalenessSignals {
   possiblyStale?: KnowledgeStaleness;
   broadChangesSince?: number;
@@ -105,18 +102,13 @@ interface FeedbackTargetRow extends KnowledgeRow {
 
 const FEEDBACK_HISTORY_LIMIT = 100;
 
-/**
- * Knowledge goes possibly stale when a Session after its last confirmation or creation, whichever is later, touches
- * appliesTo. (A confirmation recorded for a Session that finished before the Knowledge existed does not move the
- * baseline back.)
- */
+/** A confirmation recorded for a Session that finished before the Knowledge existed does not move the baseline back. */
 function stalenessSince(knowledge: KnowledgeRecord): string {
   return knowledge.lastConfirmedAt && knowledge.lastConfirmedAt > knowledge.createdAt
     ? knowledge.lastConfirmedAt
     : knowledge.createdAt;
 }
 
-/** One item's distinct normalized appliesTo patterns, charged to the match budget; `skipped` when one was not read. */
 function itemPatterns(knowledge: KnowledgeRecord, contexts: PathContext[], budget: AppliesToBudget): ItemPatterns {
   const skippedBefore = budget.skippedEntries;
   const patterns = [
@@ -125,7 +117,6 @@ function itemPatterns(knowledge: KnowledgeRecord, contexts: PathContext[], budge
   return { patterns, skipped: budget.skippedEntries > skippedBefore };
 }
 
-/** First position in an ascending array whose value is >= `target`. */
 function lowerBound(values: Int32Array, target: number): number {
   let low = 0;
   let high = values.length;
@@ -140,10 +131,6 @@ function lowerBound(values: Int32Array, target: number): number {
   return low;
 }
 
-/**
- * The later Sessions (index positions) that touched any of the record's patterns after its `since`, without its own
- * Sessions, and the coverage of each pattern; undefined when the match budget ran out.
- */
 function laterChanges(
   knowledge: KnowledgeRecord,
   patterns: readonly string[],
@@ -165,7 +152,6 @@ function laterChanges(
       touched.add(sessions[at]!);
     }
   }
-  // The Knowledge's own Sessions are not a reason to doubt it.
   for (const id of [knowledge.sessionId, knowledge.lastConfirmedSessionId]) {
     const excludedIndex = id ? later.indexOfSession(id) : undefined;
     if (excludedIndex !== undefined) touched.delete(excludedIndex);
@@ -173,7 +159,6 @@ function laterChanges(
   return { coverage, touched };
 }
 
-/** The changed files of one later Session that the coverage names, in the Session's order. */
 function coveredPaths(
   later: LaterChangeIndex,
   sessionIndex: number,
@@ -188,17 +173,7 @@ function coveredPaths(
   });
 }
 
-/**
- * The staleness signals of one Knowledge record, or "unchecked" when the match budget ran out before its patterns
- * were resolved against every later file: a partial comparison can neither prove nor rule out staleness. Each pattern
- * is resolved once per call by the index (later-change-index.ts); the item unions the Sessions of its patterns that
- * completed after its `since`, without its own Sessions. Of those, Sessions that listed more than
- * CHANGED_FILES_NORMAL files are broad: they are only counted (broadChangesSince) and never set possiblyStale. The
- * first focused one gives the paths shown and the rest of them give sessionCount. The appliesTo breadth of a
- * possibly stale item is the project-wide one, as at write time: the share of the newest BREADTH_SCAN_LIMIT focused
- * Sessions (`window`, found once per project) that its patterns touch, from the coverage already resolved. The
- * Knowledge's own Sessions are not excluded from it, as at write time.
- */
+/** "unchecked" when the budget ran out: a partial comparison can neither prove nor rule out staleness. */
 function knowledgeStaleness(
   knowledge: KnowledgeRecord,
   { patterns, skipped }: ItemPatterns,
@@ -206,7 +181,6 @@ function knowledgeStaleness(
   window: BreadthWindow,
   budget: AppliesToBudget,
 ): StalenessSignals | "unchecked" | undefined {
-  // An entry above the write-time limits is never compared, so staleness can be neither proven nor ruled out.
   if (skipped || budget.exhausted) {
     return "unchecked";
   }
@@ -253,14 +227,9 @@ function knowledgeStaleness(
   };
 }
 
-/** Distinct Knowledge records whose staleness result one connection remembers while the data is unchanged. */
 const STALENESS_CACHE_KEYS = 512;
 
 export class KnowledgeService {
-  /**
-   * The staleness signals (possiblyStale and broadChangesSince together) per Knowledge id and staleness limits; null
-   * is a checked record with neither.
-   */
   private readonly stalenessResults: DataRevisionCache<StalenessSignals | null>;
 
   public constructor(
@@ -270,11 +239,6 @@ export class KnowledgeService {
     this.stalenessResults = new DataRevisionCache(db, STALENESS_CACHE_KEYS);
   }
 
-  /**
-   * Records which Knowledge a Session applied or contradicted. The requested records and this Session's earlier
-   * feedback come from one read; an id the Session already reported the same way is counted but not written again,
-   * so a repeated report changes nothing.
-   */
   public applyKnowledgeFeedback(
     projectId: string,
     sessionId: string,
@@ -324,10 +288,8 @@ export class KnowledgeService {
       counts[applied ? "applied" : "contradicted"] += 1;
       if (applied ? row.reported_applied : row.reported_contradicted) continue;
       const before = toKnowledge(row);
-      // A backfilled Session can have finished before the last confirmation or contradiction: the feedback is still a
-      // fact and is recorded below, but the record follows the newest evidence by completion time, as search ranking
-      // does. The baseline only moves forward, a newer contradiction stays, and a contradiction older than the last
-      // confirmation or review does not put the Knowledge in doubt; on a tie the confirmation stands.
+      // A backfilled Session can predate the last confirmation: the feedback is recorded, but the baseline only moves
+      // forward and an older contradiction does not put the Knowledge in doubt; on a tie the confirmation stands.
       const confirmationMoves = applied && (!before.lastConfirmedAt || completedAt > before.lastConfirmedAt);
       const reviewClears = applied && before.review !== undefined && completedAt >= before.review.at;
       const reviewMoves =
@@ -367,7 +329,6 @@ export class KnowledgeService {
     return { warnings, counts };
   }
 
-  /** Active Knowledge applied by the requested non-voided Sessions, grouped in one bounded read. */
   public appliedKnowledgeIdsBySessions(sessionIds: readonly string[]): Map<string, string[]> {
     const uniqueSessionIds = [...new Set(sessionIds)];
     if (uniqueSessionIds.length === 0) return new Map();
@@ -401,11 +362,6 @@ export class KnowledgeService {
     return this.withKnowledgeTrustMany([knowledge])[0] ?? knowledge;
   }
 
-  /**
-   * Adds the possiblyStale marker and evidence counts to many Knowledge records at once. Each project's later
-   * Sessions are read and their changed files normalized once, and evidence is one grouped query, instead of
-   * once per Knowledge record.
-   */
   public withKnowledgeTrustMany(items: KnowledgeRecord[]): KnowledgeRecord[] {
     const evidence = this.evidenceFor(items.map((item) => item.id));
     const byProject = new Map<string, KnowledgeRecord[]>();
@@ -433,11 +389,6 @@ export class KnowledgeService {
     });
   }
 
-  /**
-   * The newest `limit` focused later Sessions that touched each record's appliesTo, by the rule and index of
-   * possiblyStale; broad Sessions only raise broadChangesSince and are left out. A record whose patterns could not
-   * all be compared within the budget gets no entry.
-   */
   public laterSessionsOf(items: readonly KnowledgeRecord[], limit: number): Map<string, AgentReviewLaterSession[]> {
     const result = new Map<string, AgentReviewLaterSession[]>();
     const byProject = new Map<string, KnowledgeRecord[]>();
@@ -485,12 +436,7 @@ export class KnowledgeService {
     return result;
   }
 
-  /**
-   * The possiblyStale result of every grouped record. A record's result depends only on its project's Sessions and
-   * the record itself, so while the data is unchanged (the revision cache) it is reused; only records without a
-   * remembered result read later Sessions. Nothing is remembered from a call whose budget ran out or that left a
-   * record unchecked: such answers depend on which records shared the budget.
-   */
+  /** Nothing is remembered from a call whose budget ran out: such answers depend on which records shared the budget. */
   private stalenessOf(byProject: Map<string, KnowledgeRecord[]>): Map<string, StalenessSignals | "unchecked"> {
     const limits = stalenessUnitLimits();
     const keyOf = (id: string): string => `${limits.history}:${limits.match}:${id}`;
@@ -521,14 +467,11 @@ export class KnowledgeService {
     return staleness;
   }
 
-  /** Reads each project's later Sessions once and resolves every grouped record against them. */
   private computeStaleness(
     byProject: Map<string, KnowledgeRecord[]>,
     limits: ReturnType<typeof stalenessUnitLimits>,
   ): { results: Map<string, StalenessSignals | "unchecked">; complete: boolean } {
     const staleness = new Map<string, StalenessSignals | "unchecked">();
-    // Two fixed ceilings per call, shared by every project of it: reading later Sessions into the index, and
-    // resolving patterns against it (later-change-index.ts).
     const history = createAppliesToBudget(limits.history);
     const budget = createAppliesToBudget(limits.match);
     for (const [projectId, group] of byProject) {
@@ -537,11 +480,10 @@ export class KnowledgeService {
       const earliest = group.map(stalenessSince).reduce((min, since) => (since < min ? since : min));
       const later = this.loadLaterSessions(projectId, earliest, contexts, history);
       if (!later) {
-        // Some later Session was not read, so no item of the group can be proven current or stale.
         for (const item of group) staleness.set(item.id, "unchecked");
         continue;
       }
-      // The patterns first, so the index knows how many it will resolve (one or two skip the segment index).
+      // Patterns first, so the index knows how many it will resolve (one or two skip the segment index).
       const prepared = group.map((item) => itemPatterns(item, contexts, budget));
       const window = breadthWindowOf(later);
       later.expect(new Set(prepared.flatMap(({ patterns }) => patterns)).size);
@@ -560,7 +502,6 @@ export class KnowledgeService {
     return { results: staleness, complete };
   }
 
-  /** Confirmation and contradiction counts per Knowledge id, from one grouped query. */
   public evidenceFor(knowledgeIds: readonly string[]): Map<string, KnowledgeEvidence> {
     const evidence = new Map<string, KnowledgeEvidence>();
     if (knowledgeIds.length === 0) {
@@ -589,21 +530,13 @@ export class KnowledgeService {
     return evidence;
   }
 
-  /**
-   * A project's non-voided Sessions completed after `since`, plus its newest BREADTH_SCAN_LIMIT focused Sessions even
-   * when they are older (the project-wide breadth window; older broad Sessions cannot affect any item and are not
-   * read), oldest first, read into a LaterChangeIndex one row at a time (one .all() of 5,000 Sessions of 50 x 100
-   * characters took 433 ms and 235 MB). One query finds where that window starts. Each row's list, paths and new
-   * distinct paths are charged to `history` before they are parsed, normalized or split. A list above
-   * MAX_STORED_CHANGED_FILES_JSON_BYTES is not loaded. Undefined when a row stopped the read.
-   */
+  /** Read one row at a time: one .all() of 5,000 Sessions of 50 x 100 characters took 433 ms and 235 MB. */
   private loadLaterSessions(
     projectId: string,
     since: string,
     contexts: PathContext[],
     history: AppliesToBudget,
   ): LaterChangeIndex | undefined {
-    // The (completed_at, id) of the newest-window's oldest Session; the empty tuple admits every focused Session.
     const floor = this.db
       .prepare(
         `SELECT completed_at, id FROM sessions
@@ -939,13 +872,7 @@ export class KnowledgeService {
     });
   }
 
-  /**
-   * Undoes the first manual confirmation made at or after `confirmedSince`, but only while it is still the record's
-   * latest confirmation: a later confirmation by a person or a Session stands, and so does the withdrawn one's
-   * feedback. The baseline goes back to its value before it (a baseline Session deleted since is dropped), its
-   * feedback row is removed, and an audit row records the change. A contradiction reported after it stays; otherwise
-   * the review it cleared comes back. The caller checked the policy.
-   */
+  /** Only while it is still the record's latest confirmation: a later one by a person or a Session stands. */
   public withdrawConfirmation(
     projectId: string,
     knowledgeId: string,
@@ -1093,12 +1020,7 @@ export class KnowledgeService {
     return result.outcome === "knowledge" ? { ...result, items: this.withKnowledgeTrustMany(result.items) } : result;
   }
 
-  /**
-   * Once the write has committed (the service's own transaction, or the MCP write lock around it), measures how much
-   * of the project's recent work `appliesTo` touches and adds it to the result, with a warning when it is broad. The
-   * scan only reads and is bounded, so it stays outside the write lock. Any failure leaves the result as it is: the
-   * write already happened and the hint is only advice.
-   */
+  /** After the commit and outside the write lock; any failure leaves the result as it is. */
   private addBreadthAfterCommit(
     result: RecordedKnowledgeResult | UpdatedKnowledgeResult,
     project: ProjectRecord,
@@ -1121,7 +1043,7 @@ export class KnowledgeService {
         }
         if (warnings.length > 0) result.warnings = warnings;
       } catch {
-        // The breadth hint is advice; a failed read must not turn a committed write into an error.
+        // The hint is advice; a failed read must not fail a committed write.
       }
     });
   }
@@ -1167,7 +1089,6 @@ export class KnowledgeService {
     return audit.id;
   }
 
-  /** One confirmation or contradiction; it shares the id of the audit row written with it. */
   private insertFeedback(
     auditId: string,
     knowledge: KnowledgeRecord,

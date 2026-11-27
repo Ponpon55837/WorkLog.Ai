@@ -6,7 +6,6 @@ const NEXT_STEPS_WARNING_MESSAGE =
 const NOT_YET = String.raw`(?:尚未|還沒|未)`;
 const TARGET_BRANCH = String.raw`(?:main|master|develop|trunk)`;
 
-// Bounded windows only, so each scan is linear; an item gets at most three: strict, Git context, then bare state words.
 const CATEGORY_SOURCES: Record<TransientNextStepCategory, readonly string[]> = {
   uncommitted: [
     String.raw`(?:尚未|還沒|未|待)\s{0,2}commit`,
@@ -87,7 +86,7 @@ function categoryOf(item: string): TransientNextStepCategory | undefined {
   return categoryIn(STRICT_PATTERN, item) ?? (GIT_CONTEXT.test(item) ? categoryIn(BARE_PATTERN, item) : undefined);
 }
 
-/** Flags nextSteps that read like in-task Git/PR/CI state. Keyword matching only: callers must keep every item. */
+/** Keyword matching only: callers must keep every item. */
 export function findTransientNextSteps(nextSteps: readonly string[]): NextStepsWarnings | undefined {
   const items = nextSteps.flatMap((item, index) => {
     const category = categoryOf(item);

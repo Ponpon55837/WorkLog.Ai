@@ -4,7 +4,6 @@ import { runImmediateTransaction } from "./sqlite-transaction.js";
 
 const METADATA_BACKFILL_PROCESSING_TIMEOUT_MS = 30 * 60 * 1000;
 
-/** Owns recovery of metadata-backfill request state before facade operations read it. */
 export class MetadataBackfillRepository {
   public constructor(private readonly db: DatabaseSync) {}
 
