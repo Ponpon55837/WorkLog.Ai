@@ -187,7 +187,7 @@ const enumDefaults: Partial<Record<ProjectDataTable, Record<string, string>>> = 
   session_work_summary_updates: { mode: "replace" },
   outstanding_items: { status: "pending" },
   outstanding_cleanup_requests: { status: "pending" },
-  outstanding_cleanup_proposals: { target_status: "completed", review_status: "pending" },
+  outstanding_cleanup_proposals: { target_status: "completed", review_status: "pending", kind: "resolution" },
   outstanding_item_events: { to_status: "pending", source: "migration" },
   knowledge_page_versions: { author: "agent" },
   knowledge_feedback: { kind: "manual_confirm" },
@@ -305,7 +305,12 @@ describe("project data transfer schemas", () => {
     delete rowAt(legacy, "sessions").changed_files_confirmed;
     delete rowAt(legacy, "sessions").redaction_count;
     delete rowAt(legacy, "knowledge_pages").checked_through_session_id;
+    delete rowAt(legacy, "outstanding_cleanup_proposals").kind;
     expect(projectDataExportSchema.safeParse(legacy).success).toBe(true);
+
+    const invalidKind = validBundle();
+    rowAt(invalidKind, "outstanding_cleanup_proposals").kind = "other";
+    expect(projectDataExportSchema.safeParse(invalidKind).success).toBe(false);
 
     const invalid = validBundle();
     rowAt(invalid, "sessions").changed_files_confirmed = 2;

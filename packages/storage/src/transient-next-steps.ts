@@ -1,7 +1,7 @@
 import type { NextStepsWarnings, TransientNextStepCategory } from "@work-intelligence/core";
 
 const NEXT_STEPS_WARNING_MESSAGE =
-  "這些 nextSteps 項目看起來是任務內的暫時狀態（未 commit、未 push、PR 待合併或未合回分支、CI 執行中、階段尚未開始），由關鍵字比對，可能誤判。若是本任務自己會完成的進度，請移到 outcomes 或 verification；若確實是之後要處理的事項則保留。伺服器未更動任何項目。";
+  "這些 nextSteps 項目看起來不是之後要做的任務：任務內的暫時狀態（未 commit、未 push、PR 待合併或未合回分支、CI 執行中、階段尚未開始）、範圍排除（未處理：…、不在本 PR 範圍）、未實測的平台說明（未實測、只在 … 上驗證）或依使用者決定暫緩。由關鍵字比對，可能誤判。這類事實請移到 outcomes 或 verification（範圍與驗證邊界）；只有存在具體的後續動作時才留在 nextSteps。伺服器未更動任何項目。";
 
 const NOT_YET = String.raw`(?:尚未|還沒|未)`;
 const TARGET_BRANCH = String.raw`(?:main|master|develop|trunk)`;
@@ -41,6 +41,24 @@ const CATEGORY_SOURCES: Record<TransientNextStepCategory, readonly string[]> = {
   phase_not_started: [
     String.raw`(?:階段|phase|stage)[^\n]{0,10}?${NOT_YET}\s{0,2}(?:開始|進行|執行)`,
     String.raw`(?:phase|stage)[^\n]{0,12}?not\s{1,3}(?:yet\s{1,3})?started`,
+  ],
+  scope_exclusion: [
+    String.raw`未處理\s{0,2}[：:]`,
+    String.raw`不在\s{0,2}(?:本|此)(?:次)?\s{0,2}(?:PR|pull\s{1,3}request|任務|Session|變更|修改|版本)?\s{0,2}範圍`,
+    String.raw`\bout\s{1,3}of\s{1,3}(?:this\s{1,3})?(?:PR\s{1,3}|pull\s{1,3}request\s{1,3}|task\s{1,3})?scope\b`,
+    String.raw`\bnot\s{1,3}in\s{1,3}(?:this\s{1,3})?(?:PR|pull\s{1,3}request|task|session)?\s{0,3}scope\b`,
+  ],
+  unverified_platform: [
+    String.raw`(?:尚未|還沒|沒有|未)\s{0,2}實測`,
+    String.raw`(?:僅|只)(?:有)?\s{0,2}在[^\n]{1,30}?(?:上|環境|平台|系統)\s{0,2}(?:驗證|實測|測試)`,
+    String.raw`(?:未|尚未)\s{0,2}在[^\n]{1,30}?(?:上|環境|平台|系統)\s{0,2}(?:驗證|實測|測試)`,
+    String.raw`\b(?:not|never)\s{1,3}(?:yet\s{1,3})?(?:tested|verified)\s{1,3}on\b`,
+    String.raw`\bonly\s{1,3}(?:tested|verified)\s{1,3}on\b`,
+  ],
+  deferred_to_user: [
+    String.raw`依\s{0,2}(?:使用者|用戶|user)\s{0,2}(?:的\s{0,2})?(?:決定|判斷|指示)[^\n]{0,8}?(?:暫緩|延後|擱置)`,
+    String.raw`(?:暫緩|延後|擱置)[^\n]{0,6}?依\s{0,2}(?:使用者|用戶|user)\s{0,2}(?:的\s{0,2})?(?:決定|判斷|指示)`,
+    String.raw`\b(?:deferred|postponed|on\s{1,3}hold)\s{1,3}(?:at|per|by|until)\s{1,3}(?:the\s{1,3})?user`,
   ],
 };
 

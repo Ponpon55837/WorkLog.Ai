@@ -1161,6 +1161,36 @@ const MIGRATIONS: SchemaMigration[] = [
       DROP TABLE temp.migration_42_related;
     `,
   },
+  {
+    version: 43,
+    name: "outstanding-cleanup-direct-apply",
+    // Verdicts now change the item at submission, so proposals still pending were never applied: they are closed as rejected (decided_at stays empty, so an acceptance made on another machine still wins on import) and their items stay pending.
+    sql: `
+      ALTER TABLE outstanding_cleanup_proposals ADD COLUMN kind TEXT NOT NULL DEFAULT 'resolution'
+        CHECK (kind IN ('resolution', 'acknowledged'));
+      UPDATE outstanding_cleanup_proposals
+        SET review_status = 'rejected'
+        WHERE review_status = 'pending';
+      UPDATE outstanding_cleanup_requests
+        SET status = 'completed', completed_at = COALESCE(completed_at, requested_at)
+        WHERE status = 'awaiting_review';
+      DROP TRIGGER trg_outstanding_cleanup_event_scope;
+      CREATE TRIGGER trg_outstanding_cleanup_event_scope
+        BEFORE INSERT ON outstanding_item_events
+        WHEN NEW.cleanup_request_id IS NOT NULL OR NEW.cleanup_proposal_id IS NOT NULL BEGIN
+          SELECT CASE WHEN NEW.source NOT IN ('web', 'agent')
+            OR NEW.cleanup_request_id IS NULL OR NEW.cleanup_proposal_id IS NULL
+            OR NEW.from_status IS NOT 'pending'
+            OR NOT EXISTS (
+              SELECT 1 FROM outstanding_cleanup_proposals cp
+              JOIN outstanding_cleanup_request_items ci ON ci.id = cp.request_item_id
+              WHERE cp.id = NEW.cleanup_proposal_id AND cp.request_id = NEW.cleanup_request_id
+                AND cp.project_id = NEW.project_id AND ci.item_id = NEW.item_id
+                AND cp.review_status = 'accepted' AND cp.target_status = NEW.to_status
+            ) THEN RAISE(ABORT, 'invalid cleanup audit scope') END;
+        END;
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

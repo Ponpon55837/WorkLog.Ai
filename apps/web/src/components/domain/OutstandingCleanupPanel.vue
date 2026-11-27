@@ -3,9 +3,8 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { ListChecks } from "lucide-vue-next";
 import { storeToRefs } from "pinia";
-import type { OutstandingCleanupProposalStatus } from "@work-intelligence/core";
+import type { OutstandingCleanupProposal } from "@work-intelligence/core";
 import StatusLabel from "./StatusLabel.vue";
-import UiActionMenu from "../ui/UiActionMenu.vue";
 import UiBox from "../ui/UiBox.vue";
 import UiBoxRow from "../ui/UiBoxRow.vue";
 import UiBoxTitle from "../ui/UiBoxTitle.vue";
@@ -25,16 +24,13 @@ import { useOutstandingCleanupStore } from "../../stores/outstanding-cleanup";
 import { errorMessage, formatDate } from "../../utils/format";
 import { listPageSizeOptions } from "../../utils/labels";
 import {
-  outstandingCleanupProposalVisual,
   outstandingCleanupRequestVisual,
+  outstandingCleanupVerdictVisual,
   outstandingItemStatusVisual,
 } from "../../utils/status";
 import { t } from "../../i18n";
 
 const emit = defineEmits<{ openSession: [sessionId: string] }>();
-const reviewOptions = (Object.keys(outstandingCleanupProposalVisual) as OutstandingCleanupProposalStatus[]).map(
-  (value) => ({ value, ...outstandingCleanupProposalVisual[value] }),
-);
 const pageSizes = listPageSizeOptions.map((option) => option.value);
 
 const route = useRoute();
@@ -44,7 +40,6 @@ const {
   requestId,
   requestPage,
   requestPageSize,
-  reviewStatus,
   proposalPage,
   proposalPageSize,
   requestsLoaded,
@@ -64,7 +59,6 @@ const { showToast } = useToast();
 useRouteQuery("cleanupRequest", requestId, stringQuery());
 useRouteQuery("cleanupRequestPage", requestPage, pageQuery());
 useRouteQuery("cleanupRequestSize", requestPageSize, enumQuery(pageSizes, 10));
-useRouteQuery("cleanupReview", reviewStatus, enumQuery(["pending", "accepted", "rejected"], "pending"));
 useRouteQuery("cleanupPage", proposalPage, pageQuery());
 useRouteQuery("cleanupSize", proposalPageSize, enumQuery(pageSizes, 10));
 
@@ -75,37 +69,25 @@ const createKey = ref("");
 useRouteQuery("cleanup", panelMode, enumQuery(["", "review"], ""));
 
 const isOpen = computed(() => panelMode.value === "review" && Boolean(projectId.value));
-const pendingProposals = computed(() => proposals.value.filter((proposal) => proposal.reviewStatus === "pending"));
+const closedProposals = computed(() => proposals.value.filter((proposal) => proposal.itemStatus !== "pending"));
 const allSelected = computed({
-  get: () => pendingProposals.value.length > 0 && selectedIds.value.length === pendingProposals.value.length,
+  get: () => closedProposals.value.length > 0 && selectedIds.value.length === closedProposals.value.length,
   set: (selected: boolean) => {
-    selectedIds.value = selected ? pendingProposals.value.slice(0, 100).map((proposal) => proposal.id) : [];
+    selectedIds.value = selected ? closedProposals.value.slice(0, 100).map((proposal) => proposal.itemId) : [];
   },
 });
-const hasStaleSelection = computed(() =>
-  proposals.value.some((proposal) => selectedIds.value.includes(proposal.id) && proposal.stale),
-);
-const canReview = computed(
-  () => selectedRequest.value?.status === "pending" || selectedRequest.value?.status === "awaiting_review",
-);
-
-const staleMessage = computed(() =>
-  selectedRequest.value?.status === "cancelled"
-    ? t("outstanding.theRequestWasCancelledExisting")
-    : t("outstanding.itemsSourcesOrEvidenceChanged"),
-);
+const canCancel = computed(() => selectedRequest.value?.status === "pending");
 
 function close(): void {
   panelMode.value = "";
 }
-function selectProposal(id: string, selected: boolean): void {
-  selectedIds.value = selected
-    ? [...new Set([...selectedIds.value, id])].slice(0, 100)
-    : selectedIds.value.filter((value) => value !== id);
+function verdictVisual(proposal: OutstandingCleanupProposal) {
+  return outstandingCleanupVerdictVisual[proposal.kind === "acknowledged" ? "acknowledged" : proposal.status];
 }
-function selectRequest(id: string): void {
-  requestId.value = id;
-  reviewStatus.value = "pending";
+function selectProposal(itemId: string, selected: boolean): void {
+  selectedIds.value = selected
+    ? [...new Set([...selectedIds.value, itemId])].slice(0, 100)
+    : selectedIds.value.filter((value) => value !== itemId);
 }
 function openSession(id: string): void {
   close();
@@ -134,32 +116,21 @@ async function createRequest(): Promise<void> {
     busy.value = false;
   }
 }
-async function decide(ids: string[], decision: "accept" | "reject"): Promise<void> {
-  if (busy.value || !ids.length) return;
-  const accept = decision === "accept";
-  if (
-    !(await confirmAction({
-      title: accept ? t("outstanding.acceptSuggestions") : t("outstanding.rejectSuggestions"),
-      message: accept
-        ? t("outstanding.acceptingTheseSuggestionsSetsThe", {
-            length: ids.length,
-          })
-        : t("outstanding.rejectTheseSuggestionsOpenItems", { length: ids.length }),
-      confirmLabel: accept ? t("outstanding.confirmAcceptance") : t("outstanding.confirmRejection"),
-      cancelLabel: t("outstanding.backToReview"),
-    }))
-  )
-    return;
+async function reopen(itemIds: string[]): Promise<void> {
+  if (busy.value || !itemIds.length) return;
   busy.value = true;
   try {
-    await cleanupStore.decide(ids, decision);
-    selectedIds.value = [];
-    showToast(
-      accept ? t("outstanding.suggestionsAccepted") : t("outstanding.suggestionsRejectedOpenItemsAre"),
-      "success",
+    const closed = new Map(closedProposals.value.map((proposal) => [proposal.itemId, proposal.itemStatus]));
+    const reopened = await cleanupStore.reopen(
+      itemIds.flatMap((itemId) => {
+        const status = closed.get(itemId);
+        return status ? [{ itemId, status }] : [];
+      }),
     );
+    selectedIds.value = [];
+    showToast(t("outstanding.restoredItemsToPending", { length: reopened }), "success");
   } catch (error) {
-    showToast(errorMessage(error, t("outstanding.couldNotReviewTheSuggestions")), "danger");
+    showToast(errorMessage(error, t("outstanding.couldNotUpdateTheOpenItemPleaseTry")), "danger");
   } finally {
     busy.value = false;
   }
@@ -196,11 +167,10 @@ watch(projectId, () => {
   selectedIds.value = [];
 });
 // URL hydration/back navigation retains its page; only an interactive filter change resets it.
-watch([projectId, reviewStatus, proposalPageSize, requestId], () => {
+watch([projectId, proposalPageSize, requestId], () => {
   if (
     route.query.itemProject === projectId.value &&
     (route.query.cleanupRequest ?? "") === requestId.value &&
-    (route.query.cleanupReview ?? "pending") === reviewStatus.value &&
     String(route.query.cleanupSize ?? 10) === String(proposalPageSize.value)
   )
     return;
@@ -214,11 +184,11 @@ watch([projectId, requestPageSize], () => {
     return;
   requestPage.value = 1;
 });
-watch([requestId, reviewStatus, proposalPage, proposalPageSize], () => {
+watch([requestId, proposalPage, proposalPageSize], () => {
   selectedIds.value = [];
 });
-watch([pendingProposals, canReview], ([items, reviewable]) => {
-  const eligibleIds = new Set(reviewable ? items.map((item) => item.id) : []);
+watch(closedProposals, (items) => {
+  const eligibleIds = new Set(items.map((item) => item.itemId));
   selectedIds.value = selectedIds.value.filter((id) => eligibleIds.has(id));
 });
 
@@ -278,14 +248,14 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
               clickable
               :class="{ 'is-selected': item.id === requestId }"
               :aria-current="item.id === requestId ? 'true' : undefined"
-              @select="selectRequest(item.id)"
+              @select="requestId = item.id"
             >
               <template #labels><StatusLabel :status="outstandingCleanupRequestVisual[item.status]" /></template>
               <template #meta>{{
                 t("outstanding.checkedItemsToReview", {
                   examinedCount: item.examinedCount,
                   itemCount: item.itemCount,
-                  pendingProposalCount: item.pendingProposalCount,
+                  proposalCount: item.proposalCount,
                 })
               }}</template>
             </UiBoxRow>
@@ -301,14 +271,7 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
       </UiBox>
       <UiBox v-if="requestId">
         <template #header>
-          <UiBoxTitle :title="t('common.suggestions')" :count="proposalPageInfo.total" />
-          <UiActionMenu
-            v-model="reviewStatus"
-            :label="t('outstanding.reviewStatus')"
-            :header="t('outstanding.filterSuggestions')"
-            :items="reviewOptions"
-            default-value="pending"
-          />
+          <UiBoxTitle :title="t('outstanding.closedByAgent')" :count="proposalPageInfo.total" />
         </template>
         <div v-if="selectedRequest" class="outstanding-cleanup__summary">
           <StatusLabel :status="outstandingCleanupRequestVisual[selectedRequest.status]" />
@@ -319,41 +282,32 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
             })
           }}</span>
           <span>{{ t("outstanding.itemsWithoutASuggestionStay") }}</span>
-          <UiButton v-if="canReview" size="sm" :disabled="busy" @click="cancelRequest">{{
+          <UiButton v-if="canCancel" size="sm" :disabled="busy" @click="cancelRequest">{{
             t("outstanding.cancelRequest")
           }}</UiButton>
         </div>
         <div
-          v-if="reviewStatus === 'pending' && pendingProposals.length"
+          v-if="closedProposals.length"
           class="outstanding-cleanup__actions outstanding-cleanup__batch"
           role="group"
-          :aria-label="t('outstanding.reviewSuggestionsInBulk')"
+          :aria-label="t('outstanding.reopenClosedItemsInBulk')"
         >
           <UiCheckbox
             v-model="allSelected"
-            :label="t('outstanding.selectAllSuggestionsOnThis')"
+            :label="t('outstanding.selectAllClosedOnThisPage')"
             :indeterminate="selectedIds.length > 0 && !allSelected"
-            :disabled="busy || !canReview"
+            :disabled="busy"
           />
           <span aria-live="polite">{{ t("outstanding.selected", { length: selectedIds.length }) }}</span>
-          <UiButton
-            size="sm"
-            :disabled="busy || !canReview || !selectedIds.length || hasStaleSelection"
-            @click="decide([...selectedIds], 'accept')"
-            >{{ t("outstanding.acceptSelected") }}</UiButton
-          >
-          <UiButton
-            size="sm"
-            :disabled="busy || !canReview || !selectedIds.length"
-            @click="decide([...selectedIds], 'reject')"
-            >{{ t("outstanding.rejectSelected") }}</UiButton
-          >
+          <UiButton size="sm" :disabled="busy || !selectedIds.length" @click="reopen([...selectedIds])">{{
+            t("outstanding.reopenSelected")
+          }}</UiButton>
         </div>
         <UiFlash v-if="proposalError" tone="danger">{{ proposalError }}</UiFlash>
         <UiSkeleton v-if="proposalsLoading && !proposals.length" :count="3" />
         <UiEmptyState
           v-else-if="!proposalError && !proposals.length"
-          :title="t('outstanding.noSuggestionsWithThisStatus')"
+          :title="t('outstanding.noClosedItemsYet')"
           :description="t('outstanding.whileARequestAwaitsCleanup')"
         />
         <VirtualList
@@ -363,26 +317,24 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
           :enabled="proposals.length > 3"
           max-height="440px"
           :estimate-item-height="240"
-          :label="t('outstanding.suggestionList')"
+          :label="t('outstanding.closedItemList')"
         >
           <template #default="{ item }">
             <UiBoxRow :title="item.itemText" class="outstanding-cleanup__proposal">
               <template #leading
                 ><UiCheckbox
-                  v-if="item.reviewStatus === 'pending'"
-                  :model-value="selectedIds.includes(item.id)"
-                  :label="t('outstanding.selectSuggestion', { itemText: item.itemText })"
-                  :disabled="busy || !canReview"
-                  @update:model-value="selectProposal(item.id, $event)"
+                  v-if="item.itemStatus !== 'pending'"
+                  :model-value="selectedIds.includes(item.itemId)"
+                  :label="t('outstanding.selectClosedItem', { itemText: item.itemText })"
+                  :disabled="busy"
+                  @update:model-value="selectProposal(item.itemId, $event)"
               /></template>
               <template #labels
-                ><StatusLabel :status="outstandingItemStatusVisual[item.status]" /><StatusLabel
-                  :status="outstandingCleanupProposalVisual[item.reviewStatus]"
+                ><StatusLabel :status="verdictVisual(item)" /><StatusLabel
+                  v-if="item.itemStatus === 'pending'"
+                  :status="outstandingItemStatusVisual.pending"
               /></template>
               <p class="outstanding-cleanup__reason">{{ item.reason }}</p>
-              <UiFlash v-if="item.stale && item.reviewStatus === 'pending'" tone="attention">{{
-                staleMessage
-              }}</UiFlash>
               <div class="outstanding-cleanup__actions">
                 <UiButton size="sm" @click="openSession(item.sourceSessionId)">{{
                   t("common.sourceSession")
@@ -391,18 +343,11 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
                   t("outstanding.evidence", { value: index + 1 })
                 }}</UiButton>
                 <UiButton
-                  v-if="item.reviewStatus === 'pending'"
+                  v-if="item.itemStatus !== 'pending'"
                   size="sm"
-                  :disabled="busy || !canReview || item.stale"
-                  @click="decide([item.id], 'accept')"
-                  >{{ t("outstanding.acceptSuggestion") }}</UiButton
-                >
-                <UiButton
-                  v-if="item.reviewStatus === 'pending'"
-                  size="sm"
-                  :disabled="busy || !canReview"
-                  @click="decide([item.id], 'reject')"
-                  >{{ t("outstanding.rejectSuggestion") }}</UiButton
+                  :disabled="busy"
+                  @click="reopen([item.itemId])"
+                  >{{ t("outstanding.reopen") }}</UiButton
                 >
               </div>
             </UiBoxRow>
@@ -412,7 +357,7 @@ onBeforeUnmount(() => cleanupStore.setActive(false));
           ><UiPagination
             v-model:page-size="proposalPageSize"
             :page-info="proposalPageInfo"
-            :size-label="t('outstanding.suggestionsPerPage')"
+            :size-label="t('outstanding.closedItemsPerPage')"
             @page="proposalPage = $event"
         /></template>
       </UiBox>

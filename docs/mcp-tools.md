@@ -79,11 +79,13 @@ MCP 啟動時，已是最新 schema 的資料庫只讀取 schema 版本，不需
 
 MCP 回應是一張回條，不回顯 Agent 剛送出的內容：`session` 只有 `id`、`executionStatus`、`completedAt`、`updatedAt`、`verificationStatus`、`changedFilesCount`，以及伺服器自己決定或補上的事實——由事件推得、取自伺服器觀察或與請求不同的 `startedAt`（伺服器補上時附 `startedAtSource`：`events` 或 `server_observed`）、與請求不同時的已保存 `changedFiles`（正規化、排除基準或由變更事件加入）、請求沒帶 `git` 時伺服器讀到的 `commitSha`／`gitBranch`、作廢狀態。`redactions` 只在有遮蔽時出現；`resolvedOutstandingItemIds`／`supersededOutstandingItemIds` 在請求帶了 id 或重試還原出結果時出現；保存後沒有 `startedAt` 且請求沒有 `completedAt` 時，另有 `startedAtFollowUp`（只在有依據時才補開始時間，不可估計）與 `suggestedCall`（`work_update_session_metadata`，帶 `sessionId`）；仍缺狀態的 changed files 另有 `changedFileChangesFollowUp`（`required`、`missingPaths`（最多 20 筆；送出的路徑全部缺時 MCP 回條省略）、`missingCount`、`message`）與 `suggestedCall`（`work_update_session_metadata`，帶 `sessionId` 與 `changedFilesMode: "merge"`）；回條若帶有伺服器從 Git 補上的狀態，會附 `changedFileChangesSource: { serverObservedGit: <筆數> }`；follow-up、警告、`knowledgePageMaintenanceHint`、`relatedOutstandingItems` 與 `knowledgeToReview` 照常回傳。`continuedOutstandingItems` 是這次 finalize 實際建立關聯（`parentSessionId`、`relatedSessionIds` 且通過檢查）的 Session 仍為 pending 的未結項，格式與 `relatedOutstandingItems` 相同，最多 10 筆並附 `omitted` 數量；沒有時省略，這些項目不會再出現在 `relatedOutstandingItems`，重複 finalize（同 `idempotencyKey`）也不回傳。兩者都只是指標，不是完成證據；Agent 核對後可在 finalize 的 `resolvedOutstandingItemIds`／`supersededOutstandingItemIds`，或之後以 `work_resolve_outstanding_items` 結案。title、summary、workSummary 與送出的 changedFiles 不再回傳，需要時以 `work_get_session` 讀取。`structuredContent` 是同一張回條加上 `sessionId`、`changedFilesCount` 與 `verification: { status }`。storage 的 finalize 結果不變（測試、bench 與 CLI 仍拿到完整 Session）。
 
-結果可帶選填的 `nextStepsWarnings`：`{ items: [{ index, category }], message }`。當儲存的某個 `nextSteps` 項目看起來是本次工作內的暫時狀態時才出現，`index` 是該項目在 `nextSteps` 中的位置，`category` 為 `uncommitted`（尚未 commit）、`not_pushed`（尚未 push）、`pending_merge`（PR 等待合併，或尚未合回分支）、`ci_running`（CI 執行中）、`phase_not_started`（階段尚未開始）。判斷只靠關鍵字，可能誤判；伺服器不會刪除、改寫或拒絕任何項目。冪等重播（`duplicate`）不會帶這個欄位。Agent 自行判斷：本次工作會自己完成的進度，移到 `outcomes` 或 `verification`；真正留待之後處理的項目就保留。
+結果可帶選填的 `nextStepsWarnings`：`{ items: [{ index, category }], message }`。當儲存的某個 `nextSteps` 項目看起來是本次工作內的暫時狀態時才出現，`index` 是該項目在 `nextSteps` 中的位置，`category` 為 `uncommitted`（尚未 commit）、`not_pushed`（尚未 push）、`pending_merge`（PR 等待合併，或尚未合回分支）、`ci_running`（CI 執行中）、`phase_not_started`（階段尚未開始）、`scope_exclusion`（範圍排除，例如「未處理：…」「不在本 PR 範圍」）、`unverified_platform`（未實測或只在某平台驗證）、`deferred_to_user`（依使用者決定暫緩）。後三類是不需要動作的事實，應寫在 `outcomes` 或 `verification`。判斷只靠關鍵字，可能誤判；伺服器不會刪除、改寫或拒絕任何項目。冪等重播（`duplicate`）不會帶這個欄位。Agent 自行判斷：本次工作會自己完成的進度，移到 `outcomes` 或 `verification`；真正留待之後處理的項目就保留。
 
 `knowledgeToReview` 最多列 3 筆同專案、狀態為 active 的 Knowledge，條件有二：其 `appliesTo` 直接點名本次的某個變更檔案（與路徑完全相同，或是比對得到的 glob；只涵蓋上層目錄或只是路徑後綴的不算），而且這次 Session 是它被記錄或最後確認以來第一個改到它涵蓋檔案的 Session，也就是 `possiblyStale` 因本次才開始。已經是 `possiblyStale` 的 Knowledge 在每次讀取時都會標示，不在這裡重複。每筆有 `id`、`title`（最多 120 字元）、命中的 `path`，以及與 `path` 不同時命中的 `appliesTo`；完全相同的排在 glob 前，同類再依 Knowledge 更新時間由新到舊。與其他 appliesTo 掃描一樣最多讀最新的 2,000 筆，並共用一次呼叫的比對預算（見下方 `appliesTo`）；預算用完或略過超限的 `appliesTo` 項目時停止掃描或略過該項，已找到的提示照常回傳並帶 `knowledgeToReviewTruncated: true`。本次 Session 自己記錄的、或已在本次 `appliedKnowledgeIds`／`contradictedKnowledgeIds` 回報過的 Knowledge 不列入；完成時間早於 Knowledge 確認時間的補登 Session 也不會觸發。這只是提示，不改任何 Knowledge；Agent 依契約檢查：仍成立就用 `work_update_knowledge` 帶 `confirm: true`，被本次變更推翻就告知使用者並在確認後更新，不確定就保留。`knowledgeToReview` 不為空時，回條另帶 `knowledgeToReviewHint`，用一句英文說明這三種處理。它與相關未結項、知識頁提示都在交易提交後才計算，查詢失敗只會省略該欄位。`commitSha` 是可選 metadata；工作完成不要求 Git commit。
 
-`outstandingItemWarnings` 除 `unresolvedIds`、`unsupersededIds` 與 `message` 外，另有逐 id 的 `reasons`：`[{ id, list, code }]`，`list` 為 `resolved` 或 `superseded`，`code` 為 `not_found`、`other_project`、`not_pending`、`source_voided`、`held_by_cleanup`、`no_next_steps`、`both_lists`；`work_resolve_outstanding_items` 另有 `not_earlier`（來源 Session 是本 Session 自己，或不早於本 Session）。伺服器在同一個交易內用一次查詢判斷，筆數不超過請求的 id 數，既有欄位與結果不變。
+`outstandingItemWarnings` 除 `unresolvedIds`、`unsupersededIds` 與 `message` 外，另有逐 id 的 `reasons`：`[{ id, list, code }]`，`list` 為 `resolved` 或 `superseded`，`code` 為 `not_found`、`other_project`、`not_pending`、`source_voided`、`held_by_cleanup`、`no_next_steps`、`both_lists`；`work_resolve_outstanding_items` 另有 `not_earlier`（來源 Session 不早於本 Session；本 Session 自己的項目在 resolved 清單可結案，superseded 清單仍不行）。伺服器在同一個交易內用一次查詢判斷，筆數不超過請求的 id 數，既有欄位與結果不變。
+
+finalize 回條的 `relatedOutstandingItems` 會把與本次 Session 的標題、摘要或 outcomes 共用 issue 編號（`#N`、`/issues/N`、`/pull/N`，整數必須完全相同，`#48` 不會比對到 `#481`）或版本號（`x.y.z`，可帶 `v`）的 pending 項目排在前面，並標示 `possiblyDone: true`。這只是優先核對的提示，不是完成證據；Agent 仍要讀來源後才用 `work_resolve_outstanding_items` 結案。同一 Session 之後也可用它把自己 nextSteps 中已完成的項目結案（只限 resolved 清單）。
 
 輸入文字有開頭的 `<private>` 標籤卻沒有結尾標籤時（這種標籤維持原文，不會被遮蔽），結果帶 `privateTagWarnings: { fields, unclosed, message }`：`fields` 是欄位路徑（例如 `summary`、`workSummary.nextSteps[0]`，最多 10 個），`unclosed` 是沒有配對的開頭標籤總數。只回報位置與次數，不回傳內容；資料照常保存。重播（`duplicate`）不帶這個欄位。
 
@@ -287,22 +289,22 @@ Web 使用的 REST `GET /api/sessions` 維持完整分頁資料，不會套用 M
 
 ## 未結項整理：建立、讀取與提交 operation
 
-「整理未結項」請求可由使用者在 Web 建立，或在使用者明確要求時由 Agent 以 `work_request_outstanding_cleanup` 建立（Agent 不會自行發起）。MCP 不取消或審核整理請求，也不改變項目狀態；接受／拒絕只能在 Web。操作如下：
+「整理未結項」請求可由使用者在 Web 建立，或在使用者明確要求時由 Agent 以 `work_request_outstanding_cleanup` 建立（Agent 不會自行發起）。MCP 不取消整理請求；提交的判定會直接改變項目狀態（與 Agent review 相同），使用者在 Web 的「Agent 已結案」清單檢查並可逐筆或批次重新開啟，沒有接受／拒絕步驟。操作如下：
 
 | Operation | Dispatcher | 參數與回應 |
 | --- | --- | --- |
 | `work_request_outstanding_cleanup` | `work_write_idempotent` | `projectRoot`、`idempotencyKey`；建立與 Web 相同的固定快照請求（每專案一個進行中請求）。回傳 `outstanding_cleanup_request_created`（`duplicate` 表示同 key 重送）、`outstanding_cleanup_request_active`（已有 pending／awaiting_review 請求，直接沿用）、`not_needed`（沒有待處理項目）、`rejected`（`idempotency_conflict`、`too_many_items`）；未追蹤專案安靜回傳 `skipped`。 |
 | `work_list_outstanding_cleanup_requests` | `work_read` | 可選 `projectId`、`status`、`page`；`pageSize` 預設／上限 5，列出 tracked 專案請求 |
 | `work_get_outstanding_cleanup_context` | `work_read` | `requestId`；獨立 `itemPage`／`sessionPage`，`itemPageSize` 上限 5、`sessionPageSize` 上限 10；整體 24,000 字元 |
-| `work_submit_outstanding_cleanup_proposals` | `work_write_idempotent` | `requestId`、`idempotencyKey`、1–100 個 `examinedItemIds`，及 0–100 個 `proposals` |
+| `work_submit_outstanding_cleanup_proposals` | `work_write_idempotent` | `requestId`、`idempotencyKey`、1–100 個 `examinedItemIds`，及 0–100 個判定（`proposals`）；判定即時生效 |
 
 若合法匯入資料的識別或時間欄位過長，文字截短後仍超過預算，context 整頁回傳 `rejected`／`context_too_large`；不截短 ID 或靜默漏掉項目。
 
-每項 proposal 包含 `itemId`、`status`（completed／not_needed）、1–2,000 字的 `reason` 及 1–10 個 `evidenceSessionIds`。項目與證據 ID 不得重複，proposal 必須是 examined 項目的子集。沒有充分證據時只回報 examined，不提建議；同 key／相同正規化內容重試回傳原提交，內容不同或項目已由其他提交核對時整批拒絕。
+每項判定包含 `itemId`、`status`（completed／not_needed／acknowledged）、1–2,000 字的 `reason`。completed 與 not_needed 另需 1–10 個 `evidenceSessionIds`；`acknowledged`（記錄為已知限制）只需理由、不附證據 Session，用於範圍排除、已知限制、未實測平台說明或依使用者決定暫緩這類不是任務的項目，存成 not_needed 並以 `kind: acknowledged` 區分。項目與證據 ID 不得重複，proposal 必須是 examined 項目的子集。沒有充分證據時只回報 examined，不提建議；同 key／相同正規化內容重試回傳原提交，內容不同或項目已由其他提交核對時整批拒絕。
 
 請求固定當時未處理項目的快照（最多 10,000 項，超過則不建立）。context 只查同專案、未作廢、finalized 的後續 Session，完成／建立時間均不晚於 requestedAt；後續必須相對每個項目的來源時間判定。item 與 Session 分頁各有 pageInfo，摘要、outcomes 與 PR 截短／省略均明示。讀完整來源並檢查後續矛盾後才能提案；PR 或 passed 標記本身不是完成證據。`pendingRequests.outstandingCleanup` 在一般 context 顯示最多 5 個 pending 請求。
 
-提交只產生待審建議，未結項維持 pending；全部核對完且仍有待審建議時請求為 awaiting_review，審核完則 completed。使用者在 Web 接受／拒絕；接受時再次核對 item、來源與每個 evidence Session 的版本及內容指紋，任何過期項目都使整批拒絕。接受稽核以 Web source 連到 request／proposal，證據保存在 proposal evidence 關聯。MCP 不提供接受能力，也不能用 finalize 繞過整理審核。
+提交時在同一個交易內再次核對 item、來源與每個 evidence Session 的版本及內容指紋，任何過期或不合格的判定都使整批拒絕、不寫入；通過則直接把項目改為 completed／not_needed，並寫入 `source: agent` 的稽核事件（連到 request 與 proposal；不記錄 Session actor），`closedBy` 仍為 `cleanup_review`。全部項目核對完時請求即為 completed。使用者可在 Web 逐筆或批次重新開啟。升級時，舊版留下的待審建議會標為 rejected、項目維持 pending，等待審核的請求改為 completed。MCP 不能用 finalize 繞過整理請求。
 
 活躍整理請求（pending／awaiting_review）中的快照項目由儲存層保護：Agent finalize 的完成／取代 ID 會被略過並回傳警告，Agent 編輯來源 nextSteps 也不會將它們標為不再需要。取消或完成請求後解除此限制；Web 明確人工操作仍可執行，並使舊建議依版本核對失效。
 

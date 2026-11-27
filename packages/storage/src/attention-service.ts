@@ -343,12 +343,6 @@ export class AttentionService {
         FROM session_decisions d JOIN sessions s ON s.id = d.session_id JOIN projects p ON p.id = d.project_id
         WHERE p.status = 'tracked' AND s.voided_at IS NULL AND d.origin = 'agent_autonomous' AND d.review_status = 'pending' ${scope}
         ORDER BY updated_at DESC, source_id DESC LIMIT ?`;
-    } else if (kind === "cleanup") {
-      sql = `SELECT r.id AS source_id, r.project_id, p.name AS project_name, '' AS title, 'review' AS reason,
-        COALESCE(proposals.count, 0) AS count,
-        (SELECT json_array(COUNT(*),MAX(cp.created_at),MAX(cp.id)) FROM outstanding_cleanup_proposals cp WHERE cp.request_id=r.id AND cp.review_status='pending') AS fingerprint,
-        r.requested_at AS updated_at, COUNT(*) OVER () AS total FROM outstanding_cleanup_requests r JOIN projects p ON p.id = r.project_id LEFT JOIN (SELECT request_id, COUNT(*) AS count FROM outstanding_cleanup_proposals WHERE review_status = 'pending' GROUP BY request_id) proposals ON proposals.request_id = r.id
-        WHERE p.status = 'tracked' AND r.status = 'awaiting_review' ${scope} ORDER BY updated_at DESC, source_id DESC LIMIT ?`;
     } else {
       const pending = kind === "outstanding";
       const condition = pending

@@ -5,7 +5,6 @@ import type { MessageKey } from "../i18n";
 export const attentionKindKeys = {
   synthesis: "attention.kinds.synthesis",
   backfill: "attention.kinds.backfill",
-  cleanup: "attention.kinds.cleanup",
   decision: "attention.kinds.decision",
   knowledge: "attention.kinds.knowledge",
   knowledge_page: "attention.kinds.knowledgePage",
@@ -49,12 +48,6 @@ export function attentionRoute(item: AttentionItem): RouteLocationRaw {
       return { name: "knowledge", params: { tab: "list" }, query: { ...project, knowledge: target.sourceId } };
     case "knowledge_page":
       return { name: "knowledge", params: { tab: "pages" }, query: { ...project, knowledgePage: target.sourceId } };
-    case "cleanup":
-      return {
-        name: "sessions",
-        params: { tab: "outstanding" },
-        query: { itemProject: target.projectId, cleanup: "review", cleanupRequest: target.sourceId },
-      };
     case "outstanding":
       return { name: "sessions", params: { tab: "outstanding" }, query: { itemProject: target.projectId } };
   }

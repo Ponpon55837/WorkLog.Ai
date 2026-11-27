@@ -1397,7 +1397,7 @@ describe("Work Intelligence MCP server", () => {
     expect(listed.items[0]?.textTruncated).toBe(true);
   }, 15_000);
 
-  it("routes cleanup reads and idempotent proposal submissions without changing item status", async () => {
+  it("routes cleanup reads and idempotent verdict submissions that apply directly", async () => {
     const { client, store, root } = await connect();
     const project = store.addProject("MCP cleanup proposal project", root);
     store.updateProject(project.id, { status: "tracked" });
@@ -1522,14 +1522,29 @@ describe("Work Intelligence MCP server", () => {
     );
     expect(conflict).toMatchObject({ outcome: "rejected", reason: "idempotency_conflict" });
 
-    const afterItems = store.listOutstandingItems({ projectId: project.id, pageSize: 10 });
-    expect(afterItems).toMatchObject({ items: [expect.objectContaining({ id: itemId, status: "pending" })] });
-    expect(store.exportProjectData({ type: "project", projectId: project.id }).tables.outstanding_item_events).toEqual(
-      beforeEvents,
-    );
+    expect(store.listOutstandingItems({ projectId: project.id, status: "completed", pageSize: 10 })).toMatchObject({
+      items: [expect.objectContaining({ id: itemId, status: "completed" })],
+    });
+    const afterEvents = store.exportProjectData({ type: "project", projectId: project.id }).tables
+      .outstanding_item_events;
+    expect(afterEvents).toHaveLength(beforeEvents.length + 1);
+    expect(afterEvents.at(-1)).toMatchObject({
+      item_id: itemId,
+      source: "agent",
+      cleanup_request_id: created.request.id,
+      cleanup_proposal_id: submitted.proposalIds[0],
+      to_status: "completed",
+    });
     expect(store.listOutstandingCleanupProposals({ requestId: created.request.id, pageSize: 10 })).toMatchObject({
       outcome: "outstanding_cleanup_proposals",
-      proposals: [expect.objectContaining({ id: submitted.proposalIds[0], reviewStatus: "pending" })],
+      proposals: [
+        expect.objectContaining({
+          id: submitted.proposalIds[0],
+          reviewStatus: "accepted",
+          kind: "resolution",
+          itemStatus: "completed",
+        }),
+      ],
     });
   });
 

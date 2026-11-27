@@ -2,7 +2,6 @@ import type { ServerResponse } from "node:http";
 import type { z } from "zod";
 import {
   createOutstandingCleanupRequestInputSchema,
-  decideOutstandingCleanupProposalsInputSchema,
   outstandingCleanupContextQuerySchema,
   outstandingCleanupProposalQuerySchema,
   outstandingCleanupRequestIdSchema,
@@ -17,7 +16,6 @@ interface CleanupResult {
   outcome: string;
   reason?: string;
   itemIds?: string[];
-  proposalIds?: string[];
   requestId?: string;
 }
 
@@ -26,7 +24,6 @@ function sendResult(response: ServerResponse, result: CleanupResult, successStat
     const conflict = [
       "stale_proposal",
       "already_examined",
-      "already_decided",
       "idempotency_conflict",
       "request_closed",
       "active_request_exists",
@@ -35,7 +32,7 @@ function sendResult(response: ServerResponse, result: CleanupResult, successStat
       response,
       conflict ? 409 : 400,
       "Outstanding cleanup request could not be applied.",
-      { reason: result.reason, itemIds: result.itemIds, proposalIds: result.proposalIds, requestId: result.requestId },
+      { reason: result.reason, itemIds: result.itemIds, requestId: result.requestId },
       conflict ? "conflict" : "invalid_input",
     );
     return;
@@ -121,15 +118,6 @@ export const outstandingCleanupRoutes: Route[] = [
       async ({ request, params }) => ({ ...(await readJsonObject(request)), requestId: params.requestId }),
       ({ store }, input) => store.submitOutstandingCleanupProposals(input),
       201,
-    ),
-  },
-  {
-    method: "POST",
-    pattern: "/api/outstanding-cleanup/requests/:requestId/decisions",
-    handler: cleanupRoute(
-      decideOutstandingCleanupProposalsInputSchema,
-      async ({ request, params }) => ({ ...(await readJsonObject(request)), requestId: params.requestId }),
-      ({ store }, input) => store.decideOutstandingCleanupProposals(input),
     ),
   },
   {

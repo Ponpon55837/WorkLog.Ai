@@ -45,7 +45,7 @@ import type {
   WorkSessionRecord,
 } from "@work-intelligence/core";
 import { serverClock } from "@work-intelligence/shared";
-import type { OutstandingItemFocus } from "./outstanding-item-service.js";
+import type { OutstandingItemFocus, RelatedPendingItem } from "./outstanding-item-service.js";
 import {
   DIGEST_ITEM_LENGTH,
   DIGEST_KNOWLEDGE_LENGTH,
@@ -100,7 +100,7 @@ const CONTEXT_OUTSTANDING_ITEM_TEXT_LENGTH = 500;
 const CONTEXT_PAGE_SECTION_CHARS = 500;
 const CONTEXT_EXCERPT_CHARS = 240;
 const RELATED_OUTSTANDING_HINT =
-  "仍未處理：逐項讀來源核對；本次工作已直接驗證完成的，於 finalize 的 resolvedOutstandingItemIds 或 finalize 後以一次 work_resolve_outstanding_items 批次結案（本 Session 為依據）；被本次 nextSteps 取代才標記不再需要；無法確認就保留。";
+  "仍未處理：逐項讀來源核對（possiblyDone 表示與本次提到同一 issue 或版本，優先核對）；本次工作已直接驗證完成的，於 finalize 的 resolvedOutstandingItemIds 或 finalize 後以一次 work_resolve_outstanding_items 批次結案（本 Session 為依據）；被本次 nextSteps 取代才標記不再需要；無法確認就保留。";
 const RECALL_EXCERPT_CHARS = 110;
 const CONTINUED_OUTSTANDING_ITEM_LIMIT = 10;
 
@@ -160,7 +160,7 @@ interface ContextRecallStoreReader {
   pendingOutstandingItemsForSessions(sessionIds: readonly string[]): OutstandingItem[];
   hasPendingOutstandingItems(projectId: string, excludeSourceSessionId?: string): boolean;
   relatedPendingOutstandingItems(input: OutstandingItemFocus): {
-    items: OutstandingItem[];
+    items: RelatedPendingItem[];
     total: number;
     truncated?: true;
   };
@@ -532,7 +532,7 @@ export class ContextRecallService {
 
   public relatedOutstandingItems(
     projectId: string,
-    focus: ContextFocus,
+    focus: ContextFocus & { identifierText?: string },
     excludeSourceSessionId?: string,
     excludeItemIds?: readonly string[],
   ): RelatedOutstandingItems {
@@ -1772,7 +1772,7 @@ export class ContextRecallService {
   }
 
   private outstandingItemDigest(result: {
-    items: OutstandingItem[];
+    items: Array<OutstandingItem & { possiblyDone?: true }>;
     total: number;
     truncated?: true;
   }): RelatedOutstandingItems {
@@ -1788,6 +1788,7 @@ export class ContextRecallService {
           text: text.text,
           ...(text.truncated ? { textTruncated: true } : {}),
           ...(title.truncated ? { sourceSessionTitleTruncated: true } : {}),
+          ...(item.possiblyDone ? { possiblyDone: true as const } : {}),
         };
       }),
       total: result.total,

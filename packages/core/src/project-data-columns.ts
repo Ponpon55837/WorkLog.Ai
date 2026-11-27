@@ -309,6 +309,7 @@ export const PROJECT_DATA_EXPORT_COLUMNS = {
     "review_status",
     "created_at",
     "decided_at",
+    "kind",
   ],
   outstanding_cleanup_proposal_evidence: [
     "id",

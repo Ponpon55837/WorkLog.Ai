@@ -37,7 +37,9 @@ import {
   OUTSTANDING_ITEM_CLOSED_BY,
   AGENT_REVIEW_REQUEST_STATUSES,
   OUTSTANDING_CLEANUP_REQUEST_STATUSES,
+  OUTSTANDING_CLEANUP_PROPOSAL_KINDS,
   OUTSTANDING_CLEANUP_PROPOSAL_STATUSES,
+  OUTSTANDING_CLEANUP_VERDICT_STATUSES,
   MAX_OUTSTANDING_ITEM_BATCH_SIZE,
   WORK_SUMMARY_DECISION_ORIGINS,
   WORK_REPORT_PERIODS,
@@ -1739,12 +1741,17 @@ export const submitOutstandingCleanupProposalsInputSchema = z.object({
   examinedItemIds: z.array(cleanupIdSchema).min(1).max(100),
   proposals: z
     .array(
-      z.object({
-        itemId: cleanupIdSchema,
-        status: z.enum(["completed", "not_needed"]),
-        reason: z.string().trim().min(1).max(2_000),
-        evidenceSessionIds: z.array(cleanupIdSchema).min(1).max(10),
-      }),
+      z
+        .object({
+          itemId: cleanupIdSchema,
+          status: z.enum(OUTSTANDING_CLEANUP_VERDICT_STATUSES),
+          reason: z.string().trim().min(1).max(2_000),
+          evidenceSessionIds: z.array(cleanupIdSchema).max(10).default([]),
+        })
+        .refine((proposal) => proposal.status === "acknowledged" || proposal.evidenceSessionIds.length > 0, {
+          message: "completed and not_needed verdicts need at least one evidence Session.",
+          path: ["evidenceSessionIds"],
+        }),
     )
     .max(100),
 });
@@ -1754,12 +1761,6 @@ export const outstandingCleanupProposalQuerySchema = z.object({
   page: cleanupPageSchema,
   pageSize: z.number().int().min(1).max(100).optional(),
 });
-export const decideOutstandingCleanupProposalsInputSchema = z.object({
-  requestId: cleanupIdSchema,
-  proposalIds: z.array(cleanupIdSchema).min(1).max(100),
-  decision: z.enum(["accept", "reject"]),
-});
-
 export const projectDataExportTableColumns = PROJECT_DATA_EXPORT_COLUMNS;
 
 // Far below what recursive consumers (JSON.stringify, zod, structured clone) can survive.
@@ -1845,6 +1846,7 @@ const projectDataImportStatusValues: Partial<
   outstanding_cleanup_proposals: {
     target_status: ["completed", "not_needed"],
     review_status: OUTSTANDING_CLEANUP_PROPOSAL_STATUSES,
+    kind: OUTSTANDING_CLEANUP_PROPOSAL_KINDS,
   },
   sessions: { status: ["finalized"], execution_status: ["completed"] },
   work_events: { type: WORK_EVENT_TYPES },
@@ -1875,7 +1877,7 @@ const projectDataImportStatusValues: Partial<
   },
   report_summaries: { period: WORK_REPORT_PERIODS },
   report_presentations: { actor: ["web"] },
-  attention_preferences: { kind: ATTENTION_KINDS, state: ["visible", "hidden", "snoozed"] },
+  attention_preferences: { kind: [...ATTENTION_KINDS, "cleanup"], state: ["visible", "hidden", "snoozed"] },
   metadata_backfill_requests: { scope_type: METADATA_BACKFILL_SCOPE_TYPES, status: METADATA_BACKFILL_REQUEST_STATUSES },
   session_summary_updates: { mode: SESSION_SUMMARY_UPDATE_MODES },
   session_work_summary_updates: { mode: WORK_SUMMARY_UPDATE_MODES },
@@ -2153,6 +2155,7 @@ export const projectDataColumnDefaults: Partial<
   projects: { repository_url: null },
   session_diagrams: { format_version: 1 },
   outstanding_item_events: { cleanup_request_id: null, cleanup_proposal_id: null },
+  outstanding_cleanup_proposals: { kind: "resolution" },
   // Required and numeric columns still fail the row check when null, so only absent rows pass.
   agent_review_requests: omittedColumns("agent_review_requests"),
   agent_review_submissions: omittedColumns("agent_review_submissions"),

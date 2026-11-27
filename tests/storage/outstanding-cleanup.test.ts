@@ -11,7 +11,6 @@ const tempDirs: string[] = [];
 const TEST_NOW = "2026-09-22T12:00:00.000Z";
 const SOURCE_TIME = "2026-09-01T12:00:00.000Z";
 const EVIDENCE_TIME = "2026-09-02T12:00:00.000Z";
-const STALE_MUTATIONS = ["source edit", "item edit", "evidence edit", "source void", "evidence void"] as const;
 
 interface ProjectFixture {
   store: WorkIntelligenceStore;
@@ -131,7 +130,7 @@ function submitOneProposal(
   idempotencyKey: string,
   itemId: string,
   evidenceSessionId: string,
-  status: "completed" | "not_needed" = "completed",
+  status: "completed" | "not_needed" | "acknowledged" = "completed",
 ) {
   return store.submitOutstandingCleanupProposals({
     requestId,
@@ -506,19 +505,20 @@ describe("outstanding cleanup requests", () => {
     expect(source.id).not.toBe(validEvidence.id);
   });
 
-  it("accepts and rejects proposals individually, links accepted audit to immutable evidence, and avoids duplicate audits", () => {
-    const { store, root, projectId } = createTrackedProject("Cleanup review fixture");
-    const source = finalize(store, root, "cleanup-review-source", [
-      "Verify accepted completion",
-      "Keep rejected proposal pending",
-      "Accept an explicit replacement",
+  it("applies each verdict at submission, audits it as an Agent event, and records acknowledged without evidence", () => {
+    const { store, root, projectId } = createTrackedProject("Cleanup direct apply fixture");
+    finalize(store, root, "cleanup-direct-source", [
+      "Verify completed outcome",
+      "Replace an obsolete obligation",
+      "未處理：Windows 版本不在本 PR 範圍",
+      "Withhold without a verdict",
     ]);
     const items = pendingItems(store, projectId);
-    const evidence = finalize(store, root, "cleanup-review-evidence", [], EVIDENCE_TIME);
-    const request = createRequest(store, projectId, "cleanup-review-request");
+    const evidence = finalize(store, root, "cleanup-direct-evidence", [], EVIDENCE_TIME);
+    const request = createRequest(store, projectId, "cleanup-direct-request");
     const submitted = store.submitOutstandingCleanupProposals({
       requestId: request.id,
-      idempotencyKey: "cleanup-review-submit",
+      idempotencyKey: "cleanup-direct-submit",
       examinedItemIds: items.map((item) => item.id),
       proposals: [
         {
@@ -535,391 +535,307 @@ describe("outstanding cleanup requests", () => {
         },
         {
           itemId: items[2]!.id,
-          status: "not_needed",
-          reason: "The verified replacement makes this old obligation unnecessary.",
-          evidenceSessionIds: [evidence.id],
+          status: "acknowledged",
+          reason: "A scope exclusion, not a task.",
+          evidenceSessionIds: [],
         },
       ],
     });
-    expect(submitted.outcome).toBe("outstanding_cleanup_proposals_submitted");
-    if (submitted.outcome !== "outstanding_cleanup_proposals_submitted") throw new Error("Expected proposals.");
-    const listed = store.listOutstandingCleanupProposals({ requestId: request.id, pageSize: 20 });
-    expect(listed.outcome).toBe("outstanding_cleanup_proposals");
-    if (listed.outcome !== "outstanding_cleanup_proposals") throw new Error("Expected proposal list.");
-    const completion = listed.proposals.find((proposal) => proposal.itemId === items[0]!.id);
-    const replacement = listed.proposals.find((proposal) => proposal.itemId === items[1]!.id);
-    const acceptedReplacement = listed.proposals.find((proposal) => proposal.itemId === items[2]!.id);
-    if (!completion || !replacement || !acceptedReplacement) throw new Error("Expected each proposal row.");
-    const beforeDecisions = store.exportProjectData({ type: "project", projectId }).tables.outstanding_item_events;
-
-    expect(
-      store.decideOutstandingCleanupProposals({
-        requestId: request.id,
-        proposalIds: [replacement.id],
-        decision: "reject",
-      }),
-    ).toMatchObject({ outcome: "outstanding_cleanup_proposals_decided", decision: "reject", duplicate: false });
-    expect(pendingItems(store, projectId).map((item) => item.id)).toContain(items[1]!.id);
-    expect(store.exportProjectData({ type: "project", projectId }).tables.outstanding_item_events).toHaveLength(
-      beforeDecisions.length,
-    );
-
-    expect(
-      store.decideOutstandingCleanupProposals({
-        requestId: request.id,
-        proposalIds: [completion.id],
-        decision: "accept",
-      }),
-    ).toMatchObject({ outcome: "outstanding_cleanup_proposals_decided", decision: "accept", duplicate: false });
-    expect(
-      store.decideOutstandingCleanupProposals({
-        requestId: request.id,
-        proposalIds: [acceptedReplacement.id],
-        decision: "accept",
-      }),
-    ).toMatchObject({ outcome: "outstanding_cleanup_proposals_decided", decision: "accept", duplicate: false });
-    const afterAccept = store.exportProjectData({ type: "project", projectId }).tables;
-    const retry = store.decideOutstandingCleanupProposals({
-      requestId: request.id,
-      proposalIds: [completion.id],
-      decision: "accept",
+    if (submitted.outcome !== "outstanding_cleanup_proposals_submitted") throw new Error("Expected applied verdicts.");
+    expect(submitted).toMatchObject({
+      duplicate: false,
+      request: { status: "completed", examinedCount: 4, proposalCount: 3 },
     });
-    expect(retry).toMatchObject({ outcome: "outstanding_cleanup_proposals_decided", duplicate: true });
-    expect(store.exportProjectData({ type: "project", projectId }).tables.outstanding_item_events).toEqual(
-      afterAccept.outstanding_item_events,
-    );
-    expect(store.listOutstandingItems({ projectId, status: "completed", pageSize: 0 })).toMatchObject({
-      outcome: "outstanding_items",
-      items: expect.arrayContaining([expect.objectContaining({ id: items[0]!.id, status: "completed" })]),
+    expect(pendingItems(store, projectId).map((item) => item.id)).toEqual([items[3]!.id]);
+    const closed = (status: "completed" | "not_needed") =>
+      store.listOutstandingItems({ projectId, status, pageSize: 0 });
+    expect(closed("completed")).toMatchObject({
+      items: [expect.objectContaining({ id: items[0]!.id, closedBy: "cleanup_review" })],
     });
-    expect(store.listOutstandingItems({ projectId, status: "not_needed", pageSize: 0 })).toMatchObject({
-      outcome: "outstanding_items",
-      items: expect.arrayContaining([expect.objectContaining({ id: items[2]!.id, status: "not_needed" })]),
-    });
-
-    const acceptedEvent = afterAccept.outstanding_item_events.find(
-      (event) => event.item_id === items[0]!.id && event.cleanup_proposal_id === completion.id,
-    );
-    expect(acceptedEvent).toMatchObject({
-      cleanup_request_id: request.id,
-      cleanup_proposal_id: completion.id,
-      source: "web",
-      from_status: "pending",
-      to_status: "completed",
-    });
-    const replacementEvent = afterAccept.outstanding_item_events.find(
-      (event) => event.item_id === items[2]!.id && event.cleanup_proposal_id === acceptedReplacement.id,
-    );
-    expect(replacementEvent).toMatchObject({
-      cleanup_request_id: request.id,
-      cleanup_proposal_id: acceptedReplacement.id,
-      source: "web",
-      from_status: "pending",
-      to_status: "not_needed",
-    });
-    expect(afterAccept.outstanding_cleanup_proposals).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: completion.id, review_status: "accepted" })]),
-    );
-    expect(afterAccept.outstanding_cleanup_proposal_evidence).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ proposal_id: completion.id, session_id: evidence.id, project_id: projectId }),
-        expect.objectContaining({
-          proposal_id: acceptedReplacement.id,
-          session_id: evidence.id,
-          project_id: projectId,
-        }),
+    expect(closed("not_needed")).toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({ id: items[1]!.id, closedBy: "cleanup_review" }),
+        expect.objectContaining({ id: items[2]!.id, closedBy: "cleanup_review" }),
       ]),
-    );
-    expect(source.id).not.toBe(evidence.id);
+    });
+
+    const listed = store.listOutstandingCleanupProposals({ requestId: request.id, pageSize: 20 });
+    if (listed.outcome !== "outstanding_cleanup_proposals") throw new Error("Expected proposal list.");
+    const byItem = new Map(listed.proposals.map((proposal) => [proposal.itemId, proposal]));
+    expect(byItem.get(items[0]!.id)).toMatchObject({
+      status: "completed",
+      kind: "resolution",
+      reviewStatus: "accepted",
+      itemStatus: "completed",
+      evidenceSessionIds: [evidence.id],
+    });
+    expect(byItem.get(items[2]!.id)).toMatchObject({
+      status: "not_needed",
+      kind: "acknowledged",
+      reviewStatus: "accepted",
+      itemStatus: "not_needed",
+      evidenceSessionIds: [],
+    });
+
+    const tables = store.exportProjectData({ type: "project", projectId }).tables;
+    for (const item of items.slice(0, 3)) {
+      const proposal = byItem.get(item.id)!;
+      expect(tables.outstanding_item_events.filter((event) => event.item_id === item.id).at(-1)).toMatchObject({
+        source: "agent",
+        actor_session_id: null,
+        from_status: "pending",
+        to_status: proposal.status,
+        cleanup_request_id: request.id,
+        cleanup_proposal_id: proposal.id,
+      });
+    }
+    expect(tables.outstanding_cleanup_proposal_evidence).toHaveLength(2);
+
+    expect(store.updateOutstandingItemStatus(items[0]!.id, "pending", "web").outcome).toBe("outstanding_item_updated");
+    const reopened = store.listOutstandingCleanupProposals({ requestId: request.id, pageSize: 20 });
+    if (reopened.outcome !== "outstanding_cleanup_proposals") throw new Error("Expected proposal list.");
+    expect(reopened.proposals.find((proposal) => proposal.itemId === items[0]!.id)).toMatchObject({
+      reviewStatus: "accepted",
+      itemStatus: "pending",
+    });
   });
 
-  it.each(STALE_MUTATIONS)("rejects a proposal after a %s and preserves its pending review state", (mutation) => {
+  it("requires evidence for completed and not_needed verdicts but not for acknowledged ones", () => {
+    const { store, root, projectId } = createTrackedProject("Cleanup acknowledged validation fixture");
+    finalize(store, root, "cleanup-ack-source", ["Needs evidence", "Known limitation"]);
+    const items = pendingItems(store, projectId);
+    const request = createRequest(store, projectId, "cleanup-ack-request");
+    const submit = (key: string, status: "completed" | "not_needed" | "acknowledged", itemId: string) =>
+      store.submitOutstandingCleanupProposals({
+        requestId: request.id,
+        idempotencyKey: key,
+        examinedItemIds: [itemId],
+        proposals: [{ itemId, status, reason: "A concise reason.", evidenceSessionIds: [] }],
+      });
+    expect(submit("cleanup-ack-completed", "completed", items[0]!.id)).toMatchObject({
+      outcome: "rejected",
+      reason: "invalid_proposals",
+    });
+    expect(submit("cleanup-ack-not-needed", "not_needed", items[0]!.id)).toMatchObject({
+      outcome: "rejected",
+      reason: "invalid_proposals",
+    });
+    expect(pendingItems(store, projectId)).toHaveLength(2);
+    expect(submit("cleanup-ack-acknowledged", "acknowledged", items[1]!.id)).toMatchObject({
+      outcome: "outstanding_cleanup_proposals_submitted",
+      request: { proposalCount: 1 },
+    });
+    expect(pendingItems(store, projectId).map((item) => item.id)).toEqual([items[0]!.id]);
+  });
+
+  it.each([
+    ["source edit", "stale_proposal"],
+    ["item edit", "stale_proposal"],
+    ["source void", "stale_proposal"],
+    ["evidence void", "invalid_evidence"],
+  ] as const)("rejects a submission after a %s and changes nothing", (mutation, reason) => {
     const { store, root, projectId } = createTrackedProject(`Cleanup stale ${mutation} fixture`);
-    const source = finalize(store, root, `cleanup-single-stale-source-${mutation}`, ["Verify one stale transition"]);
+    const source = finalize(store, root, `cleanup-stale-source-${mutation}`, ["Verify one stale transition"]);
     const item = pendingItems(store, projectId)[0]!;
-    const evidence = finalize(store, root, `cleanup-single-stale-evidence-${mutation}`, [], EVIDENCE_TIME);
-    const request = createRequest(store, projectId, `cleanup-single-stale-request-${mutation}`);
-    const submitted = submitOneProposal(
-      store,
-      request.id,
-      `cleanup-single-stale-submit-${mutation}`,
-      item.id,
-      evidence.id,
-    );
-    expect(submitted.outcome).toBe("outstanding_cleanup_proposals_submitted");
-    if (submitted.outcome !== "outstanding_cleanup_proposals_submitted") throw new Error("Expected one proposal.");
+    const evidence = finalize(store, root, `cleanup-stale-evidence-${mutation}`, [], EVIDENCE_TIME);
+    const request = createRequest(store, projectId, `cleanup-stale-request-${mutation}`);
 
     if (mutation === "source edit") {
-      const edited = store.updateSessionSummary({
+      store.updateSessionSummary({
         sessionId: source.id,
-        idempotencyKey: `cleanup-single-stale-edit-source-${mutation}`,
+        idempotencyKey: `cleanup-stale-edit-${mutation}`,
         summary: "Corrected source summary without advancing the frozen clock.",
       });
-      expect(edited.outcome).toBe("summary_updated");
-      if (edited.outcome !== "summary_updated") throw new Error("Expected source edit.");
-      expect(edited.session.updatedAt).toBe(source.updatedAt);
     } else if (mutation === "item edit") {
-      expect(store.updateOutstandingItemStatus(item.id, "completed", "web").outcome).toBe("outstanding_item_updated");
-    } else if (mutation === "evidence edit") {
-      const edited = store.updateSessionSummary({
-        sessionId: evidence.id,
-        idempotencyKey: `cleanup-single-stale-edit-evidence-${mutation}`,
-        summary: "Corrected evidence summary without advancing the frozen clock.",
-      });
-      expect(edited.outcome).toBe("summary_updated");
-      if (edited.outcome !== "summary_updated") throw new Error("Expected evidence edit.");
-      expect(edited.session.updatedAt).toBe(evidence.updatedAt);
+      store.updateOutstandingItemStatus(item.id, "completed", "web");
     } else if (mutation === "source void") {
-      expect(
-        store.setSessionVoid({ sessionId: source.id, voided: true, reason: "Synthetic source correction." }).outcome,
-      ).toBe("session_void_updated");
+      store.setSessionVoid({ sessionId: source.id, voided: true, reason: "Synthetic source correction." });
     } else {
-      expect(
-        store.setSessionVoid({ sessionId: evidence.id, voided: true, reason: "Synthetic evidence correction." })
-          .outcome,
-      ).toBe("session_void_updated");
+      store.setSessionVoid({ sessionId: evidence.id, voided: true, reason: "Synthetic evidence correction." });
     }
 
-    const beforeDecision = store.exportProjectData({ type: "project", projectId }).tables;
+    const before = store.exportProjectData({ type: "project", projectId }).tables;
     expect(
-      store.decideOutstandingCleanupProposals({
-        requestId: request.id,
-        proposalIds: submitted.proposalIds,
-        decision: "accept",
-      }),
-    ).toMatchObject({ outcome: "rejected", reason: "stale_proposal" });
-    const afterDecision = store.exportProjectData({ type: "project", projectId }).tables;
-    expect(afterDecision.outstanding_item_events).toEqual(beforeDecision.outstanding_item_events);
-    expect(afterDecision.outstanding_cleanup_proposals).toEqual(beforeDecision.outstanding_cleanup_proposals);
-    const proposals = store.listOutstandingCleanupProposals({ requestId: request.id, reviewStatus: "pending" });
-    expect(proposals).toMatchObject({
-      outcome: "outstanding_cleanup_proposals",
-      proposals: [expect.objectContaining({ id: submitted.proposalIds[0], reviewStatus: "pending", stale: true })],
+      submitOneProposal(store, request.id, `cleanup-stale-submit-${mutation}`, item.id, evidence.id),
+    ).toMatchObject({
+      outcome: "rejected",
+      reason,
+      itemIds: [item.id],
+    });
+    const after = store.exportProjectData({ type: "project", projectId }).tables;
+    expect(after.outstanding_item_events).toEqual(before.outstanding_item_events);
+    expect(after.outstanding_cleanup_proposals).toEqual([]);
+    expect(store.getOutstandingCleanupContext({ requestId: request.id })).toMatchObject({
+      request: { examinedCount: 0, status: "pending" },
     });
   });
 
-  it("rejects a stale batch without partially deciding proposals, including same-millisecond edits", () => {
-    const { store, root, projectId } = createTrackedProject("Cleanup stale batch fixture");
-    const sourceRows = Array.from({ length: 5 }, (_, index) =>
-      finalize(store, root, `cleanup-stale-source-${index}`, [`Stale batch item ${index + 1}`]),
+  it("rechecks eligibility atomically: one stale item rejects the whole submission, acknowledged ones included", () => {
+    const { store, root, projectId } = createTrackedProject("Cleanup atomic submission fixture");
+    const sources = Array.from({ length: 4 }, (_, index) =>
+      finalize(store, root, `cleanup-atomic-source-${index}`, [`Atomic item ${index + 1}`]),
     );
-    const snapshotItems = pendingItems(store, projectId);
-    const itemsBySource = sourceRows.map((source) => {
-      const item = snapshotItems.find((candidate) => candidate.sourceSessionId === source.id);
-      if (!item) throw new Error("Expected the cleanup item for each source Session.");
-      return item;
-    });
-    const evidenceRows = Array.from({ length: 5 }, (_, index) =>
-      finalize(store, root, `cleanup-stale-evidence-${index}`, [], EVIDENCE_TIME),
-    );
-    const request = createRequest(store, projectId, "cleanup-stale-request");
-    const submitted = store.submitOutstandingCleanupProposals({
-      requestId: request.id,
-      idempotencyKey: "cleanup-stale-submit",
-      examinedItemIds: itemsBySource.map((item) => item.id),
-      proposals: itemsBySource.map((item, index) => ({
-        itemId: item.id,
-        status: "completed" as const,
-        reason: `Synthetic evidence ${index + 1} directly verifies the obligation.`,
-        evidenceSessionIds: [evidenceRows[index]!.id],
-      })),
-    });
-    expect(submitted.outcome).toBe("outstanding_cleanup_proposals_submitted");
-    if (submitted.outcome !== "outstanding_cleanup_proposals_submitted") throw new Error("Expected stale proposals.");
-    const originalUpdate = sourceRows[0]!.updatedAt;
-    const sourceEdit = store.updateSessionSummary({
-      sessionId: sourceRows[0]!.id,
-      idempotencyKey: "cleanup-stale-source-same-millisecond",
-      summary: "Semantically corrected source in the same frozen millisecond.",
-    });
-    expect(sourceEdit.outcome).toBe("summary_updated");
-    if (sourceEdit.outcome !== "summary_updated") throw new Error("Expected source summary update.");
-    expect(sourceEdit.session.updatedAt).toBe(originalUpdate);
-    expect(store.updateOutstandingItemStatus(itemsBySource[1]!.id, "completed", "web").outcome).toBe(
-      "outstanding_item_updated",
-    );
-    const evidenceEdit = store.updateSessionSummary({
-      sessionId: evidenceRows[2]!.id,
-      idempotencyKey: "cleanup-stale-evidence-same-millisecond",
-      summary: "Semantically corrected evidence in the same frozen millisecond.",
-    });
-    expect(evidenceEdit.outcome).toBe("summary_updated");
-    if (evidenceEdit.outcome !== "summary_updated") throw new Error("Expected evidence summary update.");
-    expect(evidenceEdit.session.updatedAt).toBe(evidenceRows[2]!.updatedAt);
-    store.setSessionVoid({ sessionId: evidenceRows[3]!.id, voided: true, reason: "Synthetic evidence void." });
-    store.setSessionVoid({ sessionId: sourceRows[4]!.id, voided: true, reason: "Synthetic source void." });
+    const snapshot = pendingItems(store, projectId);
+    const items = sources.map((source) => snapshot.find((item) => item.sourceSessionId === source.id)!);
+    const evidence = finalize(store, root, "cleanup-atomic-evidence", [], EVIDENCE_TIME);
+    const request = createRequest(store, projectId, "cleanup-atomic-request");
+    store.updateOutstandingItemStatus(items[3]!.id, "completed", "web");
+    const before = store.exportProjectData({ type: "project", projectId }).tables;
 
-    const beforeDecision = store.exportProjectData({ type: "project", projectId }).tables;
     expect(
-      store.decideOutstandingCleanupProposals({
+      store.submitOutstandingCleanupProposals({
         requestId: request.id,
-        proposalIds: submitted.proposalIds,
-        decision: "accept",
+        idempotencyKey: "cleanup-atomic-submit",
+        examinedItemIds: items.map((item) => item.id),
+        proposals: [
+          { itemId: items[0]!.id, status: "completed", reason: "Verified.", evidenceSessionIds: [evidence.id] },
+          { itemId: items[1]!.id, status: "not_needed", reason: "Replaced.", evidenceSessionIds: [evidence.id] },
+          { itemId: items[2]!.id, status: "acknowledged", reason: "Known limitation.", evidenceSessionIds: [] },
+          { itemId: items[3]!.id, status: "acknowledged", reason: "Known limitation.", evidenceSessionIds: [] },
+        ],
       }),
-    ).toMatchObject({ outcome: "rejected", reason: "stale_proposal" });
-    const afterDecision = store.exportProjectData({ type: "project", projectId }).tables;
-    expect(afterDecision.outstanding_item_events).toEqual(beforeDecision.outstanding_item_events);
-    expect(afterDecision.outstanding_cleanup_proposals).toEqual(beforeDecision.outstanding_cleanup_proposals);
-    expect(
-      store.listOutstandingCleanupProposals({ requestId: request.id, reviewStatus: "pending", pageSize: 0 }),
-    ).toMatchObject({ outcome: "outstanding_cleanup_proposals", pageInfo: { total: 5 } });
-    const pendingIds = pendingItems(store, projectId).map((item) => item.id);
-    expect(pendingIds).toContain(itemsBySource[0]!.id);
-    expect(pendingIds).toContain(itemsBySource[2]!.id);
-    expect(pendingIds).toContain(itemsBySource[3]!.id);
-    expect(pendingIds).not.toContain(itemsBySource[1]!.id);
-    expect(pendingIds).not.toContain(itemsBySource[4]!.id);
+    ).toMatchObject({ outcome: "rejected", reason: "stale_proposal", itemIds: [items[3]!.id] });
+    const after = store.exportProjectData({ type: "project", projectId }).tables;
+    expect(after.outstanding_item_events).toEqual(before.outstanding_item_events);
+    expect(after.outstanding_cleanup_proposals).toEqual([]);
+    expect(pendingItems(store, projectId)).toHaveLength(3);
   });
 
-  it("limits decisions to 100, accepts a 100-item batch atomically, and rejects 101 without changes", () => {
-    const { store, root, projectId } = createTrackedProject("Cleanup decision batch fixture");
-    const allItems: string[] = [];
-    for (let batch = 0; batch < 11; batch += 1) {
-      const count = batch === 10 ? 1 : 20;
+  it("applies up to 100 verdicts in one submission and rejects 101", () => {
+    const { store, root, projectId } = createTrackedProject("Cleanup verdict limit fixture");
+    for (let batch = 0; batch < 6; batch += 1) {
+      const count = batch === 5 ? 1 : 20;
       finalize(
         store,
         root,
-        `cleanup-batch-source-${batch}`,
-        Array.from({ length: count }, (_, index) => `Batch decision obligation ${batch * 20 + index + 1}`),
+        `cleanup-limit-source-${batch}`,
+        Array.from({ length: count }, (_, index) => `Limit obligation ${batch * 20 + index + 1}`),
       );
     }
-    allItems.push(...allPendingItems(store, projectId).map((item) => item.id));
-    const evidence = finalize(store, root, "cleanup-batch-evidence", [], EVIDENCE_TIME);
-    const request = createRequest(store, projectId, "cleanup-batch-request");
-    const proposalIds: string[] = [];
-    for (let offset = 0; offset < allItems.length; offset += 5) {
-      const examinedItemIds = allItems.slice(offset, offset + 5);
-      const submitted = store.submitOutstandingCleanupProposals({
-        requestId: request.id,
-        idempotencyKey: `cleanup-batch-submit-${offset}`,
-        examinedItemIds,
-        proposals: examinedItemIds.map((itemId) => ({
-          itemId,
-          status: "completed" as const,
-          reason: "The shared later Session verifies this synthetic item.",
-          evidenceSessionIds: [evidence.id],
-        })),
-      });
-      expect(submitted.outcome).toBe("outstanding_cleanup_proposals_submitted");
-      if (submitted.outcome !== "outstanding_cleanup_proposals_submitted") throw new Error("Expected batch proposals.");
-      proposalIds.push(...submitted.proposalIds);
-    }
-    expect(proposalIds).toHaveLength(201);
-    const before = store.exportProjectData({ type: "project", projectId }).tables;
+    const itemIds = allPendingItems(store, projectId).map((item) => item.id);
+    expect(itemIds).toHaveLength(101);
+    const request = createRequest(store, projectId, "cleanup-limit-request");
+    const verdicts = (ids: string[]) =>
+      ids.map((itemId) => ({
+        itemId,
+        status: "acknowledged" as const,
+        reason: "Known limitation.",
+        evidenceSessionIds: [],
+      }));
     expect(
-      store.decideOutstandingCleanupProposals({
+      store.submitOutstandingCleanupProposals({
         requestId: request.id,
-        proposalIds,
-        decision: "accept",
+        idempotencyKey: "cleanup-limit-101",
+        examinedItemIds: itemIds.slice(0, 100),
+        proposals: verdicts(itemIds),
       }),
     ).toMatchObject({ outcome: "rejected", reason: "invalid_proposals" });
-    expect(store.exportProjectData({ type: "project", projectId }).tables.outstanding_item_events).toEqual(
-      before.outstanding_item_events,
-    );
-    expect(store.exportProjectData({ type: "project", projectId }).tables.outstanding_cleanup_proposals).toEqual(
-      before.outstanding_cleanup_proposals,
-    );
-
-    const acceptedIds = proposalIds.slice(0, 100);
-    const rejectedIds = proposalIds.slice(100, 200);
     expect(
-      store.decideOutstandingCleanupProposals({ requestId: request.id, proposalIds: acceptedIds, decision: "accept" }),
-    ).toMatchObject({ outcome: "outstanding_cleanup_proposals_decided", decision: "accept", duplicate: false });
-    const afterAccept = store.exportProjectData({ type: "project", projectId }).tables.outstanding_item_events;
-    expect(afterAccept.length - before.outstanding_item_events.length).toBe(100);
-    expect(
-      store.decideOutstandingCleanupProposals({ requestId: request.id, proposalIds: rejectedIds, decision: "reject" }),
-    ).toMatchObject({ outcome: "outstanding_cleanup_proposals_decided", decision: "reject", duplicate: false });
-    expect(store.exportProjectData({ type: "project", projectId }).tables.outstanding_item_events).toEqual(afterAccept);
-    expect(
-      store.listOutstandingCleanupProposals({ requestId: request.id, reviewStatus: "rejected", pageSize: 0 }),
-    ).toMatchObject({ outcome: "outstanding_cleanup_proposals", pageInfo: { total: 100 } });
-    expect(
-      store.decideOutstandingCleanupProposals({ requestId: request.id, proposalIds: acceptedIds, decision: "accept" }),
-    ).toMatchObject({ outcome: "outstanding_cleanup_proposals_decided", duplicate: true });
-    expect(
-      store.decideOutstandingCleanupProposals({ requestId: request.id, proposalIds: rejectedIds, decision: "reject" }),
-    ).toMatchObject({ outcome: "outstanding_cleanup_proposals_decided", duplicate: true });
-    expect(store.exportProjectData({ type: "project", projectId }).tables.outstanding_item_events).toEqual(afterAccept);
-    expect(allPendingItems(store, projectId)).toHaveLength(101);
+      store.submitOutstandingCleanupProposals({
+        requestId: request.id,
+        idempotencyKey: "cleanup-limit-100",
+        examinedItemIds: itemIds.slice(0, 100),
+        proposals: verdicts(itemIds.slice(0, 100)),
+      }),
+    ).toMatchObject({ outcome: "outstanding_cleanup_proposals_submitted", request: { proposalCount: 100 } });
+    expect(allPendingItems(store, projectId)).toHaveLength(1);
   });
 
-  it.each(["pending", "awaiting_review"] as const)(
-    "keeps %s cleanup snapshot items pending when finalize requests direct transitions",
-    (requestStatus) => {
-      const { store, root, projectId } = createTrackedProject("Cleanup finalize guard " + requestStatus + " fixture");
-      finalize(store, root, "cleanup-finalize-guard-" + requestStatus + "-source", [
-        "Keep the resolved item pending for review",
-        "Keep the superseded item pending for review",
-      ]);
-      const items = pendingItems(store, projectId);
-      const request = createRequest(store, projectId, "cleanup-finalize-guard-" + requestStatus + "-request");
-      if (requestStatus === "awaiting_review") {
-        const evidence = finalize(store, root, "cleanup-finalize-guard-evidence", [], EVIDENCE_TIME);
-        const submission = store.submitOutstandingCleanupProposals({
-          requestId: request.id,
-          idempotencyKey: "cleanup-finalize-guard-submit",
-          examinedItemIds: items.map((item) => item.id),
-          proposals: [
-            {
-              itemId: items[0]!.id,
-              status: "completed",
-              reason: "The synthetic later Session verifies the proposed completion.",
-              evidenceSessionIds: [evidence.id],
-            },
-          ],
-        });
-        expect(submission.outcome).toBe("outstanding_cleanup_proposals_submitted");
+  it("only lets the audit trigger record Agent events for an accepted proposal of the same item and status", () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-outstanding-cleanup-trigger-"));
+    tempDirs.push(root);
+    const store = new WorkIntelligenceStore(join(root, "store.sqlite"));
+    stores.push(store);
+    const project = store.addProject("Cleanup trigger fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    finalize(store, root, "cleanup-trigger-source", ["First trigger item", "Second trigger item"]);
+    const [first, second] = pendingItems(store, project.id);
+    const request = createRequest(store, project.id, "cleanup-trigger-request");
+    store.submitOutstandingCleanupProposals({
+      requestId: request.id,
+      idempotencyKey: "cleanup-trigger-submit",
+      examinedItemIds: [first!.id, second!.id],
+      proposals: [{ itemId: first!.id, status: "acknowledged", reason: "Known limitation.", evidenceSessionIds: [] }],
+    });
+    const proposals = store.listOutstandingCleanupProposals({ requestId: request.id });
+    if (proposals.outcome !== "outstanding_cleanup_proposals") throw new Error("Expected proposal list.");
+    const proposalId = proposals.proposals[0]!.id;
+    const insert = (itemId: string, source: string, from: string | null, to: string, proposal: string | null) => {
+      const database = new DatabaseSync(store.databasePath);
+      try {
+        database
+          .prepare(
+            `INSERT INTO outstanding_item_events
+             (id, item_id, project_id, from_status, to_status, source, actor_session_id, created_at, cleanup_request_id, cleanup_proposal_id)
+             VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
+          )
+          .run(`event-${Math.random()}`, itemId, project.id, from, to, source, TEST_NOW, request.id, proposal);
+      } finally {
+        database.close();
       }
-      expect(store.getOutstandingCleanupContext({ requestId: request.id })).toMatchObject({
-        outcome: "outstanding_cleanup_context",
-        request: { id: request.id, status: requestStatus },
-      });
-      const targetIds = [items[0]!.id, items[1]!.id];
-      const eventsBefore = store
+    };
+
+    expect(() => insert(first!.id, "agent", "pending", "completed", proposalId)).toThrow("invalid cleanup audit scope");
+    expect(() => insert(second!.id, "agent", "pending", "not_needed", proposalId)).toThrow(
+      "invalid cleanup audit scope",
+    );
+    expect(() => insert(first!.id, "agent", "completed", "not_needed", proposalId)).toThrow(
+      "invalid cleanup audit scope",
+    );
+    expect(() => insert(first!.id, "agent", "pending", "not_needed", null)).toThrow("invalid cleanup audit scope");
+    expect(() => insert(first!.id, "agent", "pending", "not_needed", proposalId)).not.toThrow();
+  });
+
+  it("keeps pending cleanup snapshot items pending when finalize requests direct transitions", () => {
+    const { store, root, projectId } = createTrackedProject("Cleanup finalize guard fixture");
+    finalize(store, root, "cleanup-finalize-guard-source", [
+      "Keep the resolved item pending for review",
+      "Keep the superseded item pending for review",
+    ]);
+    const items = pendingItems(store, projectId);
+    const request = createRequest(store, projectId, "cleanup-finalize-guard-request");
+    expect(store.getOutstandingCleanupContext({ requestId: request.id })).toMatchObject({
+      outcome: "outstanding_cleanup_context",
+      request: { id: request.id, status: "pending" },
+    });
+    const targetIds = [items[0]!.id, items[1]!.id];
+    const eventsBefore = store
+      .exportProjectData({ type: "project", projectId })
+      .tables.outstanding_item_events.filter((event) => targetIds.includes(String(event.item_id)));
+
+    const attempt = finalizeAttempt(
+      store,
+      root,
+      "cleanup-finalize-guard-attempt",
+      ["Unrelated follow-up from this Session"],
+      TEST_NOW,
+      {
+        resolvedOutstandingItemIds: [items[0]!.id],
+        supersededOutstandingItemIds: [items[1]!.id],
+      },
+    );
+
+    expect(attempt.outcome).toBe("finalized");
+    if (attempt.outcome !== "finalized") throw new Error("Expected the guard Session to finalize.");
+    expect(attempt).toMatchObject({
+      resolvedOutstandingItemIds: [],
+      supersededOutstandingItemIds: [],
+      outstandingItemWarnings: {
+        unresolvedIds: [items[0]!.id],
+        unsupersededIds: [items[1]!.id],
+      },
+    });
+    const pendingAfterFinalize = pendingItems(store, projectId);
+    expect(pendingAfterFinalize.map((item) => item.id)).toEqual(expect.arrayContaining(targetIds));
+    expect(pendingAfterFinalize).toEqual(
+      expect.arrayContaining([expect.objectContaining({ text: "Unrelated follow-up from this Session" })]),
+    );
+    expect(
+      store
         .exportProjectData({ type: "project", projectId })
-        .tables.outstanding_item_events.filter((event) => targetIds.includes(String(event.item_id)));
-
-      const attempt = finalizeAttempt(
-        store,
-        root,
-        "cleanup-finalize-guard-" + requestStatus + "-attempt",
-        ["Unrelated follow-up from this Session"],
-        TEST_NOW,
-        {
-          resolvedOutstandingItemIds: [items[0]!.id],
-          supersededOutstandingItemIds: [items[1]!.id],
-        },
-      );
-
-      expect(attempt.outcome).toBe("finalized");
-      if (attempt.outcome !== "finalized") throw new Error("Expected the guard Session to finalize.");
-      expect(attempt).toMatchObject({
-        resolvedOutstandingItemIds: [],
-        supersededOutstandingItemIds: [],
-        outstandingItemWarnings: {
-          unresolvedIds: [items[0]!.id],
-          unsupersededIds: [items[1]!.id],
-        },
-      });
-      const pendingAfterFinalize = pendingItems(store, projectId);
-      expect(pendingAfterFinalize.map((item) => item.id)).toEqual(expect.arrayContaining(targetIds));
-      expect(pendingAfterFinalize).toEqual(
-        expect.arrayContaining([expect.objectContaining({ text: "Unrelated follow-up from this Session" })]),
-      );
-      expect(
-        store
-          .exportProjectData({ type: "project", projectId })
-          .tables.outstanding_item_events.filter((event) => targetIds.includes(String(event.item_id))),
-      ).toEqual(eventsBefore);
-      if (requestStatus === "awaiting_review") {
-        expect(store.listOutstandingCleanupProposals({ requestId: request.id })).toMatchObject({
-          outcome: "outstanding_cleanup_proposals",
-          proposals: [expect.objectContaining({ itemId: items[0]!.id, reviewStatus: "pending" })],
-        });
-      }
-    },
-  );
+        .tables.outstanding_item_events.filter((event) => targetIds.includes(String(event.item_id))),
+    ).toEqual(eventsBefore);
+  });
 
   it("holds Agent summary removals until cancellation, then restores normal transitions and Web edits", () => {
     const { store, root, projectId } = createTrackedProject("Cleanup Agent summary guard fixture");
@@ -1078,13 +994,10 @@ describe("outstanding cleanup requests", () => {
     stores.push(store);
     const project = store.addProject("Cleanup rollback fixture", root);
     store.updateProject(project.id, { status: "tracked" });
-    const source = finalize(store, root, "cleanup-rollback-source", ["Rollback accepted cleanup item"]);
+    finalize(store, root, "cleanup-rollback-source", ["Rollback cleanup item"]);
     const item = pendingItems(store, project.id)[0]!;
     const evidence = finalize(store, root, "cleanup-rollback-evidence", [], EVIDENCE_TIME);
     const request = createRequest(store, project.id, "cleanup-rollback-request");
-    const submitted = submitOneProposal(store, request.id, "cleanup-rollback-submit", item.id, evidence.id);
-    expect(submitted.outcome).toBe("outstanding_cleanup_proposals_submitted");
-    if (submitted.outcome !== "outstanding_cleanup_proposals_submitted") throw new Error("Expected rollback proposal.");
     const before = store.exportProjectData({ type: "project", projectId: project.id }).tables;
     const sabotage = new DatabaseSync(store.databasePath);
     try {
@@ -1097,16 +1010,8 @@ describe("outstanding cleanup requests", () => {
       sabotage.close();
     }
 
-    expect(() =>
-      store.decideOutstandingCleanupProposals({
-        requestId: request.id,
-        proposalIds: submitted.proposalIds,
-        decision: "accept",
-      }),
-    ).toThrow();
-    const after = store.exportProjectData({ type: "project", projectId: project.id }).tables;
-    expect(after).toEqual(before);
+    expect(() => submitOneProposal(store, request.id, "cleanup-rollback-submit", item.id, evidence.id)).toThrow();
+    expect(store.exportProjectData({ type: "project", projectId: project.id }).tables).toEqual(before);
     expect(pendingItems(store, project.id).map((pending) => pending.id)).toContain(item.id);
-    expect(source.id).not.toBe(evidence.id);
   });
 });

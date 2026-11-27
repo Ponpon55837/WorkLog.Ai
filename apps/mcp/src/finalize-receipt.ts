@@ -45,7 +45,7 @@ const KNOWLEDGE_TO_REVIEW_HINT =
   "Holds: work_update_knowledge confirm: true. Now wrong: tell the user. Unsure: leave it.";
 
 const PENDING_ITEMS_AFTER_SAVE_HINT =
-  "逐項讀來源核對；本次已直接驗證完成或被 nextSteps 取代的，用 work_resolve_outstanding_items 結案；無法確認就保留。";
+  "逐項讀來源核對（possiblyDone 優先）；已驗證完成的用 work_resolve_outstanding_items 結案；不確定就保留。";
 
 function compactUnreportedKnowledge(unreported: UnreportedKnowledge): unknown {
   return {
@@ -64,6 +64,7 @@ function compactRelatedItems(related: RelatedOutstandingItems): unknown {
       sourceSessionId: item.sourceSessionId,
       text: item.text,
       ...(item.textTruncated ? { textTruncated: true } : {}),
+      ...(item.possiblyDone ? { possiblyDone: true } : {}),
     })),
   };
 }

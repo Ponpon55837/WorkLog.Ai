@@ -100,7 +100,7 @@ function pendingItems(store: WorkIntelligenceStore, projectId: string) {
 }
 
 describe("outstanding cleanup REST routes", () => {
-  it("creates a fixed context, submits proposals, and accepts or rejects each proposal explicitly", async () => {
+  it("creates a fixed context, applies each verdict at submission, and lets the item be reopened", async () => {
     const { root, store, project } = createFixture("Cleanup REST review fixture");
     const handler = startApi(store);
     resources.push({ handler, store, root });
@@ -213,60 +213,74 @@ describe("outstanding cleanup REST routes", () => {
       status: 201,
       body: { duplicate: true, proposalIds: submitted.body.proposalIds },
     });
-    expect(pendingItems(store, project.id).map(({ id }) => id)).toEqual(expect.arrayContaining([first.id, second.id]));
-    const beforeDecisions = store.exportProjectData({ type: "project", projectId: project.id }).tables
-      .outstanding_item_events;
-
-    const proposalList = await requestJson<{
-      outcome: string;
-      proposals: Array<{ id: string; itemId: string; reviewStatus: string }>;
-    }>(handler, `/api/outstanding-cleanup/requests/${requestId}/proposals?pageSize=10`);
-    expect(proposalList.status).toBe(200);
-    expect(proposalList.body.proposals).toHaveLength(2);
-    const firstProposal = proposalList.body.proposals.find(({ itemId }) => itemId === first.id);
-    const secondProposal = proposalList.body.proposals.find(({ itemId }) => itemId === second.id);
-    if (!firstProposal || !secondProposal) throw new Error("Expected both review proposals.");
-
-    const accepted = await requestJson<{ outcome: string; decision: string }>(
-      handler,
-      `/api/outstanding-cleanup/requests/${requestId}/decisions`,
-      { method: "POST", body: { proposalIds: [firstProposal.id], decision: "accept" } },
-    );
-    expect(accepted).toMatchObject({
-      status: 200,
-      body: { outcome: "outstanding_cleanup_proposals_decided", decision: "accept" },
-    });
-    const rejected = await requestJson<{ outcome: string; decision: string }>(
-      handler,
-      `/api/outstanding-cleanup/requests/${requestId}/decisions`,
-      { method: "POST", body: { proposalIds: [secondProposal.id], decision: "reject" } },
-    );
-    expect(rejected).toMatchObject({
-      status: 200,
-      body: { outcome: "outstanding_cleanup_proposals_decided", decision: "reject" },
-    });
-    expect(pendingItems(store, project.id).map(({ id }) => id)).toContain(second.id);
+    expect(pendingItems(store, project.id)).toEqual([]);
     expect(store.listOutstandingItems({ projectId: project.id, status: "completed", pageSize: 10 })).toMatchObject({
       items: [expect.objectContaining({ id: first.id, status: "completed" })],
     });
-    const afterDecisions = store.exportProjectData({ type: "project", projectId: project.id }).tables
-      .outstanding_item_events;
-    expect(afterDecisions.length).toBe(beforeDecisions.length + 1);
-    expect(afterDecisions.at(-1)).toMatchObject({
-      item_id: first.id,
-      cleanup_request_id: requestId,
-      cleanup_proposal_id: firstProposal.id,
-      from_status: "pending",
-      to_status: "completed",
+    expect(store.listOutstandingItems({ projectId: project.id, status: "not_needed", pageSize: 10 })).toMatchObject({
+      items: [expect.objectContaining({ id: second.id, status: "not_needed" })],
     });
+
+    const proposalList = await requestJson<{
+      outcome: string;
+      proposals: Array<{ id: string; itemId: string; reviewStatus: string; kind: string; itemStatus: string }>;
+    }>(handler, `/api/outstanding-cleanup/requests/${requestId}/proposals?pageSize=10`);
+    expect(proposalList.status).toBe(200);
+    expect(proposalList.body.proposals).toHaveLength(2);
+    expect(proposalList.body.proposals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          itemId: first.id,
+          reviewStatus: "accepted",
+          kind: "resolution",
+          itemStatus: "completed",
+        }),
+        expect.objectContaining({
+          itemId: second.id,
+          reviewStatus: "accepted",
+          kind: "resolution",
+          itemStatus: "not_needed",
+        }),
+      ]),
+    );
+    const firstProposal = proposalList.body.proposals.find(({ itemId }) => itemId === first.id);
+    if (!firstProposal) throw new Error("Expected the first applied proposal.");
+    const events = store.exportProjectData({ type: "project", projectId: project.id }).tables.outstanding_item_events;
+    expect(events.filter((event) => event.cleanup_request_id === requestId)).toHaveLength(2);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          item_id: first.id,
+          source: "agent",
+          cleanup_request_id: requestId,
+          cleanup_proposal_id: firstProposal.id,
+          from_status: "pending",
+          to_status: "completed",
+        }),
+      ]),
+    );
+
+    const reopened = store.batchUpdateOutstandingItemStatus({
+      itemIds: [first.id],
+      status: "pending",
+    });
+    expect(reopened).toMatchObject({ outcome: "outstanding_items_updated", updatedItemIds: [first.id] });
+    expect(pendingItems(store, project.id).map(({ id }) => id)).toEqual([first.id]);
   });
 
-  it("rejects a stale accept batch atomically, skips paused projects, cancels without changing items, and masks errors", async () => {
+  it("rejects a batch with stale evidence atomically, skips paused projects, cancels without changing items, and masks errors", async () => {
     const { root, store, project } = createFixture("Cleanup REST stale fixture");
     const handler = startApi(store);
     resources.push({ handler, store, root });
     const texts = ["Preserve atomic proposal one.", "Preserve atomic proposal two."];
-    finalize(store, root, "cleanup-rest-stale-source", "Stale cleanup source", texts, "2026-09-01T12:00:00.000Z");
+    const staleSource = finalize(
+      store,
+      root,
+      "cleanup-rest-stale-source",
+      "Stale cleanup source",
+      texts,
+      "2026-09-01T12:00:00.000Z",
+    );
     const evidenceOne = finalize(
       store,
       root,
@@ -292,7 +306,14 @@ describe("outstanding cleanup REST routes", () => {
       body: { projectId: project.id, idempotencyKey: "cleanup-rest-stale-request" },
     });
     const requestId = creation.body.request.id;
-    const submitted = await requestJson<{ proposalIds: string[] }>(
+    store.updateSessionSummary({
+      sessionId: staleSource.id,
+      idempotencyKey: "cleanup-rest-correct-source",
+      summary: "Corrected source invalidates the snapshot fingerprint.",
+    });
+    const beforeEvents = store.exportProjectData({ type: "project", projectId: project.id }).tables
+      .outstanding_item_events;
+    const submitted = await requestJson<{ code: string; details: { reason: string } }>(
       handler,
       `/api/outstanding-cleanup/requests/${requestId}/proposals`,
       {
@@ -317,33 +338,17 @@ describe("outstanding cleanup REST routes", () => {
         },
       },
     );
-    expect(submitted.status).toBe(201);
-    store.updateSessionSummary({
-      sessionId: evidenceTwo.id,
-      idempotencyKey: "cleanup-rest-correct-evidence",
-      summary: "Corrected evidence invalidates the saved proposal fingerprint.",
-    });
-    const beforeEvents = store.exportProjectData({ type: "project", projectId: project.id }).tables
-      .outstanding_item_events;
-    const staleAccept = await requestJson<{ code: string; details: { reason: string; proposalIds: string[] } }>(
-      handler,
-      `/api/outstanding-cleanup/requests/${requestId}/decisions`,
-      { method: "POST", body: { proposalIds: submitted.body.proposalIds, decision: "accept" } },
-    );
-    expect(staleAccept).toMatchObject({
+    expect(submitted).toMatchObject({
       status: 409,
-      body: { code: "conflict", details: { reason: "stale_proposal", proposalIds: [expect.any(String)] } },
+      body: { code: "conflict", details: { reason: "stale_proposal" } },
     });
     expect(pendingItems(store, project.id).map(({ id }) => id)).toEqual(expect.arrayContaining([first.id, second.id]));
     expect(store.exportProjectData({ type: "project", projectId: project.id }).tables.outstanding_item_events).toEqual(
       beforeEvents,
     );
     expect(
-      await requestJson<{ proposals: Array<{ reviewStatus: string }> }>(
-        handler,
-        `/api/outstanding-cleanup/requests/${requestId}/proposals`,
-      ),
-    ).toMatchObject({ status: 200, body: { proposals: [{ reviewStatus: "pending" }, { reviewStatus: "pending" }] } });
+      await requestJson<{ proposals: unknown[] }>(handler, `/api/outstanding-cleanup/requests/${requestId}/proposals`),
+    ).toMatchObject({ status: 200, body: { proposals: [] } });
 
     const pausedRoot = join(root, "paused-project");
     const paused = store.addProject("Cleanup REST paused fixture", pausedRoot);

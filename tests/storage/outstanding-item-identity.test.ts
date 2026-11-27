@@ -387,13 +387,9 @@ describe("resolveOutstandingItems", () => {
     expect(source.session.id).toBeTruthy();
   });
 
-  it("rejects the same Session, an equal or later source, other projects, and voided sources", () => {
+  it("rejects an equal or later source, other projects, and voided sources", () => {
     const { store, projectId, source, actor, byText } = setup();
     const ownItem = items(store, projectId).find((item) => item.sourceSessionId === actor.id)!;
-    expect(
-      store.resolveOutstandingItems({ sessionId: actor.id, resolvedOutstandingItemIds: [ownItem.id] }),
-    ).toMatchObject({ resolvedOutstandingItemIds: [], outstandingItemWarnings: { unresolvedIds: [ownItem.id] } });
-
     const reverse = store.resolveOutstandingItems({ sessionId: source.id, resolvedOutstandingItemIds: [ownItem.id] });
     expect(reverse).toMatchObject({
       resolvedOutstandingItemIds: [],
@@ -419,6 +415,18 @@ describe("resolveOutstandingItems", () => {
     expect(
       store.resolveOutstandingItems({ sessionId: actor.id, resolvedOutstandingItemIds: [target.id] }),
     ).toMatchObject({ resolvedOutstandingItemIds: [] });
+  });
+
+  it("lets a Session resolve its own pending items", () => {
+    const { store, projectId, actor } = setup();
+    const ownItem = items(store, projectId).find((item) => item.sourceSessionId === actor.id)!;
+    expect(
+      store.resolveOutstandingItems({ sessionId: actor.id, resolvedOutstandingItemIds: [ownItem.id] }),
+    ).toMatchObject({ resolvedOutstandingItemIds: [ownItem.id] });
+    expect(items(store, projectId).some((item) => item.id === ownItem.id)).toBe(false);
+    const closed = store.listOutstandingItems({ projectId, status: "completed", pageSize: 100 });
+    if (closed.outcome !== "outstanding_items") throw new Error("Expected closed items.");
+    expect(closed.items.find((item) => item.id === ownItem.id)?.closedBy).toBe("later_session");
   });
 
   it("leaves items held by an active cleanup request and non-pending items unchanged", () => {

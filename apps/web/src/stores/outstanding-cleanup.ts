@@ -3,10 +3,9 @@ import { useMutation, useQuery, useQueryCache } from "@pinia/colada";
 import { defineStore } from "pinia";
 import type {
   CreateOutstandingCleanupRequestInput,
-  DecideOutstandingCleanupProposalsInput,
   OutstandingCleanupProposalListResult,
-  OutstandingCleanupProposalStatus,
   OutstandingCleanupRequestListResult,
+  OutstandingItemStatus,
   PageInfo,
 } from "@work-intelligence/core";
 import { useApi } from "../composables/useApi";
@@ -36,7 +35,6 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
   const requestId = ref("");
   const requestPage = ref(1);
   const requestPageSize = ref<ListPageSize>(10);
-  const reviewStatus = ref<OutstandingCleanupProposalStatus>("pending");
   const proposalPage = ref(1);
   const proposalPageSize = ref<ListPageSize>(10);
   const projectId = computed(() => outstandingItemsStore.projectId);
@@ -63,7 +61,6 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
       {
         projectId: projectId.value,
         requestId: requestId.value,
-        reviewStatus: reviewStatus.value,
         page: proposalPage.value,
         pageSize: proposalPageSize.value,
       },
@@ -73,7 +70,7 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
       useApi().client.listOutstandingCleanupProposals(
         {
           requestId: requestId.value,
-          reviewStatus: reviewStatus.value,
+          reviewStatus: "accepted",
           page: proposalPage.value,
           pageSize: pageSizeToQuery(proposalPageSize.value) || 100,
         },
@@ -111,9 +108,7 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
   const selectedRequest = computed(
     () => proposalResult.value?.request ?? requests.value.find((request) => request.id === requestId.value),
   );
-  const hasActiveRequest = computed(() =>
-    requests.value.some((request) => request.status === "pending" || request.status === "awaiting_review"),
-  );
+  const hasActiveRequest = computed(() => requests.value.some((request) => request.status === "pending"));
   const loading = computed(() => requestsQuery.isLoading.value);
   const proposalsLoading = computed(() => proposalsQuery.isLoading.value);
   const skipped = computed(
@@ -129,7 +124,6 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
       return errorMessage(proposalsQuery.error.value, t("outstanding.couldNotLoadSuggestions"));
     const result = proposalsQuery.data.value;
     if (result?.outcome === "not_found") return t("outstanding.thisRequestNoLongerExists");
-
     if (result?.outcome === "outstanding_cleanup_proposals" && result.request.projectId !== projectId.value)
       return t("outstanding.thisRequestBelongsToAnother");
     return "";
@@ -142,23 +136,6 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
         queryCache.invalidateQueries({ key: queryKeys.attention.list }),
         queryCache.invalidateQueries({ key: queryKeys.outstandingCleanup.requests }),
       ]),
-  });
-  const decideMutation = useMutation({
-    mutation: (input: DecideOutstandingCleanupProposalsInput) =>
-      useApi().client.decideOutstandingCleanupProposals(input),
-    onSuccess: async () => {
-      // An SSE refetch can supersede these reads after the review write already committed.
-      await Promise.allSettled([
-        queryCache.invalidateQueries({ key: queryKeys.outstandingCleanup.requests }),
-        queryCache.invalidateQueries({ key: queryKeys.outstandingCleanup.proposals }),
-        queryCache.invalidateQueries({ key: queryKeys.outstandingItems.list }),
-        queryCache.invalidateQueries({ key: queryKeys.sessions.list }),
-        queryCache.invalidateQueries({ key: queryKeys.sessions.detail }),
-        queryCache.invalidateQueries({ key: queryKeys.attention.list }),
-        queryCache.invalidateQueries({ key: queryKeys.dashboard.summary }),
-      ]);
-    },
-    onError: () => Promise.allSettled([queryCache.invalidateQueries({ key: queryKeys.outstandingCleanup.proposals })]),
   });
   const cancelMutation = useMutation({
     mutation: (id: string) => useApi().client.cancelOutstandingCleanupRequest(id),
@@ -185,7 +162,6 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
       const result = await createMutation.mutateAsync({ projectId: projectId.value, idempotencyKey });
       if (result.outcome === "outstanding_cleanup_request_created") {
         requestId.value = result.request.id;
-        reviewStatus.value = "pending";
         return;
       }
       if (result.outcome === "not_needed") throw new Error(t("outstanding.thisProjectHasNoPending"));
@@ -197,15 +173,21 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
     }
   }
 
-  async function decide(proposalIds: string[], decision: "accept" | "reject"): Promise<void> {
+  /** Each group names the status the item was closed with, so an item changed elsewhere meanwhile is not overwritten. */
+  async function reopen(items: Array<{ itemId: string; status: OutstandingItemStatus }>): Promise<number> {
+    let reopened = 0;
     try {
-      const result = await decideMutation.mutateAsync({ requestId: requestId.value, proposalIds, decision });
-      if (result.outcome !== "outstanding_cleanup_proposals_decided")
-        throw new Error(t("outstanding.theseSuggestionsCannotBeReviewed"));
-    } catch (error) {
-      if (error instanceof ApiError && error.code === "conflict")
-        throw new Error(t("outstanding.itemsSourcesOrSuggestionsChanged"), { cause: error });
-      throw error;
+      for (const expectedStatus of new Set(items.map((item) => item.status))) {
+        const result = await outstandingItemsStore.batchUpdateStatus({
+          itemIds: items.filter((item) => item.status === expectedStatus).map((item) => item.itemId),
+          status: "pending",
+          expectedStatus,
+        });
+        reopened += result.updatedItemIds.length;
+      }
+      return reopened;
+    } finally {
+      await Promise.allSettled([queryCache.invalidateQueries({ key: queryKeys.outstandingCleanup.proposals })]);
     }
   }
 
@@ -220,7 +202,6 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
     requestId,
     requestPage,
     requestPageSize,
-    reviewStatus,
     proposalPage,
     proposalPageSize,
     projectId,
@@ -239,7 +220,7 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
     setActive,
     reload,
     createRequest,
-    decide,
+    reopen,
     cancelRequest,
   };
 });

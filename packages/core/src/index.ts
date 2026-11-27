@@ -296,7 +296,7 @@ export type OutstandingItemStatus = (typeof OUTSTANDING_ITEM_STATUSES)[number];
 export type OutstandingItemEventSource = "agent" | "web" | "migration";
 /**
  * From the latest event that set the current status: source_session = the source Session dropped it from its nextSteps;
- * later_session = another Session's finalize; user = the web UI; cleanup_review = an accepted proposal; migration = a backfill.
+ * later_session = another Session's finalize; user = the web UI; cleanup_review = an Agent cleanup verdict; migration = a backfill.
  */
 export const OUTSTANDING_ITEM_CLOSED_BY = [
   "source_session",
@@ -1643,7 +1643,14 @@ export interface PolicyDecision {
 }
 
 export type TransientNextStepCategory =
-  "uncommitted" | "not_pushed" | "pending_merge" | "ci_running" | "phase_not_started";
+  | "uncommitted"
+  | "not_pushed"
+  | "pending_merge"
+  | "ci_running"
+  | "phase_not_started"
+  | "scope_exclusion"
+  | "unverified_platform"
+  | "deferred_to_user";
 
 export interface NextStepsWarnings {
   /** 0-based position in the stored nextSteps; item text is never repeated here. */
@@ -2906,6 +2913,10 @@ export const OUTSTANDING_CLEANUP_REQUEST_STATUSES = ["pending", "awaiting_review
 export type OutstandingCleanupRequestStatus = (typeof OUTSTANDING_CLEANUP_REQUEST_STATUSES)[number];
 export const OUTSTANDING_CLEANUP_PROPOSAL_STATUSES = ["pending", "accepted", "rejected"] as const;
 export type OutstandingCleanupProposalStatus = (typeof OUTSTANDING_CLEANUP_PROPOSAL_STATUSES)[number];
+export const OUTSTANDING_CLEANUP_PROPOSAL_KINDS = ["resolution", "acknowledged"] as const;
+export type OutstandingCleanupProposalKind = (typeof OUTSTANDING_CLEANUP_PROPOSAL_KINDS)[number];
+export const OUTSTANDING_CLEANUP_VERDICT_STATUSES = ["completed", "not_needed", "acknowledged"] as const;
+export type OutstandingCleanupVerdictStatus = (typeof OUTSTANDING_CLEANUP_VERDICT_STATUSES)[number];
 
 export interface OutstandingCleanupRequest {
   id: string;
@@ -2918,7 +2929,6 @@ export interface OutstandingCleanupRequest {
   itemCount: number;
   examinedCount: number;
   proposalCount: number;
-  pendingProposalCount: number;
 }
 
 export interface CreateOutstandingCleanupRequestInput {
@@ -2979,12 +2989,13 @@ export interface OutstandingCleanupProposal {
   sourceSessionId: string;
   itemText: string;
   status: "completed" | "not_needed";
+  kind: OutstandingCleanupProposalKind;
   reason: string;
   evidenceSessionIds: string[];
   reviewStatus: OutstandingCleanupProposalStatus;
+  itemStatus: OutstandingItemStatus;
   createdAt: string;
   decidedAt?: string;
-  stale: boolean;
 }
 
 export interface SubmitOutstandingCleanupProposalsInput {
@@ -2993,7 +3004,7 @@ export interface SubmitOutstandingCleanupProposalsInput {
   examinedItemIds: string[];
   proposals: Array<{
     itemId: string;
-    status: "completed" | "not_needed";
+    status: OutstandingCleanupVerdictStatus;
     reason: string;
     evidenceSessionIds: string[];
   }>;
@@ -3006,12 +3017,6 @@ export interface OutstandingCleanupProposalQuery {
   pageSize?: number;
 }
 
-export interface DecideOutstandingCleanupProposalsInput {
-  requestId: string;
-  proposalIds: string[];
-  decision: "accept" | "reject";
-}
-
 export interface OutstandingCleanupRejectedResult {
   outcome: "rejected";
   reason:
@@ -3020,14 +3025,12 @@ export interface OutstandingCleanupRejectedResult {
     | "invalid_evidence"
     | "stale_proposal"
     | "already_examined"
-    | "already_decided"
     | "idempotency_conflict"
     | "request_closed"
     | "active_request_exists"
     | "too_many_items"
     | "context_too_large";
   itemIds?: string[];
-  proposalIds?: string[];
   requestId?: string;
 }
 
@@ -3073,15 +3076,6 @@ export type OutstandingCleanupProposalListResult =
       request: OutstandingCleanupRequest;
       proposals: OutstandingCleanupProposal[];
       pageInfo: PageInfo;
-    }
-  | OutstandingCleanupFailure;
-export type DecideOutstandingCleanupProposalsResult =
-  | {
-      outcome: "outstanding_cleanup_proposals_decided";
-      request: OutstandingCleanupRequest;
-      proposalIds: string[];
-      decision: "accept" | "reject";
-      duplicate: boolean;
     }
   | OutstandingCleanupFailure;
 export type CancelOutstandingCleanupRequestResult =
@@ -3355,6 +3349,8 @@ export interface RelatedOutstandingItems {
     text: string;
     textTruncated?: boolean;
     sourceSessionTitleTruncated?: boolean;
+    /** The item names an issue or version that this Session's own title, summary or outcomes also name. */
+    possiblyDone?: true;
   }>;
   total: number;
   omitted: number;

@@ -431,6 +431,7 @@ function seedCleanupReview(
         review_status: accepted ? "accepted" : "pending",
         created_at: createdAt,
         decided_at: accepted ? createdAt : null,
+        kind: "resolution",
       }),
     );
     insertRow(
@@ -809,6 +810,102 @@ describe("portable project data transfer", () => {
     );
   });
 
+  it("closes an old file's unapplied cleanup review on import, as schema 43 does", () => {
+    const source = createSource();
+    seedCleanupReview(source.store, source.projectId, source.sessionIds[0], source.sessionIds[1], "cleanup-legacy");
+    const bundle = source.store.exportProjectData({ type: "all" });
+    expect(bundle.tables.outstanding_cleanup_requests[0]?.status).toBe("awaiting_review");
+    expect(bundle.tables.outstanding_cleanup_proposals[0]?.review_status).toBe("pending");
+
+    const destination = new WorkIntelligenceStore(":memory:");
+    stores.push(destination);
+    const preview = destination.previewProjectDataImport({ bundle });
+    expect(total(preview.conflicts)).toBe(0);
+    destination.importProjectData({ bundle });
+
+    const imported = destination.exportProjectData({ type: "all" });
+    expect(imported.tables.outstanding_cleanup_requests[0]).toMatchObject({
+      status: "completed",
+      completed_at: "2026-09-22T12:00:00.000Z",
+    });
+    expect(imported.tables.outstanding_cleanup_proposals[0]).toMatchObject({
+      review_status: "rejected",
+      decided_at: null,
+    });
+    destination.updateProject(source.projectId, { status: "tracked" });
+    expect(
+      destination.createOutstandingCleanupRequest({
+        projectId: source.projectId,
+        idempotencyKey: "after-legacy-import",
+      }).outcome,
+    ).toBe("outstanding_cleanup_request_created");
+    expect(total(destination.previewProjectDataImport({ bundle }).additions)).toBe(0);
+  });
+
+  it("keeps a cleanup acceptance made on another machine from aborting the import", () => {
+    const source = createSource();
+    seedCleanupReview(source.store, source.projectId, source.sessionIds[0], source.sessionIds[1], "cleanup-sync");
+    const legacy = source.store.exportProjectData({ type: "all" });
+
+    const db = new DatabaseSync(source.store.databasePath);
+    try {
+      const decidedAt = "2026-09-25T12:00:00.000Z";
+      const proposal = db
+        .prepare("SELECT id, request_id, project_id, request_item_id FROM outstanding_cleanup_proposals")
+        .get() as {
+        id: string;
+        request_id: string;
+        project_id: string;
+        request_item_id: string;
+      };
+      const item = db
+        .prepare("SELECT item_id FROM outstanding_cleanup_request_items WHERE id = ?")
+        .get(proposal.request_item_id) as { item_id: string };
+      db.prepare(
+        "UPDATE outstanding_cleanup_proposals SET review_status = 'accepted', decided_at = ? WHERE id = ?",
+      ).run(decidedAt, proposal.id);
+      db.prepare("UPDATE outstanding_cleanup_requests SET status = 'completed', completed_at = ? WHERE id = ?").run(
+        decidedAt,
+        proposal.request_id,
+      );
+      db.prepare("UPDATE outstanding_items SET status = 'completed', updated_at = ? WHERE id = ?").run(
+        decidedAt,
+        item.item_id,
+      );
+      db.prepare(
+        `INSERT INTO outstanding_item_events (id, item_id, project_id, from_status, to_status, source, actor_session_id,
+           created_at, cleanup_request_id, cleanup_proposal_id)
+         VALUES ('cleanup-sync-event', ?, ?, 'pending', 'completed', 'web', NULL, ?, ?, ?)`,
+      ).run(item.item_id, proposal.project_id, decidedAt, proposal.request_id, proposal.id);
+    } finally {
+      db.close();
+    }
+    const accepted = source.store.exportProjectData({ type: "all" });
+
+    for (const strategy of ["merge", "newer-wins"] as const) {
+      const destination = new WorkIntelligenceStore(":memory:");
+      stores.push(destination);
+      destination.importProjectData({ bundle: legacy });
+      expect(
+        destination.exportProjectData({ type: "all" }).tables.outstanding_cleanup_proposals[0]?.review_status,
+      ).toBe("rejected");
+
+      const input = { bundle: accepted, strategy };
+      const preview = destination.previewProjectDataImport(input);
+      expect(() => destination.importProjectData(input)).not.toThrow();
+      const result = destination.exportProjectData({ type: "all" });
+      const events = result.tables.outstanding_item_events.filter((event) => event.id === "cleanup-sync-event");
+      if (strategy === "newer-wins") {
+        expect(result.tables.outstanding_cleanup_proposals[0]?.review_status).toBe("accepted");
+        expect(events).toHaveLength(1);
+      } else {
+        expect(result.tables.outstanding_cleanup_proposals[0]?.review_status).toBe("rejected");
+        expect(events).toHaveLength(0);
+        expect(total(preview.conflicts)).toBeGreaterThan(0);
+      }
+    }
+  });
+
   it("rejects cleanup imports with cross-project references or duplicate active requests", () => {
     const source = createSource();
     seedCleanupReview(source.store, source.projectId, source.sessionIds[0], source.sessionIds[1], "cleanup-main", true);
@@ -909,6 +1006,8 @@ describe("portable project data transfer", () => {
       throw new Error("Expected complete synthetic cleanup review records for both projects.");
     }
 
+    // Only a pending request is still active; an old file's awaiting_review one is closed on import.
+    otherRequest.status = "pending";
     const duplicateActive = {
       ...otherRequest,
       id: "zz-cleanup-duplicate-active-request",

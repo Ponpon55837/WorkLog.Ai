@@ -778,7 +778,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_request_outstanding_cleanup", {
     title: "Request outstanding cleanup",
     description:
-      "Only when the user asks to 整理未結項 / clean up outstanding items for this tracked project; never on your own initiative. Creates the Web UI's fixed-snapshot request, or returns the open one (outstanding_cleanup_request_active); not_needed when nothing is pending. Request only: never changes item status; acceptance is Web-only. " +
+      "Only when the user asks to 整理未結項 / clean up outstanding items for this tracked project; never on your own initiative. Creates the Web UI's fixed-snapshot request, or returns the open one (outstanding_cleanup_request_active); not_needed when nothing is pending. Request only: it changes no item; the verdicts you submit afterwards apply directly. " +
       outstandingCleanupContract,
     inputShape: requestOutstandingCleanupInputSchema.shape,
     schema: requestOutstandingCleanupInputSchema,
@@ -800,15 +800,15 @@ export function createWorkIntelligenceMcpServer(
   });
 
   registerStoreTool("work_submit_outstanding_cleanup_proposals", {
-    title: "Submit evidence-linked outstanding cleanup proposals",
+    title: "Submit outstanding cleanup verdicts",
     description:
-      "Submit up to 100 examined snapshot item IDs with a subset of completed/not_needed proposals; each needs a reason and 1–10 supporting later Session IDs. Empty proposals explicitly withholds all examined items. Same idempotency key and normalized payload replays original proposal IDs; differing payload or already examined items conflict. Only pending requests accept new pages. Evidence and item/source eligibility are rechecked atomically, and no outstanding item or status audit changes. " +
+      "Submit up to 100 examined snapshot item IDs with a subset of completed/not_needed/acknowledged verdicts; completed and not_needed need a reason and 1–10 supporting later Session IDs, acknowledged (a scope exclusion or known limitation with no later action; stored as not_needed) needs only a reason. They apply directly: each verdict changes the item status and writes an Agent-sourced audit event linked to the request; the user can reopen items in Web. Empty proposals explicitly withholds all examined items. Same idempotency key and normalized payload replays the original proposal IDs; differing payload or already examined items conflict. Only pending requests accept new pages. Evidence and item/source eligibility are rechecked atomically: one ineligible verdict rejects the whole submission. " +
       outstandingCleanupContract,
     inputShape: submitOutstandingCleanupProposalsInputSchema.shape,
     schema: submitOutstandingCleanupProposalsInputSchema,
     annotations: ADDITIVE_IDEMPOTENT,
     validationNotes: [
-      "Examined and evidence IDs must be distinct; proposal item IDs form a unique subset of examined IDs. All sources must belong to this request's tracked project and be later than each item's source, within requestedAt. Same-key payload conflicts reject without writes.",
+      "Examined and evidence IDs must be distinct; proposal item IDs form a unique subset of examined IDs. Evidence sources must belong to this request's tracked project and be later than each item's source, within requestedAt; acknowledged verdicts may omit evidence. Same-key payload conflicts reject without writes.",
     ],
     invalidMessage: "Invalid outstanding cleanup proposals.",
     run: (input) => store.submitOutstandingCleanupProposals(input),
@@ -904,7 +904,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_resolve_outstanding_items", {
     title: "Close verified outstanding items",
     description:
-      "Right after work_finalize_session, close pending items that this Session's own work directly verified: resolvedOutstandingItemIds become completed, supersededOutstandingItemIds (needs this Session's nextSteps to be non-empty) become not_needed, both audited with sessionId as the actor. Use it for items listed in the finalize receipt's continuedOutstandingItems or relatedOutstandingItems, or in the context, that you verified yourself. It only changes a pending item in the same project whose source Session is nonvoided, differs from this Session, completed earlier than this Session, and is not held by a cleanup request; anything else stays pending and is listed in outstandingItemWarnings. An id in both lists changes nothing. Repeating a call reports already applied ids instead of warning. It never closes uncertain items, never bypasses cleanup review, and cannot reopen items; ranking or wording similarity is not evidence. Untracked projects are skipped quietly. " +
+      "Right after work_finalize_session, close pending items that this Session's own work directly verified: resolvedOutstandingItemIds become completed, supersededOutstandingItemIds (needs this Session's nextSteps to be non-empty) become not_needed, both audited with sessionId as the actor. Use it for items listed in the finalize receipt's continuedOutstandingItems or relatedOutstandingItems (possiblyDone: true means the item names an issue or version this Session also names: verify it first), or in the context, that you verified yourself, and for this Session's own nextSteps that its later work finished. It only changes a pending item in the same project whose source Session is nonvoided and not held by a cleanup request, and whose source is either this Session itself (resolvedOutstandingItemIds only) or completed earlier than this Session; anything else stays pending and is listed in outstandingItemWarnings. An id in both lists changes nothing. Repeating a call reports already applied ids instead of warning. It never closes uncertain items, never bypasses cleanup review, and cannot reopen items; ranking or wording similarity is not evidence. Untracked projects are skipped quietly. " +
       finalizeClosingContract,
     inputShape: resolveOutstandingItemsInputSchemaBase.shape,
     schema: resolveOutstandingItemsInputSchema,
