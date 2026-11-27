@@ -1200,7 +1200,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_request_knowledge_candidates", {
     title: "Request Knowledge candidates",
     description:
-      "Open a request to propose Knowledge from a tracked project's recorded Sessions that no earlier request covered (up to 10, newest first), or return the project's open request. Returns knowledge_candidates_not_needed when every Session was already reviewed. " +
+      "Open a request to propose Knowledge from a tracked project's recorded Sessions that no earlier request covered (up to 10, highest value first: confirmed decisions, recovered verification, later work built on them, repeated reads; Sessions without such signals only when no valuable one is left), or return the project's open request. The new request reports remaining counts. Returns knowledge_candidates_not_needed when no Session is left uncovered. " +
       implementationDetail,
     inputShape: requestKnowledgeCandidatesInputSchema.shape,
     schema: requestKnowledgeCandidatesInputSchema,
@@ -1212,7 +1212,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_get_knowledge_candidate_context", {
     title: "Get Knowledge candidate context",
     description:
-      "Start processing a Knowledge candidate request (the newest open one of projectRoot, or requestId) and return its source Sessions — summary, the outcomes, decisions, and nextSteps of workSummary (scope and verification are left out; read them with work_get_session view handoff), and raw handoff text within a 40,000-character budget — plus existingKnowledge: titles of the project's active Knowledge, archived Knowledge (status archived), and rejected candidates (status rejected), so proposals neither repeat nor revive them. Failed or interrupted requests can be processed again. " +
+      "Start processing a Knowledge candidate request (the newest open one of projectRoot, or requestId) and return its source Sessions — summary, the outcomes, decisions, and nextSteps of workSummary (scope and verification are left out; read them with work_get_session view handoff), and raw handoff text within a 40,000-character budget — plus existingKnowledge: titles of the project's active Knowledge, archived Knowledge (status archived), rejected candidates (status rejected), and candidates still proposed from earlier requests (status proposed), so proposals neither repeat nor revive them. Failed or interrupted requests can be processed again. " +
       implementationDetail,
     inputShape: knowledgeCandidateContextQuerySchemaBase.shape,
     schema: knowledgeCandidateContextQuerySchema,
@@ -1225,7 +1225,7 @@ export function createWorkIntelligenceMcpServer(
   registerStoreTool("work_submit_knowledge_candidates", {
     title: "Submit Knowledge candidates",
     description:
-      "Submit proposed Knowledge for a request and complete it. Candidates are stored for the user to accept or reject on the Knowledge page; they are not Knowledge yet. A returned candidate may carry advisory overlaps (possible_duplicate, overlaps_archived, or overlaps_rejected, with the matched id, title, status, and score) found among the same project's Knowledge and earlier candidates; they are stored with the candidate for the Web review and never reject, merge, or change anything. Resubmitting the same payload returns the stored candidates and advisories with duplicate: true. Sensitive values are masked; the result reports counts by type only and never returns a token fragment. " +
+      "Submit proposed Knowledge for a request and complete it. Candidates are stored for the user to accept or reject on the Knowledge page; they are not Knowledge yet. A returned candidate may carry advisory overlaps (possible_duplicate, overlaps_archived, or overlaps_rejected, with the matched id, title, status, and score) found among the same project's Knowledge and earlier candidates; they are stored with the candidate for the Web review and never reject, merge, or change anything. Resubmitting the same payload returns the stored candidates and advisories with duplicate: true. When more valuable Sessions remain, the result carries next { requestId, sourceSessions, remaining } for the already opened follow-up request (a replay returns the request still open). Sensitive values are masked; the result reports counts by type only and never returns a token fragment. " +
       knowledgeCandidateContract,
     inputShape: submitKnowledgeCandidatesInputSchema.shape,
     schema: submitKnowledgeCandidatesInputSchema,

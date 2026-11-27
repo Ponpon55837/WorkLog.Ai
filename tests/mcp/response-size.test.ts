@@ -43,6 +43,8 @@ const RESPONSE_BUDGETS = {
   outstandingCleanupRequestPage: 8_000,
   outstandingCleanupProposalPage: 30_000,
   agentReviewContext: 24_000,
+  candidateSubmitWithNext: 1_800,
+  candidateContext: 1_600,
   relatedOutstandingItems: 3_000,
   contextRelatedOutstandingItems: 2_200,
   recallDefault: 3_500,
@@ -2298,6 +2300,74 @@ describe("synthetic MCP response-size baseline", () => {
       expect.objectContaining({ id: staleKnowledge.knowledge.id, possiblyStale: true }),
     );
     expect(context.omitted?.some((section) => section.readWith === "work_search_knowledge")).toBe(true);
+  });
+});
+
+describe("Knowledge candidate continuation response budgets", () => {
+  it("keeps the submit receipt with its next request and the next context within budget", async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "work-intelligence-candidate-response-size-"));
+    cleanups.push(() => rmSync(projectRoot, { recursive: true, force: true }));
+    const store = new WorkIntelligenceStore(":memory:");
+    cleanups.push(() => store.close());
+    const project = store.addProject("Synthetic Candidate Project", projectRoot);
+    store.updateProject(project.id, { status: "tracked" });
+    for (let index = 0; index < 12; index += 1) {
+      const finalized = store.finalizeSession({
+        projectRoot,
+        idempotencyKey: `candidate-size-${index}`,
+        title: `Synthetic candidate source ${index}`,
+        summary: "Fictional source for candidate continuation response-budget coverage.",
+        workSummary: {
+          outcomes: [],
+          scope: [],
+          decisions: [{ text: `Synthetic decision ${index}`, origin: "user_requested" }],
+          verification: [],
+          nextSteps: [],
+        },
+        changedFiles: [],
+        verification: { status: "passed" },
+      });
+      if (finalized.outcome !== "finalized") throw new Error("Expected a source Session.");
+    }
+    const request = store.requestKnowledgeCandidates(projectRoot);
+    if (request.outcome !== "knowledge_candidate_request") throw new Error("Expected a candidate request.");
+    const server = createWorkIntelligenceMcpServer(store, "0.1.0-test", LATEST_SCHEMA_VERSION);
+    const client = new Client({ name: "candidate-size-test", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    cleanups.push(() => client.close());
+
+    const submitted = await serializedMcpPayload(
+      client,
+      "work_submit_knowledge_candidates",
+      {
+        requestId: request.request.id,
+        candidates: [
+          {
+            sourceSessionId: request.request.sourceSessionIds[0],
+            kind: "gotcha",
+            title: "Synthetic gotcha",
+            body: "Synthetic body.",
+            rationale: "Stated in the Session decisions.",
+          },
+        ],
+      },
+      "work_write_additive",
+    );
+    const { next } = submitted.value as { next?: { requestId: string; sourceSessions: number } };
+    expect(next).toMatchObject({ sourceSessions: 2, remaining: { uncoveredSessions: 0, highValueSessions: 0 } });
+    expect(submitted.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.candidateSubmitWithNext);
+
+    const context = await serializedMcpPayload(
+      client,
+      "work_get_knowledge_candidate_context",
+      { requestId: next!.requestId },
+      "work_write_idempotent",
+    );
+    expect(context.value).toMatchObject({
+      existingKnowledge: [{ kind: "gotcha", title: "Synthetic gotcha", status: "proposed" }],
+    });
+    expect(context.length).toBeLessThanOrEqual(RESPONSE_BUDGETS.candidateContext);
   });
 });
 

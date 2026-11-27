@@ -4,6 +4,21 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.88] - 2026-11-27
+
+[繁體中文更新說明](docs/releases/1.6.88.md).
+
+### Added
+
+- `POST /api/knowledge/candidate-requests/:requestId/cancel` and a 「停止」 button on open candidate requests in the Web stop a pending, processing or failed request (and with it the automatic chain); its Sessions are no longer covered. Cancelling needs no migration or export change (`cancelled` is an existing status). The row and header buttons are disabled while a request is in flight.
+
+### Changed
+
+- The Knowledge candidates tab no longer sums every uncovered Session across projects. It lists, per project, the high-value Sessions (score at least 1) that no request covers yet, each row with its own organize button, and shows nothing when no project has any. The number is what organizing that project clears. The Web store exposes a per-project `candidateBacklog` array, and `list` backlog entries omit projects without high-value Sessions.
+- `work_request_knowledge_candidates` selects only high-value Sessions while the project has any, so low-score Sessions are no longer pulled in by the top-10 cut. When none are left, an explicit request still takes the top 10 so small projects can be organized. The not-needed reason now says no Session is left uncovered.
+- `work_submit_knowledge_candidates` continues the work: when the project still has high-value uncovered Sessions and no other open request, the same transaction opens the next pending request and the result carries `next: { requestId, sourceSessions, remaining }` (an empty submission continues too; a replay returns the request that is still open and creates none). The Agent contract, the `work_request_knowledge_candidates` description (it said "newest first" although selection is by score), `docs/mcp-tools.md` and the Knowledge guide of the Work Intelligence skill describe it. No migration; exports and imports are unchanged.
+- The Knowledge candidate context lists candidates still `proposed` from earlier batches of the project in `existingKnowledge` (`status: "proposed"`, at most 30 titles), so later batches do not repeat them.
+
 ## [1.6.87] - 2026-11-27
 
 [繁體中文更新說明](docs/releases/1.6.87.md).

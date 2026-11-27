@@ -2274,7 +2274,12 @@ export interface KnowledgeCandidateContext {
   sessions: KnowledgeCandidateSourceSession[];
   omittedWorkSummarySections: Array<"scope" | "verification">;
   sessionReadWith: "work_get_session";
-  existingKnowledge: Array<{ id: string; kind: KnowledgeKind; title: string; status?: "archived" | "rejected" }>;
+  existingKnowledge: Array<{
+    id: string;
+    kind: KnowledgeKind;
+    title: string;
+    status?: "archived" | "rejected" | "proposed";
+  }>;
   existingKnowledgeOmitted?: number;
 }
 
@@ -2305,6 +2310,12 @@ export type RequestKnowledgeCandidatesResult =
   | { outcome: "knowledge_candidates_not_needed"; reason: string }
   | KnowledgeCandidateSkippedResult;
 
+export type CancelKnowledgeCandidateRequestResult =
+  | { outcome: "knowledge_candidate_request_cancelled"; request: KnowledgeCandidateRequest; duplicate: boolean }
+  | { outcome: "not_found"; requestId: string; reason: string }
+  | { outcome: "request_not_open"; request: KnowledgeCandidateRequest; reason: string }
+  | KnowledgeCandidateSkippedResult;
+
 export type KnowledgeCandidateContextResult =
   | KnowledgeCandidateContext
   | { outcome: "not_found"; requestId?: string; reason: string }
@@ -2318,6 +2329,7 @@ export type SubmitKnowledgeCandidatesResult =
       request: KnowledgeCandidateRequest;
       candidates: KnowledgeCandidate[];
       redactions?: RedactionSummary;
+      next?: { requestId: string; sourceSessions: number; remaining: KnowledgeCandidateBacklogCounts };
     }
   | { outcome: "not_found"; requestId: string; reason: string }
   | { outcome: "request_not_open"; request: KnowledgeCandidateRequest; reason: string }

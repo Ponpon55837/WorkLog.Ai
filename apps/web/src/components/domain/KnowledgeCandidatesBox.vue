@@ -34,8 +34,11 @@ const {
   candidates,
   openCandidateRequests,
   candidatesError,
+  candidateRequesting,
   refreshCandidates,
   requestCandidates,
+  cancelCandidateRequest,
+  wasStoppedByUser,
   acceptCandidate,
   rejectCandidate,
   openCandidateEditor,
@@ -48,7 +51,7 @@ const sessionsStore = useSessionsStore();
 const { openSessionDetail } = sessionsStore;
 const { showToast } = useToast();
 
-// A finished request leaves the open list, so a missing request means the Agent submitted its candidates.
+// A finished request leaves the open list, so a missing request means the Agent submitted its candidates, unless the user stopped it here.
 useActiveRequestWatch({
   requests: () => openCandidateRequests.value,
   check: () => refreshCandidates(props.projectRoot),
@@ -62,7 +65,7 @@ useActiveRequestWatch({
           : t("knowledge.knowledgeCandidateSynthesisDidNot"),
         "danger",
       );
-    } else if (!status) {
+    } else if (!status && !wasStoppedByUser(request.id)) {
       showToast(
         project
           ? t("knowledge.theAgentSubmittedKnowledgeCandidatesForPleaseReview", { project })
@@ -73,14 +76,21 @@ useActiveRequestWatch({
   },
 });
 
-const backlogText = computed(() => {
-  const { uncoveredSessions, highValueSessions } = candidateBacklog.value;
-  if (!candidatesLoaded.value || uncoveredSessions === 0) return "";
-  return highValueSessions > 0
-    ? t("knowledge.candidateBacklog", { uncovered: uncoveredSessions, highValue: highValueSessions })
-    : t("knowledge.candidateBacklogPlain", { uncovered: uncoveredSessions });
-});
 const isAgentView = computed(() => filter.value === "agent");
+const backlogRows = computed(() => {
+  if (!candidatesLoaded.value || isAgentView.value) return [];
+  return candidateBacklog.value.flatMap((entry) => {
+    const project = props.projects.find((item) => item.id === entry.projectId);
+    if (!project) return [];
+    const open = openCandidateRequests.value.find((request) => request.projectId === entry.projectId);
+    return [{ projectId: project.id, name: project.name, highValue: entry.highValueSessions, open }];
+  });
+});
+const unlistedRequests = computed(() =>
+  isAgentView.value
+    ? []
+    : openCandidateRequests.value.filter((request) => !backlogRows.value.some((row) => row.open === request)),
+);
 const shownCandidates = computed(() => (isAgentView.value ? reviewedCandidates.value : candidates.value));
 const shownLoaded = computed(() => (isAgentView.value ? reviewedCandidatesLoaded.value : candidatesLoaded.value));
 const shownError = computed(() => (isAgentView.value ? reviewedCandidatesError.value : candidatesError.value));
@@ -101,6 +111,7 @@ function overlapKnowledgeLink(candidate: KnowledgeCandidate, overlap: KnowledgeC
 }
 
 function onRequest(projectId: string): void {
+  if (candidateRequesting.value) return;
   const project = props.projects.find((item) => item.id === projectId);
   if (project) {
     void requestCandidates(project, props.projectRoot);
@@ -137,7 +148,7 @@ function onRequest(projectId: string): void {
     </template>
     <UiFlash v-if="shownError" tone="danger">{{ shownError }}</UiFlash>
     <UiFlash
-      v-for="request in isAgentView ? [] : openCandidateRequests"
+      v-for="request in unlistedRequests"
       :key="request.id"
       :tone="request.status === 'failed' ? 'attention' : 'accent'"
     >
@@ -148,14 +159,56 @@ function onRequest(projectId: string): void {
           value: request.status === "failed" ? t("knowledge.interruptedLastTimeCanBe") : "",
         })
       }}
+      <template #actions>
+        <UiButton
+          size="sm"
+          :disabled="candidateRequesting"
+          :aria-label="t('knowledge.candidateRequestStopLabel', { project: request.projectName ?? '' })"
+          @click="cancelCandidateRequest(request)"
+          >{{ t("knowledge.candidateRequestStop") }}</UiButton
+        >
+      </template>
     </UiFlash>
-    <p
-      v-if="backlogText && !isAgentView"
-      class="knowledge-candidates__backlog"
-      data-testid="knowledge-candidates-backlog"
-    >
-      {{ backlogText }}
-    </p>
+    <section v-if="backlogRows.length" class="knowledge-candidates__backlog" data-testid="knowledge-candidates-backlog">
+      <h3 class="knowledge-candidates__backlog-title">{{ t("knowledge.candidateBacklogTitle") }}</h3>
+      <p>{{ t("knowledge.candidateBacklogHint") }}</p>
+      <p>{{ t("knowledge.candidateBacklogExplainer") }}</p>
+      <ul class="knowledge-candidates__backlog-list">
+        <li v-for="row in backlogRows" :key="row.projectId" data-testid="knowledge-candidates-backlog-row">
+          <template v-if="row.open">
+            <span>
+              {{
+                t("knowledge.candidateBacklogOpen", {
+                  project: row.name,
+                  length: row.open.sourceSessionIds.length,
+                  n: row.highValue,
+                })
+              }}
+              <template v-if="row.open.status === 'failed'">{{ t("knowledge.interruptedLastTimeCanBe") }}</template>
+            </span>
+            <UiButton
+              size="sm"
+              :disabled="candidateRequesting"
+              :aria-label="t('knowledge.candidateRequestStopLabel', { project: row.name })"
+              @click="cancelCandidateRequest(row.open)"
+              >{{ t("knowledge.candidateRequestStop") }}</UiButton
+            >
+          </template>
+          <template v-else>
+            <span class="knowledge-candidates__backlog-project">{{ row.name }}</span>
+            <span>{{ t("knowledge.candidateBacklogCount", { n: row.highValue }) }}</span>
+            <UiButton
+              size="sm"
+              :disabled="candidateRequesting"
+              :aria-label="t('knowledge.organizeProjectLabel', { project: row.name })"
+              @click="onRequest(row.projectId)"
+              >{{ t("knowledge.organizeProject") }}</UiButton
+            >
+          </template>
+        </li>
+      </ul>
+      <p v-if="backlogRows.some((row) => row.open)">{{ t("knowledge.candidateRequestAskAgent") }}</p>
+    </section>
     <UiSkeleton v-if="!shownLoaded && !shownError" :count="2" :label="t('knowledge.loadingKnowledgeCandidates')" />
     <p v-else-if="isAgentView && shownCandidates.length === 0" class="knowledge-candidates__empty">
       {{ t("knowledge.noAgentProcessedCandidates") }}
@@ -283,12 +336,45 @@ function onRequest(projectId: string): void {
 }
 
 .knowledge-candidates__backlog {
-  margin: 0;
-  padding: var(--space-2) var(--space-4);
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border-muted);
   color: var(--fg-muted);
   font-size: var(--text-sm);
   line-height: 1.6;
+}
+
+.knowledge-candidates__backlog p,
+.knowledge-candidates__backlog-title {
+  margin: 0;
+}
+
+.knowledge-candidates__backlog-title {
+  color: var(--fg);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.knowledge-candidates__backlog-list {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.knowledge-candidates__backlog-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+}
+
+.knowledge-candidates__backlog-project {
+  color: var(--fg);
+  font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .knowledge-candidates__body {

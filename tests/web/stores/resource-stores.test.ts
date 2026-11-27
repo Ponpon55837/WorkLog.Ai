@@ -174,7 +174,7 @@ function resourceResponder({ url, method }: StoreRequest): unknown {
       openRequests: [],
       backlog: [
         { projectId: "project-1", uncoveredSessions: 7, highValueSessions: 3 },
-        { projectId: "project-2", uncoveredSessions: 2, highValueSessions: 0 },
+        { projectId: "project-2", uncoveredSessions: 4, highValueSessions: 2 },
       ],
     };
   }
@@ -183,6 +183,13 @@ function resourceResponder({ url, method }: StoreRequest): unknown {
   }
   if (url.pathname === "/api/knowledge/knowledge-1" && method === "PATCH") {
     return { outcome: "knowledge_updated", knowledge: { id: "knowledge-1", title: "Updated" } };
+  }
+  if (url.pathname === "/api/knowledge/candidate-requests/candidate-request-1/cancel" && method === "POST") {
+    return {
+      outcome: "knowledge_candidate_request_cancelled",
+      request: { id: "candidate-request-1" },
+      duplicate: false,
+    };
   }
   if (url.pathname === "/api/knowledge/candidate-requests" && method === "POST") {
     return { outcome: "knowledge_candidate_request", request: { id: "candidate-request-1" }, duplicate: false };
@@ -415,7 +422,15 @@ describe("resource stores", () => {
     await store.loadCandidates("/projects/alpha");
     await vi.waitFor(() => expect(store.candidates).toHaveLength(1));
     expect(store.candidatesLoading).toBe(false);
-    expect(store.candidateBacklog).toEqual({ uncoveredSessions: 9, highValueSessions: 3 });
+    await expect(store.cancelKnowledgeCandidateRequest("candidate-request-1")).resolves.toMatchObject({
+      outcome: "knowledge_candidate_request_cancelled",
+    });
+    expect(harness.count("/api/knowledge/candidate-requests/candidate-request-1/cancel", "POST")).toBe(1);
+    expect(store.candidateRequesting).toBe(false);
+    expect(store.candidateBacklog).toEqual([
+      { projectId: "project-1", uncoveredSessions: 7, highValueSessions: 3 },
+      { projectId: "project-2", uncoveredSessions: 4, highValueSessions: 2 },
+    ]);
 
     await store.updateKnowledge({ knowledgeId: "knowledge-1", title: "Updated" } as never);
     await vi.waitFor(() => expect(harness.count("/api/knowledge")).toBeGreaterThan(1));

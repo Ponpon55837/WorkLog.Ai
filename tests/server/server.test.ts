@@ -1647,7 +1647,7 @@ describe("Work Intelligence REST API", () => {
     }
   });
 
-  it("lists the uncovered Session backlog with Knowledge candidates and returns what remains after a request", async () => {
+  it("lists the high-value Session backlog with Knowledge candidates and returns what remains after a request", async () => {
     const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-candidate-backlog-test-"));
     const store = new WorkIntelligenceStore(":memory:");
     const { server, baseUrl } = await startApi(store);
@@ -1687,10 +1687,47 @@ describe("Work Intelligence REST API", () => {
     expect(requested.body).toMatchObject({
       outcome: "knowledge_candidate_request",
       duplicate: false,
-      remaining: { uncoveredSessions: 2, highValueSessions: 0 },
+      request: { sourceSessionIds: expect.arrayContaining([expect.any(String)]) },
+      remaining: { uncoveredSessions: 10, highValueSessions: 0 },
     });
     const after = await requestJson(baseUrl, `/api/knowledge/candidates?projectRoot=${encodeURIComponent(root)}`);
-    expect(after.body).toMatchObject({ backlog: [{ uncoveredSessions: 2 }], openRequests: [{ status: "pending" }] });
+    expect(after.body).toMatchObject({ backlog: [], openRequests: [{ status: "pending" }] });
+  });
+
+  it("cancels an open Knowledge candidate request and rejects what cannot be cancelled", async () => {
+    const root = mkdtempSync(join(tmpdir(), "work-intelligence-api-candidate-cancel-test-"));
+    const store = new WorkIntelligenceStore(":memory:");
+    const { server, baseUrl } = await startApi(store);
+    resources.push({ server, store, root });
+    const project = store.addProject("Candidate cancel API fixture", root);
+    store.updateProject(project.id, { status: "tracked" });
+    store.finalizeSession({
+      projectRoot: root,
+      idempotencyKey: "api-candidate-cancel",
+      title: "Cancel fixture",
+      summary: "Source for the cancellation.",
+      workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+    });
+    const requested = await requestJson(baseUrl, "/api/knowledge/candidate-requests", {
+      method: "POST",
+      body: { projectRoot: root },
+    });
+    const requestId = (requested.body as { request: { id: string } }).request.id;
+    const path = `/api/knowledge/candidate-requests/${requestId}/cancel`;
+    const cancelled = await requestJson(baseUrl, path, { method: "POST", body: {} });
+    expect(cancelled.body).toMatchObject({
+      outcome: "knowledge_candidate_request_cancelled",
+      duplicate: false,
+      request: { status: "cancelled" },
+    });
+    expect((await requestJson(baseUrl, path, { method: "POST", body: {} })).body).toMatchObject({ duplicate: true });
+    const missing = await requestJson(baseUrl, "/api/knowledge/candidate-requests/missing/cancel", {
+      method: "POST",
+      body: {},
+    });
+    expect(missing.body).toMatchObject({ outcome: "not_found" });
+    const after = await requestJson(baseUrl, `/api/knowledge/candidates?projectRoot=${encodeURIComponent(root)}`);
+    expect(after.body).toMatchObject({ openRequests: [] });
   });
 
   it("serves hotspots with validated filters", async () => {

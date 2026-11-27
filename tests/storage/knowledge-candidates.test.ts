@@ -446,3 +446,192 @@ describe("stored Knowledge candidate overlap advisories", () => {
     expect(overlap).not.toHaveProperty("title");
   });
 });
+
+describe("Knowledge candidate continuation", () => {
+  function finalizeWith(fixture: ReturnType<typeof setup>, key: string, decisions: boolean): string {
+    const result = fixture.store.finalizeSession({
+      projectRoot: fixture.root,
+      idempotencyKey: key,
+      title: `Session ${key}`,
+      summary: `${key} summary.`,
+      workSummary: {
+        outcomes: [],
+        scope: [],
+        decisions: decisions ? [{ text: `Decision ${key}`, origin: "user_requested" }] : [],
+        verification: [],
+        nextSteps: [],
+      },
+      changedFiles: [],
+      verification: { status: "passed" },
+    });
+    if (result.outcome !== "finalized") throw new Error("Expected finalize");
+    return result.session.id;
+  }
+
+  function valuable(fixture: ReturnType<typeof setup>, count: number, prefix = "valuable"): string[] {
+    return Array.from({ length: count }, (_, index) => finalizeWith(fixture, `${prefix}-${index}`, true));
+  }
+
+  function submit(store: WorkIntelligenceStore, requestId: string, candidates: KnowledgeCandidateInput[] = []) {
+    const result = store.submitKnowledgeCandidates({ requestId, candidates });
+    if (result.outcome !== "knowledge_candidates_submitted") throw new Error("Expected submitted candidates");
+    return result;
+  }
+
+  function requestCount(store: WorkIntelligenceStore, status?: string): number {
+    const row = databaseOf(store)
+      .prepare(`SELECT COUNT(*) AS total FROM knowledge_candidate_requests ${status ? "WHERE status = ?" : ""}`)
+      .get(...(status ? [status] : [])) as { total: number };
+    return row.total;
+  }
+
+  it("opens the next request for the remaining high-value Sessions, once the previous one completes", () => {
+    const fixture = setup();
+    const ids = valuable(fixture, 14);
+    finalizeWith(fixture, "plain-late", false);
+    const first = openRequest(fixture.store, fixture.root);
+    const sources = (
+      fixture.store.requestKnowledgeCandidates(fixture.root) as { request: { sourceSessionIds: string[] } }
+    ).request.sourceSessionIds;
+    const result = submit(fixture.store, first, [fixture.candidate(sources[0]!, "Hose splits in frost")]);
+    expect(result.next).toMatchObject({ sourceSessions: 4, remaining: { uncoveredSessions: 1, highValueSessions: 0 } });
+    expect(result.candidates).toHaveLength(1);
+    const open = fixture.store.requestKnowledgeCandidates(fixture.root);
+    expect(open).toMatchObject({ duplicate: true, request: { id: result.next!.requestId, status: "pending" } });
+    const nextSources = (open as { request: { sourceSessionIds: string[] } }).request.sourceSessionIds;
+    expect([...sources, ...nextSources].sort()).toEqual([...ids].sort());
+  });
+
+  it("does not continue when only low-score Sessions remain", () => {
+    const fixture = setup();
+    valuable(fixture, 3);
+    finalizeWith(fixture, "plain-a", false);
+    finalizeWith(fixture, "plain-b", false);
+    const result = submit(fixture.store, openRequest(fixture.store, fixture.root));
+    expect(result.request.sourceSessionIds).toHaveLength(3);
+    expect(result).not.toHaveProperty("next");
+    expect(requestCount(fixture.store, "pending")).toBe(0);
+    expect(openRequest(fixture.store, fixture.root)).toBeTruthy();
+  });
+
+  it("ends the chain after ceil(high-value / 10) submissions, an empty one included", () => {
+    const fixture = setup();
+    valuable(fixture, 25);
+    let requestId = openRequest(fixture.store, fixture.root);
+    const sizes: number[] = [];
+    for (let submissions = 0; submissions < 5; submissions += 1) {
+      const result = submit(fixture.store, requestId);
+      sizes.push(result.request.sourceSessionIds.length);
+      if (!result.next) break;
+      requestId = result.next.requestId;
+    }
+    expect(sizes).toEqual([10, 10, 5]);
+    expect(requestCount(fixture.store)).toBe(3);
+    expect(fixture.store.requestKnowledgeCandidates(fixture.root).outcome).toBe("knowledge_candidates_not_needed");
+  });
+
+  it("returns the request that is still open on a replay and creates no second one", () => {
+    const fixture = setup();
+    valuable(fixture, 14);
+    const request = openRequest(fixture.store, fixture.root);
+    const first = submit(fixture.store, request);
+    const replay = submit(fixture.store, request);
+    expect(replay.duplicate).toBe(true);
+    expect(replay.next).toEqual(first.next);
+    expect(requestCount(fixture.store)).toBe(2);
+    submit(fixture.store, first.next!.requestId);
+    expect(submit(fixture.store, request)).not.toHaveProperty("next");
+  });
+
+  it("does not open another request while one is already open", () => {
+    const fixture = setup();
+    valuable(fixture, 14);
+    const request = openRequest(fixture.store, fixture.root);
+    databaseOf(fixture.store)
+      .prepare(
+        `INSERT INTO knowledge_candidate_requests (id, project_id, status, requested_at, source_session_ids_json)
+         VALUES ('manual', ?, 'failed', '2030-01-01T00:00:00.000Z', '[]')`,
+      )
+      .run(fixture.projectId);
+    expect(submit(fixture.store, request)).not.toHaveProperty("next");
+    expect(requestCount(fixture.store)).toBe(2);
+  });
+
+  it("writes neither the submission nor the next request when the transaction rolls back", () => {
+    const fixture = setup();
+    valuable(fixture, 14);
+    const request = openRequest(fixture.store, fixture.root);
+    databaseOf(fixture.store).exec(
+      `CREATE TRIGGER block_requests BEFORE INSERT ON knowledge_candidate_requests
+       BEGIN SELECT RAISE(ABORT, 'blocked'); END`,
+    );
+    const sourceSessionId = (
+      fixture.store.requestKnowledgeCandidates(fixture.root) as { request: { sourceSessionIds: string[] } }
+    ).request.sourceSessionIds[0]!;
+    expect(() =>
+      fixture.store.submitKnowledgeCandidates({
+        requestId: request,
+        candidates: [fixture.candidate(sourceSessionId, "Hose splits in frost")],
+      }),
+    ).toThrow("blocked");
+    expect(requestCount(fixture.store)).toBe(1);
+    expect(requestCount(fixture.store, "completed")).toBe(0);
+    const candidates = databaseOf(fixture.store)
+      .prepare("SELECT COUNT(*) AS total FROM knowledge_candidates")
+      .get() as {
+      total: number;
+    };
+    expect(candidates.total).toBe(0);
+  });
+
+  it("lists candidates still proposed from earlier batches in the next context", () => {
+    const fixture = setup();
+    valuable(fixture, 14);
+    const request = openRequest(fixture.store, fixture.root);
+    const sourceSessionId = (
+      fixture.store.requestKnowledgeCandidates(fixture.root) as { request: { sourceSessionIds: string[] } }
+    ).request.sourceSessionIds[0]!;
+    const proposed = submit(fixture.store, request, [fixture.candidate(sourceSessionId, "Hose splits in frost")]);
+    const context = fixture.store.getKnowledgeCandidateContext({ requestId: proposed.next!.requestId });
+    if (context.outcome !== "knowledge_candidate_context") throw new Error("Expected context");
+    expect(context.existingKnowledge).toEqual([
+      { id: proposed.candidates[0]!.id, kind: "gotcha", title: "Hose splits in frost", status: "proposed" },
+    ]);
+  });
+
+  it("stops the chain: a cancelled request frees its Sessions and no longer accepts a submission", () => {
+    const fixture = setup();
+    valuable(fixture, 14);
+    const first = submit(fixture.store, openRequest(fixture.store, fixture.root));
+    const nextId = first.next!.requestId;
+    const cancelled = fixture.store.cancelKnowledgeCandidateRequest(nextId);
+    expect(cancelled).toMatchObject({
+      outcome: "knowledge_candidate_request_cancelled",
+      duplicate: false,
+      request: { id: nextId, status: "cancelled" },
+    });
+    expect(fixture.store.cancelKnowledgeCandidateRequest(nextId)).toMatchObject({ duplicate: true });
+    expect(fixture.store.submitKnowledgeCandidates({ requestId: nextId, candidates: [] })).toMatchObject({
+      outcome: "request_not_open",
+    });
+    const reopened = fixture.store.requestKnowledgeCandidates(fixture.root);
+    expect(reopened).toMatchObject({ duplicate: false, remaining: { highValueSessions: 0 } });
+    expect((reopened as { request: { sourceSessionIds: string[] } }).request.sourceSessionIds).toHaveLength(4);
+  });
+
+  it("does not cancel a completed or unknown request, and follows the project policy", () => {
+    const fixture = setup();
+    valuable(fixture, 2);
+    const request = openRequest(fixture.store, fixture.root);
+    submit(fixture.store, request);
+    expect(fixture.store.cancelKnowledgeCandidateRequest(request)).toMatchObject({
+      outcome: "request_not_open",
+      request: { status: "completed" },
+    });
+    expect(fixture.store.cancelKnowledgeCandidateRequest("missing")).toMatchObject({ outcome: "not_found" });
+    valuable(fixture, 1, "again");
+    const open = openRequest(fixture.store, fixture.root);
+    fixture.store.updateProject(fixture.projectId, { status: "paused" });
+    expect(fixture.store.cancelKnowledgeCandidateRequest(open).outcome).toBe("skipped");
+  });
+});

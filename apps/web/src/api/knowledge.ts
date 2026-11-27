@@ -4,6 +4,7 @@ import type {
   DecideKnowledgeCandidateInput,
   DecideKnowledgeCandidateResult,
   KnowledgeCandidateListResult,
+  CancelKnowledgeCandidateRequestResult,
   RequestKnowledgeCandidatesResult,
   UpdateKnowledgeInput,
   UpdateKnowledgeResult,
@@ -22,6 +23,10 @@ export interface KnowledgeApi {
     reviewedBy?: "agent",
   ): Promise<KnowledgeCandidateListResult>;
   requestKnowledgeCandidates(projectRoot: string, signal?: AbortSignal): Promise<RequestKnowledgeCandidatesResult>;
+  cancelKnowledgeCandidateRequest(
+    requestId: string,
+    signal?: AbortSignal,
+  ): Promise<CancelKnowledgeCandidateRequestResult>;
   decideKnowledgeCandidate(
     input: DecideKnowledgeCandidateInput,
     signal?: AbortSignal,
@@ -66,6 +71,15 @@ export function createKnowledgeApi(client: ApiTransport): KnowledgeApi {
         "/api/knowledge/candidate-requests",
         "POST",
         { projectRoot },
+        signal,
+      );
+    },
+
+    cancelKnowledgeCandidateRequest(requestId: string, signal?: AbortSignal) {
+      return client.write<CancelKnowledgeCandidateRequestResult>(
+        `/api/knowledge/candidate-requests/${encodeURIComponent(requestId)}/cancel`,
+        "POST",
+        {},
         signal,
       );
     },

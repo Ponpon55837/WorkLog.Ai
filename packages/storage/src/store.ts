@@ -34,6 +34,7 @@ import type {
   RequestAgentReviewResult,
   SubmitAgentReviewVerdictsInput,
   SubmitAgentReviewVerdictsResult,
+  CancelKnowledgeCandidateRequestResult,
   RequestKnowledgeCandidatesResult,
   RequestOutstandingCleanupResult,
   SubmitKnowledgeCandidatesResult,
@@ -1297,6 +1298,10 @@ export class WorkIntelligenceStore {
 
   public requestKnowledgeCandidates(projectRoot: string): RequestKnowledgeCandidatesResult {
     return this.knowledgeCandidates.request(projectRoot);
+  }
+
+  public cancelKnowledgeCandidateRequest(requestId: string): CancelKnowledgeCandidateRequestResult {
+    return this.knowledgeCandidates.cancel(requestId);
   }
 
   public getKnowledgeCandidateContext(input: {

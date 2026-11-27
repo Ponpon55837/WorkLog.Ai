@@ -85,14 +85,17 @@ function setup() {
   return { store, root, projectId: project.id, finalize, plain, confirmed, backlog, request, context, setRequests };
 }
 
-function oldestWithSignalFirst(prepare: (fixture: ReturnType<typeof setup>) => string, check?: () => void) {
+function valuable(fixture: ReturnType<typeof setup>, count: number, prefix = "valuable"): string[] {
+  return Array.from({ length: count }, (_, index) =>
+    fixture.finalize(`${prefix}-${index}`, { decisions: fixture.confirmed(`Decision ${prefix} ${index}`) }),
+  );
+}
+
+function oldestWithSignalSelected(prepare: (fixture: ReturnType<typeof setup>) => string) {
   const fixture = setup();
   const signalId = prepare(fixture);
   fixture.plain(10);
-  const ids = fixture.request().request.sourceSessionIds;
-  expect(ids).toHaveLength(10);
-  expect(ids[0]).toBe(signalId);
-  check?.();
+  expect(fixture.request().request.sourceSessionIds).toEqual([signalId]);
 }
 
 describe("value ranking of uncovered Sessions", () => {
@@ -124,7 +127,7 @@ describe("value ranking of uncovered Sessions", () => {
   });
 
   it("falls back to the work summary for a Session without session_decisions rows", () => {
-    oldestWithSignalFirst(({ finalize, confirmed, store }) => {
+    oldestWithSignalSelected(({ finalize, confirmed, store }) => {
       const id = finalize("legacy", { decisions: confirmed("Old decision") });
       databaseOf(store).prepare("DELETE FROM session_decisions WHERE session_id = ?").run(id);
       return id;
@@ -132,7 +135,7 @@ describe("value ranking of uncovered Sessions", () => {
   });
 
   it("ranks a Session whose verification recovered from failed to passed", () => {
-    oldestWithSignalFirst(({ finalize, store }) => {
+    oldestWithSignalSelected(({ finalize, store }) => {
       const id = finalize("fixed", { verification: "failed" });
       store.updateSessionVerification(id, { status: "passed" });
       return id;
@@ -140,16 +143,16 @@ describe("value ranking of uncovered Sessions", () => {
   });
 
   it("ranks a passed Session that continues a Session whose verification failed", () => {
-    oldestWithSignalFirst(({ finalize, store }) => {
-      const failed = finalize("broken", { verification: "failed" });
-      const fix = finalize("follow-up", { verification: "passed" });
-      store.linkSessions({ sessionId: fix, relatedSessionId: failed, relation: "continues", linked: true });
-      return fix;
-    });
+    const fixture = setup();
+    const failed = fixture.finalize("broken", { verification: "failed" });
+    const fix = fixture.finalize("follow-up", { verification: "passed" });
+    fixture.store.linkSessions({ sessionId: fix, relatedSessionId: failed, relation: "continues", linked: true });
+    fixture.plain(10);
+    expect(fixture.request().request.sourceSessionIds).toEqual([fix, failed]);
   });
 
   it("ranks Sessions that later work was linked to", () => {
-    oldestWithSignalFirst(({ finalize, plain, store }) => {
+    oldestWithSignalSelected(({ finalize, plain, store }) => {
       const base = finalize("base");
       const [later] = plain(1, "later");
       store.linkSessions({ sessionId: later!, relatedSessionId: base, relation: "continues", linked: true });
@@ -186,10 +189,10 @@ describe("value ranking of uncovered Sessions", () => {
       "INSERT INTO agent_read_audit_records (audit_id, record_type, record_id) VALUES ('read-0', 'session', ?)",
     ).run(once);
     const result = fixture.request();
-    expect(result.request.sourceSessionIds.slice(0, 2)).toEqual([reread, once]);
-    // 3 reads = 1.5 (high value); 1 read = 0.5 (ranked, but below the line); context/recall sightings score 0.
-    expect(result.request.sourceSessionIds).not.toContain(onlySeen);
-    expect(result.remaining).toEqual({ uncoveredSessions: 1, highValueSessions: 0 });
+    // 3 reads = 1.5 (high value); 1 read = 0.5 (below the line); context/recall sightings score 0.
+    expect(result.request.sourceSessionIds).toEqual([reread]);
+    expect(result.remaining).toEqual({ uncoveredSessions: 10, highValueSessions: 0 });
+    expect(once).not.toBe(onlySeen);
   });
 
   it("does not count links from voided later Sessions", () => {
@@ -203,10 +206,8 @@ describe("value ranking of uncovered Sessions", () => {
     databaseOf(fixture.store)
       .prepare("UPDATE sessions SET voided_at = '2026-02-01T00:00:00.000Z' WHERE id = ?")
       .run(voidedLater!);
-    const ids = fixture.request().request.sourceSessionIds;
-    expect(ids[0]).toBe(base);
+    expect(fixture.request().request.sourceSessionIds).toEqual([base]);
     // One live inbound link scores 1.5; the voided one would have made it 3.
-    expect(fixture.backlog()?.highValueSessions).toBe(0);
     expect(
       scoreBacklogSession({
         confirmedDecisions: 0,
@@ -253,46 +254,45 @@ describe("value ranking of uncovered Sessions", () => {
 });
 
 describe("request size and coverage", () => {
-  it("takes ten Sessions and reports what remains", () => {
+  it("takes ten high-value Sessions and reports what remains", () => {
     const fixture = setup();
     fixture.plain(3);
-    fixture.finalize("valuable-a", { decisions: fixture.confirmed("A") });
-    fixture.plain(5, "mid");
-    fixture.finalize("valuable-b", { decisions: fixture.confirmed("B") });
+    const wanted = valuable(fixture, 12);
     fixture.plain(5, "late");
     const result = fixture.request();
     expect(result.request.sourceSessionIds).toHaveLength(10);
-    expect(result.remaining).toEqual({ uncoveredSessions: 5, highValueSessions: 0 });
-    expect(fixture.backlog()).toMatchObject({ uncoveredSessions: 5, highValueSessions: 0 });
+    expect(wanted).toEqual(expect.arrayContaining(result.request.sourceSessionIds));
+    expect(result.remaining).toEqual({ uncoveredSessions: 10, highValueSessions: 2 });
+    expect(fixture.backlog()).toMatchObject({ uncoveredSessions: 10, highValueSessions: 2 });
   });
 
   it("leaves out Sessions listed by pending, processing, failed and completed requests, but not cancelled ones", () => {
     const fixture = setup();
-    fixture.plain(25);
+    valuable(fixture, 25);
     const first = fixture.request();
-    expect(fixture.backlog()?.uncoveredSessions).toBe(15);
+    expect(fixture.backlog()?.highValueSessions).toBe(15);
 
     fixture.setRequests("status = 'processing', started_at = ?", new Date().toISOString());
-    expect(fixture.backlog()?.uncoveredSessions).toBe(15);
+    expect(fixture.backlog()?.highValueSessions).toBe(15);
     fixture.setRequests("status = 'failed', failure_reason = 'x'");
-    expect(fixture.backlog()?.uncoveredSessions).toBe(15);
+    expect(fixture.backlog()?.highValueSessions).toBe(15);
     fixture.setRequests("status = 'completed', completed_at = ?", new Date().toISOString());
-    expect(fixture.backlog()?.uncoveredSessions).toBe(15);
+    expect(fixture.backlog()?.highValueSessions).toBe(15);
 
     const second = fixture.request();
     expect(second.request.sourceSessionIds.filter((id) => first.request.sourceSessionIds.includes(id))).toEqual([]);
-    expect(fixture.backlog()?.uncoveredSessions).toBe(5);
+    expect(fixture.backlog()?.highValueSessions).toBe(5);
 
     fixture.setRequests("status = 'cancelled' WHERE id = ?", first.request.id);
-    expect(fixture.backlog()?.uncoveredSessions).toBe(15);
+    expect(fixture.backlog()?.highValueSessions).toBe(15);
   });
 
   it("ignores null entries in a damaged source list instead of emptying the backlog", () => {
     const fixture = setup();
-    const ids = fixture.plain(4);
+    const ids = valuable(fixture, 4);
     fixture.request();
     fixture.setRequests("status = 'completed', source_session_ids_json = ?", JSON.stringify([ids[0], null, 7]));
-    expect(fixture.backlog()?.uncoveredSessions).toBe(3);
+    expect(fixture.backlog()?.highValueSessions).toBe(3);
   });
 
   it("reports nothing to request once every live Session is covered", () => {
@@ -306,51 +306,54 @@ describe("request size and coverage", () => {
 
   it("ignores voided Sessions", () => {
     const fixture = setup();
-    const ids = fixture.plain(4);
+    const ids = valuable(fixture, 4);
     databaseOf(fixture.store)
       .prepare("UPDATE sessions SET voided_at = ? WHERE id = ?")
       .run("2026-02-01T00:00:00.000Z", ids[3]!);
-    expect(fixture.backlog()?.uncoveredSessions).toBe(3);
+    expect(fixture.backlog()?.highValueSessions).toBe(3);
     expect(fixture.request().request.sourceSessionIds).not.toContain(ids[3]);
   });
 
-  it("lists each tracked project's counts when no project is named, and none for an untracked one", () => {
+  it("lists tracked projects that have high-value Sessions only, and none for an untracked one", () => {
     const fixture = setup();
-    fixture.plain(2);
-    const otherRoot = mkdtempSync(join(tmpdir(), "work-intelligence-backlog-other-"));
-    tempDirs.push(otherRoot);
-    const other = fixture.store.addProject("Pasture", otherRoot);
-    fixture.store.updateProject(other.id, { status: "tracked" });
-    fixture.store.finalizeSession({
-      projectRoot: otherRoot,
-      idempotencyKey: "other-1",
-      title: "Pasture work",
-      summary: "Fenced the pasture.",
-      workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
-      changedFiles: [],
-      verification: { status: "passed" },
-    });
+    valuable(fixture, 2);
+    fixture.plain(1);
+    const addProject = (name: string) => {
+      const root = mkdtempSync(join(tmpdir(), "work-intelligence-backlog-other-"));
+      tempDirs.push(root);
+      const project = fixture.store.addProject(name, root);
+      fixture.store.updateProject(project.id, { status: "tracked" });
+      return { root, id: project.id };
+    };
+    const finalizeIn = (root: string, key: string, decisions: Decisions) =>
+      fixture.store.finalizeSession({
+        projectRoot: root,
+        idempotencyKey: key,
+        title: key,
+        summary: `${key} summary.`,
+        workSummary: { outcomes: [], scope: [], decisions, verification: [], nextSteps: [] },
+        changedFiles: [],
+        verification: { status: "passed" },
+      });
+    const other = addProject("Pasture");
+    finalizeIn(other.root, "other-1", fixture.confirmed("Fence the pasture"));
+    const quarry = addProject("Quarry");
+    finalizeIn(quarry.root, "quarry-1", []);
     const all = fixture.store.listKnowledgeCandidates({});
     if (all.outcome !== "knowledge_candidates") throw new Error("Expected a candidate list");
-    expect(Object.fromEntries(all.backlog.map((entry) => [entry.projectId, entry.uncoveredSessions]))).toEqual({
-      [fixture.projectId]: 2,
-      [other.id]: 1,
+    expect(Object.fromEntries(all.backlog.map((entry) => [entry.projectId, entry]))).toEqual({
+      [fixture.projectId]: { projectId: fixture.projectId, uncoveredSessions: 3, highValueSessions: 2 },
+      [other.id]: { projectId: other.id, uncoveredSessions: 1, highValueSessions: 1 },
     });
     fixture.store.updateProject(other.id, { status: "paused" });
     const paused = fixture.store.listKnowledgeCandidates({});
     if (paused.outcome !== "knowledge_candidates") throw new Error("Expected a candidate list");
     expect(paused.backlog.map((entry) => entry.projectId)).toEqual([fixture.projectId]);
-    expect(fixture.store.listKnowledgeCandidates({ projectRoot: otherRoot }).outcome).toBe("skipped");
+    expect(fixture.store.listKnowledgeCandidates({ projectRoot: other.root }).outcome).toBe("skipped");
   });
 });
 
 describe("backlog in getContext", () => {
-  function valuable(fixture: ReturnType<typeof setup>, count: number, prefix = "valuable"): string[] {
-    return Array.from({ length: count }, (_, index) =>
-      fixture.finalize(`${prefix}-${index}`, { decisions: fixture.confirmed(`Decision ${index}`) }),
-    );
-  }
-
   it("appears only at five high-value Sessions", () => {
     const fixture = setup();
     valuable(fixture, 4);
