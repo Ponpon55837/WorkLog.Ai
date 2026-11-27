@@ -1,8 +1,7 @@
 import type { GraphEdge, GraphNode, GraphPathStep } from "@work-intelligence/core";
 
-/** Sessions listing more files than this are likely a polluted worktree and say nothing about co-change. */
+/** Sessions listing more files are likely a polluted worktree and say nothing about co-change. */
 const CO_CHANGE_FILE_LIMIT = 20;
-/** Derived edges are an aid, not the graph: keep at most this many, strongest first. */
 export const MAX_DERIVED_EDGES = 300;
 
 export interface CoChangeSession {
@@ -10,11 +9,6 @@ export interface CoChangeSession {
   changedFiles: readonly string[];
 }
 
-/**
- * co_changed edges between file nodes already in the graph that at least `minSessions` Sessions changed
- * together. Pairs are counted in one pass with a hash map keyed by the sorted pair (O(Σ k²) for k loaded files
- * per Session, k ≤ 20), then the strongest pairs are kept.
- */
 export function coChangedEdges(
   sessions: readonly CoChangeSession[],
   fileNodeIds: ReadonlySet<string>,
@@ -55,7 +49,6 @@ export function coChangedEdges(
     }));
 }
 
-/** A plain-language reason for one step, read in the direction the path walks it. */
 export function stepReason(edge: GraphEdge, from: GraphNode, to: GraphNode): string {
   if (edge.reason) {
     return edge.reason;
@@ -78,7 +71,6 @@ export function stepReason(edge: GraphEdge, from: GraphNode, to: GraphNode): str
   }
 }
 
-/** Breadth-first shortest path over the undirected graph; undefined when `to` is unreachable from `from`. */
 export function shortestPath(
   nodes: readonly GraphNode[],
   edges: readonly GraphEdge[],
@@ -101,8 +93,7 @@ export function shortestPath(
       adjacency.set(a, [{ next: b, edge }]);
     }
   };
-  // Among equally short paths, prefer specific relations: a project "contains" every Session, so walking
-  // through the project explains little. Those edges are explored last.
+  // A project "contains" every Session, so walking through it explains little: those edges are explored last.
   const ordered = [...edges].sort(
     (left, right) => Number(left.kind === "contains") - Number(right.kind === "contains"),
   );
@@ -112,7 +103,6 @@ export function shortestPath(
       link(edge.to, edge.from, edge);
     }
   }
-  // An array with a moving head is a queue without O(n) shifts.
   const queue = [fromId];
   const cameFrom = new Map<string, { previous: string; edge: GraphEdge }>();
   const visited = new Set([fromId]);

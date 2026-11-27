@@ -23,14 +23,6 @@ import {
   type Sandbox,
 } from "./helpers.js";
 
-/**
- * R06 with a real backend child: the user agrees to a schema update on the first-run page, the child is held before it
- * opens the database (a test-build seam: WORK_INTELLIGENCE_DESKTOP_TEST_HOLD_MIGRATION_FILE, passed to the child only by
- * an unpackaged test build), and the test kills it. The App must end in NEEDS_REPAIR with `migrationStarted` journaled and
- * must never hand the database to an outside service (EXTERNAL); a retry then updates the database exactly once.
- * Synthetic data only.
- */
-
 interface JournalRecord {
   kind: string;
   phase: string;
@@ -65,16 +57,14 @@ function schemaVersion(databasePath: string): number {
   }
 }
 
-/** The pre-migration backups in the backup folder the sandbox's settings name. */
 function migrationBackups(box: Sandbox): string[] {
   const directory = join(box.home, ".work-intelligence", "backups");
   return existsSync(directory) ? readdirSync(directory).filter((name) => name.includes("pre-migration-")) : [];
 }
 
 test("a backend killed while it is held at the start of an approved update ends in NEEDS_REPAIR, never EXTERNAL; repairing updates once", async () => {
-  // Its own waits add up to about 285 s in the worst case (45 + 30 + 60 + 60 + 30 + 90 plus the snapshot waits).
+  // The waits below add up to about 285 s in the worst case.
   test.setTimeout(300_000);
-  // An existing install (settings) whose database is one release behind: the start is refused until the user agrees.
   const box = await createSandbox({ withDatabase: true });
   sandbox = box;
   makeSchemaOlder(box.databasePath);
@@ -82,7 +72,6 @@ test("a backend killed while it is held at the start of an approved update ends 
   expect(schemaVersion(box.databasePath)).toBe(olderVersion);
   const release = join(box.root, "release-migration");
   app = await launchApp(box, { WORK_INTELLIGENCE_DESKTOP_TEST_HOLD_MIGRATION_FILE: release });
-  // Every owner state the App shows from here on, so "never EXTERNAL" covers the moments between the test's own reads.
   const owners = new Set<string>();
   let watching = true;
   const watcher = (async () => {
@@ -101,22 +90,18 @@ test("a backend killed while it is held at the start of an approved update ends 
     const refused = await waitForSnapshot(app, (state) => state.owner === "NEEDS_REPAIR" && state.repairWindowOpen);
     expect(refused.recentErrors).toContain("SCHEMA_MIGRATION_BLOCKED");
     expect(refused.backend).toBeNull();
-    // The native file dialog cannot be driven: main's dialog answers with the database under repair.
     await app.evaluate(({ dialog }, picked) => {
       dialog.showOpenDialog = (async () => ({
         canceled: false,
         filePaths: [picked],
       })) as typeof dialog.showOpenDialog;
     }, box.databasePath);
-    // The refusal opened Status; choosing a database is the Data tab's.
     await openTab(window, "data");
     await window.locator('[data-id="choose-database"]').click();
-    // Pressing the candidate's button is the user's consent to the update.
     const confirm = window.locator('[data-id^="candidate:"]');
     await expect(confirm).toHaveCount(1, { timeout: 30_000 });
     await confirm.click();
 
-    // The child is held before it opens the database; the operation is journaled with migrationStarted already.
     await expect.poll(() => existsSync(`${release}.held`), { timeout: 60_000 }).toBe(true);
     const childPid = Number(readFileSync(`${release}.held`, "utf8"));
     expect(childPid).toBeGreaterThan(0);

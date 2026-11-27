@@ -1,14 +1,4 @@
 #!/usr/bin/env node
-/**
- * `pnpm test:desktop-smoke`: the Electron smoke test.
- *
- *   1. makes sure the Electron binary is present (the only step that downloads it),
- *   2. builds the desktop shell,
- *   3. lays out a runtime with the repository's runtime builder (`spike:runtime:build --runtime node`) in a temp folder,
- *   4. runs Playwright against dist/main with that runtime. Linux without a display runs under `xvfb-run -a`.
- *
- * Needs `pnpm build` first (the runtime builder packages the built server and Web UI).
- */
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -28,7 +18,6 @@ function run(command, args, options = {}) {
   return result.status ?? 1;
 }
 
-/** Runs every step and returns the exit status; cleanup is in `finally`, so no exit path skips it. */
 function main() {
   const prepared = run(process.execPath, [join(here, "ensure-electron.mjs")]);
   if (prepared !== 0) return prepared;

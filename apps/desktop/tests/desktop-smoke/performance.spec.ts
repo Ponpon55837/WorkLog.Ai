@@ -20,12 +20,6 @@ import {
 import { powershellArguments } from "../support/process-tools.js";
 import { gatesForPlatform, IDLE_SETTLE_MS, PERF_RUNS, type PerfGates } from "./perf-gates.js";
 
-/**
- * Desktop performance: cold start, the repair window, quit and idle memory, each measured `PERF_RUNS` times on
- * synthetic data. The medians are checked against `perf-gates.ts` and written to `perf-results/desktop-perf-<os>.json`
- * (CI uploads it) and printed to stdout. Polling is every 10 ms, so a time is at most that much late.
- */
-
 const here = dirname(fileURLToPath(import.meta.url));
 const resultsDirectory = resolve(here, "..", "..", "perf-results");
 const POLL_MS = 10;
@@ -66,7 +60,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
 }
 
-/** Calls `read` every POLL_MS and returns its first defined value; a timeout says what was last seen. */
 async function pollUntil<T>(
   read: () => Promise<T | undefined>,
   what: string,

@@ -6,9 +6,7 @@ export interface ShutdownSignalSource {
 }
 
 /**
- * How long in-flight requests may finish after shutdown starts before their sockets are destroyed. It stays well under
- * the 10 s the desktop App waits for the whole shutdown (`gracefulMs`), so a request that runs to the end of the grace
- * still leaves time to close the worker and the database before the App escalates to a kill.
+ * Well under the 10 s the desktop App waits for the whole shutdown, so the worker and database still close before a kill.
  * @internal test-only
  */
 export const DEFAULT_CONNECTION_GRACE_MS = 7_000;
@@ -19,21 +17,14 @@ export interface GracefulShutdownOptions {
   closeEventStreams: () => void;
   closeBackgroundWork: () => Promise<void>;
   closeDatabase: () => void;
-  /** Grace period for open connections (stuck clients included); after it they are destroyed so `server.close` completes. */
   connectionGraceMs?: number;
   onBackgroundWorkCloseError: (error: unknown) => void;
   onDatabaseCloseError: (error: unknown) => void;
-  /** A step before the drain (`stopBackgroundWork`, `closeEventStreams`, `server.close`) threw; shutdown goes on. */
   onStepError?: (step: "stopBackgroundWork" | "closeEventStreams" | "closeServer", error: unknown) => void;
 }
 
-/**
- * Stops new scheduled work, drains HTTP requests (idle keep-alive sockets close at once, the rest after a grace
- * period, so a stalled client cannot keep the process alive) and the worker, then closes SQLite. The returned function can be
- * called by anyone (the signals call it too); every call returns the same promise, which resolves only once SQLite
- * is closed, so a caller can wait for the whole shutdown instead of guessing. Every step runs even when an earlier one
- * throws, and the promise always resolves, so neither a signal handler nor a waiting caller can see a rejection.
- */
+// Every call returns the same promise, which always resolves and only once SQLite is closed; every step runs even if an
+// earlier one throws.
 export function registerGracefulShutdown(
   options: GracefulShutdownOptions,
   signals: ShutdownSignalSource = process,

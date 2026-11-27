@@ -1,7 +1,3 @@
-/**
- * Reads the App icon files back (build/icon.ico, icon.icns, icon.png, written by `generate-icons.mjs`) and checks their
- * structure, so a missing, truncated or default icon fails the packaging run instead of shipping.
- */
 import { Buffer } from "node:buffer";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -10,7 +6,6 @@ import { ICON_FILES } from "../electron-builder.config.mjs";
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const REQUIRED_ICO_SIZES = [16, 24, 32, 48, 64, 128, 256];
 const REQUIRED_ICNS_TYPES = ["ic04", "ic05", "ic07", "ic08", "ic09", "ic10", "ic11", "ic12", "ic13", "ic14"];
-/** The tray icons the shell build copies into dist/assets, with their pixel size (macOS template image and its @2x). */
 const TRAY_FILES = [
   ["tray.png", 32],
   ["trayTemplate.png", 16],
@@ -22,7 +17,6 @@ function pngSize(png) {
   return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
 }
 
-/** Pixel sizes of the PNG entries of an ICO; every directory entry must point at a PNG of its declared size. */
 export function readIcoSizes(file) {
   if (file.readUInt16LE(0) !== 0 || file.readUInt16LE(2) !== 1) throw new Error("not an ICO file");
   const sizes = [];

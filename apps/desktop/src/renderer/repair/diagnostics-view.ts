@@ -6,19 +6,10 @@ import {
 import { openModal } from "./dialog.js";
 import { button, element, hint } from "./dom.js";
 
-/**
- * The preview of 「匯出診斷資訊」: a modal dialog with the exact text that would be saved (read-only), what was masked,
- * and 「儲存檔案…」 / 「取消」. Main keeps the text; the page sends only the preview id back, so the file is the previewed
- * bytes. The dialog lives in the overlay root, outside every tab panel, so a tab change or the page's periodic redraw
- * does not touch it. It is a native modal dialog: focus moves into it and stays there, Esc closes it, and focus goes
- * back to the button that opened it. Only one preview is open at a time.
- */
 export interface DiagnosticsViewHost {
   readonly api: RepairApi;
   readonly text: DiagnosticsMessages;
-  /** The page's status line (a live region), for what is left to say after the dialog closed. */
   readonly say: (text: string) => void;
-  /** Puts focus back where the dialog was opened from, when that control has been redrawn since. */
   readonly returnFocus: () => void;
 }
 
@@ -30,7 +21,6 @@ function failureText(text: DiagnosticsMessages, result: Extract<DiagnosticsPrevi
   return result.reason === "scan-failed" ? text.scanFailed : text.previewFailed;
 }
 
-/** Asks main for a preview and shows it; a refusal or failure is said on the status line. */
 export async function requestDiagnosticsPreview(host: DiagnosticsViewHost): Promise<void> {
   if (open) return;
   open = true;
@@ -42,7 +32,6 @@ export async function requestDiagnosticsPreview(host: DiagnosticsViewHost): Prom
     host.say(failureText(host.text, result));
     return;
   }
-  // The "working" line of the button that asked is over: it must not stay on the page behind the modal.
   host.say("");
   showDialog(host, result);
 }
@@ -51,7 +40,6 @@ function showDialog(host: DiagnosticsViewHost, first: Preview): void {
   const { text } = host;
   let previewId = first.previewId;
   let saving = false;
-  /** Closes the dialog; set once it is open (the buttons are made before it). */
   let closeDialog = (): void => undefined;
 
   const box = element("textarea", { className: "preview-text" });
@@ -88,7 +76,7 @@ function showDialog(host: DiagnosticsViewHost, first: Preview): void {
       return;
     }
     if (result.reason === "expired") {
-      // The text on screen is no longer the one main holds: show a new one, and save only after it is read.
+      // The text on screen is no longer the one main holds: show the new one and save only after it is read.
       const next = await host.api
         .previewDiagnostics()
         .catch((): DiagnosticsPreviewResult => ({ ok: false, reason: "failed" }));
@@ -114,7 +102,7 @@ function showDialog(host: DiagnosticsViewHost, first: Preview): void {
     canClose: () => !saving,
   });
   closeDialog = modal.close;
-  // Focusing the box may move its caret to the end and scroll there; the text is read from the top.
+  // Focusing the box may move its caret to the end and scroll there.
   box.scrollTop = 0;
   box.setSelectionRange(0, 0);
   modal.dialog.addEventListener("close", () => {

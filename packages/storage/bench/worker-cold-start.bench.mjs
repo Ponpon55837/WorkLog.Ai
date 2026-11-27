@@ -1,16 +1,3 @@
-// Cold-start benchmark for the background worker (a child process since 1.6.48), using the built dist output the app
-// ships with.
-//
-// Usage:
-//   pnpm --filter @work-intelligence/storage --filter @work-intelligence/server build
-//   node packages/storage/bench/worker-cold-start.bench.mjs [runs=15] [--check] [--hash]
-//
-// Each run is a fresh Node process on a synthetic database. It reports, per run:
-//   import:  time to import the backup worker client in the API process (not part of the worker's own start)
-//   export:  time from forking a fresh worker process to its first completed project-data export, written to a file
-//            (the fork and the child's module loading are inside it)
-//   process: wall time of the whole child process
-// Prints median and p90 over the runs. --hash prints the sha256 of the export bytes (byte-identity evidence).
 import console from "node:console";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -26,9 +13,7 @@ const scriptPath = fileURLToPath(import.meta.url);
 const args = process.argv.slice(2);
 const checkMode = args.includes("--check");
 const childIndex = args.indexOf("--child");
-// Conservative regression gate, about 4x the measured p90 on the development machine (about 90 ms; 200 ms before the
-// worker stopped loading the schema package). It catches an order-of-magnitude regression on a slow CI machine;
-// tests/storage/backup-export-store.test.ts guards the import graph deterministically.
+// About 4x the measured development p90: catches an order-of-magnitude regression on a slow CI machine.
 const EXPORT_P90_LIMIT_MS = Number(process.env.WI_WORKER_COLD_START_P90_MS ?? 400);
 
 function quantile(sorted, fraction) {
@@ -91,7 +76,8 @@ if (childIndex >= 0) {
       const child = spawnSync(process.execPath, [scriptPath, "--child", databasePath], { encoding: "utf8" });
       const processMs = performance.now() - start;
       if (child.status !== 0) throw new Error(`Cold-start child failed: ${child.stderr}`);
-      if (run > 0) results.push({ ...JSON.parse(child.stdout), processMs }); // the first run warms the file cache
+      // The first run only warms the file cache.
+      if (run > 0) results.push({ ...JSON.parse(child.stdout), processMs });
     }
     const hashes = new Set(results.map((result) => result.hash));
     const summary = {};

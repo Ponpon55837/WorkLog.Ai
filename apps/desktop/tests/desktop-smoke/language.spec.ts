@@ -15,11 +15,6 @@ import {
   type Sandbox,
 } from "./helpers.js";
 
-/**
- * The 「語言」 card on the Settings tab: a choice redraws the window and the tray at once, is saved, and the Dashboard the
- * App manages is told the same language; a language picked in the Dashboard becomes the App's. Synthetic data only.
- */
-
 let sandbox: Sandbox | undefined;
 let app: ElectronApplication | undefined;
 
@@ -31,14 +26,12 @@ test.afterEach(async ({ browserName: _browserName }, testInfo) => {
   sandbox = undefined;
 });
 
-/** The choice in its own file; undefined when there is none (跟隨系統). */
 function savedLanguage(box: Sandbox): string | undefined {
   const file = join(box.dataDirectory, "preferences.json");
   if (!existsSync(file)) return undefined;
   return (JSON.parse(readFileSync(file, "utf8")) as { language?: string }).language;
 }
 
-/** The settings file never carries the language, so an older App keeps reading it. */
 function settingsCarryLanguage(box: Sandbox): boolean {
   const settings = JSON.parse(readFileSync(join(box.dataDirectory, "desktop-settings.json"), "utf8")) as {
     desired: Record<string, unknown>;
@@ -66,7 +59,6 @@ test("a language chosen on the Settings tab redraws the App at once and reaches 
   test.setTimeout(150_000);
   const box = await createSandbox({ withDatabase: true });
   sandbox = box;
-  // The system language this test runs under is English: 跟隨系統 reads as English.
   app = await launchApp(box, { LANG: "en_US.UTF-8", LANGUAGE: "en_US" });
   await waitForManagedSnapshot(app);
   await openWindow(app, "settings");
@@ -84,7 +76,6 @@ test("a language chosen on the Settings tab redraws the App at once and reaches 
   expect(settingsCarryLanguage(box)).toBe(false);
   await expect.poll(() => dashboardLanguage(box.port)).toEqual({ preference: "zh-TW", locale: "zh-TW" });
 
-  // What the Dashboard sends when the user picks English there.
   const origin = `http://127.0.0.1:${box.port}`;
   const answer = await fetch(`${origin}/api/desktop/language`, {
     method: "POST",
@@ -96,7 +87,6 @@ test("a language chosen on the Settings tab redraws the App at once and reaches 
   await expect(window.locator('[data-id="language-en"]')).toBeChecked();
   expect(savedLanguage(box)).toBe("en");
 
-  // Back to 跟隨系統: the file is removed.
   await window.locator('[data-id="language-system"]').check();
   await expect.poll(() => savedLanguage(box)).toBeUndefined();
   await expect.poll(() => dashboardLanguage(box.port)).toEqual({ preference: "system", locale: "en" });

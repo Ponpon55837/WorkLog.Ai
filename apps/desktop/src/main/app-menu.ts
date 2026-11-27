@@ -8,17 +8,14 @@ function toElectron(item: AppMenuItem): MenuItemConstructorOptions {
     ...(item.label === undefined ? {} : { label: item.label }),
     ...(item.accelerator === undefined ? {} : { accelerator: item.accelerator }),
     ...(item.action === "close-window"
-      ? // Closes the window like its close button; the App stays in the menu bar (`window-all-closed` does not quit).
+      ? // Closes like the window's close button; on macOS the App stays in the menu bar.
         { click: () => BrowserWindow.getFocusedWindow()?.close() }
       : {}),
     ...(item.submenu === undefined ? {} : { submenu: item.submenu.map(toElectron) }),
   };
 }
 
-/**
- * Sets the application menu: none on Windows and Linux (so Alt reveals nothing), a minimal one on macOS. Call it before
- * the first window exists. It never touches `session.defaultSession` (see `createSessionPolicy`).
- */
+// Call before the first window exists; it never touches `session.defaultSession`.
 export function applyAppMenu(platform: NodeJS.Platform, messages: ShellMessages): void {
   const template = buildAppMenuTemplate(platform, messages);
   Menu.setApplicationMenu(template === null ? null : Menu.buildFromTemplate(template.map(toElectron)));

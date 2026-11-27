@@ -11,7 +11,6 @@ import {
 import { numberParam, readJsonBody, sendJson, textParam } from "../http.js";
 import { validatedRoute, type Route } from "./router.js";
 
-/** Query parameters shared by the report and its export. */
 function reportQuery(url: URL): Record<string, unknown> {
   return {
     period: url.searchParams.get("period") ?? undefined,
@@ -26,7 +25,6 @@ function reportQuery(url: URL): Record<string, unknown> {
   };
 }
 
-/** Query parameters shared by the synthesis request and summary lists. */
 function synthesisQuery(url: URL): Record<string, unknown> {
   return {
     period: url.searchParams.get("period") ?? undefined,

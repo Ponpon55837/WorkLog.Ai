@@ -5,17 +5,11 @@ import { truncateText } from "@work-intelligence/shared";
 interface UnreportedKnowledgeFocus {
   projectId: string;
   sessionId: string;
-  /** The MCP client that saved the Session; reads by any other client are never counted. */
   agentClient: string;
-  /**
-   * The MCP connection that saved the Session. With it, only that connection's reads count and the work starts at
-   * the later of startedAt and previousSaveAt, as the caller knows that connection's saves better than the database.
-   */
   connectionId?: string;
   previousSaveAt?: string;
   startedAt: string;
   completedAt: string;
-  /** Knowledge the receipt already names for another reason (knowledgeToReview). */
   excludedIds: readonly string[];
 }
 
@@ -23,22 +17,10 @@ type UnreportedKnowledgeRow = { id: string; title: string; total: number };
 
 const UNREPORTED_KNOWLEDGE_ITEMS = 3;
 const UNREPORTED_KNOWLEDGE_TITLE_CHARS = 80;
-/**
- * Reads that hand the Agent Knowledge text to work with. Compact Knowledge search items carry no body, so the
- * audit never records them as Knowledge; maintenance reads (history, pages, reviews, candidates) are not recall.
- */
+/** Compact Knowledge search items carry no body, so the audit never records them as Knowledge. */
 const RECALL_TOOLS = JSON.stringify(["work_get_context", "work_recall", "work_search", "work_search_knowledge"]);
 
-/**
- * Active Knowledge of the Session's project that recall reads returned to the same Agent client during this work
- * and that the Session has not reported as applied or contradicted, newest read first. The work starts at the later
- * of startedAt and this client's previous save in the project, so reads that served earlier work are not counted;
- * a read is attributed only by project, client, and time, so the list is a reminder, never evidence. When the
- * caller names its MCP connection, reads of other connections of the same client (concurrent works) are left out
- * and the caller's previous save on that connection bounds the work instead. One query;
- * CROSS JOIN keeps the audit range (idx_agent_read_audit_project) as the outer loop, its records read by primary
- * key, and each Knowledge row by id, instead of scanning every audited Knowledge read or every Knowledge record.
- */
+/** Attributed only by project, client and time, so the list is a reminder, never evidence. */
 export function findUnreportedKnowledge(
   db: DatabaseSync,
   focus: UnreportedKnowledgeFocus,

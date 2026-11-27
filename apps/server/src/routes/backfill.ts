@@ -11,7 +11,6 @@ import {
 import { numberParam, readJsonBody, textParam } from "../http.js";
 import { validatedRoute, type Route } from "./router.js";
 
-/** Metadata backfill requests and historical handoff import. */
 export const backfillRoutes: Route[] = [
   {
     method: "GET",

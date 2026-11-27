@@ -12,7 +12,6 @@ type EvidenceRow = {
   project_name: string | null;
 };
 
-/** Rebuilds evidence for one eligible source page, independently of the current period's latest window. */
 export function getSourceReportEvidence(db: DatabaseSync, sessions: WorkSessionRecord[]): ReportEvidence[] {
   if (!sessions.length) return [];
   const ids = sessions.map((session) => session.id);

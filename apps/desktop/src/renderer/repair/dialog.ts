@@ -1,22 +1,13 @@
 import { element } from "./dom.js";
 
-/**
- * The shared modal (UiDialog): a native modal dialog, so the page behind it is inert, focus stays inside it and Esc
- * closes it. It is attached to the overlay root, never to a tab panel, so a tab change or a redraw of the panel does not
- * touch it. When it closes, `returnFocus` puts focus back on the control that opened it: the page decides where that is,
- * because the control is redrawn (and the tab may have changed) while the dialog is open.
- */
 export interface ModalOptions {
   readonly title: string;
   readonly headingId: string;
   readonly className?: string;
   readonly body: readonly Node[];
   readonly footer: readonly Node[];
-  /** Puts focus back on the control that opened the modal (or, when it is gone, on the open tab). */
   readonly returnFocus: () => void;
-  /** The control that gets focus when the modal opens. */
   readonly initialFocus?: () => HTMLElement | null;
-  /** Esc and a click on the backdrop close the modal only while this says so (not while a save is running). */
   readonly canClose?: () => boolean;
 }
 

@@ -18,16 +18,7 @@ import {
 import { asarFiles, asarPath } from "./asar.js";
 import { packagedExecutable } from "./helpers.js";
 
-/**
- * Screenshots of the PACKAGED App's page. The packaged App is a closed shell (no test hook, no remote debugging, inspect
- * fuses off), so Playwright cannot drive it. What this spec does instead: it reads the page files out of the packaged
- * `app.asar` (the production build: minified stylesheets and script) and shows them in a plain Electron window of the
- * Electron binary the repository installs, with a stand-in for the preload bridge that answers with fixed, synthetic
- * state built by the real `buildRepairState`. So the look of the shipped page is captured on each OS; the shell's own
- * behaviour is what the other packaged specs check.
- *
- *   apps/desktop/screenshots/<platform>/packaged-<state>-<tab>-<locale>-<scheme>.png
- */
+/** The packaged App is a closed shell (no test hook, inspect fuses off): the page files are read from `app.asar` and shown in a plain Electron window. */
 
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
@@ -36,7 +27,6 @@ const PAGE_FILES = ["index.html", "tokens.css", "repair.css", "repair.js"] as co
 const SCHEMES = ["light", "dark"] as const;
 type Scheme = (typeof SCHEMES)[number];
 
-/** Every method of the bridge, so the stand-in has the same surface as the real preload (checked by the compiler). */
 const BRIDGE_METHODS = [
   "getState",
   "retryStart",

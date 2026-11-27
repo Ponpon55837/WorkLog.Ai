@@ -11,31 +11,22 @@ import { assertDatabaseSchemaVersion, configureWorkIntelligenceDatabaseConnectio
 import { buildProjectDataExport, readProjectDataRows } from "./project-data-export.js";
 import { writeProjectDataExport } from "./project-data-export-stream.js";
 
-/**
- * Page cache of the worker's connection. An export reads every row once, so a large cache saves no reads, and on the
- * synthetic 33 MiB export the default 16 MB left about 30 MiB more resident after the worker had exited.
- */
+/** An export reads each row once; the default 16 MB cache left about 30 MiB more resident after the worker exited. */
 const EXPORT_CACHE_SIZE_KIB = 1_000;
 
 export interface BackupExportStoreOptions {
-  /** Where backups go and how many manual and automatic copies to retain independently. */
   backup?: BackupRetentionOptions;
-  /** The database must already have exactly this schema version; the API process owns migrations. */
+  /** The API process owns migrations; this store only checks the version. */
   expectedSchemaVersion: number;
 }
 
-/** Thrown by the placeholder masking when an export meets an architecture diagram before the real one is loaded. */
 function refuseArchitectureDiagram(): never {
   throw new Error("Architecture diagram masking was not loaded.");
 }
 
 /**
- * The read-only snapshot, export and backup operations of `WorkIntelligenceStore` (`mode: "read-only"`), without the
- * rest of it. The backup worker loads this entry instead of the whole store because everything here avoids
- * `@work-intelligence/schema`: that package builds about 140 zod schemas at load time, which cost the worker about
- * 100 ms of cold start. The architecture-diagram masking, the one step that parses with the schema, is imported only
- * when an export actually contains such a diagram. Output is byte-identical to the store's (see
- * `tests/storage/backup-export-store.test.ts`).
+ * The backup worker loads this instead of the whole store: nothing here may import `@work-intelligence/schema` (zod
+ * cost the worker about 100 ms of cold start). Output is byte-identical to the store's (backup-export-store.test.ts).
  */
 export class BackupExportStore {
   private readonly db: DatabaseSync;
@@ -66,23 +57,19 @@ export class BackupExportStore {
     this.db.close();
   }
 
-  /** Writes a checked snapshot of the whole database and prunes old ones. */
   public createBackup(): DatabaseBackupCreated {
     return backupDatabase(this.db, this.databasePath, this.backupOptions);
   }
 
-  /** Writes one automatic backup per local calendar day, independently of manual backups. */
   public backupIfDue(now = new Date()): DatabaseBackupCreated | null {
     if (!isBackupDue(this.databasePath, this.backupOptions.directory, now)) return null;
     return backupDatabase(this.db, this.databasePath, { ...this.backupOptions, kind: "automatic", now });
   }
 
-  /** Writes the whole database to `target`; `target` must not exist yet. */
   public exportTo(target: string, options: ExportOptions = {}): { bytes: number } {
     return exportDatabase(this.db, target, options);
   }
 
-  /** Exports portable data for every project or one selected project. */
   public async exportProjectData(scope: ProjectDataExportScope): Promise<ProjectDataExport> {
     const rows = readProjectDataRows(this.db, scope);
     const hasArchitectureDiagram = rows.session_diagrams.some((row) => row.kind === "architecture");
@@ -92,12 +79,7 @@ export class BackupExportStore {
     return buildProjectDataExport(rows, scope, redactArchitectureDiagram);
   }
 
-  /**
-   * Writes the portable export of `scope` to `target` (which must not exist yet) row by row, in bounded memory; the
-   * bytes are those of `JSON.stringify(await exportProjectData(scope))`. Most databases have no architecture diagram, so
-   * the masking that loads zod is imported only when one exists (in any project: one index lookup decides it before
-   * anything is written, instead of finding out halfway and writing the export twice).
-   */
+  /** Same bytes as `JSON.stringify(await exportProjectData(scope))`; zod masking is imported only when a diagram exists. */
   public async writeProjectData(
     scope: ProjectDataExportScope,
     target: string,

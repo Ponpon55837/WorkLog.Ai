@@ -15,28 +15,23 @@ function errorCode(error: unknown): string | undefined {
     : undefined;
 }
 
-/** Creates the data directory and an empty database file with owner-only modes, without touching existing directories. */
 export function prepareDatabaseFiles(databasePath: string): void {
   const directory = dirname(databasePath);
   if (!enforcesPosixModes(databasePath)) {
     mkdirSync(directory, { recursive: true });
     return;
   }
-  // A recursive mkdir gives every level it creates this mode and leaves existing parents (home, shared dirs) alone.
+  // Gives each level it creates this mode and leaves existing parents (home, shared dirs) alone.
   mkdirSync(directory, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
   try {
-    // Creating the file private up front leaves no window where it is readable under a permissive umask.
+    // Created private up front, so there is no window where it is readable under a permissive umask.
     closeSync(openSync(databasePath, "wx", PRIVATE_FILE_MODE));
   } catch (error) {
     if (errorCode(error) !== "EEXIST") throw error;
   }
 }
 
-/**
- * Narrows the database and its WAL/SHM files to owner-only. Only files this user owns are changed, and a refusal
- * is ignored: a failed tighten must never stop the database from opening (the doctor reports wide modes).
- * SQLite creates new -wal/-shm files with the database file's mode, so a private database keeps them private.
- */
+/** A refusal is ignored: a failed tighten must never stop the database from opening (the doctor reports wide modes). */
 export function tightenDatabaseFiles(databasePath: string): void {
   if (!enforcesPosixModes(databasePath) || typeof process.getuid !== "function") return;
   const uid = process.getuid();

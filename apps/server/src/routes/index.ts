@@ -26,7 +26,6 @@ export {
   type RouteServices,
 } from "./router.js";
 
-/** Every REST route, one table per domain. */
 export const apiRoutes: readonly Route[] = [
   ...systemRoutes,
   ...desktopRoutes,

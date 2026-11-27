@@ -53,10 +53,7 @@ export function isPnpmExecutable(command: string): boolean {
   return executable === "pnpm" || executable === "pnpm.cmd" || executable === "pnpm.exe";
 }
 
-/**
- * Split the quoted command form emitted by setup without evaluating shell syntax. On `win32` a backslash outside
- * quotes is a path separator, not an escape (inside double quotes only `\"` is an escape on every platform).
- */
+/** On `win32` a backslash outside quotes is a path separator, not an escape. */
 export function commandWords(command: string, platform?: NodeJS.Platform): string[] | undefined {
   const words: string[] = [];
   let word = "";
@@ -114,7 +111,6 @@ export function nodeCommandRunsScript(command: string, args: readonly string[], 
   return scriptArgument !== undefined && normalizeConfigPath(scriptArgument) === normalizeConfigPath(scriptPath);
 }
 
-/** A path alone does not prove that the command invokes Node with that script. */
 export function invokesNodeScript(value: unknown, scriptPath: string): boolean {
   if (Array.isArray(value)) return value.some((item) => invokesNodeScript(item, scriptPath));
   if (!JSON_OBJECT(value)) return false;
@@ -124,12 +120,6 @@ export function invokesNodeScript(value: unknown, scriptPath: string): boolean {
   return Object.values(value).some((item) => invokesNodeScript(item, scriptPath));
 }
 
-/**
- * How an MCP server entry starts this repository's MCP server: through the launcher (`node <repo>/apps/mcp/dist/
- * launcher.js`, any node path, or `pnpm --dir <repo> start:mcp` / `cwd: <repo>`, which runs the launcher), directly
- * through the server entry point (`node <repo>/apps/mcp/dist/index.js`, needs a reconnect after every build), or not
- * at all.
- */
 export function mcpRegistrationKind(value: unknown, repositoryRoot: string): "launcher" | "direct" | "other" {
   if (!JSON_OBJECT(value) || typeof value.command !== "string") return "other";
   const args = Array.isArray(value.args) ? value.args.filter((part): part is string => typeof part === "string") : [];
@@ -148,7 +138,6 @@ export function mcpRegistrationKind(value: unknown, repositoryRoot: string): "la
     : "other";
 }
 
-/** Points a direct `node <repo>/apps/mcp/dist/index.js` registration at the launcher, keeping everything else. */
 export function upgradeDirectMcpRegistration(value: unknown, repositoryRoot: string): unknown {
   if (mcpRegistrationKind(value, repositoryRoot) !== "direct" || !JSON_OBJECT(value) || !Array.isArray(value.args)) {
     return undefined;
@@ -156,7 +145,6 @@ export function upgradeDirectMcpRegistration(value: unknown, repositoryRoot: str
   return { ...value, args: [resolve(repositoryRoot, MCP_LAUNCHER_RELATIVE_PATH), ...value.args.slice(1)] };
 }
 
-/** The hook command for a launcher registration: the shim followed by the plain launcher action. */
 export function commandForLauncherHook(
   shimPath: string,
   action: string,
@@ -165,16 +153,11 @@ export function commandForLauncherHook(
   return `${quoteShellArgument(shimPath, platform)} ${action}`;
 }
 
-/**
- * Whether `command` is the launcher shim. With `shimPath` the path must be that exact shim; without it any path whose
- * file name is the fixed shim name counts, which is how a registration is recognised when the App root is unknown.
- */
 export function isLauncherShimCommand(command: string, shimPath?: string): boolean {
   if (shimPath !== undefined) return normalizeConfigPath(command) === normalizeConfigPath(shimPath);
   return LAUNCHER_SHIM_BASENAMES.has(command.trim().replaceAll("\\", "/").split("/").at(-1) ?? "");
 }
 
-/** An MCP server entry that runs `<shim> mcp`. */
 export function isLauncherMcpRegistration(value: unknown, shimPath?: string): boolean {
   if (!JSON_OBJECT(value) || typeof value.command !== "string" || !isLauncherShimCommand(value.command, shimPath)) {
     return false;
@@ -182,7 +165,6 @@ export function isLauncherMcpRegistration(value: unknown, shimPath?: string): bo
   return Array.isArray(value.args) && value.args.length === 1 && value.args[0] === LAUNCHER_MCP_ARGUMENT;
 }
 
-/** A hook entry whose command is `<shim> <action>`; like {@link invokesNodeScript}, a path alone proves nothing. */
 export function invokesLauncherAction(value: unknown, action: string, shimPath?: string): boolean {
   if (Array.isArray(value)) return value.some((item) => invokesLauncherAction(item, action, shimPath));
   if (!JSON_OBJECT(value)) return false;
@@ -195,7 +177,6 @@ export function invokesLauncherAction(value: unknown, action: string, shimPath?:
   return Object.values(value).some((item) => invokesLauncherAction(item, action, shimPath));
 }
 
-/** `cmd /c <command> <args>` is the Windows way to start a `.cmd` shim; it runs the command after `/c`. */
 export function unwrapCmd(command: string, args: readonly string[]): { command: string; args: string[] } {
   const executable = command.trim().replaceAll("\\", "/").split("/").at(-1)?.toLowerCase();
   if (executable !== "cmd" && executable !== "cmd.exe") return { command, args: [...args] };

@@ -20,13 +20,10 @@ export interface QuitOptions {
   readonly backend: BackendController;
   readonly lastBackup: LastBackupTracker;
   readonly log: Logger;
-  /** Test switch: the confirmation dialog is answered "yes" without being shown. */
   readonly autoConfirm: boolean;
-  /** Ends the process; called only after the quit flow said so. */
   readonly exit: () => void;
 }
 
-/** The quit path of the tray, `before-quit` and signals: ask, stop the backend and prove it, then exit. */
 export function createQuit(options: QuitOptions): (confirmFirst: boolean) => Promise<void> {
   const { state, supervisor, managed, coordinator, backend, lastBackup } = options;
 
@@ -55,12 +52,11 @@ export function createQuit(options: QuitOptions): (confirmFirst: boolean) => Pro
       const stopped = await managed.stop();
       return stopped.status === "stopped" ? { status: "stopped", report: stopped.report } : { status: "busy" };
     },
-    // Also ends any preview child still alive; its report is not "exited" unless they all are.
     forceStop: () => supervisor.stop(),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     log: options.log,
     warnIncompleteStop: async () => {
-      // In background mode no window may appear: the log line is the record.
+      // A background launch may show no window: the log line is the record.
       if (state.launchMode === "background") return;
       const text = state.messages();
       await dialog.showMessageBox({

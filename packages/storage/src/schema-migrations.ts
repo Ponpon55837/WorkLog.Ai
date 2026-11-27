@@ -1,10 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { nowIso } from "@work-intelligence/shared";
 
-/*
- * Versioned migrations. Each runs once, inside the caller's transaction, and is recorded in
- * schema_migrations. Older column additions stay in the idempotent checks in database-initialization.ts.
- */
 interface SchemaMigration {
   version: number;
   name: string;
@@ -86,8 +82,6 @@ const MIGRATIONS: SchemaMigration[] = [
   {
     version: 1,
     name: "search-index",
-    // Triggers only mark documents dirty; the tokenizer lives in TypeScript, so the index is rebuilt
-    // lazily before each query. Marking every existing document dirty is the backfill.
     sql: `
       CREATE TABLE IF NOT EXISTS search_chunks (
         id INTEGER PRIMARY KEY,
@@ -205,7 +199,6 @@ const MIGRATIONS: SchemaMigration[] = [
   {
     version: 4,
     name: "session-links",
-    // (session_id, related_session_id, 'continues') means session_id continues the work of the other.
     sql: `
       CREATE TABLE IF NOT EXISTS session_links (
         id TEXT PRIMARY KEY,
@@ -234,8 +227,6 @@ const MIGRATIONS: SchemaMigration[] = [
   {
     version: 6,
     name: "session-started-updated-at",
-    // Backfill: startedAt only from events recorded before completion (never guessed); updatedAt is
-    // the latest recorded change to the Session, its evidence, or its links.
     sql: `
       ALTER TABLE sessions ADD COLUMN started_at TEXT;
       ALTER TABLE sessions ADD COLUMN updated_at TEXT;
@@ -518,10 +509,6 @@ const MIGRATIONS: SchemaMigration[] = [
   {
     version: 17,
     name: "knowledge-feedback",
-    // Backfills only audit rows whose meaning is certain: a Session confirmation records that Session in
-    // lastConfirmedSessionId at the audit time, a contradiction records review.sessionId at the audit time, and
-    // a manual confirmation sets lastConfirmedAt to the audit time with no Session. The audit id is reused,
-    // so a feedback row points back to the change that created it.
     sql: `
       CREATE TABLE knowledge_feedback (
         id TEXT PRIMARY KEY,
@@ -589,7 +576,6 @@ const MIGRATIONS: SchemaMigration[] = [
   {
     version: 20,
     name: "raw-handoff-content-hashes",
-    // search_chunks is a derived index, so legacy Sessions are lazily rebuilt before their next search.
     sql: `
       ALTER TABLE search_chunks ADD COLUMN content_hash TEXT;
       CREATE INDEX idx_search_chunks_raw_content_hash
@@ -969,9 +955,6 @@ const MIGRATIONS: SchemaMigration[] = [
   {
     version: 33,
     name: "candidate-overlaps-and-session-lookups",
-    // Additive only. Existing candidates keep NULL: their advisory was never stored, so a replay recomputes it as
-    // before. The commit index serves the commitSha filter of work_list_sessions; the partial index counts live
-    // Sessions per project without reading voided rows.
     sql: `ALTER TABLE knowledge_candidates ADD COLUMN overlaps_json TEXT;
     CREATE INDEX idx_sessions_commit_sha ON sessions(commit_sha);
     CREATE INDEX idx_sessions_live_project ON sessions(project_id) WHERE voided_at IS NULL;`,
@@ -979,18 +962,14 @@ const MIGRATIONS: SchemaMigration[] = [
   {
     version: 34,
     name: "knowledge-page-session-coverage",
-    // Additive only. The last Session an Agent was shown when it saved a page, as a (completed_at, id) position, so
-    // Sessions it never saw stay new. Not a reference: a deleted Session still marks the same position. Existing
-    // pages keep NULL and their coverage stays sourced_through, exactly as before.
+    // Not a reference: a deleted Session still marks the same position.
     sql: `ALTER TABLE knowledge_pages ADD COLUMN covered_through_completed_at TEXT;
     ALTER TABLE knowledge_pages ADD COLUMN covered_through_session_id TEXT;`,
   },
   {
     version: 35,
     name: "agent-read-audit-response-chars",
-    // Additive only. The character count of the MCP response an Agent read actually received, so slowness can be
-    // attributed to SQLite, an oversized response, or Agent reasoning. Only a number, never content. Existing rows
-    // keep NULL, which means unknown, not 0.
+    // NULL means unknown, not 0.
     sql: `ALTER TABLE agent_read_audit ADD COLUMN response_chars INTEGER;`,
   },
   {
@@ -1067,8 +1046,6 @@ const MIGRATIONS: SchemaMigration[] = [
   {
     version: 37,
     name: "knowledge-page-deletion-audit",
-    // Content-free like session_deletion_audit (ids, time, counts; no slug or title) and never exported. A merge
-    // import looks pages up here by id, so an older export cannot add a deleted page back without saying so.
     sql: `
       CREATE TABLE knowledge_page_deletion_audit (
         id TEXT PRIMARY KEY,
@@ -1083,12 +1060,9 @@ const MIGRATIONS: SchemaMigration[] = [
   {
     version: 38,
     name: "agent-review-knowledge-items",
-    // SQLite cannot widen a CHECK in place, so the snapshot table is rebuilt with 'knowledge' items and the
-    // 'archive' and 'supersede' verdicts: rows are copied out to a temporary table in rowid order, the table is
-    // recreated and they are copied back unchanged, then the indexes and data-revision triggers are created again.
-    // Nothing references the table. A copy instead of RENAME, because RENAME re-checks every trigger in the schema.
-    // A knowledge item's item_id is a Knowledge id; like the other kinds it has no foreign key, so a deleted Knowledge
-    // reads as stale.
+    // SQLite cannot widen a CHECK in place, so the table is rebuilt by copy, not RENAME: RENAME re-checks every
+    // trigger in the schema. Indexes and data-revision triggers are created again. Like the other kinds, a knowledge
+    // item has no foreign key, so a deleted Knowledge reads as stale.
     sql: `
       CREATE TEMP TABLE agent_review_request_items_v37 AS SELECT * FROM agent_review_request_items ORDER BY rowid;
       DROP TABLE agent_review_request_items;
@@ -1128,25 +1102,19 @@ const MIGRATIONS: SchemaMigration[] = [
   {
     version: 39,
     name: "agent-read-audit-connection-id",
-    // Additive only. The MCP server process that served the read, so a Session's unreported Knowledge counts only
-    // reads from its own connection. Existing rows keep NULL, which never matches a connection. Never exported.
+    // NULL never matches a connection.
     sql: `ALTER TABLE agent_read_audit ADD COLUMN connection_id TEXT;`,
   },
   {
     version: 40,
     name: "agent-review-completion-pages",
-    // The Knowledge pages an Agent review request listed when it completed. NULL on requests completed earlier, which
-    // read as the computed list. Exported with the request.
     sql: `ALTER TABLE agent_review_requests ADD COLUMN completion_pages_json TEXT;`,
   },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;
 
-/**
- * The SQL of one migration, for tests that rebuild the database as it was before that migration.
- * @internal test-only
- */
+/** @internal test-only */
 export function schemaMigrationSql(version: number): string | undefined {
   return MIGRATIONS.find((migration) => migration.version === version)?.sql;
 }
@@ -1168,7 +1136,6 @@ export function getNextPendingSchemaMigrationVersion(db: DatabaseSync): number |
   return MIGRATIONS.find((migration) => !applied.has(migration.version))?.version;
 }
 
-/** Applies pending versioned migrations. Call inside an immediate transaction. */
 export function applySchemaMigrations(db: DatabaseSync): void {
   db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER PRIMARY KEY,

@@ -21,11 +21,6 @@ import {
   type Sandbox,
 } from "./helpers.js";
 
-/**
- * Changing the backend port from the App (DT-14): the repair window's 「連接埠」 section. Both ports are ephemeral and
- * synthetic; the native confirmation is auto-answered by the test switch. The Web never changes the port.
- */
-
 let sandbox: Sandbox | undefined;
 let app: ElectronApplication | undefined;
 let blocker: Server | undefined;
@@ -50,10 +45,6 @@ function readSettings(box: Sandbox): SettingsFile {
   return JSON.parse(readFileSync(join(box.dataDirectory, "desktop-settings.json"), "utf8")) as SettingsFile;
 }
 
-/**
- * Runs what the old tray item 「變更連接埠…」 ran (`changePort.openSection()`: the tray no longer has the item, the Dashboard's
- * link and this hook reach the same function) and returns the window with the port section ready, on the Settings tab.
- */
 async function openPortSection(running: ElectronApplication): Promise<Page> {
   await running.evaluate(() =>
     (
@@ -78,7 +69,6 @@ test("the repair page changes the port: the old one is released and the settings
   await window.locator('[data-id="port-input"]').fill(String(newPort));
   await window.locator('[data-id="port-apply"]').click();
 
-  // The Dashboard opens on the new port only after the settings commit; the startup URL already filled openedExternal.
   const after = await waitForSnapshot(
     app,
     (state) =>
@@ -93,16 +83,13 @@ test("the repair page changes the port: the old one is released and the settings
   expect(settings.active?.port).toBe(newPort);
   expect(settings.lastKnownGood?.port).toBe(newPort);
   expect(after.openedExternal.at(-1)).toBe(`http://127.0.0.1:${newPort}/`);
-  // The log never carries the address the Dashboard was opened with.
   expect(readMainLog(sandbox)).not.toContain(`127.0.0.1:${newPort}`);
 });
 
-/** The sentence for the sandbox's locale (the App follows the system language; the sandbox does not fix it). */
 const discardedNote = new RegExp(
   ["zh-TW", "en"].map((locale) => portMessages(locale as "zh-TW" | "en").importPreviewDiscarded).join("|"),
 );
 
-/** Stages a synthetic export of the sandbox's own database the way the Dashboard does; returns the staging id. */
 async function stageImportPreview(port: number): Promise<string> {
   const origin = `http://127.0.0.1:${port}`;
   const exported = await fetch(`${origin}/api/export`, {
@@ -127,7 +114,6 @@ function stagedDirectories(box: Sandbox): string[] {
 
 test("an idle import preview does not block the port change; the restart discards it and the page says so", async () => {
   sandbox = await createSandbox({ withDatabase: true });
-  // A synthetic project, so the export has something to stage.
   const projectRoot = join(sandbox.root, "synthetic-project");
   mkdirSync(projectRoot);
   const seed = new WorkIntelligenceStore(sandbox.databasePath);
@@ -204,7 +190,6 @@ test("the Dashboard's request carries its whitelisted preferences and route to t
   app = await launchApp(sandbox, { WORK_INTELLIGENCE_DESKTOP_TEST_AUTOCONFIRM_PORT: "1" });
   await waitForManagedSnapshot(app);
 
-  // What the Web status page sends: the page's own origin, preferences with keys that are not on the whitelist, a route.
   const origin = `http://127.0.0.1:${oldPort}`;
   const answer = await fetch(`${origin}/api/desktop/open-port-settings`, {
     method: "POST",
@@ -216,7 +201,6 @@ test("the Dashboard's request carries its whitelisted preferences and route to t
   });
   expect(answer.status).toBe(202);
 
-  // The App shows the port section by itself; nothing was changed by the request.
   await waitForSnapshot(app, (state) => state.repairWindowOpen, 30_000);
   const window = await app.firstWindow({ timeout: 45_000 });
   await expectTabShown(window, "settings");
@@ -224,7 +208,6 @@ test("the Dashboard's request carries its whitelisted preferences and route to t
   await window.locator('[data-id="port-input"]').fill(String(newPort));
   await window.locator('[data-id="port-apply"]').click();
 
-  // The App already opened the Dashboard on the old port at start; wait for the address it opens after the change.
   const after = await waitForSnapshot(
     app,
     (state) =>
@@ -238,7 +221,6 @@ test("the Dashboard's request carries its whitelisted preferences and route to t
     preferences: { theme: "dark", locale: "en-US" },
     route: "/reports",
   });
-  // Neither the fragment nor the preferences reach the log.
   const log = readMainLog(sandbox);
   expect(log).not.toContain("wi-handoff");
   expect(log).not.toContain("synthetic-secret");
@@ -256,8 +238,6 @@ test("the repair page scrolls to the port section for a request once, not on eve
         window as unknown as { workIntelligenceRepair: { getState(): Promise<{ port: { focus: boolean } | null }> } }
       ).workIntelligenceRepair.getState(),
     );
-  // The first state after the request carried the focus flag to the page (the page already consumed it above); a later
-  // state, as a reloaded page would read it, does not.
   expect((await asked()).port?.focus).toBe(false);
   await window.reload();
   await expect(window.locator("#port-section")).toBeVisible({ timeout: 30_000 });

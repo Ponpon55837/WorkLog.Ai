@@ -42,14 +42,7 @@ import type { RepairWindow } from "./repair-window.js";
 import { applyLoginItem, commitSettings, defaultSettings } from "./settings.js";
 import type { ShellState } from "./state.js";
 
-/**
- * The first-run page (DT-01). Detection is read-only: the old login service, hand-written Agent registrations and the
- * standard locations are collected, and every database found is previewed by one short-lived child that opens it
- * read-only. Nothing is written until the user picks; the settings file is written only after the start with that
- * choice worked, so a failed start leaves the App exactly as unconfigured as before.
- */
 export interface FirstRun {
-  /** Starts the detection once; later calls return the same run. */
   begin(): Promise<void>;
   snapshot(): SetupState;
   useDefaults(launchAtLogin: boolean, startAnyway: boolean): Promise<SetupActionResult>;
@@ -61,14 +54,8 @@ export interface FirstRun {
     readonly startAnyway?: boolean;
   }): Promise<SetupActionResult>;
   chooseFile(): Promise<SetupActionResult>;
-  /**
-   * 「複製到本機磁碟並改用」 for a listed source the storage forbids (a network share, or a risky place that cannot be
-   * updated in place): a checked local copy, then the normal first-run start on the copy. The original is never written.
-   */
   copyToLocal(sourceId: string, launchAtLogin: boolean): Promise<SetupActionResult>;
-  /** "稍後再說": the window closes and the tray keeps "完成首次設定…". */
   later(): void;
-  /** Milliseconds the last detection took (diagnostics and the performance gate). */
   readonly detectionMs: number | undefined;
 }
 
@@ -80,16 +67,11 @@ export interface FirstRunOptions {
   readonly legacy: LegacyGuard;
   readonly window: RepairWindow;
   readonly log: Logger;
-  /** The runtime the preview child needs; installs the bundled one in a packaged App. */
   readonly prepareRuntime: () => Promise<unknown>;
-  /** A start from this page worked: open the Dashboard once. */
   readonly onStarted: () => void;
   readonly environment: NodeJS.ProcessEnv;
-  /** The storage classifier (DT-08): every source the page offers carries its verdict. */
   readonly storage: StorageRiskService;
-  /** The copy to the local disk; its switch step is this page's own start. */
   readonly copyRunner: CopyRunner;
-  /** The port of a new default setup; the product default unless a test build overrides it. */
   readonly defaultPort?: number;
 }
 
@@ -101,7 +83,6 @@ interface SourceEntry {
 
 const MAX_PROJECT_NAMES = 5;
 
-/** True only when nothing at all (not even a dangling symlink) exists at the path. */
 function nothingExistsAt(path: string): boolean {
   try {
     lstatSync(path);
@@ -111,7 +92,6 @@ function nothingExistsAt(path: string): boolean {
   }
 }
 
-/** What the resolver needs from one preview: the statuses stay as the child reported them. */
 function probeResultFrom(result: DatabasePreviewResult | undefined): DbProbeResult {
   if (!result) return { status: "unreadable", detail: "not previewed" };
   if (result.outcome === "failed") return { status: "unreadable", detail: result.code };

@@ -8,10 +8,6 @@ export interface CandidateOfferDeps {
   readonly storage: StorageRiskService;
 }
 
-/**
- * Adds a database the user chose to the repair page's candidates: a read-only preview by a separate short-lived child and
- * the storage verdict (DT-08) run together; nothing is written and the running backend is untouched. Returns the id.
- */
 export async function offerCandidate(deps: CandidateOfferDeps, path: string): Promise<string> {
   const id = deps.state.candidates.add(path);
   const [preview, risk] = await Promise.all([deps.supervisor.preview(path), deps.storage.classify(path)]);

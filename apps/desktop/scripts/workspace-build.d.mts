@@ -1,4 +1,3 @@
-/** Types for apps/desktop/scripts/workspace-build.mjs, so TypeScript tests can import it. */
 export interface SpawnResult {
   status: number | null;
   signal?: NodeJS.Signals | null;

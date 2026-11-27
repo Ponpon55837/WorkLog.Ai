@@ -8,29 +8,20 @@ import type {
   ProjectDataValue,
 } from "@work-intelligence/core";
 
-/**
- * Long column values of a streamed import live in a spill file instead of the heap. A spilled row keeps its short
- * values (ids, parents, statuses, times: everything the planner decides on) and a reference to the rest; the planner
- * works on these light rows, and the full row is read back only where it is compared with a local copy or written.
- * Object spread copies the symbol-keyed reference with the row, so the copies the planner makes stay hydratable.
- */
-
+// Object spread copies the symbol-keyed spill reference with the row, so the planner's copies stay hydratable.
 interface SpilledColumns {
   spill: ProjectDataSpill;
   offset: number;
   length: number;
-  /** The row's column order, shared by every row of the table with the same order. */
   keys: readonly string[];
 }
 
-/** Bytes buffered before a write; one write per MiB instead of one per row. */
 const SPILL_WRITE_BUFFER_BYTES = 1024 * 1024;
 
 export const SPILLED_COLUMNS: unique symbol = Symbol("spilledColumns");
 
 type SpillableRow = ProjectDataRow & { [SPILLED_COLUMNS]?: SpilledColumns };
 
-/** An append-only file of JSON objects, read back by offset. Created with mode 0600 and removed by `dispose`. */
 export class ProjectDataSpill {
   private readonly fd: number;
   private readonly pending: Buffer = Buffer.allocUnsafe(SPILL_WRITE_BUFFER_BYTES);
@@ -43,7 +34,6 @@ export class ProjectDataSpill {
     this.fd = openSync(path, "wx+", 0o600);
   }
 
-  /** The row with its long values moved to the file, or the row itself when every value stays in memory. */
   public split(
     table: ProjectDataTable,
     row: ProjectDataRow,
@@ -72,7 +62,6 @@ export class ProjectDataSpill {
     return light as ProjectDataRow;
   }
 
-  /** Makes every appended row readable. */
   public flush(): void {
     let offset = 0;
     while (offset < this.pendingBytes) {
@@ -119,10 +108,6 @@ export class ProjectDataSpill {
   }
 }
 
-/**
- * The complete row, in its original column order: the light row's values (which the planner may have changed) over
- * the spilled ones. A row that was never split is returned as it is.
- */
 export function hydrateRow(row: ProjectDataRow): ProjectDataRow {
   const reference = (row as SpillableRow)[SPILLED_COLUMNS];
   if (!reference) return row;
@@ -131,15 +116,10 @@ export function hydrateRow(row: ProjectDataRow): ProjectDataRow {
   for (const key of reference.keys) {
     full[key] = Object.hasOwn(row, key) ? (row[key] as ProjectDataValue) : (heavy[key] as ProjectDataValue);
   }
-  // Columns the planner added (none today) come after the original ones, as they would on a plain row.
   for (const key of Object.keys(row)) if (!Object.hasOwn(full, key)) full[key] = row[key] as ProjectDataValue;
   return full as ProjectDataRow;
 }
 
-/**
- * Feeds `JSON.stringify(input)` to the hash without building it: the import audit's source digest. Rows are hydrated
- * one at a time, so a streamed import is hashed in bounded memory and to the same digest as the whole-bundle path.
- */
 export function hashProjectDataImportInput(hash: Hash, input: ProjectDataImportInput): void {
   const marker = "\u0000tables\u0000";
   const outline = JSON.stringify({ ...input, bundle: { ...input.bundle, tables: marker } });

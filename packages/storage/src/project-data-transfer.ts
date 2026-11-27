@@ -122,46 +122,32 @@ const UNIQUE_FIELDS: Partial<Record<ProjectDataTable, readonly (readonly string[
   session_diagrams: [["session_id", "idempotency_key"]],
 };
 
-/**
- * The oldest export schema that imports. Every column a migration added after it has an import default in
- * projectDataColumnDefaults and every table it lacked defaults to empty; tests/storage/project-data-import-floor.test.ts
- * checks that against the schema rewound to this version, and real schema-31 and schema-32 exports are fixtures.
- */
+/** Every column or table added by a migration after this version needs an import default (see project-data-import-floor.test.ts). */
 export const OLDEST_IMPORTABLE_EXPORT_SCHEMA_VERSION = 31;
 const CONFLICT_DETAIL_LIMIT = 100;
 const MAX_CONFLICT_ID_LENGTH = 200;
 
-/** Columns each machine derives on its own; they never make two copies of a row different and are never overwritten. */
 const LOCAL_DERIVED_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> = {
   sessions: ["redaction_count"],
   // Import always resets hide/snooze, so the local choice is kept.
   attention_preferences: ["state", "snoozed_until"],
   // Recomputed after import from the newest summary of each report scope.
   report_summaries: ["is_current"],
-  // An advisory computed at submission: a copy without one (submitted before schema 33) is the same candidate.
+  // A copy without one (submitted before schema 33) is the same candidate.
   knowledge_candidates: ["overlaps_json"],
 };
 
-/** JSON arrays whose element order and duplicate merging differ between machines without changing meaning. */
 const UNORDERED_JSON_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> = {
   sessions: ["changed_files_provenance_json"],
 };
 
-/**
- * Replay columns that pruneWorkSummaryUpdateHistory (7-day retention, run at server start) rewrites to "{}" on
- * the machine that pruned. The table has no version column, so "newer wins" cannot order the two copies; either
- * side being "{}" means the same update (work_summary_json and the session's own summary are untouched), and the
- * local value is kept. Two different non-empty values are still a conflict.
- */
+/** Pruning rewrites these to "{}" and the table has no version column, so "{}" on either side means the same update. */
 const CLEARABLE_REPLAY_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> = {
   session_work_summary_updates: ["previous_work_summary_json", "resulting_work_summary_json"],
 };
 const PRUNED_REPLAY_VALUE = "{}";
 
-/**
- * Time columns that advance when a mutable row changes; the latest of them dates one copy of the row.
- * Tables not listed are append-only history: a differing copy with the same ID stays a conflict.
- */
+/** Tables not listed are append-only history: a differing copy with the same ID stays a conflict. */
 const VERSION_TIME_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> = {
   sessions: ["created_at", "completed_at", "updated_at", "voided_at"],
   evidence: ["captured_at", "voided_at"],
@@ -182,12 +168,7 @@ const VERSION_TIME_FIELDS: Partial<Record<ProjectDataTable, readonly string[]>> 
   agent_review_request_items: ["decided_at", "overturned_at"],
 };
 
-/**
- * Parent columns of an updatable table that never change after the row is created, besides project_id (which every
- * table with that column is checked on). The row belongs to its project through them, so a same-ID copy that points at
- * another parent is a different row, not a newer version. Columns the product itself rewrites (knowledge.session_id
- * is cleared when a Session is deleted, knowledge_candidates.knowledge_id is set on accept, ...) are deliberately absent.
- */
+/** Columns the product itself rewrites (knowledge.session_id, knowledge_candidates.knowledge_id) are deliberately absent. */
 const IMMUTABLE_PARENT_COLUMNS: Partial<Record<ProjectDataTable, readonly string[]>> = {
   evidence: ["session_id"],
   session_decisions: ["session_id"],
@@ -200,17 +181,9 @@ const IMMUTABLE_PARENT_COLUMNS: Partial<Record<ProjectDataTable, readonly string
   agent_review_submissions: ["request_id"],
   agent_review_request_items: ["request_id", "item_kind", "item_id"],
 };
-/** Content conflicts leave the local row in place, so rows that depend on it can still be imported. */
 const NON_BLOCKING_CONFLICTS: ReadonlySet<ProjectDataImportConflictCategory> = new Set(["content", "newer_content"]);
-/** Columns that hold machine-specific paths; a row differing only here is a path conflict. */
 const PATH_COLUMNS: Partial<Record<ProjectDataTable, readonly string[]>> = { raw_snapshots: ["source_path"] };
-/**
- * Columns the planner reads or changes on an imported row besides ids and parent ids (every `id` and `*_id` column),
- * the unique, version-time, parent and path columns listed above and the derived columns it copies from the local
- * row. A streamed import keeps them in memory; every other long value waits in the spill file until the row is
- * compared or written. tests/storage/project-data-import-stream.test.ts plans with every other value spilled and
- * fails on any read of one, so a planner change that needs another column fails there first.
- */
+/** A streamed import spills every other long value; project-data-import-stream.test.ts fails on a planner read of one. */
 const PLANNER_VALUE_COLUMNS: ReadonlySet<string> = new Set([
   "status",
   "root_path",
@@ -232,7 +205,6 @@ const PLANNER_VALUE_COLUMNS: ReadonlySet<string> = new Set([
   "redaction_count",
 ]);
 const plannerColumnCache = new Map<ProjectDataTable, ReadonlySet<string>>();
-/** Temporary shift while renumbering local page versions, so the unique (page, version) index never collides mid-update. */
 const PAGE_VERSION_OFFSET = 1_000_000;
 const CONFLICT_GROUP_SAMPLE_LIMIT = 5;
 const PARENT_OTHER_PROJECT_REASON = "上層資料屬於另一個專案。";
@@ -243,7 +215,6 @@ const MISSING_SUMMARY_REASON = "報告呈現的原始版本不在匯入檔中。
 const DELETED_PAGE_REASON = "知識頁已在本機刪除，匯入不會把它加回。";
 const AGENT_REVIEW_OPEN_STATUSES: readonly string[] = ["pending", "processing", "failed"];
 
-/** Masks one row with the portable redaction rules, architecture diagrams included. */
 function redactRow(table: ProjectDataTable, row: ProjectDataRow): ReturnType<typeof redactRowWith> {
   return redactRowWith(table, row, redactArchitectureDiagramSource);
 }
@@ -252,7 +223,6 @@ function redactProjectDataRows(rows: Record<ProjectDataTable, ProjectDataRow[]>)
   return redactRowsWith(rows, redactArchitectureDiagramSource);
 }
 
-/** The first validation issue for the error text; unknown keys come from the file, so they are named in bounded form. */
 function firstIssueMessage(issues: Parameters<typeof validationIssueMessage>[0][]): string {
   return validationIssueMessage(issues[0]) ?? "欄位驗證失敗。";
 }
@@ -272,7 +242,6 @@ export function assertImportableSchemaVersion(schemaVersion: number): void {
   }
 }
 
-/** The columns of `table` that a streamed import keeps in memory however long they are (PLANNER_VALUE_COLUMNS). */
 export function plannerColumns(table: ProjectDataTable): ReadonlySet<string> {
   let columns = plannerColumnCache.get(table);
   if (!columns) {
@@ -294,25 +263,15 @@ export function plannerColumns(table: ProjectDataTable): ReadonlySet<string> {
   return columns;
 }
 
-/**
- * An import input that has passed every validation rule exactly once: the bundle schema with its per-row rules, the
- * import options, the supported schema range, and then the portable redaction. Only `validate` creates one, and the
- * planner accepts nothing else, so an unchecked bundle cannot reach it; the REST worker, the CLI and direct store
- * callers all pass through here. A 50 MiB file used to be parsed four times per preview or import.
- */
+/** Only `validate` creates one and the planner accepts nothing else, so an unchecked bundle cannot reach it. */
 export class ValidatedProjectDataImport {
   private constructor(
-    /** The redacted input the planner reads. Planning copies its rows, so the same input can be planned again. */
     public readonly input: ProjectDataImportInput,
     public readonly redactions: RedactionSummary,
-    /** Holds the long values of a streamed import; its rows are hydrated from it (project-data-spill.ts). */
     private readonly spill?: ProjectDataSpill,
   ) {}
 
-  /**
-   * An input the streaming reader has checked with the same rules as `validate` (project-data-import-stream.ts).
-   * Not exported from the package: only that reader may vouch for an input this way.
-   */
+  /** Not exported from the package: only the streaming reader may vouch for an input this way. */
   public static fromStream(
     input: ProjectDataImportInput,
     redactions: RedactionSummary,
@@ -344,12 +303,10 @@ export class ValidatedProjectDataImport {
     );
   }
 
-  /** An already validated import as it is; anything else is validated first. */
   public static from(value: ProjectDataImportInput | ValidatedProjectDataImport): ValidatedProjectDataImport {
     return value instanceof ValidatedProjectDataImport ? value : ValidatedProjectDataImport.validate(value);
   }
 
-  /** The same validated bundle with other import choices; only the small options object is validated again. */
   public withOptions(options: unknown): ValidatedProjectDataImport {
     const parsed = projectDataImportOptionsSchema.safeParse(options);
     if (!parsed.success) {
@@ -361,14 +318,12 @@ export class ValidatedProjectDataImport {
     return new ValidatedProjectDataImport({ bundle: this.input.bundle, ...parsed.data }, this.redactions, this.spill);
   }
 
-  /** The sha256 of the input as JSON, which the import audit keeps; hashed row by row, never built as one string. */
   public sourceDigest(): string {
     const hash = createHash("sha256");
     hashProjectDataImportInput(hash, this.input);
     return hash.digest("hex");
   }
 
-  /** Removes the spill file of a streamed import; the input cannot be planned afterwards. Safe to call twice. */
   public dispose(): void {
     this.spill?.dispose();
   }
@@ -376,7 +331,6 @@ export class ValidatedProjectDataImport {
 
 interface PlannedRow {
   row: ProjectDataRow;
-  /** add: new row; update: replaces an older local copy; keep: local copy is newer; skip: identical. */
   disposition: "add" | "skip" | "conflict" | "update" | "keep";
   reason?: string;
   category?: ProjectDataImportConflictCategory;
@@ -384,7 +338,6 @@ interface PlannedRow {
 
 type InsertStatement = ReturnType<DatabaseSync["prepare"]>;
 
-/** A row the file cannot place because the project, Session, request or summary it belongs to is not in the file. */
 interface MissingParentRow {
   table: ProjectDataTable;
   row: ProjectDataRow;
@@ -401,16 +354,13 @@ interface TransferPlan {
   conflicts: ProjectDataImportConflict[];
   conflictDetailsTruncated: boolean;
   conflictGroups: ProjectDataImportConflictGroup[];
-  /** Local knowledge page versions that move to a new number so imported versions fit in time order. */
   pageVersionRenumbers: Array<{ id: string; version: number }>;
   renumbered: ProjectDataCounts;
 }
 
-/** A plan with the data revision it was made at and the snapshot, if any, taken after it. */
 interface PlannedImport {
   revision: number;
   plan: TransferPlan;
-  /** True once a snapshot was taken, or found unnecessary (an in-memory database has no file to keep). */
   backedUp: boolean;
   backupFileName?: string;
 }
@@ -431,14 +381,12 @@ function getRows(db: DatabaseSync, table: ProjectDataTable): Set<string> {
   return new Set(ids.map((row) => row.id));
 }
 
-/** The Knowledge page an imported row stands for: the page itself, or the page an attention preference points at. */
 function knowledgePageIdOf(table: ProjectDataTable, row: ProjectDataRow): string | undefined {
   if (table === "knowledge_pages") return String(row.id);
   if (table === "attention_preferences" && row.kind === "knowledge_page") return String(row.source_id);
   return undefined;
 }
 
-/** The imported pages the user deleted on this machine, looked up by id in the content-free deletion audit. */
 function deletedKnowledgePageIds(db: DatabaseSync, tables: Record<ProjectDataTable, ProjectDataRow[]>): Set<string> {
   const pageIds = [
     ...tables.knowledge_pages.map((row) => String(row.id)),
@@ -461,11 +409,6 @@ function citesAnySession(value: ProjectDataValue | undefined, sessionIds: Readon
   }
 }
 
-/**
- * The rows of the selected projects. A row left out because it belongs to a project in the file that the user did not
- * select is out of scope. A row whose project, Session, request or summary is not in the file at all could never be
- * imported, so it is returned in `missingParents` and reported instead of disappearing from the counts.
- */
 function bundleForScope(
   bundle: ProjectDataExport,
   projectId?: string,
@@ -507,7 +450,6 @@ function bundleForScope(
   const fileSessionProjects = new Map(
     bundle.tables.sessions.map((session) => [String(session.id), session.project_id] as const),
   );
-  /** A Session in the file whose project is in the file too but not selected; it and its rows are out of scope. */
   const unselectedSession = (id: ProjectDataValue | undefined) =>
     fileSessionProjects.has(String(id)) && unselectedProject(fileSessionProjects.get(String(id)));
   const bySession = (table: ProjectDataTable, rows: ProjectDataRow[]): ProjectDataRow[] =>
@@ -516,7 +458,6 @@ function bundleForScope(
       if (!unselectedSession(row.session_id)) reportMissing(table, row, MISSING_SESSION_REASON);
       return false;
     });
-  // With one project selected, a cross-project request comes along only if it cites that project's Sessions.
   const byRequestScope = (table: "report_synthesis_requests" | "metadata_backfill_requests"): ProjectDataRow[] =>
     bundle.tables[table].filter((item) => {
       if (item.scope_type === "all") {
@@ -584,7 +525,7 @@ function bundleForScope(
     knowledge_candidate_requests: candidateRequests,
     knowledge_candidates: byProject("knowledge_candidates"),
     report_synthesis_requests: reportRequests,
-    // Portable source identities/revisions cannot prove that a hidden issue is still the same problem.
+    // Portable source identities cannot prove that a hidden issue is still the same problem.
     attention_preferences: byProject("attention_preferences").map((row) => ({
       ...row,
       state: "visible",
@@ -686,7 +627,6 @@ function plannedUniqueKeysForRow(table: ProjectDataTable, row: ProjectDataRow): 
   return keys;
 }
 
-/** Sorts and de-duplicates a JSON array (and string arrays inside its objects) so merge order does not matter. */
 function normalizeUnorderedJson(value: ProjectDataValue | undefined): ProjectDataValue | undefined {
   if (typeof value !== "string") {
     return value;
@@ -717,14 +657,12 @@ function normalizeUnorderedJson(value: ProjectDataValue | undefined): ProjectDat
   return JSON.stringify([...new Set(entries)].sort());
 }
 
-/** The one rule for whether two values of a non-derived column mean the same; shared by every comparison path. */
 function sameColumnValue(
   table: ProjectDataTable,
   column: string,
   leftValue: ProjectDataValue | undefined,
   rightValue: ProjectDataValue | undefined,
 ): boolean {
-  // Equal raw values are the common case; only differing values are inspected further.
   if (leftValue === rightValue) return true;
   if (
     CLEARABLE_REPLAY_FIELDS[table]?.includes(column) &&
@@ -759,10 +697,7 @@ function sameComparableColumns(table: ProjectDataTable, left: ProjectDataRow, ri
   return true;
 }
 
-/**
- * Compares a local row with an already sanitized imported row, ignoring columns each machine derives itself.
- * The local row is redacted with the same rules first, so text masked only by the newer rules is not a difference.
- */
+/** The local row is redacted with the same rules first, so text masked only by newer rules is not a difference. */
 function equalRows(table: ProjectDataTable, local: ProjectDataRow, light: ProjectDataRow): boolean {
   const imported = hydrateRow(light);
   if (sameComparableColumns(table, local, imported)) {
@@ -771,10 +706,8 @@ function equalRows(table: ProjectDataTable, local: ProjectDataRow, light: Projec
   return REDACTABLE_FIELDS[table] !== undefined && sameComparableColumns(table, redactRow(table, local).row, imported);
 }
 
-/** When this copy of a mutable row last changed (epoch ms, -Infinity if never), or undefined for append-only history. */
 function versionRank(table: ProjectDataTable, row: ProjectDataRow): number | undefined {
   if (table === "outstanding_cleanup_request_items") {
-    // A snapshot item only moves forward by recording the submission that examined it.
     return typeof row.examined_submission_id === "string" ? 1 : 0;
   }
   const fields = VERSION_TIME_FIELDS[table];
@@ -798,7 +731,6 @@ function versionRank(table: ProjectDataTable, row: ProjectDataRow): number | und
 
 const statementCache = new WeakMap<DatabaseSync, Map<string, InsertStatement>>();
 
-/** Unique-key lookups run once per imported row; preparing each SQL text once per connection avoids re-parsing it. */
 function cachedStatement(db: DatabaseSync, sql: string): InsertStatement {
   let statements = statementCache.get(db);
   if (!statements) {
@@ -870,7 +802,6 @@ function existingUniqueRow(
   return undefined;
 }
 
-/** Counts every disposition per table in one pass over the plan. */
 function countPlan(plan: TransferPlan): Record<PlannedRow["disposition"], ProjectDataCounts> {
   const counts = {
     add: emptyCounts(),
@@ -928,29 +859,15 @@ type OwnedParentTable =
   | "report_synthesis_requests"
   | "report_summaries";
 
-/** project_id of each parent row a child cites; null is a cross-project parent (report requests of scope "all"). */
 type ParentOwnerMap = Record<OwnedParentTable, Map<string, string | null>>;
 type ParentOwners = {
-  /** The project that owns each cited parent once the import is applied: the stored row wins over the file's. */
   effective: ParentOwnerMap;
-  /** The project each parent row in the file maps to, the project its children in the file are meant for. */
   inFile: ParentOwnerMap;
 };
 
 /**
- * Every column through which a row cites a parent that belongs to a project. A child must sit in the same project as
- * each parent it cites, otherwise importing it would attach one project's history to another project's row.
- *
- * `crossProject` marks the one column the product lets point into another project: session_links.related_session_id
- * (SessionRecordService.linkProblem only requires the related Session to exist and be tracked, and work_link_sessions
- * and finalize relatedSessionIds both go through it). Such a column keeps the existence and availability checks of
- * dependencyIssue but is not an ownership claim: the link belongs to the project of session_id, so a file the product
- * exported re-imports completely. Every other column is written by the product only with a same-project parent:
- * knowledge.session_id, session_decisions.knowledge_id, knowledge_feedback.knowledge_id and
- * knowledge.supersedes_id are looked up with the project's id (KnowledgeService.record / SessionDecisionService.review),
- * knowledge.last_confirmed_session_id and knowledge_feedback.session_id come from the Session being finalized for
- * knowledge found in its own project (KnowledgeService.applyKnowledgeFeedback), candidates cite their request's own
- * project Sessions (KnowledgeCandidateService.submit), and void_audit targets the voided Session or its evidence.
+ * A child must sit in the same project as each parent it cites. `crossProject` marks the one column the product lets
+ * point into another project (session_links.related_session_id): it is checked for existence, not ownership.
  */
 const PARENT_REFERENCES: ReadonlyArray<{
   table: ProjectDataTable;
@@ -993,7 +910,6 @@ const PARENT_REFERENCES: ReadonlyArray<{
   { table: "report_presentations", column: "summary_id", parent: "report_summaries" },
 ];
 
-/** Tables with no project_id of their own: their project is the one of the first parent they cite. */
 const PROJECTLESS_TABLES: readonly ProjectDataTable[] = [
   "work_events",
   "session_verification_updates",
@@ -1003,10 +919,6 @@ const PROJECTLESS_TABLES: readonly ProjectDataTable[] = [
   "report_presentations",
 ];
 
-/**
- * Reads the owning project of every parent the bundle cites. A row stored here decides (an import never moves it);
- * a parent that exists only in the file is owned by the project its row maps to. One query per parent table.
- */
 function collectParentOwners(
   db: DatabaseSync,
   tables: Record<ProjectDataTable, ProjectDataRow[]>,
@@ -1059,10 +971,8 @@ function collectParentOwners(
   return owners;
 }
 
-/** Whether a row cites a parent owned by another project than its own. */
 function parentOwnerIssue(table: ProjectDataTable, row: ProjectDataRow, owners: ParentOwners): string | undefined {
-  // A table without project_id belongs to the project of the parent row it cites in the file; a parent that is only
-  // stored here proves nothing about which project the file meant.
+  // A parent stored only here proves nothing about which project the file meant.
   const projectless = PROJECTLESS_TABLES.includes(table);
   let expected: string | null | undefined = projectless
     ? undefined
@@ -1077,7 +987,8 @@ function parentOwnerIssue(table: ProjectDataTable, row: ProjectDataRow, owners: 
       expected = declared;
     }
     const actual = owners.effective[parent].get(value);
-    if (actual === undefined) return undefined; // missing parents are reported by the availability checks
+    // Missing parents are reported by the availability checks.
+    if (actual === undefined) return undefined;
     return actual === expected ? undefined : PARENT_OTHER_PROJECT_REASON;
   };
   for (const reference of PARENT_REFERENCES) {
@@ -1524,11 +1435,7 @@ type AddPlan = (
   category?: ProjectDataImportConflictCategory,
 ) => void;
 
-/**
- * Whether a same-ID imported row sits under a different project or parent than the local one. The imported project_id
- * was already mapped to the local project by dependencyIssue, so the comparison is between local IDs. An update must
- * never move a row, so such a row is a conflict whatever its timestamps say.
- */
+/** An update must never move a row, so such a row is a conflict whatever its timestamps say. */
 function belongsToAnotherOwner(table: ProjectDataTable, current: ProjectDataRow, row: ProjectDataRow): boolean {
   const columns = ["project_id", ...(IMMUTABLE_PARENT_COLUMNS[table] ?? [])];
   return columns.some(
@@ -1538,11 +1445,7 @@ function belongsToAnotherOwner(table: ProjectDataTable, current: ProjectDataRow,
   );
 }
 
-/**
- * Whether two copies of a knowledge page are the same page content and differ only in how far it was checked.
- * Marking a page checked moves checked_through_session_id but not updated_at, so the two copies keep an equal
- * updated_at and every other column.
- */
+/** Marking a page checked moves checked_through_session_id but not updated_at. */
 function differsOnlyInCheckedCursor(current: ProjectDataRow, light: ProjectDataRow): boolean {
   const imported = hydrateRow(light);
   return projectDataExportTableColumns.knowledge_pages.every(
@@ -1557,7 +1460,6 @@ function differsOnlyInCheckedCursor(current: ProjectDataRow, light: ProjectDataR
   );
 }
 
-/** The completion time of a Session, from the import file first and then from this database. */
 function sessionCompletedAt(
   db: DatabaseSync,
   sessionId: string,
@@ -1570,10 +1472,6 @@ function sessionCompletedAt(
   return stored?.completed_at;
 }
 
-/**
- * Whether the imported copy has checked a page further than the local copy: the later Session by completed_at, then
- * by ID, the same order the review cursor itself moves in. A page that was never checked is behind any checked one.
- */
 function importedCursorIsAhead(
   db: DatabaseSync,
   current: ProjectDataRow,
@@ -1592,12 +1490,7 @@ function importedCursorIsAhead(
   return (importedAt.localeCompare(localAt) || importedId.localeCompare(localId)) > 0;
 }
 
-/**
- * A page whose copies differ only in the checked cursor. Checking a page is not a content edit and only moves
- * forward, so the cursor merges as "the later of the two": newer-wins advances the local cursor to an imported one
- * that is further along, and never moves it back. Merge (add-only) changes no stored row, so it leaves the local
- * cursor as it is, and reports nothing: the page content is the same, so there is nothing to decide.
- */
+/** The cursor merges as "the later of the two" and never moves back; merge (add-only) leaves it as it is. */
 function planCheckedCursor(
   db: DatabaseSync,
   current: ProjectDataRow,
@@ -1627,7 +1520,6 @@ function planCheckedCursor(
   addPlan("knowledge_pages", row, "update");
 }
 
-/** Decides how an imported row with an ID that already exists locally is handled. */
 function planExistingRow(
   db: DatabaseSync,
   table: ProjectDataTable,
@@ -1645,7 +1537,6 @@ function planExistingRow(
     planCheckedCursor(db, current, row, strategy, addPlan, importedSessionCompletedAt);
     return;
   }
-  // The comparisons below read every column; the plan keeps the light row, which is hydrated again when written.
   const full = hydrateRow(row);
   const pathColumns = PATH_COLUMNS[table] ?? [];
   if (
@@ -1697,10 +1588,6 @@ function versionTime(value: ProjectDataValue | undefined): number {
   return Number.isFinite(time) ? time : 0;
 }
 
-/**
- * Two machines can each save "version N" of the same page. When the numbers collide, every version of the page
- * (local and imported) is renumbered 1..n by creation time so both are kept. One query, then O(n log n) per page.
- */
 function planPageVersionNumbers(
   db: DatabaseSync,
   plannedVersions: PlannedRow[],
@@ -2128,7 +2015,6 @@ function makePlan(db: DatabaseSync, validated: ValidatedProjectDataImport): Tran
         continue;
       }
       if (dependencyError) {
-        // A row already stored here unchanged needs nothing, whatever happened to its parent.
         if (current && equalRows(table, current, row)) {
           addPlan(table, row, "skip");
         } else {
@@ -2156,7 +2042,6 @@ function makePlan(db: DatabaseSync, validated: ValidatedProjectDataImport): Tran
     }
   }
 
-  // A row whose parent is not in the file is never imported; one already stored here unchanged needs nothing.
   const missingByTable = new Map<ProjectDataTable, MissingParentRow[]>();
   for (const missing of missingParents) {
     const list = missingByTable.get(missing.table);
@@ -2243,7 +2128,7 @@ function updateRow(table: ProjectDataTable, row: ProjectDataRow, statement: Inse
   statement.run(...rowValues(table, hydrateRow(row), updatableColumns(table)), String(row.id));
 }
 
-/** Moves local page versions to their new numbers in two steps, so no step reuses a number still in use. */
+/** Two steps, so no step reuses a number still in use. */
 function applyPageVersionRenumbers(db: DatabaseSync, renumbers: TransferPlan["pageVersionRenumbers"]): void {
   if (renumbers.length === 0) return;
   const ids = JSON.stringify(renumbers.map((entry) => entry.id));
@@ -2255,7 +2140,6 @@ function applyPageVersionRenumbers(db: DatabaseSync, renumbers: TransferPlan["pa
   for (const entry of renumbers) statement.run(entry.version, entry.id);
 }
 
-/** Keeps each page's version counter at its newest stored version so the next save gets a free number. */
 function syncPageVersionCounters(db: DatabaseSync, pageIds: readonly string[]): void {
   if (pageIds.length === 0) return;
   db.prepare(
@@ -2266,7 +2150,6 @@ function syncPageVersionCounters(db: DatabaseSync, pageIds: readonly string[]): 
   ).run(JSON.stringify(pageIds));
 }
 
-/** Only the newest summary of each report scope stays current after summaries from two machines are merged. */
 function syncCurrentReportSummaries(db: DatabaseSync, summaries: readonly ProjectDataRow[]): void {
   const scopes = new Map<string, ProjectDataValue[]>();
   for (const summary of summaries) {
@@ -2290,14 +2173,12 @@ function syncCurrentReportSummaries(db: DatabaseSync, summaries: readonly Projec
   for (const scope of scopes.values()) statement.run(...scope);
 }
 
-/** The counter every project-data write raises (schema 31 triggers); planning reads only those tables. */
 function dataRevision(db: DatabaseSync): number {
   const row = db.prepare("SELECT data_revision AS revision FROM change_revisions WHERE singleton = 1").get() as
     { revision?: number } | undefined;
   return Number(row?.revision ?? 0);
 }
 
-/** Whether applying the plan changes stored rows; only such an import needs a snapshot to undo it. */
 function planWritesData(plan: TransferPlan): boolean {
   return (
     plan.pageVersionRenumbers.length > 0 ||
@@ -2307,7 +2188,6 @@ function planWritesData(plan: TransferPlan): boolean {
   );
 }
 
-/** Exports complete project-scoped data and merges validated portable data without closing SQLite. */
 export class ProjectDataTransferService {
   public constructor(
     private readonly db: DatabaseSync,
@@ -2328,12 +2208,8 @@ export class ProjectDataTransferService {
   }
 
   /**
-   * Plans from a read snapshot, then writes a checked snapshot only when the plan changes rows, and refuses to write
-   * without one; an import that changes nothing (or fails while planning) leaves the kept import snapshots alone.
-   * The write lock is held only while rows are written: every project-data write raises data_revision, so an
-   * unchanged revision inside the write transaction proves the plan still describes the database, and a changed one
-   * makes the import plan again under the lock. When that new plan writes rows the first one did not back up for,
-   * the import releases the lock without writing, backs up and tries once more; the retry always backs up first.
+   * The write lock is held only while rows are written: an unchanged data_revision under the lock proves the plan is
+   * current; a changed one replans, and a new plan that needs a snapshot releases the lock, backs up and retries once.
    */
   public import(validated: ValidatedProjectDataImport): ProjectDataImportResult {
     const sourceDigest = validated.sourceDigest();
@@ -2350,7 +2226,7 @@ export class ProjectDataTransferService {
       revision: dataRevision(this.db),
       plan: makePlan(this.db, validated),
     }));
-    // Taken before the write lock and after the state the plan was made from, so restoring it undoes the import.
+    // The snapshot is taken before the write lock and after the planned state, so restoring it undoes the import.
     if (!alwaysBackUp && !planWritesData(planned.plan)) {
       return { ...planned, backedUp: this.databasePath === ":memory:" };
     }
@@ -2358,7 +2234,6 @@ export class ProjectDataTransferService {
     return { ...planned, backedUp: true, ...(backupFileName ? { backupFileName } : {}) };
   }
 
-  /** Returns undefined, having written nothing, when the plan made under the lock needs a snapshot it does not have. */
   private writePlanned(
     validated: ValidatedProjectDataImport,
     planned: PlannedImport,
@@ -2442,13 +2317,11 @@ export class ProjectDataTransferService {
     });
   }
 
-  /** Fails closed like project deletion: no checked snapshot, no import. An in-memory database has no file to keep. */
   private backupBeforeImport(): string | undefined {
     if (this.databasePath === ":memory:") return undefined;
     try {
       return backupDatabaseBeforeImport(this.db, this.databasePath, this.backupOptions).created.fileName;
     } catch (error) {
-      // A busy, read-only or full database keeps its own code; every other backup failure stops the import.
       if (databaseUnavailableReason(error)) throw error;
       throw new ProjectDataTransferError("project_backup_failed", "匯入前無法建立並檢查安全備份，資料沒有變更。");
     }

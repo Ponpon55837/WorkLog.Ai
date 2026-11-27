@@ -58,7 +58,6 @@ function skipped(decision: PolicyDecision) {
   };
 }
 
-/** Diagrams attached to Sessions. Sources are masked like every other saved text; diagrams are voided, never deleted. */
 export class DiagramService {
   public constructor(
     private readonly db: DatabaseSync,
@@ -98,7 +97,6 @@ export class DiagramService {
     });
   }
 
-  /** Diagrams sent with finalize, written inside its transaction with keys derived from the finalize key. */
   public attachWithFinalize(
     sessionId: string,
     projectId: string,
@@ -145,7 +143,6 @@ export class DiagramService {
       if (!current) {
         return { outcome: "not_found", diagramId: input.diagramId };
       }
-      // Voiding a voided diagram or restoring an active one keeps the stored time and reason.
       const duplicate = Boolean(current.voided_at) === input.voided;
       if (duplicate) {
         return { outcome: "diagram_void_updated", duplicate, diagram: toDiagram(current) };
@@ -155,7 +152,6 @@ export class DiagramService {
       this.db
         .prepare("UPDATE session_diagrams SET voided_at = ?, void_reason = ? WHERE id = ?")
         .run(voidedAt, reason, current.id);
-      // Like voiding evidence, a real state change is a change to the Session that owns the diagram.
       this.db.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").run(changedAt, current.session_id);
       return {
         outcome: "diagram_void_updated",
@@ -171,7 +167,7 @@ export class DiagramService {
     input: DiagramContentInput & { idempotencyKey: string },
     createdAt: string,
   ): { diagram: SessionDiagramRecord; duplicate: boolean; redactions: RedactionSummary; conflict: boolean } {
-    // Validate direct storage callers too; portable imports use the separate historical schema.
+    // Validates direct storage callers too; portable imports use the separate historical schema.
     const { kind, formatVersion } = diagramContentInputSchema.parse(input);
     const title = redactValue(input.title.trim());
     const source = redactDiagramSource(input.source, kind);

@@ -21,7 +21,6 @@ const JOURNAL_ITEM_SCHEMA = z.object({
   mode: z.number().int(),
   beforeFingerprint: z.string(),
   afterFingerprint: z.string(),
-  /** Where the original bytes were copied; absent when the file did not exist before. */
   backupPath: z.string().optional(),
   /** True only when this operation created the backup file; a backup that already existed is never ours to delete. */
   backupCreated: z.boolean().optional(),
@@ -35,23 +34,19 @@ const JOURNAL_SCHEMA = z.object({
   state: z.enum(["pending", "committed", "compensated", "needs-manual-repair"]),
   startedAt: z.string(),
   items: z.array(JOURNAL_ITEM_SCHEMA),
-  /** Directories this operation created, removed again when everything is compensated. */
   createdDirectories: z.array(z.string()),
 });
 
-/** The durable record of one apply: written before the first write, finalised when it commits or is compensated. */
 export type AgentSetupJournal = z.infer<typeof JOURNAL_SCHEMA>;
 export type AgentSetupJournalItem = z.infer<typeof JOURNAL_ITEM_SCHEMA>;
 
 export type AgentSetupJournalRead =
   { status: "none" } | { status: "unreadable" } | { status: "found"; journal: AgentSetupJournal };
 
-/** The journal sits next to the setup manifest in the home directory. */
 export function agentSetupJournalPath(homeDirectory: string): string {
   return join(homeDirectory, JOURNAL_FILENAME);
 }
 
-/** Never throws: a missing file is `none`, a file that is not a journal of this version is `unreadable`. */
 export function readAgentSetupJournal(journalPath: string): AgentSetupJournalRead {
   let text: string;
   try {
@@ -92,10 +87,6 @@ export function writeAgentSetupJournal(journalPath: string, journal: AgentSetupJ
   syncDirectory(dirname(journalPath));
 }
 
-/**
- * Moves a journal that cannot be read aside to `<journal>.corrupt-<timestamp>` so it never blocks later applies and is
- * never deleted. Returns the new path, or `null` when the move failed (the journal then stays where it is).
- */
 export function moveAgentSetupJournalAside(journalPath: string, now: Date = new Date()): string | null {
   const root = `${journalPath}.corrupt-${now.toISOString().replaceAll(/[-:.]/g, "")}`;
   let candidate = root;

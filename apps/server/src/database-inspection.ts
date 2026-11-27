@@ -19,23 +19,19 @@ type SqliteStatement = {
   get(): unknown;
 };
 
-/** The slice of node:sqlite's DatabaseSync the read-only helpers use (structural, shared with the DB preflight). */
 export type ReadOnlySqliteDatabase = {
   prepare(sql: string): SqliteStatement;
   close(): void;
 };
 
-/** True when the named table exists; `name` must be a code constant (it is inlined, node:sqlite has no bound get here). */
+/** `name` must be a code constant: it is inlined, node:sqlite has no bound get here. */
 export function readOnlyTableExists(database: ReadOnlySqliteDatabase, name: "schema_migrations" | "projects"): boolean {
   return Boolean(
     database.prepare(`SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = '${name}'`).get(),
   );
 }
 
-/**
- * Highest applied schema version: 0 when `schema_migrations` does not exist (a pre-migration database), `null` when the
- * stored value is not a non-negative safe integer (a damaged table). Shared by doctor/status and the DB preflight.
- */
+// 0 when `schema_migrations` does not exist (a pre-migration database); null when the stored value is damaged.
 export function readSchemaVersion(database: ReadOnlySqliteDatabase): number | null {
   if (!readOnlyTableExists(database, "schema_migrations")) {
     return 0;
@@ -64,14 +60,9 @@ export interface ReadOnlyDatabaseInspection {
   integrity?: "ok" | "failed";
   schemaVersion?: number;
   maintenance?: DatabaseMaintenanceInspection | null;
-  /** Free pages SQLite keeps inside the file; only VACUUM (pnpm db:maintain) gives them back to the disk. */
   reclaimableBytes?: number;
 }
 
-/**
- * Reads database metadata without changing it. The expensive full integrity check is opt-in so
- * the System Status endpoint can share schema/maintenance inspection with doctor safely.
- */
 export async function inspectDatabaseReadOnlyMetadata(
   databasePath: string,
   options: { checkIntegrity?: boolean } = {},
@@ -153,14 +144,12 @@ export async function inspectDatabaseReadOnlyMetadata(
   }
 }
 
-/** Resolves relative backup settings beside the selected database, matching server and CLI rules. */
 export function resolveBackupDirectory(databasePath: string, configuredDirectory?: string): string {
   return configuredDirectory
     ? resolve(dirname(databasePath), configuredDirectory)
     : join(dirname(databasePath), "backups");
 }
 
-/** Finds the newest automatic snapshot without following symlinks or changing the database. */
 export function findLatestAutomaticBackup(databasePath: string, backupDirectory: string): Date | undefined {
   try {
     const prefix = basename(databasePath, extname(databasePath)) + "-automatic-";
@@ -183,12 +172,10 @@ export function findLatestAutomaticBackup(databasePath: string, backupDirectory:
   }
 }
 
-/** Free pages below 1 MiB are never worth stopping the server for; from 5 MiB or a fifth of the file they are. */
 const RECLAIMABLE_SPACE_MIN_BYTES = 1024 * 1024;
 const RECLAIMABLE_SPACE_SUGGEST_BYTES = 5 * 1024 * 1024;
 const RECLAIMABLE_SPACE_SUGGEST_RATIO = 0.2;
 
-/** True when the free space inside the database file is large enough to be worth a VACUUM. */
 export function shouldSuggestReclaim(reclaimableBytes: number, databaseBytes: number): boolean {
   if (reclaimableBytes < RECLAIMABLE_SPACE_MIN_BYTES) return false;
   return (

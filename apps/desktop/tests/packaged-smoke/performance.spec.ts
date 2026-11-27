@@ -30,14 +30,6 @@ import {
   type PackagedPerfGates,
 } from "./packaged-perf-gates.js";
 
-/**
- * Packaged-App performance: first start (with the runtime install), warm start, the repair window, `--quit` and idle
- * memory of the whole process tree (also split by process role, see memory-breakdown.ts), each measured
- * `PACKAGED_PERF_RUNS` times on synthetic data. The medians are checked against `packaged-perf-gates.ts`, written to
- * `perf-results/packaged-perf-<os>.json` and printed to stdout (the CI log is readable where the artifact is not).
- * Polling is every 10 ms, so a time is at most that much late.
- */
-
 const here = dirname(fileURLToPath(import.meta.url));
 const resultsDirectory = resolve(here, "..", "..", "perf-results");
 
@@ -67,18 +59,12 @@ const idleBreakdowns: MemoryBreakdown[] = [];
 let sandbox: PackagedSandbox | undefined;
 let app: RunningApp | undefined;
 
-/**
- * The ACL wait of a `runtime installed` line: ` acl=<tier> <ms> ms` plus every ` acl-failed=<tier> <ms> ms`. With a
- * prewarmed PowerShell that is only the time after the files were in place; the start-up that overlapped the copy is
- * `aclPrewarmMilliseconds`, which is not part of this sum.
- */
 function aclMilliseconds(line: string): number {
   let total = 0;
   for (const [, ms] of line.matchAll(/ acl(?:-failed)?=[\w-]+ (\d+(?:\.\d+)?) ms/g)) total += Number(ms);
   return total;
 }
 
-/** The start-up time of the prewarmed PowerShell of a `runtime installed` line (` acl-prewarm=<ms> ms`); 0 when none ran. */
 function aclPrewarmMilliseconds(line: string): number {
   return Number(/ acl-prewarm=(\d+(?:\.\d+)?) ms/.exec(line)?.[1] ?? 0);
 }

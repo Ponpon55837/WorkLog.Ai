@@ -14,15 +14,6 @@ import { followSystemTheme, LIGHT_SCHEME_QUERY } from "./theme.js";
 import { restoreNotesScroll, saveNotesScroll } from "./update-view.js";
 import { panelInputs } from "./view-model.js";
 
-/**
- * The App window: one page with a tab strip (see tabs.ts) whose tabs main chooses and the page follows (`getTab`,
- * `onSelectTab`); switching a tab never reloads the page. Only the open tab's panel has content. The Status, Data,
- * Settings and Diagnostics panels are drawn here from the repair state, which is read every few seconds and redraws a panel
- * only when what it is drawn from changed. The first-run and Agent views keep their own state and polling, and are moved
- * in and out of their panel whole, so nothing they hold is lost on a tab change. Everything that must outlive a redraw
- * (the running operation, the ticked storage-risk boxes, the diagnostics dialog in the overlay root) is kept out of the panels.
- */
-
 declare global {
   interface Window {
     readonly workIntelligenceRepair: RepairApi;
@@ -32,13 +23,12 @@ declare global {
 interface MountedView {
   readonly container: HTMLElement;
   readonly refresh: () => void;
-  /** Stops the view's own polling for good (it is never mounted again). */
   readonly unmount?: () => void;
 }
 
 const REFRESH_MS = 4000;
 
-// The theme comes before anything is drawn, so the first paint already has the right colours.
+// Before anything is drawn, so the first paint has the right colours.
 followSystemTheme(document.documentElement, window.matchMedia(LIGHT_SCHEME_QUERY));
 
 const riskTicked = new Set<string>();
@@ -58,9 +48,7 @@ let shown = false;
 let ready = false;
 let pendingTab: AppTab | undefined;
 let fixingTab = false;
-/** An explicit request (the tray item, the Dashboard's link) asked for the port input; any key or click of the user ends it. */
 let focusPending = false;
-/** The first run finished in this window and the user has not put its card away yet. */
 let setupFinished = false;
 let fallbackTabs: readonly AppTab[] = APP_TABS.filter((tab) => tab !== "setup");
 

@@ -17,11 +17,6 @@ import type { AgentSetupPlanOptions } from "./types.js";
 
 export type AgentId = "codex" | "claude-code" | "claude-desktop";
 
-/**
- * Who owns a registration: the desktop App (`desktop-managed`, runs the fixed launcher shim), a person or
- * `pnpm setup:agents` (`manual`), the Work Intelligence plugin of that Agent (`plugin`), a Claude Desktop extension
- * bundle (`mcpb`), or an entry that exists but cannot be classified (`unknown`).
- */
 export type RegistrationSource = "desktop-managed" | "manual" | "plugin" | "mcpb" | "unknown";
 
 export type RegistrationKind = "mcp" | "hook";
@@ -30,11 +25,9 @@ export interface AgentRegistration {
   agent: AgentId;
   kind: RegistrationKind;
   source: RegistrationSource;
-  /** The file the registration was found in (the Agent's config, never its contents). */
   location: string;
 }
 
-/** The same Agent and kind registered by more than one source, so its tools or hooks would run twice. */
 export interface AgentRegistrationDuplicate {
   code: "duplicate-registration";
   agent: AgentId;
@@ -45,19 +38,15 @@ export interface AgentRegistrationDuplicate {
 export interface AgentRegistrationInspection {
   registrations: AgentRegistration[];
   duplicates: AgentRegistrationDuplicate[];
-  /** Config files that exist but could not be read as the expected format, so nothing is claimed about them. */
   unreadable: string[];
 }
 
 export interface AgentInspectOptions extends AgentSetupPlanOptions {
-  /** Claude Desktop's config directory; defaults to the per-platform location under the home directory. */
   claudeDesktopConfigDirectory?: string;
-  /** Whether a path is a regular file (the launcher shim or checkout script an entry names); defaults to a real `stat`. */
   isFile?: (path: string) => boolean;
 }
 
 export interface AgentHookInspectOptions extends AgentInspectOptions {
-  /** The current launcher shim, so a hook that runs another shim is reported as stale. */
   shimPath?: string;
 }
 
@@ -81,7 +70,6 @@ function classifyMcpEntry(value: unknown, options: AgentInspectOptions): Registr
   return JSON_OBJECT(value) && typeof value.command === "string" ? "manual" : "unknown";
 }
 
-/** The `finalize-reminder` commands in a hooks config, as the sources that wrote them. */
 function hookSources(
   root: Record<string, unknown> | undefined,
   platform: NodeJS.Platform | undefined,
@@ -123,12 +111,6 @@ function findDuplicates(registrations: AgentRegistration[]): AgentRegistrationDu
     }));
 }
 
-/**
- * Read-only: which registrations of the Work Intelligence MCP server and finalize hooks exist per Agent and where
- * they come from, and which Agent registers the same thing twice. Files that are missing are simply not listed;
- * files that exist but do not parse are reported in `unreadable`. Claude Desktop is best effort: its manual stdio
- * entry in `claude_desktop_config.json` and an installed extension in `extensions-installations.json`.
- */
 export function inspectAgentRegistrations(options: AgentInspectOptions): AgentRegistrationInspection {
   const normalized = normalizePlanOptions(options);
   const registrations: AgentRegistration[] = [];
@@ -201,11 +183,6 @@ export function inspectAgentRegistrations(options: AgentInspectOptions): AgentRe
   return { registrations, duplicates: findDuplicates(registrations), unreadable };
 }
 
-/**
- * Read-only: the per-event state of the finalize hooks of Claude Code and Codex (see {@link inspectHookInstallation}).
- * A hooks file that is missing means nothing installed; one that does not parse as a JSON object is `unknown`.
- * Codex hooks switched off in `config.toml` read as `disabled`.
- */
 export function inspectAgentHooks(options: AgentHookInspectOptions): Record<"claude-code" | "codex", HookInstallation> {
   const normalized = normalizePlanOptions(options);
   const readHooksConfig = (path: string): Record<string, unknown> | null | undefined => {
@@ -242,7 +219,6 @@ export function inspectAgentHooks(options: AgentHookInspectOptions): Record<"cla
       "claude-code",
       context,
     ),
-    // A hooks switch that cannot be read leaves every hook unconfirmed, the same as the doctor reports it.
     codex:
       codexHooksFeature === "unknown"
         ? unknownHookInstallation("codex")
@@ -254,11 +230,6 @@ export function inspectAgentHooks(options: AgentHookInspectOptions): Record<"cla
   };
 }
 
-/**
- * Read-only: whether a checkout's own `<root>/.codex/hooks.json` (the repository's development setup, which the App
- * never changes) runs the finalize reminder, so it would fire next to a global hook. A missing or unreadable file is
- * "no".
- */
 export function projectCodexHooksRunFinalize(repositoryRoots: readonly string[]): boolean {
   return repositoryRoots.some((root) => {
     try {

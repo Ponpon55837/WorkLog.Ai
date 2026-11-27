@@ -30,55 +30,33 @@ import type { Logger } from "./log.js";
 import { RuntimeProvisionError } from "./runtime-provision.js";
 import type { ShellState } from "./state.js";
 
-/** What a start may change from the saved settings: the database the user confirmed in the repair window. */
 export interface StartOverride {
   readonly databasePath: string;
-  /** The identity the preview read; the start must find this very database. */
   readonly expectedIdentity: NonNullable<BackendStartRequest["expectedIdentity"]>;
   readonly allowSchemaMigration: boolean;
 }
 
 export type StartKind = "takeover" | "restart" | "change-db" | "change-port" | "restore" | "maintenance";
 
-/** A start on another port than the settings name (DT-14): the settings change only once the backend is verified. */
 export interface PortStart {
   readonly port: number;
-  /** Journaled with the operation, so a crash leaves a trace of what was being changed. */
   readonly from: number;
 }
 
 export interface BackendController {
-  /** One managed start under the operation coordinator. `busy` means another operation holds the lock: nothing changed. */
   start(kind: StartKind, override?: StartOverride, operationId?: string): Promise<RestartOutcome>;
   readonly recovery: BackendRecovery;
-  /**
-   * 「從備份還原」: one `restore` operation that stops the running backend, runs `replace` while it is stopped, and starts
-   * the backend again on the settings' database (verified: health, identity, schema). `replace` throwing fails the operation
-   * with the backend stopped; the caller then restarts it. `busy` means another operation holds the lock: nothing changed.
-   */
   restoreWhileStopped(
     replace: (context: OperationStepContext) => Promise<JournalJson | void>,
     operationId?: string,
   ): Promise<RestartOutcome>;
-  /**
-   * 「整理資料庫」: the same shape as {@link restoreWhileStopped}, journaled as a `maintenance` operation. `work` runs while
-   * the backend is stopped; the backend starts again on the settings' database afterwards.
-   */
   maintainWhileStopped(
     work: (context: OperationStepContext) => Promise<JournalJson | void>,
     operationId?: string,
   ): Promise<RestartOutcome>;
-  /**
-   * Stops the running backend and starts it on `change.port`; only a verified start commits `desired.port`, `active`
-   * and `lastKnownGood` together in one settings write. A failure leaves the settings untouched and the backend
-   * stopped (the caller restarts on the old port).
-   */
   startOnPort(change: PortStart, operationId?: string): Promise<RestartOutcome>;
-  /** The presenter for the current launch mode. */
   presenter(): ErrorPresenter;
-  /** Chooses how errors are shown (a window, or the tray and one notification per code). */
   useLaunchMode(mode: LaunchMode): void;
-  /** Starts listening to the supervisor: backups reported, backups changed, unexpected exits. */
   attach(): void;
 }
 
@@ -92,46 +70,23 @@ export interface BackendControllerOptions {
   readonly lastBackup: LastBackupTracker;
   readonly log: Logger;
   readonly openRepairWindow: () => void;
-  /** Makes the runtime ready before a start (installs the bundled one in a packaged App); throws when it cannot. */
   readonly prepareRuntime: (verifyInstalled: boolean) => Promise<BundledRuntimeStatus | undefined>;
-  /**
-   * The App provisions its own runtime (packaged): a start the backend refused for a content reason verifies and
-   * reinstalls it once and tries again.
-   */
   readonly reinstallOnRefusal: boolean;
   readonly notifyError: (code: string) => void;
-  /**
-   * Resolves once Electron is ready. The backend starts before that, so an exit seen early waits for it before the
-   * recovery may show a window or a notification.
-   */
+  /** The backend starts before Electron is ready, so an early exit waits for it before recovery may show a window or notification. */
   readonly whenReady: () => Promise<void>;
-  /**
-   * True when the old login service may serve this database and the user has not said "仍要啟動": the start fails with
-   * LEGACY_SERVICE_ACTIVE before anything is stopped or started.
-   */
   readonly legacyBlocks?: (databasePath: string) => Promise<boolean>;
-  /** Whether another Work Intelligence server on `port` serves `databasePath`; a port fallback then would start a second one. */
   readonly sameDatabaseServerOn?: (port: number, databasePath: string) => Promise<boolean>;
-  /**
-   * True when the verdict this run already reached for the database is "refused" (a network share): the start fails with
-   * DB_STORAGE_NETWORK before anything is stopped or started, so a retry, a port change or an automatic restart never
-   * brings it up there. It reads the known verdict and never classifies (a start does not wait for the detection).
-   */
   readonly storageRefused?: (databasePath: string) => boolean;
-  /** Facts the Web status page shows for this database (the old login service); read after `legacyBlocks`. */
   readonly desktopFacts?: (databasePath: string) => DesktopFacts | undefined;
-  /** Extra `WORK_INTELLIGENCE_*` variables for every backend child; only a test build passes any (see config.ts). */
   readonly backendEnvironment?: Readonly<Record<string, string>>;
 }
 
 export function createBackendController(options: BackendControllerOptions): BackendController {
   const { state, paths, supervisor, managed, coordinator, lastBackup, log } = options;
   let presenter = new ErrorPresenter("interactive", presenterActions());
-  /** The last start failed in a way that may mean a damaged runtime: the next one verifies it instead of trusting it. */
   let runtimeSuspect = false;
-  /** The automatic reinstall is tried once per App start: a runtime that keeps being refused goes to repair. */
   let reinstallAttempted = false;
-  /** The settings' port a fallback already failed for in this App run; never tried twice. */
   let portFallbackFailed: number | null = null;
 
   function presenterActions() {
@@ -142,11 +97,6 @@ export function createBackendController(options: BackendControllerOptions): Back
     };
   }
 
-  /**
-   * Records the verified backend as `active` and `lastKnownGood`; with `commitPort` the settings' `desired.port` moves in
-   * the same atomic write. Returns false when the file could not be written (a start that only records is not failed by it;
-   * a port change is).
-   */
   async function persistActive(info: BackendInfo, commitPort?: number): Promise<boolean> {
     if (!state.settings) return true;
     const active: NonNullable<DesktopSettingsV1["active"]> = {
@@ -163,7 +113,7 @@ export function createBackendController(options: BackendControllerOptions): Back
     try {
       await state.updateSettings(paths.settingsFile, (current) => {
         const desired = commitPort === undefined ? current.desired : { ...current.desired, port: commitPort };
-        // A steady-state start finds the same record: the fsync'd rewrite is skipped. Deep equality keeps up with the schema.
+        // A steady-state start finds the same record: the fsync'd rewrite is skipped.
         if (
           isDeepStrictEqual(current.active, active) &&
           isDeepStrictEqual(current.lastKnownGood, lastKnownGood) &&

@@ -11,35 +11,24 @@ import type { Logger } from "./log.js";
 import type { ShellState } from "./state.js";
 
 export interface ShellTray {
-  /** Creates the tray icon; a desktop without a notification area is logged and the App goes on without one. */
   create(): void;
-  /** Whether a tray icon exists. */
   readonly present: boolean;
-  /** The items the menu shows now; the native menu is built from this very list (a smoke test reads it). */
   menu(): readonly TrayMenuItem[];
-  /** Does what a click on the item with this id does (a smoke test cannot click the native tray). */
   activate(id: string): void;
 }
 
 export interface ShellTrayOptions {
   readonly state: ShellState;
-  /** Full-colour icon: the dark rounded square, legible on light and dark taskbars. */
   readonly iconFile: string;
-  /** Black-on-transparent glyph the macOS menu bar tints itself (a `@2x` file beside it serves Retina displays). */
   readonly templateIconFile: string;
   readonly backendRunning: () => boolean;
   readonly openDashboard: () => void;
-  /** Clicking the "old login service" notification: the Status tab. */
   readonly openStatus: () => void;
-  /** "Open Work Intelligence…": the window, on the blocking tab if any, else the remembered or default tab. */
   readonly openApp: () => void;
-  /** "完成首次設定…": the Setup tab. */
   readonly openSetup: () => void;
-  /** 「檢查更新…」: the Settings tab, with the check started. */
   readonly openUpdateCheck: () => void;
   readonly requestQuit: () => void;
   readonly log: Logger;
-  /** The old login service is enabled on the App's database and a login start was held back: the tray says so. */
   readonly legacy?: { readonly heldAtLogin: () => boolean };
 }
 
@@ -55,7 +44,6 @@ export function createShellTray(options: ShellTrayOptions): ShellTray {
     return image;
   }
 
-  /** One notification per login (this run); a desktop that cannot show one is logged and the tray carries on. */
   function notifyHeldOnce(message: string): void {
     if (notified) return;
     notified = true;

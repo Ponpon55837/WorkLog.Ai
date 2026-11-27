@@ -29,40 +29,26 @@ import type { BackendController } from "./backend.js";
 import type { Logger } from "./log.js";
 import type { ShellState } from "./state.js";
 
-/**
- * 「從備份還原」 (H-02). The page lists backups and chooses a file; main keeps every path, the page holds only one-time ids
- * (see RestoreBackupStore). A restore is one `restore` operation of the coordinator: stop the backend, replace the database
- * (the preview child runs storage's `restoreDatabase`, which checks the file, backs the current data up and refuses a
- * database another process holds), start the backend again and verify it. A failure leaves the original database as it was
- * and the backend running on it again.
- *
- * Order of a run: token, database known, nothing else running (real reason), no Agent connection alive, the native
- * confirmation, nothing started meanwhile, then the operation. Nothing is stopped before the user confirmed.
- */
+// Nothing is stopped before the user confirmed: checks and the native confirmation run first, then the operation.
 export interface RestoreController {
   list(senderId: number): Promise<RestoreListResult>;
   pick(senderId: number): Promise<RestorePickResult>;
   run(senderId: number, backupId: string): Promise<RestoreRunResult>;
 }
 
-/** What the native confirmation states: the database that is overwritten (null: none exists), and the backup's time and size. */
 export interface RestoreConfirmDetails {
   readonly database: string | null;
   readonly time: string;
   readonly size: string;
-  /** How many project folders will point at a new place (0 when none were mapped). */
   readonly remapped: number;
 }
 
-/** What the user answered when the backup's project folders were not found here. */
 export type RelocateChoice = "choose" | "skip" | "cancel";
 
-/** What the native question about the missing project folders shows. */
 export interface RelocateDetails {
   readonly total: number;
   readonly missing: number;
   readonly mapped: number;
-  /** The folder chosen just before matched nothing. */
   readonly noMatch: boolean;
 }
 
@@ -75,37 +61,21 @@ export interface RestoreOptions {
     "running" | "queryActivity" | "inspectBackups" | "restoreDatabase" | "backupRoots"
   >;
   readonly backend: Pick<BackendController, "restoreWhileStopped" | "start" | "presenter" | "recovery">;
-  /** Whether an Agent (MCP) connection looks alive (a fresh lease of the launcher root). */
   readonly agentsRunning: () => Promise<boolean>;
-  /** The native chooser; the path of the chosen file, or null when cancelled. */
   readonly chooseFile: () => Promise<string | null>;
-  /**
-   * The native question when the backup records project folders that are not on this computer (a restore on a new computer):
-   * choose where they are now, restore with the old paths, or cancel. Absent: the old paths are kept without asking.
-   */
   readonly relocate?: (details: RelocateDetails) => Promise<RelocateChoice>;
-  /** The native folder chooser for the new place of the projects; the path, or null when cancelled. */
   readonly chooseFolder?: () => Promise<string | null>;
-  /** Whether a folder exists here; injectable for tests. */
   readonly directoryExists?: (folder: string) => Promise<boolean>;
-  /** The native confirmation; Cancel is the default button. */
   readonly confirm: (details: RestoreConfirmDetails) => Promise<boolean>;
-  /**
-   * A fingerprint of the database file (identity and content marker), or null when it cannot be read. Used only to tell
-   * whether the file is still the one the restore started from when the restore child gave no verdict.
-   */
   readonly fingerprint?: (databasePath: string) => string | null;
-  /** Some backup file was written (the safety backup): the "last backup" shown is read again. */
   readonly backupsChanged: () => void;
   readonly store?: RestoreBackupStore<RestoreEntry>;
   readonly clock?: () => number;
   readonly log: Logger;
 }
 
-/** The newest backups the list looks at: a listing is read on demand and must stay quick. */
 export const RESTORE_LIST_LIMIT = 12;
 
-/** Raised inside the operation's step when the replacement did not happen; carries why. */
 class RestoreStepFailure extends Error {
   constructor(readonly reason: RestoreFailureReason) {
     super(`restore refused: ${reason}`);

@@ -7,11 +7,6 @@ import type {
 import type { SetupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
 import { actions, button, element } from "./dom.js";
 
-/**
- * 「停用舊的登入服務…」 inside the old-service card: a read-only preview in plain words (each step is one plain sentence
- * under 「詳細步驟」, never a command), then 「停用」, which main confirms once more natively. The state lives here, across the views'
- * periodic re-renders, so a preview or a result is not lost when the page refreshes.
- */
 type Phase =
   | { readonly kind: "idle" }
   | { readonly kind: "working" }
@@ -23,11 +18,8 @@ let phase: Phase = { kind: "idle" };
 export interface LegacyDisableHost {
   readonly api: RepairApi;
   readonly text: SetupMessages;
-  /** The sentence for what held a request back (the real operation, generic only when unknown). */
   readonly busyText: (reason: RepairBusyReason | undefined) => string;
-  /** Draw the view again from its last state. */
   readonly rerender: () => void;
-  /** Ask main for a fresh state (the old service may be gone now). */
   readonly refresh: () => void;
 }
 
@@ -70,10 +62,8 @@ async function confirm(host: LegacyDisableHost, preview: LegacyDisablePreview): 
     .legacyDisableConfirm(preview.previewId, preview.busy)
     .catch((): LegacyDisableConfirmResult => ({ ok: false, reason: "failed" }));
   if (!result.ok && result.reason === "now-busy") {
-    // Nothing happened: the same preview again, now with the import/backup warning and 「仍要停用」.
     phase = { kind: "preview", preview: { ...preview, busy: true } };
   } else if (!result.ok && (result.reason === "cancelled" || result.reason === "invalid")) {
-    // Cancelled in the native dialog: back to the same preview, nothing happened.
     phase = result.reason === "cancelled" ? { kind: "preview", preview } : { kind: "idle" };
   } else {
     phase = {
@@ -150,7 +140,6 @@ function resultPanel(host: LegacyDisableHost, result: Extract<Phase, { kind: "re
   return panel;
 }
 
-/** The controls to append to the old-service card; nothing when the App cannot disable this definition. */
 export function legacyDisableControls(host: LegacyDisableHost, canDisable: boolean, enabled: boolean): Node[] {
   if (phase.kind === "preview") return [previewPanel(host, phase.preview)];
   if (phase.kind === "result") return [resultPanel(host, phase)];
@@ -162,7 +151,6 @@ export function legacyDisableControls(host: LegacyDisableHost, canDisable: boole
   ];
 }
 
-/** After a disable the card is gone (no old service any more): the outcome and 「立即啟動」 stay on their own. */
 export function legacyDisableOutcome(host: LegacyDisableHost): HTMLElement | null {
   if (phase.kind !== "result") return null;
   return element("section", { className: "card" }, [

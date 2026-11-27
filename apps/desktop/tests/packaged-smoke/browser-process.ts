@@ -1,28 +1,14 @@
-/**
- * Which processes the packaged smoke counts as an external browser (one the OS may start for `shell.openExternal`). No
- * Playwright import, so unit tests load it.
- */
-
-/** The fields of a scanned process the classification reads. */
 export interface BrowserCandidate {
   readonly commandLine: string;
-  /** Known on Windows only; elsewhere the start of the command line names the executable. */
   readonly executable: string | undefined;
 }
 
-/**
- * Browsers the OS may start for `shell.openExternal`, matched against a process's executable (or the start of its command
- * line: a path whose last segment is the executable, then a space or the end): Safari, Chrome and Chromium (`Google
- * Chrome`, `chrome`, `google-chrome`, `chromium`), Edge (`msedge`) and Firefox, the `xdg-open` targets on Linux included.
- * Only the browsers' main executables: helpers such as macOS's `com.apple.WebKit.*` also serve other apps and end with
- * their browser. The App's own Chromium helpers are not browsers here: they carry the sandbox root in their command line.
- */
+// Main executables only: helpers such as macOS's `com.apple.WebKit.*` also serve other apps.
 const BROWSER_COMMANDS =
   /(^|[\\/])(Safari|Google Chrome|google-chrome(-stable)?|chrome|chromium(-browser)?|msedge|firefox)(\.exe)?( |$)/i;
 const FIREFOX_COMMAND = /(^|[\\/])firefox(\.exe)?( |$)/i;
 const FIREFOX_BACKGROUND_TASK_TOKEN = "--backgroundtask";
 
-/** A command line that names the Dashboard the App serves on `dashboardPort`. */
 function namesDashboard(commandLine: string, dashboardPort: number | undefined): boolean {
   if (dashboardPort === undefined) return false;
   return [`127.0.0.1:${dashboardPort}`, `localhost:${dashboardPort}`].some((address) => commandLine.includes(address));

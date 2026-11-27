@@ -29,7 +29,6 @@ type DeletableTable =
   | "report_synthesis_requests"
   | "metadata_backfill_requests";
 
-/** Counts that did not exist when older deletion audits were written; those audits read them as 0. */
 const COUNTS_ADDED_LATER = new Set<keyof ProjectDeletionCounts>([
   "reportPresentations",
   "attentionPreferences",
@@ -208,7 +207,7 @@ function deleteByIds(db: DatabaseSync, table: DeletableTable, requestIds: string
   if (requestIds.length === 0) {
     return;
   }
-  // The table name is selected only from the service's static call sites; ids remain bound JSON values.
+  // The table name comes only from static call sites; ids stay bound values.
   db.prepare(`DELETE FROM ${table} WHERE id IN (SELECT value FROM json_each(?))`).run(JSON.stringify(requestIds));
 }
 
@@ -387,7 +386,6 @@ function makeDeletionCounts(
   };
 }
 
-/** Owns the safety snapshot, comprehensive delete transaction, and content-free audit record. */
 export class ProjectDeletionService {
   public constructor(
     private readonly db: DatabaseSync,
@@ -428,7 +426,6 @@ export class ProjectDeletionService {
       backupFileName = backupDatabaseBeforeProjectDeletion(this.db, this.databasePath, this.backupOptions).created
         .fileName;
     } catch (error) {
-      // A busy, read-only or full database keeps its own code; other backup failures stop the deletion as before.
       if (databaseUnavailableReason(error)) {
         throw error;
       }
@@ -541,9 +538,8 @@ export class ProjectDeletionService {
              WHERE project_id = ? OR session_id IN (SELECT value FROM json_each(?))`,
           )
           .run(projectId, JSON.stringify(sessionIds));
-        // Cleanup review rows and append-only item events are intentionally left for the project FK cascade.
-        // Deleting a cleanup parent first would cascade into outstanding_item_events while the project still exists,
-        // which its append-only delete trigger rejects.
+        // Cleanup rows are left for the project FK cascade: deleting a cleanup parent first would cascade into
+        // outstanding_item_events while the project exists, which its append-only delete trigger rejects.
         this.db
           .prepare(
             `DELETE FROM agent_read_audit_records
@@ -576,7 +572,6 @@ export class ProjectDeletionService {
         };
       });
     } catch (error) {
-      // Busy, read-only, disk-full and schema-changed failures keep their own codes: the user can resolve them and retry.
       if (
         error instanceof ProjectDeletionError ||
         isDatabaseSchemaChangedError(error) ||

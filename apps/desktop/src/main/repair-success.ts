@@ -16,22 +16,15 @@ export interface RepairSuccessOptions {
   readonly dashboard: Dashboard;
   readonly backend: BackendController;
   readonly supervisor: BackendSupervisor;
-  /** The fail-open "ready again" notification. */
   readonly notifyRecovered: () => void;
   readonly delayMs: number;
 }
 
 export interface RepairSuccess {
-  /** Dashboard opens so far; the repair IPC reads it before it starts the repair. */
   opens(): number;
-  /**
-   * The answer of a repair the user started in the repair window. Success: the feedback flow. A real failure: the page
-   * shows only this error. A busy answer changes nothing.
-   */
   finish(outcome: RestartOutcome, opensAtStart: number): void;
 }
 
-/** Thin Electron wiring of the decisions in desktop-core (`shouldCelebrateRepair`, `celebrateRepair`). */
 export function createRepairSuccess(options: RepairSuccessOptions): RepairSuccess {
   const { state, window, dashboard, backend, supervisor } = options;
 

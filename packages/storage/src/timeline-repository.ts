@@ -10,9 +10,7 @@ import { localDayStartIso } from "@work-intelligence/shared";
 import { nextCalendarDate } from "./session-repository.js";
 
 export interface TimelineOptions {
-  /** Tracked projects in scope. */
   projectIds: readonly string[];
-  /** Inclusive calendar dates in the server's time zone. */
   from: string;
   to: string;
 }
@@ -24,17 +22,12 @@ export interface TimelineRows {
   truncated: boolean;
 }
 
-/** One response stays drawable: the newest Sessions and events are kept beyond these limits. */
 const SESSION_LIMIT = 2_000;
 const EVENT_LIMIT = 2_000;
 
 export class TimelineRepository {
   public constructor(private readonly db: DatabaseSync) {}
 
-  /**
-   * Sessions that overlap the range (completed in it, or started before it ended), Knowledge events inside it,
-   * and the links between the returned Sessions. Voided Sessions are left out.
-   */
   public timeline(options: TimelineOptions): TimelineRows {
     const start = localDayStartIso(options.from) ?? options.from;
     const end = nextCalendarDate(options.to);
@@ -83,7 +76,6 @@ export class TimelineRepository {
       }>
     ).map((row) => ({ sessionId: row.session_id, relatedSessionId: row.related_session_id, relation: row.relation }));
 
-    // One UNION query collects every kind of Knowledge event in the range, newest first.
     const eventRows = this.db
       .prepare(
         `SELECT k.id AS knowledge_id, k.project_id, k.title, 'created' AS kind, k.created_at AS at,

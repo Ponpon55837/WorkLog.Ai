@@ -12,9 +12,8 @@ import { readRegularFileUtf8 } from "./regular-file-read.js";
 import { redactPrivateBlocksText } from "./secret-redaction.js";
 
 export const DEFAULT_HANDOFF_DIRECTORY = ".openspec/handoffs";
-// Content is cut to MAX_HANDOFF_CONTENT_LENGTH characters, but private blocks are removed before the cut, so the whole
-// file is read. Beyond this size (20x the cut, even at four bytes per character) the file is not read at all: reading
-// only its head could end inside a private block and keep the unclosed tag's text.
+// Private blocks are removed before the content cut, so the whole file is read; reading only its head could end
+// inside a private block and keep the unclosed tag's text, so a larger file is not read at all.
 export const MAX_HANDOFF_FILE_BYTES = 4 * 1024 * 1024;
 
 export interface HandoffImportCandidate {
@@ -96,7 +95,7 @@ function skippedCandidate(
   };
 }
 
-// The file-system message names the absolute path; the preview answers with fixed text and the relative path.
+// The file-system message names the absolute path, so the preview answers with fixed text and the relative path.
 function unreadableCandidate(sourcePath: string): HandoffImportCandidate {
   return skippedCandidate(sourcePath, "error", "unreadable", "The handoff file could not be read.");
 }
@@ -248,7 +247,6 @@ export function discoverHandoffCandidates(
   };
 }
 
-/** Service boundary used by the storage facade; policy checks remain outside this reader. */
 export class HandoffImportService {
   public discover(projectRoot: string, options: HandoffDiscoveryOptions = {}): HandoffDiscoveryResult {
     return discoverHandoffCandidates(projectRoot, options);

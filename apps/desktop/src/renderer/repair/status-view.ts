@@ -21,13 +21,6 @@ import { maintenanceSummary } from "./maintenance-view.js";
 import { legacyDisableControls, legacyDisableOutcome, type LegacyDisableHost } from "./legacy-disable-view.js";
 import { isBlockingDatabase, recoveryBannerText, retryIsPrimary } from "./view-model.js";
 
-/**
- * The Status tab: a compact summary of the service (who runs it, whether it runs, the database in one line), what
- * went wrong lately, and the retry. When the database is what blocks the service, the whole database card and the
- * databases found are here too, so nobody has to look for them on another tab.
- */
-
-/** The old-service card with 「停用舊的登入服務…」, or after a disable only its outcome. */
 function legacyCards(ctx: ViewContext): Node[] {
   const { state, act } = ctx;
   const host: LegacyDisableHost = {
@@ -45,7 +38,6 @@ function legacyCards(ctx: ViewContext): Node[] {
   return outcome ? [outcome] : [];
 }
 
-/** The card shown for a moment after a repair the user started worked: the database and, when known, its project count. */
 function recoveredCard(state: RepairState, recovered: NonNullable<RepairState["recovered"]>, messages: ShellMessages) {
   const rows: [string, Node | string][] = [[messages.repairDatabaseHeading, databasePath(state, messages)]];
   if (recovered.projectCount !== undefined) {
@@ -60,7 +52,6 @@ function recoveredCard(state: RepairState, recovered: NonNullable<RepairState["r
   return card;
 }
 
-/** The one-time card after the first run finished in this window: the Setup tab is gone, so the next step is offered here. */
 function setupFinishedCard(ctx: ViewContext): HTMLElement {
   const text = setupMessages(ctx.state.locale);
   const card = section(
@@ -77,11 +68,6 @@ function setupFinishedCard(ctx: ViewContext): HTMLElement {
   return card;
 }
 
-/**
- * One card per operation a crash interrupted: what happened (from the real state start-up recovery verified), what the
- * user can do and where, and a button that dismisses it for good. A notice that needs repair is a warning; the others are
- * calm information.
- */
 function recoveryCards(ctx: ViewContext): HTMLElement[] {
   const { state, messages, act } = ctx;
   return state.recoveryNotices.map((notice) => {

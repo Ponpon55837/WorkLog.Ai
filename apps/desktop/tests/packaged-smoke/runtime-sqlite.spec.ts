@@ -13,13 +13,6 @@ import {
   type RunningApp,
 } from "./helpers.js";
 
-/**
- * R33 / DT-06 in the packaged App: the SQLite of the Node runtime the App really runs its backend with. The App installs
- * its runtime under `<userData>/runtime`; that copy's own launcher prints `sqlite_version()` and FTS5 (the same code the
- * Agents' launcher uses). The result goes to package-results/ (uploaded with the package results) and the log; it holds
- * versions only, no paths and no user data.
- */
-
 const resultsDirectory = join(import.meta.dirname, "..", "..", "package-results");
 
 let sandbox: PackagedSandbox | undefined;

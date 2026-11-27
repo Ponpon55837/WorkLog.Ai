@@ -27,9 +27,7 @@ export type UsageWorkerReply =
   { id: number; ok: true; value: unknown } | { id: number; ok: false; error: { name: string; message: string } };
 
 interface UsageWorkerClientOptions {
-  /** Longest a request may take before its process is killed; defaults to {@link USAGE_SCAN_TIMEOUT_MS}. */
   timeoutMs?: number;
-  /** Old-generation heap of the process in MiB. */
   heapMb?: number;
 }
 
@@ -41,7 +39,6 @@ function workerEntryPath(): string {
   return fileURLToPath(new URL(`./usage-worker.${extension}`, import.meta.url));
 }
 
-/** Starts the process on the same Node binary as the API; in a TypeScript checkout it runs through tsx, like the API. */
 function startWorkerProcess(context: UsageScanContext, heapMb: number): ChildProcess {
   const entry = workerEntryPath();
   const tsx = entry.endsWith(".ts")
@@ -62,11 +59,6 @@ function restoredError(error: { name: string }): Error {
   return new Error("The usage scan failed.");
 }
 
-/**
- * Runs each usage request in its own child process, so reading many large logs never blocks the API's event loop, and
- * an abort, a timeout or a newer scan ends the work by killing the process. One scan runs at a time: a new scan cancels
- * the running one.
- */
 export class UsageWorkerClient implements UsageOperations {
   private nextId = 1;
   private runningScan: AbortController | undefined;

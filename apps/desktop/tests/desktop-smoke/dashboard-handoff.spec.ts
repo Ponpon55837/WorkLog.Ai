@@ -20,13 +20,6 @@ import {
   type Sandbox,
 } from "./helpers.js";
 
-/**
- * The plugin's `launch.mjs dashboard` against a real App: the script reads the desktop integration record, starts the
- * App executable detached with `--open-dashboard` and exits. The executable here is a shell wrapper around the test's
- * Electron (the record names one executable, and the test App needs its main script), so POSIX only. Also measures the
- * hand-off: from the script's start to the App's `dashboard opened` log line, warm (App running) and cold (App not running).
- */
-
 const repositoryRoot = join(import.meta.dirname, "..", "..", "..", "..");
 const launchScript = join(repositoryRoot, "plugins", "work-intelligence", "scripts", "launch.mjs");
 const RUNS = 3;
@@ -41,7 +34,6 @@ test.afterEach(async ({ browserName: _browserName }, testInfo) => {
   if (sandbox) attachLog(testInfo, sandbox);
   await closeQuietly(app);
   app = undefined;
-  // An App the script started is not Playwright's: ask it to quit the way an installer does.
   if (sandbox) await runToExit(sandbox, {}, 30_000, ["--quit"]).catch(() => undefined);
   if (sandbox) removeSandbox(sandbox);
   sandbox = undefined;
@@ -51,7 +43,6 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-/** The record the packaged App would have written, naming a wrapper that starts the test Electron like a user would. */
 async function installIntegration(current: Sandbox): Promise<void> {
   const wrapper = join(current.root, "work-intelligence-app");
   const command = [electronBinary, ...launchArguments()].map(shellQuote).join(" ");
@@ -64,7 +55,6 @@ async function installIntegration(current: Sandbox): Promise<void> {
   });
 }
 
-/** Runs `launch.mjs dashboard` the way an Agent skill does; resolves with when it started and how it ended. */
 function runPluginDashboard(current: Sandbox): Promise<{ startedAt: number; code: number | null; stdout: string }> {
   const startedAt = Date.now();
   const child = spawn(process.execPath, [launchScript, "dashboard"], {
@@ -80,7 +70,6 @@ function runPluginDashboard(current: Sandbox): Promise<{ startedAt: number; code
   });
 }
 
-/** Epoch milliseconds of the `index`-th (0-based) `dashboard opened` line, waiting for it. */
 async function openedAt(current: Sandbox, index: number): Promise<number> {
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
@@ -132,7 +121,6 @@ test("the plugin starts an App that is not running, which opens the dashboard on
     const handOff = await runPluginDashboard(sandbox);
     expect(handOff.code).toBe(0);
     samples.push((await openedAt(sandbox, 0)) - handOff.startedAt);
-    // Exactly one open, and the backend the App manages is the only listener on its port.
     await new Promise((resolveWait) => setTimeout(resolveWait, 1_000));
     expect(readMainLog(sandbox).match(OPENED)).toHaveLength(1);
     expect(await portIsFree(sandbox.port)).toBe(false);

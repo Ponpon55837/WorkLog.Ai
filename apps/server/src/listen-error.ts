@@ -1,6 +1,5 @@
 import { commandName } from "@work-intelligence/shared";
 
-/** Turns a failed `server.listen` into a short, actionable message instead of Node's unhandled-error stack. */
 export function describeListenError(error: unknown, port: number, standalone?: boolean): string {
   const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
   if (code === "EADDRINUSE") {

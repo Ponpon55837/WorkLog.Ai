@@ -89,7 +89,6 @@ function pointer(
   };
 }
 
-/** A stale intent never overwrites another window or hides an unverified source. */
 export class AttentionPreferenceError extends Error {
   public constructor(public readonly code: "conflict" | "not_found") {
     super(code);
@@ -97,7 +96,6 @@ export class AttentionPreferenceError extends Error {
   }
 }
 
-/** Aggregates bounded pointers without resolving or duplicating their authoritative domain state. */
 export class AttentionService {
   public constructor(
     private readonly db: DatabaseSync,
@@ -123,7 +121,7 @@ export class AttentionService {
         items.push(...result.items);
         groups.push(result.coverage);
       } catch {
-        // A failed source is visible as unknown coverage, never a healthy empty queue.
+        // A failed source shows as unknown coverage, never a healthy empty queue.
         groups.push({ kind, state: "failed", total: null, examined: 0, available: 0 });
       }
     }
@@ -131,7 +129,6 @@ export class AttentionService {
       (a, b) =>
         PRIORITY[a.reason] - PRIORITY[b.reason] || b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id),
     );
-    // One batch read for all examined pointers, including a global view; no per-row SQL.
     const preferences = items.length
       ? (this.db
           .prepare(
@@ -234,9 +231,7 @@ export class AttentionService {
     if (kind === "knowledge") {
       const result = this.dependencies.knowledge(projectId);
       if (result.outcome !== "knowledge") throw new Error("Unavailable source");
-      // Only possiblyStale queues: Knowledge touched solely by broad Sessions carries broadChangesSince, a weaker signal
-      // that stays on the record. A broad_applies_to item queues like any other (its reason is part of the
-      // fingerprint, so a change of reason or breadth is a new revision).
+      // Only possiblyStale queues; broadChangesSince alone is a weaker signal that stays on the record.
       const items = result.items.filter(isKnowledgeInDoubt).map((item) =>
         pointer(
           kind,
@@ -334,7 +329,6 @@ export class AttentionService {
       const table = kind === "synthesis" ? "report_synthesis_requests" : "metadata_backfill_requests";
       const partition =
         kind === "synthesis" ? "scope_type, project_id, period, range_from, range_to" : "scope_type, project_id";
-      // Latest completed requests supersede earlier pending ones; global sources are re-gated as a batch in SQL.
       sql = `WITH ranked AS (SELECT r.*, ROW_NUMBER() OVER (PARTITION BY ${partition} ORDER BY requested_at DESC, id DESC) AS rank FROM ${table} r), eligible AS (
         SELECT r.id AS source_id, r.project_id, p.name AS project_name, '' AS title, r.status AS reason,
           json_array_length(r.source_session_ids_json) AS count, r.requested_at AS updated_at
@@ -359,9 +353,7 @@ export class AttentionService {
       const condition = pending
         ? "o.status = 'pending'"
         : "(s.changed_files_confirmed = 0 OR s.verification_json IS NULL)";
-      // CROSS JOIN starts from the pending items and looks up each one's Session by key. SQLite otherwise walked every
-      // Session of the project and probed its items, so the cost followed the whole history, not the open items.
-      // The groups and their aggregates do not depend on the join order.
+      // CROSS JOIN starts from the pending items; SQLite otherwise walked every Session of the project.
       const source = pending ? "outstanding_items o CROSS JOIN sessions s ON s.id = o.source_session_id" : "sessions s";
       sql = `WITH counts AS (SELECT p.id AS project_id, p.name AS project_name, COUNT(*) AS count, MAX(s.completed_at) AS updated_at,
         ${pending ? "json_array(COUNT(*),MAX(o.updated_at),MAX(o.id))" : "json_array(COUNT(*),MAX(s.updated_at),MAX(s.id))"} AS fingerprint

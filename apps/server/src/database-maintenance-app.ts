@@ -3,11 +3,6 @@ import type { DesktopMaintainResultMessage, DesktopMaintenanceHintMessage } from
 import { statSync } from "node:fs";
 import { inspectDatabaseReadOnlyMetadata, shouldSuggestReclaim } from "./database-inspection.js";
 
-/**
- * The database maintenance the desktop App offers: the same `maintainDatabase` of the storage package the command line runs
- * (backup first, integrity check, VACUUM, search index rebuild), and a read-only integrity check. Never throws: a failure is
- * a status with a fixed meaning, never a path or an SQLite message.
- */
 export async function maintainForApp(request: {
   readonly mode: "maintain" | "check";
   readonly databasePath: string;
@@ -63,7 +58,6 @@ function fileBytes(path: string): number | undefined {
   }
 }
 
-/** Space a compaction would give back, and the last run's outcome, for the App's Status tab. Read-only and cheap. */
 export async function readMaintenanceHint(
   databasePath: string,
 ): Promise<Omit<DesktopMaintenanceHintMessage, "type" | "requestId">> {

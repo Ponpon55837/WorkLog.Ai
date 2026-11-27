@@ -22,7 +22,6 @@ import { createPageInfo } from "./pagination.js";
 
 export interface KnowledgeCount {
   count: number;
-  /** Rows above the per-row search cap were skipped, so count may be low. */
   truncated: boolean;
 }
 
@@ -75,11 +74,10 @@ interface KnowledgeRepositoryDependencies {
 }
 
 const SEARCHED_COLUMNS = ["title", "body", "tags_json", "references_json", "applies_to_json"] as const;
-/** Stored bytes the term clauses may read, from the record header (octet_length does not load the text). */
+/** octet_length reads the record header, so the text is measured without being loaded. */
 const SEARCHED_BYTES = SEARCHED_COLUMNS.map((column) => `COALESCE(octet_length(k.${column}), 0)`).join(" + ");
 
 const RECORD_COLUMNS = "k.*, p.name AS project_name";
-/** The compact columns: the stored text is never loaded, only measured (appliesTo) or tested (review). */
 const COMPACT_COLUMNS = `k.id, k.project_id, p.name AS project_name, k.kind, k.status, k.title, k.updated_at,
   CASE WHEN json_valid(k.applies_to_json) THEN json_array_length(k.applies_to_json) ELSE 0 END AS applies_to_count,
   COALESCE(k.review_json, '') <> '' AS needs_review`;
@@ -98,7 +96,6 @@ function toCompactKnowledgeItem(row: CompactKnowledgeRow): CompactKnowledgeItem 
   };
 }
 
-/** Knowledge query persistence. Mutation and audit flows remain behind the facade for now. */
 export class KnowledgeRepository {
   public constructor(
     private readonly db: DatabaseSync,
@@ -111,7 +108,6 @@ export class KnowledgeRepository {
     return this.searchRows(options, RECORD_COLUMNS, this.mapKnowledge);
   }
 
-  /** The same search and page as search(), answered with compact items read from their own few columns. */
   public searchCompact(
     options: KnowledgeQuery = {},
   ): KnowledgeQueryResult<CompactKnowledgeItem> | KnowledgeSkippedResult {
@@ -174,11 +170,6 @@ export class KnowledgeRepository {
     };
   }
 
-  /**
-   * How many Knowledge records the list search would return in a scope the caller already passed through the policy
-   * gate (an allowed projectId, or every tracked project), without reading them. A text query spends at most
-   * reads at most KNOWLEDGE_SEARCH_ROW_BYTES of each row (see list-search-scan.ts).
-   */
   public count(options: KnowledgeQuery & { status: KnowledgeStatus }): KnowledgeCount {
     const { where, parameters, terms } = this.whereClause(options, options.projectId);
     const countWhere = () =>
@@ -228,11 +219,6 @@ export class KnowledgeRepository {
     return { rows, pageInfo, warnings: [] };
   }
 
-  /**
-   * A text query scans the stored text once: the ordered ids of every match give the total, and the page is cut from
-   * them before the full rows are read by primary key in the same order (as the Sessions list does). The page clamps
-   * to the total exactly as COUNT plus LIMIT/OFFSET did, and a row above the per-row cap is left out of both.
-   */
   private searchTextPage<Row>(
     columns: string,
     where: string,
@@ -294,16 +280,12 @@ export class KnowledgeRepository {
       clauses.push("k.status = ?");
       parameters.push(status);
     }
-    // Every term must appear in at least one of the Knowledge's text fields or appliesTo paths, so a file path
-    // finds the Knowledge recorded about it. instr(LOWER(x), term) > 0 is LOWER(x) LIKE '%term%' with the wildcards
-    // escaped (terms are lower-case, LIKE folds ASCII only), without LIKE's re-match from every stored position. Each
-    // CASE charges the row's stored bytes before its word reads them; the structural filters above run first.
+    // instr(LOWER(x), term) > 0 is LIKE '%term%' with wildcards escaped (LIKE folds ASCII only), without LIKE's
+    // re-match from every stored position.
     const { terms, warnings } = parseListSearchTerms(options.query?.trim() || options.q?.trim() || "");
     if (terms.length > 0) {
-      // Each word is charged when SQLite reaches it, so a row the first word rules out costs one pass, not eight. The
-      // test is a CASE WHEN condition, which SQLite evaluates left to right and stops at the answer: the charge runs
-      // first and a word found in the title is not searched for in the body. (In a THEN branch, as in 1.6.27, the OR
-      // was computed as a value and every column was searched: 2,000 rows at the write limits took 0.74 s, not 0.04.)
+      // The charge sits in a CASE WHEN condition, which SQLite evaluates left to right and short-circuits; in a THEN
+      // branch the OR was computed as a value and every column was searched.
       const termClauses = terms.map(
         () =>
           `CASE WHEN ${LIST_SEARCH_CHARGE_FUNCTION}(${SEARCHED_BYTES})

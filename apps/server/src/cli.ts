@@ -47,7 +47,6 @@ import { runTrackCommand, type TrackCliDependencies } from "./track-cli.js";
 import { defaultUsageScanContext, type UsageScanContext } from "./usage-scan.js";
 import { runUsageCommand } from "./usage-cli.js";
 
-/** Database maintenance from the terminal: backup, export for another computer, and restore. */
 const NO_PARSED_ARGS: ParsedCliArgs = { kind: "ok", flags: new Set(), values: new Map(), positionals: [] };
 const COMMAND_SUMMARIES: readonly (readonly [script: string, summary: string])[] = [
   ["db:maintain", "備份後檢查、整理資料庫並重建搜尋索引"],
@@ -81,7 +80,6 @@ const OPTIONS_HELP: Readonly<Record<string, string>> = {
   restore: RESTORE_OPTIONS_HELP,
 };
 
-/** Accepted options per subcommand; the shared argument check refuses everything else before a command acts. */
 const COMMAND_OPTIONS: Readonly<Record<string, CliOptionSpec>> = {
   maintain: {},
   backup: {},
@@ -92,7 +90,6 @@ const COMMAND_OPTIONS: Readonly<Record<string, CliOptionSpec>> = {
   restore: { valued: ["--remap-root"] },
 };
 
-/** The help text; command names follow the mode (`pnpm db:backup` in a checkout, `work-intelligence db backup` standalone). With a subcommand, only that subcommand's lines. */
 export function databaseUsage(standalone?: boolean, subcommand?: string): string {
   const commands = COMMAND_SUMMARIES.filter(
     ([script]) => !subcommand || script.split(" ")[0]?.replace(/^db:/, "") === subcommand,
@@ -206,7 +203,6 @@ function defaultPortableFileName(scope: "all" | "project", invocationDirectory: 
   return resolve(invocationDirectory, `work-intelligence-${suffix}-${stamp}.json`);
 }
 
-/** Streams the portable export to `target` (which must not exist yet); one that could not be imported is removed. */
 function writePortableExport(store: WorkIntelligenceStore, scope: ProjectDataExportScope, target: string): number {
   mkdirSync(resolve(target, ".."), { recursive: true, mode: 0o700 });
   const { bytes } = store.writeProjectDataExport(scope, target);
@@ -217,10 +213,6 @@ function writePortableExport(store: WorkIntelligenceStore, scope: ProjectDataExp
   return bytes;
 }
 
-/**
- * Streams and validates an export file in bounded memory, as the API does; long values are spilled to `directory`.
- * Refusals are printed in the CLI's own words.
- */
 function readPortableImport(source: string, directory: string): ValidatedProjectDataImport {
   if (statSync(source).size > MAX_PROJECT_IMPORT_BYTES) fail(PROJECT_IMPORT_TOO_LARGE_MESSAGE);
   try {
@@ -335,15 +327,10 @@ export interface DatabaseCliDependencies {
   confirmPortableImport?: () => Promise<boolean>;
   chooseImportProjectLocation?: (project: ProjectDataImportPreview["selectedProjects"][number]) => Promise<string>;
   confirmBackupDeletion?: (backup: DatabaseBackup, isLastBackup: boolean) => Promise<boolean>;
-  /** Probes used to explain a DATABASE_IN_USE failure; injectable so tests never touch real processes. */
   busyDiagnosis?: DatabaseBusyDiagnosisDependencies;
-  /** Prompt and terminal probes for `track`; injectable so tests never read the real terminal. */
   track?: Pick<TrackCliDependencies, "isInteractive" | "confirm" | "port">;
-  /** Where `usage` reads the Agent logs and keeps its cache; injectable so tests never read the real home directory. */
   usage?: UsageScanContext;
-  /** Language of `usage --for-agent`; defaults to the terminal's. */
   usageLocale?: "en" | "zh-TW";
-  /** Which command names to show in messages; defaults to the running mode. */
   standalone?: boolean;
 }
 
@@ -351,8 +338,8 @@ export async function runDatabaseCli(
   argv: readonly string[] = process.argv.slice(2),
   dependencies: DatabaseCliDependencies = {},
 ): Promise<number> {
-  // pnpm runs root scripts from the repo root, so a checkout resolves paths against pnpm's INIT_CWD; a standalone
-  // command runs where the user typed it, and an inherited INIT_CWD from some outer pnpm run must not redirect it.
+  // pnpm runs root scripts from the repo root, so a checkout resolves paths against INIT_CWD; a standalone command
+  // runs where the user typed it and ignores an inherited INIT_CWD.
   const invocationDirectory =
     dependencies.invocationDirectory ?? (STANDALONE ? undefined : process.env.INIT_CWD) ?? process.cwd();
   const usage = databaseUsage(dependencies.standalone);
@@ -398,7 +385,6 @@ export async function runDatabaseCli(
   const optionSpec = command ? COMMAND_OPTIONS[command] : undefined;
   let parsed = NO_PARSED_ARGS;
   if (command && optionSpec) {
-    // Before any command touches the database or the filesystem: help, and options the command does not declare.
     const check = checkCliArgs(args, optionSpec);
     if (check.kind === "help") {
       print(databaseUsage(dependencies.standalone, command));
@@ -487,7 +473,6 @@ export async function runDatabaseCli(
     } else if (command === "export") {
       const projectValues = parsed.values.get("--project") ?? [];
       const outputValues = parsed.values.get("--out") ?? [];
-      // Any portable-export option (--all, --project, --out) selects the JSON export; `--out` alone means --all.
       const portable = parsed.flags.has("--all") || projectValues.length > 0 || outputValues.length > 0;
       if (portable) {
         if (parsed.positionals.length > 0) fail(`看不懂的參數：${parsed.positionals[0]}`);
@@ -534,7 +519,6 @@ export async function runDatabaseCli(
       if (!source) {
         fail("請指定要匯入的 JSON 檔案。");
       }
-      // The file is validated once; a location chosen below re-validates only the small options object.
       const directory = createTransferDirectory(transferRoot(databasePath), "import");
       try {
         let validatedInput = readPortableImport(source, directory);
@@ -600,7 +584,7 @@ export async function runDatabaseCli(
             print("已取消匯入，資料沒有變更。");
           }
         } finally {
-          // Every copy made with withOptions shares the one spill file, so disposing the last one closes it.
+          // Every copy made with withOptions shares one spill file, so disposing the last one closes it.
           validatedInput.dispose();
         }
       } finally {
@@ -627,8 +611,7 @@ export async function runDatabaseCli(
       if (remap.length) {
         print(`已更新 ${result.remapped.projects} 個專案路徑、${result.remapped.handoffSnapshots} 個 handoff 路徑。`);
       }
-      // Opening the store once applies any newer migrations before the server or an Agent uses it, and re-indexes the
-      // restored documents now rather than on the first read after the API starts.
+      // Applies newer migrations and re-indexes the restored documents now, before the server or an Agent opens it.
       runWithStore((store) => store.syncSearchIndex());
       print("完成。重新啟動 API server 與 Agent 對話即可使用。");
     } else if (command) {

@@ -7,10 +7,6 @@ import type { RepairWindow } from "./repair-window.js";
 import type { ShellState } from "./state.js";
 
 export interface SecondInstance {
-  /**
-   * Called when another launch handed over to this instance: opens the Dashboard or the repair window. An
-   * `--open-dashboard` request that arrives before the first start finished is kept until it has (see `deferDashboard`).
-   */
   handle(request: SecondInstanceRequest): void;
   readonly count: number;
   readonly lastDecision: string | null;
@@ -21,9 +17,7 @@ export interface SecondInstanceOptions {
   readonly window: RepairWindow;
   readonly supervisor: BackendSupervisor;
   readonly openDashboard: () => void;
-  /** The first start has not finished: the owner and the backend are not settled yet. */
   readonly starting: () => boolean;
-  /** Remembers that the Dashboard was asked for; the first start opens it once the backend is ready. */
   readonly deferDashboard: () => void;
 }
 

@@ -16,7 +16,6 @@ export type DatabaseMaintenanceErrorCode =
   | "DATABASE_BACKUP_FAILED"
   | "DATABASE_MAINTENANCE_FAILED";
 
-/** A safe, classified error from the explicit database maintenance command. */
 export class DatabaseMaintenanceError extends Error {
   public constructor(
     public readonly code: DatabaseMaintenanceErrorCode,
@@ -81,11 +80,10 @@ function recordFailedRun(database: DatabaseSync, id: string, completedAt: string
       )
       .run(completedAt, code, id);
   } catch {
-    // Preserve the original maintenance failure; the persisted `running` row remains visible to doctor.
+    // Keep the original failure; the persisted `running` row stays visible to doctor.
   }
 }
 
-/** Checks for concurrent use, backs up, compacts the database, refreshes statistics, and rebuilds search rows. */
 export function maintainDatabase(options: {
   databasePath: string;
   backup?: BackupRetentionOptions;
@@ -142,7 +140,7 @@ export function maintainDatabase(options: {
     try {
       database.exec("VACUUM;");
       const indexed = new SearchRepository(database).rebuildIndex();
-      // One ANALYZE after the index rebuild is enough; an earlier one would be overwritten.
+      // After the index rebuild: an earlier ANALYZE would be overwritten.
       database.exec("ANALYZE;");
       assertDatabaseIntegrity(database);
       const completedAt = nowIso();

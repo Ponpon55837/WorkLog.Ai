@@ -15,15 +15,11 @@ import { runUsageScan, USAGE_SCAN_TIMEOUT_MS, type UsageScanContext } from "./us
 
 interface UsageCliDependencies {
   withStore: <T>(task: (store: WorkIntelligenceStore) => T) => T;
-  /** Directory the user ran the command from; the default project is the one whose root contains it. */
   invocationDirectory: string;
   log: (message: string) => void;
   error: (message: string) => void;
-  /** Where the logs are read and the cache lives; injectable so tests never read the real home directory. */
   context: UsageScanContext;
-  /** Language of `--for-agent`; defaults to the terminal's (`LANG`). */
   locale?: "en" | "zh-TW";
-  /** Which command names to show; defaults to the running mode. */
   standalone?: boolean;
 }
 
@@ -83,7 +79,6 @@ function sameRoot(project: ProjectRecord, value: string, directory: string): boo
   }
 }
 
-/** The tracked projects the options select, or a message saying which name matched nothing. */
 function selectProjects(tracked: ProjectRecord[], options: UsageOptions, directory: string): ProjectRecord[] | string {
   if (options.all) return tracked;
   if (options.projects.length > 0) {
@@ -99,11 +94,9 @@ function selectProjects(tracked: ProjectRecord[], options: UsageOptions, directo
   }
   const containing = tracked.filter((project) => isPathWithinProject(directory, project.rootPath));
   if (containing.length === 0) return tracked;
-  // The deepest root is the most specific project when roots are nested.
   return [containing.reduce((best, project) => (project.rootPath.length > best.rootPath.length ? project : best))];
 }
 
-/** `usage:report`: the same counts as the Dashboard's Usage page, from the terminal, scanned in this process. */
 export async function runUsageCommand(args: readonly string[], dependencies: UsageCliDependencies): Promise<number> {
   const check = checkCliArgs(args, {
     flags: ["--all", "--json", "--for-agent"],
@@ -177,7 +170,7 @@ export async function runUsageCommand(args: readonly string[], dependencies: Usa
     }
     return 0;
   } catch (error) {
-    // Only the kind of failure is printed: messages of file-system errors embed paths.
+    // Only the kind of failure is printed: file-system error messages embed paths.
     const reason =
       error instanceof UsageScanTimeoutError ? "逾時" : error instanceof UsageScanAbortedError ? "已取消" : "讀取失敗";
     dependencies.error(`錯誤：無法統計 Agent 用量（${reason}）。`);

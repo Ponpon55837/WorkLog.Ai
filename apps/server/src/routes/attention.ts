@@ -21,7 +21,6 @@ function guarded(handler: Route["handler"]): Route["handler"] {
     }
   };
 }
-/** Policy-gated pointers and Web-only display intents; source actions stay in their domain. */
 export const attentionRoutes: Route[] = [
   {
     method: "GET",

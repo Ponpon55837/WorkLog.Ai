@@ -2,7 +2,6 @@ import type { DatabaseSync } from "node:sqlite";
 
 export const DATABASE_SCHEMA_CHANGED_CODE = "DATABASE_SCHEMA_CHANGED";
 
-/** The database was migrated by a newer process after this one opened it, so this process must not write. */
 export class DatabaseSchemaChangedError extends Error {
   public readonly code = DATABASE_SCHEMA_CHANGED_CODE;
 
@@ -21,11 +20,9 @@ export function isDatabaseSchemaChangedError(error: unknown): error is DatabaseS
   );
 }
 
-/**
- * Rejects a write when another process migrated the database past the version this process was built for. It runs
- * inside the write lock, so no migration can land between the check and the write. Once a check passes it is
- * remembered; `data_version` (changes when another connection commits) and `schema_version` (changes on any DDL)
- * tell cheaply that nothing could have changed, so the `schema_migrations` lookup only repeats after foreign commits.
+/*
+ * Runs inside the write lock, so no migration can land between the check and the write. `data_version` and
+ * `schema_version` tell cheaply that nothing changed, so the `schema_migrations` lookup repeats only after foreign commits.
  */
 export class SchemaWriteGate {
   private verifiedStamp: string | undefined;
@@ -36,7 +33,6 @@ export class SchemaWriteGate {
     public readonly expectedVersion: number,
   ) {}
 
-  /** Must run inside an open write transaction. */
   public assertCompatible(expectedVersion: number = this.expectedVersion): void {
     const stamp = this.readStamp();
     if (stamp === this.verifiedStamp && expectedVersion === this.verifiedVersion) return;

@@ -1,4 +1,3 @@
-/** Types for icon-svg.mjs, so TypeScript tests can import it. */
 export interface FaviconGeometry {
   plate: {
     x: number;

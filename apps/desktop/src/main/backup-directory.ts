@@ -23,17 +23,12 @@ export interface BackupDirectoryOptions {
   readonly coordinator: Pick<OperationCoordinator, "current">;
   readonly supervisor: Pick<BackendSupervisor, "running" | "queryActivity">;
   readonly backend: Pick<BackendController, "start" | "presenter" | "recovery">;
-  /** The storage verdict of a folder (the same classifier the database uses). */
   readonly classify: (folder: string) => Promise<Pick<StorageRiskResult, "risk">>;
-  /** The native folder dialog; the path, or null when cancelled. */
   readonly chooseFolder: () => Promise<string | null>;
-  /** The native question about a folder on risky storage; true: use it anyway. */
   readonly confirmRisk: (risk: Exclude<StorageRiskResult["risk"], "none">) => Promise<boolean>;
-  /** Writes and removes a file in the folder; false when that is not possible. Injectable for tests. */
   readonly probeWritable?: (folder: string) => Promise<boolean>;
   readonly homeDirectory: string;
   readonly platform?: NodeJS.Platform;
-  /** The folder the "last backup" is read from changed. */
   readonly backupsChanged: () => void;
   readonly log: Logger;
 }
@@ -43,11 +38,6 @@ export interface BackupDirectoryController {
   choose(): Promise<BackupDirectoryChooseResult>;
 }
 
-/**
- * A file written and removed again proves the App can put a backup there; a folder that only looks writable does not. It
- * creates nothing but the probe file (a folder that does not exist is not writable), and it runs only after the storage
- * verdict allowed the folder, so a refused location is never touched.
- */
 async function writableFolder(folder: string): Promise<boolean> {
   const probe = join(folder, `.work-intelligence-write-test-${randomUUID()}`);
   try {

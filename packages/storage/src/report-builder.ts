@@ -16,7 +16,6 @@ function reportMetricMarkdown(label: string, metric: ReportMetricComparison): st
   return "| " + label + " | " + metric.current + " | " + metric.previous + " | " + delta + " |";
 }
 
-/** Deterministic report presentation and filename policy, independent of SQLite queries. */
 const reportPeriodNames: Record<string, string> = {
   day: "日報",
   week: "週報",

@@ -17,20 +17,14 @@ import { excerptAround } from "./search-text.js";
 import { staleFlags } from "./stale-flags.js";
 
 export interface KnowledgeSearchServiceDependencies {
-  /** The strict list search with trust signals, policy-gated like every Knowledge read. */
   searchKnowledge(options: KnowledgeQuery): KnowledgeQueryResult | KnowledgeSkippedResult;
-  /** The same strict list search answered with compact items, without reading the stored text or trust signals. */
   searchKnowledgeCompact(options: KnowledgeQuery): KnowledgeQueryResult<CompactKnowledgeItem> | KnowledgeSkippedResult;
-  /** Strict match count in an already-gated scope; `truncated` when rows above the per-row cap were skipped. */
   countKnowledge(options: KnowledgeQuery & { status: KnowledgeStatus }): KnowledgeCount;
   rankKnowledge(options: KnowledgeRankOptions): KnowledgeRanking;
-  /** Full records with trust signals for Knowledge of tracked projects; other ids are absent from the map. */
   getKnowledgeWithTrustMany(knowledgeIds: string[]): Map<string, KnowledgeRecord>;
 }
 
-// The fallback is a pointer to likely candidates, not a second result list: a few full records are enough to read.
 const RELAXED_MATCH_LIMIT = 3;
-// Each match is a digest: enough to judge relevance, with the full record one read away.
 const RELAXED_EXCERPT_CHARS = 400;
 const RELAXED_APPLIES_TO_LIMIT = 3;
 
@@ -56,12 +50,6 @@ function toRelaxedMatch(record: KnowledgeRecord, hit: KnowledgeRankHit): Relaxed
   };
 }
 
-/**
- * The Agent-facing Knowledge search. The strict list search (every word in some field, newest first) stays the answer
- * whenever it finds anything, exactly as the Web list shows it. Only when it finds nothing does a relaxed ranked
- * search over the same scope and status stand in, labelled with the terms each record shares; and the answer then
- * counts matches in the statuses the filter hid, so an archived record is not mistaken for a missing one.
- */
 export class KnowledgeSearchService {
   public constructor(private readonly dependencies: KnowledgeSearchServiceDependencies) {}
 
@@ -69,7 +57,6 @@ export class KnowledgeSearchService {
     return this.answer(this.dependencies.searchKnowledge(options), options);
   }
 
-  /** The compact view: strict items as CompactKnowledgeItem; a relaxed fallback still answers with its bounded digests. */
   public searchCompact(
     options: KnowledgeQuery = {},
   ): AgentKnowledgeQueryResult<CompactKnowledgeItem> | KnowledgeSkippedResult {
@@ -84,7 +71,6 @@ export class KnowledgeSearchService {
     if (strict.outcome !== "knowledge" || !query) {
       return strict;
     }
-    // Whatever the match, a query cut to the strict word cap says which words the answer used.
     const effective = parseListSearchTerms(query);
     const effectiveQuery =
       effective.warnings.length > 0
@@ -103,7 +89,7 @@ export class KnowledgeSearchService {
       };
     }
 
-    // The strict search already passed the scope through the policy gate; reuse its project, never the raw input.
+    // Reuse the project the strict search passed through the policy gate, never the raw input.
     const projectId = strict.project?.id;
     const status = options.status ?? "active";
     const ranking = this.dependencies.rankKnowledge({
@@ -135,7 +121,6 @@ export class KnowledgeSearchService {
         : []),
     ];
     const otherStatuses = Object.keys(otherStatusMatches) as KnowledgeStatus[];
-    // Every word counted 0: no record of this scope and status holds any of them, so rephrasing is the only move.
     const noWordFound = ranking.termHits.length > 0 && ranking.termHits.every((entry) => entry.count === 0);
     const hints = [
       relaxedMatches.length > 0
@@ -179,11 +164,6 @@ export class KnowledgeSearchService {
     };
   }
 
-  /**
-   * Per other status, how many records the same search would answer there: the strict count when it has any,
-   * otherwise the relaxed count, which is what passing that status would show; fullCounts holds the strict ones alone.
-   * The strict count parses the query exactly as the re-query does, so a cut query counts what the re-query returns. Counts only, in the same gated scope.
-   */
   private otherStatusMatches(
     query: string,
     status: KnowledgeStatus,

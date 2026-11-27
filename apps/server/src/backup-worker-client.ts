@@ -76,75 +76,54 @@ interface WorkerLifetime {
   child: ChildProcess;
   exited: Promise<void>;
   retiring: boolean;
-  /** A heavy operation ran in this worker, so it exits quickly once idle. */
   heavy: boolean;
   failure?: unknown;
   closePromise?: Promise<void>;
 }
 
 export interface BackupWorkerClientOptions {
-  /** Idle time before the worker exits; one value for every operation (tests use it to pin timing). */
   idleTimeoutMs?: number;
-  /**
-   * Old-generation heap of the process in MiB, instead of {@link BACKUP_WORKER_HEAP_MB} (or the
-   * `WORK_INTELLIGENCE_BACKGROUND_HEAP_MB` override); tests use a tiny heap to force an out-of-memory exit.
-   */
   heapMb?: number;
-  /** Longest a single operation may take before its process is stopped, instead of {@link OPERATION_WATCHDOG_MS}. */
   operationTimeoutMs?: number;
 }
 
 /**
- * A request the process never answers (a hung disk, a stuck read) would hold its HTTP request and the desktop's
- * activity gate forever. The largest legitimate operation, an import at the 256 MiB limit, takes minutes, so this is
- * generous: it only ends what is certainly stuck. The process is killed and the next request starts a fresh one.
+ * A hung request would hold its HTTP request and the desktop activity gate forever; generous, since an import at the
+ * 256 MiB limit takes minutes.
  */
 export const OPERATION_WATCHDOG_MS = 30 * 60_000;
 
 /** @internal test-only */
 export const DEFAULT_IDLE_TIMEOUT_MS = 15_000;
 /**
- * Import, preview and export leave the worker holding the parsed document (hundreds of MiB for a large project) in
- * a heap V8 does not shrink while idle, and what SQLite and the allocator held stays with the process until the thread
- * is gone, so the worker exits one second after them and that memory goes back to the system: on a 33 MiB synthetic
- * export the process stayed at 237 MiB for the 5 s this used to wait, against 85 MiB before the operation. The second
- * keeps a cold start (about 500 ms) out of work that arrives right behind, such as the next request of one upload.
+ * V8 does not shrink an idle heap, so after a heavy operation the worker exits soon to give its memory back; one second
+ * keeps a cold start out of work that arrives right behind.
  * @internal test-only
  */
 export const HEAVY_IDLE_TIMEOUT_MS = 1_000;
 /**
- * Heap of the background process. Import, preview and export stream their files, so what they hold is bounded by
- * the row limits of the schema (200,000 rows), not by the file size; see docs/standalone.md for the measurements. The
- * flags match the desktop backend's (`--max-old-space-size=1024 --max-semi-space-size=2`), so a server started without
- * flags (dev, standalone CLI) is bounded the same instead of taking Node's default of about 2 GiB on a 16 GB machine.
- * Running out of it ends only this process: the API reports `backup_worker_out_of_memory` and keeps serving.
+ * Matches the desktop backend's flags, so a server started without flags is not left at Node's default of about 2 GiB.
  * @internal test-only
  */
 export const BACKUP_WORKER_HEAP_MB = 1024;
 const BACKUP_WORKER_SEMI_SPACE_MB = 2;
 export const BACKUP_WORKER_HEAP_ENVIRONMENT = "WORK_INTELLIGENCE_BACKGROUND_HEAP_MB";
-/** What V8 prints when a process runs out of heap; any one of them classifies the exit as out of memory. */
 const OUT_OF_MEMORY_MARKERS = [
   "JavaScript heap out of memory",
   "Reached heap limit",
   "Allocation failed",
   "Fatal JavaScript out of memory",
 ] as const;
-/** Kept from the end of one stderr chunk so a marker split across two chunks is still found; never more. */
+/** Overlap so a marker split across two stderr chunks is still found. */
 const OUT_OF_MEMORY_CARRY = Math.max(...OUT_OF_MEMORY_MARKERS.map((marker) => marker.length)) - 1;
 
-/** Recognises V8's out-of-memory report in a process's stderr, chunk by chunk. */
 export interface OutOfMemoryScanner {
-  /** Reads the next stderr chunk. */
   scan(chunk: string): void;
-  /** Whether any chunk so far held an out-of-memory marker. */
   readonly seen: boolean;
 }
 
 /**
- * A scanner for one process. The report is recorded when it arrives rather than searched for in the end of stderr:
- * V8 prints a native stack trace after it, which on macOS arm64 can be longer than any tail kept. Only a few bytes are
- * carried between chunks.
+ * Scans as chunks arrive: V8 prints a native stack trace after the report, which on macOS arm64 can be longer than any tail kept.
  * @internal test-only
  */
 export function createOutOfMemoryScanner(): OutOfMemoryScanner {
@@ -162,7 +141,6 @@ export function createOutOfMemoryScanner(): OutOfMemoryScanner {
     },
   };
 }
-/** Which desktop activity each worker operation counts as. */
 const ACTIVITY_OF_OPERATION: Readonly<Record<BackupWorkerOperation["type"], DesktopBackendActivity>> = {
   createBackup: "backup",
   backupIfDue: "backup",
@@ -194,10 +172,6 @@ function heapMb(option: number | undefined): number {
   return configured;
 }
 
-/**
- * Starts the background process on the same Node binary as the API (the bundled runtime on desktop), with its own
- * heap flags instead of the API's. In a TypeScript checkout it runs through tsx, like the API.
- */
 function startWorkerProcess(
   databasePath: string,
   backup: BackupRetentionOptions,
@@ -244,15 +218,10 @@ function restoredError(error: SerializedWorkerError): Error {
   });
 }
 
-/**
- * One background process for database snapshots and portable import, preview and export. It is a child process, not
- * a worker thread: on Node 24 a worker that exhausts its heap can abort the whole process, and a separate process
- * also gives all of its memory back when it exits.
- */
+/** A child process, not a worker thread: on Node 24 a worker that exhausts its heap can abort the whole process. */
 export class BackupWorkerClient implements BackgroundStoreOperations {
   private readonly pending = new Map<number, PendingRequest>();
   private readonly active = new Set<Promise<unknown>>();
-  /** Requests in flight by operation type, so the desktop App can ask what is busy without touching the worker. */
   private readonly inFlight = new Map<BackupWorkerOperation["type"], number>();
   private lifetime?: WorkerLifetime;
   private closePromise?: Promise<void>;
@@ -303,7 +272,6 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
     return this.run({ type: "inspectStagedProjectDataImport", upload });
   }
 
-  /** The long jobs running right now: `backup` (snapshots), `export` and `import` (preview, inspection and import). */
   public activity(): DesktopBackendActivity[] {
     const kinds = new Set<DesktopBackendActivity>();
     for (const [type, count] of this.inFlight) if (count > 0) kinds.add(ACTIVITY_OF_OPERATION[type]);
@@ -351,7 +319,6 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
         if (!this.pending.has(id)) return;
         this.removePending(id);
         reject(new BackupWorkerTimeoutError(operation.type, timeoutMs));
-        // Its other requests fail with the exit; the next request starts a new process.
         lifetime.child.kill("SIGKILL");
       }, timeoutMs);
       watchdog.unref();
@@ -390,10 +357,8 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
       this.expectedSchemaVersion,
       heapMb(this.options.heapMb),
     );
-    // Like the worker thread it replaces, the process never keeps the API alive by itself.
     child.unref();
     child.channel?.unref();
-    // One scanner per process, so an earlier worker's report never classifies this one's exit.
     const outOfMemory = createOutOfMemoryScanner();
     child.stderr?.setEncoding("utf8");
     child.stderr?.on("data", (text: string) => {
@@ -424,8 +389,6 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
       this.rejectPending(error, lifetime);
       rejectExit(error);
     };
-    // A process that could not be started has no pid. Other errors (a failed send) reject their own request, and an
-    // exit is reported by "close" below.
     child.on("error", (error) => {
       if (child.pid === undefined) fail(error);
     });
@@ -436,7 +399,6 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
         resolveExit();
         return;
       }
-      // The process is gone either way; an out-of-memory exit gets its own error so the API can say what happened.
       const cause = new Error(
         `The background worker exited unexpectedly with ${signal ? `signal ${signal}` : `code ${code}`}.`,
       );
@@ -517,10 +479,7 @@ export class BackupWorkerClient implements BackgroundStoreOperations {
     if (request) this.holdOpen(request.lifetime);
   }
 
-  /**
-   * The process keeps the API alive only while a request (or its close) waits on it, so an idle one never holds a
-   * shutdown and a CLI or test that awaits a request is not left with an empty event loop.
-   */
+  /** Keeps the API alive only while a request waits on it, so an idle process never holds a shutdown. */
   private holdOpen(lifetime: WorkerLifetime): void {
     const busy = lifetime.retiring || this.hasPendingRequests(lifetime);
     if (busy) {

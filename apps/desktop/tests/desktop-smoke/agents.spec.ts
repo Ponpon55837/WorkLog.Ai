@@ -26,18 +26,10 @@ import {
   type Sandbox,
 } from "./helpers.js";
 
-/**
- * The Agent page ("設定 Agent…"): nothing is written by looking or previewing, "套用變更" writes exactly the previewed
- * plan into the Agents' files under the (sandbox) home, the self-test talks MCP through the fixed launcher, and "復原上次
- * 變更" puts every file back. Synthetic data only: the home is the sandbox's and holds, before the App starts, only the
- * synthetic Agent files seeded below, so apply has real files to back up and undo has real files to restore.
- */
-
 const JOURNAL_FILE = ".work-intelligence-agent-setup.journal.json";
 const MANIFEST_FILE = ".work-intelligence-agent-setup.json";
 const BACKUP_MARK = ".work-intelligence.backup-";
 
-/** Pre-existing Agent files with an entry that is not ours; the bytes are compared after apply and after undo. */
 const SEEDS: Readonly<Record<string, string>> = {
   ".claude.json": `${JSON.stringify(
     { numStartups: 3, mcpServers: { other: { command: "synthetic-other", args: ["serve"] } } },

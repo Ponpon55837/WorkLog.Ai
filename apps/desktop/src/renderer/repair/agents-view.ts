@@ -15,12 +15,6 @@ import { label, type Tone } from "./badge.js";
 import { captureFocus, restoreSnapshot } from "./focus.js";
 import { actions, button, cardBody, checkbox, element, facts, hint, path, section, setLanguage } from "./dom.js";
 
-/**
- * The Agent page. Nothing is written by looking at it: "預覽變更" (or "改由桌面 App 管理…") computes a plan and shows its
- * diff; only "套用變更" writes, and only that very plan. "移除 Agent 設定" is the same path with a removal plan: its
- * preview lists what would be taken out, and only "確認移除" writes. "復原上次變更" undoes the last apply or removal.
- */
-
 const REFRESH_MS = 5000;
 
 function resultText(state: AgentsState): string | undefined {

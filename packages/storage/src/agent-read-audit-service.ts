@@ -32,9 +32,9 @@ const MAX_WALK_DEPTH = 10;
 const REFERENCE_LIMIT = 20;
 const CODE_PATTERN = /^[a-z0-9_]{1,40}$/;
 const KNOWLEDGE_MATCHES = new Set(["strict", "relaxed", "none"]);
-/** Stored for failures whose code is missing or malformed, so a bad caller cannot write free text. */
+/** Stored for a missing or malformed code, so a bad caller cannot write free text. */
 export const AGENT_READ_FALLBACK_ERROR_CODE = "internal_error";
-/** Upper bound for a stored duration (one day); anything longer is a clock problem, not a read. */
+/** One day; anything longer is a clock problem, not a read. */
 const MAX_DURATION_MS = 86_400_000;
 
 export interface AgentReadExtraction {
@@ -46,23 +46,13 @@ export interface AgentReadExtraction {
 export interface RecordAgentReadInput {
   tool: string;
   agentClient?: string;
-  /** The MCP server process that served the read; reads without one cannot be attributed to a connection. */
   connectionId?: string;
-  /** The tool's response as returned to the Agent; only ids are read from it. Omitted for failed reads. */
   result?: unknown;
-  /** The project the call was scoped to by id, when its input named one. */
   projectId?: string;
-  /** Wall time of the read in milliseconds; rounded and clamped, ignored when not finite. */
   durationMs?: number;
-  /**
-   * Character count (UTF-16 code units) of the MCP response sent for this read; a number only, never content.
-   * Must be a non-negative integer; anything else is stored as NULL (unknown). Omitted when not measured.
-   */
+  /** UTF-16 code units of the MCP response; a number only, never content. Anything but a non-negative integer is NULL. */
   responseChars?: number | null;
-  /**
-   * Set for a failed read: a snake_case code only (never a message); a malformed code becomes internal_error. A
-   * not_found result's own `reasonCode` is stored the same way without this field.
-   */
+  /** A snake_case code only, never a message; a malformed code becomes internal_error. */
   errorCode?: string;
   now?: string;
 }
@@ -121,10 +111,6 @@ function idOf(value: Record<string, unknown>): string | undefined {
   return typeof value.id === "string" && value.id.length > 0 && value.id.length <= 200 ? value.id : undefined;
 }
 
-/**
- * Which kind of stored record an object is, from its own shape; undefined for pointers and everything else. A
- * response scoped to one project names it once at the top and its records omit projectId, so `scoped` accepts them.
- */
 function recordTypeOf(value: Record<string, unknown>, scoped: boolean): AgentReadRecordType | undefined {
   if (!idOf(value)) return undefined;
   if (value.type === "session" || value.type === "knowledge") return value.type;
@@ -134,10 +120,7 @@ function recordTypeOf(value: Record<string, unknown>, scoped: boolean): AgentRea
   return undefined;
 }
 
-/**
- * Collects the Session and Knowledge ids a tool response actually carried, plus the single project they belong
- * to. Reads ids only; no text from the response is kept.
- */
+/** Reads ids only; no text from the response is kept. */
 export function extractAgentReadRecords(result: unknown): AgentReadExtraction {
   const sessions = new Set<string>();
   const knowledge = new Set<string>();
@@ -160,8 +143,6 @@ export function extractAgentReadRecords(result: unknown): AgentReadExtraction {
       if (typeof child === "object" && child !== null) walk(child, depth + 1);
     }
   };
-  // A projected Session may intentionally omit summary, and session_unchanged carries identity only; either way
-  // the Session was read.
   if (
     isObject(result) &&
     (isObject(result.projection) || result.outcome === "session_unchanged") &&
@@ -181,11 +162,6 @@ export function extractAgentReadRecords(result: unknown): AgentReadExtraction {
   return { projectId, sessionIds: [...sessions], knowledgeIds: [...knowledge] };
 }
 
-/**
- * The result's own outcome code. A Knowledge search with a query also records how it was answered
- * (knowledge_strict, knowledge_relaxed, or knowledge_none), so the zero-hit rate can be measured; error_code stays
- * empty because none of these is a failure.
- */
 function outcomeOf(result: unknown): string {
   if (!isObject(result) || typeof result.outcome !== "string" || !CODE_PATTERN.test(result.outcome)) {
     return "ok";
@@ -196,10 +172,6 @@ function outcomeOf(result: unknown): string {
   return result.outcome;
 }
 
-/**
- * The cause a not_found result names in `reasonCode` (work_get_knowledge_page_context), kept in error_code so the
- * audit shows why lookups miss; the outcome stays not_found. Only a well-formed code is kept, never free text.
- */
 function notFoundReasonCodeOf(result: unknown): string | undefined {
   if (!isObject(result) || result.outcome !== "not_found") return undefined;
   return typeof result.reasonCode === "string" && CODE_PATTERN.test(result.reasonCode) ? result.reasonCode : undefined;
@@ -210,7 +182,6 @@ function normalizeDuration(value: number | undefined): number | null {
   return Math.min(Math.max(Math.round(value), 0), MAX_DURATION_MS);
 }
 
-/** A response size is kept only as a non-negative safe integer; anything else is unknown (NULL), never 0. */
 function normalizeResponseChars(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
@@ -220,7 +191,6 @@ function normalizeErrorCode(value: string | undefined): string | undefined {
   return CODE_PATTERN.test(value) ? value : AGENT_READ_FALLBACK_ERROR_CODE;
 }
 
-/** Nearest-rank percentile of an ascending, non-empty list. */
 function nearestRank(sorted: readonly number[], percentile: number): number {
   const rank = Math.ceil((percentile / 100) * sorted.length);
   return sorted[Math.min(Math.max(rank, 1), sorted.length) - 1]!;
@@ -283,23 +253,18 @@ function mapRow(row: AuditRow): AgentReadAuditItem {
   };
 }
 
-/**
- * Passive, content-free log of which Sessions and Knowledge items the MCP read tools returned to Agents.
- * It stores ids, counts, tool names, the client name, durations, and error codes only, never queries, paths, text,
- * or error messages.
- */
+/** Stores ids, counts, tool names, client name, durations and error codes only: never queries, paths, text or messages. */
 export class AgentReadAuditService {
   private insertsSincePrune = 0;
 
   public constructor(private readonly db: DatabaseSync) {}
 
-  /** Records one read, successful or failed. Never throws: the audit must not break or slow the read. */
+  /** Never throws: the audit must not break or slow the read. */
   public record(input: RecordAgentReadInput): void {
     try {
       const errorCode = normalizeErrorCode(input.errorCode);
       const outcome = errorCode ? "error" : outcomeOf(input.result);
       const skipped = outcome === "skipped" || outcome.endsWith("_skipped");
-      // A failed read returned nothing, so there are no ids to extract; its project is the one the input named.
       const extraction: AgentReadExtraction =
         skipped || errorCode ? { sessionIds: [], knowledgeIds: [] } : extractAgentReadRecords(input.result);
       const projectId = skipped ? undefined : (input.projectId ?? extraction.projectId);
@@ -347,11 +312,10 @@ export class AgentReadAuditService {
         }),
       );
     } catch {
-      // Best effort by design: a busy or failing audit table never fails the read.
+      // Audit is best effort.
     }
   }
 
-  /** Recent reads of tracked projects (and reads with no project), newest first. */
   public listRecent(options: ListAgentReadsOptions = {}): AgentReadAuditPage {
     const { where, parameters } = this.filterClause(options);
     const from = `FROM agent_read_audit a LEFT JOIN projects p ON p.id = a.project_id WHERE ${where}`;
@@ -374,11 +338,6 @@ export class AgentReadAuditService {
     return { items: rows.map(mapRow), pageInfo, agents: agents.map((row) => row.agent_client) };
   }
 
-  /**
-   * Per-tool counts, failures, nearest-rank latency percentiles, and response-size p50/p95/total (non-null rows
-   * only, with their count) over the retained window (at most AGENT_READ_AUDIT_MAX_ROWS rows), slowest p95 first.
-   * One SELECT, grouped in a single pass.
-   */
   public summarize(options: SummarizeAgentReadsOptions = {}): AgentReadStats {
     const { where, parameters } = this.filterClause(options);
     const rows = this.db
@@ -398,7 +357,6 @@ export class AgentReadAuditService {
       group.count += 1;
       if (row.duration_ms !== null) group.durations.push(row.duration_ms);
       if (row.response_chars !== null) group.responseChars.push(row.response_chars);
-      // A not_found cause is counted by code but is not a failed read.
       if (row.outcome === "error") group.errorCount += 1;
       if (row.error_code) group.errorCodes[row.error_code] = (group.errorCodes[row.error_code] ?? 0) + 1;
     }
@@ -410,7 +368,6 @@ export class AgentReadAuditService {
     return { tools };
   }
 
-  /** How many audited reads returned this record to an Agent, with the newest ones. */
   public forRecord(type: AgentReadRecordType, recordId: string, limit = REFERENCE_LIMIT): AgentReadReferences {
     const total = (
       this.db
@@ -439,7 +396,6 @@ export class AgentReadAuditService {
     };
   }
 
-  /** Drops rows older than the retention window or beyond the newest row cap; one bounded DELETE. */
   public prune(now: string = nowIso()): void {
     const cutoff = new Date(Date.parse(now) - AGENT_READ_AUDIT_MAX_AGE_DAYS * 86_400_000).toISOString();
     runImmediateTransaction(this.db, () =>
@@ -452,7 +408,6 @@ export class AgentReadAuditService {
     );
   }
 
-  /** Runs the audit write without waiting on another process's lock: a busy database drops the audit row instead. */
   private withoutLockWait(operation: () => void): void {
     if (this.db.isTransaction) return operation();
     const row = this.db.prepare("PRAGMA busy_timeout").get() as { timeout?: number } | undefined;
@@ -464,7 +419,7 @@ export class AgentReadAuditService {
     }
   }
 
-  /** Same tracked-project and filter rules for every listing: reads of untracked projects stay hidden. */
+  /** Reads of untracked projects stay hidden in every listing. */
   private filterClause(options: SummarizeAgentReadsOptions): { where: string; parameters: string[] } {
     const clauses = ["(a.project_id IS NULL OR p.status = 'tracked')"];
     const parameters: string[] = [];

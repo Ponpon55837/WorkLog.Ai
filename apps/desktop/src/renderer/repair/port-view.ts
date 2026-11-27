@@ -3,27 +3,17 @@ import type { PortMessages } from "@work-intelligence/desktop-core/shell/port-i1
 import { formatMessage } from "@work-intelligence/desktop-core/shell/i18n";
 import { actions, button, element, hint, section } from "./dom.js";
 
-/**
- * The 「連接埠」 section of the repair window: the port in use, an input and 「變更連接埠」. The page only sends what the
- * user typed; main validates it and runs the change. The draft and the last answer live here, across the periodic
- * re-renders, so typing is not lost when the page refreshes.
- */
 let draft = "";
 let answer: { readonly text: string; readonly ok: boolean; readonly note?: string } | null = null;
 let applying = false;
-/** Sections already scrolled to: a redraw of the same state must not scroll again. */
 const scrolledTo = new WeakSet<RepairPortSection>();
 
 export interface PortViewHost {
   readonly api: RepairApi;
   readonly text: PortMessages;
-  /** Another page action is running (or a start): the button waits. */
   readonly working: boolean;
-  /** Focus the input when main's state asks for it: only while the user has not moved the focus or the tab since the request. */
   readonly focusPort: boolean;
-  /** Draw the view again from its last state. */
   readonly rerender: () => void;
-  /** Ask main for a fresh state (the port or the service changed). */
   readonly refresh: () => void;
 }
 
@@ -68,7 +58,6 @@ async function apply(host: PortViewHost, port: RepairPortSection): Promise<void>
   host.refresh();
 }
 
-/** The section's card. `port` is main's snapshot of the setting and the running port. */
 export function portSection(host: PortViewHost, port: RepairPortSection): HTMLElement {
   const { text } = host;
   const input = element("input", { className: "text-input" });
@@ -109,7 +98,6 @@ export function portSection(host: PortViewHost, port: RepairPortSection): HTMLEl
     ...(answer?.note ? [hint(answer.note)] : []),
   );
   card.id = "port-section";
-  // The tray item (or the Dashboard's link) asked for the section: main reports it in one state only.
   if (port.focus && host.focusPort && !scrolledTo.has(port)) {
     scrolledTo.add(port);
     queueMicrotask(() => {

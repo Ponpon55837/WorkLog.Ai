@@ -10,17 +10,14 @@ import {
 } from "@work-intelligence/shared/file-identity";
 import { readOnlyTableExists, readSchemaVersion, type ReadOnlySqliteDatabase } from "./database-inspection.js";
 
-/** Composite identity of a database file; structurally identical to desktop-core's `DatabaseIdentity` (server never imports it). */
 export interface DatabaseIdentity {
   realPath: string;
   fileId: { device: string; inode: string } | null;
   lineageId: string | null;
 }
 
-/** Same statuses as desktop-core's `DbProbeStatus`, kept distinct so the UI can explain each one. */
 export type DatabasePreflightStatus = "missing" | "offline" | "denied" | "unreadable" | "unsupported-schema" | "ok";
 
-/** How the file's schema relates to what this build can run. */
 export type SchemaCompatibility = "empty" | "current" | "older-needs-migration" | "newer-unsupported";
 
 export interface SidecarFileState {
@@ -28,7 +25,6 @@ export interface SidecarFileState {
   size: number;
 }
 
-/** State of the `-wal` and `-shm` files beside the database at one moment. */
 export interface SidecarState {
   wal: SidecarFileState;
   shm: SidecarFileState;
@@ -40,20 +36,17 @@ export interface DatabasePreflightResult {
   schemaVersion?: number;
   compatibility?: SchemaCompatibility;
   projectCount?: number;
-  /** Up to {@link PREVIEW_PROJECT_NAMES} project names, most recently updated first, so the user recognises the database. */
   projectNames?: string[];
-  /** Recorded before and after the probe: a read-only open is not guaranteed to be 0-write, so the difference is evidence. */
+  /** A read-only open is not guaranteed to be 0-write, so the difference is evidence. */
   sidecars?: { before: SidecarState; after: SidecarState };
   detail?: string;
 }
 
 export interface PreflightOptions {
   supportedSchemaVersion?: number;
-  /** Also run a read-only `PRAGMA quick_check` on a Work Intelligence database that otherwise reads `ok`. */
   quickCheck?: boolean;
 }
 
-/** A database the shell has verified and handed to `startApi`; startApi re-checks it right before opening. */
 export interface VerifiedDatabaseConfig {
   path: string;
   identity: DatabaseIdentity;
@@ -117,11 +110,7 @@ function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/**
- * Fingerprint of the database's own history: sha256 of the oldest `schema_migrations` row (version|name|applied_at).
- * That row is written once at creation and never rewritten, and it survives file copies, so it names the lineage
- * rather than the file. `null` when the table or its rows are absent.
- */
+// The oldest `schema_migrations` row is written once at creation and survives copies, so it names the lineage, not the file.
 export function readLineageId(database: ReadOnlySqliteDatabase): string | null {
   if (!readOnlyTableExists(database, "schema_migrations")) return null;
   const row = database
@@ -131,11 +120,9 @@ export function readLineageId(database: ReadOnlySqliteDatabase): string | null {
   return createHash("sha256").update(`${row.version}|${row.name}|${row.applied_at}`).digest("hex");
 }
 
-/** How many project names a preview shows, and how long each may be. */
 export const PREVIEW_PROJECT_NAMES = 5;
 export const PREVIEW_PROJECT_NAME_LENGTH = 120;
 
-/** A nicety for the preview only: a database whose projects table lacks the columns (an old or foreign one) shows none. */
 function readProjectNames(database: ReadOnlySqliteDatabase): string[] | undefined {
   if (!readOnlyTableExists(database, "projects")) return undefined;
   let rows: { name: unknown }[];
@@ -158,7 +145,6 @@ function readProjectCount(database: ReadOnlySqliteDatabase): number | undefined 
   return Number(row.total);
 }
 
-/** Tables of Work Intelligence's pre-`schema_migrations` core schema; a legacy database has all of them. */
 const LEGACY_CORE_TABLES = ["projects", "sessions"];
 
 function readUserTables(database: ReadOnlySqliteDatabase): Set<string> {
@@ -168,7 +154,6 @@ function readUserTables(database: ReadOnlySqliteDatabase): Set<string> {
   return new Set(rows.map((row) => row.name));
 }
 
-/** `empty`: a fresh file with no tables; `legacy`: Work Intelligence before migrations were tracked; `foreign`: someone else's. */
 function classifyUntracked(database: ReadOnlySqliteDatabase): "empty" | "legacy" | "foreign" {
   const tables = readUserTables(database);
   if (tables.size === 0) return "empty";
@@ -180,7 +165,6 @@ function compatibilityOf(schemaVersion: number, supported: number): SchemaCompat
   return schemaVersion === supported ? "current" : "older-needs-migration";
 }
 
-/** True only when `PRAGMA quick_check` returns exactly one row, `ok`. Read-only; a throw is left to the caller. */
 function quickCheckPasses(database: ReadOnlySqliteDatabase): boolean {
   const rows = database.prepare("PRAGMA quick_check").all() as { quick_check?: unknown }[];
   return rows.length === 1 && rows[0]?.quick_check === "ok";
@@ -253,14 +237,7 @@ function preflightSync(path: string, supportedSchemaVersion: number, quickCheck:
   }
 }
 
-/**
- * Read-only preflight of a database file: identity, schema compatibility, a project-count preview and the WAL/SHM
- * sidecar state around the probe. Never writes through SQLite, never uses `immutable`, never throws for an expected
- * failure; each failure kind is its own status. Structurally satisfies desktop-core's `DbProbe`.
- *
- * Performance: this is synchronous SQLite and file-system work behind an async signature, so it blocks the thread it
- * runs on; the desktop host must run it off any UI thread (a worker or utility process).
- */
+// Synchronous SQLite and file work behind an async signature: the desktop host must run it off any UI thread.
 export async function preflightDatabase(
   path: string,
   options: PreflightOptions = {},
@@ -268,7 +245,6 @@ export async function preflightDatabase(
   return preflightSync(path, options.supportedSchemaVersion ?? LATEST_SCHEMA_VERSION, options.quickCheck === true);
 }
 
-/** Same physical file: both ids are known and equal. */
 function sameKnownFile(expected: DatabaseIdentity, actual: FileIdentity): boolean {
   return sameFileIdentity({ realPath: expected.realPath, fileId: expected.fileId }, actual);
 }
@@ -280,11 +256,8 @@ function lineageStillValid(expected: string | null, actual: string | null, sameF
 }
 
 /**
- * Re-reads path, file id and lineage immediately before the store opens (TOCTOU guard between the preflight the user
- * approved and the commit). A different resolved path is `path-replaced` (a symlink or mount now points elsewhere),
- * the same path with a different file id is `file-replaced`, and the same file holding a different history is
- * `lineage-changed`. A file id that still matches wins over a changed path; a lineage that was null may appear only in
- * that same file (the first migration wrote `schema_migrations`). Read-only; opens nothing when the file is already gone.
+ * TOCTOU guard: re-reads path, file id and lineage right before the store opens. A file id that still matches wins over a
+ * changed path; a null lineage may appear only in that same file (the first migration wrote it).
  */
 export function revalidateBeforeCommit(path: string, expected: DatabaseIdentity): RevalidationResult {
   const located = readFileIdentity(path);
@@ -329,10 +302,6 @@ export function revalidateBeforeCommit(path: string, expected: DatabaseIdentity)
   return { ok: true, identity: { realPath: actual.realPath, fileId: actual.fileId, lineageId } };
 }
 
-/**
- * Re-reads the identity of an already opened database (read-only), for the identity a start reports after the store has
- * opened and possibly migrated it: the lineage of an empty file only exists from then on. `undefined` when it cannot be read.
- */
 export function readOpenedIdentity(path: string): DatabaseIdentity | undefined {
   const located = readFileIdentity(path);
   if (!located.ok) return undefined;

@@ -99,7 +99,6 @@ export class ReportReadService {
     return this.store.listSessions(options);
   }
 
-  /** Sessions that belong to the period without being counted in it (see WorkReport.spanning). */
   private getReportSpanningSessions(
     range: ReportRange,
     sessions: WorkSessionRecord[],
@@ -139,7 +138,6 @@ export class ReportReadService {
   public getReport(options: {
     period: ReportPeriod;
     date?: string;
-    /** An explicit calendar range (both or neither); the report's period is then "custom". */
     from?: string;
     to?: string;
     projectId?: string;
@@ -218,7 +216,6 @@ export class ReportReadService {
           .all(...sessionIds) as ReportAttachedEvidenceRow[])
       : [];
 
-    // Project shares are counted over the whole period; source ids name the listed Sessions behind each share.
     const sourceIdsByProject = new Map<string, string[]>();
     for (const session of sessions) {
       const ids = sourceIdsByProject.get(session.projectId) ?? [];
@@ -267,7 +264,6 @@ export class ReportReadService {
     ]);
     const missingHandoffIds: string[] = [];
     const missingChangedFileIds: string[] = [];
-    // Classify bounded report sources once; each risk reuses ids without scanning Sessions again.
     for (const session of sessions) {
       const status = session.verification?.status ?? "not_supplied";
       const ids = verificationIds.get(status) ?? verificationIds.get("not_supplied")!;
@@ -412,11 +408,6 @@ export class ReportReadService {
     };
   }
 
-  /**
-   * Totals for every finalized, non-voided Session in the period, counted in SQL so they are not capped by the
-   * report's Session limit. Sessions listing more than CHANGED_FILES_NORMAL files add nothing to changedFiles and
-   * are counted separately, matching how recall and hotspots treat a polluted worktree.
-   */
   private getReportPeriodMetrics(range: ReportRange, projectId?: string): ReportPeriodMetrics {
     const scopeClause = projectId ? "AND s.project_id = ?" : "";
     const parameters = [
@@ -595,9 +586,7 @@ export class ReportReadService {
       return [];
     }
 
-    // CROSS JOIN pins the join order in SQLite: drive from the session-id list instead of letting
-    // the planner walk every tracked project's sessions first. Used the same way for the other
-    // IN-list report/synthesis queries and the recent-decision lookup.
+    // CROSS JOIN pins the join order: drive from the session-id list, not from every tracked project's sessions.
     return this.db
       .prepare(
         `SELECT e.*, s.project_id

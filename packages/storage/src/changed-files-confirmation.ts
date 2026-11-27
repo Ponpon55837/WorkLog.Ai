@@ -1,4 +1,3 @@
-/** Returns whether stored changed-files metadata is valid and explicitly confirmed. */
 export function isChangedFilesMetadataConfirmed(value: string | null, confirmed: number | undefined): boolean {
   try {
     const parsed: unknown = JSON.parse(value ?? "null");

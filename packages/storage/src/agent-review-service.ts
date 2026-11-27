@@ -137,7 +137,6 @@ type PendingRows = {
   knowledge: Map<string, TrustedKnowledge>;
 };
 
-/** A Knowledge row with its record as read now, staleness included. */
 type TrustedKnowledge = { row: KnowledgeRow; record: KnowledgeRecord };
 
 type CurrentRows = Omit<PendingRows, "items">;
@@ -163,7 +162,7 @@ type ContextResult = Extract<AgentReviewContextResult, { outcome: "agent_review_
 
 const MAX_SNAPSHOT_ITEMS = 500;
 const CONTEXT_BUDGET = 24_000;
-/** Room the attached lists leave for the server status the MCP adds to every write-tool response. */
+/** Room left for the server status the MCP adds to every write-tool response. */
 const SERVER_STATUS_RESERVE = 200;
 const PROCESSING_TIMEOUT_MS = 30 * 60 * 1000;
 const MAX_COMPLETION_PAGES = 12;
@@ -250,10 +249,7 @@ function candidateFingerprint(row: CandidateRow): string {
   ]);
 }
 
-/**
- * Covers the count of later focused Sessions too: one that touches the Knowledge's appliesTo while a request is open is
- * evidence the Agent has not read, so its verdict is skipped as stale. Unrelated Sessions leave the count unchanged.
- */
+/** Includes the count of later focused Sessions: one touching appliesTo while a request is open makes a verdict stale. */
 function knowledgeFingerprint({ row, record }: TrustedKnowledge): string {
   return hashJson([
     row.kind,
@@ -270,7 +266,6 @@ function knowledgeFingerprint({ row, record }: TrustedKnowledge): string {
   ]);
 }
 
-/** The item's row as it is now: still waiting for a verdict, and its fingerprint; undefined when it is gone. */
 function currentOf(item: ItemRow, rows: CurrentRows): { pending: boolean; fingerprint: string } | undefined {
   if (item.item_kind === "decision") {
     const row = rows.decisions.get(item.item_id);
@@ -344,7 +339,6 @@ function itemState(item: ItemRow, rows: CurrentRows): AgentReviewItemState {
   return current.fingerprint === item.fingerprint ? "open" : "stale";
 }
 
-/** A failed Knowledge write keeps its item open; only the outcome code and a short reason are reported. */
 function knowledgeRejected(failure: KnowledgeWriteFailure): Decided {
   return {
     outcome: "knowledge_rejected",
@@ -355,7 +349,6 @@ function knowledgeRejected(failure: KnowledgeWriteFailure): Decided {
   };
 }
 
-/** Shortens every free-text field of a page to `limit` characters; ids, kinds and states are never touched. */
 function shortenContext(result: ContextResult, limit: number): void {
   const cut = (value: string): string => (value.length > limit ? value.slice(0, limit) : value);
   for (const item of result.items) {
@@ -400,11 +393,6 @@ function shortenContext(result: ContextResult, limit: number): void {
   result.truncated = true;
 }
 
-/**
- * Agent review: an Agent judges the pending Agent decisions, proposed Knowledge candidates, and possibly stale or
- * contradicted active Knowledge a user snapshotted into a request. Verdicts apply directly and are attributed to the
- * Agent, so a person can overturn them later; without an open request Agent writes are refused.
- */
 export class AgentReviewService {
   public constructor(
     private readonly db: DatabaseSync,
@@ -437,7 +425,6 @@ export class AgentReviewService {
     };
   }
 
-  /** Knowledge whose latest Agent verdict still stands, newest first, at most 200, as each record is now. */
   public listReviewedKnowledge(input: AgentReviewedKnowledgeQuery = {}): AgentReviewedKnowledgeListResult {
     let projectId: string | undefined;
     if (input.projectRoot) {
@@ -481,21 +468,18 @@ export class AgentReviewService {
     };
   }
 
-  /** Web entry: the project is named by id. */
   public create(input: CreateAgentReviewRequestInput): CreateAgentReviewRequestResult {
     const policy = this.dependencies.checkProjectById(input.projectId);
     if (!policy.allowed) return skippedById(input.projectId, policy);
     return this.open(input.projectId, input.idempotencyKey);
   }
 
-  /** Agent entry: the project is named by its root. An already open request is returned, not rejected. */
   public requestForRoot(input: RequestAgentReviewInput): RequestAgentReviewResult {
     const policy = this.dependencies.checkProjectRoot(input.projectRoot);
     if (!policy.allowed || !policy.project) return skippedByRoot(policy);
     return this.open(policy.project.id, input.idempotencyKey);
   }
 
-  /** Claims the request (processing) and returns one page of its snapshot, newest state read in batches. */
   public context(input: AgentReviewContextQuery): AgentReviewContextResult {
     this.recoverStale();
     const resolved = this.resolve(input);
@@ -609,7 +593,6 @@ export class AgentReviewService {
     });
   }
 
-  /** Returns an Agent-reviewed item to the pending inbox and archives the Knowledge the verdict created, if still active. */
   public overturn(input: OverturnAgentReviewInput): OverturnAgentReviewResult {
     const policy = this.dependencies.checkProjectRoot(input.projectRoot);
     if (!policy.allowed || !policy.project) return skippedByRoot(policy);
@@ -708,11 +691,7 @@ export class AgentReviewService {
     });
   }
 
-  /**
-   * Pending Agent decisions of live Sessions first, then proposed candidates, then active Knowledge in doubt, each
-   * oldest first. An item a person once overturned stays in their own queue, so a later request never hands it to an
-   * Agent again.
-   */
+  /** An item a person once overturned stays in their queue, so a later request never hands it to an Agent again. */
   private snapshot(projectId: string): {
     items: Array<{ kind: AgentReviewItemKind; id: string; sessionId: string | null; fingerprint: string }>;
     omitted: number;
@@ -768,11 +747,6 @@ export class AgentReviewService {
     return { items, omitted: decisionTotal + candidateTotal + knowledge.length - items.length };
   }
 
-  /**
-   * Every active Knowledge of the project that is possiblyStale or contradicted, oldest first. Only rows with an
-   * appliesTo or a review can qualify, so the rest are never read; staleness comes from one batched trust pass, the same
-   * one every Knowledge read and the attention queue use.
-   */
   private knowledgeInDoubt(projectId: string, notOverturned: string): TrustedKnowledge[] {
     const rows = this.db
       .prepare(
@@ -869,7 +843,6 @@ export class AgentReviewService {
     });
   }
 
-  /** A Knowledge item as it is now, why it is in doubt, and the later Sessions that touched its appliesTo. */
   private knowledgeContext(
     base: Pick<AgentReviewContextItem, "itemKind" | "id" | "state" | "overlaps">,
     record: KnowledgeRecord,
@@ -949,12 +922,7 @@ export class AgentReviewService {
     };
   }
 
-  /**
-   * Items keep their normal field limits and are shortened only when they alone exceed the budget. The attached lists
-   * get what is left, each dropped from its end: first every Knowledge item's later Sessions in item order, then the
-   * Knowledge titles (active first, then archived, then rejected). Every list is reserved at its largest omitted count
-   * before any is filled, so filling one never pushes the page over through a count added later.
-   */
+  /** Every list is reserved at its largest omitted count before any is filled, so a later count never pushes it over. */
   private fitContext(result: ContextResult): void {
     const existing = result.existingKnowledge?.map((entry) => ({
       ...entry,
@@ -1015,11 +983,7 @@ export class AgentReviewService {
     }
   }
 
-  /**
-   * Keeps the longest prefix of `entries` under `key` that fits the page and records `omitted` plus the dropped ones
-   * under `omittedKey` (left out when zero). The target must already carry its largest count, so the final count
-   * always fits. Returns how many entries were kept.
-   */
+  /** The target must already carry its largest omitted count, so the final count always fits. */
   private fitList(
     result: ContextResult,
     target: object,
@@ -1115,7 +1079,7 @@ export class AgentReviewService {
     return { results, redactions: combineRedactionSummaries(...redactions) };
   }
 
-  /** One verdict against the item's current row: only an unchanged pending row is written, anything else is skipped. */
+  /** Only an unchanged pending row is written; anything else is skipped. */
   private decide(
     request: RequestRow,
     rootPath: string,
@@ -1195,11 +1159,6 @@ export class AgentReviewService {
     return { outcome: "applied", ...(knowledgeId ? { knowledgeId } : {}), ...(redactions ? { redactions } : {}) };
   }
 
-  /**
-   * Active Knowledge in doubt, through the ordinary Knowledge writes: confirm records a manual confirmation (the
-   * possiblyStale baseline moves to now and review clears), archive archives it, and supersede records the draft with
-   * supersedesId, which archives the old one. The verdict itself (Agent, reason, request) lives on the snapshot item.
-   */
   private decideKnowledge(
     request: RequestRow,
     rootPath: string,
@@ -1232,7 +1191,6 @@ export class AgentReviewService {
     return { outcome: "applied", knowledgeId: recorded.knowledge.id, redactions: recorded.redactions };
   }
 
-  /** The stored results of an earlier submission with this key, when the payload is the same. */
   private replay(requestId: string, idempotencyKey: string, hash: string): SubmitAgentReviewVerdictsResult | undefined {
     const previous = this.db
       .prepare(
@@ -1251,13 +1209,12 @@ export class AgentReviewService {
     };
   }
 
-  /** The list stored when the request completed; a request completed before schema 40 has none and is computed. */
+  /** A request completed before schema 40 has no stored list, so it is computed. */
   private completionOf(requestId: string): AgentReviewKnowledgePage[] {
     const row = this.requestRow(requestId)!;
     return parseStoredPages(row.completion_pages_json) ?? this.completionPages(row.id, row.project_id);
   }
 
-  /** Pages of the project that cite a reviewed Session, then the project's own update queue, at most 12 in all. */
   private completionPages(requestId: string, projectId: string): AgentReviewKnowledgePage[] {
     const applied = new Set(
       (
@@ -1282,7 +1239,6 @@ export class AgentReviewService {
     return [...pages.values()].slice(0, MAX_COMPLETION_PAGES);
   }
 
-  /** A decision or candidate this service's Agent verdict decided, with the Knowledge id that verdict created. */
   private reviewedByAgent(
     projectId: string,
     kind: AgentReviewItemKind,
@@ -1316,7 +1272,7 @@ export class AgentReviewService {
     return { knowledgeId: row.knowledge_id ?? undefined, createdKnowledge: Boolean(created) };
   }
 
-  /** Archives the verdict's Knowledge only while it is still active; an edited, replaced or deleted one is left alone. */
+  /** Only while still active: an edited, replaced or deleted Knowledge is left alone. */
   private archiveCreated(
     projectId: string,
     projectRoot: string,
@@ -1335,11 +1291,7 @@ export class AgentReviewService {
       : { id: current.id, action: "unchanged", status: current.status };
   }
 
-  /**
-   * Undoes the latest standing Agent verdict on a Knowledge item through the ordinary Knowledge writes: a confirmation
-   * is withdrawn, an archive restored, a replacement archived and the replaced Knowledge restored. Each step happens
-   * only while nothing else changed that Knowledge since; every standing verdict on it is marked overturned.
-   */
+  /** Each undo step happens only while nothing else changed that Knowledge since the verdict. */
   private overturnKnowledge(projectId: string, projectRoot: string, knowledgeId: string): OverturnAgentReviewResult {
     return runImmediateTransaction(this.db, (): OverturnAgentReviewResult => {
       if (this.knowledgeRows(projectId, [knowledgeId]).length === 0)
@@ -1381,7 +1333,6 @@ export class AgentReviewService {
     });
   }
 
-  /** Restores archived Knowledge; refused (unchanged) while another active Knowledge supersedes it. */
   private restoreArchived(projectId: string, projectRoot: string, knowledgeId: string): "restored" | "unchanged" {
     const [row] = this.knowledgeRows(projectId, [knowledgeId]);
     if (row?.status !== "archived") return "unchanged";
@@ -1401,7 +1352,6 @@ export class AgentReviewService {
     };
   }
 
-  /** The current rows behind the items, one batched query per kind. */
   private currentRows(projectId: string, itemRows: readonly ItemRow[]): CurrentRows {
     const idsOf = (kind: AgentReviewItemKind): string[] =>
       itemRows.filter((item) => item.item_kind === kind).map((item) => item.item_id);
@@ -1430,7 +1380,6 @@ export class AgentReviewService {
     };
   }
 
-  /** Knowledge rows by id, of one project or (without one) of any project. */
   private knowledgeRows(projectId: string | undefined, ids: readonly string[]): KnowledgeRow[] {
     if (ids.length === 0) return [];
     return this.db
@@ -1452,7 +1401,6 @@ export class AgentReviewService {
     return new Map(rows.map((row) => [row.id, row]));
   }
 
-  /** The first decisions of each Session, enough for the page to show five besides the one being reviewed. */
   private siblingDecisions(sessionIds: readonly string[]): Map<string, SiblingDecisionRow[]> {
     const grouped = new Map<string, SiblingDecisionRow[]>();
     if (sessionIds.length === 0) return grouped;
@@ -1512,7 +1460,6 @@ export class AgentReviewService {
     return row ? this.toRequests([row])[0] : undefined;
   }
 
-  /** Counts come from one aggregate over the page's requests, not from a query per request. */
   private toRequests(rows: readonly RequestRow[]): AgentReviewRequest[] {
     if (rows.length === 0) return [];
     const counts = new Map(
@@ -1607,7 +1554,6 @@ export class AgentReviewService {
     });
   }
 
-  /** Processing requests abandoned for 30 minutes become failed, which an Agent can pick up again. */
   private recoverStale(now = Date.now()): void {
     const cutoff = new Date(now - PROCESSING_TIMEOUT_MS).toISOString();
     const stale = this.db
@@ -1627,7 +1573,7 @@ export class AgentReviewService {
           .run(cutoff),
       );
     } catch (error) {
-      // This lazy cleanup runs on read paths; once another process migrated the database the reads keep working.
+      // Lazy cleanup on read paths: once another process migrated the database, reads go on without it.
       if (!isDatabaseSchemaChangedError(error)) throw error;
     }
   }

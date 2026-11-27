@@ -11,18 +11,14 @@ import type { Logger } from "./log.js";
 import { applyLoginItem } from "./settings.js";
 import type { ShellState } from "./state.js";
 
-/** How long one answer of the system is reused; short enough that a change made in the system shows on the next poll. */
 const SYSTEM_READ_WINDOW_MS = 2_000;
 
 export interface LoginItemControllerOptions {
   readonly state: ShellState;
   readonly paths: Pick<DesktopPaths, "settingsFile">;
   readonly platform?: NodeJS.Platform;
-  /** Reads Electron's login item answer; injectable so a test needs no real system. */
   readonly readSystem?: (query: ReturnType<typeof loginItemQueryFor>) => unknown;
-  /** Applies the settings to the system (Electron's `setLoginItemSettings`). */
   readonly apply?: (state: ShellState) => void;
-  /** Called after a change, so the backend's facts (the Web status) follow. */
   readonly changed?: () => void;
   readonly log: Logger;
 }
@@ -32,11 +28,6 @@ export interface LoginItemController {
   set(enable: boolean): Promise<LoginItemSetResult>;
 }
 
-/**
- * The Settings tab's 「登入時自動啟動」 switch. The page sends only a boolean; the user's own click on the switch is the
- * consent that {@link changeLoginItem} requires for turning it on. The settings file is written the same atomic way as
- * every other App setting before the system's login item is touched, and the section always shows what the system says.
- */
 export function createLoginItemController(options: LoginItemControllerOptions): LoginItemController {
   const { state, paths, log } = options;
   const platform = options.platform ?? process.platform;
@@ -44,13 +35,11 @@ export function createLoginItemController(options: LoginItemControllerOptions): 
     options.readSystem ?? ((query: ReturnType<typeof loginItemQueryFor>) => app.getLoginItemSettings(query as never));
   const apply = options.apply ?? applyLoginItem;
   const supported = loginItemQueryFor(platform) !== undefined;
-  // The page asks several times per paint and polls; the system answer is read at most once per window, and again at once after a change.
   let cached: { readonly at: number; readonly system: RepairLoginItemSection["system"] } | undefined;
 
   function section(): RepairLoginItemSection {
     const desired = state.settings?.desired.launchAtLogin === true;
     if (!supported) return { supported: false, desired, system: "unknown" };
-    // Before the first-run choice there are no settings and nothing to compare with: the system is not asked at all.
     if (!state.settings) return { supported: true, desired, system: "unknown" };
     const now = Date.now();
     if (cached && now - cached.at < SYSTEM_READ_WINDOW_MS) return { supported: true, desired, system: cached.system };
@@ -73,7 +62,6 @@ export function createLoginItemController(options: LoginItemControllerOptions): 
       const request = enable ? ({ enable: true, consent: true } as const) : ({ enable: false } as const);
       let before = state.settings.desired.launchAtLogin;
       try {
-        // Only this one field changes, on the settings as they are when the write's turn comes (see updateSettings).
         await state.updateSettings(paths.settingsFile, (current) => {
           before = current.desired.launchAtLogin;
           const change = changeLoginItem(current, request, platform);

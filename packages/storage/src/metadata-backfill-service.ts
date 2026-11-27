@@ -145,7 +145,7 @@ function toMetadataBackfillItem(
   mapSession: (row: SessionRow) => WorkSessionRecord,
 ): MetadataBackfillItem {
   const mapped = mapSession(row);
-  // Legacy or hand-edited rows may hold JSON `null`, which parseJson returns as-is; treat non-arrays as empty.
+  // Legacy or hand-edited rows may hold JSON `null`, which parseJson returns as-is.
   const session = {
     ...mapped,
     changedFiles: Array.isArray(mapped.changedFiles) ? mapped.changedFiles : [],
@@ -180,7 +180,6 @@ function toMetadataBackfillItem(
 }
 
 export class MetadataBackfillService {
-  // The follow-up count scans every Session of its scope and getContext asks for it on every call.
   private readonly followUpCounts: DataRevisionCache<MetadataBackfillTotals>;
 
   public constructor(
@@ -229,8 +228,7 @@ export class MetadataBackfillService {
           projectClause,
       )
       .get(...parameters) as { count: number };
-    // Keep the SQL candidate predicate equivalent to toMetadataBackfillItem so legacy or malformed JSON rows
-    // cannot be dropped before the JavaScript DTO mapper decides the exact preview items.
+    // Must stay equivalent to toMetadataBackfillItem, so malformed rows are not dropped before the mapper decides.
     const candidate = metadataBackfillCandidateSql("s");
     const rows = this.db
       .prepare(
@@ -271,7 +269,7 @@ export class MetadataBackfillService {
       }
       projectId = decision.project.id;
     }
-    // Policy is checked above on every call; only the count itself is reused, keyed by its project scope.
+    // Policy is checked above on every call; only the count is reused.
     const totals = this.followUpCounts.get(projectId ?? "", () => this.scanMetadataBackfillFollowUps(projectId));
     return { ...totals };
   }
@@ -330,8 +328,7 @@ export class MetadataBackfillService {
         .get(idempotencyKey) as MetadataBackfillRequestRow | undefined;
       if (existingRow) {
         if (existingRow.status === "cancelled") {
-          // A cancelled request must not block a later scan with the same
-          // deterministic source set. The retry gets its own idempotency key.
+          // A cancelled request must not block a later scan with the same deterministic source set.
           const retryIdempotencyKey = `${idempotencyKey}:retry:${randomUUID()}`;
           const requestedAt = nowIso();
           const id = randomUUID();

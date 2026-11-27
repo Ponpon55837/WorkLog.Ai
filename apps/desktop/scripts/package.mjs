@@ -1,29 +1,4 @@
 #!/usr/bin/env node
-/**
- * `pnpm package:desktop [--dir] [--skip-build] [--arch <arch>] [--compression store|normal|maximum]
- *                       [--dmg-format UDZO|ULFO] [--compare-compression] [--electron-dist <directory>] [--baseline]`
- *
- * Packages the desktop App for the host platform (a runtime is the host's own official Node binary, so each OS and
- * architecture builds natively; `--arch` must be the host's):
- *
- *   0. runs the workspace build (`pnpm build`, scripts/workspace-build.mjs) unless `--skip-build`, so a local package is
- *      one command; CI builds in its own step and passes `--skip-build`
- *   1. builds the runtime (scripts/desktop-runtime-spike/build.mjs) and stages runtime-bundle/{current,runtimes/<id>}
- *   2. builds the shell with --production and the SHA-256 of the runtime manifest, and checks the bundle has no test hooks
- *   3. stages a clean app directory (package.json + dist/, no dependencies)
- *   4. electron-builder packs the unpacked app and signs nothing; its afterPack hook (scripts/after-pack.mjs) flips the
- *      fuses and, on macOS, ad-hoc signs the app inside-out, identically on pull-request and release builds. Each
- *      installer target is then built from that app
- *   5. verifies the icon files parse (macOS: the packed icon.icns is the custom one), the runtime bundle INSIDE the packed
- *      app against its manifest (every file hashed) and the fuse wire read back from the binary; on macOS also
- *      `codesign --verify --deep --strict` on the app and on the extracted zip, `codesign --verify --strict` on the
- *      bundled node, relative in-app runtime symlinks (all must pass) and `spctl --assess` (recorded only)
- *   6. writes package-results/package-<platform>-<arch>.json (timings, sizes, gates) and fails on a size gate
- *
- * `--dir` stops after the unpacked app (Linux always does: it is a local check, not shipped). `--baseline` is the naive
- * build (all Electron locales, source maps, no production flag) used once to measure what the filtering saves.
- * Everything goes under dist/desktop-package/<platform>-<arch>/.
- */
 import { createHash } from "node:crypto";
 import {
   cpSync,
@@ -389,7 +364,6 @@ function measurePackedApp(packedApp) {
     unpackedBytes,
     asarBytes: statSync(join(resources, "app.asar")).size,
     runtimeBundleBytes: directoryBytes(join(resources, "runtime-bundle")),
-    // The Electron framework: the macOS Frameworks folder, elsewhere everything outside resources/.
     electronFrameworkBytes: frameworks ? directoryBytes(frameworks) : unpackedBytes - directoryBytes(resources),
   };
 }

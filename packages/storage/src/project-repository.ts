@@ -37,10 +37,6 @@ export interface ProjectUpdate {
   repositoryUrl?: string | null;
 }
 
-/**
- * Project Registry persistence. Policy decisions stay in ProjectPolicyGate;
- * this repository only owns registry reads and writes.
- */
 export class ProjectRepository {
   public constructor(private readonly db: DatabaseSync) {}
 
@@ -60,10 +56,6 @@ export class ProjectRepository {
     return rows.map(toProject);
   }
 
-  /**
-   * Up to five tracked or paused projects an unregistered root may have meant (see matchRegisteredRoots): one query
-   * over the registry's name, root and status columns and one pass over its rows.
-   */
   public matching(projectRoot: string): MatchingProject[] {
     const rows = this.db
       .prepare("SELECT name, root_path AS rootPath, status FROM projects WHERE status IN ('tracked', 'paused')")
@@ -71,7 +63,6 @@ export class ProjectRepository {
     return matchRegisteredRoots(canonicalizeProjectRoot(projectRoot), rows, MATCHING_PROJECT_LIMIT);
   }
 
-  /** A cheap count of registered projects, for status displays that must not load every row. */
   public count(): number {
     const row = this.db.prepare("SELECT COUNT(*) AS count FROM projects").get() as { count: number };
     return row.count;
@@ -81,7 +72,6 @@ export class ProjectRepository {
     return runImmediateTransaction(this.db, () => this.insertIfMissing(name, rootPath));
   }
 
-  /** `repositoryUrl: null` (or an empty string) removes the repository link. */
   public update(projectId: string, update: ProjectUpdate): ProjectRecord | undefined {
     return runImmediateTransaction(this.db, () => this.applyUpdate(projectId, update));
   }

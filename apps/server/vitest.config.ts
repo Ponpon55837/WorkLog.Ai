@@ -3,7 +3,6 @@ import { defineConfig } from "vitest/config";
 import { isolatedEnvironmentSetup } from "../../tests/helpers/isolated-environment-setup";
 import { sqliteNoFlushSetup } from "../../tests/helpers/sqlite-no-flush-setup";
 
-// Test-only SQLite timing (no-op unless WI_SQLITE_TIMING=1), see tests/helpers/sqlite-timing.ts.
 const sqliteTimingSetup = fileURLToPath(new URL("../../tests/helpers/sqlite-timing-setup.ts", import.meta.url));
 
 export const serverAliases = {
@@ -50,9 +49,8 @@ export const serverAliases = {
   "@work-intelligence/storage": fileURLToPath(new URL("../../packages/storage/src/index.ts", import.meta.url)),
 };
 
-// Server tests also open real SQLite files, back them up and run CLI commands against them. On Windows CI runners
-// a fresh file can be briefly locked and SQLite then waits up to its 5 s busy_timeout, so the default 5 s test
-// timeout fails at exactly that point. Give them the same headroom as the storage tests.
+// On Windows CI runners a fresh file can be briefly locked and SQLite waits up to its 5 s busy_timeout, so the
+// default 5 s test timeout fails there.
 export const serverTestTimeout = 20_000;
 
 export default defineConfig({

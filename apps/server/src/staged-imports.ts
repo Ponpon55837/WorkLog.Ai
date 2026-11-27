@@ -5,22 +5,13 @@ import { createTransferDirectory, removeTransferDirectory } from "./transfer-wor
 import type { ProjectDataImportUpload } from "./routes/router.js";
 
 /**
- * Export files the Web UI uploaded once for an import. The page streams the chosen file to the API, which saves it
- * under the transfer root and answers with an id; every preview and the import then name that id instead of sending
- * the file again, and the renderer never reads or parses the file itself.
- *
- * The id is the only handle: 32 random bytes, returned only to the request that uploaded the file, never listed. The
- * API has no user sessions (it serves the local user on loopback behind its Origin and Host checks), so knowing the id
- * is the binding. A staged file is removed after a successful import, on cancel, {@link STAGED_IMPORT_TTL_MS} after it
- * was saved, and by the start-up sweep of the transfer root if the process died first.
+ * The id (32 random bytes, returned only to the uploader, never listed) is the only handle: the API has no user
+ * sessions, so knowing the id is the binding.
  */
 
 /** @internal test-only */
 export const STAGED_IMPORT_TTL_MS = 30 * 60 * 1000;
-/**
- * Staged files kept at once; another upload removes the oldest one not in use, or is refused when all are.
- * @internal test-only
- */
+/** @internal test-only */
 export const MAX_STAGED_IMPORTS = 2;
 /** @internal test-only */
 export const STAGED_IMPORT_NOT_FOUND_MESSAGE = "暫存的匯入檔已過期或不存在；請重新選擇檔案。";
@@ -45,13 +36,11 @@ interface StagedImport {
   readonly path: string;
   readonly createdAt: number;
   readonly expiresAt: number;
-  /** Operations reading the file now; removal waits until they end. */
   uses: number;
   removed: boolean;
   timer: ReturnType<typeof setTimeout>;
 }
 
-/** A staged file reserved before its upload finishes; `commit` makes it usable, `discard` removes it. */
 export interface StagedImportReservation {
   readonly id: string;
   readonly path: string;
@@ -71,10 +60,7 @@ export class StagedImports {
     private readonly limit = MAX_STAGED_IMPORTS,
   ) {}
 
-  /**
-   * A new directory for an upload. The upload counts toward the limit (and is in use) from now on, so two uploads at
-   * once cannot both pass it.
-   */
+  // The upload counts toward the limit from now on, so two uploads at once cannot both pass it.
   public reserve(): StagedImportReservation {
     this.makeRoom();
     const id = randomBytes(32).toString("base64url");
@@ -104,7 +90,6 @@ export class StagedImports {
     };
   }
 
-  /** Runs `operation` on a staged file; it is not removed while the operation runs. */
   public async use<T>(
     id: string,
     options: unknown,
@@ -119,7 +104,6 @@ export class StagedImports {
     }
   }
 
-  /** Removes a staged file now, or as soon as the operations reading it end. Unknown ids are ignored. */
   public remove(id: string): void {
     const entry = this.entries.get(id);
     if (!entry) return;
@@ -129,20 +113,14 @@ export class StagedImports {
     if (entry.uses === 0) removeTransferDirectory(entry.directory);
   }
 
-  /** Removes every staged file (server shutdown). */
   public clear(): void {
     for (const id of [...this.entries.keys()]) this.remove(id);
   }
 
-  /** An import is in progress: an upload is being saved or an operation is reading a staged file. */
   public get inUse(): boolean {
     return [...this.entries.values()].some((entry) => entry.uses > 0);
   }
 
-  /**
-   * An uploaded file is waiting for the user's confirm: nothing reads it and it has not expired. Stopping the backend
-   * throws it away, so this is worth telling the user about but is not work in progress.
-   */
   public get pending(): boolean {
     const at = this.now();
     return [...this.entries.values()].some((entry) => entry.uses === 0 && entry.expiresAt > at);

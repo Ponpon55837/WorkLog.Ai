@@ -1,20 +1,4 @@
 #!/usr/bin/env node
-/**
- * `pnpm --filter @work-intelligence/desktop generate-icons`
- *
- * Derives build/icon.svg from the brand mark apps/web/public/favicon.svg (scripts/icon-svg.mjs), renders it and writes,
- * next to it:
- *
- *   build/icon.png   1024 px master (electron-builder's Linux icon and the fallback for every platform)
- *   build/icon.ico   Windows: 16, 24, 32, 48, 64, 128 and 256 px, PNG entries
- *   build/icon.icns  macOS: 16 to 1024 px PNG entries (ic04, ic05, ic07 to ic14)
- *   build/tray.png   32 px full-bleed favicon (dark rounded square, legible on light and dark taskbars): Windows/Linux tray
- *   build/trayTemplate.png, trayTemplate@2x.png   16 and 32 px black WI glyph on transparent: macOS menu-bar template image
- *
- * The SVG is rasterized by Playwright's Chromium (a root devDependency) once per size, on a transparent page, so small
- * sizes are rendered from the vector instead of being scaled down. Run it after editing icon.svg and commit the results.
- * The container writers are exported for the packaging check (`scripts/icon-files.mjs` parses them back).
- */
 import { Buffer } from "node:buffer";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -27,7 +11,7 @@ const scriptsDirectory = dirname(fileURLToPath(import.meta.url));
 const buildDirectory = join(scriptsDirectory, "..", "build");
 const faviconFile = join(scriptsDirectory, "..", "..", "web", "public", "favicon.svg");
 const ICO_SIZES = [16, 24, 32, 48, 64, 128, 256];
-/** ICNS entry types and the pixel size of the PNG each one holds (the @2x entries repeat a size on purpose). */
+// The @2x entries repeat a pixel size on purpose.
 const ICNS_ENTRIES = [
   ["ic04", 16],
   ["ic05", 32],

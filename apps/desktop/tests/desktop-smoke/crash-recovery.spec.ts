@@ -20,13 +20,6 @@ import {
   type Sandbox,
 } from "./helpers.js";
 
-/**
- * Crash recovery (H-01): the App's main process is killed in the middle of a port change and of a database switch, at the
- * commit step (the new backend verified, the settings not written yet; a test-build seam, see test-pause.ts). The next
- * start must close the interrupted operation from the REAL state (the settings file), leave the old port and database in
- * place, start the service normally and say on the Status tab what happened and what the user can do. Synthetic data only.
- */
-
 interface JournalRecord {
   operationId: string;
   kind: string;
@@ -60,7 +53,6 @@ function readSettings(box: Sandbox): SettingsFile {
   return JSON.parse(readFileSync(join(box.dataDirectory, "desktop-settings.json"), "utf8")) as SettingsFile;
 }
 
-/** Ends the App's main process the way a crash or power loss does (no quit handlers run), then waits for its backend. */
 async function crash(running: ElectronApplication, box: Sandbox, pauseFile: string, kind: string): Promise<void> {
   await expect.poll(() => existsSync(`${pauseFile}.reached`), { timeout: 90_000 }).toBe(true);
   expect(JSON.parse(readFileSync(`${pauseFile}.reached`, "utf8"))).toEqual({ kind });

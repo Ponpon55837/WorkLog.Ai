@@ -15,10 +15,6 @@ function sharedIds(first: readonly string[] | undefined, second: readonly string
   return [...new Set((first ?? []).filter((id) => secondIds.has(id)))];
 }
 
-/**
- * The first way a finalize request contradicts itself, or undefined when it is consistent. Each check looks only at the
- * request, so the answer never depends on what is already stored.
- */
 export function findFinalizeRequestContradiction(
   input: CheckedFields,
   hasNextSteps: boolean,

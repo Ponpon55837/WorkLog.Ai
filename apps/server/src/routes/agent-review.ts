@@ -34,7 +34,6 @@ function sendResult(response: ServerResponse, result: ReviewResult, successStatu
   sendJson(response, QUIET_OUTCOMES.has(result.outcome) ? 200 : successStatus, result);
 }
 
-/** Maps domain conflicts without exposing database details; policy skips remain quiet successful results. */
 function reviewRoute<S extends z.ZodType>(
   schema: S,
   input: (context: RouteContext) => unknown,
@@ -59,7 +58,6 @@ function overturnRoute(itemKind: "decision" | "candidate" | "knowledge", param: 
   );
 }
 
-/** Web-created Agent review requests and the user's overturn of an Agent verdict. */
 export const agentReviewRoutes: Route[] = [
   {
     method: "POST",

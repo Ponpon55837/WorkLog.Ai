@@ -17,12 +17,6 @@ import {
 import type { ShellLocale } from "@work-intelligence/desktop-core/shell/i18n";
 import { actions, button, element, hint, section } from "./dom.js";
 
-/**
- * 「整理資料庫」 on the Data tab, and its one-line summary on Status. The page only sends the mode; main reads every path,
- * asks the user in a native dialog and holds the lock while it runs. The answer of the last run lives here across the periodic
- * redraws, like the restore card's.
- */
-
 let working: MaintenanceMode | null = null;
 let answer: { readonly text: string; readonly ok: boolean } | null = null;
 
@@ -30,10 +24,8 @@ export interface MaintenanceViewHost {
   readonly api: RepairApi;
   readonly locale: ShellLocale;
   readonly maintenance: RepairMaintenanceSection;
-  /** Another page action is running (or a start): the buttons wait. */
   readonly pageBusy: boolean;
   readonly rerender: () => void;
-  /** Ask main for a fresh state (the service or the database changed). */
   readonly refresh: () => void;
 }
 
@@ -49,7 +41,6 @@ async function run(host: MaintenanceViewHost, mode: MaintenanceMode): Promise<vo
   working = null;
   if (result.ok) answer = { text: maintenanceSuccessText(text, result), ok: true };
   else {
-    // A refusal that is not a state of the service (an invalid answer) carries no flags: the safe reading is "unchanged".
     answer = {
       text: maintenanceFailureText(text, host.locale, {
         ...result,
@@ -63,7 +54,6 @@ async function run(host: MaintenanceViewHost, mode: MaintenanceMode): Promise<vo
   host.rerender();
 }
 
-/** What the free space and the last run say, as lines; shared by the card and the Status summary. */
 function summaryLines(text: MaintenanceMessages, locale: ShellLocale, maintenance: RepairMaintenanceSection): string[] {
   const lines = [
     maintenance.reclaimableBytes === null

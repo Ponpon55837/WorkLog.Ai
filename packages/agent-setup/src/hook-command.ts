@@ -23,42 +23,32 @@ import {
 import { JSON_OBJECT } from "./files.js";
 import { claudePluginEnabled } from "./plugins.js";
 
-/** `launcher`: `<shim> <action>` (App); `checkout`: `node <checkout>/apps/mcp/dist/*finalize-reminder.js`. */
 export type HookCommandKind = "launcher" | "checkout" | "other";
 
 export interface HookCommandClassification {
   kind: HookCommandKind;
-  /** The launcher action the command runs (`claude-finalize-reminder` / `codex-finalize-reminder`). */
   action?: string;
-  /** `checkout`: the script path as written in the command; `launcher`: the shim path as written. */
   scriptPath?: string;
-  /** `launcher`: whether the shim is the exact current shim; always true while the current shim is not known. */
   current?: boolean;
 }
 
 export interface HookCommandOptions {
   platform?: NodeJS.Platform;
-  /** The current launcher shim; without it any path with the fixed shim file name is taken as the App's shim. */
   shimPath?: string;
-  /** The exec form of a hook: the words after `command`. */
   args?: readonly string[];
 }
 
 export type HookAgent = "claude-code" | "codex";
 
-/** `stale`: an entry exists but no longer works or no longer matches (see {@link HookStaleReason}). */
 export type HookInstallState = "installed" | "stale" | "missing" | "disabled" | "unknown";
 
-/** `app`: the launcher shim of the desktop App; `checkout`: a script of a source checkout; `plugin`: the plugin. */
 export type HookInstallSource = "app" | "checkout" | "plugin";
 
 export type HookStaleReason = "script-missing" | "shim-differs" | "matcher-outdated";
 
 export interface HookEventInspection {
   event: string;
-  /** The matcher setup writes for this event; `null` when the event has no matcher. */
   matcher: string | null;
-  /** Only required events decide the overall state; the others are optional extras. */
   required: boolean;
   state: HookInstallState;
   source: HookInstallSource | null;
@@ -67,22 +57,14 @@ export interface HookEventInspection {
 
 export interface HookInstallation {
   agent: HookAgent;
-  /** The worst state among the required events; `unknown` and `disabled` apply to every event. */
   state: HookInstallState;
-  /** The source of the first required event (Stop) when it is installed. */
   source: HookInstallSource | null;
   events: HookEventInspection[];
 }
 
 export interface HookInspectionContext extends HookCommandOptions {
-  /** Whether the Agent's Work Intelligence plugin is enabled (Claude: read from the config when not given). */
   pluginEnabled?: boolean;
-  /**
-   * Hooks are switched off outside this file (Codex `[features]`). When not given, Claude reads `disableAllHooks`;
-   * `false` ignores that too, which is how a caller asks what the file itself configures.
-   */
   hooksDisabled?: boolean;
-  /** Whether a path is a regular file; defaults to a real `stat`. */
   isFile?: (path: string) => boolean;
 }
 
@@ -90,7 +72,6 @@ export type McpRegistrationKind = "launcher" | "checkout" | "direct" | "other";
 
 export interface McpRegistrationClassification {
   kind: McpRegistrationKind;
-  /** `app` for the launcher shim, `checkout` for a checkout that still has its launcher or package. */
   source: "app" | "checkout" | null;
 }
 
@@ -103,7 +84,6 @@ interface HookRequirement {
   event: string;
   matcher: string | null;
   required: boolean;
-  /** `current` selects the event, `outdated` is the pre-dispatcher matcher, undefined does not apply. */
   judge: (matcher: unknown) => "current" | "outdated" | undefined;
 }
 
@@ -123,12 +103,11 @@ const AGENT_ACTIONS: Readonly<Record<HookAgent, string>> = {
   "claude-code": CLAUDE_HOOK_ACTION,
   codex: CODEX_HOOK_ACTION,
 };
-/** Tool names a finalize call arrives under; the PreToolUse matchers must select them. */
 const CLAUDE_PRE_TOOL_USE_TOOL_NAME = "mcp__work-intelligence__work_write_idempotent";
 const CODEX_PRE_TOOL_USE_TOOL_NAME = "mcp__work_intelligence__work_write_idempotent";
 const MAX_INSPECTED_NODES = 500;
 
-/** Whether a hook matcher selects the given value: absent, "", and "*" match everything; plain names match exactly. */
+// An absent, empty or "*" matcher selects everything; plain names match exactly.
 function matcherSelects(matcher: unknown, value: string): boolean {
   if (matcher === undefined || matcher === "" || matcher === "*") return true;
   if (typeof matcher !== "string") return false;
@@ -202,10 +181,7 @@ function pathModule(platform: NodeJS.Platform | undefined): typeof posix {
   return (platform ?? process.platform) === "win32" ? win32 : posix;
 }
 
-/**
- * Forward slashes, with repeated separators collapsed: a path with doubled backslashes, as JSON escapes them (`C:\\repo\\apps`), names the same file.
- * A leading `//` (a UNC share) is kept.
- */
+// Collapses repeated separators, as JSON escapes doubled backslashes; a leading `//` (a UNC share) is kept.
 function slashPath(value: string): string {
   return value.replaceAll("\\", "/").replace(/(?!^)\/{2,}/g, "/");
 }
@@ -214,7 +190,7 @@ function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((part): part is string => typeof part === "string") : [];
 }
 
-/** Every `command` (with its `args`) below a hook entry; bounded so a hostile config cannot make this expensive. */
+// Bounded so a hostile config cannot make this expensive.
 function collectHookCommands(value: unknown): Array<{ command: string; args: string[] }> {
   const stack: unknown[] = [value];
   const commands: Array<{ command: string; args: string[] }> = [];
@@ -232,12 +208,6 @@ function collectHookCommands(value: unknown): Array<{ command: string; args: str
   return commands;
 }
 
-/**
- * What a hook command is: the launcher (`<shim> <known action>`, the exact shim when `shimPath` is known, else the
- * fixed shim file name), a checkout script (`node <checkout>/apps/mcp/dist/[codex-]finalize-reminder.js`, the path
- * is taken from the command itself), or something else. Handles the quoting setup writes on every platform, paths
- * with spaces and quotes, and the exec form (`command` is the runtime, `args` carries the script).
- */
 export function classifyHookCommand(command: string, options: HookCommandOptions = {}): HookCommandClassification {
   const words = commandWords(command, options.platform ?? process.platform);
   if (!words) return { kind: "other" };
@@ -253,8 +223,6 @@ export function classifyHookCommand(command: string, options: HookCommandOptions
       current: options.shimPath === undefined || isLauncherShimCommand(first, options.shimPath),
     };
   }
-  // `node [flags] <script>`, with env prefixes or a `cd x &&` in front: some word is the known script path and an
-  // earlier word is a node executable.
   const scriptIndex = all.findIndex((word) => checkoutScriptName(word) !== undefined);
   const scriptPath = all[scriptIndex];
   if (scriptPath !== undefined && all.slice(0, scriptIndex).some(isNodeExecutable)) {
@@ -264,7 +232,6 @@ export function classifyHookCommand(command: string, options: HookCommandOptions
   return { kind: "other" };
 }
 
-/** The file name when `word` is `<checkout>/apps/mcp/dist/<known hook script>`. */
 function checkoutScriptName(word: string): string | undefined {
   const normalized = slashPath(word);
   const basename = normalized.split("/").at(-1) ?? "";
@@ -351,22 +318,12 @@ function uniformInstallation(
   };
 }
 
-/** Every event `unknown`: the hooks cannot be judged (for Codex, when its `[features]` switch cannot be read). */
 export function unknownHookInstallation(agent: HookAgent): HookInstallation {
   return uniformInstallation(agent, agent === "claude-code" ? CLAUDE_REQUIREMENTS : CODEX_REQUIREMENTS, "unknown");
 }
 
-/**
- * The state of every hook Work Intelligence needs in one Agent's hooks configuration, checked per (event, matcher):
- * `installed` (by the App's launcher shim, by a checkout script that still exists, or by the plugin), `stale` (an
- * entry exists but its script or shim is gone, or it still uses the pre-dispatcher matcher), `missing`,
- * `disabled`, or `unknown` (unreadable or malformed). A checkout entry that works is installed, not stale: the user
- * may have set up Agents from a checkout before installing the App. Only the paths named in the commands are
- * looked at, and other tools' hooks next to ours are ignored.
- *
- * `config`: `undefined` is a missing file (nothing installed), an object is the parsed JSON, anything else (the
- * caller could not read or parse the file) is `unknown`.
- */
+// A checkout entry that works is installed, not stale. `config`: undefined is a missing file, an object the parsed
+// JSON, anything else `unknown`.
 export function inspectHookInstallation(
   config: unknown,
   agent: HookAgent,
@@ -419,7 +376,6 @@ const NODE_FLAGS_WITH_VALUE: ReadonlySet<string> = new Set([
   "--input-type",
 ]);
 
-/** The first argument that is not a node flag (or a flag's value): the script `node` runs. */
 function nodeScriptArgument(args: readonly string[]): string | undefined {
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
@@ -430,7 +386,6 @@ function nodeScriptArgument(args: readonly string[]): string | undefined {
   return undefined;
 }
 
-/** The `--dir`/`-C` value of a pnpm command line (`--dir <dir>`, `--dir=<dir>`, `-C <dir>`). */
 function pnpmDirectory(args: readonly string[]): string | undefined {
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
@@ -440,13 +395,6 @@ function pnpmDirectory(args: readonly string[]): string | undefined {
   return undefined;
 }
 
-/**
- * How an MCP server entry starts Work Intelligence: `launcher` (`<shim> mcp`, the App, as long as the shim exists),
- * `checkout` (`node [flags] <checkout>/apps/mcp/dist/launcher.js`, or `pnpm start:mcp` with `--dir`/`-C`/`cwd` on a
- * checkout, as long as that checkout's launcher still exists; a relative path is taken from `cwd`, and `cmd /c` in
- * front is looked through), the legacy `direct` server entry point (works, but needs a reconnect after every build, as
- * long as the script exists), or `other` (a different command, or a shim or checkout that is gone).
- */
 export function classifyMcpRegistration(
   value: unknown,
   context: McpRegistrationContext = {},

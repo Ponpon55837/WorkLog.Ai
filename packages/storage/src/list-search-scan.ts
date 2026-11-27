@@ -1,80 +1,34 @@
 import type { DatabaseSync } from "node:sqlite";
 
-/**
- * Bounds for the substring list searches (the Knowledge list, the Sessions list `q`): every word of the query must
- * appear in some stored text field, which SQLite checks row by row.
- *
- * Why these bounds (docs/architecture.md, "Bounded work over stored text", lists every such path):
- * - The words are matched with `instr()`, which compares at most a term's bytes per stored byte with memcmp (no
- *   backtracking). `LIKE '%term%'` re-matched the term from every stored position: a 500-character near-miss term
- *   took 38.6 s over 2,000 Knowledge rows. With instr, the cost per stored byte is a small constant for terms up to
- *   MAX_LIST_SEARCH_TERM_LENGTH.
- * - Real Agent and Web queries are 2-6 short words; the longest word in the 41 real Knowledge queries is a 41-character
- *   path, and the longest stored changed-file path is 81 characters. 200 characters keeps every real path whole.
- * - Each word's test of a row runs only after the row's searched bytes (from the record header, so a long row is
- *   never loaded) were checked against a per-row cap. A row above the cap is not searched (it counts as not matching)
- *   and is counted, and the caller is told how many were skipped. There is no total budget: an earlier version capped
- *   the whole scan, which on legitimate data of 20,000 Sessions cut an ordinary three-word query short. What the attack
- *   needed was amplification per row (LIKE made one row cost hundreds of times an ordinary one); with instr and the
- *   cap, a row costs at most its bytes x words x about 5.4 ns, so the scan stays linear in the stored text.
- *
- * Worst case at the caps (development machine): about 11 ms per Knowledge row (256 KiB x 8 words), 0.18 s per Session
- * row (4 MiB x 8 words), 20 us per stored path and queried path; ordinary text of the same size costs a fifth to a
- * tenth of that, and legitimate rows are far below the caps (a real Session is about 1.5 KB of searched text).
- * @internal test-only
- */
+/** @internal test-only */
 export const MAX_LIST_SEARCH_TERMS = 8;
 /** @internal test-only */
 export const MAX_LIST_SEARCH_TERM_LENGTH = 200;
-/**
- * Per-row caps on the bytes one word may scan. Each is above the largest row the write limits allow in UTF-8 (a
- * Knowledge row: 300 + 20,000 characters of title and body, 30 tags, 30 references and 30 appliesTo entries of up to
- * 1,000 characters, about 250 KB with three-byte characters; a Session row: a 400,000-character work summary plus
- * summary, changed files and events, about 1.5 MB; a stored path: 1,000 characters), so only a hand-written row is
- * skipped.
- */
+/** Each cap is above the largest row the write limits allow in UTF-8, so only a hand-written row is skipped. */
 export const KNOWLEDGE_SEARCH_ROW_BYTES = 256 * 1024;
 export const SESSION_SEARCH_ROW_BYTES = 4 * 1024 * 1024;
 export const PATH_SEARCH_ROW_BYTES = 4 * 1024;
-/** SQL function that checks one row for one word: CASE WHEN wi_list_search_charge(bytes) THEN <word> ELSE 0 END. */
 export const LIST_SEARCH_CHARGE_FUNCTION = "wi_list_search_charge";
-/** SQL functions for a row's costly part (a Session's events): its check, and the repeat for the next words. */
 const LIST_SEARCH_MORE_FUNCTION = "wi_list_search_more";
 const LIST_SEARCH_MORE_AGAIN_FUNCTION = "wi_list_search_more_again";
-/** SQL function a later word's in-SQL re-check calls only when it refuses a row: counts the row once, returns 0. */
 const LIST_SEARCH_REFUSED_FUNCTION = "wi_list_search_refused";
 
 export interface ListSearchTerms {
-  /** Lower-case terms, each at most MAX_LIST_SEARCH_TERM_LENGTH characters, at most MAX_LIST_SEARCH_TERMS. */
   terms: string[];
-  /** How the query was shortened, for the caller; absent terms were never silently changed. */
   warnings: string[];
 }
 
 export interface ListSearchScan {
-  /** Units per stored byte of each check: 1 for a word, the number of fragments for an OR of them. */
   readonly termCount: number;
-  /** Rows above this many searched bytes are not searched. */
   readonly maxRowBytes: number;
-  /** Checks refused because the row was above maxRowBytes. */
   overBound: number;
-  /** Units (bytes x termCount, plus one per check) the granted checks allowed to be read (debug counter for tests). */
   charged: number;
-  /**
-   * Checks granted: rows times the words that read them, or rows once for a search whose later words re-check the
-   * first word's bytes in SQL (the Sessions list; listSearchRowGuard) (debug counter for tests).
-   */
   rowsCharged: number;
-  /** Stored bytes the granted checks allowed to be read (debug counter for tests). */
   bytesCharged: number;
-  /** Rows whose costly part was measured (a Session's event bytes summed), at most once per row (debug counter). */
   rowsMeasured: number;
 }
 
-/**
- * Test instrumentation: records every scan, and may lower the row cap of the next ones.
- * @internal test-only
- */
+/** @internal test-only */
 export interface ListSearchScanProbe {
   maxRowBytes?: number;
   scans: ListSearchScan[];
@@ -84,16 +38,11 @@ const registered = new WeakSet<DatabaseSync>();
 let activeScan: ListSearchScan | undefined;
 let scanProbe: ListSearchScanProbe | undefined;
 
-/**
- * The last row a keyed check measured in the active scan (its key, cheap bytes, and costly part once a word summed
- * it). One scan is active at a time; runListSearchScan saves and restores it with the scan.
- */
+/** One scan is active at a time; runListSearchScan saves and restores this with the scan. */
 let lastKey: unknown;
 let lastLength = 0;
 let lastMore: number | undefined;
-/** The last keyed row was refused (and counted). */
 let lastRefused = false;
-/** Counts one granted check that may read `length` bytes. */
 function grant(scan: ListSearchScan, length: number, checks: number): void {
   scan.charged += (length + checks) * scan.termCount;
   scan.rowsCharged += checks;
@@ -118,7 +67,6 @@ function chargeRow(bytes: unknown, key?: unknown): number {
   return 1;
 }
 
-/** The second check of a keyed row (chargeRow came first): its cheap bytes plus `more` must stay within the cap. */
 function checkMore(scan: ListSearchScan, more: number): number {
   if (lastLength + more > scan.maxRowBytes) {
     scan.overBound += 1;
@@ -165,19 +113,11 @@ function cutTerm(term: string): string {
   return Array.from(term).slice(0, MAX_LIST_SEARCH_TERM_LENGTH).join("");
 }
 
-/**
- * Splits a list-search query into lowercase terms: words separated by spaces, or a "quoted phrase" kept whole. List
- * searches require every term (in any field), so "report timezone" finds a record that mentions both words apart,
- * while the list keeps its time order and pagination. A term longer than MAX_LIST_SEARCH_TERM_LENGTH is cut to its
- * prefix (a record containing the whole term contains the prefix, so nothing that matched is lost), and terms after
- * MAX_LIST_SEARCH_TERMS are ignored; both are reported in `warnings`.
- */
 export function parseListSearchTerms(query: string): ListSearchTerms {
   const terms: string[] = [];
   const warnings: string[] = [];
   let ignored = 0;
   for (const match of query.toLowerCase().matchAll(/"([^"]+)"|(\S+)/g)) {
-    // Stray quotes (an empty pair, or one left unclosed) are not part of the word.
     const whole = (match[1] ?? match[2] ?? "").replace(/"/g, "").trim();
     if (!whole) continue;
     const term = Array.from(whole).length > MAX_LIST_SEARCH_TERM_LENGTH ? cutTerm(whole) : whole;
@@ -201,10 +141,7 @@ export function parseListSearchTerms(query: string): ListSearchTerms {
   return { terms, warnings };
 }
 
-/**
- * Defines the charge function on a connection, once. WorkIntelligenceStore calls it when it opens the database,
- * because SQLite refuses to define a function while any statement of the connection is active.
- */
+/** Called when the store opens the database: SQLite refuses to define a function while a statement is active. */
 export function registerListSearchFunctions(db: DatabaseSync): void {
   if (registered.has(db)) return;
   db.function(LIST_SEARCH_CHARGE_FUNCTION, { deterministic: false, varargs: true }, chargeRow);
@@ -214,62 +151,36 @@ export function registerListSearchFunctions(db: DatabaseSync): void {
   registered.add(db);
 }
 
-/**
- * The guard of word `index`'s test of a row whose searched text has a cheap part (its own columns: octet_length reads
- * the record header) and perhaps a costly part (listSearchMoreGuard). The first word checks and counts the row under
- * `keySql` (its rowid) in JS; each later word repeats the same comparison of the same bytes with the same cap in SQL,
- * so it needs no call per word (13,500 calls were a third of a three-word query over 5,000 Sessions), and calls JS
- * only to count a row it refuses (once per row). Every word is guarded on its own, in whatever order SQLite runs them.
- * `maxRowBytes` is the cap the scan will use (listSearchRowCap).
- */
 export function listSearchRowGuard(keySql: string, cheapBytesSql: string, index: number, maxRowBytes: number): string {
   if (index === 0) return `${LIST_SEARCH_CHARGE_FUNCTION}(${cheapBytesSql}, ${keySql})`;
   return `((${cheapBytesSql}) <= ${Math.floor(maxRowBytes)} OR ${LIST_SEARCH_REFUSED_FUNCTION}(${keySql}))`;
 }
 
-/** The per-row cap a scan started with `maxRowBytes` will use (a test probe may lower it). */
 export function listSearchRowCap(maxRowBytes: number): number {
   return scanProbe?.maxRowBytes ?? maxRowBytes;
 }
 
-/**
- * The guard of the same word's test of the costly part, placed after the cheap tests so a word found there never
- * sums it: the row's cheap and costly bytes together must stay within the cap. The first word that reaches it sums
- * `moreBytesSql`; COALESCE evaluates its second argument only when the first is NULL, so the later words repeat that
- * check from the recorded sum instead of summing again. Every word is still counted and refused the same way.
- */
+/** COALESCE evaluates its second argument only when the first is NULL, so later words reuse the recorded sum. */
 export function listSearchMoreGuard(keySql: string, moreBytesSql: string): string {
   return `COALESCE(${LIST_SEARCH_MORE_AGAIN_FUNCTION}(${keySql}), ${LIST_SEARCH_MORE_FUNCTION}(${moreBytesSql}, ${keySql}))`;
 }
 
-/**
- * Test instrumentation only: records the scans of later calls into `probe` until called again.
- * @internal test-only
- */
+/** @internal test-only */
 export function setListSearchScanProbe(probe: ListSearchScanProbe | undefined): void {
   scanProbe = probe;
 }
 
-/**
- * The terms of {@link parseListSearchTerms} without the warnings.
- * @internal test-only
- */
+/** @internal test-only */
 export function splitSearchTerms(query: string): string[] {
   return parseListSearchTerms(query).terms;
 }
 
-/** The warning a list search adds when it skipped rows above the per-row cap. */
 export function listSearchOverBoundWarning(scan: ListSearchScan): string | undefined {
   if (scan.overBound === 0) return undefined;
   return `${scan.overBound} ${scan.overBound === 1 ? "record is" : "records are"} longer than the ${Math.round(scan.maxRowBytes / 1024)} KB a search reads per record and ${scan.overBound === 1 ? "was" : "were"} not searched, so the results may be incomplete.`;
 }
 
-/**
- * Runs `run` with a fresh scan; `termCount` is the units per stored byte of each check (debug counters only). The
- * SQL it runs must guard each word's test of a row with `CASE WHEN wi_list_search_charge(<byte length of the searched
- * columns>) THEN … ELSE 0 END`, so a row's text is read only when it is within `maxRowBytes`. node:sqlite is
- * synchronous, so one scan is active at a time; the previous one is restored for nested calls.
- */
+/** The SQL must guard each word's test with `CASE WHEN wi_list_search_charge(<bytes>) THEN … ELSE 0 END`. */
 export function runListSearchScan<T>(
   db: DatabaseSync,
   termCount: number,

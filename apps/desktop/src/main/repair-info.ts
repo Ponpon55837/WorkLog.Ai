@@ -32,14 +32,10 @@ import type { StorageRiskService } from "./storage-risk.js";
 import type { ShellState } from "./state.js";
 
 export interface RepairInfo {
-  /** What the repair page renders: no real path in it. */
   snapshot(): Promise<RepairState>;
-  /** The redacted text the user may export, and what was masked; nothing is written. Throws `DiagnosticsError` when the last check refuses it. */
   diagnosticsPreview(): Promise<BuiltDiagnostics>;
-  /** The folder a button opens (created when missing), or null when there is none to open. */
   folderFor(target: RepairFolderTarget): Promise<string | null>;
   databaseStatus(): RepairState["database"]["status"];
-  /** What decides the window's tab list and its blocking tab right now. */
   tabInputs(): AppTabInputs;
 }
 
@@ -49,23 +45,14 @@ export interface RepairInfoOptions {
   readonly supervisor: BackendSupervisor;
   readonly lastBackup: LastBackupTracker;
   readonly legacy: LegacyGuard;
-  /** Its running operation (if any) puts a busy mark on the tab it belongs to. */
   readonly coordinator?: Pick<OperationCoordinator, "current">;
-  /** Where the recovery notices of interrupted operations are kept (the Status tab's banner). */
   readonly journal: Pick<OperationJournal, "pendingNotices">;
-  /** The storage verdicts this run reached (DT-08). */
   readonly storage: StorageRiskService;
-  /** What the 「連接埠」 section shows. */
   readonly port?: () => RepairPortSection;
-  /** What the 「更新」 card shows. */
   readonly update?: () => RepairUpdateSection;
-  /** What the 「登入時自動啟動」 switch shows. */
   readonly loginItem?: () => RepairLoginItemSection;
-  /** What the 「語言」 card shows. */
   readonly language?: () => RepairLanguageSection;
-  /** What the 「備份位置」 card shows. */
   readonly backupDirectory?: () => RepairBackupDirectorySection | undefined;
-  /** What the 「整理資料庫」 card shows. */
   readonly maintenance?: () => RepairMaintenanceSection;
 }
 
@@ -76,7 +63,6 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
     return databaseStatusFor(supervisor.running !== undefined, state.recentErrors.latest()?.code);
   }
 
-  /** The old login service holds the database: a login start was held back, or the last start was refused for it. */
   function legacyHeld(): boolean {
     return (
       legacy.heldAtLogin() ||
@@ -109,7 +95,6 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
             chosenByUser: true,
             needsMigration: latestCode === "SCHEMA_MIGRATION_BLOCKED",
           });
-    // Served from the journal's in-memory copy; an unreadable journal simply shows no banner.
     const pending = await options.journal.pendingNotices().catch(() => []);
     return buildRepairState({
       platform: process.platform,
@@ -120,7 +105,6 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
       databasePath: state.databasePath(),
       databaseStatus: databaseStatus(),
       ...(ownRisk ? { databaseStorageRisk: ownRisk } : {}),
-      // An update the storage refuses is not offered in place; the storage note offers the copy instead (DT-08).
       databaseMigrationBlocked: storagePolicy(ownStorage).migrationBlocked,
       candidates: state.candidates.list().map((entry) => {
         const needsMigration = entry.preview?.needsMigration ?? false;
@@ -136,14 +120,12 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
           status: entry.preview?.status ?? ("unknown" as const),
           needsMigration,
           ...(entry.preview?.errorCode ? { errorCode: entry.preview.errorCode } : {}),
-          // The consent boxes are the page's to ask for: this says whether confirming can ever work for the file.
           canConfirm: state.candidates.checkConfirm(entry.id, true, true).ok,
           ...(storageRisk ? { storageRisk } : {}),
         };
       }),
       recentErrors: state.recentErrors.list(),
       lastBackup: await lastBackup.current(),
-      // The same id while the page polls; it is replaced only when it is used or the state changes.
       retryOperationId: state.retryIds.current(),
       busy: state.busy,
       recovered: state.recovered,
@@ -157,7 +139,6 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
       ...(options.maintenance ? { maintenance: options.maintenance() } : {}),
       ...(options.backupDirectory?.() ? { backupDirectory: options.backupDirectory() } : {}),
       fallback: state.startupFallback,
-      // Shown only where it matters: the old service may serve this database, or it holds the port.
       legacyService: relevance.conflict || relevance.portInUse ? legacy.latest() : null,
       legacyBlocked: !running && latestCode === "LEGACY_SERVICE_ACTIVE",
       legacyPortInUse: relevance.portInUse,
@@ -167,7 +148,6 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
     });
   }
 
-  /** The lease facts for the summary; left out when the registry or the observation file cannot be read at all. */
   function mcpLeaseInput(): { mcpLease: ReturnType<typeof readMcpLeaseInput> } | Record<string, never> {
     try {
       return { mcpLease: readMcpLeaseInput(paths.runtimeRoot, configDirectory()) };
@@ -178,8 +158,8 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
 
   async function diagnosticsPreview(): Promise<BuiltDiagnostics> {
     const running = supervisor.running;
-    // A database reached through a link or a mapped drive shows up under its real path in an error text (L-01).
     const database = state.databasePath();
+    // A database reached through a link or mapped drive shows up under its real path in error text.
     const realDatabase = database ? await realpath(database).catch(() => undefined) : undefined;
     return buildDiagnostics({
       platform: process.platform,
@@ -197,7 +177,6 @@ export function createRepairInfo(options: RepairInfoOptions): RepairInfo {
       appVersion: app.getVersion(),
       ...(state.settings ? { installId: state.settings.installId } : {}),
       arch: process.arch,
-      // The language the App shows (its setting, else the system's), the same one every surface uses.
       locale: state.locale,
       owner: state.owner,
       backend: running ? "running" : state.backend,

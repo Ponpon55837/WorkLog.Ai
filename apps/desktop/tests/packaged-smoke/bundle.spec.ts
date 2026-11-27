@@ -6,8 +6,6 @@ import { fileURLToPath } from "node:url";
 import { asarFiles, asarPath, resourcesPath } from "./asar.js";
 import { packagedExecutable, programDirectory } from "./helpers.js";
 
-/** What the packaged bundle contains and, on macOS, how it is signed. */
-
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 
 const FORBIDDEN = ["__workIntelligenceDesktopTest", "WORK_INTELLIGENCE_DESKTOP_"];

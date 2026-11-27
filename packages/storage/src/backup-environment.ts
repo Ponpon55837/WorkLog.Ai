@@ -1,11 +1,7 @@
 import { dirname, resolve } from "node:path";
 import { DEFAULT_BACKUP_KEEP, type BackupRetentionOptions } from "./backup.js";
 
-/**
- * Reads the backup settings shared by the API server, CLI, MCP server, and doctor.
- * A relative WORK_INTELLIGENCE_BACKUP_DIR resolves beside the database, so every process agrees
- * on one location regardless of the working directory its host starts it in.
- */
+/** A relative WORK_INTELLIGENCE_BACKUP_DIR resolves beside the database, so every process agrees on one location. */
 export function backupOptionsFromEnvironment(
   databasePath: string,
   environment: NodeJS.ProcessEnv = process.env,

@@ -4,19 +4,15 @@ import { DatabaseSync } from "node:sqlite";
 import { writeSnapshot } from "@work-intelligence/storage";
 import { preflightDatabase, type DatabaseIdentity } from "./database-preflight.js";
 
-/** How a consistent copy of a database came out (the child's `copy-result` status, plus the copy's identity on `ok`). */
 export type DatabaseCopyStatus = "ok" | "no-space" | "target-exists" | "integrity-failed" | "failed";
 
 export interface DatabaseCopyResult {
   status: DatabaseCopyStatus;
-  /** The copy's identity, read back after it was checked; only with `ok`. */
   identity?: DatabaseIdentity;
-  /** A fixed text, never a path or an SQLite message. */
   detail?: string;
 }
 
 export interface DatabaseCopyOptions {
-  /** Checks the staged copy before it is published; defaults to storage's `PRAGMA quick_check`. Injectable for tests. */
   verifySnapshot?: (path: string, label: string) => void;
 }
 
@@ -58,13 +54,6 @@ function removeBestEffort(path: string): void {
   }
 }
 
-/**
- * Makes a consistent copy of `source` at `target` for the repair page's 「複製到本機磁碟並改用」 (DT-08). The source is
- * opened read-only and is never migrated, written or removed (the shared WAL index may be created beside it, as for any
- * read-only open). The copy is `VACUUM INTO` a private staging file, checked with `PRAGMA quick_check` and only then
- * linked into place without replacing anything, so a bad or partial copy never appears at `target`. `target` must not
- * exist. Never throws: every failure is a status.
- */
 export async function copyDatabaseConsistently(
   source: string,
   target: string,
@@ -88,7 +77,6 @@ export async function copyDatabaseConsistently(
   }
   const read = await preflightDatabase(target);
   if (read.status !== "ok" || !read.identity) {
-    // Our own file, made a moment ago: take it back rather than leave a copy nobody can open.
     removeBestEffort(target);
     return { status: "integrity-failed", detail: "the copy could not be read back" };
   }

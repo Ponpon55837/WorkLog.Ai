@@ -43,20 +43,6 @@ import {
   type StartOptions,
 } from "./helpers.js";
 
-/**
- * The packaged App as a user runs it, seen from outside only: spawned with `--user-data-dir`, an isolated home and a PATH
- * without Node, then read through its log, its HTTP port, the process list and files. Each test has its own sandbox.
- *
- * A launch is `--background` unless its test is about what only an interactive launch does (it opens the Dashboard in the
- * external browser; it shows the repair window): see `startApp`. Production builds ignore test switches, so an
- * interactive launch really starts the machine's browser. `removeSandbox` ends whatever that left in the sandbox; a browser
- * the OS started outside the App's process tree (LaunchServices, ShellExecute) is ended only on CI or with
- * `WI_PACKAGED_STRICT=1`, and elsewhere listed in a warning (it could be one the developer opened). It fails a test whose launches
- * were all background (or `--quit`) if a browser appeared. A test never asserts that a browser opened: the log line
- * `[shell] dashboard opened` is the evidence.
- */
-
-/** After MANAGED: long enough for the Dashboard to have been opened (it is the next statement after the start). */
 const DASHBOARD_SETTLE_MS = 1_500;
 
 const realDefaultDirectories = defaultUserDataDirectories(process.env);
@@ -79,7 +65,6 @@ function launch(extra: readonly string[] = [], options: StartOptions = {}): Runn
   return app;
 }
 
-/** The installed copy of the runtime (never the one inside the App bundle). */
 function installedRuntimeDirectory(current: PackagedSandbox): string {
   const runtimes = join(current.userData, "runtime", "runtimes");
   const [id] = readdirSync(runtimes).filter((name) => !name.startsWith("."));
@@ -100,7 +85,6 @@ function findFile(directory: string, names: readonly string[]): string | undefin
   return undefined;
 }
 
-/** Flips one bit of one byte in place; returns the original byte so the test can tell whether the file was replaced. */
 function flipOneByte(file: string, offset: number): number {
   chmodSync(file, 0o755);
   const descriptor = openSync(file, "r+");
@@ -133,7 +117,6 @@ test.afterEach(async ({ browserName: _browserName }, testInfo) => {
 });
 
 test.afterAll(() => {
-  // Nothing of any run may have created the App's default userData: every launch was told `--user-data-dir`.
   for (const directory of realDefaultDirectories) {
     if (!realDefaultsBefore.has(directory))
       expect(existsSync(directory), `${directory} must not be created`).toBe(false);
@@ -168,7 +151,6 @@ test("an interactive start is MANAGED without Node on PATH, on the bundled runti
     `the backend's executable ${resolvedExecutable} (as reported: ${executable}) lies under ${runtimes}`,
   ).toBe(true);
 
-  // With `--user-data-dir` the runtime stays under userData: the fixed launcher root is left alone.
   for (const directory of defaultRuntimeRoots({ ...profileDirectories(current.home) })) {
     expect(existsSync(directory), `${directory} must not be created`).toBe(false);
   }

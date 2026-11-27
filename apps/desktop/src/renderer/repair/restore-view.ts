@@ -15,14 +15,6 @@ import {
 } from "@work-intelligence/desktop-core/shell/restore-i18n";
 import { actions, button, element, facts, hint, path, section } from "./dom.js";
 
-/**
- * 「從備份還原」 on the Data tab (and on Status while the database blocks the service). The page lists backups main found,
- * lets the user choose a file through a native dialog, and asks main to restore one. It never sees a path: every backup
- * carries an opaque one-time id that only main can map back; a backup that cannot be restored (damaged, not ours, from a
- * newer App) is shown with its reason and has no button. The list, the chosen file and the last answer live here, across
- * the periodic redraws.
- */
-
 type ListedOk = Extract<RestoreListResult, { ok: true }>;
 type ListState =
   | { readonly kind: "idle" }
@@ -31,7 +23,6 @@ type ListState =
   | { readonly kind: "failed" };
 
 let listState: ListState = { kind: "idle" };
-/** The file the user chose with 「選擇備份檔…」; kept apart from the folder's listing. */
 let picked: RestoreBackupView | null = null;
 let answer: { readonly text: string; readonly ok: boolean } | null = null;
 let working = false;
@@ -40,10 +31,8 @@ export interface RestoreViewHost {
   readonly api: RepairApi;
   readonly text: RestoreMessages;
   readonly locale: string;
-  /** Another page action is running (or a start): the buttons wait. */
   readonly pageBusy: boolean;
   readonly rerender: () => void;
-  /** Ask main for a fresh state (the service or the database changed). */
   readonly refresh: () => void;
 }
 
@@ -66,7 +55,6 @@ async function choose(host: RestoreViewHost): Promise<void> {
     picked = result.backup;
   } else if (result.reason !== "cancelled") {
     picked = null;
-    // Said before any confirmation: a file that is not restorable never gets a button.
     answer = { text: pickFailureText(host.text, result), ok: false };
   }
   host.rerender();
@@ -83,7 +71,6 @@ async function restore(host: RestoreViewHost, backup: RestoreBackupView): Promis
   working = false;
   if (result.ok) answer = { text: runSuccessText(host.text, result), ok: true };
   else {
-    // A refusal that is not a state of the service (an invalid answer) carries no flags: the safe reading is "unchanged".
     answer = {
       text: runFailureText(host.text, {
         ...result,
@@ -93,7 +80,7 @@ async function restore(host: RestoreViewHost, backup: RestoreBackupView): Promis
       ok: false,
     };
   }
-  // The one-time ids are spent or stale: list again, and let the page show the service as it is now.
+  // The one-time ids are spent or stale: list again.
   picked = null;
   host.refresh();
   await load(host);

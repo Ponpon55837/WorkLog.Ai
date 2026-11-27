@@ -2,7 +2,6 @@ import type { RepairState } from "@work-intelligence/desktop-core";
 import { errorMessageFor, type ShellMessages } from "@work-intelligence/desktop-core/shell/i18n";
 import { element } from "./dom.js";
 
-/** A status pill (UiLabel): the text always says the state, the tone only adds to it. */
 export type Tone = "neutral" | "accent" | "success" | "attention" | "danger";
 
 export function ownerTone(owner: RepairState["owner"]): Tone {

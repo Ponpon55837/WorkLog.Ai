@@ -7,12 +7,7 @@ export type RegularFileRead =
 // must not block the open itself. The flag does not exist on Windows, where FIFOs are not file-system entries.
 const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NONBLOCK ?? 0);
 
-/**
- * Reads a UTF-8 text file that lives in a user directory (a handoff, a Git ref). The path is opened first and the
- * checks use that descriptor, so nothing swapped in after a listing or `stat` can be read: a FIFO, device, socket or
- * directory is skipped without a read (it would block or never end), and so is a file over `maxBytes`. Errors from
- * opening or reading (missing file, permission) are thrown for the caller to report.
- */
+/** Checks use the opened descriptor, so nothing swapped in after a listing or `stat` (a FIFO, device, directory) is read. */
 export function readRegularFileUtf8(path: string, maxBytes: number): RegularFileRead {
   const descriptor = openSync(path, OPEN_FLAGS);
   try {
@@ -23,7 +18,7 @@ export function readRegularFileUtf8(path: string, maxBytes: number): RegularFile
     if (stats.size > maxBytes) {
       return { kind: "skipped", reason: "too_large" };
     }
-    // A file that grows after the check is read only up to the size that was checked.
+    // A file that grows after the check is read only up to the checked size.
     const buffer = Buffer.allocUnsafe(stats.size);
     let filled = 0;
     while (filled < buffer.length) {

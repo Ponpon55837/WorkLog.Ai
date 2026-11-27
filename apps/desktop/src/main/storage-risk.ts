@@ -9,19 +9,14 @@ import {
 import type { DesktopFacts } from "@work-intelligence/schema";
 
 export interface StorageRiskService {
-  /** The verdict for a database path; never rejects (a failed detection is `unknown`). */
   classify(databasePath: string): Promise<StorageRiskResult>;
-  /** The last full verdict this run reached for the path, if it was classified. */
   last(databasePath: string): StorageRiskResult | undefined;
-  /** The last verdict this run reached for the path as a status-page fact, if it is a risk. */
   fact(databasePath: string): DesktopFacts["storageRisk"];
 }
 
 export interface StorageRiskServiceOptions {
-  /** A test build's synthetic `prefix -> verdict` file; undefined in every other build. */
   readonly overrideFile?: string | undefined;
   readonly classifier?: (databasePath: string) => Promise<StorageRiskResult>;
-  /** The whole classification (path resolution, stat and the mount query) may take this long; then it is `unknown`. */
   readonly timeoutMs?: number;
 }
 
@@ -34,7 +29,6 @@ const unknownResult = (evidence: string): StorageRiskResult => ({
   symlinked: false,
 });
 
-/** One classifier for the App run, with the test-build override in front of it. */
 export function createStorageRiskService(options: StorageRiskServiceOptions = {}): StorageRiskService {
   const classifier = options.classifier ?? createStorageRiskClassifier();
   const timeoutMs = options.timeoutMs ?? CLASSIFY_TIMEOUT_MS;
@@ -58,7 +52,6 @@ export function createStorageRiskService(options: StorageRiskServiceOptions = {}
     const timedOut = new Promise<StorageRiskResult>((resolve) => {
       timer = setTimeout(() => resolve(unknownResult("classifier-timeout")), timeoutMs);
     });
-    // The late answer of a hung detection is dropped: its verdict was already `unknown`.
     const result = await Promise.race([detect(databasePath), timedOut]).finally(() => clearTimeout(timer));
     known.set(databasePath, result);
     return result;

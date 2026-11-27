@@ -59,7 +59,6 @@ export function toDecision(row: SessionDecisionRow): SessionDecisionRecord {
   };
 }
 
-/** Keeps the provenance index in sync with the compatibility string array stored on Sessions. */
 export function replaceSessionDecisions(
   db: DatabaseSync,
   sessionId: string,
@@ -115,7 +114,6 @@ export function replaceSessionDecisions(
   });
 }
 
-/** Policy-gated decision inbox and user-only review transitions. */
 export class SessionDecisionService {
   public constructor(
     private readonly db: DatabaseSync,

@@ -34,28 +34,15 @@ interface HotspotRow {
 }
 
 const RECENT_SESSIONS = 5;
-/** A path hint needs this many Sessions within HINT_DAYS before work_get_context mentions it (see hints()). */
 const HINT_MIN_SESSIONS = 3;
 const HINT_DAYS = 30;
-/** The first requested paths get a hint whenever they have history, below the hotspot floor too. */
 const HINT_EXPLICIT_PATHS = 3;
 
-/*
- * Reads search_paths, where each Session's changed files are already normalized to project-relative paths and
- * a Session listing more than 20 files has weight < 1 (a polluted worktree). Those Sessions, voided Sessions,
- * and non-tracked projects are left out. The directory of a path is everything before its last "/":
- * rtrim(path, <path without "/">) strips the file name, and the second rtrim drops the trailing slash.
- */
+// rtrim(path, <path without "/">) strips the file name; the second rtrim drops the trailing slash.
 const DIRECTORY_KEY = `CASE WHEN instr(sp.path, '/') > 0
   THEN rtrim(rtrim(sp.path, replace(sp.path, '/', '')), '/') ELSE '.' END`;
 
-/*
- * A period (from/to) selects few Sessions out of many, so its Sessions drive the join through the completed_at
- * indexes and each one's paths come from idx_search_paths_doc. Without a period SQLite started from every Session
- * path and dropped most of them only after reading their Sessions, which grew with the whole history (a week of a
- * 20,000-Session database took 30 ms). The rows selected are the same set either way; every later step groups or
- * orders them by its own keys, so the result does not depend on the join order.
- */
+/** With a period the Sessions drive the join through completed_at; otherwise SQLite read every Session path first. */
 function touchedSessionsSql(key: string, filters: string[], period: boolean): string {
   const from = period
     ? `FROM sessions s
@@ -73,7 +60,6 @@ function touchedSessionsSql(key: string, filters: string[], period: boolean): st
 export class HotspotRepository {
   public constructor(private readonly db: DatabaseSync) {}
 
-  /** The most changed paths, each with its five newest Sessions, in one query. */
   public hotspots(options: HotspotOptions): Hotspot[] {
     const filters: string[] = [];
     const parameters: Array<string | number> = [];
@@ -117,7 +103,6 @@ export class HotspotRepository {
       )
       .all(...parameters, options.limit, RECENT_SESSIONS) as unknown as HotspotRow[];
 
-    // Rows arrive grouped and ordered, so one pass builds each hotspot and its Sessions.
     const hotspots: Hotspot[] = [];
     let current: Hotspot | undefined;
     for (const row of rows) {
@@ -145,11 +130,6 @@ export class HotspotRepository {
     return this.withDisplayPaths(hotspots, options.groupBy);
   }
 
-  /**
-   * Paths an Agent is about to change that at least three Sessions changed in the last 30 days, plus any of the
-   * first three requested paths with older history, since the Agent named it explicitly. totalSessions counts every
-   * non-voided Session that recorded the path, broad ones included, like work_get_file_history.
-   */
   public hints(projectId: string, paths: readonly string[], now = Date.now()): HotspotHint[] {
     const project = this.db.prepare("SELECT name, root_path FROM projects WHERE id = ?").get(projectId) as
       { name: string; root_path: string } | undefined;
@@ -157,7 +137,6 @@ export class HotspotRepository {
       return [];
     }
     const contexts = [{ name: project.name, rootPath: project.root_path }];
-    // Report each hint with the path the Agent passed, not the lower-cased index key.
     const requested = new Map<string, string>();
     for (const path of paths) {
       const key = normalizePath(path, contexts);
@@ -171,7 +150,6 @@ export class HotspotRepository {
     }
     const explicit = new Set(normalized.slice(0, HINT_EXPLICIT_PATHS));
     const since = new Date(now - HINT_DAYS * 86_400_000).toISOString();
-    // The basename index finds each path's postings; recent counts keep the hotspot rule (no broad Sessions).
     const rows = this.db
       .prepare(
         `WITH requested AS (
@@ -211,10 +189,6 @@ export class HotspotRepository {
       }));
   }
 
-  /**
-   * search_paths stores lower-cased paths for matching. Each hotspot's newest Session still has the original
-   * spelling in changed_files_json, so one query restores it for display.
-   */
   private withDisplayPaths(hotspots: Hotspot[], groupBy: HotspotGroup): Hotspot[] {
     const sessionIds = [...new Set(hotspots.map((hotspot) => hotspot.recentSessions[0]?.id).filter(Boolean))];
     if (sessionIds.length === 0) {

@@ -1,10 +1,6 @@
-/** Minimum Dice similarity for a pending item's new wording to keep the item's identity. */
 export const REWORD_SIMILARITY_THRESHOLD = 0.5;
 
-/**
- * The schema bounds nextSteps to 20 items, so a Session pairs at most 20 x 20 = 400 texts. Anything above this
- * product is outside the contract; skipping fuzzy pairing there keeps a malformed caller from costing quadratic work.
- */
+/** The schema allows at most 20 x 20 pairs; above this a malformed caller gets no quadratic fuzzy pairing. */
 const MAX_REWORD_PAIR_COUNT = 2_500;
 
 export interface RewordPreviousItem {
@@ -33,7 +29,6 @@ function normalizeForSimilarity(text: string): string {
     .replace(/[\s\p{P}\p{S}]+/gu, "");
 }
 
-/** Character bigrams (by code point) of the normalized text; a single character is its own bigram. */
 function bigramCounts(text: string): BigramCounts {
   const characters = [...normalizeForSimilarity(text)];
   const counts = new Map<string, number>();
@@ -46,7 +41,6 @@ function bigramCounts(text: string): BigramCounts {
   return { counts, total: characters.length - 1 };
 }
 
-/** Dice coefficient from precomputed bigram multisets; iterates the smaller map, so O(min(|a|, |b|)) lookups. */
 function diceFromCounts(left: BigramCounts, right: BigramCounts): number {
   if (left.total === 0 || right.total === 0) return 0;
   const [small, large] = left.counts.size <= right.counts.size ? [left, right] : [right, left];
@@ -58,18 +52,11 @@ function diceFromCounts(left: BigramCounts, right: BigramCounts): number {
   return (2 * shared) / (left.total + right.total);
 }
 
-/**
- * Dice coefficient over character bigrams of the normalized text (NFKC, lower case, no whitespace, punctuation or
- * symbols). Character bigrams work for CJK text, which has no word breaks. Empty normalized texts never match (0).
- */
+/** Character bigrams, because CJK text has no word breaks. */
 export function outstandingTextSimilarity(a: string, b: string): number {
   return diceFromCounts(bigramCounts(a), bigramCounts(b));
 }
 
-/**
- * Pairs earlier items with reworded entries, one to one. Pairs at or above the threshold are taken best first; ties
- * prefer the nearer position, then the smaller id, then the smaller index, so the result is deterministic.
- */
 export function pairRewordedItems(
   previous: readonly RewordPreviousItem[],
   next: readonly RewordNextEntry[],

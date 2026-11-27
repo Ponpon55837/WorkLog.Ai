@@ -8,7 +8,6 @@ import type {
 import { truncateText } from "@work-intelligence/shared";
 import { staleFlags } from "./stale-flags.js";
 
-// Digest limits keep a full context result within a few KB; full records stay one tool call away.
 export const DIGEST_SUMMARY_LENGTH = 400;
 export const DIGEST_KNOWLEDGE_LENGTH = 400;
 export const DIGEST_ITEM_LENGTH = 200;

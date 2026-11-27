@@ -65,18 +65,12 @@ export interface IpcOptions {
   readonly storage: StorageRiskService;
   readonly loginItem: LoginItemController;
   readonly language: ShellLanguage;
-  /** 「整理資料庫」: takes the page-action lock itself, after its checks and the native confirmation. */
   readonly maintenance: MaintenanceController;
-  /** 「更換備份位置」: the page sends nothing; main opens the folder dialog. Runs under the page-action lock. */
   readonly backupDirectory: BackupDirectoryController;
   readonly updates: UpdateController;
-  /** 「從備份還原」: the page holds only one-time ids; main keeps every path. */
   readonly restore: RestoreController;
-  /** Holds the recovery notices the Status tab shows. */
   readonly journal: Pick<OperationJournal, "acknowledgeNotice">;
-  /** 「複製到本機磁碟並改用」: for a candidate id, or (no id) the App's own database. */
   readonly copyToLocal: (candidateId: string | undefined) => Promise<RepairActionResult>;
-  /** The coordinator's running operation, if any: what a busy refusal names. */
   readonly currentOperation: () => OperationKind | null;
   readonly log: Logger;
 }
@@ -112,7 +106,6 @@ export function registerRepairIpc(options: IpcOptions): void {
     log,
   } = options;
 
-  /** The diagnostics text the user is reading, kept here (never in the page) until it is saved or expires. */
   const diagnosticPreviews = new DiagnosticsPreviewStore({ clock: Date.now });
 
   function isTrusted(event: IpcMainInvokeEvent): boolean {
@@ -124,7 +117,6 @@ export function registerRepairIpc(options: IpcOptions): void {
     });
   }
 
-  /** Registers a channel: the sender is checked first, then the input is parsed; only then does the handler run. */
   function handle<T>(
     channel: string,
     parse: (raw: unknown) => { success: true; data: T } | { success: false },
@@ -138,14 +130,12 @@ export function registerRepairIpc(options: IpcOptions): void {
     });
   }
 
-  /** What holds the App right now: the running operation first, then the page action that holds the lock. */
   function busyReason(): RepairBusyReason {
     const operation = currentOperation();
     if (operation !== null) return { source: "operation", what: operation };
     return state.busyAction === null ? { source: "unknown" } : { source: "operation", what: state.busyAction };
   }
 
-  /** A busy answer from a controller that holds the lock itself gets the reason the page will say. */
   function tagBusy<T extends { readonly ok: boolean }>(result: T): T {
     if (result.ok || (result as { reason?: string }).reason !== "busy") return result;
     return { ...result, busyReason: busyReason() };

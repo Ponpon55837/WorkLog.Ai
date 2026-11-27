@@ -4,7 +4,6 @@ const immediateTransactions = new WeakSet<DatabaseSync>();
 const afterCommitOperations = new WeakMap<DatabaseSync, Array<() => void>>();
 const writeGates = new WeakMap<DatabaseSync, () => void>();
 
-/** Runs `gate` right after every outermost write lock is taken; a throw rolls the transaction back. */
 export function setImmediateTransactionGate(db: DatabaseSync, gate: () => void): void {
   writeGates.set(db, gate);
 }
@@ -34,7 +33,7 @@ export function runImmediateTransaction<T>(db: DatabaseSync, operation: () => T)
     try {
       db.exec("ROLLBACK");
     } catch {
-      // Preserve the original error if the connection is already closed.
+      // Keep the original error.
     }
     throw error;
   } finally {
@@ -45,7 +44,6 @@ export function runImmediateTransaction<T>(db: DatabaseSync, operation: () => T)
   return result;
 }
 
-/** Keeps source gates and exported content in one read snapshot without acquiring a write lock. */
 export function runReadTransaction<T>(db: DatabaseSync, operation: () => T): T {
   if (immediateTransactions.has(db)) return operation();
   db.exec("BEGIN");
@@ -57,7 +55,7 @@ export function runReadTransaction<T>(db: DatabaseSync, operation: () => T): T {
     try {
       db.exec("ROLLBACK");
     } catch {
-      /* Keep the original error. */
+      // Keep the original error.
     }
     throw error;
   }

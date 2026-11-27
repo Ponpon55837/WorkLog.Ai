@@ -16,7 +16,6 @@ function trimTrailingSeparators(value: string): string {
   return value.replace(/[\\/]+$/, "");
 }
 
-/** Replaces a complete path prefix and converts the remaining separators for a different target platform. */
 export function remapPathPrefix(value: string, mapping: ProjectPathRemap): string {
   const source = trimTrailingSeparators(normalizeSeparators(mapping.from));
   const candidate = normalizeSeparators(value);
@@ -43,12 +42,7 @@ export function remapPathPrefix(value: string, mapping: ProjectPathRemap): strin
   return `${target}${needsSeparator ? separator : ""}${convertedSuffix}`;
 }
 
-/**
- * The form a project root is stored in: the canonical key every other writer and lookup uses. A root that is not
- * absolute for this platform (a Windows path in a bundle imported on Linux, or the reverse) is kept as written,
- * because canonicalizing it would resolve it against the working directory and corrupt it. Display values never
- * pass through here.
- */
+/** A root not absolute for this platform is kept as written: canonicalizing would resolve it against the cwd. */
 export function storedProjectRoot(value: string, platform: NodeJS.Platform = process.platform): string {
   const absolute = platform === "win32" ? isWindowsPath(value) || value.startsWith("//") : value.startsWith("/");
   return absolute ? canonicalizeProjectRoot(value, platform) : value;

@@ -21,21 +21,12 @@ import {
 import { LATEST_SCHEMA_VERSION } from "./schema-migrations.js";
 import type { DatabaseSync } from "node:sqlite";
 
-/**
- * The portable export written to a file row by row, so its memory does not grow with the data. The bytes are those of
- * `JSON.stringify(buildProjectDataExport(readProjectDataRows(...)))`: same rows, order, masking and counts.
- *
- * A Session's redaction_count includes the redactions of its later rows, so the tables after `sessions` are written to
- * a side file first, the Sessions after them, and the side file is then appended.
- */
-
-/** Bytes buffered before a write. */
+// A Session's redaction_count includes its later rows' redactions, so the tables after `sessions` go to a side file
+// first, then the Sessions, and the side file is appended.
 const WRITE_BUFFER_BYTES = 1024 * 1024;
 
-/** An exclusive (`wx`, 0600) file written through a 1 MiB buffer. */
 class ExportFileWriter {
   public bytes = 0;
-  /** Bytes already written by the other writer of the same export; counted against `limit`. */
   public carried = 0;
   public limit = Number.POSITIVE_INFINITY;
   private readonly fd: number;
@@ -61,7 +52,6 @@ class ExportFileWriter {
     }
   }
 
-  /** Appends a closed writer's file, a buffer at a time. */
   public append(source: ExportFileWriter): void {
     this.flush();
     const fd = openSync(source.path, "r");
@@ -84,7 +74,6 @@ class ExportFileWriter {
     }
   }
 
-  /** Closes and deletes the file. */
   public discard(): void {
     try {
       if (!this.closed) {
@@ -107,7 +96,6 @@ class ExportFileWriter {
   }
 }
 
-/** The export's JSON around its `tables` object: everything before the `{` that opens it, and after its `}`. */
 function exportOutline(scope: ProjectDataExportScope): [string, string] {
   const marker = "\u0000tables\u0000";
   const outline = JSON.stringify({
@@ -139,11 +127,6 @@ function writeTable(
   writer.write("]");
 }
 
-/**
- * Writes the portable export of `scope` to `target`, which must not exist yet, inside one read snapshot. On failure
- * nothing is left behind. With `maxBytes` the export is counted while it is written and stops with an
- * `export_too_large` {@link ProjectDataTransferError} as soon as it passes that size, instead of writing it all first.
- */
 export function writeProjectDataExport(
   db: DatabaseSync,
   scope: ProjectDataExportScope,
@@ -170,13 +153,13 @@ export function writeProjectDataExport(
       output.write(`${prefix}{`);
       writeTable(output, db, sources.projects, true, mask("projects"));
       later = new ExportFileWriter(`${target}.later`);
-      // The side file and the main file together are the export: each counts what the other has written so far.
+      // The side file and the main file together are the export: each counts what the other has written.
       later.limit = output.limit;
       later.carried = output.bytes;
       for (const table of PROJECT_DATA_TABLES.slice(2)) writeTable(later, db, sources[table], false, mask(table));
       later.close();
       output.carried = later.bytes;
-      // Every later row is counted by now; masking a Session adds its own redactions just before it is written.
+      // Every later row is counted by now.
       const maskSession = mask("sessions");
       writeTable(output, db, sources.sessions, false, (row) => tally.session(maskSession(row)));
       output.carried = 0;

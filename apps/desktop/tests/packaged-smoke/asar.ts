@@ -1,8 +1,6 @@
 import { closeSync, openSync, readSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-/** Reads the packaged App's `app.asar` without an asar library (shared by the bundle and screenshot specs). */
-
 export function resourcesPath(executable: string): string {
   return process.platform === "darwin"
     ? join(dirname(dirname(executable)), "Resources")
@@ -26,10 +24,7 @@ interface AsarNode {
   unpacked?: boolean;
 }
 
-/**
- * Every packed file of an asar as `[path, content]`, read from the format directly (a 16-byte pickle prefix, the JSON
- * header, then the file bytes it points to), so the test needs no asar library.
- */
+// Format: a 16-byte pickle prefix, the JSON header, then the file bytes it points to.
 export function* asarFiles(file: string): Generator<[string, Buffer]> {
   const descriptor = openSync(file, "r");
   try {

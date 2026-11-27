@@ -1,7 +1,5 @@
 import { defineConfig } from "@playwright/test";
 
-// The desktop smoke test. It is deliberately outside the root `tests/e2e` folder and the vitest globs, so neither
-// `pnpm test:e2e` nor `pnpm test` ever starts Electron. Run it with `pnpm test:desktop-smoke`.
 export default defineConfig({
   testDir: "./tests/desktop-smoke",
   testMatch: "*.spec.ts",

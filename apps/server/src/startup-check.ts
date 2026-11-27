@@ -5,16 +5,10 @@ import { inspectAgentConnections } from "./doctor.js";
 
 export interface StartupCheckOptions {
   repositoryRoot?: string;
-  /** Which command names to show; defaults to the running mode. */
   standalone?: boolean;
-  /** Injectable for tests; the default reads only local skill and hook files (no service queries, API calls or database). */
   inspectConnections?: () => SystemAgentConnections;
 }
 
-/**
- * One or two hints about Agent setup that is installed but out of date. Installed means present: a missing skill or
- * hook is never mentioned (the user may use the plugin, or not want it). Never throws and never writes.
- */
 export function collectStartupHints(options: StartupCheckOptions = {}): string[] {
   try {
     const inspect =

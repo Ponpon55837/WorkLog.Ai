@@ -1,18 +1,9 @@
-/**
- * Derives the desktop icon artwork from the brand mark, so apps/web/public/favicon.svg stays the single source of truth.
- *
- *  - `buildDesktopIconSvg` scales the favicon's 32-unit mark into the 824 px rounded square of the macOS icon grid
- *    (100 px transparent margin on the 1024 px canvas): same colours, same W polyline and I line, strokes scaled with it.
- *  - `buildTrayPlateSvg` is the favicon itself at 32 px, full bleed: the Windows/Linux tray icon.
- *  - `buildTrayGlyphSvg` draws only the WI strokes in black on transparent, the macOS menu-bar template image.
- */
-
 export const CANVAS = 1024;
 export const MARGIN = 100;
 export const FAVICON_SIZE = 32;
 const SQUARE = CANVAS - 2 * MARGIN;
 const SCALE = SQUARE / FAVICON_SIZE;
-/** The template glyph is a little heavier than the favicon's 2.6: it is drawn about 1.5 px wide at 16 px. */
+// Heavier than the favicon's 2.6 so the glyph is about 1.5 px wide at 16 px.
 const TRAY_GLYPH_STROKE = 3.2;
 
 function attribute(source, name) {

@@ -9,16 +9,12 @@ import type { ShellState } from "./state.js";
 export interface RestoreDialogsOptions {
   readonly state: ShellState;
   readonly window: RepairWindow;
-  /** Test build only: answer the confirmation with 「還原」 instead of showing it. */
   readonly autoConfirm: boolean;
-  /** Test build only: a file whose text is the path the chooser returns (read at each use). */
   readonly chooseFileOverride?: string;
 }
 
-/** The decision of the question about missing project folders in the test build: keep the old paths, never block on a dialog. */
 const AUTO_RELOCATE: RelocateChoice = "skip";
 
-/** The native chooser and confirmation of 「從備份還原」; main shows them, the page never does. */
 export function createRestoreDialogs(options: RestoreDialogsOptions): {
   chooseFile(): Promise<string | null>;
   confirm(details: RestoreConfirmDetails): Promise<boolean>;

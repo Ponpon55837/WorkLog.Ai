@@ -32,7 +32,6 @@ export class ReportPresentationService {
     private readonly summaries: (summaryId: string) => ReportSummary | undefined,
   ) {}
 
-  /** A global summary becomes unavailable as a whole when any cited project/source is unavailable. */
   public base(summaryId: string): ReportSummary {
     const row = this.db
       .prepare(
@@ -111,7 +110,6 @@ export class ReportPresentationService {
         [...state.hidden, ...state.pinned].some((key) => !base[key].length)
       )
         throw new ReportPresentationError("invalid_input");
-      // Canonical hidden/override order removes meaningless revisions without changing pin order.
       state.hidden = REPORT_SECTION_KEYS.filter((key) => state.hidden.includes(key));
       state.overrides.sort(
         (a, b) =>

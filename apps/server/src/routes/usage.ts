@@ -22,7 +22,6 @@ function toInput(project: ProjectRecord): UsageProjectInput {
   return { id: project.id, name: project.name, root: project.rootPath };
 }
 
-/** Aborts when the client goes away before the answer was written. */
 function abortOnClose(response: ServerResponse): AbortController {
   const controller = new AbortController();
   response.on("close", () => {
@@ -31,7 +30,6 @@ function abortOnClose(response: ServerResponse): AbortController {
   return controller;
 }
 
-/** The project most recently written to is the one the user is most likely looking at; none when nothing was ever recorded. */
 function currentProjectId(projects: readonly ProjectRecord[]): string | undefined {
   let current: ProjectRecord | undefined;
   for (const project of projects) {
@@ -47,7 +45,7 @@ function localeOf(context: RouteContext): "en" | "zh-TW" {
   return typeof header === "string" && /^\s*zh/i.test(header) ? "zh-TW" : "en";
 }
 
-/** Sends the error response for a failed scan; the messages are fixed, so no path or log text can leak. */
+/** The messages are fixed, so no path or log text can leak. */
 function sendUsageError(response: ServerResponse, error: unknown): void {
   if (response.headersSent || response.destroyed) return;
   if (error instanceof UsageScanAbortedError) {
@@ -145,7 +143,6 @@ async function scanUsage(context: RouteContext): Promise<void> {
   }
 }
 
-/** Agent usage from the local Claude Code and Codex logs: counts and token sums only. */
 export const usageRoutes: readonly Route[] = [
   { method: "GET", pattern: "/api/usage/projects", handler: listUsageProjects },
   { method: "POST", pattern: "/api/usage/scan", handler: scanUsage },

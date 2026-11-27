@@ -7,7 +7,6 @@ import {
 } from "@work-intelligence/desktop-core/shell/language-i18n";
 import { element, hint, section } from "./dom.js";
 
-/** A choice was made and main has not answered yet: keeps it from being changed twice. */
 let pending = false;
 let failed = false;
 
@@ -29,12 +28,10 @@ async function change(host: LanguageViewHost, preference: RepairLanguageSection[
     failed = true;
   }
   pending = false;
-  // The new state carries the new language: the whole page is drawn in it at once.
   host.refresh();
   host.rerender();
 }
 
-/** The 「語言」 card: 跟隨系統 / 繁體中文 / English, one radio button each. */
 export function languageSection(host: LanguageViewHost, language: RepairLanguageSection): HTMLElement {
   const { text } = host;
   const choices = element("fieldset", { className: "choices" }, [

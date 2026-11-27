@@ -5,19 +5,11 @@ import { STANDALONE } from "@work-intelligence/shared/database-location";
 
 export interface WebDirectoryOptions {
   environment?: NodeJS.ProcessEnv;
-  /** Defaults to STANDALONE. */
   standalone?: boolean;
-  /** URL of a bundled file under `<package>/libexec/apps/server/dist`; the package's `web/` is found relative to it. */
   moduleUrl?: string;
-  /** Injectable for tests. */
   exists?: (path: string) => boolean;
 }
 
-/**
- * The built Web UI to serve. WORK_INTELLIGENCE_WEB_DIST always wins (`pnpm start` sets it). Without it a checkout
- * serves no Web UI (the Vite dev server does), while a standalone package serves its own `web/` folder when it is
- * complete.
- */
 export function resolveWebDirectory({
   environment = process.env,
   standalone = STANDALONE,

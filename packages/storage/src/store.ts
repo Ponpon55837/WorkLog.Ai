@@ -339,20 +339,14 @@ import { findUnclosedPrivateTags } from "./private-tag-warnings.js";
 
 export type { ContextFocus } from "./context-recall-service.js";
 
-/** Server-side facts about a finalize call that the caller never supplies through the public input. */
 export type FinalizeSessionContext = {
   agentClient?: string;
-  /** The MCP connection that saved the Session; with it, unreported Knowledge counts only that connection's reads. */
   connectionId?: string;
-  /** When this connection last saved in the project, before this save; with a connection it starts the work window. */
   previousSaveAt?: string;
-  /** The first call the MCP server saw for this project since its last save; only a fact the server observed. */
   observedStartedAt?: ObservedStart;
-  /** What the MCP server saw in Git for changed files the Agent gave no status for; Agent entries always win. */
   observedChangedFileChanges?: GitObservedChanges;
 };
 
-/** Optional Agent scope: a workspace root, a registry id, or both when they name the same project. */
 export type TrackedScopeInput = { projectRoot?: string; projectId?: string };
 
 type HandoffImportPlan = {
@@ -380,8 +374,7 @@ function normalizeHandoffSelectionPath(projectRoot: string, value: string): stri
   return normalized;
 }
 
-// A loose Git file (HEAD or a branch ref) holds one short line. It sits in the project folder, so anything that is not
-// a small regular file is ignored instead of being read.
+// A loose Git file sits in the project folder, so anything but a small regular file is ignored instead of read.
 const MAX_GIT_METADATA_FILE_BYTES = 4_096;
 
 function readGitMetadataFile(path: string): string | undefined {
@@ -440,23 +433,17 @@ function countHandoffPreviewItems(items: HandoffImportPreviewItem[]): HandoffImp
 
 export interface WorkIntelligenceStoreOptions {
   insightProvider?: InsightProvider;
-  /** Where backups go and how many manual and automatic copies to retain independently. */
   backup?: BackupRetentionOptions;
   /**
    * `read-only` opens an already initialized database without write access. `existing` opens one for writing but,
    * like `read-only`, never migrates it: the background worker imports through it while the API owns the schema.
    */
   mode?: "initialize" | "read-only" | "existing";
-  /** Required with read-only and existing modes; the database must already have this exact schema version. */
   expectedSchemaVersion?: number;
-  /**
-   * With the default `initialize` mode: refuse to create the database. A shell that verified a specific file uses this so a
-   * file swapped away between verification and opening is reported instead of silently replaced by a new empty database.
-   */
+  /** So a file swapped away after verification is reported instead of silently replaced by a new empty database. */
   requireExistingDatabase?: boolean;
 }
 
-/** A report lists at most five changed-often files with its risks, each changed by at least two Sessions. */
 const REPORT_HOTSPOT_LIMIT = 5;
 const REPORT_HOTSPOT_MIN_SESSIONS = 2;
 const TIMELINE_DEFAULT_DAYS = 30;
@@ -541,7 +528,7 @@ export class WorkIntelligenceStore {
       this.db.close();
       throw error;
     }
-    // Every write transaction of this process checks, under the write lock, that no newer process migrated the file.
+    // Every write transaction checks, under the write lock, that no newer process migrated the file.
     this.schemaWriteGate = new SchemaWriteGate(this.db, options.expectedSchemaVersion ?? LATEST_SCHEMA_VERSION);
     if (!readOnly) setImmediateTransactionGate(this.db, () => this.schemaWriteGate.assertCompatible());
     // Before any statement runs: SQLite refuses to define a function while a statement is active.
@@ -745,7 +732,6 @@ export class WorkIntelligenceStore {
     return checkTrackedProjectById(this.policyGate, this, projectId);
   }
 
-  /** Returns content-free revisions for project data and Agent read audits across SQLite connections. */
   public getChangeToken(): { databaseId: string; dataRevision: number; auditRevision: number } {
     const row = this.db
       .prepare(
@@ -763,7 +749,6 @@ export class WorkIntelligenceStore {
     };
   }
 
-  /** Prevents a stale MCP writer from using an externally migrated database, within the same write lock. */
   public withCompatibleSchema<T>(schemaVersion: number, operation: () => T): T {
     try {
       return runImmediateSqlTransaction(this.db, () => {
@@ -790,12 +775,10 @@ export class WorkIntelligenceStore {
       : null;
   }
 
-  /** Writes a checked snapshot of the whole database and prunes old ones. */
   public createBackup(): DatabaseBackupCreated | DatabaseBackupUnavailable {
     return this.backupUnavailable() ?? backupDatabase(this.db, this.databasePath, this.backupOptions);
   }
 
-  /** The folder this store writes its backups to: the configured one, or `backups/` next to the database. */
   public get backupDirectory(): string | undefined {
     if (this.databasePath === ":memory:") return undefined;
     return this.backupOptions.directory ?? defaultBackupDirectory(this.databasePath);
@@ -815,12 +798,10 @@ export class WorkIntelligenceStore {
     };
   }
 
-  /** Removes a single recognized snapshot without accepting arbitrary filesystem paths. */
   public deleteBackup(fileName: string): DatabaseBackupDeleteResult {
     return this.backupUnavailable() ?? deleteDatabaseBackup(this.databasePath, fileName, this.backupOptions);
   }
 
-  /** Writes the whole database to `target` for moving it to another computer; `target` must not exist yet. */
   public exportTo(target: string, options: ExportOptions = {}): { bytes: number } {
     if (this.backupUnavailable()) {
       throw new Error("An in-memory database cannot be exported.");
@@ -828,49 +809,36 @@ export class WorkIntelligenceStore {
     return exportDatabase(this.db, target, options);
   }
 
-  /** Exports portable data for every project or one selected project. */
   public exportProjectData(scope: ProjectDataExportScope): ProjectDataExport {
     return this.projectDataTransfer.export(scope);
   }
 
-  /**
-   * Writes the same export as {@link exportProjectData} to `target` (which must not exist yet) row by row, so its
-   * memory does not grow with the data; the bytes are those of `JSON.stringify(exportProjectData(scope))`.
-   */
   public writeProjectDataExport(scope: ProjectDataExportScope, target: string, maxBytes?: number): { bytes: number } {
     return this.projectDataTransfer.writeExport(scope, target, maxBytes);
   }
 
-  /** Counts additions, duplicates, and conflicts without writing anything, not even a backup. */
   public previewProjectDataImport(
     input: ProjectDataImportInput | ValidatedProjectDataImport,
   ): ProjectDataImportPreview {
     return this.projectDataTransfer.preview(ValidatedProjectDataImport.from(input));
   }
 
-  /**
-   * Writes a checked pre-import snapshot (refusing to import without one), then merges portable project data inside
-   * one transaction while this store remains open. The search index is brought up to date right after the commit,
-   * so the first read after a large import does not re-index thousands of documents inline.
-   */
   public importProjectData(input: ProjectDataImportInput | ValidatedProjectDataImport): ProjectDataImportResult {
     const result = this.projectDataTransfer.import(ValidatedProjectDataImport.from(input));
     runAfterImmediateTransaction(this.db, () => {
       try {
         this.searchIndex.syncIndex();
       } catch {
-        // The import is committed; documents still marked dirty are re-indexed by the next read, as before.
+        // The next read re-indexes.
       }
     });
     return result;
   }
 
-  /** Re-indexes every document a bulk change marked dirty (db:restore calls it), so no later read inherits them. */
   public syncSearchIndex(): void {
     this.searchIndex.syncIndex();
   }
 
-  /** Writes one automatic backup per local calendar day, independently of manual backups. */
   public backupIfDue(now = new Date()): DatabaseBackupCreated | null {
     if (this.backupUnavailable() || !isBackupDue(this.databasePath, this.backupOptions.directory, now)) {
       return null;
@@ -878,7 +846,6 @@ export class WorkIntelligenceStore {
     return backupDatabase(this.db, this.databasePath, { ...this.backupOptions, kind: "automatic", now });
   }
 
-  /** Periodic maintenance: empties old work-summary replay payloads. Never runs VACUUM. Returns rows pruned. */
   public pruneWorkSummaryUpdateHistory(now = new Date()): number {
     return this.sessionRecords.pruneWorkSummaryUpdateHistory(now);
   }
@@ -895,7 +862,6 @@ export class WorkIntelligenceStore {
     return this.projects.list();
   }
 
-  /** Registered projects an unregistered root may have meant, as a hint to show the user; reads no project data. */
   public matchingProjects(projectRoot: string): MatchingProject[] {
     return this.projects.matching(projectRoot);
   }
@@ -916,8 +882,6 @@ export class WorkIntelligenceStore {
     return this.projectLocationService.updateLocation(projectId, rootPath, confirmedTrackedScope);
   }
 
-  /** Deletes a project and its local data after a checked full-database safety snapshot. */
-  /** Passive audit of an MCP read; ids and counts only, and it never throws. */
   public recordAgentRead(input: RecordAgentReadInput): void {
     this.agentReadAudit.record(input);
   }
@@ -938,7 +902,6 @@ export class WorkIntelligenceStore {
     return this.projectDeletionService.deleteProject(projectId, confirmationName);
   }
 
-  /** Web/REST only: permanently deletes one voided Session after a checked snapshot. MCP never calls this. */
   public deleteSession(sessionId: string): DeleteSessionResult {
     return this.sessionDeletionService.deleteSession(sessionId);
   }
@@ -1172,15 +1135,11 @@ export class WorkIntelligenceStore {
       .prepare("SELECT COUNT(*) AS count FROM projects WHERE status = 'tracked'")
       .get() as { count: number };
     const activeProjects = trackedProjects;
-    // Only tracked projects are shown: history of paused/ignored projects stays in SQLite but is hidden.
     const finalizedSessions = this.db
       .prepare(
         "SELECT COUNT(*) AS count FROM sessions s JOIN projects p ON p.id = s.project_id WHERE p.status = 'tracked' AND s.voided_at IS NULL",
       )
       .get() as { count: number };
-    // sessions.id is unique, so the events whose Session is eligible are exactly the rows of the former three-way join.
-    // The eligible ids are read once in table order instead of one Session lookup per event, which avoids most random
-    // page reads; those grew faster than the data once the database outgrew the page cache.
     const recordedEvents = this.db
       .prepare(
         `SELECT COUNT(*) AS count
@@ -1204,7 +1163,6 @@ export class WorkIntelligenceStore {
   public getReport(options: {
     period: ReportPeriod;
     date?: string;
-    /** An explicit calendar range (both or neither); the report's period is then "custom". */
     from?: string;
     to?: string;
     projectId?: string;
@@ -1316,7 +1274,6 @@ export class WorkIntelligenceStore {
     return this.sessions.getById(sessionId);
   }
 
-  /** Corrects a Session's verification in place; every change is kept in the verification audit. */
   public updateSessionVerification(
     sessionId: string,
     verification: VerificationSummary,
@@ -1325,10 +1282,6 @@ export class WorkIntelligenceStore {
     return this.sessionRecords.updateSessionVerification(sessionId, verification, source);
   }
 
-  /**
-   * Records what a Session reported about Knowledge it used: applied items are confirmed as of this Session (and
-   * leave review), contradicted items are flagged for review. Runs inside finalize and metadata updates.
-   */
   private applyKnowledgeFeedback(
     projectId: string,
     sessionId: string,
@@ -1338,8 +1291,6 @@ export class WorkIntelligenceStore {
     return this.knowledgeService.applyKnowledgeFeedback(projectId, sessionId, completedAt, input);
   }
 
-  /** Adds the computed possiblyStale marker (see KnowledgeRecord.possiblyStale). */
-  /** Opens a request for an Agent to propose Knowledge from the project's not-yet-reviewed Sessions. */
   public requestKnowledgeCandidates(projectRoot: string): RequestKnowledgeCandidatesResult {
     return this.knowledgeCandidates.request(projectRoot);
   }
@@ -1398,12 +1349,10 @@ export class WorkIntelligenceStore {
     return this.knowledgeCandidates.decide(input);
   }
 
-  /** Links or unlinks two Sessions; a pair has at most one link, so a new relation replaces the old one. */
   public linkSessions(input: LinkSessionsInput, source: VerificationUpdateSource = "agent"): LinkSessionsResult {
     return this.sessionRecords.linkSessions(input, source);
   }
 
-  /** Both Sessions must exist in tracked projects and differ; returns why a link is not allowed. */
   private linkProblem(sessionId: string, relatedSessionId: string): string | undefined {
     return this.sessionRecords.linkProblem(sessionId, relatedSessionId);
   }
@@ -1418,7 +1367,6 @@ export class WorkIntelligenceStore {
     this.sessionRecords.writeSessionLink(sessionId, relatedSessionId, relation, source, createdAt);
   }
 
-  /** Links of one Session as seen from it, limited to tracked projects, oldest linked Session first. */
   private getSessionLinks(sessionId: string): SessionLinkRecord[] {
     return this.sessionRecords.getSessionLinks(sessionId);
   }
@@ -1555,17 +1503,14 @@ export class WorkIntelligenceStore {
     return this.knowledgePages.listVersions(pageId);
   }
 
-  /** Web/REST only: deletes a custom Knowledge page and its versions. MCP never calls this. */
   public deleteKnowledgePage(pageId: string): DeleteKnowledgePageResult {
     return this.knowledgePageDeletion.deletePage(pageId);
   }
 
-  /** Voids or restores a Session. Voided Sessions leave lists, reports, the graph, context, and recall. */
   public setSessionVoid(input: SetSessionVoidInput): SetSessionVoidResult {
     return this.sessionRecords.setSessionVoid(input);
   }
 
-  /** Marks evidence as wrong (or restores it); it stays in Session detail but leaves reports and the graph. */
   public setEvidenceVoid(input: SetEvidenceVoidInput): SetEvidenceVoidResult {
     return this.sessionRecords.setEvidenceVoid(input);
   }
@@ -1586,19 +1531,16 @@ export class WorkIntelligenceStore {
     return this.knowledgeService.searchKnowledge(options);
   }
 
-  /** The Agent Knowledge search: the strict list result, or a labelled relaxed fallback when it is empty. */
   public searchKnowledgeForAgent(options: KnowledgeQuery = {}): AgentKnowledgeQueryResult | KnowledgeSkippedResult {
     return this.knowledgeSearch.search(options);
   }
 
-  /** The Agent Knowledge search in its compact view: the same answer with CompactKnowledgeItem items. */
   public searchKnowledgeCompactForAgent(
     options: KnowledgeQuery = {},
   ): AgentKnowledgeQueryResult<CompactKnowledgeItem> | KnowledgeSkippedResult {
     return this.knowledgeSearch.searchCompact(options);
   }
 
-  /** Full Knowledge records with trust signals, for ids of tracked projects only, read in one batch. */
   private trackedKnowledgeWithTrust(knowledgeIds: string[]): Map<string, KnowledgeRecord> {
     if (knowledgeIds.length === 0) return new Map();
     const rows = this.db
@@ -1627,7 +1569,6 @@ export class WorkIntelligenceStore {
     return this.graphBuilder.findPath(query);
   }
 
-  /** Sessions, Knowledge events, and Session links of tracked projects over a date range (default: 30 days). */
   public getTimeline(query: TimelineQuery = {}): TimelineResult {
     let projects = this.listProjects().filter((project) => project.status === "tracked");
     if (query.projectRoot || query.projectId) {
@@ -1658,7 +1599,6 @@ export class WorkIntelligenceStore {
     };
   }
 
-  /** Sessions completed per local calendar day over a date range, tracked projects only (for the Dashboard heatmap). */
   public getActivity(query: ActivityQuery): ActivityResult {
     let projects = this.listProjects().filter((project) => project.status === "tracked");
     if (query.projectRoot || query.projectId) {
@@ -1683,7 +1623,6 @@ export class WorkIntelligenceStore {
     return { outcome: "activity", from: query.from, to: query.to, days };
   }
 
-  /** Most changed files or directories of tracked projects, from the search path index (kept in sync first). */
   public getHotspots(query: HotspotQuery = {}): HotspotResult {
     let projectId: string | undefined;
     if (query.projectRoot || query.projectId) {
@@ -1717,7 +1656,6 @@ export class WorkIntelligenceStore {
     };
   }
 
-  /** Whole-history totals and bounded digests of the Sessions that recorded a file of a tracked project. */
   public getFileHistory(query: FileHistoryQuery): FileHistoryResult | SkippedResult {
     return this.fileHistory.get(query);
   }
@@ -1797,12 +1735,7 @@ export class WorkIntelligenceStore {
     });
   }
 
-  /**
-   * The Git question a finalize request would ask, or undefined when it must not be asked: backfills (the worktree no
-   * longer represents that time), untracked projects (their Git is never read), duplicate retries (an in_progress start
-   * record is not one: its completion is observed), and requests with
-   * nothing left to observe. Cheap and synchronous; the caller runs Git outside any write lock.
-   */
+  /** Cheap and synchronous; the caller runs Git outside any write lock. */
   public prepareChangedFileObservation(
     input: FinalizeSessionInput,
     context: { baseCommit?: string } = {},
@@ -1820,7 +1753,6 @@ export class WorkIntelligenceStore {
     return planChangedFileObservation(decision.project.rootPath, input, context.baseCommit);
   }
 
-  /** The HEAD commit of a tracked project (loose .git files first, Git itself as fallback); undefined for any other project. */
   public observeHeadCommit(projectRoot: string): string | undefined {
     const decision = this.checkProjectRoot(projectRoot);
     if (!decision.allowed || !decision.project) return undefined;
@@ -2099,7 +2031,6 @@ export class WorkIntelligenceStore {
         .prepare("UPDATE projects SET last_ingested_at = ?, updated_at = ? WHERE id = ?")
         .run(createdAt, createdAt, project.id);
 
-      // Like work_link_sessions, a new link changes the other Session too; each one is touched once.
       const linkedSessionIds = new Set<string>();
       const linkWarnings = [
         ...(input.parentSessionId ? [{ id: input.parentSessionId, relation: "continues" as const }] : []),
@@ -2161,8 +2092,7 @@ export class WorkIntelligenceStore {
         const nextStepsWarnings = findTransientNextSteps(session.workSummary?.nextSteps ?? []);
         if (nextStepsWarnings) result.nextStepsWarnings = nextStepsWarnings;
       }
-      // The Session is already committed, so these read-only reminders do not hold the write lock; a failed lookup
-      // only omits its reminder.
+      // Read-only reminders after the commit, outside the write lock; a failed lookup only omits its reminder.
       runAfterImmediateTransaction(this.db, () => {
         try {
           const knowledgePageMaintenanceHint = this.knowledgePages.maintenanceHintForProject(session.projectId);
@@ -2240,25 +2170,18 @@ export class WorkIntelligenceStore {
     return this.contextRecallService.getContext(projectRoot, focus);
   }
 
-  /**
-   * Ranked retrieval across Sessions (including raw handoff sections) and active Knowledge of tracked
-   * projects. Returns compact hits; read full records with getSessionDetailForAgent or searchKnowledge.
-   */
   public recall(input: RecallInput): RecallQueryResult {
     return this.contextRecallService.recall(input);
   }
 
-  /** `range` limits results to Sessions completed within inclusive calendar dates (server time zone). */
   public search(query: string, projectRoot?: string, range: DateRange = {}): SearchResult[] | SkippedResult {
     return this.contextRecallService.search(query, projectRoot, range);
   }
 
-  /** Ranked, confidence-bearing Session search for Agent tools; REST search retains its current array result. */
   public searchForAgent(query: string, projectRoot?: string, range: DateRange = {}): SearchQueryResult | SkippedResult {
     return this.contextRecallService.searchForAgent(query, projectRoot, range);
   }
 
-  /** Read-only recording state of a workspace root, so an Agent can skip preparing an untracked finalize. */
   public getProjectStatus(projectRoot: string): ProjectStatusResult {
     const decision = this.checkProjectRoot(projectRoot);
     const project = decision.project ?? this.getProjectByRootPath(decision.canonicalRoot);
@@ -2273,7 +2196,6 @@ export class WorkIntelligenceStore {
     };
   }
 
-  /** Session detail for Agents: policy-gated, with raw handoff content omitted unless requested. */
   public getSessionDetailForAgent(query: {
     sessionId: string;
     includeRawSnapshots?: boolean;
@@ -2288,7 +2210,6 @@ export class WorkIntelligenceStore {
     return runReadTransaction(this.db, () => this.readFullSessionForAgent(query));
   }
 
-  /** Paged tracked-only Session list for Agents, scoped by projectRoot or projectId. */
   public listSessionsForAgent(
     input: {
       q?: string;
@@ -2315,7 +2236,7 @@ export class WorkIntelligenceStore {
       projectId: scope.projectId,
       trackedOnly: true,
     };
-    // The prefix is ambiguous only among the Sessions this scope and these filters can return.
+    // Ambiguous only among the Sessions this scope and these filters can return.
     if (options.commitSha && this.sessions.distinctCommitShas(options, 2).length > 1) {
       return {
         outcome: "ambiguous_commit_sha",
@@ -2326,7 +2247,6 @@ export class WorkIntelligenceStore {
     return this.listSessionsPage(options);
   }
 
-  /** Agent-created report synthesis request; the same policy and dedupe rules as the Reports page. */
   public requestReportSynthesis(
     input: Omit<CreateReportSynthesisRequestInput, "projectId"> & TrackedScopeInput,
   ): CreateReportSynthesisRequestResult | SkippedResult | ProjectIdSkippedResult {
@@ -2342,7 +2262,6 @@ export class WorkIntelligenceStore {
     });
   }
 
-  /** Agent-created metadata backfill request; the same policy and dedupe rules as the Projects page. */
   public requestMetadataBackfill(
     input: Omit<CreateMetadataBackfillRequestInput, "projectId"> & TrackedScopeInput,
   ): CreateMetadataBackfillRequestResult {
@@ -2356,7 +2275,6 @@ export class WorkIntelligenceStore {
     });
   }
 
-  /** Full Agent read (no view/select) inside one read snapshot, so the body and its revision match. */
   private readFullSessionForAgent(query: SessionAgentReadQuery): SessionAgentReadResult {
     const notFound: SessionNotFoundResult = {
       outcome: "not_found",
@@ -2386,7 +2304,6 @@ export class WorkIntelligenceStore {
     return query.includeRawSnapshots ? { ...result, rawSnapshots: detail.rawSnapshots } : result;
   }
 
-  /** Resolves an optional projectRoot/projectId pair to a tracked project id, or the quiet skip result. */
   private resolveTrackedScope(
     scope: TrackedScopeInput,
   ): { projectId?: string } | SkippedResult | ProjectIdSkippedResult {
@@ -2449,10 +2366,6 @@ export class WorkIntelligenceStore {
     }
   }
 
-  /**
-   * The checked-out branch and HEAD commit. The loose files under `.git` answer the common case without a subprocess;
-   * when they cannot (linked worktree, packed ref, other ref storage) Git itself is asked.
-   */
   private readGitMetadata(projectRoot: string): GitSummary | undefined {
     const loose = this.readLooseGitHead(projectRoot);
     if (loose?.commitSha && isCommitSha(loose.commitSha)) return loose;

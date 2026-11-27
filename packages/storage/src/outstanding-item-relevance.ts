@@ -1,18 +1,7 @@
-/**
- * Relevance of pending outstanding items to a focus (task terms, changed paths, recalled source Sessions).
- *
- * The candidate query reads each pending item once; this module scores it. Matching every stored path against every
- * query path in SQL recomputed `lower(replace(...))` per pair and cost most of a finalize, so each stored path is
- * folded once here instead. The rules are the ones the SQL scorer used, so results and tie order are unchanged:
- * case folding covers ASCII letters only (like SQLite `lower()`), and directories match on segment boundaries.
- */
-
+/** Case folding covers ASCII letters only, like SQLite `lower()`, so results match the SQL scorer this replaced. */
 export interface RelatedPendingFocus {
-  /** Lower-case query terms; each one counted once per field. */
   terms: readonly string[];
-  /** Normalized project-relative query paths. */
   paths: readonly string[];
-  /** Recalled source Session ids, best first; earlier ids weigh more. */
   sources: readonly string[];
 }
 
@@ -21,24 +10,14 @@ export type RelatedPendingCandidate = {
   source_session_id: string;
   source_session_completed_at: string;
   position: number;
-  /** `lower()` of the item text, the source title, and the first 2,000 characters of its summary. */
   text_key: string;
   title_key: string;
   summary_key: string;
-  /** The source Session's stored changed-files JSON array. */
   changed_files_json: string;
 };
 
-/**
- * Work one relatedPending call may spend scoring, in character units charged before the work runs: each candidate's
- * three text keys once per term (String.prototype.includes, about 1.8 ns per character and term for 80-character
- * near-miss terms over repeated letters), and per source Session its changed-files JSON (parsed and folded) plus each
- * stored path once per query path. 50M units is about 100 ms on the development machine; the worst allowed input
- * (2,000 items of 4,000 characters, 24 near-miss terms, 20 query paths against 200 stored paths of 1,000 characters)
- * took 2.1 s unbounded. Real data uses well under 1%.
- */
+/** About 100 ms on the development machine; the worst allowed input took 2.1 s unbounded. */
 export const RELATED_PENDING_UNIT_LIMIT = 50_000_000;
-/** Per-pair constant work of a path comparison (four prefix/suffix checks), in the units above. */
 const PATH_PAIR_UNITS = 16;
 const JSON_UNITS_PER_CHAR = 4;
 
@@ -66,7 +45,6 @@ function storedPaths(json: string): string[] {
   }
 }
 
-/** Equal, inside the query directory, the query path ending in the stored path, or the reverse. */
 function pathMatches(stored: string, query: string): boolean {
   return (
     stored === query || stored.startsWith(`${query}/`) || stored.endsWith(`/${query}`) || query.endsWith(`/${stored}`)
@@ -84,9 +62,7 @@ function compareBinary(left: string, right: string): number {
 }
 
 /**
- * Scores candidates and returns the positive ones, best first: relevance, then the newest source Session, its id
- * (descending), the item position, and the item id. The sum keeps the SQL scorer's term order so equal inputs give
- * bit-identical scores and the same ties.
+ * The sum keeps the SQL scorer's term order, so equal inputs give bit-identical scores and ties.
  * @internal test-only
  */
 export function rankRelatedPending<T extends RelatedPendingCandidate>(
@@ -96,11 +72,6 @@ export function rankRelatedPending<T extends RelatedPendingCandidate>(
   return rankRelatedPendingWithin(candidates, focus, Number.POSITIVE_INFINITY).ranked;
 }
 
-/**
- * rankRelatedPending within `limitUnits` (see RELATED_PENDING_UNIT_LIMIT). Candidates arrive newest source Session
- * first; each is charged before it is scored, and once the budget would be passed the rest are left out and
- * `exhausted` is set, so the ranking covers the newest candidates the budget could afford.
- */
 export function rankRelatedPendingWithin<T extends RelatedPendingCandidate>(
   candidates: readonly T[],
   focus: RelatedPendingFocus,

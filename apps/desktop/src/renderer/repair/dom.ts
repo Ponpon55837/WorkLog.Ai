@@ -1,5 +1,4 @@
-// Small DOM helpers shared by the App window's views (Status, Data, Settings, Diagnostics, first run, Agents). Text is
-// always set as text, never as HTML: everything the page shows comes from main, and none of it is markup.
+// Text is always set as text, never as HTML.
 
 export type ButtonVariant = "default" | "primary" | "danger" | "link";
 
@@ -15,7 +14,6 @@ export function element<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-/** A card (UiBox): a header row with the title, then a padded body. `title` may carry a label pill beside the text. */
 export function section(title: string | readonly (Node | string)[], ...content: Node[]): HTMLElement {
   const heading = element(
     "h2",
@@ -28,22 +26,18 @@ export function section(title: string | readonly (Node | string)[], ...content: 
   ]);
 }
 
-/** The body of a card made by `section`, where more content goes. */
 export function cardBody(card: HTMLElement): HTMLElement {
   return card.querySelector<HTMLElement>(":scope > .card-body") ?? card;
 }
 
-/** A paragraph (or, with `tag`, another element) of muted helper text. */
 export function hint(text: string, tag: "p" | "div" | "li" = "p"): HTMLElement {
   return element(tag, { className: "hint", text });
 }
 
-/** A row of buttons. */
 export function actions(...buttons: Node[]): HTMLElement {
   return element("div", { className: "actions" }, buttons);
 }
 
-/** A term/description list from [label, value] rows. */
 export function facts(...rows: (readonly [string, Node | string])[]): HTMLElement {
   return element(
     "dl",
@@ -52,12 +46,10 @@ export function facts(...rows: (readonly [string, Node | string])[]): HTMLElemen
   );
 }
 
-/** A database path or other file name, in the monospace face. */
 export function path(text: string): HTMLElement {
   return element("span", { className: "path", text });
 }
 
-/** A button; `enabled` also covers "another action is running", which the caller passes in. `true` means primary. */
 export function button(
   label: string,
   id: string,

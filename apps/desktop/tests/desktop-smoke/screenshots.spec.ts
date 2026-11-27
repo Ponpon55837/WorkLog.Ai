@@ -17,16 +17,6 @@ import {
   type Sandbox,
 } from "./helpers.js";
 
-/**
- * Screenshots of the real tabbed window, taken in real Electron for review (CI uploads them as an artifact; nothing is
- * compared against a baseline, so a changed look never fails a run). One file per state, tab, language and colour scheme:
- *
- *   apps/desktop/screenshots/<platform>/<state>-<tab>-<locale>-<scheme>.png
- *
- * Every saved path is printed. The page is captured at a device scale factor of 2 where Chromium accepts the override.
- * Synthetic data only. The whole spec is built to take well under 90 s: four launches and about two dozen captures.
- */
-
 const here = dirname(fileURLToPath(import.meta.url));
 const OUTPUT = resolve(here, "..", "..", "screenshots", process.platform);
 
@@ -45,7 +35,6 @@ test.afterEach(async ({ browserName: _browserName }, testInfo) => {
   sandbox = undefined;
 });
 
-/** Asks Chromium for a device scale factor of 2 at the window's own size; false when it refuses (the shot is then 1x). */
 async function scaleUp(window: Page): Promise<boolean> {
   try {
     const session = await window.context().newCDPSession(window);
@@ -62,7 +51,6 @@ async function scaleUp(window: Page): Promise<boolean> {
   }
 }
 
-/** The language the page actually shows (it follows the OS), in the file name's spelling. */
 async function pageLocale(window: Page): Promise<Locale> {
   return (await window.evaluate(() => document.documentElement.lang)) === "zh-Hant" ? "zh-TW" : "en";
 }
@@ -70,7 +58,6 @@ async function pageLocale(window: Page): Promise<Locale> {
 async function shoot(window: Page, state: string, tab: string, scheme: Scheme): Promise<void> {
   await window.emulateMedia({ colorScheme: scheme });
   await expect.poll(() => window.evaluate(() => document.documentElement.dataset.theme)).toBe(scheme);
-  // Fonts and two frames, so the capture is of a settled page.
   await window.evaluate(async () => {
     await document.fonts.ready;
     await new Promise((resolveFrame) => requestAnimationFrame(() => requestAnimationFrame(resolveFrame)));

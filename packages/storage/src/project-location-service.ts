@@ -24,7 +24,6 @@ function rootsOverlap(left: string, right: string): boolean {
   return isPathWithinProject(left, right) || isPathWithinProject(right, left);
 }
 
-/** Updates a project's local root and dependent handoff paths as one audited transaction. */
 export class ProjectLocationService {
   public constructor(
     private readonly db: DatabaseSync,

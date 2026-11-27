@@ -29,13 +29,6 @@ import {
   type Sandbox,
 } from "./helpers.js";
 
-/**
- * The one tabbed App window, checked through roles, aria attributes and `data-*` ids (never styling classes): one
- * window that is reused (never reloaded) by every tray item and route, the tab strip's semantics and keyboard, the tab
- * a request selects, the menu, the DevTools switch, the window's size, state across tab switches, the theme and the
- * IPC allowlist. Synthetic data only; the update check talks to a local stand-in server.
- */
-
 const ORIGIN_VARIABLE = "WORK_INTELLIGENCE_DESKTOP_TEST_UPDATE_API_ORIGIN";
 const FIRST_RUN_PORT_VARIABLE = "WORK_INTELLIGENCE_DESKTOP_TEST_DEFAULT_PORT";
 const READY_TABS: readonly AppTab[] = APP_TABS.filter((tab) => tab !== "setup");
@@ -56,7 +49,6 @@ test.afterEach(async ({ browserName: _browserName }, testInfo) => {
   sandbox = undefined;
 });
 
-/** A stand-in for the GitHub release list that answers with no release at all (up to date), counting the requests. */
 async function startUpdateServer(): Promise<string> {
   updateRequests = 0;
   server = createServer((_request, response) => {

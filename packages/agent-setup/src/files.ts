@@ -16,7 +16,6 @@ import {
 import { dirname, posix, win32 } from "node:path";
 import type { ReadFileResult } from "./types.js";
 
-/** A target no longer holds the bytes the plan was made against; nothing of ours was written to it. */
 export class FingerprintMismatchError extends Error {
   constructor(readonly path: string) {
     super("fingerprint-mismatch");
@@ -27,14 +26,12 @@ export class FingerprintMismatchError extends Error {
 export const JSON_OBJECT = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
-/** The fingerprint of a file that does not exist; every other fingerprint is a sha256 hex digest. */
 export const ABSENT_FINGERPRINT = "absent";
 
 export function sha256(value: Buffer | string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-/** sha256 of the bytes, or {@link ABSENT_FINGERPRINT} for a missing file. */
 export function fingerprintOf(bytes: Buffer | null): string {
   return bytes === null ? ABSENT_FINGERPRINT : sha256(bytes);
 }
@@ -59,10 +56,6 @@ export function readRegularFile(path: string): ReadFileResult {
   }
 }
 
-/**
- * `~`-relative form of a path under the home directory. `platform` selects the path rules (Windows separators and
- * case-insensitive drive paths); POSIX output is unchanged.
- */
 export function displayPath(path: string, homeDirectory: string, platform: NodeJS.Platform = process.platform): string {
   const flavor = platform === "win32" ? win32 : posix;
   const absoluteHome = flavor.resolve(homeDirectory);
@@ -128,11 +121,10 @@ function writeSyncedFile(path: string, bytes: Buffer, mode: number): void {
 }
 
 /** Errors a Windows file lock raises while an antivirus scanner or the search indexer briefly holds a file. */
+// A file lock refuses a rename only for a moment, so these are retried.
 const RENAME_RETRYABLE_CODES: ReadonlySet<string> = new Set(["EBUSY", "EPERM", "EACCES"]);
-/** Waits before each retry: five attempts, 0.75 s in all. */
 const RENAME_RETRY_DELAYS_MS: readonly number[] = [50, 100, 200, 400];
 
-/** `renameSync` that tries again when a file lock refuses it; any other error, and the last refusal, is thrown. */
 function renameWithRetry(from: string, to: string): void {
   for (let attempt = 0; ; attempt += 1) {
     try {
@@ -148,10 +140,8 @@ function renameWithRetry(from: string, to: string): void {
 }
 
 /**
- * Temp file (fsynced), fingerprint re-check, rename, directory sync. When `expectedFingerprint` is given the target is
- * re-read after the temp file is complete and the rename is skipped, with a {@link FingerprintMismatchError}, if it
- * changed. That narrows the check-to-rename window to a few microseconds but cannot close it: POSIX and Windows offer
- * no compare-and-swap rename, so a writer that lands between the re-read and the rename still loses its edit (ADR-14).
+ * Narrows the check-to-rename window but cannot close it: neither POSIX nor Windows offers a compare-and-swap rename
+ * (ADR-14).
  */
 export function writeAtomically(path: string, bytes: Buffer, mode: number, expectedFingerprint?: string): void {
   const temporaryPath = `${path}.work-intelligence.tmp-${randomUUID()}`;
@@ -172,7 +162,6 @@ export function writeAtomically(path: string, bytes: Buffer, mode: number, expec
   syncDirectory(dirname(path));
 }
 
-/** Removes a file only if it still holds the expected bytes; same residual race as {@link writeAtomically}. */
 export function removeAtomically(path: string, expectedFingerprint: string): void {
   if (fingerprintOf(readCurrent(path)) !== expectedFingerprint) throw new FingerprintMismatchError(path);
   if (existsSync(path)) unlinkSync(path);

@@ -64,45 +64,31 @@ import { limitKnowledgePageReviewSections } from "./knowledge-page-service.js";
 const RECENT_DECISION_LIMIT = 12;
 const RECENT_KNOWLEDGE_LIMIT = 12;
 const RELEVANT_LIMIT = 5;
-// A task has no whitespace between Chinese words, so contextTerms cannot match it inside page text. Its overlapping
-// character pairs do, but one shared pair is common wording, so a pair-only section needs this many distinct pairs.
+// Chinese tasks have no word breaks, so pages match on character pairs; one shared pair is common wording.
 const PAGE_PAIR_MATCH_MINIMUM = 2;
-// Fixed pointers for a focused context whose relevant.knowledge is empty (knowledgeHint).
 const KNOWLEDGE_HINT_TASK_ONLY =
   "No Knowledge text matched this task; pass `paths` (the files you will change) or `projectRoot` to look up Knowledge by file scope. This does not mean no Knowledge applies.";
 const KNOWLEDGE_HINT_TASK_ONLY_SCOPED =
   "No Knowledge text matched this task; pass `paths` (the files you will change) to look up Knowledge by file scope. This does not mean no Knowledge applies.";
 const KNOWLEDGE_HINT_PATHS =
   "No Knowledge has appliesTo or references covering these paths, and none matched the task text. Knowledge recorded without appliesTo can still apply: read recentKnowledge or search with work_search_knowledge.";
-/** Only the three highest-ranked Session hits can seed one-hop context supplements. */
 const CONTEXT_SUPPLEMENT_SOURCE_LIMIT = 3;
-/** Keep one source from filling the optional indicator list with its own related records. */
 const CONTEXT_SUPPLEMENT_ITEMS_PER_SOURCE = 2;
-/** Bound response overhead while allowing more than one retained source to contribute. */
 const CONTEXT_SUPPLEMENT_LIMIT = 4;
 const RECALL_DEFAULT_LIMIT = 8;
 const RECALL_MAX_LIMIT = 30;
 const SEARCH_LIMIT = 20;
 const CONTEXT_DEFAULT_BUDGET_CHARS = 15_800;
 const CONTEXT_TASK_BUDGET_CHARS = 9_800;
-/** Budget-omitted ids listed per context section; the rest are counted in `moreIds`. */
 const CONTEXT_OMITTED_ID_LIMIT = 3;
-/** Path-matched Knowledge left out of relevant.knowledge that keep a title and one path in the omission pointer. */
 const CONTEXT_OMITTED_PATH_ENTRY_LIMIT = 5;
 const CONTEXT_PATH_ENTRY_TITLE_CHARS = 60;
-/** Last-resort title length once the response is still over budget after every other trim. */
 const CONTEXT_PATH_ENTRY_SHORT_TITLE_CHARS = 24;
 const CONTEXT_PATH_ENTRY_PATH_CHARS = 100;
-/** Path-matched Knowledge is found again by path (appliesTo) or by words from its title. */
 const PATH_KNOWLEDGE_READ_WITH = "work_get_file_history/work_search_knowledge";
 const DEFAULT_KNOWLEDGE_READ_WITH = "work_search_knowledge";
 const RANKED_BEYOND_REASON = "超出相關 Knowledge 上限";
-/** Reason prefix for an item left out because the same record is already shown in another section. */
 const DUPLICATE_REASON_PREFIX = "已列於";
-/**
- * Without a task or paths, the newest Sessions are what an Agent starting work needs most, so this many outlast
- * older Knowledge, decisions, and page content when the budget is tight.
- */
 const CONTEXT_RECENT_SESSION_FLOOR = 3;
 const CONTEXT_PAGE_SECTION_LIMIT = 5;
 const CONTEXT_REVIEW_SOURCE_LIMIT = 8;
@@ -115,12 +101,10 @@ const RELATED_OUTSTANDING_HINT =
 const RECALL_EXCERPT_CHARS = 110;
 const CONTINUED_OUTSTANDING_ITEM_LIMIT = 10;
 
-/** What an Agent is about to work on; ranks relevant records into the context result. */
 export type ContextFocus = { task?: string; paths?: string[]; linkedSessionIds?: string[] };
 
 type MetadataBackfillTotals = Extract<MetadataBackfillPreviewResult, { outcome: "backfill_preview" }>["totals"];
 
-/** One item a context section leaves out, before it is folded into the section's compact omission pointer. */
 interface OmittedItem {
   id: string;
   reason: string;
@@ -128,11 +112,9 @@ interface OmittedItem {
   staleReason?: StaleFlags["staleReason"];
   broadChangesSince?: number;
   needsReview?: boolean;
-  /** Path-matched Knowledge: keeps a title and one path in the pointer while the entry cap allows. */
   pathKnowledge?: Pick<PathKnowledge, "title" | "path" | "rank">;
 }
 
-/** Knowledge that matched a focus path, in recall rank order among Knowledge hits (0 is the best). */
 interface PathKnowledge {
   id: string;
   title: string;
@@ -179,7 +161,6 @@ interface ContextRecallStoreReader {
     truncated?: true;
   };
   hotspotHints(projectId: string, paths: readonly string[]): HotspotHint[];
-  /** Runs one composite read whose parts share the page records they need (see KnowledgePageService). */
   withSharedReads<T>(read: () => T): T;
 }
 
@@ -214,7 +195,6 @@ function contextTerms(focus: ContextFocus): string[] {
   return [...new Set(text.match(/[\p{L}\p{N}_-]+/gu) ?? [])].filter((term) => term.length > 1 && !ignored.has(term));
 }
 
-/** The overlapping two-character pairs of the task's Chinese runs that contextTerms does not already hold. */
 function taskPairTerms(focus: ContextFocus, exact: readonly string[]): string[] {
   const known = new Set(exact);
   return [
@@ -237,21 +217,14 @@ function hasFocus(focus: ContextFocus): boolean {
   return Boolean(focus.task?.trim() || (focus.paths ?? []).some((path) => path.trim()));
 }
 
-/** Drops the project fields that a project-scoped context names once in `project`. */
 function withoutProjectFields<T extends { projectId: string; projectName?: string }>(item: T): ProjectScopedItem<T> {
   const { projectId: _projectId, projectName: _projectName, ...rest } = item;
   return rest;
 }
 
-/**
- * Every id a context left out, including those past the few listed in its pointers, so supplements never point back
- * to an omitted record. Kept beside the response because it is not part of it.
- */
 const omittedIdsByContext = new WeakMap<ContextResult, Set<string>>();
 
-/** Every path-matched Knowledge a focus recalled, kept beside the relevant block because it is not part of it. */
 const pathKnowledgeByRelevant = new WeakMap<RelevantContext, PathKnowledge[]>();
-/** An inferred-path Knowledge pointer of a task-only context, kept beside the relevant block until supplements are fitted. */
 interface InferredKnowledge {
   id: string;
   title: string;
@@ -263,34 +236,22 @@ interface InferredKnowledge {
   needsReview?: boolean;
 }
 
-/** What the inference found for one context: the pointer candidates in rank order and every id any weighted file matched. */
 interface InferredMatches {
   items: InferredKnowledge[];
-  /** Every Knowledge the weighted files matched, ranked or not, so yielding never trims a record the inference touched. */
   matchedIds: Set<string>;
 }
 
-/** Knowledge matched by files of similar Sessions; only offered as supplements that use leftover budget. */
 const inferredKnowledgeByRelevant = new WeakMap<RelevantContext, InferredMatches>();
 
-/**
- * Task-only inference, frozen from the real-data replay in docs/experiments/task-path-replay.md: at most this many
- * inferred pointers per response, and only Knowledge that at least INFERRED_MIN_SESSIONS distinct similar Sessions
- * support through the files they changed (one Session alone is too often a coincidence).
- */
+/** Frozen from the real-data replay in docs/experiments/task-path-replay.md; one supporting Session is often a coincidence. */
 const INFERRED_POINTER_LIMIT = 3;
 const INFERRED_MIN_SESSIONS = 2;
-/** What a title-only recentKnowledge record gains in JSON besides losing its excerpt. */
 const EXCERPT_TRUNCATED_MARK = ',"excerptTruncated":true';
 
-/** Unflagged recentKnowledge records trimmed for budget only (not duplicates), which an inferred pointer may bring back. */
 const budgetOmittedRecentByContext = new WeakMap<ContextResult, Set<string>>();
-/** The same records by id once a context is assembled, so budget trimming can turn a dropped record into a path entry. */
 const pathKnowledgeByContext = new WeakMap<ContextResult, Map<string, PathKnowledge>>();
-/** Recall rank of each path entry in an omission, so a better-ranked record can replace the worst one at the cap. */
 const pathEntryRanks = new WeakMap<ContextOmission, Map<string, number>>();
 
-/** Ids an omission lists only because they ranked beyond the relevant slots; they were never shown in full. */
 const beyondLimitIds = new WeakMap<ContextOmission, Set<string>>();
 
 function boundedPath(path: string): string {
@@ -306,7 +267,6 @@ function pathEntries(omission: ContextOmission): NonNullable<ContextOmission["en
   return (omission.entries ?? []).filter((entry) => entry.path !== undefined);
 }
 
-/** Turns a path entry back into what the omission would hold without it: a flagged entry, or a plain id. */
 function demotePathEntry(omission: ContextOmission, id: string): void {
   const entry = omission.entries?.find((candidate) => candidate.id === id);
   if (!entry) return;
@@ -323,10 +283,6 @@ function demotePathEntry(omission: ContextOmission, id: string): void {
   if (pathEntries(omission).length === 0) omission.readWith = DEFAULT_KNOWLEDGE_READ_WITH;
 }
 
-/**
- * Lists a path-matched Knowledge with its title and one path, ahead of plain ids. At the cap the worst-ranked path
- * entry makes room for a better-ranked one; returns false when the item must fall back to the ordinary pointer.
- */
 function addPathEntry(omission: ContextOmission, item: OmittedItem): boolean {
   const { title, path, rank } = item.pathKnowledge!;
   const ranks = pathEntryRanks.get(omission) ?? new Map<string, number>();
@@ -363,11 +319,6 @@ function addPathEntry(omission: ContextOmission, item: OmittedItem): boolean {
   return true;
 }
 
-/**
- * Folds one left-out item into its section's compact pointer: duplicates are counted only, budget omissions keep a
- * few ids, and items flagged possiblyStale or needsReview keep their id and flags. Review details and cited Session
- * ids are left to `readWith`, so omission bookkeeping never crowds out content.
- */
 function addOmission(context: ContextResult, section: string, item: OmittedItem, readWith: string): void {
   context.omitted ??= [];
   let omission = context.omitted.find((candidate) => candidate.section === section);
@@ -387,7 +338,6 @@ function addOmission(context: ContextResult, section: string, item: OmittedItem,
     omittedIdsByContext.set(context, omittedIds);
   }
   omittedIds.add(item.id);
-  // A duplicate is shown elsewhere in this response together with its flags.
   if (item.reason.startsWith(DUPLICATE_REASON_PREFIX)) {
     omission.duplicates = (omission.duplicates ?? 0) + 1;
     return;
@@ -428,7 +378,7 @@ function contextSupplementOmission(supplements: ContextSupplementIndicator[], in
 }
 
 export class ContextRecallService {
-  /** Always true in the product. docs/experiments/task-path-replay.mjs and the tests turn it off to get the response without the feature. */
+  /** Always true in the product; docs/experiments/task-path-replay.mjs and tests turn it off. */
   private inferTaskPaths = true;
 
   public constructor(
@@ -438,7 +388,6 @@ export class ContextRecallService {
   ) {}
 
   public getContext(projectRoot?: string, focus: ContextFocus = {}): ContextQueryResult {
-    // Page digests, page omissions and pending page requests all read the same projects' page records.
     return this.store.withSharedReads(() => this.readContext(projectRoot, focus));
   }
 
@@ -496,10 +445,6 @@ export class ContextRecallService {
     return this.fitContextBudget(this.deduplicateContext(context, focus), focus);
   }
 
-  /**
-   * Ranked retrieval across Sessions (including raw handoff sections) and active Knowledge of tracked
-   * projects. Returns compact hits; read full records with getSessionDetailForAgent or searchKnowledge.
-   */
   public recall(input: RecallInput): RecallQueryResult {
     let project: ProjectRecord | undefined;
     if (input.projectRoot) {
@@ -530,7 +475,6 @@ export class ContextRecallService {
     };
   }
 
-  /** Closing skips the related query when no older pending items remain. */
   public relatedOutstandingItems(
     projectId: string,
     focus: ContextFocus,
@@ -539,8 +483,6 @@ export class ContextRecallService {
   ): RelatedOutstandingItems {
     if (!this.store.hasPendingOutstandingItems(projectId, excludeSourceSessionId))
       return { items: [], total: 0, omitted: 0 };
-    // Closing needs pending pointers, not full Session/Knowledge recall across the project history.
-    // Source title/summary relevance and changed paths are scored in the same bounded item query.
     return this.outstandingItemDigest(
       this.store.relatedPendingOutstandingItems({
         projectId,
@@ -551,10 +493,6 @@ export class ContextRecallService {
     );
   }
 
-  /**
-   * Pending items of the Sessions a finalize linked, at most CONTINUED_OUTSTANDING_ITEM_LIMIT, with an omitted count.
-   * Links may cross projects, but only same-project items can be closed by this Session, so only those are listed.
-   */
   public continuedOutstandingItems(
     projectId: string,
     linkedSessionIds: readonly string[],
@@ -579,7 +517,6 @@ export class ContextRecallService {
     return bounded.truncated ? { ...hit, excerpt: bounded.text, truncated: true } : hit;
   }
 
-  /** Trust for every Knowledge hit is read in one batch; per-hit lookups rescanned later Sessions once per hit. */
   private withRelatedSessions(
     hits: RecallHit[],
     trusted = this.store.getKnowledgeWithTrustMany(hits.filter((hit) => hit.type === "knowledge").map((hit) => hit.id)),
@@ -611,7 +548,6 @@ export class ContextRecallService {
     return result.outcome === "skipped" ? result : result.hits;
   }
 
-  /** Ranked, confidence-bearing search result for Agent tools; REST keeps the existing hit-array shape. */
   public searchForAgent(query: string, projectRoot?: string, range: DateRange = {}): SearchQueryResult | SkippedResult {
     let projectId: string | undefined;
     if (projectRoot) {
@@ -647,7 +583,7 @@ export class ContextRecallService {
     );
     const hits = sessions.map(({ hit, record }) => ({
       session: toSessionDigest(record, this.openItemsForSession(record, pendingBySession.get(record.id) ?? [])),
-      // A hit without a named field says so; filling in "title" would claim a match that did not happen.
+      // Filling in "title" for a hit without a named field would claim a match that did not happen.
       ...(hit.matchedIn[0] ? { matchedIn: hit.matchedIn[0] } : {}),
       ...(hit.matchedVia ? { matchedVia: hit.matchedVia } : {}),
       ...(hit.section ? { section: hit.section } : {}),
@@ -677,7 +613,7 @@ export class ContextRecallService {
     const pendingOutstandingItems = outstandingResult.outcome === "outstanding_items" ? outstandingResult.items : [];
     const pendingOutstandingItemsTotal =
       outstandingResult.outcome === "outstanding_items" ? outstandingResult.pageInfo.total : 0;
-    // The policy decision that admitted this call doubles as the tracking check, so no status call is needed.
+    // The policy decision that admitted this call doubles as the tracking check.
     const context: ContextResult = {
       outcome: "context",
       projectStatus: "tracked",
@@ -746,7 +682,6 @@ export class ContextRecallService {
     const pathKnowledge = pathKnowledgeByRelevant.get(context.relevant) ?? [];
     if (pathKnowledge.length > 0) {
       pathKnowledgeByContext.set(context, new Map(pathKnowledge.map((item) => [item.id, item])));
-      // A record still shown in full (relevant or recent) needs no pointer; it becomes one only if the budget drops it.
       const shownIds = new Set([...relevantKnowledgeIds, ...context.recentKnowledge.map((knowledge) => knowledge.id)]);
       for (const item of pathKnowledge) {
         if (shownIds.has(item.id)) continue;
@@ -849,7 +784,6 @@ export class ContextRecallService {
       if (trimRecentSession(recentSessionFloor)) return true;
       const recentKnowledge = context.recentKnowledge.pop();
       if (recentKnowledge) {
-        // A path-matched record is counted once, in the pointer that tells which file it covers.
         const pathKnowledge = pathKnowledgeItem(context, recentKnowledge.id);
         addOmission(
           context,
@@ -919,8 +853,6 @@ export class ContextRecallService {
       return false;
     };
 
-    // Relevant items are dropped only after recent activity is gone and long excerpts are shortened. Each step pops one
-    // kind of item; Knowledge has its own step because path pointers change where it ranks (see the loop below).
     const trimRelevantPageSection = (): boolean => {
       const relevant = context.relevant;
       const pageWithSections = relevant?.knowledgePages?.at(-1);
@@ -1023,8 +955,6 @@ export class ContextRecallService {
       trimRelevantKnowledge() ||
       trimRelevantDecision() ||
       trimRelevantOutstanding();
-    // With path pointers in play, full relevant Knowledge outranks everything else relevant, so the other relevant
-    // sections go first.
     const trimRelevantBesidesKnowledge = (): boolean =>
       trimRelevantPageSection() || trimRelevantSession() || trimRelevantDecision() || trimRelevantOutstanding();
 
@@ -1096,13 +1026,8 @@ export class ContextRecallService {
       return false;
     };
 
-    // Priority under budget when path-matched Knowledge has pointers (most valuable last to go): full relevant.knowledge
-    // records, then up to five pointers in their shortest form (id, title of at most 24 characters, path), then
-    // everything lower: recent sections and the plain ids of their pointers, page content, further relevant Sessions,
-    // decisions, open items, and text length. So titles shorten first, all lower-value content is trimmed next (recent
-    // sections, text, recentKnowledge ids, relevant page sections, Sessions, decisions, open items), and only then is a pointer demoted
-    // (back to a flagged entry or plain id, so trust flags and ids stay) before a full relevant record is popped,
-    // which may itself become a pointer. Each step removes or shortens something, so the loop ends.
+    // Trim order matters: titles shorten, lower-value content goes, then pointers are demoted, and only then is a full
+    // relevant record popped. Each step removes or shortens something, so the loop ends.
     const shortenPathTitles = (): boolean => {
       const omission = context.omitted?.find((candidate) => candidate.section === "relevant.knowledge");
       for (const entry of omission ? pathEntries(omission) : []) {
@@ -1113,8 +1038,6 @@ export class ContextRecallService {
       }
       return false;
     };
-    // Last of the pointer reductions: forget an unflagged record that was only listed because it ranked beyond the
-    // relevant slots (never shown), which restores what the response held before pointers existed.
     const forgetBeyondLimitPointer = (): boolean => {
       const omission = context.omitted?.find((candidate) => candidate.section === "relevant.knowledge");
       const beyond = omission ? beyondLimitIds.get(omission) : undefined;
@@ -1149,8 +1072,6 @@ export class ContextRecallService {
       return true;
     };
 
-    // The few plain ids a recentKnowledge pointer lists are the cheapest bookkeeping to give up: the count and the flagged
-    // entries stay, and the records are one work_search_knowledge call away.
     const dropRecentKnowledgeIds = (): boolean => {
       const omission = context.omitted?.find((candidate) => candidate.section === "recentKnowledge");
       if (!omission || (!omission.ids?.length && !omission.moreIds)) return false;
@@ -1171,7 +1092,7 @@ export class ContextRecallService {
       trimmed = true;
     }
 
-    // Fit the unmodified main response first; optional indicators cannot change any existing content selection.
+    // The unmodified main response is fitted first; optional indicators never change its selection.
     if (responseLength() <= limit && context.relevant) {
       const supplements = this.contextSupplementsFor(context);
       if (supplements.length > 0) this.fitSupplements(context, supplements, limit);
@@ -1190,15 +1111,12 @@ export class ContextRecallService {
     return context;
   }
 
-  /** Records ranked for the task and paths an Agent is about to work on; undefined without a focus. */
   private getRelevantContext(focus: ContextFocus, projectId?: string): RelevantContext | undefined {
     const task = focus.task?.trim();
     const paths = (focus.paths ?? []).map((path) => path.trim()).filter(Boolean);
     if (!task && paths.length === 0) {
       return undefined;
     }
-    // On a busy file the Sessions fill the page and recall reserves only a few slots for Knowledge, so the same ranking
-    // pass also names the best path-matched Knowledge beyond the page (internal; work_recall never returns them).
     const recalled = this.searchIndex.recall({
       q: task,
       paths,
@@ -1209,7 +1127,6 @@ export class ContextRecallService {
     });
     const termHits = recalled.termHits;
     const extraPathKnowledge = recalled.extraPathKnowledge ?? [];
-    // One batch for the page and the extra records, so staleness is still read once.
     const trusted = this.store.getKnowledgeWithTrustMany([
       ...recalled.hits.filter((hit) => hit.type === "knowledge").map((hit) => hit.id),
       ...extraPathKnowledge.map((item) => item.id),
@@ -1217,8 +1134,6 @@ export class ContextRecallService {
     const hits = this.withRelatedSessions(recalled.hits, trusted).map((hit) => this.contextHit(hit));
     const knowledgeHits = hits.filter((hit) => hit.type === "knowledge");
     const knowledge = knowledgeHits.slice(0, RELEVANT_LIMIT);
-    // Knowledge matched by a focus path, wherever it ranks: past the five relevant slots or dropped by the budget it
-    // still tells an Agent which Knowledge covers which file.
     const pageEntries = knowledgeHits.flatMap((hit, rank): PathKnowledge[] => {
       const path = hit.matchedPaths?.[0];
       if (!path) return [];
@@ -1233,7 +1148,6 @@ export class ContextRecallService {
         },
       ];
     });
-    // Ranked after every Knowledge hit of the page; together they stay within the entry cap plus the relevant slots.
     const extraEntries = extraPathKnowledge
       .slice(0, Math.max(0, CONTEXT_OMITTED_PATH_ENTRY_LIMIT + RELEVANT_LIMIT - pageEntries.length))
       .map((item, index): PathKnowledge => {
@@ -1267,7 +1181,7 @@ export class ContextRecallService {
             const bounded = truncateAtSentenceBoundary(text, DIGEST_ITEM_LENGTH);
             return {
               sessionId: record.id,
-              // The Session's other decisions follow this one; budget trimming drops from the end, so the first stays.
+              // Trimming drops from the end, so the first decision of a Session, which carries its title, stays.
               ...(index === 0 ? { sessionTitle: record.title, completedAt: record.completedAt } : {}),
               text: bounded.text,
               ...(bounded.truncated ? { truncated: true } : {}),
@@ -1277,14 +1191,11 @@ export class ContextRecallService {
       .slice(0, RECENT_DECISION_LIMIT);
     const scoped = <T extends { projectId: string; projectName?: string }>(item: T): ProjectScopedItem<T> =>
       projectId ? withoutProjectFields(item) : item;
-    // Same helper as the finalize receipt, so the Agent sees before finalize what the receipt would list after it.
     const linkedSessionIds = focus.linkedSessionIds ?? [];
     const continued =
       projectId && linkedSessionIds.length > 0
         ? this.continuedOutstandingItems(projectId, linkedSessionIds)
         : undefined;
-    // Empty here means the ranking found no Knowledge at all (budget trimming comes later and has its own omission), and
-    // path-matched Knowledge beyond the five slots counts as found.
     const knowledgeHint =
       knowledgeHits.length === 0 && pathKnowledge.length === 0
         ? paths.length > 0
@@ -1321,7 +1232,6 @@ export class ContextRecallService {
       ...(termHits ? { termHits } : {}),
       ...(recalled.termHitsTruncated ? { termHitsTruncated: true as const } : {}),
       ...(hotspots.length > 0 ? { hotspots } : {}),
-      // One pointer, not per path: the whole history of a file is one bounded read away.
       ...(hotspots.some((hint) => hint.totalSessions > sessions.length)
         ? { fileHistoryReadWith: "work_get_file_history" as const }
         : {}),
@@ -1338,31 +1248,19 @@ export class ContextRecallService {
     return relevant;
   }
 
-  /**
-   * Adds the supplements the response still has room for, never changing the first-round content (relevant.*). Pointers
-   * are dropped from the end until the response fits. When inferred pointers are among the selected ones, the
-   * recentKnowledge records no weighted file matched yield room instead, from the end: first each is reduced to its
-   * title (empty excerpt, excerptTruncated), and only when every one is title-only and the response still does not fit
-   * are they popped (with the usual omission), so a recent record keeps its title whenever it can. Matched records are
-   * never shortened or popped. A promoted match leaves recentKnowledge, and a match budget trimming had taken out of it
-   * leaves its omission, so each record is counted once. When nothing fits, the response stays exactly as it was.
-   * Complexity: at most (pointers + 1) x (2 x recent items + 1) serializations, about 4 x 25 when every step is needed.
-   */
+  /** Never changes first-round content (relevant.*); when nothing fits, the response stays exactly as it was. */
   private fitSupplements(context: ContextResult, supplements: ContextSupplementIndicator[], limit: number): void {
     const relevant = context.relevant!;
     const baseOmitted = context.omitted;
     const baseRecent = context.recentKnowledge;
     const isInferred = (item: ContextSupplementIndicator): boolean => item.includedBecause.kind === "inferred_path";
     const inferredMatches = inferredKnowledgeByRelevant.get(relevant);
-    // A record any weighted file matched is never trimmed to make room, whether or not it became a pointer candidate.
     const matchedIds = new Set([
       ...(inferredMatches?.matchedIds ?? []),
       ...(inferredMatches?.items ?? []).map((item) => item.id),
     ]);
     const budgetOmitted = budgetOmittedRecentByContext.get(context) ?? new Set<string>();
-    // Newest-last order, so reversing it yields from the end like budget trimming does.
     const poppable = baseRecent.filter((item) => !matchedIds.has(item.id)).reverse();
-    // Only a record whose excerpt is longer than the marker it gains saves any room.
     const shortenable = poppable.filter(
       (item) => item.excerpt.length > (item.excerptTruncated ? 0 : EXCERPT_TRUNCATED_MARK.length),
     );
@@ -1417,14 +1315,13 @@ export class ContextRecallService {
     }
     apply(0, 0, 0, false);
     if (JSON.stringify(context).length <= limit) return;
-    // When even the omission pointer cannot fit, keep the baseline response byte-for-byte intact.
+    // Keeps the baseline response byte-for-byte intact.
     delete relevant.supplements;
     context.recentKnowledge = baseRecent;
     if (baseOmitted) context.omitted = baseOmitted;
     else delete context.omitted;
   }
 
-  /** Removes one budget-trimmed record from the recentKnowledge pointer, keeping its count and listed ids consistent. */
   private forgetOmittedRecent(context: ContextResult, id: string): void {
     const omission = context.omitted?.find((candidate) => candidate.section === "recentKnowledge");
     if (!omission) return;
@@ -1441,14 +1338,6 @@ export class ContextRecallService {
     if (context.omitted.length === 0) delete context.omitted;
   }
 
-  /**
-   * One scan over the files of the similar Sessions and one trust batch; first-round hits and inactive records are
-   * skipped. Every file gets its weight (weighTaskPaths, at most 5 x 20 files) and knowledgeForWeightedPaths scores each
-   * Knowledge by the weights of the files it covers in one appliesTo scan. A Knowledge that fewer than
-   * INFERRED_MIN_SESSIONS distinct similar Sessions support is dropped. Returns more candidates than the pointer cap
-   * because recentKnowledge ones are promoted when supplements are chosen.
-   * Complexity: O(S*F) weighing, one repository scan, O(wanted * files) filtering, one trust batch.
-   */
   private inferredKnowledge(
     sources: InferredPathSource[],
     projectId: string,
@@ -1457,7 +1346,6 @@ export class ContextRecallService {
     const none: InferredMatches = { items: [], matchedIds: new Set() };
     const weights = weighTaskPaths(sources);
     if (weights.size === 0) return none;
-    // Records already shown in full under recentKnowledge are skipped (or promoted) when supplements are chosen, so look past them.
     const wanted = INFERRED_POINTER_LIMIT + RECENT_KNOWLEDGE_LIMIT + firstRoundIds.size;
     const matchedIds = new Set<string>();
     const ranked = this.searchIndex.knowledgeForWeightedPaths(
@@ -1479,7 +1367,6 @@ export class ContextRecallService {
     const items = matched.flatMap((item): InferredKnowledge[] => {
       const record = trusted.get(item.id);
       if (!record || record.status !== "active" || record.projectId !== projectId) return [];
-      // matchedPath is the weighted file that contributed most, so its weight entry names the Sessions to read first.
       const source = weights.get(item.matchedPath);
       return [
         {
@@ -1516,8 +1403,6 @@ export class ContextRecallService {
     for (const id of omittedIdsByContext.get(context) ?? []) excludedIds.add(id);
 
     const supplements: ContextSupplementIndicator[] = [];
-    // Without a retained source Session there is nothing one-hop to read, so the queries below are skipped; inferred
-    // pointers come from the Sessions recalled before trimming, so they still apply.
     const appliedBySession =
       sources.length > 0
         ? this.store.appliedKnowledgeIdsBySessions(sources.map(({ record }) => record.id))
@@ -1580,13 +1465,12 @@ export class ContextRecallService {
       }
     }
 
-    // Appended last, so the fitting loop drops them first and the one-hop supplements above keep their order.
+    // Appended last, so the fitting loop drops them first.
     const budgetOmitted = budgetOmittedRecentByContext.get(context);
     let inferredCount = 0;
     for (const item of inferredKnowledgeByRelevant.get(relevant)?.items ?? []) {
       if (inferredCount >= INFERRED_POINTER_LIMIT) break;
       if (supplements.some(({ id }) => id === item.id)) continue;
-      // A match shown in recentKnowledge or trimmed out of it is promoted: counted once, in the labelled pointer.
       if (excludedIds.has(item.id) && !budgetOmitted?.has(item.id)) continue;
       excludedIds.add(item.id);
       supplements.push({
@@ -1699,7 +1583,6 @@ export class ContextRecallService {
     return [...pageDigests.values()];
   }
 
-  /** Pending/processing requests an Agent could pick up; a project scope also includes its "all projects" requests. */
   private getPendingRequests(projectId?: string): ContextResult["pendingRequests"] {
     const active = new Set(["pending", "processing"]);
     const inScope = (request: { projectId?: string }) =>
@@ -1710,7 +1593,6 @@ export class ContextRecallService {
     const backfills = this.store.listMetadataBackfillRequests({ limit: 100 });
     const cleanups = this.store.listOutstandingCleanupRequests({ projectId, status: "pending", pageSize: 5 });
     const knowledgeCandidates = this.store.openKnowledgeCandidateRequests(projectId);
-    // Only a project-scoped call (already admitted by the policy gate) mentions the backlog, and never beside an open request.
     const knowledgeBacklog =
       projectId && knowledgeCandidates.length === 0 ? this.store.knowledgeCandidateBacklog(projectId) : undefined;
     return {
@@ -1828,7 +1710,6 @@ export class ContextRecallService {
     };
   }
 
-  /** Context items keep only what decides whether to read more; the source title is one read away. */
   private contextOutstandingItemDigest(result: {
     items: OutstandingItem[];
     total: number;
@@ -1851,7 +1732,6 @@ export class ContextRecallService {
     };
   }
 
-  /** The receipt digest in the compact context shape: id, source Session id and a shortened text. */
   private contextContinuedDigest(digest: RelatedOutstandingItems): ContextRelatedOutstandingItems {
     return {
       ...digest,
@@ -1896,16 +1776,11 @@ export class ContextRecallService {
     };
   }
 
-  /*
-   * Decisions come from workSummary.decisions, the confirmed technical decisions an Agent wrote at
-   * finalize. note/closing events are not used: they mostly record process state (commits,
-   * worktree status), not decisions.
-   */
+  /** From workSummary.decisions only: note/closing events mostly record process state, not decisions. */
   private getRecentDecisions(projectId?: string): DecisionDigest[] {
     const rows = this.db
       .prepare(
-        // CROSS JOIN walks idx_sessions_completed newest first and stops at the limit, like SessionRepository.list;
-        // a plain JOIN parsed the JSON of every tracked Session and sorted them all.
+        // CROSS JOIN walks idx_sessions_completed newest first and stops at the limit; a plain JOIN sorted every Session.
         `SELECT s.id, s.title, s.completed_at, json_extract(s.work_summary_json, '$.decisions') AS decisions_json
          FROM sessions s
          CROSS JOIN projects p ON p.id = s.project_id

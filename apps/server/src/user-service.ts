@@ -212,8 +212,8 @@ function findPackageManagerExecutable(platform: SupportedPlatform, environment: 
 }
 
 /**
- * Git for Windows puts coreutils (e.g. GNU whoami.exe) ahead of System32 in PATH, so every Windows tool the plan names
- * (`whoami.exe`, `schtasks.exe`, `taskkill.exe`, `powershell.exe`) is started from its absolute System32 path.
+ * Git for Windows puts coreutils (GNU whoami.exe) ahead of System32 in PATH, so every Windows tool is started from its
+ * absolute System32 path.
  */
 function resolveWindowsSystemCommand(command: string): string {
   return command === "powershell.exe" ? windowsPowerShell() : windowsSystemTool(command);
@@ -316,7 +316,7 @@ function renderSystemdUnit(plan: RenderServicePlan, runnerPath: string): string 
 }
 
 function renderWindowsTask(plan: RenderServicePlan, runnerPath: string, userId: string): string {
-  // A console app started at logon gets a visible window, and closing it stops the server; conhost --headless keeps it hidden.
+  // A console app started at logon gets a visible window that stops the server when closed; conhost --headless hides it.
   const argumentsList = [
     "--headless",
     plan.nodeExecutable,
@@ -421,7 +421,6 @@ function buildPlan(options: UserServiceOptions = {}): UserServicePlan {
   return { ...basePlan, directories, files: [{ path: paths.configPath, contents }] };
 }
 
-/** PIDs of service runners started from this repository, found by the runner path on their command line. */
 function findWindowsRunnerProcesses(
   plan: UserServicePlan,
   runCommand: (command: string, args: string[]) => string,
@@ -439,10 +438,7 @@ function findWindowsRunnerProcesses(
     .filter((line) => /^\d+$/.test(line));
 }
 
-/**
- * Ends the scheduled task, then the runner trees it leaves behind: schtasks /End only stops the task's own conhost,
- * so the runner, pnpm and the old server keep the port and the next start fails while the old version keeps serving.
- */
+/** schtasks /End only stops the task's own conhost, so the runner trees are ended too or the old server keeps the port. */
 function stopWindowsTask(plan: UserServicePlan, runCommand: (command: string, args: string[]) => string): void {
   try {
     runCommand("schtasks.exe", ["/End", "/TN", plan.serviceTarget]);
@@ -569,7 +565,7 @@ export function formatUserServiceStatus(status: UserServiceStatus): string {
 export function installUserService(plan: UserServicePlan, runCommand = runSystemCommand): void {
   for (const directory of plan.directories) mkdirSync(directory, { recursive: true, mode: 0o700 });
   for (const file of plan.files) {
-    // schtasks /XML only accepts UTF-16 task files; write UTF-16LE with a BOM to match the XML declaration.
+    // schtasks /XML only accepts UTF-16 task files: UTF-16LE with a BOM, matching the XML declaration.
     if (plan.platform === "win32")
       writeFileSync(file.path, String.fromCharCode(0xfeff) + file.contents, { encoding: "utf16le", mode: 0o600 });
     else writeFileSync(file.path, file.contents, { encoding: "utf8", mode: 0o600 });
@@ -577,7 +573,6 @@ export function installUserService(plan: UserServicePlan, runCommand = runSystem
   managerCommand(plan, runCommand);
 }
 
-/** Restarts an installed service so a rebuilt checkout takes effect, without rewriting its configuration. */
 export function restartUserService(plan: UserServicePlan, runCommand = runSystemCommand): void {
   if (plan.platform === "darwin") {
     runCommand("launchctl", ["kickstart", "-k", plan.serviceTarget]);

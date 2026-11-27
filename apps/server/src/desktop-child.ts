@@ -29,16 +29,12 @@ import {
 } from "./database-preflight.js";
 import { StartApiError, startApi, type StartApiOptions, type StartedApi } from "./start-api.js";
 
-/** How the child talks to its parent and ends itself; the real one wraps `process`, tests pass a fake. */
 export interface DesktopChildHost {
   readonly pid: number;
   readonly execPath: string;
-  /** Sends one message and calls back once it has been handed to the channel (so an exit right after loses nothing). */
   send(message: DesktopChildMessage, done: () => void): void;
   onMessage(listener: (message: unknown) => void): void;
-  /** The parent went away (crashed, killed, or closed the channel). */
   onDisconnect(listener: () => void): void;
-  /** SIGINT or SIGTERM. */
   onSignal(listener: () => void): void;
   exit(code: number): void;
   /** Diagnostic line for the parent's captured stderr; never a path, token or message body. */
@@ -47,44 +43,26 @@ export interface DesktopChildHost {
 
 export interface DesktopChildDependencies {
   preflight: (path: string, options?: { quickCheck?: boolean }) => Promise<DatabasePreflightResult>;
-  /** Creates a new empty database when nothing exists at the path; a failure result, or `undefined` to go on to preflight. */
   createDatabase?: (path: string) => DatabasePreflightResult | undefined;
-  /** A consistent copy of `source` at `target` for a preview child (DT-08); never touches the source. */
   copyDatabase?: (source: string, target: string) => Promise<DatabaseCopyResult>;
-  /** Read-only look at the backups of a database or at the files given (the App's 「從備份還原」); a preview child only. */
   inspectBackups?: typeof inspectBackups;
-  /** Replaces the database with a backup (a preview child only, and only while the backend is stopped). */
   restoreFromBackup?: typeof restoreFromBackup;
-  /** The project folders a backup records, read-only (a preview child only). */
   listBackupRoots?: typeof listBackupProjectRoots;
-  /** Maintains or checks the database (a preview child only, and only while the backend is stopped). */
   maintain?: typeof maintainForApp;
-  /** Reclaimable space and the last maintenance run of the serving database. */
   maintenanceHint?: typeof readMaintenanceHint;
   probePort: (port: number) => Promise<LoopbackPortProbe>;
   startApi: (options: StartApiOptions) => StartedApi;
-  /**
-   * Test seam of the desktop smoke tests: resolves when the child may open the store (and so migrate). It is given a
-   * predicate that turns false once the start was abandoned, so a held child still shuts down. Absent in production:
-   * see desktop-child-test-hold.ts.
-   */
   holdBeforeOpen?: (stillStarting: () => boolean) => Promise<void>;
 }
 
-/**
- * Set by esbuild when the desktop runtime is bundled (scripts/build-standalone.mjs, `desktopTestBuild`): true only for
- * the smoke-test runtime (`scripts/desktop-runtime-spike/build.mjs --desktop-test-build`), false in every other bundle,
- * including the one a packaged App ships. A plain `tsc`/vitest/tsx run defines nothing, so it reads as false.
- */
+// Defined only by the desktop runtime bundle; a plain tsc, vitest or tsx run reads it as false.
 declare const __WI_DESKTOP_TEST_BUILD__: boolean | undefined;
 
-/** A failure the parent can act on: the error code and a short detail that carries no path. */
 interface ChildFailure {
   code: DesktopBackendErrorCode;
   detail: string;
 }
 
-/** `startApi` revalidation failures: the file is gone or unreadable, or it is no longer the one the user confirmed. */
 const REVALIDATION_FAILURES: Record<RevalidationFailureReason, ChildFailure> = {
   missing: { code: "DB_MISSING", detail: "the database file is missing" },
   offline: { code: "DB_OFFLINE", detail: "the database storage is offline" },
@@ -95,7 +73,6 @@ const REVALIDATION_FAILURES: Record<RevalidationFailureReason, ChildFailure> = {
   "lineage-changed": { code: "DB_IDENTITY_CHANGED", detail: "the database history changed" },
 };
 
-/** `DatabaseInitializationError.code` values with a dedicated error code; anything else needs repair. */
 const STORE_OPEN_FAILURES = new Map<string, ChildFailure>([
   [
     "DATABASE_SCHEMA_VERSION_TOO_NEW",
@@ -107,7 +84,6 @@ const STORE_OPEN_FAILURES = new Map<string, ChildFailure>([
   ["DATABASE_READ_ONLY", { code: "DB_PERMISSION", detail: "the database is read-only" }],
 ]);
 
-/** `listen` errno codes that mean the port cannot be used by this user right now. */
 const PORT_ERRNO_CODES = new Set(["EADDRINUSE", "EACCES", "EADDRNOTAVAIL"]);
 
 function startFailure(error: unknown): ChildFailure {
@@ -124,10 +100,7 @@ function startFailure(error: unknown): ChildFailure {
   return known ?? { code: "REPAIR_REQUIRED", detail: "the database could not be opened" };
 }
 
-/**
- * What the parent may read about a preflight. The underlying `detail` (an SQLite or file-system message) can carry the
- * database path, so only these fixed classification texts ever leave this process.
- */
+/** The `detail` can carry the database path, so only these fixed classification texts leave this process. */
 const PREFLIGHT_DETAILS: Record<DatabasePreflightResult["status"], string> = {
   ok: "the database can be opened",
   missing: "the database file is missing",
@@ -137,7 +110,6 @@ const PREFLIGHT_DETAILS: Record<DatabasePreflightResult["status"], string> = {
   "unsupported-schema": "the database schema is not supported by this build",
 };
 
-/** The one raw detail that may be named: the fixed text for a failed quick_check, so the App can tell it from a read failure. */
 function preflightReplyDetail(result: DatabasePreflightResult): string {
   return result.status === "unreadable" && result.detail === "quick_check failed"
     ? DESKTOP_INTEGRITY_CHECK_FAILED_DETAIL
@@ -169,8 +141,7 @@ const defaultDependencies: DesktopChildDependencies = {
   maintenanceHint: readMaintenanceHint,
   probePort: probeLoopbackPort,
   startApi,
-  // The condition folds to a constant in a bundle, so a production bundle drops this branch together with the hold
-  // module it imports (and the variable name inside it); the module is loaded only in the smoke-test runtime.
+  // Folds to a constant in a bundle, so a production bundle drops this branch together with the hold module.
   holdBeforeOpen:
     typeof __WI_DESKTOP_TEST_BUILD__ !== "undefined" && __WI_DESKTOP_TEST_BUILD__
       ? async (stillStarting) => {
@@ -180,12 +151,6 @@ const defaultDependencies: DesktopChildDependencies = {
       : undefined,
 };
 
-/**
- * The backend side of the private parent/child channel (R4 section 5.1, C-08). One instance serves one parent: it answers
- * a read-only preflight, accepts exactly one `start`, reports `ready` only after the listener is up, and shuts down
- * gracefully on `shutdown`, on a signal, or when the parent disappears. It never reads the port or database from the
- * environment: the parent's `start` message is the only source.
- */
 export class DesktopChild {
   private readonly host: DesktopChildHost;
   private readonly dependencies: DesktopChildDependencies;
@@ -193,11 +158,9 @@ export class DesktopChild {
   private api: StartedApi | undefined;
   private starting: Promise<void> | undefined;
   private stopping: Promise<void> | undefined;
-  /** The App's current facts; read on every status request, so an `update-facts` can replace them after start. */
   private facts: DesktopFacts | undefined;
   private failed = false;
   private exited = false;
-  /** The database this child serves, for the maintenance hint. */
   private databasePath: string | undefined;
 
   constructor(host: DesktopChildHost, dependencies: DesktopChildDependencies = defaultDependencies) {
@@ -205,7 +168,6 @@ export class DesktopChild {
     this.dependencies = dependencies;
   }
 
-  /** Subscribes to the parent and announces this process; the channel keeps the process alive from here on. */
   begin(): void {
     this.host.onMessage((raw) =>
       this.handle(raw).catch(() => this.host.log("[desktop-child] a message handler failed")),
@@ -223,7 +185,6 @@ export class DesktopChild {
     );
   }
 
-  /** Handles one raw message; an unknown or malformed one is logged and dropped, never fatal. */
   async handle(raw: unknown): Promise<void> {
     const parsed = parseDesktopParentMessage(raw);
     if (!parsed.ok) {
@@ -234,7 +195,6 @@ export class DesktopChild {
     if (message.type === "shutdown") {
       await this.stop({ notify: true });
     } else if (message.type === "update-facts") {
-      // The App learned something after the start (DT-08 storage risk): the status endpoint reads `facts` per request.
       this.facts = message.desktop;
     } else if (message.type === "copy-database") {
       await this.copyDatabase(message.source, message.target);
@@ -257,14 +217,12 @@ export class DesktopChild {
     }
   }
 
-  /** Answers which long jobs run now; a backend that is not serving has none. */
   private reportActivity(requestId: string): void {
     const busy = this.phase === "running" ? (this.api?.activity() ?? []) : [];
     const pendingImport = this.phase === "running" && (this.api?.hasPendingImport() ?? false);
     this.host.send({ type: "activity", requestId, busy, pendingImport }, () => undefined);
   }
 
-  /** Only a child that has not started reads another database's project folders. */
   private backupRoots(source: string): void {
     if (this.phase !== "idle" || !this.dependencies.listBackupRoots) {
       this.host.log("[desktop-child] dropped a backup-roots request: not a preview child");
@@ -280,7 +238,6 @@ export class DesktopChild {
     this.host.send({ type: "backup-roots-result", ...result }, () => undefined);
   }
 
-  /** Only a child that has not started maintains a database: a serving backend holds it open. */
   private async maintain(request: {
     readonly mode: "maintain" | "check";
     readonly databasePath: string;
@@ -300,7 +257,6 @@ export class DesktopChild {
     this.host.send({ type: "maintain-result", ...result }, () => undefined);
   }
 
-  /** Answers how much space a compaction would give back; a backend that is not serving has no answer. */
   private async reportMaintenanceHint(requestId: string): Promise<void> {
     let hint: Awaited<ReturnType<typeof readMaintenanceHint>> = {};
     if (this.phase === "running" && this.databasePath && this.dependencies.maintenanceHint) {
@@ -313,7 +269,6 @@ export class DesktopChild {
     this.host.send({ type: "maintenance-hint", requestId, ...hint }, () => undefined);
   }
 
-  /** Only a child that has not started (a preview child) copies: a serving backend never reads another database. */
   private async copyDatabase(source: string, target: string): Promise<void> {
     if (this.phase !== "idle" || !this.dependencies.copyDatabase) {
       this.host.log("[desktop-child] dropped a copy request: not a preview child");
@@ -364,7 +319,6 @@ export class DesktopChild {
     );
   }
 
-  /** Only a child that has not started replaces a database: a serving backend never does. */
   private restoreDatabase(request: {
     readonly source: string;
     readonly databasePath: string;
@@ -414,24 +368,21 @@ export class DesktopChild {
     return this.starting;
   }
 
-  /** Never rejects: every failure is reported to the parent, so `starting` is always safe to await. */
   private async run(message: DesktopStartMessage): Promise<void> {
-    // The store may migrate the database, so a port that cannot be bound is found out before it is opened. This probe
-    // narrows but cannot close the window up to `listen`: a port taken in between still fails the start, and by then any
-    // migration was already approved by the parent (`allowSchemaMigration` + `markMigrationStarted`) and is not unsafe.
+    // The store may migrate the database, so an unbindable port is found out before it opens. The probe cannot
+    // close the window up to `listen`.
     let probe: LoopbackPortProbe;
     try {
       probe = await this.dependencies.probePort(message.port);
     } catch {
       return this.fail({ code: "REPAIR_REQUIRED", detail: "the port could not be probed" });
     }
-    // A shutdown, disconnect or signal that arrived during the probe wins: nothing is opened, and `shutDown` finishes it.
+    // A shutdown, disconnect or signal during the probe wins: nothing is opened.
     if (this.phase !== "starting") return;
     if (!probe.free) {
       return this.fail({ code: portFailureCode(probe.code), detail: `listen failed (${probe.code})` });
     }
     const hold = this.dependencies.holdBeforeOpen;
-    // Without the seam (always, in production) nothing is awaited here, so the start's timing is unchanged.
     if (hold) {
       try {
         await hold(() => this.phase === "starting");
@@ -455,7 +406,6 @@ export class DesktopChild {
         desktop: {
           getFacts: () => this.facts,
           onOpenAgentSetup: () => this.host.send({ type: "open-agent-setup" }, () => undefined),
-          // Already sanitized by the route service; the preferences are only handed on, never logged.
           onSetLanguage: (locale) => this.host.send({ type: "set-language", locale }, () => undefined),
           onOpenPortSettings: ({ preferences, route }) =>
             this.host.send(
@@ -488,16 +438,11 @@ export class DesktopChild {
         () => undefined,
       );
     } catch (error) {
-      // Whatever the API opened before failing is closed (idempotent), then the failure is reported.
       await api?.shutdown().catch(() => undefined);
       await this.fail(startFailure(error));
     }
   }
 
-  /**
-   * Reports a failed start and ends the process; nothing keeps running half-started. A failure is final: `stopped` is
-   * never sent after `failed`, and the process exits exactly once (a shutdown that races a failure only waits for it).
-   */
   private fail(failure: ChildFailure): Promise<void> {
     if (this.failed) return Promise.resolve();
     this.failed = true;
@@ -516,7 +461,6 @@ export class DesktopChild {
     this.host.exit(code);
   }
 
-  /** Graceful stop; every caller shares one run. `notify: false` when the parent can no longer be told. */
   private stop(options: { notify: boolean }): Promise<void> {
     this.stopping ??= this.shutDown(options.notify);
     return this.stopping;
@@ -528,7 +472,6 @@ export class DesktopChild {
     // A start still waiting for its probe or listener finishes (or fails and exits) first, so SQLite is never left open.
     if (startedBeforeStop) await this.starting;
     await this.api?.shutdown().catch(() => undefined);
-    // A start that failed has already told the parent and exited; there is nothing left to announce.
     if (this.failed) return;
     const code = process.exitCode === undefined ? 0 : Number(process.exitCode);
     if (!notify) {
@@ -544,7 +487,6 @@ export class DesktopChild {
   }
 }
 
-/** The host backed by this process and its IPC channel. */
 function processHost(): DesktopChildHost {
   return {
     pid: process.pid,
@@ -554,7 +496,7 @@ function processHost(): DesktopChildHost {
         if (process.send) process.send(message, undefined, undefined, () => done());
         else done();
       } catch {
-        // The channel closed between the check and the send; the disconnect handler already owns the shutdown.
+        // The channel closed between the check and the send; the disconnect handler owns the shutdown.
         done();
       }
     },
@@ -569,11 +511,6 @@ function processHost(): DesktopChildHost {
   };
 }
 
-/**
- * Entry of `work-intelligence start --desktop-ipc`. Needs the IPC channel a Node parent opens with `stdio: [..., "ipc"]`;
- * without one it explains itself and returns a non-zero exit code. With one it returns 0 as soon as it is listening
- * for the parent: the channel keeps the process alive until it shuts itself down.
- */
 export async function runDesktopChild(
   host?: DesktopChildHost,
   dependencies?: DesktopChildDependencies,

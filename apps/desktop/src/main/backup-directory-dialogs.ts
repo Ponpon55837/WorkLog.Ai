@@ -7,11 +7,9 @@ import type { ShellState } from "./state.js";
 export interface BackupDirectoryDialogsOptions {
   readonly state: ShellState;
   readonly window: RepairWindow;
-  /** Test build only: answer the risk question with 「仍要使用」 instead of showing it. */
   readonly autoConfirm: boolean;
 }
 
-/** The native folder chooser and risk question of 「更換備份位置」; main shows them, the page never does. */
 export function createBackupDirectoryDialogs(options: BackupDirectoryDialogsOptions): {
   chooseFolder(): Promise<string | null>;
   confirmRisk(risk: Exclude<StorageRiskResult["risk"], "none">): Promise<boolean>;
