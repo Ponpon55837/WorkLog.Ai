@@ -472,6 +472,49 @@ describe("Work Intelligence MCP server", () => {
     expect(store.getSessionById(fourth.session.id)?.changedFiles).toEqual(["src/a.ts"]);
   });
 
+  it("returns a start-record receipt without executionStatus and completes it in place with the same key", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Start record", root);
+    store.updateProject(project.id, { status: "tracked" });
+    type Receipt = { session: Record<string, unknown> & { id: string }; hint?: string };
+
+    const start = await callJson<Receipt>(client, "work_finalize_session", {
+      ...finalizePayload(root, "start-record-1", "Start"),
+      changedFiles: [],
+      verification: { status: "in_progress" },
+      workSummary: { outcomes: [], scope: [], decisions: [], verification: [] },
+    });
+    expect(start.session).not.toHaveProperty("executionStatus");
+    expect(start.session.verificationStatus).toBe("in_progress");
+    expect(start.hint).toContain("same idempotencyKey");
+    expect(store.listOutstandingItems({ projectId: project.id })).toMatchObject({ items: [] });
+
+    const done = await callJson<Receipt>(
+      client,
+      "work_finalize_session",
+      finalizePayload(root, "start-record-1", "Start"),
+    );
+    expect(done.session.id).toBe(start.session.id);
+    expect(done.session.executionStatus).toBe("completed");
+    expect(done).not.toHaveProperty("hint");
+    expect(store.listSessions({ projectId: project.id })).toHaveLength(1);
+  });
+
+  it("ends the segment when work_update_session_metadata completes a Session with completedAtNow", async () => {
+    const { client, store, root } = await connect();
+    const project = store.addProject("Completed now", root);
+    store.updateProject(project.id, { status: "tracked" });
+    type Receipt = { session: { id: string; startedAt?: string; startedAtSource?: string } };
+
+    const first = await callJson<Receipt>(client, "work_finalize_session", finalizePayload(root, "now-1", "First"));
+    await callReadOperation(client, "work_get_context", { projectRoot: root, task: "Fictional task" });
+    await callJson(client, "work_update_session_metadata", { sessionId: first.session.id, completedAtNow: true });
+
+    const next = await callJson<Receipt>(client, "work_finalize_session", finalizePayload(root, "now-2", "Second"));
+    expect(next.session.startedAt).toBeUndefined();
+    expect(next.session.startedAtSource).toBeUndefined();
+  });
+
   it("observes segment starts identically through every dispatcher tool, shared with direct-shaped calls", async () => {
     const { client, store, root } = await connect();
     const project = store.addProject("Observed dispatcher", root);

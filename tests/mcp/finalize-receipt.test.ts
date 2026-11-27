@@ -58,6 +58,17 @@ describe("finalize receipt", () => {
     });
   });
 
+  it("omits executionStatus and adds a completion hint while verification is in_progress", () => {
+    const receipt = toFinalizeReceipt(
+      { changedFiles: [] },
+      finalized({ session: { ...SESSION, verification: { status: "in_progress" } } }),
+    ) as { session: Record<string, unknown>; hint?: string };
+    expect(receipt.session).not.toHaveProperty("executionStatus");
+    expect(receipt.session).toMatchObject({ verificationStatus: "in_progress" });
+    expect(receipt.hint).toContain("same idempotencyKey");
+    expect(toFinalizeReceipt({ changedFiles: [] }, finalized())).not.toHaveProperty("hint");
+  });
+
   it("reports what the server derived: stored files, Git metadata, start time, masking, and transitions", () => {
     const receipt = toFinalizeReceipt(
       { changedFiles: ["./src/ledger.ts", "src/baseline.ts"], resolvedOutstandingItemIds: ["item-missing"] },

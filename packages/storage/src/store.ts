@@ -324,6 +324,7 @@ import {
   getWorkSummaryFollowUp,
   normalizeCommitSha,
   isCommitSha,
+  sameVerification,
 } from "./session-record-codecs.js";
 import { readGitHeadWithGit, type GitObservedChanges } from "./git-change-observation.js";
 import {
@@ -1798,7 +1799,8 @@ export class WorkIntelligenceStore {
 
   /**
    * The Git question a finalize request would ask, or undefined when it must not be asked: backfills (the worktree no
-   * longer represents that time), untracked projects (their Git is never read), duplicate retries, and requests with
+   * longer represents that time), untracked projects (their Git is never read), duplicate retries (an in_progress start
+   * record is not one: its completion is observed), and requests with
    * nothing left to observe. Cheap and synchronous; the caller runs Git outside any write lock.
    */
   public prepareChangedFileObservation(
@@ -1809,7 +1811,10 @@ export class WorkIntelligenceStore {
     const decision = this.checkProjectRoot(input.projectRoot);
     if (!decision.allowed || !decision.project) return undefined;
     const duplicate = this.db
-      .prepare("SELECT 1 AS found FROM sessions WHERE idempotency_key = ?")
+      .prepare(
+        `SELECT 1 AS found FROM sessions
+         WHERE idempotency_key = ? AND COALESCE(json_extract(verification_json, '$.status'), '') <> 'in_progress'`,
+      )
       .get(input.idempotencyKey);
     if (duplicate) return undefined;
     return planChangedFileObservation(decision.project.rootPath, input, context.baseCommit);
@@ -1884,7 +1889,7 @@ export class WorkIntelligenceStore {
       capturedHandoff?.redactions ?? { total: 0, byKind: {} },
     );
     const git = input.git ?? this.readGitMetadata(project.rootPath);
-    const sessionId = randomUUID();
+    let sessionId: string = randomUUID();
     const createdAt = nowIso();
     const completedAt = input.completedAt ?? createdAt;
     const resolvedStart = resolveStartedAtWithSource(
@@ -1913,8 +1918,14 @@ export class WorkIntelligenceStore {
     let linkedIds: string[] = [];
     const result = runImmediateSqlTransaction<FinalizeSessionResult>(this.db, () => {
       const existing = this.getSessionByIdempotencyKey(input.idempotencyKey);
-      if (existing) {
-        const incomingSummary = sanitizedSummary.value.trim();
+      const incomingSummary = sanitizedSummary.value.trim();
+      // Only a start record is rewritten in place; a completed Session is never downgraded by a late retry.
+      const rewritten =
+        existing?.verification?.status === "in_progress" &&
+        (input.verification?.status !== "in_progress" || existing.summary !== incomingSummary)
+          ? existing
+          : undefined;
+      if (existing && !rewritten) {
         if (existing.summary !== incomingSummary) {
           return {
             outcome: "idempotency_conflict",
@@ -1945,42 +1956,72 @@ export class WorkIntelligenceStore {
       const contradiction = findFinalizeRequestContradiction(input, (normalizedWorkSummary?.nextSteps.length ?? 0) > 0);
       if (contradiction) return contradiction;
 
-      this.db
-        .prepare(
-          `INSERT INTO sessions (
-             id, project_id, external_session_id, idempotency_key, title, summary,
-             work_summary_json, status, execution_status, completed_at, created_at, commit_sha, git_branch,
-             changed_files_json, changed_files_confirmed, changed_files_provenance_json, changed_file_changes_json, verification_json,
-             started_at, updated_at, redaction_count, agent_client, agent_model
-           ) VALUES (
-             @id, @projectId, @externalSessionId, @idempotencyKey, @title, @summary,
-             @workSummary, 'finalized', 'completed', @completedAt, @createdAt, @commitSha, @gitBranch,
-             @changedFiles, @changedFilesConfirmed, @changedFilesProvenance, @changedFileChanges, @verification,
-             @startedAt, @createdAt, @redactionCount, @agentClient, @agentModel
-           )`,
-        )
-        .run({
-          id: sessionId,
-          projectId: project.id,
-          externalSessionId: input.externalSessionId ?? null,
-          idempotencyKey: input.idempotencyKey,
-          title: sanitizedTitle.value,
-          summary: sanitizedSummary.value,
-          workSummary: JSON.stringify(sanitizedWorkSummary.value),
-          completedAt,
-          createdAt,
-          commitSha: normalizeCommitSha(git?.commitSha) ?? null,
-          gitBranch: git?.branch ?? null,
-          changedFiles: JSON.stringify(normalizedChangedFiles.files),
-          changedFilesConfirmed: input.changedFiles !== undefined || normalizedChangedFiles.files.length > 0 ? 1 : 0,
-          changedFilesProvenance: JSON.stringify(normalizedChangedFiles.provenance),
-          changedFileChanges: JSON.stringify(storedChangedFileChanges),
-          verification: sanitizedVerification ? JSON.stringify(sanitizedVerification.value) : null,
-          startedAt: startedAt ?? null,
-          redactionCount: redactions.total,
-          agentClient: context.agentClient?.trim().slice(0, 100) || null,
-          agentModel: input.agentModel ?? null,
-        });
+      const startedAtStored = startedAt ?? rewritten?.startedAt;
+      const sessionColumns = {
+        title: sanitizedTitle.value,
+        summary: sanitizedSummary.value,
+        workSummary: JSON.stringify(sanitizedWorkSummary.value),
+        completedAt,
+        commitSha: normalizeCommitSha(git?.commitSha) ?? null,
+        gitBranch: git?.branch ?? null,
+        changedFiles: JSON.stringify(normalizedChangedFiles.files),
+        changedFilesConfirmed: input.changedFiles !== undefined || normalizedChangedFiles.files.length > 0 ? 1 : 0,
+        changedFilesProvenance: JSON.stringify(normalizedChangedFiles.provenance),
+        changedFileChanges: JSON.stringify(storedChangedFileChanges),
+        verification: sanitizedVerification ? JSON.stringify(sanitizedVerification.value) : null,
+        startedAt: startedAtStored ?? null,
+        redactionCount: redactions.total,
+        agentClient: context.agentClient?.trim().slice(0, 100) || null,
+        agentModel: input.agentModel ?? null,
+        externalSessionId: input.externalSessionId ?? null,
+      };
+      if (rewritten) {
+        sessionId = rewritten.id;
+        this.db
+          .prepare(
+            `UPDATE sessions SET
+               title = @title, summary = @summary, work_summary_json = @workSummary, completed_at = @completedAt,
+               commit_sha = @commitSha, git_branch = @gitBranch, changed_files_json = @changedFiles,
+               changed_files_confirmed = @changedFilesConfirmed, changed_files_provenance_json = @changedFilesProvenance,
+               changed_file_changes_json = @changedFileChanges, verification_json = @verification,
+               started_at = @startedAt, updated_at = @updatedAt, redaction_count = @redactionCount,
+               agent_client = @agentClient, agent_model = @agentModel, external_session_id = @externalSessionId
+             WHERE id = @id`,
+          )
+          .run({ ...sessionColumns, id: sessionId, updatedAt: createdAt });
+        this.db.prepare("DELETE FROM work_events WHERE session_id = ?").run(sessionId);
+        if (sanitizedVerification && !sameVerification(rewritten.verification, sanitizedVerification.value)) {
+          this.sessionRecords.insertVerificationUpdate(
+            sessionId,
+            "agent",
+            rewritten.verification,
+            sanitizedVerification.value,
+            createdAt,
+          );
+        }
+      } else {
+        this.db
+          .prepare(
+            `INSERT INTO sessions (
+               id, project_id, external_session_id, idempotency_key, title, summary,
+               work_summary_json, status, execution_status, completed_at, created_at, commit_sha, git_branch,
+               changed_files_json, changed_files_confirmed, changed_files_provenance_json, changed_file_changes_json, verification_json,
+               started_at, updated_at, redaction_count, agent_client, agent_model
+             ) VALUES (
+               @id, @projectId, @externalSessionId, @idempotencyKey, @title, @summary,
+               @workSummary, 'finalized', 'completed', @completedAt, @createdAt, @commitSha, @gitBranch,
+               @changedFiles, @changedFilesConfirmed, @changedFilesProvenance, @changedFileChanges, @verification,
+               @startedAt, @createdAt, @redactionCount, @agentClient, @agentModel
+             )`,
+          )
+          .run({
+            ...sessionColumns,
+            id: sessionId,
+            projectId: project.id,
+            idempotencyKey: input.idempotencyKey,
+            createdAt,
+          });
+      }
 
       const sanitizedDecisionTexts = normalizedWorkSummary
         ? (sanitizedWorkSummary.value as typeof normalizedWorkSummary).decisions
@@ -2036,6 +2077,9 @@ export class WorkIntelligenceStore {
       }
 
       if (capturedHandoff && sanitizedHandoff) {
+        if (rewritten) {
+          this.db.prepare("DELETE FROM raw_snapshots WHERE session_id = ? AND kind = 'handoff'").run(sessionId);
+        }
         this.db
           .prepare(
             `INSERT INTO raw_snapshots (id, session_id, project_id, kind, source_path, content, captured_at)

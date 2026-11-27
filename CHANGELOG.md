@@ -4,6 +4,22 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.80] - 2026-11-27
+
+[繁體中文更新說明](docs/releases/1.6.80.md).
+
+### Changed
+
+- A `work_finalize_session` with `verification.status: "in_progress"` is a start record. Finalizing again with the same `idempotencyKey` completes that Session in place (summary, workSummary, changed files, verification, Git, completion time, events, decisions and outstanding items), and records the verification change in its history. A completed Session is never downgraded: a late retry of the start payload still returns `idempotency_conflict`. A start record may omit `workSummary.nextSteps` and creates no outstanding items.
+- While verification is `in_progress`, Agent receipts and structured content omit `executionStatus` (stored as `completed`, which read as finished) and add a one-line hint on how to complete the record. REST, Web and export are unchanged.
+
+### Fixed
+
+- An `in_progress` finalize no longer resets the server-observed segment, so the completing finalize keeps the observed start time and HEAD for `startedAt` and Git change observation.
+- `work_update_session_metadata` with `completedAtNow` now ends the observed segment of that Session's project. The next work's observed start no longer predates the previous work's completion.
+
+Schema stays 39. Reconnect the MCP after upgrading so Agents read the new finalize contract.
+
 ## [1.6.79] - 2026-11-27
 
 [繁體中文更新說明](docs/releases/1.6.79.md).

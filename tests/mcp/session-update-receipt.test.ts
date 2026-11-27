@@ -49,6 +49,16 @@ const NO_REDACTIONS = { total: 0, byKind: {} };
 const ONE_REDACTION = { total: 1, byKind: { github_token: 1 } };
 
 describe("Session update receipts", () => {
+  it("omits executionStatus and adds a completion hint while verification is in_progress", () => {
+    const inProgress: Session = { ...SESSION, verification: { status: "in_progress" } };
+    const receipt = toSessionMetadataReceipt(
+      {},
+      { outcome: "updated", session: inProgress, redactions: NO_REDACTIONS },
+    ) as { session: Record<string, unknown>; hint?: string };
+    expect(receipt.session).not.toHaveProperty("executionStatus");
+    expect(receipt.hint).toContain("same idempotencyKey");
+  });
+
   it("answers a metadata update with identity, counts, and warnings, and the stored list only when it differs", () => {
     const result: MetadataResult = { outcome: "updated", session: SESSION, redactions: NO_REDACTIONS };
     expect(toSessionMetadataReceipt({ changedFiles: SESSION.changedFiles }, result)).toEqual({
