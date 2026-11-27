@@ -1,5 +1,5 @@
 import { onBeforeUnmount, onMounted } from "vue";
-import { navItems } from "../components/layout/navigation";
+import { navItems, navTarget } from "../components/layout/navigation";
 import { router } from "../router";
 
 const sequenceTimeoutMs = 1_000;
@@ -42,7 +42,7 @@ export function useHotkeys(options: { openPalette: () => void }): void {
       const target = navItems.find((item) => item.shortcut === `g ${event.key.toLowerCase()}`);
       if (target) {
         event.preventDefault();
-        void router.push({ name: target.name });
+        void router.push(navTarget(target));
       }
       return;
     }

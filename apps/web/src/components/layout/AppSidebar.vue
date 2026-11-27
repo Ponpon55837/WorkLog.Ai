@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { useRoute } from "vue-router";
 import { ShieldCheck } from "lucide-vue-next";
 import type { ApiHealth } from "../../api/client";
 import UiCounter from "../ui/UiCounter.vue";
-import { navGroups, navItems } from "./navigation";
+import { isNavItemActive, navGroups, navItems, navTarget } from "./navigation";
 import { t } from "../../i18n";
 
 withDefaults(
@@ -17,6 +18,8 @@ withDefaults(
   },
 );
 const emit = defineEmits<{ close: [] }>();
+
+const route = useRoute();
 </script>
 
 <template>
@@ -28,11 +31,11 @@ const emit = defineEmits<{ close: [] }>();
         <RouterLink
           v-for="item in navItems.filter((candidate) => candidate.group === group.id)"
           :key="item.name"
-          :to="{ name: item.name }"
+          :to="navTarget(item)"
           :data-testid="`nav-${item.name}`"
           :title="item.label"
-          class="app-sidebar__item"
-          active-class="is-active"
+          :class="['app-sidebar__item', { 'is-active': isNavItemActive(item, route) }]"
+          :aria-current="isNavItemActive(item, route) ? 'page' : undefined"
           @click="emit('close')"
         >
           <component :is="item.icon" :size="16" :stroke-width="1.75" aria-hidden="true" />

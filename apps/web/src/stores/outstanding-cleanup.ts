@@ -13,6 +13,7 @@ import { ApiError } from "../api/client";
 import { errorMessage } from "../utils/format";
 import { pageSizeToQuery, type ListPageSize } from "../utils/labels";
 import { useOutstandingItemsStore } from "./outstanding-items";
+import { useProjectsStore } from "./projects";
 import { queryKeys } from "./query-keys";
 import { t } from "../i18n";
 
@@ -28,8 +29,11 @@ const emptyPageInfo: PageInfo = {
   truncated: false,
 };
 
+export type OutstandingPendingProject = { projectId: string; projectName: string; pendingCount: number };
+
 export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () => {
   const outstandingItemsStore = useOutstandingItemsStore();
+  const projectsStore = useProjectsStore();
   const queryCache = useQueryCache();
   const active = ref(false);
   const requestId = ref("");
@@ -39,6 +43,31 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
   const proposalPageSize = ref<ListPageSize>(10);
   const projectId = computed(() => outstandingItemsStore.projectId);
 
+  const pendingProjectsQuery = useQuery<OutstandingPendingProject[]>({
+    key: () => [
+      ...queryKeys.outstandingItems.list,
+      "pending-projects",
+      projectsStore.trackedProjects.map((project) => project.id),
+    ],
+    enabled: () => active.value && !projectId.value,
+    query: async ({ signal }) => {
+      const { client } = useApi();
+      const counts = await Promise.all(
+        projectsStore.trackedProjects.map(async (project) => {
+          const result = await client.listOutstandingItems(
+            { projectId: project.id, status: "pending", page: 1, pageSize: 1 },
+            signal,
+          );
+          return {
+            projectId: project.id,
+            projectName: project.name,
+            pendingCount: result.outcome === "outstanding_items" ? result.pageInfo.total : 0,
+          };
+        }),
+      );
+      return counts.filter((project) => project.pendingCount > 0);
+    },
+  });
   const requestsQuery = useQuery<OutstandingCleanupRequestListResult>({
     key: () => [
       ...queryKeys.outstandingCleanup.requests,
@@ -87,6 +116,13 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
       ),
   });
 
+  const pendingProjects = computed(() => pendingProjectsQuery.data.value ?? []);
+  const pendingProjectsLoaded = computed(() => pendingProjectsQuery.data.value !== undefined);
+  const pendingProjectsError = computed(() =>
+    pendingProjectsQuery.error.value
+      ? errorMessage(pendingProjectsQuery.error.value, t("outstanding.cleanupCouldNotLoadProjects"))
+      : "",
+  );
   const requestsLoaded = computed(() => requestsQuery.data.value?.outcome === "outstanding_cleanup_requests");
   const requests = computed(() =>
     requestsQuery.data.value?.outcome === "outstanding_cleanup_requests" ? requestsQuery.data.value.requests : [],
@@ -167,6 +203,14 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
     active.value = value;
   }
 
+  function chooseProject(id: string): void {
+    outstandingItemsStore.projectId = id;
+  }
+
+  async function reloadPendingProjects(): Promise<void> {
+    await pendingProjectsQuery.refetch(true);
+  }
+
   async function reload(): Promise<void> {
     await requestsQuery.refetch(true);
     if (requestId.value) await proposalsQuery.refetch(true);
@@ -220,6 +264,9 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
     proposalPage,
     proposalPageSize,
     projectId,
+    pendingProjects,
+    pendingProjectsLoaded,
+    pendingProjectsError,
     requestsLoaded,
     requests,
     requestPageInfo,
@@ -233,6 +280,8 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
     proposalError,
     skipped,
     setActive,
+    chooseProject,
+    reloadPendingProjects,
     reload,
     createRequest,
     reopen,

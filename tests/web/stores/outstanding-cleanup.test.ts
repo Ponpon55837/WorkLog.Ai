@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useOutstandingCleanupStore } from "../../../apps/web/src/stores/outstanding-cleanup.js";
 import { useOutstandingItemsStore } from "../../../apps/web/src/stores/outstanding-items.js";
+import { useProjectsStore } from "../../../apps/web/src/stores/projects.js";
 import { createStoreHarness, jsonResponse, type StoreRequest } from "../helpers/store-harness.js";
 import { t } from "../../../apps/web/src/i18n/index.js";
 
@@ -150,5 +151,38 @@ describe("outstanding cleanup store", () => {
     useOutstandingItemsStore().projectId = "project-2";
     await vi.waitFor(() => expect(store.proposalError).toBe(t("outstanding.thisRequestBelongsToAnother")));
     expect(store.proposals).toEqual([]);
+  });
+
+  it("counts pending items for each tracked project when none is chosen, leaving out projects with none", async () => {
+    const totals: Record<string, number> = { "project-1": 4, "project-2": 2, "project-3": 0 };
+    harness.setResponder((input) => {
+      if (input.url.pathname === "/api/projects")
+        return [
+          { id: "project-1", name: "Orchard", status: "tracked" },
+          { id: "project-2", name: "Barn", status: "tracked" },
+          { id: "project-3", name: "Empty", status: "tracked" },
+          { id: "project-4", name: "Paused", status: "paused" },
+        ];
+      if (input.url.pathname === "/api/outstanding-items")
+        return {
+          outcome: "outstanding_items",
+          items: [],
+          pageInfo: { ...pageInfo, total: totals[input.url.searchParams.get("projectId") ?? ""] ?? 9 },
+        };
+      return responder(input);
+    });
+    await useProjectsStore().loadProjects();
+    const store = useOutstandingCleanupStore();
+    store.setActive(true);
+
+    await vi.waitFor(() => expect(store.pendingProjectsLoaded).toBe(true));
+
+    expect(store.pendingProjects).toEqual([
+      { projectId: "project-1", projectName: "Orchard", pendingCount: 4 },
+      { projectId: "project-2", projectName: "Barn", pendingCount: 2 },
+    ]);
+    expect(harness.count("/api/outstanding-cleanup/requests")).toBe(0);
+    store.chooseProject("project-2");
+    expect(useOutstandingItemsStore().projectId).toBe("project-2");
   });
 });

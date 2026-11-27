@@ -79,4 +79,24 @@ describe("dialog and form stores", () => {
     toasts.$reset();
     expect(toasts.toasts).toEqual([]);
   });
+
+  it("keeps a toast with an action for 8 seconds and runs the action once before dismissing it", async () => {
+    const toasts = useToastsStore();
+    const undo = vi.fn();
+    toasts.showToast("Marked as done", "success", { label: "Undo", run: undo });
+    toasts.showToast("Plain");
+    vi.advanceTimersByTime(4_000);
+    expect(toasts.toasts.map((toast) => toast.message)).toEqual(["Marked as done"]);
+
+    const [toast] = toasts.toasts;
+    await toasts.runToastAction(toast!.id);
+    expect(undo).toHaveBeenCalledTimes(1);
+    expect(toasts.toasts).toEqual([]);
+    await toasts.runToastAction(toast!.id);
+    expect(undo).toHaveBeenCalledTimes(1);
+
+    toasts.showToast("Again", "success", { label: "Undo", run: undo });
+    vi.advanceTimersByTime(8_000);
+    expect(toasts.toasts).toEqual([]);
+  });
 });

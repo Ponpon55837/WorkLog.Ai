@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import type { OutstandingCleanupContextResult } from "../../packages/core/src/index.js";
-import { tt } from "./helpers/i18n.js";
+import { tt, ttPattern } from "./helpers/i18n.js";
 
 /** The panel has no refresh button; returning to the tab invalidates active queries like an SSE change. */
 async function refreshInBackground(page: Page): Promise<void> {
@@ -309,4 +309,32 @@ test("preserves outstanding reading position when SSE refreshes the same item ID
       .first(),
   ).toBeVisible();
   await expect(list).toHaveJSProperty("scrollTop", 240);
+});
+
+test("opens the cleanup panel without a project, lists projects with their pending counts and creates from the chosen one", async ({
+  page,
+  request,
+}) => {
+  const fixture = await seed(request, 7);
+  await page.goto("/sessions/outstanding");
+  const entry = page.getByRole("button", { name: tt("outstanding.tidyOpenItems"), exact: true });
+  await expect(entry).toBeEnabled();
+  await entry.click();
+
+  const panel = page.getByRole("dialog", { name: tt("outstanding.tidyOpenItems"), exact: true });
+  const choose = panel.getByTestId("outstanding-cleanup-projects");
+  await expect(choose).toBeVisible();
+  const row = choose
+    .getByTestId("outstanding-cleanup-project")
+    .filter({ hasText: "Cleanup Browser Fixture" })
+    .filter({ hasText: new RegExp(`(?<!\\d)${tt("outstanding.cleanupPendingCount", { count: 7 })}`) });
+  await expect(row).toHaveCount(1);
+  await expect(panel.getByRole("button", { name: tt("outstanding.createRequest"), exact: true })).toHaveCount(0);
+
+  await row.getByRole("button", { name: ttPattern("outstanding.cleanupChooseLabel") }).click();
+  await expect(page).toHaveURL(new RegExp(`itemProject=${fixture.projectId}`));
+  await expect(choose).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: tt("outstanding.createRequest"), exact: true })).toBeEnabled();
+  await panel.getByRole("button", { name: tt("outstanding.cleanupChangeProject"), exact: true }).click();
+  await expect(choose).toBeVisible();
 });

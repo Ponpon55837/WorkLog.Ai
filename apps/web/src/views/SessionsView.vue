@@ -84,6 +84,7 @@ const {
   to: outstandingTo,
   closedFilter: outstandingClosedFilter,
   pageInfo: outstandingPageInfo,
+  pendingTotal: pendingOutstandingTotal,
   loading: outstandingLoading,
   loaded: outstandingLoaded,
   error: outstandingError,
@@ -217,7 +218,7 @@ const tabs = computed(() => [
     value: "outstanding" as const,
     label: t("common.openItems"),
     icon: ListChecks,
-    count: outstandingLoaded.value ? outstandingPageInfo.value.total : undefined,
+    count: pendingOutstandingTotal.value,
   },
 ]);
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { ListChecks } from "lucide-vue-next";
+import { Check, CircleSlash, ListChecks, RotateCcw } from "lucide-vue-next";
 import type { OutstandingItem, OutstandingItemStatus, PageInfo } from "@work-intelligence/core";
 import OutstandingCleanupPanel from "./OutstandingCleanupPanel.vue";
 import ProjectFilterMenu from "./ProjectFilterMenu.vue";
@@ -20,7 +20,7 @@ import UiPagination from "../ui/UiPagination.vue";
 import UiSkeleton from "../ui/UiSkeleton.vue";
 import VirtualList from "../VirtualList.vue";
 import type { FilterChip } from "../ui/types";
-import { confirmAction } from "../../composables/useConfirm";
+import { useMediaQuery } from "../../composables/useMediaQuery";
 import { useProjectChip } from "../../composables/useProjectChip";
 import { useToast } from "../../composables/useToast";
 import { useOutstandingItemsStore, type OutstandingClosedFilter } from "../../stores/outstanding-items";
@@ -48,20 +48,35 @@ const closedFilter = defineModel<OutstandingClosedFilter>("closedFilter", { requ
 
 const outstandingItemsStore = useOutstandingItemsStore();
 const { showToast } = useToast();
+const narrow = useMediaQuery("(max-width: 639px)");
 
 const projectChip = useProjectChip(projectId);
 
 const changingItemIds = ref<string[]>([]);
 const selectedIds = ref<string[]>([]);
+const selectedAcrossPages = ref(false);
+const selectingAll = ref(false);
 const batchBusy = ref(false);
-const undoBatch = ref<{ itemIds: string[]; status: OutstandingItemStatus }>();
+let selectionEpoch = 0;
 
+const pendingItems = computed(() => props.items.filter((item) => item.status === "pending"));
 const allSelected = computed({
-  get: () => props.items.length > 0 && selectedIds.value.length === props.items.length,
+  get: () => pendingItems.value.length > 0 && pendingItems.value.every((item) => selectedIds.value.includes(item.id)),
   set: (selected: boolean) => {
-    selectedIds.value = selected ? props.items.slice(0, 100).map((item) => item.id) : [];
+    if (selected) selectedIds.value = pendingItems.value.map((item) => item.id);
+    else clearSelection();
   },
 });
+const canSelectAllMatching = computed(
+  () => allSelected.value && !selectedAcrossPages.value && props.pageInfo.total > selectedIds.value.length,
+);
+const selectionSummary = computed(() => {
+  const count = selectedIds.value.length;
+  if (selectedAcrossPages.value && count === props.pageInfo.total) return t("outstanding.selectedAll", { count });
+  if (allSelected.value && !selectedAcrossPages.value) return t("outstanding.selectedPage", { count });
+  return t("outstanding.selectedCount", { count });
+});
+const selectionBusy = computed(() => batchBusy.value || selectingAll.value || changingItemIds.value.length > 0);
 const dateRange = computed({
   get: () => ({ from: from.value, to: to.value }),
   set: (range) => {
@@ -124,18 +139,30 @@ function clearFilters(): void {
   page.value = 1;
 }
 
+function clearSelection(): void {
+  selectionEpoch += 1;
+  selectedIds.value = [];
+  selectedAcrossPages.value = false;
+}
+
+async function undoStatus(
+  itemIds: string[],
+  applied: OutstandingItemStatus,
+  previous: OutstandingItemStatus,
+): Promise<void> {
+  const result = await outstandingItemsStore.batchUpdateStatusInChunks({
+    itemIds,
+    status: previous,
+    expectedStatus: applied,
+  });
+  if (result.updatedItemIds.length)
+    showToast(t("outstanding.undone", { count: result.updatedItemIds.length }), "success");
+  if (result.failure) showToast(errorMessage(result.failure, t("outstanding.couldNotUndoRefreshAnd")), "danger");
+}
+
 async function updateItemStatus(item: OutstandingItem, nextStatus: OutstandingItemStatus): Promise<void> {
   if (changingItemIds.value.includes(item.id)) return;
-  if (nextStatus === "not_needed") {
-    const confirmed = await confirmAction({
-      title: t("outstanding.markThisOpenItemAs"),
-      message: t("outstanding.leavesThePendingListBut", { text: item.text }),
-      confirmLabel: t("outstanding.markNotNeededAction"),
-      cancelLabel: t("outstanding.keepAsPending"),
-    });
-    if (!confirmed) return;
-  }
-
+  const previous = item.status;
   changingItemIds.value = [...changingItemIds.value, item.id];
   try {
     await outstandingItemsStore.updateStatus({ itemId: item.id, status: nextStatus });
@@ -145,7 +172,10 @@ async function updateItemStatus(item: OutstandingItem, nextStatus: OutstandingIt
         : nextStatus === "completed"
           ? t("outstanding.markedAsDone")
           : t("outstanding.markedAsNoLongerNeeded");
-    showToast(message, "success");
+    showToast(message, "success", {
+      label: t("common.undo"),
+      run: () => undoStatus([item.id], nextStatus, previous),
+    });
   } catch (error) {
     showToast(errorMessage(error, t("outstanding.couldNotUpdateTheOpenItemPleaseTry")), "danger");
   } finally {
@@ -154,57 +184,48 @@ async function updateItemStatus(item: OutstandingItem, nextStatus: OutstandingIt
 }
 
 async function updateBatch(nextStatus: "completed" | "not_needed"): Promise<void> {
-  if (batchBusy.value || status.value !== "pending" || selectedIds.value.length === 0) return;
+  if (selectionBusy.value || status.value !== "pending" || selectedIds.value.length === 0) return;
   const itemIds = [...selectedIds.value];
-  if (
-    nextStatus === "not_needed" &&
-    !(await confirmAction({
-      title: t("outstanding.markNotNeeded"),
-      message: t("outstanding.markTheSelectedItemsAs", { length: itemIds.length }),
-      confirmLabel: t("outstanding.markNotNeededAction"),
-      cancelLabel: t("outstanding.keepCurrentStatus"),
-    }))
-  )
-    return;
   batchBusy.value = true;
   try {
-    const result = await outstandingItemsStore.batchUpdateStatus({
+    const result = await outstandingItemsStore.batchUpdateStatusInChunks({
       itemIds,
       status: nextStatus,
       expectedStatus: "pending",
     });
-    undoBatch.value = result.updatedItemIds.length ? { itemIds: result.updatedItemIds, status: nextStatus } : undefined;
-    selectedIds.value = [];
-    showToast(t("outstanding.updatedOpenItems", { length: result.updatedItemIds.length }), "success");
-  } catch (error) {
-    showToast(errorMessage(error, t("outstanding.couldNotUpdateTheOpen")), "danger");
+    clearSelection();
+    if (result.updatedItemIds.length) {
+      const updatedItemIds = result.updatedItemIds;
+      showToast(t("outstanding.updatedOpenItems", { length: updatedItemIds.length }), "success", {
+        label: t("common.undo"),
+        run: () => undoStatus(updatedItemIds, nextStatus, "pending"),
+      });
+    }
+    if (result.failure) showToast(errorMessage(result.failure, t("outstanding.couldNotUpdateTheOpen")), "danger");
   } finally {
     batchBusy.value = false;
   }
 }
 
-async function restoreBatch(): Promise<void> {
-  const batch = undoBatch.value;
-  if (!batch || batchBusy.value) return;
-  batchBusy.value = true;
+async function selectAllMatching(): Promise<void> {
+  if (selectingAll.value) return;
+  const epoch = selectionEpoch;
+  selectingAll.value = true;
   try {
-    await outstandingItemsStore.batchUpdateStatus({
-      itemIds: batch.itemIds,
-      status: "pending",
-      expectedStatus: batch.status,
-    });
-    undoBatch.value = undefined;
-    showToast(t("outstanding.restoredItemsToPending", { length: batch.itemIds.length }), "success");
+    const ids = await outstandingItemsStore.listAllPendingIds();
+    if (epoch !== selectionEpoch) return;
+    selectedIds.value = ids;
+    selectedAcrossPages.value = true;
   } catch (error) {
-    showToast(errorMessage(error, t("outstanding.couldNotUndoRefreshAnd")), "danger");
+    showToast(errorMessage(error, t("outstanding.couldNotLoadOpenItems")), "danger");
   } finally {
-    batchBusy.value = false;
+    selectingAll.value = false;
   }
 }
 
 function selectItem(itemId: string, selected: boolean): void {
   selectedIds.value = selected
-    ? [...new Set([...selectedIds.value, itemId])].slice(0, 100)
+    ? [...new Set([...selectedIds.value, itemId])]
     : selectedIds.value.filter((id) => id !== itemId);
 }
 
@@ -219,13 +240,16 @@ function isChanging(item: OutstandingItem): boolean {
   return batchBusy.value || changingItemIds.value.includes(item.id);
 }
 
-watch([projectId, status, pageSize, page, from, to, closedFilter], () => {
-  selectedIds.value = [];
+watch([projectId, status, from, to, closedFilter], clearSelection);
+
+watch([page, pageSize], () => {
+  if (!selectedAcrossPages.value) clearSelection();
 });
 
 watch(
   () => props.items,
   (items) => {
+    if (selectedAcrossPages.value) return;
     // A same-page SSE refresh keeps eligible selections instead of undoing a user's click.
     const eligibleIds = new Set(items.filter((item) => item.status === "pending").map((item) => item.id));
     selectedIds.value = selectedIds.value.filter((id) => eligibleIds.has(id));
@@ -236,7 +260,7 @@ watch(
 <template>
   <UiBox sticky-header data-testid="outstanding-items-box">
     <template #header>
-      <UiBoxTitle :icon="ListChecks" :title="t('common.openItems')" :count="pageInfo.total" />
+      <UiBoxTitle :icon="ListChecks" :title="t('common.openItems')" :count="loaded ? pageInfo.total : undefined" />
       <div class="outstanding-items__filters">
         <ProjectFilterMenu v-model="projectId" :header="t('common.filterProject')" align="end" scope="all" />
         <UiActionMenu
@@ -263,33 +287,41 @@ watch(
 
     <UiFilterChips :chips="filterChips" clearable @remove="removeFilter" @clear="clearFilters" />
 
-    <div class="outstanding-items__batch" role="group" :aria-label="t('outstanding.bulkActions')">
+    <div v-if="status === 'pending' && items.length > 0" class="outstanding-items__selection">
       <UiCheckbox
         v-model="allSelected"
         :label="t('outstanding.selectAllOpenItemsOn')"
         :indeterminate="selectedIds.length > 0 && !allSelected"
-        :disabled="status !== 'pending' || loading || batchBusy || changingItemIds.length > 0 || items.length === 0"
+        :disabled="loading || selectionBusy"
       />
-      <span aria-live="polite">{{ t("outstanding.selected", { length: selectedIds.length }) }}</span>
-      <UiButton
-        size="sm"
-        :disabled="
-          status !== 'pending' || selectedIds.length === 0 || batchBusy || changingItemIds.length > 0 || loading
-        "
-        @click="updateBatch('completed')"
-        >{{ t("outstanding.markDone") }}</UiButton
+      <span v-if="selectedIds.length === 0">{{ t("outstanding.selectPage") }}</span>
+      <div
+        v-else
+        class="outstanding-items__batch"
+        role="group"
+        :aria-label="t('outstanding.bulkActions')"
+        data-testid="outstanding-batch-toolbar"
       >
-      <UiButton
-        size="sm"
-        :disabled="
-          status !== 'pending' || selectedIds.length === 0 || batchBusy || changingItemIds.length > 0 || loading
-        "
-        @click="updateBatch('not_needed')"
-        >{{ t("outstanding.markNotNeeded") }}</UiButton
-      >
-      <UiButton v-if="undoBatch" size="sm" :disabled="batchBusy || changingItemIds.length > 0" @click="restoreBatch">{{
-        t("outstanding.undoThisBatch")
-      }}</UiButton>
+        <span aria-live="polite" data-testid="outstanding-selection-summary">{{ selectionSummary }}</span>
+        <UiButton
+          v-if="canSelectAllMatching"
+          variant="link"
+          size="sm"
+          :loading="selectingAll"
+          :disabled="selectionBusy"
+          @click="selectAllMatching"
+          >{{ t("outstanding.selectAllMatching", { count: pageInfo.total }) }}</UiButton
+        >
+        <UiButton variant="link" size="sm" :disabled="selectionBusy" @click="clearSelection">{{
+          t("outstanding.clearSelection")
+        }}</UiButton>
+        <UiButton size="sm" :disabled="loading || selectionBusy" @click="updateBatch('completed')">{{
+          t("outstanding.markDone")
+        }}</UiButton>
+        <UiButton size="sm" :disabled="loading || selectionBusy" @click="updateBatch('not_needed')">{{
+          t("outstanding.markNotNeeded")
+        }}</UiButton>
+      </div>
     </div>
 
     <UiFlash v-if="error" tone="danger" data-testid="outstanding-items-error">
@@ -320,23 +352,29 @@ watch(
       v-else-if="!error && items.length > 0"
       :items="items"
       :item-key="(item) => item.id"
-      :enabled="true"
-      fit-viewport
-      fit-viewport-to-panel
-      fill-available-space
+      :enabled="!narrow"
+      :fit-viewport="!narrow"
+      :fit-viewport-to-panel="!narrow"
+      :fill-available-space="!narrow"
       :label="t('outstanding.openItemsList')"
     >
       <template #default="{ item }">
-        <UiBoxRow data-testid="outstanding-item">
+        <UiBoxRow class="outstanding-items__row" data-testid="outstanding-item">
           <template #leading>
             <UiCheckbox
               :model-value="selectedIds.includes(item.id)"
               :label="t('outstanding.selectOpenItem', { text: item.text })"
-              :disabled="item.status !== 'pending' || loading || isChanging(item) || changingItemIds.length > 0"
+              :disabled="item.status !== 'pending' || loading || isChanging(item) || selectionBusy"
               @update:model-value="selectItem(item.id, $event)"
             />
           </template>
           <template #title>{{ item.text }}</template>
+          <template #labels>
+            <StatusLabel v-if="item.status !== 'pending'" :status="outstandingItemStatusVisual[item.status]" />
+            <UiLabel v-if="closedByLabel(item)" data-testid="outstanding-item-closed-by">{{
+              closedByLabel(item)
+            }}</UiLabel>
+          </template>
           <template #meta>
             <span>{{ item.projectName }}</span>
             ·
@@ -356,37 +394,37 @@ watch(
             }}</time>
           </template>
           <template #trailing>
-            <div class="outstanding-items__trailing">
-              <StatusLabel :status="outstandingItemStatusVisual[item.status]" />
-              <UiLabel v-if="closedByLabel(item)" data-testid="outstanding-item-closed-by">{{
-                closedByLabel(item)
-              }}</UiLabel>
-              <div class="outstanding-items__actions">
-                <template v-if="item.status === 'pending'">
-                  <UiButton
-                    size="sm"
-                    :loading="isChanging(item)"
-                    :disabled="isChanging(item)"
-                    @click="updateItemStatus(item, 'completed')"
-                    >{{ t("outstanding.markDoneAction") }}</UiButton
-                  >
-                  <UiButton
-                    size="sm"
-                    :loading="isChanging(item)"
-                    :disabled="isChanging(item)"
-                    @click="updateItemStatus(item, 'not_needed')"
-                    >{{ t("common.noLongerNeeded") }}</UiButton
-                  >
-                </template>
+            <div class="outstanding-items__actions">
+              <template v-if="item.status === 'pending'">
                 <UiButton
-                  v-else
                   size="sm"
+                  :icon="Check"
+                  :icon-only="!narrow"
+                  :label="t('outstanding.markDoneAction')"
                   :loading="isChanging(item)"
                   :disabled="isChanging(item)"
-                  @click="updateItemStatus(item, 'pending')"
-                  >{{ t("outstanding.reopen") }}</UiButton
-                >
-              </div>
+                  @click="updateItemStatus(item, 'completed')"
+                />
+                <UiButton
+                  size="sm"
+                  :icon="CircleSlash"
+                  :icon-only="!narrow"
+                  :label="t('outstanding.markNotNeededAction')"
+                  :loading="isChanging(item)"
+                  :disabled="isChanging(item)"
+                  @click="updateItemStatus(item, 'not_needed')"
+                />
+              </template>
+              <UiButton
+                v-else
+                size="sm"
+                :icon="RotateCcw"
+                :icon-only="!narrow"
+                :label="t('outstanding.reopen')"
+                :loading="isChanging(item)"
+                :disabled="isChanging(item)"
+                @click="updateItemStatus(item, 'pending')"
+              />
             </div>
           </template>
         </UiBoxRow>
@@ -405,21 +443,47 @@ watch(
 </template>
 
 <style scoped>
-.outstanding-items__batch {
+.outstanding-items__selection {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
+  min-height: var(--space-8);
+  padding: var(--space-1) var(--space-3);
   border-bottom: 1px solid var(--border-muted);
   color: var(--fg-muted);
   font-size: var(--text-sm);
+}
+
+.outstanding-items__batch {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
 .outstanding-items__filters {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1);
+}
+
+.outstanding-items__row {
+  align-items: center;
+  padding-block: var(--space-2);
+}
+
+.outstanding-items__row :deep(.ui-box-row__leading) {
+  padding-top: 0;
+}
+
+.outstanding-items__row :deep(.ui-box-row__text) {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .outstanding-items__source {
@@ -429,26 +493,23 @@ watch(
   vertical-align: bottom;
 }
 
-.outstanding-items__trailing {
-  display: grid;
-  justify-items: end;
-  gap: var(--space-2);
-}
-
 .outstanding-items__actions {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
   gap: var(--space-1);
 }
 
 @media (max-width: 639px) {
-  .outstanding-items__trailing {
-    max-width: 8.5rem;
+  .outstanding-items__row {
+    flex-wrap: wrap;
   }
 
-  .outstanding-items__actions :deep(.ui-button) {
-    padding-inline: var(--space-1);
+  .outstanding-items__row :deep(.ui-box-row__meta) {
+    white-space: normal;
+  }
+
+  .outstanding-items__row :deep(.ui-box-row__trailing) {
+    flex-basis: 100%;
+    justify-content: flex-end;
   }
 }
 </style>

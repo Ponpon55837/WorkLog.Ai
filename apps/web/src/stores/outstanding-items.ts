@@ -1,16 +1,17 @@
 import { computed, ref, watch } from "vue";
 import { useMutation, useQuery, useQueryCache } from "@pinia/colada";
 import { defineStore } from "pinia";
-import type {
-  BatchUpdateOutstandingItemStatusInput,
-  BatchUpdateOutstandingItemStatusResult,
-  OutstandingItem,
-  OutstandingItemClosedBy,
-  OutstandingItemListQueryResult,
-  OutstandingItemStatus,
-  PageInfo,
-  UpdateOutstandingItemStatusInput,
-  UpdateOutstandingItemStatusResult,
+import {
+  MAX_OUTSTANDING_ITEM_BATCH_SIZE,
+  type BatchUpdateOutstandingItemStatusInput,
+  type BatchUpdateOutstandingItemStatusResult,
+  type OutstandingItem,
+  type OutstandingItemClosedBy,
+  type OutstandingItemListQueryResult,
+  type OutstandingItemStatus,
+  type PageInfo,
+  type UpdateOutstandingItemStatusInput,
+  type UpdateOutstandingItemStatusResult,
 } from "@work-intelligence/core";
 import { useApi } from "../composables/useApi";
 import { errorMessage } from "../utils/format";
@@ -31,6 +32,8 @@ const emptyPageInfo: PageInfo = {
 };
 
 export type OutstandingClosedFilter = "all" | "hide_source_session";
+
+type OutstandingChunkedResult = { updatedItemIds: string[]; failure?: Error };
 
 const NON_SOURCE_CLOSERS: OutstandingItemClosedBy[] = ["later_session", "user", "cleanup_review", "migration"];
 
@@ -104,6 +107,11 @@ export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
     },
   });
 
+  const pendingTotalQuery = useQuery<OutstandingItemListQueryResult>({
+    key: () => [...queryKeys.outstandingItems.list, "pending-total"],
+    query: ({ signal }) => useApi().client.listOutstandingItems({ status: "pending", page: 1, pageSize: 1 }, signal),
+  });
+
   const items = computed<OutstandingItem[]>(() =>
     listQuery.data.value?.outcome === "outstanding_items" ? listQuery.data.value.items : [],
   );
@@ -113,6 +121,11 @@ export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
       : { ...emptyPageInfo, pageSize: pageSizeToQuery(pageSize.value) || 10 },
   );
 
+  const pendingTotal = computed(() =>
+    pendingTotalQuery.data.value?.outcome === "outstanding_items"
+      ? pendingTotalQuery.data.value.pageInfo.total
+      : undefined,
+  );
   const loading = computed(() => listQuery.isLoading.value);
   const loaded = computed(() => listQuery.data.value !== undefined);
   const error = computed(() => {
@@ -178,6 +191,49 @@ export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
     throw new Error(t("outstanding.thisBatchIncludesProjectsWithout"));
   }
 
+  /** Each chunk commits on its own, so a failure keeps what earlier chunks already changed. */
+  async function batchUpdateStatusInChunks(
+    input: BatchUpdateOutstandingItemStatusInput,
+  ): Promise<OutstandingChunkedResult> {
+    const updatedItemIds: string[] = [];
+    for (let start = 0; start < input.itemIds.length; start += MAX_OUTSTANDING_ITEM_BATCH_SIZE) {
+      try {
+        const result = await batchUpdateStatus({
+          ...input,
+          itemIds: input.itemIds.slice(start, start + MAX_OUTSTANDING_ITEM_BATCH_SIZE),
+        });
+        updatedItemIds.push(...result.updatedItemIds);
+      } catch (error) {
+        return { updatedItemIds, failure: error instanceof Error ? error : new Error(String(error)) };
+      }
+    }
+    return { updatedItemIds };
+  }
+
+  /** Ids of every pending item matching the current filters, across all pages. */
+  async function listAllPendingIds(): Promise<string[]> {
+    const scope = buildListScope(
+      projectId.value,
+      "pending",
+      1,
+      pageSize.value,
+      from.value,
+      to.value,
+      closedFilter.value,
+    );
+    const ids = new Set<string>();
+    for (let current = 1; ; current += 1) {
+      const result = await useApi().client.listOutstandingItems({
+        ...scope,
+        page: current,
+        pageSize: MAX_OUTSTANDING_ITEM_BATCH_SIZE,
+      });
+      if (result.outcome !== "outstanding_items") throw new Error(t("outstanding.couldNotLoadOpenItems"));
+      for (const item of result.items) if (item.status === "pending") ids.add(item.id);
+      if (!result.pageInfo.hasNext) return [...ids];
+    }
+  }
+
   watch(
     () =>
       listQuery.isPlaceholderData.value
@@ -201,6 +257,7 @@ export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
     closedFilter,
     items,
     pageInfo,
+    pendingTotal,
     loading,
     loaded,
     error,
@@ -208,5 +265,7 @@ export const useOutstandingItemsStore = defineStore("outstanding-items", () => {
     reload,
     updateStatus,
     batchUpdateStatus,
+    batchUpdateStatusInChunks,
+    listAllPendingIds,
   };
 });

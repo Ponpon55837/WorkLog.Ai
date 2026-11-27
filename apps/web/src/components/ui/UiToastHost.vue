@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { CircleAlert, CircleCheck, Info, X } from "lucide-vue-next";
+import UiButton from "./UiButton.vue";
 import { useToast } from "../../composables/useToast";
 import { t } from "../../i18n";
 
-const { toasts, dismissToast } = useToast();
+const { toasts, dismissToast, runToastAction } = useToast();
 const icons = { default: Info, success: CircleCheck, danger: CircleAlert } as const;
 </script>
 
@@ -13,6 +14,9 @@ const icons = { default: Info, success: CircleCheck, danger: CircleAlert } as co
       <div v-for="toast in toasts" :key="toast.id" :class="['ui-toast', `ui-toast--${toast.tone}`]" role="status">
         <component :is="icons[toast.tone]" :size="16" :stroke-width="1.75" class="ui-toast__icon" aria-hidden="true" />
         <span class="ui-toast__message">{{ toast.message }}</span>
+        <UiButton v-if="toast.action" class="ui-toast__action" size="sm" @click="runToastAction(toast.id)">{{
+          toast.action.label
+        }}</UiButton>
         <button
           type="button"
           class="ui-toast__close"
@@ -70,6 +74,11 @@ const icons = { default: Info, success: CircleCheck, danger: CircleAlert } as co
   flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.ui-toast__action {
+  flex: 0 0 auto;
+  margin-block: -2px;
 }
 
 .ui-toast__close {

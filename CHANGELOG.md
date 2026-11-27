@@ -4,6 +4,22 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+### Added
+
+- Toasts can carry an action button; changes to Open items now take effect immediately and the toast offers 「復原」 for 8 seconds, for one item and for a batch. Undo uses the existing status endpoints with the status the change set as `expectedStatus`, so an item changed elsewhere meanwhile is not overwritten.
+- 「選取全部 N 筆」 selects every pending Open item matching the filters across pages; changes are sent in batches of at most 100.
+- An 「未結項」 entry in the sidebar (shortcut `g o`) with the pending count, and the tab shows the same count on first load; the Work history count stays the Session total.
+- 「整理未結項」 no longer needs a project filter: the panel lists the projects with pending items and their counts, and shows the only one directly.
+
+### Changed
+
+- Open item rows are one line (content and meta, actions at the end as icon buttons; a right-aligned second line on narrow screens) and show the status only when the filter is not 「待處理」. The batch toolbar appears only while something is selected.
+- On narrow screens the Open items list scrolls with the page instead of in a fixed 280px box.
+
+### Removed
+
+- The confirmation dialogs for 「不再需要」 and batch 「不再需要」, and 「復原本次批次」.
+
 ## [1.6.92] - 2026-11-27
 
 [繁體中文更新說明](docs/releases/1.6.92.md).

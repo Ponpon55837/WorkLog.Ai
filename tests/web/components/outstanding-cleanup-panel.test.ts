@@ -9,6 +9,11 @@ import { loadCatalog, locale, t } from "../../../apps/web/src/i18n/index.js";
 const proposals = ref<OutstandingCleanupProposal[]>([]);
 const activeRequest = ref<OutstandingCleanupRequest | undefined>();
 const skipped = ref(false);
+const projectId = ref("project-1");
+const pendingProjects = ref<Array<{ projectId: string; projectName: string; pendingCount: number }>>([]);
+const pendingProjectsLoaded = ref(true);
+const pendingProjectsError = ref("");
+const chooseProject = vi.fn();
 const request: OutstandingCleanupRequest = {
   id: "cleanup-1",
   projectId: "project-1",
@@ -33,7 +38,12 @@ const pageInfo = {
 
 vi.mock("../../../apps/web/src/stores/outstanding-cleanup", () => ({
   useOutstandingCleanupStore: () => ({
-    projectId: ref("project-1"),
+    projectId,
+    pendingProjects,
+    pendingProjectsLoaded,
+    pendingProjectsError,
+    chooseProject,
+    reloadPendingProjects: vi.fn(),
     requestId: ref("cleanup-1"),
     requestPage: ref(1),
     requestPageSize: ref(10),
@@ -56,6 +66,9 @@ vi.mock("../../../apps/web/src/stores/outstanding-cleanup", () => ({
   }),
 }));
 
+vi.mock("../../../apps/web/src/stores/projects", () => ({
+  useProjectsStore: () => ({ projects: ref([{ id: "project-1", name: "Orchard" }]) }),
+}));
 vi.mock("../../../apps/web/src/components/ui/UiSidePanel.vue", () => ({
   default: {
     setup:
@@ -113,6 +126,11 @@ beforeEach(() => {
   proposals.value = [];
   activeRequest.value = undefined;
   skipped.value = false;
+  projectId.value = "project-1";
+  pendingProjects.value = [];
+  pendingProjectsLoaded.value = true;
+  pendingProjectsError.value = "";
+  chooseProject.mockClear();
 });
 
 describe("OutstandingCleanupPanel", () => {
@@ -171,5 +189,50 @@ describe("OutstandingCleanupPanel", () => {
     const html = await render();
 
     expect(html).toContain(`title="${t("outstanding.trackingIsNotEnabledFor")}"`);
+  });
+
+  it("opens without a project and lists each project with its pending count", async () => {
+    projectId.value = "";
+    pendingProjects.value = [
+      { projectId: "project-1", projectName: "Orchard", pendingCount: 4 },
+      { projectId: "project-2", projectName: "Barn", pendingCount: 1 },
+    ];
+
+    const html = await render();
+
+    expect(html).toContain(t("outstanding.cleanupChooseProject"));
+    expect(html.match(/data-testid="outstanding-cleanup-project"/g)).toHaveLength(2);
+    expect(html).toContain("Orchard");
+    expect(html).toContain(t("outstanding.cleanupPendingCount", { count: 4 }));
+    expect(html).toContain(t("outstanding.cleanupChooseLabel", { project: "Barn" }));
+    expect(html).not.toContain(t("outstanding.createRequest"));
+  });
+
+  it("shows the only project with pending items directly", async () => {
+    projectId.value = "";
+    pendingProjects.value = [{ projectId: "project-1", projectName: "Orchard", pendingCount: 3 }];
+
+    const html = await render();
+
+    expect(html).toContain(t("outstanding.cleanupOnlyProject", { project: "Orchard", count: 3 }));
+    expect(html).not.toContain(`data-testid="outstanding-cleanup-project"`);
+  });
+
+  it("says so when no project has pending items, and waits for the counts before saying it", async () => {
+    projectId.value = "";
+    expect(await render()).toContain(t("outstanding.cleanupNothingPending"));
+
+    pendingProjectsLoaded.value = false;
+    const loading = await render();
+    expect(loading).not.toContain(t("outstanding.cleanupNothingPending"));
+    expect(loading).toContain(t("common.loading"));
+  });
+
+  it("names the chosen project and offers to choose another", async () => {
+    const html = await render();
+
+    expect(html).toContain("Orchard");
+    expect(html).toContain(t("outstanding.cleanupChangeProject"));
+    expect(html).not.toContain("outstanding-cleanup-projects");
   });
 });
