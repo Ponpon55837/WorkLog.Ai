@@ -16,7 +16,6 @@ import type { BackendController } from "./backend.js";
 import type { Logger } from "./log.js";
 import type { ShellState } from "./state.js";
 
-/** How long one answer of the running backend about its free space is reused. */
 const HINT_WINDOW_MS = 60_000;
 
 export interface MaintenanceOptions {
@@ -27,13 +26,9 @@ export interface MaintenanceOptions {
     "running" | "queryActivity" | "queryMaintenanceHint" | "maintainDatabase"
   >;
   readonly backend: Pick<BackendController, "maintainWhileStopped" | "start" | "presenter" | "recovery">;
-  /** Whether an Agent (MCP) connection looks alive. */
   readonly agentsRunning: () => Promise<boolean>;
-  /** The native confirmation before a compaction; Cancel is the default button. */
   readonly confirm: () => Promise<boolean>;
-  /** Some backup file was written (the backup made first): the "last backup" shown is read again. */
   readonly backupsChanged: () => void;
-  /** The section changed (a hint arrived, a run ended): the page reads the state again. */
   readonly changed: () => void;
   readonly fingerprint?: (databasePath: string) => string | null;
   readonly clock?: () => number;
@@ -41,7 +36,6 @@ export interface MaintenanceOptions {
 }
 
 export interface MaintenanceController {
-  /** What the Status and Data tabs show; sync, so it never waits for the backend (a stale hint is refreshed in the background). */
   section(): RepairMaintenanceSection;
   run(mode: MaintenanceMode): Promise<MaintenanceRunResult>;
 }

@@ -19,14 +19,6 @@ import {
   type Sandbox,
 } from "./helpers.js";
 
-/**
- * After an upgrade the App's own database is one schema behind (the 1.6.63 → 1.6.64 report): the start is refused with
- * SCHEMA_MIGRATION_BLOCKED, Status says 「需要更新資料庫」 and one press of 「先備份再更新資料庫」 backs it up, updates it
- * and starts, with no file to pick. On a sync folder the update is not offered in place; 「複製到本機資料夾後更新」 copies
- * it to the App's data folder and updates the copy, leaving the original as it was. Synthetic data only.
- */
-
-/** The committed upgrade samples (synthetic data, tests/fixtures/upgrade/manifest.json), never a real database. */
 const upgradeFixtures = join(
   dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -37,7 +29,6 @@ const upgradeFixtures = join(
   "fixtures",
   "upgrade",
 );
-/** User data an update must carry over as it is; derived tables (search index, dirty queues) may be rebuilt. */
 const KEPT_TABLES = [
   "projects",
   "sessions",

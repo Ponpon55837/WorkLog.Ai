@@ -28,7 +28,6 @@ import { defaultSettings } from "./settings.js";
 import type { ShellState } from "./state.js";
 import type { DesktopPaths } from "./config.js";
 
-/** What the copy needs from the App; the repair page and the first-run page share it. */
 export interface CopyRunnerOptions {
   readonly state: ShellState;
   readonly window: RepairWindow;
@@ -36,9 +35,7 @@ export interface CopyRunnerOptions {
   readonly supervisor: BackendSupervisor;
   readonly storage: StorageRiskService;
   readonly prepareRuntime: () => Promise<unknown>;
-  /** A test build answers the native confirmation itself (the switch `autoConfirmCopy`). */
   readonly autoConfirm: boolean;
-  /** The copy is journaled before it starts, so a crash leaves a record that start-up recovery cleans up (L-10). */
   readonly journal: OperationJournal;
   readonly log: Logger;
 }
@@ -51,28 +48,21 @@ export interface LocalCopyOptions {
   readonly supervisor: BackendSupervisor;
   readonly success: RepairSuccess;
   readonly runner: CopyRunner;
-  /** Stops the running backend under the coordinator (false when an operation holds it); the App's own database is copied stopped. */
   readonly stopForCopy: () => Promise<boolean>;
   readonly log: Logger;
 }
 
-/** The step that moves the App onto the copy: the repair page's change-db start, or the first-run start. */
 export type CopySwitch = (target: string, identity: DesktopDatabaseIdentity) => Promise<RestartOutcome>;
 
-/** One copy of `source` into the App's default data folder, ending in `switchTo`; the pure sequence is `runCopyToLocal`. */
 export type CopyRunner = (
   source: string,
   switchTo: CopySwitch,
-  /** Runs after the confirmation and the journal record, right before the first byte is copied; throwing fails the copy. */
   beforeCopy?: () => Promise<void>,
 ) => Promise<CopyToLocalResult>;
 
 const COPY_BASE_NAME = "work-intelligence-local";
 
-/**
- * A file name beside the App's default database that nothing uses yet; an existing file is never a target.
- * @internal test-only
- */
+/** @internal test-only */
 export function uniqueCopyTarget(directory: string, exists: (path: string) => boolean = existsSync): string {
   for (let index = 1; ; index += 1) {
     const name = index === 1 ? `${COPY_BASE_NAME}.sqlite` : `${COPY_BASE_NAME}-${index}.sqlite`;

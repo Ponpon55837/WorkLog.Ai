@@ -9,7 +9,6 @@ import { loginItemSection } from "./login-item-view.js";
 import { portSection } from "./port-view.js";
 import { updateSection } from "./update-view.js";
 
-/** The Settings tab: the language, the port the service uses, the backup location, start at login and the update check. */
 export function settingsPanel(ctx: ViewContext): Node[] {
   const { state, act } = ctx;
   const blocks: Node[] = [];

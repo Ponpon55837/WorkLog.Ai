@@ -3,14 +3,12 @@ import type { LoginItemMessages } from "@work-intelligence/desktop-core/shell/lo
 import { loginItemNote } from "@work-intelligence/desktop-core/shell/login-item-status";
 import { button, checkbox, hint, section } from "./dom.js";
 
-/** The switch was changed and main has not answered yet: keeps it from being changed twice. */
 let pending = false;
 let failed = false;
 
 export interface LoginItemViewHost {
   readonly api: RepairApi;
   readonly text: LoginItemMessages;
-  /** A page action (a retry, a port change) is running: the switch waits. */
   readonly working: boolean;
   readonly rerender: () => void;
   readonly refresh: () => void;
@@ -32,7 +30,6 @@ async function change(host: LoginItemViewHost, enable: boolean): Promise<void> {
   host.refresh();
 }
 
-/** The 「登入時自動啟動」 card: one switch, the system's real state, and a sentence when the two disagree. */
 export function loginItemSection(host: LoginItemViewHost, item: RepairLoginItemSection): HTMLElement {
   const { text } = host;
   if (!item.supported) {

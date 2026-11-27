@@ -9,23 +9,15 @@ import { diagnosticsMessages } from "@work-intelligence/desktop-core/shell/diagn
 import { setupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
 import { requestDiagnosticsPreview } from "./diagnostics-view.js";
 
-/**
- * The things a button on the repair-style tabs does. Each one runs through `guarded`: while one runs, no other starts
- * (a redraw, a second click or a tab change cannot start it twice), the buttons wait, and the page reads the state again
- * when it ends.
- */
 export interface ActionHost {
   readonly api: RepairApi;
   current(): RepairState | undefined;
   isWorking(): boolean;
   setWorking(value: boolean): void;
   say(text: string): void;
-  /** Draws the open panel again. */
   rerender(): void;
   refresh(): Promise<void>;
-  /** The candidates whose storage-risk checkbox is ticked. */
   readonly riskTicked: Set<string>;
-  /** Puts focus back on the export button's place after the diagnostics dialog closed. */
   returnFocus(): void;
 }
 
@@ -40,7 +32,6 @@ function failureText(messages: ShellMessages, errorCode: string | undefined): st
   return errorCode ? errorMessageFor(messages, errorCode).title : messages.repairFailedGeneric;
 }
 
-/** The answer to a request that did not succeed: another operation holding the App is said as such, never as an error. */
 function failedAnswer(
   messages: ShellMessages,
   result: { readonly reason: string; readonly errorCode?: string; readonly busyReason?: RepairBusyReason },
@@ -92,15 +83,13 @@ export function createActions(host: ActionHost): Actions {
 
   async function perform(id: RepairActionId): Promise<void> {
     await guarded(async (messages, state) => {
-      // The retry id is the newest one main handed out, read when the button is pressed, not when it was drawn.
+      // The newest retry id, read when the button is pressed, not when it was drawn.
       const retryId = host.current()?.retryOperationId ?? state.retryOperationId;
       if (id === "start-anyway") {
-        // Starting next to the old login service is the user's explicit choice, asked once more in plain words.
         if (!window.confirm(setupMessages(state.locale).legacyStartAnywayConfirm)) return;
         const result = await host.api.startAnyway(retryId);
         host.say(result.ok ? messages.repairDone : failedAnswer(messages, result));
       } else if (id === "approve-migration") {
-        // The button says what it does (back up, then update); pressing it is the consent main checks again.
         const result = await host.api.approveMigration(retryId);
         host.say(result.ok ? messages.migrationDone : (result.message ?? failedAnswer(messages, result)));
       } else if (id === "retry-start") {
@@ -110,7 +99,6 @@ export function createActions(host: ActionHost): Actions {
         const result = await host.api.chooseDatabase();
         host.say(result.ok || result.reason === "cancelled" ? "" : (result.message ?? messages.repairFailedGeneric));
       } else if (id === "export-diagnostics") {
-        // The dialog opens over the page and stays after this action ends; saving happens inside it.
         await requestDiagnosticsPreview({
           api: host.api,
           text: diagnosticsMessages(state.locale),

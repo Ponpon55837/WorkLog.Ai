@@ -46,48 +46,29 @@ import type { DesktopPaths } from "./config.js";
 import type { Logger } from "./log.js";
 import type { ShellState } from "./state.js";
 
-/**
- * The Agent page (DT-04 in the App). It reads the Agents' configuration, shows the change the App would make as a diff,
- * and writes only what the user confirmed: the plan applied is the very plan the diff was made from, and agent-setup
- * re-fingerprints every file before writing it, so a file changed in between is never overwritten. Every apply is a
- * journaled transaction the user can undo. Nothing here starts an Agent; the self-test runs the App's own launcher.
- */
 export interface AgentsPage {
   snapshot(): AgentsState;
   preview(adopt: boolean, agents?: readonly SetupAgentId[]): Promise<AgentsActionResult>;
-  /** "移除 Agent 設定": previews the removal of what setup wrote; `apply` then runs it the way it runs an install. */
   previewRemove(): Promise<AgentsActionResult>;
   apply(previewId: string): Promise<AgentsActionResult>;
   discard(): AgentsActionResult;
   undo(): Promise<AgentsActionResult>;
   selfTest(): Promise<AgentsActionResult>;
-  /**
-   * The way out of a checkout on another database: hands the database that Agent's checkout uses to the App's own
-   * database change (preview, then the user confirms). Main reads the path; the page only names the Agent.
-   */
   useCheckoutDatabase(agent: SetupAgentId): Promise<AgentsActionResult>;
-  /** Finishes an apply or undo a crash left half done; called once at start-up. */
   recover(): void;
 }
 
 export interface AgentsPageOptions {
   readonly state: ShellState;
-  /** Every apply runs as an `apply-agent` operation, so a crash in the middle is found and told at the next start. */
   readonly coordinator: OperationCoordinator;
   readonly paths: Pick<DesktopPaths, "runtimeRoot">;
-  /** The canonical `work-intelligence` SKILL.md the App ships. */
   readonly skillSourcePath: string;
   readonly log: Logger;
-  /** Opens the App's database change for this file (read-only preview first; nothing switches before the user confirms). */
   readonly offerDatabase: (path: string) => Promise<void>;
 }
 
 const SELF_TEST_TIMEOUT_MS = 15_000;
 
-/**
- * The one entry point that writes an Agent plan, install or removal: the journaled transaction. The preview's plan is
- * applied as it is; agent-setup re-fingerprints every file before writing it. Operation bookkeeping wraps this call.
- */
 export function commitAgentPlan(plan: AgentSetupPlan, journalPath: string): AgentSetupTransactionResult {
   return applyAgentSetupTransaction(plan, { journalPath });
 }
@@ -140,24 +121,20 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
     ];
     return {
       homeDirectory: home,
-      // With a launcher target the checkout only serves to recognise hand-written entries that run it.
       repositoryRoot: roots[0] ?? home,
       target: { kind: "launcher", shimPath, skillSourcePath: options.skillSourcePath },
       platform,
       ...(selected ? { agents: selected } : {}),
       // Only entries on the App's own database are taken over: one Agent must not end up writing to two databases.
-      // Without an App database nothing is adopted (there is nothing to compare with).
       ...(adopt && databasePath ? { adopt: { repositoryRoots: roots, databasePath } } : {}),
     };
   }
 
-  /** The checkout database an Agent's hand-written entries use when it is not the App's: MCP's first, else a hook's. */
   function otherDatabaseOf(entries: readonly CheckoutRegistration[]): CheckoutRegistration | undefined {
     const other = entries.filter((entry) => entry.sameAsAppDatabase === false && entry.effectiveDatabase);
     return other.find((entry) => entry.kind === "mcp") ?? other[0];
   }
 
-  /** Whether the Agent has a settings folder here (its own override variable, else the default under the home folder). */
   function isDetected(id: SetupAgentId): boolean {
     const folder =
       id === "codex"
@@ -166,7 +143,6 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
     return existsSync(folder) || (id === "claude-code" && existsSync(join(home, ".claude.json")));
   }
 
-  /** Read-only: whether the Agent's own plugin brings finalize hooks (the plugin itself is never changed). */
   function pluginBringsHooks(id: SetupAgentId): boolean {
     const folder =
       id === "codex"
@@ -191,9 +167,6 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
         return undefined;
       }
     })();
-    // Read once per refresh: what each host last saw (the MCP server writes it into the same config directory it
-    // reads, which the launcher never changes) and the contract the installed runtime offers now. Without the
-    // runtime's fingerprint an observation can never read as current.
     const observations = readHostObservations(configDirectory());
     const currentContractFingerprint = readCurrentContractFingerprint(options.paths.runtimeRoot);
     return SETUP_AGENT_IDS.map((id: SetupAgentId): AgentCardView => {
@@ -230,7 +203,7 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
           ? { projectHooksNote: true as const }
           : {}),
         ...(hookInstallation ? { hookState: hookInstallation.state, hookSource: hookInstallation.source } : {}),
-        // A global hook (the App's or a checkout's) next to the plugin's own hooks: the reminder would run twice.
+        // A global hook next to the plugin's own hooks would run the reminder twice.
         ...(hookInstallation?.state === "installed" &&
         (hookInstallation.source === "app" || hookInstallation.source === "checkout") &&
         pluginBringsHooks(id)
@@ -254,7 +227,6 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
     });
   }
 
-  /** The preview the page shows for a plan: the diff of every file, with `~` for the home folder. */
   function previewOf(plan: AgentSetupPlan, mode: AgentsPreview["mode"], adopt: boolean): AgentsPreview {
     return {
       id: randomUUID(),
@@ -373,7 +345,6 @@ export function createAgentsPage(options: AgentsPageOptions): AgentsPage {
           return { ok: true, state: snapshot() };
         }
         const code = applied.code ?? applied.outcome;
-        // Some of what was written could not be put back: name those files, and never say it was all rolled back.
         const left = applied.outcome === "needs-manual-repair" ? filesLeftByTransaction(applied) : [];
         result = {
           kind: "failed",

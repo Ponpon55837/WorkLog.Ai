@@ -12,30 +12,12 @@ import {
 import type { DesktopFacts } from "@work-intelligence/schema";
 import type { Logger } from "./log.js";
 
-/**
- * The old login service `pnpm service:install` (and `pnpm bootstrap`) leaves behind: a second backend that may use the
- * App's database. Detection is read-only; this only decides whether the App holds its own backend back. Nothing here
- * stops, edits or removes that service.
- */
 export interface LegacyGuard {
-  /** Detects again and keeps the result. */
   refresh(): Promise<LegacyServiceDetection>;
-  /** The last detection, or null before the first one finished. */
   latest(): LegacyServiceDetection | null;
-  /**
-   * Whether a start on `databasePath` must wait for the user (see `decideLegacyStart`): the old service may serve it, or
-   * a login start finds it enabled, and the user has not said "仍要啟動" for it in this run. Detects again first, so a
-   * service removed in the meantime no longer blocks.
-   */
   blocks(databasePath: string): Promise<boolean>;
-  /** The last start was held back at login because the old service is enabled (the tray offers the way out). */
   heldAtLogin(): boolean;
-  /**
-   * What the backend tells the Web about the old service for `databasePath` (from the last detection, no new one): the
-   * status page shows the same warning. Nothing when it does not concern this database.
-   */
   facts(databasePath: string): DesktopFacts | undefined;
-  /** The user said "仍要啟動" for this database; remembered until the App quits, never written anywhere. */
   allow(databasePath: string): void;
 }
 
@@ -43,9 +25,7 @@ export interface LegacyGuardOptions {
   readonly platform: NodeJS.Platform;
   readonly environment: NodeJS.ProcessEnv;
   readonly log: Logger;
-  /** Test seam; defaults to the real read-only detection. */
   readonly detect?: () => Promise<LegacyServiceDetection>;
-  /** Test seam; defaults to the launch mode of this process (`--background`, or opened at login on macOS). */
   readonly launchMode?: () => LaunchMode;
 }
 

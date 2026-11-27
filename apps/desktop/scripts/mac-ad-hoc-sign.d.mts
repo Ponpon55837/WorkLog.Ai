@@ -1,4 +1,3 @@
-/** Types for apps/desktop/scripts/mac-ad-hoc-sign.mjs, so TypeScript tests can import it. */
 export interface AppEntry {
   path: string;
   type: "file" | "directory";

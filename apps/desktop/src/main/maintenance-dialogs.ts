@@ -6,11 +6,9 @@ import type { ShellState } from "./state.js";
 export interface MaintenanceDialogsOptions {
   readonly state: ShellState;
   readonly window: RepairWindow;
-  /** Test build only: answer the confirmation with 「整理」 instead of showing it. */
   readonly autoConfirm: boolean;
 }
 
-/** The native confirmation of 「整理資料庫」; main shows it, the page never does. Cancel is the default button. */
 export function createMaintenanceDialogs(options: MaintenanceDialogsOptions): { confirm(): Promise<boolean> } {
   const { state, window } = options;
   return {

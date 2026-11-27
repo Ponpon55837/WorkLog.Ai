@@ -2,13 +2,6 @@ import type { AppTab, AppTabBadge } from "@work-intelligence/desktop-core/shell/
 import { stableKey } from "./diff.js";
 import { element } from "./dom.js";
 
-/**
- * The tab strip (UiUnderlineNav) as a WAI-ARIA tablist: role=tablist with a label, role=tab buttons with
- * aria-selected / aria-controls / id, a roving tabindex (the selected tab is the one tab stop), and Left / Right (wrap),
- * Home and End that move focus and select at once (automatic activation). The strip is updated in place: a poll that
- * changes nothing touches nothing, and one that changes a badge or the labels patches the buttons it already has, so a
- * focused tab never loses focus to a redraw.
- */
 export interface TabStripModel {
   readonly tabs: readonly AppTab[];
   readonly selected: AppTab;

@@ -10,8 +10,6 @@ import { restoreSection } from "./restore-view.js";
 import { storageRiskNote } from "./storage-risk-card.js";
 import { migrationOffer } from "./view-model.js";
 
-/** The Data tab: the database in use and what can be done with it, the backups, the logs and the databases found. */
-
 const DATA_ACTIONS: readonly RepairActionId[] = [
   "choose-database",
   "open-database-folder",
@@ -38,10 +36,6 @@ function actionLabel(id: RepairActionId, messages: ShellMessages): string {
   return labels[id] ?? id;
 }
 
-/**
- * 「複製到本機磁碟並改用」 for a candidate, or (no id) for the App's own database; while that database waits for an update
- * its storage refuses, the same copy is the main button and says it updates the copy.
- */
 function copyButton(ctx: ViewContext, candidateId: string | undefined, forMigration = false): HTMLButtonElement {
   return button(
     forMigration ? ctx.messages.actionCopyAndMigrate : setupMessages(ctx.state.locale).storageCopyToLocal,

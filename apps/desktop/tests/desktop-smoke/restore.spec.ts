@@ -18,12 +18,6 @@ import {
   type Sandbox,
 } from "./helpers.js";
 
-/**
- * 「從備份還原」 (H-02): the Data tab lists the backups of the database in use, chooses a file through a native dialog and
- * restores one. The native chooser and confirmation are answered by test switches (a pointer file names the chosen file; the
- * confirmation is auto-accepted). Every database here is synthetic.
- */
-
 let sandbox: Sandbox | undefined;
 let app: ElectronApplication | undefined;
 
@@ -35,7 +29,6 @@ test.afterEach(async ({ browserName: _browserName }, testInfo) => {
   sandbox = undefined;
 });
 
-/** The backup folder the App's settings name (the sandbox settings put it under the home), which is where it lists from. */
 function backupsDirectory(box: Sandbox): string {
   return join(box.home, ".work-intelligence", "backups");
 }
@@ -51,7 +44,6 @@ function projectNames(databasePath: string): string[] {
   }
 }
 
-/** A database with one project ("Kept") and a real backup of it, then one more project ("Added later") only in the database. */
 function seedWithBackup(box: Sandbox, options: { keepDatabase: boolean }): void {
   const store = new WorkIntelligenceStore(box.databasePath, { backup: { directory: backupsDirectory(box) } });
   store.addProject("Kept", join(box.root, "kept"));
@@ -106,7 +98,6 @@ test("restores a listed backup: confirmed, replaced, the service is back, and th
   await expect(window.locator('[data-id="restore-answer"]')).toBeVisible({ timeout: 60_000 });
   await waitForManagedSnapshot(app);
   expect(projectNames(sandbox.databasePath)).toEqual(["Kept"]);
-  // The automatic safety backup of what was replaced exists next to the others.
   expect(readdirSync(backupsDirectory(sandbox)).length).toBeGreaterThan(filesBefore);
   expect(readMainLog(sandbox)).toContain("database restored from a backup");
 });
@@ -180,8 +171,6 @@ test("is reachable while the database is missing: restores a backup and the serv
   await expect(window.locator('[data-id="restore-item-0"]')).toBeVisible({ timeout: 30_000 });
   await window.locator('[data-id="restore-item-0-run"]').click();
 
-  // The earlier DB_MISSING stays the latest error until the restored database starts, so wait for MANAGED itself rather
-  // than failing fast on that expected, already-settled NEEDS_REPAIR.
   await waitForSnapshot(app, (state) => state.owner === "MANAGED" && state.backend !== null, 60_000);
   expect(existsSync(sandbox.databasePath)).toBe(true);
   expect(projectNames(sandbox.databasePath)).toEqual(["Kept"]);

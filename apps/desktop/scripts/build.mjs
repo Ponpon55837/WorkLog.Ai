@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-/**
- * Builds the desktop shell into dist/ with esbuild. No Electron binary is needed.
- *
- *   dist/main/index.mjs            main process, ESM (Electron 45 loads an ESM main; `electron` stays external, everything else
- *                                  is bundled so the shell does not depend on node_modules at run time)
- *   dist/preload/repair.cjs        sandboxed preload, CommonJS (a sandboxed preload cannot be ESM and may only require "electron")
- *   dist/renderer/repair/          repair page: index.html, repair.css and the shared tokens.css (both minified in a production build), repair.js bundled as an IIFE
- *   dist/skills/work-intelligence/SKILL.md   the canonical Agent skill (.agents/skills/work-intelligence), which the Agent page
- *                                  installs for Codex and Claude Code; a packaged App reads its extraResources copy instead
- *   dist/assets/tray*.png          tray icons, copies of build/tray.png and build/trayTemplate*.png (rendered by generate-icons.mjs)
- *
- * Flags:
- *   --production                      the release bundle: minified, no source maps, and `__WI_TEST_BUILD__` is false, so the
- *                                     test hook and every test environment variable are compiled out (see
- *                                     check-production-bundle.mjs). Without it the build is the smoke-test build.
- *   --bundled-runtime-sha256 <hex>    SHA-256 of the bundled runtime's runtime-manifest.json, baked into the main bundle
- *                                     as `__WI_BUNDLED_RUNTIME_SHA256__`; required with --production.
- */
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import process from "node:process";
@@ -75,6 +57,7 @@ await build({
   entryPoints: [join(root, "src/preload/repair.ts")],
   outfile: join(dist, "preload/repair.cjs"),
   platform: "node",
+  // A sandboxed preload cannot be ESM and may only require "electron".
   format: "cjs",
   external: ["electron"],
 });

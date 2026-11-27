@@ -32,10 +32,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(here, "..", "..");
 
 export const mainEntry = join(desktopRoot, "dist", "main", "index.mjs");
-/** The path of the Electron binary (the `electron` package exports it). */
 export const electronBinary: string = require("electron") as string;
 
-/** What the main process shows through its non-packaged test hook. */
 export interface MainSnapshot {
   owner: string;
   backend: { pid: number; port: number; execPath: string; runId: string } | null;
@@ -44,11 +42,9 @@ export interface MainSnapshot {
   lastSecondInstanceDecision: string | null;
   openedExternal: string[];
   recentErrors: string[];
-  /** Titles of the "ready again" notifications the App tried to show. */
   notifications: string[];
   logFile: string;
   needsSetup: boolean;
-  /** The tab the App window shows (or would show when it opens). */
   tab: string;
   firstRunDetectionMs: number | null;
 }
@@ -63,7 +59,6 @@ export interface Sandbox {
   readonly runtimeRoot: string;
 }
 
-/** The runtime the smoke script built; the specs never build one themselves. */
 export function runtimeRootFromEnvironment(): string {
   const value = process.env.WORK_INTELLIGENCE_SMOKE_RUNTIME_ROOT;
   if (!value) throw new Error("WORK_INTELLIGENCE_SMOKE_RUNTIME_ROOT is not set; run `pnpm test:desktop-smoke`.");
@@ -90,24 +85,16 @@ function writeSandboxSettings(dataDirectory: string, databasePath: string, port:
   );
 }
 
-/**
- * Synthetic data only: a database created by the real store in a temporary folder, never anything of the developer's.
- * `withSettings` (default true) writes a 1.6.48-style settings file, which is what an upgrade finds; without it the
- * sandbox is a new install and the App shows its first-run page.
- */
 export async function createSandbox(options: { withDatabase: boolean; withSettings?: boolean }): Promise<Sandbox> {
-  // `.native` expands Windows 8.3 short names (`RUNNER~1`) and macOS `/var` -> `/private/var`, so every path the test
-  // derives matches what the App and its child report.
+  // `.native` expands Windows 8.3 short names (`RUNNER~1`) and macOS `/var`, so derived paths match what the App reports.
   const root = realpathSync.native(mkdtempSync(join(os.tmpdir(), "wi-desktop-smoke-")));
   const home = join(root, "home");
   const dataDirectory = join(root, "data");
   const emptyBin = join(root, "empty-bin");
-  // The per-user folders a real profile always has; appEnvironment points every profile variable at one of them, and
   // Windows resolves known folders (Roaming and Local AppData) only when they exist.
   for (const directory of [...Object.values(profileDirectories(home)), dataDirectory, emptyBin]) {
     mkdirSync(directory, { recursive: true });
   }
-  // Under the isolated home, where the product keeps it, so the repair page shows it as `~/…`.
   const databasePath = join(home, ".work-intelligence", "data", "work-intelligence.sqlite");
   mkdirSync(dirname(databasePath), { recursive: true });
   if (options.withDatabase) new WorkIntelligenceStore(databasePath).close();
@@ -117,10 +104,6 @@ export async function createSandbox(options: { withDatabase: boolean; withSettin
   return { root, home, dataDirectory, databasePath, port, emptyBin, runtimeRoot };
 }
 
-/**
- * Rewinds a database the real store made to the schema before its latest migration, the way an upgrade finds a database
- * of the previous release: the App's preview reports "needs an update". Synthetic data only; the file is closed again.
- */
 export function makeSchemaOlder(databasePath: string): void {
   const database = new DatabaseSync(databasePath);
   try {
@@ -137,7 +120,6 @@ export function removeSandbox(sandbox: Sandbox): void {
   rmSync(sandbox.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }
 
-/** The environment the app runs in: an isolated home, the test switches, and a PATH without any Node. */
 export function appEnvironment(sandbox: Sandbox, extra: Record<string, string> = {}): Record<string, string> {
   const base: Record<string, string> = {};
   for (const [name, value] of Object.entries(process.env)) {
@@ -158,13 +140,7 @@ export function appEnvironment(sandbox: Sandbox, extra: Record<string, string> =
   };
 }
 
-/**
- * Linux runs only as a regression check (V1 ships on Windows and macOS). There Chromium's OS sandbox needs either root-less
- * user namespaces, which Ubuntu 24.04's AppArmor policy blocks for an unpackaged binary, or a setuid `chrome-sandbox`,
- * which a downloaded test binary does not have; as root it refuses to start at all. So only the test's Linux launch
- * turns the OS sandbox off. The renderer settings under test (`sandbox`, `contextIsolation`, CSP) are unchanged, and
- * Windows and macOS keep the full OS sandbox.
- */
+// Linux only: Chromium's OS sandbox needs user namespaces (blocked by Ubuntu 24.04 AppArmor) or a setuid chrome-sandbox, so the test turns it off there.
 export function launchArguments(): string[] {
   return [mainEntry, ...(process.platform === "linux" ? ["--no-sandbox"] : [])];
 }
@@ -187,20 +163,14 @@ export async function launchApp(
 }
 
 export interface ElectronExit {
-  /** The Electron main process, so a test can look for anything it left behind. */
   readonly pid: number;
   readonly code: number | null;
   readonly signal: NodeJS.Signals | null;
-  /** The last of what the process wrote to stderr, so a failed exit explains itself in the test report. */
   readonly stderr: string;
 }
 
 const EXIT_STDERR_LIMIT = 16 * 1024;
 
-/**
- * Starts an Electron that is expected to end by itself (a second instance, a launch that cannot start) and resolves with
- * how it ended. It is killed and the promise rejects (with its stderr) if it is still running after `timeoutMs`.
- */
 export function runToExit(
   sandbox: Sandbox,
   extra: Record<string, string> = {},
@@ -233,11 +203,7 @@ export function runToExit(
   });
 }
 
-/**
- * Windows only: the processes still running that `pid` started (Windows keeps the parent id after the parent ends) or
- * whose command line names `marker` (the sandbox root), as "name pid" lines. Electron's helpers (GPU, network, the
- * Crashpad handler) are such children.
- */
+// Windows keeps the parent id after the parent ends, so Electron's helpers are still found by it.
 export function windowsLeftovers(pid: number, marker: string): string[] {
   if (!Number.isInteger(pid) || pid <= 0 || marker.length === 0) throw new Error("a pid and a marker are required");
   const script = [
@@ -246,7 +212,7 @@ export function windowsLeftovers(pid: number, marker: string): string[] {
     `  ($_.CommandLine -and $_.CommandLine.Contains($env:WI_SMOKE_MARKER)))`,
     `} | ForEach-Object { '{0} {1}' -f $_.Name, $_.ProcessId }`,
   ].join("\n");
-  // The marker, a path, goes in through the environment, as the script itself goes in encoded: no command-line quoting.
+  // The marker goes in through the environment, so it needs no command-line quoting.
   const output = execFileSync(windowsPowerShell(), powershellArguments(script), {
     encoding: "utf8",
     env: { ...process.env, WI_SMOKE_MARKER: marker },
@@ -268,7 +234,6 @@ export function readSnapshot(app: ElectronApplication): Promise<MainSnapshot> {
   );
 }
 
-/** A NEEDS_REPAIR the App will not leave by itself (no retry, no reinstall pending), or undefined. */
 export function settledRepairFailure(snapshot: MainSnapshot): string | undefined {
   const latest = snapshot.recentErrors.at(-1);
   return snapshot.owner === "NEEDS_REPAIR" && latest !== undefined && isSettledRepairFailure(latest)
@@ -276,10 +241,6 @@ export function settledRepairFailure(snapshot: MainSnapshot): string | undefined
     : undefined;
 }
 
-/**
- * Polls the hook until `done` holds, then returns that snapshot. With `failFast`, a state that can no longer reach `done`
- * (see {@link settledRepairFailure}) fails at once with the real error codes instead of waiting for the timeout.
- */
 export async function waitForSnapshot(
   app: ElectronApplication,
   done: (snapshot: MainSnapshot) => boolean,
@@ -300,7 +261,6 @@ export async function waitForSnapshot(
   );
 }
 
-/** Waits until the App is MANAGED with a running backend; a deterministic NEEDS_REPAIR fails at once. */
 export function waitForManagedSnapshot(app: ElectronApplication, timeoutMs = 45_000): Promise<MainSnapshot> {
   return waitForSnapshot(
     app,
@@ -310,7 +270,6 @@ export function waitForManagedSnapshot(app: ElectronApplication, timeoutMs = 45_
   );
 }
 
-/** The health endpoint must prove the answering process is the child this App started (HMAC of a fresh challenge). */
 export async function healthProofIsValid(port: number, runId: string): Promise<boolean> {
   const challenge = `smoke-challenge-${Date.now()}-abcdefghij`;
   const response = await fetch(`http://127.0.0.1:${port}/api/health`, {
@@ -321,7 +280,6 @@ export async function healthProofIsValid(port: number, runId: string): Promise<b
   );
 }
 
-/** Keeps the main log with the test result so a CI failure can be read afterwards. */
 export function attachLog(testInfo: TestInfo, sandbox: Sandbox): void {
   try {
     const text = readFileSync(join(sandbox.dataDirectory, "logs", "desktop-main.log"), "utf8");
@@ -339,7 +297,6 @@ export function readMainLog(sandbox: Sandbox): string {
   }
 }
 
-/** Quits the way a user does (the confirmation is auto-answered), so the backend is stopped and not left behind. */
 export async function closeQuietly(app: ElectronApplication | undefined): Promise<void> {
   if (!app) return;
   if (closedApplications.has(app)) return;
@@ -349,14 +306,12 @@ export async function closeQuietly(app: ElectronApplication | undefined): Promis
   await app.close().catch(() => undefined);
 }
 
-/** What the main process's test hook offers beyond the snapshot (see apps/desktop/src/main/test-hook.ts). */
 interface TestHook {
   openWindow(tab?: string): void;
   trayMenu(): { id: string; label: string; enabled: boolean }[];
   trayClick(id: string): void;
 }
 
-/** The tray's "Open Work Intelligence…" (no tab) or an explicit request for one tab, as a route inside main makes it. */
 export async function openWindow(app: ElectronApplication, tab?: AppTab): Promise<void> {
   await app.evaluate(
     (_electron, requested) =>
@@ -367,14 +322,12 @@ export async function openWindow(app: ElectronApplication, tab?: AppTab): Promis
   );
 }
 
-/** The items the tray menu shows now (id, label, enabled), in order. */
 export function trayMenu(app: ElectronApplication): Promise<{ id: string; label: string; enabled: boolean }[]> {
   return app.evaluate(() =>
     (globalThis as unknown as { __workIntelligenceDesktopTest: TestHook }).__workIntelligenceDesktopTest.trayMenu(),
   );
 }
 
-/** Does what a click on a tray item does, through the very handler the native tray menu calls. */
 export async function trayClick(app: ElectronApplication, id: string): Promise<void> {
   await app.evaluate(
     (_electron, itemId) =>
@@ -385,12 +338,10 @@ export async function trayClick(app: ElectronApplication, id: string): Promise<v
   );
 }
 
-/** How many windows the App has right now (it must never be more than one). */
 export function windowCount(app: ElectronApplication): Promise<number> {
   return app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
 }
 
-/** Closes the App window the way its close button does (the App keeps running in the tray) and waits until it is gone. */
 export async function closeAppWindow(app: ElectronApplication): Promise<void> {
   await app.evaluate(({ BrowserWindow }) => {
     for (const win of BrowserWindow.getAllWindows()) win.close();
@@ -399,25 +350,21 @@ export async function closeAppWindow(app: ElectronApplication): Promise<void> {
   await expect.poll(() => app.windows().length).toBe(0);
 }
 
-/** The page's own language decides which copy it shows; the test compares with the same catalogue. */
 export async function shellText(window: Page): Promise<ShellMessages> {
   const lang = await window.evaluate(() => document.documentElement.lang);
   return shellMessages(lang === "zh-Hant" ? "zh-TW" : "en");
 }
 
-/** The tab button of a tab, found by its role and its stable `data-tab` id (the label depends on the language). */
 export function tabButton(window: Page, tab: AppTab) {
   return window.locator(`[role="tab"][data-tab="${tab}"]`);
 }
 
-/** The ids of the tab buttons, in the order the strip shows them. */
 export function tabIds(window: Page): Promise<string[]> {
   return window
     .locator('[role="tablist"] [role="tab"]')
     .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.tab ?? ""));
 }
 
-/** The tab that is selected now, or undefined while none is. */
 export async function selectedTab(window: Page): Promise<string | undefined> {
   const ids = await window
     .locator('[role="tablist"] [role="tab"][aria-selected="true"]')
@@ -425,20 +372,17 @@ export async function selectedTab(window: Page): Promise<string | undefined> {
   return ids.length === 1 ? ids[0] : undefined;
 }
 
-/** Waits until this tab is the selected one and its panel is the only one shown. */
 export async function expectTabShown(window: Page, tab: AppTab): Promise<void> {
   await expect(tabButton(window, tab)).toHaveAttribute("aria-selected", "true", { timeout: 30_000 });
   await expect(window.locator('[role="tabpanel"]:not([hidden])')).toHaveCount(1);
   await expect(window.locator(`#panel-${tab}`)).toBeVisible();
 }
 
-/** Clicks the tab button and waits until its panel is shown (a user's click, never a route). */
 export async function openTab(window: Page, tab: AppTab): Promise<void> {
   await tabButton(window, tab).click();
   await expectTabShown(window, tab);
 }
 
-/** Puts a value on the page object; it is gone after any reload or navigation, so finding it again proves there was none. */
 export async function markPage(window: Page): Promise<string> {
   const marker = `marker-${Date.now()}-${Math.round(Math.random() * 1e9)}`;
   await window.evaluate((value) => {

@@ -2,8 +2,6 @@ import { readFileSync } from "node:fs";
 import net from "node:net";
 import { join } from "node:path";
 
-/** Small process and port helpers shared by the unpackaged and the packaged smoke tests (no Electron import). */
-
 export async function freePort(): Promise<number> {
   return new Promise((resolvePort, reject) => {
     const server = net.createServer();
@@ -24,12 +22,9 @@ export async function portIsFree(port: number): Promise<boolean> {
 }
 
 /**
- * The arguments for one PowerShell script, for every test helper: no profile, no prompt, no stdin, and the script starts
- * with `$ProgressPreference='SilentlyContinue'` so progress records ("Preparing modules for first use.") never reach the
- * output as CLIXML, then sets the console output to UTF-8: Windows PowerShell 5.1 otherwise writes in the OEM code page,
- * which turns every non-ASCII character of a path or command line (the sandboxes' names have some) into `?`, and callers
- * decode stdout as UTF-8. -EncodedCommand (UTF-16LE base64) passes the script without any command-line quoting. Callers
- * also start PowerShell with stdin ignored.
+ * `$ProgressPreference='SilentlyContinue'` keeps progress records out of the output as CLIXML. Windows PowerShell 5.1
+ * writes the OEM code page unless the console is set to UTF-8, turning non-ASCII path characters into `?`.
+ * -EncodedCommand avoids command-line quoting.
  */
 export function powershellArguments(script: string): string[] {
   const prefix = "$ProgressPreference='SilentlyContinue';[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;";

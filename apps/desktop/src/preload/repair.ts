@@ -1,9 +1,8 @@
-// Sandboxed preload (CommonJS): the only module it may require is "electron". It forwards each call to main and returns
-// the answer; it holds no logic. Types are imported for checking only and leave nothing in the bundle.
+// Sandboxed preload (CommonJS): the only module it may require is "electron".
 import type { REPAIR_CHANNELS, RepairApi } from "@work-intelligence/desktop-core";
 import { contextBridge, ipcRenderer } from "electron";
 
-// Spelled out because a value import would pull desktop-core into the bundle; the type keeps them identical.
+// A value import would pull desktop-core into the bundle; the type keeps them identical.
 const channels: typeof REPAIR_CHANNELS = {
   getState: "repair:get-state",
   retryStart: "repair:retry-start",
@@ -127,13 +126,11 @@ const api: RepairApi = {
   restorePick: () => ipcRenderer.invoke(channels.restorePick, {}),
   restoreRun: (backupId) => ipcRenderer.invoke(channels.restoreRun, { backupId }),
   onSelectTab: (listener) => {
-    // Forwarded as sent; the page checks the id against the tab list before it switches.
     ipcRenderer.on(channels.selectTab, (_event, tab: unknown) => {
       if (typeof tab === "string") listener(tab as Parameters<typeof listener>[0]);
     });
   },
   onUpdateChanged: (listener) => {
-    // The event carries nothing: the page reads the state through `getState`.
     ipcRenderer.on(channels.updateChanged, () => listener());
   },
 };

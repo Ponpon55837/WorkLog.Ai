@@ -30,15 +30,9 @@ import type { LegacyGuard } from "./legacy.js";
 import type { Logger } from "./log.js";
 import type { ShellState } from "./state.js";
 
-/** The disable runs real OS commands that may take a while (systemd stop timeout, schtasks): give each its own budget. */
+// Real OS commands (a systemd stop timeout, schtasks) can take a while.
 const COMMAND_TIMEOUT_MS = 30_000;
 
-/**
- * 「停用舊的登入服務」: a read-only preview, then a confirmed disable of exactly the definition the preview showed (see
- * `executeLegacyDisable`). Afterwards the App's own database gets a read-only `quick_check` before anything opens it,
- * and the App offers 「立即啟動」 only in an interactive launch with settings and no backend running; it never starts by
- * itself.
- */
 export interface LegacyDisableController {
   preview(): Promise<LegacyDisablePreviewResult>;
   confirm(previewId: string, continueWhileBusy: boolean): Promise<LegacyDisableConfirmResult>;
@@ -55,29 +49,23 @@ export interface LegacyDisableOptions {
   readonly openRepairWindow: () => void;
   readonly log: Logger;
   readonly environment: NodeJS.ProcessEnv;
-  /** The native confirmation; Cancel is the default button. Resolves true only for 「停用」. */
   readonly confirmDialog: (hardStop: boolean) => Promise<boolean>;
-  /** Test seam: replaces the OS side of the disable (a test build records the commands instead of running them). */
   readonly dependencies?: Partial<LegacyDisableDependencies>;
 }
 
 interface Pending {
   readonly id: string;
   readonly plan: LegacyDisablePlan;
-  /** The preview warned about an import or backup (then only 「仍要停用」 confirms). */
   busy: boolean;
-  /** Whether the old backend is (or may be) running: the task says so, or on Windows a runner of this checkout is alive. */
   readonly running: boolean;
   readonly hardStop: boolean;
 }
 
-/** What the read-only check of the App's database after the stop found. */
 type DatabaseCheck = "passed" | "damaged" | "unverified";
 
 export function createLegacyDisable(options: LegacyDisableOptions): LegacyDisableController {
   const { state, legacy, coordinator, supervisor, backend, log } = options;
   let pending: Pending | null = null;
-  // Set once a disable worked, so 「立即啟動」 belongs to that disable and nothing else.
   let startOffered = false;
 
   const dependencies: LegacyDisableDependencies = {
@@ -100,17 +88,11 @@ export function createLegacyDisable(options: LegacyDisableOptions): LegacyDisabl
     supervisor.running === undefined &&
     coordinator.current() === null;
 
-  /** Whether the App's own database is the one the old service used (same file, not just the same text). */
   function sameDatabase(plan: LegacyDisablePlan): boolean {
     const database = state.databasePath();
     return database !== null && plan.databasePath !== undefined && pathsReferToSameFile(database, plan.databasePath);
   }
 
-  /**
-   * Read-only integrity check of the App's database. Only a failed `quick_check` counts as damage (recorded, and the
-   * repair window shows the database as the candidate to act on); a database that could not be read this time (locked,
-   * timed out, the child failed) is "unverified", which is not reported as damage.
-   */
   async function checkAppDatabase(): Promise<DatabaseCheck> {
     const database = state.databasePath();
     if (!database) return "passed";
@@ -230,8 +212,7 @@ export function createLegacyDisable(options: LegacyDisableOptions): LegacyDisabl
       await legacy.refresh();
       if (outcome === "busy") return { ok: false, reason: "busy" };
       log(`[shell] legacy disable: ${outcome.outcome}${outcome.outcome === "failed" ? ` at ${outcome.step}` : ""}`);
-      // The old backend may have been ended in the middle of a write to this database: check it before the App opens it,
-      // also when a later step failed. Not after `changed` (nothing ran) or `still-running` (it is still writing).
+      // The old backend may have been ended mid-write: check the database before the App opens it, also when a later step failed. Not after `changed` (nothing ran) or `still-running`.
       const stopped = outcome.outcome === "disabled" || (outcome.outcome === "failed" && outcome.stopAttempted);
       const check: DatabaseCheck = stopped && sameDatabase(current.plan) ? await checkAppDatabase() : "passed";
       if (outcome.outcome !== "disabled") {
@@ -242,7 +223,6 @@ export function createLegacyDisable(options: LegacyDisableOptions): LegacyDisabl
         };
       }
       if (check === "damaged") return { ok: false, reason: "database-check-failed" };
-      // Not verified this time: the disable worked, but 「立即啟動」 is offered only after a passed check.
       startOffered = check === "passed" && canStart();
       return { ok: true, offerStart: startOffered, ...(check === "unverified" ? { databaseUnverified: true } : {}) };
     },
@@ -262,11 +242,6 @@ export function createLegacyDisable(options: LegacyDisableOptions): LegacyDisabl
   };
 }
 
-/**
- * A test build's stand-in for the OS (with the synthetic detection file, see `legacyServiceFileOverride`): every
- * command is appended to `<file>.commands.jsonl` instead of run, the native confirmation answers 「停用」 and is
- * recorded there too, and the Windows process list is empty. Port, file checks and the unlink are real.
- */
 export function syntheticLegacyDisable(
   legacyFile: string,
 ): Pick<LegacyDisableOptions, "dependencies" | "confirmDialog"> {

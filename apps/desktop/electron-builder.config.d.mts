@@ -1,4 +1,3 @@
-/** Types for apps/desktop/electron-builder.config.mjs, so TypeScript tests can import it. */
 export interface BuilderConfigOptions {
   stageDirectory: string;
   runtimeBundleDirectory: string;

@@ -14,22 +14,10 @@ import type { BackendController } from "./backend.js";
 import type { Logger } from "./log.js";
 import type { ShellState } from "./state.js";
 
-/**
- * 「變更連接埠」 (DT-14). The change starts only in the App: from the repair window's port section or the tray. The Web
- * page may ask the App to open that section (`offer`), and then its whitelisted preferences wait in memory, single use,
- * to be carried to the new address. Nothing about the snapshot is written to disk or to a log.
- *
- * Order: validate, refuse when something runs (an operation or a long job of the backend), probe the target (only a
- * hint, and nothing is stopped for an occupied one), confirm natively, then one managed start on the new port that
- * commits the settings only once the backend is verified. A failed start brings the old port back.
- */
 export interface ChangePortController {
   change(input: unknown): Promise<PortChangeResult>;
-  /** The Dashboard asked for the port settings: keep its preferences (sanitized) and show the section. */
   offer(request: { readonly preferences?: unknown; readonly route?: string }): void;
-  /** The tray item: show the section. */
   openSection(): void;
-  /** What the repair page's port section shows. */
   section(): RepairPortSection;
 }
 
@@ -42,15 +30,11 @@ export interface ChangePortOptions {
     queryActivity(): Promise<BackendActivityReport>;
   };
   readonly backend: Pick<BackendController, "startOnPort" | "start" | "presenter" | "recovery">;
-  /** Binds and releases the port; `free: false` carries the errno of the refusal. */
   readonly probePort: (
     port: number,
   ) => Promise<{ readonly free: true } | { readonly free: false; readonly code: string }>;
-  /** The native confirmation; Cancel is the default button. */
-  /** `pendingImport`: a staged import preview exists and the restart will discard it; the dialog says so before the click. */
   readonly confirmDialog: (from: number, to: number, pendingImport: boolean) => Promise<boolean>;
   readonly handoff: PortHandoffStore;
-  /** Opens the Dashboard at the running backend's port, with the handoff fragment when one is given. */
   readonly openDashboard: (handoff?: PortHandoff) => void;
   readonly showSection: () => void;
   readonly log: Logger;
@@ -58,10 +42,8 @@ export interface ChangePortOptions {
 
 export function createChangePort(options: ChangePortOptions): ChangePortController {
   const { state, coordinator, supervisor, backend, log } = options;
-  /** The section was asked for and no state has carried that to a page yet. */
   let focusPending = false;
 
-  /** A refusal because something runs, or what the restart would throw away when nothing does (see `checkActivity`). */
   async function busyReason(): Promise<
     { readonly refusal: Extract<PortChangeResult, { ok: false }> } | { readonly pendingImport: boolean }
   > {
@@ -75,10 +57,8 @@ export function createChangePort(options: ChangePortOptions): ChangePortControll
     return { ok: false, reason, errorCode: code, rolledBack };
   }
 
-  /** The start on the new port failed: the old port comes back (settings were never changed). */
   async function rollBack(code: string, from: number): Promise<PortChangeResult> {
-    // A refusal before anything was stopped (the old login service, a network share) leaves the old backend serving: there
-    // is nothing to bring back, and a second start would be refused the same way and mark a healthy backend NEEDS_REPAIR.
+    // A refusal before anything was stopped leaves the old backend serving: a second start would be refused the same way and mark a healthy backend NEEDS_REPAIR.
     if (supervisor.running?.port === from) {
       log(`[shell] port change refused (${code}); the old port is still serving`);
       return failureOf(code, true);

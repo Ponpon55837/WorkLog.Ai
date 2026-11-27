@@ -2,7 +2,6 @@ import { diagnosticsMessages } from "@work-intelligence/desktop-core/shell/diagn
 import type { ViewContext } from "./context.js";
 import { actions, button, hint, section } from "./dom.js";
 
-/** The Diagnostics tab: export the masked diagnostics file; its preview opens as a dialog over the window. */
 export function diagnosticsPanel(ctx: ViewContext): Node[] {
   const { state, messages } = ctx;
   const text = diagnosticsMessages(state.locale);

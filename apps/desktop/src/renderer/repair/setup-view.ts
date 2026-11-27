@@ -14,12 +14,6 @@ import { legacyDisableControls, legacyDisableOutcome, type LegacyDisableHost } f
 import { createSetupMemory } from "./setup-memory.js";
 import { storageRiskNote } from "./storage-risk-card.js";
 
-/**
- * The first-run page (DT-01). "使用預設設定開始" is on the first screen from the first paint, but disabled (with a short
- * hint) until the detection ends: a new database is never created before the user could see what was found. Everything
- * else (an existing database, another file, the advanced facts) is optional. The page sends only opaque ids and booleans.
- */
-
 const FAST_REFRESH_MS = 400;
 const REFRESH_MS = 4000;
 const LOGIN_ID = "launch-at-login";
@@ -33,12 +27,10 @@ export function mountSetup(
 ): { refresh(): void; unmount(): void } {
   let current: SetupState | undefined;
   let working = false;
-  /** The last start was held back by the old login service: "仍要啟動" repeats it with consent. */
   let heldBack: Retry | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  /** Each read bumps it; only the newest one schedules the next poll, so the polls never double up. */
+  // Only the newest read schedules the next poll, so polls never double up.
   let generation = 0;
-  /** The first run is over and the page took this view out for good: nothing is read or scheduled any more. */
   let disposed = false;
   const memory = createSetupMemory();
 

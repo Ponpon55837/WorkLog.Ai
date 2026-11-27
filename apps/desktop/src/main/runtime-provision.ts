@@ -14,37 +14,26 @@ import type { Logger } from "./log.js";
 export interface RuntimeProvisionerOptions {
   readonly packaged: boolean;
   readonly paths: Pick<DesktopPaths, "runtimeRoot">;
-  /** `process.resourcesPath`. */
   readonly resourcesPath: string;
   readonly log: Logger;
 }
 
 export interface RuntimeProvisioner {
-  /**
-   * Makes the bundled runtime current in the packaged App; does nothing otherwise (a development or smoke run uses the
-   * runtime root from the test environment). Calls overlap safely: they run one after another.
-   * `verifyInstalled` also verifies (through the fingerprint cache) a runtime that looks current, for a retry after the
-   * backend refused it. Resolves with what was done (`undefined` when nothing is provisioned). Throws a
-   * {@link RuntimeProvisionError}.
-   */
+  /** Overlapping calls run one after another. */
   prepare(verifyInstalled: boolean): Promise<BundledRuntimeStatus | undefined>;
 }
 
-/** Folder inside the App's resources that holds the bundled runtime (`current` and `runtimes/<id>/`). */
 export const BUNDLE_DIRECTORY_NAME = "runtime-bundle";
 
-/** Waits before each retry of a collection that deferred something; after the last one it retries hourly. */
 const RETRY_DELAYS_MS: readonly number[] = [10 * 60_000, 30 * 60_000];
 const RETRY_HOURLY_MS = 60 * 60_000;
 
-/** Runtime errors the repair page explains in their own words; every other failure reads as "could not be prepared". */
 const OWN_CODES: ReadonlySet<string> = new Set([
   "RUNTIME_UNSAFE_PERMISSIONS",
   "RUNTIME_ACL_UNREADABLE",
   "RUNTIME_IN_USE",
 ]);
 
-/** The runtime could not be prepared; `code` is the repair page's error code. */
 export class RuntimeProvisionError extends Error {
   readonly code: ShellErrorCode;
 

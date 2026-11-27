@@ -1,12 +1,6 @@
-/**
- * What the first-run page remembers between its renders. The page is rebuilt every few seconds while it polls main, and
- * a control the user already touched (a ticked migration consent, the opened 「進階」) must come back the way it was.
- */
 export interface SetupMemory {
-  /** Whether the migration consent of this source is ticked. */
   consent(sourceId: string): boolean;
   setConsent(sourceId: string, checked: boolean): void;
-  /** Drops the consent of sources that are no longer listed. */
   keepConsentFor(sourceIds: readonly string[]): void;
   advancedOpen(): boolean;
   setAdvancedOpen(open: boolean): void;

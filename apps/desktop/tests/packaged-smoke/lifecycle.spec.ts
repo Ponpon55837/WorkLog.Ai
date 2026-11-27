@@ -37,12 +37,6 @@ import {
 } from "./helpers.js";
 import { decideInstallerProfile } from "./installer-profile.js";
 
-/**
- * What installing, upgrading and removing do, seen from outside. Windows: the NSIS installer run again over the running
- * App, then the uninstaller. macOS: the DMG's contents. These run after the other specs (see run-packaged-smoke.mjs),
- * because the uninstall removes the App they test.
- */
-
 const SETUP_TIMEOUT_MS = 180_000;
 const UNINSTALL_TIMEOUT_MS = 90_000;
 
@@ -55,17 +49,14 @@ test.describe.configure({ mode: "serial" });
 test.afterEach(async () => {
   if (sandbox) await stopApp(sandbox, app);
   app = undefined;
-  // First: it ends whatever still holds the sandbox, which can also hold the default userData made below.
+  // First: it ends whatever still holds the sandbox, which can also hold the default userData.
   if (sandbox) await removeSandbox(sandbox);
   sandbox = undefined;
   for (const path of cleanupPaths.splice(0))
     rmSync(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
 });
 
-/**
- * NSIS reads `/D=` raw and last: the command line is built by hand and handed to cmd without Node's quoting. A setup is
- * a GUI program, which cmd does not wait for unless `start /wait` runs it; that also returns its exit code.
- */
+/** NSIS reads `/D=` raw and last: build the command line by hand and hand it to cmd without Node's quoting; `start /wait` also returns the exit code. */
 function runSetup(file: string, args: readonly string[]): Promise<number | null> {
   const commandLine = `"start /wait "" ${[`"${file}"`, ...args].join(" ")}"`;
   return new Promise((resolveExit, rejectExit) => {

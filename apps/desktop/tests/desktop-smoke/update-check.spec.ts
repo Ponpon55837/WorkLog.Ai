@@ -18,12 +18,6 @@ import {
   trayClick,
 } from "./helpers.js";
 
-/**
- * 「檢查更新」: the manual update check. A local HTTP server stands in for the GitHub API (the test build's override, which
- * only changes the API origin: the release and installer links in its answers are still github.com links, and are only
- * recorded, never opened). Synthetic releases only.
- */
-
 const SLUG = "Ponpon55837/WorkLog.Ai";
 const BASE = `https://github.com/${SLUG}/releases`;
 const ORIGIN_VARIABLE = "WORK_INTELLIGENCE_DESKTOP_TEST_UPDATE_API_ORIGIN";
@@ -49,7 +43,7 @@ test.afterEach(async ({ browserName: _browserName }, testInfo) => {
   if (sandbox) attachLog(testInfo, sandbox);
   await closeQuietly(app);
   app = undefined;
-  // A request the test left unanswered holds its connection open: drop it, or close() waits for it.
+  // An unanswered request holds its connection open, and close() would wait for it.
   server?.closeAllConnections();
   await new Promise<void>((done) => (server ? server.close(() => done()) : done()));
   server = undefined;
@@ -95,7 +89,6 @@ async function startServer(): Promise<string> {
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
 
-/** Launches the App against the fake server; `platform` is the `<platform>/<arch>` the check reports. */
 async function launch(platform = "win32/x64"): Promise<{ running: ElectronApplication; version: string }> {
   sandbox = await createSandbox({ withDatabase: true });
   const origin = await startServer();
@@ -105,13 +98,11 @@ async function launch(platform = "win32/x64"): Promise<{ running: ElectronApplic
   return { running: app, version };
 }
 
-/** The version one patch above the running one, as the tag of a newer release. */
 function newerTag(version: string): string {
   const [major = "0", minor = "0", patch = "0"] = version.split(/[.-]/);
   return `v${major}.${minor}.${Number(patch) + 1}`;
 }
 
-/** The update card lives on the Settings tab: opens the App window with that tab requested (as a route inside main does). */
 async function openRepairPage(running: ElectronApplication): Promise<Page> {
   await openWindow(running, "settings");
   const window = await running.firstWindow({ timeout: 45_000 });
@@ -120,18 +111,15 @@ async function openRepairPage(running: ElectronApplication): Promise<Page> {
   return window;
 }
 
-/** The page's own language decides which copy it shows; the test compares with the same catalogue. */
 async function textOf(window: Page): Promise<UpdateMessages> {
   const lang = await window.evaluate(() => document.documentElement.lang);
   return updateMessages(lang === "zh-Hant" ? "zh-TW" : "en");
 }
 
-/** The tray item "Check for updates…", through the very handler the native menu calls (the tray itself cannot be clicked in a test). */
 async function trayCheck(running: ElectronApplication): Promise<void> {
   await trayClick(running, "check-updates");
 }
 
-/** Closes the App window (the App keeps running in the tray) and waits until it is gone. */
 const closeWindow = closeAppWindow;
 
 async function checkNow(window: Page): Promise<void> {
@@ -147,10 +135,9 @@ test("nothing is requested at launch or while the page sits open and idle", asyn
   const window = await openRepairPage(running);
   await expect(window.locator("#update-section")).toContainText(version);
   await expect(window.locator('[data-id="update-check"]')).toBeEnabled();
-  // The repair page polls every 4 s; wait past two polls.
+  // Past two of the page's 4 s polls.
   await window.waitForTimeout(9_000);
   expect(requests).toHaveLength(0);
-  // Opening it again, a reload and a window closed and opened never check either: only a click does.
   await window.reload();
   await openTab(window, "settings");
   await expect(window.locator("#update-section")).toBeVisible();
@@ -207,18 +194,10 @@ test("the request carries exactly the three headers, no cookie, no credentials a
   expect(headers.accept).toBe("application/vnd.github+json");
   expect(headers["x-github-api-version"]).toBe("2022-11-28");
   expect(headers["user-agent"]).toBe("WorkIntelligence-UpdateCheck");
-  // Nothing that says who the user is: no interface language, no cookie, no credential, no page or origin.
   for (const forbidden of ["accept-language", "cookie", "authorization", "proxy-authorization", "referer", "origin"]) {
     expect(headers, forbidden).not.toHaveProperty(forbidden);
   }
-  // The exact set. `accept`, `x-github-api-version` and `user-agent` are the check's own. The rest is what the HTTP stack
-  // adds to any request, and none of it says anything about the user:
-  //   host             the server's own name, which HTTP/1.1 requires;
-  //   connection       keep-alive;
-  //   accept-encoding  which compressions the client can read (the same for every Chromium);
-  //   sec-fetch-site, sec-fetch-mode, sec-fetch-dest
-  //                    Chromium adds these to every fetch it makes and does not let a request drop them; each is a
-  //                    fixed word about the kind of request (where from, how, for what), never about the user.
+  // Besides the check's own headers, only what the HTTP stack adds; Chromium does not let a fetch drop sec-fetch-*.
   const allowed = [
     "accept",
     "accept-encoding",
@@ -306,7 +285,6 @@ test("a response over 1 MiB with no Content-Length (chunked) is refused while it
   handler = (response) => {
     response.writeHead(200, { "Content-Type": "application/json" });
     response.on("error", () => undefined);
-    // No Content-Length: Node sends it chunked. The client must stop reading at the cap, not wait for the end.
     const writeMore = (): void => {
       if (response.destroyed || written > 8 * 1024 * 1024) return;
       written += 64 * 1024;
@@ -443,15 +421,11 @@ test("the tray item with the window already open starts one check at once, witho
   const window = await openRepairPage(running);
   const text = await textOf(window);
   await trayCheck(running);
-  // Well inside the page's 4 s poll: main pushed the state, so the card already shows that it is checking. The state is
-  // set in main before any network work; when the request reaches the server is not asserted here, because the first
-  // request of a new session waits for the OS proxy lookup, which on a loaded Windows runner takes seconds. The request
-  // count is checked once the answer is in, below.
+  // The request's arrival is not asserted: a new session's first request waits for the OS proxy lookup, seconds on Windows.
   await expect(window.locator('[data-id="update-check"]')).toHaveText(text.checking, { timeout: 1_500 });
   await expect(window.locator('[data-id="update-check"]')).toBeDisabled();
   await expect(window.locator("#update-section")).toContainText(tag.slice(1), { timeout: 10_000 });
   await expect(window.locator('[data-id="update-check"]')).toBeEnabled();
-  // The page's own button after it joined the same flow: one request still, however many polls pass.
   await window.waitForTimeout(5_000);
   expect(requests).toHaveLength(1);
 });
@@ -462,16 +436,13 @@ test("the tray item with the window closed opens it with the check running; a la
   handler = (response) => sendJson(response, [releaseJson(tag)]);
   await trayCheck(running);
   const window = await running.firstWindow({ timeout: 45_000 });
-  // The tray item selects the Settings tab itself (where the update card is) and starts the check, in the one window.
   await expectTabShown(window, "settings");
   await expect(window.locator("#update-section")).toContainText(tag.slice(1), { timeout: 30_000 });
   expect(requests).toHaveLength(1);
-  // A reload shows the answer again and does not check again.
   await window.reload();
   await openTab(window, "settings");
   await expect(window.locator("#update-section")).toContainText(tag.slice(1));
   await closeWindow(running);
-  // Hours later in real life; here, past several polls' worth of time. The answer is shown, nothing is requested.
   await new Promise((done) => setTimeout(done, 6_000));
   const again = await openRepairPage(running);
   await expect(again.locator("#update-section")).toContainText(tag.slice(1));
@@ -489,7 +460,6 @@ test("closing the window right after a tray click leaves no deferred request for
   await closeWindow(running);
   await expect.poll(() => requests.length, { timeout: 5_000 }).toBe(1);
   await new Promise((done) => setTimeout(done, 6_000));
-  // The window opens for another reason (the tray's "Open Work Intelligence…"): it shows the answer and checks nothing.
   const again = await openRepairPage(running);
   await expect(again.locator("#update-section")).toContainText(tag.slice(1));
   await again.waitForTimeout(6_000);
@@ -510,8 +480,6 @@ test("the release notes keep their scroll position across the page's polls", asy
   });
   const before = await box.evaluate((node) => node.scrollTop);
   expect(before).toBeGreaterThan(300);
-  // A poll with unchanged state no longer redraws the panel (the page redraws only what changed), so the redraw is forced
-  // the way a user does it: a click on the card's "open page" button, which redraws the panel. The box is a new element.
   await window.evaluate(() => {
     (globalThis as { __notesBox?: Element | null }).__notesBox = document.querySelector(".update-notes");
   });
@@ -523,7 +491,6 @@ test("the release notes keep their scroll position across the page's polls", asy
       ),
     )
     .toBe(true);
-  // Two polls (every 4 s) pass on top of that: the position holds.
   await window.waitForTimeout(9_000);
   expect(await window.locator("#update-section .update-notes").evaluate((node) => node.scrollTop)).toBe(before);
   expect(requests).toHaveLength(1);
@@ -532,7 +499,6 @@ test("the release notes keep their scroll position across the page's polls", asy
 test("a publish date that does not parse is left out and the card still works", async () => {
   const { running, version } = await launch();
   const tag = newerTag(version);
-  // Main turns a date it cannot read into null; the card then shows no date line at all.
   handler = (response) => sendJson(response, [releaseJson(tag, { published_at: "not a date" })]);
   const window = await openRepairPage(running);
   await checkNow(window);
@@ -563,7 +529,6 @@ test("a body that stalls after a 200 times out and the button is usable again", 
     response.on("error", () => undefined);
     response.writeHead(200, { "Content-Type": "application/json" });
     response.write("[");
-    // Never ends, never errors: the connection just sits there.
   };
   const window = await openRepairPage(running);
   const started = Date.now();

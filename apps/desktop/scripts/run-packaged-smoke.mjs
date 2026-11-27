@@ -1,27 +1,4 @@
 #!/usr/bin/env node
-/**
- * `pnpm test:desktop-packaged`: the packaged-App smoke test. It tests what a user gets, never the unpackaged build:
- *
- *   Windows  the NSIS installer from dist/desktop-package/win32-x64/out, run silently (`/S`, per user) into a temp
- *            folder (`/D=`), and the INSTALLED exe. Phase two upgrades over the running App and uninstalls.
- *   macOS    the .app inside the zip (extracted with `ditto -x -k`, as a user's browser and Finder do), started through
- *            Contents/MacOS/<exe> and not `open`. Phase two checks the DMG (mounted read-only, no Finder window).
- *   Linux    the unpacked directory of `pnpm package:desktop --dir`, under `xvfb-run -a` and with `--no-sandbox` (local
- *            regression check only; V1 ships on Windows and macOS).
- *
- * Needs `pnpm package:desktop` (or `--dir`) first. Playwright then runs apps/desktop/playwright.packaged.config.ts with the
- * executable in WORK_INTELLIGENCE_PACKAGED_EXE (read by the tests only, never by the App). Every test works in a temp
- * sandbox with its own userData, home and database: nothing of the developer's data is read or written.
- *
- * Evidence for a run that fails or hangs, under apps/desktop/packaged-smoke-logs/ (CI uploads it with `if: always()`):
- *   smoke.log   everything the children print, written as it arrives, with a `[packaged-smoke] phase=` line per phase;
- *   phase.txt   the phase running now, so a killed run still says where it was (timeout.txt: where the limit hit);
- *   app-logs/   each sandbox's logs folder (the shell's main log, which carries the backend's output too), copied every
- *               few seconds while the sandbox exists and once more when the spec removes it.
- * WI_PACKAGED_SMOKE_TIMEOUT_MINUTES (default 17, below the CI step's 20) bounds the whole run: on expiry the running
- * child's process tree (Playwright, the App, its backend, an installer) is killed, the phase is logged, and the run
- * still cleans up and exits non-zero.
- */
 import { spawn, spawnSync } from "node:child_process";
 import {
   appendFileSync,
@@ -53,20 +30,19 @@ const PRODUCT_NAME = "Work Intelligence";
 const evidenceDirectory = join(desktopRoot, "packaged-smoke-logs");
 const smokeLog = join(evidenceDirectory, "smoke.log");
 const appLogDirectory = join(evidenceDirectory, "app-logs");
-/** The prefix and userData folder of tests/packaged-smoke/helpers.ts createSandbox. */
+// Must match the prefix of createSandbox in tests/packaged-smoke/helpers.ts.
 const SANDBOX_PREFIX = "wi 打包 smoke ";
 const SANDBOX_USER_DATA = "user data 数据";
+// Below the CI step's 20-minute limit, so the run still logs its phase and cleans up.
 const timeoutMinutes = Number(process.env.WI_PACKAGED_SMOKE_TIMEOUT_MINUTES ?? "17");
 const startedAt = Date.now();
 
-/** Specs that need the App and sandboxes only (phase one) and the ones that change or remove the installation (phase two). */
 const APP_SPECS = [
   "app.spec.ts",
   "bundle.spec.ts",
   "launcher.spec.ts",
   "runtime-sqlite.spec.ts",
   "performance.spec.ts",
-  // Shows the page files of the packaged asar in the repository's own Electron binary (the packaged App cannot be driven).
   "screenshots.spec.ts",
 ];
 const LIFECYCLE_SPEC = "lifecycle.spec.ts";

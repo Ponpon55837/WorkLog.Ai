@@ -19,12 +19,6 @@ import {
   type RunningApp,
 } from "./helpers.js";
 
-/**
- * G-MCP-01: the fixed launcher outlives the App. The packaged App writes `desktop-integration.json`; once the App has
- * quit, the shim it names (and the plugin script that prefers it) still completes an MCP `initialize` and `tools/list`
- * from the installed runtime. Seen from outside only, like every packaged spec.
- */
-
 const SESSION_TIMEOUT_MS = 60_000;
 const repositoryRoot = join(import.meta.dirname, "..", "..", "..", "..");
 const pluginLauncher = join(repositoryRoot, "plugins", "work-intelligence", "scripts", "launch.mjs");
@@ -54,7 +48,6 @@ interface McpMessage {
   result?: { serverInfo?: { name?: string }; tools?: Array<{ name: string }> };
 }
 
-/** What a stdio MCP client sees of one session: the responses by id, and every stdout line that was not JSON-RPC. */
 interface McpResult {
   readonly responses: ReadonlyMap<number, McpMessage>;
   readonly strayStdout: readonly string[];

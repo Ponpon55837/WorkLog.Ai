@@ -21,12 +21,6 @@ import {
   type Sandbox,
 } from "./helpers.js";
 
-/**
- * File-system risk policy for the database (DT-08). A smoke test cannot mount a share or plug in a drive, so the test
- * build reads a synthetic `path prefix -> verdict` file (the real classifier is unit-tested per platform in
- * tests/desktop-core/storage-risk.test.ts). Synthetic data only; the native confirmation is auto-answered.
- */
-
 let sandbox: Sandbox | undefined;
 let app: ElectronApplication | undefined;
 
@@ -55,7 +49,6 @@ async function pageText(window: Page) {
 
 test("a committed database on a network drive stops the backend; 複製到本機磁碟並改用 switches to a local copy and leaves the original", async () => {
   sandbox = await createSandbox({ withDatabase: true });
-  // Only the original file is "network": the copy sits beside it under another name.
   const risks = verdictFile(sandbox, { [sandbox.databasePath]: "network" });
   const before = digestOf(sandbox.databasePath);
   app = await launchApp(sandbox, {
@@ -76,7 +69,6 @@ test("a committed database on a network drive stops the backend; 複製到本機
     ).__workIntelligenceDesktopTest.openRepair(),
   );
   const window = await app.firstWindow({ timeout: 45_000 });
-  // The blocking state opened Status; the storage note and its copy button are the Data tab's.
   await expectTabShown(window, "status");
   await openTab(window, "data");
   const copy = window.locator('[data-id="copy-to-local"]');
@@ -84,7 +76,6 @@ test("a committed database on a network drive stops the backend; 複製到本機
   await expect(copy).toHaveText((await pageText(window)).storageCopyToLocal);
 
   await copy.click();
-  // The refusal is still the latest error until the switch lands, so no fail-fast here.
   const switched = await waitForSnapshot(app, (state) => state.owner === "MANAGED" && state.backend !== null, 90_000);
   expect(switched.owner).toBe("MANAGED");
 
@@ -94,7 +85,6 @@ test("a committed database on a network drive stops the backend; 複製到本機
   expect(basename(settings.desired.databasePath)).toBe("work-intelligence-local.sqlite");
   expect(settings.desired.databasePath).not.toBe(sandbox.databasePath);
   expect(existsSync(settings.desired.databasePath)).toBe(true);
-  // The original is neither changed nor removed.
   expect(digestOf(sandbox.databasePath)).toBe(before);
   expect(readMainLog(sandbox)).not.toContain(sandbox.databasePath);
 });

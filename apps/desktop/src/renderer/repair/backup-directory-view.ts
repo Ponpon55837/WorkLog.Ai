@@ -11,18 +11,12 @@ import type { ShellLocale } from "@work-intelligence/desktop-core/shell/i18n";
 import { setupMessages } from "@work-intelligence/desktop-core/shell/setup-i18n";
 import { actions, button, element, facts, hint, path, section } from "./dom.js";
 
-/**
- * 「備份位置」 on the Settings tab. The page only asks main to open the native folder dialog; it never sees a real path, only
- * the masked folder name. The sentence that old backups stay where they were is always on the card, not only after a change.
- */
-
 let working = false;
 let answer: { readonly text: string; readonly ok: boolean } | null = null;
 
 export interface BackupDirectoryViewHost {
   readonly api: RepairApi;
   readonly locale: ShellLocale;
-  /** Another page action is running: the button waits. */
   readonly pageBusy: boolean;
   readonly rerender: () => void;
   readonly refresh: () => void;

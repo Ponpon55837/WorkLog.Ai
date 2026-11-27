@@ -21,13 +21,6 @@ import {
   type Sandbox,
 } from "./helpers.js";
 
-/**
- * The first-run page (DT-01) and the old login service. Synthetic data only: every database is made
- * by the real store in the sandbox, and the old service is a synthetic detection result (the file detection itself is
- * unit-tested per platform in tests/desktop-core/legacy-service.test.ts).
- */
-
-/** The agreed product budget for the first paint of the first-run page, with its defaults button. */
 const FIRST_PAINT_BUDGET_MS = 1_000;
 
 let sandbox: Sandbox | undefined;
@@ -45,13 +38,11 @@ function settingsFile(box: Sandbox): string {
   return join(box.dataDirectory, "desktop-settings.json");
 }
 
-/** The page's own language decides which copy it shows; the test compares with the same catalogue. */
 async function pageText(window: Page) {
   const lang = await window.evaluate(() => document.documentElement.lang);
   return setupMessages(lang === "zh-Hant" ? "zh-TW" : "en");
 }
 
-/** A synthetic detection of the old service on `databasePath`, in the shape main's test seam reads. */
 function writeLegacyService(
   box: Sandbox,
   databasePath: string,
@@ -87,7 +78,6 @@ test("an install with settings (an upgrade from 1.6.47/1.6.48) never shows the f
   expect(ready.repairWindowOpen).toBe(false);
   expect(ready.firstRunDetectionMs).toBeNull();
   expect(readMainLog(sandbox)).not.toMatch(/first-run/);
-  // The settings the upgrade found stay the user's: same database, same port.
   const after = JSON.parse(readFileSync(settingsFile(sandbox), "utf8")) as { desired: unknown };
   expect(after.desired).toEqual((JSON.parse(before) as { desired: unknown }).desired);
 });
@@ -103,14 +93,11 @@ test("a new install shows the first-run page with the defaults one click away an
   const defaults = window.locator('[data-id="use-defaults"]');
   await expect(defaults).toBeVisible({ timeout: 30_000 });
   const visibleAfterLaunchMs = Date.now() - launched;
-  // From the page's own navigation start to the defaults button in the DOM: the paint never waits on the detection.
   const firstPaintMs = await window.evaluate(() => {
     const entry = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
     return Math.round(performance.now() - (entry?.startTime ?? 0));
   });
-  // The button is on the first screen from the first paint but is usable only once the detection has ended: a click
-  // before that could create a new database next to one the user was never shown. Read the button first and the
-  // detection second, so an enabled button proves the detection was already done.
+  // The button is usable only once the detection has ended. Read the button first and the detection second, so an enabled button proves the detection was done.
   const enabledAtPaint = await defaults.isEnabled();
   const afterPaint = await readSnapshot(app);
   if (enabledAtPaint) expect(afterPaint.firstRunDetectionMs).not.toBeNull();
@@ -120,13 +107,11 @@ test("a new install shows the first-run page with the defaults one click away an
   expect(waiting.tab).toBe("setup");
   expect(waiting.owner).toBe("UNCONFIGURED");
   expect(waiting.backend).toBeNull();
-  // Nothing is written or created before the user chose.
   expect(existsSync(settingsFile(sandbox))).toBe(false);
   expect(existsSync(sandbox.databasePath)).toBe(false);
   expect(await portIsFree(sandbox.port)).toBe(true);
 
   const detected = await waitForSnapshot(app, (state) => state.firstRunDetectionMs !== null, 30_000);
-  // Once the detection is done the button works, and on a new install it is the primary one.
   await expect(defaults).toBeEnabled();
   await expect(defaults).toHaveClass(/primary/);
   const numbers = {

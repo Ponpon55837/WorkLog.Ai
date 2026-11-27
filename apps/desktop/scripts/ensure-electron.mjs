@@ -1,9 +1,4 @@
 #!/usr/bin/env node
-/**
- * Downloads the Electron binary when it is missing. Plain `pnpm install`, build, typecheck and test never need it (the
- * workspace sets `allowBuilds: electron: false`, so its postinstall does not run); only the desktop smoke test does.
- * Uses the package's own `install.js` over the normal HTTPS proxy settings.
- */
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";

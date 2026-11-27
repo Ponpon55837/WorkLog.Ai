@@ -17,7 +17,6 @@ import type { ShellState } from "./state.js";
 
 const DEFAULT_PORT = 3210;
 
-/** What "使用預設設定開始" commits: the standalone locations, a new install id, and the login item as the user chose. */
 export function defaultSettings(launchAtLogin = false, port: number = DEFAULT_PORT): DesktopSettingsV1 {
   const base = configDirectory();
   return {
@@ -34,11 +33,6 @@ export function defaultSettings(launchAtLogin = false, port: number = DEFAULT_PO
 
 export type SettingsLoad = "ok" | "new-install" | "repair";
 
-/**
- * Reads the settings into the state. A new install writes nothing and starts nothing: the first-run page (DT-01) asks
- * first, and only a start that worked commits settings. An install that already has settings (an upgrade from 1.6.48
- * or earlier) never sees that page.
- */
 export async function loadSettings(state: ShellState, paths: DesktopPaths, log: Logger): Promise<SettingsLoad> {
   const read = await readDesktopSettings(paths.settingsFile);
   if (read.kind === "ok") {

@@ -102,36 +102,25 @@ import { createShellTray } from "./tray.js";
 import { createUpdateController } from "./update-check.js";
 import { createUpdateSessionFetch } from "./update-session.js";
 
-/** How long the storage verdict waits for a restarting backend or a running operation (M-04). */
 const SETTLE_ATTEMPTS = 5;
 const SETTLE_RETRY_MS = 2000;
-/** How often main checks that the system still agrees with what the Web status was last told about login start. */
 const LOGIN_ITEM_WATCH_MS = 15_000;
 
-/** The coordinator was held when the verdict wanted to stop the backend. */
 class OperationBusyError extends Error {}
 
 const environmentInputs = { isPackaged: app.isPackaged, environment: process.env };
 
-/** The UI language before `ready`, when `app.getLocale()` is not available yet; English if the OS will not say. */
 function earlyLocale(): ShellLocale {
   try {
-    // The language choice is not read yet: the box follows the system language.
     return resolveShellLanguage("system", app.getPreferredSystemLanguages()[0]);
   } catch {
     return "en";
   }
 }
 
-/**
- * Closes the App with a native error box: there is no data folder, so no log, tray or repair window can exist. It all
- * happens now and never waits for `ready`: Electron needs the data folder on its own way to `ready`, so a box shown
- * after it may never be reached. The error box is allowed before `ready`, and `app.exit` before the message loop ends
- * the process at once. One case never gets here: a Windows profile whose Roaming AppData folder is gone ends inside
- * Electron's native start-up before this script runs (see the smoke test and the known limitations).
- */
+/** Runs before `ready`: Electron needs the data folder on its way to `ready`, so a box shown later may never be reached. */
 function failStartup(detail: string): void {
-  // A synchronous write, so the line is out before the process ends; on Linux the box itself also goes to stderr.
+  // A synchronous write, so the line is out before the process ends.
   writeSync(2, `[shell] cannot start: the application data folder is unavailable (${detail})\n`);
   const messages = shellMessages(earlyLocale());
   if (testSwitch(environmentInputs, "recordErrorBox")) {

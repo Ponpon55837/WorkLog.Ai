@@ -8,7 +8,6 @@ export function registerRepairScheme(): void {
   protocol.registerSchemesAsPrivileged([{ scheme: REPAIR_SCHEME, privileges: { standard: true, secure: true } }]);
 }
 
-/** Nothing in this App navigates a window, opens a second one or attaches a webview: the Dashboard opens in the browser. */
 export function applySecurityPolicy(): void {
   app.on("web-contents-created", (_event, contents) => {
     contents.on("will-navigate", (event) => event.preventDefault());
@@ -18,12 +17,7 @@ export function applySecurityPolicy(): void {
   });
 }
 
-/**
- * Denies every permission and serves the repair page from a fixed table, each answer with the CSP. Returns the function
- * that applies it, which does nothing after the first call. Reading `session.defaultSession` makes Chromium keep a spare
- * renderer process ready (about 70 MB of working set, 25 MB proportional, measured on Linux), and this App shows a window
- * only to repair, so the policy is applied by the first window and not at start-up.
- */
+/** Reading `session.defaultSession` makes Chromium keep a spare renderer ready (about 70 MB), so the policy is applied by the first window, not at start-up. */
 export function createSessionPolicy(rendererDirectory: string): () => void {
   let applied = false;
   return () => {
