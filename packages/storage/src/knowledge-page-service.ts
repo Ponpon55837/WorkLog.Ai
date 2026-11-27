@@ -5,6 +5,7 @@ import {
   KNOWLEDGE_PAGE_INSUFFICIENT,
   KNOWLEDGE_PAGE_MAX_CONTENT_CHARS,
   KNOWLEDGE_PAGE_MAX_SECTIONS,
+  KNOWLEDGE_PAGE_SECTION_SOURCE_LIMIT,
   knowledgePageLimits,
   type KnowledgePageAuthor,
   type KnowledgePageContext,
@@ -22,6 +23,7 @@ import {
   type KnowledgePageLimits,
   type KnowledgePageRecord,
   type KnowledgePageReviewContext,
+  type KnowledgePageRetryMaterial,
   type KnowledgePageReviewReason,
   type KnowledgePageReviewSection,
   type KnowledgePageSection,
@@ -142,6 +144,10 @@ interface SectionUpdate {
   removeHeadings?: readonly string[];
 }
 
+type InvalidCursorResult = { outcome: "invalid_cursor"; reason: string };
+
+type DroppedSourceSessionIds = Array<{ heading: string; sessionIds: string[] }>;
+
 type SectionMerge =
   { sections: StoredKnowledgePageSection[]; changes: KnowledgePageSectionChanges } | { missingHeadings: string[] };
 
@@ -206,11 +212,11 @@ const REVIEW_TOKEN_PREFIX = "kpr1.";
 const REVIEW_TOKEN_FIELD_LIMIT = 200;
 const MISSING_REVIEW_TOKEN_WARNING =
   "Saved without reviewToken: no check for a newer page version was made, and Sessions finished after your read still count as new. Next time pass the reviewToken from work_get_knowledge_page_context.";
-const UNREAD_REVIEW_POINT_RESULT = {
-  outcome: "invalid_review_token" as const,
-  reason: "reviewToken does not point at a Session position this page can have been read at, so nothing was written.",
-  fix: "Read the page again with work_get_knowledge_page_context and save with the reviewToken it returns, unchanged.",
-};
+const COVERAGE_NOT_ADVANCED_HINT =
+  "Coverage did not advance: the new Sessions still count. Mark the page checked, or pass checkedThroughSessionId with the save.";
+const CURSOR_NOT_ADVANCED_WARNING =
+  "The review cursor was not advanced: checkedThroughSessionId is no longer a valid cursor. Mark the page checked with a current Session if needed.";
+const NOT_IN_PROGRESS = "COALESCE(json_extract(verification_json, '$.status'), '') <> 'in_progress'";
 export const KNOWLEDGE_PAGE_MAINTENANCE_SESSION_THRESHOLD = 3;
 const VERSION_HISTORY_LIMIT = 50;
 const NOT_FOUND_SLUG_LIMIT = 20;
@@ -542,14 +548,53 @@ function pageLimitExceeded(sections: readonly KnowledgePageSection[]): SaveKnowl
   };
 }
 
-function versionConflict(baseVersion: number, currentVersion: number): KnowledgePageVersionConflictResult {
+function versionConflict(
+  baseVersion: number,
+  currentVersion: number,
+  retry?: KnowledgePageRetryMaterial,
+): KnowledgePageVersionConflictResult {
   return {
     outcome: "version_conflict",
     reason:
       "The page was saved again after this edit started, so nothing was written. Read the current version and apply the change to it.",
     baseVersion,
     currentVersion,
+    ...retry,
   };
+}
+
+const UNREAD_REVIEW_POINT_RESULT = {
+  outcome: "invalid_review_token" as const,
+  reason: "reviewToken does not point at a Session position this page can have been read at, so nothing was written.",
+  fix: "Read the page again with work_get_knowledge_page_context and save with the reviewToken it returns, unchanged.",
+};
+
+function changedSectionHeadings(
+  before: readonly KnowledgePageSection[],
+  after: readonly KnowledgePageSection[],
+): string[] {
+  const firstByHeading = (sections: readonly KnowledgePageSection[]) => {
+    const map = new Map<string, KnowledgePageSection>();
+    for (const section of sections)
+      if (!map.has(headingKey(section.heading))) map.set(headingKey(section.heading), section);
+    return map;
+  };
+  const previous = firstByHeading(before);
+  const current = firstByHeading(after);
+  const fingerprint = (section: KnowledgePageSection) => JSON.stringify([section.content, section.sourceSessionIds]);
+  const changed = [...current].filter(([key, section]) => {
+    const old = previous.get(key);
+    return !old || fingerprint(old) !== fingerprint(section);
+  });
+  const removed = [...previous].filter(([key]) => !current.has(key));
+  return [...changed, ...removed].map(([, section]) => section.heading);
+}
+
+function droppedSourceWarnings(dropped: DroppedSourceSessionIds): string[] {
+  if (dropped.length === 0) return [];
+  return [
+    `Kept the newest ${KNOWLEDGE_PAGE_SECTION_SOURCE_LIMIT} sourceSessionIds in ${dropped.length} section(s); the others are in droppedSourceSessionIds. Cite fewer, or move sources into another section.`,
+  ];
 }
 
 function citedSessionIds(sections: readonly KnowledgePageSection[]): string[] {
@@ -770,8 +815,10 @@ export class KnowledgePageService {
       };
     }
     const duplicate = this.db
-      .prepare("SELECT version, sections_json FROM knowledge_page_versions WHERE page_id = ? AND idempotency_key = ?")
-      .get(row.id, input.idempotencyKey) as { version: number; sections_json: string } | undefined;
+      .prepare(
+        "SELECT version, sections_json, created_at FROM knowledge_page_versions WHERE page_id = ? AND idempotency_key = ?",
+      )
+      .get(row.id, input.idempotencyKey) as { version: number; sections_json: string; created_at: string } | undefined;
     if (duplicate) return this.replayedSave(row, duplicate, input);
     const token = input.reviewToken === undefined ? undefined : decodeReviewToken(input.reviewToken);
     if ((input.reviewToken !== undefined || input.sections === undefined) && token?.pageId !== row.id) {
@@ -789,19 +836,23 @@ export class KnowledgePageService {
         sessionIds: invalid,
       };
     }
-    if (input.sections === undefined) return this.saveSectionUpdate(row, input, token!);
-    const written = this.writeVersion(row, row.title, input.sections, "agent", {
+    const limited = this.limitSourceIds(input);
+    const trimmed = limited.input;
+    if (trimmed.sections === undefined) return this.saveSectionUpdate(row, trimmed, token!, limited.dropped);
+    const written = this.writeVersion(row, row.title, trimmed.sections, "agent", {
       idempotencyKey: input.idempotencyKey,
       ...(token ? { baseVersion: token.version, coverage: token.through } : { keepReviewedPoint: true }),
     });
     if ("refusal" in written) return written.refusal;
     const page = this.recordFor(this.findPageById(row.id)!);
+    const warnings = [...(token ? [] : [MISSING_REVIEW_TOKEN_WARNING]), ...droppedSourceWarnings(limited.dropped)];
     return {
       outcome: "knowledge_page_saved",
       duplicate: false,
       page,
       ...(written.redactions.total > 0 ? { redactions: written.redactions } : {}),
-      ...(token ? {} : { warnings: [MISSING_REVIEW_TOKEN_WARNING] }),
+      ...(warnings.length > 0 ? { warnings } : {}),
+      ...(limited.dropped.length > 0 ? { droppedSourceSessionIds: limited.dropped } : {}),
       ...nearLimitFields(knowledgePageLimits(page.sections)),
     };
   }
@@ -818,39 +869,11 @@ export class KnowledgePageService {
       };
     }
 
-    const result = runImmediateTransaction(this.db, () => {
-      const row = this.findPageById(initial.id)!;
-      const cursor = this.db
-        .prepare("SELECT id, project_id, completed_at, voided_at FROM sessions WHERE id = ?")
-        .get(input.throughSessionId) as
-        { id: string; project_id: string; completed_at: string; voided_at: string | null } | undefined;
-      if (!cursor || cursor.project_id !== decision.project!.id || cursor.voided_at) {
-        return {
-          outcome: "invalid_cursor" as const,
-          reason: "throughSessionId must identify a non-voided Session in this project.",
-        };
-      }
-
-      if (row.checked_through_session_id && row.checked_through_session_id !== cursor.id) {
-        const previous = this.db
-          .prepare("SELECT id, completed_at FROM sessions WHERE id = ?")
-          .get(row.checked_through_session_id) as { id: string; completed_at: string } | undefined;
-        if (
-          previous &&
-          compareCursor(
-            { id: cursor.id, completedAt: cursor.completed_at },
-            { id: previous.id, completedAt: previous.completed_at },
-          ) < 0
-        ) {
-          return { outcome: "invalid_cursor" as const, reason: "The review cursor cannot move backwards." };
-        }
-      }
-
-      this.db.prepare("UPDATE knowledge_pages SET checked_through_session_id = ? WHERE id = ?").run(cursor.id, row.id);
-      return { outcome: "knowledge_page_checked" as const, pageId: row.id };
-    });
-    if (result.outcome === "invalid_cursor") return result;
-    return { outcome: "knowledge_page_checked", page: this.recordFor(this.findPageById(result.pageId)!) };
+    const refusal = runImmediateTransaction(this.db, () =>
+      this.advanceChecked(initial.id, decision.project!.id, input.throughSessionId),
+    );
+    if (refusal) return refusal;
+    return { outcome: "knowledge_page_checked", page: this.recordFor(this.findPageById(initial.id)!) };
   }
 
   /** Runs inside the finalize transaction. When other Sessions finished in between, nothing moves, so none is hidden. */
@@ -858,7 +881,8 @@ export class KnowledgePageService {
     const acknowledged: string[] = [];
     const firstAfter = this.db.prepare(
       `SELECT id, completed_at FROM sessions
-       WHERE project_id = ? AND voided_at IS NULL AND (completed_at > ? OR (completed_at = ? AND id > ?))
+       WHERE project_id = ? AND voided_at IS NULL AND ${NOT_IN_PROGRESS}
+         AND (completed_at > ? OR (completed_at = ? AND id > ?))
        ORDER BY completed_at ASC, id ASC LIMIT 1`,
     );
     const cursorOf = this.db.prepare("SELECT id, completed_at FROM sessions WHERE id = ?");
@@ -1185,7 +1209,7 @@ export class KnowledgePageService {
     // Inclusive: a Session position covers only the ids up to its own among Sessions finished at the same time.
     const statement = this.db.prepare(
       `SELECT id, completed_at FROM sessions
-       WHERE project_id = ? AND voided_at IS NULL AND completed_at >= ?
+       WHERE project_id = ? AND voided_at IS NULL AND ${NOT_IN_PROGRESS} AND completed_at >= ?
        ORDER BY completed_at ASC, id ASC`,
     );
     for (const [projectId, cutoff] of cutoffsByProject) {
@@ -1329,16 +1353,34 @@ export class KnowledgePageService {
 
   private replayedSave(
     row: PageRow,
-    saved: { version: number; sections_json: string },
-    input: SaveKnowledgePageInput,
+    saved: { version: number; sections_json: string; created_at: string },
+    saveInput: SaveKnowledgePageInput,
   ): SaveKnowledgePageResult {
+    const { input, dropped } = this.reconcileSourceIds(
+      saveInput,
+      parseJson<KnowledgePageSection[]>(saved.sections_json, []),
+      saved.created_at,
+    );
     const replay = (sectionChanges?: KnowledgePageSectionChanges): SaveKnowledgePageResult => {
+      const cursorKept =
+        !sectionChanges ||
+        input.checkedThroughSessionId === undefined ||
+        this.replayChecked(row.id, row.project_id, input.checkedThroughSessionId);
       const page = this.recordFor(this.findPageById(row.id)!);
+      const warnings = [
+        ...(sectionChanges && input.checkedThroughSessionId === undefined && page.newSessionCount > 0
+          ? [COVERAGE_NOT_ADVANCED_HINT]
+          : []),
+        ...(cursorKept ? [] : [CURSOR_NOT_ADVANCED_WARNING]),
+        ...droppedSourceWarnings(dropped),
+      ];
       return {
         outcome: "knowledge_page_saved",
         duplicate: true,
         page,
         ...(sectionChanges ? { sectionChanges } : {}),
+        ...(warnings.length > 0 ? { warnings } : {}),
+        ...(dropped.length > 0 ? { droppedSourceSessionIds: dropped } : {}),
         ...nearLimitFields(knowledgePageLimits(page.sections)),
       };
     };
@@ -1364,13 +1406,16 @@ export class KnowledgePageService {
 
   private saveSectionUpdate(
     row: PageRow,
-    update: SectionUpdate & { idempotencyKey: string },
+    update: SectionUpdate & { idempotencyKey: string; checkedThroughSessionId?: string },
     token: ReviewTokenContent,
+    dropped: DroppedSourceSessionIds,
   ) {
     const now = nowIso();
     const written = runImmediateTransaction(this.db, () => {
       const current = this.findPageById(row.id)!;
-      if (current.version !== token.version) return versionConflict(token.version, current.version);
+      if (current.version !== token.version) {
+        return versionConflict(token.version, current.version, this.retryMaterial(current, token.version));
+      }
       if (!this.isReadPoint(current, token.through)) return UNREAD_REVIEW_POINT_RESULT;
       const merged = mergeSections(parseStoredSections(current.sections_json), update, (section) => {
         const baseline = baselineOf(section, current.sourced_through);
@@ -1386,6 +1431,12 @@ export class KnowledgePageService {
       }
       const exceeded = pageLimitExceeded(merged.sections);
       if (exceeded) return exceeded;
+      let checkedThroughId = current.checked_through_session_id;
+      if (update.checkedThroughSessionId !== undefined) {
+        const cursor = this.checkedCursor(current, current.project_id, update.checkedThroughSessionId);
+        if ("outcome" in cursor) return cursor;
+        checkedThroughId = cursor.id;
+      }
       const redacted = storedSections(merged.sections);
       const version = current.version + 1;
       this.insertVersion(
@@ -1402,7 +1453,7 @@ export class KnowledgePageService {
         .prepare(
           `UPDATE knowledge_pages
            SET sections_json = ?, version = ?, sourced_through = ?, last_author = 'agent', updated_at = ?,
-               covered_through_completed_at = ?, covered_through_session_id = ?
+               covered_through_completed_at = ?, covered_through_session_id = ?, checked_through_session_id = ?
            WHERE id = ?`,
         )
         .run(
@@ -1412,20 +1463,199 @@ export class KnowledgePageService {
           now,
           coverage.completedAt,
           coverage.id ?? null,
+          checkedThroughId,
           current.id,
         );
       return { changes: merged.changes, redactions: redacted.redactions };
     });
     if ("outcome" in written) return written;
     const page = this.recordFor(this.findPageById(row.id)!);
+    const warnings = [
+      ...(update.checkedThroughSessionId === undefined && page.newSessionCount > 0 ? [COVERAGE_NOT_ADVANCED_HINT] : []),
+      ...droppedSourceWarnings(dropped),
+    ];
     return {
       outcome: "knowledge_page_saved" as const,
       duplicate: false,
       page,
       sectionChanges: written.changes,
       ...(written.redactions.total > 0 ? { redactions: written.redactions } : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
+      ...(dropped.length > 0 ? { droppedSourceSessionIds: dropped } : {}),
       ...nearLimitFields(knowledgePageLimits(page.sections)),
     };
+  }
+
+  private replayChecked(pageId: string, projectId: string, throughSessionId: string): boolean {
+    return runImmediateTransaction(this.db, () => {
+      const position = this.db.prepare("SELECT id, completed_at FROM sessions WHERE id = ?");
+      const held = this.findPageById(pageId)!.checked_through_session_id;
+      const heldRow = held ? (position.get(held) as { id: string; completed_at: string } | undefined) : undefined;
+      const target = position.get(throughSessionId) as { id: string; completed_at: string } | undefined;
+      if (
+        heldRow &&
+        target &&
+        compareCursor(
+          { id: heldRow.id, completedAt: heldRow.completed_at },
+          { id: target.id, completedAt: target.completed_at },
+        ) >= 0
+      ) {
+        return true;
+      }
+      return this.advanceChecked(pageId, projectId, throughSessionId) === undefined;
+    });
+  }
+
+  private advanceChecked(pageId: string, projectId: string, throughSessionId: string): InvalidCursorResult | undefined {
+    const cursor = this.checkedCursor(this.findPageById(pageId)!, projectId, throughSessionId);
+    if ("outcome" in cursor) return cursor;
+    this.db.prepare("UPDATE knowledge_pages SET checked_through_session_id = ? WHERE id = ?").run(cursor.id, pageId);
+    return undefined;
+  }
+
+  private checkedCursor(
+    row: PageRow,
+    projectId: string,
+    throughSessionId: string,
+  ): CompletedSessionCursor | InvalidCursorResult {
+    const cursor = this.db
+      .prepare(
+        `SELECT id, completed_at FROM sessions WHERE id = ? AND project_id = ? AND voided_at IS NULL AND ${NOT_IN_PROGRESS}`,
+      )
+      .get(throughSessionId, projectId) as { id: string; completed_at: string } | undefined;
+    if (!cursor) {
+      return {
+        outcome: "invalid_cursor",
+        reason: "throughSessionId must identify a non-voided, finished Session in this project.",
+      };
+    }
+    const next = { id: cursor.id, completedAt: cursor.completed_at };
+    if (row.checked_through_session_id && row.checked_through_session_id !== cursor.id) {
+      const previous = this.db
+        .prepare("SELECT id, completed_at FROM sessions WHERE id = ?")
+        .get(row.checked_through_session_id) as { id: string; completed_at: string } | undefined;
+      if (previous && compareCursor(next, { id: previous.id, completedAt: previous.completed_at }) < 0) {
+        return { outcome: "invalid_cursor", reason: "The review cursor cannot move backwards." };
+      }
+    }
+    return next;
+  }
+
+  private limitSourceIds<T extends { sections?: KnowledgePageSection[]; upsertSections?: KnowledgePageSection[] }>(
+    input: T,
+  ): { input: T; dropped: DroppedSourceSessionIds } {
+    const oversized = [...(input.sections ?? []), ...(input.upsertSections ?? [])].flatMap((section) => [
+      ...new Set(section.sourceSessionIds.length > KNOWLEDGE_PAGE_SECTION_SOURCE_LIMIT ? section.sourceSessionIds : []),
+    ]);
+    if (oversized.length === 0) return { input, dropped: [] };
+    const compareAge = this.sourceRanking(oversized);
+    const dropped: DroppedSourceSessionIds = [];
+    const limit = (sections: KnowledgePageSection[] | undefined) =>
+      sections?.map((section) => {
+        const unique = [...new Set(section.sourceSessionIds)];
+        if (unique.length <= KNOWLEDGE_PAGE_SECTION_SOURCE_LIMIT) return section;
+        const newest = new Set(
+          [...unique].sort((left, right) => compareAge(right, left)).slice(0, KNOWLEDGE_PAGE_SECTION_SOURCE_LIMIT),
+        );
+        dropped.push({ heading: section.heading, sessionIds: unique.filter((id) => !newest.has(id)) });
+        return { ...section, sourceSessionIds: unique.filter((id) => newest.has(id)) };
+      });
+    const sections = limit(input.sections);
+    const upsertSections = limit(input.upsertSections);
+    return {
+      input: { ...input, ...(sections ? { sections } : {}), ...(upsertSections ? { upsertSections } : {}) },
+      dropped,
+    };
+  }
+
+  private sourceRanking(ids: readonly string[], savedAt?: string): (left: string, right: string) => number {
+    const completedAt = new Map(
+      (
+        this.db
+          .prepare(
+            `SELECT id, completed_at, created_at, NOT (${NOT_IN_PROGRESS}) AS in_progress FROM sessions
+             WHERE id IN (SELECT value FROM json_each(?))`,
+          )
+          .all(JSON.stringify(ids)) as Array<{
+          id: string;
+          completed_at: string;
+          created_at: string;
+          in_progress: number;
+        }>
+      ).map((session) => {
+        const finishedAfterSave =
+          savedAt !== undefined && session.created_at <= savedAt && session.completed_at > savedAt;
+        return [session.id, session.in_progress || finishedAfterSave ? "" : session.completed_at];
+      }),
+    );
+    return (left, right) =>
+      (completedAt.get(left) ?? "").localeCompare(completedAt.get(right) ?? "") || left.localeCompare(right);
+  }
+
+  private reconcileSourceIds<T extends { sections?: KnowledgePageSection[]; upsertSections?: KnowledgePageSection[] }>(
+    input: T,
+    stored: readonly KnowledgePageSection[],
+    savedAt: string,
+  ): { input: T; dropped: DroppedSourceSessionIds } {
+    const keptByHeading = new Map<string, readonly string[]>();
+    for (const section of stored) {
+      if (!keptByHeading.has(headingKey(section.heading))) {
+        keptByHeading.set(headingKey(section.heading), section.sourceSessionIds);
+      }
+    }
+    const all = [...(input.sections ?? []), ...(input.upsertSections ?? [])].flatMap(
+      (section) => section.sourceSessionIds,
+    );
+    const compareAge = this.sourceRanking([...new Set(all)], savedAt);
+    const dropped: DroppedSourceSessionIds = [];
+    const reconcile = (sections: KnowledgePageSection[] | undefined) =>
+      sections?.map((section) => {
+        const unique = [...new Set(section.sourceSessionIds)];
+        if (unique.length <= KNOWLEDGE_PAGE_SECTION_SOURCE_LIMIT) return section;
+        const kept = new Set(keptByHeading.get(headingKey(section.heading)));
+        const extras = unique.filter((id) => !kept.has(id));
+        const oldestKept = [...kept].sort(compareAge)[0];
+        const unchanged =
+          kept.size === KNOWLEDGE_PAGE_SECTION_SOURCE_LIMIT &&
+          [...kept].every((id) => unique.includes(id)) &&
+          extras.every((id) => compareAge(id, oldestKept!) < 0);
+        if (!unchanged) return { ...section, sourceSessionIds: unique };
+        dropped.push({ heading: section.heading, sessionIds: extras });
+        return { ...section, sourceSessionIds: unique.filter((id) => kept.has(id)) };
+      });
+    const sections = reconcile(input.sections);
+    const upsertSections = reconcile(input.upsertSections);
+    return {
+      input: { ...input, ...(sections ? { sections } : {}), ...(upsertSections ? { upsertSections } : {}) },
+      dropped,
+    };
+  }
+
+  private retryMaterial(current: PageRow, staleVersion: number): KnowledgePageRetryMaterial {
+    const reviewToken = encodeReviewToken({
+      pageId: current.id,
+      version: current.version,
+      through: this.reviewedPoint(current),
+    });
+    const changedHeadings =
+      staleVersion < current.version ? this.headingsChangedSince(current, staleVersion) : undefined;
+    return { reviewToken, ...(changedHeadings ? { changedHeadings } : {}) };
+  }
+
+  private headingsChangedSince(current: PageRow, version: number): string[] | undefined {
+    const earlier =
+      version === 0
+        ? "[]"
+        : (
+            this.db
+              .prepare("SELECT sections_json FROM knowledge_page_versions WHERE page_id = ? AND version = ?")
+              .get(current.id, version) as { sections_json: string } | undefined
+          )?.sections_json;
+    if (earlier === undefined) return undefined;
+    return changedSectionHeadings(
+      parseJson<KnowledgePageSection[]>(earlier, []),
+      parseStoredSections(current.sections_json).map(publicSection),
+    );
   }
 
   private insertVersion(
@@ -1510,7 +1740,11 @@ export class KnowledgePageService {
       (): KnowledgePageVersionConflictResult | typeof UNREAD_REVIEW_POINT_RESULT | undefined => {
         const current = this.findPageById(row.id)!;
         if (options.baseVersion !== undefined && current.version !== options.baseVersion) {
-          return versionConflict(options.baseVersion, current.version);
+          return versionConflict(
+            options.baseVersion,
+            current.version,
+            options.coverage ? this.retryMaterial(current, options.baseVersion) : undefined,
+          );
         }
         if (options.coverage && !this.isReadPoint(current, options.coverage)) return UNREAD_REVIEW_POINT_RESULT;
         const reviewed = options.coverage || options.keepReviewedPoint ? this.reviewedPoint(current) : undefined;
@@ -1553,7 +1787,7 @@ export class KnowledgePageService {
     const rows = this.db
       .prepare(
         `SELECT id, title, completed_at, work_summary_json FROM sessions
-         WHERE project_id = ? AND voided_at IS NULL
+         WHERE project_id = ? AND voided_at IS NULL AND ${NOT_IN_PROGRESS}
          ORDER BY completed_at DESC, id DESC
          LIMIT ?`,
       )
@@ -1772,7 +2006,8 @@ export class KnowledgePageService {
     return this.db
       .prepare(
         `SELECT id, title, completed_at, work_summary_json FROM sessions
-         WHERE project_id = ? AND voided_at IS NULL AND (completed_at > ? OR (completed_at = ? AND id > ?))
+         WHERE project_id = ? AND voided_at IS NULL AND ${NOT_IN_PROGRESS}
+           AND (completed_at > ? OR (completed_at = ? AND id > ?))
          ORDER BY completed_at ASC, id ASC
          LIMIT ?`,
       )

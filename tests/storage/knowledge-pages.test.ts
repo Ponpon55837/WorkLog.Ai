@@ -976,7 +976,14 @@ describe("Knowledge pages", () => {
           sections: sections(first, "Right loses."),
           reviewToken: right.reviewToken,
         }),
-      ).toEqual({ outcome: "version_conflict", reason: expect.any(String), baseVersion: 1, currentVersion: 2 });
+      ).toEqual({
+        outcome: "version_conflict",
+        reason: expect.any(String),
+        baseVersion: 1,
+        currentVersion: 2,
+        reviewToken: expect.stringMatching(/^kpr1\./),
+        changedHeadings: ["Hive layout"],
+      });
       expect(pageOf(store, projectRoot)).toMatchObject({ version: 2, sections: [{ content: "Left wins." }, {}] });
       expect(
         store.saveKnowledgePage({
