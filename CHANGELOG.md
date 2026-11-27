@@ -4,6 +4,10 @@ All notable changes to Work Intelligence are documented here. The project follow
 
 ## [Unreleased]
 
+## [1.6.95] - 2026-11-27
+
+[繁體中文更新說明](docs/releases/1.6.95.md).
+
 ### Changed
 
 - The Knowledge page side panel splits a section at line breaks into paragraphs and `-`, `*`, `•` or `1.` lists (plain text nodes, no HTML rendering) with a line length of about 72 characters. Old pages whose paragraph breaks survive only as a sentence end followed by a space are split there too, and a still-long paragraph is cut into chunks at sentence ends (never inside brackets, versions or paths). Each section's sources move into a collapsible 「來源（N）」 list that shows the first 3 Sessions one per line, with a toggle for the rest.
