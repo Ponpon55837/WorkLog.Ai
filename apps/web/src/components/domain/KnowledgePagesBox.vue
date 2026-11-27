@@ -235,7 +235,6 @@ async function requestUpdate(row: PageRow): Promise<void> {
             <span v-if="row.page && row.page.newSessionCount > 0">
               {{ t("knowledge.newSessionsToAssess", { newSessionCount: row.page.newSessionCount }) }}</span
             >
-            <span v-if="row.page?.updateRequestedAt">{{ t("knowledge.pageRequestedReason") }}</span>
             <span v-if="row.page?.needsReview">
               {{
                 t("knowledge.sectionsToCheck", {

@@ -88,12 +88,6 @@ describe("KnowledgePagesBox handoff", () => {
     expect(html.match(new RegExp(`>${t("knowledge.requestUpdate")}<`, "g"))).toHaveLength(1);
   });
 
-  it("shows the requested reason as text beside the disabled button", async () => {
-    pages.value = [page("architecture", "2030-01-01T00:00:00.000Z")];
-
-    expect(await render()).toContain(`>${t("knowledge.pageRequestedReason")}</span>`);
-  });
-
   it("uses the only tracked project for a custom page without a filter", async () => {
     expect(customButton(await render([project], ""))).not.toContain("disabled");
   });
