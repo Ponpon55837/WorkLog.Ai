@@ -2029,7 +2029,11 @@ function makePlan(db: DatabaseSync, validated: ValidatedProjectDataImport): Tran
 
       const unique = existingUniqueRow(db, table, row);
       if (unique) {
-        addPlan(table, row, "conflict", "唯一識別值已被另一筆資料使用。", "unique");
+        if (table === "session_links" && unique.relation === row.relation) {
+          addPlan(table, row, "skip");
+        } else {
+          addPlan(table, row, "conflict", "唯一識別值已被另一筆資料使用。", "unique");
+        }
         continue;
       }
       const hasPlannedUnique = plannedUniqueKeysForRow(table, row).some((key) => plannedUniqueKeys[table].has(key));

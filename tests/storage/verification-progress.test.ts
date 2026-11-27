@@ -224,6 +224,32 @@ describe("completing an in-progress start record with the same idempotencyKey", 
     });
   });
 
+  it("keeps the link id and created time when the start record is rewritten with the same parent", () => {
+    const { store, root, finalize } = setup();
+    const parent = finalize("link-parent", "passed");
+    const base = {
+      projectRoot: root,
+      idempotencyKey: "link-child",
+      title: "Fixture link-child",
+      summary: "Synthetic child start.",
+      changedFiles: [],
+      workSummary: { outcomes: [], scope: [], decisions: [], verification: [], nextSteps: [] },
+      parentSessionId: parent.session.id,
+    };
+    const started = store.finalizeSession({ ...base, verification: { status: "in_progress" } });
+    if (started.outcome !== "finalized") throw new Error("Expected finalized");
+    const read = () =>
+      store
+        .exportProjectData({ type: "all" })
+        .tables.session_links.filter((link) => link.session_id === started.session.id);
+    const before = read();
+    expect(before).toHaveLength(1);
+
+    store.finalizeSession({ ...base, summary: "Synthetic child done.", verification: { status: "passed" } });
+
+    expect(read()).toEqual(before);
+  });
+
   it("keeps one handoff snapshot when the completing finalize captures the handoff again", () => {
     const { store, root } = setup();
     writeFileSync(join(root, "handoff.md"), "# Fictional handoff\n\nStarted.\n", "utf8");

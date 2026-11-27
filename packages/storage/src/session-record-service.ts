@@ -245,8 +245,9 @@ export class SessionRecordService {
   ): void {
     this.db
       .prepare(
-        `INSERT OR REPLACE INTO session_links (id, session_id, related_session_id, relation, source, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO session_links (id, session_id, related_session_id, relation, source, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(session_id, related_session_id) DO UPDATE SET relation = excluded.relation, source = excluded.source`,
       )
       .run(randomUUID(), sessionId, relatedSessionId, relation, source, createdAt);
   }
