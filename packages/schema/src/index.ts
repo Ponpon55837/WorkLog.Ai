@@ -155,7 +155,6 @@ const repositoryUrlSchema = z
 export const updateProjectInputSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   status: projectStatusSchema.optional(),
-  /** An https repository URL for commit links; null or "" removes it. */
   repositoryUrl: repositoryUrlSchema.nullable().optional(),
 });
 
@@ -185,7 +184,6 @@ export const databaseBackupFileNameSchema = z
   .refine((fileName) => !fileName.includes(".."), "Backup file name is invalid.");
 
 export const deleteDatabaseBackupBodySchema = z.object({}).strict();
-/** Cancelling a staged import sends an empty JSON object, as other deletions do. */
 export const discardStagedImportBodySchema = z.object({}).strict();
 
 export const verificationSchema = z.object({
@@ -228,11 +226,7 @@ const gitSchema = z.object({
 /** How far ahead of the server clock a timestamp may be before it counts as "in the future". */
 export const WORK_TIMESTAMP_FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
 
-/**
- * A past or present instant for work records. A UTC offset such as `+08:00` is accepted and the value is stored
- * as UTC ISO, so timestamps stay comparable as strings. Future values are rejected with the server time in the
- * message, because an Agent does not know the current time and tends to estimate it.
- */
+// Future values are rejected with the server time in the message: an Agent does not know the current time.
 export function workTimestampSchema(field: string) {
   return z
     .string()
@@ -480,7 +474,6 @@ const outstandingCalendarDateSchema = z
     return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
   }, "Provide a valid calendar date.");
 
-/** Comma-separated closedBy values, e.g. `later_session,user`; each must be a known value. */
 const outstandingClosedByFilterSchema = z.preprocess(
   (value) => (typeof value === "string" ? value.split(",") : value),
   z.array(z.enum(OUTSTANDING_ITEM_CLOSED_BY)).min(1).max(OUTSTANDING_ITEM_CLOSED_BY.length),
@@ -539,7 +532,6 @@ export const resolveOutstandingItemsInputSchema = resolveOutstandingItemsInputSc
 
 const calendarDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must use YYYY-MM-DD format.");
 
-/** Optional inclusive calendar-date range in the server's time zone, e.g. for "last week" or "in June". */
 const recallDateRangeFields = {
   from: calendarDateSchema
     .optional()
@@ -595,7 +587,6 @@ export const timelineQuerySchema = z
     { message: `A timeline covers at most ${TIMELINE_MAX_DAYS} days.`, path: ["from"] },
   );
 
-/** An activity calendar covers about a year plus slack for week alignment. */
 const ACTIVITY_MAX_DAYS = 400;
 
 export const activityQuerySchema = z
@@ -668,7 +659,6 @@ export const agentReadStatsQuerySchema = z.object({
   agentClient: z.string().trim().min(1).max(100).optional(),
 });
 
-/** work_get_session revisions: 16 base64url characters of a SHA-256. */
 export const SESSION_REVISION_LENGTH = 16;
 const SESSION_REVISION_PATTERN = new RegExp(`^[A-Za-z0-9_-]{${SESSION_REVISION_LENGTH}}$`);
 
@@ -706,7 +696,7 @@ export const sessionDetailQuerySchema = sessionDetailQuerySchemaBase.superRefine
     });
 });
 
-/** Hex only, so the value can only ever be a commit id or its prefix; Git writes SHA-1 (40) or SHA-256 (64). */
+// Hex only, so the value can only ever be a commit id or its prefix; Git writes SHA-1 (40) or SHA-256 (64).
 const commitShaFilterSchema = z
   .string()
   .trim()
@@ -715,7 +705,7 @@ const commitShaFilterSchema = z
     "A full commit sha or an unambiguous prefix of at least 7 hex characters. Lists the Sessions whose recorded commit starts with it.",
   );
 
-/** MCP list: scoped by projectRoot or projectId; no "all" page size so Agent payloads stay bounded. */
+// No "all" page size, so Agent payloads stay bounded.
 export const mcpListSessionsInputSchemaBase = z.object({
   q: z.string().trim().max(500).optional(),
   projectRoot: projectRootSchema.optional(),
@@ -761,7 +751,6 @@ function checkCustomReportRange(value: { from?: string; to?: string }, context: 
 export const reportQueryObjectSchema = z.object({
   period: z.enum(REPORT_PERIODS).default("week"),
   date: calendarDateSchema.optional(),
-  /** An explicit calendar range (e.g. a sprint); when given, period and date are ignored. */
   from: calendarDateSchema.optional(),
   to: calendarDateSchema.optional(),
   projectId: z.string().trim().min(1).max(200).optional(),
@@ -794,7 +783,6 @@ export const reportSynthesisScopeTypeSchema = z.enum(REPORT_SYNTHESIS_SCOPE_TYPE
 export const createReportSynthesisRequestInputObjectSchema = z.object({
   period: z.enum(WORK_REPORT_PERIODS).default("week"),
   date: calendarDateSchema.optional(),
-  /** When both dates are supplied, the request is scoped to this exact custom range. */
   from: calendarDateSchema.optional(),
   to: calendarDateSchema.optional(),
   projectId: z.string().trim().min(1).max(200).optional(),
@@ -923,7 +911,6 @@ export const updateSessionVerificationInputSchema = z.object({
   verification: verificationSchema,
 });
 
-/** The metadata a backfill may correct; Knowledge feedback belongs to the Agent that did the work. */
 const sessionMetadataFieldsSchema = z.object({
   sessionId: z.string().trim().min(1).max(200),
   changedFiles: z
@@ -1038,9 +1025,8 @@ export const knowledgeStatusSchema = z.enum(KNOWLEDGE_STATUSES);
 
 const appliesToEntrySchema = z.string().trim().min(1).max(MAX_APPLIES_TO_ENTRY_LENGTH);
 
-// New Knowledge and candidates must stay within the star bound. An update may keep an entry already stored above it
-// (an import, or data from before the bound), so archiving or editing other fields never fails on it; storage answers
-// such an update with a warning instead. Stored and imported entries above the bound load and never match.
+// An update may keep an entry already stored above the star bound, so editing other fields never fails on it;
+// storage answers with a warning.
 const knowledgeAppliesToSchema = z
   .array(
     appliesToEntrySchema.refine((pattern) => !isOverComplexAppliesToGlob(pattern), {
@@ -1255,16 +1241,12 @@ export const submitKnowledgeCandidatesInputSchema = z.object({
   candidates: z.array(knowledgeCandidateSchema).max(30),
 });
 
-/** The relation each matched record's status gives; any other pairing is not an advisory the server writes. */
 const OVERLAP_RELATION_BY_STATUS: Record<string, Record<string, string>> = {
   knowledge: { active: "possible_duplicate", archived: "overlaps_archived" },
   candidate: { proposed: "possible_duplicate", rejected: "overlaps_rejected" },
 };
 
-/**
- * The stored form of a candidate's overlap advisory (knowledge_candidates.overlaps_json): ids, statuses and scores
- * only, never text, so there is nothing in it to redact. At most three entries, as the server computes them.
- */
+// Ids, statuses and scores only, never text, so there is nothing in it to redact.
 export const storedKnowledgeCandidateOverlapsSchema = z
   .array(
     z
@@ -1662,7 +1644,6 @@ const agentReviewKnowledgeVerdictSchema = z
     }
   });
 
-/** Advertised object shape of submitAgentReviewVerdictsInputSchema; the refinements run in the full schema. */
 export const submitAgentReviewVerdictsInputSchemaBase = z
   .object({
     requestId: agentReviewIdSchema,
@@ -1740,21 +1721,12 @@ export const decideOutstandingCleanupProposalsInputSchema = z.object({
   decision: z.enum(["accept", "reject"]),
 });
 
-/** Re-export of the single list in `@work-intelligence/core`, kept under this name for existing callers. */
 export const projectDataExportTableColumns = PROJECT_DATA_EXPORT_COLUMNS;
 
-/**
- * Deepest nesting a stored `*_json` column may have in an import bundle. Everything Work Intelligence writes nests
- * a handful of levels (report presentation state and knowledge page sections are the deepest); Agent-supplied
- * work event details are free-form but only ever a few levels in practice. 100 leaves a wide margin while staying far
- * below what recursive consumers (JSON.stringify, zod, structured clone) can survive.
- */
+// Far below what recursive consumers (JSON.stringify, zod, structured clone) can survive.
 export const MAX_STORED_JSON_DEPTH = 100;
 
-/**
- * Whether JSON text nests arrays/objects deeper than `limit`. A single linear scan of the brackets outside strings,
- * so it is safe to run on hostile text before JSON.parse; it does not validate the rest of the syntax.
- */
+/** A single linear scan outside strings, safe on hostile text before JSON.parse. */
 export function jsonTextExceedsDepth(text: string, limit: number = MAX_STORED_JSON_DEPTH): boolean {
   let depth = 0;
   let inString = false;
@@ -1779,9 +1751,7 @@ export function jsonTextExceedsDepth(text: string, limit: number = MAX_STORED_JS
 }
 
 const projectDataValueSchema = z.union([z.string().max(2_000_000), z.number().finite(), z.null()]);
-/** The most rows one table, and the whole bundle, may hold. */
 export const MAX_PROJECT_DATA_ROWS = 200_000;
-/** The structure of one row (column names and scalar values); the streaming import checks each row with it. */
 export const projectDataImportRowSchema = z.record(z.string().regex(/^[a-z_]+$/), projectDataValueSchema);
 const projectDataRows = z.array(projectDataImportRowSchema).max(MAX_PROJECT_DATA_ROWS);
 const projectDataTablesShape = {
@@ -1821,7 +1791,6 @@ const projectDataTablesShape = {
   agent_review_request_items: projectDataRows.default([]),
 };
 
-/** The order zod checks the tables in (and reports their issues in); the streaming import ranks issues by it. */
 export const PROJECT_DATA_IMPORT_TABLE_ORDER: readonly string[] = Object.keys(projectDataTablesShape);
 
 export const projectDataExportScopeSchema = z.discriminatedUnion("type", [
@@ -1885,7 +1854,6 @@ const projectDataImportStatusValues: Partial<
   },
 };
 
-/** Status columns that are NULL until the row is reviewed or decided. */
 const NULLABLE_STATUS_COLUMNS = new Set(["from_status", "reviewed_by", "verdict", "outcome"]);
 
 const projectDataRequiredColumns: Record<(typeof PROJECT_DATA_TABLES)[number], readonly string[]> = {
@@ -2126,39 +2094,32 @@ const projectDataNumericColumns: Partial<Record<(typeof PROJECT_DATA_TABLES)[num
   session_diagrams: ["format_version"],
 };
 
-/** Every column of a table added after the import floor: a bundle that carries none of its rows omits all of them. */
 function omittedColumns(table: (typeof PROJECT_DATA_TABLES)[number]): Record<string, null> {
   return Object.fromEntries(projectDataExportTableColumns[table].map((column) => [column, null]));
 }
 
-/**
- * Columns added after the portable format shipped, with the value to assume when an older export omits them.
- * Import fills these in, so bundles written before the column existed stay importable.
- */
+/** Columns added after the portable format shipped, with the value to assume when an older export omits them. */
 export const projectDataColumnDefaults: Partial<
   Record<(typeof PROJECT_DATA_TABLES)[number], Readonly<Record<string, string | number | null>>>
 > = {
   sessions: { changed_files_confirmed: 0, redaction_count: 0, agent_client: null, agent_model: null },
-  // Schema 36: rows reviewed before Agent review existed carry no attribution and read as reviewed by the user.
+  // Rows reviewed before Agent review existed carry no attribution and read as reviewed by the user.
   session_decisions: { reviewed_by: null, review_reason: null, review_request_id: null },
   projects: { repository_url: null },
   session_diagrams: { format_version: 1 },
   outstanding_item_events: { cleanup_request_id: null, cleanup_proposal_id: null },
-  // Schema 36 tables: required and numeric columns still fail the row check when null, so only absent rows pass.
+  // Required and numeric columns still fail the row check when null, so only absent rows pass.
   agent_review_requests: omittedColumns("agent_review_requests"),
   agent_review_submissions: omittedColumns("agent_review_submissions"),
   agent_review_request_items: omittedColumns("agent_review_request_items"),
-  // Schema 34: pages saved earlier have no Session coverage position; their coverage stays sourced_through.
   knowledge_pages: {
     checked_through_session_id: null,
     covered_through_completed_at: null,
     covered_through_session_id: null,
   },
-  // Schema 33: candidates submitted earlier, and every schema-32 export, carry no stored overlap advisory.
   knowledge_candidates: { overlaps_json: null, reviewed_by: null, review_reason: null, review_request_id: null },
 };
 
-/** A row's value for a column, falling back to the column default for bundles that predate it. */
 export function projectDataColumnValue(
   table: (typeof PROJECT_DATA_TABLES)[number],
   row: Readonly<Record<string, string | number | null>>,
@@ -2167,7 +2128,6 @@ export function projectDataColumnValue(
   return Object.hasOwn(row, column) ? row[column] : projectDataColumnDefaults[table]?.[column];
 }
 
-/** A missing or null advisory is valid (older exports); a present one must be the stored form the server writes. */
 /**
  * Whether a stored appliesTo list (knowledge and knowledge_candidates.applies_to_json) is within the structural import
  * bound: an array of at most MAX_STORED_APPLIES_TO_ENTRIES strings of at most MAX_STORED_APPLIES_TO_ENTRY_LENGTH
@@ -2199,7 +2159,6 @@ function validStoredOverlaps(value: string | number | null | undefined): boolean
   }
 }
 
-/** One import issue: the path is relative to the bundle (`["tables", table, index, column]`). */
 export interface ProjectDataBundleIssue {
   path: (string | number)[];
   message: string;
@@ -2213,11 +2172,6 @@ export type ProjectDataRowChecker = (
   addIssue: ProjectDataBundleIssueSink,
 ) => void;
 
-/**
- * The content rules for the rows of one table, in row order: columns, types, JSON text, statuses, and ids unique within
- * the table. It keeps only the ids it has seen, so the streaming import checks rows as they arrive; the bundle schema
- * runs the same checker over every table.
- */
 export function createProjectDataRowChecker(table: (typeof PROJECT_DATA_TABLES)[number]): ProjectDataRowChecker {
   const expected = new Set<string>(projectDataExportTableColumns[table]);
   const defaults = projectDataColumnDefaults[table] ?? {};
@@ -2366,7 +2320,6 @@ export function createProjectDataRowChecker(table: (typeof PROJECT_DATA_TABLES)[
   };
 }
 
-/** The checks that follow the rows: the total row count and, for a single-project export, its project. */
 export function checkProjectDataBundleSummary(
   summary: { totalRows: number; scope: { type: string; projectId?: string }; hasProject(id: string): boolean },
   addIssue: ProjectDataBundleIssueSink,
@@ -2379,7 +2332,6 @@ export function checkProjectDataBundleSummary(
   }
 }
 
-/** The bundle's structure without the row content rules; the streaming import checks its envelope with this. */
 const projectDataExportBaseSchema = z
   .object({
     format: z.literal("work-intelligence-export"),
@@ -2410,7 +2362,7 @@ const projectDataExportObjectSchema = projectDataExportBaseSchema.superRefine((b
   );
 });
 
-/** Adds the tables pre-23 exports lack, so validators recognize those shapes; the importer checks the version. */
+// The storage importer separately rejects unsupported versions.
 export function withLegacyProjectDataTables(input: unknown): unknown {
   if (!input || typeof input !== "object" || Array.isArray(input)) return input;
   const bundle = input as Record<string, unknown>;
@@ -2444,10 +2396,8 @@ export function withLegacyProjectDataTables(input: unknown): unknown {
   };
 }
 
-/** Let validators recognize pre-23 export shapes; the storage importer separately rejects unsupported versions. */
 export const projectDataExportSchema = z.preprocess(withLegacyProjectDataTables, projectDataExportObjectSchema);
 
-/** The bundle envelope with its row content rules left out, for the streaming import (rows are checked one by one). */
 export const projectDataExportEnvelopeSchema = z.preprocess(withLegacyProjectDataTables, projectDataExportBaseSchema);
 
 export const projectDataExportRequestSchema = z
@@ -2500,7 +2450,6 @@ function refineUniqueRemapSources(input: { remap?: Array<{ from: string }> }, co
   }
 }
 
-/** The import choices without the bundle, so changing paths after a preview does not validate the whole file again. */
 export const projectDataImportOptionsSchema = z
   .object(projectDataImportOptionsShape)
   .strict()
@@ -2511,10 +2460,6 @@ export const projectDataImportInputSchema = z
   .strict()
   .superRefine(refineUniqueRemapSources);
 
-/**
- * The import request without the row content rules or the remap check that follows them: the streaming import checks
- * the envelope with this, the rows one by one, and then the options with projectDataImportOptionsSchema.
- */
 export const projectDataImportEnvelopeSchema = z
   .object({ bundle: projectDataExportEnvelopeSchema, ...projectDataImportOptionsShape })
   .strict();

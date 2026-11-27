@@ -1,7 +1,6 @@
 import { ATTENTION_KINDS } from "@work-intelligence/core";
 import { z } from "zod";
 
-/** Bounded, read-only attention filters; unknown input is rejected. */
 export const attentionQuerySchema = z
   .object({
     projectId: z.string().min(1).max(300).optional(),
@@ -12,7 +11,6 @@ export const attentionQuerySchema = z
   })
   .strict();
 
-/** A Web-only display intent for a rechecked single-project pointer. */
 export const updateAttentionPreferenceSchema = z
   .object({
     projectId: z.string().min(1).max(300),

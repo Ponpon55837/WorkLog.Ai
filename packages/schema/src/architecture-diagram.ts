@@ -86,7 +86,6 @@ export const architectureDiagramSchema = z
 
 export type ArchitectureDiagram = z.infer<typeof architectureDiagramSchema>;
 
-/** Parse source without returning raw input in validation errors. */
 export function parseArchitectureDiagram(source: string): ArchitectureDiagram | undefined {
   if (source.length > 100_000) return undefined;
   try {

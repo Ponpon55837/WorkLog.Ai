@@ -11,7 +11,7 @@ export const FILE_HISTORY_SESSION_LIMIT = 10;
 const MAX_PATH_LENGTH = 500;
 const MAX_CURSOR_LENGTH = 400;
 
-// btoa/atob with TextEncoder keep this module free of Node built-ins, since the Web bundles the schema package too.
+// btoa/atob keep this module free of Node built-ins, since the Web bundles the schema package too.
 function toBase64Url(text: string): string {
   const binary = String.fromCharCode(...new TextEncoder().encode(text));
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -22,10 +22,7 @@ function fromBase64Url(value: string): string {
   return new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(binary, (char) => char.charCodeAt(0)));
 }
 
-/**
- * A path inside the repository as an Agent names it: relative, either separator, no parent segments, no drive,
- * UNC, or home prefix, and no control characters. Stored records are read by it; the file system never is.
- */
+/** Relative, either separator, no parent segments, drive, UNC or home prefix, no control characters. */
 export function isRepositoryRelativePath(value: string): boolean {
   const path = value.replace(/\\/g, "/");
   const control = [...path].some((char) => char.charCodeAt(0) < 0x20 || char.charCodeAt(0) === 0x7f);
@@ -39,7 +36,6 @@ export function encodeFileHistoryCursor(cursor: FileHistoryCursor): string {
   return toBase64Url(JSON.stringify([cursor.completedAt, cursor.id]));
 }
 
-/** The position an earlier answer stopped at, or undefined for anything that encodeFileHistoryCursor did not make. */
 export function decodeFileHistoryCursor(value: string): FileHistoryCursor | undefined {
   if (!/^[A-Za-z0-9_-]+$/.test(value)) return undefined;
   try {

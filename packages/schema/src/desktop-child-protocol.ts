@@ -4,10 +4,6 @@ import { MAX_HANDOFF_ROUTE_LENGTH } from "./port-handoff.js";
 /** Version of the private parent/child control protocol; a different version is a repair case, never a fallback. */
 export const DESKTOP_CHILD_PROTOCOL_VERSION = 1;
 
-/**
- * Every failure the desktop backend can report, on either side of the channel (R4 section 8.1 plus the supervisor's own
- * checks). One list so the child, the supervisor and the shell never disagree about a spelling.
- */
 export const DESKTOP_BACKEND_ERROR_CODES = [
   "DB_MISSING",
   "DB_OFFLINE",
@@ -41,7 +37,6 @@ const runIdSchema = z.string().regex(RUN_ID);
 const protocolVersionSchema = z.number().int().nonnegative();
 const processIdSchema = z.number().int().positive();
 
-/** Same shape as desktop-core's persisted database identity and the server's preflight identity. */
 export const desktopDatabaseIdentitySchema = z.strictObject({
   realPath: pathSchema,
   fileId: z
@@ -53,7 +48,6 @@ export const desktopDatabaseIdentitySchema = z.strictObject({
 const sidecarFileSchema = z.strictObject({ exists: z.boolean(), size: z.number().int().nonnegative() });
 const sidecarStateSchema = z.strictObject({ wal: sidecarFileSchema, shm: sidecarFileSchema });
 
-/** Result of the child's read-only preflight; the statuses are the server's `DatabasePreflightStatus`. */
 export const desktopPreflightResultSchema = z.strictObject({
   type: z.literal("preflight-result"),
   status: z.enum(["missing", "offline", "denied", "unreadable", "unsupported-schema", "ok"]),
@@ -67,17 +61,10 @@ export const desktopPreflightResultSchema = z.strictObject({
   detail: z.string().max(MAX_DETAIL_LENGTH).optional(),
 });
 
-/**
- * The one fixed `detail` a preflight result may carry for a failed `quickCheck`, so the App can tell a damaged database
- * from one it merely could not read (locked, timed out, denied).
- */
+// Lets the App tell a damaged database from one it merely could not read (locked, timed out, denied).
 export const DESKTOP_INTEGRITY_CHECK_FAILED_DETAIL = "the database failed its integrity check";
 
-/**
- * `createIfMissing` asks the child to create a new empty database first, but only when nothing at all exists at the path;
- * without it the preflight stays read-only. `quickCheck` asks for an extra read-only `PRAGMA quick_check` on a database
- * that otherwise reads fine, for a database an old service may have been hard-stopped on.
- */
+// `createIfMissing` creates only when nothing at all exists at the path; without it the preflight stays read-only.
 const preflightRequestSchema = z.strictObject({
   type: z.literal("preflight"),
   path: pathSchema,
@@ -85,34 +72,18 @@ const preflightRequestSchema = z.strictObject({
   quickCheck: z.literal(true).optional(),
 });
 
-/**
- * Facts only the desktop shell knows, passed through the protocol (never the environment). Every field is optional so an
- * older shell and a newer child (or the reverse) still understand each other.
- */
-/** The App's language setting: follow the system, or one of the two UI languages. */
 export const SHELL_LANGUAGE_PREFERENCES = ["system", "zh-TW", "en"] as const;
-/** The two languages the App and the Dashboard share (the Dashboard calls English `en-US`). */
+// The Dashboard calls English `en-US`.
 export const SHELL_LOCALES = ["zh-TW", "en"] as const;
 
+/** Every field is optional so an older shell and a newer child (or the reverse) still understand each other. */
 export const desktopFactsSchema = z.strictObject({
-  /**
-   * A login service from the pnpm bootstrap that may share this database with the App's own backend. Not strict: an
-   * older shell still sends the removal commands this version no longer reads, and they are dropped.
-   */
+  /** Not strict: an older shell still sends removal commands this version no longer reads; they are dropped. */
   legacyService: z.object({ running: z.enum(["running", "stopped", "unknown"]) }).optional(),
-  /** The port the App committed for this backend, so the status page can show the effective address. */
   activePort: portSchema.optional(),
-  /**
-   * The App's launcher shim, so the Web status judges an Agent's hooks by the same rule as the Agent page: a hook that
-   * runs another shim is stale.
-   */
   launcherShimPath: pathSchema.optional(),
-  /** The App's runtime root, where the installed MCP contract is read from to judge what an Agent host last saw. */
   runtimeRoot: pathSchema.optional(),
-  /**
-   * The App's login item as the system reports it (read in the shell, never from the settings file), so the Web status
-   * shows the App's own state instead of the old login service's.
-   */
+  /** Read in the shell, never from the settings file. */
   loginItem: z
     .strictObject({
       supported: z.boolean(),
@@ -120,20 +91,13 @@ export const desktopFactsSchema = z.strictObject({
       system: z.enum(["enabled", "disabled", "needs-approval", "unknown"]),
     })
     .optional(),
-  /**
-   * Positively detected risky storage for the database (DT-08). `unknown` means detection failed or timed out and is a
-   * soft note only; it never blocks anything.
-   */
+  /** `unknown` means detection failed or timed out; a soft note only. */
   storageRisk: z
     .strictObject({
       risk: z.enum(["network", "removable", "cloud-sync", "hard-link", "unknown"]),
       migrationBlocked: z.boolean(),
     })
     .optional(),
-  /**
-   * The App's language: the setting and the language it resolves to on this system, so the Dashboard the App manages
-   * shows the same language as the App window.
-   */
   language: z
     .strictObject({ preference: z.enum(SHELL_LANGUAGE_PREFERENCES), locale: z.enum(SHELL_LOCALES) })
     .optional(),
@@ -150,49 +114,33 @@ const startRequestSchema = z.strictObject({
 
 const shutdownRequestSchema = z.strictObject({ type: z.literal("shutdown") });
 
-/** A short id the parent picks so it can match a reply to its request. */
 const requestIdSchema = z.string().regex(/^[A-Za-z0-9_-]{8,64}$/);
 
-/** Asks a running backend which long jobs are in progress, so the App can refuse a port change while one runs. */
 const activityQuerySchema = z.strictObject({ type: z.literal("activity-query"), requestId: requestIdSchema });
 
-/** Replaces the desktop facts of a running backend, for facts the App learns after start (DT-08 storage risk). */
 const updateFactsSchema = z.strictObject({ type: z.literal("update-facts"), desktop: desktopFactsSchema });
 
-/**
- * Asks a preview child (never a serving one) for a consistent copy of `source` at `target`, which must not exist yet.
- * The source is never migrated or changed; the child runs PRAGMA quick_check on the copy before it answers (DT-08).
- */
+// Preview child only; the source is never migrated or changed and `target` must not exist yet.
 const copyDatabaseRequestSchema = z.strictObject({
   type: z.literal("copy-database"),
   source: pathSchema,
   target: pathSchema,
 });
 
-/** Most backup files one `inspect-backups` answers for; the page lists the newest ones only. */
 export const DESKTOP_MAX_INSPECTED_BACKUPS = 50;
 
-/**
- * Asks a preview child to look, read-only, at the backups of `databasePath` (its backup folder, or `backupDirectory`) or,
- * when `files` is given, at exactly those files (a file the user picked). Nothing is opened for writing or migrated.
- */
 const inspectBackupsRequestSchema = z.strictObject({
   type: z.literal("inspect-backups"),
   databasePath: pathSchema,
   backupDirectory: pathSchema.optional(),
   files: z.array(pathSchema).min(1).max(DESKTOP_MAX_INSPECTED_BACKUPS).optional(),
-  /** False: skip `PRAGMA quick_check` (a listing); absent or true: run it (one chosen file). */
+  // False skips `PRAGMA quick_check` (a listing); absent or true runs it.
   integrity: z.boolean().optional(),
   /** At most this many of the newest backups of the folder (default and maximum: `DESKTOP_MAX_INSPECTED_BACKUPS`). */
   limit: z.number().int().min(1).max(DESKTOP_MAX_INSPECTED_BACKUPS).optional(),
 });
 
-/**
- * Asks a preview child to replace `databasePath` with the snapshot `source` (restoreDatabase of the storage package: the
- * snapshot is checked, the current database is backed up first, nothing else may hold it open). Sent only while the
- * backend is stopped.
- */
-/** The most project folders one restore moves to a new place (a computer with more projects than this is restored in parts). */
+// Restore is sent only while the backend is stopped.
 export const DESKTOP_MAX_RESTORE_REMAPS = 500;
 
 const restoreDatabaseRequestSchema = z.strictObject({
@@ -200,21 +148,14 @@ const restoreDatabaseRequestSchema = z.strictObject({
   source: pathSchema,
   databasePath: pathSchema,
   backupDirectory: pathSchema.optional(),
-  /** Project folders that moved to another place on this computer: each `from` prefix becomes `to` (the CLI's `--remap-root`). */
   remap: z
     .array(z.strictObject({ from: pathSchema, to: pathSchema }))
     .max(DESKTOP_MAX_RESTORE_REMAPS)
     .optional(),
 });
 
-/** Asks a preview child for the project folders a backup file records, read-only; the App checks which exist on this computer. */
 const backupRootsRequestSchema = z.strictObject({ type: z.literal("backup-roots"), source: pathSchema });
 
-/**
- * Asks a preview child to maintain `databasePath` while the backend is stopped: `maintain` backs the database up, checks
- * it, compacts it (VACUUM), rebuilds the search index and checks it again; `check` only reads it and runs the integrity
- * check. Nothing else may hold the database open.
- */
 const maintainDatabaseRequestSchema = z.strictObject({
   type: z.literal("maintain-database"),
   mode: z.enum(["maintain", "check"]),
@@ -222,7 +163,6 @@ const maintainDatabaseRequestSchema = z.strictObject({
   backupDirectory: pathSchema.optional(),
 });
 
-/** Asks a serving backend how much space a compaction would give back and how the last maintenance ended. */
 const maintenanceHintQuerySchema = z.strictObject({
   type: z.literal("maintenance-hint-query"),
   requestId: requestIdSchema,
@@ -245,7 +185,7 @@ const readySchema = z.strictObject({
   databaseIdentity: desktopDatabaseIdentitySchema,
   execPath: pathSchema,
   pid: processIdSchema,
-  /** How many projects the database holds; optional so an older child and a newer shell still understand each other. */
+  // Optional so an older child and a newer shell still understand each other.
   projectCount: z.number().int().nonnegative().optional(),
 });
 
@@ -257,49 +197,29 @@ const failedSchema = z.strictObject({
 
 const stoppedSchema = z.strictObject({ type: z.literal("stopped") });
 
-/** The running backend wrote a backup successfully; `at` is the backup's UTC instant (ISO 8601). */
 const backupCompletedSchema = z.strictObject({ type: z.literal("backup-completed"), at: z.iso.datetime() });
 
-/**
- * An API call that can write or delete a backup file finished (a manual backup, an import, a deletion, ...). It carries
- * nothing: the shell only forgets what it cached about the backup folder and reads it again.
- */
 const backupsChangedSchema = z.strictObject({ type: z.literal("backups-changed") });
 
-/** The web UI asked the App to open its Agent setup window; it carries nothing and never changes any Agent config. */
 const openAgentSetupSchema = z.strictObject({ type: z.literal("open-agent-setup") });
 
-/**
- * The web UI asked the App to open its port settings (DT-14). It may carry the page's whitelisted preferences and route
- * so the App can restore them on the new origin; the App sanitizes both again and keeps them in memory only.
- */
+// The App sanitizes the preferences and route again and keeps them in memory only.
 const openPortSettingsSchema = z.strictObject({
   type: z.literal("open-port-settings"),
   preferences: z.unknown().optional(),
   route: z.string().max(MAX_HANDOFF_ROUTE_LENGTH).optional(),
 });
 
-/**
- * The user picked a language in the Dashboard the App manages; the App saves it as its own language setting, so the App
- * window and the Dashboard keep showing the same language.
- */
 const setLanguageSchema = z.strictObject({ type: z.literal("set-language"), locale: z.enum(SHELL_LOCALES) });
 
-/**
- * The long jobs a running backend reports; any of them makes a port change wait. `import` means an upload is being
- * saved or an import or preview is reading a staged file; a staged file nobody reads is `pendingImport` instead. `restore` is reserved for a future
- * restore flow: the server has no restore route yet, so nothing reports it today.
- */
+// `restore` is reserved: the server has no restore route yet, so nothing reports it today.
 export const DESKTOP_BACKEND_ACTIVITIES = ["import", "backup", "export", "restore"] as const;
 
 const activitySchema = z.strictObject({
   type: z.literal("activity"),
   requestId: requestIdSchema,
   busy: z.array(z.enum(DESKTOP_BACKEND_ACTIVITIES)).max(DESKTOP_BACKEND_ACTIVITIES.length),
-  /**
-   * An uploaded import file is staged and idle (nobody reads it, it has not expired). It is not a job: a restart throws
-   * it away, so it never blocks a port change, but the App tells the user afterwards. Absent means false.
-   */
+  /** Not a job: a restart throws it away. Absent means false. */
   pendingImport: z.boolean().optional(),
 });
 
@@ -309,11 +229,10 @@ const backupRootsResultSchema = z.strictObject({
   type: z.literal("backup-roots-result"),
   status: z.enum(["ok", "failed"]),
   roots: z.array(z.strictObject({ path: pathSchema, name: z.string().max(512) })).max(DESKTOP_MAX_BACKUP_ROOTS),
-  /** The file holds more projects than were listed. */
   truncated: z.boolean().optional(),
 });
 
-/** Result of `maintain-database`. Everything but `ok` means the database was left as it was (the backup, when made, is kept). */
+// Everything but `ok` means the database was left as it was.
 const maintainResultSchema = z.strictObject({
   type: z.literal("maintain-result"),
   mode: z.enum(["maintain", "check"]),
@@ -322,7 +241,6 @@ const maintainResultSchema = z.strictObject({
   reclaimedBytes: z.number().int().nonnegative().optional(),
 });
 
-/** How the last maintenance run ended, from the database's own record. */
 const maintenanceRunSchema = z.strictObject({
   status: z.enum(["running", "completed", "failed"]),
   at: z.string().max(64),
@@ -332,15 +250,12 @@ const maintenanceRunSchema = z.strictObject({
 const maintenanceHintSchema = z.strictObject({
   type: z.literal("maintenance-hint"),
   requestId: requestIdSchema,
-  /** Free pages times page size; absent when the database could not be read. */
   reclaimableBytes: z.number().int().nonnegative().optional(),
   databaseBytes: z.number().int().nonnegative().optional(),
-  /** The free space is large enough to be worth a compaction (the same rule the command line's check uses). */
   suggest: z.boolean().optional(),
   last: maintenanceRunSchema.optional(),
 });
 
-/** Result of `copy-database`; on `ok` the identity is the copy's, read back after the integrity check. */
 const copyResultSchema = z.strictObject({
   type: z.literal("copy-result"),
   status: z.enum(["ok", "no-space", "target-exists", "integrity-failed", "failed"]),
@@ -352,7 +267,6 @@ const copyResultSchema = z.strictObject({
 const inspectedBackupSchema = z.strictObject({
   path: pathSchema,
   fileName: z.string().min(1).max(512),
-  /** Only for a file of the backup folder (the file name carries it). */
   kind: z
     .enum(["automatic", "manual", "migration", "deletion", "session_deletion", "maintenance", "import"])
     .optional(),
@@ -367,13 +281,12 @@ const inspectedBackupSchema = z.strictObject({
 const inspectResultSchema = z.strictObject({
   type: z.literal("inspect-result"),
   items: z.array(inspectedBackupSchema).max(DESKTOP_MAX_INSPECTED_BACKUPS),
-  /** The backup folder could not be read at all (the files are missing or the folder is not readable). */
   directoryReadable: z.boolean(),
 });
 
 /**
- * Result of `restore-database`. Everything but `ok` means the current database was NOT replaced; `locked` is a file lock
- * (EBUSY / EPERM, mostly Windows), `in-use` another process holding the database (an Agent).
+ * Everything but `ok` means the current database was NOT replaced; `locked` is a file lock (EBUSY / EPERM, mostly
+ * Windows), `in-use` another process holding the database.
  */
 const restoreResultSchema = z.strictObject({
   type: z.literal("restore-result"),
@@ -390,17 +303,14 @@ const restoreResultSchema = z.strictObject({
     "no-space",
     "failed",
   ]),
-  /** The file name of the backup made of the replaced database. */
   safetyBackup: z.string().max(512).optional(),
   schemaVersion: z.number().int().nonnegative().optional(),
   projects: z.number().int().nonnegative().optional(),
   sessions: z.number().int().nonnegative().optional(),
-  /** How many projects had their folder moved to a new place by the request's `remap`. */
   remappedProjects: z.number().int().nonnegative().optional(),
   detail: z.string().max(MAX_DETAIL_LENGTH).optional(),
 });
 
-/** Parent to child. */
 export const desktopParentMessageSchema = z.discriminatedUnion("type", [
   preflightRequestSchema,
   startRequestSchema,
@@ -415,7 +325,6 @@ export const desktopParentMessageSchema = z.discriminatedUnion("type", [
   maintenanceHintQuerySchema,
 ]);
 
-/** Child to parent. */
 export const desktopChildMessageSchema = z.discriminatedUnion("type", [
   helloSchema,
   desktopPreflightResultSchema,
@@ -467,12 +376,10 @@ function parseWith<T>(schema: z.ZodType<T>, value: unknown): ParsedDesktopMessag
   return parsed.success ? { ok: true, message: parsed.data } : { ok: false, reason: describeIssues(parsed.error) };
 }
 
-/** Parses one message the parent sent; an unknown or malformed message is reported, never thrown. */
 export function parseDesktopParentMessage(value: unknown): ParsedDesktopMessage<DesktopParentMessage> {
   return parseWith(desktopParentMessageSchema, value);
 }
 
-/** Parses one message the child sent; an unknown or malformed message is reported, never thrown. */
 export function parseDesktopChildMessage(value: unknown): ParsedDesktopMessage<DesktopChildMessage> {
   return parseWith(desktopChildMessageSchema, value);
 }
