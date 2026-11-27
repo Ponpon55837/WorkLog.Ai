@@ -32,7 +32,6 @@ const runningBuild = /^[a-f0-9]{64}$/.test(MCP_BUILD_DIST_HASH)
   : undefined;
 const databasePath = databasePathFor(resolve(appRoot, "../.."));
 
-/** Under the launcher a new build switches automatically; started directly, it requires reconnecting. */
 function restartStatusReader(): () => McpRestartStatus {
   const launcher = readLauncherIdentity();
   if (!launcher) return () => getMcpRestartStatus(repositoryRoot, runningBuild);
@@ -40,10 +39,7 @@ function restartStatusReader(): () => McpRestartStatus {
   return () => supervisedRestartStatus(getMcpRestartStatus(repositoryRoot, runningBuild), launcher, launcherUpdated());
 }
 
-/**
- * The desktop self-test only has to see the server start and list its tools. It must not migrate or back up the
- * user's database or write runtime state, so no store is opened and every tool answers this startup failure.
- */
+/** The desktop self-test must not migrate, back up or write the user's database: no store is opened and every tool answers this startup failure. */
 async function startSelfTestServer(): Promise<void> {
   // One line on stderr (stdout stays protocol-only), so a leaked variable is visible in the Agent's MCP log.
   console.error(`Work Intelligence MCP self-test mode (${MCP_SELFTEST_ENVIRONMENT}=1): no database is opened.`);
@@ -66,8 +62,7 @@ async function startMcpServer(): Promise<void> {
 
   let lease: McpProcessRegistration | undefined;
   try {
-    // A standalone bundle is replaced as a whole on update, so there is no on-disk build to watch; the desktop App's runtime is
-    // a standalone bundle that still keeps a lease, because the connection count comes from it.
+    // A standalone bundle has no on-disk build to watch, but the desktop App's runtime still keeps a lease for the connection count.
     if (mcpKeepsLease(STANDALONE, repositoryRoot)) {
       try {
         lease = registerMcpLease(repositoryRoot, runningBuild);
@@ -76,7 +71,6 @@ async function startMcpServer(): Promise<void> {
       }
       const registration = lease?.registration();
       if (registration && !registration.directoryWritable) {
-        // A code only (no path): the same facts the observation file carries for the status page.
         console.error(
           `Work Intelligence MCP lease 無法寫入（${registration.failure ?? "unknown"}${registration.errorCode ? ` ${registration.errorCode}` : ""}）；系統狀態可能看不到本次連線。`,
         );

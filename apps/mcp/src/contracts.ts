@@ -1,8 +1,3 @@
-/*
- * Agent-facing contracts. Each one is attached only to the tools that write the data it governs, so the
- * tool list stays small; the server instructions only route natural-language requests to tools.
- */
-
 export const serverInstructions = [
   "Work Intelligence is a local-first, explicit-opt-in work record system. Only inspect or write project data when the project is tracked; unregistered, paused, and ignored projects are quiet skips.",
   "Read work-intelligence://agent/work-intelligence/SKILL.md (MCP resources/read) first: the core privacy, start-of-work, and finalize rules, with a guide for each other flow to read when it starts.",
@@ -17,7 +12,6 @@ export const serverInstructions = [
 export const workRecordContract =
   "Work record contract: summary is one outcome-first sentence; workSummary has five arrays (see field descriptions). decisions: explicit choices and source-stated rationale only; keep legacy strings when the source is unclear; {text, origin:'user_requested'} only for a decision the user directly requested, {text, origin:'agent_autonomous'} only for an Agent-selected decision or trade-off; never guess origin. nextSteps (狀態／未結項) keeps only objective items that stay open after this Session and need a later action or verification; never invent recommendations, plans, or outlook. Progress needing no more work (uncommitted, not pushed, PR awaiting merge, CI running) goes in outcomes or verification as facts; nextStepsWarnings flags such items. Reword an item in place when updating the same Session; removing one closes it as not_needed. One confirmed fact per item, none repeated across sections; [] when none is supported. Git is optional observed metadata; changedFiles is not proof of a commit. Do not infer facts from titles or file counts.";
 
-/** Closing rules that apply only when a Session is finalized, after the work record contract. */
 export const finalizeClosingContract =
   "Closing contract: resolvedOutstandingItemIds needs directly verified completion after reading the source Sessions; supersededOutstandingItemIds needs this Session's nextSteps to replace the older work explicitly. Ambiguous or unsupported items stay pending; continuedOutstandingItems and relatedOutstandingItems are pointers, not evidence. Items closed after the save use work_resolve_outstanding_items with this sessionId. Read the diagrams guide before attaching a diagram, and the knowledge guide when you maintained Knowledge pages.";
 

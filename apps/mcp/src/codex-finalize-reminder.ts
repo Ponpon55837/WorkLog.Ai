@@ -32,16 +32,13 @@ export interface CodexHookInput {
   tool_input?: unknown;
   tool_response?: unknown;
   stop_hook_active?: boolean;
-  /** SessionStart only: `compact` after a compaction. */
   source?: string;
 }
 
 export interface ReminderMarkers {
   dirty: string;
   reminded: string;
-  /** Holds the time the user sent the first prompt since the last successful save. */
   segment: string;
-  /** Exists once a save without startedAt was paused for this segment. */
   preDenied: string;
 }
 
@@ -51,7 +48,6 @@ export interface CodexReminderDeps {
   markerPaths: (sessionId: string) => ReminderMarkers;
   markerExists: (path: string) => boolean;
   createMarker: (path: string) => boolean;
-  /** Creates a private marker holding `content`; false when it already exists. */
   writeMarker: (path: string, content: string) => boolean;
   readMarker: (path: string) => string | undefined;
   removeMarker: (path: string) => void;
@@ -140,7 +136,6 @@ function isFinalizeToolCall(name: string, input: unknown): boolean {
   return name.endsWith("work_write_idempotent") && isRecord(input) && input.operation === "work_finalize_session";
 }
 
-/** Return every affected path in Codex's structured apply_patch input, or null when it is unreadable. */
 export function parseApplyPatchFilePaths(toolInput: unknown): string[] | null {
   if (!isRecord(toolInput) || typeof toolInput.command !== "string") {
     return null;
@@ -215,7 +210,6 @@ export function trackPostToolUse(input: CodexHookInput, deps: CodexReminderDeps)
 
   const markers = deps.markerPaths(input.session_id);
   if (input.tool_name === "apply_patch") {
-    // A patch that failed to apply changed nothing, so it does not make the work unsaved.
     const response = parseJson(input.tool_response);
     if (isRecord(response) && response.isError === true) {
       return;
@@ -233,17 +227,12 @@ export function trackPostToolUse(input: CodexHookInput, deps: CodexReminderDeps)
   if (isFinalizeToolCall(input.tool_name, input.tool_input) && finalizedSuccessfully(input.tool_response)) {
     deps.removeMarker(markers.dirty);
     deps.removeMarker(markers.reminded);
-    // The next prompt starts a new segment.
     deps.removeMarker(markers.segment);
     deps.removeMarker(markers.preDenied);
   }
 }
 
-/**
- * Records when the current segment began: the first prompt after the last successful save. Codex's transcript
- * format is not a stable hook interface, so the time is taken when UserPromptSubmit fires instead. Returns the
- * notice to show the Agent when this prompt starts a new segment, so it learns the time before it saves.
- */
+/** The first prompt after the last save starts a segment. Codex's transcript format is not a stable hook interface, so the time is taken when UserPromptSubmit fires. */
 export function trackUserPrompt(input: CodexHookInput, deps: CodexReminderDeps): string | null {
   if (!input.session_id || !input.cwd || !deps.isTrackedWorkspace(input.cwd)) {
     return null;
@@ -260,7 +249,6 @@ function segmentStartNotice(startedAt: string): string {
   return `這個專案有在 Work Intelligence 記錄。這段工作的開始時間是 ${startedAt}；之後保存工作記錄時請把 startedAt 設為 ${startedAt}，completedAt 省略。`;
 }
 
-/** Pauses a finalize call that names neither startedAt nor completedAt, once per segment, with the recorded start. */
 export function denialForFinalize(input: CodexHookInput, deps: CodexReminderDeps): string | null {
   if (
     !input.session_id ||
@@ -302,10 +290,6 @@ export function reminderForStop(input: CodexHookInput, deps: CodexReminderDeps):
   return deps.createMarker(markers.reminded) ? reminderWithStart(segmentStart(deps.readMarker(markers.segment))) : null;
 }
 
-/**
- * Context for the session that resumes after a compaction: the unsaved state and segment start survive even when the
- * summary drops them. Unlike the Stop reminder it is not limited to once, since every compaction loses it again.
- */
 export function contextAfterCompaction(input: CodexHookInput, deps: CodexReminderDeps): string | null {
   if (input.source !== "compact" || !input.session_id || !input.cwd || !deps.isTrackedWorkspace(input.cwd)) {
     return null;
@@ -336,7 +320,6 @@ const defaultDeps: CodexReminderDeps = {
   now: () => new Date(),
 };
 
-/** Convert one hook event into its optional response; malformed input always passes through. */
 export function responseForCodexHook(raw: string, deps: CodexReminderDeps = defaultDeps): string | null {
   let value: unknown;
   try {

@@ -4,10 +4,8 @@ import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
 const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NONBLOCK ?? 0);
 
 /**
- * Reads a UTF-8 file named by a hook payload. A hook runs in the Agent's path, so a transcript path that is a FIFO or
- * a device (which would block the Agent forever) or a file larger than `maxBytes` throws instead of being read. The
- * checks use the open descriptor, so a path swapped after a check cannot be read either. Callers treat any throw as
- * "cannot tell" and stay silent.
+ * A FIFO or device would block the Agent forever, so those and files over `maxBytes` throw. The checks use the open
+ * descriptor, so a path swapped after a check cannot be read. Callers treat any throw as "cannot tell".
  */
 export function readRegularTextFile(path: string, maxBytes: number): string {
   const descriptor = openSync(path, OPEN_FLAGS);

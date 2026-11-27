@@ -1,22 +1,16 @@
 import { resolve } from "node:path";
 
-/** The first call the server saw for a project since its last save: an observed fact, labelled with its tool. */
 export interface ObservedSegmentStart {
   at: string;
   tool: string;
-  /** HEAD commit of a tracked project when the segment began; the base for Git change observation. */
   headCommit?: string;
 }
 
-/** Entries kept at once; the oldest project is dropped first so a long-lived process stays bounded. */
+/** Oldest project is dropped first so a long-lived process stays bounded. */
 const MAX_OBSERVED_PROJECTS = 64;
 
-/**
- * Normalizes a workspace root so the same folder always maps to one key.
- * @internal test-only
- */
+/** @internal test-only */
 export function segmentObserverKey(projectRoot: string): string {
-  // resolve() already drops trailing separators except on a filesystem root.
   const key = resolve(projectRoot);
   return process.platform === "win32" ? key.toLowerCase() : key;
 }
@@ -27,11 +21,7 @@ function evictOldest(entries: Map<string, unknown>, limit: number): void {
   if (!oldest.done) entries.delete(oldest.value);
 }
 
-/**
- * Remembers, per project and only in memory, when this MCP server instance first saw a call since the last
- * successful save. That time is a fact the server observed, never an estimate. One Claude Desktop process may serve
- * several chats, so the value can predate the current conversation; it is labelled and capped by the store.
- */
+/** One Claude Desktop process may serve several chats, so the observed start can predate the conversation; the store labels and caps it. */
 export class SegmentObserver {
   private readonly starts = new Map<string, ObservedSegmentStart>();
   private readonly lastSaves = new Map<string, string>();
@@ -41,10 +31,6 @@ export class SegmentObserver {
     private readonly maxProjects: number = MAX_OBSERVED_PROJECTS,
   ) {}
 
-  /**
-   * Records the call time for a project that has no open segment; later calls keep the first one. `headCommit` is
-   * called only when a new entry is created, so later calls cost nothing; a failure just leaves it out.
-   */
   public record(projectRoot: string, tool: string, headCommit?: () => string | undefined): void {
     const key = segmentObserverKey(projectRoot);
     if (this.starts.has(key)) return;
@@ -62,12 +48,10 @@ export class SegmentObserver {
     return this.starts.get(segmentObserverKey(projectRoot));
   }
 
-  /** When this instance last saved in the project, so the next save on this connection counts only later reads. */
   public lastSaveAt(projectRoot: string): string | undefined {
     return this.lastSaves.get(segmentObserverKey(projectRoot));
   }
 
-  /** Ends the segment after a successful save so the next call starts a new one. */
   public reset(projectRoot: string): void {
     const key = segmentObserverKey(projectRoot);
     this.starts.delete(key);

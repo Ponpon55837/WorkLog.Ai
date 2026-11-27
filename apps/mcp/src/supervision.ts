@@ -19,7 +19,6 @@ const LAUNCHER_RESTART_MESSAGE =
   "Work Intelligence MCP launcher 已更新；請重新連線 MCP 一次，之後的建置更新會自動切換。";
 const AUTO_SWITCH_MESSAGE = "磁碟上的 MCP 建置已更新；launcher 會在下一個請求前自動切換，不必重新連線。";
 
-/** The launcher identity passed to a supervised server, or undefined when the server was started directly. */
 export function readLauncherIdentity(environment: NodeJS.ProcessEnv = process.env): McpLauncherIdentity | undefined {
   const path = environment[SUPERVISED_ENVIRONMENT.path]?.trim();
   const hash = environment[SUPERVISED_ENVIRONMENT.hash]?.trim();
@@ -28,10 +27,7 @@ export function readLauncherIdentity(environment: NodeJS.ProcessEnv = process.en
   return { path, hash, version };
 }
 
-/**
- * Whether the launcher file on disk still matches the running launcher. A missing or unreadable file (for example
- * while `pnpm build` recreates dist) is not an update: the running launcher keeps working.
- */
+/** A missing or unreadable launcher file (e.g. while `pnpm build` recreates dist) is not an update. */
 export function createLauncherUpdateCheck(identity: McpLauncherIdentity): () => boolean {
   let cached: { signature: string; updated: boolean } | undefined;
   return () => {
@@ -59,10 +55,7 @@ export function createLauncherUpdateCheck(identity: McpLauncherIdentity): () => 
   };
 }
 
-/**
- * Restart status for a server under the launcher. A newer server build is not a reason to reconnect, because the
- * launcher switches to it before the next request; only an updated launcher is.
- */
+/** A newer server build needs no reconnect, since the launcher switches to it; only an updated launcher does. */
 export function supervisedRestartStatus(
   base: McpRestartStatus,
   identity: McpLauncherIdentity,

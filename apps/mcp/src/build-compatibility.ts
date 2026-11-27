@@ -5,7 +5,6 @@ import { mcpContractFingerprint } from "@work-intelligence/shared/mcp-contract-f
 import { LATEST_SCHEMA_VERSION } from "@work-intelligence/storage";
 import { createWorkIntelligenceMcpServer } from "./server.js";
 
-/** Fingerprints the actual advertised tools and resources without opening a database or registering a lease. */
 export async function computeMcpCompatibility(
   schemaVersion = LATEST_SCHEMA_VERSION,
 ): Promise<{ compatibilityId: string; schemaVersion: number; contractFingerprint: string }> {

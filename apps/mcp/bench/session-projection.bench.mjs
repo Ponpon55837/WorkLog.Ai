@@ -1,4 +1,3 @@
-// Synthetic task-cost evidence. Run before and after in separate Node processes.
 import console from "node:console";
 import { Buffer } from "node:buffer";
 import { spawnSync } from "node:child_process";
@@ -123,7 +122,6 @@ try {
             : {}),
         },
       ];
-      // Handoff requires file evidence too: count the extra read rather than hiding it.
       if (projected && task === "handoff")
         calls.push({ sessionId: fixture.id, select: ["session.changedFiles", "evidence"] });
       for (let warmup = 0; warmup < 3; warmup++) {

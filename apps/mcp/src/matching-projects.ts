@@ -15,11 +15,6 @@ function isUnregisteredAnswer(value: unknown): value is Record<string, unknown> 
   );
 }
 
-/**
- * An answer refused because the Agent's projectRoot is not registered gains the registered projects it may have meant
- * (a moved folder, another computer, a mistyped path, a call from a subfolder): registry name, root and status only.
- * Nothing else changes, so an answer without a match keeps its exact size, and the lookup runs only after a refusal.
- */
 export function withMatchingProjects(
   result: unknown,
   projectRoot: string | undefined,
