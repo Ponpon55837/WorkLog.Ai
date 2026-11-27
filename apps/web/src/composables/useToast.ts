@@ -26,6 +26,8 @@ export function useToast() {
     showToast: (message: string, tone: ToastTone = "default", action?: ToastAction) =>
       store.showToast(message, tone, action),
     dismissToast: store.dismissToast,
+    holdToast: store.holdToast,
+    releaseToast: store.releaseToast,
     runToastAction: store.runToastAction,
     copyWithToast,
   };

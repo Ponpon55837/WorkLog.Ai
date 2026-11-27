@@ -31,6 +31,7 @@ The web UI (`apps/web`, Vue 3 + vue-router + Vite) is a **GitHub (Primer-like)**
 - **Shared domain state lives in Pinia setup stores, not App.vue or module-level composables.** Views call `useXxxStore()` directly and use `storeToRefs()` for reactive state; no prop-drilling of data, labels or formatter functions. Keep form drafts in their owning component. Formatters go in `utils/format.ts`, label maps in `utils/labels.ts`.
 - **URL is the state for filters.** Filters, pagination, report tabs and the open Session (`?session=<id>`) are synced through `useRouteQuery`.
 - **Long data tables own their scrolling.** When rows exceed the available height, put bounded vertical scrolling on the list/table body (reuse `VirtualList` with a finite `maxHeight` where appropriate); keep the box header, filters, and pagination outside that scroller. Do not make the whole page the only scroll surface for long rows. Verify that wheel/keyboard scrolling moves the list while its page remains in place.
+  - Intentional exception: below 640px the Open items list does not scroll inside its own box (`VirtualList` is disabled there) and scrolls with the page, because a fixed-height box on a phone leaves too little room to read. Any other list keeps the rule.
 - **Navigation uses `RouterLink`**, page title comes from route `meta`.
 - **Styling**: component styles use `<style scoped>` and tokens. Global CSS is only `packages/ui-tokens/tokens.css` + `styles/base.css`. Never append "refinement" override blocks to a global stylesheet.
 - **Minimum font size 12px.** Body text is 14px.

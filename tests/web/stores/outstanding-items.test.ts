@@ -5,8 +5,7 @@ import type {
   OutstandingItemStatus,
 } from "@work-intelligence/core";
 import type { StoreRequest } from "../helpers/store-harness.js";
-import { createStoreHarness } from "../helpers/store-harness.js";
-import { t } from "../../../apps/web/src/i18n/index.js";
+import { createStoreHarness, jsonResponse } from "../helpers/store-harness.js";
 import { useOutstandingItemsStore } from "../../../apps/web/src/stores/outstanding-items.js";
 
 const outstandingItem: OutstandingItem = {
@@ -62,10 +61,6 @@ function responder({ url, method, body }: StoreRequest): unknown {
       },
     };
   }
-  if (url.pathname === "/api/outstanding-items/item-1" && method === "PATCH") {
-    const status = (body as { status: OutstandingItemStatus }).status;
-    return { outcome: "outstanding_item_updated", duplicate: false, item: { ...outstandingItem, status } };
-  }
   if (url.pathname === "/api/outstanding-items/batch" && method === "PATCH") {
     const { status, itemIds } = body as { status: OutstandingItemStatus; itemIds: string[] };
     return {
@@ -112,15 +107,14 @@ describe("outstanding items store", () => {
     await vi.waitFor(() => expect(latestListRequest()?.url.searchParams.get("to")).toBe("2026-09-29"));
 
     const listCountBeforeUpdate = harness.count("/api/outstanding-items");
-    const updated = await store.updateStatus({ itemId: "item-1", status: "pending" });
-    expect(updated.status).toBe("pending");
-    expect(harness.count("/api/outstanding-items/item-1", "PATCH")).toBe(1);
-    await vi.waitFor(() => expect(harness.count("/api/outstanding-items")).toBeGreaterThan(listCountBeforeUpdate));
-    const countBeforeBatch = harness.count("/api/outstanding-items");
-    const batch = await store.batchUpdateStatus({ itemIds: ["item-1"], status: "completed" });
+    const batch = await store.batchUpdateStatusInChunks({ itemIds: ["item-1"], status: "completed" });
     expect(batch.updatedItemIds).toEqual(["item-1"]);
-    await vi.waitFor(() => expect(harness.count("/api/outstanding-items")).toBeGreaterThan(countBeforeBatch));
-    await store.batchUpdateStatus({ itemIds: batch.updatedItemIds, status: "pending", expectedStatus: "completed" });
+    await vi.waitFor(() => expect(harness.count("/api/outstanding-items")).toBeGreaterThan(listCountBeforeUpdate));
+    await store.batchUpdateStatusInChunks({
+      itemIds: batch.updatedItemIds,
+      status: "pending",
+      expectedStatus: "completed",
+    });
     const undo = [...harness.calls]
       .reverse()
       .find((request) => request.url.pathname === "/api/outstanding-items/batch");
@@ -196,17 +190,11 @@ describe("outstanding items store", () => {
     await vi.waitFor(() => expect(listReadCount).toBe(1));
     await vi.waitFor(() => expect(store.loaded).toBe(true));
 
-    const expectedResult = {
-      outcome: "outstanding_items_updated",
-      duplicate: false,
-      updatedItemIds: input.itemIds,
-      items: input.itemIds.map((id) => ({ ...outstandingItem, id, status: input.status })),
-    };
-    const mutation = store.batchUpdateStatus(input);
+    const mutation = store.batchUpdateStatusInChunks(input);
     await invalidationReadStarted;
 
     const refresh = store.reload();
-    await expect(mutation).resolves.toEqual(expectedResult);
+    await expect(mutation).resolves.toEqual({ updatedItemIds: input.itemIds, skippedItemIds: [] });
     await refresh;
 
     expect(invalidationReadAborted).toBe(true);
@@ -238,14 +226,73 @@ describe("outstanding items store", () => {
     harness.setResponder((request) => {
       if (request.url.pathname === "/api/outstanding-items/batch") {
         batchCount += 1;
-        if (batchCount === 2) return { outcome: "rejected", reason: "status_conflict", invalidItemIds: [] };
+        if (batchCount === 2) return jsonResponse({ error: "Server error.", code: "internal_error" }, 500);
       }
       return responder(request);
     });
     const partial = await store.batchUpdateStatusInChunks({ itemIds, status: "not_needed", expectedStatus: "pending" });
     expect(partial.updatedItemIds).toEqual(itemIds.slice(0, 100));
-    expect(partial.failure?.message).toBe(t("outstanding.theOpenItemStatusChanged"));
+    expect(partial.failure?.message).toBe("Server error.");
     expect(batchCount).toBe(2);
+  });
+
+  it("retries a chunk once without the ids the API names, then carries on with the next chunk", async () => {
+    const itemIds = Array.from({ length: 150 }, (_, index) => `item-${index}`);
+    const stale = new Set(["item-3", "item-120"]);
+    harness.setResponder((request) => {
+      if (request.url.pathname !== "/api/outstanding-items/batch") return responder(request);
+      const ids = (request.body as { itemIds: string[] }).itemIds;
+      const invalidItemIds = ids.filter((id) => stale.has(id));
+      if (invalidItemIds.length > 0) {
+        const details = { reason: "status_conflict", invalidItemIds };
+        return jsonResponse({ error: "Outstanding item status changed.", code: "conflict", details }, 409);
+      }
+      return { outcome: "outstanding_items_updated", duplicate: false, updatedItemIds: ids, items: [] };
+    });
+    const store = useOutstandingItemsStore();
+
+    const result = await store.batchUpdateStatusInChunks({
+      itemIds,
+      status: "completed",
+      expectedStatus: "pending",
+    });
+
+    expect(result.failure).toBeUndefined();
+    expect(result.skippedItemIds).toEqual(["item-3", "item-120"]);
+    expect(result.updatedItemIds).toEqual(itemIds.filter((id) => !stale.has(id)));
+    const sizes = harness.calls
+      .filter((call) => call.url.pathname === "/api/outstanding-items/batch")
+      .map((call) => (call.body as { itemIds: string[] }).itemIds.length);
+    expect(sizes).toEqual([100, 99, 50, 49]);
+  });
+
+  it("reports a failure when the retried chunk is rejected again", async () => {
+    harness.setResponder((request) => {
+      if (request.url.pathname !== "/api/outstanding-items/batch") return responder(request);
+      const details = { reason: "status_conflict", invalidItemIds: ["item-1"] };
+      return jsonResponse({ error: "Outstanding item status changed.", code: "conflict", details }, 409);
+    });
+    const store = useOutstandingItemsStore();
+
+    const result = await store.batchUpdateStatusInChunks({ itemIds: ["item-1", "item-2"], status: "completed" });
+
+    expect(result.updatedItemIds).toEqual([]);
+    expect(result.skippedItemIds).toEqual(["item-1"]);
+    expect(result.failure?.message).toBe("Outstanding item status changed.");
+  });
+
+  it("refreshes once after a whole run instead of once per chunk", async () => {
+    const itemIds = Array.from({ length: 250 }, (_, index) => `item-${index}`);
+    const store = useOutstandingItemsStore();
+    store.setListActive(true);
+    await vi.waitFor(() => expect(store.loaded).toBe(true));
+    const listReads = () => harness.count("/api/outstanding-items");
+    const before = listReads();
+
+    await store.batchUpdateStatusInChunks({ itemIds, status: "completed", expectedStatus: "pending" });
+
+    // The list and the pending total are the only two active reads under the list prefix.
+    expect(listReads() - before).toBeLessThanOrEqual(2);
   });
 
   it("lists the pending ids of every page for the current filters", async () => {
@@ -276,13 +323,15 @@ describe("outstanding items store", () => {
     store.projectId = "project-1";
     store.from = "2026-09-01";
 
-    const ids = await store.listAllPendingIds();
+    const controller = new AbortController();
+    const ids = await store.listAllPendingIds(controller.signal);
 
     expect(ids).toHaveLength(220);
     const reads = harness.calls.filter(
       (call) => call.url.pathname === "/api/outstanding-items" && call.url.searchParams.get("pageSize") === "100",
     );
     expect(reads.map((call) => call.url.searchParams.get("page"))).toEqual(["1", "2", "3"]);
+    expect(reads.every((call) => call.signal === controller.signal)).toBe(true);
     expect(reads.every((call) => call.url.searchParams.get("projectId") === "project-1")).toBe(true);
     expect(reads.every((call) => call.url.searchParams.get("status") === "pending")).toBe(true);
     expect(reads.every((call) => call.url.searchParams.get("from") === "2026-09-01")).toBe(true);

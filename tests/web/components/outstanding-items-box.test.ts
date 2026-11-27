@@ -8,7 +8,6 @@ import { loadCatalog, locale, t } from "../../../apps/web/src/i18n/index.js";
 
 vi.mock("../../../apps/web/src/stores/outstanding-items", () => ({
   useOutstandingItemsStore: () => ({
-    updateStatus: vi.fn(),
     batchUpdateStatusInChunks: vi.fn(),
     listAllPendingIds: vi.fn(),
   }),
@@ -119,5 +118,24 @@ describe("OutstandingItemsBox", () => {
   it("hides the count until the first answer arrives", async () => {
     expect(await render([], "pending", false)).not.toContain("ui-box-title__count");
     expect(await render([item("a", "pending")])).toMatch(/ui-box-title__count[^>]*>50</);
+  });
+
+  it("names each icon action after its item and gives truncated text a title", async () => {
+    const html = await render([item("a", "pending"), item("b", "pending")]);
+
+    expect(html).toContain(`aria-label="${t("outstanding.markDoneItem", { text: "Follow up a" })}"`);
+    expect(html).toContain(`aria-label="${t("outstanding.markNotNeededItem", { text: "Follow up b" })}"`);
+    expect(html).toContain('title="Follow up a"');
+    expect(html).toContain('title="Orchard"');
+    expect(html).toContain('title="Harvest planning"');
+
+    const reopen = await render([item("c", "completed", { closedBy: "user" })], "completed");
+    expect(reopen).toContain(`aria-label="${t("outstanding.reopenItem", { text: "Follow up c" })}"`);
+  });
+
+  it("wraps the select-page checkbox and its words in one label", async () => {
+    const html = await render([item("a", "pending")]);
+
+    expect(html).toMatch(/<label[^>]*><input[^>]*type="checkbox"[^>]*><span[^>]*>Select this page<\/span><\/label>/);
   });
 });

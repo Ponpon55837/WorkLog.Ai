@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch, type ComponentPublicInstance } from "vue";
 import { Check, CircleSlash, ListChecks, RotateCcw } from "lucide-vue-next";
 import type { OutstandingItem, OutstandingItemStatus, PageInfo } from "@work-intelligence/core";
 import OutstandingCleanupPanel from "./OutstandingCleanupPanel.vue";
@@ -52,12 +52,16 @@ const narrow = useMediaQuery("(max-width: 639px)");
 
 const projectChip = useProjectChip(projectId);
 
+const boxRef = ref<ComponentPublicInstance | null>(null);
+const listRef = ref<ComponentPublicInstance | null>(null);
 const changingItemIds = ref<string[]>([]);
 const selectedIds = ref<string[]>([]);
 const selectedAcrossPages = ref(false);
 const selectingAll = ref(false);
 const batchBusy = ref(false);
 let selectionEpoch = 0;
+let selectAbort: AbortController | undefined;
+let pendingFocus: { nextItemId?: string } | undefined;
 
 const pendingItems = computed(() => props.items.filter((item) => item.status === "pending"));
 const allSelected = computed({
@@ -141,8 +145,47 @@ function clearFilters(): void {
 
 function clearSelection(): void {
   selectionEpoch += 1;
+  selectAbort?.abort();
   selectedIds.value = [];
   selectedAcrossPages.value = false;
+}
+
+/** Ids that were applied or skipped are done with; anything else stays selected so it can be retried. */
+function dropFromSelection(itemIds: string[]): void {
+  const dropped = new Set(itemIds);
+  selectedIds.value = selectedIds.value.filter((id) => !dropped.has(id));
+  if (selectedIds.value.length === 0) clearSelection();
+}
+
+/** An action removes its row once the list refetches, so focus would fall to the page; keep it in the list instead. */
+async function restoreFocus(nextItemId?: string): Promise<void> {
+  pendingFocus = { nextItemId };
+  await nextTick();
+  focusListIfLost();
+}
+
+/** Focus on the page, or on a toast that is leaving, counts as lost. */
+function focusIsLost(): boolean {
+  const active = document.activeElement;
+  return !active || active === document.body || Boolean(active.closest(".ui-toast-host"));
+}
+
+function focusListIfLost(): void {
+  if (!pendingFocus || !focusIsLost()) return;
+  const { nextItemId } = pendingFocus;
+  pendingFocus = undefined;
+  const root = listRef.value?.$el as HTMLElement | undefined;
+  if (!root) {
+    const box = boxRef.value?.$el as HTMLElement | undefined;
+    box?.querySelector<HTMLElement>(".ui-empty button, .ui-flash button")?.focus();
+    return;
+  }
+  const rows = [...root.querySelectorAll<HTMLElement>("[data-item-id]")];
+  const row = rows.find((element) => element.dataset.itemId === nextItemId) ?? rows[0];
+  const action = row?.querySelector<HTMLElement>(".outstanding-items__actions button:not(:disabled)");
+  if (action) return action.focus();
+  if (!root.hasAttribute("tabindex")) root.tabIndex = -1;
+  root.focus();
 }
 
 async function undoStatus(
@@ -155,29 +198,49 @@ async function undoStatus(
     status: previous,
     expectedStatus: applied,
   });
-  if (result.updatedItemIds.length)
-    showToast(t("outstanding.undone", { count: result.updatedItemIds.length }), "success");
+  const updated = result.updatedItemIds.length;
+  const skipped = result.skippedItemIds.length;
+  if (skipped > 0) showToast(t("outstanding.undoneAndSkipped", { updated, skipped }), "default");
+  else if (updated > 0) showToast(t("outstanding.undone", { count: updated }), "success");
   if (result.failure) showToast(errorMessage(result.failure, t("outstanding.couldNotUndoRefreshAnd")), "danger");
+  await restoreFocus();
 }
 
 async function updateItemStatus(item: OutstandingItem, nextStatus: OutstandingItemStatus): Promise<void> {
   if (changingItemIds.value.includes(item.id)) return;
   const previous = item.status;
+  const nextItemId = props.items[props.items.findIndex((candidate) => candidate.id === item.id) + 1]?.id;
   changingItemIds.value = [...changingItemIds.value, item.id];
   try {
-    await outstandingItemsStore.updateStatus({ itemId: item.id, status: nextStatus });
-    const message =
-      nextStatus === "pending"
-        ? t("outstanding.openItemReopened")
-        : nextStatus === "completed"
-          ? t("outstanding.markedAsDone")
-          : t("outstanding.markedAsNoLongerNeeded");
-    showToast(message, "success", {
-      label: t("common.undo"),
-      run: () => undoStatus([item.id], nextStatus, previous),
+    // The batch endpoint is the one that checks the status the row was showing.
+    const result = await outstandingItemsStore.batchUpdateStatusInChunks({
+      itemIds: [item.id],
+      status: nextStatus,
+      expectedStatus: previous,
     });
-  } catch (error) {
-    showToast(errorMessage(error, t("outstanding.couldNotUpdateTheOpenItemPleaseTry")), "danger");
+    if (result.failure) {
+      showToast(errorMessage(result.failure, t("outstanding.couldNotUpdateTheOpenItemPleaseTry")), "danger");
+      return;
+    }
+    dropFromSelection([item.id]);
+    if (result.skippedItemIds.length > 0) {
+      showToast(t("outstanding.itemNoLongerPending"), "default");
+    } else {
+      const message =
+        nextStatus === "pending"
+          ? t("outstanding.openItemReopened")
+          : nextStatus === "completed"
+            ? t("outstanding.markedAsDone")
+            : t("outstanding.markedAsNoLongerNeeded");
+      // Undoing a reopen would record the user as the closer, so only a user's own close can be put back.
+      const undoable = nextStatus !== "pending" || item.closedBy === "user";
+      showToast(
+        message,
+        "success",
+        undoable ? { label: t("common.undo"), run: () => undoStatus([item.id], nextStatus, previous) } : undefined,
+      );
+    }
+    await restoreFocus(nextItemId);
   } finally {
     changingItemIds.value = changingItemIds.value.filter((id) => id !== item.id);
   }
@@ -193,15 +256,25 @@ async function updateBatch(nextStatus: "completed" | "not_needed"): Promise<void
       status: nextStatus,
       expectedStatus: "pending",
     });
-    clearSelection();
-    if (result.updatedItemIds.length) {
-      const updatedItemIds = result.updatedItemIds;
-      showToast(t("outstanding.updatedOpenItems", { length: updatedItemIds.length }), "success", {
-        label: t("common.undo"),
-        run: () => undoStatus(updatedItemIds, nextStatus, "pending"),
-      });
+    dropFromSelection([...result.updatedItemIds, ...result.skippedItemIds]);
+    const { updatedItemIds } = result;
+    const undo = updatedItemIds.length
+      ? { label: t("common.undo"), run: () => undoStatus(updatedItemIds, nextStatus, "pending") }
+      : undefined;
+    if (result.failure) {
+      const reason = errorMessage(result.failure, t("outstanding.couldNotUpdateTheOpen"));
+      showToast(
+        t("outstanding.partiallyUpdated", { updated: updatedItemIds.length, total: itemIds.length, reason }),
+        "danger",
+        undo,
+      );
+    } else if (result.skippedItemIds.length > 0) {
+      const counts = { updated: updatedItemIds.length, skipped: result.skippedItemIds.length };
+      showToast(t("outstanding.updatedAndSkipped", counts), "default", undo);
+    } else {
+      showToast(t("outstanding.updatedOpenItems", { length: updatedItemIds.length }), "success", undo);
     }
-    if (result.failure) showToast(errorMessage(result.failure, t("outstanding.couldNotUpdateTheOpen")), "danger");
+    await restoreFocus();
   } finally {
     batchBusy.value = false;
   }
@@ -210,14 +283,15 @@ async function updateBatch(nextStatus: "completed" | "not_needed"): Promise<void
 async function selectAllMatching(): Promise<void> {
   if (selectingAll.value) return;
   const epoch = selectionEpoch;
+  selectAbort = new AbortController();
   selectingAll.value = true;
   try {
-    const ids = await outstandingItemsStore.listAllPendingIds();
+    const ids = await outstandingItemsStore.listAllPendingIds(selectAbort.signal);
     if (epoch !== selectionEpoch) return;
     selectedIds.value = ids;
     selectedAcrossPages.value = true;
   } catch (error) {
-    showToast(errorMessage(error, t("outstanding.couldNotLoadOpenItems")), "danger");
+    if (epoch === selectionEpoch) showToast(errorMessage(error, t("outstanding.couldNotLoadOpenItems")), "danger");
   } finally {
     selectingAll.value = false;
   }
@@ -242,6 +316,15 @@ function isChanging(item: OutstandingItem): boolean {
 
 watch([projectId, status, from, to, closedFilter], clearSelection);
 
+watch(
+  () => props.items,
+  () => {
+    focusListIfLost();
+    pendingFocus = undefined;
+  },
+  { flush: "post" },
+);
+
 watch([page, pageSize], () => {
   if (!selectedAcrossPages.value) clearSelection();
 });
@@ -249,16 +332,22 @@ watch([page, pageSize], () => {
 watch(
   () => props.items,
   (items) => {
-    if (selectedAcrossPages.value) return;
-    // A same-page SSE refresh keeps eligible selections instead of undoing a user's click.
-    const eligibleIds = new Set(items.filter((item) => item.status === "pending").map((item) => item.id));
-    selectedIds.value = selectedIds.value.filter((id) => eligibleIds.has(id));
+    const visibleIds = new Set(items.map((item) => item.id));
+    const pendingIds = new Set(items.filter((item) => item.status === "pending").map((item) => item.id));
+    // A same-page SSE refresh keeps eligible selections instead of undoing a user's click. Across pages, ids that are
+    // not on screen cannot be checked, so only the visible ones that stopped being pending are dropped.
+    selectedIds.value = selectedIds.value.filter((id) =>
+      selectedAcrossPages.value ? pendingIds.has(id) || !visibleIds.has(id) : pendingIds.has(id),
+    );
+    if (selectedAcrossPages.value && selectedIds.value.length === 0) clearSelection();
   },
 );
+
+onBeforeUnmount(() => selectAbort?.abort());
 </script>
 
 <template>
-  <UiBox sticky-header data-testid="outstanding-items-box">
+  <UiBox ref="boxRef" sticky-header data-testid="outstanding-items-box">
     <template #header>
       <UiBoxTitle :icon="ListChecks" :title="t('common.openItems')" :count="loaded ? pageInfo.total : undefined" />
       <div class="outstanding-items__filters">
@@ -288,15 +377,17 @@ watch(
     <UiFilterChips :chips="filterChips" clearable @remove="removeFilter" @clear="clearFilters" />
 
     <div v-if="status === 'pending' && items.length > 0" class="outstanding-items__selection">
-      <UiCheckbox
-        v-model="allSelected"
-        :label="t('outstanding.selectAllOpenItemsOn')"
-        :indeterminate="selectedIds.length > 0 && !allSelected"
-        :disabled="loading || selectionBusy"
-      />
-      <span v-if="selectedIds.length === 0">{{ t("outstanding.selectPage") }}</span>
+      <label class="outstanding-items__select-page">
+        <UiCheckbox
+          v-model="allSelected"
+          :label="t('outstanding.selectAllOpenItemsOn')"
+          :indeterminate="selectedIds.length > 0 && !allSelected"
+          :disabled="loading || selectionBusy"
+        />
+        <span v-if="selectedIds.length === 0">{{ t("outstanding.selectPage") }}</span>
+      </label>
       <div
-        v-else
+        v-if="selectedIds.length > 0"
         class="outstanding-items__batch"
         role="group"
         :aria-label="t('outstanding.bulkActions')"
@@ -350,6 +441,7 @@ watch(
     </UiEmptyState>
     <VirtualList
       v-else-if="!error && items.length > 0"
+      ref="listRef"
       :items="items"
       :item-key="(item) => item.id"
       :enabled="!narrow"
@@ -359,7 +451,7 @@ watch(
       :label="t('outstanding.openItemsList')"
     >
       <template #default="{ item }">
-        <UiBoxRow class="outstanding-items__row" data-testid="outstanding-item">
+        <UiBoxRow class="outstanding-items__row" data-testid="outstanding-item" :data-item-id="item.id">
           <template #leading>
             <UiCheckbox
               :model-value="selectedIds.includes(item.id)"
@@ -368,7 +460,9 @@ watch(
               @update:model-value="selectItem(item.id, $event)"
             />
           </template>
-          <template #title>{{ item.text }}</template>
+          <template #title
+            ><span :title="item.text">{{ item.text }}</span></template
+          >
           <template #labels>
             <StatusLabel v-if="item.status !== 'pending'" :status="outstandingItemStatusVisual[item.status]" />
             <UiLabel v-if="closedByLabel(item)" data-testid="outstanding-item-closed-by">{{
@@ -376,13 +470,14 @@ watch(
             }}</UiLabel>
           </template>
           <template #meta>
-            <span>{{ item.projectName }}</span>
+            <span :title="item.projectName">{{ item.projectName }}</span>
             ·
             <!-- This action opens the source Session panel while preserving the current filters. -->
             <UiButton
               variant="link"
               truncate
               class="outstanding-items__source"
+              :title="item.sourceSessionTitle"
               :aria-label="t('outstanding.openSourceSession', { sourceSessionTitle: item.sourceSessionTitle })"
               @click="emit('openSession', item.sourceSessionId)"
             >
@@ -401,6 +496,7 @@ watch(
                   :icon="Check"
                   :icon-only="!narrow"
                   :label="t('outstanding.markDoneAction')"
+                  :aria-label="t('outstanding.markDoneItem', { text: item.text })"
                   :loading="isChanging(item)"
                   :disabled="isChanging(item)"
                   @click="updateItemStatus(item, 'completed')"
@@ -410,6 +506,7 @@ watch(
                   :icon="CircleSlash"
                   :icon-only="!narrow"
                   :label="t('outstanding.markNotNeededAction')"
+                  :aria-label="t('outstanding.markNotNeededItem', { text: item.text })"
                   :loading="isChanging(item)"
                   :disabled="isChanging(item)"
                   @click="updateItemStatus(item, 'not_needed')"
@@ -421,6 +518,7 @@ watch(
                 :icon="RotateCcw"
                 :icon-only="!narrow"
                 :label="t('outstanding.reopen')"
+                :aria-label="t('outstanding.reopenItem', { text: item.text })"
                 :loading="isChanging(item)"
                 :disabled="isChanging(item)"
                 @click="updateItemStatus(item, 'pending')"
@@ -453,6 +551,13 @@ watch(
   border-bottom: 1px solid var(--border-muted);
   color: var(--fg-muted);
   font-size: var(--text-sm);
+}
+
+.outstanding-items__select-page {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  cursor: pointer;
 }
 
 .outstanding-items__batch {

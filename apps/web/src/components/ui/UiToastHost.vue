@@ -4,14 +4,23 @@ import UiButton from "./UiButton.vue";
 import { useToast } from "../../composables/useToast";
 import { t } from "../../i18n";
 
-const { toasts, dismissToast, runToastAction } = useToast();
+const { toasts, dismissToast, holdToast, releaseToast, runToastAction } = useToast();
 const icons = { default: Info, success: CircleCheck, danger: CircleAlert } as const;
 </script>
 
 <template>
   <div class="ui-toast-host" aria-live="polite" aria-atomic="false">
     <TransitionGroup name="ui-toast">
-      <div v-for="toast in toasts" :key="toast.id" :class="['ui-toast', `ui-toast--${toast.tone}`]" role="status">
+      <div
+        v-for="toast in toasts"
+        :key="toast.id"
+        :class="['ui-toast', `ui-toast--${toast.tone}`]"
+        role="status"
+        @mouseenter="holdToast(toast.id, 'hover')"
+        @mouseleave="releaseToast(toast.id, 'hover')"
+        @focusin="holdToast(toast.id, 'focus')"
+        @focusout="releaseToast(toast.id, 'focus')"
+      >
         <component :is="icons[toast.tone]" :size="16" :stroke-width="1.75" class="ui-toast__icon" aria-hidden="true" />
         <span class="ui-toast__message">{{ toast.message }}</span>
         <UiButton v-if="toast.action" class="ui-toast__action" size="sm" @click="runToastAction(toast.id)">{{

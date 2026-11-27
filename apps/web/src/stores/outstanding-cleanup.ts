@@ -29,7 +29,11 @@ const emptyPageInfo: PageInfo = {
   truncated: false,
 };
 
-export type OutstandingPendingProject = { projectId: string; projectName: string; pendingCount: number };
+/** `pendingCount` stays undefined when that project's count could not be loaded. */
+export type OutstandingPendingProject = { projectId: string; projectName: string; pendingCount?: number };
+
+const PENDING_COUNT_CONCURRENCY = 4;
+const PENDING_COUNT_STALE_MS = 30_000;
 
 export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () => {
   const outstandingItemsStore = useOutstandingItemsStore();
@@ -41,31 +45,47 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
   const requestPageSize = ref<ListPageSize>(10);
   const proposalPage = ref(1);
   const proposalPageSize = ref<ListPageSize>(10);
+  const panelProjectId = ref("");
   const projectId = computed(() => outstandingItemsStore.projectId);
+  const canChangeProject = computed(() => panelProjectId.value !== "" && panelProjectId.value === projectId.value);
 
   const pendingProjectsQuery = useQuery<OutstandingPendingProject[]>({
     key: () => [
-      ...queryKeys.outstandingItems.list,
-      "pending-projects",
+      ...queryKeys.outstandingItems.pendingByProject,
       projectsStore.trackedProjects.map((project) => project.id),
     ],
-    enabled: () => active.value && !projectId.value,
+    enabled: () => active.value && !projectId.value && projectsStore.projectsLoaded,
+    staleTime: PENDING_COUNT_STALE_MS,
     query: async ({ signal }) => {
       const { client } = useApi();
-      const counts = await Promise.all(
-        projectsStore.trackedProjects.map(async (project) => {
-          const result = await client.listOutstandingItems(
-            { projectId: project.id, status: "pending", page: 1, pageSize: 1 },
-            signal,
-          );
-          return {
-            projectId: project.id,
-            projectName: project.name,
-            pendingCount: result.outcome === "outstanding_items" ? result.pageInfo.total : 0,
-          };
-        }),
-      );
-      return counts.filter((project) => project.pendingCount > 0);
+      const tracked = [...projectsStore.trackedProjects];
+      const counts: OutstandingPendingProject[] = [];
+      let failures = 0;
+      const entries = tracked.entries();
+      async function worker(): Promise<void> {
+        // The workers share one iterator, so each project is taken by exactly one of them.
+        for (const [index, { id, name }] of entries) {
+          const [settled] = await Promise.allSettled([
+            client.listOutstandingItems({ projectId: id, status: "pending", page: 1, pageSize: 1 }, signal),
+          ]);
+          if (settled.status === "fulfilled") {
+            const { value } = settled;
+            counts[index] = {
+              projectId: id,
+              projectName: name,
+              pendingCount: value.outcome === "outstanding_items" ? value.pageInfo.total : 0,
+            };
+          } else {
+            signal.throwIfAborted();
+            failures += 1;
+            counts[index] = { projectId: id, projectName: name };
+          }
+        }
+      }
+      await Promise.all(Array.from({ length: PENDING_COUNT_CONCURRENCY }, worker));
+      if (tracked.length > 0 && failures === tracked.length)
+        throw new Error(t("outstanding.cleanupCouldNotLoadProjects"));
+      return counts.filter((project) => project.pendingCount !== 0);
     },
   });
   const requestsQuery = useQuery<OutstandingCleanupRequestListResult>({
@@ -203,8 +223,14 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
     active.value = value;
   }
 
+  /** The panel only resets a project it chose itself, never one the list was already filtered to. */
   function chooseProject(id: string): void {
+    panelProjectId.value = id;
     outstandingItemsStore.projectId = id;
+  }
+
+  function changeProject(): void {
+    if (canChangeProject.value) chooseProject("");
   }
 
   async function reloadPendingProjects(): Promise<void> {
@@ -233,18 +259,23 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
   }
 
   /** Each group names the status the item was closed with, so an item changed elsewhere meanwhile is not overwritten. */
-  async function reopen(items: Array<{ itemId: string; status: OutstandingItemStatus }>): Promise<number> {
+  async function reopen(
+    items: Array<{ itemId: string; status: OutstandingItemStatus }>,
+  ): Promise<{ reopened: number; skipped: number; failure?: Error }> {
     let reopened = 0;
+    let skipped = 0;
     try {
       for (const expectedStatus of new Set(items.map((item) => item.status))) {
-        const result = await outstandingItemsStore.batchUpdateStatus({
+        const result = await outstandingItemsStore.batchUpdateStatusInChunks({
           itemIds: items.filter((item) => item.status === expectedStatus).map((item) => item.itemId),
           status: "pending",
           expectedStatus,
         });
         reopened += result.updatedItemIds.length;
+        skipped += result.skippedItemIds.length;
+        if (result.failure) return { reopened, skipped, failure: result.failure };
       }
-      return reopened;
+      return { reopened, skipped };
     } finally {
       await Promise.allSettled([queryCache.invalidateQueries({ key: queryKeys.outstandingCleanup.proposals })]);
     }
@@ -280,7 +311,9 @@ export const useOutstandingCleanupStore = defineStore("outstanding-cleanup", () 
     proposalError,
     skipped,
     setActive,
+    canChangeProject,
     chooseProject,
+    changeProject,
     reloadPendingProjects,
     reload,
     createRequest,

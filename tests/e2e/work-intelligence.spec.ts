@@ -82,6 +82,11 @@ async function getOutstandingItemTotal(
   return result.pageInfo.total;
 }
 
+/** Matches the count as a whole number, so a total of 5 is not satisfied by 15 or 50. */
+function wholeNumber(value: number): RegExp {
+  return new RegExp(`(?<!\\d)${value}(?!\\d)`);
+}
+
 async function getPendingOutstandingTotal(request: APIRequestContext): Promise<number> {
   const response = await request.get("/api/outstanding-items", { params: { status: "pending", page: 1, pageSize: 1 } });
   expect(response.ok(), `/api/outstanding-items returned ${response.status()}`).toBeTruthy();
@@ -493,6 +498,8 @@ test.describe("Work Intelligence browser regression", () => {
       .click();
     await expect(page.getByText(tt("outstanding.markedAsNoLongerNeeded"), { exact: true })).toBeVisible();
     await expect(primaryItem()).toHaveCount(0);
+    // The button that was clicked is gone with its row, so focus must not fall back to the page.
+    await expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).not.toBe("BODY");
     await page.getByRole("button", { name: tt("common.undo"), exact: true }).click();
     await expect(page.getByText(tt("outstanding.undone", { count: 1 }), { exact: true })).toBeVisible();
     await expect(primaryItem()).toBeVisible();
@@ -633,6 +640,44 @@ test.describe("Work Intelligence browser regression", () => {
     await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "completed")).toBe(0);
   });
 
+  test("skips items that changed elsewhere, still updates the rest, and undoes only what it changed", async ({
+    page,
+    request,
+  }) => {
+    await page.goto(`/sessions/outstanding?itemProject=${otherProjectId}&itemStatus=pending&itemPage=1&itemSize=10`);
+    const checkboxes = page.getByRole("checkbox", { name: ttPattern("outstanding.selectOpenItem") });
+    for (const index of [0, 1, 2]) await checkboxes.nth(index).check();
+    const toolbar = page.getByTestId("outstanding-batch-toolbar");
+    await expect(toolbar).toContainText(tt("outstanding.selectedCount", { count: 3 }));
+
+    let rejected = false;
+    await page.route("**/api/outstanding-items/batch", async (route) => {
+      const { itemIds } = route.request().postDataJSON() as { itemIds: string[] };
+      if (rejected) return route.continue();
+      rejected = true;
+      return route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: "Outstanding item status changed.",
+          code: "conflict",
+          details: { reason: "status_conflict", invalidItemIds: [itemIds[0]] },
+        }),
+      });
+    });
+    await toolbar.getByRole("button", { name: tt("outstanding.markDone"), exact: true }).click();
+
+    await expect(
+      page.getByText(tt("outstanding.updatedAndSkipped", { updated: 2, skipped: 1 }), { exact: true }),
+    ).toBeVisible();
+    await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "completed")).toBe(2);
+    await expect(toolbar).toHaveCount(0);
+
+    await page.getByRole("button", { name: tt("common.undo"), exact: true }).click();
+    await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "completed")).toBe(0);
+    await expect.poll(() => getOutstandingItemTotal(request, otherProjectId, "pending")).toBe(120);
+  });
+
   test("clears outstanding batch selection when the page or project filter changes", async ({ page }) => {
     await page.goto(`/sessions/outstanding?itemProject=${otherProjectId}&itemStatus=pending&itemPage=1&itemSize=10`);
     const selectCurrentPage = page.getByRole("checkbox", { name: tt("outstanding.selectAllOpenItemsOn") });
@@ -666,10 +711,10 @@ test.describe("Work Intelligence browser regression", () => {
     const total = await getPendingOutstandingTotal(request);
     await page.goto("/sessions");
 
-    await expect(page.getByRole("tab", { name: ttPattern("common.openItems") })).toContainText(String(total));
+    await expect(page.getByRole("tab", { name: ttPattern("common.openItems") })).toContainText(wholeNumber(total));
     const entry = page.getByTestId("nav-outstanding");
     await expect(entry).toContainText(tt("common.openItems"));
-    await expect(entry).toContainText(String(total));
+    await expect(entry).toContainText(wholeNumber(total));
     await expect(page.getByTestId("nav-sessions")).toHaveClass(/is-active/);
     await expect(entry).not.toHaveClass(/is-active/);
     await entry.click();

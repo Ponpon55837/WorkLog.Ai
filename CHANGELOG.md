@@ -9,10 +9,15 @@ All notable changes to Work Intelligence are documented here. The project follow
 - Toasts can carry an action button; changes to Open items now take effect immediately and the toast offers 「復原」 for 8 seconds, for one item and for a batch. Undo uses the existing status endpoints with the status the change set as `expectedStatus`, so an item changed elsewhere meanwhile is not overwritten.
 - 「選取全部 N 筆」 selects every pending Open item matching the filters across pages; changes are sent in batches of at most 100.
 - An 「未結項」 entry in the sidebar (shortcut `g o`) with the pending count, and the tab shows the same count on first load; the Work history count stays the Session total.
-- 「整理未結項」 no longer needs a project filter: the panel lists the projects with pending items and their counts, and shows the only one directly.
+- 「整理未結項」 no longer needs a project filter: the panel lists the projects with pending items and their counts, and shows the only one directly. The counts load only once the project list is known, a project whose count fails shows no number instead of failing the panel, and at most four are read at a time.
+- A batch that hits items changed elsewhere skips them instead of failing: a rejected chunk is retried once without the ids the API names, the rest carries on, and the toast says how many were updated and skipped (「N / M」 when a chunk fails for another reason, with the unapplied items still selected). Undo takes the same path.
+- Toasts pause their countdown while hovered or focused, and toasts with an action are capped separately so plain toasts never evict a pending 「復原」.
 
 ### Changed
 
+- The cleanup panel's 「Agent 已結案」 list follows the same rules as the main list: compact rows (verdict and reason on the meta line), icon actions named after the item at the end of the row, and the bulk bar only while something is selected. 「選擇其他專案」 only appears for a project the panel chose, so it no longer clears a project filter set before the panel opened, and the intro text has the usual space above the create button.
+- Single-row changes send the row's current status as `expectedStatus` (through the batch endpoint, which already checks it). Reopening offers 「復原」 only when the item was closed by the user, because undoing it would record the user as the closer. After an action removes a row, focus moves to the next row's first action (or the list); selecting everything also drops items that are visible and no longer pending.
+- Icon-only row buttons are named after their item, truncated text has a `title`, and 「選取本頁」 is a real label for its checkbox. The sidebar and tab counts also refresh after a project's status change or deletion.
 - Open item rows are one line (content and meta, actions at the end as icon buttons; a right-aligned second line on narrow screens) and show the status only when the filter is not 「待處理」. The batch toolbar appears only while something is selected.
 - On narrow screens the Open items list scrolls with the page instead of in a fixed 280px box.
 

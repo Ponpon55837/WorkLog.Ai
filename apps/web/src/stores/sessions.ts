@@ -188,7 +188,10 @@ export const useSessionsStore = defineStore("sessions", () => {
         invalidations.push(queryCache.invalidateQueries({ key: queryKeys.views.reports }));
       }
       if (input.workSummary) {
-        invalidations.push(queryCache.invalidateQueries({ key: queryKeys.outstandingItems.list }));
+        invalidations.push(
+          queryCache.invalidateQueries({ key: queryKeys.outstandingItems.list }),
+          queryCache.invalidateQueries({ key: queryKeys.outstandingItems.pendingByProject }),
+        );
       }
       // Refresh failures belong to the reading views; the write above has already succeeded.
       await Promise.allSettled(invalidations);
@@ -239,6 +242,7 @@ export const useSessionsStore = defineStore("sessions", () => {
         queryCache.invalidateQueries({ key: queryKeys.views.graph }),
         queryCache.invalidateQueries({ key: queryKeys.knowledge.list }),
         queryCache.invalidateQueries({ key: queryKeys.outstandingItems.list }),
+        queryCache.invalidateQueries({ key: queryKeys.outstandingItems.pendingByProject }),
       ]);
     },
   });
@@ -268,6 +272,7 @@ export const useSessionsStore = defineStore("sessions", () => {
         queryCache.invalidateQueries({ key: queryKeys.views.graph }),
         queryCache.invalidateQueries({ key: queryKeys.knowledge.list }),
         queryCache.invalidateQueries({ key: queryKeys.outstandingItems.list }),
+        queryCache.invalidateQueries({ key: queryKeys.outstandingItems.pendingByProject }),
       ]);
     },
   });

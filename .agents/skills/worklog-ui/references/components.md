@@ -57,7 +57,7 @@ Location: `apps/web/src/components/ui/` (generic, `Ui*`), `components/layout/` (
 | `UiEmptyState` | `icon`, `title`, `description` (or default slot), `compact`; slot `action`. |
 | `UiSkeleton` | `variant: row \| card \| text`, `count`. |
 | `UiSpinner` | `size`, `label`. |
-| `UiToastHost` / `useToast()` | `showToast(message, tone?, action?)`, `copyWithToast(text, message)`. Stack of 4, auto-dismiss 4 s. An `action` (`{ label, run }`) adds a button and keeps the toast 8 s; use it for 復原 after an immediate change instead of a confirmation dialog. |
+| `UiToastHost` / `useToast()` | `showToast(message, tone?, action?)`, `copyWithToast(text, message)`. Up to 4 plain and 4 action toasts (each kind is capped on its own), auto-dismiss 4 s; hover or focus pauses the countdown. An `action` (`{ label, run }`) adds a button and keeps the toast 8 s; use it for 復原 after an immediate change instead of a confirmation dialog, and offer it only when the undo restores the exact previous state. |
 | Tooltips | Native `title` attribute (icon buttons set it from `label`; timestamps carry the absolute time). No custom tooltip component. |
 
 ## Overlays

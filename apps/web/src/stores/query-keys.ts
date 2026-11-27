@@ -50,6 +50,8 @@ export const queryKeys = {
   },
   outstandingItems: {
     list: ["outstanding-items", "list"] as const,
+    pendingTotal: ["outstanding-items", "list", "pending-total"] as const,
+    pendingByProject: ["outstanding-items", "pending-by-project"] as const,
   },
   sessions: {
     list: ["sessions", "list"] as const,

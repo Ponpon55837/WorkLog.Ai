@@ -124,7 +124,7 @@ describe("outstanding cleanup store", () => {
         { itemId: "item-1", status: "completed" },
         { itemId: "item-2", status: "completed" },
       ]),
-    ).resolves.toBe(2);
+    ).resolves.toEqual({ reopened: 2, skipped: 0 });
     const batch = harness.calls.filter((call) => call.url.pathname === "/api/outstanding-items/batch");
     expect(batch).toHaveLength(1);
     expect(batch[0]?.body).toEqual({ itemIds: ["item-1", "item-2"], status: "pending", expectedStatus: "completed" });
@@ -144,7 +144,8 @@ describe("outstanding cleanup store", () => {
         : responder(input),
     );
     const before = harness.count("/api/outstanding-cleanup/requests/cleanup-1/proposals");
-    await expect(store.reopen([{ itemId: "item-1", status: "completed" }])).rejects.toThrow();
+    const failed = await store.reopen([{ itemId: "item-1", status: "completed" }]);
+    expect(failed).toMatchObject({ reopened: 0, failure: { code: "conflict" } });
     await vi.waitFor(() =>
       expect(harness.count("/api/outstanding-cleanup/requests/cleanup-1/proposals")).toBeGreaterThan(before),
     );
@@ -184,5 +185,58 @@ describe("outstanding cleanup store", () => {
     expect(harness.count("/api/outstanding-cleanup/requests")).toBe(0);
     store.chooseProject("project-2");
     expect(useOutstandingItemsStore().projectId).toBe("project-2");
+  });
+
+  it("waits for the project list, treats a failed project as unknown and reads counts four at a time", async () => {
+    let running = 0;
+    let peak = 0;
+    const projects = Array.from({ length: 9 }, (_, index) => ({
+      id: `project-${index}`,
+      name: `Project ${index}`,
+      status: "tracked",
+    }));
+    harness.setResponder(async (input) => {
+      if (input.url.pathname === "/api/projects") return projects;
+      if (input.url.pathname !== "/api/outstanding-items" || !input.url.searchParams.has("projectId"))
+        return responder(input);
+      running += 1;
+      peak = Math.max(peak, running);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      running -= 1;
+      if (input.url.searchParams.get("projectId") === "project-1") return jsonResponse({ error: "Boom." }, 500);
+      return { outcome: "outstanding_items", items: [], pageInfo: { ...pageInfo, total: 3 } };
+    });
+    const store = useOutstandingCleanupStore();
+    store.setActive(true);
+    await Promise.resolve();
+    const projectReads = () => harness.calls.filter((call) => call.url.searchParams.has("projectId")).length;
+    expect(projectReads()).toBe(0);
+
+    await useProjectsStore().loadProjects();
+    await vi.waitFor(() => expect(store.pendingProjectsLoaded).toBe(true));
+
+    expect(peak).toBe(4);
+    expect(store.pendingProjects).toHaveLength(9);
+    expect(store.pendingProjects[1]).toEqual({ projectId: "project-1", projectName: "Project 1" });
+    expect(store.pendingProjects[0]?.pendingCount).toBe(3);
+  });
+
+  it("only resets a project the panel chose itself, never one the list was already filtered to", () => {
+    const store = useOutstandingCleanupStore();
+    const items = useOutstandingItemsStore();
+    items.projectId = "project-1";
+    expect(store.canChangeProject).toBe(false);
+    store.changeProject();
+    expect(items.projectId).toBe("project-1");
+
+    items.projectId = "";
+    store.chooseProject("project-2");
+    expect(store.canChangeProject).toBe(true);
+    store.changeProject();
+    expect(items.projectId).toBe("");
+
+    store.chooseProject("project-2");
+    items.projectId = "project-3";
+    expect(store.canChangeProject).toBe(false);
   });
 });
